@@ -756,53 +756,32 @@ For more details on using LID controls within SWMM see the rollowing topics:
 
 - [LID Results](#lid_results)
 
-###### LID Representation {#lid_representation}
+---
+
+###### **LID Representation** {#lid_representation}
 
 LID controls are represented by a combination of vertical layers whose properties are defined on a per-unit-area basis. This allows LIDs of the same design but differing areal coverage to easily be placed within different subcatchments in a study area.
 
 During a simulation SWMM performs a moisture balance that keeps track of how much water moves between and is stored within each LID layer. As an example, the layers used to model a bio-retention cell and the flow pathways between them are shown below:
 
-[BioRetentionCell]
+![BioRetentionCell](bioretentioncell.gif)
 
-The following table indicates which combination of layers applies to each type of LID (x means required, o means optional):
+The following table indicates which combination of layers applies to each type of LID (**x** means required, **o** means optional):
 
-+---------+---------+---------+---------+---------+---------+---------+
-| LID | Surface | P | Soil | Storage | Drain | D |
-| Type | | avement | | | | rainage |
-| | | | | | | Mat |
-+---------+---------+---------+---------+---------+---------+---------+
-| Bio-Re | x | | x | x | o |   |
-| tention | | | | | | |
-| Cell | | | | | | |
-+---------+---------+---------+---------+---------+---------+---------+
-| Rain | x | | x |   |   |   |
-| Garden | | | | | | |
-+---------+---------+---------+---------+---------+---------+---------+
-| Green | x | | x |   |   | x |
-| Roof | | | | | | |
-+---------+---------+---------+---------+---------+---------+---------+
-| Infil | x |   | | x | o |   |
-| tration | | | | | | |
-| Trench | | | | | | |
-+---------+---------+---------+---------+---------+---------+---------+
-| Pe | x | x | o | x | o |   |
-| rmeable | | | | | | |
-| P | | | | | | |
-| avement | | | | | | |
-+---------+---------+---------+---------+---------+---------+---------+
-| Rain | | | | x | x |   |
-| Barrel | | | | | | |
-+---------+---------+---------+---------+---------+---------+---------+
-| Rooftop | x | | | | x | |
-| Discon | | | | | | |
-| nection | | | | | | |
-+---------+---------+---------+---------+---------+---------+---------+
-| Veg | x | | | | | |
-| etative | | | | | | |
-| Swale | | | | | | |
-+---------+---------+---------+---------+---------+---------+---------+
+| LID Type              | Surface | Pavement | Soil | Storage | Drain | Drain Mat |
+| :-------------------- | :-----: | :------: | :--: | :-----: | :---: | :-------: |
+| Bio-Retention Cell    |    x    |          |  x   |    x    |  o    |           |
+| Rain Garden           |    x    |          |  x   |         |       |           |
+| Green Roof            |   x     |          | x    |         |       |     x     |
+| Infiltration Trench   |   x     |          |      |   x     |   o   |           |
+| Permeable Pavement    |    x    |    x     |  o   |    x    |  o    |           |
+| Rain Barrel           |         |          |      |    x    |   x   |           |
+| Rooftop Disconnection |    x    |          |      |         |   x   |           |
+| Vegetative Swale      |    x    |          |      |         |       |           |
 
-When a user adds a specific type of LID control object to a SWMM project the LID Control Editor is used to set the design properties of each relevant layer (such as thickness, void volume, hydraulic conductivity, drain characteristics, etc.). These LID objects can then be placed within selected subcatchments at any desired sizing (or areal coverage) by editing the subcatchment's LID Controls property.
+When a user adds a specific type of LID control object to a SWMM project the [LID Control Editor](#lid_control_editor) is used to set the design properties of each relevant layer (such as thickness, void volume, hydraulic conductivity, drain characteristics, etc.). These LID objects can then be placed within selected subcatchments at any desired sizing (or areal coverage) by editing the subcatchment's **LID Controls** property.
+
+---
 
 ###### LID Utilization {#lid_utilization}
 
@@ -815,9 +794,11 @@ that:
 
 Bear in mind that when LIDs are added to a subcatchment, the subcatchment's Area property is the total area of the subcatchment (both non-LID and LID portions) while the Percent Imperviousness and Width parameters apply only to the non-LID portion of the subcatchment.
 
-To implement the first phase, one selects the Hydrology | LID Controls category from the Project Browser to add, edit or delete individual LID control objects. The LID Control Editor is used to edit the properties of the various component layers that comprise each LID control object.
+To implement the first phase, one selects the **Hydrology | LID Controls** category from the [Project Browser](#project_browser) to add, edit or delete individual LID control objects. The [LID Control Editor](#lid_control_editor) is used to edit the properties of the various component layers that comprise each LID control object.
 
-For the second phase, for each subcatchment that will utilize LIDs, one selects the LID Controls property in the subcatchment's Property Editor to launch the LID Group Editor. This editor is used to add or delete individual LID controls from the subcatchment. For each control added the LID Usage Editor is used to specify the size of the control and what fraction of the subcatchment's impervious and pervious areas it captures.
+For the second phase, for each subcatchment that will utilize LIDs, one selects the **LID Controls** property in the subcatchment's [Property Editor](#property_editor) to launch the [LID Group Editor](#lid_group_editor). This editor is used to add or delete individual LID controls from the subcatchment. For each control added the [LID Usage Editor](#lid_usage_editor) is used to specify the size of the control and what fraction of the subcatchment's impervious and pervious areas it captures.
+
+---
 
 ###### LID Placement {#lid_placement}
 
@@ -827,1050 +808,838 @@ There are two different approaches for placing LID controls within a subcatchmen
 
 2.  create a new subcatchment devoted entirely to just a single LID practice.
 
-The first approach allows a mix of LIDs to be placed into a subcatchment, each treating a different portion of the runoff generated from the non-LID fraction of the subcatchment. Note that under this option the subcatchment's LIDs act in parallel -- it is not possible to make them act in series (i.e., have the outflow from one LID control become the inflow to another LID). Also, after LID placement the subcatchment's Percent Impervious and Width properties may require adjustment to compensate for the amount of original subcatchment area that has now been replaced by LIDs (see the figure below). For example, suppose that a subcatchment which is 40% impervious has 75% of that area converted to permeable pavement. After the LID is added the subcatchment's percent imperviousness should be changed to the percent of impervious area remaining divided by the percent of non-LID area remaining. This works out to (1 - 0.75)*40 / (100 - 0.75*40) or 14.3 %.
+The first approach allows a mix of LIDs to be placed into a subcatchment, each treating a different portion of the runoff generated from the non-LID fraction of the subcatchment. Note that under this option the subcatchment's LIDs act in parallel -- it is not possible to make them act in series (i.e., have the outflow from one LID control become the inflow to another LID). Also, after LID placement the subcatchment's **Percent Impervious** and **Width** properties may require adjustment to compensate for the amount of original subcatchment area that has now been replaced by LIDs (see the figure below). For example, suppose that a subcatchment which is 40% impervious has 75% of that area converted to permeable pavement. After the LID is added the subcatchment's percent imperviousness should be changed to the percent of impervious area remaining divided by the percent of non-LID area remaining. This works out to \f$ (1 - 0.75)*40 / (100 - 0.75*40) \f$ or 14.3 %.
 
-[LID Placement]
+![LID Placement](lidplacement.gif)
 
 Under this first approach the runoff available for capture by the subcatchment's LIDs is the runoff generated from its non-LID area (after any internal re-routing  of runoff (e.g., impervious to pervious) has been made). Also note that Green Roofs and Roof Disconnection only treat the precipitation that falls directly on them and do not capture runoff from other impervious areas in their subcatchment.
 
-The second approach allows LID controls to be strung along in series and also allows runoff from several different upstream subcatchments to be routed onto the LID subcatchment. If these single-LID subcatchments are carved out of existing subcatchments, then once again some adjustment of the Percent Impervious, Width and also the Area properties of the latter may be necessary. In addition, whenever an LID occupies the entire subcatchment the values assigned to the subcatchment's standard surface properties (such as imperviousness, slope, roughness, etc.) are overridden by those that pertain to the LID unit.
+The second approach allows LID controls to be strung along in series and also allows runoff from several different upstream subcatchments to be routed onto the LID subcatchment. If these single-LID subcatchments are carved out of existing subcatchments, then once again some adjustment of the **Percent Impervious**, **Width** and also the **Area** properties of the latter may be necessary. In addition, whenever an LID occupies the entire subcatchment the values assigned to the subcatchment's standard surface properties (such as imperviousness, slope, roughness, etc.) are overridden by those that pertain to the LID unit.
 
-Normally both surface and drain outflows from LID units are routed to
-the same outlet location assigned to the parent subcatchment. However
-one can choose to return all LID outflow to the pervious area of the
-parent subcatchment and/or route the drain outflow to a separate
-designated outlet. (When both of these options are chosen, only the
-surface outflow is returned to the pervious sub-area.)
+Normally both surface and drain outflows from LID units are routed to the same outlet location assigned to the parent subcatchment. However one can choose to return all LID outflow to the pervious area of the parent subcatchment and/or route the drain outflow to a separate designated outlet. (When both of these options are chosen, only the surface outflow is returned to the pervious sub-area.)
+
+---
 
 ###### LID Results {#lid_results}
 
-The performance of the LID controls placed in a subcatchment is
-reflected in the overall runoff, infiltration, and evaporation rates
-computed for the subcatchment as normally reported by SWMM. SWMM's
-Summary Report also contains a section entitled LID Performance Summary
-that provides an overall water balance for each LID control placed in
-each subcatchment. The components of this water balance include total
-inflow, infiltration, evaporation, surface runoff, drain flow and
-initial and final stored volumes, all expressed as inches (or mm) over
-the LID's area.
+The performance of the LID controls placed in a subcatchment is reflected in the overall runoff, infiltration, and evaporation rates computed for the subcatchment as normally reported by SWMM. SWMM's [Summary Report](#summary_report) also contains a section entitled **LID Performance Summary** that provides an overall water balance for each LID control placed in each subcatchment. The components of this water balance include total inflow, infiltration, evaporation, surface runoff, drain flow and initial and final stored volumes, all expressed as inches (or mm) over the LID's area.
 
-Optionally, the entire time series of flux rates and moisture levels for
-a selected LID control in a given subcatchment can be written to a tab
-delimited text file for easy viewing and graphing in a spreadsheet
-program.
+Optionally, the entire time series of flux rates and moisture levels for a selected LID control in a given subcatchment can be written to a tab delimited text file for easy viewing and graphing in a spreadsheet program.
+
+---
 
 #### Hydraulics {#hydraulics}
 
-In addition to the nodes and links which characterize the physical
-aspects of a drainage system in a SWMM model, the following data objects
-can be used to augment the hydraulic description of the system:
+In addition to the nodes and links which characterize the physical aspects of a drainage system in a SWMM model, the following data objects can be used to augment the hydraulic description of the system:
 
-· Transects
+- [Transects](#transects)
 
-· Streets
+- [Streets](#streets)
 
-· Inlets
+- [Inlets](#inlets)
 
-· Inflows
+- [Inflows](#inflows)
 
-· Controls
+- [Controls](#controls)
 
 ##### Transects {#transects}
 
-Transects refer to the geometric data that describe how bottom elevation
-varies with horizontal distance over the cross-section of a natural
-channel or irregular-shaped conduit. The figure below displays an
-example of a transect for a natural channel.
+**Transects** refer to the geometric data that describe how bottom elevation varies with horizontal distance over the cross-section of a natural channel or irregular-shaped conduit. The figure below displays an example of a transect for a natural channel.
 
-[transect]
+![Transect](transect.gif)
 
-Each transect must be given a unique name. Conduits refer to that name
-to represent their shape. A special Transect Editor is available for
-editing the station-elevation data of a transect. SWMM internally
-converts these data into tables of area, top width, and hydraulic radius
-versus channel depth. In addition, as shown in the diagram above, each
-transect can have a left and right overbank section whose Manning's
-roughness coefficient can be different from that of the main channel.
-This feature can provide more realistic estimates of channel conveyance
-under high flow conditions.
+Each transect must be given a unique name. Conduits refer to that name to represent their shape. A special [Transect Editor](#transect_editor) is available for editing the station-elevation data of a transect. SWMM internally converts these data into tables of area, top width, and hydraulic radius versus channel depth. In addition, as shown in the diagram above, each transect can have a left and right overbank section whose Manning's roughness coefficient can be different from that of the main channel. This feature can provide more realistic estimates of channel conveyance under high flow conditions.
 
 ##### Streets {#streets}
 
-Streets are a specialized form of transect that describes the typical
-cross-section geometry of a street or roadway. The figure below shows a
-half-street layout along with the dimensions a user needs to provide.
+**Streets** are a specialized form of transect that describes the typical cross-section geometry of a street or roadway. The figure below shows a half-street layout along with the dimensions a user needs to provide.
 
-[Street]
+![Street](street.gif)
 
-Each street section object is assigned an ID name that a conduit can
-refer to for describing its cross section geometry. A Street Section
-Editor is available for providing a street section's dimensions and
-whether it is one- or two-sided.
+Each street section object is assigned an ID name that a conduit can refer to for describing its cross section geometry. A Street Section Editor is available for providing a street section's dimensions and whether it is one- or two-sided.
 
 #### Inlets {#inlets}
 
-Street inlets are curb and gutter openings that convey runoff from
-streets into below-ground sewers. Drop inlets serve a similar purpose
-for trapezoidal channels. SWMM can compute the amount of flow captured
-by inlets and sent to designated sewer nodes using the FHWA HEC-22
-methodology. The type, sizing, and spacing of street inlets will
-determine if the spread and depth of water on roadways can be maintained
-at acceptable levels.
+**Street inlets** are curb and gutter openings that convey runoff from streets into below-ground sewers. **Drop inlets** serve a similar purpose for trapezoidal channels. SWMM can compute the amount of flow captured by inlets and sent to designated sewer nodes using the [FHWA HEC-22 methodology](https://www.fhwa.dot.gov/engineering/hydraulics/pubs/10009/10009.pdf). The type, sizing, and spacing of street inlets will determine if the spread and depth of water on roadways can be maintained at acceptable levels.
 
-To analyze street drainage with SWMM a site is represented as a dual
-drainage system consisting of both street conduits along the ground
-surface and sewer conduits below it.  An inlet structure will divert
-some portion of the street flow it sees into a designated node of the
-sewer system with the rest being bypassed to downstream streets. When an
-inlet
+To analyze street drainage with SWMM a site is represented as a dual drainage system consisting of both street conduits along the ground surface and sewer conduits below it.  An inlet structure will divert some portion of the street flow it sees into a designated node of the sewer system with the rest being bypassed to downstream streets. When an inlet's sewer node reaches its full depth any excess flow that would cause it to flood is sent back through the inlet and into the street.
+
+[Inlet Types](#inlet_types)
+
+[Inlet Usage](#inlet_usage)
+
+[Inlet Features](#inlet_features)
 
 ##### Inlet Types {#inlet_types}
 
-SWMM
+SWMM’s HEC-22 inlet capture equations support the inlet types shown below:
+
+![Inlet Types](inlettypes.zoom55.gif)
+
+Drop inlets can only be used with rectangular or trapezoidal channels while the other curb and gutter inlets can only be placed in conduits with [Street](#street) cross-sections. An additional **Custom** type of inlet can be used in both streets and channels. Its capture efficiency is described by either a user-supplied [Diversion curve](#diversion_curve) (captured flow v. approach flow) or [Rating curve](#rating_curve) (captured flow v. flow depth).
 
 ##### Inlet Usage {#inlet_usage}
 
 To add an analysis of street inlets to a SWMM project:
 
-· Create one network layout for streets and another for sewers.
+- Create one network layout for streets and another for sewers.
 
-· Create a collection of street cross section objects.
+- Create a collection of street cross section objects.
 
-· For each street conduit, set its Shape property to one of the available street sections.
+- For each street conduit, set its Shape property to one of the available street sections.
 
-· Create a set of inlet structure design objects.
+- Create a set of inlet structure design objects.
 
-· Place a particular inlet structure design into a selected street conduit, assigning it a sewer node that receives its captured flow.
+- Place a particular inlet structure design into a selected street conduit, assigning it a sewer node that receives its captured flow.
 
-· Assign surface runoff from subcatchments or other external inflows to street conduit nodes.
+- Assign surface runoff from subcatchments or other external inflows to street conduit nodes.
 
-A similar set of steps would be used to add drop inlets into rectangular
-or trapezoidal channels.
+A similar set of steps would be used to add drop inlets into rectangular or trapezoidal channels.
 
-A summary of results for each street conduit (maximum flow depth and
-pavement spread) and for each inlet (percent capture at peak flow,
-frequency of bypass flow and frequency of sewer system backflow) will
-appear as a separate Street Flow table in SWMM's Summary Results report.
+A summary of results for each street conduit (maximum flow depth and pavement spread) and for each inlet (percent capture at peak flow, frequency of bypass flow and frequency of sewer system backflow) will appear as a separate **Street Flow** table in SWMM's [Summary Results](#summary_results) report.
 
 ##### Inlet Features {#inlet_features}
 
 Some additional considerations when modeling inlets are:
 
-· Conduits with inlets will be displayed on the Study Area Map with a [Inlet] symbol near their midpoint and show their downstream node connected to the inlet's capture node with a dotted line when the Map Option to display link symbols is turned on.
+- Conduits with inlets will be displayed on the [Study Area Map](#study_area_map) with a &nbsp;![Inlet](inlet.gif) symbol near their midpoint and show their downstream node connected to the inlet's capture node with a dotted line when the [Map Option](#map_options-symbols) to display link symbols is turned on.
 
-[InletsOnMap]
+![Inlets On Map](inletsonmap.gif)
 
-· The rim elevations of nodes that receive captured inlet flow do not have to match the invert elevations of the end node of the conduit containing the inlet.
+- The rim elevations of nodes that receive captured inlet flow do not have to match the invert elevations of the end node of the conduit containing the inlet.
 
-· Two-sided street conduits (that are symmetric about the street crown) use pairs of inlets placed on each curb side of the street.
+- Two-sided street conduits (that are symmetric about the street crown) use pairs of inlets placed on each curb side of the street.
 
-· Multiple inlets of the same design can be assigned to a conduit (as pairs for two-sided streets). For on-grade placement the flow captured by each inlet is determined sequentially, so that the approach flow to the next inlet in line is the bypass flow from the inlet before it.
+- Multiple inlets of the same design can be assigned to a conduit (as pairs for two-sided streets). For on-grade placement the flow captured by each inlet is determined sequentially, so that the approach flow to the next inlet in line is the bypass flow from the inlet before it.
 
-· Flow captured by inlets is limited by the amount that its sewer node can receive before it floods. If the node has no such capacity remaining then any excess flow that would cause it to flood is sent back through the inlet and onto the street.
+- Flow captured by inlets is limited by the amount that its sewer node can receive before it floods. If the node has no such capacity remaining then any excess flow that would cause it to flood is sent back through the inlet and onto the street.
 
-· Users can stipulate whether an inlet operates on-grade or on-sag or have SWMM decide based on the slopes of the conduits adjoining it. (On-sag refers to a sump or low point that all adjoining conduits slope towards.)
+- Users can stipulate whether an inlet operates on-grade or on-sag or have SWMM decide based on the slopes of the conduits adjoining it. (On-sag refers to a sump or low point that all adjoining conduits slope towards.)
 
-· Inlets can have a degree of clogging and a flow capture restriction assigned to them.
+- Inlets can have a degree of clogging and a flow capture restriction assigned to them.
 
-· For Kinematic Wave and Steady Flow routing it is recommended that storage nodes be used at the end of inlet conduits that converge at sag points since otherwise any non-captured flow will simply exit the system. This is not necessary for Dynamic Wave routing as any non-captured water will create a backwater effect raising water levels in the adjoining street conduits.
+- For Kinematic Wave and Steady Flow routing it is recommended that storage nodes be used at the end of inlet conduits that converge at sag points since otherwise any non-captured flow will simply exit the system. This is not necessary for Dynamic Wave routing as any non-captured water will create a backwater effect raising water levels in the adjoining street conduits.
 
 #### External Inflows {#external_inflows}
 
-In addition to inflows originating from subcatchment runoff and
-groundwater, drainage system nodes can receive three other types of
-external inflows:
+In addition to inflows originating from subcatchment runoff and groundwater, drainage system nodes can receive three other types of external inflows:
 
-Direct Inflows
+**Direct Inflows**
 
-These are user-defined time series of inflows added directly into a
-node. They can be used to perform flow and water quality routing in the
-absence of any runoff computations (as in a study area where no
-subcatchments are defined).
+These are user-defined time series of inflows added directly into a node. They can be used to perform flow and water quality routing in the absence of any runoff computations (as in a study area where no subcatchments are defined).
 
-Dry Weather Inflows
+**Dry Weather Inflows**
 
-These are continuous inflows that typically reflect the contribution
-from sanitary sewage in sewer systems or base flows in pipes and stream
-channels. They are represented by an average inflow rate that can be
-periodically adjusted on a monthly, daily, and hourly basis by applying
-Time Pattern multipliers to this average value.
+These are continuous inflows that typically reflect the contribution from sanitary sewage in sewer systems or base flows in pipes and stream channels. They are represented by an average inflow rate that can be periodically adjusted on a monthly, daily, and hourly basis by applying [Time Pattern](#time_pattern) multipliers to this average value.
 
-Rainfall-Dependent Inflow/Infiltration (RDII)
+**Rainfall-Dependent Inflow/Infiltration (RDII)**
 
-These are stormwater flows that enter sanitary or combined sewers due to
-"inflow" from direct connections of downspouts, sump pumps, foundation
-drains, etc. as well as "infiltration" of subsurface water through
-cracked pipes, leaky joints, poor manhole connections, etc. RDII can be
-computed for a given rainfall record based on set of triangular unit
-hydrographs (UH) that determine a short-term, intermediate-term, and
-long-term inflow response for each time period of rainfall. Any number
-of UH sets can be supplied for different sewershed areas and different
-months of the year. RDII flows can also be specified in an external RDII
-Interface file.
+These are stormwater flows that enter sanitary or combined sewers due to-"inflow" from direct connections of downspouts, sump pumps, foundation drains, etc. as well as "infiltration" of subsurface water through cracked pipes, leaky joints, poor manhole connections, etc. RDII can be computed for a given rainfall record based on set of triangular [unit hydrographs](#unit_hydrographs) (UH) that determine a short-term, intermediate-term, and long-term inflow response for each time period of rainfall. Any number of UH sets can be supplied for different sewershed areas and different months of the year. RDII flows can also be specified in an external [RDII Interface file](#rdii_interface_file).
 
-Direct, Dry Weather, and RDII inflows are properties associated with
-each type of drainage system node (junctions, outfalls, flow dividers,
-and storage units) and can be specified when nodes are edited. They can
-be used to perform flow and water quality routing in the absence of any
-runoff computations (as in a study area where no subcatchments are
-defined). It is also possible to make the outflows generated from an
-upstream drainage system be the inflows to a downstream system by using
-interface files.
+Direct, Dry Weather, and RDII inflows are properties associated with each type of drainage system node (junctions, outfalls, flow dividers, and storage units) and can be specified when nodes are edited. They can be used to perform flow and water quality routing in the absence of any runoff computations (as in a study area where no subcatchments are defined). It is also possible to make the outflows generated from an upstream drainage system be the inflows to a downstream system by using [interface files](#interface_files).
 
-See Also
+_See Also_
 
-External Inflows Editor
+[External Inflows Editor](#external_inflows_editor)
 
 #### Control Rules {#control_rules}
 
-Control Rules determine how pumps and regulators in the conveyance
-system will be adjusted over the course of a simulation. The use of
-control rules is explained in the following topics:
+**Control Rules** determine how pumps and regulators in the conveyance system will be adjusted over the course of a simulation. The use of control rules is explained in the following topics:
 
-· Example Rules
+- [Example Rules](#example_rules)
 
-· Rule Format
+- [Rule Format](#rule_format)
 
-· Condition Clauses
+- [Condition Clauses](#condition_clauses)
 
-· Action Clauses
+- [Action Clauses](#action_clauses)
 
-· Modulated Controls
+- [Modulated Controls](#modulated_controls)
 
-· Named Variables
+- [Named Variables](#named_variables)
 
-· Arithmetic Expressions
+- [Arithmetic Expressions](#arithmetic_expressions)
 
 ##### Example Rules {#example_rules}
 
 The following are some example control rules.
 
-; Simple time-based pump control
+    ; Simple time-based pump control
+    RULE R1
+    IF SIMULATION TIME > 8
+    THEN PUMP 12 STATUS = ON
+    ELSE PUMP 12 STATUS = OFF
 
-RULE R1
+    ; Multi-condition orifice gate control
+    RULE R2A
+    IF NODE 23 DEPTH > 12
+    AND LINK 165 FLOW > 100
+    THEN ORIFICE R55 SETTING = 0.5
 
-IF SIMULATION TIME > 8
+    RULE R2B
+    IF NODE 23 DEPTH > 12
+    AND LINK 165 FLOW > 200
+    THEN ORIFICE R55 SETTING = 1.0
 
-THEN PUMP 12 STATUS = ON
+    RULE R2C
+    IF NODE 23 DEPTH <= 12
+    OR LINK 165 FLOW <= 100
+    THEN ORIFICE R55 SETTING = 0
 
-ELSE PUMP 12 STATUS = OFF
+    ; Pump station operation
+    RULE R3A
+    IF NODE N1 DEPTH > 5
+    THEN PUMP N1A STATUS = ON
 
-; Multi-condition orifice gate control
+    RULE R3B
+    IF NODE N1 DEPTH > 7
+    THEN PUMP N1B STATUS = ON
 
-RULE R2A
+    RULE R3C
+    IF NODE N1 DEPTH <= 3
+    THEN PUMP N1A STATUS = OFF
+    AND PUMP N1B STATUS = OFF
 
-IF NODE 23 DEPTH > 12
-
-AND LINK 165 FLOW > 100
-
-THEN ORIFICE R55 SETTING = 0.5
-
-RULE R2B
-
-IF NODE 23 DEPTH > 12
-
-AND LINK 165 FLOW > 200
-
-THEN ORIFICE R55 SETTING = 1.0
-
-RULE R2C
-
-IF NODE 23 DEPTH <= 12
-
-OR LINK 165 FLOW <= 100
-
-THEN ORIFICE R55 SETTING = 0
-
-; Pump station operation
-
-RULE R3A
-
-IF NODE N1 DEPTH > 5
-
-THEN PUMP N1A STATUS = ON
-
-RULE R3B
-
-IF NODE N1 DEPTH > 7
-
-THEN PUMP N1B STATUS = ON
-
-RULE R3C
-
-IF NODE N1 DEPTH <= 3
-
-THEN PUMP N1A STATUS = OFF
-
-AND PUMP N1B STATUS = OFF
-
-; Modulated weir height control
-
-RULE R4
-
-IF NODE N2 DEPTH >= 0
-
-THEN WEIR W25 SETTING = CURVE C25
+    ; Modulated weir height control
+    RULE R4
+    IF NODE N2 DEPTH >= 0
+    THEN WEIR W25 SETTING = CURVE C25
 
 ##### Rule Format {#rule_format}
 
 Each control rule is a series of statements of the form:
 
-RULE  ruleID
+**RULE** _ruleID_
 
-IF    condition_1
+**IF** _condition_1_
 
-AND   condition_2
+**AND** _condition_2_
 
-OR   condition_3
+**OR** _condition_3_
 
-AND   condition_4
-
-Etc.
-
-THEN  action_1
-
-AND   action_2
+**AND** _condition_4_
 
 Etc.
 
-ELSE  action_3
+**THEN** _action_1_
 
-AND   action_4
+**AND** _action_2_
 
 Etc.
 
-PRIORITY value
+**ELSE** _action_3_
 
-where keywords are shown in boldface and ruleID is an ID label assigned
-to the rule, condition_n is a Condition Clause, action_n is an Action
-Clause, and value is a priority value (e.g., a number from 1 to 5).
+**AND** _action_4_
 
-Each rule clause must begin with one of the boldface keywords shown
-above, and only one clause per line is allowed.
+Etc.
 
-Only the RULE, IF and THEN portions of a rule are required; the ELSE and
-PRIORITY portions are optional.
+**PRIORITY** _value_
 
-Blank lines between clauses are permitted and any text to the right of a
-semicolon is considered a comment.
+where keywords are shown in boldface and _ruleID_ is an ID label assigned to the rule, _condition_n_ is a [Condition Clause](#condition_clauses), _action_n_ is an [Action Clause](#action_clauses), and _value_ is a priority value (e.g., a number from 1 to 5).
 
-When mixing AND and OR clauses, the OR operator has higher precedence
-than AND, i.e.,
+Each rule clause must begin with one of the boldface keywords shown above, and only one clause per line is allowed.
 
-IF A or B and C
+Only the **RULE**, **IF** and **THEN** portions of a rule are required; the **ELSE** and **PRIORITY** portions are optional.
+
+Blank lines between clauses are permitted and any text to the right of a semicolon is considered a comment.
+
+When mixing AND and OR clauses, the OR operator has higher precedence than AND, i.e.,
+
+    IF A or B and C
 
 is equivalent to
 
-IF (A or B) and C.
+    IF (A or B) and C.
 
 If the interpretation was meant to be
 
-IF A or (B and C)
+    IF A or (B and C)
 
 then this can be expressed using two rules as in
 
-IF A THEN ...
+    IF A THEN ...
+    IF B and C THEN ...
 
-IF B and C THEN ...
-
-The PRIORITY value is used to determine which rule applies when two or
-more rules require that conflicting actions be taken on a link. A
-conflicting rule with a higher priority value has precedence over one
-with a lower value (e.g., PRIORITY 5 outranks PRIORITY 1). A rule
-without a priority value always has a lower priority than one with a
-value. For two rules with the same priority value, the rule that appears
-first is given the higher priority.
+The **PRIORITY** value is used to determine which rule applies when two or more rules require that conflicting actions be taken on a link. A conflicting rule with a higher priority value has precedence over one with a lower value (e.g., **PRIORITY 5** outranks **PRIORITY 1**). A rule without a priority value always has a lower priority than one with a value. For two rules with the same priority value, the rule that appears first is given the higher priority.
 
 ##### Condition Clauses {#condition_clauses}
 
-A Condition Clause of a Control Rule has the following formats:
+A Condition Clause of a control rule has the following formats:
 
-object id attribute relation value
+    object id attribute relation value
+    object id attribute relation object id attribute
 
-object id attribute relation object id attribute
+where:
 
-where
+`object` -- is a category of object
 
----
+`id` -- is the object's ID name
 
-object =  a category of object
-id =  the object's ID label
-attribute =  an attribute or property of the object
-relation =  a relational operator (=, <>, <, <=, >, >=)
-value =  an attribute value
+`attribute` -- is an attribute or property of the object
 
----
+`relation` -- is a relational operator (=, <>, <, <=, >, >=)
+
+`value` -- is an attribute value
 
 Some examples of condition clauses are:
 
-GAGE  G1   6-HR_DEPTH > 0.5
-
-NODE  N23  DEPTH  >  10
-
-NODE  N23  DEPTH  >  NODE 25 DEPTH
-
-PUMP  P45  STATUS =  OFF
-
-LINK  P45  TIMEOPEN >= 6:30
-
-SIMULATION CLOCKTIME = 22:45:00
+    GAGE  G1   6-HR_DEPTH > 0.5
+    NODE  N23  DEPTH  >  10
+    NODE  N23  DEPTH  >  NODE N25 DEPTH
+    PUMP  P45  STATUS =  OFF
+    SIMULATION CLOCKTIME = 22:45:00
 
 The objects and attributes that can appear in a condition clause are as
 follows:
 
-+-----------------------+-----------------------+-----------------------+
-| Object | Attributes | Value |
-+-----------------------+-----------------------+-----------------------+
-| GAGE | INTENSITY | numerical value |
-| | | |
-| | n-HR_DEPTH | numerical value |
-+-----------------------+-----------------------+-----------------------+
-| NODE | DEPTH | numerical value |
-| | | |
-| | MAXDEPTH | numerical value |
-| | | |
-| | HEAD | numerical value |
-| | | |
-| | VOLUME | numerical value |
-| | | |
-| | INFLOW | numerical value |
-+-----------------------+-----------------------+-----------------------+
-| LINK or | FLOW | numerical value |
-| | | |
-| CONDUIT | FULLFLOW | numerical value |
-| | | |
-| | DEPTH | numerical value |
-| | | |
-| | MAXDEPTH | numerical value |
-| | | |
-| | VELOCITY | numerical value |
-| | | |
-| | LENGTH | numerical value |
-| | | |
-| | SLOPE | fractional value |
-| | | |
-| | STATUS | OPEN or CLOSED |
-| | | |
-| | TIMEOPEN | decimal hours or |
-| | | hr:min |
-| | TIMECLOSED | |
-| | | decimal hours or |
-| | | hr:min |
-+-----------------------+-----------------------+-----------------------+
-| PUMP | STATUS | ON or OFF |
-| | | |
-| | SETTING | pump curve multiplier |
-| | | |
-| | FLOW | numerical value |
-+-----------------------+-----------------------+-----------------------+
-| ORIFICE | SETTING | fraction open |
-+-----------------------+-----------------------+-----------------------+
-| WEIR | SETTING | fraction open |
-+-----------------------+-----------------------+-----------------------+
-| OUTLET | SETTING | rating curve |
-| | | multiplier |
-+-----------------------+-----------------------+-----------------------+
-| SIMULATION | TIME | elapsed time in |
-| | | decimal hours or |
-| |   | hr:min:sec |
-| | | |
-| | DATE | month/day/year |
-| | | |
-| | MONTH | month of year (1 - |
-| | | 12) |
-| | DAY | |
-| | | day of week (Sunday = |
-| | DAYOFYEAR | 1) |
-| | | |
-| | CLOCKTIME | day of year |
-| | | (month/day) |
-| | | |
-| | | time of day in |
-| | | hr:min:sec |
-+-----------------------+-----------------------+-----------------------+
+| Object                   | Attributes                                                                                     | Value                                       |
+| :----------------------- | :--------------------------------------------------------------------------------------------- | :------------------------------------------ |
+| `GAGE`                   | `INTENSITY` <br> `n-HR_DEPTH`                                                                  | numerical value                             |
+| `NODE`                   | `DEPTH` <br> `MAXDEPTH` <br> `HEAD` <br> `VOLUME` <br> `INFLOW`                                | numerical value                             |
+| `LINK` or <br> `CONDUIT` | `FLOW` <br> `FULLFLOW` <br> `DEPTH` <br> `MAXDEPTH` <br> `VELOCITY` <br> `LENGTH` <br> `SLOPE` | numerical value                             |
+| ^                        | `STATUS`                                                                                       | `OPEN` or `CLOSED`                          |
+| ^                        | `TIMEOPEN` <br> `TIMECLOSED`                                                                   | decimal hours or hr:min                     |
+| `PUMP`                   | `STATUS`                                                                                       | `ON` or `OFF`                               |
+| ^                        | `SETTING`                                                                                      | pump curve multiplier                       |
+| ^                        | `FLOW`                                                                                         | numerical value                             |
+| `ORIFICE`                | `SETTING`                                                                                      | fraction open                               |
+| `WEIR`                   | `SETTING`                                                                                      | fraction open                               |
+| `OUTLET`                 | `SETTING`                                                                                      | rating curve multiplier                     |
+| `SIMULATION`             | `TIME`                                                                                         | elapsed time in decimal hours or hr:min:sec |
+| ^                        | `DATE`                                                                                         | month/day/year                              |
+| ^                        | `MONTH`                                                                                        | month of year (January = 1)                 |
+| ^                        | `DAY`                                                                                          | day of week (Sunday = 1)                    |
+| ^                        | `CLOCKTIME`                                                                                    | time of day in hr:min:sec                   |
 
-Gage INTENSITY is the rainfall intensity for a specific rain gage in the
-current simulation time period. Gage n-HR_DEPTH is a gage's total
-rainfall depth over the past n hours where n is a number between 1 and 48.
+Gage `INTENSITY` is the rainfall intensity for a specific rain gage in the current simulation time period. Gage `n-HR_DEPTH` is a gage's total rainfall depth over the past n hours where n is a number between 1 and 48.
 
-TIMEOPEN is the duration a link has been in an OPEN or ON state or have
-its SETTING be greater than zero; TIMECLOSED is the duration it has
-remained in a CLOSED or OFF state or have its SETTING be zero.
+`TIMEOPEN` is the duration a link has been in an `OPEN` or `ON` state or have its `SETTING` be greater than zero; `TIMECLOSED` is the duration it has remained in a `CLOSED` or `OFF` state or have its `SETTING` be zero.
+
+<!---
+  action_clauses
+-->
 
 ##### Action Clauses {#action_clauses}
 
-An Action Clause of a Control Rule can have one of the following
-formats:
+An Action Clause of a control rule can have one of the following formats:
 
-PUMP id STATUS = ON/OFF
+    PUMP id STATUS = ON/OFF
+    CONDUIT id STATUS = OPEN/CLOSED
+    PUMP/ORIFICE/WEIR/OUTLET id SETTING = value
 
-CONDUIT id STATUS = OPEN/CLOSED
+where the meaning of **SETTING** depends on the object being controlled:
 
-PUMP/ORIFICE/WEIR/OUTLET id SETTING = value
+- for Pumps it is a multiplier applied to the flow computed from the pump curve (for a TYPE5 pump curve it is a relative speed setting that shifts the curve up or down),
 
-The meaning of SETTING depends on the object being controlled:
+- for Orifices it is the fractional amount that the orifice is fully open,
 
-· for Pumps it is a multiplier applied to the flow computed from the pump curve (or relative pump speed for a TYPE5 pump).
+- for Weirs it is the fractional amount of the original freeboard that exists (i.e., weir control is accomplished by moving the crest height up or down),
 
-· for Orifices it is the fractional amount that the orifice is fully open (orifice control is accomplished by lowering or raising a horizontal gate from the top of the orifice),
-
-· for Weirs it is the fractional amount of the original freeboard that exists (i.e., weir control is accomplished by moving the crest height up or down),
-
-· for Outlets it is a multiplier applied to the flow computed from the outlet's rating curve.
+- for Outlets it is a multiplier applied to the flow computed from the outlet's rating curve.
 
 Some examples of action clauses are:
 
-PUMP P67 STATUS = OFF
-
-ORIFICE O212 SETTING = 0.5
+    PUMP P67 STATUS = OFF
+    ORIFICE O212 SETTING = 0.5
 
 ##### Modulated Controls {#modulated_controls}
 
-Modulated Controls are control rules that provide for a continuous
-degree of control applied to a pump or flow regulator as determined by
-the value of some controller variable, such as water depth at a node, or
-by time. The functional relation between the control setting and the
-controller variable can be specificed by using a Control Curve, a Time
-Series, or a PID controller. Some examples of modulated control rules
-are:
+**Modulated controls** are control rules that provide for a continuous degree of control applied to a pump or flow regulator as determined by the value of some controller variable, such as water depth at a node, or by time. The functional relation between the control setting and the controller variable can be specified by using a [Control Curve](#control_curve), a [Time Series](#time_series), or a [PID Controller](#pid_controller). Some examples of modulated control rules are:
 
-RULE MC1
+    RULE MC1
+    IF NODE N2 DEPTH >= 0
+    THEN WEIR W25 SETTING = CURVE C25
 
-IF NODE N2 DEPTH >= 0
+    RULE MC2
+    IF SIMULATION TIME > 0
+    THEN PUMP P12 SETTING = TIMESERIES TS101
 
-THEN WEIR W25 SETTING = CURVE C25
+    RULE MC3
+    IF LINK L33 FLOW <> 1.6
+    THEN ORIFICE O12 SETTING = PID 0.1 0.0 0.0
 
-RULE MC2
+Note how a modified form of the action clause is used to specify the name of the control curve, time series or PID parameter set that defines the degree of control. A PID parameter set contains three values -- a proportional gain coefficient, an integral time (in minutes), and a derivative time (in minutes). Also, by convention the controller variable used in a Control Curve or PID Controller will always be the object and attribute named in the last condition clause of the rule. As an example, in rule `MC1` above `Curve C25` would define how the fractional setting at `Weir W25` varied with the water depth at `Node N2`. In rule `MC3`, the PID controller adjusts the opening of `Orifice O12` to maintain a flow of 1.6 in `Link L33`.
 
-IF SIMULATION TIME > 0
+##### PID Controllers {#pid_controllers}
 
-THEN PUMP P12 SETTING = TIMESERIES TS101
+A PID (Proportional-Integral-Derivative) Controller is a generic closed-loop control scheme that tries to maintain a desired set-point on some process variable by computing and applying a corrective action that adjusts the process accordingly. In the context of a hydraulic conveyance system a PID controller might be used to adjust the opening on a gated orifice to maintain a target flow rate in a specific conduit or to adjust a variable speed pump to maintain a desired depth in a storage unit. The classical PID controller has the form:
 
-RULE MC3
+\f[
+m(t) = K{p} \left[ e(t)+\frac{1}{T{i}} \int e(\tau) d\tau +T{d} \frac{de(t)}{dt} \right]
+\f]
 
-IF LINK L33 FLOW <> 1.6
+where
 
-THEN ORIFICE O12 SETTING = PID 0.1 0.0 0.0
+|            |                                                                   |
+| :--------- | :---------------------------------------------------------------- |
+| \f$m(t)\f$ | = controller output                                               |
+| \f$Kp\f$   | = proportional coefficient (gain)                                 |
+| \f$Ti\f$   | = integral time                                                   |
+| \f$Td\f$   | = derivative time                                                 |
+| \f$e(t)\f$ | = error (difference between setpoint and observed variable value) |
+| \f$t\f$    | = time.                                                           |
 
-Note how a modified form of the action clause is used to specify the
-name of the control curve, time series or PID parameter set that defines
-the degree of control. A PID parameter set contains three values -- a
-proportional gain coefficient, an integral time (in minutes), and a
-derivative time (in minutes). Also, by convention the controller
-variable used in a Control Curve or PID Controller will always be the
-object and attribute named in the last condition clause of the rule. As
-an example, in rule MC1 above Curve C25 would define how the fractional
-setting at Weir W25 varied with the water depth at Node N2. In rule MC3,
-the PID controller adjusts the opening height of Orifice O12 to maintain
-a flow of 1.6 in Link L33.
+The controller output \f$m(t)\f$ has the same meaning as a link setting used in a rule's [Action Clause](#action_clause) while \f$dt\f$ is the current flow routing time step in minutes. Because link settings are relative values (with respect to either a pump's standard operating curve or to the full opening height of an orifice or weir) the error \f$e(t)\f$ used by the controller is also a relative value. It is defined as the difference between the control variable setpoint \f$x^\star\f$ and its value at time \f$t\f$, \f$x(t)\f$, normalized to the setpoint value:
 
-##### PID Controller {#pid_controller}
+\f[e(t) = (x^{\star} - x(t)) / x^{\star}\f]
 
-A PID (Proportional-Integral-Derivative) Controller is a generic
-closed-loop control scheme that tries to maintain a desired set-point on
-some process variable by computing and applying a corrective action that
-adjusts the process accordingly. In the context of a hydraulic
-conveyance system a PID controller might be used to adjust the opening
-on a gated orifice to maintain a target flow rate in a specific conduit
-or to adjust a variable speed pump to maintain a desired depth in a
-storage unit. The classical PID controller has the form:
-
-[PID_Controller]
-
-where:
-
----
-
-m(t) = controller output
-  Kp = proportional coefficient (gain)
-  Ti = integral time (minutes)
-  Td = derivative time (minutes)
-  e(t) = error (difference between setpoint and observed variable value)
-  t = time.
-
----
-
-The performance of a PID controller is determined by the values assigned
-to the coefficients Kp, Ti, and Td.
-
-The controller output m(t) has the same meaning as a link setting used
-in a rule's Action Clause  while dt is the current flow routing time
-step in minutes. Because link settings are relative values (with respect
-to either a pump's standard operating curve or to the full opening
-height of an orifice or weir) the error e(t) used by the controller is
-also a relative value. It is defined as the difference between the
-control variable setpoint x\* and its value at time t, x(t), normalized
-to the setpoint value:
-
-e(t) = (x* - x(t)) / x*
-
-Note that for direct action control, where an increase in the link
-setting causes an increase in the controlled variable, the sign of Kp
-must be positive. For reverse action control, where the controlled
-variable decreases as the link setting increases, the sign of Kp must be
-negative. The user must recognize whether the control is direct or
-reverse action and use the proper sign on Kp accordingly. For example,
-adjusting an orifice opening to maintain a desired downstream flow or
-downstream water level is direct action. Adjusting it to maintain an
-upstream water level is reverse action. Controlling a pump to maintain a
-fixed wet well water level would be reverse action while using it to
-maintain a fixed downstream flow is direct action.
+Note that for direct action control, where an increase in the link setting causes an increase in the controlled variable, the sign of \f$Kp\f$ must be positive. For reverse action control, where the controlled variable decreases as the link setting increases, the sign of \f$Kp\f$ must be negative. The user must recognize whether the control is direct or reverse action and use the proper sign on \f$Kp\f$ accordingly. For example, adjusting an orifice opening to maintain a desired downstream flow is direct action. Adjusting it to maintain an upstream water level is reverse action. Controlling a pump to maintain a fixed wet well water level would be reverse action while using it to maintain a fixed downstream flow is direct action.
 
 ##### Named Variables {#named_variables}
 
-Named Variables are aliases used to represent the triplet of <object
-type | object name | object attribute> (or a doublet for Simulation
-times) that appear in the condition clauses of control rules. They allow
-condition clauses to be written as:
+Named Variables are aliases used to represent the triplet of <object type | object id | object attribute> (or a doublet for Simulation times) that appear in the condition clauses of control rules. They allow condition clauses to be written as:
 
-variable relation value
-
-variable relation variable
+    variable relation value
+    variable relation variable
 
 where variable is defined on a separate line before its first use in a
 rule using the format:
 
-VARIABLE  name = object id attribute
+    VARIABLE  name = object id attribute
 
 Here is an example of using this feature:
 
-VARIABLE  Dabc  =  NODE  abc  DEPTH
+    VARIABLE  N123_Depth = NODE N123 DEPTH
+    VARIABLE  N456_Depth = NODE N456 DEPTH
+    VARIABLE  P45 = PUMP 45 STATUS
 
-VARIABLE  Defg  =  NODE  efg  DEPTH
+    RULE 1
+    IF    N123_Depth > N456_Depth
+    AND   P45 = OFF
+    THEN  PUMP 45 STATUS = ON
 
-VARIABLE  P45   =  PUMP  45   STATUS
+    RULE 2
+    IF   N123_Depth < 1
+    THEN PUMP 45 STATUS = OFF
 
-RULE 1
+A variable is not allowed to have the same name as an [object attribute](#condition_clauses).
 
-IF    Dabc > Defg
-
-AND   P45 = OFF
-
-THEN  PUMP 45 STATUS = ON
-
-RULE 2
-
-IF   Dabc < 1
-
-THEN PUMP 45 STATUS = OFF
-
-A variable is not allowed to have the same name as an object attribute.
-
-Aside from saving some typing, named variables are required when using
-arithmetic expressions in rule condition clauses.
+Aside from saving some typing, named variables are required when using [arithmetic expressions](#arithmetic_expressions) in rule condition clauses.
 
 ##### Arithmetic Expressions {#arithmetic_expressions}
 
-In addition to a simple condition placed on a single variable, a control
-condition clause can also contain an arithmetic expression formed from
-several variables whose value is compared against. Thus the format of a
-condition clause can be extended as follows:
+In addition to a simple condition placed on a single variable, a control condition clause can also contain an arithmetic expression formed from several variables whose value is compared against. Thus the format of a condition clause can be extended as follows:
 
-expression  relation  value
+    expression  relation  value
+    expression  relation  variable
 
-expression  relation  variable
+where expression is defined on a separate line before its first use in a rule using the format:
 
-where expression is defined on a separate line before its first use in a
-rule using the format:
+    EXPRESSION  name = f(variable1, variable2, ...)
 
-EXPRESSION  name = f(variable1, variable2, ...)
+The function f(...) can be any well-formed mathematical expression containing one or more [named variables](#named_variables) as well as any of the following math functions (which are case insensitive) and operators:
 
-The function f(...) can be any well-formed mathematical expression
-containing one or more named variables as well as any of the following
-math functions (which are case insensitive) and operators:
+- abs(x) for absolute value of x
 
-§ abs(x) for absolute value of x
+- sgn(x) which is +1 for x >= 0 or -1 otherwise
 
-§ sgn(x) which is +1 for x >= 0 or -1 otherwise
+- step(x) which is 0 for x <= 0 and 1 otherwise
 
-§ step(x) which is 0 for x <= 0 and 1 otherwise
+- sqrt(x) for the square root of x
 
-§ sqrt(x) for the square root of x
+- log(x) for logarithm base e of x
 
-§ log(x) for logarithm base e of x
+- log10(x) for logarithm base 10 of x
 
-§ log10(x) for logarithm base 10 of x
+- exp(x) for e raised to the x power
 
-§ exp(x) for e raised to the x power
+- the standard trig functions (sin, cos, tan, and cot)
 
-§ the standard trig functions (sin, cos, tan, and cot)
+- the inverse trig functions (asin, acos, atan, and acot)
 
-§ the inverse trig functions (asin, acos, atan, and acot)
+- the hyperbolic trig functions (sinh, cosh, tanh, and coth)
 
-§ the hyperbolic trig functions (sinh, cosh, tanh, and coth)
-
-§ the standard operators  +, -, \*, /, ^ (for exponentiation ) and any level of nested parentheses.
+- the standard operators  +, -, \*, /, ^ (for exponentiation ) and any level of nested parentheses.
 
 Here is an example of using this feature:
 
-VARIABLE  P1_flow = LINK 1 FLOW
+    VARIABLE  P1_flow = LINK 1 FLOW
+    VARIABLE  P2_flow = LINK 2 FLOW
+    VARIABLE  O3_flow = Link 3 FLOW
+    EXPRESSION Net_Inflow = (P1_flow + P2_flow)/2 - O3_flow
 
-VARIABLE  P2_flow = LINK 2 FLOW
-
-VARIABLE  O3_flow = Link 3 FLOW
-
-EXPRESSION Net_Inflow = (P1_flow + P2_flow)/2 - O3_flow
-
-RULE 1
-
-IF   Net_Inflow > 0.1
-
-THEN ORIFICE 3 SETTING = 1
-
-ELSE ORIFICE 3 SETTING = 0.5
+    RULE 1
+    IF   Net_Inflow > 0.1
+    THEN ORIFICE 3 SETTING = 1
+    ELSE ORIFICE 3 SETTING = 0.5
 
 #### Water Quality {#water_quality}
 
-Water quality related data are supplied to a SWMM model using the
-following types of objects:
+Water quality related data are supplied to a SWMM model using the following types of objects:
 
-· Pollutants
+- [Pollutants](#pollutants)
 
-· Land Uses
+- [Land Uses](#land_uses)
 
-· Treatment
+- [Treatment](#treatment)
 
 ##### Pollutants {#pollutants}
 
-SWMM can simulate the generation, inflow and transport of any number of
-user-defined pollutants. Required information for each pollutant
-includes:
+SWMM can simulate the generation, inflow and transport of any number of user-defined pollutants. Required information for each pollutant includes:
 
-· pollutant name
+- pollutant name
 
-· concentration units (i.e., milligrams/liter, micrograms/liter, or counts/liter)
+- concentration units (i.e., milligrams/liter, micrograms/liter, or counts/liter)
 
-· concentration  in rainfall
+- concentration  in rainfall
 
-· concentration in groundwater
+- concentration in groundwater
 
-· concentration in inflow/infiltration
+- concentration in inflow/infiltration
 
-· concentration in dry weather flow
+- concentration in dry weather flow
 
-· initial concentration throughout the conveyance system
+- initial concentration throughout the conveyance system
 
-· first-order decay coefficient.
+- first-order decay coefficient.
 
-Co-pollutants can also be defined in SWMM. For example, pollutant X can
-have a co-pollutant Y, meaning that the runoff concentration of X will
-have some fixed fraction of the runoff concentration of Y added to it.
+Co-pollutants can also be defined in SWMM. For example, pollutant X can have a co-pollutant Y, meaning that the runoff concentration of X will have some fixed fraction of the runoff concentration of Y added to it.
 
-Pollutant buildup and washoff from subcatchment areas are determined by
-the land uses assigned to those areas. Input loadings of pollutants to
-the drainage system can also originate from external time series inflows
-as well as from dry weather inflows.
+Pollutant buildup and washoff from subcatchment areas are determined by the [land uses](#land_uses) assigned to those areas. Input loadings of pollutants to the drainage system can also originate from external time series inflows as well as from dry weather inflows.
 
-See Also
+_See Also_
 
-Pollutant Editor
+[Pollutant Editor](#pollutant_editor)
 
-Land Uses
+[Land Uses](#land_uses)
 
-Pollutant Buildup
+[Pollutant Buildup](#pollutant_buildup)
 
-Pollutant Washoff
+[Pollutant Washoff](#pollutant_washoff)
 
-External Inflows Editor
+[External Inflows Editor](#external_inflows_editor)
 
-##### Pollutant Buildup {#pollutant_buildup}
+##### Land Uses {#land_uses}
 
-???
+**Land Uses** are categories of development activities or land surface characteristics assigned to subcatchments. Examples of land use activities are residential, commercial, industrial, and undeveloped. Land surface characteristics might include rooftops, lawns, paved roads, undisturbed soils, etc. Land uses are used solely to account for spatial variation in pollutant buildup and washoff rates within subcatchments.
 
-##### Pollutant Washoff {#pollutant_washoff}
+The SWMM user has many options for defining land uses and assigning them to subcatchment areas. One approach is to assign a mix of land uses for each subcatchment, which results in all land uses within the subcatchment having the same pervious and impervious characteristics. Another approach is to create subcatchments that have a single land use classification along with a distinct set of pervious and impervious characteristics that reflects the classification.
 
-Pollutant washoff from a given land use category occurs during wet
-weather periods and can be described in one of the following ways:
+The following processes can be defined for each land use category:
 
-Exponential Washoff
+- [Pollutant Buildup](#pollutant_buildup)
 
-The washoff load (W) in units of mass per hour is proportional to the
-product of runoff raised to some power and to the amount of buildup
-remaining, i.e.,
+- [Pollutant Washoff](#pollutant_washoff)
 
-[ExponentialWashoff]
+- [Street Cleaning](#street_cleaning)
 
-where C1 =  washoff coefficient, C2 = washoff exponent, q = runoff rate
-per unit area (inches/hour or mm/hour), and B = pollutant buildup in
-mass units. The buildup here is the total mass (not per area or per curb
-length) and both buildup and washoff mass units are the same as used to
-express the pollutant's concentration (milligrams, micrograms, or
-counts).
+_See Also_
 
-Rating Curve Washoff
+[Land Use Editor](#land_use_editor)
 
-The rate of washoff W in mass per second is proportional to the runoff
-rate raised to some power, i.e.,
+[Subcatchments](#subcatchments)
 
-[RatingCurveWashoff]
+---
 
-where C1 = washoff coefficient, C2 = washoff exponent, and Q = runoff
-rate in user-defined flow units.
+###### Pollutant Buildup {#pollutant_buildup}
 
-Event Mean Concentration
+**Pollutant buildup** that accumulates within a land use category is described (or "normalized") by either a mass per unit of subcatchment area or per unit of curb length. Mass is expressed in pounds for US units and kilograms for metric units. The amount of buildup is a function of the number of preceding dry weather days and can be computed using one of the following functions:
 
-This is a special case of Rating Curve Washoff where the exponent is 1.0
-and the coefficient C1 represents the washoff pollutant concentration in
-mass per liter. The conversion between user-defined flow units used for
-runoff and liters is handled internally by SWMM. (Typical EMC's for
-selected constituents).
+**Power Function**
 
-Note that in each case buildup is continuously depleted as washoff
-proceeds, and washoff ceases when there is no more buildup available. It
-is also possible to use the Event Mean Concentration option by itself,
-without having to model any pollutant buildup at all.
+Pollutant buildup (B) accumulates proportional to time (t) raised to some power, until a maximum limit is achieved,
 
-BMP Removal Efficiency
+\f[B = \min (C_{1}, C_{2} t^{C_{3}})\f]
 
-Washoff loads for a given pollutant and land use category can be reduced
-by a fixed percentage by specifying a BMP Removal Efficiency that
-reflects the effectiveness of any BMP controls associated with the land
-use.
+where \f$C_{1}\f$ = maximum buildup possible (mass per unit of area or curb length), \f$C_{2}\f$ = buildup rate constant, and \f$C_{3}\f$ = time exponent.
 
-Removal of pollutants in surface washoff can also occur when runoff is
-captured by Low Impact Development (LID) controls. The concentration of
- a pollutant released from an LID unit's underdrain flow can be reduced
-by a user-specified percentage. These removal percentages are assigned
-through the LID Control Editor for each generic LID design.
+**Exponential Function**
 
-##### Street Sweeping {#street_sweeping}
+Buildup follows an exponential growth curve that approaches a maximum limit asymptotically,
 
-Street sweeping can be used on each land use category to periodically
-reduce the accumulated buildup of specific pollutants. The parameters
-that describe street sweeping include:
+\f[ B = C_1 (1 - e^{-C_{2} t})\f]
 
-· days between sweeping
+where \f$C_{1}\f$ = maximum buildup possible (mass per unit of area or curb length) and \f$C_{2}\f$ = buildup rate constant (1/days).
 
-· days since the last sweeping at the start of the simulation
+**Saturation Function**
 
-· the fraction of buildup of all pollutants that is available for removal by sweeping
+Buildup begins at a linear rate that continuously declines with time until a saturation value is reached,
 
-· the fraction of available buildup for each pollutant removed by sweeping.
+\f[ B = \frac{C_{1} t}{C_{2} + t}\f]
 
-These parameters can be different for each land use and the last
-parameter can vary also with pollutant.
+where \f$C_{1}\f$ = maximum buildup possible (mass per unit area or curb length) and \f$C_{2}\f$ = half-saturation constant (days to reach half of the maximum buildup).
 
-#### Treatment {#treatment}
+**External Time Series**
 
-Removal of pollutants from the flow streams entering any drainage system
-node is modeled by assigning a set of treatment functions to the node. A
-treatment function can be any well-formed mathematical expression
-involving:
+This option allows one to use a [Time Series](#time_series) to describe the rate of buildup per day as a function of time. The values placed in the time series would have units of mass per unit area (or curb length) per day. One can also provide a maximum possible buildup (mass per unit area or curb length) with this option and a scaling factor that multiplies the time series values.
 
-· the pollutant concentration (use the pollutant name to represent its
-concentration)
+---
 
-???
+###### Pollutant Washoff {#pollutant_washoff}
+
+**Pollutant washoff** from a given land use category occurs during wet weather periods and can be described in one of the following ways:
+
+**Exponential Washoff**
+
+The washoff load (\f$W\f$) in units of mass per hour is proportional to the product of runoff raised to some power and to the amount of buildup remaining, i.e.,
+
+\f[ W = C_{1} q^{C_{2}} B \f]
+
+where \f$C_1\f$ =  washoff coefficient, \f$C_2\f$ = washoff exponent, \f$q\f$ = runoff rate per unit area (inches/hour or mm/hour), and \f$B\f$ = pollutant buildup in mass units. The buildup here is the total mass (not per area or per curb length) and both buildup and washoff mass units are the same as used to express the pollutant's concentration (milligrams, micrograms, or counts).
+
+**Rating Curve Washoff**
+
+The rate of washoff \f$W\f$ in mass per second is proportional to the runoff rate raised to some power, i.e.,
+
+\f[W = C_{1} Q^{C_{2}}\f]
+
+where \f$C_1\f$ = washoff coefficient, \f$C_2\f$ = washoff exponent, and \f$Q\f$ = runoff rate in user-defined flow units.
+
+**Event Mean Concentration**
+
+This is a special case of Rating Curve Washoff where the exponent is 1.0 and the coefficient C1 represents the washoff pollutant concentration in mass per liter. The conversion between user-defined flow units used for runoff and liters is handled internally by SWMM. ([Typical EMC's for selected constituents](#water_quality_characteristics)).
+
+**Water Quality Characteristics of Urban Runoff**
+
+| Constituent      | Event Mean Concentrations |
+| :--------------- | :-----------------------: |
+| TSS (mg/L)       |         180 - 548         |
+| BOD (mg/L)       |          12 - 19          |
+| COD (mg/L)       |         82 - 178          |
+| Total P (mg/L)   |        0.42 - 0.88        |
+| Soluble P (mg/L) |        0.15 - 0.28        |
+| TKN (mg/L)       |        1.90 - 4.18        |
+| NO2/NO3-N (mg/L) |        0.86 - 2.2         |
+| Total Cu (ug/L)  |         43 - 118          |
+| Total Pb (ug/L)  |         182 - 443         |
+| Total Zn (ug/L)  |         202 - 633         |
+
+Source: U.S. Environmental Protection Agency. (1983). Results of the Nationwide Urban Runoff Program (NURP), Vol. 1, NTIS PB 84-185552), Water Planning Division, Washington, DC.
+
+Note that in each case buildup is continuously depleted as washoff proceeds, and washoff ceases when there is no more buildup available. It is also possible to use the Event Mean Concentration option by itself, without having to model any pollutant buildup at all.
+
+**BMP Removal Efficiency**
+
+Washoff loads for a given pollutant and land use category can be reduced by a fixed percentage by specifying a BMP Removal Efficiency that reflects the effectiveness of any BMP controls associated with the land use.
+
+Removal of pollutants in surface washoff can also occur when runoff is captured by [Low Impact Development (LID) controls](#lid_controls). The concentration of a pollutant released from an LID unit's underdrain flow can be reduced by a user-specified percentage. These removal percentages are assigned through the [LID Control Editor](#lid_control_editor) for each generic LID design.
+
+---
+
+###### Street Sweeping {#street_sweeping}
+
+**Street sweeping** can be used on each land use category to periodically reduce the accumulated buildup of specific pollutants. The parameters that describe street sweeping include:
+
+- days between sweeping
+
+- days since the last sweeping at the start of the simulation
+
+- the fraction of buildup of all pollutants that is available for removal by sweeping
+
+- the fraction of available buildup for each pollutant removed by sweeping.
+
+These parameters can be different for each land use and the last parameter can vary also with pollutant.
+
+---
+
+##### Treatment {#treatment}
+
+Removal of pollutants from the flow streams entering any drainage system node is modeled by assigning a set of treatment functions to the node. A treatment function can be any well-formed mathematical expression involving:
+
+- the pollutant concentration (use the pollutant name to represent its concentration)– for non-storage nodes this is the mixture concentration of all flow streams entering the node while for storage nodes it is the pollutant concentration within the node’s stored volume
+
+- the removals of other pollutants (use R\_ prefixed to the pollutant name to represent removal)
+
+- any of the following process variables:
+
+  - FLOW for flow rate into node (in user-defined flow units)
+
+  - DEPTH for water depth above node invert (ft or m)
+
+  - AREA for node surface area (ft2 or m2)
+
+  - DT for routing time step (sec)
+
+  - HRT for hydraulic residence time (hours)
+
+- Any of the following math functions (which are case insensitive) can be used in a treatment expression:
+
+  - abs(x) for absolute value of x
+
+  - sgn(x) which is +1 for x >= 0 or -1 otherwise
+
+  - step(x) which is 0 for x <= 0 and 1 otherwise
+
+  - sqrt(x) for the square root of x
+
+  - log(x) for logarithm base e of x
+
+  - log10(x) for logarithm base 10 of x
+
+  - exp(x) for e raised to the x power
+
+  - the standard trig functions (sin, cos, tan, and cot)
+
+  - the inverse trig functions (asin, acos, atan, and acot)
+
+  - the hyperbolic trig functions (sinh, cosh, tanh, and coth)
+
+  - along with the standard operators +, -, \*, /, ^ (for exponentiation ) and any level of nested parentheses.
+
+The result of the treatment function can be either a concentration (denoted by the letter C) or a fractional removal (denoted by R). For example, a first-order decay expression for BOD exiting from a storage node might be expressed as:
+
+\f[C = BOD * exp(-0.05*HRT)\f]
+
+or the removal of some trace pollutant that is proportional to the removal of total suspended solids (TSS) could be expressed as:
+
+\f[R = 0.75 \star R_TSS\f]
+
+[!Tip]
+Care must be taken to avoid circular references when specifying treatment functions. For example, the above expression would not be computable if it were used to compute fractional removal of TSS.
 
 ### Tabular Data {#tabular_data}
 
-SWMM utilizes several forms of tabular data to describe the properties
-of its various objects. These include:
+SWMM utilizes several forms of tabular data to describe the properties of its various objects. These include:
 
-· Curves
+- [Curves](#curves)
 
-· Time Series
+- [Time Series](#time_series)
 
-· Time Patterns
+- [Time Patterns](#time_patterns)
 
 #### Curves {#curves}
 
-Curve objects are used to describe a functional relationship between two
+**Curve** objects are used to describe a functional relationship between two
 quantities. The following types of curves are used in SWMM:
 
-Storage describes how the surface area of a Storage Unit node varies with water depth.
-Shape describes how the width of a customized cross-sectional shape varies with height for a Conduit link.
-Diversion relates diverted outflow to total inflow for a Flow Divider node or a Custom Inlet.
-Tidal describes how the stage at an Outfall node changes by hour of the day.
-Pump relates flow through a Pump link to the depth or volume at the upstream node or to the head delivered by the pump.
-Rating relates flow through an Outlet link to the freeboard depth or head difference across the outlet; relates flow captured by a Custom Inlet drain to the depth of water  above it.
-Control determines how the control setting of a pump or flow regulator varies as a function of some control variable (such as water level at a particular node) as specified in a Modulated Control rule; can also be used to adjust the flow from an LID unit's underdrain based on head.
-Weir allows a weir's discharge coefficient to vary with the hydraulic head across it.
+|               |                                                                                                                                                                                                                                                                                    |
+| :------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Storage**   | describes how the surface area of a Storage Unit node varies with water depth.                                                                                                                                                                                                     |
+| **Shape**     | describes how the width of a customized cross-sectional shape varies with height for a Conduit link.                                                                                                                                                                               |
+| **Diversion** | relates diverted outflow to total inflow for a Flow Divider node or a Custom Inlet.                                                                                                                                                                                                |
+| **Tidal**     | describes how the stage at an Outfall node changes by hour of the day.                                                                                                                                                                                                             |
+| **Pump**      | relates flow through a Pump link to the depth or volume at the upstream node or to the head delivered by the pump.                                                                                                                                                                 |
+| **Rating**    | relates flow through an Outlet link to the freeboard depth or head difference across the outlet; relates flow captured by a Custom Inlet drain to the depth of water  above it.                                                                                                    |
+| **Control**   | determines how the control setting of a pump or flow regulator varies as a function of some control variable (such as water level at a particular node) as specified in a Modulated Control rule; can also be used to adjust the flow from an LID unit's underdrain based on head. |
+| **Weir**      | allows a weir's discharge coefficient to vary with the hydraulic head across it.                                                                                                                                                                                                   |
 
-Each curve must be given a unique name and can be assigned any number of
-data points.
+Each curve must be given a unique name and can be assigned any number of data points.
 
-See Also
+_See Also_
 
-Curve Editor
+[Curve Editor](#curve_editor)
 
 #### Time Series {#time_series}
 
-Time Series objects are used to describe how certain object properties
-vary with time. Time series can be used to describe:
+**Time Series** objects are used to describe how certain object properties vary with time. Time series can be used to describe:
 
-· temperature data
+- temperature data
 
-· evaporation data
+- evaporation data
 
-· rainfall data
+- rainfall data
 
-· water stage at outfall nodes
+- water stage at outfall nodes
 
-· external inflow hydrographs at drainage system nodes
+- external inflow hydrographs at drainage system nodes
 
-· external inflow pollutographs at drainage system nodes
+- external inflow pollutographs at drainage system nodes
 
-· control settings for pumps and flow regulators.
+- control settings for pumps and flow regulators.
 
-Each time series must be given a unique name and can be assigned any
-number of time-value data pairs. Time can be specified either as hours
-from the start of a simulation or as an absolute date and time-of-day.
-Time series data can either be entered directly into the program or be
-accessed from a user-supplied Time Series file.
+Each time series must be given a unique name and can be assigned any number of time-value data pairs. Time can be specified either as hours from the start of a simulation or as an absolute date and time-of-day. Time series data can either be entered directly into the program or be accessed from a user-supplied Time Series file.
 
-[icon_tip]For rainfall time series, it is only necessary to enter
-periods with non-zero rainfall amounts. SWMM interprets the rainfall
-value as a constant value lasting over the recording interval specified
-for the rain gage that utilizes the time series. For all other types of
-time series, SWMM uses interpolation to estimate values at times that
-fall in between the recorded values.
+[!Tip]
+For rainfall time series, it is only necessary to enter periods with non-zero rainfall amounts. SWMM interprets the rainfall value as a constant value lasting over the recording interval specified for the rain gage that utilizes the time series. For all other types of time series, SWMM uses interpolation to estimate values at times that fall in between the recorded values.
 
-[icon_tip]For times that fall outside the range of the time series, SWMM
-will use a value of 0 for rainfall and external inflow time series, and
-either the first or last series value for temperature, evaporation, and
-water stage time series.
+[!Tip]
+For times that fall outside the range of the time series, SWMM will use a value of 0 for rainfall and external inflow time series, and either the first or last series value for temperature, evaporation, and water stage time series.
 
 See Also
 
-Time Series Editor
+[Time Series Editor](#time_series_editor)
 
-Time Series Files
+[Time Series Files](#time_series_files)
 
 #### Time Patterns {#time_patterns}
 
-Time Patterns allow external dry weather flow (DWF) to vary in a
-periodic fashion. They consist of a set of adjustment factors applied as
-multipliers to a baseline DWF flow rate or pollutant concentration. The
-different types of time patterns include:
+**Time Patterns** allow external dry weather flow (DWF) to vary in a periodic fashion. They consist of a set of adjustment factors applied as multipliers to a baseline DWF flow rate or pollutant concentration. The different types of time patterns include:
 
-Monthly one multiplier for each month of the year
-Daily one multiplier for each day of the week
-Hourly one multiplier for each hour from 12 AM to 11 PM
-Weekend hourly multipliers for weekend days
+|             |                                                  |
+| :---------- | :----------------------------------------------- |
+| **Monthly** | one multiplier for each month of the year        |
+| **Daily**   | one multiplier for each day of the week          |
+| **Hourly**  | one multiplier for each hour from 12 AM to 11 PM |
+| **Weekend** | hourly multipliers for weekend days              |
 
-Each time pattern must have a unique name and there is no limit on the
-number of patterns that can be created. Each dry weather inflow (either
-flow or quality) can have up to four patterns associated with it, one
-for each type listed above.
+Each time pattern must have a unique name and there is no limit on the number of patterns that can be created. Each dry weather inflow (either flow or quality) can have up to four patterns associated with it, one for each type listed above.
 
-Monthly time patterns can also be used to adjust the baseline values of
-the following hydrological parameters:
+Monthly time patterns can also be used to adjust the baseline values of the following hydrological parameters:
 
-· subcatchment depression storage
+- subcatchment depression storage
 
-· subcatchment pervious surface roughness
+- subcatchment pervious surface roughness
 
-· soil infiltration recovery rate
+- soil infiltration recovery rate
 
-· groundwater evaporation rate.
+- groundwater evaporation rate.
 
-See Also
+_See Also_
 
-Time Pattern Editor
+[Time Pattern Editor](#time_pattern_editor)
 
-Inflows
+[Inflows](#inflows)
 
-Subcatchment Properties
+[Subcatchment Properties](#subcatchment_properties)
 
-Climatology Editor
+[Climatology Editor](#climatology_editor)
 
 ### Computational Methods {#computational_methods}
 
-SWMM is a physically based, discrete-time simulation model. It employs
-principles of conservation of mass, energy, and momentum wherever
-appropriate. This section briefly describes the methods SWMM uses to
-model stormwater runoff quantity and quality through the following
-physical processes:
+SWMM is a physically based, discrete-time simulation model. It employs principles of conservation of mass, energy, and momentum wherever appropriate. This section briefly describes the methods SWMM uses to model stormwater runoff quantity and quality through the following physical processes:
 
-· Surface Runoff
+- [Surface Runoff](#surface_runoff)
 
-· Infiltration
+- [Infiltration](#infiltration)
 
-· Groundwater
+- [Groundwater](#groundwater)
 
-· Snowmelt
+- [Snowmelt](#snowmelt)
 
-· Flow Routing
+- [Flow Routing](#flow_routing)
 
-· Surface Ponding
+- [Surface Ponding](#ponding_and_pressurization)
 
-· Water Quality Routing
+- [Water Quality Routing](#water_quality_routing)
 
-More detailed descriptions of SWMM
+More detailed descriptions of SWMM's computational procedures can be found in a series of three regerence manuals available on EPA's SWMM website.
 
 #### Surface Runoff {#surface_runoff}
 
-The conceptual view of surface runoff used by SWMM is illustrated in the
-figure below.
+The conceptual view of surface runoff used by SWMM is illustrated in the figure below.
 
 [SurfaceRunoff]
 
-Each subcatchment surface is treated as a nonlinear reservoir. Inflow
-comes from precipitation and the runoff from any designated upstream
-subcatchments. Outflows consist of infiltration, evaporation, and
-surface runoff. The capacity of this "reservoir" is the maximum
-depression storage, which is the maximum surface storage provided by
-ponding, surface wetting, and interception. Surface runoff, Q, occurs
-only when the depth of water d in the "reservoir" exceeds the maximum
-depression storage, ds, in which case the outflow is given by Manning's
-equation. Depth of water over the subcatchment (d) is continuously
-updated with time by solving numerically a water balance equation over
-the subcatchment.
+Each subcatchment surface is treated as a nonlinear reservoir. Inflow comes from precipitation and the runoff from any designated upstream subcatchments. Outflows consist of infiltration, evaporation, and surface runoff. The capacity of this "reservoir" is the maximum depression storage, which is the maximum surface storage provided by ponding, surface wetting, and interception. Surface runoff, Q, occurs only when the depth of water d in the "reservoir" exceeds the maximum depression storage, ds, in which case the outflow is given by Manning's equation. Depth of water over the subcatchment (d) is continuously updated with time by solving numerically a water balance equation over the subcatchment.
 
 #### Infiltration {#infiltration}
 
-Infiltration is the process of rainfall penetrating the ground surface
-into the unsaturated soil zone of pervious subcatchments areas. SWMM
-offers four choices for modeling infiltration:
+Infiltration is the process of rainfall penetrating the ground surface into the unsaturated soil zone of pervious subcatchments areas. SWMM offers four choices for modeling infiltration:
 
 Classical Horton Method
 
-This method is based on empirical observations showing that infiltration
-decreases exponentially from an initial maximum rate to some minimum
-rate over the course of a long rainfall event. Input parameters required
-by this method include the maximum and minimum infiltration rates, a
-decay coefficient that describes how fast the rate decreases over time,
-and the time it takes a fully saturated soil to completely dry (used to
-compute the recovery of infiltration rate during dry periods).
+This method is based on empirical observations showing that infiltration decreases exponentially from an initial maximum rate to some minimum rate over the course of a long rainfall event. Input parameters required by this method include the maximum and minimum infiltration rates, a decay coefficient that describes how fast the rate decreases over time, and the time it takes a fully saturated soil to completely dry (used to compute the recovery of infiltration rate during dry periods).
 
 Modified Horton Method
 
-This is a modified version of the classical Horton Method that uses the
-cumulative infiltration in excess of the minimum rate as its state
-variable (instead of time along the Horton curve), providing a more
-accurate infiltration estimate when low rainfall intensities occur. It
-uses the same input parameters as does the traditional Horton Method.
+This is a modified version of the classical Horton Method that uses the cumulative infiltration in excess of the minimum rate as its state variable (instead of time along the Horton curve), providing a more accurate infiltration estimate when low rainfall intensities occur. It uses the same input parameters as does the traditional Horton Method.
 
 Green-Ampt Method
 
-This method for modeling infiltration assumes that a sharp wetting front
-exists in the soil column, separating soil with some initial moisture
-content below from saturated soil above. The input parameters required
-are the initial moisture deficit of the soil, the soil's hydraulic
-conductivity, and the suction head at the wetting front. The recovery
-rate of moisture deficit during dry periods is empirically related to
-the hydraulic conductivity.
+This method for modeling infiltration assumes that a sharp wetting front exists in the soil column, separating soil with some initial moisture content below from saturated soil above. The input parameters required are the initial moisture deficit of the soil, the soil's hydraulic conductivity, and the suction head at the wetting front. The recovery rate of moisture deficit during dry periods is empirically related to the hydraulic conductivity.
 
 Modified Green-Ampt Method
 
-This method modifies the original Green-Ampt procedure by not depleting
-moisture deficit in the top surface layer of soil during initial periods
-of low rainfall as was done in the original method. This change can
-produce more realistic infiltration behavior for storms with long
-initial periods where the rainfall intensity is below the soil
+This method modifies the original Green-Ampt procedure by not depleting moisture deficit in the top surface layer of soil during initial periods
+of low rainfall as was done in the original method. This change can produce more realistic infiltration behavior for storms with long initial periods where the rainfall intensity is below the soil
 
 #### Groundwater {#groundwater}
 
-Shown below is a definitional sketch of the two-zone groundwater model
-that is used in SWMM. The upper zone is unsaturated with a variable
-moisture content of ?. The lower zone is fully saturated and therefore
-its moisture content is fixed at the soil porosity ϕ.
+Shown below is a definitional sketch of the two-zone groundwater model that is used in SWMM. The upper zone is unsaturated with a variable moisture content of ?. The lower zone is fully saturated and therefore its moisture content is fixed at the soil porosity ϕ.
 
 [GroundWater]
 
-The fluxes shown in the figure, expressed as volume per unit area per
-unit time, consist of the following:
+The fluxes shown in the figure, expressed as volume per unit area per unit time, consist of the following:
 
 fI infiltration from the surface
 
@@ -1884,19 +1653,11 @@ fL seepage from the lower zone to deep groundwater which depends on the lower zo
 
 fG lateral groundwater interflow to the conveyance network which depends on the lower zone depth dL as well as depths in the receiving channel or node.
 
-After computing the water fluxes that exist during a given time step, a
-mass balance is written for the change in water volume stored in each
-zone so that a new water table depth and unsaturated zone moisture
-content can be computed for the next time step.
+After computing the water fluxes that exist during a given time step, a mass balance is written for the change in water volume stored in each zone so that a new water table depth and unsaturated zone moisture content can be computed for the next time step.
 
 #### Snowmelt {#snowmelt}
 
-The snowmelt routine in SWMM is a part of the runoff modeling process.
-It updates the state of the snow packs associated with each subcatchment
-by accounting for snow accumulation, snow redistribution by areal
-depletion and removal operations, and snow melt via heat budget
-accounting. Any snowmelt coming off the pack is treated as an additional
-rainfall input onto the subcatchment.
+The snowmelt routine in SWMM is a part of the runoff modeling process. It updates the state of the snow packs associated with each subcatchment by accounting for snow accumulation, snow redistribution by areal depletion and removal operations, and snow melt via heat budget accounting. Any snowmelt coming off the pack is treated as an additional rainfall input onto the subcatchment.
 
 At each runoff time step the following computations are made:
 
@@ -1910,9 +1671,9 @@ At each runoff time step the following computations are made:
 
 5.  The amount of snow in the pack that melts to liquid water is found using:
 
-· a heat budget equation for periods with rainfall, where melt rate increases with increasing air temperature, wind speed, and rainfall intensity
+- a heat budget equation for periods with rainfall, where melt rate increases with increasing air temperature, wind speed, and rainfall intensity
 
-· a degree-day equation for periods with no rainfall, where melt rate equals the product of a melt coefficient and the difference between the air temperature and the pack's base melt temperature.
+- a degree-day equation for periods with no rainfall, where melt rate equals the product of a melt coefficient and the difference between the air temperature and the pack's base melt temperature.
 
 6.  If no melting occurs, the pack temperature is adjusted up or down based on the product of the difference between current and past air temperatures and an adjusted melt coefficient. If melting occurs, the temperature of the pack is increased by the equivalent heat content of the melted snow, up to the base melt temperature. Any remaining melt liquid beyond this is available to runoff from the pack.
 
@@ -1920,107 +1681,50 @@ At each runoff time step the following computations are made:
 
 #### Flow Routing {#flow_routing}
 
-Flow routing within a conduit link in SWMM is governed by the
-conservation of mass and momentum equations for gradually varied,
-unsteady flow (i.e., the Saint Venant flow equations). The SWMM user has
-a choice on the level of sophistication used to solve these equations:
+Flow routing within a conduit link in SWMM is governed by the conservation of mass and momentum equations for gradually varied, unsteady flow (i.e., the Saint Venant flow equations). The SWMM user has a choice on the level of sophistication used to solve these equations:
 
-· Steady Flow Routing
+- Steady Flow Routing
 
-· Kinematic Wave Routing
+- Kinematic Wave Routing
 
-· Dynamic Wave Routing
+- Dynamic Wave Routing
 
-Each of these routing methods employs the Manning equation to relate
-flow rate to flow depth and bed (or friction) slope. For user-designated
-Force Main conduits, either the Hazen-Williams or Darcy-Weisbach
-equation can be used when pressurized flow occurs.
+Each of these routing methods employs the Manning equation to relate flow rate to flow depth and bed (or friction) slope. For user-designated Force Main conduits, either the Hazen-Williams or Darcy-Weisbach equation can be used when pressurized flow occurs.
 
 ##### Steady Flow Routing {#steady_flow_routing}
 
-Steady Flow routing represents the simplest type of routing possible
-(actually no routing) by assuming that within each computational time
-step flow is uniform and steady. Thus it simply translates inflow
-hydrographs at the upstream end of the conduit to the downstream end,
-with no delay or change in shape. The normal flow equation is used to
-relate flow rate to flow area (or depth).
+Steady Flow routing represents the simplest type of routing possible (actually no routing) by assuming that within each computational time step flow is uniform and steady. Thus it simply translates inflow hydrographs at the upstream end of the conduit to the downstream end, with no delay or change in shape. The normal flow equation is used to relate flow rate to flow area (or depth).
 
-This type of routing cannot account for channel storage, backwater
-effects, entrance/exit losses, flow reversal or pressurized flow. It can
-only be used with dendritic conveyance networks, where each node has
-only a single outflow link (unless the node is a divider in which case
-two outflow links are required). This form of routing is insensitive to
-the time step employed and is really only appropriate for preliminary
-analysis using long-term continuous simulations.
+This type of routing cannot account for channel storage, backwater effects, entrance/exit losses, flow reversal or pressurized flow. It can only be used with dendritic conveyance networks, where each node has only a single outflow link (unless the node is a divider in which case two outflow links are required). This form of routing is insensitive to the time step employed and is really only appropriate for preliminary analysis using long-term continuous simulations.
 
 ##### Kinematic Wave Routing {#kinematic_wave_routing}
 
-This routing method solves the continuity equation along with a
-simplified form of the momentum equation in each conduit. The latter
-assumes that the slope of the water surface equal the slope of the
-conduit.
+This routing method solves the continuity equation along with a simplified form of the momentum equation in each conduit. The latter assumes that the slope of the water surface equal the slope of the conduit.
 
-The maximum flow that can be conveyed through a conduit is the full
-normal flow value. Any flow in excess of this entering the inlet node is
-either lost from the system or can pond atop the inlet node and be
-re-introduced into the conduit as capacity becomes available.
+The maximum flow that can be conveyed through a conduit is the full normal flow value. Any flow in excess of this entering the inlet node is either lost from the system or can pond atop the inlet node and be re-introduced into the conduit as capacity becomes available.
 
-Kinematic wave routing allows flow and area to vary both spatially and
-temporally within a conduit. This can result in attenuated and delayed
-outflow hydrographs as inflow is routed through the channel. However
-this form of routing cannot account for backwater effects, entrance/exit
-losses, flow reversal, or pressurized flow, and is also restricted to
-dendritic network layouts. It can usually maintain numerical stability
-with moderately large time steps, on the order of 1 to 5 minutes. If the
-aforementioned effects are not expected to be significant then this
-alternative can be an accurate and efficient routing method, especially
-for long-term simulations.
+Kinematic wave routing allows flow and area to vary both spatially and temporally within a conduit. This can result in attenuated and delayed outflow hydrographs as inflow is routed through the channel. However this form of routing cannot account for backwater effects, entrance/exit losses, flow reversal, or pressurized flow, and is also restricted to dendritic network layouts. It can usually maintain numerical stability with moderately large time steps, on the order of 1 to 5 minutes. If the aforementioned effects are not expected to be significant then this alternative can be an accurate and efficient routing method, especially for long-term simulations.
 
 ##### Dynamic Wave Routing {#dynamic_wave_routing}
 
-Dynamic Wave routing solves the complete one-dimensional Saint Venant
-flow equations and therefore produces the most theoretically accurate
-results. These equations consist of the continuity and momentum
-equations for conduits and a volume continuity equation at nodes.
+Dynamic Wave routing solves the complete one-dimensional Saint Venant flow equations and therefore produces the most theoretically accurate results. These equations consist of the continuity and momentum equations for conduits and a volume continuity equation at nodes.
 
-With this form of routing it is possible to represent pressurized flow
-when a closed conduit becomes full, such that flows can exceed the full
-normal flow value. Flooding occurs when the water depth at a node
-exceeds the maximum available depth, and the excess flow is either lost
-from the system or can pond atop the node and re-enter the drainage
-system.
+With this form of routing it is possible to represent pressurized flow when a closed conduit becomes full, such that flows can exceed the full normal flow value. Flooding occurs when the water depth at a node exceeds the maximum available depth, and the excess flow is either lost from the system or can pond atop the node and re-enter the drainage system.
 
-Dynamic wave routing can account for channel storage, backwater,
-entrance/exit losses, flow reversal, and pressurized flow. Because it
-couples together the solution for both water levels at nodes and flow in
-conduits it can be applied to any general network layout, even those
-containing multiple downstream diversions and loops. It is the method of
-choice for systems subjected to significant backwater effects due to
-downstream flow restrictions and with flow regulation via weirs and
-orifices. This generality comes at a price of having to use much smaller
-time steps, on the order of thirty seconds or less (SWMM can
-automatically reduce the user-defined maximum time step as needed to
-maintain numerical stability).
+Dynamic wave routing can account for channel storage, backwater, entrance/exit losses, flow reversal, and pressurized flow. Because it couples together the solution for both water levels at nodes and flow in conduits it can be applied to any general network layout, even those containing multiple downstream diversions and loops. It is the method of choice for systems subjected to significant backwater effects due to downstream flow restrictions and with flow regulation via weirs and orifices. This generality comes at a price of having to use much smaller time steps, on the order of thirty seconds or less (SWMM can automatically reduce the user-defined maximum time step as needed to maintain numerical stability).
 
 #### Ponding and Pressurization {#ponding_and_pressurization}
 
-???
+Normally in flow routing, when the flow into a junction exceeds the capacity of the system to transport it further downstream, the excess volume overflows the system and is lost. As options exists to have instead the excess volume be stored atop the juction, in a ponded fashion, and be reintroduced into the system as capacity permits. Under Kinematic Wave flow routing, the ponded water is stored simply as an excess volume. For Dynamic Wave routing, which is influenced by the water depths maintained at nodes, the excess volume is assumed to pond over the node with a constant surface area. This amount of surface area is an input paramerter supplied for the junction.
+
+Alternatively, the user may wish to represent the surface overflow system explicitly. In open channel systems this can include road overflows at bridges of culvert crossings as well as additional floodplain storage areas. In closed conduit systems, surface overflows may be conveyed down streets, alleys, or other surface routes to the next available stormwater inlet or open channel. Overflows may also be impounded in surface depressions such as parking lots, back yards, or other areas.
+
+In sewer systems with pressurized pipes and force mains the hydraulic head at junction nodes can at times exceed the ground elevation under Dynamic Wave routing. This would normally result in an overflow which, as described above, can either be lost or ponded. SWMM allows the user to specify an additional "surcharge" depth at junction nodes that lets them pressurize and prevents any outflow until this additional depth is exceeded. If both ponding and pressurization are specified for a node ponding takes precedence and the surcharge depth is ignored. Ponding does not apply to storage nodes.
 
 #### Water Quality Routing {#water_quality_routing}
 
-Water quality routing within conduit links assumes that the conduit
-behaves as a continuously stirred tank reactor (CSTR). Although a plug
-flow reactor assumption might be more realistic, the differences will be
-small if the travel time through the conduit is on the same order as the
-routing time step. The concentration of a constituent exiting the
-conduit at the end of a time step is found by integrating the
-conservation of mass equation, using average values for quantities that
-might change over the time step such as flow rate and conduit volume.
+Water quality routing within conduit links assumes that the conduit behaves as a continuously stirred tank reactor (CSTR). Although a plug flow reactor assumption might be more realistic, the differences will be small if the travel time through the conduit is on the same order as the routing time step. The concentration of a constituent exiting the conduit at the end of a time step is found by integrating the conservation of mass equation, using average values for quantities that might change over the time step such as flow rate and conduit volume.
 
-Water quality modeling within storage unit nodes follows the same
-approach used for conduits. For other types of nodes that have no
-volume, the quality of water exiting the node is simply the mixture
-concentration of all water entering the node.
+Water quality modeling within storage unit nodes follows the same approach used for conduits. For other types of nodes that have no volume, the quality of water exiting the node is simply the mixture concentration of all water entering the node.
 
-The pollutant concentration in both a conduit and a storage node will be
-reduced by a first-order decay reaction if the pollutant
+The pollutant concentration in both a conduit and a storage node will be reduced by a first-order decay reaction if the pollutant's first-order decay coefficient is not zero.
