@@ -297,7 +297,7 @@ The Project Browser appears when the Project tab on the left panel of SWMM's Mai
 | [ProjectBrowser](projectbrowser.gif) | The upper list box displays the various categories of data objects available to a SWMMproject. The lower list box lists the name of each individual object of the currently selected data category.                                                                                                                                                 |
 | ^                                    | The buttons between the two list boxes are used as follows: <br> [Add] adds a new object, <br> [Delete] deletes the selected object, <br> [edit] edits the selected object, <br> [MoveUp] moves the selected object up one position, <br> [MoveDown] moves the selected object down one position, <br> [Sort] sorts the objects in ascending order. |
 
-Selections made in the Project Browser are coordinated with objects highlighted on the Study Area Map, and vice versa. For example, selecting a conduit in the Browser will cause that conduit to be highlighted on the map, while selecting it on the map will cause it to become the selected object in the Browser.
+Selections made in the Project Browser are coordinated with objects highlighted on the [Study Area Map](#study_area_map), and vice versa. For example, selecting a conduit in the Browser will cause that conduit to be highlighted on the map, while selecting it on the map will cause it to become the selected object in the Browser.
 
 ## Map Browser {#map_browser}
 
