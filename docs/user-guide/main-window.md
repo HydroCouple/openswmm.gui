@@ -199,35 +199,35 @@ The toolbar can be made visible of invisible by selecting **View >> Toolbar** fr
 
 The **Map Toolbar** contains buttons for selecting items and viewing the [Study Area Map](#study_area_map):
 
-|                   |                                            |
-| :---------------- | :----------------------------------------- |
-| ![Select]()       | Selects an object on the map               |
-| ![SelectVertex]() | Selects link or subcatchment vertex points |
-| ![GroupSelect]()  | Selects a region on the map                |
-| ![Pan]()          | Pans across the map                        |
-| ![Zoomin]()       | Zooms in on the map                        |
-| ![Zoomout]()      | Zooms out on the map                       |
-| ![Extents]()      | Draws the map at full extent               |
-| ![Measure]()      | Measures a length or area on the map       |
+|                       |                                            |
+| :-------------------- | :----------------------------------------- |
+| ![](select.gif)       | Selects an object on the map               |
+| ![](selectvertex.gif) | Selects link or subcatchment vertex points |
+| ![](groupselect.gif)  | Selects a region on the map                |
+| ![](pan.gif)          | Pans across the map                        |
+| ![](zoomin.gif)       | Zooms in on the map                        |
+| ![](zoomout.gif)      | Zooms out on the map                       |
+| ![](extents.gif)      | Draws the map at full extent               |
+| ![](measure.gif)      | Measures a length or area on the map       |
 
 The mouse wheel can also be used to pan, zoom in or zoom out of the map at any time without having to select the Pan, Zoom In or Zoom Out buttons.
 
 The Map Toolbar also contains buttons used to add objects to a project via the Study Area Map:
 
-|                   |                                     |
-| :---------------- | :---------------------------------- |
-| ![RainGage]()     | Adds a rain gage to the map         |
-| ![Subcatchment]() | Adds a subcatchment to the map      |
-| ![Junction]()     | Adds a junction node to the map     |
-| ![Outfall]()      | Adds an outfall node to the map     |
-| ![Divider]()      | Adds a flow divider node to the map |
-| ![StorageUnit]()  | Adds a storage unit node to the map |
-| ![Conduit]()      | Adds a conduit link to the map      |
-| ![PUMP]()         | Adds a pump link to the map         |
-| ![Orifice]()      | Adds an orifice link to the map     |
-| ![Weir]()         | Adds a weir link to the map         |
-| ![Outlet]()       | Adds an outlet link to the map      |
-| ![LABEL]()        | Adds a text label to the map        |
+|                       |                                     |
+| :-------------------- | :---------------------------------- |
+| ![](raingage.gif)     | Adds a rain gage to the map         |
+| ![](subcatchment.gif) | Adds a subcatchment to the map      |
+| ![](junction.gif)     | Adds a junction node to the map     |
+| ![](outfall.gif)      | Adds an outfall node to the map     |
+| ![](divider.gif)      | Adds a flow divider node to the map |
+| ![](storageunit.gif)  | Adds a storage unit node to the map |
+| ![](conduit.gif)      | Adds a conduit link to the map      |
+| ![](pump.gif)         | Adds a pump link to the map         |
+| ![](orifice.gif)      | Adds an orifice link to the map     |
+| ![](weir.gif)         | Adds a weir link to the map         |
+| ![](outlet.gif)       | Adds an outlet link to the map      |
+| ![](label.gif)        | Adds a text label to the map        |
 
 ## Status Bar {#status_bar}
 
@@ -249,12 +249,12 @@ Displays the current flow units that are in effect. Click the drop down arrow to
 
 **Run Status**
 
-|                  |                                                                  |
-| :--------------- | :--------------------------------------------------------------- |
-| ![flag_white]()  | results are not available because no simulation has been run yet |
-| ![flag_green]()  | results are up to date                                           |
-| ![flag_yellow]() | results are out of date because project data have changed.       |
-| ![flag_red]()    | results are not available because the last simulation had errors |
+|                      |                                                                  |
+| :------------------- | :--------------------------------------------------------------- |
+| ![](flag_white.gif)  | results are not available because no simulation has been run yet |
+| ![](flag_green.gif)  | results are up to date                                           |
+| ![](flag_yellow.gif) | results are out of date because project data have changed.       |
+| ![](flag_red.gif)    | results are not available because the last simulation had errors |
 
 **Zoom Level**
 
@@ -288,9 +288,9 @@ _See Also_
 
 [Working with the Map](#working_with_the_map)
 
-## Project Browser
+## Project Browser {#project_browser}
 
-The Project Browser appears when the Project tab on the left panel of SWMM's Main Window is pressed. It provides access to all of the data in a project.  The vertical sizes of the list boxes in the browser can be adjusted by using the splitter bar located just below the upper box. The width of the Browser panel can be adjusted by using the splitter bar located along its right edge
+The Project Browser appears when the Project tab on the left panel of SWMM's Main Window is pressed. It provides access to all of the data in a project. The vertical sizes of the list boxes in the browser can be adjusted by using the splitter bar located just below the upper box. The width of the Browser panel can be adjusted by using the splitter bar located along its right edge
 
 |                                      |                                                                                                                                                                                                                                                                                                                                                     |
 | ------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
