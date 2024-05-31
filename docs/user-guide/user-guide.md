@@ -838,9 +838,9 @@ In addition to the nodes and links which characterize the physical aspects of a 
 
 - [Inlets](#inlets)
 
-- [Inflows](#inflows)
+- [Inflows](#external_inflows)
 
-- [Controls](#controls)
+- [Controls](#control_rules)
 
 ##### Transects {#transects}
 
