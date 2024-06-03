@@ -2325,3 +2325,266 @@ To register calibration data residing in a [Calibration File](#calibration_files
 ### Viewing All Project Data {#viewing_all_project_data}
 
 A listing of all project data (with the exception of map coordinates) can be viewed in a non-editable window, formatted for input to SWMM's computational engine. This can be useful for checking data consistency and to make sure that no key components are missing. To view such a listing, select **Project >> Details** from the Main Menu. The format of the data in this listing is the same as that used when the file is saved to disk. It is described in detail in Appendix D of the SWMM 5 Users Manual.
+
+## Working with Objects {#working_with_objects}
+
+SWMM uses various types of objects to model a drainage area and its conveyance system. This section describes how these objects can be created, selected, edited, deleted, and repositioned.
+
+- [Types of objects](#types_objects)
+
+- [Adding objects](#adding_objects)
+
+- [Selecting an object](#selecting_object)
+
+- [Moving an object](#moving_object)
+
+- [Editing an object](#editing-object)
+
+- [Converting an object](#converting_object)
+
+- [Copying and pasting objects](#copying_pasting_objects)
+
+- [Deleting an object](#deleting_object)
+
+- [Shaping a link](#shaping_link)
+
+- [Shaping a subcatchment](#shaping_subcatchment)
+
+- [Selecting a group of objects](#selecting_group_objects)
+
+- [Deleting a group of objects](#deleting_group_objects)
+
+- [Editing a group of objects](#editing_group_objects)
+
+### Types of Objects {#types_objects}
+
+SWMM contains both physical objects that can appear on its [Study Area Map](#swmms_main_window), and non-physical objects that encompass design, loading, and operational information. These objects, which are listed in the [Project Browser](#swmms_main_window), consist of the following:
+
+|                     |               |
+| :------------------ | :------------ |
+| Project Title/Notes | Nodes         |
+| Simulation Options  | Links         |
+| Climatology         | Transects     |
+| Rain Gages          | Streets       |
+| Subcatchments       | Inlets        |
+| Aquifers            | Control Rules |
+| Snow Packs          | Curves        |
+| Unit Hydrographs    | Time Series   |
+| LID Controls        | Time Patterns |
+| Pollutants          | Map Labels    |
+| Land Uses           |               |
+
+### Adding an Object {#adding_object}
+
+To add a new object to a project, select the type of object from the upper pane of the [Project Browser](#swmms_main_window) and either select **Project >> Add a New** from the Main Menu or click the Browser's &nbsp;![](add.gif) button. If the object has a button on the [Map Toolbar](#map_toolbar) you can simply click the button instead.
+
+If the object is a visual object that appears on the Study Area Map (a Rain Gage, Subcatchment, Node, Link, or Map Label) it will automatically receive a default ID name and a prompt will appear in the [Status Bar](#swmms_main_window) telling you how to proceed. The steps used to draw each of these objects on the map are detailed below:
+
+**Rain Gages**
+
+Move the mouse to the desired location on the Map and left-click.
+
+**Subcatchments**
+
+Use the mouse to draw a polygon outline of the subcatchment on the Map:
+
+- Left-click at each vertex
+
+- Right-click or press <**Enter**> to close the polygon
+
+- Press the <**Esc**> key if you wish to cancel the action.
+
+**Nodes** (Junctions, Outfalls, Flow Dividers, and Storage Units)
+
+Move the mouse to the desired location on the Study Area Map and left-click.
+
+**Links** (Conduits, Pumps, Orifices, Weirs, and Outlets)
+
+- Left-click the mouse on the link's inlet (upstream) node.
+
+- Move the mouse (without pressing any button) in the direction of the link's outlet (downstream) node, clicking at all intermediate points necessary to define the link's alignment.
+
+- Left-click the mouse a final time over the link's outlet (downstream) node. (Pressing the right mouse button or the <**Esc**> key while drawing a link will cancel the operation.)
+
+**Map Labels**
+
+- Left-click the mouse on the map location where the top left corner of the label should appear.
+
+- Enter the text for the label.
+
+- Press <**Enter**> to accept the label or <**Esc**> to cancel.
+
+For all other non-visual types of objects, an object-specific dialog form will appear that allows you to name the object and edit its properties.
+
+### Selecting an Object {#selecting_object}
+
+To select an object on the Study Area Map:
+
+1. Make sure that the map is in Selection mode (the mouse cursor has the shape of an arrow pointing up to the left). To switch to this mode, either click the Select Object button &nbsp;![](select.gif) on the [Map Toolbar](#map_toolbar) or choose **Edit >> Select Object** from the Main Menu.
+
+2. Click the mouse over the desired object on the map.
+
+To select an object using the [Project Browser](#swmms_main_window):
+
+1. Select the object's category from the upper list in the Browser.
+
+2. Select the object from the lower list in the Browser.
+
+### Moving an Object {#moving_object}
+
+Rain gages, subcatchments, nodes and map labels can be moved to another location on the [Study Area Map](#swmms_main_window). To move an object to another location:
+
+1. Select the object on the map.
+
+2. With the left mouse button held down over the object, drag it to its new location.
+
+3. Release the mouse button.
+
+The following alternative method can also be used:
+
+1. Select the object to be moved from the [Project Browser](#swmms_main_window) (it must be either a rain gage, subcatchment, node, or map label).
+
+2. With the left mouse button held down, drag the item from the Items list box of the Project Browser to its new location on the map.
+
+3. Release the mouse button.
+
+Note that the second method can be used to place objects on the map that were imported from a project file that had no coordinate information included in it.
+
+### Editing an Object {editing_object}
+
+To edit an object appearing on the Study Area Map:
+
+1. Select the object on the map.
+
+2. If the [Property Editor](#swmms_main_window) is not visible either:
+
+- double click on the object
+
+- or right click on the object and select **Properties** from the pop-up menu that appears
+
+- or click &nbsp;![](edit.gif) in the Project Browser
+
+- or select **Edit >> Edit Object** from the Main Menu.
+
+3. Edit the object's properties in the Property Editor.
+
+To edit an object listed in the [Project Browser](#swmms_main_window):
+
+1. Select the object in the Project Browser.
+
+2. Either:
+
+- click &nbsp;![](edit.gif) in the Project Browser,
+
+- or select **Edit >> Edit Object** from the Main Menu,
+
+- or double-click the item in the Objects list,
+
+- or press the <**Enter**> key.
+
+Depending on the class of object selected, a special property editor will appear in which the object's properties can be modified.
+
+[!tip]
+The unit system in which object properties are expressed depends on the choice of units for flow rate. Using a flow rate expressed in cubic feet, gallons or acre-feet implies that US customary units will be used for all quantities. Using a flow rate expressed in liters or cubic meters means that SI metric units will be used. Flow units are selected either from the project's default Node/Link properties (see [Setting Project Defaults](#setting_project_defaults)) or directly from the main window's [Status Bar](#swmms_main_window).
+
+### Converting an Object {#converting_object}
+
+It is possible to convert a node or link from one type to another without having to first delete the object and add a new one in its place. An example would be converting a Junction node into an Outfall node, or converting an Orifice link into a Weir link.
+
+To convert a node or link to another type:
+
+1. Right click the object on the Study Area Map.
+
+2. Select **Convert To** from the popup menu that appears.
+
+3. Select the new type of node or link to convert to from the sub-menu that appears.
+
+4. Edit the object to provide any data that was not included with the previous type of object.
+
+Only properties that are common to both types of objects will be preserved after an object is converted to a different type. For nodes this includes its name, position, description, tag, external inflows, treatment functions, and invert elevation. For links it includes just its name, end nodes, description, and tag. Non-preserved properties are assigned their default values.
+
+### Copying and Pasting Objects {#copying_pasting_objects}
+
+The properties of an object displayed on the Study Area Map can be copied and pasted into another object from the same category.
+
+To copy the properties of an object to SWMM's internal clipboard:
+
+1. Right click the object on the Map.
+
+2. Select **Copy** from the pop-up menu that appears.
+
+To paste copied properties into an object:
+
+1. Right click the object on the Map.
+
+2. Select **Paste** from the pop-up menu that appears.
+
+Only data that can be shared between objects of the same type can be copied and pasted. Properties not copied include the object's name, coordinates, end nodes (for links), Tag property and any descriptive comment associated with the object. For Map Labels, only font properties are copied and pasted.
+
+### Deleting an Object {#deleting_object}
+
+To delete an object:
+
+1. Select the object on the Study Area Map or from the [Project Browser](#swmms_main_window).
+
+2. Either click the &nbsp;![](delete.gif) button on the Project Browser, or press the <**Delete**> key on the keyboard, or select **Edit >> Delete Object** from the Main Menu, or right-click the object on the map and select **Delete** from the pop-up menu that appears.
+
+[!tip]
+You can require that all deletions be confirmed before they take effect. See the [General Preferences](#general_preferences) page of the Program Preferences dialog box.
+
+### Shaping a Link {#shaping_link}
+
+Links can be drawn as polylines containing any number of straight-line segments that define the alignment or curvature of the link. Once a link has been drawn on the [Study Area Map](#study_area_map), interior points that define these line segments can be added, deleted, and moved.
+
+To edit the interior points of a link:
+
+1. Select the link to edit on the map and put the map in Vertex Selection mode by either
+
+- clicking the &nbsp;![](selectvertex.gif)  button on the [Map Toolbar](#map_toolbar),
+
+- or selecting **Edit >> Select Vertex** from the Main Menu,
+
+- or right-clicking on the link and selecting **Vertices** from the popup menu.
+
+2. The mouse pointer will change shape to an arrow tip, and any existing vertex points on the link will be displayed as small open squares. The currently selected vertex will be displayed as a filled square.To select a particular vertex, click the mouse over it.
+
+3. To add a new vertex to the link, right-click the mouse and select **Add Vertex** from the popup menu (or simply press the <**Insert**> key on the keyboard).
+
+4. To delete the currently selected vertex, right click the mouse and select **Delete Vertex** from the popup menu (or simply press the <**Delete**> key on the keyboard).
+
+5. To move a vertex to another location, drag it with the left mouse button held down to its new position.
+
+While in Vertex Selection mode you can begin editing the vertices for another link by simply clicking on the link. To leave Vertex Selection mode, right click on the map and select **Quit Editing** from the popup menu, or simply select one of the other buttons on the Map Toolbar.
+
+A link can also have its direction reversed (i.e., its end nodes switched) by right clicking on it and selecting **Reverse** from the pop-up menu that appears. Normally, links should be oriented so that the upstream end is at a higher elevation than the downstream end.
+
+### Shaping a Subcatchment {#shaping_subcatchment}
+
+Subcatchments are drawn on the Study Area Map as closed polygons. To edit or add vertices to the polygon, follow the same procedures used for links (see [Shaping a Link](#shaping_link)). If the subcatchment is originally drawn or is edited to have two or less vertices, then only its centroid symbol will be displayed on the Map.
+
+### Selecting a Group of Objects {#selecting_group_objects}
+
+A group of objects located within an irregular region of the [Study Area Map](#study_area_map) can have a common property edited or be deleted all together. To select such a group of objects:
+
+1. Choose **Edit >> Select Region** from the Main Menu or click the &nbsp;![GroupSelect](groupselect.gif)  button on the Map Toolbar.
+
+2. Draw a polygon around the region of interest on the map by clicking the left mouse button at each successive vertex of the polygon.
+
+3. Close the polygon by clicking the right button or by pressing the <**Enter**> key; cancel the selection by pressing the <**Esc**> key.
+
+To select all objects in the project, whether in view or not, select
+**Edit >> Select All** from the Main Menu.
+
+### Deleting a Group of Objects {#deleting_group_objects}
+
+To delete the objects located within a selected area of the Study Area Map (see [Selecting a Group of Objects]()), select **Edit >> Group Delete** from the Main Menu. Then select the categories of objects you wish to delete from the dialog box that appears. As an option, you can specify that only objects with a specific Tag property should be deleted. Keep in mind that deleting a node will also delete any links connected to the node.
+
+![Group Delete](groupdelete.gif)
+
+### Editing a Group of Objects {#editing_group_objects}
+
+Once a group of objects has been selected (see [Selecting a Group of Objects](#selecting_group_objects)), you can edit a common property shared among them:
+
+1. Select **Edit >> Group Edit** from the Main Menu.
+
+2. Use the [Group Editor](#group_edit_dialog) dialog that appears to select a property and specify its new value.
