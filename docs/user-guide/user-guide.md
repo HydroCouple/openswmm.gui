@@ -2134,3 +2134,194 @@ The **Numerical Precision** page of the Preferences dialog controls the number o
 ![PrecisionPreferences](precisionpreferences.gif)
 
 Note that the number of decimal places displayed for any particular input design parameter, such as slope, diameter, length, etc. is whatever the user enters.
+
+## Working with Projects {#working_with_projects}
+
+**Project** files contain all of the information used to model a study area. They are usually named with a **.INP** extension. This section describes how to create, open, and save SWMM projects and how to set their default properties.
+
+- [Creating a new project](#creating_a_new_project)
+
+- [Opening an existing project](#opening_an_existing_project)
+
+- [Saving a project](#saving_a_project)
+
+- [Setting project defaults](#setting_project_defaults)
+
+- [Units of measurement](#units_of_measurement)
+
+- [Registering calibration data](#registering_calibration_data)
+
+- [Viewing all project data](#viweing_all_project_data)
+
+### Creating a New Project {#creating_a_new_project}
+
+To create a new project:
+
+1.  Select **File >> New** or click the &nbsp;![](new.gif) button on the Main Toolbar.
+
+2.  You will be prompted to save the existing project (if changes were made to it) before the new project is created.
+
+3.  A new, unnamed project is created with all options set to their default values.
+
+A new project is automatically created whenever SWMM first begins.
+
+[!tip]
+If you are going to use a backdrop image with automatic area and length calculation, then it is recommended that you set the map dimensions immediately after creating the new project (see [Setting the Map's Dimensions](#setting_the_maps_dimensions)).
+
+### Opening an Existing Project {#opening_an_existing_project}
+
+To open an existing project stored on disk:
+
+1.  Either select **File >> Open** or click the &nbsp;![](open.gif) button on the Main Toolbar.
+
+2.  You will be prompted to save the current project (if changes were made to it).
+
+3.  Select the file to open from the Open File dialog that appears.
+
+4.  Click **Open** to open the selected file.
+
+To open a project that was worked on recently:
+
+1.  Select **File >> Reopen**.
+
+2.  Select a file from the list of recently used files to open.
+
+### Saving a Project {#saving_a_project}
+
+To save a project under its current name either select **File >> Save** or click the &nbsp;![](save.gif) button on the Main Toolbar.
+
+To save a project using a different name, select **File >> Save As**. A standard Save File dialog will appear from which you can select the folder and name that the project should be saved under.
+
+### Setting Project Defaults {#setting_project_defaults}
+
+Each project has a set of default values that are used unless overridden by the SWMM user. These values fall into three categories:
+
+- Default ID labels (labels used to identify nodes and links when they are first created)
+
+- Default subcatchment properties (e.g., area, width, slope, etc.)
+
+- Default node/link properties (e.g., node invert, conduit length, routing method).
+
+To set default values for a project:
+
+1.  Select **Project >> Defaults**.
+
+2.  A [Project Defaults](#project_defaults) dialog will appear with three pages, one for each category listed above.
+
+3.  Check the box in the lower left of the dialog form if you want to save your choices for use in all new future projects as well.
+
+4.  Click **OK** to accept your choice of defaults.
+
+### Units of Measurement {#units_of_measurement}
+
+SWMM can use either US customary units or SI metric units. The choice of
+flow units determines what unit system is used for all other quantities:
+
+- selecting **CFS** (cubic feet per second), **GPM** (gallons per minutes), or **MGD** (million gallons per day) for flow units implies that [US units](#us_units) will be used throughout
+
+#### US Customary Units
+
+|                                    |                                                                                    |
+| :--------------------------------- | :--------------------------------------------------------------------------------- |
+| Area (Subcatchment)                | acres                                                                              |
+| Area (Storage Unit)                | square feet                                                                        |
+| Area (Ponding)                     | square feet                                                                        |
+| Capillary Suction                  | inches                                                                             |
+| Concentration                      | milligrams / liter (mg/L) <br> micrograms / liter (ug/L) <br> counts / liter (#/L) |
+| Decay Constant (Infiltration)      | 1 / hours                                                                          |
+| Decay Constant (Pollutants)        | 1 / days                                                                           |
+| Depression Storage                 | inches                                                                             |
+| Depth                              | feet                                                                               |
+| Diameter                           | feet                                                                               |
+| Discharge Coefficient Orifice Weir | dimensionless cubic feet / second / feet<sup>n</sup> (CFS/ft<sup>n</sup>)          |
+| Elevation                          | feet                                                                               |
+| Evaporation                        | inches / day                                                                       |
+| Flow                               | cubic feet / second (CFS) gallons / minute (GPM) million gallons / day (MGD)       |
+| Head                               | feet                                                                               |
+| Hydraulic Conductivity             | inches / hour                                                                      |
+| Infiltration Rate                  | inches / hour                                                                      |
+| Length                             | feet                                                                               |
+| Manning's n                        | seconds / meter<sup>1/3</sup>                                                      |
+| Pollutant Buildup                  | mass / acre <br> mass / length                                                     |
+| Rainfall Intensity                 | inches / hour                                                                      |
+| Rainfall Volume                    | inches                                                                             |
+| Slope (Subcatchments)              | percent                                                                            |
+| Slope (Cross Section)              | rise / run                                                                         |
+| Street Cleaning Interval           | days                                                                               |
+| Volume                             | cubic feet                                                                         |
+| Width                              | feet                                                                               |
+
+- selecting **CMS** (cubic meters per second), **LPS** (liters per second), or **MLD** (million liters per day) as flow units implies that [SI units](#si_units) will be used throughout.
+
+#### SI Units
+
+|                                    |                                                                                    |
+| :--------------------------------- | :--------------------------------------------------------------------------------- |
+| Area (Subcatchment)                | hectares                                                                           |
+| Area (Storage Unit)                | square meters                                                                      |
+| Area (Ponding)                     | square meters                                                                      |
+| Capillary Suction                  | millimeters                                                                        |
+| Concentration                      | milligrams / liter (mg/L) <br> micrograms / liter (ug/L) <br> counts / liter (#/L) |
+| Decay Constant (Infiltration)      | 1 / hours                                                                          |
+| Decay Constant (Pollutants)        | 1 / days                                                                           |
+| Depression Storage                 | millimeters                                                                        |
+| Depth                              | meters                                                                             |
+| Diameter                           | meters                                                                             |
+| Discharge Coefficient Orifice Weir | dimensionless cubic meters / second / meters<sup>n</sup> (CFS/meter<sup>n</sup>)   |
+| Elevation                          | meters                                                                             |
+| Evaporation                        | millimeters / day                                                                  |
+| Flow                               | cubic meters / second (CMS) liters / second (LPS) million liters / day (MLD)       |
+| Head                               | meters                                                                             |
+| Hydraulic Conductivity             | millimeters / hour                                                                 |
+| Infiltration Rate                  | millimeters / hour                                                                 |
+| Length                             | meters                                                                             |
+| Manning's n                        | seconds / meter<sup>1/3</sup>                                                      |
+| Pollutant Buildup                  | mass / hectare <br> mass / length                                                  |
+| Rainfall Intensity                 | millimeters / hour                                                                 |
+| Rainfall Volume                    | millimeters                                                                        |
+| Slope (Subcatchments)              | percent                                                                            |
+| Slope (Cross Section)              | rise / run                                                                         |
+| Street Cleaning Interval           | days                                                                               |
+| Volume                             | cubic meters                                                                       |
+| Width                              | meters                                                                             |
+
+- pollutant concentration and Manning's roughness coefficients (n) are always expressed in metric units.
+
+Flow units can be selected directly on the main window's [Status Bar](#swmms_main_window) or by setting a project's [default values](#setting_project_defaults). In the latter case the selection can be saved so that all new future projects will automatically use those units.
+
+[!caution]
+The units of previously entered data are not automatically adjusted if the unit syste is changed.
+
+### Link Offset Conventions {#link_offset_conventions}
+
+Conduits and flow regulators (orifices, weirs, and outlets) can be offset some distance above the invert of their connecting end nodes.
+
+![Link Offset](linkoffset.gif)
+
+There are two different conventions available for specifying the location of these offsets. The **Depth** convention uses the offset distance from the node's invert (distance between **1** and **2** in the figure above). The **Elevation** convention uses the absolute elevation of the offset location (the elevation of point **1** in the figure).
+
+The choice of convention can be made on the [Status Bar](#swmms_main_window) of SWMM's main window of on the [Node/Link Properties](#default_nodelink_properties) page of the [Project Defaults](#project_defaults_dialog) dialog. When this convbention is changed, a dialog will appear giving one the option to automatically re-calculate all existing link offsets in the surrent project using the newly selected convention.
+
+### Registering Calibration Data {#registering_calibration_data}
+
+SWMM can compare the results of a simulation with measured field data in its [Time Series Plots](#time_series_plots). Before SWMM can use such calibration data they must be entered into a specially formatted text file and be registered with the project.
+
+To register calibration data residing in a [Calibration File](#calibration_files):
+
+1.  Select **Project >> Calibration Data**.
+
+2.  In the Calibration Data dialog that appears, click in the box next to the parameter (e.g., node depth, link flow, etc.) whose calibration data will be registered.
+
+3.  Then click the **Add** button to select a Calibration File from a standard Windows file selection dialog box.
+
+4.  Click the **Edit** button if you want to open the Calibration File in Windows NotePad for editing.
+
+5.  Click the **Delete** button if you wish to remove the Calibration File from the form.
+
+6.  Repeat steps 2 - 4 for any other parameters that have calibration data.
+
+7.  Click **OK** to accept your selections.
+
+### Viewing All Project Data {#viewing_all_project_data}
+
+A listing of all project data (with the exception of map coordinates) can be viewed in a non-editable window, formatted for input to SWMM's computational engine. This can be useful for checking data consistency and to make sure that no key components are missing. To view such a listing, select **Project >> Details** from the Main Menu. The format of the data in this listing is the same as that used when the file is saved to disk. It is described in detail in Appendix D of the SWMM 5 Users Manual.
