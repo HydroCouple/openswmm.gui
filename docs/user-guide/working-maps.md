@@ -30,15 +30,15 @@ EPA SWMM can display a map of the study area being modeled. This section describ
 
 ### Viewing Map Layers {#viewing_map_layers}
 
-The layers that can be viewed on the Study Area consist of rain gages, subcatchments, nodes, links, labels, and the backdrop image. The display of each of these can be toggled on or off by selecting View >> Layers from the Main Menu or by right-clicking on the map and selecting Layers from the pop-up menu that appears.
+The layers that can be viewed on the Study Area consist of rain gages, subcatchments, nodes, links, labels, and the backdrop image. The display of each of these can be toggled on or off by selecting **View >> Layers** from the Main Menu or by right-clicking on the map and selecting **Layers** from the pop-up menu that appears.
 
 ### Selecting a Map Theme {#selecting_map_theme}
 
-A map theme corresponds to a specific layer property whose value is drawn in color-coded fashion on the Study Area Map. The dropdown list boxes on the Map Browser are used for selecting a theme to display for the subcatchment, node and link layers.
+A map theme corresponds to a specific layer property whose value is drawn in color-coded fashion on the Study Area Map. The dropdown list boxes on the [Map Browser](#swmms_main-window) are used for selecting a theme to display for the subcatchment, node and link layers.
 
-[]
+![](embim1.gif)
 
-Methods for changing the color-coding associated with a theme are discussed in Using the Map Legends.
+Methods for changing the color-coding associated with a theme are discussed in [Using the Map Legends](#using_map_legends).
 
 ### Setting the Map Dimensions
 
@@ -46,15 +46,15 @@ The physical dimensions of the map can be defined so that map coordinates can be
 
 To set the map's dimensions:
 
-1. Select View >> Dimensions from the Main Menu.
+1. Select **View >> Dimensions** from the Main Menu.
 
-2. Enter coordinates for the lower-left and upper-right corners of the map into the Map Dimensions dialog that appears or click the Auto-Size button to automatically set the dimensions based on the coordinates of the objects currently included in the map.
+2. Enter coordinates for the lower-left and upper-right corners of the map into the [Map Dimensions](#map-dimensions_dialog) dialog that appears or click the **Auto-Size** button to automatically set the dimensions based on the coordinates of the objects currently included in the map.
 
 3. Select the distance units to use for these coordinates.
 
-4. If the Auto-Length option is in effect, check the "Re-compute all lengths and areas" box if you would like SWMM to re-calculate all conduit lengths and subcatchment areas under the new set of map dimensions.
+4. If the [Auto-Length](#status_bar) option is in effect, check the "Re-compute all lengths and areas" box if you would like SWMM to re-calculate all conduit lengths and subcatchment areas under the new set of map dimensions.
 
-5. Click the OK button to resize the map.
+5. Click the **OK** button to resize the map.
 
 [!tip]
 If you are going to use a backdrop image with the automatic distance and area calculation feature, then it is recommended that you set the map dimensions immediately after creating a new project. Map distance units can be different from conduit length units. The latter (feet or meters) depend on whether flow rates are expressed in US or metric units. SWMM will automatically convert units if necessary.
@@ -66,21 +66,21 @@ If you just want to re-compute conduit lengths and subcatchment areas without ch
 
 SWMM can display a Backdrop Image behind the Study Area Map. The backdrop image might be a street map, utility map, topographic map, site development plan, or any other relevant picture or drawing. For example, using a street map would simplify the process of adding sewer lines to the project since one could essentially digitize the drainage system's nodes and links directly on top of it.
 
-[BackdropImage]
+[Backdrop Image](#backdropimage.png)
 
 The Backdrop Image must be a Windows metafile, bitmap, PNG, or JPEG image created outside of SWMM. Once imported, its features cannot be edited, although its scale and viewing area will change as the map window is zoomed and panned. For this reason metafiles work better than bitmaps or JPEGs since they will not loose resolution when re-scaled. Most CAD and GIS programs have the ability to save their drawings and maps as metafiles.
 
-Selecting View >> Backdrop from the Main Menu will display a sub-menu with the following commands:
+Selecting **View >> Backdrop** from the [Main Menu](#main_menu) will display a sub-menu with the following commands:
 
-Load (loads a backdrop image file into the project)
+- [Load](#loading_backdrop_image) (loads a backdrop image file into the project)
 
-Unload (unloads the backdrop image from the project)
+- **Unload** (unloads the backdrop image from the project)
 
-Align (aligns the drainage system schematic with the backdrop)
+- [Align](#aligning_backdrop_image) (aligns the drainage system schematic with the backdrop)
 
-Resize (resizes the map dimensions of the backdrop)
+- [Resize](#resizing-backdrop_image) (resizes the map dimensions of the backdrop)
 
-Watermark (toggles the backdrop image appearance between normal and lightened)
+- **Watermark** (toggles the backdrop image appearance between normal and lightened)
 
 The name of the backdrop file and its map dimensions are saved along with the rest of a project's data whenever the project is saved to file.
 
