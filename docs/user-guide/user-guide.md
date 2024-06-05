@@ -3011,3 +3011,328 @@ Numerical instabilities under Dynamic Wave flow routing can be reduced by:
 - selecting to ignore the inertial terms of the momentum equation
 
 - selecting the option to lengthen short conduits.
+
+## Viewing Simulation Results {#viewing_simulation_results}
+
+This section describes the different ways in which the results of a simulation can be viewed. These include a status report, a summary report, various map views, graphs, tables, and a statistical frequency report.
+
+[Viewing a status report](#viewing_status_report)
+
+[Viewing a summary report](#viewing_summary_report)
+
+[Variables that can be viewed](#variables_that_can-be_viewed)
+
+[Viewing results on the map](#viewing_results_map)
+
+[Viewing results with a graph](#viewing_results_graph)
+
+[Viewing results with a table](#viewing_results_table)
+
+[Viewing a statistics report](#viewing_statistics_report)
+
+### Viewing a Status Report {#viewing_status_report}
+
+A **Status Report** is available for viewing after each simulation. It contains information on the following:
+
+- Analysis Options
+
+- Input Summary (if requested in the [Reporting Options](#reporting_options_dialog))
+
+- Rain File Summary
+
+- Error Messages
+
+- Control Actions (if requested in the [Reporting Options](#reporting_options_dialog))
+
+- Continuity Errors
+
+- Stability Results
+
+- Time Step Variation
+
+To view the Status Report select **Report >> Status** from the Main Menu or click the &nbsp;![](report.gif)  button on the Main Toolbar and select **Status Report** from the drop-down menu that appears.
+
+To copy selected text from the Status Report to a file or to the Windows Clipboard, first select the text to copy with the mouse and then choose **Edit >> Copy To** from the Main Menu (or press the &nbsp;![](copy.gif) button on the Main Toolbar).
+
+To save both the entire Status Report and [Summary Report](#viewing_summary_results) to file, select **File >> Export >> Status/Summary Report** from the Main Menu.
+
+### Viewing Summary Results {#viewing_summary_results}
+
+SWMM's **Summary Results** report lists summary results for each subcatchment, node, and link in the project through a selectable list of tables. To view the various summary results tables, select **Report >> Summary** from the Main Menu or click the &nbsp;![](report.gif) button on the Main Toolbar and select **Summary Results** from the drop-down menu that appears. The Summary Results window looks as follows:
+
+![Summary Report](summaryreport.gif)
+
+The drop-down box at the upper left allows you to choose the type of results to view. The choices are:
+
+- Subcatchment Runoff
+
+- LID Performance
+
+- Groundwater Summary
+
+- Subcatchment Washoff
+
+- Node Depths
+
+- Node Inflows
+
+- Node Surcharging
+
+- Node Flooding
+
+- Storage Volumes
+
+- Outfall Loadings
+
+- Street Flows
+
+- Link Flows
+
+- Flow Classification
+
+- Conduit Surcharging
+
+- Link Pollutant Loads
+
+- Pumping Summary
+
+[!tip]
+The summary results displayed in these tables are based on results found at every computational time step and not just on the results from each reporting time step.
+
+Only summary categories relevant to the particular project and its results will be listed (e.g., Node Flooding and Pumping Summary will not appear if the run has no flooded nodes and the project has no pumps, respectively).
+
+Clicking on the name of an object in the first column of the table will locate that object both in the [Project Browser](#swmms_main_window) and on the Study Area Map. Clicking on a column heading will sort the entries in the table by the values in that column (alternating between ascending and descending order with each click.
+
+Selecting **Edit >> Copy To** from the Main Menu or clicking &nbsp;![](copy.gif) on the Main Toolbar will allow you to copy the contents of the table to either the Windows Clipboard or to a file. To save both the entire [Status Report](#viewing_status_report) and all tables of the Summary Report to a file, select **File >> Export >> Status/Summary Report** from the Main Menu.
+
+### Variables That Can be Viewed {#variables_that_can_be_viewed}
+
+Aside from the results presented in the Status and Summary Reports, computed results for individual subcatchments, nodes, and links can be viewed in several different formats. These variables include:
+
+- [Time series variables](#time_series_variables) of values saved at every reporting time step.
+
+- [Statistical summary variables](#summary_variables) derived from the time series results (i.e., a subset of variables contained in the Summary Report).
+
+#### Time Series Variables {#time_series_variables}
+
+Time series results for the following variables are available for viewing on the map and can be plotted, tabulated, and statistically analyzed:
+
+| Subcatchment Variables                                              | Link Variables                                                                                         |
+| :------------------------------------------------------------------ | :----------------------------------------------------------------------------------------------------- |
+| rainfall rate (in/hr or mm/hr)                                      | flow rate (flow units)                                                                                 |
+| snow depth (inches or millimeters)                                  | average water depth (ft or m)                                                                          |
+| evaporation loss (in/day or mm/day)                                 | flow velocity (ft/sec or m/sec)                                                                        |
+| infiltration loss (in/hr or mm/hr)                                  | volume of water (ft3 or m3)                                                                            |
+| runoff flow (flow units)                                            | capacity (fraction of full area filled by flow for conduits; control setting for pumps and regulators) |
+| groundwater flow into the drainage network (flow units)             | concentration of each pollutant (mass/liter)                                                           |
+| groundwater elevation (ft or m)                                     |                                                                                                        |
+| soil moisture in the unsaturated groundwater zone (volume fraction) |                                                                                                        |
+| washoff concentration of each pollutant (mass/liter)                |                                                                                                        |
+
+| Node Variables                                                                   | System-Wide Variables                    |
+| :------------------------------------------------------------------------------- | :--------------------------------------- |
+| water depth (ft or m above the node invert elevation)                            | air temperature (degrees F or C)         |
+| hydraulic head (ft or m, absolute elevation per vertical datum)                  | potential evaporation (in/day or mm/day) |
+| stored water volume (including ponded water, ft3 or m3)                          | actual evaporation (in/day or mm/day)    |
+| lateral inflow (runoff + all other external inflows, in flow units)              | total rainfall (in/hr or mm/hr)          |
+| total inflow (lateral inflow + upstream conduit inflows, in flow units)          | total snow depth (inches or millimeters) |
+| surface flooding (excess overflow when the node is at full depth, in flow units) | average losses (in/hr or mm/hr)          |
+| concentration of each pollutant after any treatment (mass/liter)                 | total runoff (flow units)                |
+|                                                                                  | total dry weather inflow (flow units)    |
+|                                                                                  | total groundwater inflow (flow units)    |
+|                                                                                  | total RDII inflow (flow units)           |
+|                                                                                  | total direct inflow (flow units)         |
+|                                                                                  | total external inflow (flow units)       |
+|                                                                                  | total external flooding (flow units)     |
+|                                                                                  | total outflow from outfalls (flow units) |
+|                                                                                  | total nodal storage volume ( ft3 or m3)  |
+
+These variables can be viewed only for those subcatchments, nodes, and links that were selected to have detailed time series results saved for them. This normally includes all such objects in the project unless the Reporting option (under the Options category in the [Project Browser](#swmms_main_window)) was used to select specific objects to report on. For nodes and links, results are normally point values computed (or interpolated) at the end of each reporting time step. They can also be the average of all values computed during a reporting time step if **Report Average Results** is selected as a Reporting option.
+
+#### Summary Variables {#summary_variables}
+
+The following summary variables can be viewed in color-coded fashion for each object on the Study Area Map:
+
+- **Subcatchment Variables**
+
+  - total precipitation (inches or millimeters)
+
+  - total evaporation (inches or millimeters)
+
+  - total infiltration (inches or millimeters)
+
+  - total runoff (inches or millimeters)
+
+  - peak runoff (in/hr or mm/hr)
+
+  - runoff coefficient
+
+- **Node Variables**
+
+  - maximum water depth (ft or m)
+
+  - maximum hydraulic head (ft or m)
+
+  - maximum lateral inflow (flow units)
+
+  - total lateral inflow (million gallons or million liters)
+
+  - maximum flooding rate (flow units)
+
+  - total flooded volume (million gallons or million liters)
+
+  - hours flooded
+
+- **Link Variables**
+
+  - maximum flow rate (flow units)
+
+  - maximum velocity (ft/sec or m/sec)
+
+  - maximum degree full
+
+  - hours flowing full
+
+  - hours capacity limited
+
+As with time series results, these summary variables can be viewed only for those subcatchments, nodes, and links that were selected to have detailed time series results saved for them.
+
+### Viewing Results on the Map {#viewing_results_map}
+
+There are several ways to view the values of certain input parameters and simulation results directly on the Study Area Map:
+
+- For the current settings on the [Map Browser](#map-browser-themes), the subcatchments, nodes and links of the map will be colored according to their respective [Map Legends](#using_map_legends). The map's color coding will be updated as a new time period is selected in the Map Browser.
+
+- When the Flyover Map Labeling [program preference](#general_preferences) is selected, moving the mouse over any map object will display its ID name and the value of its current theme parameter in a hint-style box.
+
+- ID names and parameter values can be displayed next to all subcatchments, nodes and/or links by selecting the appropriate options on the Annotation page of the [Map Options](#setting_map_display_options) dialog.
+
+- Subcatchments, nodes or links meeting a specific criterion can be identified by submitting a [Map Query](#submitting_map_query).
+
+- One can animate the display of results on the network map either forward or backward in time by using the controls on the [Animator](#map_browser-animator) panel of the Map Browser.
+
+- The map can be printed, copied to the Windows clipboard, or saved as a DXF file or Windows metafile.
+
+### Viewing Results with a Graph {#viewing_results_graph}
+
+Analysis results can be viewed using several different types of graphs. Graphs can be printed, copied to the Windows clipboard, or saved to a text file or to a Windows metafile. The following types of graphs can be created from available simulation results:
+
+- [Time Series Plot](#time_series_plots)
+
+- [Profile Plot](#profile_plots)
+
+- [Scatter Plot](#scatter_plots)
+
+You can zoom in or out of any graph by holding down the <Shift> key while drawing a zoom rectangle with the mouse's left button held down. Drawing the rectangle from left to right zooms in, drawing from right to left zooms out. The plot can also be panned in any direction by moving the mouse across the plot with the left button held down.
+
+An opened graph will normally be redrawn when a new simulation is run. To prevent the automatic updating of a graph once a new set of results is computed you can lock the current graph by clicking the &nbsp;![](lock.gif) icon in the upper left corner of the graph. To unlock the graph, click the icon again.
+
+_See Also_
+
+[Copying the Current View](#copying_current_view)
+
+[Printing the Current View](#printing_current_view)
+
+#### Time Series Plots {#time_series_plots}
+
+A **Time Series Plot** graphs the values over time of specific combinations of objects and variables. Up to six time series can be plotted on the same graph. When only a single time series is plotted, and that item has [calibration data registered](#registering_calibration_data) for the plotted variable, then the calibration data will be plotted along with the simulated results.
+
+To create a Time Series Plot:
+
+1. Select **Report >> Graph >> Time Series** from the Main Menu or click the &nbsp;![](timeseriesplot.gif)  on the Main Toolbar.
+
+2. A [Time Series Plot](#time_series_plot_selection_dialog) dialog will appear. Use it to describe what objects and variables should be plotted.
+
+To customize the appearance of a time series plot:
+
+1. Make the plot the active window (click on its title bar).
+
+2. Select **Report >> Customize** from the Main Menu, or click the &nbsp;![](options.gif) button on the Main Toolbar, or simply right-click on the graph.
+
+3. Use the [Graph Options](#graph_options_dialog) dialog that appears to customize the plot's appearance.
+
+#### Profile Plots {#profile_plots}
+
+A **Profile Plot** displays the variation in simulated water depth with distance over a connected path of drainage system links and nodes at a particular point in time. Once the plot has been created it will be automatically updated as a new time period is selected using the [Map Browser](#map_browser-time_period).
+
+To create a Profile Plot:
+
+1. Select **Report >> Graph >> Profile** from the Main Menu or press &nbsp;![ProfilePlot](profileplot.gif)  on the Main Toolbar.
+
+2. A [Profile Plot](#profile_plot_selection_dialog) dialog will appear. Use it to identify the path along which the profile plot is to be drawn.
+
+To customize the appearance of a profile plot:
+
+1. Make the plot the active window (click on its title bar).
+
+2. Select **Report >> Customize** from the Main Menu, or click &nbsp;![](options.gif) on the Main Toolbar, or simply right-click on the graph.
+
+3. Use the [Profile Plot Options](#profile_plot_options_dialog) dialog that appears to customize the plot's appearance.
+
+Profile plots can also be created before any simulation results are available, to help visualize and verify the vertical layout of a drainage system. Plots created in this manner will contain a refresh button &nbsp;![](refreshbtn.gif) in the upper left corner that can be used to redraw the plot after edits are made to any elevation data appearing in the plot.
+
+#### Scatter Plots {#scatter_plots}
+
+A **Scatter Plot** displays the relationship between a pair of variables, such as flow rate in a pipe versus water depth at a node.
+
+To create a Scatter Plot:
+
+1. Select **Report >> Graph >> Scatter** from the Main Menu or press &nbsp;![](scatterplot.gif)  on the Main Toolbar.
+
+2. Specify what time interval and what pair of objects and their variables to plot using the [Scatter Plot](#scatter_plot_dialog) dialog that appears.
+
+To customize the appearance of a scatter plot:
+
+1. Make the plot the active window (click on its title bar).
+
+2. Select **Report >> Customize** from the Main Menu, or click &nbsp;![](options.gif) on the Main Toolbar, or simply right-click on the graph.
+
+3. Use the [Graph Options](#graph_options_dialog) dialog that appears to customize the plot's appearance.
+
+### Viewing Results with a Table {#viewing_results_table}
+
+Time series results for selected variables and objects can also be viewed in a tabular format. There are two types of formats available:
+
+- **Table by Object** -- tabulates the time series of several variables for a single object (e.g., flow and water depth for a conduit).
+
+- **Table by Variable** -- tabulates the time series of a single variable for several objects of the same type (e.g., runoff for a group of subcatchments).
+
+To create a tabular report:
+
+1. Select **Report >> Table** from the Main Menu or click  &nbsp;![](timeseriestable.gif)  on the Main Toolbar.
+
+2. Choose the table format (either **By Object** or **By Variable**) from the sub-menu that appears.
+
+3. Fill in the [Table by Object](#table_by_object_dialog) or [Table by Variable](#table_by_variable_dialog) dialogs to specify what information the table should contain.
+
+### Viewing a Statistics Report {#viewing_statistics_report}
+
+A **Statistics Report** can be generated from the time series of simulation results. For a given object and variable this report will do the following:
+
+- segregate the simulation period into a sequence of non-overlapping events, either by day, month, or by flow (or volume) above some minimum threshold value,
+
+- compute a statistical value that characterizes each event, such as the mean, maximum, or total sum of the variable over the event's time period,
+
+- compute summary statistics for the entire set of event values (mean, standard deviation and skewness),
+
+- perform a frequency analysis on the set of event values.
+
+The frequency analysis of event values will determine the frequency at which a particular event value has occurred and will also estimate a return period for each event value. Statistical analyses of this nature are most suitable for long-term continuous simulation runs.
+
+To generate a Statistics Report:
+
+1. Select **Report >> Statistics** from the Main Menu or click the &nbsp;![](statistics.gif)  on the Main Toolbar.
+
+2. Fill in the [Statistics Selection](#statistics_selection_dialog) dialog that appears, specifying the object, variable, and event definition to be analyzed.
+
+The Statistics Report consists of four tabbed pages that contain:
+
+- a table of event summary statistics
+
+- a table of rank-ordered event periods, including their date, duration, and magnitude
+
+- a histogram plot of the chosen event statistic
+
+- an exceedance frequency plot of the event values.
+
+The exceedance frequencies included in the Statistics Report are computed with respect to the number of events that occur, not the total number of reporting periods.
