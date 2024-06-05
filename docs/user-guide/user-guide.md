@@ -2970,7 +2970,7 @@ File errors can occur when:
 
 - a file to be written to cannot be opened because the user does not have write privileges for the directory (folder) where the file is to be stored.
 
-#### Drainage System Layout Errors {drainage_system_layout_errors}
+#### Drainage System Layout Errors {#drainage_system_layout_errors}
 
 A valid drainage system layout must obey the following conditions:
 
