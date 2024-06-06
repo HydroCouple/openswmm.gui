@@ -3681,3 +3681,37 @@ Time periods with no values at any node can be skipped. An excerpt from an RDII 
     N2   2002 04  01  00 20  00  0.002549
     N1   2002 04  01  00 25  00  0.000000
     N2   2002 04  01  00 25  00  0.002549
+
+## Using Add-In Tools {#using_add-in_tools}
+
+SWMM 5 has the ability to launch external applications from its graphical user interface that can extend its capabilities. This section describes how such tools can be registered and share data with SWMM 5.
+
+- [What are add-in tools](#what_are_add-in_tools)
+
+- [Configuring add-in tools](#configuring_add-in_tools)
+
+### What are Add-In Tools {#what_are_add-in_tools}
+
+Add-in tools are third party applications that users can add to the [Tools](#tools_menu) menu of SWMM's Main Menu and be launched while SWMM is still running. SWMM can interact with these applications to a limited degree by exchanging data through its [pre-defined files](#files_used_by_swmm) or through the Windows clipboard. Add-in tools can provide additional modeling capabilities to what SWMM already offers. Some examples of useful add-ins might include:
+
+- a tool that performs a statistical analysis of long-term rainfall data prior to adding it to a SWMM rain gage,
+
+- an external spreadsheet program that would facilitate the editing of a SWMM data set,
+
+- a unit hydrograph estimator program that would derive the R-T-K parameters for a set of  RDII unit hydrographs which could then be copied and pasted directly into SWMM's Unit Hydrograph Editor,
+
+- a post-processor program that uses SWMM's hydraulic results to compute suspended solids removal through a storage unit,
+
+- a third-party dynamic flow routing program used as a substitute for SWMM's own internal procedure.
+
+The figure below shows what the **Tools** menu might look like after several add-in tools have been registered with it. The **Configure Tools** option is used to add, delete, or modify add-in tools. The options below this are the individual tools that have been made available (by this particular user)  and can be launched by selecting them from the menu.
+
+![Addins Menu](addinsmenu.png)
+
+### Configuring Add-In Tools {#configuring_add-in_tools}
+
+To configure one's personal collection of add-in tools, select **Configure Tools** from the [Tools](#tools_menu) menu. This will bring up the Tool Options dialog as shown below. The dialog lists the currently available tools and has command buttons for adding a new tool and for deleting or editing an existing tool. The up and down arrow buttons are used to change the order in which the registered tools are listed on the **Tools** menu.
+
+![ConfigureTools](configuretools.gif)
+
+Whenever the **Add** or **Edit** button is clicked on this dialog a [Tool Properties](#tools_properties_dialog) dialog will appear which is used to describe the properties of the new tool being added or the existing tool being edited.
