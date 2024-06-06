@@ -3336,3 +3336,93 @@ The Statistics Report consists of four tabbed pages that contain:
 - an exceedance frequency plot of the event values.
 
 The exceedance frequencies included in the Statistics Report are computed with respect to the number of events that occur, not the total number of reporting periods.
+
+## Printing and Copying {#printing_copying}
+
+This section describes how to print, copy to the Windows clipboard, or copy to file the contents of the currently active window in the SWMM workspace. This can include the Study Area Map, a graph, a table, or a report.
+
+- [Selecting a printer](#selecting_printer)
+
+- [Setting the page format](#setting_page_format)
+
+- [Previewing the page](#previewing_page)
+
+- [Printing the current view](#printing_current_view)
+
+- [Copying the current view](#copying_current_view)
+
+### Selecting a Printer {#selecting_printer}
+
+To select a printer from among your installed Windows printers and set its properties:
+
+1. Select **File >> Page Setup** from the Main Menu.
+
+2. Click the **Printer** button on the **Page Setup** dialog that appears.
+
+3. Select a printer from the choices available in the combo box in the Print Setup dialog that appears.
+
+4. Click the **Properties** button to select the appropriate printer properties (which vary with choice of printer).
+
+5. Click **OK** on each dialog to accept your selections.
+
+### Setting the Page Format {#setting_page_format}
+
+To format the printed page:
+
+1. Select **File >> Page Setup** from the Main Menu.
+
+2. Use the **Margins** page of the Page Setup dialog box that appears to:
+
+   - Select a printer.
+
+   - Select the paper orientation (Portrait or Landscape).
+
+   - Set left, right, top, and bottom margins.
+
+3. Use the **Headers/Footers** page of the dialog box to:
+
+   - Supply the text for a header that will appear on each page.
+
+   - Indicate whether the header should be printed or not and how its text should be aligned.
+
+   - Supply the text for a footer that will appear on each page.
+
+   - Indicate whether the footer should be printed or not and how its text should be aligned.
+
+   - Indicate whether pages should be numbered.
+
+4. Click **OK** to accept your choices.
+
+### Previewing the Page {#previewing_page}
+
+To preview a printout, select **File >> Print Preview** from the Main Menu. A Preview form will appear which shows how each page being printed will appear. While in preview mode, the left mouse button will re-center and zoom in on the image and the right mouse button will re-center and zoom out.
+
+### Printing the Current View {#printing_current_view}
+
+To print the contents of the current window being viewed in the SWMM workspace, either select **File >> Print** from the Main Menu or click &nbsp;![](print.gif)  on the Main Toolbar. The following views can be printed:
+
+- Study Area Map (at the current zoom level)
+
+- Status Report
+
+- Summary Report (for the current table being viewed)
+
+- Graphs (Time Series, Profile, and Scatter plots)
+
+- Tabular Reports
+
+- Statistical Reports.
+
+### Copying the Current View {#copying_current_view}
+
+SWMM can copy the text and graphics of the current window being viewed to the Windows clipboard or to a file. Views that can be copied in this fashion include the Study Area Map, summary report tables, graphs, time series tables, and statistical reports.
+
+To copy the current view to the clipboard or to file:
+
+1. If the current view is a time series table, select the cells of the table to copy by dragging the mouse over them or copy the entire table by selecting **Edit >> Select All** from the Main Menu.
+
+2. Select **Edit >> Copy To** from the Main Menu or click the &nbsp;![](copy.gif)  button on the Main Toolbar.
+
+3. Select choices from the [Copy](#copy_dialog) dialog that appears and click the **OK** button.
+
+4. If copying to file, enter the name of the file in the Save As dialog that appears and click **OK**.
