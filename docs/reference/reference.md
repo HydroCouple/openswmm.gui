@@ -834,3 +834,376 @@ Note: Flow dividers are operational only for Steady Flow and Kinematic Wave flow
 ## Special Dialog Forms {#special_dialog_forms}
 
 ## Error Messages {#error_messages}
+
+| Category        | Numbers   |
+| :-------------- | :-------- |
+| Run Time Errors | 101 - 107 |
+| Property Errors | 108 - 195 |
+| Format Errors   | 200 - 233 |
+| File Errors     | 301 - 357 |
+| Warnings        | 01 - 11   |
+
+### Run Time Errors
+
+**ERROR 101: memory allocation error.**
+
+- There is not enough physical memory in the computer to analyze the study area.
+
+**ERROR 103: cannot solve KW equations for Link xxx.**
+
+- The internal solver for Kinematic Wave routing failed to converge for the specified link at some stage of the simulation.
+
+**ERROR 105: cannot open ODE solver.**
+
+- The system could not open its Ordinary Differential Equation solver.
+
+**ERROR 107: cannot compute a valid time step.**
+
+- A valid time step for runoff or flow routing calculations (i.e., a number greater than 0) could not be computed at some stage of the simulation.
+
+### Property Errors
+
+**ERROR 108: ambiguous outlet ID name for Subcatchment xxx.**
+
+- The name of the element identified as the outlet of a subcatchment belongs to both a node and a subcatchment in the project's data base.
+
+**ERROR 109: invalid parameter values for Aquifer xxx.**
+
+- The properties entered for an aquifer object were either invalid numbers or were inconsistent with one another (e.g., the soil field capacity was higher than the porosity).
+
+**ERROR 110: ground elevation is below water table for Subcatchment xxx.**
+
+- The ground elevation assigned to a subcatchment's groundwater parameters cannot be below the initial water table elevation of the aquifer object used by the subcatchment.
+
+**ERROR 111: invalid length for Conduit xxx.**
+
+- Conduits cannot have zero or negative lengths.
+
+**ERROR 112: elevation drop exceeds length for Conduit xxx.**
+
+- The elevation drop across the ends of a conduit cannot be greater than the conduit's length. Check for errors in the length and in both the invert elevations and offsets at the conduit's upstream and downstream nodes.
+
+**ERROR 113: invalid roughness for Conduit xxx.**
+
+- Conduits cannot have zero or negative roughness values.
+
+**ERROR 114: invalid number of barrels for Conduit xxx.**
+
+- Conduits must consist of one or more barrels.
+
+**ERROR 115: adverse slope for Conduit xxx.**
+
+- Under Steady or Kinematic Wave routing, all conduits must have positive slopes.  This can usually be corrected by reversing the inlet and outlet nodes of the conduit (i.e., right click on the conduit and select Reverse from the popup menu that appears). Adverse slopes are permitted under Dynamic Wave routing.
+
+**ERROR 117: no cross section defined for Link xxx.**
+
+- A cross section geometry was never defined for the specified link.
+
+**ERROR 119: invalid cross section for Link xxx.**
+
+- Either an invalid shape or invalid set of dimensions was specified for a link's cross section.
+
+**ERROR 121: missing or invalid pump curve assigned to Pump xxx.**
+
+- Either no pump curve or an invalid type of curve was specified for a pump.
+
+**ERROR 122: startup depth not higher than shutoff depth for Pump xxx.**
+
+- Automatic startup for a pump always occurs at a wet well water level that is higher than its automatic shutoff level.
+
+**ERROR 131: the following links form cyclic loops in the drainage system.**
+
+- The Steady and Kinematic Wave flow routing methods cannot be applied to systems where a cyclic loop exists (i.e., a directed path along a set of links that begins and ends at the same node). Most often the cyclic nature of the loop can be eliminated by reversing the direction of one of its links (i.e., switching the inlet and outlet nodes of the link). The names of the links that form the loop will be listed following this message.
+
+**ERROR 133: Node xxx has more than one outlet link.**
+
+- Under Steady and Kinematic Wave flow routing, a junction node can have only a single outlet link.
+
+**ERROR 134: Node xxx has illegal DUMMY link connections.**
+
+- Only a single conduit with a DUMMY cross-section or Ideal-type pump can be directed out of a node; a node with an outgoing Dummy conduit or Ideal pump cannot have all of its incoming links be Dummy conduits and Ideal pumps; a Dummy conduit cannot have its upstream end connected to a storage node.
+
+**ERROR 135: Divider xxx does not have two outlet links.**
+
+- Flow divider nodes must have two outlet links connected to them.
+
+**ERROR 136: Divider xxx has invalid diversion link.**
+
+- The link specified as being the one carrying the diverted flow from a flow divider node was defined with a different inlet node.
+
+**ERROR 137: Weir Divider xxx has invalid parameters.**
+
+- The parameters of a Weir-type divider node either are non-positive numbers or are inconsistent (i.e., the value of the discharge coefficient times the weir height raised to the 3/2 power must be greater than the minimum flow parameter).
+
+**ERROR 138: Node xxx has initial depth greater than maximum depth.**
+
+- Self-explanatory.
+
+**ERROR 139: Regulator xxx is the outlet of a non-storage node.**
+
+- Under Steady or Kinematic Wave flow routing, orifices, weirs, and outlet links can only be used as outflow links from storage nodes.
+
+**ERROR 140: Storage node xxx has negative volume at full depth.**
+
+- The storage unit's Shape data (surface area v. depth) is producing a negative volume at full depth. This can occur when a storage node's surface area curve slopes downward at its highest depth which is below the node's full depth.
+
+### Format Errors
+
+**ERROR 200: one or more errors in input file.**
+
+- This message appears when one or more input file parsing errors (the 200-series errors) occur.
+
+**ERROR 201: too many characters in input line.**
+
+- A line in the input file cannot exceed 1024 characters.
+
+**ERROR 203: too few items at line n of input file.**
+
+- Not enough data items were supplied on a line of the input file.
+
+**ERROR 205: invalid keyword at line n of input file.**
+
+- An unrecognized keyword was encountered when parsing a line of the input file.
+
+**ERROR 207: duplicate ID name at line n of input file.**
+
+- An ID name used for an object was already assigned to an object of the same category.
+
+**ERROR 209: undefined object xxx at line n of input file.**
+
+- A reference was made to an object that was never defined. An example would be if node 123 were designated as the outlet point of a subcatchment, yet no such node was ever defined in the study area.
+
+**ERROR 211: invalid number xxx at line n of input file.**
+
+- Either a string value was encountered where a numerical value was expected or an invalid number (e.g., a negative value) was supplied.
+
+**ERROR 213: invalid date/time xxx at line n of input file.**
+
+- An invalid format for a date or time was encountered. Dates must be entered as month/day/year and times as either decimal hours or as hour:minute:second.
+
+**ERROR 217: control rule clause out of sequence at line n of input file.**
+
+- Errors of this nature can occur when the format for writing control rules is not followed correctly (see Control Rule Format).
+
+**ERROR 219: data provided for unidentified transect at line n of input file.**
+
+- A GR line with Station-Elevation data was encountered in the [TRANSECTS] section of the input file after an NC line but before any X1 line that contains the transect's ID name.
+
+**ERROR 221: transect station out of sequence at line n of input file.**
+
+- The station distances specified for the transect of an irregular cross section must be in increasing numerical order starting from the left bank.
+
+**ERROR 223: Transect xxx has too few stations.**
+
+- A transect for an irregular cross section must have at least 2 stations defined for it.
+
+**ERROR 225: Transect xxx has too many stations.**
+
+- A transect cannot have more than 1500 stations defined for it.
+
+**ERROR 227: Transect xxx has no Manning's N.**
+
+- No Manning's N was specified for a transect (i.e., there was no NC line
+  in the [TRANSECTS] section of the input file.
+
+**ERROR 229: Transect xxx has invalid overbank locations.**
+
+- The distance values specified for either the left or right overbank locations of a transect do not match any of the distances listed for the transect's stations.
+
+**ERROR 231: Transect xxx has no depth.**
+
+- All of the stations for a transect were assigned the same elevation.
+
+**ERROR 233: invalid math expression at line n of input file.**
+
+- A math expression used for a treatment function, a groundwater flow function or a control rule condition clause is either not correctly formed or contains undefined variables or math functions.
+
+**ERROR 235: invalid infiltration parameters.**
+
+- Examples are a Horton maximum infiltration rate lower than the minimum rate or a Green-Ampt initial moisture deficit greater than 1.
+
+### File Errors
+
+**ERROR 301: files share same names.**
+
+- The input, report, and binary output files specified on the command line cannot have the same names.
+
+**ERROR 303: cannot open input file.**
+
+- The input file either does not exist or cannot be opened (e.g., it might be in use by another program).
+
+**ERROR 305: cannot open report file.**
+
+- The report file cannot be opened (e.g., it might reside in a directory to which the user does not have write privileges).
+
+**ERROR 307: cannot open binary results file.**
+
+- The binary output file cannot be opened (e.g., it might reside in a directory to which the user does not have write privileges).
+
+**ERROR 309: error writing to binary results file.**
+
+- There was an error in trying to write results to the binary output file (e.g., the disk might be full or the file size exceed the limit imposed by the operating system).
+
+**ERROR 311: error reading from binary results file.**
+
+- The command line version of SWMM could not read results saved to the binary output file when writing results to the report file.
+
+**ERROR 313: cannot open scratch rainfall interface file.**
+
+- SWMM could not open the temporary file it uses to collate data together from external rainfall files.
+
+**ERROR 315: cannot open rainfall interface file xxx.**
+
+- SWMM could not open the specified rainfall interface file, possibly because it does not exist or because the user does not have write privileges to its directory.
+
+**ERROR 317: cannot open rainfall data file xxx.**
+
+- An external rainfall data file could not be opened, most likely because it does not exist.
+
+**ERROR 318: date out of sequence in rainfall data file xxx.**
+
+- An external user-prepared rainfall data file must have its entries appear in chronological order. The first out-of-order entry will be listed.
+
+**ERROR 319: unknown format for rainfall data file.**
+
+- SWMM could not recognize the format used for a designated rainfall data
+  file.
+
+**ERROR 320: invalid format for rainfall interface file.**
+
+- SWMM was trying to read data from a designated rainfall interface file with the wrong format (i.e., it may have been created for some other project or actually be some other type of file).
+
+**ERROR 321: no data in rainfall interface file for gage xxx.**
+
+- This message occurs when a project wants to use a previously saved rainfall interface file, but cannot find any data for one of its rain gages in the interface file. It can also occur if the gage uses data from a user-prepared rainfall file and the station id entered for the gage cannot be found in the file.
+
+**ERROR 323: cannot open runoff interface file xxx.**
+
+- A runoff interface file could not be opened, possibly because it does not exist or because the user does not have write privileges to its directory.
+
+**ERROR 325: incompatible data found in runoff interface file.**
+
+- SWMM was trying to read data from a designated runoff interface file with the wrong format (i.e., it may have been created for some other project or actually be some other type of file).
+
+**ERROR 327: attempting to read beyond end of runoff interface file.**
+
+- This error can occur when a previously saved runoff interface file is being used in a simulation with a longer duration than the one that created the interface file.
+
+**ERROR 329: error in reading from runoff interface file.**
+
+- A format error was encountered while trying to read data from a previously saved runoff interface file.
+
+**ERROR 331: cannot open hot start interface file xxx.**
+
+- A hotstart interface file could not be opened, possibly because it does not exist or because the user does not have write privileges to its directory.
+
+**ERROR 333: incompatible data found in hot start interface file.**
+
+- SWMM was trying to read data from a designated hot start interface file with the wrong format (i.e., it may have been created for some other project or actually be some other type of file).
+
+**ERROR 335: error in reading from hot start interface file.**
+
+- A format error was encountered while trying to read data from a previously saved hot start interface file.
+
+**ERROR 336: no climate file specified for evaporation and/or wind speed.**
+
+- This error occurs when the user specifies that evaporation or wind speed data will be read from an external climate file, but no name is supplied for the file.
+
+**ERROR 337: cannot open climate file xxx.**
+
+- An external climate data file could not be opened, most likely because it does not exist.
+
+**ERROR 338: error in reading from climate file xxx.**
+
+- SWMM was trying to read data from an external climate file with the wrong format.
+
+**ERROR 339: attempt to read beyond end of climate file xxx.**
+
+- The specified external climate does not include data for the period of time being simulated.
+
+**ERROR 341: cannot open scratch RDII interface file.**
+
+- SWMM could not open the temporary file it uses to store RDII flow data.
+
+**ERROR 343: cannot open RDII interface file xxx.**
+
+- An RDII interface file could not be opened, possibly because it does not exist or because the user does not have write privileges to its directory.
+
+**ERROR 345: invalid format for RDII interface file.**
+
+- SWMM was trying to read data from a designated RDII interface file with the wrong format (i.e., it may have been created for some other project or actually be some other type of file).
+
+**ERROR 351: cannot open routing interface file xxx.**
+
+- A routing interface file could not be opened, possibly because it does not exist or because the user does not have write privileges to its directory.
+
+**ERROR 353: invalid format for routing interface file xxx.**
+
+- SWMM was trying to read data from a designated routing interface file with the wrong format (i.e., it may have been created for some other project or actually be some other type of file).
+
+**ERROR 355: mismatched names in routing interface file xxx.**
+
+- The names of pollutants found in a designated routing interface file do not match the names used in the current project.
+
+**ERROR 357: inflows and outflows interface files have same name.**
+
+-In cases where a run uses one routing interface file to provide inflows for a set of locations and another to save outflow results, the two files cannot both have the same name.
+
+\*\* ERROR 361: could not open external file used for Time Series xxx.
+
+- The external file used to provide data for the named time series could not be opened, most likely because it does not exist.
+
+**ERROR 363: invalid data in external file used for used for Time Series xxx.**
+
+- The external file used to provide data for the named time series has one or more lines with the wrong format.
+
+### Warning Messages
+
+**WARNING 01: wet weather time step reduced to recording interval for Rain Gage xxx.**
+
+- The wet weather time step was automatically reduced so that no period with rainfall would be skipped during a simulation.
+
+**WARNING 02: maximum depth increased for Node xxx.**
+
+- The maximum depth for the node was automatically increased to match the top of the highest connecting conduit.
+
+**WARNING 03: negative offset ignored for Link xxx.**
+
+- The link's stipulated offset was below the connecting node's invert so its actual offset was set to 0.
+
+**WARNING 04: minimum elevation drop used for Conduit xxx.**
+
+- The elevation drop between the end nodes of the conduit was below 0.001 ft (0.00035 m) so the latter value was used instead to calculate its slope.
+
+**WARNING 05: minimum slope used for Conduit xxx.**
+
+- The conduit's computed slope was below the user-specified Minimum Conduit Slope so the latter value was used instead.
+
+**WARNING 06: dry weather time step increased to wet weather time step.**
+
+- The user-specified time step for computing runoff during dry weather periods was lower than that set for wet weather periods and was automatically increased to the wet weather value.
+
+**WARNING 07: routing time step reduced to wet weather time step.**
+
+- The user-specified time step for flow routing was larger than the wet weather runoff time step and was automatically reduced to the runoff time step to prevent loss of accuracy.
+
+**WARNING 08: elevation drop exceeds length for Conduit xxx.**
+
+- The elevation drop across the ends of a conduit exceeds its length. The program computes the conduit's slope as the elevation drop divided by the length instead of using the more accurate right triangle method. The user should check for errors in the length and in both the invert elevations and offsets at the conduit's upstream and downstream nodes.
+
+**WARNING 09: time series interval greater than recording interval for Rain Gage xxx.**
+
+- The smallest time interval between entries in the precipitation time series used by the rain gage is greater than the recording time interval specified for the gage. If this was not actually intended then what appear to be continuous periods of rainfall in the time series will instead be read with time gaps in between them.
+
+**WARNING 10a: crest elevation is below downstream invert for regulator Link xxx.**
+
+- For Kinematic Wave or Steady Flow routing, the height of the opening on an orifice, weir, or outlet at a storage node is below the invert elevation of its downstream node. Users should check to see if the regulator's offset height or the downstream node's invert elevation is in error.
+
+**WARNING 10b: crest elevation raised to downstream invert for regulator
+Link xxx.**
+
+- For Dynamic Wave routing, the height of the opening on an orifice, weir or outlet will be raised to the invert elevation of its downstream node if necessary.
+
+**WARNING 11: non-matching attributes in Control Rule xxx.**
+
+- A control rule's premise is comparing two different types of attributes to one another (for example, conduit flow and junction water depth).
