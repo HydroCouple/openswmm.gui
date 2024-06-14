@@ -639,6 +639,10 @@ Source: Modern Sewer Design (Fourth Edition), American Iron and Steel Institute,
 
 Note: The adjustment factors provided in a subcatchment's Infiltration Pattern will override those supplied for Conductivity in the project's Climate Adjustment factors.
 
+#### Subcatchment Width {#subcatchment_width}
+
+An initial estimate of the characteristic width is given by the subcatchment area divided by the average maximum overland flow length. The maximum overland flow length is the length of the flow path from the outlet to the furthest drainage point of the subcatchment. Maximum lengths from several different possible flow paths should be averaged. These paths should reflect slow flow, such as over pervious surfaces, more than rapid flow over pavement, for example. Adjustments should be made to the width parameter to produce good fits to measured runoff hydrographs.
+
 ### Junction Properties
 
 |                 |                                                                                                                                                                                                                                                                                                   |
