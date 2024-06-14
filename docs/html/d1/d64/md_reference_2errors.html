@@ -1,0 +1,521 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/xhtml;charset=UTF-8"/>
+<meta http-equiv="X-UA-Compatible" content="IE=9"/>
+<meta name="generator" content="Doxygen 1.10.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<!-- BEGIN opengraph metadata -->
+<meta property="og:title" content="Doxygen Awesome" />
+<meta property="og:image" content="" />
+<meta property="og:description" content="" />
+<meta property="og:url" content="" />
+<!-- END opengraph metadata -->
+<!-- BEGIN twitter metadata -->
+<meta name="twitter:image:src" content="" />
+<meta name="twitter:title" content="" />
+<meta name="twitter:description" content="Custom CSS theme for doxygen html-documentation with lots of customization parameters." />
+<!-- END twitter metadata -->
+<title>SWMM 5: Error Messages</title>
+<link href="../../tabs.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" type="image/svg+xml" href="logo.drawio.svg"/>
+<script type="text/javascript" src="../../jquery.js"></script>
+<script type="text/javascript" src="../../dynsections.js"></script>
+<script type="text/javascript" src="../../doxygen-awesome-darkmode-toggle.js"></script>
+<script type="text/javascript" src="../../doxygen-awesome-fragment-copy-button.js"></script>
+<script type="text/javascript" src="../../doxygen-awesome-paragraph-link.js"></script>
+<script type="text/javascript" src="../../doxygen-awesome-interactive-toc.js"></script>
+<script type="text/javascript" src="../../doxygen-awesome-tabs.js"></script>
+<script type="text/javascript" src="../../toggle-alternative-theme.js"></script>
+<script type="text/javascript">
+    DoxygenAwesomeFragmentCopyButton.init()
+    DoxygenAwesomeDarkModeToggle.init()
+    DoxygenAwesomeParagraphLink.init()
+    DoxygenAwesomeInteractiveToc.init()
+    DoxygenAwesomeTabs.init()
+</script>
+<link href="../../navtree.css" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="../../resize.js"></script>
+<script type="text/javascript" src="../../navtreedata.js"></script>
+<script type="text/javascript" src="../../navtree.js"></script>
+<script type="text/javascript" src="../../cookie.js"></script>
+<link href="../../search/search.css" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="../../search/searchdata.js"></script>
+<script type="text/javascript" src="../../search/search.js"></script>
+<script type="text/javascript">
+window.MathJax = {
+  options: {
+    ignoreHtmlClass: 'tex2jax_ignore',
+    processHtmlClass: 'tex2jax_process'
+  }
+};
+</script>
+<script type="text/javascript" id="MathJax-script" async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+<link href="../../doxygen.css" rel="stylesheet" type="text/css" />
+<link href="../../doxygen-awesome.css" rel="stylesheet" type="text/css"/>
+</head>
+<body>
+<!-- https://tholman.com/github-corners/ -->
+<a href="https://github.com/USEPA/Stormwater-Management-Model" class="github-corner" title="View source on GitHub" target="_blank">
+    <svg viewBox="0 0 250 250" width="40" height="40" style="position: absolute; top: 0; border: 0; right: 0; z-index: 99;" aria-hidden="true">
+    <path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a><style>.github-corner:hover .octo-arm{animation:octocat-wave 560ms ease-in-out}@keyframes octocat-wave{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-25deg)}40%,80%{transform:rotate(10deg)}}@media (max-width:500px){.github-corner:hover .octo-arm{animation:none}.github-corner .octo-arm{animation:octocat-wave 560ms ease-in-out}}</style>
+<div id="top"><!-- do not remove this div, it is closed by doxygen! -->
+<div id="titlearea">
+<table cellspacing="0" cellpadding="0">
+ <tbody>
+ <tr style="height: 56px;">
+  <td id="projectalign" style="padding-left: 0.5em;">
+   <div id="projectname">SWMM 5
+   &#160;<span id="projectnumber">5.3.0</span>
+   </div>
+   <div id="projectbrief">Documentation</div>
+  </td>
+ </tr>
+ </tbody>
+</table>
+</div>
+<!-- end header part -->
+<!-- Generated by Doxygen 1.10.0 -->
+<script type="text/javascript">
+/* @license magnet:?xt=urn:btih:d3d9a9a6595521f9666a5e94cc830dab83b65699&amp;dn=expat.txt MIT */
+var searchBox = new SearchBox("searchBox", "../../search/",'.html');
+/* @license-end */
+</script>
+<script type="text/javascript" src="../../menudata.js"></script>
+<script type="text/javascript" src="../../menu.js"></script>
+<script type="text/javascript">
+/* @license magnet:?xt=urn:btih:d3d9a9a6595521f9666a5e94cc830dab83b65699&amp;dn=expat.txt MIT */
+$(function() {
+  initMenu('../../',true,false,'search.php','Search');
+  $(function() { init_search(); });
+});
+/* @license-end */
+</script>
+<div id="main-nav"></div>
+</div><!-- top -->
+<div id="side-nav" class="ui-resizable side-nav-resizable">
+  <div id="nav-tree">
+    <div id="nav-tree-contents">
+      <div id="nav-sync" class="sync"></div>
+    </div>
+  </div>
+  <div id="splitbar" style="-moz-user-select:none;" 
+       class="ui-resizable-handle">
+  </div>
+</div>
+<script type="text/javascript">
+/* @license magnet:?xt=urn:btih:d3d9a9a6595521f9666a5e94cc830dab83b65699&amp;dn=expat.txt MIT */
+$(function(){initNavTree('d1/d64/md_reference_2errors.html','../../'); initResizable(); });
+/* @license-end */
+</script>
+<div id="doc-content">
+<!-- window showing the filter options -->
+<div id="MSearchSelectWindow"
+     onmouseover="return searchBox.OnSearchSelectShow()"
+     onmouseout="return searchBox.OnSearchSelectHide()"
+     onkeydown="return searchBox.OnSearchSelectKey(event)">
+</div>
+
+<!-- iframe showing the search results (closed by default) -->
+<div id="MSearchResultsWindow">
+<div id="MSearchResults">
+<div class="SRPage">
+<div id="SRIndex">
+<div id="SRResults"></div>
+<div class="SRStatus" id="Loading">Loading...</div>
+<div class="SRStatus" id="Searching">Searching...</div>
+<div class="SRStatus" id="NoMatches">No Matches</div>
+</div>
+</div>
+</div>
+</div>
+
+<div><div class="header">
+  <div class="headertitle"><div class="title">Error Messages</div></div>
+</div><!--header-->
+<div class="contents">
+<div class="textblock"><p><a class="anchor" id="autotoc_md0"></a> </p><table class="markdownTable">
+<tr class="markdownTableHead">
+<th class="markdownTableHeadLeft">Category   </th><th class="markdownTableHeadLeft">Numbers    </th></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyLeft">Run Time Errors   </td><td class="markdownTableBodyLeft">101 - 107    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyLeft">Property Errors   </td><td class="markdownTableBodyLeft">108 - 195    </td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyLeft">Format Errors   </td><td class="markdownTableBodyLeft">200 - 233    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyLeft">File Errors   </td><td class="markdownTableBodyLeft">301 - 357    </td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyLeft">Warnings   </td><td class="markdownTableBodyLeft">01 - 11   </td></tr>
+</table>
+<h2><a class="anchor" id="autotoc_md1"></a>
+Run Time Errors</h2>
+<p><b>ERROR 101: memory allocation error.</b></p>
+<ul>
+<li>There is not enough physical memory in the computer to analyze the study area.</li>
+</ul>
+<p><b>ERROR 103: cannot solve KW equations for Link xxx.</b></p>
+<ul>
+<li>The internal solver for Kinematic Wave routing failed to converge for the specified link at some stage of the simulation.</li>
+</ul>
+<p><b>ERROR 105: cannot open ODE solver.</b></p>
+<ul>
+<li>The system could not open its Ordinary Differential Equation solver.</li>
+</ul>
+<p><b>ERROR 107: cannot compute a valid time step.</b></p>
+<ul>
+<li>A valid time step for runoff or flow routing calculations (i.e., a number greater than 0) could not be computed at some stage of the simulation.</li>
+</ul>
+<h2><a class="anchor" id="autotoc_md2"></a>
+Property Errors</h2>
+<p><b>ERROR 108: ambiguous outlet ID name for Subcatchment xxx.</b></p>
+<ul>
+<li>The name of the element identified as the outlet of a subcatchment belongs to both a node and a subcatchment in the project's data base.</li>
+</ul>
+<p><b>ERROR 109: invalid parameter values for Aquifer xxx.</b></p>
+<ul>
+<li>The properties entered for an aquifer object were either invalid numbers or were inconsistent with one another (e.g., the soil field capacity was higher than the porosity).</li>
+</ul>
+<p><b>ERROR 110: ground elevation is below water table for Subcatchment xxx.</b></p>
+<ul>
+<li>The ground elevation assigned to a subcatchment's groundwater parameters cannot be below the initial water table elevation of the aquifer object used by the subcatchment.</li>
+</ul>
+<p><b>ERROR 111: invalid length for Conduit xxx.</b></p>
+<ul>
+<li>Conduits cannot have zero or negative lengths.</li>
+</ul>
+<p><b>ERROR 112: elevation drop exceeds length for Conduit xxx.</b></p>
+<ul>
+<li>The elevation drop across the ends of a conduit cannot be greater than the conduit's length. Check for errors in the length and in both the invert elevations and offsets at the conduit's upstream and downstream nodes.</li>
+</ul>
+<p><b>ERROR 113: invalid roughness for Conduit xxx.</b></p>
+<ul>
+<li>Conduits cannot have zero or negative roughness values.</li>
+</ul>
+<p><b>ERROR 114: invalid number of barrels for Conduit xxx.</b></p>
+<ul>
+<li>Conduits must consist of one or more barrels.</li>
+</ul>
+<p><b>ERROR 115: adverse slope for Conduit xxx.</b></p>
+<ul>
+<li>Under Steady or Kinematic Wave routing, all conduits must have positive slopes.  This can usually be corrected by reversing the inlet and outlet nodes of the conduit (i.e., right click on the conduit and select Reverse from the popup menu that appears). Adverse slopes are permitted under Dynamic Wave routing.</li>
+</ul>
+<p><b>ERROR 117: no cross section defined for Link xxx.</b></p>
+<ul>
+<li>A cross section geometry was never defined for the specified link.</li>
+</ul>
+<p><b>ERROR 119: invalid cross section for Link xxx.</b></p>
+<ul>
+<li>Either an invalid shape or invalid set of dimensions was specified for a link's cross section.</li>
+</ul>
+<p><b>ERROR 121: missing or invalid pump curve assigned to Pump xxx.</b></p>
+<ul>
+<li>Either no pump curve or an invalid type of curve was specified for a pump.</li>
+</ul>
+<p><b>ERROR 122: startup depth not higher than shutoff depth for Pump xxx.</b></p>
+<ul>
+<li>Automatic startup for a pump always occurs at a wet well water level that is higher than its automatic shutoff level.</li>
+</ul>
+<p><b>ERROR 131: the following links form cyclic loops in the drainage system.</b></p>
+<ul>
+<li>The Steady and Kinematic Wave flow routing methods cannot be applied to systems where a cyclic loop exists (i.e., a directed path along a set of links that begins and ends at the same node). Most often the cyclic nature of the loop can be eliminated by reversing the direction of one of its links (i.e., switching the inlet and outlet nodes of the link). The names of the links that form the loop will be listed following this message.</li>
+</ul>
+<p><b>ERROR 133: Node xxx has more than one outlet link.</b></p>
+<ul>
+<li>Under Steady and Kinematic Wave flow routing, a junction node can have only a single outlet link.</li>
+</ul>
+<p><b>ERROR 134: Node xxx has illegal DUMMY link connections.</b></p>
+<ul>
+<li>Only a single conduit with a DUMMY cross-section or Ideal-type pump can be directed out of a node; a node with an outgoing Dummy conduit or Ideal pump cannot have all of its incoming links be Dummy conduits and Ideal pumps; a Dummy conduit cannot have its upstream end connected to a storage node.</li>
+</ul>
+<p><b>ERROR 135: Divider xxx does not have two outlet links.</b></p>
+<ul>
+<li>Flow divider nodes must have two outlet links connected to them.</li>
+</ul>
+<p><b>ERROR 136: Divider xxx has invalid diversion link.</b></p>
+<ul>
+<li>The link specified as being the one carrying the diverted flow from a flow divider node was defined with a different inlet node.</li>
+</ul>
+<p><b>ERROR 137: Weir Divider xxx has invalid parameters.</b></p>
+<ul>
+<li>The parameters of a Weir-type divider node either are non-positive numbers or are inconsistent (i.e., the value of the discharge coefficient times the weir height raised to the 3/2 power must be greater than the minimum flow parameter).</li>
+</ul>
+<p><b>ERROR 138: Node xxx has initial depth greater than maximum depth.</b></p>
+<ul>
+<li>Self-explanatory.</li>
+</ul>
+<p><b>ERROR 139: Regulator xxx is the outlet of a non-storage node.</b></p>
+<ul>
+<li>Under Steady or Kinematic Wave flow routing, orifices, weirs, and outlet links can only be used as outflow links from storage nodes.</li>
+</ul>
+<p><b>ERROR 140: Storage node xxx has negative volume at full depth.</b></p>
+<ul>
+<li>The storage unit's Shape data (surface area v. depth) is producing a negative volume at full depth. This can occur when a storage node's surface area curve slopes downward at its highest depth which is below the node's full depth.</li>
+</ul>
+<h2><a class="anchor" id="autotoc_md3"></a>
+Format Errors</h2>
+<p><b>ERROR 200: one or more errors in input file.</b></p>
+<ul>
+<li>This message appears when one or more input file parsing errors (the 200-series errors) occur.</li>
+</ul>
+<p><b>ERROR 201: too many characters in input line.</b></p>
+<ul>
+<li>A line in the input file cannot exceed 1024 characters.</li>
+</ul>
+<p><b>ERROR 203: too few items at line n of input file.</b></p>
+<ul>
+<li>Not enough data items were supplied on a line of the input file.</li>
+</ul>
+<p><b>ERROR 205: invalid keyword at line n of input file.</b></p>
+<ul>
+<li>An unrecognized keyword was encountered when parsing a line of the input file.</li>
+</ul>
+<p><b>ERROR 207: duplicate ID name at line n of input file.</b></p>
+<ul>
+<li>An ID name used for an object was already assigned to an object of the same category.</li>
+</ul>
+<p><b>ERROR 209: undefined object xxx at line n of input file.</b></p>
+<ul>
+<li>A reference was made to an object that was never defined. An example would be if node 123 were designated as the outlet point of a subcatchment, yet no such node was ever defined in the study area.</li>
+</ul>
+<p><b>ERROR 211: invalid number xxx at line n of input file.</b></p>
+<ul>
+<li>Either a string value was encountered where a numerical value was expected or an invalid number (e.g., a negative value) was supplied.</li>
+</ul>
+<p><b>ERROR 213: invalid date/time xxx at line n of input file.</b></p>
+<ul>
+<li>An invalid format for a date or time was encountered. Dates must be entered as month/day/year and times as either decimal hours or as hour:minute:second.</li>
+</ul>
+<p><b>ERROR 217: control rule clause out of sequence at line n of input file.</b></p>
+<ul>
+<li>Errors of this nature can occur when the format for writing control rules is not followed correctly (see Control Rule Format).</li>
+</ul>
+<p><b>ERROR 219: data provided for unidentified transect at line n of input file.</b></p>
+<ul>
+<li>A GR line with Station-Elevation data was encountered in the [TRANSECTS] section of the input file after an NC line but before any X1 line that contains the transect's ID name.</li>
+</ul>
+<p><b>ERROR 221: transect station out of sequence at line n of input file.</b></p>
+<ul>
+<li>The station distances specified for the transect of an irregular cross section must be in increasing numerical order starting from the left bank.</li>
+</ul>
+<p><b>ERROR 223: Transect xxx has too few stations.</b></p>
+<ul>
+<li>A transect for an irregular cross section must have at least 2 stations defined for it.</li>
+</ul>
+<p><b>ERROR 225: Transect xxx has too many stations.</b></p>
+<ul>
+<li>A transect cannot have more than 1500 stations defined for it.</li>
+</ul>
+<p><b>ERROR 227: Transect xxx has no Manning's N.</b></p>
+<ul>
+<li>No Manning's N was specified for a transect (i.e., there was no NC line in the [TRANSECTS] section of the input file.</li>
+</ul>
+<p><b>ERROR 229: Transect xxx has invalid overbank locations.</b></p>
+<ul>
+<li>The distance values specified for either the left or right overbank locations of a transect do not match any of the distances listed for the transect's stations.</li>
+</ul>
+<p><b>ERROR 231: Transect xxx has no depth.</b></p>
+<ul>
+<li>All of the stations for a transect were assigned the same elevation.</li>
+</ul>
+<p><b>ERROR 233: invalid math expression at line n of input file.</b></p>
+<ul>
+<li>A math expression used for a treatment function, a groundwater flow function or a control rule condition clause is either not correctly formed or contains undefined variables or math functions.</li>
+</ul>
+<p><b>ERROR 235: invalid infiltration parameters.</b></p>
+<ul>
+<li>Examples are a Horton maximum infiltration rate lower than the minimum rate or a Green-Ampt initial moisture deficit greater than 1.</li>
+</ul>
+<h2><a class="anchor" id="autotoc_md4"></a>
+File Errors</h2>
+<p><b>ERROR 301: files share same names.</b></p>
+<ul>
+<li>The input, report, and binary output files specified on the command line cannot have the same names.</li>
+</ul>
+<p><b>ERROR 303: cannot open input file.</b></p>
+<ul>
+<li>The input file either does not exist or cannot be opened (e.g., it might be in use by another program).</li>
+</ul>
+<p><b>ERROR 305: cannot open report file.</b></p>
+<ul>
+<li>The report file cannot be opened (e.g., it might reside in a directory to which the user does not have write privileges).</li>
+</ul>
+<p><b>ERROR 307: cannot open binary results file.</b></p>
+<ul>
+<li>The binary output file cannot be opened (e.g., it might reside in a directory to which the user does not have write privileges).</li>
+</ul>
+<p><b>ERROR 309: error writing to binary results file.</b></p>
+<ul>
+<li>There was an error in trying to write results to the binary output file (e.g., the disk might be full or the file size exceed the limit imposed by the operating system).</li>
+</ul>
+<p><b>ERROR 311: error reading from binary results file.</b></p>
+<ul>
+<li>The command line version of SWMM could not read results saved to the binary output file when writing results to the report file.</li>
+</ul>
+<p><b>ERROR 313: cannot open scratch rainfall interface file.</b></p>
+<ul>
+<li>SWMM could not open the temporary file it uses to collate data together from external rainfall files.</li>
+</ul>
+<p><b>ERROR 315: cannot open rainfall interface file xxx.</b></p>
+<ul>
+<li>SWMM could not open the specified rainfall interface file, possibly because it does not exist or because the user does not have write privileges to its directory.</li>
+</ul>
+<p><b>ERROR 317: cannot open rainfall data file xxx.</b></p>
+<ul>
+<li>An external rainfall data file could not be opened, most likely because it does not exist.</li>
+</ul>
+<p><b>ERROR 318: date out of sequence in rainfall data file xxx.</b></p>
+<ul>
+<li>An external user-prepared rainfall data file must have its entries appear in chronological order. The first out-of-order entry will be listed.</li>
+</ul>
+<p><b>ERROR 319: unknown format for rainfall data file.</b></p>
+<ul>
+<li>SWMM could not recognize the format used for a designated rainfall data file.</li>
+</ul>
+<p><b>ERROR 320: invalid format for rainfall interface file.</b></p>
+<ul>
+<li>SWMM was trying to read data from a designated rainfall interface file with the wrong format (i.e., it may have been created for some other project or actually be some other type of file).</li>
+</ul>
+<p><b>ERROR 321: no data in rainfall interface file for gage xxx.</b></p>
+<ul>
+<li>This message occurs when a project wants to use a previously saved rainfall interface file, but cannot find any data for one of its rain gages in the interface file. It can also occur if the gage uses data from a user-prepared rainfall file and the station id entered for the gage cannot be found in the file.</li>
+</ul>
+<p><b>ERROR 323: cannot open runoff interface file xxx.</b></p>
+<ul>
+<li>A runoff interface file could not be opened, possibly because it does not exist or because the user does not have write privileges to its directory.</li>
+</ul>
+<p><b>ERROR 325: incompatible data found in runoff interface file.</b></p>
+<ul>
+<li>SWMM was trying to read data from a designated runoff interface file with the wrong format (i.e., it may have been created for some other project or actually be some other type of file).</li>
+</ul>
+<p><b>ERROR 327: attempting to read beyond end of runoff interface file.</b></p>
+<ul>
+<li>This error can occur when a previously saved runoff interface file is being used in a simulation with a longer duration than the one that created the interface file.</li>
+</ul>
+<p><b>ERROR 329: error in reading from runoff interface file.</b></p>
+<ul>
+<li>A format error was encountered while trying to read data from a previously saved runoff interface file.</li>
+</ul>
+<p><b>ERROR 331: cannot open hot start interface file xxx.</b></p>
+<ul>
+<li>A hotstart interface file could not be opened, possibly because it does not exist or because the user does not have write privileges to its directory.</li>
+</ul>
+<p><b>ERROR 333: incompatible data found in hot start interface file.</b></p>
+<ul>
+<li>SWMM was trying to read data from a designated hot start interface file with the wrong format (i.e., it may have been created for some other project or actually be some other type of file).</li>
+</ul>
+<p><b>ERROR 335: error in reading from hot start interface file.</b></p>
+<ul>
+<li>A format error was encountered while trying to read data from a previously saved hot start interface file.</li>
+</ul>
+<p><b>ERROR 336: no climate file specified for evaporation and/or wind speed.</b></p>
+<ul>
+<li>This error occurs when the user specifies that evaporation or wind speed data will be read from an external climate file, but no name is supplied for the file.</li>
+</ul>
+<p><b>ERROR 337: cannot open climate file xxx.</b></p>
+<ul>
+<li>An external climate data file could not be opened, most likely because it does not exist.</li>
+</ul>
+<p><b>ERROR 338: error in reading from climate file xxx.</b></p>
+<ul>
+<li>SWMM was trying to read data from an external climate file with the wrong format.</li>
+</ul>
+<p><b>ERROR 339: attempt to read beyond end of climate file xxx.</b></p>
+<ul>
+<li>The specified external climate does not include data for the period of time being simulated.</li>
+</ul>
+<p><b>ERROR 341: cannot open scratch RDII interface file.</b></p>
+<ul>
+<li>SWMM could not open the temporary file it uses to store RDII flow data.</li>
+</ul>
+<p><b>ERROR 343: cannot open RDII interface file xxx.</b></p>
+<ul>
+<li>An RDII interface file could not be opened, possibly because it does not exist or because the user does not have write privileges to its directory.</li>
+</ul>
+<p><b>ERROR 345: invalid format for RDII interface file.</b></p>
+<ul>
+<li>SWMM was trying to read data from a designated RDII interface file with the wrong format (i.e., it may have been created for some other project or actually be some other type of file).</li>
+</ul>
+<p><b>ERROR 351: cannot open routing interface file xxx.</b></p>
+<ul>
+<li>A routing interface file could not be opened, possibly because it does not exist or because the user does not have write privileges to its directory.</li>
+</ul>
+<p><b>ERROR 353: invalid format for routing interface file xxx.</b></p>
+<ul>
+<li>SWMM was trying to read data from a designated routing interface file with the wrong format (i.e., it may have been created for some other project or actually be some other type of file).</li>
+</ul>
+<p><b>ERROR 355: mismatched names in routing interface file xxx.</b></p>
+<ul>
+<li>The names of pollutants found in a designated routing interface file do not match the names used in the current project.</li>
+</ul>
+<p><b>ERROR 357: inflows and outflows interface files have same name.</b></p>
+<p>-In cases where a run uses one routing interface file to provide inflows for a set of locations and another to save outflow results, the two files cannot both have the same name.</p>
+<p>** ERROR 361: could not open external file used for Time Series xxx.</p>
+<ul>
+<li>The external file used to provide data for the named time series could not be opened, most likely because it does not exist.</li>
+</ul>
+<p><b>ERROR 363: invalid data in external file used for used for Time Series xxx.</b></p>
+<ul>
+<li>The external file used to provide data for the named time series has one or more lines with the wrong format.</li>
+</ul>
+<h2><a class="anchor" id="autotoc_md5"></a>
+Warning Messages</h2>
+<p><b>WARNING 01: wet weather time step reduced to recording interval for Rain Gage xxx.</b></p>
+<ul>
+<li>The wet weather time step was automatically reduced so that no period with rainfall would be skipped during a simulation.</li>
+</ul>
+<p><b>WARNING 02: maximum depth increased for Node xxx.</b></p>
+<ul>
+<li>The maximum depth for the node was automatically increased to match the top of the highest connecting conduit.</li>
+</ul>
+<p><b>WARNING 03: negative offset ignored for Link xxx.</b></p>
+<ul>
+<li>The link's stipulated offset was below the connecting node's invert so its actual offset was set to 0.</li>
+</ul>
+<p><b>WARNING 04: minimum elevation drop used for Conduit xxx.</b></p>
+<ul>
+<li>The elevation drop between the end nodes of the conduit was below 0.001 ft (0.00035 m) so the latter value was used instead to calculate its slope.</li>
+</ul>
+<p><b>WARNING 05: minimum slope used for Conduit xxx.</b></p>
+<ul>
+<li>The conduit's computed slope was below the user-specified Minimum Conduit Slope so the latter value was used instead.</li>
+</ul>
+<p><b>WARNING 06: dry weather time step increased to wet weather time step.</b></p>
+<ul>
+<li>The user-specified time step for computing runoff during dry weather periods was lower than that set for wet weather periods and was automatically increased to the wet weather value.</li>
+</ul>
+<p><b>WARNING 07: routing time step reduced to wet weather time step.</b></p>
+<ul>
+<li>The user-specified time step for flow routing was larger than the wet weather runoff time step and was automatically reduced to the runoff time step to prevent loss of accuracy.</li>
+</ul>
+<p><b>WARNING 08: elevation drop exceeds length for Conduit xxx.</b></p>
+<ul>
+<li>The elevation drop across the ends of a conduit exceeds its length. The program computes the conduit's slope as the elevation drop divided by the length instead of using the more accurate right triangle method. The user should check for errors in the length and in both the invert elevations and offsets at the conduit's upstream and downstream nodes.</li>
+</ul>
+<p><b>WARNING 09: time series interval greater than recording interval for Rain Gage xxx.</b></p>
+<ul>
+<li>The smallest time interval between entries in the precipitation time series used by the rain gage is greater than the recording time interval specified for the gage. If this was not actually intended then what appear to be continuous periods of rainfall in the time series will instead be read with time gaps in between them.</li>
+</ul>
+<p><b>WARNING 10a: crest elevation is below downstream invert for regulator Link xxx.</b></p>
+<ul>
+<li>For Kinematic Wave or Steady Flow routing, the height of the opening on an orifice, weir, or outlet at a storage node is below the invert elevation of its downstream node. Users should check to see if the regulator's offset height or the downstream node's invert elevation is in error.</li>
+</ul>
+<p><b>WARNING 10b: crest elevation raised to downstream invert for regulator Link xxx.</b></p>
+<ul>
+<li>For Dynamic Wave routing, the height of the opening on an orifice, weir or outlet will be raised to the invert elevation of its downstream node if necessary.</li>
+</ul>
+<p><b>WARNING 11: non-matching attributes in Control Rule xxx.</b></p>
+<ul>
+<li>A control rule's premise is comparing two different types of attributes to one another (for example, conduit flow and junction water depth). </li>
+</ul>
+</div></div><!-- contents -->
+</div><!-- PageDoc -->
+</div><!-- doc-content -->
+<!-- start footer part -->
+<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
+  <ul>
+    <li class="footer">Generated by <a href="https://www.doxygen.org/index.html"><img class="footer" src="../../doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.10.0 </li>
+  </ul>
+</div>
+</body>
+</html>

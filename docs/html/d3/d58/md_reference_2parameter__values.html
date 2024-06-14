@@ -1,0 +1,694 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/xhtml;charset=UTF-8"/>
+<meta http-equiv="X-UA-Compatible" content="IE=9"/>
+<meta name="generator" content="Doxygen 1.10.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<!-- BEGIN opengraph metadata -->
+<meta property="og:title" content="Doxygen Awesome" />
+<meta property="og:image" content="" />
+<meta property="og:description" content="" />
+<meta property="og:url" content="" />
+<!-- END opengraph metadata -->
+<!-- BEGIN twitter metadata -->
+<meta name="twitter:image:src" content="" />
+<meta name="twitter:title" content="" />
+<meta name="twitter:description" content="Custom CSS theme for doxygen html-documentation with lots of customization parameters." />
+<!-- END twitter metadata -->
+<title>SWMM 5: parameter_values</title>
+<link href="../../tabs.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" type="image/svg+xml" href="logo.drawio.svg"/>
+<script type="text/javascript" src="../../jquery.js"></script>
+<script type="text/javascript" src="../../dynsections.js"></script>
+<script type="text/javascript" src="../../doxygen-awesome-darkmode-toggle.js"></script>
+<script type="text/javascript" src="../../doxygen-awesome-fragment-copy-button.js"></script>
+<script type="text/javascript" src="../../doxygen-awesome-paragraph-link.js"></script>
+<script type="text/javascript" src="../../doxygen-awesome-interactive-toc.js"></script>
+<script type="text/javascript" src="../../doxygen-awesome-tabs.js"></script>
+<script type="text/javascript" src="../../toggle-alternative-theme.js"></script>
+<script type="text/javascript">
+    DoxygenAwesomeFragmentCopyButton.init()
+    DoxygenAwesomeDarkModeToggle.init()
+    DoxygenAwesomeParagraphLink.init()
+    DoxygenAwesomeInteractiveToc.init()
+    DoxygenAwesomeTabs.init()
+</script>
+<link href="../../navtree.css" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="../../resize.js"></script>
+<script type="text/javascript" src="../../navtreedata.js"></script>
+<script type="text/javascript" src="../../navtree.js"></script>
+<script type="text/javascript" src="../../cookie.js"></script>
+<link href="../../search/search.css" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="../../search/searchdata.js"></script>
+<script type="text/javascript" src="../../search/search.js"></script>
+<script type="text/javascript">
+window.MathJax = {
+  options: {
+    ignoreHtmlClass: 'tex2jax_ignore',
+    processHtmlClass: 'tex2jax_process'
+  }
+};
+</script>
+<script type="text/javascript" id="MathJax-script" async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+<link href="../../doxygen.css" rel="stylesheet" type="text/css" />
+<link href="../../doxygen-awesome.css" rel="stylesheet" type="text/css"/>
+</head>
+<body>
+<!-- https://tholman.com/github-corners/ -->
+<a href="https://github.com/USEPA/Stormwater-Management-Model" class="github-corner" title="View source on GitHub" target="_blank">
+    <svg viewBox="0 0 250 250" width="40" height="40" style="position: absolute; top: 0; border: 0; right: 0; z-index: 99;" aria-hidden="true">
+    <path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a><style>.github-corner:hover .octo-arm{animation:octocat-wave 560ms ease-in-out}@keyframes octocat-wave{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-25deg)}40%,80%{transform:rotate(10deg)}}@media (max-width:500px){.github-corner:hover .octo-arm{animation:none}.github-corner .octo-arm{animation:octocat-wave 560ms ease-in-out}}</style>
+<div id="top"><!-- do not remove this div, it is closed by doxygen! -->
+<div id="titlearea">
+<table cellspacing="0" cellpadding="0">
+ <tbody>
+ <tr style="height: 56px;">
+  <td id="projectalign" style="padding-left: 0.5em;">
+   <div id="projectname">SWMM 5
+   &#160;<span id="projectnumber">5.3.0</span>
+   </div>
+   <div id="projectbrief">Documentation</div>
+  </td>
+ </tr>
+ </tbody>
+</table>
+</div>
+<!-- end header part -->
+<!-- Generated by Doxygen 1.10.0 -->
+<script type="text/javascript">
+/* @license magnet:?xt=urn:btih:d3d9a9a6595521f9666a5e94cc830dab83b65699&amp;dn=expat.txt MIT */
+var searchBox = new SearchBox("searchBox", "../../search/",'.html');
+/* @license-end */
+</script>
+<script type="text/javascript" src="../../menudata.js"></script>
+<script type="text/javascript" src="../../menu.js"></script>
+<script type="text/javascript">
+/* @license magnet:?xt=urn:btih:d3d9a9a6595521f9666a5e94cc830dab83b65699&amp;dn=expat.txt MIT */
+$(function() {
+  initMenu('../../',true,false,'search.php','Search');
+  $(function() { init_search(); });
+});
+/* @license-end */
+</script>
+<div id="main-nav"></div>
+</div><!-- top -->
+<div id="side-nav" class="ui-resizable side-nav-resizable">
+  <div id="nav-tree">
+    <div id="nav-tree-contents">
+      <div id="nav-sync" class="sync"></div>
+    </div>
+  </div>
+  <div id="splitbar" style="-moz-user-select:none;" 
+       class="ui-resizable-handle">
+  </div>
+</div>
+<script type="text/javascript">
+/* @license magnet:?xt=urn:btih:d3d9a9a6595521f9666a5e94cc830dab83b65699&amp;dn=expat.txt MIT */
+$(function(){initNavTree('d3/d58/md_reference_2parameter__values.html','../../'); initResizable(); });
+/* @license-end */
+</script>
+<div id="doc-content">
+<!-- window showing the filter options -->
+<div id="MSearchSelectWindow"
+     onmouseover="return searchBox.OnSearchSelectShow()"
+     onmouseout="return searchBox.OnSearchSelectHide()"
+     onkeydown="return searchBox.OnSearchSelectKey(event)">
+</div>
+
+<!-- iframe showing the search results (closed by default) -->
+<div id="MSearchResultsWindow">
+<div id="MSearchResults">
+<div class="SRPage">
+<div id="SRIndex">
+<div id="SRResults"></div>
+<div class="SRStatus" id="Loading">Loading...</div>
+<div class="SRStatus" id="Searching">Searching...</div>
+<div class="SRStatus" id="NoMatches">No Matches</div>
+</div>
+</div>
+</div>
+</div>
+
+<div><div class="header">
+  <div class="headertitle"><div class="title">parameter_values</div></div>
+</div><!--header-->
+<div class="contents">
+<div class="textblock"><hr  />
+<p> Soil Characteristics [Return to Introduction]  [Previous page]  [Next page] </p><hr  />
+<hr  />
+<p> Soil Texture Class K Ψ ϕ FC WP Sand 4.74  1.93 0.437 0.062 0.024 Loamy Sand 1.18  2.40 0.437 0.105 0.047 Sandy Loam 0.43 4.33 0.453 0.190 0.085 Loam 0.13 3.50 0.463 0.232 0.116 Silt Loam 0.26 6.69 0.501 0.284 0.135 Sandy Clay Loam 0.06 8.66 0.398 0.244 0.136 Clay Loam 0.04 8.27 0.464 0.310 0.187 Silty Clay Loam 0.04 10.63 0.471 0.342 0.210 Sandy Clay 0.02 9.45 0.430 0.321 0.221 Silty Clay 0.02 11.42 0.479 0.371 0.251 Clay 0.01 12.60 0.475 0.378 0.265 </p><hr  />
+<hr  />
+<p> K = hydraulic conductivity, in/hr Ψ = suction head, in. ϕ = porosity, fraction FC = field capacity, fraction WP = wilting point, fraction </p><hr  />
+<p> </p>
+<p>Source: Rawls, W.J. et al., (1983). J. Hyd. Engr., 109:1316.</p>
+<p> </p>
+<p>Note: The following relation between Ψ and K can be derived from this table:</p>
+<p> Ψ = 3.237K-0.328  (R2 = 0.9)</p>
+<p> </p>
+<hr  />
+<p> SCS Curve Numbers [Return to Introduction]  [Previous page]  [Next page] </p><hr  />
+<p>SCS Runoff Curve Numbers (Antecedent moisture condition II)1</p>
+<p>+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | | Hydrologic | | | | | | Soil Group | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Land Use | A | B | C | D | | Description | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Cultivated |   |   |   | | | land | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Without | 72 | 81 | 88 | 91 | | c | | | | | | onservation | | | | | | treatment | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | With | 62 | 71 | 78 | 81 | | c | | | | | | onservation | | | | | | treatment | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Pasture or |   |   |   |   | | range land | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Poor | 68 | 79 | 86 | 89 | | condition | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Good | 39 | 61 | 74 | 80 | | condition | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Meadow |   |   |   |   | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Good | 30 | 58 | 71 | 78 | | condition | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Wood or |   |   |   |   | | forest land | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Thin stand, | 45 | 66 | 77 | 83 | | poor cover, | | | | | | no mulch | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Good cover2 | 25 | 55 | 70 | 77 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Open |   |   |   |   | | spaces, | | | | | | lawns, | | | | | | parks, golf | | | | | | courses, | | | | | | cemeteries, | | | | | | etc. | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Good | 39 | 61 | 74 | 80 | | condition: | | | | | | grass cover | | | | | | on 75% or | | | | | | more of the | | | | | | area | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Fair | 49 | 69 | 79 | 84 | | condition: | | | | | | grass cover | | | | | | on 50 - 75% | | | | | | of the area | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Commercial | 89 | 92 | 94 | 95 | | and | | | | | | business | | | | | | areas (85% | | | | | | impervious) | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Industrial | 81 | 88 | 91 | 93 | | districts | | | | | | (72% | | | | | | impervious) | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | R |   |   |   |   | | esidential3 | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Average lot |   |   |   |   | | size (% | | | | | | I | | | | | | mpervious4) | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 1/8 ac or | 77 | 85 | 90 | 92 | | less (65) | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 1/4 ac (38) | 61 | 75 | 83 | 87 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 1/3 ac (30) | 57 | 72 | 81 | 86 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 1/2 ac (25) | 54 | 70 | 80 | 85 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 1 ac (20) | 51 | 68 | 79 | 84 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Paved | 98 | 98 | 98 | 98 | | parking | | | | | | lots, | | | | | | roofs, | | | | | | driveways, | | | | | | etc.5 | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Streets and |   |   |   |   | | roads | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Paved with | 98 | 98 | 98 | 98 | | curbs and | | | | | | storm | | | | | | sewers5 | | | | | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Gravel | 76 | 85 | 89 | 91 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | Dirt | 72 | 82 | 87 | 89 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+</p>
+<hr  />
+<ol type="1">
+<li>Source: SCS Urban Hydrology for Small Watersheds, 2nd Ed., (TR-55), June 1986. <hr  />
+</li>
+</ol>
+<hr  />
+<ol type="1">
+<li>Good cover is protected from grazing and litter and brush cover soil. <hr  />
+</li>
+</ol>
+<hr  />
+<ol type="1">
+<li>Curve numbers are computed assuming that the runoff from the house and driveway is directed toward the street with a minimum of roof water directed to lawns where additional infiltration could occur. <hr  />
+</li>
+</ol>
+<hr  />
+<ol type="1">
+<li>The remaining pervious areas (lawn) are considered to be in good pasture condition for these curve numbers. <hr  />
+</li>
+</ol>
+<hr  />
+<ol type="1">
+<li>In some warmer climates of the country a curve number of 95 may be used. <hr  />
+</li>
+</ol>
+<p> </p>
+<hr  />
+<p> Soil Group Definitions [Return to Introduction]  [Previous page]  [Next page] </p><hr  />
+<p>NRCS Hydrologic Soil Group Definitions</p>
+<p>+--------------------&mdash;+--------------------&mdash;+--------------------&mdash;+ </p><table class="markdownTable">
+<tr class="markdownTableHead">
+<th class="markdownTableHeadNone">    </th><th class="markdownTableHeadNone">    </th><th class="markdownTableHeadNone">Saturated    </th></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">    </td><td class="markdownTableBodyNone">    </td><td class="markdownTableBodyNone">Conductivity    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">Group   </td><td class="markdownTableBodyNone">Meaning   </td><td class="markdownTableBodyNone">(in/hr)   </td></tr>
+</table>
+<p>+--------------------&mdash;+--------------------&mdash;+--------------------&mdash;+ </p><table class="markdownTable">
+<tr class="markdownTableHead">
+<th class="markdownTableHeadNone">    </th><th class="markdownTableHeadNone">Low runoff potential.   </th><th class="markdownTableHeadNone">     </th></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"> A   </td><td class="markdownTableBodyNone">Water is transmitted   </td><td class="markdownTableBodyNone">&gt; 1.42    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone">freely through the   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone">soil. Group A soils   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone">typically have less   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone">than 10 percent clay   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone">and more than 90   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone">percent sand or   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone">gravel and have   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone">gravel or sand   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone">textures.   </td><td class="markdownTableBodyNone"></td></tr>
+</table>
+<p>+--------------------&mdash;+--------------------&mdash;+--------------------&mdash;+ |   | Moderately low runoff |   | | | potential. | | |  B | | 0.57 - 1.42 | | | Water transmission | | | | through the soil is | | | | unimpeded. Group B | | | | soils typically have | | | | between 10 percent | | | | and 20 percent clay | | | | and 50 percent to 90 | | | | percent sand and have | | | | loamy sand or sandy | | | | loam textures. | | +--------------------&mdash;+--------------------&mdash;+--------------------&mdash;+ |   | Moderately high |   | | | runoff potential. | | |  C | | 0.06 - 0.57 | | | Water transmission | | | | through the soil is | | | | somewhat restricted. | | | | Group C soils | | | | typically have | | | | between 20 percent | | | | and 40 percent clay | | | | and less than 50 | | | | percent sand and have | | | | loam, silt loam, | | | | sandy clay loam, clay | | | | loam, and silty clay | | | | loam textures. | | +--------------------&mdash;+--------------------&mdash;+--------------------&mdash;+ |   | High runoff |   | | | potential. | | |  D | | &lt; 0.06 | | | Water movement | | | | through the soil is | | | | restricted or very | | | | restricted. Group D | | | | soils typically have | | | | greater than 40 | | | | percent clay, less | | | | than 50 percent sand, | | | | and have clayey | | | | textures. | | +--------------------&mdash;+--------------------&mdash;+--------------------&mdash;+</p>
+<p> </p>
+<p>Source: Hydrology National Engineering Handbook, Chapter 7, Natural Resources Conservation Service, U.S. Department of Agriculture, January 2009.</p>
+<hr  />
+<p> Depression Storage [Return to Introduction]  [Previous page]  [Next page] </p><hr  />
+<p>Typical Depression Storage Values</p>
+<p> </p>
+<hr  />
+<p> Impervious surfaces 0.05 - 0.10 inches Lawns 0.10 - 0.20 inches Pasture 0.20 inches Forest litter 0.30 inches </p><hr  />
+<p> </p>
+<p>(Source: ASCE,(1992), Design &amp; Construction of Urban Stormwater Management Systems, New York, NY)</p>
+<p> </p>
+<hr  />
+<p> Manning's n - Overland Flow [Return to Introduction]  [Previous page]  [Next page] </p><hr  />
+<hr  />
+<p> Surface Manning's n Smooth asphalt 0.011 Smooth concrete 0.012 Ordinary concrete lining 0.013 Good wood 0.014 Brick with cement mortar 0.014 Vitrified clay 0.015 Cast iron 0.015 Corrugated metal pipes 0.024 Cement rubble surface 0.024 Fallow soils (no residue) 0.05 Cultivated soils   Residue cover &lt; 20% 0.06 Residue cover &gt; 20% 0.17 Range (natural) 0.13 Grass   Short, prairie 0.15 Dense 0.24 Bermuda grass 0.41 Woods   Light underbrush 0.40 Dense underbrush 0.80 </p><hr  />
+<p>Source:        McCuen, R. et al. (1996), Hydrology, FHWA-SA-96-067, Federal Highway Administration, Washington, DC</p>
+<p> </p>
+<hr  />
+<p> Manning's n - Closed Conduits [Return to Introduction]  [Previous page]  [Next page] </p><hr  />
+<p>+--------------------------------&mdash;+--------------------------------&mdash;+ | Conduit Material | Manning's n | +--------------------------------&mdash;+--------------------------------&mdash;+ | Asbestos-cement pipe | 0.011 - 0.015 | +--------------------------------&mdash;+--------------------------------&mdash;+ | Brick | 0.013 - 0.017 | +--------------------------------&mdash;+--------------------------------&mdash;+ | Cast iron pipe |   | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Cement-lined &amp; seal coated | 0.011 - 0.015 | +--------------------------------&mdash;+--------------------------------&mdash;+ | Concrete (monolithic) |   | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Smooth forms | 0.012 - 0.014 | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Rough forms | 0.015 - 0.017 | +--------------------------------&mdash;+--------------------------------&mdash;+ | Concrete pipe | 0.011 - 0.015 | +--------------------------------&mdash;+--------------------------------&mdash;+ </p><table class="markdownTable">
+<tr class="markdownTableHead">
+<th class="markdownTableHeadNone">Corrugated-metal pipe   </th><th class="markdownTableHeadNone">     </th></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">(1/2-in. x 2-2/3-in.   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">corrugations)   </td><td class="markdownTableBodyNone"></td></tr>
+</table>
+<p>+--------------------------------&mdash;+--------------------------------&mdash;+ | - Plain | 0.022 - 0.026 | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Paved invert | 0.018 - 0.022 | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Spun asphalt lined | 0.011 - 0.015 | +--------------------------------&mdash;+--------------------------------&mdash;+ | Plastic pipe (smooth) | 0.011 - 0.015 | +--------------------------------&mdash;+--------------------------------&mdash;+ | Vitrified clay |   | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Pipes | 0.011 - 0.015 | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Liner plates | 0.013 - 0.017 | +--------------------------------&mdash;+--------------------------------&mdash;+</p>
+<p>Source: ASCE (1982). Gravity Sanitary Sewer Design and Construction, ASCE Manual of Practice No. 60, New York, NY.</p>
+<p> </p>
+<hr  />
+<p> Manning's n - Open Channels [Return to Introduction]  [Previous page]  [Next page] </p><hr  />
+<p>+--------------------------------&mdash;+--------------------------------&mdash;+ | Channel Type | Manning's n | +--------------------------------&mdash;+--------------------------------&mdash;+ | Lined Channels |   | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Asphalt | 0.013 - 0.017 | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Brick | 0.012 - 0.018 | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Concrete | 0.011 - 0.020 | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Rubble or riprap | 0.020 - 0.035 | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Vegetal | 0.030 - 0.40 | +--------------------------------&mdash;+--------------------------------&mdash;+ | Excavated or dredged |   | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Earth, straight and uniform | 0.020 - 0.030 | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Earth, winding, fairly uniform | 0.025 - 0.040 | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Rock | 0.030 - 0.045 | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Unmaintained | 0.050 - 0.140 | +--------------------------------&mdash;+--------------------------------&mdash;+ | Natural channels (minor streams, |   | | top width at flood stage &lt; 100 | | | ft) |   | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Fairly regular section | 0.030 - 0.070 | +--------------------------------&mdash;+--------------------------------&mdash;+ | - Irregular section with pools | 0.040 - 0.100 | +--------------------------------&mdash;+--------------------------------&mdash;+</p>
+<p>Source: ASCE (1982). Gravity Sanitary Sewer Design and Construction, ASCE Manual of Practice No. 60, New York, NY.</p>
+<hr  />
+<p> Water Quality Characteristics of Urban Runoff [Return to Introduction]  [Previous page]  [Next page] </p><hr  />
+<p>+--------------------------------&mdash;+--------------------------------&mdash;+ </p><table class="markdownTable">
+<tr class="markdownTableHead">
+<th class="markdownTableHeadNone">    </th><th class="markdownTableHeadNone">Event Mean Concentrations    </th></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">Constituent   </td><td class="markdownTableBodyNone"></td></tr>
+</table>
+<p>+--------------------------------&mdash;+--------------------------------&mdash;+ | TSS (mg/L) | 180 - 548 | +--------------------------------&mdash;+--------------------------------&mdash;+ | BOD (mg/L) | 12 - 19 | +--------------------------------&mdash;+--------------------------------&mdash;+ | COD (mg/L) | 82 - 178 | +--------------------------------&mdash;+--------------------------------&mdash;+ | Total P (mg/L) | 0.42 - 0.88 | +--------------------------------&mdash;+--------------------------------&mdash;+ | Soluble P (mg/L) | 0.15 - 0.28 | +--------------------------------&mdash;+--------------------------------&mdash;+ | TKN (mg/L) | 1.90 - 4.18 | +--------------------------------&mdash;+--------------------------------&mdash;+ | NO2/NO3-N (mg/L) | 0.86 - 2.2 | +--------------------------------&mdash;+--------------------------------&mdash;+ | Total Cu (ug/L) | 43 - 118 | +--------------------------------&mdash;+--------------------------------&mdash;+ | Total Pb (ug/L) | 182 - 443 | +--------------------------------&mdash;+--------------------------------&mdash;+ | Total Zn (ug/L) | 202 - 633 | +--------------------------------&mdash;+--------------------------------&mdash;+</p>
+<p>Source: U.S. Environmental Protection Agency. (1983). Results of the Nationwide Urban Runoff Program (NURP), Vol. 1, NTIS PB 84-185552), Water Planning Division, Washington, DC.</p>
+<hr  />
+<p> Culvert Code Numbers [Return to Introduction]  [Previous page]  [Next page] </p><hr  />
+<p>Circular Concrete</p>
+<p>1        Square edge with headwall        </p>
+<p>2        Groove end with headwall        </p>
+<p>3        Groove end projecting        </p>
+<p> </p>
+<p>Circular Corrugated Metal Pipe</p>
+<p>4        Headwall        </p>
+<p>5        Mitered to slope        </p>
+<p>6        Projecting</p>
+<p>         </p>
+<p>Circular Pipe, Beveled Ring Entrance        </p>
+<p>7        45 deg. bevels        </p>
+<p>8        33.7 deg. bevels        </p>
+<p> </p>
+<p>Rectangular Box; Flared Wingwalls        </p>
+<p>9        30-75 deg. wingwall flares        </p>
+<p>10        90 or 15 deg. wingwall flares        </p>
+<p>11        0 deg. wingwall flares (straight sides)        </p>
+<p> </p>
+<p>Rectangular Box;Flared Wingwalls and Top Edge Bevel        </p>
+<p>12        45 deg flare; 0.43D top edge bevel        </p>
+<p>13        18-33.7 deg. flare; 0.083D top edge bevel        </p>
+<p> </p>
+<p>Rectangular Box, 90-deg Headwall, Chamfered / Beveled Inlet Edges        </p>
+<p>14        chamfered 3/4-in.        </p>
+<p>15        beveled 1/2-in/ft at 45 deg (1:1)        </p>
+<p>16        beveled 1-in/ft at 33.7 deg (1:1.5)        </p>
+<p> </p>
+<p>Rectangular Box, Skewed Headwall, Chamfered / Beveled Inlet Edges        </p>
+<p>17        3/4" chamfered edge, 45 deg skewed headwall        
+
+18        3/4" chamfered edge, 30 deg skewed headwall        </p>
+<p>19        3/4" chamfered edge, 15 deg skewed headwall        
+
+20        45 deg beveled edge, 10-45 deg skewed headwall        
+
+ 
+
+Rectangular Box, Non-offset Flared Wingwalls, 3/4" Chamfer at Top of Inlet          </p>
+<p>21        45 deg (1:1) wingwall flare        </p>
+<p>22        8.4 deg (3:1) wingwall flare        </p>
+<p>23        18.4 deg (3:1) wingwall flare, 30 deg inlet skew        </p>
+<p> </p>
+<p>Rectangular Box, Offset Flared Wingwalls, Beveled Edge at Inlet Top        </p>
+<p>24        45 deg (1:1) flare, 0.042D top edge bevel        </p>
+<p>25        33.7 deg (1.5:1) flare, 0.083D top edge bevel        </p>
+<p>26        18.4 deg (3:1) flare, 0.083D top edge bevel        </p>
+<p> </p>
+<p>Corrugated Metal Box</p>
+<p>27        90 deg headwall        </p>
+<p>28        Thick wall projecting        </p>
+<p>29        Thin wall projecting        </p>
+<p> </p>
+<p>Horizontal Ellipse Concrete</p>
+<p>30        Square edge with headwall        </p>
+<p>31        Grooved end with headwall        </p>
+<p>32        Grooved end projecting        </p>
+<p> </p>
+<p>Vertical Ellipse Concrete</p>
+<p>33        Square edge with headwall        </p>
+<p>34        Grooved end with headwall        </p>
+<p>35        Grooved end projecting        </p>
+<p> </p>
+<p>Pipe Arch, 18" Corner Radius, Corrugated Metal        
+
+36        90 deg headwall        
+
+37        Mitered to slope        
+
+38        Projecting        
+
+ 
+
+Pipe Arch, 18" Corner Radius, Corrugated Metal        </p>
+<p>39        Projecting        </p>
+<p>40        No bevels        </p>
+<p>41        33.7 deg bevels        </p>
+<p> </p>
+<p>Pipe Arch, 31" Corner Radius,Corrugated Metal
+
+42        Projecting        
+
+43        No bevels
+
+44        33.7 deg. bevels
+
+ 
+
+Arch, Corrugated Metal
+
+45        90 deg headwall
+
+46        Mitered to slope
+
+47        Thin wall projecting
+
+ 
+
+Circular Culvert
+
+48        Smooth tapered inlet throat
+
+49        Rough tapered inlet throat
+
+ 
+
+Elliptical Inlet Face
+
+50        Tapered inlet, beveled edges
+
+51        Tapered inlet, square edges
+
+52        Tapered inlet, thin edge projecting
+
+ 
+
+Rectangular
+
+53        Tapered inlet throat
+
+ 
+
+Rectangular Concrete
+
+54        Side tapered, less favorable edges
+
+55        Side tapered, more favorable edges
+
+56        Slope tapered, less favorable edges
+
+57        Slope tapered, more favorable edges        
+
+ 
+
+&lt;hr&gt;
+  Culvert Inlet Loss Coefficients     [Return to Introduction]  [Previous page]  [Next page]
+&lt;hr&gt;
+
++--------------------------------&amp;mdash;+--------------------------------&amp;mdash;+
+| Type of Structure and Design of   | Coefficient                       |
+| Entrance                          |                                   |
++--------------------------------&amp;mdash;+--------------------------------&amp;mdash;+
+|   &amp;mdash; -------------&amp;mdash;            |                                   |
+|   ·   Pipe, Concrete              |                                   |
+&lt;table class="markdownTable"&gt;
+  &lt;tr class="markdownTableHead"&gt;    &lt;th class="markdownTableHeadNone"&gt; &mdash; -------------&mdash;   </p>
+<p>0.2    </p>
+<p>Projecting from fill, socket end   </p>
+<p>0.5    </p>
+<p>(groove-end)   </p>
+<p>     </p>
+<p>Projecting from fill, sq. cut end   </p>
+<p>0.2    </p>
+<p>Headwall or headwall and   </p>
+<p>wingwalls:   </p>
+<p>0.5    </p>
+<p>&mdash;   </p>
+<p>0.2    </p>
+<p>------------------------------&mdash;   </p>
+<p>§   </p>
+<p>0.7    </p>
+<p>Socket end of pipe (groove-end)   </p>
+<p>&mdash;   </p>
+<p>0.5    </p>
+<p>------------------------------&mdash;   </p>
+<p>0.2    </p>
+<p>&mdash; ----------&mdash;   </p>
+<p>§ Square-edge   </p>
+<p>0.2    </p>
+<p>&mdash; ----------&mdash;   </p>
+<p>Rounded (radius = D/12)   </p>
+<p>Mitered to conform to fill slope   </p>
+<p>*End-Section conforming to fill   </p>
+<p>slope   </p>
+<p>Beveled edges, 33.7 deg  or 45   </p>
+<p>deg bevels   </p>
+<p>Side- or slope-tapered inlet   </p>
+<p>+--------------------------------&mdash;+--------------------------------&mdash;+ </p><table class="markdownTable">
+<tr class="markdownTableHead">
+<th class="markdownTableHeadNone">&mdash; -&mdash;   </th><th class="markdownTableHeadNone">     </th></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">· Pi   </td><td class="markdownTableBodyNone">0.9    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">pe or Pipe-Arch, Corrugated Metal   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">&mdash; -&mdash;   </td><td class="markdownTableBodyNone">0.5    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">------------------------------&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone">0.7    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">Projecting from fill (no   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">headwall)   </td><td class="markdownTableBodyNone">0.5    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">Headwall or headwall and   </td><td class="markdownTableBodyNone">0.2    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">wingwalls square-edge   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone">0.2    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">Mitered to conform to fill slope,   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">paved or unpaved slope   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">*End-Section conforming to fill   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">slope   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">Beveled edges, 33.7   or 45     </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">bevels   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">Side- or slope-tapered inlet   </td><td class="markdownTableBodyNone"></td></tr>
+</table>
+<p>+--------------------------------&mdash;+--------------------------------&mdash;+ | &mdash; -----------------------&mdash; |   | | · Box, Reinforced Concrete | | </p><table class="markdownTable">
+<tr class="markdownTableHead">
+<th class="markdownTableHeadNone">&mdash; -----------------------&mdash;   </th><th class="markdownTableHeadNone">     </th></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">Headwall parallel to embankment   </td><td class="markdownTableBodyNone">0.5    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">(no wingwalls):   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone">     </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">&mdash; ----------------------&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">§ Square-edged on 3 edges   </td><td class="markdownTableBodyNone">0.2    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">&mdash; ----------------------&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone">     </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">&mdash; -----&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">------------------------------&mdash;   </td><td class="markdownTableBodyNone">0.4    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">------------------------------&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">§ Rounde   </td><td class="markdownTableBodyNone">     </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">d on 3 edges to radius of D/12 or   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">B/12 or beveled edges on 3 sides   </td><td class="markdownTableBodyNone">0.2    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">&mdash; -----&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">------------------------------&mdash;   </td><td class="markdownTableBodyNone">     </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">------------------------------&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone">0.5    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">Wingwalls at 30 deg to 75 deg to   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">barrel:   </td><td class="markdownTableBodyNone">     </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">&mdash; --------------------&mdash;   </td><td class="markdownTableBodyNone">0.7    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">§ Square-edged at crown   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">&mdash; --------------------&mdash;   </td><td class="markdownTableBodyNone">0.2    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">&mdash; ----------------------&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">------------------------------&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">§ Crown edge rounded to r   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">adius of D/12 or beveled top edge   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">&mdash; ----------------------&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">------------------------------&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">Wingwall at 10 deg to 25 deg to   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">barrel:   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">&mdash; --------------------&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">§ Square-edged at crown   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">&mdash; --------------------&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">Wingwalls parallel (extension of   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">sides):   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">&mdash; --------------------&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">§ Square-edged at crown   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">&mdash; --------------------&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">-   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">&ndash; ---------------------------&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">§ Side- or slope-tapered inlet   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">-   </td><td class="markdownTableBodyNone"></td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">&ndash; ---------------------------&mdash;   </td><td class="markdownTableBodyNone"></td></tr>
+</table>
+<p>+--------------------------------&mdash;+--------------------------------&mdash;+</p>
+<p>*Note: "End Sections conforming to fill slope," made of either metal or concrete, are the sections commonly available from manufacturers. From limited hydraulic tests they are equivalent in operation to a headwall in both inlet and outlet control. Some end sections, incorporating a closed taper in their design have a superior hydraulic performance. These latter sections can be designed using the information given for the beveled inlet.</p>
+<p> </p>
+<p>Source: Federal Highway Administration (2005). Hydraulic Design of Highway Culverts, Publication No. FHWA-NHI-01-020.</p>
+<hr  />
+<p> Standard Elliptical Pipe Sizes [Return to Introduction]  [Previous page]  [Next page] </p><hr  />
+<p>+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ </p><table class="markdownTable">
+<tr class="markdownTableHead">
+<th class="markdownTableHeadNone">Code   </th><th class="markdownTableHeadNone">Minor   </th><th class="markdownTableHeadNone">Major   </th><th class="markdownTableHeadNone">Minor   </th><th class="markdownTableHeadNone">Major    </th></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"></td><td class="markdownTableBodyNone">Axis (in)   </td><td class="markdownTableBodyNone">Axis (in)   </td><td class="markdownTableBodyNone">Axis (mm)   </td><td class="markdownTableBodyNone">Axis (mm)   </td></tr>
+</table>
+<p>+=============+=============+=============+=============+=============+ | 1 | 14 | 23 | 356 | 584 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 2 | 19 | 30 | 483 | 762 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 3 | 22 | 34 | 559 | 864 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 4 | 24 | 38 | 610 | 965 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 5 | 27 | 42 | 686 | 1067 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 6 | 29 | 45 | 737 | 1143 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 7 | 32 | 49 | 813 | 1245 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 8 | 34 | 53 | 864 | 1346 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 9 | 38 | 60 | 965 | 1524 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 10 | 43 | 68 | 1092 | 1727 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 11 | 48 | 76 | 1219 | 1930 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 12 | 53 | 83 | 1346 | 2108 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 13 | 58 | 91 | 1473 | 2311 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 14 | 63 | 98 | 1600 | 2489 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 15 | 68 | 106 | 1727 | 2692 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 16 | 72 | 113 | 1829 | 2870 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 17 | 77 | 121 | 1956 | 3073 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 18 | 82 | 128 | 2083 | 3251 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 19 | 87 | 136 | 2210 | 3454 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 20 | 92 | 143 | 2337 | 3632 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 21 | 97 | 151 | 2464 | 3835 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 22 | 106 | 166 | 2692 | 4216 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+ | 23 | 116 | 180 | 2946 | 4572 | +----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+----------&mdash;+</p>
+<p>Note: The Minor Axis is the maximum width for a vertical ellipse and the full depth for a horizontal ellipse while the Major Axis is the maximum width for a horizontal ellipse and the full depth for a vertical ellipse.</p>
+<p>Source: Concrete Pipe Design Manual, American Concrete Pipe Association, 2011 (www.concrete-pipe.org).</p>
+<hr  />
+<p> Standard Arch Pipe Sizes [Return to Introduction]  [Previous page]  [Next page] </p><hr  />
+<p>Concrete Arch Pipes</p>
+<hr  />
+<p> Code Rise (in) Span (in) Rise (mm) Span (mm) 1 11 18 279 457 2 13.5 22 343 559 3 15.5 26 394 660 4 18 28.5 457 724 5 22.5 36.25 572 921 6 26.625 43.75 676 1111 7 31.3125 51.125 795 1299 8 36 58.5 914 1486 9 40 65 1016 1651 10 45 73 1143 1854 11 54 88 1372 2235 12 62 102 1575 2591 13 72 115 1829 2921 14 77.5 122 1969 3099 15 87.125 138 2213 3505 16 96.875 154 2461 3912 17 106.5 168.75 2705 4286 </p><hr  />
+<p> </p>
+<p>Corrugated Steel, 2-2/3 x 1/2" Corrugation
+
+&lt;hr&gt;
+  Code   Rise (in)   Span (in)   Rise (mm)   Span (mm)
+  18     13          17          330         432
+  19     15          21          381         533
+  20     18          24          457         610
+  21     20          28          508         711
+  22     24          35          610         889
+  23     29          42          737         1067
+  24     33          49          838         1245
+  25     38          57          965         1448
+  26     43          64          1092        1626
+  27     47          71          1194        1803
+  28     52          77          1321        1956
+  29     57          83          1448        2108
+&lt;hr&gt;
+
+ 
+
+Corrugated Steel, 3 x 1" Corrugation</p>
+<hr  />
+<p> Code Rise (in) Span (in) Rise (mm) Span (mm) 30 31 40 787 1016 31 36 46 914 1168 32 41 53 1041 1346 33 46 60 1168 1524 34 51 66 1295 1676 35 55 73 1397 1854 36 59 81 1499 2057 37 63 87 1600 2210 38 67 95 1702 2413 39 71 103 1803 2616 40 75 112 1905 2845 41 79 117 2007 2972 42 83 128 2108 3251 43 87 137 2210 3480 44 91 142 2311 3607 </p><hr  />
+<p> </p>
+<p>Structural Plate, 18" Corner Radius
+
+&lt;hr&gt;
+  Code   Rise (in)   Span (in)   Rise (mm)   Span (mm)
+  45     55          73          1397        1854
+  46     57          76          1448        1930
+  47     59          81          1499        2057
+  48     61          84          1549        2134
+  49     63          87          1600        2210
+  50     65          92          1651        2337
+  51     67          95          1702        2413
+  52     69          98          1753        2489
+  53     71          103         1803        2616
+  54     73          106         1854        2692
+  55     75          112         1905        2845
+  56     77          114         1956        2896
+  57     79          117         2007        2972
+  58     81          123         2057        3124
+  59     83          128         2108        3251
+  60     85          131         2159        3327
+  61     87          137         2210        3480
+  62     89          139         2261        3531
+  63     91          142         2311        3607
+  64     93          148         2362        3759
+  65     95          150         2413        3810
+  66     97          152         2464        3861
+  67     100         154         2540        3912
+  68     101         161         2565        4089
+  69     103         167         2616        4242
+  70     105         169         2667        4293
+  71     107         171         2718        4343
+  72     109         178         2769        4521
+  73     111         184         2819        4674
+  74     113         186         2870        4724
+  75     115         188         2921        4775
+  76     118         190         2997        4826
+  77     119         197         3023        5004
+  78     121         199         3073        5055
+&lt;hr&gt;
+
+ 
+
+Structural Plate, 31" Corner Radius</p>
+<hr  />
+<p> Code Rise (in) Span (in) Rise (mm) Span (mm) 79 112 159 2845 4039 80 114 162 2896 4115 81 116 168 2946 4267 82 118 170 2997 4318 83 120 173 3048 4394 84 122 179 3099 4547 85 124 184 3150 4674 86 126 187 3200 4750 87 128 190 3251 4826 88 130 195 3302 4953 89 132 198 3353 5029 90 134 204 3404 5182 91 136 206 3454 5232 92 138 209 3505 5309 93 140 215 3556 5461 94 142 217 3607 5512 95 144 223 3658 5664 96 146 225 3708 5715 97 148 231 3759 5867 98 150 234 3810 5944 99 152 236 3861 5994 100 154 239 3912 6071 101 156 245 3962 6223 102 158 247 4013 6274 </p><hr  />
+<p> </p>
+<p>Source: Modern Sewer Design (Fourth Edition), American Iron and Steel Institute, Washington, DC, 1999. </p>
+</div></div><!-- contents -->
+</div><!-- PageDoc -->
+</div><!-- doc-content -->
+<!-- start footer part -->
+<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
+  <ul>
+    <li class="footer">Generated by <a href="https://www.doxygen.org/index.html"><img class="footer" src="../../doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.10.0 </li>
+  </ul>
+</div>
+</body>
+</html>
