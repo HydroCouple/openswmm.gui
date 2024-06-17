@@ -541,132 +541,87 @@ After the group edit is executed a confirmation dialog box will appear informing
 
 ### Infiltration Editor {#infiltration_editor}
 
-The Infiltration Editor dialog is used to specify the method and its
-parameters that model the rate at which rainfall infiltrates into the
-upper soil zone of a subcatchment's pervious area. It is invoked when
-editing the Infiltration property of a Subcatchment. The infiltration
-parameters depend on which infiltration model is selected for the
-subcatchment: Horton and Modified Horton, Green-Ampt and Modified
-Green-Ampt, or Curve Number. The infiltration model is normally the
-default one set by project's Simulation Options or its Default
-Properties. The dialog allows one to override the default method for the
-subcatchment being edited.
+The **Infiltration Editor** dialog is used to specify the method and its parameters that model the rate at which rainfall infiltrates into the upper soil zone of a subcatchment's pervious area. It is invoked when editing the Infiltration property of a [Subcatchment](#subcatchments). The infiltration parameters depend on which infiltration model is selected for the subcatchment: Horton and Modified Horton, Green-Ampt and Modified Green-Ampt, or Curve Number. The infiltration model is normally the default one set by project's [Simulation Options](#setting_simulation_options) or its [Default Properties](#setting_project_defaults). The dialog allows one to override the default method for the subcatchment being edited.
 
-- Horton Infiltration Parameters
+- [Horton Infiltration Parameters](#horton_infiltration_parameters)
 
-- Green-Ampt Infiltration Parameters
+- [Green-Ampt Infiltration Parameters](#green-ampt_infiltration_parameters)
 
-- Curve Number Infiltration Parameters
+- [Curve Number Infiltration Parameters](#curve_number_infiltration_parameters)
 
 #### Horton Infiltration Parameters {#horton_infiltration_parameters}
 
----
-
-Parameter Description
-Max. Infil. Rate Maximum infiltration rate on the Horton curve (in/hr or mm/hr) (see table below)
-Min. Infil. Rate Minimum infiltration rate on the Horton curve (in/hr or mm/hr). Equivalent to the saturated hydraulic conductivity. See the Soil Characteristics Table for typical values.
-Decay Const. Infiltration rate decay constant for the Horton curve (1/hours). Typical values range between 2 and 7.
-Drying Time Time in days for a fully saturated soil to dry completely. Typical values range from 2 to 14 days.
-Max. Infil. Vol. Maximum infiltration volume possible (inches or mm, 0 if not applicable). It can be estimated as the difference between a soil's porosity and its wilting point times the depth of the infiltration zone.
-
----
+| Parameter          | Description                                                                                                                                                                                               |
+| :----------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _Max. Infil. Rate_ | Maximum infiltration rate on the Horton curve (in/hr or mm/hr) (see table below)                                                                                                                          |
+| _Min. Infil. Rate_ | Minimum infiltration rate on the Horton curve (in/hr or mm/hr). Equivalent to the saturated hydraulic conductivity. See the [Soil Characteristics Table](#soil_characteristics) for typical values.       |
+| _Decay Const._     | Infiltration rate decay constant for the Horton curve (1/hours). Typical values range between 2 and 7.                                                                                                    |
+| _Drying Time_      | Time in days for a fully saturated soil to dry completely. Typical values range from 2 to 14 days.                                                                                                        |
+| _Max. Infil. Vol._ | Maximum infiltration volume possible (inches or mm, 0 if not applicable). It can be estimated as the difference between a soil's porosity and its wilting point times the depth of the infiltration zone. |
 
 Representative Values for Max. Infiltration Rate
 
-+-----------------------------------------------------------------------+
-| ---- ------------------------------------------- |
-| A. DRY soils (with little or no vegetation): |
-| ---- ------------------------------------------- |
-| |
-| Sandy soils: 5 in/hr |
-| |
-| Loam soils: 3 in/hr |
-| |
-| Clay soils: 1 in/hr |
-| |
-|   |
-| |
-| ---- ------------------------------------ |
-| B. DRY soils (with dense vegetation): |
-| ---- ------------------------------------ |
-| |
-| Multiply values given in A. by 2 |
-| |
-|   |
-| |
-| ---- ------------- |
-| C. MOIST soils |
-| ---- ------------- |
-| |
-| Soils which have drained but not dried out (i.e., field capacity): |
-| |
-| divide values from A and B by 3. |
-| |
-| Soils close to saturation: |
-| |
-| choose value close to min. infiltration rate. |
-| |
-| Soils which have partially dried out: |
-| |
-| divide values from A and B by 1.5 - 2.5. |
-+-----------------------------------------------------------------------+
+A. DRY soils (with little or no vegetation):
+
+- Sandy soils: 5 in/hr
+- Loam soils: 3 in/hr
+- Clay soils: 1 in/hr
+
+B. DRY soils (with dense vegetation):
+
+- Multiply values given in A. by 2
+
+C. MOIST soils
+
+- Soils which have drained but not dried out (i.e., field capacity):
+
+  - divide values from A and B by 3.
+
+- Soils close to saturation:
+
+  - choose value close to min. infiltration rate.
+
+- Soils which have partially dried out:
+
+  - divide values from A and B by 1.5 - 2.5.
 
 #### Green-Ampt Infiltration Parameters {#green-ampt_infiltration_parameters}
 
----
+| Parameter         | Description                                                                                                         |
+| :---------------- | :------------------------------------------------------------------------------------------------------------------ |
+| _Suction Head_    | Average value of soil capillary suction along the wetting front (inches or mm)                                      |
+| _Conductivity_    | Soil saturated hydraulic conductivity (in/hr or mm/hr)                                                              |
+| _Initial Deficit_ | Fraction of soil volume that is initially dry (i.e., difference between soil porosity and initial moisture content) |
 
-Parameter Description
-Suction Head Average value of soil capillary suction along the wetting front (inches or mm)
-Conductivity Soil saturated hydraulic conductivity (in/hr or mm/hr)
-Initial Deficit Fraction of soil volume that is initially dry (i.e., difference between soil porosity and initial moisture content)
-
----
-
-The initial deficit for a completely drained soil is the difference
-between the soil's porosity and its field capacity. Typical values for
-all of these parameters can be found in the Soil Characteristics Table.
+The initial deficit for a completely drained soil is the difference between the soil's porosity and its field capacity. Typical values for all of these parameters can be found in the [Soil Characteristics Table](#soil_characteristics).
 
 #### Curve Number Infiltration Parameters {#curve_number_infiltration_parameters}
 
-Curve Number
+**Curve Number**
 
-This is the SCS curve number which is tabulated in the publication SCS
-Urban Hydrology for Small Watersheds, 2nd Ed., (TR-55), June 1986.
-Consult the Curve Number Table for a listing of values by soil group,
-and the accompanying Soil Group Table for the definitions of the various
-groups. Adjustments will be needed when a subcatchment contains separate
-pervious and impervious fractions and a Curve Number is selected from a
-table where the two land uses are lumped together.
+This is the SCS curve number which is tabulated in the publication SCS Urban Hydrology for Small Watersheds, 2nd Ed., (TR-55), June 1986. Consult the [Curve Number Table](#scs_curve_numbers) for a listing of values by soil group, and the accompanying [Soil Group Table](#soil_group_definitions) for the definitions of the various groups. Adjustments will be needed when a subcatchment contains separate pervious and impervious fractions and a Curve Number is selected from a table where the two land uses are lumped together.
 
-Conductivity
+**Conductivity**
 
 This property has been deprecated and is no longer used.
 
-Drying Time
+**Drying Time**
 
-The number of days it takes a fully saturated soil to dry. Typical
-values range between 2 and 14 days.
+The number of days it takes a fully saturated soil to dry. Typical values range between 2 and 14 days.
 
 ### Inflows Editor {#inflows_editor}
 
-The Inflows Editor dialog is used to assign Direct, Dry Weather, and
-RDII inflow into a node of the drainage system. It is invoked whenever
-the Inflows property of a Node object is selected in the Property
-Editor. The dialog consists of three tabbed pages that provide a special
-editor for each type of inflow:
+The Inflows Editor dialog is used to assign Direct, Dry Weather, and RDII inflow into a node of the drainage system. It is invoked whenever the Inflows property of a Node object is selected in the Property Editor. The dialog consists of three tabbed pages that provide a special editor for each type of inflow:
 
-- Direct Inflow
+- [Direct Inflow](#direct_inflow_editor)
 
-- Dry Weather Inflow
+- [Dry Weather Inflow](#dry_weather_inflow_page)
 
-- RDII Inflow
+- [RDII Inflow](#rdii_inflow_page)
 
 #### Direct Inflow Page {#direct_inflow_editor}
 
-The Direct page on the Inflows Editor dialog is used to specify the time
-history of direct external flow and water quality entering a node of the
-drainage system. These inflows are represented by both a constant and
-time varying component as follows:
+The Direct page on the Inflows Editor dialog is used to specify the time history of direct external flow and water quality entering a node of the drainage system. These inflows are represented by both a constant and time varying component as follows:
 
 +-----------------------+-----------------------+-----------------------+
 | Inflow at time t | = | (baseline value) _ |
@@ -678,78 +633,40 @@ time varying component as follows:
 | | | time t) |
 +-----------------------+-----------------------+-----------------------+
 
-The page contains the following input fields that define the properties
-of this relation:
+The page contains the following input fields that define the properties of this relation:
 
 Constituent
 
-Selects the constituent (FLOW or one of the project's named pollutants)
-whose direct inflow will be described.
+Selects the constituent (FLOW or one of the project's named pollutants) whose direct inflow will be described.
 
 Baseline
 
-Specifies the value of the constant baseline component of the
-constituent's inflow. For FLOW, the units are the project's flow units.
-For pollutants, the units are the pollutant's concentration units if
-inflow is a concentration, or can be any mass flow units if the inflow
-is a mass flow (see Units Factor below). If left blank then no baseline
-inflow is assumed.
+Specifies the value of the constant baseline component of the constituent's inflow. For FLOW, the units are the project's flow units. For pollutants, the units are the pollutant's concentration units if inflow is a concentration, or can be any mass flow units if the inflow is a mass flow (see Units Factor below). If left blank then no baseline inflow is assumed.
 
 Baseline Pattern
 
-An optional Time Pattern whose factors adjust the baseline inflow on
-either an hourly, daily, or monthly basis (depending on the type of time
-pattern specified). Clicking the [edit] button will bring up the Time
-Pattern Editor dialog for the selected time pattern. If left blank, then
-no adjustment is made to the baseline inflow.
+An optional Time Pattern whose factors adjust the baseline inflow on either an hourly, daily, or monthly basis (depending on the type of time pattern specified). Clicking the [edit] button will bring up the Time Pattern Editor dialog for the selected time pattern. If left blank, then no adjustment is made to the baseline inflow.
 
 Time Series
 
-The name of the time series that describes the time varying component of
-the constituent's inflow. If left blank then no time varying inflow is
-assumed. Clicking the [edit] button will bring up the Time Series Editor
-dialog for the selected time series. The units of the time series values
-obey the same convention as described above for Baseline inflow.
+The name of the time series that describes the time varying component of the constituent's inflow. If left blank then no time varying inflow is assumed. Clicking the [edit] button will bring up the Time Series Editor dialog for the selected time series. The units of the time series values obey the same convention as described above for Baseline inflow.
 
 Scale Factor
 
-A multiplier used to adjust the values of the constituent's inflow time
-series. The baseline value is not adjusted by this factor. The scale
-factor can have several uses, such as allowing one to easily change the
-magnitude of an inflow hydrograph while keeping its shape the same,
-without having to re-edit the entries in the hydrograph's time series.
-Or it can allow a group of nodes sharing the same time series to have
-their inflows behave in a time-synchronized fashion while letting their
-individual magnitudes be different. If left blank the scale factor
-defaults to 1.0.
+A multiplier used to adjust the values of the constituent's inflow time series. The baseline value is not adjusted by this factor. The scale factor can have several uses, such as allowing one to easily change the magnitude of an inflow hydrograph while keeping its shape the same, without having to re-edit the entries in the hydrograph's time series. Or it can allow a group of nodes sharing the same time series to have their inflows behave in a time-synchronized fashion while letting their individual magnitudes be different. If left blank the scale factor defaults to 1.0.
 
 Inflow Type
 
-For pollutants, this field selects the type of inflow data as being
-either a CONCENTRATION (mass/volume) or a MASS FLOW RATE (mass/time).
-This field does not appear for FLOW inflow.
+For pollutants, this field selects the type of inflow data as being either a CONCENTRATION (mass/volume) or a MASS FLOW RATE (mass/time). This field does not appear for FLOW inflow.
 
 Units Factor
 
-A numerical factor used to convert the units of pollutant mass flow rate
-in the time series data into concentration mass units per second. For
-example, if the inflow data were in lbs/day and the pollutant
-concentration was chosen as mg/L, then the conversion factor value would
-be (453,590 mg/lb) / (86,400 sec/day) = 5.25 (mg/sec) per (lb/day). This
-field does not appear for FLOW inflow, and for concentration-type
-inflows any value entered will be overridden to 1.0.
+A numerical factor used to convert the units of pollutant mass flow rate in the time series data into concentration mass units per second. For example, if the inflow data were in lbs/day and the pollutant concentration was chosen as mg/L, then the conversion factor value would be (453,590 mg/lb) / (86,400 sec/day) = 5.25 (mg/sec) per (lb/day). This field does not appear for FLOW inflow, and for concentration-type inflows any value entered will be overridden to 1.0.
 
-More than one constituent can be edited while the dialog is active by
-simply selecting another choice for the Constituent property. However,
-if the Cancel button is clicked then any changes made to all
-constituents will be ignored.
+More than one constituent can be edited while the dialog is active by simply selecting another choice for the Constituent property. However, if the Cancel button is clicked then any changes made to all constituents will be ignored.
 
-[icon_tip]If a pollutant is assigned a direct inflow in terms of
-concentration, then one must also assign a time series inflow to flow,
-otherwise no pollutant inflow will occur. An exception is at submerged
-outfalls where pollutant intrusion can occur during periods of reverse
-flow. If pollutant inflow is defined in terms of mass, then a
-corresponding flow inflow is not required.
+[!tip]
+If a pollutant is assigned a direct inflow in terms of concentration, then one must also assign a time series inflow to flow, otherwise no pollutant inflow will occur. An exception is at submerged outfalls where pollutant intrusion can occur during periods of reverse flow. If pollutant inflow is defined in terms of mass, then a corresponding flow inflow is not required.
 
 #### Dry Weather Inflow Page {#dry_weather_inflow_page}
 
