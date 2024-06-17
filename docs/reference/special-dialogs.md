@@ -149,7 +149,7 @@ Use this source of temperature data if you want daily evaporation rates to be es
 
 #### Evaporation Page {#evaporation_page}
 
-The **Evaporation** page of the Climatology Editor dialog is used to supply potential [evaporation]() rates, in inches/day (or mm/day), for a study area. There are five choices for specifying these rates that are selected from the Source of Evaporation Rates combo box:
+The **Evaporation** page of the Climatology Editor dialog is used to supply potential [evaporation](#evaporation) rates, in inches/day (or mm/day), for a study area. There are five choices for specifying these rates that are selected from the Source of Evaporation Rates combo box:
 
 - **Constant Value**
 
@@ -157,11 +157,11 @@ Use this choice if evaporation remains constant over time. Enter the value in th
 
 - **Time Series**
 
-Select this choice if evaporation rates will be specified in a time series. Enter or select the name of the time series in the dropdown combo box provided. Click the &nbsp;![](edit.gif) button to bring up the [Time Series Editor]() for the selected series. Note that for each date specified in the time series, the evaporation rate remains constant at the value supplied for that date until the next date in the series is reached (i.e., interpolation is not used on the series).
+Select this choice if evaporation rates will be specified in a time series. Enter or select the name of the time series in the dropdown combo box provided. Click the &nbsp;![](edit.gif) button to bring up the [Time Series Editor](#time_series_editor) for the selected series. Note that for each date specified in the time series, the evaporation rate remains constant at the value supplied for that date until the next date in the series is reached (i.e., interpolation is not used on the series).
 
 - **Climate File**
 
-This choice indicates that daily evaporation rates will be read from the same [climate file]() that was specified for temperature. Enter values for monthly pan coefficients in the data grid provided (these are used to convert pan evaporation to actual evaporation and are typically on the order of 0.7).
+This choice indicates that daily evaporation rates will be read from the same [climate file](#climate_files) that was specified for temperature. Enter values for monthly pan coefficients in the data grid provided (these are used to convert pan evaporation to actual evaporation and are typically on the order of 0.7).
 
 - **Monthly Averages**
 
@@ -169,523 +169,327 @@ Use this choice to supply an average rate for each month of the year. Enter the 
 
 - **Computed from Temperatures**
 
-The Hargreaves' method will be used to compute daily evaporation rates from the daily air temperature record contained in the external climate file specified on the [Temperature]() page of the dialog. This method also uses the site's latitude, which can be entered on the [Snowmelt]() page of the dialog even if snow melt is not being simulated.
+The Hargreaves' method will be used to compute daily evaporation rates from the daily air temperature record contained in the external climate file specified on the [Temperature](#temperature_page) page of the dialog. This method also uses the site's latitude, which can be entered on the [Snowmelt](#snowmelt_page) page of the dialog even if snow melt is not being simulated.
 
 - **Evaporate Only During Dry Periods**
 
 Select this option if evaporation can only occur during periods with no precipitation.
 
-In addition this page allows one to specify an optional **Monthly Soil Recovery Pattern**. This is a [time pattern]() whose factors adjust the rate at which infiltration capacity is recovered during periods with no precipitation. It applies to all subcatchments for any choice of [infiltration method](). For example, if the normal infiltration recovery rate was 1% during a specific time period and a pattern factor of 0.8 applied to this period, then the actual recovery rate would be 0.8%. The Soil Recovery Pattern allows one to account for seasonal soil drying rates. In principle, the variation in pattern factors should mirror the variation in evaporation rates but might be influenced by other factors such as seasonal groundwater levels. The &nbsp;![](edit.gif) button is used to launch the [Time Pattern Editor]() for the selected pattern.
+In addition this page allows one to specify an optional **Monthly Soil Recovery Pattern**. This is a [time pattern](#time_patterns) whose factors adjust the rate at which infiltration capacity is recovered during periods with no precipitation. It applies to all subcatchments for any choice of [infiltration method](#infiltration). For example, if the normal infiltration recovery rate was 1% during a specific time period and a pattern factor of 0.8 applied to this period, then the actual recovery rate would be 0.8%. The Soil Recovery Pattern allows one to account for seasonal soil drying rates. In principle, the variation in pattern factors should mirror the variation in evaporation rates but might be influenced by other factors such as seasonal groundwater levels. The &nbsp;![](edit.gif) button is used to launch the [Time Pattern Editor](#time_pattern_editors) for the selected pattern.
 
 #### Wind Speed Page {#windspeed_page}
 
-The Wind Speed page of the Climatology Editor dialog is used to provide
-average monthly wind speeds. These are used when computing snowmelt
-rates under rainfall conditions. Melt rates increase with increasing
-wind speed. Units of wind speed are miles/hour for US units and km/hour
-for metric units. There are two choices for specifying wind speeds:
+The **Wind Speed** page of the Climatology Editor dialog is used to provide average monthly wind speeds. These are used when computing snowmelt rates under rainfall conditions. Melt rates increase with increasing wind speed. Units of wind speed are miles/hour for US units and km/hour for metric units. There are two choices for specifying wind speeds:
 
-- Climate File Data
+- **Climate File Data**
 
-Wind speeds will be read from the same climate file that was specified
-for temperature.
+Wind speeds will be read from the same [climate file](#climate_files) that was specified for temperature.
 
-- Monthly Averages
+- **Monthly Averages**
 
-Wind speed is specified as an average value that remains constant in
-each month of the year. Enter a value for each month in the data grid
-provided. The default values are all zero.
+Wind speed is specified as an average value that remains constant in each month of the year. Enter a value for each month in the data grid provided. The default values are all zero.
 
 #### Snowmelt Page {#snowmelt_page}
 
-The Snowmelt page of the Climatology Editor dialog is used to supply
-values for the following parameters related to snow melt calculations:
+The **Snowmelt** page of the Climatology Editor dialog is used to supply values for the following parameters related to snow melt calculations:
 
-Dividing Temperature Between Snow and Rain
+**Dividing Temperature Between Snow and Rain**
 
-Enter the temperature below which precipitation falls as snow instead of
-rain. Use degrees F for US units or degrees C for metric units.
+Enter the temperature below which precipitation falls as snow instead of rain. Use degrees F for US units or degrees C for metric units.
 
-ATI (Antecedent Temperature Index) Weight
+**ATI (Antecedent Temperature Index) Weight**
 
-This parameter reflects to what degree heat transfer within a snow pack
-during non-melt periods is affected by prior air temperatures. Smaller
-values reflect a thicker surface layer of snow which result in reduced
-rates of heat transfer. Values must be between 0 and 1, and the default
-is 0.5.
+This parameter reflects to what degree heat transfer within a snow pack during non-melt periods is affected by prior air temperatures. Smaller values reflect a thicker surface layer of snow which result in reduced rates of heat transfer. Values must be between 0 and 1, and the default is 0.5.
 
-Negative Melt Ratio
+**Negative Melt Ratio**
 
-This is the ratio of the heat transfer coefficient of a snow pack during
-non-melt conditions to the coefficient during melt conditions. It must
-be a number between 0 and 1. The default value is 0.6.
+This is the ratio of the heat transfer coefficient of a snow pack during non-melt conditions to the coefficient during melt conditions. It must be a number between 0 and 1. The default value is 0.6.
 
-Elevation Above MSL
+**Elevation Above MSL**
 
-Enter the average elevation above mean sea level for the study area, in
-feet or meters. This value is used to provide a more accurate estimate
-of atmospheric pressure. The default is 0.0, which results in a pressure
-of 29.9 inches Hg. The effect of wind on snow melt rates during rainfall
-periods is greater at higher pressures, which occur at lower elevations.
+Enter the average elevation above mean sea level for the study area, in feet or meters. This value is used to provide a more accurate estimate of atmospheric pressure. The default is 0.0, which results in a pressure of 29.9 inches Hg. The effect of wind on snow melt rates during rainfall periods is greater at higher pressures, which occur at lower elevations.
 
-Latitude
+**Latitude**
 
-Enter the latitude, in degrees North, of the study area. This number is
-used when computing the hours of sunrise and sunset, which in turn are
-used to extend min/max daily temperatures into continuous values. It is
-also used to compute daily evaporation rates from daily temperatures.
-The default is 50 degrees North.
+Enter the latitude, in degrees North, of the study area. This number is used when computing the hours of sunrise and sunset, which in turn are used to extend min/max daily temperatures into continuous values. It is also used to compute daily evaporation rates from daily temperatures. The default is 50 degrees North.
 
-Longitude Correction
+**Longitude Correction**
 
-This is a correction, in minutes of time, between true solar time and
-the standard clock time. It depends on  a location's longitude (θ) and
-the standard meridian of its time zone (SM) through the expression 4
-(θ-SM). This correction is used to adjust the hours of sunrise and
-sunset when extending daily min/max temperatures into continuous values.
-The default value is 0.
+This is a correction, in minutes of time, between true solar time and the standard clock time. It depends on  a location's longitude (θ) and the standard meridian of its time zone (SM) through the expression 4 (θ-SM). This correction is used to adjust the hours of sunrise and sunset when extending daily min/max temperatures into continuous values. The default value is 0.
 
 #### Areal Depletion Page {#areal_depletion_page}
 
-The Areal Depletion page of the Climatology Editor dialog is used to
-specify points on the Areal Depletion Curves for both impervious and
-pervious surfaces within a project's study area. These curves define the
-relation between the area that remains snow covered and snow pack depth.
-Each curve is defined by 10 equal increments of relative depth ratio
-between 0 and 0.9. (Relative depth ratio is the ratio of an area's
-current snow depth to the depth at which there is 100% areal coverage).
-Enter values in the data grid provided for the fraction of each area
-that remains snow covered at each specified relative depth ratio. Valid
-numbers must be between 0 and 1, and be increasing with increasing depth
-ratio.
+The **Areal Depletion** page of the Climatology Editor dialog is used to specify points on the [Areal Depletion](#areal_depletion) Curves for both impervious and pervious surfaces within a project's study area. These curves define the relation between the area that remains snow covered and snow pack depth. Each curve is defined by 10 equal increments of relative depth ratio between 0 and 0.9. (Relative depth ratio is the ratio of an area's current snow depth to the depth at which there is 100% areal coverage). Enter values in the data grid provided for the fraction of each area that remains snow covered at each specified relative depth ratio. Valid numbers must be between 0 and 1, and be increasing with increasing depth ratio.
 
-Clicking the Natural Area button fills the grid with values that are
-typical of natural areas. Clicking the No Depletion button will fill the
-grid with all 1's, indicating that no areal depletion occurs. This is
-the default for new projects.
+Clicking the **Natural Area** button fills the grid with values that are typical of natural areas. Clicking the **No Depletion** button will fill the grid with all 1's, indicating that no areal depletion occurs. This is the default for new projects.
 
 #### Adjustments Page {#adjustments_page}
 
-The Adjustments page of the Climatology Editor dialog is used to supply
+The **Adjustments** page of the Climatology Editor dialog is used to supply
 a set of monthly adjustments applied to the temperature, evaporation
 rate, and rainfall that SWMM uses at each time step of a simulation:
 
-- The monthly Temperature adjustment (plus or minus in either degrees F or C) is added to the temperature value that SWMM would otherwise use in a specific month of the year.
+- The monthly **Temperature** adjustment (plus or minus in either degrees F or C) is added to the temperature value that SWMM would otherwise use in a specific month of the year.
 
-- The monthly Evaporation adjustment (plus or minus in either in/day or mm/day) is added to the evaporation rate value that SWMM would otherwise use in a specific month of the year.
+- The monthly **Evaporation** adjustment (plus or minus in either in/day or mm/day) is added to the evaporation rate value that SWMM would otherwise use in a specific month of the year.
 
-- The monthly Rainfall adjustment is a multiplier applied to the precipitation value that SWMM would otherwise use in a specific month of the year.
+- The monthly **Rainfall** adjustment is a multiplier applied to the precipitation value that SWMM would otherwise use in a specific month of the year.
 
-- The monthly Conductivity adjustment is a multiplier applied to the soil hydraulic conductivity used compute rainfall infiltration, groundwater percolation, and exfiltration from channels and storage units.
+- The monthly **Conductivity** adjustment is a multiplier applied to the soil hydraulic conductivity used compute rainfall infiltration, groundwater percolation, and exfiltration from channels and storage units.
 
-The same adjustment is applied for each time period within a given month
-and is repeated for that month in each subsequent year being simulated.
-Leaving a monthly adjustment blank means that there is no adjustment
-made in that month.
+The same adjustment is applied for each time period within a given month and is repeated for that month in each subsequent year being simulated. Leaving a monthly adjustment blank means that there is no adjustment made in that month.
 
 ### Copy Dialog {#copy_dialog}
 
-The Copy Dialog appears when the Edit >> Copy To command is selected.
-Use the Copy dialog as follows to define how you want your data copied
-and to where:
+The **Copy Dialog** appears when the **Edit >> Copy** To command is selected. Use the Copy dialog as follows to define how you want your data copied and to where:
 
 1.  Select a destination for the material being copied (Clipboard or File)
 
 2.  Select a format to copy in:
 
-- Bitmap (graphics only)
+    - **Bitmap** (graphics only)
 
-- Metafile (graphics only)
+    - **Metafile** (graphics only)
 
-- Data (text, selected cells in a table, or data used to construct a graph)
+    - **Data** (text, selected cells in a table, or data used to construct a graph)
 
-3.  Click OK to accept your selections or Cancel to cancel the copy request.
+3.  Click **OK** to accept your selections or Cancel to cancel the copy request.
 
-The bitmap format copies the individual pixels of a graphic. The
-metafile format copies the instructions used to create the graphic and
-is more suitable for pasting into word processing documents where the
-graphic can be re-scaled without loosing resolution. When data is
-copied, it can be pasted directly into a spreadsheet program to create
-customized tables or charts.
+The bitmap format copies the individual pixels of a graphic. The metafile format copies the instructions used to create the graphic and is more suitable for pasting into word processing documents where the graphic can be re-scaled without loosing resolution. When data is copied, it can be pasted directly into a spreadsheet program to create customized tables or charts.
 
 ### Cross-Section Editor {#cross-section_editor}
 
-The Cross-Section Editor dialog is used to specify the shape and
-dimensions of a conduit's cross-section.
+The **Cross-Section** Editor dialog is used to specify the shape and dimensions of a conduit's cross-section.
 
-[CrossSectionEditor]
+![CrossSectionEditor](crosssectioneditor.png)
 
-When a shape is selected from the image list an appropriate set of edit
-fields appears for describing the dimensions of that shape. Length
-dimensions are in units of feet for US units and meters for SI units.
-Slope values represent ratios of horizontal to vertical distance. The
-Barrels field specifies how many identical parallel conduits exist
-between its end nodes.
+When a shape is selected from the image list an appropriate set of edit fields appears for describing the dimensions of that shape. Length dimensions are in units of feet for US units and meters for SI units. Slope values represent ratios of horizontal to vertical distance. The Barrels field specifies how many identical parallel conduits exist between its end nodes.
 
-The Force Main shape option is a circular conduit that uses either the
-Hazen-Williams or Darcy-Weisbach formulas to compute friction losses for
-pressurized flow during Dynamic Wave flow routing. In this case the
-appropriate C-factor (for Hazen-Williams) or roughness height (for
-Darcy-Weisbach) is supplied as a cross-section property. The choice of
-friction loss equation is made on the Dynamic Wave Simulation Options
-dialog. Note that a conduit does not have to be assigned a Force Main
-shape for it to pressurize. Any of the other closed cross-section shapes
-can potentially pressurize and thus function as force mains using the
-Manning equation to compute friction losses.
+The **Force Main** shape option is a circular conduit that uses either the Hazen-Williams or Darcy-Weisbach formulas to compute friction losses for pressurized flow during Dynamic Wave flow routing. In this case the appropriate C-factor (for Hazen-Williams) or roughness height (for Darcy-Weisbach) is supplied as a cross-section property. The choice of friction loss equation is made on the [Dynamic Wave Simulation Options](#simulation_options-dynamic_wave) dialog. Note that a conduit does not have to be assigned a Force Main shape for it to pressurize. Any of the other closed cross-section shapes can potentially pressurize and thus function as force mains using the Manning equation to compute friction losses.
 
-If a Custom shaped section is chosen, a drop-down edit box will appear
-where you can enter or select the name of a Shape Curve that will be
-used to define the geometry of the section. This curve specifies how the
-width of the cross-section varies with height, where both width and
-height are scaled relative to the section's maximum depth. This allows
-the same shape curve to be used for conduits of differing sizes.
-Clicking the Edit button [edit] next to the shape curve box will bring
-up the Curve Editor where the shape curve's coordinates can be edited.
+If a **Custom** shaped section is chosen, a drop-down edit box will appear where you can enter or select the name of a [Shape Curve](#curves) that will be used to define the geometry of the section. This curve specifies how the width of the cross-section varies with height, where both width and height are scaled relative to the section's maximum depth. This allows the same shape curve to be used for conduits of differing sizes. Clicking the **Edit** button &nbsp;![](edit.gif) next to the shape curve box will bring up the [Curve Editor](#curve_editor) where the shape curve's coordinates can be edited.
 
-If a Street shaped section is chosen,  a drop-down edit box will appear
-where you can enter or select the name of a Street object that describes
-the cross-section's geometry. Clicking the Edit button [edit] next to
-the edit box will bring up the Street Section Editor where one can edit
-the street's geometry.
+If a **Street** shaped section is chosen, a drop-down edit box will appear where you can enter or select the name of a [Street](#streets) object that describes the cross-section's geometry. Clicking the **Edit** button &nbsp;![](edit.gif) next to the edit box will bring up the [Street Section Editor](#street_section_editor) where one can edit the street's geometry.
 
-If an Irregular shaped section is chosen, a drop-down edit box will
-appear where you can enter or select the name of a Transect object that
-describes the cross-section's geometry. Clicking the Edit button [edit]
-next to the edit box will bring up the Transect Editor which allows you
-to edit the transect's data.
+If an Irregular shaped section is chosen, a drop-down edit box will appear where you can enter or select the name of a [Transect](#transects) object that describes the cross-section's geometry. Clicking the **Edit** button &nbsp;![](edit.gif) next to the edit box will bring up the [Transect Editor](#transect_editor) which allows you to edit the transect's data.
 
 ### Curve Editor {#curve_editor}
 
-The Curve Editor dialog is invoked whenever a new Curve object is
-created or an existing Curve object is selected for editing. The Editor
-adapts itself to the category of curve being edited (Storage, Shape,
-Tidal, Diversion, Pump, Rating, Control or Weir). To use the Curve
-Editor:
+The **Curve Editor** dialog is invoked whenever a new [Curve](#curves) object is created or an existing Curve object is selected for editing. The Editor adapts itself to the category of curve being edited (Storage, Shape, Tidal, Diversion, Pump, Rating, Control or Weir). To use the Curve Editor:
 
 1.  Enter values for the following dialog items:
 
-+-----------------------------------+-----------------------------------+
-| Name | Name of the curve. |
-+-----------------------------------+-----------------------------------+
-| Type | (Pump Curves Only) Choice of pump |
-| | curve type (see Pumps for a |
-|   | description of each curve type). |
-+-----------------------------------+-----------------------------------+
-| Description | Optional comment or description |
-| | of what the curve represents. |
-| | Click the [edit] button to launch |
-| | a multi-line comment editor if |
-| | more than one line is needed. |
-+-----------------------------------+-----------------------------------+
-| Data Grid | The curve's X,Y data. |
-+-----------------------------------+-----------------------------------+
+|               |                                                                                                                                                              |
+| :------------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _Name_        | Name of the curve.                                                                                                                                           |
+| _Type_        | (Pump Curves Only) Choice of pump curve type (see [Pumps](#pumps) for a description of each curve type).                                                     |
+| _Description_ | Optional comment or description of what the curve represents. Click the [edit] button to launch a multi-line comment editor if more than one line is needed. |
+| _Data Grid_   | The curve's X,Y data.                                                                                                                                        |
 
-2. Click the View button to see a graphical plot of the curve drawn in a separate window.
+2. Click the **View** button to see a graphical plot of the curve drawn in a separate window.
 
-3. If additional rows are needed in the Data Grid, simply press the <Enter> key when in the last row.
+3. If additional rows are needed in the Data Grid, simply press the **<Enter>** key when in the last row.
 
 4. Right-clicking over the Data Grid will make a popup Edit menu appear. It contains commands to cut, copy, insert, and paste selected cells in the grid as well as options to insert or delete a row.
 
-5. Press OK to accept the curve entries or Cancel to cancel the edits made.
+5. Press **OK** to accept the curve entries or **Cancel** to cancel the edits made.
 
-You can also click the Load button to load in a curve that was
-previously saved to file or click the Save button to save the current
-curve's data to a file.
+You can also click the **Load** button to load in a curve that was previously saved to file or click the **Save** button to save the current curve's data to a file.
 
 ### Events Editor {#events_editor}
 
-The Events Editor is activated when the Events sub-category of
-simulation Options is selected for editing from the Project Browser.
+The **Events Editor** is activated when the **Events** sub-category of simulation **Options** is selected for editing from the [Project Browser](#project_browser).
 
-It is used to limit the periods of time in which a full unsteady
-hydraulic analysis of the drainage network is performed. For times
-outside of these periods, the hydraulic state of the network stays the
-same as it was at the end of the previous hydraulic event.  Although
-hydraulic calculations are restricted to these pre-defined event
-periods, a full accounting of the system's hydrology is still computed
-over the entire simulation duration. During inter-event periods any
-inflows to the network, from runoff, groundwater flow, dry weather flow,
-etc., are ignored. The purpose of only computing hydraulics for
-particular time periods is to speed up long-term continuous simulations
-where one knows in advance which periods of time (such as representative
-or critical storm events) are of most interest.
+It is used to limit the periods of time in which a full unsteady hydraulic analysis of the drainage network is performed. For times outside of these periods, the hydraulic state of the network stays the same as it was at the end of the previous hydraulic event.  Although hydraulic calculations are restricted to these pre-defined event periods, a full accounting of the system's hydrology is still computed over the entire simulation duration. During inter-event periods any inflows to the network, from runoff, groundwater flow, dry weather flow, etc., are ignored. The purpose of only computing hydraulics for particular time periods is to speed up long-term continuous simulations where one knows in advance which periods of time (such as representative or critical storm events) are of most interest.
 
-The editor consists of a table listing the start and end date of each
-event, plus a blank line at the end of the list used for adding a new
-event. The events do not have to be entered in chronological order.
-There are date and time selection controls below the table used to edit
-the dates of a selected event. Clicking the Replace Event button will
-replace the row with the entries in these controls. The Delete Event
-button will delete the selected event and the Delete All button will
-delete all events from the table. The first column of the table contains
-a check box which determines if the event should be used in the analysis
-or not.
+The editor consists of a table listing the start and end date of each event, plus a blank line at the end of the list used for adding a new event. The events do not have to be entered in chronological order. There are date and time selection controls below the table used to edit the dates of a selected event. Clicking the **Replace Event** button will replace the row with the entries in these controls. The **Delete Event** button will delete the selected event and the **Delete All** button will delete all events from the table. The first column of the table contains a check box which determines if the event should be used in the analysis or not.
 
-[icon_tip]To identify event periods of interest, one can first run a
-simulation with Flow Routing turned off (see Simulation Options -
-General) and then perform a statistical frequency analysis on the
-system's rainfall record (see Viewing a Statistics Report).
+[!tip]
+To identify event periods of interest, one can first run a simulation with Flow Routing turned off (see [Simulation Options - General](#simulation_options-general)) and then perform a statistical frequency analysis on the system's rainfall record (see [Viewing a Statistics Report](#viewing_statistics_report)).
 
-[icon_tip]When a new event occurs, the water in a storage unit node will
-remain at the same level it had at the end of the previous event.
-Therefore one may want to choose event intervals long enough to minimize
-the effect that storage carryover might have.
+[!tip]
+When a new event occurs, the water in a storage unit node will remain at the same level it had at the end of the previous event. Therefore one may want to choose event intervals long enough to minimize the effect that storage carryover might have.
 
 ### Graph Options Dialog {#graph_options_dialog}
 
-The Graph Options dialog box is used to customize the appearance of a
-time series plot, a scatter plot, or a frequency plot. It is invoked by
-selecting Report >> Customize from the Main Menu when the graph window
-has the focus or by simply right-clicking on the graph. To use the
-dialog box:
+The **Graph Options** dialog box is used to customize the appearance of a time series plot, a scatter plot, or a frequency plot. It is invoked by selecting
+**Report >> Customize** from the Main Menu when the graph window has the focus or by simply right-clicking on the graph. To use the dialog box:
 
 1.  Select from among the four tabbed pages that cover the following categories of options:
 
-- General
+    - [General](#graph_options-general)
 
-- Axes
+    - [Axes](#graph_options-axes)
 
-- Legend
+    - [Legend](#graph_options-legend)
 
-- Styles
+    - [Styles](#graph_options-styles)
 
-2.  Check the Default box to use the current settings as defaults for all new graphs as well.
+2.  Check the **Default** box to use the current settings as defaults for all new graphs as well.
 
-3.  Select OK to accept your selections.
+3.  Select **OK** to accept your selections.
 
 #### Graph Options - General {#graph_options-general}
 
-The following options can be set on the General page of the Graph
-Options dialog box:
+The following options can be set on the **General** page of the Graph Options dialog box:
 
----
-
-Option Description
-Panel Color Color of the panel that contains the graph
-Start Background Color Starting gradient color of graph's plotting area
-End Background Color Ending gradient color of graph's plotting area
-View in 3D Check if graph should be drawn in 3D
-3D Effect Percent Degree to which 3D effect is drawn
-Main Title Text of graph's main title
-Font Click to set the font used for the main title
-
----
+| Option                   | Description                                      |
+| :----------------------- | :----------------------------------------------- |
+| _Panel Color_            | Color of the panel that contains the graph       |
+| _Start Background Color_ | Starting gradient color of graph's plotting area |
+| _End Background Color_   | Ending gradient color of graph's plotting area   |
+| _View in 3D_             | Check if graph should be drawn in 3D             |
+| _3D Effect Percent_      | Degree to which 3D effect is drawn               |
+| _Main Title_             | Text of graph's main title                       |
+| _Font_                   | Click to set the font used for the main title    |
 
 #### Graph Options - Axes {#graph_options-axes}
 
-The Axes page of the Graph Options dialog box adjust the way that the
-axes are drawn on a graph. One first selects an axis (Bottom, Left or
-Right (if present)) to work with and then selects from the following
-options:
+The **Axes** page of the Graph Options dialog box adjust the way that the axes are drawn on a graph. One first selects an axis (Bottom, Left or Right (if present)) to work with and then selects from the following options:
 
----
-
-Option Description
-Grid Lines Displays grid lines on the graph.
-Inverted Inverts the scale of the right vertical axis.
-Auto Scale Fills in the Minimum, Maximum and Increment boxes with an automatic axis scaling.
-Minimum Sets the minimum axis value (the minimum data value is shown in parentheses). Can be left blank.
-Maximum Sets the maximum axis value (the maximum data value is shown in parentheses). Can be left blank.
-Increment Sets the increment between axis labels. If left blank or set to zero the program will automatically select an increment.
-Axis Title Text of axis title.
-Font Click to select a font for the axis title.
-
----
+| Option       | Description                                                                                                              |
+| :----------- | :----------------------------------------------------------------------------------------------------------------------- |
+| _Grid Lines_ | Displays grid lines on the graph.                                                                                        |
+| _Inverted_   | Inverts the scale of the right vertical axis.                                                                            |
+| _Auto Scale_ | Fills in the Minimum, Maximum and Increment boxes with an automatic axis scaling.                                        |
+| _Minimum_    | Sets the minimum axis value (the minimum data value is shown in parentheses). Can be left blank.                         |
+| _Maximum_    | Sets the maximum axis value (the maximum data value is shown in parentheses). Can be left blank.                         |
+| _Increment_  | Sets the increment between axis labels. If left blank or set to zero the program will automatically select an increment. |
+| _Axis Title_ | Text of axis title.                                                                                                      |
+| _Font_       | Click to select a font for the axis title.                                                                               |
 
 #### Graph Options - Legend {#graph_options-legend}
 
-The Legend page of the Graph Options dialog box controls how the legend
-is displayed on the graph.
+The **Legend** page of the Graph Options dialog box controls how the legend is displayed on the graph.
 
----
-
-Option Description
-Position Selects where to place the legend.
-Color Selects color to use for the legend background.
-Check Boxes If selected, check boxes will appear next to each legend entry, allowing one to make the data series visible or invisible on the graph.
-Framed Places a frame around the legend.
-Shadowed Places a shadow behind the legend's text.
-Transparent Makes the legend background transparent.
-Visible Makes the legend visible.
-Symbol Width Selects the width used to draw the symbol portion of a legend item, as a percentage of the length of the longest legend label.
-
----
+| Option         | Description                                                                                                                             |
+| :------------- | :-------------------------------------------------------------------------------------------------------------------------------------- |
+| _Position_     | Selects where to place the legend.                                                                                                      |
+| _Color_        | Selects color to use for the legend background.                                                                                         |
+| _Check Boxes_  | If selected, check boxes will appear next to each legend entry, allowing one to make the data series visible or invisible on the graph. |
+| _Framed_       | Places a frame around the legend.                                                                                                       |
+| _Shadowed_     | Places a shadow behind the legend's text.                                                                                               |
+| _Transparent_  | Makes the legend background transparent.                                                                                                |
+| _Visible_      | Makes the legend visible.                                                                                                               |
+| _Symbol Width_ | Selects the width used to draw the symbol portion of a legend item, as a percentage of the length of the longest legend label.          |
 
 #### Graph Options - Styles {#graph_options-styles}
 
-The Styles page of the Graph Options dialog box controls how individual
-data series (or curves) are displayed on a graph. To use this page:
+The **Styles** page of the Graph Options dialog box controls how individual data series (or curves) are displayed on a graph. To use this page:
 
-1.  Select a data series to work with from the Series combo box.
+1.  Select a data series to work with from the **Series** combo box.
 
 2.  Edit the title used to identify this series in the legend.
 
-3.  Click the Font button to change the font used for the legend. (Other legend properties are selected on the Legend page of the dialog.)
+3.  Click the **Font** button to change the font used for the legend. (Other legend properties are selected on the [Legend](#graph_options-legend) page of the dialog.)
 
 4.  Select a property of the data series you would like to modify (not all properties are available for some types of graphs). The choices are:
 
-- Lines
+    - Lines
 
-- Markers
+    - Markers
 
-- Patterns
+    - Patterns
 
-- Labels
+    - Labels
 
 ### Groundwater Flow Editor {#groundwater_flow_editor}
 
-The Groundwater Flow Editor dialog is invoked when the Groundwater
-property of a Subcatchment is being edited. It is used to link a
-subcatchment to both a parent aquifer and to a node of the conveyance
-system that exchanges groundwater with the subcatchment.
+The **Groundwater Flow Editor** dialog is invoked when the Groundwater property of a [Subcatchment](#subcatchments) is being edited. It is used to link a subcatchment to both a parent aquifer and to a node of the conveyance system that exchanges groundwater with the subcatchment.
 
-The editor also specifies coefficients that determine the rate of
-lateral groundwater flow between the aquifer and the node. These
-coefficients (A1, A2, B1, B2, and A3) appear in the following equation
-that computes lateral groundwater flow as a function of groundwater and
-surface water levels:
+The editor also specifies coefficients that determine the rate of lateral groundwater flow between the aquifer and the node. These coefficients (A1, A2, B1, B2, and A3) appear in the following equation that computes lateral groundwater flow as a function of groundwater and surface water levels:
 
-QL = A1(HGW - HCB)B1 - A2(HSW - HCB)B2 + A3(HGW HSW)
+\f[ Q_{L} = A1(H_{GW} - H_{CB})^{B1} - A2(H_{SW} - H_{CB})^B2 + A3(H_{GW} H_{SW}) \f]
 
-where QL = lateral groundwater flow (cfs per acre or cms per hectare),
-HGW = height of saturated zone above bottom of aquifer (ft or m), HSW =
-height of surface water at receiving node above aquifer bottom (ft or
-m), and HCB = height of channel bottom above aquifer bottom (ft or m).
-Note that QL can also be expressed in inches/hr for US units.
+where \f$Q_{L}\f$ = lateral groundwater flow (cfs per acre or cms per hectare), \f$H_{GW}\f$ = height of saturated zone above bottom of aquifer (ft or m), \f$H_{SW}\f$ = height of surface water at receiving node above aquifer bottom (ft or m), and \f$H_{CB}\f$ = height of channel bottom above aquifer bottom (ft or m). Note that \f$Q_{L}\f$ can also be expressed in inches/hr for US units.
 
-[GroundWaterFlow]
+![Ground Water Flow](groundwaterflow.gif)
 
-The rate of percolation to deep groundwater, QD, in in/hr (or mm/hr) is
-given by the following equation:
+The rate of percolation to deep groundwater, \f$Q_{D}\f$, in in/hr (or mm/hr) is given by the following equation:
 
-QD = LGLR \* HGW / HGS
+\f[Q_{D} = LGLR \* H_{GW} / H_{GS}\f]
 
-where LGLR is the lower groundwater loss rate parameter assigned to the
-subcatchment's aquifer (in/hr or mm/hr) and HGS is the distance from the
-ground surface to the aquifer bottom (ft or m).
+where LGLR is the lower groundwater loss rate parameter assigned to the subcatchment's aquifer (in/hr or mm/hr) and \f$H_{GS}\f$ is the distance from the ground surface to the aquifer bottom (ft or m).
 
-In addition to the standard lateral flow equation, the dialog allows one
-to define a custom equation whose results will be added onto those of
-the standard equation. One can also define a custom equation for deep
-groundwater flow that will replace the standard one. Finally, the dialog
-offers the option to override certain parameters that were specified for
-the aquifer to which the subcatchment belongs. The properties listed in
-the editor are as follows:
+In addition to the standard lateral flow equation, the dialog allows one to define a custom equation whose results will be added onto those of the standard equation. One can also define a custom equation for deep groundwater flow that will replace the standard one. Finally, the dialog offers the option to override certain parameters that were specified for the aquifer to which the subcatchment belongs. The properties listed in the editor are as follows:
 
-Aquifer Name
+**Aquifer Name**
 
-Name of the aquifer object that describes the subsurface soil
-properties, thickness, and initial conditions. Leave this field blank if
-you want the subcatchment not to generate any groundwater flow.
+Name of the aquifer object that describes the subsurface soil properties, thickness, and initial conditions. Leave this field blank if you want the subcatchment not to generate any groundwater flow.
 
-Receiving Node
+**Receiving Node**
 
 Name of the node that receives groundwater from the subcatchment.
 
-Surface Elevation
+**Surface Elevation**
 
 Elevation of the subcatchment's ground surface (ft or m).
 
-Groundwater Flow Coefficient
+**Groundwater Flow Coefficient**
 
 Value of A1 in the groundwater flow formula.
 
-Groundwater Flow Exponent
+**Groundwater Flow Exponent**
 
 Value of B1 in the groundwater flow formula.
 
-Surface Water Flow Coefficient
+**Surface Water Flow Coefficient**
 
 Value of A2 in the groundwater flow formula.
 
-Surface Water Flow Exponent
+**Surface Water Flow Exponent**
 
 Value of B2 in the groundwater flow formula.
 
-Surface-GW Interaction Coefficient
+**Surface-GW Interaction Coefficient**
 
 Value of A3 in the groundwater flow formula.
 
-Surface Water Depth (HSW - HCB)
+**Surface Water Depth** \f$(H_{SW} - H_{CB})\f$
 
-Fixed depth of surface water above the receiving node's invert (ft or
-m). Set to zero if surface water depth will vary as computed by flow
-routing.
+Fixed depth of surface water above the receiving node's invert (ft or m). Set to zero if surface water depth will vary as computed by flow routing.
 
-Threshold Water Table Elevation (EB + HCB)
+**Threshold Water Table Elevation** \f$(E_{B} + H_{CB})\f$
 
-Minimum water table elevation that must be reached before any flow
-occurs (feet or meters). Leave blank to use the receiving node's invert
-elevation.
+Minimum water table elevation that must be reached before any flow occurs (feet or meters). Leave blank to use the receiving node's invert elevation.
 
-Aquifer Bottom Elevation (EB)
+**Aquifer Bottom Elevation** \f$(E_{B})\f$
 
-Elevation of the bottom of the aquifer below this particular
-subcatchment (ft or m). Leave blank to use the value from the parent
-aquifer.
+Elevation of the bottom of the aquifer below this particular subcatchment (ft or m). Leave blank to use the value from the parent aquifer.
 
-Initial Water Table Elevation (EB + HGW)
+**Initial Water Table Elevation** \f$(E_{B} + H_{GW})\f$
 
-Initial water table elevation at the start of the simulation for this
-particular subcatchment (ft or m). Leave blank to use the value from the
-parent aquifer.
+Initial water table elevation at the start of the simulation for this particular subcatchment (ft or m). Leave blank to use the value from the parent aquifer.
 
-Unsaturated Zone Moisture
+**Unsaturated Zone Moisture**
 
-Moisture content of the unsaturated upper zone above the water table for
-this particular subcatchment at the start of the simulation (volumetric
-fraction). Leave blank to use the value from the parent aquifer.
+Moisture content of the unsaturated upper zone above the water table for this particular subcatchment at the start of the simulation (volumetric fraction). Leave blank to use the value from the parent aquifer.
 
-Custom Lateral Flow Equation
+**Custom Lateral Flow Equation**
 
-Click the ellipsis button (or press Enter) to launch the Custom
-Groundwater Flow Equation editor for lateral groundwater flow (QL). The
-equation supplied by this editor will be used in addition to the
-standard equation to compute groundwater outflow from the subcatchment.
+Click the ellipsis button (or press Enter) to launch the Custom Groundwater Flow Equation editor for lateral groundwater flow \f$(Q_{L})\f$. The equation supplied by this editor will be used in addition to the standard equation to compute groundwater outflow from the subcatchment.
 
-Custom Deep Flow Equation
+**Custom Deep Flow Equation**
 
-Click the ellipsis button (or press Enter) to launch the Custom
-Groundwater Flow Equation editor for deep groundwater flow (QD). The
-equation supplied by this editor will be used to replace the standard
-equation for deep groundwater flow.
+Click the ellipsis button (or press Enter) to launch the Custom Groundwater Flow Equation editor for deep groundwater flow \f$(Q_{D})\f$. The equation supplied by this editor will be used to replace the standard equation for deep groundwater flow.
 
-The coefficients supplied to the lateral groundwater flow equations must
-be in units that are consistent with the groundwater flow units, which
-can either be cfs/acre (equivalent to inches/hr) for US units or cms/ha
-for SI units.
+The coefficients supplied to the lateral groundwater flow equations must be in units that are consistent with the groundwater flow units, which can either be cfs/acre (equivalent to inches/hr) for US units or cms/ha for SI units.
 
-[icon_tip]Note that elevations are used to specify the ground surface,
-water table height, and aquifer bottom in the dialog's data entry fields
-but that the groundwater flow equation uses depths above the aquifer
-bottom.
+[!tip]
+Note that elevations are used to specify the ground surface, water table height, and aquifer bottom in the dialog's data entry fields but that the groundwater flow equation uses depths above the aquifer bottom.
 
-[icon_tip]If groundwater flow is simply proportional to the difference
-in groundwater and surface water heads, then set the Groundwater and
-Surface Water Flow Exponents (B1 and B2) to 1.0, set the Groundwater
-Flow Coefficient (A1) to the proportionality factor, set the Surface
-Water Flow Coefficient (A2) to the same value as A1, and set the
-Interaction Coefficient (A3) to zero.
+[!tip]
+If groundwater flow is simply proportional to the difference in groundwater and surface water heads, then set the Groundwater and Surface Water Flow Exponents (B1 and B2) to 1.0, set the Groundwater Flow Coefficient (A1) to the proportionality factor, set the Surface Water Flow Coefficient (A2) to the same value as A1, and set the Interaction Coefficient (A3) to zero.
 
-[icon_tip]When conditions warrant, the groundwater flux can be negative,
-simulating flow into the aquifer from the channel, in the manner of bank
-storage. An exception occurs when A3 ? 0, since the surface water -
-groundwater interaction term is usually derived from groundwater flow
-models that assume unidirectional flow. Otherwise, to ensure that a
-negative flow will not occur, one can make A1 greater than or equal to
-A2, B1 greater than or equal to B2, and A3 equal to zero.
+[!tip]
+When conditions warrant, the groundwater flux can be negative, simulating flow into the aquifer from the channel, in the manner of bank storage. An exception occurs when A3 ? 0, since the surface water - groundwater interaction term is usually derived from groundwater flow models that assume unidirectional flow. Otherwise, to ensure that a negative flow will not occur, one can make A1 greater than or equal to A2, B1 greater than or equal to B2, and A3 equal to zero.
 
-[icon_tip]To completely replace the standard groundwater flow equation
-with the custom equation, set all of the standard equation coefficients
-to 0.
+[!tip]
+To completely replace the standard groundwater flow equation with the custom equation, set all of the standard equation coefficients to 0.
 
 ### Groundwater Equation Editor {#groundwater_equation_editor}
 
-The Groundwater Equation Editor is used to supply a custom equation for
-computing groundwater flow between the saturated sub-surface zone of a
-subcatchment and either a node in the conveyance network (lateral flow)
-or to a deeper groundwater aquifer (deep flow). It is invoked from the
-Groundwater Flow Editor form.
+The Groundwater Equation Editor is used to supply a custom equation for computing groundwater flow between the saturated sub-surface zone of a subcatchment and either a node in the conveyance network (lateral flow) or to a deeper groundwater aquifer (deep flow). It is invoked from the Groundwater Flow Editor form.
 
 [GroundwaterEquation]
 
