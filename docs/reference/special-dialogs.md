@@ -489,49 +489,39 @@ To completely replace the standard groundwater flow equation with the custom equ
 
 ### Groundwater Equation Editor {#groundwater_equation_editor}
 
-The Groundwater Equation Editor is used to supply a custom equation for computing groundwater flow between the saturated sub-surface zone of a subcatchment and either a node in the conveyance network (lateral flow) or to a deeper groundwater aquifer (deep flow). It is invoked from the Groundwater Flow Editor form.
+The **Groundwater Equation Editor** is used to supply a custom equation for computing groundwater flow between the saturated sub-surface zone of a subcatchment and either a node in the conveyance network (lateral flow) or to a deeper groundwater aquifer (deep flow). It is invoked from the [Groundwater Flow Editor](#groundwater_flow_editor) form.
 
-[GroundwaterEquation]
+![Groundwater Equation](groundwaterequation.gif)
 
-For lateral groundwater flow the result of evaluating the custom
-equation will be added onto the result of the standard equation. To
-replace the standard equation completely set all of its coefficients to 0. Remember that groundwater flow units are cfs/acre for US units and
-cms/ha for metric units.
+For lateral groundwater flow the result of evaluating the custom equation will be added onto the result of the standard equation. To replace the standard equation completely set all of its coefficients to 0. Remember that groundwater flow units are cfs/acre for US units and cms/ha for metric units.
 
 The following symbols can be used in the equation:
 
----
+|           |                                                                                |
+| :-------- | :----------------------------------------------------------------------------- |
+| **Hgw**   |  (height of the groundwater table)                                             |
+| **Hsw**   | (height of the surface water)                                                  |
+| **Hcb**   | (height of the channel bottom)                                                 |
+| **Hgs**   | (height of the ground surface)                                                 |
+| **Phi**   | (porosity of the subsurface soil)                                              |
+| **Theta** | (moisture content of the upper unsaturated zone)                               |
+| **Ks**    | (saturated hydraulic conductivity in inches/hr or mm/hr)                       |
+| **K**     | (hydraulic conductivity at the current moisture content in inches/hr or mm/hr) |
+| **Fi**    | (infiltration rate from the ground surface in inches/hr or mm/hr)              |
+| **Fu**    | (percolation rate from the upper unsaturated zone in inches/hr or mm/hr)       |
+| **A**     | (subcatchment area in acres or hectares)                                       |
 
-Hgw         (height of the groundwater table)
-Hsw (height of the surface water)
-Hcb (height of the channel bottom)
-Hgs (height of the ground surface)
-Phi (porosity of the subsurface soil)
-Theta (moisture content of the upper unsaturated zone)
-Ks (saturated hydraulic conductivity in inches/hr or mm/hr)
-K (hydraulic conductivity at the current moisture content in inches/hr or mm/hr)
-Fi (infiltration rate from the ground surface in inches/hr or mm/hr)
-Fu (percolation rate from the upper unsaturated zone in inches/hr or mm/hr)
-A (subcatchment area in acres or hectares)
+where all heights are relative to the aquifer's bottom elevation in feet (or meters).
 
----
+The **STEP** function can be used to have flow only when the groundwater level is above a certain threshold. For example, the expression:
 
-where all heights are relative to the aquifer's bottom elevation in feet
-(or meters).
+\f[0.001 _ (Hgw - 5) _ STEP(Hgw - 5)\f]
 
-The STEP function can be used to have flow only when the groundwater
-level is above a certain threshold. For example, the expression:
-
-0.001 _ (Hgw - 5) _ STEP(Hgw - 5)
-
-would generate flow only when Hgw was above 5. See the Treatment Editor
-topic for a list of additional math functions that can be used in a
-groundwater flow expression.
+would generate flow only when Hgw was above 5. See the [Treatment Editor](#treatment_editor) topic for a list of additional math functions that can be used in a groundwater flow expression.
 
 ### Group Edit Dialog {#group_edit_dialog}
 
-The Group Edit dialog is used to modify a property for a selected group
-of objects (see Selecting a Group of Objects). To use the dialog box:
+The **Group Edit** dialog is used to modify a property for a selected group of objects (see [Selecting a Group of Objects](#selecting_group_objects)). To use the dialog box:
 
 1.  Select a class of object (Subcatchments, Infiltration, Junctions, Storage Units, or Conduits) to edit.
 
@@ -545,13 +535,9 @@ of objects (see Selecting a Group of Objects). To use the dialog box:
 
 6.  In the lower-right edit box, enter the value that should replace, multiply, or be added to the existing value for all selected objects. Some properties will have an ellipsis button displayed in the edit box which should be clicked to bring up a specialized editor for the property.
 
-7.  Click OK to execute the group edit.
+7.  Click **OK** to execute the group edit.
 
-After the group edit is executed a confirmation dialog box will appear
-informing you of how many items were modified. It will ask if you wish
-to continue editing or not. Select Yes to return to the Group Edit
-dialog box to edit another parameter or No to dismiss the Group Edit
-dialog.
+After the group edit is executed a confirmation dialog box will appear informing you of how many items were modified. It will ask if you wish to continue editing or not. Select **Yes** to return to the Group Edit dialog box to edit another parameter or **No** to dismiss the Group Edit dialog.
 
 ### Infiltration Editor {#infiltration_editor}
 
