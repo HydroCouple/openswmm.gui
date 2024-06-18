@@ -621,617 +621,455 @@ The Inflows Editor dialog is used to assign Direct, Dry Weather, and RDII inflow
 
 #### Direct Inflow Page {#direct_inflow_editor}
 
-The Direct page on the Inflows Editor dialog is used to specify the time history of direct external flow and water quality entering a node of the drainage system. These inflows are represented by both a constant and time varying component as follows:
+The **Direct** page on the Inflows Editor dialog is used to specify the time history of direct external flow and water quality entering a node of the drainage system. These inflows are represented by both a constant and time varying component as follows:
 
-+-----------------------+-----------------------+-----------------------+
-| Inflow at time t | = | (baseline value) _ |
-| | | (baseline pattern |
-| | | factor) + |
-| | | |
-| | | (scale factor) _ |
-| | | (time series value at |
-| | | time t) |
-+-----------------------+-----------------------+-----------------------+
+    Inflow at time t = (baseline value) * (baseline pattern factor) +
+                       (scale factor) * (time series value at time t)
 
 The page contains the following input fields that define the properties of this relation:
 
-Constituent
+**Constituent**
 
-Selects the constituent (FLOW or one of the project's named pollutants) whose direct inflow will be described.
+Selects the constituent (**FLOW** or one of the project's named pollutants) whose direct inflow will be described.
 
-Baseline
+**Baseline**
 
-Specifies the value of the constant baseline component of the constituent's inflow. For FLOW, the units are the project's flow units. For pollutants, the units are the pollutant's concentration units if inflow is a concentration, or can be any mass flow units if the inflow is a mass flow (see Units Factor below). If left blank then no baseline inflow is assumed.
+Specifies the value of the constant baseline component of the constituent's inflow. For **FLOW**, the units are the project's flow units. For pollutants, the units are the pollutant's concentration units if inflow is a concentration, or can be any mass flow units if the inflow is a mass flow (see Units Factor below). If left blank then no baseline inflow is assumed.
 
-Baseline Pattern
+**Baseline Pattern**
 
-An optional Time Pattern whose factors adjust the baseline inflow on either an hourly, daily, or monthly basis (depending on the type of time pattern specified). Clicking the [edit] button will bring up the Time Pattern Editor dialog for the selected time pattern. If left blank, then no adjustment is made to the baseline inflow.
+An optional [Time Pattern](#time_patterns) whose factors adjust the baseline inflow on either an hourly, daily, or monthly basis (depending on the type of time pattern specified). Clicking the &nbsp;![](edit.gif) button will bring up the [Time Pattern Editor](#time_pattern_editor) dialog for the selected time pattern. If left blank, then no adjustment is made to the baseline inflow.
 
-Time Series
+**Time Series**
 
-The name of the time series that describes the time varying component of the constituent's inflow. If left blank then no time varying inflow is assumed. Clicking the [edit] button will bring up the Time Series Editor dialog for the selected time series. The units of the time series values obey the same convention as described above for Baseline inflow.
+The name of the time series that describes the time varying component of the constituent's inflow. If left blank then no time varying inflow is assumed. Clicking the &nbsp;![](edit.gif) button will bring up the [Time Series Editor](#time_series_editor) dialog for the selected time series. The units of the time series values obey the same convention as described above for Baseline inflow.
 
-Scale Factor
+**Scale Factor**
 
 A multiplier used to adjust the values of the constituent's inflow time series. The baseline value is not adjusted by this factor. The scale factor can have several uses, such as allowing one to easily change the magnitude of an inflow hydrograph while keeping its shape the same, without having to re-edit the entries in the hydrograph's time series. Or it can allow a group of nodes sharing the same time series to have their inflows behave in a time-synchronized fashion while letting their individual magnitudes be different. If left blank the scale factor defaults to 1.0.
 
-Inflow Type
+**Inflow Type**
 
-For pollutants, this field selects the type of inflow data as being either a CONCENTRATION (mass/volume) or a MASS FLOW RATE (mass/time). This field does not appear for FLOW inflow.
+For pollutants, this field selects the type of inflow data as being either a **CONCENTRATION** (mass/volume) or a **MASS FLOW RATE** (mass/time). This field does not appear for FLOW inflow.
 
-Units Factor
+**Units Factor**
 
 A numerical factor used to convert the units of pollutant mass flow rate in the time series data into concentration mass units per second. For example, if the inflow data were in lbs/day and the pollutant concentration was chosen as mg/L, then the conversion factor value would be (453,590 mg/lb) / (86,400 sec/day) = 5.25 (mg/sec) per (lb/day). This field does not appear for FLOW inflow, and for concentration-type inflows any value entered will be overridden to 1.0.
 
-More than one constituent can be edited while the dialog is active by simply selecting another choice for the Constituent property. However, if the Cancel button is clicked then any changes made to all constituents will be ignored.
+More than one constituent can be edited while the dialog is active by simply selecting another choice for the **Constituent** property. However, if the **Cancel** button is clicked then any changes made to all constituents will be ignored.
 
 [!tip]
 If a pollutant is assigned a direct inflow in terms of concentration, then one must also assign a time series inflow to flow, otherwise no pollutant inflow will occur. An exception is at submerged outfalls where pollutant intrusion can occur during periods of reverse flow. If pollutant inflow is defined in terms of mass, then a corresponding flow inflow is not required.
 
 #### Dry Weather Inflow Page {#dry_weather_inflow_page}
 
-The Dry Weather page of the Inflows Editor dialog is used to specify a
-continuous source of dry weather flow entering a node of the drainage
-system. The page contains the following input fields:
+The **Dry Weather** page of the Inflows Editor dialog is used to specify a continuous source of dry weather flow entering a node of the drainage system. The page contains the following input fields:
 
-Constituent
+**Constituent**
 
-Selects the constituent (FLOW or one of the project's specified
-pollutants) whose dry weather inflow will be specified.
+Selects the constituent (FLOW or one of the project's specified pollutants) whose dry weather inflow will be specified.
 
-Average Value
+**Average Value**
 
-Specifies the average (or baseline) value of the dry weather inflow of
-the constituent in the relevant units (flow units for flow,
-concentration units for pollutants). Leave blank if there is no dry
-weather flow  for the selected constituent.
+Specifies the average (or baseline) value of the dry weather inflow of the constituent in the relevant units (flow units for flow, concentration units for pollutants). Leave blank if there is no dry weather flow  for the selected constituent.
 
-Time Patterns
+**Time Patterns**
 
-Specifies the names of the time patterns to be used to allow the dry
-weather flow to vary in a periodic fashion by month of the year, by day
-of the week, and by time of day (for both week days and week ends). One
-can either type in a name or select a previously defined pattern from
-the dropdown list of each combo box. Up to four different types of
-patterns can be assigned. You can click the [edit] button next to each
-Time Pattern field to edit the respective pattern.
+Specifies the names of the [time patterns](#time_patterns) to be used to allow the dry weather flow to vary in a periodic fashion by month of the year, by day of the week, and by time of day (for both week days and week ends). One can either type in a name or select a previously defined pattern from the dropdown list of each combo box. Up to four different types of patterns can be assigned. You can click the &nbsp;![](edit.gif) button next to each Time Pattern field to edit the respective pattern.
 
-More than one constituent can be edited while the dialog is active by
-simply selecting another choice for the Constituent property. However,
-if the Cancel button is clicked then any changes made to all
-constituents will be ignored.
+More than one constituent can be edited while the dialog is active by simply selecting another choice for the Constituent property. However, if the Cancel button is clicked then any changes made to all constituents will be ignored.
 
 #### RDII Inflow Page {#rdii_inflow_page}
 
-The RDII Inflow page of the Inflows Editor dialog form is used to
-specify RDII (Rainfall Dependent Infiltration/Inflow) for the node in
-question. The page contains the following two input fields:
-Unit Hydrograph Group
+The **RDII Inflow** page of the Inflows Editor dialog form is used to specify RDII (Rainfall Dependent Infiltration/Inflow) for the node in question. The page contains the following two input fields:
 
-Enter (or select from the dropdown list) the name of the Unit Hydrograph
-group that applies to the node in question. The unit hydrographs in the
-group are used in combination with the group's assigned rain gage to
-develop a time series of RDII inflows per unit area over the period of
-the simulation. Leave this field blank to indicate that the node
-receives no RDII inflow. Clicking the [edit] button will launch the Unit
-Hydrograph Editor for the UH group specified.
+**Unit Hydrograph Group**
 
-Sewershed Area
+Enter (or select from the dropdown list) the name of the [Unit Hydrograph](#unit_hydrographs) group that applies to the node in question. The unit hydrographs in the group are used in combination with the group's assigned rain gage to develop a time series of RDII inflows per unit area over the period of the simulation. Leave this field blank to indicate that the node receives no RDII inflow. Clicking the &nbsp;![](edit.gif) button will launch the [Unit Hydrograph Editor](#unit_hydrograph_editor) for the UH group specified.
 
-Enter the area (in acres or hectares) of the sewershed which contributes
-RDII to the node in question. Note this area will typically be only a
-small, localized portion of the subcatchment area that contributes
-surface runoff to the node.
+**Sewershed Area**
+
+Enter the area (in acres or hectares) of the sewershed which contributes RDII to the node in question. Note this area will typically be only a small, localized portion of the subcatchment area that contributes surface runoff to the node.
 
 ### Initial Buildup Editor {#initial_buildup_editor}
 
-The Initial Buildup editor is invoked from the Property Editor when
-editing the Initial Buildup property of a Subcatchment. It specifies the
-amount of pollutant buildup existing over the subcatchment at the start
-of the simulation.
+The **Initial Buildup** editor is invoked from the [Property Editor](#swmms_main_window) when editing the Initial Buildup property of a [Subcatchment](#subcatchments). It specifies the amount of pollutant buildup existing over the subcatchment at the start of the simulation.
 
-The editor consists of a data entry grid with two columns. The first
-column lists the name of each pollutant in the project and the second
-column contains edit boxes for entering the initial buildup values. If
-no buildup value is supplied for a pollutant, it is assumed to be 0. The
-units for buildup are either pounds per acre when US units are in use or
-kilograms per hectare when SI metric units are in use.
+The editor consists of a data entry grid with two columns. The first column lists the name of each pollutant in the project and the second column contains edit boxes for entering the initial buildup values. If no buildup value is supplied for a pollutant, it is assumed to be 0. The units for buildup are either pounds per acre when US units are in use or kilograms per hectare when SI metric units are in use.
 
-If a non-zero value is supplied for the initial buildup of a pollutant,
-it will override any initial buildup computed from the Antecedent Dry
-Days parameter specified on the Dates page of the Simulation Options
-dialog.
+If a non-zero value is supplied for the initial buildup of a pollutant, it will override any initial buildup computed from the **Antecedent Dry Days** parameter specified on the **Dates** page of the [Simulation Options](#simulation_options-dates) dialog.
 
 ### Inlet Structure Editor {#inlet_structure_editor}
 
-The Inlet Structure Editor is invoked when a new Inlet object is created
-or is selected for editing from the Project Browser. As shown below it
-contains an Inlet Name field used to uniquely identify the inlet
-structure and an Inlet Type field to select the type of  structure.
+The **Inlet Structure Editor** is invoked when a new Inlet object is created or is selected for editing from the [Project Browser](#project_browser). As shown below it contains an **Inlet Name** field used to uniquely identify the inlet structure and an **Inlet Type** field to select the type of structure.
 
-[InletEditor]
+![Inlet Editor](inleteditor.png)
 
-The design parameters shown in the data entry panel depend on the choice
-of inlet type:
+The design parameters shown in the data entry panel depend on the choice of inlet type:
 
-- Grated Inlet
+- [Grated Inlet](#grated_inlet)
 
-- Curb Opening Inlet
+- [Curb Opening Inlet](#curb_opening_inlet)
 
-- Combination (Grated + Curb Opening) Inlet
+- Combination ([Grated](#grated_inlet) + [Curb Opening](#curb_opening_inlet)) Inlet
 
-- Slotted Drain Inlet
+- [Slotted Drain Inlet](#slotted_drain_inlet)
 
-- Drop Grate Inlet (see Grated Inlet)
+- Drop Grate Inlet (see [Grated Inlet](#grated_inlet))
 
-- Drop Curb Inlet (see Curb Opening Inlet)
+- Drop Curb Inlet (see [Curb Opening Inlet](#curb_opening_inlet))
 
-- Custom Inlet
+- [Custom Inlet](#custom_inlet)
 
 #### Grated Inlet {#grated_inlet}
 
 The design parameters for a grated inlet include:
 
-Grate Type
+**Grate Type**
 
 One of the following types of grate designs:
 
----
+|                |                 |                                                                                                                  |
+| :------------- | --------------- | :--------------------------------------------------------------------------------------------------------------- |
+| _P_BAR-50_     | ![](embim3.gif) | Parallel bar grate with bar spacing 1-7/8-in on center                                                           |
+| _P_BAR-50X100_ | ![](embim4.gif) | Parallel bar grate with bar spacing 1-7/8-in on center and 3/8-in diameter lateral rods spaced at 4-in on center |
+| _P_BAR-30_     | ![](embim5.gif) | Parallel bar grate with 1-1/8-in on center bar spacing                                                           |
+| _CURVED_VANE_  | ![](embim6.gif) | Curved vane grate with 3-1/4-in longitudinal bar and 4-1/4-in transverse bar spacing on center                   |
+| _TILT_BAR-45_  | ![](embim7.gif) | 45 degree tilt bar grate with 2-1/4-in longitudinal bar and 4-in transverse bar spacing on center                |
+| _TILT_BAR-30_  | ![](embim8.gif) | 30 degree tilt bar grate with 3-1/4-in and 4-in on center longitudinal and lateral bar spacing respectively      |
+| _RETICULINE_   | ![](embim9.gif) | "Honeycomb" pattern of lateral bars and longitudinal bearing bars                                                |
+| _GENERIC_      |                 |   A generic grate design.                                                                                        |
 
-P_BAR-50 [] Parallel bar grate with bar spacing 1-7/8-in on center
-P_BAR-50X100 [] Parallel bar grate with bar spacing 1-7/8-in on center and 3/8-in diameter lateral rods spaced at 4-in on center
-P_BAR-30 [] Parallel bar grate with 1-1/8-in on center bar spacing
-CURVED_VANE [] Curved vane grate with 3-1/4-in longitudinal bar and 4-1/4-in transverse bar spacing on center
-TILT_BAR-45 [] 45 degree tilt bar grate with 2-1/4-in longitudinal bar and 4-in transverse bar spacing on center
-TILT_BAR-30 [] 30 degree tilt bar grate with 3-1/4-in and 4-in on center longitudinal and lateral bar spacing respectively
-RETICULINE [] "Honeycomb" pattern of lateral bars and longitudinal bearing bars
-GENERIC   A generic grate design.
-
----
-
-Length
+**Length**
 
 The grate's length parallel to the street curb (feet or meters).
 
-Width
+**Width**
 
 The grate's width (feet or meters).
 
-Open Fraction (for GENERIC grates only)
+**Open Fraction** (for _GENERIC_ grates only)
 
-The fraction of the grate's area that is open. Values are predetermined
-for non-Generic grates.
+The fraction of the grate's area that is open. Values are predetermined for non-Generic grates.
 
-Splash Velocity (for GENERIC grates only)
+**Splash Velocity** (for _GENERIC_ grates only)
 
-The minimum velocity that causes some water to shoot over the inlet thus
-reducing its capture efficiency (ft/sec or m/sec). Values are
-predetermined for non-Generic grates.
+The minimum velocity that causes some water to shoot over the inlet thus reducing its capture efficiency (ft/sec or m/sec). Values are predetermined for non-Generic grates.
 
 #### Curb Opening Inlet {#curb_opening_inlet}
 
 The design parameters for a curb opening inlet are:
 
-Length
+**Length**
 
 The length of the opening (feet or meters).
 
-Height
+**Height**
 
 The height of the opening (feet or meters).
 
-Throat Angle
+**Throat Angle**
 
-The orientation of the curb opening's throat relative to the street
-surface. Choices are:
+The orientation of the curb opening's throat relative to the street surface. Choices are:
 
----
+|            |                                           |
+| :--------- | ----------------------------------------- |
+| VERTICAL   | [Vertical Throat](verticalthroat.gif)     |
+| HORIZONTAL | [Horizontal Throat](horizontalthroat.gif) |
+| INCLINED   | [Inclined Throat](inclinedthroat.gif)     |
 
-VERTICAL [VerticalThroat]
-HORIZONTAL [HorizontalThroat]
-INCLINED [InclinedThroat]
-
----
-
-[icon_tip]For combination inlets only the portion of the curb opening
-that extends beyond the length of the grated inlet contributes to inlet
-capture efficiency.
+[!tip]
+For combination inlets only the portion of the curb opening that extends beyond the length of the grated inlet contributes to inlet capture efficiency.
 
 #### Slotted Drain Inlet {#slotted_drain_inlet}
 
 The design parameters for a slotted drain inlet are:
 
-Length
+**Length**
 
 The drain's length parallel to the street curb (feet or meters).
 
-Width
+**Width**
 
 The drain's width (feet or meters).
 
 #### Custom Inlet {#custom_inlet}
 
-The only design parameter for a Custom inlet is the name of a
-user-defined flow capture curve. Two options for this curve are
-available:
+The only design parameter for a Custom inlet is the name of a user-defined flow capture curve. Two options for this curve are available:
 
-1.  a Diversion Curve (normally used for Divider nodes) that has captured flow be a function of the inlet's approach flow
+1. a Diversion Curve (normally used for Divider nodes) that has captured flow be a function of the inlet's approach flow
 
-2.  a Rating Curve (normally used for Outlet links) that makes the captured flow be a function of water depth.
+2. a Rating Curve (normally used for Outlet links) that makes the captured flow be a function of water depth.
 
-Diversion curves are best suited for on-grade inlets and Rating curves
-for on-sag inlets.
+Diversion curves are best suited for on-grade inlets and Rating curves for on-sag inlets.
 
-[CustomInlet2]
+![Custom Inlet Curve](custominlet2.zoom81.gif)
 
-Clicking the [edit] button next to the curve's name field to open up the
-Curve Editor dialog.
+Clicking the &nbsp;![](edit.gif) button next to the curve's name field to open up the [Curve Editor](#curve_editor) dialog.
 
 ### Inlet Usage Editor {#inlet_usage_editor}
 
-The Inlet Usage Editor is used to place an Inlet Structure into a Street
-or channel conduit. It is accessed by selecting  a conduit into the
-Property Editor and then clicking the ellipsis button in its Inlets
-property. The following information is requested by the editor:
+The **Inlet Usage Editor** is used to place an [Inlet Structure](#inlet_structure_editor) into a [Street](#streets) or channel conduit. It is accessed by selecting  a conduit into the [Property Editor](#property_editor) and then clicking the ellipsis button in its Inlets property. The following information is requested by the editor:
 
-Inlet Structure
+**Inlet Structure**
 
-The name of the inlet structure to use. Select a previously defined
-structure from the drop-down list. The list will contain only those
-inlets that are compatible with the conduit's cross section (i.e., curb
-and gutter inlets for street sections or drop inlets for trapezoidal or
-rectangular channel sections). Selecting the blank first item will
-remove the inlet from the conduit.
+The name of the inlet structure to use. Select a previously defined structure from the drop-down list. The list will contain only those inlets that are compatible with the conduit's cross section (i.e., curb and gutter inlets for street sections or drop inlets for trapezoidal or rectangular channel sections). Selecting the blank first item will remove the inlet from the conduit.
 
-Capture Node
+**Capture Node**
 
-The name of the node that receives flow captured by the inlet. You can
-select the node by clicking it on the Study Area Map or by selecting it
-from the Project Browser.
+The name of the node that receives flow captured by the inlet. You can select the node by clicking it on the [Study Area Map](#study_area_map) or by selecting it from the [Project Browser](#project_browser).
 
-Number of Inlets
+**Number of Inlets**
 
-The number of identical inlets placed in the conduit. For two-sided
-street conduits this number refers to pairs of inlets placed on each
-side of the street. For example if 2 inlets are specified for a
-two-sided street, then a total of 4 inlets will be utilized, two on each
-side of the street.
+The number of identical inlets placed in the conduit. For two-sided street conduits this number refers to pairs of inlets placed on each side of the street. For example if 2 inlets are specified for a two-sided street, then a total of 4 inlets will be utilized, two on each side of the street.
 
-Percent Clogged
+**Percent Clogged**
 
-The percentage to which each inlet is clogged. Suppose a value of 50%
-was used. Then the normal flow capture computed for the inlet would be
-reduced by half.
+The percentage to which each inlet is clogged. Suppose a value of 50% was used. Then the normal flow capture computed for the inlet would be reduced by half.
 
-Flow Restriction
+**Flow Restriction**
 
-The maximum flow (in the project's flow units) that can be captured by a
-single inlet. A value of 0 indicates that flow capture is unrestricted.
+The maximum flow (in the project's flow units) that can be captured by a single inlet. A value of 0 indicates that flow capture is unrestricted.
 
-Depression Height
+**Depression Height**
 
-The height of any local gutter depression that exists over the length of
-the inlet (in feet or meters). This local depression will be added onto
-any continuous depression that the conduit's Street section might have.
-A value of 0 indicates no local depression. This parameter is ignored
-for drop inlets.
+The height of any local gutter depression that exists over the length of the inlet (in feet or meters). This local depression will be added onto any continuous depression that the conduit's Street section might have. A value of 0 indicates no local depression. This parameter is ignored for drop inlets.
 
-Depression Width
+**Depression Width**
 
-The width of any local gutter depression in feet or meters. It should be
-at least as large as the width that the inlet extends out into the
-gutter. This value is ignored if the depression height is 0 or if a drop
-inlet is used.
+The width of any local gutter depression in feet or meters. It should be at least as large as the width that the inlet extends out into the gutter. This value is ignored if the depression height is 0 or if a drop inlet is used.
 
-Inlet Placement
+**Inlet Placement**
 
-Specifies whether the inlet is placed in an on-grade or on-sag location.
-Selecting AUTOMATIC has the program determine the placement based on the
-topography of the street layout.
+Specifies whether the inlet is placed in an on-grade or on-sag location. Selecting **AUTOMATIC** has the program determine the placement based on the topography of the street layout.
 
-[icon_tip]Grated, curb opening and slotted drain inlets can only be used
-by Street conduits. Drop grates and drop curb inlets can only be used by
-rectangular or trapezoidal channels. Custom inlets can be used in any
-conduit.
+[!tip]
+Grated, curb opening and slotted drain inlets can only be used by Street conduits. Drop grates and drop curb inlets can only be used by rectangular or trapezoidal channels. Custom inlets can be used in any conduit.
 
 ### Interface File Combine Dialog {#interface_file_combine_dialog}
 
-The Interface File Combine dialog is launched by selecting File >>
-Combine from the Main Menu. It is used to combine two Routing Interface
-files into a single third file. The dialog contains a data entry grid
-with the following fields:
+The **Interface File Combine** dialog is launched by selecting **File >> Combine** from the Main Menu. It is used to combine two [Routing Interface](#interface_files) files into a single third file. The dialog contains a data entry grid with the following fields:
 
-Interface File 1
+**Interface File 1**
 
 Enter the name of the first interface file to be combined.
 
-Interface File 2
+**Interface File 2**
 
 Enter the name of the second interface file to be combined.
 
-Interface File 3
+**Interface File 3**
 
 Enter the name of the combined interface file to be written.
 
-Description
+**Description**
 
-Enter a descriptive line of text that will be written to the header of
-the combined file (optional).
+Enter a descriptive line of text that will be written to the header of the combined file (optional).
 
-Instead of typing in file names you can click the Browse button to
-select file names from a standard Windows File Open/Save dialog.
+Instead of typing in file names you can click the Browse button to select file names from a standard Windows File Open/Save dialog.
 
 ### Interface File Selection Dialog {#interface_file_selection_dialog}
 
-The Interface File Selection dialog appears when adding or editing an
-interface file to the project using the Interface Files page of the
-Simulation Options dialog.
+The Interface File Selection dialog appears when adding or editing an interface file to the project using the [Interface Files](#simulation_options-interface_files) page of the [Simulation Options](#simulation_options_dialog) dialog.
 
-File Type
+**File Type**
 
 Select the type of interface file to be specified.
 
-Use / Save Buttons
+**Use / Save Buttons**
 
-Select whether the named interface file will be used to supply input to
-a simulation run or whether simulation results will be saved to it.
+Select whether the named interface file will be used to supply input to a simulation run or whether simulation results will be saved to it.
 
-File Name
+**File Name**
 
 Enter the name of the interface file.
 
-Browse Button [FileBrowse]
+**Browse Button** &nbsp;![](filebrowse.gif)
 
-Click this button to launch a standard file selection dialog from which
-the path and name of the interface file can be selected.
+Click this button to launch a standard file selection dialog from which the path and name of the interface file can be selected.
 
 ### Land Use Assignment Editor {#land_use_assignment_editor}
 
-The Land Use Assignment editor is invoked from the Property Editor when
-editing the Land Uses property of a Subcatchment. Its purpose is to
-assign land uses to the subcatchment for water quality simulations. The
-percent of land area in the subcatchment covered by each land use is
-entered next to its respective land use category. If the land use is not
-present its field can be left blank. The percentages entered do not
-necessarily have to add up to 100.
+The **Land Use Assignment** editor is invoked from the [Property Editor](#swmms_main_window) when editing the [Land Uses](#land_uses) property of a [Subcatchment](#subcatchments). Its purpose is to assign land uses to the subcatchment for water quality simulations. The percent of land area in the subcatchment covered by each land use is entered next to its respective land use category. If the land use is not present its field can be left blank. The percentages entered do not necessarily have to add up to 100.
 
 ### Land Use Editor {#land_use_editor}
 
-The Land Use Editor dialog is used to define a category of land use for
-the study area and to define its pollutant buildup and washoff
-characteristics. The dialog contains three tabbed pages of land use
-properties:
+The **Land Use Editor** dialog is used to define a category of land use for the study area and to define its pollutant buildup and washoff characteristics. The dialog contains three tabbed pages of land use properties:
 
-- General Page (provides land use name and street sweeping parameters)
+- [General Page](#land_use_editor-general_page) (provides land use name and street sweeping parameters)
 
-- Buildup Page (defines rate at which pollutant buildup occurs)
+- [Buildup Page](#land_use_editor-buildup_page) (defines rate at which pollutant buildup occurs)
 
-- Washoff Page (defines rate at which pollutant washoff occurs)
+- [Washoff Page](#land_use_editor-washoff_page) (defines rate at which pollutant washoff occurs)
 
 #### Land Use Editor - General Page {#land_use_editor-general_page}
 
-The General page of the Land Use Editor dialog describes the following
-properties of a particular land use category:
+The **General** page of the Land Use Editor dialog describes the following properties of a particular land use category:
 
-Land Use Name
+**Land Use Name**
 
 The name assigned to the land use.
 
-Description
+**Description**
 
-An optional comment or description of the land use. (Click the ellipsis
-button or press Enter to edit).
+An optional comment or description of the land use. (Click the ellipsis button or press **Enter** to edit).
 
-Street Sweeping Interval
+**Street Sweeping Interval**
 
 Days between street sweeping within the land use (0 for no sweeping).
 
-Street Sweeping Availability
+**Street Sweeping Availability**
 
-Fraction of the buildup of all pollutants that is available for removal
-by sweeping.
+Fraction of the buildup of all pollutants that is available for removal by sweeping.
 
-Last Swept
+**Last Swept**
 
 Number of days since last swept at the start of the simulation.
 
-If Street Sweeping does not apply to the land use, then the last three
-properties can be left blank
+If Street Sweeping does not apply to the land use, then the last three properties can be left blank
 
 #### Land Use Editor - Buildup Page {#land_use_editor-buildup_page}
 
-The Buildup page of the Land Use Editor dialog describes the properties
-associated with pollutant buildup over the land during dry weather
-periods. These consist of:
+The **Buildup** page of the Land Use Editor dialog describes the properties associated with pollutant buildup over the land during dry weather periods. These consist of:
 
-Pollutant
+**Pollutant**
 
 Select the pollutant whose buildup properties are being edited.
 
-Function
+**Function**
 
-The type of buildup function to use for the pollutant. The choices are
-NONE for no buildup, POW for power function buildup, EXP for exponential
-function buildup, SAT for saturation function buildup, and EXT for
-buildup supplied by an external time series. See the Pollutant Buildup
-topic for explanations of these different functions. Select NONE if no
-buildup occurs.
+The type of buildup function to use for the pollutant. The choices are NONE for no buildup, POW for power function buildup, EXP for exponential function buildup, SAT for saturation function buildup, and EXT for buildup supplied by an external time series. See the [Pollutant Buildup](#pollutant_buildup) topic for explanations of these different functions. Select NONE if no buildup occurs.
 
-Max. Buildup
+**Max. Buildup**
 
-The maximum buildup that can occur, expressed as lbs (or kg) of the
-pollutant per unit of the normalizer variable (see below). This is the
-same as the C1 coefficient used in the buildup formulas discussed under
-Pollutant Buildup.
+The maximum buildup that can occur, expressed as lbs (or kg) of the pollutant per unit of the normalizer variable (see below). This is the same as the C1 coefficient used in the buildup formulas discussed under [Pollutant Buildup](#pollutant_buildup).
 
-The following two properties apply to the POW, EXP, and SAT buildup
-functions:
+The following two properties apply to the POW, EXP, and SAT buildup functions:
 
-Rate Constant
+**Rate Constant**
 
-The time constant that governs the rate of pollutant buildup. This is
-the C2 coefficient in the Power and Exponential buildup formulas
-discussed under Pollutant Buildup. For Power buildup its units are mass
-/ days raised to a power, while for Exponential buildup its units are
-1/days.
+The time constant that governs the rate of pollutant buildup. This is the C2 coefficient in the Power and Exponential buildup formulas discussed under [Pollutant Buildup](#pollutant_buildup). For Power buildup its units are mass / days raised to a power, while for Exponential buildup its units are 1/days.
 
-Power/Sat. Constant
+**Power/Sat. Constant**
 
-The exponent C3 used in the Power buildup formula, or the
-half-saturation constant C2 used in the Saturation buildup formula
-discussed under Pollutant Buildup. For the latter case, its units are
-days.
+The exponent C3 used in the Power buildup formula, or the half-saturation constant C2 used in the Saturation buildup formula discussed under [Pollutant Buildup](#pollutant_buildup). For the latter case, its units are days.
 
-The following two properties apply to the EXT (External Time Series)
-option:
+The following two properties apply to the EXT (External Time Series) option:
 
-Scaling Factor
+**Scaling Factor**
 
 A multiplier used to adjust the buildup rates listed in the time series.
 
-Time Series
+**Time Series**
 
-The name of the Time Series that contains buildup rates (as mass per
-normalizer per day).
+The name of the Time Series that contains buildup rates (as mass per normalizer per day).
 
-Normalizer
+**Normalizer**
 
-The variable to which buildup is normalized on a per unit basis. The
-choices are either land area (in acres or hectares) or curb length. Any
-units of measure can be used for curb length, as long as they remain the
-same for all subcatchments in the project.
+The variable to which buildup is normalized on a per unit basis. The choices are either land area (in acres or hectares) or curb length. Any units of measure can be used for curb length, as long as they remain the same for all subcatchments in the project.
 
-When there are multiple pollutants, the user must select each pollutant
-separately from the Pollutant dropdown list and specify its pertinent
-buildup properties.
+When there are multiple pollutants, the user must select each pollutant separately from the Pollutant dropdown list and specify its pertinent buildup properties.
 
 #### Land Use Editor - Washoff Page {#land_use_editor-washoff_page}
 
-The Washoff page of the Land Use Editor dialog describes the properties
-associated with pollutant washoff over the land use during wet weather
-events. These consist of:
+The **Washoff** page of the Land Use Editor dialog describes the properties associated with pollutant washoff over the land use during wet weather events. These consist of:
 
-Pollutant
+**Pollutant**
 
 The name of the pollutant whose washoff properties are being edited.
 
-Function
+**Function**
 
-The choice of washoff function to use for the pollutant. The choices
-are:
+The choice of washoff function to use for the pollutant. The choices are:
 
----
+|          |                                  |
+| :------- | :------------------------------- |
+| **NONE** | no washoff                       |
+| **EXP**  | exponential washoff              |
+| **RC**   | rating curve washoff             |
+| **EMC**  | event-mean concentration washoff |
 
-NONE no washoff
-EXP exponential washoff
-RC rating curve washoff
-EMC event-mean concentration washoff
+The formula for each of these functions is discussed under the [Pollutant Washoff](#pollutant_washoff) topic.
 
----
+**Coefficient**
 
-The formula for each of these functions is discussed under the Pollutant
-Washoff topic.
+This is the value of C1 in the exponential and rating curve formulas, or the event-mean concentration.
 
-Coefficient
-
-This is the value of C1 in the exponential and rating curve formulas, or
-the event-mean concentration.
-
-Exponent
+**Exponent**
 
 The exponent used in the exponential and rating curve washoff formulas.
 
-Cleaning Efficiency
+**Cleaning Efficiency**
 
-The street cleaning removal efficiency (percent) for the pollutant. It
-represents the fraction of the amount that is available for removal on
-the land use as a whole (set on the General page of the editor) which is
-actually removed.
+The street cleaning removal efficiency (percent) for the pollutant. It represents the fraction of the amount that is available for removal on the land use as a whole (set on the General page of the editor) which is actually removed.
 
-BMP Efficiency
+**BMP Efficiency**
 
-Removal efficiency (percent) associated with any Best Management
-Practice that might have been implemented. The washoff load computed at
-each time step is simply reduced by this amount.
+Removal efficiency (percent) associated with any Best Management Practice that might have been implemented. The washoff load computed at each time step is simply reduced by this amount.
 
-As with the Buildup page, each pollutant must be selected in turn from
-the Pollutant dropdown list and have its pertinent washoff properties
-defined.
+As with the Buildup page, each pollutant must be selected in turn from the Pollutant dropdown list and have its pertinent washoff properties defined.
 
 ### Legend Editor {#legend_editor}
 
-The Legend Editor (pictured below) is used to set numerical ranges to
-which different colors are assigned for viewing a particular parameter
-on the Study Area Map.
+The **Legend Editor** (pictured below) is used to set numerical ranges to which different colors are assigned for viewing a particular parameter on the Study Area Map.
 
-[]
+![Legend Editor](embim10.gif)
 
 - Numerical values, in increasing order, are entered in the edit boxes to define the ranges. Not all four boxes need to have values.
 
 - To change a color, click on its color band in the Editor and then select a new color from the Color Dialog box that will appear.
 
-- Click the Auto-Scale button to automatically assign ranges based on the minimum and maximum values attained by the parameter in question at the current time period.
+- Click the **Auto-Scale** button to automatically assign ranges based on the minimum and maximum values attained by the parameter in question at the current time period.
 
-- The Color Ramp button is used to select from a list of built-in color schemes.
+- The **Color Ramp** button is used to select from a list of built-in color schemes.
 
-- The Reverse Colors button reverses the ordering of the current set of colors (the color in the lowest range becomes that of the highest range and so on).
+- The **Reverse Colors** button reverses the ordering of the current set of colors (the color in the lowest range becomes that of the highest range and so on).
 
-- Check Framed if you want a frame drawn around the legend.
+- Check **Framed** if you want a frame drawn around the legend.
 
-Changes made to a legend are saved with the project's settings and
-remain in effect when the project is re-opened in a subsequent session.
+Changes made to a legend are saved with the project's settings and remain in effect when the project is re-opened in a subsequent session.
 
 ### LID Editors {#lid_editors}
 
-LID Controls are defined and assigned to subcatchments through a series
-of three different editor forms:
+[**LID Controls**](#lid_controls) are defined and assigned to subcatchments through a series of three different editor forms:
 
-- The LID Control Editor is used to define re-usable LID controls, designed on a per-unit-area basis, that can be placed throughout a study area's subcatchments. It is invoked by adding a new LID Control object or editing an existing one from the main form's Project Browser.
+- The [LID Control Editor](#lid_controls_editor) is used to define re-usable LID controls, designed on a per-unit-area basis, that can be placed throughout a study area's subcatchments. It is invoked by adding a new LID Control object or editing an existing one from the main form's [Project Browser](#swmms_main_window).
 
-- The LID Group Editor is used to add any number of LID controls to a specific subcatchment. It is invoked by selecting the subcatchment's LID Controls property from the subcatchment's Property Editor.
+- The [LID Group Editor](#lid_group_editor) is used to add any number of LID controls to a specific subcatchment. It is invoked by selecting the subcatchment's **LID Controls** property from the subcatchment's [Property Editor](#swmms_main_window).
 
-- The LID Usage Editor is used to describe how each LID control added to an LID group is deployed within the group's subcatchment. It is invoked from the LID Group Editor to specify the areal extent of the control and the portion of the subcatchment's runoff that it treats.
+- The [LID Usage Editor](#lid_usage_editor) is used to describe how each LID control added to an LID group is deployed within the group's subcatchment. It is invoked from the LID Group Editor to specify the areal extent of the control and the portion of the subcatchment's runoff that it treats.
 
 #### LID Control Editor {#lid_control_editor}
 
-The LID Control Editor is used to define a low impact development
-control that can be deployed throughout a study area to store,
-infiltrate, and evaporate subcatchment runoff. The design of the control
-is made on a per-unit-area basis so that it can be placed in any number
-of subcatchments at different sizes or number of replicates.
+The **LID Control Editor** is used to define a low impact development control that can be deployed throughout a study area to store, infiltrate, and evaporate subcatchment runoff. The design of the control is made on a per-unit-area basis so that it can be placed in any number of subcatchments at different sizes or number of replicates.
 
 The editor contains the following data entry fields:
 
-Control Name
+**Control Name**
 
 A name used to identify the particular LID control.
 
-LID Type
+**LID Type**
 
-The generic type of LID being defined (bio-retention cell, rain garden,
-green roof, infiltration trench, permeable pavement, rain barrel, or
-vegetative swale).
+The generic type of LID being defined (bio-retention cell, rain garden, green roof, infiltration trench, permeable pavement, rain barrel, or vegetative swale).
 
-Process Layers
+**Process Layers**
 
-These are a tabbed set of pages containing data entry fields for the
-vertical layers and drain system that comprise an LID control. They
-include some combination of the following, depending on the type of LID
-selected:
+These are a tabbed set of pages containing data entry fields for the vertical layers and drain system that comprise an LID control. They include some combination of the following, depending on the type of LID selected:
 
-- Surface Layer
+- [Surface Layer](#lid_surface_layer)
 
-- Pavement Layer
+- [Pavement Layer](#lid_pavement_layer)
 
-- Soil Layer
+- [Soil Layer](#lid_soil_layer)
 
-- Storage Layer
+- [Storage Layer](#lid_storage_layer)
 
-- Drain System
+- [Drain System](#lid_drain_system)
 
-- Drainage Mat
+- [Drainage Mat](#lid_drainage_mat)
 
-- Pollutant Removal
+- [Pollutant Removal](#lid_pollutant_removal)
 
 ##### LID Surface Layer {#lid_surface_layer}
 
