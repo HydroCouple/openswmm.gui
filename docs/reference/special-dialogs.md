@@ -1073,269 +1073,177 @@ These are a tabbed set of pages containing data entry fields for the vertical la
 
 ##### LID Surface Layer {#lid_surface_layer}
 
-The Surface Layer page of the LID Control Editor is used to describe the
-surface properties of all types of LID controls  except rain barrels.
-Surface layer properties include:
+The **Surface Layer** page of the LID Control Editor is used to describe the surface properties of all types of LID controls  except rain barrels. Surface layer properties include:
 
-Berm Height (or Storage Depth)
+**Berm Height (or Storage Depth)**
 
-When confining walls or berms are present this is the maximum depth to
-which water can pond above the surface of the unit before overflow
-occurs (in inches or mm). For Rooftop Disconnection it is the roof
+When confining walls or berms are present this is the maximum depth to which water can pond above the surface of the unit before overflow occurs (in inches or mm). For Rooftop Disconnection it is the roof
+
+**Vegetation Volume Fraction**
+
+The fraction of the volume within the surface storage depth filled with vegetation. This is the volume occupied by stems and leaves, not their surface area coverage. Normally this volume can be ignored, but may be as high as 0.1 to 0.2 for very dense vegetative growth.
+
+**Surface Roughness**
+
+Manning's roughness coefficient (n) for overland flow over surface soil cover, pavement, roof surface or a vegetative swale (see this [table](#mannings_n-overland_flow) for suggested values). Use 0 for other types of LIDs.
+
+**Surface Slope**
+
+Slope of a roof surface, pavement surface or vegetative swale (percent). Use 0 for other types of LIDs.
+
+**Swale Side Slope**
+
+Slope (run over rise) of the side walls of a vegetative swale's cross section. This value is ignored for other types of LIDs.
+
+[!tip]
+If either the Surface Roughness or Surface Slope values are 0 then any ponded water that exceeds the surface storage depth is assumed to completely overflow the LID control within a single time step.
 
 ##### LID Pavement Layer {#lid_pavement_layer}
 
-The Pavement Layer page of the LID Control Editor supplies values for
-the following properties of a permeable pavement LID:
+The **Pavement Layer** page of the LID Control Editor supplies values for the following properties of a permeable pavement LID:
 
-Thickness
+**Thickness**
 
-The thickness of the pavement layer (inches or mm). Typical values are 4
-to 6 inches (100 to 150 mm).
+The thickness of the pavement layer (inches or mm). Typical values are 4 to 6 inches (100 to 150 mm).
 
-Void Ratio
+**Void Ratio**
 
-The volume of void space relative to the volume of solids in the
-pavement for continuous systems or for  the fill material used in
-modular systems. Typical values for pavements are 0.12 to 0.21. Note
-that porosity = void ratio / (1 + void ratio).
+The volume of void space relative to the volume of solids in the pavement for continuous systems or for  the fill material used in modular systems. Typical values for pavements are 0.12 to 0.21. Note that porosity = void ratio / (1 + void ratio).
 
-Impervious Surface Fraction
+**Impervious Surface Fraction**
 
-Ratio of impervious paver material to total area for modular systems; 0
-for continuous porous pavement systems.
+Ratio of impervious paver material to total area for modular systems; 0 for continuous porous pavement systems.
 
-Permeability
+**Permeability**
 
-Permeability of the concrete or asphalt used in continuous systems or
-hydraulic conductivity of the fill material (gravel or sand) used in
-modular systems (in/hr or mm/hr). In the latter case the fill's nominal
-conductivity should be multiplied by the fraction of the total area it
-covers. The permeability of new porous concrete or asphalt is very high
-(e.g., hundreds of in/hr) but can drop off over time due to clogging by
-fine particulates in the runoff (see below).
+Permeability of the concrete or asphalt used in continuous systems or hydraulic conductivity of the fill material (gravel or sand) used in modular systems (in/hr or mm/hr). In the latter case the fill's nominal conductivity should be multiplied by the fraction of the total area it covers. The permeability of new porous concrete or asphalt is very high (e.g., hundreds of in/hr) but can drop off over time due to clogging by fine particulates in the runoff (see below).
 
-Clogging Factor
+**Clogging Factor**
 
-Number of pavement layer void volumes of runoff treated it takes to
-completely clog the pavement. Use a value of 0 to ignore clogging.
-Clogging progressively reduces the pavement's permeability in direct
-proportion to the cumulative volume of runoff treated.
+Number of pavement layer void volumes of runoff treated it takes to completely clog the pavement. Use a value of 0 to ignore clogging. Clogging progressively reduces the pavement's permeability in direct proportion to the cumulative volume of runoff treated.
 
-If one has an estimate of the number of years Yclog it takes to
-fractionally clog the system to a degree Fclog, then the Clogging Factor
-(CF) can be computed as:
+If one has an estimate of the number of years Yclog it takes to fractionally clog the system to a degree Fclog, then the Clogging Factor (CF) can be computed as:
 
-CF = Yclog _ Pa _ (1 + CR) _ (1 + VR)  / (VR _ (1 - ISF) _ T _ Fclog)
+\f[CF = Yclog _ Pa _ (1 + CR) _ (1 + VR)  / (VR _ (1 - ISF) _ T _ Fclog)\f]
 
-where Pa is the annual rainfall amount over the site, CR is the
-pavement's capture ratio (area that contributes runoff to the pavement
-divided by area of the pavement itself), VR is the system's Void Ratio,
-ISF is the Impervious Surface Fraction, and T is the pavement layer
-Thickness.
+where Pa is the annual rainfall amount over the site, CR is the pavement's capture ratio (area that contributes runoff to the pavement divided by area of the pavement itself), VR is the system's Void Ratio, ISF is the Impervious Surface Fraction, and T is the pavement layer Thickness.
 
-As an example, suppose it takes 5 years to completely clog a continuous
-porous pavement system that serves an area where the annual rainfall is
-36 inches/year. If the pavement is 6 inches thick, has a void ratio of
-0.2 and captures runoff only from its own surface (so that CR = 0), then
-the Clogging Factor is 5 x 36 x 1 x (1 + 0.2) / 0.2 / 1 / 6 / 1 = 180.
+As an example, suppose it takes 5 years to completely clog a continuous porous pavement system that serves an area where the annual rainfall is 36 inches/year. If the pavement is 6 inches thick, has a void ratio of 0.2 and captures runoff only from its own surface (so that CR = 0), then the Clogging Factor is 5 x 36 x 1 x (1 + 0.2) / 0.2 / 1 / 6 / 1 = 180.
 
-Regeneration Interval
+**Regeneration Interval**
 
-The number of days that the pavement layer is allowed to clog before its
-permeability is restored, typically by vacuuming its surface. A value of
-0 (the default) indicates that no permeability regeneration occurs.
+The number of days that the pavement layer is allowed to clog before its permeability is restored, typically by vacuuming its surface. A value of (the default) indicates that no permeability regeneration occurs.
 
-Regeneration Fraction
+**Regeneration Fraction**
 
-The fractional degree to which the pavement's permeability is restored
-when a regeneration interval is reached. The default is 0 (no
-restoration) while a value of 1 indicates complete restoration to the
-original permeability value. Once a regeneration occurs the pavement
-begins to clog once again at a rate determined by the Clogging Factor.
+The fractional degree to which the pavement's permeability is restored when a regeneration interval is reached. The default is 0 (no restoration) while a value of 1 indicates complete restoration to the original permeability value. Once a regeneration occurs the pavement begins to clog once again at a rate determined by the Clogging Factor.
 
 ##### LID Soil Layer {#lid_soil_layer}
 
-The Soil Layer page of the LID Control Editor describes the properties
-of the engineered soil mixture used in bio-retention types of LIDs and
-the optional sand layer beneath permeable pavement. These properties
-are:
+The **Soil Layer** page of the LID Control Editor describes the properties of the engineered soil mixture used in bio-retention types of LIDs and the optional sand layer beneath permeable pavement. These properties are:
 
-Thickness
+**Thickness**
 
-The thickness of the soil layer (inches or mm). Typical values range
-from 18 to 36 inches (450 to 900 mm) for rain gardens, street planters
-and other types of land-based bio-retention units, but only 3 to 6
-inches (75 to 150 mm) for green roofs.
+The thickness of the soil layer (inches or mm). Typical values range from 18 to 36 inches (450 to 900 mm) for rain gardens, street planters and other types of land-based bio-retention units, but only 3 to 6 inches (75 to 150 mm) for green roofs.
 
-Porosity
+**Porosity**
 
-The volume of pore space relative to total volume of soil (as a
-fraction).
+The volume of pore space relative to total volume of soil (as a fraction).
 
-Field Capacity
+**Field Capacity**
 
-Volume of pore water relative to total volume after the soil has been
-allowed to drain fully (as a fraction). Below this level, vertical
-drainage of water through the soil layer does not occur.
+Volume of pore water relative to total volume after the soil has been allowed to drain fully (as a fraction). Below this level, vertical drainage of water through the soil layer does not occur.
 
-Wilting Point
+**Wilting Point**
 
-Volume of pore water relative to total volume for a well dried soil
-where only bound water remains (as a fraction). The moisture content of
-the soil cannot fall below this limit.
+Volume of pore water relative to total volume for a well dried soil where only bound water remains (as a fraction). The moisture content of the soil cannot fall below this limit.
 
-Conductivity
+**Conductivity**
 
 Hydraulic conductivity for the fully saturated soil (in/hr or mm/hr).
 
-Conductivity Slope
+**Conductivity Slope**
 
-Average slope of the curve of log(conductivity) versus soil moisture
-deficit (porosity minus moisture content (unitless). Typical values
-range from 30 to  60. It can be estimated from a standard soil grain
-size analysis as 0.48×(%Sand) + 0.85×(%Clay).
+Average slope of the curve of log(conductivity) versus soil moisture deficit (porosity minus moisture content (unitless). Typical values range from 30 to  60. It can be estimated from a standard soil grain size analysis as 0.48×(%Sand) + 0.85×(%Clay).
 
-Suction Head
+**Suction Head**
 
-The average value of soil capillary suction along the wetting front
-(inches or mm). This is the same parameter as used in the Green-Ampt
-infiltration model.
+The average value of soil capillary suction along the wetting front (inches or mm). This is the same parameter as used in the Green-Ampt infiltration model.
 
-[icon_tip]Porosity, field capacity, conductivity and conductivity slope
-are the same soil properties used for Aquifer objects when modeling
-groundwater, while suction head is the same parameter used for
-Green-Ampt infiltration. Except here they apply to the special soil mix
-used in a LID unit rather than the site's naturally occurring soil. See
-the Soil Characteristics Table for typical values of these properties.
+[!tip]
+Porosity, field capacity, conductivity and conductivity slope are the same soil properties used for Aquifer objects when modeling groundwater, while suction head is the same parameter used for Green-Ampt infiltration. Except here they apply to the special soil mix used in a LID unit rather than the site's naturally occurring soil. See the [Soil Characteristics Table](#soil_characteristics) for typical values of these properties.
 
 ##### LID Storage Layer {#lid_storage_layer}
 
-The Storage Layer page of the LID Control Editor describes the
-properties of the crushed stone or gravel layer used in bio-retention
-cells, permeable pavement systems, and infiltration trenches as a bottom
-storage/drainage layer. It is also used to specify the height of a rain
-barrel (or cistern). The following data fields are displayed:
+The **Storage Layer** page of the LID Control Editor describes the properties of the crushed stone or gravel layer used in bio-retention cells, permeable pavement systems, and infiltration trenches as a bottom storage/drainage layer. It is also used to specify the height of a rain barrel (or cistern). The following data fields are displayed:
 
-Thickness (or Barrel Height)
+**Thickness (or Barrel Height)**
 
-This is the thickness of a gravel layer or the height of a rain barrel
-(inches or mm). Crushed stone and gravel layers are typically 6 to 18
-inches (150 to 450 mm) thick while single family home rain barrels range
-in height from 24 to 36 inches (600 to 900 mm).
+This is the thickness of a gravel layer or the height of a rain barrel (inches or mm). Crushed stone and gravel layers are typically 6 to 18 inches (150 to 450 mm) thick while single family home rain barrels range in height from 24 to 36 inches (600 to 900 mm).
 
-The following data fields do not apply to Rain Barrels.
+_The following data fields do not apply to Rain Barrels._
 
-Void Ratio
+**Void Ratio**
 
-The volume of void space relative to the volume of solids in the layer.
-Typical values range from 0.5 to 0.75 for gravel beds. Note that
-porosity = void ratio / (1 + void ratio).
+The volume of void space relative to the volume of solids in the layer. Typical values range from 0.5 to 0.75 for gravel beds. Note that porosity = void ratio / (1 + void ratio).
 
-Seepage Rate
+**Seepage Rate**
 
-The rate at which water seeps into the native soil below the layer (in
-inches/hour or mm/hour).This would typically be the Saturated Hydraulic
-Conductivity of the surrounding subcatchment if Green-Ampt infiltration
-is used or the Minimum Infiltration Rate for Horton infiltration. If
-there is an impermeable floor or liner below the layer then use a value
-of 0.
+The rate at which water seeps into the native soil below the layer (in inches/hour or mm/hour).This would typically be the Saturated Hydraulic Conductivity of the surrounding subcatchment if Green-Ampt infiltration is used or the Minimum Infiltration Rate for Horton infiltration. If there is an impermeable floor or liner below the layer then use a value of 0.
 
-Clogging Factor
+**Clogging Factor**
 
-Total volume of treated runoff it takes to completely clog the bottom of
-the layer divided by the void volume of the layer. Use a value of 0 to
-ignore clogging. Clogging progressively reduces the Infiltration Rate in
-direct proportion to the cumulative volume of runoff treated and may
-only be of concern for infiltration trenches with permeable bottoms and
-no underdrains. Refer to the Pavement Layer page for more discussion of
-the Clogging Factor.
+Total volume of treated runoff it takes to completely clog the bottom of the layer divided by the void volume of the layer. Use a value of 0 to ignore clogging. Clogging progressively reduces the Infiltration Rate in direct proportion to the cumulative volume of runoff treated and may only be of concern for infiltration trenches with permeable bottoms and no underdrains. Refer to the Pavement Layer page for more discussion of the Clogging Factor.
 
-The following data field applies only to Rain Barrels.
+_The following data field applies only to Rain Barrels._
 
-Covered
+**Covered**
 
 Specifies if the rain barrel is covered or not.
 
 ##### LID Drain System {#lid_drain_system}
 
-LID storage layers can contain an optional drainage system that collects
-water entering the layer and conveys it to a conventional storm drain or
-other location (which can be different than the outlet of the LID's
-subcatchment). Drain flow can also be returned it to the pervious area
-of the LID's subcatchment. The drain can be offset some distance above
-the bottom of the storage layer, to allow some volume of runoff to be
-stored (and eventually infiltrated) before any excess is captured by the
-drain. For Rooftop Disconnection, the drain system consists of the
-roof's gutters and downspouts that have some maximum conveyance
-capacity.
+LID storage layers can contain an optional drainage system that collects water entering the layer and conveys it to a conventional storm drain or other location (which can be different than the outlet of the LID's subcatchment). Drain flow can also be returned it to the pervious area of the LID's subcatchment. The drain can be offset some distance above the bottom of the storage layer, to allow some volume of runoff to be stored (and eventually infiltrated) before any excess is captured by the drain. For Rooftop Disconnection, the drain system consists of the roof's gutters and downspouts that have some maximum conveyance capacity.
 
-The Drain page of the LID Control Editor describes the properties of and
-LID unit's drain system. It contains the following data entry fields:
+The **Drain** page of the LID Control Editor describes the properties of and LID unit's drain system. It contains the following data entry fields:
 
-Drain Coefficient and Drain Exponent
+**Drain Coefficient and Drain Exponent**
 
-The drain coefficient C and exponent n determines the rate of flow
-through a drain as a function of the height of stored water above the
-drain's offset. The following equation is used to compute this flow rate
-(per unit area of the LID unit):
+The drain coefficient C and exponent n determines the rate of flow through a drain as a function of the height of stored water above the drain's offset. The following equation is used to compute this flow rate (per unit area of the LID unit):
 
-q = C hn
+\f[q = C h^{n}\f]
 
-where q is outflow (in/hr or mm/hr) and h is the height of saturated
-media above the drain (inches or mm). If the layer has no drain then set
-C to 0.
+where q is outflow (in/hr or mm/hr) and h is the height of saturated media above the drain (inches or mm). If the layer has no drain then set C to 0.
 
-A typical value for n would be 0.5 (making the drain act like an
-orifice). Note that the units of C depends on the unit system being used
-as well as the value assigned to n. Click here for more advice on
-setting drain parameters.
+A typical value for n would be 0.5 (making the drain act like an orifice). Note that the units of C depends on the unit system being used as well as the value assigned to n. [Click here](#drain_advisor) for more advice on setting drain parameters.
 
-Drain Offset Height
+**Drain Offset Height**
 
-This is the height of the drain line above the bottom of a storage layer
-or rain barrel (inches or mm).
+This is the height of the drain line above the bottom of a storage layer or rain barrel (inches or mm).
 
-Drain Delay (for Rain Barrels only)
+**Drain Delay (for Rain Barrels only)**
 
-The number of dry weather hours that must elapse before the drain line
-in a rain barrel is opened (the line is assumed to be closed once
-rainfall begins). A value of 0 signifies that the barrel's drain line is
-always open and drains continuously. This parameter is ignored for other
-types of LID practices.
+The number of dry weather hours that must elapse before the drain line in a rain barrel is opened (the line is assumed to be closed once rainfall begins). A value of 0 signifies that the barrel's drain line is always open and drains continuously. This parameter is ignored for other types of LID practices.
 
-Flow Capacity (for Rooftop Disconnection only)
+**Flow Capacity (for Rooftop Disconnection only)**
 
-This is the maximum flow rate that the roof's gutters and downspouts can
-handle (in inches/hour or mm/hour) before overflowing. This is the only
-drain parameter used for Rooftop Disconnection.
+This is the maximum flow rate that the roof's gutters and downspouts can handle (in inches/hour or mm/hour) before overflowing. This is the only drain parameter used for Rooftop Disconnection.
 
-Open Level
+**Open Level**
 
-The height (in inches or mm) in the drain's Storage Layer that causes
-the drain to automatically open when the water level rises above it. The
-default is 0 which means that this feature is disabled.
+The height (in inches or mm) in the drain's Storage Layer that causes the drain to automatically open when the water level rises above it. The default is 0 which means that this feature is disabled.
 
-Closed Level
+**Closed Level**
 
-The height (in inches or mm) in the drain's Storage Layer that causes
-the drain to automatically close when the water level falls below it.
-The default is 0.
+The height (in inches or mm) in the drain's Storage Layer that causes the drain to automatically close when the water level falls below it. The default is 0.
 
-Control Curve
+**Control Curve**
 
-The name of an optional Control Curve that adjusts the computed drain
-flow as a function of the head of water above the drain. Leave blank if
-not applicable.
+The name of an optional [Control Curve](#curves) that adjusts the computed drain flow as a function of the head of water above the drain. Leave blank if not applicable.
 
 ###### Drain Advisor {#drain_advisor}
 
-An LID unit's drain system is performance-based rather than
-design-based. The user specifies its height above the bottom of the
-unit's storage layer as well as how its volumetric flow rate (per unit
-area) varies with the height of saturated media above it. There are
-several things to keep in mind when specifying the parameters of an LID
-drain:
+An LID unit's drain system is performance-based rather than design-based. The user specifies its height above the bottom of the unit's storage layer as well as how its volumetric flow rate (per unit area) varies with the height of saturated media above it. There are several things to keep in mind when specifying the parameters of an LID drain:
 
 - If the storage layer that contains the drain has an impermeable bottom then it's best to place the drain at the bottom with a zero offset. Otherwise, to allow the full storage volume to fill before draining occurs, one would place the drain at the top of the storage layer.
 
@@ -1349,165 +1257,102 @@ drain:
 
 ##### LID Drainage Mat {#lid_drainage_mat}
 
-Green Roofs usually contain a drainage mat or plate that lies below the
-soil media and above the roof structure. Its purpose is to convey any
-water that drains through the soil layer off of the roof. The Drainage
-Mat page of the LID Control Editor for Green Roofs lists the properties
-of this layer which include:
+Green Roofs usually contain a drainage mat or plate that lies below the soil media and above the roof structure. Its purpose is to convey any water that drains through the soil layer off of the roof. The **Drainage Mat** page of the LID Control Editor for Green Roofs lists the properties of this layer which include:
 
-Thickness
+**Thickness**
 
-The thickness of the mat or plate (inches or mm). It typically ranges
-between 1 to 2 inches.
+The thickness of the mat or plate (inches or mm). It typically ranges between 1 to 2 inches.
 
-Void Fraction
+**Void Fraction**
 
-The ratio of void volume to total volume in the mat. It typically ranges
-from 0.5 to 0.6.
+The ratio of void volume to total volume in the mat. It typically ranges from 0.5 to 0.6.
 
-Roughness
+**Roughness**
 
-This is the Manning's roughness coefficient (n) used to compute the
-horizontal flow rate of drained water through the mat. It is not a
-standard product specification provided by manufacturers and therefore
-must be estimated. Previous modeling studies have suggested using a
-relatively high value such as from 0.1 to 0.4.
+This is the Manning's roughness coefficient (n) used to compute the horizontal flow rate of drained water through the mat. It is not a standard product specification provided by manufacturers and therefore must be estimated. Previous modeling studies have suggested using a relatively high value such as from 0.1 to 0.4.
 
 ##### LID Pollutant Removal {#lid_pollutant_removal}
 
-The Pollutant Removal page of the LID Control Editor allows one to
-specify the degree to which pollutants are removed by an LID control as
-seen by the flow leaving the unit through its underdrain system. Thus it
-only applies to LID practices that contain an underdrain (bio-retention
-cells,permeable pavement, infiltration trenches, and rain barrels).
+The **Pollutant Removal** page of the LID Control Editor allows one to specify the degree to which pollutants are removed by an LID control as seen by the flow leaving the unit through its underdrain system. Thus it only applies to LID practices that contain an underdrain (bio-retention cells,permeable pavement, infiltration trenches, and rain barrels).
 
-The page contains a data entry grid with the project's pollutant names
-listed in one column and the percent removal that each receives by the
-LID unit in the second editable column. If a percent removal value is
-left blank it is assumed to be 0.
+The page contains a data entry grid with the project's pollutant names listed in one column and the percent removal that each receives by the LID unit in the second editable column. If a percent removal value is left blank it is assumed to be 0.
 
-The removals specified on this page are applied to the unit's underdrain
-when it sends flow onto either a subcatchment or into a conveyance
-system node. They do not apply to any surface flow that leaves the LID
-unit. As an example, if the runoff treated by the LID unit had a TSS
-concentration of 100 mg/L and a removal percentage of 90, then if 5 cfs
-flowed from its drain into a conveyance system node the mass loading
-contribution to the node would be 100 x (100 - 90) x 5 x 28.3 L/ft3 =
-1,415 mg/sec. If in addition the unit had a surface outflow of 1 cfs
-into the same node, the mass loading from this flow stream would be 100
-x 1 x 28.3 = 2,830 mg/sec.
+The removals specified on this page are applied to the unit's underdrain when it sends flow onto either a subcatchment or into a conveyance system node. They do not apply to any surface flow that leaves the LID unit. As an example, if the runoff treated by the LID unit had a TSS concentration of 100 mg/L and a removal percentage of 90, then if 5 cfs flowed from its drain into a conveyance system node the mass loading contribution to the node would be 100 x (100 - 90) x 5 x 28.3 L/ft3 = 1,415 mg/sec. If in addition the unit had a surface outflow of 1 cfs into the same node, the mass loading from this flow stream would be 100 x 1 x 28.3 = 2,830 mg/sec.
 
 #### LID Group Editor {#lid_group_editor}
 
-The LID Group Editor is invoked when the LID Controls property of a
-Subcatchment is selected for editing. It is used to identify a group of
-previously defined LID controls that will be placed within the
-subcatchment, the sizing of each control, and what percent of runoff
-from the non-LID portion of the subcatchment each should treat.
+The **LID Group Editor** is invoked when the **LID Controls** property of a [Subcatchment]() is selected for editing. It is used to identify a group of previously defined LID controls that will be placed within the subcatchment, the sizing of each control, and what percent of runoff from the non-LID portion of the subcatchment each should treat.
 
-The editor displays the current group of LIDs placed in the subcatchment
-along with buttons for adding an LID unit, editing a selected unit, and
-deleting a selected unit. These actions can also be chosen by hitting
-the <Insert> key, the <Enter> key, and the <Delete> key, respectively.
-Selecting Add or Edit will bring up an LID Usage Editor where one can
-enter values for the data fields shown in the Group Editor.
+The editor displays the current group of LIDs placed in the subcatchment along with buttons for adding an LID unit, editing a selected unit, and deleting a selected unit. These actions can also be chosen by hitting the **<Insert>** key, the **<Enter>** key, and the **<Delete>** key, respectively. Selecting **Add** or **Edit** will bring up an [LID Usage Editor](#lid_usage_editor) where one can enter values for the data fields shown in the Group Editor.
 
-[LidGrpEditor2]
+[LID Group Editor](lidgrpeditor2.gif)
 
-Note that the total % of Area for all of the the LID units within a
-subcatchment must not exceed 100%. The same applies to % From Imperv and
-% From Perv. Refer to the LID Usage Editor for the meaning of these
-parameters.
+Note that the total **% of Area** for all of the the LID units within a subcatchment must not exceed 100%. The same applies to **% From Imperv** and **% From Perv**. Refer to the [LID Usage Editor](#lid_usage_editor) for the meaning of these parameters.
 
 #### LID Usage Editor {#lid_usage_editor}
 
-The LID Usage Editor is invoked from a subcatchment's LID Group Editor
-to specify how a particular LID control will be deployed within the
-subcatchment. It contains the following data entry fields:
+The **LID Usage Editor** is invoked from a subcatchment's [LID Group Editor]() to specify how a particular LID control will be deployed within the subcatchment. It contains the following data entry fields:
 
-Control Name
+**Control Name**
 
-The name of a previously defined LID control to be used in the
-subcatchment.
+The name of a previously defined LID control to be used in the subcatchment.
 
-LID Occupies Full Subcatchment
+**LID Occupies Full Subcatchment**
 
-Select this checkbox option if the LID control occupies the full
-subcatchment (i.e., the LID is placed in its own separate subcatchment
-and accepts runoff from upstream subcatchments).
+Select this checkbox option if the LID control occupies the full subcatchment (i.e., the LID is placed in its own separate subcatchment and accepts runoff from upstream subcatchments).
 
-Area of Each Unit
+**Area of Each Unit**
 
-The surface area devoted to each replicate LID unit (sq. ft or sq. m).
-If the LID Occupies Full Subcatchment box is checked, then this field
-becomes disabled and will display the total subcatchment area divided by
-the number of replicate units.  (See LID Placement for options on
-placing LIDs within subcatchments.) The label below this field indicates
-how much of the total subcatchment area is devoted to the particular LID
-being deployed and gets updated as changes are made to the number of
-units and area of each unit.
+The surface area devoted to each replicate LID unit (sq. ft or sq. m). If the **LID Occupies Full Subcatchment** box is checked, then this field becomes disabled and will display the total subcatchment area divided by the number of replicate units. (See [LID Placement]() for options on placing LIDs within subcatchments.) The label below this field indicates how much of the total subcatchment area is devoted to the particular LID being deployed and gets updated as changes are made to the number of units and area of each unit.
 
-Number of Replicate Units
+**Number of Replicate Units**
 
-The number of equal size units of the LID practice (e.g., the number of
-rain barrels) deployed within the subcatchment.
+The number of equal size units of the LID practice (e.g., the number of rain barrels) deployed within the subcatchment.
 
-Surface Width Per Unit
+**Surface Width Per Unit**
 
-The width of the outflow face of each identical LID unit (in ft or m).
-This parameter applies to roofs, pavement, trenches, and swales that use
-overland flow to convey surface runoff off of the unit. It can be set to
-0 for other LID processes, such as bio-retention cells, rain gardens,
-and rain barrels that simply spill any excess captured runoff over their
-berms.
+The width of the outflow face of each identical LID unit (in ft or m). This parameter applies to roofs, pavement, trenches, and swales that use overland flow to convey surface runoff off of the unit. It can be set to 0 for other LID processes, such as bio-retention cells, rain gardens, and rain barrels that simply spill any excess captured runoff over their berms.
 
-% Initially Saturated
+**% Initially Saturated**
 
-For bio-retention cells, rain gardens, and green roofs this is the
-degree to which the unit's soil is initially filled with water (0 %
-saturation corresponds to the wilting point moisture content, 100 %
-saturation has the moisture content equal to the porosity). For units
-with a storage layer it corresponds to the initial depth of water in the
-layer.
+For bio-retention cells, rain gardens, and green roofs this is the degree to which the unit's soil is initially filled with water (0 % saturation corresponds to the wilting point moisture content, 100 % saturation has the moisture content equal to the porosity). For units with a storage layer it corresponds to the initial depth of water in the layer.
 
-% of Impervious Area Treated
+**% of Impervious Area Treated**
 
-The percent of the impervious portion of the subcatchment's non-LID area
-whose runoff is treated by the LID practice. (E.g., if rain barrels are
-used to capture roof runoff and roofs represent 60% of the impervious
-area, then the impervious area treated is 60%). If the LID unit treats
-only direct rainfall, such as with a green roof or roof disconnection,
-then this value should be 0. If the LID takes up the entire subcatchment
-then this field is ignored.
+The percent of the impervious portion of the subcatchment's non-LID area whose runoff is treated by the LID practice. (E.g., if rain barrels are used to capture roof runoff and roofs represent 60% of the impervious area, then the impervious area treated is 60%). If the LID unit treats only direct rainfall, such as with a green roof or roof disconnection, then this value should be 0. If the LID takes up the entire subcatchment then this field is ignored.
 
-% of Pervious Area Treated
+**% of Pervious Area Treated**
 
-The percent of the pervious portion of the subcatchment's non-LID area
-whose runoff is treated by the LID practice. If the LID unit treats only
-direct rainfall, such as with a green roof or roof disconnection, then
-this value should be 0. If the LID takes up the entire subcatchment then
-this field is ignored.
+The percent of the pervious portion of the subcatchment's non-LID area whose runoff is treated by the LID practice. If the LID unit treats only direct rainfall, such as with a green roof or roof disconnection, then this value should be 0. If the LID takes up the entire subcatchment then this field is ignored.
 
-Send Drain Flow To
+**Send Drain Flow To**
 
-Provide the name of the Node or Subcatchment that receives any drain
-flow produced by the LID unit. This field can  be left blank if this
-flow goes to the same outlet as the LID unit
+Provide the name of the Node or Subcatchment that receives any drain flow produced by the LID unit. This field can be left blank if this flow goes to the same outlet as the LID unit’s subcatchment.
+
+**Return All Outflow To Pervious Area**
+
+Select this option if outflow from the LID unit should be routed back onto the pervious area of the subcatchment that contains it. If drain outflow was selected to be routed to a different location than the subcatchment outlet then only surface outflow will be returned. Otherwise both surface and drain flow will be returned. Selecting this option would be a common choice to make for Rain Barrels, Rooftop Disconnection and possibly Green Roofs.
+
+**Detailed Report File**
+
+The name of an optional file where detailed time series results for the LID will be written. Click the browse button &nbsp;![](filebrowser.gif) to select a file using the standard Windows File Save dialog or click the delete button &nbsp;![](delete1.gif) to remove any detailed reporting. Consult the LID Results topic to learn more about the contents of this file.
+
+[!tip]
+If the subcatchment containing the LID internally routes some portion of the impervious area runoff onto the pervious area then the percent of impervious area treated by the LID unit refers to the remaining impervious area that is not internally routed. For example, if the subcatchment has 2 acres of impervious area with runoff from 50% of this area routed onto its pervious area then an LID unit which treats 20% of the impervious area would receive runoff from 0.2 acres of impervious area. This same convention applies to the percent of pervious area treated when there is internal routing from pervious to impervious areas.
 
 ### Map Dimensions Dialog {#map_dimensions_dialog}
 
-The Map Dimensions dialog is used to change the dimensions of the study
-area map.
+The **Map Dimensions** dialog is used to change the dimensions of the study area map.
 
-Lower Left Coordinates
+**Lower Left Coordinates**
 
 Enter the X,Y coordinates of the lower left corner of the map.
 
-Upper Right Coordinates
+**Upper Right Coordinates**
 
 Enter the X,Y coordinates of the upper right corner of the map.
 
-Map Units
+**Map Units**
 
 Select the units used to measure distances on the map. The choices are:
 
@@ -1519,303 +1364,255 @@ Select the units used to measure distances on the map. The choices are:
 
 - None
 
-Re-Compute Length and Areas
+**Re-Compute Length and Areas**
 
-This check box only appears if the Auto-Length option is in effect. If
-selected, then the lengths of all conduits and the areas of all
-subcatchments will be re-computed based on the map's new dimensions.
+This check box only appears if the [Auto-Length](#status_bar) option is in effect. If selected, then the lengths of all conduits and the areas of all subcatchments will be re-computed based on the map's new dimensions.
 
-Auto-Size Button
+**Auto-Size Button**
 
-Click this button to automatically set the dimensions based on the
-coordinates of the objects currently included in the map.
+Click this button to automatically set the dimensions based on the coordinates of the objects currently included in the map.
 
 ### Map Options Dialog {#map_options_dialog}
 
-The Map Options dialog sets various display options for the Study Area
-Map. The dialog contains separate tabbed pages that control the
-appearance of the following items:
+The Map Options dialog sets various display options for the Study Area Map. The dialog contains separate tabbed pages that control the appearance of the following items:
 
-- Subcatchments (controls fill style, symbol size, and outline thickness of subcatchment areas)
+- [Subcatchments](#map_options-subcatchments) (controls fill style, symbol size, and outline thickness of subcatchment areas)
 
-- Nodes (controls size of nodes and making size be proportional to value)
+- [Nodes](#map_options-nodes) (controls size of nodes and making size be proportional to value)
 
-- Links (controls thickness of links and making thickness be proportional to value)
+- [Links](#map_options-links) (controls thickness of links and making thickness be proportional to value)
 
-- Labels (turns display of map labels on/off)
+- [Labels](#map_options-labels) (turns display of map labels on/off)
 
-- Annotation (displays or hides node/link ID labels and parameter values)
+- [Annotation](#map_options-annotations) (displays or hides node/link ID labels and parameter values)
 
-- Symbols (turns display of storage unit, pump, and regulator symbols on/off)
+- [Symbols](#map_options-symbols) (turns display of storage unit, pump, and regulator symbols on/off)
 
-- Flow Arrows (selects visibility and style of flow direction arrows)
+- [Flow Arrows](#map_options-flow_arrows) (selects visibility and style of flow direction arrows)
 
-- Background (changes the map's background color)
+- [Background](#map_options-background) (changes the map's background color)
 
 #### Map Options - Subcatchments {#map_options-subcatchments}
 
-The Subcatchments page of the Map Options dialog box controls how
-subcatchment areas are displayed on the Study Area Map.
+The **Subcatchments** page of the Map Options dialog box controls how subcatchment areas are displayed on the Study Area Map.
 
-Fill Style
+**Fill Style**
 
 Selects style used to fill interior of subcatchment areas.
 
-Symbol Size
+**Symbol Size**
 
 Sets the size of the symbol placed at the centroid of subcatchments.
 
-Outline Thickness
+**Outline Thickness**
 
-Sets the thickness of the line used to draw the subcatchment's boundary;
-set to zero if no boundary should be displayed.
+Sets the thickness of the line used to draw the subcatchment's boundary; set to zero if no boundary should be displayed.
 
-Display Link to Outlet
+**Display Link to Outlet**
 
-If checked then a dashed line is drawn between the subcatchment centroid
-and the subcatchment's outlet node (or subcatchment).
+If checked then a dashed line is drawn between the subcatchment centroid and the subcatchment's outlet node (or subcatchment).
 
 #### Map Options - Nodes {#map_options-nodes}
 
-The Nodes page of the Map Options dialog box controls how nodes are
-displayed on the Study Area Map.
+The **Nodes** page of the Map Options dialog box controls how nodes are displayed on the Study Area Map.
 
-Node Size
+**Node Size**
 
 Selects node diameter in pixels.
 
-Proportional to Value
+**Proportional to Value**
 
-Select if node size should increase as the viewed parameter increases in
-value.
+Select if node size should increase as the viewed parameter increases in value.
 
-Display Border
+**Display Border**
 
-Select if a border should be drawn around each node (recommended for
-light-colored backgrounds).
+Select if a border should be drawn around each node (recommended for light-colored backgrounds).
 
 #### Map Options - Links {#map_options-links}
 
-The Links page of the Map Options dialog box controls how links are
-displayed on the Study Area Map.
+The **Links** page of the Map Options dialog box controls how links are displayed on the Study Area Map.
 
-Link Size
+**Link Size**
 
 Sets thickness of links displayed on map.
 
-Proportional to Value
+**Proportional to Value**
 
-Select if link thickness should increase as the viewed parameter
-increases in value.
+Select if link thickness should increase as the viewed parameter increases in value.
 
-Display Border
+**Display Border**
 
 Check if a black border should be drawn around each link.
 
 #### Map Options - Labels {#map_options-labels}
 
-The Labels page of the Map Options dialog box controls how user-created
-map labels are displayed on the Study Area Map.
+The **Labels** page of the Map Options dialog box controls how user-created map labels are displayed on the Study Area Map.
 
-Use Transparent Text
+**Use Transparent Text**
 
-Check to display text with a transparent background (otherwise an opaque
-background is used).
+Check to display text with a transparent background (otherwise an opaque background is used).
 
-At Zoom Of
+**At Zoom Of**
 
-Selects minimum zoom at which labels should be displayed; labels will be
-hidden at zooms smaller than this.
+Selects minimum zoom at which labels should be displayed; labels will be hidden at zooms smaller than this.
 
 #### Map Options - Annotation {#map_options-annotations}
 
-The Annotation page of the Map Options dialog form determines what kind
-of annotation is provided alongside of the objects on the Study Area
-Map.
+The **Annotation** page of the Map Options dialog form determines what kind of annotation is provided alongside of the objects on the Study Area Map.
 
-ID Labels
+**ID Labels**
 
----
+|               |                                           |
+| :------------ | :---------------------------------------- |
+| Rain          | Gages check to display rain gage ID names |
+| Subcatchments | check to display subcatchment ID names    |
+| Nodes         | check to display node ID names            |
+| Links         | check to display link ID names            |
 
-Rain Gages check to display rain gage ID names
-Subcatchments check to display subcatchment ID names
-Nodes check to display node ID names
-Links check to display link ID names
+**Values**
 
----
+|               |                                                                      |
+| :------------ | :------------------------------------------------------------------- |
+| Subcatchments | check to display value of current subcatchment variable being viewed |
+| Nodes         | check to display value of current node variable being viewed         |
+| Links         | check to display value of current link variable being viewed         |
 
-Values
+**Use Transparent Text**
 
----
+Check to display text with a transparent background (otherwise an opaque background is used).
 
-Subcatchments check to display value of current subcatchment variable being viewed
-Nodes check to display value of current node variable being viewed
-Links check to display value of current link variable being viewed
-
----
-
-Use Transparent Text
-
-Check to display text with a transparent background (otherwise an opaque
-background is used).
-
-Font Size
+**Font Size**
 
 Adjusts the size of the font used to display annotation.
 
-At Zoom Of
+**At Zoom Of**
 
-Selects minimum zoom at which annotation should be displayed; all
-annotation will be hidden at zooms smaller than this.
+Selects minimum zoom at which annotation should be displayed; all annotation will be hidden at zooms smaller than this.
 
 #### Map Options - Symbols {#map_options-symbols}
 
-The Symbols page of the Map Options dialog box determines if special
-symbols should be used to display objects on the Study Area Map.
+The **Symbols** page of the Map Options dialog box determines if special symbols should be used to display objects on the Study Area Map.
 
-Display Node Symbols
+**Display Node Symbols**
 
 If checked then special node symbols will be used.
 
-Display Link Symbols
+**Display Link Symbols**
 
 If checked then special link symbols will be used.
 
-At Zoom Of
+**At Zoom Of**
 
-Selects minimum zoom at which symbols should be displayed; symbols will
-be hidden at zooms smaller than this.
+Selects minimum zoom at which symbols should be displayed; symbols will be hidden at zooms smaller than this.
 
 #### Map Options - Flow Arrows {#map_options-flow_arrows}
 
-The Flow Arrows page of the Map Options dialog controls how flow
-direction arrows are displayed on the Study Area Map.
+The **Flow Arrows** page of the Map Options dialog controls how flow direction arrows are displayed on the Study Area Map.
 
-Arrow Style
+**Arrow Style**
 
 Selects style (shape) of arrow to display (select None to hide arrows).
 
-Arrow Size
+**Arrow Size**
 
 Sets arrow size.
 
-At Zoom of
+**At Zoom of**
 
-Selects minimum zoom at which arrows should be displayed; arrows will be
-hidden at smaller zooms.
+Selects minimum zoom at which arrows should be displayed; arrows will be hidden at smaller zooms.
 
-[icon_tip]Flow direction arrows will only be displayed after a
-successful simulation has been made and a computed parameter has been
-selected for viewing. Otherwise the direction arrow will point from the
-user-designated start node to the end node.
+[!tip]
+Flow direction arrows will only be displayed after a successful simulation has been made and a computed parameter has been selected for viewing. Otherwise the direction arrow will point from the user-designated start node to the end node.
 
 #### Map Options - Background {#map_options-background}
 
-The Background page of the Map Options dialog offers a selection of
-colors used to paint the map's background with.
+The **Background** page of the Map Options dialog offers a selection of colors used to paint the map's background with.
 
 ### Pollutant Editor {#pollutant_editor}
 
-The Pollutant Editor is invoked whenever a new Pollutant object is
-created or an existing pollutant is selected for editing. It contains
-the following fields:
+The **Pollutant Editor** is invoked whenever a new [Pollutant](#pollutants) object is created or an existing pollutant is selected for editing. It contains the following fields:
 
-Name
+**Name**
 
 The name assigned to the pollutant.
 
-Units
+**Units**
 
-The concentration units (mg/L, ug/L, or #/L (counts/L)) in which the
-pollutant concentration is expressed.
+The concentration units (mg/L, ug/L, or #/L (counts/L)) in which the pollutant concentration is expressed.
 
-Rain Concentration
+**Rain Concentration**
 
 Concentration of the pollutant in rain water (concentration units).
 
-GW Concentration
+**GW Concentration**
 
 Concentration of the pollutant in ground water (concentration units).
 
-Initial Concentration
+**Initial Concentration**
 
-Concentration of the pollutant throughout the conveyance system at the
-start of the simulation.
+Concentration of the pollutant throughout the conveyance system at the start of the simulation.
 
-I&I Concentration
+**I&I Concentration**
 
-Concentration of the pollutant in any Infiltration/Inflow (concentration
-units).
+Concentration of the pollutant in any Infiltration/Inflow (concentration units).
 
-DWF Concentration
+**DWF Concentration**
 
-Concentration of the pollutant in any dry weather sanitary flow
-(concentration units). This value can be overridden for any specific
-node of the conveyance system by editing the node's Inflows property.
+Concentration of the pollutant in any dry weather sanitary flow (concentration units). This value can be overridden for any specific node of the conveyance system by editing the node's Inflows property.
 
-Decay Coefficient
+**Decay Coefficient**
 
 First-order decay coefficient of the pollutant (1/days).
 
-Snow Only
+**Snow Only**
 
-YES if pollutant buildup occurs only when there is snow cover, NO
-otherwise (default is NO).
+YES if pollutant buildup occurs only when there is snow cover, NO otherwise (default is NO).
 
-Co-Pollutant
+**Co-Pollutant**
 
-Name of another pollutant whose runoff concentration contributes to the
-runoff concentration of the current pollutant.
+Name of another pollutant whose runoff concentration contributes to the runoff concentration of the current pollutant.
 
-Co-Fraction
+**Co-Fraction**
 
-Fraction of the co-pollutant's runoff concentration that contributes to
-the runoff concentration of the current pollutant.
+Fraction of the co-pollutant's runoff concentration that contributes to the runoff concentration of the current pollutant.
 
-An example of a co-pollutant relationship would be where the runoff
-concentration of a particular heavy metal is some fixed fraction of the
-runoff concentration of suspended solids. In this case suspended solids
-would be declared as the co-pollutant for the heavy metal.
+An example of a co-pollutant relationship would be where the runoff concentration of a particular heavy metal is some fixed fraction of the runoff concentration of suspended solids. In this case suspended solids would be declared as the co-pollutant for the heavy metal.
 
 ### Profile Plot Selection Dialog {#profile_plot_selection_dialog}
 
-The Profile Plot Selection dialog is used to specify a path of connected
-drainage system links along which a water depth profile versus distance
-should be drawn. To define a path using the dialog:
+The **Profile Plot Selection** dialog is used to specify a path of connected drainage system links along which a water depth profile versus distance should be drawn. To define a path using the dialog:
 
-1.  Enter the ID of the upstream node of the first link in the path in the Start Node edit field (or click on the node on the Study Area Map and then on the [plusBtn] button next to the edit field).
+1.  Enter the ID of the upstream node of the first link in the path in the **Start Node** edit field (or click on the node on the Study Area Map and then on the [plusBtn] button next to the edit field).
 
-2.  Enter the ID of the downstream node of the last link in the path in the End Node edit field (or click the node on the map and then click the [plusBtn] button next to the edit field).
+2.  Enter the ID of the downstream node of the last link in the path in the **End Node** edit field (or click the node on the map and then click the [plusBtn] button next to the edit field).
 
-3.  Click the Find Path button to have the program automatically identify the path with the smallest number of links between the start and end nodes. These will be listed in the Links in Profile box.
+3.  Click the Find Path button to have the program automatically identify the path with the smallest number of links between the start and end nodes. These will be listed in the **Links in Profile** box.
 
-4.  You can insert a new link into the Links in Profile list by selecting the new link either on the Study Area Map or in the Project Browser and then clicking the [plusBtn]  button underneath the Links in Profile list box.
+4.  You can insert a new link into the **Links in Profile** list by selecting the new link either on the Study Area Map or in the Project Browser and then clicking the [plusBtn]  button underneath the **Links in Profile** list box.
 
-5.  Entries in the Links in Profile list can be deleted or rearranged by using the [minusBtn], [upBtn], and [downBtn] buttons underneath the list box
+5.  Entries in the **Links in Profile** list can be deleted or rearranged by using the [minusBtn], [upBtn], and [downBtn] buttons underneath the list box
 
-6.  Click the OK button to view the profile plot.
+6.  Click the **OK** button to view the profile plot.
 
 To save the current set of links listed in the dialog for future use:
 
-1.  Click the Save Current Profile button.
+1.  Click the **Save Current** Profile button.
 
 2.  Supply a name for the profile when prompted.
 
 To use a previously saved profile:
 
-1.  Click the Use Saved Profile button.
+1.  Click the **Use Saved Profile** button.
 
-2.  Select the profile to use from the Profile Selection dialog that appears.
+2.  Select the profile to use from the **Profile Selection** dialog that appears.
 
 ### Profile Plot Options Dialog {#profile_plot_options_dialog}
 
-The Profile Plot Options dialog is used to customize the appearance of a
-Profile Plot. The dialog contains five pages:
+The Profile Plot Options dialog is used to customize the appearance of a Profile Plot. The dialog contains five pages:
 
 1.  Colors:
 
-Selects the color to use for the plot window panel, the plot background,
-a conduit's interior, and the depth of filled water.
+Selects the color to use for the plot window panel, the plot background, a conduit's interior, and the depth of filled water.
 
 2.  Styles
 
@@ -1829,15 +1626,11 @@ Lets one choose:
 
 3.  Axes
 
-Edits the main and axis titles, including their fonts, and selects to
-display axis grid lines.
+Edits the main and axis titles, including their fonts, and selects to display axis grid lines.
 
 4.  Vertical Scale
 
-Lets one choose the minimum, maximum, and increment values for the
-vertical axis scale, or have SWMM set the scale automatically. If the
-increment field contains 0 or is left blank the program will
-automatically select an increment to use.
+Lets one choose the minimum, maximum, and increment values for the vertical axis scale, or have SWMM set the scale automatically. If the increment field contains 0 or is left blank the program will automatically select an increment to use.
 
 5.  Node Labels
 
@@ -1847,14 +1640,11 @@ automatically select an increment to use.
 
 - Selects the font size of the node ID labels.
 
-Check the Default box to have these options apply to all new profile
-plots when they are first created.
+Check the Default box to have these options apply to all new profile plots when they are first created.
 
 ### Project Defaults Dialog {#project_defaults_dialog}
 
-The Project Defaults dialog is used to set default values for object
-properties and certain simulation options. The dialog has three tabbed
-pages covering the following categories:
+The Project Defaults dialog is used to set default values for object properties and certain simulation options. The dialog has three tabbed pages covering the following categories:
 
 - Default ID Labels
 
@@ -1864,23 +1654,11 @@ pages covering the following categories:
 
 #### Default ID Labels {#default_id_labels}
 
-The ID Labels page of the Project Defaults dialog form is used to
-determine how SWMM will assign default ID labels for the visual project
-components when they are first created. For each type of object you can
-enter a label prefix in the corresponding entry field or leave the field
-blank if an object's default name will simply be a number. In the last
-field you can enter an increment to be used when adding a numerical
-suffix to the default label. As an example, if C were used as a prefix
-for Conduits along with an increment of 5, then as conduits are created
-they receive default names of C5, C10, C15 and so on. An object's
-default name can be changed by using the Property Editor for visual
-objects or the object-specific editor for non-visual objects.
+The ID Labels page of the Project Defaults dialog form is used to determine how SWMM will assign default ID labels for the visual project components when they are first created. For each type of object you can enter a label prefix in the corresponding entry field or leave the field blank if an object's default name will simply be a number. In the last field you can enter an increment to be used when adding a numerical suffix to the default label. As an example, if C were used as a prefix for Conduits along with an increment of 5, then as conduits are created they receive default names of C5, C10, C15 and so on. An object's default name can be changed by using the Property Editor for visual objects or the object-specific editor for non-visual objects.
 
 #### Default Node/Link Properties {#default-node/link_properties}
 
-The Nodes/Links page of the Project Defaults dialog sets default
-property values for newly created nodes and links. These properties
-include:
+The Nodes/Links page of the Project Defaults dialog sets default property values for newly created nodes and links. These properties include:
 
 - Node Invert Elevation
 
@@ -1904,26 +1682,17 @@ include:
 
 - Force Main Equation
 
-The defaults that are automatically assigned to individual objects can
-be changed by using the object's Property Editor. The choice of Flow
-Units and Link Offsets Convention can be changed directly on the main
-window's Status Bar.
+The defaults that are automatically assigned to individual objects can be changed by using the object's Property Editor. The choice of Flow Units and Link Offsets Convention can be changed directly on the main window's Status Bar.
 
-[icon_tip]The choice of flow units determines whether US or metric units
-are used for all other quantities. Default values are not automatically
-adjusted when the unit system is changed from US to metric (or vice
-versa).
+[tip]
+The choice of flow units determines whether US or metric units are used for all other quantities. Default values are not automatically adjusted when the unit system is changed from US to metric (or vice versa).
 
-[icon_tip]Link Offsets can be specified as either depth above invert or
-as absolute elevation. When this convention is changed, a dialog will
-appear giving one the option to automatically re-calculate all existing
-link offsets in the current project using the newly selected convention.
+[tip]
+Link Offsets can be specified as either depth above invert or as absolute elevation. When this convention is changed, a dialog will appear giving one the option to automatically re-calculate all existing link offsets in the current project using the newly selected convention.
 
 #### Default Subcatchment Properties {#default_subcatchment_properties}
 
-The Subcatchment page of the Project Defaults dialog sets default
-property values for newly created subcatchments. These properties
-include:
+The Subcatchment page of the Project Defaults dialog sets default property values for newly created subcatchments. These properties include:
 
 - Subcatchment Area
 
@@ -1945,31 +1714,18 @@ include:
 
 - Infiltration Method.
 
-Explanations of these properties can be found in the Subcatchment
-Properties topic.
+Explanations of these properties can be found in the Subcatchment Properties topic.
 
-These default properties for a particular subcatchment can be modified
-later on by using the Property Editor.
+These default properties for a particular subcatchment can be modified later on by using the Property Editor.
 
-[icon_tip]Changing the Infiltration Method and its default parameters
-for an existing project will affect all subcatchments that were assigned
-the previous Infiltration Method. See the description of Infiltration
-Model for the General Simulation Options dialog for details.
+[tip]
+Changing the Infiltration Method and its default parameters for an existing project will affect all subcatchments that were assigned the previous Infiltration Method. See the description of Infiltration Model for the General Simulation Options dialog for details.
 
 ### Reporting Options Dialog {#reporting_options_dialog}
 
-The Reporting Options dialog is used to select individual subcatchments,
-nodes, and links that will have detailed time series results saved for
-viewing after a simulation has been run. The default for new projects is
-that all objects will have detailed results saved for them. It is also
-used to select what optional material appears in the Status Report and
-whether time series results consist of point value (the default) or
-values averaged over a reporting time step.
+The Reporting Options dialog is used to select individual subcatchments, nodes, and links that will have detailed time series results saved for viewing after a simulation has been run. The default for new projects is that all objects will have detailed results saved for them. It is also used to select what optional material appears in the Status Report and whether time series results consist of point value (the default) or values averaged over a reporting time step.
 
-The dialog contains three tabbed pages - one each for subcatchments,
-nodes, and links. It is a stay-on-top form which means that you can
-select items directly from the Study Area Map or Project Browser while
-the dialog remains visible.
+The dialog contains three tabbed pages - one each for subcatchments, nodes, and links. It is a stay-on-top form which means that you can select items directly from the Study Area Map or Project Browser while the dialog remains visible.
 
 To include an object in the set that is reported on:
 
@@ -1989,43 +1745,29 @@ To remove an item from the set selected for reporting:
 
 2. Click the Remove button to remove the item.
 
-To remove all items from the reporting set of a given object category,
-select the object category's page and click the Clear button.
+To remove all items from the reporting set of a given object category, select the object category's page and click the Clear button.
 
-To include all objects of a given category in the reporting set, check
-the "All" box on the page for that category (i.e., subcatchments, nodes,
-or links). This will override any individual items that may be currently
-listed on the page.
+To include all objects of a given category in the reporting set, check the "All" box on the page for that category (i.e., subcatchments, nodes, or links). This will override any individual items that may be currently listed on the page.
 
 To dismiss the dialog click the Close button.
 
-In addition the following reporting options can be selected from this
-dialog:
+In addition the following reporting options can be selected from this dialog:
 
 Report Input Summary
 
-Check this option to have the simulation's Status Report list a summary
-of the project's input data.
+Check this option to have the simulation's Status Report list a summary of the project's input data.
 
 Report Control Actions
 
-Check this option to have the simulation's Status Report list all
-discrete control actions taken by the Control Rules associated with a
-project (continuous modulated control actions are not listed). This
-option should only be used for short-term simulation.
+Check this option to have the simulation's Status Report list all discrete control actions taken by the Control Rules associated with a project (continuous modulated control actions are not listed). This option should only be used for short-term simulation.
 
 Report Average Results
 
-Check this option to have the average of the results for all routing
-time steps that fall within a reporting time step be reported instead of
-the instantaneous point results that occur at the end of the reporting
-time step.
+Check this option to have the average of the results for all routing time steps that fall within a reporting time step be reported instead of the instantaneous point results that occur at the end of the reporting time step.
 
 ### Scatter Plot Dialog {#scatter_plot_dialog}
 
-The Scatter Plot dialog is used to select the objects and variables to
-be graphed against one another in a scatter plot. Use the dialog as
-follows:
+The Scatter Plot dialog is used to select the objects and variables to be graphed against one another in a scatter plot. Use the dialog as follows:
 
 1. Select a Start Date and End Date for the plot (the default is the entire simulation period).
 
@@ -2043,9 +1785,7 @@ follows:
 
 ### Simulation Options Dialog {#simulation_options_dialog}
 
-The Simulation Options dialog is used to set various options that
-control how a SWMM simulation is made. The dialog consists of the
-following tabbed pages:
+The Simulation Options dialog is used to set various options that control how a SWMM simulation is made. The dialog consists of the following tabbed pages:
 
 - General Options
 
@@ -2057,27 +1797,21 @@ following tabbed pages:
 
 - Interface File Options
 
-After selecting the desired options, click the OK button to save your
-choices or the Cancel button to abandon them.
+After selecting the desired options, click the OK button to save your choices or the Cancel button to abandon them.
 
-Events and Reporting simulation options have their own specialized
-dialog forms (see Events Editor and Reporting Options Dialog).
+Events and Reporting simulation options have their own specialized dialog forms (see Events Editor and Reporting Options Dialog).
 
 #### Simulation Options - General {#simulation_options-general}
 
-The General page of the Simulation Options dialog sets values for the
-following options:
+The General page of the Simulation Options dialog sets values for the following options:
 
 Process Models
 
-Select which process models (Rainfall/Runoff, Rainfall Dependent I/I,
-Snow Melt, Groundwater, Flow Routing, and Water Quality) should be
-included in the analysis.
+Select which process models (Rainfall/Runoff, Rainfall Dependent I/I, Snow Melt, Groundwater, Flow Routing, and Water Quality) should be included in the analysis.
 
 Infiltration Model
 
-This option selects the default method used to model infiltration of
-rainfall into the upper soil zone of subcatchments. The choices are:
+This option selects the default method used to model infiltration of rainfall into the upper soil zone of subcatchments. The choices are:
 
 - Horton
 
@@ -2087,20 +1821,11 @@ rainfall into the upper soil zone of subcatchments. The choices are:
 
 - Modified Green-Ampt
 
-All new subcatchments added to a project will default to using the
-selected method. For existing subcatchments, their infiltration method
-will only change if they had been using the previous default option.
-That would require re-entering values for the infiltration parameters in
-each such subcatchment, unless the change was between the two Horton
-options or the two Green-Ampt options. A prompt is issued asking if SWMM
-should automatically assign a default set of parameter values to all
-subcatchments that switch between two incompatible types of infiltration
-methods.
+All new subcatchments added to a project will default to using the selected method. For existing subcatchments, their infiltration method will only change if they had been using the previous default option. That would require re-entering values for the infiltration parameters in each such subcatchment, unless the change was between the two Horton options or the two Green-Ampt options. A prompt is issued asking if SWMM should automatically assign a default set of parameter values to all subcatchments that switch between two incompatible types of infiltration methods.
 
 Routing Model
 
-This option determines which method is used to route flows through the
-conveyance system. The choices are:
+This option determines which method is used to route flows through the conveyance system. The choices are:
 
 - Steady Flow
 
@@ -2112,33 +1837,23 @@ See the Flow Routing topic for more details.
 
 Allow Ponding
 
-Checking this option will allow excess water to collect atop nodes and
-be re-introduced into the system as conditions permit. In order for
-ponding to actually occur at a particular node, a non-zero value for its
-Ponded Area attribute must be used.
+Checking this option will allow excess water to collect atop nodes and be re-introduced into the system as conditions permit. In order for ponding to actually occur at a particular node, a non-zero value for its Ponded Area attribute must be used.
 
 Minimum Conduit Slope
 
-This is the minimum value allowed for a conduit's slope (%). If zero
-(the default) then no minimum is imposed (although SWMM uses a lower
-limit on elevation drop of 0.001 ft (0.00035 m) when computing a conduit
-slope).
+This is the minimum value allowed for a conduit's slope (%). If zero (the default) then no minimum is imposed (although SWMM uses a lower limit on elevation drop of 0.001 ft (0.00035 m) when computing a conduit slope).
 
 #### Simulation Options - Dates {#simulation_options-dates}
 
-The Dates page of the Simulation Options dialog determines the starting
-and ending dates/times of a simulation.
+The Dates page of the Simulation Options dialog determines the starting and ending dates/times of a simulation.
 
 Start Analysis On
 
-Enter the date (month/day/year) and time of day when the simulation
-begins.
+Enter the date (month/day/year) and time of day when the simulation begins.
 
 Start Reporting On
 
-Enter the date and time of day when reporting of simulation results is
-to begin. Using a date prior to the start date is the same as using the
-start date.
+Enter the date and time of day when reporting of simulation results is to begin. Using a date prior to the start date is the same as using the start date.
 
 End Analysis On
 
@@ -2146,31 +1861,22 @@ Enter the date and time when the simulation is to end.
 
 Start Sweeping On
 
-Enter the day of the year (month/day) when street sweeping operations
-begin. The default is January 1.
+Enter the day of the year (month/day) when street sweeping operations begin. The default is January 1.
 
 End Sweeping On
 
-Enter the day of the year (month/day) when street sweeping operations
-end. The default is December 31.
+Enter the day of the year (month/day) when street sweeping operations end. The default is December 31.
 
 Antecedent Dry Days
 
-Enter the number of days with no rainfall prior to the start of the
-simulation. This value is used to compute an initial buildup of
-pollutant load on the surface of subcatchments.
+Enter the number of days with no rainfall prior to the start of the simulation. This value is used to compute an initial buildup of pollutant load on the surface of subcatchments.
 
-[icon_tip]If rainfall or climate data are read from external files, then
-the simulation dates should be set to coincide with the dates recorded
-in these files.
+[tip]
+If rainfall or climate data are read from external files, then the simulation dates should be set to coincide with the dates recorded in these files.
 
 #### Simulation Options - Time Steps {#simulation_options-time_steps}
 
-The Time Steps page of the Simulation Options dialog establishes the
-length of the time steps used for runoff computation, routing
-computation and results reporting. Time steps are specified in days and
-hours:minutes:seconds except for flow routing which is entered as
-decimal seconds.
+The Time Steps page of the Simulation Options dialog establishes the length of the time steps used for runoff computation, routing computation and results reporting. Time steps are specified in days and hours:minutes:seconds except for flow routing which is entered as decimal seconds.
 
 Reporting Time Step
 
@@ -2178,58 +1884,37 @@ Enter the time interval for reporting of computed results.
 
 Runoff - Wet Weather Time Step
 
-Enter the time step length used to compute runoff from subcatchments
-during periods of rainfall, or when ponded water still remains on the
-surface, or when LID controls are still infiltrating or evaporating
-runoff.
+Enter the time step length used to compute runoff from subcatchments during periods of rainfall, or when ponded water still remains on the surface, or when LID controls are still infiltrating or evaporating runoff.
 
 Runoff - Dry Weather Time Step
 
-Enter the time step length used for runoff computations (consisting
-essentially of pollutant buildup) during periods when there is no
-rainfall, no ponded water, and LID controls are dry. This must be
-greater or equal to the Wet Weather time step.
+Enter the time step length used for runoff computations (consisting essentially of pollutant buildup) during periods when there is no rainfall, no ponded water, and LID controls are dry. This must be greater or equal to the Wet Weather time step.
 
 Control Rule Time Step
 
-Enter the time step length used for evaluating Control Rules. The
-default is 0 which means that controls are evaluated at every routing
-time step.
+Enter the time step length used for evaluating Control Rules. The default is 0 which means that controls are evaluated at every routing time step.
 
 Routing Time Step
 
-Enter the time step length used for routing flows and water quality
-constituents through the conveyance system. Note that Dynamic Wave
-routing requires a much smaller time step than the other methods of flow
-routing.
+Enter the time step length used for routing flows and water quality constituents through the conveyance system. Note that Dynamic Wave routing requires a much smaller time step than the other methods of flow routing.
 
 Steady Flow Periods
 
-This set of options tells SWMM how to identify and treat periods of time
-when system hydraulics are not changing. The system is considered to be
-in a steady flow period if:
+This set of options tells SWMM how to identify and treat periods of time when system hydraulics are not changing. The system is considered to be in a steady flow period if:
 
 1. The percent difference between total system inflow and total system outflow is below the System Flow Tolerance,
 
 2. The percent differences between the current lateral inflow and that from the previous time step for all points in the conveyance system are below the Lateral Flow Tolerance.
 
-Checking the Skip Steady Flow Periods box will make SWMM keep using the
-most recently computed conveyance system flows (instead of computing a
-new flow solution) whenever the above criteria are met. Using this
-feature can help speed up simulation run times at the expense of reduced
-accuracy.
+Checking the Skip Steady Flow Periods box will make SWMM keep using the most recently computed conveyance system flows (instead of computing a new flow solution) whenever the above criteria are met. Using this feature can help speed up simulation run times at the expense of reduced accuracy.
 
 ### Simulation Options - Dynamic Wave {#simulation_options-dynamic_wave}
 
-The Dynamic Wave page of the Simulation Options dialog sets several
-parameters that control how the dynamic wave flow routing computations
-are made. These parameters have no effect for the other flow routing
-methods.
+The Dynamic Wave page of the Simulation Options dialog sets several parameters that control how the dynamic wave flow routing computations are made. These parameters have no effect for the other flow routing methods.
 
 Inertial Terms
 
-Indicates how the inertial terms in the St. Venant momentum equation
-will be handled.
+Indicates how the inertial terms in the St. Venant momentum equation will be handled.
 
 - KEEP maintains these terms at their full value under all conditions.
 
@@ -2239,8 +1924,7 @@ will be handled.
 
 Normal Flow Criterion
 
-Selects the basis used to determine when supercritical flow limits a
-conduit's maximum flow to normal flow. The choices are:
+Selects the basis used to determine when supercritical flow limits a conduit's maximum flow to normal flow. The choices are:
 
 - Slope - water surface slope only (i.e., water surface slope > conduit slope)
 
@@ -2250,121 +1934,66 @@ conduit's maximum flow to normal flow. The choices are:
 
 - None - no check for normal flow limitation is made.
 
-The first two choices were used in earlier versions of SWMM while the
-third choice, which checks for either condition, is now the recommended
-one.
+The first two choices were used in earlier versions of SWMM while the third choice, which checks for either condition, is now the recommended one.
 
 Force Main Equation
 
-Selects which equation will be used to compute friction losses during
-pressurized flow for conduits that have been assigned a Circular Force
-Main cross-section. The choices are either the Hazen-Williams equation
-or the Darcy-Weisbach equation.
+Selects which equation will be used to compute friction losses during pressurized flow for conduits that have been assigned a Circular Force Main cross-section. The choices are either the Hazen-Williams equation or the Darcy-Weisbach equation.
 
 Surcharge Method
 
-Selects which method will be used to handle surcharge conditions. The
-Extran option uses a variation of the Surcharge Algorithm from previous
-versions of SWMM to update nodal heads when all connecting links become
-full. The Slot option uses a Preissmann Slot to add a small amount of
-virtual top surface width to full flowing pipes so that SWMM's normal
-procedure for updating nodal heads can continue to be used.
+Selects which method will be used to handle surcharge conditions. The Extran option uses a variation of the Surcharge Algorithm from previous versions of SWMM to update nodal heads when all connecting links become full. The Slot option uses a Preissmann Slot to add a small amount of virtual top surface width to full flowing pipes so that SWMM's normal procedure for updating nodal heads can continue to be used.
 
 Variable Time Step
 
-Check the box if an internally computed variable time step should be
-used at each routing time period and select an adjustment (or safety)
-factor to apply to this time step. The variable time step is computed so
-as to satisfy the Courant condition within each conduit. A typical
-adjustment factor would be 75% to provide some margin of conservatism.
-The computed variable time step will not be less than the minimum
-variable step discussed below nor be greater than the fixed time step
-specified on the Time Steps page of the dialog.
+Check the box if an internally computed variable time step should be used at each routing time period and select an adjustment (or safety) factor to apply to this time step. The variable time step is computed so as to satisfy the Courant condition within each conduit. A typical adjustment factor would be 75% to provide some margin of conservatism. The computed variable time step will not be less than the minimum variable step discussed below nor be greater than the fixed time step specified on the Time Steps page of the dialog.
 
 Minimum Variable Time Step
 
-This is the smallest time step allowed when variable time steps are
-used. The default value is 0.5 seconds. Smaller steps may be warranted,
-but they can lead to longer simulations runs without much improvement in
-solution quality.
+This is the smallest time step allowed when variable time steps are used. The default value is 0.5 seconds. Smaller steps may be warranted, but they can lead to longer simulations runs without much improvement in solution quality.
 
 Time Step for Conduit Lengthening
 
-This is a time step, in seconds, used to artificially lengthen conduits
-so that they meet the Courant stability criterion under full-flow
-conditions (i.e., the travel time of a wave will not be smaller than the
-specified conduit lengthening time step). As this value is decreased,
-fewer conduits will require lengthening. A value of 0 means that no
-conduits will be lengthened. The ratio of the artificial length to the
-original length for each conduit is listed in the Flow Classification
-table that appears in the simulation's Summary Report.
+This is a time step, in seconds, used to artificially lengthen conduits so that they meet the Courant stability criterion under full-flow conditions (i.e., the travel time of a wave will not be smaller than the specified conduit lengthening time step). As this value is decreased, fewer conduits will require lengthening. A value of 0 means that no conduits will be lengthened. The ratio of the artificial length to the original length for each conduit is listed in the Flow Classification table that appears in the simulation's Summary Report.
 
 Minimum Nodal Surface Area
 
-This is a minimum surface area used at nodes when computing changes in
-water depth. If 0 is entered, then the default value of 12.566 sq. ft
-(1.167 sq. m) is used. This is the area of a 4-ft diameter manhole. The
-value entered should be in square feet for US units or square meters for
-SI units.
+This is a minimum surface area used at nodes when computing changes in water depth. If 0 is entered, then the default value of 12.566 sq. ft (1.167 sq. m) is used. This is the area of a 4-ft diameter manhole. The value entered should be in square feet for US units or square meters for SI units.
 
 Head Convergence Tolerance
 
-This is the maximum difference in computed heads between successive
-trials of SWMM
+This is the maximum difference in computed heads between successive trials of SWMM
 
 #### Simulation Options - Interface Files {#simulation_options-interface_files}
 
-The Interface Files page of the Simulation Options dialog is used to
-specify which interface files will be used or saved during the
-simulation. The page contains a list box with three buttons underneath
-it. The list box lists the currently selected files, while the buttons
-are used as follows:
+The Interface Files page of the Simulation Options dialog is used to specify which interface files will be used or saved during the simulation. The page contains a list box with three buttons underneath it. The list box lists the currently selected files, while the buttons are used as follows:
 
 Add        adds a new interface file specification to the list.
 
 Edit        edits the properties of the currently selected interface
 file.
 
-Delete        deletes the currently selected interface from the project
-(but not from your hard drive).
+Delete        deletes the currently selected interface from the project (but not from your hard drive).
 
-When the Add or Edit buttons are clicked, an Interface File Selection
-dialog appears where one can specify the type of interface file, whether
-it should be used or saved, and its name.
+When the Add or Edit buttons are clicked, an Interface File Selection dialog appears where one can specify the type of interface file, whether it should be used or saved, and its name.
 
 #### Snow Pack Editor {#snow_pack_editor}
 
-The Snow Pack Editor is invoked whenever a new Snow Pack object is
-created or an existing snow pack is selected for editing. The editor
-contains a data entry field for the snow pack's name and two tabbed
-pages, one for Snow Pack Parameters and one for Snow Removal Parameters.
+The Snow Pack Editor is invoked whenever a new Snow Pack object is created or an existing snow pack is selected for editing. The editor contains a data entry field for the snow pack's name and two tabbed pages, one for Snow Pack Parameters and one for Snow Removal Parameters.
 
 #### Snow Pack Editor -  Parameters Page {#snow_pack_editor-parameters_page}
 
-The Parameters page of the Snow Pack Editor dialog provides snow melt
-parameters and initial conditions for snow that accumulates over three
-different types of areas: the impervious area that is plowable (i.e.,
-subject to snow removal), the remaining impervious area, and the entire
-pervious area. The page contains a data entry grid which has a column
-for each type of area and a row for each of the following parameters:
+The Parameters page of the Snow Pack Editor dialog provides snow melt parameters and initial conditions for snow that accumulates over three different types of areas: the impervious area that is plowable (i.e., subject to snow removal), the remaining impervious area, and the entire pervious area. The page contains a data entry grid which has a column for each type of area and a row for each of the following parameters:
 
 Minimum Melt Coefficient
 
-The degree-day snow melt coefficient that occurs on December 21. Units
-are either in/hr-deg F or mm/hr-deg C.
+The degree-day snow melt coefficient that occurs on December 21. Units are either in/hr-deg F or mm/hr-deg C.
 
 Maximum Melt Coefficient
 
-The degree-day snow melt coefficient that occurs on June 21. Units are
-either in/hr-deg F or mm/hr-deg C. For a short term simulation of less
-than a week or so it is acceptable to use the same value for both the
-minimum and maximum melt coefficients.
+The degree-day snow melt coefficient that occurs on June 21. Units are either in/hr-deg F or mm/hr-deg C. For a short term simulation of less than a week or so it is acceptable to use the same value for both the minimum and maximum melt coefficients.
 
-The minimum and maximum snow melt coefficients are used to estimate a
-melt coefficient that varies by day of the year. The latter is used in
-the following degree-day equation to compute the melt rate for any
-particular day: Melt Rate = (Melt Coefficient) \* (Air Temperature - Base
-Temperature).
+The minimum and maximum snow melt coefficients are used to estimate a melt coefficient that varies by day of the year. The latter is used in the following degree-day equation to compute the melt rate for any particular day: Melt Rate = (Melt Coefficient) \* (Air Temperature - Base Temperature).
 
 Base Temperature
 
@@ -2372,36 +2001,27 @@ Temperature at which snow begins to melt (degrees F or C).
 
 Fraction Free Water Capacity
 
-The volume of a snow pack's pore space which must fill with melted snow
-before liquid runoff from the pack begins, expressed as a fraction of
-snow pack depth.
+The volume of a snow pack's pore space which must fill with melted snow before liquid runoff from the pack begins, expressed as a fraction of snow pack depth.
 
 Initial Snow Depth
 
-Depth of snow at the start of the simulation (water equivalent depth in
-inches or millimeters).
+Depth of snow at the start of the simulation (water equivalent depth in inches or millimeters).
 
 Initial Free Water
 
-Depth of melted water held within the pack at the start of the
-simulation (inches or mm). This number should be at or below the product
-of the initial snow depth and the fraction free water capacity.
+Depth of melted water held within the pack at the start of the simulation (inches or mm). This number should be at or below the product of the initial snow depth and the fraction free water capacity.
 
 Depth at 100% Cover
 
-The depth of snow beyond which the entire area remains completely
-covered and is not subject to any areal depletion effect (inches or mm).
+The depth of snow beyond which the entire area remains completely covered and is not subject to any areal depletion effect (inches or mm).
 
 Fraction of Impervious Area That is Plowable
 
-The fraction of impervious area  that is plowable and therefore is not
-subject to areal depletion.
+The fraction of impervious area  that is plowable and therefore is not subject to areal depletion.
 
 #### Snow Pack Editor - Removal Page {#snow_pack_editor-removal_page}
 
-The Snow Removal page of the Snow Pack Editor dialog describes how snow
-removal occurs within the plowable area of a snow pack. The following
-parameters govern this process:
+The Snow Removal page of the Snow Pack Editor dialog describes how snow removal occurs within the plowable area of a snow pack. The following parameters govern this process:
 
 Depth at which snow removal begins (in or mm)
 
@@ -2409,75 +2029,50 @@ Depth which must be reached before any snow removal begins.
 
 Fraction transferred out of the watershed
 
-The fraction of snow depth that is removed from the system (and does not
-become runoff).
+The fraction of snow depth that is removed from the system (and does not become runoff).
 
 Fraction transferred to the impervious area
 
-The fraction of snow depth that is added to snow accumulation on the
-pack's impervious area.
+The fraction of snow depth that is added to snow accumulation on the pack's impervious area.
 
 Fraction transferred to the pervious area
 
-The fraction of snow depth that is added to snow accumulation on the
-pack's pervious area.
+The fraction of snow depth that is added to snow accumulation on the pack's pervious area.
 
 Fraction converted to immediate melt
 
-The fraction of snow depth that becomes liquid water which runs onto any
-subcatchment associated with the snow pack.
+The fraction of snow depth that becomes liquid water which runs onto any subcatchment associated with the snow pack.
 
 Fraction moved to another subcatchment
 
-The fraction of snow depth which is added to the snow accumulation on
-some other subcatchment. The name of the subcatchment must also be
-provided.
+The fraction of snow depth which is added to the snow accumulation on some other subcatchment. The name of the subcatchment must also be provided.
 
-[icon_tip]The various removal fractions must add up to 1.0 or less. If
-less than 1.0, then some remaining fraction of snow depth will be left
-on the surface after all of the redistribution options are satisfied.
+[tip]
+The various removal fractions must add up to 1.0 or less. If less than 1.0, then some remaining fraction of snow depth will be left on the surface after all of the redistribution options are satisfied.
 
 ### Statistics Selection Dialog {#statistics_selection_dialog}
 
-The Statistics Selection dialog is used to define the type of
-statistical analysis to be made on a computed simulation result. It
-contains the following data fields:
+The Statistics Selection dialog is used to define the type of statistical analysis to be made on a computed simulation result. It contains the following data fields:
 
 Object Category
 
-Select the category of object to analyze (Subcatchment, Node, Link, or
-System).
+Select the category of object to analyze (Subcatchment, Node, Link, or System).
 
 Object Name
 
-Enter the ID name of the object to analyze. Instead of typing in an ID
-name, you can select the object on the Study Area Map or in the Project
-Browser and then click the [Add] button to select it into the object
-name field.
+Enter the ID name of the object to analyze. Instead of typing in an ID name, you can select the object on the Study Area Map or in the Project Browser and then click the [Add] button to select it into the object name field.
 
 Variable Analyzed
 
-Select the variable to be analyzed. The available choices depend on the
-object category selected (e.g., rainfall, losses, or runoff for
-subcatchments; depth, inflow, or flooding for nodes; depth, flow,
-velocity, or capacity for links; water quality for all categories).
+Select the variable to be analyzed. The available choices depend on the object category selected (e.g., rainfall, losses, or runoff for subcatchments; depth, inflow, or flooding for nodes; depth, flow, velocity, or capacity for links; water quality for all categories).
 
 Event Time Period
 
-Select the length of the time period that defines an event. The choices
-are daily, monthly, or event-dependent. In the latter case, the event
-period depends on the number of consecutive reporting periods where
-simulation results are above the threshold values defined below.
+Select the length of the time period that defines an event. The choices are daily, monthly, or event-dependent. In the latter case, the event period depends on the number of consecutive reporting periods where simulation results are above the threshold values defined below.
 
 Statistic
 
-Choose an event statistic to be analyzed. The available choices depend
-on the choice of variable to be analyzed and include such quantities as
-mean value, peak value, event total, event duration, and inter-event
-time (i.e., the time interval between the midpoints of successive
-events). For water quality variables the choices include mean
-concentration, peak concentration, mean loading, peak loading, and event
-total load.
+Choose an event statistic to be analyzed. The available choices depend on the choice of variable to be analyzed and include such quantities as mean value, peak value, event total, event duration, and inter-event time (i.e., the time interval between the midpoints of successive events). For water quality variables the choices include mean concentration, peak concentration, mean loading, peak loading, and event total load.
 
 Event Thresholds
 
@@ -2494,15 +2089,11 @@ blank.
 
 ### Storage Shape Editor {#storage_shape_editor}
 
-The Storage Shape Editor is used to describe how a storage unit's
-surface area varies with depth above the bottom of the unit. . It is
-invoked when the Storage Shape property of a storage node is selected
-for editing. There are six types of shapes one can choose from:
+The Storage Shape Editor is used to describe how a storage unit's surface area varies with depth above the bottom of the unit. . It is invoked when the Storage Shape property of a storage node is selected for editing. There are six types of shapes one can choose from:
 
 Cylindrical
 
-The storage unit has vertical sides and an elliptical base. The equation
-for surface area is:
+The storage unit has vertical sides and an elliptical base. The equation for surface area is:
 
 +-----------------------------------+-----------------------------------+
 | [cylindrical] | Area = (π / 4) _ ( L _ W ) |
@@ -2516,8 +2107,7 @@ for surface area is:
 
 Conical
 
-The storage unit is shaped as a truncated elliptical cone. The equation
-for surface area is:
+The storage unit is shaped as a truncated elliptical cone. The equation for surface area is:
 
 +-----------------------------------+-----------------------------------+
 | [ConicStorageShape] | Area = π _ ( L _ W / 4 + W _ Z _ |
@@ -2532,8 +2122,7 @@ for surface area is:
 
 Parabolic
 
-The storage unit has the shape of an elliptical paraboloid. The equation
-for surface area is:
+The storage unit has the shape of an elliptical paraboloid. The equation for surface area is:
 
 +-----------------------------------+-----------------------------------+
 | [paraboloid] | Area = (π / 4) _ ( L _ W / H) \* |
@@ -2548,8 +2137,7 @@ for surface area is:
 
 Pyramidal
 
-This is for storage units shaped as a truncated rectangular pyramid or a
-rectangular box. The equation for surface area is:
+This is for storage units shaped as a truncated rectangular pyramid or a rectangular box. The equation for surface area is:
 
 +-----------------------------------+-----------------------------------+
 | [PrismaticStorageShape] | Area = L _ W + 2 _ (L + W) _ Z _ |
@@ -2567,8 +2155,7 @@ The following general function is used to relate surface area to depth:
 
 Area = a0 + a1 \* Depth ^a2
 
-where a0, a1, and a2 are user supplied coefficients. Here are
-coefficient values for some particular shapes:
+where a0, a1, and a2 are user supplied coefficients. Here are coefficient values for some particular shapes:
 
 - Shapes with vertical sides (such as a cylinder or rectangular prism):
 
@@ -2584,8 +2171,7 @@ a1 = 2 _ Z _ L
 
 a2 = 1
 
-where W = bottom width of cross section, L = channel length, and Z =
-side slope.
+where W = bottom width of cross section, L = channel length, and Z = side slope.
 
 - Open channel with a parabolic cross section and vertical ends:
 
@@ -2605,8 +2191,7 @@ a1 = π _ L _ W / H
 
 a2 = 1
 
-where L is the length of the major axis and W the length of the minor
-axis at full height H.
+where L is the length of the major axis and W the length of the minor axis at full height H.
 
 - Circular non-truncated cone:
 
@@ -2620,105 +2205,65 @@ where W is the cone's diameter at height H.
 
 Tabular
 
-This method uses a tabular Storage Curve to relate surface area to
-depth. It can represent natural depressions with irregular shaped
-contour intervals, spheroid storage vessels or conventional shapes with
-different base sizes stacked on top of one another. The first point
-supplied to the curve should be the surface area of the unit's base at a
-depth of 0. Otherwise it will be assumed that the unit has zero surface
-area at its base. The curve will be extrapolated outwards to meet the
-unit's maximum depth if need be.
+This method uses a tabular Storage Curve to relate surface area to depth. It can represent natural depressions with irregular shaped contour intervals, spheroid storage vessels or conventional shapes with different base sizes stacked on top of one another. The first point supplied to the curve should be the surface area of the unit's base at a depth of 0. Otherwise it will be assumed that the unit has zero surface area at its base. The curve will be extrapolated outwards to meet the unit's maximum depth if need be.
 
-For each of these methods, depth is measured in feet and surface area in
-square feet for US units, while meters and square meters, respectively,
-are used for SI units.
+For each of these methods, depth is measured in feet and surface area in square feet for US units, while meters and square meters, respectively, are used for SI units.
 
-Clicking the Show Volume Calculator label will display a panel where one
-can see what the surface area and stored volume will be at a specified
-water depth in the selected storage shape.
+Clicking the Show Volume Calculator label will display a panel where one can see what the surface area and stored volume will be at a specified water depth in the selected storage shape.
 
 ### Street Section Editor {#street_section_editor}
 
-The Street Section Editor is used to define the dimensions of a street
-or roadway cross-section. It is invoked when a new Street object is
-created or is selected for editing from the Project Browser , or when a
-STREET shape is chosen from the Cross- Section Editor. The editor asks
-that the following dimensions be provided for the portion of the street
-extending from the high point of the roadway to the curb and beyond to
-any backing that might exist (see figure below):
+The Street Section Editor is used to define the dimensions of a street or roadway cross-section. It is invoked when a new Street object is created or is selected for editing from the Project Browser , or when a STREET shape is chosen from the Cross- Section Editor. The editor asks that the following dimensions be provided for the portion of the street extending from the high point of the roadway to the curb and beyond to any backing that might exist (see figure below):
 
 [Street]
 
 Street Section Name
 
-The name assigned to the street cross section. Conduits with a STREET
-shape cross section will refer to this name to identify its cross
-section dimensions.
+The name assigned to the street cross section. Conduits with a STREET shape cross section will refer to this name to identify its cross section dimensions.
 
 Road Width (Tcrown)
 
-The distance from the curb to the high point of the street roadway
-(i.e., the street crown) (feet or meters). Traffic lanes are typically
-10 to 12 feet (3.3 to 3.7 meters) wide with gutters being 1 to 3 feet
-(0.3 to 1 meter) wide.
+The distance from the curb to the high point of the street roadway (i.e., the street crown) (feet or meters). Traffic lanes are typically 10 to 12 feet (3.3 to 3.7 meters) wide with gutters being 1 to 3 feet (0.3 to 1 meter) wide.
 
 Curb Height (Hcurb)
 
-The height of the curb with respect to the street's cross slope (feet or
-meters). Typical heights are 4 to 8 inches with 6 inches  (0.5 feet or
-0.15 meters) being standard in the U.S..
+The height of the curb with respect to the street's cross slope (feet or meters). Typical heights are 4 to 8 inches with 6 inches  (0.5 feet or 0.15 meters) being standard in the U.S..
 
 Cross Slope (Sx)
 
-The slope of the roadway portion of the cross section (percent). Cross
-slopes range between 1 to 4 percent with 2 percent being the most common
-value.
+The slope of the roadway portion of the cross section (percent). Cross slopes range between 1 to 4 percent with 2 percent being the most common value.
 
 Street Roughness
 
-Manning's roughness coefficient (n) for the street surface. Typical
-values range from 0.013 to 0.017.
+Manning's roughness coefficient (n) for the street surface. Typical values range from 0.013 to 0.017.
 
 One or Two Sided
 
-Select One Sided if the street section extends only to the street crown
-or Two Sided if the same street section shape exists on the opposite
-side of the street crown.
+Select One Sided if the street section extends only to the street crown or Two Sided if the same street section shape exists on the opposite side of the street crown.
 
 Gutter Depression (a)
 
-The distance that the gutter portion of the street is depressed below
-where the cross slope of the roadway would intersect the curb (inches or
-millimeters). Depressed gutter sections increase the conveyance capacity
-of a street. A typical value would be 2 inches (0.17 ft or 0.05 m).
-Conventional gutters maintain the same slope as the roadway and would
-therefore have a 0 depression depth.
+The distance that the gutter portion of the street is depressed below where the cross slope of the roadway would intersect the curb (inches or millimeters). Depressed gutter sections increase the conveyance capacity of a street. A typical value would be 2 inches (0.17 ft or 0.05 m). Conventional gutters maintain the same slope as the roadway and would therefore have a 0 depression depth.
 
 Gutter Width (W)
 
-The width between the curb and the roadway for a depressed gutter (feet
-or meters). A typical value would be 2 feet (0.6 meters). For
-conventional gutters with no depression depth use a value of 0.
+The width between the curb and the roadway for a depressed gutter (feet or meters). A typical value would be 2 feet (0.6 meters). For conventional gutters with no depression depth use a value of 0.
 
 Backing Width (Tback)
 
-The width of the area that the street backs up against (such as a
-sidewalk or lawn area) (feet or meters). Enter 0 if there is no backing.
+The width of the area that the street backs up against (such as a sidewalk or lawn area) (feet or meters). Enter 0 if there is no backing.
 
 Backing Slope (Sback)
 
-The slope of the backing area (percent). If the backing width is
-non-zero then this must be a positive number. Otherwise it is ignored.
+The slope of the backing area (percent). If the backing width is non-zero then this must be a positive number. Otherwise it is ignored.
 
 Backing Roughness
 
-Manning's roughness coefficient (n) for the backing's surface. This
-parameter is ignored if the backing width is 0.
+Manning's roughness coefficient (n) for the backing's surface. This parameter is ignored if the backing width is 0.
 
 ### Table by Object Dialog {#table_by_object_dialog}
 
-The Table by Object dialog is used when creating a time series table of
-several variables for a single object. Use the dialog as follows:
+The Table by Object dialog is used when creating a time series table of several variables for a single object. Use the dialog as follows:
 
 1. Select a Start Date and End Date for the table (the default is the entire simulation period).
 
@@ -2734,8 +2279,7 @@ several variables for a single object. Use the dialog as follows:
 
 ### Table by Variable Dialog {#table_by_variable_dialog}
 
-The Table by Variable dialog is used when creating a time series table
-of a single variable for one or more objects. Use the dialog as follows:
+The Table by Variable dialog is used when creating a time series table of a single variable for one or more objects. Use the dialog as follows:
 
 1. Select a Start Date and End Date for the table (the default is the entire simulation period).
 
@@ -2749,16 +2293,11 @@ of a single variable for one or more objects. Use the dialog as follows:
 
 6. Click the OK button to create the table.
 
-A maximum of 6 objects can be selected for a single table. Objects
-already selected can be deleted, moved up in the order or moved down in
-the order by clicking the [minusBtn], [upBtn], and [downBtn] buttons,
-respectively.
+A maximum of 6 objects can be selected for a single table. Objects already selected can be deleted, moved up in the order or moved down in the order by clicking the [minusBtn], [upBtn], and [downBtn] buttons, respectively.
 
 ### Time Pattern Editor {#time_pattern_editor}
 
-The Time Pattern Editor is invoked whenever a new Time Pattern object is
-created or an existing time pattern is selected for editing. The editor
-contains the following data entry fields:
+The Time Pattern Editor is invoked whenever a new Time Pattern object is created or an existing time pattern is selected for editing. The editor contains the following data entry fields:
 
 Name
 
@@ -2766,19 +2305,15 @@ Enter the name assigned to the time pattern.
 
 Type
 
-Select the type of time pattern being specified. The choices are
-Monthly, Daily, Hourly and Weekend Hourly.
+Select the type of time pattern being specified. The choices are Monthly, Daily, Hourly and Weekend Hourly.
 
 Description
 
-Provide an optional comment or description for the time pattern. If more
-than one line is needed, click the [edit] button to launch a multi-line
-comment editor.
+Provide an optional comment or description for the time pattern. If more than one line is needed, click the [edit] button to launch a multi-line comment editor.
 
 Multipliers
 
-Enter a value for each multiplier. The number and meaning of the
-multipliers changes with the type of time pattern selected:
+Enter a value for each multiplier. The number and meaning of the multipliers changes with the type of time pattern selected:
 
 ---
 
@@ -2789,15 +2324,12 @@ WEEKEND Same as for HOURLY except applied for weekend days
 
 ---
 
-[icon_tip]In order to maintain an average dry weather flow or pollutant
-concentration at its specified value (as entered on the Inflows Editor),
-the multipliers for a pattern should average to 1.0.
+[tip]
+In order to maintain an average dry weather flow or pollutant concentration at its specified value (as entered on the Inflows Editor), the multipliers for a pattern should average to 1.0.
 
 ### Time Series Editor {#time_series_editor}
 
-The Time Series Editor is invoked whenever a new Time Series object is
-created or an existing time series is selected for editing. To use the
-Time Series Editor:
+The Time Series Editor is invoked whenever a new Time Series object is created or an existing time series is selected for editing. To use the Time Series Editor:
 
 1. Enter values for the following standard items:
 
@@ -2811,36 +2343,27 @@ Description Optional comment or description of what the time series represents.C
 4. For direct data entry, enter values in the data entry grid as follows:
 
 Date Column Optional date (in month/day/year format) of the time series values (only needed at points in time where a new date occurs).
+
 Time Column If dates are used, enter the military time of day for each time series value (as hours:minutes or decimal hours). If dates are not used, enter time as hours since the start of the simulation.
 Value Column Time series numerical values.
 
-A graphical plot of the data in the grid can be viewed in a separate
-window by clicking the View button. Right clicking over the grid will
-make a popup Edit menu appear. It contains commands to cut, copy,
-insert, and paste selected cells in the grid as well as options to
-insert or delete a row.
+A graphical plot of the data in the grid can be viewed in a separate window by clicking the View button. Right clicking over the grid will make a popup Edit menu appear. It contains commands to cut, copy, insert, and paste selected cells in the grid as well as options to insert or delete a row.
 
 5. Press OK to accept the time series or Cancel to cancel your edits.
 
-[icon_tip]Note that there are two methods for describing the occurrence
-time of time series data:
+[tip]
+Note that there are two methods for describing the occurrence time of time series data:
 
 - as calendar date/time of day (which requires that at least one date, at the start of the series, be entered in the Date column)
 
 - as elapsed hours since the start of the simulation (where the Date column remains empty).
 
-[icon_tip] For rainfall time series, it is only necessary to enter
-periods with non-zero rainfall amounts. SWMM interprets the rainfall
-value as a constant value lasting over the recording interval specified
-for the rain gage which utilizes the time series. For all other types of
-time series, SWMM uses interpolation to estimate values at times that
-fall in between the recorded values.
+[tip]
+For rainfall time series, it is only necessary to enter periods with non-zero rainfall amounts. SWMM interprets the rainfall value as a constant value lasting over the recording interval specified for the rain gage which utilizes the time series. For all other types of time series, SWMM uses interpolation to estimate values at times that fall in between the recorded values.
 
 ### Time Series Plot Selection Dialog {#time_series_plot_selection_dialog}
 
-The Time Series Plot Selection dialog specifies a set of objects and
-their variables whose computed time series will be graphed in a Time
-Series Plot. The dialog is used as follows:
+The Time Series Plot Selection dialog specifies a set of objects and their variables whose computed time series will be graphed in a Time Series Plot. The dialog is used as follows:
 
 1. Select a Start Date and End Date for the plot (the default is the entire simulation period).
 
@@ -2854,15 +2377,11 @@ Series Plot. The dialog is used as follows:
 
 6. Click the OK button to create the plot.
 
-When you click the Add or Edit buttons a Data Series Selection dialog
-will be displayed for selecting a particular object and variable to
-plot.
+When you click the Add or Edit buttons a Data Series Selection dialog will be displayed for selecting a particular object and variable to plot.
 
 ### Data Series Selection Dialog {#data_series_selection_dialog}
 
-The Data Series Selection dialog is launched by the Time Series Plot
-Selection dialog to select a data series for plotting in a Time Series
-Plot. It contains the following data fields:
+The Data Series Selection dialog is launched by the Time Series Plot Selection dialog to select a data series for plotting in a Time Series Plot. It contains the following data fields:
 
 Object Type the type of object to plot (Subcatchment, Node, Link or System).
 
@@ -2874,93 +2393,43 @@ Legend Label the text to use in the legend for the data series. If left blank, a
 
 Axis whether to use the left or right vertical axis to plot the data series.
 
-[icon_tip] As you select objects on the Study Area Map or in the Project
-Browser their types and ID names will automatically appear in this
-dialog.
+[tip]
+As you select objects on the Study Area Map or in the Project Browser their types and ID names will automatically appear in this dialog.
 
-Click the Accept button to add/update the data series into the plot or
-click the Cancel button to disregard your edits. You will then be
-returned to the Time Series Plot Selection dialog where you can add or
-edit another data series.
+Click the Accept button to add/update the data series into the plot or click the Cancel button to disregard your edits. You will then be returned to the Time Series Plot Selection dialog where you can add or edit another data series.
 
-[icon_tip] To make a precipitation time series display in inverted
-fashion on a plot, assign it to the right axis and after the plot is
-displayed, use the Graph Options Dialog to invert the right axis and
-expand the scales of both the left and right axes (so it doesn't overlap
-another data series).
+[tip]
+To make a precipitation time series display in inverted fashion on a plot, assign it to the right axis and after the plot is displayed, use the Graph Options Dialog to invert the right axis and expand the scales of both the left and right axes (so it doesn't overlap another data series).
 
 ### Tool Properties Dialog {#tool_properties_dialog}
 
-The Tool Properties dialog is used to describe the properties of an
-add-in tool that has been added to the Tools menu of SWMM's Main Menu
-bar. It contains the following data entry fields:
+The Tool Properties dialog is used to describe the properties of an add-in tool that has been added to the Tools menu of SWMM's Main Menu bar. It contains the following data entry fields:
 
 Tool Name
 
-This is the name to be used for the tool when it is displayed in the
-Tools Menu.
+This is the name to be used for the tool when it is displayed in the Tools Menu.
 
 Program
 
-Enter the full path name to the program that will be launched when the
-tool is selected. You can click the   [FileBrowse] button to bring up a
-standard Windows file selection dialog from which you can search for the
-tool's executable file name.
+Enter the full path name to the program that will be launched when the tool is selected. You can click the   [FileBrowse] button to bring up a standard Windows file selection dialog from which you can search for the tool's executable file name.
 
 Working Directory
 
-This field contains the name of the directory that will be used as the
-working directory when the tool is launched. You can click the
-[FileBrowse] button to bring up a standard directory selection dialog
-from which you can search for the desired directory. You can also enter
-the macro symbol $PROJDIR to utilize the current SWMM project's
-directory or $SWMMDIR to use the directory where the SWMM 5 executable
-resides. Either of these macros can also be inserted into the Working
-Directory field by selecting its name in the list of macros provided on
-the dialog and then clicking the [GreenPlusBtn] button. This field can
-be left blank, in which case the system's current directory will be
-used.
+This field contains the name of the directory that will be used as the working directory when the tool is launched. You can click the [FileBrowse] button to bring up a standard directory selection dialog from which you can search for the desired directory. You can also enter the macro symbol $PROJDIR to utilize the current SWMM project's directory or $SWMMDIR to use the directory where the SWMM 5 executable resides. Either of these macros can also be inserted into the Working Directory field by selecting its name in the list of macros provided on the dialog and then clicking the [GreenPlusBtn] button. This field can be left blank, in which case the system's current directory will be used.
 
 Parameters
 
-This field contains the list of command line arguments that the tool's
-executable program expects to see when it is launched. Multiple
-parameters can be entered field as long as they are separated by spaces.
-A number of special macro symbols have been pre-defined, as listed in
-the Macros list box of the dialog, to simplify the process of listing
-the command line parameters. When one of these macro symbols is inserted
-into the list of parameters, it will be expanded to its true value when
-the tool is launched. A specific macro symbol can either be typed into
-the Parameters field or be selected from the Macros list (by clicking on
-it) and then added to the parameter list by clicking the [GreenPlusBtn]
-button.
+This field contains the list of command line arguments that the tool's executable program expects to see when it is launched. Multiple parameters can be entered field as long as they are separated by spaces. A number of special macro symbols have been pre-defined, as listed in the Macros list box of the dialog, to simplify the process of listing the command line parameters. When one of these macro symbols is inserted into the list of parameters, it will be expanded to its true value when the tool is launched. A specific macro symbol can either be typed into the Parameters field or be selected from the Macros list (by clicking on it) and then added to the parameter list by clicking the [GreenPlusBtn] button.
 
 Disable SWMM while executing
 
-Check this option if SWMM should be minimized and disabled while the
-tool is executing. Normally you will need to employ this option if the
-tool produces a modified input file or output file, such as when the
-$INPFILE or $OUTFILE macros are used as command line parameters. When
-this option is enabled, SWMM's main window will be minimized and will
-not respond to user input until the tool is terminated.
+Check this option if SWMM should be minimized and disabled while the tool is executing. Normally you will need to employ this option if the tool produces a modified input file or output file, such as when the $INPFILE or $OUTFILE macros are used as command line parameters. When this option is enabled, SWMM's main window will be minimized and will not respond to user input until the tool is terminated.
 
 Update SWMM after closing
 
-Check this option if SWMM should be updated after the tool finishes
-executing. This option can only be selected if the option to disable
-SWMM while the tool is executing was first selected. Updating can occur
-in two ways. If the $INPFILE macro was used as a command line parameter
-for the tool and the corresponding temporary input file produced by SWMM
-was updated, then the current project's data will be replaced with the
-data contained in the updated temporary input file. If the $OUTFILE
-macro was used as a command line parameter, and its corresponding file
-is found to contain a valid set of output results after the tool closes,
-then the contents of this file will be used to display simulation
-results within the SWMM workspace.
+Check this option if SWMM should be updated after the tool finishes executing. This option can only be selected if the option to disable SWMM while the tool is executing was first selected. Updating can occur in two ways. If the $INPFILE macro was used as a command line parameter for the tool and the corresponding temporary input file produced by SWMM was updated, then the current project's data will be replaced with the data contained in the updated temporary input file. If the $OUTFILE macro was used as a command line parameter, and its corresponding file is found to contain a valid set of output results after the tool closes, then the contents of this file will be used to display simulation results within the SWMM workspace.
 
-Generally speaking, the suppliers of third-party tools will provide
-instructions on what settings should be used in the Tool Properties
-dialog to properly register their tool with SWMM.
+Generally speaking, the suppliers of third-party tools will provide instructions on what settings should be used in the Tool Properties dialog to properly register their tool with SWMM.
 
 Special Macro Symbols
 
@@ -2978,9 +2447,7 @@ $RIFFILE The name of the Runoff Interface File, as specified in the Interface Fi
 
 ### Transect Editor {#transect_editor}
 
-The Transect Editor is invoked whenever a new Transect object is created
-or an existing Transect is selected for editing. It contains the
-following data entry fields:
+The Transect Editor is invoked whenever a new Transect object is created or an existing Transect is selected for editing. It contains the following data entry fields:
 
 Name
 
@@ -2992,24 +2459,15 @@ An optional comment or description of the transect.
 
 Station/Elevation Data Grid
 
-Values of distance from the left side of the channel along with the
-corresponding elevation of the channel bottom as one moves across the
-channel from left to right, looking in the downstream direction. The
-elevations can be relative to any reference point, such as the bottom of
-the channel, and not necessarily mean sea level. Up to 1500 data values
-can be entered.
+Values of distance from the left side of the channel along with the corresponding elevation of the channel bottom as one moves across the channel from left to right, looking in the downstream direction. The elevations can be relative to any reference point, such as the bottom of the channel, and not necessarily mean sea level. Up to 1500 data values can be entered.
 
 Roughness
 
-Values of Manning's roughness coeffcient (n)for the left overbank, right
-overbank, and main channel portion of the transect. The overbank
-roughness values can be zero if no overbank exists.
+Values of Manning's roughness coeffcient (n)for the left overbank, right overbank, and main channel portion of the transect. The overbank roughness values can be zero if no overbank exists.
 
 Bank Stations
 
-The distance values appearing in the Station/Elevation grid that mark
-the end of the left overbank and the start of the right overbank. Use 0
-to denote the absence of an overbank.
+The distance values appearing in the Station/Elevation grid that mark the end of the left overbank and the start of the right overbank. Use 0 to denote the absence of an overbank.
 
 Modifiers
 
@@ -3019,27 +2477,19 @@ Modifiers
 
 - The Meander modifier is the ratio of the length of a meandering main channel to the length of the overbank area that surrounds it. This modifier is applied to all conduits that use this particular transect for their cross section. It assumes that the length supplied for these conduits is that of the longer main channel. SWMM will use the shorter overbank length in its calculations while increasing the main channel roughness to account for its longer length. The modifier is ignored if it is left blank or set to 0.
 
-Right-clicking over the Data Grid will make a popup Edit menu appear. It
-contains commands to cut, copy, insert, and paste selected cells in the
-grid as well as options to insert or delete a row.
+Right-clicking over the Data Grid will make a popup Edit menu appear. It contains commands to cut, copy, insert, and paste selected cells in the grid as well as options to insert or delete a row.
 
-Clicking the View button will bring up a window that illustrates the
-shape of the transect cross section.
+Clicking the View button will bring up a window that illustrates the shape of the transect cross section.
 
 ### Treatment Editor {#treatment_editor}
 
-The Treatment Editor is invoked whenever the Treatment property of a
-node is selected from the Property Editor. It displays a list of the
-project's pollutants with an edit box next to each as shown below.
+The Treatment Editor is invoked whenever the Treatment property of a node is selected from the Property Editor. It displays a list of the project's pollutants with an edit box next to each as shown below.
 
 [TreatmentEditor]
 
-Enter a valid treatment expression in the box next to each pollutant
-which receives treatment. Click the OK button to accept your edits or
-click Cancel to ignore them.
+Enter a valid treatment expression in the box next to each pollutant which receives treatment. Click the OK button to accept your edits or click Cancel to ignore them.
 
-Any of the following math functions (which are case insensitive) can be
-used in a treatment expression:
+Any of the following math functions (which are case insensitive) can be used in a treatment expression:
 
 - abs(x) for absolute value of x
 
@@ -3061,24 +2511,13 @@ used in a treatment expression:
 
 - the hyperbolic trig functions (sinh, cosh, tanh, and coth)
 
-along with the standard operators +, -, \*, /, ^ (for exponentiation )
-and any level of nested parentheses.
+along with the standard operators +, -, \*, /, ^ (for exponentiation ) and any level of nested parentheses.
 
 ### Unit Hydrograph Editor {#unit_hydrograph_editor}
 
-The Unit Hydrograph Editor is invoked whenever a new Unit Hydrograph
-object is created or an existing one is selected for editing. It is used
-to specify the shape parameters and rain gage for a group of triangular
-unit hydrographs. These hydrographs are used to compute rainfall-derived
-inflow/infiltration (RDII) flow at selected nodes of the drainage
-system.
+The Unit Hydrograph Editor is invoked whenever a new Unit Hydrograph object is created or an existing one is selected for editing. It is used to specify the shape parameters and rain gage for a group of triangular unit hydrographs. These hydrographs are used to compute rainfall-derived inflow/infiltration (RDII) flow at selected nodes of the drainage system.
 
-A UH group can contain up to 12 sets of unit hydrographs (one for each
-month of the year), and each set can consist of up to 3 individual
-hydrographs (for short-term, intermediate-term, and long-term responses,
-respectively) as well as parameters that describe any initial
-abstraction losses. The editor, shown below, contains the following data
-entry fields:
+A UH group can contain up to 12 sets of unit hydrographs (one for each month of the year), and each set can consist of up to 3 individual hydrographs (for short-term, intermediate-term, and long-term responses, respectively) as well as parameters that describe any initial abstraction losses. The editor, shown below, contains the following data entry fields:
 
 [UnitHydrographEditor]
 
@@ -3088,27 +2527,15 @@ Enter the name assigned to the UH Group.
 
 Rain Gage Used
 
-Type in (or select from the dropdown list) the name of the rain gage
-that supplies rainfall data to the unit hydrographs in the group.
+Type in (or select from the dropdown list) the name of the rain gage that supplies rainfall data to the unit hydrographs in the group.
 
 Hydrographs For:
 
-Select a month from the dropdown list box for which hydrograph
-parameters will be defined. Select All Months to specify a default set
-of hydrographs that apply to all months of the year. Then select
-specific months that need to have special hydrographs defined. Months
-listed with a (\*) next to them have had hydrographs assigned to them.
+Select a month from the dropdown list box for which hydrograph parameters will be defined. Select All Months to specify a default set of hydrographs that apply to all months of the year. Then select specific months that need to have special hydrographs defined. Months listed with a (\*) next to them have had hydrographs assigned to them.
 
 Unit Hydrographs
 
-Select this tab to provide the R-T-K shape parameters for each set of
-unit hydrographs in selected months of the year. The first row is used
-to specify parameters for a short-term response hydrograph (i.e., small
-value of T), the second for a medium-term response hydrograph, and the
-third for a long-term response hydrograph (largest value of T). It is
-not required that all three hydrographs be defined and the sum of the
-three R-values do not have to equal 1. The shape parameters for each UH
-consist of:
+Select this tab to provide the R-T-K shape parameters for each set of unit hydrographs in selected months of the year. The first row is used to specify parameters for a short-term response hydrograph (i.e., small value of T), the second for a medium-term response hydrograph, and the third for a long-term response hydrograph (largest value of T). It is not required that all three hydrographs be defined and the sum of the three R-values do not have to equal 1. The shape parameters for each UH consist of:
 
 - R: the fraction of rainfall volume that enters the sewer system
 
@@ -3118,12 +2545,7 @@ consist of:
 
 Initial Abstraction Depth
 
-Select this tab to provide parameters that describe how rainfall will be
-reduced by any initial abstraction depth available (i.e., interception
-and depression storage) before it is processed through the unit
-hydrographs defined for a specific month of the year. Different initial
-abstraction parameters can be assigned to each of the three unit
-hydrograph responses. These parameters are:
+Select this tab to provide parameters that describe how rainfall will be reduced by any initial abstraction depth available (i.e., interception and depression storage) before it is processed through the unit hydrographs defined for a specific month of the year. Different initial abstraction parameters can be assigned to each of the three unit hydrograph responses. These parameters are:
 
 - Dmax: the maximum depth of initial abstraction available (in rain depth units)
 
@@ -3131,7 +2553,4 @@ hydrograph responses. These parameters are:
 
 - Do: the amount of initial abstraction that has already been utilized at the start of the simulation (in rain depth units).
 
-If a grid cell is left empty its corresponding parameter value is
-assumed to be 0. Right-clicking over a data entry grid will make a popup
-Edit menu appear. It contains commands to cut, copy, and paste text to
-or from selected cells in the grid.
+If a grid cell is left empty its corresponding parameter value is assumed to be 0. Right-clicking over a data entry grid will make a popup Edit menu appear. It contains commands to cut, copy, and paste text to or from selected cells in the grid.
