@@ -1582,15 +1582,15 @@ An example of a co-pollutant relationship would be where the runoff concentratio
 
 The **Profile Plot Selection** dialog is used to specify a path of connected drainage system links along which a water depth profile versus distance should be drawn. To define a path using the dialog:
 
-1.  Enter the ID of the upstream node of the first link in the path in the **Start Node** edit field (or click on the node on the Study Area Map and then on the [plusBtn] button next to the edit field).
+1.  Enter the ID of the upstream node of the first link in the path in the **Start Node** edit field (or click on the node on the Study Area Map and then on the &nbsp;![](plusbtn.gif) button next to the edit field).
 
-2.  Enter the ID of the downstream node of the last link in the path in the **End Node** edit field (or click the node on the map and then click the [plusBtn] button next to the edit field).
+2.  Enter the ID of the downstream node of the last link in the path in the **End Node** edit field (or click the node on the map and then click the &nbsp;![](plusbtn.gif) button next to the edit field).
 
 3.  Click the Find Path button to have the program automatically identify the path with the smallest number of links between the start and end nodes. These will be listed in the **Links in Profile** box.
 
-4.  You can insert a new link into the **Links in Profile** list by selecting the new link either on the Study Area Map or in the Project Browser and then clicking the [plusBtn]  button underneath the **Links in Profile** list box.
+4.  You can insert a new link into the **Links in Profile** list by selecting the new link either on the Study Area Map or in the Project Browser and then clicking the &nbsp;![](plusbtn.gif)  button underneath the **Links in Profile** list box.
 
-5.  Entries in the **Links in Profile** list can be deleted or rearranged by using the [minusBtn], [upBtn], and [downBtn] buttons underneath the list box
+5.  Entries in the **Links in Profile** list can be deleted or rearranged by using the &nbsp;![](minusbtn.gif), &nbsp;![](upbtn.gif), and &nbsp;![](downbtn.gif) buttons underneath the list box
 
 6.  Click the **OK** button to view the profile plot.
 
@@ -1608,13 +1608,13 @@ To use a previously saved profile:
 
 ### Profile Plot Options Dialog {#profile_plot_options_dialog}
 
-The Profile Plot Options dialog is used to customize the appearance of a Profile Plot. The dialog contains five pages:
+The **Profile Plot Options** dialog is used to customize the appearance of a [Profile Plot](#profile_plots). The dialog contains five pages:
 
-1.  Colors:
+1. **Colors**:
 
 Selects the color to use for the plot window panel, the plot background, a conduit's interior, and the depth of filled water.
 
-2.  Styles
+2. **Styles**
 
 Lets one choose:
 
@@ -1624,15 +1624,15 @@ Lets one choose:
 
 - to display conduits only ( which provides a closer look at water levels within conduits by removing all other details form the plot).
 
-3.  Axes
+3. **Axes**
 
 Edits the main and axis titles, including their fonts, and selects to display axis grid lines.
 
-4.  Vertical Scale
+4. **Vertical Scale**
 
 Lets one choose the minimum, maximum, and increment values for the vertical axis scale, or have SWMM set the scale automatically. If the increment field contains 0 or is left blank the program will automatically select an increment to use.
 
-5.  Node Labels
+5. **Node Labels**
 
 - Selects to display node ID labels either along the plot's top axis, directly on the plot above the node's crown height, or both.
 
@@ -1640,21 +1640,21 @@ Lets one choose the minimum, maximum, and increment values for the vertical axis
 
 - Selects the font size of the node ID labels.
 
-Check the Default box to have these options apply to all new profile plots when they are first created.
+Check the **Default** box to have these options apply to all new profile plots when they are first created.
 
 ### Project Defaults Dialog {#project_defaults_dialog}
 
-The Project Defaults dialog is used to set default values for object properties and certain simulation options. The dialog has three tabbed pages covering the following categories:
+The **Project Defaults** dialog is used to set default values for object properties and certain simulation options. The dialog has three tabbed pages covering the following categories:
 
-- Default ID Labels
+- [Default ID Labels](#default_id_labels)
 
-- Default Subcatchment Properties
+- [Default Subcatchment Properties](#default-node/link_properties)
 
-- Default Node/Link Properties
+- [Default Node/Link Properties](#default_subcatchment_properties)
 
 #### Default ID Labels {#default_id_labels}
 
-The ID Labels page of the Project Defaults dialog form is used to determine how SWMM will assign default ID labels for the visual project components when they are first created. For each type of object you can enter a label prefix in the corresponding entry field or leave the field blank if an object's default name will simply be a number. In the last field you can enter an increment to be used when adding a numerical suffix to the default label. As an example, if C were used as a prefix for Conduits along with an increment of 5, then as conduits are created they receive default names of C5, C10, C15 and so on. An object's default name can be changed by using the Property Editor for visual objects or the object-specific editor for non-visual objects.
+The **ID Labels** page of the **Project Defaults** dialog form is used to determine how SWMM will assign default ID labels for the visual project components when they are first created. For each type of object you can enter a label prefix in the corresponding entry field or leave the field blank if an object's default name will simply be a number. In the last field you can enter an increment to be used when adding a numerical suffix to the default label. As an example, if C were used as a prefix for Conduits along with an increment of 5, then as conduits are created they receive default names of C5, C10, C15 and so on. An object's default name can be changed by using the [Property Editor](#swmms_main_window) for visual objects or the object-specific editor for non-visual objects.
 
 #### Default Node/Link Properties {#default-node/link_properties}
 
@@ -1682,13 +1682,13 @@ The Nodes/Links page of the Project Defaults dialog sets default property values
 
 - Force Main Equation
 
-The defaults that are automatically assigned to individual objects can be changed by using the object's Property Editor. The choice of Flow Units and Link Offsets Convention can be changed directly on the main window's Status Bar.
+The defaults that are automatically assigned to individual objects can be changed by using the object's [Property Editor](#swmms_main_window). The choice of Flow Units and Link Offsets Convention can be changed directly on the main window's [Status Bar](#swmms_main_window).
 
-[tip]
+[!tip]
 The choice of flow units determines whether US or metric units are used for all other quantities. Default values are not automatically adjusted when the unit system is changed from US to metric (or vice versa).
 
-[tip]
-Link Offsets can be specified as either depth above invert or as absolute elevation. When this convention is changed, a dialog will appear giving one the option to automatically re-calculate all existing link offsets in the current project using the newly selected convention.
+[!tip]
+[Link Offsets](#link_offset_conventions) can be specified as either depth above invert or as absolute elevation. When this convention is changed, a dialog will appear giving one the option to automatically re-calculate all existing link offsets in the current project using the newly selected convention.
 
 #### Default Subcatchment Properties {#default_subcatchment_properties}
 
@@ -1714,28 +1714,28 @@ The Subcatchment page of the Project Defaults dialog sets default property value
 
 - Infiltration Method.
 
-Explanations of these properties can be found in the Subcatchment Properties topic.
+Explanations of these properties can be found in the [Subcatchment Properties](#subcatchment_properties) topic.
 
-These default properties for a particular subcatchment can be modified later on by using the Property Editor.
+These default properties for a particular subcatchment can be modified later on by using the [Property Editor](#swmms_main_window).
 
-[tip]
-Changing the Infiltration Method and its default parameters for an existing project will affect all subcatchments that were assigned the previous Infiltration Method. See the description of Infiltration Model for the General Simulation Options dialog for details.
+[!tip]
+Changing the Infiltration Method and its default parameters for an existing project will affect all subcatchments that were assigned the previous Infiltration Method. See the description of **Infiltration Model** for the [General Simulation Options](#simulation_options-general) dialog for details.
 
 ### Reporting Options Dialog {#reporting_options_dialog}
 
-The Reporting Options dialog is used to select individual subcatchments, nodes, and links that will have detailed time series results saved for viewing after a simulation has been run. The default for new projects is that all objects will have detailed results saved for them. It is also used to select what optional material appears in the Status Report and whether time series results consist of point value (the default) or values averaged over a reporting time step.
+The **Reporting Options** dialog is used to select individual subcatchments, nodes, and links that will have detailed time series results saved for viewing after a simulation has been run. The default for new projects is that all objects will have detailed results saved for them. It is also used to select what optional material appears in the [Status Report](#viewing_status_report) and whether time series results consist of point value (the default) or values averaged over a reporting time step.
 
-The dialog contains three tabbed pages - one each for subcatchments, nodes, and links. It is a stay-on-top form which means that you can select items directly from the Study Area Map or Project Browser while the dialog remains visible.
+The dialog contains three tabbed pages - one each for subcatchments, nodes, and links. It is a stay-on-top form which means that you can select items directly from the Study Area Map or [Project Browser](#swmms_main_window) while the dialog remains visible.
 
 To include an object in the set that is reported on:
 
 1. Select the tab to which the object belongs (Subcatchments, Nodes or Links).
 
-2. Unselect the "All" check box if it is currently checked.
+2. Unselect the **"All"** check box if it is currently checked.
 
 3. Select the specific object either from the Study Area Map or from the listing in the Project Browser.
 
-4. Click the Add button on the dialog.
+4. Click the **Add** button on the dialog.
 
 5. Repeat the above steps for any additional objects.
 
@@ -1743,45 +1743,45 @@ To remove an item from the set selected for reporting:
 
 1. Select the desired item in the dialog's list box.
 
-2. Click the Remove button to remove the item.
+2. Click the **Remove** button to remove the item.
 
-To remove all items from the reporting set of a given object category, select the object category's page and click the Clear button.
+To remove all items from the reporting set of a given object category, select the object category's page and click the **Clear** button.
 
-To include all objects of a given category in the reporting set, check the "All" box on the page for that category (i.e., subcatchments, nodes, or links). This will override any individual items that may be currently listed on the page.
+To include all objects of a given category in the reporting set, check the **"All"** box on the page for that category (i.e., subcatchments, nodes, or links). This will override any individual items that may be currently listed on the page.
 
-To dismiss the dialog click the Close button.
+To dismiss the dialog click the **Close** button.
 
 In addition the following reporting options can be selected from this dialog:
 
-Report Input Summary
+**Report Input Summary**
 
 Check this option to have the simulation's Status Report list a summary of the project's input data.
 
-Report Control Actions
+**Report Control Actions**
 
-Check this option to have the simulation's Status Report list all discrete control actions taken by the Control Rules associated with a project (continuous modulated control actions are not listed). This option should only be used for short-term simulation.
+Check this option to have the simulation's [Status Report](#viewing_status_report) list all discrete control actions taken by the [Control Rules](#control_rules) associated with a project (continuous [modulated control](#modulated_controls) actions are not listed). This option should only be used for short-term simulation.
 
-Report Average Results
+**Report Average Results**
 
 Check this option to have the average of the results for all routing time steps that fall within a reporting time step be reported instead of the instantaneous point results that occur at the end of the reporting time step.
 
 ### Scatter Plot Dialog {#scatter_plot_dialog}
 
-The Scatter Plot dialog is used to select the objects and variables to be graphed against one another in a scatter plot. Use the dialog as follows:
+The **Scatter Plot** dialog is used to select the objects and variables to be graphed against one another in a scatter plot. Use the dialog as follows:
 
-1. Select a Start Date and End Date for the plot (the default is the entire simulation period).
+1. Select a **Start Date** and **End Date** for the plot (the default is the entire simulation period).
 
 2. Select the following choices for the X-variable (the quantity plotted along the horizontal axis):
 
 - Object Category (Subcatchment, Node or Link)
 
-- Object ID (enter a value or click on the object either on the Study Area Map or in the Project Browser and then click the [plusBtn]  button on the dialog)
+- Object ID (enter a value or click on the object either on the Study Area Map or in the [Project Browser](#swmms_main_window) and then click the &nbsp;![](plusbtn.gif) button on the dialog)
 
 - Variable to plot (choices depend on the category of object selected).
 
 3. Do the same for the Y-variable (the quantity plotted along the vertical axis).
 
-4. Click the OK button to create the plot.
+4. Click the **OK** button to create the plot.
 
 ### Simulation Options Dialog {#simulation_options_dialog}
 
@@ -1871,7 +1871,7 @@ Antecedent Dry Days
 
 Enter the number of days with no rainfall prior to the start of the simulation. This value is used to compute an initial buildup of pollutant load on the surface of subcatchments.
 
-[tip]
+[!tip]
 If rainfall or climate data are read from external files, then the simulation dates should be set to coincide with the dates recorded in these files.
 
 #### Simulation Options - Time Steps {#simulation_options-time_steps}
@@ -2047,7 +2047,7 @@ Fraction moved to another subcatchment
 
 The fraction of snow depth which is added to the snow accumulation on some other subcatchment. The name of the subcatchment must also be provided.
 
-[tip]
+[!tip]
 The various removal fractions must add up to 1.0 or less. If less than 1.0, then some remaining fraction of snow depth will be left on the surface after all of the redistribution options are satisfied.
 
 ### Statistics Selection Dialog {#statistics_selection_dialog}
@@ -2324,7 +2324,7 @@ WEEKEND Same as for HOURLY except applied for weekend days
 
 ---
 
-[tip]
+[!tip]
 In order to maintain an average dry weather flow or pollutant concentration at its specified value (as entered on the Inflows Editor), the multipliers for a pattern should average to 1.0.
 
 ### Time Series Editor {#time_series_editor}
@@ -2351,14 +2351,14 @@ A graphical plot of the data in the grid can be viewed in a separate window by c
 
 5. Press OK to accept the time series or Cancel to cancel your edits.
 
-[tip]
+[!tip]
 Note that there are two methods for describing the occurrence time of time series data:
 
 - as calendar date/time of day (which requires that at least one date, at the start of the series, be entered in the Date column)
 
 - as elapsed hours since the start of the simulation (where the Date column remains empty).
 
-[tip]
+[!tip]
 For rainfall time series, it is only necessary to enter periods with non-zero rainfall amounts. SWMM interprets the rainfall value as a constant value lasting over the recording interval specified for the rain gage which utilizes the time series. For all other types of time series, SWMM uses interpolation to estimate values at times that fall in between the recorded values.
 
 ### Time Series Plot Selection Dialog {#time_series_plot_selection_dialog}
@@ -2393,12 +2393,12 @@ Legend Label the text to use in the legend for the data series. If left blank, a
 
 Axis whether to use the left or right vertical axis to plot the data series.
 
-[tip]
+[!tip]
 As you select objects on the Study Area Map or in the Project Browser their types and ID names will automatically appear in this dialog.
 
 Click the Accept button to add/update the data series into the plot or click the Cancel button to disregard your edits. You will then be returned to the Time Series Plot Selection dialog where you can add or edit another data series.
 
-[tip]
+[!tip]
 To make a precipitation time series display in inverted fashion on a plot, assign it to the right axis and after the plot is displayed, use the Graph Options Dialog to invert the right axis and expand the scales of both the left and right axes (so it doesn't overlap another data series).
 
 ### Tool Properties Dialog {#tool_properties_dialog}
