@@ -1785,31 +1785,31 @@ The **Scatter Plot** dialog is used to select the objects and variables to be gr
 
 ### Simulation Options Dialog {#simulation_options_dialog}
 
-The Simulation Options dialog is used to set various options that control how a SWMM simulation is made. The dialog consists of the following tabbed pages:
+The **Simulation Options** dialog is used to set various options that control how a SWMM simulation is made. The dialog consists of the following tabbed pages:
 
-- General Options
+- [General Options](#simulation_options-general)
 
-- Date Options
+- [Date Options](#simulation_options-dates)
 
-- Time Step Options
+- [Time Step Options](#simulation_options-time_steps)
 
-- Dynamic Wave Routing Options
+- [Dynamic Wave Routing Options](#simulation_options-dynamic_wave)
 
-- Interface File Options
+- [Interface File Options](#simulation_options-interface_files)
 
-After selecting the desired options, click the OK button to save your choices or the Cancel button to abandon them.
+After selecting the desired options, click the **OK** button to save your choices or the **Cancel** button to abandon them.
 
-Events and Reporting simulation options have their own specialized dialog forms (see Events Editor and Reporting Options Dialog).
+Events and Reporting simulation options have their own specialized dialog forms (see [Events Editor](#events_editor) and [Reporting Options Dialog](#reporting_options_dialog)).
 
 #### Simulation Options - General {#simulation_options-general}
 
-The General page of the Simulation Options dialog sets values for the following options:
+The **General** page of the **Simulation Options** dialog sets values for the following options:
 
-Process Models
+**Process Models**
 
 Select which process models (Rainfall/Runoff, Rainfall Dependent I/I, Snow Melt, Groundwater, Flow Routing, and Water Quality) should be included in the analysis.
 
-Infiltration Model
+**Infiltration Model**
 
 This option selects the default method used to model infiltration of rainfall into the upper soil zone of subcatchments. The choices are:
 
@@ -1823,7 +1823,7 @@ This option selects the default method used to model infiltration of rainfall in
 
 All new subcatchments added to a project will default to using the selected method. For existing subcatchments, their infiltration method will only change if they had been using the previous default option. That would require re-entering values for the infiltration parameters in each such subcatchment, unless the change was between the two Horton options or the two Green-Ampt options. A prompt is issued asking if SWMM should automatically assign a default set of parameter values to all subcatchments that switch between two incompatible types of infiltration methods.
 
-Routing Model
+**Routing Model**
 
 This option determines which method is used to route flows through the conveyance system. The choices are:
 
@@ -1833,41 +1833,41 @@ This option determines which method is used to route flows through the conveyanc
 
 - Dynamic Wave
 
-See the Flow Routing topic for more details.
+See the [Flow Routing](#flow_routing) topic for more details.
 
-Allow Ponding
+**Allow Ponding**
 
 Checking this option will allow excess water to collect atop nodes and be re-introduced into the system as conditions permit. In order for ponding to actually occur at a particular node, a non-zero value for its Ponded Area attribute must be used.
 
-Minimum Conduit Slope
+**Minimum Conduit Slope**
 
 This is the minimum value allowed for a conduit's slope (%). If zero (the default) then no minimum is imposed (although SWMM uses a lower limit on elevation drop of 0.001 ft (0.00035 m) when computing a conduit slope).
 
 #### Simulation Options - Dates {#simulation_options-dates}
 
-The Dates page of the Simulation Options dialog determines the starting and ending dates/times of a simulation.
+The **Dates** page of the **Simulation Options** dialog determines the starting and ending dates/times of a simulation.
 
-Start Analysis On
+**Start Analysis On**
 
 Enter the date (month/day/year) and time of day when the simulation begins.
 
-Start Reporting On
+**Start Reporting On**
 
 Enter the date and time of day when reporting of simulation results is to begin. Using a date prior to the start date is the same as using the start date.
 
-End Analysis On
+**End Analysis On**
 
 Enter the date and time when the simulation is to end.
 
-Start Sweeping On
+**Start Sweeping On**
 
 Enter the day of the year (month/day) when street sweeping operations begin. The default is January 1.
 
-End Sweeping On
+**End Sweeping On**
 
 Enter the day of the year (month/day) when street sweeping operations end. The default is December 31.
 
-Antecedent Dry Days
+**Antecedent Dry Days**
 
 Enter the number of days with no rainfall prior to the start of the simulation. This value is used to compute an initial buildup of pollutant load on the surface of subcatchments.
 
@@ -1876,174 +1876,183 @@ If rainfall or climate data are read from external files, then the simulation da
 
 #### Simulation Options - Time Steps {#simulation_options-time_steps}
 
-The Time Steps page of the Simulation Options dialog establishes the length of the time steps used for runoff computation, routing computation and results reporting. Time steps are specified in days and hours:minutes:seconds except for flow routing which is entered as decimal seconds.
+The **Time Steps** page of the **Simulation Options** dialog establishes the length of the time steps used for runoff computation, routing computation and results reporting. Time steps are specified in days and hours:minutes:seconds except for flow routing which is entered as decimal seconds.
 
-Reporting Time Step
+**Reporting Time Step**
 
 Enter the time interval for reporting of computed results.
 
-Runoff - Wet Weather Time Step
+**Runoff - Wet Weather Time Step**
 
 Enter the time step length used to compute runoff from subcatchments during periods of rainfall, or when ponded water still remains on the surface, or when LID controls are still infiltrating or evaporating runoff.
 
-Runoff - Dry Weather Time Step
+**Runoff - Dry Weather Time Step**
 
 Enter the time step length used for runoff computations (consisting essentially of pollutant buildup) during periods when there is no rainfall, no ponded water, and LID controls are dry. This must be greater or equal to the Wet Weather time step.
 
-Control Rule Time Step
+**Control Rule Time Step**
 
-Enter the time step length used for evaluating Control Rules. The default is 0 which means that controls are evaluated at every routing time step.
+Enter the time step length used for evaluating [Control Rules](#control_rules). The default is 0 which means that controls are evaluated at every routing time step.
 
-Routing Time Step
+**Routing Time Step**
 
 Enter the time step length used for routing flows and water quality constituents through the conveyance system. Note that Dynamic Wave routing requires a much smaller time step than the other methods of flow routing.
 
-Steady Flow Periods
+**Steady Flow Periods**
 
 This set of options tells SWMM how to identify and treat periods of time when system hydraulics are not changing. The system is considered to be in a steady flow period if:
 
-1. The percent difference between total system inflow and total system outflow is below the System Flow Tolerance,
+1. The percent difference between total system inflow and total system outflow is below the **System Flow Tolerance**,
 
-2. The percent differences between the current lateral inflow and that from the previous time step for all points in the conveyance system are below the Lateral Flow Tolerance.
+2. The percent differences between the current lateral inflow and that from the previous time step for all points in the conveyance system are below the **Lateral Flow Tolerance**.
 
-Checking the Skip Steady Flow Periods box will make SWMM keep using the most recently computed conveyance system flows (instead of computing a new flow solution) whenever the above criteria are met. Using this feature can help speed up simulation run times at the expense of reduced accuracy.
+Checking the **Skip Steady Flow Periods** box will make SWMM keep using the most recently computed conveyance system flows (instead of computing a new flow solution) whenever the above criteria are met. Using this feature can help speed up simulation run times at the expense of reduced accuracy.
 
 ### Simulation Options - Dynamic Wave {#simulation_options-dynamic_wave}
 
-The Dynamic Wave page of the Simulation Options dialog sets several parameters that control how the dynamic wave flow routing computations are made. These parameters have no effect for the other flow routing methods.
+The **Dynamic Wave** page of the **Simulation Options** dialog sets several parameters that control how the dynamic wave flow routing computations are made. These parameters have no effect for the other flow routing methods.
 
-Inertial Terms
+**Inertial Terms**
 
 Indicates how the inertial terms in the St. Venant momentum equation will be handled.
 
-- KEEP maintains these terms at their full value under all conditions.
+- **KEEP** maintains these terms at their full value under all conditions.
 
-- DAMPEN reduces the terms as flow comes closer to being critical and ignores them when flow is supercritical.
+- **DAMPEN** reduces the terms as flow comes closer to being critical and ignores them when flow is supercritical.
 
-- IGNORE drops the terms altogether from the momentum equation, producing what is essentially a Diffusion Wave solution.
+- **IGNORE** drops the terms altogether from the momentum equation, producing what is essentially a Diffusion Wave solution.
 
-Normal Flow Criterion
+**Normal Flow Criterion**
 
 Selects the basis used to determine when supercritical flow limits a conduit's maximum flow to normal flow. The choices are:
 
-- Slope - water surface slope only (i.e., water surface slope > conduit slope)
+- **Slope** - water surface slope only (i.e., water surface slope > conduit slope)
 
-- Froude No. - Froude number only (i.e., Froude number > 1.0)
+- **Froude No.** - Froude number only (i.e., Froude number > 1.0)
 
-- Slope & Froude - both water surface slope and Froude number are checked
+- **Slope & Froude** - both water surface slope and Froude number are checked
 
-- None - no check for normal flow limitation is made.
+- **None** - no check for normal flow limitation is made.
 
 The first two choices were used in earlier versions of SWMM while the third choice, which checks for either condition, is now the recommended one.
 
-Force Main Equation
+**Force Main Equation**
 
 Selects which equation will be used to compute friction losses during pressurized flow for conduits that have been assigned a Circular Force Main cross-section. The choices are either the Hazen-Williams equation or the Darcy-Weisbach equation.
 
-Surcharge Method
+**Surcharge Method**
 
 Selects which method will be used to handle surcharge conditions. The Extran option uses a variation of the Surcharge Algorithm from previous versions of SWMM to update nodal heads when all connecting links become full. The Slot option uses a Preissmann Slot to add a small amount of virtual top surface width to full flowing pipes so that SWMM's normal procedure for updating nodal heads can continue to be used.
 
-Variable Time Step
+**Variable Time Step**
 
-Check the box if an internally computed variable time step should be used at each routing time period and select an adjustment (or safety) factor to apply to this time step. The variable time step is computed so as to satisfy the Courant condition within each conduit. A typical adjustment factor would be 75% to provide some margin of conservatism. The computed variable time step will not be less than the minimum variable step discussed below nor be greater than the fixed time step specified on the Time Steps page of the dialog.
+Check the box if an internally computed variable time step should be used at each routing time period and select an adjustment (or safety) factor to apply to this time step. The variable time step is computed so as to satisfy the Courant condition within each conduit. A typical adjustment factor would be 75% to provide some margin of conservatism. The computed variable time step will not be less than the minimum variable step discussed below nor be greater than the fixed time step specified on the [Time Steps](#simulation_options-time_steps) page of the dialog.
 
-Minimum Variable Time Step
+**Minimum Variable Time Step**
 
 This is the smallest time step allowed when variable time steps are used. The default value is 0.5 seconds. Smaller steps may be warranted, but they can lead to longer simulations runs without much improvement in solution quality.
 
-Time Step for Conduit Lengthening
+**Time Step for Conduit Lengthening**
 
-This is a time step, in seconds, used to artificially lengthen conduits so that they meet the Courant stability criterion under full-flow conditions (i.e., the travel time of a wave will not be smaller than the specified conduit lengthening time step). As this value is decreased, fewer conduits will require lengthening. A value of 0 means that no conduits will be lengthened. The ratio of the artificial length to the original length for each conduit is listed in the Flow Classification table that appears in the simulation's Summary Report.
+This is a time step, in seconds, used to artificially lengthen conduits so that they meet the Courant stability criterion under full-flow conditions (i.e., the travel time of a wave will not be smaller than the specified conduit lengthening time step). As this value is decreased, fewer conduits will require lengthening. A value of 0 means that no conduits will be lengthened. The ratio of the artificial length to the original length for each conduit is listed in the Flow Classification table that appears in the simulation's [Summary Report](viewing_summary_results).
 
-Minimum Nodal Surface Area
+**Minimum Nodal Surface Area**
 
 This is a minimum surface area used at nodes when computing changes in water depth. If 0 is entered, then the default value of 12.566 sq. ft (1.167 sq. m) is used. This is the area of a 4-ft diameter manhole. The value entered should be in square feet for US units or square meters for SI units.
 
-Head Convergence Tolerance
+**Head Convergence Tolerance**
 
-This is the maximum difference in computed heads between successive trials of SWMM
+This is the maximum difference in computed heads between successive trials of SWMM’s iterative method for computing a dynamic wave hydraulic solution that determines when convergence is reached within a given time step. The default tolerance is 0.005 ft (0.0015 m).
+
+**Maximum Trials Per Time Step**
+
+This is the maximum number of trials that SWMM will use in its iterative method for computing a dynamic wave hydraulic solution within each time step. The default value is 8.
+
+**Number of Parallel Threads to Use**
+
+This selects the number of parallel computing threads to use on machines equipped with multi-core processors. The default is 1. Clicking the &nbsp;![](blueinfo.gif) button will display the number of physical cores and logical processors available.
+
+Clicking the **Apply Defaults** label will set all the Dynamic Wave options to their default values.
 
 #### Simulation Options - Interface Files {#simulation_options-interface_files}
 
-The Interface Files page of the Simulation Options dialog is used to specify which interface files will be used or saved during the simulation. The page contains a list box with three buttons underneath it. The list box lists the currently selected files, while the buttons are used as follows:
+The **Interface Files** page of the **Simulation Options** dialog is used to specify which [interface files](#interface_files) will be used or saved during the simulation. The page contains a list box with three buttons underneath it. The list box lists the currently selected files, while the buttons are used as follows:
 
-Add        adds a new interface file specification to the list.
+|            |                                                                                           |
+| :--------- | :---------------------------------------------------------------------------------------- |
+| **Add**    |  adds a new interface file specification to the list.                                     |
+| **Edit**   | edits the properties of the currently selected interface file.                            |
+| **Delete** | deletes the currently selected interface from the project (but not from your hard drive). |
 
-Edit        edits the properties of the currently selected interface
-file.
-
-Delete        deletes the currently selected interface from the project (but not from your hard drive).
-
-When the Add or Edit buttons are clicked, an Interface File Selection dialog appears where one can specify the type of interface file, whether it should be used or saved, and its name.
+When the Add or Edit buttons are clicked, an [Interface File Selection](#interface_file_selection_dialog) dialog appears where one can specify the type of interface file, whether it should be used or saved, and its name.
 
 #### Snow Pack Editor {#snow_pack_editor}
 
-The Snow Pack Editor is invoked whenever a new Snow Pack object is created or an existing snow pack is selected for editing. The editor contains a data entry field for the snow pack's name and two tabbed pages, one for Snow Pack Parameters and one for Snow Removal Parameters.
+The **Snow Pack Editor** is invoked whenever a new [Snow Pack](#snow_packs) object is created or an existing snow pack is selected for editing. The editor contains a data entry field for the snow pack's name and two tabbed pages, one for [Snow Pack Parameters](#snow_pack_editor-parameters_page) and one for [Snow Removal Parameters](#snow_pack_editor-removal_page).
 
 #### Snow Pack Editor -  Parameters Page {#snow_pack_editor-parameters_page}
 
-The Parameters page of the Snow Pack Editor dialog provides snow melt parameters and initial conditions for snow that accumulates over three different types of areas: the impervious area that is plowable (i.e., subject to snow removal), the remaining impervious area, and the entire pervious area. The page contains a data entry grid which has a column for each type of area and a row for each of the following parameters:
+The **Parameters** page of the **Snow Pack Editor** dialog provides snow melt parameters and initial conditions for snow that accumulates over three different types of areas: the impervious area that is plowable (i.e., subject to snow removal), the remaining impervious area, and the entire pervious area. The page contains a data entry grid which has a column for each type of area and a row for each of the following parameters:
 
-Minimum Melt Coefficient
+**Minimum Melt Coefficient**
 
 The degree-day snow melt coefficient that occurs on December 21. Units are either in/hr-deg F or mm/hr-deg C.
 
-Maximum Melt Coefficient
+**Maximum Melt Coefficient**
 
 The degree-day snow melt coefficient that occurs on June 21. Units are either in/hr-deg F or mm/hr-deg C. For a short term simulation of less than a week or so it is acceptable to use the same value for both the minimum and maximum melt coefficients.
 
 The minimum and maximum snow melt coefficients are used to estimate a melt coefficient that varies by day of the year. The latter is used in the following degree-day equation to compute the melt rate for any particular day: Melt Rate = (Melt Coefficient) \* (Air Temperature - Base Temperature).
 
-Base Temperature
+**Base Temperature**
 
 Temperature at which snow begins to melt (degrees F or C).
 
-Fraction Free Water Capacity
+**Fraction Free Water Capacity**
 
 The volume of a snow pack's pore space which must fill with melted snow before liquid runoff from the pack begins, expressed as a fraction of snow pack depth.
 
-Initial Snow Depth
+**Initial Snow Depth**
 
 Depth of snow at the start of the simulation (water equivalent depth in inches or millimeters).
 
-Initial Free Water
+**Initial Free Water**
 
 Depth of melted water held within the pack at the start of the simulation (inches or mm). This number should be at or below the product of the initial snow depth and the fraction free water capacity.
 
-Depth at 100% Cover
+**Depth at 100% Cover**
 
 The depth of snow beyond which the entire area remains completely covered and is not subject to any areal depletion effect (inches or mm).
 
-Fraction of Impervious Area That is Plowable
+**Fraction of Impervious Area That is Plowable**
 
 The fraction of impervious area  that is plowable and therefore is not subject to areal depletion.
 
 #### Snow Pack Editor - Removal Page {#snow_pack_editor-removal_page}
 
-The Snow Removal page of the Snow Pack Editor dialog describes how snow removal occurs within the plowable area of a snow pack. The following parameters govern this process:
+The **Snow Removal** page of the **Snow Pack Editor** dialog describes how snow removal occurs within the plowable area of a snow pack. The following parameters govern this process:
 
-Depth at which snow removal begins (in or mm)
+**Depth at which snow removal begins (in or mm)**
 
 Depth which must be reached before any snow removal begins.
 
-Fraction transferred out of the watershed
+**Fraction transferred out of the watershed**
 
 The fraction of snow depth that is removed from the system (and does not become runoff).
 
-Fraction transferred to the impervious area
+**Fraction transferred to the impervious area**
 
 The fraction of snow depth that is added to snow accumulation on the pack's impervious area.
 
-Fraction transferred to the pervious area
+**Fraction transferred to the pervious area**
 
 The fraction of snow depth that is added to snow accumulation on the pack's pervious area.
 
-Fraction converted to immediate melt
+**Fraction converted to immediate melt**
 
 The fraction of snow depth that becomes liquid water which runs onto any subcatchment associated with the snow pack.
 
-Fraction moved to another subcatchment
+**Fraction moved to another subcatchment**
 
 The fraction of snow depth which is added to the snow accumulation on some other subcatchment. The name of the subcatchment must also be provided.
 
@@ -2052,104 +2061,79 @@ The various removal fractions must add up to 1.0 or less. If less than 1.0, then
 
 ### Statistics Selection Dialog {#statistics_selection_dialog}
 
-The Statistics Selection dialog is used to define the type of statistical analysis to be made on a computed simulation result. It contains the following data fields:
+The **Statistics Selection** dialog is used to define the type of statistical analysis to be made on a computed simulation result. It contains the following data fields:
 
-Object Category
+**Object Category**
 
 Select the category of object to analyze (Subcatchment, Node, Link, or System).
 
-Object Name
+**Object Name**
 
-Enter the ID name of the object to analyze. Instead of typing in an ID name, you can select the object on the Study Area Map or in the Project Browser and then click the [Add] button to select it into the object name field.
+Enter the ID name of the object to analyze. Instead of typing in an ID name, you can select the object on the Study Area Map or in the Project Browser and then click the &nbsp;![](add.gif) button to select it into the object name field.
 
-Variable Analyzed
+**Variable Analyzed**
 
 Select the variable to be analyzed. The available choices depend on the object category selected (e.g., rainfall, losses, or runoff for subcatchments; depth, inflow, or flooding for nodes; depth, flow, velocity, or capacity for links; water quality for all categories).
 
-Event Time Period
+**Event Time Period**
 
 Select the length of the time period that defines an event. The choices are daily, monthly, or event-dependent. In the latter case, the event period depends on the number of consecutive reporting periods where simulation results are above the threshold values defined below.
 
-Statistic
+**Statistic**
 
 Choose an event statistic to be analyzed. The available choices depend on the choice of variable to be analyzed and include such quantities as mean value, peak value, event total, event duration, and inter-event time (i.e., the time interval between the midpoints of successive events). For water quality variables the choices include mean concentration, peak concentration, mean loading, peak loading, and event total load.
 
-Event Thresholds
+**Event Thresholds**
 
 These define minimum values that must be met for an event to occur:
 
-- The Analysis Variable threshold specifies the minimum value of the variable being analyzed that must be exceeded for a time period to be included in an event.
+- The **Analysis Variable** threshold specifies the minimum value of the variable being analyzed that must be exceeded for a time period to be included in an event.
 
-- The Event Volume threshold specifies a minimum flow volume (or rainfall volume) that must be exceeded for a result to be counted as part of an event. Enter 0 if no volume threshold applies.
+- The **Event Volume** threshold specifies a minimum flow volume (or rainfall volume) that must be exceeded for a result to be counted as part of an event. Enter 0 if no volume threshold applies.
 
-- Separation Time sets the minimum number of hours that must occur between the end of one event and the start of the next event. Events with fewer hours are combined together. This value applies only to event-dependent time periods (not to daily or monthly event periods).
+- **Separation Time** sets the minimum number of hours that must occur between the end of one event and the start of the next event. Events with fewer hours are combined together. This value applies only to event-dependent time periods (not to daily or monthly event periods).
 
 If a particular type of threshold does not apply, then leave the field
 blank.
 
 ### Storage Shape Editor {#storage_shape_editor}
 
-The Storage Shape Editor is used to describe how a storage unit's surface area varies with depth above the bottom of the unit. . It is invoked when the Storage Shape property of a storage node is selected for editing. There are six types of shapes one can choose from:
+The **Storage Shape Editor** is used to describe how a storage unit's surface area varies with depth above the bottom of the unit. It is invoked when the [Storage Shape](#storage_unit_properties) property of a storage node is selected for editing. There are six types of shapes one can choose from:
 
-Cylindrical
+**Cylindrical**
 
 The storage unit has vertical sides and an elliptical base. The equation for surface area is:
 
-+-----------------------------------+-----------------------------------+
-| [cylindrical] | Area = (π / 4) _ ( L _ W ) |
-| | |
-| | where L = base major axis length |
-| | and W = base minor axis width. If |
-| | only the surface area is known |
-| | then one can use the Functional |
-| | storage option instead. |
-+-----------------------------------+-----------------------------------+
+|                      |                                                                                                                                                                                          |
+| :------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ![](cylindrical.png) | Area = (π / 4) _ ( L _ W ) where L = base major axis length and W = base minor axis width. If only the surface area is known then one can use the **Functional** storage option instead. |
 
-Conical
+**Conical**
 
 The storage unit is shaped as a truncated elliptical cone. The equation for surface area is:
 
-+-----------------------------------+-----------------------------------+
-| [ConicStorageShape] | Area = π _ ( L _ W / 4 + W _ Z _ |
-| | Depth + (W / L) _ (Z _ Depth)^2 ) |
-| | |
-| | where L = base major axis length, |
-| | W = base minor axis width and Z = |
-| | side slope (run / rise) of a |
-| | vertical slice through the major |
-| | axis. |
-+-----------------------------------+-----------------------------------+
+|                            |                                                                                                                                                                           |
+| :------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ![](conicstorageshape.gif) | Area = π _ ( L _ W / 4 + W _ Z _                                                                                                                                          |
+|                            | Depth + (W / L) _ (Z _ Depth)^2 ) where L = base major axis length, W = base minor axis width and Z = side slope (run / rise) of a vertical slice through the major axis. |
 
-Parabolic
+**Parabolic**
 
 The storage unit has the shape of an elliptical paraboloid. The equation for surface area is:
 
-+-----------------------------------+-----------------------------------+
-| [paraboloid] | Area = (π / 4) _ ( L _ W / H) \* |
-| | Depth |
-| | |
-| | where L = major axis length at |
-| | height H and W = minor axis width |
-| | at height H. This shape can also |
-| | be described using the Functional |
-| | storage option. |
-+-----------------------------------+-----------------------------------+
+|                     |                                                                                                                                                                                                |
+| :------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ![](paraboloid.png) | Area = (π / 4) _ ( L _ W / H) \* Depth where L = major axis length at height H and W = minor axis width at height H. This shape can also be described using the **Functional** storage option. |
 
-Pyramidal
+**Pyramidal**
 
 This is for storage units shaped as a truncated rectangular pyramid or a rectangular box. The equation for surface area is:
 
-+-----------------------------------+-----------------------------------+
-| [PrismaticStorageShape] | Area = L _ W + 2 _ (L + W) _ Z _ |
-| | Depth +(2 _ Z _ Depth)^2 |
-| | |
-| | where L = base length, W = base |
-| | width and Z = side slope (run / |
-| | rise) (which would be 0 for a |
-| | box). |
-+-----------------------------------+-----------------------------------+
+|                                |                                                                                                                                                               |
+| :----------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ![](prismaticstorageshape.gif) | Area = L _ W + 2 _ (L + W) _ Z _ Depth +(2 _ Z _ Depth)^2 where L = base length, W = base width and Z = side slope (run / rise) (which would be 0 for a box). |
 
-Functional
+**Functional**
 
 The following general function is used to relate surface area to depth:
 
@@ -2203,153 +2187,154 @@ a2 = 2
 
 where W is the cone's diameter at height H.
 
-Tabular
+**Tabular**
 
-This method uses a tabular Storage Curve to relate surface area to depth. It can represent natural depressions with irregular shaped contour intervals, spheroid storage vessels or conventional shapes with different base sizes stacked on top of one another. The first point supplied to the curve should be the surface area of the unit's base at a depth of 0. Otherwise it will be assumed that the unit has zero surface area at its base. The curve will be extrapolated outwards to meet the unit's maximum depth if need be.
+This method uses a tabular [Storage Curve](#curves) to relate surface area to depth. It can represent natural depressions with irregular shaped contour intervals, spheroid storage vessels or conventional shapes with different base sizes stacked on top of one another. The first point supplied to the curve should be the surface area of the unit's base at a depth of 0. Otherwise it will be assumed that the unit has zero surface area at its base. The curve will be extrapolated outwards to meet the unit's maximum depth if need be.
 
 For each of these methods, depth is measured in feet and surface area in square feet for US units, while meters and square meters, respectively, are used for SI units.
 
-Clicking the Show Volume Calculator label will display a panel where one can see what the surface area and stored volume will be at a specified water depth in the selected storage shape.
+Clicking the **Show Volume Calculator** label will display a panel where one can see what the surface area and stored volume will be at a specified water depth in the selected storage shape.
 
 ### Street Section Editor {#street_section_editor}
 
-The Street Section Editor is used to define the dimensions of a street or roadway cross-section. It is invoked when a new Street object is created or is selected for editing from the Project Browser , or when a STREET shape is chosen from the Cross- Section Editor. The editor asks that the following dimensions be provided for the portion of the street extending from the high point of the roadway to the curb and beyond to any backing that might exist (see figure below):
+The **Street Section Editor** is used to define the dimensions of a street or roadway cross-section. It is invoked when a new [Street](#streets) object is created or is selected for editing from the [Project Browser](#project_browser) , or when a STREET shape is chosen from the [Cross-Section](#cross-section_editor) Editor. The editor asks that the following dimensions be provided for the portion of the street extending from the high point of the roadway to the curb and beyond to any backing that might exist (see figure below):
 
-[Street]
+![](street.gif)
 
-Street Section Name
+**Street Section Name**
 
 The name assigned to the street cross section. Conduits with a STREET shape cross section will refer to this name to identify its cross section dimensions.
 
-Road Width (Tcrown)
+**Road Width** (Tcrown)
 
 The distance from the curb to the high point of the street roadway (i.e., the street crown) (feet or meters). Traffic lanes are typically 10 to 12 feet (3.3 to 3.7 meters) wide with gutters being 1 to 3 feet (0.3 to 1 meter) wide.
 
-Curb Height (Hcurb)
+**Curb Height** (Hcurb)
 
 The height of the curb with respect to the street's cross slope (feet or meters). Typical heights are 4 to 8 inches with 6 inches  (0.5 feet or 0.15 meters) being standard in the U.S..
 
-Cross Slope (Sx)
+**Cross Slope** (Sx)
 
 The slope of the roadway portion of the cross section (percent). Cross slopes range between 1 to 4 percent with 2 percent being the most common value.
 
-Street Roughness
+**Street Roughness**
 
 Manning's roughness coefficient (n) for the street surface. Typical values range from 0.013 to 0.017.
 
-One or Two Sided
+**One or Two Sided**
 
 Select One Sided if the street section extends only to the street crown or Two Sided if the same street section shape exists on the opposite side of the street crown.
 
-Gutter Depression (a)
+**Gutter Depression** (a)
 
 The distance that the gutter portion of the street is depressed below where the cross slope of the roadway would intersect the curb (inches or millimeters). Depressed gutter sections increase the conveyance capacity of a street. A typical value would be 2 inches (0.17 ft or 0.05 m). Conventional gutters maintain the same slope as the roadway and would therefore have a 0 depression depth.
 
-Gutter Width (W)
+**Gutter Width** (W)
 
 The width between the curb and the roadway for a depressed gutter (feet or meters). A typical value would be 2 feet (0.6 meters). For conventional gutters with no depression depth use a value of 0.
 
-Backing Width (Tback)
+**Backing Width** (Tback)
 
 The width of the area that the street backs up against (such as a sidewalk or lawn area) (feet or meters). Enter 0 if there is no backing.
 
-Backing Slope (Sback)
+**Backing Slope** (Sback)
 
 The slope of the backing area (percent). If the backing width is non-zero then this must be a positive number. Otherwise it is ignored.
 
-Backing Roughness
+**Backing Roughness**
 
 Manning's roughness coefficient (n) for the backing's surface. This parameter is ignored if the backing width is 0.
 
 ### Table by Object Dialog {#table_by_object_dialog}
 
-The Table by Object dialog is used when creating a time series table of several variables for a single object. Use the dialog as follows:
+The **Table by Object** dialog is used when creating a time series table of several variables for a single object. Use the dialog as follows:
 
-1. Select a Start Date and End Date for the table (the default is the entire simulation period).
+1. Select a **Start Date** and **End Date** for the table (the default is the entire simulation period).
 
-2. Choose whether to show time as Elapsed Time or as Date/Time values.
+2. Choose whether to show time as **Elapsed Time** or as **Date/Time** values.
 
-3. Choose an Object Category (Subcatchment, Node, Link, or System).
+3. Choose an **Object Category** (Subcatchment, Node, Link, or System).
 
-4. Identify a specific object in the category by clicking the object either on the Study Area Map or in the Project Browser and then clicking the [PlusBtn] button on the dialog. Only a single object can be selected for this type of table.
+4. Identify a specific object in the category by clicking the object either on the Study Area Map or in the [Project Browser](#swmms_main_window) and then clicking the &nbsp;![](plusbtn.gif) button on the dialog. Only a single object can be selected for this type of table.
 
 5. Check off the variables to be tabulated for the selected object. The available choices depend on the category of object selected.
 
-6. Click the OK button to create the table.
+6. Click the **OK** button to create the table.
 
 ### Table by Variable Dialog {#table_by_variable_dialog}
 
-The Table by Variable dialog is used when creating a time series table of a single variable for one or more objects. Use the dialog as follows:
+The **Table by Variable** dialog is used when creating a time series table of a single variable for one or more objects. Use the dialog as follows:
 
-1. Select a Start Date and End Date for the table (the default is the entire simulation period).
+1. Select a **Start Date** and **End Date** for the table (the default is the entire simulation period).
 
-2. Choose whether to show time as Elapsed Time or as Date/Time values.
+2. Choose whether to show time as **Elapsed Time** or as **Date/Time** values.
 
-3. Choose an Object Category (Subcatchment, Node or Link).
+3. Choose an **Object Category** (Subcatchment, Node or Link).
 
 4. Select a simulated variable to be tabulated. The available choices depend on the category of object selected.
 
-5. Identify one or more objects in the category by successively clicking the object either on the Study Area Map or in the Project Browser and then clicking the [plusBtn] button on the dialog.
+5. Identify one or more objects in the category by successively clicking the object either on the Study Area Map or in the [Project Browser](#swmms_main_window) and then clicking the &nbsp;![](plusbtn.gif) button on the dialog.
 
 6. Click the OK button to create the table.
 
-A maximum of 6 objects can be selected for a single table. Objects already selected can be deleted, moved up in the order or moved down in the order by clicking the [minusBtn], [upBtn], and [downBtn] buttons, respectively.
+A maximum of 6 objects can be selected for a single table. Objects already selected can be deleted, moved up in the order or moved down in the order by clicking the &nbsp;![](minusbtn.gif), &nbsp;![](upbtn.gif), and &nbsp;![](downbtn.gif) buttons, respectively.
 
 ### Time Pattern Editor {#time_pattern_editor}
 
-The Time Pattern Editor is invoked whenever a new Time Pattern object is created or an existing time pattern is selected for editing. The editor contains the following data entry fields:
+The **Time Pattern Editor** is invoked whenever a new [Time Pattern]() object is created or an existing time pattern is selected for editing. The editor contains the following data entry fields:
 
-Name
+**Name**
 
 Enter the name assigned to the time pattern.
 
-Type
+**Type**
 
 Select the type of time pattern being specified. The choices are Monthly, Daily, Hourly and Weekend Hourly.
 
-Description
+**Description**
 
 Provide an optional comment or description for the time pattern. If more than one line is needed, click the [edit] button to launch a multi-line comment editor.
 
-Multipliers
+**Multipliers**
 
 Enter a value for each multiplier. The number and meaning of the multipliers changes with the type of time pattern selected:
 
----
-
-MONTHLY One multiplier for each month of the year
-DAILY One multiplier for each day of the week
-HOURLY One multiplier for each hour from 12 midnight to 11 PM
-WEEKEND Same as for HOURLY except applied for weekend days
-
----
+|         |                                                        |
+| :------ | :----------------------------------------------------- |
+| MONTHLY | One multiplier for each month of the year              |
+| DAILY   | One multiplier for each day of the week                |
+| HOURLY  | One multiplier for each hour from 12 midnight to 11 PM |
+| WEEKEND | Same as for HOURLY except applied for weekend days     |
 
 [!tip]
-In order to maintain an average dry weather flow or pollutant concentration at its specified value (as entered on the Inflows Editor), the multipliers for a pattern should average to 1.0.
+In order to maintain an average dry weather flow or pollutant concentration at its specified value (as entered on the [Inflows Editor](#inflows_editor)), the multipliers for a pattern should average to 1.0.
 
 ### Time Series Editor {#time_series_editor}
 
-The Time Series Editor is invoked whenever a new Time Series object is created or an existing time series is selected for editing. To use the Time Series Editor:
+The **Time Series Editor** is invoked whenever a new [Time Series](#time_series) object is created or an existing time series is selected for editing. To use the Time Series Editor:
 
 1. Enter values for the following standard items:
 
-Name Name of the time series.
-Description Optional comment or description of what the time series represents.Click the [edit] button to launch a multi-line comment editor if more than one line is needed.
+|               |                                                                                                                                                                                |
+| :------------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _Name_        | Name of the time series.                                                                                                                                                       |
+| _Description_ | Optional comment or description of what the time series represents.Click the &nbsp;![](edit.gif) button to launch a multi-line comment editor if more than one line is needed. |
 
 2. Select whether to use an external file as the source of the data or to enter the data directly into the form's data entry grid.
 
-3. If the external file option is selected, click the [FileBrowse] button to locate the file's name. The file's contents must be formatted in the same manner as the direct data entry option discussed below. See the description of Time Series Files for details.
+3. If the external file option is selected, click the &nbsp;![](filebrowse.gif) button to locate the file's name. The file's contents must be formatted in the same manner as the direct data entry option discussed below. See the description of [Time Series Files](#time_series_files) for details.
 
 4. For direct data entry, enter values in the data entry grid as follows:
 
-Date Column Optional date (in month/day/year format) of the time series values (only needed at points in time where a new date occurs).
+|              |                                                                                                                                                                                                 |
+| :----------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Date Column  | Optional date (in month/day/year format) of the time series values (only needed at points in time where a new date occurs).                                                                     |
+| Time Column  | If dates are used, enter the military time of day for each time series value (as hours:minutes or decimal hours). If dates are not used, enter time as hours since the start of the simulation. |
+| Value Column | Time series numerical values.                                                                                                                                                                   |
 
-Time Column If dates are used, enter the military time of day for each time series value (as hours:minutes or decimal hours). If dates are not used, enter time as hours since the start of the simulation.
-Value Column Time series numerical values.
+A graphical plot of the data in the grid can be viewed in a separate window by clicking the **View** button. Right clicking over the grid will make a popup Edit menu appear. It contains commands to cut, copy, insert, and paste selected cells in the grid as well as options to insert or delete a row.
 
-A graphical plot of the data in the grid can be viewed in a separate window by clicking the View button. Right clicking over the grid will make a popup Edit menu appear. It contains commands to cut, copy, insert, and paste selected cells in the grid as well as options to insert or delete a row.
-
-5. Press OK to accept the time series or Cancel to cancel your edits.
+5. Press **OK** to accept the time series or **Cancel** to cancel your edits.
 
 [!tip]
 Note that there are two methods for describing the occurrence time of time series data:
@@ -2363,123 +2348,118 @@ For rainfall time series, it is only necessary to enter periods with non-zero ra
 
 ### Time Series Plot Selection Dialog {#time_series_plot_selection_dialog}
 
-The Time Series Plot Selection dialog specifies a set of objects and their variables whose computed time series will be graphed in a Time Series Plot. The dialog is used as follows:
+The **Time Series Plot Selection** dialog specifies a set of objects and their variables whose computed time series will be graphed in a [Time Series Plot](#time_series_plots). The dialog is used as follows:
 
-1. Select a Start Date and End Date for the plot (the default is the entire simulation period).
+1. Select a **Start Date** and **End Date** for the plot (the default is the entire simulation period).
 
-2. Choose whether to show time as Elapsed Time or as Date/Time values.
+2. Choose whether to show time as **Elapsed Time** or as **Date/Time** values.
 
-3. Add up to six different data series to the plot by clicking the Add button above the data series list box.
+3. Add up to six different data series to the plot by clicking the **Add** button above the data series list box.
 
-4. Use the Edit button to make changes to a selected data series or the Delete button to delete a data series.
+4. Use the **Edit** button to make changes to a selected data series or the **Delete** button to delete a data series.
 
-5. Use the Up and Down buttons to change the order in which the data series will be plotted.
+5. Use the **Up** and **Down** buttons to change the order in which the data series will be plotted.
 
-6. Click the OK button to create the plot.
+6. Click the **OK** button to create the plot.
 
-When you click the Add or Edit buttons a Data Series Selection dialog will be displayed for selecting a particular object and variable to plot.
+When you click the **Add** or **Edit** buttons a [Data Series Selection](#data_series_selection_dialog) dialog will be displayed for selecting a particular object and variable to plot.
 
 ### Data Series Selection Dialog {#data_series_selection_dialog}
 
-The Data Series Selection dialog is launched by the Time Series Plot Selection dialog to select a data series for plotting in a Time Series Plot. It contains the following data fields:
+The **Data Series Selection** dialog is launched by the [Time Series Plot Selection](#time_series_plot_selection_dialog) dialog to select a data series for plotting in a [Time Series Plot](#time_series_plots). It contains the following data fields:
 
-Object Type the type of object to plot (Subcatchment, Node, Link or System).
-
-Object Name the ID name of the object to be plotted. (This field is disabled for System variables).
-
-Variable the variable whose time series will be plotted (choices vary by object type).
-
-Legend Label the text to use in the legend for the data series. If left blank, a default label made up of the object type, name, variable and units will be used (e.g. Link C16 Flow (CFS)).
-
-Axis whether to use the left or right vertical axis to plot the data series.
+|                  |                                                                                                                                                                                 |
+| :--------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Object Type**  | the type of object to plot (Subcatchment, Node, Link or System).                                                                                                                |
+| **Object Name**  | the ID name of the object to be plotted. (This field is disabled for System variables).                                                                                         |
+| **Variable**     | the variable whose time series will be plotted (choices vary by object type).                                                                                                   |
+| **Legend Label** | the text to use in the legend for the data series. If left blank, a default label made up of the object type, name, variable and units will be used (e.g. Link C16 Flow (CFS)). |
+| **Axis**         | whether to use the left or right vertical axis to plot the data series.                                                                                                         |
 
 [!tip]
-As you select objects on the Study Area Map or in the Project Browser their types and ID names will automatically appear in this dialog.
+As you select objects on the Study Area Map or in the [Project Browser](#swmms_main_window) their types and ID names will automatically appear in this dialog.
 
-Click the Accept button to add/update the data series into the plot or click the Cancel button to disregard your edits. You will then be returned to the Time Series Plot Selection dialog where you can add or edit another data series.
+Click the **Accept** button to add/update the data series into the plot or click the **Cancel** button to disregard your edits. You will then be returned to the Time Series Plot Selection dialog where you can add or edit another data series.
 
 [!tip]
-To make a precipitation time series display in inverted fashion on a plot, assign it to the right axis and after the plot is displayed, use the Graph Options Dialog to invert the right axis and expand the scales of both the left and right axes (so it doesn't overlap another data series).
+To make a precipitation time series display in inverted fashion on a plot, assign it to the right axis and after the plot is displayed, use the [Graph Options Dialog](#graph_options_dialog) to invert the right axis and expand the scales of both the left and right axes (so it doesn't overlap another data series).
 
 ### Tool Properties Dialog {#tool_properties_dialog}
 
-The Tool Properties dialog is used to describe the properties of an add-in tool that has been added to the Tools menu of SWMM's Main Menu bar. It contains the following data entry fields:
+The **Tool Properties** dialog is used to describe the properties of an [add-in tool](#what_are_add-in_tools) that has been added to the [Tools](#tools_menu) menu of SWMM's Main Menu bar. It contains the following data entry fields:
 
-Tool Name
+**Tool Name**
 
 This is the name to be used for the tool when it is displayed in the Tools Menu.
 
-Program
+**Program**
 
-Enter the full path name to the program that will be launched when the tool is selected. You can click the   [FileBrowse] button to bring up a standard Windows file selection dialog from which you can search for the tool's executable file name.
+Enter the full path name to the program that will be launched when the tool is selected. You can click the &nbsp;![](filebrowse.gif) button to bring up a standard Windows file selection dialog from which you can search for the tool's executable file name.
 
-Working Directory
+**Working Directory**
 
-This field contains the name of the directory that will be used as the working directory when the tool is launched. You can click the [FileBrowse] button to bring up a standard directory selection dialog from which you can search for the desired directory. You can also enter the macro symbol $PROJDIR to utilize the current SWMM project's directory or $SWMMDIR to use the directory where the SWMM 5 executable resides. Either of these macros can also be inserted into the Working Directory field by selecting its name in the list of macros provided on the dialog and then clicking the [GreenPlusBtn] button. This field can be left blank, in which case the system's current directory will be used.
+This field contains the name of the directory that will be used as the working directory when the tool is launched. You can click the &nbsp;![](filebrowse.gif) button to bring up a standard directory selection dialog from which you can search for the desired directory. You can also enter the macro symbol **$PROJDIR** to utilize the current SWMM project's directory or **$SWMMDIR** to use the directory where the SWMM 5 executable resides. Either of these macros can also be inserted into the Working Directory field by selecting its name in the list of macros provided on the dialog and then clicking the &nbsp;![](greenplusbtn.gif) button. This field can be left blank, in which case the system's current directory will be used.
 
-Parameters
+**Parameters**
 
-This field contains the list of command line arguments that the tool's executable program expects to see when it is launched. Multiple parameters can be entered field as long as they are separated by spaces. A number of special macro symbols have been pre-defined, as listed in the Macros list box of the dialog, to simplify the process of listing the command line parameters. When one of these macro symbols is inserted into the list of parameters, it will be expanded to its true value when the tool is launched. A specific macro symbol can either be typed into the Parameters field or be selected from the Macros list (by clicking on it) and then added to the parameter list by clicking the [GreenPlusBtn] button.
+This field contains the list of command line arguments that the tool's executable program expects to see when it is launched. Multiple parameters can be entered field as long as they are separated by spaces. A number of [special macro symbols](#special_macro_symbols) have been pre-defined, as listed in the Macros list box of the dialog, to simplify the process of listing the command line parameters. When one of these macro symbols is inserted into the list of parameters, it will be expanded to its true value when the tool is launched. A specific macro symbol can either be typed into the Parameters field or be selected from the Macros list (by clicking on it) and then added to the parameter list by clicking the &nbsp;![](greenplusbtn.gif) button.
 
-Disable SWMM while executing
+**Disable SWMM while executing**
 
-Check this option if SWMM should be minimized and disabled while the tool is executing. Normally you will need to employ this option if the tool produces a modified input file or output file, such as when the $INPFILE or $OUTFILE macros are used as command line parameters. When this option is enabled, SWMM's main window will be minimized and will not respond to user input until the tool is terminated.
+Check this option if SWMM should be minimized and disabled while the tool is executing. Normally you will need to employ this option if the tool produces a modified input file or output file, such as when the **$INPFILE** or **$OUTFILE** macros are used as command line parameters. When this option is enabled, SWMM's main window will be minimized and will not respond to user input until the tool is terminated.
 
-Update SWMM after closing
+**Update SWMM after closing**
 
-Check this option if SWMM should be updated after the tool finishes executing. This option can only be selected if the option to disable SWMM while the tool is executing was first selected. Updating can occur in two ways. If the $INPFILE macro was used as a command line parameter for the tool and the corresponding temporary input file produced by SWMM was updated, then the current project's data will be replaced with the data contained in the updated temporary input file. If the $OUTFILE macro was used as a command line parameter, and its corresponding file is found to contain a valid set of output results after the tool closes, then the contents of this file will be used to display simulation results within the SWMM workspace.
+Check this option if SWMM should be updated after the tool finishes executing. This option can only be selected if the option to disable SWMM while the tool is executing was first selected. Updating can occur in two ways. If the **$INPFILE** macro was used as a command line parameter for the tool and the corresponding temporary input file produced by SWMM was updated, then the current project's data will be replaced with the data contained in the updated temporary input file. If the **$OUTFILE** macro was used as a command line parameter, and its corresponding file is found to contain a valid set of output results after the tool closes, then the contents of this file will be used to display simulation results within the SWMM workspace.
 
 Generally speaking, the suppliers of third-party tools will provide instructions on what settings should be used in the Tool Properties dialog to properly register their tool with SWMM.
 
-Special Macro Symbols
+#### Special Macro Symbols {#special_macro_symbols}
 
-$PROJDIR The directory where the current SWMM project file resides.
-
-$SWMMDIR The directory where the SWMM 5 executable is installed.
-
-$INPFILE The name of a temporary file containing the current project's data that is created just before the tool is launched.
-
-$RPTFILE The name of a temporary file that is created just before the tool is launched and can be displayed after the tool closes by using the Report >> Status command from the main SWMM menu.
-
-$OUTFILE The name of a temporary file to which the tool can write simulation results in the same format used by SWMM 5, which can then be displayed after the tool closes in the same fashion as if a SWMM run were made.
-
-$RIFFILE The name of the Runoff Interface File, as specified in the Interface Files page of the Simulation Options dialog, to which runoff simulation results were saved from a previous SWMM run.
+|          |                                                                                                                                                                                                                  |
+| :------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| $PROJDIR | The directory where the current SWMM project file resides.                                                                                                                                                       |
+| $SWMMDIR | The directory where the SWMM 5 executable is installed.                                                                                                                                                          |
+| $INPFILE | The name of a temporary file containing the current project's data that is created just before the tool is launched.                                                                                             |
+| $RPTFILE | The name of a temporary file that is created just before the tool is launched and can be displayed after the tool closes by using the Report >> Status command from the main SWMM menu.                          |
+| $OUTFILE | The name of a temporary file to which the tool can write simulation results in the same format used by SWMM 5, which can then be displayed after the tool closes in the same fashion as if a SWMM run were made. |
+| $RIFFILE | The name of the Runoff Interface File, as specified in the Interface Files page of the Simulation Options dialog, to which runoff simulation results were saved from a previous SWMM run.                        |
 
 ### Transect Editor {#transect_editor}
 
-The Transect Editor is invoked whenever a new Transect object is created or an existing Transect is selected for editing. It contains the following data entry fields:
+The **Transect Editor** is invoked whenever a new [Transect](#transects) object is created or an existing Transect is selected for editing. It contains the following data entry fields:
 
-Name
+**Name**
 
 The name assigned to the transect.
 
-Description
+**Description**
 
 An optional comment or description of the transect.
 
-Station/Elevation Data Grid
+**Station/Elevation Data Grid**
 
 Values of distance from the left side of the channel along with the corresponding elevation of the channel bottom as one moves across the channel from left to right, looking in the downstream direction. The elevations can be relative to any reference point, such as the bottom of the channel, and not necessarily mean sea level. Up to 1500 data values can be entered.
 
-Roughness
+**Roughness**
 
-Values of Manning's roughness coeffcient (n)for the left overbank, right overbank, and main channel portion of the transect. The overbank roughness values can be zero if no overbank exists.
+Values of [Manning's roughness](#mannings_n-open_channels) coeffcient (n)for the left overbank, right overbank, and main channel portion of the transect. The overbank roughness values can be zero if no overbank exists.
 
-Bank Stations
+**Bank Stations**
 
 The distance values appearing in the Station/Elevation grid that mark the end of the left overbank and the start of the right overbank. Use 0 to denote the absence of an overbank.
 
-Modifiers
+**Modifiers**
 
-- The Stations modifier is a factor by which the distance between each station will be multiplied when the transect data is processed by SWMM. Use a value of 0 if no such factor is needed.
+- The **Stations** modifier is a factor by which the distance between each station will be multiplied when the transect data is processed by SWMM. Use a value of 0 if no such factor is needed.
 
-- The Elevations modifier is a constant value that will be added to each elevation value.
+- The **Elevations** modifier is a constant value that will be added to each elevation value.
 
-- The Meander modifier is the ratio of the length of a meandering main channel to the length of the overbank area that surrounds it. This modifier is applied to all conduits that use this particular transect for their cross section. It assumes that the length supplied for these conduits is that of the longer main channel. SWMM will use the shorter overbank length in its calculations while increasing the main channel roughness to account for its longer length. The modifier is ignored if it is left blank or set to 0.
+- The **Meander** modifier is the ratio of the length of a meandering main channel to the length of the overbank area that surrounds it. This modifier is applied to all conduits that use this particular transect for their cross section. It assumes that the length supplied for these conduits is that of the longer main channel. SWMM will use the shorter overbank length in its calculations while increasing the main channel roughness to account for its longer length. The modifier is ignored if it is left blank or set to 0.
 
 Right-clicking over the Data Grid will make a popup Edit menu appear. It contains commands to cut, copy, insert, and paste selected cells in the grid as well as options to insert or delete a row.
 
-Clicking the View button will bring up a window that illustrates the shape of the transect cross section.
+Clicking the **View** button will bring up a window that illustrates the shape of the transect cross section.
 
 ### Treatment Editor {#treatment_editor}
 
