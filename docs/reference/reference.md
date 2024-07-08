@@ -1869,9 +1869,9 @@ Changes made to a legend are saved with the project's settings and remain in eff
 
 ### LID Editors {#lid_editors}
 
-[**LID Controls**](#lid_controls) are defined and assigned to subcatchments through a series of three different editor forms:
+[LID Controls](#lid_controls) are defined and assigned to subcatchments through a series of three different editor forms:
 
-- The [LID Control Editor](#lid_controls_editor) is used to define re-usable LID controls, designed on a per-unit-area basis, that can be placed throughout a study area's subcatchments. It is invoked by adding a new LID Control object or editing an existing one from the main form's [Project Browser](#swmms_main_window).
+- The [LID Control Editor](#lid_control_editor) is used to define re-usable LID controls, designed on a per-unit-area basis, that can be placed throughout a study area's subcatchments. It is invoked by adding a new LID Control object or editing an existing one from the main form's [Project Browser](#swmms_main_window).
 
 - The [LID Group Editor](#lid_group_editor) is used to add any number of LID controls to a specific subcatchment. It is invoked by selecting the subcatchment's **LID Controls** property from the subcatchment's [Property Editor](#swmms_main_window).
 
@@ -1962,7 +1962,7 @@ Number of pavement layer void volumes of runoff treated it takes to completely c
 
 If one has an estimate of the number of years Yclog it takes to fractionally clog the system to a degree Fclog, then the Clogging Factor (CF) can be computed as:
 
-\f[CF = Yclog _ Pa _ (1 + CR) _ (1 + VR)  / (VR _ (1 - ISF) _ T _ Fclog)\f]
+\f[CF = Y_{clog} \, Pa (1 + CR) (1 + VR) / (VR (1 - ISF) T \, F_{clog})\f]
 
 where Pa is the annual rainfall amount over the site, CR is the pavement's capture ratio (area that contributes runoff to the pavement divided by area of the pavement itself), VR is the system's Void Ratio, ISF is the Impervious Surface Fraction, and T is the pavement layer Thickness.
 
@@ -2049,7 +2049,7 @@ The **Drain** page of the LID Control Editor describes the properties of and LID
 
 The drain coefficient C and exponent n determines the rate of flow through a drain as a function of the height of stored water above the drain's offset. The following equation is used to compute this flow rate (per unit area of the LID unit):
 
-\f[q = C h^{n}\f]
+\f[q = C \, h^{n}\f]
 
 where q is outflow (in/hr or mm/hr) and h is the height of saturated media above the drain (inches or mm). If the layer has no drain then set C to 0.
 
@@ -2089,7 +2089,7 @@ An LID unit's drain system is performance-based rather than design-based. The us
 
 - If the drain can carry whatever flow enters the storage layer up to some specific limit then set the drain coefficient to the limit and the drain exponent to 0.
 
-- If the drain consists of slotted pipes where the slots act as orifices, then the drain exponent would be 0.5 and the drain coefficient would be 60,000 times the ratio of total slot area to LID area. For example, drain pipe with five 1/4" diameter holes per foot spaced 50 feet apart would have an area ratio of 0.000035 and a drain coefficient of 2.
+- If the drain consists of slotted pipes where the slots act as orifices, then the drain exponent would be 0.5 and the drain coefficient would be 60,000 times the ratio of total slot area to LID area. For example, drain pipe with five 1/4 in. diameter holes per foot spaced 50 feet apart would have an area ratio of 0.000035 and a drain coefficient of 2.
 
 - If the goal is to drain a fully saturated unit in a specific amount of time then set the drain exponent to 0.5 (to represent orifice flow) and the drain coefficient to 2D1/2/T where D is the distance from the drain to the surface plus any berm height (in inches or mm) and T is the time in hours to drain. For example, to drain a depth of 36 inches in 12 hours requires a drain coefficient of 1. If this drain consisted of the slotted pipes described in the previous bullet, whose coefficient was 2, then a flow regulator, such as a cap orifice, would have to be placed on the drain outlet to achieve the reduced flow rate.
 
@@ -2123,7 +2123,7 @@ The **LID Group Editor** is invoked when the **LID Controls** property of a [Sub
 
 The editor displays the current group of LIDs placed in the subcatchment along with buttons for adding an LID unit, editing a selected unit, and deleting a selected unit. These actions can also be chosen by hitting the **<Insert>** key, the **<Enter>** key, and the **<Delete>** key, respectively. Selecting **Add** or **Edit** will bring up an [LID Usage Editor](#lid_usage_editor) where one can enter values for the data fields shown in the Group Editor.
 
-[LID Group Editor](lidgrpeditor2.gif)
+![LID Group Editor](lidgrpeditor2.gif)
 
 Note that the total **% of Area** for all of the the LID units within a subcatchment must not exceed 100%. The same applies to **% From Imperv** and **% From Perv**. Refer to the [LID Usage Editor](#lid_usage_editor) for the meaning of these parameters.
 
@@ -2486,15 +2486,15 @@ The **Project Defaults** dialog is used to set default values for object propert
 
 - [Default ID Labels](#default_id_labels)
 
-- [Default Subcatchment Properties](#default-node/link_properties)
+- [Default Subcatchment Properties](#default_subcatchment_properties)
 
-- [Default Node/Link Properties](#default_subcatchment_properties)
+- [Default Node/Link Properties](#default_nodelink_properties)
 
 #### Default ID Labels {#default_id_labels}
 
 The **ID Labels** page of the **Project Defaults** dialog form is used to determine how SWMM will assign default ID labels for the visual project components when they are first created. For each type of object you can enter a label prefix in the corresponding entry field or leave the field blank if an object's default name will simply be a number. In the last field you can enter an increment to be used when adding a numerical suffix to the default label. As an example, if C were used as a prefix for Conduits along with an increment of 5, then as conduits are created they receive default names of C5, C10, C15 and so on. An object's default name can be changed by using the [Property Editor](#swmms_main_window) for visual objects or the object-specific editor for non-visual objects.
 
-#### Default Node/Link Properties {#default-node/link_properties}
+#### Default Node/Link Properties {#default_nodelink_properties}
 
 The Nodes/Links page of the Project Defaults dialog sets default property values for newly created nodes and links. These properties include:
 
@@ -2569,7 +2569,7 @@ To include an object in the set that is reported on:
 
 1. Select the tab to which the object belongs (Subcatchments, Nodes or Links).
 
-2. Unselect the **"All"** check box if it is currently checked.
+2. Unselect the **All** check box if it is currently checked.
 
 3. Select the specific object either from the Study Area Map or from the listing in the Project Browser.
 
@@ -2585,7 +2585,7 @@ To remove an item from the set selected for reporting:
 
 To remove all items from the reporting set of a given object category, select the object category's page and click the **Clear** button.
 
-To include all objects of a given category in the reporting set, check the **"All"** box on the page for that category (i.e., subcatchments, nodes, or links). This will override any individual items that may be currently listed on the page.
+To include all objects of a given category in the reporting set, check the **All** box on the page for that category (i.e., subcatchments, nodes, or links). This will override any individual items that may be currently listed on the page.
 
 To dismiss the dialog click the **Close** button.
 
