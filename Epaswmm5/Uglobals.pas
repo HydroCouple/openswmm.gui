@@ -43,7 +43,7 @@ const
 // Version ID - range of versions supported
 //-----------------------------------------
   VERSIONID1 = 51000;
-  VERSIONID2 = 52004;
+  VERSIONID2 = 53000;
 
 //------------------
 // File names
