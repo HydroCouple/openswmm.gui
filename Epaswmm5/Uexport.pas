@@ -603,9 +603,11 @@ begin
   InfilType := Project.Options.Data[INFILTRATION_INDEX];
   Line := ';;Subcatchment  ' + Tab + 'Param1    ' + Tab + 'Param2    ';
   Line := Line + Tab + 'Param3    ' + Tab + 'Param4    ' + Tab + 'Param5    ';
+  Line := Line + Tab + 'Param6    ';
   S.Add(Line);
   Line := ';;--------------' + Tab + '----------' + Tab + '----------';
   Line := Line + Tab + '----------' + Tab + '----------' + Tab + '----------';
+  Line := Line + Tab + '----------';
   S.Add(Line);
 
   with Project.Lists[SUBCATCH] do
