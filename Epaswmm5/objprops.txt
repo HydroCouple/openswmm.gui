@@ -564,7 +564,7 @@ const
      'NO',           // 2 - Report Input Summary
 
      'CFS',          // 3 - Flow Units
-     'HORTON',       // 4 - Infiltration
+     'MODIFIED_GREEN_AMPT',       // 4 - Infiltration
      'DYNWAVE',      // 5 - Flow Routing
      'DEPTH',        // 6 - Link Offsets
      '0',            // 7 - Minimum Slope
