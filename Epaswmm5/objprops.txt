@@ -263,7 +263,7 @@ const
      '25',      //15 - %Zero
      'OUTLET',  //16 - Route To
      '100',     //17 - Pct. Routed
-     'HORTON',  //18 - Infil. Model
+     'MODIFIED_GREEN_AMPT',  //18 - Infil. Model
      'NO',      //19 - Groundwater
      '',        //20 - Snow Pack
      '0',       //21 - LIDs
