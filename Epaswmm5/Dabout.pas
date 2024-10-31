@@ -3,8 +3,8 @@ unit Dabout;
 {-------------------------------------------------------------------}
 {                    Unit:    Dabout.pas                            }
 {                    Project: EPA SWMM                              }
-{                    Version: 5.2                                   }
-{                    Date:    11/01/21       (5.2.0)                }
+{                    Version: 5.3                                   }
+{                    Date:    10/31/24    (5.3.0)                   }
 {                    Author:  L. Rossman                            }
 {                                                                   }
 {   Form unit containing the "About" dialog box for EPA SWMM.       }
@@ -85,7 +85,7 @@ Disclaimer =
 
 procedure TAboutBoxForm.FormCreate(Sender: TObject);
 begin
-  Label4.Caption := 'Storm Water Management Model'#10'Version 5.2';
+  Label4.Caption := 'Storm Water Management Model'#10'Version 5.3';
 
 {$IFDEF WIN64}
   Label6.Caption := '64-bit Edition';

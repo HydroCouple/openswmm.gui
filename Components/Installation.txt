@@ -2,7 +2,7 @@ Directions for Installing the EPA Custom Components into Delphi 10
 ==================================================================
 
 This file explains how to install the EPA custom components into Delphi 10
-so that both 32-bit and 64-bit versions of SWMM 5.2 can be built.
+so that both 32-bit and 64-bit versions of SWMM 5.3 can be built.
 
 If the EPA components were previously installed to Delphi's component palette
 we recommend that they first be removed before executing these instructions

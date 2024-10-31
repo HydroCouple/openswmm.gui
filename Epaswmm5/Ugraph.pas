@@ -3,8 +3,8 @@ unit Ugraph;
 {-------------------------------------------------------------------}
 {                    Unit:    Ugraph.pas                            }
 {                    Project: EPA SWMM                              }
-{                    Version: 5.2                                   }
-{                    Date:    11/12/22   (5.2.2)                    }
+{                    Version: 5.3                                   }
+{                    Date:    10/31/24   (5.3.0)                    }
 {                    Author:  L. Rossman                            }
 {                                                                   }
 {   Delphi Pascal unit that contains general purpose graphing       }
