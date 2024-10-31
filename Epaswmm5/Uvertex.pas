@@ -3,8 +3,8 @@ unit Uvertex;
 {-------------------------------------------------------------------}
 {                    Unit:    Uvertex.pas                           }
 {                    Project: EPA SMM                               }
-{                    Version: 5.2                                   }
-{                    Date:    06/27/21   (5.2.4)                    }
+{                    Version: 5.3                                   }
+{                    Date:    10/31/24   (5.3.0)                    }
 {                    Author:  L. Rossman                            }
 {                                                                   }
 {   Delphi Pascal unit that defines and implements the              }

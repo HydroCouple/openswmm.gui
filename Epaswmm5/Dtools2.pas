@@ -3,8 +3,8 @@ unit Dtools2;
 {-------------------------------------------------------------------}
 {                    Unit:    Dtools2.pas                           }
 {                    Project: EPA SMM                               }
-{                    Version: 5.2                                   }
-{                    Date:    11/01/21    (5.2.0)                   }
+{                    Version: 5.3                                   }
+{                    Date:    10/31/24   (5.3.0)                    }
 {                    Author:  L. Rossman                            }
 {                                                                   }
 {   Delphi Pascal dialog unit that edits the properties of an       }

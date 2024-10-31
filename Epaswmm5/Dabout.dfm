@@ -50,7 +50,7 @@ object AboutBoxForm: TAboutBoxForm
     Top = 326
     Width = 66
     Height = 15
-    Caption = 'Release 5.2.4'
+    Caption = 'Release 5.3.0'
   end
   object Label6: TLabel
     Left = 434

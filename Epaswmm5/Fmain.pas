@@ -3,8 +3,8 @@ unit Fmain;
 {-------------------------------------------------------------------}
 {                    Unit:    Fmain.pas                             }
 {                    Project: EPA SWMM                              }
-{                    Version: 5.2                                   }
-{                    Date:    06/01/22    (5.2.1)                   }
+{                    Version: 5.3                                   }
+{                    Date:    10/31/24   (5.3.0)                    }
 {                    Author:  L. Rossman                            }
 {                                                                   }
 {   Delphi form unit containing the main MDI form for EPA SWMM.     }
@@ -57,7 +57,7 @@ const
   MSG_NO_BACKDROP = 'Could not find backdrop file ';
   MSG_FIND_BACKDROP = '. Do you want to search for it?';
 
-  TXT_MAIN_CAPTION = 'SWMM 5.2';
+  TXT_MAIN_CAPTION = 'SWMM 5.3';
   TXT_STATUS_REPORT = 'Status Report';
   TXT_SAVE_CHANGES = 'Save changes made to current project?';
   TXT_SAVE_RESULTS = 'Save current simulation results?';

@@ -3,8 +3,8 @@ unit Uutils;
 {-------------------------------------------------------------------}
 {                    Unit:    Uutils.pas                            }
 {                    Project: EPA SMM                               }
-{                    Version: 5.2                                   }
-{                    Date:    11/01/21    (5.2.0)                   }
+{                    Version: 5.3                                   }
+{                    Date:    10/31/24   (5.3.0)                    }
 {                    Author:  L. Rossman                            }
 {                                                                   }
 {   Delphi Pascal unit containing general purpose utility           }
@@ -1180,7 +1180,7 @@ begin
 
       for K := 1 to Mylist.Count do
       begin
-        //Take the String of the line (K – 1)
+        //Take the String of the line (K ï¿½ 1)
         MyString := MyList.Strings[(K - 1)];
         //Find the position of the Separator in the String
         ThePosition := Pos(TheSeparator, MyString);
