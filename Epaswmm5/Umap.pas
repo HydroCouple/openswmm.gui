@@ -487,10 +487,10 @@ begin
   Canvas.Font.Style := [];
   CharHeight := Canvas.TextHeight('[');
 
-  // Draw subcatchments, links, nodes, rain gages & labels
+  // Draw subcatchments, nodes, links, rain gages & labels
   DrawSubcatchments;
-  DrawLinks;
   DrawNodes;
+  DrawLinks;
   DrawGages;
   DrawLabels;
   LastColorIndex := -999;
