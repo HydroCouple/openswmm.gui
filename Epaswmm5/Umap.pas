@@ -216,6 +216,7 @@ type
     procedure DrawLinkIDLabel(const ObjType: Integer; const Index: Integer;
               const P1: TPoint; const P2: TPoint; const Size: Integer);
     procedure DrawLinks;
+    procedure DrawStorages;
     procedure DrawLinkSymbol(const P1: TPoint; const P2: TPoint;
               const Symbol: TLinkSymbol);
     procedure DrawLinkValueLabel(const ObjType: Integer; const Index: Integer;
@@ -487,10 +488,11 @@ begin
   Canvas.Font.Style := [];
   CharHeight := Canvas.TextHeight('[');
 
-  // Draw subcatchments, nodes, links, rain gages & labels
+  // Draw subcatchments, storage polygons, links, nodes, rain gages & labels
   DrawSubcatchments;
-  DrawNodes;
+  DrawStorages;
   DrawLinks;
+  DrawNodes;
   DrawGages;
   DrawLabels;
   LastColorIndex := -999;
@@ -545,6 +547,20 @@ begin
   SetBkMode(Canvas.Handle, OPAQUE);
 end;
 
+procedure TMap.DrawStorages;
+//-----------------------------------------------------------------------------
+//  Draws storage units polygons.
+//-----------------------------------------------------------------------------
+var
+  J: Integer;
+  R : TRect;
+begin
+  for J := 0 to Project.Lists[STORAGE].Count - 1 do
+  begin
+    R := GetBoundingRect(STORAGE, J);
+    if IntersectRect(R, R, Window.MapRect) then DrawStoragePolygon(J);
+  end;
+end;
 
 procedure TMap.DrawNodes;
 //-----------------------------------------------------------------------------
@@ -689,7 +705,7 @@ begin
     // Draw the node
     if ObjType = STORAGE then
     begin
-     DrawStoragePolygon(Index);
+     // DrawStoragePolygon(Index);
      DrawStorage(P1.X, P1.Y, Size);
     end
     else if ObjType = DIVIDER then DrawDivider(P1.X, P1.Y, Size)
