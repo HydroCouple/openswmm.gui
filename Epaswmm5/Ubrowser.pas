@@ -1174,6 +1174,7 @@ var
   ID       : String;
   I, J     : Integer;
   newIndex : Integer;
+  aMapLabel: TMapLabel;
 begin
   // Create a new Node of type newType
   oldNode := Project.GetNode(oldType, oldIndex);
@@ -1214,6 +1215,13 @@ begin
     end;
   end;
 
+  // Replace reference to old Node with new Node in all MapLabel anchors
+  for I  := 0 to Project.Lists[MAPLABEL].Count - 1 do
+  begin
+    aMapLabel := Project.GetMapLabel(I);
+    if aMapLabel.Anchor = oldNode then aMapLabel.Anchor := newNode;
+  end;
+  
   // Add new node to project
   Project.Lists[newType].AddObject(ID, newNode);
   UpdateHasItems(newType);
