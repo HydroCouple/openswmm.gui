@@ -3,11 +3,11 @@
         <ProjectGuid>{D4599612-B9C2-460F-A686-97A4FA947218}</ProjectGuid>
         <MainSource>Epaswmm5.dpr</MainSource>
         <Base>True</Base>
-        <Config Condition="'$(Config)'==''">Release</Config>
+        <Config Condition="'$(Config)'==''">Debug</Config>
         <TargetedPlatforms>3</TargetedPlatforms>
         <AppType>Application</AppType>
         <FrameworkType>VCL</FrameworkType>
-        <ProjectVersion>19.2</ProjectVersion>
+        <ProjectVersion>19.5</ProjectVersion>
         <Platform Condition="'$(Platform)'==''">Win64</Platform>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
@@ -436,13 +436,8 @@
             </Platforms>
             <Deployment Version="4">
                 <DeployFile LocalName="Win32\Epaswmm5.exe" Configuration="Release" Class="ProjectOutput"/>
-                <DeployFile LocalName="Win32\Epaswmm5.exe" Configuration="Release" Class="ProjectOutput"/>
-                <DeployFile LocalName="Win64\Epaswmm5.exe" Configuration="Release" Class="ProjectOutput"/>
                 <DeployFile LocalName="Win64\Epaswmm5.exe" Configuration="Release" Class="ProjectOutput"/>
                 <DeployFile LocalName="objprops.txt" Configuration="Release" Class="ProjectFile"/>
-                <DeployFile LocalName="objprops.txt" Configuration="Release" Class="ProjectFile"/>
-                <DeployFile LocalName="viewvars.txt" Configuration="Release" Class="ProjectFile"/>
-                <DeployFile LocalName="viewvars.txt" Configuration="Release" Class="ProjectFile"/>
                 <DeployFile LocalName="viewvars.txt" Configuration="Release" Class="ProjectFile"/>
                 <DeployClass Name="AdditionalDebugSymbols">
                     <Platform Name="iOSSimulator">

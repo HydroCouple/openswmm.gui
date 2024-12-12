@@ -12,11 +12,9 @@ object StreetEditorForm: TStreetEditorForm
   Font.Name = 'Segoe UI'
   Font.Style = []
   KeyPreview = True
-  OldCreateOrder = False
   Position = poMainFormCenter
   OnCreate = FormCreate
   OnKeyDown = FormKeyDown
-  PixelsPerInch = 96
   TextHeight = 15
   object Label5: TLabel
     Left = 16
@@ -181,7 +179,7 @@ object StreetEditorForm: TStreetEditorForm
     Color = clWhite
     ParentBackground = False
     TabOrder = 15
-    object Image1: TImage
+    object ImageStreetXSection: TImage
       Left = 0
       Top = 0
       Width = 508
@@ -190,7 +188,7 @@ object StreetEditorForm: TStreetEditorForm
       AutoSize = True
     end
   end
-  object NumEdit0: TNumEdit
+  object NumEditTCrown: TNumEdit
     Left = 150
     Top = 287
     Width = 65
@@ -202,7 +200,7 @@ object StreetEditorForm: TStreetEditorForm
     SelLength = 0
     SelStart = 0
   end
-  object NumEdit1: TNumEdit
+  object NumEditHCurb: TNumEdit
     Left = 150
     Top = 327
     Width = 65
@@ -214,7 +212,7 @@ object StreetEditorForm: TStreetEditorForm
     SelLength = 0
     SelStart = 0
   end
-  object NumEdit2: TNumEdit
+  object NumEditSx: TNumEdit
     Left = 150
     Top = 367
     Width = 65
@@ -226,7 +224,7 @@ object StreetEditorForm: TStreetEditorForm
     SelLength = 0
     SelStart = 0
   end
-  object NumEdit3: TNumEdit
+  object NumEditRRoughness: TNumEdit
     Left = 150
     Top = 410
     Width = 65
@@ -238,7 +236,7 @@ object StreetEditorForm: TStreetEditorForm
     SelLength = 0
     SelStart = 0
   end
-  object NumEdit5: TNumEdit
+  object NumEditGutterWidth: TNumEdit
     Left = 401
     Top = 327
     Width = 65
@@ -250,7 +248,7 @@ object StreetEditorForm: TStreetEditorForm
     SelLength = 0
     SelStart = 0
   end
-  object NumEdit4: TNumEdit
+  object NumEditGutterDepression: TNumEdit
     Left = 401
     Top = 287
     Width = 65
@@ -262,7 +260,7 @@ object StreetEditorForm: TStreetEditorForm
     SelLength = 0
     SelStart = 0
   end
-  object NumEdit7: TNumEdit
+  object NumEditBackingWidth: TNumEdit
     Left = 401
     Top = 367
     Width = 65
@@ -274,7 +272,7 @@ object StreetEditorForm: TStreetEditorForm
     SelLength = 0
     SelStart = 0
   end
-  object NumEdit8: TNumEdit
+  object NumEditBackingSlope: TNumEdit
     Left = 401
     Top = 410
     Width = 65
@@ -286,7 +284,7 @@ object StreetEditorForm: TStreetEditorForm
     SelLength = 0
     SelStart = 0
   end
-  object NumEdit9: TNumEdit
+  object NumEditBackingRoughness: TNumEdit
     Left = 401
     Top = 450
     Width = 65
@@ -298,7 +296,7 @@ object StreetEditorForm: TStreetEditorForm
     SelLength = 0
     SelStart = 0
   end
-  object RadioButton2: TRadioButton
+  object RadioButtonTwoSided: TRadioButton
     Left = 150
     Top = 453
     Width = 80
@@ -308,7 +306,7 @@ object StreetEditorForm: TStreetEditorForm
     TabOrder = 6
     TabStop = True
   end
-  object RadioButton1: TRadioButton
+  object RadioButtonOneSided: TRadioButton
     Left = 16
     Top = 453
     Width = 80
@@ -317,16 +315,16 @@ object StreetEditorForm: TStreetEditorForm
     TabOrder = 5
     TabStop = True
   end
-  object Button3: TButton
+  object ButtonHelp: TButton
     Left = 310
     Top = 499
     Width = 75
     Height = 25
     Caption = 'Help'
     TabOrder = 14
-    OnClick = Button3Click
+    OnClick = ButtonHelpClick
   end
-  object Button2: TButton
+  object ButtonCancel: TButton
     Left = 217
     Top = 499
     Width = 75
@@ -335,14 +333,14 @@ object StreetEditorForm: TStreetEditorForm
     ModalResult = 2
     TabOrder = 13
   end
-  object Button1: TButton
+  object ButtonOK: TButton
     Left = 124
     Top = 499
     Width = 75
     Height = 25
     Caption = 'OK'
     TabOrder = 12
-    OnClick = Button1Click
+    OnClick = ButtonOKClick
   end
   object NameEdit: TNumEdit
     Left = 150
@@ -357,7 +355,7 @@ object StreetEditorForm: TStreetEditorForm
     SelLength = 0
     SelStart = 0
   end
-  object ImageCollection1: TImageCollection
+  object ImageCollectionStreetXSection: TImageCollection
     Images = <
       item
         Name = 'Street_xsect8'
@@ -11599,18 +11597,15 @@ object StreetEditorForm: TStreetEditorForm
     Left = 40
     Top = 488
   end
-  object VirtualImageList1: TVirtualImageList
+  object VirtualImageListStreetXSection: TVirtualImageList
     AutoFill = True
-    DisabledGrayscale = False
-    DisabledSuffix = '_Disabled'
     Images = <
       item
         CollectionIndex = 0
         CollectionName = 'Street_xsect8'
-        Disabled = False
         Name = 'Street_xsect8'
       end>
-    ImageCollection = ImageCollection1
+    ImageCollection = ImageCollectionStreetXSection
     Width = 499
     Height = 180
     Left = 416

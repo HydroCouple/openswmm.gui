@@ -23,32 +23,32 @@ uses
 type
   TStreetEditorForm = class(TForm)
     Panel1: TPanel;
-    Image1: TImage;
+    ImageStreetXSection: TImage;
     Label5: TLabel;
-    NumEdit0: TNumEdit;
+    NumEditTCrown: TNumEdit;
     Label2: TLabel;
-    NumEdit1: TNumEdit;
+    NumEditHCurb: TNumEdit;
     Label3: TLabel;
-    NumEdit2: TNumEdit;
+    NumEditSx: TNumEdit;
     Label6: TLabel;
-    NumEdit3: TNumEdit;
-    NumEdit5: TNumEdit;
+    NumEditRRoughness: TNumEdit;
+    NumEditGutterWidth: TNumEdit;
     Label4: TLabel;
-    NumEdit4: TNumEdit;
+    NumEditGutterDepression: TNumEdit;
     Label7: TLabel;
-    NumEdit7: TNumEdit;
+    NumEditBackingWidth: TNumEdit;
     Label1: TLabel;
-    NumEdit8: TNumEdit;
+    NumEditBackingSlope: TNumEdit;
     Label8: TLabel;
-    NumEdit9: TNumEdit;
+    NumEditBackingRoughness: TNumEdit;
     Label9: TLabel;
-    RadioButton2: TRadioButton;
-    RadioButton1: TRadioButton;
+    RadioButtonTwoSided: TRadioButton;
+    RadioButtonOneSided: TRadioButton;
     Label10: TLabel;
     Label11: TLabel;
-    Button3: TButton;
-    Button2: TButton;
-    Button1: TButton;
+    ButtonHelp: TButton;
+    ButtonCancel: TButton;
+    ButtonOK: TButton;
     UnitLabel1: TLabel;
     UnitLabel2: TLabel;
     Label12: TLabel;
@@ -58,18 +58,18 @@ type
     UnitLabel5: TLabel;
     NameEdit: TNumEdit;
     Label15: TLabel;
-    ImageCollection1: TImageCollection;
-    VirtualImageList1: TVirtualImageList;
+    ImageCollectionStreetXSection: TImageCollection;
+    VirtualImageListStreetXSection: TVirtualImageList;
     procedure FormCreate(Sender: TObject);
-    procedure Button1Click(Sender: TObject);
-    procedure Button3Click(Sender: TObject);
+    procedure ButtonOKClick(Sender: TObject);
+    procedure ButtonHelpClick(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure NameEditChange(Sender: TObject);
     procedure NameEditKeyPress(Sender: TObject; var Key: Char);
   private
     { Private declarations }
     StreetIndex: Integer;
-    RadioButton1Checked: Boolean;
+    RadioButtonOneSidedChecked: Boolean;
   public
     { Public declarations }
     Modified: Boolean;
@@ -84,11 +84,12 @@ implementation
 
 {$R *.dfm}
 
-procedure TStreetEditorForm.Button1Click(Sender: TObject);
+procedure TStreetEditorForm.ButtonOKClick(Sender: TObject);
 var
   I: Integer;
   X: Single;
   S: String;
+  C: TNumEdit;
 begin
   S := Trim(NameEdit.Text);
   if (Length(S) = 0) then
@@ -106,23 +107,34 @@ begin
     Exit;
   end;
   for I := 0 to 3 do
-    with FindComponent('NumEdit' + IntToStr(I)) as TNumEdit do
-    begin
-      S := Trim(Text);
-      if Length(S) = 0 then
-      begin
-        Uutils.MsgDlg('Required field cannot be left blank.', mtError, [mbOK]);
-        SetFocus;
-        Exit;
-      end;
-      Uutils.GetSingle(S, X);
-      if X = 0 then
-      begin
-        Uutils.MsgDlg('Required value cannot be 0.', mtError, [mbOK]);
-        SetFocus;
-        Exit;
-      end;
-    end;
+  case I of
+    STREET_CROWN_WIDTH: C := NumEditTCrown;
+    STREET_CURB_HEIGHT: C := NumEditHCurb;
+    STREET_CROSS_SLOPE: C := NumEditSx;
+    STREET_ROUGHNESS: C := NumEditGutterDepression;
+  begin
+
+    //   begin
+    //     with C as TNumEdit do
+    //     begin
+    //       S := Trim(Text);
+    //       if Length(S) = 0 then 
+    //       begin
+    //         Uutils.MsgDlg('Required field cannot be left blank.', mtError, [mbOK]);
+    //         SetFocus;
+    //         Exit;
+    //       end;
+    //       Uutils.GetSingle(S, X);
+    //       if X = 0 then
+    //       begin
+    //         Uutils.MsgDlg('Required value cannot be 0.', mtError, [mbOK]);
+    //         SetFocus;
+    //         Exit;
+    //       end;
+    //     end;
+    //   end;
+    // end;
+  end;
   ModalResult := mrOK;
 end;
 
@@ -137,7 +149,7 @@ begin
   UnitLabel3.Caption := LengthUnits;
   UnitLabel4.Caption := LengthUnits;
   UnitLabel5.Caption := LengthUnits;
-  VirtualImageList1.GetIcon(0, Image1.Picture.Icon);
+  VirtualImageListStreetXSection.GetIcon(0, ImageStreetXSection.Picture.Icon);
 end;
 
 procedure TStreetEditorForm.SetData(const I: Integer; const S: String;
@@ -147,17 +159,25 @@ var
 begin
   StreetIndex := I;
   NameEdit.Text := S;
-  for J := 0 to MAXSTREETPROPS do
-  begin
-    if J = STREET_SIDES then
+
+  case J of
+    STREET_CROWN_WIDTH: NumEditTCrown.Text := aStreet.Data[STREET_CROWN_WIDTH];
+    STREET_CURB_HEIGHT: NumEditHCurb.Text := aStreet.Data[STREET_CURB_HEIGHT];
+    STREET_CROSS_SLOPE: NumEditSx.Text := aStreet.Data[STREET_CROSS_SLOPE];
+    STREET_ROUGHNESS: NumEditRRoughness.Text := aStreet.Data[STREET_ROUGHNESS];
+    STREET_DEPRESSION: NumEditGutterDepression.Text := aStreet.Data[STREET_DEPRESSION];
+    STREET_GUTTER_WIDTH: NumEditGutterWidth.Text := aStreet.Data[STREET_GUTTER_WIDTH];
+    STREET_BACK_WIDTH: NumEditBackingWidth.Text := aStreet.Data[STREET_BACK_WIDTH];
+    STREET_BACK_SLOPE: NumEditBackingSlope.Text := aStreet.Data[STREET_BACK_SLOPE];
+    STREET_BACK_ROUGHNESS: NumEditBackingRoughness.Text := aStreet.Data[STREET_BACK_ROUGHNESS];
+    STREET_SIDES:
     begin
       if SameText(aStreet.Data[STREET_SIDES], '1') then
-        RadioButton1.Checked := True;
-    end
-    else with FindComponent('NumEdit' + IntToStr(J)) as TNumEdit do
-      Text := aStreet.Data[J];
+        RadioButtonOneSided.Checked := True;
+        
+    end;
   end;
-  RadioButton1Checked := RadioButton1.Checked;
+  RadioButtonOneSidedChecked := RadioButtonOneSided.Checked;
   Modified := false;
 end;
 
@@ -166,11 +186,19 @@ var
   J: Integer;
 begin
   S := NameEdit.Text;
+
+  if RadioButtonOneSided.Checked then
+    aStreet.DATA[STREET_SIDES] := '1'
+  else
+    aStreet.DATA[STREET_SIDES] := '2';
+  
+  aStreet.Data[STREET_CROWN_WIDTH] := NumEditTCrown.Text;
+
   for J := 0 to MAXSTREETPROPS do
   begin
     if J = STREET_SIDES then
     begin
-      if RadioButton1.Checked then
+      if RadioButtonOneSided.Checked then
         aStreet.DATA[STREET_SIDES] := '1'
       else
         aStreet.DATA[STREET_SIDES] := '2';
@@ -181,7 +209,7 @@ begin
       else aStreet.Data[J] := '0';
     end;
   end;
-  if RadioButton1Checked <> RadioButton1.Checked then Modified := true;
+  if RadioButtonOneSidedChecked <> RadioButtonOneSided.Checked then Modified := true;
   aStreet.SetMaxDepth;
 end;
 
@@ -202,10 +230,10 @@ end;
 procedure TStreetEditorForm.FormKeyDown(Sender: TObject; var Key: Word;
   Shift: TShiftState);
 begin
-  if Key = VK_F1 then Button3Click(Sender);
+  if Key = VK_F1 then ButtonOKClick(Sender);
 end;
 
-procedure TStreetEditorForm.Button3Click(Sender: TObject);
+procedure TStreetEditorForm.ButtonHelpClick(Sender: TObject);
 begin
   Application.HelpCommand(HELP_CONTEXT, 213580);
 end;
