@@ -1,0 +1,1988 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SWMMVis</class>
+ <widget class="QMainWindow" name="SWMMVis">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1630</width>
+    <height>918</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>SWMM</string>
+  </property>
+  <property name="toolTip">
+   <string>EPA SWMM 6.0.0</string>
+  </property>
+  <property name="statusTip">
+   <string>Welcome Page</string>
+  </property>
+  <property name="dockNestingEnabled">
+   <bool>true</bool>
+  </property>
+  <property name="dockOptions">
+   <set>QMainWindow::AllowNestedDocks|QMainWindow::AllowTabbedDocks|QMainWindow::AnimatedDocks|QMainWindow::ForceTabbedDocks|QMainWindow::GroupedDragging</set>
+  </property>
+  <property name="unifiedTitleAndToolBarOnMac">
+   <bool>true</bool>
+  </property>
+  <widget class="QMdiArea" name="mdiAreaCentral">
+   <property name="viewMode">
+    <enum>QMdiArea::TabbedView</enum>
+   </property>
+   <property name="documentMode">
+    <bool>true</bool>
+   </property>
+   <property name="tabsClosable">
+    <bool>true</bool>
+   </property>
+   <property name="tabsMovable">
+    <bool>true</bool>
+   </property>
+   <property name="tabShape">
+    <enum>QTabWidget::Rounded</enum>
+   </property>
+   <property name="tabPosition">
+    <enum>QTabWidget::North</enum>
+   </property>
+   <widget class="QWidget" name="welcomeWidget">
+    <property name="windowTitle">
+     <string>Welcome</string>
+    </property>
+    <layout class="QVBoxLayout" name="verticalLayoutWelcome">
+     <item>
+      <widget class="QLabel" name="labelWelcomeSWMM">
+       <property name="maximumSize">
+        <size>
+         <width>16777215</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="text">
+        <string># Stormwater Management Model</string>
+       </property>
+       <property name="textFormat">
+        <enum>Qt::MarkdownText</enum>
+       </property>
+       <property name="wordWrap">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QSplitter" name="horizontalSplitterWelcomeOnStartUp">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <widget class="QGroupBox" name="groupBoxShowWelcomeOnStartUp">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="title">
+         <string/>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout">
+         <item>
+          <widget class="QLabel" name="labelStartModeling">
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>25</height>
+            </size>
+           </property>
+           <property name="text">
+            <string>## Start Modeling</string>
+           </property>
+           <property name="textFormat">
+            <enum>Qt::MarkdownText</enum>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QFrame" name="frameStartModeling">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>90</height>
+            </size>
+           </property>
+           <layout class="QVBoxLayout" name="verticalLayout_3">
+            <item>
+             <widget class="QCommandLinkButton" name="commandLinkButtonNew">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>40</height>
+               </size>
+              </property>
+              <property name="text">
+               <string>New Project ...</string>
+              </property>
+              <property name="icon">
+               <iconset resource="../resources/swmmvis.qrc">
+                <normaloff>:/swmmvis/New</normaloff>:/swmmvis/New</iconset>
+              </property>
+              <property name="iconSize">
+               <size>
+                <width>20</width>
+                <height>20</height>
+               </size>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCommandLinkButton" name="commandLinkButtonOpen">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>40</height>
+               </size>
+              </property>
+              <property name="text">
+               <string>Open ...</string>
+              </property>
+              <property name="icon">
+               <iconset resource="../resources/swmmvis.qrc">
+                <normaloff>:/swmmvis/Open</normaloff>:/swmmvis/Open</iconset>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="labelOpenRecentFiles">
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>25</height>
+            </size>
+           </property>
+           <property name="text">
+            <string>## Open Recent Files</string>
+           </property>
+           <property name="textFormat">
+            <enum>Qt::MarkdownText</enum>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QFrame" name="frameOpenRecentFiles">
+           <layout class="QVBoxLayout" name="verticalLayout_6">
+            <item>
+             <widget class="QFrame" name="frameRecentFiles">
+              <property name="frameShape">
+               <enum>QFrame::StyledPanel</enum>
+              </property>
+              <property name="frameShadow">
+               <enum>QFrame::Raised</enum>
+              </property>
+              <layout class="QVBoxLayout" name="verticalLayout_5">
+               <item>
+                <widget class="QScrollArea" name="scrollAreaRecentFiles">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                   <horstretch>1</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="widgetResizable">
+                  <bool>false</bool>
+                 </property>
+                 <widget class="QCommandLinkButton" name="commandLinkButton">
+                  <property name="geometry">
+                   <rect>
+                    <x>0</x>
+                    <y>0</y>
+                    <width>272</width>
+                    <height>41</height>
+                   </rect>
+                  </property>
+                  <property name="text">
+                   <string>xndgjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj</string>
+                  </property>
+                 </widget>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCommandLinkButton" name="commandLinkButtonClearRecentFiles">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>40</height>
+               </size>
+              </property>
+              <property name="text">
+               <string>Clear Recent Files</string>
+              </property>
+              <property name="icon">
+               <iconset resource="../resources/swmmvis.qrc">
+                <normaloff>:/swmmvis/Clear</normaloff>:/swmmvis/Clear</iconset>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QGroupBox" name="groupBoxWelcomeLeft">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+          <horstretch>0</horstretch>
+          <verstretch>3</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="title">
+         <string/>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_2">
+         <item>
+          <widget class="QLabel" name="labelLearnSWMM">
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>25</height>
+            </size>
+           </property>
+           <property name="text">
+            <string>## Learn SWMM</string>
+           </property>
+           <property name="textFormat">
+            <enum>Qt::MarkdownText</enum>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QFrame" name="frameLearnSWMM">
+           <property name="frameShape">
+            <enum>QFrame::StyledPanel</enum>
+           </property>
+           <property name="frameShadow">
+            <enum>QFrame::Raised</enum>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="labelExampleProjects">
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>25</height>
+            </size>
+           </property>
+           <property name="text">
+            <string>## Example Projects</string>
+           </property>
+           <property name="textFormat">
+            <enum>Qt::MarkdownText</enum>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QFrame" name="frameExampleProjects">
+           <property name="frameShape">
+            <enum>QFrame::StyledPanel</enum>
+           </property>
+           <property name="frameShadow">
+            <enum>QFrame::Raised</enum>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="checkBoxShowWelcomeOnStartUp">
+       <property name="text">
+        <string>Show welcome page on start up</string>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+   <widget class="SWMMVisGraphicsView" name="graphicsViewSWMMVis">
+    <property name="contextMenuPolicy">
+     <enum>Qt::CustomContextMenu</enum>
+    </property>
+    <property name="windowTitle">
+     <string>Untitled SWMM Project</string>
+    </property>
+   </widget>
+  </widget>
+  <widget class="QDockWidget" name="dockWidgetSWMMLayers">
+   <property name="sizePolicy">
+    <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+     <horstretch>0</horstretch>
+     <verstretch>0</verstretch>
+    </sizepolicy>
+   </property>
+   <property name="minimumSize">
+    <size>
+     <width>124</width>
+     <height>228</height>
+    </size>
+   </property>
+   <property name="toolTip">
+    <string>Layers</string>
+   </property>
+   <property name="statusTip">
+    <string>Layers</string>
+   </property>
+   <property name="whatsThis">
+    <string>Layers</string>
+   </property>
+   <property name="windowTitle">
+    <string>Layers</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="QWidget" name="dockWidgetContentsSWMMLayers">
+    <layout class="QHBoxLayout" name="horizontalLayout1">
+     <item>
+      <widget class="QTreeView" name="treeViewSWMMLayers">
+       <property name="contextMenuPolicy">
+        <enum>Qt::CustomContextMenu</enum>
+       </property>
+       <property name="editTriggers">
+        <set>QAbstractItemView::NoEditTriggers</set>
+       </property>
+       <property name="dragDropMode">
+        <enum>QAbstractItemView::DragOnly</enum>
+       </property>
+       <property name="sortingEnabled">
+        <bool>true</bool>
+       </property>
+       <property name="wordWrap">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+  <widget class="QDockWidget" name="dockWidgetSimulationStatus">
+   <property name="windowTitle">
+    <string>Simulation Status</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>8</number>
+   </attribute>
+   <widget class="QWidget" name="dockWidgetContentsStatus">
+    <layout class="QVBoxLayout" name="verticalLayout_4">
+     <item>
+      <widget class="QTreeView" name="treeViewSimulationStatus">
+       <property name="editTriggers">
+        <set>QAbstractItemView::NoEditTriggers</set>
+       </property>
+       <property name="showDropIndicator" stdset="0">
+        <bool>false</bool>
+       </property>
+       <property name="alternatingRowColors">
+        <bool>true</bool>
+       </property>
+       <property name="selectionMode">
+        <enum>QAbstractItemView::SingleSelection</enum>
+       </property>
+       <attribute name="headerDefaultSectionSize">
+        <number>300</number>
+       </attribute>
+       <attribute name="headerStretchLastSection">
+        <bool>true</bool>
+       </attribute>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+  <widget class="QDockWidget" name="dockWidgetLogs">
+   <property name="features">
+    <set>QDockWidget::DockWidgetClosable|QDockWidget::DockWidgetFloatable|QDockWidget::DockWidgetMovable</set>
+   </property>
+   <property name="windowTitle">
+    <string>Message Logs</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>8</number>
+   </attribute>
+   <widget class="QWidget" name="dockWidgetContents">
+    <layout class="QHBoxLayout" name="horizontalLayout_3">
+     <item>
+      <widget class="QTreeView" name="treeViewMessageLogs">
+       <property name="contextMenuPolicy">
+        <enum>Qt::ActionsContextMenu</enum>
+       </property>
+       <property name="editTriggers">
+        <set>QAbstractItemView::NoEditTriggers</set>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+  <widget class="QDockWidget" name="dockWidgetProperties">
+   <property name="sizePolicy">
+    <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+     <horstretch>0</horstretch>
+     <verstretch>0</verstretch>
+    </sizepolicy>
+   </property>
+   <property name="minimumSize">
+    <size>
+     <width>102</width>
+     <height>124</height>
+    </size>
+   </property>
+   <property name="toolTip">
+    <string>Properties</string>
+   </property>
+   <property name="statusTip">
+    <string>Properties</string>
+   </property>
+   <property name="whatsThis">
+    <string>Properties of Selected Items</string>
+   </property>
+   <property name="windowTitle">
+    <string>Properties</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>2</number>
+   </attribute>
+   <widget class="QWidget" name="dockWidgetContentsProperties">
+    <layout class="QHBoxLayout" name="horizontalLayout">
+     <item>
+      <widget class="QTreeView" name="treeViewProperties">
+       <property name="wordWrap">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+  <widget class="QDockWidget" name="dockWidgetAnalysisToolBox">
+    <property name="sizePolicy">
+     <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+      <horstretch>0</horstretch>
+      <verstretch>0</verstretch>
+     </sizepolicy>
+    </property>
+    <property name="minimumSize">
+     <size>
+      <width>102</width>
+      <height>124</height>
+     </size>
+    </property>
+    <property name="toolTip">
+     <string>Analysis Toolbox</string>
+    </property>
+    <property name="statusTip">
+     <string>Analysis Toolbox</string>
+    </property>
+    <property name="whatsThis">
+     <string>Analysis Toolbox</string>
+    </property>
+    <property name="windowTitle">
+     <string>Analysis Toolbox</string>
+    </property>
+    <attribute name="dockWidgetArea">
+     <number>2</number>
+    </attribute>
+    <widget class="QWidget" name="dockWidgetContentsAnalysisToolbox">
+     <layout class="QHBoxLayout" name="horizontalLayout">
+      <item>
+       <widget class="QTreeView" name="treeViewAnalysisToolbox">
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </widget>
+  <widget class="QMenuBar" name="menubarMain">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1630</width>
+     <height>22</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menuFile">
+    <property name="title">
+     <string>&amp;File</string>
+    </property>
+    <widget class="QMenu" name="menuOpenRecent">
+     <property name="title">
+      <string>Open Recent</string>
+     </property>
+     <addaction name="separator"/>
+     <addaction name="actionClearRecentFiles"/>
+    </widget>
+    <addaction name="actionNew"/>
+    <addaction name="actionOpen"/>
+    <addaction name="menuOpenRecent"/>
+    <addaction name="separator"/>
+    <addaction name="actionSave"/>
+    <addaction name="actionSaveAs"/>
+    <addaction name="actionSettings"/>
+    <addaction name="separator"/>
+    <addaction name="actionPrint"/>
+    <addaction name="separator"/>
+    <addaction name="actionExit"/>
+   </widget>
+   <widget class="QMenu" name="menuEdit">
+    <property name="title">
+     <string>&amp;Edit</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menuView">
+    <property name="title">
+     <string>&amp;View</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menuTools">
+    <property name="title">
+     <string>Tools</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menuHelp">
+    <property name="title">
+     <string>Help</string>
+    </property>
+    <addaction name="actionHelp"/>
+    <addaction name="actionAbout"/>
+   </widget>
+   <addaction name="menuFile"/>
+   <addaction name="menuEdit"/>
+   <addaction name="menuView"/>
+   <addaction name="menuTools"/>
+   <addaction name="menuHelp"/>
+  </widget>
+  <widget class="QToolBar" name="toolBarMain">
+   <property name="sizePolicy">
+    <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+     <horstretch>0</horstretch>
+     <verstretch>0</verstretch>
+    </sizepolicy>
+   </property>
+   <property name="windowTitle">
+    <string>Main</string>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>TopToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>false</bool>
+   </attribute>
+   <addaction name="actionNew"/>
+   <addaction name="actionOpen"/>
+   <addaction name="actionSave"/>
+   <addaction name="actionPrint"/>
+   <addaction name="separator"/>
+   <addaction name="actionSelect"/>
+   <addaction name="actionZoomIn"/>
+   <addaction name="actionZoomOut"/>
+   <addaction name="actionPan"/>
+   <addaction name="actionZoomExtent"/>
+   <addaction name="actionZoomToSelection"/>
+   <addaction name="separator"/>
+   <addaction name="actionCopy"/>
+   <addaction name="actionSearch"/>
+   <addaction name="actionInvertSelection"/>
+   <addaction name="actionSelectUpstream"/>
+   <addaction name="actionSelectDownstream"/>
+   <addaction name="actionTabularView"/>
+   <addaction name="actionMeasure"/>
+   <addaction name="separator"/>
+   <addaction name="actionExecute"/>
+   <addaction name="actionPauseExecution"/>
+   <addaction name="actionCancelExecution"/>
+   <addaction name="separator"/>
+   <addaction name="actionAddSWMMOutput"/>
+   <addaction name="actionAddVectorData"/>
+   <addaction name="actionAddBasemap"/>
+   <addaction name="actionAddRasterData"/>
+   <addaction name="actionAddWMSData"/>
+   <addaction name="actionAddDelimeteredData"/>
+   <addaction name="separator"/>
+   <addaction name="actionSettings"/>
+  </widget>
+  <widget class="QToolBar" name="toolBarEdit">
+   <property name="windowTitle">
+    <string>Editing</string>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>TopToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>true</bool>
+   </attribute>
+   <addaction name="actionSelectEdit"/>
+   <addaction name="separator"/>
+   <addaction name="actionAddNode"/>
+   <addaction name="actionAddPolyline"/>
+   <addaction name="actionAddPolygon"/>
+   <addaction name="actionAddText"/>
+   <addaction name="separator"/>
+   <addaction name="actionAddSubcatchment"/>
+   <addaction name="separator"/>
+   <addaction name="actionAddJunction"/>
+   <addaction name="actionAddOutfall"/>
+   <addaction name="actionAddStorage"/>
+   <addaction name="separator"/>
+   <addaction name="actionAddPipe"/>
+   <addaction name="actionAddPump"/>
+   <addaction name="actionAddOrifice"/>
+   <addaction name="actionAddWeir"/>
+   <addaction name="actionAddOutlet"/>
+   <addaction name="separator"/>
+   <addaction name="actionRainGauge"/>
+   <addaction name="actionTemperature"/>
+   <addaction name="actionWind"/>
+   <addaction name="actionSnow"/>
+   <addaction name="actionEvaporation"/>
+   <addaction name="actionSolarRadiation"/>
+  </widget>
+  <widget class="QToolBar" name="toolBarAnimation">
+   <property name="windowTitle">
+    <string>Animation</string>
+   </property>
+   <property name="allowedAreas">
+    <set>Qt::BottomToolBarArea|Qt::TopToolBarArea</set>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>TopToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>true</bool>
+   </attribute>
+   <addaction name="actionSkipBack"/>
+   <addaction name="actionPlay"/>
+   <addaction name="actionPause"/>
+   <addaction name="actionStop"/>
+   <addaction name="actionSkipForward"/>
+   <addaction name="separator"/>
+   <addaction name="actionShowLegend"/>
+   <addaction name="actionSetStyle"/>
+   <addaction name="actionShowMassBalance"/>
+  </widget>
+  <widget class="QToolBar" name="toolBarAnalysis">
+   <property name="windowTitle">
+    <string>Analysis</string>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>TopToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>true</bool>
+   </attribute>
+   <addaction name="actionSummarizeResults"/>
+   <addaction name="actionReport"/>
+   <addaction name="separator"/>
+   <addaction name="actionPlotTimeSeries"/>
+   <addaction name="actionPlotProfile"/>
+   <addaction name="separator"/>
+   <addaction name="actionFlowBalanceDownstream"/>
+   <addaction name="actionFlowBalanceUpstream"/>
+   <addaction name="actionTravelTimeDownstream"/>
+   <addaction name="actionTravelTimeUpstream"/>
+  </widget>
+  <widget class="QStatusBar" name="statusBar"/>
+  <action name="actionNew">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/New</normaloff>:/swmmvis/New</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;New</string>
+   </property>
+   <property name="toolTip">
+    <string>New Project</string>
+   </property>
+   <property name="statusTip">
+    <string>New Project</string>
+   </property>
+   <property name="whatsThis">
+    <string>New Project</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+N</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionOpen">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Open</normaloff>:/swmmvis/Open</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Open</string>
+   </property>
+   <property name="toolTip">
+    <string>Open File</string>
+   </property>
+   <property name="statusTip">
+    <string>Open File</string>
+   </property>
+   <property name="whatsThis">
+    <string>Open File</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+O</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionSave">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Save</normaloff>:/swmmvis/Save</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Save</string>
+   </property>
+   <property name="toolTip">
+    <string>Save</string>
+   </property>
+   <property name="statusTip">
+    <string>Save</string>
+   </property>
+   <property name="whatsThis">
+    <string>Save</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+S</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionSaveAs">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/SaveAs</normaloff>:/swmmvis/SaveAs</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Save As</string>
+   </property>
+   <property name="toolTip">
+    <string>Save As</string>
+   </property>
+   <property name="statusTip">
+    <string>Save As</string>
+   </property>
+   <property name="whatsThis">
+    <string>Save As</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Shift+S</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionHelp">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Help</normaloff>:/swmmvis/Help</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Help</string>
+   </property>
+   <property name="toolTip">
+    <string>Help</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionAbout">
+   <property name="text">
+    <string>About</string>
+   </property>
+   <property name="toolTip">
+    <string>About SWMM</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::AboutRole</enum>
+   </property>
+  </action>
+  <action name="actionPrint">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Print</normaloff>:/swmmvis/Print</iconset>
+   </property>
+   <property name="text">
+    <string>Print</string>
+   </property>
+   <property name="toolTip">
+    <string>Print</string>
+   </property>
+   <property name="statusTip">
+    <string>Print</string>
+   </property>
+   <property name="whatsThis">
+    <string>Print</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+P</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionSettings">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Settings</normaloff>:/swmmvis/Settings</iconset>
+   </property>
+   <property name="text">
+    <string>Settings</string>
+   </property>
+   <property name="toolTip">
+    <string>Application Settings</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+,</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionExit">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Exit</normaloff>:/swmmvis/Exit</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Exit</string>
+   </property>
+   <property name="statusTip">
+    <string>Exit</string>
+   </property>
+   <property name="whatsThis">
+    <string>Exit</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Q</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::QuitRole</enum>
+   </property>
+  </action>
+  <action name="actionZoomExtent">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Extent</normaloff>:/swmmvis/Extent</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Zoom Extent</string>
+   </property>
+   <property name="statusTip">
+    <string>Zoom Extent</string>
+   </property>
+   <property name="whatsThis">
+    <string>Zoom Extent</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionCopy">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Copy</normaloff>:/swmmvis/Copy</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Copy</string>
+   </property>
+   <property name="statusTip">
+    <string>Copy</string>
+   </property>
+   <property name="whatsThis">
+    <string>Copy</string>
+   </property>
+   <property name="shortcut">
+    <string>Copy</string>
+   </property>
+  </action>
+  <action name="actionSearch">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Search</normaloff>:/swmmvis/Search</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Search</string>
+   </property>
+   <property name="statusTip">
+    <string>Search</string>
+   </property>
+   <property name="whatsThis">
+    <string>Search</string>
+   </property>
+   <property name="shortcut">
+    <string>Search</string>
+   </property>
+  </action>
+  <action name="actionInvertSelection">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/InvertSelection</normaloff>:/swmmvis/InvertSelection</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Invert Selection</string>
+   </property>
+   <property name="statusTip">
+    <string>Invert Selection</string>
+   </property>
+   <property name="whatsThis">
+    <string>Invert Selection</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionSelectUpstream">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/SelectUpstream</normaloff>:/swmmvis/SelectUpstream</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Select Upstream</string>
+   </property>
+   <property name="statusTip">
+    <string>Select Upstream</string>
+   </property>
+   <property name="whatsThis">
+    <string>Select Upstream</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionSelectDownstream">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/SelectDownstream</normaloff>:/swmmvis/SelectDownstream</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Select Downstream</string>
+   </property>
+   <property name="statusTip">
+    <string>Select Downstream</string>
+   </property>
+   <property name="whatsThis">
+    <string>Select Downstream</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionTabularView">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/TableView</normaloff>:/swmmvis/TableView</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Tabular View</string>
+   </property>
+   <property name="statusTip">
+    <string>Tabular View</string>
+   </property>
+   <property name="whatsThis">
+    <string>Tabular View</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionMeasure">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Ruler</normaloff>:/swmmvis/Ruler</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Measure</string>
+   </property>
+   <property name="statusTip">
+    <string>Measure</string>
+   </property>
+   <property name="whatsThis">
+    <string>Measure</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionExecute">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Execute</normaloff>:/swmmvis/Execute</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Execute</string>
+   </property>
+   <property name="statusTip">
+    <string>Execute</string>
+   </property>
+   <property name="whatsThis">
+    <string>Execute</string>
+   </property>
+   <property name="shortcut">
+    <string>Execute</string>
+   </property>
+  </action>
+  <action name="actionPauseExecution">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Pause</normaloff>:/swmmvis/Pause</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Pause Execution</string>
+   </property>
+   <property name="statusTip">
+    <string>Pause Execution</string>
+   </property>
+   <property name="whatsThis">
+    <string>Pause Execution</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionCancelExecution">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/CancelExecution</normaloff>:/swmmvis/CancelExecution</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Cancel Execution</string>
+   </property>
+   <property name="statusTip">
+    <string>Cancel Execution</string>
+   </property>
+   <property name="whatsThis">
+    <string>Cancel Execution</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionSkipBack">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/SkipBack</normaloff>:/swmmvis/SkipBack</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Skip Backward</string>
+   </property>
+   <property name="statusTip">
+    <string>Skip Backward</string>
+   </property>
+   <property name="whatsThis">
+    <string>Skip Backward</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionStop">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Stop</normaloff>:/swmmvis/Stop</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Stop</string>
+   </property>
+   <property name="statusTip">
+    <string>Stop</string>
+   </property>
+   <property name="whatsThis">
+    <string>Stop</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionSkipForward">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/SkipForward</normaloff>:/swmmvis/SkipForward</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Skip Forward</string>
+   </property>
+   <property name="statusTip">
+    <string>Skip Forward</string>
+   </property>
+   <property name="whatsThis">
+    <string>Skip Forward</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionShowMassBalance">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Chartpie</normaloff>:/swmmvis/Chartpie</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Show Mass Balance</string>
+   </property>
+   <property name="statusTip">
+    <string>Show Mass Balance</string>
+   </property>
+   <property name="whatsThis">
+    <string>Show Mass Balance</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionSelectEdit">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/SelectEdit</normaloff>:/swmmvis/SelectEdit</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Select Edit</string>
+   </property>
+   <property name="statusTip">
+    <string>Select Edit</string>
+   </property>
+   <property name="whatsThis">
+    <string>Select Edit</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionAddNode">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Node</normaloff>:/swmmvis/Node</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Add Node</string>
+   </property>
+   <property name="statusTip">
+    <string>Add Node</string>
+   </property>
+   <property name="whatsThis">
+    <string>Add Node</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionAddPolyline">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Polyline</normaloff>:/swmmvis/Polyline</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Add Polyline</string>
+   </property>
+   <property name="statusTip">
+    <string>Add Link</string>
+   </property>
+   <property name="whatsThis">
+    <string>Add Link</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionAddPolygon">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Polygon</normaloff>:/swmmvis/Polygon</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Add Polygon</string>
+   </property>
+   <property name="statusTip">
+    <string>Add Polygon</string>
+   </property>
+   <property name="whatsThis">
+    <string>Add Polygon</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionRainGauge">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Rainfall</normaloff>:/swmmvis/Rainfall</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Add Rain Gauge</string>
+   </property>
+   <property name="statusTip">
+    <string>Add Rain Gauge</string>
+   </property>
+   <property name="whatsThis">
+    <string>Add Rain Gauge</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionSetStyle">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Style</normaloff>:/swmmvis/Style</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Set Style</string>
+   </property>
+   <property name="statusTip">
+    <string>Set Style</string>
+   </property>
+   <property name="whatsThis">
+    <string>Set Style</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionPlotTimeSeries">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Chart</normaloff>:/swmmvis/Chart</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Plot Timeseries</string>
+   </property>
+   <property name="statusTip">
+    <string>Plot Timeseries</string>
+   </property>
+   <property name="whatsThis">
+    <string>Plot Timeseries</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionPlotProfile">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Profile</normaloff>:/swmmvis/Profile</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Plot Profile</string>
+   </property>
+   <property name="statusTip">
+    <string>Plot Profile</string>
+   </property>
+   <property name="whatsThis">
+    <string>Plot Profile</string>
+   </property>
+   <property name="shortcut">
+    <string/>
+   </property>
+  </action>
+  <action name="actionSnow">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Snow</normaloff>:/swmmvis/Snow</iconset>
+   </property>
+   <property name="text">
+    <string>actionSnow</string>
+   </property>
+   <property name="toolTip">
+    <string>Snow Options</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionTemperature">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Thermometer</normaloff>:/swmmvis/Thermometer</iconset>
+   </property>
+   <property name="text">
+    <string>actionTemperature</string>
+   </property>
+   <property name="toolTip">
+    <string>Air Temperature Options</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionEvaporation">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Evaporation</normaloff>:/swmmvis/Evaporation</iconset>
+   </property>
+   <property name="text">
+    <string>actionEvaporation</string>
+   </property>
+   <property name="toolTip">
+    <string>Evaporation Options</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionAddText">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Text</normaloff>:/swmmvis/Text</iconset>
+   </property>
+   <property name="text">
+    <string>addText</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Text</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionAddJunction">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Junction</normaloff>:/swmmvis/Junction</iconset>
+   </property>
+   <property name="text">
+    <string>AddJunction</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Junction</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionAddPipe">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Polyline</normaloff>:/swmmvis/Polyline</iconset>
+   </property>
+   <property name="text">
+    <string>AddPipe</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Pipe</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionAddStorage">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Storage</normaloff>:/swmmvis/Storage</iconset>
+   </property>
+   <property name="text">
+    <string>AddStorage</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Storage</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionAddOutfall">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Outfall</normaloff>:/swmmvis/Outfall</iconset>
+   </property>
+   <property name="text">
+    <string>AddOutfall</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Outfall</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionAddFlowDivider">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Divider</normaloff>:/swmmvis/Divider</iconset>
+   </property>
+   <property name="text">
+    <string>AddFlowDivider</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Flow Divider</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionAddPump">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Pump</normaloff>:/swmmvis/Pump</iconset>
+   </property>
+   <property name="text">
+    <string>AddPump</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Pump</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionAddSubcatchment">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Subcatchment</normaloff>:/swmmvis/Subcatchment</iconset>
+   </property>
+   <property name="text">
+    <string>AddSubcatchment</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Subcatchment</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionAddOrifice">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Orifice</normaloff>:/swmmvis/Orifice</iconset>
+   </property>
+   <property name="text">
+    <string>AddOrifice</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Orifice</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionAddWeir">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Weir</normaloff>:/swmmvis/Weir</iconset>
+   </property>
+   <property name="text">
+    <string>AddWeir</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Weir</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionAddOutlet">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Outlet</normaloff>:/swmmvis/Outlet</iconset>
+   </property>
+   <property name="text">
+    <string>AddOutlet</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Outlet</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionWind">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Wind</normaloff>:/swmmvis/Wind</iconset>
+   </property>
+   <property name="text">
+    <string>Wind</string>
+   </property>
+   <property name="toolTip">
+    <string>Wind Options</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionSummarizeResults">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Summarize</normaloff>:/swmmvis/Summarize</iconset>
+   </property>
+   <property name="text">
+    <string>SummarizeResults</string>
+   </property>
+   <property name="toolTip">
+    <string>Summarize Model Results</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionReport">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Report</normaloff>:/swmmvis/Report</iconset>
+   </property>
+   <property name="text">
+    <string>Report</string>
+   </property>
+   <property name="toolTip">
+    <string>Report</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionFlowBalanceDownstream">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/FlowBalanceDownstream</normaloff>:/swmmvis/FlowBalanceDownstream</iconset>
+   </property>
+   <property name="text">
+    <string>FlowBalanceDownstream</string>
+   </property>
+   <property name="toolTip">
+    <string>Flow Balance Downstream</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionFlowBalanceUpstream">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/FlowBalanceUpstream</normaloff>:/swmmvis/FlowBalanceUpstream</iconset>
+   </property>
+   <property name="text">
+    <string>FlowBalanceUpstream</string>
+   </property>
+   <property name="toolTip">
+    <string>Flow Balance Upstream</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionTravelTimeDownstream">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/TravelTimeDownstream</normaloff>:/swmmvis/TravelTimeDownstream</iconset>
+   </property>
+   <property name="text">
+    <string>TravelTimeDownstream</string>
+   </property>
+   <property name="toolTip">
+    <string>Travel Time Downstream</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionTravelTimeUpstream">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/TraveTimeUpstream</normaloff>:/swmmvis/TraveTimeUpstream</iconset>
+   </property>
+   <property name="text">
+    <string>TravelTimeUpstream</string>
+   </property>
+   <property name="toolTip">
+    <string>Travel Time Upstream</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionSolarRadiation">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Sun</normaloff>:/swmmvis/Sun</iconset>
+   </property>
+   <property name="text">
+    <string>SolarRadiation</string>
+   </property>
+   <property name="toolTip">
+    <string>Solar Radiation Options</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionShowLegend">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Legend</normaloff>:/swmmvis/Legend</iconset>
+   </property>
+   <property name="text">
+    <string>ShowLegend</string>
+   </property>
+   <property name="toolTip">
+    <string>Show Legend</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionAddSWMMOutput">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/AddSWMMOutput</normaloff>:/swmmvis/AddSWMMOutput</iconset>
+   </property>
+   <property name="text">
+    <string>Open SWMM Output</string>
+   </property>
+   <property name="toolTip">
+    <string>Open SWMM Output
+      
+     </string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionAddDelimeteredData">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/AddDelimetered</normaloff>:/swmmvis/AddDelimetered</iconset>
+   </property>
+   <property name="text">
+    <string>Add Delimetered Data</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Delimitered Data</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionAddRasterData">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/AddRaster</normaloff>:/swmmvis/AddRaster</iconset>
+   </property>
+   <property name="text">
+    <string>Add Raster Data</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Raster Data</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionAddVectorData">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/AddVector</normaloff>:/swmmvis/AddVector</iconset>
+   </property>
+   <property name="text">
+    <string>Add Vector Data </string>
+   </property>
+   <property name="toolTip">
+    <string>Add Vector Data</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionAddWMSData">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/AddWMS</normaloff>:/swmmvis/AddWMS</iconset>
+   </property>
+   <property name="text">
+    <string>Add WMS Data</string>
+   </property>
+   <property name="toolTip">
+    <string>Add WMS/WMTS Data</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionZoomToSelection">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/ZoomToSelection</normaloff>:/swmmvis/ZoomToSelection</iconset>
+   </property>
+   <property name="text">
+    <string>Zoom To Selection</string>
+   </property>
+   <property name="toolTip">
+    <string>Zoom To Selection</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionAddBasemap">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/AddBasemap</normaloff>:/swmmvis/AddBasemap</iconset>
+   </property>
+   <property name="text">
+    <string>Add Basemap</string>
+   </property>
+   <property name="toolTip">
+    <string>Add Basemap</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionClearRecentFiles">
+   <property name="text">
+    <string>Clear</string>
+   </property>
+   <property name="toolTip">
+    <string>Clear Recent Files</string>
+   </property>
+  </action>
+  <actiongroup name="">
+   <action name="actionPlay">
+    <property name="checkable">
+     <bool>true</bool>
+    </property>
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="icon">
+     <iconset resource="../resources/swmmvis.qrc">
+      <normaloff>:/swmmvis/Play</normaloff>:/swmmvis/Play</iconset>
+    </property>
+    <property name="text">
+     <string>&amp;Play</string>
+    </property>
+    <property name="statusTip">
+     <string>Play</string>
+    </property>
+    <property name="whatsThis">
+     <string>Play</string>
+    </property>
+    <property name="shortcut">
+     <string/>
+    </property>
+   </action>
+   <action name="actionPause">
+    <property name="checkable">
+     <bool>true</bool>
+    </property>
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="icon">
+     <iconset resource="../resources/swmmvis.qrc">
+      <normaloff>:/swmmvis/Pause</normaloff>:/swmmvis/Pause</iconset>
+    </property>
+    <property name="text">
+     <string>&amp;Pause</string>
+    </property>
+    <property name="statusTip">
+     <string>Pause</string>
+    </property>
+    <property name="whatsThis">
+     <string>Pause</string>
+    </property>
+    <property name="shortcut">
+     <string/>
+    </property>
+   </action>
+  </actiongroup>
+  <actiongroup name="selectTools">
+   <action name="actionSelect">
+    <property name="checkable">
+     <bool>true</bool>
+    </property>
+    <property name="icon">
+     <iconset resource="../resources/swmmvis.qrc">
+      <normaloff>:/swmmvis/Select</normaloff>:/swmmvis/Select</iconset>
+    </property>
+    <property name="text">
+     <string>&amp;Select</string>
+    </property>
+    <property name="statusTip">
+     <string>Select</string>
+    </property>
+    <property name="whatsThis">
+     <string>Select</string>
+    </property>
+    <property name="shortcut">
+     <string>Select</string>
+    </property>
+   </action>
+   <action name="actionZoomIn">
+    <property name="checkable">
+     <bool>true</bool>
+    </property>
+    <property name="icon">
+     <iconset resource="../resources/swmmvis.qrc">
+      <normaloff>:/swmmvis/ZoomIn</normaloff>:/swmmvis/ZoomIn</iconset>
+    </property>
+    <property name="text">
+     <string>&amp;Zoom In</string>
+    </property>
+    <property name="statusTip">
+     <string>Zoom In</string>
+    </property>
+    <property name="whatsThis">
+     <string>Zoom In</string>
+    </property>
+    <property name="shortcut">
+     <string>Zoom In</string>
+    </property>
+   </action>
+   <action name="actionZoomOut">
+    <property name="checkable">
+     <bool>true</bool>
+    </property>
+    <property name="icon">
+     <iconset resource="../resources/swmmvis.qrc">
+      <normaloff>:/swmmvis/ZoomOut</normaloff>:/swmmvis/ZoomOut</iconset>
+    </property>
+    <property name="text">
+     <string>&amp;Zoom Out</string>
+    </property>
+    <property name="statusTip">
+     <string>Zoom Out</string>
+    </property>
+    <property name="whatsThis">
+     <string>Zoom Out</string>
+    </property>
+    <property name="shortcut">
+     <string>Zoom Out</string>
+    </property>
+   </action>
+   <action name="actionPan">
+    <property name="checkable">
+     <bool>true</bool>
+    </property>
+    <property name="icon">
+     <iconset resource="../resources/swmmvis.qrc">
+      <normaloff>:/swmmvis/Move</normaloff>:/swmmvis/Move</iconset>
+    </property>
+    <property name="text">
+     <string>&amp;Pan</string>
+    </property>
+    <property name="statusTip">
+     <string>Pan</string>
+    </property>
+    <property name="whatsThis">
+     <string>Pan</string>
+    </property>
+    <property name="shortcut">
+     <string/>
+    </property>
+   </action>
+  </actiongroup>
+ </widget>
+ <layoutdefault spacing="6" margin="11"/>
+ <customwidgets>
+  <customwidget>
+   <class>SWMMVisGraphicsView</class>
+   <extends>QGraphicsView</extends>
+   <header>swmmvisgraphicsview.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources>
+  <include location="../resources/swmmvis.qrc"/>
+ </resources>
+ <connections>
+  <connection>
+   <sender>actionExit</sender>
+   <signal>triggered()</signal>
+   <receiver>SWMMVis</receiver>
+   <slot>close()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>-1</x>
+     <y>-1</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>814</x>
+     <y>458</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>
