@@ -1,0 +1,7 @@
+#pragma once
+
+#define SWMM_VERSION_MAJOR 6
+#define SWMM_VERSION_MINOR 0
+#define SWMM_VERSION_PATCH 0
+#define SWMM_VERSION_TWEAK 
+#define SWMM_VERSION "6.0.0"
