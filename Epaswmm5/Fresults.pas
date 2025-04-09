@@ -546,7 +546,7 @@ begin
         // Set headers for non-pollutant columns
         ColHeaders[0] := #10#10#10'Outfall Node';
         ColHeaders[1] := #10'Flow'#10'Frequency'#10'%';
-        ColHeaders[2] := #10'Avgerage'#10'Flow'#10 + Units1;
+        ColHeaders[2] := #10'Average'#10'Flow'#10 + Units1;
         ColHeaders[3] := #10'Maximum'#10'Flow'#10 + Units1;
         ColHeaders[4] := #10'Total'#10'Volume'#10 + Units2;
 
