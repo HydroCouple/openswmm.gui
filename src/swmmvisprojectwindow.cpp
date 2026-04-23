@@ -408,6 +408,18 @@ void SWMMVisProjectWindow::closeEvent(QCloseEvent *event)
     QMdiSubWindow::closeEvent(event);
 }
 
+void SWMMVisProjectWindow::changeEvent(QEvent *event)
+{
+    if (event->type() == QEvent::WindowStateChange
+            && (windowState() & Qt::WindowMinimized))
+    {
+        setWindowState(windowState() & ~Qt::WindowMinimized);
+        event->ignore();
+        return;
+    }
+    QMdiSubWindow::changeEvent(event);
+}
+
 void SWMMVisProjectWindow::activatePanTool()         { mCanvas->setActiveTool(mPanTool); }
 void SWMMVisProjectWindow::activateZoomInTool()      { mCanvas->setActiveTool(mZoomInTool); }
 void SWMMVisProjectWindow::activateZoomOutTool()     { mCanvas->setActiveTool(mZoomOutTool); }
