@@ -22,20 +22,26 @@
 #include <ogr_spatialref.h>
 #include <ogr_api.h>
 
-static constexpr int    TILE_SIZE_PX  = 256;
 static constexpr double PI            = M_PI;
 static constexpr double DEG_TO_RAD    = PI / 180.0;
 static constexpr double RAD_TO_DEG    = 180.0 / PI;
 
 // ---------------------------------------------------------------------------
 
-XYZTileLayer::XYZTileLayer(const QString &urlTemplate, QObject *parent)
+XYZTileLayer::XYZTileLayer(const QString &urlTemplate,
+                           int tileSizePx,
+                           QObject *parent)
     : OpenSWMMVisLayer(QStringLiteral("XYZ Tiles"), nullptr)
     , m_urlTemplate(urlTemplate)
     , m_nam(new QNetworkAccessManager(this))
     , m_tileCache(400)  // max 400 tiles in LRU cache
+    , m_tileSizePx(tileSizePx > 0 ? tileSizePx : 256)
 {
     Q_UNUSED(parent)
+
+    // Classify as basemap imagery so the layer-tree panel buckets XYZ tile
+    // providers (CartoDB, OSM, etc.) under "Basemaps" instead of "Other".
+    setLayerType(SWMMImageryLayer);
 
     // WGS84 SRS for tile-coordinate math
     m_wgs84 = new OGRSpatialReference();
@@ -130,7 +136,7 @@ int XYZTileLayer::bestZoom(const QRectF &wgs84Extent, int vpWidth) const
         return 2;
 
     // We want: (lonSpan / 360) * 2^z * 256 ≈ vpWidth
-    const double idealZ = std::log2((vpWidth * 360.0) / (lonSpan * TILE_SIZE_PX));
+    const double idealZ = std::log2((vpWidth * 360.0) / (lonSpan * m_tileSizePx));
 
     // Round up when the fractional part >= 0.3 — biases toward sharper tiles
     // (more numerous, no upscaling) at the cost of slightly more tile fetches.
@@ -466,11 +472,12 @@ void XYZTileLayer::render(QPainter *painter,
     if (srcBoundsMerc.isEmpty()) return;
 
     // Source buffer: assemble all tiles into a single Web Mercator image.
-    // Width / height = tile count × 256 px.
+    // Width / height = tile count × m_tileSizePx (256 for standard XYZ, 512
+    // for HiDPI @2x endpoints).
     const int tilesX = txMax - txMin + 1;
     const int tilesY = tyMax - tyMin + 1;
-    const int srcW = tilesX * TILE_SIZE_PX;
-    const int srcH = tilesY * TILE_SIZE_PX;
+    const int srcW = tilesX * m_tileSizePx;
+    const int srcH = tilesY * m_tileSizePx;
     if (srcW <= 0 || srcH <= 0 || srcW > 65536 || srcH > 65536) return;
 
     QImage srcBuf(srcW, srcH, QImage::Format_ARGB32_Premultiplied);
@@ -488,7 +495,7 @@ void XYZTileLayer::render(QPainter *painter,
                                                .arg(pz).arg(tx / 2).arg(ty / 2);
                         if (auto *fb = m_tileCache.object(pk)) {
                             // Render parent tile crop — quarter-rect for the child
-                            const int cw = TILE_SIZE_PX, ch = TILE_SIZE_PX;
+                            const int cw = m_tileSizePx, ch = m_tileSizePx;
                             const QRect srcRect((tx & 1) * (cw / 2),
                                                 (ty & 1) * (ch / 2),
                                                 cw / 2, ch / 2);
@@ -498,8 +505,8 @@ void XYZTileLayer::render(QPainter *painter,
                     }
                     continue;
                 }
-                sp.drawImage((tx - txMin) * TILE_SIZE_PX,
-                             (ty - tyMin) * TILE_SIZE_PX, *tile);
+                sp.drawImage((tx - txMin) * m_tileSizePx,
+                             (ty - tyMin) * m_tileSizePx, *tile);
             }
         }
     }

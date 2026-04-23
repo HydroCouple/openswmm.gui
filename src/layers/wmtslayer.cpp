@@ -94,6 +94,7 @@ void WMTSLayer::setActiveTileMatrixSet(const QString &id)
     {
         m_activeTileMatrixSet = id;
         m_tileCache.clear();
+        applyCRSFromTileMatrixSet(id);
         emit activeTileMatrixSetChanged(id);
         emit repaintRequested();
     }
@@ -566,6 +567,46 @@ void WMTSLayer::parseCapabilities(const QByteArray &xml)
     }
 
     emit capabilitiesFetched(info);
+
+    // Apply the CRS from the auto-selected tile matrix set (if any).
+    if (!m_activeTileMatrixSet.isEmpty())
+        applyCRSFromTileMatrixSet(m_activeTileMatrixSet);
+}
+
+void WMTSLayer::applyCRSFromTileMatrixSet(const QString &tmsId)
+{
+    // Find the matching tile matrix set.
+    const WMTSTileMatrixSet *tms = nullptr;
+    for (const WMTSTileMatrixSet &t : m_serviceInfo.tileMatrixSets)
+    {
+        if (t.identifier == tmsId)
+        {
+            tms = &t;
+            break;
+        }
+    }
+    if (!tms || tms->crsIdentifier.isEmpty())
+        return;
+
+    // Parse the CRS identifier.  Accepted forms:
+    //   "EPSG:3857"                           (auth:code)
+    //   "urn:ogc:def:crs:EPSG::3857"          (OGC URN — double colon is normal)
+    //   "urn:ogc:def:crs:EPSG:6.18:3857"      (OGC URN with version)
+    const QStringList parts = tms->crsIdentifier.split(QLatin1Char(':'),
+                                                        Qt::SkipEmptyParts);
+    if (parts.size() < 2)
+        return;
+
+    // Last token is always the numeric code; the token before it is the authority.
+    bool ok = false;
+    const int code = parts.last().toInt(&ok);
+    if (!ok || code <= 0)
+        return;
+    const QString authName = parts.at(parts.size() - 2).toUpper();
+
+    auto *srs = SpatialReferenceSystem::fromAuthCode(authName, code, this);
+    if (srs)
+        setSRS(srs, true /* ownsSRS */);
 }
 
 const WMTSTileMatrix *WMTSLayer::selectTileMatrix(const WMTSTileMatrixSet &tms,

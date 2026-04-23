@@ -24,10 +24,8 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
-#ifdef HAVE_OPENSWMMCORE
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_spatial.h>
-#endif
 
 // ---------------------------------------------------------------------------
 // Pure-helpers (parseEngineBool / engineBoolString / format/parse DateTime)
@@ -622,12 +620,10 @@ void SimulationOptionsDialog::read2DFromEngine()
 {
     bool ok = false;
     auto getExt = [&](const char *key, const QString &fallback) -> QString {
-#ifdef HAVE_OPENSWMMCORE
         if (!m_engine) return fallback;
         char buf[256] = {};
         if (swmm_options_get_ext(m_engine, key, buf, sizeof(buf)) == 0)
             return QString::fromUtf8(buf).trimmed();
-#endif
         return fallback;
     };
 
@@ -654,21 +650,15 @@ void SimulationOptionsDialog::read2DFromEngine()
 int SimulationOptionsDialog::write2DToEngine(int &n)
 {
     auto getExt = [&](const char *key) -> QString {
-#ifdef HAVE_OPENSWMMCORE
         if (!m_engine) return {};
         char buf[256] = {};
         if (swmm_options_get_ext(m_engine, key, buf, sizeof(buf)) == 0)
             return QString::fromUtf8(buf).trimmed();
-#endif
         return {};
     };
     auto setExt = [&](const char *key, const QString &v) -> bool {
-#ifdef HAVE_OPENSWMMCORE
         if (!m_engine) return false;
         return swmm_options_set_ext(m_engine, key, v.toUtf8().constData()) == 0;
-#else
-        Q_UNUSED(key) Q_UNUSED(v) return false;
-#endif
     };
     auto writeIfChanged = [&](const char *key, const QString &cur, const QString &nv) {
         if (cur == nv) return;
@@ -713,28 +703,18 @@ int SimulationOptionsDialog::write2DToEngine(int &n)
 QString SimulationOptionsDialog::getOption(const char *key,
                                            const QString &fallback) const
 {
-#ifdef HAVE_OPENSWMMCORE
     if (!m_engine) return fallback;
     char buf[256] = {};
     if (swmm_options_get(m_engine, key, buf, sizeof(buf)) == 0)
         return QString::fromUtf8(buf).trimmed();
     return fallback;
-#else
-    Q_UNUSED(key) Q_UNUSED(fallback)
-    return fallback;
-#endif
 }
 
 bool SimulationOptionsDialog::setOption(const char *key, const QString &value)
 {
-#ifdef HAVE_OPENSWMMCORE
     if (!m_engine) return false;
     const QByteArray v = value.toUtf8();
     return swmm_options_set(m_engine, key, v.constData()) == 0;
-#else
-    Q_UNUSED(key) Q_UNUSED(value)
-    return false;
-#endif
 }
 
 // ---------------------------------------------------------------------------

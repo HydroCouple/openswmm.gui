@@ -10,13 +10,8 @@
 #include <QObject>
 #include <QString>
 
-#ifdef HAVE_OPENSWMMCORE
 #include <openswmm/legacy/engine/openswmm_solver.h>
 #include <openswmm/engine/openswmm_model.h>
-#else
-typedef enum { swmm_CFS=0, swmm_GPM=1, swmm_MGD=2, swmm_CMS=3, swmm_LPS=4, swmm_MLD=5 } swmm_FlowUnitsProperty;
-typedef void* SWMM_Engine;
-#endif
 
 /**
  * @brief Per-project flow-units state + label helpers.

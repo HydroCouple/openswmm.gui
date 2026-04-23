@@ -1,0 +1,156 @@
+/*!
+ * \file   test_editgeometry.cpp
+ * \author Caleb Buahin <caleb.buahin@gmail.com>
+ * \date 2026
+ *
+ * \brief Leaf QtTest for the pure geometry helpers used by the map-edit
+ *        tools (MapToolMoveNode, MapToolEditVertex) and their undo
+ *        commands (MoveNodeCommand, EditVertexCommand).
+ */
+
+#include <QtTest/QtTest>
+
+#include "core/editgeometry.h"
+
+class TestEditGeometry : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    // polylineLength -----------------------------------------------------
+    void polylineLength_empty()
+    {
+        QCOMPARE(EditGeometry::polylineLength({}), 0.0);
+    }
+
+    void polylineLength_singleVertex()
+    {
+        QCOMPARE(EditGeometry::polylineLength({{1.0, 1.0}}), 0.0);
+    }
+
+    void polylineLength_twoPoints()
+    {
+        // 3-4-5 triangle
+        QCOMPARE(EditGeometry::polylineLength({{0.0, 0.0}, {3.0, 4.0}}), 5.0);
+    }
+
+    void polylineLength_multiSegment()
+    {
+        // 3 segments of length 1 each = 3
+        const QVector<QPointF> v{{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+        QCOMPARE(EditGeometry::polylineLength(v), 3.0);
+    }
+
+    // replacedAt ---------------------------------------------------------
+    void replacedAt_firstVertex()
+    {
+        const QVector<QPointF> v{{0, 0}, {1, 1}, {2, 2}};
+        const auto r = EditGeometry::replacedAt(v, 0, {10, 10});
+        QCOMPARE(r.size(), 3);
+        QCOMPARE(r[0], QPointF(10, 10));
+        QCOMPARE(r[1], QPointF(1, 1));
+        QCOMPARE(r[2], QPointF(2, 2));
+    }
+
+    void replacedAt_lastVertex()
+    {
+        const QVector<QPointF> v{{0, 0}, {1, 1}, {2, 2}};
+        const auto r = EditGeometry::replacedAt(v, 2, {99, 99});
+        QCOMPARE(r[2], QPointF(99, 99));
+    }
+
+    void replacedAt_outOfRangeIsNoOp()
+    {
+        const QVector<QPointF> v{{0, 0}, {1, 1}};
+        const auto r = EditGeometry::replacedAt(v, 5, {3, 3});
+        QCOMPARE(r, v);
+    }
+
+    // insertedAt ---------------------------------------------------------
+    void insertedAt_middle()
+    {
+        const QVector<QPointF> v{{0, 0}, {2, 2}};
+        const auto r = EditGeometry::insertedAt(v, 1, {1, 1});
+        QCOMPARE(r.size(), 3);
+        QCOMPARE(r[0], QPointF(0, 0));
+        QCOMPARE(r[1], QPointF(1, 1));
+        QCOMPARE(r[2], QPointF(2, 2));
+    }
+
+    void insertedAt_atEndClamps()
+    {
+        const QVector<QPointF> v{{0, 0}};
+        const auto r = EditGeometry::insertedAt(v, 10, {1, 1});
+        QCOMPARE(r.size(), 2);
+        QCOMPARE(r.last(), QPointF(1, 1));
+    }
+
+    // removedAt ----------------------------------------------------------
+    void removedAt_interior()
+    {
+        const QVector<QPointF> v{{0, 0}, {1, 1}, {2, 2}};
+        const auto r = EditGeometry::removedAt(v, 1);
+        QCOMPARE(r.size(), 2);
+        QCOMPARE(r[0], QPointF(0, 0));
+        QCOMPARE(r[1], QPointF(2, 2));
+    }
+
+    void removedAt_tooSmall_returnsCopy()
+    {
+        const QVector<QPointF> v{{0, 0}, {1, 1}};
+        const auto r = EditGeometry::removedAt(v, 0);
+        QCOMPARE(r, v); // size-2 input must not be trimmed
+    }
+
+    // distanceToPolyline -------------------------------------------------
+    void distanceToPolyline_onSegment()
+    {
+        const QVector<QPointF> v{{0, 0}, {10, 0}};
+        int seg = -1;
+        QPointF pt;
+        const double d = EditGeometry::distanceToPolyline(v, {5, 3}, &seg, &pt);
+        QCOMPARE(d, 3.0);
+        QCOMPARE(seg, 0);
+        QCOMPARE(pt, QPointF(5, 0));
+    }
+
+    void distanceToPolyline_beyondEndpoint()
+    {
+        const QVector<QPointF> v{{0, 0}, {10, 0}};
+        const double d = EditGeometry::distanceToPolyline(v, {15, 0});
+        QCOMPARE(d, 5.0);
+    }
+
+    void distanceToPolyline_empty_returnsInfinity()
+    {
+        const double d = EditGeometry::distanceToPolyline({}, {0, 0});
+        QVERIFY(std::isinf(d));
+    }
+
+    void distanceToPolyline_picksNearestSegment()
+    {
+        // L-shape: horizontal then vertical
+        const QVector<QPointF> v{{0, 0}, {10, 0}, {10, 10}};
+        int seg = -1;
+        const double d = EditGeometry::distanceToPolyline(v, {12, 5}, &seg, nullptr);
+        QCOMPARE(d, 2.0);
+        QCOMPARE(seg, 1); // vertical segment is closer than the horizontal one
+    }
+
+    // Composite: auto-length after endpoint move ------------------------
+    void autoLength_recomputeAfterEndpointMove()
+    {
+        // Link polyline: [(0,0), (5,0), (10,0)] — length 10 before.
+        // Move the first endpoint to (0,3). New length = √((5-0)²+(0-3)²)+5
+        //                                             = √34 + 5 ≈ 10.8309519
+        const QVector<QPointF> before{{0, 0}, {5, 0}, {10, 0}};
+        QCOMPARE(EditGeometry::polylineLength(before), 10.0);
+
+        const auto after = EditGeometry::replacedAt(before, 0, {0, 3});
+        const double len = EditGeometry::polylineLength(after);
+        QVERIFY(qAbs(len - (std::sqrt(34.0) + 5.0)) < 1e-9);
+    }
+};
+
+QTEST_APPLESS_MAIN(TestEditGeometry)
+#include "test_editgeometry.moc"

@@ -69,6 +69,22 @@ add_swmmvis_gui_test(test_selectionmanager
     ${CMAKE_SOURCE_DIR}/include/selection/selectionmanager.h
 )
 
+add_swmmvis_gui_test(test_editgeometry
+    test_editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/editgeometry.h
+)
+
+# Smoke test for the reprojection primitive every layer uses when rendering
+# in a canvas CRS different from the layer's own CRS. Links GDAL directly.
+add_swmmvis_gui_test(test_layerreprojection
+    test_layerreprojection.cpp
+    ${CMAKE_SOURCE_DIR}/src/map/spatialreferencesystem.cpp
+    ${CMAKE_SOURCE_DIR}/include/map/spatialreferencesystem.h
+)
+target_include_directories(test_layerreprojection PRIVATE ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_layerreprojection PRIVATE GDAL::GDAL)
+
 # test_simulationoptionsdialog (test_simulationoptionsdialog.cpp) — parked
 # alongside the layertreemodel test until the `swmmvis_core` static-lib
 # extraction lands. The Q_OBJECT moc bindings on SimulationOptionsDialog

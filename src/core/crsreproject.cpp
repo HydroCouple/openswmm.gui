@@ -13,18 +13,14 @@
 #include <memory>
 #include <vector>
 
-#ifdef HAVE_OPENSWMMCORE
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
 
 #include <ogr_spatialref.h>
-#endif
 
 namespace CRSReproject {
-
-#ifdef HAVE_OPENSWMMCORE
 
 namespace {
 
@@ -138,18 +134,5 @@ bool reprojectModel(SWMM_Engine engine,
     setStats();
     return local.nodes > 0 || local.linkVertices > 0 || local.polygonVerts > 0;
 }
-
-#else // !HAVE_OPENSWMMCORE
-
-bool reprojectModel(SWMM_Engine, const SpatialReferenceSystem &,
-                    const SpatialReferenceSystem &,
-                    Stats *stats, QString *errorOut)
-{
-    if (stats) *stats = {};
-    if (errorOut) *errorOut = QStringLiteral("OpenSWMMCore not available.");
-    return false;
-}
-
-#endif // HAVE_OPENSWMMCORE
 
 } // namespace CRSReproject

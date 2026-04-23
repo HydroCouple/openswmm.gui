@@ -18,9 +18,7 @@
 #include <QValueAxis>
 #include <QVBoxLayout>
 
-#ifdef HAVE_OPENSWMMCORE
 #include <openswmm/engine/openswmm_output.h>
-#endif
 
 // Qt 6 puts charts classes in the global namespace — no QtCharts:: prefix.
 
@@ -133,7 +131,6 @@ void TimeSeriesPlotDialog::onVariableChanged(int)
 
 void TimeSeriesPlotDialog::plotSeries()
 {
-#ifdef HAVE_OPENSWMMCORE
     auto *chart = new QChart;
     chart->setTitle(tr("%1 — %2").arg(m_object.name, m_varCombo->currentText()));
     chart->legend()->setVisible(false);
@@ -263,10 +260,4 @@ void TimeSeriesPlotDialog::plotSeries()
 
     m_chartView->setChart(chart);
     swmm_output_close(out);
-#else
-    Q_UNUSED(m_object) Q_UNUSED(m_outPath)
-    auto *chart = new QChart;
-    chart->setTitle(tr("OpenSWMMCore not available."));
-    m_chartView->setChart(chart);
-#endif
 }

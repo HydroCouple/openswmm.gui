@@ -28,6 +28,7 @@ class QProgressBar;
 class QStandardItemModel;
 class QMdiSubWindow;
 class QAction;
+class QMenu;
 class OpenSWMMVisWorkspace;
 class SpatialReferenceSystem;
 class MapCanvas;
@@ -35,6 +36,7 @@ class SWMMVisProjectWindow;
 class LayerTreePanel;
 class ObjectBrowserPanel;
 class AttributePanel;
+class SimulationStatusModel;
 
 /**
  * @brief Main application window for the OpenSWMM GUI.
@@ -65,6 +67,7 @@ private:
     void initializeLayersDockWidget();
     void initializeObjectBrowserDockWidget();
     void initializeAttributePanelDockWidget();
+    void initializeSimulationStatusDockWidget();
     void initializeMessageLogDockWidget();
     void initializeMenus();
     void initializeSettings();
@@ -105,9 +108,26 @@ private slots:
     void onPlotTimeSeries();
     void onActiveSubWindowChanged(QMdiSubWindow *window);
 
+    /*!
+     * \brief Rebuild the macOS-style Window menu: Minimize / Zoom / separator /
+     *        dynamic list of open project sub-windows / separator / Bring All
+     *        to Front. Called on subWindowActivated and on every project
+     *        window's windowTitleChanged so dirty `*` markers refresh.
+     */
+    void rebuildWindowMenu();
+
 protected:
     void closeEvent(QCloseEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
+
+    /*! Return the QMdiSubWindow currently wrapping welcomeWidget, or nullptr
+     *  if it has been removed (closed). */
+    QMdiSubWindow *welcomeSubWindow() const;
+
+    /*! Tear the welcome sub-window and its tab out of the MDI area without
+     *  destroying the inner widget, so Help → Show Welcome Screen can
+     *  re-add it later. */
+    void removeWelcomeSubWindow();
 
 private:
     Ui::SWMMVis *ui;
@@ -117,6 +137,7 @@ private:
 
     // Status bar widgets
     QCheckBox    *mCheckBoxLevelOffsetMode             = nullptr;
+    QCheckBox    *mCheckBoxAutoLength                  = nullptr;
     QToolButton  *mToolButtonCoordinateReferenceSystem = nullptr;
     QLineEdit    *mLineEditCoordinates                 = nullptr;
     QComboBox    *mComboBoxMapScale                    = nullptr;
@@ -126,15 +147,29 @@ private:
     QDateTimeEdit *mDateTimeEditAnimationTime          = nullptr;
 
     QSettings          mSettings;
-    QStandardItemModel *mLogMessagesModel  = nullptr;
-    LayerTreePanel    *mLayerTreePanel     = nullptr;
-    ObjectBrowserPanel *mObjectBrowserPanel = nullptr;
-    AttributePanel    *mAttributePanel     = nullptr;
+    QStandardItemModel *mLogMessagesModel   = nullptr;
+    LayerTreePanel     *mLayerTreePanel      = nullptr;
+    ObjectBrowserPanel *mObjectBrowserPanel  = nullptr;
+    AttributePanel     *mAttributePanel      = nullptr;
+    SimulationStatusModel *mSimStatusModel   = nullptr;
+
+    // Phase 2 editing actions — declared for future programmatic wiring
+    QAction           *mActionAddJunction  = nullptr;
+    QAction           *mActionAddOutfall   = nullptr;
+    QAction           *mActionAddStorage   = nullptr;
+    QAction           *mActionAddConduit   = nullptr;
+    QAction           *mActionDeleteObject = nullptr;
+
+    // macOS-style Window menu (programmatically built — the .ui has no
+    // menuWindow). Entries rebuild on every MDI subWindowActivated and on
+    // each project window's windowTitleChanged so the list stays in sync.
+    QMenu             *mMenuWindow              = nullptr;
+    QAction           *mActionWindowMinimize    = nullptr;
+    QAction           *mActionWindowZoom        = nullptr;
+    QAction           *mActionWindowBringAllToFront = nullptr;
 
     OpenSWMMVisWorkspace *mProject              = nullptr;
     SWMMVisProjectWindow *mActiveProjectWindow  = nullptr;  // last-bound project; survives transient focus loss
-    QToolButton          *mWelcomeCloseButton   = nullptr;  // floating top-right close button on the welcome page
-    std::function<void()> mWelcomeRepositionFn;             // captured layout helper
 
     SWMMVisProjectWindow *activeProjectWindow() const;
     MapCanvas            *activeCanvas()        const;

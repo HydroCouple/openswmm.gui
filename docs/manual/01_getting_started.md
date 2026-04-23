@@ -27,7 +27,7 @@ The Welcome tab is the application's home page. It has four sections:
 |---------|--------------|
 | **Start Modeling** | "New Project…" creates a blank project (placeholder in the current slice — opens the Welcome page). "Open…" opens any `.inp` or `.oswp` file. |
 | **Open Recent Files** | Click any recently opened file to reopen it. The list mirrors `File → Open Recent` and persists across launches. |
-| **Learn SWMM** | External help links: User Manual, EPA SWMM reference, engine API reference, and the GitHub issues page. |
+| **Learn SWMM** | External help links: User Manual, engine API reference, and the GitHub issues page. |
 | **Example Projects** | Auto-discovered example `.inp` files bundled with the install. Each opens as a read-only copy so you cannot accidentally damage the bundled file. |
 
 To hide this tab on next startup, uncheck **"Show welcome page on start up"** at the

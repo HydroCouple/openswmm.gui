@@ -1,6 +1,6 @@
 # Authors
 
-OpenSWMM is built on the EPA SWMM 5.x foundation and extended by the contributors listed below.
+OpenSWMM is an independent open-source project. The contributors listed below have developed and extended the software.
 
 ## Project Lead
 

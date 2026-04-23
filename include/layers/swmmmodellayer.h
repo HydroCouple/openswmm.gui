@@ -19,14 +19,11 @@
 
 #include <QColor>
 
-#ifdef HAVE_OPENSWMMCORE
 #include <openswmm/engine/openswmm_callbacks.h>  // SWMM_Engine typedef
-#else
-typedef void* SWMM_Engine;
-#endif
 #include <QFont>
 #include <QPen>
 #include <QBrush>
+#include <QSet>
 #include <QVariantMap>
 
 class OpenSWMMVisWorkspace;
@@ -116,6 +113,35 @@ public:
 
     [[nodiscard]] bool showLabels()       const;
     void setShowLabels(bool show);
+
+    // ----- Per-object visibility (Slice O) --------------------------------
+
+    /*!
+     * \brief Per-object visibility flag. Names present in
+     *        \ref m_hiddenObjects are skipped by \ref populateScene. The
+     *        Object Browser drives this state: a leaf checkbox is the
+     *        only source of truth for an individual object; group-header
+     *        toggles apply in bulk to every child but do not add a
+     *        separate gate — after a group toggle the children's states
+     *        fully determine visibility, and subsequent per-leaf toggles
+     *        don't back-propagate to the header.
+     */
+    [[nodiscard]] bool isObjectVisible(const QString &name) const;
+    void setObjectVisible(const QString &name, bool visible);
+
+    /*!
+     * \brief Batch form — apply the same visibility to every name in
+     *        \p names with a single \ref repaintRequested emission.
+     *        Used by the group-header checkbox so toggling a category
+     *        of 1000+ objects causes only one canvas refresh.
+     */
+    void setObjectsVisible(const QList<QString> &names, bool visible);
+
+    /*!
+     * \brief Names currently hidden via per-object toggles. Used by the
+     *        Object Browser to seed leaf-row check states on refresh.
+     */
+    [[nodiscard]] QSet<QString> hiddenObjects() const { return m_hiddenObjects; }
 
     // ----- Symbology ------------------------------------------------------
 
@@ -225,6 +251,110 @@ public:
      */
     [[nodiscard]] int objectTypeFor(const QString &name) const;
 
+    // ----- Geometry editing API (Phase 2) --------------------------------
+
+    /*!
+     * \brief Returns the cache index of the node with the given name, or -1
+     *        if none matches.
+     */
+    [[nodiscard]] int nodeIndex(const QString &name) const;
+
+    /*!
+     * \brief Returns the cache index of the link with the given name, or -1
+     *        if none matches.
+     */
+    [[nodiscard]] int linkIndex(const QString &name) const;
+
+    /*!
+     * \brief Cached layer-CRS coordinate of a node by index.
+     * \returns true on success; x / y untouched on failure.
+     */
+    bool cachedNodeCoord(int idx, double *x, double *y) const;
+
+    /*!
+     * \brief Cached layer-CRS polyline of a link by index, including the
+     *        endpoint coordinates of its from/to nodes.
+     */
+    [[nodiscard]] QVector<QPointF> cachedLinkPolyline(int idx) const;
+
+    /*!
+     * \brief Cached interior-only polyline of a link (endpoints stripped).
+     * \details The engine's set_link_vertices API writes interior points
+     *          only; this helper returns the corresponding subsection of
+     *          the cached polyline for round-trip edits.
+     */
+    [[nodiscard]] QVector<QPointF> cachedLinkInteriorVertices(int idx) const;
+
+    /*!
+     * \brief Returns the conduit length recorded in the engine, or -1 if
+     *        the link is not a conduit / is out of range.
+     */
+    [[nodiscard]] double engineLinkLength(int linkIdx) const;
+
+    /*!
+     * \brief Returns true when the link at \p linkIdx is a conduit (the
+     *        only link type whose length is stored as an independent
+     *        geometry value and is therefore eligible for auto-length).
+     */
+    [[nodiscard]] bool isConduit(int linkIdx) const;
+
+    /*!
+     * \brief Indices of links whose from/to endpoint is the given node.
+     */
+    [[nodiscard]] QVector<int> linksAttachedToNode(int nodeIdx) const;
+
+    /*!
+     * \brief Which end of a link is attached to \p nodeIdx: 0 = from,
+     *        1 = to, or -1 if the node is not an endpoint of the link.
+     */
+    [[nodiscard]] int linkEndForNode(int linkIdx, int nodeIdx) const;
+
+    /*!
+     * \brief Apply a new coordinate to a node: engine + cache + attached
+     *        link endpoint updates. Does not push an undo command — the
+     *        caller (tool or MoveNodeCommand) is responsible for that.
+     * \param idx                Cache/engine node index.
+     * \param newX, newY         New coordinate in the layer CRS.
+     * \returns                  true on success.
+     *
+     * Emits repaintRequested() on success.
+     */
+    bool applyNodeMove(int idx, double newX, double newY);
+
+    /*!
+     * \brief Write the conduit length for a link. No-op if the link is
+     *        not a conduit.
+     */
+    bool applyLinkLength(int linkIdx, double length);
+
+    /*!
+     * \brief Apply interior vertices to a link: engine + cache, rebuilding
+     *        the cached polyline from the node endpoints + new interior.
+     */
+    bool applyLinkInteriorVertices(int linkIdx, const QVector<QPointF> &interior);
+
+    /*!
+     * \brief Add a new node: engine + cache. Engine must be OPENED.
+     * \param name      Unique null-terminated node identifier.
+     * \param nodeType  0=Junction, 1=Outfall, 2=Storage, 3=Divider
+     *                  (matches SWMM_NodeType).
+     * \param x, y      Initial coordinate in the layer CRS.
+     * \param[out] outIdx  Newly assigned node index on success.
+     * \returns true on success. On failure \p outIdx is -1.
+     */
+    bool applyNodeAdd(const QString &name, int nodeType,
+                      double x, double y,
+                      int *outIdx = nullptr);
+
+    /*!
+     * \brief Undo an add by removing the *tail* entry of the node cache.
+     * \details Only valid immediately after applyNodeAdd when the new node
+     *          is still at the end of the node list. Used by AddNodeCommand::undo
+     *          while the engine lacks a general-purpose swmm_node_remove.
+     *          Returns false if the tail name doesn't match \p name.
+     */
+    bool rollbackTailNodeAdd(const QString &name);
+
 signals:
     void modelFilePathChanged(const QString &path);
     void showNodesChanged(bool show);
@@ -252,6 +382,12 @@ private:
     bool                         m_showSubcatchments = true;
     bool                         m_showRainGages   = true;
     bool                         m_showLabels      = false;
+
+    // Slice O — per-object hidden set. Names listed here are skipped by
+    // populateScene. Object names are unique across a SWMM model, so a
+    // flat QSet<QString> covers nodes / links / subcatchments / gages
+    // uniformly.
+    QSet<QString>                m_hiddenObjects;
 
     QVector<NodeGeom>            m_nodes;
     QVector<LinkGeom>            m_links;

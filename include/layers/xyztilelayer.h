@@ -36,7 +36,19 @@ class XYZTileLayer : public OpenSWMMVisLayer
     Q_OBJECT
 
 public:
+    /*!
+     * \param urlTemplate  Slippy-map URL with {s}/{z}/{x}/{y} placeholders.
+     * \param tileSizePx   Source pixels per tile side. Standard XYZ services
+     *                     serve 256-px tiles; HiDPI / retina variants (e.g.
+     *                     CartoDB's `@2x` endpoints) serve 512-px tiles.
+     *                     Passing the correct size lets bestZoom() pick a
+     *                     level that matches the source resolution to the
+     *                     canvas instead of rounding against a 256-px
+     *                     assumption (which otherwise picks a zoom level
+     *                     too low for @2x tiles, wasting the extra pixels).
+     */
     explicit XYZTileLayer(const QString &urlTemplate,
+                          int tileSizePx = 256,
                           QObject *parent = nullptr);
     ~XYZTileLayer() override;
 
@@ -86,6 +98,7 @@ private:
     QCache<QString, QImage>   m_tileCache;          // key "z/x/y"
     QSet<QString>             m_inflight;            // keys being fetched
     int                       m_subdomainIdx = 0;   // rotates a/b/c
+    int                       m_tileSizePx   = 256; // 256 standard, 512 for @2x
 
     // Cached GDAL transforms (rebuilt on CRS change). Mutex guards the
     // render() ↔ rebuildTransforms() race: render runs in the MapRenderJob

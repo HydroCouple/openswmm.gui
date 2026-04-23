@@ -13,6 +13,9 @@
 #include "map/tools/maptoolzoom.h"
 #include "map/tools/maptoolselect.h"
 #include "map/tools/maptoolmeasure.h"
+#include "map/tools/maptoolmovenode.h"
+#include "map/tools/maptooleditvertex.h"
+#include "map/tools/maptooladdnode.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
 #include "ui/dialogs/crsselectiondialog.h"
@@ -28,13 +31,13 @@
 #include <QGraphicsScene>
 #include <QMessageBox>
 #include <QMetaObject>
+#include <QPushButton>
+#include <QSettings>
 #include <QTimer>
 #include <QVBoxLayout>
 
-#ifdef HAVE_OPENSWMMCORE
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
-#endif
 
 SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
                                            const QString &filePath,
@@ -44,6 +47,12 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
 {
     setAttribute(Qt::WA_DeleteOnClose);
     setMinimumSize(600, 400);
+    // NOTE: do NOT call setWindowFlags here. In TabbedView mode (the
+    // .ui's default) re-flagging a QMdiSubWindow detaches it from the
+    // tab stack and floats it as a free-standing window — not what we
+    // want. The tab bar already renders the close X (tabsClosable=true)
+    // and doesn't expose minimize/maximize on tabs, so the desired
+    // "close-only, non-minimizable" affordance is the default.
 
     // Per-project services (parented to this window so they die with it)
     mUnits            = new UnitSystem(this);
@@ -66,13 +75,29 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     connect(mModelLayer, &SWMMModelLayer::modelLoadError, this, &SWMMVisProjectWindow::modelLoadError);
 
     // Tools — each tool is bound to mCanvas at construction
-    mPanTool     = new OpenSWMMVisMapToolPan(mCanvas, this);
-    mZoomInTool  = new OpenSWMMVisMapToolZoom(mCanvas, this);
+    mPanTool        = new OpenSWMMVisMapToolPan(mCanvas, this);
+    mZoomInTool     = new OpenSWMMVisMapToolZoom(mCanvas, this);
     mZoomInTool->setZoomInMode(true);
-    mZoomOutTool = new OpenSWMMVisMapToolZoom(mCanvas, this);
+    mZoomOutTool    = new OpenSWMMVisMapToolZoom(mCanvas, this);
     mZoomOutTool->setZoomInMode(false);
-    mSelectTool  = new OpenSWMMVisMapToolSelect(mCanvas, this);
-    mMeasureTool = new OpenSWMMVisMapToolMeasure(mCanvas, this);
+    mSelectTool     = new OpenSWMMVisMapToolSelect(mCanvas, this);
+    mMeasureTool    = new OpenSWMMVisMapToolMeasure(mCanvas, this);
+    mMoveNodeTool     = new OpenSWMMVisMapToolMoveNode(mCanvas, this);
+    mEditVertexTool   = new OpenSWMMVisMapToolEditVertex(mCanvas, this);
+    // SWMM_NODE_JUNCTION=0, OUTFALL=1, STORAGE=2, DIVIDER=3
+    mAddJunctionTool  = new OpenSWMMVisMapToolAddNode(mCanvas, 0, QStringLiteral("J"), this);
+    mAddOutfallTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 1, QStringLiteral("O"), this);
+    mAddStorageTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 2, QStringLiteral("S"), this);
+    mAddDividerTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 3, QStringLiteral("D"), this);
+
+    // Auto-length — last-used value from QSettings, seeded into the canvas
+    // dynamic property so map tools can read it without a back-pointer to
+    // this project window.
+    {
+        QSettings settings;
+        mAutoLengthEnabled = settings.value(QStringLiteral("SWMMVis/autoLength"), false).toBool();
+        mCanvas->setProperty("autoLength", mAutoLengthEnabled);
+    }
 
     // Default tool
     mCanvas->setActiveTool(mPanTool);
@@ -96,14 +121,12 @@ void SWMMVisProjectWindow::setElevationOffsetMode(bool elevation)
         return;
     mElevationOffsetMode = elevation;
 
-#ifdef HAVE_OPENSWMMCORE
     if (mModelLayer && mModelLayer->engine())
     {
         swmm_options_set(mModelLayer->engine(), "LINK_OFFSETS",
                          elevation ? "ELEVATION" : "DEPTH");
         setHasChanges(true);
     }
-#endif
 
     emit offsetModeChanged(elevation);
 }
@@ -118,7 +141,6 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
         mModelLayer->setVisible(true);
 
         // Sync per-project options from the engine.
-#ifdef HAVE_OPENSWMMCORE
         if (mModelLayer->engine())
         {
             mUnits->syncFromEngine(mModelLayer->engine());
@@ -131,7 +153,6 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
                     QString(buf).trimmed().compare("ELEVATION", Qt::CaseInsensitive) == 0;
             }
         }
-#endif
 
         // ---- SelectionManager bridge (Phase 1.4) -----------------------------
         // The map layer carries a name-only selection set; the SelectionManager
@@ -172,10 +193,12 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
         // QObject parent ownership, so leak risk is bounded.
         connect(this, &QObject::destroyed, [busy]() { delete busy; });
 
-        // Adopt the model's CRS. If the .inp didn't carry one, the layer falls
-        // back to LOCAL_CS["Untitled"] — prompt the user to pick a real CRS so
-        // basemap tiles work and reprojection is possible. The user can also
-        // dismiss the dialog and continue in Local coordinates.
+        // Adopt the model's CRS. If the .inp didn't carry one, the layer
+        // falls back to LOCAL_CS["Untitled"]. A valid CRS is required for
+        // on-the-fly reprojection of basemaps and feature layers, so loop
+        // the picker until the user chooses one. If they explicitly abort,
+        // push a loader error and return false so the caller closes the
+        // project window.
         if (!mCanvasCRSAdopted)
         {
             SpatialReferenceSystem *modelSRS = mModelLayer->srs();
@@ -183,18 +206,39 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
 
             if (isLocal)
             {
-                CRSSelectionDialog dlg(this);
-                dlg.setWindowTitle(tr("Coordinate Reference System"));
-                if (dlg.exec() == QDialog::Accepted)
+                while (true)
                 {
-                    if (SpatialReferenceSystem *picked = dlg.selectedSRS())
+                    CRSSelectionDialog dlg(this);
+                    dlg.setWindowTitle(tr("Coordinate Reference System"));
+                    if (dlg.exec() == QDialog::Accepted)
                     {
-                        mModelLayer->setSRS(picked, true);
-                        modelSRS = picked;
+                        if (SpatialReferenceSystem *picked = dlg.selectedSRS())
+                        {
+                            mModelLayer->setSRS(picked, true);
+                            modelSRS = picked;
+                            break;
+                        }
+                        // Accepted with no selection — treat as cancel.
                     }
+
+                    QMessageBox mb(this);
+                    mb.setIcon(QMessageBox::Warning);
+                    mb.setWindowTitle(tr("CRS Required"));
+                    mb.setText(tr("A coordinate reference system is required to open this SWMM model."));
+                    mb.setInformativeText(tr("Choose a CRS to continue, or abort opening the project."));
+                    QPushButton *chooseBtn = mb.addButton(tr("Choose CRS…"), QMessageBox::AcceptRole);
+                    QPushButton *abortBtn  = mb.addButton(tr("Abort Open"),  QMessageBox::RejectRole);
+                    mb.setDefaultButton(chooseBtn);
+                    mb.exec();
+                    if (mb.clickedButton() == abortBtn)
+                    {
+                        errors.append(tr("Project open cancelled: no CRS selected."));
+                        mModelLayer->setVisible(false);
+                        return false;
+                    }
+                    // else loop back and re-open the picker.
+                    Q_UNUSED(chooseBtn);
                 }
-                // If the user cancels, keep Local — the network still renders
-                // at its native coordinates; only basemap reprojection is unavailable.
             }
 
             if (modelSRS)
@@ -312,7 +356,6 @@ bool SWMMVisProjectWindow::save(QString *errorOut)
 
 bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
 {
-#ifdef HAVE_OPENSWMMCORE
     if (!mModelLayer || !mModelLayer->engine())
     {
         if (errorOut) *errorOut = tr("No model loaded.");
@@ -330,11 +373,6 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         mModelLayer->setModelFilePath(newPath);
     setHasChanges(false);
     return true;
-#else
-    Q_UNUSED(newPath)
-    if (errorOut) *errorOut = tr("OpenSWMMCore not available.");
-    return false;
-#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -370,9 +408,26 @@ void SWMMVisProjectWindow::closeEvent(QCloseEvent *event)
     QMdiSubWindow::closeEvent(event);
 }
 
-void SWMMVisProjectWindow::activatePanTool()      { mCanvas->setActiveTool(mPanTool); }
-void SWMMVisProjectWindow::activateZoomInTool()   { mCanvas->setActiveTool(mZoomInTool); }
-void SWMMVisProjectWindow::activateZoomOutTool()  { mCanvas->setActiveTool(mZoomOutTool); }
-void SWMMVisProjectWindow::activateSelectTool()   { mCanvas->setActiveTool(mSelectTool); }
-void SWMMVisProjectWindow::activateMeasureTool()  { mCanvas->setActiveTool(mMeasureTool); }
-void SWMMVisProjectWindow::zoomToFullExtent()     { mCanvas->zoomToFullExtent(); }
+void SWMMVisProjectWindow::activatePanTool()         { mCanvas->setActiveTool(mPanTool); }
+void SWMMVisProjectWindow::activateZoomInTool()      { mCanvas->setActiveTool(mZoomInTool); }
+void SWMMVisProjectWindow::activateZoomOutTool()     { mCanvas->setActiveTool(mZoomOutTool); }
+void SWMMVisProjectWindow::activateSelectTool()      { mCanvas->setActiveTool(mSelectTool); }
+void SWMMVisProjectWindow::activateMeasureTool()     { mCanvas->setActiveTool(mMeasureTool); }
+void SWMMVisProjectWindow::activateMoveNodeTool()    { mCanvas->setActiveTool(mMoveNodeTool); }
+void SWMMVisProjectWindow::activateEditVertexTool()  { mCanvas->setActiveTool(mEditVertexTool); }
+void SWMMVisProjectWindow::activateAddJunctionTool() { mCanvas->setActiveTool(mAddJunctionTool); }
+void SWMMVisProjectWindow::activateAddOutfallTool()  { mCanvas->setActiveTool(mAddOutfallTool); }
+void SWMMVisProjectWindow::activateAddStorageTool()  { mCanvas->setActiveTool(mAddStorageTool); }
+void SWMMVisProjectWindow::activateAddDividerTool()  { mCanvas->setActiveTool(mAddDividerTool); }
+void SWMMVisProjectWindow::zoomToFullExtent()        { mCanvas->zoomToFullExtent(); }
+
+void SWMMVisProjectWindow::setAutoLengthEnabled(bool enabled)
+{
+    if (mAutoLengthEnabled == enabled)
+        return;
+    mAutoLengthEnabled = enabled;
+    if (mCanvas)
+        mCanvas->setProperty("autoLength", enabled);
+    QSettings().setValue(QStringLiteral("SWMMVis/autoLength"), enabled);
+    emit autoLengthChanged(enabled);
+}

@@ -22,6 +22,7 @@
 class QLineEdit;
 class QTreeWidget;
 class QTreeWidgetItem;
+class MapCanvas;
 class SWMMModelLayer;
 
 /*!
@@ -42,11 +43,15 @@ public:
     ~ObjectBrowserPanel() override;
 
     /*!
-     * \brief Bind the panel to a project's model layer + selection bus.
+     * \brief Bind the panel to a project's model layer + selection bus + canvas.
      * \param layer    SWMM model layer for the active project (or nullptr).
      * \param selMgr   SelectionManager owned by the same project (or nullptr).
+     * \param canvas   MapCanvas for zoom-to-object actions (or nullptr to
+     *                 disable them).
      */
-    void setProject(SWMMModelLayer *layer, SelectionManager *selMgr);
+    void setProject(SWMMModelLayer *layer,
+                    SelectionManager *selMgr,
+                    MapCanvas *canvas = nullptr);
 
     /*!
      * \brief Repopulate the tree from the bound layer's engine.
@@ -60,6 +65,21 @@ signals:
      *         results layer (.out file) and opens TimeSeriesPlotDialog. */
     void plotTimeSeriesRequested(const SWMMObjectRef &object);
 
+    /*! \brief Emitted when the user toggles a single leaf row's checkbox.
+     *         The SWMMVis main window forwards it to the layer's
+     *         setObjectVisible(). */
+    void objectVisibilityChanged(const SWMMObjectRef &object, bool visible);
+
+    /*! \brief Emitted when the user toggles a group header — the parent
+     *         state propagates down to every leaf under the group. The
+     *         SWMMVis main window forwards it to the layer's batch
+     *         setObjectsVisible(), so a single group-toggle causes one
+     *         canvas refresh regardless of how many objects are in the
+     *         group. The leaf's check state is NOT propagated back to the
+     *         group header: subsequent individual toggles leave the
+     *         parent as-is. */
+    void objectsVisibilityChanged(const QStringList &names, bool visible);
+
 private slots:
     void onTreeSelectionChanged();
     void onSearchTextChanged(const QString &text);
@@ -67,6 +87,8 @@ private slots:
                                    const QSet<SWMMObjectRef> &added,
                                    const QSet<SWMMObjectRef> &removed);
     void onContextMenuRequested(const QPoint &pos);
+    void onItemDoubleClicked(QTreeWidgetItem *item, int column);
+    void onItemChanged(QTreeWidgetItem *item, int column);
 
 private:
     void buildUi();
@@ -75,10 +97,16 @@ private:
     /*! Look up the leaf item for a given (type, name) — null if missing. */
     QTreeWidgetItem *itemFor(const SWMMObjectRef &ref) const;
 
+    /*! Centre the canvas on a single object and zoom to a small buffer
+     *  derived from the layer's overall extent. No-op if \p canvas is null
+     *  or the object coord can't be resolved via identifyByName. */
+    void zoomToObject(const SWMMObjectRef &ref);
+
     QLineEdit                      *m_searchEdit = nullptr;
     QTreeWidget                    *m_tree       = nullptr;
     QPointer<SWMMModelLayer>        m_layer;
     QPointer<SelectionManager>      m_selMgr;
+    QPointer<MapCanvas>             m_canvas;
 
     /*! Quick lookup: (type, name) → leaf item. Repopulated on refresh(). */
     QHash<SWMMObjectRef, QTreeWidgetItem *> m_index;
@@ -86,6 +114,11 @@ private:
     /*! Reentrancy guard — true while we're applying SelectionManager
      *  changes to the tree (don't bounce them back). */
     bool                            m_applyingFromBus = false;
+
+    /*! Reentrancy guard — true while we're seeding leaf / header check
+     *  states during a programmatic refresh (don't bounce user-driven
+     *  handlers). */
+    bool                            m_applyingGroupCheck = false;
 };
 
 #endif // OBJECTBROWSERPANEL_H

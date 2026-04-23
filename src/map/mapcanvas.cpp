@@ -100,8 +100,14 @@ MapCanvas::~MapCanvas()
 
 void MapCanvas::addDefaultBasemap()
 {
+    // CartoDB Positron, HiDPI variant (@2x). 512-px tiles — sharper on
+    // retina / high-DPI displays than the default 256-px endpoint. Tile
+    // size is passed explicitly so bestZoom() picks a level that matches
+    // the source resolution rather than under-zooming against a 256-px
+    // assumption.
     auto *tiles = new XYZTileLayer(
-        QStringLiteral("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png"),
+        QStringLiteral("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png"),
+        /*tileSizePx=*/512,
         nullptr);
     tiles->setName(QStringLiteral("CartoDB Positron"));
     addLayer(tiles, /*pushUndo=*/false);

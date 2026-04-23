@@ -18,11 +18,7 @@
 
 class SpatialReferenceSystem;
 
-#ifdef HAVE_OPENSWMMCORE
 #include <openswmm/engine/openswmm_engine.h>
-#else
-typedef void* SWMM_Engine;
-#endif
 
 namespace CRSReproject
 {

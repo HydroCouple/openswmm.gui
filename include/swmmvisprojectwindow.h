@@ -22,6 +22,9 @@ class OpenSWMMVisMapToolPan;
 class OpenSWMMVisMapToolZoom;
 class OpenSWMMVisMapToolSelect;
 class OpenSWMMVisMapToolMeasure;
+class OpenSWMMVisMapToolMoveNode;
+class OpenSWMMVisMapToolEditVertex;
+class OpenSWMMVisMapToolAddNode;
 
 /**
  * @brief MDI sub-window owning a MapCanvas, SWMMModelLayer, and map tools.
@@ -70,13 +73,25 @@ public:
     void activateZoomOutTool();
     void activateSelectTool();
     void activateMeasureTool();
+    void activateMoveNodeTool();
+    void activateEditVertexTool();
+    void activateAddJunctionTool();
+    void activateAddOutfallTool();
+    void activateAddStorageTool();
+    void activateAddDividerTool();
     void zoomToFullExtent();
+
+    /** Auto-length recalculates conduit length from polyline on every
+     *  endpoint / vertex edit. Per-project, persisted to QSettings. */
+    bool isAutoLengthEnabled() const { return mAutoLengthEnabled; }
+    void setAutoLengthEnabled(bool enabled);
 
 signals:
     void modelLoaded();
     void modelLoadError(const QString &msg);
     void hasChangesChanged(bool dirty);
     void offsetModeChanged(bool elevation);
+    void autoLengthChanged(bool enabled);
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -93,11 +108,19 @@ private:
     bool                 mHasChanges          = false;
     bool                 mElevationOffsetMode = false;  // OPTIONS LINK_OFFSETS = ELEVATION
 
-    OpenSWMMVisMapToolPan     *mPanTool     = nullptr;
-    OpenSWMMVisMapToolZoom    *mZoomInTool  = nullptr;
-    OpenSWMMVisMapToolZoom    *mZoomOutTool = nullptr;
-    OpenSWMMVisMapToolSelect  *mSelectTool  = nullptr;
-    OpenSWMMVisMapToolMeasure *mMeasureTool = nullptr;
+    OpenSWMMVisMapToolPan         *mPanTool           = nullptr;
+    OpenSWMMVisMapToolZoom        *mZoomInTool        = nullptr;
+    OpenSWMMVisMapToolZoom        *mZoomOutTool       = nullptr;
+    OpenSWMMVisMapToolSelect      *mSelectTool        = nullptr;
+    OpenSWMMVisMapToolMeasure     *mMeasureTool       = nullptr;
+    OpenSWMMVisMapToolMoveNode    *mMoveNodeTool      = nullptr;
+    OpenSWMMVisMapToolEditVertex  *mEditVertexTool    = nullptr;
+    OpenSWMMVisMapToolAddNode     *mAddJunctionTool   = nullptr;
+    OpenSWMMVisMapToolAddNode     *mAddOutfallTool    = nullptr;
+    OpenSWMMVisMapToolAddNode     *mAddStorageTool    = nullptr;
+    OpenSWMMVisMapToolAddNode     *mAddDividerTool    = nullptr;
+
+    bool                           mAutoLengthEnabled = false;
 };
 
 #endif // SWMMVISPROJECTWINDOW_H

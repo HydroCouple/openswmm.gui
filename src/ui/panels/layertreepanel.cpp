@@ -12,6 +12,7 @@
 #include <QApplication>
 #include <QByteArray>
 #include <QDataStream>
+#include <QDebug>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QIODevice>
@@ -69,16 +70,16 @@ void LayerTreeModel::setCanvas(MapCanvas *canvas)
 
 namespace {
 
-// Stable category id used to bucket layers and to look up name/icon.
+// Top-level layer-tree groups. Follows the QGIS / ArcGIS Pro convention of
+// separating domain-specific (SWMM), vector, raster, basemap tile services,
+// and non-spatial tabular data. Sub-projects are collapsed into
+// CatFeatureLayers (their underlying geometry is vector).
 enum CategoryId {
-    CatSwmmModel = 0,
-    CatSwmmResults,
-    CatVectors,
-    CatRasters,
+    CatSwmm = 0,
+    CatFeatureLayers,
+    CatRasterLayers,
     CatBasemaps,
-    CatTabular,
-    CatSubProjects,
-    CatOther,
+    CatTables,
     CatCount
 };
 
@@ -87,19 +88,30 @@ CategoryId categoryFor(OpenSWMMVisLayer::OpenSWMMVisLayerType t)
     using L = OpenSWMMVisLayer;
     switch (t)
     {
-    case L::SWMMModelLayer:               return CatSwmmModel;
-    case L::SWMMResultsLayer:             return CatSwmmResults;
+    case L::SWMMModelLayer:
+    case L::SWMMResultsLayer:             return CatSwmm;
+
     case L::SWMMVectorLayer:
-    case L::SWMMGISLayer:                 return CatVectors;
-    case L::SWMMRasterLayer:              return CatRasters;
+    case L::SWMMGISLayer:
+    case L::SWMMSubProjectLayer:          return CatFeatureLayers;
+
+    case L::SWMMRasterLayer:              return CatRasterLayers;
+
     case L::SWMMImageryLayer:
     case L::SWMMWMSLayer:
     case L::SWMMWMTSLayer:                return CatBasemaps;
+
     case L::SWMMTabularDataLayer:
-    case L::SWMMTabularyTimeSeriesLayer:  return CatTabular;
-    case L::SWMMSubProjectLayer:          return CatSubProjects;
+    case L::SWMMTabularyTimeSeriesLayer:  return CatTables;
+
     case L::SWMMDefaultLayer:
-    default:                              return CatOther;
+    default:
+        // Every concrete layer type should classify explicitly. If a new
+        // type is added without updating this switch, warn once and fall
+        // back to Feature Layers so the layer remains visible.
+        qWarning() << "LayerTreeModel: unclassified layer type" << int(t)
+                   << "— defaulting to Feature Layers";
+        return CatFeatureLayers;
     }
 }
 
@@ -109,15 +121,12 @@ CategoryInfo categoryInfo(int id)
 {
     switch (id)
     {
-    case CatSwmmModel:    return {"SWMM Model",    ":/swmmvis/Layers"};
-    case CatSwmmResults:  return {"SWMM Results",  ":/swmmvis/Chart"};
-    case CatVectors:      return {"Vectors",       ":/swmmvis/AddVector"};
-    case CatRasters:      return {"Rasters",       ":/swmmvis/AddRaster"};
-    case CatBasemaps:     return {"Basemaps",      ":/swmmvis/Globe"};
-    case CatTabular:      return {"Tabular",       ":/swmmvis/TableView"};
-    case CatSubProjects:  return {"Sub-projects",  ":/swmmvis/Layers"};
-    case CatOther:
-    default:              return {"Other",         ":/swmmvis/Layers"};
+    case CatSwmm:           return {"SWMM",           ":/swmmvis/Layers"};
+    case CatFeatureLayers:  return {"Feature Layers", ":/swmmvis/AddVector"};
+    case CatRasterLayers:   return {"Raster Layers",  ":/swmmvis/AddRaster"};
+    case CatBasemaps:       return {"Basemaps",       ":/swmmvis/Globe"};
+    case CatTables:         return {"Tables",         ":/swmmvis/TableView"};
+    default:                return {"Feature Layers", ":/swmmvis/AddVector"};
     }
 }
 
@@ -588,11 +597,13 @@ void LayerTreePanel::setupUi()
     m_treeView->setDropIndicatorShown(true);
     m_treeView->setDragDropMode(QAbstractItemView::InternalMove);
     m_treeView->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_treeView->setEditTriggers(QAbstractItemView::DoubleClicked);
+    // Slice O: double-click zooms to the layer (no inline opacity edit). The
+    // Layer Properties dialog is still reachable via the context menu.
+    m_treeView->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_treeView->setAlternatingRowColors(true);
     m_treeView->setHeaderHidden(false);
     m_treeView->setRootIsDecorated(true);          // show category expand chevrons
-    m_treeView->setExpandsOnDoubleClick(false);    // double-click = layer props
+    m_treeView->setExpandsOnDoubleClick(false);    // double-click = zoom-to-layer
     m_treeView->setContextMenuPolicy(Qt::CustomContextMenu);
     vlay->addWidget(m_treeView, 1);
 
@@ -699,9 +710,12 @@ void LayerTreePanel::onSelectionChanged()
 
 void LayerTreePanel::onLayerDoubleClicked(const QModelIndex &index)
 {
+    // Slice O: zoom to the layer's extent rather than opening the
+    // Properties dialog. The Properties path remains on the right-click
+    // context menu.
     OpenSWMMVisLayer *layer = m_model->layerForIndex(toSourceIndex(index));
     if (layer)
-        emit layerPropertiesRequested(layer);
+        onZoomToSelectedLayer();
 }
 
 void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
