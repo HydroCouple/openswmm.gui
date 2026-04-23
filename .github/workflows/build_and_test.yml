@@ -65,7 +65,7 @@ jobs:
         with:
           repository: cbuahin/QPropertyModel
           ref: dev
-          path: ../QPropertyModel
+          path: ../openswmm.gui
 
       # ── vcpkg ────────────────────────────────────────────────────────────────
       - name: Checkout vcpkg
