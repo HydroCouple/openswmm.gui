@@ -8,6 +8,8 @@ on:
 
 env:
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+  OMP_NUM_THREADS: 1
 
 jobs:
   build:
@@ -50,6 +52,38 @@ jobs:
       - name: Checkout openswmm.gui
         uses: actions/checkout@v4
 
+      - name: Checkout vcpkg
+        uses: actions/checkout@v5
+        with:
+          repository: microsoft/vcpkg
+          ref: 2025.02.14
+          path: vcpkg
+
+      - name: Install Ninja (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Bootstrap vcpkg (Windows)
+        if: runner.os == 'Windows'
+        working-directory: ${{ env.VCPKG_ROOT }}
+        run: |
+          .\bootstrap-vcpkg${{ matrix.shell_ext }}
+          .\vcpkg.exe integrate install
+
+      - name: Bootstrap vcpkg (Unix)
+        if: runner.os != 'Windows'
+        working-directory: ${{ env.VCPKG_ROOT }}
+        run: |
+          ./bootstrap-vcpkg${{ matrix.shell_ext }}
+          chmod +x vcpkg
+
+      - name: Export GitHub Actions cache variables
+        uses: actions/github-script@v8
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
       # OpenSWMMCore must sit at ../OpenSWMMCore relative to openswmm.gui so that
       # CMakeLists.txt's  add_subdirectory("${CMAKE_SOURCE_DIR}/../OpenSWMMCore")  resolves.
       - name: Checkout OpenSWMMCore (swmm6_rel)
@@ -66,51 +100,6 @@ jobs:
           repository: cbuahin/QPropertyModel
           ref: dev
           path: ../openswmm.gui
-
-      # ── vcpkg ────────────────────────────────────────────────────────────────
-      - name: Checkout vcpkg
-        uses: actions/checkout@v5
-        with:
-          repository: microsoft/vcpkg
-          ref: 2025.02.14
-          path: vcpkg
-
-
-      - name: Export GitHub Actions cache environment variables
-        uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-
-      - name: Bootstrap vcpkg (Windows)
-        if: runner.os == 'Windows'
-        working-directory: ${{ github.workspace }}/../vcpkg
-        shell: cmd
-        run: |
-          bootstrap-vcpkg${{ matrix.shell_ext }}
-          vcpkg.exe integrate install
-
-      - name: Bootstrap vcpkg (Unix)
-        if: runner.os != 'Windows'
-        working-directory: ${{ github.workspace }}/../vcpkg
-        run: |
-          ./bootstrap-vcpkg${{ matrix.shell_ext }}
-          chmod +x vcpkg
-
-      # Resolve VCPKG_ROOT to an absolute path so the CMake toolchain file finds it
-      # on all platforms, avoiding any ambiguity from the "../vcpkg" relative prefix.
-      - name: Set VCPKG_ROOT (Unix)
-        if: runner.os != 'Windows'
-        run: echo "VCPKG_ROOT=$(cd '${{ github.workspace }}/../vcpkg' && pwd)" >> $GITHUB_ENV
-
-      - name: Set VCPKG_ROOT (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
-        run: |
-          pushd "%GITHUB_WORKSPACE%\..\vcpkg"
-          echo VCPKG_ROOT=%CD%>> %GITHUB_ENV%
-          popd
 
       # ── System dependencies ──────────────────────────────────────────────────
       - name: Install system dependencies (Linux)
