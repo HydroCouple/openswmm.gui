@@ -11,7 +11,7 @@
             "host": true
         },
         {
-            "name":   "qtbase",
+            "name": "qtbase",
             "host": true
         },
         {
@@ -19,11 +19,13 @@
             "host": true
         },
         {
-            "name": "gdal"
+            "name": "gdal",
+            "version>=": "3.10.1"
         },
         {
             "name": "gtest",
-            "platform": "!(uwp | xbox)"
+            "platform": "!(uwp | xbox)",
+            "version>=": "1.16.0"
         }
     ]
 }
