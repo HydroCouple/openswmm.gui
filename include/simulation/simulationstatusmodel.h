@@ -1,0 +1,125 @@
+/*!
+ * \file   simulationstatusmodel.h
+ * \author Caleb Buahin <caleb.buahin@gmail.com>
+ * \date   2026
+ * \license MIT
+ */
+#ifndef SIMULATIONSTATUSMODEL_H
+#define SIMULATIONSTATUSMODEL_H
+
+#include <QAbstractItemModel>
+#include <QDateTime>
+#include <QStringList>
+
+/**
+ * @brief Status of a single simulation job.
+ */
+enum class SimulationJobStatus {
+    Running,
+    Success,
+    Failed,
+    Cancelled
+};
+
+/**
+ * @brief Data record for one simulation run.
+ *
+ * Lives inside SimulationStatusModel; updated in-place as the runner posts
+ * progress/warning/finished signals back to the GUI thread.
+ */
+struct SimulationJobRecord {
+    int     id              = -1;
+    QString instanceName;           ///< Displayed name (e.g. "Example1.inp")
+    QString inpPath;                ///< Full .inp path
+
+    SimulationJobStatus status      = SimulationJobStatus::Running;
+    double  progress                = 0.0;  ///< [0.0, 1.0]
+    double  simTimeDays             = 0.0;  ///< current decimal-day value
+
+    double  runoffErrPct            = 0.0;  ///< populated after finish
+    double  routingErrPct           = 0.0;  ///< populated after finish
+
+    int     errorCode               = 0;
+    QString errorMessage;
+
+    QDateTime startedAt;
+    QDateTime finishedAt;
+
+    QStringList warnings;           ///< "[code] message" entries
+};
+
+/**
+ * @brief Two-level QAbstractItemModel for the Simulation Status dock.
+ *
+ * Level-0 rows: one per simulation job.
+ * Level-1 rows: individual warning messages under each job.
+ *
+ * Columns (level-0):
+ *   0  Name        project file name
+ *   1  Status      Running / Success / Failed / Cancelled
+ *   2  Progress    "45.2 %" while running
+ *   3  Sim Time    decimal days (updated each step)
+ *   4  Runoff Err  % (populated after finish)
+ *   5  Routing Err % (populated after finish)
+ *   6  Duration    wall-clock seconds once finished
+ *
+ * Level-1 columns: Col 0 carries the warning text; others are empty.
+ */
+class SimulationStatusModel : public QAbstractItemModel
+{
+    Q_OBJECT
+
+public:
+    static constexpr int ColName        = 0;
+    static constexpr int ColStatus      = 1;
+    static constexpr int ColProgress    = 2;
+    static constexpr int ColSimTime     = 3;
+    static constexpr int ColRunoffErr   = 4;
+    static constexpr int ColRoutingErr  = 5;
+    static constexpr int ColDuration    = 6;
+    static constexpr int NumColumns     = 7;
+
+    explicit SimulationStatusModel(QObject *parent = nullptr);
+
+    // ── Public mutators (called from GUI thread via queued signals) ──────────
+    /** Add a new job row; returns the job id. */
+    int  addJob(const QString &instanceName, const QString &inpPath);
+
+    /** Update progress for a running job. */
+    void updateProgress(int jobId, double fraction, double simTimeDays);
+
+    /** Append a warning child under the given job. */
+    void addWarning(int jobId, int code, const QString &message);
+
+    /**
+     * Mark a job finished.
+     * @param runoffErrFrac   runoff continuity error fraction (e.g. 0.001 = 0.1 %)
+     * @param routingErrFrac  routing continuity error fraction
+     */
+    void finishJob(int jobId, bool success, int errCode, const QString &errMsg,
+                   double runoffErrFrac, double routingErrFrac);
+
+    /** Return a copy of the record for the given job id, or nullptr if not found. */
+    const SimulationJobRecord *jobRecord(int jobId) const;
+
+    // ── QAbstractItemModel ───────────────────────────────────────────────────
+    QModelIndex index(int row, int column,
+                      const QModelIndex &parent = QModelIndex()) const override;
+    QModelIndex parent(const QModelIndex &child) const override;
+    int  rowCount   (const QModelIndex &parent = QModelIndex()) const override;
+    int  columnCount(const QModelIndex &parent = QModelIndex()) const override;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    QVariant headerData(int section, Qt::Orientation orientation,
+                        int role = Qt::DisplayRole) const override;
+
+private:
+    // sentinel internalId for top-level (job) indices
+    static constexpr quintptr kRootId = ~quintptr(0);
+
+    int  jobIndexById(int jobId) const;
+
+    QList<SimulationJobRecord> m_jobs;
+    int m_nextId = 0;
+};
+
+#endif // SIMULATIONSTATUSMODEL_H

@@ -150,45 +150,52 @@ MapCanvas *SWMMVis::activeCanvas() const
 namespace {
 
 /**
- * @brief QMdiSubWindow subclass for the Welcome tab whose closeEvent
- *        is the single, reliable hook for tear-down. QMdiArea's tab-X
- *        ultimately calls subWindow->close() which calls closeEvent;
- *        overriding it here guarantees interception regardless of
- *        platform-specific event-filter / tabCloseRequested quirks
- *        that proved unreliable on macOS Cocoa.
+ * @brief QMdiSubWindow subclass for the Welcome tab.
+ *
+ * Behaves like any other MDI document: closing it truly destroys the
+ * sub-window and its inner welcomeWidget. The ui->welcomeWidget pointer
+ * is nulled in closeEvent so all subsequent guards are safe.
  */
 class WelcomeSubWindow : public QMdiSubWindow
 {
 public:
-    explicit WelcomeSubWindow(QWidget *parent = nullptr)
-        : QMdiSubWindow(parent)
+    explicit WelcomeSubWindow(Ui::SWMMVis *ui, QWidget *parent = nullptr)
+        : QMdiSubWindow(parent), mUi(ui)
     {
         setWindowTitle(QObject::tr("Welcome"));
-        // Never auto-destroy on close — the inner welcome widget must
-        // survive so Help → Show Welcome Screen can re-insert it.
-        setAttribute(Qt::WA_DeleteOnClose, false);
+        // Destroy sub-window (and its child welcomeWidget) when closed.
+        setAttribute(Qt::WA_DeleteOnClose);
         // NOTE: do NOT call setWindowFlags here. In QMdiArea's TabbedView
-        // mode, re-flagging a freshly-added sub-window detaches it from
-        // the tab stack and floats it as an undocked window. The tab bar
-        // already renders the close X (tabsClosable=true in the .ui) and
-        // does not expose minimize/maximize on tabs, so the desired
-        // "close-only, not minimizable" look is the default.
+        // mode, re-flagging a QMdiSubWindow detaches it from the tab stack.
     }
-
-    /** Callback invoked from closeEvent. Set this at construction to
-     *  forward the close to SWMMVis::removeWelcomeSubWindow. */
-    std::function<void(QCloseEvent *)> onClose;
 
 protected:
     void closeEvent(QCloseEvent *event) override
     {
-        qDebug() << "[welcome] WelcomeSubWindow::closeEvent — forwarding to handler";
-        if (onClose)
-            onClose(event);
-        // Base class ignores unless we accept; accept so the sub-window
-        // proceeds to hide/remove per our handler's side-effects.
-        event->accept();
+        // Null the tracked pointer before Qt destroys the child widget so
+        // any subsequent access to ui->welcomeWidget is safely guarded.
+        if (mUi)
+            mUi->welcomeWidget = nullptr;
+        QMdiSubWindow::closeEvent(event);
     }
+
+    void changeEvent(QEvent *event) override
+    {
+        // Prevent minimising — restore immediately if the window state
+        // somehow becomes minimised (e.g. via keyboard shortcut or
+        // system-menu entry).
+        if (event->type() == QEvent::WindowStateChange
+                && (windowState() & Qt::WindowMinimized))
+        {
+            setWindowState(windowState() & ~Qt::WindowMinimized);
+            event->ignore();
+            return;
+        }
+        QMdiSubWindow::changeEvent(event);
+    }
+
+private:
+    Ui::SWMMVis *mUi;
 };
 
 } // anonymous namespace
@@ -206,19 +213,19 @@ void SWMMVis::initializeWelcomeScreen()
     // our inner widget with it.
     if (QMdiSubWindow *orig = welcomeSubWindow())
     {
-        ui->mdiAreaCentral->removeSubWindow(orig);
-        orig->deleteLater();
-    }
-    if (ui->welcomeWidget)
-    {
-        auto *sub = new WelcomeSubWindow();
-        sub->setWidget(ui->welcomeWidget);
-        sub->onClose = [this](QCloseEvent *) { removeWelcomeSubWindow(); };
-        ui->mdiAreaCentral->addSubWindow(sub);
-        sub->show();
-        qDebug() << "[welcome] WelcomeSubWindow installed — closeEvent hook active";
+        // Already present — bring it to front and re-use it.
+        orig->show();
+        ui->mdiAreaCentral->setActiveSubWindow(orig);
+        return;
     }
 
+    if (ui->welcomeWidget)
+    {
+        auto *sub = new WelcomeSubWindow(ui);
+        sub->setWidget(ui->welcomeWidget);
+        ui->mdiAreaCentral->addSubWindow(sub);
+        sub->show();
+    }
 
     // Wire welcome buttons
     connect(ui->commandLinkButtonNew,  &QCommandLinkButton::clicked, this, &SWMMVis::onNewProject);
@@ -235,7 +242,10 @@ void SWMMVis::initializeWelcomeScreen()
         mSettings.setValue(QStringLiteral("SWMMVis::ShowWelcomeOnStartup"), on);
     });
     if (!mShowWelcomeScreenOnStartUp)
-        removeWelcomeSubWindow();
+    {
+        if (QMdiSubWindow *sub = welcomeSubWindow())
+            sub->close();
+    }
 
     // Populate Learn SWMM links
     if (auto *frame = ui->frameLearnSWMM)
@@ -804,21 +814,6 @@ void SWMMVis::closeEvent(QCloseEvent *event)
 
 bool SWMMVis::eventFilter(QObject *watched, QEvent *event)
 {
-    // Intercept the welcome sub-window's close so the tab is torn down
-    // entirely rather than leaving an empty tab shell. The inner
-    // welcomeWidget is preserved for later re-open via
-    // Help → Show Welcome Screen.
-    if (event->type() == QEvent::Close)
-    {
-        if (auto *sub = qobject_cast<QMdiSubWindow *>(watched);
-            sub && ui && ui->welcomeWidget && sub->widget() == ui->welcomeWidget)
-        {
-            qDebug() << "[welcome] eventFilter: Close event on welcome sub";
-            removeWelcomeSubWindow();
-            event->accept();
-            return true;
-        }
-    }
     return QMainWindow::eventFilter(watched, event);
 }
 
@@ -837,20 +832,10 @@ QMdiSubWindow *SWMMVis::welcomeSubWindow() const
 
 void SWMMVis::removeWelcomeSubWindow()
 {
-    QMdiSubWindow *sub = welcomeSubWindow();
-    if (!sub) return;
-
-    // removeSubWindow() reparents the inner widget to nullptr — if we don't
-    // immediately re-parent it somewhere, it briefly becomes a top-level
-    // window and may flash on screen. Stashing it as a hidden child of the
-    // main window keeps it alive and invisible until re-added.
-    ui->mdiAreaCentral->removeSubWindow(sub);
-    if (ui->welcomeWidget)
-    {
-        ui->welcomeWidget->setParent(this);
-        ui->welcomeWidget->hide();
-    }
-    sub->deleteLater();
+    // Closing the sub-window triggers WelcomeSubWindow::closeEvent which
+    // nulls ui->welcomeWidget, then WA_DeleteOnClose destroys everything.
+    if (QMdiSubWindow *sub = welcomeSubWindow())
+        sub->close();
 }
 
 // ── Slots ─────────────────────────────────────────────────────────────────
@@ -922,24 +907,16 @@ void SWMMVis::onClearRecentFiles()
 
 void SWMMVis::onShowWelcomeScreen()
 {
+    // If the welcome screen has been closed and its resources freed,
+    // there is nothing to show (it is gone like any other closed document).
     if (!ui->welcomeWidget || !ui->mdiAreaCentral) return;
 
-    // Re-add the welcome widget as an MDI sub-window if it was previously
-    // closed (we reparented it to this main window on close to keep it
-    // alive). The new sub-window is wired the same way as the one setupUi()
-    // originally created — close tears it down again cleanly.
     QMdiSubWindow *sub = welcomeSubWindow();
-    if (!sub)
+    if (sub)
     {
-        ui->welcomeWidget->show();
-        auto *ws = new WelcomeSubWindow();
-        ws->setWidget(ui->welcomeWidget);
-        ws->onClose = [this](QCloseEvent *) { removeWelcomeSubWindow(); };
-        ui->mdiAreaCentral->addSubWindow(ws);
-        sub = ws;
+        sub->show();
+        ui->mdiAreaCentral->setActiveSubWindow(sub);
     }
-    sub->show();
-    ui->mdiAreaCentral->setActiveSubWindow(sub);
 }
 void SWMMVis::onClose() {}
 
@@ -1300,7 +1277,8 @@ void SWMMVis::onRecentFilesSizeChanged()
     ui->menuOpenRecent->clear();
     const bool hasFiles = !mRecentFiles.isEmpty();
     ui->menuOpenRecent->setEnabled(hasFiles);
-    ui->commandLinkButtonClearRecentFiles->setEnabled(hasFiles);
+    if (ui->commandLinkButtonClearRecentFiles)
+        ui->commandLinkButtonClearRecentFiles->setEnabled(hasFiles);
 
     // Menu entries — label is the short file name for readability, full path
     // lives on the tooltip + the action's data() payload that the dispatcher
@@ -1332,57 +1310,60 @@ void SWMMVis::onRecentFilesSizeChanged()
         ui->menuOpenRecent->addAction(clearAct);
     }
 
-    // Visual separator above the welcome page's Clear Recent Files button
-    // (high-quality-software pattern: divider between the recent-files list
-    // and the destructive Clear action so the user can't accidentally hit
-    // Clear thinking it's another file). Inserted programmatically in the
-    // parent layout that holds frameRecentFiles + commandLinkButtonClearRecentFiles
-    // because the .ui's QFrame::HLine-on-demand isn't easy to add inline.
-    if (auto *clearBtn = ui->commandLinkButtonClearRecentFiles)
+    // Visual separator above the welcome page's Clear Recent Files button.
+    // Only valid while the welcome screen is still alive.
+    if (ui->welcomeWidget)
     {
-        if (auto *parentLay = qobject_cast<QVBoxLayout *>(
-                clearBtn->parentWidget() ? clearBtn->parentWidget()->layout() : nullptr))
+        if (auto *clearBtn = ui->commandLinkButtonClearRecentFiles)
         {
-            // Skip if a separator already exists (re-init safety).
-            const int clearIdx = parentLay->indexOf(clearBtn);
-            const QLayoutItem *prevItem = clearIdx > 0 ? parentLay->itemAt(clearIdx - 1) : nullptr;
-            const auto *prevFrame = prevItem ? qobject_cast<QFrame *>(prevItem->widget()) : nullptr;
-            const bool alreadyHasSeparator =
-                prevFrame && prevFrame->frameShape() == QFrame::HLine;
-            if (!alreadyHasSeparator && clearIdx >= 0)
+            if (auto *parentLay = qobject_cast<QVBoxLayout *>(
+                    clearBtn->parentWidget() ? clearBtn->parentWidget()->layout() : nullptr))
             {
-                auto *sep = new QFrame(clearBtn->parentWidget());
-                sep->setFrameShape(QFrame::HLine);
-                sep->setFrameShadow(QFrame::Sunken);
-                parentLay->insertWidget(clearIdx, sep);
+                // Skip if a separator already exists (re-init safety).
+                const int clearIdx = parentLay->indexOf(clearBtn);
+                const QLayoutItem *prevItem = clearIdx > 0 ? parentLay->itemAt(clearIdx - 1) : nullptr;
+                const auto *prevFrame = prevItem ? qobject_cast<QFrame *>(prevItem->widget()) : nullptr;
+                const bool alreadyHasSeparator =
+                    prevFrame && prevFrame->frameShape() == QFrame::HLine;
+                if (!alreadyHasSeparator && clearIdx >= 0)
+                {
+                    auto *sep = new QFrame(clearBtn->parentWidget());
+                    sep->setFrameShape(QFrame::HLine);
+                    sep->setFrameShadow(QFrame::Sunken);
+                    parentLay->insertWidget(clearIdx, sep);
+                }
             }
         }
     }
 
-    // Welcome panel — replace existing buttons with current list
-    if (auto *area = ui->frameRecentFiles->findChild<QScrollArea *>())
+    // Welcome panel — replace existing buttons with current list (only
+    // while the welcome screen is still alive).
+    if (ui->frameRecentFiles)
     {
-        QWidget *content = area->widget();
-        if (content && content->layout())
+        if (auto *area = ui->frameRecentFiles->findChild<QScrollArea *>())
         {
-            // Remove all children except a trailing stretch
-            QLayout *lay = content->layout();
-            while (QLayoutItem *item = lay->takeAt(0))
+            QWidget *content = area->widget();
+            if (content && content->layout())
             {
-                if (QWidget *w = item->widget()) w->deleteLater();
-                delete item;
+                // Remove all children except a trailing stretch
+                QLayout *lay = content->layout();
+                while (QLayoutItem *item = lay->takeAt(0))
+                {
+                    if (QWidget *w = item->widget()) w->deleteLater();
+                    delete item;
+                }
+                for (const QString &path : mRecentFiles)
+                {
+                    QFileInfo fi(path);
+                    auto *btn = new QCommandLinkButton(fi.fileName(), content);
+                    btn->setDescription(fi.absolutePath());
+                    btn->setIcon(QIcon(QStringLiteral(":/swmmvis/Open")));
+                    btn->setMaximumHeight(50);
+                    connect(btn, &QCommandLinkButton::clicked, this, [this, path]{ onOpenProject(path); });
+                    lay->addWidget(btn);
+                }
+                qobject_cast<QVBoxLayout*>(lay)->addStretch(1);
             }
-            for (const QString &path : mRecentFiles)
-            {
-                QFileInfo fi(path);
-                auto *btn = new QCommandLinkButton(fi.fileName(), content);
-                btn->setDescription(fi.absolutePath());
-                btn->setIcon(QIcon(QStringLiteral(":/swmmvis/Open")));
-                btn->setMaximumHeight(50);
-                connect(btn, &QCommandLinkButton::clicked, this, [this, path]{ onOpenProject(path); });
-                lay->addWidget(btn);
-            }
-            qobject_cast<QVBoxLayout*>(lay)->addStretch(1);
         }
     }
 }
