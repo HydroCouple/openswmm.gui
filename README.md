@@ -29,7 +29,7 @@ Key capabilities:
 |---|---|---|
 | [Qt](https://www.qt.io/) | 6.5+ | Widgets, OpenGL, Network, Concurrent, Svg, Charts |
 | [GDAL](https://gdal.org/) | 3.x | GIS/CRS support — installed via vcpkg |
-| [OpenSWMMCore](https://github.com/HydroCouple/Stormwater-Management-Model) | branch `swmm6_rel` | Engine — expected at `../OpenSWMMCore` |
+| [openswmm.engine](https://github.com/HydroCouple/openswmm.engine) | branch `swmm6_rel` | Engine — expected at `../openswmm.engine` |
 | [QPropertyModel](https://github.com/cbuahin/QPropertyModel) | branch `dev` | Property editor — expected at `../QPropertyModel` |
 | [vcpkg](https://github.com/microsoft/vcpkg) | `2025.03.19` | Package manager |
 | CMake | 3.21+ | Build system |
@@ -43,7 +43,7 @@ All three repos must be siblings in the same parent directory:
 ```bash
 # From the directory that will contain all repos:
 git clone -b swmm6_gui  https://github.com/HydroCouple/openswmm.gui.git
-git clone -b swmm6_rel  https://github.com/HydroCouple/Stormwater-Management-Model.git OpenSWMMCore
+git clone -b swmm6_rel  https://github.com/HydroCouple/openswmm.engine.git openswmm.engine
 git clone -b dev        https://github.com/cbuahin/QPropertyModel.git QPropertyModel
 git clone               https://github.com/microsoft/vcpkg.git
 

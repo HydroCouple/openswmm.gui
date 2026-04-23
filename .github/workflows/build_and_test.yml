@@ -85,22 +85,22 @@ jobs:
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-      # OpenSWMMCore must sit at ../OpenSWMMCore relative to openswmm.gui so that
-      # CMakeLists.txt's  add_subdirectory("${CMAKE_SOURCE_DIR}/../OpenSWMMCore")  resolves.
-      - name: Checkout Open SWMM Engine (swmm6_rel)
-        uses: actions/checkout@v4
-        with:
-          repository: HydroCouple/openswmm.engine
-          ref: swmm6_rel
-          path: ../openswmm.engine
-
-      # QPropertyModel must sit at ../QPropertyModel for the FetchContent SOURCE_DIR path.
-      - name: Checkout QPropertyModel (dev)
-        uses: actions/checkout@v4
-        with:
-          repository: cbuahin/QPropertyModel
-          ref: dev
-          path: ../QPropertyModel
+#      # openswmm.engine must sit at ../openswmm.engine relative to openswmm.gui so that
+#      # `FetchOpenSWMMEngine.cmake` can pick up the sibling checkout automatically.
+#      - name: Checkout Open SWMM Engine (swmm6_rel)
+#        uses: actions/checkout@v4
+#        with:
+#          repository: HydroCouple/openswmm.engine
+#          ref: swmm6_rel
+#          path: ../openswmm.engine
+#
+#      # QPropertyModel must sit at ../QPropertyModel for the FetchContent SOURCE_DIR path.
+#      - name: Checkout QPropertyModel (dev)
+#        uses: actions/checkout@v4
+#        with:
+#          repository: cbuahin/QPropertyModel
+#          ref: dev
+#          path: ../QPropertyModel
 
       # ── System dependencies ──────────────────────────────────────────────────
       - name: Install system dependencies (Linux)
@@ -143,3 +143,4 @@ jobs:
             build/${{ matrix.build_subdir }}/*.tar.gz
             build/${{ matrix.build_subdir }}/*.exe
             build/${{ matrix.build_subdir }}/*.dmg
+

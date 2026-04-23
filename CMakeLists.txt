@@ -61,8 +61,8 @@ find_package(GDAL REQUIRED)
 # ── QPropertyModel (sibling checkout, else GitHub fetch) ────────────────────
 include(FetchQPropertyModel)
 
-# ── OpenSWMMCore engine (hard dependency — sibling checkout or GitHub fetch) ─
-include(FetchOpenSWMMCore)
+# ── openswmm.engine (hard dependency — sibling checkout or GitHub fetch) ─────
+include(FetchOpenSWMMEngine)
 
 set(TS_FILES translation/SWMMVis_en_US.ts)
 
