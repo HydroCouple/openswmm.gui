@@ -55,9 +55,9 @@ jobs:
       - name: Checkout OpenSWMMCore (swmm6_rel)
         uses: actions/checkout@v4
         with:
-          repository: HydroCouple/Stormwater-Management-Model
+          repository: HydroCouple/openswmm.gui
           ref: swmm6_rel
-          path: ../OpenSWMMCore
+          path: ../openswmm.gui
 
       # QPropertyModel must sit at ../QPropertyModel for the FetchContent SOURCE_DIR path.
       - name: Checkout QPropertyModel (dev)
