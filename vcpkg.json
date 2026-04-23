@@ -3,7 +3,7 @@
     "version-semver": "6.0.0-alpha.1",
     "description": "Stormwater Management Model (SWMM) is a dynamic rainfall-runoff-subsurface runoff simulation model used for single event or long-term (continuous) simulation of runoff quantity and quality from primarily urban areas.",
     "license": "MIT",
-    "homepage": "https://www.epa.gov/water-research/storm-water-management-model-swmm",
+    "homepage": "https://www.hydrocouple.com/openswmm.engine",
     "builtin-baseline": "b02e341c927f16d991edbd915d8ea43eac52096c",
     "dependencies": [
         {
@@ -15,13 +15,11 @@
             "host": true
         },
         {
-            "name": "qtbase"
-        }
-    ],
-    "overrides": [
+            "name": "gdal"
+        },
         {
-            "name": "qtbase",
-            "version": "6.8.2"
+            "name": "gtest",
+            "platform": "!(uwp | xbox)"
         }
     ]
 }
