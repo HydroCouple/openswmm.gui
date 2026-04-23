@@ -87,12 +87,12 @@ jobs:
 
       # OpenSWMMCore must sit at ../OpenSWMMCore relative to openswmm.gui so that
       # CMakeLists.txt's  add_subdirectory("${CMAKE_SOURCE_DIR}/../OpenSWMMCore")  resolves.
-      - name: Checkout OpenSWMMCore (swmm6_rel)
+      - name: Checkout Open SWMM Engine (swmm6_rel)
         uses: actions/checkout@v4
         with:
-          repository: HydroCouple/openswmm.gui
-          ref: swmm6_gui
-          path: ../openswmm.gui
+          repository: HydroCouple/openswmm.engine
+          ref: swmm6_rel
+          path: ../openswmm.engine
 
       # QPropertyModel must sit at ../QPropertyModel for the FetchContent SOURCE_DIR path.
       - name: Checkout QPropertyModel (dev)
@@ -100,7 +100,7 @@ jobs:
         with:
           repository: cbuahin/QPropertyModel
           ref: dev
-          path: ../openswmm.gui
+          path: ../QPropertyModel
 
       # ── System dependencies ──────────────────────────────────────────────────
       - name: Install system dependencies (Linux)
