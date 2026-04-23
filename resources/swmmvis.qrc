@@ -75,5 +75,6 @@
         <file alias="AddRaster">images/add_raster.svg</file>
         <file alias="AddSWMMOutput">images/add_swmm_output.svg</file>
         <file alias="InvertSelection">images/invert_selection.svg</file>
+        <file alias="Options">images/options.svg</file>
     </qresource>
 </RCC>

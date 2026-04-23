@@ -361,7 +361,7 @@ Examples include: mass balance checks, steady-state flow solutions, unit hydrogr
 
 A suite of reference problems is maintained that have been previously executed with:
 
-- The **legacy engine** (EPA SWMM or equivalent predecessor), and/or
+- A **legacy engine** (or equivalent predecessor), and/or
 - A **prior stable release** of openswmm.engine.
 
 New implementations must reproduce reference outputs within acceptable tolerance bounds. Deviations must be documented and scientifically justified — they may be acceptable if the new formulation is demonstrably more correct, but the deviation must be explicit and reviewed.

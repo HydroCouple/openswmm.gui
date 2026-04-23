@@ -216,20 +216,47 @@
                   </sizepolicy>
                  </property>
                  <property name="widgetResizable">
-                  <bool>false</bool>
+                  <bool>true</bool>
                  </property>
-                 <widget class="QCommandLinkButton" name="commandLinkButton">
+                 <widget class="QWidget" name="widgetContentsRecentFiles">
                   <property name="geometry">
                    <rect>
                     <x>0</x>
                     <y>0</y>
                     <width>272</width>
-                    <height>41</height>
+                    <height>200</height>
                    </rect>
                   </property>
-                  <property name="text">
-                   <string>xndgjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj</string>
-                  </property>
+                  <layout class="QVBoxLayout" name="verticalLayoutRecentFiles">
+                   <property name="leftMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="topMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="rightMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="bottomMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="spacing">
+                    <number>2</number>
+                   </property>
+                   <item>
+                    <spacer name="verticalSpacerRecentFiles">
+                     <property name="orientation">
+                      <enum>Qt::Vertical</enum>
+                     </property>
+                     <property name="sizeHint" stdset="0">
+                      <size>
+                       <width>20</width>
+                       <height>40</height>
+                      </size>
+                     </property>
+                    </spacer>
+                   </item>
+                  </layout>
                  </widget>
                 </widget>
                </item>
@@ -595,6 +622,7 @@
     <property name="title">
      <string>Help</string>
     </property>
+    <addaction name="actionShowWelcome"/>
     <addaction name="actionHelp"/>
     <addaction name="actionAbout"/>
    </widget>
@@ -651,6 +679,7 @@
    <addaction name="actionAddWMSData"/>
    <addaction name="actionAddDelimeteredData"/>
    <addaction name="separator"/>
+   <addaction name="actionOptions"/>
    <addaction name="actionSettings"/>
   </widget>
   <widget class="QToolBar" name="toolBarEdit">
@@ -674,6 +703,7 @@
    <addaction name="separator"/>
    <addaction name="actionAddJunction"/>
    <addaction name="actionAddOutfall"/>
+   <addaction name="actionAddFlowDivider"/>
    <addaction name="actionAddStorage"/>
    <addaction name="separator"/>
    <addaction name="actionAddPipe"/>
@@ -1947,6 +1977,36 @@
     </property>
    </action>
   </actiongroup>
+  <action name="actionOptions">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Options</normaloff>:/swmmvis/Options</iconset>
+   </property>
+   <property name="text">
+    <string>Options</string>
+   </property>
+   <property name="toolTip">
+    <string>Simulation Options</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionShowWelcome">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Help</normaloff>:/swmmvis/Help</iconset>
+   </property>
+   <property name="text">
+    <string>Show Welcome Page</string>
+   </property>
+   <property name="toolTip">
+    <string>Re-open the Welcome tab</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
  </widget>
  <layoutdefault spacing="6" margin="11"/>
  <customwidgets>

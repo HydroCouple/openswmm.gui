@@ -18,7 +18,6 @@
 #include <ogr_spatialref.h>
 #include <ogr_geometry.h>
 
-#ifdef HAVE_OPENSWMMCORE
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -26,7 +25,6 @@
 #include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_spatial.h>
-#endif
 
 // ---------------------------------------------------------------------------
 // Helper: map coordinate → scene coordinate (Y-flipped)
@@ -100,25 +98,24 @@ SWMM_Engine SWMMModelLayer::engine() const { return m_engine; }
 
 void SWMMModelLayer::closeEngine()
 {
-#ifdef HAVE_OPENSWMMCORE
     if (m_engine)
     {
         swmm_engine_close(m_engine);
         swmm_engine_destroy(m_engine);
         m_engine = nullptr;
     }
-#endif
     m_nodes.clear();
     m_links.clear();
     m_catchments.clear();
     m_gages.clear();
+    // Drop any per-object hides so opening a different model doesn't
+    // accidentally hide a similarly-named object from the new project.
+    m_hiddenObjects.clear();
     m_needsRebuild = true;
 }
 
 bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
 {
-    Q_UNUSED(warnings)
-
     closeEngine();
 
     if (m_modelFilePath.isEmpty())
@@ -134,7 +131,6 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
         return false;
     }
 
-#ifdef HAVE_OPENSWMMCORE
     // Open model (read-only: pass empty strings for rpt/out)
     m_engine = swmm_engine_create();
     if (!m_engine)
@@ -316,11 +312,6 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
         setSRS(layerSRS, true);
     }
 
-#else
-    Q_UNUSED(errors)
-    warnings.append(QStringLiteral("OpenSWMMCore not available; model not loaded."));
-#endif
-
     buildGeometryCache();
     m_needsRebuild = true;
 
@@ -373,6 +364,57 @@ void SWMMModelLayer::setShowRainGages(bool show)
 void SWMMModelLayer::setShowLabels(bool show)
 {
     if (m_showLabels != show) { m_showLabels = show; m_needsRebuild = true; emit showLabelsChanged(show); emit repaintRequested(); }
+}
+
+bool SWMMModelLayer::isObjectVisible(const QString &name) const
+{
+    return !m_hiddenObjects.contains(name);
+}
+
+void SWMMModelLayer::setObjectVisible(const QString &name, bool visible)
+{
+    bool changed = false;
+    if (visible)
+    {
+        changed = m_hiddenObjects.remove(name) > 0;
+    }
+    else if (!m_hiddenObjects.contains(name))
+    {
+        m_hiddenObjects.insert(name);
+        changed = true;
+    }
+    if (changed)
+    {
+        m_needsRebuild = true;
+        emit repaintRequested();
+    }
+}
+
+void SWMMModelLayer::setObjectsVisible(const QList<QString> &names, bool visible)
+{
+    bool changed = false;
+    if (visible)
+    {
+        for (const QString &n : names)
+            if (m_hiddenObjects.remove(n) > 0)
+                changed = true;
+    }
+    else
+    {
+        for (const QString &n : names)
+        {
+            if (!m_hiddenObjects.contains(n))
+            {
+                m_hiddenObjects.insert(n);
+                changed = true;
+            }
+        }
+    }
+    if (changed)
+    {
+        m_needsRebuild = true;
+        emit repaintRequested();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -555,11 +597,14 @@ void SWMMModelLayer::populateScene(QGraphicsScene *scene,
                                     const MapExtent &canvasExtent,
                                     const SpatialReferenceSystem * /*canvasSRS*/)
 {
-    qDebug().noquote() << QStringLiteral("[populateScene] visible=%1 nodes=%2 links=%3 catch=%4 gages=%5 needsRebuild=%6")
+    qDebug().noquote() << QStringLiteral("[populateScene] visible=%1 nodes=%2 links=%3 catch=%4 gages=%5 needsRebuild=%6 show(N/L/S/G)=%7/%8/%9/%10 hidden=%11")
                               .arg(isVisible() ? "yes" : "no")
                               .arg(m_nodes.size()).arg(m_links.size())
                               .arg(m_catchments.size()).arg(m_gages.size())
-                              .arg(m_needsRebuild ? "yes" : "no");
+                              .arg(m_needsRebuild ? "yes" : "no")
+                              .arg(m_showNodes).arg(m_showLinks)
+                              .arg(m_showSubcatchments).arg(m_showRainGages)
+                              .arg(m_hiddenObjects.size());
 
     if (!isVisible())
         return;
@@ -576,6 +621,8 @@ void SWMMModelLayer::populateScene(QGraphicsScene *scene,
     {
         for (const CatchGeom &c : m_catchments)
         {
+            if (m_hiddenObjects.contains(c.name))
+                continue;
             QVector<QPointF> pts;
             pts.reserve(c.vertices.size());
             for (QPointF v : c.vertices)
@@ -613,6 +660,9 @@ void SWMMModelLayer::populateScene(QGraphicsScene *scene,
     {
         for (const LinkGeom &l : m_links)
         {
+            if (m_hiddenObjects.contains(l.name))
+                continue;
+
             QVector<QPointF> pts;
             pts.reserve(l.vertices.size());
             for (QPointF v : l.vertices)
@@ -644,8 +694,14 @@ void SWMMModelLayer::populateScene(QGraphicsScene *scene,
     // ---- Nodes ----
     if (m_showNodes)
     {
+        // nodeType: 0=Junction, 1=Outfall, 2=Storage, 3=Divider — pick
+        // symbology below; per-sub-type visibility is driven entirely by
+        // the leaf checkboxes / m_hiddenObjects.
         for (const NodeGeom &n : m_nodes)
         {
+            if (m_hiddenObjects.contains(n.name))
+                continue;
+
             double x = n.x, y = n.y;
             applyTransform(x, y);
 
@@ -679,6 +735,8 @@ void SWMMModelLayer::populateScene(QGraphicsScene *scene,
     {
         for (const NodeGeom &g : m_gages)
         {
+            if (m_hiddenObjects.contains(g.name))
+                continue;
             double x = g.x, y = g.y;
             applyTransform(x, y);
 
@@ -761,6 +819,237 @@ int SWMMModelLayer::objectTypeFor(const QString &name) const
     for (const CatchGeom &c : m_catchments) if (c.name == name) return 3;
     for (const NodeGeom &g : m_gages)    if (g.name == name) return 4;
     return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Geometry editing API (Phase 2)
+// ---------------------------------------------------------------------------
+
+int SWMMModelLayer::nodeIndex(const QString &name) const
+{
+    for (int i = 0; i < m_nodes.size(); ++i)
+        if (m_nodes[i].name == name) return i;
+    return -1;
+}
+
+int SWMMModelLayer::linkIndex(const QString &name) const
+{
+    for (int i = 0; i < m_links.size(); ++i)
+        if (m_links[i].name == name) return i;
+    return -1;
+}
+
+bool SWMMModelLayer::cachedNodeCoord(int idx, double *x, double *y) const
+{
+    if (idx < 0 || idx >= m_nodes.size())
+        return false;
+    if (x) *x = m_nodes[idx].x;
+    if (y) *y = m_nodes[idx].y;
+    return true;
+}
+
+QVector<QPointF> SWMMModelLayer::cachedLinkPolyline(int idx) const
+{
+    if (idx < 0 || idx >= m_links.size())
+        return {};
+    return m_links[idx].vertices;
+}
+
+QVector<QPointF> SWMMModelLayer::cachedLinkInteriorVertices(int idx) const
+{
+    if (idx < 0 || idx >= m_links.size())
+        return {};
+    const auto &full = m_links[idx].vertices;
+    // Cached polyline is [from_endpoint, ...interior..., to_endpoint] when
+    // both endpoints were resolvable during loadModel. A single-point or
+    // empty polyline is treated as having no interior.
+    if (full.size() <= 2)
+        return {};
+    return full.mid(1, full.size() - 2);
+}
+
+double SWMMModelLayer::engineLinkLength(int linkIdx) const
+{
+    if (!m_engine || !isConduit(linkIdx))
+        return -1.0;
+    double len = 0.0;
+    if (swmm_link_get_length(m_engine, linkIdx, &len) != 0)
+        return -1.0;
+    return len;
+}
+
+bool SWMMModelLayer::isConduit(int linkIdx) const
+{
+    // SWMM_LINK_CONDUIT == 0 in openswmm_links.h
+    if (linkIdx < 0 || linkIdx >= m_links.size())
+        return false;
+    return m_links[linkIdx].linkType == 0;
+}
+
+QVector<int> SWMMModelLayer::linksAttachedToNode(int nodeIdx) const
+{
+    QVector<int> result;
+    if (!m_engine || nodeIdx < 0 || nodeIdx >= m_nodes.size())
+        return result;
+    for (int i = 0; i < m_links.size(); ++i)
+    {
+        int fromIdx = -1, toIdx = -1;
+        swmm_link_get_from_node(m_engine, i, &fromIdx);
+        swmm_link_get_to_node  (m_engine, i, &toIdx);
+        if (fromIdx == nodeIdx || toIdx == nodeIdx)
+            result.append(i);
+    }
+    return result;
+}
+
+int SWMMModelLayer::linkEndForNode(int linkIdx, int nodeIdx) const
+{
+    if (!m_engine || linkIdx < 0 || linkIdx >= m_links.size())
+        return -1;
+    int fromIdx = -1, toIdx = -1;
+    swmm_link_get_from_node(m_engine, linkIdx, &fromIdx);
+    swmm_link_get_to_node  (m_engine, linkIdx, &toIdx);
+    if (fromIdx == nodeIdx) return 0;
+    if (toIdx   == nodeIdx) return 1;
+    return -1;
+}
+
+bool SWMMModelLayer::applyNodeMove(int idx, double newX, double newY)
+{
+    if (idx < 0 || idx >= m_nodes.size())
+        return false;
+
+    if (m_engine)
+    {
+        if (swmm_spatial_set_node_coord(m_engine, idx, newX, newY) != 0)
+            return false;
+    }
+
+    m_nodes[idx].x = newX;
+    m_nodes[idx].y = newY;
+
+    // Mirror the endpoint update into each attached link's cached polyline
+    // so the next scene rebuild renders connected links without having to
+    // reload geometry from the engine.
+    const QVector<int> attached = linksAttachedToNode(idx);
+    for (int linkIdx : attached)
+    {
+        const int end = linkEndForNode(linkIdx, idx);
+        if (end < 0) continue;
+        auto &verts = m_links[linkIdx].vertices;
+        if (verts.isEmpty()) continue;
+        const int slot = (end == 0) ? 0 : (verts.size() - 1);
+        verts[slot] = QPointF(newX, newY);
+    }
+
+    m_needsRebuild = true;
+    emit repaintRequested();
+    return true;
+}
+
+bool SWMMModelLayer::applyLinkLength(int linkIdx, double length)
+{
+    if (!m_engine || !isConduit(linkIdx))
+        return false;
+    if (swmm_link_set_length(m_engine, linkIdx, length) != 0)
+        return false;
+    return true;
+}
+
+bool SWMMModelLayer::applyNodeAdd(const QString &name, int nodeType,
+                                   double x, double y, int *outIdx)
+{
+    if (outIdx) *outIdx = -1;
+    if (name.isEmpty()) return false;
+    if (!m_engine) return false;
+
+    const QByteArray idUtf8 = name.toUtf8();
+    int rc = swmm_node_add(m_engine, idUtf8.constData(), nodeType);
+    if (rc != 0) return false;
+
+    const int idx = swmm_node_index(m_engine, idUtf8.constData());
+    if (idx < 0) return false;
+
+    if (swmm_spatial_set_node_coord(m_engine, idx, x, y) != 0)
+    {
+        // Roll back the engine-side add so callers don't observe a
+        // half-added node. The cache is still clean at this point.
+        swmm_node_pop_last(m_engine, idUtf8.constData());
+        return false;
+    }
+
+    NodeGeom g;
+    g.name       = name;
+    g.nodeType   = nodeType;
+    g.objectType = 0;
+    g.x          = x;
+    g.y          = y;
+    m_nodes.append(g);
+
+    if (outIdx) *outIdx = idx;
+
+    m_needsRebuild = true;
+    emit repaintRequested();
+    return true;
+}
+
+bool SWMMModelLayer::rollbackTailNodeAdd(const QString &name)
+{
+    if (m_nodes.isEmpty() || m_nodes.last().name != name)
+        return false;
+    if (!m_engine) return false;
+
+    const QByteArray idUtf8 = name.toUtf8();
+    if (swmm_node_pop_last(m_engine, idUtf8.constData()) != 0)
+        return false;
+
+    m_nodes.removeLast();
+    m_needsRebuild = true;
+    emit repaintRequested();
+    return true;
+}
+
+bool SWMMModelLayer::applyLinkInteriorVertices(int linkIdx,
+                                                const QVector<QPointF> &interior)
+{
+    if (linkIdx < 0 || linkIdx >= m_links.size())
+        return false;
+
+    if (m_engine)
+    {
+        // Engine stores interior-only vertices; its get API prepends the
+        // from-node coord and appends the to-node coord. See the docblock
+        // on swmm_spatial_set_link_vertices.
+        QVector<double> vx(interior.size());
+        QVector<double> vy(interior.size());
+        for (int i = 0; i < interior.size(); ++i)
+        {
+            vx[i] = interior[i].x();
+            vy[i] = interior[i].y();
+        }
+        if (swmm_spatial_set_link_vertices(m_engine, linkIdx,
+                                            vx.constData(), vy.constData(),
+                                            interior.size()) != 0)
+            return false;
+    }
+
+    auto &full = m_links[linkIdx].vertices;
+    QPointF fromPt, toPt;
+    const bool hasFrom = !full.isEmpty();
+    const bool hasTo   = full.size() >= 2;
+    if (hasFrom) fromPt = full.first();
+    if (hasTo)   toPt   = full.last();
+
+    QVector<QPointF> rebuilt;
+    rebuilt.reserve((hasFrom ? 1 : 0) + interior.size() + (hasTo ? 1 : 0));
+    if (hasFrom) rebuilt.append(fromPt);
+    rebuilt.append(interior);
+    if (hasTo)   rebuilt.append(toPt);
+    full = rebuilt;
+
+    m_needsRebuild = true;
+    emit repaintRequested();
+    return true;
 }
 
 // ---------------------------------------------------------------------------

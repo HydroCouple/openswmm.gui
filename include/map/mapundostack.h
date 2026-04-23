@@ -109,6 +109,7 @@ protected:
 
 class MapExtent;
 class SpatialReferenceSystem;
+class SWMMModelLayer;
 
 /*!
  * \class PanZoomCommand
@@ -209,6 +210,135 @@ public:
 private:
     int m_oldIndex;
     int m_newIndex;
+};
+
+// ---------------------------------------------------------------------------
+// Phase 2 — Interactive map editing
+// ---------------------------------------------------------------------------
+
+/*!
+ * \class MoveNodeCommand
+ * \brief Records a node coordinate change for undo/redo.
+ * \details Mutates engine state and the layer's geometry cache through
+ *          SWMMModelLayer's edit-mutation API. Optionally recomputes
+ *          conduit lengths for every link whose endpoint moved (the
+ *          "auto-length" policy — see SWMMVisProjectWindow::isAutoLengthEnabled).
+ *
+ *          Consecutive commands that move the same node merge into a
+ *          single undoable step so rapid drags do not bloat the stack.
+ */
+class MoveNodeCommand : public MapCommand
+{
+public:
+    /*!
+     * \brief Per-link length snapshot used by auto-length.
+     * \details \p oldLen / \p newLen are the engine length values
+     *          before / after this command's redo().
+     */
+    struct LengthRec
+    {
+        int    linkIdx;
+        double oldLen;
+        double newLen;
+    };
+
+    MoveNodeCommand(SWMMModelLayer *layer,
+                    int nodeIdx,
+                    double oldX, double oldY,
+                    double newX, double newY,
+                    QVector<LengthRec> lengthRecs,
+                    MapCanvas *canvas,
+                    QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+
+    int id() const override { return 10; }
+    bool mergeWith(const QUndoCommand *other) override;
+
+private:
+    SWMMModelLayer     *m_layer   = nullptr;
+    int                 m_nodeIdx = -1;
+    double              m_oldX    = 0.0;
+    double              m_oldY    = 0.0;
+    double              m_newX    = 0.0;
+    double              m_newY    = 0.0;
+    QVector<LengthRec>  m_lengthRecs;
+};
+
+/*!
+ * \class EditVertexCommand
+ * \brief Records a change to a link's interior polyline vertices.
+ * \details Covers drag / insert / delete of interior (non-endpoint)
+ *          vertices via the same old → new interior snapshot. When
+ *          auto-length is on at commit time, the conduit length is
+ *          recomputed from the full polyline and round-tripped through
+ *          the engine as part of redo / undo.
+ */
+class EditVertexCommand : public MapCommand
+{
+public:
+    EditVertexCommand(SWMMModelLayer *layer,
+                      int linkIdx,
+                      QVector<QPointF> oldInterior,
+                      QVector<QPointF> newInterior,
+                      double oldLen,
+                      double newLen,
+                      bool autoLengthApplied,
+                      MapCanvas *canvas,
+                      QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+
+    int id() const override { return 11; }
+
+private:
+    SWMMModelLayer     *m_layer   = nullptr;
+    int                 m_linkIdx = -1;
+    QVector<QPointF>    m_oldInterior;
+    QVector<QPointF>    m_newInterior;
+    double              m_oldLen  = 0.0;
+    double              m_newLen  = 0.0;
+    bool                m_autoLengthApplied = false;
+};
+
+/*!
+ * \class AddNodeCommand
+ * \brief Records the creation of a SWMM node.
+ * \details redo() calls SWMMModelLayer::applyNodeAdd, which pushes the
+ *          new node onto the end of the engine's node list and caches
+ *          its geometry. undo() calls rollbackTailNodeAdd — the narrow
+ *          "pop-last" helper that works only while the added node is
+ *          still the most recent.
+ *
+ *          Consequence: AddNodeCommand cannot be undone after any
+ *          subsequent add/remove has shifted it out of the tail
+ *          position. The GUI guards against this by rejecting the
+ *          undo and leaving the stack untouched (a clean no-op).
+ */
+class AddNodeCommand : public MapCommand
+{
+public:
+    AddNodeCommand(SWMMModelLayer *layer,
+                   QString name,
+                   int nodeType,
+                   double x, double y,
+                   MapCanvas *canvas,
+                   QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+
+    int id() const override { return 12; }
+
+private:
+    SWMMModelLayer *m_layer    = nullptr;
+    QString         m_name;
+    int             m_nodeType = 0;
+    double          m_x        = 0.0;
+    double          m_y        = 0.0;
+    bool            m_present  = false;  // true iff currently applied
 };
 
 #endif // MAPUNDOSTACK_H

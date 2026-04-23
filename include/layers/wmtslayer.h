@@ -216,6 +216,7 @@ public:
 
 private:
     void parseCapabilities(const QByteArray &xml);
+    void applyCRSFromTileMatrixSet(const QString &tmsId);
 
     [[nodiscard]] const WMTSTileMatrix *selectTileMatrix(
         const WMTSTileMatrixSet &tms,

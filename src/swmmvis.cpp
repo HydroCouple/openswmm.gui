@@ -18,6 +18,7 @@
 #include <QProgressBar>
 #include <QStandardItemModel>
 #include <QMessageBox>
+#include <QHeaderView>
 #include <QMetaEnum>
 #include <QFileInfo>
 #include <QCloseEvent>
@@ -27,6 +28,7 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QTabBar>
 
 #include "swmmvis.h"
 #include "ui_swmmvis.h"
@@ -53,11 +55,11 @@
 #include "ui/panels/objectbrowserpanel.h"
 #include "ui/panels/attributepanel.h"
 #include "selection/selectionmanager.h"
+#include "simulation/simulationrunner.h"
+#include "simulation/simulationstatusmodel.h"
 #include "map/tools/maptoolidentify.h"   // IdentifyResult
 
 #include <QPointer>
-#include <QtConcurrent/QtConcurrentRun>
-#include <QFutureWatcher>
 #include <QEvent>
 #include <QFrame>
 #include <QMdiSubWindow>
@@ -145,38 +147,78 @@ MapCanvas *SWMMVis::activeCanvas() const
     return nullptr;
 }
 
+namespace {
+
+/**
+ * @brief QMdiSubWindow subclass for the Welcome tab whose closeEvent
+ *        is the single, reliable hook for tear-down. QMdiArea's tab-X
+ *        ultimately calls subWindow->close() which calls closeEvent;
+ *        overriding it here guarantees interception regardless of
+ *        platform-specific event-filter / tabCloseRequested quirks
+ *        that proved unreliable on macOS Cocoa.
+ */
+class WelcomeSubWindow : public QMdiSubWindow
+{
+public:
+    explicit WelcomeSubWindow(QWidget *parent = nullptr)
+        : QMdiSubWindow(parent)
+    {
+        setWindowTitle(QObject::tr("Welcome"));
+        // Never auto-destroy on close — the inner welcome widget must
+        // survive so Help → Show Welcome Screen can re-insert it.
+        setAttribute(Qt::WA_DeleteOnClose, false);
+        // NOTE: do NOT call setWindowFlags here. In QMdiArea's TabbedView
+        // mode, re-flagging a freshly-added sub-window detaches it from
+        // the tab stack and floats it as an undocked window. The tab bar
+        // already renders the close X (tabsClosable=true in the .ui) and
+        // does not expose minimize/maximize on tabs, so the desired
+        // "close-only, not minimizable" look is the default.
+    }
+
+    /** Callback invoked from closeEvent. Set this at construction to
+     *  forward the close to SWMMVis::removeWelcomeSubWindow. */
+    std::function<void(QCloseEvent *)> onClose;
+
+protected:
+    void closeEvent(QCloseEvent *event) override
+    {
+        qDebug() << "[welcome] WelcomeSubWindow::closeEvent — forwarding to handler";
+        if (onClose)
+            onClose(event);
+        // Base class ignores unless we accept; accept so the sub-window
+        // proceeds to hide/remove per our handler's side-effects.
+        event->accept();
+    }
+};
+
+} // anonymous namespace
+
 void SWMMVis::initializeWelcomeScreen()
 {
     clearPreviousWelcomeScreenElements();
 
-    // Closeability: rather than wrap welcomeWidget in a QMdiSubWindow
-    // (which destabilises the inner QScrollArea's layout and infinite-loops
-    // through updateScrollBars ↔ showChildren on startup), keep
-    // welcomeWidget as the QMdiArea's backdrop child as the .ui authored
-    // it, and add a small Close button to the welcome page itself. The
-    // page hides on close; Help → Show Welcome Screen brings it back.
-    if (ui->welcomeWidget && !mWelcomeCloseButton)
+    // setupUi() wraps welcomeWidget in a plain QMdiSubWindow. Replace
+    // that with our WelcomeSubWindow subclass, whose overridden
+    // closeEvent() is the single reliable hook for tear-down regardless
+    // of how the close was triggered (tab-X, programmatic close,
+    // platform-specific tab-bar signal). Reparent welcomeWidget out of
+    // the auto-created sub-window first so removeSubWindow doesn't take
+    // our inner widget with it.
+    if (QMdiSubWindow *orig = welcomeSubWindow())
     {
-        mWelcomeCloseButton = new QToolButton(ui->welcomeWidget);
-        mWelcomeCloseButton->setIcon(style()->standardIcon(QStyle::SP_DockWidgetCloseButton));
-        mWelcomeCloseButton->setToolTip(tr("Close (re-open via Help → Show Welcome Screen)"));
-        mWelcomeCloseButton->setAutoRaise(true);
-        mWelcomeCloseButton->setCursor(Qt::PointingHandCursor);
-        connect(mWelcomeCloseButton, &QToolButton::clicked,
-                this, [this]() { if (ui->welcomeWidget) ui->welcomeWidget->hide(); });
-        // Float in the top-right corner of the welcome widget.
-        const auto reposition = [this]() {
-            if (!ui->welcomeWidget || !mWelcomeCloseButton) return;
-            const int sz = 20;
-            mWelcomeCloseButton->resize(sz, sz);
-            mWelcomeCloseButton->move(ui->welcomeWidget->width() - sz - 6, 6);
-            mWelcomeCloseButton->raise();
-        };
-        ui->welcomeWidget->installEventFilter(this);   // for resize → reposition
-        // Also reposition once after the initial layout pass.
-        QTimer::singleShot(0, this, reposition);
-        mWelcomeRepositionFn = reposition;             // captured by eventFilter
+        ui->mdiAreaCentral->removeSubWindow(orig);
+        orig->deleteLater();
     }
+    if (ui->welcomeWidget)
+    {
+        auto *sub = new WelcomeSubWindow();
+        sub->setWidget(ui->welcomeWidget);
+        sub->onClose = [this](QCloseEvent *) { removeWelcomeSubWindow(); };
+        ui->mdiAreaCentral->addSubWindow(sub);
+        sub->show();
+        qDebug() << "[welcome] WelcomeSubWindow installed — closeEvent hook active";
+    }
+
 
     // Wire welcome buttons
     connect(ui->commandLinkButtonNew,  &QCommandLinkButton::clicked, this, &SWMMVis::onNewProject);
@@ -184,7 +226,7 @@ void SWMMVis::initializeWelcomeScreen()
     connect(ui->commandLinkButtonClearRecentFiles, &QCommandLinkButton::clicked,
             this, &SWMMVis::onClearRecentFiles);
 
-    // Persist "show welcome on startup" toggle
+    // Persist "show welcome on startup" toggle and honour it at launch.
     mShowWelcomeScreenOnStartUp = mSettings.value(
         QStringLiteral("SWMMVis::ShowWelcomeOnStartup"), true).toBool();
     ui->checkBoxShowWelcomeOnStartUp->setChecked(mShowWelcomeScreenOnStartUp);
@@ -192,6 +234,8 @@ void SWMMVis::initializeWelcomeScreen()
         mShowWelcomeScreenOnStartUp = on;
         mSettings.setValue(QStringLiteral("SWMMVis::ShowWelcomeOnStartup"), on);
     });
+    if (!mShowWelcomeScreenOnStartUp)
+        removeWelcomeSubWindow();
 
     // Populate Learn SWMM links
     if (auto *frame = ui->frameLearnSWMM)
@@ -202,7 +246,6 @@ void SWMMVis::initializeWelcomeScreen()
         struct Link { const char *text; const char *url; };
         const Link links[] = {
             { "User Manual",          "https://www.openswmm.org/gui/manual/" },
-            { "EPA SWMM Reference",   "https://www.epa.gov/water-research/storm-water-management-model-swmm" },
             { "Engine API Reference", "https://www.openswmm.org/api/" },
             { "Report an Issue",      "https://github.com/openswmm/openswmm/issues" },
         };
@@ -391,6 +434,24 @@ void SWMMVis::initializeStatusBar()
     ui->statusBar->addPermanentWidget(mCheckBoxLevelOffsetMode);
     addSep();
 
+    // Auto-length toggle (Phase 2). Conduit length recalculates from the
+    // polyline on every node move / vertex edit when enabled. Disabled
+    // until a project is active; rebinds in onActiveSubWindowChanged.
+    ui->statusBar->addPermanentWidget(new QLabel("Auto-Length:", ui->statusBar));
+    mCheckBoxAutoLength = new QCheckBox("Off", ui->statusBar);
+    mCheckBoxAutoLength->setStyleSheet(
+        "QCheckBox::indicator:checked   {image: url(:/swmmvis/ToggleOn);}"
+        "QCheckBox::indicator:unchecked {image: url(:/swmmvis/ToggleOff);}");
+    mCheckBoxAutoLength->setEnabled(false);
+    connect(mCheckBoxAutoLength, &QCheckBox::toggled, this, [this](bool on) {
+        if (auto *pw = activeProjectWindow())
+            pw->setAutoLengthEnabled(on);
+        mCheckBoxAutoLength->setText(on ? QStringLiteral("On")
+                                        : QStringLiteral("Off"));
+    });
+    ui->statusBar->addPermanentWidget(mCheckBoxAutoLength);
+    addSep();
+
     // Coordinates
     ui->statusBar->addPermanentWidget(new QLabel("Coordinates:", ui->statusBar));
     mLineEditCoordinates = new QLineEdit("0,0", ui->statusBar);
@@ -423,6 +484,7 @@ void SWMMVis::initializeDockWidgets()
     initializeLayersDockWidget();
     initializeObjectBrowserDockWidget();
     initializeAttributePanelDockWidget();
+    initializeSimulationStatusDockWidget();
     initializeMessageLogDockWidget();
 }
 
@@ -503,6 +565,28 @@ void SWMMVis::initializeObjectBrowserDockWidget()
                 dlg->setAttribute(Qt::WA_DeleteOnClose);
                 dlg->show();
             });
+
+    // Slice O — per-object visibility. Parent-header toggles propagate
+    // down to all their children via objectsVisibilityChanged (one batch
+    // call per group toggle = one canvas repaint, regardless of count).
+    // Individual leaf toggles go through objectVisibilityChanged and
+    // never back-propagate to the parent header.
+    connect(mObjectBrowserPanel, &ObjectBrowserPanel::objectVisibilityChanged,
+            this, [this](const SWMMObjectRef &obj, bool visible) {
+                if (auto *pw = activeProjectWindow())
+                {
+                    if (auto *layer = pw->modelLayer())
+                        layer->setObjectVisible(obj.name, visible);
+                }
+            });
+    connect(mObjectBrowserPanel, &ObjectBrowserPanel::objectsVisibilityChanged,
+            this, [this](const QStringList &names, bool visible) {
+                if (auto *pw = activeProjectWindow())
+                {
+                    if (auto *layer = pw->modelLayer())
+                        layer->setObjectsVisible(names, visible);
+                }
+            });
 }
 
 void SWMMVis::initializeAttributePanelDockWidget()
@@ -512,6 +596,27 @@ void SWMMVis::initializeAttributePanelDockWidget()
     // objectName so its position can be persisted across sessions.
     mAttributePanel->setObjectName(QStringLiteral("dockWidgetAttributePanel"));
     addDockWidget(Qt::RightDockWidgetArea, mAttributePanel);
+}
+
+void SWMMVis::initializeSimulationStatusDockWidget()
+{
+    mSimStatusModel = new SimulationStatusModel(this);
+
+    auto *view = ui->treeViewSimulationStatus;
+    view->setModel(mSimStatusModel);
+    view->setUniformRowHeights(true);
+    view->setAlternatingRowColors(true);
+    view->header()->setStretchLastSection(false);
+
+    // Give Name and Status sensible widths; let Duration stretch.
+    view->setColumnWidth(SimulationStatusModel::ColName,       200);
+    view->setColumnWidth(SimulationStatusModel::ColStatus,      80);
+    view->setColumnWidth(SimulationStatusModel::ColProgress,    70);
+    view->setColumnWidth(SimulationStatusModel::ColSimTime,     80);
+    view->setColumnWidth(SimulationStatusModel::ColRunoffErr,   90);
+    view->setColumnWidth(SimulationStatusModel::ColRoutingErr,  90);
+    view->header()->setSectionResizeMode(SimulationStatusModel::ColDuration,
+                                         QHeaderView::Stretch);
 }
 
 void SWMMVis::initializeMessageLogDockWidget()
@@ -531,19 +636,7 @@ void SWMMVis::initializeMenus()
 
     connect(ui->menuOpenRecent, &QMenu::triggered, this, &SWMMVis::onOpenRecentFile);
 
-    // Help → Show Welcome Screen (added programmatically — the .ui's
-    // menuHelp only has Help + About by default).
-    if (ui->menuHelp)
-    {
-        QAction *first = ui->menuHelp->actions().value(0, nullptr);
-        auto *actShowWelcome = new QAction(
-            QIcon(QStringLiteral(":/swmmvis/Help")),
-            tr("Show Welcome Screen"), this);
-        actShowWelcome->setToolTip(tr("Re-open the Welcome page"));
-        connect(actShowWelcome, &QAction::triggered, this, &SWMMVis::onShowWelcomeScreen);
-        if (first) ui->menuHelp->insertAction(first, actShowWelcome);
-        else       ui->menuHelp->addAction(actShowWelcome);
-    }
+    connect(ui->actionShowWelcome, &QAction::triggered, this, &SWMMVis::onShowWelcomeScreen);
 
     connect(ui->actionAddWMSData,    &QAction::triggered, this, &SWMMVis::onAddWMSLayer);
     connect(ui->actionAddBasemap,    &QAction::triggered, this, &SWMMVis::onAddWMTSLayer);
@@ -551,15 +644,86 @@ void SWMMVis::initializeMenus()
     connect(ui->actionAddRasterData, &QAction::triggered, this, &SWMMVis::onAddRasterLayer);
     connect(ui->actionAddSWMMOutput, &QAction::triggered, this, &SWMMVis::onAddSWMMResultsLayer);
     connect(ui->actionExecute,       &QAction::triggered, this, &SWMMVis::onRunSimulation);
+    connect(ui->actionOptions,       &QAction::triggered, this, &SWMMVis::onSimulationOptions);
 
-    // Tools → Simulation Options… (added programmatically — the .ui's menuTools
-    // is empty by default; this avoids touching the .ui resource for one entry).
+    // Tools → Simulation Options… / Set Project CRS… (added programmatically
+    // — the .ui's menuTools is empty by default; this avoids touching the
+    // .ui resource for these entries).
     if (ui->menuTools)
     {
         auto *actSimOpts = ui->menuTools->addAction(tr("Simulation Options…"));
         actSimOpts->setToolTip(tr("Edit per-project SWMM simulation options"));
         connect(actSimOpts, &QAction::triggered, this, &SWMMVis::onSimulationOptions);
+
+        auto *actSetCRS = ui->menuTools->addAction(
+            QIcon(QStringLiteral(":/swmmvis/Globe")),
+            tr("Set Project CRS…"));
+        actSetCRS->setToolTip(tr("Choose or change the project's coordinate reference system"));
+        connect(actSetCRS, &QAction::triggered, this, &SWMMVis::onCRSButtonClicked);
     }
+
+
+
+    // Wire the .ui's pre-existing Add* actions to the Add-node tools. The
+    // node types match SWMM_NodeType (0=Junction, 1=Outfall, 2=Storage,
+    // 3=Divider). actionAddPipe / polyline / polygon remain unwired until
+    // MapToolAddLink / AddSubcatch ship.
+    if (ui->actionAddJunction)
+        connect(ui->actionAddJunction, &QAction::triggered, this, [this]() {
+            if (auto *pw = activeProjectWindow()) pw->activateAddJunctionTool();
+        });
+    if (ui->actionAddOutfall)
+        connect(ui->actionAddOutfall, &QAction::triggered, this, [this]() {
+            if (auto *pw = activeProjectWindow()) pw->activateAddOutfallTool();
+        });
+    if (ui->actionAddStorage)
+        connect(ui->actionAddStorage, &QAction::triggered, this, [this]() {
+            if (auto *pw = activeProjectWindow()) pw->activateAddStorageTool();
+        });
+    if (ui->actionAddFlowDivider)
+        connect(ui->actionAddFlowDivider, &QAction::triggered, this, [this]() {
+            if (auto *pw = activeProjectWindow()) pw->activateAddDividerTool();
+        });
+
+    // ---- Window menu (programmatic — .ui has no menuWindow) ----
+    // Standard macOS layout: Minimize / Zoom / separator / dynamic list of
+    // open project windows (checkmark on the active one) / separator /
+    // Bring All to Front.
+    mMenuWindow = new QMenu(tr("&Window"), this);
+
+    mActionWindowMinimize = mMenuWindow->addAction(tr("&Minimize"));
+    mActionWindowMinimize->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_M));
+    // Minimize always targets the main window — MDI sub-windows (Welcome
+    // + project documents) are deliberately not minimizable.
+    connect(mActionWindowMinimize, &QAction::triggered, this, [this]() {
+        showMinimized();
+    });
+
+    mActionWindowZoom = mMenuWindow->addAction(tr("&Zoom"));
+    // Zoom targets the main window too — MDI sub-windows don't have a
+    // maximize affordance in this app (their sizing is tabbed-view
+    // driven, not user-resizable).
+    connect(mActionWindowZoom, &QAction::triggered, this, [this]() {
+        if (isMaximized()) showNormal();
+        else               showMaximized();
+    });
+
+    mMenuWindow->addSeparator();
+    // The dynamic window list is appended by rebuildWindowMenu(). The
+    // separator + Bring All to Front are appended there too so the whole
+    // tail-of-menu can be cleared + rebuilt in one pass.
+
+    if (ui->menuHelp)
+        ui->menubarMain->insertMenu(ui->menuHelp->menuAction(), mMenuWindow);
+    else
+        ui->menubarMain->addMenu(mMenuWindow);
+
+    // Keep the menu in sync with the MDI area. subWindowActivated fires on
+    // open / close / focus-change so a single connection covers all cases.
+    connect(ui->mdiAreaCentral, &QMdiArea::subWindowActivated,
+            this, &SWMMVis::rebuildWindowMenu);
+
+    rebuildWindowMenu();
 
     // Canvas signals are wired per-window in onActiveSubWindowChanged()
 }
@@ -594,27 +758,22 @@ void SWMMVis::saveSettings()
 
 void SWMMVis::clearPreviousWelcomeScreenElements()
 {
-    // Remove the Designer-placed placeholder + any previously generated buttons.
-    for (QCommandLinkButton *btn : ui->frameRecentFiles->findChildren<QCommandLinkButton *>())
-        btn->deleteLater();
-
-    // Ensure the scroll area has a viewport widget with a vertical layout we can append to.
+    // The .ui authors a QWidget viewport ("widgetContentsRecentFiles") with
+    // a QVBoxLayout and a trailing stretch inside scrollAreaRecentFiles, so
+    // all we need here is to strip any previously-generated recent-file
+    // buttons. onRecentFilesSizeChanged re-populates the layout from
+    // mRecentFiles and re-appends the trailing stretch.
     if (auto *area = ui->frameRecentFiles->findChild<QScrollArea *>())
     {
-        QWidget *content = area->widget();
-        if (!content)
+        if (QWidget *content = area->widget(); content && content->layout())
         {
-            content = new QWidget(area);
-            area->setWidget(content);
+            QLayout *lay = content->layout();
+            while (QLayoutItem *item = lay->takeAt(0))
+            {
+                if (QWidget *w = item->widget()) w->deleteLater();
+                delete item;
+            }
         }
-        if (!content->layout())
-        {
-            auto *lay = new QVBoxLayout(content);
-            lay->setContentsMargins(0, 0, 0, 0);
-            lay->setSpacing(2);
-            lay->addStretch(1);
-        }
-        area->setWidgetResizable(true);
     }
 }
 
@@ -645,14 +804,53 @@ void SWMMVis::closeEvent(QCloseEvent *event)
 
 bool SWMMVis::eventFilter(QObject *watched, QEvent *event)
 {
-    // Reposition the welcome page's floating Close button whenever the
-    // welcome widget is resized (or first shown).
-    if (ui && watched == ui->welcomeWidget
-        && (event->type() == QEvent::Resize || event->type() == QEvent::Show))
+    // Intercept the welcome sub-window's close so the tab is torn down
+    // entirely rather than leaving an empty tab shell. The inner
+    // welcomeWidget is preserved for later re-open via
+    // Help → Show Welcome Screen.
+    if (event->type() == QEvent::Close)
     {
-        if (mWelcomeRepositionFn) mWelcomeRepositionFn();
+        if (auto *sub = qobject_cast<QMdiSubWindow *>(watched);
+            sub && ui && ui->welcomeWidget && sub->widget() == ui->welcomeWidget)
+        {
+            qDebug() << "[welcome] eventFilter: Close event on welcome sub";
+            removeWelcomeSubWindow();
+            event->accept();
+            return true;
+        }
     }
     return QMainWindow::eventFilter(watched, event);
+}
+
+// ---------------------------------------------------------------------------
+// Welcome sub-window lifecycle helpers
+// ---------------------------------------------------------------------------
+
+QMdiSubWindow *SWMMVis::welcomeSubWindow() const
+{
+    if (!ui || !ui->welcomeWidget || !ui->mdiAreaCentral) return nullptr;
+    for (QMdiSubWindow *sub : ui->mdiAreaCentral->subWindowList())
+        if (sub->widget() == ui->welcomeWidget)
+            return sub;
+    return nullptr;
+}
+
+void SWMMVis::removeWelcomeSubWindow()
+{
+    QMdiSubWindow *sub = welcomeSubWindow();
+    if (!sub) return;
+
+    // removeSubWindow() reparents the inner widget to nullptr — if we don't
+    // immediately re-parent it somewhere, it briefly becomes a top-level
+    // window and may flash on screen. Stashing it as a hidden child of the
+    // main window keeps it alive and invisible until re-added.
+    ui->mdiAreaCentral->removeSubWindow(sub);
+    if (ui->welcomeWidget)
+    {
+        ui->welcomeWidget->setParent(this);
+        ui->welcomeWidget->hide();
+    }
+    sub->deleteLater();
 }
 
 // ── Slots ─────────────────────────────────────────────────────────────────
@@ -724,12 +922,24 @@ void SWMMVis::onClearRecentFiles()
 
 void SWMMVis::onShowWelcomeScreen()
 {
-    if (!ui->welcomeWidget) return;
-    // The welcome widget is the QMdiArea's backdrop child — bring it back
-    // by clearing the active subwindow so it's not occluded.
-    ui->mdiAreaCentral->setActiveSubWindow(nullptr);
-    ui->welcomeWidget->show();
-    ui->welcomeWidget->raise();
+    if (!ui->welcomeWidget || !ui->mdiAreaCentral) return;
+
+    // Re-add the welcome widget as an MDI sub-window if it was previously
+    // closed (we reparented it to this main window on close to keep it
+    // alive). The new sub-window is wired the same way as the one setupUi()
+    // originally created — close tears it down again cleanly.
+    QMdiSubWindow *sub = welcomeSubWindow();
+    if (!sub)
+    {
+        ui->welcomeWidget->show();
+        auto *ws = new WelcomeSubWindow();
+        ws->setWidget(ui->welcomeWidget);
+        ws->onClose = [this](QCloseEvent *) { removeWelcomeSubWindow(); };
+        ui->mdiAreaCentral->addSubWindow(ws);
+        sub = ws;
+    }
+    sub->show();
+    ui->mdiAreaCentral->setActiveSubWindow(sub);
 }
 void SWMMVis::onClose() {}
 
@@ -788,6 +998,10 @@ void SWMMVis::openSingleINP(const QString &filePath)
             onActiveSubWindowChanged(ui->mdiAreaCentral->activeSubWindow());
         }
     });
+
+    // Keep the Window menu label in sync with the dirty `*` marker.
+    connect(window, &QWidget::windowTitleChanged,
+            this, &SWMMVis::rebuildWindowMenu);
 
     ui->mdiAreaCentral->addSubWindow(window);
 
@@ -894,9 +1108,10 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         // Real "all projects closed" — clear bindings.
         UnitSystem::setActiveProject(nullptr);
         mCheckBoxLevelOffsetMode->setEnabled(false);
+        if (mCheckBoxAutoLength) mCheckBoxAutoLength->setEnabled(false);
         mComboBoxFlowUnits->setEnabled(false);
         if (mLayerTreePanel)     mLayerTreePanel->setCanvas(nullptr);
-        if (mObjectBrowserPanel) mObjectBrowserPanel->setProject(nullptr, nullptr);
+        if (mObjectBrowserPanel) mObjectBrowserPanel->setProject(nullptr, nullptr, nullptr);
         if (mAttributePanel)     mAttributePanel->clear();
         mActiveProjectWindow = nullptr;
         return;
@@ -940,6 +1155,16 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         mCheckBoxLevelOffsetMode->setEnabled(true);
     }
 
+    // Sync auto-length checkbox to the active project.
+    if (mCheckBoxAutoLength)
+    {
+        QSignalBlocker b(mCheckBoxAutoLength);
+        const bool on = pw->isAutoLengthEnabled();
+        mCheckBoxAutoLength->setChecked(on);
+        mCheckBoxAutoLength->setText(on ? QStringLiteral("On") : QStringLiteral("Off"));
+        mCheckBoxAutoLength->setEnabled(true);
+    }
+
     SpatialReferenceSystem *srs = pw->canvas()->canvasSRS();
     mToolButtonCoordinateReferenceSystem->setText(
         srs ? srs->toAuthority() : QStringLiteral("EPSG:4326"));
@@ -950,9 +1175,11 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         mLayerTreePanel->setCanvas(pw->canvas());
 
     // Rebind the Object Browser + Attribute Panel to this project's model
-    // layer + selection bus.
+    // layer + selection bus + canvas (canvas powers Slice O's zoom-to-object).
     if (mObjectBrowserPanel)
-        mObjectBrowserPanel->setProject(pw->modelLayer(), pw->selectionManager());
+        mObjectBrowserPanel->setProject(pw->modelLayer(),
+                                        pw->selectionManager(),
+                                        pw->canvas());
     if (mAttributePanel && pw->selectionManager())
     {
         // The attribute panel listens to selectionChanged via a per-tab
@@ -1007,13 +1234,62 @@ void SWMMVis::onModelLoaded()
     // the engine has objects to enumerate. (setProject was called earlier
     // before the engine was ready, so the tree is empty.)
     if (pw && pw == mActiveProjectWindow && mObjectBrowserPanel)
-        mObjectBrowserPanel->setProject(pw->modelLayer(), pw->selectionManager());
+        mObjectBrowserPanel->setProject(pw->modelLayer(),
+                                        pw->selectionManager(),
+                                        pw->canvas());
 }
 
 void SWMMVis::onModelLoadError(const QString &msg)
 {
     onLogMessage(msg, OpenSWMMVisLogMessage::LogMessageType::Error);
     QMessageBox::warning(this, tr("Model Load Error"), msg);
+}
+
+void SWMMVis::rebuildWindowMenu()
+{
+    if (!mMenuWindow) return;
+
+    // Strip the dynamic tail (every action after the 3rd — Minimize / Zoom /
+    // separator are permanent).
+    const QList<QAction *> all = mMenuWindow->actions();
+    for (int i = 3; i < all.size(); ++i)
+        mMenuWindow->removeAction(all[i]);
+
+    QMdiSubWindow *active = ui->mdiAreaCentral->activeSubWindow();
+    const QList<QMdiSubWindow *> subs = ui->mdiAreaCentral->subWindowList();
+
+    // Window list entries (project sub-windows only — hides the welcome
+    // backdrop, which isn't a project).
+    int listedCount = 0;
+    for (QMdiSubWindow *sub : subs)
+    {
+        auto *pw = qobject_cast<SWMMVisProjectWindow *>(sub);
+        if (!pw) continue;
+
+        QAction *act = mMenuWindow->addAction(sub->windowTitle());
+        act->setCheckable(true);
+        act->setChecked(sub == active);
+        connect(act, &QAction::triggered, this, [this, pw]() {
+            ui->mdiAreaCentral->setActiveSubWindow(pw);
+            pw->raise();
+            pw->setFocus(Qt::ActiveWindowFocusReason);
+        });
+        ++listedCount;
+    }
+
+    if (listedCount > 0)
+        mMenuWindow->addSeparator();
+
+    mActionWindowBringAllToFront = mMenuWindow->addAction(tr("Bring All to Front"));
+    connect(mActionWindowBringAllToFront, &QAction::triggered, this, [this]() {
+        // Raise every project sub-window, then the main window last so it
+        // stays on top and the app takes focus.
+        for (QMdiSubWindow *sub : ui->mdiAreaCentral->subWindowList())
+            if (qobject_cast<SWMMVisProjectWindow *>(sub))
+                sub->raise();
+        this->raise();
+        this->activateWindow();
+    });
 }
 
 void SWMMVis::onRecentFilesSizeChanged()
@@ -1026,11 +1302,13 @@ void SWMMVis::onRecentFilesSizeChanged()
     ui->menuOpenRecent->setEnabled(hasFiles);
     ui->commandLinkButtonClearRecentFiles->setEnabled(hasFiles);
 
-    // Menu entries
+    // Menu entries — label is the short file name for readability, full path
+    // lives on the tooltip + the action's data() payload that the dispatcher
+    // reads to reopen the file.
     for (int i = 0; i < mRecentFiles.size(); ++i)
     {
         QFileInfo fi(mRecentFiles[i]);
-        QAction *action = new QAction(fi.filePath(), ui->menuOpenRecent);
+        QAction *action = new QAction(fi.fileName(), ui->menuOpenRecent);
         action->setToolTip(fi.absoluteFilePath());
         action->setData(fi.absoluteFilePath());
         ui->menuOpenRecent->addAction(action);
@@ -1175,61 +1453,61 @@ void SWMMVis::onRunSimulation()
 
     // Derive sibling .rpt and .out paths.
     QFileInfo fi(inpPath);
-    QString base = fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName();
+    QString base    = fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName();
     QString rptPath = base + QStringLiteral(".rpt");
     QString outPath = base + QStringLiteral(".out");
 
-    onSetProgressBarBusy(true);
-    onLogMessage(tr("Running simulation: %1").arg(fi.fileName()));
+    // Register the job in the status model and show the dock.
+    const QString instanceName = fi.fileName();
+    const int jobId = mSimStatusModel->addJob(instanceName, inpPath);
+    ui->dockWidgetSimulationStatus->show();
+    ui->dockWidgetSimulationStatus->raise();
 
-    // Run the simulation on a worker thread. swmm_engine_run is a
-    // standalone call that opens its own engine handle from the .inp on
-    // disk — leaves the GUI's open engine untouched.
-#ifdef HAVE_OPENSWMMCORE
+    onLogMessage(tr("Running simulation: %1").arg(instanceName));
+    onSetProgressBarBusy(true);
+
+    // Create runner; wire signals → model; runner deletes itself after finish.
+    auto *runner = new SimulationRunner(jobId, instanceName, inpPath, rptPath, outPath, this);
+
+    connect(runner, &SimulationRunner::progressChanged,
+            mSimStatusModel, &SimulationStatusModel::updateProgress);
+
+    connect(runner, &SimulationRunner::warningReceived,
+            mSimStatusModel, &SimulationStatusModel::addWarning);
+
     QPointer<SWMMVis> self(this);
     QPointer<SWMMVisProjectWindow> pwGuard(pw);
-    QString outPathCopy = outPath;
-    QString fileName    = fi.fileName();
+    QString outPathCopy  = outPath;
 
-    auto *watcher = new QFutureWatcher<int>(this);
-    connect(watcher, &QFutureWatcher<int>::finished, this,
-            [self, watcher, pwGuard, outPathCopy, fileName]() {
-                const int rc = watcher->result();
-                watcher->deleteLater();
+    connect(runner, &SimulationRunner::finished, this,
+            [self, runner, pwGuard, outPathCopy, instanceName]
+            (int finishedJobId, bool success, int errCode, QString errMsg,
+             double runoffFrac, double routingFrac) {
                 if (!self) return;
+                self->mSimStatusModel->finishJob(finishedJobId, success, errCode,
+                                                 errMsg, runoffFrac, routingFrac);
                 self->onSetProgressBarBusy(false);
-                if (rc != 0)
-                {
+
+                if (!success) {
                     self->onLogMessage(
-                        tr("Simulation failed (engine code %1) for %2.")
-                            .arg(rc).arg(fileName),
+                        tr("Simulation failed (code %1): %2 — %3")
+                            .arg(errCode).arg(instanceName).arg(errMsg),
                         OpenSWMMVisLogMessage::Error);
-                    return;
+                } else {
+                    self->onLogMessage(
+                        tr("Simulation finished. Results: %1").arg(outPathCopy));
+                    // Auto-load the .out as a SWMMResultsLayer attached to this
+                    // project's canvas so subsequent plot/inspect actions find it.
+                    if (pwGuard && pwGuard->canvas() && pwGuard->modelLayer()) {
+                        auto *rl = new SWMMResultsLayer(outPathCopy,
+                                                        pwGuard->modelLayer());
+                        pwGuard->canvas()->addLayer(rl, true);
+                    }
                 }
-                self->onLogMessage(
-                    tr("Simulation finished. Results: %1").arg(outPathCopy));
-                // Auto-load the .out as a SWMMResultsLayer attached to this
-                // project's model layer, so subsequent plot/inspect actions
-                // can read it.
-                if (pwGuard && pwGuard->canvas() && pwGuard->modelLayer())
-                {
-                    auto *rl = new SWMMResultsLayer(outPathCopy,
-                                                    pwGuard->modelLayer());
-                    pwGuard->canvas()->addLayer(rl, true);
-                }
+                runner->deleteLater();
             });
-    watcher->setFuture(QtConcurrent::run([inpPath, rptPath, outPath]() -> int {
-        return swmm_engine_run(inpPath.toUtf8().constData(),
-                               rptPath.toUtf8().constData(),
-                               outPath.toUtf8().constData(),
-                               nullptr);
-    }));
-#else
-    Q_UNUSED(outPath) Q_UNUSED(rptPath)
-    onSetProgressBarBusy(false);
-    onLogMessage(tr("OpenSWMMCore not available; cannot run."),
-                 OpenSWMMVisLogMessage::Error);
-#endif
+
+    runner->start();
 }
 
 void SWMMVis::onPlotTimeSeries()

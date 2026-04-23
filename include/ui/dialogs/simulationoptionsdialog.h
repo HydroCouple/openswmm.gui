@@ -25,11 +25,7 @@ class QToolButton;
 
 class SWMMModelLayer;
 
-#ifdef HAVE_OPENSWMMCORE
 #include <openswmm/engine/openswmm_engine.h>
-#else
-typedef void* SWMM_Engine;
-#endif
 
 /*!
  * \class SimulationOptionsDialog
@@ -122,7 +118,7 @@ private slots:
 
 private:
 
-    // Engine helpers (no-op when HAVE_OPENSWMMCORE is undefined).
+    // Engine helpers — round-trip option values through swmm_options_get / _set.
     QString  getOption(const char *key, const QString &fallback = {}) const;
     bool     setOption(const char *key, const QString &value);
 

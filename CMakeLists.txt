@@ -34,6 +34,21 @@ option(SWMMVIS_BUILD_TESTS "Build unit tests" OFF)
 # Project CMake helpers live under cmake/.
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
+# ── Qt root discovery from env ──────────────────────────────────────────────
+# CMakePresets inject CMAKE_PREFIX_PATH from $env{QT_ROOT_DIR}. Replicate the
+# same behaviour for non-preset `cmake -B build` invocations so a developer
+# with QT_ROOT_DIR (or Qt6_DIR / QTDIR) exported in their shell can configure
+# without a preset. list(PREPEND) keeps cache-var / command-line overrides
+# winning when both mechanisms are active.
+foreach(_qt_env_var IN ITEMS QT_ROOT_DIR Qt6_DIR QTDIR)
+    if(DEFINED ENV{${_qt_env_var}} AND NOT "$ENV{${_qt_env_var}}" STREQUAL "")
+        list(PREPEND CMAKE_PREFIX_PATH "$ENV{${_qt_env_var}}")
+        message(STATUS "Qt: picking up $ENV{${_qt_env_var}} from env var ${_qt_env_var}")
+        break()
+    endif()
+endforeach()
+unset(_qt_env_var)
+
 # ── Qt ──────────────────────────────────────────────────────────────────────
 find_package(QT NAMES Qt6 Qt5 REQUIRED
     COMPONENTS Widgets OpenGL OpenGLWidgets Network Concurrent LinguistTools Svg)
@@ -46,8 +61,8 @@ find_package(GDAL REQUIRED)
 # ── QPropertyModel (sibling checkout, else GitHub fetch) ────────────────────
 include(FetchQPropertyModel)
 
-# ── OpenSWMM.GUI (sibling checkout, else GitHub fetch) ──────────────────────
-include(FetchOpenSWMM.GUI)
+# ── OpenSWMMCore engine (hard dependency — sibling checkout or GitHub fetch) ─
+include(FetchOpenSWMMCore)
 
 set(TS_FILES translation/SWMMVis_en_US.ts)
 
@@ -72,6 +87,7 @@ set(
         include/core/openswmmvisservice.h
         include/core/unitsystem.h
         include/core/crsreproject.h
+        include/core/editgeometry.h
         include/selection/selectionmanager.h
 
         # ── Layers ───────────────────────────────────────────────────────────
@@ -102,11 +118,18 @@ set(
         include/map/tools/maptoolmeasure.h
         include/map/tools/maptoolselect.h
         include/map/tools/maptoolidentify.h
+        include/map/tools/maptoolmovenode.h
+        include/map/tools/maptooleditvertex.h
+        include/map/tools/maptooladdnode.h
 
         # ── Project / workspace ──────────────────────────────────────────────
         include/project/openswmmvisworkspace.h
         include/project/openswmmvisworkspacemodel.h
         include/project/openswmmvissession.h
+
+        # ── Simulation ───────────────────────────────────────────────────────
+        include/simulation/simulationrunner.h
+        include/simulation/simulationstatusmodel.h
 
         # ── UI panels ────────────────────────────────────────────────────────
         include/ui/panels/attributepanel.h
@@ -137,6 +160,7 @@ set(
         src/core/openswmmvislogmessage.cpp
         src/core/unitsystem.cpp
         src/core/crsreproject.cpp
+        src/core/editgeometry.cpp
 
         # Selection
         src/selection/selectionmanager.cpp
@@ -169,11 +193,18 @@ set(
         src/map/tools/maptoolmeasure.cpp
         src/map/tools/maptoolselect.cpp
         src/map/tools/maptoolidentify.cpp
+        src/map/tools/maptoolmovenode.cpp
+        src/map/tools/maptooleditvertex.cpp
+        src/map/tools/maptooladdnode.cpp
 
         # Project / workspace
         src/project/openswmmvisworkspace.cpp
         src/project/openswmmvisworkspacemodel.cpp
         src/project/openswmmvissession.cpp
+
+        # Simulation
+        src/simulation/simulationrunner.cpp
+        src/simulation/simulationstatusmodel.cpp
 
         # UI panels
         src/ui/panels/attributepanel.cpp
@@ -240,7 +271,7 @@ target_link_libraries(SWMMVis
 )
 
 set_target_properties(SWMMVis PROPERTIES
-    MACOSX_BUNDLE_GUI_IDENTIFIER swmmvis.epa.gov
+    MACOSX_BUNDLE_GUI_IDENTIFIER org.openswmm.swmmvis
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
     MACOSX_BUNDLE TRUE

@@ -6,6 +6,8 @@
  */
 #include "ui/panels/objectbrowserpanel.h"
 #include "layers/swmmmodellayer.h"
+#include "map/mapcanvas.h"
+#include "map/mapextent.h"
 
 #include <QApplication>
 #include <QHeaderView>
@@ -16,15 +18,14 @@
 #include <QStyle>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
+#include <QVariantMap>
 #include <QVBoxLayout>
 
-#ifdef HAVE_OPENSWMMCORE
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
-#endif
 
 namespace {
 
@@ -102,6 +103,12 @@ void ObjectBrowserPanel::buildUi()
             this, &ObjectBrowserPanel::onSearchTextChanged);
     connect(m_tree, &QTreeWidget::customContextMenuRequested,
             this, &ObjectBrowserPanel::onContextMenuRequested);
+    // Slice O — double-click zooms the canvas; itemChanged picks up the
+    // per-group-header checkbox toggle and forwards it as a mask change.
+    connect(m_tree, &QTreeWidget::itemDoubleClicked,
+            this, &ObjectBrowserPanel::onItemDoubleClicked);
+    connect(m_tree, &QTreeWidget::itemChanged,
+            this, &ObjectBrowserPanel::onItemChanged);
 }
 
 void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
@@ -124,19 +131,88 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
         actPlot = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Chart")),
                                  tr("Plot Time Series…"));
     }
+    // Slice O — Zoom to Object. Disabled (but visible) when the panel
+    // hasn't been bound to a canvas yet so the shortcut is discoverable.
+    QAction *actZoom = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
+                                      tr("Zoom to Object"));
+    actZoom->setEnabled(!m_canvas.isNull());
+
     QAction *picked = menu.exec(m_tree->viewport()->mapToGlobal(pos));
     if (!picked) return;
     if (picked == actPlot)
         emit plotTimeSeriesRequested({t, name});
+    else if (picked == actZoom)
+        zoomToObject({t, name});
+}
+
+void ObjectBrowserPanel::onItemDoubleClicked(QTreeWidgetItem *item, int /*column*/)
+{
+    // Leaves zoom; group-header double-click is intentionally ignored so
+    // the checkbox toggle remains the user's only interaction with headers.
+    if (!item || !item->data(0, RoleIsLeaf).toBool())
+        return;
+    const auto t = static_cast<SWMMObjectRef::ObjectType>(
+        item->data(0, RoleObjectType).toInt());
+    const QString name = item->data(0, RoleObjectName).toString();
+    if (t == SWMMObjectRef::Unknown || name.isEmpty())
+        return;
+    zoomToObject({t, name});
+}
+
+void ObjectBrowserPanel::onItemChanged(QTreeWidgetItem *item, int column)
+{
+    if (column != 0 || !item || m_applyingFromBus || m_applyingGroupCheck)
+        return;
+
+    // ---- Leaf rows: per-object visibility toggle -------------------------
+    if (item->data(0, RoleIsLeaf).toBool())
+    {
+        const auto t = static_cast<SWMMObjectRef::ObjectType>(
+            item->data(0, RoleObjectType).toInt());
+        const QString name = item->data(0, RoleObjectName).toString();
+        if (t == SWMMObjectRef::Unknown || name.isEmpty())
+            return;
+        const bool visible = item->checkState(0) == Qt::Checked;
+        emit objectVisibilityChanged({t, name}, visible);
+        return;
+    }
+
+    // ---- Group header: parent → children propagation --------------------
+    // Bulk-apply the new check state to every child leaf and fire a single
+    // objectsVisibilityChanged carrying all affected names. Individual
+    // leaf toggles after this point do NOT back-propagate to the group
+    // header (no up-propagation), matching the user's "parent → children
+    // only" mental model.
+    const bool visible = item->checkState(0) == Qt::Checked;
+    QStringList names;
+    names.reserve(item->childCount());
+    {
+        m_applyingGroupCheck = true;
+        QSignalBlocker block(m_tree);
+        const Qt::CheckState newState = visible ? Qt::Checked : Qt::Unchecked;
+        for (int i = 0; i < item->childCount(); ++i)
+        {
+            QTreeWidgetItem *leaf = item->child(i);
+            leaf->setCheckState(0, newState);
+            const QString name = leaf->data(0, RoleObjectName).toString();
+            if (!name.isEmpty())
+                names.append(name);
+        }
+        m_applyingGroupCheck = false;
+    }
+    if (!names.isEmpty())
+        emit objectsVisibilityChanged(names, visible);
 }
 
 // ---------------------------------------------------------------------------
 // Project binding
 // ---------------------------------------------------------------------------
 
-void ObjectBrowserPanel::setProject(SWMMModelLayer *layer, SelectionManager *selMgr)
+void ObjectBrowserPanel::setProject(SWMMModelLayer *layer,
+                                     SelectionManager *selMgr,
+                                     MapCanvas *canvas)
 {
-    if (m_layer  == layer && m_selMgr == selMgr)
+    if (m_layer == layer && m_selMgr == selMgr && m_canvas == canvas)
         return;
 
     if (m_selMgr)
@@ -145,6 +221,7 @@ void ObjectBrowserPanel::setProject(SWMMModelLayer *layer, SelectionManager *sel
 
     m_layer  = layer;
     m_selMgr = selMgr;
+    m_canvas = canvas;
 
     if (m_selMgr)
         connect(m_selMgr, &SelectionManager::selectionChanged,
@@ -152,6 +229,57 @@ void ObjectBrowserPanel::setProject(SWMMModelLayer *layer, SelectionManager *sel
                 Qt::UniqueConnection);
 
     refresh();
+}
+
+void ObjectBrowserPanel::zoomToObject(const SWMMObjectRef &ref)
+{
+    if (!m_canvas || !m_layer)
+        return;
+
+    const QVariantMap attrs = m_layer->identifyByName(ref.name);
+    if (attrs.isEmpty())
+        return;
+
+    // Nodes and rain gages carry X/Y directly (from identifyByName). Links
+    // and subcatchments don't have a single coordinate, so we defer to the
+    // owning node / polygon centroid via the geometry cache.
+    double cx = 0.0, cy = 0.0;
+    bool haveCoord = false;
+    if (attrs.contains(QStringLiteral("X")) && attrs.contains(QStringLiteral("Y")))
+    {
+        cx = attrs.value(QStringLiteral("X")).toDouble();
+        cy = attrs.value(QStringLiteral("Y")).toDouble();
+        haveCoord = true;
+    }
+    else if (ref.objectType == SWMMObjectRef::Link)
+    {
+        const int li = m_layer->linkIndex(ref.name);
+        const QVector<QPointF> poly = m_layer->cachedLinkPolyline(li);
+        if (!poly.isEmpty())
+        {
+            cx = (poly.first().x() + poly.last().x()) / 2.0;
+            cy = (poly.first().y() + poly.last().y()) / 2.0;
+            haveCoord = true;
+        }
+    }
+    if (!haveCoord)
+        return;
+
+    // Buffer: 0.5 % of the layer's extent diagonal, or a 100-unit fallback
+    // when the layer extent is degenerate. Keeps the zoom scale consistent
+    // across CRS scales (0.5 % of a 10-mile model == ~250 ft buffer).
+    const MapExtent &le = m_layer->extent();
+    double buffer = 100.0;
+    if (le.isValid())
+    {
+        const double dx = le.xMax() - le.xMin();
+        const double dy = le.yMax() - le.yMin();
+        buffer = std::max(25.0, 0.005 * std::max(dx, dy));
+    }
+    MapExtent zoom(cx - buffer, cy - buffer,
+                   cx + buffer, cy + buffer);
+    if (zoom.isValid())
+        m_canvas->setExtent(zoom);
 }
 
 // ---------------------------------------------------------------------------
@@ -170,10 +298,11 @@ void ObjectBrowserPanel::refresh()
     if (!m_layer || !m_layer->engine())
         return;
 
-#ifdef HAVE_OPENSWMMCORE
     auto *engine = m_layer->engine();
 
-    // Helper: ensure a top-level group exists, return its item.
+    // Helper: ensure a top-level group exists, return its item. The group
+    // header carries a user-checkable box; toggling it propagates to every
+    // child leaf (parent → children only, children never back-propagate).
     auto group = [this](const QString &name) -> QTreeWidgetItem * {
         auto *g = new QTreeWidgetItem(m_tree, {name});
         g->setIcon(0, iconForGroup(name));
@@ -181,11 +310,18 @@ void ObjectBrowserPanel::refresh()
         f.setBold(true);
         g->setFont(0, f);
         g->setData(0, RoleIsLeaf, false);
-        g->setFlags(Qt::ItemIsEnabled);
+        g->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
+        // Seed checked without firing itemChanged — a freshly-loaded model
+        // has every object visible by default.
+        QSignalBlocker block(m_tree);
+        g->setCheckState(0, Qt::Checked);
         return g;
     };
 
-    // Helper: append a leaf to its group; record in m_index.
+    // Helper: append a leaf to its group; record in m_index. Leaves are
+    // user-checkable so individual objects can be toggled on/off. Initial
+    // state is seeded from the layer's hidden set so leaf checkboxes
+    // remember prior per-object hides across tab switches / refreshes.
     auto leaf = [this](QTreeWidgetItem *parent,
                        SWMMObjectRef::ObjectType type,
                        const QString &name) {
@@ -194,7 +330,12 @@ void ObjectBrowserPanel::refresh()
         li->setData(0, RoleIsLeaf,     true);
         li->setData(0, RoleObjectType, int(type));
         li->setData(0, RoleObjectName, name);
-        li->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        li->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable
+                   | Qt::ItemIsUserCheckable);
+        QSignalBlocker block(m_tree);
+        li->setCheckState(0, m_layer->isObjectVisible(name)
+                                 ? Qt::Checked
+                                 : Qt::Unchecked);
         m_index.insert({type, name}, li);
     };
 
@@ -274,7 +415,6 @@ void ObjectBrowserPanel::refresh()
     }
 
     m_tree->expandAll();
-#endif
 
     // Apply any current selection so the dock matches the bus on rebind.
     if (m_selMgr && !m_selMgr->isEmpty())

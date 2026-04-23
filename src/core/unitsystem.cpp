@@ -6,9 +6,7 @@
  */
 #include "core/unitsystem.h"
 
-#ifdef HAVE_OPENSWMMCORE
 #include <openswmm/engine/openswmm_model.h>
-#endif
 
 #include <QPointer>
 
@@ -90,7 +88,6 @@ void UnitSystem::syncFromEngine(SWMM_Engine engine)
         return;
     }
 
-#ifdef HAVE_OPENSWMMCORE
     char buf[32] = {};
     if (swmm_options_get(engine, "FLOW_UNITS", buf, sizeof(buf)) == 0)
     {
@@ -108,9 +105,6 @@ void UnitSystem::syncFromEngine(SWMM_Engine engine)
             emit unitsChanged(mFlowUnits);
         }
     }
-#else
-    Q_UNUSED(engine)
-#endif
 }
 
 void UnitSystem::setFlowUnits(swmm_FlowUnitsProperty units, SWMM_Engine engine)
@@ -126,15 +120,11 @@ void UnitSystem::setFlowUnits(swmm_FlowUnitsProperty units, SWMM_Engine engine)
 
     mFlowUnits = units;
 
-#ifdef HAVE_OPENSWMMCORE
     if (engine)
     {
         static const char *labels[] = { "CFS","GPM","MGD","CMS","LPS","MLD" };
         swmm_options_set(engine, "FLOW_UNITS", labels[static_cast<int>(units)]);
     }
-#else
-    Q_UNUSED(engine)
-#endif
 
     emit unitsChanged(mFlowUnits);
 }
