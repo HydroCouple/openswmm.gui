@@ -19,13 +19,25 @@
             "host": true
         },
         {
-            "name": "gdal",
-            "version>=": "3.10.1"
+            "name": "gdal"
         },
         {
             "name": "gtest",
-            "platform": "!(uwp | xbox)",
-            "version>=": "1.16.0"
+            "platform": "!(uwp | xbox)"
+        }
+    ],
+    "overrides": [
+        {
+            "name": "gdal",
+            "version": "3.10.1"
+        },
+        {
+            "name": "gtest",
+            "version": "1.16.0"
+        },
+        {
+            "name": "qtbase",
+            "version": "6.8.2"
         }
     ]
 }
