@@ -22,7 +22,8 @@ jobs:
             build_subdir: windows
             vcpkg_triplet: x64-windows
             shell_ext: .bat
-            qt_arch: win64_msvc2022_64
+            # For Qt 6.7.x on aqt, addon modules are reliably available on the MSVC2019 kit.
+            qt_arch: win64_msvc2019_64
 
           - os: ubuntu-latest
             cmake_preset: Linux
@@ -110,15 +111,15 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ninja
 
-      # Qt is not in vcpkg.json — install via aqtinstall.
-      # Modules: qtcharts + qtsvg are required by CMakeLists.txt (Qt::Charts, Qt::Svg).
-      - name: Install Qt 6
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.7.*'
-          arch: ${{ matrix.qt_arch }}
-          modules: 'qtcharts qtsvg'
-          cache: true
+#      # Qt is not in vcpkg.json — install via aqtinstall.
+#      # Modules: qtcharts + qtsvg are required by CMakeLists.txt (Qt::Charts, Qt::Svg).
+#      - name: Install Qt 6
+#        uses: jurplel/install-qt-action@v4
+#        with:
+#          version: '6.7.*'
+#          arch: ${{ matrix.qt_arch }}
+#          modules: 'qtcharts qtsvg'
+#          cache: true
 
       # ── Build ────────────────────────────────────────────────────────────────
       - name: Configure

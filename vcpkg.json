@@ -11,6 +11,10 @@
             "host": true
         },
         {
+            "name":   "qtbase",
+            "host": true
+        },
+        {
             "name": "vcpkg-cmake-config",
             "host": true
         },
