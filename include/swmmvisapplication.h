@@ -1,11 +1,11 @@
 /*!
  * \file   swmmapplication.h
- * \author Caleb Buahin <buahin.caleb@epa.gov>
+ * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \version
  * \description
  * \license
  * \copyright
- * \date 2024
+ * \date 2026
  * \pre
  * \bug
  * \warning

@@ -1,11 +1,11 @@
  /*!
  * \file   main.cpp
- * \author Caleb Buahin <buahin.caleb@epa.gov>
+ * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \version see
  * \description
  * \license
  * \copyright
- * \date 2024
+ * \date 2026
  * \pre
  * \bug
  * \warning

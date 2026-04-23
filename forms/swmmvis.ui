@@ -14,7 +14,7 @@
    <string>SWMM</string>
   </property>
   <property name="toolTip">
-   <string>EPA SWMM 6.0.0</string>
+   <string>SWMMVis</string>
   </property>
   <property name="statusTip">
    <string>Welcome Page</string>
@@ -351,14 +351,6 @@
       </widget>
      </item>
     </layout>
-   </widget>
-   <widget class="SWMMVisGraphicsView" name="graphicsViewSWMMVis">
-    <property name="contextMenuPolicy">
-     <enum>Qt::CustomContextMenu</enum>
-    </property>
-    <property name="windowTitle">
-     <string>Untitled SWMM Project</string>
-    </property>
    </widget>
   </widget>
   <widget class="QDockWidget" name="dockWidgetSWMMLayers">
@@ -1959,9 +1951,9 @@
  <layoutdefault spacing="6" margin="11"/>
  <customwidgets>
   <customwidget>
-   <class>SWMMVisGraphicsView</class>
-   <extends>QGraphicsView</extends>
-   <header>swmmvisgraphicsview.h</header>
+   <class>MapCanvas</class>
+   <extends>QWidget</extends>
+   <header>map/mapcanvas.h</header>
   </customwidget>
  </customwidgets>
  <resources>

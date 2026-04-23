@@ -1,0 +1,12 @@
+QPropertyModel
+Copyright (c) Caleb Buahin
+
+MIT License — full canonical text shipped in the QPropertyModel source
+tree (LICENSE file at the repository root). A copy should be inserted
+here at packaging time. Until then, please consult:
+
+    https://github.com/cbuahin/QPropertyModel
+
+This adapter exposes Qt's Q_PROPERTY metadata as a QAbstractItemModel
+so attribute panels and property editors can drive object editing
+without per-property boilerplate.

@@ -1,0 +1,20 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "Darwin-local",
+            "inherits": "Darwin-debug",
+            "description": "Local macOS debug build — machine-specific paths (not committed)",
+            "environment": {
+                "QT_ROOT_DIR": "/Users/calebbuahin/Qt/6.10.2/macos",
+                "VCPKG_ROOT": "/Users/calebbuahin/Documents/Projects/vcpkg"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "Darwin-local",
+            "configurePreset": "Darwin-local"
+        }
+    ]
+}
