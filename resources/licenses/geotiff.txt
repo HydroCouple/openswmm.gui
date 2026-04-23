@@ -1,0 +1,8 @@
+libgeotiff
+Copyright (c) Frank Warmerdam, Niles D. Ritter, and other contributors.
+
+Licensed under the MIT/X-style license. The full canonical text is
+shipped with libgeotiff under `LICENSE`. A copy should be inserted here
+at packaging time. Until then, please consult:
+
+    https://github.com/OSGeo/libgeotiff

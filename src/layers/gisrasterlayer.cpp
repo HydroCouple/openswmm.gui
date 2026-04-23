@@ -1,0 +1,584 @@
+/*!
+ * \file   gisrasterlayer.cpp
+ * \author Caleb Buahin <caleb.buahin@gmail.com>
+ * \date 2026
+ */
+
+#include "layers/gisrasterlayer.h"
+#include "map/graphicsitems.h"
+#include "map/spatialreferencesystem.h"
+#include "map/mapextent.h"
+
+#include <QGraphicsScene>
+#include <QPainter>
+#include <QSize>
+#include <QDebug>
+#include <QFileInfo>
+#include <QtMath>
+
+#include <gdal_priv.h>
+#include <gdal_alg.h>
+#include <gdalwarper.h>
+#include <ogr_spatialref.h>
+#include <cpl_conv.h>
+
+#include <limits>
+#include <cmath>
+
+// ---------------------------------------------------------------------------
+// RasterColorRamp
+// ---------------------------------------------------------------------------
+
+QColor RasterColorRamp::colorAt(double t) const
+{
+    t = std::clamp(t, 0.0, 1.0);
+
+    if (stops.isEmpty())
+        return Qt::transparent;
+
+    if (stops.size() == 1 || t <= stops.first().first)
+        return stops.first().second;
+
+    if (t >= stops.last().first)
+        return stops.last().second;
+
+    for (int i = 1; i < stops.size(); ++i)
+    {
+        if (t <= stops[i].first)
+        {
+            double t0 = stops[i - 1].first;
+            double t1 = stops[i].first;
+            double f  = (t - t0) / (t1 - t0);
+
+            const QColor &c0 = stops[i - 1].second;
+            const QColor &c1 = stops[i].second;
+
+            return QColor::fromRgbF(
+                c0.redF()   + f * (c1.redF()   - c0.redF()),
+                c0.greenF() + f * (c1.greenF() - c0.greenF()),
+                c0.blueF()  + f * (c1.blueF()  - c0.blueF()),
+                c0.alphaF() + f * (c1.alphaF() - c0.alphaF()));
+        }
+    }
+
+    return stops.last().second;
+}
+
+QColor RasterColorRamp::colorForValue(double value) const
+{
+    if (clampMin && value < minValue)
+        return Qt::transparent;
+
+    if (clampMax && value > maxValue)
+        return Qt::transparent;
+
+    double range = maxValue - minValue;
+    if (qFuzzyIsNull(range))
+        return colorAt(0.5);
+
+    return colorAt((value - minValue) / range);
+}
+
+RasterColorRamp RasterColorRamp::grayscale(double min, double max)
+{
+    RasterColorRamp r;
+    r.minValue = min;
+    r.maxValue = max;
+    r.stops    = { {0.0, Qt::black}, {1.0, Qt::white} };
+    return r;
+}
+
+RasterColorRamp RasterColorRamp::viridis(double min, double max)
+{
+    RasterColorRamp r;
+    r.minValue = min;
+    r.maxValue = max;
+    r.stops    = {
+        {0.000, QColor(68,   1, 84)},
+        {0.125, QColor(72,  40, 120)},
+        {0.250, QColor(62,  83, 137)},
+        {0.375, QColor(49, 120, 137)},
+        {0.500, QColor(53, 153, 122)},
+        {0.625, QColor(90, 186,  91)},
+        {0.750, QColor(163, 214,  63)},
+        {0.875, QColor(227, 238,  58)},
+        {1.000, QColor(253, 231,  37)},
+    };
+    return r;
+}
+
+// ---------------------------------------------------------------------------
+// GISRasterLayer — Constructor / Destructor
+// ---------------------------------------------------------------------------
+
+GISRasterLayer::GISRasterLayer(const QString &filePath, OpenSWMMVisWorkspace *parent)
+    : OpenSWMMVisLayer(parent)
+{
+    setLayerType(SWMMRasterLayer);
+    m_colorRamp = RasterColorRamp::grayscale();
+
+    GDALAllRegister();
+
+    if (!filePath.isEmpty())
+        openDataset(filePath);
+}
+
+GISRasterLayer::~GISRasterLayer()
+{
+    closeDataset();
+}
+
+// ---------------------------------------------------------------------------
+// Dataset info
+// ---------------------------------------------------------------------------
+
+QString GISRasterLayer::filePath()    const { return m_filePath; }
+int     GISRasterLayer::bandCount()   const { return m_dataset ? m_dataset->GetRasterCount() : 0; }
+int     GISRasterLayer::renderBand()  const { return m_renderBand; }
+double  GISRasterLayer::noDataValue() const { return m_noDataValue; }
+bool    GISRasterLayer::hasNoDataValue() const { return m_hasNoData; }
+
+void GISRasterLayer::setRenderBand(int band)
+{
+    if (m_renderBand != band)
+    {
+        m_renderBand = band;
+        invalidateCache();
+        emit renderBandChanged(band);
+        emit repaintRequested();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Colour ramp
+// ---------------------------------------------------------------------------
+
+RasterColorRamp GISRasterLayer::colorRamp() const { return m_colorRamp; }
+
+void GISRasterLayer::setColorRamp(const RasterColorRamp &ramp)
+{
+    m_colorRamp = ramp;
+    invalidateCache();
+    emit colorRampChanged(ramp);
+    emit repaintRequested();
+}
+
+void GISRasterLayer::autoStretchColorRamp()
+{
+    if (!m_dataset || m_renderBand < 1 || m_renderBand > bandCount())
+        return;
+
+    GDALRasterBand *band = m_dataset->GetRasterBand(m_renderBand);
+    if (!band)
+        return;
+
+    double minV = 0.0, maxV = 0.0;
+    double pdfMean, pdfStdDev;
+    CPLErr err = band->ComputeStatistics(
+        /*bApproxOK=*/TRUE, &minV, &maxV, &pdfMean, &pdfStdDev,
+        nullptr, nullptr);
+
+    if (err == CE_None)
+    {
+        m_colorRamp.minValue = minV;
+        m_colorRamp.maxValue = maxV;
+        invalidateCache();
+        emit colorRampChanged(m_colorRamp);
+        emit repaintRequested();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pixel query
+// ---------------------------------------------------------------------------
+
+double GISRasterLayer::valueAt(double mapX, double mapY,
+                                const SpatialReferenceSystem * /*canvasSRS*/,
+                                int band, bool *ok) const
+{
+    if (ok) *ok = false;
+
+    if (!m_dataset || band < 1 || band > bandCount())
+        return std::numeric_limits<double>::quiet_NaN();
+
+    if (!extent().isValid())
+        return std::numeric_limits<double>::quiet_NaN();
+
+    // Convert map coord to dataset pixel coord (assuming dataset is in canvas CRS)
+    const MapExtent &ext = extent();
+    double relX  = (mapX - ext.xMin()) / ext.width();
+    double relY  = (ext.yMax() - mapY)  / ext.height();
+
+    int rasterW = m_dataset->GetRasterXSize();
+    int rasterH = m_dataset->GetRasterYSize();
+
+    int px = static_cast<int>(relX * rasterW);
+    int py = static_cast<int>(relY * rasterH);
+
+    if (px < 0 || px >= rasterW || py < 0 || py >= rasterH)
+        return std::numeric_limits<double>::quiet_NaN();
+
+    double value = 0.0;
+    CPLErr err = m_dataset->GetRasterBand(band)->RasterIO(
+        GF_Read, px, py, 1, 1, &value, 1, 1, GDT_Float64, 0, 0);
+
+    if (err != CE_None)
+        return std::numeric_limits<double>::quiet_NaN();
+
+    if (ok) *ok = true;
+    return value;
+}
+
+// ---------------------------------------------------------------------------
+// OpenSWMMVisLayer interface
+// ---------------------------------------------------------------------------
+
+void GISRasterLayer::fetchCache(const MapExtent &canvasExtent,
+                                const QSize &viewportSize,
+                                const SpatialReferenceSystem *canvasSRS)
+{
+    if (!m_dataset || !isVisible())
+        return;
+
+    int pixelWidth  = viewportSize.width()  > 0 ? viewportSize.width()  : 1024;
+    int pixelHeight = viewportSize.height() > 0 ? viewportSize.height() : 1024;
+
+    bool cacheHit = (m_cachedTile.width()  == pixelWidth
+                     && m_cachedTile.height() == pixelHeight
+                     && m_cacheExtent == canvasExtent
+                     && !m_cachedTile.isNull());
+
+    if (!cacheHit)
+    {
+        m_cachedTile  = warpToCanvas(canvasExtent, canvasSRS, pixelWidth, pixelHeight);
+        m_cacheExtent = canvasExtent;
+        m_cacheWidth  = pixelWidth;
+        m_cacheHeight = pixelHeight;
+    }
+}
+
+void GISRasterLayer::populateScene(QGraphicsScene *scene,
+                                    const MapExtent &canvasExtent,
+                                    const SpatialReferenceSystem *canvasSRS)
+{
+    // Legacy path — refreshScene() is the preferred entry point.
+    refreshScene(scene, canvasExtent, canvasSRS);
+}
+
+// ---------------------------------------------------------------------------
+// Direct QPainter rendering (QGIS-style buffer path)
+// ---------------------------------------------------------------------------
+
+void GISRasterLayer::render(QPainter *painter,
+                            const MapExtent &extent,
+                            const QSize &imageSize,
+                            const SpatialReferenceSystem *srs)
+{
+    if (!m_dataset || m_cachedTile.isNull() || !m_cacheExtent.isValid() || !extent.isValid())
+        return;
+
+    // Map-to-pixel scale factors for the target image
+    double sx = imageSize.width()  / extent.width();
+    double sy = imageSize.height() / extent.height();
+
+    // Pixel position of the cached tile's top-left corner within the target image
+    double px = (m_cacheExtent.xMin() - extent.xMin()) * sx;
+    double py = (extent.yMax() - m_cacheExtent.yMax()) * sy;
+
+    double tw = m_cacheExtent.width()  * sx;
+    double th = m_cacheExtent.height() * sy;
+
+    painter->drawImage(QRectF(px, py, tw, th), m_cachedTile);
+}
+
+void GISRasterLayer::refreshScene(QGraphicsScene *scene,
+                                   const MapExtent &canvasExtent,
+                                   const SpatialReferenceSystem *canvasSRS)
+{
+    if (!m_dataset || !isVisible())
+        return;
+
+    // Use a reasonable pixel size for the warped tile
+    const int pixelWidth  = 1024;
+    const int pixelHeight = 1024;
+
+    // Return cached tile if extent hasn't changed
+    bool cacheHit = (m_cachedTile.width()  == pixelWidth  &&
+                     m_cachedTile.height() == pixelHeight &&
+                     m_cacheExtent == canvasExtent       &&
+                     !m_cachedTile.isNull());
+
+    if (!cacheHit)
+    {
+        m_cachedTile   = warpToCanvas(canvasExtent, canvasSRS, pixelWidth, pixelHeight);
+        m_cacheExtent  = canvasExtent;
+        m_cacheWidth   = pixelWidth;
+        m_cacheHeight  = pixelHeight;
+    }
+
+    if (!m_cachedTile.isNull())
+    {
+        QPixmap pix = QPixmap::fromImage(m_cachedTile);
+        QRectF sceneRect(m_cacheExtent.xMin(), -m_cacheExtent.yMax(),
+                         m_cacheExtent.width(), m_cacheExtent.height());
+
+        if (m_sceneItem && m_sceneItem->scene() == scene)
+        {
+            m_sceneItem->updateTile(pix, sceneRect);
+            m_sceneItem->setZValue(layerZValue());
+            m_sceneItem->setOpacity(opacity());
+        }
+        else
+        {
+            m_sceneItem = new RasterTileItem(pix, sceneRect);
+            m_sceneItem->setOwnerLayer(this);
+            m_sceneItem->setZValue(layerZValue());
+            m_sceneItem->setOpacity(opacity());
+            scene->addItem(m_sceneItem);
+        }
+    }
+}
+
+void GISRasterLayer::depopulateScene(QGraphicsScene *scene)
+{
+    if (m_sceneItem)
+    {
+        if (scene && m_sceneItem->scene() == scene)
+        {
+            scene->removeItem(m_sceneItem);
+            delete m_sceneItem;
+        }
+        m_sceneItem = nullptr;
+    }
+}
+
+void GISRasterLayer::onCanvasCRSChanged(const SpatialReferenceSystem *)
+{
+    invalidateCache();
+}
+
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
+
+void GISRasterLayer::openDataset(const QString &filePath)
+{
+    closeDataset();
+
+    m_dataset = static_cast<GDALDataset *>(
+        GDALOpenEx(filePath.toUtf8().constData(),
+                   GDAL_OF_RASTER | GDAL_OF_READONLY,
+                   nullptr, nullptr, nullptr));
+
+    if (!m_dataset)
+    {
+        qWarning() << "GISRasterLayer: failed to open" << filePath;
+        return;
+    }
+
+    m_filePath = filePath;
+
+    // Spatial extent from geotransform
+    double gt[6] = {};
+    if (m_dataset->GetGeoTransform(gt) == CE_None)
+    {
+        int w = m_dataset->GetRasterXSize();
+        int h = m_dataset->GetRasterYSize();
+        double xMin = gt[0];
+        double yMax = gt[3];
+        double xMax = xMin + w * gt[1];
+        double yMin = yMax + h * gt[5]; // gt[5] is negative
+        setExtent(MapExtent(xMin, qMin(yMin, yMax), xMax, qMax(yMin, yMax)));
+    }
+
+    // CRS
+    const char *wkt = m_dataset->GetProjectionRef();
+    if (wkt && *wkt != '\0')
+    {
+        setSRS(SpatialReferenceSystem::fromWktOrProj(QString::fromUtf8(wkt)),
+               /*ownsSRS=*/true);
+    }
+
+    // No-data value
+    if (m_dataset->GetRasterCount() > 0)
+    {
+        int hasND = 0;
+        double nd = m_dataset->GetRasterBand(1)->GetNoDataValue(&hasND);
+        if (hasND)
+        {
+            m_hasNoData   = true;
+            m_noDataValue = nd;
+        }
+    }
+
+    setName(QFileInfo(filePath).baseName());
+    emit filePathChanged(filePath);
+}
+
+void GISRasterLayer::closeDataset()
+{
+    m_cachedTile = QImage{};
+
+    if (m_dataset)
+    {
+        GDALClose(m_dataset);
+        m_dataset = nullptr;
+    }
+}
+
+void GISRasterLayer::invalidateCache()
+{
+    m_cachedTile  = QImage{};
+    m_cacheExtent = MapExtent{};
+}
+
+QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
+                                     const SpatialReferenceSystem *canvasSRS,
+                                     int pixelWidth,
+                                     int pixelHeight) const
+{
+    if (!m_dataset || pixelWidth <= 0 || pixelHeight <= 0)
+        return {};
+
+    // Build destination geotransform
+    double dstGT[6] = {
+        canvasExtent.xMin(),
+        canvasExtent.width()  / pixelWidth,
+        0.0,
+        canvasExtent.yMax(),
+        0.0,
+        -canvasExtent.height() / pixelHeight
+    };
+
+    // Determine number of output bands
+    int nBands     = m_dataset->GetRasterCount();
+    bool isRGB     = (nBands >= 3);
+    int outBands   = isRGB ? nBands : 1;
+
+    // Create in-memory destination dataset
+    GDALDriver *memDriver = GetGDALDriverManager()->GetDriverByName("MEM");
+    if (!memDriver)
+        return {};
+
+    GDALDataset *dstDS = memDriver->Create(
+        "", pixelWidth, pixelHeight, outBands, GDT_Byte, nullptr);
+
+    if (!dstDS)
+        return {};
+
+    dstDS->SetGeoTransform(dstGT);
+
+    if (canvasSRS && canvasSRS->ogrSpatialReference())
+    {
+        char *wkt = nullptr;
+        canvasSRS->ogrSpatialReference()->exportToWkt(&wkt);
+        if (wkt)
+        {
+            dstDS->SetProjection(wkt);
+            CPLFree(wkt);
+        }
+    }
+
+    // Set up warp options
+    GDALWarpOptions *warpOpts = GDALCreateWarpOptions();
+    warpOpts->hSrcDS          = m_dataset;
+    warpOpts->hDstDS          = dstDS;
+    warpOpts->nBandCount      = outBands;
+    warpOpts->panSrcBands     = static_cast<int *>(CPLMalloc(sizeof(int) * outBands));
+    warpOpts->panDstBands     = static_cast<int *>(CPLMalloc(sizeof(int) * outBands));
+
+    for (int i = 0; i < outBands; ++i)
+    {
+        warpOpts->panSrcBands[i] = isRGB ? (i + 1) : m_renderBand;
+        warpOpts->panDstBands[i] = i + 1;
+    }
+
+    if (m_hasNoData)
+    {
+        warpOpts->padfSrcNoDataReal = static_cast<double *>(CPLMalloc(sizeof(double)));
+        warpOpts->padfSrcNoDataReal[0] = m_noDataValue;
+    }
+
+    warpOpts->pfnTransformer  = GDALGenImgProjTransform;
+    warpOpts->pTransformerArg = GDALCreateGenImgProjTransformer(
+        m_dataset, m_dataset->GetProjectionRef(),
+        dstDS, dstDS->GetProjectionRef(),
+        FALSE, 0, 1);
+
+    if (!warpOpts->pTransformerArg)
+    {
+        GDALDestroyWarpOptions(warpOpts);
+        GDALClose(dstDS);
+        return {};
+    }
+
+    GDALWarpOperationH warpOp = GDALCreateWarpOperation(warpOpts);
+    if (warpOp)
+    {
+        GDALChunkAndWarpImage(warpOp, 0, 0, pixelWidth, pixelHeight);
+        GDALDestroyWarpOperation(warpOp);
+    }
+
+    GDALDestroyGenImgProjTransformer(warpOpts->pTransformerArg);
+    GDALDestroyWarpOptions(warpOpts);
+
+    // Convert to QImage
+    QImage result(pixelWidth, pixelHeight, QImage::Format_ARGB32);
+    result.fill(Qt::transparent);
+
+    if (isRGB && outBands >= 3)
+    {
+        // Read R, G, B (and optionally A) bands
+        std::vector<GByte> r(pixelWidth * pixelHeight);
+        std::vector<GByte> g(pixelWidth * pixelHeight);
+        std::vector<GByte> b(pixelWidth * pixelHeight);
+        std::vector<GByte> a(pixelWidth * pixelHeight, 255);
+
+        dstDS->GetRasterBand(1)->RasterIO(GF_Read, 0, 0, pixelWidth, pixelHeight,
+                                           r.data(), pixelWidth, pixelHeight, GDT_Byte, 0, 0);
+        dstDS->GetRasterBand(2)->RasterIO(GF_Read, 0, 0, pixelWidth, pixelHeight,
+                                           g.data(), pixelWidth, pixelHeight, GDT_Byte, 0, 0);
+        dstDS->GetRasterBand(3)->RasterIO(GF_Read, 0, 0, pixelWidth, pixelHeight,
+                                           b.data(), pixelWidth, pixelHeight, GDT_Byte, 0, 0);
+
+        if (outBands >= 4)
+            dstDS->GetRasterBand(4)->RasterIO(GF_Read, 0, 0, pixelWidth, pixelHeight,
+                                               a.data(), pixelWidth, pixelHeight, GDT_Byte, 0, 0);
+
+        for (int y = 0; y < pixelHeight; ++y)
+        {
+            for (int x = 0; x < pixelWidth; ++x)
+            {
+                int idx = y * pixelWidth + x;
+                result.setPixel(x, y, qRgba(r[idx], g[idx], b[idx], a[idx]));
+            }
+        }
+    }
+    else
+    {
+        // Single-band: apply colour ramp
+        std::vector<GByte> raw(pixelWidth * pixelHeight);
+        dstDS->GetRasterBand(1)->RasterIO(GF_Read, 0, 0, pixelWidth, pixelHeight,
+                                           raw.data(), pixelWidth, pixelHeight, GDT_Byte, 0, 0);
+
+        for (int y = 0; y < pixelHeight; ++y)
+        {
+            for (int x = 0; x < pixelWidth; ++x)
+            {
+                double val = raw[y * pixelWidth + x];
+                if (m_hasNoData && qFuzzyCompare(val, m_noDataValue))
+                {
+                    result.setPixel(x, y, qRgba(0, 0, 0, 0));
+                }
+                else
+                {
+                    QColor c = m_colorRamp.colorForValue(val);
+                    result.setPixel(x, y, c.rgba());
+                }
+            }
+        }
+    }
+
+    GDALClose(dstDS);
+    return result;
+}

@@ -1,0 +1,1282 @@
+/*!
+ * \file   mapcanvas.cpp
+ * \author Caleb Buahin <caleb.buahin@gmail.com>
+ * \date   2026
+ * \brief  QGIS-style hybrid map canvas: raster buffer + QGraphicsView overlay.
+ */
+
+#include "map/mapcanvas.h"
+#include "map/openswmmvisscene.h"
+#include "map/openswmmvisgraphicsview.h"
+#include "map/mapextent.h"
+#include "map/mapundostack.h"
+#include "map/maprenderjob.h"
+#include "map/tools/maptool.h"
+#include "layers/openswmmvislayer.h"
+#include "layers/xyztilelayer.h"
+#include "map/spatialreferencesystem.h"
+#include "map/crsmanager.h"
+
+#include <QPainter>
+#include <QMouseEvent>
+#include <QWheelEvent>
+#include <QKeyEvent>
+#include <QResizeEvent>
+#include <QPaintEvent>
+#include <QtMath>
+#include <QApplication>
+
+// ---------------------------------------------------------------------------
+// Constructor / Destructor
+// ---------------------------------------------------------------------------
+
+MapCanvas::MapCanvas(QWidget *parent)
+    : QWidget(parent),
+      m_scene(new OpenSWMMVisScene(this)),
+      m_undoStack(new MapUndoStack(this)),
+      m_refreshTimer(new QTimer(this))
+{
+    // ---- Widget setup ----
+    setMouseTracking(true);
+    setFocusPolicy(Qt::StrongFocus);
+    setAttribute(Qt::WA_OpaquePaintEvent, true);
+
+    // Scene has no background — the MapCanvas raster buffer paints behind it.
+    m_scene->setBackgroundBrush(Qt::NoBrush);
+
+    // ---- Overlay view: hidden child used for transform math + scene rendering ----
+    // Kept hidden to suppress its own spontaneous paint events (we call render()
+    // from paintEvent() ourselves).  QWidget::render() works on hidden widgets.
+    m_overlayView = new OpenSWMMVisGraphicsView(m_scene, this);
+    m_overlayView->setGeometry(rect());
+    m_overlayView->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    m_overlayView->hide();
+
+    // Transparent background so our raster buffer shows through when rendered
+    m_overlayView->setBackgroundBrush(Qt::NoBrush);
+    m_overlayView->viewport()->setAutoFillBackground(false);
+
+    // Overlay view configuration
+    m_overlayView->setFrameShape(QFrame::NoFrame);
+    m_overlayView->setTransformationAnchor(QGraphicsView::NoAnchor);
+    m_overlayView->setResizeAnchor(QGraphicsView::NoAnchor);
+    m_overlayView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_overlayView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_overlayView->setCacheMode(QGraphicsView::CacheNone);
+    m_overlayView->setDragMode(QGraphicsView::NoDrag);
+    m_overlayView->setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
+    m_overlayView->setRenderHints(QPainter::Antialiasing
+                                   | QPainter::TextAntialiasing
+                                   | QPainter::SmoothPixmapTransform);
+
+    // Default Web Mercator canvas CRS (EPSG:3857) — matches CartoDB/OSM tile convention
+    m_canvasSRS = SpatialReferenceSystem::fromAuthCode(QStringLiteral("EPSG"), 3857);
+    m_ownsSRS   = true;
+
+    // Default extent: whole world in Web Mercator (meters)
+    m_extent = MapExtent(-20037508.34, -20037508.34, 20037508.34, 20037508.34);
+
+    // Seed the scene rect generously so early panning never hits a boundary.
+    m_scene->setSceneRect(-40075016.68, -40075016.68, 80150033.36, 80150033.36);
+
+    // Refresh timer coalesces multiple refresh() calls
+    m_refreshTimer->setSingleShot(true);
+    m_refreshTimer->setInterval(50);
+    connect(m_refreshTimer, &QTimer::timeout, this, &MapCanvas::refreshLayerItems);
+
+    applyExtentToOverlay();
+
+    // Default basemap (CartoDB Positron via XYZ tiles).
+    addDefaultBasemap();
+}
+
+MapCanvas::~MapCanvas()
+{
+    cancelRenderJob();
+
+    if (m_ownsSRS)
+        delete m_canvasSRS;
+}
+
+void MapCanvas::addDefaultBasemap()
+{
+    auto *tiles = new XYZTileLayer(
+        QStringLiteral("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png"),
+        nullptr);
+    tiles->setName(QStringLiteral("CartoDB Positron"));
+    addLayer(tiles, /*pushUndo=*/false);
+}
+
+// ---------------------------------------------------------------------------
+// Scene / overlay access
+// ---------------------------------------------------------------------------
+
+OpenSWMMVisScene        *MapCanvas::mapScene()    const { return m_scene; }
+OpenSWMMVisGraphicsView *MapCanvas::overlayView() const { return m_overlayView; }
+
+// ---------------------------------------------------------------------------
+// CRS
+// ---------------------------------------------------------------------------
+
+SpatialReferenceSystem *MapCanvas::canvasSRS() const { return m_canvasSRS; }
+
+void MapCanvas::applyCRSInternal(SpatialReferenceSystem *srs, bool ownsSRS)
+{
+    if (!srs || srs == m_canvasSRS)
+        return;
+
+    if (m_ownsSRS)
+        delete m_canvasSRS;
+
+    m_canvasSRS = srs;
+    m_ownsSRS   = ownsSRS;
+
+    // Discard the raster buffer so stale tiles from the old CRS aren't shown
+    // while the new render job is fetching tiles for the new CRS.
+    cancelRenderJob();
+    m_mapBuffer = QImage();
+
+    for (OpenSWMMVisLayer *layer : std::as_const(m_layers))
+        layer->onCanvasCRSChanged(m_canvasSRS);
+
+    emit canvasSRSChanged(m_canvasSRS);
+    refresh();
+}
+
+void MapCanvas::setCanvasSRS(SpatialReferenceSystem *srs, bool ownsSRS)
+{
+    if (!srs || srs == m_canvasSRS)
+        return;
+
+    QString oldCode = m_canvasSRS ? m_canvasSRS->toAuthority() : QString();
+    QString newCode = srs->toAuthority();
+
+    applyCRSInternal(srs, ownsSRS);
+
+    // Only record undo for standard authority-code CRSes; "Local" has no roundtrip.
+    // applyCRSInternal is called first so the CRS is already applied before push()
+    // calls redo() — ChangeCRSCommand::redo() uses applyCRSInternal directly to
+    // avoid this recursion path.
+    if (!oldCode.isEmpty() && !newCode.isEmpty()
+        && oldCode != QStringLiteral("Local")
+        && newCode != QStringLiteral("Local"))
+    {
+        m_undoStack->push(new ChangeCRSCommand(oldCode, newCode, this));
+    }
+}
+
+bool MapCanvas::setCanvasSRSByCode(const QString &authName, int code)
+{
+    SpatialReferenceSystem *srs = SpatialReferenceSystem::fromAuthCode(authName, code);
+    if (!srs)
+        return false;
+
+    setCanvasSRS(srs, /*ownsSRS=*/true);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Extent / view
+// ---------------------------------------------------------------------------
+
+MapExtent MapCanvas::extent() const { return m_extent; }
+
+void MapCanvas::setExtent(const MapExtent &extent, bool pushUndo)
+{
+    MapExtent fitExtent = arCorrectedExtent(extent);
+
+    if (fitExtent == m_extent)
+        return;
+
+    if (pushUndo)
+        m_undoStack->push(new PanZoomCommand(m_extent, fitExtent, this));
+
+    m_extent = fitExtent;
+    applyExtentToOverlay();
+
+    emit extentChanged(m_extent);
+    emit scaleChanged(scale());
+
+    if (!m_isPanning)
+        refresh();
+}
+
+void MapCanvas::zoomToFullExtent()
+{
+    MapExtent fe = fullExtent();
+    if (!fe.isValid())
+        return;
+
+    // Add a small margin so features at the edge (outermost nodes, link
+    // endpoints, subcatchment outlines) are not visually clipped against the
+    // canvas border. 8% on each side matches QGIS's default "Zoom to Layer".
+    fe = fe.scaled(1.08);
+    setExtent(fe);
+}
+
+void MapCanvas::zoomIn(double factor)
+{
+    setExtent(m_extent.scaled(1.0 / factor));
+}
+
+void MapCanvas::zoomOut(double factor)
+{
+    setExtent(m_extent.scaled(factor));
+}
+
+void MapCanvas::pan(double dx, double dy)
+{
+    setExtent(m_extent.panned(dx, dy));
+}
+
+double MapCanvas::scale() const
+{
+    if (width() <= 0 || !m_extent.isValid())
+        return 1.0;
+
+    double mapUnitsPerPixel = m_extent.width() / width();
+    return mapUnitsPerPixel / 0.00028;
+}
+
+// ---------------------------------------------------------------------------
+// Layer management
+// ---------------------------------------------------------------------------
+
+const QList<OpenSWMMVisLayer *> &MapCanvas::layers() const { return m_layers; }
+
+void MapCanvas::addLayer(OpenSWMMVisLayer *layer, bool pushUndo)
+{
+    insertLayer(m_layers.count(), layer, pushUndo);
+}
+
+void MapCanvas::insertLayer(int position, OpenSWMMVisLayer *layer, bool pushUndo)
+{
+    if (!layer)
+        return;
+
+    position = qBound(0, position, m_layers.count());
+
+    // QUndoStack::push() invokes command->redo() automatically, and our
+    // AddLayerCommand::redo() calls back into insertLayer(pos, layer, false).
+    // So when pushUndo is true we ONLY push the command — performing the
+    // insertion here too would add the layer twice. Caller-facing API stays
+    // unchanged; this just routes the work through the command path.
+    if (pushUndo)
+    {
+        m_undoStack->push(new AddLayerCommand(layer, position, this));
+        return;
+    }
+
+    m_layers.insert(position, layer);
+
+    connect(layer, &OpenSWMMVisLayer::repaintRequested,
+            this, &MapCanvas::onLayerRepaintRequested);
+
+    updateLayerZValues();
+
+    // Only vector (non-raster) layers populate the overlay scene
+    if (!layer->isRasterLayer())
+        layer->populateScene(m_scene, m_extent, m_canvasSRS);
+
+    emit layerAdded(layer);
+    update();
+}
+
+OpenSWMMVisLayer *MapCanvas::takeLayer(int index, bool pushUndo)
+{
+    if (index < 0 || index >= m_layers.count())
+        return nullptr;
+
+    // Same pattern as insertLayer: when pushUndo is true, route through the
+    // undo command so QUndoStack::push() → RemoveLayerCommand::redo() does
+    // the actual removal exactly once via takeLayer(index, false).
+    if (pushUndo)
+    {
+        OpenSWMMVisLayer *layer = m_layers.at(index);
+        m_undoStack->push(new RemoveLayerCommand(layer, index, this));
+        return layer;   // command's redo() has already removed it
+    }
+
+    OpenSWMMVisLayer *layer = m_layers.takeAt(index);
+
+    disconnect(layer, &OpenSWMMVisLayer::repaintRequested,
+               this, &MapCanvas::onLayerRepaintRequested);
+
+    if (!layer->isRasterLayer())
+        layer->depopulateScene(m_scene);
+
+    updateLayerZValues();
+
+    emit layerRemoved(layer);
+    update();
+    return layer;
+}
+
+void MapCanvas::moveLayer(int fromIndex, int toIndex, bool pushUndo)
+{
+    if (fromIndex == toIndex)
+        return;
+    if (fromIndex < 0 || fromIndex >= m_layers.count())
+        return;
+    if (toIndex < 0 || toIndex >= m_layers.count())
+        return;
+
+    // Same pattern as insertLayer / takeLayer: route through the undo
+    // command so the work happens exactly once via redo() on push.
+    if (pushUndo)
+    {
+        m_undoStack->push(new MoveLayerCommand(fromIndex, toIndex, this));
+        return;
+    }
+
+    m_layers.move(fromIndex, toIndex);
+    updateLayerZValues();
+
+    emit layerOrderChanged();
+    update();
+}
+
+int MapCanvas::layerCount() const { return m_layers.count(); }
+
+OpenSWMMVisLayer *MapCanvas::layerAt(int index) const
+{
+    return (index >= 0 && index < m_layers.count()) ? m_layers.at(index) : nullptr;
+}
+
+MapExtent MapCanvas::fullExtent() const
+{
+    // Zoom to Full Extent zooms to the union of *feature* layers only —
+    // basemap raster layers (WMS / WMTS / XYZ tiles) cover the entire world
+    // and would otherwise drag the extent back to global scale every time.
+    MapExtent full;
+    for (const OpenSWMMVisLayer *layer : m_layers)
+    {
+        if (layer->isRasterLayer())
+            continue;
+        if (layer->isVisible() && layer->extent().isValid())
+        {
+            if (!full.isValid())
+                full = layer->extent();
+            else
+                full = full.united(layer->extent());
+        }
+    }
+
+    // Fallback: if no feature layers are visible, union everything (including
+    // raster layers) so the canvas still has *some* extent to zoom to.
+    if (!full.isValid())
+    {
+        for (const OpenSWMMVisLayer *layer : m_layers)
+        {
+            if (layer->isVisible() && layer->extent().isValid())
+            {
+                if (!full.isValid())
+                    full = layer->extent();
+                else
+                    full = full.united(layer->extent());
+            }
+        }
+    }
+    return full;
+}
+
+// ---------------------------------------------------------------------------
+// Tool management
+// ---------------------------------------------------------------------------
+
+OpenSWMMVisMapTool *MapCanvas::activeTool() const { return m_activeTool; }
+
+void MapCanvas::setActiveTool(OpenSWMMVisMapTool *tool)
+{
+    if (m_activeTool == tool)
+        return;
+
+    if (m_activeTool)
+        m_activeTool->deactivate();
+
+    m_activeTool = tool;
+
+    if (m_activeTool)
+    {
+        m_activeTool->activate();
+        setCursor(m_activeTool->cursor());
+    }
+    else
+    {
+        setCursor(Qt::ArrowCursor);
+    }
+
+    emit activeToolChanged(m_activeTool);
+}
+
+// ---------------------------------------------------------------------------
+// Undo stack
+// ---------------------------------------------------------------------------
+
+MapUndoStack *MapCanvas::undoStack() const { return m_undoStack; }
+
+int MapCanvas::maxUndoCount() const { return m_undoStack->maxUndoCount(); }
+
+void MapCanvas::setMaxUndoCount(int count)
+{
+    m_undoStack->setMaxUndoCount(count);
+    emit maxUndoCountChanged(count);
+}
+
+// ---------------------------------------------------------------------------
+// Decorations
+// ---------------------------------------------------------------------------
+
+bool MapCanvas::showScaleBar() const { return m_showScaleBar; }
+
+void MapCanvas::setShowScaleBar(bool show)
+{
+    if (m_showScaleBar != show)
+    {
+        m_showScaleBar = show;
+        emit showScaleBarChanged(show);
+        update();
+    }
+}
+
+bool MapCanvas::showCoordinates() const { return m_showCoords; }
+
+void MapCanvas::setShowCoordinates(bool show)
+{
+    if (m_showCoords != show)
+    {
+        m_showCoords = show;
+        emit showCoordinatesChanged(show);
+        update();
+    }
+}
+
+QColor MapCanvas::backgroundColor() const { return m_bgColor; }
+
+void MapCanvas::setBackgroundColor(const QColor &color)
+{
+    if (m_bgColor != color)
+    {
+        m_bgColor = color;
+        emit backgroundColorChanged(color);
+        update();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Coordinate conversion
+// ---------------------------------------------------------------------------
+
+void MapCanvas::toMapCoords(int px, int py, double &mapX, double &mapY) const
+{
+    if (!m_extent.isValid() || width() <= 0 || height() <= 0)
+    {
+        mapX = mapY = 0.0;
+        return;
+    }
+
+    double sx = m_extent.width()  / width();
+    double sy = m_extent.height() / height();
+
+    mapX =  m_extent.xMin() + px * sx;
+    mapY =  m_extent.yMax() - py * sy;   // Y increases upward
+}
+
+void MapCanvas::toPixelCoords(double mapX, double mapY, int &px, int &py) const
+{
+    if (!m_extent.isValid() || width() <= 0 || height() <= 0)
+    {
+        px = py = 0;
+        return;
+    }
+
+    double sx = width()  / m_extent.width();
+    double sy = height() / m_extent.height();
+
+    px = static_cast<int>((mapX - m_extent.xMin()) * sx);
+    py = static_cast<int>((m_extent.yMax() - mapY) * sy);
+}
+
+// ---------------------------------------------------------------------------
+// Refresh — Phase 0.9 per-channel invalidation
+// ---------------------------------------------------------------------------
+
+namespace {
+
+bool redrawLogEnabled()
+{
+    // Resolve once per process — env-var lookup is not free, but this gates
+    // every redraw so we want it cheap. qEnvironmentVariableIntValue returns
+    // 0 when unset, which means logging stays off by default.
+    static const bool kEnabled =
+        qEnvironmentVariableIntValue("SWMMVIS_LOG_REDRAW") != 0;
+    return kEnabled;
+}
+
+QString channelsToString(MapCanvas::DirtyChannels c)
+{
+    QStringList parts;
+    if (c & MapCanvas::Raster)  parts << QStringLiteral("Raster");
+    if (c & MapCanvas::Scene)   parts << QStringLiteral("Scene");
+    if (c & MapCanvas::Overlay) parts << QStringLiteral("Overlay");
+    if (c & MapCanvas::Extent)  parts << QStringLiteral("Extent");
+    return parts.isEmpty() ? QStringLiteral("(none)")
+                           : parts.join(QLatin1Char('|'));
+}
+
+} // anonymous
+
+void MapCanvas::invalidate(DirtyChannels channels, const QString &reason)
+{
+    if (channels == NoChannel) return;
+
+    if (redrawLogEnabled())
+    {
+        qDebug().noquote() << QStringLiteral("[redraw:invalidate] %1  reason=%2")
+                                  .arg(channelsToString(channels))
+                                  .arg(reason.isEmpty() ? QStringLiteral("(unspecified)") : reason);
+    }
+
+    m_pendingChannels |= channels;
+    if (!reason.isEmpty()) m_pendingReason = reason;
+
+    if (m_suspendDepth > 0)
+        return;     // batched — fire on resume()
+
+    // Lazy-init per-channel timers. Created at-need so MapCanvas instances
+    // that never call invalidate() pay no cost.
+    if (!m_rasterTimer)
+    {
+        m_rasterTimer = new QTimer(this);
+        m_rasterTimer->setSingleShot(true);
+        m_rasterTimer->setInterval(150);     // tile reload is expensive
+        connect(m_rasterTimer, &QTimer::timeout,
+                this, &MapCanvas::fireRasterChannel);
+    }
+    if (!m_sceneTimer)
+    {
+        m_sceneTimer = new QTimer(this);
+        m_sceneTimer->setSingleShot(true);
+        m_sceneTimer->setInterval(50);       // vector items are cheap
+        connect(m_sceneTimer, &QTimer::timeout,
+                this, &MapCanvas::fireSceneChannel);
+    }
+
+    // Overlay / Extent fire immediately — no debounce.
+    if (m_pendingChannels & Overlay)
+    {
+        m_pendingChannels &= ~Overlay;
+        update();   // QWidget repaint of widget-coord decorations
+        if (redrawLogEnabled())
+            qDebug().noquote() << QStringLiteral("[redraw:fire] Overlay  reason=%1")
+                                      .arg(m_pendingReason);
+    }
+    if (m_pendingChannels & Extent)
+    {
+        m_pendingChannels &= ~Extent;
+        applyExtentToOverlay();
+        emit extentChanged(m_extent);
+        emit scaleChanged(scale());
+        if (redrawLogEnabled())
+            qDebug().noquote() << QStringLiteral("[redraw:fire] Extent  reason=%1")
+                                      .arg(m_pendingReason);
+    }
+
+    if ((m_pendingChannels & Raster) && !m_rasterTimer->isActive())
+        m_rasterTimer->start();
+    if ((m_pendingChannels & Scene)  && !m_sceneTimer->isActive())
+        m_sceneTimer->start();
+}
+
+void MapCanvas::suspendRefresh()
+{
+    ++m_suspendDepth;
+    if (redrawLogEnabled())
+        qDebug().noquote() << QStringLiteral("[redraw:suspend] depth=%1")
+                                  .arg(m_suspendDepth);
+}
+
+void MapCanvas::resumeRefresh()
+{
+    if (m_suspendDepth <= 0) return;
+    --m_suspendDepth;
+    if (redrawLogEnabled())
+        qDebug().noquote() << QStringLiteral("[redraw:resume] depth=%1 pending=%2")
+                                  .arg(m_suspendDepth)
+                                  .arg(channelsToString(m_pendingChannels));
+    if (m_suspendDepth == 0 && m_pendingChannels != NoChannel)
+    {
+        // Re-emit through invalidate() so the immediate-channel paths
+        // (Overlay/Extent) and the timer-armed paths (Raster/Scene) fire.
+        const DirtyChannels pending = m_pendingChannels;
+        m_pendingChannels = NoChannel;          // avoid double-OR on re-entry
+        invalidate(pending, m_pendingReason + QStringLiteral(" (resume)"));
+    }
+}
+
+void MapCanvas::fireRasterChannel()
+{
+    if (!(m_pendingChannels & Raster)) return;
+    m_pendingChannels &= ~Raster;
+    if (redrawLogEnabled())
+        qDebug().noquote() << QStringLiteral("[redraw:fire] Raster  reason=%1")
+                                  .arg(m_pendingReason);
+    // Raster channel = re-warm caches + start a new background composite job.
+    int vpW = width(), vpH = height();
+    QSize vpSize(vpW, vpH);
+    for (OpenSWMMVisLayer *layer : std::as_const(m_layers))
+    {
+        if (!layer->isRasterLayer() || !layer->isVisible()) continue;
+        layer->setViewportSize(vpW, vpH);
+        layer->fetchCache(m_extent, vpSize, m_canvasSRS);
+    }
+    startRenderJob();
+}
+
+void MapCanvas::fireSceneChannel()
+{
+    if (!(m_pendingChannels & Scene)) return;
+    m_pendingChannels &= ~Scene;
+    if (redrawLogEnabled())
+        qDebug().noquote() << QStringLiteral("[redraw:fire] Scene  reason=%1")
+                                  .arg(m_pendingReason);
+    if (m_isPanning || m_isZooming)
+        return;     // gesture in progress — wait for endPan() to retrigger
+    int vpW = width(), vpH = height();
+    for (OpenSWMMVisLayer *layer : std::as_const(m_layers))
+    {
+        if (layer->isRasterLayer()) continue;   // handled by raster channel
+        layer->setViewportSize(vpW, vpH);
+        if (!layer->isVisible())
+        {
+            layer->depopulateScene(m_scene);
+            continue;
+        }
+        layer->refreshScene(m_scene, m_extent, m_canvasSRS);
+    }
+    update();
+}
+
+// ---------------------------------------------------------------------------
+// Legacy refresh API — preserved verbatim so existing callers don't change
+// behavior. Callers should migrate to invalidate(channels) over time.
+// ---------------------------------------------------------------------------
+
+void MapCanvas::refresh()
+{
+    if (!m_refreshTimer->isActive())
+        m_refreshTimer->start();
+}
+
+void MapCanvas::refreshLayerItems()
+{
+    if (m_isPanning || m_isZooming)
+        return;
+
+    int vpW = width();
+    int vpH = height();
+    const QSize vpSize(vpW, vpH);
+
+    // Update viewport size for all layers
+    for (OpenSWMMVisLayer *layer : std::as_const(m_layers))
+        layer->setViewportSize(vpW, vpH);
+
+    // Process each layer by type:
+    //   Raster layers -> trigger tile/data fetch so the cache is warm when the
+    //                    background MapRenderJob calls render().
+    //   Vector layers -> refresh their QGraphicsItems in the overlay scene.
+    for (OpenSWMMVisLayer *layer : std::as_const(m_layers))
+    {
+        if (layer->isRasterLayer())
+        {
+            if (layer->isVisible())
+                layer->fetchCache(m_extent, vpSize, m_canvasSRS);
+            continue;
+        }
+
+        if (!layer->isVisible())
+        {
+            layer->depopulateScene(m_scene);
+            continue;
+        }
+        layer->refreshScene(m_scene, m_extent, m_canvasSRS);
+    }
+
+    // Vector items were updated — trigger an immediate repaint so they appear
+    // even before the async raster render job completes.
+    update();
+
+    // Start a background render job to composite raster layers into m_mapBuffer
+    startRenderJob();
+}
+
+// ---------------------------------------------------------------------------
+// Render job management
+// ---------------------------------------------------------------------------
+
+void MapCanvas::startRenderJob()
+{
+    cancelRenderJob();
+
+    // Collect only visible raster layers in bottom-to-top order
+    QList<OpenSWMMVisLayer *> rasterLayers;
+    for (OpenSWMMVisLayer *layer : std::as_const(m_layers))
+    {
+        if (layer->isRasterLayer() && layer->isVisible())
+            rasterLayers.append(layer);
+    }
+
+    if (rasterLayers.isEmpty())
+    {
+        m_mapBuffer = QImage(size(), QImage::Format_ARGB32_Premultiplied);
+        m_mapBuffer.fill(m_bgColor);
+        update();
+        return;
+    }
+
+    // QGIS-style: do NOT discard the existing buffer when a new render job
+    // starts. The stale buffer keeps showing under the in-flight scene-overlay
+    // render until onRenderJobFinished() swaps in the fresh tiles, eliminating
+    // the brief blank/background-color flash that otherwise occurs every
+    // time the canvas refreshes (resize, pan end, zoom end, basemap toggle).
+
+    m_renderJob = new MapRenderJob(rasterLayers,
+                                   m_extent,
+                                   size(),
+                                   m_canvasSRS,
+                                   m_bgColor,
+                                   this);
+
+    // Snapshot the extent we're rendering — when the result arrives this
+    // becomes m_mapBufferExtent so paintEvent can position a stale buffer
+    // correctly during subsequent pan/zoom before a new render finishes.
+    m_pendingRenderExtent = m_extent;
+
+    connect(m_renderJob, &MapRenderJob::finished,
+            this,        &MapCanvas::onRenderJobFinished);
+
+    m_renderJob->start();
+}
+
+void MapCanvas::cancelRenderJob()
+{
+    if (m_renderJob)
+    {
+        m_renderJob->cancel();
+        // The job will still deliver finished() — disconnect to ignore it.
+        disconnect(m_renderJob, &MapRenderJob::finished,
+                   this,        &MapCanvas::onRenderJobFinished);
+        // deleteLater is safe here: MapRenderJob::start() captures all worker
+        // state by value into the lambda and uses a shared_ptr cancel flag
+        // and QPointer for the finished-emit callback. The worker is fully
+        // independent of the job's lifetime, so destroying the job now does
+        // NOT race the worker's reads. No GUI-thread block during pan/zoom.
+        m_renderJob->deleteLater();
+        m_renderJob = nullptr;
+    }
+}
+
+void MapCanvas::onRenderJobFinished(QImage result)
+{
+    if (m_renderJob)
+        m_renderJob->deleteLater();
+    m_renderJob = nullptr;
+    m_mapBuffer = result;
+    m_mapBufferExtent = m_pendingRenderExtent;  // record what extent this buffer covers
+    update();
+}
+
+// ---------------------------------------------------------------------------
+// paintEvent — composites raster buffer + tool overlay + decorations
+// ---------------------------------------------------------------------------
+
+void MapCanvas::paintEvent(QPaintEvent * /*event*/)
+{
+    // Composite all layers into m_frameBuffer first, then blit in one call.
+    // This eliminates any intermediate visual state that causes flickering.
+    if (m_frameBuffer.size() != size())
+        m_frameBuffer = QImage(size(), QImage::Format_ARGB32_Premultiplied);
+
+    QPainter p(&m_frameBuffer);
+    p.setRenderHints(QPainter::Antialiasing
+                     | QPainter::TextAntialiasing
+                     | QPainter::SmoothPixmapTransform);
+
+    // ---- Background -------------------------------------------------------
+    p.fillRect(m_frameBuffer.rect(), m_bgColor);
+
+    // ---- Layer 1: raster layers -------------------------------------------
+    // During pan, render raster layers directly from their in-memory tile
+    // caches using the live view extent from the overlay transform — this fills
+    // the full viewport with whatever is cached and avoids truncation.
+    // When not panning, blit the pre-rendered 1× raster buffer.
+    if (m_isPanning)
+    {
+        const QTransform &t = m_overlayView->transform();
+        const double s = t.m11();
+        if (s > 1e-12)
+        {
+            const double xMin =  -t.dx() / s;
+            const double yMax =   t.dy() / s;
+            const MapExtent liveExtent(xMin,
+                                       yMax - (double)height() / s,
+                                       xMin + (double)width()  / s,
+                                       yMax);
+            for (OpenSWMMVisLayer *layer : std::as_const(m_layers))
+            {
+                if (layer->isRasterLayer() && layer->isVisible())
+                    layer->render(&p, liveExtent, size(), m_canvasSRS);
+            }
+        }
+    }
+    else if (!m_mapBuffer.isNull())
+    {
+        // QGIS-style stale-buffer transform.
+        //
+        // m_mapBuffer was rendered at m_mapBufferExtent. The current view is
+        // at m_extent. If the user has panned or zoomed since the last render
+        // completed, drawing the buffer at (0,0) puts the basemap at the wrong
+        // place — the visible "flash" on mouse-up. Instead, compute the pixel
+        // rect that maps the buffer's source-extent into the *current* view's
+        // pixel space, then drawImage(rect, buffer). The stale tiles scroll
+        // and scale smoothly until the new buffer arrives and slots in
+        // exactly.
+        if (m_mapBufferExtent.isValid() && m_extent.isValid()
+            && m_extent.width() > 0 && m_extent.height() > 0)
+        {
+            const double pxPerCanvasX =
+                static_cast<double>(width())  / m_extent.width();
+            const double pxPerCanvasY =
+                static_cast<double>(height()) / m_extent.height();
+
+            const double dstLeft  =
+                (m_mapBufferExtent.xMin() - m_extent.xMin()) * pxPerCanvasX;
+            const double dstRight =
+                (m_mapBufferExtent.xMax() - m_extent.xMin()) * pxPerCanvasX;
+            const double dstTop   =
+                (m_extent.yMax() - m_mapBufferExtent.yMax()) * pxPerCanvasY;
+            const double dstBottom =
+                (m_extent.yMax() - m_mapBufferExtent.yMin()) * pxPerCanvasY;
+
+            const QRectF dstRect(dstLeft, dstTop,
+                                 dstRight - dstLeft,
+                                 dstBottom - dstTop);
+            if (dstRect.isValid() && !dstRect.isEmpty())
+                p.drawImage(dstRect, m_mapBuffer);
+            else
+                p.drawImage(0, 0, m_mapBuffer);
+        }
+        else
+        {
+            p.drawImage(0, 0, m_mapBuffer);
+        }
+    }
+
+    // ---- Layer 2: vector scene items ----------------------------------------
+    // Render the scene directly via QGraphicsScene::render() — this is more
+    // reliable than going through the hidden QGraphicsView, which can produce
+    // empty output when the view's viewport hasn't been laid out (especially
+    // on first paint after model load). target = canvas pixel rect; source =
+    // visible portion of the scene in scene coordinates derived from m_extent
+    // (with the standard scene Y-flip: scene_y = -map_y).
+    if (m_extent.isValid() && width() > 0 && height() > 0 && m_scene)
+    {
+        const QRectF targetRect(0, 0, width(), height());
+        const QRectF sourceRect(m_extent.xMin(), -m_extent.yMax(),
+                                m_extent.width(), m_extent.height());
+        m_scene->render(&p, targetRect, sourceRect, Qt::IgnoreAspectRatio);
+    }
+
+    // ---- Layer 3: tool overlay (rubber-band, measure, etc.) ---------------
+    if (m_activeTool)
+        m_activeTool->paint(&p, m_extent, m_canvasSRS);
+
+    // ---- Layer 4: decorations ---------------------------------------------
+    if (m_showScaleBar)
+        renderScaleBar(p);
+
+    if (m_showCoords)
+        renderCoordinates(p, m_lastMouseMapX, m_lastMouseMapY);
+
+    p.end(); // finalise m_frameBuffer before blitting
+
+    // ---- Blit the completed frame to the screen in one atomic operation ----
+    QPainter screen(this);
+    screen.drawImage(0, 0, m_frameBuffer);
+}
+
+// ---------------------------------------------------------------------------
+// View transform management (overlay kept in sync with raster buffer)
+// ---------------------------------------------------------------------------
+
+void MapCanvas::applyExtentToOverlay()
+{
+    if (!m_extent.isValid() || width() <= 0 || height() <= 0)
+        return;
+
+    // Scene convention: sx = map_x, sy = -map_y (Y-up in scene, Y-down on screen)
+    const double s  = static_cast<double>(width()) / m_extent.width();
+    const double dx = -m_extent.xMin() * s;
+    const double dy =  m_extent.yMax() * s;
+
+    QTransform t(s, 0.0, 0.0, s, dx, dy);
+    m_overlayView->setTransform(t);
+
+    ensureOverlaySceneRectCovers(overlayVisibleSceneRect());
+}
+
+QRectF MapCanvas::overlayVisibleSceneRect() const
+{
+    // Do NOT use m_overlayView->viewport()->rect() — that view is hidden, so
+    // its viewport rect is stale on macOS.  Derive from the transform directly.
+    const QTransform &t = m_overlayView->transform();
+    const double s = t.m11();
+    if (s < 1e-12)
+        return {};
+    return QRectF(-t.dx() / s, -t.dy() / s,
+                  (double)width() / s, (double)height() / s);
+}
+
+void MapCanvas::ensureOverlaySceneRectCovers(const QRectF &needed)
+{
+    const double s = qAbs(m_overlayView->transform().m11());
+    if (qFuzzyIsNull(s))
+        return;
+
+    const double marginW = width()  / s * 3.0;
+    const double marginH = height() / s * 3.0;
+
+    QRectF padded = needed.adjusted(-marginW, -marginH, marginW, marginH);
+    QRectF sr     = m_scene->sceneRect();
+    if (!sr.contains(padded))
+        m_scene->setSceneRect(sr.united(padded));
+}
+
+void MapCanvas::updateLayerZValues()
+{
+    for (int i = 0; i < m_layers.count(); ++i)
+        m_layers[i]->setLayerZValue(i * 1000.0);
+}
+
+// ---------------------------------------------------------------------------
+// Event routing
+// ---------------------------------------------------------------------------
+
+void MapCanvas::mousePressEvent(QMouseEvent *event)
+{
+    // Global middle-mouse pan: works regardless of which tool is active.
+    if (event->button() == Qt::MiddleButton)
+    {
+        m_middlePanActive = true;
+        m_middlePanStart  = event->pos();
+        beginPan();
+        setCursor(Qt::ClosedHandCursor);
+        event->accept();
+        return;
+    }
+    if (m_activeTool)
+        m_activeTool->mousePressEvent(event);
+}
+
+void MapCanvas::mouseMoveEvent(QMouseEvent *event)
+{
+    toMapCoords(event->pos().x(), event->pos().y(),
+                m_lastMouseMapX, m_lastMouseMapY);
+    emit cursorPositionChanged(m_lastMouseMapX, m_lastMouseMapY);
+
+    if (m_showCoords)
+        update();
+
+    if (m_middlePanActive)
+    {
+        QPoint delta = event->pos() - m_middlePanStart;
+        m_middlePanStart = event->pos();
+        translateViewBy(delta.x(), delta.y());
+        event->accept();
+        return;
+    }
+
+    if (m_activeTool)
+        m_activeTool->mouseMoveEvent(event);
+}
+
+void MapCanvas::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::MiddleButton && m_middlePanActive)
+    {
+        m_middlePanActive = false;
+        setCursor(m_activeTool ? m_activeTool->cursor() : Qt::ArrowCursor);
+        endPan();
+        event->accept();
+        return;
+    }
+    if (m_activeTool)
+        m_activeTool->mouseReleaseEvent(event);
+}
+
+void MapCanvas::mouseDoubleClickEvent(QMouseEvent *event)
+{
+    if (m_activeTool)
+        m_activeTool->mouseDoubleClickEvent(event);
+}
+
+void MapCanvas::wheelEvent(QWheelEvent *event)
+{
+    // Scroll-wheel zoom is always active, regardless of which tool is selected.
+    double angle = event->angleDelta().y();
+    if (!qFuzzyIsNull(angle))
+    {
+        double factor = (angle > 0) ? 1.5 : (1.0 / 1.5);
+        zoomAroundCursor(factor, event->position().toPoint());
+        event->accept();
+        return;
+    }
+    // Non-vertical scroll (e.g., horizontal trackpad): delegate to the tool.
+    if (m_activeTool)
+        m_activeTool->wheelEvent(event);
+}
+
+void MapCanvas::keyPressEvent(QKeyEvent *event)
+{
+    if (m_activeTool)
+        m_activeTool->keyPressEvent(event);
+}
+
+void MapCanvas::keyReleaseEvent(QKeyEvent *event)
+{
+    if (m_activeTool)
+        m_activeTool->keyReleaseEvent(event);
+}
+
+void MapCanvas::resizeEvent(QResizeEvent *event)
+{
+    QWidget::resizeEvent(event);
+
+    // Keep overlay on top of entire canvas
+    m_overlayView->setGeometry(rect());
+
+    if (m_extent.isValid())
+        m_extent = arCorrectedExtent(m_extent);
+    applyExtentToOverlay();
+    emit scaleChanged(scale());
+
+    // Re-render at the new size so raster tiles match the widget dimensions.
+    // This is essential when the canvas first becomes visible (e.g. switching
+    // from the Welcome tab) or when the window is resized.
+    if (width() > 0 && height() > 0)
+        refresh();
+}
+
+// ---------------------------------------------------------------------------
+// Private slots
+// ---------------------------------------------------------------------------
+
+void MapCanvas::onLayerRepaintRequested()
+{
+    refresh();
+}
+
+// ---------------------------------------------------------------------------
+// Pan state
+// ---------------------------------------------------------------------------
+
+void MapCanvas::beginPan()
+{
+    m_isPanning = true;
+    m_panStartExtent = m_extent;
+}
+
+void MapCanvas::endPan()
+{
+    m_isPanning = false;
+    m_isZooming = false;
+    syncExtentFromView();
+    emit extentChanged(m_extent);
+    emit scaleChanged(scale());
+    refresh();
+}
+
+bool MapCanvas::isPanning() const
+{
+    return m_isPanning;
+}
+
+// ---------------------------------------------------------------------------
+// AR correction helper
+// ---------------------------------------------------------------------------
+
+MapExtent MapCanvas::arCorrectedExtent(const MapExtent &ext) const
+{
+    if (width() <= 0 || height() <= 0 || !ext.isValid())
+        return ext;
+
+    double viewAspect = static_cast<double>(width()) / height();
+    double extAspect  = ext.width() / ext.height();
+    double adjW = ext.width(), adjH = ext.height();
+
+    if (viewAspect > extAspect)
+        adjW = adjH * viewAspect;
+    else
+        adjH = adjW / viewAspect;
+
+    double cx = ext.centerX(), cy = ext.centerY();
+    return MapExtent(cx - adjW * 0.5, cy - adjH * 0.5,
+                     cx + adjW * 0.5, cy + adjH * 0.5);
+}
+
+// ---------------------------------------------------------------------------
+// Sync extent from overlay view transform (used after smooth pan/zoom)
+// ---------------------------------------------------------------------------
+
+void MapCanvas::syncExtentFromView()
+{
+    // Derive extent from the overlay transform and canvas pixel dimensions.
+    // Never use viewport()->rect() — the overlay view is hidden, so that rect
+    // is stale on macOS and produces wrong (skewed) extents.
+    const QTransform &t = m_overlayView->transform();
+    const double s = t.m11();
+    if (s < 1e-12)
+        return;
+
+    const double xMin =  -t.dx() / s;
+    const double yMax =   t.dy() / s;
+    const double xMax =  xMin + (double)width()  / s;
+    const double yMin =  yMax - (double)height() / s;
+
+    if (xMin < xMax && yMin < yMax)
+        m_extent = MapExtent(xMin, yMin, xMax, yMax);
+}
+
+// ---------------------------------------------------------------------------
+// Smooth pan: translate overlay and update m_previewTransform for raster buffer
+// ---------------------------------------------------------------------------
+
+void MapCanvas::translateViewBy(int dx, int dy)
+{
+    // Smooth-pan path: translate m_extent in map coordinates so paintEvent's
+    // QGraphicsScene::render() picks up the new source rect on every mouse-move,
+    // not just at gesture end.
+    if (!m_extent.isValid() || width() <= 0 || height() <= 0)
+        return;
+
+    const double mapPerPxX = m_extent.width()  / static_cast<double>(width());
+    const double mapPerPxY = m_extent.height() / static_cast<double>(height());
+
+    // dx > 0 means cursor moved right → user is dragging the map right → the
+    // visible window shifts left in map-space → xMin/xMax decrease.
+    // dy > 0 means cursor moved down  → window shifts up in map-space → yMin/yMax increase.
+    const double mapDx = -dx * mapPerPxX;
+    const double mapDy =  dy * mapPerPxY;
+
+    m_extent = MapExtent(m_extent.xMin() + mapDx,
+                         m_extent.yMin() + mapDy,
+                         m_extent.xMax() + mapDx,
+                         m_extent.yMax() + mapDy);
+
+    // Keep the overlay view transform in sync so any code that still queries
+    // it (overviewMap, hit-testing) sees the live position.
+    applyExtentToOverlay();
+
+    // Emit live so the status-bar coordinates and scale update during the drag.
+    emit extentChanged(m_extent);
+    emit scaleChanged(scale());
+
+    update(); // repaint immediately for smooth gesture
+}
+
+// ---------------------------------------------------------------------------
+// Zoom around a viewport pixel position
+// ---------------------------------------------------------------------------
+
+void MapCanvas::zoomAroundCursor(double factor, const QPoint &viewportPos)
+{
+    if (qFuzzyIsNull(factor) || qFuzzyCompare(factor, 1.0))
+        return;
+
+    m_isZooming = true;
+
+    // Scene point currently under the cursor
+    const QPointF sceneFixed = m_overlayView->mapToScene(viewportPos);
+
+    const double oldS = m_overlayView->transform().m11();
+    const double newS = qBound(1e-9, oldS * factor, 1e6);
+
+    const double newDx = viewportPos.x() - sceneFixed.x() * newS;
+    const double newDy = viewportPos.y() - sceneFixed.y() * newS;
+
+    // Predict and pre-expand the scene rect
+    const double vpW = width();
+    const double vpH = height();
+    QRectF futureVisible((0.0 - newDx) / newS, (0.0 - newDy) / newS,
+                         vpW / newS, vpH / newS);
+    ensureOverlaySceneRectCovers(futureVisible);
+
+    m_overlayView->setTransform(QTransform(newS, 0.0, 0.0, newS, newDx, newDy));
+
+    update();
+
+    syncExtentFromView();
+    m_isZooming = false;
+
+    emit extentChanged(m_extent);
+    emit scaleChanged(scale());
+    refresh();
+}
+
+// ---------------------------------------------------------------------------
+// Scale bar + coordinate display (painted in widget coordinates)
+// ---------------------------------------------------------------------------
+
+void MapCanvas::renderScaleBar(QPainter &painter) const
+{
+    const int margin  = 10;
+    const int barY    = height() - margin - 6;
+    const int maxLen  = 100;
+
+    if (width() <= 0 || !m_extent.isValid() || m_extent.width() <= 0)
+        return;
+
+    double mapUnitsPerPixel = m_extent.width() / width();
+    double barMapUnits = maxLen * mapUnitsPerPixel;
+
+    double magnitude = std::pow(10.0, std::floor(std::log10(barMapUnits)));
+    double nice = barMapUnits / magnitude;
+    if (nice < 2.0) nice = 1.0;
+    else if (nice < 5.0) nice = 2.0;
+    else nice = 5.0;
+    barMapUnits = nice * magnitude;
+    int barPixels = static_cast<int>(barMapUnits / mapUnitsPerPixel);
+
+    painter.setPen(QPen(Qt::black, 2));
+    painter.drawLine(margin, barY, margin + barPixels, barY);
+    painter.drawLine(margin, barY - 4, margin, barY + 4);
+    painter.drawLine(margin + barPixels, barY - 4, margin + barPixels, barY + 4);
+
+    QString label = (barMapUnits >= 1000)
+                        ? QStringLiteral("%1 km").arg(barMapUnits / 1000.0, 0, 'g', 3)
+                        : QStringLiteral("%1 m").arg(barMapUnits, 0, 'g', 3);
+
+    painter.setFont(QFont(QStringLiteral("sans-serif"), 8));
+    painter.drawText(margin, barY - 6, label);
+}
+
+void MapCanvas::renderCoordinates(QPainter &painter, double mapX, double mapY) const
+{
+    QString text = QStringLiteral("X: %1  Y: %2")
+                       .arg(mapX, 0, 'f', 5)
+                       .arg(mapY, 0, 'f', 5);
+
+    painter.setFont(QFont(QStringLiteral("sans-serif"), 9));
+    QFontMetrics fm(painter.font());
+    int textW = fm.horizontalAdvance(text);
+    int textH = fm.height();
+    int x     = width()  - textW - 12;
+    int y     = height() - 8;
+
+    painter.fillRect(x - 3, y - textH, textW + 6, textH + 4,
+                     QColor(255, 255, 255, 180));
+    painter.setPen(Qt::black);
+    painter.drawText(x, y, text);
+}
+
+

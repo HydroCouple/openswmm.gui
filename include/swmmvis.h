@@ -1,23 +1,17 @@
 /*!
  * \file   swmmvis.h
- * \author Caleb Buahin <buahin.caleb@epa.gov>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2024
- * \pre
- * \bug
- * \warning
- * \todo
+ * \author Caleb Buahin <caleb.buahin@gmail.com>
+ * \date   2026
+ * \license MIT
  */
 #ifndef SWMMVIS_H
 #define SWMMVIS_H
 
 #include <QMainWindow>
 #include <QSettings>
+#include <functional>
 
-#include "swmmvislogmessage.h"
+#include "core/openswmmvislogmessage.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class SWMMVis; }
@@ -32,157 +26,118 @@ class QSlider;
 class QDateTimeEdit;
 class QProgressBar;
 class QStandardItemModel;
-class SWMMVisProject;
+class QMdiSubWindow;
+class QAction;
+class OpenSWMMVisWorkspace;
+class SpatialReferenceSystem;
+class MapCanvas;
+class SWMMVisProjectWindow;
+class LayerTreePanel;
+class ObjectBrowserPanel;
+class AttributePanel;
 
-/*!
- * \brief The SWMMVis class
- */ 
+/**
+ * @brief Main application window for the OpenSWMM GUI.
+ *
+ * Wraps MapCanvas, manages project workspace/session, map tools, and all
+ * top-level UI interactions (menus, toolbars, status bar, docks).
+ */
 class SWMMVis : public QMainWindow
 {
-
-
     Q_OBJECT
 
-    
 public:
-   /*!
-    * \brief SWMMVis constructor for the SWMMVis class
-    * \param parent QWidget pointer to the parent widget
-    */
-    SWMMVis(QWidget *parent = nullptr);
-
-    /*!
-     * \brief SWMMVis destructor for the SWMMVis class
-     */
+    explicit SWMMVis(QWidget *parent = nullptr);
     virtual ~SWMMVis();
 
- 
 public slots:
-	void onLogMessage(const QString &message, SWMMVisLogMessage::LogMessageType messageType = SWMMVisLogMessage::LogMessageType::Information);
+    void onLogMessage(const QString &message,
+                      OpenSWMMVisLogMessage::LogMessageType messageType
+                          = OpenSWMMVisLogMessage::LogMessageType::Information);
 
 private:
-  
-   /*!
-    * \brief initializeWelcomeScreen initializes the welcome screen
-    */
     void initializeWelcomeScreen();
-
-
-    /*! 
-	 * \brief initializeToolBars initializes the tool bars
-	 */
     void initializeToolBars();
-
-
-    /*!
-    * \brief initializeFileMenu initializes the file menu
-	*/
     void initializeAnimationToolBar();
-
-    /*!
-     * \brief initializeStatusBar initializes the status bar
-     */
+    void initializeMapTools();
     void initializeStatusBar();
-
-
-    /*!
-	 * \brief initializeDockWidgets initializes the dock widgets
-	 */
     void initializeDockWidgets();
-
-
-    /*!
-	 * \brief initializeLayersDockWidget initializes the layers dock widget
-	 */
     void initializeLayersDockWidget();
-
-
-	/*!
-     * \brief initializeMessageLogDockWidget initializes the message log dock widget
-	*/
-	void initializeMessageLogDockWidget();
-
-
-	/*!
-		 * \brief initializeMenus initializes the menus
-			 */
-	void initializeMenus();
-
-    /*!
-     * \brief initializeSettings initializes the settings
-     */ 
+    void initializeObjectBrowserDockWidget();
+    void initializeAttributePanelDockWidget();
+    void initializeMessageLogDockWidget();
+    void initializeMenus();
     void initializeSettings();
-
-
-    /*!
-	 * \brief loadSettings loads the settings
-	 */
     void saveSettings();
-
-
-    /*!
-     * \brief initializeRecentFilesMenu initializes the recent files menu
-     */
     void clearPreviousWelcomeScreenElements();
-
+    void initializeDefaultWorkspaceSession();
 
 private slots:
-    /*!
-     * \brief onOpenProject opens a project file
-     */
     void onNewProject();
-    
-    /*!
-     * \brief onSaveProject save a project to a file
-     */
+    void onOpenProject(const QString &path = QString());
+    void openSingleINP(const QString &filePath);
+    void openProjectFile(const QString &oswpPath);
+    void onOpenRecentFile();
+    void onSetLayerCRS();
     void onSaveProject();
-    
-    /*!
-     * \brief onRecentFilesSizeChanged handles the recent files size change
-     */
+    void onSaveProjectAs();
+    void onClearRecentFiles();
     void onRecentFilesSizeChanged();
-
-    /*!
-     * \brief onShowWelcomeScreen shows the welcome screen
-     */
     void onShowWelcomeScreen();
-    
-    /*!
-     * \brief onClose handles the close event
-     */
     void onClose();
-
-
-    /*!
-    * \brief onSetProgressBarBusy sets the progress bar to busy
-     */
     void onSetProgressBarBusy(bool busy);
+    void onAbout();
+    void onModelLoaded();
+    void onModelLoadError(const QString &msg);
+    void onFlowUnitsChanged(int comboIndex);
 
+    void onCursorPositionChanged(double mapX, double mapY);
+    void onCanvasSRSChanged(SpatialReferenceSystem *srs);
+    void onCRSButtonClicked();
 
+    void onAddWMSLayer();
+    void onAddWMTSLayer();
+    void onAddVectorLayer();
+    void onAddRasterLayer();
+    void onAddSWMMResultsLayer();
+    void onSimulationOptions();
+    void onRunSimulation();
+    void onPlotTimeSeries();
+    void onActiveSubWindowChanged(QMdiSubWindow *window);
 
-	/*!
-	* \brief onAbout handles the about event
-	*/
-	void onAbout();
-
-
+protected:
+    void closeEvent(QCloseEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     Ui::SWMMVis *ui;
     QStringList mRecentFiles;
-    bool mShowSplashScreenOnStartUp;
-    bool mShowWelcomeScreenOnStartUp;
+    bool mShowSplashScreenOnStartUp  = true;
+    bool mShowWelcomeScreenOnStartUp = true;
 
-    // Ui elements
-    QCheckBox *mCheckBoxLevelOffsetMode;
-    QToolButton *mToolButtonCoordinateReferenceSystem;
-    QLineEdit *mLineEditCoordinates;
-    QComboBox *mComboBoxMapScale;
-    QSlider *mSliderAnimationTime;
-    QProgressBar *mProgressBar;
-    QDateTimeEdit *mDateTimeEditAnimationTime;
-	QSettings mSettings;
-	QStandardItemModel *mLogMessagesModel;
-	SWMMVisProject *mProject;
+    // Status bar widgets
+    QCheckBox    *mCheckBoxLevelOffsetMode             = nullptr;
+    QToolButton  *mToolButtonCoordinateReferenceSystem = nullptr;
+    QLineEdit    *mLineEditCoordinates                 = nullptr;
+    QComboBox    *mComboBoxMapScale                    = nullptr;
+    QComboBox    *mComboBoxFlowUnits                   = nullptr;
+    QSlider      *mSliderAnimationTime                 = nullptr;
+    QProgressBar *mProgressBar                        = nullptr;
+    QDateTimeEdit *mDateTimeEditAnimationTime          = nullptr;
+
+    QSettings          mSettings;
+    QStandardItemModel *mLogMessagesModel  = nullptr;
+    LayerTreePanel    *mLayerTreePanel     = nullptr;
+    ObjectBrowserPanel *mObjectBrowserPanel = nullptr;
+    AttributePanel    *mAttributePanel     = nullptr;
+
+    OpenSWMMVisWorkspace *mProject              = nullptr;
+    SWMMVisProjectWindow *mActiveProjectWindow  = nullptr;  // last-bound project; survives transient focus loss
+    QToolButton          *mWelcomeCloseButton   = nullptr;  // floating top-right close button on the welcome page
+    std::function<void()> mWelcomeRepositionFn;             // captured layout helper
+
+    SWMMVisProjectWindow *activeProjectWindow() const;
+    MapCanvas            *activeCanvas()        const;
 };
+
 #endif // SWMMVIS_H

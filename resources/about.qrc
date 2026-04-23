@@ -1,0 +1,19 @@
+<RCC>
+    <qresource prefix="/about">
+        <file alias="components.json">about/components.json</file>
+    </qresource>
+    <qresource prefix="/licenses">
+        <file alias="openswmmcore.txt">licenses/openswmmcore.txt</file>
+        <file alias="triangle.txt">licenses/triangle.txt</file>
+        <file alias="qt6.txt">licenses/qt6.txt</file>
+        <file alias="qpropertymodel.txt">licenses/qpropertymodel.txt</file>
+        <file alias="gdal.txt">licenses/gdal.txt</file>
+        <file alias="proj.txt">licenses/proj.txt</file>
+        <file alias="geotiff.txt">licenses/geotiff.txt</file>
+        <file alias="sqlite.txt">licenses/sqlite.txt</file>
+        <file alias="expat.txt">licenses/expat.txt</file>
+        <file alias="libxml2.txt">licenses/libxml2.txt</file>
+        <file alias="sundials.txt">licenses/sundials.txt</file>
+        <file alias="openmp.txt">licenses/openmp.txt</file>
+    </qresource>
+</RCC>

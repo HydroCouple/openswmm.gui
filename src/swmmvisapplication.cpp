@@ -1,11 +1,11 @@
 /*!
  * \file   swmmapplication.cpp
- * \author Caleb Buahin <buahin.caleb@epa.gov>
+ * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \version
  * \description
  * \license
  * \copyright
- * \date 2024
+ * \date 2026
  * \pre
  * \bug
  * \warning
@@ -34,12 +34,12 @@
 SWMMVisCoreApplication::SWMMVisCoreApplication(int& argc, char* argv[])
     : QCoreApplication(argc, argv)
 {
-    setOrganizationName("usepa");
-    setOrganizationDomain("usepa.gov");
+    setOrganizationName("hydrocouple");
+    setOrganizationDomain("calebbuahin.github.io");
 
     QString version = QString("%1").arg(SWMM_VERSION);
     setApplicationVersion(version);
-    setApplicationName("USEPA Stormwater Management Model");
+    setApplicationName("OpenSWMM Stormwater Management Model");
 }
 
 /*!
@@ -61,12 +61,12 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     mSWMMVisGUI(new SWMMVis()),
     mSWMMVisSplashScreen(nullptr)
 {
-    setOrganizationName("usepa");
-    setOrganizationDomain("usepa.gov");
+    setOrganizationName("hydrocouple");
+    setOrganizationDomain("calebbuahin.github.io");
 
-    QString version = QString("%1").arg(SWMM_VERSION);    
+    QString version = QString("%1").arg(SWMM_VERSION);
     setApplicationVersion(version);
-    setApplicationName("USEPA Stormwater Management Model");
+    setApplicationName("OpenSWMM Stormwater Management Model");
     setApplicationDisplayName("SWMM");
 
 
