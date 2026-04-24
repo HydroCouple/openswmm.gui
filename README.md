@@ -1,7 +1,7 @@
 # OpenSWMM GUI
 
 <p align="center">
-  <img src="resources/images/screenshot_v2.png" alt="OpenSWMM GUI" width="640">
+  <img src="resources/images/screenshot1.png" alt="OpenSWMM GUI" width="1200"> 
 </p>
 
 **Qt6/C++ graphical user interface for the OpenSWMM storm-water simulation engine (v6.0.0)**

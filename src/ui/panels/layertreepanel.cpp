@@ -76,6 +76,7 @@ namespace {
 // CatFeatureLayers (their underlying geometry is vector).
 enum CategoryId {
     CatSwmm = 0,
+    CatSwmmOutputs,  // .out results — rendered as a child section of SWMM
     CatFeatureLayers,
     CatRasterLayers,
     CatBasemaps,
@@ -88,8 +89,8 @@ CategoryId categoryFor(OpenSWMMVisLayer::OpenSWMMVisLayerType t)
     using L = OpenSWMMVisLayer;
     switch (t)
     {
-    case L::SWMMModelLayer:
-    case L::SWMMResultsLayer:             return CatSwmm;
+    case L::SWMMModelLayer:               return CatSwmm;
+    case L::SWMMResultsLayer:             return CatSwmmOutputs;
 
     case L::SWMMVectorLayer:
     case L::SWMMGISLayer:
@@ -122,6 +123,7 @@ CategoryInfo categoryInfo(int id)
     switch (id)
     {
     case CatSwmm:           return {"SWMM",           ":/swmmvis/Layers"};
+    case CatSwmmOutputs:    return {"SWMM Outputs",   ":/swmmvis/Chart"};
     case CatFeatureLayers:  return {"Feature Layers", ":/swmmvis/AddVector"};
     case CatRasterLayers:   return {"Raster Layers",  ":/swmmvis/AddRaster"};
     case CatBasemaps:       return {"Basemaps",       ":/swmmvis/Globe"};

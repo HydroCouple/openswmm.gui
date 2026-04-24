@@ -34,16 +34,26 @@ struct SimulationJobRecord {
 
     SimulationJobStatus status      = SimulationJobStatus::Running;
     double  progress                = 0.0;  ///< [0.0, 1.0]
-    double  simTimeDays             = 0.0;  ///< current decimal-day value
 
-    double  runoffErrPct            = 0.0;  ///< populated after finish
-    double  routingErrPct           = 0.0;  ///< populated after finish
+    // Continuity errors: polled by the runner in the step loop and
+    // pushed live during the run, not just at finish.
+    double  runoffErrPct            = 0.0;
+    double  routingErrPct           = 0.0;
 
     int     errorCode               = 0;
     QString errorMessage;
 
+    // Wall-clock timestamps for the run's lifecycle.
     QDateTime startedAt;
     QDateTime finishedAt;
+
+    // Simulation timeline (engine-side dates). Start / end are set once
+    // from the runner; current is pushed every progress tick directly as
+    // a QDateTime (converted from the engine OADate on the worker
+    // thread), so the model stores what it receives verbatim.
+    QDateTime startSimDate;
+    QDateTime endSimDate;
+    QDateTime currentSimDate;
 
     QStringList warnings;           ///< "[code] message" entries
 };
@@ -73,11 +83,13 @@ public:
     static constexpr int ColName        = 0;
     static constexpr int ColStatus      = 1;
     static constexpr int ColProgress    = 2;
-    static constexpr int ColSimTime     = 3;
-    static constexpr int ColRunoffErr   = 4;
-    static constexpr int ColRoutingErr  = 5;
-    static constexpr int ColDuration    = 6;
-    static constexpr int NumColumns     = 7;
+    static constexpr int ColStartDate   = 3;
+    static constexpr int ColCurrentDate = 4;
+    static constexpr int ColEndDate     = 5;
+    static constexpr int ColRunoffErr   = 6;
+    static constexpr int ColRoutingErr  = 7;
+    static constexpr int ColDuration    = 8;
+    static constexpr int NumColumns     = 9;
 
     explicit SimulationStatusModel(QObject *parent = nullptr);
 
@@ -85,8 +97,20 @@ public:
     /** Add a new job row; returns the job id. */
     int  addJob(const QString &instanceName, const QString &inpPath);
 
-    /** Update progress for a running job. */
-    void updateProgress(int jobId, double fraction, double simTimeDays);
+    /**
+     * @brief Update progress for a running job.
+     * @param runoffErrFrac   Live continuity error fraction (0.001 = 0.1 %).
+     * @param routingErrFrac  Ditto for routing.
+     */
+    void updateProgress(int jobId, double fraction,
+                        const QDateTime &currentSimDate,
+                        double runoffErrFrac = 0.0,
+                        double routingErrFrac = 0.0);
+
+    /** Set the engine-side simulation start / end dates for a job. */
+    void setSimulationDates(int jobId,
+                            const QDateTime &startSimDate,
+                            const QDateTime &endSimDate);
 
     /** Append a warning child under the given job. */
     void addWarning(int jobId, int code, const QString &message);
