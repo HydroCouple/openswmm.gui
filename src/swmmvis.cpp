@@ -28,6 +28,12 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QProxyStyle>
+#include <QDateTimeEdit>
+#include <QStyle>
+#include <QStyleFactory>
+#include <QStyleOptionProgressBar>
+#include <QStyledItemDelegate>
 #include <QTabBar>
 
 #include "swmmvis.h"
@@ -150,52 +156,124 @@ MapCanvas *SWMMVis::activeCanvas() const
 namespace {
 
 /**
- * @brief QMdiSubWindow subclass for the Welcome tab.
- *
- * Behaves like any other MDI document: closing it truly destroys the
- * sub-window and its inner welcomeWidget. The ui->welcomeWidget pointer
- * is nulled in closeEvent so all subsequent guards are safe.
+ * @brief Proxy style that forces tab-close buttons to render on the
+ *        RIGHT side of the tab. macOS's native Qt style defaults to
+ *        LEFT (Safari convention); the SWMM GUI preference is RIGHT so
+ *        the close affordance matches the platform-neutral / Windows
+ *        feel the rest of the app uses.
  */
-class WelcomeSubWindow : public QMdiSubWindow
+class TabCloseRightStyle : public QProxyStyle
 {
 public:
-    explicit WelcomeSubWindow(Ui::SWMMVis *ui, QWidget *parent = nullptr)
-        : QMdiSubWindow(parent), mUi(ui)
+    explicit TabCloseRightStyle(QStyle *base) : QProxyStyle(base) {}
+    int styleHint(QStyle::StyleHint hint, const QStyleOption *opt,
+                  const QWidget *w, QStyleHintReturn *r) const override
     {
-        setWindowTitle(QObject::tr("Welcome"));
-        // Destroy sub-window (and its child welcomeWidget) when closed.
-        setAttribute(Qt::WA_DeleteOnClose);
-        // NOTE: do NOT call setWindowFlags here. In QMdiArea's TabbedView
-        // mode, re-flagging a QMdiSubWindow detaches it from the tab stack.
+        if (hint == QStyle::SH_TabBar_CloseButtonPosition)
+            return QTabBar::RightSide;
+        return QProxyStyle::styleHint(hint, opt, w, r);
     }
+};
 
-protected:
-    void closeEvent(QCloseEvent *event) override
-    {
-        // Null the tracked pointer before Qt destroys the child widget so
-        // any subsequent access to ui->welcomeWidget is safely guarded.
-        if (mUi)
-            mUi->welcomeWidget = nullptr;
-        QMdiSubWindow::closeEvent(event);
-    }
+/**
+ * @brief Item delegate that paints a QProgressBar in the Progress
+ *        column of the Simulation Status tree view. Reads the percent
+ *        value from Qt::UserRole (an integer 0–100 carried by the
+ *        model) and falls back to a blank cell if that role isn't set
+ *        (e.g. for the warning child rows).
+ */
+class ProgressBarDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
 
-    void changeEvent(QEvent *event) override
+    void paint(QPainter *painter, const QStyleOptionViewItem &option,
+               const QModelIndex &index) const override
     {
-        // Prevent minimising — restore immediately if the window state
-        // somehow becomes minimised (e.g. via keyboard shortcut or
-        // system-menu entry).
-        if (event->type() == QEvent::WindowStateChange
-                && (windowState() & Qt::WindowMinimized))
-        {
-            setWindowState(windowState() & ~Qt::WindowMinimized);
-            event->ignore();
+        // Paint the default cell background first (selection colour,
+        // alternating rows, grid lines) using the real index so the
+        // styling the view expects is applied.
+        QStyleOptionViewItem bgOpt = option;
+        bgOpt.text.clear();                       // don't draw any text
+        QStyledItemDelegate::paint(painter, bgOpt, index);
+
+        // Child (warning) rows don't carry a progress value; skip.
+        const QVariant pctVar = index.data(Qt::UserRole);
+        if (!pctVar.isValid() || !pctVar.canConvert<int>())
             return;
-        }
-        QMdiSubWindow::changeEvent(event);
+        const int pct = qBound(0, pctVar.toInt(), 100);
+
+        QStyleOptionProgressBar bar;
+        // Constrain to a horizontal band — on macOS the native QProgressBar
+        // minimum height can push the cell to render tall/square, which
+        // looked "vertical". Clamping to 14 px tall keeps the bar horizontal
+        // and sits comfortably inside a normal tree-view row.
+        QRect r = option.rect.adjusted(4, 0, -4, 0);
+        const int barH = qMin(r.height() - 4, 14);
+        const int yOff = (r.height() - barH) / 2;
+        bar.rect          = QRect(r.left(), r.top() + yOff, r.width(), barH);
+        bar.minimum       = 0;
+        bar.maximum       = 100;
+        bar.progress      = pct;
+        bar.text          = QStringLiteral("%1%").arg(pct);
+        bar.textVisible   = true;
+        bar.textAlignment = Qt::AlignCenter;
+        bar.palette       = option.palette;
+        bar.direction     = option.direction;
+        bar.fontMetrics   = option.fontMetrics;
+        // State_Horizontal tells the style to orient the chunk horizontally
+        // (some platform styles otherwise default to vertical for tall rects).
+        bar.state         = QStyle::State_Enabled | QStyle::State_Active
+                          | QStyle::State_Horizontal;
+
+        // Use the Fusion style to paint — its progress-chunk is the standard
+        // blue used by the bottom status-bar QProgressBar, and it renders
+        // the same way on every platform (macOS native would otherwise draw
+        // an aqua/teal gradient that doesn't match).
+        static QStyle *fusion = QStyleFactory::create(QStringLiteral("Fusion"));
+        QStyle *style = fusion ? fusion : QApplication::style();
+        style->drawControl(QStyle::CE_ProgressBar, &bar, painter);
+    }
+};
+
+/**
+ * @brief Item delegate that renders Sim Start / Sim Current / Sim End date
+ *        columns as a read-only QDateTimeEdit (persistent editor). The
+ *        model carries raw QDateTime in DisplayRole; this delegate pushes
+ *        it into the widget and keeps the widget visible across the row's
+ *        lifetime so the user sees an actual datetime control, not a flat
+ *        locale string.
+ */
+class DateTimeEditDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    QWidget *createEditor(QWidget *parent,
+                          const QStyleOptionViewItem & /*opt*/,
+                          const QModelIndex & /*idx*/) const override
+    {
+        auto *w = new QDateTimeEdit(parent);
+        w->setReadOnly(true);
+        w->setButtonSymbols(QAbstractSpinBox::NoButtons);
+        w->setFrame(false);
+        w->setCalendarPopup(false);
+        w->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+        w->setFocusPolicy(Qt::NoFocus);
+        w->setAlignment(Qt::AlignCenter);
+        w->setAttribute(Qt::WA_TransparentForMouseEvents);
+        return w;
     }
 
-private:
-    Ui::SWMMVis *mUi;
+    void setEditorData(QWidget *editor, const QModelIndex &idx) const override
+    {
+        auto *w = qobject_cast<QDateTimeEdit *>(editor);
+        if (!w) return;
+        const QVariant v = idx.data(Qt::DisplayRole);
+        if (v.canConvert<QDateTime>() && v.toDateTime().isValid())
+            w->setDateTime(v.toDateTime());
+    }
+    // No setModelData — readonly.
 };
 
 } // anonymous namespace
@@ -204,27 +282,41 @@ void SWMMVis::initializeWelcomeScreen()
 {
     clearPreviousWelcomeScreenElements();
 
-    // setupUi() wraps welcomeWidget in a plain QMdiSubWindow. Replace
-    // that with our WelcomeSubWindow subclass, whose overridden
-    // closeEvent() is the single reliable hook for tear-down regardless
-    // of how the close was triggered (tab-X, programmatic close,
-    // platform-specific tab-bar signal). Reparent welcomeWidget out of
-    // the auto-created sub-window first so removeSubWindow doesn't take
-    // our inner widget with it.
-    if (QMdiSubWindow *orig = welcomeSubWindow())
+    // Force the MDI's internal tab bar to render close-X on the RIGHT
+    // (macOS defaults to LEFT via the native style hint). Apply before
+    // tabs are populated so every tab picks up the new position.
+    if (auto *tabBar = ui->mdiAreaCentral->findChild<QTabBar *>())
     {
-        // Already present — bring it to front and re-use it.
-        orig->show();
-        ui->mdiAreaCentral->setActiveSubWindow(orig);
-        return;
+        tabBar->setStyle(new TabCloseRightStyle(tabBar->style()));
     }
 
-    if (ui->welcomeWidget)
+    // Use the setupUi-created QMdiSubWindow as-is. Installing an event
+    // filter is enough to intercept the tab-X close — we do NOT replace
+    // the sub-window (replacing it involves removeSubWindow +
+    // addSubWindow, and the intermediate null-parent state is what was
+    // causing the welcome to flash as an undocked top-level widget
+    // inside the MDI area).
+    if (QMdiSubWindow *sub = welcomeSubWindow())
     {
-        auto *sub = new WelcomeSubWindow(ui);
+        // Destroy this wrapper on close; the event filter detaches the
+        // inner welcomeWidget first so it survives for later reopen.
+        sub->setAttribute(Qt::WA_DeleteOnClose, true);
+        sub->installEventFilter(this);
+        sub->setWindowTitle(tr("Welcome"));
+    }
+    else if (ui->welcomeWidget)
+    {
+        // Welcome was previously closed — fresh tab needed. setWidget
+        // before addSubWindow so the inner widget enters the MDI area
+        // already parented under the sub (never through nullptr, which
+        // would undock it into a top-level window).
+        auto *sub = new QMdiSubWindow();
+        sub->setWindowTitle(tr("Welcome"));
+        sub->setAttribute(Qt::WA_DeleteOnClose, true);
         sub->setWidget(ui->welcomeWidget);
         ui->mdiAreaCentral->addSubWindow(sub);
-        sub->show();
+        sub->installEventFilter(this);
+        ui->mdiAreaCentral->setActiveSubWindow(sub);
     }
 
     // Wire welcome buttons
@@ -255,9 +347,9 @@ void SWMMVis::initializeWelcomeScreen()
         layout->setSpacing(2);
         struct Link { const char *text; const char *url; };
         const Link links[] = {
-            { "User Manual",          "https://www.openswmm.org/gui/manual/" },
-            { "Engine API Reference", "https://www.openswmm.org/api/" },
-            { "Report an Issue",      "https://github.com/openswmm/openswmm/issues" },
+            { "User Manual",          "https://www.hydrocouple.org/openswmm.engine/d3/dae/manuals.html" },
+            { "Engine API Reference", "https://www.hydrocouple.org/openswmm.engine" },
+            { "Report an Issue",      "https://github.com/HydroCouple/openswmm.engine/issues" },
         };
         for (const auto &lk : links) {
             auto *btn = new QCommandLinkButton(tr(lk.text), frame);
@@ -619,14 +711,43 @@ void SWMMVis::initializeSimulationStatusDockWidget()
     view->header()->setStretchLastSection(false);
 
     // Give Name and Status sensible widths; let Duration stretch.
-    view->setColumnWidth(SimulationStatusModel::ColName,       200);
-    view->setColumnWidth(SimulationStatusModel::ColStatus,      80);
-    view->setColumnWidth(SimulationStatusModel::ColProgress,    70);
-    view->setColumnWidth(SimulationStatusModel::ColSimTime,     80);
-    view->setColumnWidth(SimulationStatusModel::ColRunoffErr,   90);
-    view->setColumnWidth(SimulationStatusModel::ColRoutingErr,  90);
+    view->setColumnWidth(SimulationStatusModel::ColName,        200);
+    view->setColumnWidth(SimulationStatusModel::ColStatus,       80);
+    view->setColumnWidth(SimulationStatusModel::ColProgress,    120);
+    view->setColumnWidth(SimulationStatusModel::ColStartDate,   140);
+    view->setColumnWidth(SimulationStatusModel::ColCurrentDate, 140);
+    view->setColumnWidth(SimulationStatusModel::ColEndDate,     140);
+    view->setColumnWidth(SimulationStatusModel::ColRunoffErr,    90);
+    view->setColumnWidth(SimulationStatusModel::ColRoutingErr,   90);
     view->header()->setSectionResizeMode(SimulationStatusModel::ColDuration,
                                          QHeaderView::Stretch);
+
+    // Embed a progress bar in the Progress column via a delegate that
+    // paints QStyle::CE_ProgressBar keyed off the model's UserRole int.
+    view->setItemDelegateForColumn(SimulationStatusModel::ColProgress,
+                                   new ProgressBarDelegate(view));
+
+    // Render Sim Start / Sim Current / Sim End as read-only QDateTimeEdit
+    // widgets. Uses persistent editors so the widget stays visible the
+    // whole time the row exists; dataChanged emissions from the model
+    // automatically re-call setEditorData.
+    auto *dtDelegate = new DateTimeEditDelegate(view);
+    view->setItemDelegateForColumn(SimulationStatusModel::ColStartDate,   dtDelegate);
+    view->setItemDelegateForColumn(SimulationStatusModel::ColCurrentDate, dtDelegate);
+    view->setItemDelegateForColumn(SimulationStatusModel::ColEndDate,     dtDelegate);
+
+    connect(mSimStatusModel, &QAbstractItemModel::rowsInserted, view,
+            [view, this](const QModelIndex &parent, int first, int last) {
+                if (parent.isValid()) return;              // job rows only
+                for (int r = first; r <= last; ++r) {
+                    view->openPersistentEditor(
+                        mSimStatusModel->index(r, SimulationStatusModel::ColStartDate));
+                    view->openPersistentEditor(
+                        mSimStatusModel->index(r, SimulationStatusModel::ColCurrentDate));
+                    view->openPersistentEditor(
+                        mSimStatusModel->index(r, SimulationStatusModel::ColEndDate));
+                }
+            });
 }
 
 void SWMMVis::initializeMessageLogDockWidget()
@@ -654,6 +775,33 @@ void SWMMVis::initializeMenus()
     connect(ui->actionAddRasterData, &QAction::triggered, this, &SWMMVis::onAddRasterLayer);
     connect(ui->actionAddSWMMOutput, &QAction::triggered, this, &SWMMVis::onAddSWMMResultsLayer);
     connect(ui->actionExecute,       &QAction::triggered, this, &SWMMVis::onRunSimulation);
+
+    // Pause: toggle the paused flag on every active runner. The pause
+    // action itself is a checkable toggle in the toolbar — its state
+    // follows the paused flag.
+    ui->actionPauseExecution->setCheckable(true);
+    connect(ui->actionPauseExecution, &QAction::toggled, this, [this](bool paused) {
+        for (SimulationRunner *runner : std::as_const(mActiveRunners))
+            runner->setPaused(paused);
+        onLogMessage(paused
+            ? tr("Simulation paused — toggle again to resume.")
+            : tr("Simulation resumed."));
+    });
+
+    // Cancel: request an early stop. The runner still flushes the .out
+    // and .rpt via swmm_engine_end / _report / _close, so partial
+    // results are preserved. Finished-handler auto-loads them.
+    connect(ui->actionCancelExecution, &QAction::triggered, this, [this]() {
+        if (mActiveRunners.isEmpty()) {
+            onLogMessage(tr("Cancel: no simulation is running."),
+                         OpenSWMMVisLogMessage::LogMessageType::Information);
+            return;
+        }
+        for (SimulationRunner *runner : std::as_const(mActiveRunners))
+            runner->cancel();
+        onLogMessage(tr("Simulation cancel requested; partial results will "
+                        "be saved to the .out file."));
+    });
     connect(ui->actionOptions,       &QAction::triggered, this, &SWMMVis::onSimulationOptions);
 
     // Tools → Simulation Options… / Set Project CRS… (added programmatically
@@ -814,6 +962,24 @@ void SWMMVis::closeEvent(QCloseEvent *event)
 
 bool SWMMVis::eventFilter(QObject *watched, QEvent *event)
 {
+    // Welcome tab close: intercept the sub-window's Close event so we
+    // can detach the inner welcomeWidget before WA_DeleteOnClose
+    // destroys the sub-window shell. Reparent welcomeWidget to the
+    // main window (hidden) so Help → Show Welcome Screen can re-wrap it
+    // later.
+    if (event->type() == QEvent::Close)
+    {
+        if (auto *sub = qobject_cast<QMdiSubWindow *>(watched);
+            sub && ui && ui->welcomeWidget && sub->widget() == ui->welcomeWidget)
+        {
+            QWidget *w = ui->welcomeWidget;
+            sub->setWidget(nullptr);
+            w->setParent(this);
+            w->hide();
+            // Fall through — let the Close proceed; WA_DeleteOnClose on
+            // the sub-window destroys the now-empty wrapper.
+        }
+    }
     return QMainWindow::eventFilter(watched, event);
 }
 
@@ -907,14 +1073,30 @@ void SWMMVis::onClearRecentFiles()
 
 void SWMMVis::onShowWelcomeScreen()
 {
-    // If the welcome screen has been closed and its resources freed,
-    // there is nothing to show (it is gone like any other closed document).
-    if (!ui->welcomeWidget || !ui->mdiAreaCentral) return;
+    if (!ui->mdiAreaCentral) return;
 
-    QMdiSubWindow *sub = welcomeSubWindow();
-    if (sub)
+    // Already docked? Bring it to the front.
+    if (QMdiSubWindow *sub = welcomeSubWindow())
     {
-        sub->show();
+        ui->mdiAreaCentral->setActiveSubWindow(sub);
+        return;
+    }
+
+    // Welcome was closed previously (the event filter detached
+    // welcomeWidget and reparented it to the main window). Regenerate
+    // by wrapping it in a fresh plain QMdiSubWindow. Order matters:
+    // setWidget BEFORE addSubWindow so the inner widget enters the MDI
+    // area already parented under the sub (never through nullptr, which
+    // would undock it into a top-level window).
+    if (ui->welcomeWidget)
+    {
+        auto *sub = new QMdiSubWindow();
+        sub->setWindowTitle(tr("Welcome"));
+        sub->setAttribute(Qt::WA_DeleteOnClose, true);
+        sub->setWidget(ui->welcomeWidget);
+        ui->welcomeWidget->show();
+        ui->mdiAreaCentral->addSubWindow(sub);
+        sub->installEventFilter(this);
         ui->mdiAreaCentral->setActiveSubWindow(sub);
     }
 }
@@ -1370,9 +1552,40 @@ void SWMMVis::onRecentFilesSizeChanged()
 
 void SWMMVis::onSetProgressBarBusy(bool busy)
 {
+    // Indeterminate "busy" spinner — reserved for operations with no
+    // measurable progress (e.g. loading a large .inp). Simulation runs
+    // use updateSimulationProgressBar() which shows real percentage.
     mProgressBar->setRange(0, 0);
     mProgressBar->setValue(0);
     mProgressBar->setVisible(busy);
+}
+
+void SWMMVis::updateSimulationProgressBar()
+{
+    // No sims running → hide the bar.
+    if (mRunningSimProgress.isEmpty())
+    {
+        mProgressBar->setVisible(false);
+        mProgressBar->setRange(0, 0);
+        return;
+    }
+
+    // Track the SLOWEST simulation so the bar reflects the overall
+    // "will-all-sims-finish" estimate rather than racing ahead on the
+    // fastest one.
+    double minFrac = 1.0;
+    for (double frac : std::as_const(mRunningSimProgress))
+        minFrac = std::min(minFrac, frac);
+
+    mProgressBar->setRange(0, 100);
+    mProgressBar->setValue(qBound(0, int(minFrac * 100.0 + 0.5), 100));
+    mProgressBar->setToolTip(
+        mRunningSimProgress.size() == 1
+            ? tr("Simulation: %1%").arg(int(minFrac * 100.0 + 0.5))
+            : tr("%1 simulations running — slowest at %2%")
+                  .arg(mRunningSimProgress.size())
+                  .arg(int(minFrac * 100.0 + 0.5)));
+    mProgressBar->setVisible(true);
 }
 
 void SWMMVis::onAbout()
@@ -1445,13 +1658,33 @@ void SWMMVis::onRunSimulation()
     ui->dockWidgetSimulationStatus->raise();
 
     onLogMessage(tr("Running simulation: %1").arg(instanceName));
-    onSetProgressBarBusy(true);
+
+    // Seed this sim's entry in the running-progress map at 0 so the
+    // bottom bar starts showing 0% immediately (rather than busy
+    // indeterminate). Progress ticks update the entry; finished()
+    // removes it.
+    mRunningSimProgress[jobId] = 0.0;
+    updateSimulationProgressBar();
 
     // Create runner; wire signals → model; runner deletes itself after finish.
     auto *runner = new SimulationRunner(jobId, instanceName, inpPath, rptPath, outPath, this);
+    mActiveRunners.insert(jobId, runner);
 
     connect(runner, &SimulationRunner::progressChanged,
             mSimStatusModel, &SimulationStatusModel::updateProgress);
+
+    // Also feed the bottom status-bar progress bar (show min across
+    // running sims as a real percent, not busy spinner).
+    connect(runner, &SimulationRunner::progressChanged, this,
+            [this](int runnerJobId, double frac,
+                   const QDateTime & /*curSimDate*/,
+                   double /*runoffErr*/, double /*routingErr*/) {
+                mRunningSimProgress[runnerJobId] = frac;
+                updateSimulationProgressBar();
+            });
+
+    connect(runner, &SimulationRunner::simulationDatesKnown,
+            mSimStatusModel, &SimulationStatusModel::setSimulationDates);
 
     connect(runner, &SimulationRunner::warningReceived,
             mSimStatusModel, &SimulationStatusModel::addWarning);
@@ -1467,9 +1700,33 @@ void SWMMVis::onRunSimulation()
                 if (!self) return;
                 self->mSimStatusModel->finishJob(finishedJobId, success, errCode,
                                                  errMsg, runoffFrac, routingFrac);
-                self->onSetProgressBarBusy(false);
+                // Drop this job from the running-progress + runner maps;
+                // the bottom progress bar hides automatically when the
+                // last sim finishes.
+                self->mRunningSimProgress.remove(finishedJobId);
+                self->mActiveRunners.remove(finishedJobId);
+                self->updateSimulationProgressBar();
+                // Always drop the pause-toggle back to unchecked when the
+                // last runner finishes — otherwise the next Run will
+                // launch with pause pre-engaged.
+                if (self->mActiveRunners.isEmpty()
+                    && self->ui->actionPauseExecution->isChecked())
+                {
+                    QSignalBlocker b(self->ui->actionPauseExecution);
+                    self->ui->actionPauseExecution->setChecked(false);
+                }
 
-                if (!success) {
+                // Success path OR cancelled path — both preserve the .out
+                // on disk (engine_end + engine_report run regardless). Log
+                // different text and auto-load the partial results so the
+                // user can still inspect whatever was written.
+                const bool cancelled = !success && errCode == 0;
+                if (cancelled) {
+                    self->onLogMessage(
+                        tr("Simulation cancelled. Partial results: %1")
+                            .arg(outPathCopy),
+                        OpenSWMMVisLogMessage::Warning);
+                } else if (!success) {
                     self->onLogMessage(
                         tr("Simulation failed (code %1): %2 — %3")
                             .arg(errCode).arg(instanceName).arg(errMsg),
@@ -1477,14 +1734,22 @@ void SWMMVis::onRunSimulation()
                 } else {
                     self->onLogMessage(
                         tr("Simulation finished. Results: %1").arg(outPathCopy));
-                    // Auto-load the .out as a SWMMResultsLayer attached to this
-                    // project's canvas so subsequent plot/inspect actions find it.
-                    if (pwGuard && pwGuard->canvas() && pwGuard->modelLayer()) {
-                        auto *rl = new SWMMResultsLayer(outPathCopy,
-                                                        pwGuard->modelLayer());
-                        pwGuard->canvas()->addLayer(rl, true);
-                    }
                 }
+
+                // Auto-load the .out as a SWMMResultsLayer regardless of
+                // cancel/success — the engine flushed partial output
+                // either way, and the user explicitly asked for Cancel to
+                // save results. Only skip on engine-error with no output.
+                const bool hasResults = (success || cancelled)
+                    && QFileInfo(outPathCopy).exists()
+                    && QFileInfo(outPathCopy).size() > 0;
+                if (hasResults && pwGuard && pwGuard->canvas() && pwGuard->modelLayer()) {
+                    auto *rl = new SWMMResultsLayer(outPathCopy,
+                                                    pwGuard->modelLayer());
+                    rl->setName(QFileInfo(outPathCopy).fileName());
+                    pwGuard->canvas()->addLayer(rl, true);
+                }
+
                 runner->deleteLater();
             });
 
@@ -1719,6 +1984,7 @@ void SWMMVis::onAddSWMMResultsLayer()
     if (path.isEmpty()) return;
 
     auto *layer = new SWMMResultsLayer(path, pw->modelLayer());
+    layer->setName(QFileInfo(path).fileName());
     pw->canvas()->addLayer(layer, true);
     onLogMessage(tr("Added results layer: %1").arg(QFileInfo(path).fileName()));
 }

@@ -7,6 +7,7 @@
 #ifndef SWMMVIS_H
 #define SWMMVIS_H
 
+#include <QHash>
 #include <QMainWindow>
 #include <QSettings>
 #include <functional>
@@ -152,6 +153,20 @@ private:
     ObjectBrowserPanel *mObjectBrowserPanel  = nullptr;
     AttributePanel     *mAttributePanel      = nullptr;
     SimulationStatusModel *mSimStatusModel   = nullptr;
+
+    // Live simulation-progress tracker for the status-bar bottom bar.
+    // Keyed by SimulationRunner jobId, value is the latest 0.0–1.0
+    // fraction reported by the engine progress callback. The bar shows
+    // min-across-running-jobs as a real percent (never busy).
+    QHash<int, double> mRunningSimProgress;
+
+    // Keyed map of active simulation runners by jobId so the Pause /
+    // Cancel toolbar actions can reach any running runner. Entries are
+    // removed on SimulationRunner::finished.
+    QHash<int, class SimulationRunner *> mActiveRunners;
+
+    /** Recompute the status-bar progress bar from mRunningSimProgress. */
+    void updateSimulationProgressBar();
 
     // Phase 2 editing actions — declared for future programmatic wiring
     QAction           *mActionAddJunction  = nullptr;

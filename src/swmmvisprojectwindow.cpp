@@ -410,13 +410,12 @@ void SWMMVisProjectWindow::closeEvent(QCloseEvent *event)
 
 void SWMMVisProjectWindow::changeEvent(QEvent *event)
 {
-    if (event->type() == QEvent::WindowStateChange
-            && (windowState() & Qt::WindowMinimized))
-    {
-        setWindowState(windowState() & ~Qt::WindowMinimized);
-        event->ignore();
-        return;
-    }
+    // NOTE: deliberately a pass-through. QMdiArea's TabbedView uses
+    // Qt::WindowMinimized internally to hide inactive sub-windows —
+    // blocking the minimize state causes every tab's content to stack on
+    // top of the active one. There is no user-visible minimize affordance
+    // in TabbedView anyway (tabs don't expose one), so denying minimize
+    // is unnecessary.
     QMdiSubWindow::changeEvent(event);
 }
 

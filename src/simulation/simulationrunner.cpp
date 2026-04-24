@@ -8,11 +8,36 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_massbalance.h>
+#include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_callbacks.h>
 
+#include <QDate>
+#include <QDateTime>
+#include <QElapsedTimer>
 #include <QMetaObject>
+#include <QThread>
+#include <QTime>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFutureWatcher>
+
+#include <cmath>
+
+namespace {
+
+/**
+ * @brief Convert a SWMM engine time (OADate: decimal days since
+ *        1899-12-30 00:00:00 local) to a QDateTime. Returns an invalid
+ *        QDateTime for non-finite or clearly-bogus values (≤ epoch).
+ */
+QDateTime oaDateToQDateTime(double oaDate)
+{
+    if (!(oaDate > 0.0) || !std::isfinite(oaDate)) return QDateTime();
+    static const QDateTime kSwmmEpoch(QDate(1899, 12, 30),
+                                      QTime(0, 0), Qt::LocalTime);
+    return kSwmmEpoch.addMSecs(static_cast<qint64>(oaDate * 86400.0 * 1000.0));
+}
+
+} // anonymous namespace
 
 // ---------------------------------------------------------------------------
 // Internal result type returned from the worker lambda
@@ -98,9 +123,11 @@ void SimulationRunner::start()
                 return {false, rc, msg, 0.0, 0.0};
             }
 
-            // Register callbacks (fire on this worker thread)
-            swmm_set_progress_callback(eng, &SimulationRunner::progressCallback, rawSelf);
-            swmm_set_warning_callback (eng, &SimulationRunner::warningCallback,  rawSelf);
+            // Register the warning callback only. The engine's
+            // emit_progress() is invoked once (during initialize) and not
+            // from the step loop, so a registered progress callback never
+            // fires during the run — progress is polled inline below.
+            swmm_set_warning_callback(eng, &SimulationRunner::warningCallback, rawSelf);
 
             // Start
             rc = swmm_engine_start(eng, 1 /* save_results */);
@@ -111,12 +138,101 @@ void SimulationRunner::start()
                 return {false, rc, msg, 0.0, 0.0};
             }
 
-            // Step loop
+            // Step loop — polls m_cancel and m_paused on every iteration.
+            // Pause parks in a short sleep rather than busy-waiting; the
+            // step loop resumes as soon as setPaused(false) clears the
+            // flag. Cancel breaks out so the engine still runs its
+            // end/report/close flush below.
+            //
+            // Progress reporting is done HERE by polling the engine after
+            // each step rather than via the C progress callback. The engine's
+            // emit_progress() is only invoked once at initialize time, so the
+            // registered callback never fires during the run. Polling a
+            // handful of cheap getters per step and posting the result back
+            // via queued invokeMethod is both simpler and more reliable, and
+            // the rate limit keeps the GUI event queue from flooding.
+            // Engine time unit quirk:
+            //   swmm_get_start_time / swmm_get_end_time  → OADate (days since 1899-12-30)
+            //   swmm_get_current_time                     → SECONDS since sim start
+            // So the simulation window needs the OADate helper but the
+            // per-tick "current" is seconds → added to the start QDateTime.
+            double startOA = 0.0, endOA = 0.0;
+            swmm_get_start_time(eng, &startOA);
+            swmm_get_end_time  (eng, &endOA);
+            const QDateTime simStart     = oaDateToQDateTime(startOA);
+            const QDateTime simEnd       = oaDateToQDateTime(endOA);
+            const double    simSpanDays  = endOA - startOA;
+            qDebug() << "[sim-dates] startOA=" << startOA
+                     << " endOA=" << endOA
+                     << " span(days)=" << simSpanDays
+                     << " →" << simStart << simEnd;
+
+            if (simStart.isValid() && simEnd.isValid()) {
+                const int jobId = rawSelf->m_jobId;
+                QMetaObject::invokeMethod(rawSelf,
+                    [rawSelf, jobId, simStart, simEnd]() {
+                        emit rawSelf->simulationDatesKnown(
+                            jobId, simStart, simEnd);
+                    },
+                    Qt::QueuedConnection);
+            }
+
+            // One-shot initial tick at 0 % so the row populates before the
+            // first engine step (which on large models can take seconds).
+            {
+                const int jobId = rawSelf->m_jobId;
+                const QDateTime initial = simStart;
+                QMetaObject::invokeMethod(rawSelf,
+                    [rawSelf, jobId, initial]() {
+                        emit rawSelf->progressChanged(jobId, 0.0, initial, 0.0, 0.0);
+                    },
+                    Qt::QueuedConnection);
+            }
+
             double elapsed = 0.0;
+            QElapsedTimer tickTimer;
+            tickTimer.start();
+            // Rate-limit GUI emissions to 1 Hz. Small models can step
+            // thousands of times per second; emitting every step would
+            // starve the GUI event loop.
+            constexpr qint64 kTickIntervalMs = 1000;
+            qint64 lastTickMs = -kTickIntervalMs; // fire immediately on first step
             while (!rawSelf->m_cancel.load()) {
+                if (rawSelf->m_paused.load()) {
+                    QThread::msleep(50);
+                    continue;
+                }
                 rc = swmm_engine_step(eng, &elapsed);
                 if (rc != SWMM_OK || elapsed <= 0.0)
                     break;
+
+                const qint64 nowMs = tickTimer.elapsed();
+                if (nowMs - lastTickMs < kTickIntervalMs)
+                    continue;
+                lastTickMs = nowMs;
+
+                double curTSec = 0.0;
+                swmm_get_current_time(eng, &curTSec);  // seconds since sim start
+                double frac = 0.0;
+                if (simSpanDays > 0.0) {
+                    frac = (curTSec / 86400.0) / simSpanDays;
+                    if (frac < 0.0) frac = 0.0;
+                    if (frac > 1.0) frac = 1.0;
+                }
+                double runoffErr = 0.0, routingErr = 0.0;
+                swmm_get_runoff_continuity_error (eng, &runoffErr);
+                swmm_get_routing_continuity_error(eng, &routingErr);
+
+                const int jobId = rawSelf->m_jobId;
+                const QDateTime curQDT = simStart.isValid()
+                    ? simStart.addMSecs(static_cast<qint64>(curTSec * 1000.0))
+                    : QDateTime();
+                QMetaObject::invokeMethod(rawSelf,
+                    [rawSelf, jobId, frac, curQDT, runoffErr, routingErr]() {
+                        emit rawSelf->progressChanged(jobId, frac, curQDT,
+                                                      runoffErr, routingErr);
+                    },
+                    Qt::QueuedConnection);
             }
 
             // End
@@ -152,23 +268,18 @@ void SimulationRunner::start()
 void SimulationRunner::cancel()
 {
     m_cancel.store(true);
+    // Ensure a paused loop wakes up to see the cancel flag.
+    m_paused.store(false);
+}
+
+void SimulationRunner::setPaused(bool paused)
+{
+    m_paused.store(paused);
 }
 
 // ---------------------------------------------------------------------------
 // Static C callbacks (worker thread → GUI thread via queued invoke)
 // ---------------------------------------------------------------------------
-
-void SimulationRunner::progressCallback(void* /*engine*/, double frac,
-                                         double simTime, void *ud)
-{
-    auto *runner = static_cast<SimulationRunner *>(ud);
-    const int jobId = runner->m_jobId;
-    QMetaObject::invokeMethod(runner,
-        [runner, jobId, frac, simTime]() {
-            emit runner->progressChanged(jobId, frac, simTime);
-        },
-        Qt::QueuedConnection);
-}
 
 void SimulationRunner::warningCallback(void* /*engine*/, int code,
                                         const char *msg, void *ud)

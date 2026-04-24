@@ -41,18 +41,48 @@ int SimulationStatusModel::addJob(const QString &instanceName, const QString &in
     return id;
 }
 
-void SimulationStatusModel::updateProgress(int jobId, double fraction, double simTimeDays)
+void SimulationStatusModel::updateProgress(int jobId, double fraction,
+                                           const QDateTime &currentSimDate,
+                                           double runoffErrFrac, double routingErrFrac)
 {
     const int row = jobIndexById(jobId);
     if (row < 0) return;
 
     auto &rec         = m_jobs[row];
     rec.progress      = fraction;
-    rec.simTimeDays   = simTimeDays;
+    rec.runoffErrPct  = runoffErrFrac  * 100.0;
+    rec.routingErrPct = routingErrFrac * 100.0;
+    // Store the runner-provided current date verbatim. The worker thread
+    // converts the engine OADate to QDateTime via the canonical epoch, so
+    // the model shouldn't try to derive it from start + offset (that
+    // path can drift at DST boundaries and compound rounding).
+    if (currentSimDate.isValid())
+        rec.currentSimDate = currentSimDate;
 
-    const QModelIndex tl = createIndex(row, ColProgress, kRootId);
-    const QModelIndex br = createIndex(row, ColSimTime,  kRootId);
-    emit dataChanged(tl, br, {Qt::DisplayRole});
+    // Refresh the whole row — progress bar, current-date, continuity
+    // columns all update on every tick.
+    const QModelIndex tl = createIndex(row, 0,              kRootId);
+    const QModelIndex br = createIndex(row, NumColumns - 1, kRootId);
+    emit dataChanged(tl, br, {Qt::DisplayRole, Qt::EditRole, Qt::UserRole});
+}
+
+void SimulationStatusModel::setSimulationDates(int jobId,
+                                               const QDateTime &startSimDate,
+                                               const QDateTime &endSimDate)
+{
+    const int row = jobIndexById(jobId);
+    if (row < 0) return;
+
+    auto &rec        = m_jobs[row];
+    rec.startSimDate = startSimDate;
+    rec.endSimDate   = endSimDate;
+    // Initial current = start until the first progress tick arrives.
+    if (!rec.currentSimDate.isValid())
+        rec.currentSimDate = startSimDate;
+
+    const QModelIndex tl = createIndex(row, ColStartDate,   kRootId);
+    const QModelIndex br = createIndex(row, ColEndDate,     kRootId);
+    emit dataChanged(tl, br, {Qt::DisplayRole, Qt::EditRole, Qt::UserRole});
 }
 
 void SimulationStatusModel::addWarning(int jobId, int code, const QString &message)
@@ -168,6 +198,16 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
     if (index.row() < 0 || index.row() >= m_jobs.size()) return {};
     const auto &rec = m_jobs[index.row()];
 
+    // UserRole carries raw values — used by the progress-bar delegate to
+    // paint the bar with a numeric percent rather than parsing DisplayRole
+    // text. Columns without a raw role return the invalid variant.
+    if (role == Qt::UserRole) {
+        switch (index.column()) {
+        case ColProgress:    return int(rec.progress * 100.0 + 0.5);
+        default:             break;
+        }
+    }
+
     if (role == Qt::DisplayRole) {
         switch (index.column()) {
         case ColName:
@@ -181,21 +221,20 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
             }
             break;
         case ColProgress:
+            // Text fallback under the embedded bar — the delegate paints
+            // over this cell but the text is used for accessibility and
+            // when the delegate isn't installed (e.g. pure-model tests).
             return QStringLiteral("%1 %").arg(rec.progress * 100.0, 0, 'f', 1);
-        case ColSimTime:
-            if (rec.status == SimulationJobStatus::Running)
-                return QStringLiteral("%1 d").arg(rec.simTimeDays, 0, 'f', 3);
-            return {};
+        case ColStartDate:
+            return rec.startSimDate; // rendered by Qt as readable datetime
+        case ColCurrentDate:
+            return rec.currentSimDate;
+        case ColEndDate:
+            return rec.endSimDate;
         case ColRunoffErr:
-            if (rec.status == SimulationJobStatus::Success ||
-                rec.status == SimulationJobStatus::Failed)
-                return QStringLiteral("%1 %").arg(rec.runoffErrPct, 0, 'f', 2);
-            return {};
+            return QStringLiteral("%1 %").arg(rec.runoffErrPct, 0, 'f', 3);
         case ColRoutingErr:
-            if (rec.status == SimulationJobStatus::Success ||
-                rec.status == SimulationJobStatus::Failed)
-                return QStringLiteral("%1 %").arg(rec.routingErrPct, 0, 'f', 2);
-            return {};
+            return QStringLiteral("%1 %").arg(rec.routingErrPct, 0, 'f', 3);
         case ColDuration: {
             if (!rec.finishedAt.isValid())
                 return QStringLiteral("%1 s")
@@ -229,13 +268,15 @@ QVariant SimulationStatusModel::headerData(int section, Qt::Orientation orientat
         return {};
 
     switch (section) {
-    case ColName:       return tr("Name");
-    case ColStatus:     return tr("Status");
-    case ColProgress:   return tr("Progress");
-    case ColSimTime:    return tr("Sim Time");
-    case ColRunoffErr:  return tr("Runoff Err (%)");
-    case ColRoutingErr: return tr("Routing Err (%)");
-    case ColDuration:   return tr("Duration");
+    case ColName:        return tr("Name");
+    case ColStatus:      return tr("Status");
+    case ColProgress:    return tr("Progress");
+    case ColStartDate:   return tr("Sim Start");
+    case ColCurrentDate: return tr("Sim Current");
+    case ColEndDate:     return tr("Sim End");
+    case ColRunoffErr:   return tr("Runoff Err (%)");
+    case ColRoutingErr:  return tr("Routing Err (%)");
+    case ColDuration:    return tr("Duration");
     default: return {};
     }
 }
