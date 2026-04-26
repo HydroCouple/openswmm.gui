@@ -16,7 +16,6 @@
 #include <QVector>
 
 class SWMMModelLayer;
-class LinkGraphicsItem;
 
 /*!
  * \class OpenSWMMVisMapToolEditVertex
@@ -60,10 +59,22 @@ signals:
     void verticesEdited(const QString &linkName, int interiorVertexCount);
 
 private:
-    void clearActiveLink();
-    LinkGraphicsItem *hitTestLink(const QPoint &pixel) const;
-    int               hitTestInteriorHandle(const QPoint &pixel) const;
-    void              commitInterior(QVector<QPointF> newInterior);
+    /*! Pick result — the SWMM layer + link SoA index under the cursor,
+     *  or an invalid pair (layer null / linkIdx < 0). Slice R Phase 3
+     *  retargeted this away from `LinkGraphicsItem*` to the layer's
+     *  `pickAt` API so the tool has no dependency on the retired
+     *  per-object placeholder items. */
+    struct LinkHit {
+        SWMMModelLayer *layer = nullptr;
+        int   linkIdx = -1;
+        QString name;
+        bool valid() const { return layer && linkIdx >= 0; }
+    };
+
+    void    clearActiveLink();
+    LinkHit pickLink(const QPoint &pixel) const;
+    int     hitTestInteriorHandle(const QPoint &pixel) const;
+    void    commitInterior(QVector<QPointF> newInterior);
 
     SWMMModelLayer   *m_layer   = nullptr;
     int               m_linkIdx = -1;

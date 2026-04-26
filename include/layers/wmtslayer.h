@@ -133,6 +133,14 @@ public:
      */
     void fetchCapabilities();
 
+    /*!
+     * \brief Injects an already-fetched service info (e.g. from a connection
+     *        dialog) so the layer can render immediately without a second
+     *        GetCapabilities round-trip.
+     * \details Sets m_capsReady = true and emits capabilitiesFetched().
+     */
+    void setServiceInfo(const WMTSServiceInfo &info);
+
     // ----- Active layer & tile matrix set ---------------------------------
 
     [[nodiscard]] QString activeLayerId()      const;

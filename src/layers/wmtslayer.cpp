@@ -48,6 +48,13 @@ QUrl WMTSLayer::serviceUrl()  const { return m_serviceUrl; }
 WMTSServiceInfo WMTSLayer::serviceInfo() const { return m_serviceInfo; }
 bool WMTSLayer::capabilitiesReady() const { return m_capsReady; }
 
+void WMTSLayer::setServiceInfo(const WMTSServiceInfo &info)
+{
+    m_serviceInfo = info;
+    m_capsReady   = true;
+    emit capabilitiesFetched(info);
+}
+
 void WMTSLayer::fetchCapabilities()
 {
     QUrl url = m_serviceUrl;
@@ -589,22 +596,54 @@ void WMTSLayer::applyCRSFromTileMatrixSet(const QString &tmsId)
         return;
 
     // Parse the CRS identifier.  Accepted forms:
-    //   "EPSG:3857"                           (auth:code)
-    //   "urn:ogc:def:crs:EPSG::3857"          (OGC URN — double colon is normal)
-    //   "urn:ogc:def:crs:EPSG:6.18:3857"      (OGC URN with version)
-    const QStringList parts = tms->crsIdentifier.split(QLatin1Char(':'),
-                                                        Qt::SkipEmptyParts);
-    if (parts.size() < 2)
-        return;
-
-    // Last token is always the numeric code; the token before it is the authority.
+    //   "EPSG:3857"                                     (auth:code)
+    //   "urn:ogc:def:crs:EPSG::3857"                   (OGC URN — double colon is normal)
+    //   "urn:ogc:def:crs:EPSG:6.18:3857"               (OGC URN with version)
+    //   "http://www.opengis.net/def/crs/EPSG/0/3857"   (OGC HTTP URI)
+    //   "https://www.opengis.net/def/crs/EPSG/0/3857"  (OGC HTTPS URI)
     bool ok = false;
-    const int code = parts.last().toInt(&ok);
-    if (!ok || code <= 0)
-        return;
-    const QString authName = parts.at(parts.size() - 2).toUpper();
+    int  code = 0;
+    QString authName;
 
-    auto *srs = SpatialReferenceSystem::fromAuthCode(authName, code, this);
+    const QString &id = tms->crsIdentifier;
+
+    if (id.contains(QStringLiteral("://")))
+    {
+        // HTTP/HTTPS URI form:  .../crs/EPSG/0/3857  or  .../crs/EPSG/3857
+        // The last path segment is always the numeric code. Walk backward to
+        // find the first non-numeric token — that is the authority name.
+        // Any purely-numeric tokens between the code and the authority are
+        // version segments (e.g. "0", "6.18") and are skipped.
+        const QStringList parts = id.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        if (parts.size() < 2)
+            return;
+        code = parts.last().toInt(&ok);
+        if (!ok || code <= 0)
+            return;
+        for (int i = parts.size() - 2; i >= 0; --i)
+        {
+            bool numOk = false;
+            parts.at(i).toInt(&numOk);
+            if (!numOk)   // non-numeric → this is the authority token
+            {
+                authName = parts.at(i).toUpper();
+                break;
+            }
+        }
+    }
+    else
+    {
+        // URN or simple colon-separated: EPSG:3857 or urn:ogc:def:crs:EPSG::3857
+        const QStringList parts = id.split(QLatin1Char(':'), Qt::SkipEmptyParts);
+        if (parts.size() < 2)
+            return;
+        code = parts.last().toInt(&ok);
+        if (!ok || code <= 0)
+            return;
+        authName = parts.at(parts.size() - 2).toUpper();
+    }
+
+    auto *srs = SpatialReferenceSystem::fromAuthCode(authName, code);
     if (srs)
         setSRS(srs, true /* ownsSRS */);
 }

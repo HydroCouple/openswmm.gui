@@ -64,12 +64,12 @@ if(OPENSWMMENGINE_SOURCE_DIR AND EXISTS "${OPENSWMMENGINE_SOURCE_DIR}/CMakeLists
     add_subdirectory("${OPENSWMMENGINE_SOURCE_DIR}" openswmm_engine)
 else()
     message(STATUS "openswmm.engine: fetching ${OPENSWMMENGINE_GIT_REPOSITORY} @ ${OPENSWMMENGINE_GIT_TAG}")
-    FetchContent_Declare(openswmm_core
+    FetchContent_Declare(openswmm_engine
         GIT_REPOSITORY "${OPENSWMMENGINE_GIT_REPOSITORY}"
         GIT_TAG        "${OPENSWMMENGINE_GIT_TAG}"
         GIT_SHALLOW    TRUE
     )
-    FetchContent_MakeAvailable(openswmm_core)
+    FetchContent_MakeAvailable(openswmm_engine)
 endif()
 
 if(NOT TARGET openswmm_engine)

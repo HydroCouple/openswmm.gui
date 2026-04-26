@@ -47,6 +47,11 @@ XYZTileLayer::XYZTileLayer(const QString &urlTemplate,
     m_wgs84 = new OGRSpatialReference();
     m_wgs84->importFromEPSG(4326);
     m_wgs84->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+
+    // XYZ tile services always use Web Mercator (EPSG:3857) as their native CRS.
+    // Expose this so the layer-properties dialog shows the CRS rather than "(none)".
+    auto *srs = SpatialReferenceSystem::fromAuthCode(QStringLiteral("EPSG"), 3857);
+    setSRS(srs, /*ownsSRS=*/true);
 }
 
 XYZTileLayer::~XYZTileLayer()

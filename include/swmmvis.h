@@ -13,6 +13,7 @@
 #include <functional>
 
 #include "core/openswmmvislogmessage.h"
+#include "selection/selectionmanager.h"   // SWMMObjectRef
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class SWMMVis; }
@@ -81,10 +82,11 @@ private slots:
     void onOpenProject(const QString &path = QString());
     void openSingleINP(const QString &filePath);
     void openProjectFile(const QString &oswpPath);
-    void onOpenRecentFile();
-    void onSetLayerCRS();
+    void onOpenRecentFile(QAction *action);
     void onSaveProject();
     void onSaveProjectAs();
+    void onSaveAsInputFile();
+    void onExportMap();
     void onClearRecentFiles();
     void onRecentFilesSizeChanged();
     void onShowWelcomeScreen();
@@ -107,6 +109,14 @@ private slots:
     void onSimulationOptions();
     void onRunSimulation();
     void onPlotTimeSeries();
+
+    /*! Open the Time Series Plot dialog for the given object ref against
+     *  the active project's SWMM results .out file. Shared by
+     *  ObjectBrowserPanel::plotTimeSeriesRequested and
+     *  OpenSWMMVisMapToolSelect::plotTimeSeriesRequested (both deliver
+     *  the same user intent from different surfaces). */
+    void openTimeSeriesPlotFor(const SWMMObjectRef &ref);
+
     void onActiveSubWindowChanged(QMdiSubWindow *window);
 
     /*!

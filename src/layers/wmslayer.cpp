@@ -50,6 +50,15 @@ QString WMSLayer::wmsVersion() const { return m_wmsVersion; }
 WMSServiceInfo WMSLayer::serviceInfo() const { return m_serviceInfo; }
 bool WMSLayer::capabilitiesReady() const { return m_capsReady; }
 
+void WMSLayer::setServiceInfo(const WMSServiceInfo &info)
+{
+    m_serviceInfo = info;
+    m_capsReady   = true;
+    if (!info.version.isEmpty())
+        m_wmsVersion = info.version;
+    emit capabilitiesFetched(info);
+}
+
 void WMSLayer::fetchCapabilities()
 {
     QUrl url = m_serviceUrl;

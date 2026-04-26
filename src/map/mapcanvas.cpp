@@ -13,6 +13,7 @@
 #include "map/maprenderjob.h"
 #include "map/tools/maptool.h"
 #include "layers/openswmmvislayer.h"
+#include "layers/swmmmodellayer.h"
 #include "layers/xyztilelayer.h"
 #include "map/spatialreferencesystem.h"
 #include "map/crsmanager.h"
@@ -25,6 +26,11 @@
 #include <QPaintEvent>
 #include <QtMath>
 #include <QApplication>
+#include <QHelpEvent>
+#include <QToolTip>
+#include <QVariantMap>
+
+#include <ogr_spatialref.h>   // OGRCoordinateTransformation for fullExtent
 
 // ---------------------------------------------------------------------------
 // Constructor / Destructor
@@ -278,14 +284,57 @@ void MapCanvas::insertLayer(int position, OpenSWMMVisLayer *layer, bool pushUndo
     connect(layer, &OpenSWMMVisLayer::repaintRequested,
             this, &MapCanvas::onLayerRepaintRequested);
 
+    // On-the-fly reprojection: when a layer's OWN CRS changes (user
+    // reassigned it because the .inp was missing a CRS, or picked a
+    // new one in the layer-properties dialog), the layer→canvas
+    // transform has to be rebuilt and the scene re-rendered. Reuse
+    // the canvas-CRS change path — it already calls
+    // `onCanvasCRSChanged` on the layer and triggers the right
+    // transform + re-populate.
+    //
+    // Qt::UniqueConnection does NOT work with lambdas (Qt can't
+    // compare functor identities). Disconnect any prior handler on
+    // this specific layer/signal first, then connect exactly one
+    // fresh lambda. Without this guard, re-inserting a layer or
+    // rapid-fire insertLayer calls would stack dozens of handlers
+    // and every srsChanged emission would trigger a populateScene
+    // storm.
+    QObject::disconnect(layer, &OpenSWMMVisLayer::srsChanged,
+                        this, nullptr);
+    connect(layer, &OpenSWMMVisLayer::srsChanged, this,
+            [this, layer](SpatialReferenceSystem *) {
+                if (!m_layers.contains(layer)) return;
+                layer->onCanvasCRSChanged(m_canvasSRS);
+                if (!layer->isRasterLayer())
+                    layer->refreshScene(m_scene, m_extent, m_canvasSRS);
+                // Re-fit the view to the layer's reprojected extent so
+                // the user actually sees the content — previously the
+                // canvas kept its OLD extent (which was in the layer's
+                // old CRS), making the network appear "to have
+                // vanished" even though it rendered at the new
+                // coordinates.
+                zoomToFullExtent();
+                invalidate(Raster | Scene | Overlay,
+                           QStringLiteral("layer-srs-changed"));
+            });
+
     updateLayerZValues();
 
     // Only vector (non-raster) layers populate the overlay scene
     if (!layer->isRasterLayer())
         layer->populateScene(m_scene, m_extent, m_canvasSRS);
 
+    // Seed the layer's transform against the current canvas CRS so
+    // first-frame rendering reprojects correctly if the layer's SRS
+    // differs from the canvas (otherwise the first populateScene draws
+    // raw layer coords with no transform, causing the "first open
+    // shows wrong location" issue).
+    layer->onCanvasCRSChanged(m_canvasSRS);
+
     emit layerAdded(layer);
-    update();
+    // Trigger a full render cycle so the new layer is fetched and composited
+    // immediately, without waiting for the user to pan or zoom.
+    invalidate(Raster | Scene | Overlay, QStringLiteral("layer-added"));
 }
 
 OpenSWMMVisLayer *MapCanvas::takeLayer(int index, bool pushUndo)
@@ -338,6 +387,21 @@ void MapCanvas::moveLayer(int fromIndex, int toIndex, bool pushUndo)
     m_layers.move(fromIndex, toIndex);
     updateLayerZValues();
 
+    // updateLayerZValues only mutates the layer's `m_layerZValue`
+    // scalar — existing scene items keep the z-values they were
+    // assigned at populateScene time. Rebuild every vector layer so
+    // visible stacking order matches the new model order immediately,
+    // without waiting for some other event to trigger a repaint. The
+    // raster channel is invalidated so cached tiles don't linger on
+    // top of what used to be below them.
+    for (OpenSWMMVisLayer *l : std::as_const(m_layers)) {
+        if (l->isRasterLayer()) continue;
+        l->depopulateScene(m_scene);
+        l->populateScene(m_scene, m_extent, m_canvasSRS);
+    }
+    invalidate(Raster | Scene | Overlay,
+               QStringLiteral("layer-order-changed"));
+
     emit layerOrderChanged();
     update();
 }
@@ -349,39 +413,64 @@ OpenSWMMVisLayer *MapCanvas::layerAt(int index) const
     return (index >= 0 && index < m_layers.count()) ? m_layers.at(index) : nullptr;
 }
 
+// Helper: transform a layer's native-CRS extent into canvas-CRS by
+// reprojecting its four corners. Falls back to the untransformed
+// extent when the layer's CRS matches the canvas's (identity) or
+// when no canvas SRS has been set yet.
+static MapExtent layerExtentInCanvasCRS(const OpenSWMMVisLayer *layer,
+                                        const SpatialReferenceSystem *canvasSRS)
+{
+    const MapExtent le = layer->extent();
+    if (!le.isValid()) return le;
+    auto *lsrs = layer->srs();
+    if (!lsrs || !canvasSRS || !lsrs->ogrSpatialReference()
+        || !canvasSRS->ogrSpatialReference())
+        return le;
+    if (lsrs->ogrSpatialReference()->IsSame(canvasSRS->ogrSpatialReference()))
+        return le;
+
+    auto *xform = OGRCreateCoordinateTransformation(
+        lsrs->ogrSpatialReference(), canvasSRS->ogrSpatialReference());
+    if (!xform) return le;
+
+    double xs[4] = {le.xMin(), le.xMax(), le.xMax(), le.xMin()};
+    double ys[4] = {le.yMin(), le.yMin(), le.yMax(), le.yMax()};
+    xform->Transform(4, xs, ys);
+    OGRCoordinateTransformation::DestroyCT(xform);
+
+    double x0 = xs[0], x1 = xs[0], y0 = ys[0], y1 = ys[0];
+    for (int i = 1; i < 4; ++i) {
+        x0 = std::min(x0, xs[i]); x1 = std::max(x1, xs[i]);
+        y0 = std::min(y0, ys[i]); y1 = std::max(y1, ys[i]);
+    }
+    return MapExtent(x0, y0, x1, y1);
+}
+
 MapExtent MapCanvas::fullExtent() const
 {
     // Zoom to Full Extent zooms to the union of *feature* layers only —
     // basemap raster layers (WMS / WMTS / XYZ tiles) cover the entire world
     // and would otherwise drag the extent back to global scale every time.
+    //
+    // Each layer's extent is reprojected into canvas CRS via
+    // layerExtentInCanvasCRS; otherwise a layer stored in UTM (e.g. a
+    // SWMM .inp whose CRS was corrected from the default WGS-84 via the
+    // Properties dialog) would feed raw easting/northing numbers into
+    // the union and drag the canvas extent to nowhere-land.
     MapExtent full;
-    for (const OpenSWMMVisLayer *layer : m_layers)
-    {
-        if (layer->isRasterLayer())
-            continue;
-        if (layer->isVisible() && layer->extent().isValid())
-        {
-            if (!full.isValid())
-                full = layer->extent();
-            else
-                full = full.united(layer->extent());
-        }
-    }
+    auto accumulate = [&](const OpenSWMMVisLayer *layer) {
+        const MapExtent e = layerExtentInCanvasCRS(layer, m_canvasSRS);
+        if (!e.isValid()) return;
+        full = full.isValid() ? full.united(e) : e;
+    };
 
-    // Fallback: if no feature layers are visible, union everything (including
-    // raster layers) so the canvas still has *some* extent to zoom to.
-    if (!full.isValid())
-    {
+    for (const OpenSWMMVisLayer *layer : m_layers) {
+        if (layer->isRasterLayer()) continue;
+        if (layer->isVisible()) accumulate(layer);
+    }
+    if (!full.isValid()) {
         for (const OpenSWMMVisLayer *layer : m_layers)
-        {
-            if (layer->isVisible() && layer->extent().isValid())
-            {
-                if (!full.isValid())
-                    full = layer->extent();
-                else
-                    full = full.united(layer->extent());
-            }
-        }
+            if (layer->isVisible()) accumulate(layer);
     }
     return full;
 }
@@ -1052,6 +1141,98 @@ void MapCanvas::keyReleaseEvent(QKeyEvent *event)
 {
     if (m_activeTool)
         m_activeTool->keyReleaseEvent(event);
+}
+
+// ---------------------------------------------------------------------------
+// Hover tooltip (Slice R Phase 4)
+//
+// Qt fires a QEvent::ToolTip on the widget under the cursor after a short
+// hover delay. We intercept it here, hit-test the position against every
+// visible SWMMModelLayer's pickAt API, and hand Qt a formatted tooltip via
+// QToolTip::showText. Returning true on a hit tells Qt we handled the
+// event so it doesn't re-fire the default empty tooltip.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Build a small multi-line tooltip from the layer's identifyByName
+// attributes. Node / Rain-Gage rows get X/Y. Link rows show link type.
+// Subcatchment rows show the polygon vertex count. Header is the
+// element kind + name in bold HTML.
+QString buildTooltip(SWMMModelLayer *sl, const QString &name)
+{
+    if (!sl || name.isEmpty()) return {};
+    const QVariantMap a = sl->identifyByName(name);
+    if (a.isEmpty()) return {};
+
+    const QString kind = a.value(QStringLiteral("Type")).toString();
+    QString html;
+    html += QStringLiteral("<b>%1</b><br/><span style='color:#444'>%2</span>")
+                .arg(name.toHtmlEscaped(), kind.toHtmlEscaped());
+
+    auto addRow = [&](const QString &label, const QString &value) {
+        if (value.isEmpty()) return;
+        html += QStringLiteral("<br/>%1: %2")
+                    .arg(label.toHtmlEscaped(), value.toHtmlEscaped());
+    };
+
+    const QString nt = a.value(QStringLiteral("Node type")).toString();
+    addRow(QObject::tr("Node type"), nt);
+    const QString lt = a.value(QStringLiteral("Link type")).toString();
+    addRow(QObject::tr("Link type"), lt);
+
+    if (a.contains(QStringLiteral("X")) && a.contains(QStringLiteral("Y"))) {
+        const double x = a.value(QStringLiteral("X")).toDouble();
+        const double y = a.value(QStringLiteral("Y")).toDouble();
+        addRow(QObject::tr("Coord"),
+               QStringLiteral("%1, %2").arg(x, 0, 'f', 2).arg(y, 0, 'f', 2));
+    }
+
+    const int vc = a.value(QStringLiteral("Vertex count"), -1).toInt();
+    if (vc >= 0) addRow(QObject::tr("Vertices"), QString::number(vc));
+    const int pvc = a.value(QStringLiteral("Polygon vertices"), -1).toInt();
+    if (pvc >= 0) addRow(QObject::tr("Polygon vertices"), QString::number(pvc));
+
+    return html;
+}
+
+} // anonymous
+
+bool MapCanvas::event(QEvent *event)
+{
+    if (event->type() == QEvent::ToolTip) {
+        auto *help = static_cast<QHelpEvent *>(event);
+        const QPoint pixel = help->pos();
+
+        // Convert to map coords + tolerance — 12 canvas pixels is
+        // roughly matches the Select tool's click tolerance and keeps
+        // the tooltip trigger area forgiving without being promiscuous.
+        double mx = 0.0, my = 0.0;
+        toMapCoords(pixel.x(), pixel.y(), mx, my);
+        double mx2 = 0.0, my2 = 0.0;
+        toMapCoords(pixel.x() + 12, pixel.y() + 12, mx2, my2);
+        const double tol = std::max(std::abs(mx2 - mx), std::abs(my2 - my));
+
+        for (OpenSWMMVisLayer *l : std::as_const(m_layers)) {
+            if (!l->isVisible()) continue;
+            auto *sl = qobject_cast<SWMMModelLayer *>(l);
+            if (!sl) continue;
+
+            const auto pr = sl->pickAt(mx, my, tol);
+            if (!pr.valid) continue;
+            const QString tip = buildTooltip(sl, pr.name);
+            if (tip.isEmpty()) continue;
+
+            QToolTip::showText(help->globalPos(), tip, this);
+            event->accept();
+            return true;
+        }
+        // No hit — hide any lingering tooltip and pass through.
+        QToolTip::hideText();
+        event->ignore();
+        return true;
+    }
+    return QWidget::event(event);
 }
 
 void MapCanvas::resizeEvent(QResizeEvent *event)

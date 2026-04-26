@@ -229,6 +229,12 @@ protected:
     void keyPressEvent(QKeyEvent *event)           override;
     void keyReleaseEvent(QKeyEvent *event)         override;
 
+    /*! Override `event` so tooltip requests can pick the hovered SWMM
+     *  object through each visible `SWMMModelLayer`'s `pickAt` API
+     *  (Slice R Phase 4). No tool activation needed — hover tooltips
+     *  fire while any tool is active. */
+    bool event(QEvent *event)                      override;
+
 private slots:
     void onLayerRepaintRequested();
     void onRenderJobFinished(QImage result);

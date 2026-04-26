@@ -7,16 +7,14 @@
 #include "map/tools/maptooleditvertex.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
-#include "map/graphicsitems.h"
-#include "map/openswmmvisscene.h"
 #include "layers/swmmmodellayer.h"
 #include "core/editgeometry.h"
 
-#include <QGraphicsScene>
 #include <QKeyEvent>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
 
 OpenSWMMVisMapToolEditVertex::OpenSWMMVisMapToolEditVertex(MapCanvas *canvas, QObject *parent)
     : OpenSWMMVisMapTool(QStringLiteral("Edit Vertex"), canvas, parent)
@@ -52,34 +50,43 @@ void OpenSWMMVisMapToolEditVertex::clearActiveLink()
         m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("editvertex-clear"));
 }
 
-LinkGraphicsItem *OpenSWMMVisMapToolEditVertex::hitTestLink(const QPoint &pixel) const
+OpenSWMMVisMapToolEditVertex::LinkHit
+OpenSWMMVisMapToolEditVertex::pickLink(const QPoint &pixel) const
 {
-    if (!m_canvas || !scene())
-        return nullptr;
+    LinkHit h;
+    if (!m_canvas) return h;
 
     double mx = 0.0, my = 0.0;
     toMapCoords(pixel.x(), pixel.y(), mx, my);
-    const QPointF scenePt(mx, -my);
 
-    // Widen the hit region to 6 px in scene units. QGraphicsPathItem's shape()
-    // uses the pen-stroked path, so thin cosmetic pens can be hard to click.
-    double px2m = 1.0;
-    if (m_canvas->width() > 0)
-        px2m = m_canvas->extent().width() / m_canvas->width();
-    const double padding = 6.0 * px2m;
-    const QRectF hitRect(scenePt - QPointF(padding, padding),
-                         QSizeF(padding * 2, padding * 2));
+    // Tolerance: 12 canvas pixels → map units at current zoom. Slightly
+    // smaller than the Select tool's default because a link click has
+    // to be near the stroke, not the general neighbourhood.
+    double mx2 = 0.0, my2 = 0.0;
+    toMapCoords(pixel.x() + 12, pixel.y() + 12, mx2, my2);
+    const double tol = std::max(std::abs(mx2 - mx), std::abs(my2 - my));
 
-    const auto items = scene()->items(hitRect);
-    for (QGraphicsItem *it : items)
-    {
-        if (auto *lnk = dynamic_cast<LinkGraphicsItem *>(it))
-        {
-            if (qobject_cast<SWMMModelLayer *>(lnk->ownerLayer()))
-                return lnk;
-        }
+    for (OpenSWMMVisLayer *l : m_canvas->layers()) {
+        if (!l->isVisible()) continue;
+        auto *sl = qobject_cast<SWMMModelLayer *>(l);
+        if (!sl) continue;
+
+        const auto r = sl->pickAt(mx, my, tol);
+        if (!r.valid) continue;
+        // Only link categories.
+        if (r.cat != SWMMModelLayer::CatConduits
+         && r.cat != SWMMModelLayer::CatPumps
+         && r.cat != SWMMModelLayer::CatOrifices
+         && r.cat != SWMMModelLayer::CatWeirs
+         && r.cat != SWMMModelLayer::CatOutlets)
+            continue;
+
+        h.layer   = sl;
+        h.linkIdx = r.soaIndex;
+        h.name    = r.name;
+        return h;
     }
-    return nullptr;
+    return h;
 }
 
 int OpenSWMMVisMapToolEditVertex::hitTestInteriorHandle(const QPoint &pixel) const
@@ -160,19 +167,17 @@ void OpenSWMMVisMapToolEditVertex::mousePressEvent(QMouseEvent *event)
     }
 
     // Otherwise try to pick a link to activate.
-    LinkGraphicsItem *lnk = hitTestLink(event->pos());
-    if (!lnk)
+    const LinkHit hit = pickLink(event->pos());
+    if (!hit.valid())
     {
         clearActiveLink();
         return;
     }
-    auto *layer = qobject_cast<SWMMModelLayer *>(lnk->ownerLayer());
-    if (!layer) return;
 
-    m_layer    = layer;
-    m_linkName = lnk->elementName();
-    m_linkIdx  = layer->linkIndex(m_linkName);
-    m_interior = layer->cachedLinkInteriorVertices(m_linkIdx);
+    m_layer    = hit.layer;
+    m_linkIdx  = hit.linkIdx;
+    m_linkName = hit.name;
+    m_interior = m_layer->cachedLinkInteriorVertices(m_linkIdx);
 
     m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("editvertex-select"));
 }

@@ -53,6 +53,12 @@ public:
     bool isElevationOffsetMode() const { return mElevationOffsetMode; }
     void setElevationOffsetMode(bool elevation);
 
+    /*! Re-read LINK_OFFSETS from the engine into the cached
+     *  mElevationOffsetMode flag. Used by the main-window listener for
+     *  SWMMModelLayer::optionsChanged so the status-bar checkbox
+     *  refreshes after a Simulation Options Apply. */
+    void reloadElevationOffsetModeFromEngine();
+
     bool loadModel(QList<QString> &warnings, QList<QString> &errors);
 
     /**
@@ -68,11 +74,24 @@ public:
     /** Mark the project dirty/clean (also updates the title). */
     void setHasChanges(bool dirty);
 
+    /*! Slice Y — flag a window as a fresh, never-saved project.
+     *  Untitled windows skip recent-files registration, force the
+     *  title to "Untitled[*]", and route Save through Save As. The
+     *  associated `tempInpPath` is deleted on close-without-save and
+     *  on first successful Save As. */
+    bool isUntitled() const { return mUntitled; }
+    void markUntitled(const QString &tempInpPath);
+
     void activatePanTool();
     void activateZoomInTool();
     void activateZoomOutTool();
     void activateSelectTool();
     void activateMeasureTool();
+
+    /*! Direct access to the Select tool so the main window can wire its
+     *  context-menu `plotTimeSeriesRequested` into the same chart
+     *  dialog that Object Browser right-clicks use. */
+    class OpenSWMMVisMapToolSelect *selectTool() const { return mSelectTool; }
     void activateMoveNodeTool();
     void activateEditVertexTool();
     void activateAddJunctionTool();
@@ -108,6 +127,8 @@ private:
     bool                 mCanvasCRSAdopted    = false;  // true after first successful loadModel
     bool                 mHasChanges          = false;
     bool                 mElevationOffsetMode = false;  // OPTIONS LINK_OFFSETS = ELEVATION
+    bool                 mUntitled            = false;  // Slice Y — never saved
+    QString              mTempInpPath;                  // owned temp .inp (untitled only)
 
     OpenSWMMVisMapToolPan         *mPanTool           = nullptr;
     OpenSWMMVisMapToolZoom        *mZoomInTool        = nullptr;

@@ -11,11 +11,10 @@
 #include "map/tools/maptool.h"
 
 #include <QPoint>
+#include <QPointF>
 #include <QString>
 
 class SWMMModelLayer;
-class NodeGraphicsItem;
-class QGraphicsItem;
 
 /*!
  * \class OpenSWMMVisMapToolMoveNode
@@ -29,11 +28,10 @@ class QGraphicsItem;
  *
  *          Press Escape during a drag to cancel.
  *
- *          The tool only engages when the model layer is displaying in
- *          its native CRS (no live GDAL reprojection transform). Attempts
- *          to start a drag while the canvas is reprojecting the layer
- *          are ignored with a log entry — Phase 0.7 reproject first, then
- *          edit.
+ *          Post Slice R Phase 3: hit-testing and live preview go through
+ *          the layer's `pickAt` / `previewNodeMove` — no dependency on
+ *          per-object `NodeGraphicsItem` placeholders (those were
+ *          retired once every interactive tool moved to the layer API).
  */
 class OpenSWMMVisMapToolMoveNode : public OpenSWMMVisMapTool
 {
@@ -62,40 +60,35 @@ signals:
                    int autoLengthedCount);
 
 private:
-    /*!
-     * \brief Looks up the top-most NodeGraphicsItem under the pixel
-     *        position, filtered to items owned by a SWMMModelLayer.
-     */
-    NodeGraphicsItem *hitTestNode(const QPoint &pixel) const;
+    /*! Layer + SoA node index hit by the current drag, or invalid. */
+    struct NodeHit {
+        SWMMModelLayer *layer    = nullptr;
+        int             nodeIdx  = -1;
+        QString         nodeName;
+        bool valid() const { return layer && nodeIdx >= 0; }
+    };
 
-    /*!
-     * \brief Resolves which SWMMModelLayer the drag is editing. If the
-     *        layer is currently reprojecting (non-null OGR transform),
-     *        returns nullptr so the caller can bail out cleanly.
-     */
-    SWMMModelLayer *editableLayerFor(NodeGraphicsItem *item) const;
+    /*! Pick the top-most SWMM node under the pixel through the layer's
+     *  `pickAt` API. Rain-gage hits are filtered out — the MoveNode
+     *  tool only edits network nodes. */
+    NodeHit pickNode(const QPoint &pixel) const;
 
-    /*!
-     * \brief Updates scene positions (node + any attached link endpoints)
-     *        during the drag for immediate visual feedback, without
-     *        touching engine state.
-     */
-    void applyDragPreview(double sceneX, double sceneY);
+    /*! Live preview update: rewrites the cached SoA position for the
+     *  node being dragged (and the attached link endpoints). No engine
+     *  write — that happens on release via MoveNodeCommand. */
+    void applyDragPreview(double mapX, double mapY);
 
-    /*!
-     * \brief Restores scene positions to their pre-drag state.
-     */
+    /*! Roll the layer's cached coord back to the pre-drag position. */
     void cancelDragPreview();
 
     bool               m_dragging  = false;
-    NodeGraphicsItem  *m_dragItem  = nullptr;
     SWMMModelLayer    *m_layer     = nullptr;
     int                m_nodeIdx   = -1;
     QString            m_nodeName;
 
-    // Pre-drag state (scene coords: y = -layer_y)
-    QPointF            m_originalScenePos;
-    QVector<QGraphicsItem *> m_attachedLinkItems;  // cached for preview updates
+    // Pre-drag map-CRS coord (for Escape / cancel rollback).
+    double             m_originalMapX = 0.0;
+    double             m_originalMapY = 0.0;
 };
 
 #endif // MAPTOOLMOVENODE_H
