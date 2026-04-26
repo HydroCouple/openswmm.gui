@@ -15,5 +15,6 @@
         <file alias="libxml2.txt">licenses/libxml2.txt</file>
         <file alias="sundials.txt">licenses/sundials.txt</file>
         <file alias="openmp.txt">licenses/openmp.txt</file>
+        <file alias="nanoflann.txt">licenses/nanoflann.txt</file>
     </qresource>
 </RCC>

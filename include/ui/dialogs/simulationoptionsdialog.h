@@ -115,6 +115,7 @@ private:
 private slots:
     void onSpatialPickCRS();
     void onSpatialDetectCRS();
+    void on2DModuleToggled(bool enabled);
 
 private:
 
@@ -137,6 +138,12 @@ private:
     QCheckBox      *m_ignoreRDIIBox     = nullptr;
     QCheckBox      *m_ignoreQualityBox  = nullptr;
     QCheckBox      *m_ignoreRoutingBox  = nullptr;
+
+    // Tab 1 — Modules group (2D toggle)
+    QCheckBox      *m_module1DBox       = nullptr;   ///< Always-on, disabled (1D core).
+    QCheckBox      *m_module2DBox       = nullptr;   ///< Toggle 2D surface routing.
+    int             m_2DTabIndex        = -1;        ///< -1 if 2D tab not built.
+    QTabWidget     *m_tabs              = nullptr;   ///< Captured for runtime tab-enable.
 
     // Tab 2 — Dates & Times
     QDateTimeEdit  *m_startEdit         = nullptr;

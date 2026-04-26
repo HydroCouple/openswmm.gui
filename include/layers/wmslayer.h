@@ -111,6 +111,14 @@ public:
      */
     void fetchCapabilities();
 
+    /*!
+     * \brief Injects an already-fetched service info (e.g. from a connection
+     *        dialog) so the layer can render immediately without a second
+     *        GetCapabilities round-trip.
+     * \details Also sets m_wmsVersion from info.version when non-empty.
+     */
+    void setServiceInfo(const WMSServiceInfo &info);
+
     // ----- Active layer / style -------------------------------------------
 
     [[nodiscard]] QString activeLayerName() const;

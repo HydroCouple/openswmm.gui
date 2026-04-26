@@ -59,6 +59,13 @@ WMSLayer *WMSConnectionDialog::createLayer(QObject *project) const
 
     auto *layer = new WMSLayer(QUrl(urlText),
                                qobject_cast<OpenSWMMVisWorkspace *>(project));
+
+    // Transfer the already-fetched service info (including the negotiated WMS
+    // version) so the layer uses the correct BBOX axis order and image formats
+    // from the first GetMap request — without this the layer uses the default
+    // 1.3.0 version string which swaps lat/lon for geographic CRS services.
+    layer->setServiceInfo(*m_serviceInfo);
+
     layer->setActiveLayerName(m_selectedLayerName);
     layer->setActiveStyle(m_styleCombo->currentText());
     layer->setImageFormat(m_formatCombo->currentText());
@@ -285,8 +292,11 @@ void WMSConnectionDialog::loadRecentUrls()
 {
     QSettings settings;
     settings.beginGroup(QStringLiteral("WMSConnectionDialog"));
-    const QStringList urls = settings.value(QStringLiteral("recentUrls")).toStringList();
+    QStringList urls = settings.value(QStringLiteral("recentUrls")).toStringList();
     settings.endGroup();
+
+    if (urls.isEmpty())
+        urls << QStringLiteral("https://ows.terrestris.de/osm/service");
 
     m_urlCombo->clear();
     m_urlCombo->addItems(urls);

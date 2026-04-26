@@ -58,6 +58,13 @@ WMTSLayer *WMTSConnectionDialog::createLayer(QObject *parent) const
 
     auto *layer = new WMTSLayer(QUrl(urlText),
                                 qobject_cast<OpenSWMMVisWorkspace *>(parent));
+
+    // Transfer the already-fetched service info so the layer has m_capsReady = true
+    // and a populated m_serviceInfo on first use — without this the layer's
+    // fetchCache() returns immediately because m_capsReady is false.
+    if (m_serviceInfo)
+        layer->setServiceInfo(*m_serviceInfo);
+
     layer->setActiveLayerId(m_selectedLayerId);
     layer->setActiveTileMatrixSet(m_tileMatrixCombo->currentText());
     layer->setActiveStyle(m_styleCombo->currentText());
@@ -279,8 +286,11 @@ void WMTSConnectionDialog::loadRecentUrls()
 {
     QSettings settings;
     settings.beginGroup(QStringLiteral("WMTSConnectionDialog"));
-    const QStringList urls = settings.value(QStringLiteral("recentUrls")).toStringList();
+    QStringList urls = settings.value(QStringLiteral("recentUrls")).toStringList();
     settings.endGroup();
+
+    if (urls.isEmpty())
+        urls << QStringLiteral("https://tile.openstreetmap.org/wmts/1.0.0/WMTSCapabilities.xml");
 
     m_urlCombo->clear();
     m_urlCombo->addItems(urls);

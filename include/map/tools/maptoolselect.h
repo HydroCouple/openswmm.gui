@@ -12,6 +12,7 @@
 #define MAPTOOLSELECT_H
 
 #include "map/tools/maptool.h"
+#include "selection/selectionmanager.h"
 
 #include <QPoint>
 #include <QRect>
@@ -78,14 +79,42 @@ signals:
      */
     void selectionChanged(OpenSWMMVisLayer *layer);
 
+    /*!
+     * \brief Emitted from the right-click context menu's "Plot Time Series…"
+     *        action. Handled at the main-window level identically to the
+     *        Object Browser's identically-named signal, so the chart dialog
+     *        opens against the active project's results .out file.
+     */
+    void plotTimeSeriesRequested(const SWMMObjectRef &ref);
+
 private:
     void selectAtPoint(const QPoint &pixel, Qt::KeyboardModifiers mods);
     void selectInRect(const QRect &pixelRect, Qt::KeyboardModifiers mods);
 
+    /*! Show the right-click context menu (Zoom to Object, Plot Time
+     *  Series) at the given widget pixel, for the object hit at that
+     *  point via identifyAt. No-op if nothing was hit. */
+    void showContextMenu(const QPoint &pixel);
+
     bool   m_dragging    = false;
     QPoint m_startPixel;
     QPoint m_currentPixel;
-    int    m_pixelTol    = 8;
+    // Default user-preference tolerance. The EFFECTIVE pixel radius
+    // used at pick time is `max(m_pixelTol, largest-rendered-marker-
+    // half-bounds + halo)`, so clicks inside the visible glyph always
+    // succeed regardless of this number. See
+    // `selectAtPoint` in the .cpp — it pulls the marker floor from
+    // the layer's symbology. Slice V will turn this into a
+    // user-configurable preference.
+    int    m_pixelTol    = 16;
+    // Drag threshold — only start the rubber-band once the cursor
+    // moves this many pixels from the press point. Trackpad micro-
+    // jitter on a click commonly hits 10–12 px, which used to flip
+    // the tool into rubber-band mode and select a node + its
+    // connected line together. 15 leaves enough slack to kill that
+    // while still responding to intentional drags. Override via
+    // PreferencesManager.
+    int    m_dragThreshPx = 15;
     QColor m_rubberColor = QColor(0, 120, 255, 80);
 };
 

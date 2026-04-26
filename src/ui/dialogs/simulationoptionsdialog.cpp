@@ -19,6 +19,7 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QPushButton>
+#include <QSettings>
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QToolButton>
@@ -61,6 +62,7 @@ void SimulationOptionsDialog::buildUi()
 {
     auto *root = new QVBoxLayout(this);
     auto *tabs = new QTabWidget(this);
+    m_tabs = tabs;  // captured so the 2D-module toggle can flip the tab.
     root->addWidget(tabs, 1);
 
     buildModelsTab(tabs);
@@ -70,6 +72,11 @@ void SimulationOptionsDialog::buildUi()
     buildSpatialTab(tabs);
 #ifdef OPENSWMM_HAS_2D
     build2DTab(tabs);
+    m_2DTabIndex = tabs->count() - 1;  // index of the just-added 2D tab.
+    // Initial state mirrors the Modules-group toggle (defaults to off so
+    // demo dialogs don't surface the 2D parameters until the user opts in).
+    if (m_module2DBox)
+        tabs->setTabEnabled(m_2DTabIndex, m_module2DBox->isChecked());
 #endif
 
     auto *bb = new QDialogButtonBox(
@@ -108,6 +115,43 @@ void SimulationOptionsDialog::buildModelsTab(QTabWidget *tabs)
     procForm->addRow(tr("Flow routing:"), m_routingCombo);
 
     vlay->addWidget(procGroup);
+
+    // ── Modules ────────────────────────────────────────────────────────
+    // 1D is the always-on core. 2D Surface Routing is an optional module
+    // gated by a project-level toggle here. When enabled, the dedicated
+    // "2D Surface Routing" tab becomes interactive; when disabled, the
+    // tab stays in place but is greyed out so users can still see what
+    // the parameters would look like. Toggle persists per-.inp under
+    // QSettings so reopening a project remembers the choice.
+    auto *modulesGroup = new QGroupBox(tr("Modules"), page);
+    auto *modulesLay   = new QVBoxLayout(modulesGroup);
+
+    m_module1DBox = new QCheckBox(tr("1D Hydraulics (always on)"), modulesGroup);
+    m_module1DBox->setChecked(true);
+    m_module1DBox->setEnabled(false);
+    m_module1DBox->setToolTip(
+        tr("The 1D pipe-network solver is the SWMM core and cannot be disabled."));
+    modulesLay->addWidget(m_module1DBox);
+
+    m_module2DBox = new QCheckBox(tr("2D Surface Routing (CVODE)"), modulesGroup);
+#ifdef OPENSWMM_HAS_2D
+    m_module2DBox->setToolTip(
+        tr("Enable the optional 2D surface-routing module. When on, the "
+           "\"2D Surface Routing\" tab becomes editable and the engine "
+           "runs the 2D solver coupled to the 1D network."));
+#else
+    m_module2DBox->setEnabled(false);
+    m_module2DBox->setToolTip(
+        tr("2D surface-routing module not built in this binary. Rebuild "
+           "the engine with -DOPENSWMM_BUILD_2D=ON (requires SUNDIALS) to "
+           "enable."));
+#endif
+    modulesLay->addWidget(m_module2DBox);
+
+    vlay->addWidget(modulesGroup);
+
+    connect(m_module2DBox, &QCheckBox::toggled,
+            this, &SimulationOptionsDialog::on2DModuleToggled);
 
     auto *flagsGroup = new QGroupBox(tr("Options / flags"), page);
     auto *flagsLay   = new QVBoxLayout(flagsGroup);
@@ -512,6 +556,18 @@ void SimulationOptionsDialog::onSpatialDetectCRS()
     }
 }
 
+void SimulationOptionsDialog::on2DModuleToggled(bool enabled)
+{
+    // Drive the 2D options tab's interactive state. Tab stays visible
+    // either way so the user can preview parameters even when 2D is off.
+#ifdef OPENSWMM_HAS_2D
+    if (m_tabs && m_2DTabIndex >= 0)
+        m_tabs->setTabEnabled(m_2DTabIndex, enabled);
+#else
+    Q_UNUSED(enabled)
+#endif
+}
+
 #ifdef OPENSWMM_HAS_2D
 
 // ---------------------------------------------------------------------------
@@ -712,6 +768,15 @@ QString SimulationOptionsDialog::getOption(const char *key,
 
 bool SimulationOptionsDialog::setOption(const char *key, const QString &value)
 {
+    // Prefer the layer's setOption when available — it emits
+    // optionsChanged() which the main window + status bar listen to, so
+    // per-key writes do the live-sync automatically instead of
+    // depending on a post-hoc refresh from the caller. Fall back to the
+    // raw engine API when no layer is bound (e.g. dialog used in
+    // engine-only tests).
+    if (m_layer) {
+        return m_layer->setOption(QByteArray(key), value);
+    }
     if (!m_engine) return false;
     const QByteArray v = value.toUtf8();
     return swmm_options_set(m_engine, key, v.constData()) == 0;
@@ -800,6 +865,22 @@ void SimulationOptionsDialog::readFromEngine()
 
     // ---- Tab 4 ---------------------------------------------------------
     m_threadsSpin->setValue(getOption("THREADS", "0").toInt(&ok));
+
+    // ---- 2D module toggle (Tab 1 → Modules group) ----------------------
+    // Persisted per-.inp under QSettings since the engine has no native
+    // option for "module enabled" — module activation is implicit in the
+    // presence of [2D_VERTICES]/[2D_TRIANGLES] sections. Default OFF when
+    // there's no stored preference (matches a fresh project's blank .inp).
+    if (m_module2DBox && m_layer)
+    {
+        QSettings s;
+        const QString key = QStringLiteral("SWMMVis/Project/%1/Module2DEnabled")
+                                .arg(m_layer->modelFilePath());
+        const bool enabled = s.value(key, false).toBool();
+        QSignalBlocker blk(m_module2DBox);  // avoid wiring through on2DModuleToggled twice
+        m_module2DBox->setChecked(enabled);
+        on2DModuleToggled(enabled);  // explicit: sync tab-enabled state.
+    }
 
     // ---- Tab 6 (2D) — only present when compiled in --------------------
 #ifdef OPENSWMM_HAS_2D
@@ -903,6 +984,15 @@ int SimulationOptionsDialog::writeToEngine()
     // Tab 4 — System / Performance
     writeIfChanged("THREADS",             getOption("THREADS"),
                    QString::number(m_threadsSpin->value()));
+
+    // 2D module toggle — QSettings persistence (engine has no native key)
+    if (m_module2DBox && m_layer)
+    {
+        QSettings s;
+        const QString key = QStringLiteral("SWMMVis/Project/%1/Module2DEnabled")
+                                .arg(m_layer->modelFilePath());
+        s.setValue(key, m_module2DBox->isChecked());
+    }
 
     // Tab 6 — 2D (only when compiled in)
 #ifdef OPENSWMM_HAS_2D

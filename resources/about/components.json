@@ -111,6 +111,17 @@
   },
   {
     "category": "Numerics",
+    "name": "nanoflann",
+    "version": "1.6.x",
+    "role": "Header-only KD-tree library used for O(log N) spatial queries (node / gage click-pick and rubber-band selection).",
+    "homepage": "https://github.com/jlblancoc/nanoflann",
+    "source":   "https://github.com/jlblancoc/nanoflann",
+    "spdx": "BSD-2-Clause",
+    "provenance": "vcpkg",
+    "licenseFile": ":/licenses/nanoflann.txt"
+  },
+  {
+    "category": "Numerics",
     "name": "CVODE (SUNDIALS)",
     "version": "6.x",
     "role": "Implicit ODE/DAE solver used by the 2D surface-routing solver.",

@@ -5,8 +5,9 @@
  */
 
 #include "layers/swmmmodellayer.h"
+#include "core/preferencesmanager.h"
 #include "core/unitsystem.h"
-#include "map/graphicsitems.h"
+#include "map/swmmlayeritem.h"
 #include "map/spatialreferencesystem.h"
 #include "map/mapextent.h"
 
@@ -14,6 +15,8 @@
 #include <QDebug>
 #include <QFileInfo>
 #include <QtMath>
+
+#include <limits>
 
 #include <ogr_spatialref.h>
 #include <ogr_geometry.h>
@@ -25,6 +28,50 @@
 #include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_spatial.h>
+
+#include <nanoflann.hpp>
+
+// ---------------------------------------------------------------------------
+// nanoflann adaptor + KD-tree types (private to this translation unit)
+// ---------------------------------------------------------------------------
+namespace {
+
+// Adaptor for a pair of parallel double arrays (xs, ys), each of length n.
+struct PtAdaptor
+{
+    const double *xs = nullptr;
+    const double *ys = nullptr;
+    std::size_t   n  = 0;
+
+    std::size_t kdtree_get_point_count() const { return n; }
+    double kdtree_get_pt(std::size_t i, std::size_t dim) const
+    {
+        return dim == 0 ? xs[i] : ys[i];
+    }
+    template<class BBOX>
+    bool kdtree_get_bbox(BBOX &) const { return false; }
+};
+
+using Kd2 = nanoflann::KDTreeSingleIndexAdaptor<
+    nanoflann::L2_Simple_Adaptor<double, PtAdaptor>,
+    PtAdaptor, 2>;
+
+} // anonymous namespace
+
+// SWMMKdTrees owns the flat x/y arrays that the PtAdaptors reference plus
+// the two KD-trees.  Defined here (not in the header) so nanoflann.hpp is
+// never pulled into consumers of swmmmodellayer.h.
+struct SWMMKdTrees
+{
+    QVector<double> nodeX, nodeY;   ///< parallel to SWMMModelLayer::m_nodes
+    QVector<double> gageX, gageY;   ///< parallel to SWMMModelLayer::m_gages
+
+    PtAdaptor nodeAdaptor;
+    PtAdaptor gageAdaptor;
+
+    std::unique_ptr<Kd2> nodeTree;
+    std::unique_ptr<Kd2> gageTree;
+};
 
 // ---------------------------------------------------------------------------
 // Helper: map coordinate → scene coordinate (Y-flipped)
@@ -50,7 +97,7 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
     m_junctionSym.fillColor  = QColor(0, 120, 255);
     m_junctionSym.size       = 8.0;
     m_outfallSym.fillColor   = QColor(255, 80,  0);
-    m_outfallSym.size        = 10.0;
+    m_outfallSym.size        = 12.5;   // 1.25× the legacy 10 px triangle
     m_storageSym.fillColor   = QColor(180, 60, 200);
     m_storageSym.size        = 12.0;
     m_dividerSym.fillColor   = Qt::green;
@@ -111,6 +158,15 @@ void SWMMModelLayer::closeEngine()
     // Drop any per-object hides so opening a different model doesn't
     // accidentally hide a similarly-named object from the new project.
     m_hiddenObjects.clear();
+    // Per-category caches (populated in buildGeometryCache).
+    for (auto &b : m_nodesByType) b.clear();
+    for (auto &b : m_linksByType) b.clear();
+    for (int &c : m_hiddenCountByCategory) c = 0;
+    m_objectLocation.clear();
+    m_kdTrees.reset();
+    m_kdDirty = false;   // no data to index — nothing to rebuild
+    m_linkBboxes.clear();
+    m_catchBboxes.clear();
     m_needsRebuild = true;
 }
 
@@ -302,11 +358,24 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
     }
 
     // ---- CRS ----
+    // Resolution order:
+    //   1. CRS stored in the .inp (via swmm_get_crs) — preferred.
+    //   2. User-preference default (PreferencesManager → EPSG:4326 out
+    //      of the box). Lets a user working in a specific region pick
+    //      a local projected CRS once and have every future project
+    //      default to it.
+    //   3. Untitled local SRS — only if the preferred code lookup
+    //      fails (bad custom EPSG, missing PROJ data, etc.).
     {
         SpatialReferenceSystem *layerSRS = nullptr;
         char crsBuf[512] = {};
         if (swmm_get_crs(m_engine, crsBuf, sizeof(crsBuf)) == 0 && crsBuf[0] != '\0')
             layerSRS = SpatialReferenceSystem::fromWktOrProj(QString::fromUtf8(crsBuf), this);
+        if (!layerSRS) {
+            auto *prefs = PreferencesManager::instance();
+            layerSRS = SpatialReferenceSystem::fromAuthCode(prefs->defaultCrsAuthority(),
+                                                            prefs->defaultCrsCode(), this);
+        }
         if (!layerSRS)
             layerSRS = SpatialReferenceSystem::untitled(this);
         setSRS(layerSRS, true);
@@ -373,14 +442,30 @@ bool SWMMModelLayer::isObjectVisible(const QString &name) const
 
 void SWMMModelLayer::setObjectVisible(const QString &name, bool visible)
 {
+    // Single-object visibility toggle routed through the same per-category
+    // hidden-count bookkeeping that setObjectVisibleAt / setCategoryVisible
+    // use. Keeps categoryCheckState() O(1) even when callers enter by
+    // name (map tools, command-line edit paths, SelectionManager) rather
+    // than by (category, row).
     bool changed = false;
+    const auto it = m_objectLocation.constFind(name);
+    const bool knownCat = it != m_objectLocation.constEnd();
+    const Category cat  = knownCat ? it->first : CatJunctions;
+
     if (visible)
     {
-        changed = m_hiddenObjects.remove(name) > 0;
+        if (m_hiddenObjects.remove(name) > 0)
+        {
+            if (knownCat && m_hiddenCountByCategory[cat] > 0)
+                --m_hiddenCountByCategory[cat];
+            changed = true;
+        }
     }
     else if (!m_hiddenObjects.contains(name))
     {
         m_hiddenObjects.insert(name);
+        if (knownCat)
+            ++m_hiddenCountByCategory[cat];
         changed = true;
     }
     if (changed)
@@ -396,8 +481,16 @@ void SWMMModelLayer::setObjectsVisible(const QList<QString> &names, bool visible
     if (visible)
     {
         for (const QString &n : names)
+        {
             if (m_hiddenObjects.remove(n) > 0)
+            {
+                const auto it = m_objectLocation.constFind(n);
+                if (it != m_objectLocation.constEnd()
+                    && m_hiddenCountByCategory[it->first] > 0)
+                    --m_hiddenCountByCategory[it->first];
                 changed = true;
+            }
+        }
     }
     else
     {
@@ -406,6 +499,9 @@ void SWMMModelLayer::setObjectsVisible(const QList<QString> &names, bool visible
             if (!m_hiddenObjects.contains(n))
             {
                 m_hiddenObjects.insert(n);
+                const auto it = m_objectLocation.constFind(n);
+                if (it != m_objectLocation.constEnd())
+                    ++m_hiddenCountByCategory[it->first];
                 changed = true;
             }
         }
@@ -414,6 +510,336 @@ void SWMMModelLayer::setObjectsVisible(const QList<QString> &names, bool visible
     {
         m_needsRebuild = true;
         emit repaintRequested();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Category-aware API (consumed by SWMMObjectTreeModel)
+// ---------------------------------------------------------------------------
+
+double SWMMModelLayer::maxMarkerHalfBoundPx() const
+{
+    // Circles: half-bound = radius = size / 2.
+    // Squares / triangles / diamonds: the visible bound a click has to
+    // reach is the shape's outer vertex. For a size-N square the
+    // worst case (corner) sits at N / 2 * sqrt(2) from the centre.
+    // Legacy SWMM treats all glyphs as "within sym.size/2 of centre"
+    // for hit-testing so this is conservatively larger than what the
+    // renderer strictly needs — but that's the entire point: it
+    // guarantees every pixel inside the rendered bounds is pickable.
+    constexpr double kDiagScale = 1.41421356;   // sqrt(2)
+    double best = 0.0;
+    const auto consider = [&](const SWMMElementSymbol &s, double scale) {
+        best = std::max(best, (s.size * 0.5) * scale);
+    };
+    consider(m_junctionSym, 1.0);          // circle
+    consider(m_outfallSym,  kDiagScale);   // triangle (apex / base corner)
+    consider(m_storageSym,  kDiagScale);   // square (corner)
+    consider(m_dividerSym,  kDiagScale);   // diamond (axis tip)
+    consider(m_gageSym,     kDiagScale);   // diamond
+    return best;
+}
+
+int SWMMModelLayer::categoryCount(Category c) const
+{
+    // Overrides don't change membership, just display order — the
+    // count is always the count of the underlying SoA bucket.
+    switch (c) {
+    case CatJunctions: case CatOutfalls: case CatStorage: case CatDividers:
+        return m_nodesByType[int(c) - int(CatJunctions)].size();
+    case CatConduits: case CatPumps: case CatOrifices:
+    case CatWeirs:    case CatOutlets:
+        return m_linksByType[int(c) - int(CatConduits)].size();
+    case CatSubcatchments: return m_catchments.size();
+    case CatRainGages:     return m_gages.size();
+    default:               return 0;
+    }
+}
+
+QString SWMMModelLayer::objectNameAt(Category c, int row) const
+{
+    if (row < 0) return {};
+
+    // Intra-category override (Slice T.3): if set, visible `row` maps
+    // straight through the user-defined permutation to the SoA index.
+    const auto itOverride = m_objectOrderOverrides.constFind(c);
+    if (itOverride != m_objectOrderOverrides.constEnd()) {
+        const auto &ord = *itOverride;
+        if (row >= ord.size()) return {};
+        const int soaIdx = ord[row];
+        switch (c) {
+        case CatJunctions: case CatOutfalls: case CatStorage: case CatDividers:
+            return (soaIdx >= 0 && soaIdx < m_nodes.size())
+                ? m_nodes[soaIdx].name : QString();
+        case CatConduits: case CatPumps: case CatOrifices:
+        case CatWeirs:    case CatOutlets:
+            return (soaIdx >= 0 && soaIdx < m_links.size())
+                ? m_links[soaIdx].name : QString();
+        case CatSubcatchments:
+            return (soaIdx >= 0 && soaIdx < m_catchments.size())
+                ? m_catchments[soaIdx].name : QString();
+        case CatRainGages:
+            return (soaIdx >= 0 && soaIdx < m_gages.size())
+                ? m_gages[soaIdx].name : QString();
+        default: return {};
+        }
+    }
+
+    // Default path — per-category bucket built in rebuildCategoryIndex().
+    switch (c) {
+    case CatJunctions: case CatOutfalls: case CatStorage: case CatDividers: {
+        const auto &b = m_nodesByType[int(c) - int(CatJunctions)];
+        return (row < b.size()) ? m_nodes[b[row]].name : QString();
+    }
+    case CatConduits: case CatPumps: case CatOrifices:
+    case CatWeirs:    case CatOutlets: {
+        const auto &b = m_linksByType[int(c) - int(CatConduits)];
+        return (row < b.size()) ? m_links[b[row]].name : QString();
+    }
+    case CatSubcatchments:
+        return (row < m_catchments.size()) ? m_catchments[row].name : QString();
+    case CatRainGages:
+        return (row < m_gages.size()) ? m_gages[row].name : QString();
+    default:
+        return {};
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Slice T.3 — intra-category object order
+// ---------------------------------------------------------------------------
+
+QVector<int> SWMMModelLayer::objectOrder(Category c) const
+{
+    return m_objectOrderOverrides.value(c);
+}
+
+QVector<int> SWMMModelLayer::defaultObjectOrder(Category c) const
+{
+    switch (c) {
+    case CatJunctions: case CatOutfalls: case CatStorage: case CatDividers:
+        return m_nodesByType[int(c) - int(CatJunctions)];
+    case CatConduits: case CatPumps: case CatOrifices:
+    case CatWeirs:    case CatOutlets:
+        return m_linksByType[int(c) - int(CatConduits)];
+    case CatSubcatchments: {
+        QVector<int> v; v.reserve(m_catchments.size());
+        for (int i = 0; i < m_catchments.size(); ++i) v.append(i);
+        return v;
+    }
+    case CatRainGages: {
+        QVector<int> v; v.reserve(m_gages.size());
+        for (int i = 0; i < m_gages.size(); ++i) v.append(i);
+        return v;
+    }
+    default: return {};
+    }
+}
+
+void SWMMModelLayer::clearObjectOrder(Category c)
+{
+    if (m_objectOrderOverrides.remove(c) == 0) return;
+    // Rebuild m_objectLocation for this category against the default
+    // bucket order, so findObjectLocation() returns the default row
+    // the Object Browser now displays.
+    const int n = categoryCount(c);
+    for (int r = 0; r < n; ++r)
+        m_objectLocation.insert(objectNameAt(c, r), {c, r});
+    emit categoryOrderChanged();
+}
+
+void SWMMModelLayer::setObjectOrder(Category c, const QVector<int> &soaIndices)
+{
+    const int expected = categoryCount(c);
+    if (soaIndices.size() != expected) return;
+
+    // soaIndices must be a permutation of the default SoA index set
+    // (guards against silent drop / duplicate from a malformed drag
+    // or stale .oswp payload).
+    const QVector<int> def = defaultObjectOrder(c);
+    if (def.size() != expected) return;
+    const QSet<int> defaults(def.cbegin(), def.cend());
+    const QSet<int> given(soaIndices.cbegin(), soaIndices.cend());
+    if (given != defaults) return;
+
+    m_objectOrderOverrides.insert(c, soaIndices);
+
+    // Rewrite m_objectLocation for this category so findObjectLocation
+    // returns the new display row. Other categories untouched.
+    for (int r = 0; r < soaIndices.size(); ++r) {
+        const QString name = objectNameAt(c, r);
+        if (!name.isEmpty())
+            m_objectLocation.insert(name, {c, r});
+    }
+
+    emit categoryOrderChanged();
+}
+
+Qt::CheckState SWMMModelLayer::categoryCheckState(Category c) const
+{
+    const int total  = categoryCount(c);
+    if (total <= 0) return Qt::Checked;
+    const int hidden = m_hiddenCountByCategory[c];
+    if (hidden == 0)      return Qt::Checked;
+    if (hidden == total)  return Qt::Unchecked;
+    return Qt::PartiallyChecked;
+}
+
+void SWMMModelLayer::setObjectVisibleAt(Category c, int row, bool visible)
+{
+    const QString name = objectNameAt(c, row);
+    if (name.isEmpty()) return;
+
+    bool changed = false;
+    if (visible)
+    {
+        if (m_hiddenObjects.remove(name) > 0)
+        {
+            if (m_hiddenCountByCategory[c] > 0) --m_hiddenCountByCategory[c];
+            changed = true;
+        }
+    }
+    else if (!m_hiddenObjects.contains(name))
+    {
+        m_hiddenObjects.insert(name);
+        ++m_hiddenCountByCategory[c];
+        changed = true;
+    }
+    if (changed)
+    {
+        m_needsRebuild = true;
+        emit repaintRequested();
+    }
+}
+
+void SWMMModelLayer::setCategoryVisible(Category c, bool visible)
+{
+    const int total = categoryCount(c);
+    if (total <= 0) return;
+
+    bool changed = false;
+    for (int r = 0; r < total; ++r)
+    {
+        const QString name = objectNameAt(c, r);
+        if (name.isEmpty()) continue;
+        if (visible)
+        {
+            if (m_hiddenObjects.remove(name) > 0) changed = true;
+        }
+        else if (!m_hiddenObjects.contains(name))
+        {
+            m_hiddenObjects.insert(name);
+            changed = true;
+        }
+    }
+
+    // One-shot counter update — avoids NumCategories comparison per leaf.
+    m_hiddenCountByCategory[c] = visible ? 0 : total;
+
+    if (changed)
+    {
+        m_needsRebuild = true;
+        emit repaintRequested();
+    }
+}
+
+bool SWMMModelLayer::findObjectLocation(const QString &name,
+                                         Category *cat, int *row) const
+{
+    const auto it = m_objectLocation.constFind(name);
+    if (it == m_objectLocation.constEnd()) return false;
+    if (cat) *cat = it->first;
+    if (row) *row = it->second;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Category index rebuild — called from buildGeometryCache() and after any
+// SoA-mutating add/remove so the model + counters stay in sync.
+// ---------------------------------------------------------------------------
+
+QVector<SWMMModelLayer::Category> SWMMModelLayer::categoryOrder() const
+{
+    return m_categoryOrder;
+}
+
+void SWMMModelLayer::setCategoryOrder(const QVector<Category> &order)
+{
+    if (order.size() != int(NumCategories)) return;
+
+    // Sanity-check: the vector must contain each enum value exactly
+    // once. Otherwise a malformed input (from a stale .oswp or a drag
+    // glitch) could silently hide a category or duplicate a header.
+    std::array<int, NumCategories> counts = {};
+    for (Category c : order) {
+        if (int(c) < 0 || int(c) >= int(NumCategories)) return;
+        ++counts[int(c)];
+    }
+    for (int c : counts) if (c != 1) return;
+
+    if (order == m_categoryOrder) return;
+    m_categoryOrder = order;
+    emit categoryOrderChanged();
+}
+
+void SWMMModelLayer::rebuildCategoryIndex()
+{
+    for (auto &b : m_nodesByType) b.clear();
+    for (auto &b : m_linksByType) b.clear();
+    m_objectLocation.clear();
+    // Drop intra-category overrides — the underlying SoA has been
+    // rebuilt (add / remove / reload), so stored SoA indices could
+    // now reference garbage.  .oswp restore will reinstall any
+    // user-saved overrides after this routine returns.
+    m_objectOrderOverrides.clear();
+
+    // Seed the display-order vector to the enum sequence if empty
+    // (fresh layer) — otherwise leave whatever the user picked
+    // untouched across geometry rebuilds.
+    if (m_categoryOrder.size() != int(NumCategories)) {
+        m_categoryOrder.clear();
+        m_categoryOrder.reserve(int(NumCategories));
+        for (int i = 0; i < int(NumCategories); ++i)
+            m_categoryOrder.append(static_cast<Category>(i));
+    }
+
+    // Nodes — bucket by nodeType (0..3). Unknown types fold into CatJunctions.
+    for (int i = 0; i < m_nodes.size(); ++i)
+    {
+        const int t = (m_nodes[i].nodeType >= 0 && m_nodes[i].nodeType < 4)
+                    ? m_nodes[i].nodeType : 0;
+        const Category cat = Category(int(CatJunctions) + t);
+        m_nodesByType[t].append(i);
+        m_objectLocation.insert(m_nodes[i].name,
+                                {cat, m_nodesByType[t].size() - 1});
+    }
+
+    // Links — linkType 0..4 matches Category 0..4 offset from CatConduits.
+    for (int i = 0; i < m_links.size(); ++i)
+    {
+        const int t = (m_links[i].linkType >= 0 && m_links[i].linkType < 5)
+                    ? m_links[i].linkType : 0;
+        const Category cat = Category(int(CatConduits) + t);
+        m_linksByType[t].append(i);
+        m_objectLocation.insert(m_links[i].name,
+                                {cat, m_linksByType[t].size() - 1});
+    }
+
+    // Subcatchments + gages are their own categories; row = SoA index.
+    for (int i = 0; i < m_catchments.size(); ++i)
+        m_objectLocation.insert(m_catchments[i].name, {CatSubcatchments, i});
+    for (int i = 0; i < m_gages.size(); ++i)
+        m_objectLocation.insert(m_gages[i].name, {CatRainGages, i});
+
+    // Recompute hidden-count per category from m_hiddenObjects (which
+    // survives across reloads of the same file — re-derive from whatever
+    // state is currently in the set).
+    for (int &c : m_hiddenCountByCategory) c = 0;
+    for (const QString &n : m_hiddenObjects)
+    {
+        const auto it = m_objectLocation.constFind(n);
+        if (it != m_objectLocation.constEnd())
+            ++m_hiddenCountByCategory[it->first];
     }
 }
 
@@ -541,48 +967,205 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name) const
     return m;
 }
 
+MapExtent SWMMModelLayer::objectExtent(const QString &name) const
+{
+    // A default-constructed MapExtent is all zeros — indistinguishable
+    // from a node that sits at the origin. Use a NaN sentinel for "not
+    // found" so callers can reliably tell unknown-object from degenerate
+    // zero-point via std::isfinite / MapExtent::isValid (isValid fails
+    // for non-finite bounds).
+    const double kNaN = std::numeric_limits<double>::quiet_NaN();
+    const MapExtent kUnknown(kNaN, kNaN, kNaN, kNaN);
+    if (name.isEmpty()) return kUnknown;
+
+    SWMMModelLayer::Category cat;
+    int row = 0;
+    if (!findObjectLocation(name, &cat, &row))
+        return kUnknown;
+
+    auto bboxOf = [&](const auto &pts) -> MapExtent {
+        if (pts.isEmpty()) return kUnknown;
+        double x0 = pts.first().x(), x1 = x0;
+        double y0 = pts.first().y(), y1 = y0;
+        for (const auto &p : pts) {
+            if (p.x() < x0) x0 = p.x();
+            if (p.x() > x1) x1 = p.x();
+            if (p.y() < y0) y0 = p.y();
+            if (p.y() > y1) y1 = p.y();
+        }
+        return {x0, y0, x1, y1};
+    };
+
+    switch (cat) {
+    case CatJunctions: case CatOutfalls: case CatStorage: case CatDividers: {
+        const int idx = m_nodesByType[int(cat) - int(CatJunctions)].value(row, -1);
+        if (idx < 0) return kUnknown;
+        const auto &n = m_nodes[idx];
+        return {n.x, n.y, n.x, n.y};
+    }
+    case CatConduits: case CatPumps: case CatOrifices:
+    case CatWeirs:    case CatOutlets: {
+        const int idx = m_linksByType[int(cat) - int(CatConduits)].value(row, -1);
+        if (idx < 0) return kUnknown;
+        return bboxOf(m_links[idx].vertices);
+    }
+    case CatSubcatchments:
+        if (row < 0 || row >= m_catchments.size()) return kUnknown;
+        return bboxOf(m_catchments[row].vertices);
+    case CatRainGages:
+        if (row < 0 || row >= m_gages.size()) return kUnknown;
+        return {m_gages[row].x, m_gages[row].y,
+                m_gages[row].x, m_gages[row].y};
+    default:
+        return kUnknown;
+    }
+}
+
 QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
                                         const SpatialReferenceSystem * /*canvasSRS*/,
                                         double tolerance) const
 {
-    double bestDist2 = tolerance * tolerance;
-    QVariantMap best;
-
-    // Check nodes
-    for (const NodeGeom &n : m_nodes)
-    {
-        double dx = n.x - mapX;
-        double dy = n.y - mapY;
-        double d2 = dx * dx + dy * dy;
-        if (d2 < bestDist2)
-        {
-            bestDist2 = d2;
-            best.clear();
-            best[QStringLiteral("elementType")] = QStringLiteral("Node");
-            best[QStringLiteral("elementName")] = n.name;
-            best[QStringLiteral("x")]           = n.x;
-            best[QStringLiteral("y")]           = n.y;
+    // CRS-aware hit-testing.
+    //
+    // SoA coordinates (m_nodes[i].x/y, etc.) are stored in the LAYER's
+    // native CRS. The caller's (mapX, mapY) is in CANVAS CRS (the
+    // MapToolSelect converted from pixel → canvas-map via the view
+    // transform). When the two CRSes differ, raw (n.x - mapX) is
+    // nonsense — the distances aren't comparable and nothing ever
+    // falls inside `tolerance` — which is why users felt nodes were
+    // "impossible to select" after reprojecting a layer.
+    //
+    // Fix: convert the click into LAYER coords once per call via the
+    // inverse of the layer's forward transform (layer → canvas), then
+    // compare against the stored SoA coords. `tolerance` is interpreted
+    // in LAYER units — MapToolSelect already passes the layer-unit
+    // equivalent of its pixel tolerance, so that side's already right.
+    double clickLX = mapX, clickLY = mapY;
+    double tolerLayer = tolerance;    // default: caller-supplied units
+    if (m_transform) {
+        auto *inv = m_transform->GetInverse();
+        if (inv) {
+            // Transform click and a tolerance-offset point; the offset's
+            // layer-space delta is the correct tolerance to compare
+            // against layer-unit distances below.
+            double offX = mapX + tolerance, offY = mapY + tolerance;
+            inv->Transform(1, &clickLX, &clickLY);
+            inv->Transform(1, &offX,    &offY);
+            OGRCoordinateTransformation::DestroyCT(inv);
+            tolerLayer = std::max(std::abs(offX - clickLX),
+                                   std::abs(offY - clickLY));
         }
     }
 
-    // Check links (use midpoint of each segment)
-    for (const LinkGeom &l : m_links)
+    // Tiered priority — matches what users expect from a SWMM editor:
+    //
+    //   1. NODES + RAIN GAGES (generous tolerance — tolerLayer).
+    //      If any point feature is within tolerance, pick the nearest.
+    //      Links and subcatchments passing near the click NEVER steal
+    //      the pick from a point feature, because previously that
+    //      meant a conduit hugging a junction always won the
+    //      "closest" race even when the user clicked squarely on the
+    //      junction's glyph.
+    //
+    //   2. LINKS (TIGHTER tolerance — tolerLayer / 3). Only considered
+    //      when no node / gage was in range. Users reported links were
+    //      "too easy" — the pick had to be near the drawn stroke, not
+    //      anywhere in the neighbourhood.
+    //
+    //   3. SUBCATCHMENTS (point-in-polygon only). No tolerance — the
+    //      click has to land inside the polygon. Matches the "works
+    //      perfectly" feedback.
+    const double linkTolerLayer = tolerLayer / 3.0;
+    QVariantMap best;
+
+    // --- Tier 1: nodes + gages (KD-tree O(log N + k)) -------------------
     {
-        const auto &verts = l.vertices;
-        for (int i = 1; i < verts.size(); ++i)
+        ensureKdTrees();
+        double bestDist2 = tolerLayer * tolerLayer;
+        const double qpt[2] = { clickLX, clickLY };
+
+        auto searchTree = [&](const Kd2 *tree,
+                              const QVector<NodeGeom> &src,
+                              const char *elemType)
         {
-            double mx = (verts[i - 1].x() + verts[i].x()) / 2.0;
-            double my = (verts[i - 1].y() + verts[i].y()) / 2.0;
-            double dx = mx - mapX;
-            double dy = my - mapY;
-            double d2 = dx * dx + dy * dy;
-            if (d2 < bestDist2)
+            if (!tree || src.isEmpty()) return;
+            std::vector<nanoflann::ResultItem<uint32_t, double>> matches;
+            tree->radiusSearch(qpt, bestDist2, matches,
+                               nanoflann::SearchParameters());
+            for (const auto &hit : matches)
             {
-                bestDist2 = d2;
+                if (hit.second >= bestDist2) continue;
+                const int i = static_cast<int>(hit.first);
+                if (m_hiddenObjects.contains(src[i].name)) continue;
+                bestDist2 = hit.second;
                 best.clear();
-                best[QStringLiteral("elementType")] = QStringLiteral("Link");
-                best[QStringLiteral("elementName")] = l.name;
+                best[QStringLiteral("elementType")] = QString::fromLatin1(elemType);
+                best[QStringLiteral("elementName")] = src[i].name;
+                best[QStringLiteral("x")]           = src[i].x;
+                best[QStringLiteral("y")]           = src[i].y;
             }
+        };
+
+        const Kd2 *nodeTree = m_kdTrees ? m_kdTrees->nodeTree.get() : nullptr;
+        const Kd2 *gageTree = m_kdTrees ? m_kdTrees->gageTree.get() : nullptr;
+        searchTree(nodeTree, m_nodes, "Node");
+        searchTree(gageTree, m_gages, "RainGage");
+
+        if (!best.isEmpty()) return best;
+    }
+
+    // --- Tier 2: links (tighter tolerance) -----------------------------
+    {
+        double bestDist2 = linkTolerLayer * linkTolerLayer;
+        for (const LinkGeom &l : m_links)
+        {
+            if (m_hiddenObjects.contains(l.name)) continue;
+            const auto &verts = l.vertices;
+            for (int i = 1; i < verts.size(); ++i)
+            {
+                const double ax = verts[i - 1].x(), ay = verts[i - 1].y();
+                const double bx = verts[i].x(),     by = verts[i].y();
+                const double vx = bx - ax,           vy = by - ay;
+                const double wx = clickLX - ax,      wy = clickLY - ay;
+                const double len2 = vx * vx + vy * vy;
+                double t = len2 > 0.0 ? (vx * wx + vy * wy) / len2 : 0.0;
+                if (t < 0.0) t = 0.0; else if (t > 1.0) t = 1.0;
+                const double px = ax + t * vx, py = ay + t * vy;
+                const double dx = px - clickLX, dy = py - clickLY;
+                const double d2 = dx * dx + dy * dy;
+                if (d2 < bestDist2)
+                {
+                    bestDist2 = d2;
+                    best.clear();
+                    best[QStringLiteral("elementType")] = QStringLiteral("Link");
+                    best[QStringLiteral("elementName")] = l.name;
+                }
+            }
+        }
+        if (!best.isEmpty()) return best;
+    }
+
+    // --- Tier 3: subcatchments (point-in-polygon) ----------------------
+    for (const CatchGeom &c : m_catchments)
+    {
+        if (m_hiddenObjects.contains(c.name)) continue;
+        const auto &v = c.vertices;
+        if (v.size() < 3) continue;
+        bool inside = false;
+        for (int i = 0, j = v.size() - 1; i < v.size(); j = i++)
+        {
+            const double xi = v[i].x(), yi = v[i].y();
+            const double xj = v[j].x(), yj = v[j].y();
+            const bool crosses = ((yi > clickLY) != (yj > clickLY)) &&
+                (clickLX < (xj - xi) * (clickLY - yi) / (yj - yi + 1e-20) + xi);
+            if (crosses) inside = !inside;
+        }
+        if (inside)
+        {
+            best.clear();
+            best[QStringLiteral("elementType")] = QStringLiteral("Subcatchment");
+            best[QStringLiteral("elementName")] = c.name;
+            break;
         }
     }
 
@@ -611,146 +1194,17 @@ void SWMMModelLayer::populateScene(QGraphicsScene *scene,
 
     const double baseZ = layerZValue();
 
-    auto applyTransform = [this](double &x, double &y) {
-        if (m_transform)
-            m_transform->Transform(1, &x, &y);
-    };
-
-    // ---- Subcatchments ----
-    if (m_showSubcatchments)
-    {
-        for (const CatchGeom &c : m_catchments)
-        {
-            if (m_hiddenObjects.contains(c.name))
-                continue;
-            QVector<QPointF> pts;
-            pts.reserve(c.vertices.size());
-            for (QPointF v : c.vertices)
-            {
-                double x = v.x(), y = v.y();
-                applyTransform(x, y);
-                pts.append(toScene(x, y));
-            }
-
-            bool sel = m_selectedNames.contains(c.name);
-            QPolygonF poly(pts);
-            auto *item = new CatchmentGraphicsItem(c.name, poly);
-            item->setBrush(sel ? QBrush(QColor(255, 255, 0, 120)) : QBrush(m_subcatchSym.fillColor));
-
-            // Dark green outline with rounded caps/joins so corners are smooth
-            // rather than mitered/jagged. Cosmetic width keeps the stroke a
-            // constant pixel thickness regardless of zoom.
-            QPen pen(m_subcatchSym.outlineColor, m_subcatchSym.outlineWidth);
-            pen.setCosmetic(true);
-            pen.setCapStyle(Qt::RoundCap);
-            pen.setJoinStyle(Qt::RoundJoin);
-            item->setPen(pen);
-
-            item->setHighlighted(sel);
-            item->setOwnerLayer(this);
-            item->setZValue(baseZ);
-            item->setOpacity(opacity());
-            item->setFlag(QGraphicsItem::ItemIsSelectable, true);
-            scene->addItem(item);
-        }
-    }
-
-    // ---- Links ----
-    if (m_showLinks)
-    {
-        for (const LinkGeom &l : m_links)
-        {
-            if (m_hiddenObjects.contains(l.name))
-                continue;
-
-            QVector<QPointF> pts;
-            pts.reserve(l.vertices.size());
-            for (QPointF v : l.vertices)
-            {
-                double x = v.x(), y = v.y();
-                applyTransform(x, y);
-                pts.append(toScene(x, y));
-            }
-
-            if (pts.size() < 2)
-                continue;
-
-            bool sel = m_selectedNames.contains(l.name);
-            const SWMMElementSymbol &sym = m_conduitSym;
-
-            auto *item = new LinkGraphicsItem(l.name, pts);
-            QPen pen(sel ? Qt::yellow : sym.fillColor, sym.outlineWidth + (sel ? 2 : 0));
-            pen.setCosmetic(true);  // constant pixel width regardless of zoom
-            item->setPen(pen);
-            item->setHighlighted(sel);
-            item->setOwnerLayer(this);
-            item->setZValue(baseZ + 1);
-            item->setOpacity(opacity());
-            item->setFlag(QGraphicsItem::ItemIsSelectable, true);
-            scene->addItem(item);
-        }
-    }
-
-    // ---- Nodes ----
-    if (m_showNodes)
-    {
-        // nodeType: 0=Junction, 1=Outfall, 2=Storage, 3=Divider — pick
-        // symbology below; per-sub-type visibility is driven entirely by
-        // the leaf checkboxes / m_hiddenObjects.
-        for (const NodeGeom &n : m_nodes)
-        {
-            if (m_hiddenObjects.contains(n.name))
-                continue;
-
-            double x = n.x, y = n.y;
-            applyTransform(x, y);
-
-            // Pick symbology and shape by node type
-            // nodeType: 0=Junction, 1=Outfall, 2=Storage, 3=Divider
-            const SWMMElementSymbol *sym = &m_junctionSym;
-            NodeGraphicsItem::NodeShape shape = NodeGraphicsItem::Circle;
-            switch (n.nodeType)
-            {
-                case 1: sym = &m_outfallSym;  shape = NodeGraphicsItem::Triangle; break;
-                case 2: sym = &m_storageSym;  shape = NodeGraphicsItem::Square;   break;
-                case 3: sym = &m_dividerSym;  shape = NodeGraphicsItem::Diamond;  break;
-                default: break;
-            }
-
-            bool sel = m_selectedNames.contains(n.name);
-            auto *item = new NodeGraphicsItem(n.name, x, -y, sym->size / 2.0, shape);
-            item->setBrush(QBrush(sel ? Qt::yellow : sym->fillColor));
-            item->setPen(QPen(sym->outlineColor, sym->outlineWidth));
-            item->setHighlighted(sel);
-            item->setOwnerLayer(this);
-            item->setZValue(baseZ + 2);
-            item->setOpacity(opacity());
-            item->setFlag(QGraphicsItem::ItemIsSelectable, true);
-            scene->addItem(item);
-        }
-    }
-
-    // ---- Rain gages ----
-    if (m_showRainGages)
-    {
-        for (const NodeGeom &g : m_gages)
-        {
-            if (m_hiddenObjects.contains(g.name))
-                continue;
-            double x = g.x, y = g.y;
-            applyTransform(x, y);
-
-            auto *item = new NodeGraphicsItem(g.name, x, -y, m_gageSym.size / 2.0,
-                                               NodeGraphicsItem::Diamond);
-            item->setBrush(m_gageSym.fillColor);
-            item->setPen(QPen(m_gageSym.outlineColor, m_gageSym.outlineWidth));
-            item->setOwnerLayer(this);
-            item->setZValue(baseZ + 3);
-            item->setOpacity(opacity());
-            item->setFlag(QGraphicsItem::ItemIsSelectable, true);
-            scene->addItem(item);
-        }
-    }
+    // Slice R Phase 3: the scene now carries ONE batched `SWMMLayerItem`
+    // per layer — no per-object `NodeGraphicsItem` / `LinkGraphicsItem`
+    // / `CatchmentGraphicsItem` placeholders. Every interactive tool
+    // (MoveNode, EditVertex, Select, Identify, etc.) hit-tests through
+    // the layer's `pickAt` / `identifyAt` APIs, so the placeholders are
+    // no longer needed for hit-testing either. Memory for 1 M-object
+    // models drops from > 1 GB (per-item approach) to the SoA +
+    // batched-item footprint (~200 MB per the Slice R memory target).
+    m_batchedItem = new SWMMLayerItem(this);
+    m_batchedItem->setZValue(baseZ);
+    scene->addItem(m_batchedItem);
 }
 
 void SWMMModelLayer::depopulateScene(QGraphicsScene *scene)
@@ -758,29 +1212,24 @@ void SWMMModelLayer::depopulateScene(QGraphicsScene *scene)
     if (!scene)
         return;
 
+    // Post Slice R Phase 3: only the batched `SWMMLayerItem` lives in
+    // the scene on our behalf — no per-object placeholders. Picking out
+    // "our" batched item is a single dynamic_cast + ownerLayer check.
     const auto items = scene->items();
-    QList<QGraphicsItem *> toRemove;
     for (auto *item : items)
     {
-        if (auto *n = dynamic_cast<NodeGraphicsItem *>(item))
-        { if (n->ownerLayer() == this) toRemove.append(item); }
-        else if (auto *l = dynamic_cast<LinkGraphicsItem *>(item))
-        { if (l->ownerLayer() == this) toRemove.append(item); }
-        else if (auto *c = dynamic_cast<CatchmentGraphicsItem *>(item))
-        { if (c->ownerLayer() == this) toRemove.append(item); }
+        if (auto *b = dynamic_cast<SWMMLayerItem *>(item); b && b->ownerLayer() == this) {
+            scene->removeItem(item);
+            delete item;
+        }
     }
+    m_batchedItem = nullptr;
 
-    for (auto *item : toRemove)
-    {
-        scene->removeItem(item);
-        delete item;
-    }
-
-    // After depopulation the scene no longer carries this layer's items; a
-    // subsequent refreshScene() must rebuild from the geometry cache rather
-    // than short-circuit on `!m_needsRebuild`. This is what makes the
-    // visibility checkbox round-trip correctly (off → on repopulates the
-    // network without a manual extent change to force a rebuild).
+    // After depopulation the scene no longer carries this layer's item;
+    // a subsequent refreshScene() must rebuild from the geometry cache
+    // rather than short-circuit on `!m_needsRebuild`. This is what makes
+    // the visibility checkbox round-trip correctly (off → on repopulates
+    // the network without a manual extent change to force a rebuild).
     m_needsRebuild = true;
 }
 
@@ -868,6 +1317,82 @@ QVector<QPointF> SWMMModelLayer::cachedLinkInteriorVertices(int idx) const
     return full.mid(1, full.size() - 2);
 }
 
+SWMMModelLayer::PickResult
+SWMMModelLayer::pickAt(double sceneX, double sceneY, double tolerance) const
+{
+    // Reuse identifyAt — it already does CRS-aware, tiered-priority
+    // hit-testing, and returns both the element type and the name.
+    // This wrapper just translates the result into the typed struct
+    // tools consume.
+    const QVariantMap hit = identifyAt(sceneX, sceneY, nullptr, tolerance);
+    PickResult r;
+    const QString name = hit.value(QStringLiteral("elementName")).toString();
+    if (name.isEmpty()) return r;
+
+    if (!findObjectLocation(name, &r.cat, &r.soaIndex)) return r;
+
+    // `soaIndex` returned by findObjectLocation is the display row
+    // (reflects any Slice T.3 override). Tools expect the SoA-level
+    // index so they can reach m_nodes / m_links directly — map
+    // through the override if one's installed.
+    const auto it = m_objectOrderOverrides.constFind(r.cat);
+    if (it != m_objectOrderOverrides.constEnd()
+        && r.soaIndex >= 0 && r.soaIndex < it->size())
+        r.soaIndex = (*it)[r.soaIndex];
+    else {
+        // No override — the default display row maps through
+        // m_nodesByType / m_linksByType for sub-typed categories.
+        switch (r.cat) {
+        case CatJunctions: case CatOutfalls: case CatStorage: case CatDividers: {
+            const auto &b = m_nodesByType[int(r.cat) - int(CatJunctions)];
+            if (r.soaIndex < b.size()) r.soaIndex = b[r.soaIndex];
+            break;
+        }
+        case CatConduits: case CatPumps: case CatOrifices:
+        case CatWeirs:    case CatOutlets: {
+            const auto &b = m_linksByType[int(r.cat) - int(CatConduits)];
+            if (r.soaIndex < b.size()) r.soaIndex = b[r.soaIndex];
+            break;
+        }
+        default: break;   // Subcatchments / Gages: display row == SoA index
+        }
+    }
+
+    r.valid = true;
+    r.name  = name;
+    return r;
+}
+
+bool SWMMModelLayer::previewNodeMove(int idx, double newX, double newY)
+{
+    if (idx < 0 || idx >= m_nodes.size()) return false;
+
+    m_nodes[idx].x = newX;
+    m_nodes[idx].y = newY;
+
+    // Mirror the endpoint update into each attached link's cached
+    // polyline so the live preview shows the link stretching with the
+    // cursor. Engine state is UNTOUCHED — MoveNodeCommand::redo commits
+    // via applyNodeMove on release.
+    const QVector<int> attached = linksAttachedToNode(idx);
+    for (int linkIdx : attached)
+    {
+        const int end = linkEndForNode(linkIdx, idx);
+        if (end < 0) continue;
+        auto &verts = m_links[linkIdx].vertices;
+        if (verts.isEmpty()) continue;
+        const int slot = (end == 0) ? 0 : (verts.size() - 1);
+        verts[slot] = QPointF(newX, newY);
+    }
+
+    // Repaint; m_needsRebuild intentionally left unset so the scene's
+    // batched item keeps its existing z-value / bounding rect. The
+    // batched renderer re-reads coords on every paint anyway, so the
+    // preview appears at the new position on the next frame.
+    emit repaintRequested();
+    return true;
+}
+
 double SWMMModelLayer::engineLinkLength(int linkIdx) const
 {
     if (!m_engine || !isConduit(linkIdx))
@@ -876,6 +1401,46 @@ double SWMMModelLayer::engineLinkLength(int linkIdx) const
     if (swmm_link_get_length(m_engine, linkIdx, &len) != 0)
         return -1.0;
     return len;
+}
+
+// ---------------------------------------------------------------------------
+// OPTIONS pass-through (Slice U MVC entry points)
+// ---------------------------------------------------------------------------
+
+QString SWMMModelLayer::getOption(const QByteArray &key,
+                                   const QString    &fallback) const
+{
+    if (!m_engine || key.isEmpty()) return fallback;
+    char buf[512] = {};
+    if (swmm_options_get(m_engine, key.constData(), buf, sizeof(buf)) != 0)
+        return fallback;
+    if (buf[0] == '\0') return fallback;
+    return QString::fromUtf8(buf).trimmed();
+}
+
+bool SWMMModelLayer::setOption(const QByteArray &key, const QString &value)
+{
+    if (!m_engine || key.isEmpty()) return false;
+    const QByteArray valUtf8 = value.toUtf8();
+    if (swmm_options_set(m_engine, key.constData(), valUtf8.constData()) != 0)
+        return false;
+    emit optionsChanged({QString::fromLatin1(key)});
+    return true;
+}
+
+int SWMMModelLayer::setOptions(const QMap<QByteArray, QString> &values)
+{
+    if (!m_engine || values.isEmpty()) return 0;
+    QStringList written;
+    written.reserve(values.size());
+    for (auto it = values.constBegin(); it != values.constEnd(); ++it) {
+        const QByteArray valUtf8 = it.value().toUtf8();
+        if (swmm_options_set(m_engine, it.key().constData(), valUtf8.constData()) == 0)
+            written << QString::fromLatin1(it.key());
+    }
+    if (!written.isEmpty())
+        emit optionsChanged(written);
+    return written.size();
 }
 
 bool SWMMModelLayer::isConduit(int linkIdx) const
@@ -940,8 +1505,19 @@ bool SWMMModelLayer::applyNodeMove(int idx, double newX, double newY)
         if (verts.isEmpty()) continue;
         const int slot = (end == 0) ? 0 : (verts.size() - 1);
         verts[slot] = QPointF(newX, newY);
+        // Refresh this link's bbox so linksInRect stays correct.
+        if (linkIdx < m_linkBboxes.size()) {
+            double x0 = verts.first().x(), x1 = x0;
+            double y0 = verts.first().y(), y1 = y0;
+            for (const QPointF &p : verts) {
+                if (p.x() < x0) x0 = p.x(); else if (p.x() > x1) x1 = p.x();
+                if (p.y() < y0) y0 = p.y(); else if (p.y() > y1) y1 = p.y();
+            }
+            m_linkBboxes[linkIdx] = MapExtent(x0, y0, x1, y1);
+        }
     }
 
+    m_kdDirty = true;
     m_needsRebuild = true;
     emit repaintRequested();
     return true;
@@ -988,6 +1564,11 @@ bool SWMMModelLayer::applyNodeAdd(const QString &name, int nodeType,
 
     if (outIdx) *outIdx = idx;
 
+    // m_nodes changed → category index buckets + name→(cat,row) map go
+    // stale. Rebuild before emitting repaintRequested so the Object
+    // Browser model sees a coherent snapshot on the next data() cycle.
+    rebuildCategoryIndex();
+    m_kdDirty = true;
     m_needsRebuild = true;
     emit repaintRequested();
     return true;
@@ -1004,6 +1585,8 @@ bool SWMMModelLayer::rollbackTailNodeAdd(const QString &name)
         return false;
 
     m_nodes.removeLast();
+    rebuildCategoryIndex();
+    m_kdDirty = true;
     m_needsRebuild = true;
     emit repaintRequested();
     return true;
@@ -1047,6 +1630,17 @@ bool SWMMModelLayer::applyLinkInteriorVertices(int linkIdx,
     if (hasTo)   rebuilt.append(toPt);
     full = rebuilt;
 
+    // Refresh this link's bbox so linksInRect stays correct.
+    if (linkIdx < m_linkBboxes.size() && !full.isEmpty()) {
+        double x0 = full.first().x(), x1 = x0;
+        double y0 = full.first().y(), y1 = y0;
+        for (const QPointF &p : full) {
+            if (p.x() < x0) x0 = p.x(); else if (p.x() > x1) x1 = p.x();
+            if (p.y() < y0) y0 = p.y(); else if (p.y() > y1) y1 = p.y();
+        }
+        m_linkBboxes[linkIdx] = MapExtent(x0, y0, x1, y1);
+    }
+
     m_needsRebuild = true;
     emit repaintRequested();
     return true;
@@ -1058,6 +1652,39 @@ bool SWMMModelLayer::applyLinkInteriorVertices(int linkIdx,
 
 void SWMMModelLayer::buildGeometryCache()
 {
+    // Also refresh the per-category index buckets used by the virtualised
+    // Object Browser tree model. These are cheap (O(N) once, indexing into
+    // already-cached SoA) and must stay coherent with m_nodes / m_links /
+    // m_catchments / m_gages any time those are repopulated.
+    rebuildCategoryIndex();
+
+    // Per-feature bbox caches for linksInRect / subcatchmentsInRect.
+    // Computed once here so the rubber-band tool can iterate the
+    // arrays in O(N) with constant work, instead of the previous
+    // O(N²) name→index linear scan + per-link vertex bbox compute on
+    // every iteration.
+    auto bboxOf = [](const QVector<QPointF> &pts) {
+        if (pts.isEmpty())
+            return MapExtent(std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::quiet_NaN());
+        double x0 = pts.first().x(), x1 = x0;
+        double y0 = pts.first().y(), y1 = y0;
+        for (const QPointF &p : pts) {
+            if (p.x() < x0) x0 = p.x(); else if (p.x() > x1) x1 = p.x();
+            if (p.y() < y0) y0 = p.y(); else if (p.y() > y1) y1 = p.y();
+        }
+        return MapExtent(x0, y0, x1, y1);
+    };
+    m_linkBboxes.clear();
+    m_linkBboxes.reserve(m_links.size());
+    for (const LinkGeom &l : m_links) m_linkBboxes.append(bboxOf(l.vertices));
+
+    m_catchBboxes.clear();
+    m_catchBboxes.reserve(m_catchments.size());
+    for (const CatchGeom &c : m_catchments) m_catchBboxes.append(bboxOf(c.vertices));
+
     // Compute the layer's full geometric extent from EVERY drawn element so
     // Zoom-to-Extent fits the entire model on screen, not just the network
     // backbone. Previously this missed subcatchment polygons (which routinely
@@ -1096,6 +1723,217 @@ void SWMMModelLayer::buildGeometryCache()
 
     if (xMin <= xMax && yMin <= yMax)
         setExtent(MapExtent(xMin, yMin, xMax, yMax));
+
+    rebuildKdTrees();
+}
+
+// ---------------------------------------------------------------------------
+// KD-tree management
+// ---------------------------------------------------------------------------
+
+void SWMMModelLayer::rebuildKdTrees() const
+{
+    // Recreate from scratch — ensures the stored raw pointers inside
+    // PtAdaptor always point at the latest flat arrays.
+    m_kdTrees = std::make_unique<SWMMKdTrees>();
+    auto &kd = *m_kdTrees;
+
+    // ---- nodes ----
+    const int nNodes = m_nodes.size();
+    kd.nodeX.resize(nNodes);
+    kd.nodeY.resize(nNodes);
+    for (int i = 0; i < nNodes; ++i)
+    {
+        kd.nodeX[i] = m_nodes[i].x;
+        kd.nodeY[i] = m_nodes[i].y;
+    }
+    kd.nodeAdaptor = { kd.nodeX.constData(), kd.nodeY.constData(),
+                       static_cast<std::size_t>(nNodes) };
+    kd.nodeTree = std::make_unique<Kd2>(
+        2, kd.nodeAdaptor, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+    if (nNodes > 0)
+        kd.nodeTree->buildIndex();
+
+    // ---- gages ----
+    const int nGages = m_gages.size();
+    kd.gageX.resize(nGages);
+    kd.gageY.resize(nGages);
+    for (int i = 0; i < nGages; ++i)
+    {
+        kd.gageX[i] = m_gages[i].x;
+        kd.gageY[i] = m_gages[i].y;
+    }
+    kd.gageAdaptor = { kd.gageX.constData(), kd.gageY.constData(),
+                       static_cast<std::size_t>(nGages) };
+    kd.gageTree = std::make_unique<Kd2>(
+        2, kd.gageAdaptor, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+    if (nGages > 0)
+        kd.gageTree->buildIndex();
+
+    m_kdDirty = false;
+}
+
+void SWMMModelLayer::ensureKdTrees() const
+{
+    if (m_kdDirty || !m_kdTrees)
+        rebuildKdTrees();
+}
+
+// ---------------------------------------------------------------------------
+// Spatial-index rect queries
+// ---------------------------------------------------------------------------
+
+// Helper: transform a canvas-CRS rect into layer-CRS coords.
+// Returns false if no transform is available (already in layer CRS).
+static bool transformRectToLayer(
+    const OGRCoordinateTransformation *fwdTransform,
+    double canvasMinX, double canvasMinY,
+    double canvasMaxX, double canvasMaxY,
+    double &lMinX, double &lMinY,
+    double &lMaxX, double &lMaxY)
+{
+    if (!fwdTransform)
+    {
+        lMinX = canvasMinX; lMinY = canvasMinY;
+        lMaxX = canvasMaxX; lMaxY = canvasMaxY;
+        return false;
+    }
+    auto *inv = fwdTransform->GetInverse();
+    if (!inv)
+    {
+        lMinX = canvasMinX; lMinY = canvasMinY;
+        lMaxX = canvasMaxX; lMaxY = canvasMaxY;
+        return false;
+    }
+    // Transform all 4 corners and take the bounding box of the results.
+    double cx[4] = { canvasMinX, canvasMaxX, canvasMinX, canvasMaxX };
+    double cy[4] = { canvasMinY, canvasMinY, canvasMaxY, canvasMaxY };
+    inv->Transform(4, cx, cy);
+    OGRCoordinateTransformation::DestroyCT(inv);
+    lMinX = *std::min_element(cx, cx + 4);
+    lMaxX = *std::max_element(cx, cx + 4);
+    lMinY = *std::min_element(cy, cy + 4);
+    lMaxY = *std::max_element(cy, cy + 4);
+    return true;
+}
+
+QStringList SWMMModelLayer::nodesInRect(double canvasMinX, double canvasMinY,
+                                         double canvasMaxX, double canvasMaxY) const
+{
+    ensureKdTrees();
+    if (!m_kdTrees || !m_kdTrees->nodeTree || m_nodes.isEmpty())
+        return {};
+
+    double lMinX, lMinY, lMaxX, lMaxY;
+    transformRectToLayer(m_transform, canvasMinX, canvasMinY, canvasMaxX, canvasMaxY,
+                         lMinX, lMinY, lMaxX, lMaxY);
+
+    // Radius search from the rect centre; circumradius guarantees all corners
+    // are covered. Results are post-filtered to the exact rectangle.
+    const double cx = (lMinX + lMaxX) * 0.5;
+    const double cy = (lMinY + lMaxY) * 0.5;
+    const double hw = (lMaxX - lMinX) * 0.5;
+    const double hh = (lMaxY - lMinY) * 0.5;
+    const double r2 = hw * hw + hh * hh;   // squared circumradius
+
+    const double qpt[2] = { cx, cy };
+    std::vector<nanoflann::ResultItem<uint32_t, double>> matches;
+    m_kdTrees->nodeTree->radiusSearch(qpt, r2, matches,
+                                      nanoflann::SearchParameters());
+
+    QStringList result;
+    result.reserve(static_cast<int>(matches.size()));
+    for (const auto &m : matches)
+    {
+        const int i = static_cast<int>(m.first);
+        const double x = m_nodes[i].x, y = m_nodes[i].y;
+        if (x < lMinX || x > lMaxX || y < lMinY || y > lMaxY) continue;
+        if (m_hiddenObjects.contains(m_nodes[i].name))          continue;
+        result.append(m_nodes[i].name);
+    }
+    return result;
+}
+
+QStringList SWMMModelLayer::gagesInRect(double canvasMinX, double canvasMinY,
+                                         double canvasMaxX, double canvasMaxY) const
+{
+    ensureKdTrees();
+    if (!m_kdTrees || !m_kdTrees->gageTree || m_gages.isEmpty())
+        return {};
+
+    double lMinX, lMinY, lMaxX, lMaxY;
+    transformRectToLayer(m_transform, canvasMinX, canvasMinY, canvasMaxX, canvasMaxY,
+                         lMinX, lMinY, lMaxX, lMaxY);
+
+    const double cx = (lMinX + lMaxX) * 0.5;
+    const double cy = (lMinY + lMaxY) * 0.5;
+    const double hw = (lMaxX - lMinX) * 0.5;
+    const double hh = (lMaxY - lMinY) * 0.5;
+    const double r2 = hw * hw + hh * hh;
+
+    const double qpt[2] = { cx, cy };
+    std::vector<nanoflann::ResultItem<uint32_t, double>> matches;
+    m_kdTrees->gageTree->radiusSearch(qpt, r2, matches,
+                                      nanoflann::SearchParameters());
+
+    QStringList result;
+    result.reserve(static_cast<int>(matches.size()));
+    for (const auto &m : matches)
+    {
+        const int i = static_cast<int>(m.first);
+        const double x = m_gages[i].x, y = m_gages[i].y;
+        if (x < lMinX || x > lMaxX || y < lMinY || y > lMaxY) continue;
+        if (m_hiddenObjects.contains(m_gages[i].name))          continue;
+        result.append(m_gages[i].name);
+    }
+    return result;
+}
+
+QStringList SWMMModelLayer::linksInRect(double canvasMinX, double canvasMinY,
+                                         double canvasMaxX, double canvasMaxY) const
+{
+    if (m_links.isEmpty() || m_linkBboxes.size() != m_links.size())
+        return {};
+
+    double lMinX, lMinY, lMaxX, lMaxY;
+    transformRectToLayer(m_transform, canvasMinX, canvasMinY, canvasMaxX, canvasMaxY,
+                         lMinX, lMinY, lMaxX, lMaxY);
+
+    QStringList result;
+    result.reserve(m_links.size() / 4);
+    for (int i = 0; i < m_links.size(); ++i) {
+        const MapExtent &b = m_linkBboxes[i];
+        // Skip features with NaN bbox (empty polylines).
+        if (!std::isfinite(b.xMin())) continue;
+        if (b.xMax() < lMinX || b.xMin() > lMaxX
+         || b.yMax() < lMinY || b.yMin() > lMaxY) continue;
+        if (m_hiddenObjects.contains(m_links[i].name)) continue;
+        result.append(m_links[i].name);
+    }
+    return result;
+}
+
+QStringList SWMMModelLayer::subcatchmentsInRect(double canvasMinX, double canvasMinY,
+                                                 double canvasMaxX, double canvasMaxY) const
+{
+    if (m_catchments.isEmpty() || m_catchBboxes.size() != m_catchments.size())
+        return {};
+
+    double lMinX, lMinY, lMaxX, lMaxY;
+    transformRectToLayer(m_transform, canvasMinX, canvasMinY, canvasMaxX, canvasMaxY,
+                         lMinX, lMinY, lMaxX, lMaxY);
+
+    QStringList result;
+    result.reserve(m_catchments.size() / 4);
+    for (int i = 0; i < m_catchments.size(); ++i) {
+        const MapExtent &b = m_catchBboxes[i];
+        if (!std::isfinite(b.xMin())) continue;
+        if (b.xMax() < lMinX || b.xMin() > lMaxX
+         || b.yMax() < lMinY || b.yMin() > lMaxY) continue;
+        if (m_hiddenObjects.contains(m_catchments[i].name)) continue;
+        result.append(m_catchments[i].name);
+    }
+    return result;
 }
 
 void SWMMModelLayer::rebuildTransform(const SpatialReferenceSystem *canvasSRS)
