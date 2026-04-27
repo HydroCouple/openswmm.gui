@@ -453,10 +453,12 @@ public:
     void reloadGeometry();
 
     /*!
-     * \brief Classify a name into its SWMM object class by looking it up in
-     *        the geometry cache.
+     * \brief Classify a name into its SWMM object class via O(1) lookup
+     *        against `m_objectLocation`.
      * \details Used by the SelectionManager bridge to translate the layer's
-     *          name-only selection set into typed SWMMObjectRefs.
+     *          name-only selection set into typed SWMMObjectRefs. Hot path
+     *          on rubber-band selection (called once per selected name);
+     *          must stay O(1) — do not regress to a linear SoA scan.
      * \return  0=Unknown, 1=Node, 2=Link, 3=Subcatchment, 4=RainGage —
      *          matches the SWMMObjectRef::ObjectType enum values.
      */
@@ -495,6 +497,21 @@ public:
      *          the cached polyline for round-trip edits.
      */
     [[nodiscard]] QVector<QPointF> cachedLinkInteriorVertices(int idx) const;
+
+    /*!
+     * \brief Cached layer-CRS polygon of a subcatchment by index. Vertex
+     *        order matches the .inp [Polygons] section. Returns empty
+     *        when \p idx is out of range or the subcatchment has no
+     *        polygon (engine permits coordinate-less subcatchments).
+     */
+    [[nodiscard]] QVector<QPointF> cachedSubcatchVertices(int idx) const;
+
+    /*!
+     * \brief Number of subcatchments cached. Equivalent to
+     *        `categoryCount(CatSubcatchments)` but provided alongside
+     *        \ref cachedSubcatchVertices for direct iteration.
+     */
+    [[nodiscard]] int cachedSubcatchCount() const;
 
     // ----- Simulation-options pass-through (Slice U) ----------------------
 
@@ -682,6 +699,24 @@ private:
     void ensureKdTrees()  const;  ///< Rebuild only if m_kdDirty is set.
 
     /*!
+     * \brief Recompute every cached scene-coordinate (links, nodes,
+     *        catchments, gages) from the SoA + current m_transform.
+     *        Called from buildGeometryCache (geometry change) and from
+     *        rebuildTransform (CRS change). Edit paths refresh the
+     *        affected entries directly via refreshSceneCoordsForNode /
+     *        refreshSceneCoordsForLink to avoid a full rebuild on a
+     *        single drag preview.
+     *
+     *        The cached points include the scene-space Y-flip
+     *        (toScene(mx, my) = QPointF(mx, -my)) so SWMMLayerItem::paint
+     *        can hand them straight to QPainter::drawLines without any
+     *        per-vertex math.
+     */
+    void rebuildSceneCoords();
+    void refreshSceneCoordsForNode(int nodeIdx);
+    void refreshSceneCoordsForLink(int linkIdx);
+
+    /*!
      * \brief Rebuild the per-category index buckets (m_nodesByType,
      *        m_linksByType), the name→(category, row) lookup, and the
      *        per-category hidden-count array from m_hiddenObjects.
@@ -721,6 +756,19 @@ private:
     // per item.
     QVector<MapExtent>           m_linkBboxes;
     QVector<MapExtent>           m_catchBboxes;
+
+    // Scene-space coordinate cache, parallel to the SoAs above. Computed
+    // once in rebuildSceneCoords() (on geometry change or CRS change) and
+    // refreshed incrementally by edit paths. SWMMLayerItem::paint reads
+    // from these directly — no per-vertex Transform()/toScene() call on
+    // the paint hot path. Per-feature scene-space bounding rects support
+    // viewport cull without a per-paint per-link bbox compute.
+    QVector<QPointF>             m_nodeScenePts;
+    QVector<QVector<QPointF>>    m_linkScenePts;
+    QVector<QRectF>              m_linkSceneBBoxes;
+    QVector<QVector<QPointF>>    m_catchScenePts;
+    QVector<QRectF>              m_catchSceneBBoxes;
+    QVector<QPointF>             m_gageScenePts;
 
     // Per-category row → SoA-index buckets. Built in buildGeometryCache,
     // cleared in closeEngine. Used by the virtualised Object Browser tree

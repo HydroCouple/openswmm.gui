@@ -9,6 +9,8 @@
 #include "core/preferencesmanager.h"
 #include "layers/swmmmodellayer.h"
 
+#include <QDebug>
+#include <QElapsedTimer>
 #include <QGraphicsScene>
 #include <QPainter>
 #include <QPainterPath>
@@ -150,12 +152,14 @@ void SWMMLayerItem::paint(QPainter *painter,
 {
     if (!m_layer || !m_layer->isVisible()) return;
 
+    QElapsedTimer t_total; t_total.start();
     painter->setOpacity(m_layer->opacity());
 
     const QRectF exposed = option->exposedRect;
     const QSet<QString> &hidden   = m_layer->m_hiddenObjects;
     const QStringList   &selected = m_layer->m_selectedNames;
     const QSet<QString> selectedSet(selected.begin(), selected.end());
+    const qint64 t_setup = t_total.elapsed();
 
     // View scale recovery. Node / gage glyphs are sized in PIXELS (so the
     // user sees the same dot diameter at every zoom — matches what
@@ -168,10 +172,9 @@ void SWMMLayerItem::paint(QPainter *painter,
     const qreal m11         = painter->transform().m11();
     const qreal invViewScale = (m11 > 0.0) ? (1.0 / m11) : 1.0;
 
-    auto applyTransform = [this](double &x, double &y) {
-        if (m_layer->m_transform)
-            m_layer->m_transform->Transform(1, &x, &y);
-    };
+    // Scene-space coords are precomputed in SWMMModelLayer::rebuildSceneCoords
+    // and refreshed incrementally on edits. paint() reads them directly so
+    // there's no per-vertex Transform()/toScene() math on the hot path.
 
     // ---------------------------------------------------------------- Subcatchments
     if (m_layer->m_showSubcatchments)
@@ -185,22 +188,19 @@ void SWMMLayerItem::paint(QPainter *painter,
         painter->setPen(pen);
         painter->setBrush(QBrush(sym.fillColor));
 
-        for (const auto &c : m_layer->m_catchments)
+        const auto &cps    = m_layer->m_catchScenePts;
+        const auto &cboxes = m_layer->m_catchSceneBBoxes;
+        for (int i = 0; i < m_layer->m_catchments.size(); ++i)
         {
+            const auto &c = m_layer->m_catchments[i];
             if (hidden.contains(c.name)) continue;
-
-            QPolygonF poly;
-            poly.reserve(c.vertices.size());
-            for (QPointF v : c.vertices) {
-                double x = v.x(), y = v.y();
-                applyTransform(x, y);
-                poly << toScene(x, y);
-            }
-            if (poly.isEmpty()) continue;
-            // Viewport cull: skip polygons whose bbox misses the tile.
-            if (!exposed.isNull() && !exposed.intersects(poly.boundingRect()))
+            if (i >= cps.size() || cps[i].isEmpty()) continue;
+            // Viewport cull against the precomputed scene-space bbox.
+            if (!exposed.isNull() && i < cboxes.size()
+                && !exposed.intersects(cboxes[i]))
                 continue;
 
+            const QPolygonF poly(cps[i]);
             const bool sel = selectedSet.contains(c.name);
             if (sel) painter->setBrush(QColor(255, 255, 0, 120));
             painter->drawPolygon(poly);
@@ -231,36 +231,23 @@ void SWMMLayerItem::paint(QPainter *painter,
         // with the highlight pen after.
         QVector<QLineF> selSegs;
 
-        for (const auto &l : m_layer->m_links)
+        const auto &lps    = m_layer->m_linkScenePts;
+        const auto &lboxes = m_layer->m_linkSceneBBoxes;
+        for (int i = 0; i < m_layer->m_links.size(); ++i)
         {
-            if (hidden.contains(l.name) || l.vertices.size() < 2)
+            const auto &l = m_layer->m_links[i];
+            if (hidden.contains(l.name)) continue;
+            if (i >= lps.size() || lps[i].size() < 2) continue;
+            // Viewport cull against the precomputed scene-space bbox.
+            if (!exposed.isNull() && i < lboxes.size()
+                && !exposed.intersects(lboxes[i]))
                 continue;
 
-            // Transform the polyline once.
-            QVector<QPointF> pts;
-            pts.reserve(l.vertices.size());
-            QRectF bbox;
-            for (int i = 0; i < l.vertices.size(); ++i) {
-                double x = l.vertices[i].x(), y = l.vertices[i].y();
-                applyTransform(x, y);
-                const QPointF sp = toScene(x, y);
-                pts.append(sp);
-                if (i == 0) bbox = QRectF(sp, QSizeF(0, 0));
-                else {
-                    if (sp.x() < bbox.left())   bbox.setLeft  (sp.x());
-                    if (sp.x() > bbox.right())  bbox.setRight (sp.x());
-                    if (sp.y() < bbox.top())    bbox.setTop   (sp.y());
-                    if (sp.y() > bbox.bottom()) bbox.setBottom(sp.y());
-                }
-            }
-            // Viewport cull.
-            if (!exposed.isNull() && !exposed.intersects(bbox))
-                continue;
-
+            const QVector<QPointF> &pts = lps[i];
             const bool sel = selectedSet.contains(l.name);
             auto &target = sel ? selSegs : segs;
-            for (int i = 1; i < pts.size(); ++i)
-                target.emplace_back(pts[i-1], pts[i]);
+            for (int j = 1; j < pts.size(); ++j)
+                target.emplace_back(pts[j-1], pts[j]);
         }
 
         if (!segs.isEmpty())
@@ -299,10 +286,12 @@ void SWMMLayerItem::paint(QPainter *painter,
         // exposedRect but whose body straddles it still draw.
         const double haloScene = 16.0 * invViewScale;
 
-        for (const auto &n : m_layer->m_nodes) {
+        const auto &nps = m_layer->m_nodeScenePts;
+        for (int i = 0; i < m_layer->m_nodes.size(); ++i) {
+            const auto &n = m_layer->m_nodes[i];
             if (hidden.contains(n.name)) continue;
-            double x = n.x, y = n.y; applyTransform(x, y);
-            const QPointF sp = toScene(x, y);
+            if (i >= nps.size()) continue;
+            const QPointF &sp = nps[i];
             if (!exposed.isNull() && !exposed.contains(sp)) {
                 QRectF e = exposed.adjusted(-haloScene, -haloScene,
                                              haloScene,  haloScene);
@@ -356,11 +345,13 @@ void SWMMLayerItem::paint(QPainter *painter,
         // though the layer's selection set is correctly updated —
         // which is exactly the regression the user reported.
         QVector<QPointF> basePts, selPts;
-        for (const auto &g : m_layer->m_gages)
+        const auto &gps = m_layer->m_gageScenePts;
+        for (int i = 0; i < m_layer->m_gages.size(); ++i)
         {
+            const auto &g = m_layer->m_gages[i];
             if (hidden.contains(g.name)) continue;
-            double x = g.x, y = g.y; applyTransform(x, y);
-            const QPointF sp = toScene(x, y);
+            if (i >= gps.size()) continue;
+            const QPointF &sp = gps[i];
             if (!exposed.isNull() && !exposed.contains(sp)) {
                 QRectF e = exposed.adjusted(-haloScene, -haloScene,
                                              haloScene,  haloScene);
@@ -398,13 +389,22 @@ void SWMMLayerItem::paint(QPainter *painter,
         const qreal m11Min = PreferencesManager::instance()->labelLodM11Min();
         if (m11 >= m11Min) {
             painter->setPen(QColor(m_layer->m_junctionSym.labelColor));
-            for (const auto &n : m_layer->m_nodes) {
+            const auto &nps = m_layer->m_nodeScenePts;
+            for (int i = 0; i < m_layer->m_nodes.size(); ++i) {
+                const auto &n = m_layer->m_nodes[i];
                 if (hidden.contains(n.name)) continue;
-                double x = n.x, y = n.y; applyTransform(x, y);
-                const QPointF sp = toScene(x, y);
+                if (i >= nps.size()) continue;
+                const QPointF &sp = nps[i];
                 if (!exposed.isNull() && !exposed.contains(sp)) continue;
                 painter->drawText(sp + QPointF(6, -4), n.name);
             }
         }
     }
+
+    qDebug().noquote() << "[SWMMLayerItem::paint] setup_ms=" << t_setup
+                       << " total_ms=" << t_total.elapsed()
+                       << " links=" << m_layer->m_links.size()
+                       << " nodes=" << m_layer->m_nodes.size()
+                       << " selected=" << selected.size()
+                       << " exposed=" << exposed;
 }

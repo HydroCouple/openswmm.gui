@@ -21,12 +21,14 @@
 #include "ui/dialogs/crsselectiondialog.h"
 
 #include "core/openswmmvislogmessage.h"
+#include "core/preferencesmanager.h"
 #include "core/unitsystem.h"
 #include "map/openswmmvisscene.h"
 #include "selection/selectionmanager.h"
 
 #include <QCloseEvent>
 #include <QDebug>
+#include <QFile>
 #include <QFileInfo>
 #include <QGraphicsScene>
 #include <QMessageBox>
@@ -69,6 +71,30 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
                              : QFileInfo(filePath).baseName());
     mModelLayer->setVisible(!filePath.isEmpty());
 
+    // Hard-sync model-layer CRS → canvas CRS BEFORE addLayer. The "project
+    // CRS" and the "SWMM model CRS" are conceptually a single thing;
+    // whichever path mutates the SWMMModelLayer (LayerPropertiesDialog,
+    // deserializer, direct setSRS during load) must drag the canvas with
+    // it. Connecting before addLayer guarantees this lambda fires BEFORE
+    // MapCanvas's per-layer srsChanged listener (added in addLayer) — so
+    // the canvas SRS updates first, then the per-layer listener's
+    // refreshScene + zoomToFullExtent runs against the correct canvas CRS
+    // instead of stale geometry. Idempotent on same-authority repeats.
+    connect(mModelLayer, &SWMMModelLayer::srsChanged, this,
+            [this](SpatialReferenceSystem *layerSrs) {
+                if (!layerSrs || !mCanvas) return;
+                auto *canvasSrs = mCanvas->canvasSRS();
+                if (canvasSrs && !canvasSrs->toAuthority().isEmpty()
+                    && canvasSrs->toAuthority() == layerSrs->toAuthority())
+                    return;
+                mCanvas->setCanvasSRS(
+                    new SpatialReferenceSystem(*layerSrs, mCanvas), true);
+                // setCanvasSRS already fans out onCanvasCRSChanged to all
+                // layers + emits canvasSRSChanged + refreshes the buffer;
+                // refit so the user sees content at the new coordinates.
+                mCanvas->zoomToFullExtent();
+            });
+
     mCanvas->addLayer(mModelLayer, false);
 
     connect(mModelLayer, &SWMMModelLayer::modelLoaded,    this, &SWMMVisProjectWindow::modelLoaded);
@@ -99,8 +125,16 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
         mCanvas->setProperty("autoLength", mAutoLengthEnabled);
     }
 
-    // Default tool
-    mCanvas->setActiveTool(mPanTool);
+    // Default tool is driven by the PreferencesManager's `defaultTool`
+    // key (Slice V). Out-of-the-box default is "Select" — legacy EPA
+    // SWMM matches, and it lets the user click objects immediately on
+    // load. Unknown values fall back to Select.
+    {
+        const QString defTool = PreferencesManager::instance()->defaultTool();
+        if (defTool == QStringLiteral("Pan"))       mCanvas->setActiveTool(mPanTool);
+        else if (defTool == QStringLiteral("Zoom")) mCanvas->setActiveTool(mZoomInTool);
+        else                                         mCanvas->setActiveTool(mSelectTool);
+    }
 
     // Window title
     setWindowTitle(filePath.isEmpty()
@@ -114,6 +148,18 @@ MapCanvas        *SWMMVisProjectWindow::canvas()           const { return mCanva
 SWMMModelLayer   *SWMMVisProjectWindow::modelLayer()       const { return mModelLayer; }
 UnitSystem       *SWMMVisProjectWindow::unitSystem()       const { return mUnits; }
 SelectionManager *SWMMVisProjectWindow::selectionManager() const { return mSelectionManager; }
+
+void SWMMVisProjectWindow::reloadElevationOffsetModeFromEngine()
+{
+    if (!mModelLayer || !mModelLayer->engine()) return;
+    char buf[32] = {};
+    if (swmm_options_get(mModelLayer->engine(), "LINK_OFFSETS",
+                         buf, sizeof(buf)) == 0)
+    {
+        mElevationOffsetMode =
+            QString(buf).trimmed().compare("ELEVATION", Qt::CaseInsensitive) == 0;
+    }
+}
 
 void SWMMVisProjectWindow::setElevationOffsetMode(bool elevation)
 {
@@ -334,10 +380,21 @@ void SWMMVisProjectWindow::setHasChanges(bool dirty)
 
 void SWMMVisProjectWindow::updateWindowTitle()
 {
-    QString base = mModelLayer && !mModelLayer->modelFilePath().isEmpty()
-                       ? QFileInfo(mModelLayer->modelFilePath()).baseName()
-                       : QStringLiteral("Untitled");
+    // Untitled wins over modelFilePath — even when an untitled window is
+    // backed by a temp .inp, surfacing the temp filename to the user is
+    // confusing. The window stays "Untitled" until Save As replaces it.
+    QString base = (mUntitled || !mModelLayer ||
+                    mModelLayer->modelFilePath().isEmpty())
+                       ? QStringLiteral("Untitled")
+                       : QFileInfo(mModelLayer->modelFilePath()).baseName();
     setWindowTitle(mHasChanges ? (base + QStringLiteral(" *")) : base);
+}
+
+void SWMMVisProjectWindow::markUntitled(const QString &tempInpPath)
+{
+    mUntitled = true;
+    mTempInpPath = tempInpPath;
+    updateWindowTitle();
 }
 
 // ---------------------------------------------------------------------------
@@ -346,8 +403,11 @@ void SWMMVisProjectWindow::updateWindowTitle()
 
 bool SWMMVisProjectWindow::save(QString *errorOut)
 {
-    if (!mModelLayer || mModelLayer->modelFilePath().isEmpty())
+    if (!mModelLayer || mModelLayer->modelFilePath().isEmpty() || mUntitled)
     {
+        // Untitled projects don't have a real path yet — fall through to
+        // Save As. The error string is informational; the caller (SWMMVis::
+        // onSaveProject) reads it and routes to the dialog.
         if (errorOut) *errorOut = tr("No file path set; use Save As.");
         return false;
     }
@@ -371,6 +431,17 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // If saved to a new path, point the layer at it so subsequent Save targets the new file.
     if (newPath != mModelLayer->modelFilePath())
         mModelLayer->setModelFilePath(newPath);
+    // First successful Save As of an untitled project — promote it. Delete
+    // the temp .inp the dialog wrote earlier; the engine has already read
+    // it into memory so the file is no longer needed.
+    if (mUntitled)
+    {
+        if (!mTempInpPath.isEmpty() && QFile::exists(mTempInpPath))
+            QFile::remove(mTempInpPath);
+        mTempInpPath.clear();
+        mUntitled = false;
+        updateWindowTitle();
+    }
     setHasChanges(false);
     return true;
 }
@@ -383,10 +454,13 @@ void SWMMVisProjectWindow::closeEvent(QCloseEvent *event)
 {
     if (mHasChanges)
     {
+        const QString name = mUntitled
+            ? QStringLiteral("Untitled")
+            : QFileInfo(mModelLayer->modelFilePath()).baseName();
         QMessageBox::StandardButton btn = QMessageBox::question(
             this, tr("Save changes?"),
             tr("The model \"%1\" has unsaved changes. Save before closing?")
-                .arg(QFileInfo(mModelLayer->modelFilePath()).baseName()),
+                .arg(name),
             QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
 
         if (btn == QMessageBox::Cancel)
@@ -399,12 +473,28 @@ void SWMMVisProjectWindow::closeEvent(QCloseEvent *event)
             QString err;
             if (!save(&err))
             {
+                // Untitled → save() returns false with the "use Save As"
+                // hint; the closeEvent can't open a Save As dialog
+                // synchronously (would block the close path), so we cancel
+                // the close and let the user trigger Save As manually.
+                if (mUntitled)
+                {
+                    event->ignore();
+                    QMessageBox::information(this, tr("Save As required"),
+                        tr("Untitled projects need an explicit Save As — "
+                           "use File → Save As → Project before closing."));
+                    return;
+                }
                 QMessageBox::critical(this, tr("Save failed"), err);
                 event->ignore();
                 return;
             }
         }
     }
+    // Discard / no-changes path: clean up the temp .inp owned by an
+    // untitled project so we don't leak it.
+    if (mUntitled && !mTempInpPath.isEmpty() && QFile::exists(mTempInpPath))
+        QFile::remove(mTempInpPath);
     QMdiSubWindow::closeEvent(event);
 }
 

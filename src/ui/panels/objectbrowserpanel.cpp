@@ -272,7 +272,15 @@ void ObjectBrowserPanel::onSelectionManagerChanged(
 
     m_applyingFromBus = true;
     auto *sm = m_view->selectionModel();
-    sm->clearSelection();
+
+    // Build the new selection as a single QItemSelection (one range per
+    // row), then apply it in one ClearAndSelect call. The previous loop
+    // called sm->select() per row, which emitted selectionChanged once
+    // per call and made selection-sync O(K²) on large selections (3.6k
+    // rows ≈ 2 s). Same for expand(): the per-row call hammered the
+    // viewport layout, so collect unique parents and expand them once.
+    QItemSelection sel;
+    QSet<QModelIndex> parentsToExpand;
     QModelIndex firstProxyIdx;
     for (const SWMMObjectRef &r : current)
     {
@@ -280,12 +288,15 @@ void ObjectBrowserPanel::onSelectionManagerChanged(
         if (!src.isValid()) continue;
         const QModelIndex proxy = m_proxy->mapFromSource(src);
         if (!proxy.isValid()) continue;
-        sm->select(proxy, QItemSelectionModel::Select | QItemSelectionModel::Rows);
-        // Expand the parent so the picked row is visible.
+        sel.select(proxy, proxy);
         if (const QModelIndex parent = proxy.parent(); parent.isValid())
-            m_view->expand(parent);
+            parentsToExpand.insert(parent);
         if (!firstProxyIdx.isValid()) firstProxyIdx = proxy;
     }
+    sm->select(sel, QItemSelectionModel::ClearAndSelect
+                  | QItemSelectionModel::Rows);
+    for (const QModelIndex &p : parentsToExpand)
+        m_view->expand(p);
     if (firstProxyIdx.isValid())
         m_view->scrollTo(firstProxyIdx);
     m_applyingFromBus = false;

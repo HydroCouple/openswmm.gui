@@ -13,6 +13,7 @@
 
 #include <QGraphicsScene>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QFileInfo>
 #include <QtMath>
 
@@ -877,10 +878,19 @@ QStringList SWMMModelLayer::selectedElementNames() const { return m_selectedName
 
 void SWMMModelLayer::setSelectedElementNames(const QStringList &names)
 {
+    if (names == m_selectedNames)
+        return;
+    QElapsedTimer t; t.start();
     m_selectedNames = names;
-    m_needsRebuild = true;
+    // Selection does not change geometry — SWMMLayerItem::paint() reads
+    // m_selectedNames live each frame, so a repaint is sufficient.
+    // Flipping m_needsRebuild here would force depopulate/populate of the
+    // batched layer item on every rubber-band tick (see refreshScene()),
+    // which is the dominant cost on large models (100k+ links).
     emit selectionChanged(names);
     emit repaintRequested();
+    qDebug().noquote() << "[setSelectedElementNames] count=" << names.size()
+                       << "elapsed_ms=" << t.elapsed();
 }
 
 void SWMMModelLayer::clearSelection()
@@ -1263,10 +1273,13 @@ int SWMMModelLayer::objectTypeFor(const QString &name) const
     // 3=Subcatchment, 4=RainGage. Avoid pulling the selection header into
     // this layer header to keep the dependency one-way (project window
     // bridges between the two).
-    for (const NodeGeom &n : m_nodes)    if (n.name == name) return 1;
-    for (const LinkGeom &l : m_links)    if (l.name == name) return 2;
-    for (const CatchGeom &c : m_catchments) if (c.name == name) return 3;
-    for (const NodeGeom &g : m_gages)    if (g.name == name) return 4;
+    const auto it = m_objectLocation.constFind(name);
+    if (it == m_objectLocation.constEnd()) return 0;
+    const Category c = it.value().first;
+    if (c <= CatDividers)      return 1;  // Junctions / Outfalls / Storage / Dividers
+    if (c <= CatOutlets)       return 2;  // Conduits / Pumps / Orifices / Weirs / Outlets
+    if (c == CatSubcatchments) return 3;
+    if (c == CatRainGages)     return 4;
     return 0;
 }
 
@@ -1315,6 +1328,18 @@ QVector<QPointF> SWMMModelLayer::cachedLinkInteriorVertices(int idx) const
     if (full.size() <= 2)
         return {};
     return full.mid(1, full.size() - 2);
+}
+
+QVector<QPointF> SWMMModelLayer::cachedSubcatchVertices(int idx) const
+{
+    if (idx < 0 || idx >= m_catchments.size())
+        return {};
+    return m_catchments[idx].vertices;
+}
+
+int SWMMModelLayer::cachedSubcatchCount() const
+{
+    return m_catchments.size();
 }
 
 SWMMModelLayer::PickResult
@@ -1369,6 +1394,7 @@ bool SWMMModelLayer::previewNodeMove(int idx, double newX, double newY)
 
     m_nodes[idx].x = newX;
     m_nodes[idx].y = newY;
+    refreshSceneCoordsForNode(idx);
 
     // Mirror the endpoint update into each attached link's cached
     // polyline so the live preview shows the link stretching with the
@@ -1383,6 +1409,7 @@ bool SWMMModelLayer::previewNodeMove(int idx, double newX, double newY)
         if (verts.isEmpty()) continue;
         const int slot = (end == 0) ? 0 : (verts.size() - 1);
         verts[slot] = QPointF(newX, newY);
+        refreshSceneCoordsForLink(linkIdx);
     }
 
     // Repaint; m_needsRebuild intentionally left unset so the scene's
@@ -1492,6 +1519,7 @@ bool SWMMModelLayer::applyNodeMove(int idx, double newX, double newY)
 
     m_nodes[idx].x = newX;
     m_nodes[idx].y = newY;
+    refreshSceneCoordsForNode(idx);
 
     // Mirror the endpoint update into each attached link's cached polyline
     // so the next scene rebuild renders connected links without having to
@@ -1515,6 +1543,7 @@ bool SWMMModelLayer::applyNodeMove(int idx, double newX, double newY)
             }
             m_linkBboxes[linkIdx] = MapExtent(x0, y0, x1, y1);
         }
+        refreshSceneCoordsForLink(linkIdx);
     }
 
     m_kdDirty = true;
@@ -1640,6 +1669,7 @@ bool SWMMModelLayer::applyLinkInteriorVertices(int linkIdx,
         }
         m_linkBboxes[linkIdx] = MapExtent(x0, y0, x1, y1);
     }
+    refreshSceneCoordsForLink(linkIdx);
 
     m_needsRebuild = true;
     emit repaintRequested();
@@ -1725,6 +1755,99 @@ void SWMMModelLayer::buildGeometryCache()
         setExtent(MapExtent(xMin, yMin, xMax, yMax));
 
     rebuildKdTrees();
+    rebuildSceneCoords();
+}
+
+// ---------------------------------------------------------------------------
+// Scene-coordinate cache
+// ---------------------------------------------------------------------------
+
+void SWMMModelLayer::rebuildSceneCoords()
+{
+    // Transform every SoA point through m_transform once and apply the
+    // scene Y-flip up front, so SWMMLayerItem::paint can hand the cached
+    // QPointF straight to QPainter without per-frame math. This is the
+    // hot path on big-model paints (121k links × N vertices each).
+    auto applyTransform = [this](double &x, double &y) {
+        if (m_transform) m_transform->Transform(1, &x, &y);
+    };
+    auto toScenePt = [&](double mx, double my) {
+        applyTransform(mx, my);
+        return QPointF(mx, -my);  // matches toScene() in swmmlayeritem.cpp
+    };
+
+    m_nodeScenePts.resize(m_nodes.size());
+    for (int i = 0; i < m_nodes.size(); ++i)
+        m_nodeScenePts[i] = toScenePt(m_nodes[i].x, m_nodes[i].y);
+
+    m_gageScenePts.resize(m_gages.size());
+    for (int i = 0; i < m_gages.size(); ++i)
+        m_gageScenePts[i] = toScenePt(m_gages[i].x, m_gages[i].y);
+
+    m_linkScenePts.resize(m_links.size());
+    m_linkSceneBBoxes.resize(m_links.size());
+    for (int i = 0; i < m_links.size(); ++i)
+        refreshSceneCoordsForLink(i);
+
+    m_catchScenePts.resize(m_catchments.size());
+    m_catchSceneBBoxes.resize(m_catchments.size());
+    for (int i = 0; i < m_catchments.size(); ++i)
+    {
+        const auto &verts = m_catchments[i].vertices;
+        QVector<QPointF> sp;
+        sp.reserve(verts.size());
+        QRectF bbox;
+        for (int v = 0; v < verts.size(); ++v) {
+            const QPointF p = toScenePt(verts[v].x(), verts[v].y());
+            sp.append(p);
+            if (v == 0) bbox = QRectF(p, QSizeF(0, 0));
+            else {
+                if (p.x() < bbox.left())   bbox.setLeft  (p.x());
+                if (p.x() > bbox.right())  bbox.setRight (p.x());
+                if (p.y() < bbox.top())    bbox.setTop   (p.y());
+                if (p.y() > bbox.bottom()) bbox.setBottom(p.y());
+            }
+        }
+        m_catchScenePts[i]    = std::move(sp);
+        m_catchSceneBBoxes[i] = bbox;
+    }
+}
+
+void SWMMModelLayer::refreshSceneCoordsForNode(int nodeIdx)
+{
+    if (nodeIdx < 0 || nodeIdx >= m_nodes.size()) return;
+    if (m_nodeScenePts.size() != m_nodes.size())
+        m_nodeScenePts.resize(m_nodes.size());
+    double x = m_nodes[nodeIdx].x, y = m_nodes[nodeIdx].y;
+    if (m_transform) m_transform->Transform(1, &x, &y);
+    m_nodeScenePts[nodeIdx] = QPointF(x, -y);
+}
+
+void SWMMModelLayer::refreshSceneCoordsForLink(int linkIdx)
+{
+    if (linkIdx < 0 || linkIdx >= m_links.size()) return;
+    if (m_linkScenePts.size()    != m_links.size()) m_linkScenePts.resize(m_links.size());
+    if (m_linkSceneBBoxes.size() != m_links.size()) m_linkSceneBBoxes.resize(m_links.size());
+
+    const auto &verts = m_links[linkIdx].vertices;
+    QVector<QPointF> sp;
+    sp.reserve(verts.size());
+    QRectF bbox;
+    for (int v = 0; v < verts.size(); ++v) {
+        double x = verts[v].x(), y = verts[v].y();
+        if (m_transform) m_transform->Transform(1, &x, &y);
+        const QPointF p(x, -y);
+        sp.append(p);
+        if (v == 0) bbox = QRectF(p, QSizeF(0, 0));
+        else {
+            if (p.x() < bbox.left())   bbox.setLeft  (p.x());
+            if (p.x() > bbox.right())  bbox.setRight (p.x());
+            if (p.y() < bbox.top())    bbox.setTop   (p.y());
+            if (p.y() > bbox.bottom()) bbox.setBottom(p.y());
+        }
+    }
+    m_linkScenePts[linkIdx]    = std::move(sp);
+    m_linkSceneBBoxes[linkIdx] = bbox;
 }
 
 // ---------------------------------------------------------------------------
@@ -1946,7 +2069,10 @@ void SWMMModelLayer::rebuildTransform(const SpatialReferenceSystem *canvasSRS)
 
     if (!srs() || !canvasSRS || !srs()->ogrSpatialReference() ||
         !canvasSRS->ogrSpatialReference())
+    {
+        rebuildSceneCoords();
         return;
+    }
 
     if (!srs()->ogrSpatialReference()->IsSame(canvasSRS->ogrSpatialReference()))
     {
@@ -1954,4 +2080,8 @@ void SWMMModelLayer::rebuildTransform(const SpatialReferenceSystem *canvasSRS)
             srs()->ogrSpatialReference(),
             canvasSRS->ogrSpatialReference());
     }
+
+    // The cached scene-space coords depend on m_transform; the canvas CRS
+    // change just invalidated all of them.
+    rebuildSceneCoords();
 }

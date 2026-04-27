@@ -94,6 +94,8 @@ private:
     void buildHydraulicsTab(QTabWidget *tabs);
     void buildPerformanceTab(QTabWidget *tabs);
     void buildSpatialTab(QTabWidget *tabs);
+    void buildMeshTab(QTabWidget *tabs);
+    void refreshMeshList();   ///< rescan project dir for *.2dm files
 
 #ifdef OPENSWMM_HAS_2D
     void build2DTab(QTabWidget *tabs);
@@ -143,7 +145,13 @@ private:
     QCheckBox      *m_module1DBox       = nullptr;   ///< Always-on, disabled (1D core).
     QCheckBox      *m_module2DBox       = nullptr;   ///< Toggle 2D surface routing.
     int             m_2DTabIndex        = -1;        ///< -1 if 2D tab not built.
+    int             m_meshTabIndex      = -1;        ///< Mesh-configurations tab.
     QTabWidget     *m_tabs              = nullptr;   ///< Captured for runtime tab-enable.
+
+    // Mesh configurations tab — Slice AU module toggle.
+    class QListWidget *m_meshList         = nullptr; ///< *.2dm files in project dir.
+    class QLabel      *m_meshActiveLabel  = nullptr; ///< Currently-active [2D_MESH_FILE].
+    class QLabel      *m_meshDirLabel     = nullptr; ///< Project mesh-search directory.
 
     // Tab 2 — Dates & Times
     QDateTimeEdit  *m_startEdit         = nullptr;

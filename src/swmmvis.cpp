@@ -46,6 +46,7 @@
 #include "map/openswmmvisscene.h"
 #include "map/mapextent.h"
 #include "project/openswmmvisworkspace.h"
+#include "project/projectserializer.h"
 #include "layers/swmmmodellayer.h"
 #include "swmmvisprojectwindow.h"
 #include "core/crsreproject.h"
@@ -53,6 +54,10 @@
 #include "ui/dialogs/crschangedialog.h"
 #include "ui/dialogs/aboutdialog.h"
 #include "ui/dialogs/layerpropertiesdialog.h"
+#include "ui/dialogs/meshgenerationdialog.h"
+#include "ui/dialogs/newprojectdialog.h"
+#include "ui/dialogs/pluginsdialog.h"
+#include "ui/dialogs/preferencesdialog.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/timeseriesplotdialog.h"
 #include "ui/dialogs/wmsconnectiondialog.h"
@@ -60,6 +65,7 @@
 #include "ui/panels/layertreepanel.h"
 #include "ui/panels/objectbrowserpanel.h"
 #include "ui/panels/attributepanel.h"
+#include "plugins/filefilterregistry.h"
 #include "selection/selectionmanager.h"
 #include "simulation/simulationrunner.h"
 #include "simulation/simulationstatusmodel.h"
@@ -74,11 +80,14 @@
 #include "layers/gisvectorlayer.h"
 #include "layers/gisrasterlayer.h"
 #include "layers/swmmresultslayer.h"
+#include "map/tools/maptoolselect.h"
 #include "layers/wmslayer.h"
 #include "layers/wmtslayer.h"
 
 #include <QDesktopServices>
+#include <QFile>
 #include <QStandardPaths>
+#include <QUuid>
 #include <QUrl>
 #include <QCommandLinkButton>
 #include <QScrollArea>
@@ -128,8 +137,8 @@ void SWMMVis::initializeDefaultWorkspaceSession()
 {
     if (!mProject)
         mProject = OpenSWMMVisWorkspace::newInstance(QString(), this);
-
-    onLogMessage(QStringLiteral("Workspace initialized."));
+    // (Workspace-init chatter removed — Message Log is for modelling
+    // events only, not GUI-lifecycle noise.)
 }
 
 // ── Active-window helpers ─────────────────────────────────────────────────
@@ -290,33 +299,20 @@ void SWMMVis::initializeWelcomeScreen()
         tabBar->setStyle(new TabCloseRightStyle(tabBar->style()));
     }
 
-    // Use the setupUi-created QMdiSubWindow as-is. Installing an event
-    // filter is enough to intercept the tab-X close — we do NOT replace
-    // the sub-window (replacing it involves removeSubWindow +
-    // addSubWindow, and the intermediate null-parent state is what was
-    // causing the welcome to flash as an undocked top-level widget
-    // inside the MDI area).
+    // Welcome sub-window lifecycle (simplified from the previous
+    // delete-on-close + reparent scheme, which was brittle — reopen via
+    // Help → Show Welcome sometimes failed the tab-close button because
+    // the reparent path left welcomeWidget in an ambiguous parent
+    // state). New scheme: the sub-window is KEPT alive (not destroyed
+    // on close) and we just toggle its visibility. Closing via the tab
+    // X hides the sub (Qt's default for close() when WA_DeleteOnClose
+    // is false) — QMdiArea's TabbedView drops the tab for a hidden
+    // sub, so the user sees "the welcome closed." Reopen = show().
     if (QMdiSubWindow *sub = welcomeSubWindow())
     {
-        // Destroy this wrapper on close; the event filter detaches the
-        // inner welcomeWidget first so it survives for later reopen.
-        sub->setAttribute(Qt::WA_DeleteOnClose, true);
+        sub->setAttribute(Qt::WA_DeleteOnClose, false);
         sub->installEventFilter(this);
         sub->setWindowTitle(tr("Welcome"));
-    }
-    else if (ui->welcomeWidget)
-    {
-        // Welcome was previously closed — fresh tab needed. setWidget
-        // before addSubWindow so the inner widget enters the MDI area
-        // already parented under the sub (never through nullptr, which
-        // would undock it into a top-level window).
-        auto *sub = new QMdiSubWindow();
-        sub->setWindowTitle(tr("Welcome"));
-        sub->setAttribute(Qt::WA_DeleteOnClose, true);
-        sub->setWidget(ui->welcomeWidget);
-        ui->mdiAreaCentral->addSubWindow(sub);
-        sub->installEventFilter(this);
-        ui->mdiAreaCentral->setActiveSubWindow(sub);
     }
 
     // Wire welcome buttons
@@ -336,7 +332,7 @@ void SWMMVis::initializeWelcomeScreen()
     if (!mShowWelcomeScreenOnStartUp)
     {
         if (QMdiSubWindow *sub = welcomeSubWindow())
-            sub->close();
+            sub->hide();  // hide without triggering the close event
     }
 
     // Populate Learn SWMM links
@@ -452,17 +448,58 @@ void SWMMVis::initializeMapTools()
     connect(ui->actionZoomToSelection, &QAction::triggered, this, [this]() {
         MapCanvas *c = activeCanvas();
         if (!c) return;
-        QRectF sel;
-        for (QGraphicsItem *item : c->mapScene()->selectedItems())
-        {
-            QRectF ir = item->mapToScene(item->boundingRect()).boundingRect();
-            sel = sel.isNull() ? ir : sel.united(ir);
+
+        // Union the layer-CRS bbox of every selected SWMM object across
+        // every visible SWMMModelLayer. Slice R Phase 3 retired the
+        // per-object QGraphicsItems so `mapScene()->selectedItems()` no
+        // longer reports SWMM features — selection lives on the layer
+        // itself via `selectedElementNames` + `objectExtent`.
+        double xMin = std::numeric_limits<double>::infinity();
+        double yMin = std::numeric_limits<double>::infinity();
+        double xMax = -std::numeric_limits<double>::infinity();
+        double yMax = -std::numeric_limits<double>::infinity();
+        bool any = false;
+
+        for (OpenSWMMVisLayer *l : c->layers()) {
+            if (!l->isVisible()) continue;
+            auto *sl = qobject_cast<SWMMModelLayer *>(l);
+            if (!sl) continue;
+            for (const QString &name : sl->selectedElementNames()) {
+                const MapExtent e = sl->objectExtent(name);
+                if (!std::isfinite(e.xMin())) continue;
+                xMin = std::min(xMin, e.xMin());
+                yMin = std::min(yMin, e.yMin());
+                xMax = std::max(xMax, e.xMax());
+                yMax = std::max(yMax, e.yMax());
+                any = true;
+            }
         }
-        if (!sel.isNull() && sel.width() > 0 && sel.height() > 0)
-        {
-            MapExtent ext(sel.left(), -sel.bottom(), sel.right(), -sel.top());
-            if (ext.isValid()) c->setExtent(ext);
+        if (!any) return;
+
+        // Pad: 25 % of the union's span for a comfortable framing
+        // around extents that aren't degenerate; for a single-point
+        // selection (node / gage) fall back to a layer-relative
+        // buffer so the zoom stays at a reasonable scale.
+        double padX = (xMax - xMin) * 0.25;
+        double padY = (yMax - yMin) * 0.25;
+        if (padX <= 0.0 && padY <= 0.0) {
+            // Single-point selection — borrow ObjectBrowserPanel's
+            // logic: 0.5 % of the layer extent's diagonal, floor 25.
+            double buffer = 100.0;
+            for (OpenSWMMVisLayer *l : c->layers()) {
+                if (!l->isVisible()) continue;
+                if (auto *sl = qobject_cast<SWMMModelLayer *>(l)) {
+                    const MapExtent &le = sl->extent();
+                    if (!le.isValid()) continue;
+                    const double dx = le.xMax() - le.xMin();
+                    const double dy = le.yMax() - le.yMin();
+                    buffer = std::max(buffer, std::max(25.0, 0.005 * std::max(dx, dy)));
+                }
+            }
+            padX = buffer; padY = buffer;
         }
+        MapExtent zoom(xMin - padX, yMin - padY, xMax + padX, yMax + padY);
+        if (zoom.isValid()) c->setExtent(zoom);
     });
     connect(ui->actionSelectUpstream, &QAction::triggered, this, [this]() {
         onLogMessage("Select Upstream: not yet implemented", OpenSWMMVisLogMessage::Information);
@@ -634,61 +671,47 @@ void SWMMVis::initializeObjectBrowserDockWidget()
     if (ui->dockWidgetSWMMLayers)
         tabifyDockWidget(ui->dockWidgetSWMMLayers, dock);
 
-    // Right-click "Plot Time Series…" → open the chart dialog with the
-    // active project's results .out (auto-loaded after Run Simulation).
+    // Right-click "Plot Time Series…" — shared by Object Browser and the
+    // map canvas's Select-tool context menu. Both routes funnel through
+    // openTimeSeriesPlotFor().
     connect(mObjectBrowserPanel, &ObjectBrowserPanel::plotTimeSeriesRequested,
-            this, [this](const SWMMObjectRef &obj) {
-                auto *pw = activeProjectWindow();
-                if (!pw || !pw->canvas()) return;
+            this, &SWMMVis::openTimeSeriesPlotFor);
 
-                // Find the first SWMMResultsLayer attached to the canvas;
-                // its file path is the .out we plot from.
-                QString outPath;
-                for (OpenSWMMVisLayer *l : pw->canvas()->layers())
-                {
-                    if (l->layerType() == OpenSWMMVisLayer::SWMMResultsLayer)
-                    {
-                        if (auto *rl = qobject_cast<SWMMResultsLayer *>(l))
-                        {
-                            outPath = rl->resultsFilePath();
-                            break;
-                        }
-                    }
-                }
-                if (outPath.isEmpty())
-                {
-                    QMessageBox::information(this, tr("No results loaded"),
-                        tr("Run a simulation first (toolbar's Execute button) "
-                           "or add a SWMM Output (.out) layer."));
-                    return;
-                }
+    // Slice S — per-object visibility no longer goes through the panel's
+    // signals. The virtualised SWMMObjectTreeModel's setData() calls the
+    // layer's setObjectVisibleAt / setCategoryVisible directly, so the
+    // previous objectVisibilityChanged / objectsVisibilityChanged bridges
+    // are gone.
+}
 
-                auto *dlg = new TimeSeriesPlotDialog(outPath, obj, this);
-                dlg->setAttribute(Qt::WA_DeleteOnClose);
-                dlg->show();
-            });
+void SWMMVis::openTimeSeriesPlotFor(const SWMMObjectRef &ref)
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->canvas()) return;
 
-    // Slice O — per-object visibility. Parent-header toggles propagate
-    // down to all their children via objectsVisibilityChanged (one batch
-    // call per group toggle = one canvas repaint, regardless of count).
-    // Individual leaf toggles go through objectVisibilityChanged and
-    // never back-propagate to the parent header.
-    connect(mObjectBrowserPanel, &ObjectBrowserPanel::objectVisibilityChanged,
-            this, [this](const SWMMObjectRef &obj, bool visible) {
-                if (auto *pw = activeProjectWindow())
-                {
-                    if (auto *layer = pw->modelLayer())
-                        layer->setObjectVisible(obj.name, visible);
-                }
-            });
-    connect(mObjectBrowserPanel, &ObjectBrowserPanel::objectsVisibilityChanged,
-            this, [this](const QStringList &names, bool visible) {
-                if (auto *pw = activeProjectWindow())
-                {
-                    if (auto *layer = pw->modelLayer())
-                        layer->setObjectsVisible(names, visible);
-                }
-            });
+    QString outPath;
+    for (OpenSWMMVisLayer *l : pw->canvas()->layers())
+    {
+        if (l->layerType() == OpenSWMMVisLayer::SWMMResultsLayer)
+        {
+            if (auto *rl = qobject_cast<SWMMResultsLayer *>(l))
+            {
+                outPath = rl->resultsFilePath();
+                break;
+            }
+        }
+    }
+    if (outPath.isEmpty())
+    {
+        QMessageBox::information(this, tr("No results loaded"),
+            tr("Run a simulation first (toolbar's Execute button) "
+               "or add a SWMM Output (.out) layer."));
+        return;
+    }
+
+    auto *dlg = new TimeSeriesPlotDialog(outPath, ref, this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
 }
 
 void SWMMVis::initializeAttributePanelDockWidget()
@@ -761,8 +784,10 @@ void SWMMVis::initializeMenus()
 {
     connect(ui->actionNew,    &QAction::triggered, this, &SWMMVis::onNewProject);
     connect(ui->actionOpen,   &QAction::triggered, this, [this]{ onOpenProject(); });
-    connect(ui->actionSave,   &QAction::triggered, this, &SWMMVis::onSaveProject);
-    connect(ui->actionSaveAs, &QAction::triggered, this, &SWMMVis::onSaveProjectAs);
+    connect(ui->actionSave,            &QAction::triggered, this, &SWMMVis::onSaveProject);
+    connect(ui->actionSaveAsProject,   &QAction::triggered, this, &SWMMVis::onSaveProjectAs);
+    connect(ui->actionSaveAsInput,     &QAction::triggered, this, &SWMMVis::onSaveAsInputFile);
+    connect(ui->actionExportMap,       &QAction::triggered, this, &SWMMVis::onExportMap);
     connect(ui->actionAbout,  &QAction::triggered, this, &SWMMVis::onAbout);
 
     connect(ui->menuOpenRecent, &QMenu::triggered, this, &SWMMVis::onOpenRecentFile);
@@ -804,20 +829,42 @@ void SWMMVis::initializeMenus()
     });
     connect(ui->actionOptions,       &QAction::triggered, this, &SWMMVis::onSimulationOptions);
 
-    // Tools → Simulation Options… / Set Project CRS… (added programmatically
-    // — the .ui's menuTools is empty by default; this avoids touching the
-    // .ui resource for these entries).
+    // Tools → Set Project CRS… (added programmatically).
     if (ui->menuTools)
     {
-        auto *actSimOpts = ui->menuTools->addAction(tr("Simulation Options…"));
-        actSimOpts->setToolTip(tr("Edit per-project SWMM simulation options"));
-        connect(actSimOpts, &QAction::triggered, this, &SWMMVis::onSimulationOptions);
-
         auto *actSetCRS = ui->menuTools->addAction(
             QIcon(QStringLiteral(":/swmmvis/Globe")),
             tr("Set Project CRS…"));
         actSetCRS->setToolTip(tr("Choose or change the project's coordinate reference system"));
         connect(actSetCRS, &QAction::triggered, this, &SWMMVis::onCRSButtonClicked);
+
+        // Tools → Preferences… (Slice V). On macOS, QAction's
+        // PreferencesRole automatically reparents this into the
+        // Application menu ("App Name → Preferences"), matching native
+        // platform conventions. On Linux / Windows it stays here.
+        ui->menuTools->addSeparator();
+        auto *actPrefs = ui->menuTools->addAction(
+            QIcon(QStringLiteral(":/swmmvis/Settings")),
+            tr("Preferences…"));
+        actPrefs->setMenuRole(QAction::PreferencesRole);
+        actPrefs->setShortcut(QKeySequence::Preferences);
+        actPrefs->setToolTip(tr("Configure tolerances, default tool, "
+                                 "CRS, rendering LOD, simulation tick "
+                                 "rate, and other application settings"));
+        connect(actPrefs, &QAction::triggered, this, [this]() {
+            PreferencesDialog dlg(this);
+            dlg.exec();
+        });
+    }
+
+    // Tools → Plugins… (Slice AA). Read-only listing of every filter
+    // the FileFilterRegistry knows about (built-in + engine-discovered).
+    if (ui->actionPlugins)
+    {
+        connect(ui->actionPlugins, &QAction::triggered, this, [this]() {
+            PluginsDialog dlg(this);
+            dlg.exec();
+        });
     }
 
 
@@ -841,6 +888,21 @@ void SWMMVis::initializeMenus()
     if (ui->actionAddFlowDivider)
         connect(ui->actionAddFlowDivider, &QAction::triggered, this, [this]() {
             if (auto *pw = activeProjectWindow()) pw->activateAddDividerTool();
+        });
+
+    // Slice AU.4 — Generate Mesh tool launches MeshGenerationDialog.
+    if (ui->actionGenerateMesh)
+        connect(ui->actionGenerateMesh, &QAction::triggered, this, [this]() {
+            auto *pw = activeProjectWindow();
+            if (!pw)
+            {
+                onLogMessage(tr("Generate Mesh: open a SWMM project first."),
+                             OpenSWMMVisLogMessage::LogMessageType::Warning);
+                return;
+            }
+            MeshGenerationDialog dlg(pw, this);
+            if (dlg.exec() == QDialog::Accepted)
+                onLogMessage(tr("2D mesh generated and written."));
         });
 
     // ---- Window menu (programmatic — .ui has no menuWindow) ----
@@ -888,7 +950,8 @@ void SWMMVis::initializeMenus()
 
 void SWMMVis::initializeSettings()
 {
-    onLogMessage("Reading settings");
+    // (Settings-I/O chatter removed — Message Log is for modelling
+    // events only.)
     onSetProgressBarBusy(true);
 
     mSettings.beginGroup("SWMMVis::MainWindow");
@@ -900,7 +963,6 @@ void SWMMVis::initializeSettings()
     mSettings.endGroup();
 
     onRecentFilesSizeChanged();
-    onLogMessage("Finished reading settings");
     onSetProgressBarBusy(false);
 }
 
@@ -962,22 +1024,34 @@ void SWMMVis::closeEvent(QCloseEvent *event)
 
 bool SWMMVis::eventFilter(QObject *watched, QEvent *event)
 {
-    // Welcome tab close: intercept the sub-window's Close event so we
-    // can detach the inner welcomeWidget before WA_DeleteOnClose
-    // destroys the sub-window shell. Reparent welcomeWidget to the
-    // main window (hidden) so Help → Show Welcome Screen can re-wrap it
-    // later.
+    // Welcome tab close: accept the close, let Qt hide the sub-window
+    // (WA_DeleteOnClose is false so nothing is destroyed). QMdiArea's
+    // TabbedView hides the corresponding tab when the sub becomes
+    // invisible, so the user sees the welcome disappear.
+    //
+    // After hiding, promote the next visible sub-window to active if
+    // any exist — matches the user's expectation that closing the
+    // welcome leaves the next project document in front. If no other
+    // subs are visible we just leave the MDI blank (nothing to do —
+    // Qt handles that automatically).
     if (event->type() == QEvent::Close)
     {
         if (auto *sub = qobject_cast<QMdiSubWindow *>(watched);
             sub && ui && ui->welcomeWidget && sub->widget() == ui->welcomeWidget)
         {
-            QWidget *w = ui->welcomeWidget;
-            sub->setWidget(nullptr);
-            w->setParent(this);
-            w->hide();
-            // Fall through — let the Close proceed; WA_DeleteOnClose on
-            // the sub-window destroys the now-empty wrapper.
+            // Eat the close event and hide the sub-window in place.
+            // QMdiArea::TabbedView automatically removes the tab for any
+            // hidden sub-window, so the user sees the tab disappear.
+            // The widget and its content are fully preserved for reuse.
+            QMdiSubWindow *next = nullptr;
+            for (QMdiSubWindow *other : ui->mdiAreaCentral->subWindowList())
+            {
+                if (other == sub) continue;
+                if (other->isVisible()) { next = other; break; }
+            }
+            sub->hide();
+            if (next) ui->mdiAreaCentral->setActiveSubWindow(next);
+            return true;  // eat the event — sub-window stays in MDI list
         }
     }
     return QMainWindow::eventFilter(watched, event);
@@ -1006,13 +1080,111 @@ void SWMMVis::removeWelcomeSubWindow()
 
 // ── Slots ─────────────────────────────────────────────────────────────────
 
+namespace {
+
+// Build a minimum-viable SWMM .inp from the New-Project dialog inputs.
+// SWMM tolerates many missing sections; we keep [TITLE], [OPTIONS], and
+// [REPORT] explicit so the engine has stable defaults to read back.
+QString synthesizeBlankInp(const NewProjectDialog::Result &r)
+{
+    const QString startDate = r.startDateTime.toString(QStringLiteral("MM/dd/yyyy"));
+    const QString startTime = r.startDateTime.toString(QStringLiteral("HH:mm:ss"));
+    const QString endDate   = r.endDateTime.toString(QStringLiteral("MM/dd/yyyy"));
+    const QString endTime   = r.endDateTime.toString(QStringLiteral("HH:mm:ss"));
+    return QStringLiteral(
+"[TITLE]\n"
+"%1\n\n"
+"[OPTIONS]\n"
+"FLOW_UNITS           %2\n"
+"INFILTRATION         %3\n"
+"FLOW_ROUTING         %4\n"
+"START_DATE           %5\n"
+"START_TIME           %6\n"
+"END_DATE             %7\n"
+"END_TIME             %8\n"
+"REPORT_START_DATE    %5\n"
+"REPORT_START_TIME    %6\n"
+"SWEEP_START          01/01\n"
+"SWEEP_END            12/31\n"
+"DRY_DAYS             0\n"
+"REPORT_STEP          00:15:00\n"
+"WET_STEP             00:05:00\n"
+"DRY_STEP             01:00:00\n"
+"ROUTING_STEP         0:00:30\n\n"
+"[REPORT]\n"
+"INPUT      NO\n"
+"CONTROLS   NO\n"
+"SUBCATCHMENTS ALL\n"
+"NODES      ALL\n"
+"LINKS      ALL\n")
+        .arg(r.name, r.flowUnits, r.infiltrationModel, r.flowRouting,
+             startDate, startTime, endDate, endTime);
+}
+
+} // namespace
+
 void SWMMVis::onNewProject()
 {
-    // For now: bring the Welcome tab to the front so the user can choose Open or
-    // an example. A true blank-project workflow lands with the engine model-builder
-    // integration in a later slice.
-    onShowWelcomeScreen();
-    onLogMessage(tr("New Project: opens the Welcome tab. A blank-project workflow ships in a later slice."));
+    // Match legacy SWMM5: File → New creates a blank untitled project
+    // immediately with hard-coded defaults — no dialog interruption.
+    // Templates / explicit CRS choice live in a future "New From
+    // Template…" entry; NewProjectDialog stays available for that.
+    NewProjectDialog::Result r;
+    r.name              = QStringLiteral("Untitled");
+    r.flowUnits         = QStringLiteral("CFS");
+    r.infiltrationModel = QStringLiteral("HORTON");
+    r.flowRouting       = QStringLiteral("DYNWAVE");
+    r.startDateTime     = QDateTime(QDate(2002, 1, 1), QTime(0, 0));
+    r.endDateTime       = QDateTime(QDate(2002, 1, 1), QTime(6, 0));
+    // crsAuthCode intentionally left empty — SWMMModelLayer::loadModel
+    // pulls the default CRS from PreferencesManager when the .inp carries
+    // none, and the project window propagates that to the canvas. No
+    // post-load override here keeps layer/canvas in lockstep.
+
+    // Write a synthetic .inp into the system temp dir with a unique name.
+    // The path is owned by the resulting project window and deleted on
+    // first Save As (engine no longer needs it) or on close-without-save.
+    const QString tempDir = QStandardPaths::writableLocation(
+        QStandardPaths::TempLocation);
+    const QString tempPath = QStringLiteral("%1/swmmvis-untitled-%2.inp")
+        .arg(tempDir, QUuid::createUuid().toString(QUuid::WithoutBraces));
+
+    {
+        QFile f(tempPath);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        {
+            QMessageBox::critical(this, tr("New Project failed"),
+                tr("Could not write temp file at %1").arg(tempPath));
+            return;
+        }
+        f.write(synthesizeBlankInp(r).toUtf8());
+    }
+
+    // Reuse the standard load path. After it returns, undo the
+    // recent-files registration the temp path picked up — the user has
+    // not yet given this project a real name.
+    openSingleINP(tempPath);
+    mRecentFiles.removeAll(tempPath);
+    onRecentFilesSizeChanged();
+    saveSettings();
+
+    auto *pw = activeProjectWindow();
+    if (!pw) return;  // load failed; openSingleINP already logged
+
+    pw->markUntitled(tempPath);
+    setWindowTitle(QStringLiteral("OpenSWMM — Untitled"));
+
+    // CRS handling intentionally left to the standard load path:
+    //   SWMMModelLayer::loadModel falls back to PreferencesManager's default
+    //   when the .inp carries no CRS (synthetic blank .inp doesn't), and
+    //   SWMMVisProjectWindow::loadModel propagates that to the canvas.
+    //   The Slice-Y-removed dialog used to surface a CRS picker; with the
+    //   no-dialog flow, the only correct answer is "use the configured
+    //   default" — which loadModel already does. No post-load CRS override
+    //   here, since doing so creates a layer/canvas drift when the override
+    //   doesn't match what loadModel adopted.
+
+    onLogMessage(tr("New project created (untitled). Save As to give it a path."));
 }
 
 void SWMMVis::onSaveProject()
@@ -1032,6 +1204,22 @@ void SWMMVis::onSaveProject()
             onLogMessage(err, OpenSWMMVisLogMessage::LogMessageType::Information);
         return;
     }
+
+    // Slice X — write the .oswp sidecar next to the .inp so GUI-only
+    // state (layer CRS, category/object order, hidden set, canvas
+    // extent) round-trips on reopen. Serializer failures log at
+    // Warning — the .inp itself already saved so the project is
+    // recoverable even if the sidecar couldn't be written.
+    const QString oswp = ProjectSerializer::sidecarPathFor(
+        pw->modelLayer()->modelFilePath());
+    if (!oswp.isEmpty()) {
+        QString sidecarErr;
+        if (!ProjectSerializer::saveToFile(oswp, pw, &sidecarErr)) {
+            onLogMessage(tr("Sidecar save failed: %1").arg(sidecarErr),
+                         OpenSWMMVisLogMessage::LogMessageType::Warning);
+        }
+    }
+
     onLogMessage(tr("Saved: %1").arg(pw->modelLayer()->modelFilePath()));
 }
 
@@ -1044,10 +1232,11 @@ void SWMMVis::onSaveProjectAs()
         return;
     }
     const QString suggested = pw->modelLayer() ? pw->modelLayer()->modelFilePath() : QString();
+    auto *kFilters = openswmmvis::FileFilterRegistry::instance();
     const QString path = QFileDialog::getSaveFileName(
         this, tr("Save SWMM Model As"),
         suggested.isEmpty() ? QDir::homePath() : suggested,
-        tr("SWMM Input Files (*.inp)"));
+        kFilters->filterFor(openswmmvis::FilterKind::InputRead));
     if (path.isEmpty()) return;
 
     QString err;
@@ -1056,6 +1245,20 @@ void SWMMVis::onSaveProjectAs()
         QMessageBox::critical(this, tr("Save As failed"), err);
         return;
     }
+    // Mirror the .oswp sidecar to the new path — Save As is the only
+    // place a single project can take on a new basename, so the old
+    // sidecar stays next to the old .inp. Explicit delete of the old
+    // sidecar is deferred; Phase 12 polish.
+    {
+        const QString oswp = ProjectSerializer::sidecarPathFor(path);
+        QString sidecarErr;
+        if (!oswp.isEmpty()
+            && !ProjectSerializer::saveToFile(oswp, pw, &sidecarErr))
+        {
+            onLogMessage(tr("Sidecar save failed: %1").arg(sidecarErr),
+                         OpenSWMMVisLogMessage::LogMessageType::Warning);
+        }
+    }
     mRecentFiles.removeAll(path);
     mRecentFiles.prepend(path);
     onRecentFilesSizeChanged();
@@ -1063,40 +1266,96 @@ void SWMMVis::onSaveProjectAs()
     onLogMessage(tr("Saved As: %1").arg(path));
 }
 
+void SWMMVis::onSaveAsInputFile()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw)
+    {
+        onLogMessage(tr("Save Input As: no active project."),
+                     OpenSWMMVisLogMessage::LogMessageType::Warning);
+        return;
+    }
+    const QString suggested = pw->modelLayer() ? pw->modelLayer()->modelFilePath() : QString();
+    auto *kFilters = openswmmvis::FileFilterRegistry::instance();
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Save SWMM Input As"),
+        suggested.isEmpty() ? QDir::homePath() : suggested,
+        kFilters->filterFor(openswmmvis::FilterKind::InputRead));
+    if (path.isEmpty()) return;
+
+    QString err;
+    if (!pw->saveAs(path, &err))
+    {
+        QMessageBox::critical(this, tr("Save Input As failed"), err);
+        return;
+    }
+    // Distinct from onSaveProjectAs: no .oswp sidecar is written here. The
+    // user is exporting the SWMM input independently, not relocating the
+    // whole project.
+    mRecentFiles.removeAll(path);
+    mRecentFiles.prepend(path);
+    onRecentFilesSizeChanged();
+    saveSettings();
+    onLogMessage(tr("Saved Input As: %1").arg(path));
+}
+
+void SWMMVis::onExportMap()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->canvas())
+    {
+        onLogMessage(tr("Export Map: no active project."),
+                     OpenSWMMVisLogMessage::LogMessageType::Warning);
+        return;
+    }
+    auto *kFilters = openswmmvis::FileFilterRegistry::instance();
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Export Map"),
+        QDir::homePath(),
+        kFilters->filterFor(openswmmvis::FilterKind::MapExportWrite));
+    if (path.isEmpty()) return;
+
+    // First-cut: PNG via QWidget::grab(). SVG / DXF / EMF / .map are
+    // surfaced in the filter list but routed to Slice AP (Print/Export)
+    // for a proper renderer; user gets a clear log message in the
+    // meantime.
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    if (suffix == QStringLiteral("png"))
+    {
+        const QPixmap pm = pw->canvas()->grab();
+        if (!pm.save(path, "PNG"))
+        {
+            QMessageBox::critical(this, tr("Export Map failed"),
+                tr("Could not write PNG to %1").arg(path));
+            return;
+        }
+        onLogMessage(tr("Exported map: %1").arg(path));
+    }
+    else
+    {
+        QMessageBox::information(this, tr("Export Map"),
+            tr("Export to %1 is not implemented yet (planned for the "
+               "Print / Export slice). PNG is supported now.")
+                .arg(suffix.toUpper()));
+    }
+}
+
 void SWMMVis::onClearRecentFiles()
 {
     mRecentFiles.clear();
     onRecentFilesSizeChanged();
     saveSettings();
-    onLogMessage(tr("Recent files cleared."));
 }
 
 void SWMMVis::onShowWelcomeScreen()
 {
     if (!ui->mdiAreaCentral) return;
 
-    // Already docked? Bring it to the front.
+    // The welcome sub-window is kept in the MDI list always (never removed).
+    // Hide-on-close preserves all widget content; show() restores the tab.
     if (QMdiSubWindow *sub = welcomeSubWindow())
     {
-        ui->mdiAreaCentral->setActiveSubWindow(sub);
-        return;
-    }
-
-    // Welcome was closed previously (the event filter detached
-    // welcomeWidget and reparented it to the main window). Regenerate
-    // by wrapping it in a fresh plain QMdiSubWindow. Order matters:
-    // setWidget BEFORE addSubWindow so the inner widget enters the MDI
-    // area already parented under the sub (never through nullptr, which
-    // would undock it into a top-level window).
-    if (ui->welcomeWidget)
-    {
-        auto *sub = new QMdiSubWindow();
-        sub->setWindowTitle(tr("Welcome"));
-        sub->setAttribute(Qt::WA_DeleteOnClose, true);
-        sub->setWidget(ui->welcomeWidget);
-        ui->welcomeWidget->show();
-        ui->mdiAreaCentral->addSubWindow(sub);
-        sub->installEventFilter(this);
+        sub->show();
         ui->mdiAreaCentral->setActiveSubWindow(sub);
     }
 }
@@ -1120,12 +1379,25 @@ void SWMMVis::onOpenProject(const QString &path)
     QString filePath = path;
     if (filePath.isEmpty())
     {
+        // Engine input plugins (e.g., DefaultInputPlugin → *.inp,
+        // GeoPackagePluginInfo → *.gpkg) contribute filters via the
+        // registry's InputRead kind. ProjectRead supplies the GUI-only
+        // *.oswp filter. We concatenate the two filter strings, dropping
+        // the trailing "All Files (*)" from the first so it appears only
+        // once at the end.
+        auto *kFilters = openswmmvis::FileFilterRegistry::instance();
+        const QString allFiles = QStringLiteral(";;") + tr("All Files (*)");
+        QString inputs = kFilters->filterFor(openswmmvis::FilterKind::InputRead);
+        inputs.chop(allFiles.size());
+        QString projects = kFilters->filterFor(openswmmvis::FilterKind::ProjectWrite);
+        projects.chop(allFiles.size());
+        const QString combined = inputs + QStringLiteral(";;") + projects + allFiles;
         filePath = QFileDialog::getOpenFileName(
             this,
             tr("Open SWMM Model or Project"),
             mRecentFiles.isEmpty() ? QDir::homePath()
                                    : QFileInfo(mRecentFiles.first()).absolutePath(),
-            tr("SWMM Files (*.inp *.oswp);;SWMM Input Files (*.inp);;SWMM Project Files (*.oswp);;All Files (*)"));
+            combined);
     }
     if (filePath.isEmpty())
         return;
@@ -1162,6 +1434,14 @@ void SWMMVis::openSingleINP(const QString &filePath)
     connect(window, &QWidget::windowTitleChanged,
             this, &SWMMVis::rebuildWindowMenu);
 
+    // Main-window title tracks the active project — re-sync when that
+    // project renames itself (Save As) or flips its dirty `*` marker.
+    connect(window, &QWidget::windowTitleChanged, this,
+            [this, window](const QString &t) {
+                if (window == mActiveProjectWindow)
+                    setWindowTitle(QStringLiteral("OpenSWMM — %1").arg(t));
+            });
+
     ui->mdiAreaCentral->addSubWindow(window);
 
     QList<QString> warnings, errors;
@@ -1180,6 +1460,19 @@ void SWMMVis::openSingleINP(const QString &filePath)
         mRecentFiles.prepend(filePath);
         onRecentFilesSizeChanged();
         saveSettings();
+
+        // Slice X — apply the co-located .oswp sidecar if one exists.
+        // Hydrates GUI-only state (layer CRS, category / object order,
+        // hidden objects, canvas extent) that can't round-trip through
+        // the .inp itself. Missing sidecar is not an error.
+        const QString oswp = ProjectSerializer::sidecarPathFor(filePath);
+        if (!oswp.isEmpty() && QFile::exists(oswp)) {
+            QString sidecarErr;
+            if (!ProjectSerializer::applyFromFile(oswp, window, &sidecarErr)) {
+                onLogMessage(tr("Sidecar load failed: %1").arg(sidecarErr),
+                             OpenSWMMVisLogMessage::LogMessageType::Warning);
+            }
+        }
 
         setWindowTitle(QStringLiteral("OpenSWMM — %1").arg(QFileInfo(filePath).baseName()));
         window->show();
@@ -1229,12 +1522,14 @@ void SWMMVis::openProjectFile(const QString &oswpPath)
     }
 }
 
-void SWMMVis::onOpenRecentFile()
+void SWMMVis::onOpenRecentFile(QAction *action)
 {
-    QAction *action = qobject_cast<QAction *>(sender());
+    // QMenu::triggered emits the triggered QAction* directly; relying on
+    // sender() gives us the menu, not the action, so the path lookup was
+    // coming back empty and nothing opened. Take the parameter instead.
     if (!action) return;
     const QString path = action->data().toString();
-    // Skip non-recent-file entries in the same menu (separator-then-Clear
+    // Skip non-recent-file entries in the same menu (separator + Clear
     // has its own connection and empty data).
     if (path.isEmpty()) return;
     onOpenProject(path);
@@ -1243,6 +1538,20 @@ void SWMMVis::onOpenRecentFile()
 void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
 {
     auto *pw = qobject_cast<SWMMVisProjectWindow *>(window);
+
+    // Main-window title follows the active MDI tab so macOS / Linux
+    // window managers and the Window menu's app-name slot reflect
+    // what the user's looking at. Welcome and "no project" both show
+    // the bare app name. Project windows show "OpenSWMM — <title>"
+    // where <title> is the sub-window's title (carries the dirty `*`
+    // from Slice A, so the user can see unsaved-changes state at a
+    // glance).
+    if (pw) {
+        setWindowTitle(QStringLiteral("OpenSWMM — %1").arg(pw->windowTitle()));
+    } else if (window) {
+        // Welcome or other non-project sub-window active.
+        setWindowTitle(QStringLiteral("OpenSWMM"));
+    }
 
     // QMdiArea fires subWindowActivated(nullptr) any time focus moves outside
     // the MDI area (e.g. clicking a dock widget) — not just when projects
@@ -1265,6 +1574,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
             return;   // spurious null — keep existing bindings
 
         // Real "all projects closed" — clear bindings.
+        setWindowTitle(QStringLiteral("OpenSWMM"));
         UnitSystem::setActiveProject(nullptr);
         mCheckBoxLevelOffsetMode->setEnabled(false);
         if (mCheckBoxAutoLength) mCheckBoxAutoLength->setEnabled(false);
@@ -1328,6 +1638,52 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     mToolButtonCoordinateReferenceSystem->setText(
         srs ? srs->toAuthority() : QStringLiteral("EPSG:4326"));
 
+    // Bridge the Select-tool's right-click context menu to the same
+    // Time Series plot handler used by Object Browser. UniqueConnection
+    // keeps repeated tab-switches from stacking duplicates.
+    if (auto *st = pw->selectTool()) {
+        connect(st, &OpenSWMMVisMapToolSelect::plotTimeSeriesRequested,
+                this, &SWMMVis::openTimeSeriesPlotFor,
+                Qt::UniqueConnection);
+    }
+
+    // MVC live-sync: when the Simulation Options dialog writes through the
+    // layer's setOption(), the layer emits optionsChanged({keys}). Refresh
+    // the status-bar widgets (Flow Units combo, Offset-Mode checkbox)
+    // from the project's mirror of the engine state.
+    //
+    // Qt::UniqueConnection does NOT work with lambdas — Qt can't compare
+    // functor identities and silently stacks duplicates on every
+    // tab-switch. Disconnect all prior handlers on this layer from `this`
+    // first, then connect exactly one fresh lambda. Without this guard,
+    // every tab switch would accumulate another handler and a single
+    // FLOW_UNITS change would trigger N refreshes.
+    if (auto *layer = pw->modelLayer())
+    {
+        QObject::disconnect(layer, &SWMMModelLayer::optionsChanged,
+                            this, nullptr);
+        connect(layer, &SWMMModelLayer::optionsChanged, this,
+                [this, pw](const QStringList &keys) {
+                    if (pw != mActiveProjectWindow) return;
+                    if (keys.contains(QStringLiteral("FLOW_UNITS"))) {
+                        pw->unitSystem()->syncFromEngine(pw->modelLayer()->engine());
+                        QSignalBlocker b(mComboBoxFlowUnits);
+                        const int idx = mComboBoxFlowUnits->findData(
+                            static_cast<int>(pw->unitSystem()->flowUnits()));
+                        if (idx >= 0) mComboBoxFlowUnits->setCurrentIndex(idx);
+                    }
+                    if (keys.contains(QStringLiteral("LINK_OFFSETS"))) {
+                        pw->reloadElevationOffsetModeFromEngine();
+                        QSignalBlocker b(mCheckBoxLevelOffsetMode);
+                        const bool elev = pw->isElevationOffsetMode();
+                        mCheckBoxLevelOffsetMode->setChecked(elev);
+                        mCheckBoxLevelOffsetMode->setText(
+                            elev ? QStringLiteral("Elevation")
+                                 : QStringLiteral("Depth"));
+                    }
+                });
+    }
+
     // Rebind the Layers dock to this project's canvas so visibility toggles,
     // ordering, and layer additions reflect the focused tab.
     if (mLayerTreePanel)
@@ -1342,26 +1698,23 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     if (mAttributePanel && pw->selectionManager())
     {
         // The attribute panel listens to selectionChanged via a per-tab
-        // connection; re-wire on every tab switch using UniqueConnection so
-        // bouncing between tabs doesn't stack duplicate connections.
+        // connection. Qt::UniqueConnection can't de-dupe lambdas, so
+        // disconnect our prior handler from this manager first — every
+        // tab switch gets exactly one live connection.
+        QObject::disconnect(pw->selectionManager(),
+                            &SelectionManager::selectionChanged,
+                            this, nullptr);
         connect(pw->selectionManager(), &SelectionManager::selectionChanged,
                 this,
                 [this, pw](const QSet<SWMMObjectRef> &current,
                            const QSet<SWMMObjectRef> &,
                            const QSet<SWMMObjectRef> &) {
-                    // Guard against the lambda firing for a now-stale project
-                    // (re-tab during async work). mActiveProjectWindow is the
-                    // canonical "current focus" pointer.
                     if (!mAttributePanel || pw != mActiveProjectWindow) return;
                     if (current.isEmpty())
                     {
                         mAttributePanel->clear();
                         return;
                     }
-                    // Render the first selected object's identify-style
-                    // attributes. Phase 3's per-type Property Editors are a
-                    // future slice; for now this gives users immediate
-                    // read-only visibility into the picked object.
                     auto *layer = pw->modelLayer();
                     if (!layer) return;
                     const SWMMObjectRef first = *current.constBegin();
@@ -1377,8 +1730,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                     {
                         mAttributePanel->clear();
                     }
-                },
-                Qt::UniqueConnection);
+                });
     }
 }
 
@@ -1873,29 +2225,6 @@ void SWMMVis::onCRSButtonClicked()
     }
 }
 
-void SWMMVis::onSetLayerCRS()
-{
-    auto *pw = activeProjectWindow();
-    if (!pw) return;
-    SWMMModelLayer *layer = pw->modelLayer();
-    if (!layer) return;
-
-    CRSSelectionDialog dlg(this);
-    dlg.setCurrentCRS(layer->srs());
-    if (dlg.exec() != QDialog::Accepted)
-        return;
-
-    SpatialReferenceSystem *srs = dlg.selectedSRS();
-    if (!srs) return;
-
-    layer->setSRS(srs, true);
-    // Rebuild the reprojection transform and redraw — vector items need
-    // re-positioning under the new transform; raster basemaps do too.
-    layer->onCanvasCRSChanged(pw->canvas()->canvasSRS());
-    pw->canvas()->invalidate(MapCanvas::Raster | MapCanvas::Scene,
-                             QStringLiteral("set-layer-crs"));
-}
-
 void SWMMVis::onAddWMSLayer()
 {
     WMSConnectionDialog dlg(this);
@@ -1941,6 +2270,10 @@ void SWMMVis::onAddVectorLayer()
 
     auto *layer = new GISVectorLayer(path);
     c->addLayer(layer, true);
+    // Auto-fit so the user sees what they just loaded — the layer may sit
+    // far from the SWMM model in coordinate space and the canvas otherwise
+    // keeps its prior viewport.
+    c->zoomToFullExtent();
     onLogMessage(tr("Added vector layer: %1").arg(QFileInfo(path).fileName()));
 }
 
@@ -1963,6 +2296,7 @@ void SWMMVis::onAddRasterLayer()
 
     auto *layer = new GISRasterLayer(path);
     c->addLayer(layer, true);
+    c->zoomToFullExtent();
     onLogMessage(tr("Added raster layer: %1").arg(QFileInfo(path).fileName()));
 }
 
@@ -1976,11 +2310,12 @@ void SWMMVis::onAddSWMMResultsLayer()
         return;
     }
 
+    auto *kFilters = openswmmvis::FileFilterRegistry::instance();
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Add SWMM Results"),
         mRecentFiles.isEmpty() ? QDir::homePath()
                                : QFileInfo(mRecentFiles.first()).absolutePath(),
-        tr("SWMM results (*.out);;All files (*)"));
+        kFilters->filterFor(openswmmvis::FilterKind::ResultsRead));
     if (path.isEmpty()) return;
 
     auto *layer = new SWMMResultsLayer(path, pw->modelLayer());

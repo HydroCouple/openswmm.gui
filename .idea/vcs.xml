@@ -2,8 +2,7 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../openswmm.engine" vcs="Git" />
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/build/darwin-debug/_deps/openswmmcore-src" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/build/darwin-debug/_deps/qpropertymodel-src" vcs="Git" />
   </component>
 </project>

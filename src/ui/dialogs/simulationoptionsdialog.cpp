@@ -14,11 +14,19 @@
 #include <QComboBox>
 #include <QDateTimeEdit>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QDoubleSpinBox>
+#include <QFile>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
+#include <QListWidget>
+#include <QMessageBox>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QSpinBox>
 #include <QTabWidget>
@@ -70,11 +78,20 @@ void SimulationOptionsDialog::buildUi()
     buildHydraulicsTab(tabs);
     buildPerformanceTab(tabs);
     buildSpatialTab(tabs);
+
+    // Mesh configurations — file-management UI, lives outside any
+    // OPENSWMM_HAS_2D guard because picking a *.2dm reference is a pure
+    // GUI concern (the engine 2D solver isn't required to organise mesh
+    // candidates). Tab is enabled/disabled in lockstep with the 2D module
+    // toggle on the Models tab.
+    buildMeshTab(tabs);
+    m_meshTabIndex = tabs->count() - 1;
+    if (m_module2DBox)
+        tabs->setTabEnabled(m_meshTabIndex, m_module2DBox->isChecked());
+
 #ifdef OPENSWMM_HAS_2D
     build2DTab(tabs);
     m_2DTabIndex = tabs->count() - 1;  // index of the just-added 2D tab.
-    // Initial state mirrors the Modules-group toggle (defaults to off so
-    // demo dialogs don't surface the 2D parameters until the user opts in).
     if (m_module2DBox)
         tabs->setTabEnabled(m_2DTabIndex, m_module2DBox->isChecked());
 #endif
@@ -134,17 +151,23 @@ void SimulationOptionsDialog::buildModelsTab(QTabWidget *tabs)
     modulesLay->addWidget(m_module1DBox);
 
     m_module2DBox = new QCheckBox(tr("2D Surface Routing (CVODE)"), modulesGroup);
+    // Module toggle is a project-level flag (QSettings-backed) — always
+    // editable so the user can prepare meshes / configurations even when
+    // the engine 2D solver isn't compiled in. The engine-side gate at
+    // compile time only affects the parameter knobs on the 2D Surface
+    // Routing tab; the Mesh tab + this toggle are GUI concerns.
 #ifdef OPENSWMM_HAS_2D
     m_module2DBox->setToolTip(
         tr("Enable the optional 2D surface-routing module. When on, the "
-           "\"2D Surface Routing\" tab becomes editable and the engine "
+           "Mesh + 2D Surface Routing tabs become editable and the engine "
            "runs the 2D solver coupled to the 1D network."));
 #else
-    m_module2DBox->setEnabled(false);
     m_module2DBox->setToolTip(
-        tr("2D surface-routing module not built in this binary. Rebuild "
-           "the engine with -DOPENSWMM_BUILD_2D=ON (requires SUNDIALS) to "
-           "enable."));
+        tr("Project-level 2D module flag. Mesh selection tab becomes "
+           "interactive when checked. The engine 2D solver itself is not "
+           "compiled in this binary — rebuild with -DOPENSWMM_BUILD_2D=ON "
+           "(requires SUNDIALS) for end-to-end coupled runs; mesh "
+           "generation works regardless."));
 #endif
     modulesLay->addWidget(m_module2DBox);
 
@@ -556,15 +579,147 @@ void SimulationOptionsDialog::onSpatialDetectCRS()
     }
 }
 
+// ---------------------------------------------------------------------------
+// Mesh tab — Slice AU file-management for 2D mesh configurations
+// ---------------------------------------------------------------------------
+
+void SimulationOptionsDialog::buildMeshTab(QTabWidget *tabs)
+{
+    auto *page = new QWidget(tabs);
+    auto *vlay = new QVBoxLayout(page);
+
+    auto *header = new QLabel(tr(
+        "Pick which 2D mesh configuration (.2dm) the engine reads via "
+        "[2D_MESH_FILE]. New meshes are generated from the editing "
+        "toolbar's Generate Mesh tool — this tab is purely a selector "
+        "for existing configurations."), page);
+    header->setWordWrap(true);
+    vlay->addWidget(header);
+
+    m_meshDirLabel = new QLabel(page);
+    m_meshDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_meshDirLabel->setStyleSheet(QStringLiteral("color: gray;"));
+    vlay->addWidget(m_meshDirLabel);
+
+    m_meshList = new QListWidget(page);
+    m_meshList->setSelectionMode(QAbstractItemView::SingleSelection);
+    vlay->addWidget(m_meshList, 1);
+
+    auto *btnRow = new QHBoxLayout;
+    auto *btnSetActive = new QPushButton(tr("Set Active"), page);
+    btnSetActive->setToolTip(tr("Patch [2D_MESH_FILE] to point at the "
+                                 "selected configuration."));
+    auto *btnRemove    = new QPushButton(tr("Remove"), page);
+    btnRemove->setToolTip(tr("Delete the selected .2dm from disk."));
+    auto *btnRefresh   = new QPushButton(tr("Refresh"), page);
+    btnRow->addWidget(btnSetActive);
+    btnRow->addWidget(btnRemove);
+    btnRow->addStretch();
+    btnRow->addWidget(btnRefresh);
+    vlay->addLayout(btnRow);
+
+    m_meshActiveLabel = new QLabel(page);
+    m_meshActiveLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    vlay->addWidget(m_meshActiveLabel);
+
+    // For the demo cut, Refresh + listing are live. Set Active / Remove
+    // become live alongside the MeshGenerationDialog (Slice AU.4) so
+    // the .inp [2D_MESH_FILE] retarget logic ships in one place.
+    connect(btnRefresh, &QPushButton::clicked, this,
+            &SimulationOptionsDialog::refreshMeshList);
+    connect(btnSetActive, &QPushButton::clicked, this, [this]() {
+        QMessageBox::information(this, tr("Set Active Mesh"),
+            tr("[2D_MESH_FILE] re-targeting lands alongside the "
+               "Generate Mesh dialog (Slice AU.4)."));
+    });
+    connect(btnRemove, &QPushButton::clicked, this, [this]() {
+        QMessageBox::information(this, tr("Remove Mesh"),
+            tr("Removal lands alongside the Generate Mesh dialog."));
+    });
+
+    refreshMeshList();
+    tabs->addTab(page, tr("Mesh"));
+}
+
+void SimulationOptionsDialog::refreshMeshList()
+{
+    if (!m_meshList || !m_meshDirLabel || !m_meshActiveLabel) return;
+    m_meshList->clear();
+
+    // Search the directory next to the active model (.inp). Without a
+    // layer (e.g. dialog opened against a synthesized blank project)
+    // we silently no-op — Generate New will create the first mesh.
+    QString modelPath;
+    if (m_layer) modelPath = m_layer->modelFilePath();
+    const QFileInfo modelFi(modelPath);
+    const QDir dir = modelPath.isEmpty() ? QDir() : modelFi.absoluteDir();
+
+    m_meshDirLabel->setText(modelPath.isEmpty()
+        ? tr("Search directory: <none — save the project first>")
+        : tr("Search directory: %1").arg(dir.absolutePath()));
+
+    if (!modelPath.isEmpty())
+    {
+        const QStringList meshes = dir.entryList(
+            QStringList{QStringLiteral("*.2dm")},
+            QDir::Files | QDir::Readable, QDir::Name);
+        for (const QString &name : meshes)
+            m_meshList->addItem(name);
+    }
+
+    // Probe the .inp for a current [2D_MESH_FILE] reference. Keep this
+    // tolerant — the section may be absent (engine reads inline mesh).
+    QString active;
+    if (!modelPath.isEmpty())
+    {
+        QFile f(modelPath);
+        if (f.open(QIODevice::ReadOnly | QIODevice::Text))
+        {
+            const QString text = QString::fromUtf8(f.readAll());
+            const int sectIdx = text.indexOf(QStringLiteral("[2D_MESH_FILE]"),
+                                              0, Qt::CaseInsensitive);
+            if (sectIdx >= 0)
+            {
+                // Walk forward to the first non-comment, non-blank line
+                // and pull the FILE token.
+                int p = text.indexOf(QChar('\n'), sectIdx);
+                while (p > 0 && p < text.size())
+                {
+                    const int nl = text.indexOf(QChar('\n'), p + 1);
+                    const QString line = text.mid(p + 1, (nl < 0 ? text.size() : nl) - p - 1).trimmed();
+                    if (!line.isEmpty() && !line.startsWith(QStringLiteral(";"))
+                        && !line.startsWith(QChar('[')))
+                    {
+                        // Format: "FILE  <path>".
+                        const auto parts = line.split(QRegularExpression(QStringLiteral("\\s+")),
+                                                      Qt::SkipEmptyParts);
+                        if (parts.size() >= 2 && parts.first().compare(
+                                QStringLiteral("FILE"), Qt::CaseInsensitive) == 0)
+                            active = parts.mid(1).join(QChar(' '));
+                        break;
+                    }
+                    if (line.startsWith(QChar('['))) break;  // next section
+                    if (nl < 0) break;
+                    p = nl;
+                }
+            }
+        }
+    }
+    m_meshActiveLabel->setText(active.isEmpty()
+        ? tr("Active mesh reference: <none — engine reads inline mesh, if any>")
+        : tr("Active mesh reference: %1").arg(active));
+}
+
 void SimulationOptionsDialog::on2DModuleToggled(bool enabled)
 {
-    // Drive the 2D options tab's interactive state. Tab stays visible
-    // either way so the user can preview parameters even when 2D is off.
+    // Drive the Mesh + (engine-gated) 2D Surface Routing tabs together.
+    // Tabs stay visible either way so the user can preview the layout
+    // when 2D is off; only interactive state flips.
+    if (m_tabs && m_meshTabIndex >= 0)
+        m_tabs->setTabEnabled(m_meshTabIndex, enabled);
 #ifdef OPENSWMM_HAS_2D
     if (m_tabs && m_2DTabIndex >= 0)
         m_tabs->setTabEnabled(m_2DTabIndex, enabled);
-#else
-    Q_UNUSED(enabled)
 #endif
 }
 

@@ -23,6 +23,7 @@
 #include "swmmvisapplication.h"
 #include "swmmvis.h"
 #include "swmmvissplashscreen.h"
+#include "core/gisdatapaths.h"
 
 
 /*! \class SWMMVisCoreApplication
@@ -34,6 +35,8 @@
 SWMMVisCoreApplication::SWMMVisCoreApplication(int& argc, char* argv[])
     : QCoreApplication(argc, argv)
 {
+    setupBundledGisDataPaths();
+
     setOrganizationName("hydrocouple");
     setOrganizationDomain("calebbuahin.github.io");
 
@@ -61,6 +64,8 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     mSWMMVisGUI(new SWMMVis()),
     mSWMMVisSplashScreen(nullptr)
 {
+    setupBundledGisDataPaths();
+
     setOrganizationName("hydrocouple");
     setOrganizationDomain("calebbuahin.github.io");
 

@@ -211,9 +211,47 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
     if (!m_ogrLayer || !isVisible())
         return;
 
-    // Set spatial filter to canvas extent to limit reading to visible features
-    m_ogrLayer->SetSpatialFilterRect(canvasExtent.xMin(), canvasExtent.yMin(),
-                                     canvasExtent.xMax(), canvasExtent.yMax());
+    // Spatial filter must be in LAYER CRS (OGR layer holds layer-CRS data).
+    // Two cases:
+    //   - layer CRS == canvas CRS  →  m_transform is null  →  use canvas
+    //     extent directly (matching CRSes).
+    //   - layer CRS != canvas CRS  →  m_transform exists   →  inverse-
+    //     transform the four corners of canvasExtent into layer CRS, take
+    //     their bounding box. Without this, the filter rejects every
+    //     feature and the shapefile "doesn't render".
+    if (!m_transform)
+    {
+        m_ogrLayer->SetSpatialFilterRect(canvasExtent.xMin(), canvasExtent.yMin(),
+                                         canvasExtent.xMax(), canvasExtent.yMax());
+    }
+    else if (auto *inv = m_transform->GetInverse())
+    {
+        double xs[4] = {canvasExtent.xMin(), canvasExtent.xMax(),
+                        canvasExtent.xMax(), canvasExtent.xMin()};
+        double ys[4] = {canvasExtent.yMin(), canvasExtent.yMin(),
+                        canvasExtent.yMax(), canvasExtent.yMax()};
+        if (inv->Transform(4, xs, ys))
+        {
+            double xMin = xs[0], xMax = xs[0], yMin = ys[0], yMax = ys[0];
+            for (int i = 1; i < 4; ++i)
+            {
+                xMin = qMin(xMin, xs[i]); xMax = qMax(xMax, xs[i]);
+                yMin = qMin(yMin, ys[i]); yMax = qMax(yMax, ys[i]);
+            }
+            m_ogrLayer->SetSpatialFilterRect(xMin, yMin, xMax, yMax);
+        }
+        else
+        {
+            // Inverse transform failed (e.g. PROJ-side error) — fall back
+            // to no filter rather than silently dropping features.
+            m_ogrLayer->SetSpatialFilter(nullptr);
+        }
+        OGRCoordinateTransformation::DestroyCT(inv);
+    }
+    else
+    {
+        m_ogrLayer->SetSpatialFilter(nullptr);
+    }
     m_ogrLayer->ResetReading();
 
     const double baseZ = layerZValue();
@@ -236,6 +274,13 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         auto *item = new VectorLineItem(fid, scenePts);
         QPen pen = selected ? QPen(Qt::yellow, m_symbol.linePen.widthF() + 2)
                             : m_symbol.linePen;
+        // Cosmetic pen → width stays in screen pixels regardless of zoom.
+        // Without this, a layer in a projected CRS (e.g. coords ~1e7) at
+        // canvas scale ~1e-3 px/unit renders pen widths < 0.01 viewport
+        // pixels — invisible. The SWMM model layer escapes this via
+        // Slice R's per-frame painter, but generic GIS-vector items use
+        // standard QGraphicsItems.
+        pen.setCosmetic(true);
         item->setPen(pen);
         item->setHighlighted(selected);
         item->setOwnerLayer(this);
@@ -252,7 +297,9 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         auto *item = new VectorPolygonItem(fid, poly);
         QBrush brush = selected ? QBrush(QColor(255, 255, 0, 100)) : m_symbol.polygonFill;
         item->setBrush(brush);
-        item->setPen(m_symbol.polygonOutline);
+        QPen polyPen = m_symbol.polygonOutline;
+        polyPen.setCosmetic(true);
+        item->setPen(polyPen);
         item->setHighlighted(selected);
         item->setOwnerLayer(this);
         item->setZValue(baseZ);
@@ -268,10 +315,10 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         bool selected = m_selectedIds.contains(static_cast<long long>(fid));
 
         OGRGeometry *geom = feat->GetGeometryRef();
-        if (geom && m_transform)
+        if (!geom) { OGRFeature::DestroyFeature(feat); continue; }
+        if (m_transform)
             geom->transform(m_transform);
 
-        if (geom)
         {
             OGRwkbGeometryType gt = wkbFlatten(geom->getGeometryType());
 

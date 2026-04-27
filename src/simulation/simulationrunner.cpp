@@ -11,6 +11,8 @@
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_callbacks.h>
 
+#include "core/preferencesmanager.h"
+
 #include <QDate>
 #include <QDateTime>
 #include <QElapsedTimer>
@@ -98,8 +100,12 @@ void SimulationRunner::start()
                               res.errorMessage, res.runoffErrFrac, res.routingErrFrac);
             });
 
+    // Snapshot the progress-tick interval on the GUI thread so the
+    // worker never touches the singleton / QSettings from off-thread.
+    const int tickIntervalMs = PreferencesManager::instance()->progressTickMs();
+
     watcher->setFuture(
-        QtConcurrent::run([inp, rpt, out, rawSelf]() -> SimulationResult {
+        QtConcurrent::run([inp, rpt, out, rawSelf, tickIntervalMs]() -> SimulationResult {
             SWMM_Engine eng = swmm_engine_create();
 
             // Open
@@ -192,10 +198,11 @@ void SimulationRunner::start()
             double elapsed = 0.0;
             QElapsedTimer tickTimer;
             tickTimer.start();
-            // Rate-limit GUI emissions to 1 Hz. Small models can step
-            // thousands of times per second; emitting every step would
-            // starve the GUI event loop.
-            constexpr qint64 kTickIntervalMs = 1000;
+            // Rate-limit GUI emissions to `tickIntervalMs` (user pref,
+            // default 1 Hz — Slice V). Small models can step thousands
+            // of times per second; emitting every step would starve
+            // the GUI event loop.
+            const qint64 kTickIntervalMs = tickIntervalMs;
             qint64 lastTickMs = -kTickIntervalMs; // fire immediately on first step
             while (!rawSelf->m_cancel.load()) {
                 if (rawSelf->m_paused.load()) {
