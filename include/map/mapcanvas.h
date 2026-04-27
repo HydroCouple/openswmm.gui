@@ -25,6 +25,7 @@ class SpatialReferenceSystem;
 class OpenSWMMVisMapTool;
 class MapUndoStack;
 class MapRenderJob;
+class QGestureEvent;
 
 /*!
  * \class MapCanvas
@@ -232,8 +233,14 @@ protected:
     /*! Override `event` so tooltip requests can pick the hovered SWMM
      *  object through each visible `SWMMModelLayer`'s `pickAt` API
      *  (Slice R Phase 4). No tool activation needed — hover tooltips
-     *  fire while any tool is active. */
+     *  fire while any tool is active. Also dispatches `QEvent::Gesture`
+     *  to `gestureEvent` so two-finger pinch (Slice AV) zooms the
+     *  canvas regardless of the active map tool. */
     bool event(QEvent *event)                      override;
+
+    /*! Handle pinch gestures (touchscreen + Precision touchpad).
+     *  Delegates to `zoomAroundCursor` so behaviour matches wheel-zoom. */
+    void gestureEvent(QGestureEvent *event);
 
 private slots:
     void onLayerRepaintRequested();

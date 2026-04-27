@@ -12,6 +12,8 @@
 #include "layers/swmmmodellayer.h"
 
 #include <QAction>
+#include <QDebug>
+#include <QElapsedTimer>
 #include <QIcon>
 #include <QKeyEvent>
 #include <QMenu>
@@ -378,14 +380,24 @@ void OpenSWMMVisMapToolSelect::selectInRect(const QRect &pixelRect,
             //   The layer methods also apply the inverse CRS transform
             //   internally so canvas-CRS click coords match against
             //   layer-CRS feature positions correctly.
-            for (const QString &name : sl->nodesInRect(minX, minY, maxX, maxY))
-                hits.insert(name);
-            for (const QString &name : sl->gagesInRect(minX, minY, maxX, maxY))
-                hits.insert(name);
-            for (const QString &name : sl->linksInRect(minX, minY, maxX, maxY))
-                hits.insert(name);
-            for (const QString &name : sl->subcatchmentsInRect(minX, minY, maxX, maxY))
-                hits.insert(name);
+            QElapsedTimer t; t.start();
+            const auto nh = sl->nodesInRect(minX, minY, maxX, maxY);
+            const qint64 t_n = t.elapsed();
+            const auto gh = sl->gagesInRect(minX, minY, maxX, maxY);
+            const qint64 t_g = t.elapsed() - t_n;
+            const auto lh = sl->linksInRect(minX, minY, maxX, maxY);
+            const qint64 t_l = t.elapsed() - t_n - t_g;
+            const auto sh = sl->subcatchmentsInRect(minX, minY, maxX, maxY);
+            const qint64 t_s = t.elapsed() - t_n - t_g - t_l;
+            for (const QString &name : nh) hits.insert(name);
+            for (const QString &name : gh) hits.insert(name);
+            for (const QString &name : lh) hits.insert(name);
+            for (const QString &name : sh) hits.insert(name);
+            qDebug().noquote() << "[selectInRect] nodes=" << nh.size() << "(" << t_n << "ms)"
+                               << " gages=" << gh.size() << "(" << t_g << "ms)"
+                               << " links=" << lh.size() << "(" << t_l << "ms)"
+                               << " subc="  << sh.size() << "(" << t_s << "ms)"
+                               << " hits_total=" << hits.size();
             Q_UNUSED(sweepCategory);   // retained above for any future per-category fallback
 
             // Ctrl-rubber-band removes hits from the existing selection.

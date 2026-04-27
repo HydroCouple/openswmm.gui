@@ -50,11 +50,14 @@ struct GISVectorSymbol
     double      markerOutlineW = 1.0;
 
     // ----- Line -----------------------------------------------------------
-    QPen        linePen        = QPen(QColor(Qt::blue), 1.5);
+    // Width is in screen pixels (cosmetic pen applied at populate time).
+    // Default 2.0 — temporary until the theming component (Slice AC) takes
+    // over per-attribute styling.
+    QPen        linePen        = QPen(QColor(Qt::blue), 2.0);
 
     // ----- Polygon --------------------------------------------------------
     QBrush      polygonFill    = QBrush(QColor(100, 149, 237, 160)); // cornflower blue
-    QPen        polygonOutline = QPen(QColor(Qt::darkBlue), 1.0);
+    QPen        polygonOutline = QPen(QColor(Qt::darkBlue), 2.0);
 
     // ----- Labels ---------------------------------------------------------
     bool        showLabels     = false;
@@ -104,6 +107,13 @@ public:
      * \brief Returns the OGR sub-layer name opened within the dataset.
      */
     [[nodiscard]] QString ogrLayerName() const;
+
+    /*!
+     * \brief Read-only OGRLayer handle for callers that need to walk
+     *        features directly (e.g. mesh-generator constraint pulls).
+     *        Returns nullptr if the dataset is not open.
+     */
+    [[nodiscard]] class OGRLayer *ogrLayer() const { return m_ogrLayer; }
 
     /*!
      * \brief Returns the number of features currently visible (after filtering).

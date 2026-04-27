@@ -69,6 +69,7 @@ public:
         SWMMSubProjectLayer       = 9,  /*!< Collection of layers for one SWMM sub-project. */
         SWMMWMSLayer              = 10, /*!< OGC WMS service. */
         SWMMWMTSLayer             = 11, /*!< OGC WMTS service. */
+        SWMM2DMeshLayer           = 12, /*!< Generated / loaded 2D triangular mesh (Slice AU). */
     };
 
     // ----- Constructors ----------------------------------------------------

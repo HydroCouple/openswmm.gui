@@ -85,6 +85,31 @@ add_swmmvis_gui_test(test_layerreprojection
 target_include_directories(test_layerreprojection PRIVATE ${GDAL_INCLUDE_DIRS})
 target_link_libraries(test_layerreprojection PRIVATE GDAL::GDAL)
 
+# Slice AU — Mesh generation + DTM sampling. Both link triangle_lib (Shewchuk
+# vendored at vendor/triangle/) and GDAL respectively.
+add_swmmvis_gui_test(test_meshgenerator
+    test_meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshgenerator.h
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
+)
+target_link_libraries(test_meshgenerator PRIVATE triangle_lib)
+
+add_swmmvis_gui_test(test_dtmsampler
+    test_dtmsampler.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/dtmsampler.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/dtmsampler.h
+)
+target_include_directories(test_dtmsampler PRIVATE ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_dtmsampler PRIVATE GDAL::GDAL)
+
+add_swmmvis_gui_test(test_inpmeshwriter
+    test_inpmeshwriter.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/inpmeshwriter.h
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
+)
+
 # test_simulationoptionsdialog (test_simulationoptionsdialog.cpp) — parked
 # alongside the layertreemodel test until the `swmmvis_core` static-lib
 # extraction lands. The Q_OBJECT moc bindings on SimulationOptionsDialog

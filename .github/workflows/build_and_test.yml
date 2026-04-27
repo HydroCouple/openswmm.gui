@@ -75,22 +75,18 @@ jobs:
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-#      # openswmm.engine must sit at ../openswmm.engine relative to openswmm.gui so that
-#      # `FetchOpenSWMMEngine.cmake` can pick up the sibling checkout automatically.
-#      - name: Checkout Open SWMM Engine (swmm6_rel)
-#        uses: actions/checkout@v4
-#        with:
-#          repository: HydroCouple/openswmm.engine
-#          ref: swmm6_rel
-#          path: ../openswmm.engine
-#
-#      # QPropertyModel must sit at ../QPropertyModel for the FetchContent SOURCE_DIR path.
-#      - name: Checkout QPropertyModel (dev)
-#        uses: actions/checkout@v4
-#        with:
-#          repository: cbuahin/QPropertyModel
-#          ref: dev
-#          path: ../QPropertyModel
+      - name: Cache vcpkg downloads (source tarballs)
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_ROOT }}/downloads
+          key: vcpkg-downloads-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-downloads-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-
+            vcpkg-downloads-${{ runner.os }}-
+
+      # openswmm.engine and QPropertyModel are fetched automatically via
+      # FetchOpenSWMMEngine.cmake / FetchQPropertyModel.cmake at configure time.
+      # No explicit checkout steps needed.
 
       # ── System dependencies ──────────────────────────────────────────────────
       - name: Install system dependencies (Linux)
@@ -101,15 +97,15 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ninja
 
-#      # Qt is not in vcpkg.json — install via aqtinstall.
-#      # Modules: qtcharts + qtsvg are required by CMakeLists.txt (Qt::Charts, Qt::Svg).
-#      - name: Install Qt 6
-#        uses: jurplel/install-qt-action@v4
-#        with:
-#          version: '6.7.*'
-#          arch: ${{ matrix.qt_arch }}
-#          modules: 'qtcharts qtsvg'
-#          cache: true
+      # Qt is not in vcpkg.json — install via aqtinstall.
+      # Modules: qtcharts + qtsvg are required by CMakeLists.txt (Qt::Charts, Qt::Svg).
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          arch: ${{ matrix.qt_arch }}
+          modules: 'qtcharts qtsvg'
+          cache: true
 
       # ── Build ────────────────────────────────────────────────────────────────
       - name: Configure
@@ -122,15 +118,23 @@ jobs:
       - name: Test
         run: ctest --test-dir build/${{ matrix.build_subdir }} -C Release --output-on-failure
 
-      # ── Artifacts ────────────────────────────────────────────────────────────
+      # ── Install (staging tree) ────────────────────────────────────────────
+      # cmake --install copies the built binary + all install() rules into
+      # dist/<subdir>/ — windeployqt / macdeployqt install(CODE) runs here too.
+      - name: Install
+        run: cmake --install build/${{ matrix.build_subdir }} --prefix ${{ github.workspace }}/dist/${{ matrix.build_subdir }}
+
+      # ── Package (CPack) ───────────────────────────────────────────────────
+      # CPack reads the install tree and produces a platform-appropriate archive
+      # (.dmg on macOS, .zip on Windows, .tar.gz on Linux).
+      - name: Package
+        run: cpack --config build/${{ matrix.build_subdir }}/CPackConfig.cmake -B ${{ github.workspace }}/packages
+
+      # ── Artifacts ────────────────────────────────────────────────────────
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: swmmvis-${{ matrix.vcpkg_triplet }}
-          path: |
-            build/${{ matrix.build_subdir }}/*.zip
-            build/${{ matrix.build_subdir }}/*.tar.gz
-            build/${{ matrix.build_subdir }}/*.exe
-            build/${{ matrix.build_subdir }}/*.dmg
+          path: packages/
 

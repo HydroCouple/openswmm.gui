@@ -29,6 +29,8 @@
 #include <QHelpEvent>
 #include <QToolTip>
 #include <QVariantMap>
+#include <QGestureEvent>
+#include <QPinchGesture>
 
 #include <ogr_spatialref.h>   // OGRCoordinateTransformation for fullExtent
 
@@ -46,6 +48,12 @@ MapCanvas::MapCanvas(QWidget *parent)
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
     setAttribute(Qt::WA_OpaquePaintEvent, true);
+
+    // Pinch-to-zoom (touchscreen + macOS / Windows Precision touchpad).
+    // Routed through event() → gestureEvent() → zoomAroundCursor so
+    // behaviour matches the existing wheel-zoom path and stays
+    // tool-independent.
+    grabGesture(Qt::PinchGesture);
 
     // Scene has no background — the MapCanvas raster buffer paints behind it.
     m_scene->setBackgroundBrush(Qt::NoBrush);
@@ -320,16 +328,17 @@ void MapCanvas::insertLayer(int position, OpenSWMMVisLayer *layer, bool pushUndo
 
     updateLayerZValues();
 
-    // Only vector (non-raster) layers populate the overlay scene
+    // CRITICAL ORDER: build the layer→canvas transform FIRST, then
+    // populate. populateScene consumes m_transform when it walks features
+    // and emits scene items in canvas-CRS coords; if onCanvasCRSChanged
+    // ran AFTER populateScene, the first frame would render raw layer
+    // coords (no transform) and the layer would appear off-screen — the
+    // shapefile/raster "doesn't render" demo bug logged 2026-04-26.
+    layer->onCanvasCRSChanged(m_canvasSRS);
+
+    // Only vector (non-raster) layers populate the overlay scene.
     if (!layer->isRasterLayer())
         layer->populateScene(m_scene, m_extent, m_canvasSRS);
-
-    // Seed the layer's transform against the current canvas CRS so
-    // first-frame rendering reprojects correctly if the layer's SRS
-    // differs from the canvas (otherwise the first populateScene draws
-    // raw layer coords with no transform, causing the "first open
-    // shows wrong location" issue).
-    layer->onCanvasCRSChanged(m_canvasSRS);
 
     emit layerAdded(layer);
     // Trigger a full render cycle so the new layer is fetched and composited
@@ -1200,6 +1209,10 @@ QString buildTooltip(SWMMModelLayer *sl, const QString &name)
 
 bool MapCanvas::event(QEvent *event)
 {
+    if (event->type() == QEvent::Gesture) {
+        gestureEvent(static_cast<QGestureEvent *>(event));
+        return true;
+    }
     if (event->type() == QEvent::ToolTip) {
         auto *help = static_cast<QHelpEvent *>(event);
         const QPoint pixel = help->pos();
@@ -1233,6 +1246,24 @@ bool MapCanvas::event(QEvent *event)
         return true;
     }
     return QWidget::event(event);
+}
+
+void MapCanvas::gestureEvent(QGestureEvent *event)
+{
+    auto *pinch = static_cast<QPinchGesture *>(
+        event->gesture(Qt::PinchGesture));
+    if (!pinch)
+        return;
+
+    if (pinch->changeFlags() & QPinchGesture::ScaleFactorChanged) {
+        // QPinchGesture::scaleFactor() is the *incremental* factor since
+        // the previous gestureUpdated, which composes cleanly with our
+        // existing zoom step. centerPoint() is in global screen
+        // coordinates — must convert to viewport pixels.
+        const QPoint vp = mapFromGlobal(pinch->centerPoint().toPoint());
+        zoomAroundCursor(pinch->scaleFactor(), vp);
+    }
+    event->accept();
 }
 
 void MapCanvas::resizeEvent(QResizeEvent *event)

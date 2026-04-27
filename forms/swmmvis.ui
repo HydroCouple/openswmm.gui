@@ -591,12 +591,21 @@
      <addaction name="separator"/>
      <addaction name="actionClearRecentFiles"/>
     </widget>
+    <widget class="QMenu" name="menuSaveAs">
+     <property name="title">
+      <string>Save &amp;As</string>
+     </property>
+     <addaction name="actionSaveAsProject"/>
+     <addaction name="actionSaveAsInput"/>
+     <addaction name="separator"/>
+     <addaction name="actionExportMap"/>
+    </widget>
     <addaction name="actionNew"/>
     <addaction name="actionOpen"/>
     <addaction name="menuOpenRecent"/>
     <addaction name="separator"/>
     <addaction name="actionSave"/>
-    <addaction name="actionSaveAs"/>
+    <addaction name="menuSaveAs"/>
     <addaction name="actionSettings"/>
     <addaction name="separator"/>
     <addaction name="actionPrint"/>
@@ -617,6 +626,9 @@
     <property name="title">
      <string>Tools</string>
     </property>
+    <addaction name="actionOptions"/>
+    <addaction name="separator"/>
+    <addaction name="actionPlugins"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -718,6 +730,8 @@
    <addaction name="actionSnow"/>
    <addaction name="actionEvaporation"/>
    <addaction name="actionSolarRadiation"/>
+   <addaction name="separator"/>
+   <addaction name="actionGenerateMesh"/>
   </widget>
   <widget class="QToolBar" name="toolBarAnimation">
    <property name="windowTitle">
@@ -836,25 +850,64 @@
     <enum>QAction::NoRole</enum>
    </property>
   </action>
-  <action name="actionSaveAs">
+  <action name="actionSaveAsProject">
    <property name="icon">
     <iconset resource="../resources/swmmvis.qrc">
      <normaloff>:/swmmvis/SaveAs</normaloff>:/swmmvis/SaveAs</iconset>
    </property>
    <property name="text">
-    <string>&amp;Save As</string>
+    <string>&amp;Project…</string>
    </property>
    <property name="toolTip">
-    <string>Save As</string>
+    <string>Save as OpenSWMM project (.oswp)</string>
    </property>
    <property name="statusTip">
-    <string>Save As</string>
-   </property>
-   <property name="whatsThis">
-    <string>Save As</string>
+    <string>Save the active project to a new .oswp + .inp pair</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+Shift+S</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionSaveAsInput">
+   <property name="text">
+    <string>&amp;Input File…</string>
+   </property>
+   <property name="toolTip">
+    <string>Save the active SWMM model to a new .inp (project sidecar untouched)</string>
+   </property>
+   <property name="statusTip">
+    <string>Export the SWMM input file without touching the project sidecar</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionExportMap">
+   <property name="text">
+    <string>&amp;Map Image…</string>
+   </property>
+   <property name="toolTip">
+    <string>Export the active map view to PNG / SVG / DXF</string>
+   </property>
+   <property name="statusTip">
+    <string>Export the active map view as an image (PNG / SVG / DXF / EMF)</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionPlugins">
+   <property name="text">
+    <string>&amp;Plugins…</string>
+   </property>
+   <property name="toolTip">
+    <string>List installed file-format plugins</string>
+   </property>
+   <property name="statusTip">
+    <string>Inspect installed file-format plugins and built-in filters</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>
@@ -1711,6 +1764,24 @@
     <enum>QAction::TextHeuristicRole</enum>
    </property>
   </action>
+  <action name="actionGenerateMesh">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/CreateMesh</normaloff>:/swmmvis/CreateMesh</iconset>
+   </property>
+   <property name="text">
+    <string>Generate &amp;Mesh…</string>
+   </property>
+   <property name="toolTip">
+    <string>Generate a 2D mesh from the active SWMM network and DTM</string>
+   </property>
+   <property name="statusTip">
+    <string>Open the 2D mesh generator (Tools → Generate 2D Mesh…)</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
   <action name="actionShowLegend">
    <property name="icon">
     <iconset resource="../resources/swmmvis.qrc">
@@ -1983,7 +2054,7 @@
      <normaloff>:/swmmvis/Options</normaloff>:/swmmvis/Options</iconset>
    </property>
    <property name="text">
-    <string>Options</string>
+    <string>Simulation Options…</string>
    </property>
    <property name="toolTip">
     <string>Simulation Options</string>

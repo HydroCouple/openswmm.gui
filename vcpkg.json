@@ -14,11 +14,16 @@
             "host": true
         },
         {
-            "name": "gdal"
+            "name": "gdal",
+            "default-features": false,
+            "features": ["jpeg", "png", "sqlite3"]
         },
         {
             "name": "gtest",
             "platform": "!(uwp | xbox)"
+        },
+        {
+            "name": "nanoflann"
         }
     ]
 }

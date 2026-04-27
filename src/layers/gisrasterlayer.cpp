@@ -413,6 +413,12 @@ void GISRasterLayer::openDataset(const QString &filePath)
 
     setName(QFileInfo(filePath).baseName());
     emit filePathChanged(filePath);
+
+    // Compute band stats so the linear color ramp covers the actual value
+    // range (default ramp was [0, 1] which clamps any DTM with elevations
+    // > 1 to fully saturated — entire screen black/white). For multi-band
+    // RGB rasters this no-ops harmlessly; warpToCanvas takes the RGB path.
+    autoStretchColorRamp();
 }
 
 void GISRasterLayer::closeDataset()
@@ -455,13 +461,18 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
     bool isRGB     = (nBands >= 3);
     int outBands   = isRGB ? nBands : 1;
 
-    // Create in-memory destination dataset
+    // Create in-memory destination dataset.
+    // RGB stays GDT_Byte (3×8-bit colour). Single-band stays Float64 so
+    // DTM elevations (typically Float32 in metres, range 0–3000+) survive
+    // the warp without clamping to 0–255. Float64 also makes the in-loop
+    // NoData test exact (the source NoData double round-trips intact).
     GDALDriver *memDriver = GetGDALDriverManager()->GetDriverByName("MEM");
     if (!memDriver)
         return {};
 
+    const GDALDataType dstType = isRGB ? GDT_Byte : GDT_Float64;
     GDALDataset *dstDS = memDriver->Create(
-        "", pixelWidth, pixelHeight, outBands, GDT_Byte, nullptr);
+        "", pixelWidth, pixelHeight, outBands, dstType, nullptr);
 
     if (!dstDS)
         return {};
@@ -495,8 +506,41 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
 
     if (m_hasNoData)
     {
-        warpOpts->padfSrcNoDataReal = static_cast<double *>(CPLMalloc(sizeof(double)));
-        warpOpts->padfSrcNoDataReal[0] = m_noDataValue;
+        // Mark NoData on both source and destination so the warper writes
+        // the destination's NoData sentinel into pixels that have no
+        // valid source coverage. Without dst-side NoData, the warped
+        // tile's blank corners come back as 0 — indistinguishable from
+        // a legitimate elevation of 0 m. We use a NaN sentinel on the
+        // Float64 destination because std::isnan() is the cleanest test
+        // in the rendering loop below.
+        warpOpts->padfSrcNoDataReal = static_cast<double *>(
+            CPLMalloc(sizeof(double) * outBands));
+        warpOpts->padfDstNoDataReal = static_cast<double *>(
+            CPLMalloc(sizeof(double) * outBands));
+        const double sentinel = isRGB ? 0.0
+                                      : std::numeric_limits<double>::quiet_NaN();
+        for (int i = 0; i < outBands; ++i)
+        {
+            warpOpts->padfSrcNoDataReal[i] = m_noDataValue;
+            warpOpts->padfDstNoDataReal[i] = sentinel;
+            if (!isRGB)
+                dstDS->GetRasterBand(i + 1)->SetNoDataValue(sentinel);
+        }
+        warpOpts->papszWarpOptions = CSLSetNameValue(
+            warpOpts->papszWarpOptions, "INIT_DEST", "NO_DATA");
+    }
+    else if (!isRGB)
+    {
+        // Even without an explicit NoData, parts of the destination tile
+        // outside the source raster footprint must be skipped. Use NaN
+        // sentinel on the destination so the rendering loop drops them.
+        warpOpts->padfDstNoDataReal = static_cast<double *>(
+            CPLMalloc(sizeof(double) * outBands));
+        warpOpts->padfDstNoDataReal[0] = std::numeric_limits<double>::quiet_NaN();
+        dstDS->GetRasterBand(1)->SetNoDataValue(
+            std::numeric_limits<double>::quiet_NaN());
+        warpOpts->papszWarpOptions = CSLSetNameValue(
+            warpOpts->papszWarpOptions, "INIT_DEST", "NO_DATA");
     }
 
     warpOpts->pfnTransformer  = GDALGenImgProjTransform;
@@ -556,24 +600,29 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
     }
     else
     {
-        // Single-band: apply colour ramp
-        std::vector<GByte> raw(pixelWidth * pixelHeight);
-        dstDS->GetRasterBand(1)->RasterIO(GF_Read, 0, 0, pixelWidth, pixelHeight,
-                                           raw.data(), pixelWidth, pixelHeight, GDT_Byte, 0, 0);
+        // Single-band: read Float64 elevations and apply the linear colour
+        // ramp. NaN pixels (warped destination NoData sentinel above) are
+        // rendered fully transparent so the layer underneath shows through
+        // — the user explicitly asked NoData not to render.
+        std::vector<double> raw(pixelWidth * pixelHeight);
+        dstDS->GetRasterBand(1)->RasterIO(
+            GF_Read, 0, 0, pixelWidth, pixelHeight, raw.data(),
+            pixelWidth, pixelHeight, GDT_Float64, 0, 0);
 
         for (int y = 0; y < pixelHeight; ++y)
         {
+            QRgb *row = reinterpret_cast<QRgb *>(result.scanLine(y));
             for (int x = 0; x < pixelWidth; ++x)
             {
-                double val = raw[y * pixelWidth + x];
-                if (m_hasNoData && qFuzzyCompare(val, m_noDataValue))
+                const double val = raw[y * pixelWidth + x];
+                if (std::isnan(val) ||
+                    (m_hasNoData && val == m_noDataValue))
                 {
-                    result.setPixel(x, y, qRgba(0, 0, 0, 0));
+                    row[x] = qRgba(0, 0, 0, 0);   // fully transparent
                 }
                 else
                 {
-                    QColor c = m_colorRamp.colorForValue(val);
-                    result.setPixel(x, y, c.rgba());
+                    row[x] = m_colorRamp.colorForValue(val).rgba();
                 }
             }
         }

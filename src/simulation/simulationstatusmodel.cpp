@@ -121,9 +121,18 @@ void SimulationStatusModel::finishJob(int jobId, bool success, int errCode,
     else
         rec.status = SimulationJobStatus::Success;
 
+    // Snap Sim Current to Sim End on a successful finish — the last
+    // step-loop tick may have stopped a sub-routing-step shy of the end
+    // (engine step returns elapsed == 0 to signal "done") which would
+    // otherwise leave the Current column a few seconds before End.
+    // For cancelled / failed runs we leave Current where the last tick
+    // left it so the user can see exactly when execution stopped.
+    if (rec.status == SimulationJobStatus::Success && rec.endSimDate.isValid())
+        rec.currentSimDate = rec.endSimDate;
+
     const QModelIndex tl = createIndex(row, 0,          kRootId);
     const QModelIndex br = createIndex(row, NumColumns - 1, kRootId);
-    emit dataChanged(tl, br, {Qt::DisplayRole, Qt::ForegroundRole});
+    emit dataChanged(tl, br, {Qt::DisplayRole, Qt::EditRole, Qt::ForegroundRole});
 }
 
 const SimulationJobRecord *SimulationStatusModel::jobRecord(int jobId) const
