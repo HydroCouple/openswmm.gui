@@ -838,20 +838,18 @@ void SWMMVis::initializeMenus()
         actSetCRS->setToolTip(tr("Choose or change the project's coordinate reference system"));
         connect(actSetCRS, &QAction::triggered, this, &SWMMVis::onCRSButtonClicked);
 
-        // Tools → Preferences… (Slice V). On macOS, QAction's
-        // PreferencesRole automatically reparents this into the
-        // Application menu ("App Name → Preferences"), matching native
-        // platform conventions. On Linux / Windows it stays here.
-        ui->menuTools->addSeparator();
-        auto *actPrefs = ui->menuTools->addAction(
-            QIcon(QStringLiteral(":/swmmvis/Settings")),
-            tr("Preferences…"));
-        actPrefs->setMenuRole(QAction::PreferencesRole);
-        actPrefs->setShortcut(QKeySequence::Preferences);
-        actPrefs->setToolTip(tr("Configure tolerances, default tool, "
-                                 "CRS, rendering LOD, simulation tick "
-                                 "rate, and other application settings"));
-        connect(actPrefs, &QAction::triggered, this, [this]() {
+    }
+
+    // Tools → Preferences… (Slice V). The .ui defines `actionSettings`
+    // with PreferencesRole — on macOS, Qt automatically reparents it into
+    // the Application menu ("App Name → Preferences"), matching native
+    // platform conventions. On Linux / Windows it stays in Tools.
+    if (ui->actionSettings) {
+        ui->actionSettings->setToolTip(tr("Configure tolerances, default tool, "
+                                          "CRS, rendering LOD, selection "
+                                          "colours, simulation tick rate, "
+                                          "and other application preferences"));
+        connect(ui->actionSettings, &QAction::triggered, this, [this]() {
             PreferencesDialog dlg(this);
             dlg.exec();
         });

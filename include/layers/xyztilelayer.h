@@ -54,7 +54,12 @@ public:
 
     // ----- OpenSWMMVisLayer interface ---------------------------------------
 
-    [[nodiscard]] bool isRasterLayer() const override { return true; }
+    [[nodiscard]] bool isRasterLayer()  const override { return true; }
+
+    /*! XYZ tile layers cover the whole world — exclude them from the
+     *  data-driven fullExtent() calculation so "Zoom to Full Extent" zooms
+     *  to the project's feature data, not the entire globe. */
+    [[nodiscard]] bool isBasemapLayer() const override { return true; }
 
     void fetchCache(const MapExtent &extent,
                     const QSize &viewportSize,

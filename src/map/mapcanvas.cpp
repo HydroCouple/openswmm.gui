@@ -17,6 +17,13 @@
 #include "layers/xyztilelayer.h"
 #include "map/spatialreferencesystem.h"
 #include "map/crsmanager.h"
+#include "map/swmmlayerglrenderer.h"
+#include "map/swmmlayerqsgrenderer.h"
+
+#include <QQmlError>
+#include <QQuickItem>
+#include <QQuickWidget>
+#include <QQuickWindow>
 
 #include <QPainter>
 #include <QMouseEvent>
@@ -93,12 +100,61 @@ MapCanvas::MapCanvas(QWidget *parent)
     // Seed the scene rect generously so early panning never hits a boundary.
     m_scene->setSceneRect(-40075016.68, -40075016.68, 80150033.36, 80150033.36);
 
-    // Refresh timer coalesces multiple refresh() calls
+    // Refresh timer coalesces multiple refresh() calls. 50 ms is the
+    // tuned debounce — short enough that a selection update feels
+    // responsive, long enough to absorb sustained activity (pan
+    // deltas, hover-driven cursor refreshes). Phase A.4 explored 0 ms
+    // and found no measurable selection-paint reduction (the dominant
+    // paint trigger is mouse-move events post-selection, not the
+    // synchronous signal cascade) — net result was higher per-paint
+    // cost and no fewer paints. Keep at 50 ms; the real win for paint
+    // reduction comes with Phase B (GL) + Phase C (tile cache).
     m_refreshTimer->setSingleShot(true);
     m_refreshTimer->setInterval(50);
     connect(m_refreshTimer, &QTimer::timeout, this, &MapCanvas::refreshLayerItems);
 
     applyExtentToOverlay();
+
+    // ----- Phase B.RHI — QSG renderer infrastructure (currently inactive) ---
+    // The QQuickWidget/Metal approach works on most platforms, but on macOS the
+    // CAMetalLayer created for a native child QQuickWidget is always composited
+    // opaquely on top of the parent's content by Core Animation — regardless of
+    // setClearColor(Qt::transparent) or WA_TranslucentBackground — unless the
+    // *window* itself opts into per-pixel alpha, which is not possible in an MDI
+    // host without invasive window-flag changes.
+    //
+    // Consequence: the Metal layer covered the raster m_frameBuffer (basemap,
+    // DTM, 2D mesh), and because m_glRenderingEnabled=true disabled the CPU
+    // paint path in SWMMLayerItem::paint(), selection highlighting via yellow
+    // brush also stopped working.
+    //
+    // Current state: m_glRenderingEnabled is set to false (see SWMMModelLayer
+    // header), so all rendering goes through the QPainter / QGraphicsScene CPU
+    // path.  The QQuickWidget is created but explicitly hidden so macOS never
+    // promotes it to a native CAMetalLayer child.  The m_qsgRenderer pointer is
+    // set for future use when a proper off-screen compositing path is available
+    // (e.g. QQuickRenderControl + QOffscreenSurface → QImage → drawImage into
+    // m_frameBuffer, bypassing the native-child compositing entirely).
+    m_qsgWidget = new QQuickWidget(this);
+    m_qsgWidget->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_qsgWidget->setClearColor(Qt::transparent);
+    m_qsgWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    m_qsgWidget->setSource(QUrl(QStringLiteral("qrc:/openswmm/qml/swmmlayer.qml")));
+    if (m_qsgWidget->status() != QQuickWidget::Ready) {
+        qWarning() << "[MapCanvas] QML status:" << m_qsgWidget->status();
+        for (const QQmlError &err : m_qsgWidget->errors())
+            qWarning() << "[MapCanvas]  QML error:" << err.toString();
+    }
+    m_qsgRenderer = qobject_cast<SWMMLayerQSGRenderer *>(
+        m_qsgWidget->rootObject());
+    if (!m_qsgRenderer)
+        qWarning() << "[MapCanvas] failed to obtain SWMMLayerQSGRenderer "
+                      "as the QML root — got" << m_qsgWidget->rootObject();
+    // Explicitly hide so macOS never creates a CAMetalLayer child window for
+    // this widget.  An explicitly-hidden child is NOT shown when its parent is
+    // shown, unlike a widget that has simply never been shown.  This prevents
+    // the Metal layer from obscuring the raster content in m_frameBuffer.
+    m_qsgWidget->hide();
 
     // Default basemap (CartoDB Positron via XYZ tiles).
     addDefaultBasemap();
@@ -366,6 +422,14 @@ OpenSWMMVisLayer *MapCanvas::takeLayer(int index, bool pushUndo)
     disconnect(layer, &OpenSWMMVisLayer::repaintRequested,
                this, &MapCanvas::onLayerRepaintRequested);
 
+    // Drop any per-layer GL renderer (Phase B.2). The QPointer slot
+    // owned by m_glRenderers carries the cleanup; its destructor
+    // takes care of context + FBO teardown.
+    if (auto *sl = qobject_cast<SWMMModelLayer *>(layer)) {
+        if (auto slot = m_glRenderers.take(sl); slot)
+            slot->deleteLater();
+    }
+
     if (!layer->isRasterLayer())
         layer->depopulateScene(m_scene);
 
@@ -403,6 +467,32 @@ void MapCanvas::moveLayer(int fromIndex, int toIndex, bool pushUndo)
     // without waiting for some other event to trigger a repaint. The
     // raster channel is invalidated so cached tiles don't linger on
     // top of what used to be below them.
+    for (OpenSWMMVisLayer *l : std::as_const(m_layers)) {
+        if (l->isRasterLayer()) continue;
+        l->depopulateScene(m_scene);
+        l->populateScene(m_scene, m_extent, m_canvasSRS);
+    }
+    invalidate(Raster | Scene | Overlay,
+               QStringLiteral("layer-order-changed"));
+
+    emit layerOrderChanged();
+    update();
+}
+
+void MapCanvas::reorderLayers(const QList<OpenSWMMVisLayer *> &newOrder, bool pushUndo)
+{
+    if (newOrder.count() != m_layers.count())
+        return;
+
+    if (pushUndo)
+    {
+        m_undoStack->push(new ReorderLayersCommand(m_layers, newOrder, this));
+        return;
+    }
+
+    m_layers = newOrder;
+    updateLayerZValues();
+
     for (OpenSWMMVisLayer *l : std::as_const(m_layers)) {
         if (l->isRasterLayer()) continue;
         l->depopulateScene(m_scene);
@@ -457,15 +547,17 @@ static MapExtent layerExtentInCanvasCRS(const OpenSWMMVisLayer *layer,
 
 MapExtent MapCanvas::fullExtent() const
 {
-    // Zoom to Full Extent zooms to the union of *feature* layers only —
-    // basemap raster layers (WMS / WMTS / XYZ tiles) cover the entire world
-    // and would otherwise drag the extent back to global scale every time.
+    // Zoom to Full Extent zooms to the union of data layers.
     //
-    // Each layer's extent is reprojected into canvas CRS via
-    // layerExtentInCanvasCRS; otherwise a layer stored in UTM (e.g. a
-    // SWMM .inp whose CRS was corrected from the default WGS-84 via the
-    // Properties dialog) would feed raw easting/northing numbers into
-    // the union and drag the canvas extent to nowhere-land.
+    // World-spanning basemap layers (XYZ tile providers, world-coverage WMS)
+    // return isBasemapLayer() == true and are excluded — including them would
+    // always drag the extent back to global scale even on a small local model.
+    // Bounded raster layers (DTM, local WMS/WMTS with a defined footprint)
+    // return isBasemapLayer() == false and ARE included alongside vector layers.
+    //
+    // Each layer's native-CRS extent is reprojected into canvas CRS via
+    // layerExtentInCanvasCRS() so UTM-based layers and WGS-84-based layers
+    // all contribute correctly to the union.
     MapExtent full;
     auto accumulate = [&](const OpenSWMMVisLayer *layer) {
         const MapExtent e = layerExtentInCanvasCRS(layer, m_canvasSRS);
@@ -474,9 +566,11 @@ MapExtent MapCanvas::fullExtent() const
     };
 
     for (const OpenSWMMVisLayer *layer : m_layers) {
-        if (layer->isRasterLayer()) continue;
+        if (layer->isBasemapLayer()) continue;   // world-spanning — skip
         if (layer->isVisible()) accumulate(layer);
     }
+    // Fallback: if no bounded layers produced a valid union (e.g. all layers
+    // are basemaps), include everything so the button always does something.
     if (!full.isValid()) {
         for (const OpenSWMMVisLayer *layer : m_layers)
             if (layer->isVisible()) accumulate(layer);
@@ -562,6 +656,13 @@ void MapCanvas::setBackgroundColor(const QColor &color)
     if (m_bgColor != color)
     {
         m_bgColor = color;
+        // Do NOT propagate to m_qsgWidget->setClearColor() here.  The QSG
+        // widget's clear colour must stay Qt::transparent so that the raster
+        // basemap and QGraphicsScene items (2D mesh, etc.) rendered into
+        // m_frameBuffer are visible through the QSG overlay.  Setting the
+        // clear colour to any opaque value covers m_frameBuffer entirely,
+        // making the basemap and mesh invisible.  The background colour is
+        // already applied to m_frameBuffer in paintEvent() via fillRect().
         emit backgroundColorChanged(color);
         update();
     }
@@ -759,6 +860,9 @@ void MapCanvas::fireSceneChannel()
         layer->refreshScene(m_scene, m_extent, m_canvasSRS);
     }
     update();
+    // No extra m_qsgWidget->update() needed: paintEvent() now drives the QSG
+    // render synchronously via repaint() + grabFramebuffer(), so any dirty
+    // updatePaintNode() state is picked up on the very next canvas repaint.
 }
 
 // ---------------------------------------------------------------------------
@@ -989,6 +1093,50 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
         const QRectF sourceRect(m_extent.xMin(), -m_extent.yMax(),
                                 m_extent.width(), m_extent.height());
         m_scene->render(&p, targetRect, sourceRect, Qt::IgnoreAspectRatio);
+    }
+
+    // ---- Layer 2b: SWMM layer QSG rendering (Phase B.RHI) -----------------
+    // The QQuickWidget runs off-screen (WA_DontShowOnScreen), so its FBO
+    // content is never composited by the OS window server on top of the
+    // MapCanvas — which was the cause of two bugs:
+    //   • Basemap/DTM/mesh invisible — the opaque Metal layer blocked them.
+    //   • Selection highlight missing — async update() meant updatePaintNode()
+    //     was not called before the frame was presented.
+    //
+    // We now drive the rendering ourselves inside paintEvent():
+    //   1. Push current canvas state (layer + extent) to the renderer.
+    //   2. repaint() — synchronous: QQuickWidget::paintEvent() fires,
+    //      QSG sync() calls updatePaintNode() for all dirty items (the
+    //      selection-flag arrays are current by this point), then render()
+    //      rasterises into the internal FBO.
+    //   3. grabFramebuffer() reads the FBO → QImage.
+    //   4. drawImage() into m_frameBuffer AFTER basemap / DTM / mesh so
+    //      the stacking order is deterministic and all layers are visible.
+    if (m_qsgRenderer && m_qsgWidget) {
+        SWMMModelLayer *firstSwmm = nullptr;
+        for (OpenSWMMVisLayer *layer : std::as_const(m_layers)) {
+            if (!layer->isVisible()) continue;
+            if (auto *sl = qobject_cast<SWMMModelLayer *>(layer)) {
+                firstSwmm = sl;
+                break;
+            }
+        }
+        m_qsgRenderer->setLayer(firstSwmm);
+        m_qsgRenderer->setMapExtent(m_extent);
+
+        // Keep the off-screen widget sized to the canvas.
+        if (m_qsgWidget->size() != size())
+            m_qsgWidget->resize(size());
+
+        // Synchronous render: updatePaintNode() executes here so that the
+        // yellow selection overlay is always built from the latest flag arrays.
+        m_qsgWidget->repaint();
+
+        // Composite the QSG FBO content (SWMM network + selection highlight)
+        // into m_frameBuffer on top of the basemap / DTM / mesh layers.
+        const QImage qsgFrame = m_qsgWidget->grabFramebuffer();
+        if (!qsgFrame.isNull())
+            p.drawImage(0, 0, qsgFrame);
     }
 
     // ---- Layer 3: tool overlay (rubber-band, measure, etc.) ---------------
@@ -1266,12 +1414,31 @@ void MapCanvas::gestureEvent(QGestureEvent *event)
     event->accept();
 }
 
+void MapCanvas::showEvent(QShowEvent *event)
+{
+    QWidget::showEvent(event);
+    // No QSG widget visibility management needed — WA_DontShowOnScreen means
+    // it is never presented by the OS, so there is no MDI-tab bleeding risk.
+    // The canvas's own repaint cycle drives the QSG render via repaint() +
+    // grabFramebuffer() in paintEvent().
+    refresh();
+}
+
+void MapCanvas::hideEvent(QHideEvent *event)
+{
+    QWidget::hideEvent(event);
+}
+
 void MapCanvas::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
 
-    // Keep overlay on top of entire canvas
+    // Keep the hidden QGraphicsView overlay sized to the canvas.
     m_overlayView->setGeometry(rect());
+    // Keep the off-screen QSG widget sized to the canvas so grabFramebuffer()
+    // returns an image that matches m_frameBuffer exactly.
+    if (m_qsgWidget)
+        m_qsgWidget->resize(rect().size());
 
     if (m_extent.isValid())
         m_extent = arCorrectedExtent(m_extent);
@@ -1291,6 +1458,9 @@ void MapCanvas::resizeEvent(QResizeEvent *event)
 
 void MapCanvas::onLayerRepaintRequested()
 {
+    // Schedule a canvas repaint; paintEvent() will drive the QSG render
+    // synchronously via repaint() + grabFramebuffer() so the selection
+    // highlight is always current when the frame is composed.
     refresh();
 }
 

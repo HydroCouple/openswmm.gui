@@ -56,7 +56,55 @@ void WMSLayer::setServiceInfo(const WMSServiceInfo &info)
     m_capsReady   = true;
     if (!info.version.isEmpty())
         m_wmsVersion = info.version;
+
+    // Auto-select the first available layer so a freshly-added WMS layer
+    // starts rendering without requiring manual UI configuration.
+    if (m_activeLayer.isEmpty() && !info.layers.isEmpty())
+    {
+        const WMSLayerInfo &first = info.layers.first();
+        m_activeLayer = first.name;
+        // Pick the first available style (empty string = default style is valid)
+        if (!first.styles.isEmpty())
+            m_activeStyle = first.styles.first();
+        // Pick PNG as image format preference; fall back to the first available
+        // service-level format (WMS image formats are declared at service level
+        // in GetCapabilities, not per-layer).
+        m_imageFormat = QStringLiteral("image/png");
+        if (!info.imageFormats.isEmpty() && !info.imageFormats.contains(m_imageFormat))
+            m_imageFormat = info.imageFormats.first();
+        applyExtentFromActiveLayer();
+    }
+
     emit capabilitiesFetched(info);
+}
+
+void WMSLayer::applyExtentFromActiveLayer()
+{
+    // Find the active layer in the capabilities and extract its geographic
+    // bounding box (always in EPSG:4326) and its first supported CRS.
+    // Store the extent in the layer's native SRS so fullExtent() can
+    // reproject it via layerExtentInCanvasCRS() for zoom-to-extent and
+    // the properties dialog shows the correct geographic extent.
+    for (const WMSLayerInfo &li : m_serviceInfo.layers)
+    {
+        if (li.name != m_activeLayer)
+            continue;
+
+        // Set extent from the WGS-84 geographic bounding box.
+        if (li.geographicBoundingBox.isValid())
+            setExtent(li.geographicBoundingBox);
+
+        // Set the layer SRS to EPSG:4326 (WGS-84) which is the CRS that
+        // geographicBoundingBox is always expressed in, so that
+        // layerExtentInCanvasCRS() can correctly reproject the stored
+        // extent into the current canvas CRS.
+        auto *wgs84 = SpatialReferenceSystem::fromAuthCode(
+            QStringLiteral("EPSG"), 4326);
+        if (wgs84)
+            setSRS(wgs84, /*ownsSRS=*/true);
+
+        break;
+    }
 }
 
 void WMSLayer::fetchCapabilities()
@@ -93,6 +141,11 @@ void WMSLayer::setActiveLayerName(const QString &name)
     {
         m_activeLayer = name;
         invalidateCache();
+        // Refresh the layer's geographic extent and SRS from the newly-active
+        // layer's GetCapabilities bounding box so the properties dialog and
+        // fullExtent() always reflect the correct coverage area.
+        if (m_capsReady)
+            applyExtentFromActiveLayer();
         emit activeLayerNameChanged(name);
         emit repaintRequested();
     }

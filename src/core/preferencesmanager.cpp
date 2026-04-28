@@ -111,6 +111,61 @@ void PreferencesManager::setClearSelectionOnMiss(bool on)
                            QStringLiteral("ClearOnMiss"));
 }
 
+namespace {
+// Normalises whatever the caller hands in to one of the four canonical
+// class keys used inside QSettings. Anything unrecognised falls
+// through to "Default" so the caller gets a sane color rather than an
+// empty value.
+QString canonicalSelectionClass(const QString &className)
+{
+    const QString k = className.trimmed().toLower();
+    if (k == QLatin1String("link") || k == QLatin1String("links")
+        || k == QLatin1String("conduit") || k == QLatin1String("conduits"))
+        return QStringLiteral("Link");
+    if (k == QLatin1String("node") || k == QLatin1String("nodes")
+        || k == QLatin1String("junction") || k == QLatin1String("junctions"))
+        return QStringLiteral("Node");
+    if (k == QLatin1String("subcatchment") || k == QLatin1String("subcatchments")
+        || k == QLatin1String("catchment")  || k == QLatin1String("catchments")
+        || k == QLatin1String("polygon"))
+        return QStringLiteral("Subcatchment");
+    if (k == QLatin1String("gage") || k == QLatin1String("gages")
+        || k == QLatin1String("raingage") || k == QLatin1String("raingages"))
+        return QStringLiteral("Gage");
+    return QStringLiteral("Default");
+}
+} // anonymous
+
+QColor PreferencesManager::selectionColor(const QString &className) const
+{
+    const QString k = canonicalSelectionClass(className);
+    const QString key = QStringLiteral("%1/Selection/Color/%2")
+                            .arg(QString::fromLatin1(kGroupRoot), k);
+    const QVariant v = m_settings.value(key);
+    if (v.isValid()) {
+        const QColor c = v.value<QColor>();
+        if (c.isValid()) return c;
+    }
+    // Yellow across the board is the conventional "selected" cue. The
+    // dialog lets users pick distinct per-class colors when they want
+    // to differentiate selections of mixed feature types.
+    return QColor(255, 255, 0);
+}
+
+void PreferencesManager::setSelectionColor(const QString &className,
+                                            const QColor &color)
+{
+    if (!color.isValid()) return;
+    const QString k = canonicalSelectionClass(className);
+    if (k == QLatin1String("Default")) return;
+    if (selectionColor(className) == color) return;
+    const QString key = QStringLiteral("%1/Selection/Color/%2")
+                            .arg(QString::fromLatin1(kGroupRoot), k);
+    m_settings.setValue(key, color);
+    emit preferenceChanged(QStringLiteral("Selection"),
+                           QStringLiteral("Color/%1").arg(k));
+}
+
 // ---------------------------------------------------------------------------
 // Canvas
 // ---------------------------------------------------------------------------

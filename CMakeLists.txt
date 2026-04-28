@@ -51,9 +51,11 @@ unset(_qt_env_var)
 
 # ── Qt ──────────────────────────────────────────────────────────────────────
 find_package(QT NAMES Qt6 Qt5 REQUIRED
-    COMPONENTS Widgets OpenGL OpenGLWidgets Network Concurrent LinguistTools Svg)
+    COMPONENTS Widgets OpenGL OpenGLWidgets Network Concurrent LinguistTools Svg
+               Quick QuickWidgets Qml)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED
-    COMPONENTS Widgets OpenGL OpenGLWidgets Network Concurrent LinguistTools Svg Charts)
+    COMPONENTS Widgets OpenGL OpenGLWidgets Network Concurrent LinguistTools Svg Charts
+               Quick QuickWidgets Qml)
 
 # ── GDAL (GIS/CRS) ──────────────────────────────────────────────────────────
 find_package(GDAL REQUIRED)
@@ -148,6 +150,8 @@ set(
         include/map/openswmmvisscene.h
         include/map/graphicsitems.h
         include/map/swmmlayeritem.h
+        include/map/swmmlayerglrenderer.h
+        include/map/swmmlayerqsgrenderer.h
 
         # ── Map tools ────────────────────────────────────────────────────────
         include/map/tools/maptool.h
@@ -240,6 +244,8 @@ set(
         src/map/openswmmvisscene.cpp
         src/map/graphicsitems.cpp
         src/map/swmmlayeritem.cpp
+        src/map/swmmlayerglrenderer.cpp
+        src/map/swmmlayerqsgrenderer.cpp
 
         # Map tools
         src/map/tools/maptool.cpp
@@ -333,6 +339,9 @@ target_link_libraries(SWMMVis
         Qt${QT_VERSION_MAJOR}::Concurrent
         Qt${QT_VERSION_MAJOR}::Svg
         Qt${QT_VERSION_MAJOR}::Charts
+        Qt${QT_VERSION_MAJOR}::Qml
+        Qt${QT_VERSION_MAJOR}::Quick
+        Qt${QT_VERSION_MAJOR}::QuickWidgets
         GDAL::GDAL
         nanoflann::nanoflann
         $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>

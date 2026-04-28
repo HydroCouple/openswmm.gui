@@ -16,9 +16,11 @@
 #include <QScopedPointer>
 #include <QCommandLineParser>
 #include <QCoreApplication>
+#include <QtQml/qqml.h>
 
 #include "swmmvisapplication.h"
 #include "swmmvis.h"
+#include "map/swmmlayerqsgrenderer.h"
 
 /*!
  * \brief main
@@ -46,6 +48,11 @@ int main(int argc, char *argv[])
         applicationInstance = new SWMMVisCoreApplication(argc, argv);
     else
         applicationInstance = new SWMMVisApplication(argc, argv);
+
+    // Register the QML type used by MapCanvas's QQuickWidget overlay
+    // (Phase B.RHI of docs/RENDERING_5M_PLAN.md).
+    qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0,
+                                           "SWMMLayerQSGRenderer");
        
     QScopedPointer<QCoreApplication> application(applicationInstance);
 

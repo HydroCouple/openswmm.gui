@@ -606,7 +606,6 @@
     <addaction name="separator"/>
     <addaction name="actionSave"/>
     <addaction name="menuSaveAs"/>
-    <addaction name="actionSettings"/>
     <addaction name="separator"/>
     <addaction name="actionPrint"/>
     <addaction name="separator"/>
@@ -629,6 +628,8 @@
     <addaction name="actionOptions"/>
     <addaction name="separator"/>
     <addaction name="actionPlugins"/>
+    <addaction name="separator"/>
+    <addaction name="actionSettings"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -969,16 +970,16 @@
      <normaloff>:/swmmvis/Settings</normaloff>:/swmmvis/Settings</iconset>
    </property>
    <property name="text">
-    <string>Settings</string>
+    <string>Preferences…</string>
    </property>
    <property name="toolTip">
-    <string>Application Settings</string>
+    <string>Preferences</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+,</string>
    </property>
    <property name="menuRole">
-    <enum>QAction::NoRole</enum>
+    <enum>QAction::PreferencesRole</enum>
    </property>
   </action>
   <action name="actionExit">

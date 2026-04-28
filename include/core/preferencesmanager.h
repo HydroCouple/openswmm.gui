@@ -19,6 +19,7 @@
 #ifndef PREFERENCESMANAGER_H
 #define PREFERENCESMANAGER_H
 
+#include <QColor>
 #include <QObject>
 #include <QSettings>
 #include <QString>
@@ -50,6 +51,14 @@ public:
      *  current selection. Default true. */
     [[nodiscard]] bool clearSelectionOnMiss() const;
     void setClearSelectionOnMiss(bool on);
+
+    /*! Highlight color for selected features of a given vector class.
+     *  \p className is one of "link", "node", "subcatchment", "gage"
+     *  (case-insensitive). Unknown classes return Qt::yellow.
+     *
+     *  Stored under SWMMVis/Preferences/Selection/Color/<Class>. */
+    [[nodiscard]] QColor selectionColor(const QString &className) const;
+    void setSelectionColor(const QString &className, const QColor &color);
 
     // ── Canvas / Default tool ────────────────────────────────────────────
     /*! Default tool active when a project opens. One of

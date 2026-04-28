@@ -52,6 +52,14 @@ XYZTileLayer::XYZTileLayer(const QString &urlTemplate,
     // Expose this so the layer-properties dialog shows the CRS rather than "(none)".
     auto *srs = SpatialReferenceSystem::fromAuthCode(QStringLiteral("EPSG"), 3857);
     setSRS(srs, /*ownsSRS=*/true);
+
+    // Layer extent = full world in EPSG:3857 (±20 037 508.34 metres).
+    // Stored in the layer's native CRS so the properties dialog can display it
+    // and layerExtentInCanvasCRS() can reproject it for on-the-fly reprojection.
+    // The XYZ tile service itself has no tighter geographic scope.
+    constexpr double kMercHalfWorld = 20037508.342789244;
+    setExtent(MapExtent(-kMercHalfWorld, -kMercHalfWorld,
+                         kMercHalfWorld,  kMercHalfWorld));
 }
 
 XYZTileLayer::~XYZTileLayer()

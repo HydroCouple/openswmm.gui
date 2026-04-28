@@ -124,6 +124,34 @@ add_swmmvis_gui_test(test_inpmeshwriter
 #     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/simulationoptionsdialog.h
 # )
 
+# Phase B.1 of docs/RENDERING_5M_PLAN.md — interactive spike that
+# verifies `QPainter::beginNativePainting()` works on the host's Qt /
+# GL build before we commit the canvas viewport swap. Not registered
+# with CTest; build with `cmake --build . --target spike_glnativepaint`
+# and run interactively.
+find_package(Qt6 COMPONENTS OpenGL OpenGLWidgets QUIET)
+if(TARGET Qt6::OpenGL AND TARGET Qt6::OpenGLWidgets)
+    add_executable(spike_glnativepaint spike_glnativepaint.cpp)
+    set_target_properties(spike_glnativepaint PROPERTIES
+        AUTOMOC ON)
+    target_link_libraries(spike_glnativepaint PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets)
+endif()
+
+# Phase B.RHI.1 of docs/RENDERING_5M_PLAN.md — interactive spike that
+# verifies Qt's scene graph + QRhi (Metal on macOS, Vulkan/D3D11
+# elsewhere) renders QSGGeometryNode geometry correctly in the host's
+# Qt build. Pivot away from the OpenGL renderer that hit unfixable
+# QPainter fill bugs on Apple Silicon — see the plan doc.
+find_package(Qt6 COMPONENTS Quick QUIET)
+if(TARGET Qt6::Quick)
+    add_executable(spike_qsgnode spike_qsgnode.cpp)
+    set_target_properties(spike_qsgnode PROPERTIES
+        AUTOMOC ON)
+    target_link_libraries(spike_qsgnode PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Quick)
+endif()
+
 # LayerTreeModel test (test_layertreemodel.cpp) is parked until the
 # `swmmvis_core` static-library extraction lands. Compiling layertreepanel.cpp
 # in isolation pulls in Qt6Network + GIS layer + WMS dialog code — too much to

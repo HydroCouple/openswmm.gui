@@ -88,6 +88,15 @@ void WMTSLayer::setActiveLayerId(const QString &id)
     {
         m_activeLayerId = id;
         m_tileCache.clear();
+        // Refresh extent from the newly-active layer's bounding box.
+        if (m_capsReady) {
+            for (const WMTSLayerInfo &li : m_serviceInfo.layers) {
+                if (li.identifier == id && li.wgs84BoundingBox.isValid()) {
+                    setExtent(li.wgs84BoundingBox);
+                    break;
+                }
+            }
+        }
         emit activeLayerIdChanged(id);
         emit repaintRequested();
     }
@@ -563,14 +572,24 @@ void WMTSLayer::parseCapabilities(const QByteArray &xml)
     m_serviceInfo = info;
     m_capsReady   = true;
 
-    // Auto-select first layer + tile matrix set
+    // Auto-select first layer + tile matrix set so a freshly-added WMTS layer
+    // starts rendering without requiring manual configuration.
     if (m_activeLayerId.isEmpty() && !info.layers.isEmpty())
     {
-        m_activeLayerId = info.layers.first().identifier;
-        if (!info.layers.first().tileMatrixSetIds.isEmpty())
-            m_activeTileMatrixSet = info.layers.first().tileMatrixSetIds.first();
-        if (!info.layers.first().formats.isEmpty())
-            m_imageFormat = info.layers.first().formats.first();
+        const WMTSLayerInfo &first = info.layers.first();
+        m_activeLayerId = first.identifier;
+        if (!first.tileMatrixSetIds.isEmpty())
+            m_activeTileMatrixSet = first.tileMatrixSetIds.first();
+        if (!first.formats.isEmpty())
+        {
+            m_imageFormat = QStringLiteral("image/png");
+            if (!first.formats.contains(m_imageFormat))
+                m_imageFormat = first.formats.first();
+        }
+        // Set the layer extent from the WGS-84 bounding box so fullExtent()
+        // includes this layer and the properties dialog shows geographic coverage.
+        if (first.wgs84BoundingBox.isValid())
+            setExtent(first.wgs84BoundingBox);
     }
 
     emit capabilitiesFetched(info);
@@ -578,6 +597,15 @@ void WMTSLayer::parseCapabilities(const QByteArray &xml)
     // Apply the CRS from the auto-selected tile matrix set (if any).
     if (!m_activeTileMatrixSet.isEmpty())
         applyCRSFromTileMatrixSet(m_activeTileMatrixSet);
+
+    // If the layer's SRS was not set by the tile matrix set (e.g. no tile
+    // matrix sets defined), default to WGS-84 so the extent can be reprojected.
+    if (!srs())
+    {
+        auto *wgs84 = SpatialReferenceSystem::fromAuthCode(QStringLiteral("EPSG"), 4326);
+        if (wgs84)
+            setSRS(wgs84, /*ownsSRS=*/true);
+    }
 }
 
 void WMTSLayer::applyCRSFromTileMatrixSet(const QString &tmsId)

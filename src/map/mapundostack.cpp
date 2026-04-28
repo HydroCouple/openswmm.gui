@@ -373,3 +373,86 @@ void AddNodeCommand::undo()
     if (m_layer->rollbackTailNodeAdd(m_name))
         m_present = false;
 }
+
+// ===========================================================================
+// ReorderLayersCommand (Slice AX)
+// ===========================================================================
+
+ReorderLayersCommand::ReorderLayersCommand(QList<OpenSWMMVisLayer *> oldOrder,
+                                           QList<OpenSWMMVisLayer *> newOrder,
+                                           MapCanvas *canvas,
+                                           QUndoCommand *parent)
+    : MapCommand(QObject::tr("Reorder Layers"), canvas, parent)
+    , m_oldOrder(std::move(oldOrder))
+    , m_newOrder(std::move(newOrder))
+{}
+
+void ReorderLayersCommand::undo()
+{
+    if (m_canvas)
+        m_canvas->reorderLayers(m_oldOrder, /*pushUndo=*/false);
+}
+
+void ReorderLayersCommand::redo()
+{
+    if (m_firstRedo) { m_firstRedo = false; return; }  // already applied by caller
+    if (m_canvas)
+        m_canvas->reorderLayers(m_newOrder, /*pushUndo=*/false);
+}
+
+// ===========================================================================
+// ReorderCategoriesCommand (Slice AY)
+// ===========================================================================
+
+ReorderCategoriesCommand::ReorderCategoriesCommand(
+    SWMMModelLayer *layer,
+    QVector<SWMMModelLayer::Category> oldOrder,
+    QVector<SWMMModelLayer::Category> newOrder,
+    QUndoCommand *parent)
+    : QUndoCommand(QObject::tr("Reorder Categories"), parent)
+    , m_layer(layer)
+    , m_oldOrder(std::move(oldOrder))
+    , m_newOrder(std::move(newOrder))
+{}
+
+void ReorderCategoriesCommand::undo()
+{
+    m_layer->setCategoryOrder(m_oldOrder);
+}
+
+void ReorderCategoriesCommand::redo()
+{
+    if (m_firstRedo) { m_firstRedo = false; return; }  // already applied by caller
+    m_layer->setCategoryOrder(m_newOrder);
+}
+
+// ===========================================================================
+// ReorderObjectsCommand (Slice AY)
+// ===========================================================================
+
+ReorderObjectsCommand::ReorderObjectsCommand(
+    SWMMModelLayer         *layer,
+    SWMMModelLayer::Category cat,
+    QVector<int>             oldOrder,
+    QVector<int>             newOrder,
+    QUndoCommand            *parent)
+    : QUndoCommand(QObject::tr("Reorder Objects"), parent)
+    , m_layer(layer)
+    , m_cat(cat)
+    , m_oldOrder(std::move(oldOrder))
+    , m_newOrder(std::move(newOrder))
+{}
+
+void ReorderObjectsCommand::undo()
+{
+    if (m_oldOrder.isEmpty())
+        m_layer->clearObjectOrder(m_cat);
+    else
+        m_layer->setObjectOrder(m_cat, m_oldOrder);
+}
+
+void ReorderObjectsCommand::redo()
+{
+    if (m_firstRedo) { m_firstRedo = false; return; }  // already applied by caller
+    m_layer->setObjectOrder(m_cat, m_newOrder);
+}

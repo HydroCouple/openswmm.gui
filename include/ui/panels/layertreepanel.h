@@ -13,6 +13,7 @@
 
 #include <QAbstractItemModel>
 #include <QList>
+#include <QVector>
 #include <QWidget>
 
 class QTreeView;
@@ -97,6 +98,19 @@ public:
      */
     [[nodiscard]] bool isCategoryIndex(const QModelIndex &index) const;
 
+    /*!
+     * \brief Moves the category at display position \p srcDisplayPos to
+     *        \p dstDisplayPos, then batch-reorders the canvas layer stack so
+     *        the new display order is reflected immediately.
+     *
+     *        Display position 0 = top of tree = highest canvas z-order
+     *        (rendered on top). An undo command is pushed onto the canvas
+     *        undo stack so the operation is reversible.
+     *
+     *        No-op if either position is out of range or src == dst.
+     */
+    void reorderCategories(int srcDisplayPos, int dstDisplayPos);
+
 private slots:
     void onLayerAdded(OpenSWMMVisLayer *layer);
     void onLayerRemoved(OpenSWMMVisLayer *layer);
@@ -116,6 +130,11 @@ private:
     MapCanvas                       *m_canvas;
     QVector<Category>                m_categories;
     QHash<OpenSWMMVisLayer *, int>   m_layerToCategory;
+
+    /*! User-configurable category display order: each element is a CategoryId
+     *  value. Default = compile-time enum order. Persisted implicitly through
+     *  the canvas layer order (reorderLayers keeps the sequence). */
+    QVector<int>                     m_categoryDisplayOrder;
 };
 
 // ---------------------------------------------------------------------------
@@ -171,6 +190,8 @@ private slots:
     void onZoomToSelectedLayer();
     void onMoveLayerUp();
     void onMoveLayerDown();
+    void onMoveCategoryUp();
+    void onMoveCategoryDown();
     void onSelectionChanged();
     void onLayerDoubleClicked(const QModelIndex &index);
     void onContextMenuRequested(const QPoint &pos);
