@@ -14,6 +14,7 @@
 #define OBJECTBROWSERPANEL_H
 
 #include "selection/selectionmanager.h"
+#include "layers/swmmmodellayer.h"
 
 #include <QPointer>
 #include <QSet>
@@ -24,7 +25,6 @@ class QLineEdit;
 class QTreeView;
 class QSortFilterProxyModel;
 class QModelIndex;
-class SWMMModelLayer;
 class SWMMObjectTreeModel;
 class MapCanvas;
 
@@ -91,6 +91,10 @@ private:
     /*! Translate a proxy-model index back to a SWMMObjectRef (Unknown + ""
      *  when the index points at a category header or is invalid). */
     SWMMObjectRef refForProxyIndex(const QModelIndex &proxyIdx) const;
+
+    /*! Sort all objects in \p cat alphabetically (A→Z) and push the
+     *  permutation onto the undo stack if one is available. */
+    void sortCategoryAlphabetically(SWMMModelLayer::Category cat);
 
     QLineEdit                      *m_searchEdit = nullptr;
     QTreeView                      *m_view       = nullptr;

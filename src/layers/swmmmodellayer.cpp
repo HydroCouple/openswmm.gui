@@ -97,7 +97,7 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
     // Default symbology
     m_junctionSym.fillColor  = QColor(0, 120, 255);
     m_junctionSym.size       = 8.0;
-    m_outfallSym.fillColor   = QColor(255, 80,  0);
+    m_outfallSym.fillColor   = QColor(220, 0, 0);     // red — outfalls stand out
     m_outfallSym.size        = 12.5;   // 1.25× the legacy 10 px triangle
     m_storageSym.fillColor   = QColor(180, 60, 200);
     m_storageSym.size        = 12.0;
@@ -471,6 +471,7 @@ void SWMMModelLayer::setObjectVisible(const QString &name, bool visible)
     }
     if (changed)
     {
+        rebuildFlagArrays();
         m_needsRebuild = true;
         emit repaintRequested();
     }
@@ -509,6 +510,7 @@ void SWMMModelLayer::setObjectsVisible(const QList<QString> &names, bool visible
     }
     if (changed)
     {
+        rebuildFlagArrays();
         m_needsRebuild = true;
         emit repaintRequested();
     }
@@ -708,6 +710,7 @@ void SWMMModelLayer::setObjectVisibleAt(Category c, int row, bool visible)
     }
     if (changed)
     {
+        rebuildFlagArrays();
         m_needsRebuild = true;
         emit repaintRequested();
     }
@@ -739,6 +742,7 @@ void SWMMModelLayer::setCategoryVisible(Category c, bool visible)
 
     if (changed)
     {
+        rebuildFlagArrays();
         m_needsRebuild = true;
         emit repaintRequested();
     }
@@ -788,6 +792,9 @@ void SWMMModelLayer::rebuildCategoryIndex()
     for (auto &b : m_nodesByType) b.clear();
     for (auto &b : m_linksByType) b.clear();
     m_objectLocation.clear();
+    m_nameToSoa.clear();
+    m_nameToSoa.reserve(m_nodes.size() + m_links.size()
+                        + m_catchments.size() + m_gages.size());
     // Drop intra-category overrides — the underlying SoA has been
     // rebuilt (add / remove / reload), so stored SoA indices could
     // now reference garbage.  .oswp restore will reinstall any
@@ -813,6 +820,7 @@ void SWMMModelLayer::rebuildCategoryIndex()
         m_nodesByType[t].append(i);
         m_objectLocation.insert(m_nodes[i].name,
                                 {cat, m_nodesByType[t].size() - 1});
+        m_nameToSoa.insert(m_nodes[i].name, {SoaKind::Node, i});
     }
 
     // Links — linkType 0..4 matches Category 0..4 offset from CatConduits.
@@ -824,13 +832,18 @@ void SWMMModelLayer::rebuildCategoryIndex()
         m_linksByType[t].append(i);
         m_objectLocation.insert(m_links[i].name,
                                 {cat, m_linksByType[t].size() - 1});
+        m_nameToSoa.insert(m_links[i].name, {SoaKind::Link, i});
     }
 
     // Subcatchments + gages are their own categories; row = SoA index.
-    for (int i = 0; i < m_catchments.size(); ++i)
+    for (int i = 0; i < m_catchments.size(); ++i) {
         m_objectLocation.insert(m_catchments[i].name, {CatSubcatchments, i});
-    for (int i = 0; i < m_gages.size(); ++i)
+        m_nameToSoa.insert(m_catchments[i].name, {SoaKind::Catch, i});
+    }
+    for (int i = 0; i < m_gages.size(); ++i) {
         m_objectLocation.insert(m_gages[i].name, {CatRainGages, i});
+        m_nameToSoa.insert(m_gages[i].name, {SoaKind::Gage, i});
+    }
 
     // Recompute hidden-count per category from m_hiddenObjects (which
     // survives across reloads of the same file — re-derive from whatever
@@ -882,15 +895,20 @@ void SWMMModelLayer::setSelectedElementNames(const QStringList &names)
         return;
     QElapsedTimer t; t.start();
     m_selectedNames = names;
+    rebuildFlagArrays();
+    const qint64 t_flags = t.elapsed();
     // Selection does not change geometry — SWMMLayerItem::paint() reads
-    // m_selectedNames live each frame, so a repaint is sufficient.
+    // m_*SelectedFlag live each frame, so a repaint is sufficient.
     // Flipping m_needsRebuild here would force depopulate/populate of the
     // batched layer item on every rubber-band tick (see refreshScene()),
     // which is the dominant cost on large models (100k+ links).
     emit selectionChanged(names);
+    const qint64 t_emit = t.elapsed() - t_flags;
     emit repaintRequested();
     qDebug().noquote() << "[setSelectedElementNames] count=" << names.size()
-                       << "elapsed_ms=" << t.elapsed();
+                       << " flags_ms=" << t_flags
+                       << " emit_ms=" << t_emit
+                       << " total_ms=" << t.elapsed();
 }
 
 void SWMMModelLayer::clearSelection()
@@ -1756,11 +1774,142 @@ void SWMMModelLayer::buildGeometryCache()
 
     rebuildKdTrees();
     rebuildSceneCoords();
+    rebuildFlagArrays();  // After SoAs + m_nameToSoa are stable.
 }
 
 // ---------------------------------------------------------------------------
-// Scene-coordinate cache
+// Scene-coordinate cache + spatial index
 // ---------------------------------------------------------------------------
+
+void SWMMModelLayer::LinkSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
+{
+    clear();
+    if (bboxes.isEmpty()) return;
+
+    // Total extent = union of all valid bboxes; collect diagonals for the
+    // cell-size heuristic. Skip empty rects (links with zero or one
+    // vertex) — they'd push the extent in ways that break the heuristic.
+    bool seeded = false;
+    QVector<double> diagonals;
+    diagonals.reserve(bboxes.size());
+    for (const QRectF &b : bboxes) {
+        if (!b.isValid() || b.isEmpty()) continue;
+        if (!seeded) { extent = b; seeded = true; }
+        else         { extent = extent.united(b); }
+        diagonals.append(std::hypot(b.width(), b.height()));
+    }
+    if (!seeded || diagonals.isEmpty()) return;
+
+    // Cell size: 16x the median link-bbox diagonal. The grid stays small
+    // (typically ~100x100) for SWMM-style networks where most links are
+    // short, while still letting outliers (long trunks) span only a few
+    // cells. Outliers are inserted into every cell they touch — no
+    // clipping, no false negatives. Hard cap at 1024x1024 to keep the
+    // worst-case grid memory footprint bounded for any model size.
+    std::nth_element(diagonals.begin(),
+                     diagonals.begin() + diagonals.size() / 2,
+                     diagonals.end());
+    const double median = diagonals[diagonals.size() / 2];
+    const double cellSize = std::max(median * 16.0, 1e-6);
+
+    cellW = cellSize;
+    cellH = cellSize;
+    cols = std::max(1, int(std::ceil(extent.width()  / cellW)));
+    rows = std::max(1, int(std::ceil(extent.height() / cellH)));
+    if (qint64(cols) * rows > qint64(1024) * 1024) {
+        const double scale = std::sqrt(double(cols) * rows / (1024.0 * 1024.0));
+        cellW *= scale;
+        cellH *= scale;
+        cols = std::max(1, int(std::ceil(extent.width()  / cellW)));
+        rows = std::max(1, int(std::ceil(extent.height() / cellH)));
+    }
+    cells.resize(cols * rows);
+
+    for (int i = 0; i < bboxes.size(); ++i) {
+        const QRectF &b = bboxes[i];
+        if (!b.isValid() || b.isEmpty()) continue;
+        const int cx0 = std::clamp(int(std::floor((b.left()   - extent.left()) / cellW)), 0, cols - 1);
+        const int cx1 = std::clamp(int(std::floor((b.right()  - extent.left()) / cellW)), 0, cols - 1);
+        const int cy0 = std::clamp(int(std::floor((b.top()    - extent.top())  / cellH)), 0, rows - 1);
+        const int cy1 = std::clamp(int(std::floor((b.bottom() - extent.top())  / cellH)), 0, rows - 1);
+        for (int cy = cy0; cy <= cy1; ++cy)
+            for (int cx = cx0; cx <= cx1; ++cx)
+                cells[cy * cols + cx].append(i);
+    }
+}
+
+QVector<int> SWMMModelLayer::LinkSpatialGrid::query(const QRectF &rect) const
+{
+    QVector<int> out;
+    if (cells.isEmpty() || !rect.isValid() || rect.isEmpty())
+        return out;
+
+    QRectF q = rect.intersected(extent);
+    if (q.isEmpty()) return out;
+
+    const int cx0 = std::clamp(int(std::floor((q.left()   - extent.left()) / cellW)), 0, cols - 1);
+    const int cx1 = std::clamp(int(std::floor((q.right()  - extent.left()) / cellW)), 0, cols - 1);
+    const int cy0 = std::clamp(int(std::floor((q.top()    - extent.top())  / cellH)), 0, rows - 1);
+    const int cy1 = std::clamp(int(std::floor((q.bottom() - extent.top())  / cellH)), 0, rows - 1);
+
+    // De-dup: a long link spanning multiple cells appears in each, but
+    // paint must hit it once. Keyed off the SoA index space, which is
+    // bounded by the grid's largest stored entry.
+    int maxIdx = -1;
+    for (int cy = cy0; cy <= cy1; ++cy)
+        for (int cx = cx0; cx <= cx1; ++cx)
+            for (int idx : cells[cy * cols + cx])
+                if (idx > maxIdx) maxIdx = idx;
+    if (maxIdx < 0) return out;
+
+    QVector<bool> seen(maxIdx + 1, false);
+    out.reserve(64);
+    for (int cy = cy0; cy <= cy1; ++cy)
+        for (int cx = cx0; cx <= cx1; ++cx)
+            for (int idx : cells[cy * cols + cx])
+                if (!seen[idx]) { seen[idx] = true; out.append(idx); }
+    return out;
+}
+
+void SWMMModelLayer::rebuildFlagArrays()
+{
+    // Resize and zero in one shot. assign() handles both.
+    m_nodeSelectedFlag .assign(m_nodes.size(),     0);
+    m_linkSelectedFlag .assign(m_links.size(),     0);
+    m_catchSelectedFlag.assign(m_catchments.size(),0);
+    m_gageSelectedFlag .assign(m_gages.size(),     0);
+    m_nodeHiddenFlag   .assign(m_nodes.size(),     0);
+    m_linkHiddenFlag   .assign(m_links.size(),     0);
+    m_catchHiddenFlag  .assign(m_catchments.size(),0);
+    m_gageHiddenFlag   .assign(m_gages.size(),     0);
+
+    auto setFlag = [this](const QString &name, bool selectedNotHidden) {
+        const auto it = m_nameToSoa.constFind(name);
+        if (it == m_nameToSoa.constEnd()) return;
+        const int idx = it.value().soaIdx;
+        switch (it.value().kind) {
+        case SoaKind::Node:
+            if (size_t(idx) < (selectedNotHidden ? m_nodeSelectedFlag : m_nodeHiddenFlag).size())
+                (selectedNotHidden ? m_nodeSelectedFlag : m_nodeHiddenFlag)[idx] = 1;
+            break;
+        case SoaKind::Link:
+            if (size_t(idx) < (selectedNotHidden ? m_linkSelectedFlag : m_linkHiddenFlag).size())
+                (selectedNotHidden ? m_linkSelectedFlag : m_linkHiddenFlag)[idx] = 1;
+            break;
+        case SoaKind::Catch:
+            if (size_t(idx) < (selectedNotHidden ? m_catchSelectedFlag : m_catchHiddenFlag).size())
+                (selectedNotHidden ? m_catchSelectedFlag : m_catchHiddenFlag)[idx] = 1;
+            break;
+        case SoaKind::Gage:
+            if (size_t(idx) < (selectedNotHidden ? m_gageSelectedFlag : m_gageHiddenFlag).size())
+                (selectedNotHidden ? m_gageSelectedFlag : m_gageHiddenFlag)[idx] = 1;
+            break;
+        }
+    };
+
+    for (const QString &n : m_selectedNames)  setFlag(n, true);
+    for (const QString &n : m_hiddenObjects)  setFlag(n, false);
+}
 
 void SWMMModelLayer::rebuildSceneCoords()
 {
@@ -1784,7 +1933,19 @@ void SWMMModelLayer::rebuildSceneCoords()
     for (int i = 0; i < m_gages.size(); ++i)
         m_gageScenePts[i] = toScenePt(m_gages[i].x, m_gages[i].y);
 
-    m_linkScenePts.resize(m_links.size());
+    // Pack every link's vertices into one big float buffer. Pre-pass to
+    // compute total vertex count + offsets so a single resize covers
+    // all links — no incremental reallocation as we go.
+    m_linkVertexOffset.assign(m_links.size(), 0);
+    m_linkVertexCount .assign(m_links.size(), 0);
+    uint32_t totalVerts = 0;
+    for (int i = 0; i < m_links.size(); ++i) {
+        const uint32_t n = uint32_t(m_links[i].vertices.size());
+        m_linkVertexOffset[i] = totalVerts;
+        m_linkVertexCount [i] = n;
+        totalVerts += n;
+    }
+    m_linkSceneFlat.assign(size_t(totalVerts) * 2, 0.0f);
     m_linkSceneBBoxes.resize(m_links.size());
     for (int i = 0; i < m_links.size(); ++i)
         refreshSceneCoordsForLink(i);
@@ -1811,6 +1972,15 @@ void SWMMModelLayer::rebuildSceneCoords()
         m_catchScenePts[i]    = std::move(sp);
         m_catchSceneBBoxes[i] = bbox;
     }
+
+    // Rebuild the link spatial grid from the freshly-computed bboxes.
+    // Paint queries this directly — see SWMMLayerItem::paint().
+    QElapsedTimer gt; gt.start();
+    m_linkGrid.rebuild(m_linkSceneBBoxes);
+    qDebug().noquote() << "[LinkSpatialGrid::rebuild] links=" << m_links.size()
+                       << " cols=" << m_linkGrid.cols
+                       << " rows=" << m_linkGrid.rows
+                       << " elapsed_ms=" << gt.elapsed();
 }
 
 void SWMMModelLayer::refreshSceneCoordsForNode(int nodeIdx)
@@ -1826,18 +1996,37 @@ void SWMMModelLayer::refreshSceneCoordsForNode(int nodeIdx)
 void SWMMModelLayer::refreshSceneCoordsForLink(int linkIdx)
 {
     if (linkIdx < 0 || linkIdx >= m_links.size()) return;
-    if (m_linkScenePts.size()    != m_links.size()) m_linkScenePts.resize(m_links.size());
-    if (m_linkSceneBBoxes.size() != m_links.size()) m_linkSceneBBoxes.resize(m_links.size());
+    if (m_linkSceneBBoxes.size() != m_links.size())
+        m_linkSceneBBoxes.resize(m_links.size());
 
     const auto &verts = m_links[linkIdx].vertices;
-    QVector<QPointF> sp;
-    sp.reserve(verts.size());
+    const uint32_t n = uint32_t(verts.size());
+
+    // If our flat layout is fresh enough to hold this link in place
+    // (vertex count unchanged, parallel arrays sized correctly), do an
+    // in-place rewrite of the link's slice. Otherwise fall back to a
+    // full rebuild — vertex-count changes shift every downstream
+    // offset, and editing a single link via this path during a drag
+    // preview is rare enough that the full rebuild is acceptable.
+    const bool layoutFresh =
+        size_t(linkIdx) < m_linkVertexOffset.size()
+        && size_t(linkIdx) < m_linkVertexCount.size()
+        && m_linkVertexCount[linkIdx] == n
+        && size_t((m_linkVertexOffset[linkIdx] + n) * 2) <= m_linkSceneFlat.size();
+    if (!layoutFresh) {
+        rebuildSceneCoords();
+        return;
+    }
+
+    const uint32_t off = m_linkVertexOffset[linkIdx];
     QRectF bbox;
-    for (int v = 0; v < verts.size(); ++v) {
+    for (uint32_t v = 0; v < n; ++v) {
         double x = verts[v].x(), y = verts[v].y();
         if (m_transform) m_transform->Transform(1, &x, &y);
-        const QPointF p(x, -y);
-        sp.append(p);
+        const float fx = float(x), fy = float(-y);
+        m_linkSceneFlat[size_t(off + v) * 2 + 0] = fx;
+        m_linkSceneFlat[size_t(off + v) * 2 + 1] = fy;
+        const QPointF p(fx, fy);
         if (v == 0) bbox = QRectF(p, QSizeF(0, 0));
         else {
             if (p.x() < bbox.left())   bbox.setLeft  (p.x());
@@ -1846,7 +2035,6 @@ void SWMMModelLayer::refreshSceneCoordsForLink(int linkIdx)
             if (p.y() > bbox.bottom()) bbox.setBottom(p.y());
         }
     }
-    m_linkScenePts[linkIdx]    = std::move(sp);
     m_linkSceneBBoxes[linkIdx] = bbox;
 }
 

@@ -161,6 +161,20 @@ public:
      */
     [[nodiscard]] virtual bool isRasterLayer() const { return false; }
 
+    /*!
+     * \brief Returns true for world-spanning basemap layers (XYZ tile providers,
+     *        WMS/WMTS services covering the whole world) that should NOT be
+     *        included when computing the data-driven full extent.
+     *
+     * \details MapCanvas::fullExtent() uses this to skip basemap layers so that
+     *          "Zoom to Full Extent" zooms to the project's data (SWMM network,
+     *          DTM, bounded WMS coverage) rather than the whole globe.  Layers
+     *          with a specific, bounded geographic footprint (GISRasterLayer,
+     *          local WMS/WMTS with EX_GeographicBoundingBox) return false so they
+     *          participate in the extent union.
+     */
+    [[nodiscard]] virtual bool isBasemapLayer() const { return false; }
+
     // ----- Direct QPainter rendering (QGIS-style buffer path) -------------
 
     /*!

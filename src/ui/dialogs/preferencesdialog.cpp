@@ -9,6 +9,7 @@
 #include "core/preferencesmanager.h"
 
 #include <QCheckBox>
+#include <QColorDialog>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -121,6 +122,44 @@ QWidget *PreferencesDialog::buildSelectionPage()
                                          "empty space"), page);
     f->addRow(m_clearOnMissBox);
 
+    // Per-vector-class selection highlight colors. Each row is a flat
+    // button whose background previews the current color; clicking pops
+    // the standard color picker. The chosen color is held on the
+    // m_pendingSelColor* members until Apply / OK propagates to
+    // PreferencesManager.
+    auto makeColorButton = [page](QPushButton *&btn, QColor &held) {
+        btn = new QPushButton(page);
+        btn->setMinimumWidth(120);
+        btn->setAutoFillBackground(true);
+        QObject::connect(btn, &QPushButton::clicked, btn, [btn, &held]() {
+            const QColor c = QColorDialog::getColor(
+                held.isValid() ? held : QColor(Qt::yellow),
+                btn,
+                QObject::tr("Selection color"),
+                QColorDialog::ShowAlphaChannel);
+            if (!c.isValid()) return;
+            held = c;
+            QString css = QStringLiteral(
+                "QPushButton { background-color: %1; color: %2; "
+                "border: 1px solid #777; padding: 3px 8px; }")
+                .arg(c.name(QColor::HexRgb),
+                     c.lightness() > 128 ? QStringLiteral("black")
+                                         : QStringLiteral("white"));
+            btn->setStyleSheet(css);
+            btn->setText(c.name(QColor::HexRgb).toUpper());
+        });
+    };
+
+    makeColorButton(m_selColorLink,     m_pendingSelColorLink);
+    makeColorButton(m_selColorNode,     m_pendingSelColorNode);
+    makeColorButton(m_selColorSubcatch, m_pendingSelColorSubcatch);
+    makeColorButton(m_selColorGage,     m_pendingSelColorGage);
+
+    f->addRow(tr("Selection color — links"),         m_selColorLink);
+    f->addRow(tr("Selection color — nodes"),         m_selColorNode);
+    f->addRow(tr("Selection color — subcatchments"), m_selColorSubcatch);
+    f->addRow(tr("Selection color — rain gages"),    m_selColorGage);
+
     return page;
 }
 
@@ -200,6 +239,26 @@ void PreferencesDialog::readFromManager()
     m_dragThresholdPxSpin->setValue(p->dragThresholdPx());
     m_clearOnMissBox->setChecked(p->clearSelectionOnMiss());
 
+    auto applyColor = [](QPushButton *btn, QColor &held, const QColor &c) {
+        held = c;
+        QString css = QStringLiteral(
+            "QPushButton { background-color: %1; color: %2; "
+            "border: 1px solid #777; padding: 3px 8px; }")
+            .arg(c.name(QColor::HexRgb),
+                 c.lightness() > 128 ? QStringLiteral("black")
+                                     : QStringLiteral("white"));
+        btn->setStyleSheet(css);
+        btn->setText(c.name(QColor::HexRgb).toUpper());
+    };
+    applyColor(m_selColorLink,     m_pendingSelColorLink,
+               p->selectionColor(QStringLiteral("link")));
+    applyColor(m_selColorNode,     m_pendingSelColorNode,
+               p->selectionColor(QStringLiteral("node")));
+    applyColor(m_selColorSubcatch, m_pendingSelColorSubcatch,
+               p->selectionColor(QStringLiteral("subcatchment")));
+    applyColor(m_selColorGage,     m_pendingSelColorGage,
+               p->selectionColor(QStringLiteral("gage")));
+
     const int toolIdx = m_defaultToolCombo->findData(p->defaultTool());
     m_defaultToolCombo->setCurrentIndex(toolIdx >= 0 ? toolIdx : 0);
     m_crsAuthorityEdit->setText(p->defaultCrsAuthority());
@@ -217,6 +276,15 @@ void PreferencesDialog::writeToManager()
     p->setClickTolerancePx(m_clickTolerancePxSpin->value());
     p->setDragThresholdPx(m_dragThresholdPxSpin->value());
     p->setClearSelectionOnMiss(m_clearOnMissBox->isChecked());
+
+    if (m_pendingSelColorLink.isValid())
+        p->setSelectionColor(QStringLiteral("link"),         m_pendingSelColorLink);
+    if (m_pendingSelColorNode.isValid())
+        p->setSelectionColor(QStringLiteral("node"),         m_pendingSelColorNode);
+    if (m_pendingSelColorSubcatch.isValid())
+        p->setSelectionColor(QStringLiteral("subcatchment"), m_pendingSelColorSubcatch);
+    if (m_pendingSelColorGage.isValid())
+        p->setSelectionColor(QStringLiteral("gage"),         m_pendingSelColorGage);
 
     p->setDefaultTool(m_defaultToolCombo->currentData().toString());
     p->setDefaultCrsAuthority(m_crsAuthorityEdit->text().trimmed());

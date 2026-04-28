@@ -156,9 +156,19 @@ void SWMMLayerItem::paint(QPainter *painter,
     painter->setOpacity(m_layer->opacity());
 
     const QRectF exposed = option->exposedRect;
-    const QSet<QString> &hidden   = m_layer->m_hiddenObjects;
-    const QStringList   &selected = m_layer->m_selectedNames;
-    const QSet<QString> selectedSet(selected.begin(), selected.end());
+    // Phase A.2: read flag arrays indexed by SoA position; no per-link
+    // QString hashing on the paint hot path. Maintained by
+    // SWMMModelLayer::rebuildFlagArrays() on selection / visibility
+    // mutations. The `selected` count is still used for logging.
+    const QStringList   &selected     = m_layer->m_selectedNames;
+    const auto &nodeSel   = m_layer->m_nodeSelectedFlag;
+    const auto &linkSel   = m_layer->m_linkSelectedFlag;
+    const auto &catchSel  = m_layer->m_catchSelectedFlag;
+    const auto &gageSel   = m_layer->m_gageSelectedFlag;
+    const auto &nodeHid   = m_layer->m_nodeHiddenFlag;
+    const auto &linkHid   = m_layer->m_linkHiddenFlag;
+    const auto &catchHid  = m_layer->m_catchHiddenFlag;
+    const auto &gageHid   = m_layer->m_gageHiddenFlag;
     const qint64 t_setup = t_total.elapsed();
 
     // View scale recovery. Node / gage glyphs are sized in PIXELS (so the
@@ -176,8 +186,15 @@ void SWMMLayerItem::paint(QPainter *painter,
     // and refreshed incrementally on edits. paint() reads them directly so
     // there's no per-vertex Transform()/toScene() math on the hot path.
 
+    // Phase B.RHI — `glRenderingEnabled` is repurposed: when true, an
+    // EXTERNAL GPU renderer (the QSG overlay in MapCanvas) is handling
+    // the link draw, so we skip lines here. Subcatchments / nodes /
+    // gages continue on this CPU path until B.RHI.3 moves them to QSG
+    // too. The `glOn` local keeps its old name for diff readability.
+    const bool glOn = m_layer->glRenderingEnabled();
+
     // ---------------------------------------------------------------- Subcatchments
-    if (m_layer->m_showSubcatchments)
+    if (!glOn && m_layer->m_showSubcatchments)
     {
         const auto &sym = m_layer->m_subcatchSym;
         QPen pen(sym.outlineColor, sym.outlineWidth);
@@ -192,8 +209,7 @@ void SWMMLayerItem::paint(QPainter *painter,
         const auto &cboxes = m_layer->m_catchSceneBBoxes;
         for (int i = 0; i < m_layer->m_catchments.size(); ++i)
         {
-            const auto &c = m_layer->m_catchments[i];
-            if (hidden.contains(c.name)) continue;
+            if (size_t(i) < catchHid.size() && catchHid[i]) continue;
             if (i >= cps.size() || cps[i].isEmpty()) continue;
             // Viewport cull against the precomputed scene-space bbox.
             if (!exposed.isNull() && i < cboxes.size()
@@ -201,7 +217,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                 continue;
 
             const QPolygonF poly(cps[i]);
-            const bool sel = selectedSet.contains(c.name);
+            const bool sel = size_t(i) < catchSel.size() && catchSel[i];
             if (sel) painter->setBrush(QColor(255, 255, 0, 120));
             painter->drawPolygon(poly);
             if (sel) painter->setBrush(QBrush(sym.fillColor));
@@ -209,7 +225,7 @@ void SWMMLayerItem::paint(QPainter *painter,
     }
 
     // ---------------------------------------------------------------- Links
-    if (m_layer->m_showLinks)
+    if (!glOn && m_layer->m_showLinks)
     {
         // Single pen: the legacy path used m_conduitSym regardless of link
         // subtype ([swmmmodellayer.cpp: populateScene]). Matching that
@@ -231,23 +247,42 @@ void SWMMLayerItem::paint(QPainter *painter,
         // with the highlight pen after.
         QVector<QLineF> selSegs;
 
-        const auto &lps    = m_layer->m_linkScenePts;
-        const auto &lboxes = m_layer->m_linkSceneBBoxes;
-        for (int i = 0; i < m_layer->m_links.size(); ++i)
-        {
-            const auto &l = m_layer->m_links[i];
-            if (hidden.contains(l.name)) continue;
-            if (i >= lps.size() || lps[i].size() < 2) continue;
-            // Viewport cull against the precomputed scene-space bbox.
-            if (!exposed.isNull() && i < lboxes.size()
-                && !exposed.intersects(lboxes[i]))
-                continue;
+        // Phase A.3: consume the flat link scene-coord buffer. One
+        // contiguous std::vector<float> of (x, y) pairs, with per-link
+        // (offset, count) parallel arrays. Cache-friendly, and the
+        // exact buffer the GL pipeline (Phase B) will hand to a VBO.
+        const float    *flat    = m_layer->m_linkSceneFlat.data();
+        const uint32_t *offsets = m_layer->m_linkVertexOffset.data();
+        const uint32_t *counts  = m_layer->m_linkVertexCount.data();
+        const int       nLinks  = m_layer->m_links.size();
 
-            const QVector<QPointF> &pts = lps[i];
-            const bool sel = selectedSet.contains(l.name);
+        // Spatial-index cull (Phase A.1, docs/RENDERING_5M_PLAN.md). At
+        // zoomed-in views the grid returns a small subset of links; at
+        // full extent it returns all of them. Either way we skip the
+        // per-link bbox-intersect check inside the inner loop.
+        QVector<int> visible;
+        if (!exposed.isNull() && !m_layer->m_linkGrid.isEmpty())
+            visible = m_layer->m_linkGrid.query(exposed);
+        const bool useGrid = !visible.isEmpty()
+                          || (!exposed.isNull() && !m_layer->m_linkGrid.isEmpty());
+        const int total = useGrid ? visible.size() : nLinks;
+
+        for (int k = 0; k < total; ++k)
+        {
+            const int i = useGrid ? visible[k] : k;
+            if (i < 0 || i >= nLinks) continue;
+            if (size_t(i) < linkHid.size() && linkHid[i]) continue;
+            const uint32_t cnt = counts[i];
+            if (cnt < 2) continue;
+            const uint32_t off = offsets[i];
+
+            const bool sel = size_t(i) < linkSel.size() && linkSel[i];
             auto &target = sel ? selSegs : segs;
-            for (int j = 1; j < pts.size(); ++j)
-                target.emplace_back(pts[j-1], pts[j]);
+            const float *p = flat + size_t(off) * 2;
+            for (uint32_t j = 1; j < cnt; ++j) {
+                target.emplace_back(QPointF(p[(j - 1) * 2], p[(j - 1) * 2 + 1]),
+                                    QPointF(p[ j      * 2], p[ j      * 2 + 1]));
+            }
         }
 
         if (!segs.isEmpty())
@@ -264,7 +299,13 @@ void SWMMLayerItem::paint(QPainter *painter,
     }
 
     // ---------------------------------------------------------------- Nodes
-    if (m_layer->m_showNodes)
+    // B.RHI.3c — when the QSG overlay is active it owns ALL node /
+    // gage / subcatchment rendering, including selection highlight.
+    // Painting them again on the CPU here would compose on top of the
+    // canvas blit (CPU yellow), then QSG paints fresh base-color
+    // glyphs on top of that, hiding the highlight entirely. Skip the
+    // CPU pass whenever glOn is true.
+    if (!glOn && m_layer->m_showNodes)
     {
         // Bucket per node type so pen+brush only switch O(types) times
         // — all junctions draw together, then outfalls, etc.
@@ -289,7 +330,7 @@ void SWMMLayerItem::paint(QPainter *painter,
         const auto &nps = m_layer->m_nodeScenePts;
         for (int i = 0; i < m_layer->m_nodes.size(); ++i) {
             const auto &n = m_layer->m_nodes[i];
-            if (hidden.contains(n.name)) continue;
+            if (size_t(i) < nodeHid.size() && nodeHid[i]) continue;
             if (i >= nps.size()) continue;
             const QPointF &sp = nps[i];
             if (!exposed.isNull() && !exposed.contains(sp)) {
@@ -299,7 +340,8 @@ void SWMMLayerItem::paint(QPainter *painter,
             }
             const int t = (n.nodeType >= 0 && n.nodeType < 4) ? n.nodeType : 0;
             auto &b = buckets[t];
-            (selectedSet.contains(n.name) ? b.selPts : b.scenePts).append(sp);
+            const bool sel = size_t(i) < nodeSel.size() && nodeSel[i];
+            (sel ? b.selPts : b.scenePts).append(sp);
         }
 
         for (const Bucket &b : buckets) {
@@ -332,7 +374,8 @@ void SWMMLayerItem::paint(QPainter *painter,
     }
 
     // ---------------------------------------------------------------- Rain gages
-    if (m_layer->m_showRainGages && !m_layer->m_gages.isEmpty())
+    // Same B.RHI.3c skip as nodes — QSG owns gage rendering when glOn.
+    if (!glOn && m_layer->m_showRainGages && !m_layer->m_gages.isEmpty())
     {
         const auto &sym = m_layer->m_gageSym;
         // Fixed pixel-size glyph — see invViewScale comment at top.
@@ -348,8 +391,7 @@ void SWMMLayerItem::paint(QPainter *painter,
         const auto &gps = m_layer->m_gageScenePts;
         for (int i = 0; i < m_layer->m_gages.size(); ++i)
         {
-            const auto &g = m_layer->m_gages[i];
-            if (hidden.contains(g.name)) continue;
+            if (size_t(i) < gageHid.size() && gageHid[i]) continue;
             if (i >= gps.size()) continue;
             const QPointF &sp = gps[i];
             if (!exposed.isNull() && !exposed.contains(sp)) {
@@ -357,7 +399,8 @@ void SWMMLayerItem::paint(QPainter *painter,
                                              haloScene,  haloScene);
                 if (!e.contains(sp)) continue;
             }
-            (selectedSet.contains(g.name) ? selPts : basePts).append(sp);
+            const bool sel = size_t(i) < gageSel.size() && gageSel[i];
+            (sel ? selPts : basePts).append(sp);
         }
 
         if (!basePts.isEmpty()) {
@@ -392,7 +435,7 @@ void SWMMLayerItem::paint(QPainter *painter,
             const auto &nps = m_layer->m_nodeScenePts;
             for (int i = 0; i < m_layer->m_nodes.size(); ++i) {
                 const auto &n = m_layer->m_nodes[i];
-                if (hidden.contains(n.name)) continue;
+                if (size_t(i) < nodeHid.size() && nodeHid[i]) continue;
                 if (i >= nps.size()) continue;
                 const QPointF &sp = nps[i];
                 if (!exposed.isNull() && !exposed.contains(sp)) continue;
@@ -404,6 +447,9 @@ void SWMMLayerItem::paint(QPainter *painter,
     qDebug().noquote() << "[SWMMLayerItem::paint] setup_ms=" << t_setup
                        << " total_ms=" << t_total.elapsed()
                        << " links=" << m_layer->m_links.size()
+                       << " grid=" << (m_layer->m_linkGrid.isEmpty() ? "n/a"
+                            : QString("%1x%2").arg(m_layer->m_linkGrid.cols)
+                                              .arg(m_layer->m_linkGrid.rows))
                        << " nodes=" << m_layer->m_nodes.size()
                        << " selected=" << selected.size()
                        << " exposed=" << exposed;

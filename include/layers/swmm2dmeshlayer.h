@@ -19,7 +19,12 @@
 #include "mesh/meshresult.h"
 
 #include <QColor>
+#include <QLineF>
+#include <QRectF>
 #include <QString>
+#include <QVector>
+
+#include <ogr_spatialref.h>
 
 class QGraphicsScene;
 class QGraphicsItem;
@@ -68,10 +73,18 @@ public:
     void onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS) override;
 
 private:
-    mesh::MeshResult m_mesh;
-    QString          m_sourcePath;
-    bool             m_active = false;
-    QGraphicsItem   *m_item   = nullptr;   ///< Owned by the scene; we drop the ref on remove.
+    /*! Reproject m_mesh vertex coordinates through m_transform (if any)
+     *  and rebuild m_sceneEdges / m_sceneBBox. Called whenever the canvas
+     *  CRS changes (onCanvasCRSChanged) and at construction. */
+    void rebuildSceneEdges();
+
+    mesh::MeshResult                m_mesh;
+    QString                         m_sourcePath;
+    bool                            m_active    = false;
+    QGraphicsItem                  *m_item      = nullptr;
+    OGRCoordinateTransformation    *m_transform = nullptr;
+    QVector<QLineF>                 m_sceneEdges;
+    QRectF                          m_sceneBBox;
 };
 
 #endif // OPENSWMMVIS_LAYERS_SWMM2DMESHLAYER_H

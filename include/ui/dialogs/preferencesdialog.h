@@ -16,11 +16,14 @@
 
 #include <QDialog>
 
+#include <QColor>
+
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
 class QLineEdit;
 class QListWidget;
+class QPushButton;
 class QSpinBox;
 class QStackedWidget;
 
@@ -55,6 +58,14 @@ private:
     QSpinBox   *m_clickTolerancePxSpin  = nullptr;
     QSpinBox   *m_dragThresholdPxSpin   = nullptr;
     QCheckBox  *m_clearOnMissBox        = nullptr;
+    QPushButton *m_selColorLink         = nullptr;
+    QPushButton *m_selColorNode         = nullptr;
+    QPushButton *m_selColorSubcatch     = nullptr;
+    QPushButton *m_selColorGage         = nullptr;
+    QColor      m_pendingSelColorLink;
+    QColor      m_pendingSelColorNode;
+    QColor      m_pendingSelColorSubcatch;
+    QColor      m_pendingSelColorGage;
 
     // Canvas
     QComboBox  *m_defaultToolCombo      = nullptr;

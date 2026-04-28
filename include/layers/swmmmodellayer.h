@@ -17,7 +17,9 @@
 
 #include "layers/openswmmvislayer.h"
 
+#include <cstdint>
 #include <memory>
+#include <vector>
 
 // Forward declaration — nanoflann types are confined to swmmmodellayer.cpp
 // so the header stays free of the nanoflann.hpp template machinery.
@@ -71,6 +73,13 @@ class SWMMModelLayer : public OpenSWMMVisLayer
     // The batched scene-item renderer reads the SoA + GDAL transform
     // directly so paint() is a single tight pass over the cached data.
     friend class SWMMLayerItem;
+    // Phase B.3 — the offscreen GL renderer reads m_linkSceneFlat /
+    // m_linkVertexOffset / m_linkVertexCount directly to upload the
+    // VBO; same private-data access rationale as SWMMLayerItem.
+    friend class SWMMLayerGLRenderer;
+    // Phase B.RHI — the QSG renderer reads the same flat buffers to
+    // populate its QSGGeometryNode vertex data on geometry change.
+    friend class SWMMLayerQSGRenderer;
 
 public:
     /*!
@@ -147,6 +156,13 @@ public:
 
     [[nodiscard]] bool showLabels()       const;
     void setShowLabels(bool show);
+
+    /*! Phase B.3 — when true, SWMMLayerItem::paint() skips link / node
+     *  / catchment / gage rendering on the assumption that
+     *  SWMMLayerGLRenderer is composing them via the offscreen FBO.
+     *  Lets us A/B between the CPU and GL paths without rebuilds. */
+    [[nodiscard]] bool glRenderingEnabled() const { return m_glRenderingEnabled; }
+    void setGlRenderingEnabled(bool on)            { m_glRenderingEnabled = on; }
 
     // ----- Per-object visibility (Slice O) --------------------------------
 
@@ -717,6 +733,52 @@ private:
     void refreshSceneCoordsForLink(int linkIdx);
 
     /*!
+     * \brief Uniform-grid spatial index over scene-space link bboxes.
+     *        Phase A.1 of the 5M-rendering plan (docs/RENDERING_5M_PLAN.md).
+     *
+     *        SWMMLayerItem::paint queries `query(exposed)` to get the SoA
+     *        indices of links whose bbox intersects the viewport, instead
+     *        of iterating all m_links and bbox-testing each one. At zoomed
+     *        in views this collapses paint's per-link work from O(N) to
+     *        O(visible). When the GL pipeline lands (Phase B), the same
+     *        query result feeds glDrawArrays so the GPU upload subrange
+     *        and the CPU cull share one index.
+     *
+     *        Grid is keyed off m_linkSceneBBoxes — rebuilt by
+     *        rebuildSceneCoords() (geometry / CRS change). Cell size is
+     *        chosen automatically as ~16x the median link bbox diagonal
+     *        so most links live in 1–2 cells; outliers get inserted into
+     *        every cell they cross (no clipping).
+     *
+     *        Memory: vector<int> per cell, total entries ≈ N for short
+     *        links. At 5M with ~100x100 grid → ~500 entries/cell on avg.
+     *        Build is O(N); query is O(cells_in_rect + entries_returned).
+     */
+    struct LinkSpatialGrid
+    {
+        QRectF       extent;         ///< total bbox covered by the grid (scene space)
+        double       cellW = 0.0;
+        double       cellH = 0.0;
+        int          cols  = 0;
+        int          rows  = 0;
+        QVector<QVector<int>> cells; ///< size cols*rows; cell (cx,cy) -> link SoA indices
+
+        void clear() { extent = {}; cellW = cellH = 0.0; cols = rows = 0; cells.clear(); }
+        [[nodiscard]] bool isEmpty() const { return cells.isEmpty(); }
+
+        /*! Rebuild the grid from a parallel array of scene-space bboxes
+         *  (one per link, indexed by SoA position). Called by
+         *  rebuildSceneCoords(). */
+        void rebuild(const QVector<QRectF> &linkBBoxes);
+
+        /*! Indices of links whose cached bbox intersects \p rect. Order
+         *  is grid-traversal order, not SoA order — paint can rely on
+         *  this to skip the bbox-intersect check inside its loop. */
+        [[nodiscard]] QVector<int> query(const QRectF &rect) const;
+    };
+    LinkSpatialGrid              m_linkGrid;
+
+    /*!
      * \brief Rebuild the per-category index buckets (m_nodesByType,
      *        m_linksByType), the name→(category, row) lookup, and the
      *        per-category hidden-count array from m_hiddenObjects.
@@ -734,6 +796,14 @@ private:
     bool                         m_showSubcatchments = true;
     bool                         m_showRainGages   = true;
     bool                         m_showLabels      = false;
+    // Phase B.RHI — disabled by default until the QQuickWidget Metal-layer
+    // compositing issue is resolved (the opaque CAMetalLayer covers the
+    // raster m_frameBuffer content regardless of setClearColor(transparent)).
+    // With this false, SWMMLayerItem::paint() renders links / nodes /
+    // subcatchments / gages via QPainter into the QGraphicsScene, selection
+    // highlights (yellow) work correctly, and basemap / DTM / mesh remain
+    // visible because no Metal layer is composited on top.
+    bool                         m_glRenderingEnabled = false;
 
     // Slice O — per-object hidden set. Names listed here are skipped by
     // populateScene. Object names are unique across a SWMM model, so a
@@ -764,11 +834,48 @@ private:
     // the paint hot path. Per-feature scene-space bounding rects support
     // viewport cull without a per-paint per-link bbox compute.
     QVector<QPointF>             m_nodeScenePts;
-    QVector<QVector<QPointF>>    m_linkScenePts;
     QVector<QRectF>              m_linkSceneBBoxes;
     QVector<QVector<QPointF>>    m_catchScenePts;
     QVector<QRectF>              m_catchSceneBBoxes;
     QVector<QPointF>             m_gageScenePts;
+
+    // Phase A.3 — flat-array link scene-coords. Replaces the previous
+    // per-link QVector<QPointF> with one big std::vector<float> of
+    // interleaved (x, y) pairs, plus per-link (offset, count). At 5M
+    // links this saves ~120 MB of QVector overhead and gives the GL
+    // pipeline (Phase B) a buffer it can `memcpy` straight into a VBO.
+    //
+    //   m_linkSceneFlat[(m_linkVertexOffset[i] + v) * 2 + 0]  =  x
+    //   m_linkSceneFlat[(m_linkVertexOffset[i] + v) * 2 + 1]  =  y   (Y-flipped)
+    //   v in [0, m_linkVertexCount[i])
+    //
+    // Floats not doubles: GL VBOs want floats, and link coords easily
+    // fit single precision once translated to scene space. Y is
+    // pre-flipped so paint feeds straight into QPainter::drawLines /
+    // glDrawArrays without per-vertex math. Any vertex-count change
+    // (rare; only when an editor adds/removes a vertex) triggers a
+    // full rebuildSceneCoords; in-place node moves only rewrite the
+    // affected link's slice of m_linkSceneFlat.
+    std::vector<float>           m_linkSceneFlat;
+    std::vector<uint32_t>        m_linkVertexOffset;   // size == m_links.size()
+    std::vector<uint32_t>        m_linkVertexCount;    // size == m_links.size()
+
+    // Phase A.2 of the 5M-rendering plan: selection / hidden state as
+    // dense byte arrays parallel to the SoAs. SWMMLayerItem::paint reads
+    // these directly instead of hashing each name into a QSet<QString>
+    // every frame. Maintained alongside m_selectedNames / m_hiddenObjects
+    // — those QString-keyed members remain the canonical state (used by
+    // identify, attribute panel, persistence) but the flag arrays are
+    // the fast path on the paint loop. Kept coherent by
+    // setSelectedElementNames / setObjectVisible* / rebuildCategoryIndex.
+    std::vector<uint8_t>         m_nodeSelectedFlag;   // 1 if m_nodes[i] selected
+    std::vector<uint8_t>         m_linkSelectedFlag;
+    std::vector<uint8_t>         m_catchSelectedFlag;
+    std::vector<uint8_t>         m_gageSelectedFlag;
+    std::vector<uint8_t>         m_nodeHiddenFlag;
+    std::vector<uint8_t>         m_linkHiddenFlag;
+    std::vector<uint8_t>         m_catchHiddenFlag;
+    std::vector<uint8_t>         m_gageHiddenFlag;
 
     // Per-category row → SoA-index buckets. Built in buildGeometryCache,
     // cleared in closeEngine. Used by the virtualised Object Browser tree
@@ -801,6 +908,24 @@ private:
     // the SelectionManager → model-index mapping in the Object Browser
     // without a full O(N) scan of m_nodes / m_links per call.
     QHash<QString, QPair<Category, int>> m_objectLocation;
+
+    // Phase A.2 — name → (kind, SoA index) for the flag-array paint
+    // path. `kind` selects which array (m_nodes / m_links /
+    // m_catchments / m_gages) the SoA index addresses. Built alongside
+    // m_objectLocation in rebuildCategoryIndex and kept coherent on
+    // edits. Distinct from m_objectLocation because that one stores
+    // *display* row inside per-category buckets, whereas paint needs
+    // the raw SoA index — different translation, different consumers.
+    enum class SoaKind : int8_t { Node = 0, Link = 1, Catch = 2, Gage = 3 };
+    struct SoaLocation { SoaKind kind; int soaIdx; };
+    QHash<QString, SoaLocation>  m_nameToSoa;
+
+    /*! Refresh `m_*SelectedFlag` and `m_*HiddenFlag` from
+     *  `m_selectedNames` + `m_hiddenObjects`. Cost: O(|selection| +
+     *  |hidden|), bounded by user actions, not by total object count.
+     *  Called on every selection / visibility mutation so the flag
+     *  arrays match the canonical QString-keyed state. */
+    void rebuildFlagArrays();
 
     SWMMElementSymbol            m_junctionSym;
     SWMMElementSymbol            m_outfallSym;

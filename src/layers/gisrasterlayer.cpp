@@ -551,6 +551,25 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
 
     if (!warpOpts->pTransformerArg)
     {
+        // First attempt failed — common cause: source has no embedded CRS
+        // (e.g. a plain GeoTIFF without a .prj) but the GDAL pipeline still
+        // needs a transformer to map pixel coords through the geotransforms.
+        // Retry with null SRS strings so GDAL builds a geotransform-only
+        // (reprojection-free) transformer.  This produces correct results
+        // when the source coordinates are already in the canvas CRS, which
+        // is the typical case for local DTM data loaded without CRS metadata.
+        qWarning() << "GISRasterLayer: GDALCreateGenImgProjTransformer failed "
+                      "with explicit SRS strings — retrying without SRS (passthrough).";
+        warpOpts->pTransformerArg = GDALCreateGenImgProjTransformer(
+            m_dataset, nullptr,
+            dstDS,     nullptr,
+            FALSE,     0, 1);
+    }
+
+    if (!warpOpts->pTransformerArg)
+    {
+        qWarning() << "GISRasterLayer: warpToCanvas — could not create GDAL "
+                      "coordinate transformer; skipping render.";
         GDALDestroyWarpOptions(warpOpts);
         GDALClose(dstDS);
         return {};

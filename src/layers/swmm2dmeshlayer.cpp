@@ -7,6 +7,7 @@
 #include "layers/swmm2dmeshlayer.h"
 
 #include "map/mapextent.h"
+#include "map/spatialreferencesystem.h"
 
 #include <QGraphicsItem>
 #include <QGraphicsScene>
@@ -14,77 +15,24 @@
 #include <QPen>
 #include <QVector>
 
+#include <ogr_spatialref.h>
+
 namespace {
 
-// Convert a layer-CRS map coordinate to scene coords. Standard convention
-// across the codebase: scene Y is the negation of map Y (so map +Y is
-// "up" while scene Y goes down).
-inline QPointF toScene(double mx, double my) { return QPointF(mx, -my); }
-
 /*! \brief Single batched QGraphicsItem rendering all triangle edges of a
- *         MeshResult in one paint call. The item caches a flat
- *         QVector<QLineF> of edges so paint() is O(N) draw with one
- *         drawLines call — same hot-path pattern as SWMMLayerItem.
+ *         MeshResult in one paint call. Accepts pre-computed scene-space
+ *         edges so the layer can supply correctly reprojected coordinates.
  */
 class MeshGraphicsItem : public QGraphicsItem
 {
 public:
-    explicit MeshGraphicsItem(const mesh::MeshResult &mesh,
-                              SWMM2DMeshLayer       *owner,
-                              QGraphicsItem         *parent = nullptr)
-        : QGraphicsItem(parent), m_owner(owner)
+    explicit MeshGraphicsItem(QVector<QLineF>  edges,
+                              QRectF           bbox,
+                              SWMM2DMeshLayer *owner,
+                              QGraphicsItem   *parent = nullptr)
+        : QGraphicsItem(parent), m_owner(owner),
+          m_edges(std::move(edges)), m_bbox(bbox)
     {
-        // Pre-compute scene-space edges. We dedupe (a,b) vs (b,a) by
-        // canonicalising vertex-pair ordering — saves ~half the draws on
-        // an arbitrary mesh and keeps the line crisp (no double-stroke
-        // brightness mismatch).
-        QSet<QPair<int, int>> seen;
-        seen.reserve(mesh.triangles.size() * 3);
-        m_edges.reserve(mesh.triangles.size() * 3);
-        auto pushEdge = [&](int a, int b) {
-            if (a == b) return;
-            const QPair<int, int> key = a < b ? qMakePair(a, b) : qMakePair(b, a);
-            if (seen.contains(key)) return;
-            seen.insert(key);
-            const auto &va = mesh.vertices[a];
-            const auto &vb = mesh.vertices[b];
-            m_edges.append(QLineF(toScene(va.xy.x(), va.xy.y()),
-                                   toScene(vb.xy.x(), vb.xy.y())));
-        };
-        for (const auto &t : mesh.triangles)
-        {
-            if (t.v0 < 0 || t.v0 >= mesh.vertices.size()) continue;
-            if (t.v1 < 0 || t.v1 >= mesh.vertices.size()) continue;
-            if (t.v2 < 0 || t.v2 >= mesh.vertices.size()) continue;
-            pushEdge(t.v0, t.v1);
-            pushEdge(t.v1, t.v2);
-            pushEdge(t.v2, t.v0);
-        }
-
-        // Per-vertex coupling markers were prototyped here (small orange
-        // dots on every tagged vertex) but the user wants vertex
-        // rendering deferred to the styling/theming layer (Slice AC).
-        // The data is still preserved on each MeshVertex; the renderer
-        // just doesn't draw them yet. Re-enable here once the theming
-        // editor lands.
-
-        // Bounding rect — union of the mesh extent in scene coords.
-        if (!mesh.vertices.isEmpty())
-        {
-            const auto &v0 = mesh.vertices.first();
-            QPointF s0 = toScene(v0.xy.x(), v0.xy.y());
-            qreal minX = s0.x(), maxX = s0.x(), minY = s0.y(), maxY = s0.y();
-            for (const auto &v : mesh.vertices)
-            {
-                const QPointF s = toScene(v.xy.x(), v.xy.y());
-                if (s.x() < minX) minX = s.x();
-                if (s.x() > maxX) maxX = s.x();
-                if (s.y() < minY) minY = s.y();
-                if (s.y() > maxY) maxY = s.y();
-            }
-            m_bbox = QRectF(QPointF(minX, minY), QPointF(maxX, maxY));
-        }
-
         setFlag(QGraphicsItem::ItemUsesExtendedStyleOption, false);
     }
 
@@ -103,14 +51,12 @@ public:
         painter->setPen(pen);
         painter->setBrush(Qt::NoBrush);
         painter->drawLines(m_edges);
-        // Vertex / coupling-marker rendering intentionally omitted —
-        // styling lives in Slice AC.
     }
 
 private:
-    SWMM2DMeshLayer    *m_owner = nullptr;
-    QVector<QLineF>     m_edges;
-    QRectF              m_bbox;
+    SWMM2DMeshLayer *m_owner = nullptr;
+    QVector<QLineF>  m_edges;
+    QRectF           m_bbox;
 };
 
 } // namespace
@@ -129,8 +75,9 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult     result,
     setLayerType(OpenSWMMVisLayer::SWMM2DMeshLayer);
     setName(sourcePath.isEmpty() ? QStringLiteral("Mesh") : sourcePath);
 
-    // Layer extent in layer-CRS (== map units). Computed from vertices
-    // so fullExtent() can fit the canvas to it.
+    // Layer extent in layer-native CRS. Computed from vertices so
+    // fullExtent() can fit the canvas to it (layerExtentInCanvasCRS in
+    // MapCanvas reprojects it to canvas CRS when needed).
     if (!m_mesh.vertices.isEmpty())
     {
         const auto &v0 = m_mesh.vertices.first();
@@ -145,12 +92,75 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult     result,
         }
         setExtent(MapExtent(minX, minY, maxX, maxY));
     }
+    // Build initial scene edges (identity transform — will be rebuilt by
+    // onCanvasCRSChanged once the layer is added to the canvas).
+    rebuildSceneEdges();
 }
 
 SWMM2DMeshLayer::~SWMM2DMeshLayer()
 {
+    OGRCoordinateTransformation::DestroyCT(m_transform);
     // m_item is owned by the scene; QGraphicsScene cleans it on
     // depopulateScene + scene destruction.
+}
+
+// ---------------------------------------------------------------------------
+// Scene-coordinate helpers
+// ---------------------------------------------------------------------------
+
+void SWMM2DMeshLayer::rebuildSceneEdges()
+{
+    // Build deduplicated scene-space edges from the mesh triangles, applying
+    // m_transform (layer CRS → canvas CRS) if present. Without the transform
+    // the mesh renders at native model coordinates, which differ from the
+    // canvas CRS coordinates used by SWMMModelLayer and the basemap — making
+    // the mesh invisible at any typical zoom level.
+    QSet<QPair<int, int>> seen;
+    seen.reserve(m_mesh.triangles.size() * 3);
+    m_sceneEdges.clear();
+    m_sceneEdges.reserve(m_mesh.triangles.size() * 3);
+    m_sceneBBox = QRectF();
+    bool first = true;
+
+    auto toScenePt = [&](const QPointF &p) -> QPointF {
+        double x = p.x(), y = p.y();
+        if (m_transform)
+            m_transform->Transform(1, &x, &y);
+        return QPointF(x, -y);  // Y-flip: scene Y grows downward
+    };
+
+    auto extend = [&](const QPointF &sp) {
+        if (first) {
+            m_sceneBBox = QRectF(sp, QSizeF(0, 0));
+            first = false;
+        } else {
+            if (sp.x() < m_sceneBBox.left())   m_sceneBBox.setLeft(sp.x());
+            if (sp.x() > m_sceneBBox.right())  m_sceneBBox.setRight(sp.x());
+            if (sp.y() < m_sceneBBox.top())    m_sceneBBox.setTop(sp.y());
+            if (sp.y() > m_sceneBBox.bottom()) m_sceneBBox.setBottom(sp.y());
+        }
+    };
+
+    auto pushEdge = [&](int a, int b) {
+        if (a == b) return;
+        const QPair<int, int> key = a < b ? qMakePair(a, b) : qMakePair(b, a);
+        if (seen.contains(key)) return;
+        seen.insert(key);
+        const QPointF sa = toScenePt(m_mesh.vertices[a].xy);
+        const QPointF sb = toScenePt(m_mesh.vertices[b].xy);
+        m_sceneEdges.append(QLineF(sa, sb));
+        extend(sa);
+        extend(sb);
+    };
+
+    for (const auto &t : m_mesh.triangles) {
+        if (t.v0 < 0 || t.v0 >= m_mesh.vertices.size()) continue;
+        if (t.v1 < 0 || t.v1 >= m_mesh.vertices.size()) continue;
+        if (t.v2 < 0 || t.v2 >= m_mesh.vertices.size()) continue;
+        pushEdge(t.v0, t.v1);
+        pushEdge(t.v1, t.v2);
+        pushEdge(t.v2, t.v0);
+    }
 }
 
 void SWMM2DMeshLayer::setActiveMesh(bool active)
@@ -169,7 +179,13 @@ void SWMM2DMeshLayer::populateScene(QGraphicsScene *scene,
     if (m_item)        // already on this (or another) scene — no-op rebuild.
         return;
 
-    auto *item = new MeshGraphicsItem(m_mesh, this);
+    // Use the pre-reprojected edges (built by rebuildSceneEdges, which is
+    // called in onCanvasCRSChanged). If edges are empty here (canvas CRS
+    // hasn't been set yet or the mesh has no triangles) build them now.
+    if (m_sceneEdges.isEmpty() && !m_mesh.triangles.isEmpty())
+        rebuildSceneEdges();
+
+    auto *item = new MeshGraphicsItem(m_sceneEdges, m_sceneBBox, this);
     item->setZValue(layerZValue());
     item->setOpacity(opacity());
     scene->addItem(item);
@@ -194,12 +210,26 @@ void SWMM2DMeshLayer::refreshScene(QGraphicsScene *scene,
     populateScene(scene, canvasExtent, canvasSRS);
 }
 
-void SWMM2DMeshLayer::onCanvasCRSChanged(const SpatialReferenceSystem *)
+void SWMM2DMeshLayer::onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS)
 {
-    // First-cut limitation: the mesh is rendered in its native CRS (the
-    // CRS the mesh was generated in, which matches the SWMM model's CRS
-    // at generate time). When the canvas CRS differs the mesh would
-    // need on-the-fly reprojection per vertex. Deferred to a Slice AU
-    // follow-up — not on the demo critical path because the model + mesh
-    // share the same CRS during a typical session.
+    // Rebuild the layer→canvas CRS transform so that mesh vertices stored in
+    // the model's native CRS are correctly projected to canvas CRS scene
+    // coordinates. Without this the mesh renders at raw model coordinates
+    // (e.g. WGS-84 degrees) while the canvas is in EPSG:3857 metres, making
+    // the mesh effectively invisible at any typical zoom level.
+    OGRCoordinateTransformation::DestroyCT(m_transform);
+    m_transform = nullptr;
+
+    if (srs() && newCanvasSRS
+        && srs()->ogrSpatialReference()
+        && newCanvasSRS->ogrSpatialReference()
+        && !srs()->ogrSpatialReference()->IsSame(newCanvasSRS->ogrSpatialReference()))
+    {
+        m_transform = OGRCreateCoordinateTransformation(
+            srs()->ogrSpatialReference(),
+            newCanvasSRS->ogrSpatialReference());
+    }
+
+    // Reproject all edges into the new canvas CRS.
+    rebuildSceneEdges();
 }

@@ -14,6 +14,7 @@
 #include <QObject>
 #include <QUndoStack>
 #include "map/mapextent.h"
+#include "layers/swmmmodellayer.h"   // SWMMModelLayer::Category used by ReorderCategoriesCommand below
 
 /*!
  * \class MapUndoStack
@@ -339,6 +340,78 @@ private:
     double          m_x        = 0.0;
     double          m_y        = 0.0;
     bool            m_present  = false;  // true iff currently applied
+};
+
+/*!
+ * \class ReorderLayersCommand
+ * \brief Records a full layer-stack reorder (e.g. moving an entire category
+ *        group) as a single undoable step.
+ */
+class ReorderLayersCommand : public MapCommand
+{
+public:
+    ReorderLayersCommand(QList<OpenSWMMVisLayer *> oldOrder,
+                         QList<OpenSWMMVisLayer *> newOrder,
+                         MapCanvas *canvas,
+                         QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    QList<OpenSWMMVisLayer *> m_oldOrder;
+    QList<OpenSWMMVisLayer *> m_newOrder;
+    bool m_firstRedo = true;
+};
+
+// ---------------------------------------------------------------------------
+// Object Browser reorder commands (Slice AY)
+// ---------------------------------------------------------------------------
+
+/*!
+ * \class ReorderCategoriesCommand
+ * \brief Records a SWMM object category order change for undo/redo.
+ */
+class ReorderCategoriesCommand : public QUndoCommand
+{
+public:
+    ReorderCategoriesCommand(SWMMModelLayer *layer,
+                              QVector<SWMMModelLayer::Category> oldOrder,
+                              QVector<SWMMModelLayer::Category> newOrder,
+                              QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    SWMMModelLayer                    *m_layer;
+    QVector<SWMMModelLayer::Category>  m_oldOrder;
+    QVector<SWMMModelLayer::Category>  m_newOrder;
+    bool                               m_firstRedo = true;
+};
+
+/*!
+ * \class ReorderObjectsCommand
+ * \brief Records a per-category object order change for undo/redo.
+ * \details Stores the old permutation (or empty = "was default") and the new
+ *          one.  undo() calls clearObjectOrder when the old permutation was
+ *          the default identity, otherwise restores the old permutation.
+ */
+class ReorderObjectsCommand : public QUndoCommand
+{
+public:
+    ReorderObjectsCommand(SWMMModelLayer         *layer,
+                          SWMMModelLayer::Category cat,
+                          QVector<int>             oldOrder,  // empty = was default
+                          QVector<int>             newOrder,
+                          QUndoCommand            *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    SWMMModelLayer          *m_layer;
+    SWMMModelLayer::Category m_cat;
+    QVector<int>             m_oldOrder;  // empty means "was default before this cmd"
+    QVector<int>             m_newOrder;
+    bool                     m_firstRedo = true;
 };
 
 #endif // MAPUNDOSTACK_H

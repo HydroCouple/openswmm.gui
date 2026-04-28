@@ -9,6 +9,7 @@
 #include "layers/swmmmodellayer.h"
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
+#include "map/mapundostack.h"
 
 #include <cmath>
 
@@ -22,6 +23,8 @@
 #include <QTreeView>
 #include <QVariantMap>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace {
 
@@ -162,12 +165,74 @@ ObjectBrowserPanel::refForProxyIndex(const QModelIndex &proxyIdx) const
 
 void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
 {
+    if (!m_layer) return;
     const QModelIndex proxyIdx = m_view->indexAt(pos);
-    const SWMMObjectRef ref = refForProxyIndex(proxyIdx);
-    if (ref.objectType == SWMMObjectRef::Unknown || ref.name.isEmpty())
-        return;
+    if (!proxyIdx.isValid()) return;
+
+    const QModelIndex srcIdx = m_proxy->mapToSource(proxyIdx);
+    if (!srcIdx.isValid()) return;
+
+    const bool isLeaf = m_model->data(srcIdx, SWMMObjectTreeModel::RoleIsLeaf).toBool();
+    const int  catInt = m_model->data(srcIdx, SWMMObjectTreeModel::RoleCategory).toInt();
+    if (catInt < 0 || catInt >= int(SWMMModelLayer::NumCategories)) return;
+    const auto cat = static_cast<SWMMModelLayer::Category>(catInt);
 
     QMenu menu(this);
+
+    if (!isLeaf) {
+        // ── Category row ─────────────────────────────────────────────────
+        const int visPos   = m_model->topRowForCategory(cat);
+        const int visCount = m_model->rowCount({});
+
+        QAction *actTop   = menu.addAction(tr("Move to Top"));
+        QAction *actUp    = menu.addAction(tr("Move Up"));
+        QAction *actDown  = menu.addAction(tr("Move Down"));
+        QAction *actBot   = menu.addAction(tr("Move to Bottom"));
+        menu.addSeparator();
+        QAction *actReset = menu.addAction(tr("Reset to Default Order"));
+
+        actTop ->setEnabled(visPos > 0);
+        actUp  ->setEnabled(visPos > 0);
+        actDown->setEnabled(visPos < visCount - 1);
+        actBot ->setEnabled(visPos < visCount - 1);
+
+        QAction *picked = menu.exec(m_view->viewport()->mapToGlobal(pos));
+        if (!picked) return;
+
+        QVector<SWMMModelLayer::Category> oldOrder = m_layer->categoryOrder();
+        QVector<SWMMModelLayer::Category> newOrder = oldOrder;
+
+        if (picked == actReset) {
+            newOrder.clear();
+            for (int i = 0; i < int(SWMMModelLayer::NumCategories); ++i)
+                newOrder.append(static_cast<SWMMModelLayer::Category>(i));
+        } else {
+            const int fullPos = newOrder.indexOf(cat);
+            if (fullPos < 0) return;
+            if (picked == actTop) {
+                newOrder.removeAt(fullPos);
+                newOrder.prepend(cat);
+            } else if (picked == actUp && fullPos > 0) {
+                newOrder.swapItemsAt(fullPos, fullPos - 1);
+            } else if (picked == actDown && fullPos < newOrder.size() - 1) {
+                newOrder.swapItemsAt(fullPos, fullPos + 1);
+            } else if (picked == actBot) {
+                newOrder.removeAt(fullPos);
+                newOrder.append(cat);
+            }
+        }
+        if (newOrder == oldOrder) return;
+
+        if (m_canvas && m_canvas->undoStack())
+            m_canvas->undoStack()->push(
+                new ReorderCategoriesCommand(m_layer, oldOrder, newOrder));
+        else
+            m_layer->setCategoryOrder(newOrder);
+        return;
+    }
+
+    // ── Leaf row ─────────────────────────────────────────────────────────
+    const SWMMObjectRef ref = refForProxyIndex(proxyIdx);
     QAction *actPlot = nullptr;
     if (ref.objectType == SWMMObjectRef::Node
         || ref.objectType == SWMMObjectRef::Link
@@ -179,11 +244,23 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
     QAction *actZoom = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
                                       tr("Zoom to Object"));
     actZoom->setEnabled(!m_canvas.isNull());
+    menu.addSeparator();
+    QAction *actSort  = menu.addAction(tr("Sort Category A→Z"));
+    QAction *actReset = menu.addAction(tr("Reset Category to Default Order"));
 
     QAction *picked = menu.exec(m_view->viewport()->mapToGlobal(pos));
     if (!picked) return;
-    if (picked == actPlot)       emit plotTimeSeriesRequested(ref);
+
+    if      (picked == actPlot)  emit plotTimeSeriesRequested(ref);
     else if (picked == actZoom)  zoomToObject(ref);
+    else if (picked == actSort)  sortCategoryAlphabetically(cat);
+    else if (picked == actReset) {
+        QVector<int> old = m_layer->objectOrder(cat);
+        if (m_canvas && m_canvas->undoStack() && !old.isEmpty())
+            m_canvas->undoStack()->push(
+                new ReorderObjectsCommand(m_layer, cat, old, {}));
+        m_layer->clearObjectOrder(cat);
+    }
 }
 
 void ObjectBrowserPanel::onItemDoubleClicked(const QModelIndex &proxyIdx)
@@ -273,6 +350,23 @@ void ObjectBrowserPanel::onSelectionManagerChanged(
     m_applyingFromBus = true;
     auto *sm = m_view->selectionModel();
 
+    // Tree-sync threshold. Even with the batched QItemSelection apply
+    // below, building + applying ~80k single-row ranges costs tens of
+    // seconds (QItemSelectionModel range coalescing scales worse than
+    // linear). At those sizes the user can't visually see the tree
+    // selection anyway — every category gets fully selected and the
+    // browser becomes a wall of highlight. So above this threshold,
+    // just clear the tree's selection: the canvas + selection-count
+    // remain authoritative, and the fast-path is preserved on bulk
+    // rubber-band selects across big models. Lower the threshold if
+    // 5000-row sync ever feels sluggish.
+    constexpr int kTreeSyncMaxRows = 5000;
+    if (current.size() > kTreeSyncMaxRows) {
+        sm->clearSelection();
+        m_applyingFromBus = false;
+        return;
+    }
+
     // Build the new selection as a single QItemSelection (one range per
     // row), then apply it in one ClearAndSelect call. The previous loop
     // called sm->select() per row, which emitted selectionChanged once
@@ -310,4 +404,43 @@ void ObjectBrowserPanel::onSearchTextChanged(const QString &text)
     // Keep categories expanded after filtering — the recursive proxy
     // otherwise collapses them on first keystroke.
     m_view->expandAll();
+}
+
+// ---------------------------------------------------------------------------
+// Sorting helper (Slice AY)
+// ---------------------------------------------------------------------------
+
+void ObjectBrowserPanel::sortCategoryAlphabetically(SWMMModelLayer::Category cat)
+{
+    if (!m_layer) return;
+    const int n = m_layer->categoryCount(cat);
+    if (n <= 1) return;
+
+    // Collect (displayRow → name) using the current display order so that
+    // objectNameAt(cat, i) already reflects any prior override.
+    QVector<QPair<int, QString>> pairs(n);
+    for (int i = 0; i < n; ++i)
+        pairs[i] = {i, m_layer->objectNameAt(cat, i)};
+
+    std::sort(pairs.begin(), pairs.end(),
+              [](const QPair<int, QString> &a, const QPair<int, QString> &b) {
+                  return a.second < b.second;
+              });
+
+    // Map sorted display positions back to SoA indices.
+    QVector<int> soaOrder = m_layer->objectOrder(cat);
+    if (soaOrder.size() != n)
+        soaOrder = m_layer->defaultObjectOrder(cat);
+
+    QVector<int> newSoaOrder(n);
+    for (int i = 0; i < n; ++i)
+        newSoaOrder[i] = soaOrder[pairs[i].first];
+
+    if (newSoaOrder == soaOrder) return;   // already sorted
+
+    if (m_canvas && m_canvas->undoStack())
+        m_canvas->undoStack()->push(
+            new ReorderObjectsCommand(m_layer, cat, soaOrder, newSoaOrder));
+    else
+        m_layer->setObjectOrder(cat, newSoaOrder);
 }

@@ -11,8 +11,10 @@
 #include "map/mapextent.h"
 #include "map/mapundostack.h"
 
+#include <QHash>
 #include <QImage>
 #include <QList>
+#include <QPointer>
 #include <QRectF>
 #include <QTimer>
 #include <QTransform>
@@ -122,6 +124,15 @@ public:
     OpenSWMMVisLayer *takeLayer(int index, bool pushUndo = true);
     void moveLayer(int fromIndex, int toIndex, bool pushUndo = true);
 
+    /*! \brief Atomically reorder the entire layer stack to match \p newOrder.
+     *  \details \p newOrder must be a permutation of the current layer list
+     *           (same pointers, different sequence). A single undo command is
+     *           pushed when \p pushUndo is true (default). Used by the layer
+     *           tree panel when whole category groups are dragged to new
+     *           positions. */
+    void reorderLayers(const QList<OpenSWMMVisLayer *> &newOrder,
+                       bool pushUndo = true);
+
     [[nodiscard]] int layerCount() const;
     [[nodiscard]] OpenSWMMVisLayer *layerAt(int index) const;
     [[nodiscard]] MapExtent fullExtent() const;
@@ -219,8 +230,10 @@ signals:
     void backgroundColorChanged(const QColor &color);
 
 protected:
-    void paintEvent(QPaintEvent *event)            override;
+    void paintEvent(QPaintEvent *event)             override;
     void resizeEvent(QResizeEvent *event)          override;
+    void showEvent(QShowEvent *event)              override;
+    void hideEvent(QHideEvent *event)              override;
 
     void mousePressEvent(QMouseEvent *event)       override;
     void mouseMoveEvent(QMouseEvent *event)        override;
@@ -321,6 +334,21 @@ private:
     // ----- Middle-mouse global pan ----------------------------------------
     bool                    m_middlePanActive = false;
     QPoint                  m_middlePanStart;
+
+    // ----- Phase B.2 — per-SWMM-layer GL renderers ------------------------
+    // (Abandoned — see docs/RENDERING_5M_PLAN.md. Kept around briefly
+    // until the OpenGL files are deleted in B.RHI.4.)
+    QHash<class SWMMModelLayer *, QPointer<class SWMMLayerGLRenderer>>
+                            m_glRenderers;
+
+    // ----- Phase B.RHI — QQuickWidget host for the QSG renderer -----------
+    // A transparent child widget overlaying the canvas, hosting one
+    // SWMMLayerQSGRenderer (custom QQuickItem) that draws the SWMM
+    // layer's lines via Qt's scene graph. Native Metal on macOS,
+    // Vulkan on Linux, D3D11 on Windows. See
+    // docs/RENDERING_5M_PLAN.md (Phase B.RHI).
+    class QQuickWidget          *m_qsgWidget   = nullptr;
+    class SWMMLayerQSGRenderer  *m_qsgRenderer = nullptr;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(MapCanvas::DirtyChannels)

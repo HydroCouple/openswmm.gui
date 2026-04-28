@@ -78,4 +78,9 @@
         <file alias="Options">images/options.svg</file>
         <file alias="CreateMesh">images/create_mesh.svg</file>
     </qresource>
+    <!-- Phase B.RHI of docs/RENDERING_5M_PLAN.md — QML wrapper for the
+         scene-graph renderer that MapCanvas hosts via QQuickWidget. -->
+    <qresource prefix="/openswmm">
+        <file alias="qml/swmmlayer.qml">qml/swmmlayer.qml</file>
+    </qresource>
 </RCC>

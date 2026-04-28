@@ -202,6 +202,11 @@ private:
                      const SpatialReferenceSystem *canvasSRS,
                      int w, int h);
     void invalidateCache();
+    /*! Sets the layer's extent (from geographicBoundingBox) and SRS (WGS-84)
+     *  from the currently-active layer's GetCapabilities metadata so that the
+     *  properties dialog and MapCanvas::fullExtent() always show the correct
+     *  geographic coverage area. */
+    void applyExtentFromActiveLayer();
 
     QUrl                    m_serviceUrl;
     QString                 m_wmsVersion  = "1.3.0";
