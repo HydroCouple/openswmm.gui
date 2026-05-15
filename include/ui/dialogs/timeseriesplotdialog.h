@@ -2,7 +2,7 @@
  * \file   timeseriesplotdialog.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Phase 5.2 (first cut) — single-object single-variable time series plot
  * for a SWMM .out file. Subsequent slices add multi-series, derived

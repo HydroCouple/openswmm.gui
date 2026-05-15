@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 #include <QCoreApplication>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 // #include "project/projectserializer.h"   // uncomment when implemented

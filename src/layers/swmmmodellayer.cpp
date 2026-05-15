@@ -29,6 +29,7 @@
 #include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_spatial.h>
+#include <openswmm/engine/openswmm_edit.h>
 
 #include <nanoflann.hpp>
 
@@ -205,14 +206,19 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
         return false;
     }
 
-    if (swmm_engine_initialize(m_engine) != 0)
-    {
-        errors.append(QStringLiteral("Failed to initialize model: %1").arg(m_modelFilePath));
-        swmm_engine_close(m_engine);
-        swmm_engine_destroy(m_engine);
-        m_engine = nullptr;
-        return false;
-    }
+    // Leave the engine in OPENED state at load time so that property
+    // setters (CHECK_GEOMETRY only allows BUILDING/OPENED) succeed on
+    // user edits in the Attribute Table + Property Browser.  The
+    // simulation runner calls swmm_engine_initialize itself before
+    // running — see src/simulation/simulationrunner.cpp:198 — so
+    // skipping it here doesn't affect run behaviour.
+    //
+    // Previously the GUI called swmm_engine_initialize here, which
+    // advanced state to INITIALIZED and silently rejected every
+    // subsequent property edit with SWMM_ERR_LIFECYCLE.  The Attribute
+    // Table appeared to commit edits (cells flashed the new value) but
+    // the engine getter then returned the unchanged SoA value, so
+    // cells reverted (caleb 2026-05-12).
 
     // Sync flow units from loaded model
     UnitSystem::instance()->syncFromEngine(m_engine);
@@ -384,6 +390,7 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
 
     buildGeometryCache();
     m_needsRebuild = true;
+    emit repaintRequested();  // ensure canvas redraws after geometry is ready
 
     // Surface object counts so the user can see at a glance whether the
     // engine actually returned any geometry. Goes into both stderr (qDebug)
@@ -1328,6 +1335,46 @@ bool SWMMModelLayer::cachedNodeCoord(int idx, double *x, double *y) const
     return true;
 }
 
+bool SWMMModelLayer::elementPosition(const QString &name, double *x, double *y) const
+{
+    const auto it = m_nameToSoa.constFind(name);
+    if (it == m_nameToSoa.constEnd())
+        return false;
+
+    const SoaLocation &loc = it.value();
+    switch (loc.kind)
+    {
+    case SoaKind::Node:
+    case SoaKind::Gage:
+        return cachedNodeCoord(loc.soaIdx, x, y);
+
+    case SoaKind::Link:
+    {
+        const QVector<QPointF> &poly = cachedLinkPolyline(loc.soaIdx);
+        if (poly.isEmpty())
+            return false;
+        // Return the midpoint of the polyline.
+        const int mid = poly.size() / 2;
+        if (x) *x = poly[mid].x();
+        if (y) *y = poly[mid].y();
+        return true;
+    }
+
+    case SoaKind::Catch:
+    {
+        // Return the centroid stored as the first vertex of the polygon,
+        // or the average of all vertices if only interior points exist.
+        const MapExtent ext = objectExtent(name);
+        if (!std::isfinite(ext.xMin()))
+            return false;
+        if (x) *x = (ext.xMin() + ext.xMax()) * 0.5;
+        if (y) *y = (ext.yMin() + ext.yMax()) * 0.5;
+        return true;
+    }
+    }
+    return false;
+}
+
 QVector<QPointF> SWMMModelLayer::cachedLinkPolyline(int idx) const
 {
     if (idx < 0 || idx >= m_links.size())
@@ -1608,6 +1655,7 @@ bool SWMMModelLayer::applyNodeAdd(const QString &name, int nodeType,
     g.x          = x;
     g.y          = y;
     m_nodes.append(g);
+    const int newSoaIdx = m_nodes.size() - 1;
 
     if (outIdx) *outIdx = idx;
 
@@ -1615,9 +1663,25 @@ bool SWMMModelLayer::applyNodeAdd(const QString &name, int nodeType,
     // stale. Rebuild before emitting repaintRequested so the Object
     // Browser model sees a coherent snapshot on the next data() cycle.
     rebuildCategoryIndex();
+
+    // Populate the scene-coord entry for the new node so SWMMLayerItem::paint()
+    // finds it at nps[newSoaIdx] on the very next frame. Without this call,
+    // m_nodeScenePts is shorter than m_nodes and the paint loop skips the
+    // new node (line: `if (i >= nps.size()) continue`).
+    refreshSceneCoordsForNode(newSoaIdx);
+
+    // Grow the selection / hidden flag arrays to match the new m_nodes size
+    // so the bounds-checked reads in paint() apply the right state to the new
+    // node from the outset.
+    if (m_nodeSelectedFlag.size() < size_t(m_nodes.size()))
+        m_nodeSelectedFlag.resize(m_nodes.size(), 0);
+    if (m_nodeHiddenFlag.size() < size_t(m_nodes.size()))
+        m_nodeHiddenFlag.resize(m_nodes.size(), 0);
+
     m_kdDirty = true;
     m_needsRebuild = true;
     emit repaintRequested();
+    emit geometryChanged();
     return true;
 }
 
@@ -1633,9 +1697,309 @@ bool SWMMModelLayer::rollbackTailNodeAdd(const QString &name)
 
     m_nodes.removeLast();
     rebuildCategoryIndex();
+
+    // Trim the scene-coord and flag arrays to match the reduced m_nodes size.
+    const int n = m_nodes.size();
+    if (m_nodeScenePts.size()       > n) m_nodeScenePts.resize(n);
+    if (int(m_nodeSelectedFlag.size()) > n) m_nodeSelectedFlag.resize(n);
+    if (int(m_nodeHiddenFlag.size())   > n) m_nodeHiddenFlag.resize(n);
+
     m_kdDirty = true;
     m_needsRebuild = true;
     emit repaintRequested();
+    emit geometryChanged();
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Link add / rollback
+// ---------------------------------------------------------------------------
+
+bool SWMMModelLayer::applyLinkAdd(const QString &name, int linkType,
+                                   const QString &fromNodeName,
+                                   const QString &toNodeName,
+                                   const QVector<QPointF> &interiorVertices,
+                                   int *outIdx)
+{
+    if (outIdx) *outIdx = -1;
+    if (name.isEmpty() || !m_engine) return false;
+
+    const QByteArray idUtf8  = name.toUtf8();
+    const QByteArray fromUtf8 = fromNodeName.toUtf8();
+    const QByteArray toUtf8   = toNodeName.toUtf8();
+
+    if (swmm_link_add(m_engine, idUtf8.constData(), linkType) != 0)
+        return false;
+
+    const int idx = swmm_link_index(m_engine, idUtf8.constData());
+    if (idx < 0) { swmm_link_pop_last(m_engine, idUtf8.constData()); return false; }
+
+    const int n1 = swmm_node_index(m_engine, fromUtf8.constData());
+    const int n2 = swmm_node_index(m_engine, toUtf8.constData());
+    if (n1 < 0 || n2 < 0) { swmm_link_pop_last(m_engine, idUtf8.constData()); return false; }
+    swmm_link_set_nodes(m_engine, idx, n1, n2);
+
+    // Store interior vertices in engine.
+    if (!interiorVertices.isEmpty()) {
+        QVector<double> vx(interiorVertices.size()), vy(interiorVertices.size());
+        for (int i = 0; i < interiorVertices.size(); ++i) {
+            vx[i] = interiorVertices[i].x();
+            vy[i] = interiorVertices[i].y();
+        }
+        swmm_spatial_set_link_vertices(m_engine, idx,
+                                        vx.constData(), vy.constData(),
+                                        interiorVertices.size());
+    }
+
+    // Build full polyline (from-node → interior → to-node) for cache.
+    double fx = 0, fy = 0, tx = 0, ty = 0;
+    swmm_spatial_get_node_coord(m_engine, n1, &fx, &fy);
+    swmm_spatial_get_node_coord(m_engine, n2, &tx, &ty);
+    LinkGeom g;
+    g.name     = name;
+    g.linkType = linkType;
+    g.vertices.reserve(interiorVertices.size() + 2);
+    g.vertices << QPointF(fx, fy);
+    g.vertices << interiorVertices;
+    g.vertices << QPointF(tx, ty);
+    m_links.append(g);
+    if (outIdx) *outIdx = idx;
+
+    buildGeometryCache();
+    m_kdDirty = true;
+    m_needsRebuild = true;
+    emit repaintRequested();
+    emit geometryChanged();
+    return true;
+}
+
+bool SWMMModelLayer::rollbackTailLinkAdd(const QString &name)
+{
+    if (m_links.isEmpty() || m_links.last().name != name) return false;
+    if (!m_engine) return false;
+
+    const QByteArray idUtf8 = name.toUtf8();
+    if (swmm_link_pop_last(m_engine, idUtf8.constData()) != 0) return false;
+
+    m_links.removeLast();
+    buildGeometryCache();
+    m_kdDirty = true;
+    m_needsRebuild = true;
+    emit repaintRequested();
+    emit geometryChanged();
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Gage add / rollback
+// ---------------------------------------------------------------------------
+
+bool SWMMModelLayer::applyGageAdd(const QString &name, double x, double y,
+                                   int *outIdx)
+{
+    if (outIdx) *outIdx = -1;
+    if (name.isEmpty() || !m_engine) return false;
+
+    const QByteArray idUtf8 = name.toUtf8();
+    if (swmm_gage_add(m_engine, idUtf8.constData()) != 0) return false;
+
+    const int idx = swmm_gage_index(m_engine, idUtf8.constData());
+    if (idx < 0) { swmm_gage_delete(m_engine, m_gages.size(), nullptr); return false; }
+
+    if (swmm_spatial_set_gage_coord(m_engine, idx, x, y) != 0) {
+        swmm_gage_delete(m_engine, idx, nullptr);
+        return false;
+    }
+
+    NodeGeom g;
+    g.name       = name;
+    g.objectType = 4;   // RainGage object type constant in SWMMModelLayer
+    g.nodeType   = 0;
+    g.x          = x;
+    g.y          = y;
+    m_gages.append(g);
+    if (outIdx) *outIdx = idx;
+
+    rebuildCategoryIndex();
+    m_kdDirty = true;
+    m_needsRebuild = true;
+    emit repaintRequested();
+    emit geometryChanged();
+    return true;
+}
+
+bool SWMMModelLayer::rollbackTailGageAdd(const QString &name)
+{
+    if (m_gages.isEmpty() || m_gages.last().name != name) return false;
+    if (!m_engine) return false;
+
+    const int idx = m_gages.size() - 1;
+    if (swmm_gage_delete(m_engine, idx, nullptr) != 0) return false;
+
+    m_gages.removeLast();
+    rebuildCategoryIndex();
+    m_kdDirty = true;
+    m_needsRebuild = true;
+    emit repaintRequested();
+    emit geometryChanged();
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Subcatchment add / rollback
+// ---------------------------------------------------------------------------
+
+bool SWMMModelLayer::applySubcatchAdd(const QString &name,
+                                       const QVector<QPointF> &polygon,
+                                       int *outIdx)
+{
+    if (outIdx) *outIdx = -1;
+    if (name.isEmpty() || !m_engine) return false;
+
+    const QByteArray idUtf8 = name.toUtf8();
+    if (swmm_subcatch_add(m_engine, idUtf8.constData()) != 0) return false;
+
+    const int idx = swmm_subcatch_index(m_engine, idUtf8.constData());
+    if (idx < 0) { swmm_subcatch_delete(m_engine, m_catchments.size(), nullptr); return false; }
+
+    if (!polygon.isEmpty()) {
+        QVector<double> vx(polygon.size()), vy(polygon.size());
+        for (int i = 0; i < polygon.size(); ++i) {
+            vx[i] = polygon[i].x();
+            vy[i] = polygon[i].y();
+        }
+        swmm_spatial_set_subcatch_polygon(m_engine, idx,
+                                           vx.constData(), vy.constData(),
+                                           polygon.size());
+        double cx = 0, cy = 0;
+        for (const QPointF &p : polygon) { cx += p.x(); cy += p.y(); }
+        cx /= polygon.size(); cy /= polygon.size();
+        swmm_spatial_set_subcatch_coord(m_engine, idx, cx, cy);
+    }
+
+    CatchGeom g;
+    g.name     = name;
+    g.vertices = polygon;
+    m_catchments.append(g);
+    if (outIdx) *outIdx = idx;
+
+    buildGeometryCache();
+    m_kdDirty = true;
+    m_needsRebuild = true;
+    emit repaintRequested();
+    emit geometryChanged();
+    return true;
+}
+
+bool SWMMModelLayer::rollbackTailSubcatchAdd(const QString &name)
+{
+    if (m_catchments.isEmpty() || m_catchments.last().name != name) return false;
+    if (!m_engine) return false;
+
+    const int idx = m_catchments.size() - 1;
+    if (swmm_subcatch_delete(m_engine, idx, nullptr) != 0) return false;
+
+    m_catchments.removeLast();
+    buildGeometryCache();
+    m_kdDirty = true;
+    m_needsRebuild = true;
+    emit repaintRequested();
+    emit geometryChanged();
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Delete operations (engine cascade + cache rebuild)
+// ---------------------------------------------------------------------------
+
+bool SWMMModelLayer::applyNodeDelete(const QString &name,
+                                      QStringList *cascadeLinkNames)
+{
+    if (!m_engine) return false;
+    const QByteArray utf8 = name.toUtf8();
+    const int nodeIdx = swmm_node_index(m_engine, utf8.constData());
+    if (nodeIdx < 0) return false;
+
+    // Identify cascade links BEFORE deletion (engine indices still valid).
+    QVector<int> cascadeLinkSoaIndices;
+    for (int i = 0; i < m_links.size(); ++i) {
+        int n1 = -1, n2 = -1;
+        swmm_link_get_from_node(m_engine, i, &n1);
+        swmm_link_get_to_node(m_engine, i, &n2);
+        if (n1 == nodeIdx || n2 == nodeIdx) {
+            if (cascadeLinkNames) *cascadeLinkNames << m_links[i].name;
+            cascadeLinkSoaIndices << i;
+        }
+    }
+
+    if (swmm_node_delete(m_engine, nodeIdx, nullptr) != 0) return false;
+
+    // Remove cascade links from cache (reverse order preserves validity).
+    std::sort(cascadeLinkSoaIndices.rbegin(), cascadeLinkSoaIndices.rend());
+    for (int li : cascadeLinkSoaIndices) m_links.removeAt(li);
+
+    // Remove the node itself.
+    m_nodes.removeAt(nodeIdx);
+
+    buildGeometryCache();
+    m_kdDirty = true;
+    m_needsRebuild = true;
+    emit repaintRequested();
+    emit geometryChanged();
+    return true;
+}
+
+bool SWMMModelLayer::applyLinkDelete(const QString &name)
+{
+    if (!m_engine) return false;
+    const QByteArray utf8 = name.toUtf8();
+    const int linkIdx = swmm_link_index(m_engine, utf8.constData());
+    if (linkIdx < 0) return false;
+
+    if (swmm_link_delete(m_engine, linkIdx, nullptr) != 0) return false;
+
+    m_links.removeAt(linkIdx);
+    buildGeometryCache();
+    m_kdDirty = true;
+    m_needsRebuild = true;
+    emit repaintRequested();
+    emit geometryChanged();
+    return true;
+}
+
+bool SWMMModelLayer::applyGageDelete(const QString &name)
+{
+    if (!m_engine) return false;
+    const QByteArray utf8 = name.toUtf8();
+    const int idx = swmm_gage_index(m_engine, utf8.constData());
+    if (idx < 0) return false;
+
+    if (swmm_gage_delete(m_engine, idx, nullptr) != 0) return false;
+
+    m_gages.removeAt(idx);
+    rebuildCategoryIndex();
+    m_kdDirty = true;
+    m_needsRebuild = true;
+    emit repaintRequested();
+    emit geometryChanged();
+    return true;
+}
+
+bool SWMMModelLayer::applySubcatchDelete(const QString &name)
+{
+    if (!m_engine) return false;
+    const QByteArray utf8 = name.toUtf8();
+    const int idx = swmm_subcatch_index(m_engine, utf8.constData());
+    if (idx < 0) return false;
+
+    if (swmm_subcatch_delete(m_engine, idx, nullptr) != 0) return false;
+
+    m_catchments.removeAt(idx);
+    buildGeometryCache();
+    m_kdDirty = true;
+    m_needsRebuild = true;
+    emit repaintRequested();
+    emit geometryChanged();
     return true;
 }
 
@@ -1981,6 +2345,46 @@ void SWMMModelLayer::rebuildSceneCoords()
                        << " cols=" << m_linkGrid.cols
                        << " rows=" << m_linkGrid.rows
                        << " elapsed_ms=" << gt.elapsed();
+
+    // Build subcatchment outlet lines: polygon centroid → outlet node or subcatchment.
+    // Centroid is used as a practical pole-of-inaccessibility approximation; SWMM
+    // subcatchment polygons are typically convex or gently irregular so the centroid
+    // reliably sits well inside the polygon.
+    m_catchOutletLines.clear();
+    if (!m_engine || m_catchments.isEmpty()) return;
+
+    // Pre-compute scene-space centroids for all catchments.
+    QVector<QPointF> centroids(m_catchments.size());
+    for (int i = 0; i < m_catchments.size(); ++i) {
+        const auto &pts = m_catchScenePts[i];
+        if (pts.isEmpty()) continue;
+        QPointF c(0.0, 0.0);
+        for (const QPointF &p : pts) { c.rx() += p.x(); c.ry() += p.y(); }
+        centroids[i] = c / double(pts.size());
+    }
+
+    m_catchOutletLines.reserve(m_catchments.size());
+    for (int i = 0; i < m_catchments.size(); ++i) {
+        if (m_catchScenePts[i].isEmpty()) continue;
+
+        // Try outlet node first.
+        int nodeIdx = -1;
+        if (swmm_subcatch_get_outlet(m_engine, i, &nodeIdx) == 0
+                && nodeIdx >= 0 && nodeIdx < m_nodes.size()) {
+            m_catchOutletLines.append({QLineF(centroids[i], m_nodeScenePts[nodeIdx]), i});
+            continue;
+        }
+
+        // Fall back to outlet subcatchment.
+        int scIdx = -1;
+        if (swmm_subcatch_get_outlet_subcatch(m_engine, i, &scIdx) == 0
+                && scIdx >= 0 && scIdx < m_catchments.size()
+                && scIdx != i
+                && !m_catchScenePts[scIdx].isEmpty()) {
+            m_catchOutletLines.append({QLineF(centroids[i], centroids[scIdx]), i});
+        }
+    }
+    ++m_geomRevision;
 }
 
 void SWMMModelLayer::refreshSceneCoordsForNode(int nodeIdx)

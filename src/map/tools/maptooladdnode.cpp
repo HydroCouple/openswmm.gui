@@ -9,16 +9,17 @@
 #include "map/mapundostack.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
+#include "core/preferencesmanager.h"
 
 #include <QMouseEvent>
 
 OpenSWMMVisMapToolAddNode::OpenSWMMVisMapToolAddNode(MapCanvas *canvas,
                                                      int nodeType,
-                                                     QString namePrefix,
+                                                     const QString &elementKind,
                                                      QObject *parent)
     : OpenSWMMVisMapTool(QStringLiteral("Add Node"), canvas, parent),
       m_nodeType(nodeType),
-      m_namePrefix(std::move(namePrefix))
+      m_elementKind(elementKind)
 {
 }
 
@@ -40,15 +41,16 @@ SWMMModelLayer *OpenSWMMVisMapToolAddNode::activeModelLayer() const
 
 QString OpenSWMMVisMapToolAddNode::nextAvailableName(SWMMModelLayer *layer) const
 {
-    if (!layer) return m_namePrefix + QStringLiteral("1");
+    const QString prefix =
+        PreferencesManager::instance()->elementNamePrefix(m_elementKind);
+    if (!layer) return prefix + QStringLiteral("1");
     for (int n = 1; n < 100000; ++n)
     {
-        const QString candidate = m_namePrefix + QString::number(n);
+        const QString candidate = prefix + QString::number(n);
         if (layer->nodeIndex(candidate) < 0)
             return candidate;
     }
-    // Fallback — practically unreachable.
-    return m_namePrefix + QStringLiteral("_X");
+    return prefix + QStringLiteral("_X");
 }
 
 void OpenSWMMVisMapToolAddNode::mousePressEvent(QMouseEvent *event)

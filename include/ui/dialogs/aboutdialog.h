@@ -2,7 +2,7 @@
  * \file   aboutdialog.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Slice K — About dialog with license browser. Driven by a JSON manifest
  * (resources/about/components.json) and per-component license text under

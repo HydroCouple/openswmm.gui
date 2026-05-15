@@ -501,6 +501,15 @@ public:
     bool cachedNodeCoord(int idx, double *x, double *y) const;
 
     /*!
+     * \brief Layer-CRS position of any named element (node, gage, or link
+     *        midpoint) by object name.
+     * \details Uses the internal name→SoA hash for O(1) lookup. For links
+     *          the midpoint of the cached polyline is returned.
+     * \returns true on success; x / y untouched on failure.
+     */
+    bool elementPosition(const QString &name, double *x, double *y) const;
+
+    /*!
      * \brief Cached layer-CRS polyline of a link by index, including the
      *        endpoint coordinates of its from/to nodes.
      */
@@ -528,6 +537,12 @@ public:
      *        \ref cachedSubcatchVertices for direct iteration.
      */
     [[nodiscard]] int cachedSubcatchCount() const;
+
+    /*! Monotonically increasing counter, bumped at the end of every
+     *  rebuildSceneCoords() call.  Renderers can compare against a cached
+     *  value to cheaply detect whether scene geometry has changed without
+     *  storing a pointer or connecting a signal. */
+    [[nodiscard]] quint64 geomRevision() const { return m_geomRevision; }
 
     // ----- Simulation-options pass-through (Slice U) ----------------------
 
@@ -673,6 +688,57 @@ public:
      */
     bool rollbackTailNodeAdd(const QString &name);
 
+    /*!
+     * \brief Add a new link: engine + cache.
+     * \param name             Unique identifier.
+     * \param linkType         0=Conduit, 1=Pump, 2=Orifice, 3=Weir, 4=Outlet.
+     * \param fromNodeName     From-node name (must already exist).
+     * \param toNodeName       To-node name (must already exist).
+     * \param interiorVertices Interior (non-endpoint) polyline points.
+     * \param[out] outIdx      Link index on success.
+     */
+    bool applyLinkAdd(const QString &name, int linkType,
+                      const QString &fromNodeName, const QString &toNodeName,
+                      const QVector<QPointF> &interiorVertices,
+                      int *outIdx = nullptr);
+
+    /*! Undo tail link add (swmm_link_pop_last). */
+    bool rollbackTailLinkAdd(const QString &name);
+
+    /*! Add a rain gage: engine + cache. */
+    bool applyGageAdd(const QString &name, double x, double y,
+                      int *outIdx = nullptr);
+
+    /*! Undo tail gage add (swmm_gage_delete on tail). */
+    bool rollbackTailGageAdd(const QString &name);
+
+    /*! Add a subcatchment polygon: engine + cache. */
+    bool applySubcatchAdd(const QString &name,
+                          const QVector<QPointF> &polygon,
+                          int *outIdx = nullptr);
+
+    /*! Undo tail subcatch add (swmm_subcatch_delete on tail). */
+    bool rollbackTailSubcatchAdd(const QString &name);
+
+    /*!
+     * \brief Delete a node, cascade-deleting all attached links.
+     * \details Identifies cascade links before deletion so the caller can
+     *          snapshot them. Modifies engine state + all caches.
+     * \param name                 Node to delete.
+     * \param[out] cascadeLinkNames Names of links deleted as cascade.
+     */
+    bool applyNodeDelete(const QString &name,
+                         QStringList *cascadeLinkNames = nullptr);
+
+    /*! Delete a single link. */
+    bool applyLinkDelete(const QString &name);
+
+    /*! Delete a rain gage. */
+    bool applyGageDelete(const QString &name);
+
+    /*! Delete a subcatchment. */
+    bool applySubcatchDelete(const QString &name);
+
 signals:
     void modelFilePathChanged(const QString &path);
     void showNodesChanged(bool show);
@@ -704,10 +770,20 @@ signals:
      *  didn't change, only the display order). */
     void categoryOrderChanged();
 
+    /*! Emitted whenever the set of elements changes — an add, remove,
+     *  or rollback of any node / link / gage / subcatchment. Panels
+     *  that show element lists (Object Browser, Attribute Table) connect
+     *  to this signal and call refresh() so their views stay in sync
+     *  without polling. */
+    void geometryChanged();
+
 private:
     struct NodeGeom    { double x, y; int objectType; int nodeType; QString name; };
     struct LinkGeom    { QVector<QPointF> vertices; int linkType; QString name; };
     struct CatchGeom   { QVector<QPointF> vertices; QString name; };
+
+    /*! Scene-space drainage connector: PIA of subcatchment → outlet node/subcatchment. */
+    struct OutletLine  { QLineF line; int catchIdx; };
 
     void buildGeometryCache();
     void rebuildTransform(const SpatialReferenceSystem *canvasSRS);
@@ -731,6 +807,11 @@ private:
     void rebuildSceneCoords();
     void refreshSceneCoordsForNode(int nodeIdx);
     void refreshSceneCoordsForLink(int linkIdx);
+
+    // Incremented at the end of every rebuildSceneCoords() call.
+    // SWMMLayerQSGRenderer uses this to invalidate its subcatchment
+    // triangulation cache without needing a signal or pointer comparison.
+    quint64 m_geomRevision = 0;
 
     /*!
      * \brief Uniform-grid spatial index over scene-space link bboxes.
@@ -838,6 +919,7 @@ private:
     QVector<QVector<QPointF>>    m_catchScenePts;
     QVector<QRectF>              m_catchSceneBBoxes;
     QVector<QPointF>             m_gageScenePts;
+    QVector<OutletLine>          m_catchOutletLines;  ///< PIA → outlet, built in rebuildSceneCoords.
 
     // Phase A.3 — flat-array link scene-coords. Replaces the previous
     // per-link QVector<QPointF> with one big std::vector<float> of

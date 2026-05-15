@@ -2,7 +2,7 @@
  * \file   test_meshgenerator.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Slice AU — QtTest coverage for MeshGenerator. The wrapper shells out
  * to vendored Shewchuk Triangle (vendor/triangle/), so the tests are

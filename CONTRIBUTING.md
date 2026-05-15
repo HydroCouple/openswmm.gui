@@ -1,6 +1,6 @@
-# Contributing to openswmm.engine
+# Contributing to openswmm.gui
 
-Thank you for your interest in contributing to **openswmm.engine**! This document outlines the governance model, contribution workflow, and standards that keep the project healthy, reproducible, and scientifically rigorous. Please read it carefully before opening an issue, submitting a pull request, or proposing a major change.
+Thank you for your interest in contributing to **openswmm.gui**! This document outlines the governance model, contribution workflow, and standards that keep the project healthy, reproducible, and scientifically rigorous. Please read it carefully before opening an issue, submitting a pull request, or proposing a major change.
 
 ---
 
@@ -9,9 +9,9 @@ Thank you for your interest in contributing to **openswmm.engine**! This documen
 1. [Community Governance](#1-community-governance)
 2. [Repository & Technical Management](#2-repository--technical-management)
 3. [Succession & Delegation](#3-succession--delegation)
-4. [Licensing & Intellectual Property](#4-licensing--intellectual-property)
+4. [Licensing, Intellectual Property & CLA](#4-licensing-intellectual-property--cla)
 5. [Author Acknowledgment](#5-author-acknowledgment)
-6. [How to Cite openswmm.engine](#6-how-to-cite-openswmm.engine)
+6. [How to Cite openswmm.gui](#6-how-to-cite-openswmm.gui)
 7. [Versioning Strategy](#7-versioning-strategy)
 8. [Deprecation & Backward Compatibility Policy](#8-deprecation--backward-compatibility-policy)
 9. [Branching Model](#9-branching-model)
@@ -39,7 +39,7 @@ openswmm.engine is a community-driven open source project. All contributors are 
 
 ## 2. Repository & Technical Management
 
-**Repository and technical management is the responsibility of the Technical Manager, [Caleb Buahin](https://github.com/cbuahin).**
+**Repository and technical management is the responsibility of the Technical Manager (currently [@cbuahin](https://github.com/cbuahin)).**
 
 The Technical Manager is responsible for:
 
@@ -63,13 +63,27 @@ The Technical Manager role is a single point of authority, which must be protect
 
 ---
 
-## 4. Licensing & Intellectual Property
+## 4. Licensing, Intellectual Property & CLA
 
-openswmm.engine is released under the **MIT License**.
+openswmm.gui is released under the **GNU General Public License v3 (GPLv3)**.
 
-By submitting a contribution (code, documentation, tests, data, or any other material), **you agree that your contribution will be made available under the MIT License** and that you have the right to grant this license. This agreement is implicit upon the submission of any pull request or patch to this repository.
+All contributors must sign the project **Contributor License Agreement (CLA)** before their pull request can be merged. The CLA is detailed in [CLA.md](./CLA.md). Key points:
 
-If your contribution includes third-party code or data, you are responsible for ensuring that the third-party license is compatible with MIT and that proper attribution is included in your submission.
+- **You retain your copyright.** The CLA grants a license; it does not transfer ownership.
+- **Broad license grant.** You grant the Technical Manager a perpetual, irrevocable license to use, distribute, and **relicense** your contribution (e.g., for future dual open-source/commercial licensing).
+- **Patent grant.** You grant a royalty-free patent license covering patents necessarily infringed by your contribution.
+- **Representation of authority.** You confirm you have the right to submit the contribution and that it contains no unlicensed third-party material.
+- **Corporate contributors** must additionally submit a Corporate CLA (CCLA) — see [CLA.md §6](./CLA.md#6-corporate-contributors).
+
+### Signing the CLA
+
+The project uses [CLA Assistant](https://cla-assistant.io). When you open your first pull request, a bot will post a comment with a signing link. You may also sign manually by posting the following comment on your PR:
+
+> I have read the CLA Document and I hereby sign the CLA.
+
+Once signed, the CLA covers all future contributions. You do not need to sign again.
+
+If your contribution includes third-party code or data, you are responsible for ensuring that the third-party license is compatible with GPLv3 and that proper attribution is included in your submission.
 
 The full license text is available in [LICENSE](./LICENSE).
 
@@ -77,7 +91,7 @@ The full license text is available in [LICENSE](./LICENSE).
 
 ## 5. Author Acknowledgment
 
-All contributors whose work is incorporated into openswmm.engine will be recognized in [AUTHORS.md](./AUTHORS.md).
+All contributors whose work is incorporated into openswmm.gui will be recognized in [AUTHORS.md](./AUTHORS.md).
 
 - **Name, affiliation (if any), and scope of contribution** will be documented for each contributor.
 - The Technical Manager maintains `AUTHORS.md` and will update it at each release.
@@ -87,25 +101,25 @@ Contributors are encouraged to add themselves to `AUTHORS.md` as part of their p
 
 ---
 
-## 6. How to Cite openswmm.engine
+## 6. How to Cite openswmm.gui
 
-If you use openswmm.engine in published research, teaching materials, or engineering reports, please cite the software to give appropriate credit and help others discover the project.
+If you use openswmm.gui in published research, teaching materials, or engineering reports, please cite the software to give appropriate credit and help others discover the project.
 
 ### Recommended Citation Format
 
 Until a formal publication is available, please cite the software repository directly:
 
 ```
-Buahin, C. (2026). openswmm.engine [Computer software]. GitHub. https://github.com/cbuahin_github/openswmm.engine
+Buahin, C. (2026). openswmm.gui [Computer software]. GitHub. https://github.com/HydroCouple/openswmm.gui
 ```
 
 ### DOI & Archival
 
-Each stable release of openswmm.engine is archived and assigned a **DOI via [Zenodo](https://zenodo.org)**. The DOI for each release is listed in the [GitHub Releases](../../releases) page and in the repository badge. When citing a specific version, use the version-specific DOI so that your reference is reproducible.
+Each stable release of openswmm.gui is archived and assigned a **DOI via [Zenodo](https://zenodo.org)**. The DOI for each release is listed in the [GitHub Releases](../../releases) page and in the repository badge. When citing a specific version, use the version-specific DOI so that your reference is reproducible.
 
 ### Publications
 
-If a peer-reviewed publication describing the software or a specific formulation becomes available, it will be listed here and should be preferred over the repository citation. Authors of accepted publications describing openswmm.engine contributions are encouraged to notify the Technical Manager so the reference can be added.
+If a peer-reviewed publication describing the software becomes available, it will be listed here and should be preferred over the repository citation. Authors of accepted publications describing openswmm.gui contributions are encouraged to notify the Technical Manager so the reference can be added.
 
 ---
 
@@ -198,7 +212,7 @@ Every PR requires **all three** of the following approvals:
 
 | Reviewer               | Role                                                                                 |
 |------------------------|--------------------------------------------------------------------------------------|
-| **Technical Manager**  | Caleb Buahin — final authority on code quality, architecture, and correctness       |
+| **Technical Manager**  | [@cbuahin](https://github.com/cbuahin) (current Technical Manager) — final authority on code quality, architecture, and correctness       |
 | **AI Copilot Review**  | Automated AI-assisted review for style, logic, and common error patterns             |
 | **Community Reviewer** | At least one community contributor **other than the PR author** must approve         |
 
@@ -209,6 +223,7 @@ Self-approvals are not permitted. The PR author may not count toward the communi
 Before requesting review, confirm that your PR:
 
 - [ ] Targets the correct branch (`dev` for bug fixes and features; see Section 15 for experimental work)
+- [ ] CLA signed — first-time contributors must sign the [CLA](./CLA.md) before the PR can be merged
 - [ ] Includes a clear description of what was changed and why
 - [ ] References any related issues (e.g., `Closes #42`)
 - [ ] Includes new or updated unit tests covering the change
@@ -402,7 +417,7 @@ Adding a third-party dependency increases the maintenance burden and risk surfac
 
 | Criterion                | Requirement                                                                                      |
 |--------------------------|--------------------------------------------------------------------------------------------------|
-| **License compatibility**| The dependency's license must be compatible with MIT (e.g., MIT, BSD, Apache 2.0). Copyleft licenses such as GPL are not permitted. |
+| **License compatibility**| The dependency's license must be compatible with GPLv3 (e.g., MIT, BSD, Apache 2.0, LGPL, GPL). Proprietary or non-GPL-compatible licenses are not permitted. |
 | **Maintenance status**   | The dependency must be actively maintained with a responsive upstream community.                 |
 | **Stability**            | The dependency must have a stable, versioned API. Unpinned or volatile dependencies are not acceptable. |
 | **Binary footprint**     | Dependencies that substantially increase compiled binary size must be justified by proportional benefit. |
@@ -416,10 +431,9 @@ Proposals to add a new dependency should be raised in a GitHub Discussion or iss
 
 **Do not report security vulnerabilities through public GitHub issues.**
 
-If you discover a potential security vulnerability in openswmm.engine, please report it privately so that a fix can be prepared before the issue is publicly disclosed:
+If you discover a potential security vulnerability in openswmm.gui, please report it privately so that a fix can be prepared before the issue is publicly disclosed:
 
-- **Email:** [calebgh@gmail.com](mailto:calebgh@gmail.com) with the subject line `[openswmm.engine] Security Vulnerability Report`
-- **GitHub Private Advisory:** Use the [Security Advisories](../../security/advisories) tab to submit a draft advisory directly on GitHub.
+- **GitHub Private Advisory:** Use the [Security Advisories](../../security/advisories) tab to submit a draft advisory directly on GitHub. Tag [@cbuahin](https://github.com/cbuahin) (current Technical Manager) in the advisory.
 
 Please include in your report:
 
@@ -458,8 +472,8 @@ openswmm.engine is committed to providing a welcoming, respectful, and inclusive
 - Accept constructive criticism of their contributions in good faith.
 - Prioritize the long-term health of the project over individual preferences.
 
-Harassment, personal attacks, or exclusionary behavior of any kind will not be tolerated. Violations may be reported to the Technical Manager at [calebgh@gmail.com](mailto:calebgh@gmail.com). Reported incidents will be reviewed and addressed promptly and confidentially.
+Harassment, personal attacks, or exclusionary behavior of any kind will not be tolerated. Violations may be reported to the Technical Manager (currently [@cbuahin](https://github.com/cbuahin)) via a [GitHub Discussion](../../discussions). Reported incidents will be reviewed and addressed promptly and confidentially.
 
 ---
 
-*This document is maintained by [Caleb Buahin](https://github.com/cbuahin), Technical Manager of openswmm.engine. Last updated: April 2026.*
+*This document is maintained by the Technical Manager of openswmm.gui (currently [@cbuahin](https://github.com/cbuahin)). Last updated: May 2026.*

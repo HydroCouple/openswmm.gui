@@ -266,6 +266,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         item->setOpacity(opacity());
         item->setFlag(QGraphicsItem::ItemIsSelectable, true);
         scene->addItem(item);
+        m_sceneItems.append(item);
     };
 
     auto addLine = [&](const QVector<QPointF> &scenePts, qint64 fid, bool selected) {
@@ -288,6 +289,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         item->setOpacity(opacity());
         item->setFlag(QGraphicsItem::ItemIsSelectable, true);
         scene->addItem(item);
+        m_sceneItems.append(item);
     };
 
     auto addPolygon = [&](const QVector<QPointF> &scenePts, qint64 fid, bool selected) {
@@ -306,6 +308,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         item->setOpacity(opacity());
         item->setFlag(QGraphicsItem::ItemIsSelectable, true);
         scene->addItem(item);
+        m_sceneItems.append(item);
     };
 
     OGRFeature *feat = nullptr;
@@ -391,27 +394,16 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
 
 void GISVectorLayer::depopulateScene(QGraphicsScene *scene)
 {
-    if (!scene)
+    if (!scene || m_sceneItems.isEmpty())
         return;
 
-    const auto items = scene->items();
-    QList<QGraphicsItem *> toRemove;
-    for (auto *item : items)
-    {
-        // Check each vector item type
-        if (auto *p = dynamic_cast<VectorPointItem *>(item))
-        { if (p->ownerLayer() == this) toRemove.append(item); }
-        else if (auto *l = dynamic_cast<VectorLineItem *>(item))
-        { if (l->ownerLayer() == this) toRemove.append(item); }
-        else if (auto *pg = dynamic_cast<VectorPolygonItem *>(item))
-        { if (pg->ownerLayer() == this) toRemove.append(item); }
-    }
-
-    for (auto *item : toRemove)
+    for (auto *item : std::as_const(m_sceneItems))
     {
         scene->removeItem(item);
         delete item;
     }
+    m_sceneItems.clear();
+    m_needsRebuild = true;
 }
 
 void GISVectorLayer::onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS)

@@ -19,6 +19,8 @@
 
 #include <ogr_spatialref.h>   // OGRCoordinateTransformation
 
+#include <array>
+
 namespace {
 
 /*! Scene-space Y-flip helper — matches the legacy toScene(mx, my) in
@@ -222,30 +224,77 @@ void SWMMLayerItem::paint(QPainter *painter,
             painter->drawPolygon(poly);
             if (sel) painter->setBrush(QBrush(sym.fillColor));
         }
+
+        // ── Outlet connector lines: PIA → outlet node / subcatchment ──
+        const auto &outletLines = m_layer->m_catchOutletLines;
+        if (!outletLines.isEmpty()) {
+            QPen dashPen(QColor(110, 110, 110, 200), 1.0);
+            dashPen.setCosmetic(true);
+            dashPen.setStyle(Qt::DashLine);
+            painter->setPen(dashPen);
+            painter->setBrush(Qt::NoBrush);
+            for (const auto &ol : outletLines) {
+                if (size_t(ol.catchIdx) < catchHid.size() && catchHid[ol.catchIdx])
+                    continue;
+                // Skip selected here — they get a second, bolder pass below
+                // so the highlight isn't drawn under the grey base line.
+                if (size_t(ol.catchIdx) < catchSel.size() && catchSel[ol.catchIdx])
+                    continue;
+                if (!exposed.isNull()) {
+                    const QRectF lb = QRectF(ol.line.p1(), ol.line.p2()).normalized();
+                    if (!exposed.intersects(lb.adjusted(-1, -1, 1, 1)))
+                        continue;
+                }
+                painter->drawLine(ol.line);
+            }
+
+            // Highlight pass for selected subcatchments: bolder dashed
+            // connector + dashed ring around the receiving outlet so the
+            // user can trace where a clicked subcatchment drains to.
+            // Ring radius is in pixels (cosmetic in feel) by scaling with
+            // invViewScale — matches the node-marker sizing convention.
+            const double ringRadius = 12.0 * invViewScale;
+            QPen hiPen(QColor(255, 140, 0, 230), 2.0);
+            hiPen.setCosmetic(true);
+            hiPen.setStyle(Qt::DashLine);
+            for (const auto &ol : outletLines) {
+                if (size_t(ol.catchIdx) >= catchSel.size() || !catchSel[ol.catchIdx])
+                    continue;
+                if (size_t(ol.catchIdx) < catchHid.size() && catchHid[ol.catchIdx])
+                    continue;
+                painter->setPen(hiPen);
+                painter->drawLine(ol.line);
+                painter->drawEllipse(ol.line.p2(), ringRadius, ringRadius);
+            }
+        }
     }
 
     // ---------------------------------------------------------------- Links
     if (!glOn && m_layer->m_showLinks)
     {
-        // Single pen: the legacy path used m_conduitSym regardless of link
-        // subtype ([swmmmodellayer.cpp: populateScene]). Matching that
-        // here keeps visual parity; per-subtype buckets (pump / orifice /
-        // weir) can be layered on later without changing the shape of
-        // this loop.
-        const auto &sym = m_layer->m_conduitSym;
-        QPen pen(sym.fillColor, sym.outlineWidth);
-        pen.setCosmetic(true);
-        painter->setBrush(Qt::NoBrush);
-        painter->setPen(pen);
+        auto linkColorForType = [this](int linkType) {
+            auto *prefs = PreferencesManager::instance();
+            switch (linkType) {
+            case 1:  return m_layer->m_pumpSym.fillColor;
+            case 2:  return m_layer->m_orificeSym.fillColor;
+            case 3:  return m_layer->m_weirSym.fillColor;
+            case 4:  return prefs->linkColor(QStringLiteral("outlet"));
+            default: return m_layer->m_conduitSym.fillColor;
+            }
+        };
+        auto linkWidthForType = [this](int linkType) {
+            switch (linkType) {
+            case 1:  return m_layer->m_pumpSym.outlineWidth;
+            case 2:  return m_layer->m_orificeSym.outlineWidth;
+            case 3:  return m_layer->m_weirSym.outlineWidth;
+            case 4:  return m_layer->m_conduitSym.outlineWidth;
+            default: return m_layer->m_conduitSym.outlineWidth;
+            }
+        };
 
-        // Pass 1: non-selected links in bulk via drawLines(). Collect the
-        // full segment vector once; one native call paints all of them.
-        QVector<QLineF> segs;
-        segs.reserve(m_layer->m_links.size() * 2);
-
-        // Pass 2 segments (selected) kept separate so they can render
-        // with the highlight pen after.
-        QVector<QLineF> selSegs;
+        // Bucket by link type: 0=Conduit, 1=Pump, 2=Orifice, 3=Weir, 4=Outlet.
+        std::array<QVector<QLineF>, 5> segsByType;
+        std::array<QVector<QLineF>, 5> selSegsByType;
 
         // Phase A.3: consume the flat link scene-coord buffer. One
         // contiguous std::vector<float> of (x, y) pairs, with per-link
@@ -276,8 +325,11 @@ void SWMMLayerItem::paint(QPainter *painter,
             if (cnt < 2) continue;
             const uint32_t off = offsets[i];
 
+            const int type = (m_layer->m_links[i].linkType >= 0
+                           && m_layer->m_links[i].linkType < 5)
+                           ? m_layer->m_links[i].linkType : 0;
             const bool sel = size_t(i) < linkSel.size() && linkSel[i];
-            auto &target = sel ? selSegs : segs;
+            auto &target = sel ? selSegsByType[size_t(type)] : segsByType[size_t(type)];
             const float *p = flat + size_t(off) * 2;
             for (uint32_t j = 1; j < cnt; ++j) {
                 target.emplace_back(QPointF(p[(j - 1) * 2], p[(j - 1) * 2 + 1]),
@@ -285,16 +337,22 @@ void SWMMLayerItem::paint(QPainter *painter,
             }
         }
 
-        if (!segs.isEmpty())
-            painter->drawLines(segs);
+        painter->setBrush(Qt::NoBrush);
+        for (int t = 0; t < 5; ++t) {
+            if (segsByType[size_t(t)].isEmpty()) continue;
+            QPen pen(linkColorForType(t), linkWidthForType(t));
+            pen.setCosmetic(true);
+            painter->setPen(pen);
+            painter->drawLines(segsByType[size_t(t)]);
+        }
 
-        // Selected-link highlight pass — yellow, slightly thicker pen.
-        if (!selSegs.isEmpty()) {
-            QPen hi(Qt::yellow, sym.outlineWidth + 2.0);
+        // Selected-link highlight pass — yellow, slightly thicker than base.
+        for (int t = 0; t < 5; ++t) {
+            if (selSegsByType[size_t(t)].isEmpty()) continue;
+            QPen hi(Qt::yellow, linkWidthForType(t) + 2.0);
             hi.setCosmetic(true);
             painter->setPen(hi);
-            painter->drawLines(selSegs);
-            painter->setPen(pen);
+            painter->drawLines(selSegsByType[size_t(t)]);
         }
     }
 

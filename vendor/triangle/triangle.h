@@ -311,6 +311,19 @@ void HYDROCOUPLESDK_EXPORT triangulate(char *, struct triangulateio *, struct tr
 void HYDROCOUPLESDK_EXPORT trifree(VOID *memptr);
 void HYDROCOUPLESDK_EXPORT report(struct triangulateio *, int, int, int, int,int, int);
 
+#ifdef TRILIBRARY
+/* jmp_buf used by triexit() in TRILIBRARY mode to signal fatal errors   */
+/* without calling exit().  Declared here so both triangle.c and callers */
+/* share the same symbol.                                                */
+#include <setjmp.h>
+extern jmp_buf triangle_longjmp_buffer;
+
+/* Safe wrapper around triangulate().  Returns 0 on success, -1 if      */
+/* Triangle called triexit() (degenerate PSLG, out-of-memory, etc.).    */
+int HYDROCOUPLESDK_EXPORT triangulate_safe(char *, struct triangulateio *,
+                                            struct triangulateio *,
+                                            struct triangulateio *);
+#endif /* TRILIBRARY */
 
 #else /* not ANSI_DECLARATORS */
 void HYDROCOUPLESDK_EXPORT triangulate();

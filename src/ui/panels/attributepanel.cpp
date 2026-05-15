@@ -5,8 +5,15 @@
  */
 
 #include "ui/panels/attributepanel.h"
-#include "map/tools/maptoolidentify.h"   // IdentifyResult
 #include "layers/openswmmvislayer.h"
+#include "layers/swmmmodellayer.h"
+#include "map/tools/maptoolidentify.h"   // IdentifyResult
+#include "ui/properties/swmmlinkpropertyadapter.h"
+#include "ui/properties/swmmnodepropertyadapter.h"
+#include "ui/properties/swmmsubcatchpropertyadapter.h"
+
+#include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_nodes.h>
 
 // QPropertyModel library
 #ifdef HAVE_QPROPERTYMODEL
@@ -143,6 +150,38 @@ void AttributePanel::onIdentifyResult(const QList<IdentifyResult> &results)
     showIdentifyResults(results);
 }
 
+void AttributePanel::onObjectEditedExternally(const QString &name)
+{
+    // Round-4 follow-up 2026-05-12 — mirror an attribute-table edit
+    // into the Property Browser.  We call `refresh()` on the bound
+    // adapter (matched by name) which re-emits `changed()`; that's
+    // the NOTIFY signal QPropertyModel listens to per-property.
+    // Guard against the resulting `changed()` re-emitting our own
+    // `objectEdited(name)` and bouncing back to the table.
+    if (name.isEmpty()) return;
+    m_suppressEditForward = true;
+    if (m_nodeAdapter && m_nodeAdapter->name() == name)
+        m_nodeAdapter->refresh();
+    if (m_linkAdapter && m_linkAdapter->name() == name)
+        m_linkAdapter->refresh();
+    if (m_subcatchAdapter && m_subcatchAdapter->name() == name)
+        m_subcatchAdapter->refresh();
+    m_suppressEditForward = false;
+}
+
+void AttributePanel::setProject(SWMMModelLayer *layer)
+{
+    if (m_swmmLayer == layer) return;
+    m_swmmLayer = layer;
+    if (!layer) {
+        // Releasing the project — drop the adapters so a stale engine
+        // handle doesn't get used on the next identify.
+        if (m_nodeAdapter)     { m_nodeAdapter->deleteLater();     m_nodeAdapter     = nullptr; }
+        if (m_linkAdapter)     { m_linkAdapter->deleteLater();     m_linkAdapter     = nullptr; }
+        if (m_subcatchAdapter) { m_subcatchAdapter->deleteLater(); m_subcatchAdapter = nullptr; }
+    }
+}
+
 void AttributePanel::onLayerComboIndexChanged(int index)
 {
     if (index < 0 || index >= m_lastResults.size())
@@ -159,16 +198,116 @@ void AttributePanel::onLayerComboIndexChanged(int index)
         return;
     }
 
-    // Show the first matching feature as a plain QVariantMap wrapped in a
-    // QVariantHolderHelper.  Multiple features could be shown as sub-items
-    // but a single map is clear and sufficient for the common case.
-    //
-    // QPropertyModel accepts a QVariant of any type; passing a QVariantMap
-    // lets it display key/value pairs automatically.
+    const QVariantMap feature = result.features.first();
 
+    // Slice Z.5.3 / AG.3 — if the identified feature is a SWMM
+    // object, route through a typed `*PropertyAdapter` so
+    // QPropertyModel renders editable spinboxes via its built-in
+    // auto-delegate.  Other feature kinds (GIS layers, non-SWMM
+    // entities) fall through to the read-only QVariantMap.
+    bool routedThroughAdapter = false;
 #ifdef HAVE_QPROPERTYMODEL
-    if (auto *pm = qobject_cast<QPropertyModel*>(m_model))
-        pm->setData(QVariant(result.features.first()));
+    const QString typeStr = feature.value(QStringLiteral("Type")).toString();
+    const QString name    = feature.value(QStringLiteral("Name")).toString();
+    if (m_swmmLayer && !name.isEmpty() && m_swmmLayer->engine()) {
+        auto *pm = qobject_cast<QPropertyModel*>(m_model);
+        if (typeStr == QStringLiteral("Node")) {
+            if (m_nodeAdapter) m_nodeAdapter->deleteLater();
+            // Round-4 follow-up 2026-05-12 — pick the SWMM-type-aware
+            // subclass so the Property Browser only exposes attributes
+            // applicable to this node's kind (Junction / Outfall /
+            // Storage / Divider), matching the [JUNCTIONS]/[OUTFALLS]/
+            // [STORAGE]/[DIVIDERS] .inp sections.
+            const int nodeIdx = swmm_node_index(
+                m_swmmLayer->engine(), name.toUtf8().constData());
+            int nodeKind = 0;
+            swmm_node_get_type(m_swmmLayer->engine(), nodeIdx, &nodeKind);
+            switch (nodeKind) {
+            case SWMM_NODE_OUTFALL:
+                m_nodeAdapter = new SWMMOutfallPropertyAdapter(
+                    m_swmmLayer->engine(), name, this);
+                break;
+            case SWMM_NODE_STORAGE:
+                m_nodeAdapter = new SWMMStoragePropertyAdapter(
+                    m_swmmLayer->engine(), name, this);
+                break;
+            case SWMM_NODE_DIVIDER:
+                m_nodeAdapter = new SWMMDividerPropertyAdapter(
+                    m_swmmLayer->engine(), name, this);
+                break;
+            case SWMM_NODE_JUNCTION:
+            default:
+                m_nodeAdapter = new SWMMJunctionPropertyAdapter(
+                    m_swmmLayer->engine(), name, this);
+                break;
+            }
+            if (pm) pm->setData(QVariant::fromValue<QObject *>(m_nodeAdapter));
+            // Round-4 follow-up 2026-05-12 — forward edits to the
+            // Attribute Table dock for two-way sync.
+            connect(m_nodeAdapter, &SWMMNodePropertyAdapter::changed,
+                    this, [this, name]() {
+                        if (!m_suppressEditForward) emit objectEdited(name);
+                    });
+            routedThroughAdapter = true;
+        } else if (typeStr == QStringLiteral("Link")) {
+            if (m_linkAdapter) m_linkAdapter->deleteLater();
+            // Round-4 follow-up 2026-05-12 — pick the SWMM-link-type
+            // aware subclass so the Property Browser only exposes
+            // attributes applicable to this link's kind (Conduit /
+            // Pump / Orifice / Weir / Outlet), matching the [CONDUITS]
+            // / [PUMPS] / [ORIFICES] / [WEIRS] / [OUTLETS] sections.
+            const int linkIdx = swmm_link_index(
+                m_swmmLayer->engine(), name.toUtf8().constData());
+            int linkKind = 0;
+            swmm_link_get_type(m_swmmLayer->engine(), linkIdx, &linkKind);
+            switch (linkKind) {
+            case 1: // Pump
+                m_linkAdapter = new SWMMPumpPropertyAdapter(
+                    m_swmmLayer->engine(), name, this);
+                break;
+            case 2: // Orifice
+                m_linkAdapter = new SWMMOrificePropertyAdapter(
+                    m_swmmLayer->engine(), name, this);
+                break;
+            case 3: // Weir
+                m_linkAdapter = new SWMMWeirPropertyAdapter(
+                    m_swmmLayer->engine(), name, this);
+                break;
+            case 4: // Outlet
+                m_linkAdapter = new SWMMOutletPropertyAdapter(
+                    m_swmmLayer->engine(), name, this);
+                break;
+            case 0: // Conduit
+            default:
+                m_linkAdapter = new SWMMConduitPropertyAdapter(
+                    m_swmmLayer->engine(), name, this);
+                break;
+            }
+            if (pm) pm->setData(QVariant::fromValue<QObject *>(m_linkAdapter));
+            connect(m_linkAdapter, &SWMMLinkPropertyAdapter::changed,
+                    this, [this, name]() {
+                        if (!m_suppressEditForward) emit objectEdited(name);
+                    });
+            routedThroughAdapter = true;
+        } else if (typeStr == QStringLiteral("Subcatchment")) {
+            if (m_subcatchAdapter) m_subcatchAdapter->deleteLater();
+            m_subcatchAdapter = new SWMMSubcatchPropertyAdapter(
+                m_swmmLayer->engine(), name, this);
+            if (pm) pm->setData(QVariant::fromValue<QObject *>(m_subcatchAdapter));
+            connect(m_subcatchAdapter, &SWMMSubcatchPropertyAdapter::changed,
+                    this, [this, name]() {
+                        if (!m_suppressEditForward) emit objectEdited(name);
+                    });
+            routedThroughAdapter = true;
+        }
+    }
+    if (!routedThroughAdapter) {
+        if (auto *pm = qobject_cast<QPropertyModel*>(m_model))
+            pm->setData(QVariant(feature));
+    }
+#else
+    Q_UNUSED(feature);
+    Q_UNUSED(routedThroughAdapter);
 #endif
     m_treeView->expandAll();
 

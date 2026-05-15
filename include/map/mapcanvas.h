@@ -10,6 +10,7 @@
 
 #include "map/mapextent.h"
 #include "map/mapundostack.h"
+#include "map/scalebarsettings.h"
 
 #include <QHash>
 #include <QImage>
@@ -66,6 +67,7 @@ class MapCanvas : public QWidget
                NOTIFY maxUndoCountChanged)
     Q_PROPERTY(QColor    backgroundColor READ backgroundColor WRITE setBackgroundColor
                NOTIFY backgroundColorChanged)
+    Q_PROPERTY(ScaleBarSettings* scaleBarSettings READ scaleBarSettings CONSTANT)
 
 public:
 
@@ -137,6 +139,15 @@ public:
     [[nodiscard]] OpenSWMMVisLayer *layerAt(int index) const;
     [[nodiscard]] MapExtent fullExtent() const;
 
+    /*! \brief Reproject \p nativeExtent from \p layer's CRS into canvas CRS by
+     *  transforming its four corners.  Returns the unmodified extent when the
+     *  CRSes match or when either SRS is unavailable. */
+    [[nodiscard]] MapExtent extentInCanvasCRS(const OpenSWMMVisLayer *layer,
+                                              const MapExtent &nativeExtent) const;
+
+    /*! \brief Convenience overload: reprojects the full extent of \p layer. */
+    [[nodiscard]] MapExtent layerExtentInCanvasCRS(const OpenSWMMVisLayer *layer) const;
+
     // ----- Active tool ---------------------------------------------------
 
     [[nodiscard]] OpenSWMMVisMapTool *activeTool() const;
@@ -158,6 +169,8 @@ public:
 
     [[nodiscard]] QColor backgroundColor() const;
     void setBackgroundColor(const QColor &color);
+
+    [[nodiscard]] ScaleBarSettings *scaleBarSettings() const;
 
     // ----- Coordinate conversion -----------------------------------------
 
@@ -260,6 +273,7 @@ private slots:
     void onRenderJobFinished(QImage result);
     void fireRasterChannel();
     void fireSceneChannel();
+    void syncScaleBarFromPreferences();
 
 private:
 
@@ -279,6 +293,11 @@ private:
     void renderScaleBar(QPainter &painter) const;
     void renderCoordinates(QPainter &painter, double mapX, double mapY) const;
 
+    // Returns ground distance (metres) represented by one horizontal screen pixel
+    // at the centre of the current view.  CRS-aware: uses the cosine-latitude
+    // formula for geographic CRS and linearUnitsToMetres() for projected CRS.
+    [[nodiscard]] double metresPerPixel() const;
+
     // ----- Scene & overlay ------------------------------------------------
     OpenSWMMVisScene           *m_scene          = nullptr;
     OpenSWMMVisGraphicsView    *m_overlayView    = nullptr;
@@ -297,6 +316,7 @@ private:
     bool                    m_showScaleBar   = true;
     bool                    m_showCoords     = false;
     QColor                  m_bgColor        = Qt::white;
+    ScaleBarSettings       *m_scaleBarSettings = nullptr;
 
     // ----- Refresh timer --------------------------------------------------
     QTimer                 *m_refreshTimer   = nullptr;
@@ -342,11 +362,11 @@ private:
                             m_glRenderers;
 
     // ----- Phase B.RHI — QQuickWidget host for the QSG renderer -----------
-    // A transparent child widget overlaying the canvas, hosting one
-    // SWMMLayerQSGRenderer (custom QQuickItem) that draws the SWMM
-    // layer's lines via Qt's scene graph. Native Metal on macOS,
-    // Vulkan on Linux, D3D11 on Windows. See
-    // docs/RENDERING_5M_PLAN.md (Phase B.RHI).
+    // A transparent child widget overlaying the canvas, hosting
+    // SWMMLayerQSGRenderer (SWMM network: nodes/links/subcatchments).
+    // The 2D mesh layer renders via QGraphicsScene (QPainter path).
+    // Native Metal on macOS, Vulkan on Linux, D3D11 on Windows.
+    // See docs/RENDERING_5M_PLAN.md (Phase B.RHI).
     class QQuickWidget          *m_qsgWidget   = nullptr;
     class SWMMLayerQSGRenderer  *m_qsgRenderer = nullptr;
 };

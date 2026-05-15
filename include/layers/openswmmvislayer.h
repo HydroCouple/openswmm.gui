@@ -14,11 +14,17 @@
 #ifndef SWMMLAYER_H
 #define SWMMLAYER_H
 
+#include <QByteArray>
+#include <QMap>
 #include <QObject>
 #include <QVector>
 #include <QUuid>
 
 #include "map/mapextent.h"
+
+// Forward-declare to avoid pulling the full basemapconnection.h into every
+// translation unit that includes this header.
+using BasemapHttpHeaders = QMap<QString, QString>;
 
 class OpenSWMMVisWorkspace;
 class SpatialReferenceSystem;
@@ -298,6 +304,22 @@ public:
      */
     virtual void onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS);
 
+    // ----- HTTP authentication & headers ----------------------------------
+
+    /*!
+     * \brief Sets HTTP Basic authentication for all subsequent network requests.
+     * \details Builds the "Authorization: Basic <base64(user:pass)>" header and
+     *          stores it in m_authHeader.  Call with an empty username to clear.
+     */
+    void setBasicAuth(const QString &username, const QString &password);
+
+    /*!
+     * \brief Sets arbitrary extra HTTP headers applied to every request.
+     * \details Includes the "referer" key as the HTTP Referer header.
+     */
+    void setHttpHeaders(const BasemapHttpHeaders &headers);
+    [[nodiscard]] BasemapHttpHeaders httpHeaders() const { return m_httpHeaders; }
+
 signals:
 
     void nameChanged(const QString &newName);
@@ -314,6 +336,9 @@ protected:
     bool addChild(OpenSWMMVisLayer *child);
     bool removeChild(OpenSWMMVisLayer *child);
     void setLayerType(OpenSWMMVisLayerType type);
+
+    QByteArray         m_authHeader;   ///< "Basic <base64>" or empty
+    BasemapHttpHeaders m_httpHeaders;  ///< arbitrary headers (incl. "referer")
 
 private:
     QString              m_layerId;

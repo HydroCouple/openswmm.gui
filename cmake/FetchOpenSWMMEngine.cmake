@@ -37,6 +37,10 @@ set(OPENSWMM_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 set(OPENSWMM_BUILD_CLI      OFF CACHE BOOL "" FORCE)
 set(OPENSWMM_BUILD_PYTHON   OFF CACHE BOOL "" FORCE)
 set(OPENSWMM_BUILD_LEGACY   ON  CACHE BOOL "" FORCE)
+# Enable GeoPackage I/O by default — the plugin registers *.gpkg filters
+# via discover_all_filters() which the GUI's FileFilterRegistry surfaces
+# in Open / Save As / Plugins dialogs automatically.
+set(OPENSWMM_WITH_GEOPACKAGE ON CACHE BOOL "" FORCE)
 
 # Backward-compat: honor the older OpenSWMMCore / OpenSWMMGUI cache variable
 # names so existing presets and dev scripts keep working.

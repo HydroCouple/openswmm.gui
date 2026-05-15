@@ -2,7 +2,7 @@
  * \file   crschangedialog.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Phase 0.7 — modal that asks the user how to apply a CRS change to a model
  * with already-loaded geometry: reproject the stored coordinates, just

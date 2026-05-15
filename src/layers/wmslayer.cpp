@@ -13,9 +13,29 @@
 #include <QPainter>
 #include <QSize>
 #include <QUrlQuery>
+
+// Strip all occurrences of any of `keys` from `url`'s query, case-insensitively.
+// Preserves any other query params (e.g. API keys) from the base service URL.
+static QUrlQuery stripOgcParams(const QUrl &url, const QStringList &keys)
+{
+    QUrlQuery result;
+    for (const auto &item : QUrlQuery(url.query()).queryItems())
+    {
+        bool skip = false;
+        for (const QString &k : keys)
+            if (item.first.compare(k, Qt::CaseInsensitive) == 0) { skip = true; break; }
+        if (!skip)
+            result.addQueryItem(item.first, item.second);
+    }
+    return result;
+}
 #include <QXmlStreamReader>
 #include <QNetworkRequest>
 #include <QDebug>
+
+#include <ogr_spatialref.h>
+
+#include <algorithm>
 
 // ---------------------------------------------------------------------------
 // Constructor / Destructor
@@ -111,10 +131,9 @@ void WMSLayer::fetchCapabilities()
 {
     QUrl url = m_serviceUrl;
 
-    QUrlQuery query(url.query());
-    query.removeAllQueryItems(QStringLiteral("SERVICE"));
-    query.removeAllQueryItems(QStringLiteral("REQUEST"));
-    query.removeAllQueryItems(QStringLiteral("VERSION"));
+    static const QStringList kCapsKeys = {
+        QStringLiteral("SERVICE"), QStringLiteral("REQUEST"), QStringLiteral("VERSION") };
+    QUrlQuery query = stripOgcParams(url, kCapsKeys);
     query.addQueryItem(QStringLiteral("SERVICE"), QStringLiteral("WMS"));
     query.addQueryItem(QStringLiteral("REQUEST"), QStringLiteral("GetCapabilities"));
     query.addQueryItem(QStringLiteral("VERSION"), m_wmsVersion);
@@ -122,6 +141,11 @@ void WMSLayer::fetchCapabilities()
 
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("OpenSWMMVis"));
+    if (!m_authHeader.isEmpty())
+        req.setRawHeader("Authorization", m_authHeader);
+    for (auto it = m_httpHeaders.cbegin(); it != m_httpHeaders.cend(); ++it)
+        req.setRawHeader(it.key().compare("referer", Qt::CaseInsensitive) == 0
+                         ? QByteArray("Referer") : it.key().toUtf8(), it.value().toUtf8());
 
     QNetworkReply *reply = m_nam->get(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -192,6 +216,32 @@ void WMSLayer::setTransparent(bool transparent)
     }
 }
 
+QString WMSLayer::crs() const { return m_crs; }
+
+void WMSLayer::setCrs(const QString &crs)
+{
+    if (m_crs == crs)
+        return;
+    m_crs = crs;
+
+    // Update m_srs so the properties dialog reflects the request CRS.
+    const int sep = crs.lastIndexOf(QLatin1Char(':'));
+    if (sep > 0) {
+        bool ok = false;
+        const int code = crs.mid(sep + 1).toInt(&ok);
+        if (ok) {
+            if (auto *srs = SpatialReferenceSystem::fromAuthCode(crs.left(sep), code))
+                setSRS(srs, /*ownsSRS=*/true);
+        }
+    }
+
+    invalidateCache();
+}
+
+int WMSLayer::dpiMode() const { return m_dpiMode; }
+
+void WMSLayer::setDpiMode(int mode) { m_dpiMode = mode; }
+
 QMap<QString, QString> WMSLayer::extraParams() const { return m_extraParams; }
 
 void WMSLayer::setExtraParams(const QMap<QString, QString> &params)
@@ -222,7 +272,11 @@ void WMSLayer::render(QPainter *painter,
                       const SpatialReferenceSystem * /*srs*/)
 {
     if (m_cachedTile.isNull() || !m_cacheExtent.isValid() || !extent.isValid())
+    {
+        qDebug() << "[WMS] render skipped: tileNull=" << m_cachedTile.isNull()
+                 << "cacheExtentValid=" << m_cacheExtent.isValid();
         return;
+    }
 
     // Map-to-pixel scale factors for the target image
     double sx = imageSize.width()  / extent.width();
@@ -246,7 +300,7 @@ void WMSLayer::fetchCache(const MapExtent &canvasExtent,
     if (!isVisible() || m_activeLayer.isEmpty())
         return;
     if (canvasSRS && canvasSRS->isLocal())
-        return;  // local CRS — no geographic reprojection possible, skip WMS request
+        return;
 
     int pixelWidth  = viewportSize.width()  > 0 ? viewportSize.width()  : 1024;
     int pixelHeight = viewportSize.height() > 0 ? viewportSize.height() : 1024;
@@ -255,6 +309,14 @@ void WMSLayer::fetchCache(const MapExtent &canvasExtent,
                      && m_cacheExtent  == canvasExtent
                      && m_cacheWidth   == pixelWidth
                      && m_cacheHeight  == pixelHeight);
+
+    qDebug() << "[WMS] fetchCache cacheHit=" << cacheHit
+             << "tileNull=" << m_cachedTile.isNull()
+             << "extMatch=" << (m_cacheExtent == canvasExtent)
+             << "wMatch=" << (m_cacheWidth == pixelWidth)
+             << "hMatch=" << (m_cacheHeight == pixelHeight)
+             << "cacheW=" << m_cacheWidth << "vpW=" << pixelWidth
+             << "cacheH=" << m_cacheHeight << "vpH=" << pixelHeight;
 
     if (!cacheHit)
     {
@@ -271,7 +333,57 @@ void WMSLayer::fetchCache(const MapExtent &canvasExtent,
                 reply->abort();
                 reply->deleteLater();
             }
-            requestTile(canvasExtent, canvasSRS, pixelWidth, pixelHeight);
+
+            // Determine the CRS and BBOX to use in the GetMap request.
+            // If m_crs matches the canvas CRS, send the canvas extent directly.
+            // Otherwise, reproject the canvas extent into the server's requested CRS
+            // so servers that only support EPSG:4326 still receive a valid request.
+            MapExtent requestExt = canvasExtent;
+            SpatialReferenceSystem *requestSrsOwned = nullptr;
+            const SpatialReferenceSystem *requestSrs = canvasSRS;
+
+            if (!m_crs.isEmpty() && canvasSRS
+                && m_crs.compare(canvasSRS->toAuthority(), Qt::CaseInsensitive) != 0)
+            {
+                int sepIdx = m_crs.lastIndexOf(QLatin1Char(':'));
+                if (sepIdx > 0)
+                {
+                    bool ok = false;
+                    int code = m_crs.mid(sepIdx + 1).toInt(&ok);
+                    if (ok && code > 0)
+                    {
+                        requestSrsOwned = SpatialReferenceSystem::fromAuthCode(
+                            m_crs.left(sepIdx), code);
+                        if (requestSrsOwned)
+                        {
+                            OGRCoordinateTransformation *ct =
+                                OGRCreateCoordinateTransformation(
+                                    canvasSRS->ogrSpatialReference(),
+                                    requestSrsOwned->ogrSpatialReference());
+                            if (ct)
+                            {
+                                double xs[4] = { canvasExtent.xMin(), canvasExtent.xMax(),
+                                                 canvasExtent.xMax(), canvasExtent.xMin() };
+                                double ys[4] = { canvasExtent.yMin(), canvasExtent.yMin(),
+                                                 canvasExtent.yMax(), canvasExtent.yMax() };
+                                if (ct->Transform(4, xs, ys))
+                                {
+                                    requestExt = MapExtent(
+                                        *std::min_element(xs, xs+4),
+                                        *std::min_element(ys, ys+4),
+                                        *std::max_element(xs, xs+4),
+                                        *std::max_element(ys, ys+4));
+                                }
+                                OGRCoordinateTransformation::DestroyCT(ct);
+                            }
+                            requestSrs = requestSrsOwned;
+                        }
+                    }
+                }
+            }
+
+            requestTile(canvasExtent, requestExt, requestSrs, pixelWidth, pixelHeight);
+            delete requestSrsOwned;
         }
     }
 }
@@ -312,7 +424,53 @@ void WMSLayer::refreshScene(QGraphicsScene *scene,
                 reply->abort();
                 reply->deleteLater();
             }
-            requestTile(canvasExtent, canvasSRS, pixelWidth, pixelHeight);
+
+            MapExtent requestExt = canvasExtent;
+            SpatialReferenceSystem *requestSrsOwned = nullptr;
+            const SpatialReferenceSystem *requestSrs = canvasSRS;
+
+            if (!m_crs.isEmpty() && canvasSRS
+                && m_crs.compare(canvasSRS->toAuthority(), Qt::CaseInsensitive) != 0)
+            {
+                int sepIdx = m_crs.lastIndexOf(QLatin1Char(':'));
+                if (sepIdx > 0)
+                {
+                    bool ok = false;
+                    int code = m_crs.mid(sepIdx + 1).toInt(&ok);
+                    if (ok && code > 0)
+                    {
+                        requestSrsOwned = SpatialReferenceSystem::fromAuthCode(
+                            m_crs.left(sepIdx), code);
+                        if (requestSrsOwned)
+                        {
+                            OGRCoordinateTransformation *ct =
+                                OGRCreateCoordinateTransformation(
+                                    canvasSRS->ogrSpatialReference(),
+                                    requestSrsOwned->ogrSpatialReference());
+                            if (ct)
+                            {
+                                double xs[4] = { canvasExtent.xMin(), canvasExtent.xMax(),
+                                                 canvasExtent.xMax(), canvasExtent.xMin() };
+                                double ys[4] = { canvasExtent.yMin(), canvasExtent.yMin(),
+                                                 canvasExtent.yMax(), canvasExtent.yMax() };
+                                if (ct->Transform(4, xs, ys))
+                                {
+                                    requestExt = MapExtent(
+                                        *std::min_element(xs, xs+4),
+                                        *std::min_element(ys, ys+4),
+                                        *std::max_element(xs, xs+4),
+                                        *std::max_element(ys, ys+4));
+                                }
+                                OGRCoordinateTransformation::DestroyCT(ct);
+                            }
+                            requestSrs = requestSrsOwned;
+                        }
+                    }
+                }
+            }
+
+            requestTile(canvasExtent, requestExt, requestSrs, pixelWidth, pixelHeight);
+            delete requestSrsOwned;
         }
     }
 
@@ -389,14 +547,20 @@ void WMSLayer::onGetMapReply(QNetworkReply *reply)
 
     if (reply->error() != QNetworkReply::NoError)
     {
-        qWarning() << "WMSLayer: GetMap failed:" << reply->errorString();
+        qWarning() << "WMSLayer: GetMap failed:" << reply->errorString()
+                   << "http=" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         return;
     }
 
+    QByteArray data = reply->readAll();
+    qDebug() << "[WMS] GetMap reply bytes=" << data.size()
+             << "contentType=" << reply->header(QNetworkRequest::ContentTypeHeader).toString();
+
     QImage img;
-    if (img.loadFromData(reply->readAll()))
+    if (img.loadFromData(data))
     {
-        m_cachedTile = img;
+        qDebug() << "[WMS] image decoded size=" << img.width() << "x" << img.height();
+        m_cachedTile   = img;
         // Now that the tile has arrived, commit the requested metadata so
         // refreshScene will use the correct extent/size for positioning.
         m_cacheExtent  = m_requestedExtent;
@@ -417,6 +581,10 @@ void WMSLayer::onGetMapReply(QNetworkReply *reply)
         emit tileReady();
         emit repaintRequested();
     }
+    else
+    {
+        qWarning() << "[WMS] image decode failed — server response:" << data.left(512);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -428,7 +596,14 @@ QUrl WMSLayer::buildGetMapUrl(const MapExtent &ext,
                                int w, int h) const
 {
     QUrl url = m_serviceUrl;
-    QUrlQuery query;
+    // Strip all OGC params from service URL (case-insensitive) to avoid
+    // duplicates when the user pastes a GetCapabilities URL as the endpoint.
+    static const QStringList kGetMapKeys = {
+        QStringLiteral("SERVICE"), QStringLiteral("REQUEST"), QStringLiteral("VERSION"),
+        QStringLiteral("LAYERS"),  QStringLiteral("STYLES"),  QStringLiteral("FORMAT"),
+        QStringLiteral("TRANSPARENT"), QStringLiteral("WIDTH"), QStringLiteral("HEIGHT"),
+        QStringLiteral("CRS"),     QStringLiteral("SRS"),       QStringLiteral("BBOX") };
+    QUrlQuery query = stripOgcParams(url, kGetMapKeys);
     query.addQueryItem(QStringLiteral("SERVICE"), QStringLiteral("WMS"));
     query.addQueryItem(QStringLiteral("REQUEST"), QStringLiteral("GetMap"));
     query.addQueryItem(QStringLiteral("VERSION"), m_wmsVersion);
@@ -439,10 +614,13 @@ QUrl WMSLayer::buildGetMapUrl(const MapExtent &ext,
     query.addQueryItem(QStringLiteral("WIDTH"),  QString::number(w));
     query.addQueryItem(QStringLiteral("HEIGHT"), QString::number(h));
 
-    // CRS / SRS parameter name depends on WMS version
+    // CRS / SRS: use the passed SRS (which may have been reprojected from the
+    // canvas CRS to a CRS the server supports).  Fall back to m_crs, then 4326.
     QString crsAuthority;
-    if (srs)
+    if (srs && !srs->toAuthority().isEmpty())
         crsAuthority = srs->toAuthority();
+    else if (!m_crs.isEmpty())
+        crsAuthority = m_crs;
     else
         crsAuthority = QStringLiteral("EPSG:4326");
 
@@ -451,19 +629,28 @@ QUrl WMSLayer::buildGetMapUrl(const MapExtent &ext,
     else
         query.addQueryItem(QStringLiteral("SRS"), crsAuthority);
 
-    // BBOX — axis order for WMS 1.3.0 with geographic CRS is lat,lon
+    // BBOX — WMS 1.3.0 with geographic CRS requires lat,lon (Y,X) axis order.
+    // Check the actual request CRS via its OGR definition, falling back to
+    // string heuristic for known geographic authorities.
     QString bbox;
-    bool axisSwap = (m_wmsVersion == QLatin1String("1.3.0") &&
-                     srs && srs->isGeographic());
+    bool axisSwap = false;
+    if (m_wmsVersion == QLatin1String("1.3.0"))
+    {
+        if (srs)
+            axisSwap = srs->isGeographic();
+        else
+            axisSwap = (crsAuthority.startsWith(QLatin1String("EPSG:4326"), Qt::CaseInsensitive) ||
+                        crsAuthority.startsWith(QLatin1String("CRS:84"),    Qt::CaseInsensitive));
+    }
 
     if (axisSwap)
         bbox = QStringLiteral("%1,%2,%3,%4")
-                   .arg(ext.yMin()).arg(ext.xMin())
-                   .arg(ext.yMax()).arg(ext.xMax());
+                   .arg(ext.yMin(), 0, 'f', 6).arg(ext.xMin(), 0, 'f', 6)
+                   .arg(ext.yMax(), 0, 'f', 6).arg(ext.xMax(), 0, 'f', 6);
     else
         bbox = QStringLiteral("%1,%2,%3,%4")
-                   .arg(ext.xMin()).arg(ext.yMin())
-                   .arg(ext.xMax()).arg(ext.yMax());
+                   .arg(ext.xMin(), 0, 'f', 6).arg(ext.yMin(), 0, 'f', 6)
+                   .arg(ext.xMax(), 0, 'f', 6).arg(ext.yMax(), 0, 'f', 6);
 
     query.addQueryItem(QStringLiteral("BBOX"), bbox);
 
@@ -612,22 +799,29 @@ void WMSLayer::parseCapabilities(const QByteArray &xml)
     emit capabilitiesFetched(info);
 }
 
-void WMSLayer::requestTile(const MapExtent &ext,
-                             const SpatialReferenceSystem *canvasSRS,
+void WMSLayer::requestTile(const MapExtent &trackingExt,
+                             const MapExtent &requestExt,
+                             const SpatialReferenceSystem *requestSrs,
                              int w, int h)
 {
-    // Caller must have already cancelled any previous in-flight request.
     Q_ASSERT(!m_pendingReply);
 
-    QUrl url = buildGetMapUrl(ext, canvasSRS, w, h);
+    QUrl url = buildGetMapUrl(requestExt, requestSrs, w, h);
+    qDebug() << "[WMS] requestTile url=" << url.toString();
+
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("OpenSWMMVis"));
+    if (!m_authHeader.isEmpty())
+        req.setRawHeader("Authorization", m_authHeader);
+    for (auto it = m_httpHeaders.cbegin(); it != m_httpHeaders.cend(); ++it)
+        req.setRawHeader(it.key().compare("referer", Qt::CaseInsensitive) == 0
+                         ? QByteArray("Referer") : it.key().toUtf8(), it.value().toUtf8());
 
-    // Record the requested extent. m_cacheExtent/Width/Height are only updated
-    // when the reply arrives so the old tile stays positioned correctly until then.
+    // trackingExt is always in canvas CRS (metres) — used in render() to
+    // position the returned image correctly regardless of what CRS was requested.
     m_requestedWidth   = w;
     m_requestedHeight  = h;
-    m_requestedExtent  = ext;
+    m_requestedExtent  = trackingExt;
 
     m_pendingReply = m_nam->get(req);
     QNetworkReply *reply = m_pendingReply;
@@ -638,6 +832,7 @@ void WMSLayer::requestTile(const MapExtent &ext,
 
 void WMSLayer::invalidateCache()
 {
+    qDebug() << "[WMS] invalidateCache called";
     m_cachedTile      = QImage{};
     m_cacheExtent     = MapExtent{};
     m_requestedExtent = MapExtent{};

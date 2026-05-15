@@ -17,6 +17,8 @@
 #include <QPainterPath>
 #include <QVariantMap>
 
+#include "map/scalebarsettings.h"
+
 class OpenSWMMVisLayer;
 
 // ============================================================================
@@ -279,9 +281,15 @@ public:
                QWidget *widget) override;
 
     void setMapUnitsPerPixel(double mpp) { m_mapUnitsPerPixel = mpp; }
+    void setMetresPerPixel(double mpp)  { m_metresPerPixel   = mpp; }
+    void setSettings(ScaleBarSettings *settings) { m_settings = settings; }
+    void setRawCRS(bool raw) { m_rawCRS = raw; }
 
 private:
-    double m_mapUnitsPerPixel = 1.0;
+    double             m_mapUnitsPerPixel = 1.0;
+    double             m_metresPerPixel   = 1.0; /*!< CRS-aware metres/pixel; set by caller. */
+    bool               m_rawCRS           = false;
+    ScaleBarSettings  *m_settings = nullptr;
 };
 
 // ============================================================================

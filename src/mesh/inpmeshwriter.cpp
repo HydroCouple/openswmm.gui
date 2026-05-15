@@ -2,7 +2,7 @@
  * \file   inpmeshwriter.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Slice AU — InpMeshWriter implementation. Section formats per
  * openswmm.engine/docs/2dModelStrategy.md §1.4–1.7.

@@ -2,7 +2,7 @@
  * \file   inpmeshwriter.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Slice AU — emit `[2D_VERTICES]` / `[2D_TRIANGLES]` /
  * `[2D_VERTEX_NODE_MAP]` / `[2D_TRIANGLE_NODE_MAP]` sections from a
