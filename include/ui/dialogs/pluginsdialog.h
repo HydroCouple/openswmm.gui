@@ -2,7 +2,7 @@
  * \file   pluginsdialog.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Slice AA — Tools → Plugins. Read-only listing of every filter the
  * FileFilterRegistry knows about (built-in + engine-discovered),

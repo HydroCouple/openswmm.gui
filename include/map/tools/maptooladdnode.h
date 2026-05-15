@@ -38,8 +38,12 @@ public:
      *                  2=Storage / 3=Divider).
      * \param namePrefix Prefix used to auto-generate a unique name.
      */
+    /*! \param elementKind  Naming-preference key: "junction", "outfall",
+     *                      "storage", or "divider". Used to look up the
+     *                      configurable prefix from PreferencesManager. */
     OpenSWMMVisMapToolAddNode(MapCanvas *canvas, int nodeType,
-                               QString namePrefix, QObject *parent = nullptr);
+                               const QString &elementKind,
+                               QObject *parent = nullptr);
 
     [[nodiscard]] QCursor cursor() const override;
 
@@ -58,7 +62,7 @@ private:
     [[nodiscard]] QString nextAvailableName(SWMMModelLayer *layer) const;
 
     int     m_nodeType;
-    QString m_namePrefix;
+    QString m_elementKind; // key into PreferencesManager::elementNamePrefix()
 };
 
 #endif // MAPTOOLADDNODE_H

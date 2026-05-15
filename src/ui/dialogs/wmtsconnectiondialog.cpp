@@ -231,9 +231,12 @@ void WMTSConnectionDialog::onLayerSelectionChanged()
                                         ? QStringList{QStringLiteral("image/png")}
                                         : info.formats);
 
-                // Style: WMTS layers typically have a "default" style
+                // Styles: populated from capabilities; fall back to "default"
                 m_styleCombo->clear();
-                m_styleCombo->addItem(QStringLiteral("default"));
+                if (!info.styles.isEmpty())
+                    m_styleCombo->addItems(info.styles);
+                else
+                    m_styleCombo->addItem(QStringLiteral("default"));
                 break;
             }
         }

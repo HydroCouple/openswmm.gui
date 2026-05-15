@@ -2,7 +2,7 @@
  * \file   objectbrowserpanel.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Phase 0 + Slice S — Object Browser dock. Virtualised tree view of every
  * SWMM object in the active project's model, grouped by type (Junctions,

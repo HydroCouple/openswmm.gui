@@ -2,7 +2,7 @@
  * \file   meshresult.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Slice AU — value types for the 2D mesh generator. Pure value types
  * with no Qt-meta, no Triangle includes — safe to depend on from

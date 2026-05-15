@@ -348,30 +348,38 @@ void ScaleBarItem::paint(QPainter *painter,
                          const QStyleOptionGraphicsItem * /*option*/,
                          QWidget * /*widget*/)
 {
-    if (m_mapUnitsPerPixel <= 0.0)
+    if (m_metresPerPixel <= 0.0)
         return;
 
-    const int maxLen = 100;
-    double barMapUnits = maxLen * m_mapUnitsPerPixel;
+    const int maxLen = m_settings ? m_settings->maxBarLength() : 100;
 
-    double magnitude = std::pow(10.0, std::floor(std::log10(barMapUnits)));
-    double nice = barMapUnits / magnitude;
-    if (nice < 2.0) nice = 1.0;
+    // Round to a "nice" bar length in metres
+    double barMetres = maxLen * m_metresPerPixel;
+    double magnitude = std::pow(10.0, std::floor(std::log10(barMetres)));
+    double nice      = barMetres / magnitude;
+    if      (nice < 2.0) nice = 1.0;
     else if (nice < 5.0) nice = 2.0;
-    else nice = 5.0;
-    barMapUnits = nice * magnitude;
-    int barPixels = static_cast<int>(barMapUnits / m_mapUnitsPerPixel);
+    else                 nice = 5.0;
+    barMetres = nice * magnitude;
 
-    painter->setPen(QPen(Qt::black, 2));
+    // Snap bar length to the same rounded value the label will display so bar ↔ label stay in sync.
+    if (m_settings && !m_rawCRS)
+        barMetres = m_settings->roundedMetres(barMetres);
+
+    int barPixels = static_cast<int>(std::round(barMetres / m_metresPerPixel));
+    if (barPixels < 2) barPixels = 2;
+
+    painter->setPen(m_settings ? m_settings->pen() : QPen(Qt::black, 2));
     painter->drawLine(0, 20, barPixels, 20);
     painter->drawLine(0, 16, 0, 24);
     painter->drawLine(barPixels, 16, barPixels, 24);
 
-    QString label = (barMapUnits >= 1000)
-                        ? QStringLiteral("%1 km").arg(barMapUnits / 1000.0, 0, 'g', 3)
-                        : QStringLiteral("%1 m").arg(barMapUnits, 0, 'g', 3);
-
-    painter->setFont(QFont(QStringLiteral("sans-serif"), 8));
+    painter->setFont(m_settings ? m_settings->font() : QFont(QStringLiteral("sans-serif"), 8));
+    QString label = m_settings
+                        ? m_settings->formatLabel(barMetres, m_rawCRS)
+                        : ((barMetres >= 1000.0)
+                               ? QStringLiteral("%1 km").arg(barMetres / 1000.0, 0, 'g', 3)
+                               : QStringLiteral("%1 m").arg(barMetres, 0, 'g', 3));
     painter->drawText(0, 12, label);
 }
 

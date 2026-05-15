@@ -2,7 +2,7 @@
  * \file   objectbrowserpanel.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  */
 #include "ui/panels/objectbrowserpanel.h"
 #include "ui/panels/swmmobjecttreemodel.h"
@@ -118,6 +118,10 @@ void ObjectBrowserPanel::setProject(SWMMModelLayer *layer,
         QObject::disconnect(m_selMgr, &SelectionManager::selectionChanged,
                             this,     &ObjectBrowserPanel::onSelectionManagerChanged);
 
+    if (m_layer)
+        QObject::disconnect(m_layer, &SWMMModelLayer::geometryChanged,
+                            this,    &ObjectBrowserPanel::refresh);
+
     m_layer  = layer;
     m_selMgr = selMgr;
     m_canvas = canvas;
@@ -129,16 +133,30 @@ void ObjectBrowserPanel::setProject(SWMMModelLayer *layer,
                 this,     &ObjectBrowserPanel::onSelectionManagerChanged,
                 Qt::UniqueConnection);
 
+    if (m_layer)
+        connect(m_layer, &SWMMModelLayer::geometryChanged,
+                this,    &ObjectBrowserPanel::refresh,
+                Qt::UniqueConnection);
+
     refresh();
 }
 
 void ObjectBrowserPanel::refresh()
 {
+    // Block the tree's selection-change signal from propagating to the
+    // SelectionManager while the model resets. Without this, endResetModel()
+    // clears the QItemSelectionModel, which fires onTreeSelectionChanged()
+    // with an empty set, calling m_selMgr->select({}, Replace) — wiping the
+    // global selection and removing the canvas highlight for every object.
+    // blockSignals() is scoped to the selection model only, so it has no
+    // side-effects on canvas rendering, unlike the broader m_applyingFromBus.
+    auto *sm = m_view->selectionModel();
+    sm->blockSignals(true);
     m_model->reload();
     m_view->expandAll();
+    sm->blockSignals(false);
 
-    // Restore any prior selection state from the bus so the tree matches
-    // the shared selection after a rebind (tab switch / reload).
+    // Restore the tree's visual selection to match the SelectionManager.
     if (m_selMgr && !m_selMgr->isEmpty())
         onSelectionManagerChanged(m_selMgr->selection(), {}, {});
 }
@@ -281,7 +299,8 @@ void ObjectBrowserPanel::zoomToObject(const SWMMObjectRef &ref)
     // previously fell off the identifyByName() X/Y path — subcatchments
     // and multi-vertex links without centred X/Y attrs — is now covered.
     // Unknown name → NaN-sentinel extent; finiteness check rejects it.
-    const MapExtent obj = m_layer->objectExtent(ref.name);
+    const MapExtent obj = m_canvas->extentInCanvasCRS(
+        m_layer, m_layer->objectExtent(ref.name));
     if (!std::isfinite(obj.xMin()) || !std::isfinite(obj.yMin())
         || !std::isfinite(obj.xMax()) || !std::isfinite(obj.yMax()))
         return;
@@ -299,7 +318,7 @@ void ObjectBrowserPanel::zoomToObject(const SWMMObjectRef &ref)
     if (isPoint)
     {
         double buffer = 100.0;
-        if (const MapExtent &le = m_layer->extent(); le.isValid())
+        if (const MapExtent le = m_canvas->layerExtentInCanvasCRS(m_layer); le.isValid())
         {
             const double dx = le.xMax() - le.xMin();
             const double dy = le.yMax() - le.yMin();

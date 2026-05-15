@@ -2,7 +2,7 @@
  * \file   swmmvisprojectwindow.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  */
 
 #include "swmmvisprojectwindow.h"
@@ -16,6 +16,9 @@
 #include "map/tools/maptoolmovenode.h"
 #include "map/tools/maptooleditvertex.h"
 #include "map/tools/maptooladdnode.h"
+#include "map/tools/maptooladdlink.h"
+#include "map/tools/maptooladdgage.h"
+#include "map/tools/maptooladdsubcatchment.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
 #include "ui/dialogs/crsselectiondialog.h"
@@ -24,19 +27,27 @@
 #include "core/preferencesmanager.h"
 #include "core/unitsystem.h"
 #include "map/openswmmvisscene.h"
+#include "plugins/filefilterregistry.h"
 #include "selection/selectionmanager.h"
 
 #include <QCloseEvent>
+#include <QComboBox>
 #include <QDebug>
+#include <QEvent>
 #include <QFile>
 #include <QFileInfo>
+#include <QFrame>
 #include <QGraphicsScene>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QPushButton>
 #include <QSettings>
 #include <QTimer>
 #include <QVBoxLayout>
+
+#include "core/measurementunitmanager.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
@@ -70,6 +81,34 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
                              ? QStringLiteral("Untitled")
                              : QFileInfo(filePath).baseName());
     mModelLayer->setVisible(!filePath.isEmpty());
+
+    auto applyLinkColorsFromPreferences = [this]() {
+        auto *prefs = PreferencesManager::instance();
+
+        auto conduit = mModelLayer->conduitSymbol();
+        conduit.fillColor = prefs->linkColor(QStringLiteral("conduit"));
+        mModelLayer->setConduitSymbol(conduit);
+
+        auto pump = mModelLayer->pumpSymbol();
+        pump.fillColor = prefs->linkColor(QStringLiteral("pump"));
+        mModelLayer->setPumpSymbol(pump);
+
+        auto orifice = mModelLayer->orificeSymbol();
+        orifice.fillColor = prefs->linkColor(QStringLiteral("orifice"));
+        mModelLayer->setOrificeSymbol(orifice);
+
+        auto weir = mModelLayer->weirSymbol();
+        weir.fillColor = prefs->linkColor(QStringLiteral("weir"));
+        mModelLayer->setWeirSymbol(weir);
+    };
+    applyLinkColorsFromPreferences();
+    connect(PreferencesManager::instance(), &PreferencesManager::preferenceChanged,
+            this, [applyLinkColorsFromPreferences](const QString &group,
+                                                   const QString &key) {
+                if (group == QLatin1String("Rendering")
+                    && key.startsWith(QLatin1String("LinkColor/")))
+                    applyLinkColorsFromPreferences();
+            });
 
     // Hard-sync model-layer CRS → canvas CRS BEFORE addLayer. The "project
     // CRS" and the "SWMM model CRS" are conceptually a single thing;
@@ -111,10 +150,120 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     mMoveNodeTool     = new OpenSWMMVisMapToolMoveNode(mCanvas, this);
     mEditVertexTool   = new OpenSWMMVisMapToolEditVertex(mCanvas, this);
     // SWMM_NODE_JUNCTION=0, OUTFALL=1, STORAGE=2, DIVIDER=3
-    mAddJunctionTool  = new OpenSWMMVisMapToolAddNode(mCanvas, 0, QStringLiteral("J"), this);
-    mAddOutfallTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 1, QStringLiteral("O"), this);
-    mAddStorageTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 2, QStringLiteral("S"), this);
-    mAddDividerTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 3, QStringLiteral("D"), this);
+    // Pass element-kind keys so tools read the configurable prefix from PreferencesManager.
+    mAddJunctionTool  = new OpenSWMMVisMapToolAddNode(mCanvas, 0, QStringLiteral("junction"),     this);
+    mAddOutfallTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 1, QStringLiteral("outfall"),      this);
+    mAddStorageTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 2, QStringLiteral("storage"),      this);
+    mAddDividerTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 3, QStringLiteral("divider"),      this);
+    // SWMM_LINK: 0=Conduit, 1=Pump, 2=Orifice, 3=Weir, 4=Outlet
+    mAddConduitTool   = new OpenSWMMVisMapToolAddLink(mCanvas, 0, QStringLiteral("conduit"),      this);
+    mAddPumpTool      = new OpenSWMMVisMapToolAddLink(mCanvas, 1, QStringLiteral("pump"),         this);
+    mAddOrificeTool   = new OpenSWMMVisMapToolAddLink(mCanvas, 2, QStringLiteral("orifice"),      this);
+    mAddWeirTool      = new OpenSWMMVisMapToolAddLink(mCanvas, 3, QStringLiteral("weir"),         this);
+    mAddOutletTool    = new OpenSWMMVisMapToolAddLink(mCanvas, 4, QStringLiteral("outlet"),       this);
+    mAddGageTool      = new OpenSWMMVisMapToolAddGage(mCanvas, this);
+    mAddSubcatchTool  = new OpenSWMMVisMapToolAddSubcatchment(mCanvas, this);
+
+    // ---------------------------------------------------------------------------
+    // Measure tool floating panel (child of mCanvas, shown/hidden by tool state)
+    // ---------------------------------------------------------------------------
+    {
+        mMeasurePanel = new QFrame(mCanvas);
+        mMeasurePanel->setFrameStyle(QFrame::StyledPanel | QFrame::Raised);
+        mMeasurePanel->setAutoFillBackground(true);
+
+        QHBoxLayout *panelLayout = new QHBoxLayout(mMeasurePanel);
+        panelLayout->setContentsMargins(6, 3, 6, 3);
+        panelLayout->setSpacing(6);
+
+        panelLayout->addWidget(new QLabel(QStringLiteral("Mode:"), mMeasurePanel));
+
+        mMeasureModeCombo = new QComboBox(mMeasurePanel);
+        mMeasureModeCombo->addItem(QStringLiteral("Distance"),
+                                   QVariant::fromValue(static_cast<int>(MeasureMode::Distance)));
+        mMeasureModeCombo->addItem(QStringLiteral("Area"),
+                                   QVariant::fromValue(static_cast<int>(MeasureMode::Area)));
+        panelLayout->addWidget(mMeasureModeCombo);
+
+        panelLayout->addWidget(new QLabel(QStringLiteral("Units:"), mMeasurePanel));
+
+        mMeasureUnitCombo = new QComboBox(mMeasurePanel);
+        panelLayout->addWidget(mMeasureUnitCombo);
+
+        mMeasureTotalLabel = new QLabel(QStringLiteral("0.00 m"), mMeasurePanel);
+        mMeasureTotalLabel->setMinimumWidth(110);
+        mMeasureTotalLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        panelLayout->addWidget(mMeasureTotalLabel);
+
+        QPushButton *clearBtn = new QPushButton(QStringLiteral("Clear"), mMeasurePanel);
+        clearBtn->setFixedWidth(54);
+        panelLayout->addWidget(clearBtn);
+
+        mMeasurePanel->adjustSize();
+        mMeasurePanel->hide();
+
+        // Mode combo → update tool + repopulate unit combo
+        connect(mMeasureModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int idx)
+        {
+            if (!mMeasureTool) return;
+            const auto mode = (idx == 0) ? MeasureMode::Distance : MeasureMode::Area;
+            mMeasureTool->setMode(mode);
+            updateMeasureUnitCombo();
+        });
+
+        // Unit combo → update tool
+        connect(mMeasureUnitCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int idx)
+        {
+            if (!mMeasureTool || idx < 0) return;
+            if (mMeasureTool->mode() == MeasureMode::Distance)
+                mMeasureTool->setDistanceUnit(
+                    static_cast<MeasurementUnitManager::DistanceUnit>(idx));
+            else
+                mMeasureTool->setAreaUnit(
+                    static_cast<MeasurementUnitManager::AreaUnit>(idx));
+        });
+
+        // Clear button → reset measurement
+        connect(clearBtn, &QPushButton::clicked,
+                mMeasureTool, &OpenSWMMVisMapToolMeasure::clearMeasurement);
+
+        // Total label ← tool total
+        connect(mMeasureTool, &OpenSWMMVisMapToolMeasure::totalChanged,
+                this, [this](double total)
+        {
+            if (!mMeasurePanel->isVisible()) return;
+            QString sym;
+            if (mMeasureTool->mode() == MeasureMode::Distance)
+                sym = MeasurementUnitManager::distanceUnitSymbol(mMeasureTool->distanceUnit());
+            else
+                sym = MeasurementUnitManager::areaUnitSymbol(mMeasureTool->areaUnit());
+            mMeasureTotalLabel->setText(
+                QStringLiteral("%1 %2").arg(total, 0, 'f', 2).arg(sym));
+        });
+
+        // Show/hide + initialise combos when the active tool changes
+        connect(mCanvas, &MapCanvas::activeToolChanged,
+                this, [this](OpenSWMMVisMapTool *tool)
+        {
+            const bool isMeasure = (tool == mMeasureTool);
+            if (isMeasure)
+            {
+                // Sync mode combo to tool's current mode without triggering slots
+                QSignalBlocker mb(mMeasureModeCombo);
+                mMeasureModeCombo->setCurrentIndex(
+                    mMeasureTool->mode() == MeasureMode::Distance ? 0 : 1);
+                updateMeasureUnitCombo();
+            }
+            mMeasurePanel->setVisible(isMeasure);
+            if (isMeasure)
+                repositionMeasurePanel();
+        });
+
+        // Reposition when canvas resizes
+        mCanvas->installEventFilter(this);
+    }
 
     // Auto-length — last-used value from QSettings, seeded into the canvas
     // dynamic property so map tools can read it without a back-pointer to
@@ -421,11 +570,43 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         if (errorOut) *errorOut = tr("No model loaded.");
         return false;
     }
+
+    // AA-3.3 — pick the writer plugin by matching the path's extension
+    // against FileFilterRegistry's InputRead entries (built-in `.inp`
+    // writer + any plugin-supplied writers like GeoPackage).  Empty
+    // pluginId == built-in `.inp` writer, so an unmatched extension
+    // falls through to legacy behaviour without a separate code path.
+    auto pluginIdForExt = [](const QString &ext) -> QString {
+        auto *registry = openswmmvis::FileFilterRegistry::instance();
+        for (const auto &entry :
+                registry->entriesFor(openswmmvis::FilterKind::InputRead)) {
+            if (!entry.canWrite || !entry.enabled) continue;
+            for (const QString &pat : entry.patterns) {
+                QString patExt = pat;
+                if (patExt.startsWith(QStringLiteral("*.")))
+                    patExt = patExt.mid(2);
+                if (QString::compare(patExt, ext, Qt::CaseInsensitive) == 0)
+                    return entry.pluginId;
+            }
+        }
+        return {};
+    };
+
+    const QString pluginId = pluginIdForExt(QFileInfo(newPath).suffix());
+
     QByteArray utf8 = newPath.toUtf8();
-    int rc = swmm_model_write(mModelLayer->engine(), utf8.constData());
+    QByteArray idUtf8 = pluginId.toUtf8();
+    int rc = swmm_model_write_with_plugin(
+        mModelLayer->engine(),
+        utf8.constData(),
+        pluginId.isEmpty() ? nullptr : idUtf8.constData());
     if (rc != 0)
     {
-        if (errorOut) *errorOut = tr("swmm_model_write failed (code %1)").arg(rc);
+        if (errorOut) *errorOut =
+            pluginId.isEmpty()
+              ? tr("swmm_model_write_with_plugin (built-in) failed (code %1)").arg(rc)
+              : tr("swmm_model_write_with_plugin (\"%1\") failed (code %2)")
+                    .arg(pluginId).arg(rc);
         return false;
     }
     // If saved to a new path, point the layer at it so subsequent Save targets the new file.
@@ -448,6 +629,58 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
 
 // ---------------------------------------------------------------------------
 // Close event — prompt if unsaved changes
+// ---------------------------------------------------------------------------
+// Measure panel helpers
+// ---------------------------------------------------------------------------
+
+bool SWMMVisProjectWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == mCanvas
+        && event->type() == QEvent::Resize
+        && mMeasurePanel
+        && mMeasurePanel->isVisible())
+    {
+        repositionMeasurePanel();
+    }
+    return QMdiSubWindow::eventFilter(watched, event);
+}
+
+void SWMMVisProjectWindow::repositionMeasurePanel()
+{
+    if (!mMeasurePanel || !mCanvas)
+        return;
+    const int margin    = 8;
+    const QSize sz      = mMeasurePanel->sizeHint();
+    const int x         = (mCanvas->width()  - sz.width())  / 2;
+    const int y         =  mCanvas->height() - sz.height()  - margin;
+    mMeasurePanel->setGeometry(x, y, sz.width(), sz.height());
+    mMeasurePanel->raise();
+}
+
+void SWMMVisProjectWindow::updateMeasureUnitCombo()
+{
+    if (!mMeasureUnitCombo || !mMeasureTool)
+        return;
+
+    QSignalBlocker blocker(mMeasureUnitCombo);
+    mMeasureUnitCombo->clear();
+
+    if (mMeasureTool->mode() == MeasureMode::Distance)
+    {
+        for (const QString &name : MeasurementUnitManager::distanceUnitNames())
+            mMeasureUnitCombo->addItem(name);
+        mMeasureUnitCombo->setCurrentIndex(
+            static_cast<int>(mMeasureTool->distanceUnit()));
+    }
+    else
+    {
+        for (const QString &name : MeasurementUnitManager::areaUnitNames())
+            mMeasureUnitCombo->addItem(name);
+        mMeasureUnitCombo->setCurrentIndex(
+            static_cast<int>(mMeasureTool->areaUnit()));
+    }
+}
+
 // ---------------------------------------------------------------------------
 
 void SWMMVisProjectWindow::closeEvent(QCloseEvent *event)
@@ -482,7 +715,7 @@ void SWMMVisProjectWindow::closeEvent(QCloseEvent *event)
                     event->ignore();
                     QMessageBox::information(this, tr("Save As required"),
                         tr("Untitled projects need an explicit Save As — "
-                           "use File → Save As → Project before closing."));
+                           "use File → Save As before closing."));
                     return;
                 }
                 QMessageBox::critical(this, tr("Save failed"), err);
@@ -513,13 +746,26 @@ void SWMMVisProjectWindow::activatePanTool()         { mCanvas->setActiveTool(mP
 void SWMMVisProjectWindow::activateZoomInTool()      { mCanvas->setActiveTool(mZoomInTool); }
 void SWMMVisProjectWindow::activateZoomOutTool()     { mCanvas->setActiveTool(mZoomOutTool); }
 void SWMMVisProjectWindow::activateSelectTool()      { mCanvas->setActiveTool(mSelectTool); }
-void SWMMVisProjectWindow::activateMeasureTool()     { mCanvas->setActiveTool(mMeasureTool); }
+void SWMMVisProjectWindow::activateMeasureTool()
+{
+    if (mCanvas->activeTool() == mMeasureTool)
+        mCanvas->setActiveTool(mSelectTool);
+    else
+        mCanvas->setActiveTool(mMeasureTool);
+}
 void SWMMVisProjectWindow::activateMoveNodeTool()    { mCanvas->setActiveTool(mMoveNodeTool); }
 void SWMMVisProjectWindow::activateEditVertexTool()  { mCanvas->setActiveTool(mEditVertexTool); }
-void SWMMVisProjectWindow::activateAddJunctionTool() { mCanvas->setActiveTool(mAddJunctionTool); }
-void SWMMVisProjectWindow::activateAddOutfallTool()  { mCanvas->setActiveTool(mAddOutfallTool); }
-void SWMMVisProjectWindow::activateAddStorageTool()  { mCanvas->setActiveTool(mAddStorageTool); }
-void SWMMVisProjectWindow::activateAddDividerTool()  { mCanvas->setActiveTool(mAddDividerTool); }
+void SWMMVisProjectWindow::activateAddJunctionTool()    { mCanvas->setActiveTool(mAddJunctionTool); }
+void SWMMVisProjectWindow::activateAddOutfallTool()     { mCanvas->setActiveTool(mAddOutfallTool); }
+void SWMMVisProjectWindow::activateAddStorageTool()     { mCanvas->setActiveTool(mAddStorageTool); }
+void SWMMVisProjectWindow::activateAddDividerTool()     { mCanvas->setActiveTool(mAddDividerTool); }
+void SWMMVisProjectWindow::activateAddConduitTool()     { mCanvas->setActiveTool(mAddConduitTool); }
+void SWMMVisProjectWindow::activateAddPumpTool()        { mCanvas->setActiveTool(mAddPumpTool); }
+void SWMMVisProjectWindow::activateAddOrificeTool()     { mCanvas->setActiveTool(mAddOrificeTool); }
+void SWMMVisProjectWindow::activateAddWeirTool()        { mCanvas->setActiveTool(mAddWeirTool); }
+void SWMMVisProjectWindow::activateAddOutletTool()      { mCanvas->setActiveTool(mAddOutletTool); }
+void SWMMVisProjectWindow::activateAddGageTool()        { mCanvas->setActiveTool(mAddGageTool); }
+void SWMMVisProjectWindow::activateAddSubcatchmentTool(){ mCanvas->setActiveTool(mAddSubcatchTool); }
 void SWMMVisProjectWindow::zoomToFullExtent()        { mCanvas->zoomToFullExtent(); }
 
 void SWMMVisProjectWindow::setAutoLengthEnabled(bool enabled)
@@ -531,4 +777,10 @@ void SWMMVisProjectWindow::setAutoLengthEnabled(bool enabled)
         mCanvas->setProperty("autoLength", enabled);
     QSettings().setValue(QStringLiteral("SWMMVis/autoLength"), enabled);
     emit autoLengthChanged(enabled);
+}
+
+void SWMMVisProjectWindow::setEngineVersion(const QString &version)
+{
+    mEngineVersion = version;
+    setHasChanges(true);
 }

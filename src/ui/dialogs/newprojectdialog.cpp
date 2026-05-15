@@ -2,7 +2,7 @@
  * \file   newprojectdialog.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  */
 
 #include "ui/dialogs/newprojectdialog.h"
@@ -37,7 +37,7 @@ void NewProjectDialog::buildUi()
     auto *header = new QLabel(
         tr("Create a new SWMM model with the options below. "
            "After clicking OK the project opens as an untitled window — "
-           "use File → Save As → Project to give it a real path."),
+           "use File → Save As to give it a real path."),
         this);
     header->setWordWrap(true);
     outer->addWidget(header);

@@ -149,7 +149,14 @@ int XYZTileLayer::bestZoom(const QRectF &wgs84Extent, int vpWidth) const
         return 2;
 
     // We want: (lonSpan / 360) * 2^z * 256 ≈ vpWidth
-    const double idealZ = std::log2((vpWidth * 360.0) / (lonSpan * m_tileSizePx));
+    // For @2x HiDPI tiles (e.g. CartoDB @2x), m_tileSizePx == 512 but each tile
+    // covers the same geographic extent as a 256-px tile at the same zoom level.
+    // Use the logical geographic tile size (tileSizePx / pixelRatio) so bestZoom
+    // selects the correct zoom level rather than one level too coarse.
+    const int geoTileSize = (m_tilePixelRatio > 1)
+                            ? m_tileSizePx / m_tilePixelRatio
+                            : m_tileSizePx;
+    const double idealZ = std::log2((vpWidth * 360.0) / (lonSpan * geoTileSize));
 
     // Round up when the fractional part >= 0.3 — biases toward sharper tiles
     // (more numerous, no upscaling) at the cost of slightly more tile fetches.
@@ -280,8 +287,13 @@ QString XYZTileLayer::buildUrl(int z, int x, int y) const
     QString url = m_urlTemplate;
     url.replace(QStringLiteral("{s}"), sub);
     url.replace(QStringLiteral("{z}"), QString::number(z));
-    url.replace(QStringLiteral("{x}"), QString::number(x));
-    url.replace(QStringLiteral("{y}"), QString::number(y));
+    if (m_axisOrder == TileAxisOrder::ZYX) {
+        url.replace(QStringLiteral("{x}"), QString::number(y));
+        url.replace(QStringLiteral("{y}"), QString::number(x));
+    } else {
+        url.replace(QStringLiteral("{x}"), QString::number(x));
+        url.replace(QStringLiteral("{y}"), QString::number(y));
+    }
     return url;
 }
 
@@ -305,7 +317,18 @@ void XYZTileLayer::fetchTile(int z, int x, int y)
     req.setRawHeader("User-Agent",
                      "OpenSWMMVis/1.0 (github.com/calebbuahin/openswmm.gui)");
 
+    if (!m_authHeader.isEmpty())
+        req.setRawHeader("Authorization", m_authHeader);
+    for (auto it = m_httpHeaders.cbegin(); it != m_httpHeaders.cend(); ++it) {
+        const QString &key = it.key();
+        if (key.compare(QStringLiteral("referer"), Qt::CaseInsensitive) == 0)
+            req.setRawHeader("Referer", it.value().toUtf8());
+        else
+            req.setRawHeader(key.toUtf8(), it.value().toUtf8());
+    }
+
     QNetworkReply *reply = m_nam->get(req);
+    qDebug() << "[XYZ] fetchTile url=" << req.url().toString();
 
     connect(reply, &QNetworkReply::finished, this,
             [this, reply, key]() { onTileReply(reply, key); });
@@ -317,17 +340,25 @@ void XYZTileLayer::onTileReply(QNetworkReply *reply, const QString &key)
     m_inflight.remove(key);
 
     if (reply->error() != QNetworkReply::NoError)
+    {
+        qWarning() << "[XYZ] tile fetch failed key=" << key << reply->errorString();
         return;
+    }
 
     QByteArray data = reply->readAll();
+    qDebug() << "[XYZ] tile reply key=" << key << "bytes=" << data.size()
+             << "contentType=" << reply->header(QNetworkRequest::ContentTypeHeader).toString();
     auto *img = new QImage();
     if (img->loadFromData(data))
     {
         m_tileCache.insert(key, img);
+        qDebug() << "[XYZ] tile cached key=" << key << "size=" << img->size();
         emit repaintRequested();
     }
     else
     {
+        qWarning() << "[XYZ] tile decode failed key=" << key
+                   << "first64=" << data.left(64).toHex();
         delete img;
     }
 }
@@ -348,7 +379,6 @@ void XYZTileLayer::fetchCache(const MapExtent &extent,
         return;
 
     // Rebuild transforms if needed (first call or after CRS change)
-    if (!m_toWGS84 && !m_fromWGS84)
     {
         // Check if canvas is already WGS84 — if so no transforms needed
         OGRSpatialReference *canvasOGR = canvasSRS->ogrSpatialReference();
@@ -357,6 +387,8 @@ void XYZTileLayer::fetchCache(const MapExtent &extent,
     }
 
     const QRectF wgs84 = wgs84ExtentOfCanvasExtent(extent, canvasSRS);
+    qDebug() << "[XYZ] fetchCache template=" << m_urlTemplate.left(60)
+             << "wgs84Valid=" << wgs84.isValid() << wgs84;
     if (!wgs84.isValid())
         return;
 

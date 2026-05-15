@@ -1,10 +1,6 @@
 /*!
  * \file   maptoolmeasure.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
  * \date 2026
  */
 
@@ -12,11 +8,15 @@
 #define MAPTOOLMEASURE_H
 
 #include "map/tools/maptool.h"
+#include "core/measurementunitmanager.h"
 
+#include <QColor>
+#include <QFont>
 #include <QPointF>
 #include <QVector>
 
 class OpenSWMMVisWorkspace;
+class OGRCoordinateTransformation;
 
 /*!
  * \enum MeasureMode
@@ -29,51 +29,31 @@ enum class MeasureMode
 };
 
 /*!
- * \enum MeasureUnit
- * \brief Output unit for measured distance or area.
- */
-enum class MeasureUnit
-{
-    // Distance
-    Metres,
-    Kilometres,
-    Feet,
-    Miles,
-    NauticalMiles,
-    // Area
-    SquareMetres,
-    SquareKilometres,
-    Hectares,
-    Acres,
-    SquareFeet,
-    SquareMiles,
-};
-
-/*!
  * \class OpenSWMMVisMapToolMeasure
  * \brief Interactive tool for measuring geodesic distances or areas on the map.
- * \details The tool accumulates clicked vertex positions, computes the cumulative
- *          geodesic distance or the area of the polygon formed by those vertices,
- *          and displays the running total in the canvas status bar.
  *
- *          Geodesic calculations are performed with GDAL's OGRGeometry methods,
- *          so measurements honour the selected CRS (projected or geographic).
- *          Results are reported in the selected MeasureUnit.
+ * Measurements are CRS-aware:
+ *  - Geographic CRS (lon/lat): coordinates are transformed to WGS-84 then
+ *    the Haversine formula (R = 6 378 137 m) is applied.
+ *  - Projected CRS: Euclidean distance in CRS linear units × linearUnitsToMetres().
+ *  - Local / undefined CRS: raw Euclidean with no unit label.
  *
- *          Double-clicking finalises the measurement.  Pressing Escape or
- *          switching tools clears the accumulated vertices.
+ * Distance mode: shows a cumulative label at every committed vertex.
+ * Area mode: shows a semi-transparent polygon fill while drawing.
+ * Double-click finalises the measurement; subsequent left-click starts a new one.
+ * Escape removes the last vertex while drawing; clears a finalised result.
  */
 class OpenSWMMVisMapToolMeasure : public OpenSWMMVisMapTool
 {
     Q_OBJECT
 
     Q_PROPERTY(MeasureMode mode READ mode WRITE setMode NOTIFY modeChanged)
-    Q_PROPERTY(MeasureUnit unit READ unit WRITE setUnit NOTIFY unitChanged)
     Q_PROPERTY(double      total READ total NOTIFY totalChanged)
 
 public:
 
     explicit OpenSWMMVisMapToolMeasure(MapCanvas *canvas, QObject *parent = nullptr);
+    ~OpenSWMMVisMapToolMeasure() override;
 
     [[nodiscard]] QCursor cursor() const override;
 
@@ -82,24 +62,19 @@ public:
     [[nodiscard]] MeasureMode mode()  const;
     void setMode(MeasureMode mode);
 
-    [[nodiscard]] MeasureUnit unit()  const;
-    void setUnit(MeasureUnit unit);
+    [[nodiscard]] MeasurementUnitManager::DistanceUnit distanceUnit() const;
+    void setDistanceUnit(MeasurementUnitManager::DistanceUnit unit);
+
+    [[nodiscard]] MeasurementUnitManager::AreaUnit areaUnit() const;
+    void setAreaUnit(MeasurementUnitManager::AreaUnit unit);
 
     /*!
      * \brief Returns the cumulative measured value in the selected unit.
      */
     [[nodiscard]] double total() const;
 
-    /*!
-     * \brief Returns the unit symbol string for the current unit (e.g. "m", "km²").
-     */
-    [[nodiscard]] static QString unitSymbol(MeasureUnit unit);
-
     // ----- Actions -------------------------------------------------------
 
-    /*!
-     * \brief Clears all accumulated vertices and resets the total.
-     */
     void clearMeasurement();
 
     // ----- Tool interface ------------------------------------------------
@@ -118,38 +93,43 @@ public:
 
 signals:
     void modeChanged(MeasureMode mode);
-    void unitChanged(MeasureUnit unit);
+    void distanceUnitChanged(MeasurementUnitManager::DistanceUnit unit);
+    void areaUnitChanged(MeasurementUnitManager::AreaUnit unit);
     void totalChanged(double total);
     void measurementCleared();
 
 private:
     void recalculate();
+    void rebuildTransform();
+    void clearTransform();
+    void applyPreferences();
 
-    /*!
-     * \brief Computes geodesic segment length between two geographic points in metres.
-     */
     double geodesicDistance(const QPointF &a, const QPointF &b) const;
-
-    /*!
-     * \brief Computes geodesic area (in m²) of the polygon defined by \p vertices.
-     */
     double geodesicArea(const QVector<QPointF> &vertices) const;
 
-    /*!
-     * \brief Converts \p metres to the selected distance unit.
-     */
-    double convertDistance(double metres) const;
-
-    /*!
-     * \brief Converts \p squareMetres to the selected area unit.
-     */
-    double convertArea(double squareMetres) const;
+    // Formats a metre value in the current distance unit: "142.30 m"
+    QString formatDist(double metres) const;
+    // Formats a square-metre value in the current area unit: "3 847.20 m²"
+    QString formatArea(double sqm) const;
 
     MeasureMode        m_mode    = MeasureMode::Distance;
-    MeasureUnit        m_unit    = MeasureUnit::Metres;
-    QVector<QPointF>   m_vertices;   /*!< In canvas-CRS coordinates. */
-    QPointF            m_mousePos;   /*!< Current (moving) mouse position. */
+    MeasurementUnitManager::DistanceUnit m_distanceUnit = MeasurementUnitManager::Metres;
+    MeasurementUnitManager::AreaUnit     m_areaUnit     = MeasurementUnitManager::SquareMetres;
+
+    QVector<QPointF>   m_vertices;           /*!< In canvas-CRS coordinates. */
+    QVector<double>    m_segmentMetres;       /*!< Cumulative metres at each vertex. */
+    QPointF            m_mousePos;           /*!< Current (moving) mouse position. */
     double             m_total  = 0.0;
+    bool               m_finalized = false;
+
+    // Cached display preferences (updated via applyPreferences())
+    QColor  m_lineColor   { Qt::red };
+    QFont   m_labelFont   { QStringLiteral("sans-serif"), 8 };
+    int     m_labelDecimals { 2 };
+    QColor  m_fillColor   { 100, 149, 237 };
+    int     m_fillOpacity { 30 };
+
+    OGRCoordinateTransformation *m_toWgs84 = nullptr; /*!< Owned; null for projected/local CRS. */
 };
 
 #endif // MAPTOOLMEASURE_H

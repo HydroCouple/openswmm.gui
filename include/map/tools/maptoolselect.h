@@ -91,10 +91,12 @@ private:
     void selectAtPoint(const QPoint &pixel, Qt::KeyboardModifiers mods);
     void selectInRect(const QRect &pixelRect, Qt::KeyboardModifiers mods);
 
-    /*! Show the right-click context menu (Zoom to Object, Plot Time
-     *  Series) at the given widget pixel, for the object hit at that
-     *  point via identifyAt. No-op if nothing was hit. */
+    /*! Show the right-click context menu at the given pixel. */
     void showContextMenu(const QPoint &pixel);
+
+    /*! Delete all currently selected SWMM objects (Del key / context menu).
+     *  Groups all deletions under a single parent undo command. */
+    void deleteSelectedObjects();
 
     bool   m_dragging    = false;
     QPoint m_startPixel;

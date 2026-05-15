@@ -2,7 +2,7 @@
  * \file   simulationoptionsdialog.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Phase 3.9 (slice G-1) — SimulationOptionsDialog Tabs 1–2.
  * Round-trips OPTIONS keys via the engine's `swmm_options_get/set` C API.
@@ -19,7 +19,10 @@ class QComboBox;
 class QDateTimeEdit;
 class QDoubleSpinBox;
 class QLabel;
+class QLineEdit;
+class QPushButton;
 class QSpinBox;
+class QTableWidget;
 class QTabWidget;
 class QToolButton;
 
@@ -95,7 +98,18 @@ private:
     void buildPerformanceTab(QTabWidget *tabs);
     void buildSpatialTab(QTabWidget *tabs);
     void buildMeshTab(QTabWidget *tabs);
-    void refreshMeshList();   ///< rescan project dir for *.2dm files
+    void buildFilesTab(QTabWidget *tabs);   ///< Slice AA-3.5 — [PLUGINS] + [FILES] editor
+    void readOutputPathsFromSettings();      ///< Slice AA-4 — per-project rpt/out paths
+    void writeOutputPathsToSettings();       ///< Slice AA-4 — per-project rpt/out paths
+    void refreshMeshList();                  ///< rescan project dir for *.2dm files
+    void readPluginsFromEngine();
+    int  writePluginsToEngine();             ///< returns count of changes written
+    void readFilesSectionFromEngine();
+    int  writeFilesSectionToEngine();        ///< returns count of changes written
+    void readWriterCombosFromEngine();       ///< hydrate Input/Output/Report combos
+    int  writeWriterCombosToEngine();        ///< returns count of [PLUGINS] rows added
+    void updateSingleContainerEnabled();     ///< enable when chosen input plugin is tri-role
+    void onSingleContainerToggled(bool on);  ///< force Output+Report combos to match input
 
 #ifdef OPENSWMM_HAS_2D
     void build2DTab(QTabWidget *tabs);
@@ -117,6 +131,8 @@ private:
 private slots:
     void onSpatialPickCRS();
     void onSpatialDetectCRS();
+    void browseForReportFile();
+    void browseForOutputFile();
     void on2DModuleToggled(bool enabled);
 
 private:
@@ -190,6 +206,33 @@ private:
     QToolButton    *m_crsChangeButton   = nullptr;
     QToolButton    *m_crsDetectButton   = nullptr;
     QLabel         *m_extentLabel       = nullptr;
+
+    // Tab 7 — Writer / Container combos (Slice AA-3.5 full design)
+    QComboBox      *m_inputWriterCombo  = nullptr;
+    QComboBox      *m_outputWriterCombo = nullptr;
+    QComboBox      *m_reportWriterCombo = nullptr;
+    QCheckBox      *m_singleContainerBox = nullptr;
+
+    // Tab 7 — Output / Report file paths (Slice AA-4)
+    QLineEdit      *m_reportFilePathEdit = nullptr;
+    QLineEdit      *m_outputFilePathEdit = nullptr;
+
+    // Tab 7 — Files / Plugins (Slice AA-3.5)
+    QTableWidget   *m_pluginsTable      = nullptr;
+    QPushButton    *m_pluginsAddBtn     = nullptr;
+    QPushButton    *m_pluginsRemoveBtn  = nullptr;
+
+    // Tab 7 — Secondary file references (Slice AA-3 [FILES] follow-up)
+    QLineEdit      *m_rainfallPathEdit  = nullptr;
+    QComboBox      *m_rainfallModeCombo = nullptr;
+    QLineEdit      *m_runoffPathEdit    = nullptr;
+    QComboBox      *m_runoffModeCombo   = nullptr;
+    QLineEdit      *m_rdiiPathEdit      = nullptr;
+    QComboBox      *m_rdiiModeCombo     = nullptr;
+    QLineEdit      *m_inflowsPathEdit   = nullptr;
+    QLineEdit      *m_outflowsPathEdit  = nullptr;
+    QLineEdit      *m_hotstartUseEdit   = nullptr;
+    QLineEdit      *m_hotstartSaveEdit  = nullptr;
 
 #ifdef OPENSWMM_HAS_2D
     // Tab 6 — 2D Surface Routing (CVODE / mesh / coupling / linear solver)

@@ -8,7 +8,7 @@
 
 [![Build and Package](../../actions/workflows/build_and_test.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/build_and_test.yml)
 [![Documentation](../../actions/workflows/documentation.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/documentation.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 ---
 

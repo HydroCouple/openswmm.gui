@@ -12,9 +12,73 @@
 #define MAPUNDOSTACK_H
 
 #include <QObject>
+#include <QPointF>
+#include <QString>
 #include <QUndoStack>
+#include <QVector>
 #include "map/mapextent.h"
 #include "layers/swmmmodellayer.h"   // SWMMModelLayer::Category used by ReorderCategoriesCommand below
+
+// ---------------------------------------------------------------------------
+// Plain-data snapshots used by delete / undo
+// ---------------------------------------------------------------------------
+
+/*! All properties needed to re-create a deleted node. */
+struct NodeSnapshot
+{
+    QString name;
+    int     nodeType  = 0;
+    double  x = 0, y = 0;
+    double  invertElev     = 0;
+    double  maxDepth       = 0;
+    double  initDepth      = 0;
+    double  surchargeDepth = 0;
+    double  pondedArea     = 0;
+    // outfall-specific
+    int     outfallType    = 0;
+    int     outfallFlapGate = 0;
+    // storage-specific
+    double  seepRate       = 0;
+    // divider-specific
+    int     dividerType    = 0;
+};
+
+/*! All properties needed to re-create a deleted link. */
+struct LinkSnapshot
+{
+    QString          name;
+    int              linkType    = 0;
+    QString          fromNode;
+    QString          toNode;
+    QVector<QPointF> interiorVertices;
+    double  length          = 0;
+    double  roughness       = 0;
+    double  offsetUp        = 0;
+    double  offsetDn        = 0;
+    double  crestHeight     = 0;
+    double  dischargeCoeff  = 0;
+    double  endContractions = 0;
+    int     flapGate        = 0;
+    int     pumpInitState   = 0;
+};
+
+/*! Minimal snapshot for a deleted rain gage. */
+struct GageSnapshot
+{
+    QString name;
+    double  x = 0, y = 0;
+};
+
+/*! Minimal snapshot for a deleted subcatchment. */
+struct SubcatchSnapshot
+{
+    QString          name;
+    QVector<QPointF> polygon;
+    double  area      = 0;
+    double  width     = 0;
+    double  slope     = 0;
+    double  impervPct = 0;
+};
 
 /*!
  * \class MapUndoStack
@@ -340,6 +404,127 @@ private:
     double          m_x        = 0.0;
     double          m_y        = 0.0;
     bool            m_present  = false;  // true iff currently applied
+};
+
+/*!
+ * \class AddLinkCommand
+ * \brief Records the creation of a SWMM link (conduit/pump/orifice/weir/outlet).
+ * \details redo() calls SWMMModelLayer::applyLinkAdd; undo() calls
+ *          rollbackTailLinkAdd — only valid while the link is still the tail.
+ */
+class AddLinkCommand : public MapCommand
+{
+public:
+    AddLinkCommand(SWMMModelLayer   *layer,
+                   QString           name,
+                   int               linkType,
+                   QString           fromNode,
+                   QString           toNode,
+                   QVector<QPointF>  interiorVertices,
+                   MapCanvas        *canvas,
+                   QUndoCommand     *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 13; }
+
+private:
+    SWMMModelLayer  *m_layer = nullptr;
+    QString          m_name;
+    int              m_linkType = 0;
+    QString          m_fromNode;
+    QString          m_toNode;
+    QVector<QPointF> m_interiorVertices;
+    bool             m_present = false;
+};
+
+/*!
+ * \class AddGageCommand
+ * \brief Records the creation of a rain gage.
+ */
+class AddGageCommand : public MapCommand
+{
+public:
+    AddGageCommand(SWMMModelLayer *layer,
+                   QString         name,
+                   double          x, double y,
+                   MapCanvas      *canvas,
+                   QUndoCommand   *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 14; }
+
+private:
+    SWMMModelLayer *m_layer = nullptr;
+    QString         m_name;
+    double          m_x = 0, m_y = 0;
+    bool            m_present = false;
+};
+
+/*!
+ * \class AddSubcatchmentCommand
+ * \brief Records the creation of a subcatchment polygon.
+ */
+class AddSubcatchmentCommand : public MapCommand
+{
+public:
+    AddSubcatchmentCommand(SWMMModelLayer   *layer,
+                           QString           name,
+                           QVector<QPointF>  polygon,
+                           MapCanvas        *canvas,
+                           QUndoCommand     *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 15; }
+
+private:
+    SWMMModelLayer  *m_layer = nullptr;
+    QString          m_name;
+    QVector<QPointF> m_polygon;
+    bool             m_present = false;
+};
+
+/*!
+ * \class DeleteObjectCommand
+ * \brief Undoable deletion of a node, link, rain gage, or subcatchment.
+ * \details The constructor snapshots the object's full property state
+ *          (before redo() deletes it). undo() re-creates the object and
+ *          restores all properties. For node deletion, cascade-deleted
+ *          links are also re-created on undo.
+ */
+class DeleteObjectCommand : public MapCommand
+{
+public:
+    enum TargetKind { DeleteNode, DeleteLink, DeleteGage, DeleteSubcatch };
+
+    /*! Constructor for node deletion. Snapshots the node + identifies cascade links. */
+    DeleteObjectCommand(SWMMModelLayer *layer, const QString &name,
+                        TargetKind kind, MapCanvas *canvas,
+                        QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 16; }
+
+private:
+    void snapshotNode(const QString &name);
+    void snapshotLink(const QString &name);
+    void snapshotGage(const QString &name);
+    void snapshotSubcatch(const QString &name);
+    void restoreNode();
+    void restoreLink();
+    void restoreGage();
+    void restoreSubcatch();
+
+    SWMMModelLayer      *m_layer = nullptr;
+    TargetKind           m_kind;
+    NodeSnapshot         m_node;
+    QVector<LinkSnapshot> m_cascadeLinks; // cascade-deleted links when a node is deleted
+    LinkSnapshot         m_link;
+    GageSnapshot         m_gage;
+    SubcatchSnapshot     m_subcatch;
 };
 
 /*!

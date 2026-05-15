@@ -24,6 +24,10 @@ class QPropertyModel;     // from QPropertyModel library
 class QPropertyItemDelegate;
 #endif
 class OpenSWMMVisLayer;
+class SWMMModelLayer;
+class SWMMNodePropertyAdapter;
+class SWMMLinkPropertyAdapter;
+class SWMMSubcatchPropertyAdapter;
 struct IdentifyResult;
 
 /*!
@@ -76,9 +80,21 @@ public:
      */
     void clear();
 
+    /*! Slice Z.5.3 — bind to the active project's model layer so
+     *  identify results that resolve to a SWMM node can be shown
+     *  via a typed `SWMMNodePropertyAdapter` (editable via existing
+     *  QPropertyModel auto-delegates).  Pass nullptr to detach. */
+    void setProject(SWMMModelLayer *layer);
+
 public slots:
 
     void onIdentifyResult(const QList<IdentifyResult> &results);
+
+    /*! Round-4 follow-up 2026-05-12 — refresh the bound adapter if
+     *  its object name matches \p name, so a table-side edit is
+     *  reflected in the Property Browser.  No-op when no adapter is
+     *  bound or the name doesn't match. */
+    void onObjectEditedExternally(const QString &name);
 
 signals:
 
@@ -94,18 +110,32 @@ signals:
                          const QVariant &oldValue,
                          const QVariant &newValue);
 
+    /*! Round-4 follow-up 2026-05-12 — emitted after a property-
+     *  browser edit so the Attribute Table dock can mirror the
+     *  change.  Wired in `SWMMVis`.  Suppressed when the adapter's
+     *  `changed()` was triggered by `onObjectEditedExternally`. */
+    void objectEdited(const QString &name);
+
 private slots:
     void onLayerComboIndexChanged(int index);
 
 private:
     void setupUi();
 
-    QTreeView              *m_treeView       = nullptr;
-    QComboBox              *m_layerCombo     = nullptr;
-    QAbstractItemModel     *m_model          = nullptr;
-    QAbstractItemDelegate  *m_delegate       = nullptr;
+    QTreeView                *m_treeView       = nullptr;
+    QComboBox                *m_layerCombo     = nullptr;
+    QAbstractItemModel       *m_model          = nullptr;
+    QAbstractItemDelegate    *m_delegate       = nullptr;
 
-    QList<IdentifyResult>   m_lastResults;
+    QList<IdentifyResult>     m_lastResults;
+
+    // Slice Z.5.3 / AG.3 — engine binding for typed adapters.
+    SWMMModelLayer              *m_swmmLayer     = nullptr;
+    SWMMNodePropertyAdapter     *m_nodeAdapter   = nullptr;
+    SWMMLinkPropertyAdapter     *m_linkAdapter   = nullptr;
+    SWMMSubcatchPropertyAdapter *m_subcatchAdapter = nullptr;
+
+    bool m_suppressEditForward = false; ///< Set during onObjectEditedExternally to break loop.
 };
 
 #endif // ATTRIBUTEPANEL_H
