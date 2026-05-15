@@ -2,7 +2,7 @@
  * \file   swmmobjecttreemodel.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Virtualised tree model backing the Object Browser dock. Replaces the
  * former QTreeWidget-per-object approach so the browser scales to the

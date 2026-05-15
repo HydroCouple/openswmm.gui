@@ -1,0 +1,97 @@
+/*!
+ * \file   swmmlayerqsgrenderer.h
+ * \author Caleb Buahin <caleb.buahin@gmail.com>
+ * \date   2026
+ *
+ * Phase B.RHI of docs/RENDERING_5M_PLAN.md — Qt Quick Scene Graph
+ * renderer for `SWMMModelLayer`. Hosted in a `QQuickWidget` overlay
+ * on `MapCanvas`. Replaces the abandoned OpenGL renderer
+ * (`SWMMLayerGLRenderer`) which couldn't fill polygons via Qt's GL
+ * paint engine on macOS Apple Silicon.
+ *
+ * Rendering architecture (see docs/QSG_PAN_ZOOM_OPTIMIZATIONS.md):
+ *
+ *   Stage 1–3: fixed anchor + m_contentDirty flag — pan costs one matrix write,
+ *              geometry only rebuilt on model change or zoom.
+ *   Stage 4:   subcatchment tri cache keyed off geomRevision — O(n²) ear-clip
+ *              runs once per geometry change, reused on zoom/selection/symbology.
+ *   Stage 5:   view-frustum culling — off-screen features skipped entirely.
+ *   Stage 6:   LOD — sub-pixel node/gage glyphs suppressed.
+ *
+ * NOTE: Stage 7 (async build) was reverted. MapCanvas drives rendering via
+ * repaint() + grabFramebuffer() synchronously, so async building races with
+ * the grab and produces empty frames. All geometry is built synchronously
+ * inside updatePaintNode (on the render thread, which is the main thread for
+ * QQuickWidget). Stage 1-6 optimisations still eliminate the O(N) cost for
+ * pan and reduce rebuild cost significantly.
+ */
+#ifndef SWMMLAYERQSGRENDERER_H
+#define SWMMLAYERQSGRENDERER_H
+
+#include "map/mapextent.h"
+
+#include <QPointer>
+#include <QQuickItem>
+#include <QVector>
+
+#include <limits>
+
+class SWMMModelLayer;
+
+class SWMMLayerQSGRenderer : public QQuickItem
+{
+    Q_OBJECT
+
+public:
+    explicit SWMMLayerQSGRenderer(QQuickItem *parent = nullptr);
+    ~SWMMLayerQSGRenderer() override;
+
+    /*! Bind the renderer to a SWMMModelLayer. Disconnects the previous
+     *  layer's signals; connects the new one's repaintRequested to
+     *  trigger a geometry rebuild. Pass nullptr to clear. */
+    void setLayer(SWMMModelLayer *layer);
+
+    /*! Update the visible map extent. A pure pan (same extent dimensions)
+     *  only schedules a matrix update. A zoom (changed dimensions) sets
+     *  m_contentDirty so line widths and glyph sizes are recomputed. */
+    void setMapExtent(const MapExtent &extent);
+
+protected:
+    QSGNode *updatePaintNode(QSGNode *oldNode,
+                             UpdatePaintNodeData *) override;
+
+private:
+    QPointer<SWMMModelLayer> m_layer;
+    MapExtent                m_extent;
+
+    // Fixed scene-space centre of the dataset bounding box, recomputed at
+    // the start of each content rebuild.  Vertex coords stored as
+    // float(sceneCoord - anchor) keep float magnitudes small (UTM precision)
+    // and are stable across pans — only the matrix translate changes on pan.
+    double m_anchorX = 0.0;
+    double m_anchorY = 0.0;
+
+    // m_contentDirty — set on geometry / symbology / visibility / zoom changes.
+    // Triggers a full rebuild of all 13 geometry buffers in updatePaintNode.
+    // Pure pan does NOT set this flag.
+    bool m_contentDirty = true;
+
+    // m_selDirty — set when only the selection changes (setSelectedElementNames).
+    // Triggers a cheap rebuild of the 5 selection-overlay buffers only; the 8
+    // base-geometry buffers are left untouched.
+    // m_selectionPending absorbs the repaintRequested that always follows
+    // selectionChanged so it does not additionally set m_contentDirty.
+    bool m_selDirty        = false;
+    bool m_selectionPending = false;
+
+    // Subcatchment triangulation cache (Stage 4).
+    // Ear-clipping O(n²) result cached per geomRevision; reused on every
+    // rebuild that does not change subcatchment geometry.
+    struct CatchTriCache {
+        quint64               revision = std::numeric_limits<quint64>::max();
+        QVector<QVector<int>> tris;
+    };
+    CatchTriCache m_catchTriCache;
+};
+
+#endif // SWMMLAYERQSGRENDERER_H

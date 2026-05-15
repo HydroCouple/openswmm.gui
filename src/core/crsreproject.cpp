@@ -2,7 +2,7 @@
  * \file   crsreproject.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  */
 #include "core/crsreproject.h"
 #include "map/spatialreferencesystem.h"

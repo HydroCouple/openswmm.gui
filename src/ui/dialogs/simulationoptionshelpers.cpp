@@ -2,7 +2,7 @@
  * \file   simulationoptionshelpers.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Static helper definitions for SimulationOptionsDialog. Split out of the
  * main .cpp so leaf QtTests (test_simulationoptionsdialog) can compile the

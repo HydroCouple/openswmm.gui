@@ -19,10 +19,13 @@
 
 #include <QColor>
 #include <QFont>
+#include <QList>
 #include <QPen>
 #include <QBrush>
 #include <QString>
 #include <QVariantMap>
+
+class QGraphicsItem;
 
 // Forward-declare GDAL/OGR types
 class GDALDataset;
@@ -220,6 +223,10 @@ private:
 
     // Dirty flag — skip scene rebuild when only the view extent changed
     bool                         m_needsRebuild = true;
+
+    // Owned QGraphicsItems currently in the scene — avoids O(n) scene scan
+    // in depopulateScene (which previously used dynamic_cast on every item).
+    QList<QGraphicsItem *>       m_sceneItems;
 };
 
 Q_DECLARE_METATYPE(GISVectorLayer *)

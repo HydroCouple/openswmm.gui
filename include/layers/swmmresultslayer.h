@@ -19,10 +19,14 @@
 #include "layers/gisrasterlayer.h"   // RasterColorRamp
 #include "layers/swmmmodellayer.h"
 
+#include <openswmm/engine/openswmm_output.h>
+
 #include <QColor>
 #include <QDateTime>
+#include <QHash>
 #include <QString>
 #include <QVariantMap>
+#include <QVector>
 
 class OpenSWMMVisWorkspace;
 class SpatialReferenceSystem;
@@ -104,11 +108,12 @@ public:
 
     // ----- Animation ------------------------------------------------------
 
-    [[nodiscard]] int       currentTimeStep() const;
-    [[nodiscard]] QDateTime currentDateTime() const;
-    [[nodiscard]] int       totalTimeSteps()  const;
-    [[nodiscard]] QDateTime startDateTime()   const;
-    [[nodiscard]] QDateTime endDateTime()     const;
+    [[nodiscard]] int       currentTimeStep()  const;
+    [[nodiscard]] QDateTime currentDateTime()  const;
+    [[nodiscard]] int       totalTimeSteps()   const;
+    [[nodiscard]] QDateTime startDateTime()    const;
+    [[nodiscard]] QDateTime endDateTime()      const;
+    [[nodiscard]] int       reportStepSeconds() const;
 
     /*!
      * \brief Seeks to the given 0-based time step.
@@ -165,17 +170,41 @@ signals:
     void resultsError(const QString &message);
 
 private:
+    void fetchResultsForStep(int step);
+    void buildOutputIdMaps();
+
+    // Engine output handle ------------------------------------------------
+    SWMM_Output          m_handle         = nullptr;
+
+    // File & time metadata ------------------------------------------------
     QString              m_resultsFilePath;
-    class SWMMModelLayer      *m_modelLayer     = nullptr;  /*!< Non-owning reference. */
+    int                  m_reportStepSec  = 0;
+
+    // Model layer (non-owning) --------------------------------------------
+    class SWMMModelLayer *m_modelLayer    = nullptr;
+
+    // Animation state -----------------------------------------------------
     int                  m_currentStep    = 0;
     int                  m_totalSteps     = 0;
     QDateTime            m_startDateTime;
     QDateTime            m_endDateTime;
+
+    // Variable & colour mapping -------------------------------------------
     SWMMResultVariable   m_variable       = SWMMResultVariable::NodeDepth;
     RasterColorRamp      m_colorRamp;
     bool                 m_showLegend     = true;
 
-    // GDAL coordinate transform
+    // Per-step result caches (fetched from .out each time step changes) ----
+    QVector<float>       m_nodeResults;     /*!< [nodeIdx] for current step */
+    QVector<float>       m_linkResults;     /*!< [linkIdx] for current step */
+    QVector<float>       m_subcatchResults; /*!< [subIdx]  for current step */
+
+    // Name → output-file index maps (built once on openResults) -----------
+    QHash<QString, int>  m_nodeOutputIdx;
+    QHash<QString, int>  m_linkOutputIdx;
+    QHash<QString, int>  m_subcatchOutputIdx;
+
+    // GDAL coordinate transform -------------------------------------------
     class OGRCoordinateTransformation *m_transform = nullptr;
 };
 

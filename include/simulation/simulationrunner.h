@@ -2,7 +2,7 @@
  * \file   simulationrunner.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  */
 #ifndef SIMULATIONRUNNER_H
 #define SIMULATIONRUNNER_H
@@ -36,6 +36,7 @@ public:
                               const QString &inpPath,
                               const QString &rptPath,
                               const QString &outPath,
+                              const QString &engineVersion = "6.0.0",
                               QObject *parent = nullptr);
 
     /** Launch the simulation on a worker thread via QtConcurrent::run. */
@@ -79,7 +80,8 @@ signals:
      * @param routingErrFrac    cumulative routing continuity error so far
      */
     void progressChanged(int jobId, double fraction, QDateTime currentSimDate,
-                         double runoffErrFrac, double routingErrFrac);
+                         double runoffErrFrac, double routingErrFrac,
+                         double avgTimestepSec);
     void warningReceived(int jobId, int code, QString message);
     /**
      * @param runoffErrFrac   runoff continuity error fraction (0.001 = 0.1 %)
@@ -101,6 +103,7 @@ private:
     QString m_inpPath;
     QString m_rptPath;
     QString m_outPath;
+    QString m_engineVersion;
 
     std::atomic<bool> m_cancel{false};
     std::atomic<bool> m_paused{false};

@@ -2,7 +2,7 @@
  * \file   aboutdialog.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/aboutdialog.h"
 #include "version.h"
@@ -50,7 +50,7 @@ QString applicationVersionString()
 QString environmentSummary()
 {
     return QStringLiteral(
-               "OpenSWMM GUI %1\n"
+               "SWMMVis %1\n"
                "Build:    %2 %3\n"
                "Qt:       %4\n"
                "OS:       %5 (%6)\n"
@@ -73,7 +73,7 @@ QString environmentSummary()
 AboutDialog::AboutDialog(QWidget *parent)
     : QDialog(parent)
 {
-    setWindowTitle(tr("About OpenSWMM GUI"));
+    setWindowTitle(tr("About SWMMVis"));
     resize(880, 600);
 
     buildUi();
@@ -300,7 +300,7 @@ void AboutDialog::populateTree()
 void AboutDialog::showApplicationOverview()
 {
     m_currentComponent = -1;
-    m_nameLabel->setText(QStringLiteral("OpenSWMM GUI %1").arg(applicationVersionString()));
+    m_nameLabel->setText(QStringLiteral("SWMMVis %1").arg(applicationVersionString()));
     m_metaLabel->setText(tr(
         "Open-source Qt6 GUI for the OpenSWMM engine.<br>"
         "Select a component on the left to view its license and metadata."));

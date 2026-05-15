@@ -2,7 +2,7 @@
  * \file   layerpropertiesdialog.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Slice D-2 — General / Rendering / Metadata for any OpenSWMMVisLayer.
  * Symbology and Labels tabs land with Phase 7 (Theming).
@@ -53,6 +53,7 @@ private slots:
 
 private:
     void buildUi();
+    void buildMeshStatsTab();
     void readFromLayer();
     void writeToLayer();
 
@@ -72,6 +73,9 @@ private:
 
     // Metadata tab
     QPlainTextEdit *m_metadataText = nullptr;
+
+    // Mesh statistics tab (added only for SWMM2DMeshLayer)
+    QPlainTextEdit *m_statsText = nullptr;
 
     QTabWidget  *m_tabs = nullptr;
 };

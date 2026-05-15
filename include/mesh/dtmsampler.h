@@ -2,7 +2,7 @@
  * \file   dtmsampler.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Slice AU — bilinear elevation sampler. Wraps a GDAL raster band so the
  * mesh generator (or any other client) can pull elevation values at

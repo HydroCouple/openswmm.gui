@@ -2,13 +2,17 @@
  * \file   simulationoptionsdialog.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/crsselectiondialog.h"
 #include "layers/swmmmodellayer.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
+#include "plugins/filefilterregistry.h"
+#include "project/projectserializer.h"
+
+#include <openswmm/plugin_sdk/PluginDiscovery.hpp>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -17,6 +21,7 @@
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QFile>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -28,7 +33,10 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QLineEdit>
 #include <QSpinBox>
+#include <QTableWidget>
+#include <QHeaderView>
 #include <QTabWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -95,6 +103,10 @@ void SimulationOptionsDialog::buildUi()
     if (m_module2DBox)
         tabs->setTabEnabled(m_2DTabIndex, m_module2DBox->isChecked());
 #endif
+
+    // Slice AA-3.5 — Files / Plugins tab.  Lives at the end of the tab
+    // bar so existing tab numbering is preserved.
+    buildFilesTab(tabs);
 
     auto *bb = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Apply, this);
@@ -1041,6 +1053,614 @@ void SimulationOptionsDialog::readFromEngine()
 #ifdef OPENSWMM_HAS_2D
     read2DFromEngine();
 #endif
+
+    // ---- Tab 7 (Files / Plugins) ----------------------------------------
+    readPluginsFromEngine();
+    readFilesSectionFromEngine();
+    readWriterCombosFromEngine();
+    readOutputPathsFromSettings();
+}
+
+// ---------------------------------------------------------------------------
+// Tab 7 — Files / Plugins (Slice AA-3.5)
+// ---------------------------------------------------------------------------
+
+void SimulationOptionsDialog::buildFilesTab(QTabWidget *tabs)
+{
+    auto *page = new QWidget(tabs);
+    auto *vlay = new QVBoxLayout(page);
+
+    // ── Writer / Container group ────────────────────────────────────────
+    // Three combos let the user pick the plugin driving each role.  The
+    // combo's hidden `data()` is the plugin id (empty string for the
+    // built-in `.inp` / `.out` / `.rpt` writer).  Picking a non-default
+    // entry adds the corresponding [PLUGINS] row on Apply.
+    auto *writerGroup = new QGroupBox(tr("Writer / Container"), page);
+    auto *writerForm  = new QFormLayout(writerGroup);
+
+    auto populateWriterCombo = [](QComboBox *combo, openswmmvis::FilterKind k) {
+        // First entry: built-in (empty plugin id = engine default).
+        const char *defaultLabel =
+            (k == openswmmvis::FilterKind::InputRead)
+                ? "(built-in: .inp writer)"
+                : (k == openswmmvis::FilterKind::ResultsWrite)
+                      ? "(built-in: .out writer)"
+                      : "(built-in: .rpt writer)";
+        combo->addItem(QObject::tr(defaultLabel), QString());
+        auto *registry = openswmmvis::FileFilterRegistry::instance();
+        QStringList seen;  // dedupe by pluginId
+        for (const auto &entry : registry->entriesFor(k)) {
+            if (entry.pluginId.isEmpty()) continue;
+            if (k != openswmmvis::FilterKind::InputRead) {
+                /* OUTPUT_WRITE / REPORT_WRITE are write-only roles */
+            } else if (!entry.canWrite) {
+                continue;
+            }
+            if (seen.contains(entry.pluginId)) continue;
+            seen << entry.pluginId;
+            const QString label = entry.description.isEmpty()
+                ? entry.pluginId
+                : QStringLiteral("%1 (%2)").arg(entry.description, entry.pluginId);
+            combo->addItem(label, entry.pluginId);
+        }
+    };
+
+    m_inputWriterCombo  = new QComboBox(writerGroup);
+    populateWriterCombo(m_inputWriterCombo, openswmmvis::FilterKind::InputRead);
+    writerForm->addRow(tr("Input writer:"),  m_inputWriterCombo);
+
+    m_outputWriterCombo = new QComboBox(writerGroup);
+    populateWriterCombo(m_outputWriterCombo, openswmmvis::FilterKind::ResultsWrite);
+    writerForm->addRow(tr("Output writer:"), m_outputWriterCombo);
+
+    m_reportWriterCombo = new QComboBox(writerGroup);
+    populateWriterCombo(m_reportWriterCombo, openswmmvis::FilterKind::ReportWrite);
+    writerForm->addRow(tr("Report writer:"), m_reportWriterCombo);
+
+    m_singleContainerBox = new QCheckBox(
+        tr("Single container (write input, output, and report to one file)"),
+        writerGroup);
+    m_singleContainerBox->setToolTip(
+        tr("Enabled when the chosen Input writer plugin advertises input, "
+           "output, and report roles for the same extension (e.g., GeoPackage). "
+           "When checked, the Output and Report writer combos lock to the "
+           "Input writer's plugin id."));
+    m_singleContainerBox->setEnabled(false);
+    writerForm->addRow(QString(), m_singleContainerBox);
+
+    connect(m_inputWriterCombo,
+            QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int) { updateSingleContainerEnabled(); });
+    connect(m_singleContainerBox, &QCheckBox::toggled,
+            this, &SimulationOptionsDialog::onSingleContainerToggled);
+
+    vlay->addWidget(writerGroup);
+
+    auto *intro = new QLabel(
+        tr("Plugins listed in the model's <b>[PLUGINS]</b> section.  Each row "
+           "names a writer / output / report plugin (by id, <i>id:version</i>, "
+           "or shared-library path) and any free-form arguments to pass to "
+           "its initialize() call.  The first input-capable row is also used "
+           "by File → Save As when picking a non-<code>.inp</code> "
+           "extension."),
+        page);
+    intro->setWordWrap(true);
+    vlay->addWidget(intro);
+
+    m_pluginsTable = new QTableWidget(0, 2, page);
+    m_pluginsTable->setHorizontalHeaderLabels(
+        {tr("Plugin (path / id / id:version)"), tr("Arguments")});
+    m_pluginsTable->horizontalHeader()->setStretchLastSection(true);
+    m_pluginsTable->horizontalHeader()->setSectionResizeMode(
+        0, QHeaderView::Stretch);
+    m_pluginsTable->verticalHeader()->setVisible(false);
+    m_pluginsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_pluginsTable->setEditTriggers(QAbstractItemView::DoubleClicked
+                                    | QAbstractItemView::EditKeyPressed
+                                    | QAbstractItemView::AnyKeyPressed);
+    vlay->addWidget(m_pluginsTable, 1);
+
+    auto *btnRow = new QHBoxLayout();
+    m_pluginsAddBtn    = new QPushButton(tr("Add"), page);
+    m_pluginsRemoveBtn = new QPushButton(tr("Remove"), page);
+    m_pluginsRemoveBtn->setEnabled(false);
+    btnRow->addWidget(m_pluginsAddBtn);
+    btnRow->addWidget(m_pluginsRemoveBtn);
+    btnRow->addStretch();
+    vlay->addLayout(btnRow);
+
+    connect(m_pluginsAddBtn, &QPushButton::clicked, this, [this] {
+        const int row = m_pluginsTable->rowCount();
+        m_pluginsTable->insertRow(row);
+        m_pluginsTable->setItem(row, 0, new QTableWidgetItem(QString()));
+        m_pluginsTable->setItem(row, 1, new QTableWidgetItem(QString()));
+        m_pluginsTable->editItem(m_pluginsTable->item(row, 0));
+    });
+    connect(m_pluginsRemoveBtn, &QPushButton::clicked, this, [this] {
+        const int row = m_pluginsTable->currentRow();
+        if (row >= 0) m_pluginsTable->removeRow(row);
+    });
+    connect(m_pluginsTable, &QTableWidget::itemSelectionChanged, this, [this] {
+        m_pluginsRemoveBtn->setEnabled(m_pluginsTable->currentRow() >= 0);
+    });
+
+    // ── [FILES] secondary references group ─────────────────────────────
+    auto *secondary = new QGroupBox(
+        tr("Secondary file references (.inp [FILES] section)"), page);
+    auto *secForm = new QFormLayout(secondary);
+
+    auto makeModeCombo = [secondary] {
+        auto *c = new QComboBox(secondary);
+        c->addItem(tr("(off)"), QString());
+        c->addItem(tr("USE"),   QStringLiteral("USE"));
+        c->addItem(tr("SAVE"),  QStringLiteral("SAVE"));
+        return c;
+    };
+    auto makePathRow = [secondary, secForm](const QString &label,
+                                              QLineEdit **edit,
+                                              QComboBox *modeCombo) {
+        *edit = new QLineEdit(secondary);
+        (*edit)->setPlaceholderText(
+            QObject::tr("path relative to the .inp directory"));
+        if (modeCombo) {
+            auto *row = new QHBoxLayout();
+            row->addWidget(*edit, 1);
+            row->addWidget(new QLabel(QObject::tr("Mode:"), secondary));
+            row->addWidget(modeCombo);
+            secForm->addRow(label, row);
+        } else {
+            secForm->addRow(label, *edit);
+        }
+    };
+
+    m_rainfallModeCombo = makeModeCombo();
+    makePathRow(tr("Rainfall:"), &m_rainfallPathEdit, m_rainfallModeCombo);
+
+    m_runoffModeCombo = makeModeCombo();
+    makePathRow(tr("Runoff:"),   &m_runoffPathEdit,   m_runoffModeCombo);
+
+    m_rdiiModeCombo = makeModeCombo();
+    makePathRow(tr("RDII:"),     &m_rdiiPathEdit,     m_rdiiModeCombo);
+
+    makePathRow(tr("Inflows (USE only):"),  &m_inflowsPathEdit,  nullptr);
+    makePathRow(tr("Outflows (SAVE only):"), &m_outflowsPathEdit, nullptr);
+    makePathRow(tr("Hot-start file (USE):"), &m_hotstartUseEdit,  nullptr);
+    makePathRow(tr("Hot-start file (SAVE):"), &m_hotstartSaveEdit, nullptr);
+
+    vlay->addWidget(secondary);
+
+    // ── Report file path (Slice AA-4) ────────────────────────────────────
+    auto *rptGroup = new QGroupBox(tr("Report file"), page);
+    auto *rptForm  = new QFormLayout(rptGroup);
+
+    auto *rptPathRow = new QHBoxLayout();
+    m_reportFilePathEdit = new QLineEdit(rptGroup);
+    m_reportFilePathEdit->setPlaceholderText(tr("(auto — sibling of input file with .rpt extension)"));
+    m_reportFilePathEdit->setToolTip(tr(
+        "Override path for the simulation report file. Leave blank to "
+        "derive the path automatically from the input file location. "
+        "The format is determined by the Report writer combo above."));
+    rptPathRow->addWidget(m_reportFilePathEdit, 1);
+    auto *rptBrowse = new QPushButton(tr("Browse…"), rptGroup);
+    connect(rptBrowse, &QPushButton::clicked,
+            this, &SimulationOptionsDialog::browseForReportFile);
+    rptPathRow->addWidget(rptBrowse);
+    rptForm->addRow(tr("Report file path:"), rptPathRow);
+    vlay->addWidget(rptGroup);
+
+    // ── Output (results) file path (Slice AA-4) ──────────────────────────
+    auto *outGroup = new QGroupBox(tr("Results output file"), page);
+    auto *outForm  = new QFormLayout(outGroup);
+
+    auto *outPathRow = new QHBoxLayout();
+    m_outputFilePathEdit = new QLineEdit(outGroup);
+    m_outputFilePathEdit->setPlaceholderText(tr("(auto — sibling of input file with .out extension)"));
+    m_outputFilePathEdit->setToolTip(tr(
+        "Override path for the binary results output file. Leave blank to "
+        "derive the path automatically from the input file location. "
+        "The format is determined by the Output writer combo above."));
+    outPathRow->addWidget(m_outputFilePathEdit, 1);
+    auto *outBrowse = new QPushButton(tr("Browse…"), outGroup);
+    connect(outBrowse, &QPushButton::clicked,
+            this, &SimulationOptionsDialog::browseForOutputFile);
+    outPathRow->addWidget(outBrowse);
+    outForm->addRow(tr("Output file path:"), outPathRow);
+    vlay->addWidget(outGroup);
+
+    tabs->addTab(page, tr("Files"));
+}
+
+void SimulationOptionsDialog::readPluginsFromEngine()
+{
+    if (!m_pluginsTable) return;
+    m_pluginsTable->setRowCount(0);
+    if (!m_engine) return;
+
+    int count = 0;
+    if (swmm_plugins_count(m_engine, &count) != 0) return;
+
+    char path_buf[1024];
+    char args_buf[2048];
+    for (int i = 0; i < count; ++i) {
+        path_buf[0] = '\0';
+        args_buf[0] = '\0';
+        if (swmm_plugin_get(m_engine, i,
+                            path_buf, sizeof(path_buf),
+                            args_buf, sizeof(args_buf)) != 0) continue;
+        const int row = m_pluginsTable->rowCount();
+        m_pluginsTable->insertRow(row);
+        m_pluginsTable->setItem(row, 0,
+            new QTableWidgetItem(QString::fromUtf8(path_buf)));
+        m_pluginsTable->setItem(row, 1,
+            new QTableWidgetItem(QString::fromUtf8(args_buf)));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Writer / Container combos (Slice AA-3.5 full design)
+//
+// The combos drive a derived view onto the [PLUGINS] section: the user
+// picks which plugin handles each role (input writer, results output,
+// report).  Apply collects the selected plugin ids and ensures each
+// non-empty id has a matching [PLUGINS] row — without disturbing any
+// rows the user may have added manually via the table below.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Find the first plugin id in the current [PLUGINS] section that advertises
+// @p role per the engine's grouped discovery.  Returns empty string when
+// no such plugin is loaded (caller treats empty as "built-in default").
+QString findActivePluginForRole(SWMM_Engine engine, openswmm::PluginRole role)
+{
+    if (!engine) return {};
+    int count = 0;
+    if (swmm_plugins_count(engine, &count) != 0 || count == 0) return {};
+
+    // Build the role index once: plugin_id → roles-bitset.
+    auto plugins = openswmm::discover_plugins_by_id();
+
+    char path_buf[1024];
+    char args_buf[512];  // ignored
+    for (int i = 0; i < count; ++i) {
+        path_buf[0] = '\0';
+        args_buf[0] = '\0';
+        if (swmm_plugin_get(engine, i,
+                            path_buf, sizeof(path_buf),
+                            args_buf, sizeof(args_buf)) != 0) continue;
+        const QString rowId = QString::fromUtf8(path_buf);
+        for (const auto &p : plugins) {
+            if (QString::fromStdString(p.plugin_id) != rowId) continue;
+            for (auto r : p.roles) {
+                if (r == role) return rowId;
+            }
+        }
+    }
+    return {};
+}
+
+// True when the plugin advertises all three writer roles (INPUT_READ,
+// OUTPUT_WRITE, REPORT_WRITE) — the "Single container" precondition.
+bool isTriRolePlugin(const QString &pluginId)
+{
+    if (pluginId.isEmpty()) return false;
+    for (const auto &p : openswmm::discover_plugins_by_id()) {
+        if (QString::fromStdString(p.plugin_id) != pluginId) continue;
+        bool hasIn = false, hasOut = false, hasRpt = false;
+        for (auto r : p.roles) {
+            if      (r == openswmm::PluginRole::INPUT_READ)   hasIn  = true;
+            else if (r == openswmm::PluginRole::OUTPUT_WRITE) hasOut = true;
+            else if (r == openswmm::PluginRole::REPORT_WRITE) hasRpt = true;
+        }
+        return hasIn && hasOut && hasRpt;
+    }
+    return false;
+}
+
+void selectComboByPluginId(QComboBox *c, const QString &pluginId)
+{
+    if (!c) return;
+    const int idx = c->findData(pluginId);
+    c->setCurrentIndex(idx >= 0 ? idx : 0);
+}
+
+} // anonymous
+
+void SimulationOptionsDialog::readWriterCombosFromEngine()
+{
+    selectComboByPluginId(m_inputWriterCombo,
+        findActivePluginForRole(m_engine, openswmm::PluginRole::INPUT_READ));
+    selectComboByPluginId(m_outputWriterCombo,
+        findActivePluginForRole(m_engine, openswmm::PluginRole::OUTPUT_WRITE));
+    selectComboByPluginId(m_reportWriterCombo,
+        findActivePluginForRole(m_engine, openswmm::PluginRole::REPORT_WRITE));
+
+    updateSingleContainerEnabled();
+    if (m_singleContainerBox && m_singleContainerBox->isEnabled()) {
+        // Auto-check when all three combos already resolve to the same id
+        // — the simulation was previously set up as a single-container.
+        const QString in  = m_inputWriterCombo  ? m_inputWriterCombo ->currentData().toString() : QString();
+        const QString out = m_outputWriterCombo ? m_outputWriterCombo->currentData().toString() : QString();
+        const QString rpt = m_reportWriterCombo ? m_reportWriterCombo->currentData().toString() : QString();
+        if (!in.isEmpty() && in == out && in == rpt) {
+            QSignalBlocker block(m_singleContainerBox);
+            m_singleContainerBox->setChecked(true);
+            // Also disable the locked combos so the UI is consistent.
+            if (m_outputWriterCombo) m_outputWriterCombo->setEnabled(false);
+            if (m_reportWriterCombo) m_reportWriterCombo->setEnabled(false);
+        }
+    }
+}
+
+int SimulationOptionsDialog::writeWriterCombosToEngine()
+{
+    if (!m_engine) return 0;
+    QStringList wanted;
+    auto addWanted = [&](QComboBox *c) {
+        if (!c) return;
+        const QString id = c->currentData().toString();
+        if (!id.isEmpty() && !wanted.contains(id)) wanted << id;
+    };
+    addWanted(m_inputWriterCombo);
+    addWanted(m_outputWriterCombo);
+    addWanted(m_reportWriterCombo);
+
+    // Collect existing [PLUGINS] row keys to check before inserting.  We
+    // never auto-remove rows — the user manages those via the table so
+    // any args they added stay intact.
+    QSet<QString> existing;
+    int count = 0;
+    swmm_plugins_count(m_engine, &count);
+    char path_buf[1024];
+    char args_buf[512];
+    for (int i = 0; i < count; ++i) {
+        path_buf[0] = '\0';
+        args_buf[0] = '\0';
+        if (swmm_plugin_get(m_engine, i,
+                            path_buf, sizeof(path_buf),
+                            args_buf, sizeof(args_buf)) != 0) continue;
+        existing.insert(QString::fromUtf8(path_buf));
+    }
+
+    int added = 0;
+    for (const QString &id : wanted) {
+        if (existing.contains(id)) continue;
+        const QByteArray utf = id.toUtf8();
+        if (swmm_plugin_set(m_engine, utf.constData(), nullptr) == SWMM_OK)
+            ++added;
+    }
+    return added;
+}
+
+// ---------------------------------------------------------------------------
+// Output / Report file path helpers (Slice AA-4)
+// Paths are per-project, stored in QSettings keyed by model file path.
+// ---------------------------------------------------------------------------
+
+void SimulationOptionsDialog::readOutputPathsFromSettings()
+{
+    if (!m_layer || !m_reportFilePathEdit || !m_outputFilePathEdit) return;
+    QSettings s;
+    const QString base = QStringLiteral("SWMMVis/Project/%1/")
+                             .arg(m_layer->modelFilePath());
+    m_reportFilePathEdit->setText(s.value(base + QStringLiteral("ReportFilePath")).toString());
+    m_outputFilePathEdit->setText(s.value(base + QStringLiteral("OutputFilePath")).toString());
+}
+
+void SimulationOptionsDialog::writeOutputPathsToSettings()
+{
+    if (!m_layer || !m_reportFilePathEdit || !m_outputFilePathEdit) return;
+    QSettings s;
+    const QString base = QStringLiteral("SWMMVis/Project/%1/")
+                             .arg(m_layer->modelFilePath());
+    s.setValue(base + QStringLiteral("ReportFilePath"),
+               m_reportFilePathEdit->text().trimmed());
+    s.setValue(base + QStringLiteral("OutputFilePath"),
+               m_outputFilePathEdit->text().trimmed());
+}
+
+void SimulationOptionsDialog::browseForReportFile()
+{
+    using openswmmvis::FileFilterRegistry;
+    using openswmmvis::FilterKind;
+    auto *reg = FileFilterRegistry::instance();
+    const QString filter = reg->filterFor(FilterKind::ReportWrite);
+    const QString current = m_reportFilePathEdit ? m_reportFilePathEdit->text().trimmed() : QString();
+    const QString path = QFileDialog::getSaveFileName(
+        this,
+        tr("Choose Report File"),
+        current.isEmpty() ? QString() : current,
+        filter.isEmpty() ? tr("All Files (*)") : filter);
+    if (!path.isEmpty() && m_reportFilePathEdit)
+        m_reportFilePathEdit->setText(path);
+}
+
+void SimulationOptionsDialog::browseForOutputFile()
+{
+    using openswmmvis::FileFilterRegistry;
+    using openswmmvis::FilterKind;
+    auto *reg = FileFilterRegistry::instance();
+    const QString filter = reg->filterFor(FilterKind::ResultsWrite);
+    const QString current = m_outputFilePathEdit ? m_outputFilePathEdit->text().trimmed() : QString();
+    const QString path = QFileDialog::getSaveFileName(
+        this,
+        tr("Choose Output File"),
+        current.isEmpty() ? QString() : current,
+        filter.isEmpty() ? tr("All Files (*)") : filter);
+    if (!path.isEmpty() && m_outputFilePathEdit)
+        m_outputFilePathEdit->setText(path);
+}
+
+void SimulationOptionsDialog::updateSingleContainerEnabled()
+{
+    if (!m_singleContainerBox || !m_inputWriterCombo) return;
+    const QString id = m_inputWriterCombo->currentData().toString();
+    const bool eligible = isTriRolePlugin(id);
+    m_singleContainerBox->setEnabled(eligible);
+    if (!eligible && m_singleContainerBox->isChecked()) {
+        QSignalBlocker b(m_singleContainerBox);
+        m_singleContainerBox->setChecked(false);
+        if (m_outputWriterCombo) m_outputWriterCombo->setEnabled(true);
+        if (m_reportWriterCombo) m_reportWriterCombo->setEnabled(true);
+    }
+}
+
+void SimulationOptionsDialog::onSingleContainerToggled(bool on)
+{
+    if (!m_inputWriterCombo) return;
+    const QString id = m_inputWriterCombo->currentData().toString();
+
+    if (on) {
+        selectComboByPluginId(m_outputWriterCombo, id);
+        selectComboByPluginId(m_reportWriterCombo, id);
+        if (m_outputWriterCombo) m_outputWriterCombo->setEnabled(false);
+        if (m_reportWriterCombo) m_reportWriterCombo->setEnabled(false);
+    } else {
+        if (m_outputWriterCombo) m_outputWriterCombo->setEnabled(true);
+        if (m_reportWriterCombo) m_reportWriterCombo->setEnabled(true);
+    }
+}
+
+void SimulationOptionsDialog::readFilesSectionFromEngine()
+{
+    if (!m_engine) return;
+    char buf[1024];
+
+    auto getStr = [&](const char *key) -> QString {
+        buf[0] = '\0';
+        if (swmm_files_get(m_engine, key, buf, sizeof(buf)) != SWMM_OK) return {};
+        return QString::fromUtf8(buf);
+    };
+    auto setMode = [&](QComboBox *c, const QString &mode) {
+        if (!c) return;
+        const int idx = c->findData(mode, Qt::UserRole, Qt::MatchFixedString);
+        c->setCurrentIndex(idx >= 0 ? idx : 0);
+    };
+
+    if (m_rainfallPathEdit) m_rainfallPathEdit->setText(getStr("RAINFALL_PATH"));
+    setMode(m_rainfallModeCombo, getStr("RAINFALL_MODE"));
+    if (m_runoffPathEdit)   m_runoffPathEdit->setText(getStr("RUNOFF_PATH"));
+    setMode(m_runoffModeCombo,   getStr("RUNOFF_MODE"));
+    if (m_rdiiPathEdit)     m_rdiiPathEdit->setText(getStr("RDII_PATH"));
+    setMode(m_rdiiModeCombo,     getStr("RDII_MODE"));
+    if (m_inflowsPathEdit)  m_inflowsPathEdit->setText(getStr("INFLOWS_PATH"));
+    if (m_outflowsPathEdit) m_outflowsPathEdit->setText(getStr("OUTFLOWS_PATH"));
+    if (m_hotstartUseEdit)  m_hotstartUseEdit->setText(getStr("HOTSTART_USE_PATH"));
+    if (m_hotstartSaveEdit) m_hotstartSaveEdit->setText(getStr("HOTSTART_SAVE_PATH"));
+}
+
+int SimulationOptionsDialog::writeFilesSectionToEngine()
+{
+    if (!m_engine) return 0;
+    int written = 0;
+    char buf[1024];
+
+    auto getCurrent = [&](const char *key) -> QString {
+        buf[0] = '\0';
+        swmm_files_get(m_engine, key, buf, sizeof(buf));
+        return QString::fromUtf8(buf);
+    };
+
+    // Convert absolute paths to paths relative to the .inp directory
+    // so the project folder stays portable.  Relative paths pass
+    // through unchanged — the engine resolves them against the .inp
+    // directory at run time (legacy SWMM5 behaviour).
+    const QString inpPath = m_layer ? m_layer->modelFilePath() : QString();
+    auto toRelative = [&](const QString &raw) -> QString {
+        if (raw.isEmpty() || inpPath.isEmpty()) return raw;
+        if (!QDir::isAbsolutePath(raw)) return raw;
+        return ProjectSerializer::toRelativePath(raw, inpPath);
+    };
+
+    auto writeIfChanged = [&](const char *key, const QString &newVal) {
+        if (getCurrent(key) == newVal) return;
+        const QByteArray utf = newVal.toUtf8();
+        if (swmm_files_set(m_engine, key, utf.constData()) == SWMM_OK)
+            ++written;
+    };
+    auto writePathIfChanged = [&](const char *key, const QString &rawText) {
+        writeIfChanged(key, toRelative(rawText.trimmed()));
+    };
+
+    if (m_rainfallPathEdit)
+        writePathIfChanged("RAINFALL_PATH", m_rainfallPathEdit->text());
+    if (m_rainfallModeCombo)
+        writeIfChanged("RAINFALL_MODE",
+                       m_rainfallModeCombo->currentData().toString());
+    if (m_runoffPathEdit)
+        writePathIfChanged("RUNOFF_PATH",   m_runoffPathEdit->text());
+    if (m_runoffModeCombo)
+        writeIfChanged("RUNOFF_MODE",
+                       m_runoffModeCombo->currentData().toString());
+    if (m_rdiiPathEdit)
+        writePathIfChanged("RDII_PATH",     m_rdiiPathEdit->text());
+    if (m_rdiiModeCombo)
+        writeIfChanged("RDII_MODE",
+                       m_rdiiModeCombo->currentData().toString());
+    if (m_inflowsPathEdit)
+        writePathIfChanged("INFLOWS_PATH",  m_inflowsPathEdit->text());
+    if (m_outflowsPathEdit)
+        writePathIfChanged("OUTFLOWS_PATH", m_outflowsPathEdit->text());
+    if (m_hotstartUseEdit)
+        writePathIfChanged("HOTSTART_USE_PATH",  m_hotstartUseEdit->text());
+    if (m_hotstartSaveEdit)
+        writePathIfChanged("HOTSTART_SAVE_PATH", m_hotstartSaveEdit->text());
+    return written;
+}
+
+int SimulationOptionsDialog::writePluginsToEngine()
+{
+    if (!m_pluginsTable || !m_engine) return 0;
+
+    // Snapshot existing engine rows by key so we can compute the
+    // additions, replacements, and removals that the table represents.
+    int existingCount = 0;
+    swmm_plugins_count(m_engine, &existingCount);
+
+    QHash<QString, QString> existing;
+    char path_buf[1024];
+    char args_buf[2048];
+    for (int i = 0; i < existingCount; ++i) {
+        path_buf[0] = '\0';
+        args_buf[0] = '\0';
+        if (swmm_plugin_get(m_engine, i,
+                            path_buf, sizeof(path_buf),
+                            args_buf, sizeof(args_buf)) != 0) continue;
+        existing.insert(QString::fromUtf8(path_buf),
+                        QString::fromUtf8(args_buf));
+    }
+
+    int written = 0;
+    QSet<QString> seen;
+    for (int row = 0; row < m_pluginsTable->rowCount(); ++row) {
+        auto *pathItem = m_pluginsTable->item(row, 0);
+        auto *argsItem = m_pluginsTable->item(row, 1);
+        const QString key  = pathItem ? pathItem->text().trimmed() : QString();
+        const QString args = argsItem ? argsItem->text().trimmed() : QString();
+        if (key.isEmpty()) continue;
+        seen.insert(key);
+
+        // Only call set when the row is new or its args changed —
+        // avoids spurious dirty-marker bumps in the engine.
+        const auto it = existing.constFind(key);
+        if (it == existing.constEnd() || it.value() != args) {
+            const QByteArray k = key.toUtf8();
+            const QByteArray a = args.toUtf8();
+            if (swmm_plugin_set(m_engine, k.constData(),
+                                args.isEmpty() ? nullptr : a.constData()) == 0)
+                ++written;
+        }
+    }
+
+    // Remove engine rows whose keys are no longer in the table.
+    for (auto it = existing.constBegin(); it != existing.constEnd(); ++it) {
+        if (!seen.contains(it.key())) {
+            const QByteArray k = it.key().toUtf8();
+            if (swmm_plugin_remove(m_engine, k.constData()) == 0)
+                ++written;
+        }
+    }
+    return written;
 }
 
 int SimulationOptionsDialog::writeToEngine()
@@ -1153,6 +1773,17 @@ int SimulationOptionsDialog::writeToEngine()
 #ifdef OPENSWMM_HAS_2D
     write2DToEngine(n);
 #endif
+
+    // Tab 7 — Files / Plugins (Slice AA-3.5)
+    // Order matters: the table editor reconciles existing rows first
+    // (its diff pass can REMOVE rows the user deleted), then the combos
+    // run as an additive-only "ensure these are present" pass.  If a
+    // combo's pluginId was just removed by the table edit, the combo
+    // re-adds it — combos win on conflict, by design.
+    n += writePluginsToEngine();
+    n += writeFilesSectionToEngine();
+    n += writeWriterCombosToEngine();
+    writeOutputPathsToSettings();
 
     if (n > 0)
         m_wroteChanges = true;

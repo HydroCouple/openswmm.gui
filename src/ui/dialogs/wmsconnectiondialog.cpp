@@ -69,6 +69,7 @@ WMSLayer *WMSConnectionDialog::createLayer(QObject *project) const
     layer->setActiveLayerName(m_selectedLayerName);
     layer->setActiveStyle(m_styleCombo->currentText());
     layer->setImageFormat(m_formatCombo->currentText());
+    layer->setCrs(m_crsCombo->currentText());
 
     // Set layer name from service info
     for (const WMSLayerInfo &info : m_serviceInfo->layers)

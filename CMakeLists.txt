@@ -60,6 +60,9 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED
 # ── GDAL (GIS/CRS) ──────────────────────────────────────────────────────────
 find_package(GDAL REQUIRED)
 
+# ── OpenSSL (AES-256 encryption for stored credentials) ─────────────────────
+find_package(OpenSSL REQUIRED)
+
 # ── nanoflann (header-only KD-tree for spatial queries) ─────────────────────
 find_package(nanoflann CONFIG REQUIRED)
 
@@ -122,6 +125,7 @@ set(
         include/core/measurementunitmanager.h
         include/core/openswmmvislogmessage.h
         include/core/openswmmvisservice.h
+        include/core/queryparser.h
         include/core/preferencesmanager.h
         include/core/unitsystem.h
         include/core/crsreproject.h
@@ -129,14 +133,19 @@ set(
         include/core/gisdatapaths.h
         include/selection/selectionmanager.h
 
+        # ── Animation ────────────────────────────────────────────────────────
+        include/animation/animationcontroller.h
+
         # ── Layers ───────────────────────────────────────────────────────────
         include/layers/openswmmvislayer.h
         include/layers/gisvectorlayer.h
         include/layers/gisrasterlayer.h
+        include/layers/wcslayer.h
         include/layers/wmslayer.h
         include/layers/wmtslayer.h
         include/layers/swmmmodellayer.h
         include/layers/swmmresultslayer.h
+        include/layers/tabulardatalayer.h
         include/layers/xyztilelayer.h
 
         # ── Map / GIS ────────────────────────────────────────────────────────
@@ -149,9 +158,11 @@ set(
         include/map/openswmmvisgraphicsview.h
         include/map/openswmmvisscene.h
         include/map/graphicsitems.h
+        include/map/scalebarsettings.h
         include/map/swmmlayeritem.h
         include/map/swmmlayerglrenderer.h
         include/map/swmmlayerqsgrenderer.h
+        include/map/swmm2dmeshqsgrenderer.h
 
         # ── Map tools ────────────────────────────────────────────────────────
         include/map/tools/maptool.h
@@ -163,16 +174,21 @@ set(
         include/map/tools/maptoolmovenode.h
         include/map/tools/maptooleditvertex.h
         include/map/tools/maptooladdnode.h
+        include/map/tools/maptooladdlink.h
+        include/map/tools/maptooladdgage.h
+        include/map/tools/maptooladdsubcatchment.h
 
         # ── Project / workspace ──────────────────────────────────────────────
         include/project/openswmmvisworkspace.h
         include/project/openswmmvisworkspacemodel.h
         include/project/openswmmvissession.h
         include/project/projectserializer.h
+        include/project/swmmvisproject.h
 
         # ── Plugins (engine plugin SDK bridge) ───────────────────────────────
         include/layers/swmm2dmeshlayer.h
         include/mesh/dtmsampler.h
+        include/mesh/dtmthinner.h
         include/mesh/inpmeshwriter.h
         include/mesh/meshgenerator.h
         include/mesh/meshresult.h
@@ -183,12 +199,29 @@ set(
         include/simulation/simulationstatusmodel.h
 
         # ── UI panels ────────────────────────────────────────────────────────
+        include/ui/panels/attributedelegates.h
         include/ui/panels/attributepanel.h
+        include/ui/panels/attributetablepanel.h
         include/ui/panels/layertreepanel.h
         include/ui/panels/objectbrowserpanel.h
+        include/ui/panels/swmmattributetablemodel.h
         include/ui/panels/swmmobjecttreemodel.h
+        include/ui/panels/tabulardatatablemodel.h
+
+        # ── UI property adapters (Slice Z.5.3 / AG.3) ────────────────────────
+        include/ui/properties/swmmlinkpropertyadapter.h
+        include/ui/properties/swmmnodepropertyadapter.h
+        include/ui/properties/swmmsubcatchpropertyadapter.h
+
+        # ── Connections ──────────────────────────────────────────────────────
+        include/connections/basemapconnection.h
+        include/connections/basemapconnectionstore.h
+
+        # ── UI widgets ───────────────────────────────────────────────────────
+        include/ui/widgets/basemaphttpheaderswidget.h
 
         # ── Dialogs ──────────────────────────────────────────────────────────
+        include/ui/dialogs/addbasemapdialog.h
         include/ui/dialogs/crsselectiondialog.h
         include/ui/dialogs/crschangedialog.h
         include/ui/dialogs/aboutdialog.h
@@ -201,6 +234,7 @@ set(
         include/ui/dialogs/timeseriesplotdialog.h
         include/ui/dialogs/wmsconnectiondialog.h
         include/ui/dialogs/wmtsconnectiondialog.h
+        include/ui/dialogs/licenseagreementdialog.h
 
         # ── Source files ─────────────────────────────────────────────────────
         src/main.cpp
@@ -215,22 +249,32 @@ set(
         src/core/measurementunitmanager.cpp
         src/core/openswmmvislogmessage.cpp
         src/core/preferencesmanager.cpp
+        src/core/queryparser.cpp
         src/core/unitsystem.cpp
         src/core/crsreproject.cpp
         src/core/editgeometry.cpp
         src/core/gisdatapaths.cpp
+        src/core/basemapcrypto.cpp
+
+        # Connections
+        src/connections/basemapconnectionstore.cpp
 
         # Selection
         src/selection/selectionmanager.cpp
+
+        # Animation
+        src/animation/animationcontroller.cpp
 
         # Layers
         src/layers/openswmmvislayer.cpp
         src/layers/gisvectorlayer.cpp
         src/layers/gisrasterlayer.cpp
+        src/layers/wcslayer.cpp
         src/layers/wmslayer.cpp
         src/layers/wmtslayer.cpp
         src/layers/swmmmodellayer.cpp
         src/layers/swmmresultslayer.cpp
+        src/layers/tabulardatalayer.cpp
         src/layers/xyztilelayer.cpp
 
         # Map / GIS
@@ -243,9 +287,11 @@ set(
         src/map/openswmmvisgraphicsview.cpp
         src/map/openswmmvisscene.cpp
         src/map/graphicsitems.cpp
+        src/map/scalebarsettings.cpp
         src/map/swmmlayeritem.cpp
         src/map/swmmlayerglrenderer.cpp
         src/map/swmmlayerqsgrenderer.cpp
+        src/map/swmm2dmeshqsgrenderer.cpp
 
         # Map tools
         src/map/tools/maptool.cpp
@@ -257,16 +303,21 @@ set(
         src/map/tools/maptoolmovenode.cpp
         src/map/tools/maptooleditvertex.cpp
         src/map/tools/maptooladdnode.cpp
+        src/map/tools/maptooladdlink.cpp
+        src/map/tools/maptooladdgage.cpp
+        src/map/tools/maptooladdsubcatchment.cpp
 
         # Project / workspace
         src/project/openswmmvisworkspace.cpp
         src/project/openswmmvisworkspacemodel.cpp
         src/project/openswmmvissession.cpp
         src/project/projectserializer.cpp
+        src/project/swmmvisproject.cpp
 
         # Plugins (engine plugin SDK bridge)
         src/layers/swmm2dmeshlayer.cpp
         src/mesh/dtmsampler.cpp
+        src/mesh/dtmthinner.cpp
         src/mesh/inpmeshwriter.cpp
         src/mesh/meshgenerator.cpp
         src/plugins/filefilterregistry.cpp
@@ -276,10 +327,19 @@ set(
         src/simulation/simulationstatusmodel.cpp
 
         # UI panels
+        src/ui/panels/attributedelegates.cpp
         src/ui/panels/attributepanel.cpp
+        src/ui/panels/attributetablepanel.cpp
         src/ui/panels/layertreepanel.cpp
         src/ui/panels/objectbrowserpanel.cpp
+        src/ui/panels/swmmattributetablemodel.cpp
         src/ui/panels/swmmobjecttreemodel.cpp
+        src/ui/panels/tabulardatatablemodel.cpp
+
+        # UI property adapters
+        src/ui/properties/swmmlinkpropertyadapter.cpp
+        src/ui/properties/swmmnodepropertyadapter.cpp
+        src/ui/properties/swmmsubcatchpropertyadapter.cpp
 
         # Dialogs
         src/ui/dialogs/crsselectiondialog.cpp
@@ -295,6 +355,11 @@ set(
         src/ui/dialogs/timeseriesplotdialog.cpp
         src/ui/dialogs/wmsconnectiondialog.cpp
         src/ui/dialogs/wmtsconnectiondialog.cpp
+        src/ui/dialogs/addbasemapdialog.cpp
+        src/ui/dialogs/licenseagreementdialog.cpp
+
+        # Widgets
+        src/ui/widgets/basemaphttpheaderswidget.cpp
 
         # ── Forms ────────────────────────────────────────────────────────────
         forms/swmmvis.ui
@@ -343,6 +408,8 @@ target_link_libraries(SWMMVis
         Qt${QT_VERSION_MAJOR}::Quick
         Qt${QT_VERSION_MAJOR}::QuickWidgets
         GDAL::GDAL
+        OpenSSL::SSL
+        OpenSSL::Crypto
         nanoflann::nanoflann
         $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>
         openswmm_engine
@@ -654,7 +721,7 @@ endif()
 
 # ── Packaging (CPack) ────────────────────────────────────────────────────────
 set(CPACK_PACKAGE_NAME              "SWMMVis")
-set(CPACK_PACKAGE_VENDOR            "HydroCouple")
+set(CPACK_PACKAGE_VENDOR            "Caleb Buahin")
 set(CPACK_PACKAGE_VERSION           "${PROJECT_VERSION}${PROJECT_VERSION_SUFFIX}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
 set(CPACK_RESOURCE_FILE_LICENSE     "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")

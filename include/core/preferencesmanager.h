@@ -2,7 +2,7 @@
  * \file   preferencesmanager.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Slice V — Settings & Preferences infrastructure.
  *
@@ -80,6 +80,15 @@ public:
     [[nodiscard]] qreal labelLodM11Min() const;
     void setLabelLodM11Min(qreal m11);
 
+    /*! Base rendering color for a link subtype.
+     *  
+     *  \\p linkType is one of: "conduit", "pump", "orifice", "weir", "outlet"
+     *  (case-insensitive). Unknown keys fall back to the conduit default.
+     *
+     *  Stored under SWMMVis/Preferences/Rendering/LinkColor/<Type>. */
+    [[nodiscard]] QColor linkColor(const QString &linkType) const;
+    void setLinkColor(const QString &linkType, const QColor &color);
+
     // ── Simulation ───────────────────────────────────────────────────────
     /*! Progress-tick interval (ms) for live UI updates while a
      *  simulation runs. 1 Hz by default — short enough to feel live,
@@ -87,11 +96,72 @@ public:
     [[nodiscard]] int progressTickMs() const;
     void setProgressTickMs(int ms);
 
+    // ── Map Decorations / Scale Bar ──────────────────────────────────────
+    [[nodiscard]] QColor  scaleBarPenColor()     const;
+    void setScaleBarPenColor(const QColor &color);
+
+    [[nodiscard]] int     scaleBarPenWidth()     const;  ///< Default 2; range 1–20
+    void setScaleBarPenWidth(int width);
+
+    [[nodiscard]] int     scaleBarPenStyle()     const;  ///< Qt::PenStyle as int; default Qt::SolidLine
+    void setScaleBarPenStyle(int style);
+
+    [[nodiscard]] QString scaleBarFontFamily()   const;  ///< Default "sans-serif"
+    void setScaleBarFontFamily(const QString &family);
+
+    [[nodiscard]] int     scaleBarFontSize()     const;  ///< Default 8; range 4–72
+    void setScaleBarFontSize(int size);
+
+    [[nodiscard]] int     scaleBarUnits()        const;  ///< ScaleBarSettings::Units as int; default 0 (Auto)
+    void setScaleBarUnits(int units);
+
+    [[nodiscard]] int     scaleBarPosition()     const;  ///< ScaleBarSettings::Position as int; default 0 (BottomLeft)
+    void setScaleBarPosition(int position);
+
+    [[nodiscard]] int     scaleBarMaxBarLength() const;  ///< Default 100; range 20–500
+    void setScaleBarMaxBarLength(int length);
+
+    [[nodiscard]] int  scaleBarLabelDecimals()   const;  ///< -1=auto, 0=whole, n=n decimals. Default -1.
+    void setScaleBarLabelDecimals(int decimals);
+
+    [[nodiscard]] bool scaleBarCompactNotation() const;  ///< Default false.
+    void setScaleBarCompactNotation(bool compact);
+
+    // ── Map Decorations / Measure Tool ───────────────────────────────────
+    [[nodiscard]] QColor  measureLineColor()   const;  ///< Segment + vertex dot color. Default Qt::red
+    void setMeasureLineColor(const QColor &color);
+
+    [[nodiscard]] QString measureLabelFontFamily() const;  ///< Default "sans-serif"
+    void setMeasureLabelFontFamily(const QString &family);
+
+    [[nodiscard]] int     measureLabelFontSize()   const;  ///< Default 8; range 4–72
+    void setMeasureLabelFontSize(int size);
+
+    [[nodiscard]] int     measureLabelDecimals()   const;  ///< Decimal places in labels. Default 2; range 0–6
+    void setMeasureLabelDecimals(int decimals);
+
+    [[nodiscard]] QColor  measureFillColor()   const;  ///< Area polygon fill base color. Default #6495ED (cornflower blue)
+    void setMeasureFillColor(const QColor &color);
+
+    [[nodiscard]] int     measureFillOpacity() const;  ///< Area fill opacity 0–100 %. Default 30
+    void setMeasureFillOpacity(int opacity);
+
+    // ── Element naming prefixes ──────────────────────────────────────────
+    /*! Name prefix used when auto-generating IDs for newly placed SWMM objects.
+     *  \p kind is one of: "junction", "outfall", "storage", "divider",
+     *  "conduit", "pump", "orifice", "weir", "outlet", "raingage", "subcatchment".
+     *  Unknown kinds return the \p kind string itself as a safe fallback.
+     *
+     *  Defaults: junction→"J", outfall→"O", storage→"S", divider→"D",
+     *            conduit→"C", pump→"Pu", orifice→"Or", weir→"W",
+     *            outlet→"Ou", raingage→"RG", subcatchment→"Sub". */
+    [[nodiscard]] QString elementNamePrefix(const QString &kind) const;
+    void setElementNamePrefix(const QString &kind, const QString &prefix);
+
 signals:
     /*! Emitted after any successful set*. `group` is one of
      *  "Selection" / "Canvas" / "Rendering" / "Simulation" /
-     *  "Appearance" / "Log"; `key` identifies the specific
-     *  setting. */
+     *  "Decorations" / "Output"; `key` identifies the specific setting. */
     void preferenceChanged(const QString &group, const QString &key);
 
 private:

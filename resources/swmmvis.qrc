@@ -77,6 +77,7 @@
         <file alias="InvertSelection">images/invert_selection.svg</file>
         <file alias="Options">images/options.svg</file>
         <file alias="CreateMesh">images/create_mesh.svg</file>
+        <file alias="Plugin">images/plugin.svg</file>
     </qresource>
     <!-- Phase B.RHI of docs/RENDERING_5M_PLAN.md — QML wrapper for the
          scene-graph renderer that MapCanvas hosts via QQuickWidget. -->

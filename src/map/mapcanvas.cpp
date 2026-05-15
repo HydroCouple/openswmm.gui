@@ -6,6 +6,8 @@
  */
 
 #include "map/mapcanvas.h"
+#include "map/scalebarsettings.h"
+#include "core/preferencesmanager.h"
 #include "map/openswmmvisscene.h"
 #include "map/openswmmvisgraphicsview.h"
 #include "map/mapextent.h"
@@ -156,6 +158,18 @@ MapCanvas::MapCanvas(QWidget *parent)
     // the Metal layer from obscuring the raster content in m_frameBuffer.
     m_qsgWidget->hide();
 
+    // Scale bar appearance settings — child QObject so it's cleaned up with the canvas.
+    m_scaleBarSettings = new ScaleBarSettings(this);
+    connect(m_scaleBarSettings, &ScaleBarSettings::changed, this, qOverload<>(&QWidget::update));
+
+    // Seed from persisted preferences and live-update whenever they change.
+    syncScaleBarFromPreferences();
+    connect(PreferencesManager::instance(), &PreferencesManager::preferenceChanged,
+            this, [this](const QString &group, const QString &) {
+                if (group == QLatin1String("Decorations"))
+                    syncScaleBarFromPreferences();
+            });
+
     // Default basemap (CartoDB Positron via XYZ tiles).
     addDefaultBasemap();
 }
@@ -180,6 +194,7 @@ void MapCanvas::addDefaultBasemap()
         /*tileSizePx=*/512,
         nullptr);
     tiles->setName(QStringLiteral("CartoDB Positron"));
+    tiles->setTilePixelRatio(2);  // @2x: 512-px image covers 256-px geographic area
     addLayer(tiles, /*pushUndo=*/false);
 }
 
@@ -545,6 +560,42 @@ static MapExtent layerExtentInCanvasCRS(const OpenSWMMVisLayer *layer,
     return MapExtent(x0, y0, x1, y1);
 }
 
+MapExtent MapCanvas::extentInCanvasCRS(const OpenSWMMVisLayer *layer,
+                                       const MapExtent &nativeExtent) const
+{
+    if (!layer || !nativeExtent.isValid()) return nativeExtent;
+    auto *lsrs = layer->srs();
+    if (!lsrs || !m_canvasSRS || !lsrs->ogrSpatialReference()
+        || !m_canvasSRS->ogrSpatialReference())
+        return nativeExtent;
+    if (lsrs->ogrSpatialReference()->IsSame(m_canvasSRS->ogrSpatialReference()))
+        return nativeExtent;
+
+    auto *xform = OGRCreateCoordinateTransformation(
+        lsrs->ogrSpatialReference(), m_canvasSRS->ogrSpatialReference());
+    if (!xform) return nativeExtent;
+
+    double xs[4] = {nativeExtent.xMin(), nativeExtent.xMax(),
+                    nativeExtent.xMax(), nativeExtent.xMin()};
+    double ys[4] = {nativeExtent.yMin(), nativeExtent.yMin(),
+                    nativeExtent.yMax(), nativeExtent.yMax()};
+    xform->Transform(4, xs, ys);
+    OGRCoordinateTransformation::DestroyCT(xform);
+
+    double x0 = xs[0], x1 = xs[0], y0 = ys[0], y1 = ys[0];
+    for (int i = 1; i < 4; ++i) {
+        x0 = std::min(x0, xs[i]); x1 = std::max(x1, xs[i]);
+        y0 = std::min(y0, ys[i]); y1 = std::max(y1, ys[i]);
+    }
+    return MapExtent(x0, y0, x1, y1);
+}
+
+MapExtent MapCanvas::layerExtentInCanvasCRS(const OpenSWMMVisLayer *layer) const
+{
+    if (!layer) return {};
+    return extentInCanvasCRS(layer, layer->extent());
+}
+
 MapExtent MapCanvas::fullExtent() const
 {
     // Zoom to Full Extent zooms to the union of data layers.
@@ -560,7 +611,7 @@ MapExtent MapCanvas::fullExtent() const
     // all contribute correctly to the union.
     MapExtent full;
     auto accumulate = [&](const OpenSWMMVisLayer *layer) {
-        const MapExtent e = layerExtentInCanvasCRS(layer, m_canvasSRS);
+        const MapExtent e = layerExtentInCanvasCRS(layer);
         if (!e.isValid()) return;
         full = full.isValid() ? full.united(e) : e;
     };
@@ -635,6 +686,23 @@ void MapCanvas::setShowScaleBar(bool show)
         emit showScaleBarChanged(show);
         update();
     }
+}
+
+ScaleBarSettings *MapCanvas::scaleBarSettings() const { return m_scaleBarSettings; }
+
+void MapCanvas::syncScaleBarFromPreferences()
+{
+    auto *p = PreferencesManager::instance();
+    QPen pen(p->scaleBarPenColor(),
+             p->scaleBarPenWidth(),
+             static_cast<Qt::PenStyle>(p->scaleBarPenStyle()));
+    m_scaleBarSettings->setPen(pen);
+    m_scaleBarSettings->setFont(QFont(p->scaleBarFontFamily(), p->scaleBarFontSize()));
+    m_scaleBarSettings->setUnits(static_cast<ScaleBarSettings::Units>(p->scaleBarUnits()));
+    m_scaleBarSettings->setPosition(static_cast<ScaleBarSettings::Position>(p->scaleBarPosition()));
+    m_scaleBarSettings->setMaxBarLength(p->scaleBarMaxBarLength());
+    m_scaleBarSettings->setLabelDecimals(p->scaleBarLabelDecimals());
+    m_scaleBarSettings->setCompactNotation(p->scaleBarCompactNotation());
 }
 
 bool MapCanvas::showCoordinates() const { return m_showCoords; }
@@ -1583,14 +1651,19 @@ void MapCanvas::zoomAroundCursor(double factor, const QPoint &viewportPos)
 
     m_isZooming = true;
 
-    // Scene point currently under the cursor
-    const QPointF sceneFixed = m_overlayView->mapToScene(viewportPos);
+    // Compute the scene point under the cursor directly from the stored transform
+    // matrix, bypassing mapToScene() which adds internal scrollbar values that
+    // can be non-zero even with ScrollBarAlwaysOff, causing the anchor to drift.
+    const QTransform &cur = m_overlayView->transform();
+    const double oldS  = cur.m11();
+    const double oldDx = cur.dx();
+    const double oldDy = cur.dy();
+    const double sceneX = (viewportPos.x() - oldDx) / oldS;
+    const double sceneY = (viewportPos.y() - oldDy) / oldS;
 
-    const double oldS = m_overlayView->transform().m11();
-    const double newS = qBound(1e-9, oldS * factor, 1e6);
-
-    const double newDx = viewportPos.x() - sceneFixed.x() * newS;
-    const double newDy = viewportPos.y() - sceneFixed.y() * newS;
+    const double newS  = qBound(1e-9, oldS * factor, 1e6);
+    const double newDx = viewportPos.x() - sceneX * newS;
+    const double newDy = viewportPos.y() - sceneY * newS;
 
     // Predict and pre-expand the scene rect
     const double vpW = width();
@@ -1615,37 +1688,83 @@ void MapCanvas::zoomAroundCursor(double factor, const QPoint &viewportPos)
 // Scale bar + coordinate display (painted in widget coordinates)
 // ---------------------------------------------------------------------------
 
+double MapCanvas::metresPerPixel() const
+{
+    if (width() <= 0 || !m_extent.isValid() || m_extent.width() <= 0)
+        return 1.0;
+
+    const double mapp = m_extent.width() / static_cast<double>(width()); // CRS units / pixel
+
+    if (!m_canvasSRS)
+        return mapp;
+
+    if (m_canvasSRS->isProjected())
+        return mapp * m_canvasSRS->linearUnitsToMetres();
+
+    if (m_canvasSRS->isGeographic())
+    {
+        // Convert longitude-degrees/pixel → metres/pixel at the centre latitude.
+        // d = R · |Δλ| · cos(φ)  where R is the WGS-84 semi-major axis.
+        constexpr double R = 6378137.0;
+        const double lat  = qDegreesToRadians(m_extent.centerY());
+        return mapp * (M_PI / 180.0) * R * std::abs(std::cos(lat));
+    }
+
+    return mapp; // local / unknown CRS — raw units
+}
+
 void MapCanvas::renderScaleBar(QPainter &painter) const
 {
-    const int margin  = 10;
-    const int barY    = height() - margin - 6;
-    const int maxLen  = 100;
+    const int margin = 10;
 
     if (width() <= 0 || !m_extent.isValid() || m_extent.width() <= 0)
         return;
 
-    double mapUnitsPerPixel = m_extent.width() / width();
-    double barMapUnits = maxLen * mapUnitsPerPixel;
+    const int    maxLen = m_scaleBarSettings->maxBarLength();
+    const double mpp    = metresPerPixel(); // metres per screen pixel (CRS-aware)
+    const bool   rawCRS = !m_canvasSRS || m_canvasSRS->isLocal();
 
-    double magnitude = std::pow(10.0, std::floor(std::log10(barMapUnits)));
-    double nice = barMapUnits / magnitude;
-    if (nice < 2.0) nice = 1.0;
+    // Round to a "nice" bar length in metres
+    double barMetres  = maxLen * mpp;
+    double magnitude  = std::pow(10.0, std::floor(std::log10(barMetres)));
+    double nice       = barMetres / magnitude;
+    if      (nice < 2.0) nice = 1.0;
     else if (nice < 5.0) nice = 2.0;
-    else nice = 5.0;
-    barMapUnits = nice * magnitude;
-    int barPixels = static_cast<int>(barMapUnits / mapUnitsPerPixel);
+    else                 nice = 5.0;
+    barMetres = nice * magnitude;
 
-    painter.setPen(QPen(Qt::black, 2));
-    painter.drawLine(margin, barY, margin + barPixels, barY);
-    painter.drawLine(margin, barY - 4, margin, barY + 4);
-    painter.drawLine(margin + barPixels, barY - 4, margin + barPixels, barY + 4);
+    int barPixels = static_cast<int>(std::round(barMetres / mpp));
+    if (barPixels < 2) barPixels = 2;
 
-    QString label = (barMapUnits >= 1000)
-                        ? QStringLiteral("%1 km").arg(barMapUnits / 1000.0, 0, 'g', 3)
-                        : QStringLiteral("%1 m").arg(barMapUnits, 0, 'g', 3);
+    int barX, barY;
+    switch (m_scaleBarSettings->position())
+    {
+        case ScaleBarSettings::BottomRight:
+            barX = width() - margin - barPixels;
+            barY = height() - margin - 6;
+            break;
+        case ScaleBarSettings::TopLeft:
+            barX = margin;
+            barY = margin + 20;
+            break;
+        case ScaleBarSettings::TopRight:
+            barX = width() - margin - barPixels;
+            barY = margin + 20;
+            break;
+        default: // BottomLeft
+            barX = margin;
+            barY = height() - margin - 6;
+            break;
+    }
 
-    painter.setFont(QFont(QStringLiteral("sans-serif"), 8));
-    painter.drawText(margin, barY - 6, label);
+    painter.setPen(m_scaleBarSettings->pen());
+    painter.drawLine(barX, barY, barX + barPixels, barY);
+    painter.drawLine(barX, barY - 4, barX, barY + 4);
+    painter.drawLine(barX + barPixels, barY - 4, barX + barPixels, barY + 4);
+
+    painter.setFont(m_scaleBarSettings->font());
+    painter.drawText(barX, barY - 6,
+                     m_scaleBarSettings->formatLabel(barMetres, rawCRS));
 }
 
 void MapCanvas::renderCoordinates(QPainter &painter, double mapX, double mapY) const

@@ -174,6 +174,20 @@ void OpenSWMMVisLayer::onCanvasCRSChanged(const SpatialReferenceSystem *)
     // Subclasses that cache OGRCoordinateTransformation should override this.
 }
 
+void OpenSWMMVisLayer::setBasicAuth(const QString &username, const QString &password)
+{
+    if (username.isEmpty()) {
+        m_authHeader.clear();
+        return;
+    }
+    m_authHeader = "Basic " + QByteArray((username + ':' + password).toUtf8()).toBase64();
+}
+
+void OpenSWMMVisLayer::setHttpHeaders(const BasemapHttpHeaders &headers)
+{
+    m_httpHeaders = headers;
+}
+
 void OpenSWMMVisLayer::depopulateScene(QGraphicsScene *scene)
 {
     if (!scene)

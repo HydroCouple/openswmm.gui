@@ -2,7 +2,7 @@
  * \file   crsreproject.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Phase 0.7 — coordinate reprojection of an open SWMM model.
  *
