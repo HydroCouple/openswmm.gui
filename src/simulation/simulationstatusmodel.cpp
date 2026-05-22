@@ -2,9 +2,10 @@
  * \file   simulationstatusmodel.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  */
 #include "simulation/simulationstatusmodel.h"
+#include "swmmvisprojectwindow.h"
 
 #include <QColor>
 #include <QBrush>
@@ -41,17 +42,71 @@ int SimulationStatusModel::addJob(const QString &instanceName, const QString &in
     return id;
 }
 
+int SimulationStatusModel::addOrReuseJobForModel(SWMMVisProjectWindow *model,
+                                                 const QString &instanceName,
+                                                 const QString &inpPath)
+{
+    if (!model) {
+        // Fallback: create a new job if no model binding
+        return addJob(instanceName, inpPath);
+    }
+
+    // Check if this model already has a job row
+    if (m_modelToJobId.contains(model)) {
+        // Reuse the existing job: reset it for a new run
+        const int jobId = m_modelToJobId[model];
+        const int row = jobIndexById(jobId);
+        if (row >= 0) {
+            auto &rec = m_jobs[row];
+            // Reset the record for a fresh run
+            rec.status            = SimulationJobStatus::Running;
+            rec.progress          = 0.0;
+            rec.runoffErrPct      = 0.0;
+            rec.routingErrPct     = 0.0;
+            rec.errorCode         = 0;
+            rec.errorMessage.clear();
+            rec.startedAt         = QDateTime::currentDateTime();
+            rec.finishedAt        = QDateTime();
+            rec.currentSimDate    = QDateTime();
+            rec.avgTimestepSec    = 0.0;
+            rec.warnings.clear();
+
+            // Update display (status and progress)
+            const QModelIndex tl = createIndex(row, 0, kRootId);
+            const QModelIndex br = createIndex(row, ColProgress, kRootId);
+            emit dataChanged(tl, br, {Qt::DisplayRole, Qt::EditRole, Qt::ForegroundRole});
+
+            // Clear warning children if they exist
+            if (!rec.warnings.isEmpty()) {
+                const QModelIndex jobIdx = createIndex(row, 0, kRootId);
+                beginRemoveRows(jobIdx, 0, rec.warnings.size() - 1);
+                rec.warnings.clear();
+                endRemoveRows();
+            }
+
+            return jobId;
+        }
+    }
+
+    // Create a new job and track it with the model
+    const int jobId = addJob(instanceName, inpPath);
+    m_modelToJobId[model] = jobId;
+    return jobId;
+}
+
 void SimulationStatusModel::updateProgress(int jobId, double fraction,
                                            const QDateTime &currentSimDate,
-                                           double runoffErrFrac, double routingErrFrac)
+                                           double runoffErrFrac, double routingErrFrac,
+                                           double avgTimestepSec)
 {
     const int row = jobIndexById(jobId);
     if (row < 0) return;
 
-    auto &rec         = m_jobs[row];
-    rec.progress      = fraction;
-    rec.runoffErrPct  = runoffErrFrac  * 100.0;
-    rec.routingErrPct = routingErrFrac * 100.0;
+    auto &rec           = m_jobs[row];
+    rec.progress        = fraction;
+    rec.runoffErrPct    = runoffErrFrac  * 100.0;
+    rec.routingErrPct   = routingErrFrac * 100.0;
+    rec.avgTimestepSec  = avgTimestepSec;
     // Store the runner-provided current date verbatim. The worker thread
     // converts the engine OADate to QDateTime via the canonical epoch, so
     // the model shouldn't try to derive it from start + offset (that
@@ -251,6 +306,12 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
             return QStringLiteral("%1 s")
                 .arg(rec.startedAt.secsTo(rec.finishedAt));
         }
+        case ColAvgTimestep:
+            if (rec.avgTimestepSec <= 0.0)
+                return QStringLiteral("—");
+            if (rec.avgTimestepSec >= 60.0)
+                return QStringLiteral("%1 min").arg(rec.avgTimestepSec / 60.0, 0, 'f', 2);
+            return QStringLiteral("%1 s").arg(rec.avgTimestepSec, 0, 'f', 2);
         default: break;
         }
     }
@@ -285,7 +346,8 @@ QVariant SimulationStatusModel::headerData(int section, Qt::Orientation orientat
     case ColEndDate:     return tr("Sim End");
     case ColRunoffErr:   return tr("Runoff Err (%)");
     case ColRoutingErr:  return tr("Routing Err (%)");
-    case ColDuration:    return tr("Duration");
+    case ColDuration:     return tr("Duration");
+    case ColAvgTimestep:  return tr("Avg Timestep");
     default: return {};
     }
 }

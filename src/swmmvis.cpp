@@ -60,11 +60,11 @@
 #include "ui/dialogs/preferencesdialog.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/timeseriesplotdialog.h"
-#include "ui/dialogs/wmsconnectiondialog.h"
-#include "ui/dialogs/wmtsconnectiondialog.h"
+#include "ui/dialogs/addbasemapdialog.h"
 #include "ui/panels/layertreepanel.h"
 #include "ui/panels/objectbrowserpanel.h"
 #include "ui/panels/attributepanel.h"
+#include "ui/panels/attributetablepanel.h"
 #include "plugins/filefilterregistry.h"
 #include "selection/selectionmanager.h"
 #include "simulation/simulationrunner.h"
@@ -80,11 +80,11 @@
 #include "layers/gisvectorlayer.h"
 #include "layers/gisrasterlayer.h"
 #include "layers/swmmresultslayer.h"
+#include "animation/animationcontroller.h"
 #include "map/tools/maptoolselect.h"
-#include "layers/wmslayer.h"
-#include "layers/wmtslayer.h"
 
 #include <QDesktopServices>
+#include <QDockWidget>
 #include <QFile>
 #include <QStandardPaths>
 #include <QUuid>
@@ -405,23 +405,71 @@ void SWMMVis::initializeToolBars()
 
 void SWMMVis::initializeAnimationToolBar()
 {
+    mAnimationController = new AnimationController(this);
+
     mSliderAnimationTime = new QSlider(Qt::Horizontal, this);
     mSliderAnimationTime->setSingleStep(1);
     mSliderAnimationTime->setPageStep(10);
     mSliderAnimationTime->setTickInterval(10);
     mSliderAnimationTime->setTickPosition(QSlider::TicksBelow);
-    mSliderAnimationTime->setToolTip("Animation Time");
-    mSliderAnimationTime->setStatusTip("Animation Time");
+    mSliderAnimationTime->setToolTip(tr("Animation Time"));
+    mSliderAnimationTime->setStatusTip(tr("Animation Time"));
     mSliderAnimationTime->setMinimumWidth(300);
 
     mDateTimeEditAnimationTime = new QDateTimeEdit(this);
-    mDateTimeEditAnimationTime->setDisplayFormat("MM/dd/yyyy hh:mm");
+    mDateTimeEditAnimationTime->setDisplayFormat(QStringLiteral("MM/dd/yyyy hh:mm"));
     mDateTimeEditAnimationTime->setCalendarPopup(true);
-    mDateTimeEditAnimationTime->setToolTip("Animation Time");
-    mDateTimeEditAnimationTime->setStatusTip("Animation Time");
+    mDateTimeEditAnimationTime->setToolTip(tr("Animation Time"));
+    mDateTimeEditAnimationTime->setStatusTip(tr("Animation Time"));
 
     ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mSliderAnimationTime);
     ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mDateTimeEditAnimationTime);
+
+    // Wire toolbar actions to controller.
+    // actionPlay is checkable (toggle); use triggered(bool) so both check and
+    // uncheck transitions are caught. Checked = playing, unchecked = paused.
+    connect(ui->actionPlay, &QAction::triggered, this, [this](bool checked) {
+        if (checked)
+            mAnimationController->play();
+        else
+            mAnimationController->pause();
+    });
+    connect(ui->actionStop,        &QAction::triggered,
+            mAnimationController,  &AnimationController::stop);
+    connect(ui->actionSkipBack,    &QAction::triggered,
+            mAnimationController,  &AnimationController::stepBackward);
+    connect(ui->actionSkipForward, &QAction::triggered,
+            mAnimationController,  &AnimationController::stepForward);
+
+    // Keep actionPlay check state in sync with the controller so that
+    // stop() / seek-to-end both un-check the button automatically.
+    connect(mAnimationController, &AnimationController::playStateChanged,
+            this, [this](bool playing) {
+        QSignalBlocker b(ui->actionPlay);
+        ui->actionPlay->setChecked(playing);
+    });
+
+    // Slider ↔ controller (bidirectional, guarded against feedback loops).
+    connect(mAnimationController, &AnimationController::currentPeriodChanged,
+            this, [this](int period) {
+        QSignalBlocker b(mSliderAnimationTime);
+        mSliderAnimationTime->setValue(period);
+    });
+    connect(mSliderAnimationTime, &QSlider::valueChanged,
+            mAnimationController, &AnimationController::seekToPeriod);
+
+    // DateTime display (read-only — controller drives it).
+    connect(mAnimationController, &AnimationController::currentTimeChanged,
+            this, [this](const QDateTime &dt) {
+        QSignalBlocker b(mDateTimeEditAnimationTime);
+        mDateTimeEditAnimationTime->setDateTime(dt);
+    });
+
+    // Slider range tracks total periods.
+    connect(mAnimationController, &AnimationController::totalPeriodsChanged,
+            this, [this](int total) {
+        mSliderAnimationTime->setRange(0, qMax(0, total - 1));
+    });
 }
 
 void SWMMVis::initializeMapTools()
@@ -716,11 +764,24 @@ void SWMMVis::openTimeSeriesPlotFor(const SWMMObjectRef &ref)
 
 void SWMMVis::initializeAttributePanelDockWidget()
 {
+    // Property browser (single-object detail view) — right dock.
     mAttributePanel = new AttributePanel(this);
-    // QMainWindow::saveState() requires every QDockWidget to have a stable
-    // objectName so its position can be persisted across sessions.
     mAttributePanel->setObjectName(QStringLiteral("dockWidgetAttributePanel"));
     addDockWidget(Qt::RightDockWidgetArea, mAttributePanel);
+
+    // Attribute table (all objects, tabular grid) — bottom dock.
+    mAttributeTablePanel = new AttributeTablePanel(this);
+    auto *tableDock = new QDockWidget(tr("Attribute Table"), this);
+    tableDock->setObjectName(QStringLiteral("dockWidgetAttributeTable"));
+    tableDock->setWidget(mAttributeTablePanel);
+    addDockWidget(Qt::BottomDockWidgetArea, tableDock);
+
+    // Two-way sync between property browser and attribute table so an edit
+    // in either view immediately reflects in the other without a full refresh.
+    connect(mAttributePanel, &AttributePanel::objectEdited,
+            mAttributeTablePanel, &AttributeTablePanel::onObjectEditedExternally);
+    connect(mAttributeTablePanel, &AttributeTablePanel::objectEdited,
+            mAttributePanel, &AttributePanel::onObjectEditedExternally);
 }
 
 void SWMMVis::initializeSimulationStatusDockWidget()
@@ -784,10 +845,9 @@ void SWMMVis::initializeMenus()
 {
     connect(ui->actionNew,    &QAction::triggered, this, &SWMMVis::onNewProject);
     connect(ui->actionOpen,   &QAction::triggered, this, [this]{ onOpenProject(); });
-    connect(ui->actionSave,            &QAction::triggered, this, &SWMMVis::onSaveProject);
-    connect(ui->actionSaveAsProject,   &QAction::triggered, this, &SWMMVis::onSaveProjectAs);
-    connect(ui->actionSaveAsInput,     &QAction::triggered, this, &SWMMVis::onSaveAsInputFile);
-    connect(ui->actionExportMap,       &QAction::triggered, this, &SWMMVis::onExportMap);
+    connect(ui->actionSave,    &QAction::triggered, this, &SWMMVis::onSaveProject);
+    connect(ui->actionSaveAs,  &QAction::triggered, this, &SWMMVis::onSaveAs);
+    connect(ui->actionExportMap, &QAction::triggered, this, &SWMMVis::onExportMap);
     connect(ui->actionAbout,  &QAction::triggered, this, &SWMMVis::onAbout);
 
     connect(ui->menuOpenRecent, &QMenu::triggered, this, &SWMMVis::onOpenRecentFile);
@@ -795,7 +855,7 @@ void SWMMVis::initializeMenus()
     connect(ui->actionShowWelcome, &QAction::triggered, this, &SWMMVis::onShowWelcomeScreen);
 
     connect(ui->actionAddWMSData,    &QAction::triggered, this, &SWMMVis::onAddWMSLayer);
-    connect(ui->actionAddBasemap,    &QAction::triggered, this, &SWMMVis::onAddWMTSLayer);
+    connect(ui->actionAddBasemap,    &QAction::triggered, this, &SWMMVis::onAddBasemapLayer);
     connect(ui->actionAddVectorData, &QAction::triggered, this, &SWMMVis::onAddVectorLayer);
     connect(ui->actionAddRasterData, &QAction::triggered, this, &SWMMVis::onAddRasterLayer);
     connect(ui->actionAddSWMMOutput, &QAction::triggered, this, &SWMMVis::onAddSWMMResultsLayer);
@@ -867,10 +927,7 @@ void SWMMVis::initializeMenus()
 
 
 
-    // Wire the .ui's pre-existing Add* actions to the Add-node tools. The
-    // node types match SWMM_NodeType (0=Junction, 1=Outfall, 2=Storage,
-    // 3=Divider). actionAddPipe / polyline / polygon remain unwired until
-    // MapToolAddLink / AddSubcatch ship.
+    // Node add tools.
     if (ui->actionAddJunction)
         connect(ui->actionAddJunction, &QAction::triggered, this, [this]() {
             if (auto *pw = activeProjectWindow()) pw->activateAddJunctionTool();
@@ -886,6 +943,38 @@ void SWMMVis::initializeMenus()
     if (ui->actionAddFlowDivider)
         connect(ui->actionAddFlowDivider, &QAction::triggered, this, [this]() {
             if (auto *pw = activeProjectWindow()) pw->activateAddDividerTool();
+        });
+
+    // Link add tools (Slice AE).
+    if (ui->actionAddPipe)
+        connect(ui->actionAddPipe, &QAction::triggered, this, [this]() {
+            if (auto *pw = activeProjectWindow()) pw->activateAddConduitTool();
+        });
+    if (ui->actionAddPump)
+        connect(ui->actionAddPump, &QAction::triggered, this, [this]() {
+            if (auto *pw = activeProjectWindow()) pw->activateAddPumpTool();
+        });
+    if (ui->actionAddOrifice)
+        connect(ui->actionAddOrifice, &QAction::triggered, this, [this]() {
+            if (auto *pw = activeProjectWindow()) pw->activateAddOrificeTool();
+        });
+    if (ui->actionAddWeir)
+        connect(ui->actionAddWeir, &QAction::triggered, this, [this]() {
+            if (auto *pw = activeProjectWindow()) pw->activateAddWeirTool();
+        });
+    if (ui->actionAddOutlet)
+        connect(ui->actionAddOutlet, &QAction::triggered, this, [this]() {
+            if (auto *pw = activeProjectWindow()) pw->activateAddOutletTool();
+        });
+
+    // Rain gage + subcatchment tools (Slice AE/AF).
+    if (ui->actionRainGauge)
+        connect(ui->actionRainGauge, &QAction::triggered, this, [this]() {
+            if (auto *pw = activeProjectWindow()) pw->activateAddGageTool();
+        });
+    if (ui->actionAddSubcatchment)
+        connect(ui->actionAddSubcatchment, &QAction::triggered, this, [this]() {
+            if (auto *pw = activeProjectWindow()) pw->activateAddSubcatchmentTool();
         });
 
     // Slice AU.4 — Generate Mesh tool launches MeshGenerationDialog.
@@ -1197,7 +1286,7 @@ void SWMMVis::onSaveProject()
     if (!pw->save(&err))
     {
         // No path yet → fall through to Save As
-        onSaveProjectAs();
+        onSaveAs();
         if (!err.isEmpty())
             onLogMessage(err, OpenSWMMVisLogMessage::LogMessageType::Information);
         return;
@@ -1221,80 +1310,76 @@ void SWMMVis::onSaveProject()
     onLogMessage(tr("Saved: %1").arg(pw->modelLayer()->modelFilePath()));
 }
 
-void SWMMVis::onSaveProjectAs()
+void SWMMVis::onSaveAs()
 {
     auto *pw = activeProjectWindow();
-    if (!pw)
-    {
-        onLogMessage(tr("Save As: no active project."), OpenSWMMVisLogMessage::LogMessageType::Warning);
+    if (!pw) {
+        onLogMessage(tr("Save As: no active project."),
+                     OpenSWMMVisLogMessage::LogMessageType::Warning);
         return;
     }
-    const QString suggested = pw->modelLayer() ? pw->modelLayer()->modelFilePath() : QString();
+
+    const QString suggested = pw->modelLayer()
+                                ? pw->modelLayer()->modelFilePath()
+                                : QString();
     auto *kFilters = openswmmvis::FileFilterRegistry::instance();
-    const QString path = QFileDialog::getSaveFileName(
-        this, tr("Save SWMM Model As"),
-        suggested.isEmpty() ? QDir::homePath() : suggested,
-        kFilters->filterFor(openswmmvis::FilterKind::InputRead));
-    if (path.isEmpty()) return;
+
+    // Use a QFileDialog instance (not the static helper) so the left-sidebar
+    // panel remains interactive under macOS and MDI parent windows.
+    QFileDialog dlg(this, tr("Save As"));
+    dlg.setAcceptMode(QFileDialog::AcceptSave);
+    // Combined filter: ProjectWrite (.oswp) first, then all writable InputRead
+    // formats (.inp, .gpkg, …), then All Files. The user picks the target
+    // format from one dropdown — no separate submenu actions needed.
+    dlg.setNameFilter(kFilters->saveAsFilter());
+    dlg.setDirectory(suggested.isEmpty() ? QDir::homePath()
+                                         : QFileInfo(suggested).absolutePath());
+    if (!suggested.isEmpty())
+        dlg.selectFile(QFileInfo(suggested).fileName());
+
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    const QString path = dlg.selectedFiles().value(0);
+    if (path.isEmpty())
+        return;
+
+    const QString ext = QFileInfo(path).suffix().toLower();
+
+    // When saving as .oswp the user is expressing intent to save the full
+    // project.  Derive the sibling .inp path (same dir, same base name) and
+    // write the SWMM input there, then write the sidecar to the chosen path.
+    const bool isProject = (ext == QStringLiteral("oswp"));
+    const QString inpPath = isProject
+        ? QFileInfo(path).absolutePath() + QChar('/')
+              + QFileInfo(path).completeBaseName() + QStringLiteral(".inp")
+        : path;
 
     QString err;
-    if (!pw->saveAs(path, &err))
-    {
+    if (!pw->saveAs(inpPath, &err)) {
         QMessageBox::critical(this, tr("Save As failed"), err);
         return;
     }
-    // Mirror the .oswp sidecar to the new path — Save As is the only
-    // place a single project can take on a new basename, so the old
-    // sidecar stays next to the old .inp. Explicit delete of the old
-    // sidecar is deferred; Phase 12 polish.
-    {
-        const QString oswp = ProjectSerializer::sidecarPathFor(path);
+
+    // Write the .oswp sidecar for native input (.inp) or explicit project
+    // (.oswp) saves. Plugin-backed export formats (.gpkg, …) are standalone
+    // — they carry no project sidecar.
+    const bool writeSidecar = isProject || (ext == QStringLiteral("inp"));
+    if (writeSidecar) {
+        const QString oswp = isProject ? path
+                                       : ProjectSerializer::sidecarPathFor(path);
         QString sidecarErr;
         if (!oswp.isEmpty()
-            && !ProjectSerializer::saveToFile(oswp, pw, &sidecarErr))
-        {
+            && !ProjectSerializer::saveToFile(oswp, pw, &sidecarErr)) {
             onLogMessage(tr("Sidecar save failed: %1").arg(sidecarErr),
                          OpenSWMMVisLogMessage::LogMessageType::Warning);
         }
     }
-    mRecentFiles.removeAll(path);
-    mRecentFiles.prepend(path);
+
+    mRecentFiles.removeAll(inpPath);
+    mRecentFiles.prepend(inpPath);
     onRecentFilesSizeChanged();
     saveSettings();
     onLogMessage(tr("Saved As: %1").arg(path));
-}
-
-void SWMMVis::onSaveAsInputFile()
-{
-    auto *pw = activeProjectWindow();
-    if (!pw)
-    {
-        onLogMessage(tr("Save Input As: no active project."),
-                     OpenSWMMVisLogMessage::LogMessageType::Warning);
-        return;
-    }
-    const QString suggested = pw->modelLayer() ? pw->modelLayer()->modelFilePath() : QString();
-    auto *kFilters = openswmmvis::FileFilterRegistry::instance();
-    const QString path = QFileDialog::getSaveFileName(
-        this, tr("Save SWMM Input As"),
-        suggested.isEmpty() ? QDir::homePath() : suggested,
-        kFilters->filterFor(openswmmvis::FilterKind::InputRead));
-    if (path.isEmpty()) return;
-
-    QString err;
-    if (!pw->saveAs(path, &err))
-    {
-        QMessageBox::critical(this, tr("Save Input As failed"), err);
-        return;
-    }
-    // Distinct from onSaveProjectAs: no .oswp sidecar is written here. The
-    // user is exporting the SWMM input independently, not relocating the
-    // whole project.
-    mRecentFiles.removeAll(path);
-    mRecentFiles.prepend(path);
-    onRecentFilesSizeChanged();
-    saveSettings();
-    onLogMessage(tr("Saved Input As: %1").arg(path));
 }
 
 void SWMMVis::onExportMap()
@@ -1408,6 +1493,19 @@ void SWMMVis::onOpenProject(const QString &path)
 
 void SWMMVis::openSingleINP(const QString &filePath)
 {
+    // Prevent duplicate windows — if this .inp is already open, just focus it.
+    const QFileInfo inpFi(filePath);
+    for (QMdiSubWindow *sw : ui->mdiAreaCentral->subWindowList()) {
+        auto *existing = qobject_cast<SWMMVisProjectWindow *>(sw);
+        if (existing && existing->modelLayer()) {
+            const QFileInfo existFi(existing->modelLayer()->modelFilePath());
+            if (existFi == inpFi) {
+                ui->mdiAreaCentral->setActiveSubWindow(sw);
+                return;
+            }
+        }
+    }
+
     // Create a new project window for this INP file
     auto *window = new SWMMVisProjectWindow(mProject, filePath, ui->mdiAreaCentral);
     connect(window, &SWMMVisProjectWindow::modelLoaded,
@@ -1461,14 +1559,53 @@ void SWMMVis::openSingleINP(const QString &filePath)
 
         // Slice X — apply the co-located .oswp sidecar if one exists.
         // Hydrates GUI-only state (layer CRS, category / object order,
-        // hidden objects, canvas extent) that can't round-trip through
-        // the .inp itself. Missing sidecar is not an error.
+        // hidden objects, canvas extent, result layers) that can't
+        // round-trip through the .inp itself. Missing sidecar is not an error.
         const QString oswp = ProjectSerializer::sidecarPathFor(filePath);
         if (!oswp.isEmpty() && QFile::exists(oswp)) {
             QString sidecarErr;
             if (!ProjectSerializer::applyFromFile(oswp, window, &sidecarErr)) {
                 onLogMessage(tr("Sidecar load failed: %1").arg(sidecarErr),
                              OpenSWMMVisLogMessage::LogMessageType::Warning);
+            }
+        }
+
+        // Auto-discover sibling output files if the sidecar didn't restore any.
+        // Check ResultsRead patterns (*.out) and any plugin-registered extensions.
+        bool hasResultLayer = false;
+        if (window->canvas()) {
+            for (OpenSWMMVisLayer *l : window->canvas()->layers())
+                if (qobject_cast<SWMMResultsLayer *>(l)) { hasResultLayer = true; break; }
+        }
+        if (!hasResultLayer && window->canvas() && window->modelLayer()) {
+            auto *reg = openswmmvis::FileFilterRegistry::instance();
+            // Collect all ResultsRead and ResultsWrite patterns (e.g. "*.out").
+            QStringList patterns = reg->patternsFor(openswmmvis::FilterKind::ResultsRead);
+            patterns += reg->patternsFor(openswmmvis::FilterKind::ResultsWrite);
+
+            const QFileInfo fi(filePath);
+            const QString base = fi.completeBaseName();
+            const QDir dir = fi.absoluteDir();
+
+            for (const QString &pat : patterns) {
+                // Pattern is "*.ext" — build "basename.ext" and check if it exists.
+                const QString ext = QString(pat).remove(QStringLiteral("*."));
+                const QString candidate = dir.filePath(base + QStringLiteral(".") + ext);
+                if (!QFileInfo::exists(candidate)) continue;
+
+                auto *rl = new SWMMResultsLayer(candidate, window->modelLayer());
+                rl->setName(QFileInfo(candidate).fileName());
+                window->canvas()->addLayer(rl, /*pushUndo=*/false);
+                QList<QString> rlW, rlE;
+                if (rl->openResults(rlW, rlE)) {
+                    rl->autoStretchColorRamp();
+                    if (mAnimationController)
+                        mAnimationController->setLayer(rl);
+                    onLogMessage(tr("Auto-loaded results: %1").arg(QFileInfo(candidate).fileName()));
+                }
+                for (const QString &e : rlE)
+                    onLogMessage(e, OpenSWMMVisLogMessage::LogMessageType::Warning);
+                break; // load first match only
             }
         }
 
@@ -1577,9 +1714,10 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         mCheckBoxLevelOffsetMode->setEnabled(false);
         if (mCheckBoxAutoLength) mCheckBoxAutoLength->setEnabled(false);
         mComboBoxFlowUnits->setEnabled(false);
-        if (mLayerTreePanel)     mLayerTreePanel->setCanvas(nullptr);
-        if (mObjectBrowserPanel) mObjectBrowserPanel->setProject(nullptr, nullptr, nullptr);
-        if (mAttributePanel)     mAttributePanel->clear();
+        if (mLayerTreePanel)        mLayerTreePanel->setCanvas(nullptr);
+        if (mObjectBrowserPanel)    mObjectBrowserPanel->setProject(nullptr, nullptr, nullptr);
+        if (mAttributePanel)      { mAttributePanel->setProject(nullptr); mAttributePanel->clear(); }
+        if (mAttributeTablePanel)   mAttributeTablePanel->setProject(nullptr, nullptr, nullptr);
         mActiveProjectWindow = nullptr;
         return;
     }
@@ -1693,6 +1831,17 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         mObjectBrowserPanel->setProject(pw->modelLayer(),
                                         pw->selectionManager(),
                                         pw->canvas());
+
+    // Bind the property browser to the engine layer so typed adapters
+    // (SWMMJunctionPropertyAdapter, etc.) can be constructed on identify.
+    if (mAttributePanel)
+        mAttributePanel->setProject(pw->modelLayer());
+
+    // Rebind the Attribute Table to this project.
+    if (mAttributeTablePanel)
+        mAttributeTablePanel->setProject(pw->modelLayer(),
+                                         pw->selectionManager(),
+                                         pw->canvas());
     if (mAttributePanel && pw->selectionManager())
     {
         // The attribute panel listens to selectionChanged via a per-tab
@@ -2017,7 +2166,9 @@ void SWMMVis::onRunSimulation()
     updateSimulationProgressBar();
 
     // Create runner; wire signals → model; runner deletes itself after finish.
-    auto *runner = new SimulationRunner(jobId, instanceName, inpPath, rptPath, outPath, this);
+    const QString engineVer = pw ? pw->engineVersion() : QStringLiteral("6.0.0");
+    auto *runner = new SimulationRunner(jobId, instanceName, inpPath, rptPath, outPath,
+                                        engineVer, this);
     mActiveRunners.insert(jobId, runner);
 
     connect(runner, &SimulationRunner::progressChanged,
@@ -2098,6 +2249,18 @@ void SWMMVis::onRunSimulation()
                                                     pwGuard->modelLayer());
                     rl->setName(QFileInfo(outPathCopy).fileName());
                     pwGuard->canvas()->addLayer(rl, true);
+
+                    QList<QString> rlWarnings, rlErrors;
+                    if (rl->openResults(rlWarnings, rlErrors))
+                    {
+                        rl->autoStretchColorRamp();
+                        self->mAnimationController->setLayer(rl);
+                    }
+                    else
+                    {
+                        for (const QString &e : rlErrors)
+                            self->onLogMessage(e, OpenSWMMVisLogMessage::Error);
+                    }
                 }
 
                 runner->deleteLater();
@@ -2223,30 +2386,31 @@ void SWMMVis::onCRSButtonClicked()
     }
 }
 
-void SWMMVis::onAddWMSLayer()
+void SWMMVis::onAddBasemapLayer()
 {
-    WMSConnectionDialog dlg(this);
+    AddBasemapDialog dlg(this);
     if (dlg.exec() != QDialog::Accepted) return;
 
-    WMSLayer *layer = dlg.createLayer(nullptr);
+    OpenSWMMVisLayer *layer = dlg.createLayer(nullptr);
     if (!layer) return;
 
     if (MapCanvas *c = activeCanvas())
         c->addLayer(layer, true);
-    onLogMessage(QStringLiteral("Added WMS layer: %1").arg(layer->name()));
+    onLogMessage(tr("Added basemap layer: %1").arg(layer->name()));
 }
 
-void SWMMVis::onAddWMTSLayer()
+void SWMMVis::onAddWMSLayer()
 {
-    WMTSConnectionDialog dlg(this);
+    AddBasemapDialog dlg(this);
+    dlg.setInitialTab(1); // WMS / WMTS tab
     if (dlg.exec() != QDialog::Accepted) return;
 
-    WMTSLayer *layer = dlg.createLayer(nullptr);
+    OpenSWMMVisLayer *layer = dlg.createLayer(nullptr);
     if (!layer) return;
 
     if (MapCanvas *c = activeCanvas())
         c->addLayer(layer, true);
-    onLogMessage(QStringLiteral("Added WMTS layer: %1").arg(layer->name()));
+    onLogMessage(tr("Added WMS/WMTS layer: %1").arg(layer->name()));
 }
 
 void SWMMVis::onAddVectorLayer()
@@ -2319,5 +2483,17 @@ void SWMMVis::onAddSWMMResultsLayer()
     auto *layer = new SWMMResultsLayer(path, pw->modelLayer());
     layer->setName(QFileInfo(path).fileName());
     pw->canvas()->addLayer(layer, true);
-    onLogMessage(tr("Added results layer: %1").arg(QFileInfo(path).fileName()));
+
+    QList<QString> warnings, errors;
+    if (layer->openResults(warnings, errors))
+    {
+        layer->autoStretchColorRamp();
+        mAnimationController->setLayer(layer);
+        onLogMessage(tr("Added results layer: %1").arg(QFileInfo(path).fileName()));
+    }
+    else
+    {
+        for (const QString &e : errors)
+            onLogMessage(e, OpenSWMMVisLogMessage::Error);
+    }
 }

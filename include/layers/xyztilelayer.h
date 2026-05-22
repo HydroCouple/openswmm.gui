@@ -8,6 +8,7 @@
 #define XYZTILELAYER_H
 
 #include "layers/openswmmvislayer.h"
+#include "connections/basemapconnection.h"
 
 #include <QCache>
 #include <QImage>
@@ -81,6 +82,13 @@ public:
     int  tileCacheMaxSize()             const { return m_tileCache.maxCost(); }
     void setTileCacheMaxSize(int count)       { m_tileCache.setMaxCost(count); }
 
+    void setTilePixelRatio(int ratio)         { m_tilePixelRatio = ratio; }
+    void setAxisOrder(TileAxisOrder order)    { m_axisOrder = order; }
+
+    [[nodiscard]] QString        urlTemplate()    const { return m_urlTemplate; }
+    [[nodiscard]] int            tilePixelRatio() const { return m_tilePixelRatio; }
+    [[nodiscard]] TileAxisOrder  axisOrder()      const { return m_axisOrder; }
+
 private slots:
     void onTileReply(QNetworkReply *reply, const QString &key);
 
@@ -98,12 +106,16 @@ private:
     void fetchTile(int z, int x, int y);
     QString buildUrl(int z, int x, int y) const;
 
+    friend class XYZTileLayerAccessor;
+
     QString                   m_urlTemplate;
     QNetworkAccessManager    *m_nam        = nullptr;
     QCache<QString, QImage>   m_tileCache;          // key "z/x/y"
     QSet<QString>             m_inflight;            // keys being fetched
-    int                       m_subdomainIdx = 0;   // rotates a/b/c
-    int                       m_tileSizePx   = 256; // 256 standard, 512 for @2x
+    int                       m_subdomainIdx  = 0;   // rotates a/b/c
+    int                       m_tileSizePx    = 256; // 256 standard, 512 for @2x
+    int                       m_tilePixelRatio = 0;  // 0=undefined,1=standard,2=HiDPI
+    TileAxisOrder             m_axisOrder     = TileAxisOrder::ZXY;
 
     // Cached GDAL transforms (rebuilt on CRS change). Mutex guards the
     // render() ↔ rebuildTransforms() race: render runs in the MapRenderJob

@@ -2,7 +2,7 @@
  * \file   pluginsdialog.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  */
 
 #include "ui/dialogs/pluginsdialog.h"
@@ -38,7 +38,7 @@ void PluginsDialog::buildUi()
 
     auto *header = new QLabel(
         tr("File-format filters available to Open / Save dialogs. Built-in "
-           "filters are bundled with OpenSWMM; engine plugins are discovered "
+           "filters are bundled with SWMMVis; engine plugins are discovered "
            "from the running engine. Enable / disable and user-installed "
            "plugins arrive in a follow-up slice."),
         this);

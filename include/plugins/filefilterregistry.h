@@ -85,6 +85,18 @@ public:
     QString filterFor(FilterKind kind) const;
 
     /**
+     * @brief Combined filter string for the Save As dialog.
+     *
+     * @details Merges all writable SWMM input formats (InputRead entries with
+     *          canWrite == true) and all project formats (ProjectWrite entries)
+     *          into one Qt filter string, with a combined "All Supported" entry
+     *          first and "All Files (*)" last.  Use this for the single
+     *          File → Save As dialog so the user can pick any project-level
+     *          output format from one dropdown.
+     */
+    QString saveAsFilter() const;
+
+    /**
      * @brief Glob patterns for a kind, deduplicated.
      */
     QStringList patternsFor(FilterKind kind) const;

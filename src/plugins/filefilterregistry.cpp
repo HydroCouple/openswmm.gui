@@ -43,9 +43,9 @@ void FileFilterRegistry::rescan()
 void FileFilterRegistry::registerBuiltinFilters()
 {
     // Project (.oswp) — read + write are always available.
-    entries_.append({tr("OpenSWMM Project File"), {QStringLiteral("*.oswp")},
+    entries_.append({tr("SWMMVis Project File"), {QStringLiteral("*.oswp")},
                      FilterKind::ProjectRead, {}, true, false, true});
-    entries_.append({tr("OpenSWMM Project File"), {QStringLiteral("*.oswp")},
+    entries_.append({tr("SWMMVis Project File"), {QStringLiteral("*.oswp")},
                      FilterKind::ProjectWrite, {}, false, true, true});
 
     // Results read — engine writes via OUTPUT_WRITE, GUI reads via this kind.
@@ -172,6 +172,40 @@ QString FileFilterRegistry::filterFor(FilterKind kind) const
         result << QStringLiteral("%1 (%2)")
                       .arg(tr("All Supported"), joinPatterns(allPatterns));
     }
+    result.append(parts);
+    result << tr("All Files (*)");
+    return result.join(QStringLiteral(";;"));
+}
+
+QString FileFilterRegistry::saveAsFilter() const
+{
+    // Collect entries from InputRead (writable) + ProjectWrite.
+    QStringList parts;
+    QStringList allPatterns;
+    QSet<QString> seen;
+
+    auto addEntries = [&](FilterKind kind) {
+        for (const auto &e : entries_) {
+            if (e.kind != kind || !e.enabled) continue;
+            if (kind == FilterKind::InputRead && !e.canWrite) continue;
+            parts << QStringLiteral("%1 (%2)").arg(e.description, joinPatterns(e.patterns));
+            for (const auto &p : e.patterns) {
+                if (!seen.contains(p)) {
+                    seen.insert(p);
+                    allPatterns << p;
+                }
+            }
+        }
+    };
+    addEntries(FilterKind::ProjectWrite);
+    addEntries(FilterKind::InputRead);
+
+    if (parts.isEmpty())
+        return tr("All Files (*)");
+
+    QStringList result;
+    if (allPatterns.size() > 1)
+        result << QStringLiteral("%1 (%2)").arg(tr("All Supported"), joinPatterns(allPatterns));
     result.append(parts);
     result << tr("All Files (*)");
     return result.join(QStringLiteral(";;"));

@@ -1,15 +1,10 @@
 /*!
  * \file   gisvectorlayer.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+ * \date   2026
+ * \license GPL-3.0-or-later
+ * \brief  Map layer backed by an OGR vector dataset (Shapefile, GeoJSON, GeoPackage, …),
+ *         rendering features as QGraphicsItems in the canvas overlay.
  */
 
 #ifndef GISVECTORLAYER_H
@@ -19,10 +14,15 @@
 
 #include <QColor>
 #include <QFont>
+#include <QList>
 #include <QPen>
 #include <QBrush>
 #include <QString>
 #include <QVariantMap>
+
+#include <memory>
+
+class QGraphicsItem;
 
 // Forward-declare GDAL/OGR types
 class GDALDataset;
@@ -32,6 +32,8 @@ class OGRCoordinateTransformation;
 
 class SpatialReferenceSystem;
 class OpenSWMMVisWorkspace;
+
+namespace OpenSWMM::Render { class IFeatureRenderer; }
 
 /*!
  * \struct GISVectorSymbol
@@ -144,6 +146,26 @@ public:
     [[nodiscard]] GISVectorSymbol symbol() const;
     void setSymbol(const GISVectorSymbol &symbol);
 
+    // ----- Renderer (Slice BI Phase 8.13.6.6) -----------------------------
+    // API plumbing only — paint loop still consults m_symbol directly.
+    // Sub-phase 8.13.6.4 (deferred until Slice BB ColorRamp lands) will
+    // refactor the paint loop to consult m_renderer instead.
+
+    /*!
+     * \brief The IFeatureRenderer that will drive this layer's paint pass.
+     * \details Constructed eagerly as a default SingleSymbolRenderer so
+     *          callers never have to null-check.  Owned by the layer.
+     */
+    [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+
+    /*!
+     * \brief Replaces the current renderer.
+     * \details The layer takes ownership.  A null pointer is rejected (the
+     *          method silently no-ops).  Emits \ref rendererChanged() when
+     *          the renderer pointer actually changes.
+     */
+    void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+
     // ----- Selection ------------------------------------------------------
 
     /*!
@@ -202,6 +224,8 @@ signals:
     void filterExpressionChanged(const QString &expr);
     void symbolChanged(const GISVectorSymbol &symbol);
     void selectionChanged(const QSet<long long> &selectedIds);
+    /*! \brief Emitted when setRenderer() swaps the renderer pointer. */
+    void rendererChanged();
 
 private:
     void openDataset(const QString &filePath, const QString &layerName);
@@ -218,8 +242,17 @@ private:
     OGRLayer                    *m_ogrLayer  = nullptr; /*!< Non-owning pointer into dataset. */
     OGRCoordinateTransformation *m_transform = nullptr; /*!< Owned; layer CRS → canvas CRS. */
 
+    // Slice BI Phase 8.13.6.6 — renderer plumbing.  Initialised eagerly in
+    // the ctor (default SingleSymbolRenderer) so renderer() never returns
+    // null.  Paint refactor deferred until Slice BB ColorRamp ships.
+    std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> m_renderer;
+
     // Dirty flag — skip scene rebuild when only the view extent changed
     bool                         m_needsRebuild = true;
+
+    // Owned QGraphicsItems currently in the scene — avoids O(n) scene scan
+    // in depopulateScene (which previously used dynamic_cast on every item).
+    QList<QGraphicsItem *>       m_sceneItems;
 };
 
 Q_DECLARE_METATYPE(GISVectorLayer *)

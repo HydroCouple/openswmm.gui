@@ -1,11 +1,9 @@
 /*!
  * \file   maptoolpan.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
+ * \date   2026
+ * \license GPL-3.0-or-later
+ * \brief  Click-and-drag canvas pan tool.
  */
 
 #ifndef MAPTOOLPAN_H

@@ -1,15 +1,11 @@
 /*!
  * \file   swmmmodellayer.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+ * \date   2026
+ * \license GPL-3.0-or-later
+ * \brief  Map layer that renders an OpenSWMMCore network (nodes, links,
+ *         subcatchments, rain gages) and provides geometry-editing and
+ *         spatial-query APIs.
  */
 
 #ifndef SWMMMODELLAYER_H
@@ -19,6 +15,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 // Forward declaration — nanoflann types are confined to swmmmodellayer.cpp
@@ -37,6 +34,8 @@ struct SWMMKdTrees;
 
 class OpenSWMMVisWorkspace;
 class SpatialReferenceSystem;
+
+namespace OpenSWMM::Render { class IFeatureRenderer; }
 
 /*!
  * \struct SWMMElementSymbol
@@ -102,6 +101,36 @@ public:
         CatSubcatchments,
         CatRainGages,
         NumCategories
+    };
+
+    /*!
+     * \enum DataCategory
+     * \brief Slice BM.0 — non-spatial data-object categories surfaced
+     *        below the spatial section in the Object Browser. Keyed
+     *        independently from `Category` to keep the existing tree
+     *        logic untouched.
+     *
+     *        Each enum value maps 1:1 to an engine `swmm_<type>_count`
+     *        + `swmm_<type>_id` accessor pair (see `dataObjectCount` /
+     *        `dataObjectNameAt`). Curves and Time Series both come out
+     *        of the unified engine tables array — they are partitioned
+     *        on the GUI side via `swmm_table_get_type`.
+     */
+    enum DataCategory {
+        DataCurves        = 0,
+        DataTimeSeries,
+        DataPatterns,
+        DataLIDControls,
+        DataPollutants,
+        DataLandUses,
+        DataAquifers,
+        DataSnowpacks,
+        DataControls,
+        DataTransects,
+        DataHydrographs,
+        DataStreets,
+        DataInlets,
+        NumDataCategories
     };
 
     Q_PROPERTY(QString modelFilePath  READ modelFilePath  NOTIFY modelFilePathChanged)
@@ -220,6 +249,25 @@ public:
      *        Returns an empty string if the indices are out of range.
      */
     [[nodiscard]] QString objectNameAt(Category c, int row) const;
+
+    /*!
+     * \brief Slice BM.0 — number of non-spatial data objects in
+     *        \p c. Returns 0 when the engine handle is null or when
+     *        the underlying `swmm_<type>_count` call fails.
+     *
+     *        Curves and Time Series share the engine's unified
+     *        `tables` array, so their counts are produced by walking
+     *        the table list and filtering on `swmm_table_get_type`.
+     *        All other categories map directly to a dedicated count
+     *        accessor.
+     */
+    [[nodiscard]] int dataObjectCount(DataCategory c) const;
+
+    /*!
+     * \brief Slice BM.0 — name of a non-spatial data object at
+     *        (category, row), or an empty string when out of range.
+     */
+    [[nodiscard]] QString dataObjectNameAt(DataCategory c, int row) const;
 
     /*!
      * \brief Aggregate check state for a category: Checked when every
@@ -346,6 +394,33 @@ public:
     [[nodiscard]] SWMMElementSymbol rainGageSymbol()   const;
     void setRainGageSymbol(const SWMMElementSymbol &s);
 
+    // ----- Renderer (Slice BI Phase 8.13.6.5) -----------------------------
+    // The renderer is the §J.2 seam every future paint path will go through.
+    // Sub-phase 8.13.6.5 is API plumbing only — the existing paint loop in
+    // SWMMLayerItem still reads the per-kind SWMMElementSymbol members
+    // (m_junctionSym, m_conduitSym, …) directly. The paint refactor lands
+    // later (after Slice BB Phase 8.6.1 provides a proper ColorRamp type),
+    // at which point the default renderer will be swapped from this
+    // placeholder SingleSymbolRenderer to a MultiKindRenderer adapter that
+    // delegates to the 11 per-category symbols.
+
+    /*!
+     * \brief The IFeatureRenderer for this layer.
+     * \details Constructed eagerly so callers never have to null-check.
+     *          v1 default is a SingleSymbolRenderer placeholder; the
+     *          eventual default (paint-refactor sub-phase) is a
+     *          MultiKindRenderer wrapping the 11 per-category symbols.
+     */
+    [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+
+    /*!
+     * \brief Replaces the current renderer.
+     * \details The layer takes ownership.  A null pointer is rejected
+     *          (silent no-op) so renderer() never returns nullptr.
+     *          Emits \ref rendererChanged() when the pointer actually changes.
+     */
+    void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+
     // ----- Selection ------------------------------------------------------
 
     /*!
@@ -418,6 +493,30 @@ public:
                                           double canvasMaxX, double canvasMaxY) const;
 
     /*!
+     * \brief Nearest-neighbor snap query for vertex editing.
+     *
+     * \details Searches for the closest node (via the KD-tree, O(log N))
+     *          and the closest link interior vertex (bbox-filtered linear
+     *          scan) within \p mapRadius of (\p mapX, \p mapY).  All
+     *          coordinates are in layer CRS — the same system that
+     *          MapTool::toMapCoords() and m_nodes[i].x/y use.
+     *
+     * \param[in]  mapX, mapY   Query point in layer CRS.
+     * \param[in]  mapRadius    Search radius in layer CRS units.
+     * \param[out] outPt        Set to the nearest candidate when returning true.
+     * \returns true if a candidate was found within mapRadius.
+     */
+    /*! Find the nearest snap candidate (node, link interior vertex, or
+     *  subcatchment polygon vertex) within \p mapRadius of (\p mapX, \p mapY).
+     *  If \p excludePos is set the candidate at that exact position is skipped
+     *  — pass the drag-start position to avoid self-snapping to the vertex
+     *  being dragged while still snapping to every other vertex, including
+     *  other vertices on the same object. */
+    [[nodiscard]] bool snapNearestPoint(double mapX, double mapY, double mapRadius,
+                                        QPointF &outPt,
+                                        std::optional<QPointF> excludePos = std::nullopt) const;
+
+    /*!
      * \brief Names of all rain gages whose coordinates fall inside the
      *        canvas-CRS rectangle. Same semantics as nodesInRect.
      */
@@ -469,6 +568,38 @@ public:
     void reloadGeometry();
 
     /*!
+     * \brief Reverse-transform a canvas-CRS coordinate into the layer's
+     *        native CRS.
+     * \details Used by the status-bar cursor read-out so the displayed
+     *          coordinate is in the user's data CRS even when the canvas
+     *          renders via on-the-fly reprojection (e.g. geographic layer
+     *          displayed in Web Mercator). When the layer CRS equals the
+     *          canvas CRS (no forward transform), passes inputs through
+     *          unchanged. The inverse transform is cached so per-mouse-move
+     *          calls don't recreate a GDAL transformation object.
+     * \return  true on success; on failure, lx/ly equal cx/cy.
+     */
+    bool transformCanvasToLayer(double cx, double cy,
+                                double &lx, double &ly) const;
+
+    /*!
+     * \brief Forward-transform a layer-CRS coordinate into the canvas CRS.
+     * \details Map tools collect mouse input in canvas CRS (via toMapCoords)
+     *          but several helpers (e.g. snap, cachedNodeCoord) return
+     *          coordinates in the layer's native CRS. When the two CRSes
+     *          differ — typically because a basemap forces the canvas to
+     *          Web Mercator while the SWMM model is in a different
+     *          projection — tools need to round-trip those values back to
+     *          canvas CRS so interactive rubber-band / snap-ring rendering
+     *          stays aligned with what the user clicked. When the layer
+     *          CRS equals the canvas CRS, this passes inputs through
+     *          unchanged.
+     * \return  true on success; on failure, cx/cy equal lx/ly.
+     */
+    bool transformLayerToCanvas(double lx, double ly,
+                                double &cx, double &cy) const;
+
+    /*!
      * \brief Classify a name into its SWMM object class via O(1) lookup
      *        against `m_objectLocation`.
      * \details Used by the SelectionManager bridge to translate the layer's
@@ -501,6 +632,15 @@ public:
     bool cachedNodeCoord(int idx, double *x, double *y) const;
 
     /*!
+     * \brief Layer-CRS position of any named element (node, gage, or link
+     *        midpoint) by object name.
+     * \details Uses the internal name→SoA hash for O(1) lookup. For links
+     *          the midpoint of the cached polyline is returned.
+     * \returns true on success; x / y untouched on failure.
+     */
+    bool elementPosition(const QString &name, double *x, double *y) const;
+
+    /*!
      * \brief Cached layer-CRS polyline of a link by index, including the
      *        endpoint coordinates of its from/to nodes.
      */
@@ -528,6 +668,12 @@ public:
      *        \ref cachedSubcatchVertices for direct iteration.
      */
     [[nodiscard]] int cachedSubcatchCount() const;
+
+    /*! Monotonically increasing counter, bumped at the end of every
+     *  rebuildSceneCoords() call.  Renderers can compare against a cached
+     *  value to cheaply detect whether scene geometry has changed without
+     *  storing a pointer or connecting a signal. */
+    [[nodiscard]] quint64 geomRevision() const { return m_geomRevision; }
 
     // ----- Simulation-options pass-through (Slice U) ----------------------
 
@@ -567,6 +713,23 @@ public:
      *        the link is not a conduit / is out of range.
      */
     [[nodiscard]] double engineLinkLength(int linkIdx) const;
+
+    /*!
+     * \brief Compute polyline length in the SWMM model's expected linear unit
+     *        (feet for US-customary FLOW_UNITS — CFS/GPM/MGD; metres for SI —
+     *        CMS/LPS/MLD).
+     *
+     *        Used by the auto-length code path to convert canvas/layer-CRS
+     *        coordinates into the unit the engine writes into [CONDUITS]:
+     *          - Projected CRS:   raw Euclidean × `linearUnitsToMetres()`
+     *                             → metres, then to feet if not SI.
+     *          - Geographic CRS:  great-circle distance per segment
+     *                             (WGS-84 sphere) → metres, then to feet if not SI.
+     *          - No SRS:          raw Euclidean (preserves legacy behaviour
+     *                             for projects without a CRS set).
+     */
+    [[nodiscard]] double polylineLengthInModelUnits(
+        const QVector<QPointF> &vertices) const;
 
     /*!
      * \brief Returns true when the link at \p linkIdx is a conduit (the
@@ -627,6 +790,12 @@ public:
      */
     [[nodiscard]] int linkEndForNode(int linkIdx, int nodeIdx) const;
 
+    /*! Returns the from-node (upstream) engine index for \p linkIdx, or -1. */
+    [[nodiscard]] int linkFromNodeIdx(int linkIdx) const;
+
+    /*! Returns the to-node (downstream) engine index for \p linkIdx, or -1. */
+    [[nodiscard]] int linkToNodeIdx(int linkIdx) const;
+
     /*!
      * \brief Apply a new coordinate to a node: engine + cache + attached
      *        link endpoint updates. Does not push an undo command — the
@@ -652,6 +821,13 @@ public:
     bool applyLinkInteriorVertices(int linkIdx, const QVector<QPointF> &interior);
 
     /*!
+     * \brief Replace a subcatchment's polygon vertices: engine + cache.
+     *        Recomputes the centroid as the vertex average.
+     */
+    bool applySubcatchVertices(int idx, const QVector<QPointF> &vertices);
+    bool applySubcatchArea(int idx, double areaInModelUnits);
+
+    /*!
      * \brief Add a new node: engine + cache. Engine must be OPENED.
      * \param name      Unique null-terminated node identifier.
      * \param nodeType  0=Junction, 1=Outfall, 2=Storage, 3=Divider
@@ -673,6 +849,70 @@ public:
      */
     bool rollbackTailNodeAdd(const QString &name);
 
+    /*!
+     * \brief Add a new link: engine + cache.
+     * \param name             Unique identifier.
+     * \param linkType         0=Conduit, 1=Pump, 2=Orifice, 3=Weir, 4=Outlet.
+     * \param fromNodeName     From-node name (must already exist).
+     * \param toNodeName       To-node name (must already exist).
+     * \param interiorVertices Interior (non-endpoint) polyline points.
+     * \param[out] outIdx      Link index on success.
+     */
+    bool applyLinkAdd(const QString &name, int linkType,
+                      const QString &fromNodeName, const QString &toNodeName,
+                      const QVector<QPointF> &interiorVertices,
+                      int *outIdx = nullptr);
+
+    /*! Undo tail link add (swmm_link_pop_last). */
+    bool rollbackTailLinkAdd(const QString &name);
+
+    /*! Add a rain gage: engine + cache. */
+    bool applyGageAdd(const QString &name, double x, double y,
+                      int *outIdx = nullptr);
+
+    /*! Undo tail gage add (swmm_gage_delete on tail). */
+    bool rollbackTailGageAdd(const QString &name);
+
+    /*! Add a subcatchment polygon: engine + cache. */
+    bool applySubcatchAdd(const QString &name,
+                          const QVector<QPointF> &polygon,
+                          int *outIdx = nullptr);
+
+    /*! Undo tail subcatch add (swmm_subcatch_delete on tail). */
+    bool rollbackTailSubcatchAdd(const QString &name);
+
+    /*!
+     * \brief Rename any network element (node, link, subcatchment, or gage).
+     * \details Calls the appropriate engine rename function, updates all GUI
+     *          caches (geometry cache name, selection set, object-location
+     *          map), and emits repaintRequested() + geometryChanged().
+     * \param oldName  Current name of the element.
+     * \param newName  Desired new name (must not already exist).
+     * \returns        true on success; false if oldName is not found, newName
+     *                 is empty, newName is already in use, or the engine
+     *                 rejects the rename.
+     */
+    bool applyRename(const QString &oldName, const QString &newName);
+
+    /*!
+     * \brief Delete a node, cascade-deleting all attached links.
+     * \details Identifies cascade links before deletion so the caller can
+     *          snapshot them. Modifies engine state + all caches.
+     * \param name                 Node to delete.
+     * \param[out] cascadeLinkNames Names of links deleted as cascade.
+     */
+    bool applyNodeDelete(const QString &name,
+                         QStringList *cascadeLinkNames = nullptr);
+
+    /*! Delete a single link. */
+    bool applyLinkDelete(const QString &name);
+
+    /*! Delete a rain gage. */
+    bool applyGageDelete(const QString &name);
+
+    /*! Delete a subcatchment. */
+    bool applySubcatchDelete(const QString &name);
+
 signals:
     void modelFilePathChanged(const QString &path);
     void showNodesChanged(bool show);
@@ -683,6 +923,9 @@ signals:
     void selectionChanged(const QStringList &selectedNames);
     void modelLoaded();
     void modelLoadError(const QString &errorMessage);
+    /*! \brief Slice BI Phase 8.13.6.5 — emitted when setRenderer() swaps the
+     *         renderer pointer. */
+    void rendererChanged();
 
     /*!
      * \brief Emitted after any OPTIONS key has been written to the engine
@@ -704,10 +947,32 @@ signals:
      *  didn't change, only the display order). */
     void categoryOrderChanged();
 
+    /*! Emitted whenever the set of elements changes — an add, remove,
+     *  or rollback of any node / link / gage / subcatchment. Panels
+     *  that show element lists (Object Browser, Attribute Table) connect
+     *  to this signal and call refresh() so their views stay in sync
+     *  without polling. */
+    void geometryChanged();
+
+    /*! Emitted after a single object's attribute is mutated (e.g. conduit
+     *  length or subcatchment area recalculated from geometry). The attribute
+     *  table and property browser connect to this signal so they can refresh
+     *  just the affected row/adapter without a full model rebuild. */
+    void attributeChanged(const QString &objectName);
+
 private:
     struct NodeGeom    { double x, y; int objectType; int nodeType; QString name; };
-    struct LinkGeom    { QVector<QPointF> vertices; int linkType; QString name; };
+    struct LinkGeom {
+        QVector<QPointF> vertices;   // interior bend points only (no node endpoints)
+        int              linkType    = -1;
+        int              fromNodeIdx = -1;
+        int              toNodeIdx   = -1;
+        QString          name;
+    };
     struct CatchGeom   { QVector<QPointF> vertices; QString name; };
+
+    /*! Scene-space drainage connector: PIA of subcatchment → outlet node/subcatchment. */
+    struct OutletLine  { QLineF line; int catchIdx; };
 
     void buildGeometryCache();
     void rebuildTransform(const SpatialReferenceSystem *canvasSRS);
@@ -731,6 +996,13 @@ private:
     void rebuildSceneCoords();
     void refreshSceneCoordsForNode(int nodeIdx);
     void refreshSceneCoordsForLink(int linkIdx);
+    void refreshSceneCoordsForSubcatch(int catchIdx);
+    void refreshCatchOutletLinesForNode(int nodeIdx);
+
+    // Incremented at the end of every rebuildSceneCoords() call.
+    // SWMMLayerQSGRenderer uses this to invalidate its subcatchment
+    // triangulation cache without needing a signal or pointer comparison.
+    quint64 m_geomRevision = 0;
 
     /*!
      * \brief Uniform-grid spatial index over scene-space link bboxes.
@@ -838,25 +1110,31 @@ private:
     QVector<QVector<QPointF>>    m_catchScenePts;
     QVector<QRectF>              m_catchSceneBBoxes;
     QVector<QPointF>             m_gageScenePts;
+    QVector<OutletLine>          m_catchOutletLines;  ///< PIA → outlet, built in rebuildSceneCoords.
 
     // Phase A.3 — flat-array link scene-coords. Replaces the previous
-    // per-link QVector<QPointF> with one big std::vector<float> of
+    // per-link QVector<QPointF> with one big std::vector<double> of
     // interleaved (x, y) pairs, plus per-link (offset, count). At 5M
     // links this saves ~120 MB of QVector overhead and gives the GL
-    // pipeline (Phase B) a buffer it can `memcpy` straight into a VBO.
+    // pipeline (Phase B) a buffer it can stream into a VBO.
     //
     //   m_linkSceneFlat[(m_linkVertexOffset[i] + v) * 2 + 0]  =  x
     //   m_linkSceneFlat[(m_linkVertexOffset[i] + v) * 2 + 1]  =  y   (Y-flipped)
     //   v in [0, m_linkVertexCount[i])
     //
-    // Floats not doubles: GL VBOs want floats, and link coords easily
-    // fit single precision once translated to scene space. Y is
-    // pre-flipped so paint feeds straight into QPainter::drawLines /
-    // glDrawArrays without per-vertex math. Any vertex-count change
+    // Doubles, not floats: SWMM models in projected CRS (state plane
+    // feet, UTM meters) routinely have 6-7 digit coordinates, where
+    // float's ~7 significant digits leaves ~0.5-1 m of quantisation
+    // error. That shows up at high zoom as a visible gap between a
+    // node glyph (drawn from the double m_nodeScenePts) and the link
+    // endpoint that should be coincident with it. Y is pre-flipped so
+    // paint feeds straight into QPainter::drawLines without per-vertex
+    // math. GPU renderers that need single-precision VBOs subtract a
+    // local origin and downcast on upload. Any vertex-count change
     // (rare; only when an editor adds/removes a vertex) triggers a
     // full rebuildSceneCoords; in-place node moves only rewrite the
     // affected link's slice of m_linkSceneFlat.
-    std::vector<float>           m_linkSceneFlat;
+    std::vector<double>          m_linkSceneFlat;
     std::vector<uint32_t>        m_linkVertexOffset;   // size == m_links.size()
     std::vector<uint32_t>        m_linkVertexCount;    // size == m_links.size()
 
@@ -938,10 +1216,22 @@ private:
     SWMMElementSymbol            m_subcatchSym;
     SWMMElementSymbol            m_gageSym;
 
+    // Slice BI Phase 8.13.6.5 — renderer plumbing. Eagerly initialised in
+    // the ctor (default placeholder: SingleSymbolRenderer) so renderer()
+    // never returns null. The existing paint loop still reads the per-kind
+    // m_*Sym members; the paint refactor sub-phase swaps in a
+    // MultiKindRenderer adapter and flips the paint path.
+    std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> m_renderer;
+
     QStringList                  m_selectedNames;
 
     // GDAL transform (layer CRS → canvas CRS)
     class OGRCoordinateTransformation *m_transform = nullptr;
+
+    // Cached inverse (canvas CRS → layer CRS); built lazily on first
+    // transformCanvasToLayer() call and invalidated whenever m_transform is
+    // rebuilt or destroyed. Mutable so the public const accessor can populate.
+    mutable class OGRCoordinateTransformation *m_inverseTransform = nullptr;
 
     // Dirty flag — skip scene rebuild when only the view extent changed
     bool                         m_needsRebuild = true;

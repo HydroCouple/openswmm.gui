@@ -256,3 +256,22 @@ SpatialReferenceSystem *SpatialReferenceSystem::untitled(QObject *parent)
     srs->m_description = QStringLiteral("Untitled (Local)");
     return srs;
 }
+
+SpatialReferenceSystem *SpatialReferenceSystem::localFromMapUnits(const QString &units,
+                                                                    QObject *parent)
+{
+    auto *srs = new SpatialReferenceSystem(parent, Qt::Uninitialized);
+    srs->m_ogrSRS = new OGRSpatialReference();
+    srs->m_ogrSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    if (units.compare(QLatin1String("FEET"), Qt::CaseInsensitive) == 0 ||
+        units.compare(QLatin1String("FOOT"), Qt::CaseInsensitive) == 0) {
+        srs->m_ogrSRS->SetLocalCS("Local (ft)");
+        srs->m_ogrSRS->SetLinearUnits(SRS_UL_US_FOOT, 0.3048006096012192);
+        srs->m_description = QStringLiteral("Local (ft)");
+    } else {
+        srs->m_ogrSRS->SetLocalCS("Local (m)");
+        srs->m_ogrSRS->SetLinearUnits(SRS_UL_METER, 1.0);
+        srs->m_description = QStringLiteral("Local (m)");
+    }
+    return srs;
+}

@@ -2,7 +2,7 @@
  * \file   selectionmanager.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Phase 1.4 — per-project Cross-View Selection Bus.
  *

@@ -2,7 +2,7 @@
  * \file   objectbrowserpanel.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Phase 0 + Slice S — Object Browser dock. Virtualised tree view of every
  * SWMM object in the active project's model, grouped by type (Junctions,
@@ -70,6 +70,15 @@ signals:
      *         right-click menu. The receiver locates the project's
      *         results layer (.out file) and opens TimeSeriesPlotDialog. */
     void plotTimeSeriesRequested(const SWMMObjectRef &object);
+
+public:
+    /*! Slice BM.0 — create a new non-spatial data object of type
+     *  \p dc named \p name via the engine `swmm_<type>_add` call.
+     *  Refreshes the tree on success. No-op when `m_layer` is null
+     *  or the name collides; engine error codes surface via
+     *  qWarning (no dialog spam in the first cut). Also called from
+     *  swmmvis.cpp for the menu-driven entry point. */
+    void addNewDataObject(SWMMModelLayer::DataCategory dc, const QString &name);
 
 private slots:
     void onTreeSelectionChanged();

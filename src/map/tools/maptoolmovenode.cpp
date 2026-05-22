@@ -178,7 +178,7 @@ void OpenSWMMVisMapToolMoveNode::mouseReleaseEvent(QMouseEvent *event)
                 continue;
             const int slot = (end == 0) ? 0 : (poly.size() - 1);
             poly = EditGeometry::replacedAt(poly, slot, QPointF(newX, newY));
-            const double newLen = EditGeometry::polylineLength(poly);
+            const double newLen = m_layer->polylineLengthInModelUnits(poly);
             recs.append({linkIdx, oldLen, newLen});
         }
     }

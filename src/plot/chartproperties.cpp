@@ -1,0 +1,232 @@
+/*!
+ * \file   chartproperties.cpp
+ * \author Caleb Buahin <caleb.buahin@gmail.com>
+ * \date   2026
+ * \license GPL-3.0-or-later
+ */
+#include "plot/chartproperties.h"
+
+#include <QAbstractAxis>
+#include <QBrush>
+#include <QValueAxis>
+
+namespace openswmmvis::plot {
+
+namespace {
+// Helper: first Vertical axis on the chart (if any). Casts to QValueAxis
+// when present — that's what we need for setRange / setGridLineVisible.
+QValueAxis *firstYAxis(QChart *chart)
+{
+    if (!chart) return nullptr;
+    const auto axes = chart->axes(Qt::Vertical);
+    return axes.isEmpty() ? nullptr : qobject_cast<QValueAxis*>(axes.first());
+}
+QAbstractAxis *firstXAxis(QChart *chart)
+{
+    if (!chart) return nullptr;
+    const auto axes = chart->axes(Qt::Horizontal);
+    return axes.isEmpty() ? nullptr : axes.first();
+}
+} // namespace
+
+ChartProperties::ChartProperties(QChart *chart, QObject *parent)
+    : QObject(parent), m_chart(chart)
+{}
+
+QString ChartProperties::displayLabelFor(const QString &name) const
+{
+    // AT.3 polish — visual grouping in the flat QPropertyModel view.
+    if (name == QStringLiteral("titleText"))       return QStringLiteral("Title — Text");
+    if (name == QStringLiteral("titleFont"))       return QStringLiteral("Title — Font");
+    if (name == QStringLiteral("yAutoRange"))      return QStringLiteral("Y Axis — Auto range");
+    if (name == QStringLiteral("yMin"))            return QStringLiteral("Y Axis — Min");
+    if (name == QStringLiteral("yMax"))            return QStringLiteral("Y Axis — Max");
+    if (name == QStringLiteral("yGridVisible"))    return QStringLiteral("Y Axis — Grid lines");
+    if (name == QStringLiteral("xGridVisible"))    return QStringLiteral("X Axis — Grid lines");
+    if (name == QStringLiteral("axisLabelFont"))   return QStringLiteral("Fonts — Axis title");
+    if (name == QStringLiteral("tickLabelFont"))   return QStringLiteral("Fonts — Tick labels");
+    if (name == QStringLiteral("backgroundColor")) return QStringLiteral("Colours — Background");
+    if (name == QStringLiteral("plotAreaColor"))   return QStringLiteral("Colours — Plot area");
+    if (name == QStringLiteral("gridColor"))       return QStringLiteral("Colours — Grid");
+    if (name == QStringLiteral("chartTheme"))      return QStringLiteral("Theme");
+    return {};   // empty → fall back to default name
+}
+
+// ----- Getters --------------------------------------------------------------
+
+QString ChartProperties::titleText() const
+{
+    return m_chart ? m_chart->title() : QString();
+}
+
+QFont ChartProperties::titleFont() const
+{
+    return m_chart ? m_chart->titleFont() : QFont();
+}
+
+qreal ChartProperties::yMin() const
+{
+    auto *ax = firstYAxis(m_chart.data());
+    return ax ? ax->min() : 0.0;
+}
+
+qreal ChartProperties::yMax() const
+{
+    auto *ax = firstYAxis(m_chart.data());
+    return ax ? ax->max() : 1.0;
+}
+
+bool ChartProperties::yGridVisible() const
+{
+    auto *ax = firstYAxis(m_chart.data());
+    return ax ? ax->isGridLineVisible() : true;
+}
+
+bool ChartProperties::xGridVisible() const
+{
+    auto *ax = firstXAxis(m_chart.data());
+    return ax ? ax->isGridLineVisible() : true;
+}
+
+QFont ChartProperties::axisLabelFont() const
+{
+    auto *ax = firstYAxis(m_chart.data());
+    return ax ? ax->titleFont() : QFont();
+}
+
+QFont ChartProperties::tickLabelFont() const
+{
+    auto *ax = firstYAxis(m_chart.data());
+    return ax ? ax->labelsFont() : QFont();
+}
+
+QColor ChartProperties::backgroundColor() const
+{
+    if (!m_chart) return QColor();
+    return m_chart->backgroundBrush().color();
+}
+
+QColor ChartProperties::plotAreaColor() const
+{
+    if (!m_chart) return QColor();
+    return m_chart->plotAreaBackgroundBrush().color();
+}
+
+int ChartProperties::chartTheme() const
+{
+    return m_chart ? static_cast<int>(m_chart->theme()) : 0;
+}
+
+// ----- Setters --------------------------------------------------------------
+
+void ChartProperties::setTitleText(const QString &text)
+{
+    if (!m_chart || m_chart->title() == text) return;
+    m_chart->setTitle(text);
+    emit titleTextChanged(text);
+}
+
+void ChartProperties::setTitleFont(const QFont &font)
+{
+    if (!m_chart || m_chart->titleFont() == font) return;
+    m_chart->setTitleFont(font);
+    emit titleFontChanged(font);
+}
+
+void ChartProperties::setYAutoRange(bool on)
+{
+    if (m_yAutoRange == on) return;
+    m_yAutoRange = on;
+    // When auto re-enabled, leave the current range as-is; the next
+    // chart rebuild re-fits naturally. The dialog can pass a "refit
+    // now" button if needed.
+    emit yAutoRangeChanged(on);
+}
+
+void ChartProperties::setYMin(qreal v)
+{
+    auto *ax = firstYAxis(m_chart.data());
+    if (!ax || ax->min() == v) return;
+    ax->setMin(v);
+    m_yAutoRange = false;
+    emit yMinChanged(v);
+}
+
+void ChartProperties::setYMax(qreal v)
+{
+    auto *ax = firstYAxis(m_chart.data());
+    if (!ax || ax->max() == v) return;
+    ax->setMax(v);
+    m_yAutoRange = false;
+    emit yMaxChanged(v);
+}
+
+void ChartProperties::setYGridVisible(bool on)
+{
+    auto *ax = firstYAxis(m_chart.data());
+    if (!ax || ax->isGridLineVisible() == on) return;
+    ax->setGridLineVisible(on);
+    emit yGridVisibleChanged(on);
+}
+
+void ChartProperties::setXGridVisible(bool on)
+{
+    auto *ax = firstXAxis(m_chart.data());
+    if (!ax || ax->isGridLineVisible() == on) return;
+    ax->setGridLineVisible(on);
+    emit xGridVisibleChanged(on);
+}
+
+void ChartProperties::setAxisLabelFont(const QFont &font)
+{
+    if (!m_chart) return;
+    for (auto *ax : m_chart->axes())
+        ax->setTitleFont(font);
+    emit axisLabelFontChanged(font);
+}
+
+void ChartProperties::setTickLabelFont(const QFont &font)
+{
+    if (!m_chart) return;
+    for (auto *ax : m_chart->axes())
+        ax->setLabelsFont(font);
+    emit tickLabelFontChanged(font);
+}
+
+void ChartProperties::setBackgroundColor(const QColor &c)
+{
+    if (!m_chart) return;
+    m_chart->setBackgroundBrush(QBrush(c));
+    emit backgroundColorChanged(c);
+}
+
+void ChartProperties::setPlotAreaColor(const QColor &c)
+{
+    if (!m_chart) return;
+    m_chart->setPlotAreaBackgroundBrush(QBrush(c));
+    m_chart->setPlotAreaBackgroundVisible(c.isValid());
+    emit plotAreaColorChanged(c);
+}
+
+void ChartProperties::setGridColor(const QColor &c)
+{
+    if (!m_chart) return;
+    m_gridColor = c;
+    for (auto *ax : m_chart->axes()) {
+        QPen gridPen = ax->gridLinePen();
+        gridPen.setColor(c);
+        ax->setGridLinePen(gridPen);
+    }
+    emit gridColorChanged(c);
+}
+
+void ChartProperties::setChartTheme(int theme)
+{
+    if (!m_chart) return;
+    const auto t = static_cast<QChart::ChartTheme>(theme);
+    if (m_chart->theme() == t) return;
+    m_chart->setTheme(t);
+    emit chartThemeChanged(theme);
+}
+
+} // namespace openswmmvis::plot

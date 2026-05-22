@@ -1,15 +1,10 @@
 /*!
  * \file   wmslayer.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+ * \date   2026
+ * \license GPL-3.0-or-later
+ * \brief  Map layer that fetches and renders OGC WMS imagery via HTTP GetMap
+ *         requests, caching tiles until the viewport changes.
  */
 
 #ifndef WMSLAYER_H
@@ -132,6 +127,14 @@ public:
     [[nodiscard]] QString imageFormat()     const;
     void setImageFormat(const QString &fmt);  /*!< e.g. "image/png". */
 
+    [[nodiscard]] QString crs()             const;
+    void setCrs(const QString &crs);           /*!< e.g. "EPSG:3857". */
+
+    [[nodiscard]] int     dpiMode()         const;
+    void setDpiMode(int mode);                 /*!< DPI mode bitmask (0-7). */
+
+    [[nodiscard]] QString capabilitiesUrl() const { return m_serviceUrl.toString(); }
+
     [[nodiscard]] bool    isTransparent()   const;
     void setTransparent(bool transparent);
 
@@ -198,8 +201,9 @@ private:
                                       int w, int h) const;
 
     void parseCapabilities(const QByteArray &xml);
-    void requestTile(const MapExtent &ext,
-                     const SpatialReferenceSystem *canvasSRS,
+    void requestTile(const MapExtent &trackingExt,
+                     const MapExtent &requestExt,
+                     const SpatialReferenceSystem *requestSrs,
                      int w, int h);
     void invalidateCache();
     /*! Sets the layer's extent (from geographicBoundingBox) and SRS (WGS-84)
@@ -213,6 +217,8 @@ private:
     QString                 m_activeLayer;
     QString                 m_activeStyle;
     QString                 m_imageFormat = "image/png";
+    QString                 m_crs         = "EPSG:3857"; /*!< Requested CRS for GetMap. */
+    int                     m_dpiMode     = 7;            /*!< DPI mode bitmask (QGIS convention). */
     bool                    m_transparent = true;
     QMap<QString, QString>  m_extraParams;
     WMSServiceInfo          m_serviceInfo;

@@ -2,7 +2,7 @@
  * \file   simulationstatusmodel.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  */
 #ifndef SIMULATIONSTATUSMODEL_H
 #define SIMULATIONSTATUSMODEL_H
@@ -10,6 +10,9 @@
 #include <QAbstractItemModel>
 #include <QDateTime>
 #include <QStringList>
+#include <QMap>
+
+class SWMMVisProjectWindow;  // Forward declaration
 
 /**
  * @brief Status of a single simulation job.
@@ -55,6 +58,8 @@ struct SimulationJobRecord {
     QDateTime endSimDate;
     QDateTime currentSimDate;
 
+    double  avgTimestepSec           = 0.0;  ///< running average engine timestep (seconds)
+
     QStringList warnings;           ///< "[code] message" entries
 };
 
@@ -65,13 +70,14 @@ struct SimulationJobRecord {
  * Level-1 rows: individual warning messages under each job.
  *
  * Columns (level-0):
- *   0  Name        project file name
- *   1  Status      Running / Success / Failed / Cancelled
- *   2  Progress    "45.2 %" while running
- *   3  Sim Time    decimal days (updated each step)
- *   4  Runoff Err  % (populated after finish)
- *   5  Routing Err % (populated after finish)
- *   6  Duration    wall-clock seconds once finished
+ *   0  Name           project file name
+ *   1  Status         Running / Success / Failed / Cancelled
+ *   2  Progress       "45.2 %" while running
+ *   3  Sim Time       decimal days (updated each step)
+ *   4  Runoff Err     % (populated after finish)
+ *   5  Routing Err    % (populated after finish)
+ *   6  Duration       wall-clock seconds once finished
+ *   7  Avg Timestep   running average engine step size (seconds)
  *
  * Level-1 columns: Col 0 carries the warning text; others are empty.
  */
@@ -88,14 +94,25 @@ public:
     static constexpr int ColEndDate     = 5;
     static constexpr int ColRunoffErr   = 6;
     static constexpr int ColRoutingErr  = 7;
-    static constexpr int ColDuration    = 8;
-    static constexpr int NumColumns     = 9;
+    static constexpr int ColDuration     = 8;
+    static constexpr int ColAvgTimestep  = 9;
+    static constexpr int NumColumns      = 10;
 
     explicit SimulationStatusModel(QObject *parent = nullptr);
 
     // ── Public mutators (called from GUI thread via queued signals) ──────────
     /** Add a new job row; returns the job id. */
     int  addJob(const QString &instanceName, const QString &inpPath);
+
+    /**
+     * @brief Add or reuse a job row bound to a model instance.
+     *
+     * If the model already has a row (was run before), reuse and reset it.
+     * Otherwise, create a new row. Returns the job id (reused or new).
+     */
+    int  addOrReuseJobForModel(SWMMVisProjectWindow *model,
+                               const QString &instanceName,
+                               const QString &inpPath);
 
     /**
      * @brief Update progress for a running job.
@@ -105,7 +122,8 @@ public:
     void updateProgress(int jobId, double fraction,
                         const QDateTime &currentSimDate,
                         double runoffErrFrac = 0.0,
-                        double routingErrFrac = 0.0);
+                        double routingErrFrac = 0.0,
+                        double avgTimestepSec = 0.0);
 
     /** Set the engine-side simulation start / end dates for a job. */
     void setSimulationDates(int jobId,
@@ -144,6 +162,9 @@ private:
 
     QList<SimulationJobRecord> m_jobs;
     int m_nextId = 0;
+
+    // Mapping from model instance to its persistent job ID (for rerun support)
+    QMap<SWMMVisProjectWindow*, int> m_modelToJobId;
 };
 
 #endif // SIMULATIONSTATUSMODEL_H

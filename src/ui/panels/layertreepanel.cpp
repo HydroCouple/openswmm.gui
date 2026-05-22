@@ -785,7 +785,7 @@ void LayerTreePanel::onZoomToSelectedLayer()
     if (!sel)
         return;
 
-    const MapExtent &ext = sel->extent();
+    const MapExtent ext = m_canvas->layerExtentInCanvasCRS(sel);
     if (ext.isValid())
         m_canvas->setExtent(ext);
 }
