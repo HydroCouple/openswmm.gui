@@ -40,6 +40,9 @@
 #include <QVariantMap>
 #include <QGestureEvent>
 #include <QPinchGesture>
+#include <QGuiApplication>
+#include <QScreen>
+#include <QWindow>
 
 #include <ogr_spatialref.h>   // OGRCoordinateTransformation for fullExtent
 
@@ -322,11 +325,79 @@ void MapCanvas::pan(double dx, double dy)
 
 double MapCanvas::scale() const
 {
+    return scaleDenominator();
+}
+
+double MapCanvas::scaleDenominator() const
+{
     if (width() <= 0 || !m_extent.isValid())
         return 1.0;
 
-    double mapUnitsPerPixel = m_extent.width() / width();
-    return mapUnitsPerPixel / 0.00028;
+    // metresPerPixel() already handles CRS unit conversion (projected vs.
+    // geographic).  Scale denominator N = ground_metres_per_pixel * pixels_per_metre_on_screen.
+    const double mpp = metresPerPixel();
+    if (mpp <= 0.0)
+        return 1.0;
+
+    // Prefer the actual screen DPI; fall back to 96 if the widget is not yet
+    // parented to a window (e.g. during construction).  Matches QGIS, which
+    // queries QGuiApplication::primaryScreen()->logicalDotsPerInchX().
+    double dpi = 96.0;
+    if (const QWindow *w = window() ? window()->windowHandle() : nullptr) {
+        if (const QScreen *s = w->screen())
+            dpi = s->logicalDotsPerInchX();
+    } else if (const QScreen *s = QGuiApplication::primaryScreen()) {
+        dpi = s->logicalDotsPerInchX();
+    }
+    if (dpi <= 0.0) dpi = 96.0;
+
+    constexpr double metresPerInch = 0.0254;
+    const double metresPerScreenPixel = metresPerInch / dpi;
+    return mpp / metresPerScreenPixel;
+}
+
+void MapCanvas::setScaleDenominator(double denom)
+{
+    if (width() <= 0 || height() <= 0 || !m_extent.isValid() || denom <= 0.0)
+        return;
+
+    // Invert scaleDenominator(): given target N, work out the required
+    // metres-per-pixel, then convert back to map-units-per-pixel using
+    // the same CRS rules metresPerPixel() applied in the forward direction.
+    double dpi = 96.0;
+    if (const QWindow *w = window() ? window()->windowHandle() : nullptr) {
+        if (const QScreen *s = w->screen())
+            dpi = s->logicalDotsPerInchX();
+    } else if (const QScreen *s = QGuiApplication::primaryScreen()) {
+        dpi = s->logicalDotsPerInchX();
+    }
+    if (dpi <= 0.0) dpi = 96.0;
+
+    constexpr double metresPerInch = 0.0254;
+    const double metresPerScreenPixel = metresPerInch / dpi;
+    const double targetMpp            = denom * metresPerScreenPixel;   // metres / pixel on the ground
+
+    // metres → map units (inverse of the conversion inside metresPerPixel()).
+    double mapUnitsPerPixel = targetMpp;
+    if (m_canvasSRS) {
+        if (m_canvasSRS->isProjected()) {
+            const double f = m_canvasSRS->linearUnitsToMetres();
+            if (f > 0.0) mapUnitsPerPixel = targetMpp / f;
+        } else if (m_canvasSRS->isGeographic()) {
+            constexpr double R = 6378137.0;
+            const double lat   = qDegreesToRadians(m_extent.centerY());
+            const double k     = (M_PI / 180.0) * R * std::abs(std::cos(lat));
+            if (k > 0.0) mapUnitsPerPixel = targetMpp / k;
+        }
+    }
+
+    // Build a new extent of the same aspect ratio centred on the current centre.
+    const double cx     = m_extent.centerX();
+    const double cy     = m_extent.centerY();
+    const double halfW  = mapUnitsPerPixel * width()  * 0.5;
+    const double halfH  = mapUnitsPerPixel * height() * 0.5;
+
+    setExtent(MapExtent(cx - halfW, cy - halfH, cx + halfW, cy + halfH));
 }
 
 // ---------------------------------------------------------------------------
@@ -717,6 +788,20 @@ void MapCanvas::setShowCoordinates(bool show)
     }
 }
 
+void MapCanvas::setTerrainElevation(const std::optional<double> &z)
+{
+    if (m_terrainZ == z) return;
+    m_terrainZ = z;
+    update(); // repaint so the terrain label appears/disappears immediately
+}
+
+void MapCanvas::setTerrainUnit(const QString &unit)
+{
+    if (m_terrainUnit == unit) return;
+    m_terrainUnit = unit;
+    if (m_terrainZ.has_value()) update();
+}
+
 QColor MapCanvas::backgroundColor() const { return m_bgColor; }
 
 void MapCanvas::setBackgroundColor(const QColor &color)
@@ -1002,9 +1087,14 @@ void MapCanvas::startRenderJob()
             rasterLayers.append(layer);
     }
 
+    const qreal dpr = devicePixelRatioF();
+
     if (rasterLayers.isEmpty())
     {
-        m_mapBuffer = QImage(size(), QImage::Format_ARGB32_Premultiplied);
+        const QSize devSize(qRound(width()  * dpr),
+                            qRound(height() * dpr));
+        m_mapBuffer = QImage(devSize, QImage::Format_ARGB32_Premultiplied);
+        m_mapBuffer.setDevicePixelRatio(dpr);
         m_mapBuffer.fill(m_bgColor);
         update();
         return;
@@ -1019,6 +1109,7 @@ void MapCanvas::startRenderJob()
     m_renderJob = new MapRenderJob(rasterLayers,
                                    m_extent,
                                    size(),
+                                   dpr,
                                    m_canvasSRS,
                                    m_bgColor,
                                    this);
@@ -1070,8 +1161,20 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
 {
     // Composite all layers into m_frameBuffer first, then blit in one call.
     // This eliminates any intermediate visual state that causes flickering.
-    if (m_frameBuffer.size() != size())
-        m_frameBuffer = QImage(size(), QImage::Format_ARGB32_Premultiplied);
+    //
+    // Allocate the backing image at device pixels and tag it with the
+    // device-pixel ratio. QPainter then accepts logical coordinates from
+    // every layer's render() exactly as before but rasterises into the
+    // full device-pixel resolution — without this, float tile rects on
+    // Retina (DPR=2) display as sub-pixel seams.
+    const qreal dpr = devicePixelRatioF();
+    const QSize devSize(qRound(width() * dpr), qRound(height() * dpr));
+    if (m_frameBuffer.size() != devSize
+        || !qFuzzyCompare(m_frameBuffer.devicePixelRatio(), dpr))
+    {
+        m_frameBuffer = QImage(devSize, QImage::Format_ARGB32_Premultiplied);
+        m_frameBuffer.setDevicePixelRatio(dpr);
+    }
 
     QPainter p(&m_frameBuffer);
     p.setRenderHints(QPainter::Antialiasing
@@ -1079,7 +1182,10 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                      | QPainter::SmoothPixmapTransform);
 
     // ---- Background -------------------------------------------------------
-    p.fillRect(m_frameBuffer.rect(), m_bgColor);
+    // QPainter on m_frameBuffer operates in logical pixels (the image has
+    // setDevicePixelRatio(dpr)) — fill the widget's logical rect, not the
+    // image's device-pixel rect, otherwise the fill overshoots on Retina.
+    p.fillRect(rect(), m_bgColor);
 
     // ---- Layer 1: raster layers -------------------------------------------
     // During pan, render raster layers directly from their in-memory tile
@@ -1218,6 +1324,9 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
     if (m_showCoords)
         renderCoordinates(p, m_lastMouseMapX, m_lastMouseMapY);
 
+    if (m_terrainZ.has_value())
+        renderTerrainLabel(p);
+
     p.end(); // finalise m_frameBuffer before blitting
 
     // ---- Blit the completed frame to the screen in one atomic operation ----
@@ -1300,11 +1409,13 @@ void MapCanvas::mousePressEvent(QMouseEvent *event)
 
 void MapCanvas::mouseMoveEvent(QMouseEvent *event)
 {
-    toMapCoords(event->pos().x(), event->pos().y(),
+    m_lastMousePxX = event->pos().x();
+    m_lastMousePxY = event->pos().y();
+    toMapCoords(m_lastMousePxX, m_lastMousePxY,
                 m_lastMouseMapX, m_lastMouseMapY);
     emit cursorPositionChanged(m_lastMouseMapX, m_lastMouseMapY);
 
-    if (m_showCoords)
+    if (m_showCoords || m_terrainZ.has_value())
         update();
 
     if (m_middlePanActive)
@@ -1722,7 +1833,13 @@ void MapCanvas::renderScaleBar(QPainter &painter) const
 
     const int    maxLen = m_scaleBarSettings->maxBarLength();
     const double mpp    = metresPerPixel(); // metres per screen pixel (CRS-aware)
-    const bool   rawCRS = !m_canvasSRS || m_canvasSRS->isLocal();
+    // rawCRS = true only for the generic "Untitled (Local)" fallback where the
+    // unit is unknown. Auto-generated local CRS ("Local (ft)" / "Local (m)")
+    // has a meaningful linearUnitsToMetres() factor — treat it as real so the
+    // scale bar shows proper distances instead of "X units".
+    const bool   rawCRS = !m_canvasSRS
+        || (m_canvasSRS->isLocal()
+            && m_canvasSRS->description() == QStringLiteral("Untitled (Local)"));
 
     // Round to a "nice" bar length in metres
     double barMetres  = maxLen * mpp;
@@ -1767,11 +1884,43 @@ void MapCanvas::renderScaleBar(QPainter &painter) const
                      m_scaleBarSettings->formatLabel(barMetres, rawCRS));
 }
 
+void MapCanvas::renderTerrainLabel(QPainter &painter) const
+{
+    if (!m_terrainZ.has_value()) return;
+
+    const QString text = m_terrainUnit.isEmpty()
+                             ? QStringLiteral("Z: %1").arg(*m_terrainZ, 0, 'f', 3)
+                             : QStringLiteral("Z: %1 %2").arg(*m_terrainZ, 0, 'f', 3).arg(m_terrainUnit);
+
+    painter.setFont(QFont(QStringLiteral("sans-serif"), 9));
+    const QFontMetrics fm(painter.font());
+    const int textW = fm.horizontalAdvance(text);
+    const int textH = fm.height();
+
+    // Position the bubble 14 px right and 28 px above the cursor.
+    const int margin = 4;
+    int bx = m_lastMousePxX + 14;
+    int by = m_lastMousePxY - 28;
+
+    // Clamp so the label never overflows the canvas edges.
+    bx = qBound(margin, bx, width()  - textW - 2 * margin);
+    by = qBound(textH + margin, by, height() - margin);
+
+    const QRect bg(bx - margin, by - textH, textW + 2 * margin, textH + margin);
+    painter.fillRect(bg, QColor(255, 255, 220, 220));
+    painter.setPen(QColor(80, 80, 0));
+    painter.drawRect(bg);
+    painter.setPen(Qt::black);
+    painter.drawText(bx, by, text);
+}
+
 void MapCanvas::renderCoordinates(QPainter &painter, double mapX, double mapY) const
 {
     QString text = QStringLiteral("X: %1  Y: %2")
                        .arg(mapX, 0, 'f', 5)
                        .arg(mapY, 0, 'f', 5);
+    if (m_terrainZ.has_value())
+        text += QStringLiteral("  Z: %1").arg(*m_terrainZ, 0, 'f', 3);
 
     painter.setFont(QFont(QStringLiteral("sans-serif"), 9));
     QFontMetrics fm(painter.font());

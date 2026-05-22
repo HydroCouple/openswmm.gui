@@ -8,6 +8,8 @@
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
 #include "map/mapextent.h"
+#include "map/snapengine.h"
+#include "layers/gisrasterlayer.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 #include "core/preferencesmanager.h"
@@ -72,9 +74,10 @@ QString OpenSWMMVisMapToolAddLink::snapToNode(SWMMModelLayer *layer,
                                                double mapX, double mapY,
                                                double *snapX, double *snapY) const
 {
-    // Build a small map-space tolerance box equivalent to m_snapPx screen pixels.
+    // Build a small map-space tolerance box from the preference snap radius.
+    const int snapPx = PreferencesManager::instance()->snapTolerancePx();
     double mx2, my2;
-    toMapCoords(m_snapPx, m_snapPx, mx2, my2);
+    toMapCoords(snapPx, snapPx, mx2, my2);
     double mx0, my0;
     toMapCoords(0, 0, mx0, my0);
     const double tolX = std::abs(mx2 - mx0);
@@ -92,10 +95,18 @@ QString OpenSWMMVisMapToolAddLink::snapToNode(SWMMModelLayer *layer,
     const int idx = layer->nodeIndex(name);
     if (idx < 0) return {};
 
+    // cachedNodeCoord returns layer-CRS coords; the caller compares
+    // these against (mapX, mapY) which are canvas-CRS, and feeds them
+    // into rubber-band paint code that uses toPixelCoords (canvas→
+    // pixel). Round-trip via transformLayerToCanvas so the snapped
+    // point is in canvas CRS regardless of whether the layer is
+    // re-projected against a basemap.
     double nx = 0, ny = 0;
     layer->cachedNodeCoord(idx, &nx, &ny);
-    if (snapX) *snapX = nx;
-    if (snapY) *snapY = ny;
+    double cnx = nx, cny = ny;
+    layer->transformLayerToCanvas(nx, ny, cnx, cny);
+    if (snapX) *snapX = cnx;
+    if (snapY) *snapY = cny;
     return name;
 }
 
@@ -125,9 +136,11 @@ void OpenSWMMVisMapToolAddLink::mousePressEvent(QMouseEvent *event)
 
     if (m_state == State::Idle) {
         if (snapName.isEmpty()) return; // must start on a node
-        m_fromNode = snapName;
-        m_fromPt   = QPointF(sx, sy);
-        m_state    = State::Drawing;
+        m_fromNode   = snapName;
+        m_fromPt     = QPointF(sx, sy);
+        m_cursor     = QPointF(sx, sy); // prevent flash to (0,0) before first mouse-move
+        m_snapPt     = m_fromPt;
+        m_state      = State::Drawing;
         m_vertices.clear();
         m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("addlink-rubber"));
         return;
@@ -141,8 +154,14 @@ void OpenSWMMVisMapToolAddLink::mousePressEvent(QMouseEvent *event)
     }
     if (!snapName.isEmpty()) return; // clicked same node — ignore
 
-    // Add an intermediate vertex.
-    m_vertices << QPointF(mx, my);
+    // Add an intermediate vertex — snap if a vertex candidate is available.
+    // SnapEngine returns the snapped point in layer CRS; m_vertices is kept
+    // in canvas CRS so the rubber-band paint (toPixelCoords) stays aligned.
+    // commit() converts the full polyline to layer CRS before storing.
+    double vx = mx, vy = my;
+    if (m_vertexSnap.snapped)
+        layer->transformLayerToCanvas(m_vertexSnap.x, m_vertexSnap.y, vx, vy);
+    m_vertices << QPointF(vx, vy);
     m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("addlink-rubber"));
 }
 
@@ -155,7 +174,7 @@ void OpenSWMMVisMapToolAddLink::mouseMoveEvent(QMouseEvent *event)
     toMapCoords(event->pos().x(), event->pos().y(), mx, my);
     m_cursor = QPointF(mx, my);
 
-    // Snap detection.
+    // Node snap detection (for end-node commitment — node-only, required).
     double sx = mx, sy = my;
     if (layer) {
         const QString snap = snapToNode(layer, mx, my, &sx, &sy);
@@ -163,7 +182,25 @@ void OpenSWMMVisMapToolAddLink::mouseMoveEvent(QMouseEvent *event)
         m_snapPt     = snap.isEmpty() ? QPointF(mx, my) : QPointF(sx, sy);
     }
 
+    // General vertex snap for the rubber-band tip (only when NOT targeting an end-node).
+    if (m_snapTarget.isEmpty() && layer)
+        m_vertexSnap = SnapEngine::snap(this, layer, mx, my);
+    else
+        m_vertexSnap = {};
+
     m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("addlink-rubber"));
+}
+
+void OpenSWMMVisMapToolAddLink::mouseDoubleClickEvent(QMouseEvent *event)
+{
+    if (event->button() != Qt::LeftButton) return;
+    // The second press of the double-click already fired through
+    // mousePressEvent and may have added an intermediate vertex (or
+    // chained into a new link). Drop any stray trailing vertex and
+    // fully exit the drawing flow.
+    if (m_state == State::Drawing && !m_vertices.isEmpty())
+        m_vertices.removeLast();
+    cancel();
 }
 
 void OpenSWMMVisMapToolAddLink::keyPressEvent(QKeyEvent *event)
@@ -187,7 +224,14 @@ void OpenSWMMVisMapToolAddLink::paint(QPainter *painter,
     };
 
     const QPoint fromPx = toPixel(m_fromPt);
-    QPoint snapPx = m_snapTarget.isEmpty() ? toPixel(m_cursor) : toPixel(m_snapPt);
+    // Rubber-band tip: node snap takes priority; then general vertex snap; then raw cursor.
+    QPoint snapPx;
+    if (!m_snapTarget.isEmpty())
+        snapPx = toPixel(m_snapPt);
+    else if (m_vertexSnap.snapped)
+        snapPx = toPixel(QPointF(m_vertexSnap.x, m_vertexSnap.y));
+    else
+        snapPx = toPixel(m_cursor);
 
     QVector<QPoint> pts;
     pts << fromPx;
@@ -206,11 +250,15 @@ void OpenSWMMVisMapToolAddLink::paint(QPainter *painter,
     for (int i = 1; i + 1 < pts.size(); ++i)
         painter->drawEllipse(pts[i], 4, 4);
 
-    // Snap ring on the current snap target.
+    // Snap ring: orange for node snap, cyan for vertex snap.
     if (!m_snapTarget.isEmpty()) {
         painter->setBrush(Qt::NoBrush);
         painter->setPen(QPen(QColor(255, 165, 0), 2));
         painter->drawEllipse(snapPx, 9, 9);
+    } else if (m_vertexSnap.snapped) {
+        painter->restore();
+        SnapEngine::paintSnapRing(painter, this, m_vertexSnap, QColor(0, 200, 220));
+        painter->save();
     }
 
     // From-node anchor dot.
@@ -227,23 +275,89 @@ void OpenSWMMVisMapToolAddLink::cancel()
     m_fromNode.clear();
     m_vertices.clear();
     m_snapTarget.clear();
+    m_vertexSnap = {};
     if (m_canvas)
         m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("addlink-cancel"));
 }
 
+void OpenSWMMVisMapToolAddLink::setTerrain(GISRasterLayer *layer, double offset, double factor)
+{
+    m_terrainLayer  = layer;
+    m_terrainOffset = offset;
+    m_terrainFactor = factor;
+}
+
 void OpenSWMMVisMapToolAddLink::commit(SWMMModelLayer *layer,
                                         const QString  &toNodeName,
-                                        double, double)
+                                        double toCanvasX, double toCanvasY)
 {
+    // Estimate invert offsets from terrain at each endpoint. Both endpoints
+    // are read in layer CRS — m_fromPt is canvas CRS (set by snapToNode
+    // round-trip in mousePressEvent) so convert it back, and cachedNodeCoord
+    // already returns layer CRS. Pass layer->srs() so the raster lookup
+    // re-projects to the DTM's native CRS internally.
+    double offsetUp = 0.0, offsetDn = 0.0;
+    if (m_terrainLayer) {
+        double fromLX = m_fromPt.x(), fromLY = m_fromPt.y();
+        layer->transformCanvasToLayer(m_fromPt.x(), m_fromPt.y(), fromLX, fromLY);
+
+        bool okFrom = false;
+        const double zFrom = m_terrainLayer->valueAt(fromLX, fromLY,
+                                                      layer->srs(), 1, &okFrom);
+        if (okFrom)
+            offsetUp = zFrom * m_terrainFactor + m_terrainOffset;
+
+        // Resolve to-node coordinates from the layer geometry cache.
+        const int toIdx = layer->nodeIndex(toNodeName);
+        if (toIdx >= 0) {
+            double toX = 0.0, toY = 0.0;
+            layer->cachedNodeCoord(toIdx, &toX, &toY);
+            bool okTo = false;
+            const double zTo = m_terrainLayer->valueAt(toX, toY,
+                                                       layer->srs(), 1, &okTo);
+            if (okTo)
+                offsetDn = zTo * m_terrainFactor + m_terrainOffset;
+        }
+    }
+
+    // m_vertices accumulates in canvas CRS so the rubber-band paint stays
+    // aligned with the mouse; the engine + SoA store want layer CRS, so
+    // convert once here. When the layer and canvas CRSes coincide this is
+    // a no-op (transformCanvasToLayer short-circuits when m_transform is
+    // null).
+    QVector<QPointF> layerVertices;
+    layerVertices.reserve(m_vertices.size());
+    for (const QPointF &v : m_vertices) {
+        double lx = v.x(), ly = v.y();
+        layer->transformCanvasToLayer(v.x(), v.y(), lx, ly);
+        layerVertices.append(QPointF(lx, ly));
+    }
+
     const QString name = nextAvailableName(layer);
     auto *cmd = new AddLinkCommand(layer, name, m_linkType,
                                     m_fromNode, toNodeName,
-                                    m_vertices, m_canvas);
+                                    layerVertices, m_canvas,
+                                    offsetUp, offsetDn);
     if (m_canvas->undoStack())
         m_canvas->undoStack()->push(cmd);
     else
         delete cmd;
 
+    layer->setSelectedElementNames({name});
     emit linkAdded(name, m_linkType, m_fromNode, toNodeName);
-    cancel();   // reset state for next link
+
+    // Chain into a new link starting at the just-committed end node so the
+    // user can draw a connected polyline without re-arming the tool. Right-
+    // click / Escape still routes to cancel() for a full exit.
+    m_fromNode   = toNodeName;
+    m_fromPt     = QPointF(toCanvasX, toCanvasY);
+    m_cursor     = m_fromPt;
+    m_snapPt     = m_fromPt;
+    m_vertices.clear();
+    m_snapTarget.clear();
+    m_vertexSnap = {};
+    m_state      = State::Drawing;
+    if (m_canvas)
+        m_canvas->invalidate(MapCanvas::Overlay,
+                             QStringLiteral("addlink-chain"));
 }

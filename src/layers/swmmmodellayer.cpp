@@ -5,16 +5,21 @@
  */
 
 #include "layers/swmmmodellayer.h"
+#include "core/editgeometry.h"
 #include "core/preferencesmanager.h"
 #include "core/unitsystem.h"
 #include "map/swmmlayeritem.h"
 #include "map/spatialreferencesystem.h"
 #include "map/mapextent.h"
+#include "render/ifeaturerenderer.h"
+#include "render/renderers/singlesymbolrenderer.h"
 
+#include <QFile>
 #include <QGraphicsScene>
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QtMath>
 
 #include <limits>
@@ -30,6 +35,13 @@
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_edit.h>
+// Slice BM.0 — non-spatial data-object accessors.
+#include <openswmm/engine/openswmm_tables.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_pollutants.h>
+#include <openswmm/engine/openswmm_quality.h>
+#include <openswmm/engine/openswmm_controls.h>
+#include <openswmm/engine/openswmm_inflows.h>
 
 #include <nanoflann.hpp>
 
@@ -115,6 +127,12 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
     m_subcatchSym.outlineWidth = 1.5;
     m_gageSym.fillColor      = Qt::cyan;
     m_gageSym.size           = 10.0;
+
+    // Slice BI Phase 8.13.6.5 — initialise renderer so renderer() never
+    // returns nullptr. Placeholder SingleSymbolRenderer is unused by the
+    // current paint loop (which still reads m_*Sym directly); the paint
+    // refactor swaps in a MultiKindRenderer adapter and flips the path.
+    m_renderer = std::make_unique<OpenSWMM::Render::SingleSymbolRenderer>();
 }
 
 SWMMModelLayer::~SWMMModelLayer()
@@ -125,6 +143,11 @@ SWMMModelLayer::~SWMMModelLayer()
     {
         OGRCoordinateTransformation::DestroyCT(m_transform);
         m_transform = nullptr;
+    }
+    if (m_inverseTransform)
+    {
+        OGRCoordinateTransformation::DestroyCT(m_inverseTransform);
+        m_inverseTransform = nullptr;
     }
 }
 
@@ -170,6 +193,29 @@ void SWMMModelLayer::closeEngine()
     m_linkBboxes.clear();
     m_catchBboxes.clear();
     m_needsRebuild = true;
+}
+
+// Scan the [MAP] section of an .inp for the "Units" keyword.
+// Returns "FEET", "METERS", "DEGREES", etc. (uppercased), or empty string if absent.
+static QString readMapUnitsFromInp(const QString &inpPath)
+{
+    QFile f(inpPath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    bool inMap = false;
+    static const QRegularExpression ws(QStringLiteral("\\s+"));
+    while (!f.atEnd()) {
+        const QString line = QString::fromUtf8(f.readLine()).trimmed();
+        if (line.startsWith('[')) {
+            inMap = (line.compare(QStringLiteral("[MAP]"), Qt::CaseInsensitive) == 0);
+            continue;
+        }
+        if (!inMap || line.startsWith(';') || line.isEmpty()) continue;
+        const QStringList tok = line.split(ws, Qt::SkipEmptyParts);
+        if (tok.size() >= 2 &&
+            tok[0].compare(QStringLiteral("UNITS"), Qt::CaseInsensitive) == 0)
+            return tok[1].toUpper();
+    }
+    return {};
 }
 
 bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
@@ -240,13 +286,10 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
     }
 
     // ---- Links ----
-    // A link's polyline is: [from-node coord] + [interior vertices from engine]
-    //                     + [to-node coord]. The engine's vertex API returns
-    //                     ONLY the interior vertices; we must look up the
-    //                     endpoint nodes ourselves and prepend / append them.
-    //                     Without these endpoints links either don't render
-    //                     (most links have no interior vertices) or render as
-    //                     disconnected stubs in the middle of the canvas.
+    // m_links[i].vertices holds ONLY interior (bend) points.
+    // The from/to node endpoint positions are looked up dynamically from
+    // m_nodes[] via fromNodeIdx / toNodeIdx so that moving a node
+    // automatically affects all attached links without patching vertex arrays.
     int linkCount = swmm_link_count(m_engine);
     m_links.reserve(linkCount);
     for (int i = 0; i < linkCount; ++i)
@@ -258,31 +301,24 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
         int fromIdx = -1, toIdx = -1;
         swmm_link_get_from_node(m_engine, i, &fromIdx);
         swmm_link_get_to_node(m_engine, i, &toIdx);
+        g.fromNodeIdx = fromIdx;
+        g.toNodeIdx   = toIdx;
 
+        // GET returns the full polyline: [from-node, interior..., to-node].
+        // SET accepts only interior points.  Strip the two endpoint slots so
+        // m_links[].vertices holds interior bend points only; cachedLinkPolyline
+        // re-prepends / re-appends the node positions dynamically.
         int vertCount = 0;
         swmm_spatial_get_link_vertex_count(m_engine, i, &vertCount);
-
-        const bool hasFrom = fromIdx >= 0 && fromIdx < m_nodes.size();
-        const bool hasTo   = toIdx   >= 0 && toIdx   < m_nodes.size();
-        const int total = vertCount + (hasFrom ? 1 : 0) + (hasTo ? 1 : 0);
-        g.vertices.resize(total);
-
-        int vertexIndex = 0;
-        if (hasFrom)
-            g.vertices[vertexIndex++] =
-                QPointF(m_nodes[fromIdx].x, m_nodes[fromIdx].y);
-
+        const int interiorCount = (vertCount >= 2) ? vertCount - 2 : 0;
+        g.vertices.resize(interiorCount);
         if (vertCount > 0)
         {
             QVector<double> vx(vertCount), vy(vertCount);
             swmm_spatial_get_link_vertices(m_engine, i, vx.data(), vy.data(), vertCount);
-            for (int v = 0; v < vertCount; ++v)
-                g.vertices[vertexIndex++] = QPointF(vx[v], vy[v]);
+            for (int v = 0; v < interiorCount; ++v)
+                g.vertices[v] = QPointF(vx[v + 1], vy[v + 1]); // skip [0]=from-node, [last]=to-node
         }
-
-        if (hasTo)
-            g.vertices[vertexIndex] =
-                QPointF(m_nodes[toIdx].x, m_nodes[toIdx].y);
 
         m_links.append(g);
     }
@@ -367,21 +403,29 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
     // ---- CRS ----
     // Resolution order:
     //   1. CRS stored in the .inp (via swmm_get_crs) — preferred.
-    //   2. User-preference default (PreferencesManager → EPSG:4326 out
-    //      of the box). Lets a user working in a specific region pick
-    //      a local projected CRS once and have every future project
-    //      default to it.
-    //   3. Untitled local SRS — only if the preferred code lookup
-    //      fails (bad custom EPSG, missing PROJ data, etc.).
+    //   2a. LocalAuto mode (default): auto-generate a local CRS from the
+    //       [MAP] Units field — gives a correct unit (ft/m) without
+    //       requiring a geographic CRS or user prompt.
+    //   2b. EPSG mode: user-configured authority/code (legacy behaviour).
+    //   3. Untitled local SRS — triggers the CRS picker in the project
+    //      window (truly unknown, no [MAP] Units either).
     {
         SpatialReferenceSystem *layerSRS = nullptr;
         char crsBuf[512] = {};
         if (swmm_get_crs(m_engine, crsBuf, sizeof(crsBuf)) == 0 && crsBuf[0] != '\0')
             layerSRS = SpatialReferenceSystem::fromWktOrProj(QString::fromUtf8(crsBuf), this);
+
         if (!layerSRS) {
             auto *prefs = PreferencesManager::instance();
-            layerSRS = SpatialReferenceSystem::fromAuthCode(prefs->defaultCrsAuthority(),
-                                                            prefs->defaultCrsCode(), this);
+            if (prefs->defaultCrsMode() == QStringLiteral("LocalAuto")) {
+                const QString mapUnits = readMapUnitsFromInp(m_modelFilePath);
+                // "DEGREES" → geographic model, fall through to EPSG preference.
+                if (!mapUnits.isEmpty() && mapUnits != QStringLiteral("DEGREES"))
+                    layerSRS = SpatialReferenceSystem::localFromMapUnits(mapUnits, this);
+            }
+            if (!layerSRS)
+                layerSRS = SpatialReferenceSystem::fromAuthCode(
+                    prefs->defaultCrsAuthority(), prefs->defaultCrsCode(), this);
         }
         if (!layerSRS)
             layerSRS = SpatialReferenceSystem::untitled(this);
@@ -612,6 +656,130 @@ QString SWMMModelLayer::objectNameAt(Category c, int row) const
         return (row < m_gages.size()) ? m_gages[row].name : QString();
     default:
         return {};
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Slice BM.0 — non-spatial Data Objects
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Engine TableType enum mirror — kept local; the canonical definition
+// lives at openswmm/engine/data/TableData.hpp. Used only to partition the
+// unified tables array into "time series" vs "curves" for the Object
+// Browser data section.
+constexpr int kTableTypeTimeSeries = 0;
+
+/*! Walk the engine's unified table list and collect zero-based indices
+ *  that match either the TIMESERIES bucket (when \p curves == false) or
+ *  any curve bucket (when \p curves == true). Returns an empty vector
+ *  when the engine handle is null.
+ *
+ *  The walk is O(N_tables); BM.0 callers cache the result implicitly
+ *  by virtue of `dataObjectCount` being called only on visible rows.
+ *  If profiling shows this becomes a hot path (very large models),
+ *  promote the partition to a member vector refreshed on modelLoaded. */
+QVector<int> partitionTables(SWMM_Engine eng, bool curves)
+{
+    QVector<int> out;
+    if (!eng) return out;
+    const int n = swmm_table_count(eng);
+    if (n <= 0) return out;
+    out.reserve(n);
+    for (int i = 0; i < n; ++i) {
+        int type = -1;
+        if (swmm_table_get_type(eng, i, &type) != SWMM_OK) continue;
+        const bool isTs = (type == kTableTypeTimeSeries);
+        if (curves ? !isTs : isTs) out.append(i);
+    }
+    return out;
+}
+
+} // anonymous
+
+int SWMMModelLayer::dataObjectCount(DataCategory c) const
+{
+    if (!m_engine) return 0;
+    switch (c) {
+    case DataCurves:        return partitionTables(m_engine, /*curves=*/true).size();
+    case DataTimeSeries:    return partitionTables(m_engine, /*curves=*/false).size();
+    case DataPatterns:      return swmm_pattern_count(m_engine);
+    case DataLIDControls:   return swmm_lid_count(m_engine);
+    case DataPollutants:    return swmm_pollutant_count(m_engine);
+    case DataLandUses:      return swmm_landuse_count(m_engine);
+    case DataAquifers:      return swmm_aquifer_count(m_engine);
+    case DataSnowpacks:     return swmm_snowpack_count(m_engine);
+    case DataControls:      return swmm_control_count(m_engine);
+    case DataTransects:     return swmm_transect_count(m_engine);
+    case DataHydrographs:   return swmm_hydrograph_count(m_engine);
+    case DataStreets:       return swmm_street_count(m_engine);
+    case DataInlets:        return swmm_inlet_count(m_engine);
+    default:                return 0;
+    }
+}
+
+QString SWMMModelLayer::dataObjectNameAt(DataCategory c, int row) const
+{
+    if (!m_engine || row < 0) return {};
+
+    auto nameOrEmpty = [](const char *p) -> QString {
+        return p ? QString::fromUtf8(p) : QString();
+    };
+
+    switch (c) {
+    case DataCurves: {
+        const auto idxs = partitionTables(m_engine, /*curves=*/true);
+        if (row >= idxs.size()) return {};
+        return nameOrEmpty(swmm_table_id(m_engine, idxs[row]));
+    }
+    case DataTimeSeries: {
+        const auto idxs = partitionTables(m_engine, /*curves=*/false);
+        if (row >= idxs.size()) return {};
+        return nameOrEmpty(swmm_table_id(m_engine, idxs[row]));
+    }
+    case DataPatterns:    return nameOrEmpty(swmm_pattern_id    (m_engine, row));
+    case DataLIDControls: return nameOrEmpty(swmm_lid_id         (m_engine, row));
+    case DataPollutants:  return nameOrEmpty(swmm_pollutant_id   (m_engine, row));
+    case DataLandUses:    return nameOrEmpty(swmm_landuse_id     (m_engine, row));
+    case DataAquifers:    return nameOrEmpty(swmm_aquifer_id     (m_engine, row));
+    case DataSnowpacks:   return nameOrEmpty(swmm_snowpack_id    (m_engine, row));
+    case DataControls: {
+        // Controls are stored as anonymous rule blocks; synthesise a
+        // human-readable label "Rule N" for the BM.0 browser surface.
+        // BR (Slice 6.8) will replace this once it surfaces real
+        // RULE-name extraction from rule text.
+        const int n = swmm_control_count(m_engine);
+        if (row >= n) return {};
+        return QObject::tr("Rule %1").arg(row + 1);
+    }
+    case DataTransects:   return nameOrEmpty(swmm_transect_id    (m_engine, row));
+    case DataHydrographs: {
+        // Hydrograph "groups" derive from distinct entry names — the
+        // engine stores them as one entry per (group, month, response).
+        // Walk and de-duplicate by first occurrence to give the BM.0
+        // browser its per-group rows.
+        const int n = swmm_hydrograph_count(m_engine);
+        QStringList seen; seen.reserve(n);
+        for (int i = 0; i < n; ++i) {
+            char buf[128] = {};
+            int  month = 0, response = 0;
+            double r, t, k, dmax, drecov, dinit;
+            if (swmm_hydrograph_get(m_engine, i, buf, sizeof(buf),
+                                     &month, &response,
+                                     &r, &t, &k, &dmax, &drecov, &dinit) != SWMM_OK)
+                continue;
+            const QString name = QString::fromUtf8(buf);
+            if (!seen.contains(name)) {
+                seen.append(name);
+                if (seen.size() == row + 1) return name;
+            }
+        }
+        return {};
+    }
+    case DataStreets: return nameOrEmpty(swmm_street_id(m_engine, row));
+    case DataInlets:  return nameOrEmpty(swmm_inlet_id (m_engine, row));
+    default:          return {};
     }
 }
 
@@ -891,6 +1059,29 @@ void SWMMModelLayer::setSubcatchmentSymbol(const SWMMElementSymbol &s){ m_subcat
 void SWMMModelLayer::setRainGageSymbol(const SWMMElementSymbol &s)    { m_gageSym       = s; m_needsRebuild = true; emit repaintRequested(); }
 
 // ---------------------------------------------------------------------------
+// Renderer (Slice BI Phase 8.13.6.5)
+// ---------------------------------------------------------------------------
+//
+// API additions only. The paint loop in SWMMLayerItem still reads m_*Sym
+// directly; sub-phase 8.13.6.4 (deferred until Slice BB lands ColorRamp)
+// will swap the paint loop to consult m_renderer instead.
+
+OpenSWMM::Render::IFeatureRenderer *SWMMModelLayer::renderer() const
+{
+    return m_renderer.get();
+}
+
+void SWMMModelLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r)
+{
+    if (!r)                                 // contract: renderer() never returns null
+        return;
+    if (r.get() == m_renderer.get())
+        return;                             // same-pointer self-assignment is a no-op
+    m_renderer = std::move(r);
+    emit rendererChanged();
+}
+
+// ---------------------------------------------------------------------------
 // Selection
 // ---------------------------------------------------------------------------
 
@@ -979,7 +1170,7 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name) const
         const char *kinds[] = {"Conduit", "Pump", "Orifice", "Weir", "Outlet"};
         if (l.linkType >= 0 && l.linkType <= 4)
             m[QStringLiteral("Link type")] = QString::fromLatin1(kinds[l.linkType]);
-        m[QStringLiteral("Vertex count")] = l.vertices.size();
+        m[QStringLiteral("Vertex count")] = cachedLinkPolyline(i).size();
         return m;
     }
     if (int i = findCatch(); i >= 0)
@@ -1042,7 +1233,7 @@ MapExtent SWMMModelLayer::objectExtent(const QString &name) const
     case CatWeirs:    case CatOutlets: {
         const int idx = m_linksByType[int(cat) - int(CatConduits)].value(row, -1);
         if (idx < 0) return kUnknown;
-        return bboxOf(m_links[idx].vertices);
+        return bboxOf(cachedLinkPolyline(idx));
     }
     case CatSubcatchments:
         if (row < 0 || row >= m_catchments.size()) return kUnknown;
@@ -1152,10 +1343,11 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
     // --- Tier 2: links (tighter tolerance) -----------------------------
     {
         double bestDist2 = linkTolerLayer * linkTolerLayer;
-        for (const LinkGeom &l : m_links)
+        for (int li = 0; li < m_links.size(); ++li)
         {
+            const LinkGeom &l = m_links[li];
             if (m_hiddenObjects.contains(l.name)) continue;
-            const auto &verts = l.vertices;
+            const QVector<QPointF> verts = cachedLinkPolyline(li);
             for (int i = 1; i < verts.size(); ++i)
             {
                 const double ax = verts[i - 1].x(), ay = verts[i - 1].y();
@@ -1377,22 +1569,24 @@ bool SWMMModelLayer::elementPosition(const QString &name, double *x, double *y) 
 
 QVector<QPointF> SWMMModelLayer::cachedLinkPolyline(int idx) const
 {
-    if (idx < 0 || idx >= m_links.size())
-        return {};
-    return m_links[idx].vertices;
+    if (idx < 0 || idx >= m_links.size()) return {};
+    const LinkGeom &lg = m_links[idx];
+    QVector<QPointF> result;
+    result.reserve(lg.vertices.size() + 2);
+    if (lg.fromNodeIdx >= 0 && lg.fromNodeIdx < m_nodes.size())
+        result.append(QPointF(m_nodes[lg.fromNodeIdx].x, m_nodes[lg.fromNodeIdx].y));
+    result.append(lg.vertices);
+    if (lg.toNodeIdx >= 0 && lg.toNodeIdx < m_nodes.size())
+        result.append(QPointF(m_nodes[lg.toNodeIdx].x, m_nodes[lg.toNodeIdx].y));
+    return result;
 }
 
 QVector<QPointF> SWMMModelLayer::cachedLinkInteriorVertices(int idx) const
 {
     if (idx < 0 || idx >= m_links.size())
         return {};
-    const auto &full = m_links[idx].vertices;
-    // Cached polyline is [from_endpoint, ...interior..., to_endpoint] when
-    // both endpoints were resolvable during loadModel. A single-point or
-    // empty polyline is treated as having no interior.
-    if (full.size() <= 2)
-        return {};
-    return full.mid(1, full.size() - 2);
+    // vertices stores interior bend points only — return directly.
+    return m_links[idx].vertices;
 }
 
 QVector<QPointF> SWMMModelLayer::cachedSubcatchVertices(int idx) const
@@ -1461,21 +1655,15 @@ bool SWMMModelLayer::previewNodeMove(int idx, double newX, double newY)
     m_nodes[idx].y = newY;
     refreshSceneCoordsForNode(idx);
 
-    // Mirror the endpoint update into each attached link's cached
-    // polyline so the live preview shows the link stretching with the
-    // cursor. Engine state is UNTOUCHED — MoveNodeCommand::redo commits
-    // via applyNodeMove on release.
-    const QVector<int> attached = linksAttachedToNode(idx);
-    for (int linkIdx : attached)
-    {
-        const int end = linkEndForNode(linkIdx, idx);
-        if (end < 0) continue;
-        auto &verts = m_links[linkIdx].vertices;
-        if (verts.isEmpty()) continue;
-        const int slot = (end == 0) ? 0 : (verts.size() - 1);
-        verts[slot] = QPointF(newX, newY);
+    // Link endpoints are looked up dynamically from m_nodes[], so just
+    // refresh scene coords for all attached links. Engine state is
+    // UNTOUCHED — MoveNodeCommand::redo commits via applyNodeMove on release.
+    for (int linkIdx : linksAttachedToNode(idx))
         refreshSceneCoordsForLink(linkIdx);
-    }
+
+    // Update outlet lines of subcatchments that drain to this node so the
+    // dashed connector line follows the node during the drag preview.
+    refreshCatchOutletLinesForNode(idx);
 
     // Repaint; m_needsRebuild intentionally left unset so the scene's
     // batched item keeps its existing z-value / bounding rect. The
@@ -1493,6 +1681,49 @@ double SWMMModelLayer::engineLinkLength(int linkIdx) const
     if (swmm_link_get_length(m_engine, linkIdx, &len) != 0)
         return -1.0;
     return len;
+}
+
+double SWMMModelLayer::polylineLengthInModelUnits(
+    const QVector<QPointF> &vertices) const
+{
+    if (vertices.size() < 2) return 0.0;
+
+    auto *crs = srs();
+
+    // Sum segment lengths in metres. For geographic CRSes we use WGS-84
+    // great-circle distance per segment so lon/lat polylines don't get
+    // multiplied by a meaningless degrees-to-metres factor.
+    double metres = 0.0;
+    if (crs && crs->isGeographic()) {
+        constexpr double R = 6378137.0; // WGS-84 sphere
+        for (int i = 1; i < vertices.size(); ++i) {
+            const double lon1 = qDegreesToRadians(vertices[i - 1].x());
+            const double lat1 = qDegreesToRadians(vertices[i - 1].y());
+            const double lon2 = qDegreesToRadians(vertices[i].x());
+            const double lat2 = qDegreesToRadians(vertices[i].y());
+            const double dlat = lat2 - lat1;
+            const double dlon = lon2 - lon1;
+            const double a    = std::sin(dlat / 2) * std::sin(dlat / 2)
+                              + std::cos(lat1) * std::cos(lat2)
+                              * std::sin(dlon / 2) * std::sin(dlon / 2);
+            metres += R * 2.0 * std::atan2(std::sqrt(a), std::sqrt(1.0 - a));
+        }
+    } else {
+        const double raw = EditGeometry::polylineLength(vertices);
+        const double toMetres = (crs && crs->isProjected())
+                                    ? crs->linearUnitsToMetres()
+                                    : 1.0;
+        metres = raw * toMetres;
+    }
+
+    // SWMM stores conduit length in the FLOW_UNITS system's linear unit:
+    // feet for US-customary (CFS/GPM/MGD), metres for SI (CMS/LPS/MLD).
+    const QString fu = getOption(QByteArrayLiteral("FLOW_UNITS"),
+                                 QStringLiteral("CFS")).toUpper();
+    const bool isSI = (fu == QLatin1String("CMS")
+                       || fu == QLatin1String("LPS")
+                       || fu == QLatin1String("MLD"));
+    return isSI ? metres : metres / 0.3048;
 }
 
 // ---------------------------------------------------------------------------
@@ -1571,6 +1802,24 @@ int SWMMModelLayer::linkEndForNode(int linkIdx, int nodeIdx) const
     return -1;
 }
 
+int SWMMModelLayer::linkFromNodeIdx(int linkIdx) const
+{
+    if (!m_engine || linkIdx < 0 || linkIdx >= m_links.size())
+        return -1;
+    int idx = -1;
+    swmm_link_get_from_node(m_engine, linkIdx, &idx);
+    return idx;
+}
+
+int SWMMModelLayer::linkToNodeIdx(int linkIdx) const
+{
+    if (!m_engine || linkIdx < 0 || linkIdx >= m_links.size())
+        return -1;
+    int idx = -1;
+    swmm_link_get_to_node(m_engine, linkIdx, &idx);
+    return idx;
+}
+
 bool SWMMModelLayer::applyNodeMove(int idx, double newX, double newY)
 {
     if (idx < 0 || idx >= m_nodes.size())
@@ -1586,30 +1835,29 @@ bool SWMMModelLayer::applyNodeMove(int idx, double newX, double newY)
     m_nodes[idx].y = newY;
     refreshSceneCoordsForNode(idx);
 
-    // Mirror the endpoint update into each attached link's cached polyline
-    // so the next scene rebuild renders connected links without having to
-    // reload geometry from the engine.
+    // Link endpoints are looked up dynamically from m_nodes[], so just
+    // refresh scene coords and bbox for all attached links.
     const QVector<int> attached = linksAttachedToNode(idx);
     for (int linkIdx : attached)
     {
-        const int end = linkEndForNode(linkIdx, idx);
-        if (end < 0) continue;
-        auto &verts = m_links[linkIdx].vertices;
-        if (verts.isEmpty()) continue;
-        const int slot = (end == 0) ? 0 : (verts.size() - 1);
-        verts[slot] = QPointF(newX, newY);
-        // Refresh this link's bbox so linksInRect stays correct.
+        // Recompute bbox from the full polyline (uses updated node position).
         if (linkIdx < m_linkBboxes.size()) {
-            double x0 = verts.first().x(), x1 = x0;
-            double y0 = verts.first().y(), y1 = y0;
-            for (const QPointF &p : verts) {
-                if (p.x() < x0) x0 = p.x(); else if (p.x() > x1) x1 = p.x();
-                if (p.y() < y0) y0 = p.y(); else if (p.y() > y1) y1 = p.y();
+            const QVector<QPointF> full = cachedLinkPolyline(linkIdx);
+            if (!full.isEmpty()) {
+                double x0 = full.first().x(), x1 = x0;
+                double y0 = full.first().y(), y1 = y0;
+                for (const QPointF &p : full) {
+                    if (p.x() < x0) x0 = p.x(); else if (p.x() > x1) x1 = p.x();
+                    if (p.y() < y0) y0 = p.y(); else if (p.y() > y1) y1 = p.y();
+                }
+                m_linkBboxes[linkIdx] = MapExtent(x0, y0, x1, y1);
             }
-            m_linkBboxes[linkIdx] = MapExtent(x0, y0, x1, y1);
         }
         refreshSceneCoordsForLink(linkIdx);
     }
+
+    // Keep outlet lines pointing at the committed node position.
+    refreshCatchOutletLinesForNode(idx);
 
     m_kdDirty = true;
     m_needsRebuild = true;
@@ -1623,6 +1871,8 @@ bool SWMMModelLayer::applyLinkLength(int linkIdx, double length)
         return false;
     if (swmm_link_set_length(m_engine, linkIdx, length) != 0)
         return false;
+    if (linkIdx >= 0 && linkIdx < m_links.size())
+        emit attributeChanged(m_links[linkIdx].name);
     return true;
 }
 
@@ -1751,17 +2001,14 @@ bool SWMMModelLayer::applyLinkAdd(const QString &name, int linkType,
                                         interiorVertices.size());
     }
 
-    // Build full polyline (from-node → interior → to-node) for cache.
-    double fx = 0, fy = 0, tx = 0, ty = 0;
-    swmm_spatial_get_node_coord(m_engine, n1, &fx, &fy);
-    swmm_spatial_get_node_coord(m_engine, n2, &tx, &ty);
+    // Build cache entry — interior vertices only; node endpoints are looked
+    // up dynamically from m_nodes[] via fromNodeIdx / toNodeIdx.
     LinkGeom g;
-    g.name     = name;
-    g.linkType = linkType;
-    g.vertices.reserve(interiorVertices.size() + 2);
-    g.vertices << QPointF(fx, fy);
-    g.vertices << interiorVertices;
-    g.vertices << QPointF(tx, ty);
+    g.name        = name;
+    g.linkType    = linkType;
+    g.fromNodeIdx = n1;
+    g.toNodeIdx   = n2;
+    g.vertices    = interiorVertices;   // interior only, no node endpoints
     m_links.append(g);
     if (outIdx) *outIdx = idx;
 
@@ -1909,6 +2156,62 @@ bool SWMMModelLayer::rollbackTailSubcatchAdd(const QString &name)
 }
 
 // ---------------------------------------------------------------------------
+// Rename
+// ---------------------------------------------------------------------------
+
+bool SWMMModelLayer::applyRename(const QString &oldName, const QString &newName)
+{
+    if (oldName.isEmpty() || newName.isEmpty() || oldName == newName) return false;
+    if (!m_engine) return false;
+
+    const QByteArray oldUtf8 = oldName.toUtf8();
+    const QByteArray newUtf8 = newName.toUtf8();
+    const char *oldId = oldUtf8.constData();
+    const char *newId = newUtf8.constData();
+
+    // Find which category this element belongs to and rename in the engine.
+    int rc = SWMM_ERR_BADPARAM;
+    bool isNode  = false, isLink = false, isCatch = false, isGage = false;
+
+    const int nodeIdx  = swmm_node_index(m_engine, oldId);
+    const int linkIdx  = nodeIdx < 0 ? swmm_link_index(m_engine, oldId) : -1;
+    const int gageIdx  = (nodeIdx < 0 && linkIdx < 0)
+                             ? swmm_gage_index(m_engine, oldId) : -1;
+    const int catchIdx = (nodeIdx < 0 && linkIdx < 0 && gageIdx < 0)
+                             ? swmm_subcatch_index(m_engine, oldId) : -1;
+
+    if      (nodeIdx  >= 0) { rc = swmm_node_rename(m_engine, nodeIdx, newId);  isNode  = true; }
+    else if (linkIdx  >= 0) { rc = swmm_link_rename(m_engine, linkIdx, newId);  isLink  = true; }
+    else if (gageIdx  >= 0) { rc = swmm_gage_rename(m_engine, gageIdx, newId);  isGage  = true; }
+    else if (catchIdx >= 0) { rc = swmm_subcatch_rename(m_engine, catchIdx, newId); isCatch = true; }
+
+    if (rc != SWMM_OK) return false;
+
+    // Update GUI geometry caches.
+    if (isNode) {
+        if (nodeIdx < m_nodes.size()) m_nodes[nodeIdx].name = newName;
+    } else if (isLink) {
+        if (linkIdx < m_links.size()) m_links[linkIdx].name = newName;
+    } else if (isGage) {
+        if (gageIdx < m_gages.size()) m_gages[gageIdx].name = newName;
+    } else if (isCatch) {
+        if (catchIdx < m_catchments.size()) m_catchments[catchIdx].name = newName;
+    }
+
+    // Update selection set if the renamed element was selected.
+    if (m_selectedNames.removeOne(oldName))
+        m_selectedNames.append(newName);
+
+    // Rebuild the object-location index (keyed by name).
+    buildGeometryCache();
+    m_kdDirty = true;
+    m_needsRebuild = true;
+    emit repaintRequested();
+    emit geometryChanged();
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // Delete operations (engine cascade + cache rebuild)
 // ---------------------------------------------------------------------------
 
@@ -2027,31 +2330,69 @@ bool SWMMModelLayer::applyLinkInteriorVertices(int linkIdx,
             return false;
     }
 
-    auto &full = m_links[linkIdx].vertices;
-    QPointF fromPt, toPt;
-    const bool hasFrom = !full.isEmpty();
-    const bool hasTo   = full.size() >= 2;
-    if (hasFrom) fromPt = full.first();
-    if (hasTo)   toPt   = full.last();
+    // Store interior-only vertices (no node endpoint wrapping).
+    m_links[linkIdx].vertices = interior;
 
-    QVector<QPointF> rebuilt;
-    rebuilt.reserve((hasFrom ? 1 : 0) + interior.size() + (hasTo ? 1 : 0));
-    if (hasFrom) rebuilt.append(fromPt);
-    rebuilt.append(interior);
-    if (hasTo)   rebuilt.append(toPt);
-    full = rebuilt;
+    // Refresh bbox from the full polyline (uses current node positions).
+    if (linkIdx < m_linkBboxes.size()) {
+        const QVector<QPointF> full = cachedLinkPolyline(linkIdx);
+        if (!full.isEmpty()) {
+            double x0 = full.first().x(), x1 = x0;
+            double y0 = full.first().y(), y1 = y0;
+            for (const QPointF &p : full) {
+                if (p.x() < x0) x0 = p.x(); else if (p.x() > x1) x1 = p.x();
+                if (p.y() < y0) y0 = p.y(); else if (p.y() > y1) y1 = p.y();
+            }
+            m_linkBboxes[linkIdx] = MapExtent(x0, y0, x1, y1);
+        }
+    }
+    refreshSceneCoordsForLink(linkIdx);
 
-    // Refresh this link's bbox so linksInRect stays correct.
-    if (linkIdx < m_linkBboxes.size() && !full.isEmpty()) {
-        double x0 = full.first().x(), x1 = x0;
-        double y0 = full.first().y(), y1 = y0;
-        for (const QPointF &p : full) {
+    m_needsRebuild = true;
+    emit repaintRequested();
+    return true;
+}
+
+bool SWMMModelLayer::applySubcatchVertices(int idx, const QVector<QPointF> &vertices)
+{
+    if (idx < 0 || idx >= m_catchments.size() || vertices.isEmpty())
+        return false;
+
+    if (m_engine)
+    {
+        QVector<double> vx(vertices.size()), vy(vertices.size());
+        for (int i = 0; i < vertices.size(); ++i)
+        {
+            vx[i] = vertices[i].x();
+            vy[i] = vertices[i].y();
+        }
+        if (swmm_spatial_set_subcatch_polygon(m_engine, idx,
+                                              vx.constData(), vy.constData(),
+                                              vertices.size()) != 0)
+            return false;
+
+        double cx = 0.0, cy = 0.0;
+        for (const QPointF &p : vertices) { cx += p.x(); cy += p.y(); }
+        cx /= vertices.size(); cy /= vertices.size();
+        swmm_spatial_set_subcatch_coord(m_engine, idx, cx, cy);
+    }
+
+    m_catchments[idx].vertices = vertices;
+
+    // Refresh layer-CRS bbox (used by subcatchmentsInRect).
+    if (idx < m_catchBboxes.size() && !vertices.isEmpty()) {
+        double x0 = vertices.first().x(), x1 = x0;
+        double y0 = vertices.first().y(), y1 = y0;
+        for (const QPointF &p : vertices) {
             if (p.x() < x0) x0 = p.x(); else if (p.x() > x1) x1 = p.x();
             if (p.y() < y0) y0 = p.y(); else if (p.y() > y1) y1 = p.y();
         }
-        m_linkBboxes[linkIdx] = MapExtent(x0, y0, x1, y1);
+        m_catchBboxes[idx] = MapExtent(x0, y0, x1, y1);
     }
-    refreshSceneCoordsForLink(linkIdx);
+
+    // Rebuild the scene-space coordinate cache for this catchment so
+    // SWMMLayerItem::paint() draws the polygon at the new position.
+    refreshSceneCoordsForSubcatch(idx);
 
     m_needsRebuild = true;
     emit repaintRequested();
@@ -2091,7 +2432,8 @@ void SWMMModelLayer::buildGeometryCache()
     };
     m_linkBboxes.clear();
     m_linkBboxes.reserve(m_links.size());
-    for (const LinkGeom &l : m_links) m_linkBboxes.append(bboxOf(l.vertices));
+    for (int i = 0; i < m_links.size(); ++i)
+        m_linkBboxes.append(bboxOf(cachedLinkPolyline(i)));
 
     m_catchBboxes.clear();
     m_catchBboxes.reserve(m_catchments.size());
@@ -2151,16 +2493,21 @@ void SWMMModelLayer::LinkSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
     if (bboxes.isEmpty()) return;
 
     // Total extent = union of all valid bboxes; collect diagonals for the
-    // cell-size heuristic. Skip empty rects (links with zero or one
-    // vertex) — they'd push the extent in ways that break the heuristic.
+    // cell-size heuristic. Skip only !isValid() (negative-extent) rects —
+    // zero-extent rects (a degenerate point/line for, e.g., an
+    // axis-aligned orifice between two nodes that share an x or y) are
+    // legitimate links that still need to render. The median-diagonal
+    // heuristic uses only non-zero diagonals so degenerates don't drag
+    // the cell size to zero.
     bool seeded = false;
     QVector<double> diagonals;
     diagonals.reserve(bboxes.size());
     for (const QRectF &b : bboxes) {
-        if (!b.isValid() || b.isEmpty()) continue;
+        if (!b.isValid()) continue;
         if (!seeded) { extent = b; seeded = true; }
         else         { extent = extent.united(b); }
-        diagonals.append(std::hypot(b.width(), b.height()));
+        const double diag = std::hypot(b.width(), b.height());
+        if (diag > 0.0) diagonals.append(diag);
     }
     if (!seeded || diagonals.isEmpty()) return;
 
@@ -2191,7 +2538,7 @@ void SWMMModelLayer::LinkSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
 
     for (int i = 0; i < bboxes.size(); ++i) {
         const QRectF &b = bboxes[i];
-        if (!b.isValid() || b.isEmpty()) continue;
+        if (!b.isValid()) continue;
         const int cx0 = std::clamp(int(std::floor((b.left()   - extent.left()) / cellW)), 0, cols - 1);
         const int cx1 = std::clamp(int(std::floor((b.right()  - extent.left()) / cellW)), 0, cols - 1);
         const int cy0 = std::clamp(int(std::floor((b.top()    - extent.top())  / cellH)), 0, rows - 1);
@@ -2300,16 +2647,19 @@ void SWMMModelLayer::rebuildSceneCoords()
     // Pack every link's vertices into one big float buffer. Pre-pass to
     // compute total vertex count + offsets so a single resize covers
     // all links — no incremental reallocation as we go.
+    // Use cachedLinkPolyline() so each link's full path (from-node →
+    // interior... → to-node) is stored.
     m_linkVertexOffset.assign(m_links.size(), 0);
     m_linkVertexCount .assign(m_links.size(), 0);
     uint32_t totalVerts = 0;
     for (int i = 0; i < m_links.size(); ++i) {
-        const uint32_t n = uint32_t(m_links[i].vertices.size());
+        const QVector<QPointF> full = cachedLinkPolyline(i);
+        const uint32_t n = uint32_t(full.size());
         m_linkVertexOffset[i] = totalVerts;
         m_linkVertexCount [i] = n;
         totalVerts += n;
     }
-    m_linkSceneFlat.assign(size_t(totalVerts) * 2, 0.0f);
+    m_linkSceneFlat.assign(size_t(totalVerts) * 2, 0.0);
     m_linkSceneBBoxes.resize(m_links.size());
     for (int i = 0; i < m_links.size(); ++i)
         refreshSceneCoordsForLink(i);
@@ -2403,7 +2753,7 @@ void SWMMModelLayer::refreshSceneCoordsForLink(int linkIdx)
     if (m_linkSceneBBoxes.size() != m_links.size())
         m_linkSceneBBoxes.resize(m_links.size());
 
-    const auto &verts = m_links[linkIdx].vertices;
+    const QVector<QPointF> verts = cachedLinkPolyline(linkIdx);
     const uint32_t n = uint32_t(verts.size());
 
     // If our flat layout is fresh enough to hold this link in place
@@ -2427,10 +2777,10 @@ void SWMMModelLayer::refreshSceneCoordsForLink(int linkIdx)
     for (uint32_t v = 0; v < n; ++v) {
         double x = verts[v].x(), y = verts[v].y();
         if (m_transform) m_transform->Transform(1, &x, &y);
-        const float fx = float(x), fy = float(-y);
-        m_linkSceneFlat[size_t(off + v) * 2 + 0] = fx;
-        m_linkSceneFlat[size_t(off + v) * 2 + 1] = fy;
-        const QPointF p(fx, fy);
+        const double sx = x, sy = -y;
+        m_linkSceneFlat[size_t(off + v) * 2 + 0] = sx;
+        m_linkSceneFlat[size_t(off + v) * 2 + 1] = sy;
+        const QPointF p(sx, sy);
         if (v == 0) bbox = QRectF(p, QSizeF(0, 0));
         else {
             if (p.x() < bbox.left())   bbox.setLeft  (p.x());
@@ -2439,7 +2789,107 @@ void SWMMModelLayer::refreshSceneCoordsForLink(int linkIdx)
             if (p.y() > bbox.bottom()) bbox.setBottom(p.y());
         }
     }
+    // Axis-aligned 2-point links (common for orifices/weirs whose
+    // from/to nodes share an x or y) collapse to a zero-extent rect.
+    // QRectF::isEmpty() then trips the spatial-grid skip below and the
+    // link disappears from the map. Inflate the rect by a sub-pixel
+    // epsilon so it stays non-empty without affecting hit-testing.
+    if (bbox.width()  == 0.0) bbox.adjust(-1e-3, 0.0, 1e-3, 0.0);
+    if (bbox.height() == 0.0) bbox.adjust(0.0, -1e-3, 0.0, 1e-3);
     m_linkSceneBBoxes[linkIdx] = bbox;
+}
+
+bool SWMMModelLayer::applySubcatchArea(int idx, double areaInModelUnits)
+{
+    if (!m_engine || idx < 0 || idx >= m_catchments.size()) return false;
+    if (swmm_subcatch_set_area(m_engine, idx, areaInModelUnits) != 0) return false;
+    emit attributeChanged(m_catchments[idx].name);
+    return true;
+}
+
+void SWMMModelLayer::refreshSceneCoordsForSubcatch(int catchIdx)
+{
+    if (catchIdx < 0 || catchIdx >= m_catchments.size()) return;
+    if (m_catchScenePts.size() != m_catchments.size())
+        m_catchScenePts.resize(m_catchments.size());
+    if (m_catchSceneBBoxes.size() != m_catchments.size())
+        m_catchSceneBBoxes.resize(m_catchments.size());
+
+    // Rebuild scene-space polygon points.
+    const auto &verts = m_catchments[catchIdx].vertices;
+    QVector<QPointF> sp;
+    sp.reserve(verts.size());
+    QRectF bbox;
+    for (int v = 0; v < verts.size(); ++v) {
+        double x = verts[v].x(), y = verts[v].y();
+        if (m_transform) m_transform->Transform(1, &x, &y);
+        const QPointF p(x, -y);
+        sp.append(p);
+        if (v == 0) bbox = QRectF(p, QSizeF(0, 0));
+        else {
+            if (p.x() < bbox.left())   bbox.setLeft  (p.x());
+            if (p.x() > bbox.right())  bbox.setRight (p.x());
+            if (p.y() < bbox.top())    bbox.setTop   (p.y());
+            if (p.y() > bbox.bottom()) bbox.setBottom(p.y());
+        }
+    }
+    m_catchScenePts[catchIdx]    = sp;   // keep a copy — centroid loop below reads it
+    m_catchSceneBBoxes[catchIdx] = bbox;
+
+    // Recompute the centroid (average of scene-space polygon vertices).
+    QPointF centroid(0.0, 0.0);
+    if (!sp.isEmpty()) {
+        for (const QPointF &p : sp) { centroid.rx() += p.x(); centroid.ry() += p.y(); }
+        centroid /= double(sp.size());
+    }
+
+    // Remove the old outlet line for this catchment and rebuild it from
+    // the new centroid so the arrow to the downstream node/subcatchment
+    // updates together with the polygon.
+    m_catchOutletLines.erase(
+        std::remove_if(m_catchOutletLines.begin(), m_catchOutletLines.end(),
+                       [catchIdx](const OutletLine &ol) { return ol.catchIdx == catchIdx; }),
+        m_catchOutletLines.end());
+
+    if (m_engine && !sp.isEmpty()) {
+        int nodeIdx = -1;
+        if (swmm_subcatch_get_outlet(m_engine, catchIdx, &nodeIdx) == 0
+                && nodeIdx >= 0 && nodeIdx < m_nodes.size()
+                && nodeIdx < int(m_nodeScenePts.size())) {
+            m_catchOutletLines.append({QLineF(centroid, m_nodeScenePts[nodeIdx]), catchIdx});
+        } else {
+            int scIdx = -1;
+            if (swmm_subcatch_get_outlet_subcatch(m_engine, catchIdx, &scIdx) == 0
+                    && scIdx >= 0 && scIdx < m_catchments.size()
+                    && scIdx != catchIdx
+                    && !m_catchScenePts[scIdx].isEmpty()) {
+                QPointF sc(0.0, 0.0);
+                for (const QPointF &p : m_catchScenePts[scIdx])
+                    { sc.rx() += p.x(); sc.ry() += p.y(); }
+                sc /= double(m_catchScenePts[scIdx].size());
+                m_catchOutletLines.append({QLineF(centroid, sc), catchIdx});
+            }
+        }
+    }
+
+    ++m_geomRevision;  // signals SWMMLayerItem to pick up the updated geometry
+}
+
+void SWMMModelLayer::refreshCatchOutletLinesForNode(int nodeIdx)
+{
+    // When a node moves, any subcatchment whose outlet is that node has its
+    // outlet-line endpoint stuck at the old scene position. Walk the outlet
+    // lines and patch the endpoint in-place — SWMMLayerItem reads this vector
+    // directly on every paint so no geomRevision bump is needed.
+    if (nodeIdx < 0 || nodeIdx >= int(m_nodeScenePts.size())) return;
+    if (!m_engine) return;
+    for (auto &ol : m_catchOutletLines)
+    {
+        int outNode = -1;
+        if (swmm_subcatch_get_outlet(m_engine, ol.catchIdx, &outNode) == 0
+                && outNode == nodeIdx)
+            ol.line.setP2(m_nodeScenePts[nodeIdx]);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2604,6 +3054,90 @@ QStringList SWMMModelLayer::gagesInRect(double canvasMinX, double canvasMinY,
     return result;
 }
 
+bool SWMMModelLayer::snapNearestPoint(double mapX, double mapY, double mapRadius,
+                                       QPointF &outPt,
+                                       std::optional<QPointF> excludePos) const
+{
+    double bestDist2 = mapRadius * mapRadius;
+    bool found = false;
+
+    // Squared distance threshold below which a candidate equals excludePos.
+    // 1e-12 is sub-micrometre — tight enough to reject only the exact
+    // drag-start vertex while always accepting every other vertex.
+    constexpr double kExcludeEps2 = 1e-12;
+
+    auto isExcluded = [&](double cx, double cy) -> bool {
+        if (!excludePos.has_value()) return false;
+        const double ex = cx - excludePos->x();
+        const double ey = cy - excludePos->y();
+        return (ex * ex + ey * ey) < kExcludeEps2;
+    };
+
+    // --- Nodes via KD-tree (O(log N)) ---
+    ensureKdTrees();
+    if (m_kdTrees && m_kdTrees->nodeTree && !m_nodes.isEmpty()) {
+        const double qpt[2] = { mapX, mapY };
+        std::vector<nanoflann::ResultItem<uint32_t, double>> matches;
+        m_kdTrees->nodeTree->radiusSearch(qpt, bestDist2, matches,
+                                          nanoflann::SearchParameters());
+        for (const auto &m : matches) {
+            const int i = static_cast<int>(m.first);
+            if (m_hiddenObjects.contains(m_nodes[i].name)) continue;
+            if (isExcluded(m_nodes[i].x, m_nodes[i].y)) continue;
+            if (m.second < bestDist2) {
+                bestDist2 = m.second;
+                outPt = QPointF(m_nodes[i].x, m_nodes[i].y);
+                found = true;
+            }
+        }
+    }
+
+    // --- Link interior vertices (bbox-filtered) ---
+    for (int li = 0; li < m_links.size(); ++li) {
+        if (li < m_linkBboxes.size()) {
+            const MapExtent &bb = m_linkBboxes[li];
+            if (bb.xMax() < mapX - mapRadius || bb.xMin() > mapX + mapRadius) continue;
+            if (bb.yMax() < mapY - mapRadius || bb.yMin() > mapY + mapRadius) continue;
+        }
+        // m_links[li].vertices holds interior bend points only.
+        const auto &verts = m_links[li].vertices;
+        for (int j = 0; j < verts.size(); ++j) {
+            if (isExcluded(verts[j].x(), verts[j].y())) continue;
+            const double dx = verts[j].x() - mapX;
+            const double dy = verts[j].y() - mapY;
+            const double d2 = dx * dx + dy * dy;
+            if (d2 < bestDist2) {
+                bestDist2 = d2;
+                outPt = verts[j];
+                found = true;
+            }
+        }
+    }
+
+    // --- Subcatchment polygon vertices (bbox-filtered) ---
+    for (int ci = 0; ci < m_catchments.size(); ++ci) {
+        if (ci < m_catchBboxes.size()) {
+            const MapExtent &bb = m_catchBboxes[ci];
+            if (bb.xMax() < mapX - mapRadius || bb.xMin() > mapX + mapRadius) continue;
+            if (bb.yMax() < mapY - mapRadius || bb.yMin() > mapY + mapRadius) continue;
+        }
+        if (m_hiddenObjects.contains(m_catchments[ci].name)) continue;
+        for (const QPointF &v : m_catchments[ci].vertices) {
+            if (isExcluded(v.x(), v.y())) continue;
+            const double dx = v.x() - mapX;
+            const double dy = v.y() - mapY;
+            const double d2 = dx * dx + dy * dy;
+            if (d2 < bestDist2) {
+                bestDist2 = d2;
+                outPt = v;
+                found = true;
+            }
+        }
+    }
+
+    return found;
+}
+
 QStringList SWMMModelLayer::linksInRect(double canvasMinX, double canvasMinY,
                                          double canvasMaxX, double canvasMaxY) const
 {
@@ -2658,6 +3192,11 @@ void SWMMModelLayer::rebuildTransform(const SpatialReferenceSystem *canvasSRS)
         OGRCoordinateTransformation::DestroyCT(m_transform);
         m_transform = nullptr;
     }
+    if (m_inverseTransform)
+    {
+        OGRCoordinateTransformation::DestroyCT(m_inverseTransform);
+        m_inverseTransform = nullptr;
+    }
 
     if (!srs() || !canvasSRS || !srs()->ogrSpatialReference() ||
         !canvasSRS->ogrSpatialReference())
@@ -2676,4 +3215,45 @@ void SWMMModelLayer::rebuildTransform(const SpatialReferenceSystem *canvasSRS)
     // The cached scene-space coords depend on m_transform; the canvas CRS
     // change just invalidated all of them.
     rebuildSceneCoords();
+}
+
+bool SWMMModelLayer::transformCanvasToLayer(double cx, double cy,
+                                            double &lx, double &ly) const
+{
+    lx = cx;
+    ly = cy;
+    if (!m_transform)                          // canvas CRS == layer CRS
+        return true;
+
+    if (!m_inverseTransform)
+        m_inverseTransform = m_transform->GetInverse();
+    if (!m_inverseTransform)
+        return false;
+
+    // Matches the call shape used elsewhere in this file (e.g. nodeAtClick
+    // tolerance back-projection) — Transform returns non-zero on success.
+    if (!m_inverseTransform->Transform(1, &lx, &ly))
+    {
+        lx = cx;
+        ly = cy;
+        return false;
+    }
+    return true;
+}
+
+bool SWMMModelLayer::transformLayerToCanvas(double lx, double ly,
+                                            double &cx, double &cy) const
+{
+    cx = lx;
+    cy = ly;
+    if (!m_transform)                          // canvas CRS == layer CRS
+        return true;
+
+    if (!m_transform->Transform(1, &cx, &cy))
+    {
+        cx = lx;
+        cy = ly;
+        return false;
+    }
+    return true;
 }

@@ -152,34 +152,54 @@ void AttributePanel::onIdentifyResult(const QList<IdentifyResult> &results)
 
 void AttributePanel::onObjectEditedExternally(const QString &name)
 {
-    // Round-4 follow-up 2026-05-12 — mirror an attribute-table edit
-    // into the Property Browser.  We call `refresh()` on the bound
-    // adapter (matched by name) which re-emits `changed()`; that's
-    // the NOTIFY signal QPropertyModel listens to per-property.
-    // Guard against the resulting `changed()` re-emitting our own
-    // `objectEdited(name)` and bouncing back to the table.
+    // Mirror an external attribute change into the Property Browser.
+    // QPropertyModel doesn't subscribe to NOTIFY signals, so we cannot
+    // rely on adapter->refresh() / emit changed() to trigger a view
+    // repaint.  Instead, call QPropertyModel::refreshValues() which emits
+    // dataChanged for every value cell; QVariantPropertyItem::data() then
+    // re-reads the current value from the adapter live via
+    // QMetaProperty::read().  Guard against the resulting dataChanged
+    // bouncing an objectEdited back to the attribute table.
     if (name.isEmpty()) return;
     m_suppressEditForward = true;
-    if (m_nodeAdapter && m_nodeAdapter->name() == name)
-        m_nodeAdapter->refresh();
-    if (m_linkAdapter && m_linkAdapter->name() == name)
-        m_linkAdapter->refresh();
-    if (m_subcatchAdapter && m_subcatchAdapter->name() == name)
-        m_subcatchAdapter->refresh();
+#ifdef HAVE_QPROPERTYMODEL
+    auto *pm = qobject_cast<QPropertyModel*>(m_model);
+    if (pm && (
+            (m_nodeAdapter     && m_nodeAdapter->name()     == name) ||
+            (m_linkAdapter     && m_linkAdapter->name()     == name) ||
+            (m_subcatchAdapter && m_subcatchAdapter->name() == name)))
+    {
+        pm->refreshValues();
+    }
+#endif
     m_suppressEditForward = false;
 }
 
 void AttributePanel::setProject(SWMMModelLayer *layer)
 {
     if (m_swmmLayer == layer) return;
+
+    // Disconnect from the old layer before replacing it.
+    if (m_swmmLayer)
+        QObject::disconnect(m_swmmLayer, &SWMMModelLayer::attributeChanged,
+                            this, &AttributePanel::onObjectEditedExternally);
+
     m_swmmLayer = layer;
+
     if (!layer) {
         // Releasing the project — drop the adapters so a stale engine
         // handle doesn't get used on the next identify.
         if (m_nodeAdapter)     { m_nodeAdapter->deleteLater();     m_nodeAdapter     = nullptr; }
         if (m_linkAdapter)     { m_linkAdapter->deleteLater();     m_linkAdapter     = nullptr; }
         if (m_subcatchAdapter) { m_subcatchAdapter->deleteLater(); m_subcatchAdapter = nullptr; }
+        return;
     }
+
+    // Refresh the property browser whenever an attribute changes (e.g. conduit
+    // length or subcatchment area recalculated from an edited geometry).
+    connect(layer, &SWMMModelLayer::attributeChanged,
+            this,  &AttributePanel::onObjectEditedExternally,
+            Qt::UniqueConnection);
 }
 
 void AttributePanel::onLayerComboIndexChanged(int index)
@@ -242,11 +262,16 @@ void AttributePanel::onLayerComboIndexChanged(int index)
                 break;
             }
             if (pm) pm->setData(QVariant::fromValue<QObject *>(m_nodeAdapter));
-            // Round-4 follow-up 2026-05-12 — forward edits to the
-            // Attribute Table dock for two-way sync.
             connect(m_nodeAdapter, &SWMMNodePropertyAdapter::changed,
                     this, [this, name]() {
                         if (!m_suppressEditForward) emit objectEdited(name);
+                    });
+            connect(m_nodeAdapter, &SWMMNodePropertyAdapter::renameRequested,
+                    this, [this](const QString &oldN, const QString &newN) {
+                        if (m_swmmLayer && m_swmmLayer->applyRename(oldN, newN)) {
+                            if (m_nodeAdapter) m_nodeAdapter->updateStoredName(newN);
+                            emit objectEdited(newN);
+                        }
                     });
             routedThroughAdapter = true;
         } else if (typeStr == QStringLiteral("Link")) {
@@ -288,6 +313,13 @@ void AttributePanel::onLayerComboIndexChanged(int index)
                     this, [this, name]() {
                         if (!m_suppressEditForward) emit objectEdited(name);
                     });
+            connect(m_linkAdapter, &SWMMLinkPropertyAdapter::renameRequested,
+                    this, [this](const QString &oldN, const QString &newN) {
+                        if (m_swmmLayer && m_swmmLayer->applyRename(oldN, newN)) {
+                            if (m_linkAdapter) m_linkAdapter->updateStoredName(newN);
+                            emit objectEdited(newN);
+                        }
+                    });
             routedThroughAdapter = true;
         } else if (typeStr == QStringLiteral("Subcatchment")) {
             if (m_subcatchAdapter) m_subcatchAdapter->deleteLater();
@@ -297,6 +329,13 @@ void AttributePanel::onLayerComboIndexChanged(int index)
             connect(m_subcatchAdapter, &SWMMSubcatchPropertyAdapter::changed,
                     this, [this, name]() {
                         if (!m_suppressEditForward) emit objectEdited(name);
+                    });
+            connect(m_subcatchAdapter, &SWMMSubcatchPropertyAdapter::renameRequested,
+                    this, [this](const QString &oldN, const QString &newN) {
+                        if (m_swmmLayer && m_swmmLayer->applyRename(oldN, newN)) {
+                            if (m_subcatchAdapter) m_subcatchAdapter->updateStoredName(newN);
+                            emit objectEdited(newN);
+                        }
                     });
             routedThroughAdapter = true;
         }

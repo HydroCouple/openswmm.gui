@@ -9,11 +9,13 @@
 #define MAPTOOLADDLINK_H
 
 #include "map/tools/maptool.h"
+#include "map/snapengine.h"
 
 #include <QPointF>
 #include <QString>
 #include <QVector>
 
+class GISRasterLayer;
 class SWMMModelLayer;
 
 /*!
@@ -51,11 +53,20 @@ public:
     void activate()   override;
     void deactivate() override;
 
-    void mousePressEvent  (QMouseEvent *event) override;
-    void mouseMoveEvent   (QMouseEvent *event) override;
-    void keyPressEvent    (QKeyEvent   *event) override;
+    void mousePressEvent      (QMouseEvent *event) override;
+    void mouseMoveEvent       (QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
+    void keyPressEvent        (QKeyEvent   *event) override;
     void paint(QPainter *painter, const MapExtent &extent,
                const SpatialReferenceSystem *srs) override;
+
+    /*!
+     * \brief Sets the active terrain layer and link offset used to estimate
+     *        upstream and downstream invert elevations when a link is committed.
+     * \param layer   Raster to sample; nullptr disables terrain assistance.
+     * \param offset  Signed value added to terrain Z at each endpoint.
+     */
+    void setTerrain(GISRasterLayer *layer, double offset, double factor = 1.0);
 
 signals:
     void linkAdded(const QString &name, int linkType,
@@ -78,15 +89,19 @@ private:
 
     int     m_linkType;
     QString m_elementKind;
-    int     m_snapPx = 12; // snap radius in screen pixels
 
-    State            m_state      = State::Idle;
-    QString          m_fromNode;
-    QPointF          m_fromPt;    // map coords of from-node
-    QVector<QPointF> m_vertices;  // intermediate vertices (map coords)
-    QPointF          m_cursor;    // current mouse map coords (for rubber-band)
-    QString          m_snapTarget; // name of node currently snapped to
-    QPointF          m_snapPt;    // map coords of snap target
+    State              m_state      = State::Idle;
+    QString            m_fromNode;
+    QPointF            m_fromPt;    // map coords of from-node
+    QVector<QPointF>   m_vertices;  // intermediate vertices (map coords)
+    QPointF            m_cursor;    // current mouse map coords (for rubber-band)
+    QString            m_snapTarget; // name of end-node currently snapped to (node-only)
+    QPointF            m_snapPt;    // map coords of node snap target
+    SnapEngine::Result m_vertexSnap; // general vertex snap for intermediate points
+
+    GISRasterLayer    *m_terrainLayer  = nullptr;
+    double             m_terrainOffset = 0.0;
+    double             m_terrainFactor = 1.0;
 };
 
 #endif // MAPTOOLADDLINK_H

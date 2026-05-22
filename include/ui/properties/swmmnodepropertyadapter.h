@@ -57,7 +57,7 @@ public:
     Q_ENUM(FlapGate)
 
     // Common to every node type — Name + Type + Invert.
-    Q_PROPERTY(QString  name        READ name)
+    Q_PROPERTY(QString  name        READ name  WRITE setName)
     Q_PROPERTY(NodeKind nodeKind    READ nodeKind)
     Q_PROPERTY(double   invertElev  READ invertElev  WRITE setInvertElev  NOTIFY changed)
 
@@ -89,6 +89,7 @@ public:
     Q_INVOKABLE QString displayLabelFor(const QString &property) const;
 
 public slots:
+    void setName(const QString &newName);
     void setInvertElev(double v);
     void setMaxDepth(double v);
     void setInitialDepth(double v);
@@ -106,8 +107,15 @@ public slots:
      *  engine, so values stay authoritative). */
     void refresh() { emit changed(); }
 
+    /*! Called by AttributePanel after applyRename() succeeds so the
+     *  adapter's stored name matches the engine's new name. */
+    void updateStoredName(const QString &newName) { m_name = newName; }
+
 signals:
     void changed();
+    /*! Emitted when setName() is called with a non-empty, non-duplicate name.
+     *  The attribute panel connects this to SWMMModelLayer::applyRename(). */
+    void renameRequested(const QString &oldName, const QString &newName);
     /*! Emitted whenever the active unit system changes, so the
      *  Property Browser can refresh column-0 labels (e.g. swap
      *  "(ft)" → "(m)") without rebuilding the property tree. */

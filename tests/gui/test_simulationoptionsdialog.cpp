@@ -25,6 +25,12 @@ private slots:
     void formatEngineDateTimeMatchesInpFormat();
     void parseEngineDateTimeRoundTrips();
     void parseEngineDateTimeRejectsMalformed();
+
+    // Slice CW — [EVENTS] OADate helpers
+    void oaDateEpochIsZero();
+    void oaDateMatchesKnownSwmmAnchor();
+    void oaDateRoundTripsArbitraryDates();
+    void oaDateInvalidInputReturnsZero();
 };
 
 void TestSimulationOptionsDialog::parseEngineBoolKnownValues()
@@ -94,6 +100,61 @@ void TestSimulationOptionsDialog::parseEngineDateTimeRejectsMalformed()
     // Empty strings.
     QVERIFY(!SimulationOptionsDialog::parseEngineDateTime("",            "00:00:00").isValid());
     QVERIFY(!SimulationOptionsDialog::parseEngineDateTime("01/01/2026", "").isValid());
+}
+
+// ---------------------------------------------------------------------------
+// Slice CW — [EVENTS] OADate helpers (2026-05-21)
+// ---------------------------------------------------------------------------
+
+void TestSimulationOptionsDialog::oaDateEpochIsZero()
+{
+    // Anchor: 1899-12-30 00:00 must round-trip to 0.0.
+    const QDateTime epoch(QDate(1899, 12, 30), QTime(0, 0, 0));
+    QCOMPARE(SimulationOptionsDialog::oaDateFromQDateTime(epoch), 0.0);
+    QCOMPARE(SimulationOptionsDialog::qDateTimeFromOaDate(0.0), epoch);
+}
+
+void TestSimulationOptionsDialog::oaDateMatchesKnownSwmmAnchor()
+{
+    // Engine convention (engine src/engine/core/DateTime.hpp): integer 1
+    // is 1899-12-31, and noon adds 0.5.  Test a couple of fixed anchors
+    // to lock the convention against future drift.
+    const QDateTime a(QDate(1899, 12, 31), QTime(0, 0, 0));
+    QCOMPARE(SimulationOptionsDialog::oaDateFromQDateTime(a), 1.0);
+
+    const QDateTime b(QDate(1900, 1, 1), QTime(12, 0, 0));
+    QCOMPARE(SimulationOptionsDialog::oaDateFromQDateTime(b), 2.5);
+
+    // Modern SWMM-typical date (2026-01-01 00:00).
+    const QDateTime c(QDate(2026, 1, 1), QTime(0, 0, 0));
+    const double oa = SimulationOptionsDialog::oaDateFromQDateTime(c);
+    QCOMPARE(SimulationOptionsDialog::qDateTimeFromOaDate(oa), c);
+}
+
+void TestSimulationOptionsDialog::oaDateRoundTripsArbitraryDates()
+{
+    // HH:MM precision per legacy SWMM 5 dialog: keep test inputs on
+    // whole-minute boundaries so the floating-point round-trip is exact.
+    const QList<QDateTime> samples = {
+        QDateTime(QDate(2000, 2, 29), QTime( 6, 15)),  // leap-day morning
+        QDateTime(QDate(2024, 7,  4), QTime(23, 59)),  // last minute of day
+        QDateTime(QDate(2026, 5, 21), QTime(14, 30)),  // slice-creation date
+        QDateTime(QDate(2099, 1,  1), QTime( 0,  0)),  // far-future midnight
+    };
+    for (const auto &dt : samples) {
+        const double oa = SimulationOptionsDialog::oaDateFromQDateTime(dt);
+        const QDateTime back = SimulationOptionsDialog::qDateTimeFromOaDate(oa);
+        QCOMPARE(back, dt);
+    }
+}
+
+void TestSimulationOptionsDialog::oaDateInvalidInputReturnsZero()
+{
+    // An invalid QDateTime maps to 0.0 — the engine treats 0.0 as the
+    // OADate epoch which is well outside any reasonable simulation
+    // window.  The dialog must validate Start < End before persisting,
+    // so a zero is harmless when caught upstream.
+    QCOMPARE(SimulationOptionsDialog::oaDateFromQDateTime(QDateTime()), 0.0);
 }
 
 QTEST_MAIN(TestSimulationOptionsDialog)

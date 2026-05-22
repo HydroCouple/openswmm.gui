@@ -1,15 +1,10 @@
 /*!
  * \file   wmslayer.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+ * \date   2026
+ * \license GPL-3.0-or-later
+ * \brief  Map layer that fetches and renders OGC WMS imagery via HTTP GetMap
+ *         requests, caching tiles until the viewport changes.
  */
 
 #ifndef WMSLAYER_H

@@ -1,11 +1,10 @@
 /*!
  * \file   layertreepanel.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
+ * \date   2026
+ * \license GPL-3.0-or-later
+ * \brief  Layer-tree dock widget: two-level category/layer model backed by
+ *         LayerTreeModel and displayed in a QTreeView with drag-reorder support.
  */
 
 #ifndef LAYERTREEPANEL_H

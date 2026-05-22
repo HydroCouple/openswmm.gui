@@ -11,7 +11,9 @@
 
 #include <QGraphicsScene>
 #include <QPainter>
+#include <QPolygonF>
 #include <QSize>
+#include <QTransform>
 #include <QUrlQuery>
 #include <QXmlStreamReader>
 #include <QNetworkRequest>
@@ -361,30 +363,66 @@ void WMTSLayer::render(QPainter *painter,
                 continue;
 
             // Tile bounds in tile CRS
-            double tileLeft   = matrix->topLeftX + col * tileMapW;
-            double tileTop    = matrix->topLeftY - row * tileMapH;
-            double tileRight  = tileLeft + tileMapW;
-            double tileBottom = tileTop  - tileMapH;
+            const double tileLeft   = matrix->topLeftX + col * tileMapW;
+            const double tileTop    = matrix->topLeftY - row * tileMapH;
+            const double tileRight  = tileLeft + tileMapW;
+            const double tileBottom = tileTop  - tileMapH;
 
-            // Reproject tile corners to canvas CRS when they differ.
             if (m_tileToCanvas)
             {
-                double xs[4] = { tileLeft, tileRight, tileRight, tileLeft };
-                double ys[4] = { tileTop,  tileTop,   tileBottom, tileBottom };
+                // Reprojection path: warp the tile as a perspective quad
+                // rather than collapsing the 4 reprojected corners to an
+                // axis-aligned bbox. The bbox version leaves geometric gaps
+                // between adjacent tiles whenever the projection curves
+                // within a tile — visible as "random / shifting" seams as
+                // the view pans. quadToQuad keeps every reprojected corner
+                // exact, so neighbouring tiles share their exact pixel
+                // corners and no inter-tile gap can appear.
+                double xs[4] = { tileLeft,  tileRight, tileRight, tileLeft };
+                double ys[4] = { tileTop,   tileTop,   tileBottom, tileBottom };
                 if (!m_tileToCanvas->Transform(4, xs, ys))
                     continue;
-                tileLeft   = *std::min_element(xs, xs+4);
-                tileRight  = *std::max_element(xs, xs+4);
-                tileBottom = *std::min_element(ys, ys+4);
-                tileTop    = *std::max_element(ys, ys+4);
+
+                const QPolygonF dstQuad({
+                    QPointF((xs[0] - extent.xMin()) * sx,
+                            (extent.yMax() - ys[0]) * sy),
+                    QPointF((xs[1] - extent.xMin()) * sx,
+                            (extent.yMax() - ys[1]) * sy),
+                    QPointF((xs[2] - extent.xMin()) * sx,
+                            (extent.yMax() - ys[2]) * sy),
+                    QPointF((xs[3] - extent.xMin()) * sx,
+                            (extent.yMax() - ys[3]) * sy),
+                });
+                const QPolygonF srcQuad({
+                    QPointF(0,                 0),
+                    QPointF(cached->width(),   0),
+                    QPointF(cached->width(),   cached->height()),
+                    QPointF(0,                 cached->height()),
+                });
+
+                QTransform xform;
+                if (!QTransform::quadToQuad(srcQuad, dstQuad, xform))
+                    continue;
+
+                painter->save();
+                painter->setTransform(xform, /*combine=*/true);
+                painter->drawImage(0, 0, *cached);
+                painter->restore();
             }
+            else
+            {
+                // No reprojection: axis-aligned draw with device-pixel snap.
+                const double pxLeft   = (tileLeft  - extent.xMin()) * sx;
+                const double pyTop    = (extent.yMax() - tileTop)   * sy;
+                const double pxRight  = (tileRight - extent.xMin()) * sx;
+                const double pyBottom = (extent.yMax() - tileBottom) * sy;
 
-            double px = (tileLeft         - extent.xMin()) * sx;
-            double py = (extent.yMax()    - tileTop)       * sy;
-            double tw = (tileRight        - tileLeft)      * sx;
-            double th = (tileTop          - tileBottom)    * sy;
+                const QRectF dst = snapTileRectToDevicePx(
+                    pxLeft, pyTop, pxRight, pyBottom,
+                    painterDevicePixelRatio(painter));
 
-            painter->drawImage(QRectF(px, py, tw, th), *cached);
+                painter->drawImage(dst, *cached);
+            }
         }
     }
 }

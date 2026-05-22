@@ -146,6 +146,13 @@ SETTER_D(setCrestHeight,      swmm_link_set_crest_height)
 SETTER_D(setDischargeCoeff,   swmm_link_set_discharge_coeff)
 SETTER_D(setEndContractions,  swmm_link_set_end_contractions)
 
+void SWMMLinkPropertyAdapter::setName(const QString &newName)
+{
+    const QString trimmed = newName.trimmed();
+    if (trimmed.isEmpty() || trimmed == m_name) return;
+    emit renameRequested(m_name, trimmed);
+}
+
 void SWMMLinkPropertyAdapter::setFlapGate(FlapGate v)
 {
     const int idx = linkIdx();

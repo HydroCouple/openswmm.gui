@@ -71,6 +71,15 @@ signals:
      *         results layer (.out file) and opens TimeSeriesPlotDialog. */
     void plotTimeSeriesRequested(const SWMMObjectRef &object);
 
+public:
+    /*! Slice BM.0 — create a new non-spatial data object of type
+     *  \p dc named \p name via the engine `swmm_<type>_add` call.
+     *  Refreshes the tree on success. No-op when `m_layer` is null
+     *  or the name collides; engine error codes surface via
+     *  qWarning (no dialog spam in the first cut). Also called from
+     *  swmmvis.cpp for the menu-driven entry point. */
+    void addNewDataObject(SWMMModelLayer::DataCategory dc, const QString &name);
+
 private slots:
     void onTreeSelectionChanged();
     void onSearchTextChanged(const QString &text);

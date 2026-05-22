@@ -20,6 +20,7 @@
 MapRenderJob::MapRenderJob(const QList<OpenSWMMVisLayer *> &layers,
                            const MapExtent &extent,
                            const QSize &imageSize,
+                           qreal devicePixelRatio,
                            SpatialReferenceSystem *srs,
                            const QColor &bgColor,
                            QObject *parent)
@@ -27,6 +28,7 @@ MapRenderJob::MapRenderJob(const QList<OpenSWMMVisLayer *> &layers,
       m_layers(layers),
       m_extent(extent),
       m_imageSize(imageSize),
+      m_dpr(devicePixelRatio > 0.0 ? devicePixelRatio : 1.0),
       m_srs(srs),
       m_bgColor(bgColor)
 {
@@ -51,14 +53,24 @@ void MapRenderJob::start()
     auto layers      = m_layers;
     auto extent      = m_extent;
     auto imageSize   = m_imageSize;
+    auto dpr         = m_dpr;
     auto srs         = m_srs;
     auto bgColor     = m_bgColor;
     auto cancelFlag  = m_cancelled;
     QPointer<MapRenderJob> self(this);
 
-    QtConcurrent::run([layers, extent, imageSize, srs, bgColor,
+    QtConcurrent::run([layers, extent, imageSize, dpr, srs, bgColor,
                        cancelFlag, self]() {
-        QImage img(imageSize, QImage::Format_ARGB32_Premultiplied);
+        // Allocate the device-pixel-sized backing image but tell Qt its
+        // logical size is imageSize (via setDevicePixelRatio). Layer
+        // render() then operates in logical coordinates exactly as before,
+        // while float tile rects are rasterised at full device precision —
+        // closes the sub-pixel seams visible at the boundaries of raster
+        // basemap tiles on Retina displays.
+        const QSize devSize(qRound(imageSize.width()  * dpr),
+                            qRound(imageSize.height() * dpr));
+        QImage img(devSize, QImage::Format_ARGB32_Premultiplied);
+        img.setDevicePixelRatio(dpr);
         img.fill(bgColor);
 
         {

@@ -48,15 +48,24 @@ void OpenSWMMVisMapToolAddGage::mousePressEvent(QMouseEvent *event)
 
     double mx = 0, my = 0;
     toMapCoords(event->pos().x(), event->pos().y(), mx, my);
+
+    // toMapCoords returns canvas-CRS coords; the SoA store / engine
+    // expect layer CRS so the renderer's m_transform doesn't double-
+    // project the gage off-screen when the canvas CRS differs from
+    // the layer CRS (typical with basemaps forcing Web Mercator).
+    double px = mx, py = my;
+    layer->transformCanvasToLayer(mx, my, px, py);
+
     const QString name = nextAvailableName(layer);
 
-    auto *cmd = new AddGageCommand(layer, name, mx, my, m_canvas);
+    auto *cmd = new AddGageCommand(layer, name, px, py, m_canvas);
     if (m_canvas->undoStack())
         m_canvas->undoStack()->push(cmd);
     else
         delete cmd;
 
-    emit gageAdded(name, mx, my);
+    layer->setSelectedElementNames({name});
+    emit gageAdded(name, px, py);
     m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
                           QStringLiteral("addgage-commit"));
 }

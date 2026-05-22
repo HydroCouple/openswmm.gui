@@ -42,6 +42,16 @@ public:
         RoleRow        = Qt::UserRole + 11,   // row within category
         RoleIsLeaf     = Qt::UserRole + 12,   // bool
         RoleObjectRef  = Qt::UserRole + 13,   // QVariant::fromValue<SWMMObjectRef>
+        // Slice BM.0 — non-spatial data-objects section.
+        RoleSection      = Qt::UserRole + 14, // int(Section)
+        RoleDataCategory = Qt::UserRole + 15, // int(SWMMModelLayer::DataCategory)
+    };
+
+    /*! Slice BM.0 — top-level partitioning of the tree. */
+    enum Section : int {
+        SectionNetwork = 0, ///< Spatial categories (Junctions … Rain Gages)
+        SectionDivider = 1, ///< Visual separator row (non-selectable)
+        SectionData    = 2, ///< Non-spatial data objects (Curves … Inlets)
     };
 
     explicit SWMMObjectTreeModel(QObject *parent = nullptr);
@@ -53,7 +63,8 @@ public:
     void setLayer(SWMMModelLayer *layer);
 
     /*! Which SWMMModelLayer::Category is rendered at top-level row
-     *  \p topRow, or `NumCategories` if the row is out of range. */
+     *  \p topRow, or `NumCategories` if the row is out of range or the
+     *  row is a data / divider row. */
     SWMMModelLayer::Category categoryAtTopRow(int topRow) const;
 
     /*! Top-level row for a given category, or -1 when that category
@@ -68,6 +79,18 @@ public:
      *  layer's name→(cat,row) map — O(1) hash lookup. Returns an
      *  invalid QModelIndex when the object is unknown. */
     QModelIndex indexFor(const SWMMObjectRef &ref) const;
+
+    /*! Slice BM.0 — section discriminator for a top-level row. */
+    Section sectionAtTopRow(int topRow) const;
+
+    /*! Slice BM.0 — which SWMMModelLayer::DataCategory is rendered at
+     *  top-level row \p topRow, or `NumDataCategories` when out of range
+     *  or the row is in another section. */
+    SWMMModelLayer::DataCategory dataCategoryAtTopRow(int topRow) const;
+
+    /*! Slice BM.0 — top-level row for a given data category, or -1 when
+     *  empty / not currently shown. */
+    int topRowForDataCategory(SWMMModelLayer::DataCategory c) const;
 
     // ── QAbstractItemModel interface ─────────────────────────────────────
     QModelIndex index(int row, int column,
@@ -102,9 +125,12 @@ public slots:
     void reload();
 
 private:
-    // internalId sentinel used by category rows (leaf rows store their
-    // parent row index as internalId instead).
-    static constexpr quintptr kCategoryId = std::numeric_limits<quintptr>::max();
+    // internalId sentinels for top-level rows. Leaf rows store their
+    // parent row index as internalId instead — leaf internalId is always
+    // < kSeparatorId so the discriminator is unambiguous.
+    static constexpr quintptr kCategoryId      = std::numeric_limits<quintptr>::max();
+    static constexpr quintptr kDataCategoryId  = std::numeric_limits<quintptr>::max() - 1;
+    static constexpr quintptr kSeparatorId     = std::numeric_limits<quintptr>::max() - 2;
 
     QPointer<SWMMModelLayer>             m_layer;
 
@@ -113,6 +139,12 @@ private:
     // reload(); index i in this vector is the model's top-level row for
     // that category.
     QVector<SWMMModelLayer::Category>    m_visible;
+
+    // Slice BM.0 — visible data-object categories (non-spatial). Same
+    // contract as m_visible: empty categories are omitted. Rendered
+    // below m_visible with a non-selectable separator row between when
+    // both sections are non-empty.
+    QVector<SWMMModelLayer::DataCategory> m_visibleData;
 };
 
 #endif // SWMMOBJECTTREEMODEL_H

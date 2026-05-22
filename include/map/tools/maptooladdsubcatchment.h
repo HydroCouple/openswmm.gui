@@ -9,6 +9,7 @@
 #define MAPTOOLADDSUBCATCHMENT_H
 
 #include "map/tools/maptool.h"
+#include "map/snapengine.h"
 
 #include <QPointF>
 #include <QString>
@@ -56,9 +57,10 @@ private:
     void cancel();
     void commit();
 
-    QVector<QPointF> m_vertices; // map coords of placed vertices
-    QPointF          m_cursor;   // current cursor in map coords
-    bool             m_drawing = false;
+    QVector<QPointF>  m_vertices; // map coords of placed vertices
+    QPointF           m_cursor;   // current cursor in map coords (snapped)
+    bool              m_drawing = false;
+    SnapEngine::Result m_snap;   // last snap result for paint indicator
 };
 
 #endif // MAPTOOLADDSUBCATCHMENT_H

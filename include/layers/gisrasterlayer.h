@@ -1,15 +1,10 @@
 /*!
  * \file   gisrasterlayer.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+ * \date   2026
+ * \license GPL-3.0-or-later
+ * \brief  Map layer backed by a GDAL raster dataset with configurable
+ *         colour-ramp rendering and on-demand viewport warping.
  */
 
 #ifndef GISRASTERLAYER_H
@@ -22,12 +17,16 @@
 #include <QImage>
 #include <QString>
 
+#include <memory>
+
 // Forward-declare GDAL types
 class GDALDataset;
 class OGRCoordinateTransformation;
 class SpatialReferenceSystem;
 class OpenSWMMVisWorkspace;
 class RasterTileItem;
+
+namespace OpenSWMM::Render { class IRasterRenderer; }
 
 /*!
  * \struct RasterColorRamp
@@ -97,6 +96,15 @@ public:
     [[nodiscard]] double  noDataValue() const;
 
     /*!
+     * \brief Heuristically detects the vertical unit of the raster's elevation
+     *        values from the embedded CRS metadata.
+     * \return \c "m" for metre-based or geographic CRS (most global DEMs),
+     *         \c "ft" for US-customary projected CRS (state plane feet, etc.).
+     *         Returns \c "m" when no CRS metadata is present.
+     */
+    [[nodiscard]] QString detectVerticalUnit() const;
+
+    /*!
      * \brief Sets the 1-based band index to render (only applies to single-band mode).
      */
     void setRenderBand(int band);
@@ -116,6 +124,31 @@ public:
      * \details This may be slow for large datasets; runs in a worker thread.
      */
     void autoStretchColorRamp();
+
+    // ----- Raster renderer (Slice BI Phase 8.13.6.7) ----------------------
+    // The raster renderer is the §J.2 seam every future raster paint path
+    // will go through.  In sub-phase 8.13.6.7 this is API plumbing only —
+    // the existing warpToCanvas() still reads m_colorRamp directly.  A
+    // later sub-phase will route warping through m_rasterRenderer, after
+    // which m_colorRamp becomes private implementation detail of the
+    // default SingleBandPseudoColorRenderer.
+
+    /*!
+     * \brief The IRasterRenderer that will drive this layer's warp pass.
+     * \details Constructed eagerly as a default
+     *          SingleBandPseudoColorRenderer so callers never have to
+     *          null-check.  Owned by the layer; do not delete.
+     */
+    [[nodiscard]] OpenSWMM::Render::IRasterRenderer *rasterRenderer() const;
+
+    /*!
+     * \brief Replaces the current raster renderer.
+     * \details The layer takes ownership.  Null pointers are silently
+     *          rejected (the method no-ops) so rasterRenderer() never
+     *          returns null.  Emits \ref rasterRendererChanged() when the
+     *          pointer actually changes.
+     */
+    void setRasterRenderer(std::unique_ptr<OpenSWMM::Render::IRasterRenderer> r);
 
     // ----- Pixel query ----------------------------------------------------
 
@@ -162,6 +195,8 @@ signals:
     void renderBandChanged(int band);
     void noDataValueChanged(double value);
     void colorRampChanged(const RasterColorRamp &ramp);
+    /*! \brief Emitted when setRasterRenderer() swaps the renderer pointer. */
+    void rasterRendererChanged();
 
 private:
     void openDataset(const QString &filePath);
@@ -183,6 +218,13 @@ private:
     bool             m_hasNoData  = false;
     RasterColorRamp  m_colorRamp;
 
+    // Float64 warped value cache — same spatial extent as m_cachedTile / m_cacheExtent
+    // but stores raw elevation values (not color-rendered).  Populated by warpToCanvas
+    // for single-band rasters (mutable because warpToCanvas is const).
+    mutable QVector<double>  m_rawValueCache;
+    mutable int              m_rawCacheWidth  = 0;
+    mutable int              m_rawCacheHeight = 0;
+
     GDALDataset     *m_dataset    = nullptr;  /*!< Owned GDAL dataset. */
 
     // Tile cache
@@ -193,6 +235,13 @@ private:
 
     // Persistent scene item (kept visible as placeholder until new warp completes)
     RasterTileItem  *m_sceneItem  = nullptr;
+
+    // Slice BI Phase 8.13.6.7 — raster-renderer plumbing.  Initialised
+    // eagerly in the ctor (default SingleBandPseudoColorRenderer) so
+    // rasterRenderer() never returns null.  warpToCanvas() still reads
+    // m_colorRamp directly; routing through the renderer is deferred to a
+    // later sub-phase.
+    std::unique_ptr<OpenSWMM::Render::IRasterRenderer> m_rasterRenderer;
 };
 
 Q_DECLARE_METATYPE(GISRasterLayer *)

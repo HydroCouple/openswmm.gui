@@ -1,15 +1,10 @@
 /*!
  * \file   crsmanager.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+ * \date   2026
+ * \license GPL-3.0-or-later
+ * \brief  Application-wide singleton for querying the GDAL CRS database and
+ *         managing recently used coordinate reference systems.
  */
 
 #ifndef CRSMANAGER_H

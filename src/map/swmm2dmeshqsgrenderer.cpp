@@ -158,8 +158,8 @@ void SWMM2DMeshQSGRenderer::setMapExtent(const MapExtent &extent)
 {
     if (extent == m_extent) return;
     const bool zoomChanged =
-        !qFuzzyCompare(float(extent.width()),  float(m_extent.width())) ||
-        !qFuzzyCompare(float(extent.height()), float(m_extent.height()));
+        !qFuzzyCompare(extent.width(),  m_extent.width()) ||
+        !qFuzzyCompare(extent.height(), m_extent.height());
     m_extent = extent;
     if (zoomChanged) m_contentDirty = true;
     update();
@@ -197,19 +197,22 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
     const float sx_r    = float(width())  / float(m_extent.width());
     const float invView = (sx_r > 0.0f) ? 1.0f / sx_r : 1.0f;
 
-    // Frustum margins in scene units
-    const float cullMargin = 2.0f * invView;
-    const float cullX0 = float(m_extent.xMin()) - cullMargin;
-    const float cullX1 = float(m_extent.xMax()) + cullMargin;
-    const float cullY0 = float(-m_extent.yMax()) - cullMargin;
-    const float cullY1 = float(-m_extent.yMin()) + cullMargin;
+    // Frustum margins in scene units. Stored as double — projected-CRS
+    // coords (6-7 digit magnitudes) lose ~1 m of precision when
+    // squeezed into a float, causing edge cases where a mesh tile gets
+    // wrongly culled at high zoom.
+    const double cullMargin = double(2.0f * invView);
+    const double cullX0 =  m_extent.xMin() - cullMargin;
+    const double cullX1 =  m_extent.xMax() + cullMargin;
+    const double cullY0 = -m_extent.yMax() - cullMargin;
+    const double cullY1 = -m_extent.yMin() + cullMargin;
 
     // Early-out if mesh bbox entirely outside view
     {
         const QRectF &bb = m_layer->m_sceneBBox;
         if (!bb.isNull() &&
-            (float(bb.right()) < cullX0 || float(bb.left()) > cullX1 ||
-             float(bb.bottom()) < cullY0 || float(bb.top()) > cullY1))
+            (bb.right() < cullX0 || bb.left() > cullX1 ||
+             bb.bottom() < cullY0 || bb.top() > cullY1))
         {
             // Nothing visible — clear GPU geometry to free memory, but keep
             // m_contentDirty=true so a pan-back at the same zoom level still
@@ -269,11 +272,12 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             if (hasElev) {
                 const double invRange = 1.0 / (zMax - zMin);
                 for (const auto &t : tris) {
-                    // Frustum cull at triangle level
-                    const float tMinX = float(std::min({t.a.x(), t.b.x(), t.c.x()}));
-                    const float tMaxX = float(std::max({t.a.x(), t.b.x(), t.c.x()}));
-                    const float tMinY = float(std::min({t.a.y(), t.b.y(), t.c.y()}));
-                    const float tMaxY = float(std::max({t.a.y(), t.b.y(), t.c.y()}));
+                    // Frustum cull at triangle level (double precision —
+                    // float quantises projected-CRS coords ~1 m).
+                    const double tMinX = std::min({t.a.x(), t.b.x(), t.c.x()});
+                    const double tMaxX = std::max({t.a.x(), t.b.x(), t.c.x()});
+                    const double tMinY = std::min({t.a.y(), t.b.y(), t.c.y()});
+                    const double tMaxY = std::max({t.a.y(), t.b.y(), t.c.y()});
                     if (tMaxX < cullX0 || tMinX > cullX1 ||
                         tMaxY < cullY0 || tMinY > cullY1) continue;
 
@@ -308,10 +312,10 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 // No elevation — flat steel blue
                 const quint8 fr=70, fg=130, fb=180;
                 for (const auto &t : tris) {
-                    const float tMinX = float(std::min({t.a.x(), t.b.x(), t.c.x()}));
-                    const float tMaxX = float(std::max({t.a.x(), t.b.x(), t.c.x()}));
-                    const float tMinY = float(std::min({t.a.y(), t.b.y(), t.c.y()}));
-                    const float tMaxY = float(std::max({t.a.y(), t.b.y(), t.c.y()}));
+                    const double tMinX = std::min({t.a.x(), t.b.x(), t.c.x()});
+                    const double tMaxX = std::max({t.a.x(), t.b.x(), t.c.x()});
+                    const double tMinY = std::min({t.a.y(), t.b.y(), t.c.y()});
+                    const double tMaxY = std::max({t.a.y(), t.b.y(), t.c.y()});
                     if (tMaxX < cullX0 || tMinX > cullX1 ||
                         tMaxY < cullY0 || tMinY > cullY1) continue;
                     for (const QPointF *pt : {&t.a, &t.b, &t.c}) {
@@ -334,11 +338,11 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             wideSegs.reserve(edges.size() / 8 * 6);
 
             for (const auto &e : edges) {
-                // Frustum cull per edge
-                const float ex0 = float(qMin(e.line.x1(), e.line.x2()));
-                const float ex1 = float(qMax(e.line.x1(), e.line.x2()));
-                const float ey0 = float(qMin(e.line.y1(), e.line.y2()));
-                const float ey1 = float(qMax(e.line.y1(), e.line.y2()));
+                // Frustum cull per edge (double precision).
+                const double ex0 = qMin(e.line.x1(), e.line.x2());
+                const double ex1 = qMax(e.line.x1(), e.line.x2());
+                const double ey0 = qMin(e.line.y1(), e.line.y2());
+                const double ey1 = qMax(e.line.y1(), e.line.y2());
                 if (ex1 < cullX0 || ex0 > cullX1 ||
                     ey1 < cullY0 || ey0 > cullY1) continue;
 

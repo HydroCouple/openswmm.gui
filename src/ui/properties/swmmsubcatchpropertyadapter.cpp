@@ -66,6 +66,13 @@ G(nPerv,     swmm_subcatch_get_n_perv)
 G(dsImperv,  swmm_subcatch_get_ds_imperv)
 G(dsPerv,    swmm_subcatch_get_ds_perv)
 
+void SWMMSubcatchPropertyAdapter::setName(const QString &newName)
+{
+    const QString trimmed = newName.trimmed();
+    if (trimmed.isEmpty() || trimmed == m_name) return;
+    emit renameRequested(m_name, trimmed);
+}
+
 #define S(method, engineSet)                                        \
 void SWMMSubcatchPropertyAdapter::method(double v) {                \
     const int i = idx();                                            \

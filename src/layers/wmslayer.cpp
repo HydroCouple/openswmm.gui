@@ -284,13 +284,16 @@ void WMSLayer::render(QPainter *painter,
 
     // Pixel position of the cached tile's top-left corner within the target image.
     // Pixel Y origin is at extent.yMax (top of image), increasing downward.
-    double px = (m_cacheExtent.xMin() - extent.xMin()) * sx;
-    double py = (extent.yMax() - m_cacheExtent.yMax()) * sy;
+    const double pxLeft   = (m_cacheExtent.xMin() - extent.xMin()) * sx;
+    const double pyTop    = (extent.yMax() - m_cacheExtent.yMax()) * sy;
+    const double pxRight  = (m_cacheExtent.xMax() - extent.xMin()) * sx;
+    const double pyBottom = (extent.yMax() - m_cacheExtent.yMin()) * sy;
 
-    double tw = m_cacheExtent.width()  * sx;
-    double th = m_cacheExtent.height() * sy;
+    const QRectF dst = snapTileRectToDevicePx(
+        pxLeft, pyTop, pxRight, pyBottom,
+        painterDevicePixelRatio(painter));
 
-    painter->drawImage(QRectF(px, py, tw, th), m_cachedTile);
+    painter->drawImage(dst, m_cachedTile);
 }
 
 void WMSLayer::fetchCache(const MapExtent &canvasExtent,

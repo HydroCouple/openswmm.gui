@@ -220,7 +220,9 @@ void SWMMLayerItem::paint(QPainter *painter,
 
             const QPolygonF poly(cps[i]);
             const bool sel = size_t(i) < catchSel.size() && catchSel[i];
-            if (sel) painter->setBrush(QColor(255, 255, 0, 120));
+            if (sel) painter->setBrush(
+                PreferencesManager::instance()->selectionBrush(
+                    QStringLiteral("subcatchment")));
             painter->drawPolygon(poly);
             if (sel) painter->setBrush(QBrush(sym.fillColor));
         }
@@ -272,23 +274,19 @@ void SWMMLayerItem::paint(QPainter *painter,
     // ---------------------------------------------------------------- Links
     if (!glOn && m_layer->m_showLinks)
     {
-        auto linkColorForType = [this](int linkType) {
+        // Per-link-type pen comes from PreferencesManager so colour,
+        // width, cap, join and dash are all user-tunable from the
+        // Preferences dialog's Rendering page. Outlets (case 4) now
+        // pull their own pen instead of falling back to the conduit
+        // symbol.
+        auto linkPenForType = [](int linkType) {
             auto *prefs = PreferencesManager::instance();
             switch (linkType) {
-            case 1:  return m_layer->m_pumpSym.fillColor;
-            case 2:  return m_layer->m_orificeSym.fillColor;
-            case 3:  return m_layer->m_weirSym.fillColor;
-            case 4:  return prefs->linkColor(QStringLiteral("outlet"));
-            default: return m_layer->m_conduitSym.fillColor;
-            }
-        };
-        auto linkWidthForType = [this](int linkType) {
-            switch (linkType) {
-            case 1:  return m_layer->m_pumpSym.outlineWidth;
-            case 2:  return m_layer->m_orificeSym.outlineWidth;
-            case 3:  return m_layer->m_weirSym.outlineWidth;
-            case 4:  return m_layer->m_conduitSym.outlineWidth;
-            default: return m_layer->m_conduitSym.outlineWidth;
+            case 1:  return prefs->linkPen(QStringLiteral("pump"));
+            case 2:  return prefs->linkPen(QStringLiteral("orifice"));
+            case 3:  return prefs->linkPen(QStringLiteral("weir"));
+            case 4:  return prefs->linkPen(QStringLiteral("outlet"));
+            default: return prefs->linkPen(QStringLiteral("conduit"));
             }
         };
 
@@ -300,7 +298,7 @@ void SWMMLayerItem::paint(QPainter *painter,
         // contiguous std::vector<float> of (x, y) pairs, with per-link
         // (offset, count) parallel arrays. Cache-friendly, and the
         // exact buffer the GL pipeline (Phase B) will hand to a VBO.
-        const float    *flat    = m_layer->m_linkSceneFlat.data();
+        const double   *flat    = m_layer->m_linkSceneFlat.data();
         const uint32_t *offsets = m_layer->m_linkVertexOffset.data();
         const uint32_t *counts  = m_layer->m_linkVertexCount.data();
         const int       nLinks  = m_layer->m_links.size();
@@ -330,7 +328,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                            ? m_layer->m_links[i].linkType : 0;
             const bool sel = size_t(i) < linkSel.size() && linkSel[i];
             auto &target = sel ? selSegsByType[size_t(type)] : segsByType[size_t(type)];
-            const float *p = flat + size_t(off) * 2;
+            const double *p = flat + size_t(off) * 2;
             for (uint32_t j = 1; j < cnt; ++j) {
                 target.emplace_back(QPointF(p[(j - 1) * 2], p[(j - 1) * 2 + 1]),
                                     QPointF(p[ j      * 2], p[ j      * 2 + 1]));
@@ -340,16 +338,26 @@ void SWMMLayerItem::paint(QPainter *painter,
         painter->setBrush(Qt::NoBrush);
         for (int t = 0; t < 5; ++t) {
             if (segsByType[size_t(t)].isEmpty()) continue;
-            QPen pen(linkColorForType(t), linkWidthForType(t));
+            QPen pen = linkPenForType(t);
             pen.setCosmetic(true);
             painter->setPen(pen);
             painter->drawLines(segsByType[size_t(t)]);
         }
 
-        // Selected-link highlight pass — yellow, slightly thicker than base.
+        // Selected-link highlight pass. The selection pen drives colour
+        // and is interpreted ADDITIVELY: its widthF() is added on top
+        // of the per-link-type base pen, so the halo always projects
+        // beyond the base line regardless of the link's own width. The
+        // link's cap/join/style is inherited so the halo tracks the
+        // user's pen choices unless they explicitly override.
+        const QPen selPen = PreferencesManager::instance()->selectionPen(
+            QStringLiteral("link"));
         for (int t = 0; t < 5; ++t) {
             if (selSegsByType[size_t(t)].isEmpty()) continue;
-            QPen hi(Qt::yellow, linkWidthForType(t) + 2.0);
+            QPen hi = linkPenForType(t);
+            hi.setColor(selPen.color());
+            hi.setWidthF(hi.widthF() + selPen.widthF());
+            if (selPen.style() != Qt::SolidLine) hi.setStyle(selPen.style());
             hi.setCosmetic(true);
             painter->setPen(hi);
             painter->drawLines(selSegsByType[size_t(t)]);
@@ -419,12 +427,16 @@ void SWMMLayerItem::paint(QPainter *painter,
                     drawNodeGlyph(painter, c, r, b.nodeType);
             }
 
-            // Selection-highlight pass (yellow fill).
+            // Selection-highlight pass. Pen + brush both come from
+            // PreferencesManager. The outline keeps the symbol's own
+            // colour as a fallback when the user hasn't set a custom
+            // pen colour (selectionPen("node") otherwise wins).
             if (!b.selPts.isEmpty()) {
-                QPen pen(b.sym->outlineColor, b.sym->outlineWidth + 1.0);
+                auto *prefs = PreferencesManager::instance();
+                QPen pen = prefs->selectionPen(QStringLiteral("node"));
                 pen.setCosmetic(true);
                 painter->setPen(pen);
-                painter->setBrush(QBrush(Qt::yellow));
+                painter->setBrush(prefs->selectionBrush(QStringLiteral("node")));
                 for (const QPointF &c : b.selPts)
                     drawNodeGlyph(painter, c, r, b.nodeType);
             }
@@ -470,10 +482,11 @@ void SWMMLayerItem::paint(QPainter *painter,
                 drawNodeGlyph(painter, sp, r, /*diamond*/3);
         }
         if (!selPts.isEmpty()) {
-            QPen pen(sym.outlineColor, sym.outlineWidth + 1.0);
+            auto *prefs = PreferencesManager::instance();
+            QPen pen = prefs->selectionPen(QStringLiteral("gage"));
             pen.setCosmetic(true);
             painter->setPen(pen);
-            painter->setBrush(QBrush(Qt::yellow));
+            painter->setBrush(prefs->selectionBrush(QStringLiteral("gage")));
             for (const QPointF &sp : selPts)
                 drawNodeGlyph(painter, sp, r, /*diamond*/3);
         }
