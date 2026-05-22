@@ -15,6 +15,9 @@
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
 
+#include "render/ifeaturerenderer.h"
+#include "render/renderers/singlesymbolrenderer.h"
+
 #include <QGraphicsScene>
 #include <QGraphicsItem>
 #include <QPainter>
@@ -189,6 +192,12 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult     result,
     setLayerType(OpenSWMMVisLayer::SWMM2DMeshLayer);
     setName(sourcePath.isEmpty() ? QStringLiteral("Mesh") : sourcePath);
 
+    // Slice BI Phase 8.13.6.6 — renderer plumbing.  Default to a
+    // SingleSymbolRenderer so renderer() never returns null.  Paint loop
+    // still uses the hillshade ramp directly; refactor deferred to
+    // 8.13.6.4.
+    m_renderer = std::make_unique<OpenSWMM::Render::SingleSymbolRenderer>();
+
     if (!m_mesh.vertices.isEmpty())
     {
         const auto &v0 = m_mesh.vertices.first();
@@ -209,6 +218,25 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult     result,
 SWMM2DMeshLayer::~SWMM2DMeshLayer()
 {
     OGRCoordinateTransformation::DestroyCT(m_transform);
+}
+
+// ---------------------------------------------------------------------------
+// Renderer (Slice BI Phase 8.13.6.6)
+// ---------------------------------------------------------------------------
+
+OpenSWMM::Render::IFeatureRenderer *SWMM2DMeshLayer::renderer() const
+{
+    return m_renderer.get();
+}
+
+void SWMM2DMeshLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r)
+{
+    if (!r)
+        return;
+    if (r.get() == m_renderer.get())
+        return;
+    m_renderer = std::move(r);
+    emit rendererChanged();
 }
 
 // ---------------------------------------------------------------------------

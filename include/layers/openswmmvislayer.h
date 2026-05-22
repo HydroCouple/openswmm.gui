@@ -1,15 +1,9 @@
 /*!
- * \file   swmmlayer.h
+ * \file   openswmmvislayer.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+ * \date   2026
+ * \license GPL-3.0-or-later
+ * \brief  Abstract base class for all map layers displayed in the MapCanvas.
  */
 #ifndef SWMMLAYER_H
 #define SWMMLAYER_H
@@ -17,10 +11,54 @@
 #include <QByteArray>
 #include <QMap>
 #include <QObject>
+#include <QPaintDevice>
+#include <QPainter>
+#include <QRectF>
 #include <QVector>
 #include <QUuid>
 
+#include <cmath>
+
 #include "map/mapextent.h"
+
+/*!
+ *  \brief  Snap a tile's logical-pixel rect to **device** pixel boundaries.
+ *  \details Adjacent raster tiles that share a logical boundary (e.g.
+ *           tile N's right edge = tile N+1's left edge in source-extent
+ *           math) still produce visible seams under QPainter's
+ *           Source-Over compositing whenever the boundary falls at a
+ *           sub-pixel position: each tile contributes a partial-alpha
+ *           pixel on the shared column and the two contributions don't
+ *           cleanly sum to opaque.
+ *
+ *           Snapping every tile corner to the same integer **device**
+ *           pixel guarantees consecutive tiles share an exact column —
+ *           no partial alpha on the seam, no visible discontinuity.
+ *           We snap in device units (not logical) because the painter
+ *           is in logical coords while the QImage is at full DPR; a
+ *           logical-integer snap still leaves sub-device-pixel
+ *           positions on Retina (DPR=2).
+ *
+ *           Returns logical-coord QRectF (corners at exact device-pixel
+ *           positions) suitable for QPainter::drawImage with a painter
+ *           in logical coordinates.
+ */
+inline QRectF snapTileRectToDevicePx(double pxLeft,  double pyTop,
+                                     double pxRight, double pyBottom,
+                                     qreal dpr)
+{
+    if (dpr <= 0.0) dpr = 1.0;
+    const double l = std::round(pxLeft   * dpr) / dpr;
+    const double t = std::round(pyTop    * dpr) / dpr;
+    const double r = std::round(pxRight  * dpr) / dpr;
+    const double b = std::round(pyBottom * dpr) / dpr;
+    return QRectF(l, t, r - l, b - t);
+}
+
+inline qreal painterDevicePixelRatio(const QPainter *p)
+{
+    return (p && p->device()) ? p->device()->devicePixelRatioF() : 1.0;
+}
 
 // Forward-declare to avoid pulling the full basemapconnection.h into every
 // translation unit that includes this header.
@@ -76,6 +114,7 @@ public:
         SWMMWMSLayer              = 10, /*!< OGC WMS service. */
         SWMMWMTSLayer             = 11, /*!< OGC WMTS service. */
         SWMM2DMeshLayer           = 12, /*!< Generated / loaded 2D triangular mesh (Slice AU). */
+        SWMM2DResultsLayer        = 13, /*!< 2D surface routing results (depth heatmap) — Slice CF.MVP. */
     };
 
     // ----- Constructors ----------------------------------------------------

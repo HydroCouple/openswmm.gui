@@ -86,6 +86,61 @@ SWMMObjectRef::ObjectType refTypeForCategory(SWMMModelLayer::Category c)
     }
 }
 
+// ── Slice BM.0 — DataCategory metadata ──────────────────────────────────────
+
+const char *dataCategoryLabel(SWMMModelLayer::DataCategory c)
+{
+    using L = SWMMModelLayer;
+    switch (c) {
+    case L::DataCurves:      return QT_TRANSLATE_NOOP("ObjectBrowser", "Curves");
+    case L::DataTimeSeries:  return QT_TRANSLATE_NOOP("ObjectBrowser", "Time Series");
+    case L::DataPatterns:    return QT_TRANSLATE_NOOP("ObjectBrowser", "Time Patterns");
+    case L::DataLIDControls: return QT_TRANSLATE_NOOP("ObjectBrowser", "LID Controls");
+    case L::DataPollutants:  return QT_TRANSLATE_NOOP("ObjectBrowser", "Pollutants");
+    case L::DataLandUses:    return QT_TRANSLATE_NOOP("ObjectBrowser", "Land Uses");
+    case L::DataAquifers:    return QT_TRANSLATE_NOOP("ObjectBrowser", "Aquifers");
+    case L::DataSnowpacks:   return QT_TRANSLATE_NOOP("ObjectBrowser", "Snowpacks");
+    case L::DataControls:    return QT_TRANSLATE_NOOP("ObjectBrowser", "Control Rules");
+    case L::DataTransects:   return QT_TRANSLATE_NOOP("ObjectBrowser", "Transects");
+    case L::DataHydrographs: return QT_TRANSLATE_NOOP("ObjectBrowser", "Unit Hydrographs");
+    case L::DataStreets:     return QT_TRANSLATE_NOOP("ObjectBrowser", "Streets");
+    case L::DataInlets:      return QT_TRANSLATE_NOOP("ObjectBrowser", "Inlets");
+    default:                 return "";
+    }
+}
+
+/*! Reusable layers icon for data categories — the project's icon set
+ *  doesn't yet ship per-data-type glyphs (deferred to a styling pass).
+ *  Using :/swmmvis/Layers keeps the look consistent with the existing
+ *  default-category icon fall-through. */
+QIcon iconForDataCategory(SWMMModelLayer::DataCategory /*c*/)
+{
+    return QIcon(QStringLiteral(":/swmmvis/Layers"));
+}
+
+/*! Map a DataCategory to its selection-bus object-type. */
+SWMMObjectRef::ObjectType refTypeForDataCategory(SWMMModelLayer::DataCategory c)
+{
+    using L = SWMMModelLayer;
+    using R = SWMMObjectRef;
+    switch (c) {
+    case L::DataCurves:      return R::Curve;
+    case L::DataTimeSeries:  return R::TimeSeries;
+    case L::DataPatterns:    return R::TimePattern;
+    case L::DataLIDControls: return R::LIDControl;
+    case L::DataPollutants:  return R::Pollutant;
+    case L::DataLandUses:    return R::LandUse;
+    case L::DataAquifers:    return R::Aquifer;
+    case L::DataSnowpacks:   return R::Snowpack;
+    case L::DataControls:    return R::Control;
+    case L::DataTransects:   return R::Transect;
+    case L::DataHydrographs: return R::Hydrograph;
+    case L::DataStreets:     return R::Street;
+    case L::DataInlets:      return R::Inlet;
+    default:                 return R::Unknown;
+    }
+}
+
 } // anonymous
 
 // ---------------------------------------------------------------------------
@@ -134,6 +189,7 @@ void SWMMObjectTreeModel::reload()
 {
     beginResetModel();
     m_visible.clear();
+    m_visibleData.clear();
     if (m_layer) {
         // Walk the layer's user-configurable category order (Slice T.2)
         // instead of the hard-coded enum sequence; empty categories
@@ -143,6 +199,14 @@ void SWMMObjectTreeModel::reload()
         for (auto cat : order) {
             if (m_layer->categoryCount(cat) > 0)
                 m_visible.append(cat);
+        }
+        // Slice BM.0 — data-objects section. Always show every data
+        // category with count > 0; ordering matches the enum (no
+        // user-reorder yet — deferred to a future Slice AY.4 if asked).
+        for (int i = 0; i < int(SWMMModelLayer::NumDataCategories); ++i) {
+            const auto dc = static_cast<SWMMModelLayer::DataCategory>(i);
+            if (m_layer->dataObjectCount(dc) > 0)
+                m_visibleData.append(dc);
         }
     }
     endResetModel();
@@ -159,6 +223,40 @@ SWMMObjectTreeModel::categoryAtTopRow(int topRow) const
 int SWMMObjectTreeModel::topRowForCategory(SWMMModelLayer::Category c) const
 {
     return m_visible.indexOf(c);
+}
+
+// ── Slice BM.0 — section + data-category lookups ────────────────────────────
+
+SWMMObjectTreeModel::Section
+SWMMObjectTreeModel::sectionAtTopRow(int topRow) const
+{
+    if (topRow < 0) return SectionNetwork;
+    if (topRow < m_visible.size()) return SectionNetwork;
+    const bool hasBoth = !m_visible.isEmpty() && !m_visibleData.isEmpty();
+    const int  divIdx  = m_visible.size();           // row index of divider when both sections
+    if (hasBoth && topRow == divIdx) return SectionDivider;
+    return SectionData;
+}
+
+SWMMModelLayer::DataCategory
+SWMMObjectTreeModel::dataCategoryAtTopRow(int topRow) const
+{
+    if (sectionAtTopRow(topRow) != SectionData)
+        return SWMMModelLayer::NumDataCategories;
+    const bool hasBoth = !m_visible.isEmpty() && !m_visibleData.isEmpty();
+    const int  offset  = m_visible.size() + (hasBoth ? 1 : 0);
+    const int  rowInData = topRow - offset;
+    if (rowInData < 0 || rowInData >= m_visibleData.size())
+        return SWMMModelLayer::NumDataCategories;
+    return m_visibleData[rowInData];
+}
+
+int SWMMObjectTreeModel::topRowForDataCategory(SWMMModelLayer::DataCategory c) const
+{
+    const int rowInData = m_visibleData.indexOf(c);
+    if (rowInData < 0) return -1;
+    const bool hasBoth = !m_visible.isEmpty() && !m_visibleData.isEmpty();
+    return m_visible.size() + (hasBoth ? 1 : 0) + rowInData;
 }
 
 QModelIndex
@@ -189,29 +287,48 @@ QModelIndex
 SWMMObjectTreeModel::index(int row, int column, const QModelIndex &parent) const
 {
     if (!hasIndex(row, column, parent)) return {};
-    if (!parent.isValid())
-        return createIndex(row, column, kCategoryId);           // category row
-    if (parent.internalId() == kCategoryId)
+    if (!parent.isValid()) {
+        // Top-level row — tag by section.
+        const auto sec = sectionAtTopRow(row);
+        switch (sec) {
+        case SectionNetwork:  return createIndex(row, column, kCategoryId);
+        case SectionData:     return createIndex(row, column, kDataCategoryId);
+        case SectionDivider:  return createIndex(row, column, kSeparatorId);
+        }
+        return {};
+    }
+    if (parent.internalId() == kCategoryId ||
+        parent.internalId() == kDataCategoryId)
         return createIndex(row, column, quintptr(parent.row())); // leaf row
     return {};
 }
 
 QModelIndex SWMMObjectTreeModel::parent(const QModelIndex &child) const
 {
-    if (!child.isValid() || child.internalId() == kCategoryId)
+    if (!child.isValid()) return {};
+    const auto id = child.internalId();
+    if (id == kCategoryId || id == kDataCategoryId || id == kSeparatorId)
         return {};
-    // Leaf → its parent category, whose row is stored in the child's
-    // internalId (we set it in index(...) above).
-    return createIndex(int(child.internalId()), 0, kCategoryId);
+    // Leaf — child.internalId() holds the parent top-level row. Re-derive
+    // the section tag so the round-trip stays consistent with index().
+    const int topRow = int(id);
+    const auto sec   = sectionAtTopRow(topRow);
+    const quintptr parentId = (sec == SectionData) ? kDataCategoryId : kCategoryId;
+    return createIndex(topRow, 0, parentId);
 }
 
 int SWMMObjectTreeModel::rowCount(const QModelIndex &parent) const
 {
     if (!m_layer) return 0;
-    if (!parent.isValid())
-        return m_visible.size();
+    if (!parent.isValid()) {
+        // Top-level rows: spatial categories + optional divider + data categories.
+        const bool hasBoth = !m_visible.isEmpty() && !m_visibleData.isEmpty();
+        return m_visible.size() + (hasBoth ? 1 : 0) + m_visibleData.size();
+    }
     if (parent.internalId() == kCategoryId)
         return m_layer->categoryCount(categoryAtTopRow(parent.row()));
+    if (parent.internalId() == kDataCategoryId)
+        return m_layer->dataObjectCount(dataCategoryAtTopRow(parent.row()));
     return 0;
 }
 
@@ -224,54 +341,108 @@ QVariant SWMMObjectTreeModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid() || !m_layer) return {};
 
-    const bool isLeaf = index.internalId() != kCategoryId;
+    const auto id = index.internalId();
+    const bool isCategoryRow     = (id == kCategoryId);
+    const bool isDataCategoryRow = (id == kDataCategoryId);
+    const bool isDividerRow      = (id == kSeparatorId);
+    const bool isLeaf = !isCategoryRow && !isDataCategoryRow && !isDividerRow;
 
-    if (role == RoleIsLeaf)   return isLeaf;
+    if (role == RoleIsLeaf) return isLeaf;
 
-    // ── Category row ─────────────────────────────────────────────────────
-    if (!isLeaf) {
+    // ── Section divider row ──────────────────────────────────────────────
+    if (isDividerRow) {
+        switch (role) {
+        case Qt::DisplayRole: return tr("Data Objects");
+        case Qt::FontRole:    { QFont f; f.setBold(true); f.setItalic(true); return f; }
+        case RoleSection:     return int(SectionDivider);
+        default:              return {};
+        }
+    }
+
+    // ── Spatial category row ─────────────────────────────────────────────
+    if (isCategoryRow) {
         const auto cat = categoryAtTopRow(index.row());
         if (cat == SWMMModelLayer::NumCategories) return {};
         const int count = m_layer->categoryCount(cat);
         switch (role) {
         case Qt::DisplayRole:
             return QStringLiteral("%1 (%2)")
-                   .arg(tr(categoryLabel(cat)))
-                   .arg(count);
+                   .arg(tr(categoryLabel(cat))).arg(count);
         case Qt::DecorationRole:
             return iconForCategory(cat);
         case Qt::CheckStateRole:
             return QVariant::fromValue(int(m_layer->categoryCheckState(cat)));
         case Qt::FontRole: { QFont f; f.setBold(true); return f; }
+        case RoleSection:  return int(SectionNetwork);
         case RoleCategory: return int(cat);
         default:           return {};
         }
     }
 
-    // ── Leaf row ─────────────────────────────────────────────────────────
-    const auto cat = categoryAtTopRow(int(index.internalId()));
-    if (cat == SWMMModelLayer::NumCategories) return {};
-    const int row = index.row();
-    if (row < 0 || row >= m_layer->categoryCount(cat)) return {};
-    const QString name = m_layer->objectNameAt(cat, row);
-
-    switch (role) {
-    case Qt::DisplayRole:
-        return name;
-    case Qt::DecorationRole:
-        return iconForObjectType(refTypeForCategory(cat));
-    case Qt::CheckStateRole:
-        return QVariant::fromValue(int(m_layer->isObjectVisible(name)
-                                            ? Qt::Checked : Qt::Unchecked));
-    case RoleCategory:
-        return int(cat);
-    case RoleRow:
-        return row;
-    case RoleObjectRef:
-        return QVariant::fromValue(SWMMObjectRef{refTypeForCategory(cat), name});
-    default:
-        return {};
+    // ── Data-objects category row (Slice BM.0) ───────────────────────────
+    if (isDataCategoryRow) {
+        const auto dc = dataCategoryAtTopRow(index.row());
+        if (dc == SWMMModelLayer::NumDataCategories) return {};
+        const int count = m_layer->dataObjectCount(dc);
+        switch (role) {
+        case Qt::DisplayRole:
+            return QStringLiteral("%1 (%2)")
+                   .arg(tr(dataCategoryLabel(dc))).arg(count);
+        case Qt::DecorationRole:
+            return iconForDataCategory(dc);
+        case Qt::FontRole: { QFont f; f.setBold(true); return f; }
+        case RoleSection:        return int(SectionData);
+        case RoleDataCategory:   return int(dc);
+        default:                 return {};
+        }
     }
+
+    // ── Leaf row ─────────────────────────────────────────────────────────
+    const int topRow = int(id);
+    const auto sec   = sectionAtTopRow(topRow);
+
+    if (sec == SectionNetwork) {
+        const auto cat = categoryAtTopRow(topRow);
+        if (cat == SWMMModelLayer::NumCategories) return {};
+        const int row = index.row();
+        if (row < 0 || row >= m_layer->categoryCount(cat)) return {};
+        const QString name = m_layer->objectNameAt(cat, row);
+        switch (role) {
+        case Qt::DisplayRole: return name;
+        case Qt::DecorationRole:
+            return iconForObjectType(refTypeForCategory(cat));
+        case Qt::CheckStateRole:
+            return QVariant::fromValue(int(m_layer->isObjectVisible(name)
+                                                ? Qt::Checked : Qt::Unchecked));
+        case RoleSection:  return int(SectionNetwork);
+        case RoleCategory: return int(cat);
+        case RoleRow:      return row;
+        case RoleObjectRef:
+            return QVariant::fromValue(SWMMObjectRef{refTypeForCategory(cat), name});
+        default:           return {};
+        }
+    }
+
+    if (sec == SectionData) {
+        const auto dc = dataCategoryAtTopRow(topRow);
+        if (dc == SWMMModelLayer::NumDataCategories) return {};
+        const int row = index.row();
+        if (row < 0 || row >= m_layer->dataObjectCount(dc)) return {};
+        const QString name = m_layer->dataObjectNameAt(dc, row);
+        switch (role) {
+        case Qt::DisplayRole:    return name;
+        case Qt::DecorationRole: return iconForDataCategory(dc);
+        case RoleSection:        return int(SectionData);
+        case RoleDataCategory:   return int(dc);
+        case RoleRow:            return row;
+        case RoleObjectRef:
+            return QVariant::fromValue(
+                SWMMObjectRef{refTypeForDataCategory(dc), name});
+        default:                 return {};
+        }
+    }
+
+    return {};
 }
 
 bool SWMMObjectTreeModel::setData(const QModelIndex &index,
@@ -280,8 +451,18 @@ bool SWMMObjectTreeModel::setData(const QModelIndex &index,
     if (!index.isValid() || !m_layer || role != Qt::CheckStateRole)
         return false;
 
+    const auto id = index.internalId();
+    // Slice BM.0 — data-section rows do not carry a visibility check; the
+    // map canvas only paints spatial objects, so toggling here would be a
+    // no-op. Block the write rather than silently no-op so the view's
+    // check state doesn't drift from the model.
+    if (id == kDataCategoryId || id == kSeparatorId) return false;
+    const bool isLeafInDataSection = (id < kSeparatorId) &&
+        (sectionAtTopRow(int(id)) == SectionData);
+    if (isLeafInDataSection) return false;
+
     const bool checked = value.toInt() == Qt::Checked;
-    const bool isLeaf  = index.internalId() != kCategoryId;
+    const bool isLeaf  = (id != kCategoryId);
 
     if (!isLeaf) {
         // Category header → bulk toggle. One signal emission covers the
@@ -301,7 +482,7 @@ bool SWMMObjectTreeModel::setData(const QModelIndex &index,
 
     // Leaf toggle — update the leaf and its parent category (tri-state
     // check display) in two dataChanged emissions.
-    const auto cat = categoryAtTopRow(int(index.internalId()));
+    const auto cat = categoryAtTopRow(int(id));
     if (cat == SWMMModelLayer::NumCategories) return false;
     const int row = index.row();
     m_layer->setObjectVisibleAt(cat, row, checked);
@@ -319,19 +500,41 @@ Qt::ItemFlags SWMMObjectTreeModel::flags(const QModelIndex &index) const
         // "append here"; enable drops for category reordering.
         return Qt::ItemIsDropEnabled;
 
-    const bool isLeaf = index.internalId() != kCategoryId;
-    if (isLeaf)
-        // Leaves — selectable + checkable + DRAGGABLE (Slice T.3 lets
-        // users reorder within a category). Drops on a leaf fall
-        // through to the parent category's child range.
+    const auto id = index.internalId();
+
+    // Slice BM.0 — separator row: visible but inert (no selection, no
+    // checkbox, no drag/drop). Qt::NoItemFlags renders as a disabled,
+    // non-selectable label — exactly what we want for the divider.
+    if (id == kSeparatorId)
+        return Qt::NoItemFlags;
+
+    // Slice BM.0 — data-objects category header: enabled, selectable
+    // (for right-click "Add New …" / "Sort A→Z" context-menu), but NOT
+    // draggable / drop-target / checkable. The Slice T.2 drag-drop
+    // reorder contract is reserved for spatial categories.
+    if (id == kDataCategoryId)
+        return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+
+    const bool isLeaf = (id != kCategoryId);
+    if (isLeaf) {
+        // Discriminate spatial-section vs data-section leaves.
+        if (sectionAtTopRow(int(id)) == SectionData) {
+            // Data-object leaf — selectable + draggable later but not
+            // visibility-checkable (no map paint to toggle).
+            return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+        }
+        // Spatial leaf — selectable + checkable + DRAGGABLE
+        // (Slice T.3 lets users reorder within a category). Drops on
+        // a leaf fall through to the parent category's child range.
         return Qt::ItemIsEnabled
              | Qt::ItemIsSelectable
              | Qt::ItemIsUserCheckable
              | Qt::ItemIsDragEnabled;
+    }
 
-    // Category rows — draggable (Slice T.2) and drop-enabled as both
-    // sibling drop targets (category reorder) and child-range drop
-    // targets (object reorder within the category).
+    // Spatial category rows — draggable (Slice T.2) and drop-enabled
+    // as both sibling drop targets (category reorder) and child-range
+    // drop targets (object reorder within the category).
     return Qt::ItemIsEnabled
          | Qt::ItemIsUserCheckable
          | Qt::ItemIsDragEnabled

@@ -20,6 +20,7 @@
 #include <QTimer>
 #include <QTransform>
 #include <QWidget>
+#include <optional>
 
 class OpenSWMMVisScene;
 class OpenSWMMVisGraphicsView;
@@ -103,6 +104,23 @@ public:
 
     [[nodiscard]] double scale() const;
 
+    /*! \brief Current scale as a 1:N denominator, DPI-aware and CRS-aware.
+     *
+     *  Uses the actual screen DPI (logicalDotsPerInchX) so the readout is
+     *  accurate on Retina / HiDPI displays, where the previous hardcoded
+     *  96 DPI assumption was off by ~2×.  Falls back to 96 DPI when no
+     *  screen is attached (e.g. during construction). */
+    [[nodiscard]] double scaleDenominator() const;
+
+    /*! \brief Zoom the view to exactly the given 1:N scale, preserving the
+     *         current centre point and canvas aspect ratio.  CRS-aware: the
+     *         physical metres-per-pixel implied by \p denom is converted
+     *         back to map units using the canvas SRS (cosine-latitude for
+     *         geographic, linearUnitsToMetres for projected).
+     *
+     *  \note Triggers extentChanged() and scaleChanged() via setExtent(). */
+    void setScaleDenominator(double denom);
+
     // ----- Interactive navigation (used by map tools) --------------------
 
     /*! \brief Smooth-pan the view by (dx, dy) screen pixels without updating
@@ -166,6 +184,23 @@ public:
 
     [[nodiscard]] bool showCoordinates() const;
     void setShowCoordinates(bool show);
+
+    /*!
+     * \brief Sets the terrain elevation to display alongside X/Y in the
+     *        coordinate overlay.  Pass an empty optional to hide the Z field.
+     *        The value is in model vertical units (not converted here).
+     */
+    void setTerrainElevation(const std::optional<double> &z);
+
+    /*! Sets the vertical unit label shown alongside the terrain Z value ("ft" or "m"). */
+    void setTerrainUnit(const QString &unit);
+
+    /*! Returns the most-recently-sampled terrain elevation, or an empty
+     *  optional when no terrain is active or the cursor is out of extent. */
+    [[nodiscard]] std::optional<double> terrainZ() const { return m_terrainZ; }
+
+    /*! Returns the vertical unit label currently assigned to the terrain Z display. */
+    [[nodiscard]] QString terrainUnit() const { return m_terrainUnit; }
 
     [[nodiscard]] QColor backgroundColor() const;
     void setBackgroundColor(const QColor &color);
@@ -292,6 +327,7 @@ private:
     // Decorations (painted in widget coordinates)
     void renderScaleBar(QPainter &painter) const;
     void renderCoordinates(QPainter &painter, double mapX, double mapY) const;
+    void renderTerrainLabel(QPainter &painter) const;
 
     // Returns ground distance (metres) represented by one horizontal screen pixel
     // at the centre of the current view.  CRS-aware: uses the cosine-latitude
@@ -315,6 +351,8 @@ private:
     // ----- Decorations ----------------------------------------------------
     bool                    m_showScaleBar   = true;
     bool                    m_showCoords     = false;
+    std::optional<double>   m_terrainZ;           // set by TerrainToolbar sampling
+    QString                 m_terrainUnit;        // "ft" or "m" from UnitSystem
     QColor                  m_bgColor        = Qt::white;
     ScaleBarSettings       *m_scaleBarSettings = nullptr;
 
@@ -350,6 +388,8 @@ private:
     MapExtent               m_panStartExtent;
     double                  m_lastMouseMapX  = 0.0;
     double                  m_lastMouseMapY  = 0.0;
+    int                     m_lastMousePxX   = 0;
+    int                     m_lastMousePxY   = 0;
 
     // ----- Middle-mouse global pan ----------------------------------------
     bool                    m_middlePanActive = false;

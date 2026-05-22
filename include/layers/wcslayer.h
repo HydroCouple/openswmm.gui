@@ -146,7 +146,7 @@ public:
     // ----- OpenSWMMVisLayer interface ----------------------------------------
 
     [[nodiscard]] bool isRasterLayer()  const override { return true; }
-    [[nodiscard]] bool isBasemapLayer() const override { return true; }
+    [[nodiscard]] bool isBasemapLayer() const override { return false; }
 
     void fetchCache(const MapExtent &extent,
                     const QSize     &viewportSize,
@@ -216,7 +216,7 @@ private:
     bool                         m_capsReady    = false;
 
     QString                      m_coverageId;
-    QString                      m_outputCrs    = QStringLiteral("EPSG:4326");
+    QString                      m_outputCrs;   // empty = use canvas CRS (like WMS)
     QString                      m_outputFormat = QStringLiteral("image/tiff");
     QString                      m_rangeSubset;
     QString                      m_interpolation = QStringLiteral("nearest");

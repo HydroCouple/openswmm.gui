@@ -98,6 +98,16 @@ SWMMNodePropertyAdapter::DividerType SWMMNodePropertyAdapter::dividerType() cons
     return static_cast<DividerType>(t);
 }
 
+void SWMMNodePropertyAdapter::setName(const QString &newName)
+{
+    const QString trimmed = newName.trimmed();
+    if (trimmed.isEmpty() || trimmed == m_name) return;
+    // The attribute panel listens and calls SWMMModelLayer::applyRename() which
+    // does the engine rename + cache rebuild. We emit the old name so the
+    // panel can locate and update the adapter's m_name on success.
+    emit renameRequested(m_name, trimmed);
+}
+
 void SWMMNodePropertyAdapter::setOutfallType(OutfallType v)
 {
     const int idx = nodeIdx();

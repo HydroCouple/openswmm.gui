@@ -31,6 +31,7 @@ jobs:
             vcpkg_triplet: x64-linux
             shell_ext: .sh
             qt_arch: linux_gcc_64
+            appimage_arch: x86_64
 
           - os: macos-latest
             cmake_preset: Darwin
@@ -97,6 +98,50 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ninja
 
+      # NSIS must be available before cmake --preset so CPack can verify the
+      # makensis.exe generator at configure time (include(CPack) checks for it).
+      - name: Install NSIS (Windows)
+        if: runner.os == 'Windows'
+        run: choco install nsis --no-progress -y
+
+      # Extract version string for AppImage naming (uses $VERSION env var).
+      # Anchors on leading whitespace to skip cmake_minimum_required(VERSION ...).
+      # Uses grep + sed rather than grep -oP so it works on macOS's BSD grep too.
+      - name: Set version env var
+        run: |
+          VERSION=$(grep -m1 '^\s*VERSION [0-9]' CMakeLists.txt | sed 's/[[:space:]]*VERSION[[:space:]]*\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/')
+          SUFFIX=$(sed -n 's/.*set(PROJECT_VERSION_SUFFIX[[:space:]]*"\([^"]*\)").*/\1/p' CMakeLists.txt | head -1)
+          echo "SWMMVIS_VERSION=${VERSION}${SUFFIX}" >> $GITHUB_ENV
+        shell: bash
+
+      # ── macOS code-signing (commented out — configure secrets to enable) ────
+      # To enable: set the following repository secrets:
+      #   MACOS_DEVELOPER_ID_CERT_BASE64   — base64-encoded .p12 Developer ID Application cert
+      #   MACOS_DEVELOPER_ID_CERT_PASSWORD — password for the .p12
+      # Then uncomment the step below and the CODESIGN_IDENTITY injection in Configure.
+      #
+      # - name: Import macOS Developer ID certificate
+      #   if: runner.os == 'macOS' && env.MACOS_DEVELOPER_ID_CERT_BASE64 != ''
+      #   env:
+      #     MACOS_DEVELOPER_ID_CERT_BASE64:   ${{ secrets.MACOS_DEVELOPER_ID_CERT_BASE64 }}
+      #     MACOS_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_CERT_PASSWORD }}
+      #   run: |
+      #     CERT_PATH=$RUNNER_TEMP/swmmvis_devid.p12
+      #     KEYCHAIN_PATH=$RUNNER_TEMP/swmmvis.keychain-db
+      #     KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+      #     echo "$MACOS_DEVELOPER_ID_CERT_BASE64" | base64 --decode > "$CERT_PATH"
+      #     security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+      #     security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+      #     security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+      #     security import "$CERT_PATH" -P "$MACOS_DEVELOPER_ID_CERT_PASSWORD" \
+      #         -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+      #     security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+      #     security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+      #     CODESIGN_IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | \
+      #         grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+      #     echo "CODESIGN_IDENTITY=$CODESIGN_IDENTITY" >> "$GITHUB_ENV"
+      #     rm -f "$CERT_PATH"
+
       # Qt is not in vcpkg.json — install via aqtinstall.
       # qtsvg is bundled in the Qt 6 base installation and is NOT an installable
       # add-on module on Linux (aqt will error if listed). Only qtcharts needs to
@@ -111,7 +156,16 @@ jobs:
 
       # ── Build ────────────────────────────────────────────────────────────────
       - name: Configure
-        run: cmake --preset=${{ matrix.cmake_preset }} -DSWMMVIS_BUILD_TESTS=ON
+        run: |
+          EXTRA=""
+          # Inject real signing identity when macOS cert import step is enabled.
+          # Without the cert import step, CODESIGN_IDENTITY is empty and CMake
+          # defaults to ad-hoc ("-") signing for local/CI unsigned builds.
+          if [ -n "$CODESIGN_IDENTITY" ]; then
+            EXTRA="-DCODESIGN_IDENTITY=$CODESIGN_IDENTITY"
+          fi
+          cmake --preset=${{ matrix.cmake_preset }} -DSWMMVIS_BUILD_TESTS=ON $EXTRA
+        shell: bash
 
       - name: Build and Package
         run: cmake --build --preset=${{ matrix.cmake_preset }}
@@ -132,7 +186,107 @@ jobs:
       - name: Package
         run: cpack --config build/${{ matrix.build_subdir }}/CPackConfig.cmake -B ${{ github.workspace }}/packages
 
+      # ── Windows Authenticode signing (commented out — configure secrets to enable) ──
+      # To enable: set the following repository secrets:
+      #   WINDOWS_CODESIGN_CERT_PFX_BASE64 — base64-encoded .pfx Authenticode cert
+      #   WINDOWS_CODESIGN_CERT_PASSWORD   — password for the .pfx
+      # Then uncomment the step below.
+      #
+      # - name: Sign Windows installer (Authenticode)
+      #   if: runner.os == 'Windows' && env.WINDOWS_CODESIGN_CERT_PFX_BASE64 != ''
+      #   env:
+      #     WINDOWS_CODESIGN_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CODESIGN_CERT_PFX_BASE64 }}
+      #     WINDOWS_CODESIGN_CERT_PASSWORD:   ${{ secrets.WINDOWS_CODESIGN_CERT_PASSWORD }}
+      #   run: |
+      #     $certBytes = [Convert]::FromBase64String($env:WINDOWS_CODESIGN_CERT_PFX_BASE64)
+      #     $certPath  = Join-Path $env:RUNNER_TEMP "swmmvis_codesign.pfx"
+      #     [IO.File]::WriteAllBytes($certPath, $certBytes)
+      #     Get-ChildItem "${{ github.workspace }}\packages\*.exe" | ForEach-Object {
+      #       & signtool sign /fd sha256 /tr http://timestamp.digicert.com /td sha256 `
+      #           /f $certPath /p $env:WINDOWS_CODESIGN_CERT_PASSWORD $_.FullName
+      #     }
+      #     Remove-Item $certPath -Force
+      #   shell: pwsh
+
+      # ── macOS notarization (commented out — configure secrets to enable) ────
+      # To enable: set the following repository secrets:
+      #   MACOS_NOTARYTOOL_APPLE_ID              — Apple ID email
+      #   MACOS_NOTARYTOOL_TEAM_ID               — 10-char Apple Developer Team ID
+      #   MACOS_NOTARYTOOL_APP_SPECIFIC_PASSWORD — app-specific password from appleid.apple.com
+      # Also enable the cert import step above. Then uncomment the step below.
+      # NOTE: Staple must complete before the artifact upload step.
+      #
+      # - name: Notarize and staple macOS DMG
+      #   if: runner.os == 'macOS' && env.MACOS_NOTARYTOOL_APPLE_ID != ''
+      #   env:
+      #     MACOS_NOTARYTOOL_APPLE_ID:              ${{ secrets.MACOS_NOTARYTOOL_APPLE_ID }}
+      #     MACOS_NOTARYTOOL_TEAM_ID:               ${{ secrets.MACOS_NOTARYTOOL_TEAM_ID }}
+      #     MACOS_NOTARYTOOL_APP_SPECIFIC_PASSWORD: ${{ secrets.MACOS_NOTARYTOOL_APP_SPECIFIC_PASSWORD }}
+      #   run: |
+      #     DMG=$(find ${{ github.workspace }}/packages -name "*.dmg" | head -1)
+      #     xcrun notarytool submit "$DMG" \
+      #         --apple-id "$MACOS_NOTARYTOOL_APPLE_ID" \
+      #         --team-id  "$MACOS_NOTARYTOOL_TEAM_ID" \
+      #         --password "$MACOS_NOTARYTOOL_APP_SPECIFIC_PASSWORD" \
+      #         --wait --output-format plist > notarization_result.plist
+      #     STATUS=$(plutil -extract status raw notarization_result.plist)
+      #     [ "$STATUS" = "Accepted" ] || { cat notarization_result.plist; exit 1; }
+      #     xcrun stapler staple "$DMG"
+
+      # ── macOS keychain cleanup (commented out — uncomment with cert import step) ──
+      # - name: Cleanup macOS keychain
+      #   if: always() && runner.os == 'macOS'
+      #   run: security delete-keychain $RUNNER_TEMP/swmmvis.keychain-db 2>/dev/null || true
+
+      # ── Linux: AppImage via linuxdeploy ────────────────────────────────────
+      # Produces SWMMVis-<version>-x86_64.AppImage alongside the TGZ in packages/.
+      # APPIMAGE_EXTRACT_AND_RUN bypasses the FUSE 2 requirement absent on ubuntu-latest 22.04+.
+      # LD_LIBRARY_PATH exposes vcpkg .so files so ldd finds them during AppDir assembly.
+      # GDAL/PROJ share data (bin/gdal, bin/proj) is included automatically via the
+      # install tree copy (cp -r dist/linux/* AppDir/usr/).
+      - name: Build AppImage (Linux)
+        if: runner.os == 'Linux'
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          VERSION: ${{ env.SWMMVIS_VERSION }}
+        run: |
+          wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          wget -q "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage"
+          chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-qt-x86_64.AppImage
+
+          mkdir -p AppDir/usr
+          cp -r ${{ github.workspace }}/dist/${{ matrix.build_subdir }}/* AppDir/usr/
+
+          export LD_LIBRARY_PATH=${{ github.workspace }}/AppDir/usr/lib:${LD_LIBRARY_PATH}
+          export QMAKE=$QT_ROOT_DIR/bin/qmake
+
+          ./linuxdeploy-x86_64.AppImage \
+              --appdir AppDir \
+              --executable AppDir/usr/bin/SWMMVis \
+              --desktop-file packaging/linux/org.openswmm.swmmvis.desktop \
+              --icon-file resources/swmmvis.png \
+              --plugin qt \
+              --output appimage
+
+          mkdir -p packages
+          mv SWMMVis-*.AppImage packages/
+
+      # ── Linux: GPG-sign AppImage (commented out — configure secrets to enable) ──
+      # To enable: set the GPG_PRIVATE_KEY repository secret (ASCII-armored private key).
+      # Then uncomment the step below.
+      #
+      # - name: GPG-sign AppImage (Linux)
+      #   if: runner.os == 'Linux' && env.GPG_PRIVATE_KEY != ''
+      #   env:
+      #     GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      #   run: |
+      #     echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+      #     APPIMAGE=$(find packages -name "*.AppImage" | head -1)
+      #     gpg --batch --yes --detach-sign --armor "$APPIMAGE"
+      #     mv "${APPIMAGE}.asc" packages/
+
       # ── Artifacts ────────────────────────────────────────────────────────
+      # packages/ contains: .exe (Windows), .dmg (macOS), .tar.gz + .AppImage (Linux)
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4

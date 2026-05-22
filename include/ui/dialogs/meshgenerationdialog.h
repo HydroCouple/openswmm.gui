@@ -102,6 +102,12 @@ public:
         bool                    doThinning = false;
         mesh::DTMThinnerOptions thinnerOpts;
 
+        // Vertical unit conversion: multiply all DTM-sampled Z values by this
+        // factor before writing to the mesh.  Accounts for DTM being in a
+        // different vertical unit than the SWMM model.
+        // e.g., DTM in metres + SWMM in feet → factor = 3.28084
+        double zConversionFactor = 1.0;
+
         // Output
         mesh::MeshOutputMode outputMode    = mesh::MeshOutputMode::External;
         QString              meshOutputPath;
@@ -136,6 +142,8 @@ private:
     void buildUi();
     void seedDefaults();
     void populateLayerCombos();
+    void updateUnitDisplay();
+    void updateZFactor();   // recomputes m_zFactorSpin from DTM + mesh vertical unit combos
 
     /*! Collect all inputs from widgets + SWMMModelLayer on the main thread.
      *  Returns false and sets *errOut on any early-out condition (no project,
@@ -145,8 +153,11 @@ private:
     SWMMVisProjectWindow *m_pw = nullptr;
 
     // ── Sources ─────────────────────────────────────────────────────
-    QComboBox     *m_dtmCombo        = nullptr;
-    QLabel        *m_domainLabel     = nullptr;
+    QComboBox      *m_dtmCombo          = nullptr;
+    QLabel         *m_domainLabel       = nullptr;
+    QLabel         *m_dtmVertUnitLabel  = nullptr;  // shows auto-detected DTM vertical unit
+    QComboBox      *m_meshVertCRSCombo  = nullptr;  // output mesh vertical unit
+    QDoubleSpinBox *m_zFactorSpin       = nullptr;  // user-editable Z conversion factor
 
     // ── Auxiliary feature-layer constraints (all optional) ──────────
     QComboBox     *m_boundaryLayerCombo = nullptr;

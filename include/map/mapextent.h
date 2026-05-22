@@ -1,15 +1,10 @@
 /*!
  * \file   mapextent.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+ * \date   2026
+ * \license GPL-3.0-or-later
+ * \brief  Axis-aligned bounding box in a map coordinate system, used by
+ *         MapCanvas and all layer types to define spatial extents.
  */
 
 #ifndef MAPEXTENT_H

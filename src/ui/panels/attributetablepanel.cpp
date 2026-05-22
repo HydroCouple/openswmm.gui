@@ -382,6 +382,8 @@ void AttributeTablePanel::setProject(SWMMModelLayer *layer,
                             this,    &AttributeTablePanel::refresh);
         QObject::disconnect(m_layer, &SWMMModelLayer::geometryChanged,
                             this,    &AttributeTablePanel::refresh);
+        QObject::disconnect(m_layer, &SWMMModelLayer::attributeChanged,
+                            this,    &AttributeTablePanel::onObjectEditedExternally);
     }
     // Z.4.3 — also detach canvas layer-add/remove so we don't get
     // stale tabular-layer entries from a closed project.
@@ -414,6 +416,9 @@ void AttributeTablePanel::setProject(SWMMModelLayer *layer,
                 Qt::UniqueConnection);
         connect(m_layer, &SWMMModelLayer::geometryChanged,
                 this,    &AttributeTablePanel::refresh,
+                Qt::UniqueConnection);
+        connect(m_layer, &SWMMModelLayer::attributeChanged,
+                this,    &AttributeTablePanel::onObjectEditedExternally,
                 Qt::UniqueConnection);
     }
     if (m_selMgr)
@@ -695,6 +700,10 @@ void AttributeTablePanel::installColumnDelegates()
         case openswmmvis::EditorKind::Enum:
             del = new openswmmvis::EnumDelegate(this, spec.enumValues);
             break;
+        case openswmmvis::EditorKind::Text:
+            // Qt's default QStyledItemDelegate provides a QLineEdit — no custom
+            // delegate needed.  Fall through so nullptr is NOT installed.
+            continue;
         case openswmmvis::EditorKind::ReadOnly:
         default:
             continue;
@@ -1082,12 +1091,38 @@ void AttributeTablePanel::onSelectionApplyClicked()
 
 void AttributeTablePanel::onObjectEditedExternally(const QString &name)
 {
-    // Round-4 follow-up 2026-05-12 — mirror a property-browser edit
-    // into the table view.  Guard against the resulting `dataChanged`
-    // re-emitting `objectEdited` and bouncing back to the browser.
+    // Mirror an external attribute change (from vertex drag, undo, or
+    // property-browser edit) into the table view.  Two cases:
+    //
+    // (a) The correct category tab is already active — do a targeted
+    //     dataChanged refresh for that row so only the affected cells
+    //     repaint.  data() reads from the engine directly, so no cache
+    //     invalidation beyond what refreshObject() already does.
+    //
+    // (b) A different category tab is active — auto-switch the combo to
+    //     the edited object's category so the user immediately sees the
+    //     updated row.  onCategoryChanged() calls setSource() which
+    //     resets the model; the view then re-reads all values from the
+    //     engine, including the just-updated attribute.
     if (!m_model || name.isEmpty()) return;
     m_suppressEditForward = true;
-    m_model->refreshObject(name);
+
+    if (m_model->rowForName(name) >= 0) {
+        m_model->refreshObject(name);
+    } else if (m_layer) {
+        SWMMModelLayer::Category cat;
+        int unused = -1;
+        if (m_layer->findObjectLocation(name, &cat, &unused)) {
+            for (int i = 0; i < m_categoryCombo->count(); ++i) {
+                if (m_categoryCombo->itemData(i).userType() == QMetaType::Int &&
+                    m_categoryCombo->itemData(i).toInt() == static_cast<int>(cat)) {
+                    m_categoryCombo->setCurrentIndex(i);
+                    break;
+                }
+            }
+        }
+    }
+
     m_suppressEditForward = false;
 }
 

@@ -41,7 +41,25 @@ const QColor kDefaultOrificeColor(200, 150, 0);
 const QColor kDefaultWeirColor(0, 180, 100);
 const QColor kDefaultOutletColor(120, 90, 40);
 
+// Per-type pen defaults. Conduits stay thin and square-capped (the
+// historical look). Non-conduit links default to thicker round-capped
+// strokes so pumps/orifices/weirs/outlets read clearly even at small
+// scale and at low pixel zooms. Cap/join can be edited individually in
+// the Preferences dialog.
+struct LinkPenDefault {
+    QColor       color;
+    qreal        width;
+    Qt::PenCapStyle  cap;
+    Qt::PenJoinStyle join;
+};
+const LinkPenDefault kConduitPenDefault = { kDefaultConduitColor, 1.0, Qt::FlatCap,  Qt::BevelJoin };
+const LinkPenDefault kPumpPenDefault    = { kDefaultPumpColor,    3.0, Qt::RoundCap, Qt::RoundJoin };
+const LinkPenDefault kOrificePenDefault = { kDefaultOrificeColor, 2.5, Qt::RoundCap, Qt::RoundJoin };
+const LinkPenDefault kWeirPenDefault    = { kDefaultWeirColor,    2.5, Qt::RoundCap, Qt::RoundJoin };
+const LinkPenDefault kOutletPenDefault  = { kDefaultOutletColor,  2.0, Qt::RoundCap, Qt::RoundJoin };
+
 constexpr int     kDefaultProgressTickMs        = 1000;
+constexpr double  kDefaultAnimationSpeed         = 1.0;
 
 // ── MeasureTool defaults ──────────────────────────────────────────────────
 const QColor kDefaultMeasureLineColor(Qt::red);
@@ -96,6 +114,76 @@ PreferencesManager *PreferencesManager::instance()
 PreferencesManager::PreferencesManager(QObject *parent)
     : QObject(parent)
 {
+    // One-shot migrations from legacy *Color keys into the new *Pen
+    // (and, for selection, *Brush) shapes. Each lift preserves the
+    // user-customised colour but layers it onto the type-appropriate
+    // defaults (width/cap/join for pens, alpha for fills). After
+    // migration the legacy key is deleted so subsequent launches go
+    // straight through the new branch.
+
+    // Rendering/LinkColor/<Type> → Rendering/LinkPen/<Type>
+    {
+        const QStringList legacyKeys = {
+            QStringLiteral("Conduit"),
+            QStringLiteral("Pump"),
+            QStringLiteral("Orifice"),
+            QStringLiteral("Weir"),
+            QStringLiteral("Outlet"),
+        };
+        for (const QString &k : legacyKeys) {
+            const QString oldKey = QStringLiteral("%1/Rendering/LinkColor/%2")
+                                       .arg(QString::fromLatin1(kGroupRoot), k);
+            if (!m_settings.contains(oldKey)) continue;
+            const QColor c = m_settings.value(oldKey).value<QColor>();
+            m_settings.remove(oldKey);
+            if (!c.isValid()) continue;
+
+            const QString newKey = QStringLiteral("%1/Rendering/LinkPen/%2")
+                                       .arg(QString::fromLatin1(kGroupRoot), k);
+            if (m_settings.contains(newKey)) continue;
+
+            QPen pen = linkPen(k);
+            pen.setColor(c);
+            m_settings.setValue(newKey, QVariant::fromValue(pen));
+        }
+    }
+
+    // Selection/Color/<Class> → Selection/Pen/<Class> + Selection/Brush/<Class>
+    {
+        const QStringList legacyKeys = {
+            QStringLiteral("Link"),
+            QStringLiteral("Node"),
+            QStringLiteral("Subcatchment"),
+            QStringLiteral("Gage"),
+        };
+        for (const QString &k : legacyKeys) {
+            const QString oldKey = QStringLiteral("%1/Selection/Color/%2")
+                                       .arg(QString::fromLatin1(kGroupRoot), k);
+            if (!m_settings.contains(oldKey)) continue;
+            const QColor c = m_settings.value(oldKey).value<QColor>();
+            m_settings.remove(oldKey);
+            if (!c.isValid()) continue;
+
+            const QString penKey = QStringLiteral("%1/Selection/Pen/%2")
+                                       .arg(QString::fromLatin1(kGroupRoot), k);
+            if (!m_settings.contains(penKey)) {
+                QPen pen = selectionPen(k);
+                pen.setColor(c);
+                m_settings.setValue(penKey, QVariant::fromValue(pen));
+            }
+            // Brush only applies to filled classes — skip Link.
+            if (k == QLatin1String("Link")) continue;
+            const QString brushKey = QStringLiteral("%1/Selection/Brush/%2")
+                                         .arg(QString::fromLatin1(kGroupRoot), k);
+            if (!m_settings.contains(brushKey)) {
+                QBrush brush = selectionBrush(k);
+                QColor bc = c;
+                if (k == QLatin1String("Subcatchment")) bc.setAlpha(180);
+                brush.setColor(bc);
+                m_settings.setValue(brushKey, QVariant::fromValue(brush));
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -177,34 +265,128 @@ QString canonicalSelectionClass(const QString &className)
 }
 } // anonymous
 
-QColor PreferencesManager::selectionColor(const QString &className) const
+namespace {
+// Yellow across the board is the conventional "selected" cue. The
+// dialog lets users pick distinct per-class pens and brushes when they
+// want to differentiate selections of mixed feature types.
+const QColor kDefaultSelectionColor(255, 255, 0);
+
+QPen defaultSelectionPen(const QString &canonicalKey)
 {
-    const QString k = canonicalSelectionClass(className);
-    const QString key = QStringLiteral("%1/Selection/Color/%2")
-                            .arg(QString::fromLatin1(kGroupRoot), k);
-    const QVariant v = m_settings.value(key);
-    if (v.isValid()) {
-        const QColor c = v.value<QColor>();
-        if (c.isValid()) return c;
+    if (canonicalKey == QLatin1String("Link")) {
+        // ADDITIVE width over the base link pen (see header docs):
+        // 2.0 keeps the historical "halo is +2 px wider than the
+        // conduit/pump/… pen" look. Cap/join inherit from the base
+        // pen unless the user overrides them here.
+        QPen p(kDefaultSelectionColor, 2.0);
+        p.setCapStyle(Qt::FlatCap);
+        p.setJoinStyle(Qt::BevelJoin);
+        return p;
     }
-    // Yellow across the board is the conventional "selected" cue. The
-    // dialog lets users pick distinct per-class colors when they want
-    // to differentiate selections of mixed feature types.
-    return QColor(255, 255, 0);
+    if (canonicalKey == QLatin1String("Subcatchment")) {
+        QPen p(kDefaultSelectionColor, 1.5);
+        p.setCapStyle(Qt::RoundCap);
+        p.setJoinStyle(Qt::RoundJoin);
+        return p;
+    }
+    // Node / Gage / Default — thin yellow outline around the glyph.
+    return QPen(kDefaultSelectionColor, 1.0);
 }
 
-void PreferencesManager::setSelectionColor(const QString &className,
-                                            const QColor &color)
+QBrush defaultSelectionBrush(const QString &canonicalKey)
 {
-    if (!color.isValid()) return;
+    // Subcatchment fills are translucent so the underlying basemap and
+    // overlapping objects still read; node/gage glyphs are filled
+    // opaque so the highlight is unambiguous. Links never fill.
+    if (canonicalKey == QLatin1String("Link"))
+        return QBrush(Qt::NoBrush);
+    if (canonicalKey == QLatin1String("Subcatchment")) {
+        QColor c = kDefaultSelectionColor;
+        c.setAlpha(180);
+        return QBrush(c);
+    }
+    return QBrush(kDefaultSelectionColor);
+}
+} // anonymous
+
+QPen PreferencesManager::selectionPen(const QString &className) const
+{
+    const QString k = canonicalSelectionClass(className);
+    const QString key = QStringLiteral("%1/Selection/Pen/%2")
+                            .arg(QString::fromLatin1(kGroupRoot), k);
+    const QVariant v = m_settings.value(key);
+    if (v.isValid() && v.canConvert<QPen>()) {
+        const QPen p = v.value<QPen>();
+        if (p.color().isValid()) return p;
+    }
+    return defaultSelectionPen(k);
+}
+
+void PreferencesManager::setSelectionPen(const QString &className, const QPen &pen)
+{
+    if (!pen.color().isValid()) return;
     const QString k = canonicalSelectionClass(className);
     if (k == QLatin1String("Default")) return;
-    if (selectionColor(className) == color) return;
-    const QString key = QStringLiteral("%1/Selection/Color/%2")
+    if (selectionPen(className) == pen) return;
+    const QString key = QStringLiteral("%1/Selection/Pen/%2")
                             .arg(QString::fromLatin1(kGroupRoot), k);
-    m_settings.setValue(key, color);
+    m_settings.setValue(key, QVariant::fromValue(pen));
     emit preferenceChanged(QStringLiteral("Selection"),
-                           QStringLiteral("Color/%1").arg(k));
+                           QStringLiteral("Pen/%1").arg(k));
+}
+
+QBrush PreferencesManager::selectionBrush(const QString &className) const
+{
+    const QString k = canonicalSelectionClass(className);
+    if (k == QLatin1String("Link")) return QBrush(Qt::NoBrush);
+    const QString key = QStringLiteral("%1/Selection/Brush/%2")
+                            .arg(QString::fromLatin1(kGroupRoot), k);
+    const QVariant v = m_settings.value(key);
+    if (v.isValid() && v.canConvert<QBrush>()) {
+        const QBrush b = v.value<QBrush>();
+        if (b.color().isValid()) return b;
+    }
+    return defaultSelectionBrush(k);
+}
+
+void PreferencesManager::setSelectionBrush(const QString &className, const QBrush &brush)
+{
+    if (!brush.color().isValid()) return;
+    const QString k = canonicalSelectionClass(className);
+    if (k == QLatin1String("Default") || k == QLatin1String("Link")) return;
+    if (selectionBrush(className) == brush) return;
+    const QString key = QStringLiteral("%1/Selection/Brush/%2")
+                            .arg(QString::fromLatin1(kGroupRoot), k);
+    m_settings.setValue(key, QVariant::fromValue(brush));
+    emit preferenceChanged(QStringLiteral("Selection"),
+                           QStringLiteral("Brush/%1").arg(k));
+}
+
+QColor PreferencesManager::selectionColor(const QString &className) const
+{
+    return selectionPen(className).color();
+}
+
+void PreferencesManager::resetSelectionStyleToDefault(const QString &className)
+{
+    const QString k = canonicalSelectionClass(className);
+    if (k == QLatin1String("Default")) return;
+
+    const QString penKey = QStringLiteral("%1/Selection/Pen/%2")
+                               .arg(QString::fromLatin1(kGroupRoot), k);
+    const QString brushKey = QStringLiteral("%1/Selection/Brush/%2")
+                                 .arg(QString::fromLatin1(kGroupRoot), k);
+
+    const bool hadPen   = m_settings.contains(penKey);
+    const bool hadBrush = m_settings.contains(brushKey);
+    if (hadPen)   m_settings.remove(penKey);
+    if (hadBrush) m_settings.remove(brushKey);
+    if (hadPen)
+        emit preferenceChanged(QStringLiteral("Selection"),
+                               QStringLiteral("Pen/%1").arg(k));
+    if (hadBrush)
+        emit preferenceChanged(QStringLiteral("Selection"),
+                               QStringLiteral("Brush/%1").arg(k));
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +408,19 @@ void PreferencesManager::setDefaultTool(const QString &tool)
                             .arg(kGroupRoot), tool);
     emit preferenceChanged(QStringLiteral("Canvas"),
                            QStringLiteral("DefaultTool"));
+}
+
+QString PreferencesManager::defaultCrsMode() const
+{
+    return m_settings.value(QStringLiteral("%1/Canvas/DefaultCrsMode").arg(kGroupRoot),
+                            QStringLiteral("LocalAuto")).toString();
+}
+
+void PreferencesManager::setDefaultCrsMode(const QString &mode)
+{
+    if (mode == defaultCrsMode()) return;
+    m_settings.setValue(QStringLiteral("%1/Canvas/DefaultCrsMode").arg(kGroupRoot), mode);
+    emit preferenceChanged(QStringLiteral("Canvas"), QStringLiteral("DefaultCrsMode"));
 }
 
 QString PreferencesManager::defaultCrsAuthority() const
@@ -260,6 +455,46 @@ void PreferencesManager::setDefaultCrsCode(int code)
                             .arg(kGroupRoot), code);
     emit preferenceChanged(QStringLiteral("Canvas"),
                            QStringLiteral("DefaultCrsCode"));
+}
+
+// ---------------------------------------------------------------------------
+// Snapping
+// ---------------------------------------------------------------------------
+
+bool PreferencesManager::snapEnabled() const
+{
+    return m_settings.value(QStringLiteral("%1/Snapping/Enabled").arg(kGroupRoot),
+                            true).toBool();
+}
+void PreferencesManager::setSnapEnabled(bool enabled)
+{
+    if (enabled == snapEnabled()) return;
+    m_settings.setValue(QStringLiteral("%1/Snapping/Enabled").arg(kGroupRoot), enabled);
+    emit preferenceChanged(QStringLiteral("Snapping"), QStringLiteral("Enabled"));
+}
+
+int PreferencesManager::snapTolerancePx() const
+{
+    return m_settings.value(QStringLiteral("%1/Snapping/TolerancePx").arg(kGroupRoot),
+                            12).toInt();
+}
+void PreferencesManager::setSnapTolerancePx(int px)
+{
+    if (px == snapTolerancePx()) return;
+    m_settings.setValue(QStringLiteral("%1/Snapping/TolerancePx").arg(kGroupRoot), px);
+    emit preferenceChanged(QStringLiteral("Snapping"), QStringLiteral("TolerancePx"));
+}
+
+bool PreferencesManager::snapToVertices() const
+{
+    return m_settings.value(QStringLiteral("%1/Snapping/ToVertices").arg(kGroupRoot),
+                            true).toBool();
+}
+void PreferencesManager::setSnapToVertices(bool enabled)
+{
+    if (enabled == snapToVertices()) return;
+    m_settings.setValue(QStringLiteral("%1/Snapping/ToVertices").arg(kGroupRoot), enabled);
+    emit preferenceChanged(QStringLiteral("Snapping"), QStringLiteral("ToVertices"));
 }
 
 // ---------------------------------------------------------------------------
@@ -298,43 +533,60 @@ QString canonicalLinkType(const QString &linkType)
     return QStringLiteral("Conduit");
 }
 
-QColor defaultLinkColorForKey(const QString &canonicalKey)
+const LinkPenDefault &defaultLinkPenForKey(const QString &canonicalKey)
 {
-    if (canonicalKey == QLatin1String("Pump"))
-        return kDefaultPumpColor;
-    if (canonicalKey == QLatin1String("Orifice"))
-        return kDefaultOrificeColor;
-    if (canonicalKey == QLatin1String("Weir"))
-        return kDefaultWeirColor;
-    if (canonicalKey == QLatin1String("Outlet"))
-        return kDefaultOutletColor;
-    return kDefaultConduitColor;
+    if (canonicalKey == QLatin1String("Pump"))    return kPumpPenDefault;
+    if (canonicalKey == QLatin1String("Orifice")) return kOrificePenDefault;
+    if (canonicalKey == QLatin1String("Weir"))    return kWeirPenDefault;
+    if (canonicalKey == QLatin1String("Outlet"))  return kOutletPenDefault;
+    return kConduitPenDefault;
 }
 } // anonymous
 
-QColor PreferencesManager::linkColor(const QString &linkType) const
+QPen PreferencesManager::linkPen(const QString &linkType) const
 {
     const QString k = canonicalLinkType(linkType);
-    const QString key = QStringLiteral("%1/Rendering/LinkColor/%2")
+    const QString key = QStringLiteral("%1/Rendering/LinkPen/%2")
                             .arg(QString::fromLatin1(kGroupRoot), k);
     const QVariant v = m_settings.value(key);
-    if (v.isValid()) {
-        const QColor c = v.value<QColor>();
-        if (c.isValid()) return c;
+    if (v.isValid() && v.canConvert<QPen>()) {
+        const QPen p = v.value<QPen>();
+        if (p.color().isValid()) return p;
     }
-    return defaultLinkColorForKey(k);
+    const LinkPenDefault &d = defaultLinkPenForKey(k);
+    QPen p(d.color, d.width);
+    p.setCapStyle(d.cap);
+    p.setJoinStyle(d.join);
+    p.setStyle(Qt::SolidLine);
+    return p;
 }
 
-void PreferencesManager::setLinkColor(const QString &linkType, const QColor &color)
+void PreferencesManager::setLinkPen(const QString &linkType, const QPen &pen)
 {
-    if (!color.isValid()) return;
+    if (!pen.color().isValid()) return;
     const QString k = canonicalLinkType(linkType);
-    if (linkColor(k) == color) return;
-    const QString key = QStringLiteral("%1/Rendering/LinkColor/%2")
+    if (linkPen(k) == pen) return;
+    const QString key = QStringLiteral("%1/Rendering/LinkPen/%2")
                             .arg(QString::fromLatin1(kGroupRoot), k);
-    m_settings.setValue(key, color);
+    m_settings.setValue(key, QVariant::fromValue(pen));
     emit preferenceChanged(QStringLiteral("Rendering"),
-                           QStringLiteral("LinkColor/%1").arg(k));
+                           QStringLiteral("LinkPen/%1").arg(k));
+}
+
+QColor PreferencesManager::linkColor(const QString &linkType) const
+{
+    return linkPen(linkType).color();
+}
+
+void PreferencesManager::resetLinkPenToDefault(const QString &linkType)
+{
+    const QString k = canonicalLinkType(linkType);
+    const QString key = QStringLiteral("%1/Rendering/LinkPen/%2")
+                            .arg(QString::fromLatin1(kGroupRoot), k);
+    if (!m_settings.contains(key)) return;
+    m_settings.remove(key);
+    emit preferenceChanged(QStringLiteral("Rendering"),
+                           QStringLiteral("LinkPen/%1").arg(k));
 }
 
 // ---------------------------------------------------------------------------
@@ -356,6 +608,27 @@ void PreferencesManager::setProgressTickMs(int ms)
                             .arg(kGroupRoot), ms);
     emit preferenceChanged(QStringLiteral("Simulation"),
                            QStringLiteral("ProgressTickMs"));
+}
+
+double PreferencesManager::animationSpeed() const
+{
+    return m_settings.value(QStringLiteral("%1/Simulation/AnimationSpeed")
+                                .arg(kGroupRoot),
+                            kDefaultAnimationSpeed).toDouble();
+}
+
+void PreferencesManager::setAnimationSpeed(double speed)
+{
+    // Clamp to the toolbar's supported multiplier set.
+    static constexpr double kValid[] = {0.25, 0.5, 1.0, 2.0, 4.0, 8.0};
+    bool ok = false;
+    for (double v : kValid) { if (qFuzzyCompare(v, speed)) { ok = true; break; } }
+    if (!ok) return;
+    if (qFuzzyCompare(speed, animationSpeed())) return;
+    m_settings.setValue(QStringLiteral("%1/Simulation/AnimationSpeed")
+                            .arg(kGroupRoot), speed);
+    emit preferenceChanged(QStringLiteral("Simulation"),
+                           QStringLiteral("AnimationSpeed"));
 }
 
 // ---------------------------------------------------------------------------
@@ -606,4 +879,196 @@ void PreferencesManager::setElementNamePrefix(const QString &kind, const QString
         QStringLiteral("%1/Naming/Prefix/%2").arg(QLatin1String(kGroupRoot), kind.toLower());
     m_settings.setValue(key, prefix);
     emit preferenceChanged(QStringLiteral("Naming"), QStringLiteral("Prefix/") + kind.toLower());
+}
+
+// ── Terrain editing defaults ─────────────────────────────────────────────────
+
+double PreferencesManager::terrainDefaultNodeOffset() const
+{
+    return m_settings.value(
+        QStringLiteral("%1/Terrain/NodeOffset").arg(QLatin1String(kGroupRoot)),
+        0.0).toDouble();
+}
+
+void PreferencesManager::setTerrainDefaultNodeOffset(double offset)
+{
+    if (offset == terrainDefaultNodeOffset()) return;
+    m_settings.setValue(
+        QStringLiteral("%1/Terrain/NodeOffset").arg(QLatin1String(kGroupRoot)), offset);
+    emit preferenceChanged(QStringLiteral("Terrain"), QStringLiteral("NodeOffset"));
+}
+
+double PreferencesManager::terrainDefaultLinkOffset() const
+{
+    return m_settings.value(
+        QStringLiteral("%1/Terrain/LinkOffset").arg(QLatin1String(kGroupRoot)),
+        0.0).toDouble();
+}
+
+void PreferencesManager::setTerrainDefaultLinkOffset(double offset)
+{
+    if (offset == terrainDefaultLinkOffset()) return;
+    m_settings.setValue(
+        QStringLiteral("%1/Terrain/LinkOffset").arg(QLatin1String(kGroupRoot)), offset);
+    emit preferenceChanged(QStringLiteral("Terrain"), QStringLiteral("LinkOffset"));
+}
+
+// ---------------------------------------------------------------------------
+// Application defaults applied on project creation
+// ---------------------------------------------------------------------------
+
+bool PreferencesManager::autoLengthEnabled() const
+{
+    return m_settings.value(
+        QStringLiteral("%1/Defaults/AutoLength").arg(QLatin1String(kGroupRoot)),
+        true).toBool();
+}
+
+void PreferencesManager::setAutoLengthEnabled(bool enabled)
+{
+    if (enabled == autoLengthEnabled()) return;
+    m_settings.setValue(
+        QStringLiteral("%1/Defaults/AutoLength").arg(QLatin1String(kGroupRoot)), enabled);
+    emit preferenceChanged(QStringLiteral("Defaults"), QStringLiteral("AutoLength"));
+}
+
+QString PreferencesManager::defaultEngineMode() const
+{
+    // Empty default → caller substitutes SWMM_VERSION at use site; the
+    // manager has no compile-time access to the engine version macros.
+    return m_settings.value(
+        QStringLiteral("%1/Defaults/EngineMode").arg(QLatin1String(kGroupRoot)),
+        QString()).toString();
+}
+
+void PreferencesManager::setDefaultEngineMode(const QString &version)
+{
+    if (version == defaultEngineMode()) return;
+    m_settings.setValue(
+        QStringLiteral("%1/Defaults/EngineMode").arg(QLatin1String(kGroupRoot)), version);
+    emit preferenceChanged(QStringLiteral("Defaults"), QStringLiteral("EngineMode"));
+}
+
+// ---------------------------------------------------------------------------
+// Simulation defaults — bundle for clarity. One settings group, many keys.
+// ---------------------------------------------------------------------------
+
+namespace {
+constexpr const char *kSimDefaultsGroup = "SWMMVis/Preferences/SimulationDefaults";
+
+template<typename T>
+T readSetting(QSettings &s, const QString &key, const T &fallback) {
+    const QVariant v = s.value(QStringLiteral("%1/%2")
+                                   .arg(QLatin1String(kSimDefaultsGroup), key));
+    return v.isValid() ? v.value<T>() : fallback;
+}
+} // anonymous
+
+PreferencesManager::SimulationDefaults
+PreferencesManager::simulationDefaults() const
+{
+    SimulationDefaults d;   // compiled-in defaults seed the struct
+
+    auto &s = const_cast<QSettings &>(m_settings);
+    d.flowUnits          = readSetting<QString>(s, QStringLiteral("FlowUnits"),          d.flowUnits);
+    d.infiltrationModel  = readSetting<QString>(s, QStringLiteral("Infiltration"),       d.infiltrationModel);
+    d.flowRouting        = readSetting<QString>(s, QStringLiteral("FlowRouting"),        d.flowRouting);
+
+    d.ignoreRainfall     = readSetting<bool>(s, QStringLiteral("IgnoreRainfall"),       d.ignoreRainfall);
+    d.ignoreRdii         = readSetting<bool>(s, QStringLiteral("IgnoreRdii"),           d.ignoreRdii);
+    d.ignoreSnowmelt     = readSetting<bool>(s, QStringLiteral("IgnoreSnowmelt"),       d.ignoreSnowmelt);
+    d.ignoreGroundwater  = readSetting<bool>(s, QStringLiteral("IgnoreGroundwater"),    d.ignoreGroundwater);
+    d.ignoreQuality      = readSetting<bool>(s, QStringLiteral("IgnoreQuality"),        d.ignoreQuality);
+    d.ignoreRouting      = readSetting<bool>(s, QStringLiteral("IgnoreRouting"),        d.ignoreRouting);
+    d.module2DEnabled    = readSetting<bool>(s, QStringLiteral("Module2D"),             d.module2DEnabled);
+
+    d.allowPonding       = readSetting<bool>(s,   QStringLiteral("AllowPonding"),       d.allowPonding);
+    d.skipSteadyState    = readSetting<bool>(s,   QStringLiteral("SkipSteadyState"),    d.skipSteadyState);
+    d.minSlopePct        = readSetting<double>(s, QStringLiteral("MinSlopePct"),        d.minSlopePct);
+
+    d.sweepStart         = readSetting<QString>(s, QStringLiteral("SweepStart"),        d.sweepStart);
+    d.sweepEnd           = readSetting<QString>(s, QStringLiteral("SweepEnd"),          d.sweepEnd);
+    d.dryDays            = readSetting<double>(s,  QStringLiteral("DryDays"),           d.dryDays);
+
+    d.reportStepSec      = readSetting<int>(s,    QStringLiteral("ReportStepSec"),      d.reportStepSec);
+    d.dryStepSec         = readSetting<int>(s,    QStringLiteral("DryStepSec"),         d.dryStepSec);
+    d.wetStepSec         = readSetting<int>(s,    QStringLiteral("WetStepSec"),         d.wetStepSec);
+    d.ruleStepSec        = readSetting<int>(s,    QStringLiteral("RuleStepSec"),        d.ruleStepSec);
+    d.routingStepSec     = readSetting<double>(s, QStringLiteral("RoutingStepSec"),     d.routingStepSec);
+
+    d.maxTrials          = readSetting<int>(s,    QStringLiteral("MaxTrials"),          d.maxTrials);
+    d.headTolerance      = readSetting<double>(s, QStringLiteral("HeadTolerance"),      d.headTolerance);
+    d.sysFlowTolPct      = readSetting<double>(s, QStringLiteral("SysFlowTolPct"),      d.sysFlowTolPct);
+    d.latFlowTolPct      = readSetting<double>(s, QStringLiteral("LatFlowTolPct"),      d.latFlowTolPct);
+
+    d.inertialDamping    = readSetting<QString>(s, QStringLiteral("InertialDamping"),    d.inertialDamping);
+    d.normalFlowLimited  = readSetting<QString>(s, QStringLiteral("NormalFlowLimited"),  d.normalFlowLimited);
+    d.forceMainEquation  = readSetting<QString>(s, QStringLiteral("ForceMainEquation"),  d.forceMainEquation);
+    d.surchargeMethod    = readSetting<QString>(s, QStringLiteral("SurchargeMethod"),    d.surchargeMethod);
+    d.variableStepOn     = readSetting<bool>(s,    QStringLiteral("VariableStepOn"),     d.variableStepOn);
+    d.variableStepFactor = readSetting<double>(s,  QStringLiteral("VariableStepFactor"), d.variableStepFactor);
+    d.minRoutingStepSec  = readSetting<double>(s,  QStringLiteral("MinRoutingStepSec"),  d.minRoutingStepSec);
+    d.lengtheningStepSec = readSetting<double>(s,  QStringLiteral("LengtheningStepSec"), d.lengtheningStepSec);
+
+    d.nodeContinuity     = readSetting<QString>(s, QStringLiteral("NodeContinuity"),     d.nodeContinuity);
+    d.andersonAccel      = readSetting<bool>(s,    QStringLiteral("AndersonAccel"),      d.andersonAccel);
+
+    d.threads            = readSetting<int>(s,    QStringLiteral("Threads"),             d.threads);
+
+    return d;
+}
+
+void PreferencesManager::setSimulationDefaults(const SimulationDefaults &d)
+{
+    auto put = [this](const QString &key, const QVariant &v) {
+        m_settings.setValue(
+            QStringLiteral("%1/%2").arg(QLatin1String(kSimDefaultsGroup), key), v);
+    };
+    put(QStringLiteral("FlowUnits"),          d.flowUnits);
+    put(QStringLiteral("Infiltration"),       d.infiltrationModel);
+    put(QStringLiteral("FlowRouting"),        d.flowRouting);
+
+    put(QStringLiteral("IgnoreRainfall"),     d.ignoreRainfall);
+    put(QStringLiteral("IgnoreRdii"),         d.ignoreRdii);
+    put(QStringLiteral("IgnoreSnowmelt"),     d.ignoreSnowmelt);
+    put(QStringLiteral("IgnoreGroundwater"),  d.ignoreGroundwater);
+    put(QStringLiteral("IgnoreQuality"),      d.ignoreQuality);
+    put(QStringLiteral("IgnoreRouting"),      d.ignoreRouting);
+    put(QStringLiteral("Module2D"),           d.module2DEnabled);
+
+    put(QStringLiteral("AllowPonding"),       d.allowPonding);
+    put(QStringLiteral("SkipSteadyState"),    d.skipSteadyState);
+    put(QStringLiteral("MinSlopePct"),        d.minSlopePct);
+
+    put(QStringLiteral("SweepStart"),         d.sweepStart);
+    put(QStringLiteral("SweepEnd"),           d.sweepEnd);
+    put(QStringLiteral("DryDays"),            d.dryDays);
+
+    put(QStringLiteral("ReportStepSec"),      d.reportStepSec);
+    put(QStringLiteral("DryStepSec"),         d.dryStepSec);
+    put(QStringLiteral("WetStepSec"),         d.wetStepSec);
+    put(QStringLiteral("RuleStepSec"),        d.ruleStepSec);
+    put(QStringLiteral("RoutingStepSec"),     d.routingStepSec);
+
+    put(QStringLiteral("MaxTrials"),          d.maxTrials);
+    put(QStringLiteral("HeadTolerance"),      d.headTolerance);
+    put(QStringLiteral("SysFlowTolPct"),      d.sysFlowTolPct);
+    put(QStringLiteral("LatFlowTolPct"),      d.latFlowTolPct);
+
+    put(QStringLiteral("InertialDamping"),    d.inertialDamping);
+    put(QStringLiteral("NormalFlowLimited"),  d.normalFlowLimited);
+    put(QStringLiteral("ForceMainEquation"),  d.forceMainEquation);
+    put(QStringLiteral("SurchargeMethod"),    d.surchargeMethod);
+    put(QStringLiteral("VariableStepOn"),     d.variableStepOn);
+    put(QStringLiteral("VariableStepFactor"), d.variableStepFactor);
+    put(QStringLiteral("MinRoutingStepSec"),  d.minRoutingStepSec);
+    put(QStringLiteral("LengtheningStepSec"), d.lengtheningStepSec);
+
+    put(QStringLiteral("NodeContinuity"),     d.nodeContinuity);
+    put(QStringLiteral("AndersonAccel"),      d.andersonAccel);
+
+    put(QStringLiteral("Threads"),            d.threads);
+
+    emit preferenceChanged(QStringLiteral("Defaults"),
+                           QStringLiteral("SimulationDefaults"));
 }

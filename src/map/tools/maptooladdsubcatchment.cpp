@@ -7,6 +7,7 @@
 #include "map/tools/maptooladdsubcatchment.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
+#include "map/snapengine.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 
@@ -76,17 +77,44 @@ void OpenSWMMVisMapToolAddSubcatchment::mousePressEvent(QMouseEvent *event)
 
     if (event->button() != Qt::LeftButton) return;
 
-    m_vertices << QPointF(mx, my);
+    // Use the pre-computed snap result from the last mouse-move (or snap now
+    // if this is the very first click before any move event has fired).
+    SWMMModelLayer *layer = activeModelLayer();
+    if (!m_drawing)
+        m_snap = SnapEngine::snap(this, layer, mx, my);
+
+    // m_vertices is kept in CANVAS CRS so the rubber-band paint (which
+    // calls toPixelCoords on each entry) is correct; commit() converts
+    // the full polygon to layer CRS before pushing to the engine. Snap
+    // results come back in layer CRS (from cachedNodeCoord et al.),
+    // so we round-trip them through transformLayerToCanvas to stay
+    // canvas-space here.
+    double px = mx, py = my;
+    if (m_snap.snapped && layer)
+        layer->transformLayerToCanvas(m_snap.x, m_snap.y, px, py);
+
+    m_vertices << QPointF(px, py);
+    m_cursor = QPointF(px, py);
     m_drawing = true;
     m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("addsubcatch-rubber"));
 }
 
 void OpenSWMMVisMapToolAddSubcatchment::mouseMoveEvent(QMouseEvent *event)
 {
-    if (!m_drawing || !m_canvas) return;
+    if (!m_canvas) return;
     double mx = 0, my = 0;
     toMapCoords(event->pos().x(), event->pos().y(), mx, my);
-    m_cursor = QPointF(mx, my);
+    SWMMModelLayer *layer = activeModelLayer();
+    m_snap   = SnapEngine::snap(this, layer, mx, my);
+    // Keep m_cursor in canvas CRS so the rubber-band paint, which uses
+    // toPixelCoords (canvas→pixel), stays aligned with the mouse.
+    if (m_snap.snapped && layer) {
+        double cx = mx, cy = my;
+        layer->transformLayerToCanvas(m_snap.x, m_snap.y, cx, cy);
+        m_cursor = QPointF(cx, cy);
+    } else {
+        m_cursor = QPointF(mx, my);
+    }
     m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("addsubcatch-rubber"));
 }
 
@@ -146,12 +174,15 @@ void OpenSWMMVisMapToolAddSubcatchment::paint(QPainter *painter,
     }
 
     painter->restore();
+
+    SnapEngine::paintSnapRing(painter, this, m_snap);
 }
 
 void OpenSWMMVisMapToolAddSubcatchment::cancel()
 {
     m_vertices.clear();
     m_drawing = false;
+    m_snap    = {};
     if (m_canvas)
         m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("addsubcatch-cancel"));
 }
@@ -162,13 +193,24 @@ void OpenSWMMVisMapToolAddSubcatchment::commit()
     SWMMModelLayer *layer = activeModelLayer();
     if (!layer) { cancel(); return; }
 
+    // Vertices were accumulated in canvas CRS for rubber-band paint;
+    // the engine + cached SoA expect layer CRS. Convert once here.
+    QVector<QPointF> layerVerts;
+    layerVerts.reserve(m_vertices.size());
+    for (const QPointF &v : m_vertices) {
+        double lx = v.x(), ly = v.y();
+        layer->transformCanvasToLayer(v.x(), v.y(), lx, ly);
+        layerVerts.append(QPointF(lx, ly));
+    }
+
     const QString name = nextAvailableName(layer);
-    auto *cmd = new AddSubcatchmentCommand(layer, name, m_vertices, m_canvas);
+    auto *cmd = new AddSubcatchmentCommand(layer, name, layerVerts, m_canvas);
     if (m_canvas->undoStack())
         m_canvas->undoStack()->push(cmd);
     else
         delete cmd;
 
+    layer->setSelectedElementNames({name});
     emit subcatchmentAdded(name);
     cancel();
 }

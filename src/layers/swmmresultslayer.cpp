@@ -10,6 +10,13 @@
 #include "map/spatialreferencesystem.h"
 #include "map/mapextent.h"
 #include "layers/gisrasterlayer.h"
+#include "render/categoricalpalette.h"
+#include "render/ifeaturerenderer.h"
+#include "render/renderers/graduatedrenderer.h"
+
+#include <QAtomicInteger>
+#include <QSettings>
+#include <QVariant>
 
 #include <openswmm/engine/openswmm_output.h>
 
@@ -116,6 +123,51 @@ SWMMResultsLayer::SWMMResultsLayer(const QString &resultsFilePath,
     setName(QStringLiteral("SWMM Results"));
 
     m_colorRamp = RasterColorRamp::viridis(0.0, 1.0);
+
+    // Slice BI Phase 8.13.6.3 — initialise the renderer eagerly so renderer()
+    // never returns nullptr. The default is a GraduatedRenderer; the paint
+    // loop (sub-phase 8.13.6.4) will later read from it instead of m_colorRamp.
+    m_renderer = std::make_unique<OpenSWMM::Render::GraduatedRenderer>();
+
+    // Auto-assign a profile-plot line color from the categorical palette,
+    // cycled per instantiation so simultaneously-open result layers land
+    // on visually-distinct colors without user intervention.
+    static QAtomicInteger<int> s_counter{0};
+    m_profileLineColor = CategoricalPalette::at(s_counter.fetchAndAddRelaxed(1));
+
+    // Derive default per-source profile-plot pens & brushes from the
+    // categorical colour so two simultaneously-open layers render with
+    // visually-distinct HGL/EGL passes without any user customisation.
+    // The dash patterns mirror the widget's hardcoded defaults
+    // (see profileplotwidget.cpp themeEglPen / themeMaxHglPen):
+    //   - HGL    : solid
+    //   - EGL    : long-dash (12/6)
+    //   - Max HGL: short-dash, thinner
+    //   - Max EGL: short-dash, thinner
+    const QColor &c = m_profileLineColor;
+    {
+        QPen p(c, 2.0, Qt::SolidLine);
+        p.setCapStyle(Qt::FlatCap);
+        m_profileHglLinePen = p;
+    }
+    m_profileHglFillBrush = QBrush(QColor(c.red(), c.green(), c.blue(), 110));
+    {
+        QPen p(c, 2.0, Qt::CustomDashLine);
+        p.setDashPattern({12.0, 6.0});
+        p.setCapStyle(Qt::FlatCap);
+        m_profileEglLinePen = p;
+    }
+    {
+        QPen p(c, 1.4, Qt::DashLine);
+        p.setCapStyle(Qt::FlatCap);
+        m_profileMaxHglLinePen = p;
+    }
+    m_profileMaxHglFillBrush = QBrush(QColor(c.red(), c.green(), c.blue(), 60));
+    {
+        QPen p(c, 1.4, Qt::DashLine);
+        p.setCapStyle(Qt::FlatCap);
+        m_profileMaxEglLinePen = p;
+    }
 }
 
 SWMMResultsLayer::~SWMMResultsLayer()
@@ -137,6 +189,174 @@ SWMMResultsLayer::~SWMMResultsLayer()
 QString SWMMResultsLayer::resultsFilePath() const
 {
     return m_resultsFilePath;
+}
+
+QString SWMMResultsLayer::scenarioName() const
+{
+    return m_scenarioName;
+}
+
+void SWMMResultsLayer::setScenarioName(const QString &name)
+{
+    if (m_scenarioName == name) return;
+    m_scenarioName = name;
+    emit scenarioNameChanged(name);
+}
+
+QColor SWMMResultsLayer::profileLineColor() const
+{
+    return m_profileLineColor;
+}
+
+void SWMMResultsLayer::setProfileLineColor(const QColor &color)
+{
+    if (m_profileLineColor == color) return;
+    m_profileLineColor = color;
+    emit profileLineColorChanged(color);
+}
+
+// ---------------------------------------------------------------------------
+// Per-source profile-plot style accessors.
+//
+// The constructor derives sensible defaults from m_profileLineColor.  These
+// setters do NOT auto-update on profileLineColor changes — once the user
+// customises a pen, it stays put.  Callers that want the "follow the
+// categorical colour" behaviour should call setProfileLineColor and then
+// also reset each pen explicitly.
+// ---------------------------------------------------------------------------
+
+QPen   SWMMResultsLayer::profileHglLinePen()      const { return m_profileHglLinePen; }
+QBrush SWMMResultsLayer::profileHglFillBrush()    const { return m_profileHglFillBrush; }
+QPen   SWMMResultsLayer::profileEglLinePen()      const { return m_profileEglLinePen; }
+QPen   SWMMResultsLayer::profileMaxHglLinePen()   const { return m_profileMaxHglLinePen; }
+QBrush SWMMResultsLayer::profileMaxHglFillBrush() const { return m_profileMaxHglFillBrush; }
+QPen   SWMMResultsLayer::profileMaxEglLinePen()   const { return m_profileMaxEglLinePen; }
+
+void SWMMResultsLayer::setProfileHglLinePen(const QPen &pen)
+{
+    if (m_profileHglLinePen == pen) return;
+    m_profileHglLinePen = pen;
+    emit profileStyleChanged();
+}
+void SWMMResultsLayer::setProfileHglFillBrush(const QBrush &brush)
+{
+    if (m_profileHglFillBrush == brush) return;
+    m_profileHglFillBrush = brush;
+    emit profileStyleChanged();
+}
+void SWMMResultsLayer::setProfileEglLinePen(const QPen &pen)
+{
+    if (m_profileEglLinePen == pen) return;
+    m_profileEglLinePen = pen;
+    emit profileStyleChanged();
+}
+void SWMMResultsLayer::setProfileMaxHglLinePen(const QPen &pen)
+{
+    if (m_profileMaxHglLinePen == pen) return;
+    m_profileMaxHglLinePen = pen;
+    emit profileStyleChanged();
+}
+void SWMMResultsLayer::setProfileMaxHglFillBrush(const QBrush &brush)
+{
+    if (m_profileMaxHglFillBrush == brush) return;
+    m_profileMaxHglFillBrush = brush;
+    emit profileStyleChanged();
+}
+void SWMMResultsLayer::setProfileMaxEglLinePen(const QPen &pen)
+{
+    if (m_profileMaxEglLinePen == pen) return;
+    m_profileMaxEglLinePen = pen;
+    emit profileStyleChanged();
+}
+
+// ---------------------------------------------------------------------------
+// QSettings persistence helpers
+//
+// Stored as QVariants of QPen / QBrush — Qt's metatype machinery wires
+// the QDataStream operators automatically, so colour, width, dash style,
+// dash pattern and brush colour all round-trip.
+// ---------------------------------------------------------------------------
+
+void SWMMResultsLayer::writeProfileStyle(QSettings &settings) const
+{
+    settings.setValue(QStringLiteral("profileHglLinePen"),
+                      QVariant::fromValue(m_profileHglLinePen));
+    settings.setValue(QStringLiteral("profileHglFillBrush"),
+                      QVariant::fromValue(m_profileHglFillBrush));
+    settings.setValue(QStringLiteral("profileEglLinePen"),
+                      QVariant::fromValue(m_profileEglLinePen));
+    settings.setValue(QStringLiteral("profileMaxHglLinePen"),
+                      QVariant::fromValue(m_profileMaxHglLinePen));
+    settings.setValue(QStringLiteral("profileMaxHglFillBrush"),
+                      QVariant::fromValue(m_profileMaxHglFillBrush));
+    settings.setValue(QStringLiteral("profileMaxEglLinePen"),
+                      QVariant::fromValue(m_profileMaxEglLinePen));
+    // profileEglFillBrush / profileMaxEglFillBrush removed (no physical
+    // meaning) — legacy keys, if any, are silently ignored by readProfileStyle.
+}
+
+void SWMMResultsLayer::readProfileStyle(QSettings &settings)
+{
+    auto applyPen = [&](const QString &key, void (SWMMResultsLayer::*setter)(const QPen &)) {
+        if (!settings.contains(key)) return;
+        const QVariant v = settings.value(key);
+        if (!v.canConvert<QPen>()) return;
+        (this->*setter)(v.value<QPen>());
+    };
+    auto applyBrush = [&](const QString &key, void (SWMMResultsLayer::*setter)(const QBrush &)) {
+        if (!settings.contains(key)) return;
+        const QVariant v = settings.value(key);
+        if (!v.canConvert<QBrush>()) return;
+        (this->*setter)(v.value<QBrush>());
+    };
+    applyPen  (QStringLiteral("profileHglLinePen"),      &SWMMResultsLayer::setProfileHglLinePen);
+    applyBrush(QStringLiteral("profileHglFillBrush"),    &SWMMResultsLayer::setProfileHglFillBrush);
+    applyPen  (QStringLiteral("profileEglLinePen"),      &SWMMResultsLayer::setProfileEglLinePen);
+    applyPen  (QStringLiteral("profileMaxHglLinePen"),   &SWMMResultsLayer::setProfileMaxHglLinePen);
+    applyBrush(QStringLiteral("profileMaxHglFillBrush"), &SWMMResultsLayer::setProfileMaxHglFillBrush);
+    applyPen  (QStringLiteral("profileMaxEglLinePen"),   &SWMMResultsLayer::setProfileMaxEglLinePen);
+}
+
+int SWMMResultsLayer::periodIndexForDateTime(const QDateTime &dt) const
+{
+    // Snap the requested time to this layer's report-step grid.  Clamped to
+    // [0, totalSteps - 1] so the result is always a valid index even when
+    // `dt` lies outside the simulated range — secondary layers fed a
+    // primary-layer time will then render their nearest-available period.
+    if (m_totalSteps <= 0 || m_reportStepSec <= 0 || !m_startDateTime.isValid())
+        return 0;
+    const qint64 offsetMs = m_startDateTime.msecsTo(dt);
+    const double periodF  = static_cast<double>(offsetMs)
+                              / (static_cast<double>(m_reportStepSec) * 1000.0);
+    int period = static_cast<int>(std::lround(periodF));
+    if (period < 0)              period = 0;
+    if (period >= m_totalSteps)  period = m_totalSteps - 1;
+    return period;
+}
+
+SWMM_Output SWMMResultsLayer::outputHandle() const
+{
+    return m_handle;
+}
+
+int SWMMResultsLayer::nodeOutputIndex(const QString &name) const
+{
+    return m_nodeOutputIdx.value(name, -1);
+}
+
+int SWMMResultsLayer::linkOutputIndex(const QString &name) const
+{
+    return m_linkOutputIdx.value(name, -1);
+}
+
+int SWMMResultsLayer::subcatchOutputIndex(const QString &name) const
+{
+    return m_subcatchOutputIdx.value(name, -1);
+}
+
+int SWMMResultsLayer::flowUnits() const
+{
+    return m_handle ? swmm_output_get_flow_units(m_handle) : -1;
 }
 
 bool SWMMResultsLayer::openResults(QList<QString> &warnings, QList<QString> &errors)
@@ -367,6 +587,28 @@ void SWMMResultsLayer::setColorRamp(const RasterColorRamp &ramp)
 {
     m_colorRamp = ramp;
     emit repaintRequested();
+}
+
+// ── Slice BI Phase 8.13.6.3 — renderer plumbing ─────────────────────────────
+//
+// API additions only. The paint loop still reads m_colorRamp / m_variable;
+// sub-phase 8.13.6.4 will swap those reads over to m_renderer. Until then the
+// renderer is essentially write-only state — callers can configure it but
+// nothing here consumes it.
+
+OpenSWMM::Render::IFeatureRenderer *SWMMResultsLayer::renderer() const
+{
+    return m_renderer.get();
+}
+
+void SWMMResultsLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r)
+{
+    if (!r)               // contract: renderer() never returns nullptr
+        return;
+    if (r.get() == m_renderer.get())
+        return;           // no-op if the same pointer is reassigned
+    m_renderer = std::move(r);
+    emit rendererChanged();
 }
 
 void SWMMResultsLayer::autoStretchColorRamp()

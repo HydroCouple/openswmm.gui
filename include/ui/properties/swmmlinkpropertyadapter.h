@@ -41,7 +41,7 @@ public:
     Q_ENUM(PumpInitState)
 
     // Common to every link type.
-    Q_PROPERTY(QString  name         READ name)
+    Q_PROPERTY(QString  name         READ name  WRITE setName)
     Q_PROPERTY(LinkKind linkKind     READ linkKind)
     Q_PROPERTY(QString  fromNode     READ fromNode)
     Q_PROPERTY(QString  toNode       READ toNode)
@@ -70,6 +70,7 @@ public:
     Q_INVOKABLE QString displayLabelFor(const QString &property) const;
 
 public slots:
+    void setName(const QString &newName);
     void setLength(double v);
     void setRoughness(double v);
     void setOffsetUp(double v);
@@ -83,8 +84,12 @@ public slots:
     /*! Round-4 follow-up — see SWMMNodePropertyAdapter::refresh. */
     void refresh() { emit changed(); }
 
+    /*! See SWMMNodePropertyAdapter::updateStoredName. */
+    void updateStoredName(const QString &newName) { m_name = newName; }
+
 signals:
     void changed();
+    void renameRequested(const QString &oldName, const QString &newName);
     /*! See SWMMNodePropertyAdapter::displayLabelsChanged. */
     void displayLabelsChanged();
 

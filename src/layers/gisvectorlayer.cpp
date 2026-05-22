@@ -9,6 +9,9 @@
 #include "map/spatialreferencesystem.h"
 #include "map/mapextent.h"
 
+#include "render/ifeaturerenderer.h"
+#include "render/renderers/singlesymbolrenderer.h"
+
 #include <QGraphicsScene>
 #include <QDebug>
 
@@ -27,6 +30,11 @@ GISVectorLayer::GISVectorLayer(const QString &filePath,
     : OpenSWMMVisLayer(parent)
 {
     setLayerType(SWMMVectorLayer);
+
+    // Slice BI Phase 8.13.6.6 — renderer plumbing.  Default to a
+    // SingleSymbolRenderer so renderer() never returns null.  Paint loop
+    // still reads m_symbol directly; refactor deferred to 8.13.6.4.
+    m_renderer = std::make_unique<OpenSWMM::Render::SingleSymbolRenderer>();
 
     GDALAllRegister(); // Idempotent – safe to call multiple times
 
@@ -103,6 +111,25 @@ void GISVectorLayer::setSymbol(const GISVectorSymbol &symbol)
     m_needsRebuild = true;
     emit symbolChanged(symbol);
     emit repaintRequested();
+}
+
+// ---------------------------------------------------------------------------
+// Renderer (Slice BI Phase 8.13.6.6)
+// ---------------------------------------------------------------------------
+
+OpenSWMM::Render::IFeatureRenderer *GISVectorLayer::renderer() const
+{
+    return m_renderer.get();
+}
+
+void GISVectorLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r)
+{
+    if (!r)
+        return;
+    if (r.get() == m_renderer.get())
+        return;
+    m_renderer = std::move(r);
+    emit rendererChanged();
 }
 
 // ---------------------------------------------------------------------------
