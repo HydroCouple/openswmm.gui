@@ -38,6 +38,7 @@ class SWMMVisProjectWindow;
 class LayerTreePanel;
 class ObjectBrowserPanel;
 class AttributePanel;
+class AttributeTablePanel;
 class SimulationStatusModel;
 
 /**
@@ -46,6 +47,8 @@ class SimulationStatusModel;
  * Wraps MapCanvas, manages project workspace/session, map tools, and all
  * top-level UI interactions (menus, toolbars, status bar, docks).
  */
+class AnimationController;
+
 class SWMMVis : public QMainWindow
 {
     Q_OBJECT
@@ -84,8 +87,7 @@ private slots:
     void openProjectFile(const QString &oswpPath);
     void onOpenRecentFile(QAction *action);
     void onSaveProject();
-    void onSaveProjectAs();
-    void onSaveAsInputFile();
+    void onSaveAs();
     void onExportMap();
     void onClearRecentFiles();
     void onRecentFilesSizeChanged();
@@ -101,8 +103,8 @@ private slots:
     void onCanvasSRSChanged(SpatialReferenceSystem *srs);
     void onCRSButtonClicked();
 
-    void onAddWMSLayer();
-    void onAddWMTSLayer();
+    void onAddBasemapLayer();
+    void onAddWMSLayer();   // opens AddBasemapDialog pre-selected on WMS/WMTS tab
     void onAddVectorLayer();
     void onAddRasterLayer();
     void onAddSWMMResultsLayer();
@@ -153,16 +155,18 @@ private:
     QLineEdit    *mLineEditCoordinates                 = nullptr;
     QComboBox    *mComboBoxMapScale                    = nullptr;
     QComboBox    *mComboBoxFlowUnits                   = nullptr;
-    QSlider      *mSliderAnimationTime                 = nullptr;
-    QProgressBar *mProgressBar                        = nullptr;
-    QDateTimeEdit *mDateTimeEditAnimationTime          = nullptr;
+    QSlider       *mSliderAnimationTime                = nullptr;
+    QProgressBar  *mProgressBar                       = nullptr;
+    QDateTimeEdit *mDateTimeEditAnimationTime         = nullptr;
+    class AnimationController *mAnimationController  = nullptr;
 
     QSettings          mSettings;
     QStandardItemModel *mLogMessagesModel   = nullptr;
-    LayerTreePanel     *mLayerTreePanel      = nullptr;
-    ObjectBrowserPanel *mObjectBrowserPanel  = nullptr;
-    AttributePanel     *mAttributePanel      = nullptr;
-    SimulationStatusModel *mSimStatusModel   = nullptr;
+    LayerTreePanel        *mLayerTreePanel        = nullptr;
+    ObjectBrowserPanel    *mObjectBrowserPanel    = nullptr;
+    AttributePanel        *mAttributePanel        = nullptr;
+    AttributeTablePanel   *mAttributeTablePanel   = nullptr;
+    SimulationStatusModel *mSimStatusModel        = nullptr;
 
     // Live simulation-progress tracker for the status-bar bottom bar.
     // Keyed by SimulationRunner jobId, value is the latest 0.0–1.0

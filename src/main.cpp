@@ -21,6 +21,7 @@
 #include "swmmvisapplication.h"
 #include "swmmvis.h"
 #include "map/swmmlayerqsgrenderer.h"
+#include "map/swmm2dmeshqsgrenderer.h"
 
 /*!
  * \brief main
@@ -49,10 +50,12 @@ int main(int argc, char *argv[])
     else
         applicationInstance = new SWMMVisApplication(argc, argv);
 
-    // Register the QML type used by MapCanvas's QQuickWidget overlay
+    // Register the QML types used by MapCanvas's QQuickWidget overlay
     // (Phase B.RHI of docs/RENDERING_5M_PLAN.md).
     qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0,
                                            "SWMMLayerQSGRenderer");
+    qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0,
+                                            "SWMM2DMeshQSGRenderer");
        
     QScopedPointer<QCoreApplication> application(applicationInstance);
 

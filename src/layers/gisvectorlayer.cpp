@@ -9,6 +9,9 @@
 #include "map/spatialreferencesystem.h"
 #include "map/mapextent.h"
 
+#include "render/ifeaturerenderer.h"
+#include "render/renderers/singlesymbolrenderer.h"
+
 #include <QGraphicsScene>
 #include <QDebug>
 
@@ -27,6 +30,11 @@ GISVectorLayer::GISVectorLayer(const QString &filePath,
     : OpenSWMMVisLayer(parent)
 {
     setLayerType(SWMMVectorLayer);
+
+    // Slice BI Phase 8.13.6.6 — renderer plumbing.  Default to a
+    // SingleSymbolRenderer so renderer() never returns null.  Paint loop
+    // still reads m_symbol directly; refactor deferred to 8.13.6.4.
+    m_renderer = std::make_unique<OpenSWMM::Render::SingleSymbolRenderer>();
 
     GDALAllRegister(); // Idempotent – safe to call multiple times
 
@@ -103,6 +111,25 @@ void GISVectorLayer::setSymbol(const GISVectorSymbol &symbol)
     m_needsRebuild = true;
     emit symbolChanged(symbol);
     emit repaintRequested();
+}
+
+// ---------------------------------------------------------------------------
+// Renderer (Slice BI Phase 8.13.6.6)
+// ---------------------------------------------------------------------------
+
+OpenSWMM::Render::IFeatureRenderer *GISVectorLayer::renderer() const
+{
+    return m_renderer.get();
+}
+
+void GISVectorLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r)
+{
+    if (!r)
+        return;
+    if (r.get() == m_renderer.get())
+        return;
+    m_renderer = std::move(r);
+    emit rendererChanged();
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +293,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         item->setOpacity(opacity());
         item->setFlag(QGraphicsItem::ItemIsSelectable, true);
         scene->addItem(item);
+        m_sceneItems.append(item);
     };
 
     auto addLine = [&](const QVector<QPointF> &scenePts, qint64 fid, bool selected) {
@@ -288,6 +316,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         item->setOpacity(opacity());
         item->setFlag(QGraphicsItem::ItemIsSelectable, true);
         scene->addItem(item);
+        m_sceneItems.append(item);
     };
 
     auto addPolygon = [&](const QVector<QPointF> &scenePts, qint64 fid, bool selected) {
@@ -306,6 +335,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         item->setOpacity(opacity());
         item->setFlag(QGraphicsItem::ItemIsSelectable, true);
         scene->addItem(item);
+        m_sceneItems.append(item);
     };
 
     OGRFeature *feat = nullptr;
@@ -391,27 +421,16 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
 
 void GISVectorLayer::depopulateScene(QGraphicsScene *scene)
 {
-    if (!scene)
+    if (!scene || m_sceneItems.isEmpty())
         return;
 
-    const auto items = scene->items();
-    QList<QGraphicsItem *> toRemove;
-    for (auto *item : items)
-    {
-        // Check each vector item type
-        if (auto *p = dynamic_cast<VectorPointItem *>(item))
-        { if (p->ownerLayer() == this) toRemove.append(item); }
-        else if (auto *l = dynamic_cast<VectorLineItem *>(item))
-        { if (l->ownerLayer() == this) toRemove.append(item); }
-        else if (auto *pg = dynamic_cast<VectorPolygonItem *>(item))
-        { if (pg->ownerLayer() == this) toRemove.append(item); }
-    }
-
-    for (auto *item : toRemove)
+    for (auto *item : std::as_const(m_sceneItems))
     {
         scene->removeItem(item);
         delete item;
     }
+    m_sceneItems.clear();
+    m_needsRebuild = true;
 }
 
 void GISVectorLayer::onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS)

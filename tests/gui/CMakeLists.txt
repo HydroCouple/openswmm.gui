@@ -110,6 +110,28 @@ add_swmmvis_gui_test(test_inpmeshwriter
     ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
 )
 
+# ArcGIS REST rendering — URL building, tile coordinate math, zoom selection,
+# and axis-order correctness for XYZTileLayer (including the ESRI World Imagery
+# builtin). Requires Qt6::Network (QNetworkAccessManager in XYZTileLayer ctor)
+# and GDAL (OGRSpatialReference in XYZTileLayer ctor).
+find_package(Qt6 REQUIRED COMPONENTS Network)
+add_swmmvis_gui_test(test_arcgisrestrendering
+    test_arcgisrestrendering.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/xyztilelayer.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/xyztilelayer.h
+    ${CMAKE_SOURCE_DIR}/src/layers/openswmmvislayer.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/openswmmvislayer.h
+    ${CMAKE_SOURCE_DIR}/src/map/mapextent.cpp
+    ${CMAKE_SOURCE_DIR}/include/map/mapextent.h
+    ${CMAKE_SOURCE_DIR}/src/map/spatialreferencesystem.cpp
+    ${CMAKE_SOURCE_DIR}/include/map/spatialreferencesystem.h
+)
+target_link_libraries(test_arcgisrestrendering PRIVATE
+    Qt6::Network
+    GDAL::GDAL
+)
+target_include_directories(test_arcgisrestrendering PRIVATE ${GDAL_INCLUDE_DIRS})
+
 # test_simulationoptionsdialog (test_simulationoptionsdialog.cpp) — parked
 # alongside the layertreemodel test until the `swmmvis_core` static-lib
 # extraction lands. The Q_OBJECT moc bindings on SimulationOptionsDialog

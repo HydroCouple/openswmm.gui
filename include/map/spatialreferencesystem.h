@@ -1,15 +1,10 @@
 /*!
  * \file   spatialreferencesystem.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+ * \date   2026
+ * \license GPL-3.0-or-later
+ * \brief  Qt wrapper around a GDAL OGRSpatialReference, providing CRS
+ *         metadata, serialisation helpers, and transformation factory methods.
  */
 
 #ifndef SPATIALREFERENCESYSTEM_H
@@ -192,6 +187,16 @@ public:
      *        Coordinates are treated as raw Cartesian values; no reprojection is possible.
      */
     [[nodiscard]] static SpatialReferenceSystem *untitled(QObject *parent = nullptr);
+
+    /*!
+     * \brief Creates a local CRS with linear units derived from the SWMM `[MAP]` section
+     *        `Units` field (e.g. "FEET" or "METERS"). Distances and the scale bar will
+     *        show correct values without requiring a geographic CRS.
+     * \param mapUnits  Value of the `[MAP] Units` line (case-insensitive: "FEET"/"METERS"/…).
+     * \param parent    Qt parent for the new object.
+     */
+    [[nodiscard]] static SpatialReferenceSystem *localFromMapUnits(const QString &mapUnits,
+                                                                    QObject *parent = nullptr);
 
     // ----- Local-CS predicate ----------------------------------------------
 

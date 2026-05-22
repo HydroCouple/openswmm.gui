@@ -2,7 +2,7 @@
  * \file   meshgenerator.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Slice AU — Triangle wrapper. Builds the input \c triangulateio,
  * runs Shewchuk's `triangulate()`, and re-packs the output into
@@ -19,7 +19,9 @@
 #include <cstring>
 
 extern "C" {
+#define TRILIBRARY   // needed to expose triangulate_safe() in triangle.h
 #include "triangle.h"
+#undef TRILIBRARY
 }
 
 namespace mesh {
@@ -174,8 +176,9 @@ MeshResult MeshGenerator::generate() const
     for (const QPolygonF &dom : m_domains)
     {
         const int domN = dom.size();
-        if (domN < 3) continue;            // can't form a closed ring
+        if (domN < 3) continue;
         int firstIdx = -1, prevIdx = -1;
+        int uniqueVerts = 0;
         for (int i = 0; i < domN; ++i)
         {
             const QPointF &p = dom[i];
@@ -184,19 +187,25 @@ MeshResult MeshGenerator::generate() const
                 && qFuzzyCompare(p.y() + 1, dom[0].y() + 1))
                 break;  // closed polygon: skip the dup-of-first vertex.
             const int idx = pushPoint(p, kBoundaryMarker);
-            if (firstIdx < 0) firstIdx = idx;
+            if (firstIdx < 0) { firstIdx = idx; ++uniqueVerts; }
+            // Skip zero-length segments: after quantisation two consecutive
+            // vertices may map to the same index.  OGR UnaryUnion (dissolve)
+            // can produce such duplicates at polygon-join points.
+            if (idx == prevIdx) continue;
+            ++uniqueVerts;
             if (prevIdx >= 0)
                 domSegments.append(qMakePair(prevIdx, idx));
             prevIdx = idx;
         }
-        if (prevIdx >= 0 && firstIdx >= 0 && prevIdx != firstIdx)
+        // Ring closing segment — only if we have ≥ 3 unique vertices.
+        if (uniqueVerts >= 3 && prevIdx >= 0 && firstIdx >= 0 && prevIdx != firstIdx)
             domSegments.append(qMakePair(prevIdx, firstIdx));
     }
     if (domSegments.isEmpty())
     {
         result.errorMsg = QStringLiteral(
             "MeshGenerator: no usable boundary polygons "
-            "(every supplied polygon had < 3 vertices).");
+            "(every supplied polygon had < 3 vertices after vertex deduplication).");
         return result;
     }
 
@@ -228,6 +237,33 @@ MeshResult MeshGenerator::generate() const
             }
             prev = curr;
         }
+    }
+
+    // ── Final PSLG validation ─────────────────────────────────────────────
+    // Strip any zero-length segments (v0 == v1) that may have survived from
+    // user constraint segments or from the domain boundary on degenerate input
+    // (e.g., OGR UnaryUnion duplicate vertices at polygon-join points).
+    // Triangle aborts with a fatal error on zero-length segments.
+    {
+        auto stripZeroLen = [](QVector<QPair<int,int>> &segs,
+                               QVector<int>             &markers) {
+            for (int i = segs.size() - 1; i >= 0; --i)
+                if (segs[i].first == segs[i].second)
+                {
+                    segs.removeAt(i);
+                    if (i < markers.size()) markers.removeAt(i);
+                }
+        };
+        QVector<int> domMarkers(domSegments.size(), kBoundaryMarker);
+        stripZeroLen(domSegments, domMarkers);
+        stripZeroLen(userSegments, userSegmentMarkers);
+    }
+    if (domSegments.isEmpty())
+    {
+        result.errorMsg = QStringLiteral(
+            "MeshGenerator: all domain boundary segments were degenerate "
+            "(zero-length after vertex deduplication).");
+        return result;
     }
 
     // ── Pack input triangulateio ──────────────────────────────────────────
@@ -328,8 +364,24 @@ MeshResult MeshGenerator::generate() const
     QByteArray swBa = sw.toLatin1();
 
     // ── Run Triangle ──────────────────────────────────────────────────────
-    // Triangle's `triangulate` is the canonical entry — see vendor/triangle.
-    triangulate(swBa.data(), &in, &out, /*vorout=*/nullptr);
+    // triangulate_safe() wraps triangulate() with setjmp so that any fatal
+    // error inside Triangle (degenerate PSLG, out-of-memory, intersecting
+    // segments) is caught via longjmp rather than calling exit(), which
+    // would kill the entire process from the worker thread.
+    const int triErr = triangulate_safe(swBa.data(), &in, &out, nullptr);
+    if (triErr != 0)
+    {
+        freeOutput(out);
+        // Free the inputs we malloc'd above (Triangle never frees its inputs).
+        std::free(in.pointlist);      std::free(in.pointmarkerlist);
+        std::free(in.segmentlist);    std::free(in.segmentmarkerlist);
+        std::free(in.holelist);       std::free(in.regionlist);
+        result.errorMsg = QStringLiteral(
+            "Triangle fatal error — check PSLG for degenerate geometry "
+            "(duplicate/coincident vertices, crossing or zero-length "
+            "constraint segments, boundary not forming a closed ring).");
+        return result;
+    }
 
     // ── Copy out → MeshResult ─────────────────────────────────────────────
     result.vertices.reserve(out.numberofpoints);

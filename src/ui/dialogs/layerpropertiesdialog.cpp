@@ -2,11 +2,12 @@
  * \file   layerpropertiesdialog.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/layerpropertiesdialog.h"
 #include "ui/dialogs/crsselectiondialog.h"
 #include "layers/openswmmvislayer.h"
+#include "layers/swmm2dmeshlayer.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
 
@@ -27,6 +28,9 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include <cmath>
+#include <limits>
+
 namespace {
 
 const char *layerTypeLabel(int t)
@@ -45,6 +49,7 @@ const char *layerTypeLabel(int t)
     case L::SWMMTabularDataLayer:         return "Tabular";
     case L::SWMMTabularyTimeSeriesLayer:  return "Tabular time-series";
     case L::SWMMSubProjectLayer:          return "Sub-project";
+    case L::SWMM2DMeshLayer:              return "2D Mesh";
     case L::SWMMDefaultLayer:
     default:                              return "Unknown";
     }
@@ -63,6 +68,8 @@ LayerPropertiesDialog::LayerPropertiesDialog(OpenSWMMVisLayer *layer, QWidget *p
     setWindowTitle(tr("Layer Properties"));
     resize(560, 480);
     buildUi();
+    if (m_layer && m_layer->layerType() == OpenSWMMVisLayer::SWMM2DMeshLayer)
+        buildMeshStatsTab();
     if (m_layer)
         readFromLayer();
 }
@@ -166,6 +173,23 @@ void LayerPropertiesDialog::buildUi()
 }
 
 // ---------------------------------------------------------------------------
+// Mesh statistics tab (SWMM2DMeshLayer only)
+// ---------------------------------------------------------------------------
+
+void LayerPropertiesDialog::buildMeshStatsTab()
+{
+    auto *page = new QWidget(m_tabs);
+    auto *vlay = new QVBoxLayout(page);
+
+    m_statsText = new QPlainTextEdit(page);
+    m_statsText->setReadOnly(true);
+    m_statsText->setLineWrapMode(QPlainTextEdit::NoWrap);
+    vlay->addWidget(m_statsText, 1);
+
+    m_tabs->addTab(page, tr("Mesh Statistics"));
+}
+
+// ---------------------------------------------------------------------------
 // Layer ↔ widgets
 // ---------------------------------------------------------------------------
 
@@ -194,6 +218,66 @@ void LayerPropertiesDialog::readFromLayer()
     m_opacitySpin->setValue(opacity);
 
     m_metadataText->setPlainText(metadataSummary(m_layer));
+
+    // Populate mesh statistics if this is a SWMM2DMeshLayer.
+    if (m_statsText)
+    {
+        if (auto *ml = qobject_cast<SWMM2DMeshLayer *>(m_layer))
+        {
+            const auto &mesh = ml->mesh();
+            const int nVerts  = mesh.vertices.size();
+            const int nTris   = mesh.triangles.size();
+            const int nEdges  = mesh.boundaryEdges.size();
+
+            int taggedVerts = 0;
+            for (const auto &v : mesh.vertices)
+                if (!v.tag.isEmpty()) ++taggedVerts;
+
+            int taggedTris = 0;
+            for (const auto &t : mesh.triangles)
+                if (!t.tag.isEmpty()) ++taggedTris;
+
+            double totalArea = 0.0;
+            double zMin = std::numeric_limits<double>::max();
+            double zMax = std::numeric_limits<double>::lowest();
+            for (const auto &v : mesh.vertices)
+            {
+                if (v.z < zMin) zMin = v.z;
+                if (v.z > zMax) zMax = v.z;
+            }
+            for (const auto &t : mesh.triangles)
+            {
+                if (t.v0 < 0 || t.v0 >= nVerts) continue;
+                if (t.v1 < 0 || t.v1 >= nVerts) continue;
+                if (t.v2 < 0 || t.v2 >= nVerts) continue;
+                const auto &a = mesh.vertices[t.v0].xy;
+                const auto &b = mesh.vertices[t.v1].xy;
+                const auto &c = mesh.vertices[t.v2].xy;
+                totalArea += 0.5 * std::abs(
+                    (b.x()-a.x())*(c.y()-a.y()) - (c.x()-a.x())*(b.y()-a.y()));
+            }
+
+            QStringList lines;
+            lines << QStringLiteral("Vertices:           %1").arg(nVerts);
+            lines << QStringLiteral("Triangles:          %1").arg(nTris);
+            lines << QStringLiteral("Boundary edges:     %1").arg(nEdges);
+            lines << QStringLiteral("Tagged vertices:    %1  (1D-coupled nodes)").arg(taggedVerts);
+            lines << QStringLiteral("Tagged triangles:   %1  (subcatchment regions)").arg(taggedTris);
+            lines << QStringLiteral("Total mesh area:    %1  (map units²)")
+                         .arg(totalArea, 0, 'g', 8);
+            if (nVerts > 0)
+            {
+                lines << QStringLiteral("Min elevation:      %1").arg(zMin, 0, 'f', 3);
+                lines << QStringLiteral("Max elevation:      %1").arg(zMax, 0, 'f', 3);
+            }
+            lines << QStringLiteral("Active mesh:        %1")
+                         .arg(ml->isActiveMesh() ? "yes" : "no");
+            if (!ml->sourcePath().isEmpty())
+                lines << QStringLiteral("Source file:        %1").arg(ml->sourcePath());
+
+            m_statsText->setPlainText(lines.join('\n'));
+        }
+    }
 }
 
 void LayerPropertiesDialog::writeToLayer()
@@ -303,9 +387,8 @@ void LayerPropertiesDialog::onOpacitySpinChanged(int v)
 void LayerPropertiesDialog::onApply()
 {
     writeToLayer();
-    // Refresh metadata summary so e.g. opacity changes are reflected.
     if (m_layer)
-        m_metadataText->setPlainText(metadataSummary(m_layer));
+        readFromLayer();   // re-reads committed values + refreshes all tabs
 }
 
 void LayerPropertiesDialog::onAccept()
