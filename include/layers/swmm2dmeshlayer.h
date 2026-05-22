@@ -32,9 +32,13 @@
 
 #include <ogr_spatialref.h>
 
+#include <memory>
+
 class QGraphicsScene;
 class QGraphicsItem;
 class SWMM2DMeshGraphicsItem;
+
+namespace OpenSWMM::Render { class IFeatureRenderer; }
 
 class SWMM2DMeshLayer : public OpenSWMMVisLayer
 {
@@ -58,6 +62,26 @@ public:
     [[nodiscard]] const mesh::MeshResult &mesh() const { return m_mesh; }
 
     [[nodiscard]] quint64 geomRevision() const { return m_geomRevision; }
+
+    // ----- Renderer (Slice BI Phase 8.13.6.6) -----------------------------
+    // API plumbing only — paint loop still uses the per-vertex hillshade
+    // ramp directly.  Sub-phase 8.13.6.4 (deferred until Slice BB
+    // ColorRamp lands) will refactor paint to consult m_renderer.
+
+    /*!
+     * \brief The IFeatureRenderer that will drive this layer's paint pass.
+     * \details Constructed eagerly as a default SingleSymbolRenderer so
+     *          callers never have to null-check.  Owned by the layer.
+     */
+    [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+
+    /*!
+     * \brief Replaces the current renderer.
+     * \details The layer takes ownership.  Null pointers are silently
+     *          rejected.  Emits \ref rendererChanged() when the pointer
+     *          actually changes.
+     */
+    void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
 
     // ----- OpenSWMMVisLayer interface ----------------------------------------
 
@@ -110,6 +134,10 @@ public:
     double             m_zMax     = 0.0;
     float              m_maxSlope = 0.0f;
 
+signals:
+    /*! \brief Emitted when setRenderer() swaps the renderer pointer. */
+    void rendererChanged();
+
 private:
     void rebuildSceneGeometry();
 
@@ -120,6 +148,11 @@ private:
     quint64                      m_geomRevision  = 0;
     OGRCoordinateTransformation *m_transform     = nullptr;
     SWMM2DMeshGraphicsItem      *m_graphicsItem  = nullptr;
+
+    // Slice BI Phase 8.13.6.6 — renderer plumbing.  Initialised eagerly in
+    // the ctor (default SingleSymbolRenderer) so renderer() never returns
+    // null.  Paint refactor deferred until Slice BB ColorRamp ships.
+    std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> m_renderer;
 };
 
 #endif // OPENSWMMVIS_LAYERS_SWMM2DMESHLAYER_H

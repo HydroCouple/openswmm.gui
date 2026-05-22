@@ -39,7 +39,7 @@ WCSLayer::WCSLayer(const QUrl &serviceUrl, OpenSWMMVisWorkspace *parent)
     , m_serviceUrl(serviceUrl)
     , m_nam(new QNetworkAccessManager(this))
 {
-    setLayerType(SWMMImageryLayer);
+    setLayerType(SWMMRasterLayer);
 
     GDALAllRegister();
 
@@ -460,8 +460,12 @@ void WCSLayer::fetchCache(const MapExtent &extent,
     }
 
     // ── Reproject canvas extent → request CRS ───────────────────────────────
+    // Default (empty m_outputCrs): request in the canvas CRS, exactly like WMS.
+    // This avoids the geographic/Mercator projection mismatch that causes
+    // features to appear at the wrong location on non-EPSG:4326 canvases.
     const QString requestCrs = m_outputCrs.isEmpty()
-        ? QStringLiteral("EPSG:4326") : m_outputCrs;
+        ? (canvasSRS ? canvasSRS->toAuthority() : QStringLiteral("EPSG:4326"))
+        : m_outputCrs;
 
     MapExtent requestExtent = extent;
     bool reprojected = false;
@@ -555,6 +559,94 @@ void WCSLayer::requestCoverage(const MapExtent &trackingExtent,
 }
 
 // ---------------------------------------------------------------------------
+// GetCoverage reply helpers (file-static, must precede onGetCoverageReply)
+// ---------------------------------------------------------------------------
+
+/*!
+ * Extracts the multipart boundary string from a Content-Type header value.
+ * e.g. "multipart/related; boundary=\"----=Part_1\"; type=..." → "----=Part_1"
+ */
+static QString extractMultipartBoundary(const QString &contentType)
+{
+    for (const QString &token : contentType.split(';')) {
+        const QString t = token.trimmed();
+        if (t.startsWith(QStringLiteral("boundary="), Qt::CaseInsensitive)) {
+            QString b = t.mid(9).trimmed();
+            if (b.startsWith('"') && b.endsWith('"'))
+                b = b.mid(1, b.size() - 2);
+            return b;
+        }
+    }
+    return {};
+}
+
+/*!
+ * Parses a WCS 1.1.x multipart/related body and returns the bytes of the
+ * first non-XML, non-text part (the binary coverage data).
+ * Returns an empty QByteArray if no suitable part is found.
+ */
+static QByteArray extractMultipartBinaryPart(const QByteArray &body,
+                                              const QString    &boundary)
+{
+    if (boundary.isEmpty()) return {};
+    const QByteArray delim = QByteArrayLiteral("--") + boundary.toUtf8();
+
+    int pos = 0;
+    while (pos < body.size()) {
+        int boundaryPos = body.indexOf(delim, pos);
+        if (boundaryPos < 0) break;
+
+        int after = boundaryPos + delim.size();
+        // End boundary: "--boundary--"
+        if (after + 1 < body.size() && body[after] == '-' && body[after + 1] == '-')
+            break;
+        // Skip CRLF after boundary line
+        if (after < body.size() && body[after] == '\r') ++after;
+        if (after < body.size() && body[after] == '\n') ++after;
+
+        // Find end of part headers (CRLFCRLF or LFLF)
+        int headerEnd = body.indexOf("\r\n\r\n", after);
+        int dataStart;
+        if (headerEnd >= 0) {
+            dataStart = headerEnd + 4;
+        } else {
+            headerEnd = body.indexOf("\n\n", after);
+            dataStart = (headerEnd >= 0) ? headerEnd + 2 : -1;
+        }
+        if (dataStart < 0) { pos = after; continue; }
+
+        // Extract this part's Content-Type
+        const QString partHeaders = QString::fromUtf8(body.mid(after, headerEnd - after));
+        QString partContentType;
+        for (const QString &line : partHeaders.split('\n')) {
+            const QString trimmed = line.trimmed();
+            if (trimmed.startsWith(QStringLiteral("Content-Type:"), Qt::CaseInsensitive)) {
+                partContentType = trimmed.mid(13).trimmed();
+                break;
+            }
+        }
+
+        // Find next boundary to delimit this part's data
+        int nextBoundary = body.indexOf(delim, dataStart);
+        int dataEnd = (nextBoundary >= 0) ? nextBoundary : body.size();
+        // Strip trailing CRLF before the next boundary
+        while (dataEnd > dataStart &&
+               (body[dataEnd - 1] == '\n' || body[dataEnd - 1] == '\r'))
+            --dataEnd;
+
+        // First non-XML / non-text part is the binary coverage payload
+        if (!partContentType.isEmpty() &&
+            !partContentType.contains(QStringLiteral("xml"),  Qt::CaseInsensitive) &&
+            !partContentType.contains(QStringLiteral("text"), Qt::CaseInsensitive)) {
+            return body.mid(dataStart, dataEnd - dataStart);
+        }
+
+        pos = (nextBoundary >= 0) ? nextBoundary : body.size();
+    }
+    return {};
+}
+
+// ---------------------------------------------------------------------------
 // GetCoverage reply + GDAL decode
 // ---------------------------------------------------------------------------
 
@@ -576,20 +668,20 @@ void WCSLayer::onGetCoverageReply(QNetworkReply *reply,
     const int httpStatus = reply->attribute(
         QNetworkRequest::HttpStatusCodeAttribute).toInt();
 
-    // ── 404: the server rejected this GetCoverage wire format ────────────────
-    // ArcGIS WCS (and others) advertise WCS 2.0 in GetCapabilities but return
-    // 404 for GetCoverage when SCALESIZE is present.  Downgrade the GetCoverage
-    // version and retry immediately — no user action required.
-    if (httpStatus == 404 || reply->error() == QNetworkReply::ContentNotFoundError) {
+    // ── HTTP errors that indicate version incompatibility → downgrade and retry ─
+    // ArcGIS WCS: 404 for SCALESIZE (WCS 2.0), 400 for unsupported parameters.
+    // 501 = Not Implemented — server explicitly cannot handle this wire format.
+    if (httpStatus == 404 || httpStatus == 400 || httpStatus == 501 ||
+        reply->error() == QNetworkReply::ContentNotFoundError) {
         const QString next = nextGetCoverageVersion(usedVersion);
         if (!next.isEmpty()) {
-            qWarning() << "[WCS] 404 for version" << usedVersion
+            qWarning() << "[WCS] HTTP" << httpStatus << "for version" << usedVersion
                        << "— downgrading GetCoverage to" << next << "and retrying";
             m_getCoverageVersion = next;
             requestCoverage(trackingExtent, requestExtent, requestCrs, w, h);
             return;
         }
-        qWarning() << "[WCS] 404 on all versions — giving up. "
+        qWarning() << "[WCS] HTTP" << httpStatus << "on all versions — giving up. "
                       "Check the service URL and coverage ID.";
         return;
     }
@@ -617,32 +709,58 @@ void WCSLayer::onGetCoverageReply(QNetworkReply *reply,
         return;
     }
 
-    // Detect XML/HTML error response before handing to GDAL
+    // Detect XML/HTML error response before handing to GDAL.
+    // On ExceptionReport, try downgrading the wire format before giving up.
     if (data.startsWith("<?xml") || data.startsWith("<html")) {
         if (data.contains("ExceptionReport") || data.contains("ExceptionText")) {
-            qWarning() << "[WCS] server ExceptionReport:\n" << data.left(512);
+            const QString next = nextGetCoverageVersion(usedVersion);
+            if (!next.isEmpty()) {
+                qWarning() << "[WCS] ExceptionReport for version" << usedVersion
+                           << "— downgrading GetCoverage to" << next << "and retrying";
+                m_getCoverageVersion = next;
+                requestCoverage(trackingExtent, requestExtent, requestCrs, w, h);
+                return;
+            }
+            qWarning() << "[WCS] server ExceptionReport (all versions tried):\n"
+                       << data.left(512);
         } else {
             qWarning() << "[WCS] unexpected XML/HTML:\n" << data.left(256);
         }
         return;
     }
 
+    // Unwrap multipart/related (WCS 1.1.x ArcGIS servers embed the GeoTIFF in
+    // a MIME part; passing the raw multipart body to GDAL silently fails).
+    QByteArray coverageData = data;
+    if (contentType.contains(QStringLiteral("multipart"), Qt::CaseInsensitive)) {
+        const QString boundary = extractMultipartBoundary(contentType);
+        coverageData = extractMultipartBinaryPart(data, boundary);
+        if (coverageData.isEmpty()) {
+            qWarning() << "[WCS] multipart response but no binary coverage part found"
+                       << "boundary=" << boundary
+                       << "first64="  << data.left(64);
+            return;
+        }
+        qDebug() << "[WCS] extracted" << coverageData.size()
+                 << "bytes from multipart response (boundary=" << boundary << ")";
+    }
+
     // Try GDAL (GeoTIFF, NetCDF, …)
     qDebug() << "[WCS] attempting GDAL decode";
-    QImage img = decodeGdalImage(data);
+    QImage img = decodeGdalImage(coverageData);
 
     // Fallback: Qt native decoder (PNG, JPEG from simple WCS servers)
     if (img.isNull()) {
         qDebug() << "[WCS] GDAL failed — trying Qt image decoder";
-        img.loadFromData(data);
+        img.loadFromData(coverageData);
         if (!img.isNull())
             qDebug() << "[WCS] Qt decoder succeeded, size=" << img.size();
     }
 
     if (img.isNull()) {
         qWarning() << "[WCS] ALL decoders failed"
-                   << "bytes="   << data.size()
-                   << "first32=" << data.left(32).toHex();
+                   << "bytes="   << coverageData.size()
+                   << "first32=" << coverageData.left(32).toHex();
         return;
     }
 
@@ -996,7 +1114,9 @@ void WCSLayer::render(QPainter *painter,
     const double dstRight  = (m_cacheExtent.xMax() - extent.xMin()) * pxPerX;
     const double dstBottom = (extent.yMax() - m_cacheExtent.yMin()) * pxPerY;
 
-    const QRectF dstRect(dstLeft, dstTop, dstRight - dstLeft, dstBottom - dstTop);
+    const QRectF dstRect = snapTileRectToDevicePx(
+        dstLeft, dstTop, dstRight, dstBottom,
+        painterDevicePixelRatio(painter));
 
     qDebug() << "[WCS] render"
              << "imgSize="    << m_cachedImage.size()
@@ -1073,8 +1193,14 @@ void WCSLayer::rebuildTransforms(const SpatialReferenceSystem *canvasSRS)
         return;
     }
 
-    const QString crs = m_outputCrs.isEmpty()
-        ? QStringLiteral("EPSG:4326") : m_outputCrs;
+    // When m_outputCrs is empty we request data in the canvas CRS, so there is
+    // nothing to reproject — leave the transforms null.
+    if (m_outputCrs.isEmpty()) {
+        qDebug() << "[WCS] rebuildTransforms: outputCrs empty — using canvas CRS, no transform";
+        return;
+    }
+
+    const QString crs = m_outputCrs;
 
     qDebug() << "[WCS] rebuildTransforms"
              << "canvasSRS=" << canvasSRS->toAuthority()

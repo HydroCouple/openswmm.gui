@@ -369,6 +369,38 @@ private:
 };
 
 /*!
+ * \class EditSubcatchCommand
+ * \brief Records a change to a subcatchment's polygon vertices.
+ */
+class EditSubcatchCommand : public MapCommand
+{
+public:
+    EditSubcatchCommand(SWMMModelLayer *layer,
+                        int catchIdx,
+                        QVector<QPointF> oldVertices,
+                        QVector<QPointF> newVertices,
+                        double oldArea,
+                        double newArea,
+                        bool applyArea,
+                        MapCanvas *canvas,
+                        QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+
+    int id() const override { return 12; }
+
+private:
+    SWMMModelLayer  *m_layer    = nullptr;
+    int              m_catchIdx = -1;
+    QVector<QPointF> m_old;
+    QVector<QPointF> m_new;
+    double           m_oldArea  = 0.0;
+    double           m_newArea  = 0.0;
+    bool             m_applyArea= false;
+};
+
+/*!
  * \class AddNodeCommand
  * \brief Records the creation of a SWMM node.
  * \details redo() calls SWMMModelLayer::applyNodeAdd, which pushes the
@@ -385,11 +417,18 @@ private:
 class AddNodeCommand : public MapCommand
 {
 public:
+    /*!
+     * \brief Creates an add-node command.
+     * \param invertElev  If non-zero, written to the engine via
+     *        \c swmm_node_set_invert_elev after the node is created.
+     *        Defaults to 0.0 (engine default = no elevation override).
+     */
     AddNodeCommand(SWMMModelLayer *layer,
                    QString name,
                    int nodeType,
                    double x, double y,
                    MapCanvas *canvas,
+                   double invertElev = 0.0,
                    QUndoCommand *parent = nullptr);
 
     void undo() override;
@@ -398,12 +437,13 @@ public:
     int id() const override { return 12; }
 
 private:
-    SWMMModelLayer *m_layer    = nullptr;
+    SWMMModelLayer *m_layer      = nullptr;
     QString         m_name;
-    int             m_nodeType = 0;
-    double          m_x        = 0.0;
-    double          m_y        = 0.0;
-    bool            m_present  = false;  // true iff currently applied
+    int             m_nodeType   = 0;
+    double          m_x          = 0.0;
+    double          m_y          = 0.0;
+    double          m_invertElev = 0.0;
+    bool            m_present    = false;  // true iff currently applied
 };
 
 /*!
@@ -415,6 +455,12 @@ private:
 class AddLinkCommand : public MapCommand
 {
 public:
+    /*!
+     * \brief Creates an add-link command.
+     * \param offsetUp  Upstream invert offset (m or ft).  Written via
+     *        \c swmm_link_set_offset_up after the link is created.  0.0 = no override.
+     * \param offsetDn  Downstream invert offset.  0.0 = no override.
+     */
     AddLinkCommand(SWMMModelLayer   *layer,
                    QString           name,
                    int               linkType,
@@ -422,6 +468,8 @@ public:
                    QString           toNode,
                    QVector<QPointF>  interiorVertices,
                    MapCanvas        *canvas,
+                   double            offsetUp = 0.0,
+                   double            offsetDn = 0.0,
                    QUndoCommand     *parent = nullptr);
 
     void undo() override;
@@ -429,13 +477,16 @@ public:
     int  id()   const override { return 13; }
 
 private:
-    SWMMModelLayer  *m_layer = nullptr;
+    SWMMModelLayer  *m_layer    = nullptr;
     QString          m_name;
     int              m_linkType = 0;
     QString          m_fromNode;
     QString          m_toNode;
     QVector<QPointF> m_interiorVertices;
-    bool             m_present = false;
+    double           m_offsetUp = 0.0;
+    double           m_offsetDn = 0.0;
+    bool             m_present  = false;
+    int              m_linkIdx  = -1; // engine index, used for auto-length
 };
 
 /*!
@@ -483,7 +534,8 @@ private:
     SWMMModelLayer  *m_layer = nullptr;
     QString          m_name;
     QVector<QPointF> m_polygon;
-    bool             m_present = false;
+    bool             m_present  = false;
+    int              m_subcatchIdx = -1; // engine index, used for auto-area
 };
 
 /*!

@@ -205,10 +205,22 @@ void setLineWidth(QSGGeometryNode *node, float w)
     if (geo->lineWidth() != w) { geo->setLineWidth(w); node->markDirty(QSGNode::DirtyGeometry); }
 }
 
-QColor selColor(const char *key)
+// Selection helpers. The QSG renderer drives QSGFlatColorMaterial nodes,
+// which take a single QColor — so we surface pen colour for outlines /
+// line nodes and brush colour for fills. Width/cap/join from the
+// selection pen aren't representable here (no per-vertex line width on
+// QSGGeometry::DrawTriangles).
+QColor selPenColor(const char *key)
 {
     auto *p = PreferencesManager::instance();
-    return p ? p->selectionColor(QString::fromLatin1(key)) : QColor(255,255,0);
+    return p ? p->selectionPen(QString::fromLatin1(key)).color()
+             : QColor(255, 255, 0);
+}
+QColor selBrushColor(const char *key)
+{
+    auto *p = PreferencesManager::instance();
+    return p ? p->selectionBrush(QString::fromLatin1(key)).color()
+             : QColor(255, 255, 0);
 }
 
 } // namespace
@@ -261,8 +273,8 @@ void SWMMLayerQSGRenderer::setMapExtent(const MapExtent &extent)
 {
     if (extent == m_extent) return;
     const bool zoomChanged =
-        !qFuzzyCompare(float(extent.width()),  float(m_extent.width())) ||
-        !qFuzzyCompare(float(extent.height()), float(m_extent.height()));
+        !qFuzzyCompare(extent.width(),  m_extent.width()) ||
+        !qFuzzyCompare(extent.height(), m_extent.height());
     m_extent = extent;
     if (zoomChanged) m_contentDirty = true;
     update();
@@ -290,12 +302,16 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
     QSGGeometryNode *nodesSel=nullptr, *gagesSel=nullptr;
 
     if (!root) {
-        auto withSelAlpha = [](QColor c){ c.setAlpha(254); return c; };
-        const QColor selPoly = withSelAlpha(selColor("subcatchment"));
-        const QColor selNode = withSelAlpha(selColor("node"));
-        const QColor selGage = withSelAlpha(selColor("gage"));
-        const QColor selLine = withSelAlpha(selColor("link"));
-        QColor selPolyFill = selPoly; selPolyFill.setAlpha(180);
+        // Selection style — pens carry outline colour, brushes carry
+        // fill colour (incl. alpha). selPoly is the polygon outline;
+        // selPolyFill, selNode, selGage are fills. selLine is the link
+        // halo's stroke colour. cap/join/width from the pens aren't
+        // representable on a QSGFlatColorMaterial.
+        const QColor selPoly     = selPenColor("subcatchment");
+        const QColor selPolyFill = selBrushColor("subcatchment");
+        const QColor selNode     = selBrushColor("node");
+        const QColor selGage     = selBrushColor("gage");
+        const QColor selLine     = selPenColor("link");
 
         root          = new QSGTransformNode();
         catchFill     = makeFlatColorNode(QSGGeometry::DrawTriangles, m_layer->subcatchmentSymbol().fillColor);
@@ -333,14 +349,20 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
     }
 
     // ---- Shared render params (used by both full and selection-only paths) --
+    // sx_r / invView are pixel-scale ratios so they're safe as float;
+    // cull bounds, however, are scene-space coordinates and must stay
+    // in double — float quantises projected-CRS coords (6-7 digit
+    // magnitudes) to ~1 m, which trips false-positive / false-negative
+    // cull decisions at high zoom and can flash links in and out as
+    // the viewport scrolls.
     const float sx_r    = float(width())  / float(m_extent.width());
     const float invView = (sx_r > 0.0f) ? 1.0f / sx_r : 1.0f;
     const double ox = m_anchorX, oy = m_anchorY;
-    const float cullMargin = 2.0f * invView;
-    const float cullX0 = float(m_extent.xMin()) - cullMargin;
-    const float cullX1 = float(m_extent.xMax()) + cullMargin;
-    const float cullY0 = float(-m_extent.yMax()) - cullMargin;
-    const float cullY1 = float(-m_extent.yMin()) + cullMargin;
+    const double cullMargin = double(2.0f * invView);
+    const double cullX0 =  m_extent.xMin() - cullMargin;
+    const double cullX1 =  m_extent.xMax() + cullMargin;
+    const double cullY0 = -m_extent.yMax() - cullMargin;
+    const double cullY1 = -m_extent.yMin() + cullMargin;
 
     // ---- Content rebuild (full) --------------------------------------------
     if (m_contentDirty) {
@@ -356,12 +378,16 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         }
 
         // Material refresh.
-        auto withSelAlpha = [](QColor c){ c.setAlpha(254); return c; };
-        const QColor selPoly = withSelAlpha(selColor("subcatchment"));
-        const QColor selNode = withSelAlpha(selColor("node"));
-        const QColor selGage = withSelAlpha(selColor("gage"));
-        const QColor selLine = withSelAlpha(selColor("link"));
-        QColor selPolyFill = selPoly; selPolyFill.setAlpha(180);
+        // Selection style — pens carry outline colour, brushes carry
+        // fill colour (incl. alpha). selPoly is the polygon outline;
+        // selPolyFill, selNode, selGage are fills. selLine is the link
+        // halo's stroke colour. cap/join/width from the pens aren't
+        // representable on a QSGFlatColorMaterial.
+        const QColor selPoly     = selPenColor("subcatchment");
+        const QColor selPolyFill = selBrushColor("subcatchment");
+        const QColor selNode     = selBrushColor("node");
+        const QColor selGage     = selBrushColor("gage");
+        const QColor selLine     = selPenColor("link");
         setNodeColor(catchFill,     m_layer->subcatchmentSymbol().fillColor);
         setNodeColor(catchSelFill,  selPolyFill);
         setNodeColor(catchEdge,     m_layer->subcatchmentSymbol().outlineColor);
@@ -399,8 +425,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if (size_t(i)<cHid.size() && cHid[i]) continue;
                 if (size_t(i)<size_t(cBboxes.size())) {
                     const QRectF &bb = cBboxes[i];
-                    if (float(bb.right())<cullX0||float(bb.left())>cullX1||
-                        float(bb.bottom())<cullY0||float(bb.top())>cullY1) continue;
+                    if (bb.right()<cullX0||bb.left()>cullX1||
+                        bb.bottom()<cullY0||bb.top()>cullY1) continue;
                 }
                 const auto &poly = cps[i];
                 if (poly.size() < 3) continue;
@@ -440,7 +466,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
 
         // ---- Links ---------------------------------------------------------
         if (m_layer->showLinks()) {
-            const std::vector<float>    &flat    = m_layer->m_linkSceneFlat;
+            const std::vector<double>   &flat    = m_layer->m_linkSceneFlat;
             const std::vector<uint32_t> &offsets = m_layer->m_linkVertexOffset;
             const std::vector<uint32_t> &counts  = m_layer->m_linkVertexCount;
             const auto &lSel    = m_layer->m_linkSelectedFlag;
@@ -455,29 +481,28 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if (i<lHid.size()&&lHid[i]) continue;
                 if (size_t(i)<size_t(lBboxes.size())) {
                     const QRectF &bb=lBboxes[int(i)];
-                    if(float(bb.right())<cullX0||float(bb.left())>cullX1||
-                       float(bb.bottom())<cullY0||float(bb.top())>cullY1) continue;
+                    if(bb.right()<cullX0||bb.left()>cullX1||
+                       bb.bottom()<cullY0||bb.top()>cullY1) continue;
                 }
                 baseSegs += counts[i]-1;
                 if (i<lSel.size()&&lSel[i]) selSegs += counts[i]-1;
             }
             baseTri.reserve(baseSegs*6); selTri.reserve(selSegs*6);
 
-            const float fox=float(ox), foy=float(oy);
             for (size_t i = 0; i < counts.size(); ++i) {
                 const uint32_t cnt=counts[i];
                 if (cnt<2) continue;
                 if (i<lHid.size()&&lHid[i]) continue;
                 if (size_t(i)<size_t(lBboxes.size())) {
                     const QRectF &bb=lBboxes[int(i)];
-                    if(float(bb.right())<cullX0||float(bb.left())>cullX1||
-                       float(bb.bottom())<cullY0||float(bb.top())>cullY1) continue;
+                    if(bb.right()<cullX0||bb.left()>cullX1||
+                       bb.bottom()<cullY0||bb.top()>cullY1) continue;
                 }
-                const float *p=flat.data()+size_t(offsets[i])*2;
+                const double *p=flat.data()+size_t(offsets[i])*2;
                 const bool sel=i<lSel.size()&&lSel[i];
                 for (uint32_t j=1; j<cnt; ++j) {
-                    const float ax=p[(j-1)*2]-fox, ay=p[(j-1)*2+1]-foy;
-                    const float bx=p[j*2]-fox,     by=p[j*2+1]-foy;
+                    const float ax=float(p[(j-1)*2]-ox), ay=float(p[(j-1)*2+1]-oy);
+                    const float bx=float(p[j*2]-ox),     by=float(p[j*2+1]-oy);
                     appendThickSegment(baseTri,ax,ay,bx,by,baseHW);
                     if (sel) appendThickSegment(selTri,ax,ay,bx,by,selHW);
                 }
@@ -498,8 +523,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if (size_t(i)<nHid.size()&&nHid[i]) continue;
                 if (i>=nps.size()) continue;
                 const QPointF &p=nps[i];
-                if (float(p.x())<cullX0||float(p.x())>cullX1||
-                    float(p.y())<cullY0||float(p.y())>cullY1) continue;
+                if (p.x()<cullX0||p.x()>cullX1||
+                    p.y()<cullY0||p.y()>cullY1) continue;
                 const int nt=(nodes[i].nodeType>=0&&nodes[i].nodeType<4)?nodes[i].nodeType:0;
                 float pxR=float(m_layer->junctionSymbol().size)*0.5f;
                 if(nt==1) pxR=float(m_layer->outfallSymbol().size)*0.5f;
@@ -536,8 +561,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     if (size_t(i)<gHid.size()&&gHid[i]) continue;
                     if (i>=gps.size()) continue;
                     const QPointF &p=gps[i];
-                    if(float(p.x())<cullX0||float(p.x())>cullX1||
-                       float(p.y())<cullY0||float(p.y())>cullY1) continue;
+                    if(p.x()<cullX0||p.x()>cullX1||
+                       p.y()<cullY0||p.y()>cullY1) continue;
                     const float fx=float(p.x()-ox), fy=float(p.y()-oy);
                     appendGageTriangles(base,fx,fy,r);
                     if (size_t(i)<gSel.size()&&gSel[i])
@@ -557,12 +582,16 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         // buffers (fills, edges, base glyphs, base lines) are untouched.
         const float selEdgeHW = 1.5f * invView;
         const float selHW     = 2.0f * invView;
-        auto withSelAlpha = [](QColor c){ c.setAlpha(254); return c; };
-        const QColor selPoly = withSelAlpha(selColor("subcatchment"));
-        const QColor selNode = withSelAlpha(selColor("node"));
-        const QColor selGage = withSelAlpha(selColor("gage"));
-        const QColor selLine = withSelAlpha(selColor("link"));
-        QColor selPolyFill = selPoly; selPolyFill.setAlpha(180);
+        // Selection style — pens carry outline colour, brushes carry
+        // fill colour (incl. alpha). selPoly is the polygon outline;
+        // selPolyFill, selNode, selGage are fills. selLine is the link
+        // halo's stroke colour. cap/join/width from the pens aren't
+        // representable on a QSGFlatColorMaterial.
+        const QColor selPoly     = selPenColor("subcatchment");
+        const QColor selPolyFill = selBrushColor("subcatchment");
+        const QColor selNode     = selBrushColor("node");
+        const QColor selGage     = selBrushColor("gage");
+        const QColor selLine     = selPenColor("link");
 
         // Subcatchment selection overlays
         if (m_layer->showSubcatchments()) {
@@ -576,8 +605,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if (size_t(i)<cHid.size() &&  cHid[i]) continue;
                 if (size_t(i)<size_t(cBboxes.size())) {
                     const QRectF &bb=cBboxes[i];
-                    if(float(bb.right())<cullX0||float(bb.left())>cullX1||
-                       float(bb.bottom())<cullY0||float(bb.top())>cullY1) continue;
+                    if(bb.right()<cullX0||bb.left()>cullX1||
+                       bb.bottom()<cullY0||bb.top()>cullY1) continue;
                 }
                 const auto &poly = cps[i];
                 if (poly.size() < 3 || size_t(i) >= size_t(m_catchTriCache.tris.size())) continue;
@@ -602,27 +631,26 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
 
         // Link selection overlay
         if (m_layer->showLinks()) {
-            const std::vector<float>    &flat    = m_layer->m_linkSceneFlat;
+            const std::vector<double>   &flat    = m_layer->m_linkSceneFlat;
             const std::vector<uint32_t> &offsets = m_layer->m_linkVertexOffset;
             const std::vector<uint32_t> &counts  = m_layer->m_linkVertexCount;
             const auto &lSel    = m_layer->m_linkSelectedFlag;
             const auto &lHid    = m_layer->m_linkHiddenFlag;
             const QVector<QRectF> &lBboxes = m_layer->m_linkSceneBBoxes;
             std::vector<QSGGeometry::Point2D> selTri;
-            const float fox=float(ox), foy=float(oy);
             for (size_t i = 0; i < counts.size(); ++i) {
                 if (i>=lSel.size() || !lSel[i]) continue;
                 if (counts[i]<2) continue;
                 if (i<lHid.size()&&lHid[i]) continue;
                 if (size_t(i)<size_t(lBboxes.size())) {
                     const QRectF &bb=lBboxes[int(i)];
-                    if(float(bb.right())<cullX0||float(bb.left())>cullX1||
-                       float(bb.bottom())<cullY0||float(bb.top())>cullY1) continue;
+                    if(bb.right()<cullX0||bb.left()>cullX1||
+                       bb.bottom()<cullY0||bb.top()>cullY1) continue;
                 }
-                const float *p=flat.data()+size_t(offsets[i])*2;
+                const double *p=flat.data()+size_t(offsets[i])*2;
                 for (uint32_t j=1; j<counts[i]; ++j) {
-                    const float ax=p[(j-1)*2]-fox, ay=p[(j-1)*2+1]-foy;
-                    const float bx=p[j*2]-fox,     by=p[j*2+1]-foy;
+                    const float ax=float(p[(j-1)*2]-ox), ay=float(p[(j-1)*2+1]-oy);
+                    const float bx=float(p[j*2]-ox),     by=float(p[j*2+1]-oy);
                     appendThickSegment(selTri,ax,ay,bx,by,selHW);
                 }
             }
@@ -642,8 +670,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if (size_t(i)<nHid.size()&&nHid[i]) continue;
                 if (i>=nps.size()) continue;
                 const QPointF &p=nps[i];
-                if(float(p.x())<cullX0||float(p.x())>cullX1||
-                   float(p.y())<cullY0||float(p.y())>cullY1) continue;
+                if(p.x()<cullX0||p.x()>cullX1||
+                   p.y()<cullY0||p.y()>cullY1) continue;
                 const int nt=(nodes[i].nodeType>=0&&nodes[i].nodeType<4)?nodes[i].nodeType:0;
                 float pxR=float(m_layer->junctionSymbol().size)*0.5f;
                 if(nt==1) pxR=float(m_layer->outfallSymbol().size)*0.5f;
@@ -669,8 +697,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if (size_t(i)<gHid.size()&&gHid[i]) continue;
                 if (i>=gps.size()) continue;
                 const QPointF &p=gps[i];
-                if(float(p.x())<cullX0||float(p.x())>cullX1||
-                   float(p.y())<cullY0||float(p.y())>cullY1) continue;
+                if(p.x()<cullX0||p.x()>cullX1||
+                   p.y()<cullY0||p.y()>cullY1) continue;
                 appendGageTriangles(sel,float(p.x()-ox),float(p.y()-oy),r);
             }
             setNodeColor(gagesSel, selGage);

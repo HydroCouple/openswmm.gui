@@ -18,7 +18,7 @@
 class SWMMSubcatchPropertyAdapter : public QObject
 {
     Q_OBJECT
-    Q_PROPERTY(QString name        READ name)
+    Q_PROPERTY(QString name        READ name  WRITE setName)
     Q_PROPERTY(double  area        READ area        WRITE setArea        NOTIFY changed)
     Q_PROPERTY(double  width       READ width       WRITE setWidth       NOTIFY changed)
     Q_PROPERTY(double  slope       READ slope       WRITE setSlope       NOTIFY changed)
@@ -47,6 +47,7 @@ public:
     Q_INVOKABLE QString displayLabelFor(const QString &property) const;
 
 public slots:
+    void setName(const QString &newName);
     void setArea(double v);
     void setWidth(double v);
     void setSlope(double v);
@@ -59,8 +60,12 @@ public slots:
     /*! Round-4 follow-up 2026-05-12 — see SWMMNodePropertyAdapter::refresh. */
     void refresh() { emit changed(); }
 
+    /*! See SWMMNodePropertyAdapter::updateStoredName. */
+    void updateStoredName(const QString &newName) { m_name = newName; }
+
 signals:
     void changed();
+    void renameRequested(const QString &oldName, const QString &newName);
     /*! See SWMMNodePropertyAdapter::displayLabelsChanged. */
     void displayLabelsChanged();
 

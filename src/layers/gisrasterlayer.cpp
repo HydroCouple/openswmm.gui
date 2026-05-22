@@ -9,6 +9,9 @@
 #include "map/spatialreferencesystem.h"
 #include "map/mapextent.h"
 
+#include "render/irasterrenderer.h"
+#include "render/renderers/singlebandpseudocolorrenderer.h"
+
 #include <QGraphicsScene>
 #include <QPainter>
 #include <QSize>
@@ -117,6 +120,12 @@ GISRasterLayer::GISRasterLayer(const QString &filePath, OpenSWMMVisWorkspace *pa
     setLayerType(SWMMRasterLayer);
     m_colorRamp = RasterColorRamp::grayscale();
 
+    // Slice BI Phase 8.13.6.7 — raster-renderer plumbing.  Default to a
+    // SingleBandPseudoColorRenderer so rasterRenderer() never returns
+    // null.  warpToCanvas() still uses m_colorRamp directly; routing
+    // through the renderer is deferred to a later sub-phase.
+    m_rasterRenderer = std::make_unique<OpenSWMM::Render::SingleBandPseudoColorRenderer>();
+
     GDALAllRegister();
 
     if (!filePath.isEmpty())
@@ -129,6 +138,25 @@ GISRasterLayer::~GISRasterLayer()
 }
 
 // ---------------------------------------------------------------------------
+// Raster renderer (Slice BI Phase 8.13.6.7)
+// ---------------------------------------------------------------------------
+
+OpenSWMM::Render::IRasterRenderer *GISRasterLayer::rasterRenderer() const
+{
+    return m_rasterRenderer.get();
+}
+
+void GISRasterLayer::setRasterRenderer(std::unique_ptr<OpenSWMM::Render::IRasterRenderer> r)
+{
+    if (!r)
+        return;
+    if (r.get() == m_rasterRenderer.get())
+        return;
+    m_rasterRenderer = std::move(r);
+    emit rasterRendererChanged();
+}
+
+// ---------------------------------------------------------------------------
 // Dataset info
 // ---------------------------------------------------------------------------
 
@@ -137,6 +165,52 @@ int     GISRasterLayer::bandCount()   const { return m_dataset ? m_dataset->GetR
 int     GISRasterLayer::renderBand()  const { return m_renderBand; }
 double  GISRasterLayer::noDataValue() const { return m_noDataValue; }
 bool    GISRasterLayer::hasNoDataValue() const { return m_hasNoData; }
+
+QString GISRasterLayer::detectVerticalUnit() const
+{
+    if (!m_dataset)
+        return QStringLiteral("m");
+
+    const char *wkt = m_dataset->GetProjectionRef();
+    if (!wkt || !*wkt)
+        return QStringLiteral("m"); // no CRS — most global DEMs are metres
+
+    OGRSpatialReference srs;
+    if (srs.importFromWkt(wkt) != OGRERR_NONE)
+        return QStringLiteral("m");
+
+    // Geographic CRS (lat/lon): elevation virtually always in metres
+    // (SRTM, 3DEP arc-second, Copernicus DEM, etc.)
+    if (srs.IsGeographic())
+        return QStringLiteral("m");
+
+    // Compound CRS: GDAL embeds a VERT_CS node — read its linear unit.
+    if (srs.IsCompound()) {
+        OGRSpatialReference *vertSRS = srs.Clone();
+        if (vertSRS) {
+            // Strip the horizontal component so GetLinearUnits returns vert units.
+            OGR_SRSNode *vertNode = vertSRS->GetAttrNode("VERT_CS");
+            if (vertNode) {
+                const char *unitName = nullptr;
+                const double u = vertSRS->GetLinearUnits(&unitName);
+                vertSRS->Release();
+                if (qAbs(u - 1.0) < 1e-6)   return QStringLiteral("m");
+                if (qAbs(u - 0.3048) < 1e-4) return QStringLiteral("ft");
+                return QStringLiteral("m");
+            }
+            vertSRS->Release();
+        }
+    }
+
+    // Projected CRS: use horizontal linear unit as proxy.
+    // US state-plane / US survey feet projections use 0.3048 m/unit.
+    const char *unitName = nullptr;
+    const double u = srs.GetLinearUnits(&unitName);
+    if (qAbs(u - 1.0) < 1e-6)   return QStringLiteral("m");
+    if (qAbs(u - 0.3048) < 1e-4) return QStringLiteral("ft");
+
+    return QStringLiteral("m");
+}
 
 void GISRasterLayer::setRenderBand(int band)
 {
@@ -194,35 +268,64 @@ void GISRasterLayer::autoStretchColorRamp()
 
 double GISRasterLayer::valueAt(double mapX, double mapY,
                                 const SpatialReferenceSystem * /*canvasSRS*/,
-                                int band, bool *ok) const
+                                int /*band*/, bool *ok) const
 {
     if (ok) *ok = false;
 
-    if (!m_dataset || band < 1 || band > bandCount())
+    if (!m_dataset)
         return std::numeric_limits<double>::quiet_NaN();
 
+    // ---- Path 1: warped float64 cache (canvas CRS) -------------------------
+    // warpToCanvas() populates m_rawValueCache whenever the tile is rendered
+    // for a single-band raster.  This cache is already in canvas CRS so it
+    // works correctly regardless of any CRS mismatch between the raster and
+    // the canvas (including the GDAL-intractable Local→EPSG case).
+    if (!m_rawValueCache.isEmpty() && m_cacheExtent.isValid()
+            && m_rawCacheWidth > 0 && m_rawCacheHeight > 0) {
+        const double relX = (mapX - m_cacheExtent.xMin()) / m_cacheExtent.width();
+        const double relY = (m_cacheExtent.yMax() - mapY) / m_cacheExtent.height();
+        const int px = static_cast<int>(relX * m_rawCacheWidth);
+        const int py = static_cast<int>(relY * m_rawCacheHeight);
+        if (px >= 0 && px < m_rawCacheWidth && py >= 0 && py < m_rawCacheHeight) {
+            const double val = m_rawValueCache[py * m_rawCacheWidth + px];
+            if (!std::isnan(val) && !(m_hasNoData && val == m_noDataValue)) {
+                if (ok) *ok = true;
+                return val;
+            }
+            return std::numeric_limits<double>::quiet_NaN();
+        }
+        // Cursor is outside the cached tile extent — report no value.
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    // ---- Path 2: native geotransform (same-CRS fallback) -------------------
+    // Used when the cache hasn't been populated yet (raster not yet rendered
+    // to the canvas).  Assumes mapX/mapY are already in the raster's native CRS.
     if (!extent().isValid())
         return std::numeric_limits<double>::quiet_NaN();
 
-    // Convert map coord to dataset pixel coord (assuming dataset is in canvas CRS)
-    const MapExtent &ext = extent();
-    double relX  = (mapX - ext.xMin()) / ext.width();
-    double relY  = (ext.yMax() - mapY)  / ext.height();
+    double gt[6] = {};
+    if (m_dataset->GetGeoTransform(gt) != CE_None)
+        return std::numeric_limits<double>::quiet_NaN();
 
-    int rasterW = m_dataset->GetRasterXSize();
-    int rasterH = m_dataset->GetRasterYSize();
-
-    int px = static_cast<int>(relX * rasterW);
-    int py = static_cast<int>(relY * rasterH);
+    const double pixX = (mapX - gt[0]) / gt[1];
+    const double pixY = (mapY - gt[3]) / gt[5];
+    const int rasterW = m_dataset->GetRasterXSize();
+    const int rasterH = m_dataset->GetRasterYSize();
+    const int px = static_cast<int>(pixX);
+    const int py = static_cast<int>(pixY);
 
     if (px < 0 || px >= rasterW || py < 0 || py >= rasterH)
         return std::numeric_limits<double>::quiet_NaN();
 
     double value = 0.0;
-    CPLErr err = m_dataset->GetRasterBand(band)->RasterIO(
+    CPLErr err = m_dataset->GetRasterBand(m_renderBand)->RasterIO(
         GF_Read, px, py, 1, 1, &value, 1, 1, GDT_Float64, 0, 0);
 
     if (err != CE_None)
+        return std::numeric_limits<double>::quiet_NaN();
+
+    if (m_hasNoData && value == m_noDataValue)
         return std::numeric_limits<double>::quiet_NaN();
 
     if (ok) *ok = true;
@@ -282,13 +385,16 @@ void GISRasterLayer::render(QPainter *painter,
     double sy = imageSize.height() / extent.height();
 
     // Pixel position of the cached tile's top-left corner within the target image
-    double px = (m_cacheExtent.xMin() - extent.xMin()) * sx;
-    double py = (extent.yMax() - m_cacheExtent.yMax()) * sy;
+    const double pxLeft   = (m_cacheExtent.xMin() - extent.xMin()) * sx;
+    const double pyTop    = (extent.yMax() - m_cacheExtent.yMax()) * sy;
+    const double pxRight  = (m_cacheExtent.xMax() - extent.xMin()) * sx;
+    const double pyBottom = (extent.yMax() - m_cacheExtent.yMin()) * sy;
 
-    double tw = m_cacheExtent.width()  * sx;
-    double th = m_cacheExtent.height() * sy;
+    const QRectF dst = snapTileRectToDevicePx(
+        pxLeft, pyTop, pxRight, pyBottom,
+        painterDevicePixelRatio(painter));
 
-    painter->drawImage(QRectF(px, py, tw, th), m_cachedTile);
+    painter->drawImage(dst, m_cachedTile);
 }
 
 void GISRasterLayer::refreshScene(QGraphicsScene *scene,
@@ -434,8 +540,11 @@ void GISRasterLayer::closeDataset()
 
 void GISRasterLayer::invalidateCache()
 {
-    m_cachedTile  = QImage{};
-    m_cacheExtent = MapExtent{};
+    m_cachedTile    = QImage{};
+    m_cacheExtent   = MapExtent{};
+    m_rawValueCache.clear();
+    m_rawCacheWidth  = 0;
+    m_rawCacheHeight = 0;
 }
 
 QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
@@ -627,6 +736,13 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
         dstDS->GetRasterBand(1)->RasterIO(
             GF_Read, 0, 0, pixelWidth, pixelHeight, raw.data(),
             pixelWidth, pixelHeight, GDT_Float64, 0, 0);
+
+        // Cache the raw float64 values in canvas CRS so valueAt() can sample
+        // them regardless of CRS mismatch between the raster and canvas.
+        m_rawValueCache.resize(pixelWidth * pixelHeight);
+        m_rawCacheWidth  = pixelWidth;
+        m_rawCacheHeight = pixelHeight;
+        std::copy(raw.begin(), raw.end(), m_rawValueCache.begin());
 
         for (int y = 0; y < pixelHeight; ++y)
         {

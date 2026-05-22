@@ -57,6 +57,7 @@ public:
     MapRenderJob(const QList<OpenSWMMVisLayer *> &layers,
                  const MapExtent &extent,
                  const QSize &imageSize,
+                 qreal devicePixelRatio,
                  SpatialReferenceSystem *srs,
                  const QColor &bgColor,
                  QObject *parent = nullptr);
@@ -101,6 +102,7 @@ private:
     QList<OpenSWMMVisLayer *>    m_layers;
     MapExtent                m_extent;
     QSize                    m_imageSize;
+    qreal                    m_dpr { 1.0 };
     SpatialReferenceSystem  *m_srs;
     QColor                   m_bgColor;
     bool                     m_started   { false };

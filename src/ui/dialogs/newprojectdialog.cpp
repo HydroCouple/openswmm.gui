@@ -97,18 +97,19 @@ void NewProjectDialog::buildUi()
 
 void NewProjectDialog::seedDefaults()
 {
-    m_nameEdit->setText(QStringLiteral("Untitled"));
-    m_flowUnitsCombo->setCurrentText(QStringLiteral("CFS"));
-    m_infiltrationCombo->setCurrentText(QStringLiteral("HORTON"));
-    m_routingCombo->setCurrentText(QStringLiteral("DYNWAVE"));
-
-    // Legacy SWMM5 default sim window: Jan 1 2002 00:00 → 06:00.
-    const QDateTime start(QDate(2002, 1, 1), QTime(0, 0));
-    const QDateTime end(QDate(2002, 1, 1), QTime(6, 0));
-    m_startEdit->setDateTime(start);
-    m_endEdit->setDateTime(end);
-
     auto *prefs = PreferencesManager::instance();
+    const auto  sim = prefs->simulationDefaults();
+
+    m_nameEdit->setText(QStringLiteral("Untitled"));
+    m_flowUnitsCombo->setCurrentText(sim.flowUnits);
+    m_infiltrationCombo->setCurrentText(sim.infiltrationModel);
+    m_routingCombo->setCurrentText(sim.flowRouting);
+
+    // Today at midnight → start + 24 h (matches File→New silent path).
+    const QDateTime start(QDate::currentDate(), QTime(0, 0));
+    m_startEdit->setDateTime(start);
+    m_endEdit->setDateTime(start.addSecs(24 * 3600));
+
     if (!prefs->defaultCrsAuthority().isEmpty() && prefs->defaultCrsCode() > 0)
     {
         const QString code = QStringLiteral("%1:%2")

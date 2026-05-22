@@ -52,7 +52,9 @@ QVector<QPointF> insertedAt(const QVector<QPointF> &vertices,
 
 QVector<QPointF> removedAt(const QVector<QPointF> &vertices, int index)
 {
-    if (index < 0 || index >= vertices.size() || vertices.size() <= 2)
+    if (index < 0 || index >= vertices.size())
+        return vertices;
+    if (vertices.size() <= 2)
         return vertices;
 
     QVector<QPointF> out = vertices;
@@ -111,6 +113,24 @@ double distanceToPolyline(const QVector<QPointF> &vertices,
     if (segmentIndex) *segmentIndex = bestSeg;
     if (closestPoint) *closestPoint = bestPt;
     return best;
+}
+
+double polygonArea(const QVector<QPointF> &polygon)
+{
+    const int n = polygon.size();
+    if (n < 3)
+        return 0.0;
+
+    // Shoelace formula. Handles open and closed polygons:
+    // if first == last the extra degenerate edge contributes zero.
+    double area = 0.0;
+    for (int i = 0; i < n; ++i)
+    {
+        const QPointF &a = polygon[i];
+        const QPointF &b = polygon[(i + 1) % n];
+        area += a.x() * b.y() - b.x() * a.y();
+    }
+    return std::abs(area) * 0.5;
 }
 
 } // namespace EditGeometry

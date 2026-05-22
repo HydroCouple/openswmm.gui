@@ -44,6 +44,16 @@ ColumnSpec ro(const QString &key, const QString &label) {
     return c;
 }
 
+// Helper — editable name column (col 0 in every schema).
+ColumnSpec nameCol() {
+    ColumnSpec c;
+    c.key    = QStringLiteral("Name");
+    c.label  = QStringLiteral("Name");
+    c.editor = EditorKind::Text;
+    c.setter = QStringLiteral("rename");
+    return c;
+}
+
 // Helper — numeric editable column.
 ColumnSpec num(const QString &key, const QString &label,
                 const QString &setter,
@@ -116,7 +126,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
     switch (cat) {
     case SWMMModelLayer::CatJunctions:
         return {
-            ro("Name",       "Name"),
+            nameCol(),
             ro("Node type",  "Node Type"),
             ro("X",          "X Coordinate"),
             ro("Y",          "Y Coordinate"),
@@ -135,7 +145,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         // SWMM5 [OUTFALLS]: Name | Elev | Type | Gated | (StageData when FIXED).
         // No MaxDepth / InitDepth / SurDepth / Aponded at a boundary node.
         return {
-            ro("Name",       "Name"),
+            nameCol(),
             ro("Node type",  "Node Type"),
             ro("X",          "X Coordinate"),
             ro("Y",          "Y Coordinate"),
@@ -150,7 +160,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         };
     case SWMMModelLayer::CatStorage:
         return {
-            ro("Name",       "Name"),
+            nameCol(),
             ro("Node type",  "Node Type"),
             ro("X",          "X Coordinate"),
             ro("Y",          "Y Coordinate"),
@@ -167,7 +177,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         };
     case SWMMModelLayer::CatDividers:
         return {
-            ro("Name",       "Name"),
+            nameCol(),
             ro("Node type",  "Node Type"),
             ro("X",          "X Coordinate"),
             ro("Y",          "Y Coordinate"),
@@ -185,7 +195,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         };
     case SWMMModelLayer::CatConduits:
         return {
-            ro("Name",         "Name"),
+            nameCol(),
             ro("Link type",    "Link Type"),
             ro("Vertex count", "Vertex Count"),
             num("Length",      "Length",        "link_length",
@@ -204,7 +214,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         // Startup/Shutoff have no engine accessors today; PumpCurve is
         // read-only (name picker lands in AG.5).
         return {
-            ro("Name",         "Name"),
+            nameCol(),
             ro("Link type",    "Link Type"),
             ro("Vertex count", "Vertex Count"),
             enumCol("Initial state", "Initial State",
@@ -216,7 +226,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         // Gated | EndCon | EndCoeff.  No offsets — weirs sit at the
         // crest elevation directly.
         return {
-            ro("Name",         "Name"),
+            nameCol(),
             ro("Link type",    "Link Type"),
             ro("Vertex count", "Vertex Count"),
             num("Crest height", "Crest Height",   "link_crest_height",
@@ -233,7 +243,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         // SWMM5 [ORIFICES]: Name | FromNode | ToNode | Type | Offset |
         // Cd | Gated.  One offset (no downstream offset).
         return {
-            ro("Name",         "Name"),
+            nameCol(),
             ro("Link type",    "Link Type"),
             ro("Vertex count", "Vertex Count"),
             num("Offset up",   "Offset",   "link_offset_up",
@@ -248,7 +258,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         // Coeff | Expon.  Coeff/Expon land with AG.4's conditional
         // type picker.
         return {
-            ro("Name",         "Name"),
+            nameCol(),
             ro("Link type",    "Link Type"),
             ro("Vertex count", "Vertex Count"),
             num("Offset up",   "Offset",   "link_offset_up",
@@ -257,7 +267,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         };
     case SWMMModelLayer::CatSubcatchments:
         return {
-            ro("Name",             "Name"),
+            nameCol(),
             ro("Polygon vertices", "Vertex Count"),
             num("Area",      "Area",                  "subcatch_area",
                                                        0.0, 1e9, 4, UnitKind::SubcatchArea),
@@ -280,12 +290,12 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         };
     case SWMMModelLayer::CatRainGages:
         return {
-            ro("Name", "Name"),
+            nameCol(),
             ro("X",    "X Coordinate"),
             ro("Y",    "Y Coordinate"),
         };
     default:
-        return { ro("Name", "Name") };
+        return { nameCol() };
     }
 }
 
@@ -653,11 +663,7 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
     if (col < 0 || col >= m_columnSpecs.size()) return f;
     const auto &spec = m_columnSpecs[col];
     if (spec.editor != EditorKind::ReadOnly && !spec.setter.isEmpty()) {
-        // Slice Z.5.5 — lock edits while a simulation is running.
-        // The engine's CHECK_EDITABLE macro would reject the setter
-        // anyway, but stripping ItemIsEditable here disables the
-        // editor delegate so the user sees the column dim instead
-        // of seeing a spinbox that won't commit.
+        // Lock edits while a simulation is running.
         if (m_layer && m_layer->engine()) {
             int state = 0;
             if (swmm_engine_get_state(m_layer->engine(), &state) == SWMM_OK
@@ -671,10 +677,7 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
 
 namespace {
 
-// Z.5.5 — one undo command per cell edit.  The model is referenced
-// by QPointer so a destroyed model can't crash the undo stack on
-// late redo / undo (e.g. when the user closes the project window
-// before clearing the stack).
+// One undo command per cell edit.
 class AttributeEditCommand : public QUndoCommand {
 public:
     AttributeEditCommand(SWMMAttributeTableModel *model, int row, int col,
@@ -697,6 +700,33 @@ private:
     QVariant m_old, m_new;
 };
 
+// One undo command per name rename.
+class AttributeRenameCommand : public QUndoCommand {
+public:
+    AttributeRenameCommand(SWMMAttributeTableModel *model, int row,
+                            QString oldName, QString newName)
+        : m_model(model), m_row(row),
+          m_old(std::move(oldName)), m_new(std::move(newName)) {
+        setText(QObject::tr("Rename to \"%1\"").arg(m_new));
+    }
+    void redo() override { apply(m_old, m_new); }
+    void undo() override { apply(m_new, m_old); }
+private:
+    void apply(const QString &from, const QString &to) {
+        if (!m_model || !m_model->layer()) return;
+        m_model->layer()->applyRename(from, to);
+        // Refresh the model row so the Name cell re-reads from the engine.
+        if (m_row >= 0 && m_row < m_model->rowCount()) {
+            const QModelIndex nameIdx = m_model->index(m_row, 0);
+            emit m_model->dataChanged(nameIdx, nameIdx,
+                                      {Qt::DisplayRole, Qt::EditRole});
+        }
+    }
+    QPointer<SWMMAttributeTableModel> m_model;
+    int m_row;
+    QString m_old, m_new;
+};
+
 } // anonymous
 
 bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
@@ -705,10 +735,23 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
     if (!index.isValid() || !m_layer) return false;
     const int row = index.row();
     const int col = index.column();
-    if (col <= 0 || col >= m_columnSpecs.size()) return false;
+    if (col < 0 || col >= m_columnSpecs.size()) return false;
 
     const auto &spec = m_columnSpecs[col];
     if (spec.editor == EditorKind::ReadOnly || spec.setter.isEmpty()) return false;
+
+    // Name column (col 0, EditorKind::Text, setter == "rename").
+    if (col == 0 && spec.editor == EditorKind::Text) {
+        const QString oldName = objectNameAt(row);
+        const QString newName = value.toString().trimmed();
+        if (newName.isEmpty() || newName == oldName) return false;
+        if (!m_layer->applyRename(oldName, newName)) return false;
+        if (row >= 0 && row < m_rowCacheValid.size())
+            m_rowCacheValid[row] = false;
+        emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
+        emit objectEdited(newName);
+        return true;
+    }
 
     const auto entry = setterFor(spec.setter);
     if (!entry.setFn && !entry.setFnI) return false;
@@ -737,11 +780,6 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
     if (row >= 0 && row < m_rowCacheValid.size())
         m_rowCacheValid[row] = false;
     emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
-
-    // Round-4 follow-up 2026-05-12 — notify cross-view sync.  Fires
-    // only on user-initiated commits, not on synthetic `refreshObject`
-    // calls, so a property-browser-driven refresh of the table
-    // doesn't trigger an infinite loop back to the browser.
     emit objectEdited(name);
     return true;
 }
@@ -767,15 +805,26 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index,
 
     const int row = index.row();
     const int col = index.column();
-    if (col <= 0 || col >= m_columnSpecs.size()) return false;
+    if (col < 0 || col >= m_columnSpecs.size()) return false;
     const auto &spec = m_columnSpecs[col];
     if (spec.editor == EditorKind::ReadOnly || spec.setter.isEmpty()) return false;
 
-    // Z.5.5 — wrap each commit in an undo command when a stack is
-    // attached.  Capture the old value via data(EditRole) BEFORE
-    // applying so undo() restores it.  Without an undo stack, we
-    // commit directly — preserves the original behaviour for
-    // callers that haven't wired one up.
+    // Name column rename — duplicate-name check happens inside applyRename().
+    if (col == 0 && spec.editor == EditorKind::Text) {
+        const QString oldName = objectNameAt(row);
+        const QString newName = value.toString().trimmed();
+        if (newName.isEmpty() || newName == oldName) return true;  // no-op
+
+        if (!m_undoStack)
+            return commitValueDirect(index, value);
+
+        // Push an undo command; commitValueDirect will be called inside it.
+        m_undoStack->push(
+            new AttributeRenameCommand(this, row, oldName, newName));
+        return true;
+    }
+
+    // Wrap each numeric/enum commit in an undo command when a stack is attached.
     if (!m_undoStack)
         return commitValueDirect(index, value);
 

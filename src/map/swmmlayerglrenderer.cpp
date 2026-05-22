@@ -183,7 +183,7 @@ QImage SWMMLayerGLRenderer::render(const MapExtent &extent, QSize viewportSize)
     // are drawn via `drawPoints` with a wide cosmetic pen so they
     // appear as filled dots (no brush needed). See
     // ~/.claude/.../memory/feedback_qt_gl_fill_limitation.md.
-    const std::vector<float>    &flat    = m_layer->m_linkSceneFlat;
+    const std::vector<double>   &flat    = m_layer->m_linkSceneFlat;
     const std::vector<uint32_t> &offsets = m_layer->m_linkVertexOffset;
     const std::vector<uint32_t> &counts  = m_layer->m_linkVertexCount;
     const auto &linkHid  = m_layer->m_linkHiddenFlag;
@@ -194,7 +194,18 @@ QImage SWMMLayerGLRenderer::render(const MapExtent &extent, QSize viewportSize)
     const auto &catchSel = m_layer->m_catchSelectedFlag;
     const auto &gageHid  = m_layer->m_gageHiddenFlag;
     const auto &gageSel  = m_layer->m_gageSelectedFlag;
-    const QColor selectedColor(255, 255, 0);   // matches CPU path's yellow
+
+    // Per-class selection styling. The GL fallback can only honour
+    // pen.color() and pen.widthF() (it draws outlines on QPainter over
+    // a QOpenGLPaintDevice, with brush.color() backing the
+    // wide-pen junction "fill" trick); cap/join/dash work the same as
+    // the CPU compositor.
+    auto *prefs = PreferencesManager::instance();
+    const QPen   selLinkPen      = prefs->selectionPen  (QStringLiteral("link"));
+    const QPen   selSubcatchPen  = prefs->selectionPen  (QStringLiteral("subcatchment"));
+    const QPen   selNodePen      = prefs->selectionPen  (QStringLiteral("node"));
+    const QBrush selNodeFill     = prefs->selectionBrush(QStringLiteral("node"));
+    const QPen   selGagePen      = prefs->selectionPen  (QStringLiteral("gage"));
 
     m_fbo->bind();
     {
@@ -243,8 +254,9 @@ QImage SWMMLayerGLRenderer::render(const MapExtent &extent, QSize viewportSize)
                 if (i < cboxes.size()
                     && !exposed.intersects(cboxes[i])) continue;
                 const bool sel = size_t(i) < catchSel.size() && catchSel[i];
-                pen.setColor(sel ? selectedColor : sym.outlineColor);
-                pen.setWidthF(sel ? sym.outlineWidth + 1.0 : sym.outlineWidth);
+                pen.setColor(sel ? selSubcatchPen.color() : sym.outlineColor);
+                pen.setWidthF(sel ? selSubcatchPen.widthF()
+                                  : sym.outlineWidth);
                 painter.setPen(pen);
                 painter.drawPolygon(QPolygonF(cps[i]));
             }
@@ -253,23 +265,18 @@ QImage SWMMLayerGLRenderer::render(const MapExtent &extent, QSize viewportSize)
         // ----- Links (poly-lines) ----------------------------------------
         if (m_layer->showLinks())
         {
-            auto linkColorForType = [this](int linkType) {
+            // Pull the full pen from PreferencesManager so cap/join/
+            // style edits from the Rendering page are honoured by the
+            // GL fallback path too. Outlets (case 4) now use their own
+            // pen instead of falling back to the conduit symbol.
+            auto linkPenForType = [](int linkType) {
                 auto *prefs = PreferencesManager::instance();
                 switch (linkType) {
-                case 1:  return m_layer->pumpSymbol().fillColor;
-                case 2:  return m_layer->orificeSymbol().fillColor;
-                case 3:  return m_layer->weirSymbol().fillColor;
-                case 4:  return prefs->linkColor(QStringLiteral("outlet"));
-                default: return m_layer->conduitSymbol().fillColor;
-                }
-            };
-            auto linkWidthForType = [this](int linkType) {
-                switch (linkType) {
-                case 1:  return m_layer->pumpSymbol().outlineWidth;
-                case 2:  return m_layer->orificeSymbol().outlineWidth;
-                case 3:  return m_layer->weirSymbol().outlineWidth;
-                case 4:  return m_layer->conduitSymbol().outlineWidth;
-                default: return m_layer->conduitSymbol().outlineWidth;
+                case 1:  return prefs->linkPen(QStringLiteral("pump"));
+                case 2:  return prefs->linkPen(QStringLiteral("orifice"));
+                case 3:  return prefs->linkPen(QStringLiteral("weir"));
+                case 4:  return prefs->linkPen(QStringLiteral("outlet"));
+                default: return prefs->linkPen(QStringLiteral("conduit"));
                 }
             };
 
@@ -288,7 +295,7 @@ QImage SWMMLayerGLRenderer::render(const MapExtent &extent, QSize viewportSize)
                 const uint32_t cnt = counts[i];
                 if (cnt < 2) continue;
                 const uint32_t off = offsets[i];
-                const float *p = flat.data() + size_t(off) * 2;
+                const double *p = flat.data() + size_t(off) * 2;
                 const int type = (m_layer->m_links[i].linkType >= 0
                                && m_layer->m_links[i].linkType < 5)
                                ? m_layer->m_links[i].linkType : 0;
@@ -303,14 +310,20 @@ QImage SWMMLayerGLRenderer::render(const MapExtent &extent, QSize viewportSize)
 
             for (int t = 0; t < 5; ++t) {
                 if (segsByType[size_t(t)].isEmpty()) continue;
-                QPen pen(linkColorForType(t), linkWidthForType(t));
+                QPen pen = linkPenForType(t);
                 pen.setCosmetic(true);
                 painter.setPen(pen);
                 painter.drawLines(segsByType[size_t(t)]);
             }
             for (int t = 0; t < 5; ++t) {
                 if (selSegsByType[size_t(t)].isEmpty()) continue;
-                QPen hi(selectedColor, linkWidthForType(t) + 2.0);
+                QPen hi = linkPenForType(t);
+                hi.setColor(selLinkPen.color());
+                // ADDITIVE width: selection pen width stacks on top of
+                // the base link pen so the halo is always visible.
+                hi.setWidthF(hi.widthF() + selLinkPen.widthF());
+                if (selLinkPen.style() != Qt::SolidLine)
+                    hi.setStyle(selLinkPen.style());
                 hi.setCosmetic(true);
                 painter.setPen(hi);
                 painter.drawLines(selSegsByType[size_t(t)]);
@@ -383,7 +396,11 @@ QImage SWMMLayerGLRenderer::render(const MapExtent &extent, QSize viewportSize)
                     painter.drawEllipse(c, r, r);
             };
             drawJunctions(juncBase, jSym.fillColor, jSym.size);
-            drawJunctions(juncSel,  selectedColor,  jSym.size + 2.0);
+            // Selected junctions: the wide-pen trick fills the glyph,
+            // so the selection brush colour drives the visible fill and
+            // the pen width adds to the base diameter.
+            drawJunctions(juncSel,  selNodeFill.color(),
+                          jSym.size + selNodePen.widthF());
 
             // Outline-only glyphs for the rest. Shape-distinct enough
             // at typical sizes; selection becomes a yellow outline.
@@ -427,15 +444,15 @@ QImage SWMMLayerGLRenderer::render(const MapExtent &extent, QSize viewportSize)
             drawShapeOutlines(outBase, m_layer->outfallSymbol(), 1,
                               m_layer->outfallSymbol().outlineColor, 0.0);
             drawShapeOutlines(outSel,  m_layer->outfallSymbol(), 1,
-                              selectedColor, 1.0);
+                              selNodePen.color(), selNodePen.widthF());
             drawShapeOutlines(stoBase, m_layer->storageSymbol(), 2,
                               m_layer->storageSymbol().outlineColor, 0.0);
             drawShapeOutlines(stoSel,  m_layer->storageSymbol(), 2,
-                              selectedColor, 1.0);
+                              selNodePen.color(), selNodePen.widthF());
             drawShapeOutlines(divBase, m_layer->dividerSymbol(), 3,
                               m_layer->dividerSymbol().outlineColor, 0.0);
             drawShapeOutlines(divSel,  m_layer->dividerSymbol(), 3,
-                              selectedColor, 1.0);
+                              selNodePen.color(), selNodePen.widthF());
         }
 
         // ----- Rain gages (diamond outlines) -----------------------------
@@ -476,7 +493,7 @@ QImage SWMMLayerGLRenderer::render(const MapExtent &extent, QSize viewportSize)
                 }
             };
             drawDiamond(basePts, sym.outlineColor, 0.0);
-            drawDiamond(selPts,  selectedColor,    1.0);
+            drawDiamond(selPts,  selGagePen.color(), selGagePen.widthF());
         }
 
         painter.end();

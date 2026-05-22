@@ -6,17 +6,27 @@
  */
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/crsselectiondialog.h"
+#include "ui/dialogs/hotstartsavesmodel.h"
+#include "ui/dialogs/pathbrowsedelegate.h"
+#include "ui/dialogs/pluginstablemodel.h"
+#include "core/preferencesmanager.h"
 #include "layers/swmmmodellayer.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
 #include "plugins/filefilterregistry.h"
 #include "project/projectserializer.h"
+#include "swmmvisprojectwindow.h"
 
 #include <openswmm/plugin_sdk/PluginDiscovery.hpp>
 
+#include <qcustomeditors.h>
+
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDateEdit>
 #include <QDateTimeEdit>
+#include <QDoubleValidator>
+#include <QTimeEdit>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
@@ -25,6 +35,7 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QStandardItemModel>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
@@ -35,14 +46,31 @@
 #include <QSettings>
 #include <QLineEdit>
 #include <QSpinBox>
+#include <QTableView>
 #include <QTableWidget>
+#include <QAbstractItemView>
+#include <QBrush>
+#include <QButtonGroup>
+#include <QColor>
 #include <QHeaderView>
+#include <QItemSelectionModel>
+#include <QRadioButton>
 #include <QTabWidget>
+#include <QTextCharFormat>
+#include <QTextCursor>
+#include <QTextEdit>
+#include <QTextList>
+#include <QToolBar>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QAction>
 
+#include <openswmm/engine/openswmm_hotstart.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_spatial.h>
+
+#include <algorithm>
+#include <functional>
 
 // ---------------------------------------------------------------------------
 // Pure-helpers (parseEngineBool / engineBoolString / format/parse DateTime)
@@ -56,19 +84,104 @@
 
 SimulationOptionsDialog::SimulationOptionsDialog(SWMM_Engine engine,
                                                  SWMMModelLayer *layer,
+                                                 const QString &engineVersion,
+                                                 SWMMVisProjectWindow *projectWindow,
                                                  QWidget *parent)
     : QDialog(parent),
       m_engine(engine),
-      m_layer(layer)
+      m_layer(layer),
+      m_projectWindow(projectWindow),
+      m_engineVersion(engineVersion)
 {
     setWindowTitle(tr("Simulation Options"));
     resize(620, 600);
     buildUi();
     readFromEngine();
     refreshSpatialSummary();
+    applyEngineConstraints();
 }
 
 // Destructor is now inline in the header to keep the moc vtable self-contained.
+
+// ---------------------------------------------------------------------------
+// Engine constraints
+// ---------------------------------------------------------------------------
+
+/*!
+ * Disables widgets / tabs that the currently-selected engine does not support.
+ *
+ * Legacy SWMM 5.x limits:
+ *   - No DYNAMIC_SLOT surcharge method
+ *   - No SEMI_IMPLICIT node-continuity scheme
+ *   - No Anderson acceleration
+ *   - No plugin writers / containers
+ *   - No [PLUGINS] section
+ *
+ * The 2D module checkbox + Mesh tab + 2D Surface Routing tab stay editable
+ * even on legacy SWMM 5: mesh preparation is a pure GUI concern and the
+ * engine simply ignores 2D inputs at run time. New engine (6.x) supports
+ * all of the above, so all controls stay enabled.
+ */
+void SimulationOptionsDialog::applyEngineConstraints()
+{
+    const bool legacy = m_engineVersion.startsWith(QLatin1String("5."));
+    if (!legacy)
+        return;   // new engine: everything already enabled
+
+    const QString tip = tr("Not available in SWMM 5 (legacy engine).");
+
+    // ── Hydraulics tab: DYNAMIC_SLOT surcharge ─────────────────────────────
+    // EXTRAN and SLOT exist in SWMM 5.x; DYNAMIC_SLOT is new-engine-only.
+    if (m_surchargeCombo) {
+        auto *model = qobject_cast<QStandardItemModel *>(m_surchargeCombo->model());
+        if (model) {
+            for (int i = 0; i < m_surchargeCombo->count(); ++i) {
+                if (m_surchargeCombo->itemData(i).toString() == QLatin1String("DYNAMIC_SLOT")) {
+                    model->item(i)->setEnabled(false);
+                    model->item(i)->setToolTip(tip);
+                    if (m_surchargeCombo->currentIndex() == i)
+                        m_surchargeCombo->setCurrentIndex(0); // fall back to EXTRAN
+                    break;
+                }
+            }
+        }
+        updateSurchargeFieldsEnabled(); // ensure DPS_* spins follow
+    }
+
+    // ── Hydraulics tab: node-continuity and Anderson acceleration ──────────
+    if (m_nodeContinuityCombo) {
+        auto *model = qobject_cast<QStandardItemModel *>(m_nodeContinuityCombo->model());
+        if (model) {
+            for (int i = 0; i < m_nodeContinuityCombo->count(); ++i) {
+                if (m_nodeContinuityCombo->itemData(i).toString() == QLatin1String("SEMI_IMPLICIT")) {
+                    model->item(i)->setEnabled(false);
+                    model->item(i)->setToolTip(tip);
+                    if (m_nodeContinuityCombo->currentIndex() == i)
+                        m_nodeContinuityCombo->setCurrentIndex(0); // fall back to EXPLICIT
+                    break;
+                }
+            }
+        }
+    }
+    if (m_andersonAccelBox) {
+        m_andersonAccelBox->setEnabled(false);
+        m_andersonAccelBox->setToolTip(tip);
+    }
+
+    // ── Files tab: plugin writers and [PLUGINS] table ──────────────────────
+    if (m_writersGroup) {
+        m_writersGroup->setEnabled(false);
+        m_writersGroup->setToolTip(tip);
+    }
+    for (QWidget *w : {(QWidget *)m_pluginsView,
+                       (QWidget *)m_pluginsAddBtn,
+                       (QWidget *)m_pluginsRemoveBtn}) {
+        if (w) {
+            w->setEnabled(false);
+            w->setToolTip(tip);
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // UI
@@ -81,6 +194,7 @@ void SimulationOptionsDialog::buildUi()
     m_tabs = tabs;  // captured so the 2D-module toggle can flip the tab.
     root->addWidget(tabs, 1);
 
+    buildTitleNotesTab(tabs);
     buildModelsTab(tabs);
     buildDatesTab(tabs);
     buildHydraulicsTab(tabs);
@@ -90,12 +204,10 @@ void SimulationOptionsDialog::buildUi()
     // Mesh configurations — file-management UI, lives outside any
     // OPENSWMM_HAS_2D guard because picking a *.2dm reference is a pure
     // GUI concern (the engine 2D solver isn't required to organise mesh
-    // candidates). Tab is enabled/disabled in lockstep with the 2D module
-    // toggle on the Models tab.
+    // candidates). Always editable: creating/selecting a mesh is what
+    // turns on the 2D module, not the other way around.
     buildMeshTab(tabs);
     m_meshTabIndex = tabs->count() - 1;
-    if (m_module2DBox)
-        tabs->setTabEnabled(m_meshTabIndex, m_module2DBox->isChecked());
 
 #ifdef OPENSWMM_HAS_2D
     build2DTab(tabs);
@@ -115,6 +227,84 @@ void SimulationOptionsDialog::buildUi()
     connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(bb->button(QDialogButtonBox::Apply), &QPushButton::clicked,
             this, &SimulationOptionsDialog::onApply);
+}
+
+void SimulationOptionsDialog::buildTitleNotesTab(QTabWidget *tabs)
+{
+    auto *page = new QWidget(tabs);
+    auto *vlay = new QVBoxLayout(page);
+
+    auto *toolbar = new QToolBar(page);
+    toolbar->setIconSize(QSize(16, 16));
+
+    m_titleBoldAction = toolbar->addAction(tr("Bold"));
+    m_titleBoldAction->setShortcut(QKeySequence::Bold);
+    m_titleBoldAction->setCheckable(true);
+    m_titleBoldAction->setToolTip(tr("Bold (Ctrl+B)"));
+
+    m_titleItalicAction = toolbar->addAction(tr("Italic"));
+    m_titleItalicAction->setShortcut(QKeySequence::Italic);
+    m_titleItalicAction->setCheckable(true);
+    m_titleItalicAction->setToolTip(tr("Italic (Ctrl+I)"));
+
+    m_titleUnderlineAction = toolbar->addAction(tr("Underline"));
+    m_titleUnderlineAction->setShortcut(QKeySequence::Underline);
+    m_titleUnderlineAction->setCheckable(true);
+    m_titleUnderlineAction->setToolTip(tr("Underline (Ctrl+U)"));
+
+    toolbar->addSeparator();
+    auto *bulletAction = toolbar->addAction(tr("Bulleted list"));
+    bulletAction->setToolTip(tr("Insert bulleted list"));
+    auto *numberedAction = toolbar->addAction(tr("Numbered list"));
+    numberedAction->setToolTip(tr("Insert numbered list"));
+
+    vlay->addWidget(toolbar);
+
+    m_titleNotesEdit = new QTextEdit(page);
+    m_titleNotesEdit->setAcceptRichText(true);
+    m_titleNotesEdit->setPlaceholderText(
+        tr("Enter project title and notes (mirrors the SWMM [TITLE] section)."));
+    vlay->addWidget(m_titleNotesEdit, 1);
+
+    connect(m_titleBoldAction, &QAction::triggered, this, [this](bool checked) {
+        if (!m_titleNotesEdit) return;
+        QTextCharFormat fmt;
+        fmt.setFontWeight(checked ? QFont::Bold : QFont::Normal);
+        m_titleNotesEdit->mergeCurrentCharFormat(fmt);
+    });
+    connect(m_titleItalicAction, &QAction::triggered, this, [this](bool checked) {
+        if (!m_titleNotesEdit) return;
+        QTextCharFormat fmt;
+        fmt.setFontItalic(checked);
+        m_titleNotesEdit->mergeCurrentCharFormat(fmt);
+    });
+    connect(m_titleUnderlineAction, &QAction::triggered, this, [this](bool checked) {
+        if (!m_titleNotesEdit) return;
+        QTextCharFormat fmt;
+        fmt.setFontUnderline(checked);
+        m_titleNotesEdit->mergeCurrentCharFormat(fmt);
+    });
+    auto applyListStyle = [this](QTextListFormat::Style style) {
+        if (!m_titleNotesEdit) return;
+        QTextCursor c = m_titleNotesEdit->textCursor();
+        c.createList(style);
+    };
+    connect(bulletAction,   &QAction::triggered, this,
+            [applyListStyle]() { applyListStyle(QTextListFormat::ListDisc); });
+    connect(numberedAction, &QAction::triggered, this,
+            [applyListStyle]() { applyListStyle(QTextListFormat::ListDecimal); });
+
+    connect(m_titleNotesEdit, &QTextEdit::currentCharFormatChanged, this,
+            [this](const QTextCharFormat &fmt) {
+                if (m_titleBoldAction)
+                    m_titleBoldAction->setChecked(fmt.fontWeight() >= QFont::Bold);
+                if (m_titleItalicAction)
+                    m_titleItalicAction->setChecked(fmt.fontItalic());
+                if (m_titleUnderlineAction)
+                    m_titleUnderlineAction->setChecked(fmt.fontUnderline());
+            });
+
+    tabs->addTab(page, tr("Title / Notes"));
 }
 
 void SimulationOptionsDialog::buildModelsTab(QTabWidget *tabs)
@@ -192,20 +382,27 @@ void SimulationOptionsDialog::buildModelsTab(QTabWidget *tabs)
     auto *flagsLay   = new QVBoxLayout(flagsGroup);
 
     m_allowPondingBox  = new QCheckBox(tr("Allow ponding at nodes (ALLOW_PONDING)"), flagsGroup);
-    m_skipSteadyBox    = new QCheckBox(tr("Skip steady-periods (SKIP_STEADY_STATE)"), flagsGroup);
     flagsLay->addWidget(m_allowPondingBox);
-    flagsLay->addWidget(m_skipSteadyBox);
 
     vlay->addWidget(flagsGroup);
 
-    auto *ignoreGroup = new QGroupBox(tr("Ignore processes"), page);
+    // Process activation. Checked = process runs (engine writes IGNORE_X NO);
+    // unchecked = engine ignores the process (writes IGNORE_X YES). The
+    // .inp surface keeps the legacy IGNORE_* keys — only the UI flips.
+    auto *ignoreGroup = new QGroupBox(tr("Active processes"), page);
     auto *ignoreLay   = new QVBoxLayout(ignoreGroup);
-    m_ignoreRainfallBox    = new QCheckBox(tr("Ignore rainfall (IGNORE_RAINFALL)"),     ignoreGroup);
-    m_ignoreSnowmeltBox    = new QCheckBox(tr("Ignore snowmelt (IGNORE_SNOWMELT)"),     ignoreGroup);
-    m_ignoreGroundwaterBox = new QCheckBox(tr("Ignore groundwater (IGNORE_GROUNDWATER)"), ignoreGroup);
-    m_ignoreRDIIBox        = new QCheckBox(tr("Ignore RDII (IGNORE_RDII)"),              ignoreGroup);
-    m_ignoreQualityBox     = new QCheckBox(tr("Ignore water quality (IGNORE_QUALITY)"),  ignoreGroup);
-    m_ignoreRoutingBox     = new QCheckBox(tr("Ignore routing (IGNORE_ROUTING)"),        ignoreGroup);
+    m_ignoreRainfallBox    = new QCheckBox(tr("Rainfall / runoff"),  ignoreGroup);
+    m_ignoreSnowmeltBox    = new QCheckBox(tr("Snowmelt"),           ignoreGroup);
+    m_ignoreGroundwaterBox = new QCheckBox(tr("Groundwater"),        ignoreGroup);
+    m_ignoreRDIIBox        = new QCheckBox(tr("RDII"),               ignoreGroup);
+    m_ignoreQualityBox     = new QCheckBox(tr("Water quality"),      ignoreGroup);
+    m_ignoreRoutingBox     = new QCheckBox(tr("Flow routing"),       ignoreGroup);
+    m_ignoreRainfallBox   ->setToolTip(tr("Unchecking writes IGNORE_RAINFALL YES — engine skips runoff entirely."));
+    m_ignoreSnowmeltBox   ->setToolTip(tr("Unchecking writes IGNORE_SNOWMELT YES — engine skips snowmelt."));
+    m_ignoreGroundwaterBox->setToolTip(tr("Unchecking writes IGNORE_GROUNDWATER YES — engine skips groundwater."));
+    m_ignoreRDIIBox       ->setToolTip(tr("Unchecking writes IGNORE_RDII YES — engine skips RDII."));
+    m_ignoreQualityBox    ->setToolTip(tr("Unchecking writes IGNORE_QUALITY YES — engine skips water-quality routing."));
+    m_ignoreRoutingBox    ->setToolTip(tr("Unchecking writes IGNORE_ROUTING YES — engine skips flow routing."));
     ignoreLay->addWidget(m_ignoreRainfallBox);
     ignoreLay->addWidget(m_ignoreSnowmeltBox);
     ignoreLay->addWidget(m_ignoreGroundwaterBox);
@@ -222,50 +419,185 @@ void SimulationOptionsDialog::buildModelsTab(QTabWidget *tabs)
 void SimulationOptionsDialog::buildDatesTab(QTabWidget *tabs)
 {
     auto *page = new QWidget(tabs);
-    auto *form = new QFormLayout(page);
+    auto *vlay = new QVBoxLayout(page);
 
-    m_startEdit = new QDateTimeEdit(page);
+    // ── Simulation window ──────────────────────────────────────────────
+    auto *winGroup = new QGroupBox(tr("Simulation window"), page);
+    auto *winForm  = new QFormLayout(winGroup);
+
+    m_startEdit = new QDateTimeEdit(winGroup);
     m_startEdit->setCalendarPopup(true);
     m_startEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
-    form->addRow(tr("Start:"), m_startEdit);
+    winForm->addRow(tr("Start:"), m_startEdit);
 
-    m_endEdit = new QDateTimeEdit(page);
+    m_endEdit = new QDateTimeEdit(winGroup);
     m_endEdit->setCalendarPopup(true);
     m_endEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
-    form->addRow(tr("End:"), m_endEdit);
+    winForm->addRow(tr("End:"), m_endEdit);
 
-    m_reportStartEdit = new QDateTimeEdit(page);
+    m_durationLabel = new QLabel(QStringLiteral("—"), winGroup);
+    m_durationLabel->setToolTip(tr("Simulation timespan (End − Start)."));
+    winForm->addRow(tr("Duration:"), m_durationLabel);
+
+    m_reportStartEdit = new QDateTimeEdit(winGroup);
     m_reportStartEdit->setCalendarPopup(true);
     m_reportStartEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
-    form->addRow(tr("Report start:"), m_reportStartEdit);
+    winForm->addRow(tr("Report start:"), m_reportStartEdit);
 
-    // Time-step spin boxes — engine stores these in seconds.
-    m_reportStepSpin = new QSpinBox(page);
-    m_reportStepSpin->setRange(1, 3600 * 24);
-    m_reportStepSpin->setSuffix(QStringLiteral(" s"));
-    form->addRow(tr("Reporting step:"), m_reportStepSpin);
+    vlay->addWidget(winGroup);
 
-    m_dryStepSpin = new QSpinBox(page);
-    m_dryStepSpin->setRange(1, 3600 * 24);
-    m_dryStepSpin->setSuffix(QStringLiteral(" s"));
-    form->addRow(tr("Dry-weather step:"), m_dryStepSpin);
+    // Live sync: clamp report-start ≥ start, refresh duration label.
+    connect(m_startEdit, &QDateTimeEdit::dateTimeChanged,
+            this, [this](const QDateTime &s) {
+                m_reportStartEdit->setMinimumDateTime(s);
+                if (m_reportStartEdit->dateTime() < s)
+                    m_reportStartEdit->setDateTime(s);
+                updateDurationLabel();
+            });
+    connect(m_endEdit, &QDateTimeEdit::dateTimeChanged,
+            this, [this](const QDateTime &) { updateDurationLabel(); });
 
-    m_wetStepSpin = new QSpinBox(page);
-    m_wetStepSpin->setRange(1, 3600 * 24);
-    m_wetStepSpin->setSuffix(QStringLiteral(" s"));
-    form->addRow(tr("Wet-weather step:"), m_wetStepSpin);
+    // ── Time steps ─────────────────────────────────────────────────────
+    auto *stepGroup = new QGroupBox(tr("Time steps"), page);
+    auto *stepForm  = new QFormLayout(stepGroup);
 
-    m_routingStepSpin = new QDoubleSpinBox(page);
-    m_routingStepSpin->setRange(0.1, 3600.0);
-    m_routingStepSpin->setDecimals(2);
-    m_routingStepSpin->setSuffix(QStringLiteral(" s"));
-    form->addRow(tr("Routing step:"), m_routingStepSpin);
+    m_reportStepEdit = new QCustomTimespanEdit(stepGroup);
+    m_reportStepEdit->setToolTip(tr("Reporting step (REPORT_STEP)."));
+    stepForm->addRow(tr("Reporting step:"), m_reportStepEdit);
 
-    m_dryDaysSpin = new QDoubleSpinBox(page);
+    m_dryStepEdit = new QCustomTimespanEdit(stepGroup);
+    m_dryStepEdit->setToolTip(tr("Runoff dry-weather step (DRY_STEP)."));
+    stepForm->addRow(tr("Dry-weather step:"), m_dryStepEdit);
+
+    m_wetStepEdit = new QCustomTimespanEdit(stepGroup);
+    m_wetStepEdit->setToolTip(tr("Runoff wet-weather step (WET_STEP)."));
+    stepForm->addRow(tr("Wet-weather step:"), m_wetStepEdit);
+
+    m_ruleStepEdit = new QTimeEdit(stepGroup);
+    m_ruleStepEdit->setDisplayFormat(QStringLiteral("HH:mm:ss"));
+    m_ruleStepEdit->setTime(QTime(0, 0, 0));
+    m_ruleStepEdit->setToolTip(tr("Control-rule evaluation step (RULE_STEP). "
+                                   "0 means rules are evaluated every routing step."));
+    stepForm->addRow(tr("Control rule step:"), m_ruleStepEdit);
+
+    // Routing step — plain floating-point text box (no spin buttons),
+    // displayed in seconds. Engine accepts decimal seconds via ROUTING_STEP.
+    m_routingStepEdit = new QLineEdit(stepGroup);
+    auto *routingValidator = new QDoubleValidator(0.001, 3600.0, 6, m_routingStepEdit);
+    routingValidator->setNotation(QDoubleValidator::StandardNotation);
+    m_routingStepEdit->setValidator(routingValidator);
+    m_routingStepEdit->setPlaceholderText(QStringLiteral("seconds"));
+    m_routingStepEdit->setToolTip(tr("Routing step in seconds (ROUTING_STEP)."));
+    stepForm->addRow(tr("Routing step:"), m_routingStepEdit);
+
+    vlay->addWidget(stepGroup);
+
+    // ── Skip steady state ──────────────────────────────────────────────
+    // LAT_FLOW_TOL / SYS_FLOW_TOL only matter when SKIP_STEADY_STATE is on
+    // — engine treats them as the change thresholds for declaring a period
+    // "steady". Grouping the three together makes the dependency clear.
+    auto *skipGroup = new QGroupBox(tr("Skip steady state"), page);
+    auto *skipForm  = new QFormLayout(skipGroup);
+
+    m_skipSteadyBox = new QCheckBox(tr("Skip steady-periods (SKIP_STEADY_STATE)"),
+                                     skipGroup);
+    skipForm->addRow(QString(), m_skipSteadyBox);
+
+    m_latFlowTolSpin = new QDoubleSpinBox(skipGroup);
+    m_latFlowTolSpin->setRange(0.0, 100.0);
+    m_latFlowTolSpin->setSuffix(QStringLiteral(" %"));
+    m_latFlowTolSpin->setToolTip(tr("Lateral flow tolerance — engine stores as fraction (LAT_FLOW_TOL)."));
+    skipForm->addRow(tr("Lateral flow tol:"), m_latFlowTolSpin);
+
+    m_sysFlowTolSpin = new QDoubleSpinBox(skipGroup);
+    m_sysFlowTolSpin->setRange(0.0, 100.0);
+    m_sysFlowTolSpin->setSuffix(QStringLiteral(" %"));
+    m_sysFlowTolSpin->setToolTip(tr("System flow tolerance (SYS_FLOW_TOL)."));
+    skipForm->addRow(tr("System flow tol:"), m_sysFlowTolSpin);
+
+    // Grey out the tolerance spins when skip-steady is off — they remain
+    // serialised either way so toggling back on restores the prior values.
+    auto syncSkipEnabled = [this]() {
+        const bool on = m_skipSteadyBox->isChecked();
+        m_latFlowTolSpin->setEnabled(on);
+        m_sysFlowTolSpin->setEnabled(on);
+    };
+    connect(m_skipSteadyBox, &QCheckBox::toggled,
+            this, [syncSkipEnabled](bool) { syncSkipEnabled(); });
+    syncSkipEnabled();
+
+    vlay->addWidget(skipGroup);
+
+    // ── Sweep / antecedent ─────────────────────────────────────────────
+    auto *sweepGroup = new QGroupBox(tr("Sweep / antecedent"), page);
+    auto *sweepForm  = new QFormLayout(sweepGroup);
+
+    // SWEEP_START / SWEEP_END are MM/DD only — use a fixed year (2000, a
+    // leap year so 02/29 stays selectable) internally and strip it on
+    // write. Matches the legacy SWMM-GUI Delphi convention.
+    m_sweepStartEdit = new QDateEdit(QDate(2000, 1, 1), sweepGroup);
+    m_sweepStartEdit->setDisplayFormat(QStringLiteral("MM/dd"));
+    m_sweepStartEdit->setCalendarPopup(true);
+    m_sweepStartEdit->setToolTip(tr("Street-sweeping season start (SWEEP_START, MM/DD)."));
+    sweepForm->addRow(tr("Start sweeping on:"), m_sweepStartEdit);
+
+    m_sweepEndEdit = new QDateEdit(QDate(2000, 12, 31), sweepGroup);
+    m_sweepEndEdit->setDisplayFormat(QStringLiteral("MM/dd"));
+    m_sweepEndEdit->setCalendarPopup(true);
+    m_sweepEndEdit->setToolTip(tr("Street-sweeping season end (SWEEP_END, MM/DD)."));
+    sweepForm->addRow(tr("End sweeping on:"), m_sweepEndEdit);
+
+    m_dryDaysSpin = new QDoubleSpinBox(sweepGroup);
     m_dryDaysSpin->setRange(0.0, 3650.0);
     m_dryDaysSpin->setDecimals(2);
     m_dryDaysSpin->setSuffix(QStringLiteral(" d"));
-    form->addRow(tr("Antecedent dry days:"), m_dryDaysSpin);
+    sweepForm->addRow(tr("Antecedent dry days:"), m_dryDaysSpin);
+
+    vlay->addWidget(sweepGroup);
+
+    // ── Events ([EVENTS] section editor, Slice CW) ─────────────────────
+    // Mirrors SWMM 5.2's [EVENTS] block: a list of {start, end} windows the
+    // engine treats as routing-active periods when SKIP_STEADY_STATE is YES
+    // (see swmm_is_between_events in openswmm_engine.h:301).  Two columns:
+    // Start and End.  Cells use a QDateTimeEdit inline editor.  HH:MM
+    // precision (legacy SWMM 5 parity, decided 2026-05-21).
+    auto *evGroup = new QGroupBox(tr("Events ([EVENTS])"), page);
+    auto *evLay   = new QVBoxLayout(evGroup);
+    evGroup->setToolTip(tr(
+        "Optional list of routing-active time windows. When Skip Steady State "
+        "is on the engine routes full dynamic-wave hydraulics only inside "
+        "these windows."));
+
+    m_eventsTable = new QTableWidget(0, 2, evGroup);
+    m_eventsTable->setHorizontalHeaderLabels(
+        {tr("Start (MM/DD/YYYY HH:MM)"), tr("End (MM/DD/YYYY HH:MM)")});
+    m_eventsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_eventsTable->verticalHeader()->setVisible(false);
+    m_eventsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_eventsTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_eventsTable->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    evLay->addWidget(m_eventsTable);
+
+    auto *evBtnRow = new QHBoxLayout();
+    m_eventsAddBtn    = new QPushButton(tr("Add row"),         evGroup);
+    m_eventsRemoveBtn = new QPushButton(tr("Remove selected"), evGroup);
+    m_eventsRemoveBtn->setEnabled(false);
+    evBtnRow->addWidget(m_eventsAddBtn);
+    evBtnRow->addWidget(m_eventsRemoveBtn);
+    evBtnRow->addStretch();
+    evLay->addLayout(evBtnRow);
+
+    connect(m_eventsAddBtn,    &QPushButton::clicked,
+            this, &SimulationOptionsDialog::addEventRow);
+    connect(m_eventsRemoveBtn, &QPushButton::clicked,
+            this, &SimulationOptionsDialog::removeSelectedEventRows);
+    connect(m_eventsTable, &QTableWidget::itemSelectionChanged, this, [this]() {
+        m_eventsRemoveBtn->setEnabled(
+            !m_eventsTable->selectedItems().isEmpty());
+    });
+
+    vlay->addWidget(evGroup);
+    vlay->addStretch();
 
     tabs->addTab(page, tr("Dates & Times"));
 }
@@ -338,18 +670,6 @@ void SimulationOptionsDialog::buildHydraulicsTab(QTabWidget *tabs)
     m_headTolSpin->setDecimals(6);
     m_headTolSpin->setToolTip(tr("Head convergence tolerance (HEAD_TOLERANCE)."));
     solForm->addRow(tr("Head tolerance:"), m_headTolSpin);
-
-    m_latFlowTolSpin = new QDoubleSpinBox(solGroup);
-    m_latFlowTolSpin->setRange(0.0, 100.0);
-    m_latFlowTolSpin->setSuffix(QStringLiteral(" %"));
-    m_latFlowTolSpin->setToolTip(tr("Lateral flow tolerance — engine stores as fraction (LAT_FLOW_TOL)."));
-    solForm->addRow(tr("Lateral flow tol:"), m_latFlowTolSpin);
-
-    m_sysFlowTolSpin = new QDoubleSpinBox(solGroup);
-    m_sysFlowTolSpin->setRange(0.0, 100.0);
-    m_sysFlowTolSpin->setSuffix(QStringLiteral(" %"));
-    m_sysFlowTolSpin->setToolTip(tr("System flow tolerance (SYS_FLOW_TOL)."));
-    solForm->addRow(tr("System flow tol:"), m_sysFlowTolSpin);
 
     m_lengtheningSpin = new QDoubleSpinBox(solGroup);
     m_lengtheningSpin->setRange(0.0, 3600.0);
@@ -451,6 +771,26 @@ void SimulationOptionsDialog::updateSurchargeFieldsEnabled()
     if (m_dpsCelerSpin) m_dpsCelerSpin->setEnabled(dyn);
     if (m_dpsAlphaSpin) m_dpsAlphaSpin->setEnabled(dyn);
     if (m_dpsDecaySpin) m_dpsDecaySpin->setEnabled(dyn);
+}
+
+void SimulationOptionsDialog::updateDurationLabel()
+{
+    if (!m_durationLabel || !m_startEdit || !m_endEdit) return;
+    const qint64 secs = m_startEdit->dateTime().secsTo(m_endEdit->dateTime());
+    if (secs <= 0) {
+        m_durationLabel->setText(QStringLiteral("—"));
+        return;
+    }
+    const qint64 days  = secs / 86400;
+    const qint64 hours = (secs % 86400) / 3600;
+    const qint64 mins  = (secs % 3600) / 60;
+    const qint64 ss    = secs % 60;
+    m_durationLabel->setText(
+        QString::asprintf("%lldd %02lld:%02lld:%02lld",
+                          static_cast<long long>(days),
+                          static_cast<long long>(hours),
+                          static_cast<long long>(mins),
+                          static_cast<long long>(ss)));
 }
 
 // ---------------------------------------------------------------------------
@@ -640,6 +980,10 @@ void SimulationOptionsDialog::buildMeshTab(QTabWidget *tabs)
     connect(btnRefresh, &QPushButton::clicked, this,
             &SimulationOptionsDialog::refreshMeshList);
     connect(btnSetActive, &QPushButton::clicked, this, [this]() {
+        // Selecting an active mesh implies the user wants 2D on. Flip the
+        // module checkbox so the corresponding tab + persistence follow.
+        if (m_module2DBox && !m_module2DBox->isChecked())
+            m_module2DBox->setChecked(true);
         QMessageBox::information(this, tr("Set Active Mesh"),
             tr("[2D_MESH_FILE] re-targeting lands alongside the "
                "Generate Mesh dialog (Slice AU.4)."));
@@ -724,14 +1068,14 @@ void SimulationOptionsDialog::refreshMeshList()
 
 void SimulationOptionsDialog::on2DModuleToggled(bool enabled)
 {
-    // Drive the Mesh + (engine-gated) 2D Surface Routing tabs together.
-    // Tabs stay visible either way so the user can preview the layout
-    // when 2D is off; only interactive state flips.
-    if (m_tabs && m_meshTabIndex >= 0)
-        m_tabs->setTabEnabled(m_meshTabIndex, enabled);
+    // Only the 2D Surface Routing solver-parameter tab follows the module
+    // toggle. The Mesh tab is always interactive — mesh creation is what
+    // flips the module on, so gating it here would be circular.
 #ifdef OPENSWMM_HAS_2D
     if (m_tabs && m_2DTabIndex >= 0)
         m_tabs->setTabEnabled(m_2DTabIndex, enabled);
+#else
+    Q_UNUSED(enabled);
 #endif
 }
 
@@ -933,6 +1277,487 @@ QString SimulationOptionsDialog::getOption(const char *key,
     return fallback;
 }
 
+// ---------------------------------------------------------------------------
+// [EVENTS] section helpers (Slice CW — 2026-05-21)
+// ---------------------------------------------------------------------------
+// oaDateFromQDateTime / qDateTimeFromOaDate are static methods on
+// SimulationOptionsDialog defined in simulationoptionshelpers.cpp so the
+// leaf QtTest can link them without dragging the spatial-tab OGR cascade.
+
+namespace {
+
+// Wrap a QDateTimeEdit inside a QTableWidget cell.  Centralised so every
+// row uses the same display format / calendar policy.  HH:MM precision
+// (legacy SWMM 5 parity, decided 2026-05-21).
+QDateTimeEdit *makeEventCellEditor(const QDateTime &dt, QWidget *parent)
+{
+    auto *edit = new QDateTimeEdit(dt, parent);
+    edit->setCalendarPopup(true);
+    edit->setDisplayFormat(QStringLiteral("MM/dd/yyyy HH:mm"));
+    edit->setFrame(false);
+    return edit;
+}
+
+} // namespace
+
+void SimulationOptionsDialog::addEventRow()
+{
+    if (!m_eventsTable) return;
+    const int row = m_eventsTable->rowCount();
+    m_eventsTable->insertRow(row);
+    // Default both columns to (project start, project end) so the user only
+    // edits the deltas.  Fall back to "now" when the Dates tab edits haven't
+    // been populated yet (shouldn't happen — buildDatesTab seeds them).
+    const QDateTime defStart = m_startEdit ? m_startEdit->dateTime()
+                                           : QDateTime::currentDateTime();
+    const QDateTime defEnd   = m_endEdit   ? m_endEdit->dateTime()
+                                           : defStart.addDays(1);
+    m_eventsTable->setCellWidget(row, 0, makeEventCellEditor(defStart, m_eventsTable));
+    m_eventsTable->setCellWidget(row, 1, makeEventCellEditor(defEnd,   m_eventsTable));
+}
+
+void SimulationOptionsDialog::removeSelectedEventRows()
+{
+    if (!m_eventsTable) return;
+    // Collect distinct row indices.  selectedRows() returns one QModelIndex
+    // per selected row regardless of which column the click landed on.
+    // Sort descending so removeRow() doesn't shift the indices we still
+    // need to delete.
+    QList<int> rows;
+    const auto idxs = m_eventsTable->selectionModel()->selectedRows();
+    rows.reserve(idxs.size());
+    for (const auto &idx : idxs)
+        rows.append(idx.row());
+    // Fallback: if no full-row selection (user clicked a single cell),
+    // fall back to selectedItems() which covers cell selection.
+    if (rows.isEmpty()) {
+        const auto items = m_eventsTable->selectedItems();
+        for (auto *it : items)
+            if (!rows.contains(it->row()))
+                rows.append(it->row());
+    }
+    std::sort(rows.begin(), rows.end(), std::greater<int>());
+    for (int r : rows)
+        m_eventsTable->removeRow(r);
+}
+
+void SimulationOptionsDialog::readEventsFromEngine()
+{
+    if (!m_eventsTable) return;
+
+    // Wipe before refilling — readFromEngine is also called after writeApply
+    // to surface engine-normalised values.
+    m_eventsTable->setRowCount(0);
+    m_eventsSnapshot.clear();
+
+    if (!m_engine) return;
+
+    int count = 0;
+    if (swmm_events_count(m_engine, &count) != 0) return;
+
+    for (int i = 0; i < count; ++i) {
+        double start = 0.0, end = 0.0;
+        if (swmm_events_get(m_engine, i, &start, &end) != 0) continue;
+        const QDateTime qs = qDateTimeFromOaDate(start);   // static helper
+        const QDateTime qe = qDateTimeFromOaDate(end);     // static helper
+
+        const int row = m_eventsTable->rowCount();
+        m_eventsTable->insertRow(row);
+        m_eventsTable->setCellWidget(row, 0, makeEventCellEditor(qs, m_eventsTable));
+        m_eventsTable->setCellWidget(row, 1, makeEventCellEditor(qe, m_eventsTable));
+        m_eventsSnapshot.append(qMakePair(qs, qe));
+    }
+}
+
+bool SimulationOptionsDialog::validateEvents(QString *warn)
+{
+    if (!m_eventsTable) return true;
+
+    bool anyInvalid = false;
+    QList<QPair<QDateTime, QDateTime>> rows;
+    const int n = m_eventsTable->rowCount();
+    rows.reserve(n);
+    const QString badStyle =
+        QStringLiteral("QDateTimeEdit { background-color: #ffc8c8; }");
+    for (int r = 0; r < n; ++r) {
+        auto *startEdit = qobject_cast<QDateTimeEdit *>(
+            m_eventsTable->cellWidget(r, 0));
+        auto *endEdit   = qobject_cast<QDateTimeEdit *>(
+            m_eventsTable->cellWidget(r, 1));
+        if (!startEdit || !endEdit) { anyInvalid = true; continue; }
+        const QDateTime s = startEdit->dateTime();
+        const QDateTime e = endEdit->dateTime();
+        rows.append(qMakePair(s, e));
+
+        const bool bad = !(s < e);
+        startEdit->setStyleSheet(bad ? badStyle : QString());
+        endEdit  ->setStyleSheet(bad ? badStyle : QString());
+        const QString tip = bad ? tr("Start must be earlier than End.")
+                                : QString();
+        startEdit->setToolTip(tip);
+        endEdit  ->setToolTip(tip);
+        if (bad) anyInvalid = true;
+    }
+
+    if (warn) {
+        // Out-of-range check against the simulation window.
+        const QDateTime simStart = m_startEdit ? m_startEdit->dateTime() : QDateTime();
+        const QDateTime simEnd   = m_endEdit   ? m_endEdit->dateTime()   : QDateTime();
+        for (int r = 0; r < rows.size(); ++r) {
+            const auto &p = rows[r];
+            if (simStart.isValid() && simEnd.isValid()
+                && (p.second <= simStart || p.first >= simEnd))
+            {
+                *warn += tr("Row %1 lies entirely outside the simulation window.\n")
+                            .arg(r + 1);
+            }
+        }
+        // Overlap detection: O(n^2) — n is small (typically << 20).
+        for (int i = 0; i < rows.size(); ++i)
+            for (int j = i + 1; j < rows.size(); ++j)
+                if (rows[i].first < rows[j].second &&
+                    rows[j].first < rows[i].second)
+                {
+                    *warn += tr("Rows %1 and %2 overlap.\n")
+                                .arg(i + 1).arg(j + 1);
+                }
+    }
+
+    return !anyInvalid;
+}
+
+int SimulationOptionsDialog::writeEventsToEngine()
+{
+    if (!m_eventsTable || !m_engine) return 0;
+
+    // Snapshot the table into a flat list for diffing against m_eventsSnapshot.
+    QList<QPair<QDateTime, QDateTime>> current;
+    const int n = m_eventsTable->rowCount();
+    current.reserve(n);
+    for (int r = 0; r < n; ++r) {
+        auto *startEdit = qobject_cast<QDateTimeEdit *>(
+            m_eventsTable->cellWidget(r, 0));
+        auto *endEdit   = qobject_cast<QDateTimeEdit *>(
+            m_eventsTable->cellWidget(r, 1));
+        if (!startEdit || !endEdit) continue;
+        current.append(qMakePair(startEdit->dateTime(), endEdit->dateTime()));
+    }
+
+    if (current == m_eventsSnapshot)
+        return 0;   // no change → no write, no dirty flag
+
+    if (swmm_events_clear(m_engine) != 0)
+        return 0;
+
+    int written = 0;
+    for (const auto &p : current) {
+        const double start = oaDateFromQDateTime(p.first);
+        const double end   = oaDateFromQDateTime(p.second);
+        if (!(start < end)) continue;   // skip invalid rows defensively
+        if (swmm_events_add(m_engine, start, end, nullptr) == 0)
+            ++written;
+    }
+
+    m_eventsSnapshot = current;
+    return written;
+}
+
+// ---------------------------------------------------------------------------
+// Files / Output / Plugins sub-tab validation (Phase 3.10.4 — 2026-05-22)
+// ---------------------------------------------------------------------------
+//
+// Blocking errors:
+//   • [PLUGINS] row with empty plugin id (column 0).
+//   • Scheduled hot-start save row with empty path (column 0).
+//
+// Non-blocking warnings (appended to @p warn, surfaced as Yes/No to user):
+//   • Report selector with "Selected" radio + empty list → silently
+//     collapses to NONE on write; warn the user to make it explicit.
+//   • .rpt / .out parent directory missing (typo in path, etc).
+//
+bool SimulationOptionsDialog::validateFilesTab(QString *warn)
+{
+    bool anyInvalid = false;
+
+    // ── [PLUGINS] table: empty id rejected ─────────────────────────────
+    //
+    // Phase 3.10.6 — model-backed.  The blocking error is surfaced via
+    // the @p warn channel (previously a per-cell red background, which
+    // QAbstractTableModel doesn't expose without an extra role round-
+    // trip); anyInvalid still stops Apply.
+    if (m_pluginsModel) {
+        const int n = m_pluginsModel->rowCount();
+        for (int r = 0; r < n; ++r) {
+            const QString id = m_pluginsModel->pathAt(r).trimmed();
+            if (id.isEmpty()) {
+                anyInvalid = true;
+                if (warn)
+                    warn->append(tr("[PLUGINS] row %1: plugin id / path is required.\n")
+                                     .arg(r + 1));
+            }
+        }
+    }
+
+    // ── Hot-start saves table: empty path rejected ─────────────────────
+    //
+    // Phase 3.10.5 — table is now MVC-backed.  We can't paint per-cell
+    // background through the model without an extra role round-trip, so
+    // the inline error affordance is the row's row-header text and a
+    // tool-tipped warning surfaced via the @p warn channel; the blocking
+    // anyInvalid flag still stops Apply.
+    if (m_hotstartSavesModel) {
+        const int n = m_hotstartSavesModel->rowCount();
+        for (int r = 0; r < n; ++r) {
+            const QString p = m_hotstartSavesModel->pathAt(r).trimmed();
+            if (p.isEmpty()) {
+                anyInvalid = true;
+                if (warn)
+                    warn->append(tr("Hot-start save row %1: path is required.\n")
+                                     .arg(r + 1));
+            }
+        }
+    }
+
+    // ── Non-blocking warnings ──────────────────────────────────────────
+    if (warn) {
+        auto checkSelector = [warn](QRadioButton *some, QLineEdit *list,
+                                    const QString &label) {
+            if (!some || !list) return;
+            if (some->isChecked() && list->text().trimmed().isEmpty()) {
+                *warn += SimulationOptionsDialog::tr(
+                    "%1: \"Selected\" is chosen but the name list is empty "
+                    "(will be written as NONE).\n").arg(label);
+            }
+        };
+        checkSelector(m_rptSubcatchSomeRadio, m_rptSubcatchListEdit,
+                      tr("Subcatchments"));
+        checkSelector(m_rptNodeSomeRadio,     m_rptNodeListEdit,
+                      tr("Nodes"));
+        checkSelector(m_rptLinkSomeRadio,     m_rptLinkListEdit,
+                      tr("Links"));
+
+        auto checkParentDir = [warn](QLineEdit *edit, const QString &label) {
+            if (!edit) return;
+            const QString path = edit->text().trimmed();
+            if (path.isEmpty()) return;
+            const QFileInfo fi(path);
+            const QDir parent = fi.absoluteDir();
+            if (!parent.exists()) {
+                *warn += SimulationOptionsDialog::tr(
+                    "%1: parent directory does not exist (%2).\n")
+                    .arg(label, QDir::toNativeSeparators(parent.absolutePath()));
+            }
+        };
+        checkParentDir(m_reportFilePathEdit, tr("Report file"));
+        checkParentDir(m_outputFilePathEdit, tr("Output file"));
+    }
+
+    return !anyInvalid;
+}
+
+// ---------------------------------------------------------------------------
+// [REPORT] contents editor (Slice BV.1 — 2026-05-22)
+// ---------------------------------------------------------------------------
+//
+// Engine surface: RPT_DISABLED / RPT_INPUT / RPT_CONTINUITY / RPT_FLOWSTATS /
+// RPT_CONTROLS / RPT_AVERAGES (booleans, YES/NO) plus RPT_SUBCATCHMENTS /
+// RPT_NODES / RPT_LINKS (selectors, "ALL" / "NONE" / "name1,name2,...").
+
+void SimulationOptionsDialog::buildReportContentsGroup(QVBoxLayout *parentLayout,
+                                                       QWidget *page)
+{
+    auto *grp = new QGroupBox(tr("Report contents ([REPORT])"), page);
+    auto *vlay = new QVBoxLayout(grp);
+    grp->setToolTip(tr(
+        "Controls which summary sections and which objects appear in the "
+        "simulation report (.rpt) and binary output (.out) files."));
+
+    // ---- bool flags row ------------------------------------------------
+    auto *flagsGroup = new QGroupBox(tr("Summary sections"), grp);
+    auto *flagsForm  = new QFormLayout(flagsGroup);
+
+    m_rptDisabledBox   = new QCheckBox(tr("Disable all reporting (DISABLED)"),  flagsGroup);
+    m_rptInputBox      = new QCheckBox(tr("Echo input summary (INPUT)"),         flagsGroup);
+    m_rptContinuityBox = new QCheckBox(tr("Continuity errors (CONTINUITY)"),     flagsGroup);
+    m_rptFlowstatsBox  = new QCheckBox(tr("Flow statistics (FLOWSTATS)"),        flagsGroup);
+    m_rptControlsBox   = new QCheckBox(tr("Control rule actions (CONTROLS)"),    flagsGroup);
+    m_rptAveragesBox   = new QCheckBox(tr("Time-averaged results (AVERAGES)"),   flagsGroup);
+
+    flagsForm->addRow(QString(), m_rptDisabledBox);
+    flagsForm->addRow(QString(), m_rptInputBox);
+    flagsForm->addRow(QString(), m_rptContinuityBox);
+    flagsForm->addRow(QString(), m_rptFlowstatsBox);
+    flagsForm->addRow(QString(), m_rptControlsBox);
+    flagsForm->addRow(QString(), m_rptAveragesBox);
+
+    // DISABLED short-circuits everything else — grey out the dependent
+    // controls when it's on so the user knows nothing else matters.
+    auto syncDisabledShortCircuit = [this, flagsGroup]() {
+        const bool disabled = m_rptDisabledBox && m_rptDisabledBox->isChecked();
+        for (QCheckBox *cb : { m_rptInputBox, m_rptContinuityBox,
+                               m_rptFlowstatsBox, m_rptControlsBox,
+                               m_rptAveragesBox })
+            if (cb) cb->setEnabled(!disabled);
+        Q_UNUSED(flagsGroup);
+    };
+    connect(m_rptDisabledBox, &QCheckBox::toggled,
+            this, [syncDisabledShortCircuit](bool) { syncDisabledShortCircuit(); });
+
+    vlay->addWidget(flagsGroup);
+
+    // ---- selectors -----------------------------------------------------
+    // Per-kind: a row with [○ None] [○ All] [○ Selected] [name list edit].
+    // The line-edit greys out unless Selected is chosen.
+    auto buildSelector = [this, grp](const QString &label,
+                                      QRadioButton **noneR,
+                                      QRadioButton **allR,
+                                      QRadioButton **someR,
+                                      QLineEdit    **listE)
+    {
+        auto *row = new QGroupBox(label, grp);
+        auto *h = new QHBoxLayout(row);
+
+        *noneR = new QRadioButton(tr("None"),     row);
+        *allR  = new QRadioButton(tr("All"),      row);
+        *someR = new QRadioButton(tr("Selected:"), row);
+
+        auto *bg = new QButtonGroup(row);
+        bg->addButton(*noneR, 0);
+        bg->addButton(*allR,  1);
+        bg->addButton(*someR, 2);
+
+        *listE = new QLineEdit(row);
+        (*listE)->setPlaceholderText(
+            tr("comma- or space-separated object names"));
+        (*listE)->setEnabled(false);
+
+        h->addWidget(*noneR);
+        h->addWidget(*allR);
+        h->addWidget(*someR);
+        h->addWidget(*listE, 1);
+
+        // Edit field follows the Selected radio.
+        connect(*someR, &QRadioButton::toggled, *listE, &QLineEdit::setEnabled);
+
+        return row;
+    };
+
+    vlay->addWidget(buildSelector(tr("Subcatchments"),
+        &m_rptSubcatchNoneRadio, &m_rptSubcatchAllRadio,
+        &m_rptSubcatchSomeRadio, &m_rptSubcatchListEdit));
+    vlay->addWidget(buildSelector(tr("Nodes"),
+        &m_rptNodeNoneRadio, &m_rptNodeAllRadio,
+        &m_rptNodeSomeRadio, &m_rptNodeListEdit));
+    vlay->addWidget(buildSelector(tr("Links"),
+        &m_rptLinkNoneRadio, &m_rptLinkAllRadio,
+        &m_rptLinkSomeRadio, &m_rptLinkListEdit));
+
+    parentLayout->addWidget(grp);
+}
+
+void SimulationOptionsDialog::readReportContentsFromEngine()
+{
+    if (!m_engine) return;
+
+    // Bool keys ---------------------------------------------------------
+    auto setBox = [this](QCheckBox *box, const char *key, bool fallback) {
+        if (!box) return;
+        const QString v = getOption(key, fallback ? QStringLiteral("YES")
+                                                  : QStringLiteral("NO"));
+        QSignalBlocker blk(box);
+        box->setChecked(parseEngineBool(v) == Qt::Checked);
+    };
+    setBox(m_rptDisabledBox,   "RPT_DISABLED",   false);
+    setBox(m_rptInputBox,      "RPT_INPUT",      false);
+    setBox(m_rptContinuityBox, "RPT_CONTINUITY", true);
+    setBox(m_rptFlowstatsBox,  "RPT_FLOWSTATS",  true);
+    setBox(m_rptControlsBox,   "RPT_CONTROLS",   false);
+    setBox(m_rptAveragesBox,   "RPT_AVERAGES",   false);
+
+    // Sync the disabled-short-circuit state once after the initial read.
+    if (m_rptDisabledBox) {
+        const bool disabled = m_rptDisabledBox->isChecked();
+        for (QCheckBox *cb : { m_rptInputBox, m_rptContinuityBox,
+                               m_rptFlowstatsBox, m_rptControlsBox,
+                               m_rptAveragesBox })
+            if (cb) cb->setEnabled(!disabled);
+    }
+
+    // Selector keys -----------------------------------------------------
+    auto setSelector = [this](QRadioButton *noneR, QRadioButton *allR,
+                              QRadioButton *someR, QLineEdit *listE,
+                              const char *key) {
+        if (!noneR || !allR || !someR || !listE) return;
+        const QString v = getOption(key, QStringLiteral("ALL")).trimmed();
+        QSignalBlocker b1(noneR), b2(allR), b3(someR), b4(listE);
+        if (v.compare(QStringLiteral("NONE"), Qt::CaseInsensitive) == 0) {
+            noneR->setChecked(true);
+            listE->clear();
+            listE->setEnabled(false);
+        } else if (v.isEmpty()
+                || v.compare(QStringLiteral("ALL"), Qt::CaseInsensitive) == 0) {
+            allR->setChecked(true);
+            listE->clear();
+            listE->setEnabled(false);
+        } else {
+            someR->setChecked(true);
+            listE->setText(v);
+            listE->setEnabled(true);
+        }
+    };
+    setSelector(m_rptSubcatchNoneRadio, m_rptSubcatchAllRadio,
+                m_rptSubcatchSomeRadio, m_rptSubcatchListEdit,
+                "RPT_SUBCATCHMENTS");
+    setSelector(m_rptNodeNoneRadio, m_rptNodeAllRadio,
+                m_rptNodeSomeRadio, m_rptNodeListEdit,
+                "RPT_NODES");
+    setSelector(m_rptLinkNoneRadio, m_rptLinkAllRadio,
+                m_rptLinkSomeRadio, m_rptLinkListEdit,
+                "RPT_LINKS");
+}
+
+int SimulationOptionsDialog::writeReportContentsToEngine()
+{
+    if (!m_engine) return 0;
+    int n = 0;
+    auto writeIfChanged = [this, &n](const char *key, const QString &newVal) {
+        if (getOption(key) == newVal) return;
+        if (setOption(key, newVal)) ++n;
+    };
+
+    auto boolStr = [](QCheckBox *box, bool def) {
+        return box ? engineBoolString(box->isChecked()) : engineBoolString(def);
+    };
+    writeIfChanged("RPT_DISABLED",   boolStr(m_rptDisabledBox,   false));
+    writeIfChanged("RPT_INPUT",      boolStr(m_rptInputBox,      false));
+    writeIfChanged("RPT_CONTINUITY", boolStr(m_rptContinuityBox, true));
+    writeIfChanged("RPT_FLOWSTATS",  boolStr(m_rptFlowstatsBox,  true));
+    writeIfChanged("RPT_CONTROLS",   boolStr(m_rptControlsBox,   false));
+    writeIfChanged("RPT_AVERAGES",   boolStr(m_rptAveragesBox,   false));
+
+    auto selectorStr = [](QRadioButton *noneR, QRadioButton *allR,
+                          QRadioButton *someR, QLineEdit *listE) {
+        if (!noneR || !allR || !someR || !listE) return QStringLiteral("ALL");
+        if (noneR->isChecked()) return QStringLiteral("NONE");
+        if (allR->isChecked())  return QStringLiteral("ALL");
+        // Selected — but empty list collapses to NONE so we don't push
+        // an invalid empty SOME state through the engine.
+        const QString text = listE->text().trimmed();
+        return text.isEmpty() ? QStringLiteral("NONE") : text;
+    };
+    writeIfChanged("RPT_SUBCATCHMENTS",
+        selectorStr(m_rptSubcatchNoneRadio, m_rptSubcatchAllRadio,
+                    m_rptSubcatchSomeRadio, m_rptSubcatchListEdit));
+    writeIfChanged("RPT_NODES",
+        selectorStr(m_rptNodeNoneRadio, m_rptNodeAllRadio,
+                    m_rptNodeSomeRadio, m_rptNodeListEdit));
+    writeIfChanged("RPT_LINKS",
+        selectorStr(m_rptLinkNoneRadio, m_rptLinkAllRadio,
+                    m_rptLinkSomeRadio, m_rptLinkListEdit));
+
+    return n;
+}
+
 bool SimulationOptionsDialog::setOption(const char *key, const QString &value)
 {
     // Prefer the layer's setOption when available — it emits
@@ -960,78 +1785,203 @@ void SimulationOptionsDialog::readFromEngine()
         if (idx >= 0) c->setCurrentIndex(idx);
     };
 
-    // ---- Tab 1 ---------------------------------------------------------
-    selectComboByData(m_infiltrationCombo, getOption("INFILTRATION", QStringLiteral("HORTON")));
-    selectComboByData(m_routingCombo,      getOption("FLOW_ROUTING", QStringLiteral("DYNWAVE")));
+    // Source every getOption() fallback from PreferencesManager so the dialog
+    // shows the user-preferred default whenever the engine has no value for
+    // a key — keeps the new-project synthesis path and the missing-key path
+    // in lockstep and avoids hardcoded magic-number drift.
+    const auto sim = PreferencesManager::instance()->simulationDefaults();
+    const auto ynStr = [](bool v) {
+        return v ? QStringLiteral("YES") : QStringLiteral("NO");
+    };
 
-    m_allowPondingBox->setChecked(parseEngineBool(getOption("ALLOW_PONDING", "NO"))      == Qt::Checked);
-    m_skipSteadyBox->setChecked(  parseEngineBool(getOption("SKIP_STEADY_STATE", "NO"))   == Qt::Checked);
-    m_ignoreRainfallBox->setChecked(   parseEngineBool(getOption("IGNORE_RAINFALL",    "NO")) == Qt::Checked);
-    m_ignoreSnowmeltBox->setChecked(   parseEngineBool(getOption("IGNORE_SNOWMELT",    "NO")) == Qt::Checked);
-    m_ignoreGroundwaterBox->setChecked(parseEngineBool(getOption("IGNORE_GROUNDWATER", "NO")) == Qt::Checked);
-    m_ignoreRDIIBox->setChecked(       parseEngineBool(getOption("IGNORE_RDII",        "NO")) == Qt::Checked);
-    m_ignoreQualityBox->setChecked(    parseEngineBool(getOption("IGNORE_QUALITY",     "NO")) == Qt::Checked);
-    m_ignoreRoutingBox->setChecked(    parseEngineBool(getOption("IGNORE_ROUTING",     "NO")) == Qt::Checked);
+    // ---- Tab 0 — Title / Notes ----------------------------------------
+    if (m_titleNotesEdit) {
+        QSignalBlocker blk(m_titleNotesEdit);
+        // Prefer the .oswp-persisted rich HTML when available — it preserves
+        // formatting that the engine's plain-text [TITLE] cannot.
+        const QString persistedHtml = m_projectWindow ? m_projectWindow->notesHtml()
+                                                      : QString();
+        if (!persistedHtml.isEmpty()) {
+            m_titleNotesEdit->setHtml(persistedHtml);
+        } else if (m_engine) {
+            int count = 0;
+            QStringList lines;
+            if (swmm_title_get_count(m_engine, &count) == 0 && count > 0) {
+                lines.reserve(count);
+                for (int i = 0; i < count; ++i) {
+                    char buf[1024] = {0};
+                    if (swmm_title_get_line(m_engine, i, buf, sizeof(buf)) == 0)
+                        lines << QString::fromUtf8(buf);
+                }
+            }
+            m_titleNotesEdit->setPlainText(lines.join(QChar('\n')));
+        } else {
+            m_titleNotesEdit->clear();
+        }
+        m_initialNotesHtml = m_titleNotesEdit->toHtml();
+    }
+
+    // ---- Tab 1 ---------------------------------------------------------
+    selectComboByData(m_infiltrationCombo, getOption("INFILTRATION", sim.infiltrationModel));
+    selectComboByData(m_routingCombo,      getOption("FLOW_ROUTING", sim.flowRouting));
+
+    m_allowPondingBox->setChecked(parseEngineBool(getOption("ALLOW_PONDING",     ynStr(sim.allowPonding)))    == Qt::Checked);
+    m_skipSteadyBox->setChecked(  parseEngineBool(getOption("SKIP_STEADY_STATE", ynStr(sim.skipSteadyState))) == Qt::Checked);
+    // Inverted UI: checked = process active = engine IGNORE_X is NO.
+    m_ignoreRainfallBox->setChecked(   parseEngineBool(getOption("IGNORE_RAINFALL",    ynStr(sim.ignoreRainfall)))    != Qt::Checked);
+    m_ignoreSnowmeltBox->setChecked(   parseEngineBool(getOption("IGNORE_SNOWMELT",    ynStr(sim.ignoreSnowmelt)))    != Qt::Checked);
+    m_ignoreGroundwaterBox->setChecked(parseEngineBool(getOption("IGNORE_GROUNDWATER", ynStr(sim.ignoreGroundwater))) != Qt::Checked);
+    m_ignoreRDIIBox->setChecked(       parseEngineBool(getOption("IGNORE_RDII",        ynStr(sim.ignoreRdii)))        != Qt::Checked);
+    m_ignoreQualityBox->setChecked(    parseEngineBool(getOption("IGNORE_QUALITY",     ynStr(sim.ignoreQuality)))     != Qt::Checked);
+    m_ignoreRoutingBox->setChecked(    parseEngineBool(getOption("IGNORE_ROUTING",     ynStr(sim.ignoreRouting)))     != Qt::Checked);
 
     // ---- Tab 2 ---------------------------------------------------------
-    QDateTime start = parseEngineDateTime(
-        getOption("START_DATE"), getOption("START_TIME", "00:00:00"));
-    if (start.isValid()) m_startEdit->setDateTime(start);
+    // Block signals on Start/Report-start during seeding so the clamp
+    // connection doesn't bump report-start prematurely between the two
+    // reads. Seed the minimum + duration label explicitly at the end.
+    {
+        QSignalBlocker bs(m_startEdit);
+        QSignalBlocker br(m_reportStartEdit);
 
-    QDateTime end = parseEngineDateTime(
-        getOption("END_DATE"),   getOption("END_TIME",   "00:00:00"));
-    if (end.isValid()) m_endEdit->setDateTime(end);
+        QDateTime start = parseEngineDateTime(
+            getOption("START_DATE"), getOption("START_TIME", "00:00:00"));
+        if (start.isValid()) m_startEdit->setDateTime(start);
 
-    QDateTime rpt = parseEngineDateTime(
-        getOption("REPORT_START_DATE"),
-        getOption("REPORT_START_TIME", "00:00:00"));
-    if (rpt.isValid()) m_reportStartEdit->setDateTime(rpt);
+        QDateTime end = parseEngineDateTime(
+            getOption("END_DATE"),   getOption("END_TIME",   "00:00:00"));
+        if (end.isValid()) m_endEdit->setDateTime(end);
+
+        QDateTime rpt = parseEngineDateTime(
+            getOption("REPORT_START_DATE"),
+            getOption("REPORT_START_TIME", "00:00:00"));
+        if (rpt.isValid()) m_reportStartEdit->setDateTime(rpt);
+    }
+    m_reportStartEdit->setMinimumDateTime(m_startEdit->dateTime());
+    updateDurationLabel();
 
     bool ok = false;
-    int  rs = getOption("REPORT_STEP", "900").toInt(&ok);
-    m_reportStepSpin->setValue(ok ? rs : 900);
 
-    int  ds = getOption("DRY_STEP",    "3600").toInt(&ok);
-    m_dryStepSpin->setValue(ok ? ds : 3600);
+    // Engine round-trip for step values is loose: a step may come back as
+    // plain seconds ("900") or as HH:MM:SS ("00:15:00", "48:00:00"). Try
+    // integer first, fall through to colon-separated parse if that fails.
+    auto parseStepSeconds = [](const QString &s, qint64 fallback) -> qint64 {
+        const QString t = s.trimmed();
+        bool ok = false;
+        const qint64 asInt = t.toLongLong(&ok);
+        if (ok) return asInt;
+        const QStringList parts = t.split(QLatin1Char(':'));
+        if (parts.size() < 1 || parts.size() > 3) return fallback;
+        qint64 secs = 0;
+        for (const QString &p : parts) {
+            bool ok2 = false;
+            const qint64 v = p.toLongLong(&ok2);
+            if (!ok2) return fallback;
+            secs = secs * 60 + v;
+        }
+        return secs;
+    };
 
-    int  ws = getOption("WET_STEP",    "300").toInt(&ok);
-    m_wetStepSpin->setValue(ok ? ws : 300);
+    m_reportStepEdit->setTotalSeconds(
+        parseStepSeconds(getOption("REPORT_STEP", QString::number(sim.reportStepSec)),
+                         sim.reportStepSec));
+    m_dryStepEdit->setTotalSeconds(
+        parseStepSeconds(getOption("DRY_STEP", QString::number(sim.dryStepSec)),
+                         sim.dryStepSec));
+    m_wetStepEdit->setTotalSeconds(
+        parseStepSeconds(getOption("WET_STEP", QString::number(sim.wetStepSec)),
+                         sim.wetStepSec));
 
-    double routeStep = getOption("ROUTING_STEP", "30").toDouble(&ok);
-    m_routingStepSpin->setValue(ok ? routeStep : 30.0);
+    {
+        const qint64 ruleSecs = parseStepSeconds(
+            getOption("RULE_STEP", QString::number(sim.ruleStepSec)), sim.ruleStepSec);
+        const qint64 maxRule  = qint64(23) * 3600 + qint64(59) * 60 + 59;
+        const qint64 clamped  = qBound(qint64(0), ruleSecs, maxRule);
+        m_ruleStepEdit->setTime(QTime(static_cast<int>(clamped / 3600),
+                                       static_cast<int>((clamped % 3600) / 60),
+                                       static_cast<int>(clamped % 60)));
+    }
 
-    double dryDays = getOption("DRY_DAYS", "0").toDouble(&ok);
-    m_dryDaysSpin->setValue(ok ? dryDays : 0.0);
+    const double routeStep = getOption("ROUTING_STEP",
+                                       QString::number(sim.routingStepSec, 'g', 6))
+                                .toDouble(&ok);
+    m_routingStepEdit->setText(
+        QString::number(ok ? routeStep : sim.routingStepSec, 'g', 6));
+
+    const double dryDays = getOption("DRY_DAYS",
+                                     QString::number(sim.dryDays, 'g', 6))
+                              .toDouble(&ok);
+    m_dryDaysSpin->setValue(ok ? dryDays : sim.dryDays);
+
+    // Sweep window — engine stores "MM/DD"; map into a fixed-year QDate
+    // (2000 is a leap year so 02/29 stays selectable).
+    auto parseSweep = [](const QString &s, QDate fallback) {
+        const QStringList parts = s.split(QLatin1Char('/'));
+        if (parts.size() != 2) return fallback;
+        bool okM = false, okD = false;
+        const int m = parts[0].toInt(&okM);
+        const int d = parts[1].toInt(&okD);
+        if (!okM || !okD) return fallback;
+        const QDate q(2000, m, d);
+        return q.isValid() ? q : fallback;
+    };
+    const QDate sweepStartPref = parseSweep(sim.sweepStart, QDate(2000, 1, 1));
+    const QDate sweepEndPref   = parseSweep(sim.sweepEnd,   QDate(2000, 12, 31));
+    m_sweepStartEdit->setDate(parseSweep(getOption("SWEEP_START", sim.sweepStart),
+                                         sweepStartPref));
+    m_sweepEndEdit->setDate(parseSweep(getOption("SWEEP_END", sim.sweepEnd),
+                                       sweepEndPref));
+
+    // ---- Tab 2 — [EVENTS] (Slice CW) -----------------------------------
+    readEventsFromEngine();
 
     // ---- Tab 3 ---------------------------------------------------------
-    selectComboByData(m_surchargeCombo,    getOption("SURCHARGE_METHOD", QStringLiteral("EXTRAN")));
-    selectComboByData(m_nodeContinuityCombo, getOption("NODE_CONTINUITY", QStringLiteral("EXPLICIT")));
-    selectComboByData(m_forceMainCombo,    getOption("FORCE_MAIN_EQUATION", QStringLiteral("H-W")));
-    selectComboByData(m_normalFlowCombo,   getOption("NORMAL_FLOW_LIMITED", QStringLiteral("BOTH")));
-    selectComboByData(m_inertialDampCombo, getOption("INERTIAL_DAMPING", QStringLiteral("PARTIAL")));
-    m_andersonAccelBox->setChecked(parseEngineBool(getOption("ANDERSON_ACCEL", "NO")) == Qt::Checked);
+    selectComboByData(m_surchargeCombo,      getOption("SURCHARGE_METHOD",    sim.surchargeMethod));
+    selectComboByData(m_nodeContinuityCombo, getOption("NODE_CONTINUITY",     sim.nodeContinuity));
+    selectComboByData(m_forceMainCombo,      getOption("FORCE_MAIN_EQUATION", sim.forceMainEquation));
+    selectComboByData(m_normalFlowCombo,     getOption("NORMAL_FLOW_LIMITED", sim.normalFlowLimited));
+    selectComboByData(m_inertialDampCombo,   getOption("INERTIAL_DAMPING",    sim.inertialDamping));
+    m_andersonAccelBox->setChecked(parseEngineBool(getOption("ANDERSON_ACCEL",
+                                                              ynStr(sim.andersonAccel))) == Qt::Checked);
 
-    m_dpsCelerSpin->setValue(getOption("DPS_CELERITY",    "25").toDouble(&ok));
-    m_dpsAlphaSpin->setValue(getOption("DPS_ALPHA",       "3.0").toDouble(&ok));
-    m_dpsDecaySpin->setValue(getOption("DPS_DECAY_TIME",  "0.5").toDouble(&ok));
-    m_lengtheningSpin->setValue(getOption("LENGTHENING_STEP", "0").toDouble(&ok));
-    m_variableStepSpin->setValue(getOption("VARIABLE_STEP",   "0").toDouble(&ok));
+    // DPS_* knobs are dynamic-slot specific and not surfaced in
+    // PreferencesManager — keep engine-side defaults.
+    m_dpsCelerSpin->setValue(getOption("DPS_CELERITY",   "25").toDouble(&ok));
+    m_dpsAlphaSpin->setValue(getOption("DPS_ALPHA",      "3.0").toDouble(&ok));
+    m_dpsDecaySpin->setValue(getOption("DPS_DECAY_TIME", "0.5").toDouble(&ok));
 
-    m_maxTrialsSpin->setValue(getOption("MAX_TRIALS", "8").toInt(&ok));
-    m_headTolSpin->setValue(getOption("HEAD_TOLERANCE", "0.0015").toDouble(&ok));
+    m_lengtheningSpin->setValue(
+        getOption("LENGTHENING_STEP", QString::number(sim.lengtheningStepSec, 'g', 6))
+            .toDouble(&ok));
+    // VARIABLE_STEP toggle in prefs zeroes the Courant factor when off.
+    const double variablePref = sim.variableStepOn ? sim.variableStepFactor : 0.0;
+    m_variableStepSpin->setValue(
+        getOption("VARIABLE_STEP", QString::number(variablePref, 'g', 6))
+            .toDouble(&ok));
+
+    m_maxTrialsSpin->setValue(
+        getOption("MAX_TRIALS", QString::number(sim.maxTrials)).toInt(&ok));
+    m_headTolSpin->setValue(
+        getOption("HEAD_TOLERANCE", QString::number(sim.headTolerance, 'g', 6))
+            .toDouble(&ok));
     // The engine stores LAT_FLOW_TOL / SYS_FLOW_TOL as fractions but the
-    // .inp surface uses percent. swmm_options_get returns the engine's
-    // internal value, so multiply by 100 for the spin and divide back on
-    // write. Default percent values match the engine's own defaults.
-    m_latFlowTolSpin->setValue(getOption("LAT_FLOW_TOL", "0.05").toDouble(&ok) * 100.0);
-    m_sysFlowTolSpin->setValue(getOption("SYS_FLOW_TOL", "0.05").toDouble(&ok) * 100.0);
+    // .inp surface uses percent. Prefs hold percent; convert to fraction
+    // for the fallback string and back to percent for the spin display.
+    m_latFlowTolSpin->setValue(
+        getOption("LAT_FLOW_TOL", QString::number(sim.latFlowTolPct / 100.0, 'g', 6))
+            .toDouble(&ok) * 100.0);
+    m_sysFlowTolSpin->setValue(
+        getOption("SYS_FLOW_TOL", QString::number(sim.sysFlowTolPct / 100.0, 'g', 6))
+            .toDouble(&ok) * 100.0);
+    // MIN_SURFAREA isn't in prefs; engine default is 0.
     m_minSurfAreaSpin->setValue(getOption("MIN_SURFAREA", "0").toDouble(&ok));
-    m_minSlopeSpin->setValue(getOption("MIN_SLOPE",       "0").toDouble(&ok));
+    m_minSlopeSpin->setValue(
+        getOption("MIN_SLOPE", QString::number(sim.minSlopePct, 'g', 6)).toDouble(&ok));
 
     updateSurchargeFieldsEnabled();
 
     // ---- Tab 4 ---------------------------------------------------------
-    m_threadsSpin->setValue(getOption("THREADS", "0").toInt(&ok));
+    m_threadsSpin->setValue(
+        getOption("THREADS", QString::number(sim.threads)).toInt(&ok));
 
     // ---- 2D module toggle (Tab 1 → Modules group) ----------------------
     // Persisted per-.inp under QSettings since the engine has no native
@@ -1058,6 +2008,7 @@ void SimulationOptionsDialog::readFromEngine()
     readPluginsFromEngine();
     readFilesSectionFromEngine();
     readWriterCombosFromEngine();
+    readReportContentsFromEngine();
     readOutputPathsFromSettings();
 }
 
@@ -1067,15 +2018,252 @@ void SimulationOptionsDialog::readFromEngine()
 
 void SimulationOptionsDialog::buildFilesTab(QTabWidget *tabs)
 {
+    // Phase 3.10 (2026-05-22) — the legacy single "Files" page is split
+    // into three sub-tabs (Files / Output / Plugins) via a nested
+    // QTabWidget.  Existing widgets keep their member identities; this
+    // method just regroups them by concern:
+    //   • Files   — [FILES] secondary refs + scheduled hot-start saves
+    //   • Output  — writer combos + [REPORT] flags + .rpt / .out paths
+    //   • Plugins — [PLUGINS] table editor (Phase 3.10.3)
     auto *page = new QWidget(tabs);
-    auto *vlay = new QVBoxLayout(page);
+    auto *outerLay = new QVBoxLayout(page);
+    outerLay->setContentsMargins(0, 0, 0, 0);
+
+    auto *subTabs = new QTabWidget(page);
+    subTabs->setDocumentMode(true);
+    outerLay->addWidget(subTabs);
+
+    // =====================================================================
+    // Sub-tab "Files" — [FILES] secondary refs + scheduled hot-start saves
+    // =====================================================================
+    auto *filesPage = new QWidget(subTabs);
+    auto *vlay = new QVBoxLayout(filesPage);
+
+    // ── [FILES] secondary references group ─────────────────────────────
+    auto *secondary = new QGroupBox(
+        tr("Secondary file references (.inp [FILES] section)"), filesPage);
+    auto *secForm = new QFormLayout(secondary);
+
+    auto makeModeCombo = [secondary] {
+        auto *c = new QComboBox(secondary);
+        c->addItem(tr("(off)"), QString());
+        c->addItem(tr("USE"),   QStringLiteral("USE"));
+        c->addItem(tr("SAVE"),  QStringLiteral("SAVE"));
+        return c;
+    };
+    // Per-row Browse button: opens an Open dialog by default, a Save dialog
+    // when the row's mode combo is set to SAVE (or `defaultSave=true` for
+    // SAVE-only rows). Filters are coarse — most legacy SWMM secondary
+    // refs are plain text/CSV, except the hot-start USE row.
+    auto makePathRow = [secondary, secForm, this](const QString &label,
+                                                  QLineEdit **edit,
+                                                  QComboBox *modeCombo,
+                                                  bool defaultSave,
+                                                  const QString &dialogTitle,
+                                                  const QString &filter) {
+        *edit = new QLineEdit(secondary);
+        (*edit)->setPlaceholderText(
+            QObject::tr("path relative to the .inp directory"));
+
+        auto *row = new QHBoxLayout();
+        row->addWidget(*edit, 1);
+        if (modeCombo) {
+            row->addWidget(new QLabel(QObject::tr("Mode:"), secondary));
+            row->addWidget(modeCombo);
+        }
+        auto *browseBtn = new QPushButton(tr("Browse…"), secondary);
+        browseBtn->setToolTip(
+            tr("Choose a file for this secondary reference"));
+        row->addWidget(browseBtn);
+        secForm->addRow(label, row);
+
+        QLineEdit *editCap = *edit;
+        connect(browseBtn, &QPushButton::clicked, this,
+                [this, editCap, modeCombo, defaultSave, dialogTitle, filter] {
+            bool save = defaultSave;
+            if (modeCombo) {
+                const QString m = modeCombo->currentData().toString();
+                save = (m.compare(QLatin1String("SAVE"),
+                                  Qt::CaseInsensitive) == 0);
+            }
+            const QString current = editCap->text().trimmed();
+            const QString path = save
+                ? QFileDialog::getSaveFileName(this, dialogTitle, current,
+                                               filter)
+                : QFileDialog::getOpenFileName(this, dialogTitle, current,
+                                               filter);
+            if (!path.isEmpty()) editCap->setText(path);
+        });
+    };
+
+    const QString textFilter = tr("Text files (*.txt *.dat);;All Files (*)");
+    const QString csvFilter  = tr("Text / CSV (*.txt *.dat *.csv);;All Files (*)");
+    const QString hsfFilter  = tr("Hot-start files (*.hsf);;All Files (*)");
+
+    m_rainfallModeCombo = makeModeCombo();
+    makePathRow(tr("Rainfall:"), &m_rainfallPathEdit, m_rainfallModeCombo,
+                false, tr("Choose Rainfall File"), textFilter);
+
+    m_runoffModeCombo = makeModeCombo();
+    makePathRow(tr("Runoff:"),   &m_runoffPathEdit,   m_runoffModeCombo,
+                false, tr("Choose Runoff File"), textFilter);
+
+    m_rdiiModeCombo = makeModeCombo();
+    makePathRow(tr("RDII:"),     &m_rdiiPathEdit,     m_rdiiModeCombo,
+                false, tr("Choose RDII File"), textFilter);
+
+    makePathRow(tr("Inflows (USE only):"),   &m_inflowsPathEdit,  nullptr,
+                false, tr("Choose Inflows File"),  csvFilter);
+    makePathRow(tr("Outflows (SAVE only):"), &m_outflowsPathEdit, nullptr,
+                true,  tr("Choose Outflows File"), csvFilter);
+    makePathRow(tr("Hot-start file (USE):"), &m_hotstartUseEdit,  nullptr,
+                false, tr("Choose Hot-Start File"), hsfFilter);
+
+    vlay->addWidget(secondary);
+
+    // ── Scheduled hot-start saves (Slice BV-01, 2026-05-21) ─────────────
+    // Multi-row uncapped table replaces the legacy single SAVE field.
+    // Backed by the new swmm_hotstart_saves_* engine C API.
+    //
+    // Phase 3.10.5 (2026-05-22): true MVC — a QTableView bound to a
+    // HotstartSavesModel.  HotstartSavesPathDelegate renders each path
+    // cell as a [QLineEdit][…] composite so the user can browse for the
+    // save path inline; HotstartSavesDateTimeDelegate renders each
+    // datetime cell as a QDateTimeEdit with the "(end of run)" sentinel.
+    // Persistent editors keep both widgets visible without click-to-edit.
+    auto *hsSaves = new QGroupBox(
+        tr("Scheduled hot-start saves (.inp [FILES] SAVE HOTSTART)"), filesPage);
+    auto *hsSavesLay = new QVBoxLayout(hsSaves);
+
+    m_hotstartSavesModel   = new HotstartSavesModel(this);
+    m_hotstartSavesPathDel = new PathBrowseDelegate(
+        PathBrowseDelegate::SaveFile,
+        tr("Choose Hot-Start Save File"),
+        tr("Hot-start files (*.hsf);;All Files (*)"),
+        tr("path relative to the .inp directory"),
+        this);
+    m_hotstartSavesDtDel   = new HotstartSavesDateTimeDelegate(this);
+
+    m_hotstartSavesView = new QTableView(hsSaves);
+    m_hotstartSavesView->setModel(m_hotstartSavesModel);
+    m_hotstartSavesView->setItemDelegateForColumn(
+        HotstartSavesModel::ColPath, m_hotstartSavesPathDel);
+    m_hotstartSavesView->setItemDelegateForColumn(
+        HotstartSavesModel::ColDateTime, m_hotstartSavesDtDel);
+    // Interactive resize: both columns are user-draggable.  Set sensible
+    // defaults — path column takes the leftover space initially, datetime
+    // is sized to fit the picker — but neither is locked.
+    {
+        auto *hdr = m_hotstartSavesView->horizontalHeader();
+        hdr->setSectionResizeMode(QHeaderView::Interactive);
+        hdr->setStretchLastSection(false);
+        hdr->setSectionsMovable(false);
+        hdr->setMinimumSectionSize(60);
+        // Width hint: ~2/3 path, ~1/3 datetime — refined once the view is
+        // shown (Qt will clamp later if the dialog is resized).
+        hdr->resizeSection(HotstartSavesModel::ColPath,     360);
+        hdr->resizeSection(HotstartSavesModel::ColDateTime, 200);
+    }
+    m_hotstartSavesView->verticalHeader()->setVisible(false);
+    m_hotstartSavesView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_hotstartSavesView->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_hotstartSavesView->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    m_hotstartSavesView->setToolTip(tr(
+        "Each row schedules one hot-start save during the run.\n"
+        "Leave Datetime empty (\"(end of run)\") to save at the end of the\n"
+        "simulation; otherwise the engine writes the file when the sim\n"
+        "clock crosses the chosen datetime."));
+    hsSavesLay->addWidget(m_hotstartSavesView);
+
+    auto openPersistentForRow = [this](int row) {
+        if (!m_hotstartSavesView || !m_hotstartSavesModel) return;
+        m_hotstartSavesView->openPersistentEditor(
+            m_hotstartSavesModel->index(row, HotstartSavesModel::ColPath));
+        m_hotstartSavesView->openPersistentEditor(
+            m_hotstartSavesModel->index(row, HotstartSavesModel::ColDateTime));
+    };
+    // Open persistent editors on every newly-inserted row so the path
+    // line-edit + browse button and the QDateTimeEdit are visible by
+    // default without click-to-edit.
+    connect(m_hotstartSavesModel, &QAbstractItemModel::rowsInserted,
+            this, [openPersistentForRow](const QModelIndex &, int first, int last) {
+        for (int r = first; r <= last; ++r) openPersistentForRow(r);
+    });
+    connect(m_hotstartSavesModel, &QAbstractItemModel::modelReset, this,
+            [this, openPersistentForRow] {
+        if (!m_hotstartSavesModel) return;
+        for (int r = 0; r < m_hotstartSavesModel->rowCount(); ++r)
+            openPersistentForRow(r);
+    });
+
+    auto *hsBtnRow = new QHBoxLayout();
+    m_hotstartSavesAddBtn    = new QPushButton(tr("Add…"),     hsSaves);
+    m_hotstartSavesBrowseBtn = new QPushButton(tr("Browse…"),  hsSaves);
+    m_hotstartSavesRemoveBtn = new QPushButton(tr("Remove"),   hsSaves);
+    m_hotstartSavesUpBtn     = new QPushButton(tr("Move up"),  hsSaves);
+    m_hotstartSavesDownBtn   = new QPushButton(tr("Move down"),hsSaves);
+    m_hotstartSavesBrowseBtn->setToolTip(
+        tr("Choose a save-as path for the selected row"));
+    hsBtnRow->addWidget(m_hotstartSavesAddBtn);
+    hsBtnRow->addWidget(m_hotstartSavesBrowseBtn);
+    hsBtnRow->addWidget(m_hotstartSavesRemoveBtn);
+    hsBtnRow->addWidget(m_hotstartSavesUpBtn);
+    hsBtnRow->addWidget(m_hotstartSavesDownBtn);
+    hsBtnRow->addStretch(1);
+    hsSavesLay->addLayout(hsBtnRow);
+    vlay->addWidget(hsSaves);
+
+    auto updateHsButtons = [this] {
+        const int row = (m_hotstartSavesView && m_hotstartSavesView->currentIndex().isValid())
+                            ? m_hotstartSavesView->currentIndex().row() : -1;
+        const int n   = m_hotstartSavesModel ? m_hotstartSavesModel->rowCount() : 0;
+        const bool hasSel = row >= 0;
+        if (m_hotstartSavesBrowseBtn) m_hotstartSavesBrowseBtn->setEnabled(hasSel);
+        if (m_hotstartSavesRemoveBtn) m_hotstartSavesRemoveBtn->setEnabled(hasSel);
+        if (m_hotstartSavesUpBtn)     m_hotstartSavesUpBtn->setEnabled(hasSel && row > 0);
+        if (m_hotstartSavesDownBtn)   m_hotstartSavesDownBtn->setEnabled(hasSel && row < n - 1);
+    };
+    updateHsButtons();
+    connect(m_hotstartSavesView->selectionModel(),
+            &QItemSelectionModel::currentChanged,
+            this, [updateHsButtons](const QModelIndex &, const QModelIndex &) {
+        updateHsButtons();
+    });
+    connect(m_hotstartSavesModel, &QAbstractItemModel::rowsInserted,
+            this, updateHsButtons);
+    connect(m_hotstartSavesModel, &QAbstractItemModel::rowsRemoved,
+            this, updateHsButtons);
+    connect(m_hotstartSavesModel, &QAbstractItemModel::modelReset,
+            this, updateHsButtons);
+
+    connect(m_hotstartSavesAddBtn,    &QPushButton::clicked,
+            this, &SimulationOptionsDialog::onHotstartSaveAddRow);
+    connect(m_hotstartSavesBrowseBtn, &QPushButton::clicked,
+            this, &SimulationOptionsDialog::onHotstartSaveBrowseRow);
+    connect(m_hotstartSavesRemoveBtn, &QPushButton::clicked,
+            this, &SimulationOptionsDialog::onHotstartSaveRemoveRow);
+    connect(m_hotstartSavesUpBtn,     &QPushButton::clicked,
+            this, &SimulationOptionsDialog::onHotstartSaveMoveRowUp);
+    connect(m_hotstartSavesDownBtn,   &QPushButton::clicked,
+            this, &SimulationOptionsDialog::onHotstartSaveMoveRowDown);
+
+    vlay->addStretch(1);
+    subTabs->addTab(filesPage, tr("Files"));
+
+    // =====================================================================
+    // Sub-tab "Output" — writer combos + [REPORT] flags + .rpt / .out paths
+    // (Phase 3.10.2, 2026-05-22)
+    // =====================================================================
+    auto *outputPage = new QWidget(subTabs);
+    auto *outVlay = new QVBoxLayout(outputPage);
 
     // ── Writer / Container group ────────────────────────────────────────
     // Three combos let the user pick the plugin driving each role.  The
     // combo's hidden `data()` is the plugin id (empty string for the
     // built-in `.inp` / `.out` / `.rpt` writer).  Picking a non-default
     // entry adds the corresponding [PLUGINS] row on Apply.
-    auto *writerGroup = new QGroupBox(tr("Writer / Container"), page);
+    m_writersGroup = new QGroupBox(tr("Writer / Container"), outputPage);
+    auto *writerGroup = m_writersGroup;
     auto *writerForm  = new QFormLayout(writerGroup);
 
     auto populateWriterCombo = [](QComboBox *combo, openswmmvis::FilterKind k) {
@@ -1089,13 +2277,15 @@ void SimulationOptionsDialog::buildFilesTab(QTabWidget *tabs)
         combo->addItem(QObject::tr(defaultLabel), QString());
         auto *registry = openswmmvis::FileFilterRegistry::instance();
         QStringList seen;  // dedupe by pluginId
+        // Phase 3.10.6 (2026-05-22): the engine SDK has no INPUT_WRITE
+        // role — plugins that handle the model input file advertise
+        // INPUT_READ only, and the GUI registry sets `canWrite=false`
+        // on those entries.  The previous gate `if (!canWrite) continue;`
+        // therefore silently dropped every engine-provided input plugin
+        // from the Input writer combo.  All three combos now show every
+        // plugin id advertising the matching role, deduped.
         for (const auto &entry : registry->entriesFor(k)) {
             if (entry.pluginId.isEmpty()) continue;
-            if (k != openswmmvis::FilterKind::InputRead) {
-                /* OUTPUT_WRITE / REPORT_WRITE are write-only roles */
-            } else if (!entry.canWrite) {
-                continue;
-            }
             if (seen.contains(entry.pluginId)) continue;
             seen << entry.pluginId;
             const QString label = entry.description.isEmpty()
@@ -1134,103 +2324,13 @@ void SimulationOptionsDialog::buildFilesTab(QTabWidget *tabs)
     connect(m_singleContainerBox, &QCheckBox::toggled,
             this, &SimulationOptionsDialog::onSingleContainerToggled);
 
-    vlay->addWidget(writerGroup);
+    outVlay->addWidget(writerGroup);
 
-    auto *intro = new QLabel(
-        tr("Plugins listed in the model's <b>[PLUGINS]</b> section.  Each row "
-           "names a writer / output / report plugin (by id, <i>id:version</i>, "
-           "or shared-library path) and any free-form arguments to pass to "
-           "its initialize() call.  The first input-capable row is also used "
-           "by File → Save As when picking a non-<code>.inp</code> "
-           "extension."),
-        page);
-    intro->setWordWrap(true);
-    vlay->addWidget(intro);
-
-    m_pluginsTable = new QTableWidget(0, 2, page);
-    m_pluginsTable->setHorizontalHeaderLabels(
-        {tr("Plugin (path / id / id:version)"), tr("Arguments")});
-    m_pluginsTable->horizontalHeader()->setStretchLastSection(true);
-    m_pluginsTable->horizontalHeader()->setSectionResizeMode(
-        0, QHeaderView::Stretch);
-    m_pluginsTable->verticalHeader()->setVisible(false);
-    m_pluginsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_pluginsTable->setEditTriggers(QAbstractItemView::DoubleClicked
-                                    | QAbstractItemView::EditKeyPressed
-                                    | QAbstractItemView::AnyKeyPressed);
-    vlay->addWidget(m_pluginsTable, 1);
-
-    auto *btnRow = new QHBoxLayout();
-    m_pluginsAddBtn    = new QPushButton(tr("Add"), page);
-    m_pluginsRemoveBtn = new QPushButton(tr("Remove"), page);
-    m_pluginsRemoveBtn->setEnabled(false);
-    btnRow->addWidget(m_pluginsAddBtn);
-    btnRow->addWidget(m_pluginsRemoveBtn);
-    btnRow->addStretch();
-    vlay->addLayout(btnRow);
-
-    connect(m_pluginsAddBtn, &QPushButton::clicked, this, [this] {
-        const int row = m_pluginsTable->rowCount();
-        m_pluginsTable->insertRow(row);
-        m_pluginsTable->setItem(row, 0, new QTableWidgetItem(QString()));
-        m_pluginsTable->setItem(row, 1, new QTableWidgetItem(QString()));
-        m_pluginsTable->editItem(m_pluginsTable->item(row, 0));
-    });
-    connect(m_pluginsRemoveBtn, &QPushButton::clicked, this, [this] {
-        const int row = m_pluginsTable->currentRow();
-        if (row >= 0) m_pluginsTable->removeRow(row);
-    });
-    connect(m_pluginsTable, &QTableWidget::itemSelectionChanged, this, [this] {
-        m_pluginsRemoveBtn->setEnabled(m_pluginsTable->currentRow() >= 0);
-    });
-
-    // ── [FILES] secondary references group ─────────────────────────────
-    auto *secondary = new QGroupBox(
-        tr("Secondary file references (.inp [FILES] section)"), page);
-    auto *secForm = new QFormLayout(secondary);
-
-    auto makeModeCombo = [secondary] {
-        auto *c = new QComboBox(secondary);
-        c->addItem(tr("(off)"), QString());
-        c->addItem(tr("USE"),   QStringLiteral("USE"));
-        c->addItem(tr("SAVE"),  QStringLiteral("SAVE"));
-        return c;
-    };
-    auto makePathRow = [secondary, secForm](const QString &label,
-                                              QLineEdit **edit,
-                                              QComboBox *modeCombo) {
-        *edit = new QLineEdit(secondary);
-        (*edit)->setPlaceholderText(
-            QObject::tr("path relative to the .inp directory"));
-        if (modeCombo) {
-            auto *row = new QHBoxLayout();
-            row->addWidget(*edit, 1);
-            row->addWidget(new QLabel(QObject::tr("Mode:"), secondary));
-            row->addWidget(modeCombo);
-            secForm->addRow(label, row);
-        } else {
-            secForm->addRow(label, *edit);
-        }
-    };
-
-    m_rainfallModeCombo = makeModeCombo();
-    makePathRow(tr("Rainfall:"), &m_rainfallPathEdit, m_rainfallModeCombo);
-
-    m_runoffModeCombo = makeModeCombo();
-    makePathRow(tr("Runoff:"),   &m_runoffPathEdit,   m_runoffModeCombo);
-
-    m_rdiiModeCombo = makeModeCombo();
-    makePathRow(tr("RDII:"),     &m_rdiiPathEdit,     m_rdiiModeCombo);
-
-    makePathRow(tr("Inflows (USE only):"),  &m_inflowsPathEdit,  nullptr);
-    makePathRow(tr("Outflows (SAVE only):"), &m_outflowsPathEdit, nullptr);
-    makePathRow(tr("Hot-start file (USE):"), &m_hotstartUseEdit,  nullptr);
-    makePathRow(tr("Hot-start file (SAVE):"), &m_hotstartSaveEdit, nullptr);
-
-    vlay->addWidget(secondary);
+    // ── Report contents ([REPORT] section — Slice BV.1, 2026-05-22) ───
+    buildReportContentsGroup(outVlay, outputPage);
 
     // ── Report file path (Slice AA-4) ────────────────────────────────────
-    auto *rptGroup = new QGroupBox(tr("Report file"), page);
+    auto *rptGroup = new QGroupBox(tr("Report file"), outputPage);
     auto *rptForm  = new QFormLayout(rptGroup);
 
     auto *rptPathRow = new QHBoxLayout();
@@ -1246,10 +2346,10 @@ void SimulationOptionsDialog::buildFilesTab(QTabWidget *tabs)
             this, &SimulationOptionsDialog::browseForReportFile);
     rptPathRow->addWidget(rptBrowse);
     rptForm->addRow(tr("Report file path:"), rptPathRow);
-    vlay->addWidget(rptGroup);
+    outVlay->addWidget(rptGroup);
 
     // ── Output (results) file path (Slice AA-4) ──────────────────────────
-    auto *outGroup = new QGroupBox(tr("Results output file"), page);
+    auto *outGroup = new QGroupBox(tr("Results output file"), outputPage);
     auto *outForm  = new QFormLayout(outGroup);
 
     auto *outPathRow = new QHBoxLayout();
@@ -1265,15 +2365,119 @@ void SimulationOptionsDialog::buildFilesTab(QTabWidget *tabs)
             this, &SimulationOptionsDialog::browseForOutputFile);
     outPathRow->addWidget(outBrowse);
     outForm->addRow(tr("Output file path:"), outPathRow);
-    vlay->addWidget(outGroup);
+    outVlay->addWidget(outGroup);
 
-    tabs->addTab(page, tr("Files"));
+    outVlay->addStretch(1);
+    subTabs->addTab(outputPage, tr("Output"));
+
+    // =====================================================================
+    // Sub-tab "Plugins" — [PLUGINS] table (Phase 3.10.3, 2026-05-22)
+    // =====================================================================
+    auto *pluginsPage = new QWidget(subTabs);
+    auto *plVlay = new QVBoxLayout(pluginsPage);
+
+    auto *intro = new QLabel(
+        tr("Plugins listed in the model's <b>[PLUGINS]</b> section.  Each row "
+           "names a writer / output / report plugin (by id, <i>id:version</i>, "
+           "or shared-library path) and any free-form arguments to pass to "
+           "its initialize() call.  The first input-capable row is also used "
+           "by File → Save As when picking a non-<code>.inp</code> "
+           "extension."),
+        pluginsPage);
+    intro->setWordWrap(true);
+    plVlay->addWidget(intro);
+
+    // Phase 3.10.6 (2026-05-22) — MVC: model + QTableView with the
+    // reusable PathBrowseDelegate on column 0 so each row's plugin
+    // path field carries an inline "…" browse button targeting the
+    // platform's shared-library extensions.  Column 1 (arguments)
+    // uses the default QLineEdit delegate (free-form text).
+    m_pluginsModel   = new PluginsTableModel(this);
+    m_pluginsPathDel = new PathBrowseDelegate(
+        PathBrowseDelegate::OpenFile,
+        tr("Choose Plugin Library"),
+#if defined(Q_OS_WIN)
+        tr("Plugin libraries (*.dll);;All Files (*)"),
+#elif defined(Q_OS_MACOS)
+        tr("Plugin libraries (*.dylib *.so *.bundle);;All Files (*)"),
+#else
+        tr("Plugin libraries (*.so);;All Files (*)"),
+#endif
+        tr("plugin id, id:version, or library path"),
+        this);
+
+    m_pluginsView = new QTableView(pluginsPage);
+    m_pluginsView->setModel(m_pluginsModel);
+    m_pluginsView->setItemDelegateForColumn(
+        PluginsTableModel::ColPath, m_pluginsPathDel);
+    m_pluginsView->verticalHeader()->setVisible(false);
+    m_pluginsView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_pluginsView->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_pluginsView->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    {
+        auto *hdr = m_pluginsView->horizontalHeader();
+        hdr->setSectionResizeMode(QHeaderView::Interactive);
+        hdr->setStretchLastSection(true);
+        hdr->setMinimumSectionSize(60);
+        hdr->resizeSection(PluginsTableModel::ColPath, 360);
+        hdr->resizeSection(PluginsTableModel::ColArgs, 220);
+    }
+    plVlay->addWidget(m_pluginsView, 1);
+
+    // Open the path-cell persistent editor for every row so the browse
+    // "…" button is visible without click-to-edit.  Args column keeps
+    // the default click-to-edit behaviour.
+    auto openPersistentPluginPath = [this](int row) {
+        if (!m_pluginsView || !m_pluginsModel) return;
+        m_pluginsView->openPersistentEditor(
+            m_pluginsModel->index(row, PluginsTableModel::ColPath));
+    };
+    connect(m_pluginsModel, &QAbstractItemModel::rowsInserted, this,
+            [openPersistentPluginPath](const QModelIndex &, int first, int last) {
+        for (int r = first; r <= last; ++r) openPersistentPluginPath(r);
+    });
+    connect(m_pluginsModel, &QAbstractItemModel::modelReset, this,
+            [this, openPersistentPluginPath] {
+        if (!m_pluginsModel) return;
+        for (int r = 0; r < m_pluginsModel->rowCount(); ++r)
+            openPersistentPluginPath(r);
+    });
+
+    auto *btnRow = new QHBoxLayout();
+    m_pluginsAddBtn    = new QPushButton(tr("Add"), pluginsPage);
+    m_pluginsRemoveBtn = new QPushButton(tr("Remove"), pluginsPage);
+    m_pluginsRemoveBtn->setEnabled(false);
+    btnRow->addWidget(m_pluginsAddBtn);
+    btnRow->addWidget(m_pluginsRemoveBtn);
+    btnRow->addStretch();
+    plVlay->addLayout(btnRow);
+
+    connect(m_pluginsAddBtn, &QPushButton::clicked, this, [this] {
+        if (!m_pluginsModel || !m_pluginsView) return;
+        const int row = m_pluginsModel->appendRow(QString(), QString());
+        m_pluginsView->setCurrentIndex(
+            m_pluginsModel->index(row, PluginsTableModel::ColPath));
+    });
+    connect(m_pluginsRemoveBtn, &QPushButton::clicked, this, [this] {
+        if (!m_pluginsModel || !m_pluginsView) return;
+        const QModelIndex cur = m_pluginsView->currentIndex();
+        if (cur.isValid()) m_pluginsModel->removeRows(cur.row(), 1);
+    });
+    connect(m_pluginsView->selectionModel(),
+            &QItemSelectionModel::currentChanged, this,
+            [this](const QModelIndex &cur, const QModelIndex &) {
+        m_pluginsRemoveBtn->setEnabled(cur.isValid());
+    });
+
+    subTabs->addTab(pluginsPage, tr("Plugins"));
+
+    tabs->addTab(page, tr("Files / Output / Plugins"));
 }
 
 void SimulationOptionsDialog::readPluginsFromEngine()
 {
-    if (!m_pluginsTable) return;
-    m_pluginsTable->setRowCount(0);
+    if (!m_pluginsModel) return;
+    m_pluginsModel->clearRows();
     if (!m_engine) return;
 
     int count = 0;
@@ -1287,12 +2491,8 @@ void SimulationOptionsDialog::readPluginsFromEngine()
         if (swmm_plugin_get(m_engine, i,
                             path_buf, sizeof(path_buf),
                             args_buf, sizeof(args_buf)) != 0) continue;
-        const int row = m_pluginsTable->rowCount();
-        m_pluginsTable->insertRow(row);
-        m_pluginsTable->setItem(row, 0,
-            new QTableWidgetItem(QString::fromUtf8(path_buf)));
-        m_pluginsTable->setItem(row, 1,
-            new QTableWidgetItem(QString::fromUtf8(args_buf)));
+        m_pluginsModel->appendRow(QString::fromUtf8(path_buf),
+                                  QString::fromUtf8(args_buf));
     }
 }
 
@@ -1491,6 +2691,73 @@ void SimulationOptionsDialog::browseForOutputFile()
         m_outputFilePathEdit->setText(path);
 }
 
+// ---------------------------------------------------------------------------
+// Multi-row SAVE HOTSTART slots (Slice BV-01, 2026-05-21).
+// ---------------------------------------------------------------------------
+
+void SimulationOptionsDialog::onHotstartSaveAddRow()
+{
+    if (!m_hotstartSavesModel || !m_hotstartSavesView) return;
+    const int row = m_hotstartSavesModel->appendRow(QString{}, 0.0);
+    m_hotstartSavesView->setCurrentIndex(
+        m_hotstartSavesModel->index(row, HotstartSavesModel::ColPath));
+    onHotstartSaveBrowseRow();   // prompt for the save-as path immediately
+}
+
+void SimulationOptionsDialog::onHotstartSaveBrowseRow()
+{
+    if (!m_hotstartSavesModel || !m_hotstartSavesView) return;
+    const QModelIndex cur = m_hotstartSavesView->currentIndex();
+    const int row = cur.isValid() ? cur.row() : -1;
+    if (row < 0 || row >= m_hotstartSavesModel->rowCount()) return;
+
+    const QString current = m_hotstartSavesModel->pathAt(row).trimmed();
+    const QString path = QFileDialog::getSaveFileName(
+        this,
+        tr("Choose Hot-Start Save File"),
+        current.isEmpty() ? QString() : current,
+        tr("Hot-start files (*.hsf);;All Files (*)"));
+    if (path.isEmpty()) return;
+    m_hotstartSavesModel->setData(
+        m_hotstartSavesModel->index(row, HotstartSavesModel::ColPath),
+        path, Qt::EditRole);
+}
+
+void SimulationOptionsDialog::onHotstartSaveRemoveRow()
+{
+    if (!m_hotstartSavesModel || !m_hotstartSavesView) return;
+    const QModelIndex cur = m_hotstartSavesView->currentIndex();
+    const int row = cur.isValid() ? cur.row() : -1;
+    if (row < 0) return;
+    m_hotstartSavesModel->removeRows(row, 1);
+}
+
+void SimulationOptionsDialog::onHotstartSaveMoveRowUp()
+{
+    if (!m_hotstartSavesModel || !m_hotstartSavesView) return;
+    const QModelIndex cur = m_hotstartSavesView->currentIndex();
+    const int row = cur.isValid() ? cur.row() : -1;
+    if (row <= 0) return;
+    moveHotstartSaveRow(row, row - 1);
+}
+
+void SimulationOptionsDialog::onHotstartSaveMoveRowDown()
+{
+    if (!m_hotstartSavesModel || !m_hotstartSavesView) return;
+    const QModelIndex cur = m_hotstartSavesView->currentIndex();
+    const int row = cur.isValid() ? cur.row() : -1;
+    if (row < 0 || row >= m_hotstartSavesModel->rowCount() - 1) return;
+    moveHotstartSaveRow(row, row + 1);
+}
+
+void SimulationOptionsDialog::moveHotstartSaveRow(int from, int to)
+{
+    if (!m_hotstartSavesModel || !m_hotstartSavesView) return;
+    if (!m_hotstartSavesModel->swapRows(from, to)) return;
+    m_hotstartSavesView->setCurrentIndex(
+        m_hotstartSavesModel->index(to, HotstartSavesModel::ColPath));
+}
+
 void SimulationOptionsDialog::updateSingleContainerEnabled()
 {
     if (!m_singleContainerBox || !m_inputWriterCombo) return;
@@ -1546,7 +2813,24 @@ void SimulationOptionsDialog::readFilesSectionFromEngine()
     if (m_inflowsPathEdit)  m_inflowsPathEdit->setText(getStr("INFLOWS_PATH"));
     if (m_outflowsPathEdit) m_outflowsPathEdit->setText(getStr("OUTFLOWS_PATH"));
     if (m_hotstartUseEdit)  m_hotstartUseEdit->setText(getStr("HOTSTART_USE_PATH"));
-    if (m_hotstartSaveEdit) m_hotstartSaveEdit->setText(getStr("HOTSTART_SAVE_PATH"));
+
+    // Multi-row SAVE HOTSTART table (Slice BV-01).  Phase 3.10.5 — pull
+    // each entry from the engine's hotstart_saves vector into the
+    // HotstartSavesModel.  Persistent editors get re-opened by the
+    // rowsInserted hook installed in buildFilesTab().
+    if (m_hotstartSavesModel) {
+        m_hotstartSavesModel->clearRows();
+        int count = 0;
+        if (swmm_hotstart_saves_count(m_engine, &count) != SWMM_OK) count = 0;
+        for (int i = 0; i < count; ++i) {
+            char pbuf[1024] = {0};
+            double dt = 0.0;
+            swmm_hotstart_saves_get_path(m_engine, i, pbuf, sizeof(pbuf));
+            swmm_hotstart_saves_get_datetime(m_engine, i, &dt);
+            m_hotstartSavesModel->appendRow(QString::fromUtf8(pbuf),
+                                            dt > 0.0 ? dt : 0.0);
+        }
+    }
 }
 
 int SimulationOptionsDialog::writeFilesSectionToEngine()
@@ -1603,14 +2887,53 @@ int SimulationOptionsDialog::writeFilesSectionToEngine()
         writePathIfChanged("OUTFLOWS_PATH", m_outflowsPathEdit->text());
     if (m_hotstartUseEdit)
         writePathIfChanged("HOTSTART_USE_PATH",  m_hotstartUseEdit->text());
-    if (m_hotstartSaveEdit)
-        writePathIfChanged("HOTSTART_SAVE_PATH", m_hotstartSaveEdit->text());
+
+    // Multi-row SAVE HOTSTART (Slice BV-01).  The vector API is simpler
+    // to drive than per-slot diffing: snapshot the engine's current
+    // entries, compare against the model contents (path + datetime),
+    // and only rebuild the vector when something actually changed.
+    if (m_hotstartSavesModel) {
+        struct HsRow { QString path; double dt; };
+        QList<HsRow> desired;
+        const int nRows = m_hotstartSavesModel->rowCount();
+        for (int row = 0; row < nRows; ++row) {
+            const QString rawPath = m_hotstartSavesModel->pathAt(row).trimmed();
+            const QString relPath = toRelative(rawPath);
+            const double dt       = m_hotstartSavesModel->oaDateAt(row);
+
+            // Skip empty rows entirely — an empty path with no datetime
+            // is a stub the user never filled in.
+            if (relPath.isEmpty() && dt == 0.0) continue;
+            desired.push_back({relPath, dt});
+        }
+
+        // Compare against current engine state.
+        int curCount = 0;
+        swmm_hotstart_saves_count(m_engine, &curCount);
+        bool changed = (curCount != desired.size());
+        for (int i = 0; !changed && i < curCount; ++i) {
+            char pbuf[1024] = {0};
+            double curDt = 0.0;
+            swmm_hotstart_saves_get_path(m_engine, i, pbuf, sizeof(pbuf));
+            swmm_hotstart_saves_get_datetime(m_engine, i, &curDt);
+            if (QString::fromUtf8(pbuf) != desired[i].path) changed = true;
+            else if (curDt != desired[i].dt)                changed = true;
+        }
+        if (changed) {
+            swmm_hotstart_saves_clear(m_engine);
+            for (const auto &r : desired) {
+                const QByteArray utf = r.path.toUtf8();
+                swmm_hotstart_saves_add(m_engine, utf.constData(), r.dt);
+            }
+            ++written;
+        }
+    }
     return written;
 }
 
 int SimulationOptionsDialog::writePluginsToEngine()
 {
-    if (!m_pluginsTable || !m_engine) return 0;
+    if (!m_pluginsModel || !m_engine) return 0;
 
     // Snapshot existing engine rows by key so we can compute the
     // additions, replacements, and removals that the table represents.
@@ -1632,11 +2955,10 @@ int SimulationOptionsDialog::writePluginsToEngine()
 
     int written = 0;
     QSet<QString> seen;
-    for (int row = 0; row < m_pluginsTable->rowCount(); ++row) {
-        auto *pathItem = m_pluginsTable->item(row, 0);
-        auto *argsItem = m_pluginsTable->item(row, 1);
-        const QString key  = pathItem ? pathItem->text().trimmed() : QString();
-        const QString args = argsItem ? argsItem->text().trimmed() : QString();
+    const int nRows = m_pluginsModel->rowCount();
+    for (int row = 0; row < nRows; ++row) {
+        const QString key  = m_pluginsModel->pathAt(row).trimmed();
+        const QString args = m_pluginsModel->argsAt(row).trimmed();
         if (key.isEmpty()) continue;
         seen.insert(key);
 
@@ -1672,6 +2994,29 @@ int SimulationOptionsDialog::writeToEngine()
         if (setOption(key, newVal)) ++n;
     };
 
+    // Tab 0 — Title / Notes
+    if (m_titleNotesEdit) {
+        const QString currentHtml = m_titleNotesEdit->toHtml();
+        if (currentHtml != m_initialNotesHtml) {
+            if (m_engine) {
+                const QString plain = m_titleNotesEdit->toPlainText();
+                if (swmm_title_clear(m_engine) == 0) {
+                    const QByteArray utf8 = plain.toUtf8();
+                    if (swmm_title_set(m_engine, utf8.constData()) == 0)
+                        ++n;
+                }
+            }
+            if (m_projectWindow) {
+                const QString plain = m_titleNotesEdit->toPlainText();
+                // Drop the HTML if the document only carries plain text — keeps
+                // .oswp tidy and matches the "no notes" empty case.
+                m_projectWindow->setNotesHtml(plain.isEmpty() ? QString()
+                                                              : currentHtml);
+            }
+            m_initialNotesHtml = currentHtml;
+        }
+    }
+
     // Tab 1
     writeIfChanged("INFILTRATION",       getOption("INFILTRATION"),
                    m_infiltrationCombo->currentData().toString());
@@ -1681,18 +3026,19 @@ int SimulationOptionsDialog::writeToEngine()
                    engineBoolString(m_allowPondingBox->isChecked()));
     writeIfChanged("SKIP_STEADY_STATE",  getOption("SKIP_STEADY_STATE"),
                    engineBoolString(m_skipSteadyBox->isChecked()));
+    // Inverted UI: checked = active = IGNORE_X NO. Unchecked = ignore.
     writeIfChanged("IGNORE_RAINFALL",    getOption("IGNORE_RAINFALL"),
-                   engineBoolString(m_ignoreRainfallBox->isChecked()));
+                   engineBoolString(!m_ignoreRainfallBox->isChecked()));
     writeIfChanged("IGNORE_SNOWMELT",    getOption("IGNORE_SNOWMELT"),
-                   engineBoolString(m_ignoreSnowmeltBox->isChecked()));
+                   engineBoolString(!m_ignoreSnowmeltBox->isChecked()));
     writeIfChanged("IGNORE_GROUNDWATER", getOption("IGNORE_GROUNDWATER"),
-                   engineBoolString(m_ignoreGroundwaterBox->isChecked()));
+                   engineBoolString(!m_ignoreGroundwaterBox->isChecked()));
     writeIfChanged("IGNORE_RDII",        getOption("IGNORE_RDII"),
-                   engineBoolString(m_ignoreRDIIBox->isChecked()));
+                   engineBoolString(!m_ignoreRDIIBox->isChecked()));
     writeIfChanged("IGNORE_QUALITY",     getOption("IGNORE_QUALITY"),
-                   engineBoolString(m_ignoreQualityBox->isChecked()));
+                   engineBoolString(!m_ignoreQualityBox->isChecked()));
     writeIfChanged("IGNORE_ROUTING",     getOption("IGNORE_ROUTING"),
-                   engineBoolString(m_ignoreRoutingBox->isChecked()));
+                   engineBoolString(!m_ignoreRoutingBox->isChecked()));
 
     // Tab 2 — dates & times
     QString d, t;
@@ -1709,15 +3055,36 @@ int SimulationOptionsDialog::writeToEngine()
     writeIfChanged("REPORT_START_TIME", getOption("REPORT_START_TIME"), t);
 
     writeIfChanged("REPORT_STEP",  getOption("REPORT_STEP"),
-                   QString::number(m_reportStepSpin->value()));
+                   QString::number(m_reportStepEdit->totalSeconds()));
     writeIfChanged("DRY_STEP",     getOption("DRY_STEP"),
-                   QString::number(m_dryStepSpin->value()));
+                   QString::number(m_dryStepEdit->totalSeconds()));
     writeIfChanged("WET_STEP",     getOption("WET_STEP"),
-                   QString::number(m_wetStepSpin->value()));
-    writeIfChanged("ROUTING_STEP", getOption("ROUTING_STEP"),
-                   QString::number(m_routingStepSpin->value(), 'f', 2));
+                   QString::number(m_wetStepEdit->totalSeconds()));
+    {
+        const QTime rt = m_ruleStepEdit->time();
+        const qint64 ruleSecs = rt.hour() * 3600 + rt.minute() * 60 + rt.second();
+        writeIfChanged("RULE_STEP", getOption("RULE_STEP"),
+                       QString::number(ruleSecs));
+    }
+    {
+        // Routing step is a plain text box; preserve the user's typed
+        // decimal precision but normalise to a canonical %g rendering.
+        bool ok = false;
+        const double v = m_routingStepEdit->text().trimmed().toDouble(&ok);
+        if (ok)
+            writeIfChanged("ROUTING_STEP", getOption("ROUTING_STEP"),
+                           QString::number(v, 'g', 6));
+    }
     writeIfChanged("DRY_DAYS",     getOption("DRY_DAYS"),
                    QString::number(m_dryDaysSpin->value(), 'f', 2));
+    writeIfChanged("SWEEP_START",  getOption("SWEEP_START"),
+                   m_sweepStartEdit->date().toString(QStringLiteral("MM/dd")));
+    writeIfChanged("SWEEP_END",    getOption("SWEEP_END"),
+                   m_sweepEndEdit->date().toString(QStringLiteral("MM/dd")));
+
+    // Tab 2 — [EVENTS] (Slice CW). writeEventsToEngine() returns the number
+    // of rows it actually pushed; folded into n so wroteChanges flips.
+    n += writeEventsToEngine();
 
     // Tab 3 — Routing & Hydraulics
     writeIfChanged("SURCHARGE_METHOD",    getOption("SURCHARGE_METHOD"),
@@ -1783,6 +3150,7 @@ int SimulationOptionsDialog::writeToEngine()
     n += writePluginsToEngine();
     n += writeFilesSectionToEngine();
     n += writeWriterCombosToEngine();
+    n += writeReportContentsToEngine();
     writeOutputPathsToSettings();
 
     if (n > 0)
@@ -1796,6 +3164,33 @@ int SimulationOptionsDialog::writeToEngine()
 
 void SimulationOptionsDialog::onApply()
 {
+    // [EVENTS] validation gate (Slice CW).  Block Apply when any row has
+    // Start >= End; warn (non-blocking) on overlap / out-of-range so users
+    // can still proceed when they know what they're doing.
+    QString warn;
+    if (!validateEvents(&warn)) {
+        QMessageBox::warning(this, tr("Invalid event row"),
+            tr("One or more events have Start ≥ End.  Fix the highlighted "
+               "rows before applying."));
+        return;
+    }
+    // Files / Output / Plugins validation gate (Phase 3.10.4).  Block on
+    // empty plugin id or empty hot-start save path; warn (non-blocking)
+    // on softer checks (empty Selected list, missing parent dirs).
+    if (!validateFilesTab(&warn)) {
+        QMessageBox::warning(this, tr("Invalid Files / Plugins row"),
+            tr("One or more rows on the Files or Plugins sub-tab are "
+               "missing a required value.  Fix the highlighted rows "
+               "before applying."));
+        return;
+    }
+    if (!warn.isEmpty()) {
+        const auto choice = QMessageBox::warning(this, tr("Warnings"),
+            warn + tr("\nApply anyway?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        if (choice != QMessageBox::Yes) return;
+    }
+
     writeToEngine();
     // Re-read after write so the controls reflect whatever the engine
     // actually accepted (some keys may be clamped or normalised).
@@ -1804,6 +3199,27 @@ void SimulationOptionsDialog::onApply()
 
 void SimulationOptionsDialog::onAccept()
 {
+    QString warn;
+    if (!validateEvents(&warn)) {
+        QMessageBox::warning(this, tr("Invalid event row"),
+            tr("One or more events have Start ≥ End.  Fix the highlighted "
+               "rows before clicking OK."));
+        return;
+    }
+    if (!validateFilesTab(&warn)) {
+        QMessageBox::warning(this, tr("Invalid Files / Plugins row"),
+            tr("One or more rows on the Files or Plugins sub-tab are "
+               "missing a required value.  Fix the highlighted rows "
+               "before clicking OK."));
+        return;
+    }
+    if (!warn.isEmpty()) {
+        const auto choice = QMessageBox::warning(this, tr("Warnings"),
+            warn + tr("\nApply anyway?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        if (choice != QMessageBox::Yes) return;
+    }
+
     writeToEngine();
     accept();
 }

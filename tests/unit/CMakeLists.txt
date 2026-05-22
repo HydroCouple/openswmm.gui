@@ -87,3 +87,24 @@ add_swmmvis_unit_test(test_queryparser
     test_queryparser.cpp
     ${PROJECT_SOURCE_DIR}/src/core/queryparser.cpp
 )
+
+# Slice BC, Stage 1 — Yen's k-shortest-simple-paths over an abstract graph.
+add_swmmvis_unit_test(test_profilerouter
+    test_profilerouter.cpp
+    ${PROJECT_SOURCE_DIR}/src/plot/profilerouter.cpp
+)
+
+# Slice BC, Stage 2 — chainage, HGL/EGL, and envelope computation.
+add_swmmvis_unit_test(test_profilebuilder
+    test_profilebuilder.cpp
+    ${PROJECT_SOURCE_DIR}/src/plot/profilebuilder.cpp
+)
+
+# Slice BC, Stage 3a — pure-logic adapter (graph build + path materialize).
+# Live-model glue (`*FromModel` in profilenetworkadapter_model.cpp) is
+# excluded here; integration tests later.
+add_swmmvis_unit_test(test_profilenetworkadapter
+    test_profilenetworkadapter.cpp
+    ${PROJECT_SOURCE_DIR}/src/plot/profilebuilder.cpp
+    ${PROJECT_SOURCE_DIR}/src/plot/profilenetworkadapter.cpp
+)

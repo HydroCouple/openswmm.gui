@@ -1,15 +1,10 @@
 /*!
  * \file   wmtslayer.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+ * \date   2026
+ * \license GPL-3.0-or-later
+ * \brief  Map layer that fetches and composites OGC WMTS tiled imagery,
+ *         caching individual tiles by (z, x, y) until the zoom level changes.
  */
 
 #ifndef WMTSLAYER_H

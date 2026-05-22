@@ -9,6 +9,8 @@
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
 #include "map/crsmanager.h"
+#include "core/editgeometry.h"
+#include "core/unitsystem.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 
@@ -348,6 +350,44 @@ void EditVertexCommand::undo()
 }
 
 // ===========================================================================
+// EditSubcatchCommand
+// ===========================================================================
+
+EditSubcatchCommand::EditSubcatchCommand(SWMMModelLayer *layer,
+                                         int catchIdx,
+                                         QVector<QPointF> oldVertices,
+                                         QVector<QPointF> newVertices,
+                                         double oldArea,
+                                         double newArea,
+                                         bool applyArea,
+                                         MapCanvas *canvas,
+                                         QUndoCommand *parent)
+    : MapCommand(QObject::tr("Edit Subcatchment Vertices"), canvas, parent),
+      m_layer(layer),
+      m_catchIdx(catchIdx),
+      m_old(std::move(oldVertices)),
+      m_new(std::move(newVertices)),
+      m_oldArea(oldArea),
+      m_newArea(newArea),
+      m_applyArea(applyArea)
+{
+}
+
+void EditSubcatchCommand::redo()
+{
+    if (!m_layer) return;
+    m_layer->applySubcatchVertices(m_catchIdx, m_new);
+    if (m_applyArea) m_layer->applySubcatchArea(m_catchIdx, m_newArea);
+}
+
+void EditSubcatchCommand::undo()
+{
+    if (!m_layer) return;
+    m_layer->applySubcatchVertices(m_catchIdx, m_old);
+    if (m_applyArea) m_layer->applySubcatchArea(m_catchIdx, m_oldArea);
+}
+
+// ===========================================================================
 // AddNodeCommand
 // ===========================================================================
 
@@ -356,20 +396,29 @@ AddNodeCommand::AddNodeCommand(SWMMModelLayer *layer,
                                int nodeType,
                                double x, double y,
                                MapCanvas *canvas,
+                               double invertElev,
                                QUndoCommand *parent)
     : MapCommand(QObject::tr("Add Node \"%1\"").arg(name), canvas, parent),
       m_layer(layer),
       m_name(std::move(name)),
       m_nodeType(nodeType),
-      m_x(x), m_y(y)
+      m_x(x), m_y(y),
+      m_invertElev(invertElev)
 {
 }
 
 void AddNodeCommand::redo()
 {
     if (!m_layer || m_present) return;
-    if (m_layer->applyNodeAdd(m_name, m_nodeType, m_x, m_y))
-        m_present = true;
+    if (!m_layer->applyNodeAdd(m_name, m_nodeType, m_x, m_y)) return;
+    m_present = true;
+
+    if (m_invertElev != 0.0) {
+        SWMM_Engine eng = m_layer->engine();
+        const int idx = swmm_node_index(eng, m_name.toUtf8().constData());
+        if (idx >= 0)
+            swmm_node_set_invert_elev(eng, idx, m_invertElev);
+    }
 }
 
 void AddNodeCommand::undo()
@@ -476,6 +525,8 @@ AddLinkCommand::AddLinkCommand(SWMMModelLayer   *layer,
                                 QString           toNode,
                                 QVector<QPointF>  interiorVertices,
                                 MapCanvas        *canvas,
+                                double            offsetUp,
+                                double            offsetDn,
                                 QUndoCommand     *parent)
     : MapCommand(QObject::tr("Add Link"), canvas, parent)
     , m_layer(layer)
@@ -484,13 +535,34 @@ AddLinkCommand::AddLinkCommand(SWMMModelLayer   *layer,
     , m_fromNode(std::move(fromNode))
     , m_toNode(std::move(toNode))
     , m_interiorVertices(std::move(interiorVertices))
+    , m_offsetUp(offsetUp)
+    , m_offsetDn(offsetDn)
 {}
 
 void AddLinkCommand::redo()
 {
+    m_linkIdx = -1;
     m_present = m_layer->applyLinkAdd(m_name, m_linkType,
                                        m_fromNode, m_toNode,
-                                       m_interiorVertices);
+                                       m_interiorVertices, &m_linkIdx);
+
+    // Auto-length: set GIS polyline length when the canvas flag is active.
+    if (m_present && m_linkIdx >= 0
+            && m_canvas && m_canvas->property("autoLength").toBool()) {
+        const QVector<QPointF> poly = m_layer->cachedLinkPolyline(m_linkIdx);
+        if (poly.size() >= 2) {
+            const double len = m_layer->polylineLengthInModelUnits(poly);
+            if (len > 0.0)
+                m_layer->applyLinkLength(m_linkIdx, len);
+        }
+    }
+
+    // Terrain-derived invert offsets.
+    if (m_present && m_linkIdx >= 0 && (m_offsetUp != 0.0 || m_offsetDn != 0.0)) {
+        SWMM_Engine eng = m_layer->engine();
+        if (m_offsetUp != 0.0) swmm_link_set_offset_up(eng, m_linkIdx, m_offsetUp);
+        if (m_offsetDn != 0.0) swmm_link_set_offset_dn(eng, m_linkIdx, m_offsetDn);
+    }
 }
 
 void AddLinkCommand::undo()
@@ -542,7 +614,22 @@ AddSubcatchmentCommand::AddSubcatchmentCommand(SWMMModelLayer   *layer,
 
 void AddSubcatchmentCommand::redo()
 {
-    m_present = m_layer->applySubcatchAdd(m_name, m_polygon);
+    m_subcatchIdx = -1;
+    m_present = m_layer->applySubcatchAdd(m_name, m_polygon, &m_subcatchIdx);
+
+    // Auto-area: set GIS polygon area when the canvas flag is active.
+    if (m_present && m_subcatchIdx >= 0
+            && m_canvas && m_canvas->property("autoLength").toBool()) {
+        const double sqUnits = EditGeometry::polygonArea(m_polygon);
+        if (sqUnits > 0.0) {
+            // Convert square map units → SWMM area unit:
+            //   SI  (CMS/LPS/MLD): metres → hectares  (÷ 10 000)
+            //   US  (CFS/GPM/MGD): feet   → acres     (÷ 43 560)
+            const bool si = UnitSystem::instance()->isSI();
+            const double area = si ? sqUnits / 10000.0 : sqUnits / 43560.0;
+            swmm_subcatch_set_area(m_layer->engine(), m_subcatchIdx, area);
+        }
+    }
 }
 
 void AddSubcatchmentCommand::undo()

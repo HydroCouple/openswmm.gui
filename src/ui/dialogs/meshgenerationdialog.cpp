@@ -6,6 +6,7 @@
  */
 #include "ui/dialogs/meshgenerationdialog.h"
 
+#include "core/unitsystem.h"
 #include "swmmvisprojectwindow.h"
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
@@ -20,6 +21,8 @@
 #include "mesh/meshresult.h"
 #include "mesh/dtmthinner.h"
 #include "mesh/inpmeshwriter.h"
+
+#include <openswmm/engine/openswmm_nodes.h>
 
 #include <gdal_priv.h>
 #include <ogr_feature.h>
@@ -225,36 +228,37 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         g.addRegion(rm);
     g.setOptions(in.genOpts);
 
-    // ── DTM required — open once, shared for all elevation sampling ──
+    // ── DTM (optional) — open once, shared for all elevation sampling ──
     // The DEM drives three steps: feature z-interpolation, terrain
     // thinning / grid sampling, and post-Triangle vertex elevation fill.
     // A single DTMThinner instance covers all three so the file is only
     // opened once and the same bilinear sampler is used throughout.
-    if (in.dtmPath.isEmpty())
-    {
-        fail(QObject::tr("A DTM raster is required for mesh generation. "
-                         "Select a DTM layer in the Sources tab."));
-        return;
-    }
-
-    progress(20, QObject::tr("Opening DTM raster…"));
-    if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+    //
+    // When no DTM is provided, vertex z is filled by inverse-distance
+    // interpolation from junction rim elevations carried on the SWMM
+    // node Steiner points (invert + maxDepth, set in collectInputs).
+    const bool useDTM = !in.dtmPath.isEmpty();
 
     mesh::DTMThinner thinner;
-    if (!thinner.open(in.dtmPath))
-    {
-        fail(QObject::tr("DTM open failed: %1").arg(thinner.errorMsg()));
-        return;
-    }
-
-    // CRS transforms shared by all DTM sampling below.
-    // GDAL 3 changed the default axis order for geographic CRSs to the
-    // ISO/OGC standard (lat-first for EPSG:4326).  Force traditional
-    // GIS order (x=east/lon, y=north/lat) on every SRS object we create
-    // so that coordinate transforms and IsSame() behave consistently.
     OGRCoordinateTransformation *meshToDTM = nullptr;
     OGRCoordinateTransformation *dtmToMesh = nullptr;
+
+    if (useDTM)
     {
+        progress(20, QObject::tr("Opening DTM raster…"));
+        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+
+        if (!thinner.open(in.dtmPath))
+        {
+            fail(QObject::tr("DTM open failed: %1").arg(thinner.errorMsg()));
+            return;
+        }
+
+        // CRS transforms shared by all DTM sampling below.
+        // GDAL 3 changed the default axis order for geographic CRSs to the
+        // ISO/OGC standard (lat-first for EPSG:4326).  Force traditional
+        // GIS order (x=east/lon, y=north/lat) on every SRS object we create
+        // so that coordinate transforms and IsSame() behave consistently.
         const QString dtmCRSWkt = thinner.crsWkt();
         qDebug() << "[CRS] meshCRSWkt empty:" << in.meshCRSWkt.isEmpty()
                  << "| dtmCRSWkt empty:" << dtmCRSWkt.isEmpty();
@@ -279,24 +283,37 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             }
         }
     }
+    else
+    {
+        progress(20, QObject::tr("Using junction rim elevations (no DTM selected)…"));
+    }
 
-    // elevCache — keeps exact DEM z values for every point we place as a
+    // elevCache — keeps exact z values for every point we place as a
     // Steiner vertex.  Keyed by quantised mesh-CRS (x,y) at 1e7 precision.
     // The post-Triangle elevation loop consults this first so those vertices
     // are never re-sampled.
     QHash<QPair<qint64,qint64>, double> elevCache;
 
-    // ── Step 1: feature Steiner points — assign z from DEM ───────────
+    // Flat seed arrays for IDW fall-back when no DTM is supplied. Populated
+    // alongside elevCache below — only steiner points with known z become
+    // seeds.
+    QVector<QPointF> seedXY;
+    QVector<double>  seedZ;
+
+    // ── Step 1: feature Steiner points — assign z from DEM or model ──
     // SWMM nodes, conduit vertices, aux-layer points, etc.  Their (x,y)
     // is already in mesh CRS; we transform to DTM CRS to sample, then
-    // store back in mesh CRS.
-    progress(25, QObject::tr("Interpolating feature elevations from DTM…"));
+    // store back in mesh CRS.  When no DTM is selected we keep whatever
+    // z the input already carries (junctions arrive with rim z set).
+    progress(25, useDTM
+                 ? QObject::tr("Interpolating feature elevations from DTM…")
+                 : QObject::tr("Reading junction rim elevations…"));
     if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
 
     for (const auto &sp0 : std::as_const(in.steinerPoints))
     {
         mesh::SteinerPoint sp = sp0;
-        if (!sp.hasZ)
+        if (!sp.hasZ && useDTM)
         {
             double sx = sp.xy.x(), sy = sp.xy.y();
             if (meshToDTM) meshToDTM->Transform(1, &sx, &sy);
@@ -304,13 +321,20 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             if (std::isfinite(z)) { sp.z = z; sp.hasZ = true; }
         }
         if (sp.hasZ)
+        {
             elevCache.insert(
                 qMakePair(qRound64(sp.xy.x() * 1e7), qRound64(sp.xy.y() * 1e7)), sp.z);
+            seedXY.append(sp.xy);
+            seedZ .append(sp.z);
+        }
         g.addSteinerPoint(sp);
     }
 
     // ── Step 2: DTM terrain points — thinning or full-grid sampling ──
     // Domain bounding box in mesh CRS → transform corners to DTM CRS.
+    // Skipped entirely when no DTM is supplied; in that mode the only
+    // vertices added to the PSLG come from steiner features + Triangle's
+    // own refinement, and z is filled later via IDW from seedXY/seedZ.
     double bx0 = std::numeric_limits<double>::max(),  by0 = bx0;
     double bx1 = std::numeric_limits<double>::lowest(), by1 = bx1;
     for (const auto &dom : std::as_const(in.domains))
@@ -322,11 +346,12 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
     qDebug() << "[Mesh] domain bbox (mesh CRS):"
              << bx0 << by0 << "--" << bx1 << by1;
-    qDebug() << "[Mesh] DTM pixelSize:" << thinner.pixelSize()
-             << "| CRS wkt present:" << !thinner.crsWkt().isEmpty()
-             << "| meshToDTM:" << (meshToDTM ? "YES" : "NO");
+    if (useDTM)
+        qDebug() << "[Mesh] DTM pixelSize:" << thinner.pixelSize()
+                 << "| CRS wkt present:" << !thinner.crsWkt().isEmpty()
+                 << "| meshToDTM:" << (meshToDTM ? "YES" : "NO");
 
-    if (bx0 < bx1 && by0 < by1)
+    if (useDTM && bx0 < bx1 && by0 < by1)
     {
         double dx0 = bx0, dy0 = by0, dx1 = bx1, dy1 = by1;
         if (meshToDTM)
@@ -481,7 +506,7 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         progress(38, QObject::tr("%1 DTM Steiner points added to PSLG")
                      .arg(candidatesMesh.size()));
     }
-    else
+    else if (useDTM)
     {
         qDebug() << "[Mesh] domain bbox invalid — skipping DTM sampling";
     }
@@ -498,13 +523,17 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         fail(QObject::tr("Triangle: %1").arg(result.errorMsg)); return;
     }
 
-    // ── DTM elevation fill for all mesh vertices ─────────────────────
+    // ── Elevation fill for all mesh vertices ─────────────────────────
     // Vertices that were PSLG Steiner points (features + terrain) already
-    // have their exact DEM elevation in elevCache.  Only Triangle-inserted
-    // refinement vertices need fresh DTM sampling.
-    progress(70, QObject::tr("Sampling DTM elevations…"));
+    // have their exact z in elevCache.  Only Triangle-inserted refinement
+    // vertices need a fresh value — either by DTM sample (preferred) or
+    // by inverse-distance interpolation from the seed points.
+    progress(70, useDTM
+                 ? QObject::tr("Sampling DTM elevations…")
+                 : QObject::tr("Interpolating elevations from junction rims…"));
     if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
 
+    if (useDTM)
     {
         const int nv = result.vertices.size();
         for (int i = 0; i < nv; ++i)
@@ -532,9 +561,76 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             }
         }
     }
+    else
+    {
+        // No DTM: IDW from junction rim seeds. Power=2 (Shepard's method)
+        // is the standard default; weights = 1/d^2 give smooth surfaces
+        // that exactly honour the seed elevations at the seed locations.
+        // Brute-force O(V*S) — adequate for typical SWMM networks
+        // (hundreds of junctions, ~10^4 mesh vertices).
+        if (seedXY.isEmpty())
+        {
+            fail(QObject::tr(
+                "No DTM and no junctions with rim elevations inside the "
+                "meshing domain — cannot interpolate vertex elevations.\n"
+                "Either add a DTM or include at least one junction in "
+                "the domain."));
+            return;
+        }
+        const int nv = result.vertices.size();
+        const int ns = seedXY.size();
+        for (int i = 0; i < nv; ++i)
+        {
+            const double vx = result.vertices[i].xy.x();
+            const double vy = result.vertices[i].xy.y();
+
+            const auto key = qMakePair(qRound64(vx * 1e7), qRound64(vy * 1e7));
+            const auto it  = elevCache.constFind(key);
+            if (it != elevCache.constEnd())
+            {
+                result.vertices[i].z = it.value();
+                continue;
+            }
+
+            double wsum = 0.0, zsum = 0.0;
+            bool exact = false;
+            for (int s = 0; s < ns; ++s)
+            {
+                const double dx = seedXY[s].x() - vx;
+                const double dy = seedXY[s].y() - vy;
+                const double d2 = dx*dx + dy*dy;
+                if (d2 < 1e-18)
+                {
+                    result.vertices[i].z = seedZ[s];
+                    exact = true;
+                    break;
+                }
+                const double w = 1.0 / d2;   // power-2 IDW
+                wsum += w;
+                zsum += w * seedZ[s];
+            }
+            if (!exact)
+                result.vertices[i].z = (wsum > 0.0) ? (zsum / wsum) : 0.0;
+
+            if ((i & 0x3FFF) == 0 && promise.isCanceled())
+            {
+                fail(QObject::tr("Cancelled.")); return;
+            }
+        }
+    }
 
     if (meshToDTM) OGRCoordinateTransformation::DestroyCT(meshToDTM);
     if (dtmToMesh) OGRCoordinateTransformation::DestroyCT(dtmToMesh);
+
+    // ── Vertical unit conversion ─────────────────────────────────────
+    // Convert all DTM-sampled Z values from the raster's native vertical unit
+    // to the requested output vertical unit (SWMM model unit or explicit choice).
+    if (in.zConversionFactor != 1.0) {
+        for (auto &v : result.vertices) {
+            if (std::isfinite(v.z))
+                v.z *= in.zConversionFactor;
+        }
+    }
 
     // ── CouplingMap ──────────────────────────────────────────────────
     mesh::CouplingMap coupling;
@@ -586,6 +682,11 @@ MeshGenerationDialog::MeshGenerationDialog(SWMMVisProjectWindow *pw,
     resize(520, 510);
     buildUi();
     seedDefaults();
+
+    // Keep suffix labels and defaults in sync if the user somehow changes
+    // flow units while the dialog is open.
+    connect(UnitSystem::instance(), &UnitSystem::unitsChanged,
+            this, [this]() { updateUnitDisplay(); });
 }
 
 MeshGenerationDialog::~MeshGenerationDialog()
@@ -622,8 +723,63 @@ void MeshGenerationDialog::buildUi()
         f->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
 
         m_dtmCombo = new QComboBox(g);
-        m_dtmCombo->setToolTip(tr("DTM raster used to sample vertex elevations and drive terrain-adaptive thinning."));
+        m_dtmCombo->setToolTip(tr(
+            "DTM raster used to sample vertex elevations and drive\n"
+            "terrain-adaptive thinning. Optional — when set to (none)\n"
+            "the mesh is generated without terrain Steiner points and\n"
+            "vertex z is interpolated (IDW) from SWMM junction rim\n"
+            "elevations (invert + maxDepth)."));
         f->addRow(tr("&DTM raster:"), m_dtmCombo);
+
+        // Auto-detected DTM vertical unit (informational)
+        m_dtmVertUnitLabel = new QLabel(tr("—"), g);
+        m_dtmVertUnitLabel->setStyleSheet(QStringLiteral("color: gray;"));
+        m_dtmVertUnitLabel->setToolTip(tr("Vertical unit detected from the DTM raster's embedded CRS metadata."));
+        f->addRow(tr("DTM vertical unit:"), m_dtmVertUnitLabel);
+
+        // Output mesh vertical CRS
+        m_meshVertCRSCombo = new QComboBox(g);
+        m_meshVertCRSCombo->setToolTip(tr(
+            "Vertical unit for Z values written to the output mesh.\n"
+            "Choose to match the SWMM model's unit system so that node invert\n"
+            "elevations, crown elevations, and mesh Z values are consistent.\n"
+            "'Match flow units' converts automatically from the DTM vertical unit."));
+        m_meshVertCRSCombo->addItem(tr("Match flow units (auto-convert)"), QStringLiteral("auto"));
+        m_meshVertCRSCombo->addItem(tr("Metres (m)"),                      QStringLiteral("m"));
+        m_meshVertCRSCombo->addItem(tr("Feet (ft)"),                       QStringLiteral("ft"));
+        f->addRow(tr("Mesh vertical unit:"), m_meshVertCRSCombo);
+
+        // Z conversion factor — auto-populated, user-editable override.
+        m_zFactorSpin = new QDoubleSpinBox(g);
+        m_zFactorSpin->setRange(0.0001, 10000.0);
+        m_zFactorSpin->setDecimals(6);
+        m_zFactorSpin->setSingleStep(0.001);
+        m_zFactorSpin->setValue(1.0);
+        m_zFactorSpin->setToolTip(
+            tr("Multiplication factor applied to every raw DTM Z value before\n"
+               "it is written to the mesh.\n"
+               "Auto-computed from the DTM vertical unit and the chosen mesh\n"
+               "vertical unit; override here when the auto-detected value is wrong.\n"
+               "MeshZ = DTM_Z \xc3\x97 factor"));
+        f->addRow(tr("Z conversion (\xc3\x97):"), m_zFactorSpin);
+
+        // Update detected label, auto-select mesh unit, and recompute factor when DTM changes.
+        connect(m_dtmCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this]() {
+                    auto *raster = qobject_cast<GISRasterLayer *>(
+                        static_cast<QObject *>(m_dtmCombo->currentData().value<void *>()));
+                    if (raster) {
+                        const QString unit = raster->detectVerticalUnit();
+                        m_dtmVertUnitLabel->setText(
+                            unit == QLatin1String("ft") ? tr("ft (feet)") : tr("m (metres)"));
+                    } else {
+                        m_dtmVertUnitLabel->setText(tr("—"));
+                    }
+                    updateZFactor();
+                });
+
+        connect(m_meshVertCRSCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int) { updateZFactor(); });
 
         m_domainLabel = new QLabel(g);
         m_domainLabel->setStyleSheet(QStringLiteral("color: gray;"));
@@ -702,7 +858,7 @@ void MeshGenerationDialog::buildUi()
         m_maxAreaSpin->setRange(0.0, 1e12);
         m_maxAreaSpin->setDecimals(2);
         m_maxAreaSpin->setSpecialValueText(tr("(no cap)"));
-        m_maxAreaSpin->setToolTip(tr("Upper bound on triangle area (map units²). 0 = no cap."));
+        // tooltip updated by updateUnitDisplay()
         f->addRow(tr("Max triangle area:"), m_maxAreaSpin);
 
         m_minAngleSpin = new QDoubleSpinBox(g);
@@ -733,7 +889,7 @@ void MeshGenerationDialog::buildUi()
         m_simplifyEpsSpin->setRange(0.0, 1000.0);
         m_simplifyEpsSpin->setDecimals(3);
         m_simplifyEpsSpin->setSingleStep(0.1);
-        m_simplifyEpsSpin->setSuffix(tr(" m"));
+        // suffix set by updateUnitDisplay()
         m_simplifyEpsSpin->setSpecialValueText(tr("(off)"));
         m_simplifyEpsSpin->setToolTip(tr(
             "Ramer-Douglas-Peucker tolerance applied to every polygon ring and "
@@ -747,7 +903,7 @@ void MeshGenerationDialog::buildUi()
         m_snapEpsSpin->setRange(0.0, 100.0);
         m_snapEpsSpin->setDecimals(4);
         m_snapEpsSpin->setSingleStep(0.01);
-        m_snapEpsSpin->setSuffix(tr(" m"));
+        // suffix set by updateUnitDisplay()
         m_snapEpsSpin->setSpecialValueText(tr("(off)"));
         m_snapEpsSpin->setToolTip(tr(
             "Radius within which near-coincident untagged Steiner points are "
@@ -821,7 +977,7 @@ void MeshGenerationDialog::buildUi()
         m_minSpacingSpin->setRange(0.0, 1e9);
         m_minSpacingSpin->setDecimals(3);
         m_minSpacingSpin->setSingleStep(1.0);
-        m_minSpacingSpin->setSuffix(tr(" m"));
+        // suffix set by updateUnitDisplay()
         m_minSpacingSpin->setSpecialValueText(tr("(auto)"));
         f->addRow(m_minSpacingBox, m_minSpacingSpin);
 
@@ -963,6 +1119,46 @@ void MeshGenerationDialog::buildUi()
 // Defaults + layer combo population
 // ---------------------------------------------------------------------------
 
+void MeshGenerationDialog::updateZFactor()
+{
+    if (!m_zFactorSpin) return;
+
+    // Determine DTM vertical unit from the selected raster.
+    auto *raster = qobject_cast<GISRasterLayer *>(
+        static_cast<QObject *>(m_dtmCombo ? m_dtmCombo->currentData().value<void *>() : nullptr));
+    const QString dtmUnit = raster ? raster->detectVerticalUnit() : QStringLiteral("m");
+    const double  dtmToSI = (dtmUnit == QLatin1String("ft")) ? 0.3048 : 1.0;
+
+    // Determine desired output vertical unit.
+    const QString outSel = m_meshVertCRSCombo ? m_meshVertCRSCombo->currentData().toString()
+                                              : QStringLiteral("auto");
+    double outToSI = 1.0;
+    if (outSel == QLatin1String("auto")) {
+        outToSI = (m_pw && m_pw->unitSystem() && !m_pw->unitSystem()->isSI()) ? 0.3048 : 1.0;
+    } else if (outSel == QLatin1String("ft")) {
+        outToSI = 0.3048;
+    }
+
+    QSignalBlocker b(m_zFactorSpin);
+    m_zFactorSpin->setValue(dtmToSI / outToSI);
+}
+
+void MeshGenerationDialog::updateUnitDisplay()
+{
+    const UnitSystem *us  = UnitSystem::instance();
+    const QString     len = us->lengthLabel();       // "ft" or "m"
+    const QString     len2 = len + QStringLiteral("\xB2"); // "ft²" or "m²"
+    const QString     suf  = QStringLiteral(" ") + len;
+
+    if (m_simplifyEpsSpin) m_simplifyEpsSpin->setSuffix(suf);
+    if (m_snapEpsSpin)     m_snapEpsSpin->setSuffix(suf);
+    if (m_minSpacingSpin)  m_minSpacingSpin->setSuffix(suf);
+
+    if (m_maxAreaSpin)
+        m_maxAreaSpin->setToolTip(
+            tr("Upper bound on triangle area (%1). 0 = no cap.").arg(len2));
+}
+
 void MeshGenerationDialog::seedDefaults()
 {
     m_includeJunctions->setChecked(true);
@@ -972,8 +1168,11 @@ void MeshGenerationDialog::seedDefaults()
     m_minAngleSpin->setValue(33.0);
     m_maxSteinerSpin->setValue(-1);
     m_allowSteiner->setChecked(true);
-    m_simplifyEpsSpin->setValue(0.1);   // 10 cm RDP tolerance
-    m_snapEpsSpin->setValue(0.01);      // 1 cm Steiner snap
+    // Scale distance defaults to the project's length unit.
+    // SI canonical values: simplifyEps = 0.1 m, snapEps = 0.01 m.
+    const double toUnit = UnitSystem::instance()->isSI() ? 1.0 : 1.0 / 0.3048;
+    m_simplifyEpsSpin->setValue(0.1  * toUnit);
+    m_snapEpsSpin->setValue(    0.01 * toUnit);
     m_thinningBox->setChecked(false);
     m_thinningToleranceSpin->setValue(0.70); // default normal dot threshold
     m_thinningIterationsSpin->setValue(0);
@@ -983,7 +1182,9 @@ void MeshGenerationDialog::seedDefaults()
     m_manningsConstant->setChecked(true);
     m_manningsValueSpin->setValue(0.035);
     m_outputExternal->setChecked(true);
+    updateUnitDisplay();   // set suffixes and tooltip after values are seeded
     populateLayerCombos();
+    updateZFactor();       // seed factor from current DTM + mesh vertical unit
 
     if (m_pw && m_pw->modelLayer())
     {
@@ -1010,12 +1211,16 @@ void MeshGenerationDialog::populateLayerCombos()
     const auto &layers = m_pw->canvas()->layers();
 
     m_dtmCombo->clear();
+    // Allow generation without a DTM — elevations fall back to IDW from
+    // junction rim elevations (invert + maxDepth on each SWMM node).
+    m_dtmCombo->addItem(tr("(none — use junction rim elevations)"),
+                         QVariant::fromValue<void *>(nullptr));
     for (auto *L : layers)
         if (auto *r = qobject_cast<GISRasterLayer *>(L))
             m_dtmCombo->addItem(r->name(), QVariant::fromValue<void *>(r));
-    if (m_dtmCombo->count() == 0)
-        m_dtmCombo->addItem(tr("(no raster layers — add via View → Add Raster Data)"),
-                             QVariant::fromValue<void *>(nullptr));
+
+    // Trigger the DTM-changed connection to update the detected vertical unit label.
+    emit m_dtmCombo->currentIndexChanged(m_dtmCombo->currentIndex());
 
     m_boundaryLayerCombo->clear();
     m_boundaryLayerCombo->addItem(tr("(none)"),
@@ -1066,13 +1271,12 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     if (!modelExt.isValid())
         return fail(tr("Model has no spatial extent — add at least one node first."));
 
-    // ── DTM path (required) ──────────────────────────────────────────
+    // ── DTM path (optional) ──────────────────────────────────────────
+    // When no DTM is selected, vertex elevations are filled by IDW
+    // interpolation from SWMM junction rim elevations (invert + maxDepth).
     auto *dtmLayer = static_cast<GISRasterLayer *>(
         m_dtmCombo->currentData().value<void *>());
     out->dtmPath = dtmLayer ? dtmLayer->filePath() : QString();
-    if (out->dtmPath.isEmpty())
-        return fail(tr("A DTM raster is required for mesh generation. "
-                       "Please select a DTM layer in the Sources tab."));
 
     // ── PSLG optimisation parameters ─────────────────────────────────
     out->pslgSimplifyEps = m_simplifyEpsSpin->value();
@@ -1313,6 +1517,11 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // SWMM model coordinates are in the model's native CRS (= mesh CRS),
     // so no transform needed.  Filter out nodes that lie outside the
     // meshing domain to reduce Triangle's input vertex count.
+    //
+    // Each node also carries its rim elevation (invert + maxDepth) so the
+    // worker can either (a) prefer this over a DTM sample, or (b) use it
+    // as the only elevation source when no DTM is selected.
+    SWMM_Engine engineForRim = layer->engine();
     int nextMarker = 100;
     if (m_includeJunctions->isChecked())
     {
@@ -1332,6 +1541,17 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
                 if (!inDomain(QPointF(x, y))) continue;
                 mesh::SteinerPoint sp;
                 sp.xy = QPointF(x, y); sp.marker = nextMarker; sp.tag = name;
+                if (engineForRim)
+                {
+                    double invert = 0.0, maxDepth = 0.0;
+                    const int er1 = swmm_node_get_invert_elev(engineForRim, idx, &invert);
+                    const int er2 = swmm_node_get_max_depth   (engineForRim, idx, &maxDepth);
+                    if (er1 == SWMM_OK && er2 == SWMM_OK)
+                    {
+                        sp.z    = invert + maxDepth;
+                        sp.hasZ = true;
+                    }
+                }
                 out->steinerPoints.append(sp);
                 out->nodeMarkerToTag.insert(nextMarker, name);
                 ++nextMarker;
@@ -1542,6 +1762,9 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
                              : mesh::MeshOutputMode::Inline;
     out->meshOutputPath = m_meshPathEdit->text().trimmed();
     out->manningsN      = m_manningsValueSpin->value();
+
+    // ── Vertical Z conversion factor ─────────────────────────────────
+    out->zConversionFactor = m_zFactorSpin ? m_zFactorSpin->value() : 1.0;
 
     return true;
 }

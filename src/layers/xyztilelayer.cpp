@@ -457,15 +457,21 @@ void XYZTileLayer::render(QPainter *painter,
     txMax = std::min(maxTile, txMax + 1);
     tyMax = std::min(maxTile, tyMax + 1);
 
-    // Helper: canvas-CRS coords → pixel coords in this image
-    // Pixel (0,0) = (extent.xMin, extent.yMax), y increases downward
-    const double pxPerCanvasX = imageSize.width()  / extent.width();
-    const double pxPerCanvasY = imageSize.height() / extent.height();
+    // Render at the painter's device-pixel resolution. Without this, the
+    // destination image is sized in logical pixels and gets upscaled by the
+    // OS at blit time on Retina (DPR=2) — every output pixel becomes a 2×2
+    // block whose contents are a bilinear interpolation of the anchor-grid
+    // sample, producing the "random / shifting" artefact the user reported.
+    // We rebuild dst at device-pixel size, set its DPR, and walk every
+    // device pixel through the reverse-mapping pipeline.
+    const qreal dpr = painterDevicePixelRatio(painter);
+    const int   devW = qRound(imageSize.width()  * dpr);
+    const int   devH = qRound(imageSize.height() * dpr);
 
-    auto canvasToPx = [&](double cx, double cy) -> QPointF {
-        return QPointF((cx - extent.xMin()) * pxPerCanvasX,
-                       (extent.yMax() - cy) * pxPerCanvasY);
-    };
+    // Pixel-per-canvas in **device** pixels — anchor / per-pixel math below
+    // operates in device coords for full Retina precision.
+    const double pxPerCanvasX = devW / extent.width();
+    const double pxPerCanvasY = devH / extent.height();
 
     // Bail safely if the canvas CRS hasn't been wired through GDAL yet.
     OGRSpatialReference *canvasOGR = canvasSRS->ogrSpatialReference();
@@ -573,18 +579,18 @@ void XYZTileLayer::render(QPainter *painter,
     };
 
     // Build sparse anchor grid: for every 32-px block on the OUTPUT canvas
-    // image, compute the corresponding SOURCE BUFFER pixel by
-    // canvas-px → canvas-CRS → WGS84 → Mercator → source-px.
-    constexpr int kBlock = 32;                       // pixel block size
-    const int gridW = (imageSize.width()  + kBlock - 1) / kBlock + 1;
-    const int gridH = (imageSize.height() + kBlock - 1) / kBlock + 1;
+    // image (in **device pixels**), compute the corresponding SOURCE BUFFER
+    // pixel by canvas-px → canvas-CRS → WGS84 → Mercator → source-px.
+    constexpr int kBlock = 32;                       // device-pixel block size
+    const int gridW = (devW + kBlock - 1) / kBlock + 1;
+    const int gridH = (devH + kBlock - 1) / kBlock + 1;
 
     // Pre-allocate; rows-then-columns. (-1, -1) marks "invalid sample".
     QVector<QPointF> anchors(gridW * gridH, QPointF(-1, -1));
     for (int gy = 0; gy < gridH; ++gy) {
         for (int gx = 0; gx < gridW; ++gx) {
-            const double cpx = std::min(gx * kBlock, imageSize.width());
-            const double cpy = std::min(gy * kBlock, imageSize.height());
+            const double cpx = std::min(gx * kBlock, devW);
+            const double cpy = std::min(gy * kBlock, devH);
             // canvas pixel → canvas CRS coord
             const double cx = extent.xMin() + cpx / pxPerCanvasX;
             const double cy = extent.yMax() - cpy / pxPerCanvasY;
@@ -605,13 +611,24 @@ void XYZTileLayer::render(QPainter *painter,
         }
     }
 
-    // Allocate the destination image at the canvas's native pixel size.
-    QImage dst(imageSize, QImage::Format_ARGB32_Premultiplied);
+    // Allocate the destination image at device-pixel resolution so the
+    // bilinear sampler writes one pixel per device pixel — no later
+    // upscale by Qt's blitter. The setDevicePixelRatio tag lets the
+    // outer painter draw it at (0,0) and have it occupy the same
+    // logical area as the canvas (devW/dpr × devH/dpr).
+    QImage dst(QSize(devW, devH), QImage::Format_ARGB32_Premultiplied);
+    dst.setDevicePixelRatio(dpr);
     dst.fill(Qt::transparent);
 
-    // Bilinear sampler over the source buffer.
+    // Bilinear sampler over the source buffer. Returning transparent on
+    // out-of-bounds produces a visible 1-px frame at the composited-buffer
+    // boundary that "shifts" as the view pans; clamp to the inside-by-epsilon
+    // range so edge samples always return an opaque colour from the last
+    // valid pixel.
     auto sampleSrc = [&](double sx, double sy) -> QRgb {
-        if (sx < 0 || sy < 0 || sx >= srcW - 1 || sy >= srcH - 1) return 0;
+        if (!std::isfinite(sx) || !std::isfinite(sy)) return 0;
+        sx = std::clamp(sx, 0.0, double(srcW - 1) - 1e-9);
+        sy = std::clamp(sy, 0.0, double(srcH - 1) - 1e-9);
         const int    x0 = static_cast<int>(sx);
         const int    y0 = static_cast<int>(sy);
         const double dx = sx - x0;
@@ -635,15 +652,33 @@ void XYZTileLayer::render(QPainter *painter,
         return qRgba(r, g, b, a);
     };
 
-    // Walk every output pixel, bilinearly interpolate between the 4
-    // surrounding anchors to get its source-buffer position, sample.
-    for (int py = 0; py < imageSize.height(); ++py) {
+    // Per-pixel direct projection — used as a fallback when any of the 4
+    // surrounding anchors is invalid. Avoids dropping whole 32×32 cells to
+    // transparent at the edges of the projection's valid range (which
+    // otherwise shows up as jagged "shifting" gaps along the basemap as
+    // the view pans).
+    auto projectPixel = [&](double cpx, double cpy) -> QPointF {
+        const double cx = extent.xMin() + cpx / pxPerCanvasX;
+        const double cy = extent.yMax() - cpy / pxPerCanvasY;
+        double wx = cx, wy = cy;
+        if (m_toWGS84 && !m_toWGS84->Transform(1, &wx, &wy))
+            return QPointF(-1, -1);
+        if (!std::isfinite(wx) || !std::isfinite(wy)) return QPointF(-1, -1);
+        if (wx < -360.0 || wx > 360.0 || wy < -90.0 || wy > 90.0)
+            return QPointF(-1, -1);
+        const QPointF mp = wgs84ToMerc(wx, wy);
+        return mercToSrcPx(mp.x(), mp.y());
+    };
+
+    // Walk every output device pixel, bilinearly interpolate between the
+    // 4 surrounding anchors to get its source-buffer position, sample.
+    for (int py = 0; py < devH; ++py) {
         const int gy0 = py / kBlock;
         const int gy1 = std::min(gy0 + 1, gridH - 1);
         const double fy = (py - gy0 * kBlock) / static_cast<double>(kBlock);
 
         QRgb *line = reinterpret_cast<QRgb *>(dst.scanLine(py));
-        for (int px = 0; px < imageSize.width(); ++px) {
+        for (int px = 0; px < devW; ++px) {
             const int gx0 = px / kBlock;
             const int gx1 = std::min(gx0 + 1, gridW - 1);
             const double fx = (px - gx0 * kBlock) / static_cast<double>(kBlock);
@@ -653,10 +688,33 @@ void XYZTileLayer::render(QPainter *painter,
             const QPointF a01 = anchors[gy1 * gridW + gx0];
             const QPointF a11 = anchors[gy1 * gridW + gx1];
 
-            // Skip pixels whose grid cell has any invalid anchor (out of
-            // projection's valid range). Result: transparent output, no crash.
-            if (a00.x() < 0 || a10.x() < 0 || a01.x() < 0 || a11.x() < 0)
+            // If any anchor is invalid, fall back to a direct per-pixel
+            // projection instead of dropping the whole cell to transparent.
+            // Only pixels whose own projection is genuinely outside the
+            // valid range are left transparent.
+            if (a00.x() < 0 || a10.x() < 0 || a01.x() < 0 || a11.x() < 0) {
+                const QPointF sp = projectPixel(px, py);
+                if (sp.x() < 0) continue;
+                line[px] = sampleSrc(sp.x(), sp.y());
                 continue;
+            }
+
+            // Antimeridian detection: if the 4 anchors span more than half
+            // the source buffer in x (or y), the cell straddles the ±180°
+            // discontinuity. Bilinear-interpolating across that wrap smears
+            // half the globe across the cell — visible as a corrupt vertical
+            // band along the dateline (the "Russia → New Zealand line").
+            // Fall back to per-pixel direct projection for the whole cell.
+            const double ax0 = std::min({a00.x(), a10.x(), a01.x(), a11.x()});
+            const double ax1 = std::max({a00.x(), a10.x(), a01.x(), a11.x()});
+            const double ay0 = std::min({a00.y(), a10.y(), a01.y(), a11.y()});
+            const double ay1 = std::max({a00.y(), a10.y(), a01.y(), a11.y()});
+            if (ax1 - ax0 > srcW * 0.5 || ay1 - ay0 > srcH * 0.5) {
+                const QPointF sp = projectPixel(px, py);
+                if (sp.x() < 0) continue;
+                line[px] = sampleSrc(sp.x(), sp.y());
+                continue;
+            }
 
             const double sx = (1 - fx) * (1 - fy) * a00.x()
                             +      fx  * (1 - fy) * a10.x()

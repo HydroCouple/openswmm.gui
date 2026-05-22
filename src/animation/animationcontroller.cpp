@@ -23,48 +23,83 @@ AnimationController::~AnimationController()
 }
 
 // ---------------------------------------------------------------------------
-// Layer binding
+// Primary layer
 // ---------------------------------------------------------------------------
 
-void AnimationController::setLayer(SWMMResultsLayer *layer)
+void AnimationController::setPrimaryLayer(SWMMResultsLayer *layer)
 {
-    if (m_layer == layer)
+    if (m_primaryLayer == layer)
         return;
 
     pause();
+    disconnectPrimary();
 
-    if (m_layer)
-    {
-        disconnect(m_layer, &SWMMResultsLayer::currentTimeStepChanged,
-                   this, &AnimationController::onLayerPeriodChanged);
-        disconnect(m_layer, &SWMMResultsLayer::currentDateTimeChanged,
-                   this, &AnimationController::onLayerTimeChanged);
-        disconnect(m_layer, &SWMMResultsLayer::totalTimeStepsChanged,
-                   this, &AnimationController::onLayerTotalStepsChanged);
+    m_primaryLayer = layer;
+    connectPrimary();
+
+    if (m_primaryLayer) {
+        emit currentPeriodChanged(m_primaryLayer->currentTimeStep());
+        emit currentTimeChanged(m_primaryLayer->currentDateTime());
+        emit totalPeriodsChanged(m_primaryLayer->totalTimeSteps());
     }
 
-    m_layer = layer;
-
-    if (m_layer)
-    {
-        connect(m_layer, &SWMMResultsLayer::currentTimeStepChanged,
-                this, &AnimationController::onLayerPeriodChanged);
-        connect(m_layer, &SWMMResultsLayer::currentDateTimeChanged,
-                this, &AnimationController::onLayerTimeChanged);
-        connect(m_layer, &SWMMResultsLayer::totalTimeStepsChanged,
-                this, &AnimationController::onLayerTotalStepsChanged);
-
-        emit currentPeriodChanged(m_layer->currentTimeStep());
-        emit currentTimeChanged(m_layer->currentDateTime());
-        emit totalPeriodsChanged(m_layer->totalTimeSteps());
-    }
-
-    emit layerChanged(m_layer);
+    emit primaryLayerChanged(m_primaryLayer);
 }
 
-SWMMResultsLayer *AnimationController::layer() const
+SWMMResultsLayer *AnimationController::primaryLayer() const
 {
-    return m_layer;
+    return m_primaryLayer;
+}
+
+void AnimationController::connectPrimary()
+{
+    if (!m_primaryLayer) return;
+    connect(m_primaryLayer, &SWMMResultsLayer::currentTimeStepChanged,
+            this, &AnimationController::onPrimaryPeriodChanged);
+    connect(m_primaryLayer, &SWMMResultsLayer::currentDateTimeChanged,
+            this, &AnimationController::onPrimaryTimeChanged);
+    connect(m_primaryLayer, &SWMMResultsLayer::totalTimeStepsChanged,
+            this, &AnimationController::onPrimaryTotalStepsChanged);
+}
+
+void AnimationController::disconnectPrimary()
+{
+    if (!m_primaryLayer) return;
+    disconnect(m_primaryLayer, &SWMMResultsLayer::currentTimeStepChanged,
+               this, &AnimationController::onPrimaryPeriodChanged);
+    disconnect(m_primaryLayer, &SWMMResultsLayer::currentDateTimeChanged,
+               this, &AnimationController::onPrimaryTimeChanged);
+    disconnect(m_primaryLayer, &SWMMResultsLayer::totalTimeStepsChanged,
+               this, &AnimationController::onPrimaryTotalStepsChanged);
+}
+
+// ---------------------------------------------------------------------------
+// Secondary layers
+// ---------------------------------------------------------------------------
+
+void AnimationController::addSecondaryLayer(SWMMResultsLayer *layer)
+{
+    if (!layer || m_secondaryLayers.contains(layer)) return;
+    m_secondaryLayers.append(layer);
+}
+
+void AnimationController::removeSecondaryLayer(SWMMResultsLayer *layer)
+{
+    m_secondaryLayers.removeAll(layer);
+}
+
+void AnimationController::clearSecondaryLayers()
+{
+    m_secondaryLayers.clear();
+}
+
+QList<SWMMResultsLayer *> AnimationController::allLayers() const
+{
+    QList<SWMMResultsLayer *> result;
+    if (m_primaryLayer) result.append(m_primaryLayer);
+    for (auto &ptr : m_secondaryLayers)
+        if (ptr) result.append(ptr);
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,9 +118,6 @@ void AnimationController::setSpeed(double speed)
 
 void AnimationController::updateTimerInterval()
 {
-    // Fixed display frame rate: advance one period every (kDefaultStepMs / speed) ms.
-    // Do NOT use the simulation report step — a 5-minute step would make the timer
-    // fire every 5 minutes, making animation feel broken to the user.
     const int ms = qMax(kMinIntervalMs,
                         static_cast<int>(kDefaultStepMs / m_speed));
     m_timer->setInterval(ms);
@@ -97,15 +129,14 @@ void AnimationController::updateTimerInterval()
 
 void AnimationController::play()
 {
-    if (!m_layer || m_layer->totalTimeSteps() <= 0)
+    if (!m_primaryLayer || m_primaryLayer->totalTimeSteps() <= 0)
         return;
 
     if (m_playing)
         return;
 
-    // If already at the last frame, rewind to the start automatically.
-    if (m_layer->currentTimeStep() >= m_layer->totalTimeSteps() - 1)
-        m_layer->setCurrentTimeStep(0);
+    if (m_primaryLayer->currentTimeStep() >= m_primaryLayer->totalTimeSteps() - 1)
+        m_primaryLayer->setCurrentTimeStep(0);
 
     m_playing = true;
     updateTimerInterval();
@@ -126,38 +157,38 @@ void AnimationController::pause()
 void AnimationController::stop()
 {
     pause();
-    if (m_layer)
-        m_layer->setCurrentTimeStep(0);
+    if (m_primaryLayer)
+        m_primaryLayer->setCurrentTimeStep(0);
 }
 
 void AnimationController::stepForward()
 {
-    if (m_layer)
-        m_layer->stepForward(false);
+    if (m_primaryLayer)
+        m_primaryLayer->stepForward(false);
 }
 
 void AnimationController::stepBackward()
 {
-    if (m_layer)
-        m_layer->stepBackward(false);
+    if (m_primaryLayer)
+        m_primaryLayer->stepBackward(false);
 }
 
 void AnimationController::seekToFirst()
 {
-    if (m_layer)
-        m_layer->setCurrentTimeStep(0);
+    if (m_primaryLayer)
+        m_primaryLayer->setCurrentTimeStep(0);
 }
 
 void AnimationController::seekToLast()
 {
-    if (m_layer)
-        m_layer->setCurrentTimeStep(m_layer->totalTimeSteps() - 1);
+    if (m_primaryLayer)
+        m_primaryLayer->setCurrentTimeStep(m_primaryLayer->totalTimeSteps() - 1);
 }
 
 void AnimationController::seekToPeriod(int period)
 {
-    if (m_layer)
-        m_layer->setCurrentTimeStep(period);
+    if (m_primaryLayer)
+        m_primaryLayer->setCurrentTimeStep(period);
 }
 
 // ---------------------------------------------------------------------------
@@ -166,34 +197,31 @@ void AnimationController::seekToPeriod(int period)
 
 void AnimationController::onTimerTick()
 {
-    if (!m_layer)
-    {
+    if (!m_primaryLayer) {
         pause();
         return;
     }
 
-    const int next = m_layer->currentTimeStep() + 1;
-    if (next >= m_layer->totalTimeSteps())
-    {
-        // Reached end — stop (don't loop; user can re-press play).
+    const int next = m_primaryLayer->currentTimeStep() + 1;
+    if (next >= m_primaryLayer->totalTimeSteps()) {
         pause();
         return;
     }
 
-    m_layer->setCurrentTimeStep(next);
+    m_primaryLayer->setCurrentTimeStep(next);
 }
 
-void AnimationController::onLayerPeriodChanged(int step)
+void AnimationController::onPrimaryPeriodChanged(int step)
 {
     emit currentPeriodChanged(step);
 }
 
-void AnimationController::onLayerTotalStepsChanged(int total)
+void AnimationController::onPrimaryTotalStepsChanged(int total)
 {
     emit totalPeriodsChanged(total);
 }
 
-void AnimationController::onLayerTimeChanged(const QDateTime &dt)
+void AnimationController::onPrimaryTimeChanged(const QDateTime &dt)
 {
     emit currentTimeChanged(dt);
 }
