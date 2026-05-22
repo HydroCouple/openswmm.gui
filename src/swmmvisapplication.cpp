@@ -15,6 +15,7 @@
 #include <QStyleFactory>
 #include <QPalette>
 #include <QScreen>
+#include <QTimer>
 // #ifdef Q_OS_WIN
 // #include <windows.h> // for Sleep
 // #endif
@@ -24,6 +25,7 @@
 #include "swmmvis.h"
 #include "swmmvissplashscreen.h"
 #include "core/gisdatapaths.h"
+#include "ui/dialogs/licenseagreementdialog.h"
 
 
 /*! \class SWMMVisCoreApplication
@@ -108,7 +110,7 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     mSWMMVisSplashScreen->onShowMessage("Loading Component Libraries");
     printf("Loading Component Libraries\n");
 
-//     int ms = 50000;
+//     int ms = 5000;
 
 // #ifdef Q_OS_WIN
 //     Sleep(uint(ms));
@@ -120,6 +122,17 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
 
     mSWMMVisSplashScreen->finish(mSWMMVisGUI);
     mSWMMVisGUI->show();
+
+    // Defer license check until after the event loop starts so macOS has
+    // activated the app and the dialog reliably appears in the foreground.
+    QTimer::singleShot(0, this, [this]() {
+        if (LicenseAgreementDialog::shouldShowOnStartup())
+        {
+            LicenseAgreementDialog dlg(mSWMMVisGUI);
+            if (dlg.exec() != QDialog::Accepted)
+                quit();
+        }
+    });
 }
 
 /*!

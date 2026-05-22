@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=SWMMVis
+GenericName=SWMM Visualization Tool
+Comment=A SWMM model setup, analysis, and visualization tool
+Exec=SWMMVis %F
+Icon=org.openswmm.swmmvis
+Categories=Science;Education;
+MimeType=application/x-swmm;
+StartupWMClass=SWMMVis
+StartupNotify=true

@@ -2,7 +2,7 @@
  * \file   swmmvisprojectwindow.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * MDI sub-window that hosts a single SWMM model session.
  * Each opened .inp file gets its own window with a dedicated MapCanvas and tools.
@@ -12,12 +12,14 @@
 
 #include <QMdiSubWindow>
 #include <QList>
+#include <QString>
 
 class OpenSWMMVisWorkspace;
 class MapCanvas;
 class SWMMModelLayer;
 class SelectionManager;
 class UnitSystem;
+class OpenSWMMVisMapTool;
 class OpenSWMMVisMapToolPan;
 class OpenSWMMVisMapToolZoom;
 class OpenSWMMVisMapToolSelect;
@@ -25,6 +27,12 @@ class OpenSWMMVisMapToolMeasure;
 class OpenSWMMVisMapToolMoveNode;
 class OpenSWMMVisMapToolEditVertex;
 class OpenSWMMVisMapToolAddNode;
+class OpenSWMMVisMapToolAddLink;
+class OpenSWMMVisMapToolAddGage;
+class OpenSWMMVisMapToolAddSubcatchment;
+class QComboBox;
+class QLabel;
+class QFrame;
 
 /**
  * @brief MDI sub-window owning a MapCanvas, SWMMModelLayer, and map tools.
@@ -98,12 +106,23 @@ public:
     void activateAddOutfallTool();
     void activateAddStorageTool();
     void activateAddDividerTool();
+    void activateAddConduitTool();
+    void activateAddPumpTool();
+    void activateAddOrificeTool();
+    void activateAddWeirTool();
+    void activateAddOutletTool();
+    void activateAddGageTool();
+    void activateAddSubcatchmentTool();
     void zoomToFullExtent();
 
     /** Auto-length recalculates conduit length from polyline on every
      *  endpoint / vertex edit. Per-project, persisted to QSettings. */
     bool isAutoLengthEnabled() const { return mAutoLengthEnabled; }
     void setAutoLengthEnabled(bool enabled);
+
+    /** Engine version selector (e.g., "5.3.0", "6.0.0", "6.0.0-alpha.1"). Per-project, persisted to project file. */
+    QString engineVersion() const { return mEngineVersion; }
+    void setEngineVersion(const QString &version);
 
 signals:
     void modelLoaded();
@@ -115,9 +134,12 @@ signals:
 protected:
     void closeEvent(QCloseEvent *event) override;
     void changeEvent(QEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void updateWindowTitle();
+    void repositionMeasurePanel();
+    void updateMeasureUnitCombo();
 
     OpenSWMMVisWorkspace *mWorkspace          = nullptr;
     MapCanvas            *mCanvas             = nullptr;
@@ -129,6 +151,7 @@ private:
     bool                 mElevationOffsetMode = false;  // OPTIONS LINK_OFFSETS = ELEVATION
     bool                 mUntitled            = false;  // Slice Y — never saved
     QString              mTempInpPath;                  // owned temp .inp (untitled only)
+    QString              mEngineVersion       = "6.0.0";  // Default to newest version
 
     OpenSWMMVisMapToolPan         *mPanTool           = nullptr;
     OpenSWMMVisMapToolZoom        *mZoomInTool        = nullptr;
@@ -141,6 +164,19 @@ private:
     OpenSWMMVisMapToolAddNode     *mAddOutfallTool    = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddStorageTool    = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddDividerTool    = nullptr;
+    OpenSWMMVisMapToolAddLink     *mAddConduitTool    = nullptr;
+    OpenSWMMVisMapToolAddLink     *mAddPumpTool       = nullptr;
+    OpenSWMMVisMapToolAddLink     *mAddOrificeTool    = nullptr;
+    OpenSWMMVisMapToolAddLink     *mAddWeirTool       = nullptr;
+    OpenSWMMVisMapToolAddLink     *mAddOutletTool     = nullptr;
+    OpenSWMMVisMapToolAddGage     *mAddGageTool       = nullptr;
+    OpenSWMMVisMapToolAddSubcatchment *mAddSubcatchTool = nullptr;
+
+    // Measure tool floating panel (child of mCanvas)
+    QFrame    *mMeasurePanel       = nullptr;
+    QComboBox *mMeasureModeCombo   = nullptr;
+    QComboBox *mMeasureUnitCombo   = nullptr;
+    QLabel    *mMeasureTotalLabel  = nullptr;
 
     bool                           mAutoLengthEnabled = false;
 };

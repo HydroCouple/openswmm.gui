@@ -2,7 +2,7 @@
  * \file   test_dtmsampler.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Slice AU — QtTest coverage for DTMSampler. Uses GDAL's MEM driver to
  * build a small in-memory raster so the test never touches disk.

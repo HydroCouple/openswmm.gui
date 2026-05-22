@@ -47,3 +47,64 @@ add_swmmvis_unit_test(test_thememanager
     test_thememanager.cpp
     # ${PROJECT_SOURCE_DIR}/src/theming/thememanager.cpp
 )
+
+# ---- Basemap tests (schema v3 / AB-2) ----
+
+find_package(OpenSSL QUIET)
+
+add_swmmvis_unit_test(test_basemapcrypto
+    test_basemapcrypto.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/basemapcrypto.cpp
+)
+if(OpenSSL_FOUND OR OPENSSL_FOUND)
+    target_link_libraries(test_basemapcrypto PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+endif()
+
+add_swmmvis_unit_test(test_basemapconnectionstore
+    test_basemapconnectionstore.cpp
+    ${PROJECT_SOURCE_DIR}/include/connections/basemapconnectionstore.h
+    ${PROJECT_SOURCE_DIR}/src/core/basemapcrypto.cpp
+    ${PROJECT_SOURCE_DIR}/src/connections/basemapconnectionstore.cpp
+)
+if(OpenSSL_FOUND OR OPENSSL_FOUND)
+    target_link_libraries(test_basemapconnectionstore PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+endif()
+
+add_swmmvis_unit_test(test_projectserializer_basemaps
+    test_projectserializer_basemaps.cpp
+    # No production .cpp needed — only tests JSON structure and kCurrentSchemaVersion.
+)
+
+add_swmmvis_unit_test(test_projectserializer_paths
+    test_projectserializer_paths.cpp
+    # No production .cpp needed — toRelativePath / resolveStoredPath are
+    # inline static methods on ProjectSerializer (Slice AA-3.2).
+)
+
+# Slice Z.2 — WHERE-clause parser/evaluator for the Attribute Table.
+# Pure Qt; no engine/widget deps.
+add_swmmvis_unit_test(test_queryparser
+    test_queryparser.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/queryparser.cpp
+)
+
+# Slice BC, Stage 1 — Yen's k-shortest-simple-paths over an abstract graph.
+add_swmmvis_unit_test(test_profilerouter
+    test_profilerouter.cpp
+    ${PROJECT_SOURCE_DIR}/src/plot/profilerouter.cpp
+)
+
+# Slice BC, Stage 2 — chainage, HGL/EGL, and envelope computation.
+add_swmmvis_unit_test(test_profilebuilder
+    test_profilebuilder.cpp
+    ${PROJECT_SOURCE_DIR}/src/plot/profilebuilder.cpp
+)
+
+# Slice BC, Stage 3a — pure-logic adapter (graph build + path materialize).
+# Live-model glue (`*FromModel` in profilenetworkadapter_model.cpp) is
+# excluded here; integration tests later.
+add_swmmvis_unit_test(test_profilenetworkadapter
+    test_profilenetworkadapter.cpp
+    ${PROJECT_SOURCE_DIR}/src/plot/profilebuilder.cpp
+    ${PROJECT_SOURCE_DIR}/src/plot/profilenetworkadapter.cpp
+)

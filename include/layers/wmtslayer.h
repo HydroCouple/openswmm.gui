@@ -1,15 +1,10 @@
 /*!
  * \file   wmtslayer.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+ * \date   2026
+ * \license GPL-3.0-or-later
+ * \brief  Map layer that fetches and composites OGC WMTS tiled imagery,
+ *         caching individual tiles by (z, x, y) until the zoom level changes.
  */
 
 #ifndef WMTSLAYER_H
@@ -18,6 +13,7 @@
 #include "layers/openswmmvislayer.h"
 
 #include <QCache>
+#include <ogr_spatialref.h>
 #include <QHash>
 #include <QSet>
 #include <QImage>
@@ -70,6 +66,7 @@ struct WMTSLayerInfo
     QString                      abstractText;
     QStringList                  formats;          /*!< "image/png", … */
     QStringList                  tileMatrixSetIds; /*!< Available tile matrix set ids. */
+    QStringList                  styles;           /*!< Available style identifiers. */
     MapExtent                    wgs84BoundingBox; /*!< In EPSG:4326. */
 };
 
@@ -168,7 +165,8 @@ public:
 
     // ----- OpenSWMMVisLayer interface -----------------------------------------
 
-    [[nodiscard]] bool isRasterLayer() const override { return true; }
+    [[nodiscard]] bool isRasterLayer()  const override { return true; }
+    [[nodiscard]] bool isBasemapLayer() const override { return true; }
 
     void fetchCache(const MapExtent &extent,
                     const QSize &viewportSize,
@@ -252,6 +250,12 @@ private:
     QSet<QString>                     m_inFlightKeys; /*!< Tiles currently being fetched. */
     int                               m_pendingTiles = 0;
     QHash<QString, RasterTileItem *>  m_activeSceneItems; /*!< Tile items currently in the scene. */
+
+    // CRS transforms between tile matrix CRS and canvas CRS.
+    // Null when both CRS are the same (most common case: EPSG:3857 + EPSG:3857).
+    // Built in onCanvasCRSChanged() when tile CRS ≠ canvas CRS.
+    OGRCoordinateTransformation *m_canvasToTile = nullptr; ///< Canvas CRS → tile matrix CRS
+    OGRCoordinateTransformation *m_tileToCanvas = nullptr; ///< Tile matrix CRS → canvas CRS
 };
 
 Q_DECLARE_METATYPE(WMTSLayer *)

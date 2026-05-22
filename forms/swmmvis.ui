@@ -591,21 +591,14 @@
      <addaction name="separator"/>
      <addaction name="actionClearRecentFiles"/>
     </widget>
-    <widget class="QMenu" name="menuSaveAs">
-     <property name="title">
-      <string>Save &amp;As</string>
-     </property>
-     <addaction name="actionSaveAsProject"/>
-     <addaction name="actionSaveAsInput"/>
-     <addaction name="separator"/>
-     <addaction name="actionExportMap"/>
-    </widget>
     <addaction name="actionNew"/>
     <addaction name="actionOpen"/>
     <addaction name="menuOpenRecent"/>
     <addaction name="separator"/>
     <addaction name="actionSave"/>
-    <addaction name="menuSaveAs"/>
+    <addaction name="actionSaveAs"/>
+    <addaction name="separator"/>
+    <addaction name="actionExportMap"/>
     <addaction name="separator"/>
     <addaction name="actionPrint"/>
     <addaction name="separator"/>
@@ -851,36 +844,19 @@
     <enum>QAction::NoRole</enum>
    </property>
   </action>
-  <action name="actionSaveAsProject">
+  <action name="actionSaveAs">
    <property name="icon">
     <iconset resource="../resources/swmmvis.qrc">
      <normaloff>:/swmmvis/SaveAs</normaloff>:/swmmvis/SaveAs</iconset>
    </property>
    <property name="text">
-    <string>&amp;Project…</string>
+    <string>Save &amp;As…</string>
    </property>
    <property name="toolTip">
-    <string>Save as OpenSWMM project (.oswp)</string>
-   </property>
-   <property name="statusTip">
-    <string>Save the active project to a new .oswp + .inp pair</string>
+    <string>Save the active project/model to a new file</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+Shift+S</string>
-   </property>
-   <property name="menuRole">
-    <enum>QAction::NoRole</enum>
-   </property>
-  </action>
-  <action name="actionSaveAsInput">
-   <property name="text">
-    <string>&amp;Input File…</string>
-   </property>
-   <property name="toolTip">
-    <string>Save the active SWMM model to a new .inp (project sidecar untouched)</string>
-   </property>
-   <property name="statusTip">
-    <string>Export the SWMM input file without touching the project sidecar</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>

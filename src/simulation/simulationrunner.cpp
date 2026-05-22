@@ -2,7 +2,7 @@
  * \file   simulationrunner.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  */
 #include "simulation/simulationrunner.h"
 
@@ -16,11 +16,17 @@
 #include <QDate>
 #include <QDateTime>
 #include <QElapsedTimer>
+#include <QFile>
+#include <QFileInfo>
 #include <QMetaObject>
 #include <QThread>
 #include <QTime>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFutureWatcher>
+#include <QProcess>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QCoreApplication>
 
 #include <cmath>
 
@@ -35,8 +41,68 @@ QDateTime oaDateToQDateTime(double oaDate)
 {
     if (!(oaDate > 0.0) || !std::isfinite(oaDate)) return QDateTime();
     static const QDateTime kSwmmEpoch(QDate(1899, 12, 30),
-                                      QTime(0, 0), Qt::LocalTime);
+                                      QTime(0, 0), QTimeZone::LocalTime);
     return kSwmmEpoch.addMSecs(static_cast<qint64>(oaDate * 86400.0 * 1000.0));
+}
+
+/**
+ * @brief Find the openswmm-legacy-worker executable.
+ *
+ * Searches in:
+ *  1. Same directory as the current executable
+ *  2. {app_dir}/bin/{CONFIG}/ (debug/release subdirs)
+ *  3. {app_dir}/../bin/{CONFIG}/
+ *  4. System PATH
+ *
+ * @return Path to worker executable, or empty string if not found.
+ */
+QString findLegacyWorker()
+{
+    const QString workerName =
+#ifdef Q_OS_WIN
+        QStringLiteral("openswmm-legacy-worker.exe");
+#else
+        QStringLiteral("openswmm-legacy-worker");
+#endif
+
+    QStringList searchPaths;
+
+    // Same directory as this executable
+    searchPaths << QCoreApplication::applicationDirPath();
+
+    // {appDir}/bin/{CONFIG}/
+    const QString buildConfig =
+#ifdef QT_DEBUG
+        QStringLiteral("Debug");
+#else
+        QStringLiteral("Release");
+#endif
+    searchPaths << QCoreApplication::applicationDirPath() + "/bin/" + buildConfig;
+    searchPaths << QCoreApplication::applicationDirPath() + "/bin";
+
+    // {appDir}/../bin/{CONFIG}/
+    searchPaths << QCoreApplication::applicationDirPath() + "/../bin/" + buildConfig;
+    searchPaths << QCoreApplication::applicationDirPath() + "/../bin";
+
+    // Try each search path
+    for (const QString &dir : searchPaths) {
+        QString candidate = dir + "/" + workerName;
+        if (QFile::exists(candidate)) {
+            return QFileInfo(candidate).absoluteFilePath();
+        }
+    }
+
+    // Fall back to PATH lookup
+    QProcess testProc;
+    testProc.setProgram(workerName);
+    testProc.setArguments({QStringLiteral("--version")});
+    if (testProc.open(QIODevice::ReadOnly)) {
+        testProc.close();
+        return workerName;  // Found in PATH
+    }
+
+    qWarning() << "Legacy worker executable not found:" << workerName;
+    return QString();
 }
 
 } // anonymous namespace
@@ -64,6 +130,7 @@ SimulationRunner::SimulationRunner(int jobId,
                                    const QString &inpPath,
                                    const QString &rptPath,
                                    const QString &outPath,
+                                   const QString &engineVersion,
                                    QObject *parent)
     : QObject(parent)
     , m_jobId(jobId)
@@ -71,6 +138,7 @@ SimulationRunner::SimulationRunner(int jobId,
     , m_inpPath(inpPath)
     , m_rptPath(rptPath)
     , m_outPath(outPath)
+    , m_engineVersion(engineVersion)
 {
 }
 
@@ -103,9 +171,15 @@ void SimulationRunner::start()
     // Snapshot the progress-tick interval on the GUI thread so the
     // worker never touches the singleton / QSettings from off-thread.
     const int tickIntervalMs = PreferencesManager::instance()->progressTickMs();
+    const QString engineVersion = m_engineVersion;
 
     watcher->setFuture(
-        QtConcurrent::run([inp, rpt, out, rawSelf, tickIntervalMs]() -> SimulationResult {
+        QtConcurrent::run([inp, rpt, out, rawSelf, tickIntervalMs, engineVersion]() -> SimulationResult {
+            // Use legacy worker for 5.x versions, refactored engine for 6.0.0+
+            const bool useLegacy = engineVersion.startsWith("5.");
+
+            if (!useLegacy) {
+                // ===== REFACTORED ENGINE PATH =====
             SWMM_Engine eng = swmm_engine_create();
 
             // Open
@@ -190,12 +264,14 @@ void SimulationRunner::start()
                 const QDateTime initial = simStart;
                 QMetaObject::invokeMethod(rawSelf,
                     [rawSelf, jobId, initial]() {
-                        emit rawSelf->progressChanged(jobId, 0.0, initial, 0.0, 0.0);
+                        emit rawSelf->progressChanged(jobId, 0.0, initial, 0.0, 0.0, 0.0);
                     },
                     Qt::QueuedConnection);
             }
 
             double elapsed = 0.0;
+            qint64 stepCount = 0;
+            double totalElapsedSec = 0.0;
             QElapsedTimer tickTimer;
             tickTimer.start();
             // Rate-limit GUI emissions to `tickIntervalMs` (user pref,
@@ -212,6 +288,9 @@ void SimulationRunner::start()
                 rc = swmm_engine_step(eng, &elapsed);
                 if (rc != SWMM_OK || elapsed <= 0.0)
                     break;
+
+                ++stepCount;
+                totalElapsedSec += elapsed;
 
                 const qint64 nowMs = tickTimer.elapsed();
                 if (nowMs - lastTickMs < kTickIntervalMs)
@@ -230,14 +309,15 @@ void SimulationRunner::start()
                 swmm_get_runoff_continuity_error (eng, &runoffErr);
                 swmm_get_routing_continuity_error(eng, &routingErr);
 
+                const double avgTs = stepCount > 0 ? totalElapsedSec / double(stepCount) : 0.0;
                 const int jobId = rawSelf->m_jobId;
                 const QDateTime curQDT = simStart.isValid()
                     ? simStart.addMSecs(static_cast<qint64>(curTSec * 1000.0))
                     : QDateTime();
                 QMetaObject::invokeMethod(rawSelf,
-                    [rawSelf, jobId, frac, curQDT, runoffErr, routingErr]() {
+                    [rawSelf, jobId, frac, curQDT, runoffErr, routingErr, avgTs]() {
                         emit rawSelf->progressChanged(jobId, frac, curQDT,
-                                                      runoffErr, routingErr);
+                                                      runoffErr, routingErr, avgTs);
                     },
                     Qt::QueuedConnection);
             }
@@ -268,6 +348,86 @@ void SimulationRunner::start()
                 return {false, lastErr, msg, runoffErr, routingErr};
             }
             return {true, SWMM_OK, {}, runoffErr, routingErr};
+
+            } else {
+                // ===== LEGACY ENGINE WORKER PROCESS PATH =====
+                // Spawn worker process for isolated legacy engine execution.
+                // Each worker has its own global state, allowing true parallelism.
+
+                const QString workerPath = findLegacyWorker();
+                if (workerPath.isEmpty()) {
+                    return {false, 1, QStringLiteral("Legacy worker executable not found"), 0.0, 0.0};
+                }
+
+                QProcess worker;
+                int lastErrorCode = 0;
+                QString lastErrorMsg;
+
+                // Parse progress/warning/error JSON from worker stdout
+                QObject::connect(&worker, &QProcess::readyReadStandardOutput,
+                    [&worker, rawSelf, &lastErrorCode, &lastErrorMsg]() {
+                        while (worker.canReadLine()) {
+                            QByteArray line = worker.readLine();
+                            QJsonDocument doc = QJsonDocument::fromJson(line);
+                            if (!doc.isObject()) continue;
+
+                            const QJsonObject obj = doc.object();
+                            const QString type = obj.value("type").toString();
+
+                            if (type == "progress") {
+                                const int steps = obj.value("stepCount").toInt();
+                                const int jobId = rawSelf->m_jobId;
+                                QMetaObject::invokeMethod(rawSelf,
+                                    [rawSelf, jobId]() {
+                                        emit rawSelf->progressChanged(jobId, 0.5, QDateTime(),
+                                                                      0.0, 0.0, 0.0);
+                                    },
+                                    Qt::QueuedConnection);
+                            } else if (type == "warning") {
+                                const QString msg = obj.value("message").toString();
+                                const int jobId = rawSelf->m_jobId;
+                                QMetaObject::invokeMethod(rawSelf,
+                                    [rawSelf, jobId, msg]() {
+                                        emit rawSelf->warningReceived(jobId, 101, msg);
+                                    },
+                                    Qt::QueuedConnection);
+                            } else if (type == "error") {
+                                lastErrorCode = obj.value("code").toInt();
+                                lastErrorMsg = obj.value("message").toString();
+                            }
+                        }
+                    });
+
+                // Start worker with input/output paths
+                worker.setProgram(workerPath);
+                worker.setArguments({inp, rpt, out});
+                worker.start();
+
+                if (!worker.waitForStarted()) {
+                    return {false, 1, QStringLiteral("Failed to start legacy worker"), 0.0, 0.0};
+                }
+
+                // Wait for worker to complete
+                const bool finished = worker.waitForFinished(-1);
+                const int exitCode = worker.exitCode();
+
+                if (!finished) {
+                    worker.kill();
+                    worker.waitForFinished();
+                    return {false, -1, QStringLiteral("Legacy worker process timeout"), 0.0, 0.0};
+                }
+
+                // Check exit code
+                if (exitCode != 0) {
+                    if (!lastErrorMsg.isEmpty()) {
+                        return {false, exitCode, lastErrorMsg, 0.0, 0.0};
+                    }
+                    return {false, exitCode, QStringLiteral("Legacy worker exited with code ") +
+                                             QString::number(exitCode), 0.0, 0.0};
+                }
+
+                return {true, 0, QString(), 0.0, 0.0};
+            }
         })
     );
 }

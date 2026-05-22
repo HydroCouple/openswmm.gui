@@ -2,7 +2,7 @@
  * \file   newprojectdialog.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Slice Y — wizard-style single dialog for File → New Project. Collects
  * the minimum set of options that go into a fresh, blank SWMM model:

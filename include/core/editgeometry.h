@@ -73,6 +73,15 @@ namespace EditGeometry
                                         int *segmentIndex = nullptr,
                                         QPointF *closestPoint = nullptr);
 
+/*!
+ * \brief Compute the area of a polygon using the shoelace formula.
+ * \param polygon  Ordered polygon vertices (open or closed; if the last
+ *                 vertex equals the first, the closing edge is not doubled).
+ * \returns        Absolute area in the squared units of the input coordinates.
+ *                 Returns 0 for fewer than 3 vertices.
+ */
+[[nodiscard]] double polygonArea(const QVector<QPointF> &polygon);
+
 } // namespace EditGeometry
 
 #endif // EDITGEOMETRY_H

@@ -346,6 +346,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#ifdef TRILIBRARY
+#include <setjmp.h>
+jmp_buf triangle_longjmp_buffer;  /* definition — declared extern in triangle.h */
+#endif
 #ifndef NO_TIMER
 #include <sys/time.h>
 #endif /* not NO_TIMER */
@@ -1440,8 +1444,41 @@ int status;
 #endif /* not ANSI_DECLARATORS */
 
 {
-exit(status);
+#ifdef TRILIBRARY
+  /* In library mode calling exit() from a worker thread tears down the  */
+  /* process while the host application may still be rendering UI,       */
+  /* producing a SIGSEGV in QPen / palette code.  Use longjmp instead    */
+  /* so the C++ caller can catch the error gracefully via setjmp.        */
+  longjmp(triangle_longjmp_buffer, status ? status : 1);
+#else
+  exit(status);
+#endif
 }
+
+#ifdef TRILIBRARY
+/* Safe entry-point for C++ callers.  Returns 0 on success, non-zero on */
+/* any triexit() call (degenerate PSLG, out-of-memory, etc.).           */
+/* The setjmp frame is entirely C so there is no C++ UB from longjmp    */
+/* skipping non-trivial destructors.                                     */
+#ifdef ANSI_DECLARATORS
+int triangulate_safe(char *switches,
+                     struct triangulateio *in,
+                     struct triangulateio *out,
+                     struct triangulateio *vorout)
+#else
+int triangulate_safe(switches, in, out, vorout)
+char *switches;
+struct triangulateio *in;
+struct triangulateio *out;
+struct triangulateio *vorout;
+#endif
+{
+  if (setjmp(triangle_longjmp_buffer) != 0)
+    return -1;                    /* triexit() was called */
+  triangulate(switches, in, out, vorout);
+  return 0;
+}
+#endif /* TRILIBRARY */
 
 #ifdef ANSI_DECLARATORS
 VOID *trimalloc(int size)

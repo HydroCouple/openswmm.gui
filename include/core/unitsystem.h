@@ -2,7 +2,7 @@
  * \file   unitsystem.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  */
 #ifndef UNITSYSTEM_H
 #define UNITSYSTEM_H

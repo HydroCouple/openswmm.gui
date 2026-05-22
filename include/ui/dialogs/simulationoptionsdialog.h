@@ -2,7 +2,7 @@
  * \file   simulationoptionsdialog.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Phase 3.9 (slice G-1) — SimulationOptionsDialog Tabs 1–2.
  * Round-trips OPTIONS keys via the engine's `swmm_options_get/set` C API.
@@ -11,19 +11,38 @@
 #ifndef SIMULATIONOPTIONSDIALOG_H
 #define SIMULATIONOPTIONSDIALOG_H
 
+#include <QDateTime>
 #include <QDialog>
+#include <QList>
+#include <QPair>
 #include <QString>
 
 class QCheckBox;
 class QComboBox;
+class QDateEdit;
 class QDateTimeEdit;
 class QDoubleSpinBox;
 class QLabel;
+class QLineEdit;
+class QPushButton;
 class QSpinBox;
+class QTableView;
+class QTableWidget;
 class QTabWidget;
+class QTextEdit;
+class QTimeEdit;
 class QToolButton;
+class QAction;
+class QButtonGroup;
+class QRadioButton;
+class QCustomTimespanEdit;
 
 class SWMMModelLayer;
+class SWMMVisProjectWindow;
+class HotstartSavesModel;
+class HotstartSavesDateTimeDelegate;
+class PathBrowseDelegate;
+class PluginsTableModel;
 
 #include <openswmm/engine/openswmm_engine.h>
 
@@ -45,14 +64,25 @@ class SimulationOptionsDialog : public QDialog
 
 public:
     /*!
-     * \param engine  Open SWMM engine handle (required).
-     * \param layer   Optional model layer — gives Tab 5 access to the layer
-     *                CRS + extent for the *Detect from coordinates* helper
-     *                and the read-only extent summary.
-     * \param parent  Qt parent.
+     * \param engine        Open SWMM engine handle (required).
+     * \param layer         Optional model layer — gives Tab 5 access to the layer
+     *                      CRS + extent for the *Detect from coordinates* helper
+     *                      and the read-only extent summary.
+     * \param engineVersion Version string of the engine that will run the
+     *                      simulation (e.g. "6.0.0" or "5.2.4").  Controls
+     *                      which tabs and controls are enabled — options that
+     *                      the selected engine does not support are disabled
+     *                      with an explanatory tooltip.
+     * \param projectWindow Optional MDI window — provides .oswp-persisted rich
+     *                      HTML notes for the new "Title/Notes" tab. When
+     *                      omitted, the tab still works but only round-trips
+     *                      plain text through the engine.
+     * \param parent        Qt parent.
      */
     explicit SimulationOptionsDialog(SWMM_Engine engine,
                                      SWMMModelLayer *layer = nullptr,
+                                     const QString &engineVersion = QStringLiteral("6.0.0"),
+                                     SWMMVisProjectWindow *projectWindow = nullptr,
                                      QWidget *parent = nullptr);
     // Inline so leaf tests that only compile simulationoptionshelpers.cpp can
     // still link the moc-generated vtable. Defining it out-of-line in the
@@ -83,19 +113,45 @@ public:
     [[nodiscard]] static QDateTime parseEngineDateTime(const QString &date,
                                                        const QString &time);
 
+    /*! \brief Convert a QDateTime to SWMM's OLE Automation Date (decimal days
+     *         since 1899-12-30 00:00).  Used by the [EVENTS] section editor
+     *         to round-trip through the swmm_events_* C API which speaks
+     *         OADate directly.  Returns 0.0 for invalid input. */
+    [[nodiscard]] static double    oaDateFromQDateTime(const QDateTime &dt);
+
+    /*! \brief Inverse of oaDateFromQDateTime. */
+    [[nodiscard]] static QDateTime qDateTimeFromOaDate(double oa);
+
 private slots:
     void onApply();
     void onAccept();
 
 private:
+    /*! Disable controls that the currently-selected engine does not support.
+     *  Called once after buildUi() + readFromEngine() and re-callable when
+     *  the engine version changes. */
+    void applyEngineConstraints();
+
     void buildUi();
+    void buildTitleNotesTab(QTabWidget *tabs);
     void buildModelsTab(QTabWidget *tabs);
     void buildDatesTab(QTabWidget *tabs);
     void buildHydraulicsTab(QTabWidget *tabs);
     void buildPerformanceTab(QTabWidget *tabs);
     void buildSpatialTab(QTabWidget *tabs);
     void buildMeshTab(QTabWidget *tabs);
-    void refreshMeshList();   ///< rescan project dir for *.2dm files
+    void buildFilesTab(QTabWidget *tabs);   ///< Slice AA-3.5 — [PLUGINS] + [FILES] editor
+    void readOutputPathsFromSettings();      ///< Slice AA-4 — per-project rpt/out paths
+    void writeOutputPathsToSettings();       ///< Slice AA-4 — per-project rpt/out paths
+    void refreshMeshList();                  ///< rescan project dir for *.2dm files
+    void readPluginsFromEngine();
+    int  writePluginsToEngine();             ///< returns count of changes written
+    void readFilesSectionFromEngine();
+    int  writeFilesSectionToEngine();        ///< returns count of changes written
+    void readWriterCombosFromEngine();       ///< hydrate Input/Output/Report combos
+    int  writeWriterCombosToEngine();        ///< returns count of [PLUGINS] rows added
+    void updateSingleContainerEnabled();     ///< enable when chosen input plugin is tri-role
+    void onSingleContainerToggled(bool on);  ///< force Output+Report combos to match input
 
 #ifdef OPENSWMM_HAS_2D
     void build2DTab(QTabWidget *tabs);
@@ -106,9 +162,68 @@ private:
     void readFromEngine();
     int  writeToEngine();   ///< returns count of keys written
 
+    // ---- [REPORT] contents editor — Slice BV.1 (2026-05-22) ---------------
+
+    /*! \brief Add the "Report contents ([REPORT])" group to the given parent
+     *         layout in buildFilesTab. */
+    void buildReportContentsGroup(class QVBoxLayout *parentLayout, QWidget *page);
+
+    /*! \brief Populate the report-contents widgets from the engine's
+     *         RPT_* options keys. */
+    void readReportContentsFromEngine();
+
+    /*! \brief Write the report-contents widgets back through the engine's
+     *         RPT_* options keys. Returns the count of keys whose value
+     *         changed (folded into writeToEngine's running total). */
+    int  writeReportContentsToEngine();
+
+    // ---- [EVENTS] section editor — Slice CW (2026-05-21) ------------------
+
+    /*! \brief Populate the Events table from swmm_events_count/get. */
+    void readEventsFromEngine();
+
+    /*! \brief Diff the Events table against the read-time snapshot; on any
+     *         difference, clear + re-add via swmm_events_*. Returns the
+     *         number of rows written (0 when unchanged). */
+    int  writeEventsToEngine();
+
+    /*! \brief Validate all event rows. Highlights invalid rows (Start >= End)
+     *         in red and returns false if any row is invalid. Out-of-range
+     *         and overlapping rows yield a non-blocking warning via @p warn.
+     *         Not const — mutates per-cell styling for the inline error
+     *         affordance. */
+    bool validateEvents(QString *warn = nullptr);
+
+    // ---- Files / Output / Plugins tab validation — Phase 3.10.4 -----------
+
+    /*! \brief Validate the Files / Output / Plugins sub-tabs. Blocks Apply
+     *         when any [PLUGINS] row has an empty plugin id (column 0) or
+     *         any scheduled hot-start save row has an empty path (column
+     *         0); rows are highlighted red for the inline error affordance.
+     *         Non-blocking warnings (out-of-range datetimes, "Selected"
+     *         report selector with empty list, .rpt / .out parent
+     *         directory missing) are appended to @p warn.  Returns false
+     *         only on blocking errors.  Not const — mutates per-cell
+     *         styling. */
+    bool validateFilesTab(QString *warn = nullptr);
+
+    /*! \brief Append a new row defaulted to (project start, project end). */
+    void addEventRow();
+
+    /*! \brief Remove all selected rows. No-op when nothing is selected. */
+    void removeSelectedEventRows();
+
+    /*! \brief Snapshot of rows as last read from the engine — used for
+     *         change detection in writeEventsToEngine(). */
+    QList<QPair<QDateTime, QDateTime>> m_eventsSnapshot;
+
     /*! \brief Enable / disable the DPS_* row group based on the surcharge
      *         method selection. Called whenever the combo changes. */
     void updateSurchargeFieldsEnabled();
+
+    /*! \brief Refresh the "End +" duration label from Start/End edits.
+     *         Format: "Xd HH:MM:SS" or "—" when End <= Start. */
+    void updateDurationLabel();
 
     /*! \brief Refresh the CRS row text and the read-only extent summary
      *         from the layer; called on construction and after a CRS pick. */
@@ -117,9 +232,22 @@ private:
 private slots:
     void onSpatialPickCRS();
     void onSpatialDetectCRS();
+    void browseForReportFile();
+    void browseForOutputFile();
     void on2DModuleToggled(bool enabled);
 
+    // Multi-row SAVE HOTSTART table slots (Slice BV-01).
+    void onHotstartSaveAddRow();
+    void onHotstartSaveRemoveRow();
+    void onHotstartSaveBrowseRow();
+    void onHotstartSaveMoveRowUp();
+    void onHotstartSaveMoveRowDown();
+
 private:
+
+    // Swap the path/datetime contents of two rows in m_hotstartSavesTable
+    // (avoids tearing down cell widgets that QTableWidget owns).
+    void moveHotstartSaveRow(int from, int to);
 
     // Engine helpers — round-trip option values through swmm_options_get / _set.
     QString  getOption(const char *key, const QString &fallback = {}) const;
@@ -127,7 +255,20 @@ private:
 
     SWMM_Engine     m_engine = nullptr;
     SWMMModelLayer *m_layer  = nullptr;
+    SWMMVisProjectWindow *m_projectWindow = nullptr;  ///< owner of .oswp-persisted notes
+    QString         m_engineVersion;        ///< e.g. "6.0.0" or "5.2.4"
     bool            m_wroteChanges = false;
+
+    // Tab 0 — Title / Notes (rich text mirror of engine [TITLE] section)
+    QTextEdit      *m_titleNotesEdit       = nullptr;
+    QString         m_initialNotesHtml;     ///< snapshot for dirty detection
+    QAction        *m_titleBoldAction      = nullptr;
+    QAction        *m_titleItalicAction    = nullptr;
+    QAction        *m_titleUnderlineAction = nullptr;
+
+    // Group-box handles kept so applyEngineConstraints() can disable entire
+    // sections (incl. their labels) with a single setEnabled() call.
+    class QGroupBox *m_writersGroup = nullptr;  ///< Tab 7 — writer / container group.
 
     // Tab 1 — Models / Processes
     QComboBox      *m_infiltrationCombo = nullptr;
@@ -157,11 +298,22 @@ private:
     QDateTimeEdit  *m_startEdit         = nullptr;
     QDateTimeEdit  *m_endEdit           = nullptr;
     QDateTimeEdit  *m_reportStartEdit   = nullptr;
-    QSpinBox       *m_reportStepSpin    = nullptr;     // seconds
-    QSpinBox       *m_dryStepSpin       = nullptr;     // seconds
-    QSpinBox       *m_wetStepSpin       = nullptr;     // seconds
+    QLabel         *m_durationLabel     = nullptr;     // "1d 02:30:00"
+    QCustomTimespanEdit *m_reportStepEdit = nullptr;   // (days, HH:mm:ss)
+    QCustomTimespanEdit *m_dryStepEdit    = nullptr;   // (days, HH:mm:ss)
+    QCustomTimespanEdit *m_wetStepEdit    = nullptr;   // (days, HH:mm:ss)
+    QTimeEdit      *m_ruleStepEdit      = nullptr;     // HH:mm:ss only
+    QLineEdit      *m_routingStepEdit   = nullptr;     // seconds (float text)
     QDoubleSpinBox *m_dryDaysSpin       = nullptr;     // days
-    QDoubleSpinBox *m_routingStepSpin   = nullptr;     // seconds
+    QDateEdit      *m_sweepStartEdit    = nullptr;     // MM/DD only
+    QDateEdit      *m_sweepEndEdit      = nullptr;     // MM/DD only
+
+    // Tab 2 — Events ([EVENTS] section editor, Slice CW).  Each row is a
+    // {start, end} QDateTime pair; engine stores decimal-day pairs in
+    // SimulationContext::events round-tripped via swmm_events_*.
+    QTableWidget   *m_eventsTable       = nullptr;
+    QPushButton    *m_eventsAddBtn      = nullptr;
+    QPushButton    *m_eventsRemoveBtn   = nullptr;
 
     // Tab 3 — Routing & Hydraulics
     QComboBox      *m_surchargeCombo    = nullptr;
@@ -190,6 +342,85 @@ private:
     QToolButton    *m_crsChangeButton   = nullptr;
     QToolButton    *m_crsDetectButton   = nullptr;
     QLabel         *m_extentLabel       = nullptr;
+
+    // Tab 7 — Writer / Container combos (Slice AA-3.5 full design)
+    QComboBox      *m_inputWriterCombo  = nullptr;
+    QComboBox      *m_outputWriterCombo = nullptr;
+    QComboBox      *m_reportWriterCombo = nullptr;
+    QCheckBox      *m_singleContainerBox = nullptr;
+
+    // Tab 7 — Output / Report file paths (Slice AA-4)
+    QLineEdit      *m_reportFilePathEdit = nullptr;
+    QLineEdit      *m_outputFilePathEdit = nullptr;
+
+    // Tab 7 — Report contents ([REPORT] section, Slice BV.1 — 2026-05-22).
+    // Six bool flags + three NONE/ALL/Selected radio groups with name
+    // lists.  Round-trips via the engine's RPT_* keys exposed through
+    // swmm_options_get / swmm_options_set.
+    QCheckBox      *m_rptDisabledBox    = nullptr;
+    QCheckBox      *m_rptInputBox       = nullptr;
+    QCheckBox      *m_rptContinuityBox  = nullptr;
+    QCheckBox      *m_rptFlowstatsBox   = nullptr;
+    QCheckBox      *m_rptControlsBox    = nullptr;
+    QCheckBox      *m_rptAveragesBox    = nullptr;
+    // Selector trios: radios + the comma-separated name list edit.
+    QRadioButton   *m_rptSubcatchNoneRadio = nullptr;
+    QRadioButton   *m_rptSubcatchAllRadio  = nullptr;
+    QRadioButton   *m_rptSubcatchSomeRadio = nullptr;
+    QLineEdit      *m_rptSubcatchListEdit  = nullptr;
+    QRadioButton   *m_rptNodeNoneRadio  = nullptr;
+    QRadioButton   *m_rptNodeAllRadio   = nullptr;
+    QRadioButton   *m_rptNodeSomeRadio  = nullptr;
+    QLineEdit      *m_rptNodeListEdit   = nullptr;
+    QRadioButton   *m_rptLinkNoneRadio  = nullptr;
+    QRadioButton   *m_rptLinkAllRadio   = nullptr;
+    QRadioButton   *m_rptLinkSomeRadio  = nullptr;
+    QLineEdit      *m_rptLinkListEdit   = nullptr;
+
+    // Tab 7 — Files / Plugins (Slice AA-3.5)
+    //
+    // Phase 3.10.6 (2026-05-22): same MVC overhaul as the hot-start saves
+    // table.  Column 0 (plugin path / id) uses PathBrowseDelegate so each
+    // row carries an inline "…" browse button that opens an Open-file
+    // dialog with the platform's shared-library filter.  Column 1
+    // (arguments) uses the default QLineEdit delegate.
+    QTableView         *m_pluginsView       = nullptr;
+    PluginsTableModel  *m_pluginsModel      = nullptr;
+    PathBrowseDelegate *m_pluginsPathDel    = nullptr;
+    QPushButton        *m_pluginsAddBtn     = nullptr;
+    QPushButton        *m_pluginsRemoveBtn  = nullptr;
+
+    // Tab 7 — Secondary file references (Slice AA-3 [FILES] follow-up)
+    QLineEdit      *m_rainfallPathEdit  = nullptr;
+    QComboBox      *m_rainfallModeCombo = nullptr;
+    QLineEdit      *m_runoffPathEdit    = nullptr;
+    QComboBox      *m_runoffModeCombo   = nullptr;
+    QLineEdit      *m_rdiiPathEdit      = nullptr;
+    QComboBox      *m_rdiiModeCombo     = nullptr;
+    QLineEdit      *m_inflowsPathEdit   = nullptr;
+    QLineEdit      *m_outflowsPathEdit  = nullptr;
+    QLineEdit      *m_hotstartUseEdit   = nullptr;
+
+    // Tab 7 — Multi-row SAVE HOTSTART table (Slice BV-01, 2026-05-21).
+    // Replaces the single m_hotstartSaveEdit line edit so the user can
+    // schedule multiple hot-start saves at different sim-time datetimes.
+    // An empty datetime cell stores 0.0 → engine emits the row with no
+    // trailing date string ("save at end of run").
+    //
+    // Phase 3.10.5 (2026-05-22): the legacy QTableWidget + QDateTimeEdit
+    // cell-widget mix was replaced with a true QTableView + custom
+    // QAbstractTableModel + per-column delegates so each row exposes a
+    // browse "…" button next to the path field, and the date-time picker
+    // is always visible (persistent editor).
+    QTableView                       *m_hotstartSavesView     = nullptr;
+    HotstartSavesModel               *m_hotstartSavesModel    = nullptr;
+    PathBrowseDelegate               *m_hotstartSavesPathDel  = nullptr;
+    HotstartSavesDateTimeDelegate    *m_hotstartSavesDtDel    = nullptr;
+    QPushButton    *m_hotstartSavesAddBtn    = nullptr;
+    QPushButton    *m_hotstartSavesBrowseBtn = nullptr;
+    QPushButton    *m_hotstartSavesRemoveBtn = nullptr;
+    QPushButton    *m_hotstartSavesUpBtn     = nullptr;
+    QPushButton    *m_hotstartSavesDownBtn   = nullptr;
 
 #ifdef OPENSWMM_HAS_2D
     // Tab 6 — 2D Surface Routing (CVODE / mesh / coupling / linear solver)

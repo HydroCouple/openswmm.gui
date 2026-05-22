@@ -1,0 +1,169 @@
+/*!
+ * \file   attributetablepanel.h
+ * \author Caleb Buahin <caleb.buahin@gmail.com>
+ * \date   2026
+ * \license GPL-3.0-or-later
+ *
+ * Slice Z.1 — Attribute Tables dock.  Holds a QTableView over the
+ * active SWMM project's objects, partitioned by Category via a combo
+ * at the top.  Two-way bound to the project's SelectionManager so
+ * picking rows highlights on the canvas and vice-versa.
+ *
+ * Z.2 (SQL-like query bar) and Z.3 (selection ops) are layered on top
+ * of this panel in later slices.  Z.4 (tabular file uploads) plugs in
+ * a second model kind through the same view.
+ */
+
+#ifndef ATTRIBUTETABLEPANEL_H
+#define ATTRIBUTETABLEPANEL_H
+
+#include "selection/selectionmanager.h"
+#include "layers/swmmmodellayer.h"
+
+#include <QPointer>
+#include <QSet>
+#include <QWidget>
+
+class QButtonGroup;
+class QComboBox;
+class QLabel;
+class QLineEdit;
+class QPushButton;
+class QRadioButton;
+class QSortFilterProxyModel;
+class QTableView;
+class QToolBar;
+class SWMMAttributeTableModel;
+class TabularDataLayer;
+class TabularDataTableModel;
+class MapCanvas;
+
+class AttributeTablePanel : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit AttributeTablePanel(QWidget *parent = nullptr);
+    ~AttributeTablePanel() override;
+
+    /*! Bind to the active project — model layer + selection bus +
+     *  canvas (used for "Zoom to selected").  Pass nulls to detach. */
+    void setProject(SWMMModelLayer *layer,
+                    SelectionManager *selMgr,
+                    MapCanvas *canvas = nullptr);
+
+    /*! Rebuild the category combo + reload the table model.  Called
+     *  on `modelLoaded`. */
+    void refresh();
+
+public slots:
+    /*! Round-4 follow-up 2026-05-12 — refresh the row for \p name in
+     *  response to an external edit (e.g. via the Property Browser).
+     *  No-op if the named object isn't in the current category. */
+    void onObjectEditedExternally(const QString &name);
+
+signals:
+    /*! Forwarded from `SWMMAttributeTableModel::objectEdited` when
+     *  the user commits a cell edit.  Wired by `SWMMVis` to the
+     *  Property Browser so both views always show the same engine
+     *  state. */
+    void objectEdited(const QString &name);
+
+private slots:
+    void onCategoryChanged(int comboIdx);
+    void onTableSelectionChanged();
+    void onSelectionManagerChanged(const QSet<SWMMObjectRef> &current,
+                                   const QSet<SWMMObjectRef> &added,
+                                   const QSet<SWMMObjectRef> &removed);
+    void onShowSelectedOnlyToggled(bool on);
+    void onZoomToSelectedClicked();
+    void onExportCsvClicked();
+    void onContextMenuRequested(const QPoint &pos);
+    void onChangeTypeTriggered();
+
+    /*! Slice Z.2 — Apply the WHERE-clause text to the proxy filter. */
+    void onQueryApplyClicked();
+    /*! Clear the query bar + filter. */
+    void onQueryClearClicked();
+
+    // Slice Z.3 — Selection ops driven by the current query.  The
+    // five modes are presented as radios on one row + one Apply
+    // button (Round-4 follow-up 2026-05-12); this slot reads the
+    // active radio and dispatches.
+    void onSelectionApplyClicked();
+
+private:
+    void buildUi();
+    SWMMObjectRef::ObjectType objectTypeFor(SWMMModelLayer::Category cat) const;
+
+    /*! Persist the current category's column widths to QSettings under
+     *  `SWMMVis/AttributeTablePanel/cat<N>/columnWidths`.  Called when
+     *  the user switches categories or the dock closes. */
+    void saveColumnWidths(SWMMModelLayer::Category cat) const;
+
+    /*! Restore column widths for the now-active category from
+     *  QSettings.  No-op if none stored. */
+    void restoreColumnWidths(SWMMModelLayer::Category cat);
+
+    /*! Round-4 follow-up 2026-05-12 — ensure every column is at
+     *  least as wide as its header's size hint, so the descriptive
+     *  labels ("Invert Elevation (ft)", "Discharge Coefficient",
+     *  etc.) never get clipped.  Called after `restoreColumnWidths`
+     *  so user-saved widths still win when they're wider than the
+     *  header. */
+    void ensureMinColumnWidths();
+
+    /*! Slice Z.5.3 — install the right `QStyledItemDelegate` per
+     *  column based on the bound category's `ColumnSpec` list.
+     *  Called after `setSource()`. */
+    void installColumnDelegates();
+
+    /*! Slice Z.3 — collect the SWMMObjectRefs of all source rows
+     *  whose identify map satisfies the current query predicate.
+     *  Ignores the "show selected only" filter so the selection
+     *  ops always operate on the full population. */
+    QSet<SWMMObjectRef> matchedRefs() const;
+
+    /*! All refs in the bound category — used by Invert. */
+    QSet<SWMMObjectRef> allCategoryRefs() const;
+
+    QPointer<SWMMModelLayer>   m_layer;
+    QPointer<SelectionManager> m_selMgr;
+    QPointer<MapCanvas>        m_canvas;
+
+    QComboBox               *m_categoryCombo = nullptr;
+    QTableView              *m_view          = nullptr;
+    QToolBar                *m_toolbar       = nullptr;
+    SWMMAttributeTableModel *m_model         = nullptr;
+    TabularDataTableModel   *m_tabularModel  = nullptr;  ///< Z.4.3 — alt source
+    QSortFilterProxyModel   *m_proxy         = nullptr;
+
+    // Slice Z.2 — Query bar
+    QLineEdit               *m_queryEdit     = nullptr;
+    QPushButton             *m_queryApply    = nullptr;
+    QPushButton             *m_queryClear    = nullptr;
+    QLabel                  *m_queryStatus   = nullptr;  ///< "47 of 1205 rows"
+
+    // Slice Z.3 — Selection-op radios + single Apply button.  IDs
+    // assigned to the buttons in `buildUi()` are read back in
+    // `onSelectionApplyClicked()` and dispatched to the matching
+    // SelectionManager op.
+    enum SelectionMode {
+        SelReplace   = 0,
+        SelAdd       = 1,
+        SelSubtract  = 2,
+        SelIntersect = 3,
+        SelInvert    = 4,
+    };
+    QButtonGroup            *m_selGroup      = nullptr;
+    QRadioButton            *m_selReplaceR   = nullptr;
+    QRadioButton            *m_selAddR       = nullptr;
+    QRadioButton            *m_selSubtractR  = nullptr;
+    QRadioButton            *m_selIntersectR = nullptr;
+    QRadioButton            *m_selInvertR    = nullptr;
+
+    bool m_applyingFromBus = false;   ///< Reentrancy guard mirroring ObjectBrowserPanel.
+    bool m_showSelectedOnly = false;
+    bool m_suppressEditForward = false;  ///< Set during onObjectEditedExternally to break loop.
+};
+
+#endif // ATTRIBUTETABLEPANEL_H

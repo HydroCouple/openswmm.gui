@@ -2,7 +2,7 @@
  * \file   meshgenerator.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
- * \license MIT
+ * \license GPL-3.0-or-later
  *
  * Slice AU — thin Qt-friendly wrapper around Shewchuk's Triangle
  * (vendor/triangle/). Builds a constrained-Delaunay triangulation
@@ -41,6 +41,8 @@ struct SteinerPoint
     QPointF xy;
     int     marker = 0;        ///< Carries a tag id; resolved via marker→tag map.
     QString tag;               ///< Convenience copy (caller can resolve via marker, but stash here too).
+    double  z      = 0.0;      ///< Pre-sampled elevation when hasZ is true (e.g. from DTM thinner).
+    bool    hasZ   = false;    ///< If true, z is exact — skip DTM re-sampling in post-mesh step.
 };
 
 /*! \brief A region attribute — an interior seed point with a value Triangle propagates
