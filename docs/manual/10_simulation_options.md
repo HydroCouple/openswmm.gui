@@ -43,6 +43,36 @@ ships Tabs 1–2 and the rest land in subsequent slices).
 | **Routing step** | `ROUTING_STEP` | Hydraulic routing step (seconds, decimals allowed). |
 | **Antecedent dry days** | `DRY_DAYS` | Days of dry weather assumed before `START_DATE`. |
 
+#### Events ([EVENTS] section)
+
+The **Events** group at the bottom of the Dates tab edits the SWMM
+`[EVENTS]` block — an optional list of routing-active time windows.
+When **Skip steady-periods** is on the engine routes full dynamic-wave
+hydraulics only inside these windows and steps quickly through the dry
+periods between them.
+
+The table has two columns, **Start** and **End**. Each cell uses an
+in-place date-time picker with a calendar popup (`MM/DD/YYYY HH:MM` —
+the same resolution the legacy SWMM 5 dialog uses).
+
+| Action | How |
+|--------|-----|
+| **Add row** | Click **Add row**. The new row is pre-filled with the simulation Start and End so you only edit the deltas. |
+| **Remove row** | Select one or more rows (click row headers, shift- or ctrl-click for multi-select) and click **Remove selected**. |
+| **Edit a time** | Click the cell and use the spin buttons, type directly, or drop the calendar popup. |
+
+Validation rules:
+
+- **Start < End** is required per row. Rows that violate this are
+  highlighted pink; Apply / OK are blocked until they are fixed.
+- **Overlapping rows** and rows **outside the simulation window**
+  trigger a non-blocking warning on Apply / OK; you can choose to
+  proceed if intentional.
+
+The engine round-trips every row through `swmm_events_*`; on Save As
+the `[EVENTS]` block is regenerated in the output `.inp` in legacy
+SWMM 5.2 column order.
+
 ### Tab 3 — Routing & Hydraulics
 
 Three groups: **Surcharge handling**, **Solver**, and **Conduit / channel**.
@@ -143,17 +173,143 @@ the extension-options map).
 
 A **Write 2D results** checkbox toggles `REPORT_2D`.
 
-### Tab 7 — Files / Output / Plugins  *(deferred)*
+### Tab 7 — Files / Output / Plugins
 
-Planned content: external rain-file list, output-format selector
-(native `.out` / GeoPackage / Plugin), `[PLUGINS]` editor with discovered
-libraries from the IO Plugin Registry, and the `[REPORT]` controls.
+Tab 7 is organised as **three nested sub-tabs** so the unrelated concerns
+(secondary file references, output-format and report controls, and the
+plugin editor) don't fight for vertical space in one giant page:
 
-This tab is not yet shipped — it depends on engine C-ABI surfaces that
-aren't exposed yet (one batch each for `[FILES]`, `[REPORT]`,
-`[PLUGINS]`, and runtime output-backend selection). See the
-*Implementation Progress* section of the implementation plan for the
-exact gap list and roadmap.
+- **Files** — secondary `[FILES]` references (rainfall / runoff / RDII /
+  inflows / outflows / hot-start USE) plus the multi-row
+  **Scheduled hot-start saves** table (Slice BV-01).
+- **Output** — writer / container combos, the `[REPORT]` flag and
+  selector group, and the override paths for the `.rpt` and `.out`
+  files.
+- **Plugins** — the raw `[PLUGINS]` table (plugin id / path / `id:version`
+  + free-form argument string per row).
+
+The dialog round-trips every value through the engine's existing C API
+(`swmm_options_get` / `swmm_options_set` for the `RPT_*` keys and the
+`[FILES]` paths, `swmm_plugins_*` for the plugin table, and
+`swmm_hotstart_saves_*` for the scheduled-saves table). The legacy
+EPA SWMM 5.x `[REPORT]` and `[FILES]` semantics are preserved on
+Save As.
+
+#### Files sub-tab
+
+The **Secondary file references** group edits the `[FILES]` block:
+
+| Row | Engine key | Mode combo |
+|-----|------------|------------|
+| Rainfall | `RAINFALL` | off / `USE` / `SAVE` |
+| Runoff   | `RUNOFF`   | off / `USE` / `SAVE` |
+| RDII     | `RDII`     | off / `USE` / `SAVE` |
+| Inflows (USE only)  | `INFLOWS`  | (always USE when set) |
+| Outflows (SAVE only)| `OUTFLOWS` | (always SAVE when set) |
+| Hot-start file (USE)| `HOTSTART USE` | (USE only) |
+
+All paths are stored **relative to the `.inp` directory** at save time.
+Leave a row blank to omit it from `[FILES]`.
+
+The **Scheduled hot-start saves** table is uncapped — add as many rows
+as you need, each with a save-as path (relative to the `.inp`
+directory) and an optional sim-time datetime. Leave the **Datetime**
+cell as *(end of run)* to write the hot-start file at the end of the
+simulation; otherwise the engine writes when the sim clock crosses the
+chosen datetime. Backed by the `swmm_hotstart_saves_*` engine C API.
+
+#### Output sub-tab
+
+The **Writer / Container** group selects which plugin drives each of
+the three writer roles (input / output / report). The combo's hidden
+data is the plugin id — an empty id means "use the built-in `.inp` /
+`.out` / `.rpt` writer". Picking a non-default entry adds the
+corresponding `[PLUGINS]` row on Apply.
+
+The **Single container** check box is enabled only when the selected
+input writer plugin advertises all three roles (`INPUT_READ`,
+`OUTPUT_WRITE`, `REPORT_WRITE`) for the same file extension (e.g.
+GeoPackage). Checking it locks the Output and Report combos to the
+input writer's plugin id.
+
+The **Report file** and **Results output file** groups expose
+overrides for the per-project `.rpt` and `.out` paths. Leaving either
+blank derives the path automatically from the input file location
+(sibling with `.rpt` / `.out` extension). The Browse… buttons use the
+filter advertised by the matching writer combo so you only see
+extensions the chosen plugin can write.
+
+#### Plugins sub-tab
+
+A free-form two-column table editor for the model's `[PLUGINS]`
+section. **Add** appends a blank row and puts focus on the first
+column; **Remove** drops the current row. Each row's columns are:
+
+| Column | Contents |
+|--------|----------|
+| Plugin (path / id / id:version) | Either a plugin id from the discovery registry, an `id:version` pin, or a shared-library path. |
+| Arguments | Free-form whitespace-tokenised arguments passed to the plugin's `initialize()` call. |
+
+The first input-capable row is also used by **File → Save As** when
+picking a non-`.inp` extension.
+
+#### Validation (Phase 3.10.4)
+
+Apply and OK run a validation pass before writing to the engine:
+
+- **Blocking** — a plugin row with an empty plugin id, or a
+  hot-start save row with an empty path, is highlighted in red and
+  Apply / OK refuses to proceed until the row is fixed.
+- **Non-blocking warnings** — surfaced as a Yes / No prompt so you
+  can override when you mean it:
+  - A `[REPORT]` selector with **Selected** chosen but the name list
+    empty will silently be written as `NONE`.
+  - A `.rpt` or `.out` override path whose parent directory does not
+    exist on disk.
+
+#### Report contents ([REPORT] section)
+
+The **Report contents** group on Tab 7 edits the SWMM `[REPORT]` block —
+the keys that decide *what* the engine prints to the `.rpt` text file.
+This is independent of the **Reporting step** on Tab 2 (which controls
+*how often* time-series rows are emitted to the binary output file).
+
+The group has two halves: a set of flag check-boxes and three element
+selectors.
+
+**Flags**
+
+| Check-box | Engine key | Notes |
+|-----------|------------|-------|
+| **Disable report file** | `RPT_DISABLED` | When checked, the engine skips writing the `.rpt` text file entirely. The five flag check-boxes and the three selectors below are greyed out because none of them have any effect when the file is disabled. |
+| **Echo input summary** | `RPT_INPUT` | Adds the "Input Summary" tables at the top of the `.rpt`. |
+| **Continuity report** | `RPT_CONTINUITY` | Mass-balance summary at the end of the `.rpt`. Default on. |
+| **Flow statistics** | `RPT_FLOWSTATS` | Per-link flow / depth / velocity statistics table. Default on. |
+| **Controls report** | `RPT_CONTROLS` | Action log for `[CONTROLS]` rules. |
+| **Time-step averages** | `RPT_AVERAGES` | Adds the time-step averaging summary block. |
+
+**Element selectors**
+
+Each of the three selectors below (subcatchments, nodes, links) is a
+three-radio group plus a comma-separated name list. The list edit is
+enabled only when **Selected** is chosen.
+
+| Radio | Engine value | Effect |
+|-------|--------------|--------|
+| **None** | `NONE` | Suppresses the per-element time-series table for that element type. |
+| **All** | `ALL` (default) | Reports every element of that type. |
+| **Selected** | comma-separated name list | Reports only the named elements (e.g. `J1,J2,J3`). The setter also accepts space-separated input — `J1 J2 J3` becomes `J1,J2,J3` on round-trip. An empty list collapses to `NONE`. |
+
+| Selector | Engine key |
+|----------|------------|
+| **Subcatchments** | `RPT_SUBCATCHMENTS` |
+| **Nodes** | `RPT_NODES` |
+| **Links** | `RPT_LINKS` |
+
+On Save As the engine emits the `[REPORT]` block in legacy SWMM 5.2
+column order. The nine keys round-trip through the existing
+`swmm_options_get` / `swmm_options_set` C API (the `RPT_*` key family
+was added with Slice BV.1).
 
 ### Apply vs OK vs Cancel
 
@@ -187,11 +343,15 @@ A successful Apply / OK that wrote at least one key marks the project
   with `OPENSWMM_BUILD_2D=ON`**. With the default build the tab is
   hidden — there's no point editing 2D options that the engine wouldn't
   read.
-- The Files / Output / Plugins tab (Tab 7) is planned but **not yet
-  shipped** because the engine doesn't expose the necessary C-ABI
-  surface for the `[FILES]`, `[REPORT]`, `[PLUGINS]` sections, or the
-  runtime output-format selection. See the implementation plan's
-  Slice G-3 follow-up for the gap list.
+- The Files / Output / Plugins tab (Tab 7) is split into three
+  **nested sub-tabs** — Files, Output, Plugins — to keep the page
+  scannable. Each sub-tab edits a distinct engine surface
+  (`[FILES]` + `swmm_hotstart_saves_*`, writer combos + `[REPORT]` +
+  rpt/out path overrides, and the raw `[PLUGINS]` table respectively).
+- The dialog re-reads every `[OPTIONS]` key from the active project's
+  engine each time it opens, so the controls always reflect the current
+  INP, not a snapshot. See `docs/GUI_IMPLEMENTATION_PLAN.md` §M for the
+  formal hydration contract that this rule belongs to.
 
 ## Related
 

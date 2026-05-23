@@ -35,6 +35,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 
 namespace openswmmvis::ui {
 
@@ -45,6 +46,7 @@ SymbologyDialog::SymbologyDialog(OpenSWMMVisLayer *layer, QWidget *parent)
     resize(700, 540);
     m_singleColor = QColor(64, 128, 240);
     buildUi();
+    readFromLayer();
 }
 
 SymbologyDialog::~SymbologyDialog() = default;
@@ -301,7 +303,120 @@ QString attributeKey(const QString &uiLabel)
     return uiLabel.toLower();
 }
 
+// Pull the first SymbolLayer's "color" prop out of a SymbolStyle. Mirrors
+// the writer convention (hex string in props["color"]). Returns an
+// invalid QColor if no layer in the stack advertises a colour.
+QColor firstStyleColor(const SymbolStyle &style)
+{
+    for (const SymbolLayer &sl : style.layers) {
+        const auto it = sl.props.constFind(QStringLiteral("color"));
+        if (it != sl.props.constEnd()) {
+            QColor c(it.value().toString());
+            if (c.isValid()) return c;
+        }
+    }
+    return {};
+}
+
+// Same shape as firstStyleColor() but for numeric properties (size,
+// width). Returns std::nullopt when no layer carries the key so the
+// caller can keep the dialog's default rather than overwriting with 0.
+std::optional<double> firstStyleNumber(const SymbolStyle &style, const QString &key)
+{
+    for (const SymbolLayer &sl : style.layers) {
+        const auto it = sl.props.constFind(key);
+        if (it != sl.props.constEnd()) {
+            bool ok = false;
+            const double v = it.value().toDouble(&ok);
+            if (ok) return v;
+        }
+    }
+    return std::nullopt;
+}
+
+// Select the combo entry whose text matches `value` case-insensitively.
+// No-op when the combo is empty or no entry matches — callers fall back
+// to the combo's current (default) selection.
+void selectComboText(QComboBox *combo, const QString &value)
+{
+    if (!combo || value.isEmpty()) return;
+    for (int i = 0; i < combo->count(); ++i) {
+        if (combo->itemText(i).compare(value, Qt::CaseInsensitive) == 0) {
+            combo->setCurrentIndex(i);
+            return;
+        }
+    }
+}
+
+// The renderer interface is the same for every concrete vector layer
+// type — pull the renderer pointer through whichever qobject_cast hits.
+// Returns nullptr for raster / basemap layers.
+const IFeatureRenderer *currentRendererOf(const OpenSWMMVisLayer *layer)
+{
+    if (auto *l = qobject_cast<const GISVectorLayer *>(layer))      return l->renderer();
+    if (auto *l = qobject_cast<const SWMMResultsLayer *>(layer))    return l->renderer();
+    if (auto *l = qobject_cast<const SWMM2DResultsLayer *>(layer))  return l->renderer();
+    if (auto *l = qobject_cast<const SWMM2DMeshLayer *>(layer))     return l->renderer();
+    if (auto *l = qobject_cast<const SWMMModelLayer *>(layer))      return l->renderer();
+    return nullptr;
+}
+
 } // namespace
+
+void SymbologyDialog::readFromLayer()
+{
+    using namespace OpenSWMM::Render;
+
+    if (!m_layer || !m_tabs) return;
+
+    const IFeatureRenderer *r = currentRendererOf(m_layer.data());
+    if (!r) return;
+
+    const QString id = r->rendererId();
+
+    if (id == QLatin1String("single")) {
+        if (auto *sr = dynamic_cast<const SingleSymbolRenderer *>(r)) {
+            if (const QColor c = firstStyleColor(sr->symbol()); c.isValid()) {
+                m_singleColor = c;
+                if (m_singleColorBtn)
+                    m_singleColorBtn->setStyleSheet(
+                        QStringLiteral("background-color: %1;").arg(c.name()));
+            }
+            if (auto v = firstStyleNumber(sr->symbol(), QStringLiteral("size")))
+                m_singleSize->setValue(*v);
+            if (auto v = firstStyleNumber(sr->symbol(), QStringLiteral("width")))
+                m_singleWidth->setValue(*v);
+        }
+        m_tabs->setCurrentIndex(0);
+
+    } else if (id == QLatin1String("graduated")) {
+        if (auto *gr = dynamic_cast<const GraduatedRenderer *>(r)) {
+            // Attribute combo: stored renderer key is lowercase; the
+            // combo's items are title-case ("Depth"), so selectComboText
+            // matches case-insensitively.
+            selectComboText(m_gradAttr, gr->classifyAttribute());
+            const int bins = gr->binCount();
+            if (bins >= m_gradClasses->minimum() && bins <= m_gradClasses->maximum())
+                m_gradClasses->setValue(bins);
+            // The base symbol's size is what we wrote into the "max" spin
+            // on apply; round-trip it back into the same spin.
+            if (auto v = firstStyleNumber(gr->baseSymbol(), QStringLiteral("size")))
+                m_gradMaxSize->setValue(*v);
+            // Ramp name isn't persisted on GraduatedRenderer (only the
+            // sampled bin colours are). Leave m_gradRamp at its current
+            // default rather than guessing.
+        }
+        m_tabs->setCurrentIndex(1);
+
+    } else if (id == QLatin1String("categorized")) {
+        if (auto *cr = dynamic_cast<const CategorizedRenderer *>(r)) {
+            selectComboText(m_catAttr, cr->classifyAttribute());
+        }
+        m_tabs->setCurrentIndex(2);
+    }
+    // Other rendererId() values (e.g. "rule") fall through — the dialog
+    // doesn't have a tab for those yet, so leave the default tab visible.
+}
 
 void SymbologyDialog::applyToLayer()
 {

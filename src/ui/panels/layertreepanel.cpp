@@ -898,6 +898,26 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
                                       tr("Zoom to Layer"));
     QAction *actProps = menu.addAction(s->standardIcon(QStyle::SP_FileDialogInfoView),
                                        tr("Properties…"));
+
+    // "Set Style…" only meaningful for layer kinds that carry an
+    // IFeatureRenderer. Raster / basemap / WMS / WMTS layers are styled
+    // through their own ramp / opacity controls, not the symbology
+    // dialog — omit the entry there so users don't get a no-op.
+    QAction *actStyle = nullptr;
+    switch (layer->layerType())
+    {
+    case OpenSWMMVisLayer::SWMMModelLayer:
+    case OpenSWMMVisLayer::SWMMResultsLayer:
+    case OpenSWMMVisLayer::SWMMVectorLayer:
+    case OpenSWMMVisLayer::SWMM2DMeshLayer:
+    case OpenSWMMVisLayer::SWMM2DResultsLayer:
+        actStyle = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Style")),
+                                  tr("Set Style…"));
+        break;
+    default:
+        break;
+    }
+
     menu.addSeparator();
     QAction *actUp   = menu.addAction(s->standardIcon(QStyle::SP_ArrowUp),
                                       tr("Move Up"));
@@ -924,6 +944,7 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     if (!picked) return;
     if      (picked == actZoom)   onZoomToSelectedLayer();
     else if (picked == actProps)  emit layerPropertiesRequested(layer);
+    else if (actStyle && picked == actStyle) emit layerStyleRequested(layer);
     else if (picked == actUp)     onMoveLayerUp();
     else if (picked == actDown)   onMoveLayerDown();
     else if (picked == actToggle) layer->setVisible(!layer->isVisible());

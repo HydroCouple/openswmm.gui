@@ -34,6 +34,7 @@ struct SimulationJobRecord {
     int     id              = -1;
     QString instanceName;           ///< Displayed name (e.g. "Example1.inp")
     QString inpPath;                ///< Full .inp path
+    QString engineVersion;          ///< Engine version string (e.g. "6.0.0" or "5.3.0")
 
     SimulationJobStatus status      = SimulationJobStatus::Running;
     double  progress                = 0.0;  ///< [0.0, 1.0]
@@ -96,13 +97,15 @@ public:
     static constexpr int ColRoutingErr  = 7;
     static constexpr int ColDuration     = 8;
     static constexpr int ColAvgTimestep  = 9;
-    static constexpr int NumColumns      = 10;
+    static constexpr int ColVersion      = 10;
+    static constexpr int NumColumns      = 11;
 
     explicit SimulationStatusModel(QObject *parent = nullptr);
 
     // ── Public mutators (called from GUI thread via queued signals) ──────────
     /** Add a new job row; returns the job id. */
-    int  addJob(const QString &instanceName, const QString &inpPath);
+    int  addJob(const QString &instanceName, const QString &inpPath,
+                const QString &engineVersion = QString());
 
     /**
      * @brief Add or reuse a job row bound to a model instance.
@@ -112,7 +115,8 @@ public:
      */
     int  addOrReuseJobForModel(SWMMVisProjectWindow *model,
                                const QString &instanceName,
-                               const QString &inpPath);
+                               const QString &inpPath,
+                               const QString &engineVersion = QString());
 
     /**
      * @brief Update progress for a running job.
@@ -144,6 +148,9 @@ public:
     /** Return a copy of the record for the given job id, or nullptr if not found. */
     const SimulationJobRecord *jobRecord(int jobId) const;
 
+    /** Return the job id at the given top-level row, or -1 if out of range. */
+    int jobIdForRow(int row) const;
+
     // ── QAbstractItemModel ───────────────────────────────────────────────────
     QModelIndex index(int row, int column,
                       const QModelIndex &parent = QModelIndex()) const override;
@@ -163,8 +170,9 @@ private:
     QList<SimulationJobRecord> m_jobs;
     int m_nextId = 0;
 
-    // Mapping from model instance to its persistent job ID (for rerun support)
-    QMap<SWMMVisProjectWindow*, int> m_modelToJobId;
+    // Mapping from (model instance, engine version) → persistent job ID.
+    // Different engine versions for the same model get separate rows.
+    QMap<SWMMVisProjectWindow*, QMap<QString, int>> m_modelToJobId;
 };
 
 #endif // SIMULATIONSTATUSMODEL_H

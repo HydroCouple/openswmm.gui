@@ -55,6 +55,14 @@ private:
 
     void applyToLayer();
 
+    /*!
+     * \brief Populate the form fields from the layer's current
+     *        IFeatureRenderer state and select the tab matching its
+     *        rendererId(). Called once at construction so re-opening the
+     *        dialog reflects what the layer actually has.
+     */
+    void readFromLayer();
+
     QPointer<OpenSWMMVisLayer> m_layer;
     QTabWidget                *m_tabs = nullptr;
 

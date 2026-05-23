@@ -274,6 +274,18 @@ public:
      */
     void refreshTimeRange();
 
+    /*!
+     * \brief Release the active source — closes its underlying HDF5 handle
+     * (when the source is an HDF5Mesh2DSource) so the engine can truncate /
+     * overwrite the file on a subsequent run. Clears all per-frame caches
+     * and emits geometryChanged on both items so the canvas paints empty
+     * until a new source is attached via setSource().
+     *
+     * Used by the dual-stream re-run handshake (Slice CF.MVP-fix.2) before
+     * launching a new simulation that targets the same OUTPUT_FILE.
+     */
+    void closeSource();
+
     /*! \brief Dry-cell depth threshold in metres. Cells below this draw with alpha 0. */
     double dryDepth() const noexcept { return dry_depth_; }
     void   setDryDepth(double d);
@@ -306,6 +318,41 @@ public:
     /*! \brief Whether the active source produced both edge geometry and a
      *  flux slice — i.e. whether the velocity overlay has data to render. */
     bool   hasVelocityData() const noexcept { return have_velocity_; }
+
+    // ----- Color-ramp + contour styling (Slice CF.MVP-fix.3) ----------------
+
+    /*! \brief How depth is mapped to colour in the per-cell heatmap pass.
+     *
+     *  \c Smooth   — continuous Viridis-ish gradient via \ref inundationColorRgba.
+     *               This is the default and matches behaviour prior to fix.3.a.
+     *  \c Graduated — discretise the depth range into \ref colorClasses bins and
+     *               sample the same gradient at each bin's midpoint. Bin colours
+     *               match the ones generated for the renderer's legend.
+     */
+    enum class ColorRampStyle { Smooth, Graduated };
+    [[nodiscard]] ColorRampStyle colorRampStyle() const noexcept { return color_ramp_style_; }
+    void                          setColorRampStyle(ColorRampStyle s);
+
+    [[nodiscard]] int  colorClasses() const noexcept { return color_classes_; }
+    void               setColorClasses(int n);
+
+    /*! \brief Show filled-band contour polygons over the heatmap (off by default). */
+    [[nodiscard]] bool   filledContours()        const noexcept { return filled_contours_; }
+    void                 setFilledContours(bool on);
+    [[nodiscard]] double filledContoursOpacity() const noexcept { return filled_contours_opacity_; }
+    void                 setFilledContoursOpacity(double a);
+    [[nodiscard]] int    filledContoursLevels()  const noexcept { return filled_contours_levels_; }
+    void                 setFilledContoursLevels(int n);
+
+    /*! \brief Stroke iso-depth contour lines over the heatmap (off by default). */
+    [[nodiscard]] bool   isolines()        const noexcept { return isolines_; }
+    void                 setIsolines(bool on);
+    [[nodiscard]] int    isolinesLevels()  const noexcept { return isolines_levels_; }
+    void                 setIsolinesLevels(int n);
+    [[nodiscard]] QColor isolinesColor()   const noexcept { return isolines_color_; }
+    void                 setIsolinesColor(QColor c);
+    [[nodiscard]] double isolinesWidth()   const noexcept { return isolines_width_; }
+    void                 setIsolinesWidth(double px);
 
     // ----- Renderer (Slice BI Phase 8.13.6.6) -----------------------------
     // API plumbing only — the existing paint path still uses dry_depth_ /
@@ -391,7 +438,16 @@ public:
     struct SceneTri {
         QPointF a, b, c;
         QPointF centroid;       ///< Scene-space centroid; cached at rebuildSceneGeometry_.
-        float   depth = 0.0f;
+        float   depth = 0.0f;   ///< Cell-centre depth (m) — drives the heatmap fill.
+        // Per-vertex depths (m), used by the marching-triangles contour
+        // passes. Recomputed each tick in applyCurrentDepths_() as the
+        // mean of incident-cell depths, so the contour passes see a
+        // continuous scalar field across cell boundaries. Without this
+        // the algorithm degenerates (v0==v1==v2 → vMax > vMin is false)
+        // and the contour passes silently skip every triangle.
+        float   dv0   = 0.0f;
+        float   dv1   = 0.0f;
+        float   dv2   = 0.0f;
         float   vx    = 0.0f;   ///< Scene-space velocity x (m/s; sign flipped to match scene Y).
         float   vy    = 0.0f;   ///< Scene-space velocity y (m/s).
         float   vmag  = 0.0f;   ///< |v| in m/s, computed in model coords.
@@ -406,6 +462,14 @@ signals:
 
     /*! Emitted whenever the current frame changes (setCurrentTimeIndex). */
     void currentTimeChanged(int t);
+
+    /*!
+     * \brief Emitted alongside currentTimeChanged(int) with the QDateTime of
+     * the frame (or invalid if the source has no time anchor). Mirrors
+     * SWMMResultsLayer::currentDateTimeChanged so AnimationController can
+     * drive the 2D layer as a fallback when no 1D primary is loaded.
+     */
+    void currentDateTimeChanged(const QDateTime &dt);
 
     /*! CF.3 — emitted on plot↔canvas hover sync. */
     void cellHovered(int triIdx);
@@ -435,8 +499,8 @@ private:
     bool                           have_velocity_    = false;
 
     int                            current_time_idx_ = -1;
-    double                         dry_depth_        = 0.005;
-    double                         max_depth_        = 0.5;   // auto-grown
+    double                         dry_depth_        = 1e-4;  // 0.1 mm — auto-tuned per project
+    double                         max_depth_        = 0.01;  // 10 mm — auto-grows from data each tick
     bool                           max_depth_user_set_ = false;
 
     // Velocity overlay state.
@@ -459,6 +523,18 @@ private:
     // the ctor (default GraduatedRenderer) so renderer() never returns
     // null.  Paint refactor deferred until Slice BB ColorRamp ships.
     std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> m_renderer;
+
+    // Slice CF.MVP-fix.3 — graduated colour + contour styling. All default
+    // values preserve the pre-fix.3 paint output byte-identically.
+    ColorRampStyle color_ramp_style_         = ColorRampStyle::Smooth;
+    int            color_classes_            = 5;
+    bool           filled_contours_          = false;
+    double         filled_contours_opacity_  = 0.55;
+    int            filled_contours_levels_   = 8;
+    bool           isolines_                 = false;
+    int            isolines_levels_          = 5;
+    QColor         isolines_color_           = QColor(20, 20, 20, 230);
+    double         isolines_width_           = 1.0;  // pixels
 };
 
 #endif // OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H

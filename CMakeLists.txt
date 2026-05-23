@@ -6,6 +6,8 @@
 
 cmake_minimum_required(VERSION 3.21)
 
+include(GNUInstallDirs)
+
 project(
     SWMMVis
     VERSION 6.0.0
@@ -21,6 +23,14 @@ configure_file(
     ${PROJECT_SOURCE_DIR}/include/version.h
 )
 
+if(WIN32)
+    configure_file(
+        ${PROJECT_SOURCE_DIR}/resources/swmmvis.rc.in
+        ${PROJECT_SOURCE_DIR}/resources/swmmvis.rc
+        @ONLY
+    )
+endif()
+
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -29,7 +39,7 @@ set(CMAKE_AUTOUIC_SEARCH_PATHS forms)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(SWMMVIS_BUILD_TESTS "Build unit tests" OFF)
+option(SWMMVIS_BUILD_TESTS "Build unit tests" ON)
 
 # Project CMake helpers live under cmake/.
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
@@ -127,6 +137,8 @@ set(
         include/core/openswmmvisservice.h
         include/core/queryparser.h
         include/core/preferencesmanager.h
+        include/core/linkrenderingprefs.h
+        include/core/selectionrenderingprefs.h
         include/core/unitsystem.h
         include/core/crsreproject.h
         include/core/editgeometry.h
@@ -135,6 +147,45 @@ set(
 
         # ── Animation ────────────────────────────────────────────────────────
         include/animation/animationcontroller.h
+
+        # ── Render ───────────────────────────────────────────────────────────
+        include/render/categoricalpalette.h
+        # Slice BI Phase 8.13.6.1 — IFeatureRenderer abstraction + types.
+        include/render/featureref.h
+        include/render/symbollayer.h
+        include/render/symbolstyle.h
+        include/render/legendsymbolitem.h
+        include/render/ifeaturerenderer.h
+        # Slice BI Phase 8.13.6.2 — concrete renderer classes.
+        # SingleSymbol + Graduated are functional v1; Categorized + RuleBased
+        # are stubs (JSON + paint) — UI editors land in Slice BI.3.
+        include/render/renderers/singlesymbolrenderer.h
+        include/render/renderers/graduatedrenderer.h
+        include/render/renderers/categorizedrenderer.h
+        include/render/renderers/rulebasedrenderer.h
+        # Slice BI Phase 8.13.6.7 — raster-renderer sister interface +
+        # SingleBandPseudoColor stub.
+        include/render/irasterrenderer.h
+        include/render/renderers/singlebandpseudocolorrenderer.h
+
+        # ── Plot ─────────────────────────────────────────────────────────────
+        include/plot/profilerouter.h
+        include/plot/profilebuilder.h
+        include/plot/profilenetworkadapter.h
+        include/plot/profileplotwidget.h
+        include/plot/profileplotoptions.h
+        include/plot/profilesourcefetcher.h
+        include/plot/plotattribute.h
+        include/plot/chartproperties.h
+        include/plot/seriesstatistics.h
+        include/plot/swmmjuliandatetime.h
+        include/plot/seriesstyle.h
+        include/plot/fitmetrics.h
+        include/plot/irunlayer.h
+        include/plot/comparisonplotmodel.h
+        include/plot/swmmoutrunlayer.h
+        include/plot/mesh2drunlayer.h
+        include/plot/observedcsvrunlayer.h
 
         # ── Layers ───────────────────────────────────────────────────────────
         include/layers/openswmmvislayer.h
@@ -159,10 +210,12 @@ set(
         include/map/openswmmvisscene.h
         include/map/graphicsitems.h
         include/map/scalebarsettings.h
+        include/map/snapengine.h
         include/map/swmmlayeritem.h
         include/map/swmmlayerglrenderer.h
         include/map/swmmlayerqsgrenderer.h
         include/map/swmm2dmeshqsgrenderer.h
+        include/map/profilepathoverlay.h
 
         # ── Map tools ────────────────────────────────────────────────────────
         include/map/tools/maptool.h
@@ -170,13 +223,14 @@ set(
         include/map/tools/maptoolzoom.h
         include/map/tools/maptoolmeasure.h
         include/map/tools/maptoolselect.h
+        include/map/tools/maptoolplotpick.h
+        include/map/tools/maptoolpick2dcells.h
         include/map/tools/maptoolidentify.h
-        include/map/tools/maptoolmovenode.h
-        include/map/tools/maptooleditvertex.h
         include/map/tools/maptooladdnode.h
         include/map/tools/maptooladdlink.h
         include/map/tools/maptooladdgage.h
         include/map/tools/maptooladdsubcatchment.h
+        include/map/tools/maptoolselectprofile.h
 
         # ── Project / workspace ──────────────────────────────────────────────
         include/project/openswmmvisworkspace.h
@@ -187,8 +241,12 @@ set(
 
         # ── Plugins (engine plugin SDK bridge) ───────────────────────────────
         include/layers/swmm2dmeshlayer.h
+        include/layers/swmm2dresultslayer.h
+        include/io/mesh2dh5reader.h
+        include/io/rptparser.h
         include/mesh/dtmsampler.h
         include/mesh/dtmthinner.h
+        include/mesh/inpmeshreader.h
         include/mesh/inpmeshwriter.h
         include/mesh/meshgenerator.h
         include/mesh/meshresult.h
@@ -207,18 +265,56 @@ set(
         include/ui/panels/swmmattributetablemodel.h
         include/ui/panels/swmmobjecttreemodel.h
         include/ui/panels/tabulardatatablemodel.h
+        include/ui/panels/overviewmappanel.h
 
         # ── UI property adapters (Slice Z.5.3 / AG.3) ────────────────────────
         include/ui/properties/swmmlinkpropertyadapter.h
         include/ui/properties/swmmnodepropertyadapter.h
         include/ui/properties/swmmsubcatchpropertyadapter.h
 
+        # ── Compound editor cell widget (Slice DB.2) ─────────────────────────
+        include/ui/properties/nodecompoundeditref.h
+        include/ui/properties/nodecompoundeditbutton.h
+
+        # ── Non-spatial Data Object property adapters (Slice DA.2) ──────────
+        include/ui/properties/swmmdataobjectpropertyadapter.h
+        include/ui/properties/swmmaquiferpropertyadapter.h
+        include/ui/properties/swmmcontrolrulepropertyadapter.h
+        include/ui/properties/swmmcurvepropertyadapter.h
+        include/ui/properties/swmmhydrographpropertyadapter.h
+        include/ui/properties/swmminletpropertyadapter.h
+        include/ui/properties/swmmlandusepropertyadapter.h
+        include/ui/properties/swmmlidcontrolpropertyadapter.h
+        include/ui/properties/swmmpatternpropertyadapter.h
+        include/ui/properties/swmmpollutantpropertyadapter.h
+        include/ui/properties/swmmraingagepropertyadapter.h
+        include/ui/properties/swmmsnowpackpropertyadapter.h
+        include/ui/properties/swmmstreetpropertyadapter.h
+        include/ui/properties/swmmtimeseriespropertyadapter.h
+        include/ui/properties/swmmtransectpropertyadapter.h
+
+        # ── Property editor framework (Slice BM) ─────────────────────────────
+        include/ui/properties/ipropertyeditor.h
+        include/ui/properties/propertyeditorregistry.h
+
         # ── Connections ──────────────────────────────────────────────────────
         include/connections/basemapconnection.h
         include/connections/basemapconnectionstore.h
 
+        # ── UI toolbars ──────────────────────────────────────────────────────
+        include/ui/toolbars/terraintoolbar.h
+
         # ── UI widgets ───────────────────────────────────────────────────────
         include/ui/widgets/basemaphttpheaderswidget.h
+        include/ui/widgets/profilelayerpanel.h
+        include/ui/widgets/seriesstyleeditor.h
+        include/ui/widgets/perattributethemingwidget.h
+        include/ui/widgets/legendoverlay.h
+        include/ui/widgets/interactivechartview.h
+        include/ui/widgets/attributepickermenu.h
+        include/ui/widgets/rangeslider.h
+        include/ui/widgets/statssummarypanel.h
+        include/ui/widgets/labeledcontrols.h
 
         # ── Dialogs ──────────────────────────────────────────────────────────
         include/ui/dialogs/addbasemapdialog.h
@@ -227,11 +323,30 @@ set(
         include/ui/dialogs/aboutdialog.h
         include/ui/dialogs/layerpropertiesdialog.h
         include/ui/dialogs/meshgenerationdialog.h
+        include/ui/dialogs/newdataobjectdialog.h
+        include/ui/dialogs/nodecompoundeditdialog.h
         include/ui/dialogs/newprojectdialog.h
         include/ui/dialogs/pluginsdialog.h
         include/ui/dialogs/preferencesdialog.h
         include/ui/dialogs/simulationoptionsdialog.h
+        include/ui/dialogs/hotstartsavesmodel.h
+        include/ui/dialogs/pathbrowsedelegate.h
+        include/ui/dialogs/pluginstablemodel.h
         include/ui/dialogs/timeseriesplotdialog.h
+        include/ui/dialogs/comparisonplotdialog.h
+        include/ui/dialogs/chartpropertiesdialog.h
+        include/ui/dialogs/colorrampeditordialog.h
+        include/ui/dialogs/statisticsdashboarddialog.h
+        include/ui/dialogs/statusreportdialog.h
+        include/ui/dialogs/tabularresultsdialog.h
+        include/ui/dialogs/scatterplotdialog.h
+        include/ui/dialogs/customreportdialog.h
+        include/ui/dialogs/symbologydialog.h
+        include/ui/dialogs/calibrationdatadialog.h
+        include/ui/dialogs/profilepathpickerdialog.h
+        include/ui/dialogs/profileplotdialog.h
+        include/ui/dialogs/profileoptionsdialog.h
+        include/ui/dialogs/profilesourcestyleadapter.h
         include/ui/dialogs/wmsconnectiondialog.h
         include/ui/dialogs/wmtsconnectiondialog.h
         include/ui/dialogs/licenseagreementdialog.h
@@ -249,6 +364,8 @@ set(
         src/core/measurementunitmanager.cpp
         src/core/openswmmvislogmessage.cpp
         src/core/preferencesmanager.cpp
+        src/core/linkrenderingprefs.cpp
+        src/core/selectionrenderingprefs.cpp
         src/core/queryparser.cpp
         src/core/unitsystem.cpp
         src/core/crsreproject.cpp
@@ -264,6 +381,41 @@ set(
 
         # Animation
         src/animation/animationcontroller.cpp
+
+        # Render
+        src/render/categoricalpalette.cpp
+        # Slice BI Phase 8.13.6.1 — JSON round-trip impls for the new types.
+        src/render/symbollayer.cpp
+        src/render/symbolstyle.cpp
+        src/render/legendsymbolitem.cpp
+        # Slice BI Phase 8.13.6.2 — concrete renderer impls.
+        src/render/renderers/singlesymbolrenderer.cpp
+        src/render/renderers/graduatedrenderer.cpp
+        src/render/renderers/categorizedrenderer.cpp
+        src/render/renderers/rulebasedrenderer.cpp
+        # Slice BI Phase 8.13.6.7 — raster-renderer stub impl.
+        src/render/renderers/singlebandpseudocolorrenderer.cpp
+        # Slice BI-MK.1 Phase 8.13.40 — per-kind renderer dispatch adapter.
+        src/render/multikindrenderer.cpp
+
+        # Plot
+        src/plot/profilerouter.cpp
+        src/plot/profilebuilder.cpp
+        src/plot/profilenetworkadapter.cpp
+        src/plot/profilenetworkadapter_model.cpp
+        src/plot/profileplotwidget.cpp
+        src/plot/profileplotoptions.cpp
+        src/plot/profilesourcefetcher.cpp
+        src/plot/plotattribute.cpp
+        src/plot/chartproperties.cpp
+        src/plot/seriesstatistics.cpp
+        src/plot/seriesstyle.cpp
+        src/plot/fitmetrics.cpp
+        src/plot/comparisonplotmodel.cpp
+        src/plot/swmmoutrunlayer.cpp
+        src/plot/swmmoutrunlayer_codes.cpp
+        src/plot/mesh2drunlayer.cpp
+        src/plot/observedcsvrunlayer.cpp
 
         # Layers
         src/layers/openswmmvislayer.cpp
@@ -288,10 +440,12 @@ set(
         src/map/openswmmvisscene.cpp
         src/map/graphicsitems.cpp
         src/map/scalebarsettings.cpp
+        src/map/snapengine.cpp
         src/map/swmmlayeritem.cpp
         src/map/swmmlayerglrenderer.cpp
         src/map/swmmlayerqsgrenderer.cpp
         src/map/swmm2dmeshqsgrenderer.cpp
+        src/map/profilepathoverlay.cpp
 
         # Map tools
         src/map/tools/maptool.cpp
@@ -299,13 +453,14 @@ set(
         src/map/tools/maptoolzoom.cpp
         src/map/tools/maptoolmeasure.cpp
         src/map/tools/maptoolselect.cpp
+        src/map/tools/maptoolplotpick.cpp
+        src/map/tools/maptoolpick2dcells.cpp
         src/map/tools/maptoolidentify.cpp
-        src/map/tools/maptoolmovenode.cpp
-        src/map/tools/maptooleditvertex.cpp
         src/map/tools/maptooladdnode.cpp
         src/map/tools/maptooladdlink.cpp
         src/map/tools/maptooladdgage.cpp
         src/map/tools/maptooladdsubcatchment.cpp
+        src/map/tools/maptoolselectprofile.cpp
 
         # Project / workspace
         src/project/openswmmvisworkspace.cpp
@@ -316,8 +471,12 @@ set(
 
         # Plugins (engine plugin SDK bridge)
         src/layers/swmm2dmeshlayer.cpp
+        src/layers/swmm2dresultslayer.cpp
+        src/io/mesh2dh5reader.cpp
+        src/io/rptparser.cpp
         src/mesh/dtmsampler.cpp
         src/mesh/dtmthinner.cpp
+        src/mesh/inpmeshreader.cpp
         src/mesh/inpmeshwriter.cpp
         src/mesh/meshgenerator.cpp
         src/plugins/filefilterregistry.cpp
@@ -332,6 +491,7 @@ set(
         src/ui/panels/attributetablepanel.cpp
         src/ui/panels/layertreepanel.cpp
         src/ui/panels/objectbrowserpanel.cpp
+        src/ui/panels/overviewmappanel.cpp
         src/ui/panels/swmmattributetablemodel.cpp
         src/ui/panels/swmmobjecttreemodel.cpp
         src/ui/panels/tabulardatatablemodel.cpp
@@ -341,25 +501,80 @@ set(
         src/ui/properties/swmmnodepropertyadapter.cpp
         src/ui/properties/swmmsubcatchpropertyadapter.cpp
 
+        # Compound editor cell widget (Slice DB.2)
+        src/ui/properties/nodecompoundeditref.cpp
+        src/ui/properties/nodecompoundeditbutton.cpp
+
+        # Non-spatial Data Object adapters (Slice DA.2)
+        src/ui/properties/swmmdataobjectpropertyadapter.cpp
+        src/ui/properties/swmmaquiferpropertyadapter.cpp
+        src/ui/properties/swmmcontrolrulepropertyadapter.cpp
+        src/ui/properties/swmmcurvepropertyadapter.cpp
+        src/ui/properties/swmmhydrographpropertyadapter.cpp
+        src/ui/properties/swmminletpropertyadapter.cpp
+        src/ui/properties/swmmlandusepropertyadapter.cpp
+        src/ui/properties/swmmlidcontrolpropertyadapter.cpp
+        src/ui/properties/swmmpatternpropertyadapter.cpp
+        src/ui/properties/swmmpollutantpropertyadapter.cpp
+        src/ui/properties/swmmraingagepropertyadapter.cpp
+        src/ui/properties/swmmsnowpackpropertyadapter.cpp
+        src/ui/properties/swmmstreetpropertyadapter.cpp
+        src/ui/properties/swmmtimeseriespropertyadapter.cpp
+        src/ui/properties/swmmtransectpropertyadapter.cpp
+
+        # Property editor framework (Slice BM)
+        src/ui/properties/propertyeditorregistry.cpp
+
         # Dialogs
         src/ui/dialogs/crsselectiondialog.cpp
         src/ui/dialogs/crschangedialog.cpp
         src/ui/dialogs/aboutdialog.cpp
         src/ui/dialogs/layerpropertiesdialog.cpp
         src/ui/dialogs/meshgenerationdialog.cpp
+        src/ui/dialogs/newdataobjectdialog.cpp
+        src/ui/dialogs/nodecompoundeditdialog.cpp
         src/ui/dialogs/newprojectdialog.cpp
         src/ui/dialogs/pluginsdialog.cpp
         src/ui/dialogs/preferencesdialog.cpp
         src/ui/dialogs/simulationoptionsdialog.cpp
         src/ui/dialogs/simulationoptionshelpers.cpp
+        src/ui/dialogs/hotstartsavesmodel.cpp
+        src/ui/dialogs/pathbrowsedelegate.cpp
+        src/ui/dialogs/pluginstablemodel.cpp
         src/ui/dialogs/timeseriesplotdialog.cpp
+        src/ui/dialogs/comparisonplotdialog.cpp
+        src/ui/dialogs/chartpropertiesdialog.cpp
+        src/ui/dialogs/colorrampeditordialog.cpp
+        src/ui/dialogs/statisticsdashboarddialog.cpp
+        src/ui/dialogs/statusreportdialog.cpp
+        src/ui/dialogs/tabularresultsdialog.cpp
+        src/ui/dialogs/scatterplotdialog.cpp
+        src/ui/dialogs/customreportdialog.cpp
+        src/ui/dialogs/symbologydialog.cpp
+        src/ui/dialogs/calibrationdatadialog.cpp
+        src/ui/dialogs/profilepathpickerdialog.cpp
+        src/ui/dialogs/profileplotdialog.cpp
+        src/ui/dialogs/profileoptionsdialog.cpp
+        src/ui/dialogs/profilesourcestyleadapter.cpp
         src/ui/dialogs/wmsconnectiondialog.cpp
         src/ui/dialogs/wmtsconnectiondialog.cpp
         src/ui/dialogs/addbasemapdialog.cpp
         src/ui/dialogs/licenseagreementdialog.cpp
 
+        # Toolbars
+        src/ui/toolbars/terraintoolbar.cpp
+
         # Widgets
         src/ui/widgets/basemaphttpheaderswidget.cpp
+        src/ui/widgets/profilelayerpanel.cpp
+        src/ui/widgets/seriesstyleeditor.cpp
+        src/ui/widgets/perattributethemingwidget.cpp
+        src/ui/widgets/legendoverlay.cpp
+        src/ui/widgets/interactivechartview.cpp
+        src/ui/widgets/attributepickermenu.cpp
+        src/ui/widgets/rangeslider.cpp
+        src/ui/widgets/statssummarypanel.cpp
+        src/ui/widgets/labeledcontrols.cpp
 
         # ── Forms ────────────────────────────────────────────────────────────
         forms/swmmvis.ui
@@ -393,7 +608,13 @@ target_include_directories(SWMMVis
     PRIVATE include
     PRIVATE forms
     PRIVATE ${GDAL_INCLUDE_DIRS}
+    # legacy_version.h is generated into the legacy engine's build dir;
+    # expose it so swmmvis.cpp can use LEGACY_SWMM_VERSION macros.
+    PRIVATE "${CMAKE_BINARY_DIR}/openswmm_engine/src/legacy/engine"
 )
+
+find_package(HDF5 REQUIRED COMPONENTS C)
+target_include_directories(SWMMVis PRIVATE ${HDF5_INCLUDE_DIRS})
 
 target_link_libraries(SWMMVis
     PRIVATE
@@ -414,12 +635,14 @@ target_link_libraries(SWMMVis
         $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>
         openswmm_engine
         triangle_lib
+        ${HDF5_C_LIBRARIES}
 )
 
 set_target_properties(SWMMVis PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER org.openswmm.swmmvis
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
+    MACOSX_BUNDLE_COPYRIGHT "Copyright (C) 2026 Caleb Buahin. Licensed under GPLv3."
     MACOSX_BUNDLE TRUE
     WIN32_EXECUTABLE TRUE
 )
@@ -541,6 +764,20 @@ if(APPLE)
             COMPONENT Runtime
         )
     endif()
+
+    # Re-sign after install-time macdeployqt. macdeployqt embeds new dylibs (Qt
+    # frameworks, GDAL, PROJ and all transitive deps) which invalidates the bundle's
+    # code directory. --options runtime enables the Hardened Runtime required for
+    # notarization; --timestamp adds a secure timestamp so the signature survives
+    # certificate expiry. Use the same identity that was set at configure time via
+    # -DCODESIGN_IDENTITY (defaults to "-" for ad-hoc local builds).
+    install(CODE
+        "execute_process(COMMAND
+            codesign --force --sign \"${_codesign_identity}\"
+            --options runtime --timestamp
+            \"\${CMAKE_INSTALL_PREFIX}/SWMMVis.app\")"
+        COMPONENT Runtime
+    )
 
 elseif(WIN32)
     find_program(WINDEPLOYQT_EXECUTABLE windeployqt
@@ -729,10 +966,40 @@ set(CPACK_STRIP_FILES               TRUE)
 
 if(APPLE)
     set(CPACK_GENERATOR "DragNDrop")
-    set(CPACK_DMG_VOLUME_NAME "SWMMVis ${PROJECT_VERSION}")
+    set(CPACK_DMG_VOLUME_NAME   "SWMMVis ${PROJECT_VERSION}")
+    # Display GPLv3 text when the DMG is mounted (satisfies license-visibility
+    # requirement for binary redistribution). CMake 3.17+ handles the hdiutil
+    # SLA resource embedding; this project requires 3.21+ so it is safe.
+    set(CPACK_DMG_SLA_FILE      "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+    set(CPACK_DMG_VOLUME_ICON   "${CMAKE_CURRENT_SOURCE_DIR}/resources/swmmvis.icns")
+
 elseif(WIN32)
-    set(CPACK_GENERATOR "ZIP")
+    set(CPACK_GENERATOR "NSIS")
+
+    # ── NSIS installer metadata ──────────────────────────────────────────────
+    set(CPACK_NSIS_PACKAGE_NAME         "SWMMVis ${PROJECT_VERSION}${PROJECT_VERSION_SUFFIX}")
+    set(CPACK_NSIS_DISPLAY_NAME         "SWMMVis ${PROJECT_VERSION}${PROJECT_VERSION_SUFFIX}")
+    set(CPACK_PACKAGE_INSTALL_DIRECTORY "SWMMVis")
+    set(CPACK_NSIS_INSTALL_ROOT         "$PROGRAMFILES64")
+    set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
+    set(CPACK_NSIS_MODIFY_PATH          OFF)
+    set(CPACK_NSIS_URL_INFO_ABOUT       "https://github.com/hydrocouple/openswmm.gui")
+    set(CPACK_NSIS_CONTACT              "calebgh@gmail.com")
+    set(CPACK_NSIS_HELP_LINK            "https://hydrocouple.org/openswmm.gui")
+    # Path relative to install root, NSIS backslash syntax (double-escaped for CMake)
+    set(CPACK_NSIS_INSTALLED_ICON_NAME  "bin\\\\SWMMVis.exe")
+    set(CPACK_NSIS_MUI_ICON             "${CMAKE_CURRENT_SOURCE_DIR}/resources/swmmvis.ico")
+    set(CPACK_NSIS_MUI_UNIICON          "${CMAKE_CURRENT_SOURCE_DIR}/resources/swmmvis.ico")
+    # Raw NSIS script inserted verbatim — backslashes need \\\\ in CMake string
+    set(CPACK_NSIS_CREATE_ICONS_EXTRA
+        "CreateShortcut '$DESKTOP\\\\SWMMVis.lnk' '$INSTDIR\\\\bin\\\\SWMMVis.exe'")
+    set(CPACK_NSIS_DELETE_ICONS_EXTRA
+        "Delete '$DESKTOP\\\\SWMMVis.lnk'")
+    # License page is shown automatically because CPACK_RESOURCE_FILE_LICENSE is set above.
+
 else()
+    # TGZ for direct distribution. A portable AppImage is built separately
+    # in CI via linuxdeploy (see .github/workflows/build_and_test.yml).
     set(CPACK_GENERATOR "TGZ")
 endif()
 

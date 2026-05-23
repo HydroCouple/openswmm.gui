@@ -372,6 +372,94 @@ void SWMM2DMeshLayer::setShowMeshNodes(bool show)
     emit repaintRequested();
 }
 
+void SWMM2DMeshLayer::setShowEdges(bool show)
+{
+    if (m_showEdges == show) return;
+    m_showEdges = show;
+    emit repaintRequested();
+}
+
+void SWMM2DMeshLayer::setHillshadeAzimuth(double degrees)
+{
+    // Wrap into [0, 360) so the UI can spin past the boundary cleanly.
+    while (degrees <  0.0) degrees += 360.0;
+    while (degrees >= 360.0) degrees -= 360.0;
+    if (qFuzzyCompare(m_hillshadeAz, degrees)) return;
+    m_hillshadeAz = degrees;
+    emit repaintRequested();
+}
+
+void SWMM2DMeshLayer::setHillshadeAltitude(double degrees)
+{
+    degrees = qBound(0.0, degrees, 90.0);
+    if (qFuzzyCompare(m_hillshadeAlt, degrees)) return;
+    m_hillshadeAlt = degrees;
+    emit repaintRequested();
+}
+
+void SWMM2DMeshLayer::setHillshadeZExag(double factor)
+{
+    factor = qBound(0.0, factor, 100.0);
+    if (qFuzzyCompare(m_hillshadeZExag, factor)) return;
+    m_hillshadeZExag = factor;
+    emit repaintRequested();
+}
+
+void SWMM2DMeshLayer::setHillshadeMinLit(double minLit)
+{
+    minLit = qBound(0.0, minLit, 1.0);
+    if (qFuzzyCompare(m_hillshadeMinLit, minLit)) return;
+    m_hillshadeMinLit = minLit;
+    emit repaintRequested();
+}
+
+// BJ.2-lite — mesh-bed elevation contour setters
+void SWMM2DMeshLayer::setShowContours(bool show)
+{
+    if (m_showContours == show) return;
+    m_showContours = show;
+    emit repaintRequested();
+}
+
+void SWMM2DMeshLayer::setContourIntervalCount(int n)
+{
+    n = qBound(1, n, 200);
+    if (m_contourIntervals == n) return;
+    m_contourIntervals = n;
+    emit repaintRequested();
+}
+
+void SWMM2DMeshLayer::setContourColor(const QColor &c)
+{
+    if (!c.isValid() || m_contourColor == c) return;
+    m_contourColor = c;
+    emit repaintRequested();
+}
+
+void SWMM2DMeshLayer::setContourLineWidth(double widthPx)
+{
+    widthPx = qBound(0.25, widthPx, 10.0);
+    if (qFuzzyCompare(m_contourLineWidth, widthPx)) return;
+    m_contourLineWidth = widthPx;
+    emit repaintRequested();
+}
+
+// BJ.2-filled — iso-band setters
+void SWMM2DMeshLayer::setFilledContours(bool filled)
+{
+    if (m_contourFilled == filled) return;
+    m_contourFilled = filled;
+    emit repaintRequested();
+}
+
+void SWMM2DMeshLayer::setFilledContoursOpacity(double a)
+{
+    a = qBound(0.0, a, 1.0);
+    if (qFuzzyCompare(m_contourFilledOpacity, a)) return;
+    m_contourFilledOpacity = a;
+    emit repaintRequested();
+}
+
 void SWMM2DMeshLayer::populateScene(QGraphicsScene *scene,
                                      const MapExtent &,
                                      const SpatialReferenceSystem *)

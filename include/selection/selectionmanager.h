@@ -45,6 +45,18 @@ struct SWMMObjectRef
         Pollutant    = 5,
         LandUse      = 6,
         Control      = 7,
+        // Non-spatial data objects (Slice BM.0). Values appended at end so
+        // existing serialisation / sidecar `.oswp` files keep working.
+        Curve        = 8,
+        TimeSeries   = 9,
+        TimePattern  = 10,
+        LIDControl   = 11,
+        Aquifer      = 12,
+        Snowpack     = 13,
+        Transect     = 14,
+        Hydrograph   = 15,
+        Street       = 16,
+        Inlet        = 17,
     };
 
     ObjectType objectType = Unknown;

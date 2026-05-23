@@ -11,6 +11,7 @@
  */
 #include "layers/swmm2dresultslayer.h"
 
+#include "contour/marchingtriangles.h"
 #include "io/mesh2dh5reader.h"
 #include "map/mapextent.h"
 
@@ -20,6 +21,7 @@
 #include <QGraphicsItem>
 #include <QGraphicsScene>
 #include <QPainter>
+#include <QPainterPath>
 #include <QStyleOptionGraphicsItem>
 
 #include <algorithm>
@@ -122,13 +124,17 @@ public:
         const auto& tris = layer_->m_sceneTris;
         if (tris.isEmpty()) return;
 
-        const QRectF exposed = option->exposedRect;
+        const QRectF exposed  = option->exposedRect;
         const double dryDepth = layer_->dryDepth();
         const double maxDepth = layer_->maxDepth();
+        const auto   rampStyle = layer_->colorRampStyle();
+        const int    nClasses  = std::max(2, layer_->colorClasses());
 
         p->save();
         p->setPen(Qt::NoPen);
 
+        // --- Pass 1: per-cell heatmap. Smooth ramp by default; graduated
+        // bins when the user has switched the layer's ColorRampStyle.
         for (const auto& t : tris) {
             // Bounding-box cull
             const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
@@ -140,12 +146,87 @@ public:
                  maxY < exposed.top()   || minY > exposed.bottom())) continue;
 
             int r, g, b, a;
-            inundationColorRgba(t.depth, dryDepth, maxDepth, r, g, b, a);
+            if (rampStyle == SWMM2DResultsLayer::ColorRampStyle::Graduated) {
+                // Discretise depth to bin midpoint; reuses the same Viridis
+                // ramp the smooth path samples so a switch between modes
+                // doesn't surprise the user with a hue shift.
+                if (t.depth < dryDepth || maxDepth <= dryDepth) {
+                    continue;  // dry
+                }
+                const double tFrac = std::clamp(
+                    (t.depth - dryDepth) / (maxDepth - dryDepth), 0.0, 1.0);
+                const int bin = std::min(nClasses - 1,
+                                          int(tFrac * double(nClasses)));
+                const double tBin = (double(bin) + 0.5) / double(nClasses);
+                const double depthAtBin = dryDepth + tBin * (maxDepth - dryDepth);
+                inundationColorRgba(depthAtBin, dryDepth, maxDepth, r, g, b, a);
+            } else {
+                inundationColorRgba(t.depth, dryDepth, maxDepth, r, g, b, a);
+            }
             if (a == 0) continue;  // dry → don't paint
 
             p->setBrush(QColor(r, g, b, a));
             const QPointF pts[3] = { t.a, t.b, t.c };
             p->drawConvexPolygon(pts, 3);
+        }
+
+        // --- Pass 2 (optional): filled isobands.
+        if (layer_->filledContours() && maxDepth > dryDepth) {
+            using namespace OpenSWMM::Contour;
+            const auto levels = evenlySpacedLevelsInclusive(
+                dryDepth, maxDepth, layer_->filledContoursLevels());
+            if (levels.size() >= 2) {
+                auto extract = [](const SWMM2DResultsLayer::SceneTri &t,
+                                  QPointF &p0, QPointF &p1, QPointF &p2,
+                                  double  &v0, double  &v1, double  &v2) {
+                    p0 = t.a; p1 = t.b; p2 = t.c;
+                    v0 = double(t.dv0);
+                    v1 = double(t.dv1);
+                    v2 = double(t.dv2);
+                };
+                const auto bands = marchingTrianglesIsobands(tris, levels, extract);
+                const double alphaScalar = layer_->filledContoursOpacity();
+                const int    nBands      = int(levels.size()) - 1;
+                p->setPen(Qt::NoPen);
+                for (const auto &bp : bands) {
+                    if (bp.verts.size() < 3) continue;
+                    QColor c = viridisAt(
+                        (double(bp.bandIndex) + 0.5) / double(nBands));
+                    c.setAlphaF(alphaScalar);
+                    p->setBrush(c);
+                    // Fan-triangulate the convex polygon by drawing it
+                    // directly — QPainter handles convex polys efficiently.
+                    p->drawConvexPolygon(bp.verts.data(),
+                                         int(bp.verts.size()));
+                }
+            }
+        }
+
+        // --- Pass 3 (optional): iso-line contour strokes.
+        if (layer_->isolines() && maxDepth > dryDepth) {
+            using namespace OpenSWMM::Contour;
+            const auto levels = evenlySpacedLevels(
+                dryDepth, maxDepth, layer_->isolinesLevels());
+            if (!levels.empty()) {
+                auto extract = [](const SWMM2DResultsLayer::SceneTri &t,
+                                  QPointF &p0, QPointF &p1, QPointF &p2,
+                                  double  &v0, double  &v1, double  &v2) {
+                    p0 = t.a; p1 = t.b; p2 = t.c;
+                    v0 = double(t.dv0);
+                    v1 = double(t.dv1);
+                    v2 = double(t.dv2);
+                };
+                const auto segs = marchingTriangles(tris, levels, extract);
+                if (!segs.empty()) {
+                    QPen linePen(layer_->isolinesColor());
+                    linePen.setCosmetic(true);   // constant pixel width across zoom
+                    linePen.setWidthF(layer_->isolinesWidth());
+                    p->setPen(linePen);
+                    p->setBrush(Qt::NoBrush);
+                    for (const auto &s : segs)
+                        p->drawLine(s.a, s.b);
+                }
+            }
         }
 
         // CF.3 — second pass: outline highlighted cells (box / lasso picks).
@@ -611,6 +692,7 @@ void SWMM2DResultsLayer::setCurrentTimeIndex(int t)
     if (graphics_item_) graphics_item_->geometryChanged();
     if (arrows_item_)   arrows_item_->geometryChanged();
     emit currentTimeChanged(t);
+    emit currentDateTimeChanged(source_->simTimeAt(t));
 }
 
 void SWMM2DResultsLayer::refreshTimeRange()
@@ -621,6 +703,29 @@ void SWMM2DResultsLayer::refreshTimeRange()
     if (n > 0 && current_time_idx_ < n - 1) {
         setCurrentTimeIndex(n - 1);
     }
+}
+
+void SWMM2DResultsLayer::closeSource()
+{
+    // Drop the source's underlying file handle.  unique_ptr destruction
+    // runs HDF5Mesh2DSource::~HDF5Mesh2DSource → Mesh2DH5Reader::~Mesh2DH5Reader
+    // → H5Fclose, releasing the file so the engine can truncate / rewrite.
+    source_.reset();
+    current_time_idx_ = -1;
+    current_depths_.clear();
+    current_flux_.clear();
+    // Per-tri animated state is cleared on next setSource via
+    // rebuildSceneGeometry_(); for the moment, just blank the canvas.
+    for (auto &t : m_sceneTris) {
+        t.depth = 0.0f;
+        t.vx = t.vy = t.vmag = 0.0f;
+    }
+    have_velocity_ = false;
+    if (graphics_item_) graphics_item_->geometryChanged();
+    if (arrows_item_)   arrows_item_->geometryChanged();
+    emit timeRangeChanged(0, 0);
+    emit currentTimeChanged(-1);
+    emit currentDateTimeChanged(QDateTime());
 }
 
 void SWMM2DResultsLayer::setDryDepth(double d)
@@ -668,6 +773,78 @@ void SWMM2DResultsLayer::setMaxVelocity(double v)
     max_velocity_ = v;
     max_velocity_user_set_ = true;
     if (arrows_item_) arrows_item_->geometryChanged();
+}
+
+// ---------------------------------------------------------------------------
+// Color-ramp + contour styling (Slice CF.MVP-fix.3)
+// ---------------------------------------------------------------------------
+
+void SWMM2DResultsLayer::setColorRampStyle(ColorRampStyle s)
+{
+    if (s == color_ramp_style_) return;
+    color_ramp_style_ = s;
+    if (graphics_item_) graphics_item_->geometryChanged();
+}
+
+void SWMM2DResultsLayer::setColorClasses(int n)
+{
+    n = std::clamp(n, 2, 64);
+    if (n == color_classes_) return;
+    color_classes_ = n;
+    if (graphics_item_) graphics_item_->geometryChanged();
+}
+
+void SWMM2DResultsLayer::setFilledContours(bool on)
+{
+    if (on == filled_contours_) return;
+    filled_contours_ = on;
+    if (graphics_item_) graphics_item_->geometryChanged();
+}
+
+void SWMM2DResultsLayer::setFilledContoursOpacity(double a)
+{
+    a = std::clamp(a, 0.0, 1.0);
+    if (a == filled_contours_opacity_) return;
+    filled_contours_opacity_ = a;
+    if (graphics_item_) graphics_item_->geometryChanged();
+}
+
+void SWMM2DResultsLayer::setFilledContoursLevels(int n)
+{
+    n = std::clamp(n, 2, 32);
+    if (n == filled_contours_levels_) return;
+    filled_contours_levels_ = n;
+    if (graphics_item_) graphics_item_->geometryChanged();
+}
+
+void SWMM2DResultsLayer::setIsolines(bool on)
+{
+    if (on == isolines_) return;
+    isolines_ = on;
+    if (graphics_item_) graphics_item_->geometryChanged();
+}
+
+void SWMM2DResultsLayer::setIsolinesLevels(int n)
+{
+    n = std::clamp(n, 1, 32);
+    if (n == isolines_levels_) return;
+    isolines_levels_ = n;
+    if (graphics_item_) graphics_item_->geometryChanged();
+}
+
+void SWMM2DResultsLayer::setIsolinesColor(QColor c)
+{
+    if (c == isolines_color_) return;
+    isolines_color_ = c;
+    if (graphics_item_) graphics_item_->geometryChanged();
+}
+
+void SWMM2DResultsLayer::setIsolinesWidth(double px)
+{
+    px = std::clamp(px, 0.25, 10.0);
+    if (px == isolines_width_) return;
+    isolines_width_ = px;
+    if (graphics_item_) graphics_item_->geometryChanged();
 }
 
 std::pair<float, int> SWMM2DResultsLayer::currentPeak() const
@@ -846,8 +1023,38 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
 void SWMM2DResultsLayer::applyCurrentDepths_()
 {
     if (current_depths_.size() != tris_.size()) return;
-    for (int i = 0; i < static_cast<int>(tris_.size()); ++i) {
+    const int nTri = static_cast<int>(tris_.size());
+    for (int i = 0; i < nTri; ++i) {
         m_sceneTris[i].depth = current_depths_[i];
+    }
+
+    // Compute per-vertex depths by averaging incident-cell depths so the
+    // marching-triangles contour passes see a continuous scalar field. The
+    // engine reports depth per-cell (RT0), but contour extraction needs
+    // per-vertex values — a uniform cell field produces zero crossings and
+    // the algorithm skips every triangle as "degenerate".
+    const int nVert = static_cast<int>(vx_.size());
+    std::vector<float> vsum(size_t(nVert), 0.0f);
+    std::vector<int>   vcount(size_t(nVert), 0);
+    for (int i = 0; i < nTri; ++i) {
+        const float d = current_depths_[i];
+        const auto& tri = tris_[i];
+        for (int k = 0; k < 3; ++k) {
+            const int vi = tri[k];
+            if (vi < 0 || vi >= nVert) continue;
+            vsum[vi] += d;
+            ++vcount[vi];
+        }
+    }
+    for (int v = 0; v < nVert; ++v) {
+        if (vcount[v] > 0) vsum[v] /= float(vcount[v]);
+    }
+    for (int i = 0; i < nTri; ++i) {
+        const auto& tri = tris_[i];
+        SceneTri& st = m_sceneTris[i];
+        st.dv0 = (tri[0] >= 0 && tri[0] < nVert) ? vsum[tri[0]] : 0.0f;
+        st.dv1 = (tri[1] >= 0 && tri[1] < nVert) ? vsum[tri[1]] : 0.0f;
+        st.dv2 = (tri[2] >= 0 && tri[2] < nVert) ? vsum[tri[2]] : 0.0f;
     }
 }
 

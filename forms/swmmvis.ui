@@ -698,7 +698,7 @@
    <attribute name="toolBarBreak">
     <bool>true</bool>
    </attribute>
-   <addaction name="actionSelectEdit"/>
+   <addaction name="actionEditExisting"/>
    <addaction name="separator"/>
    <addaction name="actionAddNode"/>
    <addaction name="actionAddPolyline"/>
@@ -1267,24 +1267,6 @@
     <string/>
    </property>
   </action>
-  <action name="actionSelectEdit">
-   <property name="icon">
-    <iconset resource="../resources/swmmvis.qrc">
-     <normaloff>:/swmmvis/SelectEdit</normaloff>:/swmmvis/SelectEdit</iconset>
-   </property>
-   <property name="text">
-    <string>&amp;Select Edit</string>
-   </property>
-   <property name="statusTip">
-    <string>Select Edit</string>
-   </property>
-   <property name="whatsThis">
-    <string>Select Edit</string>
-   </property>
-   <property name="shortcut">
-    <string/>
-   </property>
-  </action>
   <action name="actionAddNode">
    <property name="icon">
     <iconset resource="../resources/swmmvis.qrc">
@@ -1750,7 +1732,7 @@
     <string>Generate &amp;Mesh…</string>
    </property>
    <property name="toolTip">
-    <string>Generate a 2D mesh from the active SWMM network and DTM</string>
+    <string>Generate a 2D mesh from the active SWMM network. A DTM raster is optional — without one, vertex elevations are interpolated from junction rim elevations (invert + maxDepth).</string>
    </property>
    <property name="statusTip">
     <string>Open the 2D mesh generator (Tools → Generate 2D Mesh…)</string>
@@ -1940,6 +1922,21 @@
    </action>
   </actiongroup>
   <actiongroup name="selectTools">
+   <action name="actionEditExisting">
+    <property name="checkable">
+     <bool>true</bool>
+    </property>
+    <property name="icon">
+     <iconset resource="../resources/swmmvis.qrc">
+      <normaloff>:/swmmvis/SelectEdit</normaloff>:/swmmvis/SelectEdit</iconset>
+    </property>
+    <property name="text">
+     <string>Edit Existing</string>
+    </property>
+    <property name="toolTip">
+     <string>Toggle edit mode for existing features — must be active to move, reshape vertices, or delete network geometry. Adding new features does not require this mode.</string>
+    </property>
+   </action>
    <action name="actionSelect">
     <property name="checkable">
      <bool>true</bool>

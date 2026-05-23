@@ -15,6 +15,7 @@
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
 
 namespace {
@@ -118,18 +119,54 @@ QVariantList offOnValues();
 QVariantList culvertCodeValues();
 QVariantList dividerTypeValues();
 
+// Slice DB — coordinate columns, now editable. Setters route through
+// `SWMMModelLayer::applyNodeMove` (special-cased in `commitValueDirect`)
+// because swmm_spatial_set_node_coord is a two-arg setter that doesn't
+// fit the single-double SetterEntry shape, AND because applyNodeMove is
+// what refreshes the cached scene coords + attached-link bboxes so the
+// canvas tracks the edit without waiting for a geometry rebuild.
+ColumnSpec nodeCoordX() {
+    return num(QStringLiteral("X"), QStringLiteral("X Coordinate"),
+               QStringLiteral("node_coord_x"),
+               -1e12, 1e12, 4, UnitKind::None);
+}
+ColumnSpec nodeCoordY() {
+    return num(QStringLiteral("Y"), QStringLiteral("Y Coordinate"),
+               QStringLiteral("node_coord_y"),
+               -1e12, 1e12, 4, UnitKind::None);
+}
+
+// Slice DB — read-only computed + statistics summary columns shared by
+// all four node categories. Values come from `identifyByName()` which
+// queries the engine getters; pre-run, the stat_* values read back as
+// zero. Editor stays `ReadOnly` so the cells display but don't accept
+// input.
+QList<ColumnSpec> nodeStatBlock() {
+    return {
+        // Input-time computed.
+        ro(QStringLiteral("Crown elev"),  QStringLiteral("Crown Elev.")),
+        ro(QStringLiteral("Full volume"), QStringLiteral("Full Volume")),
+        ro(QStringLiteral("Degree"),      QStringLiteral("Connected Links")),
+        // Post-run summary statistics.
+        ro(QStringLiteral("Max depth (stat)"),  QStringLiteral("Max Depth (Sim.)")),
+        ro(QStringLiteral("Max overflow"),      QStringLiteral("Max Overflow")),
+        ro(QStringLiteral("Vol flooded"),       QStringLiteral("Vol. Flooded")),
+        ro(QStringLiteral("Time flooded (hr)"), QStringLiteral("Time Flooded (hr)")),
+    };
+}
+
 // Column schema per category.  Z.5.1 made `Name` always column 0;
 // the rest are sourced from `identifyByName()` for display and
 // (when editable) from a setter dispatch table for commit.
 QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
 {
     switch (cat) {
-    case SWMMModelLayer::CatJunctions:
-        return {
+    case SWMMModelLayer::CatJunctions: {
+        QList<ColumnSpec> cols = {
             nameCol(),
             ro("Node type",  "Node Type"),
-            ro("X",          "X Coordinate"),
-            ro("Y",          "Y Coordinate"),
+            nodeCoordX(),
+            nodeCoordY(),
             num("Invert elev",     "Invert Elevation",   "node_invert_elev",
                                                           -1e9, 1e9, 4, UnitKind::Length),
             num("Max depth",       "Maximum Depth",      "node_max_depth",
@@ -141,14 +178,17 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             num("Ponded area",     "Ponded Area",        "node_ponded_area",
                                                           0.0, 1e9, 2, UnitKind::Area),
         };
-    case SWMMModelLayer::CatOutfalls:
+        cols.append(nodeStatBlock());
+        return cols;
+    }
+    case SWMMModelLayer::CatOutfalls: {
         // SWMM5 [OUTFALLS]: Name | Elev | Type | Gated | (StageData when FIXED).
         // No MaxDepth / InitDepth / SurDepth / Aponded at a boundary node.
-        return {
+        QList<ColumnSpec> cols = {
             nameCol(),
             ro("Node type",  "Node Type"),
-            ro("X",          "X Coordinate"),
-            ro("Y",          "Y Coordinate"),
+            nodeCoordX(),
+            nodeCoordY(),
             num("Invert elev", "Invert Elevation",   "node_invert_elev",
                                                       -1e9, 1e9, 4, UnitKind::Length),
             enumCol("Outfall type", "Boundary Type",
@@ -158,12 +198,15 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                                 "node_outfall_flap_gate",
                                                 yesNoValues()),
         };
-    case SWMMModelLayer::CatStorage:
-        return {
+        cols.append(nodeStatBlock());
+        return cols;
+    }
+    case SWMMModelLayer::CatStorage: {
+        QList<ColumnSpec> cols = {
             nameCol(),
             ro("Node type",  "Node Type"),
-            ro("X",          "X Coordinate"),
-            ro("Y",          "Y Coordinate"),
+            nodeCoordX(),
+            nodeCoordY(),
             num("Invert elev",     "Invert Elevation",   "node_invert_elev",
                                                           -1e9, 1e9, 4, UnitKind::Length),
             num("Max depth",       "Maximum Depth",      "node_max_depth",
@@ -175,12 +218,15 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             num("Seep rate",       "Seepage Rate",       "node_storage_seep_rate",
                                                           0.0, 1e6, 4, UnitKind::Rate),
         };
-    case SWMMModelLayer::CatDividers:
-        return {
+        cols.append(nodeStatBlock());
+        return cols;
+    }
+    case SWMMModelLayer::CatDividers: {
+        QList<ColumnSpec> cols = {
             nameCol(),
             ro("Node type",  "Node Type"),
-            ro("X",          "X Coordinate"),
-            ro("Y",          "Y Coordinate"),
+            nodeCoordX(),
+            nodeCoordY(),
             num("Invert elev",     "Invert Elevation",   "node_invert_elev",
                                                           -1e9, 1e9, 4, UnitKind::Length),
             num("Max depth",       "Maximum Depth",      "node_max_depth",
@@ -193,6 +239,9 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                                 "node_divider_type",
                                                 dividerTypeValues()),
         };
+        cols.append(nodeStatBlock());
+        return cols;
+    }
     case SWMMModelLayer::CatConduits:
         return {
             nameCol(),
@@ -750,6 +799,37 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
             m_rowCacheValid[row] = false;
         emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
         emit objectEdited(newName);
+        return true;
+    }
+
+    // Slice DB — node X/Y coordinate edits route through applyNodeMove
+    // (not the single-double SetterEntry table) so the scene-coord cache
+    // and attached-link bboxes refresh atomically with the engine write.
+    if (spec.setter == QStringLiteral("node_coord_x") ||
+        spec.setter == QStringLiteral("node_coord_y")) {
+        const QString name = objectNameAt(row);
+        const int nodeIdx = swmm_node_index(m_layer->engine(),
+                                              name.toUtf8().constData());
+        if (nodeIdx < 0) return false;
+        double cx = 0.0, cy = 0.0;
+        if (swmm_spatial_get_node_coord(m_layer->engine(), nodeIdx,
+                                          &cx, &cy) != SWMM_OK) return false;
+        bool ok = false;
+        const double nv = value.toDouble(&ok);
+        if (!ok) return false;
+        const bool isX = (spec.setter == QStringLiteral("node_coord_x"));
+        const double newX = isX ? nv : cx;
+        const double newY = isX ? cy : nv;
+        if (!m_layer->applyNodeMove(nodeIdx, newX, newY)) return false;
+        if (row >= 0 && row < m_rowCacheValid.size())
+            m_rowCacheValid[row] = false;
+        // Repaint the whole row — moving the node updates X, Y, and the
+        // stat block reads (Max Depth Sim. is location-independent but
+        // re-issuing dataChanged keeps the view consistent).
+        const int lastCol = columnCount() - 1;
+        emit dataChanged(this->index(row, 0), this->index(row, lastCol),
+                         {Qt::DisplayRole, Qt::EditRole});
+        emit objectEdited(name);
         return true;
     }
 

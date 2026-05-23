@@ -21,6 +21,7 @@
 #include "plot/profilerouter.h"
 #include "plot/profileplotwidget.h"
 #include "plot/profileplotoptions.h"
+#include "selection/selectionmanager.h"   // SWMMObjectRef (AT.3)
 
 #include <QDateTime>
 #include <QDialog>
@@ -77,6 +78,14 @@ public:
      *         signal into a half-destroyed dialog.
      */
     ~ProfilePlotDialog() override;
+
+signals:
+    /*! \brief AT.3 — emitted when the user picks "Plot Time Series…" from
+     *  a node / link right-click on the profile. The main window handles
+     *  this by routing into `SWMMVis::openComparisonPlotFor(ref)`, so the
+     *  profile dialog uses the same modern ComparisonPlotDialog (toolbar,
+     *  hover tooltips, stats panel) as every other entry point. */
+    void plotTimeSeriesRequested(const SWMMObjectRef &ref);
 
 private slots:
     /*!

@@ -26,6 +26,8 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 
+#include "ui/properties/nodecompoundeditref.h"
+
 /*! Base node adapter — exposes only the attributes that ALL node
  *  types share (per the SWMM5 .inp [JUNCTIONS]/[OUTFALLS]/[STORAGE]/
  *  [DIVIDERS] sections in `InpWriter.cpp`).  Type-specific Q_PROPERTYs
@@ -56,10 +58,16 @@ public:
     Q_ENUM(DividerType)
     Q_ENUM(FlapGate)
 
-    // Common to every node type — Name + Type + Invert.
+    // Common to every node type — Name + Type + Invert + Coords.
     Q_PROPERTY(QString  name        READ name  WRITE setName)
     Q_PROPERTY(NodeKind nodeKind    READ nodeKind)
     Q_PROPERTY(double   invertElev  READ invertElev  WRITE setInvertElev  NOTIFY changed)
+    // Slice DB — coordinates editable. Writes go through `coordChangeRequested`
+    // so the bound layer can route them via `applyNodeMove`, which refreshes
+    // the cached scene coords + attached-link bboxes (a raw engine setter
+    // would leave the canvas stale until the next full rebuild).
+    Q_PROPERTY(double   xCoord      READ xCoord      WRITE setXCoord      NOTIFY changed)
+    Q_PROPERTY(double   yCoord      READ yCoord      WRITE setYCoord      NOTIFY changed)
 
     /*! \param engine  Engine handle (non-null).
      *  \param name    Node id (must already exist on the engine). */
@@ -75,9 +83,36 @@ public:
     [[nodiscard]] double surchargeDepth() const;
     [[nodiscard]] double pondedArea() const;
     [[nodiscard]] double seepRate() const;
+    [[nodiscard]] double xCoord() const;
+    [[nodiscard]] double yCoord() const;
     [[nodiscard]] OutfallType outfallType() const;
     [[nodiscard]] FlapGate    outfallFlapGate() const;
     [[nodiscard]] DividerType dividerType() const;
+
+    // Slice DB — read-only computed + statistics summary getters.
+    // `crownElev` / `fullVolume` / `degree` are populated at input time
+    // (computed when links connect at load). The four `stat*` values
+    // are populated only after a simulation run; pre-run they read back
+    // as zero. Exposed via Q_PROPERTY without WRITE so QPropertyModel
+    // renders them as non-editable rows.
+    [[nodiscard]] double crownElev() const;
+    [[nodiscard]] double fullVolume() const;
+    [[nodiscard]] int    degree() const;
+    [[nodiscard]] double statMaxDepth() const;
+    [[nodiscard]] double statMaxOverflow() const;
+    [[nodiscard]] double statVolFlooded() const;
+    [[nodiscard]] double statTimeFlooded() const;
+
+    // Slice DB.2 — compound-attribute refs. Each returns a value that
+    // the registered `NodeCompoundEditButton` editor creator picks up
+    // via the custom metatype dispatch; clicking the cell opens the
+    // matching page of `NodeCompoundEditDialog`. The `summary` field
+    // is computed live from the engine count so the cell shows a
+    // useful preview even before the user opens the dialog.
+    [[nodiscard]] NodeCompoundEditRef inflowsRef()  const;
+    [[nodiscard]] NodeCompoundEditRef dwfRef()      const;
+    [[nodiscard]] NodeCompoundEditRef rdiiRef()     const;
+    [[nodiscard]] NodeCompoundEditRef treatmentRef() const;
 
     /*! Maps a Q_PROPERTY identifier (e.g. \c "maxDepth") to a
      *  human-readable column-0 label (e.g. \c "Max Depth (ft)") with
@@ -96,6 +131,8 @@ public slots:
     void setSurchargeDepth(double v);
     void setPondedArea(double v);
     void setSeepRate(double v);
+    void setXCoord(double v);
+    void setYCoord(double v);
     void setOutfallType(OutfallType v);
     void setOutfallFlapGate(FlapGate v);
     void setDividerType(DividerType v);
@@ -116,6 +153,15 @@ signals:
     /*! Emitted when setName() is called with a non-empty, non-duplicate name.
      *  The attribute panel connects this to SWMMModelLayer::applyRename(). */
     void renameRequested(const QString &oldName, const QString &newName);
+    /*! Slice DB — emitted when setXCoord() or setYCoord() is called with a
+     *  value distinct from the current coord pair. The attribute panel
+     *  connects this to `SWMMModelLayer::applyNodeMove`, which writes the
+     *  engine + rebuilds the scene cache + bumps link bboxes + repaints.
+     *  A direct `swmm_spatial_set_node_coord` would update the engine but
+     *  leave the cached scene coords stale until the next full geometry
+     *  rebuild. The signal carries the full pair so the panel doesn't have
+     *  to re-read the other coord. */
+    void coordChangeRequested(double newX, double newY);
     /*! Emitted whenever the active unit system changes, so the
      *  Property Browser can refresh column-0 labels (e.g. swap
      *  "(ft)" → "(m)") without rebuilding the property tree. */
@@ -129,7 +175,9 @@ protected:
 };
 
 /*! Junction adapter — `[JUNCTIONS]` columns:
- *  Name, Elev, MaxDepth, InitDepth, SurDepth, Aponded. */
+ *  Name, Elev, MaxDepth, InitDepth, SurDepth, Aponded.
+ *  Read-only summary block (Slice DB): crown elev, full volume, degree,
+ *  and 4 post-run statistics. */
 class SWMMJunctionPropertyAdapter : public SWMMNodePropertyAdapter
 {
     Q_OBJECT
@@ -137,6 +185,20 @@ class SWMMJunctionPropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double initialDepth    READ initialDepth    WRITE setInitialDepth    NOTIFY changed)
     Q_PROPERTY(double surchargeDepth  READ surchargeDepth  WRITE setSurchargeDepth  NOTIFY changed)
     Q_PROPERTY(double pondedArea      READ pondedArea      WRITE setPondedArea      NOTIFY changed)
+    // Slice DB — read-only summary (no WRITE → QPropertyModel renders as
+    // non-editable). Computed by engine at link-insert / post-run time.
+    Q_PROPERTY(double crownElev       READ crownElev       NOTIFY changed)
+    Q_PROPERTY(double fullVolume      READ fullVolume      NOTIFY changed)
+    Q_PROPERTY(int    degree          READ degree          NOTIFY changed)
+    Q_PROPERTY(double statMaxDepth    READ statMaxDepth    NOTIFY changed)
+    Q_PROPERTY(double statMaxOverflow READ statMaxOverflow NOTIFY changed)
+    Q_PROPERTY(double statVolFlooded  READ statVolFlooded  NOTIFY changed)
+    Q_PROPERTY(double statTimeFlooded READ statTimeFlooded NOTIFY changed)
+    // Slice DB.2 — compound-attribute "Edit…" buttons.
+    Q_PROPERTY(NodeCompoundEditRef inflows   READ inflowsRef   NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef dwf       READ dwfRef       NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef rdii      READ rdiiRef      NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef treatment READ treatmentRef NOTIFY changed)
 public:
     using SWMMNodePropertyAdapter::SWMMNodePropertyAdapter;
 };
@@ -154,6 +216,23 @@ class SWMMOutfallPropertyAdapter : public SWMMNodePropertyAdapter
                READ outfallType WRITE setOutfallType NOTIFY changed)
     Q_PROPERTY(SWMMNodePropertyAdapter::FlapGate    outfallFlapGate
                READ outfallFlapGate WRITE setOutfallFlapGate NOTIFY changed)
+    // Slice DB — same read-only summary block as the other node kinds.
+    // Stat values are still meaningful at outfalls (max depth = stage,
+    // max overflow is always zero by definition but kept for parity).
+    Q_PROPERTY(double crownElev       READ crownElev       NOTIFY changed)
+    Q_PROPERTY(double fullVolume      READ fullVolume      NOTIFY changed)
+    Q_PROPERTY(int    degree          READ degree          NOTIFY changed)
+    Q_PROPERTY(double statMaxDepth    READ statMaxDepth    NOTIFY changed)
+    Q_PROPERTY(double statMaxOverflow READ statMaxOverflow NOTIFY changed)
+    Q_PROPERTY(double statVolFlooded  READ statVolFlooded  NOTIFY changed)
+    Q_PROPERTY(double statTimeFlooded READ statTimeFlooded NOTIFY changed)
+    // Slice DB.2 — compound-attribute "Edit…" buttons. SWMM allows
+    // Inflows / DWF / Treatment at boundary nodes; RDII surfaced for
+    // parity though legacy SWMM-GUI grays it out for outfalls.
+    Q_PROPERTY(NodeCompoundEditRef inflows   READ inflowsRef   NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef dwf       READ dwfRef       NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef rdii      READ rdiiRef      NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef treatment READ treatmentRef NOTIFY changed)
 public:
     using SWMMNodePropertyAdapter::SWMMNodePropertyAdapter;
 };
@@ -169,6 +248,20 @@ class SWMMStoragePropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double initialDepth    READ initialDepth    WRITE setInitialDepth    NOTIFY changed)
     Q_PROPERTY(double surchargeDepth  READ surchargeDepth  WRITE setSurchargeDepth  NOTIFY changed)
     Q_PROPERTY(double seepRate        READ seepRate        WRITE setSeepRate        NOTIFY changed)
+    // Slice DB — same read-only summary block; full volume is especially
+    // useful at storage nodes because it's the integrated curve volume.
+    Q_PROPERTY(double crownElev       READ crownElev       NOTIFY changed)
+    Q_PROPERTY(double fullVolume      READ fullVolume      NOTIFY changed)
+    Q_PROPERTY(int    degree          READ degree          NOTIFY changed)
+    Q_PROPERTY(double statMaxDepth    READ statMaxDepth    NOTIFY changed)
+    Q_PROPERTY(double statMaxOverflow READ statMaxOverflow NOTIFY changed)
+    Q_PROPERTY(double statVolFlooded  READ statVolFlooded  NOTIFY changed)
+    Q_PROPERTY(double statTimeFlooded READ statTimeFlooded NOTIFY changed)
+    // Slice DB.2 — compound-attribute "Edit…" buttons.
+    Q_PROPERTY(NodeCompoundEditRef inflows   READ inflowsRef   NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef dwf       READ dwfRef       NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef rdii      READ rdiiRef      NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef treatment READ treatmentRef NOTIFY changed)
 public:
     using SWMMNodePropertyAdapter::SWMMNodePropertyAdapter;
 };
@@ -186,6 +279,19 @@ class SWMMDividerPropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double initialDepth        READ initialDepth    WRITE setInitialDepth    NOTIFY changed)
     Q_PROPERTY(double surchargeDepth      READ surchargeDepth  WRITE setSurchargeDepth  NOTIFY changed)
     Q_PROPERTY(double pondedArea          READ pondedArea      WRITE setPondedArea      NOTIFY changed)
+    // Slice DB — same read-only summary block.
+    Q_PROPERTY(double crownElev       READ crownElev       NOTIFY changed)
+    Q_PROPERTY(double fullVolume      READ fullVolume      NOTIFY changed)
+    Q_PROPERTY(int    degree          READ degree          NOTIFY changed)
+    Q_PROPERTY(double statMaxDepth    READ statMaxDepth    NOTIFY changed)
+    Q_PROPERTY(double statMaxOverflow READ statMaxOverflow NOTIFY changed)
+    Q_PROPERTY(double statVolFlooded  READ statVolFlooded  NOTIFY changed)
+    Q_PROPERTY(double statTimeFlooded READ statTimeFlooded NOTIFY changed)
+    // Slice DB.2 — compound-attribute "Edit…" buttons.
+    Q_PROPERTY(NodeCompoundEditRef inflows   READ inflowsRef   NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef dwf       READ dwfRef       NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef rdii      READ rdiiRef      NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef treatment READ treatmentRef NOTIFY changed)
 public:
     using SWMMNodePropertyAdapter::SWMMNodePropertyAdapter;
 };
