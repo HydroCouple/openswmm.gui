@@ -609,8 +609,12 @@ target_include_directories(SWMMVis
     PRIVATE forms
     PRIVATE ${GDAL_INCLUDE_DIRS}
     # legacy_version.h is generated into the legacy engine's build dir;
-    # expose it so swmmvis.cpp can use LEGACY_SWMM_VERSION macros.
-    PRIVATE "${CMAKE_BINARY_DIR}/openswmm_engine/src/legacy/engine"
+    # expose it so swmmvis.cpp can use LEGACY_SWMM_VERSION macros. Query the
+    # target's BINARY_DIR rather than hardcoding ${CMAKE_BINARY_DIR}/openswmm_engine,
+    # since FetchContent lands the build at _deps/openswmm_engine-build/ while
+    # add_subdirectory(sibling-checkout) lands it at openswmm_engine/ — the
+    # property is correct for both layouts.
+    PRIVATE "$<TARGET_PROPERTY:openswmm_legacy_engine,BINARY_DIR>"
 )
 
 find_package(HDF5 REQUIRED COMPONENTS C)
