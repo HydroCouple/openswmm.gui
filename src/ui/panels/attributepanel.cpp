@@ -8,9 +8,27 @@
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 #include "map/tools/maptoolidentify.h"   // IdentifyResult
+#include "selection/selectionmanager.h"  // SWMMObjectRef::ObjectType
+#include "ui/properties/nodecompoundeditbutton.h"
+#include "ui/properties/nodecompoundeditref.h"
 #include "ui/properties/swmmlinkpropertyadapter.h"
 #include "ui/properties/swmmnodepropertyadapter.h"
 #include "ui/properties/swmmsubcatchpropertyadapter.h"
+// Slice DA.2 — non-spatial Data Object adapters.
+#include "ui/properties/swmmaquiferpropertyadapter.h"
+#include "ui/properties/swmmcontrolrulepropertyadapter.h"
+#include "ui/properties/swmmcurvepropertyadapter.h"
+#include "ui/properties/swmmhydrographpropertyadapter.h"
+#include "ui/properties/swmminletpropertyadapter.h"
+#include "ui/properties/swmmlandusepropertyadapter.h"
+#include "ui/properties/swmmlidcontrolpropertyadapter.h"
+#include "ui/properties/swmmpatternpropertyadapter.h"
+#include "ui/properties/swmmpollutantpropertyadapter.h"
+#include "ui/properties/swmmraingagepropertyadapter.h"
+#include "ui/properties/swmmsnowpackpropertyadapter.h"
+#include "ui/properties/swmmstreetpropertyadapter.h"
+#include "ui/properties/swmmtimeseriespropertyadapter.h"
+#include "ui/properties/swmmtransectpropertyadapter.h"
 
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -72,7 +90,20 @@ void AttributePanel::setupUi()
     // Property model / delegate
 #ifdef HAVE_QPROPERTYMODEL
     m_model    = new QPropertyModel(this);
-    m_delegate = new QPropertyItemDelegate(this);
+    auto *delegate = new QPropertyItemDelegate(this);
+    m_delegate = delegate;
+
+    // Slice DB.2 — register the custom editor creator for the node
+    // compound-attribute metatype so QPropertyItemDelegate hands out
+    // a `NodeCompoundEditButton` whenever a row of that type enters
+    // edit mode. The display-side converter (cell text before the
+    // user clicks) is registered separately because QMetaType::
+    // registerConverter is global state.
+    qRegisterMetaType<NodeCompoundEditRef>("NodeCompoundEditRef");
+    registerNodeCompoundEditRefConverter();
+    delegate->registerCustomTypeEditorCreator(
+        QMetaType::Type(qMetaTypeId<NodeCompoundEditRef>()),
+        new QStandardItemEditorCreator<NodeCompoundEditButton>());
 #else
     m_model    = new QStandardItemModel(this);
 #endif
@@ -273,6 +304,18 @@ void AttributePanel::onLayerComboIndexChanged(int index)
                             emit objectEdited(newN);
                         }
                     });
+            // Slice DB — route X/Y edits through applyNodeMove so the
+            // scene cache + attached-link bboxes refresh atomically with
+            // the engine write (a bare swmm_spatial_set_node_coord would
+            // leave the canvas stale until the next geometry rebuild).
+            connect(m_nodeAdapter, &SWMMNodePropertyAdapter::coordChangeRequested,
+                    this, [this, name](double newX, double newY) {
+                        if (!m_swmmLayer) return;
+                        const int idx = swmm_node_index(
+                            m_swmmLayer->engine(), name.toUtf8().constData());
+                        if (idx >= 0 && m_swmmLayer->applyNodeMove(idx, newX, newY))
+                            emit objectEdited(name);
+                    });
             routedThroughAdapter = true;
         } else if (typeStr == QStringLiteral("Link")) {
             if (m_linkAdapter) m_linkAdapter->deleteLater();
@@ -354,4 +397,79 @@ void AttributePanel::onLayerComboIndexChanged(int index)
                    .arg(result.layerName)
                    .arg(result.features.size())
                    .arg(result.features.size() == 1 ? QString() : QStringLiteral("s")));
+}
+
+// ---------------------------------------------------------------------------
+// Slice DA.2 — Non-spatial Data Object dispatch
+// ---------------------------------------------------------------------------
+
+void AttributePanel::showDataObject(SWMMModelLayer *layer, int objectKind,
+                                      const QString &name)
+{
+#ifdef HAVE_QPROPERTYMODEL
+    if (!layer || !layer->engine() || name.isEmpty()) {
+        if (auto *pm = qobject_cast<QPropertyModel *>(m_model)) pm->clear();
+        return;
+    }
+    if (m_dataAdapter) { m_dataAdapter->deleteLater(); m_dataAdapter = nullptr; }
+
+    using K = SWMMObjectRef::ObjectType;
+    SWMM_Engine eng = layer->engine();
+
+    switch (static_cast<K>(objectKind)) {
+    case K::Pollutant:
+        m_dataAdapter = new SWMMPollutantPropertyAdapter(eng, name, this); break;
+    case K::LandUse:
+        m_dataAdapter = new SWMMLandUsePropertyAdapter(eng, name, this); break;
+    case K::Curve:
+        m_dataAdapter = new SWMMCurvePropertyAdapter(eng, name, this); break;
+    case K::TimeSeries:
+        m_dataAdapter = new SWMMTimeSeriesPropertyAdapter(eng, name, this); break;
+    case K::TimePattern:
+        m_dataAdapter = new SWMMPatternPropertyAdapter(eng, name, this); break;
+    case K::LIDControl:
+        m_dataAdapter = new SWMMLIDControlPropertyAdapter(eng, name, this); break;
+    case K::Aquifer:
+        m_dataAdapter = new SWMMAquiferPropertyAdapter(eng, name, this); break;
+    case K::Snowpack:
+        m_dataAdapter = new SWMMSnowpackPropertyAdapter(eng, name, this); break;
+    case K::Transect:
+        m_dataAdapter = new SWMMTransectPropertyAdapter(eng, name, this); break;
+    case K::Hydrograph:
+        m_dataAdapter = new SWMMHydrographPropertyAdapter(eng, name, this); break;
+    case K::Street:
+        m_dataAdapter = new SWMMStreetPropertyAdapter(eng, name, this); break;
+    case K::Inlet:
+        m_dataAdapter = new SWMMInletPropertyAdapter(eng, name, this); break;
+    case K::Control:
+        m_dataAdapter = new SWMMControlRulePropertyAdapter(eng, name, this); break;
+    case K::RainGage:
+        m_dataAdapter = new SWMMRainGagePropertyAdapter(eng, name, this); break;
+    default:
+        // Caller passed a spatial kind (Node/Link/Subcatchment) or
+        // Unknown; not our job — let the identify-result path handle it.
+        if (auto *pm = qobject_cast<QPropertyModel *>(m_model)) pm->clear();
+        return;
+    }
+
+    if (auto *pm = qobject_cast<QPropertyModel *>(m_model))
+        pm->setData(QVariant::fromValue<QObject *>(m_dataAdapter));
+
+    connect(m_dataAdapter, &SWMMDataObjectPropertyAdapter::changed,
+            this, [this, name]() {
+                if (!m_suppressEditForward) emit objectEdited(name);
+            });
+    connect(m_dataAdapter, &SWMMDataObjectPropertyAdapter::renameRequested,
+            this, [this, layer](const QString &oldN, const QString &newN) {
+                if (layer && layer->applyRename(oldN, newN)) {
+                    if (m_dataAdapter) m_dataAdapter->updateStoredName(newN);
+                    emit objectEdited(newN);
+                }
+            });
+
+    m_treeView->expandAll();
+    setWindowTitle(tr("Attributes — %1").arg(name));
+#else
+    Q_UNUSED(layer); Q_UNUSED(objectKind); Q_UNUSED(name);
+#endif
 }

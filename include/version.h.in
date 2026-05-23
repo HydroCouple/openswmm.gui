@@ -4,4 +4,12 @@
 #define SWMM_VERSION_MINOR @PROJECT_VERSION_MINOR@
 #define SWMM_VERSION_PATCH @PROJECT_VERSION_PATCH@
 #define SWMM_VERSION_TWEAK @PROJECT_VERSION_TWEAK@
+
+/** Base version string without pre-release tag, e.g. "6.0.0". */
 #define SWMM_VERSION "@PROJECT_VERSION@"
+
+/** Pre-release suffix, e.g. "-alpha.1" or "" for a final release. */
+#define SWMM_VERSION_SUFFIX "@PROJECT_VERSION_SUFFIX@"
+
+/** Full version string including any pre-release suffix, e.g. "6.0.0-alpha.1". */
+#define SWMM_VERSION_FULL "@PROJECT_VERSION@@PROJECT_VERSION_SUFFIX@"

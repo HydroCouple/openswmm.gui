@@ -8,6 +8,7 @@
 
 #include "connections/basemapconnection.h"
 #include "layers/openswmmvislayer.h"
+#include "layers/swmm2dmeshlayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "layers/wmslayer.h"
@@ -19,9 +20,22 @@
 #include "project/swmmvisproject.h"
 #include "swmmvisprojectwindow.h"
 
+// Slice BI-MK.3 — per-layer IFeatureRenderer round-trip needs the concrete
+// renderer types so the factory in `makeRendererFromJson` can dispatch on
+// the "id" discriminator. MultiKindRenderer included so MultiKind ↔ Multi
+// layer renderers (BI-MK.1.41 once it ships) round-trip too.
+#include "render/ifeaturerenderer.h"
+#include "render/multikindrenderer.h"
+#include "render/renderers/categorizedrenderer.h"
+#include "render/renderers/graduatedrenderer.h"
+#include "render/renderers/rulebasedrenderer.h"
+#include "render/renderers/singlesymbolrenderer.h"
+
+#include <QColor>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -50,6 +64,67 @@ const QString kResultLayers  = QStringLiteral("resultLayers");
 const QString kSessions      = QStringLiteral("sessions");
 const QString kSessionId     = QStringLiteral("id");
 const QString kSessionTitle  = QStringLiteral("title");
+const QString kNotesHtml     = QStringLiteral("notesHtml");
+
+// Terrain editing state (schema v5+)
+const QString kTerrain            = QStringLiteral("terrain");
+const QString kTerrainLayer       = QStringLiteral("activeLayerPath");
+const QString kTerrainNodeOffset  = QStringLiteral("nodeOffsetM");
+const QString kTerrainLinkOffset  = QStringLiteral("linkOffsetM");
+const QString kTerrainVertUnit    = QStringLiteral("verticalUnit");
+
+// 2D mesh layer display state — Slice AZ.3.7 (schema v5+, additive).
+// Mesh layers are auto-loaded by openSingleINP from the [2D_MESH_FILE]
+// referenced in the .inp; this block carries only display state and is
+// matched back to the live layer by resolved sourcePath.
+const QString kMeshLayers           = QStringLiteral("meshLayers");
+const QString kMeshSourcePath       = QStringLiteral("sourcePath");
+const QString kMeshActive           = QStringLiteral("active");
+const QString kMeshShowNodes        = QStringLiteral("showMeshNodes");
+const QString kMeshShowEdges        = QStringLiteral("showEdges");
+const QString kMeshHillshade        = QStringLiteral("hillshade");
+const QString kMeshHsAzimuth        = QStringLiteral("azimuth");
+const QString kMeshHsAltitude       = QStringLiteral("altitude");
+const QString kMeshHsZExag          = QStringLiteral("zExag");
+const QString kMeshHsMinLit         = QStringLiteral("minLit");
+const QString kMeshContours         = QStringLiteral("contours");
+const QString kMeshContShow         = QStringLiteral("show");
+const QString kMeshContIntervals    = QStringLiteral("intervals");
+const QString kMeshContColor        = QStringLiteral("color");
+const QString kMeshContWidth        = QStringLiteral("width");
+const QString kMeshContFilled       = QStringLiteral("filled");      // BJ.2-filled
+const QString kMeshContFilledAlpha  = QStringLiteral("filledOpacity");// BJ.2-filled
+
+// Per-layer IFeatureRenderer JSON (BI-MK.3, schema v5+, additive).
+// Holds whatever rendererId the layer's renderer() returns — typically
+// "single", "graduated", "categorized", "rule" or "multikind". Empty /
+// missing → keep the layer's compiled default renderer.
+const QString kRenderer             = QStringLiteral("renderer");
+
+// Factory: construct a concrete IFeatureRenderer from a JSON object whose
+// "id" field discriminates the renderer kind. Mirrors the local factory
+// in multikindrenderer.cpp; kept duplicate here so projectserializer
+// doesn't need a header-promoted version. Returns nullptr on missing or
+// unknown id so callers can keep the layer's compiled default.
+std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>
+makeRendererFromJson(const QJsonObject &j)
+{
+    using namespace OpenSWMM::Render;
+    const QString id = j.value(QStringLiteral("id")).toString();
+    std::unique_ptr<IFeatureRenderer> r;
+    if (id == QLatin1String("single"))
+        r = std::make_unique<SingleSymbolRenderer>();
+    else if (id == QLatin1String("graduated"))
+        r = std::make_unique<GraduatedRenderer>();
+    else if (id == QLatin1String("categorized"))
+        r = std::make_unique<CategorizedRenderer>();
+    else if (id == QLatin1String("rule"))
+        r = std::make_unique<RuleBasedRenderer>();
+    else if (id == QLatin1String("multikind"))
+        r = std::make_unique<MultiKindRenderer>();
+    if (r) r->fromJson(j);
+    return r;
+}
 
 // Basemap keys (schema v3+)
 const QString kBasemaps      = QStringLiteral("basemaps");
@@ -115,6 +190,10 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
     obj[kInpPath]       = toRelativePath(layer->modelFilePath(), oswpFile);
     obj[kEngineVersion] = pw->engineVersion();
 
+    const QString notesHtml = pw->notesHtml();
+    if (!notesHtml.isEmpty())
+        obj[kNotesHtml] = notesHtml;
+
     QJsonObject layerObj;
 
     if (auto *srs = layer->srs()) {
@@ -158,6 +237,13 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
         layerObj[kHiddenObjects] = a;
     }
 
+    // Per-layer IFeatureRenderer JSON — Slice BI-MK.3.
+    // Carries whatever renderer the layer currently holds (typically
+    // SingleSymbolRenderer or MultiKindRenderer once BI-MK.1.41 lands).
+    // Schema is additive; older readers ignore the "renderer" key.
+    if (const auto *r = layer->renderer())
+        layerObj[kRenderer] = r->toJson();
+
     obj[kLayer] = layerObj;
 
     // Result layers — paths stored relative to the .oswp so the project
@@ -175,6 +261,63 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
             obj[kResultLayers] = resultArr;
     }
 
+    // Terrain editing state — active raster path + invert offsets.
+    {
+        QJsonObject terrainObj;
+        const QString layerPath = pw->activeTerrainLayerPath();
+        if (!layerPath.isEmpty())
+            terrainObj[kTerrainLayer] = toRelativePath(layerPath, oswpFile);
+        const double nodeOff = pw->terrainNodeOffset();
+        const double linkOff = pw->terrainLinkOffset();
+        if (nodeOff != 0.0) terrainObj[kTerrainNodeOffset] = nodeOff;
+        if (linkOff != 0.0) terrainObj[kTerrainLinkOffset] = linkOff;
+        const QString vertUnit = pw->terrainVerticalUnit();
+        if (!vertUnit.isEmpty()) terrainObj[kTerrainVertUnit] = vertUnit;
+        if (!terrainObj.isEmpty())
+            obj[kTerrain] = terrainObj;
+    }
+
+    // 2D mesh-layer display state — Slice AZ.3.7.
+    // Walk canvas layers; each SWMM2DMeshLayer becomes one entry keyed by
+    // its sourcePath (relative to the .oswp). On restore we match the
+    // sourcePath against whatever mesh layers openSingleINP already
+    // auto-loaded from the .inp's [2D_MESH_FILE] reference.
+    if (auto *canvas = pw->canvas()) {
+        QJsonArray meshArr;
+        for (OpenSWMMVisLayer *l : canvas->layers()) {
+            auto *ml = qobject_cast<SWMM2DMeshLayer *>(l);
+            if (!ml) continue;
+            QJsonObject m;
+            const QString rel = toRelativePath(ml->sourcePath(), oswpFile);
+            if (!rel.isEmpty())
+                m[kMeshSourcePath] = rel;
+            m[kMeshActive]      = ml->isActiveMesh();
+            m[kMeshShowNodes]   = ml->showMeshNodes();
+            m[kMeshShowEdges]   = ml->showEdges();
+
+            QJsonObject hs;
+            hs[kMeshHsAzimuth]  = ml->hillshadeAzimuth();
+            hs[kMeshHsAltitude] = ml->hillshadeAltitude();
+            hs[kMeshHsZExag]    = ml->hillshadeZExag();
+            hs[kMeshHsMinLit]   = ml->hillshadeMinLit();
+            m[kMeshHillshade]   = hs;
+
+            QJsonObject c;
+            c[kMeshContShow]        = ml->showContours();
+            c[kMeshContIntervals]   = ml->contourIntervalCount();
+            // QColor::name(HexArgb) preserves alpha; setNamedColor parses it.
+            c[kMeshContColor]       = ml->contourColor().name(QColor::HexArgb);
+            c[kMeshContWidth]       = ml->contourLineWidth();
+            c[kMeshContFilled]      = ml->filledContours();
+            c[kMeshContFilledAlpha] = ml->filledContoursOpacity();
+            m[kMeshContours]        = c;
+
+            meshArr.append(m);
+        }
+        if (!meshArr.isEmpty())
+            obj[kMeshLayers] = meshArr;
+    }
+
     return obj;
 }
 
@@ -186,6 +329,9 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
 
     if (sessionObj.contains(kEngineVersion))
         pw->setEngineVersion(sessionObj.value(kEngineVersion).toString("6.0.0"));
+
+    if (sessionObj.contains(kNotesHtml))
+        pw->setNotesHtml(sessionObj.value(kNotesHtml).toString());
 
     auto *layer = pw->modelLayer();
     if (!layer) return true;
@@ -236,6 +382,16 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
             layer->setObjectsVisible(names, /*visible=*/false);
     }
 
+    // Per-layer IFeatureRenderer JSON — Slice BI-MK.3.
+    // Factory the renderer type from the "id" discriminator and hand it
+    // to layer->setRenderer(). Missing "renderer" key (legacy schema) →
+    // keep the layer's compiled default. Unknown id → factory returns
+    // null → setRenderer is silently no-op'd (its own contract).
+    if (layerObj.contains(kRenderer)) {
+        if (auto r = makeRendererFromJson(layerObj.value(kRenderer).toObject()))
+            layer->setRenderer(std::move(r));
+    }
+
     // Result layers — reopen each persisted output file.
     if (sessionObj.contains(kResultLayers) && pw->canvas() && pw->modelLayer()) {
         for (const QJsonValue &v : sessionObj.value(kResultLayers).toArray()) {
@@ -248,6 +404,76 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
             pw->canvas()->addLayer(rl, /*pushUndo=*/false);
             QList<QString> w, e;
             rl->openResults(w, e);
+        }
+    }
+
+    // Terrain editing state.
+    if (sessionObj.contains(kTerrain)) {
+        const QJsonObject t = sessionObj.value(kTerrain).toObject();
+        const QString relLayer = t.value(kTerrainLayer).toString();
+        const QString absLayer = relLayer.isEmpty()
+                                     ? QString()
+                                     : resolveStoredPath(relLayer, oswpFile);
+        const double nodeOff  = t.value(kTerrainNodeOffset).toDouble(0.0);
+        const double linkOff  = t.value(kTerrainLinkOffset).toDouble(0.0);
+        const QString vertUnit = t.value(kTerrainVertUnit).toString();
+        pw->restoreTerrainState(absLayer, nodeOff, linkOff, vertUnit);
+    }
+
+    // 2D mesh-layer display state — Slice AZ.3.7.
+    // openSingleINP has already auto-loaded the mesh layer from the .inp's
+    // [2D_MESH_FILE] reference before applySession runs. Match each saved
+    // entry to the live layer by canonical sourcePath and re-apply the
+    // display state.
+    if (sessionObj.contains(kMeshLayers) && pw->canvas()) {
+        // Build a lookup of live mesh layers keyed by canonical source path.
+        // QFileInfo::canonicalFilePath is empty for non-existing paths, so
+        // we fall back to absoluteFilePath for inline / generated meshes.
+        QHash<QString, SWMM2DMeshLayer *> bySource;
+        for (OpenSWMMVisLayer *l : pw->canvas()->layers()) {
+            auto *ml = qobject_cast<SWMM2DMeshLayer *>(l);
+            if (!ml) continue;
+            QFileInfo fi(ml->sourcePath());
+            const QString key = fi.canonicalFilePath().isEmpty()
+                                    ? fi.absoluteFilePath()
+                                    : fi.canonicalFilePath();
+            bySource.insert(key, ml);
+        }
+
+        for (const QJsonValue &v : sessionObj.value(kMeshLayers).toArray()) {
+            const QJsonObject m = v.toObject();
+            const QString rel = m.value(kMeshSourcePath).toString();
+            if (rel.isEmpty()) continue;
+            const QString abs = resolveStoredPath(rel, oswpFile);
+            QFileInfo fi(abs);
+            const QString key = fi.canonicalFilePath().isEmpty()
+                                    ? fi.absoluteFilePath()
+                                    : fi.canonicalFilePath();
+            SWMM2DMeshLayer *ml = bySource.value(key, nullptr);
+            if (!ml) continue;   // mesh wasn't loaded this open — skip silently
+
+            if (m.contains(kMeshActive))    ml->setActiveMesh(m.value(kMeshActive).toBool());
+            if (m.contains(kMeshShowNodes)) ml->setShowMeshNodes(m.value(kMeshShowNodes).toBool());
+            if (m.contains(kMeshShowEdges)) ml->setShowEdges(m.value(kMeshShowEdges).toBool());
+
+            const QJsonObject hs = m.value(kMeshHillshade).toObject();
+            if (hs.contains(kMeshHsAzimuth))  ml->setHillshadeAzimuth(hs.value(kMeshHsAzimuth).toDouble());
+            if (hs.contains(kMeshHsAltitude)) ml->setHillshadeAltitude(hs.value(kMeshHsAltitude).toDouble());
+            if (hs.contains(kMeshHsZExag))    ml->setHillshadeZExag(hs.value(kMeshHsZExag).toDouble());
+            if (hs.contains(kMeshHsMinLit))   ml->setHillshadeMinLit(hs.value(kMeshHsMinLit).toDouble());
+
+            const QJsonObject c = m.value(kMeshContours).toObject();
+            if (c.contains(kMeshContShow))      ml->setShowContours(c.value(kMeshContShow).toBool());
+            if (c.contains(kMeshContIntervals)) ml->setContourIntervalCount(c.value(kMeshContIntervals).toInt());
+            if (c.contains(kMeshContColor)) {
+                const QColor col = QColor::fromString(c.value(kMeshContColor).toString());
+                if (col.isValid()) ml->setContourColor(col);
+            }
+            if (c.contains(kMeshContWidth)) ml->setContourLineWidth(c.value(kMeshContWidth).toDouble());
+            if (c.contains(kMeshContFilled))
+                ml->setFilledContours(c.value(kMeshContFilled).toBool());
+            if (c.contains(kMeshContFilledAlpha))
+                ml->setFilledContoursOpacity(c.value(kMeshContFilledAlpha).toDouble());
         }
     }
 

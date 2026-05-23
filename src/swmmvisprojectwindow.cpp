@@ -7,18 +7,20 @@
 
 #include "swmmvisprojectwindow.h"
 #include "map/mapcanvas.h"
+#include "layers/gisrasterlayer.h"
+#include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 #include "project/openswmmvisworkspace.h"
 #include "map/tools/maptoolpan.h"
 #include "map/tools/maptoolzoom.h"
 #include "map/tools/maptoolselect.h"
 #include "map/tools/maptoolmeasure.h"
-#include "map/tools/maptoolmovenode.h"
-#include "map/tools/maptooleditvertex.h"
+#include "map/tools/maptoolselectprofile.h"
 #include "map/tools/maptooladdnode.h"
 #include "map/tools/maptooladdlink.h"
 #include "map/tools/maptooladdgage.h"
 #include "map/tools/maptooladdsubcatchment.h"
+#include "map/tools/maptoolpick2dcells.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
 #include "ui/dialogs/crsselectiondialog.h"
@@ -71,6 +73,16 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     mUnits            = new UnitSystem(this);
     mSelectionManager = new SelectionManager(this);
 
+    // Engine version — start from the persisted default (Preferences →
+    // General → Default engine mode). The status-bar engine picker still
+    // overrides per-project.
+    {
+        const QString defaultEngine =
+            PreferencesManager::instance()->defaultEngineMode();
+        if (!defaultEngine.isEmpty())
+            mEngineVersion = defaultEngine;
+    }
+
     // Canvas
     mCanvas = new MapCanvas(this);
     setWidget(mCanvas);
@@ -82,6 +94,13 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
                              : QFileInfo(filePath).baseName());
     mModelLayer->setVisible(!filePath.isEmpty());
 
+    // Mirror the prefs' link colours into the layer's per-link-type
+    // symbol structs. The painter / GL renderers read the full QPen
+    // straight from PreferencesManager so cap/join/style edits are
+    // honoured end-to-end (and outlets pick up their own pen, not the
+    // conduit fallback); this mirror exists only for the QSG renderer
+    // and SWMMResultsLayer, which still read fillColor / size off
+    // conduitSymbol() etc.
     auto applyLinkColorsFromPreferences = [this]() {
         auto *prefs = PreferencesManager::instance();
 
@@ -103,11 +122,16 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     };
     applyLinkColorsFromPreferences();
     connect(PreferencesManager::instance(), &PreferencesManager::preferenceChanged,
-            this, [applyLinkColorsFromPreferences](const QString &group,
-                                                   const QString &key) {
-                if (group == QLatin1String("Rendering")
-                    && key.startsWith(QLatin1String("LinkColor/")))
+            this, [this, applyLinkColorsFromPreferences](const QString &group,
+                                                         const QString &key) {
+                if (group != QLatin1String("Rendering")) return;
+                if (key.startsWith(QLatin1String("LinkPen/"))) {
                     applyLinkColorsFromPreferences();
+                    // Painter renderers consume linkPen() directly —
+                    // kick a repaint so width/cap/join edits land
+                    // immediately even when the colour didn't change.
+                    if (mModelLayer) emit mModelLayer->repaintRequested();
+                }
             });
 
     // Hard-sync model-layer CRS → canvas CRS BEFORE addLayer. The "project
@@ -126,6 +150,15 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
                 if (canvasSrs && !canvasSrs->toAuthority().isEmpty()
                     && canvasSrs->toAuthority() == layerSrs->toAuthority())
                     return;
+                // Geographic layer (lat/lon degrees): adopting it as the
+                // canvas CRS would render Plate Carrée — vertically
+                // compressed at mid-latitudes. Keep the projected canvas
+                // CRS (Web Mercator by default) so reprojection happens
+                // at the layer→canvas boundary and aspect stays correct.
+                if (layerSrs->isGeographic()) {
+                    mCanvas->zoomToFullExtent();
+                    return;
+                }
                 mCanvas->setCanvasSRS(
                     new SpatialReferenceSystem(*layerSrs, mCanvas), true);
                 // setCanvasSRS already fans out onCanvasCRSChanged to all
@@ -145,10 +178,9 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     mZoomInTool->setZoomInMode(true);
     mZoomOutTool    = new OpenSWMMVisMapToolZoom(mCanvas, this);
     mZoomOutTool->setZoomInMode(false);
-    mSelectTool     = new OpenSWMMVisMapToolSelect(mCanvas, this);
-    mMeasureTool    = new OpenSWMMVisMapToolMeasure(mCanvas, this);
-    mMoveNodeTool     = new OpenSWMMVisMapToolMoveNode(mCanvas, this);
-    mEditVertexTool   = new OpenSWMMVisMapToolEditVertex(mCanvas, this);
+    mSelectTool        = new OpenSWMMVisMapToolSelect(mCanvas, this);
+    mMeasureTool       = new OpenSWMMVisMapToolMeasure(mCanvas, this);
+    mSelectProfileTool = new OpenSWMMVisMapToolSelectProfile(mCanvas, this);
     // SWMM_NODE_JUNCTION=0, OUTFALL=1, STORAGE=2, DIVIDER=3
     // Pass element-kind keys so tools read the configurable prefix from PreferencesManager.
     mAddJunctionTool  = new OpenSWMMVisMapToolAddNode(mCanvas, 0, QStringLiteral("junction"),     this);
@@ -163,6 +195,49 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     mAddOutletTool    = new OpenSWMMVisMapToolAddLink(mCanvas, 4, QStringLiteral("outlet"),       this);
     mAddGageTool      = new OpenSWMMVisMapToolAddGage(mCanvas, this);
     mAddSubcatchTool  = new OpenSWMMVisMapToolAddSubcatchment(mCanvas, this);
+
+    // Terrain Z readout: sample, convert to model vertical units, push to canvas.
+    connect(mCanvas, &MapCanvas::cursorPositionChanged, this,
+            [this](double mapX, double mapY) {
+                if (!mActiveTerrain) {
+                    mCanvas->setTerrainElevation({});
+                    return;
+                }
+                bool ok = false;
+                const double zRaw = mActiveTerrain->valueAt(mapX, mapY,
+                                                             mCanvas->canvasSRS(),
+                                                             1, &ok);
+                // Convert from raster vertical unit to model vertical unit so
+                // the displayed value and the node/link invert elevations are
+                // in the same unit system.
+                const double zModel = zRaw * mTerrainVertFactor;
+                mCanvas->setTerrainElevation(ok ? std::optional<double>(zModel)
+                                                : std::optional<double>{});
+                mCanvas->setTerrainUnit(mUnits->depthLabel());
+            });
+
+    // Canvas label shows model vertical unit (Z is already converted above).
+    mCanvas->setTerrainUnit(mUnits->depthLabel());
+
+    // Recompute the vertical factor and update the canvas unit label whenever
+    // the project's flow units change (e.g., user switches CFS ↔ CMS).
+    connect(mUnits, &UnitSystem::unitsChanged, this,
+            [this](swmm_FlowUnitsProperty) {
+                const double rasterToSI = (mTerrainVertUnit == QLatin1String("ft"))
+                                              ? 0.3048 : 1.0;
+                const double modelToSI  = mUnits->isSI() ? 1.0 : 0.3048;
+                mTerrainVertFactor = rasterToSI / modelToSI;
+                mCanvas->setTerrainUnit(mUnits->depthLabel());
+                // Re-propagate updated factor to map tools.
+                for (auto *t : { mAddJunctionTool, mAddOutfallTool,
+                                  mAddStorageTool,  mAddDividerTool })
+                    if (t) t->setTerrain(mActiveTerrain, mTerrainNodeOffset,
+                                         mTerrainVertFactor);
+                for (auto *t : { mAddConduitTool, mAddPumpTool,
+                                  mAddOrificeTool, mAddWeirTool, mAddOutletTool })
+                    if (t) t->setTerrain(mActiveTerrain, mTerrainLinkOffset,
+                                         mTerrainVertFactor);
+            });
 
     // ---------------------------------------------------------------------------
     // Measure tool floating panel (child of mCanvas, shown/hidden by tool state)
@@ -261,16 +336,33 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
                 repositionMeasurePanel();
         });
 
+        // Profile-session exit: when the user leaves the profile tool to
+        // pick up the Select tool while an accepted path is still drawn,
+        // arm a one-shot to clear the overlay on the next canvas click.
+        // Any other transition cancels the arming (so toggling profile
+        // back on, or switching to a different tool, keeps the path).
+        connect(mCanvas, &MapCanvas::activeToolChanged,
+                this, [this](OpenSWMMVisMapTool *tool)
+        {
+            if (!mSelectProfileTool || !mSelectTool) return;
+            if (tool == mSelectTool
+                && !mSelectProfileTool->acceptedPath().linkIds.isEmpty()) {
+                mClearProfileOnNextCanvasClick = true;
+            } else {
+                mClearProfileOnNextCanvasClick = false;
+            }
+        });
+
         // Reposition when canvas resizes
         mCanvas->installEventFilter(this);
     }
 
-    // Auto-length — last-used value from QSettings, seeded into the canvas
-    // dynamic property so map tools can read it without a back-pointer to
-    // this project window.
+    // Auto-length — initial value comes from the PreferencesManager default
+    // (Preferences → General → "Auto-length conduits on edit"). The
+    // canvas dynamic property is what map tools read; status-bar toggles
+    // continue to update both via setAutoLengthEnabled().
     {
-        QSettings settings;
-        mAutoLengthEnabled = settings.value(QStringLiteral("SWMMVis/autoLength"), false).toBool();
+        mAutoLengthEnabled = PreferencesManager::instance()->autoLengthEnabled();
         mCanvas->setProperty("autoLength", mAutoLengthEnabled);
     }
 
@@ -397,9 +489,14 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
         if (!mCanvasCRSAdopted)
         {
             SpatialReferenceSystem *modelSRS = mModelLayer->srs();
-            const bool isLocal = modelSRS && modelSRS->toAuthority() == QStringLiteral("Local");
+            // Only prompt when the CRS is truly unknown ("Untitled (Local)").
+            // Auto-generated local CRS ("Local (ft)" / "Local (m)") already
+            // has correct units — no user intervention required.
+            const bool isUntitledLocal = modelSRS
+                && modelSRS->toAuthority() == QStringLiteral("Local")
+                && modelSRS->description() == QStringLiteral("Untitled (Local)");
 
-            if (isLocal)
+            if (isUntitledLocal)
             {
                 while (true)
                 {
@@ -436,9 +533,17 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
                 }
             }
 
-            if (modelSRS)
+            if (modelSRS && !modelSRS->isGeographic())
             {
                 mCanvas->setCanvasSRS(new SpatialReferenceSystem(*modelSRS, mCanvas), true);
+                mCanvasCRSAdopted = true;
+            }
+            else if (modelSRS && modelSRS->isGeographic())
+            {
+                // Geographic model: keep the projected canvas CRS (Web
+                // Mercator by default) so the layer→canvas reprojection
+                // pipeline kicks in. Adopting EPSG:4326 here would render
+                // Plate Carrée and squash the N-S axis by cos(centre lat).
                 mCanvasCRSAdopted = true;
             }
         }
@@ -525,6 +630,14 @@ void SWMMVisProjectWindow::setHasChanges(bool dirty)
     mHasChanges = dirty;
     updateWindowTitle();
     emit hasChangesChanged(dirty);
+}
+
+void SWMMVisProjectWindow::setEditSessionActive(bool active)
+{
+    if (mEditSessionActive == active)
+        return;
+    mEditSessionActive = active;
+    emit editSessionChanged(active);
 }
 
 void SWMMVisProjectWindow::updateWindowTitle()
@@ -642,6 +755,19 @@ bool SWMMVisProjectWindow::eventFilter(QObject *watched, QEvent *event)
     {
         repositionMeasurePanel();
     }
+    // Armed by the activeToolChanged listener when the user leaves
+    // profile mode to pick up Select. Fires once on the next canvas
+    // mouse press, then disarms — so a single click on the map ends
+    // the profile session, but parking the Select tool without
+    // clicking leaves the prior selection in place.
+    if (watched == mCanvas
+        && event->type() == QEvent::MouseButtonPress
+        && mClearProfileOnNextCanvasClick
+        && mSelectProfileTool)
+    {
+        mClearProfileOnNextCanvasClick = false;
+        mSelectProfileTool->clearSelection();
+    }
     return QMdiSubWindow::eventFilter(watched, event);
 }
 
@@ -728,6 +854,10 @@ void SWMMVisProjectWindow::closeEvent(QCloseEvent *event)
     // untitled project so we don't leak it.
     if (mUntitled && !mTempInpPath.isEmpty() && QFile::exists(mTempInpPath))
         QFile::remove(mTempInpPath);
+    // Final commit point — emit before the Qt teardown chain runs so
+    // observers (profile-plot dialog, etc.) can still touch our model
+    // layer / canvas / results layers in their handlers.
+    emit aboutToClose();
     QMdiSubWindow::closeEvent(event);
 }
 
@@ -746,6 +876,17 @@ void SWMMVisProjectWindow::activatePanTool()         { mCanvas->setActiveTool(mP
 void SWMMVisProjectWindow::activateZoomInTool()      { mCanvas->setActiveTool(mZoomInTool); }
 void SWMMVisProjectWindow::activateZoomOutTool()     { mCanvas->setActiveTool(mZoomOutTool); }
 void SWMMVisProjectWindow::activateSelectTool()      { mCanvas->setActiveTool(mSelectTool); }
+
+void SWMMVisProjectWindow::activatePick2DCellsTool()
+{
+    if (!mPick2DCellsTool) {
+        mPick2DCellsTool = new MapToolPick2DCells(mCanvas, this);
+        // Forward the cellsPicked signal up to SWMMVis (parent path).
+        QObject::connect(mPick2DCellsTool, &MapToolPick2DCells::cellsPicked,
+                         this,             &SWMMVisProjectWindow::pick2DCellsPicked);
+    }
+    mCanvas->setActiveTool(mPick2DCellsTool);
+}
 void SWMMVisProjectWindow::activateMeasureTool()
 {
     if (mCanvas->activeTool() == mMeasureTool)
@@ -753,8 +894,13 @@ void SWMMVisProjectWindow::activateMeasureTool()
     else
         mCanvas->setActiveTool(mMeasureTool);
 }
-void SWMMVisProjectWindow::activateMoveNodeTool()    { mCanvas->setActiveTool(mMoveNodeTool); }
-void SWMMVisProjectWindow::activateEditVertexTool()  { mCanvas->setActiveTool(mEditVertexTool); }
+void SWMMVisProjectWindow::activateSelectProfileTool()
+{
+    if (mCanvas->activeTool() == mSelectProfileTool)
+        mCanvas->setActiveTool(mSelectTool);
+    else
+        mCanvas->setActiveTool(mSelectProfileTool);
+}
 void SWMMVisProjectWindow::activateAddJunctionTool()    { mCanvas->setActiveTool(mAddJunctionTool); }
 void SWMMVisProjectWindow::activateAddOutfallTool()     { mCanvas->setActiveTool(mAddOutfallTool); }
 void SWMMVisProjectWindow::activateAddStorageTool()     { mCanvas->setActiveTool(mAddStorageTool); }
@@ -768,6 +914,32 @@ void SWMMVisProjectWindow::activateAddGageTool()        { mCanvas->setActiveTool
 void SWMMVisProjectWindow::activateAddSubcatchmentTool(){ mCanvas->setActiveTool(mAddSubcatchTool); }
 void SWMMVisProjectWindow::zoomToFullExtent()        { mCanvas->zoomToFullExtent(); }
 
+QHash<OpenSWMMVisMapTool *, QString> SWMMVisProjectWindow::toolActionKeys() const
+{
+    return {
+        { mPanTool,            QStringLiteral("actionPan")            },
+        { mZoomInTool,         QStringLiteral("actionZoomIn")         },
+        { mZoomOutTool,        QStringLiteral("actionZoomOut")        },
+        { mSelectTool,         QStringLiteral("actionSelect")         },
+        { mMeasureTool,        QStringLiteral("actionMeasure")        },
+        { mSelectProfileTool,  QStringLiteral("actionPlotProfile")    },
+        { mAddJunctionTool,    QStringLiteral("actionAddJunction")    },
+        { mAddOutfallTool,     QStringLiteral("actionAddOutfall")     },
+        { mAddStorageTool,     QStringLiteral("actionAddStorage")     },
+        { mAddDividerTool,     QStringLiteral("actionAddFlowDivider") },
+        { mAddConduitTool,     QStringLiteral("actionAddPipe")        },
+        { mAddPumpTool,        QStringLiteral("actionAddPump")        },
+        { mAddOrificeTool,     QStringLiteral("actionAddOrifice")     },
+        { mAddWeirTool,        QStringLiteral("actionAddWeir")        },
+        { mAddOutletTool,      QStringLiteral("actionAddOutlet")      },
+        { mAddGageTool,        QStringLiteral("actionRainGauge")      },
+        { mAddSubcatchTool,    QStringLiteral("actionAddSubcatchment")},
+        // CF.3 — Pick 2D Cells tool (lazy-instantiated; key reserved so the
+        // toolbar action set can be checkable-synced on first activation).
+        { mPick2DCellsTool,    QStringLiteral("actionPick2DCells")    },
+    };
+}
+
 void SWMMVisProjectWindow::setAutoLengthEnabled(bool enabled)
 {
     if (mAutoLengthEnabled == enabled)
@@ -775,7 +947,7 @@ void SWMMVisProjectWindow::setAutoLengthEnabled(bool enabled)
     mAutoLengthEnabled = enabled;
     if (mCanvas)
         mCanvas->setProperty("autoLength", enabled);
-    QSettings().setValue(QStringLiteral("SWMMVis/autoLength"), enabled);
+    PreferencesManager::instance()->setAutoLengthEnabled(enabled);
     emit autoLengthChanged(enabled);
 }
 
@@ -783,4 +955,132 @@ void SWMMVisProjectWindow::setEngineVersion(const QString &version)
 {
     mEngineVersion = version;
     setHasChanges(true);
+}
+
+// ── Terrain editing ───────────────────────────────────────────────────────────
+
+QString SWMMVisProjectWindow::activeTerrainLayerPath() const
+{
+    return mActiveTerrain ? mActiveTerrain->filePath() : QString();
+}
+
+void SWMMVisProjectWindow::setActiveTerrain(GISRasterLayer *layer)
+{
+    if (mActiveTerrain == layer) return;
+    mActiveTerrain = layer;
+
+    // Propagate to every add-node and add-link tool (include vertical factor).
+    const auto nodeTools = { mAddJunctionTool, mAddOutfallTool,
+                              mAddStorageTool,  mAddDividerTool };
+    for (auto *t : nodeTools)
+        if (t) t->setTerrain(layer, mTerrainNodeOffset, mTerrainVertFactor);
+
+    const auto linkTools = { mAddConduitTool, mAddPumpTool,
+                              mAddOrificeTool, mAddWeirTool, mAddOutletTool };
+    for (auto *t : linkTools)
+        if (t) t->setTerrain(layer, mTerrainLinkOffset, mTerrainVertFactor);
+
+    // Reset Z readout when terrain is cleared.
+    if (!layer && mCanvas)
+        mCanvas->setTerrainElevation({});
+
+    emit activeTerrainChanged(layer);
+    setHasChanges(true);
+}
+
+void SWMMVisProjectWindow::setTerrainNodeOffset(double offset)
+{
+    if (mTerrainNodeOffset == offset) return;
+    mTerrainNodeOffset = offset;
+
+    const auto nodeTools = { mAddJunctionTool, mAddOutfallTool,
+                              mAddStorageTool,  mAddDividerTool };
+    for (auto *t : nodeTools)
+        if (t) t->setTerrain(mActiveTerrain, offset, mTerrainVertFactor);
+
+    setHasChanges(true);
+}
+
+void SWMMVisProjectWindow::setTerrainLinkOffset(double offset)
+{
+    if (mTerrainLinkOffset == offset) return;
+    mTerrainLinkOffset = offset;
+
+    const auto linkTools = { mAddConduitTool, mAddPumpTool,
+                              mAddOrificeTool, mAddWeirTool, mAddOutletTool };
+    for (auto *t : linkTools)
+        if (t) t->setTerrain(mActiveTerrain, offset, mTerrainVertFactor);
+
+    setHasChanges(true);
+}
+
+void SWMMVisProjectWindow::setTerrainVerticalUnit(const QString &unit)
+{
+    const QString newUnit = unit.isEmpty() ? QStringLiteral("m") : unit;
+
+    // Recompute conversion factor: rasterUnit → modelUnit. Must happen even
+    // when the unit string is unchanged because the project-construction
+    // default (`mTerrainVertFactor = 1.0`) doesn't reflect the model's
+    // FLOW_UNITS — so the first DEM selection in a US-customary project
+    // would otherwise display raw metres labelled as feet until the user
+    // manually toggled the unit combo.
+    const double rasterToSI = (newUnit == QLatin1String("ft")) ? 0.3048 : 1.0;
+    const double modelToSI  = mUnits->isSI() ? 1.0 : 0.3048;
+    const double newFactor  = rasterToSI / modelToSI;
+
+    if (mTerrainVertUnit == newUnit && mTerrainVertFactor == newFactor)
+        return;
+
+    mTerrainVertUnit   = newUnit;
+    mTerrainVertFactor = newFactor;
+
+    // Canvas label shows the model unit since Z is converted before display.
+    if (mCanvas)
+        mCanvas->setTerrainUnit(mUnits->depthLabel());
+
+    // Propagate the new factor to map tools (offset stays in model units;
+    // the raw Z is multiplied by this factor before adding the offset).
+    const auto nodeTools = { mAddJunctionTool, mAddOutfallTool,
+                              mAddStorageTool,  mAddDividerTool };
+    for (auto *t : nodeTools)
+        if (t) t->setTerrain(mActiveTerrain, mTerrainNodeOffset, mTerrainVertFactor);
+
+    const auto linkTools = { mAddConduitTool, mAddPumpTool,
+                              mAddOrificeTool, mAddWeirTool, mAddOutletTool };
+    for (auto *t : linkTools)
+        if (t) t->setTerrain(mActiveTerrain, mTerrainLinkOffset, mTerrainVertFactor);
+
+    // Vertical-unit change also affects the conversion factor profile
+    // dialogs need — re-fire activeTerrainChanged so they re-sample.
+    emit activeTerrainChanged(mActiveTerrain);
+    setHasChanges(true);
+}
+
+void SWMMVisProjectWindow::restoreTerrainState(const QString &absoluteLayerPath,
+                                                double nodeOffset,
+                                                double linkOffset,
+                                                const QString &vertUnit)
+{
+    mTerrainNodeOffset = nodeOffset;
+    mTerrainLinkOffset = linkOffset;
+
+    // Match the saved path against currently loaded raster layers.
+    GISRasterLayer *found = nullptr;
+    if (!absoluteLayerPath.isEmpty() && mCanvas) {
+        for (OpenSWMMVisLayer *l : mCanvas->layers()) {
+            auto *raster = qobject_cast<GISRasterLayer *>(l);
+            if (raster && raster->filePath() == absoluteLayerPath) {
+                found = raster;
+                break;
+            }
+        }
+    }
+
+    setActiveTerrain(found);
+
+    // Restore or auto-detect vertical unit.
+    const QString unit = vertUnit.isEmpty()
+                             ? (found ? found->detectVerticalUnit() : QStringLiteral("m"))
+                             : vertUnit;
+    setTerrainVerticalUnit(unit);
 }

@@ -8,6 +8,10 @@
 #include <QCommandLinkButton>
 #include <QHBoxLayout>
 #include <QCheckBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QLabel>
+#include <QVBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QGridLayout>
@@ -25,22 +29,32 @@
 #include <QGraphicsItem>
 #include <QFileDialog>
 #include <QDir>
+#include <QInputDialog>
 #include <QJsonDocument>
+#include <QMenu>
+#include <QMenuBar>
+#include <QToolBar>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QProxyStyle>
+#include <QSettings>
 #include <QDateTimeEdit>
 #include <QStyle>
 #include <QStyleFactory>
 #include <QStyleOptionProgressBar>
 #include <QStyledItemDelegate>
 #include <QTabBar>
+#include <QThread>
+
+#include <cmath>
 
 #include "swmmvis.h"
 #include "ui_swmmvis.h"
 #include "version.h"
+#include "legacy_version.h"
 
 #include "core/unitsystem.h"
+#include "core/preferencesmanager.h"
 #include "map/mapcanvas.h"
 #include "map/spatialreferencesystem.h"
 #include "map/openswmmvisscene.h"
@@ -55,12 +69,19 @@
 #include "ui/dialogs/aboutdialog.h"
 #include "ui/dialogs/layerpropertiesdialog.h"
 #include "ui/dialogs/meshgenerationdialog.h"
+#include "ui/dialogs/newdataobjectdialog.h"
 #include "ui/dialogs/newprojectdialog.h"
 #include "ui/dialogs/pluginsdialog.h"
 #include "ui/dialogs/preferencesdialog.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/timeseriesplotdialog.h"
+#include "ui/dialogs/profileplotdialog.h"
+#include "ui/dialogs/comparisonplotdialog.h"
+#include "plot/comparisonplotmodel.h"
 #include "ui/dialogs/addbasemapdialog.h"
+#include "ui/dialogs/symbologydialog.h"
+#include "ui/widgets/legendoverlay.h"
+#include "ui/widgets/perattributethemingwidget.h"
 #include "ui/panels/layertreepanel.h"
 #include "ui/panels/objectbrowserpanel.h"
 #include "ui/panels/attributepanel.h"
@@ -69,6 +90,9 @@
 #include "selection/selectionmanager.h"
 #include "simulation/simulationrunner.h"
 #include "simulation/simulationstatusmodel.h"
+
+#include <openswmm/engine/openswmm_2d.h>
+#include <openswmm/engine/openswmm_engine.h>
 #include "map/tools/maptoolidentify.h"   // IdentifyResult
 
 #include <QPointer>
@@ -80,8 +104,14 @@
 #include "layers/gisvectorlayer.h"
 #include "layers/gisrasterlayer.h"
 #include "layers/swmmresultslayer.h"
+#include "layers/swmm2dmeshlayer.h"
+#include "layers/swmm2dresultslayer.h"
+#include "mesh/inpmeshreader.h"
 #include "animation/animationcontroller.h"
+#include "ui/toolbars/terraintoolbar.h"
 #include "map/tools/maptoolselect.h"
+#include "map/tools/maptoolplotpick.h"
+#include "map/tools/maptoolselectprofile.h"
 
 #include <QDesktopServices>
 #include <QDockWidget>
@@ -92,6 +122,73 @@
 #include <QCommandLinkButton>
 #include <QScrollArea>
 #include <QSignalBlocker>
+#include <QValidator>
+#include <QRegularExpression>
+
+namespace {
+
+// QGIS / ArcGIS-style preset scale list (largest scale → smallest, i.e.
+// most-zoomed-in to most-zoomed-out).  Plain numerator-1 denominators.
+const QVector<double> &kMapScalePresets()
+{
+    static const QVector<double> presets = {
+        100, 200, 500,
+        1000, 2000, 2500, 5000,
+        10000, 25000, 50000, 100000,
+        250000, 500000, 1000000,
+        5000000, 10000000, 25000000
+    };
+    return presets;
+}
+
+// Format a denominator as "1:12,345" using grouping separators that match
+// the user's locale (falls back to comma if the locale has none).
+QString formatScaleText(double denom)
+{
+    if (denom <= 0.0 || !std::isfinite(denom))
+        return QStringLiteral("1:1");
+    // Round to nearest integer for display — fractional N would be confusing.
+    const qlonglong n = static_cast<qlonglong>(std::llround(denom));
+    return QStringLiteral("1:%1").arg(QLocale().toString(n));
+}
+
+// Parse "1:N", "N", "1 : N" etc. with grouping characters into a positive
+// denominator.  Returns 0.0 if the string is not a valid scale.
+double parseScaleText(const QString &raw)
+{
+    QString s = raw.trimmed();
+    if (s.isEmpty()) return 0.0;
+
+    // Drop the optional "1:" / "1 :" prefix.
+    static const QRegularExpression prefixRe(QStringLiteral("^\\s*1\\s*:\\s*"));
+    s.remove(prefixRe);
+
+    // Strip grouping characters (commas, spaces, narrow-no-break, apostrophes).
+    s.remove(QChar(','));
+    s.remove(QChar(' '));
+    s.remove(QChar(0x00A0));    // non-breaking space
+    s.remove(QChar(0x202F));    // narrow no-break space
+    s.remove(QChar('\''));
+
+    bool ok = false;
+    const double n = s.toDouble(&ok);
+    return (ok && n > 0.0 && std::isfinite(n)) ? n : 0.0;
+}
+
+// QValidator that allows partial typing of "[1[ :]] <digits>[,. <digits>]…".
+class MapScaleValidator : public QValidator {
+public:
+    explicit MapScaleValidator(QObject *parent = nullptr) : QValidator(parent) {}
+    State validate(QString &input, int & /*pos*/) const override
+    {
+        if (input.trimmed().isEmpty()) return Intermediate;
+        static const QRegularExpression re(
+            QStringLiteral("^\\s*(?:1\\s*:?\\s*)?[\\d ,'\\xA0\\x{202F}]*\\.?\\d*\\s*$"));
+        return re.match(input).hasMatch() ? Acceptable : Invalid;
+    }
+};
+
+} // namespace
 
 SWMMVis::SWMMVis(QWidget *parent)
     : QMainWindow(parent),
@@ -285,6 +382,28 @@ public:
     // No setModelData — readonly.
 };
 
+/**
+ * @brief Pick a "nice" tick step from the 1 / 2 / 5 × 10^n ladder so that
+ *        a slider of range [0, total] shows at most ~targetTicks ticks.
+ *
+ * Returns 0 when total < 2 (caller hides ticks entirely). Otherwise the
+ * smallest step from {1, 2, 5, 10, 20, 50, ...} such that
+ * total / step <= targetTicks.
+ */
+int niceTickStep(int total, int targetTicks = 50)
+{
+    if (total < 2) return 0;
+    static constexpr int kMantissas[] = {1, 2, 5};
+    int pow10 = 1;
+    int idx   = 0;
+    while (true) {
+        const int step = kMantissas[idx] * pow10;
+        if (step <= 0) return total;  // overflow guard
+        if (total / step <= targetTicks) return step;
+        if (++idx == 3) { idx = 0; pow10 *= 10; }
+    }
+}
+
 } // anonymous namespace
 
 void SWMMVis::initializeWelcomeScreen()
@@ -401,6 +520,49 @@ void SWMMVis::initializeWelcomeScreen()
 void SWMMVis::initializeToolBars()
 {
     initializeAnimationToolBar();
+    initializeTerrainToolBar();
+}
+
+void SWMMVis::applyEditSessionToActions(bool active)
+{
+    // Gated on the "Edit Existing" toggle: operations that mutate features
+    // that already exist in the model. Adding new features is governed by
+    // applyProjectOpenToActions and is available whenever a project is open.
+    static const QStringList kEditOnlyActions = {
+        QStringLiteral("actionMoveNode"),      QStringLiteral("actionEditVertex"),
+        QStringLiteral("actionDeleteSelected"),
+    };
+    for (const QString &name : kEditOnlyActions)
+        if (auto *act = findChild<QAction *>(name))
+            act->setEnabled(active);
+}
+
+void SWMMVis::applyProjectOpenToActions(bool open)
+{
+    // Add-feature actions are available whenever a project is open; they
+    // do not require an edit session. actionGenerateMesh is intentionally
+    // omitted — it produces a separate .2dm artefact and is reachable
+    // even before a project is bound.
+    static const QStringList kProjectOnlyActions = {
+        QStringLiteral("actionAddJunction"),   QStringLiteral("actionAddOutfall"),
+        QStringLiteral("actionAddStorage"),    QStringLiteral("actionAddFlowDivider"),
+        QStringLiteral("actionAddPipe"),       QStringLiteral("actionAddPump"),
+        QStringLiteral("actionAddOrifice"),    QStringLiteral("actionAddWeir"),
+        QStringLiteral("actionAddOutlet"),
+        QStringLiteral("actionAddSubcatchment"),
+        QStringLiteral("actionRainGauge"),
+        QStringLiteral("actionAddNode"),       QStringLiteral("actionAddPolyline"),
+        QStringLiteral("actionAddPolygon"),    QStringLiteral("actionAddText"),
+    };
+    for (const QString &name : kProjectOnlyActions)
+        if (auto *act = findChild<QAction *>(name))
+            act->setEnabled(open);
+}
+
+void SWMMVis::initializeTerrainToolBar()
+{
+    mTerrainToolbar = new TerrainToolbar(tr("Terrain"), this);
+    addToolBar(Qt::TopToolBarArea, mTerrainToolbar);
 }
 
 void SWMMVis::initializeAnimationToolBar()
@@ -409,9 +571,8 @@ void SWMMVis::initializeAnimationToolBar()
 
     mSliderAnimationTime = new QSlider(Qt::Horizontal, this);
     mSliderAnimationTime->setSingleStep(1);
-    mSliderAnimationTime->setPageStep(10);
-    mSliderAnimationTime->setTickInterval(10);
-    mSliderAnimationTime->setTickPosition(QSlider::TicksBelow);
+    mSliderAnimationTime->setPageStep(1);
+    mSliderAnimationTime->setTickPosition(QSlider::NoTicks);  // ticks appear once a run loads
     mSliderAnimationTime->setToolTip(tr("Animation Time"));
     mSliderAnimationTime->setStatusTip(tr("Animation Time"));
     mSliderAnimationTime->setMinimumWidth(300);
@@ -425,6 +586,41 @@ void SWMMVis::initializeAnimationToolBar()
     ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mSliderAnimationTime);
     ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mDateTimeEditAnimationTime);
 
+    // Speed selector — sits after Stop, before SkipForward (separator already
+    // ends the play/pause/stop transport group via the .ui file).
+    mLabelAnimationSpeed = new QLabel(tr("Speed:"), this);
+    mLabelAnimationSpeed->setContentsMargins(6, 0, 4, 0);
+    mComboAnimationSpeed = new QComboBox(this);
+    mComboAnimationSpeed->setToolTip(tr("Animation playback speed multiplier"));
+    mComboAnimationSpeed->setStatusTip(tr("Animation playback speed multiplier"));
+    struct SpeedEntry { double value; const char *label; };
+    static constexpr SpeedEntry kSpeeds[] = {
+        {0.25, "0.25×"}, {0.5, "0.5×"}, {1.0, "1×"},
+        {2.0,  "2×"},    {4.0, "4×"},   {8.0, "8×"},
+    };
+    for (const auto &e : kSpeeds)
+        mComboAnimationSpeed->addItem(tr(e.label), e.value);
+
+    ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mLabelAnimationSpeed);
+    ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mComboAnimationSpeed);
+    ui->toolBarAnimation->insertSeparator(ui->actionSkipForward);
+
+    // Restore cross-launch default speed from PreferencesManager and push it
+    // into the controller before the first play().
+    const double prefSpeed = PreferencesManager::instance()->animationSpeed();
+    int idx = mComboAnimationSpeed->findData(prefSpeed);
+    if (idx < 0) idx = mComboAnimationSpeed->findData(1.0);
+    mComboAnimationSpeed->setCurrentIndex(idx);
+    mAnimationController->setSpeed(mComboAnimationSpeed->currentData().toDouble());
+
+    connect(mComboAnimationSpeed, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, [this](int i) {
+        const double speed = mComboAnimationSpeed->itemData(i).toDouble();
+        if (speed <= 0.0) return;
+        mAnimationController->setSpeed(speed);
+        PreferencesManager::instance()->setAnimationSpeed(speed);
+    });
+
     // Wire toolbar actions to controller.
     // actionPlay is checkable (toggle); use triggered(bool) so both check and
     // uncheck transitions are caught. Checked = playing, unchecked = paused.
@@ -434,6 +630,14 @@ void SWMMVis::initializeAnimationToolBar()
         else
             mAnimationController->pause();
     });
+    // Dedicated Pause button — pauses playback regardless of actionPlay
+    // state, and stays checked while the controller is paused (so the
+    // user can see "paused" at a glance). actionPlay's check state is
+    // updated by the playStateChanged handler below, keeping the two
+    // toggles consistent.
+    connect(ui->actionPause, &QAction::triggered, this, [this]() {
+        mAnimationController->pause();
+    });
     connect(ui->actionStop,        &QAction::triggered,
             mAnimationController,  &AnimationController::stop);
     connect(ui->actionSkipBack,    &QAction::triggered,
@@ -441,12 +645,15 @@ void SWMMVis::initializeAnimationToolBar()
     connect(ui->actionSkipForward, &QAction::triggered,
             mAnimationController,  &AnimationController::stepForward);
 
-    // Keep actionPlay check state in sync with the controller so that
-    // stop() / seek-to-end both un-check the button automatically.
+    // Keep actionPlay / actionPause check states in sync with the
+    // controller so stop() / seek-to-end / a Pause click each leave the
+    // toolbar reflecting reality without a feedback loop.
     connect(mAnimationController, &AnimationController::playStateChanged,
             this, [this](bool playing) {
-        QSignalBlocker b(ui->actionPlay);
+        QSignalBlocker bPlay(ui->actionPlay);
+        QSignalBlocker bPause(ui->actionPause);
         ui->actionPlay->setChecked(playing);
+        ui->actionPause->setChecked(!playing);
     });
 
     // Slider ↔ controller (bidirectional, guarded against feedback loops).
@@ -458,22 +665,63 @@ void SWMMVis::initializeAnimationToolBar()
     connect(mSliderAnimationTime, &QSlider::valueChanged,
             mAnimationController, &AnimationController::seekToPeriod);
 
-    // DateTime display (read-only — controller drives it).
+    // DateTime display (read-only — controller drives it). Also fans the
+    // time scrub out to any 2D results layer on the active canvas so the
+    // single slider drives both 1D and 2D playback in lockstep.
     connect(mAnimationController, &AnimationController::currentTimeChanged,
             this, [this](const QDateTime &dt) {
         QSignalBlocker b(mDateTimeEditAnimationTime);
         mDateTimeEditAnimationTime->setDateTime(dt);
+
+        if (auto *pw = activeProjectWindow()) {
+            if (auto *canvas = pw->canvas()) {
+                for (OpenSWMMVisLayer *l : canvas->layers()) {
+                    if (auto *r2d = qobject_cast<SWMM2DResultsLayer *>(l)) {
+                        r2d->setCurrentSimTime(dt);
+                    }
+                }
+            }
+        }
     });
 
-    // Slider range tracks total periods.
+    // Slider range tracks total periods. Tick density is recomputed from a
+    // 1/2/5×10ⁿ ladder so long runs (10³–10⁵ periods) don't smear the rail.
     connect(mAnimationController, &AnimationController::totalPeriodsChanged,
             this, [this](int total) {
         mSliderAnimationTime->setRange(0, qMax(0, total - 1));
+        const int step = niceTickStep(total);
+        if (step <= 0) {
+            mSliderAnimationTime->setTickPosition(QSlider::NoTicks);
+            mSliderAnimationTime->setTickInterval(0);
+            mSliderAnimationTime->setPageStep(1);
+        } else {
+            mSliderAnimationTime->setTickPosition(QSlider::TicksBelow);
+            mSliderAnimationTime->setTickInterval(step);
+            mSliderAnimationTime->setPageStep(step);
+        }
     });
 }
 
 void SWMMVis::initializeMapTools()
 {
+    // All tool actions are checkable — the activeToolChanged handler below
+    // keeps exactly one checked at a time to show which tool is active.
+    const QStringList toolActionNames = {
+        QStringLiteral("actionPan"),     QStringLiteral("actionZoomIn"),
+        QStringLiteral("actionZoomOut"), QStringLiteral("actionSelect"),
+        QStringLiteral("actionMeasure"), QStringLiteral("actionPlotProfile"),
+        QStringLiteral("actionAddJunction"), QStringLiteral("actionAddOutfall"),
+        QStringLiteral("actionAddStorage"), QStringLiteral("actionAddFlowDivider"),
+        QStringLiteral("actionAddPipe"),  QStringLiteral("actionAddPump"),
+        QStringLiteral("actionAddOrifice"), QStringLiteral("actionAddWeir"),
+        QStringLiteral("actionAddOutlet"),
+        QStringLiteral("actionRainGauge"), QStringLiteral("actionAddSubcatchment"),
+    };
+    for (const QString &name : toolActionNames) {
+        if (auto *act = findChild<QAction *>(name))
+            act->setCheckable(true);
+    }
+
     // Tools live on each SWMMVisProjectWindow; toolbar actions delegate to the active window.
     connect(ui->actionPan,    &QAction::triggered, this, [this]() {
         if (auto *w = activeProjectWindow()) w->activatePanTool();
@@ -484,11 +732,26 @@ void SWMMVis::initializeMapTools()
     connect(ui->actionZoomOut,&QAction::triggered, this, [this]() {
         if (auto *w = activeProjectWindow()) w->activateZoomOutTool();
     });
+    // "Edit Existing" toggle — must be the first button in the editing
+    // toolbar. Governs operations that modify already-placed features
+    // (move/edit-vertex/delete); adding new features is governed by
+    // applyProjectOpenToActions and stays available whenever a project
+    // is open.
+    ui->actionEditExisting->setEnabled(false);  // disabled until a project opens
+    connect(ui->actionEditExisting, &QAction::toggled, this, [this](bool active) {
+        if (auto *pw = activeProjectWindow())
+            pw->setEditSessionActive(active);
+        applyEditSessionToActions(active);
+    });
+
     connect(ui->actionSelect, &QAction::triggered, this, [this]() {
         if (auto *w = activeProjectWindow()) w->activateSelectTool();
     });
     connect(ui->actionMeasure,&QAction::triggered, this, [this]() {
         if (auto *w = activeProjectWindow()) w->activateMeasureTool();
+    });
+    connect(ui->actionPlotProfile, &QAction::triggered, this, [this]() {
+        if (auto *w = activeProjectWindow()) w->activateSelectProfileTool();
     });
     connect(ui->actionZoomExtent, &QAction::triggered, this, [this]() {
         if (auto *w = activeProjectWindow()) w->zoomToFullExtent();
@@ -558,6 +821,9 @@ void SWMMVis::initializeMapTools()
 
     connect(ui->mdiAreaCentral, &QMdiArea::subWindowActivated,
             this, &SWMMVis::onActiveSubWindowChanged);
+
+    // Disable all edit-session-gated actions at startup (no project open yet).
+    applyEditSessionToActions(false);
 }
 
 void SWMMVis::initializeStatusBar()
@@ -568,6 +834,25 @@ void SWMMVis::initializeStatusBar()
         sep->setFrameShadow(QFrame::Sunken);
         ui->statusBar->addPermanentWidget(sep);
     };
+
+    // Engine version — first permanent widget so it appears leftmost on the right side.
+    ui->statusBar->addPermanentWidget(new QLabel("Engine:", ui->statusBar));
+    mComboBoxEngineVersion = new QComboBox(ui->statusBar);
+    mComboBoxEngineVersion->addItem(
+        tr("OpenSWMM %1").arg(QLatin1String(SWMM_VERSION_FULL)),
+        QLatin1String(SWMM_VERSION));
+    mComboBoxEngineVersion->addItem(
+        tr("SWMM %1 (Legacy)").arg(QLatin1String(OPENSWMM_LEGACY_FULL_VERSION)),
+        QLatin1String(LEGACY_SWMM_VERSION));
+    mComboBoxEngineVersion->setToolTip(tr("Select which SWMM engine version to use when running simulations"));
+    mComboBoxEngineVersion->setEnabled(false);
+    connect(mComboBoxEngineVersion, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int) {
+        if (auto *pw = activeProjectWindow())
+            pw->setEngineVersion(mComboBoxEngineVersion->currentData().toString());
+    });
+    ui->statusBar->addPermanentWidget(mComboBoxEngineVersion);
+    addSep();
 
     // Flow units
     ui->statusBar->addPermanentWidget(new QLabel("Flow Units:", ui->statusBar));
@@ -639,19 +924,41 @@ void SWMMVis::initializeStatusBar()
     ui->statusBar->addPermanentWidget(mCheckBoxAutoLength);
     addSep();
 
-    // Coordinates
+    // Coordinates — wide enough for "X: 12345678.123456, Y: 3456789.654321  Z: 1234.567"
     ui->statusBar->addPermanentWidget(new QLabel("Coordinates:", ui->statusBar));
     mLineEditCoordinates = new QLineEdit("0,0", ui->statusBar);
     mLineEditCoordinates->setReadOnly(true);
-    mLineEditCoordinates->setMaximumWidth(250);
+    mLineEditCoordinates->setMinimumWidth(420);
+    mLineEditCoordinates->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     ui->statusBar->addPermanentWidget(mLineEditCoordinates);
     addSep();
 
-    // Map scale
+    // Map scale — editable combo with GIS-style presets.  The combo is wired
+    // bidirectionally in onActiveSubWindowChanged() once an active canvas
+    // exists: typing/picking calls MapCanvas::setScaleDenominator(); the
+    // canvas's scaleChanged() signal repopulates the edit text.
     ui->statusBar->addPermanentWidget(new QLabel("Map Scale:", ui->statusBar));
     mComboBoxMapScale = new QComboBox(ui->statusBar);
-    mComboBoxMapScale->addItem("1:1");
+    mComboBoxMapScale->setEditable(true);
+    mComboBoxMapScale->setInsertPolicy(QComboBox::NoInsert);
     mComboBoxMapScale->setMinimumWidth(150);
+    mComboBoxMapScale->setToolTip(tr("Map scale — pick a preset or type 1:N"));
+    mComboBoxMapScale->setEnabled(false);   // enabled once a canvas binds
+    for (double d : kMapScalePresets())
+        mComboBoxMapScale->addItem(formatScaleText(d), d);
+    mComboBoxMapScale->setEditText(QString());
+    mComboBoxMapScale->lineEdit()->setValidator(new MapScaleValidator(mComboBoxMapScale));
+    // Preset click → activated(QString); typed entry → editingFinished().
+    // Both route through the same parse-and-apply slot.
+    connect(mComboBoxMapScale, QOverload<int>::of(&QComboBox::activated),
+            this, [this](int idx) {
+                if (idx < 0) return;
+                onMapScaleEntered(mComboBoxMapScale->itemText(idx));
+            });
+    connect(mComboBoxMapScale->lineEdit(), &QLineEdit::editingFinished,
+            this, [this]() {
+                onMapScaleEntered(mComboBoxMapScale->currentText());
+            });
     ui->statusBar->addPermanentWidget(mComboBoxMapScale);
     addSep();
 
@@ -664,6 +971,14 @@ void SWMMVis::initializeStatusBar()
     connect(mToolButtonCoordinateReferenceSystem, &QToolButton::clicked,
             this, &SWMMVis::onCRSButtonClicked);
     ui->statusBar->addPermanentWidget(mToolButtonCoordinateReferenceSystem);
+
+    // Per-attribute theming combos (Node / Link / Subcatchment). Subscribes
+    // to AnimationController::primaryLayerChanged so the combos always
+    // reflect the active SWMMResultsLayer's current variable.
+    addSep();
+    mThemingWidget = new openswmmvis::ui::PerAttributeThemingWidget(ui->statusBar);
+    mThemingWidget->setAnimationController(mAnimationController);
+    ui->statusBar->addPermanentWidget(mThemingWidget);
 }
 
 void SWMMVis::initializeDockWidgets()
@@ -704,6 +1019,21 @@ void SWMMVis::initializeLayersDockWidget()
                     c->invalidate(MapCanvas::Raster | MapCanvas::Scene,
                                   QStringLiteral("layer-properties-apply"));
             });
+
+    // Right-click "Set Style…" → open the symbology dialog for that layer.
+    // Mirrors the animation-toolbar's actionSetStyle but skips the
+    // "find the active layer" fallback because the menu already knows
+    // which layer was clicked.
+    connect(mLayerTreePanel, &LayerTreePanel::layerStyleRequested,
+            this, [this](OpenSWMMVisLayer *layer) {
+                if (!layer) return;
+                openswmmvis::ui::SymbologyDialog dlg(layer, this);
+                if (dlg.exec() == QDialog::Accepted) {
+                    if (auto *c = activeCanvas())
+                        c->invalidate(MapCanvas::Scene,
+                                      QStringLiteral("symbology-apply"));
+                }
+            });
 }
 
 void SWMMVis::initializeObjectBrowserDockWidget()
@@ -734,22 +1064,28 @@ void SWMMVis::initializeObjectBrowserDockWidget()
 
 void SWMMVis::openTimeSeriesPlotFor(const SWMMObjectRef &ref)
 {
+    // Slice BL — backwards-compat shim. Forwards to the new
+    // Comparison Plot Dialog; existing object-browser / canvas
+    // right-click wiring keeps working.
+    openComparisonPlotFor(ref);
+}
+
+void SWMMVis::openComparisonPlotFor(const SWMMObjectRef &ref)
+{
     auto *pw = activeProjectWindow();
     if (!pw || !pw->canvas()) return;
 
-    QString outPath;
+    // Locate the first SWMMResultsLayer on the active canvas.
+    SWMMResultsLayer *resultsLayer = nullptr;
     for (OpenSWMMVisLayer *l : pw->canvas()->layers())
     {
         if (l->layerType() == OpenSWMMVisLayer::SWMMResultsLayer)
         {
-            if (auto *rl = qobject_cast<SWMMResultsLayer *>(l))
-            {
-                outPath = rl->resultsFilePath();
-                break;
-            }
+            resultsLayer = qobject_cast<SWMMResultsLayer *>(l);
+            if (resultsLayer) break;
         }
     }
-    if (outPath.isEmpty())
+    if (!resultsLayer)
     {
         QMessageBox::information(this, tr("No results loaded"),
             tr("Run a simulation first (toolbar's Execute button) "
@@ -757,8 +1093,344 @@ void SWMMVis::openTimeSeriesPlotFor(const SWMMObjectRef &ref)
         return;
     }
 
-    auto *dlg = new TimeSeriesPlotDialog(outPath, ref, this);
+    // Find-or-create the dialog; reuse across calls.
+    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>();
+    if (!dlg) {
+        dlg = new openswmmvis::ui::ComparisonPlotDialog(this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        connect(dlg, &openswmmvis::ui::ComparisonPlotDialog::addFromMapToggled,
+                this, &SWMMVis::onAddFromMapToggled);
+        // Slice AT.3 polish — drive the dialog's animation cursor from the
+        // global AnimationController so the dashed vertical line moves
+        // during sim playback. Connection auto-disconnects when the dialog
+        // dies via WA_DeleteOnClose.
+        if (mAnimationController) {
+            connect(mAnimationController, &AnimationController::currentTimeChanged,
+                    dlg->model(), &openswmmvis::plot::ComparisonPlotModel::setAnimationTime);
+        }
+    }
+
+    const int runIdx = dlg->ensureRunSourceForLayer(resultsLayer);
+
+    // Map SWMMObjectRef::ObjectType → ObjectRef::Kind + pick a default attribute.
+    using PA = openswmmvis::plot::PlotAttribute;
+    openswmmvis::plot::ObjectRef::Kind kind = openswmmvis::plot::ObjectRef::Kind::Unknown;
+    PA defaultAttr = PA::Unknown;
+    switch (ref.objectType) {
+    case SWMMObjectRef::Node:
+        kind = openswmmvis::plot::ObjectRef::Kind::Node;
+        defaultAttr = PA::NodeDepth;
+        break;
+    case SWMMObjectRef::Link:
+        kind = openswmmvis::plot::ObjectRef::Kind::Link;
+        defaultAttr = PA::LinkFlow;
+        break;
+    case SWMMObjectRef::Subcatchment:
+        kind = openswmmvis::plot::ObjectRef::Kind::Subcatch;
+        defaultAttr = PA::SubcatchRunoff;
+        break;
+    default:
+        // Other object kinds aren't plottable through .out.
+        break;
+    }
+
+    if (kind != openswmmvis::plot::ObjectRef::Kind::Unknown &&
+        defaultAttr != PA::Unknown)
+    {
+        openswmmvis::plot::ObjectRef objRef(kind, ref.name);
+        dlg->addSeries(runIdx, objRef, defaultAttr);
+    }
+
+    dlg->show();
+    dlg->raise();
+    dlg->activateWindow();
+}
+
+void SWMMVis::openComparisonPlotForAttribute(const SWMMObjectRef &ref,
+                                              openswmmvis::plot::PlotAttribute attribute)
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->canvas()) return;
+
+    SWMMResultsLayer *resultsLayer = nullptr;
+    for (OpenSWMMVisLayer *l : pw->canvas()->layers()) {
+        if (l->layerType() == OpenSWMMVisLayer::SWMMResultsLayer) {
+            resultsLayer = qobject_cast<SWMMResultsLayer *>(l);
+            if (resultsLayer) break;
+        }
+    }
+    if (!resultsLayer) {
+        QMessageBox::information(this, tr("No results loaded"),
+            tr("Run a simulation first or add a SWMM Output (.out) layer."));
+        return;
+    }
+
+    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>();
+    if (!dlg) {
+        dlg = new openswmmvis::ui::ComparisonPlotDialog(this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        connect(dlg, &openswmmvis::ui::ComparisonPlotDialog::addFromMapToggled,
+                this, &SWMMVis::onAddFromMapToggled);
+        // Slice AT.3 polish — drive the dialog's animation cursor from the
+        // global AnimationController so the dashed vertical line moves
+        // during sim playback. Connection auto-disconnects when the dialog
+        // dies via WA_DeleteOnClose.
+        if (mAnimationController) {
+            connect(mAnimationController, &AnimationController::currentTimeChanged,
+                    dlg->model(), &openswmmvis::plot::ComparisonPlotModel::setAnimationTime);
+        }
+    }
+    const int runIdx = dlg->ensureRunSourceForLayer(resultsLayer);
+
+    using PA = openswmmvis::plot::PlotAttribute;
+    using PKind = openswmmvis::plot::ObjectRef::Kind;
+    PKind kind = PKind::Unknown;
+    switch (ref.objectType) {
+    case SWMMObjectRef::Node:         kind = PKind::Node;     break;
+    case SWMMObjectRef::Link:         kind = PKind::Link;     break;
+    case SWMMObjectRef::Subcatchment: kind = PKind::Subcatch; break;
+    default: break;
+    }
+    if (kind == PKind::Unknown) { dlg->show(); dlg->raise(); dlg->activateWindow(); return; }
+
+    openswmmvis::plot::ObjectRef objRef(kind, ref.name);
+
+    if (attribute == PA::Unknown) {
+        // "All attributes" sentinel — fan out across every attribute valid
+        // for the object kind. Mirrors AttributePickerMenu's enumeration.
+        const PA nodeAttrs[]   = {PA::NodeDepth, PA::NodeHead, PA::NodeVolume,
+                                  PA::NodeLateralInflow, PA::NodeTotalInflow,
+                                  PA::NodeOverflow};
+        const PA linkAttrs[]   = {PA::LinkFlow, PA::LinkDepth, PA::LinkVelocity,
+                                  PA::LinkVolume, PA::LinkCapacity};
+        const PA subAttrs[]    = {PA::SubcatchRainfall, PA::SubcatchSnowDepth,
+                                  PA::SubcatchEvap, PA::SubcatchInfil,
+                                  PA::SubcatchRunoff};
+        switch (kind) {
+        case PKind::Node:     for (PA a : nodeAttrs) dlg->addSeries(runIdx, objRef, a); break;
+        case PKind::Link:     for (PA a : linkAttrs) dlg->addSeries(runIdx, objRef, a); break;
+        case PKind::Subcatch: for (PA a : subAttrs)  dlg->addSeries(runIdx, objRef, a); break;
+        default: break;
+        }
+    } else {
+        dlg->addSeries(runIdx, objRef, attribute);
+    }
+
+    dlg->show();
+    dlg->raise();
+    dlg->activateWindow();
+}
+
+void SWMMVis::openComparisonPlotForSystemAttribute(openswmmvis::plot::PlotAttribute attribute)
+{
+    if (attribute == openswmmvis::plot::PlotAttribute::Unknown) return;
+    if (!openswmmvis::plot::isSystemAttribute(attribute)) return;
+
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->canvas()) return;
+
+    SWMMResultsLayer *resultsLayer = nullptr;
+    for (OpenSWMMVisLayer *l : pw->canvas()->layers()) {
+        if (l->layerType() == OpenSWMMVisLayer::SWMMResultsLayer) {
+            resultsLayer = qobject_cast<SWMMResultsLayer *>(l);
+            if (resultsLayer) break;
+        }
+    }
+    if (!resultsLayer) {
+        QMessageBox::information(this, tr("No results loaded"),
+            tr("Run a simulation first or add a SWMM Output (.out) layer."));
+        return;
+    }
+
+    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>();
+    if (!dlg) {
+        dlg = new openswmmvis::ui::ComparisonPlotDialog(this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        connect(dlg, &openswmmvis::ui::ComparisonPlotDialog::addFromMapToggled,
+                this, &SWMMVis::onAddFromMapToggled);
+        // Slice AT.3 polish — drive the dialog's animation cursor from the
+        // global AnimationController so the dashed vertical line moves
+        // during sim playback. Connection auto-disconnects when the dialog
+        // dies via WA_DeleteOnClose.
+        if (mAnimationController) {
+            connect(mAnimationController, &AnimationController::currentTimeChanged,
+                    dlg->model(), &openswmmvis::plot::ComparisonPlotModel::setAnimationTime);
+        }
+    }
+    const int runIdx = dlg->ensureRunSourceForLayer(resultsLayer);
+    dlg->addSeries(runIdx, openswmmvis::plot::ObjectRef::forSystem(), attribute);
+
+    dlg->show();
+    dlg->raise();
+    dlg->activateWindow();
+}
+
+void SWMMVis::onAddFromMapToggled(bool active)
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->canvas()) return;
+    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>();
+    if (!dlg) return;
+    MapCanvas *canvas = pw->canvas();
+
+    if (active) {
+        // Avoid double-push (dialog re-toggles during programmatic setChecked).
+        if (mPlotPickTool) return;
+
+        mPrevMapTool   = canvas->activeTool();
+        mPlotPickTool  = new OpenSWMMVisMapToolPlotPick(canvas, this);
+
+        connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::objectPicked,
+                this, &SWMMVis::openComparisonPlotForAttribute);
+        connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::plotSystemRequested,
+                this, &SWMMVis::openComparisonPlotForSystemAttribute);
+        connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::cancelled,
+                this, [this, dlg]() {
+                    // Bouncing through the dialog's action keeps the
+                    // toolbar button in sync; setAddFromMapChecked(false)
+                    // re-fires addFromMapToggled(false) which lands us
+                    // back here with active=false.
+                    dlg->setAddFromMapChecked(false);
+                });
+
+        canvas->setActiveTool(mPlotPickTool);
+        statusBar()->showMessage(
+            tr("Click an object on the map to plot. Esc cancels."), 5000);
+    } else {
+        if (!mPlotPickTool) return;
+        // Restore the previously active tool (which may be a Select
+        // tool that's been since destroyed — guard with the QPointer).
+        canvas->setActiveTool(mPrevMapTool ? mPrevMapTool.data() : nullptr);
+        mPlotPickTool->deleteLater();
+        mPlotPickTool.clear();
+        mPrevMapTool.clear();
+        statusBar()->showMessage(tr("Add-from-Map cancelled."), 3000);
+    }
+}
+
+void SWMMVis::openComparisonPlotForCells(SWMM2DResultsLayer *layer,
+                                          const QVector<int> &triIdxList)
+{
+    if (!layer || triIdxList.isEmpty())
+        return;
+
+    auto *pw = activeProjectWindow();
+    if (!pw) return;
+
+    // Find-or-create the comparison dialog.
+    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>();
+    if (!dlg) {
+        dlg = new openswmmvis::ui::ComparisonPlotDialog(this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        connect(dlg, &openswmmvis::ui::ComparisonPlotDialog::addFromMapToggled,
+                this, &SWMMVis::onAddFromMapToggled);
+        // Slice AT.3 polish — drive the dialog's animation cursor from the
+        // global AnimationController so the dashed vertical line moves
+        // during sim playback. Connection auto-disconnects when the dialog
+        // dies via WA_DeleteOnClose.
+        if (mAnimationController) {
+            connect(mAnimationController, &AnimationController::currentTimeChanged,
+                    dlg->model(), &openswmmvis::plot::ComparisonPlotModel::setAnimationTime);
+        }
+    }
+
+    const int runIdx = dlg->ensureRunSourceForMeshLayer(layer);
+    if (runIdx < 0) {
+        QMessageBox::warning(this, tr("Mesh layer unavailable"),
+            tr("Couldn't attach the 2D mesh layer to the comparison plot."));
+        return;
+    }
+
+    // Ask the user which attributes to plot — small modal popover. Defaults
+    // to Depth only (cheapest path; velocity reconstruction is per-tick).
+    QDialog popover(this);
+    popover.setWindowTitle(tr("Plot cell time series"));
+    auto *vbox = new QVBoxLayout(&popover);
+    vbox->addWidget(new QLabel(
+        tr("Plot %1 selected cell(s) — choose attributes:").arg(triIdxList.size()),
+        &popover));
+    auto *cbDepth = new QCheckBox(tr("Depth"),              &popover);  cbDepth->setChecked(true);
+    auto *cbHGL   = new QCheckBox(tr("HGL / water surface"),&popover);
+    auto *cbVMag  = new QCheckBox(tr("|V| (velocity magnitude)"), &popover);
+    auto *cbVx    = new QCheckBox(tr("Vx (velocity east)"), &popover);
+    auto *cbVy    = new QCheckBox(tr("Vy (velocity north)"),&popover);
+    cbVMag->setEnabled(layer->hasVelocityData());
+    cbVx  ->setEnabled(layer->hasVelocityData());
+    cbVy  ->setEnabled(layer->hasVelocityData());
+    if (!layer->hasVelocityData()) {
+        const QString tip = tr("Edge-flux data not present — re-run with "
+                               "current engine to enable velocity series.");
+        cbVMag->setToolTip(tip);
+        cbVx  ->setToolTip(tip);
+        cbVy  ->setToolTip(tip);
+    }
+    vbox->addWidget(cbDepth);
+    vbox->addWidget(cbHGL);
+    vbox->addWidget(cbVMag);
+    vbox->addWidget(cbVx);
+    vbox->addWidget(cbVy);
+    auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &popover);
+    QObject::connect(bb, &QDialogButtonBox::accepted, &popover, &QDialog::accept);
+    QObject::connect(bb, &QDialogButtonBox::rejected, &popover, &QDialog::reject);
+    vbox->addWidget(bb);
+
+    if (popover.exec() != QDialog::Accepted)
+        return;
+
+    using PA = openswmmvis::plot::PlotAttribute;
+    QVector<PA> attrs;
+    if (cbDepth->isChecked()) attrs.push_back(PA::Mesh2DDepth);
+    if (cbHGL  ->isChecked()) attrs.push_back(PA::Mesh2DHGL);
+    if (cbVMag ->isChecked()) attrs.push_back(PA::Mesh2DVelocityMag);
+    if (cbVx   ->isChecked()) attrs.push_back(PA::Mesh2DVelocityX);
+    if (cbVy   ->isChecked()) attrs.push_back(PA::Mesh2DVelocityY);
+
+    if (attrs.isEmpty())
+        return;
+
+    // Warn on large selections (per CF.3 edge case: 500-cell threshold).
+    const int total = triIdxList.size() * attrs.size();
+    if (total > 500) {
+        const auto choice = QMessageBox::question(this,
+            tr("Many series"),
+            tr("This will create %1 series (%2 cells × %3 attributes). "
+               "Continue?")
+                .arg(total).arg(triIdxList.size()).arg(attrs.size()));
+        if (choice != QMessageBox::Yes) return;
+    }
+
+    dlg->addCellSeries(runIdx, triIdxList, attrs);
+    dlg->show();
+    dlg->raise();
+    dlg->activateWindow();
+}
+
+void SWMMVis::openProfilePlotFor(const ProfileRouter::Path &path)
+{
+    auto *pw = activeProjectWindow();
+    if (!pw) return;
+    SWMMModelLayer *model = pw->modelLayer();
+    if (!model) {
+        QMessageBox::information(this, tr("No model loaded"),
+            tr("Open a SWMM model before plotting a profile."));
+        return;
+    }
+    if (path.nodes.size() < 2) return;
+
+    // Parent = nullptr → fully independent top-level window with its own
+    // dock icon on macOS.  WA_DeleteOnClose owns the lifetime.  The
+    // dialog queries the project window dynamically for the active
+    // terrain raster so loading a terrain *after* the dialog is open
+    // still updates the ground line.
+    auto *dlg = new ProfilePlotDialog(model, mAnimationController, path,
+                                      pw, /*parent=*/nullptr);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
+    // AT.3 — route the profile dialog's "Plot Time Series…" right-click
+    // through the same ComparisonPlotDialog path as every other entry
+    // point. The user gets toolbar / range slider / hover / stats tab
+    // instead of the legacy single-attribute dialog.
+    connect(dlg, &ProfilePlotDialog::plotTimeSeriesRequested,
+            this, &SWMMVis::openComparisonPlotFor);
     dlg->show();
 }
 
@@ -803,6 +1475,7 @@ void SWMMVis::initializeSimulationStatusDockWidget()
     view->setColumnWidth(SimulationStatusModel::ColEndDate,     140);
     view->setColumnWidth(SimulationStatusModel::ColRunoffErr,    90);
     view->setColumnWidth(SimulationStatusModel::ColRoutingErr,   90);
+    view->setColumnWidth(SimulationStatusModel::ColVersion,      90);
     view->header()->setSectionResizeMode(SimulationStatusModel::ColDuration,
                                          QHeaderView::Stretch);
 
@@ -861,33 +1534,143 @@ void SWMMVis::initializeMenus()
     connect(ui->actionAddSWMMOutput, &QAction::triggered, this, &SWMMVis::onAddSWMMResultsLayer);
     connect(ui->actionExecute,       &QAction::triggered, this, &SWMMVis::onRunSimulation);
 
-    // Pause: toggle the paused flag on every active runner. The pause
-    // action itself is a checkable toggle in the toolbar — its state
-    // follows the paused flag.
-    ui->actionPauseExecution->setCheckable(true);
-    connect(ui->actionPauseExecution, &QAction::toggled, this, [this](bool paused) {
-        for (SimulationRunner *runner : std::as_const(mActiveRunners))
-            runner->setPaused(paused);
-        onLogMessage(paused
-            ? tr("Simulation paused — toggle again to resume.")
-            : tr("Simulation resumed."));
-    });
-
-    // Cancel: request an early stop. The runner still flushes the .out
-    // and .rpt via swmm_engine_end / _report / _close, so partial
-    // results are preserved. Finished-handler auto-loads them.
-    connect(ui->actionCancelExecution, &QAction::triggered, this, [this]() {
+    // Helper: resolve the runner the user wants to act on.  If the
+    // Simulation Status dock has a selected row, use that job's runner;
+    // otherwise fall back to the single active runner when there's
+    // exactly one in flight.  Returns nullptr (and logs / messageboxes
+    // an explanation) when no unambiguous target can be chosen.
+    auto resolveTargetRunner = [this](const QString &actionLabel) -> SimulationRunner * {
         if (mActiveRunners.isEmpty()) {
-            onLogMessage(tr("Cancel: no simulation is running."),
+            onLogMessage(tr("%1: no simulation is running.").arg(actionLabel),
                          OpenSWMMVisLogMessage::LogMessageType::Information);
+            return nullptr;
+        }
+        // Try the selection in the dock first.
+        if (auto *view = ui->treeViewSimulationStatus) {
+            const auto rows = view->selectionModel()
+                                  ? view->selectionModel()->selectedRows()
+                                  : QModelIndexList{};
+            for (const QModelIndex &idx : rows) {
+                const int row = idx.parent().isValid() ? idx.parent().row()
+                                                        : idx.row();
+                const int jobId = mSimStatusModel->jobIdForRow(row);
+                if (auto *r = mActiveRunners.value(jobId, nullptr))
+                    return r;
+            }
+        }
+        // No (active) selection — only proceed when exactly one runner
+        // is in flight so the user can't accidentally hit the wrong one.
+        if (mActiveRunners.size() == 1)
+            return *mActiveRunners.begin();
+        QMessageBox::information(this, tr("%1 simulation").arg(actionLabel),
+            tr("Multiple simulations are running.\n"
+               "Select the one you want to %1 in the Simulation Status "
+               "panel first.").arg(actionLabel.toLower()));
+        return nullptr;
+    };
+
+    // Pause: toggle the paused flag on the *selected* runner. The action
+    // is a checkable toggle in the toolbar — its state follows the
+    // resolved runner's paused flag.
+    ui->actionPauseExecution->setCheckable(true);
+    connect(ui->actionPauseExecution, &QAction::toggled, this,
+            [this, resolveTargetRunner](bool paused) {
+        SimulationRunner *runner = resolveTargetRunner(tr("Pause"));
+        if (!runner) {
+            // Bounce the checked state back so the toolbar reflects reality.
+            QSignalBlocker b(ui->actionPauseExecution);
+            ui->actionPauseExecution->setChecked(false);
             return;
         }
-        for (SimulationRunner *runner : std::as_const(mActiveRunners))
+        runner->setPaused(paused);
+        onLogMessage(paused
+            ? tr("Simulation paused — toggle again to resume (%1).")
+                  .arg(QFileInfo(runner->inpPath()).fileName())
+            : tr("Simulation resumed (%1).")
+                  .arg(QFileInfo(runner->inpPath()).fileName()));
+    });
+
+    // Stop: pause first, confirm with the user, then either cancel
+    // (which still flushes .out / .rpt so partial results are saved
+    // and auto-loaded by the finished handler) or resume.
+    connect(ui->actionCancelExecution, &QAction::triggered, this,
+            [this, resolveTargetRunner]() {
+        SimulationRunner *runner = resolveTargetRunner(tr("Stop"));
+        if (!runner) return;
+        const bool wasPaused = runner->isPaused();
+        if (!wasPaused) runner->setPaused(true);
+
+        const QString name = QFileInfo(runner->inpPath()).fileName();
+        const auto reply = QMessageBox::question(
+            this, tr("Stop simulation"),
+            tr("Stop \"%1\" now?\n\n"
+               "The simulation is paused.  Choosing Yes flushes whatever "
+               "the engine has produced up to this point to the .out / "
+               ".rpt files and loads the partial results.  Choosing No "
+               "resumes the run.").arg(name),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+
+        if (reply == QMessageBox::Yes) {
+            runner->setPaused(false);     // un-pause so the step loop can exit
             runner->cancel();
-        onLogMessage(tr("Simulation cancel requested; partial results will "
-                        "be saved to the .out file."));
+            onLogMessage(tr("Stop requested for %1 — partial results will "
+                            "be saved to the .out file.").arg(name));
+        } else if (!wasPaused) {
+            // User aborted the stop — resume since we paused implicitly.
+            runner->setPaused(false);
+        }
     });
     connect(ui->actionOptions,       &QAction::triggered, this, &SWMMVis::onSimulationOptions);
+
+    // Animation toolbar — Show Legend toggles the on-canvas legend
+    // overlay for the active project window's canvas. The overlay is
+    // a draggable child widget of the canvas; one overlay per canvas
+    // (lazily created here and reused on every show / hide cycle).
+    ui->actionShowLegend->setCheckable(true);
+    connect(ui->actionShowLegend, &QAction::triggered, this, [this](bool checked) {
+        auto *c = activeCanvas();
+        if (!c) {
+            // No active canvas — silently revert the toggle so the
+            // toolbar state never lies about what's actually shown.
+            QSignalBlocker b(ui->actionShowLegend);
+            ui->actionShowLegend->setChecked(false);
+            return;
+        }
+        auto *overlay = c->findChild<openswmmvis::ui::LegendOverlay *>(
+            QString(), Qt::FindDirectChildrenOnly);
+        if (!overlay)
+            overlay = new openswmmvis::ui::LegendOverlay(c);
+        overlay->setVisible(checked);
+        if (checked) overlay->raise();
+    });
+
+    // Animation toolbar — Set Style opens the SymbologyDialog for the
+    // currently selected layer (LayerTreePanel selection). When nothing
+    // is selected, fall back to the active canvas's top visible layer so
+    // a single click on the toolbar still does something useful.
+    connect(ui->actionSetStyle, &QAction::triggered, this, [this]() {
+        OpenSWMMVisLayer *target = mLayerTreePanel ? mLayerTreePanel->selectedLayer()
+                                                   : nullptr;
+        if (!target) {
+            if (auto *c = activeCanvas()) {
+                for (int i = c->layerCount() - 1; i >= 0; --i) {
+                    if (OpenSWMMVisLayer *l = c->layerAt(i); l && l->isVisible()) {
+                        target = l; break;
+                    }
+                }
+            }
+        }
+        if (!target) {
+            QMessageBox::information(this, tr("Set Style"),
+                tr("Select a layer in the Layers panel to edit its style."));
+            return;
+        }
+        openswmmvis::ui::SymbologyDialog dlg(target, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            if (auto *c = activeCanvas())
+                c->invalidate(MapCanvas::Scene, QStringLiteral("symbology-apply"));
+        }
+    });
 
     // Tools → Set Project CRS… (added programmatically).
     if (ui->menuTools)
@@ -898,6 +1681,142 @@ void SWMMVis::initializeMenus()
         actSetCRS->setToolTip(tr("Choose or change the project's coordinate reference system"));
         connect(actSetCRS, &QAction::triggered, this, &SWMMVis::onCRSButtonClicked);
 
+        // Slice CF.3 — Tools → Pick 2D Cells (added programmatically).
+        // Checkable so it participates in the existing toolbar tool-sync
+        // (toolActionKeys → onActiveSubWindowChanged updates checked state
+        // when the active map tool changes).
+        auto *actPick2DCells = ui->menuTools->addAction(tr("Pick 2D Cells…"));
+        actPick2DCells->setObjectName(QStringLiteral("actionPick2DCells"));
+        actPick2DCells->setCheckable(true);
+        actPick2DCells->setIcon(QIcon(QStringLiteral(":/swmmvis/Crosshair")));
+        actPick2DCells->setToolTip(tr(
+            "Box-select (default) or lasso-select cells on the 2D mesh "
+            "results layer to plot their depth / HGL / velocity time "
+            "series. Press B or L while active to swap modes; Esc cancels."));
+        connect(actPick2DCells, &QAction::toggled, this,
+                [this, actPick2DCells](bool checked) {
+            auto *pw = activeProjectWindow();
+            if (!pw) {
+                actPick2DCells->setChecked(false);
+                return;
+            }
+            if (checked) {
+                pw->activatePick2DCellsTool();
+            } else {
+                // Revert to the default Select tool when the user un-checks
+                // — symmetric with the Add Node / Add Link toggle behaviour.
+                pw->activateSelectTool();
+            }
+        });
+
+        // Pin it to the Analysis toolbar (its natural home — results-oriented).
+        // Fall back to the main toolbar if Analysis isn't present.
+        if (ui->toolBarAnalysis) {
+            ui->toolBarAnalysis->addSeparator();
+            ui->toolBarAnalysis->addAction(actPick2DCells);
+        } else if (ui->toolBarMain) {
+            ui->toolBarMain->addAction(actPick2DCells);
+        }
+    }
+
+    // ── Slice BM.0 / DA.3 — Data menu + Add-New shortcut wiring ─────────────
+    //
+    // Inserts a new top-level "Data" menu between "View" and "Tools" so the
+    // user has a keyboard-accelerated path to "Add New <Type>…" without
+    // hunting through the Object Browser context menu. Each menu item opens
+    // the typed `NewDataObjectDialog` (DA.3) — auto-suggested name + per-
+    // type subtype combo — and dispatches through
+    // `ObjectBrowserPanel::addNewDataObject`, same code path as the
+    // browser's right-click → "Add New…" action.
+    //
+    // The toolbar strip (BM.0.4) lives at the right end of the existing
+    // Edit toolbar with the five most-used types: Time Series, Curve,
+    // Time Pattern, LID Control, Pollutant.
+    {
+        // Helper closure capturing `this`; reused by both the menu and the
+        // toolbar so the dialog UX stays consistent.
+        auto promptAndAdd = [this](SWMMModelLayer::DataCategory dc) {
+            if (!mObjectBrowserPanel) return;
+            auto *layer = mActiveProjectWindow
+                          ? mActiveProjectWindow->modelLayer()
+                          : nullptr;
+            auto spec = NewDataObjectDialog::getNew(dc, layer, this);
+            if (!spec) return;
+            mObjectBrowserPanel->addNewDataObject(
+                spec->category, spec->name, spec->options);
+        };
+
+        auto *menuData = new QMenu(tr("&Data"), this);
+        menuData->setObjectName(QStringLiteral("menuData"));
+
+        struct DataEntry {
+            SWMMModelLayer::DataCategory dc;
+            const char                  *menuLabel;
+            bool                         separatorAfter;
+        };
+        // DA.3 / BM.0.3 ordering: tables first, then quality, then
+        // subsurface, then dynamic-behaviour (rules + RDII + climate),
+        // and finally streets/inlets. nullptr label means "separator
+        // here, no menu item".
+        static const DataEntry kEntries[] = {
+            {SWMMModelLayer::DataTimeSeries,  QT_TR_NOOP("New Time &Series…"),  false},
+            {SWMMModelLayer::DataCurves,      QT_TR_NOOP("New &Curve…"),        false},
+            {SWMMModelLayer::DataPatterns,    QT_TR_NOOP("New Time &Pattern…"), true},
+            {SWMMModelLayer::DataLIDControls, QT_TR_NOOP("New &LID Control…"),  false},
+            {SWMMModelLayer::DataPollutants,  QT_TR_NOOP("New Po&llutant…"),    false},
+            {SWMMModelLayer::DataLandUses,    QT_TR_NOOP("New L&and Use…"),     true},
+            {SWMMModelLayer::DataAquifers,    QT_TR_NOOP("New A&quifer…"),      false},
+            {SWMMModelLayer::DataSnowpacks,   QT_TR_NOOP("New S&nowpack…"),     true},
+            // DA.3 — Control Rules + Unit Hydrographs land in the menu.
+            {SWMMModelLayer::DataControls,    QT_TR_NOOP("New Control &Rule…"), false},
+            {SWMMModelLayer::DataTransects,   QT_TR_NOOP("New &Transect…"),     false},
+            {SWMMModelLayer::DataHydrographs, QT_TR_NOOP("New Unit &Hydrograph…"), true},
+            {SWMMModelLayer::DataStreets,     QT_TR_NOOP("New St&reet…"),       false},
+            {SWMMModelLayer::DataInlets,      QT_TR_NOOP("New &Inlet…"),        false},
+        };
+        for (const auto &e : kEntries) {
+            auto *act = menuData->addAction(tr(e.menuLabel));
+            connect(act, &QAction::triggered, this,
+                    [promptAndAdd, dc = e.dc] {
+                promptAndAdd(dc);
+            });
+            if (e.separatorAfter) menuData->addSeparator();
+        }
+
+        // Insert before "Tools" so the menu order reads File / Edit /
+        // View / Data / Tools / Help.
+        if (ui->menuTools) {
+            menuBar()->insertMenu(ui->menuTools->menuAction(), menuData);
+        } else {
+            menuBar()->addMenu(menuData);
+        }
+
+        // ── BM.0.4 — Data toolbar strip on the Edit toolbar ─────────────
+        QToolBar *editBar = ui->toolBarEdit ? ui->toolBarEdit : ui->toolBarMain;
+        if (editBar) {
+            editBar->addSeparator();
+            struct ToolEntry {
+                SWMMModelLayer::DataCategory dc;
+                const char                  *tooltip;
+            };
+            static const ToolEntry kToolEntries[] = {
+                {SWMMModelLayer::DataTimeSeries,  QT_TR_NOOP("New Time Series…")},
+                {SWMMModelLayer::DataCurves,      QT_TR_NOOP("New Curve…")},
+                {SWMMModelLayer::DataPatterns,    QT_TR_NOOP("New Time Pattern…")},
+                {SWMMModelLayer::DataLIDControls, QT_TR_NOOP("New LID Control…")},
+                {SWMMModelLayer::DataPollutants,  QT_TR_NOOP("New Pollutant…")},
+            };
+            for (const auto &e : kToolEntries) {
+                auto *act = editBar->addAction(
+                    QIcon(QStringLiteral(":/swmmvis/Layers")),
+                    tr(e.tooltip));
+                act->setToolTip(tr(e.tooltip));
+                connect(act, &QAction::triggered, this,
+                        [promptAndAdd, dc = e.dc] {
+                    promptAndAdd(dc);
+                });
+            }
+        }
     }
 
     // Tools → Preferences… (Slice V). The .ui defines `actionSettings`
@@ -989,7 +1908,22 @@ void SWMMVis::initializeMenus()
             }
             MeshGenerationDialog dlg(pw, this);
             if (dlg.exec() == QDialog::Accepted)
+            {
                 onLogMessage(tr("2D mesh generated and written."));
+
+                // Creating a mesh is what activates the 2D module. The
+                // SimulationOptionsDialog persists the same flag under this
+                // key; writing it here means the next open of that dialog
+                // will see the module already checked.
+                if (auto *ml = pw->modelLayer())
+                {
+                    QSettings s;
+                    const QString key =
+                        QStringLiteral("SWMMVis/Project/%1/Module2DEnabled")
+                            .arg(ml->modelFilePath());
+                    s.setValue(key, true);
+                }
+            }
         });
 
     // ---- Window menu (programmatic — .ui has no menuWindow) ----
@@ -1105,6 +2039,14 @@ void SWMMVis::closeEvent(QCloseEvent *event)
             }
         }
     }
+    // Close any open profile-plot dialogs.  They're top-level windows
+    // parented to `nullptr` (so they get their own dock icon on macOS)
+    // and therefore don't die automatically with the main window.
+    // `WA_DeleteOnClose` handles the destruction.
+    for (QWidget *top : QApplication::topLevelWidgets()) {
+        if (auto *dlg = qobject_cast<ProfilePlotDialog *>(top))
+            dlg->close();
+    }
     saveSettings();
     QMainWindow::closeEvent(event);
 }
@@ -1169,64 +2111,174 @@ void SWMMVis::removeWelcomeSubWindow()
 
 namespace {
 
+// Format an integer second count as HH:MM:SS — required by SWMM's
+// [OPTIONS] step keys (REPORT_STEP, WET_STEP, …). 0 → "00:00:00".
+QString secondsToHms(int seconds)
+{
+    seconds = std::max(0, seconds);
+    const int h = seconds / 3600;
+    const int m = (seconds % 3600) / 60;
+    const int s = seconds % 60;
+    return QStringLiteral("%1:%2:%3")
+        .arg(h, 2, 10, QChar('0'))
+        .arg(m, 2, 10, QChar('0'))
+        .arg(s, 2, 10, QChar('0'));
+}
+
+// Emit a routing-step value with sub-second precision when needed
+// (engine accepts "0:00:05" as well as "5" — keep the HH:MM:SS form
+// for stylistic consistency with the other step keys; fall back to a
+// raw decimal-seconds value when the user wants < 1 s granularity).
+QString routingStepToken(double seconds)
+{
+    if (seconds < 1.0 || std::fabs(seconds - std::round(seconds)) > 1e-6)
+        return QString::number(seconds, 'g', 6);
+    return secondsToHms(static_cast<int>(std::round(seconds)));
+}
+
 // Build a minimum-viable SWMM .inp from the New-Project dialog inputs.
 // SWMM tolerates many missing sections; we keep [TITLE], [OPTIONS], and
 // [REPORT] explicit so the engine has stable defaults to read back.
-QString synthesizeBlankInp(const NewProjectDialog::Result &r)
+//
+// Engine-aware: emits modern-engine keys (NODE_CONTINUITY, ANDERSON_ACCEL)
+// only when `forNewEngine` is true. Legacy SWMM 5.x silently accepts most
+// other modern keys (SURCHARGE_METHOD, INERTIAL_DAMPING, LAT_FLOW_TOL, …)
+// because they have legacy precedents; only the two new-engine-only knobs
+// are gated.
+QString synthesizeBlankInp(const NewProjectDialog::Result &r,
+                            const PreferencesManager::SimulationDefaults &d,
+                            bool forNewEngine)
 {
     const QString startDate = r.startDateTime.toString(QStringLiteral("MM/dd/yyyy"));
     const QString startTime = r.startDateTime.toString(QStringLiteral("HH:mm:ss"));
     const QString endDate   = r.endDateTime.toString(QStringLiteral("MM/dd/yyyy"));
     const QString endTime   = r.endDateTime.toString(QStringLiteral("HH:mm:ss"));
-    return QStringLiteral(
-"[TITLE]\n"
-"%1\n\n"
-"[OPTIONS]\n"
-"FLOW_UNITS           %2\n"
-"INFILTRATION         %3\n"
-"FLOW_ROUTING         %4\n"
-"START_DATE           %5\n"
-"START_TIME           %6\n"
-"END_DATE             %7\n"
-"END_TIME             %8\n"
-"REPORT_START_DATE    %5\n"
-"REPORT_START_TIME    %6\n"
-"SWEEP_START          01/01\n"
-"SWEEP_END            12/31\n"
-"DRY_DAYS             0\n"
-"REPORT_STEP          00:15:00\n"
-"WET_STEP             00:05:00\n"
-"DRY_STEP             01:00:00\n"
-"ROUTING_STEP         0:00:30\n\n"
-"[REPORT]\n"
+
+    const QString yesNo[2] = {QStringLiteral("NO"), QStringLiteral("YES")};
+    const auto yn = [&](bool v) { return yesNo[v ? 1 : 0]; };
+
+    // VARIABLE_STEP is a Courant fraction in [0, 1]; the engine treats 0
+    // as "disabled" and the GUI exposes that as a separate toggle. When
+    // the toggle is off, force the factor to 0 regardless of the spin.
+    const double variableStep = d.variableStepOn ? d.variableStepFactor : 0.0;
+
+    // Tolerances surfaced as percent in the GUI, stored as fractions in
+    // the engine internals; the .inp ingests percent.
+    QString out;
+    out.reserve(2048);
+    out += QStringLiteral("[TITLE]\n%1\n\n").arg(r.name);
+    out += QStringLiteral("[OPTIONS]\n");
+
+    auto kv = [&](const char *key, const QString &value) {
+        out += QStringLiteral("%1 %2\n")
+            .arg(QString::fromLatin1(key), -20).arg(value);
+    };
+
+    kv("FLOW_UNITS",          d.flowUnits);
+    kv("INFILTRATION",        d.infiltrationModel);
+    kv("FLOW_ROUTING",        d.flowRouting);
+    kv("LINK_OFFSETS",        QStringLiteral("DEPTH"));
+    kv("MIN_SLOPE",           QString::number(d.minSlopePct, 'g', 6));
+    kv("ALLOW_PONDING",       yn(d.allowPonding));
+    kv("SKIP_STEADY_STATE",   yn(d.skipSteadyState));
+
+    kv("START_DATE",          startDate);
+    kv("START_TIME",          startTime);
+    kv("END_DATE",            endDate);
+    kv("END_TIME",            endTime);
+    kv("REPORT_START_DATE",   startDate);
+    kv("REPORT_START_TIME",   startTime);
+    kv("SWEEP_START",         d.sweepStart);
+    kv("SWEEP_END",           d.sweepEnd);
+    kv("DRY_DAYS",            QString::number(d.dryDays, 'g', 6));
+    kv("REPORT_STEP",         secondsToHms(d.reportStepSec));
+    kv("WET_STEP",            secondsToHms(d.wetStepSec));
+    kv("DRY_STEP",            secondsToHms(d.dryStepSec));
+    kv("ROUTING_STEP",        routingStepToken(d.routingStepSec));
+    kv("RULE_STEP",           secondsToHms(d.ruleStepSec));
+
+    // Process-module toggles (refactored engine supports IGNORE_* across
+    // the board; legacy honours all of these too — gated only on the
+    // engine-aware emit further down).
+    kv("IGNORE_RAINFALL",     yn(d.ignoreRainfall));
+    kv("IGNORE_SNOWMELT",     yn(d.ignoreSnowmelt));
+    kv("IGNORE_GROUNDWATER",  yn(d.ignoreGroundwater));
+    kv("IGNORE_RDII",         yn(d.ignoreRdii));
+    kv("IGNORE_QUALITY",      yn(d.ignoreQuality));
+    kv("IGNORE_ROUTING",      yn(d.ignoreRouting));
+
+    // Hydraulics — DW knobs go in regardless of routing method; the
+    // engine ignores them under STEADY/KINWAVE.
+    kv("INERTIAL_DAMPING",    d.inertialDamping);
+    kv("NORMAL_FLOW_LIMITED", d.normalFlowLimited);
+    kv("FORCE_MAIN_EQUATION", d.forceMainEquation);
+    kv("SURCHARGE_METHOD",    d.surchargeMethod);
+    kv("VARIABLE_STEP",       QString::number(variableStep, 'g', 6));
+    kv("LENGTHENING_STEP",    QString::number(d.lengtheningStepSec, 'g', 6));
+    kv("MINIMUM_STEP",        QString::number(d.minRoutingStepSec, 'g', 6));
+    kv("MAX_TRIALS",          QString::number(d.maxTrials));
+    kv("HEAD_TOLERANCE",      QString::number(d.headTolerance, 'g', 6));
+    kv("SYS_FLOW_TOL",        QString::number(d.sysFlowTolPct, 'g', 6));
+    kv("LAT_FLOW_TOL",        QString::number(d.latFlowTolPct, 'g', 6));
+    kv("THREADS",             QString::number(d.threads));
+
+    if (forNewEngine) {
+        kv("NODE_CONTINUITY", d.nodeContinuity);
+        kv("ANDERSON_ACCEL",  yn(d.andersonAccel));
+    }
+
+    out += QStringLiteral("\n[REPORT]\n"
 "INPUT      NO\n"
 "CONTROLS   NO\n"
 "SUBCATCHMENTS ALL\n"
 "NODES      ALL\n"
-"LINKS      ALL\n")
-        .arg(r.name, r.flowUnits, r.infiltrationModel, r.flowRouting,
-             startDate, startTime, endDate, endTime);
+"LINKS      ALL\n");
+    return out;
 }
 
 } // namespace
 
 void SWMMVis::onNewProject()
 {
-    // Match legacy SWMM5: File → New creates a blank untitled project
-    // immediately with hard-coded defaults — no dialog interruption.
-    // Templates / explicit CRS choice live in a future "New From
-    // Template…" entry; NewProjectDialog stays available for that.
+    // File → New creates a blank untitled project immediately — no
+    // dialog interruption — using defaults persisted through
+    // PreferencesManager (edit them in Preferences → "Simulation
+    // Defaults" / "Dynamic Wave Defaults"). Templates / explicit CRS
+    // choice live in a future "New From Template…" entry; NewProjectDialog
+    // stays available for that.
+    auto *prefs  = PreferencesManager::instance();
+    auto         sim = prefs->simulationDefaults();
+
+    // THREADS persisted default is 0 (engine auto). On File→New we max
+    // to the machine's logical-processor count so a fresh project starts
+    // saturated; the user's persisted choice still overrides when non-zero.
+    if (sim.threads <= 0) {
+        const int hw = QThread::idealThreadCount();
+        sim.threads = hw > 0 ? hw : 1;
+    }
+
     NewProjectDialog::Result r;
     r.name              = QStringLiteral("Untitled");
-    r.flowUnits         = QStringLiteral("CFS");
-    r.infiltrationModel = QStringLiteral("HORTON");
-    r.flowRouting       = QStringLiteral("DYNWAVE");
-    r.startDateTime     = QDateTime(QDate(2002, 1, 1), QTime(0, 0));
-    r.endDateTime       = QDateTime(QDate(2002, 1, 1), QTime(6, 0));
+    r.flowUnits         = sim.flowUnits;
+    r.infiltrationModel = sim.infiltrationModel;
+    r.flowRouting       = sim.flowRouting;
+    // Start at today's midnight; end 24 h later. The legacy hard-coded
+    // 2002-01-01 + 6 h window was a SWMM5 echo; modern projects almost
+    // always re-set this anyway, and "current day at midnight" makes the
+    // synthetic .inp self-describing in the timeline.
+    const QDate today = QDate::currentDate();
+    r.startDateTime    = QDateTime(today, QTime(0, 0));
+    r.endDateTime      = r.startDateTime.addSecs(24 * 3600);
     // crsAuthCode intentionally left empty — SWMMModelLayer::loadModel
     // pulls the default CRS from PreferencesManager when the .inp carries
     // none, and the project window propagates that to the canvas. No
     // post-load override here keeps layer/canvas in lockstep.
+
+    // Engine-aware emit: NODE_CONTINUITY + ANDERSON_ACCEL are gated on the
+    // refactored engine being the active default.
+    QString defaultEngine = prefs->defaultEngineMode();
+    if (defaultEngine.isEmpty()) defaultEngine = QLatin1String(SWMM_VERSION);
+    const bool forNewEngine = (defaultEngine == QLatin1String(SWMM_VERSION));
 
     // Write a synthetic .inp into the system temp dir with a unique name.
     // The path is owned by the resulting project window and deleted on
@@ -1244,7 +2296,7 @@ void SWMMVis::onNewProject()
                 tr("Could not write temp file at %1").arg(tempPath));
             return;
         }
-        f.write(synthesizeBlankInp(r).toUtf8());
+        f.write(synthesizeBlankInp(r, sim, forNewEngine).toUtf8());
     }
 
     // Reuse the standard load path. After it returns, undo the
@@ -1600,7 +2652,7 @@ void SWMMVis::openSingleINP(const QString &filePath)
                 if (rl->openResults(rlW, rlE)) {
                     rl->autoStretchColorRamp();
                     if (mAnimationController)
-                        mAnimationController->setLayer(rl);
+                        mAnimationController->setPrimaryLayer(rl);
                     onLogMessage(tr("Auto-loaded results: %1").arg(QFileInfo(candidate).fileName()));
                 }
                 for (const QString &e : rlE)
@@ -1609,13 +2661,170 @@ void SWMMVis::openSingleINP(const QString &filePath)
             }
         }
 
+        // ── 2D mesh + previous-run HDF5 results auto-load ─────────────────────
+        // Pull the static mesh geometry out of the .inp (or the linked .2dm)
+        // so the user sees the surface routing domain immediately after open,
+        // without having to start a simulation. Then check [2D_OPTIONS]
+        // OUTPUT_FILE — if the engine has already written an HDF5 from a prior
+        // run, attach a scrub-ready SWMM2DResultsLayer over the mesh.
+        if (window->canvas() && window->modelLayer())
+        {
+            const mesh::InpMeshReadResult meshRead = mesh::InpMeshReader::read(filePath);
+            if (!meshRead.errorMsg.isEmpty()) {
+                onLogMessage(meshRead.errorMsg,
+                             OpenSWMMVisLogMessage::LogMessageType::Warning);
+            }
+            if (meshRead.hasMesh) {
+                auto *meshLayer = new SWMM2DMeshLayer(meshRead.mesh, meshRead.sourcePath);
+                meshLayer->setActiveMesh(meshRead.isExternal);
+                meshLayer->setName(meshRead.sourcePath.isEmpty()
+                                       ? QStringLiteral("Mesh (inline)")
+                                       : QFileInfo(meshRead.sourcePath).fileName());
+                // Mesh coordinates are in the model CRS; the layer reprojects
+                // to canvas CRS when populating the scene.
+                if (window->modelLayer()->srs())
+                    meshLayer->setSRS(
+                        new SpatialReferenceSystem(*window->modelLayer()->srs(), meshLayer),
+                        /*ownsSRS=*/true);
+                window->canvas()->addLayer(meshLayer, /*pushUndo=*/false);
+                onLogMessage(tr("Loaded 2D mesh: %1 vertices, %2 triangles (%3)")
+                                 .arg(meshRead.mesh.vertices.size())
+                                 .arg(meshRead.mesh.triangles.size())
+                                 .arg(meshRead.isExternal
+                                          ? QFileInfo(meshRead.sourcePath).fileName()
+                                          : tr("inline")));
+
+                // Surface previous-run HDF5 depth results so the user can
+                // scrub without re-running. Skip when there's no [2D_OPTIONS]
+                // OUTPUT_FILE entry or when the referenced file is missing.
+                const QString h5Path = SimulationRunner::parseTwoDOutputFile(filePath);
+                if (h5Path.isEmpty()) {
+                    onLogMessage(tr("2D results auto-load skipped: no [2D_OPTIONS] "
+                                     "OUTPUT_FILE in %1").arg(QFileInfo(filePath).fileName()));
+                } else if (!QFileInfo::exists(h5Path)) {
+                    onLogMessage(tr("2D results auto-load skipped: file does not "
+                                     "exist (resolved: %1)").arg(h5Path));
+                } else {
+                    auto h5Src = std::make_unique<HDF5Mesh2DSource>();
+                    if (h5Src->open(h5Path))
+                    {
+                        // Anchor the HDF5 source's time axis to the engine's
+                        // simulation start so the global animation slider's
+                        // QDateTime ticks map to 2D frame indices. Without
+                        // this, source->simTimeAt() returns invalid for every
+                        // frame and SWMM2DResultsLayer::setCurrentSimTime
+                        // silently no-ops on every slider scrub.
+                        if (window->modelLayer() && window->modelLayer()->engine()) {
+                            double startOA = 0.0;
+                            if (swmm_get_start_time(window->modelLayer()->engine(),
+                                                    &startOA) == SWMM_OK &&
+                                startOA > 0.0)
+                            {
+                                static const QDateTime kSwmmEpoch(
+                                    QDate(1899, 12, 30),
+                                    QTime(0, 0), QTimeZone::LocalTime);
+                                const QDateTime simStart =
+                                    kSwmmEpoch.addMSecs(static_cast<qint64>(
+                                        startOA * 86400.0 * 1000.0));
+                                if (simStart.isValid()) {
+                                    h5Src->setSimulationStart(simStart);
+                                    onLogMessage(tr("2D layer time anchor: %1")
+                                                     .arg(simStart.toString(
+                                                         Qt::ISODate)));
+                                }
+                            }
+                        }
+
+                        // Cache the bare source pointer for the post-set
+                        // peak-frame scan (setSource swallows ownership).
+                        IMesh2DSource* srcRaw = h5Src.get();
+                        auto *resLayer = new SWMM2DResultsLayer(
+                            QStringLiteral("2D Results"), nullptr);
+                        resLayer->setSource(std::move(h5Src));
+                        window->canvas()->addLayer(resLayer, /*pushUndo=*/false);
+
+                        // Scan all frames to find (a) the peak-inundation
+                        // frame to seek to and (b) the actual depth range so
+                        // we can auto-tune the ramp + dry-cell threshold.
+                        // setSource() defaults to the LAST frame, which for
+                        // many runs is fully drained.
+                        const int nFrames = srcRaw->timeCount();
+                        int   peakFrame = 0;
+                        float peakDepth = 0.0f;
+                        std::vector<float> probe;
+                        for (int t = 0; t < nFrames; ++t) {
+                            if (!srcRaw->readDepthsAt(t, probe)) continue;
+                            if (probe.empty()) continue;
+                            const float m = *std::max_element(probe.begin(),
+                                                                probe.end());
+                            if (m > peakDepth) { peakDepth = m; peakFrame = t; }
+                        }
+
+                        // Honour the engine's DRY_DEPTH (via the live engine
+                        // handle) so the GUI render threshold matches what
+                        // the solver considers wet — without this, the
+                        // GUI default (5 mm) clips shallow runs invisibly.
+                        // Falls back to a small data-derived floor when the
+                        // engine doesn't yet have 2D options live.
+                        double engineDry = 0.0;
+                        if (window->modelLayer() && window->modelLayer()->engine() &&
+                            swmm_2d_get_dry_depth(window->modelLayer()->engine(),
+                                                   &engineDry) == SWMM_OK &&
+                            engineDry > 0.0)
+                        {
+                            resLayer->setDryDepth(engineDry);
+                        } else if (peakDepth > 0.0f) {
+                            resLayer->setDryDepth(std::max(1e-5, 0.05 * peakDepth));
+                        }
+
+                        // Tune the inundation colour ramp's upper bound to the
+                        // actual data peak; default (0.5 m) is way too loose
+                        // for typical overland-flow demos.
+                        if (peakDepth > 0.0f) {
+                            resLayer->setMaxDepth(peakDepth);
+                            resLayer->setCurrentTimeIndex(peakFrame);
+                        }
+
+                        // CF.MVP-fix.1 — register the 2D layer as the
+                        // animation controller's fallback driver so the
+                        // play/pause/slider toolbar ticks 2D frames even
+                        // when no 1D .out results are loaded.
+                        if (mAnimationController && !mAnimationController->primaryLayer()) {
+                            mAnimationController->setFallback2DLayer(resLayer);
+                        }
+
+                        onLogMessage(tr("Loaded 2D results: %1 (%2 frames, "
+                                         "peak depth %3 mm at frame %4, "
+                                         "peak velocity %5 mm/s)")
+                                         .arg(QFileInfo(h5Path).fileName())
+                                         .arg(nFrames)
+                                         .arg(double(peakDepth) * 1000.0, 0, 'f', 2)
+                                         .arg(peakFrame)
+                                         .arg(resLayer->maxVelocity() * 1000.0,
+                                              0, 'f', 3));
+                    } else {
+                        onLogMessage(tr("Found 2D output file but failed to open: %1")
+                                         .arg(h5Path),
+                                     OpenSWMMVisLogMessage::LogMessageType::Warning);
+                    }
+                }
+            }
+        }
+
         setWindowTitle(QStringLiteral("OpenSWMM — %1").arg(QFileInfo(filePath).baseName()));
         window->show();
         ui->mdiAreaCentral->setActiveSubWindow(window);
 
         // Re-run the activation handler now that the engine is loaded.
-        // addSubWindow() can fire subWindowActivated before loadModel(),
-        // leaving status-bar widgets showing pre-load defaults.
+        // addSubWindow() / setActiveSubWindow() can fire subWindowActivated
+        // before loadModel() finishes, which sets mActiveProjectWindow and
+        // makes the explicit re-call below trip the same-project guard in
+        // onActiveSubWindowChanged, leaving status-bar widgets showing
+        // pre-load defaults. Null the cache so the guard does not fire and
+        // the hydration block (Flow Units / Offset Mode / Map Scale / CRS /
+        // Engine Version) actually runs against the now-loaded engine.
+        // Required by §M.1 trigger 1 (project open) — see Slice CX.
+        mActiveProjectWindow = nullptr;
         onActiveSubWindowChanged(window);
     }
     else
@@ -1713,11 +2922,22 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         UnitSystem::setActiveProject(nullptr);
         mCheckBoxLevelOffsetMode->setEnabled(false);
         if (mCheckBoxAutoLength) mCheckBoxAutoLength->setEnabled(false);
+        if (mComboBoxMapScale) {
+            QSignalBlocker block(mComboBoxMapScale);
+            mComboBoxMapScale->setEditText(QString());
+            mComboBoxMapScale->setEnabled(false);
+        }
         mComboBoxFlowUnits->setEnabled(false);
+        if (mComboBoxEngineVersion) mComboBoxEngineVersion->setEnabled(false);
         if (mLayerTreePanel)        mLayerTreePanel->setCanvas(nullptr);
         if (mObjectBrowserPanel)    mObjectBrowserPanel->setProject(nullptr, nullptr, nullptr);
         if (mAttributePanel)      { mAttributePanel->setProject(nullptr); mAttributePanel->clear(); }
         if (mAttributeTablePanel)   mAttributeTablePanel->setProject(nullptr, nullptr, nullptr);
+        if (mTerrainToolbar)        mTerrainToolbar->rebindCanvas(nullptr);
+        ui->actionEditExisting->setChecked(false);
+        ui->actionEditExisting->setEnabled(false);
+        applyEditSessionToActions(false);
+        applyProjectOpenToActions(false);
         mActiveProjectWindow = nullptr;
         return;
     }
@@ -1728,12 +2948,75 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         return;
     mActiveProjectWindow = pw;
 
+    // Animation toolbar follows the active project tab — point the
+    // shared controller at this tab's first SWMMResultsLayer so the
+    // slider range, datetime edit, and play/pause/skip actions all
+    // operate on the data the user is looking at. Tabs without a
+    // results layer reset the controller to nullptr, which collapses
+    // the slider range to 0 and disables the transport.
+    {
+        SWMMResultsLayer *primary = nullptr;
+        if (pw->canvas()) {
+            for (OpenSWMMVisLayer *l : pw->canvas()->layers()) {
+                if (auto *rl = qobject_cast<SWMMResultsLayer *>(l)) {
+                    primary = rl;
+                    break;
+                }
+            }
+        }
+        if (mAnimationController) mAnimationController->setPrimaryLayer(primary);
+    }
+
     // Rebind canvas signals to the newly active canvas. UniqueConnection avoids
     // duplicating on repeated activation of the same window.
     connect(pw->canvas(), &MapCanvas::cursorPositionChanged,
             this, &SWMMVis::onCursorPositionChanged, Qt::UniqueConnection);
     connect(pw->canvas(), &MapCanvas::canvasSRSChanged,
             this, &SWMMVis::onCanvasSRSChanged, Qt::UniqueConnection);
+    connect(pw->canvas(), &MapCanvas::scaleChanged,
+            this, &SWMMVis::onCanvasScaleChanged, Qt::UniqueConnection);
+
+    // Prime the map-scale combo with the canvas's current scale so the
+    // statusbar isn't blank until the user's first zoom/pan.
+    if (mComboBoxMapScale) {
+        mComboBoxMapScale->setEnabled(true);
+        onCanvasScaleChanged(pw->canvas()->scaleDenominator());
+    }
+
+    // Sync toolbar checked state when the active tool changes.
+    // Build mapping once per window connection; lambda captures pw by value so
+    // it remains valid after a window switch (pw stays alive in the MDI area).
+    QObject::disconnect(pw->canvas(), &MapCanvas::activeToolChanged, this, nullptr);
+    connect(pw->canvas(), &MapCanvas::activeToolChanged, this,
+            [this, pw](OpenSWMMVisMapTool *tool) {
+                if (pw != mActiveProjectWindow) return;
+                const QHash<OpenSWMMVisMapTool *, QString> keys = pw->toolActionKeys();
+                // Uncheck all tool actions, then check the active one.
+                for (const QString &name : keys.values()) {
+                    if (auto *act = findChild<QAction *>(name))
+                        act->setChecked(false);
+                }
+                if (tool) {
+                    const QString name = keys.value(tool);
+                    if (!name.isEmpty())
+                        if (auto *act = findChild<QAction *>(name))
+                            act->setChecked(true);
+                }
+            });
+
+    // Sync immediately to the current active tool of the newly focused window.
+    {
+        const QHash<OpenSWMMVisMapTool *, QString> keys = pw->toolActionKeys();
+        for (const QString &name : keys.values())
+            if (auto *act = findChild<QAction *>(name))
+                act->setChecked(false);
+        if (OpenSWMMVisMapTool *cur = pw->canvas()->activeTool()) {
+            const QString name = keys.value(cur);
+            if (!name.isEmpty())
+                if (auto *act = findChild<QAction *>(name))
+                    act->setChecked(true);
+        }
+    }
 
     // Rebind the UnitSystem facade. The facade re-emits unitsChanged on
     // rebind, which refreshes label-bearing dialogs without per-callsite work.
@@ -1770,6 +3053,35 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         mCheckBoxAutoLength->setEnabled(true);
     }
 
+    // Sync edit session toggle to the incoming project window's state.
+    // Disconnect any prior editSessionChanged connection from this window
+    // so repeated tab-switches don't stack handlers.
+    QObject::disconnect(pw, &SWMMVisProjectWindow::editSessionChanged, this, nullptr);
+    connect(pw, &SWMMVisProjectWindow::editSessionChanged, this,
+            [this, pw](bool active) {
+                if (pw != mActiveProjectWindow) return;
+                QSignalBlocker b(ui->actionEditExisting);
+                ui->actionEditExisting->setChecked(active);
+                applyEditSessionToActions(active);
+            }, Qt::UniqueConnection);
+    {
+        const bool active = pw->isEditSessionActive();
+        QSignalBlocker b(ui->actionEditExisting);
+        ui->actionEditExisting->setChecked(active);
+        ui->actionEditExisting->setEnabled(true);
+        applyEditSessionToActions(active);
+        applyProjectOpenToActions(true);
+    }
+
+    // Sync engine version combo to the active project.
+    if (mComboBoxEngineVersion)
+    {
+        QSignalBlocker b(mComboBoxEngineVersion);
+        const int idx = mComboBoxEngineVersion->findData(pw->engineVersion());
+        mComboBoxEngineVersion->setCurrentIndex(idx >= 0 ? idx : 0);
+        mComboBoxEngineVersion->setEnabled(true);
+    }
+
     SpatialReferenceSystem *srs = pw->canvas()->canvasSRS();
     mToolButtonCoordinateReferenceSystem->setText(
         srs ? srs->toAuthority() : QStringLiteral("EPSG:4326"));
@@ -1781,7 +3093,34 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         connect(st, &OpenSWMMVisMapToolSelect::plotTimeSeriesRequested,
                 this, &SWMMVis::openTimeSeriesPlotFor,
                 Qt::UniqueConnection);
+        // Slice AT.2 — attribute submenu picks (Node/Link/Subcatch) and
+        // background-hit system-variable picks.
+        connect(st, &OpenSWMMVisMapToolSelect::plotAttributeRequested,
+                this, &SWMMVis::openComparisonPlotForAttribute,
+                Qt::UniqueConnection);
+        connect(st, &OpenSWMMVisMapToolSelect::plotSystemRequested,
+                this, &SWMMVis::openComparisonPlotForSystemAttribute,
+                Qt::UniqueConnection);
     }
+
+    // Slice BC — when MapToolSelectProfile finalizes a path, open the
+    // profile plot dialog bound to the active model + animation controller.
+    if (auto *pt = pw->selectProfileTool()) {
+        connect(pt, &OpenSWMMVisMapToolSelectProfile::profilePathSelected,
+                this, &SWMMVis::openProfilePlotFor,
+                Qt::UniqueConnection);
+        connect(pt, &OpenSWMMVisMapToolSelectProfile::statusMessageChanged,
+                statusBar(), [this](const QString &msg) {
+                    statusBar()->showMessage(msg, 5000);
+                }, Qt::UniqueConnection);
+    }
+
+    // Slice CF.3 — Pick 2D Cells tool: project window forwards cellsPicked
+    // here, and we open / focus the Comparison Plot Dialog seeded with the
+    // selected cells.
+    connect(pw, &SWMMVisProjectWindow::pick2DCellsPicked,
+            this, &SWMMVis::openComparisonPlotForCells,
+            Qt::UniqueConnection);
 
     // MVC live-sync: when the Simulation Options dialog writes through the
     // layer's setOption(), the layer emits optionsChanged({keys}). Refresh
@@ -1865,6 +3204,28 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                     auto *layer = pw->modelLayer();
                     if (!layer) return;
                     const SWMMObjectRef first = *current.constBegin();
+
+                    // Slice DA.2 — non-spatial Data Object kinds bypass
+                    // identifyByName (which only handles spatial features
+                    // with map coordinates) and dispatch straight to the
+                    // typed property adapter via showDataObject.
+                    using K = SWMMObjectRef::ObjectType;
+                    switch (first.objectType) {
+                    case K::Curve:        case K::TimeSeries:
+                    case K::TimePattern:  case K::LIDControl:
+                    case K::Pollutant:    case K::LandUse:
+                    case K::Aquifer:      case K::Snowpack:
+                    case K::Control:      case K::Transect:
+                    case K::Hydrograph:   case K::Street:
+                    case K::Inlet:        case K::RainGage:
+                        mAttributePanel->showDataObject(
+                            layer, static_cast<int>(first.objectType),
+                            first.name);
+                        return;
+                    default:
+                        break;
+                    }
+
                     const QVariantMap attrs = layer->identifyByName(first.name);
                     if (!attrs.isEmpty())
                     {
@@ -1877,6 +3238,50 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                     {
                         mAttributePanel->clear();
                     }
+                });
+    }
+
+    // Rebind the terrain toolbar to the new project's canvas and restore its
+    // per-project state.  Disconnect prior signal connections first to avoid
+    // stacking lambdas on every tab switch.
+    if (mTerrainToolbar) {
+        mTerrainToolbar->rebindCanvas(pw->canvas());
+        mTerrainToolbar->restoreState(pw->activeTerrainLayerPath(),
+                                      pw->terrainNodeOffset(),
+                                      pw->terrainLinkOffset(),
+                                      pw->terrainVerticalUnit());
+
+        QObject::disconnect(mTerrainToolbar, &TerrainToolbar::activeTerrainChanged,
+                            this, nullptr);
+        QObject::disconnect(mTerrainToolbar, &TerrainToolbar::nodeOffsetChanged,
+                            this, nullptr);
+        QObject::disconnect(mTerrainToolbar, &TerrainToolbar::linkOffsetChanged,
+                            this, nullptr);
+        QObject::disconnect(mTerrainToolbar, &TerrainToolbar::verticalUnitChanged,
+                            this, nullptr);
+
+        connect(mTerrainToolbar, &TerrainToolbar::activeTerrainChanged, this,
+                [this, pw](GISRasterLayer *layer) {
+                    if (pw != mActiveProjectWindow) return;
+                    pw->setActiveTerrain(layer);
+                    // Auto-detected unit was already set in onComboIndexChanged;
+                    // propagate it to the project window.
+                    pw->setTerrainVerticalUnit(mTerrainToolbar->verticalUnit());
+                });
+        connect(mTerrainToolbar, &TerrainToolbar::nodeOffsetChanged, this,
+                [this, pw](double offset) {
+                    if (pw != mActiveProjectWindow) return;
+                    pw->setTerrainNodeOffset(offset);
+                });
+        connect(mTerrainToolbar, &TerrainToolbar::linkOffsetChanged, this,
+                [this, pw](double offset) {
+                    if (pw != mActiveProjectWindow) return;
+                    pw->setTerrainLinkOffset(offset);
+                });
+        connect(mTerrainToolbar, &TerrainToolbar::verticalUnitChanged, this,
+                [this, pw](const QString &unit) {
+                    if (pw != mActiveProjectWindow) return;
+                    pw->setTerrainVerticalUnit(unit);
                 });
     }
 }
@@ -2103,7 +3508,8 @@ void SWMMVis::onSimulationOptions()
         return;
     }
 
-    SimulationOptionsDialog dlg(pw->modelLayer()->engine(), pw->modelLayer(), this);
+    SimulationOptionsDialog dlg(pw->modelLayer()->engine(), pw->modelLayer(),
+                                pw->engineVersion(), pw, this);
     if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
     {
         pw->setHasChanges(true);
@@ -2150,9 +3556,156 @@ void SWMMVis::onRunSimulation()
     QString rptPath = base + QStringLiteral(".rpt");
     QString outPath = base + QStringLiteral(".out");
 
+    // Also resolve the 2D HDF5 OUTPUT_FILE (when present in [2D_OPTIONS]) so
+    // we can detect, prompt-on, and clear stale 2D results in lockstep with
+    // the 1D .out — see CF.MVP-fix.2.
+    const QString h5Path = SimulationRunner::parseTwoDOutputFile(inpPath);
+
+    // ── Output-path collision guard ──────────────────────────────────
+    // 1) An in-flight simulation is already writing to this .out — hard
+    //    abort, even an overwrite would corrupt a running engine.
+    const QString outCanon = QFileInfo(outPath).absoluteFilePath();
+    for (SimulationRunner *runner : std::as_const(mActiveRunners)) {
+        if (QFileInfo(runner->outPath()).absoluteFilePath() == outCanon) {
+            QMessageBox::warning(this, tr("Output file in use"),
+                tr("A simulation is already writing to:\n%1\n\n"
+                   "Stop or wait for that run to finish before starting "
+                   "another with the same output file.").arg(outPath));
+            return;
+        }
+    }
+    // 2) Concluded run / pre-existing .out (or .h5) / already-loaded
+    //    results layer — overwriting is OK but warn the user first.
+    //    Inspect every project's canvas, not just this one's, since a
+    //    foreign project may have loaded the same .out / .h5 as a
+    //    comparison source.
+    {
+        const QString h5Canon = h5Path.isEmpty()
+                                  ? QString()
+                                  : QFileInfo(h5Path).absoluteFilePath();
+
+        bool resultLayerOpen   = false;
+        bool result2DLayerOpen = false;
+        for (QMdiSubWindow *sw : ui->mdiAreaCentral->subWindowList()) {
+            auto *otherPw = qobject_cast<SWMMVisProjectWindow *>(sw);
+            if (!otherPw || !otherPw->canvas()) continue;
+            for (OpenSWMMVisLayer *l : otherPw->canvas()->layers()) {
+                if (auto *rl = qobject_cast<SWMMResultsLayer *>(l)) {
+                    if (QFileInfo(rl->resultsFilePath()).absoluteFilePath() == outCanon) {
+                        resultLayerOpen = true;
+                    }
+                }
+                if (!h5Canon.isEmpty()) {
+                    if (auto *r2d = qobject_cast<SWMM2DResultsLayer *>(l)) {
+                        if (auto *h5Src = dynamic_cast<HDF5Mesh2DSource *>(r2d->source());
+                            h5Src && QFileInfo(h5Src->path()).absoluteFilePath() == h5Canon)
+                        {
+                            result2DLayerOpen = true;
+                        }
+                    }
+                }
+            }
+        }
+        const bool outOnDisk = QFileInfo(outPath).exists() && QFileInfo(outPath).size() > 0;
+        const bool h5OnDisk  = !h5Canon.isEmpty() &&
+                                QFileInfo(h5Canon).exists() &&
+                                QFileInfo(h5Canon).size() > 0;
+
+        if (resultLayerOpen || outOnDisk || result2DLayerOpen || h5OnDisk) {
+            // Build a "which streams will be overwritten" sentence for the
+            // dialog. Both / either / neither — only mention streams that
+            // actually exist so the prompt stays accurate.
+            QStringList existing;
+            if (outOnDisk || resultLayerOpen)
+                existing << tr("1D results (.out)");
+            if (h5OnDisk || result2DLayerOpen)
+                existing << tr("2D inundation results (.h5)");
+            const QString streams = existing.join(tr(" and "));
+
+            QStringList paths;
+            if (outOnDisk || resultLayerOpen) paths << outPath;
+            if (h5OnDisk  || result2DLayerOpen) paths << h5Path;
+            const QString pathBlock = paths.join(QStringLiteral("\n"));
+
+            const QString loadedNote = (resultLayerOpen || result2DLayerOpen)
+                ? tr("They are currently loaded as a layer and will be "
+                     "reloaded after the run.\n\n")
+                : QString();
+
+            const auto reply = QMessageBox::question(this,
+                tr("Overwrite output?"),
+                tr("%1 already exist for this model:\n%2\n\n"
+                   "%3Running the simulation will overwrite them.  Continue?")
+                    .arg(streams, pathBlock, loadedNote),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+            if (reply != QMessageBox::Yes) {
+                onLogMessage(tr("Run cancelled — output overwrite declined."),
+                             OpenSWMMVisLogMessage::LogMessageType::Information);
+                return;
+            }
+
+            // Close any already-open .out handles so the engine can
+            // truncate / rewrite without a sharing violation, and remove
+            // any stale 2D-results layer pointing at the doomed .h5 (its
+            // source is replaced by the upcoming run's twoDInitialized
+            // handler, but the old layer must release its HDF5 handle so
+            // the engine can recreate the file).
+            for (QMdiSubWindow *sw : ui->mdiAreaCentral->subWindowList()) {
+                auto *otherPw = qobject_cast<SWMMVisProjectWindow *>(sw);
+                if (!otherPw || !otherPw->canvas()) continue;
+                auto *canvas = otherPw->canvas();
+
+                // First pass — close 1D results in place (the layer object
+                // stays; only its file handle is dropped).
+                for (OpenSWMMVisLayer *l : canvas->layers()) {
+                    if (auto *rl = qobject_cast<SWMMResultsLayer *>(l)) {
+                        if (QFileInfo(rl->resultsFilePath()).absoluteFilePath() == outCanon)
+                            rl->closeResults();
+                    }
+                }
+
+                // Second pass — collect indices of stale 2D layers and
+                // remove them (takeLayer mutates the layers list, so we
+                // can't iterate while removing).
+                if (!h5Canon.isEmpty()) {
+                    QList<int> stale2DIdx;
+                    const auto layerList = canvas->layers();
+                    for (int i = 0; i < layerList.size(); ++i) {
+                        auto *r2d = qobject_cast<SWMM2DResultsLayer *>(layerList.at(i));
+                        if (!r2d) continue;
+                        auto *h5Src = dynamic_cast<HDF5Mesh2DSource *>(r2d->source());
+                        if (h5Src && QFileInfo(h5Src->path()).absoluteFilePath() == h5Canon)
+                            stale2DIdx.prepend(i);   // prepend → descending order for safe take
+                    }
+                    for (int idx : stale2DIdx) {
+                        // closeSource first so the HDF5 handle is gone before
+                        // we delete the file; then physically remove the
+                        // layer (no undo — overwrite-confirm already accepted).
+                        if (auto *r2d = qobject_cast<SWMM2DResultsLayer *>(
+                                canvas->layers().at(idx)))
+                            r2d->closeSource();
+                        OpenSWMMVisLayer *taken = canvas->takeLayer(idx, /*pushUndo=*/false);
+                        // If this layer was the animation controller's
+                        // fallback, drop the dangling pointer.
+                        if (taken == mAnimationController->fallback2DLayer())
+                            mAnimationController->setFallback2DLayer(nullptr);
+                        delete taken;
+                    }
+                }
+            }
+            if (h5OnDisk) {
+                QFile::remove(h5Canon);
+            }
+        }
+    }
+
     // Register the job in the status model and show the dock.
+    // Reuse the existing row for this project window so re-running the same
+    // model doesn't accumulate duplicate rows.
     const QString instanceName = fi.fileName();
-    const int jobId = mSimStatusModel->addJob(instanceName, inpPath);
+    const QString engineVer    = pw ? pw->engineVersion() : QStringLiteral("6.0.0");
+    const int jobId = mSimStatusModel->addOrReuseJobForModel(pw, instanceName, inpPath, engineVer);
+
     ui->dockWidgetSimulationStatus->show();
     ui->dockWidgetSimulationStatus->raise();
 
@@ -2166,10 +3719,17 @@ void SWMMVis::onRunSimulation()
     updateSimulationProgressBar();
 
     // Create runner; wire signals → model; runner deletes itself after finish.
-    const QString engineVer = pw ? pw->engineVersion() : QStringLiteral("6.0.0");
     auto *runner = new SimulationRunner(jobId, instanceName, inpPath, rptPath, outPath,
                                         engineVer, this);
     mActiveRunners.insert(jobId, runner);
+
+    // Pause / Cancel execution start out disabled in the .ui — flip them
+    // on the moment a runner is registered so the toolbar buttons (and
+    // the equivalent menu items) become clickable while a sim is in
+    // flight. The finished handler below turns them back off when the
+    // last runner finishes.
+    ui->actionPauseExecution->setEnabled(true);
+    ui->actionCancelExecution->setEnabled(true);
 
     connect(runner, &SimulationRunner::progressChanged,
             mSimStatusModel, &SimulationStatusModel::updateProgress);
@@ -2186,6 +3746,13 @@ void SWMMVis::onRunSimulation()
 
     connect(runner, &SimulationRunner::simulationDatesKnown,
             mSimStatusModel, &SimulationStatusModel::setSimulationDates);
+
+    // Capture the start time per job so the 2D HDF5 source can map its
+    // /time (days-since-start) back to QDateTime for the global slider.
+    connect(runner, &SimulationRunner::simulationDatesKnown, this,
+            [this](int datesJobId, QDateTime start, QDateTime /*end*/) {
+                mSimulationStarts.insert(datesJobId, start);
+            });
 
     connect(runner, &SimulationRunner::warningReceived,
             mSimStatusModel, &SimulationStatusModel::addWarning);
@@ -2209,12 +3776,16 @@ void SWMMVis::onRunSimulation()
                 self->updateSimulationProgressBar();
                 // Always drop the pause-toggle back to unchecked when the
                 // last runner finishes — otherwise the next Run will
-                // launch with pause pre-engaged.
-                if (self->mActiveRunners.isEmpty()
-                    && self->ui->actionPauseExecution->isChecked())
-                {
-                    QSignalBlocker b(self->ui->actionPauseExecution);
-                    self->ui->actionPauseExecution->setChecked(false);
+                // launch with pause pre-engaged. Also disable the
+                // Pause / Cancel actions so they only light up while a
+                // run is actually in progress.
+                if (self->mActiveRunners.isEmpty()) {
+                    if (self->ui->actionPauseExecution->isChecked()) {
+                        QSignalBlocker b(self->ui->actionPauseExecution);
+                        self->ui->actionPauseExecution->setChecked(false);
+                    }
+                    self->ui->actionPauseExecution->setEnabled(false);
+                    self->ui->actionCancelExecution->setEnabled(false);
                 }
 
                 // Success path OR cancelled path — both preserve the .out
@@ -2245,16 +3816,35 @@ void SWMMVis::onRunSimulation()
                     && QFileInfo(outPathCopy).exists()
                     && QFileInfo(outPathCopy).size() > 0;
                 if (hasResults && pwGuard && pwGuard->canvas() && pwGuard->modelLayer()) {
-                    auto *rl = new SWMMResultsLayer(outPathCopy,
-                                                    pwGuard->modelLayer());
-                    rl->setName(QFileInfo(outPathCopy).fileName());
-                    pwGuard->canvas()->addLayer(rl, true);
+                    // Reuse any existing layer pointing at this .out
+                    // (typical case: same model re-run, or the
+                    // overwrite-confirm path closed an open layer above
+                    // — reopen its handle now that the engine has
+                    // finished writing).  Otherwise create a fresh one.
+                    const QString outCanon = QFileInfo(outPathCopy).absoluteFilePath();
+                    SWMMResultsLayer *rl = nullptr;
+                    for (OpenSWMMVisLayer *l : pwGuard->canvas()->layers()) {
+                        if (auto *existing = qobject_cast<SWMMResultsLayer *>(l)) {
+                            if (QFileInfo(existing->resultsFilePath()).absoluteFilePath() == outCanon) {
+                                rl = existing;
+                                rl->closeResults();
+                                break;
+                            }
+                        }
+                    }
+                    const bool freshlyCreated = (rl == nullptr);
+                    if (freshlyCreated) {
+                        rl = new SWMMResultsLayer(outPathCopy,
+                                                  pwGuard->modelLayer());
+                        rl->setName(QFileInfo(outPathCopy).fileName());
+                        pwGuard->canvas()->addLayer(rl, true);
+                    }
 
                     QList<QString> rlWarnings, rlErrors;
                     if (rl->openResults(rlWarnings, rlErrors))
                     {
                         rl->autoStretchColorRamp();
-                        self->mAnimationController->setLayer(rl);
+                        self->mAnimationController->setPrimaryLayer(rl);
                     }
                     else
                     {
@@ -2264,6 +3854,197 @@ void SWMMVis::onRunSimulation()
                 }
 
                 runner->deleteLater();
+            });
+
+    // ── Slice CF.MVP — 2D inundation viz hookup ─────────────────────────────
+    // twoDInitialized fires once after the engine reports the 2D solver is
+    // active. Create an EngineMesh2DSource from the queried mesh geometry,
+    // attach a SWMM2DResultsLayer to the canvas, and remember the layer by
+    // jobId so per-tick depth slices can be routed to it.
+    connect(runner, &SimulationRunner::twoDInitialized, this,
+            [self, pwGuard]
+            (int twoDJobId, QString h5Path,
+             QVector<double> vx, QVector<double> vy, QVector<double> vz,
+             QVector<int> triFlat) {
+                if (!self || !pwGuard || !pwGuard->canvas()) return;
+                const int nTri = triFlat.size() / 3;
+                std::vector<std::array<int, 3>> tris(nTri);
+                for (int t = 0; t < nTri; ++t) {
+                    tris[t] = { triFlat[t*3+0], triFlat[t*3+1], triFlat[t*3+2] };
+                }
+                auto source = std::make_unique<EngineMesh2DSource>(
+                    std::vector<double>(vx.begin(), vx.end()),
+                    std::vector<double>(vy.begin(), vy.end()),
+                    std::vector<double>(vz.begin(), vz.end()),
+                    std::move(tris));
+
+                auto *layer = new SWMM2DResultsLayer(
+                    QStringLiteral("2D Results (live)"), nullptr);
+                layer->setSource(std::move(source));
+                // Stash h5 path on object property so the finished handler
+                // can pick it up without an extra connect-time capture.
+                layer->setProperty("snoopy_h5_path", h5Path);
+
+                // Honour the engine's [2D_OPTIONS] DRY_DEPTH so the GUI
+                // threshold matches what the solver considers wet — without
+                // this, the layer's default (0.1 mm) clips below the engine
+                // dry depth and leaves a fringe of "should-be-wet" cells
+                // black at the wet/dry interface.
+                if (pwGuard->modelLayer() && pwGuard->modelLayer()->engine()) {
+                    double engineDry = 0.0;
+                    if (swmm_2d_get_dry_depth(pwGuard->modelLayer()->engine(),
+                                               &engineDry) == SWMM_OK &&
+                        engineDry > 0.0)
+                    {
+                        layer->setDryDepth(engineDry);
+                    }
+                }
+
+                pwGuard->canvas()->addLayer(layer, false);
+                self->mActive2DResultsLayers.insert(twoDJobId, layer);
+
+                // CF.MVP-fix.1 — register the live 2D layer as the animation
+                // controller's fallback so play/scrub works even when no 1D
+                // .out is loaded as the primary results layer.
+                if (self->mAnimationController &&
+                    !self->mAnimationController->primaryLayer())
+                {
+                    self->mAnimationController->setFallback2DLayer(layer);
+                }
+
+                self->onLogMessage(tr("2D surface routing active: %1 vertices, "
+                                       "%2 triangles. Output → %3")
+                                       .arg(vx.size()).arg(nTri)
+                                       .arg(h5Path.isEmpty()
+                                            ? tr("(no HDF5 path set)")
+                                            : QFileInfo(h5Path).fileName()));
+            });
+
+    // Per-tick depth slice — push into the live EngineMesh2DSource.
+    connect(runner, &SimulationRunner::twoDDepthsAvailable, this,
+            [self](int twoDJobId, QVector<float> depths,
+                   QDateTime simTime, double elapsedSec) {
+                if (!self) return;
+                auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
+                if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
+                    return;
+                SWMM2DResultsLayer *layer = it.value();
+                auto *engineSrc = dynamic_cast<EngineMesh2DSource *>(layer->source());
+                if (!engineSrc) return;
+                engineSrc->pushDepths(
+                    std::vector<float>(depths.begin(), depths.end()),
+                    simTime, elapsedSec);
+                layer->refreshTimeRange();
+            });
+
+    // CF.2.4 — one-shot edge geometry handoff so the velocity overlay has
+    // length + outward unit normal cached before any flux ticks arrive.
+    connect(runner, &SimulationRunner::twoDEdgeGeometryAvailable, this,
+            [self](int twoDJobId, QVector<float> length,
+                   QVector<float> nx, QVector<float> ny) {
+                if (!self) return;
+                auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
+                if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
+                    return;
+                auto *engineSrc =
+                    dynamic_cast<EngineMesh2DSource *>(it.value()->source());
+                if (!engineSrc) return;
+                engineSrc->setEdgeGeometry(
+                    std::vector<float>(length.begin(), length.end()),
+                    std::vector<float>(nx.begin(),     nx.end()),
+                    std::vector<float>(ny.begin(),     ny.end()));
+            });
+
+    // CF.2.4 — per-tick edge flux: paired with the matching depth tick on
+    // the source side by elapsedSec, so a single tick yields a single
+    // history frame regardless of queue ordering.
+    connect(runner, &SimulationRunner::twoDFluxAvailable, this,
+            [self](int twoDJobId, QVector<float> flux,
+                   QDateTime simTime, double elapsedSec) {
+                if (!self) return;
+                auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
+                if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
+                    return;
+                SWMM2DResultsLayer *layer = it.value();
+                auto *engineSrc =
+                    dynamic_cast<EngineMesh2DSource *>(layer->source());
+                if (!engineSrc) return;
+                engineSrc->pushFlux(
+                    std::vector<float>(flux.begin(), flux.end()),
+                    simTime, elapsedSec);
+                layer->refreshTimeRange();
+            });
+
+    // On finished (success path), swap the layer's source from the live
+    // EngineMesh2DSource to an HDF5Mesh2DSource so the user can scrub back.
+    // The .h5 path was stashed on the layer in the twoDInitialized handler.
+    connect(runner, &SimulationRunner::finished, this,
+            [self](int finishedJobId, bool success, int /*errCode*/,
+                   QString /*errMsg*/, double /*runoff*/, double /*routing*/) {
+                if (!self) return;
+                auto it = self->mActive2DResultsLayers.find(finishedJobId);
+                if (it == self->mActive2DResultsLayers.end()) return;
+                if (success && it.value()) {
+                    SWMM2DResultsLayer *layer = it.value();
+                    const QString h5Path =
+                        layer->property("snoopy_h5_path").toString();
+                    if (!h5Path.isEmpty() && QFileInfo::exists(h5Path)) {
+                        auto h5Src = std::make_unique<HDF5Mesh2DSource>();
+                        // Anchor the source's time axis to wall-clock so the
+                        // global animation slider's QDateTime ticks map to
+                        // 2D frame indices via SWMM2DResultsLayer::setCurrentSimTime.
+                        const QDateTime simStart =
+                            self->mSimulationStarts.value(finishedJobId);
+                        if (simStart.isValid())
+                            h5Src->setSimulationStart(simStart);
+                        if (h5Src->open(h5Path)) {
+                            const int nFrames = h5Src->timeCount();
+                            // Scan all frames for the run's actual peak so
+                            // the colour ramp + dry-cell threshold match
+                            // the data range. Without this, setSource()
+                            // defaults to the LAST frame (often fully
+                            // drained) AND the layer's auto-grown
+                            // max_depth_ may still be wider than the
+                            // actual peak, leaving everything dim.
+                            IMesh2DSource* srcRaw = h5Src.get();
+                            int   peakFrame = 0;
+                            float peakDepth = 0.0f;
+                            std::vector<float> probe;
+                            for (int t = 0; t < nFrames; ++t) {
+                                if (!srcRaw->readDepthsAt(t, probe)) continue;
+                                if (probe.empty()) continue;
+                                const float m = *std::max_element(probe.begin(),
+                                                                    probe.end());
+                                if (m > peakDepth) { peakDepth = m; peakFrame = t; }
+                            }
+
+                            layer->setName(QStringLiteral("2D Results"));
+                            layer->setSource(std::move(h5Src));
+
+                            // Auto-tune the ramp + dry threshold to the
+                            // actual data range. setMaxDepth pins the
+                            // upper end (disables further auto-grow);
+                            // dry_depth is biased to the floor so very
+                            // shallow runs still produce visible cells.
+                            if (peakDepth > 0.0f) {
+                                layer->setMaxDepth(peakDepth);
+                                layer->setDryDepth(
+                                    std::max(1e-5, 0.05 * double(peakDepth)));
+                                layer->setCurrentTimeIndex(peakFrame);
+                            }
+
+                            self->onLogMessage(tr("2D scrub ready: %1 frames from %2. "
+                                                   "Peak depth %3 m at cell %4, frame %5.")
+                                                   .arg(nFrames)
+                                                   .arg(QFileInfo(h5Path).fileName())
+                                                   .arg(double(peakDepth), 0, 'f', 4)
+                                                   .arg(layer->currentPeak().second)
+                                                   .arg(peakFrame));
+                        }
+                    }
+                }
+                self->mActive2DResultsLayers.erase(it);
+                self->mSimulationStarts.remove(finishedJobId);
             });
 
     runner->start();
@@ -2276,14 +4057,74 @@ void SWMMVis::onPlotTimeSeries()
 
 void SWMMVis::onCursorPositionChanged(double mapX, double mapY)
 {
-    mLineEditCoordinates->setText(
-        QStringLiteral("%1, %2").arg(mapX, 0, 'f', 6).arg(mapY, 0, 'f', 6));
+    // mapX/mapY arrive in canvas CRS. When the active model layer's native
+    // CRS differs (e.g. geographic data displayed via Web Mercator on-the-fly
+    // reprojection), reverse-transform so the read-out shows the cursor
+    // position in the user's data CRS rather than the display CRS.
+    double dispX = mapX, dispY = mapY;
+    SpatialReferenceSystem *displaySRS = nullptr;
+    if (auto *pw = activeProjectWindow()) {
+        if (SWMMModelLayer *layer = pw->modelLayer()) {
+            layer->transformCanvasToLayer(mapX, mapY, dispX, dispY);
+            displaySRS = layer->srs();
+        }
+    }
+    if (!displaySRS) {
+        if (MapCanvas *c = activeCanvas()) displaySRS = c->canvasSRS();
+    }
+
+    // Degrees need more decimals than meters/feet to be useful (1e-5°
+    // ≈ 1 m at the equator).
+    const int decimals = (displaySRS && displaySRS->isGeographic()) ? 7 : 4;
+    QString text = QStringLiteral("%1, %2")
+                       .arg(dispX, 0, 'f', decimals)
+                       .arg(dispY, 0, 'f', decimals);
+
+    // Append terrain Z with the unit assigned to the canvas by the project window.
+    if (MapCanvas *c = activeCanvas()) {
+        const auto z = c->terrainZ();
+        if (z.has_value()) {
+            const QString unit = c->terrainUnit();
+            text += unit.isEmpty()
+                ? QStringLiteral("  Z: %1").arg(*z, 0, 'f', 3)
+                : QStringLiteral("  Z: %1 %2").arg(*z, 0, 'f', 3).arg(unit);
+        }
+    }
+
+    mLineEditCoordinates->setText(text);
 }
 
 void SWMMVis::onCanvasSRSChanged(SpatialReferenceSystem *srs)
 {
     mToolButtonCoordinateReferenceSystem->setText(
         srs ? srs->toAuthority() : QStringLiteral("Unknown"));
+}
+
+void SWMMVis::onMapScaleEntered(const QString &text)
+{
+    MapCanvas *c = activeCanvas();
+    if (!c) return;
+
+    const double denom = parseScaleText(text);
+    if (denom <= 0.0) {
+        // Invalid entry — restore the current scale so the user sees a
+        // sensible value rather than their unparseable input.
+        onCanvasScaleChanged(c->scaleDenominator());
+        return;
+    }
+
+    c->setScaleDenominator(denom);
+    // setScaleDenominator → setExtent → scaleChanged → onCanvasScaleChanged,
+    // which will overwrite the edit text with the canonical formatted form.
+}
+
+void SWMMVis::onCanvasScaleChanged(double denominator)
+{
+    if (!mComboBoxMapScale) return;
+    // Block signals so updating the edit text doesn't re-trigger
+    // editingFinished and feed back into onMapScaleEntered.
+    QSignalBlocker block(mComboBoxMapScale);
+    mComboBoxMapScale->setEditText(formatScaleText(denominator));
 }
 
 void SWMMVis::onCRSButtonClicked()
@@ -2480,15 +4321,31 @@ void SWMMVis::onAddSWMMResultsLayer()
         kFilters->filterFor(openswmmvis::FilterKind::ResultsRead));
     if (path.isEmpty()) return;
 
-    auto *layer = new SWMMResultsLayer(path, pw->modelLayer());
-    layer->setName(QFileInfo(path).fileName());
-    pw->canvas()->addLayer(layer, true);
+    // Dedup — every output file is only loaded once per project canvas.
+    // If a layer already points at this path, focus it as the primary
+    // and reload its handle rather than appending a duplicate.
+    const QString canon = QFileInfo(path).absoluteFilePath();
+    SWMMResultsLayer *layer = nullptr;
+    for (OpenSWMMVisLayer *l : pw->canvas()->layers()) {
+        if (auto *existing = qobject_cast<SWMMResultsLayer *>(l)) {
+            if (QFileInfo(existing->resultsFilePath()).absoluteFilePath() == canon) {
+                layer = existing;
+                layer->closeResults();   // reopen below so re-loads pick up new data
+                break;
+            }
+        }
+    }
+    if (!layer) {
+        layer = new SWMMResultsLayer(path, pw->modelLayer());
+        layer->setName(QFileInfo(path).fileName());
+        pw->canvas()->addLayer(layer, true);
+    }
 
     QList<QString> warnings, errors;
     if (layer->openResults(warnings, errors))
     {
         layer->autoStretchColorRamp();
-        mAnimationController->setLayer(layer);
+        mAnimationController->setPrimaryLayer(layer);
         onLogMessage(tr("Added results layer: %1").arg(QFileInfo(path).fileName()));
     }
     else

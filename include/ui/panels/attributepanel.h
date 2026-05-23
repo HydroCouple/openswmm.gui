@@ -28,6 +28,7 @@ class SWMMModelLayer;
 class SWMMNodePropertyAdapter;
 class SWMMLinkPropertyAdapter;
 class SWMMSubcatchPropertyAdapter;
+class SWMMDataObjectPropertyAdapter;
 struct IdentifyResult;
 
 /*!
@@ -86,6 +87,18 @@ public:
      *  QPropertyModel auto-delegates).  Pass nullptr to detach. */
     void setProject(SWMMModelLayer *layer);
 
+    /*! Slice DA.2 — show a non-spatial Data Object (curve, time series,
+     *  pattern, LID control, pollutant, land use, aquifer, snowpack,
+     *  control rule, transect, hydrograph group, street, inlet, or
+     *  rain gage) using the typed property adapter for its kind.
+     *
+     *  Bypasses the identify-result flow; called directly when an
+     *  Object Browser leaf is clicked. The kind value is an
+     *  `SWMMObjectRef::ObjectType` (cast to int to keep the header
+     *  forward-declaration-friendly). */
+    void showDataObject(SWMMModelLayer *layer, int objectKind,
+                          const QString &name);
+
 public slots:
 
     void onIdentifyResult(const QList<IdentifyResult> &results);
@@ -134,6 +147,11 @@ private:
     SWMMNodePropertyAdapter     *m_nodeAdapter   = nullptr;
     SWMMLinkPropertyAdapter     *m_linkAdapter   = nullptr;
     SWMMSubcatchPropertyAdapter *m_subcatchAdapter = nullptr;
+    // Slice DA.2 — single cached adapter for the 14 non-spatial Data
+    // Object kinds. Replaced on every selection; the previous instance
+    // is `deleteLater()`d so the QPropertyModel stops referencing it
+    // before the new one binds.
+    SWMMDataObjectPropertyAdapter *m_dataAdapter = nullptr;
 
     bool m_suppressEditForward = false; ///< Set during onObjectEditedExternally to break loop.
 };

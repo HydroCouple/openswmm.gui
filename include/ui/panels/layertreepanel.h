@@ -184,6 +184,13 @@ signals:
      */
     void layerPropertiesRequested(OpenSWMMVisLayer *layer);
 
+    /*!
+     * \brief Emitted when the user picks "Set Style…" on a layer's context
+     *        menu. SWMMVis listens and opens the SymbologyDialog — same
+     *        path as the animation-toolbar's Set Style action.
+     */
+    void layerStyleRequested(OpenSWMMVisLayer *layer);
+
 private slots:
     void onRemoveSelectedLayer();
     void onZoomToSelectedLayer();
