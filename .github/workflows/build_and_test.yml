@@ -51,7 +51,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: microsoft/vcpkg
-          ref: 2025.02.14
+          ref: 2025.10.17
           fetch-depth: 0
           path: vcpkg
 
@@ -84,6 +84,23 @@ jobs:
           restore-keys: |
             vcpkg-downloads-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-
             vcpkg-downloads-${{ runner.os }}-
+
+      # Cache the *compiled* vcpkg manifest install tree. On a hit the Configure
+      # step skips rebuilding GDAL/PROJ/TIFF/etc., which is the bulk of CI time.
+      # Key components:
+      #   - runner.os + triplet → ABI-correct per platform
+      #   - vcpkg ref literal   → bump in lockstep with `ref:` in checkout above
+      #   - hashFiles(vcpkg.json) → re-resolve when dependency set changes
+      # Partial fallbacks under restore-keys let unrelated vcpkg.json edits still
+      # benefit from the most recent cache for the same ref.
+      - name: Cache vcpkg_installed (compiled deps)
+        uses: actions/cache@v4
+        with:
+          path: build/${{ matrix.build_subdir }}/vcpkg_installed
+          key: vcpkg-installed-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-2025.10.17-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-installed-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-2025.10.17-
+            vcpkg-installed-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-
 
       # openswmm.engine and QPropertyModel are fetched automatically via
       # FetchOpenSWMMEngine.cmake / FetchQPropertyModel.cmake at configure time.
