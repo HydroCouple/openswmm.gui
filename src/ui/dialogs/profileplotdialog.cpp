@@ -20,7 +20,6 @@
 #include "swmmvisprojectwindow.h"
 #include "core/unitsystem.h"
 #include "ui/dialogs/profileoptionsdialog.h"
-#include "ui/dialogs/timeseriesplotdialog.h"
 #include "ui/widgets/profilelayerpanel.h"
 #include "selection/selectionmanager.h"
 
@@ -554,33 +553,16 @@ void ProfilePlotDialog::buildLayout()
         m_model->setSelectedElementNames(
             QStringList{ m_pathStatic.links[idx].name });
     };
-    // Open the existing TimeSeriesPlotDialog for the given object.  Looks
-    // up the active .out path from the project window's canvas (same
-    // strategy as SWMMVis::openTimeSeriesPlotFor); shows a message box
-    // when no results are loaded so the user knows to run a simulation
-    // or add a `.out` layer.
+    // AT.3 — route the right-click "Plot Time Series…" through the same
+    // SWMMVis::openComparisonPlotFor path as every other entry point so
+    // the user gets the modern ComparisonPlotDialog (toolbar, range
+    // slider, hover tooltips, stats panel) instead of the legacy
+    // single-attribute TimeSeriesPlotDialog. The main window subscribes
+    // to plotTimeSeriesRequested in SWMMVis::openProfilePlotFor.
     auto openTimeSeriesPlotForRef = [this](const SWMMObjectRef &ref) {
         if (ref.objectType == SWMMObjectRef::Unknown || ref.name.isEmpty())
             return;
-        QString outPath;
-        if (m_projectWindow && m_projectWindow->canvas()) {
-            for (OpenSWMMVisLayer *l : m_projectWindow->canvas()->layers()) {
-                if (l->layerType() != OpenSWMMVisLayer::SWMMResultsLayer) continue;
-                if (auto *rl = qobject_cast<SWMMResultsLayer *>(l)) {
-                    outPath = rl->resultsFilePath();
-                    break;
-                }
-            }
-        }
-        if (outPath.isEmpty()) {
-            QMessageBox::information(this, tr("No results loaded"),
-                tr("Run a simulation first (toolbar's Execute button) "
-                   "or add a SWMM Output (.out) layer."));
-            return;
-        }
-        auto *dlg = new TimeSeriesPlotDialog(outPath, ref, this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        dlg->show();
+        emit plotTimeSeriesRequested(ref);
     };
     auto plotTimeSeriesForNode = [this, openTimeSeriesPlotForRef](int idx) {
         if (idx < 0 || idx >= m_pathStatic.nodes.size()) return;

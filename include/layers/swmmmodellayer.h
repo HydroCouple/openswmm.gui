@@ -270,6 +270,26 @@ public:
     [[nodiscard]] QString dataObjectNameAt(DataCategory c, int row) const;
 
     /*!
+     * \brief Slice DA.3 — suggest a unique default name for the next
+     *        new data object of \p c. Scans existing names and returns
+     *        the smallest positive integer \p n such that
+     *        `<Prefix><n>` is not already in use (case-insensitive).
+     *
+     *        Prefix per category:
+     *          Curves → "Curve",  TimeSeries → "TS",  Patterns → "Pattern",
+     *          LIDControls → "LID",  Pollutants → "Pollut",
+     *          LandUses → "LandUse",  Aquifers → "Aquifer",
+     *          Snowpacks → "Snowpack",  Controls → "Rule",
+     *          Transects → "Transect",  Hydrographs → "UH",
+     *          Streets → "Street",  Inlets → "Inlet".
+     *
+     *        Modern affordance — legacy SWMM-GUI requires manual
+     *        naming.  Caller may overwrite in the New Data Object
+     *        dialog.
+     */
+    [[nodiscard]] QString suggestUniqueDataObjectName(DataCategory c) const;
+
+    /*!
      * \brief Aggregate check state for a category: Checked when every
      *        member is visible, Unchecked when every member is hidden,
      *        PartiallyChecked otherwise. O(1) — derived from the

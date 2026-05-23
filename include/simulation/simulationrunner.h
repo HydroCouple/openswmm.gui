@@ -10,6 +10,7 @@
 #include <QDateTime>
 #include <QObject>
 #include <QString>
+#include <QVector>
 #include <atomic>
 
 /**
@@ -56,7 +57,34 @@ public:
     void setPaused(bool paused);
     bool isPaused() const { return m_paused.load(); }
 
-    int jobId() const { return m_jobId; }
+    int     jobId()   const { return m_jobId; }
+    QString outPath() const { return m_outPath; }
+    QString inpPath() const { return m_inpPath; }
+
+    /*!
+     * \brief Scan a .inp for `[2D_OPTIONS] OUTPUT_FILE` and return the
+     *        resolved absolute path of the 2D HDF5 output file (or an
+     *        empty string when the key is absent).
+     *
+     *  The engine's parser fills `SolverOptions2D::output_file` from the
+     *  same key, but `openswmm_2d.h` has no accessor, so this helper
+     *  exists as a parallel scan callers can use to predict where the
+     *  engine will write — useful both at open time (to look for an
+     *  existing file from a previous run) and at finished time (to swap
+     *  in an HDF5Mesh2DSource for scrubbing).
+     */
+    [[nodiscard]] static QString parseTwoDOutputFile(const QString &inpPath);
+
+    /*!
+     * \brief Scan a .inp for a `[2D_OPTIONS]` key and return its value as a
+     *        QString verbatim (empty when absent).
+     *
+     *  Used by the GUI to honour engine-side settings — e.g. matching the
+     *  render dry-cell threshold to the engine's `DRY_DEPTH` so shallow
+     *  inundation runs aren't clipped.
+     */
+    [[nodiscard]] static QString parseTwoDOption(const QString &inpPath,
+                                                  const QString &key);
 
 signals:
     void started(int jobId);
@@ -89,6 +117,48 @@ signals:
      */
     void finished(int jobId, bool success, int errorCode, QString errorMessage,
                   double runoffErrFrac, double routingErrFrac);
+
+    // ── Slice CF.MVP — 2D inundation viz hooks ─────────────────────────────
+    //
+    // Emitted once the engine has initialised and 2D is active. Carries the
+    // mesh geometry queried via `swmm_2d_*` on the worker thread (read-only
+    // calls; safe to make there because the engine's 2D mesh is immutable
+    // after SurfaceRouter2D::initialize). The GUI builds an
+    // EngineMesh2DSource from these vectors and attaches a
+    // SWMM2DResultsLayer to the canvas.
+    //
+    // `triFlat` is connectivity flattened to [v0,v1,v2, v0,v1,v2, …] so it
+    // ships as a single QVector<int> (a registered Qt metatype) — saves
+    // adding a Q_DECLARE_METATYPE on std::array<int,3>.
+    void twoDInitialized(int jobId, QString h5Path,
+                          QVector<double> vx,
+                          QVector<double> vy,
+                          QVector<double> vz,
+                          QVector<int>    triFlat);
+
+    // Per-tick depth slice from swmm_2d_get_depths_bulk. Rate-limited to the
+    // existing kTickIntervalMs budget (≈ 1 Hz). The GUI pushes each slice
+    // into the active EngineMesh2DSource and refreshes the layer.
+    void twoDDepthsAvailable(int jobId, QVector<float> depths,
+                              QDateTime simTime, double elapsedSec);
+
+    // ── Slice CF.2 — velocity vector overlay hooks ─────────────────────────
+    //
+    // Emitted once at twoDInitialized after the engine builds its mesh, this
+    // ships the time-invariant edge geometry (length + outward unit normal,
+    // both indexed [tri*3 + localEdge]). The GUI installs the arrays on the
+    // active EngineMesh2DSource so client-side RT0 reconstruction has
+    // everything it needs without re-deriving from vertex coords.
+    void twoDEdgeGeometryAvailable(int jobId,
+                                    QVector<float> length,
+                                    QVector<float> nx,
+                                    QVector<float> ny);
+
+    // Per-tick signed edge flux from swmm_2d_get_edge_flux_bulk. Same cadence
+    // as twoDDepthsAvailable; pushed into EngineMesh2DSource::pushFlux on the
+    // GUI thread, paired with the matching depth tick by elapsedSec.
+    void twoDFluxAvailable(int jobId, QVector<float> flux,
+                            QDateTime simTime, double elapsedSec);
 
 private:
     // Warning callback — fires on the worker thread during engine

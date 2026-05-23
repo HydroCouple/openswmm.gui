@@ -10,17 +10,21 @@
 #include <openswmm/engine/openswmm_massbalance.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_callbacks.h>
+#include <openswmm/engine/openswmm_2d.h>
 
 #include "core/preferencesmanager.h"
 
 #include <QDate>
 #include <QDateTime>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QMetaObject>
+#include <QRegularExpression>
 #include <QThread>
 #include <QTime>
+#include <QVector>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFutureWatcher>
 #include <QProcess>
@@ -65,47 +69,84 @@ QString findLegacyWorker()
         QStringLiteral("openswmm-legacy-worker");
 #endif
 
-    QStringList searchPaths;
+    const QString appDir = QCoreApplication::applicationDirPath();
 
-    // Same directory as this executable
-    searchPaths << QCoreApplication::applicationDirPath();
+    // On macOS the executable lives inside the .app bundle at
+    // {build}/SWMMVis.app/Contents/MacOS — walk up to the build root.
+    // On other platforms applicationDirPath() IS the build/install root.
+    QStringList roots;
+    roots << appDir;                        // flat install / non-bundle
+    roots << appDir + "/../../..";          // macOS .app bundle → build root
+    roots << appDir + "/../..";             // one-level wrapper
 
-    // {appDir}/bin/{CONFIG}/
     const QString buildConfig =
 #ifdef QT_DEBUG
         QStringLiteral("Debug");
 #else
         QStringLiteral("Release");
 #endif
-    searchPaths << QCoreApplication::applicationDirPath() + "/bin/" + buildConfig;
-    searchPaths << QCoreApplication::applicationDirPath() + "/bin";
 
-    // {appDir}/../bin/{CONFIG}/
-    searchPaths << QCoreApplication::applicationDirPath() + "/../bin/" + buildConfig;
-    searchPaths << QCoreApplication::applicationDirPath() + "/../bin";
+    QStringList searchPaths;
+    for (const QString &root : roots) {
+        searchPaths << root;
+        searchPaths << root + "/bin";
+        searchPaths << root + "/bin/" + buildConfig;
+        searchPaths << root + "/openswmm_engine/src/legacy/worker";
+    }
 
-    // Try each search path
     for (const QString &dir : searchPaths) {
-        QString candidate = dir + "/" + workerName;
-        if (QFile::exists(candidate)) {
-            return QFileInfo(candidate).absoluteFilePath();
-        }
+        const QString candidate = QFileInfo(dir + "/" + workerName).absoluteFilePath();
+        if (QFile::exists(candidate))
+            return candidate;
     }
 
-    // Fall back to PATH lookup
-    QProcess testProc;
-    testProc.setProgram(workerName);
-    testProc.setArguments({QStringLiteral("--version")});
-    if (testProc.open(QIODevice::ReadOnly)) {
-        testProc.close();
-        return workerName;  // Found in PATH
-    }
-
-    qWarning() << "Legacy worker executable not found:" << workerName;
-    return QString();
+    // Fall back to PATH
+    qWarning() << "Legacy worker executable not found — searched:" << searchPaths;
+    return workerName;   // let QProcess try PATH; it will fail with a clear error
 }
 
 } // anonymous namespace
+
+// ---------------------------------------------------------------------------
+// Public static helpers
+// ---------------------------------------------------------------------------
+
+QString SimulationRunner::parseTwoDOption(const QString &inpPath,
+                                            const QString &key)
+{
+    QFile f(inpPath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    bool inOptions = false;
+    QString value;
+    while (!f.atEnd()) {
+        const QByteArray rawLine = f.readLine();
+        QString line = QString::fromUtf8(rawLine).trimmed();
+        if (line.isEmpty() || line.startsWith(';')) continue;
+        if (line.startsWith('[') && line.endsWith(']')) {
+            inOptions = (line.compare(QStringLiteral("[2D_OPTIONS]"),
+                                       Qt::CaseInsensitive) == 0);
+            continue;
+        }
+        if (!inOptions) continue;
+        const QStringList tokens = line.split(QRegularExpression(R"(\s+)"),
+                                               Qt::SkipEmptyParts);
+        if (tokens.size() < 2) continue;
+        if (tokens.first().compare(key, Qt::CaseInsensitive) == 0) {
+            value = tokens.at(1);
+            break;
+        }
+    }
+    return value;
+}
+
+QString SimulationRunner::parseTwoDOutputFile(const QString &inpPath)
+{
+    const QString value = parseTwoDOption(inpPath, QStringLiteral("OUTPUT_FILE"));
+    if (value.isEmpty()) return {};
+    QFileInfo fi(value);
+    if (fi.isAbsolute()) return value;
+    return QFileInfo(inpPath).absoluteDir().absoluteFilePath(value);
+}
 
 // ---------------------------------------------------------------------------
 // Internal result type returned from the worker lambda
@@ -140,6 +181,18 @@ SimulationRunner::SimulationRunner(int jobId,
     , m_outPath(outPath)
     , m_engineVersion(engineVersion)
 {
+    // Slice CF.MVP — explicit metatype registration so the new twoD*
+    // signals carrying these vector types reliably cross the worker→GUI
+    // thread boundary via queued connection. Qt 6 typically auto-registers
+    // QList<T> for primitive T, but registering here is cheap insurance
+    // against a silently dropped signal.
+    static const bool s_metatypesRegistered = []() {
+        qRegisterMetaType<QVector<float>>("QVector<float>");
+        qRegisterMetaType<QVector<int>>("QVector<int>");
+        qRegisterMetaType<QVector<double>>("QVector<double>");
+        return true;
+    }();
+    (void)s_metatypesRegistered;
 }
 
 // ---------------------------------------------------------------------------
@@ -208,6 +261,74 @@ void SimulationRunner::start()
             // from the step loop, so a registered progress callback never
             // fires during the run — progress is polled inline below.
             swmm_set_warning_callback(eng, &SimulationRunner::warningCallback, rawSelf);
+
+            // ── Slice CF.MVP — 2D mesh hand-off to the GUI ─────────────────
+            // After successful initialize, the surface_router_ mesh is fully
+            // built. Query it once and ship the geometry to the GUI thread
+            // via twoDInitialized; the GUI builds an EngineMesh2DSource and
+            // attaches a SWMM2DResultsLayer. Also re-scan the .inp for
+            // [2D_OPTIONS] OUTPUT_FILE so the GUI knows where the engine
+            // will write its CF/UGRID HDF5 (used at finished for the
+            // post-run scrub source).
+            int twoD_active = 0;
+            swmm_2d_is_active(eng, &twoD_active);
+            int twoD_n_tri  = 0;
+            int twoD_n_vert = 0;
+            if (twoD_active) {
+                swmm_2d_triangle_count(eng, &twoD_n_tri);
+                swmm_2d_vertex_count(eng, &twoD_n_vert);
+                if (twoD_n_tri > 0 && twoD_n_vert > 0) {
+                    QVector<double> vx(twoD_n_vert), vy(twoD_n_vert),
+                                    vz(twoD_n_vert);
+                    swmm_2d_vertex_get_xyz_bulk(eng, vx.data(), vy.data(), vz.data());
+                    QVector<int> triFlat(twoD_n_tri * 3);
+                    for (int t = 0; t < twoD_n_tri; ++t) {
+                        int v0 = 0, v1 = 0, v2 = 0;
+                        swmm_2d_triangle_get_vertices(eng, t, &v0, &v1, &v2);
+                        triFlat[t * 3 + 0] = v0;
+                        triFlat[t * 3 + 1] = v1;
+                        triFlat[t * 3 + 2] = v2;
+                    }
+                    const QString h5Path = parseTwoDOutputFile(QString::fromUtf8(inp));
+                    const int jobId = rawSelf->m_jobId;
+                    QMetaObject::invokeMethod(rawSelf,
+                        [rawSelf, jobId, h5Path,
+                         vx = std::move(vx), vy = std::move(vy),
+                         vz = std::move(vz),
+                         triFlat = std::move(triFlat)]() mutable {
+                            emit rawSelf->twoDInitialized(
+                                jobId, h5Path, vx, vy, vz, triFlat);
+                        },
+                        Qt::QueuedConnection);
+
+                    // CF.2.4 — ship time-invariant edge geometry so the GUI
+                    // can reconstruct cell-centred velocity from per-tick
+                    // flux without re-deriving lengths/normals from vertex
+                    // coords. Engine returns doubles; convert to float for
+                    // the wire (RT0 doesn't need double precision).
+                    const int n3 = twoD_n_tri * 3;
+                    std::vector<double> rawLen(n3), rawNx(n3), rawNy(n3);
+                    if (swmm_2d_edge_get_geometry_bulk(
+                            eng, rawLen.data(), rawNx.data(), rawNy.data()) == SWMM_OK)
+                    {
+                        QVector<float> qLen(n3), qNx(n3), qNy(n3);
+                        for (int i = 0; i < n3; ++i) {
+                            qLen[i] = static_cast<float>(rawLen[i]);
+                            qNx[i]  = static_cast<float>(rawNx[i]);
+                            qNy[i]  = static_cast<float>(rawNy[i]);
+                        }
+                        QMetaObject::invokeMethod(rawSelf,
+                            [rawSelf, jobId,
+                             qLen = std::move(qLen),
+                             qNx  = std::move(qNx),
+                             qNy  = std::move(qNy)]() mutable {
+                                emit rawSelf->twoDEdgeGeometryAvailable(
+                                    jobId, qLen, qNx, qNy);
+                            },
+                            Qt::QueuedConnection);
+                    }
+                }
+            }
 
             // Start
             rc = swmm_engine_start(eng, 1 /* save_results */);
@@ -320,6 +441,49 @@ void SimulationRunner::start()
                                                       runoffErr, routingErr, avgTs);
                     },
                     Qt::QueuedConnection);
+
+                // ── Slice CF.MVP — per-tick 2D depth slice ─────────────────
+                // Rate-limited by the surrounding kTickIntervalMs gate. Pulls
+                // the latest per-triangle depth from the in-process engine
+                // and ships it to the GUI thread, where SWMM2DResultsLayer
+                // recolours the mesh. Engine API returns doubles; we
+                // downcast to float for the wire because mm-level depth
+                // precision is plenty for colour mapping and the HDF5
+                // reader produces float to match.
+                if (twoD_active && twoD_n_tri > 0) {
+                    std::vector<double> raw(twoD_n_tri);
+                    swmm_2d_get_depths_bulk(eng, raw.data());
+                    QVector<float> depths(twoD_n_tri);
+                    for (int t = 0; t < twoD_n_tri; ++t)
+                        depths[t] = static_cast<float>(raw[t]);
+                    QMetaObject::invokeMethod(rawSelf,
+                        [rawSelf, jobId, depths = std::move(depths),
+                         curQDT, totalElapsedSec]() mutable {
+                            emit rawSelf->twoDDepthsAvailable(
+                                jobId, depths, curQDT, totalElapsedSec);
+                        },
+                        Qt::QueuedConnection);
+
+                    // CF.2.4 — per-tick signed edge flux. Paired with the
+                    // depth slice via the matching elapsedSec on the GUI side
+                    // so a single tick maps to a single history frame in
+                    // EngineMesh2DSource regardless of queue ordering.
+                    const int n3 = twoD_n_tri * 3;
+                    std::vector<double> rawFlux(n3);
+                    if (swmm_2d_get_edge_flux_bulk(eng, rawFlux.data()) == SWMM_OK)
+                    {
+                        QVector<float> flux(n3);
+                        for (int i = 0; i < n3; ++i)
+                            flux[i] = static_cast<float>(rawFlux[i]);
+                        QMetaObject::invokeMethod(rawSelf,
+                            [rawSelf, jobId, flux = std::move(flux),
+                             curQDT, totalElapsedSec]() mutable {
+                                emit rawSelf->twoDFluxAvailable(
+                                    jobId, flux, curQDT, totalElapsedSec);
+                            },
+                            Qt::QueuedConnection);
+                    }
+                }
             }
 
             // End
@@ -360,70 +524,62 @@ void SimulationRunner::start()
                 }
 
                 QProcess worker;
-                int lastErrorCode = 0;
-                QString lastErrorMsg;
-
-                // Parse progress/warning/error JSON from worker stdout
-                QObject::connect(&worker, &QProcess::readyReadStandardOutput,
-                    [&worker, rawSelf, &lastErrorCode, &lastErrorMsg]() {
-                        while (worker.canReadLine()) {
-                            QByteArray line = worker.readLine();
-                            QJsonDocument doc = QJsonDocument::fromJson(line);
-                            if (!doc.isObject()) continue;
-
-                            const QJsonObject obj = doc.object();
-                            const QString type = obj.value("type").toString();
-
-                            if (type == "progress") {
-                                const int steps = obj.value("stepCount").toInt();
-                                const int jobId = rawSelf->m_jobId;
-                                QMetaObject::invokeMethod(rawSelf,
-                                    [rawSelf, jobId]() {
-                                        emit rawSelf->progressChanged(jobId, 0.5, QDateTime(),
-                                                                      0.0, 0.0, 0.0);
-                                    },
-                                    Qt::QueuedConnection);
-                            } else if (type == "warning") {
-                                const QString msg = obj.value("message").toString();
-                                const int jobId = rawSelf->m_jobId;
-                                QMetaObject::invokeMethod(rawSelf,
-                                    [rawSelf, jobId, msg]() {
-                                        emit rawSelf->warningReceived(jobId, 101, msg);
-                                    },
-                                    Qt::QueuedConnection);
-                            } else if (type == "error") {
-                                lastErrorCode = obj.value("code").toInt();
-                                lastErrorMsg = obj.value("message").toString();
-                            }
-                        }
-                    });
-
-                // Start worker with input/output paths
                 worker.setProgram(workerPath);
-                worker.setArguments({inp, rpt, out});
+                worker.setArguments({QString::fromUtf8(inp),
+                                     QString::fromUtf8(rpt),
+                                     QString::fromUtf8(out)});
                 worker.start();
 
-                if (!worker.waitForStarted()) {
-                    return {false, 1, QStringLiteral("Failed to start legacy worker"), 0.0, 0.0};
+                if (!worker.waitForStarted(10000)) {
+                    return {false, 1,
+                            QStringLiteral("Failed to start legacy worker: %1")
+                                .arg(workerPath), 0.0, 0.0};
                 }
 
-                // Wait for worker to complete
+                // Block until the worker finishes. The thread-pool thread has no
+                // event loop so readyReadStandardOutput never fires here; parse all
+                // stdout in one shot after waitForFinished.
                 const bool finished = worker.waitForFinished(-1);
-                const int exitCode = worker.exitCode();
-
                 if (!finished) {
                     worker.kill();
-                    worker.waitForFinished();
-                    return {false, -1, QStringLiteral("Legacy worker process timeout"), 0.0, 0.0};
+                    worker.waitForFinished(5000);
+                    return {false, -1, QStringLiteral("Legacy worker did not finish"), 0.0, 0.0};
                 }
 
-                // Check exit code
-                if (exitCode != 0) {
-                    if (!lastErrorMsg.isEmpty()) {
-                        return {false, exitCode, lastErrorMsg, 0.0, 0.0};
+                // Parse JSON lines emitted by the worker.
+                int    lastErrorCode = 0;
+                QString lastErrorMsg;
+                const QByteArray allOut = worker.readAllStandardOutput();
+                for (const QByteArray &rawLine : allOut.split('\n')) {
+                    const QByteArray line = rawLine.trimmed();
+                    if (line.isEmpty()) continue;
+                    const QJsonDocument doc = QJsonDocument::fromJson(line);
+                    if (!doc.isObject()) continue;
+                    const QJsonObject obj  = doc.object();
+                    const QString     type = obj.value("type").toString();
+
+                    if (type == "warning") {
+                        const int     code = obj.value("code").toInt();
+                        const QString msg  = obj.value("message").toString();
+                        const int jobId = rawSelf->m_jobId;
+                        QMetaObject::invokeMethod(rawSelf,
+                            [rawSelf, jobId, code, msg]() {
+                                emit rawSelf->warningReceived(jobId, code, msg);
+                            }, Qt::QueuedConnection);
+                    } else if (type == "error") {
+                        lastErrorCode = obj.value("code").toInt();
+                        lastErrorMsg  = obj.value("message").toString();
                     }
-                    return {false, exitCode, QStringLiteral("Legacy worker exited with code ") +
-                                             QString::number(exitCode), 0.0, 0.0};
+                }
+
+                const int exitCode = worker.exitCode();
+                if (exitCode != 0) {
+                    const QString msg = lastErrorMsg.isEmpty()
+                        ? QStringLiteral("Legacy worker exited with code %1\n%2")
+                              .arg(exitCode)
+                              .arg(QString::fromUtf8(worker.readAllStandardError()))
+                        : lastErrorMsg;
+                    return {false, exitCode, msg, 0.0, 0.0};
                 }
 
                 return {true, 0, QString(), 0.0, 0.0};

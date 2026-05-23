@@ -13,10 +13,12 @@
 #include <QDialog>
 #include <QString>
 
+class QComboBox;
 class QLabel;
 class QLineEdit;
 class QSlider;
 class QSpinBox;
+class QDoubleSpinBox;
 class QCheckBox;
 class QTabWidget;
 class QPlainTextEdit;
@@ -48,12 +50,15 @@ private slots:
     void onPickCRS();
     void onOpacitySliderChanged(int v);
     void onOpacitySpinChanged(int v);
+    void onPickContourColor();
+    void onPickResultsIsolinesColor();
     void onAccept();
     void onApply();
 
 private:
     void buildUi();
     void buildMeshStatsTab();
+    void buildResultsStylingTab();
     void readFromLayer();
     void writeToLayer();
 
@@ -74,8 +79,41 @@ private:
     // Metadata tab
     QPlainTextEdit *m_metadataText = nullptr;
 
-    // Mesh statistics tab (added only for SWMM2DMeshLayer)
-    QPlainTextEdit *m_statsText = nullptr;
+    // Mesh tab (added only for SWMM2DMeshLayer):
+    //  - Display group   : Show edges + Show mesh nodes checkboxes (AZ.3.4)
+    //  - Hillshade group : azimuth/altitude/z-exag/min-lit spinboxes (AU.6.4-lite)
+    //  - Contours group  : show + interval count + colour + line width (BJ.2-lite)
+    //  - Statistics group: pre-existing read-only summary
+    QCheckBox      *m_meshShowEdgesBox      = nullptr;
+    QCheckBox      *m_meshShowNodesBox      = nullptr;
+    QDoubleSpinBox *m_meshHillshadeAzSpin   = nullptr;
+    QDoubleSpinBox *m_meshHillshadeAltSpin  = nullptr;
+    QDoubleSpinBox *m_meshHillshadeZExSpin  = nullptr;
+    QDoubleSpinBox *m_meshHillshadeMinSpin  = nullptr;
+    QCheckBox      *m_meshShowContoursBox   = nullptr;
+    QSpinBox       *m_meshContourIntervalsSpin = nullptr;
+    QToolButton    *m_meshContourColorBtn   = nullptr;
+    QColor          m_pendingContourColor;   // mirrors button swatch
+    QDoubleSpinBox *m_meshContourWidthSpin  = nullptr;
+    // BJ.2-filled — iso-band fill controls
+    QCheckBox      *m_meshFilledContoursBox = nullptr;
+    QDoubleSpinBox *m_meshFilledOpacitySpin = nullptr;
+    QPlainTextEdit *m_statsText             = nullptr;
+
+    // 2D Results styling tab (added only for SWMM2DResultsLayer, CF.MVP-fix.3):
+    //  - Color ramp     : style combo (Smooth / Graduated) + class-count spin
+    //  - Filled bands   : enable + level count + opacity
+    //  - Iso-line strokes: enable + level count + colour + width
+    QComboBox      *m_resColorStyleCombo    = nullptr;
+    QSpinBox       *m_resColorClassesSpin   = nullptr;
+    QCheckBox      *m_resFilledBox          = nullptr;
+    QSpinBox       *m_resFilledLevelsSpin   = nullptr;
+    QDoubleSpinBox *m_resFilledOpacitySpin  = nullptr;
+    QCheckBox      *m_resIsolinesBox        = nullptr;
+    QSpinBox       *m_resIsolinesLevelsSpin = nullptr;
+    QToolButton    *m_resIsolinesColorBtn   = nullptr;
+    QColor          m_pendingIsolinesColor;
+    QDoubleSpinBox *m_resIsolinesWidthSpin  = nullptr;
 
     QTabWidget  *m_tabs = nullptr;
 };

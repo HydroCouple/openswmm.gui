@@ -24,18 +24,20 @@ SimulationStatusModel::SimulationStatusModel(QObject *parent)
 // Mutators (called on GUI thread)
 // ---------------------------------------------------------------------------
 
-int SimulationStatusModel::addJob(const QString &instanceName, const QString &inpPath)
+int SimulationStatusModel::addJob(const QString &instanceName, const QString &inpPath,
+                                   const QString &engineVersion)
 {
     const int id   = m_nextId++;
     const int row  = m_jobs.size();
 
     beginInsertRows(QModelIndex(), row, row);
     SimulationJobRecord rec;
-    rec.id           = id;
-    rec.instanceName = instanceName;
-    rec.inpPath      = inpPath;
-    rec.status       = SimulationJobStatus::Running;
-    rec.startedAt    = QDateTime::currentDateTime();
+    rec.id            = id;
+    rec.instanceName  = instanceName;
+    rec.inpPath       = inpPath;
+    rec.engineVersion = engineVersion;
+    rec.status        = SimulationJobStatus::Running;
+    rec.startedAt     = QDateTime::currentDateTime();
     m_jobs.append(rec);
     endInsertRows();
 
@@ -44,21 +46,22 @@ int SimulationStatusModel::addJob(const QString &instanceName, const QString &in
 
 int SimulationStatusModel::addOrReuseJobForModel(SWMMVisProjectWindow *model,
                                                  const QString &instanceName,
-                                                 const QString &inpPath)
+                                                 const QString &inpPath,
+                                                 const QString &engineVersion)
 {
     if (!model) {
-        // Fallback: create a new job if no model binding
-        return addJob(instanceName, inpPath);
+        return addJob(instanceName, inpPath, engineVersion);
     }
 
-    // Check if this model already has a job row
-    if (m_modelToJobId.contains(model)) {
-        // Reuse the existing job: reset it for a new run
-        const int jobId = m_modelToJobId[model];
+    // Check if this model already has a row for this specific engine version.
+    // Different engine versions get separate rows; same version is reused.
+    auto &versionMap = m_modelToJobId[model];
+    if (versionMap.contains(engineVersion)) {
+        const int jobId = versionMap[engineVersion];
         const int row = jobIndexById(jobId);
         if (row >= 0) {
             auto &rec = m_jobs[row];
-            // Reset the record for a fresh run
+            // Reset the record for a fresh run.
             rec.status            = SimulationJobStatus::Running;
             rec.progress          = 0.0;
             rec.runoffErrPct      = 0.0;
@@ -69,14 +72,11 @@ int SimulationStatusModel::addOrReuseJobForModel(SWMMVisProjectWindow *model,
             rec.finishedAt        = QDateTime();
             rec.currentSimDate    = QDateTime();
             rec.avgTimestepSec    = 0.0;
-            rec.warnings.clear();
 
-            // Update display (status and progress)
             const QModelIndex tl = createIndex(row, 0, kRootId);
-            const QModelIndex br = createIndex(row, ColProgress, kRootId);
+            const QModelIndex br = createIndex(row, NumColumns - 1, kRootId);
             emit dataChanged(tl, br, {Qt::DisplayRole, Qt::EditRole, Qt::ForegroundRole});
 
-            // Clear warning children if they exist
             if (!rec.warnings.isEmpty()) {
                 const QModelIndex jobIdx = createIndex(row, 0, kRootId);
                 beginRemoveRows(jobIdx, 0, rec.warnings.size() - 1);
@@ -88,9 +88,9 @@ int SimulationStatusModel::addOrReuseJobForModel(SWMMVisProjectWindow *model,
         }
     }
 
-    // Create a new job and track it with the model
-    const int jobId = addJob(instanceName, inpPath);
-    m_modelToJobId[model] = jobId;
+    // New engine version (or first run) — create a fresh row.
+    const int jobId = addJob(instanceName, inpPath, engineVersion);
+    versionMap[engineVersion] = jobId;
     return jobId;
 }
 
@@ -195,6 +195,12 @@ const SimulationJobRecord *SimulationStatusModel::jobRecord(int jobId) const
     const int row = jobIndexById(jobId);
     if (row < 0) return nullptr;
     return &m_jobs[row];
+}
+
+int SimulationStatusModel::jobIdForRow(int row) const
+{
+    if (row < 0 || row >= m_jobs.size()) return -1;
+    return m_jobs[row].id;
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +318,8 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
             if (rec.avgTimestepSec >= 60.0)
                 return QStringLiteral("%1 min").arg(rec.avgTimestepSec / 60.0, 0, 'f', 2);
             return QStringLiteral("%1 s").arg(rec.avgTimestepSec, 0, 'f', 2);
+        case ColVersion:
+            return rec.engineVersion.isEmpty() ? QStringLiteral("—") : rec.engineVersion;
         default: break;
         }
     }
@@ -348,6 +356,7 @@ QVariant SimulationStatusModel::headerData(int section, Qt::Orientation orientat
     case ColRoutingErr:  return tr("Routing Err (%)");
     case ColDuration:     return tr("Duration");
     case ColAvgTimestep:  return tr("Avg Timestep");
+    case ColVersion:      return tr("Engine Version");
     default: return {};
     }
 }

@@ -97,6 +97,9 @@ Units, offset mode, and CRS button to the active project.
 - Open two projects with different units (e.g. one CFS, one CMS): switch between them
   and watch the **Flow Units** combo and **Offset Mode** toggle flip to match each
   project's stored options. Edits in one project don't affect the other.
+- Whenever a control above reads from a SWMM `[OPTIONS]` key, it must hydrate from the
+  active project's engine on every project open, tab switch, and external option write.
+  See `docs/GUI_IMPLEMENTATION_PLAN.md` §M for the formal hydration contract.
 
 ## Related
 

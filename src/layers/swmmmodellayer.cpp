@@ -20,6 +20,7 @@
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QSet>
 #include <QtMath>
 
 #include <limits>
@@ -712,7 +713,12 @@ int SWMMModelLayer::dataObjectCount(DataCategory c) const
     case DataSnowpacks:     return swmm_snowpack_count(m_engine);
     case DataControls:      return swmm_control_count(m_engine);
     case DataTransects:     return swmm_transect_count(m_engine);
-    case DataHydrographs:   return swmm_hydrograph_count(m_engine);
+    // Slice DA.1 — return the *unique group* count, not the raw per-
+    // (group, month, response) entry count. The engine surfaces it via
+    // `swmm_hydrograph_group_count` (DA-ENG-01). The legacy
+    // `swmm_hydrograph_count` returns parameter rows (12 or 36 per
+    // group), which left the Object Browser showing mostly blank rows.
+    case DataHydrographs:   return swmm_hydrograph_group_count(m_engine);
     case DataStreets:       return swmm_street_count(m_engine);
     case DataInlets:        return swmm_inlet_count(m_engine);
     default:                return 0;
@@ -745,41 +751,73 @@ QString SWMMModelLayer::dataObjectNameAt(DataCategory c, int row) const
     case DataAquifers:    return nameOrEmpty(swmm_aquifer_id     (m_engine, row));
     case DataSnowpacks:   return nameOrEmpty(swmm_snowpack_id    (m_engine, row));
     case DataControls: {
-        // Controls are stored as anonymous rule blocks; synthesise a
-        // human-readable label "Rule N" for the BM.0 browser surface.
-        // BR (Slice 6.8) will replace this once it surfaces real
-        // RULE-name extraction from rule text.
-        const int n = swmm_control_count(m_engine);
-        if (row >= n) return {};
-        return QObject::tr("Rule %1").arg(row + 1);
+        // Slice DA.1 — surface the user-supplied RULE name via the new
+        // engine accessor `swmm_control_get_id` (DA-ENG-02), which parses
+        // the first token after the RULE keyword. Only fall back to a
+        // sentinel "Rule N [unnamed]" when the rule text is malformed —
+        // previously we always synthesised "Rule N" regardless of the
+        // user-supplied identifier.
+        char buf[128] = {};
+        const int rc = swmm_control_get_id(m_engine, row, buf, sizeof(buf));
+        if (rc == SWMM_OK) return QString::fromUtf8(buf);
+        if (rc == SWMM_ERR_BADPARAM)
+            return QObject::tr("Rule %1 [unnamed]").arg(row + 1);
+        return {};
     }
     case DataTransects:   return nameOrEmpty(swmm_transect_id    (m_engine, row));
     case DataHydrographs: {
-        // Hydrograph "groups" derive from distinct entry names — the
-        // engine stores them as one entry per (group, month, response).
-        // Walk and de-duplicate by first occurrence to give the BM.0
-        // browser its per-group rows.
-        const int n = swmm_hydrograph_count(m_engine);
-        QStringList seen; seen.reserve(n);
-        for (int i = 0; i < n; ++i) {
-            char buf[128] = {};
-            int  month = 0, response = 0;
-            double r, t, k, dmax, drecov, dinit;
-            if (swmm_hydrograph_get(m_engine, i, buf, sizeof(buf),
-                                     &month, &response,
-                                     &r, &t, &k, &dmax, &drecov, &dinit) != SWMM_OK)
-                continue;
-            const QString name = QString::fromUtf8(buf);
-            if (!seen.contains(name)) {
-                seen.append(name);
-                if (seen.size() == row + 1) return name;
-            }
-        }
-        return {};
+        // Slice DA.1 — group enumeration via `swmm_hydrograph_group_id`
+        // (DA-ENG-01) replaces the prior iterate-and-dedup loop. The
+        // engine already walks parameter entries + gage assignments in
+        // first-occurrence order and emits the unique sequence.
+        char buf[128] = {};
+        if (swmm_hydrograph_group_id(m_engine, row, buf, sizeof(buf)) != SWMM_OK)
+            return {};
+        return QString::fromUtf8(buf);
     }
     case DataStreets: return nameOrEmpty(swmm_street_id(m_engine, row));
     case DataInlets:  return nameOrEmpty(swmm_inlet_id (m_engine, row));
     default:          return {};
+    }
+}
+
+QString SWMMModelLayer::suggestUniqueDataObjectName(DataCategory c) const
+{
+    // Per-category prefix table — matches the convention specified in
+    // docs/GUI_IMPLEMENTATION_PLAN.md slice DA.3.
+    auto prefixFor = [](DataCategory dc) -> QString {
+        switch (dc) {
+        case DataCurves:      return QStringLiteral("Curve");
+        case DataTimeSeries:  return QStringLiteral("TS");
+        case DataPatterns:    return QStringLiteral("Pattern");
+        case DataLIDControls: return QStringLiteral("LID");
+        case DataPollutants:  return QStringLiteral("Pollut");
+        case DataLandUses:    return QStringLiteral("LandUse");
+        case DataAquifers:    return QStringLiteral("Aquifer");
+        case DataSnowpacks:   return QStringLiteral("Snowpack");
+        case DataControls:    return QStringLiteral("Rule");
+        case DataTransects:   return QStringLiteral("Transect");
+        case DataHydrographs: return QStringLiteral("UH");
+        case DataStreets:     return QStringLiteral("Street");
+        case DataInlets:      return QStringLiteral("Inlet");
+        default:              return QStringLiteral("Object");
+        }
+    };
+
+    const QString prefix = prefixFor(c);
+    const int n = dataObjectCount(c);
+
+    // Materialise the existing name set once (case-insensitive). For
+    // typical N (< 1000) this is well within budget; suggestUniqueDataObjectName
+    // runs at most once per New… dialog open.
+    QSet<QString> existing;
+    existing.reserve(n);
+    for (int i = 0; i < n; ++i)
+        existing.insert(dataObjectNameAt(c, i).toLower());
+
+    for (int k = 1; ; ++k) {
+        const QString candidate = QStringLiteral("%1%2").arg(prefix).arg(k);
+        if (!existing.contains(candidate.toLower())) return candidate;
     }
 }
 
@@ -1160,6 +1198,33 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name) const
         const char *kinds[] = {"Junction", "Outfall", "Storage", "Divider"};
         if (n.nodeType >= 0 && n.nodeType <= 3)
             m[QStringLiteral("Node type")] = QString::fromLatin1(kinds[n.nodeType]);
+
+        // Slice DB — read-only computed + statistics summary fields. Crown
+        // elev / full volume / degree are input-time properties (computed
+        // when links connect). The stat_* values are populated only after
+        // a simulation run; pre-run they read back as zero. The attribute
+        // table and property browser surface these so users can see node
+        // results without opening the Status Report.
+        if (m_engine) {
+            const int idx = swmm_node_index(m_engine, n.name.toUtf8().constData());
+            if (idx >= 0) {
+                double v = 0.0; int iv = 0;
+                if (swmm_node_get_crown_elev(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("Crown elev")] = v;
+                if (swmm_node_get_full_volume(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("Full volume")] = v;
+                if (swmm_node_get_degree(m_engine, idx, &iv) == SWMM_OK)
+                    m[QStringLiteral("Degree")] = iv;
+                if (swmm_node_get_stat_max_depth(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("Max depth (stat)")] = v;
+                if (swmm_node_get_stat_max_overflow(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("Max overflow")] = v;
+                if (swmm_node_get_stat_vol_flooded(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("Vol flooded")] = v;
+                if (swmm_node_get_stat_time_flooded(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("Time flooded (hr)")] = v;
+            }
+        }
         return m;
     }
     if (int i = findLink(); i >= 0)
