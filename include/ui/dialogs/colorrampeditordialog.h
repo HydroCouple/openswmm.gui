@@ -48,6 +48,14 @@ class ColorRampEditorDialog : public QDialog
 public:
     explicit ColorRampEditorDialog(SWMMResultsLayer *layer,
                                     QWidget *parent = nullptr);
+
+    /*! Slice BB-α — layer-less constructor for use by ColorRampComboBox
+     *  and any caller that wants to author a stand-alone ramp without
+     *  binding it to a results layer. The edited ramp is read back via
+     *  ramp() on accept. */
+    explicit ColorRampEditorDialog(const RasterColorRamp &initial,
+                                    QWidget *parent = nullptr);
+
     ~ColorRampEditorDialog() override;
 
     /*! \brief Current edited ramp (committed to the layer on accept). */
@@ -62,6 +70,7 @@ private slots:
     void onMinChanged(double v);
     void onMaxChanged(double v);
     void onSwatchClicked();
+    void onInterpChanged(int index);
     void accept() override;
 
 private:
@@ -78,6 +87,7 @@ private:
     QDoubleSpinBox *m_maxSpin    = nullptr;
     QPushButton    *m_autoBtn    = nullptr;
     QComboBox      *m_presetCombo = nullptr;
+    QComboBox      *m_interpCombo = nullptr;     // Slice BB-α: RGB / HSV(short) / HSV(long)
     QCheckBox      *m_reverseCb  = nullptr;
     QCheckBox      *m_discreteCb = nullptr;
     QSpinBox       *m_intervalsSpin = nullptr;

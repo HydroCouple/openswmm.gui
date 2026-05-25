@@ -6,9 +6,8 @@
  */
 #include "plot/observedcsvrunlayer.h"
 
-#include "plot/swmmjuliandatetime.h"
+#include "io/timeseriesparse.h"
 
-#include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
@@ -22,49 +21,6 @@
 namespace openswmmvis::plot {
 
 namespace {
-
-QChar guessDelimiter(const QString& sampleLine)
-{
-    // Highest-count among tab / comma / semicolon wins.
-    int tabs = sampleLine.count(QLatin1Char('\t'));
-    int commas = sampleLine.count(QLatin1Char(','));
-    int semis = sampleLine.count(QLatin1Char(';'));
-    if (tabs >= commas && tabs >= semis && tabs > 0) return QLatin1Char('\t');
-    if (semis > commas && semis > 0)                  return QLatin1Char(';');
-    return QLatin1Char(',');
-}
-
-bool tryParseTimestamp(const QString& s, double& jOut, double fallbackBase)
-{
-    static const QString kFormats[] = {
-        QStringLiteral("yyyy-MM-ddTHH:mm:ss"),
-        QStringLiteral("yyyy-MM-dd HH:mm:ss"),
-        QStringLiteral("yyyy-MM-dd HH:mm"),
-        QStringLiteral("yyyy-MM-dd"),
-        QStringLiteral("MM/dd/yyyy HH:mm:ss"),
-        QStringLiteral("MM/dd/yyyy HH:mm"),
-        QStringLiteral("MM/dd/yyyy"),
-        QStringLiteral("dd/MM/yyyy HH:mm"),
-    };
-
-    QString trimmed = s.trimmed();
-    for (const QString& fmt : kFormats) {
-        QDateTime dt = QDateTime::fromString(trimmed, fmt);
-        if (!dt.isValid()) continue;
-        if (dt.timeSpec() == Qt::LocalTime) dt.setTimeSpec(Qt::UTC);
-        jOut = dateTimeToSwmmJulian(dt);
-        return std::isfinite(jOut);
-    }
-
-    // Hours-since-start numeric fallback (only if fallbackBase is valid).
-    bool ok = false;
-    const double hours = trimmed.toDouble(&ok);
-    if (ok && std::isfinite(fallbackBase)) {
-        jOut = fallbackBase + hours / 24.0;
-        return true;
-    }
-    return false;
-}
 
 UnitSystem inferUnitSystemFromHeaders(const QStringList& headers)
 {
@@ -85,22 +41,8 @@ bool ObservedCsvRunLayer::parseRow_(const QString& line,
                                      std::vector<double>& valuesOut,
                                      double hoursSinceStartFallbackBase)
 {
-    const QStringList cells = line.split(delim);
-    if (cells.size() < 2) return false;
-
-    if (!tryParseTimestamp(cells.first(), timeJulianOut,
-                            hoursSinceStartFallbackBase)) return false;
-
-    valuesOut.assign(static_cast<std::size_t>(cells.size() - 1),
-                     std::numeric_limits<double>::quiet_NaN());
-    for (int c = 1; c < cells.size(); ++c) {
-        const QString s = cells.at(c).trimmed();
-        if (s.isEmpty()) continue;
-        bool ok = false;
-        const double v = s.toDouble(&ok);
-        if (ok) valuesOut[static_cast<std::size_t>(c - 1)] = v;
-    }
-    return true;
+    return openswmmvis::io::parseRow(line, delim, timeJulianOut, valuesOut,
+                                     hoursSinceStartFallbackBase);
 }
 
 std::unique_ptr<ObservedCsvRunLayer> ObservedCsvRunLayer::load(
@@ -129,7 +71,7 @@ std::unique_ptr<ObservedCsvRunLayer> ObservedCsvRunLayer::load(
         return {};
     }
 
-    const QChar delim = guessDelimiter(headerLine);
+    const QChar delim = openswmmvis::io::guessDelimiter(headerLine);
     const QStringList headers = headerLine.split(delim);
     if (headers.size() < 2) {
         if (errorOut) *errorOut = QStringLiteral("Need at least 2 columns (timestamp + value)");

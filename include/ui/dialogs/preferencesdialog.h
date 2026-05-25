@@ -69,6 +69,14 @@ private:
     QCheckBox  *m_showLicenseOnStartupBox = nullptr;
     QCheckBox  *m_autoLengthBox           = nullptr;
     QComboBox  *m_defaultEngineCombo      = nullptr;
+    QSpinBox   *m_profileMaxPathsSpin     = nullptr;
+    QSpinBox   *m_profileHaloRadiusSpin   = nullptr;
+    QPushButton *m_profileStartColorBtn   = nullptr;
+    QColor      m_pendingProfileStartColor;
+    QDoubleSpinBox *m_profileStartWidthSpin = nullptr;
+    QPushButton *m_profileEndColorBtn     = nullptr;
+    QColor      m_pendingProfileEndColor;
+    QDoubleSpinBox *m_profileEndWidthSpin = nullptr;
 
     // Selection
     QSpinBox   *m_clickTolerancePxSpin  = nullptr;

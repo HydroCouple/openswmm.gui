@@ -25,6 +25,8 @@
 
 #include <openswmm/engine/openswmm_callbacks.h>  // SWMM_Engine typedef
 
+class SWMMModelLayer;
+
 /*! Identifies one editable compound attribute on a single node. */
 struct NodeCompoundEditRef
 {
@@ -38,15 +40,22 @@ struct NodeCompoundEditRef
         Treatment,     ///< `[TREATMENT]` per-node per-pollutant expression
     };
 
-    SWMM_Engine engine   = nullptr;  ///< Engine handle (borrow, not owned)
-    QString     nodeName;            ///< Owning node id
-    Kind        kind     = Inflows;
-    QString     summary;             ///< Short text shown in the cell
+    SWMM_Engine     engine   = nullptr;  ///< Engine handle (borrow, not owned)
+    QString         nodeName;            ///< Owning node id
+    Kind            kind     = Inflows;
+    QString         summary;             ///< Short text shown in the cell
+    /*! Owning model layer (borrow). DB.4 — needed by the dialog's
+     *  picker buttons so they can call `layer->createDataObject(...)`
+     *  to materialise a new time series / pattern / UH inline. May be
+     *  null when constructed in test contexts; pickers handle null
+     *  gracefully by disabling the "..." button. */
+    SWMMModelLayer *layer    = nullptr;
 
     bool operator==(const NodeCompoundEditRef &other) const noexcept
     {
         return engine == other.engine && nodeName == other.nodeName
-               && kind == other.kind && summary == other.summary;
+               && kind == other.kind && summary == other.summary
+               && layer == other.layer;
     }
 };
 

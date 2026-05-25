@@ -9,6 +9,8 @@
 #include "layers/swmmmodellayer.h"
 #include "map/tools/maptoolidentify.h"   // IdentifyResult
 #include "selection/selectionmanager.h"  // SWMMObjectRef::ObjectType
+#include "ui/properties/dataobjectpickereditor.h"
+#include "ui/properties/dataobjectref.h"
 #include "ui/properties/nodecompoundeditbutton.h"
 #include "ui/properties/nodecompoundeditref.h"
 #include "ui/properties/swmmlinkpropertyadapter.h"
@@ -36,6 +38,7 @@
 // QPropertyModel library
 #ifdef HAVE_QPROPERTYMODEL
 #include <qpropertymodel.h>
+#include <qpropertyitem.h>
 #include <qpropertyitemdelegate.h>
 #endif
 
@@ -48,6 +51,79 @@
 #include <QVBoxLayout>
 #include <QVariant>
 #include <QWidget>
+
+#ifdef HAVE_QPROPERTYMODEL
+// ---------------------------------------------------------------------------
+// Slice DA.4.3 — conditional row editability helpers
+// ---------------------------------------------------------------------------
+//
+// We need to grey out the outfall stage-data rows whose property does NOT
+// match the currently-selected outfall type (e.g. when type==TIDAL, hide
+// editability on Stage Elev. and Stage Time Series rows). The framework
+// already exposes per-row Qt::ItemFlags via QPropertyItem::setFlags() —
+// the only missing piece is locating the right item by its raw Q_PROPERTY
+// name (e.g. "outfallStage"), since the row's `name()` carries the
+// human-readable label from the adapter's `displayLabelFor`.
+
+namespace {
+
+QModelIndex findPropertyIndexByDisplayLabel(QAbstractItemModel *model,
+                                              const QString &label,
+                                              const QModelIndex &parent = {})
+{
+    if (!model) return {};
+    const int n = model->rowCount(parent);
+    for (int i = 0; i < n; ++i) {
+        const QModelIndex idx = model->index(i, 0, parent);
+        if (model->data(idx, Qt::DisplayRole).toString() == label)
+            return idx;
+        if (model->hasChildren(idx)) {
+            const QModelIndex found = findPropertyIndexByDisplayLabel(model, label, idx);
+            if (found.isValid()) return found;
+        }
+    }
+    return {};
+}
+
+/*! Toggle the editable/enabled flags of one property row, located by
+ *  raw Q_PROPERTY name. Routes through the adapter's `displayLabelFor`
+ *  to translate the name to the displayed label that QPropertyItem
+ *  carries. No-op if the row isn't found (e.g. the property is not
+ *  surfaced on the current node-kind subclass). */
+void setRowEditable(QPropertyModel *pm, QObject *adapter,
+                     const QString &rawProperty, bool editable)
+{
+    if (!pm || !adapter) return;
+
+    QString label;
+    QMetaObject::invokeMethod(adapter, "displayLabelFor", Qt::DirectConnection,
+                              Q_RETURN_ARG(QString, label),
+                              Q_ARG(QString, rawProperty));
+    if (label.isEmpty()) label = rawProperty;
+
+    const QModelIndex idx = findPropertyIndexByDisplayLabel(pm, label);
+    if (!idx.isValid()) return;
+
+    auto *item = static_cast<QPropertyItem*>(idx.internalPointer());
+    if (!item) return;
+
+    Qt::ItemFlags f = item->flags();
+    if (editable)
+        f |=  (Qt::ItemIsEnabled | Qt::ItemIsEditable);
+    else
+        f &= ~(Qt::ItemIsEnabled | Qt::ItemIsEditable);
+    item->setFlags(f);
+
+    // Nudge the view to re-query flags + repaint the greyed cell.
+    QMetaObject::invokeMethod(pm, "onDataChanged", Qt::DirectConnection,
+                              Q_ARG(QModelIndex, idx));
+    const QModelIndex valIdx = pm->index(idx.row(), 1, idx.parent());
+    QMetaObject::invokeMethod(pm, "onDataChanged", Qt::DirectConnection,
+                              Q_ARG(QModelIndex, valIdx));
+}
+
+} // namespace
+#endif // HAVE_QPROPERTYMODEL
 
 // ---------------------------------------------------------------------------
 // Construction
@@ -104,6 +180,16 @@ void AttributePanel::setupUi()
     delegate->registerCustomTypeEditorCreator(
         QMetaType::Type(qMetaTypeId<NodeCompoundEditRef>()),
         new QStandardItemEditorCreator<NodeCompoundEditButton>());
+
+    // Slice DA.4.3 — same dance for `DataObjectRef`, used by the new
+    // outfall stage-data picker rows (Tidal Curve, Stage Time Series).
+    // Display-side converter renders the picked object name in the cell;
+    // edit-side creator gives the user a filtered combobox + "…" button.
+    qRegisterMetaType<DataObjectRef>("DataObjectRef");
+    registerDataObjectRefConverter();
+    delegate->registerCustomTypeEditorCreator(
+        QMetaType::Type(qMetaTypeId<DataObjectRef>()),
+        new QStandardItemEditorCreator<DataObjectPickerEditor>());
 #else
     m_model    = new QStandardItemModel(this);
 #endif
@@ -292,7 +378,39 @@ void AttributePanel::onLayerComboIndexChanged(int index)
                     m_swmmLayer->engine(), name, this);
                 break;
             }
+            // DB.4c — thread the layer pointer so the compound-edit
+            // pickers (Inflows TS / Pattern, DWF patterns, RDII UH)
+            // can call back into `layer->createDataObject(...)`.
+            m_nodeAdapter->setModelLayer(m_swmmLayer);
             if (pm) pm->setData(QVariant::fromValue<QObject *>(m_nodeAdapter));
+
+            // Slice DA.4.3 — for outfalls only, drive editability of the
+            // three stage-data rows from the live `outfallType`. Reuses
+            // the adapter's existing `changed()` signal as the trigger
+            // (every setter — including setOutfallType — emits it). A
+            // separate signal isn't needed and would just duplicate the
+            // existing notification chain.
+            if (auto *outfallAdapter =
+                    qobject_cast<SWMMOutfallPropertyAdapter*>(m_nodeAdapter))
+            {
+                auto applyOutfallRowFlags = [pm, outfallAdapter]() {
+                    if (!pm) return;
+                    const auto t = outfallAdapter->outfallType();
+                    setRowEditable(pm, outfallAdapter, QStringLiteral("outfallStage"),
+                                   t == SWMMNodePropertyAdapter::FIXED);
+                    setRowEditable(pm, outfallAdapter, QStringLiteral("outfallTidalCurve"),
+                                   t == SWMMNodePropertyAdapter::TIDAL);
+                    setRowEditable(pm, outfallAdapter, QStringLiteral("outfallTimeseries"),
+                                   t == SWMMNodePropertyAdapter::TIMESERIES);
+                };
+                connect(outfallAdapter, &SWMMNodePropertyAdapter::changed,
+                        pm, applyOutfallRowFlags);
+                // Initial pass — runs after setData() above has populated
+                // the property tree so findPropertyIndexByDisplayLabel can
+                // locate the rows.
+                applyOutfallRowFlags();
+            }
+
             connect(m_nodeAdapter, &SWMMNodePropertyAdapter::changed,
                     this, [this, name]() {
                         if (!m_suppressEditForward) emit objectEdited(name);
@@ -436,7 +554,30 @@ void AttributePanel::showDataObject(SWMMModelLayer *layer, int objectKind,
     case K::Transect:
         m_dataAdapter = new SWMMTransectPropertyAdapter(eng, name, this); break;
     case K::Hydrograph:
-        m_dataAdapter = new SWMMHydrographPropertyAdapter(eng, name, this); break;
+        m_dataAdapter = new SWMMHydrographPropertyAdapter(eng, name, this);
+        // Slice BS Phase 6.9.2 — keep the Property Browser live as the user
+        // edits this group from any other UI (HydrographGroupEditor, the
+        // NodeCompoundEditDialog RDII page, NewDataObjectDialog). The
+        // hydrographChanged(name) signal carries the affected group name
+        // (or empty for rename / bulk operations). The receiver lifetime
+        // is bound to the adapter so the connection self-disconnects when
+        // the panel switches to a different object.
+        if (layer) {
+            connect(layer, &SWMMModelLayer::hydrographChanged,
+                    m_dataAdapter,
+                    [this](const QString &uhName) {
+#ifdef HAVE_QPROPERTYMODEL
+                        if (!m_dataAdapter) return;
+                        if (!uhName.isEmpty() && uhName != m_dataAdapter->name())
+                            return;
+                        if (auto *pm = qobject_cast<QPropertyModel*>(m_model))
+                            pm->refreshValues();
+#else
+                        Q_UNUSED(uhName);
+#endif
+                    });
+        }
+        break;
     case K::Street:
         m_dataAdapter = new SWMMStreetPropertyAdapter(eng, name, this); break;
     case K::Inlet:

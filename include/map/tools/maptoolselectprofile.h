@@ -34,6 +34,7 @@ class SWMMModelLayer;
 class ProfilePathOverlay;
 class ProfilePathPickerDialog;
 class QGraphicsScene;
+template<typename T> class QFutureWatcher;
 
 class OpenSWMMVisMapToolSelectProfile : public OpenSWMMVisMapTool
 {
@@ -81,6 +82,14 @@ signals:
      */
     void statusMessageChanged(const QString &message);
 
+    /*!
+     * \brief Fired when async routing starts (\p busy = true) and again
+     *        when it completes (\p busy = false).  Hosts can wire this
+     *        to a status-bar busy spinner so the user sees that
+     *        background work is in flight.
+     */
+    void routingBusyChanged(bool busy);
+
 private:
     enum class State {
         Idle,           /*!< no endpoints captured yet */
@@ -98,9 +107,16 @@ private:
     [[nodiscard]] double clickTolerance() const;
 
     // Materializes the candidate paths via ProfileNetworkAdapter +
-    // ProfileRouter and launches the picker dialog if there are multiple.
-    // Sets `m_acceptedPath` and emits `profilePathSelected()` on success.
+    // ProfileRouter on a worker thread.  Returns immediately after
+    // kicking off the future and showing a busy progress dialog; the
+    // post-routing flow continues in onRoutingComplete().
     void routeAndPick();
+
+    // Continuation invoked on the main thread once the worker thread's
+    // ProfileRouter call finishes (or is cancelled).  Handles the
+    // single-path auto-accept and multi-path picker dialog flows.
+    void onRoutingComplete(const ProfileRouter::Result &result,
+                           int graphNodeCount, int graphEdgeCount);
 
     // Tears down the overlay, clears endpoints/waypoints, returns to Idle.
     void resetState();
@@ -131,6 +147,12 @@ private:
     // and on dialog accept/reject.
     QPointer<ProfilePathPickerDialog> m_pendingPicker;
     QVector<ProfileRouter::Path>      m_pendingPaths;
+
+    // Async routing state — the worker future.  Parented to `this` so it
+    // cleans up when the tool dies.  Status-bar busy indication is
+    // surfaced via the routingBusyChanged() signal rather than a local
+    // progress dialog so the user can keep panning/zooming the map.
+    QFutureWatcher<ProfileRouter::Result> *m_routingWatcher = nullptr;
 };
 
 #endif // MAPTOOLSELECTPROFILE_H

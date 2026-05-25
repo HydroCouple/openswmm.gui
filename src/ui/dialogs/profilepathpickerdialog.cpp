@@ -42,22 +42,31 @@ QPixmap chip(const QColor &c, int sizePx = 14)
 ProfilePathPickerDialog::ProfilePathPickerDialog(
     SWMMModelLayer *model,
     const QVector<ProfileRouter::Path> &paths,
+    bool truncated,
     QWidget *parent)
     : QDialog(parent),
       m_model(model),
       m_paths(paths)
 {
     setWindowTitle(tr("Select Profile Path"));
-    setModal(true);
+    // Non-modal by default — the host (MapToolSelectProfile) reconfigures
+    // window flags / modality at show time so the dialog floats above the
+    // main window while leaving the map interactive (pan / zoom / hover
+    // candidate paths).
+    setModal(false);
     resize(560, 320);
 
     auto *layout = new QVBoxLayout(this);
 
-    auto *header = new QLabel(
-        tr("%1 candidate paths found between the selected endpoints. "
-           "Hover a row to highlight that path on the map; click OK to confirm.")
-            .arg(m_paths.size()),
-        this);
+    const QString headerText = truncated
+        ? tr("Showing %1 candidate paths between the selected endpoints "
+             "(search was truncated — more paths may exist). "
+             "Hover a row to highlight that path on the map; click OK to confirm.")
+              .arg(m_paths.size())
+        : tr("%1 candidate paths found between the selected endpoints. "
+             "Hover a row to highlight that path on the map; click OK to confirm.")
+              .arg(m_paths.size());
+    auto *header = new QLabel(headerText, this);
     header->setWordWrap(true);
     layout->addWidget(header);
 

@@ -73,21 +73,23 @@ signals:
     void plotTimeSeriesRequested(const SWMMObjectRef &object);
 
 public:
-    /*! Slice BM.0 / DA.3 — create a new non-spatial data object of type
-     *  \p dc named \p name via the engine `swmm_<type>_add` call.
-     *
-     *  \p options carries per-type creation parameters collected by
-     *  `NewDataObjectDialog` (DA.3): "curveType", "patternType",
-     *  "lidType", "units", "inletType", "skeleton" (control-rule
-     *  template), "rainGage" + "response" (unit hydrograph). When
-     *  empty, sensible defaults are applied (matches legacy SWMM-GUI's
-     *  first-entry-per-type fallback). After a successful add the
-     *  newly-created object is selected so AttributePanel hydrates
-     *  immediately. Also called from swmmvis.cpp for the menu-driven
-     *  entry point. */
-    void addNewDataObject(SWMMModelLayer::DataCategory dc,
-                            const QString &name,
-                            const QVariantMap &options = {});
+    /*! Slice BM.0-Add-New (2026-05-24) — does this data category have a
+     *  complex MVC editor wired into Add-New today? Returns true only for
+     *  DataTimeSeries + DataHydrographs. Each future editor slice
+     *  (BO/BP/BQ/BR) adds one more true case as it ships. */
+    static bool hasComplexEditor(SWMMModelLayer::DataCategory dc) noexcept;
+
+    /*! Slice BM.0-Add-New — tooltip text for the disabled Add-New action
+     *  on gap categories. Hardcoded mapping of category → future slice ID
+     *  + editor name. Returns an empty string for categories where
+     *  `hasComplexEditor` is true. */
+    static QString gapTooltipFor(SWMMModelLayer::DataCategory dc);
+
+    /*! Slice BM.0-Add-New — launch the per-category complex editor in
+     *  create mode. Asserts in debug if called with a gap category (the
+     *  context menu disables those, so this should be unreachable in
+     *  production paths). */
+    void launchAddNewEditor(SWMMModelLayer::DataCategory dc);
 
 private slots:
     void onTreeSelectionChanged();
@@ -106,27 +108,6 @@ private slots:
 private:
     void buildUi();
 
-    /*! Capture the currently-expanded top-level category / data-category
-     *  rows into \c m_expandedCategories / \c m_expandedDataCategories so
-     *  the user's expansion state survives a model reload. Keyed by the
-     *  stable enum, not row index — drag-drop reordering doesn't break it. */
-    void snapshotExpansion();
-
-    /*! Re-expand the categories named in \c m_expandedCategories /
-     *  \c m_expandedDataCategories after a model reset. No-op for
-     *  categories that became empty / hidden in the meantime. */
-    void restoreExpansion();
-
-    /*! Read persisted expansion state for the currently-bound layer from
-     *  QSettings and store it in the in-memory sets (does not touch the
-     *  view — \c restoreExpansion() does that after \c reload()). */
-    void loadPersistedExpansion();
-
-    /*! Write the in-memory expansion sets to QSettings under the bound
-     *  layer's modelFilePath key. No-op when no layer is bound or the
-     *  layer has no file path yet. */
-    void savePersistedExpansion();
-
     /*! Centre the canvas on a single object and zoom to a small buffer
      *  derived from the layer's overall extent. No-op if \p canvas is null
      *  or the object coord can't be resolved via identifyByName. */
@@ -140,6 +121,20 @@ private:
      *  permutation onto the undo stack if one is available. */
     void sortCategoryAlphabetically(SWMMModelLayer::Category cat);
 
+    /*! Slice BM.0-Add-New — lazy-init / re-use the TimeseriesRegistry
+     *  scoped to the current engine handle. Returns nullptr if the layer
+     *  has no engine. Shared by the Add-New dispatch (createNew factory)
+     *  and the double-click-TS path so both routes see the same provider
+     *  instances. */
+    QObject *ensureTimeseriesRegistry_();
+
+    /*! Slice BQ Phase 6.7.2 — same pattern as ensureTimeseriesRegistry_,
+     *  but for the PatternRegistry. */
+    QObject *ensurePatternRegistry_();
+
+    /*! Slice BQ Phase 6.7.1 — same pattern, for the CurveRegistry. */
+    QObject *ensureCurveRegistry_();
+
     QLineEdit                      *m_searchEdit     = nullptr;
     QTreeView                      *m_view           = nullptr;
     SWMMObjectTreeModel            *m_model          = nullptr;
@@ -150,22 +145,25 @@ private:
     QPointer<SelectionManager>      m_selMgr;
     QPointer<MapCanvas>             m_canvas;
 
+    // Slice BQ Phase 6.7.3.8 — lazy-loaded timeseries registry hosted on the
+    // panel until SWMMModelLayer gains a proper owner. Forward-declared via
+    // QObject* to keep this header free of the timeseries include; downcast
+    // happens in the .cpp once we know the layer changed.
+    QObject                        *m_tsRegistry = nullptr;
+    void                           *m_tsRegistryEngineHandle = nullptr;
+
+    // Slice BQ Phase 6.7.2 — same lazy-init pattern for time patterns.
+    QObject                        *m_patternRegistry = nullptr;
+    void                           *m_patternRegistryEngineHandle = nullptr;
+
+    // Slice BQ Phase 6.7.1 — same lazy-init pattern for curves.
+    QObject                        *m_curveRegistry = nullptr;
+    void                           *m_curveRegistryEngineHandle = nullptr;
+
     /*! Reentrancy guard — true while we're applying SelectionManager
      *  changes to the tree (don't bounce them back through
      *  onTreeSelectionChanged). */
     bool                            m_applyingFromBus = false;
-
-    /*! Per-project expansion state. Survives \c refresh() and is
-     *  written to QSettings on project switch / panel destruction so
-     *  the user's preferred groups stay open across sessions. */
-    QSet<int>                       m_expandedCategories;
-    QSet<int>                       m_expandedDataCategories;
-
-    /*! True between the first non-empty keystroke and the next clear
-     *  of the search box. We snapshot expansion on the rising edge so
-     *  the user's pre-filter state is preserved through the
-     *  expand-on-filter / collapse-on-clear cycle. */
-    bool                            m_filterActive = false;
 };
 
 #endif // OBJECTBROWSERPANEL_H

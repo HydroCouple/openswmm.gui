@@ -7,16 +7,13 @@
  * Slice DB.2 — One modal dialog with a stacked-widget body, one page
  * per compound node attribute (Inflows / DWF / RDII / Treatment).
  *
- * **Engine-API status (2026-05-22)** — only RDII has the full per-entry
- * round-trip (`swmm_rdii_get` exists; this dialog iterates all entries
- * filtering by `node_idx`). Inflows and DWF have `_add` + `_count` only
- * — the dialog surfaces the count and an `Add…` form (the engine
- * accepts new rows but the GUI can't read existing ones back). Treatment
- * has no engine API at all and shows an explanatory placeholder. As soon
- * as the AG.0 batch (`swmm_inflow_get` / `swmm_dwf_get` / per-entry
- * setters + removes; see `openswmm.engine/docs/AG_GUI_API_REQUEST.md`)
- * lands, the same dialog gains full read + edit + remove for all
- * four kinds without any GUI scaffolding change.
+ * **Engine-API status (2026-05-24)** — all four pages have full per-entry
+ * round-trip. Inflows uses `swmm_ext_inflow_get/add/remove`, DWF uses
+ * `swmm_dwf_get/add/remove`, RDII uses `swmm_rdii_get/add/remove`, and
+ * Treatment uses `swmm_treatment_get/set/clear` indexed by
+ * (node_idx, pollut_idx). Each page shows existing per-node entries in
+ * a table with Add and Remove buttons; per-entry edits are
+ * remove-and-readd via the table selection + form below.
  */
 
 #ifndef NODECOMPOUNDEDITDIALOG_H
@@ -33,6 +30,8 @@ class QLineEdit;
 class QComboBox;
 class QDoubleSpinBox;
 class QDialogButtonBox;
+class QPushButton;
+class LabeledPickerCombo;
 
 class NodeCompoundEditDialog : public QDialog
 {
@@ -62,35 +61,73 @@ private:
      *  node has been removed since the dialog opened. */
     [[nodiscard]] int nodeIdx() const;
 
+    // DB.4 — combo population helpers. Each clears + repopulates the
+    // picker with the engine's current set of data objects.
+    void populateConstituentCombo(QComboBox *c);
+    void populateTimeSeriesCombo(LabeledPickerCombo *p);
+    void populatePatternCombo(LabeledPickerCombo *p);
+    void populateUhGroupCombo(LabeledPickerCombo *p);
+
+    /*! Inline create-new flow for the picker buttons. For categories with
+     *  a complex MVC editor (TS / UH today), prompts the user for a name
+     *  and commits via `m_ref.layer->createDataObject`. For gap categories,
+     *  shows the documented tooltip and returns empty. Replaces the prior
+     *  NewDataObjectDialog-based flow per Slice BM.0-Add-New (2026-05-24). */
+    QString launchNewDataObject(int dataCategory);
+
+    /*! Wire a picker's "..." button so it opens the right creation
+     *  dialog and re-populates itself when a new entry is created. */
+    void wirePicker(LabeledPickerCombo *picker, int dataCategory,
+                     void (NodeCompoundEditDialog::*repopulate)(LabeledPickerCombo*));
+
+    /*! Apply the FLOW/MASS rule to the inflow Type combo based on the
+     *  currently-selected constituent. MASS is pollutant-only — disable
+     *  it and downshift the selection when FLOW is chosen. */
+    void updateInflowsMassEnabled();
+
     NodeCompoundEditRef m_ref;
 
-    // RDII page — fully functional via `swmm_rdii_*`.
-    QTableWidget   *m_rdiiTable     = nullptr;
-    QComboBox      *m_rdiiUhCombo   = nullptr;
-    QDoubleSpinBox *m_rdiiAreaSpin  = nullptr;
-    QLabel         *m_rdiiSummary   = nullptr;
+    // RDII page — `swmm_rdii_*`.
+    QTableWidget       *m_rdiiTable     = nullptr;
+    QPushButton        *m_rdiiRemoveBtn = nullptr;
+    LabeledPickerCombo *m_rdiiUhPicker  = nullptr;  // DB.4f — combo + "..." button
+    QDoubleSpinBox     *m_rdiiAreaSpin  = nullptr;
+    QLabel             *m_rdiiSummary   = nullptr;
 
-    // Inflows page — Add-only until engine lands per-entry getter.
-    QLabel         *m_inflowsSummary    = nullptr;
-    QLineEdit      *m_inflowsConstEdit  = nullptr;
-    QComboBox      *m_inflowsTypeCombo  = nullptr;
-    QLineEdit      *m_inflowsTsEdit     = nullptr;
-    QDoubleSpinBox *m_inflowsBaseSpin   = nullptr;
-    QDoubleSpinBox *m_inflowsMFactSpin  = nullptr;
-    QDoubleSpinBox *m_inflowsSFactSpin  = nullptr;
-    QLineEdit      *m_inflowsPatEdit    = nullptr;
+    // Inflows page — `swmm_ext_inflow_*`.
+    QLabel             *m_inflowsSummary    = nullptr;
+    QTableWidget       *m_inflowsTable      = nullptr;
+    QPushButton        *m_inflowsRemoveBtn  = nullptr;
+    QComboBox          *m_inflowsConstCombo = nullptr;  // DB.4d — FLOW + pollutants
+    QComboBox          *m_inflowsTypeCombo  = nullptr;  // MASS disabled when FLOW
+    LabeledPickerCombo *m_inflowsTsPicker   = nullptr;  // time series + "..."
+    QDoubleSpinBox     *m_inflowsBaseSpin   = nullptr;
+    QDoubleSpinBox     *m_inflowsMFactSpin  = nullptr;
+    QDoubleSpinBox     *m_inflowsSFactSpin  = nullptr;
+    LabeledPickerCombo *m_inflowsPatPicker  = nullptr;  // pattern + "..."
 
-    // DWF page — Add-only until engine lands per-entry getter.
-    QLabel         *m_dwfSummary       = nullptr;
-    QLineEdit      *m_dwfConstEdit     = nullptr;
-    QDoubleSpinBox *m_dwfAvgSpin       = nullptr;
-    QLineEdit      *m_dwfPat1Edit      = nullptr;
-    QLineEdit      *m_dwfPat2Edit      = nullptr;
-    QLineEdit      *m_dwfPat3Edit      = nullptr;
-    QLineEdit      *m_dwfPat4Edit      = nullptr;
+    // DWF page — `swmm_dwf_*`.
+    QLabel             *m_dwfSummary       = nullptr;
+    QTableWidget       *m_dwfTable         = nullptr;
+    QPushButton        *m_dwfRemoveBtn     = nullptr;
+    QComboBox          *m_dwfConstCombo    = nullptr;  // DB.4e
+    QDoubleSpinBox     *m_dwfAvgSpin       = nullptr;
+    LabeledPickerCombo *m_dwfPat1Picker    = nullptr;  // Monthly + "..."
+    LabeledPickerCombo *m_dwfPat2Picker    = nullptr;  // Daily   + "..."
+    LabeledPickerCombo *m_dwfPat3Picker    = nullptr;  // Hourly  + "..."
+    LabeledPickerCombo *m_dwfPat4Picker    = nullptr;  // Weekend + "..."
 
-    // Treatment — engine API entirely missing today.
-    QLabel         *m_treatmentNotice  = nullptr;
+    // Treatment — per-(node, pollutant) removal expression, edited
+    // inline in a 2-col table (Pollutant | Expression). Writes route
+    // through `swmm_treatment_set` / `swmm_treatment_clear` as the
+    // user commits the Expression cell.
+    QLabel         *m_treatmentSummary = nullptr;
+    QTableWidget   *m_treatmentTable   = nullptr;
+    // Re-entrancy guard: applying engine state to the table fires
+    // QTableWidget::itemChanged for every cell, which would otherwise
+    // bounce right back into the commit handler. Set to true while
+    // populating; the cell-changed slot bails when set.
+    bool            m_treatmentSuppressCommit = false;
 
     QStackedWidget   *m_stack   = nullptr;
     QDialogButtonBox *m_buttons = nullptr;

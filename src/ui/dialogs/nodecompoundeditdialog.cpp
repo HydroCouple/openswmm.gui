@@ -5,6 +5,11 @@
  */
 
 #include "ui/dialogs/nodecompoundeditdialog.h"
+#include "ui/panels/objectbrowserpanel.h"
+#include <QInputDialog>
+#include "ui/dialogs/hydrographgroupeditor.h"
+#include "ui/widgets/labeledcontrols.h"
+#include "layers/swmmmodellayer.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -16,14 +21,19 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QPointer>
 #include <QPushButton>
 #include <QStackedWidget>
+#include <QStandardItemModel>
 #include <QTableWidget>
 #include <QVBoxLayout>
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_inflows.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_pollutants.h>
+#include <openswmm/engine/openswmm_quality.h>
+#include <openswmm/engine/openswmm_tables.h>
 
 NodeCompoundEditDialog::NodeCompoundEditDialog(NodeCompoundEditRef ref,
                                                QWidget *parent)
@@ -62,7 +72,147 @@ int NodeCompoundEditDialog::nodeIdx() const
 }
 
 // ============================================================================
-// Inflows page — Add-only until AG.0 ships per-entry getter
+// DB.4 — combo population + picker helpers
+// ============================================================================
+
+void NodeCompoundEditDialog::populateConstituentCombo(QComboBox *c)
+{
+    if (!c || !m_ref.engine) return;
+    QSignalBlocker block(c);
+    c->clear();
+    c->addItem(QStringLiteral("FLOW"));
+    const int n = swmm_pollutant_count(m_ref.engine);
+    for (int i = 0; i < n; ++i) {
+        const char *id = swmm_pollutant_id(m_ref.engine, i);
+        if (id && *id) c->addItem(QString::fromUtf8(id));
+    }
+}
+
+void NodeCompoundEditDialog::populateTimeSeriesCombo(LabeledPickerCombo *p)
+{
+    if (!p || !m_ref.engine) return;
+    QStringList items;
+    const int n = swmm_table_count(m_ref.engine);
+    for (int i = 0; i < n; ++i) {
+        int t = -1;
+        if (swmm_table_get_type(m_ref.engine, i, &t) != SWMM_OK) continue;
+        if (t != 0) continue;  // TIMESERIES == 0; CURVE_* are 1..11
+        const char *id = swmm_table_id(m_ref.engine, i);
+        if (id && *id) items << QString::fromUtf8(id);
+    }
+    const QString current = p->currentText();
+    p->setItems(items, current);
+}
+
+void NodeCompoundEditDialog::populatePatternCombo(LabeledPickerCombo *p)
+{
+    if (!p || !m_ref.engine) return;
+    QStringList items;
+    const int n = swmm_pattern_count(m_ref.engine);
+    for (int i = 0; i < n; ++i) {
+        const char *id = swmm_pattern_id(m_ref.engine, i);
+        if (id && *id) items << QString::fromUtf8(id);
+    }
+    const QString current = p->currentText();
+    p->setItems(items, current);
+}
+
+void NodeCompoundEditDialog::populateUhGroupCombo(LabeledPickerCombo *p)
+{
+    if (!p || !m_ref.engine) return;
+    QStringList items;
+    const int n = swmm_hydrograph_group_count(m_ref.engine);
+    char buf[128];
+    for (int i = 0; i < n; ++i) {
+        buf[0] = '\0';
+        if (swmm_hydrograph_group_id(m_ref.engine, i, buf, sizeof(buf)) != SWMM_OK)
+            continue;
+        if (buf[0]) items << QString::fromUtf8(buf);
+    }
+    const QString current = p->currentText();
+    p->setItems(items, current);
+}
+
+QString NodeCompoundEditDialog::launchNewDataObject(int dataCategory)
+{
+    // Picker buttons require both a layer to commit through and the
+    // engine to read counts from. Without a layer, fall back to a
+    // friendly message rather than crashing.
+    if (!m_ref.layer) {
+        QMessageBox::information(this, tr("New Data Object"),
+            tr("This dialog wasn't bound to a project layer, so it can't "
+               "create a new data object inline. Use Data → New… in the "
+               "main window instead."));
+        return {};
+    }
+    const auto cat = static_cast<SWMMModelLayer::DataCategory>(dataCategory);
+
+    // Slice BM.0-Add-New (2026-05-24) — gap categories surface the
+    // future-slice tooltip rather than offering inline creation.
+    if (!ObjectBrowserPanel::hasComplexEditor(cat)) {
+        QMessageBox::information(this, tr("Create New"),
+            ObjectBrowserPanel::gapTooltipFor(cat));
+        return {};
+    }
+
+    const QString suggested = m_ref.layer->suggestUniqueDataObjectName(cat);
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, tr("Create New"),
+        tr("Name:"), QLineEdit::Normal, suggested, &ok).trimmed();
+    if (!ok || name.isEmpty()) return {};
+
+    QString err;
+    if (!m_ref.layer->createDataObject(cat, name, /*options=*/{}, &err)) {
+        QMessageBox::warning(this, tr("New Data Object"),
+            tr("Could not create %1: %2").arg(name, err));
+        return {};
+    }
+    return name;
+}
+
+void NodeCompoundEditDialog::wirePicker(LabeledPickerCombo *picker,
+                                          int dataCategory,
+                                          void (NodeCompoundEditDialog::*repopulate)(LabeledPickerCombo*))
+{
+    if (!picker) return;
+    connect(picker, &LabeledPickerCombo::pickerClicked, this,
+            [this, picker, dataCategory, repopulate]() {
+        const QString newName = launchNewDataObject(dataCategory);
+        if (newName.isEmpty()) return;
+        (this->*repopulate)(picker);
+        picker->setCurrentText(newName);
+    });
+}
+
+void NodeCompoundEditDialog::updateInflowsMassEnabled()
+{
+    if (!m_inflowsConstCombo || !m_inflowsTypeCombo) return;
+    const bool isFlow = (m_inflowsConstCombo->currentText() == QLatin1String("FLOW"));
+    // QComboBox doesn't expose per-item enable directly; reach into its
+    // underlying QStandardItemModel.
+    auto *model = qobject_cast<QStandardItemModel *>(m_inflowsTypeCombo->model());
+    if (!model) return;
+    QStandardItem *massItem = model->item(2);  // 0=FLOW, 1=CONCEN, 2=MASS
+    if (!massItem) return;
+    Qt::ItemFlags f = massItem->flags();
+    if (isFlow) {
+        f &= ~(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        // If MASS was selected, drop back to FLOW.
+        if (m_inflowsTypeCombo->currentIndex() == 2)
+            m_inflowsTypeCombo->setCurrentIndex(0);
+    } else {
+        f |= Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    }
+    massItem->setFlags(f);
+}
+
+// ============================================================================
+// Inflows page (DB.4d) — full table editor with:
+//   - constituent combo (FLOW + pollutants)
+//   - type combo (FLOW/CONCEN/MASS; MASS disabled when FLOW selected)
+//   - time series + pattern pickers (existing list + "..." button to create new)
+//   - replace-on-duplicate per (node, constituent) per SWMM spec
+//   - row selection populates the form below for edit
 // ============================================================================
 
 void NodeCompoundEditDialog::buildInflowsPage()
@@ -74,25 +224,66 @@ void NodeCompoundEditDialog::buildInflowsPage()
     m_inflowsSummary->setWordWrap(true);
     vlay->addWidget(m_inflowsSummary);
 
-    auto *info = new QLabel(
-        tr("<i>Note: the engine API to list existing rows lands with AG.0 "
-           "(<tt>swmm_inflow_get</tt>). Today this dialog only appends new "
-           "entries — once that ABI ships, a full table editor (Edit + "
-           "Remove) replaces this form.</i>"),
-        page);
-    info->setWordWrap(true);
-    info->setStyleSheet(QStringLiteral("color: gray;"));
-    vlay->addWidget(info);
+    m_inflowsTable = new QTableWidget(0, 7, page);
+    m_inflowsTable->setHorizontalHeaderLabels({
+        tr("Constituent"), tr("Type"), tr("Time Series"),
+        tr("Baseline"), tr("M-Factor"), tr("S-Factor"), tr("Pattern")});
+    m_inflowsTable->horizontalHeader()->setStretchLastSection(true);
+    m_inflowsTable->verticalHeader()->setVisible(false);
+    m_inflowsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_inflowsTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_inflowsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    vlay->addWidget(m_inflowsTable, 1);
 
-    auto *grp = new QGroupBox(tr("Add Inflow"), page);
+    m_inflowsRemoveBtn = new QPushButton(tr("Remove Selected"), page);
+    m_inflowsRemoveBtn->setEnabled(false);
+    vlay->addWidget(m_inflowsRemoveBtn);
+    connect(m_inflowsTable->selectionModel(), &QItemSelectionModel::selectionChanged,
+            this, [this]() {
+        m_inflowsRemoveBtn->setEnabled(!m_inflowsTable->selectedItems().isEmpty());
+    });
+    connect(m_inflowsRemoveBtn, &QPushButton::clicked, this, [this]() {
+        const auto rows = m_inflowsTable->selectionModel()->selectedRows();
+        if (rows.isEmpty()) return;
+        QTableWidgetItem *first = m_inflowsTable->item(rows.first().row(), 0);
+        if (!first) return;
+        const int globalIdx = first->data(Qt::UserRole).toInt();
+        const int rc = swmm_ext_inflow_remove(m_ref.engine, globalIdx);
+        if (rc != SWMM_OK) {
+            QMessageBox::warning(this, tr("Remove Inflow"),
+                tr("Engine rejected inflow remove (error %1).").arg(rc));
+            return;
+        }
+        refreshActivePage();
+    });
+
+    auto *grp = new QGroupBox(tr("Add / Update Inflow"), page);
     auto *form = new QFormLayout(grp);
 
-    m_inflowsConstEdit = new QLineEdit(QStringLiteral("FLOW"), grp);
+    // Constituent: FLOW + every defined pollutant.
+    m_inflowsConstCombo = new QComboBox(grp);
+    populateConstituentCombo(m_inflowsConstCombo);
+
+    // Type: FLOW/CONCEN/MASS. MASS is pollutant-only — gated by constituent.
     m_inflowsTypeCombo = new QComboBox(grp);
     m_inflowsTypeCombo->addItems({QStringLiteral("FLOW"),
                                   QStringLiteral("CONCEN"),
                                   QStringLiteral("MASS")});
-    m_inflowsTsEdit    = new QLineEdit(grp);
+    connect(m_inflowsConstCombo, &QComboBox::currentTextChanged, this,
+            [this](const QString &){ updateInflowsMassEnabled(); });
+    updateInflowsMassEnabled();
+
+    // Time series + Pattern pickers.
+    m_inflowsTsPicker  = new LabeledPickerCombo({}, grp);
+    populateTimeSeriesCombo(m_inflowsTsPicker);
+    wirePicker(m_inflowsTsPicker, SWMMModelLayer::DataTimeSeries,
+                &NodeCompoundEditDialog::populateTimeSeriesCombo);
+
+    m_inflowsPatPicker = new LabeledPickerCombo({}, grp);
+    populatePatternCombo(m_inflowsPatPicker);
+    wirePicker(m_inflowsPatPicker, SWMMModelLayer::DataPatterns,
+                &NodeCompoundEditDialog::populatePatternCombo);
+
     m_inflowsBaseSpin  = new QDoubleSpinBox(grp);
     m_inflowsBaseSpin->setRange(0.0, 1e12);
     m_inflowsBaseSpin->setDecimals(4);
@@ -104,25 +295,54 @@ void NodeCompoundEditDialog::buildInflowsPage()
     m_inflowsSFactSpin->setRange(-1e6, 1e6);
     m_inflowsSFactSpin->setDecimals(4);
     m_inflowsSFactSpin->setValue(1.0);
-    m_inflowsPatEdit   = new QLineEdit(grp);
 
-    form->addRow(tr("Constituent"),     m_inflowsConstEdit);
+    form->addRow(tr("Constituent"),     m_inflowsConstCombo);
     form->addRow(tr("Type"),            m_inflowsTypeCombo);
-    form->addRow(tr("Time Series"),     m_inflowsTsEdit);
+    form->addRow(tr("Time Series"),     m_inflowsTsPicker);
     form->addRow(tr("Baseline"),        m_inflowsBaseSpin);
     form->addRow(tr("Multiplier (M)"),  m_inflowsMFactSpin);
     form->addRow(tr("Scale Factor (S)"),m_inflowsSFactSpin);
-    form->addRow(tr("Pattern"),         m_inflowsPatEdit);
+    form->addRow(tr("Pattern"),         m_inflowsPatPicker);
 
-    auto *addBtn = new QPushButton(tr("Add Inflow"), grp);
+    auto *addBtn = new QPushButton(tr("Add / Update"), grp);
     form->addRow(QString(), addBtn);
     connect(addBtn, &QPushButton::clicked, this, [this]() {
         const int idx = nodeIdx();
         if (idx < 0) return;
-        const QByteArray cons = m_inflowsConstEdit->text().toUtf8();
-        const QByteArray ts   = m_inflowsTsEdit->text().toUtf8();
+        const QString constituent = m_inflowsConstCombo->currentText();
+        const QByteArray cons = constituent.toUtf8();
+        const QByteArray ts   = m_inflowsTsPicker->currentText().toUtf8();
         const QByteArray type = m_inflowsTypeCombo->currentText().toUtf8();
-        const QByteArray pat  = m_inflowsPatEdit->text().toUtf8();
+        const QByteArray pat  = m_inflowsPatPicker->currentText().toUtf8();
+
+        // SWMM allows only one inflow per (node, constituent). Walk the
+        // SoA backwards (so the index we're about to remove doesn't
+        // shift) and detect a duplicate before adding.
+        int dupIdx = -1;
+        const int total = swmm_ext_inflow_count(m_ref.engine);
+        char cBuf[64], tBuf[64], tyBuf[16], pBuf[64];
+        for (int i = total - 1; i >= 0; --i) {
+            int ni = -1;
+            double mf = 0.0, sf = 0.0, base = 0.0;
+            if (swmm_ext_inflow_get(m_ref.engine, i, &ni,
+                                      cBuf, sizeof(cBuf), tBuf, sizeof(tBuf),
+                                      tyBuf, sizeof(tyBuf), &mf, &sf, &base,
+                                      pBuf, sizeof(pBuf)) != SWMM_OK)
+                continue;
+            if (ni == idx && constituent == QString::fromUtf8(cBuf)) {
+                dupIdx = i;
+                break;
+            }
+        }
+        if (dupIdx >= 0) {
+            const auto r = QMessageBox::question(this, tr("Replace Inflow"),
+                tr("An inflow for <b>%1</b> already exists on this node. "
+                   "Replace it with the new values?").arg(constituent),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+            if (r != QMessageBox::Yes) return;
+            swmm_ext_inflow_remove(m_ref.engine, dupIdx);
+        }
+
         const int rc = swmm_ext_inflow_add(
             m_ref.engine, idx, cons.constData(), ts.constData(),
             type.constData(), m_inflowsMFactSpin->value(),
@@ -136,13 +356,35 @@ void NodeCompoundEditDialog::buildInflowsPage()
         refreshActivePage();
     });
 
+    // Row selection → populate the form below so the user can review
+    // and tweak values before clicking Add/Update to commit a replace.
+    connect(m_inflowsTable, &QTableWidget::itemSelectionChanged, this, [this]() {
+        const auto sel = m_inflowsTable->selectionModel()->selectedRows();
+        if (sel.isEmpty()) return;
+        const int row = sel.first().row();
+        auto cellText = [this, row](int col) -> QString {
+            QTableWidgetItem *it = m_inflowsTable->item(row, col);
+            return it ? it->text() : QString();
+        };
+        m_inflowsConstCombo->setCurrentText(cellText(0));
+        m_inflowsTypeCombo->setCurrentText(cellText(1));
+        m_inflowsTsPicker->setCurrentText(cellText(2));
+        m_inflowsBaseSpin->setValue(cellText(3).toDouble());
+        m_inflowsMFactSpin->setValue(cellText(4).toDouble());
+        m_inflowsSFactSpin->setValue(cellText(5).toDouble());
+        m_inflowsPatPicker->setCurrentText(cellText(6));
+    });
+
     vlay->addWidget(grp);
-    vlay->addStretch(1);
     m_stack->addWidget(page);
 }
 
 // ============================================================================
-// DWF page — Add-only until AG.0 ships per-entry getter
+// DWF page (DB.4e) — same shape as Inflows:
+//   - constituent combo (FLOW + pollutants)
+//   - 4 pattern pickers (Monthly/Daily/Hourly/Weekend) with "..." buttons
+//   - replace-on-duplicate per (node, constituent)
+//   - row selection populates form
 // ============================================================================
 
 void NodeCompoundEditDialog::buildDwfPage()
@@ -154,43 +396,105 @@ void NodeCompoundEditDialog::buildDwfPage()
     m_dwfSummary->setWordWrap(true);
     vlay->addWidget(m_dwfSummary);
 
-    auto *info = new QLabel(
-        tr("<i>Note: per-entry read lands with AG.0 (<tt>swmm_dwf_get</tt>). "
-           "Today this dialog only appends new DWF rows.</i>"),
-        page);
-    info->setWordWrap(true);
-    info->setStyleSheet(QStringLiteral("color: gray;"));
-    vlay->addWidget(info);
+    m_dwfTable = new QTableWidget(0, 6, page);
+    m_dwfTable->setHorizontalHeaderLabels({
+        tr("Constituent"), tr("Average"),
+        tr("Monthly"), tr("Daily"), tr("Hourly"), tr("Weekend")});
+    m_dwfTable->horizontalHeader()->setStretchLastSection(true);
+    m_dwfTable->verticalHeader()->setVisible(false);
+    m_dwfTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_dwfTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_dwfTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    vlay->addWidget(m_dwfTable, 1);
 
-    auto *grp = new QGroupBox(tr("Add Dry Weather Flow"), page);
+    m_dwfRemoveBtn = new QPushButton(tr("Remove Selected"), page);
+    m_dwfRemoveBtn->setEnabled(false);
+    vlay->addWidget(m_dwfRemoveBtn);
+    connect(m_dwfTable->selectionModel(), &QItemSelectionModel::selectionChanged,
+            this, [this]() {
+        m_dwfRemoveBtn->setEnabled(!m_dwfTable->selectedItems().isEmpty());
+    });
+    connect(m_dwfRemoveBtn, &QPushButton::clicked, this, [this]() {
+        const auto rows = m_dwfTable->selectionModel()->selectedRows();
+        if (rows.isEmpty()) return;
+        QTableWidgetItem *first = m_dwfTable->item(rows.first().row(), 0);
+        if (!first) return;
+        const int globalIdx = first->data(Qt::UserRole).toInt();
+        const int rc = swmm_dwf_remove(m_ref.engine, globalIdx);
+        if (rc != SWMM_OK) {
+            QMessageBox::warning(this, tr("Remove DWF"),
+                tr("Engine rejected DWF remove (error %1).").arg(rc));
+            return;
+        }
+        refreshActivePage();
+    });
+
+    auto *grp = new QGroupBox(tr("Add / Update Dry Weather Flow"), page);
     auto *form = new QFormLayout(grp);
 
-    m_dwfConstEdit = new QLineEdit(QStringLiteral("FLOW"), grp);
+    m_dwfConstCombo = new QComboBox(grp);
+    populateConstituentCombo(m_dwfConstCombo);
+
     m_dwfAvgSpin   = new QDoubleSpinBox(grp);
     m_dwfAvgSpin->setRange(0.0, 1e12);
     m_dwfAvgSpin->setDecimals(4);
-    m_dwfPat1Edit = new QLineEdit(grp);
-    m_dwfPat2Edit = new QLineEdit(grp);
-    m_dwfPat3Edit = new QLineEdit(grp);
-    m_dwfPat4Edit = new QLineEdit(grp);
 
-    form->addRow(tr("Constituent"),        m_dwfConstEdit);
+    m_dwfPat1Picker = new LabeledPickerCombo({}, grp);
+    m_dwfPat2Picker = new LabeledPickerCombo({}, grp);
+    m_dwfPat3Picker = new LabeledPickerCombo({}, grp);
+    m_dwfPat4Picker = new LabeledPickerCombo({}, grp);
+    for (LabeledPickerCombo *p : {m_dwfPat1Picker, m_dwfPat2Picker,
+                                     m_dwfPat3Picker, m_dwfPat4Picker}) {
+        populatePatternCombo(p);
+        wirePicker(p, SWMMModelLayer::DataPatterns,
+                    &NodeCompoundEditDialog::populatePatternCombo);
+    }
+
+    form->addRow(tr("Constituent"),        m_dwfConstCombo);
     form->addRow(tr("Average Value"),      m_dwfAvgSpin);
-    form->addRow(tr("Monthly Pattern"),    m_dwfPat1Edit);
-    form->addRow(tr("Daily Pattern"),      m_dwfPat2Edit);
-    form->addRow(tr("Hourly Pattern"),     m_dwfPat3Edit);
-    form->addRow(tr("Weekend Pattern"),    m_dwfPat4Edit);
+    form->addRow(tr("Monthly Pattern"),    m_dwfPat1Picker);
+    form->addRow(tr("Daily Pattern"),      m_dwfPat2Picker);
+    form->addRow(tr("Hourly Pattern"),     m_dwfPat3Picker);
+    form->addRow(tr("Weekend Pattern"),    m_dwfPat4Picker);
 
-    auto *addBtn = new QPushButton(tr("Add DWF"), grp);
+    auto *addBtn = new QPushButton(tr("Add / Update"), grp);
     form->addRow(QString(), addBtn);
     connect(addBtn, &QPushButton::clicked, this, [this]() {
         const int idx = nodeIdx();
         if (idx < 0) return;
-        const QByteArray cons = m_dwfConstEdit->text().toUtf8();
-        const QByteArray p1   = m_dwfPat1Edit->text().toUtf8();
-        const QByteArray p2   = m_dwfPat2Edit->text().toUtf8();
-        const QByteArray p3   = m_dwfPat3Edit->text().toUtf8();
-        const QByteArray p4   = m_dwfPat4Edit->text().toUtf8();
+        const QString constituent = m_dwfConstCombo->currentText();
+        const QByteArray cons = constituent.toUtf8();
+        const QByteArray p1   = m_dwfPat1Picker->currentText().toUtf8();
+        const QByteArray p2   = m_dwfPat2Picker->currentText().toUtf8();
+        const QByteArray p3   = m_dwfPat3Picker->currentText().toUtf8();
+        const QByteArray p4   = m_dwfPat4Picker->currentText().toUtf8();
+
+        int dupIdx = -1;
+        const int total = swmm_dwf_count(m_ref.engine);
+        char cBuf[64], p1Buf[64], p2Buf[64], p3Buf[64], p4Buf[64];
+        for (int i = total - 1; i >= 0; --i) {
+            int ni = -1;
+            double avg = 0.0;
+            if (swmm_dwf_get(m_ref.engine, i, &ni,
+                              cBuf, sizeof(cBuf), &avg,
+                              p1Buf, sizeof(p1Buf),
+                              p2Buf, sizeof(p2Buf),
+                              p3Buf, sizeof(p3Buf),
+                              p4Buf, sizeof(p4Buf)) != SWMM_OK) continue;
+            if (ni == idx && constituent == QString::fromUtf8(cBuf)) {
+                dupIdx = i;
+                break;
+            }
+        }
+        if (dupIdx >= 0) {
+            const auto r = QMessageBox::question(this, tr("Replace DWF"),
+                tr("A DWF entry for <b>%1</b> already exists on this node. "
+                   "Replace it with the new values?").arg(constituent),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+            if (r != QMessageBox::Yes) return;
+            swmm_dwf_remove(m_ref.engine, dupIdx);
+        }
+
         const int rc = swmm_dwf_add(m_ref.engine, idx, cons.constData(),
             m_dwfAvgSpin->value(), p1.constData(), p2.constData(),
             p3.constData(), p4.constData());
@@ -202,8 +506,23 @@ void NodeCompoundEditDialog::buildDwfPage()
         refreshActivePage();
     });
 
+    connect(m_dwfTable, &QTableWidget::itemSelectionChanged, this, [this]() {
+        const auto sel = m_dwfTable->selectionModel()->selectedRows();
+        if (sel.isEmpty()) return;
+        const int row = sel.first().row();
+        auto cellText = [this, row](int col) -> QString {
+            QTableWidgetItem *it = m_dwfTable->item(row, col);
+            return it ? it->text() : QString();
+        };
+        m_dwfConstCombo->setCurrentText(cellText(0));
+        m_dwfAvgSpin->setValue(cellText(1).toDouble());
+        m_dwfPat1Picker->setCurrentText(cellText(2));
+        m_dwfPat2Picker->setCurrentText(cellText(3));
+        m_dwfPat3Picker->setCurrentText(cellText(4));
+        m_dwfPat4Picker->setCurrentText(cellText(5));
+    });
+
     vlay->addWidget(grp);
-    vlay->addStretch(1);
     m_stack->addWidget(page);
 }
 
@@ -225,19 +544,58 @@ void NodeCompoundEditDialog::buildRdiiPage()
     m_rdiiTable->horizontalHeader()->setStretchLastSection(true);
     m_rdiiTable->verticalHeader()->setVisible(false);
     m_rdiiTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_rdiiTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_rdiiTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     vlay->addWidget(m_rdiiTable, 1);
 
-    auto *grp = new QGroupBox(tr("Add RDII Assignment"), page);
+    m_rdiiRemoveBtn = new QPushButton(tr("Remove Selected"), page);
+    m_rdiiRemoveBtn->setEnabled(false);
+    vlay->addWidget(m_rdiiRemoveBtn);
+    connect(m_rdiiTable->selectionModel(), &QItemSelectionModel::selectionChanged,
+            this, [this]() {
+        m_rdiiRemoveBtn->setEnabled(!m_rdiiTable->selectedItems().isEmpty());
+    });
+    connect(m_rdiiRemoveBtn, &QPushButton::clicked, this, [this]() {
+        const auto rows = m_rdiiTable->selectionModel()->selectedRows();
+        if (rows.isEmpty()) return;
+        QTableWidgetItem *first = m_rdiiTable->item(rows.first().row(), 0);
+        if (!first) return;
+        const int globalIdx = first->data(Qt::UserRole).toInt();
+        const int rc = swmm_rdii_remove(m_ref.engine, globalIdx);
+        if (rc != SWMM_OK) {
+            QMessageBox::warning(this, tr("Remove RDII"),
+                tr("Engine rejected RDII remove (error %1).").arg(rc));
+            return;
+        }
+        refreshActivePage();
+    });
+
+    auto *grp = new QGroupBox(tr("Add / Update RDII Assignment"), page);
     auto *form = new QFormLayout(grp);
 
-    m_rdiiUhCombo = new QComboBox(grp);
-    m_rdiiUhCombo->setEditable(true);  // engine accepts any UH name
+    // DB.4f — UH picker. The "..." button opens the HydrographGroupEditor
+    // as a modal picker: the user can create / edit / browse UH groups
+    // inside the editor, and whatever group is highlighted when they
+    // close the editor is written back into this picker as the chosen
+    // UH group name. Slice BS Phase 6.9.2 promotion of the old
+    // NewDataObjectDialog-only flow.
+    m_rdiiUhPicker = new LabeledPickerCombo({}, grp);
+    populateUhGroupCombo(m_rdiiUhPicker);
+    connect(m_rdiiUhPicker, &LabeledPickerCombo::pickerClicked, this, [this]() {
+        if (!m_ref.layer) return;
+        const QString current = m_rdiiUhPicker->currentText().trimmed();
+        const QString picked  = HydrographGroupEditor::pickGroup(
+            m_ref.layer, current, this);
+        if (picked.isEmpty()) return;
+        populateUhGroupCombo(m_rdiiUhPicker);
+        m_rdiiUhPicker->setCurrentText(picked);
+    });
+
     m_rdiiAreaSpin = new QDoubleSpinBox(grp);
     m_rdiiAreaSpin->setRange(0.0, 1e9);
     m_rdiiAreaSpin->setDecimals(4);
 
-    form->addRow(tr("UH Group Name"), m_rdiiUhCombo);
+    form->addRow(tr("UH Group Name"), m_rdiiUhPicker);
     form->addRow(tr("Sewer Area"),    m_rdiiAreaSpin);
 
     auto *addBtn = new QPushButton(tr("Add"), grp);
@@ -245,12 +603,13 @@ void NodeCompoundEditDialog::buildRdiiPage()
     connect(addBtn, &QPushButton::clicked, this, [this]() {
         const int idx = nodeIdx();
         if (idx < 0) return;
-        const QByteArray uh = m_rdiiUhCombo->currentText().toUtf8();
-        if (uh.isEmpty()) {
+        const QString uhName = m_rdiiUhPicker->currentText();
+        if (uhName.isEmpty()) {
             QMessageBox::warning(this, tr("Add RDII"),
                 tr("Provide a UH group name."));
             return;
         }
+        const QByteArray uh = uhName.toUtf8();
         const int rc = swmm_rdii_add(m_ref.engine, idx,
                                        uh.constData(), m_rdiiAreaSpin->value());
         if (rc != SWMM_OK) {
@@ -261,12 +620,34 @@ void NodeCompoundEditDialog::buildRdiiPage()
         refreshActivePage();
     });
 
+    // Row selection → populate form (the user can tweak area then Add
+    // a new assignment for a different UH).
+    connect(m_rdiiTable, &QTableWidget::itemSelectionChanged, this, [this]() {
+        const auto sel = m_rdiiTable->selectionModel()->selectedRows();
+        if (sel.isEmpty()) return;
+        const int row = sel.first().row();
+        auto cellText = [this, row](int col) -> QString {
+            QTableWidgetItem *it = m_rdiiTable->item(row, col);
+            return it ? it->text() : QString();
+        };
+        m_rdiiUhPicker->setCurrentText(cellText(0));
+        m_rdiiAreaSpin->setValue(cellText(1).toDouble());
+    });
+
     vlay->addWidget(grp);
     m_stack->addWidget(page);
 }
 
 // ============================================================================
-// Treatment page — placeholder (no engine API today)
+// Treatment page — per-pollutant removal expression
+//
+// Mirrors the legacy `Dtreat.pas` two-column form: one row per pollutant
+// defined on the model, with an editable Expression cell. An empty
+// expression maps to `swmm_treatment_clear`; any non-empty string maps
+// to `swmm_treatment_set`. The engine validates expression syntax at
+// the set call (returns non-OK with a message in its error buffer);
+// invalid input is rejected with a warning and the cell reverts on the
+// next refresh.
 // ============================================================================
 
 void NodeCompoundEditDialog::buildTreatmentPage()
@@ -274,22 +655,58 @@ void NodeCompoundEditDialog::buildTreatmentPage()
     auto *page = new QWidget(this);
     auto *vlay = new QVBoxLayout(page);
 
-    m_treatmentNotice = new QLabel(
-        tr("<b>Pollutant Treatment is not yet wired.</b><br><br>"
-           "The engine ships no <tt>swmm_treatment_*</tt> API today. "
-           "The legacy <tt>Dtreat.pas</tt> form maps to a per-node × "
-           "per-pollutant grid of removal expressions. Implementation "
-           "is tracked under engine request <tt>DB-ENG-04</tt> + the "
-           "BP.6.6.3 dual-surface design (per-pollutant expression vs "
-           "per-node grid — gap G7 in EDITOR_PARITY_GAP_ANALYSIS).<br><br>"
-           "Once those ship, this page will host the treatment-expression "
-           "editor inline."),
+    m_treatmentSummary = new QLabel(page);
+    m_treatmentSummary->setWordWrap(true);
+    vlay->addWidget(m_treatmentSummary);
+
+    auto *hint = new QLabel(
+        tr("<i>Edit a removal expression per pollutant — e.g. "
+           "<tt>R = 0.5 * exp(-0.1 * DT)</tt> or "
+           "<tt>C = 0.3 * C</tt>. Clear a cell to remove the expression. "
+           "Variables: <tt>R</tt> (removal fraction), <tt>C</tt> "
+           "(concentration), <tt>DT</tt> (step seconds), "
+           "<tt>HRT</tt> (hyd. residence time), <tt>Q</tt> (flow), "
+           "<tt>V</tt> (volume).</i>"),
         page);
-    m_treatmentNotice->setWordWrap(true);
-    m_treatmentNotice->setStyleSheet(QStringLiteral(
-        "padding: 12px; background-color: palette(alternate-base);"));
-    vlay->addWidget(m_treatmentNotice);
-    vlay->addStretch(1);
+    hint->setWordWrap(true);
+    hint->setStyleSheet(QStringLiteral("color: gray;"));
+    vlay->addWidget(hint);
+
+    m_treatmentTable = new QTableWidget(0, 2, page);
+    m_treatmentTable->setHorizontalHeaderLabels(
+        {tr("Pollutant"), tr("Expression")});
+    m_treatmentTable->horizontalHeader()->setStretchLastSection(true);
+    m_treatmentTable->verticalHeader()->setVisible(false);
+    m_treatmentTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    vlay->addWidget(m_treatmentTable, 1);
+
+    // Cell commit → engine. The first column (Pollutant) is non-editable
+    // (flags cleared in refresh); only column 1 (Expression) reaches
+    // this commit path.
+    connect(m_treatmentTable, &QTableWidget::itemChanged,
+            this, [this](QTableWidgetItem *item) {
+        if (!item || m_treatmentSuppressCommit) return;
+        if (item->column() != 1) return;
+        const int idx = nodeIdx();
+        if (idx < 0) return;
+        const int polIdx = item->row();  // row == pollutant index
+        const QString expr = item->text().trimmed();
+        int rc = SWMM_OK;
+        if (expr.isEmpty()) {
+            rc = swmm_treatment_clear(m_ref.engine, idx, polIdx);
+        } else {
+            const QByteArray bytes = expr.toUtf8();
+            rc = swmm_treatment_set(m_ref.engine, idx, polIdx, bytes.constData());
+        }
+        if (rc != SWMM_OK) {
+            QMessageBox::warning(this, tr("Treatment"),
+                tr("Engine rejected the expression (error %1). "
+                   "The cell will revert.").arg(rc));
+        }
+        // Always re-read so a rejected edit reverts and an accepted
+        // one normalises (engine may canonicalise whitespace).
+        refreshActivePage();
+    });
 
     m_stack->addWidget(page);
 }
@@ -308,31 +725,100 @@ void NodeCompoundEditDialog::refreshActivePage()
 
     switch (m_ref.kind) {
     case NodeCompoundEditRef::Inflows: {
-        // Without `swmm_inflow_get` we can only report the global total.
-        // Filtering by node would require iterating entries with their
-        // node_idx exposed; that's the AG.0 contract.
+        m_inflowsTable->setRowCount(0);
+        m_inflowsRemoveBtn->setEnabled(false);
         const int total = swmm_ext_inflow_count(m_ref.engine);
+        int matched = 0;
+        char consBuf[64], tsBuf[64], typeBuf[16], patBuf[64];
+        for (int i = 0; i < total; ++i) {
+            int ni = -1;
+            double mf = 0.0, sf = 0.0, base = 0.0;
+            if (swmm_ext_inflow_get(m_ref.engine, i, &ni,
+                                      consBuf, sizeof(consBuf),
+                                      tsBuf,   sizeof(tsBuf),
+                                      typeBuf, sizeof(typeBuf),
+                                      &mf, &sf, &base,
+                                      patBuf,  sizeof(patBuf)) != SWMM_OK)
+                continue;
+            if (ni != idx) continue;
+            const int row = m_inflowsTable->rowCount();
+            m_inflowsTable->insertRow(row);
+            auto *consItem = new QTableWidgetItem(QString::fromUtf8(consBuf));
+            // Stash the global engine index on column 0 so Remove can find it.
+            consItem->setData(Qt::UserRole, i);
+            m_inflowsTable->setItem(row, 0, consItem);
+            m_inflowsTable->setItem(row, 1,
+                new QTableWidgetItem(QString::fromUtf8(typeBuf)));
+            m_inflowsTable->setItem(row, 2,
+                new QTableWidgetItem(QString::fromUtf8(tsBuf)));
+            m_inflowsTable->setItem(row, 3,
+                new QTableWidgetItem(QString::number(base, 'g', 6)));
+            m_inflowsTable->setItem(row, 4,
+                new QTableWidgetItem(QString::number(mf, 'g', 6)));
+            m_inflowsTable->setItem(row, 5,
+                new QTableWidgetItem(QString::number(sf, 'g', 6)));
+            m_inflowsTable->setItem(row, 6,
+                new QTableWidgetItem(QString::fromUtf8(patBuf)));
+            ++matched;
+        }
         m_inflowsSummary->setText(tr(
-            "Total <b>[INFLOWS]</b> rows in model: %1 "
-            "(per-node filter pending engine API).").arg(total));
-        m_ref.summary = (total > 0)
-            ? tr("(model total %1)").arg(total)
+            "<b>%1</b> external inflow(s) on this node "
+            "(model total: %2).").arg(matched).arg(total));
+        m_ref.summary = (matched > 0)
+            ? tr("(%1 entries)").arg(matched)
             : tr("(none)");
         break;
     }
     case NodeCompoundEditRef::Dwf: {
+        m_dwfTable->setRowCount(0);
+        m_dwfRemoveBtn->setEnabled(false);
         const int total = swmm_dwf_count(m_ref.engine);
+        int matched = 0;
+        char consBuf[64], p1Buf[64], p2Buf[64], p3Buf[64], p4Buf[64];
+        for (int i = 0; i < total; ++i) {
+            int ni = -1;
+            double avg = 0.0;
+            if (swmm_dwf_get(m_ref.engine, i, &ni,
+                              consBuf, sizeof(consBuf),
+                              &avg,
+                              p1Buf, sizeof(p1Buf),
+                              p2Buf, sizeof(p2Buf),
+                              p3Buf, sizeof(p3Buf),
+                              p4Buf, sizeof(p4Buf)) != SWMM_OK)
+                continue;
+            if (ni != idx) continue;
+            const int row = m_dwfTable->rowCount();
+            m_dwfTable->insertRow(row);
+            auto *consItem = new QTableWidgetItem(QString::fromUtf8(consBuf));
+            consItem->setData(Qt::UserRole, i);
+            m_dwfTable->setItem(row, 0, consItem);
+            m_dwfTable->setItem(row, 1,
+                new QTableWidgetItem(QString::number(avg, 'g', 6)));
+            m_dwfTable->setItem(row, 2,
+                new QTableWidgetItem(QString::fromUtf8(p1Buf)));
+            m_dwfTable->setItem(row, 3,
+                new QTableWidgetItem(QString::fromUtf8(p2Buf)));
+            m_dwfTable->setItem(row, 4,
+                new QTableWidgetItem(QString::fromUtf8(p3Buf)));
+            m_dwfTable->setItem(row, 5,
+                new QTableWidgetItem(QString::fromUtf8(p4Buf)));
+            ++matched;
+        }
         m_dwfSummary->setText(tr(
-            "Total <b>[DWF]</b> rows in model: %1 "
-            "(per-node filter pending engine API).").arg(total));
-        m_ref.summary = (total > 0)
-            ? tr("(model total %1)").arg(total)
+            "<b>%1</b> DWF entr%2 on this node "
+            "(model total: %3).")
+                .arg(matched)
+                .arg(matched == 1 ? "y" : "ies")
+                .arg(total));
+        m_ref.summary = (matched > 0)
+            ? tr("(%1 entries)").arg(matched)
             : tr("(none)");
         break;
     }
     case NodeCompoundEditRef::Rdii: {
         // RDII has per-entry read: iterate, filter by node_idx.
         m_rdiiTable->setRowCount(0);
+        m_rdiiRemoveBtn->setEnabled(false);
         const int total = swmm_rdii_count(m_ref.engine);
         int matched = 0;
         char uhBuf[128];
@@ -343,8 +829,9 @@ void NodeCompoundEditDialog::refreshActivePage()
             if (ni != idx) continue;
             const int row = m_rdiiTable->rowCount();
             m_rdiiTable->insertRow(row);
-            m_rdiiTable->setItem(row, 0,
-                new QTableWidgetItem(QString::fromUtf8(uhBuf)));
+            auto *uhItem = new QTableWidgetItem(QString::fromUtf8(uhBuf));
+            uhItem->setData(Qt::UserRole, i);
+            m_rdiiTable->setItem(row, 0, uhItem);
             m_rdiiTable->setItem(row, 1,
                 new QTableWidgetItem(QString::number(area, 'g', 6)));
             ++matched;
@@ -357,8 +844,49 @@ void NodeCompoundEditDialog::refreshActivePage()
             : tr("(none)");
         break;
     }
-    case NodeCompoundEditRef::Treatment:
-        m_ref.summary = tr("(engine API pending)");
+    case NodeCompoundEditRef::Treatment: {
+        // Per-pollutant grid. Engine indexes treatment by (node, pollut)
+        // so we enumerate pollutants and read each cell. swmm_treatment_get
+        // returns SWMM_OK with an empty buffer when no expression is set;
+        // we treat empty as "no rule".
+        m_treatmentSuppressCommit = true;
+        m_treatmentTable->setRowCount(0);
+        const int nPollut = swmm_pollutant_count(m_ref.engine);
+        int active = 0;
+        char exprBuf[256];
+        for (int p = 0; p < nPollut; ++p) {
+            const char *pName = swmm_pollutant_id(m_ref.engine, p);
+            const int row = m_treatmentTable->rowCount();
+            m_treatmentTable->insertRow(row);
+
+            auto *nameItem = new QTableWidgetItem(
+                pName ? QString::fromUtf8(pName) : tr("(pollutant %1)").arg(p));
+            // Pollutant column is identification only — not editable.
+            nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
+            m_treatmentTable->setItem(row, 0, nameItem);
+
+            exprBuf[0] = '\0';
+            swmm_treatment_get(m_ref.engine, idx, p, exprBuf, sizeof(exprBuf));
+            auto *exprItem = new QTableWidgetItem(QString::fromUtf8(exprBuf));
+            m_treatmentTable->setItem(row, 1, exprItem);
+            if (exprBuf[0] != '\0') ++active;
+        }
+        m_treatmentSuppressCommit = false;
+
+        if (nPollut == 0) {
+            m_treatmentSummary->setText(tr(
+                "<i>No pollutants defined in the model — add pollutants "
+                "(Project → Data → Pollutants) before authoring treatment "
+                "expressions.</i>"));
+        } else {
+            m_treatmentSummary->setText(tr(
+                "<b>%1</b> of <b>%2</b> pollutant(s) have a treatment "
+                "expression on this node.").arg(active).arg(nPollut));
+        }
+        m_ref.summary = (active > 0)
+            ? tr("(%1 / %2 pollutants)").arg(active).arg(nPollut)
+            : tr("(none)");
         break;
+    }
     }
 }

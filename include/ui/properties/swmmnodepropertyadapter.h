@@ -26,7 +26,10 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 
+#include "ui/properties/dataobjectref.h"
 #include "ui/properties/nodecompoundeditref.h"
+
+class SWMMModelLayer;
 
 /*! Base node adapter — exposes only the attributes that ALL node
  *  types share (per the SWMM5 .inp [JUNCTIONS]/[OUTFALLS]/[STORAGE]/
@@ -58,10 +61,13 @@ public:
     Q_ENUM(DividerType)
     Q_ENUM(FlapGate)
 
-    // Common to every node type — Name + Type + Invert + Coords.
+    // Common to every node type — Name + Type + Invert + Coords + Tag.
     Q_PROPERTY(QString  name        READ name  WRITE setName)
     Q_PROPERTY(NodeKind nodeKind    READ nodeKind)
     Q_PROPERTY(double   invertElev  READ invertElev  WRITE setInvertElev  NOTIFY changed)
+    /*! Free-form `[TAGS]` label (DB.3 engine surface). Editable text;
+     *  index-keyed in the engine, so survives a rename. */
+    Q_PROPERTY(QString  tag         READ tag         WRITE setTag         NOTIFY changed)
     // Slice DB — coordinates editable. Writes go through `coordChangeRequested`
     // so the bound layer can route them via `applyNodeMove`, which refreshes
     // the cached scene coords + attached-link bboxes (a raw engine setter
@@ -74,9 +80,15 @@ public:
     SWMMNodePropertyAdapter(SWMM_Engine engine, QString name,
                               QObject *parent = nullptr);
 
+    /*! DB.4c — set the model layer the compound-edit pickers can call
+     *  back into to create new TS / patterns / UHs. Optional. */
+    void setModelLayer(SWMMModelLayer *layer) { m_layer = layer; }
+    [[nodiscard]] SWMMModelLayer *modelLayer() const { return m_layer; }
+
     [[nodiscard]] QString    name() const     { return m_name; }
     [[nodiscard]] NodeKind   nodeKind() const;
 
+    [[nodiscard]] QString tag() const;
     [[nodiscard]] double invertElev() const;
     [[nodiscard]] double maxDepth() const;
     [[nodiscard]] double initialDepth() const;
@@ -114,6 +126,22 @@ public:
     [[nodiscard]] NodeCompoundEditRef rdiiRef()     const;
     [[nodiscard]] NodeCompoundEditRef treatmentRef() const;
 
+    // Slice DA.4.3 — outfall stage-data accessors. Live on the base class
+    // (rather than only on the outfall subclass) so the cpp can use the
+    // same `nodeIdx() / m_engine` helpers as every other accessor. Only
+    // the outfall subclass declares them as Q_PROPERTY, so QPropertyModel
+    // only shows the rows on outfall nodes.
+    //
+    // The engine stores stage / tidal-curve-idx / timeseries-idx in a
+    // shared union `outfall_param` slot, so switching outfall type is
+    // destructive of the prior-type's assignment — getters return 0 /
+    // empty when the current outfall type doesn't match what the property
+    // means. AttributePanel greys out the inapplicable rows via
+    // `setRowEditable` to reinforce this visually.
+    [[nodiscard]] double         outfallStage()            const;
+    [[nodiscard]] DataObjectRef  outfallTidalCurveRef()    const;
+    [[nodiscard]] DataObjectRef  outfallTimeseriesRef()    const;
+
     /*! Maps a Q_PROPERTY identifier (e.g. \c "maxDepth") to a
      *  human-readable column-0 label (e.g. \c "Max Depth (ft)") with
      *  unit suffixes pulled live from \c UnitSystem::instance().
@@ -125,6 +153,7 @@ public:
 
 public slots:
     void setName(const QString &newName);
+    void setTag(const QString &t);
     void setInvertElev(double v);
     void setMaxDepth(double v);
     void setInitialDepth(double v);
@@ -136,6 +165,32 @@ public slots:
     void setOutfallType(OutfallType v);
     void setOutfallFlapGate(FlapGate v);
     void setDividerType(DividerType v);
+
+    /*! Compound-ref write slots — the cell's NodeCompoundEditButton
+     *  invokes these via the delegate's setModelData round-trip after
+     *  the dialog closes. The actual engine mutations already happened
+     *  inside the dialog (swmm_*_add/remove/set), so these are no-ops
+     *  except for emitting changed() so the property tree (and the
+     *  attribute table) re-reads its summary. Their existence is what
+     *  flips `QMetaProperty::isWritable()` to true, which is what
+     *  `QVariantPropertyItem` checks to mark the cell editable —
+     *  without these, the cell never enters edit mode and the
+     *  registered NodeCompoundEditButton creator never fires. */
+    void setInflowsRef(const NodeCompoundEditRef &)   { emit changed(); }
+    void setDwfRef(const NodeCompoundEditRef &)       { emit changed(); }
+    void setRdiiRef(const NodeCompoundEditRef &)      { emit changed(); }
+    void setTreatmentRef(const NodeCompoundEditRef &) { emit changed(); }
+
+    // Slice DA.4.3 — outfall stage-data setters. Each calls the matching
+    // swmm_node_set_outfall_* engine setter, which also flips the outfall
+    // type to the matching kind (FIXED / TIDAL / TIMESERIES) — that's a
+    // deliberate engine invariant. So calling setOutfallStage()
+    // implicitly switches the outfall to FIXED. The setRowEditable
+    // wiring in AttributePanel re-runs on every `changed()` and updates
+    // which row is enabled accordingly.
+    void setOutfallStage(double v);
+    void setOutfallTidalCurveRef(const DataObjectRef &r);
+    void setOutfallTimeseriesRef(const DataObjectRef &r);
 
     /*! Round-4 follow-up 2026-05-12 — force the Property Browser
      *  to re-query.  Used when the table view edits the same object
@@ -170,8 +225,9 @@ signals:
 protected:
     [[nodiscard]] int nodeIdx() const;
 
-    SWMM_Engine m_engine;
-    QString     m_name;
+    SWMM_Engine     m_engine;
+    QString         m_name;
+    SWMMModelLayer *m_layer = nullptr;  ///< DB.4c — for compound-cell pickers
 };
 
 /*! Junction adapter — `[JUNCTIONS]` columns:
@@ -195,10 +251,14 @@ class SWMMJunctionPropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double statVolFlooded  READ statVolFlooded  NOTIFY changed)
     Q_PROPERTY(double statTimeFlooded READ statTimeFlooded NOTIFY changed)
     // Slice DB.2 — compound-attribute "Edit…" buttons.
-    Q_PROPERTY(NodeCompoundEditRef inflows   READ inflowsRef   NOTIFY changed)
-    Q_PROPERTY(NodeCompoundEditRef dwf       READ dwfRef       NOTIFY changed)
-    Q_PROPERTY(NodeCompoundEditRef rdii      READ rdiiRef      NOTIFY changed)
-    Q_PROPERTY(NodeCompoundEditRef treatment READ treatmentRef NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef inflows
+               READ inflowsRef   WRITE setInflowsRef   NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef dwf
+               READ dwfRef       WRITE setDwfRef       NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef rdii
+               READ rdiiRef      WRITE setRdiiRef      NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef treatment
+               READ treatmentRef WRITE setTreatmentRef NOTIFY changed)
 public:
     using SWMMNodePropertyAdapter::SWMMNodePropertyAdapter;
 };
@@ -214,6 +274,15 @@ class SWMMOutfallPropertyAdapter : public SWMMNodePropertyAdapter
     // Q_ENUM in every subclass.
     Q_PROPERTY(SWMMNodePropertyAdapter::OutfallType outfallType
                READ outfallType WRITE setOutfallType NOTIFY changed)
+    // Slice DA.4.3 — stage-data per-type rows. AttributePanel toggles
+    // their `isEditable` flag based on the live `outfallType` so the
+    // user can only edit the row that matches the current type.
+    Q_PROPERTY(double         outfallStage
+               READ outfallStage       WRITE setOutfallStage         NOTIFY changed)
+    Q_PROPERTY(DataObjectRef  outfallTidalCurve
+               READ outfallTidalCurveRef  WRITE setOutfallTidalCurveRef  NOTIFY changed)
+    Q_PROPERTY(DataObjectRef  outfallTimeseries
+               READ outfallTimeseriesRef  WRITE setOutfallTimeseriesRef  NOTIFY changed)
     Q_PROPERTY(SWMMNodePropertyAdapter::FlapGate    outfallFlapGate
                READ outfallFlapGate WRITE setOutfallFlapGate NOTIFY changed)
     // Slice DB — same read-only summary block as the other node kinds.
@@ -229,10 +298,14 @@ class SWMMOutfallPropertyAdapter : public SWMMNodePropertyAdapter
     // Slice DB.2 — compound-attribute "Edit…" buttons. SWMM allows
     // Inflows / DWF / Treatment at boundary nodes; RDII surfaced for
     // parity though legacy SWMM-GUI grays it out for outfalls.
-    Q_PROPERTY(NodeCompoundEditRef inflows   READ inflowsRef   NOTIFY changed)
-    Q_PROPERTY(NodeCompoundEditRef dwf       READ dwfRef       NOTIFY changed)
-    Q_PROPERTY(NodeCompoundEditRef rdii      READ rdiiRef      NOTIFY changed)
-    Q_PROPERTY(NodeCompoundEditRef treatment READ treatmentRef NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef inflows
+               READ inflowsRef   WRITE setInflowsRef   NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef dwf
+               READ dwfRef       WRITE setDwfRef       NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef rdii
+               READ rdiiRef      WRITE setRdiiRef      NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef treatment
+               READ treatmentRef WRITE setTreatmentRef NOTIFY changed)
 public:
     using SWMMNodePropertyAdapter::SWMMNodePropertyAdapter;
 };
@@ -258,10 +331,14 @@ class SWMMStoragePropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double statVolFlooded  READ statVolFlooded  NOTIFY changed)
     Q_PROPERTY(double statTimeFlooded READ statTimeFlooded NOTIFY changed)
     // Slice DB.2 — compound-attribute "Edit…" buttons.
-    Q_PROPERTY(NodeCompoundEditRef inflows   READ inflowsRef   NOTIFY changed)
-    Q_PROPERTY(NodeCompoundEditRef dwf       READ dwfRef       NOTIFY changed)
-    Q_PROPERTY(NodeCompoundEditRef rdii      READ rdiiRef      NOTIFY changed)
-    Q_PROPERTY(NodeCompoundEditRef treatment READ treatmentRef NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef inflows
+               READ inflowsRef   WRITE setInflowsRef   NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef dwf
+               READ dwfRef       WRITE setDwfRef       NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef rdii
+               READ rdiiRef      WRITE setRdiiRef      NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef treatment
+               READ treatmentRef WRITE setTreatmentRef NOTIFY changed)
 public:
     using SWMMNodePropertyAdapter::SWMMNodePropertyAdapter;
 };
@@ -288,10 +365,14 @@ class SWMMDividerPropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double statVolFlooded  READ statVolFlooded  NOTIFY changed)
     Q_PROPERTY(double statTimeFlooded READ statTimeFlooded NOTIFY changed)
     // Slice DB.2 — compound-attribute "Edit…" buttons.
-    Q_PROPERTY(NodeCompoundEditRef inflows   READ inflowsRef   NOTIFY changed)
-    Q_PROPERTY(NodeCompoundEditRef dwf       READ dwfRef       NOTIFY changed)
-    Q_PROPERTY(NodeCompoundEditRef rdii      READ rdiiRef      NOTIFY changed)
-    Q_PROPERTY(NodeCompoundEditRef treatment READ treatmentRef NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef inflows
+               READ inflowsRef   WRITE setInflowsRef   NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef dwf
+               READ dwfRef       WRITE setDwfRef       NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef rdii
+               READ rdiiRef      WRITE setRdiiRef      NOTIFY changed)
+    Q_PROPERTY(NodeCompoundEditRef treatment
+               READ treatmentRef WRITE setTreatmentRef NOTIFY changed)
 public:
     using SWMMNodePropertyAdapter::SWMMNodePropertyAdapter;
 };

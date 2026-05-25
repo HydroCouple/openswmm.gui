@@ -18,6 +18,8 @@
 
 #include <QColor>
 #include <QList>
+#include <QString>
+#include <QStringList>
 
 namespace CategoricalPalette
 {
@@ -38,6 +40,28 @@ namespace CategoricalPalette
  * \brief Returns the full palette as an ordered list.
  */
 [[nodiscard]] QList<QColor> palette();
+
+// ── Slice BB-γ (2026-05-25) — named-palette catalogue ────────────────────
+//
+// Plotly's categorical palettes from plotly.colors.qualitative, plus the
+// existing Tab10 default. Lookups are case-insensitive; unknown names
+// fall back to Tab10.
+
+/*!
+ * \brief Returns the named palette as an ordered list. Falls back to the
+ *        default (Tab10) when \p name doesn't match any built-in.
+ *
+ *        Recognised names: "Default", "Tab10", "Plotly", "D3", "G10",
+ *        "T10", "Alphabet", "Dark24", "Light24".
+ */
+[[nodiscard]] QList<QColor> byName(const QString &name);
+
+/*!
+ * \brief Names of all built-in palettes, in catalogue order. Used by
+ *        the Categorized tab's `m_catScheme` combo to populate its
+ *        dropdown.
+ */
+[[nodiscard]] QStringList builtinNames();
 
 } // namespace CategoricalPalette
 

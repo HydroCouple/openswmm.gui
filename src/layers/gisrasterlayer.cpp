@@ -28,87 +28,8 @@
 #include <limits>
 #include <cmath>
 
-// ---------------------------------------------------------------------------
-// RasterColorRamp
-// ---------------------------------------------------------------------------
-
-QColor RasterColorRamp::colorAt(double t) const
-{
-    t = std::clamp(t, 0.0, 1.0);
-
-    if (stops.isEmpty())
-        return Qt::transparent;
-
-    if (stops.size() == 1 || t <= stops.first().first)
-        return stops.first().second;
-
-    if (t >= stops.last().first)
-        return stops.last().second;
-
-    for (int i = 1; i < stops.size(); ++i)
-    {
-        if (t <= stops[i].first)
-        {
-            double t0 = stops[i - 1].first;
-            double t1 = stops[i].first;
-            double f  = (t - t0) / (t1 - t0);
-
-            const QColor &c0 = stops[i - 1].second;
-            const QColor &c1 = stops[i].second;
-
-            return QColor::fromRgbF(
-                c0.redF()   + f * (c1.redF()   - c0.redF()),
-                c0.greenF() + f * (c1.greenF() - c0.greenF()),
-                c0.blueF()  + f * (c1.blueF()  - c0.blueF()),
-                c0.alphaF() + f * (c1.alphaF() - c0.alphaF()));
-        }
-    }
-
-    return stops.last().second;
-}
-
-QColor RasterColorRamp::colorForValue(double value) const
-{
-    if (clampMin && value < minValue)
-        return Qt::transparent;
-
-    if (clampMax && value > maxValue)
-        return Qt::transparent;
-
-    double range = maxValue - minValue;
-    if (qFuzzyIsNull(range))
-        return colorAt(0.5);
-
-    return colorAt((value - minValue) / range);
-}
-
-RasterColorRamp RasterColorRamp::grayscale(double min, double max)
-{
-    RasterColorRamp r;
-    r.minValue = min;
-    r.maxValue = max;
-    r.stops    = { {0.0, Qt::black}, {1.0, Qt::white} };
-    return r;
-}
-
-RasterColorRamp RasterColorRamp::viridis(double min, double max)
-{
-    RasterColorRamp r;
-    r.minValue = min;
-    r.maxValue = max;
-    r.stops    = {
-        {0.000, QColor(68,   1, 84)},
-        {0.125, QColor(72,  40, 120)},
-        {0.250, QColor(62,  83, 137)},
-        {0.375, QColor(49, 120, 137)},
-        {0.500, QColor(53, 153, 122)},
-        {0.625, QColor(90, 186,  91)},
-        {0.750, QColor(163, 214,  63)},
-        {0.875, QColor(227, 238,  58)},
-        {1.000, QColor(253, 231,  37)},
-    };
-    return r;
-}
+// RasterColorRamp method bodies relocated to src/render/colorramp.cpp
+// (Slice BB-α, 2026-05-24).
 
 // ---------------------------------------------------------------------------
 // GISRasterLayer — Constructor / Destructor

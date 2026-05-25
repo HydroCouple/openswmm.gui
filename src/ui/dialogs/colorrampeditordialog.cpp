@@ -34,6 +34,17 @@ ColorRampEditorDialog::ColorRampEditorDialog(SWMMResultsLayer *layer, QWidget *p
     refreshGradientPreview();
 }
 
+ColorRampEditorDialog::ColorRampEditorDialog(const RasterColorRamp &initial, QWidget *parent)
+    : QDialog(parent), m_layer(nullptr)
+{
+    setWindowTitle(tr("Color Ramp Editor"));
+    resize(520, 480);
+    m_ramp = initial;
+    buildUi();
+    rebuildSwatches();
+    refreshGradientPreview();
+}
+
 ColorRampEditorDialog::~ColorRampEditorDialog() = default;
 
 QString ColorRampEditorDialog::swatchStyleSheet(const QColor &c) const
@@ -88,6 +99,18 @@ void ColorRampEditorDialog::buildUi()
     presetRow->addStretch(1);
     root->addLayout(presetRow);
 
+    // ----- Interpolation colour-space (Slice BB-α) --------------------------
+    auto *interpRow = new QHBoxLayout;
+    interpRow->addWidget(new QLabel(tr("Interpolation:"), this));
+    m_interpCombo = new QComboBox(this);
+    m_interpCombo->addItem(tr("RGB"),              static_cast<int>(RampInterp::Rgb));
+    m_interpCombo->addItem(tr("HSV (short arc)"),  static_cast<int>(RampInterp::HsvShort));
+    m_interpCombo->addItem(tr("HSV (long arc)"),   static_cast<int>(RampInterp::HsvLong));
+    m_interpCombo->setCurrentIndex(m_interpCombo->findData(static_cast<int>(m_ramp.interp)));
+    interpRow->addWidget(m_interpCombo);
+    interpRow->addStretch(1);
+    root->addLayout(interpRow);
+
     // ----- Interval count + preview -----------------------------------------
     auto *intervalsRow = new QHBoxLayout;
     intervalsRow->addWidget(new QLabel(tr("Intervals:"), this));
@@ -127,6 +150,20 @@ void ColorRampEditorDialog::buildUi()
             this, &ColorRampEditorDialog::onMinChanged);
     connect(m_maxSpin,       QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this, &ColorRampEditorDialog::onMaxChanged);
+    connect(m_interpCombo,   QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &ColorRampEditorDialog::onInterpChanged);
+}
+
+void ColorRampEditorDialog::onInterpChanged(int /*index*/)
+{
+    const int code = m_interpCombo->currentData().toInt();
+    switch (code)
+    {
+    case 1: m_ramp.interp = RampInterp::HsvShort; break;
+    case 2: m_ramp.interp = RampInterp::HsvLong; break;
+    default: m_ramp.interp = RampInterp::Rgb; break;
+    }
+    refreshGradientPreview();
 }
 
 void ColorRampEditorDialog::onAutoStretchClicked()
@@ -275,6 +312,19 @@ void ColorRampEditorDialog::onSwatchClicked()
     const int customIdx = m_presetCombo->findData(QStringLiteral("custom"));
     if (customIdx >= 0) m_presetCombo->setCurrentIndex(customIdx);
     m_presetCombo->blockSignals(false);
+
+    // Slice BB-α — first user edit promotes the ramp to HSV-short-arc
+    // interpolation (the QGIS / colorist default for hand-authored ramps;
+    // built-in palettes keep RGB because their stops are RGB-tuned).
+    if (m_ramp.interp == RampInterp::Rgb && m_interpCombo)
+    {
+        m_ramp.interp = RampInterp::HsvShort;
+        m_interpCombo->blockSignals(true);
+        const int hsvShortIdx = m_interpCombo->findData(static_cast<int>(RampInterp::HsvShort));
+        if (hsvShortIdx >= 0) m_interpCombo->setCurrentIndex(hsvShortIdx);
+        m_interpCombo->blockSignals(false);
+    }
+
     btn->setStyleSheet(swatchStyleSheet(c));
     refreshGradientPreview();
 }
@@ -296,9 +346,14 @@ void ColorRampEditorDialog::refreshGradientPreview()
             p.fillRect(QRect(x0, 0, x1 - x0, h), c);
         }
     } else {
-        QLinearGradient g(0, 0, w, 0);
-        for (const auto &s : m_ramp.stops) g.setColorAt(s.first, s.second);
-        p.fillRect(QRect(0, 0, w, h), g);
+        // Slice BB-α — sample the ramp per pixel so HSV interpolation is
+        // visible. QLinearGradient blends in RGB unconditionally and would
+        // mask the interp combo entirely.
+        for (int x = 0; x < w; ++x) {
+            const double t = (w > 1) ? double(x) / double(w - 1) : 0.0;
+            p.setPen(m_ramp.colorAt(t));
+            p.drawLine(x, 0, x, h - 1);
+        }
     }
     p.end();
     m_gradientLabel->setPixmap(pm);

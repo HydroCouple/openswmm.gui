@@ -97,10 +97,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/${{ matrix.build_subdir }}/vcpkg_installed
-          key: vcpkg-installed-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-2025.10.17-${{ hashFiles('vcpkg.json') }}
+          # Bump the trailing -vN suffix to force a fresh install when the
+          # cache contents may be partially corrupt (e.g. after an x-gha
+          # binary-cache hiccup that left share/<port>/Config.cmake missing).
+          key: vcpkg-installed-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-2025.10.17-v2-${{ hashFiles('vcpkg.json') }}
+          # Only fall back within the same baseline + cache-version; refuse to
+          # restore older trees that could have incompatible ABI hashes.
           restore-keys: |
-            vcpkg-installed-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-2025.10.17-
-            vcpkg-installed-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-
+            vcpkg-installed-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-2025.10.17-v2-
 
       # openswmm.engine and QPropertyModel are fetched automatically via
       # FetchOpenSWMMEngine.cmake / FetchQPropertyModel.cmake at configure time.
@@ -182,6 +186,25 @@ jobs:
             EXTRA="-DCODESIGN_IDENTITY=$CODESIGN_IDENTITY"
           fi
           cmake --preset=${{ matrix.cmake_preset }} -DSWMMVIS_BUILD_TESTS=ON $EXTRA
+        shell: bash
+
+      # Diagnostic — only fires if a prior step (Configure or Build) fails.
+      # Lists what vcpkg actually installed so we can tell whether a missing
+      # find_package() means "port not installed" vs "config file in an
+      # unexpected location."
+      - name: Diagnose vcpkg_installed (on failure)
+        if: failure()
+        run: |
+          set +e
+          PREFIX="build/${{ matrix.build_subdir }}/vcpkg_installed/${{ matrix.vcpkg_triplet }}"
+          echo "=== $PREFIX/share (top-level) ==="
+          ls -la "$PREFIX/share" 2>&1 | head -80
+          for d in gtest GTest gdal proj sundials hdf5 nanoflann; do
+            echo "=== $PREFIX/share/$d ==="
+            ls -la "$PREFIX/share/$d" 2>&1 || true
+          done
+          echo "=== $PREFIX/lib/cmake (if present) ==="
+          ls -la "$PREFIX/lib/cmake" 2>&1 || true
         shell: bash
 
       - name: Build and Package

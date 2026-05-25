@@ -12,6 +12,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QSpinBox>
+#include <QToolButton>
 
 namespace {
 // Shared layout: 8 px label-to-control gap, no outer margins so the
@@ -115,4 +116,70 @@ void LabeledCombo::setCurrentData(const QVariant &data)
     const int idx = m_combo->findData(data);
     if (idx >= 0)
         m_combo->setCurrentIndex(idx);
+}
+
+// ── LabeledPickerCombo ──────────────────────────────────────────────────────
+
+LabeledPickerCombo::LabeledPickerCombo(const QString &labelText, QWidget *parent)
+    : QWidget(parent)
+{
+    auto *lay = makeRowLayout(this);
+    if (!labelText.isEmpty()) {
+        m_label = new QLabel(labelText, this);
+        lay->addWidget(m_label);
+    }
+    m_combo = new QComboBox(this);
+    m_combo->setEditable(false);
+    m_combo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
+    lay->addWidget(m_combo, /*stretch=*/1);
+
+    m_btn = new QToolButton(this);
+    m_btn->setText(QStringLiteral("…"));
+    m_btn->setToolTip(tr("Create a new data object"));
+    m_btn->setAutoRaise(false);
+    lay->addWidget(m_btn);
+
+    connect(m_btn,   &QToolButton::clicked,
+            this,    &LabeledPickerCombo::pickerClicked);
+    connect(m_combo, &QComboBox::currentTextChanged,
+            this,    &LabeledPickerCombo::currentTextChanged);
+}
+
+void LabeledPickerCombo::setItems(const QStringList &items, const QString &selected)
+{
+    QSignalBlocker block(m_combo);
+    m_combo->clear();
+    // Always offer an empty entry so the user can clear the selection
+    // (most SWMM compound fields are optional — null pattern, null TS).
+    m_combo->addItem(tr("(none)"), QString{});
+    for (const QString &it : items)
+        m_combo->addItem(it, it);
+    if (!selected.isEmpty()) {
+        const int idx = m_combo->findText(selected);
+        if (idx >= 0) m_combo->setCurrentIndex(idx);
+    } else {
+        m_combo->setCurrentIndex(0);
+    }
+}
+
+QString LabeledPickerCombo::currentText() const
+{
+    if (m_combo->currentIndex() == 0) return {};  // "(none)"
+    return m_combo->currentText();
+}
+
+void LabeledPickerCombo::setCurrentText(const QString &v)
+{
+    if (v.isEmpty()) {
+        m_combo->setCurrentIndex(0);
+        return;
+    }
+    int idx = m_combo->findText(v);
+    if (idx < 0) {
+        // Caller asked to select a name not in the current list —
+        // add it as a fallback so the cell isn't silently blanked.
+        m_combo->addItem(v, v);
+        idx = m_combo->count() - 1;
+    }
+    m_combo->setCurrentIndex(idx);
 }

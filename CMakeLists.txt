@@ -150,12 +150,19 @@ set(
 
         # ── Render ───────────────────────────────────────────────────────────
         include/render/categoricalpalette.h
+        # Slice BB-α — colour-ramp data type + interval binner.
+        include/render/colorramp.h
+        include/render/intervalbinner.h
+        # Slice BI Phase 8.13.7-α / 8.13.43-α — typed data-defined scalar.
+        include/render/datadefined.h
         # Slice BI Phase 8.13.6.1 — IFeatureRenderer abstraction + types.
         include/render/featureref.h
         include/render/symbollayer.h
         include/render/symbolstyle.h
         include/render/legendsymbolitem.h
         include/render/ifeaturerenderer.h
+        # Slice BB Phase 8.6.16 — shared model for on-canvas legend chrome.
+        include/render/legendoverlaystyle.h
         # Slice BI Phase 8.13.6.2 — concrete renderer classes.
         # SingleSymbol + Graduated are functional v1; Categorized + RuleBased
         # are stubs (JSON + paint) — UI editors land in Slice BI.3.
@@ -180,6 +187,7 @@ set(
         include/plot/seriesstatistics.h
         include/plot/swmmjuliandatetime.h
         include/plot/seriesstyle.h
+        include/plot/seriesstyleobject.h
         include/plot/fitmetrics.h
         include/plot/irunlayer.h
         include/plot/comparisonplotmodel.h
@@ -195,6 +203,7 @@ set(
         include/layers/wmslayer.h
         include/layers/wmtslayer.h
         include/layers/swmmmodellayer.h
+        include/layers/hydrographmodels.h
         include/layers/swmmresultslayer.h
         include/layers/tabulardatalayer.h
         include/layers/xyztilelayer.h
@@ -206,6 +215,8 @@ set(
         include/map/mapcanvas.h
         include/map/maprenderjob.h
         include/map/mapundostack.h
+        # Slice BB Phase 8.6.16 — QUndoCommand for per-class renderer edits.
+        include/map/legendclasseditcommands.h
         include/map/openswmmvisgraphicsview.h
         include/map/openswmmvisscene.h
         include/map/graphicsitems.h
@@ -244,6 +255,20 @@ set(
         include/layers/swmm2dresultslayer.h
         include/io/mesh2dh5reader.h
         include/io/rptparser.h
+        include/io/timeseriesparse.h
+
+        # ── Curve (Slice BQ Phase 6.7.1) ─────────────────────────────────────
+        include/curve/curveprovider.h
+        include/curve/curveregistry.h
+
+        # ── Pattern (Slice BQ Phase 6.7.2) ───────────────────────────────────
+        include/pattern/patternprovider.h
+        include/pattern/patternregistry.h
+
+        # ── Timeseries (Slice BQ Phase 6.7.3) ────────────────────────────────
+        include/timeseries/timeseriesprovider.h
+        include/timeseries/timeseriesregistry.h
+        include/timeseries/timeseriesundocommands.h
         include/mesh/dtmsampler.h
         include/mesh/dtmthinner.h
         include/mesh/inpmeshreader.h
@@ -265,6 +290,9 @@ set(
         include/ui/panels/swmmattributetablemodel.h
         include/ui/panels/swmmobjecttreemodel.h
         include/ui/panels/tabulardatatablemodel.h
+        include/ui/panels/curvepointtablemodel.h
+        include/ui/panels/patternfactortablemodel.h
+        include/ui/panels/timeseriestablemodel.h
         include/ui/panels/overviewmappanel.h
 
         # ── UI property adapters (Slice Z.5.3 / AG.3) ────────────────────────
@@ -275,6 +303,10 @@ set(
         # ── Compound editor cell widget (Slice DB.2) ─────────────────────────
         include/ui/properties/nodecompoundeditref.h
         include/ui/properties/nodecompoundeditbutton.h
+
+        # ── Data-object picker cell widget (Slice DA.4.3) ───────────────────
+        include/ui/properties/dataobjectref.h
+        include/ui/properties/dataobjectpickereditor.h
 
         # ── Non-spatial Data Object property adapters (Slice DA.2) ──────────
         include/ui/properties/swmmdataobjectpropertyadapter.h
@@ -311,10 +343,13 @@ set(
         include/ui/widgets/perattributethemingwidget.h
         include/ui/widgets/legendoverlay.h
         include/ui/widgets/interactivechartview.h
+        include/ui/widgets/timeserieseditchartview.h
         include/ui/widgets/attributepickermenu.h
         include/ui/widgets/rangeslider.h
         include/ui/widgets/statssummarypanel.h
         include/ui/widgets/labeledcontrols.h
+        # Slice BB-α — colour-ramp combobox with gradient-swatch dropdown.
+        include/ui/widgets/colorrampcombobox.h
 
         # ── Dialogs ──────────────────────────────────────────────────────────
         include/ui/dialogs/addbasemapdialog.h
@@ -323,8 +358,8 @@ set(
         include/ui/dialogs/aboutdialog.h
         include/ui/dialogs/layerpropertiesdialog.h
         include/ui/dialogs/meshgenerationdialog.h
-        include/ui/dialogs/newdataobjectdialog.h
         include/ui/dialogs/nodecompoundeditdialog.h
+        include/ui/dialogs/hydrographgroupeditor.h
         include/ui/dialogs/newprojectdialog.h
         include/ui/dialogs/pluginsdialog.h
         include/ui/dialogs/preferencesdialog.h
@@ -335,6 +370,11 @@ set(
         include/ui/dialogs/timeseriesplotdialog.h
         include/ui/dialogs/comparisonplotdialog.h
         include/ui/dialogs/chartpropertiesdialog.h
+        # Slice BB Phase 8.6.16 — legend right-click "Properties…" dialog.
+        include/ui/dialogs/legendpropertiesdialog.h
+        include/ui/dialogs/curveeditordialog.h
+        include/ui/dialogs/patterneditordialog.h
+        include/ui/dialogs/timeserieseditordialog.h
         include/ui/dialogs/colorrampeditordialog.h
         include/ui/dialogs/statisticsdashboarddialog.h
         include/ui/dialogs/statusreportdialog.h
@@ -384,10 +424,19 @@ set(
 
         # Render
         src/render/categoricalpalette.cpp
+        # Slice BB-α — colour-ramp data type + interval binner impls.
+        src/render/colorramp.cpp
+        src/render/intervalbinner.cpp
+        # Slice BI Phase 8.13.7-α / 8.13.43-α — DataDefinedScalar impl.
+        src/render/datadefined.cpp
+        # Slice CTX.1 / CTX.3 — per-(layer,kind) attribute candidate lists.
+        src/render/attributecandidates.cpp
         # Slice BI Phase 8.13.6.1 — JSON round-trip impls for the new types.
         src/render/symbollayer.cpp
         src/render/symbolstyle.cpp
         src/render/legendsymbolitem.cpp
+        # Slice BB Phase 8.6.16 — shared model for on-canvas legend chrome.
+        src/render/legendoverlaystyle.cpp
         # Slice BI Phase 8.13.6.2 — concrete renderer impls.
         src/render/renderers/singlesymbolrenderer.cpp
         src/render/renderers/graduatedrenderer.cpp
@@ -410,6 +459,7 @@ set(
         src/plot/chartproperties.cpp
         src/plot/seriesstatistics.cpp
         src/plot/seriesstyle.cpp
+        src/plot/seriesstyleobject.cpp
         src/plot/fitmetrics.cpp
         src/plot/comparisonplotmodel.cpp
         src/plot/swmmoutrunlayer.cpp
@@ -425,6 +475,7 @@ set(
         src/layers/wmslayer.cpp
         src/layers/wmtslayer.cpp
         src/layers/swmmmodellayer.cpp
+        src/layers/hydrographmodels.cpp
         src/layers/swmmresultslayer.cpp
         src/layers/tabulardatalayer.cpp
         src/layers/xyztilelayer.cpp
@@ -436,6 +487,8 @@ set(
         src/map/mapcanvas.cpp
         src/map/maprenderjob.cpp
         src/map/mapundostack.cpp
+        # Slice BB Phase 8.6.16 — QUndoCommand for per-class renderer edits.
+        src/map/legendclasseditcommands.cpp
         src/map/openswmmvisgraphicsview.cpp
         src/map/openswmmvisscene.cpp
         src/map/graphicsitems.cpp
@@ -474,6 +527,20 @@ set(
         src/layers/swmm2dresultslayer.cpp
         src/io/mesh2dh5reader.cpp
         src/io/rptparser.cpp
+        src/io/timeseriesparse.cpp
+
+        # ── Curve (Slice BQ Phase 6.7.1) ─────────────────────────────────────
+        src/curve/curveprovider.cpp
+        src/curve/curveregistry.cpp
+
+        # ── Pattern (Slice BQ Phase 6.7.2) ───────────────────────────────────
+        src/pattern/patternprovider.cpp
+        src/pattern/patternregistry.cpp
+
+        # ── Timeseries (Slice BQ Phase 6.7.3) ────────────────────────────────
+        src/timeseries/timeseriesprovider.cpp
+        src/timeseries/timeseriesregistry.cpp
+        src/timeseries/timeseriesundocommands.cpp
         src/mesh/dtmsampler.cpp
         src/mesh/dtmthinner.cpp
         src/mesh/inpmeshreader.cpp
@@ -494,7 +561,10 @@ set(
         src/ui/panels/overviewmappanel.cpp
         src/ui/panels/swmmattributetablemodel.cpp
         src/ui/panels/swmmobjecttreemodel.cpp
+        src/ui/panels/curvepointtablemodel.cpp
+        src/ui/panels/patternfactortablemodel.cpp
         src/ui/panels/tabulardatatablemodel.cpp
+        src/ui/panels/timeseriestablemodel.cpp
 
         # UI property adapters
         src/ui/properties/swmmlinkpropertyadapter.cpp
@@ -504,6 +574,10 @@ set(
         # Compound editor cell widget (Slice DB.2)
         src/ui/properties/nodecompoundeditref.cpp
         src/ui/properties/nodecompoundeditbutton.cpp
+
+        # Data-object picker cell widget (Slice DA.4.3)
+        src/ui/properties/dataobjectref.cpp
+        src/ui/properties/dataobjectpickereditor.cpp
 
         # Non-spatial Data Object adapters (Slice DA.2)
         src/ui/properties/swmmdataobjectpropertyadapter.cpp
@@ -531,8 +605,8 @@ set(
         src/ui/dialogs/aboutdialog.cpp
         src/ui/dialogs/layerpropertiesdialog.cpp
         src/ui/dialogs/meshgenerationdialog.cpp
-        src/ui/dialogs/newdataobjectdialog.cpp
         src/ui/dialogs/nodecompoundeditdialog.cpp
+        src/ui/dialogs/hydrographgroupeditor.cpp
         src/ui/dialogs/newprojectdialog.cpp
         src/ui/dialogs/pluginsdialog.cpp
         src/ui/dialogs/preferencesdialog.cpp
@@ -544,6 +618,11 @@ set(
         src/ui/dialogs/timeseriesplotdialog.cpp
         src/ui/dialogs/comparisonplotdialog.cpp
         src/ui/dialogs/chartpropertiesdialog.cpp
+        # Slice BB Phase 8.6.16 — legend right-click "Properties…" dialog.
+        src/ui/dialogs/legendpropertiesdialog.cpp
+        src/ui/dialogs/curveeditordialog.cpp
+        src/ui/dialogs/patterneditordialog.cpp
+        src/ui/dialogs/timeserieseditordialog.cpp
         src/ui/dialogs/colorrampeditordialog.cpp
         src/ui/dialogs/statisticsdashboarddialog.cpp
         src/ui/dialogs/statusreportdialog.cpp
@@ -571,10 +650,13 @@ set(
         src/ui/widgets/perattributethemingwidget.cpp
         src/ui/widgets/legendoverlay.cpp
         src/ui/widgets/interactivechartview.cpp
+        src/ui/widgets/timeserieseditchartview.cpp
         src/ui/widgets/attributepickermenu.cpp
         src/ui/widgets/rangeslider.cpp
         src/ui/widgets/statssummarypanel.cpp
         src/ui/widgets/labeledcontrols.cpp
+        # Slice BB-α — colour-ramp combobox impl.
+        src/ui/widgets/colorrampcombobox.cpp
 
         # ── Forms ────────────────────────────────────────────────────────────
         forms/swmmvis.ui

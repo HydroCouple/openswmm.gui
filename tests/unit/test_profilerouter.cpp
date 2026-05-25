@@ -369,3 +369,172 @@ TEST(ProfileRouter, OutOfRangeEndpoint_ReportsError)
     auto r = kShortestPaths(g, 0, 99);
     EXPECT_FALSE(r.error.isEmpty());
 }
+
+// ===========================================================================
+// enumerateSimplePaths — exhaustive DFS enumeration
+// ===========================================================================
+
+// ---- Enum.1: Straight line — exactly one simple path --------------------
+
+TEST(ProfileRouter, Enumerate_StraightLine_OnePath)
+{
+    Graph g = straightLine(5);
+    auto r = enumerateSimplePaths(g, 0, 4);
+    ASSERT_TRUE(r.error.isEmpty());
+    ASSERT_EQ(r.paths.size(), 1);
+    EXPECT_TRUE(pathMatchesNodes(r.paths[0], {0, 1, 2, 3, 4}));
+    EXPECT_DOUBLE_EQ(r.paths[0].weight, 4.0);
+    EXPECT_FALSE(r.truncated);
+}
+
+// ---- Enum.2: Diamond returns both branches, sorted ----------------------
+
+TEST(ProfileRouter, Enumerate_Diamond_BothPathsSorted)
+{
+    Graph g = diamond(2.0, 3.0);
+    auto r = enumerateSimplePaths(g, 0, 3);
+    ASSERT_TRUE(r.error.isEmpty());
+    ASSERT_EQ(r.paths.size(), 2);
+    EXPECT_TRUE(pathMatchesNodes(r.paths[0], {0, 1, 3}));   // cheaper first
+    EXPECT_TRUE(pathMatchesNodes(r.paths[1], {0, 2, 3}));
+    EXPECT_LT(r.paths[0].weight, r.paths[1].weight);
+}
+
+// ---- Enum.3: Parallel pipes — exhaustive, not capped by k ---------------
+//
+// kShortestPaths with k=5 only returned 5 of 7 parallel pipes;
+// enumerateSimplePaths must return all 7.
+
+TEST(ProfileRouter, Enumerate_ParallelPipes_AllReturned)
+{
+    Graph g = parallel(7);
+    auto r = enumerateSimplePaths(g, 0, 1);
+    ASSERT_TRUE(r.error.isEmpty());
+    EXPECT_EQ(r.paths.size(), 7);
+    for (int i = 1; i < r.paths.size(); ++i)
+        EXPECT_LE(r.paths[i - 1].weight, r.paths[i].weight);
+}
+
+// ---- Enum.4: Cycle / detour — long-way-around is enumerated -------------
+//
+// A cycle 0-1-2-3-0 between endpoints 0 and 2 has TWO simple paths:
+//   forward:  0 → 1 → 2
+//   backward: 0 → 3 → 2
+// Yen's-with-k=1 would only return the forward route; enumerator returns both.
+
+TEST(ProfileRouter, Enumerate_Cycle_BothLoopRoutesReturned)
+{
+    Graph g;
+    g.nodeCount = 4;
+    addEdge(g, 0, 1, 1.0);
+    addEdge(g, 1, 2, 1.0);
+    addEdge(g, 2, 3, 1.0);
+    addEdge(g, 3, 0, 1.0);
+    Options opts; opts.undirected = true;
+    auto r = enumerateSimplePaths(g, 0, 2, opts);
+    ASSERT_TRUE(r.error.isEmpty());
+    ASSERT_EQ(r.paths.size(), 2);
+    // Both routes have the same weight (2.0); order between equal-weight
+    // paths is undefined, so check membership rather than position.
+    bool forward  = pathMatchesNodes(r.paths[0], {0, 1, 2})
+                 || pathMatchesNodes(r.paths[1], {0, 1, 2});
+    bool backward = pathMatchesNodes(r.paths[0], {0, 3, 2})
+                 || pathMatchesNodes(r.paths[1], {0, 3, 2});
+    EXPECT_TRUE(forward);
+    EXPECT_TRUE(backward);
+}
+
+// ---- Enum.5: Meshed network — all simple paths enumerated --------------
+//
+// K4-style mesh: every pair of nodes 0..3 connected. From 0 to 3 there are
+// five simple paths:
+//   0→3, 0→1→3, 0→2→3, 0→1→2→3, 0→2→1→3
+
+TEST(ProfileRouter, Enumerate_K4Mesh_FivePathsFromZeroToThree)
+{
+    Graph g;
+    g.nodeCount = 4;
+    addEdge(g, 0, 1, 1.0);
+    addEdge(g, 0, 2, 1.0);
+    addEdge(g, 0, 3, 1.0);
+    addEdge(g, 1, 2, 1.0);
+    addEdge(g, 1, 3, 1.0);
+    addEdge(g, 2, 3, 1.0);
+    Options opts; opts.undirected = true;
+    auto r = enumerateSimplePaths(g, 0, 3, opts);
+    ASSERT_TRUE(r.error.isEmpty());
+    EXPECT_EQ(r.paths.size(), 5);
+}
+
+// ---- Enum.6: maxPaths cap fires truncated -------------------------------
+
+TEST(ProfileRouter, Enumerate_MaxPathsCap_FiresTruncated)
+{
+    Graph g = parallel(20);
+    Options opts;
+    opts.maxPaths  = 3;
+    opts.softCapMs = 0;          // disable wall-clock cap
+    auto r = enumerateSimplePaths(g, 0, 1, opts);
+    ASSERT_TRUE(r.error.isEmpty());
+    EXPECT_TRUE(r.truncated);
+    EXPECT_EQ(r.paths.size(), 3);
+    // Even when truncated, returned paths should still be sorted by weight.
+    for (int i = 1; i < r.paths.size(); ++i)
+        EXPECT_LE(r.paths[i - 1].weight, r.paths[i].weight);
+}
+
+// ---- Enum.7: Disconnected components return empty (not error) ----------
+
+TEST(ProfileRouter, Enumerate_Disconnected_NoPath)
+{
+    Graph g;
+    g.nodeCount = 4;
+    addEdge(g, 0, 1, 1.0);
+    addEdge(g, 2, 3, 1.0);
+    auto r = enumerateSimplePaths(g, 0, 3);
+    EXPECT_TRUE(r.error.isEmpty());
+    EXPECT_TRUE(r.paths.isEmpty());
+    EXPECT_FALSE(r.truncated);
+}
+
+// ---- Enum.8: Same start/end rejected ------------------------------------
+
+TEST(ProfileRouter, Enumerate_SameStartAndEnd_RejectedWithError)
+{
+    Graph g = straightLine(3);
+    auto r = enumerateSimplePaths(g, 1, 1);
+    EXPECT_FALSE(r.error.isEmpty());
+    EXPECT_TRUE(r.paths.isEmpty());
+}
+
+// ---- Enum.9: Directed vs undirected ------------------------------------
+
+TEST(ProfileRouter, Enumerate_DirectedVsUndirected_BehaviorDiffers)
+{
+    Graph g;
+    g.nodeCount = 3;
+    addEdge(g, 0, 1, 1.0);
+    addEdge(g, 2, 1, 1.0);   // points INTO 1
+    auto rDir = enumerateSimplePaths(g, 0, 2);
+    EXPECT_TRUE(rDir.paths.isEmpty());
+    Options opts; opts.undirected = true;
+    auto rUnd = enumerateSimplePaths(g, 0, 2, opts);
+    ASSERT_EQ(rUnd.paths.size(), 1);
+    EXPECT_TRUE(pathMatchesNodes(rUnd.paths[0], {0, 1, 2}));
+}
+
+// ---- Enum.10: Empty graph + out-of-range endpoint surface errors -------
+
+TEST(ProfileRouter, Enumerate_EmptyGraph_ReportsError)
+{
+    Graph g;
+    auto r = enumerateSimplePaths(g, 0, 1);
+    EXPECT_FALSE(r.error.isEmpty());
+}
+
+TEST(ProfileRouter, Enumerate_OutOfRangeEndpoint_ReportsError)
+{
+    Graph g = straightLine(3);
+    auto r = enumerateSimplePaths(g, 0, 99);
+    EXPECT_FALSE(r.error.isEmpty());
+}

@@ -44,6 +44,7 @@ class QSlider;
 class QDateTimeEdit;
 class QProgressBar;
 class QStandardItemModel;
+class OpenSWMMVisLayer;   // Slice BI-MK.LT — onLayerKindStyleRequested signature
 class QMdiSubWindow;
 class QAction;
 class QMenu;
@@ -120,6 +121,14 @@ private:
     void applyProjectOpenToActions(bool open);
 
 private slots:
+    /*! \brief Slice BI-MK.LT — apply a kind-renderer change from the
+     *         3-level layer-tree context menu. \p rendererId selects
+     *         the renderer class ("single" / "graduated" / "categorized");
+     *         empty falls back to opening the layer-scope SymbologyDialog. */
+    void onLayerKindStyleRequested(OpenSWMMVisLayer *layer,
+                                   int kindOrdinal,
+                                   const QString &rendererId);
+
     /*! \brief Create a new untitled project. */
     void onNewProject();
 
