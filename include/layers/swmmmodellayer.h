@@ -37,6 +37,15 @@ class SpatialReferenceSystem;
 
 namespace OpenSWMM::Render { class IFeatureRenderer; }
 
+// Slice BS Phase 6.9.2 — hydrograph MVC layer. Forward-declared so the
+// header doesn't drag in <QAbstractItemModel>; accessors return pointers
+// that consumers can wire to QTableView / QListView. See
+// include/layers/hydrographmodels.h.
+class HydrographGroupListModel;
+class HydrographRtkTableModel;
+class HydrographIaTableModel;
+class HydrographDecayTableModel;
+
 /*!
  * \struct SWMMElementSymbol
  * \brief Rendering style for a class of SWMM network elements.
@@ -50,6 +59,21 @@ struct SWMMElementSymbol
     bool    showLabel    = false;
     QFont   labelFont;
     QColor  labelColor   = Qt::black;
+
+    // Slice BI Phase 8.13.8-mini (2026-05-24) — flow-direction arrows
+    // for link kinds (Conduits / Pumps / Orifices / Weirs / Outlets).
+    // Ignored for point / polygon kinds. The arrow points from the
+    // link's upstream node to its downstream node — i.e. follows the
+    // polyline tangent at the midpoint of the visible polyline.
+    bool    showArrows           = false;          /*!< Toggle off by default. */
+    double  arrowSize            = 10.0;           /*!< Arrowhead length in pixels. */
+    QColor  arrowColor           = QColor(34, 34, 34);  /*!< Near-black. */
+    // Slice FX.1 — was `true` by default, but that gates arrows on a
+    // bound `.out` (every link has flow=0 pre-simulation). Users who
+    // toggle "Show flow arrows" expect arrows to appear immediately,
+    // independent of whether a sim has run. The flow-positive filter
+    // remains opt-in via the Arrows tab → "Only when flow > 0".
+    bool    arrowOnlyWhenFlowPos = false;
 };
 
 /*!
@@ -290,6 +314,60 @@ public:
     [[nodiscard]] QString suggestUniqueDataObjectName(DataCategory c) const;
 
     /*!
+     * \brief List the engine's table ids whose type matches `tableType`
+     *        (Slice DA.4.3).
+     *
+     * \details Tables (time series + all 12 curve kinds) share one engine
+     *          array, partitioned by `swmm_table_get_type`. Pickers need
+     *          a filtered list — tidal curves only, time series only, etc.
+     *          Centralised here so the pattern is reused across the new
+     *          `DataObjectPickerEditor` and the existing
+     *          `NodeCompoundEditDialog::populateTimeSeriesCombo` (which
+     *          may be refactored to delegate here in a follow-up).
+     *
+     *          `tableType` codes (from openswmm_tables.h):
+     *            0 = TIMESERIES
+     *            1 = CURVE_STORAGE   2 = CURVE_DIVERSION  3 = CURVE_RATING
+     *            4 = CURVE_SHAPE     5 = CURVE_CONTROL    6 = CURVE_TIDAL
+     *            7..11 = CURVE_PUMP1..PUMP5
+     *
+     *          A `tableType` of -1 means "any non-timeseries table"
+     *          (i.e. every curve kind).
+     */
+    [[nodiscard]] QStringList tableIdsOfType(int tableType) const;
+
+    /*!
+     * \brief Create a new data object on the engine (DB.4b).
+     *
+     * \details Moves the per-DataCategory engine-commit switch out of
+     *          `ObjectBrowserPanel::addNewDataObject` so callers
+     *          OTHER than the Object Browser (e.g. the picker
+     *          buttons in NodeCompoundEditDialog) can create new TS /
+     *          patterns / UH groups inline without dispatching upward.
+     *
+     *          The options map matches the keys produced by
+     *          `NewDataObjectDialog::getNew(...)` — e.g. "patternType",
+     *          "curveType", "lidType", "units", "inletType", "skeleton",
+     *          "rainGage", "response".
+     *
+     *          On success this method does NOT emit a refresh signal or
+     *          update Object Browser selection — callers that own those
+     *          flows (the panel) layer those side effects on top.
+     *
+     * \param c        Data-object category to create.
+     * \param name     Name for the new object (caller-supplied, typically
+     *                 from `suggestUniqueDataObjectName`).
+     * \param options  Per-category creation options (see above).
+     * \param outError If non-null, populated with an error message on
+     *                 failure (empty on success).
+     * \returns true on success, false otherwise.
+     */
+    [[nodiscard]] bool createDataObject(DataCategory c,
+                                          const QString &name,
+                                          const QVariantMap &options,
+                                          QString *outError = nullptr);
+
+    /*!
      * \brief Aggregate check state for a category: Checked when every
      *        member is visible, Unchecked when every member is hidden,
      *        PartiallyChecked otherwise. O(1) — derived from the
@@ -440,6 +518,98 @@ public:
      *          Emits \ref rendererChanged() when the pointer actually changes.
      */
     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+
+    // ----- Per-kind renderer (Slice BI-MK.1 / BI-MK.LT, 2026-05-24) --------
+    //
+    // Stores 11 per-kind IFeatureRenderer entries, indexed by Category, so
+    // SymbologyDialog's left-pane kind picker and LayerTreePanel's sub-row
+    // right-click menu can drive per-kind styling independently. Single-
+    // symbol renderers double-bind to the legacy `m_*Sym` SWMMElementSymbol
+    // fields (write-through both ways) so the current bucketed paint code
+    // in SWMMLayerItem keeps working without a full per-feature symbolFor()
+    // refactor. Graduated/Categorized renderers are stored + drive legends
+    // / persistence; canvas painting from them is deferred to the full
+    // Phase 8.13.6.4 paint-loop refactor.
+
+    /*! Returns the renderer for one Category kind (never null). */
+    [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *kindRenderer(Category c) const;
+
+    /*! Replaces the per-kind renderer for \p c. Takes ownership; null is
+     *  rejected (silent no-op). When the new renderer is a SingleSymbol,
+     *  the layer extracts colour/outline/size back to the legacy
+     *  `SWMMElementSymbol` field for that kind so the existing paint
+     *  loop reflects the change. Emits rendererChanged + repaintRequested. */
+    void setKindRenderer(Category c,
+                          std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+
+    /*! Re-seed the per-kind renderer for \p c from the matching
+     *  SWMMElementSymbol default (factory glyph). Equivalent to "Reset
+     *  Kind to Defaults" in the layer-tree context menu. */
+    void resetKindRendererToDefaults(Category c);
+
+    /*! Convenience: stable string key used for MultiKindRenderer keying
+     *  + .oswp persistence. e.g. CatJunctions → "Junctions". */
+    [[nodiscard]] static QString kindKey(Category c);
+
+    // ----- Flow-direction arrows (Slice BI Phase 8.13.8-mini, 2026-05-24) -
+    //
+    // Per-link-kind toggle for arrowheads drawn at the polyline midpoint
+    // pointing upstream → downstream. Wraps the showArrows / arrowSize /
+    // arrowColor / arrowOnlyWhenFlowPos fields on the corresponding
+    // SWMMElementSymbol so the painter can drive arrows from a single
+    // place. `c` must be a link kind (Conduits / Pumps / Orifices /
+    // Weirs / Outlets); other categories silently no-op the setter and
+    // return false from the getter.
+
+    /*! True if flow-direction arrows are enabled for the link kind. */
+    [[nodiscard]] bool linkArrowsEnabled(Category c) const;
+
+    /*! Toggle flow-direction arrows for a link kind. Emits repaintRequested. */
+    void setLinkArrowsEnabled(Category c, bool enabled);
+
+    // Slice FX.1 — per-kind arrow size / colour / flow-positive filter.
+    // Mirror the linkArrowsEnabled getter+setter shape; setters emit
+    // repaintRequested when the underlying field actually changes.
+    [[nodiscard]] double linkArrowSize(Category c) const;
+    void setLinkArrowSize(Category c, double pixels);
+    [[nodiscard]] QColor linkArrowColor(Category c) const;
+    void setLinkArrowColor(Category c, const QColor &col);
+    [[nodiscard]] bool   linkArrowOnlyWhenFlowPos(Category c) const;
+    void setLinkArrowOnlyWhenFlowPos(Category c, bool onlyPos);
+
+    /*! Live link-flow accessor used by the painter's `arrowOnlyWhenFlowPos`
+     *  short-circuit (Phase 8.13.8-α). Returns 0 when the engine handle
+     *  is null or the index is out of range. */
+    [[nodiscard]] double linkFlow(int linkIdx) const;
+
+    /*! Slice BI Phase 8.13.6.4 — per-feature paint-loop refactor.
+     *
+     *  True when the kind's renderer is non-SingleSymbol (Graduated /
+     *  Categorized / RuleBased) and the layer has pre-computed an
+     *  override colour for every feature in this kind. The painter
+     *  reads this flag to decide whether to use the legacy bucketed
+     *  fast path (false, single pen+brush per kind) or the per-
+     *  feature override path (true). */
+    [[nodiscard]] bool kindUsesOverrides(Category c) const;
+
+    /*! Returns the cached per-feature colour for one feature in kind
+     *  \p c, or an invalid QColor when no override exists. The painter
+     *  uses this for the per-feature paint path. Index is the SoA
+     *  index (matches the order categoryCount / objectNameAt use). */
+    [[nodiscard]] QColor featureColor(Category c, int idx) const;
+
+    /*! Slice BI Phase 8.13.43-α — per-feature SIZE override (pixels).
+     *  Returns a negative sentinel (-1.0) when no override exists for
+     *  this feature; positive values are absolute pixel sizes (the
+     *  painter scales the kind's static glyph radius by `size / static`). */
+    [[nodiscard]] double featureSize(Category c, int idx) const;
+
+    /*! Recomputes the per-feature colour AND per-feature size override
+     *  caches for one kind, by iterating every feature and calling
+     *  `kindRenderer(c)->symbolFor(featureRef, attrs)`. Called
+     *  automatically from setKindRenderer when the new renderer is
+     *  non-SingleSymbol or has data-defined size enabled. */
+    void rebuildKindFeatureColors(Category c);
 
     // ----- Selection ------------------------------------------------------
 
@@ -933,6 +1103,97 @@ public:
     /*! Delete a subcatchment. */
     bool applySubcatchDelete(const QString &name);
 
+    // ===== Slice BS Phase 6.9.2 — hydrograph + RDII decay MVC layer ======
+    //
+    // Every mutation to [HYDROGRAPHS] / [RDII_DECAY] data routes through one
+    // of the helpers below — never call `swmm_hydrograph_*` /
+    // `swmm_rdii_decay_*` directly from a dialog. On success each helper
+    // emits hydrographChanged(uhName) so all subscribed Qt models refresh in
+    // lock-step. The model layer is the single Qt-side mediator over the
+    // engine's BS-02 C API.
+    //
+    // See: docs/GUI_IMPLEMENTATION_PLAN.md Slice BS Phase 6.9.2.
+
+    /*! Create a new UH group with a gage assignment and one initial response
+     *  row keyed at month=-1 (ALL). Mirrors the existing
+     *  NewDataObjectDialog(Hydrographs) seed flow but folded into the model
+     *  layer so a single hydrographChanged() fires. */
+    bool applyHydrographAddGroup(const QString &name,
+                                  const QString &gageName,
+                                  int initialResponse);
+
+    /*! Remove a UH group: parameter rows, gage assignment, [RDII_DECAY]
+     *  rows, and any [RDII] node assignments referencing it. */
+    bool applyHydrographRemoveGroup(const QString &name);
+
+    /*! Rename a UH group; walks all four engine containers (entries,
+     *  gage_assignments, rdii_decay, rdii_assigns). Rejects empty / duplicate
+     *  names. */
+    bool applyHydrographRenameGroup(const QString &oldName, const QString &newName);
+
+    /*! Set, replace, or clear the rain gage assigned to a UH group. Pass an
+     *  empty string to clear an existing assignment. */
+    bool applyHydrographSetGage(const QString &name, const QString &gageName);
+
+    /*! Upsert R/T/K for one (group, month, response) row. */
+    bool applyHydrographSetRtk(const QString &name, int month, int response,
+                                double r, double t, double k);
+
+    /*! Upsert linear-IA (dmax, drecov, dinit) for one (group, month,
+     *  response) row. */
+    bool applyHydrographSetIa(const QString &name, int month, int response,
+                               double dmax, double drecov, double dinit);
+
+    /*! Remove one (group, month, response) parameter row. Idempotent. */
+    bool applyHydrographRemoveEntry(const QString &name, int month, int response);
+
+    /*! Bulk-clear every per-month parameter row for a group, preserving any
+     *  existing month=-1 (ALL) row. Used by the editor when switching from
+     *  per-season to ALL. */
+    bool applyHydrographClearMonths(const QString &name);
+
+    /*! Upsert one [RDII_DECAY] row for a (group, response) pair. */
+    bool applyRdiiDecaySet(const QString &name, int response,
+                            double k_dep, double k_0, double k_T,
+                            double T_ref, double theta_rec, double T_freeze);
+
+    /*! Remove the [RDII_DECAY] row for a (group, response) pair. Idempotent.
+     *  In the GUI's MVC layer this is the "untick Active" path. */
+    bool applyRdiiDecayRemove(const QString &name, int response);
+
+    /*! Shared QAbstractListModel of UH group names. Lazily constructed; one
+     *  per layer. Re-emits modelReset() on hydrographChanged(""). */
+    HydrographGroupListModel  *hydrographGroupListModel();
+
+    /*! Shared QAbstractTableModel for one (group, month) R/T/K grid (3 rows
+     *  × 4 cols). Call setContext() to rebind. */
+    HydrographRtkTableModel   *hydrographRtkModel();
+
+    /*! Shared QAbstractTableModel for one (group, month) linear-IA grid (3
+     *  rows × 4 cols). Call setContext() to rebind. */
+    HydrographIaTableModel    *hydrographIaModel();
+
+    /*! Shared QAbstractTableModel for one group's [RDII_DECAY] grid (3 rows
+     *  × 8 cols). Call setContext() to rebind. Season-agnostic — there is
+     *  no month dimension in the engine model. */
+    HydrographDecayTableModel *hydrographDecayModel();
+
+    /*! Lazy-init / re-use the TimeseriesRegistry scoped to the current
+     *  engine handle. Returns nullptr if the engine isn't open. Returned
+     *  as a `QObject*` to keep this header free of the timeseries include;
+     *  callers downcast to `openswmmvis::timeseries::TimeseriesRegistry*`.
+     *  Shared across every UI that mutates time series so all views
+     *  (Object Browser, NodeCompoundEditDialog pickers, …) see the same
+     *  provider instances. */
+    QObject *ensureTimeseriesRegistry();
+
+    /*! Same lazy-init pattern as ensureTimeseriesRegistry, for the
+     *  PatternRegistry. */
+    QObject *ensurePatternRegistry();
+
+    /*! Same lazy-init pattern, for the CurveRegistry. */
+    QObject *ensureCurveRegistry();
+
 signals:
     void modelFilePathChanged(const QString &path);
     void showNodesChanged(bool show);
@@ -979,6 +1240,15 @@ signals:
      *  table and property browser connect to this signal so they can refresh
      *  just the affected row/adapter without a full model rebuild. */
     void attributeChanged(const QString &objectName);
+
+    /*! Slice BS Phase 6.9.2 — emitted whenever any [HYDROGRAPHS] /
+     *  [RDII_DECAY] / [RDII] mutation lands in the engine via one of the
+     *  applyHydrograph* / applyRdiiDecay* helpers. Empty uhName means
+     *  "rebuild everything" (used by rename, since the old name disappears).
+     *  All hydrograph models listen here and refresh; consumer UIs
+     *  (Object Browser, property panel, NodeCompoundEditDialog picker, etc.)
+     *  bind to those models and never poll the engine directly. */
+    void hydrographChanged(const QString &uhName);
 
 private:
     struct NodeGeom    { double x, y; int objectType; int nodeType; QString name; };
@@ -1233,6 +1503,7 @@ private:
     SWMMElementSymbol            m_pumpSym;
     SWMMElementSymbol            m_orificeSym;
     SWMMElementSymbol            m_weirSym;
+    SWMMElementSymbol            m_outletSym;   // Slice FX.1 — Outlets honor showArrows independently of Conduits.
     SWMMElementSymbol            m_subcatchSym;
     SWMMElementSymbol            m_gageSym;
 
@@ -1242,6 +1513,23 @@ private:
     // m_*Sym members; the paint refactor sub-phase swaps in a
     // MultiKindRenderer adapter and flips the paint path.
     std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> m_renderer;
+
+    // Slice BI-MK.1 / BI-MK.LT (2026-05-24) — per-kind renderer storage.
+    // Indexed by Category ordinal; size == NumCategories. SymbologyDialog's
+    // left-pane picker and the layer-tree sub-row right-click menu drive
+    // edits here. Single-symbol entries are kept in sync with the legacy
+    // m_*Sym fields (write-through both directions) so the existing paint
+    // loop reflects user edits without a per-feature symbolFor() refactor.
+    std::vector<std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>> m_kindRenderers;
+
+    // Slice BI Phase 8.13.6.4 (2026-05-24) — per-feature colour-override
+    // cache populated when a kind's renderer is Graduated / Categorized /
+    // RuleBased. Indexed by Category × SoA index. The painter checks
+    // m_kindUsesOverrides[c] to switch between the legacy bucketed fast
+    // path and the per-feature override path.
+    QVector<QColor>  m_kindFeatureColors[NumCategories];
+    QVector<double>  m_kindFeatureSizes[NumCategories];   /*!< Slice BI Phase 8.13.43-α — negative = no override. */
+    bool             m_kindUsesOverrides[NumCategories] = {};
 
     QStringList                  m_selectedNames;
 
@@ -1267,6 +1555,26 @@ private:
     // scene's BSP index stays aligned after moves beyond the prior
     // extent. Cleared in depopulateScene.
     class SWMMLayerItem         *m_batchedItem = nullptr;
+
+    // Slice BS Phase 6.9.2 — hydrograph MVC models, lazily constructed on
+    // first accessor call. Owned by the layer (parented through the
+    // QObject tree, destroyed with it). Shared across all consumer UIs.
+    HydrographGroupListModel    *m_uhGroupListModel  = nullptr;
+    HydrographRtkTableModel     *m_uhRtkModel        = nullptr;
+    HydrographIaTableModel      *m_uhIaModel         = nullptr;
+    HydrographDecayTableModel   *m_uhDecayModel      = nullptr;
+
+    // Lazy-loaded data-object registries scoped to the current engine
+    // handle. Forward-declared as `QObject*` to keep this header free of
+    // the registry includes; the .cpp downcasts to the concrete type.
+    // Shared across every UI that mutates these data objects so all
+    // views see the same provider instances.
+    QObject                     *m_tsRegistry                   = nullptr;
+    void                        *m_tsRegistryEngineHandle       = nullptr;
+    QObject                     *m_patternRegistry              = nullptr;
+    void                        *m_patternRegistryEngineHandle  = nullptr;
+    QObject                     *m_curveRegistry                = nullptr;
+    void                        *m_curveRegistryEngineHandle    = nullptr;
 };
 
 Q_DECLARE_METATYPE(SWMMModelLayer *)

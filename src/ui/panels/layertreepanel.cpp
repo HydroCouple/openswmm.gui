@@ -8,6 +8,10 @@
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
 #include "layers/openswmmvislayer.h"
+#include "layers/swmmmodellayer.h"   // Slice BI-MK.LT — kind sub-rows
+#include "layers/swmmresultslayer.h" // Slice OUT.3 — output-layer kind sub-rows
+#include "render/attributecandidates.h" // Slice CTX.3 — grey out empty Style items
+#include "render/ifeaturerenderer.h" // Slice CTX.2 — checkmark active style
 
 #include <QAction>
 #include <QApplication>
@@ -193,11 +197,43 @@ void LayerTreeModel::rebuildCategories()
             m_layerToCategory.insert(layer, catRow);
         m_categories.append(std::move(c));
     }
+
+    // Slice BI-MK.LT — populate kind sub-rows for any SWMMModelLayer in tree.
+    rebuildKindRows();
 }
 
 int LayerTreeModel::categoryOf(OpenSWMMVisLayer *layer) const
 {
     return m_layerToCategory.value(layer, -1);
+}
+
+// Slice BI-MK.LT — populate m_kindRowStorage for every SWMMModelLayer that
+// currently appears in m_categories. Called by rebuildCategories whenever
+// the layer stack changes. The KindRow addresses inside the std::array
+// stay stable for the model's lifetime (no reallocation since the array
+// is fixed-size and the QHash node is allocated on insert).
+void LayerTreeModel::rebuildKindRows()
+{
+    m_kindRowStorage.clear();
+    m_kindRowPtrSet.clear();
+    for (const Category &cat : m_categories) {
+        for (OpenSWMMVisLayer *layer : cat.layers) {
+            // Slice BI-MK.LT — SWMMModelLayer carries 11 kind sub-rows for
+            // per-kind static-attribute styling.
+            // Slice OUT.3 — SWMMResultsLayer carries the same 11 sub-rows
+            // so the user can style Junctions vs Outfalls (etc.) separately
+            // for the same NodeDepth/LinkFlow variable.
+            const bool isModel   = qobject_cast<SWMMModelLayer  *>(layer) != nullptr;
+            const bool isResults = qobject_cast<SWMMResultsLayer *>(layer) != nullptr;
+            if (!isModel && !isResults) continue;
+            auto &arr = m_kindRowStorage[layer];
+            for (int k = 0; k < kKindsPerSwmmModelLayer; ++k) {
+                arr[k].layer       = layer;
+                arr[k].kindOrdinal = k;
+                m_kindRowPtrSet.insert(static_cast<const void *>(&arr[k]));
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -216,24 +252,50 @@ QModelIndex LayerTreeModel::index(int row, int column, const QModelIndex &parent
         return createIndex(row, column, static_cast<void *>(nullptr));
     }
 
-    // Parent is valid → must be a category (layers have no children).
-    if (parent.internalPointer() != nullptr)
-        return {};
-    const int catIdx = parent.row();
-    if (catIdx < 0 || catIdx >= m_categories.size())
-        return {};
-    if (row < 0 || row >= m_categories[catIdx].layers.size())
-        return {};
-    return createIndex(row, column, m_categories[catIdx].layers[row]);
+    if (parent.internalPointer() == nullptr)
+    {
+        // Parent is a category row → layer row.
+        const int catIdx = parent.row();
+        if (catIdx < 0 || catIdx >= m_categories.size())
+            return {};
+        if (row < 0 || row >= m_categories[catIdx].layers.size())
+            return {};
+        return createIndex(row, column, m_categories[catIdx].layers[row]);
+    }
+
+    // Parent is a layer row → check whether this layer has kind sub-rows
+    // (SWMMModelLayer does, others don't). If so, return a kind-row index
+    // whose internalPointer is the stable address of the per-kind sentinel.
+    auto *parentLayer = static_cast<OpenSWMMVisLayer *>(parent.internalPointer());
+    auto it = m_kindRowStorage.constFind(parentLayer);
+    if (it == m_kindRowStorage.constEnd()) return {};
+    if (row < 0 || row >= kKindsPerSwmmModelLayer) return {};
+    return createIndex(row, column,
+                       const_cast<void *>(static_cast<const void *>(&it.value()[row])));
 }
 
 QModelIndex LayerTreeModel::parent(const QModelIndex &child) const
 {
     if (!child.isValid())
         return {};
-    auto *layer = static_cast<OpenSWMMVisLayer *>(child.internalPointer());
-    if (!layer)
+
+    void *p = child.internalPointer();
+    if (!p)
         return {};   // child is a category — no parent
+
+    // Slice BI-MK.LT — kind row: parent is the layer row.
+    if (m_kindRowPtrSet.contains(p)) {
+        const KindRow *kr = static_cast<const KindRow *>(p);
+        OpenSWMMVisLayer *parentLayer = kr->layer;
+        const int catIdx = m_layerToCategory.value(parentLayer, -1);
+        if (catIdx < 0) return {};
+        const int layerRow = m_categories[catIdx].layers.indexOf(parentLayer);
+        if (layerRow < 0) return {};
+        return createIndex(layerRow, 0, parentLayer);
+    }
+
+    // Otherwise child is a layer row → parent is the category.
+    auto *layer = static_cast<OpenSWMMVisLayer *>(p);
     const int catIdx = m_layerToCategory.value(layer, -1);
     if (catIdx < 0)
         return {};
@@ -254,7 +316,14 @@ int LayerTreeModel::rowCount(const QModelIndex &parent) const
                    ? m_categories[catIdx].layers.size()
                    : 0;
     }
-    return 0;   // layers are leaves
+    // Slice BI-MK.LT — layer row: has kind sub-rows for multi-kind layers.
+    if (!m_kindRowPtrSet.contains(parent.internalPointer())) {
+        auto *layer = static_cast<OpenSWMMVisLayer *>(parent.internalPointer());
+        if (m_kindRowStorage.contains(layer))
+            return kKindsPerSwmmModelLayer;
+        return 0;   // non-multi-kind layers have no children
+    }
+    return 0;   // kind rows are leaves
 }
 
 int LayerTreeModel::columnCount(const QModelIndex & /*parent*/) const
@@ -267,7 +336,44 @@ QVariant LayerTreeModel::data(const QModelIndex &index, int role) const
     if (!index.isValid())
         return {};
 
-    auto *layer = static_cast<OpenSWMMVisLayer *>(index.internalPointer());
+    void *p = index.internalPointer();
+
+    // ---- Kind row (Slice BI-MK.LT + Slice OUT.3) ---------------------------
+    if (p && m_kindRowPtrSet.contains(p)) {
+        const KindRow *kr = static_cast<const KindRow *>(p);
+        auto *swmm    = qobject_cast<SWMMModelLayer   *>(kr->layer);
+        auto *results = qobject_cast<SWMMResultsLayer *>(kr->layer);
+        if (!swmm && !results) return {};
+        const auto cat = static_cast<SWMMModelLayer::Category>(kr->kindOrdinal);
+        if (index.column() != 0) return {};
+        switch (role) {
+        case Qt::DisplayRole: {
+            if (swmm) {
+                // Label: "<Kind> (count)" for input layer.
+                const int total = swmm->categoryCount(cat);
+                return QStringLiteral("%1 (%2)")
+                    .arg(SWMMModelLayer::kindKey(cat))
+                    .arg(total);
+            }
+            // Output layer: just the kind name (counts mirror the model layer).
+            return SWMMModelLayer::kindKey(cat);
+        }
+        case Qt::CheckStateRole:
+            if (swmm) return swmm->categoryCheckState(cat);
+            return Qt::Checked;   // Output kind rows: no per-kind toggle v1
+        case Qt::DecorationRole:
+            // Per-kind icon — same Layers glyph for now; future revisions
+            // can sample the kind renderer's first legendSymbolItem swatch.
+            return QIcon(swmm
+                ? QStringLiteral(":/swmmvis/Layers")
+                : QStringLiteral(":/swmmvis/Chart"));
+        case Qt::UserRole:
+            return kr->kindOrdinal;
+        }
+        return {};
+    }
+
+    auto *layer = static_cast<OpenSWMMVisLayer *>(p);
 
     // ---- Category row (layer == nullptr) -----------------------------------
     if (!layer)
@@ -358,7 +464,21 @@ bool LayerTreeModel::setData(const QModelIndex &index, const QVariant &value, in
     if (!index.isValid())
         return false;
 
-    auto *layer = static_cast<OpenSWMMVisLayer *>(index.internalPointer());
+    void *p = index.internalPointer();
+
+    // Slice BI-MK.LT — kind-row check-state toggles per-kind visibility.
+    if (p && m_kindRowPtrSet.contains(p)) {
+        if (index.column() != 0 || role != Qt::CheckStateRole) return false;
+        const KindRow *kr = static_cast<const KindRow *>(p);
+        auto *swmm = qobject_cast<SWMMModelLayer *>(kr->layer);
+        if (!swmm) return false;
+        const auto cat = static_cast<SWMMModelLayer::Category>(kr->kindOrdinal);
+        swmm->setCategoryVisible(cat, value.toInt() == Qt::Checked);
+        emit dataChanged(index, index, {Qt::CheckStateRole});
+        return true;
+    }
+
+    auto *layer = static_cast<OpenSWMMVisLayer *>(p);
     if (!layer)
         return false;   // category rows are not editable
 
@@ -391,7 +511,21 @@ Qt::ItemFlags LayerTreeModel::flags(const QModelIndex &index) const
     if (!index.isValid())
         return Qt::NoItemFlags;
 
-    auto *layer = static_cast<OpenSWMMVisLayer *>(index.internalPointer());
+    void *p = index.internalPointer();
+
+    // Slice BI-MK.LT — kind sub-row: checkable + enabled + selectable, no drag.
+    // Slice OUT.3 — only SWMMModelLayer kind rows are checkable (per-kind
+    // visibility); output-layer kind rows are display-only for v1.
+    if (p && m_kindRowPtrSet.contains(p)) {
+        const KindRow *kr = static_cast<const KindRow *>(p);
+        const bool isModel = qobject_cast<SWMMModelLayer *>(kr->layer) != nullptr;
+        Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+        if (isModel && index.column() == 0)
+            f |= Qt::ItemIsUserCheckable;
+        return f;
+    }
+
+    auto *layer = static_cast<OpenSWMMVisLayer *>(p);
 
     // Category row: enabled + selectable + draggable (so the user can reorder
     // entire type groups) + drop-enabled (so other categories can land here).
@@ -607,12 +741,38 @@ OpenSWMMVisLayer *LayerTreeModel::layerForIndex(const QModelIndex &index) const
 {
     if (!index.isValid())
         return nullptr;
-    return static_cast<OpenSWMMVisLayer *>(index.internalPointer());
+    void *p = index.internalPointer();
+    if (!p) return nullptr;
+    // Slice BI-MK.LT — kind sub-row: return its parent layer.
+    if (m_kindRowPtrSet.contains(p))
+        return static_cast<const KindRow *>(p)->layer;
+    return static_cast<OpenSWMMVisLayer *>(p);
 }
 
 bool LayerTreeModel::isCategoryIndex(const QModelIndex &index) const
 {
     return index.isValid() && index.internalPointer() == nullptr;
+}
+
+// Slice BI-MK.LT — kind-row accessors used by LayerTreePanel's context menu.
+
+bool LayerTreeModel::isKindIndex(const QModelIndex &index) const
+{
+    return index.isValid()
+        && index.internalPointer() != nullptr
+        && m_kindRowPtrSet.contains(index.internalPointer());
+}
+
+OpenSWMMVisLayer *LayerTreeModel::kindParentLayer(const QModelIndex &index) const
+{
+    if (!isKindIndex(index)) return nullptr;
+    return static_cast<const KindRow *>(index.internalPointer())->layer;
+}
+
+int LayerTreeModel::kindOrdinal(const QModelIndex &index) const
+{
+    if (!isKindIndex(index)) return -1;
+    return static_cast<const KindRow *>(index.internalPointer())->kindOrdinal;
 }
 
 // ---------------------------------------------------------------------------
@@ -883,6 +1043,176 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         if (!picked) return;
         if      (picked == actUp)   onMoveCategoryUp();
         else if (picked == actDown) onMoveCategoryDown();
+        return;
+    }
+
+    // ── Kind sub-row (Slice BI-MK.LT + Slice OUT.3) ───────────────────────
+    if (m_model->isKindIndex(idx))
+    {
+        OpenSWMMVisLayer *parentLayer = m_model->kindParentLayer(idx);
+        auto *swmm    = qobject_cast<SWMMModelLayer   *>(parentLayer);
+        auto *results = qobject_cast<SWMMResultsLayer *>(parentLayer);
+        if (!swmm && !results) return;
+        const int kindOrd = m_model->kindOrdinal(idx);
+        const auto cat    = static_cast<SWMMModelLayer::Category>(kindOrd);
+        const QString kindLabel = SWMMModelLayer::kindKey(cat);
+        const bool isLinkKind  = (cat == SWMMModelLayer::CatConduits ||
+                                  cat == SWMMModelLayer::CatPumps    ||
+                                  cat == SWMMModelLayer::CatOrifices ||
+                                  cat == SWMMModelLayer::CatWeirs    ||
+                                  cat == SWMMModelLayer::CatOutlets);
+
+        QMenu kindMenu(this);
+        QStyle *ks = QApplication::style();
+        QAction *actZoomK = kindMenu.addAction(
+            QIcon(QStringLiteral(":/swmmvis/Extent")),
+            tr("Zoom to %1").arg(kindLabel));
+        // Currently no per-kind extent API; gate disabled. Users can zoom
+        // to whole layer + identify, or wait for follow-up.
+        actZoomK->setEnabled(false);
+
+        // Toggle: only for model layer (output kind rows are not per-kind
+        // toggleable in v1 — output visibility is at the layer level).
+        QAction *actToggleK = nullptr;
+        if (swmm) {
+            const Qt::CheckState st = swmm->categoryCheckState(cat);
+            actToggleK = kindMenu.addAction(
+                st == Qt::Unchecked ? tr("Show %1").arg(kindLabel)
+                                    : tr("Hide %1").arg(kindLabel));
+        }
+
+        kindMenu.addSeparator();
+        QMenu *styleMenu = kindMenu.addMenu(
+            QIcon(QStringLiteral(":/swmmvis/Style")),
+            tr("Style"));
+        QAction *actStyleSingle      = styleMenu->addAction(tr("Single symbol"));
+        QAction *actStyleGraduated   = styleMenu->addAction(tr("Graduated (numeric)"));
+        QAction *actStyleCategorized = styleMenu->addAction(tr("Categorized (string / enum)"));
+        QAction *actStyleRule        = styleMenu->addAction(tr("Rule-based"));
+        actStyleRule->setEnabled(false);  // v1 deferred to full BI.3
+
+        // Slice CTX.2 — currently-active style indicator. For output kind
+        // rows the renderer comes from SWMMResultsLayer::kindRenderer.
+        OpenSWMM::Render::IFeatureRenderer *cur =
+            swmm    ? swmm->kindRenderer(cat)
+            : results ? results->kindRenderer(cat)
+                      : nullptr;
+        const QString currentClass = cur ? cur->rendererId() : QString();
+        actStyleSingle->setCheckable(true);
+        actStyleGraduated->setCheckable(true);
+        actStyleCategorized->setCheckable(true);
+        actStyleSingle->setChecked(currentClass     == QLatin1String("single"));
+        actStyleGraduated->setChecked(currentClass  == QLatin1String("graduated"));
+        actStyleCategorized->setChecked(currentClass == QLatin1String("categorized"));
+
+        // Slice CTX.3 — grey out Style items when no candidate attrs exist.
+        // For model layer: numeric attrs drive Graduated, string attrs drive
+        // Categorized. For output layer: results are always numeric, so
+        // Categorized is always greyed out.
+        namespace AC = OpenSWMM::Render::AttributeCandidates;
+        const bool hasNumeric = swmm
+            ? !AC::modelLayerNumeric(cat).isEmpty()
+            : !AC::resultsLayerNumeric(static_cast<int>(cat)).isEmpty();
+        const bool hasString  = swmm
+            ? !AC::modelLayerString(cat).isEmpty()
+            : false;
+        if (!hasNumeric) {
+            actStyleGraduated->setEnabled(false);
+            actStyleGraduated->setToolTip(
+                tr("No numeric attributes available for this kind."));
+        }
+        if (!hasString) {
+            actStyleCategorized->setEnabled(false);
+            actStyleCategorized->setToolTip(swmm
+                ? tr("No string / enum attributes available for this kind.")
+                : tr("Output values are numeric — Categorized is not applicable."));
+        }
+
+        // Per-link-kind flow-arrow toggle (Slice BI Phase 8.13.8-mini).
+        // Only applicable to the SWMMModelLayer (output layer has no static
+        // flow-arrow concept — arrows belong to the .inp geometry layer).
+        QAction *actArrows = nullptr;
+        if (swmm && isLinkKind) {
+            kindMenu.addSeparator();
+            actArrows = kindMenu.addAction(tr("Show flow arrows"));
+            actArrows->setCheckable(true);
+            actArrows->setChecked(swmm->linkArrowsEnabled(cat));
+        }
+
+        // Slice PT.1 — Plot timeseries submenu. Available on both
+        // SWMMModelLayer and SWMMResultsLayer kind rows: the .out file
+        // (or live simulation) is what drives the chart, but the model
+        // layer has the object name index pre-simulation so users can
+        // queue plots even before running.
+        QMenu *plotSubmenu = nullptr;
+        QList<QAction *> plotObjActs;
+        const int featureCount = swmm ? swmm->categoryCount(cat) : 0;
+        if (swmm && featureCount > 0
+            && (cat == SWMMModelLayer::CatJunctions
+                || cat == SWMMModelLayer::CatOutfalls
+                || cat == SWMMModelLayer::CatStorage
+                || cat == SWMMModelLayer::CatDividers
+                || cat == SWMMModelLayer::CatConduits
+                || cat == SWMMModelLayer::CatPumps
+                || cat == SWMMModelLayer::CatOrifices
+                || cat == SWMMModelLayer::CatWeirs
+                || cat == SWMMModelLayer::CatOutlets
+                || cat == SWMMModelLayer::CatSubcatchments)) {
+            kindMenu.addSeparator();
+            plotSubmenu = kindMenu.addMenu(
+                QIcon(QStringLiteral(":/swmmvis/Chart")),
+                tr("Plot timeseries…"));
+            // Cap to first 50 to keep the menu reasonable on large
+            // models. Users can use the Object Browser for full lists.
+            const int cap = std::min(featureCount, 50);
+            plotObjActs.reserve(cap);
+            for (int i = 0; i < cap; ++i) {
+                const QString name = swmm->objectNameAt(cat, i);
+                if (name.isEmpty()) continue;
+                plotObjActs.append(plotSubmenu->addAction(name));
+            }
+            if (featureCount > cap) {
+                plotSubmenu->addSeparator();
+                QAction *more = plotSubmenu->addAction(
+                    tr("… +%1 more (use Object Browser)").arg(featureCount - cap));
+                more->setEnabled(false);
+            }
+        }
+
+        // Slice CTX.2 — "Set Style…" dropped from the kind-row menu.
+        // The Style ▸ submenu is now the single entry point; picking the
+        // currently-active class re-opens the dialog with tuning preserved.
+        kindMenu.addSeparator();
+        QAction *actReset    = kindMenu.addAction(tr("Reset %1 to Defaults").arg(kindLabel));
+
+        QAction *pickedK = kindMenu.exec(m_treeView->viewport()->mapToGlobal(pos));
+        if (!pickedK) return;
+
+        // Use parentLayer (works for both SWMMModelLayer and
+        // SWMMResultsLayer) when emitting the style signal so the
+        // downstream slot dispatches based on the runtime type.
+        if (actToggleK && pickedK == actToggleK) {
+            // Only set on model layer (we only built the action there).
+            if (swmm) {
+                const Qt::CheckState st = swmm->categoryCheckState(cat);
+                swmm->setCategoryVisible(cat, st == Qt::Unchecked);
+            }
+        } else if (pickedK == actStyleSingle) {
+            emit layerKindStyleRequested(parentLayer, kindOrd, QStringLiteral("single"));
+        } else if (pickedK == actStyleGraduated) {
+            emit layerKindStyleRequested(parentLayer, kindOrd, QStringLiteral("graduated"));
+        } else if (pickedK == actStyleCategorized) {
+            emit layerKindStyleRequested(parentLayer, kindOrd, QStringLiteral("categorized"));
+        } else if (actArrows && pickedK == actArrows) {
+            swmm->setLinkArrowsEnabled(cat, !swmm->linkArrowsEnabled(cat));
+        } else if (pickedK == actReset) {
+            if (swmm) swmm->resetKindRendererToDefaults(cat);
+            else if (results) results->resetKindRendererToDefaults(cat);
+        } else if (plotSubmenu && plotObjActs.contains(pickedK)) {
+            // Slice PT.1 — Plot timeseries… → emit so SWMMVis pops the
+            // AttributePickerMenu and opens the Comparison Plot Dialog.
+            emit plotKindObjectRequested(kindOrd, pickedK->text());
+        }
         return;
     }
 

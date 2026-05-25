@@ -74,6 +74,16 @@ private slots:
     void categorizedRenderer_jsonRoundTrip();
     void ruleBasedRenderer_emptyExpressionMatches();
     void ruleBasedRenderer_jsonRoundTripWithScaleRange();
+
+    // Slice BB Phase 8.6.16 — per-class editing virtuals.
+    void classEdit_singleSymbol_colorSizeWidthSymbol();
+    void classEdit_singleSymbol_ignoresWrongKey();
+    void classEdit_graduated_colorOverridesPersistThroughRampSwap();
+    void classEdit_graduated_clearOverridesReverts();
+    void classEdit_graduated_overridesRoundTripThroughJson();
+    void classEdit_categorized_colorAndSymbolEditsByIndex();
+    void classEdit_categorized_outOfRangeIndexIsNoOp();
+    void classEdit_ruleBased_supportsClassEditReturnsFalse();
 };
 
 void TestIFeatureRenderer::featureRef_defaults()
@@ -620,6 +630,157 @@ void TestIFeatureRenderer::ruleBasedRenderer_jsonRoundTripWithScaleRange()
     QCOMPARE(out.rules().first().label, QStringLiteral("Deep"));
     QCOMPARE(out.rules().first().scaleRange.first, 0.0001);
     QCOMPARE(out.rules().first().scaleRange.second, 0.01);
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Slice BB Phase 8.6.16 — per-class editing virtuals.
+// ────────────────────────────────────────────────────────────────────────
+
+void TestIFeatureRenderer::classEdit_singleSymbol_colorSizeWidthSymbol()
+{
+    SingleSymbolRenderer r{ makeMarker(QStringLiteral("#1f77b4"), 8.0),
+                            QStringLiteral("Junctions") };
+
+    // Renderer advertises support for all four kinds.
+    QVERIFY(r.supportsClassEdit(ClassEditKind::Color));
+    QVERIFY(r.supportsClassEdit(ClassEditKind::Size));
+    QVERIFY(r.supportsClassEdit(ClassEditKind::Width));
+    QVERIFY(r.supportsClassEdit(ClassEditKind::Symbol));
+
+    // Colour edit writes through to every layer that has a colour slot.
+    r.setColorForClass(QStringLiteral("single"), QColor(QStringLiteral("#abcdef")));
+    QCOMPARE(r.symbol().layers.at(0).props.value(QStringLiteral("color")).toString().toLower(),
+             QStringLiteral("#ffabcdef"));   // HexArgb prepends opaque alpha
+
+    // Size edit updates the marker size.
+    r.setSizeForClass(QStringLiteral("single"), 17.0);
+    QCOMPARE(r.symbol().layers.at(0).props.value(QStringLiteral("size")).toDouble(), 17.0);
+
+    // Wholesale symbol replacement.
+    r.setSymbolForClass(QStringLiteral("single"),
+                        makeMarker(QStringLiteral("#000000"), 3.0));
+    QCOMPARE(r.symbol().layers.at(0).props.value(QStringLiteral("size")).toDouble(), 3.0);
+    QCOMPARE(r.symbol().layers.at(0).props.value(QStringLiteral("color")).toString(),
+             QStringLiteral("#000000"));
+}
+
+void TestIFeatureRenderer::classEdit_singleSymbol_ignoresWrongKey()
+{
+    SingleSymbolRenderer r{ makeMarker(QStringLiteral("#1f77b4"), 8.0), {} };
+    r.setColorForClass(QStringLiteral("0"), QColor(QStringLiteral("#ff0000")));    // wrong key
+    r.setSizeForClass(QStringLiteral("bin-2"), 99.0);                              // wrong key
+    QCOMPARE(r.symbol().layers.at(0).props.value(QStringLiteral("color")).toString(),
+             QStringLiteral("#1f77b4"));
+    QCOMPARE(r.symbol().layers.at(0).props.value(QStringLiteral("size")).toDouble(), 8.0);
+}
+
+void TestIFeatureRenderer::classEdit_graduated_colorOverridesPersistThroughRampSwap()
+{
+    GraduatedRenderer r;
+    r.setRange(0.0, 10.0);
+    r.setBaseSymbol(makeMarker(QStringLiteral("#000000")));
+
+    // Override bin 2 to a specific colour.
+    QVERIFY(r.supportsClassEdit(ClassEditKind::Color));
+    QVERIFY(!r.supportsClassEdit(ClassEditKind::Size));
+    r.setColorForClass(QStringLiteral("2"), QColor(QStringLiteral("#aabbcc")));
+    QCOMPARE(r.colorForBin(2).name(QColor::HexRgb).toLower(),
+             QStringLiteral("#aabbcc"));
+
+    // Swap the ramp — bin 2 still resolves to the override.
+    r.setRamp(RasterColorRamp::viridis(0.0, 10.0));
+    QCOMPARE(r.colorForBin(2).name(QColor::HexRgb).toLower(),
+             QStringLiteral("#aabbcc"));
+
+    // Other bins still come from the ramp (not from the override).
+    QVERIFY(r.colorForBin(0).name(QColor::HexRgb).toLower() != QStringLiteral("#aabbcc"));
+}
+
+void TestIFeatureRenderer::classEdit_graduated_clearOverridesReverts()
+{
+    GraduatedRenderer r;
+    r.setRange(0.0, 10.0);
+    r.setColorForClass(QStringLiteral("1"), QColor(QStringLiteral("#deadbe")));
+    QCOMPARE(r.binColorOverrides().size(), 1);
+
+    r.clearClassEditOverrides();
+    QVERIFY(r.binColorOverrides().isEmpty());
+    // Bin 1 colour now comes from the default Viridis ramp again.
+    QVERIFY(r.colorForBin(1).name(QColor::HexRgb).toLower() != QStringLiteral("#deadbe"));
+}
+
+void TestIFeatureRenderer::classEdit_graduated_overridesRoundTripThroughJson()
+{
+    GraduatedRenderer src;
+    src.setRange(0.0, 100.0);
+    src.setColorForClass(QStringLiteral("0"), QColor(QStringLiteral("#112233")));
+    src.setColorForClass(QStringLiteral("4"), QColor(QStringLiteral("#ff00ff")));
+
+    GraduatedRenderer dst;
+    dst.fromJson(src.toJson());
+
+    QCOMPARE(dst.binColorOverrides().size(), 2);
+    QCOMPARE(dst.colorForBin(0).name(QColor::HexRgb).toLower(),
+             QStringLiteral("#112233"));
+    QCOMPARE(dst.colorForBin(4).name(QColor::HexRgb).toLower(),
+             QStringLiteral("#ff00ff"));
+}
+
+void TestIFeatureRenderer::classEdit_categorized_colorAndSymbolEditsByIndex()
+{
+    CategorizedRenderer r;
+    r.setClassifyAttribute(QStringLiteral("kind"));
+    r.addCategory({ QStringLiteral("conduit"), QStringLiteral("Conduit"),
+                    makeMarker(QStringLiteral("#1f77b4")) });
+    r.addCategory({ QStringLiteral("pump"),    QStringLiteral("Pump"),
+                    makeMarker(QStringLiteral("#2ca02c")) });
+
+    QVERIFY(r.supportsClassEdit(ClassEditKind::Color));
+    QVERIFY(r.supportsClassEdit(ClassEditKind::Symbol));
+    QVERIFY(!r.supportsClassEdit(ClassEditKind::Size));   // not editable here
+
+    // Colour edit on index 1 mutates the second category's symbol.
+    r.setColorForClass(QStringLiteral("1"), QColor(QStringLiteral("#abcdef")));
+    QCOMPARE(r.categories().at(1).symbol.layers.at(0).props.value(QStringLiteral("color"))
+                                                          .toString().toLower(),
+             QStringLiteral("#ffabcdef"));
+    // Index 0 is untouched.
+    QCOMPARE(r.categories().at(0).symbol.layers.at(0).props.value(QStringLiteral("color")).toString(),
+             QStringLiteral("#1f77b4"));
+
+    // Wholesale symbol replacement on index 0.
+    r.setSymbolForClass(QStringLiteral("0"),
+                        makeMarker(QStringLiteral("#000000"), 99.0));
+    QCOMPARE(r.categories().at(0).symbol.layers.at(0).props.value(QStringLiteral("size")).toDouble(),
+             99.0);
+}
+
+void TestIFeatureRenderer::classEdit_categorized_outOfRangeIndexIsNoOp()
+{
+    CategorizedRenderer r;
+    r.addCategory({ QStringLiteral("a"), {}, makeMarker(QStringLiteral("#1f77b4")) });
+
+    // Out-of-range index, non-int key, and invalid colour all silently no-op.
+    r.setColorForClass(QStringLiteral("5"),     QColor(QStringLiteral("#ff0000")));
+    r.setColorForClass(QStringLiteral("apple"), QColor(QStringLiteral("#ff0000")));
+    r.setColorForClass(QStringLiteral("0"),     QColor());
+
+    QCOMPARE(r.categories().at(0).symbol.layers.at(0).props.value(QStringLiteral("color")).toString(),
+             QStringLiteral("#1f77b4"));
+}
+
+void TestIFeatureRenderer::classEdit_ruleBased_supportsClassEditReturnsFalse()
+{
+    // RuleBasedRenderer doesn't override the virtuals — interface default
+    // returns false for every kind, and the setters are no-ops.
+    RuleBasedRenderer r;
+    QVERIFY(!r.supportsClassEdit(ClassEditKind::Color));
+    QVERIFY(!r.supportsClassEdit(ClassEditKind::Size));
+    QVERIFY(!r.supportsClassEdit(ClassEditKind::Width));
+    QVERIFY(!r.supportsClassEdit(ClassEditKind::Symbol));
+    // No-op setters shouldn't crash or change anything observable.
+    r.setColorForClass(QStringLiteral("0"), QColor(QStringLiteral("#ff0000")));
+    r.setSymbolForClass(QStringLiteral("0"), SymbolStyle{});
 }
 
 QTEST_MAIN(TestIFeatureRenderer)

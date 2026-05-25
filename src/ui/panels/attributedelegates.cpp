@@ -6,6 +6,9 @@
 
 #include "ui/panels/attributedelegates.h"
 
+#include "ui/properties/nodecompoundeditbutton.h"
+#include "ui/properties/nodecompoundeditref.h"
+
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QSpinBox>
@@ -135,6 +138,60 @@ void EnumDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
     auto *combo = qobject_cast<QComboBox *>(editor);
     if (!combo) return;
     model->setData(index, combo->currentData(), Qt::EditRole);
+}
+
+// ---------------------------------------------------------------------------
+// CompoundEditDelegate
+// ---------------------------------------------------------------------------
+
+CompoundEditDelegate::CompoundEditDelegate(QObject *parent)
+    : QStyledItemDelegate(parent)
+{
+}
+
+QString CompoundEditDelegate::displayText(const QVariant &value,
+                                            const QLocale & /*locale*/) const
+{
+    if (value.canConvert<NodeCompoundEditRef>()) {
+        const auto ref = value.value<NodeCompoundEditRef>();
+        // Match the in-cell affordance the Property Browser uses, so
+        // the cell looks identical between the two views.
+        return ref.summary.isEmpty()
+                   ? tr("Edit…")
+                   : tr("%1 — Edit…").arg(ref.summary);
+    }
+    return value.toString();
+}
+
+QWidget *CompoundEditDelegate::createEditor(QWidget *parent,
+                                              const QStyleOptionViewItem & /*opt*/,
+                                              const QModelIndex & /*index*/) const
+{
+    return new NodeCompoundEditButton(parent);
+}
+
+void CompoundEditDelegate::setEditorData(QWidget *editor,
+                                           const QModelIndex &index) const
+{
+    auto *btn = qobject_cast<NodeCompoundEditButton *>(editor);
+    if (!btn) return;
+    const QVariant v = index.data(Qt::EditRole);
+    if (v.canConvert<NodeCompoundEditRef>())
+        btn->setValue(v.value<NodeCompoundEditRef>());
+}
+
+void CompoundEditDelegate::setModelData(QWidget *editor,
+                                          QAbstractItemModel *model,
+                                          const QModelIndex &index) const
+{
+    auto *btn = qobject_cast<NodeCompoundEditButton *>(editor);
+    if (!btn) return;
+    // After the dialog closes, the button holds a refreshed ref with
+    // an updated summary. The model's commitValueDirect() path uses
+    // this only as a trigger to invalidate the row cache + emit
+    // objectEdited; the actual engine writes happened inside the
+    // dialog as the user committed each entry.
+    model->setData(index, QVariant::fromValue(btn->value()), Qt::EditRole);
 }
 
 QVariantList EnumDelegate::makePairs(const QStringList &labels,

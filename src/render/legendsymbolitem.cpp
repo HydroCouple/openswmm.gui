@@ -39,6 +39,8 @@ QJsonObject LegendSymbolItem::toJson() const
         obj.insert(QStringLiteral("visible"), false);
     if (sortIndex != 0)
         obj.insert(QStringLiteral("sortIndex"), sortIndex);
+    if (!classKey.isEmpty())
+        obj.insert(QStringLiteral("classKey"), classKey);
     return obj;
 }
 
@@ -62,6 +64,7 @@ void LegendSymbolItem::fromJson(const QJsonObject &j)
     userLabel = j.value(QStringLiteral("userLabel")).toString();
     visible   = j.value(QStringLiteral("visible")).toBool(true);
     sortIndex = j.value(QStringLiteral("sortIndex")).toInt(0);
+    classKey  = j.value(QStringLiteral("classKey")).toString();
 }
 
 } // namespace OpenSWMM::Render

@@ -265,6 +265,40 @@ public:
      */
     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
 
+    // ----- Per-kind renderers (Slice OUT.1) -------------------------------
+    // Mirrors SWMMModelLayer's per-kind renderer slots so the user can
+    // style Junctions vs Outfalls (etc.) independently for the same
+    // NodeDepth/LinkFlow variable. The layer-level renderer() above stays
+    // as the fallback when no kind-renderer is installed.
+
+    /*!
+     * \brief Returns the per-kind renderer for category \p c, or nullptr
+     *        when none has been installed yet (callers should fall back
+     *        to the layer-level renderer()).
+     *
+     *        The kind ordinals match SWMMModelLayer::Category (11
+     *        entries: 4 node kinds + 5 link kinds + Subcatchments +
+     *        RainGages — though RainGages doesn't carry results today).
+     */
+    [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *kindRenderer(
+        SWMMModelLayer::Category c) const;
+
+    /*!
+     * \brief Installs (or replaces) the per-kind renderer for category
+     *        \p c. The layer takes ownership. A null pointer clears the
+     *        slot (paint reverts to the layer-level renderer). Emits
+     *        \ref rendererChanged() when the slot pointer changes.
+     */
+    void setKindRenderer(SWMMModelLayer::Category c,
+                         std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+
+    /*!
+     * \brief Restores the per-kind slot for \p c to its compile-time
+     *        default (GraduatedRenderer keyed to the scope's primary
+     *        result variable, Viridis ramp, EqualInterval 5-bin).
+     */
+    void resetKindRendererToDefaults(SWMMModelLayer::Category c);
+
     // ----- Legend ---------------------------------------------------------
 
     [[nodiscard]] bool showLegend() const;
@@ -375,6 +409,36 @@ private:
     // The existing paint loop still reads m_colorRamp / m_variable; 8.13.6.4
     // refactors that to consult m_renderer instead.
     std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> m_renderer;
+
+    // Slice OUT.1 — per-kind renderer slots. Indexed by
+    // SWMMModelLayer::Category ordinal; slots default to nullptr (no
+    // override) so paint can fall back to m_renderer. Slice OUT.2 hooks
+    // the per-feature override cache into these and refactors the paint
+    // loop in populateScene() to consult them.
+    std::vector<std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>> m_kindRenderers;
+
+    // Slice OUT.2 — per-feature override cache. Sized to category row
+    // count at rebuild time. Read by populateScene's paint loop in
+    // preference to m_colorRamp.colorForValue(). Rebuilt whenever
+    // result values change (setVariable / setCurrentTimeStep /
+    // animation tick) OR when setKindRenderer() swaps a slot.
+    QVector<QColor>  m_kindFeatureColors[SWMMModelLayer::NumCategories];
+    QVector<double>  m_kindFeatureSizes [SWMMModelLayer::NumCategories]; /*!< negative = no override */
+    bool             m_kindUsesOverrides[SWMMModelLayer::NumCategories] = {};
+
+    /*! Slice OUT.2 — recomputes the per-feature override cache for the
+     *  one kind \p c by walking every feature in the category, building
+     *  an attribute map from the current result value, and asking the
+     *  per-kind renderer for the symbol. Sets m_kindUsesOverrides[c].
+     *  Quietly clears the cache when no per-kind renderer is installed
+     *  for c, when no result vector is available for the kind's scope,
+     *  or when the renderer's classifyAttribute doesn't match the
+     *  current variable's enumerator name. */
+    void rebuildKindFeatureOverrides(SWMMModelLayer::Category c);
+
+    /*! Slice OUT.2 — rebuilds every kind whose geometry scope matches
+     *  the layer's current m_variable (Nodes / Links / Subcatch). */
+    void rebuildAllActiveKindFeatureOverrides();
 
     // Per-step result caches (fetched from .out each time step changes) ----
     QVector<float>       m_nodeResults;     /*!< [nodeIdx] for current step */

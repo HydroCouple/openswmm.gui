@@ -6,6 +6,7 @@
 
 #include "map/profilepathoverlay.h"
 
+#include "core/preferencesmanager.h"
 #include "layers/swmmmodellayer.h"
 #include "render/categoricalpalette.h"
 
@@ -25,8 +26,6 @@ constexpr qreal kBaseStrokePx       = 6.0;
 constexpr qreal kDimAlpha           = 0.35;   // dimmed candidates
 constexpr qreal kPromotedAlpha      = 1.00;
 constexpr qreal kEqualAlpha         = 0.75;   // no path highlighted
-constexpr qreal kHaloRadiusPx       = 28.0;   // doubled for visibility
-constexpr qreal kHaloPenWidthPx     = 3.5;
 
 // Z-values so the overlay sits firmly above the SWMM map items (which
 // typically render in the 0-500 range).  Halos above the path lines so
@@ -79,8 +78,20 @@ void ProfilePathOverlay::setEndpoints(int startEngineNodeIdx, int endEngineNodeI
 {
     m_startEngineNodeIdx = startEngineNodeIdx;
     m_endEngineNodeIdx   = endEngineNodeIdx;
-    // Re-position halos.
-    auto place = [this](QGraphicsEllipseItem *&halo, int engNodeIdx, const QColor &color) {
+
+    // Halo geometry + style is sourced from PreferencesManager every time
+    // the endpoints change so users see edits land immediately.  We use
+    // ItemIgnoresTransformations so the ellipse stays at a constant
+    // pixel-size regardless of map zoom — its position is in scene coords
+    // (the node's map XY) but its rect is in untransformed view units.
+    auto *prefs = PreferencesManager::instance();
+    const int   r   = prefs->profileEndpointHaloRadiusPx();
+    const QPen  startPen = prefs->profileStartEndpointPen();
+    const QPen  endPen   = prefs->profileEndEndpointPen();
+
+    auto place = [this, r](QGraphicsEllipseItem *&halo,
+                           int engNodeIdx,
+                           const QPen &pen) {
         if (engNodeIdx < 0) {
             if (halo) { delete halo; halo = nullptr; }
             return;
@@ -90,20 +101,19 @@ void ProfilePathOverlay::setEndpoints(int startEngineNodeIdx, int endEngineNodeI
             halo = new QGraphicsEllipseItem(this);
             halo->setBrush(Qt::NoBrush);
             halo->setZValue(kZHalo);
+            halo->setFlag(QGraphicsItem::ItemIgnoresTransformations, true);
         }
-        QPen pen(color);
-        pen.setWidthF(kHaloPenWidthPx);
-        pen.setCosmetic(true);
-        halo->setPen(pen);
-        // Halo extent is cosmetic-style: anchor at the node, radius in scene
-        // units derived from pixel target.  Since we draw cosmetic strokes
-        // the ring scales with zoom; for v1 keep the radius in scene units
-        // so it remains tied to map distance (callers can tune later).
-        const qreal r = kHaloRadiusPx;
-        halo->setRect(p.x() - r, p.y() - r, 2 * r, 2 * r);
+        QPen p2 = pen;
+        p2.setCosmetic(true);
+        halo->setPen(p2);
+        // With ItemIgnoresTransformations the item's rect is in pixels and
+        // its setPos() is in scene coords.  Centre the rect on (0,0) and
+        // position the item at the node's scene point.
+        halo->setRect(-r, -r, 2 * r, 2 * r);
+        halo->setPos(p);
     };
-    place(m_startHalo, m_startEngineNodeIdx, QColor(0x2c, 0xa0, 0x2c));  // green
-    place(m_endHalo,   m_endEngineNodeIdx,   QColor(0xd6, 0x27, 0x28));  // red
+    place(m_startHalo, m_startEngineNodeIdx, startPen);
+    place(m_endHalo,   m_endEngineNodeIdx,   endPen);
 }
 
 void ProfilePathOverlay::clear()

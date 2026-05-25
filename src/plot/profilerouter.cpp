@@ -11,6 +11,7 @@
 #include <QSet>
 
 #include <algorithm>
+#include <functional>
 #include <limits>
 #include <queue>
 #include <utility>
@@ -143,6 +144,164 @@ quint64 pathHash(const InternalPath &p)
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+Result enumerateSimplePaths(const Graph &g,
+                            int startNode,
+                            int endNode,
+                            const Options &opts)
+{
+    Result r;
+
+    if (g.nodeCount <= 0) {
+        r.error = QStringLiteral("Empty graph.");
+        return r;
+    }
+    if (startNode < 0 || startNode >= g.nodeCount ||
+        endNode   < 0 || endNode   >= g.nodeCount) {
+        r.error = QStringLiteral("Endpoint out of range.");
+        return r;
+    }
+    if (startNode == endNode) {
+        r.error = QStringLiteral("Start and end nodes must differ.");
+        return r;
+    }
+    if (opts.maxPaths <= 0) return r;
+
+    QElapsedTimer timer;
+    timer.start();
+
+    const auto adj = buildAdjacency(g, opts.undirected);
+
+    // Reachability prune: before launching the DFS, compute the set of
+    // nodes from which endNode is reachable.  Without this, DFS on a large
+    // SWMM network can disappear down a long sewer branch that doesn't
+    // connect back to endNode and hit the wall-clock cap with zero paths
+    // collected — Dijkstra used to beeline to the target via weights, but
+    // DFS has no such pull, so we have to give it one.
+    //
+    // For undirected mode this is just the connected component containing
+    // endNode.  For directed mode we walk the reverse graph from endNode
+    // (an inbound-edges BFS) so canReach[u] is true iff u can reach
+    // endNode following edge directions.
+    QVector<bool> canReach(g.nodeCount, false);
+    {
+        QVector<QVector<int>> reverseAdj;
+        if (!opts.undirected) {
+            reverseAdj.resize(g.nodeCount);
+            for (const Edge &e : g.edges) {
+                if (e.fromNode < 0 || e.fromNode >= g.nodeCount) continue;
+                if (e.toNode   < 0 || e.toNode   >= g.nodeCount) continue;
+                reverseAdj[e.toNode].push_back(e.fromNode);
+            }
+        }
+        QVector<int> stack;
+        stack.reserve(g.nodeCount);
+        stack.push_back(endNode);
+        canReach[endNode] = true;
+        while (!stack.isEmpty()) {
+            const int u = stack.takeLast();
+            if (opts.undirected) {
+                for (const Adj &a : adj[u]) {
+                    if (canReach[a.neighbor]) continue;
+                    canReach[a.neighbor] = true;
+                    stack.push_back(a.neighbor);
+                }
+            } else {
+                for (int p : reverseAdj[u]) {
+                    if (canReach[p]) continue;
+                    canReach[p] = true;
+                    stack.push_back(p);
+                }
+            }
+        }
+    }
+    if (!canReach[startNode]) {
+        // Disconnected — return empty result, not an error.
+        return r;
+    }
+
+    // DFS backtracking. We carry a visited[] vector marking nodes already
+    // on the current stack (the simple-path invariant: a node appears at
+    // most once per emitted path).  curNodes / curEdges hold the in-flight
+    // path; curWeight tracks the running edge-weight sum so we don't have
+    // to re-walk the path on each emit.
+    QVector<bool> visited(g.nodeCount, false);
+    QVector<int>  curNodes;
+    QVector<int>  curEdges;
+    double        curWeight = 0.0;
+
+    QVector<InternalPath> collected;
+    collected.reserve(std::min(opts.maxPaths, 1024));
+
+    const bool capWallClock = (opts.softCapMs > 0);
+    bool       truncated    = false;
+
+    // Iterative DFS using an explicit stack would be more memory-efficient
+    // for very deep paths but harder to read; recursion is fine here since
+    // path depth is bounded by g.nodeCount which is small (< 100k for any
+    // realistic SWMM model).  std::function lets the lambda recurse.
+    std::function<void(int)> dfs = [&](int u) {
+        if (truncated) return;
+        if (collected.size() >= opts.maxPaths) { truncated = true; return; }
+        if (capWallClock && timer.elapsed() >= opts.softCapMs) {
+            truncated = true;
+            return;
+        }
+
+        if (u == endNode) {
+            InternalPath p;
+            p.nodes    = curNodes;
+            p.edgeIdxs = curEdges;
+            p.weight   = curWeight;
+            collected.push_back(std::move(p));
+            return;
+        }
+
+        for (const Adj &a : adj[u]) {
+            if (visited[a.neighbor]) continue;
+            // Reachability prune: skip neighbors from which endNode is not
+            // reachable.  Cuts DFS exploration to the component (or directed
+            // ancestor-set) containing endNode and prevents large unrelated
+            // branches from soaking the wall-clock budget.
+            if (!canReach[a.neighbor]) continue;
+            const double w = g.edges[a.edgeIdx].weight;
+
+            visited[a.neighbor] = true;
+            curNodes.push_back(a.neighbor);
+            curEdges.push_back(a.edgeIdx);
+            curWeight += w;
+
+            dfs(a.neighbor);
+
+            curWeight -= w;
+            curEdges.pop_back();
+            curNodes.pop_back();
+            visited[a.neighbor] = false;
+
+            if (truncated) return;
+        }
+    };
+
+    visited[startNode] = true;
+    curNodes.push_back(startNode);
+    dfs(startNode);
+    curNodes.pop_back();
+    visited[startNode] = false;
+
+    // Sort by ascending weight so the shortest path is at index 0 — keeps
+    // the picker dialog's "first row" useful, and any caller that grabs
+    // result.paths.first() still gets the best one.
+    std::sort(collected.begin(), collected.end(),
+              [](const InternalPath &a, const InternalPath &b) {
+                  return a.weight < b.weight;
+              });
+
+    r.truncated = truncated;
+    r.paths.reserve(collected.size());
+    for (const InternalPath &ip : collected)
+        r.paths.push_back(toPublicPath(ip, g));
+    return r;
+}
 
 Result kShortestPaths(const Graph &g,
                       int startNode,

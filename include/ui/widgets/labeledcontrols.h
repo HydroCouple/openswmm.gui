@@ -32,6 +32,7 @@ class QLineEdit;
 class QDoubleSpinBox;
 class QSpinBox;
 class QComboBox;
+class QToolButton;
 
 /*! Label + QLineEdit pair. */
 class LabeledLineEdit : public QWidget
@@ -127,6 +128,52 @@ signals:
 private:
     QLabel    *m_label = nullptr;
     QComboBox *m_combo = nullptr;
+};
+
+/*!
+ * Data-object picker: QComboBox listing existing instances of a SWMM
+ * data object (time series, pattern, unit-hydrograph group, ...) plus
+ * a small "..." button beside it. Caller fills the combo via setItems()
+ * and connects `pickerClicked` to whatever creation flow (typically
+ * `NewDataObjectDialog::getNew(...)` + `SWMMModelLayer::createDataObject(...)`)
+ * is appropriate for that data kind. After creation the caller calls
+ * setItems again with the refreshed list and setCurrentText(spec.name).
+ *
+ * Used 7× in NodeCompoundEditDialog (DB.4): Inflows TS, Inflows Pattern,
+ * DWF Monthly/Daily/Hourly/Weekend, RDII UH.
+ */
+class LabeledPickerCombo : public QWidget
+{
+    Q_OBJECT
+public:
+    /*! \param labelText  Optional label text; pass an empty string to
+     *                    embed the picker in a form layout that already
+     *                    supplies its own label (no left-pane label
+     *                    column then). */
+    explicit LabeledPickerCombo(const QString &labelText = {},
+                                 QWidget       *parent    = nullptr);
+
+    /*! Replace the combo's items with \p items, optionally selecting
+     *  the entry matching \p selected. An empty `items` list yields an
+     *  empty combo (with the single "(none)" placeholder still selectable). */
+    void                  setItems(const QStringList &items,
+                                   const QString     &selected = {});
+    [[nodiscard]] QString currentText() const;
+    void                  setCurrentText(const QString &v);
+    [[nodiscard]] QComboBox  *combo()  const { return m_combo; }
+    [[nodiscard]] QToolButton *button() const { return m_btn;   }
+
+signals:
+    /*! Fired when the user clicks the "..." button. Caller opens the
+     *  matching creation dialog. */
+    void pickerClicked();
+    /*! Mirror of the combo's currentTextChanged for caller convenience. */
+    void currentTextChanged(const QString &text);
+
+private:
+    QLabel      *m_label = nullptr;
+    QComboBox   *m_combo = nullptr;
+    QToolButton *m_btn   = nullptr;
 };
 
 #endif // LABELEDCONTROLS_H

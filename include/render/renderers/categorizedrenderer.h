@@ -80,6 +80,20 @@ public:
     void fromJson(const QJsonObject &j) override;
     [[nodiscard]] std::unique_ptr<IFeatureRenderer> clone() const override;
 
+    // ── Per-class editing (Slice BB Phase 8.6.16) ──────────────────────
+    // classKey is the category index as a string ("0", "1", …). The
+    // per-class color edit writes the colour into every layer of
+    // m_categories[idx].symbol that already has a "color" slot. Symbol
+    // swap replaces the whole SymbolStyle on that category. Size / width
+    // are not editable here (use setSymbolForClass for full control).
+    [[nodiscard]] bool supportsClassEdit(ClassEditKind kind) const override
+    {
+        return kind == ClassEditKind::Color || kind == ClassEditKind::Symbol;
+    }
+    [[nodiscard]] QColor colorForClass(const QString &classKey) const override;
+    void setColorForClass(const QString &classKey, const QColor &color) override;
+    void setSymbolForClass(const QString &classKey, const SymbolStyle &style) override;
+
 private:
     QString          m_classifyAttribute;
     QList<Category>  m_categories;

@@ -11,9 +11,13 @@
 #define LAYERTREEPANEL_H
 
 #include <QAbstractItemModel>
+#include <QHash>
 #include <QList>
+#include <QSet>
 #include <QVector>
 #include <QWidget>
+
+#include <array>
 
 class QTreeView;
 class QToolBar;
@@ -97,6 +101,23 @@ public:
      */
     [[nodiscard]] bool isCategoryIndex(const QModelIndex &index) const;
 
+    // ---- Slice BI-MK.LT: 3-level tree for multi-kind layers ----------------
+    //
+    // Under each `SWMMModelLayer` row the model exposes 11 sub-rows, one per
+    // Category enum value (Junctions, Outfalls, ..., RainGages). The sub-row
+    // surfaces a per-kind visibility checkbox and feeds the right-click
+    // context menu's Style submenu.
+
+    /*! True if \p index is a kind-row (3rd-level sub-row under a SWMMModelLayer). */
+    [[nodiscard]] bool isKindIndex(const QModelIndex &index) const;
+
+    /*! Parent layer for a kind-row index; nullptr for any other row type. */
+    [[nodiscard]] OpenSWMMVisLayer *kindParentLayer(const QModelIndex &index) const;
+
+    /*! Kind ordinal (0..10, matches SWMMModelLayer::Category) for a kind-row
+     *  index; -1 for any other row type. */
+    [[nodiscard]] int kindOrdinal(const QModelIndex &index) const;
+
     /*!
      * \brief Moves the category at display position \p srcDisplayPos to
      *        \p dstDisplayPos, then batch-reorders the canvas layer stack so
@@ -123,12 +144,28 @@ private:
         QVector<OpenSWMMVisLayer *> layers;   // canvas-stack order, top first
     };
 
+    // Slice BI-MK.LT — one KindRow per (multi-kind layer, kind ordinal).
+    // Allocated in m_kindRowStorage, then std::array makes the addresses
+    // stable across model lifetime so they're safe to use as QModelIndex
+    // internalPointers. Hash is keyed on the parent layer pointer; entries
+    // exist only for layers that support multi-kind styling (today: only
+    // SWMMModelLayer with 11 kinds).
+    struct KindRow {
+        OpenSWMMVisLayer *layer       = nullptr;
+        int               kindOrdinal = -1;
+    };
+    static constexpr int kKindsPerSwmmModelLayer = 11;
+
     void rebuildCategories();
+    void rebuildKindRows();
     int  categoryOf(OpenSWMMVisLayer *layer) const;
 
     MapCanvas                       *m_canvas;
     QVector<Category>                m_categories;
     QHash<OpenSWMMVisLayer *, int>   m_layerToCategory;
+    QHash<OpenSWMMVisLayer *, std::array<KindRow, kKindsPerSwmmModelLayer>>
+                                     m_kindRowStorage;
+    QSet<const void *>               m_kindRowPtrSet;   // O(1) kind-row discriminator
 
     /*! User-configurable category display order: each element is a CategoryId
      *  value. Default = compile-time enum order. Persisted implicitly through
@@ -190,6 +227,29 @@ signals:
      *        path as the animation-toolbar's Set Style action.
      */
     void layerStyleRequested(OpenSWMMVisLayer *layer);
+
+    /*!
+     * \brief Slice BI-MK.LT — emitted when the user picks a Style option
+     *        from a kind sub-row's right-click menu. \p kindOrdinal matches
+     *        the SWMMModelLayer::Category enum value. \p rendererId is one
+     *        of "single", "graduated", "categorized", "rule" (or empty
+     *        meaning "open dialog without changing class"). SWMMVis listens
+     *        and (a) swaps the kind's IFeatureRenderer to the matching
+     *        class with sensible defaults, then (b) opens SymbologyDialog
+     *        pre-scoped to that kind + tab when BI-MK.1 ships.
+     */
+    void layerKindStyleRequested(OpenSWMMVisLayer *layer,
+                                 int kindOrdinal,
+                                 const QString &rendererId);
+
+    /*!
+     * \brief Slice PT.1 — emitted when the user picks "Plot timeseries…"
+     *        on a kind sub-row's right-click menu and selects an object
+     *        name. SWMMVis listens and routes to its existing AT.2 picker
+     *        (openTimeSeriesPlotFor) which pops the variable picker and
+     *        opens the Comparison Plot Dialog.
+     */
+    void plotKindObjectRequested(int kindOrdinal, const QString &objectName);
 
 private slots:
     void onRemoveSelectedLayer();

@@ -7,14 +7,18 @@
 #include "ui/panels/swmmattributetablemodel.h"
 
 #include "core/unitsystem.h"
+#include "ui/properties/nodecompoundeditref.h"
 
 #include <QUndoCommand>
 #include <QUndoStack>
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_gages.h>
+#include <openswmm/engine/openswmm_inflows.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_pollutants.h>
+#include <openswmm/engine/openswmm_quality.h>
 #include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
 
@@ -52,6 +56,17 @@ ColumnSpec nameCol() {
     c.label  = QStringLiteral("Name");
     c.editor = EditorKind::Text;
     c.setter = QStringLiteral("rename");
+    return c;
+}
+
+// DB.5 — free-form `[TAGS]` label, editable text. Single helper so every
+// node/link/subcatch category gets the same column shape.
+ColumnSpec tagCol(const QString &setterTag) {
+    ColumnSpec c;
+    c.key    = QStringLiteral("Tag");
+    c.label  = QStringLiteral("Tag");
+    c.editor = EditorKind::Text;
+    c.setter = setterTag;
     return c;
 }
 
@@ -119,6 +134,25 @@ QVariantList offOnValues();
 QVariantList culvertCodeValues();
 QVariantList dividerTypeValues();
 
+// Compound-attribute column (Inflows / DWF / RDII / Treatment). The
+// cell holds a NodeCompoundEditRef built live in data(); the delegate
+// (CompoundEditDelegate) instantiates a NodeCompoundEditButton that
+// reuses the same NodeCompoundEditDialog the Property Browser opens.
+// The `setter` tag is a sentinel — actual writes happen inside the
+// dialog via swmm_rdii_add / swmm_treatment_set / etc., so the table
+// model's commitValueDirect path just refreshes the row when the
+// delegate fires setData (so other columns reflecting the same engine
+// state stay current).
+ColumnSpec compoundCol(const QString &key, const QString &label,
+                        const QString &setterTag) {
+    ColumnSpec c;
+    c.key    = key;
+    c.label  = label;
+    c.editor = EditorKind::Compound;
+    c.setter = setterTag;
+    return c;
+}
+
 // Slice DB — coordinate columns, now editable. Setters route through
 // `SWMMModelLayer::applyNodeMove` (special-cased in `commitValueDirect`)
 // because swmm_spatial_set_node_coord is a two-arg setter that doesn't
@@ -165,6 +199,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         QList<ColumnSpec> cols = {
             nameCol(),
             ro("Node type",  "Node Type"),
+            tagCol("node_tag"),
             nodeCoordX(),
             nodeCoordY(),
             num("Invert elev",     "Invert Elevation",   "node_invert_elev",
@@ -179,6 +214,18 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                                           0.0, 1e9, 2, UnitKind::Area),
         };
         cols.append(nodeStatBlock());
+        // Compound-attribute columns — each cell shows a "summary —
+        // Edit…" button that opens NodeCompoundEditDialog at the right
+        // page. Same widget the Property Browser uses, so editing from
+        // either view round-trips identically.
+        cols.append(compoundCol("Inflows",   "External Inflows",
+                                  "node_inflows_ref"));
+        cols.append(compoundCol("DWF",       "Dry Weather Flow",
+                                  "node_dwf_ref"));
+        cols.append(compoundCol("RDII",      "RDII",
+                                  "node_rdii_ref"));
+        cols.append(compoundCol("Treatment", "Pollutant Treatment",
+                                  "node_treatment_ref"));
         return cols;
     }
     case SWMMModelLayer::CatOutfalls: {
@@ -187,6 +234,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         QList<ColumnSpec> cols = {
             nameCol(),
             ro("Node type",  "Node Type"),
+            tagCol("node_tag"),
             nodeCoordX(),
             nodeCoordY(),
             num("Invert elev", "Invert Elevation",   "node_invert_elev",
@@ -205,6 +253,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         QList<ColumnSpec> cols = {
             nameCol(),
             ro("Node type",  "Node Type"),
+            tagCol("node_tag"),
             nodeCoordX(),
             nodeCoordY(),
             num("Invert elev",     "Invert Elevation",   "node_invert_elev",
@@ -225,6 +274,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         QList<ColumnSpec> cols = {
             nameCol(),
             ro("Node type",  "Node Type"),
+            tagCol("node_tag"),
             nodeCoordX(),
             nodeCoordY(),
             num("Invert elev",     "Invert Elevation",   "node_invert_elev",
@@ -361,6 +411,11 @@ struct SetterEntry {
     // Int path — Enum / Integer / Bool columns.
     int (*setFnI)(SWMM_Engine, int, int) = nullptr;
     int (*getFnI)(SWMM_Engine, int, int*) = nullptr;
+    // String path — Text columns whose engine setter takes `const char*`
+    // and whose getter takes `(char* buf, int buflen)`. Used for tag
+    // (DB.3) and reusable for any future string attribute.
+    int (*setFnS)(SWMM_Engine, int, const char*) = nullptr;
+    int (*getFnS)(SWMM_Engine, int, char*, int)  = nullptr;
 };
 SetterEntry setterFor(const QString &tag) {
     SetterEntry e;
@@ -396,6 +451,14 @@ SetterEntry setterFor(const QString &tag) {
         e.kind = EntityKind::Node;
         e.setFnI = &swmm_node_set_divider_type;
         e.getFnI = &swmm_node_get_divider_type;
+        return e;
+    }
+
+    // Node — string (DB.3 tag)
+    if (tag == QStringLiteral("node_tag")) {
+        e.kind   = EntityKind::Node;
+        e.setFnS = &swmm_node_set_tag;
+        e.getFnS = &swmm_node_get_tag;
         return e;
     }
 
@@ -666,6 +729,95 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         return QString::number(v);
     };
 
+    // Compound columns — build a NodeCompoundEditRef live so the
+    // delegate's button shows an up-to-date summary. Mirrors the
+    // logic in SWMMNodePropertyAdapter::{inflowsRef,dwfRef,rdiiRef,
+    // treatmentRef} so both views agree.
+    if (spec.editor == EditorKind::Compound && m_layer) {
+        const QString name = objectNameAt(row);
+        SWMM_Engine eng = m_layer->engine();
+        if (!eng || name.isEmpty()) return {};
+        const int nodeIdx = swmm_node_index(eng, name.toUtf8().constData());
+        if (nodeIdx < 0) return {};
+
+        NodeCompoundEditRef ref;
+        ref.engine   = eng;
+        ref.nodeName = name;
+        ref.layer    = m_layer;
+
+        if (spec.setter == QStringLiteral("node_inflows_ref")) {
+            ref.kind = NodeCompoundEditRef::Inflows;
+            const int total = swmm_ext_inflow_count(eng);
+            int matched = 0;
+            char consBuf[64], tsBuf[64], typeBuf[16], patBuf[64];
+            for (int i = 0; i < total; ++i) {
+                int ni = -1;
+                double mf = 0.0, sf = 0.0, base = 0.0;
+                if (swmm_ext_inflow_get(eng, i, &ni,
+                                          consBuf, sizeof(consBuf),
+                                          tsBuf,   sizeof(tsBuf),
+                                          typeBuf, sizeof(typeBuf),
+                                          &mf, &sf, &base,
+                                          patBuf,  sizeof(patBuf)) != SWMM_OK)
+                    continue;
+                if (ni == nodeIdx) ++matched;
+            }
+            ref.summary = (matched > 0)
+                ? tr("%1 entries").arg(matched)
+                : tr("(none)");
+        } else if (spec.setter == QStringLiteral("node_dwf_ref")) {
+            ref.kind = NodeCompoundEditRef::Dwf;
+            const int total = swmm_dwf_count(eng);
+            int matched = 0;
+            char consBuf[64], p1Buf[64], p2Buf[64], p3Buf[64], p4Buf[64];
+            for (int i = 0; i < total; ++i) {
+                int ni = -1;
+                double avg = 0.0;
+                if (swmm_dwf_get(eng, i, &ni,
+                                  consBuf, sizeof(consBuf),
+                                  &avg,
+                                  p1Buf, sizeof(p1Buf),
+                                  p2Buf, sizeof(p2Buf),
+                                  p3Buf, sizeof(p3Buf),
+                                  p4Buf, sizeof(p4Buf)) != SWMM_OK)
+                    continue;
+                if (ni == nodeIdx) ++matched;
+            }
+            ref.summary = (matched > 0)
+                ? tr("%1 entries").arg(matched)
+                : tr("(none)");
+        } else if (spec.setter == QStringLiteral("node_rdii_ref")) {
+            ref.kind = NodeCompoundEditRef::Rdii;
+            const int total = swmm_rdii_count(eng);
+            int matched = 0;
+            char uhBuf[128];
+            for (int i = 0; i < total; ++i) {
+                int ni = -1; double area = 0.0;
+                if (swmm_rdii_get(eng, i, &ni, uhBuf,
+                                    sizeof(uhBuf), &area) != SWMM_OK) continue;
+                if (ni == nodeIdx) ++matched;
+            }
+            ref.summary = (matched > 0)
+                ? tr("%1 entries").arg(matched)
+                : tr("(none)");
+        } else if (spec.setter == QStringLiteral("node_treatment_ref")) {
+            ref.kind = NodeCompoundEditRef::Treatment;
+            const int nPollut = swmm_pollutant_count(eng);
+            int active = 0;
+            char buf[256];
+            for (int p = 0; p < nPollut; ++p) {
+                buf[0] = '\0';
+                if (swmm_treatment_get(eng, nodeIdx, p, buf, sizeof(buf)) != SWMM_OK)
+                    continue;
+                if (buf[0] != '\0') ++active;
+            }
+            ref.summary = (active > 0)
+                ? tr("%1 / %2 pollutants").arg(active).arg(nPollut)
+                : tr("(none)");
+        }
+        return QVariant::fromValue(ref);
+    }
+
     // Editable columns: read from the engine setter's matching
     // getter so the value reflects post-commit state (the
     // identifyByName cache doesn't track per-attribute updates).
@@ -686,6 +838,13 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                         return labelFor(v);
                     return v;
                 }
+            } else if (entry.getFnS) {
+                // String path (DB.5 tag): read into a stack buffer and
+                // hand back as QString. Empty string is a valid value
+                // (meaning "no tag"); display as blank in the cell.
+                char sbuf[256] = {0};
+                if (entry.getFnS(m_layer->engine(), entIdx, sbuf, sizeof(sbuf)) == SWMM_OK)
+                    return QString::fromUtf8(sbuf);
             }
         }
     }
@@ -802,6 +961,23 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
         return true;
     }
 
+    // Compound columns — the actual writes (Add RDII, set treatment
+    // expression, etc.) happen inside NodeCompoundEditDialog as the
+    // user commits each row. By the time the delegate fires setData
+    // here, engine state is already updated. We just invalidate the
+    // row cache so the summary recomputes on the next paint and
+    // notify external listeners (Property Browser) to refresh.
+    if (spec.editor == EditorKind::Compound) {
+        const QString name = objectNameAt(row);
+        if (row >= 0 && row < m_rowCacheValid.size())
+            m_rowCacheValid[row] = false;
+        const int lastCol = columnCount() - 1;
+        emit dataChanged(this->index(row, 0), this->index(row, lastCol),
+                         {Qt::DisplayRole, Qt::EditRole});
+        emit objectEdited(name);
+        return true;
+    }
+
     // Slice DB — node X/Y coordinate edits route through applyNodeMove
     // (not the single-double SetterEntry table) so the scene-coord cache
     // and attached-link bboxes refresh atomically with the engine write.
@@ -834,7 +1010,7 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
     }
 
     const auto entry = setterFor(spec.setter);
-    if (!entry.setFn && !entry.setFnI) return false;
+    if (!entry.setFn && !entry.setFnI && !entry.setFnS) return false;
 
     const QString name = objectNameAt(row);
     const int entIdx = indexForName(m_layer->engine(), entry.kind,
@@ -849,11 +1025,14 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
         if (v < spec.minValue) v = spec.minValue;
         if (v > spec.maxValue) v = spec.maxValue;
         rc = entry.setFn(m_layer->engine(), entIdx, v);
-    } else {
+    } else if (entry.setFnI) {
         bool ok = false;
         const int iv = value.toInt(&ok);
         if (!ok) return false;
         rc = entry.setFnI(m_layer->engine(), entIdx, iv);
+    } else /* entry.setFnS */ {
+        const QByteArray bytes = value.toString().toUtf8();
+        rc = entry.setFnS(m_layer->engine(), entIdx, bytes.constData());
     }
     if (rc != SWMM_OK) return false;
 
@@ -903,6 +1082,14 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index,
             new AttributeRenameCommand(this, row, oldName, newName));
         return true;
     }
+
+    // Compound columns mutate engine state inside the dialog over
+    // potentially many individual rows; wrapping them in a single
+    // QUndoCommand here would be misleading (undo would only revert
+    // the last cell flip, not the in-dialog mutations). Commit
+    // directly so the row refreshes but no command is pushed.
+    if (spec.editor == EditorKind::Compound)
+        return commitValueDirect(index, value);
 
     // Wrap each numeric/enum commit in an undo command when a stack is attached.
     if (!m_undoStack)

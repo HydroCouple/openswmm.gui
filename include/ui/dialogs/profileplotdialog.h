@@ -17,6 +17,7 @@
 #ifndef PROFILE_PLOT_DIALOG_H
 #define PROFILE_PLOT_DIALOG_H
 
+#include "plot/plotattribute.h"
 #include "plot/profilebuilder.h"
 #include "plot/profilerouter.h"
 #include "plot/profileplotwidget.h"
@@ -80,12 +81,15 @@ public:
     ~ProfilePlotDialog() override;
 
 signals:
-    /*! \brief AT.3 — emitted when the user picks "Plot Time Series…" from
-     *  a node / link right-click on the profile. The main window handles
-     *  this by routing into `SWMMVis::openComparisonPlotFor(ref)`, so the
-     *  profile dialog uses the same modern ComparisonPlotDialog (toolbar,
-     *  hover tooltips, stats panel) as every other entry point. */
-    void plotTimeSeriesRequested(const SWMMObjectRef &ref);
+    /*! \brief Emitted when the user picks a specific attribute from the
+     *  "Plot Time Series…" submenu on a node / link right-click. Mirrors
+     *  the map view's `plotAttributeRequested` so both entry points share
+     *  the same ComparisonPlotDialog routing in `SWMMVis`. When the user
+     *  picks the "All attributes" sentinel, \p attribute is
+     *  `PlotAttribute::Unknown` and the handler fans out one series per
+     *  valid attribute for the object kind. */
+    void plotAttributeRequested(const SWMMObjectRef &ref,
+                                openswmmvis::plot::PlotAttribute attribute);
 
 private slots:
     /*!

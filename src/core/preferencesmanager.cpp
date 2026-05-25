@@ -7,6 +7,9 @@
 #include "core/preferencesmanager.h"
 
 #include <QCoreApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 namespace {
 
@@ -60,6 +63,12 @@ const LinkPenDefault kOutletPenDefault  = { kDefaultOutletColor,  2.0, Qt::Round
 
 constexpr int     kDefaultProgressTickMs        = 1000;
 constexpr double  kDefaultAnimationSpeed         = 1.0;
+constexpr int     kDefaultProfileMaxPaths       = 100;
+
+constexpr int     kDefaultProfileEndpointHaloRadiusPx = 10;
+const QColor      kDefaultProfileStartColor(0x2c, 0xa0, 0x2c);   // green
+const QColor      kDefaultProfileEndColor  (0xd6, 0x27, 0x28);   // red
+constexpr qreal   kDefaultProfileEndpointPenWidth   = 3.0;
 
 // ── MeasureTool defaults ──────────────────────────────────────────────────
 const QColor kDefaultMeasureLineColor(Qt::red);
@@ -590,6 +599,71 @@ void PreferencesManager::resetLinkPenToDefault(const QString &linkType)
 }
 
 // ---------------------------------------------------------------------------
+// Rendering / Custom color ramps  (Slice BB-α)
+// ---------------------------------------------------------------------------
+
+QMap<QString, RasterColorRamp> PreferencesManager::customColorRamps() const
+{
+    QMap<QString, RasterColorRamp> out;
+    const QString key = QStringLiteral("%1/Rendering/CustomRamps")
+                            .arg(QString::fromLatin1(kGroupRoot));
+    const QString blob = m_settings.value(key).toString();
+    if (blob.isEmpty()) return out;
+    const QJsonDocument doc = QJsonDocument::fromJson(blob.toUtf8());
+    if (!doc.isArray()) return out;
+    for (const QJsonValue &v : doc.array())
+    {
+        const QJsonObject obj = v.toObject();
+        const QString name = obj.value(QStringLiteral("name")).toString().trimmed();
+        if (name.isEmpty()) continue;
+        out.insert(name, RasterColorRamp::fromJson(obj));
+    }
+    return out;
+}
+
+void PreferencesManager::saveCustomColorRamp(const QString &name, const RasterColorRamp &ramp)
+{
+    const QString trimmedName = name.trimmed();
+    if (trimmedName.isEmpty()) return;
+
+    auto map = customColorRamps();
+    map.insert(trimmedName, ramp);
+
+    QJsonArray arr;
+    for (auto it = map.constBegin(); it != map.constEnd(); ++it)
+    {
+        QJsonObject obj = it.value().toJson();
+        obj.insert(QStringLiteral("name"), it.key());
+        arr.append(obj);
+    }
+    const QString key = QStringLiteral("%1/Rendering/CustomRamps")
+                            .arg(QString::fromLatin1(kGroupRoot));
+    m_settings.setValue(key, QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
+    emit preferenceChanged(QStringLiteral("Rendering"), QStringLiteral("CustomRamps"));
+}
+
+void PreferencesManager::removeCustomColorRamp(const QString &name)
+{
+    const QString trimmedName = name.trimmed();
+    if (trimmedName.isEmpty()) return;
+    auto map = customColorRamps();
+    if (!map.contains(trimmedName)) return;
+    map.remove(trimmedName);
+
+    QJsonArray arr;
+    for (auto it = map.constBegin(); it != map.constEnd(); ++it)
+    {
+        QJsonObject obj = it.value().toJson();
+        obj.insert(QStringLiteral("name"), it.key());
+        arr.append(obj);
+    }
+    const QString key = QStringLiteral("%1/Rendering/CustomRamps")
+                            .arg(QString::fromLatin1(kGroupRoot));
+    m_settings.setValue(key, QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
+    emit preferenceChanged(QStringLiteral("Rendering"), QStringLiteral("CustomRamps"));
+}
+
+// ---------------------------------------------------------------------------
 // Simulation
 // ---------------------------------------------------------------------------
 
@@ -629,6 +703,86 @@ void PreferencesManager::setAnimationSpeed(double speed)
                             .arg(kGroupRoot), speed);
     emit preferenceChanged(QStringLiteral("Simulation"),
                            QStringLiteral("AnimationSpeed"));
+}
+
+// ---------------------------------------------------------------------------
+// Profile plot path discovery
+// ---------------------------------------------------------------------------
+
+int PreferencesManager::profileMaxPaths() const
+{
+    return m_settings.value(QStringLiteral("%1/ProfilePlot/MaxPaths")
+                                .arg(kGroupRoot),
+                            kDefaultProfileMaxPaths).toInt();
+}
+
+void PreferencesManager::setProfileMaxPaths(int n)
+{
+    if (n < 1 || n > 1000000) return;
+    if (n == profileMaxPaths()) return;
+    m_settings.setValue(QStringLiteral("%1/ProfilePlot/MaxPaths")
+                            .arg(kGroupRoot), n);
+    emit preferenceChanged(QStringLiteral("ProfilePlot"),
+                           QStringLiteral("MaxPaths"));
+}
+
+int PreferencesManager::profileEndpointHaloRadiusPx() const
+{
+    return m_settings.value(QStringLiteral("%1/ProfilePlot/HaloRadiusPx")
+                                .arg(kGroupRoot),
+                            kDefaultProfileEndpointHaloRadiusPx).toInt();
+}
+
+void PreferencesManager::setProfileEndpointHaloRadiusPx(int px)
+{
+    if (px < 1 || px > 200) return;
+    if (px == profileEndpointHaloRadiusPx()) return;
+    m_settings.setValue(QStringLiteral("%1/ProfilePlot/HaloRadiusPx")
+                            .arg(kGroupRoot), px);
+    emit preferenceChanged(QStringLiteral("ProfilePlot"),
+                           QStringLiteral("HaloRadiusPx"));
+}
+
+QPen PreferencesManager::profileStartEndpointPen() const
+{
+    const QString key = QStringLiteral("%1/ProfilePlot/StartPen").arg(kGroupRoot);
+    if (m_settings.contains(key)) {
+        const QVariant v = m_settings.value(key);
+        if (v.canConvert<QPen>()) return v.value<QPen>();
+    }
+    QPen p(kDefaultProfileStartColor);
+    p.setWidthF(kDefaultProfileEndpointPenWidth);
+    p.setCosmetic(true);
+    return p;
+}
+
+void PreferencesManager::setProfileStartEndpointPen(const QPen &pen)
+{
+    m_settings.setValue(QStringLiteral("%1/ProfilePlot/StartPen").arg(kGroupRoot),
+                        QVariant::fromValue(pen));
+    emit preferenceChanged(QStringLiteral("ProfilePlot"),
+                           QStringLiteral("StartPen"));
+}
+
+QPen PreferencesManager::profileEndEndpointPen() const
+{
+    const QString key = QStringLiteral("%1/ProfilePlot/EndPen").arg(kGroupRoot);
+    if (m_settings.contains(key)) {
+        const QVariant v = m_settings.value(key);
+        if (v.canConvert<QPen>()) return v.value<QPen>();
+    }
+    QPen p(kDefaultProfileEndColor);
+    p.setWidthF(kDefaultProfileEndpointPenWidth);
+    p.setCosmetic(true);
+    return p;
+}
+
+void PreferencesManager::setProfileEndEndpointPen(const QPen &pen)
+{
+    m_settings.setValue(QStringLiteral("%1/ProfilePlot/EndPen").arg(kGroupRoot),
+                        QVariant::fromValue(pen));
+    emit preferenceChanged(QStringLiteral("ProfilePlot"),
+                           QStringLiteral("EndPen"));
 }
 
 // ---------------------------------------------------------------------------

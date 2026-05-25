@@ -5,6 +5,10 @@
  */
 
 #include "layers/swmmmodellayer.h"
+#include "layers/hydrographmodels.h"
+#include "timeseries/timeseriesregistry.h"
+#include "pattern/patternregistry.h"
+#include "curve/curveregistry.h"
 #include "core/editgeometry.h"
 #include "core/preferencesmanager.h"
 #include "core/unitsystem.h"
@@ -12,7 +16,13 @@
 #include "map/spatialreferencesystem.h"
 #include "map/mapextent.h"
 #include "render/ifeaturerenderer.h"
+#include "render/multikindrenderer.h"
+#include "render/renderers/categorizedrenderer.h"
+#include "render/renderers/graduatedrenderer.h"
+#include "render/renderers/rulebasedrenderer.h"
 #include "render/renderers/singlesymbolrenderer.h"
+#include "render/symbollayer.h"
+#include "render/symbolstyle.h"
 
 #include <QFile>
 #include <QGraphicsScene>
@@ -23,6 +33,7 @@
 #include <QSet>
 #include <QtMath>
 
+#include <cmath>
 #include <limits>
 
 #include <ogr_spatialref.h>
@@ -98,6 +109,101 @@ static inline QPointF toScene(double mx, double my)
 }
 
 // ---------------------------------------------------------------------------
+// Per-kind renderer helpers (Slice BI-MK.1, 2026-05-24)
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+using OpenSWMM::Render::SymbolLayer;
+using OpenSWMM::Render::SymbolLayerKind;
+using OpenSWMM::Render::SymbolStyle;
+
+// Pick the natural SymbolLayer kind for a given Category geometry —
+// point glyphs for nodes / rain gages, line glyphs for the five link
+// kinds, and a filled-polygon style for subcatchments.
+SymbolLayerKind layerKindFor(SWMMModelLayer::Category c)
+{
+    switch (c) {
+    case SWMMModelLayer::CatJunctions:
+    case SWMMModelLayer::CatOutfalls:
+    case SWMMModelLayer::CatStorage:
+    case SWMMModelLayer::CatDividers:
+    case SWMMModelLayer::CatRainGages:
+        return SymbolLayerKind::SimpleMarker;
+    case SWMMModelLayer::CatConduits:
+    case SWMMModelLayer::CatPumps:
+    case SWMMModelLayer::CatOrifices:
+    case SWMMModelLayer::CatWeirs:
+    case SWMMModelLayer::CatOutlets:
+        return SymbolLayerKind::SimpleLine;
+    case SWMMModelLayer::CatSubcatchments:
+        return SymbolLayerKind::SimpleFill;
+    case SWMMModelLayer::NumCategories:
+        break;
+    }
+    return SymbolLayerKind::SimpleMarker;
+}
+
+// Build a SingleSymbolRenderer that mirrors `s` for the given category's
+// geometry. The renderer is the legend / dialog / .oswp source of truth
+// for "this kind looks like…"; the legacy m_*Sym field remains the paint
+// source of truth (write-through both ways via the setters).
+SymbolStyle styleFromElementSymbol(const SWMMElementSymbol &s, SWMMModelLayer::Category c)
+{
+    SymbolStyle style;
+    SymbolLayer layer;
+    layer.kind = layerKindFor(c);
+    layer.props.insert(QStringLiteral("color"),
+                       s.fillColor.name(QColor::HexArgb));
+    layer.props.insert(QStringLiteral("outlineColor"),
+                       s.outlineColor.name(QColor::HexArgb));
+    layer.props.insert(QStringLiteral("outlineWidth"), s.outlineWidth);
+    if (layer.kind == SymbolLayerKind::SimpleLine)
+        layer.props.insert(QStringLiteral("width"), s.size);
+    else
+        layer.props.insert(QStringLiteral("size"), s.size);
+    style.layers.append(layer);
+    return style;
+}
+
+// Inverse of styleFromElementSymbol — extract a legacy SWMMElementSymbol
+// from a SingleSymbol renderer's SymbolStyle. Used to write through dialog
+// edits to the legacy field so the existing bucketed paint loop reflects
+// the change without a per-feature symbolFor() refactor.
+SWMMElementSymbol elementSymbolFromStyle(const SymbolStyle &style,
+                                         const SWMMElementSymbol &fallback)
+{
+    SWMMElementSymbol out = fallback;
+    if (style.layers.isEmpty()) return out;
+    const SymbolLayer &layer = style.layers.first();
+    if (layer.props.contains(QStringLiteral("color"))) {
+        const QColor c(layer.props.value(QStringLiteral("color")).toString());
+        if (c.isValid()) out.fillColor = c;
+    }
+    if (layer.props.contains(QStringLiteral("outlineColor"))) {
+        const QColor c(layer.props.value(QStringLiteral("outlineColor")).toString());
+        if (c.isValid()) out.outlineColor = c;
+    }
+    if (layer.props.contains(QStringLiteral("outlineWidth")))
+        out.outlineWidth = layer.props.value(QStringLiteral("outlineWidth")).toDouble();
+    if (layer.props.contains(QStringLiteral("size")))
+        out.size = layer.props.value(QStringLiteral("size")).toDouble();
+    else if (layer.props.contains(QStringLiteral("width")))
+        out.size = layer.props.value(QStringLiteral("width")).toDouble();
+    return out;
+}
+
+std::unique_ptr<OpenSWMM::Render::SingleSymbolRenderer>
+makeSingleSymbolRenderer(const SWMMElementSymbol &s, SWMMModelLayer::Category c)
+{
+    return std::make_unique<OpenSWMM::Render::SingleSymbolRenderer>(
+        styleFromElementSymbol(s, c));
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
 // Constructor / Destructor
 // ---------------------------------------------------------------------------
 
@@ -134,6 +240,30 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
     // current paint loop (which still reads m_*Sym directly); the paint
     // refactor swaps in a MultiKindRenderer adapter and flips the path.
     m_renderer = std::make_unique<OpenSWMM::Render::SingleSymbolRenderer>();
+
+    // Slice BI-MK.1 / BI-MK.LT (2026-05-24) — seed the 11 per-kind
+    // renderers from the matching SWMMElementSymbol defaults above so
+    // first-open visuals are identical to today's hardcoded glyphs.
+    m_kindRenderers.resize(static_cast<size_t>(NumCategories));
+    m_kindRenderers[CatJunctions]      = makeSingleSymbolRenderer(m_junctionSym,    CatJunctions);
+    m_kindRenderers[CatOutfalls]       = makeSingleSymbolRenderer(m_outfallSym,     CatOutfalls);
+    m_kindRenderers[CatStorage]        = makeSingleSymbolRenderer(m_storageSym,     CatStorage);
+    m_kindRenderers[CatDividers]       = makeSingleSymbolRenderer(m_dividerSym,     CatDividers);
+    m_kindRenderers[CatConduits]       = makeSingleSymbolRenderer(m_conduitSym,     CatConduits);
+    m_kindRenderers[CatPumps]          = makeSingleSymbolRenderer(m_pumpSym,        CatPumps);
+    m_kindRenderers[CatOrifices]       = makeSingleSymbolRenderer(m_orificeSym,     CatOrifices);
+    m_kindRenderers[CatWeirs]          = makeSingleSymbolRenderer(m_weirSym,        CatWeirs);
+    // No legacy m_outletSym field — seed from a defaulted symbol so the
+    // sub-row still has a renderer (the paint loop currently uses the
+    // weir colour for outlets; can be reset to defaults via the tree menu).
+    {
+        SWMMElementSymbol outletDefault;
+        outletDefault.fillColor    = QColor(140, 100, 60);
+        outletDefault.outlineWidth = 1.5;
+        m_kindRenderers[CatOutlets] = makeSingleSymbolRenderer(outletDefault, CatOutlets);
+    }
+    m_kindRenderers[CatSubcatchments]  = makeSingleSymbolRenderer(m_subcatchSym,    CatSubcatchments);
+    m_kindRenderers[CatRainGages]      = makeSingleSymbolRenderer(m_gageSym,        CatRainGages);
 }
 
 SWMMModelLayer::~SWMMModelLayer()
@@ -822,6 +952,168 @@ QString SWMMModelLayer::suggestUniqueDataObjectName(DataCategory c) const
 }
 
 // ---------------------------------------------------------------------------
+// Slice DA.4.3 — engine-table filter helper for picker pop-up lists
+// ---------------------------------------------------------------------------
+QStringList SWMMModelLayer::tableIdsOfType(int tableType) const
+{
+    QStringList out;
+    if (!m_engine) return out;
+    const int n = swmm_table_count(m_engine);
+    out.reserve(n);
+    for (int i = 0; i < n; ++i) {
+        int t = -1;
+        if (swmm_table_get_type(m_engine, i, &t) != SWMM_OK) continue;
+        const bool keep = (tableType < 0) ? (t != 0) : (t == tableType);
+        if (!keep) continue;
+        if (const char *id = swmm_table_id(m_engine, i))
+            if (*id) out << QString::fromUtf8(id);
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Slice DB.4b — createDataObject (extracted from ObjectBrowserPanel)
+// ---------------------------------------------------------------------------
+//
+// Engine-commit switch for every non-spatial DataCategory. Promoted out
+// of ObjectBrowserPanel so non-panel callers (e.g. the picker buttons in
+// NodeCompoundEditDialog) can create a new time series / pattern / UH
+// inline without dispatching through the browser. The panel's
+// `addNewDataObject` is now a thin wrapper that calls this and then
+// runs its own refresh + select side effects.
+
+namespace {
+
+/*! Canonical RULE skeleton text for the four pre-canned templates
+ *  surfaced by NewDataObjectDialog's "skeleton" combo. Mirrors the
+ *  former private helper of the same name in objectbrowserpanel.cpp. */
+QString buildRuleSkeleton(const QString &skeleton, const QString &name)
+{
+    if (skeleton == QLatin1String("pump"))
+        return QStringLiteral(
+            "RULE %1\n"
+            "IF NODE J1 DEPTH > 5.0\n"
+            "THEN PUMP P1 STATUS = ON").arg(name);
+    if (skeleton == QLatin1String("orifice"))
+        return QStringLiteral(
+            "RULE %1\n"
+            "IF NODE J1 DEPTH > 5.0\n"
+            "THEN ORIFICE O1 SETTING = 0.5").arg(name);
+    if (skeleton == QLatin1String("weir"))
+        return QStringLiteral(
+            "RULE %1\n"
+            "IF LINK W1 FLOW > 10.0\n"
+            "THEN WEIR W1 SETTING = 0\n"
+            "ELSE WEIR W1 SETTING = 1").arg(name);
+    // "empty" or unknown → headerless template; user fills the body in.
+    return QStringLiteral("RULE %1\n").arg(name);
+}
+
+} // namespace
+
+bool SWMMModelLayer::createDataObject(DataCategory c,
+                                       const QString &name,
+                                       const QVariantMap &options,
+                                       QString *outError)
+{
+    auto fail = [outError](const QString &msg) {
+        if (outError) *outError = msg;
+        return false;
+    };
+
+    SWMM_Engine eng = engine();
+    if (!eng)               return fail(tr("No active engine handle."));
+    if (name.trimmed().isEmpty()) return fail(tr("Name is required."));
+
+    const QByteArray utf = name.toUtf8();
+    const char     *idC  = utf.constData();
+
+    // Per-type defaults match the legacy SWMM 5 first-entry-per-type
+    // fallback when the caller didn't surface a control for the value.
+    constexpr int kCurveTypeStorage     = 0;
+    constexpr int kPatternTypeMonthly   = 0;
+    constexpr int kLidTypeBioCell       = 0;
+    constexpr int kPollutantUnitsMgPerL = 0;
+
+    int rc = -1;
+    switch (c) {
+    case DataCurves: {
+        const int t = options.value(QStringLiteral("curveType"),
+                                     kCurveTypeStorage).toInt();
+        rc = swmm_curve_add(eng, idC, t);
+        break;
+    }
+    case DataTimeSeries:
+        rc = swmm_timeseries_add(eng, idC);
+        break;
+    case DataPatterns: {
+        const int t = options.value(QStringLiteral("patternType"),
+                                     kPatternTypeMonthly).toInt();
+        rc = swmm_pattern_add(eng, idC, t);
+        break;
+    }
+    case DataLIDControls: {
+        const int t = options.value(QStringLiteral("lidType"),
+                                     kLidTypeBioCell).toInt();
+        rc = swmm_lid_add(eng, idC, t);
+        break;
+    }
+    case DataPollutants: {
+        const int u = options.value(QStringLiteral("units"),
+                                     kPollutantUnitsMgPerL).toInt();
+        rc = swmm_pollutant_add(eng, idC, u);
+        break;
+    }
+    case DataLandUses:    rc = swmm_landuse_add(eng, idC); break;
+    case DataAquifers:    rc = swmm_aquifer_add(eng, idC); break;
+    case DataSnowpacks:   rc = swmm_snowpack_add(eng, idC); break;
+    case DataTransects:   rc = swmm_transect_add(eng, idC); break;
+    case DataStreets:     rc = swmm_street_add(eng, idC); break;
+    case DataInlets: {
+        const QString t = options.value(QStringLiteral("inletType"),
+                                          QStringLiteral("GRATE")).toString();
+        const QByteArray tu = t.toUtf8();
+        rc = swmm_inlet_add(eng, idC, tu.constData());
+        break;
+    }
+    case DataControls: {
+        const QString skeleton = options.value(QStringLiteral("skeleton"),
+                                                 QStringLiteral("empty")).toString();
+        const QByteArray body = buildRuleSkeleton(skeleton, name).toUtf8();
+        rc = swmm_control_add_rule(eng, body.constData());
+        break;
+    }
+    case DataHydrographs: {
+        const QString gage = options.value(QStringLiteral("rainGage"))
+                                    .toString().trimmed();
+        const int response = options.value(QStringLiteral("response"), 0).toInt();
+        if (!gage.isEmpty()) {
+            const QByteArray gu = gage.toUtf8();
+            swmm_hydrograph_add_gage(eng, idC, gu.constData());
+        }
+        rc = swmm_hydrograph_add(eng, idC, -1 /*ALL*/, response,
+                                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        break;
+    }
+    default:
+        return fail(tr("Unsupported data category."));
+    }
+
+    if (rc != SWMM_OK)
+        return fail(tr("Engine rejected create (code %1).").arg(rc));
+
+    // Slice BS Phase 6.9.2 — generic create path doesn't go through the
+    // applyHydrograph* MVC seam (it predates BS-02). Emit the signal here
+    // so the editor, Object Browser, and any open property panel sync
+    // when a hydrograph is created via NewDataObjectDialog.
+    if (c == DataHydrographs)
+        emit hydrographChanged(name);
+
+    if (outError) outError->clear();
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // Slice T.3 — intra-category object order
 // ---------------------------------------------------------------------------
 
@@ -1037,15 +1329,29 @@ void SWMMModelLayer::rebuildCategoryIndex()
     }
 
     // Links — linkType 0..4 matches Category 0..4 offset from CatConduits.
+    //
+    // SWMM allows a node and a link to share a name (separate namespaces
+    // in the engine — e.g. an outfall "WWTP" and the conduit "WWTP"
+    // draining into it).  Our `m_nameToSoa` / `m_objectLocation` are
+    // single-keyed hashes, so we can only keep one entry per name.  When
+    // a link's name collides with an already-inserted node, prefer the
+    // node — visible node glyphs are the dominant click target for
+    // selection / profile pick.  The link is still reachable by name
+    // via `linkIndex(name)` (linear scan) and by engine index via
+    // `swmm_link_index`, so internal flows that already know they're
+    // looking at a link aren't affected.
     for (int i = 0; i < m_links.size(); ++i)
     {
         const int t = (m_links[i].linkType >= 0 && m_links[i].linkType < 5)
                     ? m_links[i].linkType : 0;
         const Category cat = Category(int(CatConduits) + t);
         m_linksByType[t].append(i);
-        m_objectLocation.insert(m_links[i].name,
-                                {cat, m_linksByType[t].size() - 1});
-        m_nameToSoa.insert(m_links[i].name, {SoaKind::Link, i});
+        const QString &lname = m_links[i].name;
+        if (!m_objectLocation.contains(lname))
+            m_objectLocation.insert(lname,
+                                    {cat, m_linksByType[t].size() - 1});
+        if (!m_nameToSoa.contains(lname))
+            m_nameToSoa.insert(lname, {SoaKind::Link, i});
     }
 
     // Subcatchments + gages are their own categories; row = SoA index.
@@ -1117,6 +1423,394 @@ void SWMMModelLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRende
         return;                             // same-pointer self-assignment is a no-op
     m_renderer = std::move(r);
     emit rendererChanged();
+}
+
+// ---------------------------------------------------------------------------
+// Flow-direction arrows (Slice BI Phase 8.13.8-mini, 2026-05-24)
+// ---------------------------------------------------------------------------
+
+bool SWMMModelLayer::linkArrowsEnabled(Category c) const
+{
+    switch (c) {
+    case CatConduits: return m_conduitSym.showArrows;
+    case CatPumps:    return m_pumpSym.showArrows;
+    case CatOrifices: return m_orificeSym.showArrows;
+    case CatWeirs:    return m_weirSym.showArrows;
+    case CatOutlets:  return m_outletSym.showArrows;  // Slice FX.1
+    default:          return false;
+    }
+}
+
+void SWMMModelLayer::setLinkArrowsEnabled(Category c, bool enabled)
+{
+    SWMMElementSymbol *sym = nullptr;
+    switch (c) {
+    case CatConduits: sym = &m_conduitSym; break;
+    case CatPumps:    sym = &m_pumpSym;    break;
+    case CatOrifices: sym = &m_orificeSym; break;
+    case CatWeirs:    sym = &m_weirSym;    break;
+    case CatOutlets:  sym = &m_outletSym;  break;  // Slice FX.1
+    default: return;
+    }
+    if (sym->showArrows == enabled) return;
+    sym->showArrows = enabled;
+    emit repaintRequested();
+}
+
+// Slice FX.1 — per-kind arrow style getters/setters. Inline switch
+// mirrors the linkArrowsEnabled/setLinkArrowsEnabled pattern above.
+double SWMMModelLayer::linkArrowSize(Category c) const
+{
+    switch (c) {
+    case CatConduits: return m_conduitSym.arrowSize;
+    case CatPumps:    return m_pumpSym.arrowSize;
+    case CatOrifices: return m_orificeSym.arrowSize;
+    case CatWeirs:    return m_weirSym.arrowSize;
+    case CatOutlets:  return m_outletSym.arrowSize;
+    default:          return 10.0;
+    }
+}
+
+void SWMMModelLayer::setLinkArrowSize(Category c, double pixels)
+{
+    SWMMElementSymbol *sym = nullptr;
+    switch (c) {
+    case CatConduits: sym = &m_conduitSym; break;
+    case CatPumps:    sym = &m_pumpSym;    break;
+    case CatOrifices: sym = &m_orificeSym; break;
+    case CatWeirs:    sym = &m_weirSym;    break;
+    case CatOutlets:  sym = &m_outletSym;  break;
+    default: return;
+    }
+    if (sym->arrowSize == pixels) return;
+    sym->arrowSize = pixels;
+    emit repaintRequested();
+}
+
+QColor SWMMModelLayer::linkArrowColor(Category c) const
+{
+    switch (c) {
+    case CatConduits: return m_conduitSym.arrowColor;
+    case CatPumps:    return m_pumpSym.arrowColor;
+    case CatOrifices: return m_orificeSym.arrowColor;
+    case CatWeirs:    return m_weirSym.arrowColor;
+    case CatOutlets:  return m_outletSym.arrowColor;
+    default:          return QColor(34, 34, 34);
+    }
+}
+
+void SWMMModelLayer::setLinkArrowColor(Category c, const QColor &col)
+{
+    if (!col.isValid()) return;
+    SWMMElementSymbol *sym = nullptr;
+    switch (c) {
+    case CatConduits: sym = &m_conduitSym; break;
+    case CatPumps:    sym = &m_pumpSym;    break;
+    case CatOrifices: sym = &m_orificeSym; break;
+    case CatWeirs:    sym = &m_weirSym;    break;
+    case CatOutlets:  sym = &m_outletSym;  break;
+    default: return;
+    }
+    if (sym->arrowColor == col) return;
+    sym->arrowColor = col;
+    emit repaintRequested();
+}
+
+bool SWMMModelLayer::linkArrowOnlyWhenFlowPos(Category c) const
+{
+    switch (c) {
+    case CatConduits: return m_conduitSym.arrowOnlyWhenFlowPos;
+    case CatPumps:    return m_pumpSym.arrowOnlyWhenFlowPos;
+    case CatOrifices: return m_orificeSym.arrowOnlyWhenFlowPos;
+    case CatWeirs:    return m_weirSym.arrowOnlyWhenFlowPos;
+    case CatOutlets:  return m_outletSym.arrowOnlyWhenFlowPos;
+    default:          return false;
+    }
+}
+
+void SWMMModelLayer::setLinkArrowOnlyWhenFlowPos(Category c, bool onlyPos)
+{
+    SWMMElementSymbol *sym = nullptr;
+    switch (c) {
+    case CatConduits: sym = &m_conduitSym; break;
+    case CatPumps:    sym = &m_pumpSym;    break;
+    case CatOrifices: sym = &m_orificeSym; break;
+    case CatWeirs:    sym = &m_weirSym;    break;
+    case CatOutlets:  sym = &m_outletSym;  break;
+    default: return;
+    }
+    if (sym->arrowOnlyWhenFlowPos == onlyPos) return;
+    sym->arrowOnlyWhenFlowPos = onlyPos;
+    emit repaintRequested();
+}
+
+double SWMMModelLayer::linkFlow(int linkIdx) const
+{
+    if (!m_engine || linkIdx < 0) return 0.0;
+    double v = 0.0;
+    if (swmm_link_get_flow(m_engine, linkIdx, &v) != 0) return 0.0;
+    return v;
+}
+
+// ---------------------------------------------------------------------------
+// Per-kind renderer plumbing (Slice BI-MK.1 / BI-MK.LT, 2026-05-24)
+// ---------------------------------------------------------------------------
+
+QString SWMMModelLayer::kindKey(Category c)
+{
+    switch (c) {
+    case CatJunctions:     return QStringLiteral("Junctions");
+    case CatOutfalls:      return QStringLiteral("Outfalls");
+    case CatStorage:       return QStringLiteral("Storage");
+    case CatDividers:      return QStringLiteral("Dividers");
+    case CatConduits:      return QStringLiteral("Conduits");
+    case CatPumps:         return QStringLiteral("Pumps");
+    case CatOrifices:      return QStringLiteral("Orifices");
+    case CatWeirs:         return QStringLiteral("Weirs");
+    case CatOutlets:       return QStringLiteral("Outlets");
+    case CatSubcatchments: return QStringLiteral("Subcatchments");
+    case CatRainGages:     return QStringLiteral("RainGages");
+    case NumCategories:    break;
+    }
+    return {};
+}
+
+OpenSWMM::Render::IFeatureRenderer *SWMMModelLayer::kindRenderer(Category c) const
+{
+    const size_t idx = static_cast<size_t>(c);
+    if (idx >= m_kindRenderers.size())
+        return nullptr;
+    return m_kindRenderers[idx].get();
+}
+
+void SWMMModelLayer::setKindRenderer(
+    Category c,
+    std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r)
+{
+    if (!r) return;
+    const size_t idx = static_cast<size_t>(c);
+    if (idx >= m_kindRenderers.size()) return;
+
+    // When the new renderer is a SingleSymbol, write its colour / outline /
+    // size back to the legacy SWMMElementSymbol field for that kind so the
+    // existing bucketed paint loop reflects the change. For Graduated /
+    // Categorized / Rule-based renderers, we just store; canvas paint stays
+    // at the prior single-symbol look until the Phase 8.13.6.4 refactor
+    // routes paint through symbolFor().
+    if (auto *ssr = dynamic_cast<OpenSWMM::Render::SingleSymbolRenderer *>(r.get()))
+    {
+        const SymbolStyle &style = ssr->symbol();
+        switch (c) {
+        case CatJunctions:     setJunctionSymbol(    elementSymbolFromStyle(style, m_junctionSym));    break;
+        case CatOutfalls:      setOutfallSymbol(     elementSymbolFromStyle(style, m_outfallSym));     break;
+        case CatStorage:       setStorageSymbol(     elementSymbolFromStyle(style, m_storageSym));     break;
+        case CatDividers:      setDividerSymbol(     elementSymbolFromStyle(style, m_dividerSym));     break;
+        case CatConduits:      setConduitSymbol(     elementSymbolFromStyle(style, m_conduitSym));     break;
+        case CatPumps:         setPumpSymbol(        elementSymbolFromStyle(style, m_pumpSym));        break;
+        case CatOrifices:      setOrificeSymbol(     elementSymbolFromStyle(style, m_orificeSym));     break;
+        case CatWeirs:         setWeirSymbol(        elementSymbolFromStyle(style, m_weirSym));        break;
+        case CatOutlets:       /* no legacy field — store renderer only */                              break;
+        case CatSubcatchments: setSubcatchmentSymbol(elementSymbolFromStyle(style, m_subcatchSym));    break;
+        case CatRainGages:     setRainGageSymbol(    elementSymbolFromStyle(style, m_gageSym));        break;
+        case NumCategories:    break;
+        }
+    }
+
+    m_kindRenderers[idx] = std::move(r);
+
+    // Phase 8.13.6.4 + 8.13.43-α — rebuildKindFeatureColors decides on its
+    // own whether overrides are active: it samples the renderer's output
+    // for every feature and flags overrides when per-feature color OR
+    // per-feature size varies (covering both Graduated/Categorized and
+    // SingleSymbol with data-defined size).
+    rebuildKindFeatureColors(c);
+
+    emit rendererChanged();
+    emit repaintRequested();
+}
+
+bool SWMMModelLayer::kindUsesOverrides(Category c) const
+{
+    if (c < 0 || c >= NumCategories) return false;
+    return m_kindUsesOverrides[c];
+}
+
+QColor SWMMModelLayer::featureColor(Category c, int idx) const
+{
+    if (c < 0 || c >= NumCategories) return {};
+    const auto &v = m_kindFeatureColors[c];
+    if (idx < 0 || idx >= v.size()) return {};
+    return v[idx];
+}
+
+double SWMMModelLayer::featureSize(Category c, int idx) const
+{
+    if (c < 0 || c >= NumCategories) return -1.0;
+    const auto &v = m_kindFeatureSizes[c];
+    if (idx < 0 || idx >= v.size()) return -1.0;
+    return v[idx];   // negative sentinel = no override
+}
+
+void SWMMModelLayer::rebuildKindFeatureColors(Category c)
+{
+    if (c < 0 || c >= NumCategories) return;
+    m_kindFeatureColors[c].clear();
+    m_kindFeatureSizes[c].clear();
+    m_kindUsesOverrides[c] = false;
+
+    auto *r = kindRenderer(c);
+    if (!r) return;
+    // Slice BI Phase 8.13.43-α — even a SingleSymbol renderer may carry a
+    // data-defined size override; only short-circuit when the renderer is
+    // a Single WITHOUT data-defined size. We detect by sampling the
+    // symbolFor output for feature 0 below — if the resolved size differs
+    // across two probe features, we know an override is active.
+    const bool isSingle = (r->rendererId() == QStringLiteral("single"));
+
+    const int n = categoryCount(c);
+    if (n <= 0) return;
+
+    // Slice FX.2 — cache is indexed by **SoA index** (m_nodes / m_links /
+    // m_catchments / m_gages), not by per-category row. The painter
+    // builds buckets using SoA indices (see swmmlayeritem.cpp), so the
+    // lookup has to match. Previously the cache was sized to the
+    // per-category count and indexed by the kind-row iteration variable
+    // `i`, which caused size-by-attribute to silently miss every node
+    // beyond the first few junctions (and corrupt other categories'
+    // lookups by aliasing the same indices).
+    int soaSize = 0;
+    switch (c) {
+    case CatJunctions: case CatOutfalls: case CatStorage: case CatDividers:
+        soaSize = m_nodes.size(); break;
+    case CatConduits: case CatPumps: case CatOrifices:
+    case CatWeirs:    case CatOutlets:
+        soaSize = m_links.size(); break;
+    case CatSubcatchments: soaSize = m_catchments.size(); break;
+    case CatRainGages:     soaSize = m_gages.size();      break;
+    default: return;
+    }
+
+    m_kindFeatureColors[c].resize(soaSize);
+    m_kindFeatureSizes [c].resize(soaSize);
+    m_kindFeatureSizes [c].fill(-1.0);  // -1 sentinel = no override
+
+    using OpenSWMM::Render::FeatureRef;
+    const QString kind = kindKey(c);
+
+    auto soaIndexFor = [&](int row) -> int {
+        switch (c) {
+        case CatJunctions: case CatOutfalls: case CatStorage: case CatDividers: {
+            const auto &b = m_nodesByType[int(c) - int(CatJunctions)];
+            return (row < b.size()) ? b[row] : -1;
+        }
+        case CatConduits: case CatPumps: case CatOrifices:
+        case CatWeirs:    case CatOutlets: {
+            const auto &b = m_linksByType[int(c) - int(CatConduits)];
+            return (row < b.size()) ? b[row] : -1;
+        }
+        case CatSubcatchments: return row;   // single SoA
+        case CatRainGages:     return row;
+        default: return -1;
+        }
+    };
+
+    bool anyColorOverride = false;
+    bool anySizeOverride  = false;
+    double firstSize = -1.0;
+    for (int i = 0; i < n; ++i)
+    {
+        const int soa = soaIndexFor(i);
+        if (soa < 0 || soa >= soaSize) continue;
+
+        const QString name = objectNameAt(c, i);
+        const QVariantMap attrs = identifyByName(name);
+
+        FeatureRef ref;
+        ref.layerId      = QStringLiteral("swmm_model");
+        ref.featureIndex = soa;     // pass SoA index so renderers can correlate
+        ref.categoryHint = kind;
+
+        const auto style = r->symbolFor(ref, attrs);
+        QColor col;
+        double sz = -1.0;
+        if (!style.layers.isEmpty())
+        {
+            const auto &props = style.layers.first().props;
+
+            const QVariant cv = props.value(QStringLiteral("color"));
+            if (cv.isValid())
+            {
+                const QColor parsed(cv.toString());
+                if (parsed.isValid()) col = parsed;
+            }
+            // Extract per-feature size if the renderer wrote one (Graduated
+            // with outputSizeEnabled or SingleSymbol with sizeData set).
+            QVariant sv = props.value(QStringLiteral("size"));
+            if (!sv.isValid()) sv = props.value(QStringLiteral("width"));
+            bool ok = false;
+            const double v = sv.toDouble(&ok);
+            if (ok && v > 0.0) sz = v;
+        }
+        m_kindFeatureColors[c][soa] = col;
+        m_kindFeatureSizes [c][soa] = sz;
+
+        if (col.isValid()) anyColorOverride = true;
+        if (i == 0) firstSize = sz;
+        else if (sz > 0.0 && (firstSize < 0.0 || std::abs(sz - firstSize) > 1e-6))
+            anySizeOverride = true;
+    }
+
+    // Mark overrides active when either a non-single renderer produced
+    // distinct per-feature output, OR a single renderer with sizeData
+    // produced varying sizes. Single-without-overrides falls back to the
+    // legacy bucketed paint path.
+    if (!isSingle) {
+        m_kindUsesOverrides[c] = true;
+    } else if (anySizeOverride) {
+        // SingleSymbol + data-defined size — clear the color cache so the
+        // painter uses the legacy color but per-feature size.
+        m_kindFeatureColors[c].fill(QColor());
+        m_kindUsesOverrides[c] = true;
+    } else {
+        // SingleSymbol without overrides → drop the caches entirely.
+        m_kindFeatureColors[c].clear();
+        m_kindFeatureSizes[c].clear();
+    }
+    (void)anyColorOverride;   // reserved for future smarter routing
+}
+
+void SWMMModelLayer::resetKindRendererToDefaults(Category c)
+{
+    const size_t idx = static_cast<size_t>(c);
+    if (idx >= m_kindRenderers.size()) return;
+
+    // Re-seed from the current legacy m_*Sym fields (which themselves
+    // hold the compile-time factory defaults until the user edits them).
+    // The dialog's "Reset Kind to Defaults" button hits this path.
+    SWMMElementSymbol seed;
+    switch (c) {
+    case CatJunctions:     seed = m_junctionSym; break;
+    case CatOutfalls:      seed = m_outfallSym;  break;
+    case CatStorage:       seed = m_storageSym;  break;
+    case CatDividers:      seed = m_dividerSym;  break;
+    case CatConduits:      seed = m_conduitSym;  break;
+    case CatPumps:         seed = m_pumpSym;     break;
+    case CatOrifices:      seed = m_orificeSym;  break;
+    case CatWeirs:         seed = m_weirSym;     break;
+    case CatOutlets: {
+        SWMMElementSymbol outletDefault;
+        outletDefault.fillColor    = QColor(140, 100, 60);
+        outletDefault.outlineWidth = 1.5;
+        seed = outletDefault;
+        break;
+    }
+    case CatSubcatchments: seed = m_subcatchSym; break;
+    case CatRainGages:     seed = m_gageSym;     break;
+    case NumCategories:    return;
+    }
+    m_kindRenderers[idx] = makeSingleSymbolRenderer(seed, c);
+    emit rendererChanged();
+    emit repaintRequested();
 }
 
 // ---------------------------------------------------------------------------
@@ -1676,9 +2370,67 @@ SWMMModelLayer::pickAt(double sceneX, double sceneY, double tolerance) const
     const QVariantMap hit = identifyAt(sceneX, sceneY, nullptr, tolerance);
     PickResult r;
     const QString name = hit.value(QStringLiteral("elementName")).toString();
+    const QString type = hit.value(QStringLiteral("elementType")).toString();
     if (name.isEmpty()) return r;
 
-    if (!findObjectLocation(name, &r.cat, &r.soaIndex)) return r;
+    // Resolve category using the elementType hint from identifyAt rather
+    // than going through the name-keyed m_objectLocation, which can
+    // collide when the SWMM model has a node and a link sharing a name
+    // (e.g. an outfall "WWTP" and the conduit "WWTP" draining into it).
+    // In that case the second insertion wins, so an outfall click would
+    // return cat=CatConduits and the Select / Profile tools would treat
+    // the click as a link hit.  Looking up the SoA directly by name
+    // within the correct kind avoids the ambiguity entirely.
+    bool resolved = false;
+    if (type == QLatin1String("Node")) {
+        const int ni = nodeIndex(name);
+        if (ni >= 0) {
+            const int nt = (m_nodes[ni].nodeType >= 0 && m_nodes[ni].nodeType < 4)
+                         ? m_nodes[ni].nodeType : 0;
+            r.cat      = Category(int(CatJunctions) + nt);
+            r.soaIndex = ni;
+            resolved   = true;
+        }
+    } else if (type == QLatin1String("Link")) {
+        const int li = linkIndex(name);
+        if (li >= 0) {
+            const int lt = (m_links[li].linkType >= 0 && m_links[li].linkType < 5)
+                         ? m_links[li].linkType : 0;
+            r.cat      = Category(int(CatConduits) + lt);
+            r.soaIndex = li;
+            resolved   = true;
+        }
+    } else if (type == QLatin1String("Subcatchment")) {
+        for (int i = 0; i < m_catchments.size(); ++i) {
+            if (m_catchments[i].name == name) {
+                r.cat      = CatSubcatchments;
+                r.soaIndex = i;
+                resolved   = true;
+                break;
+            }
+        }
+    } else if (type == QLatin1String("RainGage")) {
+        for (int i = 0; i < m_gages.size(); ++i) {
+            if (m_gages[i].name == name) {
+                r.cat      = CatRainGages;
+                r.soaIndex = i;
+                resolved   = true;
+                break;
+            }
+        }
+    }
+
+    // Fallback for unknown/missing type strings — preserve the legacy
+    // path so callers that bypass identifyAt's tier metadata still work.
+    if (!resolved && !findObjectLocation(name, &r.cat, &r.soaIndex))
+        return r;
+    // When we resolved by elementType directly, soaIndex is already the
+    // SoA-level index — skip the display-row mapping below.
+    if (resolved) {
+        r.valid = true;
+        r.name  = name;
+        return r;
+    }
 
     // `soaIndex` returned by findObjectLocation is the display row
     // (reflects any Slice T.3 override). Tools expect the SoA-level
@@ -2369,6 +3121,190 @@ bool SWMMModelLayer::applySubcatchDelete(const QString &name)
     emit repaintRequested();
     emit geometryChanged();
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Slice BS Phase 6.9.2 — hydrograph + RDII decay MVC helpers
+//
+// Every mutation to [HYDROGRAPHS] / [RDII_DECAY] data lives here. The single
+// hydrographChanged(uhName) signal is the synchronization seam: the four
+// hydrograph models in hydrographmodels.cpp listen for it and refresh their
+// views, and SWMMHydrographPropertyAdapter forwards it as its own
+// changed() so the QPropertyModel-backed property panel re-reads.
+// ---------------------------------------------------------------------------
+
+bool SWMMModelLayer::applyHydrographAddGroup(const QString &name,
+                                              const QString &gageName,
+                                              int initialResponse)
+{
+    if (!m_engine || name.isEmpty()) return false;
+    if (initialResponse < 0 || initialResponse > 2) return false;
+
+    const QByteArray uh = name.toUtf8();
+    // Seed an ALL-month parameter row at the requested response with
+    // R/T/K = (0, 0, 1) — K must be >= 1 per the engine contract
+    // (openswmm_inflows.h:223). The user fills in the real values via the
+    // editor's RTK table.
+    if (swmm_hydrograph_set_rtk(m_engine, uh.constData(),
+                                /*month=*/-1, initialResponse,
+                                /*r=*/0.0, /*t=*/0.0, /*k=*/1.0) != SWMM_OK)
+        return false;
+    if (!gageName.isEmpty()) {
+        const QByteArray gage = gageName.toUtf8();
+        if (swmm_hydrograph_set_gage(m_engine, uh.constData(),
+                                      gage.constData()) != SWMM_OK)
+            return false;
+    }
+    emit hydrographChanged(name);
+    return true;
+}
+
+bool SWMMModelLayer::applyHydrographRemoveGroup(const QString &name)
+{
+    if (!m_engine || name.isEmpty()) return false;
+    const QByteArray uh = name.toUtf8();
+    if (swmm_hydrograph_remove_group(m_engine, uh.constData()) != SWMM_OK)
+        return false;
+    // Empty name signals "everything potentially changed" — the engine
+    // also dropped any [RDII] node assignments referencing this group,
+    // and listeners may need a full rebuild rather than a per-name diff.
+    emit hydrographChanged(QString());
+    return true;
+}
+
+bool SWMMModelLayer::applyHydrographRenameGroup(const QString &oldName,
+                                                 const QString &newName)
+{
+    if (!m_engine || oldName.isEmpty() || newName.isEmpty() || oldName == newName)
+        return false;
+    const QByteArray oldUtf8 = oldName.toUtf8();
+    const int gn = swmm_hydrograph_group_count(m_engine);
+    int idx = -1;
+    char buf[64];
+    for (int i = 0; i < gn; ++i) {
+        if (swmm_hydrograph_group_id(m_engine, i, buf, sizeof(buf)) != SWMM_OK)
+            continue;
+        if (std::strcmp(buf, oldUtf8.constData()) == 0) { idx = i; break; }
+    }
+    if (idx < 0) return false;
+
+    const QByteArray newUtf8 = newName.toUtf8();
+    if (swmm_hydrograph_group_rename(m_engine, idx, newUtf8.constData()) != SWMM_OK)
+        return false;
+
+    // Empty name → model layer rebuilds everything (old name is gone).
+    emit hydrographChanged(QString());
+    return true;
+}
+
+bool SWMMModelLayer::applyHydrographSetGage(const QString &name,
+                                              const QString &gageName)
+{
+    if (!m_engine || name.isEmpty()) return false;
+    const QByteArray uh = name.toUtf8();
+    const QByteArray gage = gageName.toUtf8();
+    const char *gagePtr = gageName.isEmpty() ? nullptr : gage.constData();
+    if (swmm_hydrograph_set_gage(m_engine, uh.constData(), gagePtr) != SWMM_OK)
+        return false;
+    emit hydrographChanged(name);
+    return true;
+}
+
+bool SWMMModelLayer::applyHydrographSetRtk(const QString &name,
+                                             int month, int response,
+                                             double r, double t, double k)
+{
+    if (!m_engine || name.isEmpty()) return false;
+    const QByteArray uh = name.toUtf8();
+    if (swmm_hydrograph_set_rtk(m_engine, uh.constData(),
+                                month, response, r, t, k) != SWMM_OK)
+        return false;
+    emit hydrographChanged(name);
+    return true;
+}
+
+bool SWMMModelLayer::applyHydrographSetIa(const QString &name,
+                                            int month, int response,
+                                            double dmax, double drecov, double dinit)
+{
+    if (!m_engine || name.isEmpty()) return false;
+    const QByteArray uh = name.toUtf8();
+    if (swmm_hydrograph_set_ia(m_engine, uh.constData(),
+                                month, response, dmax, drecov, dinit) != SWMM_OK)
+        return false;
+    emit hydrographChanged(name);
+    return true;
+}
+
+bool SWMMModelLayer::applyHydrographRemoveEntry(const QString &name,
+                                                  int month, int response)
+{
+    if (!m_engine || name.isEmpty()) return false;
+    const QByteArray uh = name.toUtf8();
+    if (swmm_hydrograph_remove_entry(m_engine, uh.constData(),
+                                      month, response) != SWMM_OK)
+        return false;
+    emit hydrographChanged(name);
+    return true;
+}
+
+bool SWMMModelLayer::applyHydrographClearMonths(const QString &name)
+{
+    if (!m_engine || name.isEmpty()) return false;
+    const QByteArray uh = name.toUtf8();
+    if (swmm_hydrograph_clear_group_months(m_engine, uh.constData()) != SWMM_OK)
+        return false;
+    emit hydrographChanged(name);
+    return true;
+}
+
+bool SWMMModelLayer::applyRdiiDecaySet(const QString &name, int response,
+                                        double k_dep, double k_0, double k_T,
+                                        double T_ref, double theta_rec, double T_freeze)
+{
+    if (!m_engine || name.isEmpty()) return false;
+    const QByteArray uh = name.toUtf8();
+    if (swmm_rdii_decay_set(m_engine, uh.constData(), response,
+                            k_dep, k_0, k_T, T_ref, theta_rec, T_freeze) != SWMM_OK)
+        return false;
+    emit hydrographChanged(name);
+    return true;
+}
+
+bool SWMMModelLayer::applyRdiiDecayRemove(const QString &name, int response)
+{
+    if (!m_engine || name.isEmpty()) return false;
+    const QByteArray uh = name.toUtf8();
+    if (swmm_rdii_decay_remove(m_engine, uh.constData(), response) != SWMM_OK)
+        return false;
+    emit hydrographChanged(name);
+    return true;
+}
+
+// Lazy accessors — one shared model instance per kind, constructed on first
+// use and parented to the layer so destruction is automatic.
+HydrographGroupListModel *SWMMModelLayer::hydrographGroupListModel()
+{
+    if (!m_uhGroupListModel) m_uhGroupListModel = new HydrographGroupListModel(this);
+    return m_uhGroupListModel;
+}
+
+HydrographRtkTableModel *SWMMModelLayer::hydrographRtkModel()
+{
+    if (!m_uhRtkModel) m_uhRtkModel = new HydrographRtkTableModel(this);
+    return m_uhRtkModel;
+}
+
+HydrographIaTableModel *SWMMModelLayer::hydrographIaModel()
+{
+    if (!m_uhIaModel) m_uhIaModel = new HydrographIaTableModel(this);
+    return m_uhIaModel;
+}
+
+HydrographDecayTableModel *SWMMModelLayer::hydrographDecayModel()
+{
+    if (!m_uhDecayModel) m_uhDecayModel = new HydrographDecayTableModel(this);
+    return m_uhDecayModel;
 }
 
 bool SWMMModelLayer::applyLinkInteriorVertices(int linkIdx,

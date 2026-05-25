@@ -45,7 +45,9 @@ QList<LegendSymbolItem> CategorizedRenderer::legendSymbolItems() const
         LegendSymbolItem item;
         item.label     = c.label.isEmpty() ? c.value : c.label;
         item.symbol    = c.symbol;
-        item.sortIndex = idx++;
+        item.sortIndex = idx;
+        item.classKey  = QString::number(idx);
+        ++idx;
         items.append(item);
     }
     return items;
@@ -93,6 +95,45 @@ void CategorizedRenderer::fromJson(const QJsonObject &j)
 std::unique_ptr<IFeatureRenderer> CategorizedRenderer::clone() const
 {
     return std::make_unique<CategorizedRenderer>(*this);
+}
+
+// ── Per-class editing (Slice BB Phase 8.6.16) ─────────────────────────
+
+QColor CategorizedRenderer::colorForClass(const QString &classKey) const
+{
+    bool ok = false;
+    const int idx = classKey.toInt(&ok);
+    if (!ok || idx < 0 || idx >= m_categories.size()) return {};
+    for (const SymbolLayer &sl : m_categories.at(idx).symbol.layers) {
+        const auto it = sl.props.constFind(QStringLiteral("color"));
+        if (it != sl.props.constEnd()) {
+            const QColor c(it.value().toString());
+            if (c.isValid()) return c;
+        }
+    }
+    return {};
+}
+
+void CategorizedRenderer::setColorForClass(const QString &classKey, const QColor &color)
+{
+    bool ok = false;
+    const int idx = classKey.toInt(&ok);
+    if (!ok || idx < 0 || idx >= m_categories.size() || !color.isValid())
+        return;
+    const QString hex = color.name(QColor::HexArgb);
+    for (SymbolLayer &sl : m_categories[idx].symbol.layers) {
+        if (sl.props.contains(QStringLiteral("color")))
+            sl.props.insert(QStringLiteral("color"), hex);
+    }
+}
+
+void CategorizedRenderer::setSymbolForClass(const QString &classKey, const SymbolStyle &style)
+{
+    bool ok = false;
+    const int idx = classKey.toInt(&ok);
+    if (!ok || idx < 0 || idx >= m_categories.size())
+        return;
+    m_categories[idx].symbol = style;
 }
 
 } // namespace OpenSWMM::Render

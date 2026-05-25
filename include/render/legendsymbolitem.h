@@ -54,6 +54,10 @@ struct LegendSymbolItem
     QString              userLabel;   /*!< Optional override (BB Phase 8.6.10). Empty = use `label`. */
     bool                 visible = true;  /*!< Whether to render this row in the legend. */
     int                  sortIndex = 0;   /*!< Renderer-supplied default order; can be overridden. */
+    QString              classKey;        /*!< Slice BB Phase 8.6.16 — identifies this row to
+                                               IFeatureRenderer::setColorForClass etc. Renderer-specific:
+                                               "0"…"N" for graduated/categorized, "single" for single-symbol.
+                                               Empty when the renderer doesn't expose per-class editing. */
 
     [[nodiscard]] QJsonObject toJson() const;
     void fromJson(const QJsonObject &j);

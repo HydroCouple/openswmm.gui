@@ -39,6 +39,11 @@ enum class EditorKind {
     Integer,    ///< IntegerDelegate (QSpinBox).
     Enum,       ///< EnumDelegate (QComboBox) with pre-baked pairs.
     Text,       ///< Plain QLineEdit (default delegate); used for Name column.
+    Compound,   ///< CompoundEditDelegate (NodeCompoundEditButton). Used for
+                ///< per-node multi-row attributes (Inflows / DWF / RDII /
+                ///< Treatment) where the cell shows a summary + opens a
+                ///< dedicated dialog. The model returns a
+                ///< NodeCompoundEditRef QVariant for these columns.
 };
 
 /*! Round-4 follow-up 2026-05-12 — semantic unit class.  Resolves to

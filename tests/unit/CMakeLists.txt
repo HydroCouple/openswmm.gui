@@ -94,6 +94,16 @@ add_swmmvis_unit_test(test_profilerouter
     ${PROJECT_SOURCE_DIR}/src/plot/profilerouter.cpp
 )
 
+# Slice BB Phase 8.6.16 — shared model for legend overlay chrome.
+# Needs Qt6::Gui for QColor/QFont; no widget dependencies.
+# Header listed in sources so AUTOMOC picks up the Q_OBJECT macro.
+add_swmmvis_unit_test(test_legendoverlaystyle
+    test_legendoverlaystyle.cpp
+    ${PROJECT_SOURCE_DIR}/include/render/legendoverlaystyle.h
+    ${PROJECT_SOURCE_DIR}/src/render/legendoverlaystyle.cpp
+)
+target_link_libraries(test_legendoverlaystyle PRIVATE Qt6::Gui)
+
 # Slice BC, Stage 2 — chainage, HGL/EGL, and envelope computation.
 add_swmmvis_unit_test(test_profilebuilder
     test_profilebuilder.cpp
@@ -108,3 +118,50 @@ add_swmmvis_unit_test(test_profilenetworkadapter
     ${PROJECT_SOURCE_DIR}/src/plot/profilebuilder.cpp
     ${PROJECT_SOURCE_DIR}/src/plot/profilenetworkadapter.cpp
 )
+
+# ── Slice BQ Phase 6.7.3 — TimeseriesProvider foundation layer ──────────────
+# Four tests covering the shared CSV parser, the MVC model + invariants,
+# the QUndoCommand subclasses, and the project-scoped registry.
+
+add_swmmvis_unit_test(test_timeseries_parse
+    test_timeseries_parse.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/timeseriesparse.cpp
+)
+
+add_swmmvis_unit_test(test_timeseries_provider
+    test_timeseries_provider.cpp
+    ${PROJECT_SOURCE_DIR}/include/timeseries/timeseriesprovider.h
+    ${PROJECT_SOURCE_DIR}/src/timeseries/timeseriesprovider.cpp
+)
+
+add_swmmvis_unit_test(test_timeseries_undocommands
+    test_timeseries_undocommands.cpp
+    ${PROJECT_SOURCE_DIR}/include/timeseries/timeseriesprovider.h
+    ${PROJECT_SOURCE_DIR}/include/timeseries/timeseriesundocommands.h
+    ${PROJECT_SOURCE_DIR}/src/timeseries/timeseriesprovider.cpp
+    ${PROJECT_SOURCE_DIR}/src/timeseries/timeseriesundocommands.cpp
+)
+target_link_libraries(test_timeseries_undocommands PRIVATE Qt6::Widgets)
+
+add_swmmvis_unit_test(test_timeseries_registry
+    test_timeseries_registry.cpp
+    ${PROJECT_SOURCE_DIR}/include/timeseries/timeseriesprovider.h
+    ${PROJECT_SOURCE_DIR}/include/timeseries/timeseriesregistry.h
+    ${PROJECT_SOURCE_DIR}/src/timeseries/timeseriesprovider.cpp
+    ${PROJECT_SOURCE_DIR}/src/timeseries/timeseriesregistry.cpp
+)
+# TimeseriesRegistry::loadFromEngine pulls in openswmm engine headers + symbols.
+if(TARGET openswmm_engine)
+    target_link_libraries(test_timeseries_registry PRIVATE openswmm_engine)
+endif()
+
+add_swmmvis_unit_test(test_timeseries_table_model
+    test_timeseries_table_model.cpp
+    ${PROJECT_SOURCE_DIR}/include/timeseries/timeseriesprovider.h
+    ${PROJECT_SOURCE_DIR}/include/timeseries/timeseriesundocommands.h
+    ${PROJECT_SOURCE_DIR}/include/ui/panels/timeseriestablemodel.h
+    ${PROJECT_SOURCE_DIR}/src/timeseries/timeseriesprovider.cpp
+    ${PROJECT_SOURCE_DIR}/src/timeseries/timeseriesundocommands.cpp
+    ${PROJECT_SOURCE_DIR}/src/ui/panels/timeseriestablemodel.cpp
+)
+target_link_libraries(test_timeseries_table_model PRIVATE Qt6::Widgets)

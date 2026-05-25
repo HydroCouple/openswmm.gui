@@ -32,6 +32,7 @@ class ProfilePathPickerDialog : public QDialog
 public:
     ProfilePathPickerDialog(SWMMModelLayer *model,
                             const QVector<ProfileRouter::Path> &paths,
+                            bool truncated = false,
                             QWidget *parent = nullptr);
 
     /*!

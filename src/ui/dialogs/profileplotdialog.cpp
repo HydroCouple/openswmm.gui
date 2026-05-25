@@ -19,7 +19,9 @@
 #include "plot/profilesourcefetcher.h"
 #include "swmmvisprojectwindow.h"
 #include "core/unitsystem.h"
+#include "plot/plotattribute.h"
 #include "ui/dialogs/profileoptionsdialog.h"
+#include "ui/widgets/attributepickermenu.h"
 #include "ui/widgets/profilelayerpanel.h"
 #include "selection/selectionmanager.h"
 
@@ -553,55 +555,77 @@ void ProfilePlotDialog::buildLayout()
         m_model->setSelectedElementNames(
             QStringList{ m_pathStatic.links[idx].name });
     };
-    // AT.3 — route the right-click "Plot Time Series…" through the same
-    // SWMMVis::openComparisonPlotFor path as every other entry point so
-    // the user gets the modern ComparisonPlotDialog (toolbar, range
-    // slider, hover tooltips, stats panel) instead of the legacy
-    // single-attribute TimeSeriesPlotDialog. The main window subscribes
-    // to plotTimeSeriesRequested in SWMMVis::openProfilePlotFor.
-    auto openTimeSeriesPlotForRef = [this](const SWMMObjectRef &ref) {
-        if (ref.objectType == SWMMObjectRef::Unknown || ref.name.isEmpty())
-            return;
-        emit plotTimeSeriesRequested(ref);
-    };
-    auto plotTimeSeriesForNode = [this, openTimeSeriesPlotForRef](int idx) {
-        if (idx < 0 || idx >= m_pathStatic.nodes.size()) return;
-        SWMMObjectRef ref;
-        ref.objectType = SWMMObjectRef::Node;
-        ref.name       = m_pathStatic.nodes[idx].name;
-        openTimeSeriesPlotForRef(ref);
-    };
-    auto plotTimeSeriesForLink = [this, openTimeSeriesPlotForRef](int idx) {
-        if (idx < 0 || idx >= m_pathStatic.links.size()) return;
-        SWMMObjectRef ref;
-        ref.objectType = SWMMObjectRef::Link;
-        ref.name       = m_pathStatic.links[idx].name;
-        openTimeSeriesPlotForRef(ref);
+    // Resolve the project's current flow-units enum into the
+    // `openswmmvis::plot::UnitSystem` value the picker menu uses so the
+    // attribute labels (ft³/s vs m³/s, etc.) match the rest of the GUI.
+    auto resolvePlotUnitSystem = [this]() {
+        auto *us = m_projectWindow ? m_projectWindow->unitSystem()
+                                   : UnitSystem::instance();
+        return us
+            ? openswmmvis::plot::unitSystemFromFlowUnits(us->flowUnits())
+            : openswmmvis::plot::UnitSystem::US;
     };
 
+    // Right-click "Plot Time Series…" mirrors the map view: instead of a
+    // flat action we expose the same attribute-picker submenu (depth,
+    // flow, velocity, … plus an "All attributes" sentinel). The picked
+    // attribute is forwarded via plotAttributeRequested, which SWMMVis
+    // routes into the ComparisonPlotDialog the same way as map clicks.
     connect(m_plot, &ProfilePlotWidget::nodeRightClicked, this,
             [this, zoomToNode, selectNode, openOptionsDialog,
-             plotTimeSeriesForNode](int idx, const QPoint &globalPos) {
+             resolvePlotUnitSystem](int idx, const QPoint &globalPos) {
+        if (idx < 0 || idx >= m_pathStatic.nodes.size()) return;
         QMenu menu(this);
         QAction *zoomAct = menu.addAction(tr("Zoom to on map"));
-        QAction *plotAct = menu.addAction(tr("Plot Time Series…"));
+        QMenu *plotSubmenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
+            openswmmvis::plot::ObjectRef::Kind::Node,
+            resolvePlotUnitSystem(), &menu);
+        if (plotSubmenu) {
+            plotSubmenu->setTitle(tr("Plot Time Series…"));
+            plotSubmenu->setIcon(QIcon(QStringLiteral(":/swmmvis/Chart")));
+            menu.addMenu(plotSubmenu);
+        }
         QAction *propAct = menu.addAction(tr("Properties…"));
         QAction *chosen  = menu.exec(globalPos);
+        if (!chosen) return;
         if (chosen == zoomAct) { selectNode(idx); zoomToNode(idx); }
-        else if (chosen == plotAct) { selectNode(idx); plotTimeSeriesForNode(idx); }
         else if (chosen == propAct) { openOptionsDialog(); }
+        else if (plotSubmenu && chosen->parent() == plotSubmenu) {
+            selectNode(idx);
+            SWMMObjectRef ref;
+            ref.objectType = SWMMObjectRef::Node;
+            ref.name       = m_pathStatic.nodes[idx].name;
+            emit plotAttributeRequested(
+                ref, openswmmvis::ui::AttributePickerMenu::attributeFrom(chosen));
+        }
     });
     connect(m_plot, &ProfilePlotWidget::linkRightClicked, this,
             [this, zoomToLink, selectLink, openOptionsDialog,
-             plotTimeSeriesForLink](int idx, const QPoint &globalPos) {
+             resolvePlotUnitSystem](int idx, const QPoint &globalPos) {
+        if (idx < 0 || idx >= m_pathStatic.links.size()) return;
         QMenu menu(this);
         QAction *zoomAct = menu.addAction(tr("Zoom to on map"));
-        QAction *plotAct = menu.addAction(tr("Plot Time Series…"));
+        QMenu *plotSubmenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
+            openswmmvis::plot::ObjectRef::Kind::Link,
+            resolvePlotUnitSystem(), &menu);
+        if (plotSubmenu) {
+            plotSubmenu->setTitle(tr("Plot Time Series…"));
+            plotSubmenu->setIcon(QIcon(QStringLiteral(":/swmmvis/Chart")));
+            menu.addMenu(plotSubmenu);
+        }
         QAction *propAct = menu.addAction(tr("Properties…"));
         QAction *chosen  = menu.exec(globalPos);
+        if (!chosen) return;
         if (chosen == zoomAct) { selectLink(idx); zoomToLink(idx); }
-        else if (chosen == plotAct) { selectLink(idx); plotTimeSeriesForLink(idx); }
         else if (chosen == propAct) { openOptionsDialog(); }
+        else if (plotSubmenu && chosen->parent() == plotSubmenu) {
+            selectLink(idx);
+            SWMMObjectRef ref;
+            ref.objectType = SWMMObjectRef::Link;
+            ref.name       = m_pathStatic.links[idx].name;
+            emit plotAttributeRequested(
+                ref, openswmmvis::ui::AttributePickerMenu::attributeFrom(chosen));
+        }
     });
     // Right-click on blank profile background still shows a context menu
     // — Properties remains available, but the element-specific Zoom item

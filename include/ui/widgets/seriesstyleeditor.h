@@ -3,21 +3,21 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  * \license GPL-3.0-or-later
- * \brief  Slice BL-Polish — full-featured per-series style editor widget.
+ * \brief  QPropertyModel-backed per-series style editor.
  *
- * Replaces ComparisonPlotDialog's stop-gap double-click-to-recolor with a
- * proper editor surface that exposes every field of `SeriesStyle`:
- *   - Colour swatch (opens QColorDialog)
- *   - Line: visible toggle / width spin / dash combo
- *   - Marker: visible toggle / shape combo / size spin
- *   - Opacity slider
- *   - Legend name override
+ * Replaces the original hand-rolled form widget with a `QTreeView` driven
+ * by `QPropertyModel` over a `SeriesStyleObject`. Editors for every visual
+ * attribute (colour pickers, font dialogs, enum combos for dash/cap/join,
+ * etc.) come from the QPropertyModel item-delegate machinery — no
+ * per-control wiring is needed here.
  *
- * The widget edits a local `SeriesStyle` and emits `styleChanged(SeriesStyle)`
- * after every keystroke / value-change — the dialog can hook this signal
- * to live-update the rendered chart, then commit the final style to the
- * ComparisonPlotModel on close. Used standalone in a tiny QDialog wrapper
- * launched from the SeriesPanel's right-click "Style…" entry.
+ * Public API is unchanged from the prior version:
+ *   - `setStyle(const SeriesStyle&)` replaces the displayed style
+ *   - `style() const` returns the current edited style
+ *   - `styleChanged(SeriesStyle)` fires on every edit (live preview)
+ *
+ * Hosts pair this with a small modal dialog (Ok/Cancel) or dock it
+ * permanently into a multi-series dialog as a side panel.
  */
 #ifndef OPENSWMMVIS_UI_WIDGETS_SERIESSTYLEEDITOR_H
 #define OPENSWMMVIS_UI_WIDGETS_SERIESSTYLEEDITOR_H
@@ -26,13 +26,10 @@
 
 #include <QWidget>
 
-class QPushButton;
-class QCheckBox;
-class QComboBox;
-class QDoubleSpinBox;
-class QLineEdit;
-class QSlider;
-class QLabel;
+class QTreeView;
+class QPropertyModel;
+
+namespace openswmmvis::plot { class SeriesStyleObject; }
 
 namespace openswmmvis::ui {
 
@@ -41,40 +38,27 @@ class SeriesStyleEditor : public QWidget
     Q_OBJECT
 public:
     explicit SeriesStyleEditor(QWidget *parent = nullptr);
+    ~SeriesStyleEditor() override;
 
-    /*! \brief Replace the current style; updates all controls.
-     *  Suppresses signals while widgets are repopulated. */
+    /*! \brief Replace the displayed style. Refreshes the property tree. */
     void setStyle(const openswmmvis::plot::SeriesStyle& style);
 
     /*! \brief Current style as edited by the user. */
-    [[nodiscard]] openswmmvis::plot::SeriesStyle style() const { return m_style; }
+    [[nodiscard]] openswmmvis::plot::SeriesStyle style() const;
+
+    /*! \brief Underlying QObject — exposed for tests / advanced wiring. */
+    openswmmvis::plot::SeriesStyleObject *styleObject() const { return m_obj; }
 
 signals:
-    /*! \brief Emitted whenever any control changes value. */
+    /*! \brief Emitted whenever any field changes (live preview hook). */
     void styleChanged(const openswmmvis::plot::SeriesStyle& style);
-
-private slots:
-    void onColorClicked();
-    void onAnyControlChanged();
 
 private:
     void buildUi();
-    void pushStyleToControls();
-    QString swatchStyleSheet(const QColor& c) const;
 
-    openswmmvis::plot::SeriesStyle m_style;
-    bool m_suppressSignals = false;
-
-    QPushButton    *m_colorBtn      = nullptr;
-    QCheckBox      *m_lineVisible   = nullptr;
-    QDoubleSpinBox *m_lineWidth     = nullptr;
-    QComboBox      *m_dashCombo     = nullptr;
-    QCheckBox      *m_markerVisible = nullptr;
-    QComboBox      *m_shapeCombo    = nullptr;
-    QDoubleSpinBox *m_markerSize    = nullptr;
-    QSlider        *m_opacitySlider = nullptr;
-    QLabel         *m_opacityLabel  = nullptr;
-    QLineEdit      *m_legendEdit    = nullptr;
+    openswmmvis::plot::SeriesStyleObject *m_obj   = nullptr;
+    QPropertyModel                       *m_model = nullptr;
+    QTreeView                            *m_tree  = nullptr;
 };
 
 } // namespace openswmmvis::ui

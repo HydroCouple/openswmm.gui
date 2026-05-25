@@ -17,6 +17,7 @@
 #ifndef OPENSWMM_RENDER_SINGLESYMBOLRENDERER_H
 #define OPENSWMM_RENDER_SINGLESYMBOLRENDERER_H
 
+#include "render/datadefined.h"
 #include "render/ifeaturerenderer.h"
 
 namespace OpenSWMM::Render
@@ -45,6 +46,17 @@ public:
     [[nodiscard]] const QString &legendLabel() const { return m_legendLabel; }
     void setLegendLabel(QString label) { m_legendLabel = std::move(label); }
 
+    /*!
+     * \brief Slice BI Phase 8.13.43-α — data-defined size/width override.
+     *        When set, `symbolFor` evaluates the override against each
+     *        feature's attribute value and writes the resolved scalar
+     *        into the symbol's `props["size"]` (markers) or `props["width"]`
+     *        (lines) before returning the style. When empty (default),
+     *        the static size in `m_symbol` is used.
+     */
+    [[nodiscard]] const DataDefinedScalar &sizeData() const { return m_sizeData; }
+    void setSizeData(DataDefinedScalar d) { m_sizeData = std::move(d); }
+
     // IFeatureRenderer.
     [[nodiscard]] QString rendererId() const override { return QStringLiteral("single"); }
     [[nodiscard]] SymbolStyle symbolFor(const FeatureRef &f,
@@ -54,9 +66,20 @@ public:
     void fromJson(const QJsonObject &j) override;
     [[nodiscard]] std::unique_ptr<IFeatureRenderer> clone() const override;
 
+    // ── Per-class editing (Slice BB Phase 8.6.16) ──────────────────────
+    // Only one class ("single"). All four kinds mutate the stored m_symbol
+    // directly — there is no override hash because there is only one row.
+    [[nodiscard]] bool supportsClassEdit(ClassEditKind /*kind*/) const override { return true; }
+    [[nodiscard]] QColor colorForClass(const QString &classKey) const override;
+    void setColorForClass(const QString &classKey, const QColor &color) override;
+    void setSizeForClass(const QString &classKey, qreal size) override;
+    void setWidthForClass(const QString &classKey, qreal width) override;
+    void setSymbolForClass(const QString &classKey, const SymbolStyle &style) override;
+
 private:
-    SymbolStyle m_symbol;
-    QString     m_legendLabel;
+    SymbolStyle       m_symbol;
+    QString           m_legendLabel;
+    DataDefinedScalar m_sizeData;   /*!< Slice BI Phase 8.13.43-α — opt-in. */
 };
 
 } // namespace OpenSWMM::Render

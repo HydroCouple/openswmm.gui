@@ -11,9 +11,8 @@
 #define GISRASTERLAYER_H
 
 #include "layers/openswmmvislayer.h"
+#include "render/colorramp.h"
 
-#include <QColor>
-#include <QGradientStops>
 #include <QImage>
 #include <QString>
 
@@ -28,38 +27,9 @@ class RasterTileItem;
 
 namespace OpenSWMM::Render { class IRasterRenderer; }
 
-/*!
- * \struct RasterColorRamp
- * \brief Defines a gradient mapping from raster value → display colour.
- */
-struct RasterColorRamp
-{
-    double           minValue  = 0.0;
-    double           maxValue  = 1.0;
-    QGradientStops   stops;    /*!< Sorted list of (position [0..1], QColor) pairs. */
-    bool             clampMin  = false; /*!< When true, values below minValue are transparent. */
-    bool             clampMax  = false; /*!< When true, values above maxValue are transparent. */
-
-    /*!
-     * \brief Returns the interpolated colour for a normalised position in [0,1].
-     */
-    [[nodiscard]] QColor colorAt(double normalisedPos) const;
-
-    /*!
-     * \brief Returns the colour for a raw data value.
-     */
-    [[nodiscard]] QColor colorForValue(double value) const;
-
-    /*!
-     * \brief A standard grayscale ramp from black (min) to white (max).
-     */
-    [[nodiscard]] static RasterColorRamp grayscale(double min = 0.0, double max = 255.0);
-
-    /*!
-     * \brief A viridis-like perceptually-uniform ramp.
-     */
-    [[nodiscard]] static RasterColorRamp viridis(double min = 0.0, double max = 1.0);
-};
+// RasterColorRamp is defined in render/colorramp.h (relocated 2026-05-24,
+// Slice BB-α). Kept at global scope for back-compat with existing callers
+// + Q_DECLARE_METATYPE.
 
 /*!
  * \class GISRasterLayer
@@ -245,6 +215,6 @@ private:
 };
 
 Q_DECLARE_METATYPE(GISRasterLayer *)
-Q_DECLARE_METATYPE(RasterColorRamp)
+// Q_DECLARE_METATYPE(RasterColorRamp) is in render/colorramp.h (Slice BB-α).
 
 #endif // GISRASTERLAYER_H

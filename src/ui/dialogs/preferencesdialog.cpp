@@ -140,6 +140,82 @@ QWidget *PreferencesDialog::buildGeneralPage()
         "The status-bar engine picker remains available for per-project overrides."));
     f->addRow(tr("Default engine mode"), m_defaultEngineCombo);
 
+    m_profileMaxPathsSpin = new QSpinBox(page);
+    m_profileMaxPathsSpin->setRange(1, 1000000);
+    m_profileMaxPathsSpin->setSingleStep(10);
+    m_profileMaxPathsSpin->setToolTip(tr(
+        "Maximum number of candidate paths the profile-plot tool will "
+        "enumerate between two selected nodes before truncating. Results "
+        "are sorted shortest first, so raising this exposes the longer "
+        "detours through additional loops in the network. Exhaustive "
+        "enumeration is worst-case exponential — very high values may "
+        "freeze the UI briefly on heavily-meshed networks."));
+    f->addRow(tr("Max profile candidate paths"), m_profileMaxPathsSpin);
+
+    m_profileHaloRadiusSpin = new QSpinBox(page);
+    m_profileHaloRadiusSpin->setRange(1, 200);
+    m_profileHaloRadiusSpin->setSuffix(tr(" px"));
+    m_profileHaloRadiusSpin->setToolTip(tr(
+        "Radius of the start/end endpoint halo drawn on the map while a "
+        "profile is being picked. Halo size is in screen pixels and stays "
+        "constant regardless of map zoom. Defaults to 10 px, which sits "
+        "slightly outside the default 8 px junction marker."));
+    f->addRow(tr("Profile endpoint halo radius"), m_profileHaloRadiusSpin);
+
+    // Helper that paints a color-swatch onto a QPushButton and updates the
+    // associated "pending" QColor when the user picks a new colour via
+    // QColorDialog.
+    auto wireColorButton = [this](QPushButton *btn,
+                                  QColor &pending,
+                                  const QString &dialogTitle) {
+        btn->setMinimumWidth(120);
+        btn->setAutoFillBackground(true);
+        connect(btn, &QPushButton::clicked, this,
+                [this, btn, &pending, dialogTitle]() {
+            const QColor c = QColorDialog::getColor(
+                pending.isValid() ? pending : Qt::black,
+                this,
+                dialogTitle,
+                QColorDialog::ShowAlphaChannel);
+            if (!c.isValid()) return;
+            pending = c;
+            const QString css = QStringLiteral(
+                "QPushButton { background-color: %1; color: %2; "
+                "border: 1px solid #777; padding: 3px 8px; }")
+                .arg(c.name(QColor::HexRgb),
+                     c.lightness() > 128 ? QStringLiteral("black")
+                                         : QStringLiteral("white"));
+            btn->setStyleSheet(css);
+            btn->setText(c.name(QColor::HexRgb).toUpper());
+        });
+    };
+
+    m_profileStartColorBtn = new QPushButton(page);
+    wireColorButton(m_profileStartColorBtn,
+                    m_pendingProfileStartColor,
+                    tr("Profile start endpoint colour"));
+    f->addRow(tr("Profile start halo colour"), m_profileStartColorBtn);
+
+    m_profileStartWidthSpin = new QDoubleSpinBox(page);
+    m_profileStartWidthSpin->setRange(0.5, 20.0);
+    m_profileStartWidthSpin->setSingleStep(0.5);
+    m_profileStartWidthSpin->setDecimals(1);
+    m_profileStartWidthSpin->setSuffix(tr(" px"));
+    f->addRow(tr("Profile start halo width"), m_profileStartWidthSpin);
+
+    m_profileEndColorBtn = new QPushButton(page);
+    wireColorButton(m_profileEndColorBtn,
+                    m_pendingProfileEndColor,
+                    tr("Profile end endpoint colour"));
+    f->addRow(tr("Profile end halo colour"), m_profileEndColorBtn);
+
+    m_profileEndWidthSpin = new QDoubleSpinBox(page);
+    m_profileEndWidthSpin->setRange(0.5, 20.0);
+    m_profileEndWidthSpin->setSingleStep(0.5);
+    m_profileEndWidthSpin->setDecimals(1);
+    m_profileEndWidthSpin->setSuffix(tr(" px"));
+    f->addRow(tr("Profile end halo width"), m_profileEndWidthSpin);
+
     return page;
 }
 
@@ -879,6 +955,28 @@ void PreferencesDialog::readFromManager()
         const int idx = m_defaultEngineCombo->findData(currentEngine);
         m_defaultEngineCombo->setCurrentIndex(idx >= 0 ? idx : 0);
     }
+    m_profileMaxPathsSpin->setValue(p->profileMaxPaths());
+
+    {
+        auto applyColor = [](QPushButton *btn, QColor &held, const QColor &c) {
+            held = c;
+            const QString css = QStringLiteral(
+                "QPushButton { background-color: %1; color: %2; "
+                "border: 1px solid #777; padding: 3px 8px; }")
+                .arg(c.name(QColor::HexRgb),
+                     c.lightness() > 128 ? QStringLiteral("black")
+                                         : QStringLiteral("white"));
+            btn->setStyleSheet(css);
+            btn->setText(c.name(QColor::HexRgb).toUpper());
+        };
+        m_profileHaloRadiusSpin->setValue(p->profileEndpointHaloRadiusPx());
+        const QPen sp = p->profileStartEndpointPen();
+        const QPen ep = p->profileEndEndpointPen();
+        applyColor(m_profileStartColorBtn, m_pendingProfileStartColor, sp.color());
+        m_profileStartWidthSpin->setValue(sp.widthF());
+        applyColor(m_profileEndColorBtn,   m_pendingProfileEndColor,   ep.color());
+        m_profileEndWidthSpin->setValue(ep.widthF());
+    }
 
     m_clickTolerancePxSpin->setValue(p->clickTolerancePx());
     m_dragThresholdPxSpin->setValue(p->dragThresholdPx());
@@ -1024,6 +1122,21 @@ void PreferencesDialog::writeToManager()
     LicenseAgreementDialog::setShowOnStartup(m_showLicenseOnStartupBox->isChecked());
     p->setAutoLengthEnabled(m_autoLengthBox->isChecked());
     p->setDefaultEngineMode(m_defaultEngineCombo->currentData().toString());
+    p->setProfileMaxPaths(m_profileMaxPathsSpin->value());
+
+    p->setProfileEndpointHaloRadiusPx(m_profileHaloRadiusSpin->value());
+    if (m_pendingProfileStartColor.isValid()) {
+        QPen sp(m_pendingProfileStartColor);
+        sp.setWidthF(m_profileStartWidthSpin->value());
+        sp.setCosmetic(true);
+        p->setProfileStartEndpointPen(sp);
+    }
+    if (m_pendingProfileEndColor.isValid()) {
+        QPen ep(m_pendingProfileEndColor);
+        ep.setWidthF(m_profileEndWidthSpin->value());
+        ep.setCosmetic(true);
+        p->setProfileEndEndpointPen(ep);
+    }
 
     p->setClickTolerancePx(m_clickTolerancePxSpin->value());
     p->setDragThresholdPx(m_dragThresholdPxSpin->value());
@@ -1160,6 +1273,27 @@ void PreferencesDialog::onResetToDefaults()
     {
         const int idx = m_defaultEngineCombo->findData(QLatin1String(SWMM_VERSION));
         m_defaultEngineCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+    }
+    m_profileMaxPathsSpin->setValue(100);
+    m_profileHaloRadiusSpin->setValue(10);
+    {
+        auto applyColor = [](QPushButton *btn, QColor &held, const QColor &c) {
+            held = c;
+            const QString css = QStringLiteral(
+                "QPushButton { background-color: %1; color: %2; "
+                "border: 1px solid #777; padding: 3px 8px; }")
+                .arg(c.name(QColor::HexRgb),
+                     c.lightness() > 128 ? QStringLiteral("black")
+                                         : QStringLiteral("white"));
+            btn->setStyleSheet(css);
+            btn->setText(c.name(QColor::HexRgb).toUpper());
+        };
+        applyColor(m_profileStartColorBtn, m_pendingProfileStartColor,
+                   QColor(0x2c, 0xa0, 0x2c));
+        m_profileStartWidthSpin->setValue(3.0);
+        applyColor(m_profileEndColorBtn,   m_pendingProfileEndColor,
+                   QColor(0xd6, 0x27, 0x28));
+        m_profileEndWidthSpin->setValue(3.0);
     }
 
     m_clickTolerancePxSpin->setValue(16);

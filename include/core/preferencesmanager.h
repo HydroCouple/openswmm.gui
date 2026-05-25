@@ -19,8 +19,11 @@
 #ifndef PREFERENCESMANAGER_H
 #define PREFERENCESMANAGER_H
 
+#include "render/colorramp.h"
+
 #include <QBrush>
 #include <QColor>
+#include <QMap>
 #include <QObject>
 #include <QPen>
 #include <QSettings>
@@ -149,6 +152,17 @@ public:
      *  the Preferences dialog's "Reset to defaults" button. */
     void resetLinkPenToDefault(const QString &linkType);
 
+    // ── Rendering / Custom color ramps (Slice BB-α) ──────────────────────
+    /*! User-authored colour ramps keyed by display name, stored under
+     *  SWMMVis/Preferences/Rendering/CustomRamps as a JSON array. Each
+     *  entry is the RasterColorRamp::toJson() payload plus a "name"
+     *  field. Reads return the latest persisted map; writes update both
+     *  the in-memory cache and QSettings. Emits preferenceChanged with
+     *  group "Rendering", key "CustomRamps". */
+    [[nodiscard]] QMap<QString, RasterColorRamp> customColorRamps() const;
+    void saveCustomColorRamp(const QString &name, const RasterColorRamp &ramp);
+    void removeCustomColorRamp(const QString &name);
+
     // ── Simulation ───────────────────────────────────────────────────────
     /*! Progress-tick interval (ms) for live UI updates while a
      *  simulation runs. 1 Hz by default — short enough to feel live,
@@ -162,6 +176,35 @@ public:
      *  overrides live in `.oswp` (Slice BA Phase 8.5). */
     [[nodiscard]] double animationSpeed() const;
     void setAnimationSpeed(double speed);
+
+    // ── Profile plot path discovery ──────────────────────────────────────
+    /*! Maximum number of candidate simple paths the profile-plot tool will
+     *  enumerate between two endpoints before truncating.  Default 100.
+     *  Range 1–1000000 (the upper bound is a sanity floor — exhaustive
+     *  enumeration is exponential in the worst case so very high values
+     *  may freeze the UI on heavily-meshed networks; the router's
+     *  wall-clock soft cap will still bail out before total hang). */
+    [[nodiscard]] int  profileMaxPaths() const;
+    void setProfileMaxPaths(int n);
+
+    /*! Radius (in screen pixels, not scene units) of the start/end endpoint
+     *  halo drawn on the map while a profile is being picked.  The halo is
+     *  cosmetic — its size stays constant regardless of map zoom.  Default
+     *  10 px, which sits slightly outside the default 8 px junction marker
+     *  so the halo reads clearly as an indicator without occluding the
+     *  node glyph. */
+    [[nodiscard]] int  profileEndpointHaloRadiusPx() const;
+    void setProfileEndpointHaloRadiusPx(int px);
+
+    /*! Pen used to stroke the start-endpoint halo.  Width is also in screen
+     *  pixels (the pen is cosmetic).  Default: solid green, width 3 px. */
+    [[nodiscard]] QPen profileStartEndpointPen() const;
+    void setProfileStartEndpointPen(const QPen &pen);
+
+    /*! Pen used to stroke the end-endpoint halo.  Default: solid red,
+     *  width 3 px. */
+    [[nodiscard]] QPen profileEndEndpointPen() const;
+    void setProfileEndEndpointPen(const QPen &pen);
 
     // ── Map Decorations / Scale Bar ──────────────────────────────────────
     [[nodiscard]] QColor  scaleBarPenColor()     const;
