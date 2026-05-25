@@ -131,6 +131,13 @@ private slots:
     void onAnimationCursorToggled(bool checked);
     void onAddSystemSeriesClicked();
 
+    // CP.1 — view-pane visibility toggles. Each persists splitter sizes
+    // before hiding so the previous user-set width restores on re-show.
+    void onShowSeriesToggled(bool show);
+    void onShowStatsToggled(bool show);
+    void onShowSliderToggled(bool show);
+    void onChartsOnlyToggled(bool chartsOnly);
+
 private:
     void buildUi();
     void buildToolBar();
@@ -159,6 +166,8 @@ private:
     QSplitter   *m_chartsOuter      = nullptr;   ///< Slice AT.3: outer splitter (charts | range slider | stats panel)
     RangeSliderWidget *m_rangeSlider = nullptr;  ///< AT.3 — X-range slider under the chart rows
     QLabel      *m_rangeLabel       = nullptr;   ///< AT.3 polish — datetime label for slider window
+    QWidget     *m_sliderHost       = nullptr;   ///< CP.1 — slider row container (toggle target)
+    QWidget     *m_leftHost         = nullptr;   ///< CP.1 — series tree container (toggle target)
     StatsSummaryPanel *m_statsPanel  = nullptr;  ///< AT.3 — stats tabs docked under range slider
 
     // Slice AT.2 — top toolbar
@@ -173,6 +182,18 @@ private:
     QAction      *m_actAnimCursor   = nullptr;
     QAction      *m_actAddSystem    = nullptr;
     QAction      *m_actAddFromMap   = nullptr;
+
+    // CP.1 — View toggles. Each is checkable + persistent across the
+    // session. Toggling "Charts Only" off snapshots the current visible
+    // state so the previous user-set splitter sizes restore on toggle-on.
+    QAction      *m_actShowSeries   = nullptr;  ///< Show/hide left series panel
+    QAction      *m_actShowStats    = nullptr;  ///< Show/hide bottom stats panel
+    QAction      *m_actShowSlider   = nullptr;  ///< Show/hide X-range slider row
+    QAction      *m_actChartsOnly   = nullptr;  ///< Convenience: all three off
+
+    // Cached splitter sizes for restore when a pane is re-shown.
+    QList<int>    m_savedSplitterSizes;       ///< outer (series | charts)
+    QList<int>    m_savedChartsOuterSizes;    ///< charts | slider | stats
 
     // Per-row chart bookkeeping. Key = row index in model->rows().
     struct RowWidgets {

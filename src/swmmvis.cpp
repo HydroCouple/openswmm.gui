@@ -31,6 +31,7 @@
 #include <QDir>
 #include <QInputDialog>
 #include <QJsonDocument>
+#include <QCursor>      // Slice PT.1 — exec menu at pointer
 #include <QMenu>
 #include <QMenuBar>
 #include <QToolBar>
@@ -54,6 +55,7 @@
 #include "legacy_version.h"
 
 #include "core/unitsystem.h"
+#include "ui/widgets/attributepickermenu.h"  // Slice PT.1 — picker for plotTimeSeries
 #include "core/preferencesmanager.h"
 #include "map/mapcanvas.h"
 #include "map/spatialreferencesystem.h"
@@ -62,6 +64,14 @@
 #include "project/openswmmvisworkspace.h"
 #include "project/projectserializer.h"
 #include "layers/swmmmodellayer.h"
+
+// Slice BI-MK.LT — renderer classes used by onLayerKindStyleRequested.
+#include "render/colorramp.h"
+#include "render/ifeaturerenderer.h"
+#include "render/intervalbinner.h"
+#include "render/renderers/categorizedrenderer.h"
+#include "render/renderers/graduatedrenderer.h"
+#include "render/renderers/singlesymbolrenderer.h"
 #include "swmmvisprojectwindow.h"
 #include "core/crsreproject.h"
 #include "ui/dialogs/crsselectiondialog.h"
@@ -69,7 +79,6 @@
 #include "ui/dialogs/aboutdialog.h"
 #include "ui/dialogs/layerpropertiesdialog.h"
 #include "ui/dialogs/meshgenerationdialog.h"
-#include "ui/dialogs/newdataobjectdialog.h"
 #include "ui/dialogs/newprojectdialog.h"
 #include "ui/dialogs/pluginsdialog.h"
 #include "ui/dialogs/preferencesdialog.h"
@@ -1034,6 +1043,161 @@ void SWMMVis::initializeLayersDockWidget()
                                       QStringLiteral("symbology-apply"));
                 }
             });
+
+    // Slice BI-MK.LT — right-click on a kind sub-row's Style submenu. The
+    // signal carries (layer, kindOrdinal, rendererId) where rendererId is
+    // "single" / "graduated" / "categorized" (or empty for "open dialog").
+    // BI-MK.1 dialog isn't shipped yet, so for v1 we install a default-
+    // configured renderer of the matching class and let canvas paint /
+    // legend pick it up; the user can later tune attribute / ramp via
+    // the dialog when BI-MK.1 lands.
+    connect(mLayerTreePanel, &LayerTreePanel::layerKindStyleRequested,
+            this, &SWMMVis::onLayerKindStyleRequested);
+
+    // Slice PT.1 — kind-row "Plot timeseries…" → build a SWMMObjectRef
+    // from kindOrdinal + name and route to the existing AT.2 picker
+    // (openTimeSeriesPlotFor pops the variable menu + opens Comparison
+    // Plot Dialog).
+    connect(mLayerTreePanel, &LayerTreePanel::plotKindObjectRequested,
+            this, [this](int kindOrd, const QString &name) {
+                if (name.isEmpty()) return;
+                SWMMObjectRef ref;
+                ref.name = name;
+                const auto cat = static_cast<SWMMModelLayer::Category>(kindOrd);
+                switch (cat) {
+                case SWMMModelLayer::CatJunctions:
+                case SWMMModelLayer::CatOutfalls:
+                case SWMMModelLayer::CatStorage:
+                case SWMMModelLayer::CatDividers:
+                    ref.objectType = SWMMObjectRef::Node;     break;
+                case SWMMModelLayer::CatConduits:
+                case SWMMModelLayer::CatPumps:
+                case SWMMModelLayer::CatOrifices:
+                case SWMMModelLayer::CatWeirs:
+                case SWMMModelLayer::CatOutlets:
+                    ref.objectType = SWMMObjectRef::Link;     break;
+                case SWMMModelLayer::CatSubcatchments:
+                    ref.objectType = SWMMObjectRef::Subcatchment; break;
+                case SWMMModelLayer::CatRainGages:
+                    ref.objectType = SWMMObjectRef::RainGage; break;
+                default:
+                    ref.objectType = SWMMObjectRef::Unknown;  break;
+                }
+                openTimeSeriesPlotFor(ref);
+            });
+}
+
+void SWMMVis::onLayerKindStyleRequested(OpenSWMMVisLayer *layer,
+                                        int kindOrdinal,
+                                        const QString &rendererId)
+{
+    if (kindOrdinal < 0 || kindOrdinal >= SWMMModelLayer::NumCategories) return;
+    const auto cat = static_cast<SWMMModelLayer::Category>(kindOrdinal);
+
+    auto *swmm    = qobject_cast<SWMMModelLayer   *>(layer);
+    auto *results = qobject_cast<SWMMResultsLayer *>(layer);
+    if (!swmm && !results) return;
+
+    using namespace OpenSWMM::Render;
+
+    // Slice CTX.2 — smart Style submenu. Whether the user picked
+    // Single/Graduated/Categorized, the rule is:
+    //   1. If the kind's CURRENT renderer matches the requested class,
+    //      keep its tuning intact and just open the dialog scoped to
+    //      that kind + tab. Picking the same class twice no longer
+    //      destroys the user's settings.
+    //   2. If the class differs (or no class was requested), install
+    //      sensible defaults for the new class, THEN open the dialog.
+    // Slice OUT.3 — same logic now applies to SWMMResultsLayer kind
+    // rows; default attribute candidates come from the output-layer
+    // candidate helper (NodeDepth / LinkFlow / SubcatchRunoff).
+    IFeatureRenderer *cur = swmm ? swmm->kindRenderer(cat)
+                                 : results->kindRenderer(cat);
+    const QString currentClass = cur ? cur->rendererId() : QString();
+
+    if (!rendererId.isEmpty() && rendererId != currentClass) {
+        // Sensible-defaults config for the new renderer class.
+        std::unique_ptr<IFeatureRenderer> next;
+        if (rendererId == QStringLiteral("single")) {
+            if (swmm) swmm->resetKindRendererToDefaults(cat);
+            else      results->resetKindRendererToDefaults(cat);
+            if (auto *cv = activeCanvas())
+                cv->invalidate(MapCanvas::Scene,
+                               QStringLiteral("symbology-apply"));
+            // Fall through to open the dialog scoped to the kind.
+        } else if (rendererId == QStringLiteral("graduated")) {
+            auto g = std::make_unique<GraduatedRenderer>();
+            if (swmm) {
+                switch (cat) {
+                case SWMMModelLayer::CatJunctions:
+                case SWMMModelLayer::CatOutfalls:
+                case SWMMModelLayer::CatStorage:
+                case SWMMModelLayer::CatDividers:
+                    g->setClassifyAttribute(QStringLiteral("maxDepth")); break;
+                case SWMMModelLayer::CatConduits:
+                    g->setClassifyAttribute(QStringLiteral("geom1")); break;
+                case SWMMModelLayer::CatPumps:
+                case SWMMModelLayer::CatOrifices:
+                case SWMMModelLayer::CatWeirs:
+                case SWMMModelLayer::CatOutlets:
+                    g->setClassifyAttribute(QStringLiteral("maxFlow")); break;
+                case SWMMModelLayer::CatSubcatchments:
+                    g->setClassifyAttribute(QStringLiteral("area")); break;
+                case SWMMModelLayer::CatRainGages:
+                    g->setClassifyAttribute(QStringLiteral("recordingInterval")); break;
+                default: break;
+                }
+            } else {
+                // Output layer: pick the scope's primary result variable
+                // (matches the per-kind renderer defaults in OUT.1).
+                switch (cat) {
+                case SWMMModelLayer::CatJunctions:
+                case SWMMModelLayer::CatOutfalls:
+                case SWMMModelLayer::CatStorage:
+                case SWMMModelLayer::CatDividers:
+                    g->setClassifyAttribute(QStringLiteral("NodeDepth")); break;
+                case SWMMModelLayer::CatConduits:
+                case SWMMModelLayer::CatPumps:
+                case SWMMModelLayer::CatOrifices:
+                case SWMMModelLayer::CatWeirs:
+                case SWMMModelLayer::CatOutlets:
+                    g->setClassifyAttribute(QStringLiteral("LinkFlow")); break;
+                case SWMMModelLayer::CatSubcatchments:
+                    g->setClassifyAttribute(QStringLiteral("SubcatchRunoff")); break;
+                default: break;
+                }
+            }
+            g->setRamp(RasterColorRamp::viridis(0.0, 1.0));
+            IntervalBinner b;
+            b.setMethod(BinMethod::EqualInterval);
+            b.setBinCount(5);
+            g->setBinner(b);
+            next = std::move(g);
+        } else if (rendererId == QStringLiteral("categorized")) {
+            auto c = std::make_unique<CategorizedRenderer>();
+            c->setClassifyAttribute(QStringLiteral("tag"));
+            next = std::move(c);
+        }
+
+        if (next) {
+            if (swmm) swmm->setKindRenderer(cat, std::move(next));
+            else      results->setKindRenderer(cat, std::move(next));
+            if (auto *cv = activeCanvas())
+                cv->invalidate(MapCanvas::Scene,
+                               QStringLiteral("symbology-apply"));
+        }
+    }
+    // If rendererId matches currentClass, we preserve the tuning and
+    // fall through directly to the dialog — that's the CTX.2 fix.
+
+    // Open the kind-scoped dialog with the right tab pre-selected.
+    openswmmvis::ui::SymbologyDialog dlg(layer, kindOrdinal,
+                                          rendererId, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        if (auto *cv = activeCanvas())
+            cv->invalidate(MapCanvas::Scene,
+                           QStringLiteral("symbology-apply"));
+    }
 }
 
 void SWMMVis::initializeObjectBrowserDockWidget()
@@ -1064,10 +1228,57 @@ void SWMMVis::initializeObjectBrowserDockWidget()
 
 void SWMMVis::openTimeSeriesPlotFor(const SWMMObjectRef &ref)
 {
-    // Slice BL — backwards-compat shim. Forwards to the new
-    // Comparison Plot Dialog; existing object-browser / canvas
-    // right-click wiring keeps working.
-    openComparisonPlotFor(ref);
+    // Slice PT.1 — was: forward to openComparisonPlotFor (default
+    // attribute only). Now: pop AttributePickerMenu first so the user
+    // picks WHICH variable to plot. Used by both ObjectBrowserPanel
+    // and MapToolSelect's right-click → "Plot Time Series" entry.
+
+    using openswmmvis::plot::ObjectRef;
+    using openswmmvis::plot::PlotAttribute;
+
+    // Map SWMMObjectRef kind → plot::ObjectRef::Kind.
+    ObjectRef::Kind kind = ObjectRef::Kind::Unknown;
+    switch (ref.objectType) {
+    case SWMMObjectRef::Node:         kind = ObjectRef::Kind::Node;     break;
+    case SWMMObjectRef::Link:         kind = ObjectRef::Kind::Link;     break;
+    case SWMMObjectRef::Subcatchment: kind = ObjectRef::Kind::Subcatch; break;
+    default:                          break;
+    }
+    if (kind == ObjectRef::Kind::Unknown) {
+        // Non-plottable kind — fall back to the existing path which
+        // shows a friendly "no plot available" tooltip via the dialog.
+        openComparisonPlotFor(ref);
+        return;
+    }
+
+    const auto units = UnitSystem::instance() && UnitSystem::instance()->isSI()
+        ? openswmmvis::plot::UnitSystem::SI
+        : openswmmvis::plot::UnitSystem::US;
+    QMenu *menu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
+        kind, units, this);
+    if (!menu) {
+        openComparisonPlotFor(ref);
+        return;
+    }
+
+    menu->setTitle(tr("Plot %1 …").arg(ref.name));
+    // Pop at the cursor so the menu lands on the user's pointer
+    // (works for ObjectBrowserPanel right-click + MapToolSelect both).
+    QAction *picked = menu->exec(QCursor::pos());
+    const PlotAttribute attr = picked
+        ? openswmmvis::ui::AttributePickerMenu::attributeFrom(picked)
+        : PlotAttribute::Unknown;
+    menu->deleteLater();
+
+    if (!picked) return;   // user cancelled
+
+    if (attr == PlotAttribute::Unknown) {
+        // "All attributes" sentinel — fall back to the default-only path
+        // (the dialog handles multi-series itself).
+        openComparisonPlotFor(ref);
+    } else {
+        openComparisonPlotForAttribute(ref, attr);
+    }
 }
 
 void SWMMVis::openComparisonPlotFor(const SWMMObjectRef &ref)
@@ -1425,12 +1636,12 @@ void SWMMVis::openProfilePlotFor(const ProfileRouter::Path &path)
     auto *dlg = new ProfilePlotDialog(model, mAnimationController, path,
                                       pw, /*parent=*/nullptr);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    // AT.3 — route the profile dialog's "Plot Time Series…" right-click
-    // through the same ComparisonPlotDialog path as every other entry
-    // point. The user gets toolbar / range slider / hover / stats tab
-    // instead of the legacy single-attribute dialog.
-    connect(dlg, &ProfilePlotDialog::plotTimeSeriesRequested,
-            this, &SWMMVis::openComparisonPlotFor);
+    // Route the profile dialog's attribute-picker right-click into the
+    // same ComparisonPlotDialog path as the map view, so the user picks
+    // the variable to plot (depth, flow, …) directly from the submenu
+    // rather than getting whatever the dialog defaults to.
+    connect(dlg, &ProfilePlotDialog::plotAttributeRequested,
+            this, &SWMMVis::openComparisonPlotForAttribute);
     dlg->show();
 }
 
@@ -1723,27 +1934,22 @@ void SWMMVis::initializeMenus()
     //
     // Inserts a new top-level "Data" menu between "View" and "Tools" so the
     // user has a keyboard-accelerated path to "Add New <Type>…" without
-    // hunting through the Object Browser context menu. Each menu item opens
-    // the typed `NewDataObjectDialog` (DA.3) — auto-suggested name + per-
-    // type subtype combo — and dispatches through
-    // `ObjectBrowserPanel::addNewDataObject`, same code path as the
-    // browser's right-click → "Add New…" action.
+    // hunting through the Object Browser context menu. Per Slice
+    // BM.0-Add-New (2026-05-24), each menu item dispatches through
+    // `ObjectBrowserPanel::launchAddNewEditor` — which launches the
+    // category's complex MVC editor in create mode (Time Series / Unit
+    // Hydrographs) or is disabled for gap categories with a tooltip
+    // naming the future editor slice. The legacy `NewDataObjectDialog`
+    // is removed.
     //
     // The toolbar strip (BM.0.4) lives at the right end of the existing
     // Edit toolbar with the five most-used types: Time Series, Curve,
     // Time Pattern, LID Control, Pollutant.
     {
         // Helper closure capturing `this`; reused by both the menu and the
-        // toolbar so the dialog UX stays consistent.
-        auto promptAndAdd = [this](SWMMModelLayer::DataCategory dc) {
-            if (!mObjectBrowserPanel) return;
-            auto *layer = mActiveProjectWindow
-                          ? mActiveProjectWindow->modelLayer()
-                          : nullptr;
-            auto spec = NewDataObjectDialog::getNew(dc, layer, this);
-            if (!spec) return;
-            mObjectBrowserPanel->addNewDataObject(
-                spec->category, spec->name, spec->options);
+        // toolbar so the dispatch path stays consistent.
+        auto launchAddNew = [this](SWMMModelLayer::DataCategory dc) {
+            if (mObjectBrowserPanel) mObjectBrowserPanel->launchAddNewEditor(dc);
         };
 
         auto *menuData = new QMenu(tr("&Data"), this);
@@ -1776,9 +1982,16 @@ void SWMMVis::initializeMenus()
         };
         for (const auto &e : kEntries) {
             auto *act = menuData->addAction(tr(e.menuLabel));
+            // Slice BM.0-Add-New — disable gap categories with a tooltip
+            // naming the future editor slice (mirrors the Object Browser
+            // context-menu behaviour).
+            if (!ObjectBrowserPanel::hasComplexEditor(e.dc)) {
+                act->setEnabled(false);
+                act->setToolTip(ObjectBrowserPanel::gapTooltipFor(e.dc));
+            }
             connect(act, &QAction::triggered, this,
-                    [promptAndAdd, dc = e.dc] {
-                promptAndAdd(dc);
+                    [launchAddNew, dc = e.dc] {
+                launchAddNew(dc);
             });
             if (e.separatorAfter) menuData->addSeparator();
         }
@@ -1810,10 +2023,19 @@ void SWMMVis::initializeMenus()
                 auto *act = editBar->addAction(
                     QIcon(QStringLiteral(":/swmmvis/Layers")),
                     tr(e.tooltip));
-                act->setToolTip(tr(e.tooltip));
+                // Slice BM.0-Add-New — gap categories greyed out with a
+                // tooltip naming the future editor slice. Today only Time
+                // Series is live among the 5 toolbar entries; the other 4
+                // (Curve / Pattern / LID / Pollutant) wait on BO/BP/BQ.
+                if (!ObjectBrowserPanel::hasComplexEditor(e.dc)) {
+                    act->setEnabled(false);
+                    act->setToolTip(ObjectBrowserPanel::gapTooltipFor(e.dc));
+                } else {
+                    act->setToolTip(tr(e.tooltip));
+                }
                 connect(act, &QAction::triggered, this,
-                        [promptAndAdd, dc = e.dc] {
-                    promptAndAdd(dc);
+                        [launchAddNew, dc = e.dc] {
+                    launchAddNew(dc);
                 });
             }
         }
@@ -3113,6 +3335,12 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                 statusBar(), [this](const QString &msg) {
                     statusBar()->showMessage(msg, 5000);
                 }, Qt::UniqueConnection);
+        // Async routing busy → status-bar progress spinner.  The spinner
+        // is the same one used by simulation runs / .inp loads; the
+        // accompanying status message tells the user what's running.
+        connect(pt, &OpenSWMMVisMapToolSelectProfile::routingBusyChanged,
+                this, &SWMMVis::onSetProgressBarBusy,
+                Qt::UniqueConnection);
     }
 
     // Slice CF.3 — Pick 2D Cells tool: project window forwards cellsPicked

@@ -8,6 +8,10 @@
 #include "ui/panels/attributedelegates.h"
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/panels/tabulardatatablemodel.h"
+#include "ui/properties/nodecompoundeditref.h"
+
+#include <openswmm/engine/openswmm_edit.h>
+#include <openswmm/engine/openswmm_nodes.h>
 
 #include "core/queryparser.h"
 #include "layers/swmmmodellayer.h"
@@ -26,6 +30,7 @@
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
@@ -154,6 +159,13 @@ const char *categoryLabel(SWMMModelLayer::Category cat)
 AttributeTablePanel::AttributeTablePanel(QWidget *parent)
     : QWidget(parent)
 {
+    // Register the compound-attribute metatype + QString converter so
+    // the Compound delegate's displayText() can render the summary
+    // string when a cell isn't in edit mode. Idempotent — the property
+    // browser may have already done this, both calls are safe.
+    qRegisterMetaType<NodeCompoundEditRef>("NodeCompoundEditRef");
+    registerNodeCompoundEditRefConverter();
+
     buildUi();
 }
 
@@ -700,6 +712,9 @@ void AttributeTablePanel::installColumnDelegates()
         case openswmmvis::EditorKind::Enum:
             del = new openswmmvis::EnumDelegate(this, spec.enumValues);
             break;
+        case openswmmvis::EditorKind::Compound:
+            del = new openswmmvis::CompoundEditDelegate(this);
+            break;
         case openswmmvis::EditorKind::Text:
             // Qt's default QStyledItemDelegate provides a QLineEdit — no custom
             // delegate needed.  Fall through so nullptr is NOT installed.
@@ -1128,18 +1143,100 @@ void AttributeTablePanel::onObjectEditedExternally(const QString &name)
 
 void AttributeTablePanel::onChangeTypeTriggered()
 {
-    // Engine-API gap: there is no `swmm_node_change_type` /
-    // `swmm_link_change_type` today.  The full conversion path
-    // (read old attrs → swmm_*_remove → swmm_*_add(new type) →
-    // restore shared attrs + connections) is queued under Slice
-    // AG.0 in the engine-API request.  Surface the gap with a
-    // clear message instead of silently dropping the action.
-    QMessageBox::information(this, tr("Change Type"),
-        tr("Object-type conversion requires an engine API that is not "
-           "yet implemented.\n\n"
-           "Tracked under Slice AG.0 in the implementation plan — "
-           "needs `swmm_node_change_type` / `swmm_link_change_type` "
-           "(or a GUI-side remove-and-readd path).  The Change Type "
-           "menu entry is a placeholder so the affordance is visible; "
-           "no model state is modified."));
+    // Engine exposes swmm_node_convert / swmm_link_convert (openswmm_edit.h)
+    // — common props (invert, depths, coordinates / endpoints) are preserved,
+    // type-specific fields cleared, defaults applied. Engine returns a list
+    // of cleared fields and topology warnings the user should see before
+    // committing — we surface them in a confirmation message after the call.
+    if (!m_view || !m_model || !m_layer || !m_layer->engine()) return;
+
+    const auto sel = m_view->selectionModel();
+    if (!sel) return;
+    const auto rows = sel->selectedRows();
+    if (rows.isEmpty()) {
+        QMessageBox::information(this, tr("Change Type"),
+            tr("Select a row first."));
+        return;
+    }
+    const QModelIndex srcIdx = m_proxy->mapToSource(rows.first());
+    const QString name = m_model->objectNameAt(srcIdx.row());
+    if (name.isEmpty()) return;
+
+    const auto cat = m_model->category();
+    const bool isNode = (cat == SWMMModelLayer::CatJunctions ||
+                         cat == SWMMModelLayer::CatOutfalls  ||
+                         cat == SWMMModelLayer::CatStorage   ||
+                         cat == SWMMModelLayer::CatDividers);
+    if (!isNode) {
+        // Link convert exists too but the GUI plumbing for picking a target
+        // link kind isn't wired yet — punt with a clear message.
+        QMessageBox::information(this, tr("Change Type"),
+            tr("Link-type conversion is not yet exposed from this menu. "
+               "Use `swmm_link_convert` programmatically until the GUI "
+               "picker lands."));
+        return;
+    }
+
+    // Pick the target node type. The user can convert to any of the four
+    // node kinds EXCEPT the current one (engine returns SWMM_ERR_BADPARAM).
+    SWMM_Engine eng = m_layer->engine();
+    const int nodeIdx = swmm_node_index(eng, name.toUtf8().constData());
+    if (nodeIdx < 0) return;
+    int currentType = 0;
+    swmm_node_get_type(eng, nodeIdx, &currentType);
+
+    QStringList labels;
+    QVector<int> values;
+    if (currentType != SWMM_NODE_JUNCTION) { labels << tr("Junction"); values << SWMM_NODE_JUNCTION; }
+    if (currentType != SWMM_NODE_OUTFALL)  { labels << tr("Outfall");  values << SWMM_NODE_OUTFALL;  }
+    if (currentType != SWMM_NODE_STORAGE)  { labels << tr("Storage");  values << SWMM_NODE_STORAGE;  }
+    if (currentType != SWMM_NODE_DIVIDER)  { labels << tr("Divider");  values << SWMM_NODE_DIVIDER;  }
+
+    bool ok = false;
+    const QString choice = QInputDialog::getItem(this, tr("Change Node Type"),
+        tr("Convert <b>%1</b> to:").arg(name),
+        labels, 0, false, &ok);
+    if (!ok || choice.isEmpty()) return;
+    const int newType = values[labels.indexOf(choice)];
+
+    SWMM_ConversionResult result{};
+    const int rc = swmm_node_convert(eng, nodeIdx, newType, &result);
+    if (rc != SWMM_OK) {
+        QMessageBox::warning(this, tr("Change Type"),
+            tr("Engine rejected conversion (error %1).").arg(rc));
+        swmm_conversion_result_free(&result);
+        return;
+    }
+
+    // Show a summary of what changed (cleared fields + topology warnings),
+    // then refresh so the row jumps into the right category tab.
+    QString details;
+    if (result.n_cleared > 0) {
+        QStringList cleared;
+        for (int i = 0; i < result.n_cleared; ++i)
+            cleared << QString::fromUtf8(result.cleared_fields[i]);
+        details += tr("<b>Cleared fields:</b><br>%1<br><br>")
+                       .arg(cleared.join(QStringLiteral(", ")));
+    }
+    if (result.n_warnings > 0) {
+        QStringList warnings;
+        for (int i = 0; i < result.n_warnings; ++i)
+            warnings << QStringLiteral("• ") +
+                        QString::fromUtf8(result.warnings[i]);
+        details += tr("<b>Topology warnings:</b><br>%1")
+                       .arg(warnings.join(QStringLiteral("<br>")));
+    }
+    if (details.isEmpty())
+        details = tr("(no side effects)");
+    QMessageBox::information(this, tr("Conversion Complete"),
+        tr("Converted <b>%1</b> to %2.<br><br>%3")
+            .arg(name, choice, details));
+    swmm_conversion_result_free(&result);
+
+    // The node moved categories — push a refresh so the panel rebuilds the
+    // category combo and lands on the new tab. Also notify external listeners
+    // (Property Browser) so they re-bind their adapter.
+    if (m_layer) m_layer->reloadGeometry();
+    refresh();
+    emit objectEdited(name);
 }

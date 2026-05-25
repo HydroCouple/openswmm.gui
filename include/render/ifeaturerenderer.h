@@ -40,6 +40,7 @@
 #include "render/legendsymbolitem.h"
 #include "render/symbolstyle.h"
 
+#include <QColor>
 #include <QJsonObject>
 #include <QList>
 #include <QString>
@@ -49,6 +50,23 @@
 
 namespace OpenSWMM::Render
 {
+
+/*!
+ * \enum ClassEditKind
+ * \brief Categories of per-class mutation that a renderer may support.
+ *
+ *        Slice BB Phase 8.6.16 — the legend right-click context menu and
+ *        the LegendPropertiesDialog Layers tab both query
+ *        IFeatureRenderer::supportsClassEdit(kind) to decide whether to
+ *        offer the corresponding action / cell editor. A renderer that
+ *        returns false for a kind also no-ops the matching setter.
+ */
+enum class ClassEditKind {
+    Color,   /*!< Per-class swatch / fill colour. */
+    Size,    /*!< Per-class marker size (points / squares / triangles…). */
+    Width,   /*!< Per-class line width (polylines / strokes). */
+    Symbol   /*!< Wholesale per-class SymbolStyle replacement. */
+};
 
 /*!
  * \class IFeatureRenderer
@@ -110,6 +128,57 @@ public:
      *        when they need a renderer snapshot decoupled from the live one.
      */
     [[nodiscard]] virtual std::unique_ptr<IFeatureRenderer> clone() const = 0;
+
+    // ── Per-class editing (Slice BB Phase 8.6.16) ──────────────────────
+    //
+    // Lets the legend's right-click "Change color…/size…/symbol…" entries
+    // and the LegendPropertiesDialog Layers tab mutate a specific legend
+    // row in place. The classKey identifies which row to edit; its format
+    // is renderer-specific (per-renderer doc on the overrides):
+    //   - GraduatedRenderer:  stringified bin index ("0", "1", …)
+    //   - CategorizedRenderer: stringified category index ("0", "1", …)
+    //   - SingleSymbolRenderer: "single" (only one class)
+    //
+    // Default implementations are no-ops returning false / doing nothing
+    // so a renderer that supports nothing (e.g. RuleBasedRenderer today)
+    // doesn't need to override anything. Callers MUST query
+    // supportsClassEdit(kind) before invoking the matching setter.
+
+    /*! \brief True if this renderer can mutate \p kind on a per-class
+     *         basis. Defaults to false so opt-in is explicit. */
+    [[nodiscard]] virtual bool supportsClassEdit(ClassEditKind /*kind*/) const { return false; }
+
+    /*! \brief Read the current colour for \p classKey. Returns an invalid
+     *         QColor when the renderer has no explicit value for that class
+     *         (e.g. GraduatedRenderer with no override at that bin index,
+     *         where the legend swatch comes from sampling the ramp).
+     *
+     *         Used by undo-command constructors to snapshot the "before"
+     *         state so undo can restore it via setColorForClass. */
+    [[nodiscard]] virtual QColor colorForClass(const QString & /*classKey*/) const
+    { return {}; }
+
+    /*! \brief Override the colour for the class identified by \p classKey.
+     *         Has no effect when supportsClassEdit(Color) is false. */
+    virtual void setColorForClass(const QString & /*classKey*/, const QColor & /*color*/) {}
+
+    /*! \brief Override the marker size for \p classKey (points / squares /
+     *         triangles…). No-op when supportsClassEdit(Size) is false. */
+    virtual void setSizeForClass(const QString & /*classKey*/, qreal /*size*/) {}
+
+    /*! \brief Override the line width for \p classKey. No-op when
+     *         supportsClassEdit(Width) is false. */
+    virtual void setWidthForClass(const QString & /*classKey*/, qreal /*width*/) {}
+
+    /*! \brief Wholesale-replace the SymbolStyle for \p classKey. No-op
+     *         when supportsClassEdit(Symbol) is false. */
+    virtual void setSymbolForClass(const QString & /*classKey*/,
+                                   const SymbolStyle & /*style*/) {}
+
+    /*! \brief Drop every per-class override applied via the setters above.
+     *         The renderer falls back to its ramp / categories / base
+     *         symbol for all classes. Default implementation: no-op. */
+    virtual void clearClassEditOverrides() {}
 
 protected:
     IFeatureRenderer() = default;

@@ -54,6 +54,11 @@ add_swmmvis_gui_test(test_ifeaturerenderer
     ${CMAKE_SOURCE_DIR}/src/render/symbollayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/symbolstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/render/legendsymbolitem.cpp
+    # Slice BB-α — GraduatedRenderer now depends on ColorRamp + IntervalBinner.
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/intervalbinner.cpp
+    # Slice BI Phase 8.13.43-α — SingleSymbol gained DataDefinedScalar.
+    ${CMAKE_SOURCE_DIR}/src/render/datadefined.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/singlesymbolrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/graduatedrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/categorizedrenderer.cpp
@@ -62,6 +67,8 @@ add_swmmvis_gui_test(test_ifeaturerenderer
     ${CMAKE_SOURCE_DIR}/include/render/symbollayer.h
     ${CMAKE_SOURCE_DIR}/include/render/symbolstyle.h
     ${CMAKE_SOURCE_DIR}/include/render/legendsymbolitem.h
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+    ${CMAKE_SOURCE_DIR}/include/render/intervalbinner.h
     ${CMAKE_SOURCE_DIR}/include/render/ifeaturerenderer.h
     ${CMAKE_SOURCE_DIR}/include/render/renderers/singlesymbolrenderer.h
     ${CMAKE_SOURCE_DIR}/include/render/renderers/graduatedrenderer.h
@@ -130,6 +137,115 @@ add_swmmvis_gui_test(test_comparisonplot_toolbar
     ${CMAKE_SOURCE_DIR}/include/ui/widgets/interactivechartview.h
 )
 target_link_libraries(test_comparisonplot_toolbar PRIVATE Qt6::Charts)
+
+# Slice BQ Phase 6.7.3.5 — TimeseriesEditChartView smoke tests
+# (provider → chart refresh, selection mgmt, edit-mode toggle, external-
+# mode read-only guard). Links the interactive base class + the timeseries
+# foundation layer.
+add_swmmvis_gui_test(test_timeseries_edit_chart_view
+    test_timeseries_edit_chart_view.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/interactivechartview.h
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/timeserieseditchartview.h
+    ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesprovider.h
+    ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesundocommands.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/interactivechartview.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/timeserieseditchartview.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesundocommands.cpp
+)
+target_link_libraries(test_timeseries_edit_chart_view PRIVATE Qt6::Charts)
+
+# Slice BQ Phase 6.7.3.3 — TimeseriesEditorDialog shell smoke tests
+# (dialog assembles grid + chart + toolbar; edits propagate both ways via
+# the shared TimeseriesProvider; undo round-trips).
+add_swmmvis_gui_test(test_timeseries_editor_dialog
+    test_timeseries_editor_dialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/timeserieseditordialog.h
+    ${CMAKE_SOURCE_DIR}/include/ui/panels/timeseriestablemodel.h
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/interactivechartview.h
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/timeserieseditchartview.h
+    ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesprovider.h
+    ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesregistry.h
+    ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesundocommands.h
+    ${CMAKE_SOURCE_DIR}/include/io/timeseriesparse.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/timeserieseditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/panels/timeseriestablemodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/interactivechartview.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/timeserieseditchartview.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesundocommands.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/timeseriesparse.cpp
+)
+target_link_libraries(test_timeseries_editor_dialog PRIVATE Qt6::Charts)
+
+# Slice BM.0-Add-New (2026-05-24) — pins the createNew factory contract that
+# ObjectBrowserPanel's Add-New dispatch relies on after NewDataObjectDialog
+# removal (create-card validation, mode transition, source-mode propagation,
+# chart-view setProvider rebind).
+add_swmmvis_gui_test(test_objectbrowser_add_new_dispatch
+    test_objectbrowser_add_new_dispatch.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/timeserieseditordialog.h
+    ${CMAKE_SOURCE_DIR}/include/ui/panels/timeseriestablemodel.h
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/interactivechartview.h
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/timeserieseditchartview.h
+    ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesprovider.h
+    ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesregistry.h
+    ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesundocommands.h
+    ${CMAKE_SOURCE_DIR}/include/io/timeseriesparse.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/timeserieseditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/panels/timeseriestablemodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/interactivechartview.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/timeserieseditchartview.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesundocommands.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/timeseriesparse.cpp
+)
+target_link_libraries(test_objectbrowser_add_new_dispatch PRIVATE Qt6::Charts)
+
+# Slice BQ Phase 6.7.2 — PatternEditorDialog + PatternProvider + PatternRegistry
+# + PatternFactorTableModel coverage. Self-contained: pulls in only the
+# pattern foundation + dialog sources + Qt6::Charts (for the bar-chart pane).
+add_swmmvis_gui_test(test_pattern_editor_dialog
+    test_pattern_editor_dialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/pattern/patternprovider.h
+    ${CMAKE_SOURCE_DIR}/include/pattern/patternregistry.h
+    ${CMAKE_SOURCE_DIR}/include/ui/panels/patternfactortablemodel.h
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/patterneditordialog.h
+    ${CMAKE_SOURCE_DIR}/src/pattern/patternprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/pattern/patternregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/panels/patternfactortablemodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/patterneditordialog.cpp
+)
+target_link_libraries(test_pattern_editor_dialog PRIVATE Qt6::Charts)
+
+# Slice BQ Phase 6.7.1 — CurveEditorDialog + CurveProvider + CurveRegistry
+# + CurvePointTableModel coverage. Self-contained.
+add_swmmvis_gui_test(test_curve_editor_dialog
+    test_curve_editor_dialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/curve/curveprovider.h
+    ${CMAKE_SOURCE_DIR}/include/curve/curveregistry.h
+    ${CMAKE_SOURCE_DIR}/include/ui/panels/curvepointtablemodel.h
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/curveeditordialog.h
+    ${CMAKE_SOURCE_DIR}/src/curve/curveprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/curve/curveregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/panels/curvepointtablemodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/curveeditordialog.cpp
+)
+target_link_libraries(test_curve_editor_dialog PRIVATE Qt6::Charts)
+
+# Slice BQ Phase 6.7.3.8 — TimeseriesRegistry::loadFromEngine round-trips a
+# BUILDING-state engine with two Tseries (point values + times). Links the
+# engine target (via add_swmmvis_gui_test helper) to drive swmm_engine_new
+# / swmm_timeseries_add / swmm_table_add_point against real impl code.
+add_swmmvis_gui_test(test_timeseries_registry_engine
+    test_timeseries_registry_engine.cpp
+    ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesprovider.h
+    ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesregistry.h
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesregistry.cpp
+)
 
 # Slice AT.2 — pins the recursion-guarded X-axis linking idiom used in
 # ComparisonPlotDialog::wireXAxisSync. Self-contained: in-test XAxisSyncBus
@@ -203,13 +319,10 @@ add_swmmvis_gui_test(test_dataobjectnaming
 # LIDControl, Transect, Hydrograph, Street, Inlet, ControlRule,
 # Curve, TimeSeries, Pattern) are exercised by test_dataobjectnaming
 # for name / count / group enumeration.
-# Slice DA.3 — pins the contract that NewDataObjectDialog + the
-# updated addNewDataObject() flow rely on (rule skeletons parse back
-# via swmm_control_get_id; hydrograph creation surfaces as a group;
-# per-type subtype options round-trip through the engine).
-add_swmmvis_gui_test(test_newdataobject_helper
-    test_newdataobject_helper.cpp
-)
+# Slice BM.0-Add-New (2026-05-24) — `NewDataObjectDialog` + the
+# panel-side `addNewDataObject` wrapper were removed. The Add-New
+# dispatch path is covered by `test_objectbrowser_add_new_dispatch`
+# below.
 
 add_swmmvis_gui_test(test_nonspatial_adapters
     test_nonspatial_adapters.cpp
@@ -315,6 +428,35 @@ add_swmmvis_gui_test(test_marchingtriangles
     ${CMAKE_SOURCE_DIR}/include/contour/marchingtriangles.h
 )
 
+# Slice BB-α — RasterColorRamp data type, HSV interpolation, built-in
+# catalogue, JSON round-trip. Self-contained: pulls in colorramp.cpp only.
+add_swmmvis_gui_test(test_colorramp
+    test_colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+)
+
+# Slice BB-α — IntervalBinner (equal-interval / quantile / manual).
+add_swmmvis_gui_test(test_intervalbinner
+    test_intervalbinner.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/intervalbinner.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/intervalbinner.h
+)
+
+# Slice BI Phase 8.13.43-α — DataDefinedScalar (size/width by attribute).
+add_swmmvis_gui_test(test_datadefinedscalar
+    test_datadefinedscalar.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/datadefined.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/datadefined.h
+)
+
+# Slice BB-γ — CategoricalPalette named lookup + 7 Plotly categorical palettes.
+add_swmmvis_gui_test(test_categoricalpalette
+    test_categoricalpalette.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/categoricalpalette.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/categoricalpalette.h
+)
+
 # Slice BI-MK.1 Phase 8.13.40 — MultiKindRenderer (per-kind dispatch).
 # Self-contained: pulls in the multikind impl + the same render/*.cpp
 # subset that test_ifeaturerenderer compiles, since fromJson() factories
@@ -325,6 +467,11 @@ add_swmmvis_gui_test(test_multikindrenderer
     ${CMAKE_SOURCE_DIR}/src/render/symbollayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/symbolstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/render/legendsymbolitem.cpp
+    # Slice BB-α — GraduatedRenderer depends on ColorRamp + IntervalBinner.
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/intervalbinner.cpp
+    # Slice BI Phase 8.13.43-α — SingleSymbol gained DataDefinedScalar.
+    ${CMAKE_SOURCE_DIR}/src/render/datadefined.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/singlesymbolrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/graduatedrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/categorizedrenderer.cpp
@@ -334,6 +481,8 @@ add_swmmvis_gui_test(test_multikindrenderer
     ${CMAKE_SOURCE_DIR}/include/render/symbollayer.h
     ${CMAKE_SOURCE_DIR}/include/render/symbolstyle.h
     ${CMAKE_SOURCE_DIR}/include/render/legendsymbolitem.h
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+    ${CMAKE_SOURCE_DIR}/include/render/intervalbinner.h
     ${CMAKE_SOURCE_DIR}/include/render/ifeaturerenderer.h
     ${CMAKE_SOURCE_DIR}/include/render/renderers/singlesymbolrenderer.h
     ${CMAKE_SOURCE_DIR}/include/render/renderers/graduatedrenderer.h

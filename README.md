@@ -8,6 +8,8 @@
 
 [![Build and Package](../../actions/workflows/build_and_test.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/build_and_test.yml)
 [![Documentation](../../actions/workflows/documentation.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/documentation.yml)
+[![CodeQL](../../actions/workflows/codeql.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/HydroCouple/openswmm.gui/badge)](https://securityscorecards.dev/viewer/?uri=github.com/HydroCouple/openswmm.gui)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 ---

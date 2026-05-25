@@ -167,6 +167,8 @@ void SWMMObjectTreeModel::setLayer(SWMMModelLayer *layer)
                             this,           &SWMMObjectTreeModel::reload);
         QObject::disconnect(m_layer.data(), &SWMMModelLayer::categoryOrderChanged,
                             this,           &SWMMObjectTreeModel::reload);
+        QObject::disconnect(m_layer.data(), &SWMMModelLayer::hydrographChanged,
+                            this, nullptr);
     }
 
     m_layer = layer;
@@ -181,6 +183,13 @@ void SWMMObjectTreeModel::setLayer(SWMMModelLayer *layer)
         // visible-category list without touching per-category counts.
         connect(m_layer.data(), &SWMMModelLayer::categoryOrderChanged,
                 this,           &SWMMObjectTreeModel::reload,
+                Qt::UniqueConnection);
+        // Slice BS Phase 6.9.2 — UH group added / removed / renamed via
+        // HydrographGroupEditor or any other MVC path: rebuild the
+        // Unit Hydrographs branch so the user sees the change in the
+        // Object Browser without needing to refresh manually.
+        connect(m_layer.data(), &SWMMModelLayer::hydrographChanged,
+                this, [this](const QString &) { reload(); },
                 Qt::UniqueConnection);
     }
 }

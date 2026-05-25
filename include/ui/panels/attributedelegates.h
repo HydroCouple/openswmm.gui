@@ -65,6 +65,32 @@ private:
     int m_max;
 };
 
+/*! Compound-attribute editor — renders a NodeCompoundEditButton in
+ *  the cell. Used by the Attribute Table for per-node multi-row
+ *  attributes (Inflows / DWF / RDII / Treatment); reuses the same
+ *  dialog the Property Browser opens. The model returns a
+ *  NodeCompoundEditRef QVariant for these cells; displayText() shows
+ *  the ref's summary so the cell stays informative when not in edit
+ *  mode.
+ *
+ *  The metatype + QString converter need to be registered once at
+ *  startup via registerNodeCompoundEditRefConverter() — the Attribute
+ *  Table Panel does this in its constructor. */
+class CompoundEditDelegate : public QStyledItemDelegate
+{
+    Q_OBJECT
+public:
+    explicit CompoundEditDelegate(QObject *parent = nullptr);
+
+    QString displayText(const QVariant &value,
+                        const QLocale &locale) const override;
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
+                          const QModelIndex &index) const override;
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override;
+    void setModelData(QWidget *editor, QAbstractItemModel *model,
+                      const QModelIndex &index) const override;
+};
+
 /*! Enum editor.  The list is `{label, data}` pairs — display shows
  *  the label, the model stores the data value. */
 class EnumDelegate : public QStyledItemDelegate

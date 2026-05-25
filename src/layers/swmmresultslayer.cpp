@@ -12,6 +12,7 @@
 #include "layers/gisrasterlayer.h"
 #include "render/categoricalpalette.h"
 #include "render/ifeaturerenderer.h"
+#include "render/intervalbinner.h"   // Slice OUT.1 — default kind binner
 #include "render/renderers/graduatedrenderer.h"
 
 #include <QAtomicInteger>
@@ -495,6 +496,12 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
         m_subcatchResults.resize(n);
         swmm_output_get_subcatch_result(m_handle, step, sv, m_subcatchResults.data());
     }
+
+    // Slice OUT.2 — refresh per-feature override caches for every kind
+    // in the active variable's scope so animation frames pick up the new
+    // values. Each rebuild is O(kindFeatures) and cheap relative to the
+    // result-fetch above.
+    rebuildAllActiveKindFeatureOverrides();
 }
 
 // ---------------------------------------------------------------------------
@@ -609,6 +616,262 @@ void SWMMResultsLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRen
         return;           // no-op if the same pointer is reassigned
     m_renderer = std::move(r);
     emit rendererChanged();
+}
+
+// Slice OUT.1 — per-kind renderer slots. Mirrors SWMMModelLayer's
+// kindRenderer / setKindRenderer / resetKindRendererToDefaults API.
+// Slot construction is lazy: slots default to nullptr until the user
+// explicitly customises a kind. Slice OUT.2 will refactor the paint
+// loop to consult these slots (with the layer-level renderer as
+// fallback).
+
+namespace {
+
+QString kindDefaultResultVariable(SWMMModelLayer::Category c)
+{
+    switch (c) {
+    case SWMMModelLayer::CatJunctions:
+    case SWMMModelLayer::CatOutfalls:
+    case SWMMModelLayer::CatStorage:
+    case SWMMModelLayer::CatDividers:
+        return QStringLiteral("NodeDepth");
+    case SWMMModelLayer::CatConduits:
+    case SWMMModelLayer::CatPumps:
+    case SWMMModelLayer::CatOrifices:
+    case SWMMModelLayer::CatWeirs:
+    case SWMMModelLayer::CatOutlets:
+        return QStringLiteral("LinkFlow");
+    case SWMMModelLayer::CatSubcatchments:
+        return QStringLiteral("SubcatchRunoff");
+    case SWMMModelLayer::CatRainGages:
+    case SWMMModelLayer::NumCategories:
+        return QString();
+    }
+    return QString();
+}
+
+std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>
+makeDefaultKindRenderer(SWMMModelLayer::Category c)
+{
+    auto g = std::make_unique<OpenSWMM::Render::GraduatedRenderer>();
+    g->setClassifyAttribute(kindDefaultResultVariable(c));
+    g->setRamp(RasterColorRamp::viridis(0.0, 1.0));
+    OpenSWMM::Render::IntervalBinner b;
+    b.setMethod(OpenSWMM::Render::BinMethod::EqualInterval);
+    b.setBinCount(5);
+    g->setBinner(b);
+    return g;
+}
+
+} // namespace
+
+OpenSWMM::Render::IFeatureRenderer *SWMMResultsLayer::kindRenderer(
+    SWMMModelLayer::Category c) const
+{
+    const int i = static_cast<int>(c);
+    if (i < 0 || i >= static_cast<int>(m_kindRenderers.size()))
+        return nullptr;
+    return m_kindRenderers[i].get();
+}
+
+void SWMMResultsLayer::setKindRenderer(
+    SWMMModelLayer::Category c,
+    std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r)
+{
+    const int i = static_cast<int>(c);
+    if (i < 0 || i >= static_cast<int>(SWMMModelLayer::NumCategories))
+        return;
+    if (m_kindRenderers.size() < static_cast<size_t>(SWMMModelLayer::NumCategories))
+        m_kindRenderers.resize(SWMMModelLayer::NumCategories);
+    if (m_kindRenderers[i].get() == r.get())
+        return;
+    m_kindRenderers[i] = std::move(r);
+    // Slice OUT.2 — installing a new kind renderer invalidates the
+    // override cache for that kind; rebuild immediately so the next
+    // paint hits the new colors without an extra animation tick.
+    rebuildKindFeatureOverrides(c);
+    emit rendererChanged();
+    emit repaintRequested();
+}
+
+void SWMMResultsLayer::resetKindRendererToDefaults(SWMMModelLayer::Category c)
+{
+    setKindRenderer(c, makeDefaultKindRenderer(c));
+}
+
+// ---------------------------------------------------------------------------
+// Slice OUT.2 — per-feature override cache
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Stringified SWMMResultVariable enumerator (matches what CTX.1 puts in
+// the Graduated tab's Attribute combo, so renderer.classifyAttribute()
+// can compare cleanly).
+QString variableEnumName(SWMMResultVariable v)
+{
+    switch (v) {
+    case SWMMResultVariable::NodeDepth:            return QStringLiteral("NodeDepth");
+    case SWMMResultVariable::NodeHead:             return QStringLiteral("NodeHead");
+    case SWMMResultVariable::NodeVolume:           return QStringLiteral("NodeVolume");
+    case SWMMResultVariable::NodeInflow:           return QStringLiteral("NodeInflow");
+    case SWMMResultVariable::NodeOverflow:         return QStringLiteral("NodeOverflow");
+    case SWMMResultVariable::NodeLateralInflow:    return QStringLiteral("NodeLateralInflow");
+    case SWMMResultVariable::LinkFlow:             return QStringLiteral("LinkFlow");
+    case SWMMResultVariable::LinkDepth:            return QStringLiteral("LinkDepth");
+    case SWMMResultVariable::LinkVelocity:         return QStringLiteral("LinkVelocity");
+    case SWMMResultVariable::LinkCapacity:         return QStringLiteral("LinkCapacity");
+    case SWMMResultVariable::SubcatchRunoff:       return QStringLiteral("SubcatchRunoff");
+    case SWMMResultVariable::SubcatchInfiltration: return QStringLiteral("SubcatchInfiltration");
+    case SWMMResultVariable::SubcatchEvaporation:  return QStringLiteral("SubcatchEvaporation");
+    case SWMMResultVariable::SubcatchSnowDepth:    return QStringLiteral("SubcatchSnowDepth");
+    }
+    return QString();
+}
+
+bool catIsNodeScope(SWMMModelLayer::Category c)
+{
+    return c == SWMMModelLayer::CatJunctions || c == SWMMModelLayer::CatOutfalls
+        || c == SWMMModelLayer::CatStorage   || c == SWMMModelLayer::CatDividers;
+}
+
+bool catIsLinkScope(SWMMModelLayer::Category c)
+{
+    return c == SWMMModelLayer::CatConduits || c == SWMMModelLayer::CatPumps
+        || c == SWMMModelLayer::CatOrifices || c == SWMMModelLayer::CatWeirs
+        || c == SWMMModelLayer::CatOutlets;
+}
+
+bool catIsSubcatchScope(SWMMModelLayer::Category c)
+{
+    return c == SWMMModelLayer::CatSubcatchments;
+}
+
+bool catMatchesVariable(SWMMModelLayer::Category c, SWMMResultVariable v)
+{
+    if (isNodeVar(v))     return catIsNodeScope(c);
+    if (isLinkVar(v))     return catIsLinkScope(c);
+    if (isSubcatchVar(v)) return catIsSubcatchScope(c);
+    return false;
+}
+
+// Extract a QColor from the first SymbolLayer's "color" prop. Tolerant
+// of QColor variants (Qt registers QColor metatype) and string hex
+// shortcuts ("#rrggbb" / named).
+QColor extractStyleColor(const OpenSWMM::Render::SymbolStyle &s, QColor fallback)
+{
+    if (s.layers.isEmpty()) return fallback;
+    const QVariant v = s.layers.first().props.value(QStringLiteral("color"));
+    if (!v.isValid()) return fallback;
+    if (v.canConvert<QColor>()) {
+        const QColor c = v.value<QColor>();
+        if (c.isValid()) return c;
+    }
+    const QColor c(v.toString());
+    return c.isValid() ? c : fallback;
+}
+
+double extractStyleSize(const OpenSWMM::Render::SymbolStyle &s)
+{
+    if (s.layers.isEmpty()) return -1.0;
+    const QVariant v = s.layers.first().props.value(QStringLiteral("size"));
+    bool ok = false;
+    const double d = v.toDouble(&ok);
+    return ok ? d : -1.0;
+}
+
+} // namespace
+
+void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
+{
+    const int idx = static_cast<int>(c);
+    if (idx < 0 || idx >= static_cast<int>(SWMMModelLayer::NumCategories))
+        return;
+
+    m_kindFeatureColors[idx].clear();
+    m_kindFeatureSizes[idx].clear();
+    m_kindUsesOverrides[idx] = false;
+
+    if (!m_modelLayer || !m_handle)
+        return;
+
+    OpenSWMM::Render::IFeatureRenderer *kr = kindRenderer(c);
+    if (!kr)
+        return;                       // no override; paint falls back to ramp
+    if (!catMatchesVariable(c, m_variable))
+        return;                       // scope mismatch — silently skip
+
+    const QString varName = variableEnumName(m_variable);
+    if (varName.isEmpty())
+        return;
+
+    const int count = m_modelLayer->categoryCount(c);
+    if (count <= 0)
+        return;
+
+    m_kindFeatureColors[idx].resize(count);
+    m_kindFeatureSizes[idx].resize(count);
+
+    // Choose the right result vector + output-id map for the scope.
+    const QHash<QString, int> *outIdxMap = nullptr;
+    const QVector<float>      *valuesPtr = nullptr;
+    if (catIsNodeScope(c)) {
+        outIdxMap = &m_nodeOutputIdx;
+        valuesPtr = &m_nodeResults;
+    } else if (catIsLinkScope(c)) {
+        outIdxMap = &m_linkOutputIdx;
+        valuesPtr = &m_linkResults;
+    } else if (catIsSubcatchScope(c)) {
+        outIdxMap = &m_subcatchOutputIdx;
+        valuesPtr = &m_subcatchResults;
+    } else {
+        return;
+    }
+
+    for (int row = 0; row < count; ++row) {
+        const QString name = m_modelLayer->objectNameAt(c, row);
+        double value = std::numeric_limits<double>::quiet_NaN();
+        const auto it = outIdxMap->constFind(name);
+        if (it != outIdxMap->constEnd()) {
+            const int outIdx = it.value();
+            if (outIdx >= 0 && outIdx < valuesPtr->size())
+                value = static_cast<double>(valuesPtr->at(outIdx));
+        }
+
+        QVariantMap attrs;
+        if (std::isfinite(value))
+            attrs.insert(varName, value);
+
+        OpenSWMM::Render::FeatureRef ref;
+        ref.featureIndex = row;
+        ref.categoryHint = SWMMModelLayer::kindKey(c);
+
+        const auto style = kr->symbolFor(ref, attrs);
+        // Fallback color when the renderer didn't (or couldn't) classify
+        // is the ramp-derived color — keeps a sensible visual instead of
+        // a hole in the canvas.
+        const QColor rampCol = std::isfinite(value)
+            ? m_colorRamp.colorForValue(value)
+            : QColor();
+        m_kindFeatureColors[idx][row] = extractStyleColor(style, rampCol);
+        m_kindFeatureSizes [idx][row] = extractStyleSize(style);
+    }
+
+    m_kindUsesOverrides[idx] = true;
+}
+
+void SWMMResultsLayer::rebuildAllActiveKindFeatureOverrides()
+{
+    for (int i = 0; i < static_cast<int>(SWMMModelLayer::NumCategories); ++i) {
+        const auto cat = static_cast<SWMMModelLayer::Category>(i);
+        if (catMatchesVariable(cat, m_variable))
+            rebuildKindFeatureOverrides(cat);
+        else {
+            m_kindFeatureColors[i].clear();
+            m_kindFeatureSizes[i].clear();
+            m_kindUsesOverrides[i] = false;
+        }
+    }
 }
 
 void SWMMResultsLayer::autoStretchColorRamp()
@@ -740,6 +1003,13 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
         for (auto cat : nodeCats)
         {
             const int count = m_modelLayer->categoryCount(cat);
+            // Slice OUT.2 — per-kind override cache. When the kind has
+            // a custom renderer installed AND the scope matches, prefer
+            // the cached color/size; else fall back to the layer-level
+            // ramp.
+            const int catIdx = static_cast<int>(cat);
+            const bool useOverride = m_kindUsesOverrides[catIdx]
+                && m_kindFeatureColors[catIdx].size() == count;
             for (int row = 0; row < count; ++row)
             {
                 const QString name = m_modelLayer->objectNameAt(cat, row);
@@ -759,11 +1029,22 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
                 if (!m_modelLayer->elementPosition(name, &mx, &my))
                     continue;
 
-                const QColor col = m_colorRamp.colorForValue(static_cast<double>(val));
+                QColor col;
+                double radius = r;
+                if (useOverride) {
+                    col = m_kindFeatureColors[catIdx][row];
+                    const double sz = m_kindFeatureSizes[catIdx][row];
+                    if (sz > 0.0) radius = sz * 0.5; // size is diameter
+                } else {
+                    col = m_colorRamp.colorForValue(static_cast<double>(val));
+                }
+                if (!col.isValid())
+                    col = m_colorRamp.colorForValue(static_cast<double>(val));
                 const QPointF center = toScene(mx, my);
 
                 auto *ellipse = scene->addEllipse(
-                    center.x() - r, center.y() - r, 2.0 * r, 2.0 * r,
+                    center.x() - radius, center.y() - radius,
+                    2.0 * radius, 2.0 * radius,
                     QPen(col.darker(130), 0.5),
                     QBrush(col));
                 tag(ellipse);
@@ -787,6 +1068,10 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
         for (auto cat : linkCats)
         {
             const int count = m_modelLayer->categoryCount(cat);
+            // Slice OUT.2 — per-kind override cache; see node loop above.
+            const int catIdx = static_cast<int>(cat);
+            const bool useOverride = m_kindUsesOverrides[catIdx]
+                && m_kindFeatureColors[catIdx].size() == count;
             for (int row = 0; row < count; ++row)
             {
                 const QString name = m_modelLayer->objectNameAt(cat, row);
@@ -802,8 +1087,18 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
                 if (!std::isfinite(val))
                     continue;
 
-                const QColor col = m_colorRamp.colorForValue(static_cast<double>(val));
-                QPen pen(col, penWidth);
+                QColor col;
+                double pw = penWidth;
+                if (useOverride) {
+                    col = m_kindFeatureColors[catIdx][row];
+                    const double sz = m_kindFeatureSizes[catIdx][row];
+                    if (sz > 0.0) pw = sz;   // size acts as line width
+                } else {
+                    col = m_colorRamp.colorForValue(static_cast<double>(val));
+                }
+                if (!col.isValid())
+                    col = m_colorRamp.colorForValue(static_cast<double>(val));
+                QPen pen(col, pw);
                 pen.setCapStyle(Qt::RoundCap);
                 pen.setJoinStyle(Qt::RoundJoin);
 
@@ -814,8 +1109,8 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
                 // Draw a colored dot at the link midpoint.
                 const QPointF mid = toScene(lx, ly);
                 auto *dot = scene->addEllipse(
-                    mid.x() - penWidth, mid.y() - penWidth,
-                    2.0 * penWidth, 2.0 * penWidth,
+                    mid.x() - pw, mid.y() - pw,
+                    2.0 * pw, 2.0 * pw,
                     QPen(Qt::NoPen), QBrush(col));
                 tag(dot);
             }
@@ -826,6 +1121,10 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
     if (isSubcatchVar(m_variable) && !m_subcatchResults.isEmpty())
     {
         const int count = m_modelLayer->categoryCount(SWMMModelLayer::CatSubcatchments);
+        // Slice OUT.2 — per-kind override cache; see node loop above.
+        const int catIdx = static_cast<int>(SWMMModelLayer::CatSubcatchments);
+        const bool useOverride = m_kindUsesOverrides[catIdx]
+            && m_kindFeatureColors[catIdx].size() == count;
         for (int row = 0; row < count; ++row)
         {
             const QString name = m_modelLayer->objectNameAt(SWMMModelLayer::CatSubcatchments, row);
@@ -841,7 +1140,11 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
             if (!std::isfinite(val))
                 continue;
 
-            const QColor col = m_colorRamp.colorForValue(static_cast<double>(val));
+            QColor col;
+            if (useOverride)
+                col = m_kindFeatureColors[catIdx][row];
+            if (!col.isValid())
+                col = m_colorRamp.colorForValue(static_cast<double>(val));
             const MapExtent ext = m_modelLayer->objectExtent(name);
 
             if (!std::isfinite(ext.xMin()))

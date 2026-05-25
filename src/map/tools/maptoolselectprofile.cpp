@@ -6,6 +6,7 @@
 
 #include "map/tools/maptoolselectprofile.h"
 
+#include "core/preferencesmanager.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 #include "map/mapcanvas.h"
@@ -18,10 +19,13 @@
 #include <limits>
 
 #include <QApplication>
+#include <QFuture>
+#include <QFutureWatcher>
 #include <QGraphicsScene>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QString>
+#include <QtConcurrent/QtConcurrent>
 
 namespace {
 
@@ -71,6 +75,78 @@ void OpenSWMMVisMapToolSelectProfile::activate()
     // profile + its map overlay visible — so toggling the tool back on
     // shows whatever the user last selected instead of starting fresh.
     clearInProgress();
+
+    // Seed endpoints from the active SWMMModelLayer's current selection so
+    // the user can pre-select two nodes with the Select tool and then click
+    // the profile button to route immediately.  Selection order is the
+    // QStringList order returned by selectedElementNames(), which mirrors
+    // shift-click order (first click first).
+    SWMMModelLayer *model = activeModel();
+    QVector<int> seededNodes;
+    if (model) {
+        const QStringList names = model->selectedElementNames();
+        for (const QString &n : names) {
+            SWMMModelLayer::Category cat;
+            int row = -1;
+            if (!model->findObjectLocation(n, &cat, &row)) continue;
+            if (cat != SWMMModelLayer::CatJunctions
+             && cat != SWMMModelLayer::CatOutfalls
+             && cat != SWMMModelLayer::CatStorage
+             && cat != SWMMModelLayer::CatDividers) continue;
+            const int engIdx = ProfileNetworkAdapter::findNodeIndex(model, n);
+            if (engIdx < 0) continue;
+            if (seededNodes.contains(engIdx)) continue;  // dedupe
+            seededNodes.push_back(engIdx);
+            if (seededNodes.size() == 2) break;
+        }
+    }
+
+    auto ensureOverlay = [this, model]() {
+        if (m_overlay) return;
+        m_overlay = new ProfilePathOverlay(model);
+        if (canvas() && canvas()->mapScene()) {
+            canvas()->mapScene()->addItem(m_overlay);
+            m_overlayScene = canvas()->mapScene();
+        }
+    };
+
+    if (seededNodes.size() >= 2) {
+        // Two pre-selected nodes → route immediately on activation.  Any
+        // previously-accepted path is replaced by the new routing result
+        // (or restored if routing produces nothing).
+        m_acceptedPath = ProfileRouter::Path{};
+        m_startNode    = seededNodes[0];
+        m_endNode      = seededNodes[1];
+        ensureOverlay();
+        m_overlay->setPaths({});
+        m_overlay->setEndpoints(m_startNode, m_endNode);
+        if (canvas())
+            canvas()->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
+                                 QStringLiteral("profile endpoints seeded"));
+        m_state = State::PickingPath;
+        emit statusMessageChanged(
+            tr("Routing profile between the two selected nodes…"));
+        routeAndPick();
+        return;
+    }
+
+    if (seededNodes.size() == 1) {
+        // Single pre-selected node → use as start, wait for end click.
+        m_startNode = seededNodes[0];
+        m_endNode   = -1;
+        m_state     = State::AwaitingEnd;
+        ensureOverlay();
+        m_overlay->setPaths({});
+        m_overlay->setEndpoints(m_startNode, -1);
+        if (canvas())
+            canvas()->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
+                                 QStringLiteral("profile start seeded"));
+        emit statusMessageChanged(
+            tr("Start node taken from current selection. "
+               "Click the end node or link to route."));
+        return;
+    }
+
     if (!m_acceptedPath.linkIds.isEmpty()) {
         emit statusMessageChanged(
             tr("Showing selected profile (%1 links).  "
@@ -198,7 +274,18 @@ void OpenSWMMVisMapToolSelectProfile::mousePressEvent(QMouseEvent *event)
         break;
 
     case State::PickingPath:
-        // Picker dialog is modal; we shouldn't normally receive clicks here.
+        // Picker dialog is modal so we shouldn't normally receive clicks
+        // here.  In case it ever ends up behind another window (e.g. an
+        // external modal interrupting the flow), raise it and surface a
+        // status message so the user isn't left wondering why their click
+        // "did nothing".
+        if (m_pendingPicker) {
+            m_pendingPicker->raise();
+            m_pendingPicker->activateWindow();
+        }
+        emit statusMessageChanged(
+            tr("Confirm or cancel the profile-path picker dialog before "
+               "clicking another endpoint."));
         break;
     }
 }
@@ -218,12 +305,37 @@ void OpenSWMMVisMapToolSelectProfile::keyPressEvent(QKeyEvent *event)
 double OpenSWMMVisMapToolSelectProfile::clickTolerance() const
 {
     if (!canvas() || canvas()->width() <= 0) return 1.0;
+
+    // Effective pixel tolerance mirrors the Select tool's policy
+    // (maptoolselect.cpp:887-896): the user-preference click radius,
+    // floored by the largest rendered glyph's half-bound plus a 4 px
+    // halo.  Without this floor the profile tool used a hardcoded 12 px
+    // radius, which fell short of the 12.5 px outfall / 12 px storage
+    // glyph radii on edge-of-glyph clicks — users reported "outfalls
+    // can't be selected".  Including the marker bound guarantees any
+    // click inside a visible glyph hits the node regardless of zoom.
+    auto *prefs = PreferencesManager::instance();
+    const int prefPx = prefs ? prefs->clickTolerancePx() : 16;
+
+    double markerFloorPx = 0.0;
+    if (canvas()) {
+        for (OpenSWMMVisLayer *l : canvas()->layers()) {
+            if (auto *sl = qobject_cast<SWMMModelLayer *>(l)) {
+                if (l->isVisible())
+                    markerFloorPx = std::max(markerFloorPx,
+                                             sl->maxMarkerHalfBoundPx());
+            }
+        }
+    }
+    const double effectivePx = std::max(double(prefPx),
+                                         markerFloorPx + 4.0);
+
     double mx1 = 0.0, my1 = 0.0;
     double mx2 = 0.0, my2 = 0.0;
     const_cast<OpenSWMMVisMapToolSelectProfile *>(this)
         ->toMapCoords(0, 0, mx1, my1);
     const_cast<OpenSWMMVisMapToolSelectProfile *>(this)
-        ->toMapCoords(kTargetClickRadiusPx, kTargetClickRadiusPx, mx2, my2);
+        ->toMapCoords(effectivePx, effectivePx, mx2, my2);
     return std::max(std::abs(mx2 - mx1), std::abs(my2 - my1));
 }
 
@@ -243,6 +355,12 @@ int OpenSWMMVisMapToolSelectProfile::resolveNodeAt(double mapX,
         || hit.cat == SWMMModelLayer::CatStorage
         || hit.cat == SWMMModelLayer::CatDividers) {
         return ProfileNetworkAdapter::findNodeIndex(model, hit.name);
+    }
+
+    // Subcatchments / gages aren't routable endpoints.
+    if (hit.cat == SWMMModelLayer::CatSubcatchments
+        || hit.cat == SWMMModelLayer::CatRainGages) {
+        return -1;
     }
 
     // Link hit: snap to the nearer endpoint of the link's polyline.
@@ -274,45 +392,144 @@ void OpenSWMMVisMapToolSelectProfile::routeAndPick()
         return;
     }
 
-    auto graph = ProfileNetworkAdapter::buildGraphFromModel(model);
+    // Build the routing graph on the main thread — it touches the engine
+    // and model layer, which aren't reentrant.  The Graph is a POD so we
+    // can safely pass it by value to the worker thread.
+    ProfileRouter::Graph graph =
+        ProfileNetworkAdapter::buildGraphFromModel(model);
 
     ProfileRouter::Options opts;
-    // Undirected by default: users picking endpoints think in terms of
-    // "is this node reachable", not "could flow physically travel that
+    // Undirected so users picking endpoints think in terms of "is this
+    // node reachable" rather than "could flow physically travel that
     // way".  Pumps / weirs / orifices / outlets are traversable in
-    // either direction for routing purposes.  K bumped to 10 so the
-    // picker surfaces alternatives that route through non-conduit
-    // structures (which sit at low weight and dominate the top of the
-    // list otherwise — without enough K, equivalent conduit-only
-    // variations crowd them out).
-    opts.k          = 10;
+    // either direction for routing purposes.
+    //
+    // Using kShortestPaths (Yen's) — strictly Dijkstra-based so no DFS
+    // backtracking is needed; each path is found in O(E log V) and we
+    // run k of them sequentially.  Far cheaper than the exhaustive
+    // enumerator on dense networks, and the result is already sorted
+    // shortest-first.  k is user-tunable via Preferences.
     opts.undirected = true;
-    opts.softCapMs  = 300;
+    opts.k          = PreferencesManager::instance()->profileMaxPaths();
+    opts.softCapMs  = 0;     // no soft cap on background thread — UI stays responsive
+    opts.maxIterations = std::numeric_limits<int>::max();
 
-    ProfileRouter::Result result;
-    if (m_waypoints.isEmpty()) {
-        result = ProfileRouter::kShortestPaths(graph, m_startNode, m_endNode, opts);
+    // Snapshot routing inputs for the worker thread.  We do *not* capture
+    // `this` inside the QtConcurrent lambda — only POD copies — so the
+    // worker is safe even if the tool is destroyed mid-routing.
+    const int startNode = m_startNode;
+    const int endNode   = m_endNode;
+    const QVector<int> waypoints = m_waypoints;
+
+    // Endpoint halos and any in-progress overlay state should already be
+    // visible from mousePressEvent before we got here, but force a
+    // canvas invalidate one more time so the user sees the captured
+    // endpoints render *before* the busy dialog appears.
+    if (m_overlay)
+        m_overlay->setEndpoints(m_startNode, m_endNode);
+    if (canvas())
+        canvas()->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
+                             QStringLiteral("profile endpoints captured"));
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+
+    // Tear down any prior watcher (e.g. user clicked again before the
+    // previous routing finished).  Cancelling a QtConcurrent::run future
+    // does not actually stop the worker, so we just disconnect from it.
+    if (m_routingWatcher) {
+        m_routingWatcher->disconnect();
+        m_routingWatcher->deleteLater();
+        m_routingWatcher = nullptr;
+        emit routingBusyChanged(false);
+    }
+
+    // Surface a busy state to the host (status-bar progress bar +
+    // message).  No modal dialog — the map should remain fully
+    // interactive while routing runs in the background.
+    emit routingBusyChanged(true);
+    emit statusMessageChanged(
+        tr("Computing up to %1 profile path(s) between selected endpoints…")
+            .arg(opts.k));
+
+    // QFutureWatcher signals completion on the main thread (Qt::AutoConnection
+    // posts to the GUI event loop when the worker thread finishes).
+    auto *watcher = new QFutureWatcher<ProfileRouter::Result>(this);
+    m_routingWatcher = watcher;
+    const int graphNodes = graph.nodeCount;
+    const int graphEdges = graph.edges.size();
+
+    QObject::connect(watcher, &QFutureWatcher<ProfileRouter::Result>::finished,
+                     this, [this, watcher, graphNodes, graphEdges]() {
+        if (m_routingWatcher != watcher) {
+            watcher->deleteLater();
+            return;  // superseded by newer routing
+        }
+        const ProfileRouter::Result result = watcher->result();
+        watcher->deleteLater();
+        m_routingWatcher = nullptr;
+        emit routingBusyChanged(false);
+        onRoutingComplete(result, graphNodes, graphEdges);
+    });
+
+    // Kick off the worker thread.
+    QFuture<ProfileRouter::Result> future;
+    if (waypoints.isEmpty()) {
+        future = QtConcurrent::run(
+            [graph, startNode, endNode, opts]() {
+                return ProfileRouter::kShortestPaths(
+                    graph, startNode, endNode, opts);
+            });
     } else {
         QVector<int> sequence;
-        sequence.reserve(m_waypoints.size() + 2);
-        sequence.push_back(m_startNode);
-        for (int w : m_waypoints) sequence.push_back(w);
-        sequence.push_back(m_endNode);
-        result = ProfileRouter::kShortestPathsThrough(graph, sequence, opts);
+        sequence.reserve(waypoints.size() + 2);
+        sequence.push_back(startNode);
+        for (int w : waypoints) sequence.push_back(w);
+        sequence.push_back(endNode);
+        future = QtConcurrent::run(
+            [graph, sequence, opts]() {
+                ProfileRouter::Options legOpts = opts;
+                legOpts.k = 1;
+                return ProfileRouter::kShortestPathsThrough(
+                    graph, sequence, legOpts);
+            });
+    }
+    watcher->setFuture(future);
+}
+
+void OpenSWMMVisMapToolSelectProfile::onRoutingComplete(
+    const ProfileRouter::Result &result,
+    int graphNodes, int graphEdges)
+{
+    SWMMModelLayer *model = activeModel();
+    if (!model) {
+        resetState();
+        return;
     }
 
     if (!result.error.isEmpty()) {
         emit statusMessageChanged(
-            tr("Profile routing error: %1").arg(result.error));
+            tr("Profile routing error: %1 (start=node #%2, end=node #%3, "
+               "graph nodes=%4 edges=%5)")
+                .arg(result.error)
+                .arg(m_startNode).arg(m_endNode)
+                .arg(graphNodes).arg(graphEdges));
         resetState();
         return;
     }
     if (result.paths.isEmpty()) {
         emit statusMessageChanged(
-            tr("No connected path between the selected endpoints."));
+            tr("No connected path between start node #%1 and end node #%2 "
+               "(graph nodes=%3 edges=%4).")
+                .arg(m_startNode).arg(m_endNode)
+                .arg(graphNodes).arg(graphEdges));
         resetState();
         return;
     }
+    emit statusMessageChanged(
+        tr("Profile routing complete: %1 path(s) found%2.")
+            .arg(result.paths.size())
+            .arg(result.truncated
+                 ? tr(" (truncated — raise max paths to see more)")
+                 : QString()));
 
     if (m_overlay) m_overlay->setPaths(result.paths);
     if (canvas())
@@ -351,21 +568,30 @@ void OpenSWMMVisMapToolSelectProfile::routeAndPick()
         return;
     }
 
-    // Multiple → non-modal picker dialog, hover-synced to the overlay.
-    // Non-modal lets the user keep panning/zooming the main map while
-    // the picker is open; WindowStaysOnTopHint keeps the picker visible
-    // above the main window.  If a picker is already open from an earlier
-    // selection attempt, close it first so we never have two stacked.
+    // Multiple → non-modal floating picker dialog, hover-synced to the
+    // overlay.  Non-modal so the user can pan/zoom the map and inspect
+    // candidate paths while the picker is open.  Qt::Tool + parenting to
+    // the canvas's top-level widget makes the dialog a floating panel
+    // (NSPanel on macOS) that stays above the main window without
+    // stealing keyboard focus — much more reliable than
+    // WindowStaysOnTopHint, which on macOS can let the dialog fall
+    // behind the main NSWindow.  WindowStaysOnTopHint is added as a
+    // secondary hint for X11 / Windows where Tool alone isn't enough.
     if (m_pendingPicker) {
         m_pendingPicker->close();
         m_pendingPicker = nullptr;
     }
     m_pendingPaths = result.paths;
+    QWidget *parentTop = canvas() ? canvas()->window() : nullptr;
     auto *dlg = new ProfilePathPickerDialog(model, result.paths,
-                                            /*parent=*/nullptr);
+                                            /*truncated=*/result.truncated,
+                                            /*parent=*/parentTop);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->setModal(false);
-    dlg->setWindowFlags(dlg->windowFlags() | Qt::WindowStaysOnTopHint);
+    dlg->setWindowFlags(Qt::Tool | Qt::WindowStaysOnTopHint
+                        | Qt::CustomizeWindowHint
+                        | Qt::WindowTitleHint
+                        | Qt::WindowCloseButtonHint);
     m_pendingPicker = dlg;
 
     QObject::connect(dlg, &ProfilePathPickerDialog::hoveredPathChanged,
@@ -453,6 +679,16 @@ void OpenSWMMVisMapToolSelectProfile::clearInProgress()
         m_pendingPicker = nullptr;
     }
     m_pendingPaths.clear();
+    // Detach from any in-flight worker — the QtConcurrent task can't be
+    // forcibly stopped, but disconnecting + clearing the watcher pointer
+    // makes the finished() lambda a no-op when the worker eventually
+    // returns (see routeAndPick's "superseded by newer routing" guard).
+    if (m_routingWatcher) {
+        m_routingWatcher->disconnect();
+        m_routingWatcher->deleteLater();
+        m_routingWatcher = nullptr;
+        emit routingBusyChanged(false);
+    }
 }
 
 SWMMModelLayer *OpenSWMMVisMapToolSelectProfile::activeModel() const

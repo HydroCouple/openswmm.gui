@@ -7,10 +7,14 @@
 #include "ui/properties/swmmnodepropertyadapter.h"
 
 #include "core/unitsystem.h"
+#include "layers/swmmmodellayer.h"
 
 #include <openswmm/engine/openswmm_inflows.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_pollutants.h>
+#include <openswmm/engine/openswmm_quality.h>
 #include <openswmm/engine/openswmm_spatial.h>
+#include <openswmm/engine/openswmm_tables.h>
 
 SWMMNodePropertyAdapter::SWMMNodePropertyAdapter(SWMM_Engine engine,
                                                    QString name,
@@ -52,6 +56,9 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
     if (property == QLatin1String("xCoord"))         return tr("X Coordinate");
     if (property == QLatin1String("yCoord"))         return tr("Y Coordinate");
 
+    // [TAGS] free-form label.
+    if (property == QLatin1String("tag"))            return tr("Tag");
+
     // Read-only summary block (Slice DB).
     if (property == QLatin1String("crownElev"))       return tr("Crown Elev. (%1)").arg(L);
     if (property == QLatin1String("fullVolume"))      return tr("Full Volume (%1³)").arg(L);
@@ -64,6 +71,10 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
     // Outfall.
     if (property == QLatin1String("outfallType"))     return tr("Outfall Type");
     if (property == QLatin1String("outfallFlapGate")) return tr("Flap Gate");
+    // Slice DA.4.3 — outfall stage-data rows.
+    if (property == QLatin1String("outfallStage"))      return tr("Stage Elev. (%1)").arg(L);
+    if (property == QLatin1String("outfallTidalCurve")) return tr("Tidal Curve");
+    if (property == QLatin1String("outfallTimeseries")) return tr("Stage Time Series");
 
     // Divider.
     if (property == QLatin1String("dividerType"))     return tr("Divider Type");
@@ -127,6 +138,22 @@ void SWMMNodePropertyAdapter::setName(const QString &newName)
     // does the engine rename + cache rebuild. We emit the old name so the
     // panel can locate and update the adapter's m_name on success.
     emit renameRequested(m_name, trimmed);
+}
+
+QString SWMMNodePropertyAdapter::tag() const {
+    const int idx = nodeIdx();
+    if (idx < 0) return {};
+    char buf[256] = {0};
+    if (swmm_node_get_tag(m_engine, idx, buf, sizeof(buf)) != SWMM_OK) return {};
+    return QString::fromUtf8(buf);
+}
+
+void SWMMNodePropertyAdapter::setTag(const QString &t) {
+    const int idx = nodeIdx();
+    if (idx < 0) return;
+    const QByteArray bytes = t.toUtf8();
+    if (swmm_node_set_tag(m_engine, idx, bytes.constData()) == SWMM_OK)
+        emit changed();
 }
 
 void SWMMNodePropertyAdapter::setOutfallType(OutfallType v)
@@ -253,11 +280,27 @@ NodeCompoundEditRef SWMMNodePropertyAdapter::inflowsRef() const {
     NodeCompoundEditRef r;
     r.engine   = m_engine;
     r.nodeName = m_name;
+    r.layer    = m_layer;
     r.kind     = NodeCompoundEditRef::Inflows;
-    if (m_engine) {
+    const int idx = nodeIdx();
+    if (m_engine && idx >= 0) {
         const int total = swmm_ext_inflow_count(m_engine);
-        r.summary = (total > 0)
-            ? tr("model total %1 — per-node filter pending").arg(total)
+        int matched = 0;
+        char consBuf[64], tsBuf[64], typeBuf[16], patBuf[64];
+        for (int i = 0; i < total; ++i) {
+            int ni = -1;
+            double mf = 0.0, sf = 0.0, base = 0.0;
+            if (swmm_ext_inflow_get(m_engine, i, &ni,
+                                      consBuf, sizeof(consBuf),
+                                      tsBuf,   sizeof(tsBuf),
+                                      typeBuf, sizeof(typeBuf),
+                                      &mf, &sf, &base,
+                                      patBuf,  sizeof(patBuf)) != SWMM_OK)
+                continue;
+            if (ni == idx) ++matched;
+        }
+        r.summary = (matched > 0)
+            ? tr("%1 entries").arg(matched)
             : tr("(none)");
     }
     return r;
@@ -267,11 +310,28 @@ NodeCompoundEditRef SWMMNodePropertyAdapter::dwfRef() const {
     NodeCompoundEditRef r;
     r.engine   = m_engine;
     r.nodeName = m_name;
+    r.layer    = m_layer;
     r.kind     = NodeCompoundEditRef::Dwf;
-    if (m_engine) {
+    const int idx = nodeIdx();
+    if (m_engine && idx >= 0) {
         const int total = swmm_dwf_count(m_engine);
-        r.summary = (total > 0)
-            ? tr("model total %1 — per-node filter pending").arg(total)
+        int matched = 0;
+        char consBuf[64], p1Buf[64], p2Buf[64], p3Buf[64], p4Buf[64];
+        for (int i = 0; i < total; ++i) {
+            int ni = -1;
+            double avg = 0.0;
+            if (swmm_dwf_get(m_engine, i, &ni,
+                              consBuf, sizeof(consBuf),
+                              &avg,
+                              p1Buf, sizeof(p1Buf),
+                              p2Buf, sizeof(p2Buf),
+                              p3Buf, sizeof(p3Buf),
+                              p4Buf, sizeof(p4Buf)) != SWMM_OK)
+                continue;
+            if (ni == idx) ++matched;
+        }
+        r.summary = (matched > 0)
+            ? tr("%1 entries").arg(matched)
             : tr("(none)");
     }
     return r;
@@ -281,6 +341,7 @@ NodeCompoundEditRef SWMMNodePropertyAdapter::rdiiRef() const {
     NodeCompoundEditRef r;
     r.engine   = m_engine;
     r.nodeName = m_name;
+    r.layer    = m_layer;
     r.kind     = NodeCompoundEditRef::Rdii;
     const int idx = nodeIdx();
     if (m_engine && idx >= 0) {
@@ -304,7 +365,106 @@ NodeCompoundEditRef SWMMNodePropertyAdapter::treatmentRef() const {
     NodeCompoundEditRef r;
     r.engine   = m_engine;
     r.nodeName = m_name;
+    r.layer    = m_layer;
     r.kind     = NodeCompoundEditRef::Treatment;
-    r.summary  = tr("engine API pending");
+    const int idx = nodeIdx();
+    if (m_engine && idx >= 0) {
+        // Count pollutants that have a non-empty treatment expression on
+        // this node. `swmm_treatment_get` returns SWMM_OK with an empty
+        // string when no expression is set (engine treats absence as
+        // empty), so we filter on the buffer being non-empty rather than
+        // on the return code.
+        const int nPollut = swmm_pollutant_count(m_engine);
+        int active = 0;
+        char buf[256];
+        for (int p = 0; p < nPollut; ++p) {
+            buf[0] = '\0';
+            if (swmm_treatment_get(m_engine, idx, p, buf, sizeof(buf)) != SWMM_OK)
+                continue;
+            if (buf[0] != '\0') ++active;
+        }
+        r.summary = (active > 0)
+            ? tr("%1 / %2 pollutants").arg(active).arg(nPollut)
+            : tr("(none)");
+    }
     return r;
+}
+
+// ---------------------------------------------------------------------------
+// Slice DA.4.3 — outfall stage-data accessors
+// ---------------------------------------------------------------------------
+//
+// The engine stores fixed-stage / tidal-curve-idx / timeseries-idx in a
+// single union slot (outfall_param) keyed by the current outfall_type.
+// Getters return 0 / empty when the live type doesn't match the property
+// they belong to, so the picker / spinbox naturally shows "unassigned"
+// for inapplicable rows. AttributePanel additionally greys those rows
+// out via setRowEditable so the user sees they don't apply.
+
+double SWMMNodePropertyAdapter::outfallStage() const {
+    const int idx = nodeIdx();
+    if (idx < 0) return 0.0;
+    if (outfallType() != FIXED) return 0.0;
+    double v = 0.0;
+    swmm_node_get_outfall_param(m_engine, idx, &v);
+    return v;
+}
+
+DataObjectRef SWMMNodePropertyAdapter::outfallTidalCurveRef() const {
+    DataObjectRef r;
+    r.engine = m_engine;
+    r.layer  = m_layer;
+    r.kind   = DataObjectRef::TidalCurve;
+    const int idx = nodeIdx();
+    if (idx >= 0 && outfallType() == TIDAL) {
+        int curveIdx = -1;
+        if (swmm_node_get_outfall_tidal(m_engine, idx, &curveIdx) == SWMM_OK) {
+            if (const char *id = swmm_table_id(m_engine, curveIdx))
+                r.currentName = QString::fromUtf8(id);
+        }
+    }
+    return r;
+}
+
+DataObjectRef SWMMNodePropertyAdapter::outfallTimeseriesRef() const {
+    DataObjectRef r;
+    r.engine = m_engine;
+    r.layer  = m_layer;
+    r.kind   = DataObjectRef::TimeSeries;
+    const int idx = nodeIdx();
+    if (idx >= 0 && outfallType() == TIMESERIES) {
+        int tsIdx = -1;
+        if (swmm_node_get_outfall_timeseries(m_engine, idx, &tsIdx) == SWMM_OK) {
+            if (const char *id = swmm_table_id(m_engine, tsIdx))
+                r.currentName = QString::fromUtf8(id);
+        }
+    }
+    return r;
+}
+
+void SWMMNodePropertyAdapter::setOutfallStage(double v) {
+    const int idx = nodeIdx();
+    if (idx < 0) return;
+    // Engine setter also flips outfall_type to FIXED — that's intentional;
+    // setting a stage value only makes sense for a FIXED outfall.
+    if (swmm_node_set_outfall_stage(m_engine, idx, v) == SWMM_OK)
+        emit changed();
+}
+
+void SWMMNodePropertyAdapter::setOutfallTidalCurveRef(const DataObjectRef &r) {
+    const int idx = nodeIdx();
+    if (idx < 0 || r.currentName.isEmpty()) return;
+    const int curveIdx = swmm_table_index(m_engine, r.currentName.toUtf8().constData());
+    if (curveIdx < 0) return;
+    if (swmm_node_set_outfall_tidal(m_engine, idx, curveIdx) == SWMM_OK)
+        emit changed();
+}
+
+void SWMMNodePropertyAdapter::setOutfallTimeseriesRef(const DataObjectRef &r) {
+    const int idx = nodeIdx();
+    if (idx < 0 || r.currentName.isEmpty()) return;
+    const int tsIdx = swmm_table_index(m_engine, r.currentName.toUtf8().constData());
+    if (tsIdx < 0) return;
+    if (swmm_node_set_outfall_timeseries(m_engine, idx, tsIdx) == SWMM_OK)
+        emit changed();
 }

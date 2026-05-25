@@ -106,11 +106,11 @@ void ComparisonPlotDialog::buildUi()
     m_splitter = new QSplitter(Qt::Horizontal, this);
 
     // ----- Left pane: series tree + add/remove ------------------------------
-    auto *leftHost = new QWidget(this);
-    auto *leftCol  = new QVBoxLayout(leftHost);
+    m_leftHost = new QWidget(this);
+    auto *leftCol = new QVBoxLayout(m_leftHost);
     leftCol->setContentsMargins(0, 0, 0, 0);
 
-    m_seriesTree = new QTreeWidget(leftHost);
+    m_seriesTree = new QTreeWidget(m_leftHost);
     m_seriesTree->setHeaderLabels({tr("Series")});
     m_seriesTree->header()->setStretchLastSection(true);
     m_seriesTree->setRootIsDecorated(true);
@@ -119,9 +119,9 @@ void ComparisonPlotDialog::buildUi()
     leftCol->addWidget(m_seriesTree, 1);
 
     auto *btnRow = new QHBoxLayout;
-    m_addBtn     = new QPushButton(tr("Add Series…"), leftHost);
-    m_loadObsBtn = new QPushButton(tr("Load Observed…"), leftHost);
-    m_removeBtn  = new QPushButton(tr("Remove"), leftHost);
+    m_addBtn     = new QPushButton(tr("Add Series…"), m_leftHost);
+    m_loadObsBtn = new QPushButton(tr("Load Observed…"), m_leftHost);
+    m_removeBtn  = new QPushButton(tr("Remove"), m_leftHost);
     m_removeBtn->setEnabled(false);
     btnRow->addWidget(m_addBtn);
     btnRow->addWidget(m_loadObsBtn);
@@ -129,7 +129,14 @@ void ComparisonPlotDialog::buildUi()
     btnRow->addStretch(1);
     leftCol->addLayout(btnRow);
 
-    m_splitter->addWidget(leftHost);
+    m_splitter->addWidget(m_leftHost);
+    // CP.1 — keep the left pane reachable: minimum width ensures the
+    // handle stays grabbable when sized small, and a non-collapsible
+    // policy prevents the user from snapping it to zero (the View →
+    // Show Series Panel toggle is now the only way to fully hide it,
+    // and it remembers the prior width on restore).
+    m_leftHost->setMinimumWidth(60);
+    m_splitter->setChildrenCollapsible(false);
 
     // ----- Right pane: vertical splitter of chart rows ----------------------
     // Slice AT.2: rows live in a Qt::Vertical QSplitter so the user can
@@ -151,24 +158,27 @@ void ComparisonPlotDialog::buildUi()
     m_chartsOuter->addWidget(m_chartsScroll);
 
     // Slice AT.3 — X-range slider + datetime label, wrapped in a thin row.
-    auto *sliderHost = new QWidget(m_chartsOuter);
-    auto *sliderRow  = new QHBoxLayout(sliderHost);
+    m_sliderHost = new QWidget(m_chartsOuter);
+    auto *sliderRow  = new QHBoxLayout(m_sliderHost);
     sliderRow->setContentsMargins(2, 0, 2, 0);
     sliderRow->setSpacing(8);
-    m_rangeSlider = new RangeSliderWidget(sliderHost);
+    m_rangeSlider = new RangeSliderWidget(m_sliderHost);
     m_rangeSlider->setFixedHeight(20);
-    m_rangeLabel  = new QLabel(sliderHost);
+    m_rangeLabel  = new QLabel(m_sliderHost);
     m_rangeLabel->setMinimumWidth(220);
     m_rangeLabel->setStyleSheet(QStringLiteral("color: gray;"));
     sliderRow->addWidget(m_rangeSlider, 1);
     sliderRow->addWidget(m_rangeLabel,  0);
-    sliderHost->setFixedHeight(24);
-    m_chartsOuter->addWidget(sliderHost);
+    m_sliderHost->setFixedHeight(24);
+    m_chartsOuter->addWidget(m_sliderHost);
 
     // Slice AT.3 — Statistics Summary panel (per-attribute tabs).
+    // CP.1 — relax minimum height (was 160px) so the user can drag the
+    // splitter handle down to a thin sliver; "View → Show Stats Panel"
+    // gives a full collapse + restore that remembers the prior height.
     m_statsPanel = new StatsSummaryPanel(m_chartsOuter);
     m_statsPanel->setModel(m_model.get());
-    m_statsPanel->setMinimumHeight(160);   // enough for tab header + a few stat rows
+    m_statsPanel->setMinimumHeight(60);
     m_chartsOuter->addWidget(m_statsPanel);
 
     // Charts dominate; slider is fixed at 20 px; stats panel resizable
@@ -308,6 +318,50 @@ void ComparisonPlotDialog::buildToolBar()
     connect(m_actAddFromMap, &QAction::toggled,
             this, &ComparisonPlotDialog::addFromMapToggled);
     m_toolBar->addAction(m_actAddFromMap);
+
+    // ----- CP.1 — View toggles ---------------------------------------------
+    // Three independent show/hide actions for each piece of chrome plus a
+    // convenience "Charts Only" master toggle. Each remembers the prior
+    // splitter sizing so re-show restores the user's width/height instead
+    // of resetting to defaults. Solves the "I collapsed the left pane
+    // and now I can't grab the handle" trap.
+    m_toolBar->addSeparator();
+
+    m_actShowSeries = new QAction(tr("Series Panel"), this);
+    m_actShowSeries->setCheckable(true);
+    m_actShowSeries->setChecked(true);
+    m_actShowSeries->setStatusTip(tr("Show/hide the series tree on the left"));
+    m_actShowSeries->setToolTip(m_actShowSeries->statusTip());
+    connect(m_actShowSeries, &QAction::toggled,
+            this, &ComparisonPlotDialog::onShowSeriesToggled);
+    m_toolBar->addAction(m_actShowSeries);
+
+    m_actShowSlider = new QAction(tr("Range Slider"), this);
+    m_actShowSlider->setCheckable(true);
+    m_actShowSlider->setChecked(true);
+    m_actShowSlider->setStatusTip(tr("Show/hide the X-range slider under the charts"));
+    m_actShowSlider->setToolTip(m_actShowSlider->statusTip());
+    connect(m_actShowSlider, &QAction::toggled,
+            this, &ComparisonPlotDialog::onShowSliderToggled);
+    m_toolBar->addAction(m_actShowSlider);
+
+    m_actShowStats = new QAction(tr("Stats Panel"), this);
+    m_actShowStats->setCheckable(true);
+    m_actShowStats->setChecked(true);
+    m_actShowStats->setStatusTip(tr("Show/hide the statistics summary at the bottom"));
+    m_actShowStats->setToolTip(m_actShowStats->statusTip());
+    connect(m_actShowStats, &QAction::toggled,
+            this, &ComparisonPlotDialog::onShowStatsToggled);
+    m_toolBar->addAction(m_actShowStats);
+
+    m_actChartsOnly = new QAction(tr("Charts Only"), this);
+    m_actChartsOnly->setCheckable(true);
+    m_actChartsOnly->setStatusTip(tr("Hide series, slider, and stats panels to show only the charts"));
+    m_actChartsOnly->setToolTip(m_actChartsOnly->statusTip());
+    m_actChartsOnly->setShortcut(QKeySequence(tr("Ctrl+Shift+F")));
+    connect(m_actChartsOnly, &QAction::toggled,
+            this, &ComparisonPlotDialog::onChartsOnlyToggled);
+    m_toolBar->addAction(m_actChartsOnly);
 }
 
 void ComparisonPlotDialog::setAddFromMapChecked(bool checked)
@@ -416,11 +470,81 @@ void ComparisonPlotDialog::onAnimationCursorToggled(bool checked)
     for (RowWidgets &rw : m_rowWidgets) {
         if (!rw.cursorLine) continue;
         rw.cursorLine->setVisible(checked);
+        // CP.1 — keep the cursor's entry IN the legend so the user can
+        // see which dashed line is the animation cursor (previously
+        // hidden). Marker tracks the line's visibility.
         const auto markers = rw.chart ? rw.chart->legend()->markers(rw.cursorLine)
                                       : QList<QLegendMarker*>{};
         for (auto *m : markers)
-            if (m) m->setVisible(false);   // always hidden from legend
+            if (m) m->setVisible(checked);
     }
+}
+
+// ---------------------------------------------------------------------------
+// CP.1 — View toggles (Series / Slider / Stats panels + Charts Only)
+//
+// Pattern: each toggle hides/shows the target widget. When hiding, the
+// current splitter sizes are cached so re-show restores the user's
+// previous width/height (matching what most IDEs do for dockable panes).
+// The "Charts Only" master toggle just drives the three independent
+// toggles together; the per-pane menu items remain authoritative so the
+// user can mix-and-match without re-toggling the master.
+// ---------------------------------------------------------------------------
+
+void ComparisonPlotDialog::onShowSeriesToggled(bool show)
+{
+    if (!m_splitter || !m_leftHost) return;
+    if (!show) {
+        // Snapshot sizes before hiding so we can restore them.
+        m_savedSplitterSizes = m_splitter->sizes();
+        m_leftHost->hide();
+    } else {
+        m_leftHost->show();
+        // If we have a snapshot, restore it. Otherwise fall back to a
+        // sensible default (~280px series pane, charts taking the rest).
+        if (m_savedSplitterSizes.size() == m_splitter->count() &&
+            m_savedSplitterSizes[0] > 0) {
+            m_splitter->setSizes(m_savedSplitterSizes);
+        } else {
+            const int total = m_splitter->width();
+            m_splitter->setSizes({280, std::max(0, total - 280)});
+        }
+    }
+}
+
+void ComparisonPlotDialog::onShowSliderToggled(bool show)
+{
+    if (m_sliderHost) m_sliderHost->setVisible(show);
+}
+
+void ComparisonPlotDialog::onShowStatsToggled(bool show)
+{
+    if (!m_chartsOuter || !m_statsPanel) return;
+    if (!show) {
+        m_savedChartsOuterSizes = m_chartsOuter->sizes();
+        m_statsPanel->hide();
+    } else {
+        m_statsPanel->show();
+        if (m_savedChartsOuterSizes.size() == m_chartsOuter->count() &&
+            m_savedChartsOuterSizes.last() > 0) {
+            m_chartsOuter->setSizes(m_savedChartsOuterSizes);
+        } else {
+            // Restore the AT.3 default ratio: charts 4× stats; slider fixed.
+            const int total = m_chartsOuter->height() - 24 /*slider*/;
+            const int stats = std::max(60, total / 5);
+            m_chartsOuter->setSizes({std::max(0, total - stats), 24, stats});
+        }
+    }
+}
+
+void ComparisonPlotDialog::onChartsOnlyToggled(bool chartsOnly)
+{
+    // Drive the three independent toggles. Block their signals so the
+    // master doesn't fight with three change events and we get one clean
+    // layout pass at the end.
+    if (m_actShowSeries) m_actShowSeries->setChecked(!chartsOnly);
+    if (m_actShowSlider) m_actShowSlider->setChecked(!chartsOnly);
+    if (m_actShowStats)  m_actShowStats ->setChecked(!chartsOnly);
 }
 
 void ComparisonPlotDialog::onAddSystemSeriesClicked()
@@ -600,20 +724,18 @@ void ComparisonPlotDialog::onRowsChanged() { /* charts rebuilt by series/runSour
 void ComparisonPlotDialog::onStyleChanged(int seriesIndex)
 {
     // Find which row + which child series corresponds to this spec, and
-    // restyle without a full chart rebuild.
+    // restyle without a full chart rebuild. Delegates to the shared
+    // applySeriesStyle() helper so every visual field (pen cap/join,
+    // marker shape/border, point labels, opacity, area-fill brush, ...)
+    // takes effect — not just the legacy {color, dash, width, visible,
+    // opacity} subset.
     for (int r = 0; r < m_rowWidgets.size(); ++r) {
         const AttributeRow &row = m_model->rows().at(r);
         for (int i = 0; i < row.seriesIndices.size(); ++i) {
             if (row.seriesIndices[i] != seriesIndex) continue;
             QLineSeries *line = m_rowWidgets[r].series.value(i, nullptr);
             if (!line) return;
-            const SeriesSpec &spec = m_model->spec(seriesIndex);
-            QPen pen(spec.style.color);
-            pen.setStyle(spec.style.dash);
-            pen.setWidthF(spec.style.lineWidth);
-            line->setPen(pen);
-            line->setVisible(spec.style.showLine);
-            line->setOpacity(spec.style.opacity);
+            openswmmvis::plot::applySeriesStyle(m_model->spec(seriesIndex).style, line);
             return;
         }
     }
@@ -1071,13 +1193,7 @@ void ComparisonPlotDialog::rebuildCharts()
                                           : spec.objectRef.name,
                                        labelFor(spec.attribute));
             line->setName(name);
-
-            QPen pen(spec.style.color);
-            pen.setStyle(spec.style.dash);
-            pen.setWidthF(spec.style.lineWidth);
-            line->setPen(pen);
-            line->setVisible(spec.style.showLine);
-            line->setOpacity(spec.style.opacity);
+            openswmmvis::plot::applySeriesStyle(spec.style, line);
 
             SeriesData data;
             m_model->resolveSeries(sIdx, data);
@@ -1101,19 +1217,25 @@ void ComparisonPlotDialog::rebuildCharts()
             rw.series.push_back(line);
         }
 
-        // Cursor line for animation cursor — invisible until time is set.
+        // CP.1 — Animation-cursor vertical line: dashed black, named so
+        // the legend reads "Current time" (user request). Visibility is
+        // governed by the toolbar toggle + presence of a valid time;
+        // applyAnimationCursorToCharts() places the line at (t, [ymin,
+        // ymax]) once the model emits a time.
         rw.cursorLine = new QLineSeries;
         QPen cursorPen(Qt::black);
         cursorPen.setStyle(Qt::DashLine);
-        cursorPen.setWidthF(1.0);
+        cursorPen.setWidthF(1.5);
         rw.cursorLine->setPen(cursorPen);
-        rw.cursorLine->setName(QString());
+        rw.cursorLine->setName(tr("Current time"));
         rw.chart->addSeries(rw.cursorLine);
         rw.cursorLine->attachAxis(rw.xAxis);
         rw.cursorLine->attachAxis(rw.yAxis);
+        // Legend marker tracks the master toggle — user can see which
+        // dashed line is the cursor instead of guessing.
         const auto cursorMarkers = rw.chart->legend()->markers(rw.cursorLine);
-        if (!cursorMarkers.isEmpty())
-            cursorMarkers.first()->setVisible(false);
+        for (auto *m : cursorMarkers)
+            if (m) m->setVisible(m_showCursor);
 
         // Axis ranges
         if (std::isfinite(yMin) && std::isfinite(yMax) && yMax > yMin) {
@@ -1356,6 +1478,12 @@ void ComparisonPlotDialog::rebuildCharts()
 
     // Apply the cursor visibility toggle to any new rows.
     onAnimationCursorToggled(m_actAnimCursor ? m_actAnimCursor->isChecked() : true);
+    // CP.1 — Re-emit the cached animation time so freshly-rebuilt
+    // cursor lines actually get their (t, ymin)→(t, ymax) endpoints.
+    // Without this the cursor line stays empty until the animation
+    // controller fires its next tick, which can be a long wait if the
+    // user hasn't started playback yet.
+    applyAnimationCursorToCharts();
 
     // Slice AT.3 — capture the union X-range across all rows so the
     // range slider maps [0..1] correctly. Also reset slider to full.
