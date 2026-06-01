@@ -158,6 +158,14 @@ public:
     [[nodiscard]] virtual QColor colorForClass(const QString & /*classKey*/) const
     { return {}; }
 
+    /*! \brief Read the current marker / line size for \p classKey. Returns
+     *         a negative value when the renderer has no explicit per-class
+     *         size (e.g. GraduatedRenderer's globally-mapped sizeForBin,
+     *         or a class that doesn't carry a size prop). Used by
+     *         SetRendererClassSizeCommand to snapshot the "before" state. */
+    [[nodiscard]] virtual qreal sizeForClass(const QString & /*classKey*/) const
+    { return -1.0; }
+
     /*! \brief Override the colour for the class identified by \p classKey.
      *         Has no effect when supportsClassEdit(Color) is false. */
     virtual void setColorForClass(const QString & /*classKey*/, const QColor & /*color*/) {}

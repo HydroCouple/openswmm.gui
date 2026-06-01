@@ -96,6 +96,15 @@ signals:
     void plotAttributeRequested(const SWMMObjectRef &ref,
                                 openswmmvis::plot::PlotAttribute attribute);
 
+    /*! \brief Variant of \ref plotAttributeRequested that names a specific
+     *  results layer. Emitted from the two-level "Plot Time Series ▸
+     *  <layer> ▸ <variable>" submenu shown when more than one SWMM
+     *  Output (.out) layer is loaded on the canvas. The receiver plots
+     *  against that exact \p layer (no auto-pick-first-found). */
+    void plotAttributeForLayerRequested(const SWMMObjectRef &ref,
+                                         openswmmvis::plot::PlotAttribute attribute,
+                                         class SWMMResultsLayer *layer);
+
     /*! \brief Slice AT.2 — emitted when the user picks a system-wide
      *  variable from the background right-click menu ("Plot System
      *  Variable…" submenu). */

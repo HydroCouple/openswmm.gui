@@ -13,11 +13,13 @@
 #include <QAbstractItemModel>
 #include <QHash>
 #include <QList>
+#include <QPointer>
 #include <QSet>
 #include <QVector>
 #include <QWidget>
 
 #include <array>
+#include <vector>
 
 class QTreeView;
 class QToolBar;
@@ -27,6 +29,11 @@ class QSortFilterProxyModel;
 class MapCanvas;
 class OpenSWMMVisLayer;
 class OpenSWMMVisWorkspace;
+class SWMMResultsLayer;
+class SWMM2DResultsLayer;
+
+// Slice S3 — sublayer row type forward decl.
+namespace OpenSWMM::Render { class ISublayer; }
 
 /*!
  * \class LayerTreeModel
@@ -118,6 +125,23 @@ public:
      *  index; -1 for any other row type. */
     [[nodiscard]] int kindOrdinal(const QModelIndex &index) const;
 
+    // ---- Slice S3 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md §4.1) -----------------
+    // 3rd-level sub-rows under any ISublayerHost layer that is NOT already
+    // multi-kind. SWMM2DResultsLayer adopts this — SWMMResultsLayer keeps
+    // its existing OUT.3 kind-row UX (the eligibility rule below avoids
+    // dual sub-row schemes on the same layer; the kind-vs-sublayer
+    // interaction on multi-kind hosts is a follow-up UX iteration).
+
+    /*! True if \p index is a sublayer-row (3rd-level sub-row under an ISublayerHost). */
+    [[nodiscard]] bool isSublayerIndex(const QModelIndex &index) const;
+
+    /*! Parent layer for a sublayer-row index; nullptr for any other row type. */
+    [[nodiscard]] OpenSWMMVisLayer *sublayerParentLayer(const QModelIndex &index) const;
+
+    /*! The ISublayer pointer for a sublayer-row index; nullptr otherwise. */
+    [[nodiscard]] OpenSWMM::Render::ISublayer *
+        sublayerForIndex(const QModelIndex &index) const;
+
     /*!
      * \brief Moves the category at display position \p srcDisplayPos to
      *        \p dstDisplayPos, then batch-reorders the canvas layer stack so
@@ -130,6 +154,15 @@ public:
      *        No-op if either position is out of range or src == dst.
      */
     void reorderCategories(int srcDisplayPos, int dstDisplayPos);
+
+    /*!
+     * \brief Slice GUI-2026-05-30 §2 / §3 — notify the model that the
+     *        sublayer or kind paint-order on a host layer has changed
+     *        externally (context-menu Move Up / Down or drop).  Rebuilds
+     *        the cached sub-row storage and emits a model reset so the
+     *        view re-renders in the new order.
+     */
+    void notifyHostSubOrderChanged();
 
 private slots:
     void onLayerAdded(OpenSWMMVisLayer *layer);
@@ -156,9 +189,21 @@ private:
     };
     static constexpr int kKindsPerSwmmModelLayer = 11;
 
+    // Slice S3 — one SublayerRow per (host layer, sublayer pointer).
+    // Storage is a std::vector reserved to the final size at rebuild time
+    // and never modified afterwards, so element addresses stay stable for
+    // the model's lifetime — same stability contract as the KindRow
+    // std::array storage.
+    struct SublayerRow {
+        OpenSWMMVisLayer                 *layer    = nullptr;
+        OpenSWMM::Render::ISublayer      *sublayer = nullptr;
+    };
+
     void rebuildCategories();
     void rebuildKindRows();
+    void rebuildSublayerRows();
     int  categoryOf(OpenSWMMVisLayer *layer) const;
+    int  sublayerRowIndex(const void *sublayerRowPtr) const;
 
     MapCanvas                       *m_canvas;
     QVector<Category>                m_categories;
@@ -166,6 +211,14 @@ private:
     QHash<OpenSWMMVisLayer *, std::array<KindRow, kKindsPerSwmmModelLayer>>
                                      m_kindRowStorage;
     QSet<const void *>               m_kindRowPtrSet;   // O(1) kind-row discriminator
+    // Slice S3 — sublayer-row storage. The std::vector inside each hash
+    // node is sized once at rebuild time and never grown, so element
+    // addresses (used as QModelIndex internalPointers) are stable for the
+    // model's lifetime. m_sublayerRowPtrSet provides O(1) discrimination
+    // between sublayer-row, kind-row, layer, and category indices.
+    QHash<OpenSWMMVisLayer *, std::vector<SublayerRow>>
+                                     m_sublayerRowStorage;
+    QSet<const void *>               m_sublayerRowPtrSet;
 
     /*! User-configurable category display order: each element is a CategoryId
      *  value. Default = compile-time enum order. Persisted implicitly through
@@ -251,6 +304,34 @@ signals:
      */
     void plotKindObjectRequested(int kindOrdinal, const QString &objectName);
 
+    /*!
+     * \brief Emitted when the user right-clicks a SWMM Output (.out) layer
+     *        and picks "Plot Time Series…". The receiver pops an object
+     *        picker (type + id read from the .out) and then the variable
+     *        picker, plotting against \p layer specifically. Lets the user
+     *        anchor the plot to the data layer rather than the model.
+     */
+    void plotTimeSeriesFromOutputLayerRequested(class SWMMResultsLayer *layer);
+
+    /*!
+     * \brief Emitted when the user picks "Set as Active Results Layer" on a
+     *        results layer's context menu. SWMMVis routes this to the project
+     *        window's setActiveResultsLayer / setActive2DResultsLayer so the
+     *        chosen layer becomes the target for all analysis tools.
+     */
+    void setActiveResultsLayerRequested(class SWMMResultsLayer *layer);
+    void setActive2DResultsLayerRequested(class SWMM2DResultsLayer *layer);
+
+public slots:
+    /*!
+     * \brief Cache the project window's active 1D / 2D results layers so the
+     *        context-menu "Set as Active Results Layer" entry can render a
+     *        check-mark on the active one. Wired from the project window's
+     *        activeResultsLayerChanged / active2DResultsLayerChanged signals.
+     */
+    void setActiveResultsLayer(SWMMResultsLayer *layer);
+    void setActive2DResultsLayer(SWMM2DResultsLayer *layer);
+
 private slots:
     void onRemoveSelectedLayer();
     void onZoomToSelectedLayer();
@@ -272,6 +353,10 @@ private:
     QLineEdit             *m_searchEdit  = nullptr;
     LayerTreeModel        *m_model       = nullptr;
     QSortFilterProxyModel *m_proxy       = nullptr;
+
+    // Cached active analysis layers (for the context-menu check-state only).
+    QPointer<SWMMResultsLayer>   m_activeResults1D;
+    QPointer<SWMM2DResultsLayer> m_activeResults2D;
 };
 
 #endif // LAYERTREEPANEL_H

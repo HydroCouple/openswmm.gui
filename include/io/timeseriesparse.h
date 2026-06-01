@@ -63,6 +63,49 @@ bool parseRow(const QString& line,
               std::vector<double>& valuesOut,
               double hoursSinceStartFallbackBase);
 
+/*!
+ * \brief State carried across lines when reading a SWMM .dat timeseries file.
+ * \details The .dat format permits 2-token lines (`<time> <value>`) that use
+ *          the *most recently parsed* date, plus 3-token lines
+ *          (`<date> <time> <value>`) that re-anchor it. The cached date is
+ *          tracked here so the caller can drive a per-line parse loop.
+ */
+struct SwmmDatState
+{
+    /*! \brief SWMM Julian date used as the anchor for 2-token lines (the
+     *  whole-day part). Initialise to a sensible base before parsing the
+     *  first line — e.g. `dateTimeToSwmmJulian(QDateTime(QDate(2000,1,1),
+     *  QTime(0,0), Qt::UTC))`. Updated when a 3-token line is read. */
+    double lastDateJulian = 0.0;
+
+    /*! \brief Set to true once a 3-token line has been parsed. Lets the
+     *  caller distinguish "anchor came from the file" vs "anchor was the
+     *  GUI's default" for UI hints. */
+    bool   anyDateSeen    = false;
+};
+
+/*!
+ * \brief Parse one line of a SWMM .dat timeseries file.
+ * \details Mirrors the engine's `table_parseFileLine` (legacy/engine/table.c):
+ *          - Whitespace and/or comma separated tokens
+ *          - Lines starting with `;` are comments (rejected)
+ *          - Empty lines are rejected
+ *          - 2 tokens → `<time> <value>` where \p time is either `HH:MM[:SS]`
+ *            or numeric hours; value's date is \c state.lastDateJulian
+ *          - 3 tokens → `<date> <time> <value>`; the parsed date replaces
+ *            \c state.lastDateJulian for subsequent lines
+ *          - No header / column-name parsing — .dat is data-only by spec
+ * \param line             Raw input line (no trailing newline).
+ * \param state            In/out cache of the most recently parsed date.
+ * \param timeJulianOut    On success, SWMM Julian date for this row.
+ * \param valueOut         On success, the value at this row.
+ * \returns \c true iff the line yielded a usable (time, value) pair.
+ */
+bool parseSwmmDatLine(const QString& line,
+                      SwmmDatState&  state,
+                      double&        timeJulianOut,
+                      double&        valueOut);
+
 } // namespace openswmmvis::io
 
 #endif // OPENSWMMVIS_IO_TIMESERIESPARSE_H

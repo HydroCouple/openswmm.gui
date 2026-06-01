@@ -7,6 +7,7 @@
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/crsselectiondialog.h"
 #include "ui/dialogs/hotstartsavesmodel.h"
+#include "ui/widgets/relativepathpicker.h"
 #include "ui/dialogs/pathbrowsedelegate.h"
 #include "ui/dialogs/pluginstablemodel.h"
 #include "core/preferencesmanager.h"
@@ -43,6 +44,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QSet>             // Slice RC.4 — built-in plugin-id lookup
 #include <QSettings>
 #include <QLineEdit>
 #include <QSpinBox>
@@ -2051,49 +2053,56 @@ void SimulationOptionsDialog::buildFilesTab(QTabWidget *tabs)
         c->addItem(tr("SAVE"),  QStringLiteral("SAVE"));
         return c;
     };
-    // Per-row Browse button: opens an Open dialog by default, a Save dialog
-    // when the row's mode combo is set to SAVE (or `defaultSave=true` for
-    // SAVE-only rows). Filters are coarse — most legacy SWMM secondary
-    // refs are plain text/CSV, except the hot-start USE row.
-    auto makePathRow = [secondary, secForm, this](const QString &label,
-                                                  QLineEdit **edit,
-                                                  QComboBox *modeCombo,
-                                                  bool defaultSave,
-                                                  const QString &dialogTitle,
-                                                  const QString &filter) {
-        *edit = new QLineEdit(secondary);
-        (*edit)->setPlaceholderText(
-            QObject::tr("path relative to the .inp directory"));
+    // Slice IO-11a — every [FILES] row is a RelativePathPicker so the
+    // line edit shows the path relative to the project anchor (defaulting
+    // to the .inp directory) and the embedded "…" button opens the file
+    // dialog. The picker re-routes the browse outcome through its own
+    // resolveAgainst-anchor logic; we no longer build a separate
+    // QPushButton + QFileDialog branch here.
+    //
+    // The mode combo (USE/SAVE) drives the picker's acceptMode so SAVE
+    // rows pick the "Save as" dialog flavour. Filters are coarse — most
+    // legacy SWMM secondary refs are plain text/CSV; the hot-start USE
+    // row gets its own *.hsf filter.
+    const QString projectAnchor =
+        (m_layer && !m_layer->modelFilePath().isEmpty())
+            ? QFileInfo(m_layer->modelFilePath()).absolutePath()
+            : QString();
+
+    auto makePathRow = [secondary, secForm, this, projectAnchor](
+                            const QString &label,
+                            openswmmvis::ui::RelativePathPicker **edit,
+                            QComboBox *modeCombo,
+                            bool defaultSave,
+                            const QString &dialogTitle,
+                            const QString &filter) {
+        auto *picker = new openswmmvis::ui::RelativePathPicker(secondary);
+        picker->setProjectAnchor(projectAnchor);
+        picker->setFileFilter(filter);
+        picker->setDialogCaption(dialogTitle);
+        picker->setAcceptMode(defaultSave ? QFileDialog::AcceptSave
+                                          : QFileDialog::AcceptOpen);
+        *edit = picker;
 
         auto *row = new QHBoxLayout();
-        row->addWidget(*edit, 1);
+        row->addWidget(picker, 1);
         if (modeCombo) {
             row->addWidget(new QLabel(QObject::tr("Mode:"), secondary));
             row->addWidget(modeCombo);
-        }
-        auto *browseBtn = new QPushButton(tr("Browse…"), secondary);
-        browseBtn->setToolTip(
-            tr("Choose a file for this secondary reference"));
-        row->addWidget(browseBtn);
-        secForm->addRow(label, row);
 
-        QLineEdit *editCap = *edit;
-        connect(browseBtn, &QPushButton::clicked, this,
-                [this, editCap, modeCombo, defaultSave, dialogTitle, filter] {
-            bool save = defaultSave;
-            if (modeCombo) {
+            // Mode change → pick the right file-dialog flavour on next browse.
+            connect(modeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+                    picker, [picker, modeCombo, defaultSave] {
+                bool save = defaultSave;
                 const QString m = modeCombo->currentData().toString();
-                save = (m.compare(QLatin1String("SAVE"),
-                                  Qt::CaseInsensitive) == 0);
-            }
-            const QString current = editCap->text().trimmed();
-            const QString path = save
-                ? QFileDialog::getSaveFileName(this, dialogTitle, current,
-                                               filter)
-                : QFileDialog::getOpenFileName(this, dialogTitle, current,
-                                               filter);
-            if (!path.isEmpty()) editCap->setText(path);
-        });
+                if (!m.isEmpty())
+                    save = (m.compare(QLatin1String("SAVE"),
+                                       Qt::CaseInsensitive) == 0);
+                picker->setAcceptMode(save ? QFileDialog::AcceptSave
+                                            : QFileDialog::AcceptOpen);
+            });
+        }
+        secForm->addRow(label, row);
     };
 
     const QString textFilter = tr("Text files (*.txt *.dat);;All Files (*)");
@@ -2142,6 +2151,10 @@ void SimulationOptionsDialog::buildFilesTab(QTabWidget *tabs)
         tr("Hot-start files (*.hsf);;All Files (*)"),
         tr("path relative to the .inp directory"),
         this);
+    // Slice IO-11c — feed the same project anchor into the delegate so
+    // file picks under the .inp directory commit as relative tokens,
+    // matching the [FILES] picker behaviour set up immediately above.
+    m_hotstartSavesPathDel->setProjectAnchor(projectAnchor);
     m_hotstartSavesDtDel   = new HotstartSavesDateTimeDelegate(this);
 
     m_hotstartSavesView = new QTableView(hsSaves);
@@ -2463,10 +2476,41 @@ void SimulationOptionsDialog::buildFilesTab(QTabWidget *tabs)
         const QModelIndex cur = m_pluginsView->currentIndex();
         if (cur.isValid()) m_pluginsModel->removeRows(cur.row(), 1);
     });
+    // Slice RC.4 — Plugins tab honours `is_builtin` from the engine's
+    // plugin discovery API. Built-ins (today: Default Input / Output /
+    // Report / StateIO + GeoPackage when OPENSWMM_HAS_GEOPACKAGE) are
+    // statically linked into the engine, so a user attempting to
+    // "Remove" the row from the .inp's [PLUGINS] section cannot
+    // actually unload them — the singleton stays alive in-process.
+    // Greying the Remove button when the selected row's path matches a
+    // built-in plugin_id makes that constraint visible.
+    auto builtInPluginIds = [] {
+        QSet<QString> ids;
+        for (const auto &p : openswmm::discover_plugins_by_id()) {
+            if (p.is_builtin)
+                ids.insert(QString::fromStdString(p.plugin_id));
+        }
+        return ids;
+    }();
     connect(m_pluginsView->selectionModel(),
             &QItemSelectionModel::currentChanged, this,
-            [this](const QModelIndex &cur, const QModelIndex &) {
-        m_pluginsRemoveBtn->setEnabled(cur.isValid());
+            [this, builtInPluginIds](const QModelIndex &cur, const QModelIndex &) {
+        if (!cur.isValid()) {
+            m_pluginsRemoveBtn->setEnabled(false);
+            m_pluginsRemoveBtn->setToolTip(QString());
+            return;
+        }
+        const QString rowPath = m_pluginsModel
+            ? m_pluginsModel->pathAt(cur.row()).trimmed()
+            : QString();
+        const bool isBuiltIn = builtInPluginIds.contains(rowPath);
+        m_pluginsRemoveBtn->setEnabled(!isBuiltIn);
+        m_pluginsRemoveBtn->setToolTip(
+            isBuiltIn
+              ? tr("\"%1\" is a built-in plugin statically linked into "
+                   "the engine — removing the row would have no effect "
+                   "(the plugin stays loaded in-process).").arg(rowPath)
+              : QString());
     });
 
     subTabs->addTab(pluginsPage, tr("Plugins"));
@@ -2804,15 +2848,15 @@ void SimulationOptionsDialog::readFilesSectionFromEngine()
         c->setCurrentIndex(idx >= 0 ? idx : 0);
     };
 
-    if (m_rainfallPathEdit) m_rainfallPathEdit->setText(getStr("RAINFALL_PATH"));
+    if (m_rainfallPathEdit) m_rainfallPathEdit->setPath(getStr("RAINFALL_PATH"));
     setMode(m_rainfallModeCombo, getStr("RAINFALL_MODE"));
-    if (m_runoffPathEdit)   m_runoffPathEdit->setText(getStr("RUNOFF_PATH"));
+    if (m_runoffPathEdit)   m_runoffPathEdit->setPath(getStr("RUNOFF_PATH"));
     setMode(m_runoffModeCombo,   getStr("RUNOFF_MODE"));
-    if (m_rdiiPathEdit)     m_rdiiPathEdit->setText(getStr("RDII_PATH"));
+    if (m_rdiiPathEdit)     m_rdiiPathEdit->setPath(getStr("RDII_PATH"));
     setMode(m_rdiiModeCombo,     getStr("RDII_MODE"));
-    if (m_inflowsPathEdit)  m_inflowsPathEdit->setText(getStr("INFLOWS_PATH"));
-    if (m_outflowsPathEdit) m_outflowsPathEdit->setText(getStr("OUTFLOWS_PATH"));
-    if (m_hotstartUseEdit)  m_hotstartUseEdit->setText(getStr("HOTSTART_USE_PATH"));
+    if (m_inflowsPathEdit)  m_inflowsPathEdit->setPath(getStr("INFLOWS_PATH"));
+    if (m_outflowsPathEdit) m_outflowsPathEdit->setPath(getStr("OUTFLOWS_PATH"));
+    if (m_hotstartUseEdit)  m_hotstartUseEdit->setPath(getStr("HOTSTART_USE_PATH"));
 
     // Multi-row SAVE HOTSTART table (Slice BV-01).  Phase 3.10.5 — pull
     // each entry from the engine's hotstart_saves vector into the
@@ -2867,26 +2911,26 @@ int SimulationOptionsDialog::writeFilesSectionToEngine()
     };
 
     if (m_rainfallPathEdit)
-        writePathIfChanged("RAINFALL_PATH", m_rainfallPathEdit->text());
+        writePathIfChanged("RAINFALL_PATH", m_rainfallPathEdit->absolutePath());
     if (m_rainfallModeCombo)
         writeIfChanged("RAINFALL_MODE",
                        m_rainfallModeCombo->currentData().toString());
     if (m_runoffPathEdit)
-        writePathIfChanged("RUNOFF_PATH",   m_runoffPathEdit->text());
+        writePathIfChanged("RUNOFF_PATH",   m_runoffPathEdit->absolutePath());
     if (m_runoffModeCombo)
         writeIfChanged("RUNOFF_MODE",
                        m_runoffModeCombo->currentData().toString());
     if (m_rdiiPathEdit)
-        writePathIfChanged("RDII_PATH",     m_rdiiPathEdit->text());
+        writePathIfChanged("RDII_PATH",     m_rdiiPathEdit->absolutePath());
     if (m_rdiiModeCombo)
         writeIfChanged("RDII_MODE",
                        m_rdiiModeCombo->currentData().toString());
     if (m_inflowsPathEdit)
-        writePathIfChanged("INFLOWS_PATH",  m_inflowsPathEdit->text());
+        writePathIfChanged("INFLOWS_PATH",  m_inflowsPathEdit->absolutePath());
     if (m_outflowsPathEdit)
-        writePathIfChanged("OUTFLOWS_PATH", m_outflowsPathEdit->text());
+        writePathIfChanged("OUTFLOWS_PATH", m_outflowsPathEdit->absolutePath());
     if (m_hotstartUseEdit)
-        writePathIfChanged("HOTSTART_USE_PATH",  m_hotstartUseEdit->text());
+        writePathIfChanged("HOTSTART_USE_PATH",  m_hotstartUseEdit->absolutePath());
 
     // Multi-row SAVE HOTSTART (Slice BV-01).  The vector API is simpler
     // to drive than per-slot diffing: snapshot the engine's current

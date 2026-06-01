@@ -73,6 +73,8 @@ private slots:
     void colorForValue_singleStopActsAsConstant();
     void legendSymbolItems_oneItemPerStop();
     void jsonRoundTrip_preservesAllFields();
+    void jsonRoundTrip_preservesInterp();
+    void colorForValue_hsvInterpDiffersFromRgb();
     void cloneIsIndependent();
 };
 
@@ -237,6 +239,46 @@ void TestIRasterRenderer::jsonRoundTrip_preservesAllFields()
         // QColor values directly side-steps that.
         QCOMPARE(out.stops().at(i).second, in.stops().at(i).second);
     }
+}
+
+void TestIRasterRenderer::jsonRoundTrip_preservesInterp()
+{
+    // P5/R-1 — interp must survive the JSON round-trip (default Rgb when
+    // the key is absent, e.g. older .oswp files).
+    SingleBandPseudoColorRenderer in = makeBlackWhite();
+    in.setInterp(RampInterp::HsvLong);
+
+    SingleBandPseudoColorRenderer out;
+    out.fromJson(in.toJson());
+    QCOMPARE(out.interp(), RampInterp::HsvLong);
+
+    // Absent key defaults to Rgb.
+    SingleBandPseudoColorRenderer legacy;
+    QJsonObject j = in.toJson();
+    j.remove(QStringLiteral("interp"));
+    legacy.fromJson(j);
+    QCOMPARE(legacy.interp(), RampInterp::Rgb);
+}
+
+void TestIRasterRenderer::colorForValue_hsvInterpDiffersFromRgb()
+{
+    // P5/R-1 — the renderer mirrors RasterColorRamp's interpolation so HSV
+    // ramps don't silently degrade to RGB lerp. A red→green ramp midpoint
+    // is a dull olive under RGB but a vivid yellow under HSV-short.
+    SingleBandPseudoColorRenderer rgb;
+    rgb.setRange(0.0, 1.0);
+    rgb.setStops({ { 0.0, QColor(Qt::red) }, { 1.0, QColor(Qt::green) } });
+    rgb.setInterp(RampInterp::Rgb);
+
+    SingleBandPseudoColorRenderer hsv = rgb;
+    hsv.setInterp(RampInterp::HsvShort);
+
+    const QColor midRgb = rgb.colorForValue(0.5);
+    const QColor midHsv = hsv.colorForValue(0.5);
+    QVERIFY(midRgb != midHsv);
+    // HSV-short red→green passes through yellow: high red AND green.
+    QVERIFY(midHsv.red()   > 200);
+    QVERIFY(midHsv.green() > 200);
 }
 
 void TestIRasterRenderer::cloneIsIndependent()

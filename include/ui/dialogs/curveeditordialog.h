@@ -32,7 +32,13 @@
 #include <QPointer>
 
 class QChart;
+class QAction;
+class QToolBar;
 class QChartView;
+namespace openswmmvis::ui {
+class InteractiveChartView;
+class CurveEditChartView;
+}
 class QLineSeries;
 class QScatterSeries;
 class QValueAxis;
@@ -43,7 +49,9 @@ class QLineEdit;
 class QListView;
 class QPushButton;
 class QSplitter;
+class QStandardItem;
 class QStandardItemModel;
+class QSortFilterProxyModel;
 class QStatusBar;
 class QTableView;
 class QToolButton;
@@ -75,6 +83,19 @@ public:
         QUndoStack *undoStack,
         QWidget *parent = nullptr);
 
+    /*! \brief Modal pick / create / edit entry point for callers that
+     *  round-trip a curve selection inline (e.g. the outfall stage-data
+     *  picker for TIDAL outfalls). Empty \p initialName → CreateNew mode;
+     *  otherwise → Edit mode pre-selecting that curve. Returns the name
+     *  of the curve currently selected on close, or empty if no commit
+     *  happened. All edits persist through the registry/provider MVC
+     *  layer regardless of which button closes the dialog. Mirrors
+     *  `PatternEditorDialog::pickPattern` / `TimeseriesEditorDialog::pickTimeseries`. */
+    static QString pickCurve(openswmmvis::curve::CurveRegistry *registry,
+                              QUndoStack    *undoStack,
+                              const QString &initialName,
+                              QWidget       *parent = nullptr);
+
     void openForCurve(const QString &name);
 
     Mode mode() const noexcept { return m_mode; }
@@ -84,7 +105,7 @@ public:
 
     QListView                *listView() const noexcept { return m_listView; }
     QTableView               *pointTable() const noexcept { return m_table; }
-    QChartView               *chartView() const noexcept { return m_chartView; }
+    CurveEditChartView       *chartView() const noexcept { return m_chartView; }
     CurvePointTableModel     *tableModel() const noexcept { return m_tableModel; }
 
     QString pendingName() const;
@@ -110,6 +131,9 @@ private slots:
     void onListContextMenu_(const QPoint &pos);
     void onAddRowClicked_();
     void onDeleteRowsClicked_();
+    void onCopyRowsClicked_();
+    void onPasteRowsClicked_();
+    void onTableContextMenu_(const QPoint &pos);
     void onTypeComboChanged_(int index);
     void onNewClicked_();
     void onRenameClicked_();
@@ -124,6 +148,7 @@ private slots:
     void onMutationRejected_(const QString &reason);
     void onCreateNewNameChanged_(const QString &text);
     void onCreateNewSubmit_();
+    void onListItemRenamed_(QStandardItem *item);
 
 private:
     void buildUi_();
@@ -134,6 +159,7 @@ private:
     void refreshChart_();
     void updateStatusBar_();
     void populateTypeCombo_(QComboBox *combo) const;
+    void applyTypeFilter_();
 
     QPointer<openswmmvis::curve::CurveRegistry> m_registry;
     QUndoStack                                  *m_undoStack = nullptr;
@@ -143,6 +169,8 @@ private:
     QSplitter                *m_splitter   = nullptr;
     QListView                *m_listView   = nullptr;
     QStandardItemModel       *m_listModel  = nullptr;
+    QSortFilterProxyModel    *m_listProxy  = nullptr;   ///< Curve-type filter.
+    QComboBox                *m_filterCombo = nullptr;
 
     QComboBox                *m_typeCombo  = nullptr;
     QLabel                   *m_typeHint   = nullptr;
@@ -150,10 +178,19 @@ private:
     CurvePointTableModel     *m_tableModel = nullptr;
     QPushButton              *m_addRowBtn  = nullptr;
     QPushButton              *m_delRowBtn  = nullptr;
+    QAction                  *m_copyAct    = nullptr;
+    QAction                  *m_pasteAct   = nullptr;
     QStatusBar               *m_status     = nullptr;
     QLabel                   *m_countLabel = nullptr;
 
-    QChartView               *m_chartView  = nullptr;
+    CurveEditChartView       *m_chartView  = nullptr;
+    QToolBar                 *m_chartToolBar     = nullptr;
+    QAction                  *m_chartPanAction   = nullptr;
+    QAction                  *m_chartZoomInAction  = nullptr;
+    QAction                  *m_chartZoomOutAction = nullptr;
+    QAction                  *m_chartEditAction    = nullptr;
+    QAction                  *m_chartLockXAction   = nullptr;
+    QAction                  *m_chartLockYAction   = nullptr;
     QChart                   *m_chart      = nullptr;
     QLineSeries              *m_line       = nullptr;
     QScatterSeries           *m_scatter    = nullptr;
@@ -176,6 +213,11 @@ private:
 
     // Suppress feedback loop when we set the type combo programmatically.
     bool                      m_suppressTypeSignal = false;
+    // Suppress feedback loop when we reset list item text on collision.
+    bool                      m_suppressListItemRename = false;
+    // Guards to break the chart<->table selection feedback loop.
+    bool                      m_suppressTableSelectionSync = false;
+    bool                      m_suppressChartSelectionSync = false;
 };
 
 } // namespace openswmmvis::ui

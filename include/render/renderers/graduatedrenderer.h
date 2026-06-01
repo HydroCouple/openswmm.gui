@@ -27,6 +27,7 @@
 #ifndef OPENSWMM_RENDER_GRADUATEDRENDERER_H
 #define OPENSWMM_RENDER_GRADUATEDRENDERER_H
 
+#include "render/attributesource.h"
 #include "render/colorramp.h"
 #include "render/ifeaturerenderer.h"
 #include "render/intervalbinner.h"
@@ -70,6 +71,22 @@ public:
      */
     [[nodiscard]] QString classifyAttribute() const { return m_classifyAttribute; }
     void setClassifyAttribute(QString name) { m_classifyAttribute = std::move(name); }
+
+    /*!
+     * \brief P2 — whether classifyAttribute() is a STATIC model/GIS field
+     *        (classified once) or a DYNAMIC SWMM output variable (sampled per
+     *        timestep). Default Static — pre-P2 renderers behave unchanged.
+     */
+    [[nodiscard]] AttributeSourceKind sourceKind() const { return m_sourceKind; }
+    void setSourceKind(AttributeSourceKind k) { m_sourceKind = k; }
+
+    /*!
+     * \brief P2 — how the value range behaves over the time axis. The owning
+     *        results layer consumes this on each tick (re-bin / re-stretch).
+     *        Default FixedOverRun.
+     */
+    [[nodiscard]] RangeMode rangeMode() const { return m_rangeMode; }
+    void setRangeMode(RangeMode m) { m_rangeMode = m; }
 
     /*!
      * \brief Convenience accessor for the ramp's value range. Equivalent
@@ -163,6 +180,30 @@ public:
      */
     [[nodiscard]] double sizeForBin(int bin) const;
 
+    /*!
+     * \brief VS.4 — independent line-WIDTH output axis. Marker "size" and
+     *        line "width" are distinct visual channels (nodes vs links) with
+     *        different sensible px ranges, so they get separate toggles and
+     *        ranges. When enabled, `symbolFor` writes a bin-mapped width into
+     *        each SymbolLayer's `props["width"]`. Disabled by default.
+     *
+     *        Back-compat: projects authored before VS.4 drove width through
+     *        the size axis (which wrote both "size" and "width"). `fromJson`
+     *        migrates those so their line widths are preserved.
+     */
+    [[nodiscard]] bool outputWidthEnabled() const { return m_outputWidthEnabled; }
+    void setOutputWidthEnabled(bool on) { m_outputWidthEnabled = on; }
+
+    [[nodiscard]] double outputWidthMin() const { return m_outputWidthMin; }
+    [[nodiscard]] double outputWidthMax() const { return m_outputWidthMax; }
+    void setOutputWidthRange(double minPx, double maxPx);
+
+    /*!
+     * \brief Bin-mapped line width, mirroring sizeForBin over the width
+     *        range. Returns outputWidthMin for single-bin or out-of-range.
+     */
+    [[nodiscard]] double widthForBin(int bin) const;
+
     // IFeatureRenderer.
     [[nodiscard]] QString rendererId() const override { return QStringLiteral("graduated"); }
     [[nodiscard]] SymbolStyle symbolFor(const FeatureRef &f,
@@ -203,6 +244,15 @@ private:
     bool             m_outputSizeEnabled  = false;
     double           m_outputSizeMin      = 2.0;
     double           m_outputSizeMax      = 14.0;
+
+    // VS.4 — independent line-width output axis.
+    bool             m_outputWidthEnabled = false;
+    double           m_outputWidthMin     = 0.5;
+    double           m_outputWidthMax     = 6.0;
+
+    // P2 — static/dynamic source + range-mode spine.
+    AttributeSourceKind m_sourceKind = AttributeSourceKind::Static;
+    RangeMode           m_rangeMode  = RangeMode::FixedOverRun;
 
     // Slice BB Phase 8.6.16 — sparse per-bin colour overrides.
     QHash<int, QColor> m_binColorOverrides;

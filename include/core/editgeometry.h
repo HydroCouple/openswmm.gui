@@ -19,6 +19,45 @@ namespace EditGeometry
 {
 
 /*!
+ * \brief Default coincidence tolerance, in layer-CRS units.
+ * \details Targets true / near-exact coincidence and floating-point round-trip
+ *          noise (e.g. duplicate map clicks, a polygon closing point that
+ *          repeats the first vertex), NOT visual simplification. Collinear /
+ *          shape-preserving vertices are intentionally left untouched.
+ */
+constexpr double kCoincidenceTol = 1e-6;
+
+/*!
+ * \brief Drop consecutive coincident points from a polyline.
+ * \details Each point within \p tol of the previous kept point is removed, so a
+ *          run of three or more duplicates collapses to one. The first point is
+ *          always kept; order and shape are otherwise preserved. Inputs with
+ *          fewer than two points are returned unchanged.
+ * \param v   Ordered polyline vertices.
+ * \param tol Coincidence tolerance in the input coordinate units. Two points
+ *            are coincident when their squared distance is <= tol*tol.
+ * \returns   Cleaned polyline. May contain fewer than two distinct points when
+ *            the whole input collapses — the caller decides how to handle that.
+ */
+[[nodiscard]] QVector<QPointF> cleanPolyline(const QVector<QPointF> &v,
+                                             double tol = kCoincidenceTol);
+
+/*!
+ * \brief Normalize a polygon ring: collapse coincident points and drop a
+ *        redundant explicit closing vertex.
+ * \details Runs the same consecutive-duplicate collapse as cleanPolyline(),
+ *          then strips a trailing point that coincides with the first vertex so
+ *          the result is an OPEN ring (matching the SWMM `[POLYGONS]` storage
+ *          convention, where the closing edge is implicit).
+ * \param v   Ordered polygon vertices (open or explicitly closed).
+ * \param tol Coincidence tolerance in the input coordinate units.
+ * \returns   Cleaned open ring. May contain fewer than three distinct points
+ *            when the input is degenerate — the caller decides how to handle it.
+ */
+[[nodiscard]] QVector<QPointF> cleanPolygonRing(const QVector<QPointF> &v,
+                                                double tol = kCoincidenceTol);
+
+/*!
  * \brief Compute the total length of a polyline.
  * \param vertices Ordered polyline vertices (any coordinate frame — the
  *                 caller is responsible for passing points in the frame

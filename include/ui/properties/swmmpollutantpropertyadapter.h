@@ -14,6 +14,7 @@
 #ifndef SWMMPOLLUTANTPROPERTYADAPTER_H
 #define SWMMPOLLUTANTPROPERTYADAPTER_H
 
+#include "ui/properties/dataobjectref.h"
 #include "ui/properties/swmmdataobjectpropertyadapter.h"
 
 class SWMMPollutantPropertyAdapter : public SWMMDataObjectPropertyAdapter
@@ -30,7 +31,10 @@ class SWMMPollutantPropertyAdapter : public SWMMDataObjectPropertyAdapter
     Q_PROPERTY(double kDecay     READ kDecay     WRITE setKDecay     NOTIFY changed)
     Q_PROPERTY(double mwt        READ mwt        WRITE setMwt        NOTIFY changed)
     Q_PROPERTY(bool   snowOnly   READ snowOnly   WRITE setSnowOnly   NOTIFY changed)
-    Q_PROPERTY(QString coPollutant READ coPollutant WRITE setCoPollutant NOTIFY changed)
+    // Slice BM.0-Browse-Edit (2026-05-25) — typed as DataObjectRef
+    // (kind=Pollutant) so the cell hosts the picker editor.
+    Q_PROPERTY(DataObjectRef coPollutant
+               READ coPollutantRef WRITE setCoPollutantRef NOTIFY changed)
     Q_PROPERTY(double coPollutantFrac READ coPollutantFrac WRITE setCoPollutantFrac NOTIFY changed)
 
 public:
@@ -46,6 +50,8 @@ public:
     [[nodiscard]] bool   snowOnly() const;
     /*! Name of the linked co-pollutant, or empty if none. */
     [[nodiscard]] QString coPollutant()     const;
+    /*! Slice BM.0-Browse-Edit — DataObjectRef wrapper of `coPollutant()`. */
+    [[nodiscard]] DataObjectRef coPollutantRef() const;
     [[nodiscard]] double  coPollutantFrac() const;
 
     Q_INVOKABLE QString displayLabelFor(const QString &property) const;
@@ -59,6 +65,10 @@ public slots:
     void setMwt(double v);
     void setSnowOnly(bool v);
     void setCoPollutant(const QString &poll);
+    /*! Slice BM.0-Browse-Edit — DataObjectRef-form setter for the
+     *  co-pollutant. Thin wrapper around `setCoPollutant` that extracts
+     *  the name from the ref. */
+    void setCoPollutantRef(const DataObjectRef &ref);
     void setCoPollutantFrac(double v);
 
 private:

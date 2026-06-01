@@ -6,9 +6,15 @@
  */
 #include "timeseries/timeseriesprovider.h"
 
+#include <QElapsedTimer>
+#include <QLoggingCategory>
 #include <QObject>
 
 #include <algorithm>
+
+// Debug instrumentation for the .dat-file load stall investigation.
+// Enable at runtime with: QT_LOGGING_RULES="openswmm.ts-load.*=true"
+Q_LOGGING_CATEGORY(lcTsLoadProvider, "openswmm.ts-load.provider")
 
 namespace openswmmvis::timeseries {
 
@@ -19,6 +25,31 @@ TimeseriesProvider::TimeseriesProvider(QString name, QObject *parent)
 }
 
 TimeseriesProvider::~TimeseriesProvider() = default;
+
+// ── Step F — lazy point cache (ExternalFile mode only) ──────────────────────
+
+bool TimeseriesProvider::isPointCacheLoaded() const noexcept
+{
+    // Inline / GeopackageObserved store their points authoritatively, so the
+    // cache is always "loaded" from the perspective of consumers — there's
+    // nothing to lazily fetch. Only ExternalFile distinguishes loaded vs
+    // disposed.
+    if (m_sourceMode != SourceMode::ExternalFile) return true;
+    return !m_points.isEmpty();
+}
+
+void TimeseriesProvider::disposePointCache()
+{
+    // Authoritative caches stay put — disposing them would lose user data.
+    if (m_sourceMode != SourceMode::ExternalFile) return;
+    if (m_points.isEmpty()) return;
+
+    const int prevCount = m_points.size();
+    m_points.clear();
+    // Notify table / chart views to drop their projections to empty state.
+    emit pointsChanged(0, prevCount);
+    emit pointCacheDisposed();
+}
 
 bool TimeseriesProvider::isStrictMonotone_(const QVector<TimeseriesPoint>& pts)
 {
@@ -31,18 +62,39 @@ bool TimeseriesProvider::isStrictMonotone_(const QVector<TimeseriesPoint>& pts)
 
 bool TimeseriesProvider::setAllPoints(QVector<TimeseriesPoint> newPoints, QString *reasonOut)
 {
-    if (!isStrictMonotone_(newPoints)) {
+    QElapsedTimer t; t.start();
+    const int newCount  = newPoints.size();
+    const int prevCount = m_points.size();
+    qCDebug(lcTsLoadProvider) << "setAllPoints ENTER name=" << m_name
+                              << "newCount=" << newCount
+                              << "prevCount=" << prevCount;
+
+    const qint64 tMono0 = t.nsecsElapsed();
+    const bool mono = isStrictMonotone_(newPoints);
+    const qint64 tMonoMs = (t.nsecsElapsed() - tMono0) / 1'000'000;
+    qCDebug(lcTsLoadProvider) << "  isStrictMonotone_ =" << mono
+                              << "took" << tMonoMs << "ms";
+
+    if (!mono) {
         const QString reason = tr("Time values must be strictly ascending.");
         if (reasonOut) *reasonOut = reason;
+        qCWarning(lcTsLoadProvider) << "  REJECT — non-monotone times; first 3 timestamps:"
+                                    << (newCount > 0 ? newPoints.at(0).time.toString(Qt::ISODate) : QString())
+                                    << (newCount > 1 ? newPoints.at(1).time.toString(Qt::ISODate) : QString())
+                                    << (newCount > 2 ? newPoints.at(2).time.toString(Qt::ISODate) : QString());
         emit mutationRejected(reason);
         return false;
     }
-    const int prevCount = m_points.size();
     m_points = std::move(newPoints);
-    if (prevCount > 0)
+    if (prevCount > 0) {
+        qCDebug(lcTsLoadProvider) << "  emit pointsRemoved(0," << prevCount << ")";
         emit pointsRemoved(0, prevCount);
-    if (!m_points.isEmpty())
+    }
+    if (!m_points.isEmpty()) {
+        qCDebug(lcTsLoadProvider) << "  emit pointsInserted(0," << m_points.size() << ")";
         emit pointsInserted(0, m_points.size());
+    }
+    qCDebug(lcTsLoadProvider) << "setAllPoints EXIT  took" << t.elapsed() << "ms";
     return true;
 }
 

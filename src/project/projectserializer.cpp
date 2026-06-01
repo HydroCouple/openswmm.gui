@@ -7,6 +7,7 @@
 #include "project/projectserializer.h"
 
 #include "connections/basemapconnection.h"
+#include "layers/annotationlayer.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmmmodellayer.h"
@@ -20,16 +21,35 @@
 #include "project/swmmvisproject.h"
 #include "swmmvisprojectwindow.h"
 
+// Slice S6.1 — round-trip per-layer sublayer state.
+#include "render/isublayerhost.h"
+
 // Slice BI-MK.3 — per-layer IFeatureRenderer round-trip needs the concrete
 // renderer types so the factory in `makeRendererFromJson` can dispatch on
 // the "id" discriminator. MultiKindRenderer included so MultiKind ↔ Multi
 // layer renderers (BI-MK.1.41 once it ships) round-trip too.
 #include "render/ifeaturerenderer.h"
+#include "render/labelconfig.h"
 #include "render/multikindrenderer.h"
+// Slice Z.13-attach — per-layer TemporalSpec persistence.
+#include "render/temporalspec.h"
+// Slice Z.14-attach — per-layer MaskSpec persistence.
+#include "render/maskspec.h"
+// Slice Z.15-attach — per-layer AuxiliaryStorageSpec persistence.
+#include "render/auxiliarystoragespec.h"
+// Slice Z.16-attach — per-layer external-table joins persistence.
+#include "render/joinspec.h"
+// Slice Z.12-attach — per-layer DiagramSpec persistence.
+#include "render/diagramspec.h"
 #include "render/renderers/categorizedrenderer.h"
 #include "render/renderers/graduatedrenderer.h"
 #include "render/renderers/rulebasedrenderer.h"
 #include "render/renderers/singlesymbolrenderer.h"
+#include "render/legendoverlaystyle.h"
+// Slice B.7 — Rule-level metadata persistence.
+#include "render/rule.h"
+#include "render/rulelist.h"
+#include "ui/widgets/legendoverlay.h"
 
 #include <QColor>
 #include <QDir>
@@ -59,6 +79,19 @@ const QString kHiddenObjects = QStringLiteral("hiddenObjects");
 const QString kCanvas        = QStringLiteral("canvas");
 const QString kExtent        = QStringLiteral("extent");
 const QString kResultLayers  = QStringLiteral("resultLayers");
+// Slice S6.1 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md) — companion to kResultLayers.
+// Object keyed by the same relative path as each entry in kResultLayers;
+// value is `ISublayerHost::saveSublayersToJson(*host)`. Purely additive —
+// older readers ignore this key; legacy `.oswp` files without it pick up
+// sublayer defaults on load.
+const QString kResultLayerSublayers = QStringLiteral("resultLayerSublayers");
+
+// Slice X.14 — companion map for SWMMResultsLayer per-kind renderers.
+// Keyed by the same relative results-file path used in kResultLayers;
+// value is a map of `kindKey` → renderer JSON for any kind that has a
+// non-default renderer installed.  Schema additive; older readers
+// ignore it and the layer's compiled defaults are used.
+const QString kResultLayerKindRenderers = QStringLiteral("resultLayerKindRenderers");
 
 // Schema v4 — multi-instance project (Slice AA-3.2)
 const QString kSessions      = QStringLiteral("sessions");
@@ -100,6 +133,47 @@ const QString kMeshContFilledAlpha  = QStringLiteral("filledOpacity");// BJ.2-fi
 // "single", "graduated", "categorized", "rule" or "multikind". Empty /
 // missing → keep the layer's compiled default renderer.
 const QString kRenderer             = QStringLiteral("renderer");
+
+// Slice X.14 — per-kind IFeatureRenderer JSON for SWMMModelLayer /
+// SWMMResultsLayer.  Mapped object keyed by the kind name returned by
+// `SWMMModelLayer::kindKey` (e.g. "junctions", "conduits").  Each value
+// is the renderer's `toJson()` payload.  Schema purely additive —
+// older readers ignore this key, and a saved project without it falls
+// back to the layer's compiled default renderers.
+const QString kKindRenderers        = QStringLiteral("kindRenderers");
+// Slice B.7 — Rule-level metadata (name/filter/blend/rebinPerFrame/
+// symbolLevelsEnabled) that the existing kindRenderers block doesn't
+// cover. Keyed by the Rule's name in the layer's RuleList.
+const QString kRuleMetadata         = QStringLiteral("ruleMetadata");
+
+// Slice X.18 — full label config JSON.  Schema additive; older readers
+// ignore it and the legacy `showLabels` bool elsewhere keeps working.
+const QString kLabelConfig          = QStringLiteral("labelConfig");
+
+// Slice Z.13-attach — per-layer TemporalSpec. Default-constructed
+// TemporalSpec (enabled=false) elides to keep JSON minimal for projects
+// that never touched the Temporal tab.
+const QString kTemporalSpec         = QStringLiteral("temporal");
+
+// Slice Z.14-attach — per-layer MaskSpec. Same elide-on-default behaviour.
+const QString kMaskSpec             = QStringLiteral("mask");
+
+// Slice Z.15-attach — per-layer AuxiliaryStorageSpec.
+const QString kAuxStorageSpec       = QStringLiteral("auxStorage");
+
+// Slice Z.16-attach — per-layer external-table joins (array).
+const QString kJoins                = QStringLiteral("joins");
+
+// Slice Z.12-attach — per-layer embedded chart diagram.
+const QString kDiagramSpec          = QStringLiteral("diagram");
+
+// Slice BB Phase 8.6.16 — on-canvas legend overlay chrome (font / frame /
+// background / anchor / opacity). Per-session; missing key ⇒ defaults.
+const QString kLegendOverlay        = QStringLiteral("legendOverlay");
+
+// Text annotation layer — array of styled text items placed on the map.
+// Schema additive; missing key ⇒ no annotations were saved.
+const QString kAnnotations          = QStringLiteral("annotations");
 
 // Factory: construct a concrete IFeatureRenderer from a JSON object whose
 // "id" field discriminates the renderer kind. Mirrors the local factory
@@ -161,16 +235,9 @@ QVector<int> fromJsonInts(const QJsonArray &a)
 
 // ---------------------------------------------------------------------------
 
-QString ProjectSerializer::sidecarPathFor(const QString &inpPath)
-{
-    if (inpPath.isEmpty()) return {};
-    const QFileInfo fi(inpPath);
-    return fi.absoluteDir().filePath(fi.completeBaseName() +
-                                     QStringLiteral(".oswp"));
-}
-
-// (toRelativePath / resolveStoredPath now inline in the header so unit
-// tests can exercise them without linking the full GUI graph.)
+// (toRelativePath / resolveStoredPath / sidecarPathFor now inline in
+// the header so unit tests can exercise them without linking the full
+// GUI graph. Slice AA-3.2 + Slice RB.5.)
 
 // ---------------------------------------------------------------------------
 // Session helpers — one entry per SWMM model instance.  Holds the
@@ -244,21 +311,163 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
     if (const auto *r = layer->renderer())
         layerObj[kRenderer] = r->toJson();
 
+    // Slice X.14 — per-kind renderers for the model layer.  layer->renderer()
+    // only sees the layer-level slot; the 11 per-Category renderers live
+    // in m_kindRenderers and otherwise wouldn't round-trip.  Only emit a
+    // kind entry when it differs from the default SingleSymbolRenderer (any
+    // graduated / categorized / rule-based / customised single is worth
+    // saving).  Older readers ignore this key.
+    {
+        QJsonObject kindObj;
+        for (int i = 0; i < int(SWMMModelLayer::NumCategories); ++i) {
+            const auto cat = static_cast<SWMMModelLayer::Category>(i);
+            const auto *kr = layer->kindRenderer(cat);
+            if (!kr) continue;
+            // Skip vanilla SingleSymbolRenderer slots that carry no edits —
+            // keeps the JSON compact and means the .oswp diff stays minimal
+            // for users who never touch the symbology.
+            if (kr->rendererId() == QStringLiteral("single")) {
+                const QJsonObject j = kr->toJson();
+                const QJsonObject sym = j.value(QStringLiteral("symbol")).toObject();
+                if (sym.isEmpty()) continue;
+            }
+            kindObj[SWMMModelLayer::kindKey(cat)] = kr->toJson();
+        }
+        if (!kindObj.isEmpty())
+            layerObj[kKindRenderers] = kindObj;
+    }
+
+    // Slice B.7 — Rule-level metadata for the model layer's RuleList.
+    // Keyed by Rule name (= kindKey). Only emit fields that differ from
+    // their compile-time defaults so .oswp diffs stay minimal for users
+    // who never touch Rule metadata.
+    if (auto *rl = layer->ruleList()) {
+        QJsonObject ruleObj;
+        for (int i = 0; i < rl->count(); ++i) {
+            const OpenSWMM::Render::Rule *r = rl->at(i);
+            if (!r) continue;
+            QJsonObject meta;
+            if (!r->isVisible())               meta[QStringLiteral("isVisible")] = false;
+            if (!r->filterExpression().isEmpty())
+                meta[QStringLiteral("filterExpression")] = r->filterExpression();
+            if (r->minScale() != 0.0)          meta[QStringLiteral("minScale")] = r->minScale();
+            if (r->maxScale() != 0.0)          meta[QStringLiteral("maxScale")] = r->maxScale();
+            if (r->blendMode() != QStringLiteral("Normal"))
+                meta[QStringLiteral("blendMode")] = r->blendMode();
+            if (r->rebinPerFrame())            meta[QStringLiteral("rebinPerFrame")] = true;
+            if (r->symbolLevelsEnabled())      meta[QStringLiteral("symbolLevelsEnabled")] = true;
+            if (!meta.isEmpty())
+                ruleObj[r->name()] = meta;
+        }
+        if (!ruleObj.isEmpty())
+            layerObj[kRuleMetadata] = ruleObj;
+    }
+
+    // Slice X.18 — model-layer label config.  Default-constructed
+    // (enabled=false, default font, no halo) elides to keep JSON
+    // compact for users who never touched the Labels tab.
+    {
+        const auto &lc = layer->labelConfig();
+        const OpenSWMM::Render::LabelConfig defaultLc;
+        if (lc != defaultLc)
+            layerObj[kLabelConfig] = lc.toJson();
+    }
+
+    // Slice Z.13-attach — per-layer TemporalSpec. Elide when default.
+    {
+        const auto &ts = layer->temporalSpec();
+        const OpenSWMM::Render::TemporalSpec defaultTs;
+        if (ts != defaultTs)
+            layerObj[kTemporalSpec] = ts.toJson();
+    }
+
+    // Slice Z.14-attach — per-layer MaskSpec. Same elide-on-default rule.
+    {
+        const auto &ms = layer->maskSpec();
+        const OpenSWMM::Render::MaskSpec defaultMs;
+        if (ms != defaultMs)
+            layerObj[kMaskSpec] = ms.toJson();
+    }
+
+    // Slice Z.15-attach — per-layer AuxiliaryStorageSpec.
+    {
+        const auto &as = layer->auxStorageSpec();
+        const OpenSWMM::Render::AuxiliaryStorageSpec defaultAs;
+        if (as != defaultAs)
+            layerObj[kAuxStorageSpec] = as.toJson();
+    }
+
+    // Slice Z.16-attach — per-layer joins list. Empty list elides.
+    {
+        const auto &js = layer->joins();
+        if (!js.isEmpty()) {
+            QJsonArray arr;
+            for (const auto &j : js) arr.append(j.toJson());
+            layerObj[kJoins] = arr;
+        }
+    }
+
+    // Slice Z.12-attach — per-layer DiagramSpec. Elide when default.
+    {
+        const auto &ds = layer->diagramSpec();
+        const OpenSWMM::Render::DiagramSpec defaultDs;
+        if (ds != defaultDs)
+            layerObj[kDiagramSpec] = ds.toJson();
+    }
+
     obj[kLayer] = layerObj;
 
     // Result layers — paths stored relative to the .oswp so the project
     // is relocatable.
     if (auto *canvas = pw->canvas()) {
         QJsonArray resultArr;
+        // Slice S6.1 — companion map (path → sublayer state) populated in
+        // the same loop. Schema additive; only emitted when at least one
+        // result layer is a sublayer host with state to save.
+        QJsonObject sublayerMap;
+        // Slice X.14 — companion map (path → kindKey → renderer JSON).
+        QJsonObject kindRendererMap;
         for (OpenSWMMVisLayer *l : canvas->layers()) {
             if (auto *rl = qobject_cast<SWMMResultsLayer *>(l)) {
                 const QString rel = toRelativePath(rl->resultsFilePath(), oswpFile);
-                if (!rel.isEmpty())
+                if (!rel.isEmpty()) {
                     resultArr.append(rel);
+                    // S2.4 adopted ISublayerHost on SWMMResultsLayer. The
+                    // dynamic_cast tolerates layers that haven't adopted
+                    // yet (or future variants); they simply skip the
+                    // sublayer map entry.
+                    if (auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(rl))
+                        sublayerMap.insert(rel,
+                            OpenSWMM::Render::ISublayerHost::saveSublayersToJson(*host));
+
+                    // Per-kind renderers — every non-default slot survives
+                    // a save/reload.  Default detection mirrors the model
+                    // layer's elision rule: drop vanilla SingleSymbolRenderer
+                    // slots with empty symbol payload so the .oswp stays
+                    // minimal for users who never touched the styling.
+                    QJsonObject kindObj;
+                    for (int i = 0; i < int(SWMMModelLayer::NumCategories); ++i) {
+                        const auto cat = static_cast<SWMMModelLayer::Category>(i);
+                        const auto *kr = rl->kindRenderer(cat);
+                        if (!kr) continue;
+                        const QJsonObject j = kr->toJson();
+                        if (kr->rendererId() == QStringLiteral("single")) {
+                            const QJsonObject sym = j.value(QStringLiteral("symbol")).toObject();
+                            if (sym.isEmpty()) continue;
+                        }
+                        kindObj[SWMMModelLayer::kindKey(cat)] = j;
+                    }
+                    if (!kindObj.isEmpty())
+                        kindRendererMap.insert(rel, kindObj);
+                }
             }
         }
         if (!resultArr.isEmpty())
             obj[kResultLayers] = resultArr;
+        if (!sublayerMap.isEmpty())
+            obj[kResultLayerSublayers] = sublayerMap;
+        if (!kindRendererMap.isEmpty())
+            obj[kResultLayerKindRenderers] = kindRendererMap;
     }
 
     // Terrain editing state — active raster path + invert offsets.
@@ -316,6 +525,36 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
         }
         if (!meshArr.isEmpty())
             obj[kMeshLayers] = meshArr;
+    }
+
+    // Slice BB Phase 8.6.16 — on-canvas legend overlay chrome. Persisted
+    // per-session so each project window restores its own legend look.
+    // Read off the canvas's currently-installed overlay (lazily created
+    // when the user toggles actionShowLegend); when no overlay exists
+    // yet the session's defaults flow back into one when actionShowLegend
+    // first fires.
+    if (auto *canvas = pw->canvas()) {
+        if (auto *overlay = canvas->findChild<openswmmvis::ui::LegendOverlay *>(
+                QString(), Qt::FindDirectChildrenOnly)) {
+            if (auto *style = overlay->style())
+                obj[kLegendOverlay] = style->toJson();
+        }
+    }
+
+    // Text annotations — flatten every annotation layer into a single array.
+    // The MVP creates one lazy layer per project, so there's typically zero
+    // or one entry to serialize; the loop tolerates future multi-layer
+    // configurations without schema changes.
+    if (auto *canvas = pw->canvas()) {
+        QJsonArray annArr;
+        for (OpenSWMMVisLayer *l : canvas->layers()) {
+            auto *al = qobject_cast<OpenSWMMVisAnnotationLayer *>(l);
+            if (!al) continue;
+            const QJsonArray a = al->toJson();
+            for (const QJsonValue &v : a) annArr.append(v);
+        }
+        if (!annArr.isEmpty())
+            obj[kAnnotations] = annArr;
     }
 
     return obj;
@@ -392,8 +631,113 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
             layer->setRenderer(std::move(r));
     }
 
+    // Slice X.14 — per-kind renderers for the model layer.  Walk the
+    // saved object keyed by kindKey and install each via setKindRenderer;
+    // missing keys keep the compiled default for that slot.  Unknown
+    // discriminator IDs are dropped (factory returns null).
+    if (layerObj.contains(kKindRenderers)) {
+        const QJsonObject kindObj = layerObj.value(kKindRenderers).toObject();
+        for (int i = 0; i < int(SWMMModelLayer::NumCategories); ++i) {
+            const auto cat = static_cast<SWMMModelLayer::Category>(i);
+            const QString key = SWMMModelLayer::kindKey(cat);
+            if (!kindObj.contains(key)) continue;
+            if (auto r = makeRendererFromJson(kindObj.value(key).toObject()))
+                layer->setKindRenderer(cat, std::move(r));
+        }
+    }
+
+    // Slice B.7 — Rule-level metadata. Looked up by Rule name (=
+    // kindKey). Missing entries leave the Rule at its lazy-init
+    // defaults. Setters fire ruleChanged but that's harmless on load.
+    if (layerObj.contains(kRuleMetadata)) {
+        const QJsonObject ruleObj = layerObj.value(kRuleMetadata).toObject();
+        if (auto *rl = layer->ruleList()) {
+            for (int i = 0; i < rl->count(); ++i) {
+                OpenSWMM::Render::Rule *r = rl->at(i);
+                if (!r) continue;
+                const QJsonObject meta = ruleObj.value(r->name()).toObject();
+                if (meta.isEmpty()) continue;
+                if (meta.contains(QStringLiteral("isVisible")))
+                    r->setVisible(meta.value(QStringLiteral("isVisible")).toBool(true));
+                if (meta.contains(QStringLiteral("filterExpression")))
+                    r->setFilterExpression(
+                        meta.value(QStringLiteral("filterExpression")).toString());
+                if (meta.contains(QStringLiteral("minScale")))
+                    r->setMinScale(meta.value(QStringLiteral("minScale")).toDouble(0.0));
+                if (meta.contains(QStringLiteral("maxScale")))
+                    r->setMaxScale(meta.value(QStringLiteral("maxScale")).toDouble(0.0));
+                if (meta.contains(QStringLiteral("blendMode")))
+                    r->setBlendMode(meta.value(QStringLiteral("blendMode")).toString());
+                if (meta.contains(QStringLiteral("rebinPerFrame")))
+                    r->setRebinPerFrame(meta.value(QStringLiteral("rebinPerFrame")).toBool(false));
+                if (meta.contains(QStringLiteral("symbolLevelsEnabled")))
+                    r->setSymbolLevelsEnabled(
+                        meta.value(QStringLiteral("symbolLevelsEnabled")).toBool(false));
+            }
+        }
+    }
+
+    // Slice X.18 — restore label config if persisted.  Missing key falls
+    // back to the layer's default-constructed config (legacy showLabels
+    // path keeps working through SWMMModelLayer::setShowLabels).
+    if (layerObj.contains(kLabelConfig)) {
+        OpenSWMM::Render::LabelConfig lc;
+        lc.fromJson(layerObj.value(kLabelConfig).toObject());
+        layer->setLabelConfig(lc);
+    }
+
+    // Slice Z.13-attach — restore TemporalSpec if persisted. Missing key
+    // leaves the layer's default-constructed spec (enabled=false), so
+    // projects authored before this slice keep their existing animation
+    // behavior driven by the legacy toolbar.
+    if (layerObj.contains(kTemporalSpec)) {
+        layer->setTemporalSpec(OpenSWMM::Render::TemporalSpec::fromJson(
+            layerObj.value(kTemporalSpec).toObject()));
+    }
+
+    // Slice Z.14-attach — restore MaskSpec if persisted. Missing key
+    // leaves the layer unmasked.
+    if (layerObj.contains(kMaskSpec)) {
+        layer->setMaskSpec(OpenSWMM::Render::MaskSpec::fromJson(
+            layerObj.value(kMaskSpec).toObject()));
+    }
+
+    // Slice Z.15-attach — restore AuxiliaryStorageSpec if persisted.
+    if (layerObj.contains(kAuxStorageSpec)) {
+        layer->setAuxStorageSpec(
+            OpenSWMM::Render::AuxiliaryStorageSpec::fromJson(
+                layerObj.value(kAuxStorageSpec).toObject()));
+    }
+
+    // Slice Z.16-attach — restore joins list if persisted. We tolerate
+    // malformed entries individually (skip rather than abort the layer
+    // load) so a partially-corrupted project still opens.
+    if (layerObj.contains(kJoins)) {
+        const QJsonArray arr = layerObj.value(kJoins).toArray();
+        QVector<OpenSWMM::Render::JoinSpec> js;
+        js.reserve(arr.size());
+        for (const auto &v : arr) {
+            if (!v.isObject()) continue;
+            js.append(OpenSWMM::Render::JoinSpec::fromJson(v.toObject()));
+        }
+        if (!js.isEmpty()) layer->setJoins(js);
+    }
+
+    // Slice Z.12-attach — restore DiagramSpec if persisted.
+    if (layerObj.contains(kDiagramSpec)) {
+        layer->setDiagramSpec(OpenSWMM::Render::DiagramSpec::fromJson(
+            layerObj.value(kDiagramSpec).toObject()));
+    }
+
     // Result layers — reopen each persisted output file.
     if (sessionObj.contains(kResultLayers) && pw->canvas() && pw->modelLayer()) {
+        // Slice S6.1 — sublayer state map (path → host JSON). Looked up
+        // by rel path right after each layer is constructed so the JSON
+        // helpers can re-apply visibility / opacity / per-sublayer style.
+        const QJsonObject sublayerMap =
+            sessionObj.value(kResultLayerSublayers).toObject();
+        const QJsonObject kindRendererMap =
+            sessionObj.value(kResultLayerKindRenderers).toObject();
         for (const QJsonValue &v : sessionObj.value(kResultLayers).toArray()) {
             const QString relPath = v.toString();
             if (relPath.isEmpty()) continue;
@@ -404,6 +748,25 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
             pw->canvas()->addLayer(rl, /*pushUndo=*/false);
             QList<QString> w, e;
             rl->openResults(w, e);
+
+            // Slice S6.1 — restore sublayer state, if persisted.
+            // No-op for projects saved before S6.1 (the map is empty)
+            // and for layers that don't have a matching entry.
+            if (auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(rl)) {
+                const QJsonObject entry = sublayerMap.value(relPath).toObject();
+                if (!entry.isEmpty())
+                    OpenSWMM::Render::ISublayerHost::loadSublayersFromJson(*host, entry);
+            }
+
+            // Slice X.14 — restore per-kind renderers, if persisted.
+            const QJsonObject kindObj = kindRendererMap.value(relPath).toObject();
+            for (int i = 0; !kindObj.isEmpty() && i < int(SWMMModelLayer::NumCategories); ++i) {
+                const auto cat = static_cast<SWMMModelLayer::Category>(i);
+                const QString key = SWMMModelLayer::kindKey(cat);
+                if (!kindObj.contains(key)) continue;
+                if (auto r = makeRendererFromJson(kindObj.value(key).toObject()))
+                    rl->setKindRenderer(cat, std::move(r));
+            }
         }
     }
 
@@ -474,6 +837,34 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
                 ml->setFilledContours(c.value(kMeshContFilled).toBool());
             if (c.contains(kMeshContFilledAlpha))
                 ml->setFilledContoursOpacity(c.value(kMeshContFilledAlpha).toDouble());
+        }
+    }
+
+    // Slice BB Phase 8.6.16 — restore on-canvas legend overlay chrome.
+    // If no overlay exists yet (user hasn't toggled actionShowLegend in
+    // this session), create one so the saved style takes effect the next
+    // time the user shows the legend. The overlay stays hidden until the
+    // toolbar toggle fires.
+    if (sessionObj.contains(kLegendOverlay)) {
+        if (auto *canvas = pw->canvas()) {
+            auto *overlay = canvas->findChild<openswmmvis::ui::LegendOverlay *>(
+                QString(), Qt::FindDirectChildrenOnly);
+            if (!overlay)
+                overlay = new openswmmvis::ui::LegendOverlay(canvas);
+            if (auto *style = overlay->style())
+                style->fromJson(sessionObj.value(kLegendOverlay).toObject());
+        }
+    }
+
+    // Text annotations — restore each into a freshly-created annotation
+    // layer (lazy creation in the project window). Missing key ⇒ no layer
+    // is added, keeping the layer tree empty for projects that never used
+    // annotations.
+    if (sessionObj.contains(kAnnotations)) {
+        const QJsonArray annArr = sessionObj.value(kAnnotations).toArray();
+        if (!annArr.isEmpty()) {
+            if (auto *al = pw->ensureAnnotationLayer())
+                al->fromJson(annArr);
         }
     }
 

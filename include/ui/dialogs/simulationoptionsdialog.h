@@ -44,6 +44,10 @@ class HotstartSavesDateTimeDelegate;
 class PathBrowseDelegate;
 class PluginsTableModel;
 
+namespace openswmmvis::ui {
+    class RelativePathPicker;
+}
+
 #include <openswmm/engine/openswmm_engine.h>
 
 /*!
@@ -390,16 +394,19 @@ private:
     QPushButton        *m_pluginsAddBtn     = nullptr;
     QPushButton        *m_pluginsRemoveBtn  = nullptr;
 
-    // Tab 7 — Secondary file references (Slice AA-3 [FILES] follow-up)
-    QLineEdit      *m_rainfallPathEdit  = nullptr;
-    QComboBox      *m_rainfallModeCombo = nullptr;
-    QLineEdit      *m_runoffPathEdit    = nullptr;
-    QComboBox      *m_runoffModeCombo   = nullptr;
-    QLineEdit      *m_rdiiPathEdit      = nullptr;
-    QComboBox      *m_rdiiModeCombo     = nullptr;
-    QLineEdit      *m_inflowsPathEdit   = nullptr;
-    QLineEdit      *m_outflowsPathEdit  = nullptr;
-    QLineEdit      *m_hotstartUseEdit   = nullptr;
+    // Tab 7 — Secondary file references (Slice AA-3 [FILES] follow-up).
+    // Slice IO-11a — paths now flow through RelativePathPicker so the
+    // dialog displays each token relative to the project anchor and
+    // emits the absolute form for round-trip with the engine C-API.
+    openswmmvis::ui::RelativePathPicker *m_rainfallPathEdit  = nullptr;
+    QComboBox                           *m_rainfallModeCombo = nullptr;
+    openswmmvis::ui::RelativePathPicker *m_runoffPathEdit    = nullptr;
+    QComboBox                           *m_runoffModeCombo   = nullptr;
+    openswmmvis::ui::RelativePathPicker *m_rdiiPathEdit      = nullptr;
+    QComboBox                           *m_rdiiModeCombo     = nullptr;
+    openswmmvis::ui::RelativePathPicker *m_inflowsPathEdit   = nullptr;
+    openswmmvis::ui::RelativePathPicker *m_outflowsPathEdit  = nullptr;
+    openswmmvis::ui::RelativePathPicker *m_hotstartUseEdit   = nullptr;
 
     // Tab 7 — Multi-row SAVE HOTSTART table (Slice BV-01, 2026-05-21).
     // Replaces the single m_hotstartSaveEdit line edit so the user can

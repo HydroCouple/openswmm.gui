@@ -17,6 +17,7 @@
 #define WCSLAYER_H
 
 #include "layers/openswmmvislayer.h"
+#include "render/basemaprenderparams.h"
 
 #include <QImage>
 #include <QList>
@@ -174,6 +175,14 @@ signals:
     void capabilitiesError(const QString &errorMessage);
     void coverageReady();
 
+    /*! Slice X.22 — basemap render adjustments updated. */
+    void basemapRenderParamsChanged();
+
+public:
+    /*! Slice X.22 — shared basemap render adjustments. */
+    [[nodiscard]] const OpenSWMM::Render::BasemapRenderParams &basemapRenderParams() const { return m_renderParams; }
+    void setBasemapRenderParams(const OpenSWMM::Render::BasemapRenderParams &p);
+
 private slots:
     void onCapabilitiesReply(QNetworkReply *reply);
     void onGetCoverageReply(QNetworkReply *reply,
@@ -231,6 +240,7 @@ private:
 
     // Cached coverage (WMS-style: one image per viewport)
     QImage                       m_cachedImage;
+    OpenSWMM::Render::BasemapRenderParams m_renderParams;  /*!< X.22 */
     MapExtent                    m_cacheExtent;
     int                          m_cacheWidth   = 0;
     int                          m_cacheHeight  = 0;

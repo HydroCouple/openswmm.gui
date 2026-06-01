@@ -42,6 +42,14 @@ set(OPENSWMM_BUILD_LEGACY   ON  CACHE BOOL "" FORCE)
 # in Open / Save As / Plugins dialogs automatically.
 set(OPENSWMM_WITH_GEOPACKAGE ON CACHE BOOL "" FORCE)
 
+# Always compile the engine targets with the engine's preset Release flags
+# (-O2 + LTO + -mcpu=native, etc.), even when the GUI itself is configured
+# in Debug. The engine is a stable dependency in GUI dev workflows — runtime
+# perf, not engine debuggability, is what matters here. Without this, a
+# Debug-configured GUI drags engine TUs down to -O0 and disables LTO,
+# erasing the refactored engine's perf advantage versus legacy.
+set(OPENSWMM_ENGINE_FORCE_OPTIMIZED ON CACHE BOOL "" FORCE)
+
 # Backward-compat: honor the older OpenSWMMCore / OpenSWMMGUI cache variable
 # names so existing presets and dev scripts keep working.
 if(NOT OPENSWMMENGINE_SOURCE_DIR AND OPENSWMMCORE_SOURCE_DIR)

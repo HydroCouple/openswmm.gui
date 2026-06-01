@@ -651,4 +651,40 @@ private:
     bool                     m_firstRedo = true;
 };
 
+class OpenSWMMVisAnnotationLayer;
+class AnnotationTextItem;
+
+/*!
+ * \class AddAnnotationCommand
+ * \brief Records the placement of a single text annotation.
+ * \details The command owns the AnnotationTextItem while it is detached
+ *          from the layer (undo state). On redo, the item is moved into
+ *          the layer (which takes QObject parent ownership). On undo, the
+ *          layer detaches the item via takeAnnotation, returning it to
+ *          the command. This pattern keeps the item's id stable across
+ *          redo/undo cycles so any side-channel references survive.
+ */
+class AddAnnotationCommand : public MapCommand
+{
+public:
+    /*! \param item  Newly-created annotation. The command takes ownership;
+     *               it transfers to the layer on each redo and back to the
+     *               command on undo. */
+    AddAnnotationCommand(OpenSWMMVisAnnotationLayer *layer,
+                         AnnotationTextItem *item,
+                         MapCanvas *canvas,
+                         QUndoCommand *parent = nullptr);
+    ~AddAnnotationCommand() override;
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 21; }
+
+private:
+    OpenSWMMVisAnnotationLayer *m_layer = nullptr;
+    AnnotationTextItem         *m_item  = nullptr;  ///< owned only while detached
+    QString                     m_itemId;            ///< stable handle into the layer
+    bool                        m_present = false;   ///< true iff currently in layer
+};
+
 #endif // MAPUNDOSTACK_H

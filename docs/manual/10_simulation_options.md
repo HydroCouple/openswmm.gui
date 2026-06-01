@@ -1,4 +1,4 @@
-# 10 — Running Simulations: Simulation Options
+@page manual_simulation_options 10 — Running Simulations: Simulation Options
 
 ## What you'll do
 

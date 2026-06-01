@@ -58,8 +58,11 @@ class ObjectBrowserPanel;
 class AttributePanel;
 class AttributeTablePanel;
 class SimulationStatusModel;
+class ProfilePlotDialog;
 
 namespace openswmmvis::ui { class PerAttributeThemingWidget; }
+namespace openswmmvis::ui { class LegendDock; }
+namespace openswmmvis::ui { class LayerStylingDock; }
 
 /*!
  * \class SWMMVis
@@ -104,6 +107,17 @@ private:
     void initializeToolBars();
     void initializeAnimationToolBar();
     void initializeTerrainToolBar();
+    void initializeMeshEditingToolBar();   // Slice §V.VB
+
+    /*! Build the active 1D / 2D results-layer selectors on the Analysis
+     *  toolbar (results-analysis demarcation). */
+    void initializeAnalysisLayerCombos();
+
+    /*! Repopulate both active-results combos from the active project window's
+     *  registry / canvas, re-selecting the window's current active layers.
+     *  Called on tab switch, on OutputStatsRegistry::identitiesChanged, and on
+     *  active*ResultsLayerChanged. */
+    void refreshActiveResultsCombos();
     void initializeMapTools();
     void initializeStatusBar();
     void initializeDockWidgets();
@@ -112,6 +126,7 @@ private:
     void initializeAttributePanelDockWidget();
     void initializeSimulationStatusDockWidget();
     void initializeMessageLogDockWidget();
+    void initializeLegendDockWidget();   // Slice BB Phase 8.6.11 / 8.6.16
     void initializeMenus();
     void initializeSettings();
     void saveSettings();
@@ -128,6 +143,13 @@ private slots:
     void onLayerKindStyleRequested(OpenSWMMVisLayer *layer,
                                    int kindOrdinal,
                                    const QString &rendererId);
+
+    /*! \brief Right-click on a SWMM Output layer → "Plot Time Series…".
+     *  Pops a cascading Type/Object/Variable picker dialog populated
+     *  from \p layer's .out file, then opens / focuses the Comparison
+     *  Plot Dialog and adds the chosen series against this specific
+     *  layer (skipping the auto-pick-first-results path). */
+    void onPlotTimeSeriesFromOutputLayer(class SWMMResultsLayer *layer);
 
     /*! \brief Create a new untitled project. */
     void onNewProject();
@@ -222,6 +244,14 @@ private slots:
     /*! \brief Open the Time Series Plot dialog without a pre-selected object. */
     void onPlotTimeSeries();
 
+    /*! Slice GUI-2026-05-30 §6 — open the two-panel Report Viewer over the
+     *  active project's .rpt file.  No-op if there is no project / no .rpt. */
+    void onShowReport();
+
+    /*! Slice GUI-2026-05-30 §5 — invoked after the user has armed a
+     *  one-shot map pick by clicking Plot Timeseries with no selection. */
+    void onPlotTimeSeriesPickComplete(const SWMMObjectRef &ref);
+
     /*! Open the Time Series Plot dialog for the given object ref against
      *  the active project's SWMM results .out file. Shared by
      *  ObjectBrowserPanel::plotTimeSeriesRequested and
@@ -232,11 +262,25 @@ private slots:
      *  openComparisonPlotFor(); existing wiring is preserved. */
     void openTimeSeriesPlotFor(const SWMMObjectRef &ref);
 
+    /*! Variant of \ref openTimeSeriesPlotFor that targets a specific
+     *  results layer (one of several .out files loaded on the canvas).
+     *  Pops the AttributePickerMenu against \p ref's kind and then plots
+     *  against \p layer specifically (no auto-pick-first-found). Used by
+     *  ObjectBrowserPanel's "Plot Time Series ▸ <layer>" submenu when
+     *  multiple SWMMResultsLayers are loaded. */
+    void openTimeSeriesPlotForOnLayer(const SWMMObjectRef &ref,
+                                       SWMMResultsLayer *layer);
+
     /*! Slice BL — open / focus the Comparison Plot dialog and add a
      *  series for \p ref on the active project's first SWMMResultsLayer.
      *  The dialog is created once and re-used; subsequent calls add
      *  series to the existing dialog. */
     void openComparisonPlotFor(const SWMMObjectRef &ref);
+
+    /*! Variant of \ref openComparisonPlotFor that uses a specific results
+     *  layer instead of auto-picking the first one on the canvas. */
+    void openComparisonPlotForOnLayer(const SWMMObjectRef &ref,
+                                       SWMMResultsLayer *layer);
 
     /*! Slice AT.2 — open / focus the dialog and add a series for \p ref
      *  with a specific \p attribute (replaces the per-object-kind default
@@ -245,6 +289,21 @@ private slots:
      *  AttributePickerMenu "All attributes" entry). */
     void openComparisonPlotForAttribute(const SWMMObjectRef &ref,
                                         openswmmvis::plot::PlotAttribute attribute);
+
+    /*! Variant of \ref openComparisonPlotForAttribute that uses a specific
+     *  results layer instead of auto-picking. */
+    void openComparisonPlotForAttributeOnLayer(const SWMMObjectRef &ref,
+                                                openswmmvis::plot::PlotAttribute attribute,
+                                                SWMMResultsLayer *layer);
+
+    /*! Profile-dialog overlay variant: opens / focuses a ComparisonPlotDialog
+     *  parented to \p profileDlg (rather than this main window) and given
+     *  Qt::Tool flags so it floats above the profile. Reused across multiple
+     *  right-click "Plot Time Series" picks from the same profile; dies with
+     *  the profile dialog. */
+    void openComparisonPlotOverlayForProfile(ProfilePlotDialog *profileDlg,
+                                              const SWMMObjectRef &ref,
+                                              openswmmvis::plot::PlotAttribute attribute);
 
     /*! Slice AT.2 — open / focus the dialog and add a system-wide series
      *  (rainfall, runoff, flooding, …). Resolved against the active
@@ -266,6 +325,18 @@ private slots:
      *  MapToolSelectProfile just confirmed.  Builds the dialog on the
      *  fly so each path gets a fresh non-modal window. */
     void openProfilePlotFor(const ProfileRouter::Path &path);
+
+    /*! Open the 2D-mesh longitudinal profile dialog for the polyline the
+     *  MapToolMeshProfile just traced (scene coords). One window per trace. */
+    void openMeshProfilePlotFor(const QVector<QPointF> &scenePolyline);
+
+    /*! Open the comparison plot with the signed-normal-flux time series of the
+     *  mesh edge the user right-clicked in the edge-select tool. */
+    void openMeshEdgeFluxPlotFor(class SWMM2DMeshLayer *mesh, int triIdx, int edgeLocal);
+
+    /*! Open the comparison plot with interpolated depth + HGL time series for
+     *  the selected mesh vertices (right-clicked in the vertex-select tool). */
+    void openMeshVertexSeriesFor(class SWMM2DMeshLayer *mesh, const QVector<int> &vertexIdxList);
 
     void onActiveSubWindowChanged(QMdiSubWindow *window);
 
@@ -309,8 +380,18 @@ private:
     QDateTimeEdit *mDateTimeEditAnimationTime         = nullptr;
     QLabel        *mLabelAnimationSpeed               = nullptr;
     QComboBox     *mComboAnimationSpeed               = nullptr;
+    // Active analysis-layer selectors on the Analysis toolbar. The user picks
+    // which 1D / 2D results layer every analysis tool targets; "— none —"
+    // returns to model editing. Populated from the active project window's
+    // OutputStatsRegistry (1D) / canvas 2D results layers, kept in sync via
+    // SWMMVisProjectWindow::activeResultsLayerChanged / active2DResultsLayerChanged.
+    QLabel        *mLabelActiveResults1D              = nullptr;
+    QComboBox     *mComboActiveResults1D              = nullptr;
+    QLabel        *mLabelActiveResults2D              = nullptr;
+    QComboBox     *mComboActiveResults2D              = nullptr;
     class AnimationController *mAnimationController  = nullptr;
     class TerrainToolbar      *mTerrainToolbar       = nullptr;
+    class MeshEditingToolbar  *mMeshEditingToolbar   = nullptr;   // Slice §V.VB
     openswmmvis::ui::PerAttributeThemingWidget *mThemingWidget = nullptr;
 
     QSettings          mSettings;
@@ -320,6 +401,10 @@ private:
     AttributePanel        *mAttributePanel        = nullptr;
     AttributeTablePanel   *mAttributeTablePanel   = nullptr;
     SimulationStatusModel *mSimStatusModel        = nullptr;
+    // Slice BB Phase 8.6.11 / 8.6.16 — dockable per-class legend / style editor.
+    openswmmvis::ui::LegendDock *mLegendDock      = nullptr;
+    // Slice Z.18 — always-open layer-styling editor dock.
+    openswmmvis::ui::LayerStylingDock *mLayerStylingDock = nullptr;
 
     // Live simulation-progress tracker for the status-bar bottom bar.
     // Keyed by SimulationRunner jobId, value is the latest 0.0–1.0
@@ -353,6 +438,16 @@ private:
     /** Recompute the status-bar progress bar from mRunningSimProgress. */
     void updateSimulationProgressBar();
 
+    /**
+     * Drop every simulation-status / progress-bar trace bound to @p pw —
+     * cancel any still-running runners for that project, purge the
+     * per-job hashes, remove the rows from the status model, and refresh
+     * the bottom progress bar and Pause / Cancel actions. Invoked when
+     * the project window emits aboutToClose() or a SWMMResultsLayer is
+     * removed from its canvas.
+     */
+    void clearSimulationStatusForProject(class SWMMVisProjectWindow *pw);
+
     // Phase 2 editing actions — declared for future programmatic wiring
     QAction           *mActionAddJunction  = nullptr;
     QAction           *mActionAddOutfall   = nullptr;
@@ -378,6 +473,11 @@ private:
      *  objects across visible SWMMModelLayers. Returns false when no
      *  selection exists (caller can fall back to full-extent zoom). */
     bool                  zoomCanvasToSelection(MapCanvas *c) const;
+
+    /*! Slice GUI-2026-05-30 §5 — one-shot "Plot Timeseries" pending state.
+     *  Set true by onPlotTimeSeries() when no canvas selection exists;
+     *  cleared after the next map pick (or tool change). */
+    bool                  mPendingPlotTimeseriesPick = false;
 };
 
 #endif // SWMMVIS_H

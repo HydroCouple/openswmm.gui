@@ -1,4 +1,4 @@
-# 06 — Object Browser and Property View
+@page manual_object_browser 06 — Object Browser and Property View
 
 ## What you'll do
 

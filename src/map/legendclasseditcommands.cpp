@@ -10,6 +10,7 @@
 #include "layers/openswmmvislayer.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmm2dresultslayer.h"
+#include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "render/ifeaturerenderer.h"
 
@@ -32,6 +33,43 @@ OpenSWMM::Render::IFeatureRenderer *rendererFor(OpenSWMMVisLayer *layer)
     return nullptr;
 }
 
+// X4 — the multi-kind SWMMModelLayer has no single IFeatureRenderer, so its
+// per-class edits route through the layer's legend facade instead. These
+// helpers dispatch to whichever path the layer supports.
+QColor readClassColor(OpenSWMMVisLayer *layer, const QString &key)
+{
+    if (auto *r = rendererFor(layer)) return r->colorForClass(key);
+    if (auto *m = qobject_cast<SWMMModelLayer *>(layer)) return m->colorForClass(key);
+    return {};
+}
+
+void writeClassColor(OpenSWMMVisLayer *layer, const QString &key, const QColor &c)
+{
+    if (auto *r = rendererFor(layer)) {
+        r->setColorForClass(key, c);
+        emit layer->repaintRequested();   // renderer is plain C++ — repaint manually
+    } else if (auto *m = qobject_cast<SWMMModelLayer *>(layer)) {
+        m->setColorForClass(key, c);      // facade rebuilds overrides + repaints
+    }
+}
+
+qreal readClassSize(OpenSWMMVisLayer *layer, const QString &key)
+{
+    if (auto *r = rendererFor(layer)) return r->sizeForClass(key);
+    if (auto *m = qobject_cast<SWMMModelLayer *>(layer)) return m->sizeForClass(key);
+    return -1.0;
+}
+
+void writeClassSize(OpenSWMMVisLayer *layer, const QString &key, qreal s)
+{
+    if (auto *r = rendererFor(layer)) {
+        r->setSizeForClass(key, s);
+        emit layer->repaintRequested();
+    } else if (auto *m = qobject_cast<SWMMModelLayer *>(layer)) {
+        m->setSizeForClass(key, s);
+    }
+}
+
 } // namespace
 
 SetRendererClassColorCommand::SetRendererClassColorCommand(
@@ -46,8 +84,7 @@ SetRendererClassColorCommand::SetRendererClassColorCommand(
 {
     // Snapshot the "before" state at construction so it survives the
     // first redo() — which fires immediately when pushed onto a QUndoStack.
-    if (auto *r = rendererFor(m_layer.data()))
-        m_oldColor = r->colorForClass(m_classKey);
+    m_oldColor = readClassColor(m_layer.data(), m_classKey);
 
     // Human-readable label shown by QUndoView / undo menu.
     setText(QCoreApplication::translate(
@@ -60,13 +97,9 @@ SetRendererClassColorCommand::SetRendererClassColorCommand(
 void SetRendererClassColorCommand::applyColor(const QColor &c)
 {
     if (!m_layer) return;
-    if (auto *r = rendererFor(m_layer.data())) {
-        r->setColorForClass(m_classKey, c);
-        // No rendererChanged() signal on the layer for in-place renderer
-        // mutations (the renderer is plain C++). Trigger a repaint
-        // directly — every legend view + the canvas itself subscribes.
-        emit m_layer->repaintRequested();
-    }
+    // Dispatches to the renderer (results/mesh/GIS) or, for the multi-kind
+    // SWMMModelLayer, its legend facade — both emit a repaint.
+    writeClassColor(m_layer.data(), m_classKey, c);
 }
 
 void SetRendererClassColorCommand::redo()
@@ -90,6 +123,44 @@ bool SetRendererClassColorCommand::mergeWith(const QUndoCommand *other)
     // Same target — collapse: keep our oldColor (the original "before"),
     // adopt the later newColor.
     m_newColor = o->m_newColor;
+    return true;
+}
+
+// ── SetRendererClassSizeCommand ───────────────────────────────────────
+
+SetRendererClassSizeCommand::SetRendererClassSizeCommand(
+    OpenSWMMVisLayer *layer,
+    QString           classKey,
+    qreal             newSize,
+    QUndoCommand     *parent)
+    : QUndoCommand(parent),
+      m_layer(layer),
+      m_classKey(std::move(classKey)),
+      m_newSize(newSize)
+{
+    m_oldSize = readClassSize(m_layer.data(), m_classKey);
+
+    setText(QCoreApplication::translate(
+        "SetRendererClassSizeCommand", "Change legend size")
+        + (m_layer ? QStringLiteral(" — %1").arg(m_layer->objectName())
+                   : QString()));
+}
+
+void SetRendererClassSizeCommand::applySize(qreal s)
+{
+    if (!m_layer) return;
+    writeClassSize(m_layer.data(), m_classKey, s);
+}
+
+void SetRendererClassSizeCommand::redo() { applySize(m_newSize); }
+void SetRendererClassSizeCommand::undo() { applySize(m_oldSize); }
+
+bool SetRendererClassSizeCommand::mergeWith(const QUndoCommand *other)
+{
+    const auto *o = dynamic_cast<const SetRendererClassSizeCommand *>(other);
+    if (!o) return false;
+    if (o->m_layer != m_layer || o->m_classKey != m_classKey) return false;
+    m_newSize = o->m_newSize;
     return true;
 }
 

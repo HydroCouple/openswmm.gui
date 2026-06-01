@@ -404,9 +404,24 @@ void WMTSLayer::render(QPainter *painter,
                 if (!QTransform::quadToQuad(srcQuad, dstQuad, xform))
                     continue;
 
+                // Slice X.22 — when basemap adjustments are non-identity,
+                // mutate a tile-local copy through applyTo() before draw.
+                // Identity check is cheap; preserves zero-cost fast path
+                // when the user hasn't enabled adjustments.
+                QImage tileToDraw;
+                const QImage *src = cached;
+                const bool nontriv = !m_renderParams.isIdentity();
+                if (nontriv) {
+                    tileToDraw = *cached;
+                    m_renderParams.applyTo(tileToDraw);
+                    src = &tileToDraw;
+                }
+
                 painter->save();
                 painter->setTransform(xform, /*combine=*/true);
-                painter->drawImage(0, 0, *cached);
+                if (m_renderParams.resampling == OpenSWMM::Render::BasemapRenderParams::Nearest)
+                    painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
+                painter->drawImage(0, 0, *src);
                 painter->restore();
             }
             else
@@ -421,7 +436,18 @@ void WMTSLayer::render(QPainter *painter,
                     pxLeft, pyTop, pxRight, pyBottom,
                     painterDevicePixelRatio(painter));
 
-                painter->drawImage(dst, *cached);
+                QImage tileToDraw;
+                const QImage *src = cached;
+                if (!m_renderParams.isIdentity()) {
+                    tileToDraw = *cached;
+                    m_renderParams.applyTo(tileToDraw);
+                    src = &tileToDraw;
+                }
+                painter->save();
+                if (m_renderParams.resampling == OpenSWMM::Render::BasemapRenderParams::Nearest)
+                    painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
+                painter->drawImage(dst, *src);
+                painter->restore();
             }
         }
     }
@@ -1111,4 +1137,13 @@ const WMTSTileMatrix *WMTSLayer::selectTileMatrixPublic(const WMTSTileMatrixSet 
 QCache<QString, QImage> *WMTSLayer::tileCache()
 {
     return &m_tileCache;
+}
+
+void WMTSLayer::setBasemapRenderParams(
+    const OpenSWMM::Render::BasemapRenderParams &p)
+{
+    if (m_renderParams == p) return;
+    m_renderParams = p;
+    emit basemapRenderParamsChanged();
+    emit repaintRequested();
 }

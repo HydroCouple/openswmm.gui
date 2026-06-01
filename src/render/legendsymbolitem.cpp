@@ -41,6 +41,8 @@ QJsonObject LegendSymbolItem::toJson() const
         obj.insert(QStringLiteral("sortIndex"), sortIndex);
     if (!classKey.isEmpty())
         obj.insert(QStringLiteral("classKey"), classKey);
+    if (!sublayerId.isEmpty())
+        obj.insert(QStringLiteral("sublayerId"), sublayerId);
     return obj;
 }
 
@@ -64,7 +66,8 @@ void LegendSymbolItem::fromJson(const QJsonObject &j)
     userLabel = j.value(QStringLiteral("userLabel")).toString();
     visible   = j.value(QStringLiteral("visible")).toBool(true);
     sortIndex = j.value(QStringLiteral("sortIndex")).toInt(0);
-    classKey  = j.value(QStringLiteral("classKey")).toString();
+    classKey   = j.value(QStringLiteral("classKey")).toString();
+    sublayerId = j.value(QStringLiteral("sublayerId")).toString();
 }
 
 } // namespace OpenSWMM::Render

@@ -14,7 +14,7 @@
  * can live-update their chart in one place.
  *
  * Property groupings (rendered via `displayLabelFor`):
- *   - Identity:   color, opacity, legendName
+ *   - Identity:   color, opacity, legendName, legendOverride
  *   - Line:       showLine, lineWidth, dash, capStyle, joinStyle
  *   - Markers:    showMarkers, shape, markerSize,
  *                 markerFillColor, markerBorderColor, markerBorderWidth
@@ -41,7 +41,8 @@ class SeriesStyleObject : public QObject
     // ---- Identity ----------------------------------------------------------
     Q_PROPERTY(QColor   color        READ color        WRITE setColor        NOTIFY colorChanged)
     Q_PROPERTY(qreal    opacity      READ opacity      WRITE setOpacity      NOTIFY opacityChanged)
-    Q_PROPERTY(QString  legendName   READ legendName   WRITE setLegendName   NOTIFY legendNameChanged)
+    Q_PROPERTY(QString  legendName     READ legendName     WRITE setLegendName     NOTIFY legendNameChanged)
+    Q_PROPERTY(QString  legendOverride READ legendOverride WRITE setLegendOverride NOTIFY legendOverrideChanged)
 
     // ---- Line --------------------------------------------------------------
     Q_PROPERTY(bool             showLine  READ showLine  WRITE setShowLine  NOTIFY showLineChanged)
@@ -94,6 +95,21 @@ public:
      *  `styleChanged()` signal once. */
     void setStyle(const SeriesStyle& s);
 
+    /*! \brief Spec-level legend override (mirrors `SeriesSpec::legendOverride`).
+     *
+     *  Distinct from the style-level `legendName` above:
+     *   - `legendName`     lives in `SeriesStyle`  (per-style, JSON-persisted).
+     *   - `legendOverride` lives in `SeriesSpec`   (per-series instance, used
+     *                                              by the Comparison Plot
+     *                                              dialog as the canonical
+     *                                              "what to call this series").
+     *
+     *  Stored on this object so the QPropertyModel-backed editor can edit it
+     *  alongside the style fields; not part of `m_style`, so it never enters
+     *  `style()` and never fires `styleChanged()`. Hosts read it via
+     *  `legendOverride()` and subscribe to `legendOverrideChanged()`. */
+    QString legendOverride() const { return m_legendOverride; }
+
     /*! \brief Human-friendly, group-prefixed label for the QPropertyModel
      *  tree. Returns labels like "Line — Width", "Marker — Fill Colour".
      *  Returns an empty string for unknown property names so the default
@@ -130,6 +146,7 @@ public slots:
     void setColor(const QColor& c);
     void setOpacity(qreal v);
     void setLegendName(const QString& s);
+    void setLegendOverride(const QString& s);
 
     void setShowLine(bool on);
     void setLineWidth(qreal v);
@@ -156,6 +173,7 @@ signals:
     void colorChanged(const QColor&);
     void opacityChanged(qreal);
     void legendNameChanged(const QString&);
+    void legendOverrideChanged(const QString&);
 
     void showLineChanged(bool);
     void lineWidthChanged(qreal);
@@ -186,6 +204,7 @@ private:
     void emitAggregate_();
 
     SeriesStyle m_style;
+    QString     m_legendOverride;   ///< Mirror of SeriesSpec::legendOverride.
 };
 
 } // namespace openswmmvis::plot

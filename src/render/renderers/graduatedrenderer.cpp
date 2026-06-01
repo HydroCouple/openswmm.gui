@@ -149,6 +149,23 @@ double GraduatedRenderer::sizeForBin(int bin) const
     return m_outputSizeMin + t * (m_outputSizeMax - m_outputSizeMin);
 }
 
+void GraduatedRenderer::setOutputWidthRange(double minPx, double maxPx)
+{
+    m_outputWidthMin = minPx;
+    m_outputWidthMax = maxPx;
+}
+
+double GraduatedRenderer::widthForBin(int bin) const
+{
+    const int n = m_binner.binCount();
+    if (n <= 0) return m_outputWidthMin;
+    if (bin < 0)    bin = 0;
+    if (bin >= n)   bin = n - 1;
+    if (n == 1)     return (m_outputWidthMin + m_outputWidthMax) * 0.5;
+    const double t = static_cast<double>(bin) / static_cast<double>(n - 1);
+    return m_outputWidthMin + t * (m_outputWidthMax - m_outputWidthMin);
+}
+
 QColor GraduatedRenderer::colorForBin(int bin) const
 {
     const int n = m_binner.binCount();
@@ -242,14 +259,22 @@ SymbolStyle GraduatedRenderer::symbolFor(const FeatureRef &, const QVariantMap &
     if (m_outputColorEnabled)
         overrideColorInPlace(styled, colorForBin(bin));
 
-    // Output axis 2 — size / width (Slice BI Phase 8.13.43-α). Default-off.
+    // Output axis 2 — marker size (Slice BI Phase 8.13.43-α). Default-off.
     if (m_outputSizeEnabled) {
         const double sz = sizeForBin(bin);
         for (SymbolLayer &sl : styled.layers) {
             if (sl.props.contains(QStringLiteral("size")))
                 sl.props.insert(QStringLiteral("size"), sz);
+        }
+    }
+
+    // Output axis 3 — line width (VS.4). Independent from size so node
+    // markers and link strokes scale on their own px ranges. Default-off.
+    if (m_outputWidthEnabled) {
+        const double w = widthForBin(bin);
+        for (SymbolLayer &sl : styled.layers) {
             if (sl.props.contains(QStringLiteral("width")))
-                sl.props.insert(QStringLiteral("width"), sz);
+                sl.props.insert(QStringLiteral("width"), w);
         }
     }
     return styled;
@@ -305,6 +330,13 @@ QJsonObject GraduatedRenderer::toJson() const
     obj.insert(QStringLiteral("outputSizeEnabled"),  m_outputSizeEnabled);
     obj.insert(QStringLiteral("outputSizeMin"),      m_outputSizeMin);
     obj.insert(QStringLiteral("outputSizeMax"),      m_outputSizeMax);
+    // VS.4 — independent line-width output axis.
+    obj.insert(QStringLiteral("outputWidthEnabled"), m_outputWidthEnabled);
+    obj.insert(QStringLiteral("outputWidthMin"),     m_outputWidthMin);
+    obj.insert(QStringLiteral("outputWidthMax"),     m_outputWidthMax);
+    // P2 — static/dynamic source + range mode.
+    obj.insert(QStringLiteral("sourceKind"), attributeSourceKindToString(m_sourceKind));
+    obj.insert(QStringLiteral("rangeMode"),  rangeModeToString(m_rangeMode));
     // Slice BB Phase 8.6.16 — per-bin colour overrides. Stored as a flat
     // {"bin": "#aarrggbb", …} object so missing keys = no override.
     if (!m_binColorOverrides.isEmpty()) {
@@ -372,6 +404,27 @@ void GraduatedRenderer::fromJson(const QJsonObject &j)
         m_outputSizeMin = j.value(QStringLiteral("outputSizeMin")).toDouble(2.0);
     if (j.contains(QStringLiteral("outputSizeMax")))
         m_outputSizeMax = j.value(QStringLiteral("outputSizeMax")).toDouble(14.0);
+
+    // VS.4 — independent line-width axis. If the project predates VS.4
+    // (no width keys) but used the size axis, migrate: the old size axis
+    // wrote BOTH "size" and "width" from the same px range, so reproduce
+    // that width behaviour to preserve the project's visuals.
+    if (j.contains(QStringLiteral("outputWidthEnabled"))) {
+        m_outputWidthEnabled = j.value(QStringLiteral("outputWidthEnabled")).toBool(false);
+        m_outputWidthMin     = j.value(QStringLiteral("outputWidthMin")).toDouble(0.5);
+        m_outputWidthMax     = j.value(QStringLiteral("outputWidthMax")).toDouble(6.0);
+    } else {
+        m_outputWidthEnabled = m_outputSizeEnabled;
+        m_outputWidthMin     = m_outputSizeMin;
+        m_outputWidthMax     = m_outputSizeMax;
+    }
+
+    // P2 — static/dynamic source + range mode (default Static / FixedOverRun
+    // so pre-P2 projects load unchanged).
+    m_sourceKind = attributeSourceKindFromString(
+        j.value(QStringLiteral("sourceKind")).toString());
+    m_rangeMode = rangeModeFromString(
+        j.value(QStringLiteral("rangeMode")).toString());
 
     // Slice BB Phase 8.6.16 — per-bin colour overrides.
     m_binColorOverrides.clear();

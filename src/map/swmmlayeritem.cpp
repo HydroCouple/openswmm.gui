@@ -8,6 +8,15 @@
 
 #include "core/preferencesmanager.h"
 #include "layers/swmmmodellayer.h"
+// Slice Z.14-paint — polygon clip mask.
+#include "render/maskclipresolver.h"
+// Slice Z.5b-paint — perpendicular polyline offset.
+#include "render/linesymbollayer.h"
+#include "render/markershape.h"
+#include "render/polylineoffset.h"
+#include "render/renderers/singlesymbolrenderer.h"
+#include "render/symbollayer.h"
+#include "render/symbolstyle.h"
 
 #include <QDebug>
 #include <QElapsedTimer>
@@ -28,43 +37,82 @@ namespace {
  *  swmmmodellayer.cpp (scene Y grows downward, map Y grows upward). */
 inline QPointF toScene(double mx, double my) { return QPointF(mx, -my); }
 
+/*! Slice Z.5b-paint — extract the line-symbol-layer offsetPx from a
+ *  kind's renderer. Returns 0 for renderer classes / symbol-layer
+ *  kinds that don't carry a per-line offset (Graduated/Categorized,
+ *  marker / fill layers, empty styles), preserving the legacy "no
+ *  shift" paint behaviour.
+ *
+ *  Graduated / Categorized per-class offsets need a per-feature
+ *  lookup that this paint loop doesn't have today — the named
+ *  Z.5b-paint-graduated follow-up wires that in. */
+inline qreal lineOffsetForKindRenderer(
+    const OpenSWMM::Render::IFeatureRenderer *r)
+{
+    using namespace OpenSWMM::Render;
+    const auto *single = dynamic_cast<const SingleSymbolRenderer *>(r);
+    if (!single) return 0.0;
+    const SymbolStyle &style = single->symbol();
+    if (style.layers.isEmpty()) return 0.0;
+    const SymbolLayer &layer = style.layers.first();
+    if (layer.kind != SymbolLayerKind::SimpleLine
+        && layer.kind != SymbolLayerKind::MarkerLine) return 0.0;
+    return LineSymbolLayerSpec::fromSymbolLayer(layer).offsetPx;
+}
+
 /*! Marker radius is a pen/brush-sized dot painted in scene units at a
  *  cosmetic pixel-size. Kept small so nodes stay visually compact at
  *  typical zoom; symbology->size is the designer-set marker diameter. */
 inline double markerRadius(const SWMMElementSymbol &s) { return s.size * 0.5; }
 
-/*! Shape-sensitive node glyph drawer. Mirrors NodeGraphicsItem's old
- *  per-item rendering so switching to the batched path is visually
- *  identical for the existing palette. Expects a caller that has
- *  already pushed the right pen + brush; just draws the outline. */
-void drawNodeGlyph(QPainter *p, const QPointF &c, double r, int nodeType)
+/*! Shape-driven node glyph drawer. Caller has already pushed the brush
+ *  and pen onto \p p. Hot shapes (the four legacy SWMM kinds) are
+ *  inlined to avoid the brush/pen push that drawMarkerShape() does
+ *  internally; the remaining canonical shapes route through
+ *  drawMarkerShape() so we cover all 13 entries in the MarkerShape
+ *  enum with one code path. */
+void drawNodeGlyph(QPainter *p, const QPointF &c, double r,
+                   OpenSWMM::Render::MarkerShape shape)
 {
-    switch (nodeType) {
-    case 1: { // Outfall — triangle
+    using Shape = OpenSWMM::Render::MarkerShape;
+    switch (shape) {
+    case Shape::Circle:
+        p->drawEllipse(c, r, r);
+        return;
+    case Shape::Square:
+        p->drawRect(QRectF(c.x() - r, c.y() - r, 2 * r, 2 * r));
+        return;
+    case Shape::Diamond: {
+        QPolygonF dia;
+        dia << QPointF(c.x(),     c.y() - r)
+            << QPointF(c.x() + r, c.y())
+            << QPointF(c.x(),     c.y() + r)
+            << QPointF(c.x() - r, c.y());
+        p->drawPolygon(dia);
+        return;
+    }
+    case Shape::EquilateralTriangle: {
+        // Up-pointing isoceles — same silhouette as the legacy outfall
+        // glyph; kept inline so the common kind paths don't churn
+        // through drawMarkerShape's save/restore.
         QPolygonF tri;
         tri << QPointF(c.x(),         c.y() - r)
             << QPointF(c.x() - r,     c.y() + r * 0.8)
             << QPointF(c.x() + r,     c.y() + r * 0.8);
         p->drawPolygon(tri);
+        return;
+    }
+    default:
         break;
     }
-    case 2: { // Storage — square
-        p->drawRect(QRectF(c.x() - r, c.y() - r, 2 * r, 2 * r));
-        break;
-    }
-    case 3: { // Divider — diamond
-        QPolygonF dia;
-        dia << QPointF(c.x(),         c.y() - r)
-            << QPointF(c.x() + r,     c.y())
-            << QPointF(c.x(),         c.y() + r)
-            << QPointF(c.x() - r,     c.y());
-        p->drawPolygon(dia);
-        break;
-    }
-    default: // 0 = Junction (and anything unknown) — circle
-        p->drawEllipse(c, r, r);
-        break;
-    }
+    // Cold path — Star / Cross / Plus / XCross / Pentagon / Hexagon /
+    // Arrow / HalfCircle / right-pointing Triangle. Use the canonical
+    // helper which understands all 13 shapes. drawMarkerShape pushes
+    // the caller's brush + pen via painter->save/restore; that's a
+    // small extra cost we only pay when the user picks one of these
+    // shapes explicitly.
+    OpenSWMM::Render::drawMarkerShape(p, shape, c, 2 * r,
+                                       p->brush(), p->pen());
 }
 
 // Slice BI Phase 8.13.8-mini (2026-05-24) — flow-direction arrow head.
@@ -228,6 +276,28 @@ void SWMMLayerItem::paint(QPainter *painter,
     painter->setOpacity(m_layer->opacity());
 
     const QRectF exposed = option->exposedRect;
+
+    // Slice Z.14-paint — install the layer's polygon clip mask. Disabled
+    // / unresolvable masks return ok=false so paint continues unclipped.
+    // The clip is wrapped in painter->save()/restore() so it tears down
+    // even on exceptional exits from the paint loop below.
+    painter->save();
+    {
+        const auto clip = OpenSWMM::Render::resolveMaskClip(
+            m_layer, m_layer->maskSpec());
+        if (clip.ok && !clip.path.isEmpty()) {
+            if (clip.mode == OpenSWMM::Render::MaskMode::ClipInside) {
+                painter->setClipPath(clip.path, Qt::IntersectClip);
+            } else {
+                QPainterPath all;
+                all.addRect(exposed.isNull()
+                                ? boundingRect()
+                                : exposed);
+                painter->setClipPath(all.subtracted(clip.path),
+                                      Qt::IntersectClip);
+            }
+        }
+    }
     // Phase A.2: read flag arrays indexed by SoA position; no per-link
     // QString hashing on the paint hot path. Maintained by
     // SWMMModelLayer::rebuildFlagArrays() on selection / visibility
@@ -258,15 +328,18 @@ void SWMMLayerItem::paint(QPainter *painter,
     // and refreshed incrementally on edits. paint() reads them directly so
     // there's no per-vertex Transform()/toScene() math on the hot path.
 
-    // Phase B.RHI — `glRenderingEnabled` is repurposed: when true, an
-    // EXTERNAL GPU renderer (the QSG overlay in MapCanvas) is handling
-    // the link draw, so we skip lines here. Subcatchments / nodes /
-    // gages continue on this CPU path until B.RHI.3 moves them to QSG
-    // too. The `glOn` local keeps its old name for diff readability.
-    const bool glOn = m_layer->glRenderingEnabled();
+    // §QSG-1: per-kind ownership. A kind is drawn here only if the
+    // QSG overlay is NOT claiming it via the layer's qsgRenderKinds
+    // scope. The QSG path (mapcanvas paint + SWMMLayerQSGRenderer)
+    // uploads empty geometry for kinds outside its scope so exactly
+    // one pipeline draws each kind.
+    const bool qsgNodes = m_layer->qsgOwnsKind(SWMMModelLayer::QsgNodes);
+    const bool qsgLinks = m_layer->qsgOwnsKind(SWMMModelLayer::QsgLinks);
+    const bool qsgCatch = m_layer->qsgOwnsKind(SWMMModelLayer::QsgCatch);
+    const bool qsgGages = m_layer->qsgOwnsKind(SWMMModelLayer::QsgGages);
 
     // ---------------------------------------------------------------- Subcatchments
-    if (!glOn && m_layer->m_showSubcatchments)
+    if (!qsgCatch && m_layer->m_showSubcatchments)
     {
         const auto &sym = m_layer->m_subcatchSym;
         QPen pen(sym.outlineColor, sym.outlineWidth);
@@ -354,7 +427,7 @@ void SWMMLayerItem::paint(QPainter *painter,
     }
 
     // ---------------------------------------------------------------- Links
-    if (!glOn && m_layer->m_showLinks)
+    if (!qsgLinks && m_layer->m_showLinks)
     {
         // Per-link-type pen comes from PreferencesManager so colour,
         // width, cap, join and dash are all user-tunable from the
@@ -393,6 +466,32 @@ void SWMMLayerItem::paint(QPainter *painter,
             typeUsesOverrides[t] = m_layer->kindUsesOverrides(linkTypeToCategory[t]);
         std::array<QHash<QRgb, QVector<QLineF>>, 5> overrideSegsByType;
 
+        // Slice Z.5b-paint — perpendicular polyline offset per link kind.
+        // Read once at setup (cheap — at most 5 SymbolLayer scans), then
+        // gated per-link in the inner segment-build loop below. Offset
+        // values are stored in SCENE units (offset px × invViewScale) so
+        // the on-screen shift stays constant in pixels at every zoom.
+        //
+        // Slice Z.5b-paint-graduated — typeHasPerFeatureOffset[t] is
+        // true when the kind's renderer is Graduated/Categorized AND at
+        // least one feature in that kind has a non-zero offset (cached
+        // in SWMMModelLayer::m_kindFeatureOffsets via
+        // rebuildKindFeatureColors). When set, the segment-build loop
+        // takes the per-link slow path; when unset, the legacy fast
+        // path runs with the type-uniform offset from the SingleSymbol
+        // renderer.
+        std::array<qreal, 5> offsetByType{};
+        std::array<bool, 5>  typeHasPerFeatureOffset{};
+        bool anyTypeOffset = false;
+        for (int t = 0; t < 5; ++t) {
+            const qreal px = lineOffsetForKindRenderer(
+                m_layer->kindRenderer(linkTypeToCategory[t]));
+            offsetByType[t] = px * invViewScale;
+            typeHasPerFeatureOffset[t] =
+                m_layer->kindHasAnyOffset(linkTypeToCategory[t]);
+            if (px != 0.0 || typeHasPerFeatureOffset[t]) anyTypeOffset = true;
+        }
+
         // Phase A.3: consume the flat link scene-coord buffer. One
         // contiguous std::vector<float> of (x, y) pairs, with per-link
         // (offset, count) parallel arrays. Cache-friendly, and the
@@ -428,29 +527,61 @@ void SWMMLayerItem::paint(QPainter *painter,
             const bool sel = size_t(i) < linkSel.size() && linkSel[i];
             const double *p = flat + size_t(off) * 2;
 
+            // Slice Z.5b-paint — when the kind has a non-zero offset,
+            // build an offset polyline once per link and emit segments
+            // from the shifted version. Zero offset (the typical case)
+            // skips the offset call entirely and uses the legacy
+            // flat-array fast path.
+            //
+            // Slice Z.5b-paint-graduated — when the kind uses Graduated /
+            // Categorized AND has any per-feature offset, prefer the
+            // per-feature value (sourced from SWMMModelLayer's
+            // featureOffset cache). Falls back to the kind-uniform
+            // SingleSymbol offset otherwise.
+            qreal offsetScene = 0.0;
+            if (anyTypeOffset) {
+                if (typeHasPerFeatureOffset[size_t(type)]) {
+                    const double px = m_layer->featureOffset(
+                        linkTypeToCategory[size_t(type)], i);
+                    offsetScene = px * invViewScale;
+                } else {
+                    offsetScene = offsetByType[size_t(type)];
+                }
+            }
+            QPolygonF offsetPoly;
+            if (offsetScene != 0.0) {
+                QPolygonF input;
+                input.reserve(int(cnt));
+                for (uint32_t j = 0; j < cnt; ++j)
+                    input.append(QPointF(p[j * 2], p[j * 2 + 1]));
+                offsetPoly =
+                    OpenSWMM::Render::offsetPolyline(input, offsetScene);
+            }
+
+            auto emitSegments = [&](QVector<QLineF> &target) {
+                if (offsetScene != 0.0) {
+                    for (int j = 1; j < offsetPoly.size(); ++j)
+                        target.emplace_back(offsetPoly[j - 1], offsetPoly[j]);
+                } else {
+                    for (uint32_t j = 1; j < cnt; ++j) {
+                        target.emplace_back(
+                            QPointF(p[(j - 1) * 2], p[(j - 1) * 2 + 1]),
+                            QPointF(p[ j      * 2], p[ j      * 2 + 1]));
+                    }
+                }
+            };
+
             // Phase 8.13.6.4 — non-selected links in an override-active
             // kind feed the per-colour sub-bucket. Selected links bypass
             // overrides so the selection halo paints in its own colour.
             if (sel) {
-                auto &target = selSegsByType[size_t(type)];
-                for (uint32_t j = 1; j < cnt; ++j) {
-                    target.emplace_back(QPointF(p[(j - 1) * 2], p[(j - 1) * 2 + 1]),
-                                        QPointF(p[ j      * 2], p[ j      * 2 + 1]));
-                }
+                emitSegments(selSegsByType[size_t(type)]);
             } else if (typeUsesOverrides[size_t(type)]) {
                 const QColor col = m_layer->featureColor(linkTypeToCategory[size_t(type)], i);
                 const QRgb key = col.isValid() ? col.rgba() : 0u;
-                auto &target = overrideSegsByType[size_t(type)][key];
-                for (uint32_t j = 1; j < cnt; ++j) {
-                    target.emplace_back(QPointF(p[(j - 1) * 2], p[(j - 1) * 2 + 1]),
-                                        QPointF(p[ j      * 2], p[ j      * 2 + 1]));
-                }
+                emitSegments(overrideSegsByType[size_t(type)][key]);
             } else {
-                auto &target = segsByType[size_t(type)];
-                for (uint32_t j = 1; j < cnt; ++j) {
-                    target.emplace_back(QPointF(p[(j - 1) * 2], p[(j - 1) * 2 + 1]),
-                                        QPointF(p[ j      * 2], p[ j      * 2 + 1]));
-                }
+                emitSegments(segsByType[size_t(type)]);
             }
         }
 
@@ -548,13 +679,12 @@ void SWMMLayerItem::paint(QPainter *painter,
     }
 
     // ---------------------------------------------------------------- Nodes
-    // B.RHI.3c — when the QSG overlay is active it owns ALL node /
-    // gage / subcatchment rendering, including selection highlight.
-    // Painting them again on the CPU here would compose on top of the
-    // canvas blit (CPU yellow), then QSG paints fresh base-color
-    // glyphs on top of that, hiding the highlight entirely. Skip the
-    // CPU pass whenever glOn is true.
-    if (!glOn && m_layer->m_showNodes)
+    // §QSG-1: when QsgNodes is set the GPU overlay owns the node draw,
+    // including the yellow selection halo (the QSG renderer's
+    // `nodesSel` buffer). Painting again on CPU here would compose the
+    // CPU halo BEFORE the GPU base glyphs blit on top, hiding the halo
+    // entirely — so the CPU path bows out whenever the kind is owned.
+    if (!qsgNodes && m_layer->m_showNodes)
     {
         // Bucket per node type so pen+brush only switch O(types) times
         // — all junctions draw together, then outfalls, etc. Each bucket
@@ -608,6 +738,8 @@ void SWMMLayerItem::paint(QPainter *painter,
             const double r = markerRadius(*b.sym) * invViewScale;
             const bool   overrides = m_layer->kindUsesOverrides(b.cat);
 
+            const auto kindShape = b.sym->markerShape;
+
             // Base pass.
             if (!b.scenePts.isEmpty()) {
                 QPen pen(b.sym->outlineColor, b.sym->outlineWidth);
@@ -618,7 +750,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                     // entire bucket.
                     painter->setBrush(QBrush(b.sym->fillColor));
                     for (const QPointF &c : b.scenePts)
-                        drawNodeGlyph(painter, c, r, b.nodeType);
+                        drawNodeGlyph(painter, c, r, kindShape);
                 } else {
                     // Phase 8.13.6.4 per-feature override path — fill
                     // colour comes from the renderer's per-feature
@@ -632,7 +764,13 @@ void SWMMLayerItem::paint(QPainter *painter,
                         const double rEff = (szOverride > 0.0)
                             ? (szOverride * 0.5 * invViewScale)
                             : r;
-                        drawNodeGlyph(painter, b.scenePts[j], rEff, b.nodeType);
+                        // M3 — per-feature marker shape from the renderer
+                        // (Categorized / Rule-based); -1 = keep kind base shape.
+                        const int fsh = m_layer->featureShape(b.cat, b.indices[j]);
+                        const auto shp = (fsh >= 0)
+                            ? static_cast<OpenSWMM::Render::MarkerShape>(fsh)
+                            : kindShape;
+                        drawNodeGlyph(painter, b.scenePts[j], rEff, shp);
                     }
                 }
             }
@@ -648,14 +786,14 @@ void SWMMLayerItem::paint(QPainter *painter,
                 painter->setPen(pen);
                 painter->setBrush(prefs->selectionBrush(QStringLiteral("node")));
                 for (const QPointF &c : b.selPts)
-                    drawNodeGlyph(painter, c, r, b.nodeType);
+                    drawNodeGlyph(painter, c, r, kindShape);
             }
         }
     }
 
     // ---------------------------------------------------------------- Rain gages
-    // Same B.RHI.3c skip as nodes — QSG owns gage rendering when glOn.
-    if (!glOn && m_layer->m_showRainGages && !m_layer->m_gages.isEmpty())
+    // Same §QSG-1 skip as nodes — QSG owns gages when QsgGages is set.
+    if (!qsgGages && m_layer->m_showRainGages && !m_layer->m_gages.isEmpty())
     {
         const auto &sym = m_layer->m_gageSym;
         // Fixed pixel-size glyph — see invViewScale comment at top.
@@ -687,6 +825,8 @@ void SWMMLayerItem::paint(QPainter *painter,
 
         const bool gageOverrides = m_layer->kindUsesOverrides(SWMMModelLayer::CatRainGages);
 
+        const auto gageShape = sym.markerShape;
+
         if (!basePts.isEmpty()) {
             QPen pen(sym.outlineColor, sym.outlineWidth);
             pen.setCosmetic(true);
@@ -694,7 +834,7 @@ void SWMMLayerItem::paint(QPainter *painter,
             if (!gageOverrides) {
                 painter->setBrush(QBrush(sym.fillColor));
                 for (const QPointF &sp : basePts)
-                    drawNodeGlyph(painter, sp, r, /*diamond*/3);
+                    drawNodeGlyph(painter, sp, r, gageShape);
             } else {
                 for (int j = 0; j < basePts.size(); ++j) {
                     const QColor col = m_layer->featureColor(
@@ -705,7 +845,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                     const double rEff = (szOverride > 0.0)
                         ? (szOverride * 0.5 * invViewScale)
                         : r;
-                    drawNodeGlyph(painter, basePts[j], rEff, /*diamond*/3);
+                    drawNodeGlyph(painter, basePts[j], rEff, gageShape);
                 }
             }
         }
@@ -716,21 +856,54 @@ void SWMMLayerItem::paint(QPainter *painter,
             painter->setPen(pen);
             painter->setBrush(prefs->selectionBrush(QStringLiteral("gage")));
             for (const QPointF &sp : selPts)
-                drawNodeGlyph(painter, sp, r, /*diamond*/3);
+                drawNodeGlyph(painter, sp, r, gageShape);
         }
     }
 
     // ---------------------------------------------------------------- Labels
-    if (m_layer->m_showLabels && m_layer->m_showNodes)
+    // Slice X.18 — drive label paint from the shared LabelConfig.  The
+    // legacy `m_showLabels` flag is now kept in sync with `labelConfig().
+    // enabled` by SWMMModelLayer::setShowLabels / setLabelConfig, so the
+    // gate below is identical in behaviour to the pre-X.18 code path —
+    // but everything between the gate and `drawText` now respects the
+    // user-configured font / colour / halo / placement.
+    const auto &labelCfg = m_layer->labelConfig();
+    if ((labelCfg.enabled || m_layer->m_showLabels) && m_layer->m_showNodes)
     {
-        // Labels are expensive; draw only for visible, un-hidden nodes.
-        // LOD: skip labels entirely when the zoom is too coarse for them
-        // to be legible. Threshold lives in PreferencesManager (Slice V)
-        // so users can tune it via Tools → Preferences.
         const qreal m11    = painter->transform().m11();
         const qreal m11Min = PreferencesManager::instance()->labelLodM11Min();
         if (m11 >= m11Min) {
-            painter->setPen(QColor(m_layer->m_junctionSym.labelColor));
+            painter->save();
+            painter->setFont(labelCfg.effectiveFont());
+
+            const QFontMetricsF fm(painter->font());
+            // Anchor offset by placement.
+            auto offsetFor = [&](const QString &text) -> QPointF {
+                const qreal w = fm.horizontalAdvance(text);
+                const qreal h = fm.ascent();
+                using OpenSWMM::Render::LabelConfig;
+                switch (labelCfg.placement) {
+                case LabelConfig::Above:  return {  -w * 0.5, -4.0 };
+                case LabelConfig::Below:  return {  -w * 0.5, h + 4.0 };
+                case LabelConfig::Left:   return {  -w - 6.0, h * 0.4 };
+                case LabelConfig::Right:  return {       6.0, h * 0.4 };
+                case LabelConfig::Centre: return {  -w * 0.5, h * 0.4 };
+                case LabelConfig::AutoPlacement:
+                default:                  return {       6.0,    -4.0 };
+                }
+            };
+
+            // Pre-build halo brush/pen — cheaper than re-setting per row.
+            const bool   halo     = labelCfg.haloEnabled && labelCfg.haloRadiusPx > 0.0;
+            const QColor haloCol  = labelCfg.haloColor;
+            const qreal  haloRad  = labelCfg.haloRadiusPx;
+            const QColor textCol  = labelCfg.color;
+            // Slice X.24 — background frame.
+            const bool   bg       = labelCfg.backgroundEnabled;
+            const QColor bgCol    = labelCfg.backgroundColor;
+            const qreal  bgPad    = labelCfg.backgroundPaddingPx;
+            const qreal  bgRad    = labelCfg.backgroundRadiusPx;
+
             const auto &nps = m_layer->m_nodeScenePts;
             for (int i = 0; i < m_layer->m_nodes.size(); ++i) {
                 const auto &n = m_layer->m_nodes[i];
@@ -738,8 +911,37 @@ void SWMMLayerItem::paint(QPainter *painter,
                 if (i >= nps.size()) continue;
                 const QPointF &sp = nps[i];
                 if (!exposed.isNull() && !exposed.contains(sp)) continue;
-                painter->drawText(sp + QPointF(6, -4), n.name);
+
+                const QString text = n.name;        // SWMM: object name is the label
+                const QPointF pos = sp + offsetFor(text);
+
+                if (bg) {
+                    const qreal w = fm.horizontalAdvance(text);
+                    const qreal h = fm.height();
+                    const QRectF rect(pos.x() - bgPad,
+                                       pos.y() - fm.ascent() - bgPad,
+                                       w + 2.0 * bgPad,
+                                       h + 2.0 * bgPad);
+                    painter->setPen(Qt::NoPen);
+                    painter->setBrush(bgCol);
+                    painter->drawRoundedRect(rect, bgRad, bgRad);
+                }
+                if (halo) {
+                    // Stroke 4-way offset copies of the text in the halo
+                    // colour, then draw the fill on top.  Cheaper than
+                    // converting to QPainterPath + addText and stroking.
+                    painter->setPen(haloCol);
+                    for (int dx = -1; dx <= 1; ++dx)
+                        for (int dy = -1; dy <= 1; ++dy)
+                            if (dx || dy)
+                                painter->drawText(
+                                    pos + QPointF(dx * haloRad, dy * haloRad),
+                                    text);
+                }
+                painter->setPen(textCol);
+                painter->drawText(pos, text);
             }
+            painter->restore();
         }
     }
 
@@ -752,4 +954,8 @@ void SWMMLayerItem::paint(QPainter *painter,
                        << " nodes=" << m_layer->m_nodes.size()
                        << " selected=" << selected.size()
                        << " exposed=" << exposed;
+
+    // Pair with the painter->save() at the top of paint() that installed
+    // the Z.14-paint mask clip (if any). Always called, mask or no mask.
+    painter->restore();
 }

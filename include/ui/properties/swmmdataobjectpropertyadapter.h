@@ -23,6 +23,8 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 
+class SWMMModelLayer;
+
 /*!
  * \class SWMMDataObjectPropertyAdapter
  * \brief Common base for non-spatial Data Object property adapters.
@@ -44,6 +46,15 @@ public:
 
     [[nodiscard]] QString name() const { return m_name; }
     [[nodiscard]] SWMM_Engine engine() const { return m_engine; }
+
+    /*! Slice BM.0-Browse-Edit — bind the active project's model layer
+     *  so subclasses that surface `DataObjectRef` properties can
+     *  construct refs with the right layer pointer (used by
+     *  `DataObjectPickerEditor` to enumerate combo items + dispatch
+     *  the "…" browse button). Optional — adapters that don't surface
+     *  refs ignore it. */
+    void setModelLayer(SWMMModelLayer *layer) { m_layer = layer; }
+    [[nodiscard]] SWMMModelLayer *modelLayer() const { return m_layer; }
 
 public slots:
     /*! Emits renameRequested(oldName, newName); the layer-side handler
@@ -77,8 +88,9 @@ signals:
     void displayLabelsChanged();
 
 protected:
-    SWMM_Engine m_engine;
-    QString     m_name;
+    SWMM_Engine     m_engine;
+    QString         m_name;
+    SWMMModelLayer *m_layer = nullptr;  ///< Bound via setModelLayer.
 };
 
 #endif // SWMMDATAOBJECTPROPERTYADAPTER_H

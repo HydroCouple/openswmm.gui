@@ -71,6 +71,7 @@ public:
     // directly — there is no override hash because there is only one row.
     [[nodiscard]] bool supportsClassEdit(ClassEditKind /*kind*/) const override { return true; }
     [[nodiscard]] QColor colorForClass(const QString &classKey) const override;
+    [[nodiscard]] qreal  sizeForClass(const QString &classKey) const override;
     void setColorForClass(const QString &classKey, const QColor &color) override;
     void setSizeForClass(const QString &classKey, qreal size) override;
     void setWidthForClass(const QString &classKey, qreal width) override;

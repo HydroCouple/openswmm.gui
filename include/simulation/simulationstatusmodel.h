@@ -151,6 +151,17 @@ public:
     /** Return the job id at the given top-level row, or -1 if out of range. */
     int jobIdForRow(int row) const;
 
+    /**
+     * @brief Remove every row bound to the given model.
+     *
+     * Used when the project's output is removed or the project window is
+     * closed — the rows describe runs against that model and become
+     * meaningless once it goes away. Returns the job IDs that were
+     * removed so the caller can drop the matching per-job state it owns
+     * (runner handles, running-progress map, etc.).
+     */
+    QList<int> clearJobsForModel(SWMMVisProjectWindow *model);
+
     // ── QAbstractItemModel ───────────────────────────────────────────────────
     QModelIndex index(int row, int column,
                       const QModelIndex &parent = QModelIndex()) const override;

@@ -77,6 +77,15 @@ public:
      */
     virtual ~SWMMVisApplication();
 
+protected:
+    /*!
+     * \brief Application-wide event filter that keeps every QDialog stacked
+     *        above the main window. When a top-level QDialog is shown it is
+     *        reparented to the main window (if orphaned) and raised so it
+     *        cannot be hidden by clicks on the main window.
+     */
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     SWMMVis             *mSWMMVisGUI;           ///< Owned main window.
     SWMMVisSplashScreen *mSWMMVisSplashScreen;  ///< Owned splash screen.

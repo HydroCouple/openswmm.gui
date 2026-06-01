@@ -6,10 +6,13 @@
 
 #include "ui/dialogs/nodecompoundeditdialog.h"
 #include "ui/panels/objectbrowserpanel.h"
-#include <QInputDialog>
 #include "ui/dialogs/hydrographgroupeditor.h"
+#include "ui/dialogs/patterneditordialog.h"
+#include "ui/dialogs/timeserieseditordialog.h"
 #include "ui/widgets/labeledcontrols.h"
 #include "layers/swmmmodellayer.h"
+#include "pattern/patternregistry.h"
+#include "timeseries/timeseriesregistry.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -133,41 +136,47 @@ void NodeCompoundEditDialog::populateUhGroupCombo(LabeledPickerCombo *p)
     p->setItems(items, current);
 }
 
-QString NodeCompoundEditDialog::launchNewDataObject(int dataCategory)
+QString NodeCompoundEditDialog::launchObjectEditor(int dataCategory,
+                                                    const QString &currentName)
 {
-    // Picker buttons require both a layer to commit through and the
-    // engine to read counts from. Without a layer, fall back to a
-    // friendly message rather than crashing.
+    // Picker buttons require a bound layer for engine + registry access.
     if (!m_ref.layer) {
-        QMessageBox::information(this, tr("New Data Object"),
+        QMessageBox::information(this, tr("Edit Data Object"),
             tr("This dialog wasn't bound to a project layer, so it can't "
-               "create a new data object inline. Use Data → New… in the "
-               "main window instead."));
+               "open the editor. Use Data → Edit… in the main window instead."));
         return {};
     }
     const auto cat = static_cast<SWMMModelLayer::DataCategory>(dataCategory);
 
-    // Slice BM.0-Add-New (2026-05-24) — gap categories surface the
-    // future-slice tooltip rather than offering inline creation.
-    if (!ObjectBrowserPanel::hasComplexEditor(cat)) {
-        QMessageBox::information(this, tr("Create New"),
+    switch (cat) {
+    case SWMMModelLayer::DataTimeSeries: {
+        auto *reg = qobject_cast<openswmmvis::timeseries::TimeseriesRegistry *>(
+            m_ref.layer->ensureTimeseriesRegistry());
+        if (!reg) return {};
+        return openswmmvis::ui::TimeseriesEditorDialog::pickTimeseries(
+            reg, /*undoStack=*/nullptr, currentName, this);
+    }
+    case SWMMModelLayer::DataPatterns: {
+        auto *reg = qobject_cast<openswmmvis::pattern::PatternRegistry *>(
+            m_ref.layer->ensurePatternRegistry());
+        if (!reg) return {};
+        const QString picked = openswmmvis::ui::PatternEditorDialog::pickPattern(
+            reg, /*undoStack=*/nullptr, currentName, this);
+        // PatternRegistry::create only mutates the registry; flush so the
+        // combo's repopulate (which reads via swmm_pattern_count) sees a
+        // brand-new pattern.
+        if (m_ref.engine) reg->saveToEngine(m_ref.engine);
+        return picked;
+    }
+    case SWMMModelLayer::DataHydrographs:
+        return HydrographGroupEditor::pickGroup(m_ref.layer, currentName, this);
+
+    default:
+        // Categories without a complex editor — surface the gap tooltip.
+        QMessageBox::information(this, tr("Edit"),
             ObjectBrowserPanel::gapTooltipFor(cat));
         return {};
     }
-
-    const QString suggested = m_ref.layer->suggestUniqueDataObjectName(cat);
-    bool ok = false;
-    const QString name = QInputDialog::getText(this, tr("Create New"),
-        tr("Name:"), QLineEdit::Normal, suggested, &ok).trimmed();
-    if (!ok || name.isEmpty()) return {};
-
-    QString err;
-    if (!m_ref.layer->createDataObject(cat, name, /*options=*/{}, &err)) {
-        QMessageBox::warning(this, tr("New Data Object"),
-            tr("Could not create %1: %2").arg(name, err));
-        return {};
-    }
-    return name;
 }
 
 void NodeCompoundEditDialog::wirePicker(LabeledPickerCombo *picker,
@@ -177,10 +186,11 @@ void NodeCompoundEditDialog::wirePicker(LabeledPickerCombo *picker,
     if (!picker) return;
     connect(picker, &LabeledPickerCombo::pickerClicked, this,
             [this, picker, dataCategory, repopulate]() {
-        const QString newName = launchNewDataObject(dataCategory);
-        if (newName.isEmpty()) return;
+        const QString currentSel = picker->currentText().trimmed();
+        const QString resultName = launchObjectEditor(dataCategory, currentSel);
+        if (resultName.isEmpty()) return;
         (this->*repopulate)(picker);
-        picker->setCurrentText(newName);
+        picker->setCurrentText(resultName);
     });
 }
 
@@ -581,15 +591,8 @@ void NodeCompoundEditDialog::buildRdiiPage()
     // NewDataObjectDialog-only flow.
     m_rdiiUhPicker = new LabeledPickerCombo({}, grp);
     populateUhGroupCombo(m_rdiiUhPicker);
-    connect(m_rdiiUhPicker, &LabeledPickerCombo::pickerClicked, this, [this]() {
-        if (!m_ref.layer) return;
-        const QString current = m_rdiiUhPicker->currentText().trimmed();
-        const QString picked  = HydrographGroupEditor::pickGroup(
-            m_ref.layer, current, this);
-        if (picked.isEmpty()) return;
-        populateUhGroupCombo(m_rdiiUhPicker);
-        m_rdiiUhPicker->setCurrentText(picked);
-    });
+    wirePicker(m_rdiiUhPicker, SWMMModelLayer::DataHydrographs,
+                &NodeCompoundEditDialog::populateUhGroupCombo);
 
     m_rdiiAreaSpin = new QDoubleSpinBox(grp);
     m_rdiiAreaSpin->setRange(0.0, 1e9);

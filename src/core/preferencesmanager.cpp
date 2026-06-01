@@ -61,6 +61,22 @@ const LinkPenDefault kOrificePenDefault = { kDefaultOrificeColor, 2.5, Qt::Round
 const LinkPenDefault kWeirPenDefault    = { kDefaultWeirColor,    2.5, Qt::RoundCap, Qt::RoundJoin };
 const LinkPenDefault kOutletPenDefault  = { kDefaultOutletColor,  2.0, Qt::RoundCap, Qt::RoundJoin };
 
+// Per-node-type defaults. Fills and sizes mirror the historical
+// SWMMModelLayer constructor seeding (swmmmodellayer.cpp:226-233) so the
+// new preferences plumbing reproduces the existing first-open look. The
+// outline pen is darkBlue@1px across the board; users can per-type
+// override colour, width, style, cap, and join in the Preferences dialog.
+struct NodeStyleDefault {
+    QColor fill;
+    QColor outlineColor;
+    qreal  outlineWidth;
+    double sizePx;
+};
+const NodeStyleDefault kJunctionNodeDefault = { QColor(0,   120, 255), Qt::darkBlue, 1.0,  8.0  };
+const NodeStyleDefault kOutfallNodeDefault  = { QColor(220, 0,   0  ), Qt::darkBlue, 1.0, 12.5  };
+const NodeStyleDefault kStorageNodeDefault  = { QColor(180, 60,  200), Qt::darkBlue, 1.0, 12.0  };
+const NodeStyleDefault kDividerNodeDefault  = { QColor(0,   255, 0  ), Qt::darkBlue, 1.0,  8.0  };
+
 constexpr int     kDefaultProgressTickMs        = 1000;
 constexpr double  kDefaultAnimationSpeed         = 1.0;
 constexpr int     kDefaultProfileMaxPaths       = 100;
@@ -470,6 +486,18 @@ void PreferencesManager::setDefaultCrsCode(int code)
 // Snapping
 // ---------------------------------------------------------------------------
 
+bool PreferencesManager::qsgRenderEnabled() const
+{
+    return m_settings.value(QStringLiteral("%1/Rendering/QsgEnabled").arg(kGroupRoot),
+                            true).toBool();
+}
+void PreferencesManager::setQsgRenderEnabled(bool enabled)
+{
+    if (enabled == qsgRenderEnabled()) return;
+    m_settings.setValue(QStringLiteral("%1/Rendering/QsgEnabled").arg(kGroupRoot), enabled);
+    emit preferenceChanged(QStringLiteral("Rendering"), QStringLiteral("QsgEnabled"));
+}
+
 bool PreferencesManager::snapEnabled() const
 {
     return m_settings.value(QStringLiteral("%1/Snapping/Enabled").arg(kGroupRoot),
@@ -596,6 +624,138 @@ void PreferencesManager::resetLinkPenToDefault(const QString &linkType)
     m_settings.remove(key);
     emit preferenceChanged(QStringLiteral("Rendering"),
                            QStringLiteral("LinkPen/%1").arg(k));
+}
+
+// ---------------------------------------------------------------------------
+// Rendering / Node symbols (pen + brush + size, per node-type)
+// ---------------------------------------------------------------------------
+
+namespace {
+QString canonicalNodeType(const QString &nodeType)
+{
+    const QString k = nodeType.trimmed().toLower();
+    if (k == QLatin1String("outfall")  || k == QLatin1String("outfalls"))
+        return QStringLiteral("Outfall");
+    if (k == QLatin1String("storage")  || k == QLatin1String("storages")
+        || k == QLatin1String("storageunit"))
+        return QStringLiteral("Storage");
+    if (k == QLatin1String("divider")  || k == QLatin1String("dividers"))
+        return QStringLiteral("Divider");
+    return QStringLiteral("Junction");
+}
+
+const NodeStyleDefault &defaultNodeStyleForKey(const QString &canonicalKey)
+{
+    if (canonicalKey == QLatin1String("Outfall")) return kOutfallNodeDefault;
+    if (canonicalKey == QLatin1String("Storage")) return kStorageNodeDefault;
+    if (canonicalKey == QLatin1String("Divider")) return kDividerNodeDefault;
+    return kJunctionNodeDefault;
+}
+} // anonymous
+
+QPen PreferencesManager::nodePen(const QString &nodeType) const
+{
+    const QString k = canonicalNodeType(nodeType);
+    const QString key = QStringLiteral("%1/Rendering/NodePen/%2")
+                            .arg(QString::fromLatin1(kGroupRoot), k);
+    const QVariant v = m_settings.value(key);
+    if (v.isValid() && v.canConvert<QPen>()) {
+        const QPen p = v.value<QPen>();
+        if (p.color().isValid()) return p;
+    }
+    const NodeStyleDefault &d = defaultNodeStyleForKey(k);
+    QPen p(d.outlineColor, d.outlineWidth);
+    p.setStyle(Qt::SolidLine);
+    return p;
+}
+
+void PreferencesManager::setNodePen(const QString &nodeType, const QPen &pen)
+{
+    if (!pen.color().isValid()) return;
+    const QString k = canonicalNodeType(nodeType);
+    if (nodePen(k) == pen) return;
+    const QString key = QStringLiteral("%1/Rendering/NodePen/%2")
+                            .arg(QString::fromLatin1(kGroupRoot), k);
+    m_settings.setValue(key, QVariant::fromValue(pen));
+    emit preferenceChanged(QStringLiteral("Rendering"),
+                           QStringLiteral("NodePen/%1").arg(k));
+}
+
+QBrush PreferencesManager::nodeBrush(const QString &nodeType) const
+{
+    const QString k = canonicalNodeType(nodeType);
+    const QString key = QStringLiteral("%1/Rendering/NodeBrush/%2")
+                            .arg(QString::fromLatin1(kGroupRoot), k);
+    const QVariant v = m_settings.value(key);
+    if (v.isValid() && v.canConvert<QBrush>()) {
+        const QBrush b = v.value<QBrush>();
+        if (b.color().isValid()) return b;
+    }
+    return QBrush(defaultNodeStyleForKey(k).fill);
+}
+
+void PreferencesManager::setNodeBrush(const QString &nodeType, const QBrush &brush)
+{
+    if (!brush.color().isValid()) return;
+    const QString k = canonicalNodeType(nodeType);
+    if (nodeBrush(k) == brush) return;
+    const QString key = QStringLiteral("%1/Rendering/NodeBrush/%2")
+                            .arg(QString::fromLatin1(kGroupRoot), k);
+    m_settings.setValue(key, QVariant::fromValue(brush));
+    emit preferenceChanged(QStringLiteral("Rendering"),
+                           QStringLiteral("NodeBrush/%1").arg(k));
+}
+
+double PreferencesManager::nodeSize(const QString &nodeType) const
+{
+    const QString k = canonicalNodeType(nodeType);
+    const QString key = QStringLiteral("%1/Rendering/NodeSize/%2")
+                            .arg(QString::fromLatin1(kGroupRoot), k);
+    const QVariant v = m_settings.value(key);
+    if (v.isValid()) {
+        bool ok = false;
+        const double s = v.toDouble(&ok);
+        if (ok && s > 0.0) return s;
+    }
+    return defaultNodeStyleForKey(k).sizePx;
+}
+
+void PreferencesManager::setNodeSize(const QString &nodeType, double sizePx)
+{
+    if (sizePx < 1.0 || sizePx > 64.0) return;
+    const QString k = canonicalNodeType(nodeType);
+    if (qFuzzyCompare(sizePx, nodeSize(k))) return;
+    const QString key = QStringLiteral("%1/Rendering/NodeSize/%2")
+                            .arg(QString::fromLatin1(kGroupRoot), k);
+    m_settings.setValue(key, sizePx);
+    emit preferenceChanged(QStringLiteral("Rendering"),
+                           QStringLiteral("NodeSize/%1").arg(k));
+}
+
+void PreferencesManager::resetNodeStyleToDefault(const QString &nodeType)
+{
+    const QString k = canonicalNodeType(nodeType);
+    const QString penKey   = QStringLiteral("%1/Rendering/NodePen/%2")
+                                 .arg(QString::fromLatin1(kGroupRoot), k);
+    const QString brushKey = QStringLiteral("%1/Rendering/NodeBrush/%2")
+                                 .arg(QString::fromLatin1(kGroupRoot), k);
+    const QString sizeKey  = QStringLiteral("%1/Rendering/NodeSize/%2")
+                                 .arg(QString::fromLatin1(kGroupRoot), k);
+    const bool hadPen   = m_settings.contains(penKey);
+    const bool hadBrush = m_settings.contains(brushKey);
+    const bool hadSize  = m_settings.contains(sizeKey);
+    if (hadPen)   m_settings.remove(penKey);
+    if (hadBrush) m_settings.remove(brushKey);
+    if (hadSize)  m_settings.remove(sizeKey);
+    if (hadPen)
+        emit preferenceChanged(QStringLiteral("Rendering"),
+                               QStringLiteral("NodePen/%1").arg(k));
+    if (hadBrush)
+        emit preferenceChanged(QStringLiteral("Rendering"),
+                               QStringLiteral("NodeBrush/%1").arg(k));
+    if (hadSize)
+        emit preferenceChanged(QStringLiteral("Rendering"),
+                               QStringLiteral("NodeSize/%1").arg(k));
 }
 
 // ---------------------------------------------------------------------------

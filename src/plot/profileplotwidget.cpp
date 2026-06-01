@@ -1888,11 +1888,12 @@ void ProfilePlotWidget::paintNodes(QPainter &p) const
             for (const auto &s : m_series) {
                 if (!s.visible || !s.derived) continue;
                 if (s.kind != ProfileBuilder::OutputKind::HGL) continue;
+                // SourceDerived is period-major: arr[period][node].
                 const auto &arr = s.derived->hglByPeriod;
-                if (i >= arr.size()) continue;
-                const auto &row = arr[i];
-                if (m_currentPeriod >= row.size()) continue;
-                const double hgl = row[m_currentPeriod];
+                if (m_currentPeriod < 0 || m_currentPeriod >= arr.size()) continue;
+                const auto &row = arr[m_currentPeriod];
+                if (i >= row.size()) continue;
+                const double hgl = row[i];
                 if (isFinite(hgl) && hgl >= surchargeElev) {
                     flooding = true;
                     break;
@@ -2112,15 +2113,17 @@ void ProfilePlotWidget::paintHglFill(QPainter &p, int seriesIdx) const
     if (seriesIdx < 0 || seriesIdx >= m_series.size()) return;
     const auto &s = m_series[seriesIdx];
     if (!s.derived) return;
+    // SourceDerived is period-major; hoist the current period's row so
+    // the lambda below indexes into one contiguous QVector instead of
+    // pointer-chasing across one inner vector per node.
     const auto &series = s.derived->hglByPeriod;
-    if (series.size() != m_path.nodes.size()) return;
-    if (m_currentPeriod < 0) return;
-    const int period = m_currentPeriod;
+    if (m_currentPeriod < 0 || m_currentPeriod >= series.size()) return;
+    const auto &periodRow = series[m_currentPeriod];
+    if (periodRow.size() != m_path.nodes.size()) return;
 
     auto headAt = [&](int n) -> double {
-        if (n < 0 || n >= series.size())     return std::nan("");
-        if (period >= series[n].size())      return std::nan("");
-        return series[n][period];
+        if (n < 0 || n >= periodRow.size()) return std::nan("");
+        return periodRow[n];
     };
     auto chainAt = [&](int i) {
         return virtualX(i);
@@ -2315,9 +2318,11 @@ void ProfilePlotWidget::paintNodeFill(QPainter &p, int seriesIdx) const
     if (seriesIdx < 0 || seriesIdx >= m_series.size()) return;
     const auto &s = m_series[seriesIdx];
     if (!s.derived) return;
+    // SourceDerived is period-major; index one period's row and walk it.
     const auto &series = s.derived->hglByPeriod;
-    if (series.size() != m_path.nodes.size()) return;
-    if (m_currentPeriod < 0) return;
+    if (m_currentPeriod < 0 || m_currentPeriod >= series.size()) return;
+    const auto &periodRow = series[m_currentPeriod];
+    if (periodRow.size() != m_path.nodes.size()) return;
 
     // Manhole interior water fill — invert (bottom) up to the node's
     // current HGL (clamped to the rim).  Sized to match the tube glyph
@@ -2334,8 +2339,7 @@ void ProfilePlotWidget::paintNodeFill(QPainter &p, int seriesIdx) const
     p.setBrush(fillBrush);
 
     for (int i = 0; i < m_path.nodes.size(); ++i) {
-        if (m_currentPeriod >= series[i].size()) continue;
-        const double hgl = series[i][m_currentPeriod];
+        const double hgl = periodRow[i];
         if (!isFinite(hgl)) continue;
         const auto &n = m_path.nodes[i];
         const double rim = ProfileBuilder::groundElev(n);
@@ -2398,14 +2402,19 @@ void ProfilePlotWidget::paintNodeHglLine(QPainter &p, int seriesIdx) const
     // pipe edge (both inset by kHglPipeEdgeInsetPx), giving a
     // continuous trace across nodes + links.  Supports Current HGL
     // (per-period) and Max HGL (envelope) — kind determines the source.
+    // hglByPeriod is period-major; bind to the current period's row once.
     using OK = ProfileBuilder::OutputKind;
+    const QVector<double> *periodRowHgl = nullptr;
+    {
+        const auto &series = s.derived->hglByPeriod;
+        if (m_currentPeriod >= 0 && m_currentPeriod < series.size())
+            periodRowHgl = &series[m_currentPeriod];
+    }
     auto valueAt = [&](int n) -> double {
         if (s.kind == OK::HGL) {
-            if (m_currentPeriod < 0) return std::nan("");
-            const auto &series = s.derived->hglByPeriod;
-            if (n < 0 || n >= series.size()) return std::nan("");
-            if (m_currentPeriod >= series[n].size()) return std::nan("");
-            return series[n][m_currentPeriod];
+            if (!periodRowHgl) return std::nan("");
+            if (n < 0 || n >= periodRowHgl->size()) return std::nan("");
+            return (*periodRowHgl)[n];
         }
         if (s.kind == OK::MaxHGL) {
             const auto &arr = s.derived->maxHgl;
@@ -2441,15 +2450,15 @@ void ProfilePlotWidget::paintWaterSurfaceFill(QPainter &p, int seriesIdx) const
     if (seriesIdx < 0 || seriesIdx >= m_series.size()) return;
     const auto &s = m_series[seriesIdx];
     if (!s.derived) return;
+    // SourceDerived is period-major; bind to the current period's row.
     const auto &arr = s.derived->waterSurfaceByPeriod;
-    if (arr.size() != m_path.nodes.size()) return;
-    if (m_currentPeriod < 0) return;
-    const int period = m_currentPeriod;
+    if (m_currentPeriod < 0 || m_currentPeriod >= arr.size()) return;
+    const auto &periodRow = arr[m_currentPeriod];
+    if (periodRow.size() != m_path.nodes.size()) return;
 
     auto sampleAt = [&](int n) -> double {
-        if (n < 0 || n >= arr.size())     return std::nan("");
-        if (period >= arr[n].size())      return std::nan("");
-        return arr[n][period];
+        if (n < 0 || n >= periodRow.size()) return std::nan("");
+        return periodRow[n];
     };
     auto chainAt = [&](int i) {
         return virtualX(i);
@@ -2597,15 +2606,16 @@ void ProfilePlotWidget::paintSeriesCurrentLine(QPainter &p, int seriesIdx) const
     const auto &s = m_series[seriesIdx];
     if (!s.derived) return;
     if (!isCurrentTimeKind(s.kind)) return;
+    // currentTimeArray returns the period-major SourceDerived row vector;
+    // index the current period once and read N contiguous floats from it.
     const auto &series = currentTimeArray(*s.derived, s.kind);
-    if (series.size() != m_path.nodes.size()) return;
-    const int period = m_currentPeriod;
-    if (period < 0) return;
+    if (m_currentPeriod < 0 || m_currentPeriod >= series.size()) return;
+    const auto &periodRow = series[m_currentPeriod];
+    if (periodRow.size() != m_path.nodes.size()) return;
 
     auto valueAt = [&](int n) -> double {
-        if (n < 0 || n >= series.size())     return std::nan("");
-        if (period >= series[n].size())      return std::nan("");
-        return series[n][period];
+        if (n < 0 || n >= periodRow.size()) return std::nan("");
+        return periodRow[n];
     };
     auto chainAt = [&](int i) {
         return virtualX(i);

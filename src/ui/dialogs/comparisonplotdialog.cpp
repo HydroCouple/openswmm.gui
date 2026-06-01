@@ -735,10 +735,29 @@ void ComparisonPlotDialog::onStyleChanged(int seriesIndex)
             if (row.seriesIndices[i] != seriesIndex) continue;
             QLineSeries *line = m_rowWidgets[r].series.value(i, nullptr);
             if (!line) return;
-            openswmmvis::plot::applySeriesStyle(m_model->spec(seriesIndex).style, line);
+            const SeriesSpec &spec = m_model->spec(seriesIndex);
+            // Reapply the legend name first; applySeriesStyle overrides it
+            // only when style.legendName is non-empty.
+            line->setName(legendNameFor(spec));
+            openswmmvis::plot::applySeriesStyle(spec.style, line);
+            // Repaint the swatch row in the series tree so the legend label
+            // there matches when legendOverride changed.
+            rebuildSeriesTree();
             return;
         }
     }
+}
+
+QString ComparisonPlotDialog::legendNameFor(const SeriesSpec& spec) const
+{
+    if (!spec.legendOverride.isEmpty())
+        return spec.legendOverride;
+    return QStringLiteral("%1 — %2 (%3)")
+        .arg(m_model->runSource(spec.runIndex).label,
+             spec.objectRef.kind == ObjectRef::Kind::Mesh2DCell
+                ? tr("Cell %1").arg(spec.objectRef.triIdx)
+                : spec.objectRef.name,
+             labelFor(spec.attribute));
 }
 
 void ComparisonPlotDialog::onAnimationTimeChanged(QDateTime t)
@@ -849,7 +868,7 @@ void ComparisonPlotDialog::onSeriesTreeContextMenu(const QPoint &pos)
         plotOnly->setEnabled(rowSiblingCount > 1);
         if (rowSiblingCount <= 1)
             plotOnly->setToolTip(tr("Only one series on this chart row"));
-        QAction *editStyle = menu.addAction(tr("Edit Style…"));
+        QAction *editStyle = menu.addAction(tr("Edit Properties…"));
         menu.addSeparator();
         QAction *removeSeries = menu.addAction(tr("Remove Series"));
         QAction *chosen = menu.exec(m_seriesTree->viewport()->mapToGlobal(pos));
@@ -901,15 +920,17 @@ void ComparisonPlotDialog::onSeriesItemDoubleClicked(QTreeWidgetItem *item, int 
     const int seriesIdx = item->data(0, Qt::UserRole + 1).toInt();
     if (seriesIdx < 0 || seriesIdx >= m_model->seriesCount()) return;
 
-    // Full series-style editor in a small modal dialog. Live-updates the
+    // Full series-property editor in a small modal dialog. Live-updates the
     // model on every change so the user sees feedback as they edit.
-    SeriesStyle original = m_model->spec(seriesIdx).style;
+    SeriesStyle original           = m_model->spec(seriesIdx).style;
+    QString     originalLegendOver = m_model->spec(seriesIdx).legendOverride;
 
     QDialog dlg(this);
-    dlg.setWindowTitle(tr("Edit series style"));
+    dlg.setWindowTitle(tr("Edit series properties"));
     auto *vbox = new QVBoxLayout(&dlg);
     auto *editor = new openswmmvis::ui::SeriesStyleEditor(&dlg);
     editor->setStyle(original);
+    editor->setLegendOverride(originalLegendOver);
     vbox->addWidget(editor);
 
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
@@ -924,14 +945,20 @@ void ComparisonPlotDialog::onSeriesItemDoubleClicked(QTreeWidgetItem *item, int 
                      this, [this, seriesIdx](const SeriesStyle& s) {
                          m_model->updateStyle(seriesIdx, s);
                      });
+    QObject::connect(editor, &openswmmvis::ui::SeriesStyleEditor::legendOverrideChanged,
+                     this, [this, seriesIdx](const QString& s) {
+                         m_model->updateLegendOverride(seriesIdx, s);
+                     });
 
     if (dlg.exec() != QDialog::Accepted) {
-        // Revert to the pre-edit style on cancel.
+        // Revert to the pre-edit state on cancel.
         m_model->updateStyle(seriesIdx, original);
+        m_model->updateLegendOverride(seriesIdx, originalLegendOver);
     } else {
         // Final commit (the live-preview already wrote it, but call once
         // more so any debounced views catch up).
         m_model->updateStyle(seriesIdx, editor->style());
+        m_model->updateLegendOverride(seriesIdx, editor->legendOverride());
     }
     rebuildSeriesTree();
 }
@@ -1184,15 +1211,7 @@ void ComparisonPlotDialog::rebuildCharts()
             const SeriesSpec &spec = m_model->spec(sIdx);
             auto *line = new QLineSeries;
 
-            QString name = !spec.legendOverride.isEmpty()
-                            ? spec.legendOverride
-                            : QStringLiteral("%1 — %2 (%3)")
-                                  .arg(m_model->runSource(spec.runIndex).label,
-                                       spec.objectRef.kind == ObjectRef::Kind::Mesh2DCell
-                                          ? tr("Cell %1").arg(spec.objectRef.triIdx)
-                                          : spec.objectRef.name,
-                                       labelFor(spec.attribute));
-            line->setName(name);
+            line->setName(legendNameFor(spec));
             openswmmvis::plot::applySeriesStyle(spec.style, line);
 
             SeriesData data;

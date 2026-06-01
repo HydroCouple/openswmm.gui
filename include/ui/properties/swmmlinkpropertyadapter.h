@@ -20,6 +20,11 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 
+#include "ui/properties/dataobjectref.h"
+#include "ui/properties/linkcompoundeditref.h"   // Slice SC.1
+
+class SWMMModelLayer;
+
 /*! Base link adapter — exposes the attributes that ALL link types
  *  share (name, kind, endpoints).  Per-type Q_PROPERTYs live on
  *  subclasses below so the Property Browser only shows attributes
@@ -36,23 +41,68 @@ public:
     enum LinkKind     { Conduit = 0, Pump = 1, Orifice = 2, Weir = 3, Outlet = 4 };
     enum FlapGate     { NO = 0, YES = 1 };
     enum PumpInitState { OFF = 0, ON = 1 };
+    // Slice SD partial — orifice flow-attack classification. Mirrors
+    // SWMM_OrificeType in openswmm_links.h:34 and the legacy SWMM-GUI
+    // combo order in SWMM-GUI/Epaswmm5/objprops.txt:862.
+    enum OrificeType  { SIDE = 0, BOTTOM = 1 };
+    // Slice SD partial (BN-LINK-03) — weir flow classification. Mirrors
+    // SWMM_WeirType in openswmm_links.h and the legacy combo at
+    // SWMM-GUI/Epaswmm5/objprops.txt:160. The companion "Shape" combo
+    // is derived from the type (see objprops.txt:162) — no separate
+    // Q_ENUM needed on the GUI side.
+    enum WeirType {
+        TRANSVERSE  = 0,
+        SIDEFLOW    = 1,
+        VNOTCH      = 2,
+        TRAPEZOIDAL = 3,
+        ROADWAY     = 4,
+    };
+    // Slice SD partial (BN-LINK-04) — outlet rating-curve classification.
+    // Mirrors SWMM_OutletRatingType in openswmm_links.h and the legacy
+    // combo at SWMM-GUI/Epaswmm5/objprops.txt:913. The four-value
+    // FUNCTIONAL×{HEAD,DEPTH} / TABULAR×{HEAD,DEPTH} grid drives
+    // conditional visibility of the exponent / curve picker rows.
+    enum OutletRatingType {
+        FUNCTIONAL_HEAD  = 0,
+        FUNCTIONAL_DEPTH = 1,
+        TABULAR_HEAD     = 2,
+        TABULAR_DEPTH    = 3,
+    };
     Q_ENUM(LinkKind)
     Q_ENUM(FlapGate)
     Q_ENUM(PumpInitState)
+    Q_ENUM(OrificeType)
+    Q_ENUM(WeirType)
+    Q_ENUM(OutletRatingType)
 
     // Common to every link type.
     Q_PROPERTY(QString  name         READ name  WRITE setName)
     Q_PROPERTY(LinkKind linkKind     READ linkKind)
     Q_PROPERTY(QString  fromNode     READ fromNode)
     Q_PROPERTY(QString  toNode       READ toNode)
+    /*! Slice SA — Free-form `[TAGS]` label (mirrors
+     *  `SWMMNodePropertyAdapter::tag`). Editable text; index-keyed in the
+     *  engine, so it survives a rename. Subclasses must declare a matching
+     *  `Q_PROPERTY` row to actually expose the field to QPropertyModel —
+     *  declaring the WRITE+READ pair here keeps QML / scripting clients
+     *  happy without forcing the inline cell on every link kind. */
+    Q_PROPERTY(QString  tag          READ tag   WRITE setTag   NOTIFY changed)
 
     SWMMLinkPropertyAdapter(SWMM_Engine engine, QString name,
                               QObject *parent = nullptr);
+
+    /*! Slice BM.0-Browse-Edit — bind the active project's model layer
+     *  so DataObjectRef-typed properties (`pumpCurve`) can construct
+     *  refs with the right layer pointer. Mirror of
+     *  `SWMMNodePropertyAdapter::setModelLayer`. */
+    void setModelLayer(SWMMModelLayer *layer) { m_layer = layer; }
+    [[nodiscard]] SWMMModelLayer *modelLayer() const { return m_layer; }
 
     [[nodiscard]] QString  name() const     { return m_name; }
     [[nodiscard]] LinkKind linkKind() const;
     [[nodiscard]] QString  fromNode() const;
     [[nodiscard]] QString  toNode() const;
+    [[nodiscard]] QString  tag()      const;   ///< Slice SA — `[TAGS]` value.
 
     [[nodiscard]] double length()           const;
     [[nodiscard]] double roughness()        const;
@@ -64,6 +114,42 @@ public:
     [[nodiscard]] FlapGate      flapGate()      const;
     [[nodiscard]] PumpInitState pumpInitState() const;
     [[nodiscard]] QString       pumpCurveName() const;
+    [[nodiscard]] OrificeType      orificeType()      const;  ///< Slice SD partial
+    [[nodiscard]] WeirType         weirType()         const;  ///< Slice SD partial
+    [[nodiscard]] OutletRatingType outletRatingType() const;  ///< Slice SD partial
+    [[nodiscard]] double           outletExpon()      const;  ///< Slice SD partial
+    [[nodiscard]] double           pumpStartupDepth() const;  ///< BN-LINK-05
+    [[nodiscard]] double           pumpShutoffDepth() const;  ///< BN-LINK-05
+    [[nodiscard]] double           orificeOpenCloseRate() const;  ///< BN-LINK-06
+
+    // Slice SB — conduit scalar parity (matches legacy ConduitProps in
+    // SWMM-GUI/Epaswmm5/objprops.txt rows 12-17, 21). All accessors live
+    // on the base so the GETTER_D macro can be reused; only the
+    // SWMMConduitPropertyAdapter subclass exposes them as Q_PROPERTY rows
+    // because pumps / orifices / weirs / outlets don't carry these
+    // fields on the legacy editor side.
+    [[nodiscard]] double initialFlow()      const;   ///< BN-LINK-01a getter
+    [[nodiscard]] double maxFlow()          const;   ///< BN-LINK-01b getter
+    [[nodiscard]] double lossInlet()        const;   ///< swmm_link_get_loss_coeff[inlet]
+    [[nodiscard]] double lossOutlet()       const;   ///< swmm_link_get_loss_coeff[outlet]
+    [[nodiscard]] double lossAvg()          const;   ///< swmm_link_get_loss_coeff[avg]
+    [[nodiscard]] double seepRate()         const;   ///< swmm_link_get_seep_rate
+    [[nodiscard]] int    barrels()          const;   ///< swmm_link_get_barrels
+
+    /*! Slice BM.0-Browse-Edit — `DataObjectRef`-typed accessor for the
+     *  pump curve, used by the `Q_PROPERTY` on `SWMMPumpPropertyAdapter`.
+     *  Constructs the ref with `kind=AnyCurve` (pump curves accept
+     *  several engine curve types). Empty `currentName` means no curve
+     *  is assigned yet (the engine returns curveIdx == -1). */
+    [[nodiscard]] DataObjectRef pumpCurveRef() const;
+
+    /*! Slice SC.1 — Compound-attribute refs for the three link-side
+     *  Property Browser cells (cross section / culvert code / inlet
+     *  usage). Each builds the engine summary live so the cell shows
+     *  a useful preview even before the user opens the dialog. */
+    [[nodiscard]] LinkCompoundEditRef xsectionRef()    const;
+    [[nodiscard]] LinkCompoundEditRef culvertCodeRef() const;
+    [[nodiscard]] LinkCompoundEditRef inletUsageRef()  const;
 
     /*! See SWMMNodePropertyAdapter::displayLabelFor — same contract,
      *  returns "" for unknown property names. */
@@ -71,6 +157,7 @@ public:
 
 public slots:
     void setName(const QString &newName);
+    void setTag(const QString &t);              ///< Slice SA
     void setLength(double v);
     void setRoughness(double v);
     void setOffsetUp(double v);
@@ -80,6 +167,45 @@ public slots:
     void setEndContractions(double v);
     void setFlapGate(FlapGate v);
     void setPumpInitState(PumpInitState v);
+    void setOrificeType(OrificeType v);            ///< Slice SD partial
+    void setWeirType(WeirType v);                  ///< Slice SD partial
+    void setOutletRatingType(OutletRatingType v);  ///< Slice SD partial
+    void setOutletExpon(double v);                 ///< Slice SD partial
+    void setPumpStartupDepth(double v);            ///< BN-LINK-05
+    void setPumpShutoffDepth(double v);            ///< BN-LINK-05
+    void setOrificeOpenCloseRate(double v);        ///< BN-LINK-06
+    // Slice SB — conduit scalar setters. Loss-coefficient setters read
+    // the other two coefficients from the engine first then write the
+    // full triple via `swmm_link_set_loss_coeff` (atomic from a caller's
+    // view); the three rows look independent in the Property Browser
+    // but the three-coeff write is one engine call.
+    void setInitialFlow(double v);
+    void setMaxFlow(double v);
+    void setLossInlet(double v);
+    void setLossOutlet(double v);
+    void setLossAvg(double v);
+    void setSeepRate(double v);
+    void setBarrels(int v);
+    /*! Slice BM.0-Browse-Edit — writes the selected curve via
+     *  `swmm_link_set_pump_curve`. Looks up the engine curve index from
+     *  `ref.currentName`; no-op if empty or unknown. */
+    void setPumpCurveRef(const DataObjectRef &ref);
+
+    /*! Slice SC.1 — Compound-ref write slots. The cell's
+     *  `LinkCompoundEditButton` invokes these via the delegate's
+     *  setModelData round-trip after the dialog closes. The actual
+     *  engine mutations already happened inside the dialog (the
+     *  Apply-as-you-go pages route through
+     *  `SWMMModelLayer::applyLinkXsect` / `_Barrels` / `_CulvertCode`),
+     *  so these slots are no-ops except for emitting `changed()` so the
+     *  property tree (and the attribute table) re-reads its summary.
+     *  Their existence is what flips `QMetaProperty::isWritable()` to
+     *  true, which is what `QVariantPropertyItem` checks to mark the
+     *  cell editable — without these, the cell never enters edit mode
+     *  and the registered `LinkCompoundEditButton` creator never fires. */
+    void setXsectionRef(const LinkCompoundEditRef &)    { emit changed(); }
+    void setCulvertCodeRef(const LinkCompoundEditRef &) { emit changed(); }
+    void setInletUsageRef(const LinkCompoundEditRef &)  { emit changed(); }
 
     /*! Round-4 follow-up — see SWMMNodePropertyAdapter::refresh. */
     void refresh() { emit changed(); }
@@ -95,15 +221,18 @@ signals:
 
 protected:
     [[nodiscard]] int linkIdx() const;
-    SWMM_Engine m_engine;
-    QString     m_name;
+    SWMM_Engine     m_engine;
+    QString         m_name;
+    SWMMModelLayer *m_layer = nullptr;  ///< Bound via setModelLayer.
 };
 
 /*! Conduit adapter — `[CONDUITS]` columns:
  *  Name, FromNode, ToNode, Length, Roughness, InOffset, OutOffset,
- *  InitFlow, MaxFlow.  Init/Max flow are set-only in the engine API
- *  today so they're not round-trippable; flap gate + culvert code
- *  are extensions surfaced from the table delegate. */
+ *  InitFlow, MaxFlow, EntryLoss / ExitLoss / AvgLoss, Seepage Rate,
+ *  Barrels, Flap Gate, Culvert Code. Slice SB (2026-05-25) added the
+ *  loss-coeff / seepage / barrels / init-flow / max-flow scalar rows
+ *  via the BN-LINK-01a/b engine-getter pair; the cross-section + inlet
+ *  usage + culvert-code compound cells land in Slice SC. */
 class SWMMConduitPropertyAdapter : public SWMMLinkPropertyAdapter
 {
     Q_OBJECT
@@ -111,36 +240,76 @@ class SWMMConduitPropertyAdapter : public SWMMLinkPropertyAdapter
     Q_PROPERTY(double roughness  READ roughness  WRITE setRoughness NOTIFY changed)
     Q_PROPERTY(double offsetUp   READ offsetUp   WRITE setOffsetUp  NOTIFY changed)
     Q_PROPERTY(double offsetDn   READ offsetDn   WRITE setOffsetDn  NOTIFY changed)
+    // Slice SB — conduit scalar parity rows. Loss coefficients are
+    // exposed as three separate Q_PROPERTYs per §S.1 Q-S4 decision.
+    Q_PROPERTY(double initialFlow READ initialFlow WRITE setInitialFlow NOTIFY changed)
+    Q_PROPERTY(double maxFlow     READ maxFlow     WRITE setMaxFlow     NOTIFY changed)
+    Q_PROPERTY(double lossInlet   READ lossInlet   WRITE setLossInlet   NOTIFY changed)
+    Q_PROPERTY(double lossOutlet  READ lossOutlet  WRITE setLossOutlet  NOTIFY changed)
+    Q_PROPERTY(double lossAvg     READ lossAvg     WRITE setLossAvg     NOTIFY changed)
+    Q_PROPERTY(double seepRate    READ seepRate    WRITE setSeepRate    NOTIFY changed)
+    Q_PROPERTY(int    barrels     READ barrels     WRITE setBarrels     NOTIFY changed)
     Q_PROPERTY(SWMMLinkPropertyAdapter::FlapGate flapGate
                READ flapGate WRITE setFlapGate NOTIFY changed)
+    // Slice SC.1 — compound-attribute "Edit…" cells.
+    Q_PROPERTY(LinkCompoundEditRef xsection
+               READ xsectionRef    WRITE setXsectionRef    NOTIFY changed)
+    Q_PROPERTY(LinkCompoundEditRef culvertCode
+               READ culvertCodeRef WRITE setCulvertCodeRef NOTIFY changed)
+    Q_PROPERTY(LinkCompoundEditRef inletUsage
+               READ inletUsageRef  WRITE setInletUsageRef  NOTIFY changed)
 public:
     using SWMMLinkPropertyAdapter::SWMMLinkPropertyAdapter;
 };
 
 /*! Pump adapter — `[PUMPS]` columns:
  *  Name, FromNode, ToNode, PumpCurve, Status, Startup, Shutoff.
- *  Startup/Shutoff depth accessors don't exist in the engine yet;
- *  pump curve is shown as a read-only name lookup. */
+ *  Slice SD partial (BN-LINK-05, 2026-05-25) — startup/shutoff depth
+ *  rows now round-trip via the new engine accessors. */
 class SWMMPumpPropertyAdapter : public SWMMLinkPropertyAdapter
 {
     Q_OBJECT
-    Q_PROPERTY(QString pumpCurve READ pumpCurveName)
+    // Slice BM.0-Browse-Edit (2026-05-25) — typed as DataObjectRef so the
+    // QPropertyItemDelegate hands out the picker editor (combo + browse
+    // button + right-click menu). Engine setter is swmm_link_set_pump_curve.
+    Q_PROPERTY(DataObjectRef pumpCurve
+               READ pumpCurveRef WRITE setPumpCurveRef NOTIFY changed)
     Q_PROPERTY(SWMMLinkPropertyAdapter::PumpInitState initState
                READ pumpInitState WRITE setPumpInitState NOTIFY changed)
+    Q_PROPERTY(double startupDepth
+               READ pumpStartupDepth WRITE setPumpStartupDepth NOTIFY changed)
+    Q_PROPERTY(double shutoffDepth
+               READ pumpShutoffDepth WRITE setPumpShutoffDepth NOTIFY changed)
 public:
     using SWMMLinkPropertyAdapter::SWMMLinkPropertyAdapter;
 };
 
 /*! Orifice adapter — `[ORIFICES]` columns:
  *  Name, FromNode, ToNode, Type, Offset, Cd, Gated.  Type
- *  (SIDE/BOTTOM) has no engine accessor today; deferred to AG.4. */
+ *  (SIDE/BOTTOM) has no engine accessor today; deferred to AG.4.
+ *  Slice SC.1 (extended 2026-05-25) — adds the cross-section cell,
+ *  shape combo filtered by the dialog to CIRCULAR / RECT_CLOSED only
+ *  (the two legacy orifice shapes per `objprops.txt:866`). */
 class SWMMOrificePropertyAdapter : public SWMMLinkPropertyAdapter
 {
     Q_OBJECT
+    // Slice SD partial (2026-05-25) — orifice TYPE row, engine-backed via
+    // BN-LINK-02 (swmm_link_get/set_orifice_type). Sits at the top of the
+    // form matching legacy OrificeProps[5] row order.
+    Q_PROPERTY(SWMMLinkPropertyAdapter::OrificeType orificeType
+               READ orificeType WRITE setOrificeType NOTIFY changed)
     Q_PROPERTY(double offset         READ offsetUp        WRITE setOffsetUp        NOTIFY changed)
     Q_PROPERTY(double dischargeCoeff READ dischargeCoeff  WRITE setDischargeCoeff  NOTIFY changed)
     Q_PROPERTY(SWMMLinkPropertyAdapter::FlapGate flapGate
                READ flapGate WRITE setFlapGate NOTIFY changed)
+    // Slice SD partial (BN-LINK-06) — orifice open/close rate (1/s).
+    // 0 = instantaneous. Legacy SWMM-GUI surfaces this as "Time to
+    // Open/Close (hr)" — clients that want the hours UX should
+    // convert before/after calling the setter.
+    Q_PROPERTY(double openCloseRate
+               READ orificeOpenCloseRate WRITE setOrificeOpenCloseRate NOTIFY changed)
+    Q_PROPERTY(LinkCompoundEditRef xsection
+               READ xsectionRef WRITE setXsectionRef NOTIFY changed)
 public:
     using SWMMLinkPropertyAdapter::SWMMLinkPropertyAdapter;
 };
@@ -148,10 +317,18 @@ public:
 /*! Weir adapter — `[WEIRS]` columns:
  *  Name, FromNode, ToNode, Type, CrestHt, Cd, Gated, EndCon,
  *  EndCoeff.  Type (TRANSVERSE/SIDEFLOW/V-NOTCH/TRAPEZOIDAL) and
- *  EndCoeff have no engine accessors today; deferred to AG.4. */
+ *  EndCoeff have no engine accessors today; deferred to AG.4.
+ *  Slice SC.1 (extended 2026-05-25) — adds the cross-section cell,
+ *  shape combo filtered by the dialog to the four legal weir
+ *  cross-sections (RECT_OPEN, TRAPEZOIDAL, TRIANGULAR for V-NOTCH,
+ *  RECT_OPEN again for ROADWAY) per legacy `objprops.txt:875`. */
 class SWMMWeirPropertyAdapter : public SWMMLinkPropertyAdapter
 {
     Q_OBJECT
+    // Slice SD partial (BN-LINK-03, 2026-05-25) — weir TYPE row sits at
+    // the top of the form matching legacy WeirProps[5] row order.
+    Q_PROPERTY(SWMMLinkPropertyAdapter::WeirType weirType
+               READ weirType WRITE setWeirType NOTIFY changed)
     Q_PROPERTY(double offsetUp        READ offsetUp        WRITE setOffsetUp        NOTIFY changed)
     Q_PROPERTY(double offsetDn        READ offsetDn        WRITE setOffsetDn        NOTIFY changed)
     Q_PROPERTY(double crestHeight     READ crestHeight     WRITE setCrestHeight     NOTIFY changed)
@@ -159,17 +336,36 @@ class SWMMWeirPropertyAdapter : public SWMMLinkPropertyAdapter
     Q_PROPERTY(double endContractions READ endContractions WRITE setEndContractions NOTIFY changed)
     Q_PROPERTY(SWMMLinkPropertyAdapter::FlapGate flapGate
                READ flapGate WRITE setFlapGate NOTIFY changed)
+    Q_PROPERTY(LinkCompoundEditRef xsection
+               READ xsectionRef WRITE setXsectionRef NOTIFY changed)
 public:
     using SWMMLinkPropertyAdapter::SWMMLinkPropertyAdapter;
 };
 
 /*! Outlet adapter — `[OUTLETS]` columns:
- *  Name, FromNode, ToNode, Offset, Type, Coeff, Expon.  Curve /
- *  functional type-specific params land in AG.4. */
+ *  Name, FromNode, ToNode, Offset, Type, Coeff, Expon.
+ *  Slice SD partial (BN-LINK-04, 2026-05-25) — adds the rating-type
+ *  combo + functional-form coefficient/exponent + tabular curve picker
+ *  rows; the four FUNCTIONAL/TABULAR × HEAD/DEPTH values gate
+ *  conditional visibility of coeff/expon vs. the curve picker. */
 class SWMMOutletPropertyAdapter : public SWMMLinkPropertyAdapter
 {
     Q_OBJECT
+    // Slice SD partial — rating-curve TYPE sits at the top to match
+    // legacy OutletProps[7] row order.
+    Q_PROPERTY(SWMMLinkPropertyAdapter::OutletRatingType ratingType
+               READ outletRatingType WRITE setOutletRatingType NOTIFY changed)
     Q_PROPERTY(double offset         READ offsetUp        WRITE setOffsetUp        NOTIFY changed)
+    // Functional-form coefficient (legacy "Coefficient" row) reuses
+    // the shared discharge-coeff scalar — same engine field (cd) used
+    // by orifices and weirs.
+    Q_PROPERTY(double coefficient    READ dischargeCoeff  WRITE setDischargeCoeff  NOTIFY changed)
+    Q_PROPERTY(double expon          READ outletExpon     WRITE setOutletExpon     NOTIFY changed)
+    // Tabular curve picker reuses the existing DataObjectRef pump-curve
+    // accessor (the engine shares the curve-index slot between pumps
+    // and tabular outlets per `LinksHandler::handle_outlets:229`).
+    Q_PROPERTY(DataObjectRef outletCurve
+               READ pumpCurveRef WRITE setPumpCurveRef NOTIFY changed)
     Q_PROPERTY(SWMMLinkPropertyAdapter::FlapGate flapGate
                READ flapGate WRITE setFlapGate NOTIFY changed)
 public:

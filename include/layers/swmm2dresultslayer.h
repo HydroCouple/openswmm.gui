@@ -43,7 +43,23 @@ class SWMM2DResultsGraphicsItem;
 class SWMM2DVelocityArrowsItem;
 
 namespace openswmmvis::io { class Mesh2DH5Reader; }
-namespace OpenSWMM::Render { class IFeatureRenderer; }
+namespace OpenSWMM::Render {
+class IFeatureRenderer;
+class RuleList;   // Slice B.5b — see ruleList() override below.
+}
+
+// Slice S5.6 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md) — 2D sublayer foundation.
+#include "render/iattributeprovider.h"   // Slice DM.3
+#include "render/isublayerhost.h"
+#include "render/legendsymbolitem.h"
+#include "render/sublayers/contourbandsublayer.h"
+#include "render/sublayers/depthcolorrampsublayer.h"
+#include "render/sublayers/flowarrowsublayer.h"
+#include "render/sublayers/isolinesublayer.h"
+#include "render/sublayers/meshedgesublayer.h"
+#include "render/sublayers/meshfillsublayer.h"
+#include "render/sublayers/meshnodesublayer.h"
+#include "render/sublayers/velocityvectorsublayer.h"
 
 // ---------------------------------------------------------------------------
 // IMesh2DSource — data-source abstraction shared by live + replay modes
@@ -241,10 +257,20 @@ private:
 // SWMM2DResultsLayer
 // ---------------------------------------------------------------------------
 
-class SWMM2DResultsLayer : public OpenSWMMVisLayer
+class SWMM2DResultsLayer : public OpenSWMMVisLayer,
+                            public OpenSWMM::Render::ISublayerHost,
+                            public OpenSWMM::Render::IAttributeProvider  // Slice DM.3
 {
     Q_OBJECT
+    Q_INTERFACES(OpenSWMM::Render::IAttributeProvider)  // Slice DM.3
 public:
+    // Slice DM.3 — exposes depth / head / velocity-magnitude / velocity-
+    // x / velocity-y so renderer panels can theme the heatmap and
+    // contour rules by the right variable. All entries are dynamic.
+    // 2D results have no SWMM category concept; we ignore the cat
+    // argument and always return the mesh-scope field set.
+    [[nodiscard]] QVector<OpenSWMM::Render::AttributeField>
+        availableAttributes(OpenSWMMVis::SwmmCategory cat) const override;
     explicit SWMM2DResultsLayer(const QString& name = QStringLiteral("2D Results"),
                                  OpenSWMMVisWorkspace* parent = nullptr);
     ~SWMM2DResultsLayer() override;
@@ -408,6 +434,19 @@ public:
      *  Used by single-click cell pick and canvas-right-click hit test. */
     [[nodiscard]] int pickCellAt(const QPointF& scenePt) const;
 
+    /*! \brief Current-frame water depth (m) at \p scenePt: locates the
+     *  containing cell via \ref pickCellAt and returns its cell-centre depth
+     *  from the live SceneTri buffer. Returns 0 off-mesh / no-frame. Used by
+     *  the mesh-profile cross-section to sample the animated depth column. */
+    [[nodiscard]] float depthAtSceneNow(const QPointF& scenePt) const;
+
+    /*! \brief Per-cell maximum water depth (m) over the whole loaded time
+     *  range. Iterates `source()->readDepthsAt` for every frame in
+     *  `[0, timeCount())` and reduces to a per-triangle max. Size equals
+     *  `source()->triangleCount()`, or empty when no source / no frames.
+     *  Used to draw the static max-depth envelope on the mesh profile. */
+    [[nodiscard]] QVector<float> maxDepthPerCell() const;
+
     /*! \brief Replace the highlight set. Triggers an Overlay repaint via the
      *  layer's existing invalidate path. */
     void highlightCells(const QSet<int>& triIdxSet);
@@ -535,6 +574,82 @@ private:
     int            isolines_levels_          = 5;
     QColor         isolines_color_           = QColor(20, 20, 20, 230);
     double         isolines_width_           = 1.0;  // pixels
+
+    // Slice S5.6 — sublayer foundation (dormant pointers, populated in
+    // ctor). The existing paint pipeline does not yet consume these; the
+    // final paint-replacement slice will replace the current SceneTri
+    // pipeline with sublayer-driven QSG geometry.
+    OpenSWMM::Render::MeshFillSublayer        *m_meshFillSublayer       = nullptr;
+    OpenSWMM::Render::MeshEdgeSublayer        *m_meshEdgeSublayer       = nullptr;
+    OpenSWMM::Render::MeshNodeSublayer        *m_meshNodeSublayer       = nullptr;
+    OpenSWMM::Render::DepthColorRampSublayer  *m_depthRampSublayer      = nullptr;
+    OpenSWMM::Render::ContourBandSublayer     *m_contourBandSublayer    = nullptr;
+    OpenSWMM::Render::IsolineSublayer         *m_isolineSublayer        = nullptr;
+    OpenSWMM::Render::VelocityVectorSublayer  *m_velocityVectorSublayer = nullptr;
+    OpenSWMM::Render::FlowArrowSublayer       *m_flowArrowSublayer      = nullptr;
+
+    // User-customisable paint order (Slice GUI-2026-05-30 §2).  Lazy-seeded
+    // from the default order in sublayers(); reordered via moveSublayer();
+    // round-tripped through ISublayerHost::save/loadSublayersFromJson.
+    mutable QList<OpenSWMM::Render::ISublayer *> m_sublayerOrder;
+
+public:
+    // ----- ISublayerHost interface (Slice S5.6) -----------------------------
+    //
+    // Default sublayer mix per RENDERING_OUTPUT_SUBLAYERS_PLAN.md §3:
+    //   [0] MeshFillSublayer         (static — terrain hillshade base)
+    //   [1] DepthColorRampSublayer   (dynamic — graduated depth/WSE/vmag fill)
+    //   [2] ContourBandSublayer      (dynamic — filled marching-squares bands; default off)
+    //   [3] IsolineSublayer          (dynamic — marching-squares isolines; default off)
+    //   [4] VelocityVectorSublayer   (dynamic — RT0 arrow glyphs; default off)
+    [[nodiscard]] QList<OpenSWMM::Render::ISublayer *> sublayers() const override;
+
+    /*! Reorder sublayers in paint order (bottom-up).  Emits
+     *  repaintRequested() on success.  Returns false on out-of-range indices. */
+    bool moveSublayer(int from, int to) override;
+
+    /*! Graduated ramp swatches for the legend dock. Mirrors
+     *  SWMMResultsLayer::sublayerLegendItems for the 2D layer: emits
+     *  one row per colour-ramp bin (depth), one per filled-contour band
+     *  when enabled, plus single rows for isolines and velocity arrows.
+     *  Each row carries the originating sublayerId so the legend's
+     *  right-click → "Edit Sublayer Style…" path still works. */
+    [[nodiscard]] QList<OpenSWMM::Render::LegendSymbolItem>
+        sublayerLegendItems() const;
+
+    [[nodiscard]] OpenSWMM::Render::MeshFillSublayer *
+        meshFillSublayer() const { return m_meshFillSublayer; }
+    [[nodiscard]] OpenSWMM::Render::MeshEdgeSublayer *
+        meshEdgeSublayer() const { return m_meshEdgeSublayer; }
+    [[nodiscard]] OpenSWMM::Render::MeshNodeSublayer *
+        meshNodeSublayer() const { return m_meshNodeSublayer; }
+    [[nodiscard]] OpenSWMM::Render::DepthColorRampSublayer *
+        depthRampSublayer() const { return m_depthRampSublayer; }
+    [[nodiscard]] OpenSWMM::Render::ContourBandSublayer *
+        contourBandSublayer() const { return m_contourBandSublayer; }
+    [[nodiscard]] OpenSWMM::Render::IsolineSublayer *
+        isolineSublayer() const { return m_isolineSublayer; }
+    [[nodiscard]] OpenSWMM::Render::VelocityVectorSublayer *
+        velocityVectorSublayer() const { return m_velocityVectorSublayer; }
+    [[nodiscard]] OpenSWMM::Render::FlowArrowSublayer *
+        flowArrowSublayer() const { return m_flowArrowSublayer; }
+
+    /*! Slice U-6 — surface the 5 sublayer style bags as styleable subjects
+     *  for the unified LayerStyleDialog. */
+    [[nodiscard]] std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
+        styleSubjects() override;
+
+    // ----- Rule Model (Slice B.5b, Phase B) -------------------------------
+    //
+    // Five seed Rules covering the result-layer decoration archetypes
+    // (Depth color ramp / Velocity vectors / Contour / Mesh edges /
+    // Mesh nodes). Same lazy-build pattern as SWMM2DMeshLayer.
+    [[nodiscard]] OpenSWMM::Render::RuleList *ruleList() override;
+    [[nodiscard]] const OpenSWMM::Render::RuleList *ruleList() const override;
+
+private:
+    void buildRuleListLazy() const;
+    mutable std::unique_ptr<OpenSWMM::Render::RuleList> m_ruleList;
 };
 
 #endif // OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H

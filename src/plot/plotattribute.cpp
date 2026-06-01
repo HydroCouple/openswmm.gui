@@ -32,6 +32,7 @@ QString labelFor(PlotAttribute a)
     case PlotAttribute::Mesh2DVelocityMag: return QStringLiteral("|V| (2D cell)");
     case PlotAttribute::Mesh2DVelocityX:   return QStringLiteral("Vx (2D cell)");
     case PlotAttribute::Mesh2DVelocityY:   return QStringLiteral("Vy (2D cell)");
+    case PlotAttribute::Mesh2DEdgeFlux:    return QStringLiteral("Edge flux (2D)");
     case PlotAttribute::SystemTemperature: return QStringLiteral("Air temperature");
     case PlotAttribute::SystemRainfall:    return QStringLiteral("Average rainfall");
     case PlotAttribute::SystemSnowDepth:   return QStringLiteral("Average snow depth");
@@ -87,6 +88,9 @@ QString unitsFor(PlotAttribute a, UnitSystem u)
     case PlotAttribute::Mesh2DVelocityX:
     case PlotAttribute::Mesh2DVelocityY:
         return us ? QStringLiteral("ft/s") : QStringLiteral("m/s");
+
+    case PlotAttribute::Mesh2DEdgeFlux:
+        return us ? QStringLiteral("ft²/s") : QStringLiteral("m²/s");
 
     case PlotAttribute::LinkCapacity:
         return QStringLiteral("");      // dimensionless 0..1

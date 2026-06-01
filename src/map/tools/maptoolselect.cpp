@@ -12,6 +12,7 @@
 #include "map/mapundostack.h"
 #include "layers/gisvectorlayer.h"
 #include "layers/swmmmodellayer.h"
+#include "layers/swmmresultslayer.h"
 
 #include "core/editgeometry.h"
 #include "core/unitsystem.h"
@@ -1154,6 +1155,13 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
 
     // Slice AT.2 — submenu of attributes valid for this object kind
     // (Node/Link/Subcatchment). RainGage still has no plot entry.
+    //
+    // Results-first selection: when more than one SWMM Output (.out)
+    // layer is loaded, the entry becomes a two-level submenu
+    // "Plot Time Series ▸ <layer> ▸ <variable>" so the user can pick
+    // which results to plot against before picking the variable. With
+    // 0/1 layers we keep the original flat submenu so single-output
+    // workflows aren't slowed down by an extra hop.
     using PlotKind = openswmmvis::plot::ObjectRef::Kind;
     PlotKind plotKind = PlotKind::Unknown;
     switch (ref.objectType) {
@@ -1162,14 +1170,39 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     case SWMMObjectRef::Subcatchment: plotKind = PlotKind::Subcatch; break;
     default: break;
     }
-    QMenu *plotSubmenu = nullptr;
+
+    QList<SWMMResultsLayer *> resultsLayers;
+    if (m_canvas) {
+        for (OpenSWMMVisLayer *l : m_canvas->layers()) {
+            if (auto *r = qobject_cast<SWMMResultsLayer *>(l))
+                resultsLayers.push_back(r);
+        }
+    }
+
+    QMenu *plotSubmenu = nullptr;                                 // flat case
+    QList<QMenu *> perLayerSubmenus;                              // 2+ case
+    QHash<QMenu *, SWMMResultsLayer *> submenuToLayer;            // 2+ case
     if (plotKind != PlotKind::Unknown) {
-        plotSubmenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
-            plotKind, openswmmvis::plot::UnitSystem::US, &menu);
-        if (plotSubmenu) {
-            plotSubmenu->setTitle(QObject::tr("Plot Time Series…"));
-            plotSubmenu->setIcon(QIcon(QStringLiteral(":/swmmvis/Chart")));
-            menu.addMenu(plotSubmenu);
+        if (resultsLayers.size() <= 1) {
+            plotSubmenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
+                plotKind, openswmmvis::plot::UnitSystem::US, &menu);
+            if (plotSubmenu) {
+                plotSubmenu->setTitle(QObject::tr("Plot Time Series…"));
+                plotSubmenu->setIcon(QIcon(QStringLiteral(":/swmmvis/Chart")));
+                menu.addMenu(plotSubmenu);
+            }
+        } else {
+            QMenu *topPlot = menu.addMenu(QIcon(QStringLiteral(":/swmmvis/Chart")),
+                                           QObject::tr("Plot Time Series"));
+            for (SWMMResultsLayer *r : resultsLayers) {
+                QMenu *attrMenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
+                    plotKind, openswmmvis::plot::UnitSystem::US, topPlot);
+                if (!attrMenu) continue;
+                attrMenu->setTitle(r->name());
+                topPlot->addMenu(attrMenu);
+                perLayerSubmenus.push_back(attrMenu);
+                submenuToLayer.insert(attrMenu, r);
+            }
         }
     }
 
@@ -1186,6 +1219,17 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
         const auto attr = openswmmvis::ui::AttributePickerMenu::attributeFrom(picked);
         emit plotAttributeRequested(ref, attr);
         return;
+    }
+    // Two-level layout: the picked QAction's parent is the per-layer
+    // attribute submenu; we look that up to recover which results layer
+    // the user chose.
+    if (!perLayerSubmenus.isEmpty()) {
+        auto *parentMenu = qobject_cast<QMenu *>(picked->parent());
+        if (parentMenu && submenuToLayer.contains(parentMenu)) {
+            const auto attr = openswmmvis::ui::AttributePickerMenu::attributeFrom(picked);
+            emit plotAttributeForLayerRequested(ref, attr, submenuToLayer.value(parentMenu));
+            return;
+        }
     }
 
     if (picked == actZoom && hitLayer)

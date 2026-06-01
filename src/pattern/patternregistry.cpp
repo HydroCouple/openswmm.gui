@@ -41,13 +41,59 @@ PatternProvider *PatternRegistry::create(const QString &name, PatternType type)
                 emit providerRenamed(p, prev, now);
             });
 
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const QByteArray idUtf8 = name.toUtf8();
+        // If the engine already has the pattern (e.g. it was loaded from the
+        // model and we're re-creating a view-side provider) the add is a no-op
+        // path — swmm_pattern_add returns SWMM_ERR_BADPARAM on duplicate IDs.
+        if (swmm_pattern_index(eng, idUtf8.constData()) < 0)
+            swmm_pattern_add(eng, idUtf8.constData(), static_cast<int>(type));
+    }
+
     emit providerAdded(p);
     return p;
+}
+
+PatternProvider *PatternRegistry::duplicate(const QString &srcName,
+                                              const QString &newName)
+{
+    PatternProvider *src = findByName(srcName);
+    if (!src) return nullptr;
+    if (newName.isEmpty() || hasName(newName)) return nullptr;
+
+    PatternProvider *clone = create(newName, src->type());
+    if (!clone) return nullptr;
+
+    QVector<double> copied = src->factors();
+    clone->setAllFactors(std::move(copied));
+
+    // Mirror the factors to the engine immediately (create() only added the
+    // pattern shell). Engine factors otherwise stay at whatever was set when
+    // swmm_pattern_add was called — currently empty.
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const QByteArray idUtf8 = newName.toUtf8();
+        const int idx = swmm_pattern_index(eng, idUtf8.constData());
+        if (idx >= 0) {
+            const auto &f = clone->factors();
+            swmm_pattern_set_factors(eng, idx, f.constData(), f.size());
+        }
+    }
+    return clone;
 }
 
 void PatternRegistry::remove(PatternProvider *p)
 {
     if (!p || !m_providers.contains(p)) return;
+
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const QByteArray idUtf8 = p->name().toUtf8();
+        const int idx = swmm_pattern_index(eng, idUtf8.constData());
+        if (idx >= 0) swmm_pattern_remove(eng, idx);
+    }
+
     emit providerAboutToBeRemoved(p);
     m_byLowerName.remove(p->name().toLower());
     m_providers.removeOne(p);
@@ -59,10 +105,31 @@ bool PatternRegistry::rename(PatternProvider *p, const QString &newName)
     if (!p || newName.isEmpty()) return false;
     if (p->name().compare(newName, Qt::CaseInsensitive) == 0) {
         // Same name (possibly different case) — apply directly.
+        if (m_engineHandle) {
+            auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+            const QByteArray prevUtf8 = p->name().toUtf8();
+            const int idx = swmm_pattern_index(eng, prevUtf8.constData());
+            if (idx >= 0)
+                swmm_pattern_rename(eng, idx, newName.toUtf8().constData());
+        }
         p->setName(newName);
         return true;
     }
     if (hasName(newName)) return false;   // Collision with a different provider.
+
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const QByteArray prevUtf8 = p->name().toUtf8();
+        const int idx = swmm_pattern_index(eng, prevUtf8.constData());
+        if (idx >= 0) {
+            const int rc = swmm_pattern_rename(eng, idx,
+                                                newName.toUtf8().constData());
+            // SWMM_ERR_BADPARAM here indicates an engine-side collision (a
+            // pattern was added directly to the engine since loadFromEngine).
+            // Reject the rename and leave both sides untouched.
+            if (rc != SWMM_OK) return false;
+        }
+    }
     p->setName(newName);                  // nameChanged signal re-keys m_byLowerName.
     return true;
 }

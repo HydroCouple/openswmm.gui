@@ -6,9 +6,12 @@
  */
 #include "map/tools/maptoolpick2dcells.h"
 
+#include "layers/swmm2dmeshlayer.h"
 #include "layers/swmm2dresultslayer.h"
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
+#include "mesh/meshobjectref.h"
+#include "selection/selectionmanager.h"
 
 #include <QCursor>
 #include <QKeyEvent>
@@ -16,12 +19,16 @@
 #include <QPainter>
 #include <QPolygonF>
 #include <QRectF>
+#include <QSet>
 
 #include <algorithm>
 #include <cmath>
 
-MapToolPick2DCells::MapToolPick2DCells(MapCanvas *canvas, QObject *parent)
-    : OpenSWMMVisMapTool(QStringLiteral("pick-2d-cells"), canvas, parent)
+MapToolPick2DCells::MapToolPick2DCells(MapCanvas *canvas,
+                                       SelectionManager *selection,
+                                       QObject *parent)
+    : OpenSWMMVisMapTool(QStringLiteral("pick-2d-cells"), canvas, parent),
+      m_selection(selection)
 {
 }
 
@@ -37,10 +44,19 @@ void MapToolPick2DCells::setMode(Mode m)
         m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("pick2dcells-mode"));
 }
 
+void MapToolPick2DCells::setTargetLayer(SWMM2DResultsLayer *layer)
+{
+    m_targetLayer = layer;
+}
+
 void MapToolPick2DCells::activate()
 {
     OpenSWMMVisMapTool::activate();
-    m_targetLayer = findResultsLayer_();
+    // Honor an explicitly bound active layer; only fall back to first-found
+    // when the project window hasn't designated one.
+    if (!m_targetLayer)
+        m_targetLayer = findResultsLayer_();
+    m_meshLayer   = findMeshLayer_();
     m_dragging = false;
     m_drawing  = false;
     m_lassoMapPts.clear();
@@ -66,6 +82,75 @@ SWMM2DResultsLayer *MapToolPick2DCells::findResultsLayer_() const
     return nullptr;
 }
 
+SWMM2DMeshLayer *MapToolPick2DCells::findMeshLayer_() const
+{
+    if (!m_canvas) return nullptr;
+    for (OpenSWMMVisLayer *l : m_canvas->layers())
+        if (auto *m = qobject_cast<SWMM2DMeshLayer *>(l))
+            if (m->isActiveMesh()) return m;
+    for (OpenSWMMVisLayer *l : m_canvas->layers())
+        if (auto *m = qobject_cast<SWMM2DMeshLayer *>(l)) return m;
+    return nullptr;
+}
+
+QVector<int> MapToolPick2DCells::selectedCells_() const
+{
+    QVector<int> out;
+    if (!m_selection) return out;
+    // Accept every MeshCell ref (there is one 2D mesh per canvas in practice;
+    // not filtering by layerKey keeps this robust when no SWMM2DMeshLayer
+    // exists to supply a matching key).
+    for (const SWMMObjectRef &ref : m_selection->selection()) {
+        if (ref.objectType != SWMMObjectRef::MeshCell) continue;
+        QString lk; int tri = -1;
+        if (mesh::MeshObjectRef::parseCell(ref, &lk, &tri))
+            out.push_back(tri);
+    }
+    return out;
+}
+
+void MapToolPick2DCells::applySelection_(const QVector<int> &hits,
+                                         Qt::KeyboardModifiers mods)
+{
+    if (!m_selection) return;
+    // A mesh layer is optional: results-only views (mesh geometry lives only
+    // in the HDF5 output) have no SWMM2DMeshLayer. Fall back to an empty
+    // source path → MeshObjectRef::layerKey "mesh::<unsaved>" so cells are
+    // still representable in the selection bus and the toolbar label / results
+    // highlight still work.
+    if (!m_meshLayer) m_meshLayer = findMeshLayer_();
+    const QString path = m_meshLayer ? m_meshLayer->sourcePath() : QString();
+
+    QSet<SWMMObjectRef> set;
+    for (int i : hits) set.insert(mesh::MeshObjectRef::cell(path, i));
+
+    const bool add    = mods.testFlag(Qt::ShiftModifier);
+    const bool toggle = mods.testFlag(Qt::ControlModifier);
+    const SelectionManager::Mode mode =
+        toggle ? SelectionManager::Toggle
+               : (add ? SelectionManager::Add : SelectionManager::Replace);
+    m_selection->select(set, mode);
+}
+
+void MapToolPick2DCells::requestPlotAt_(const QPoint &pixel)
+{
+    SWMM2DResultsLayer *layer = m_targetLayer.data();
+    if (!layer) layer = findResultsLayer_();
+    if (!layer) return;
+
+    QVector<int> targets = selectedCells_();
+    if (targets.isEmpty()) {
+        // Nothing selected — select + plot the cell under the cursor.
+        const int idx = layer->pickCellAt(pixelToScene_(pixel.x(), pixel.y()));
+        if (idx >= 0) {
+            applySelection_({idx}, Qt::NoModifier);
+            targets.push_back(idx);
+        }
+    }
+    if (!targets.isEmpty())
+        emit cellsPicked(layer, targets);
+}
+
 QPointF MapToolPick2DCells::pixelToScene_(int px, int py) const
 {
     double mx = 0.0, my = 0.0;
@@ -75,17 +160,54 @@ QPointF MapToolPick2DCells::pixelToScene_(int px, int py) const
     return QPointF(mx, -my);
 }
 
+// Selection picks prefer the mesh layer so they work during pure mesh editing
+// (no results loaded yet) — matching the vertex / edge selectors. The results
+// layer is the fallback for results-only views where the mesh geometry lives
+// only in the HDF5 output and no SWMM2DMeshLayer exists.
+int MapToolPick2DCells::pickCellAtScene_(const QPointF &scenePt)
+{
+    if (!m_meshLayer)   m_meshLayer   = findMeshLayer_();
+    if (m_meshLayer)    return m_meshLayer->pickCellAt(scenePt);
+    if (!m_targetLayer) m_targetLayer = findResultsLayer_();
+    if (m_targetLayer)  return m_targetLayer->pickCellAt(scenePt);
+    return -1;
+}
+
+QVector<int> MapToolPick2DCells::pickCellsInRectScene_(const QRectF &sceneRect)
+{
+    if (!m_meshLayer)   m_meshLayer   = findMeshLayer_();
+    if (m_meshLayer)    return m_meshLayer->pickCellsInRect(sceneRect);
+    if (!m_targetLayer) m_targetLayer = findResultsLayer_();
+    if (m_targetLayer)  return m_targetLayer->pickCellsInRect(sceneRect);
+    return {};
+}
+
+QVector<int> MapToolPick2DCells::pickCellsInPolygonScene_(const QPolygonF &scenePoly)
+{
+    if (!m_meshLayer)   m_meshLayer   = findMeshLayer_();
+    if (m_meshLayer)    return m_meshLayer->pickCellsInPolygon(scenePoly);
+    if (!m_targetLayer) m_targetLayer = findResultsLayer_();
+    if (m_targetLayer)  return m_targetLayer->pickCellsInPolygon(scenePoly);
+    return {};
+}
+
 void MapToolPick2DCells::mousePressEvent(QMouseEvent *event)
 {
     if (!m_canvas) return;
     if (event->button() != Qt::LeftButton) {
-        // Right-button: lasso vertex undo; otherwise ignore.
-        if (m_mode == Mode::Lasso && m_drawing && event->button() == Qt::RightButton) {
-            if (!m_lassoMapPts.isEmpty()) {
-                m_lassoMapPts.removeLast();
-                if (m_lassoMapPts.isEmpty()) m_drawing = false;
-                m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("pick2dcells-lasso-undo"));
+        if (event->button() == Qt::RightButton) {
+            // While drawing a lasso, right-click undoes the last vertex.
+            if (m_mode == Mode::Lasso && m_drawing) {
+                if (!m_lassoMapPts.isEmpty()) {
+                    m_lassoMapPts.removeLast();
+                    if (m_lassoMapPts.isEmpty()) m_drawing = false;
+                    m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("pick2dcells-lasso-undo"));
+                }
+                return;
             }
+            // Otherwise right-click plots the current selection (or the cell
+            // under the cursor when nothing is highlighted).
+            requestPlotAt_(event->pos());
         }
         return;
     }
@@ -132,36 +254,30 @@ void MapToolPick2DCells::mouseReleaseEvent(QMouseEvent *event)
     if (m_mode != Mode::Box) return;
     if (event->button() != Qt::LeftButton) return;
 
-    SWMM2DResultsLayer *layer = m_targetLayer.data();
-    if (!layer)
-        layer = findResultsLayer_();
-    if (!layer) {
-        m_dragging = false;
-        return;
-    }
-
     QVector<int> hits;
     if (m_dragging) {
         // Build scene-space rect from the two corners.
         const QPointF a = pixelToScene_(m_startPixel.x(),   m_startPixel.y());
         const QPointF b = pixelToScene_(m_currentPixel.x(), m_currentPixel.y());
         const QRectF sceneRect = QRectF(a, b).normalized();
-        hits = layer->pickCellsInRect(sceneRect);
+        hits = pickCellsInRectScene_(sceneRect);
     } else {
         // Single click — hit-test the cell under the cursor.
         const QPointF scenePt = pixelToScene_(event->pos().x(), event->pos().y());
-        const int idx = layer->pickCellAt(scenePt);
+        const int idx = pickCellAtScene_(scenePt);
         if (idx >= 0) hits.push_back(idx);
     }
 
     m_dragging = false;
     m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("pick2dcells-box-end"));
 
-    // Persist highlight on the layer + announce upstream.
-    QSet<int> set;
-    for (int i : hits) set.insert(i);
-    layer->highlightCells(set);
-    emit cellsPicked(layer, hits);
+    // Selection only highlights — right-click plots. A no-modifier single
+    // click that missed every cell clears the selection.
+    if (hits.isEmpty() && event->modifiers() == Qt::NoModifier) {
+        if (m_selection) m_selection->clear();
+        return;
+    }
+    applySelection_(hits, event->modifiers());
 }
 
 void MapToolPick2DCells::mouseDoubleClickEvent(QMouseEvent *event)
@@ -181,29 +297,19 @@ void MapToolPick2DCells::mouseDoubleClickEvent(QMouseEvent *event)
         return;
     }
 
-    SWMM2DResultsLayer *layer = m_targetLayer.data();
-    if (!layer) layer = findResultsLayer_();
-    if (!layer) {
-        m_drawing = false;
-        m_lassoMapPts.clear();
-        return;
-    }
-
     QPolygonF scenePoly;
     scenePoly.reserve(m_lassoMapPts.size());
     for (const QPointF& mp : m_lassoMapPts)
         scenePoly.append(QPointF(mp.x(), -mp.y()));
 
-    const QVector<int> hits = layer->pickCellsInPolygon(scenePoly);
+    const QVector<int> hits = pickCellsInPolygonScene_(scenePoly);
 
     m_drawing = false;
     m_lassoMapPts.clear();
     m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("pick2dcells-lasso-commit"));
 
-    QSet<int> set;
-    for (int i : hits) set.insert(i);
-    layer->highlightCells(set);
-    emit cellsPicked(layer, hits);
+    // Selection only highlights — right-click plots.
+    applySelection_(hits, event->modifiers());
 }
 
 void MapToolPick2DCells::keyPressEvent(QKeyEvent *event)
@@ -213,6 +319,7 @@ void MapToolPick2DCells::keyPressEvent(QKeyEvent *event)
         m_dragging = false;
         m_drawing  = false;
         m_lassoMapPts.clear();
+        if (m_selection) m_selection->clear();
         if (m_canvas)
             m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("pick2dcells-esc"));
         break;

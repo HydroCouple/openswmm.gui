@@ -12,6 +12,11 @@
 #define SWMMMODELLAYER_H
 
 #include "layers/openswmmvislayer.h"
+#include "layers/swmm_category.h"
+#include "render/labelconfig.h"
+#include "render/iattributeprovider.h"   // Slice DM.3
+#include "render/markershape.h"
+#include "render/legendsymbolitem.h"     // X4 — legend-as-editor facade
 
 #include <cstdint>
 #include <memory>
@@ -35,7 +40,11 @@ struct SWMMKdTrees;
 class OpenSWMMVisWorkspace;
 class SpatialReferenceSystem;
 
-namespace OpenSWMM::Render { class IFeatureRenderer; }
+namespace OpenSWMM::Render {
+class IFeatureRenderer;
+class RuleList;   // Slice B.4 — see ruleList() override below.
+enum class ClassEditKind;   // X4 — legend-as-editor facade (full def in ifeaturerenderer.h)
+}
 
 // Slice BS Phase 6.9.2 — hydrograph MVC layer. Forward-declared so the
 // header doesn't drag in <QAbstractItemModel>; accessors return pointers
@@ -56,6 +65,11 @@ struct SWMMElementSymbol
     QColor  outlineColor = Qt::darkBlue;
     double  outlineWidth = 1.0;
     double  size         = 8.0;    /*!< Marker diameter / line width in pixels. */
+    OpenSWMM::Render::MarkerShape markerShape
+                         = OpenSWMM::Render::MarkerShape::Circle;
+                                   /*!< Point-marker glyph (per-kind defaults
+                                        seeded in SWMMModelLayer ctor). Ignored
+                                        for line and polygon categories. */
     bool    showLabel    = false;
     QFont   labelFont;
     QColor  labelColor   = Qt::black;
@@ -89,9 +103,11 @@ struct SWMMElementSymbol
  *          - Identify-by-point returning element attributes as QVariantMap.
  *          - Label display driven by element names.
  */
-class SWMMModelLayer : public OpenSWMMVisLayer
+class SWMMModelLayer : public OpenSWMMVisLayer,
+                       public OpenSWMM::Render::IAttributeProvider  // Slice DM.3
 {
     Q_OBJECT
+    Q_INTERFACES(OpenSWMM::Render::IAttributeProvider)  // Slice DM.3
 
     // The batched scene-item renderer reads the SoA + GDAL transform
     // directly so paint() is a single tight pass over the cached data.
@@ -106,26 +122,28 @@ class SWMMModelLayer : public OpenSWMMVisLayer
 
 public:
     /*!
-     * \enum Category
-     * \brief Stable ordinal used by SWMMObjectTreeModel and by the
-     *        category-aware visibility API. Order is preserved across
-     *        model rebuilds so QTreeView expansion state / selection
-     *        round-trip cleanly.
+     * \brief The SWMM-element Category enum.
+     *
+     *        Definition moved to \c include/layers/swmm_category.h so leaf
+     *        tests + sublayer headers can depend on the enum alone without
+     *        pulling in the full layer's engine + Qt GUI dependency graph.
+     *        Re-exported here as a member alias so existing call-sites
+     *        (`SWMMModelLayer::Category`, `SWMMModelLayer::CatJunctions`,
+     *        …) continue to compile unchanged.
      */
-    enum Category {
-        CatJunctions = 0,
-        CatOutfalls,
-        CatStorage,
-        CatDividers,
-        CatConduits,
-        CatPumps,
-        CatOrifices,
-        CatWeirs,
-        CatOutlets,
-        CatSubcatchments,
-        CatRainGages,
-        NumCategories
-    };
+    using Category = OpenSWMMVis::SwmmCategory;
+    static constexpr Category CatJunctions     = OpenSWMMVis::CatJunctions;
+    static constexpr Category CatOutfalls      = OpenSWMMVis::CatOutfalls;
+    static constexpr Category CatStorage       = OpenSWMMVis::CatStorage;
+    static constexpr Category CatDividers      = OpenSWMMVis::CatDividers;
+    static constexpr Category CatConduits      = OpenSWMMVis::CatConduits;
+    static constexpr Category CatPumps         = OpenSWMMVis::CatPumps;
+    static constexpr Category CatOrifices      = OpenSWMMVis::CatOrifices;
+    static constexpr Category CatWeirs         = OpenSWMMVis::CatWeirs;
+    static constexpr Category CatOutlets       = OpenSWMMVis::CatOutlets;
+    static constexpr Category CatSubcatchments = OpenSWMMVis::CatSubcatchments;
+    static constexpr Category CatRainGages     = OpenSWMMVis::CatRainGages;
+    static constexpr Category NumCategories    = OpenSWMMVis::NumCategories;
 
     /*!
      * \enum DataCategory
@@ -210,12 +228,59 @@ public:
     [[nodiscard]] bool showLabels()       const;
     void setShowLabels(bool show);
 
-    /*! Phase B.3 — when true, SWMMLayerItem::paint() skips link / node
-     *  / catchment / gage rendering on the assumption that
-     *  SWMMLayerGLRenderer is composing them via the offscreen FBO.
-     *  Lets us A/B between the CPU and GL paths without rebuilds. */
-    [[nodiscard]] bool glRenderingEnabled() const { return m_glRenderingEnabled; }
-    void setGlRenderingEnabled(bool on)            { m_glRenderingEnabled = on; }
+    /*! \brief Slice X.18 — full label configuration.
+     *
+     *         Supersedes the binary `showLabels` toggle: every layer that
+     *         paints text labels now consults `labelConfig().enabled` AS
+     *         WELL AS the legacy `showLabels` for backwards compatibility
+     *         with .oswp files written by earlier builds.  Setters keep
+     *         the two in sync until the legacy flag is removed in a
+     *         follow-up. */
+    // VS.10 — labelConfig() inherited from OpenSWMMVisLayer; only the setter
+    // is overridden to keep the legacy m_showLabels flag in sync.
+    void setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg) override;
+
+    /*! Per-kind QSG render scope. Each flag means "this kind is being
+     *  drawn by the QSG (GPU) overlay; the CPU SWMMLayerItem must NOT
+     *  draw it".  Symmetrically, the QSG renderer (SWMMLayerQSGRenderer)
+     *  uploads empty geometry for any kind NOT in the scope, so a kind
+     *  is drawn by exactly one pipeline.
+     *
+     *  Progressive migration: nodes go QSG first, then links, then
+     *  catchments. Default is empty — i.e. everything stays on the
+     *  CPU path, the QSG overlay never runs, and behaviour matches
+     *  the legacy renderer.
+     *
+     *  Slice §QSG-1 (2026-05-26) — replaces the previous bool
+     *  `glRenderingEnabled` which was an all-or-nothing gate. */
+    enum QsgKind : quint8 {
+        QsgNone     = 0x00,
+        QsgNodes    = 0x01,  ///< Junctions / outfalls / storage / dividers.
+        QsgLinks    = 0x02,  ///< Conduits / pumps / orifices / weirs / outlets.
+        QsgCatch    = 0x04,  ///< Subcatchments (polygons + outlet lines).
+        QsgGages    = 0x08,  ///< Rain gages.
+    };
+    Q_DECLARE_FLAGS(QsgKinds, QsgKind)
+
+    [[nodiscard]] QsgKinds qsgRenderKinds() const noexcept { return m_qsgKinds; }
+    void setQsgRenderKinds(QsgKinds kinds);
+
+    /*! Convenience: does the QSG overlay own this kind (i.e. is the
+     *  flag set)? Hot-path helpers in SWMMLayerItem use this to skip
+     *  CPU painting, and SWMMLayerQSGRenderer uses the negation to
+     *  short-circuit vertex uploads. */
+    [[nodiscard]] bool qsgOwnsKind(QsgKind k) const noexcept
+        { return m_qsgKinds.testFlag(k); }
+
+    /*! Back-compat shim — keeps the old all-or-nothing API working
+     *  while callers (mapcanvas.cpp, swmmlayeritem.cpp, tests) are
+     *  migrated to the per-kind flags. setGlRenderingEnabled(true) is
+     *  equivalent to enabling every QSG kind. */
+    [[nodiscard]] bool glRenderingEnabled() const noexcept
+        { return m_qsgKinds != QsgNone; }
+    void setGlRenderingEnabled(bool on)
+        { setQsgRenderKinds(on ? QsgKinds(QsgNodes | QsgLinks | QsgCatch | QsgGages)
+                               : QsgKinds(QsgNone)); }
 
     // ----- Per-object visibility (Slice O) --------------------------------
 
@@ -492,6 +557,11 @@ public:
     [[nodiscard]] SWMMElementSymbol rainGageSymbol()   const;
     void setRainGageSymbol(const SWMMElementSymbol &s);
 
+    /*! Slice U-4 — expose the 11 per-kind SWMMElementSymbol adapters as
+     *  styleable subjects for the unified LayerStyleDialog. */
+    [[nodiscard]] std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
+        styleSubjects() override;
+
     // ----- Renderer (Slice BI Phase 8.13.6.5) -----------------------------
     // The renderer is the §J.2 seam every future paint path will go through.
     // Sub-phase 8.13.6.5 is API plumbing only — the existing paint loop in
@@ -509,7 +579,7 @@ public:
      *          eventual default (paint-refactor sub-phase) is a
      *          MultiKindRenderer wrapping the 11 per-category symbols.
      */
-    [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+    [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const override;
 
     /*!
      * \brief Replaces the current renderer.
@@ -517,7 +587,7 @@ public:
      *          (silent no-op) so renderer() never returns nullptr.
      *          Emits \ref rendererChanged() when the pointer actually changes.
      */
-    void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+    void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r) override;
 
     // ----- Per-kind renderer (Slice BI-MK.1 / BI-MK.LT, 2026-05-24) --------
     //
@@ -550,6 +620,49 @@ public:
     /*! Convenience: stable string key used for MultiKindRenderer keying
      *  + .oswp persistence. e.g. CatJunctions → "Junctions". */
     [[nodiscard]] static QString kindKey(Category c);
+
+    // ----- X4: legend-as-editor facade ------------------------------------
+    // The model layer is multi-kind, so it has no single IFeatureRenderer for
+    // the legend dock to drive. These mirror the IFeatureRenderer class-edit
+    // contract but aggregate across the 11 per-kind renderers: legend rows
+    // carry a kind-qualified classKey ("Junctions<inner>"), and the
+    // colour/size accessors decode the kind and delegate to the matching
+    // kindRenderer() — i.e. edits land on the very objects the painter reads
+    // (single source of truth). Mutating setters rebuild that kind's
+    // per-feature override cache and request a repaint.
+    [[nodiscard]] QList<OpenSWMM::Render::LegendSymbolItem> legendSymbolItems() const;
+    [[nodiscard]] bool   supportsClassEdit(OpenSWMM::Render::ClassEditKind kind) const;
+    [[nodiscard]] QColor colorForClass(const QString &classKey) const;
+    void                 setColorForClass(const QString &classKey, const QColor &color);
+    [[nodiscard]] qreal  sizeForClass(const QString &classKey) const;
+    void                 setSizeForClass(const QString &classKey, qreal size);
+
+    // ----- Rule Model (Slice B.4, Phase B) --------------------------------
+    //
+    // 11 kindRenderer slots → 11 Rules, one per Category. The RuleList
+    // is lazy-built on first access; each Rule holds a CLONE of the
+    // matching kindRenderer at construction time. Rule-side renderer
+    // swaps (via Z.3b's setRendererById) propagate back to the layer
+    // via setKindRenderer, which keeps the legacy paint-time + override
+    // cache code paths intact.
+    //
+    // Limitation: external calls to setKindRenderer (e.g. from undo
+    // commands) don't re-sync the RuleList. The user must reopen the
+    // Layer Style dialog to see fresh state — acceptable for B.4; full
+    // bidirectional sync lands in a follow-up if it surfaces a real
+    // problem.
+    [[nodiscard]] OpenSWMM::Render::RuleList *ruleList() override;
+    [[nodiscard]] const OpenSWMM::Render::RuleList *ruleList() const override;
+
+    // ----- IAttributeProvider (Slice DM.3) --------------------------------
+    //
+    // Returns the per-kind static engine fields a user can theme by
+    // (length, slope, diameter, invertElev, area, impervPct, …). All
+    // entries are isDynamic=false (statics don't change per animation
+    // frame). Drives the attribute combo in the Graduated / Categorized
+    // renderer panels — see RENDERING_DIALOG_DEMO_PLAN.md §2.
+    [[nodiscard]] QVector<OpenSWMM::Render::AttributeField>
+        availableAttributes(OpenSWMMVis::SwmmCategory cat) const override;
 
     // ----- Flow-direction arrows (Slice BI Phase 8.13.8-mini, 2026-05-24) -
     //
@@ -603,6 +716,26 @@ public:
      *  this feature; positive values are absolute pixel sizes (the
      *  painter scales the kind's static glyph radius by `size / static`). */
     [[nodiscard]] double featureSize(Category c, int idx) const;
+
+    /*! M3 — per-feature marker shape sampled from the renderer (Categorized /
+     *  Rule-based). Returns the MarkerShape as int, or -1 when the renderer
+     *  has no per-feature shape override (use the kind's base shape). */
+    [[nodiscard]] int featureShape(Category c, int idx) const;
+
+    /*! Slice Z.5b-paint-graduated — per-feature line OFFSET override
+     *  (pixels). Returns 0.0 when no offset is configured for this
+     *  feature; positive = right of forward direction, negative =
+     *  left. The paint host (SWMMLayerItem) reads this per visible
+     *  link when the kind uses Graduated/Categorized renderers; the
+     *  fast SingleSymbol path reads the kind's first symbol layer
+     *  directly (via lineOffsetForKindRenderer). */
+    [[nodiscard]] double featureOffset(Category c, int idx) const;
+
+    /*! True when any feature in kind \p c has a non-zero offset
+     *  override. The painter consults this to decide whether to take
+     *  the per-feature slow path; when false the kind keeps its
+     *  legacy fast path. */
+    [[nodiscard]] bool kindHasAnyOffset(Category c) const;
 
     /*! Recomputes the per-feature colour AND per-feature size override
      *  caches for one kind, by iterating every feature and calling
@@ -1005,6 +1138,28 @@ public:
     bool applyLinkLength(int linkIdx, double length);
 
     /*!
+     * \brief Slice SC.1 — Write a cross-section to a link via
+     *        `swmm_link_set_xsect`. Emits `attributeChanged(linkName)` on
+     *        success so the Map symbology + Attribute Table + Property
+     *        Browser refresh in one tick. Returns false on engine error
+     *        (e.g., bad shape code or geom param out of range).
+     */
+    bool applyLinkXsect(int linkIdx, int shape,
+                          double g1, double g2, double g3, double g4);
+
+    /*!
+     * \brief Slice SC.1 — Write the parallel-barrels count. Emits
+     *        `attributeChanged` on success.
+     */
+    bool applyLinkBarrels(int linkIdx, int barrels);
+
+    /*!
+     * \brief Slice SC.1 — Write the FHWA culvert chart code (0 = none).
+     *        Emits `attributeChanged` on success.
+     */
+    bool applyLinkCulvertCode(int linkIdx, int code);
+
+    /*!
      * \brief Apply interior vertices to a link: engine + cache, rebuilding
      *        the cached polyline from the node endpoints + new interior.
      */
@@ -1194,6 +1349,88 @@ public:
     /*! Same lazy-init pattern, for the CurveRegistry. */
     QObject *ensureCurveRegistry();
 
+    // ===== Slice BR Phase 6.8.1 — control-rule MVC layer ====================
+    //
+    // Mirrors the hydrograph pattern at Phase 6.9.2 (`applyHydrograph*` +
+    // `hydrographChanged`) and the curve/pattern/timeseries `ensureXRegistry`
+    // accessors above. The four `applyControlRule*` helpers are the **only**
+    // place engine `swmm_control_*` mutation calls live; all UI surfaces
+    // (RulesEditorDialog, SWMMControlRulePropertyAdapter, Object Browser)
+    // route through them and re-render off the `controlRulesChanged(name)`
+    // signal.
+    //
+    // The engine has no per-rule mutator (DA-ENG-11), so each apply helper
+    // snapshots every rule, modifies the target slot in the snapshot, calls
+    // `swmm_control_clear_rules`, and re-`swmm_control_add_rule`s the
+    // snapshot. This matches today's `SWMMControlRulePropertyAdapter
+    // ::setRuleText` round-trip.
+
+    /*! \brief Append a new control rule. `body` should already include the
+     *  `RULE <name>` header (matching the engine's storage format); the
+     *  apply helper does not synthesise one. Returns false if the engine
+     *  is closed, `name` is empty, or the registry already holds it. */
+    bool applyControlRuleAdd(const QString &name, const QString &body,
+                               QString *outError = nullptr);
+
+    /*! \brief Replace the body of an existing rule (typically the user-
+     *  edited text from the code editor). Routes through the snapshot+clear
+     *  +re-add round-trip so the engine's rule order is preserved. */
+    bool applyControlRuleReplace(const QString &name, const QString &newBody,
+                                   QString *outError = nullptr);
+
+    /*! \brief Rename `oldName` to `newName`. Rewrites the `RULE <name>`
+     *  header on the target slot's body so the engine round-trip preserves
+     *  the rename. Refuses on duplicate (case-insensitive) or empty
+     *  `newName`. */
+    bool applyControlRuleRename(const QString &oldName, const QString &newName,
+                                  QString *outError = nullptr);
+
+    /*! \brief Drop the rule with `name` from the engine + registry.
+     *  Returns false if not found. */
+    bool applyControlRuleRemove(const QString &name,
+                                  QString *outError = nullptr);
+
+    /*! \brief Lazy accessor for the project-scoped `ControlRuleRegistry`.
+     *  Lifetime is bound to the layer; the registry is constructed on
+     *  first call and `loadFromEngine` is invoked so the providers mirror
+     *  the engine's current rule list. Returned as a `QObject*` to keep
+     *  this header free of the controls include; callers downcast to
+     *  `openswmmvis::controls::ControlRuleRegistry*`. */
+    QObject *ensureControlRuleRegistry();
+
+    // ===== Slice BQ Phase 6.7.4 — transect MVC layer =========================
+    //
+    // Mirrors the curve / pattern / control-rule pattern. The applyTransect*
+    // helpers are the only place engine `swmm_transect_*` mutation calls
+    // live; all UI surfaces (TransectEditorDialog, SWMMTransectPropertyAdapter,
+    // Object Browser) route through them and re-render off
+    // `transectChanged(name)`.
+
+    /*! \brief Create a new transect. Refuses on duplicate or empty name. */
+    bool applyTransectAdd(const QString &name, QString *outError = nullptr);
+
+    /*! \brief Rename. Refuses on duplicate (case-insensitive) or empty. */
+    bool applyTransectRename(const QString &oldName, const QString &newName,
+                              QString *outError = nullptr);
+
+    /*! \brief Remove a transect by name. */
+    bool applyTransectRemove(const QString &name, QString *outError = nullptr);
+
+    bool applyTransectSetComments(const QString &name, const QString &comments);
+    bool applyTransectSetRoughness(const QString &name,
+                                    double nLeft, double nRight, double nChannel);
+    bool applyTransectSetBankStations(const QString &name, double xLeft, double xRight);
+    bool applyTransectSetEncroachmentStations(const QString &name,
+                                               double xLeft, double xRight);
+    bool applyTransectSetModifiers(const QString &name,
+                                    double stationMul, double elevOffset, double meander);
+    /*! \brief Snapshot-and-rewrite the full station list. */
+    bool applyTransectSetStations(const QString &name,
+                                   const QVector<QPair<double,double>> &stations);
+
+    /*! \brief Lazy accessor for the project-scoped TransectRegistry. */
+    QObject *ensureTransectRegistry();
+
 signals:
     void modelFilePathChanged(const QString &path);
     void showNodesChanged(bool show);
@@ -1201,6 +1438,9 @@ signals:
     void showSubcatchmentsChanged(bool show);
     void showRainGagesChanged(bool show);
     void showLabelsChanged(bool show);
+
+    // VS.10 — labelConfigChanged() is inherited from OpenSWMMVisLayer.
+
     void selectionChanged(const QStringList &selectedNames);
     void modelLoaded();
     void modelLoadError(const QString &errorMessage);
@@ -1241,6 +1481,13 @@ signals:
      *  just the affected row/adapter without a full model rebuild. */
     void attributeChanged(const QString &objectName);
 
+    /*! Slice §QSG-1 — fired whenever setQsgRenderKinds() flips one or
+     *  more kinds. MapCanvas listens so it can short-circuit the
+     *  per-frame QSG repaint+grab when the scope is empty, and the
+     *  CPU SWMMLayerItem listens so it can force a repaint that
+     *  re-evaluates its skip-kind branches. */
+    void qsgRenderKindsChanged(QsgKinds kinds);
+
     /*! Slice BS Phase 6.9.2 — emitted whenever any [HYDROGRAPHS] /
      *  [RDII_DECAY] / [RDII] mutation lands in the engine via one of the
      *  applyHydrograph* / applyRdiiDecay* helpers. Empty uhName means
@@ -1250,7 +1497,29 @@ signals:
      *  bind to those models and never poll the engine directly. */
     void hydrographChanged(const QString &uhName);
 
+    /*! Slice BR Phase 6.8.1 — emitted whenever any [CONTROLS] mutation lands
+     *  in the engine via one of the applyControlRule* helpers. The argument
+     *  is the rule name affected, or empty for "rebuild everything"
+     *  (rename / remove / clear). The list-model + SWMMControlRulePropertyAdapter
+     *  + future RulesEditorDialog subscribe here and re-render off the same
+     *  ControlRuleRegistry, so inline-edit-in-property-panel and
+     *  edit-in-dialog converge through a single signal. */
+    void controlRulesChanged(const QString &ruleName);
+
+    /*! Slice BQ Phase 6.7.4 — emitted whenever any [TRANSECTS] mutation
+     *  lands via one of the applyTransect* helpers. Empty string means
+     *  "rebuild everything" (rename / remove). All transect models
+     *  subscribe here and refresh; consumer UIs (Object Browser,
+     *  property panel, TransectEditorDialog) bind to those models. */
+    void transectChanged(const QString &transectName);
+
 private:
+    // X4 — decode a kind-qualified legend class key ("<kindKey><sep><inner>")
+    // back to its Category + inner class key. Returns false when the key
+    // isn't kind-qualified or the kind is unknown.
+    bool decodeLegendClassKey(const QString &key, Category *catOut,
+                              QString *innerOut) const;
+
     struct NodeGeom    { double x, y; int objectType; int nodeType; QString name; };
     struct LinkGeom {
         QVector<QPointF> vertices;   // interior bend points only (no node endpoints)
@@ -1288,6 +1557,29 @@ private:
     void refreshSceneCoordsForLink(int linkIdx);
     void refreshSceneCoordsForSubcatch(int catchIdx);
     void refreshCatchOutletLinesForNode(int nodeIdx);
+
+    // Incremental scene/cache mutations — O(1) per element plus an
+    // O(L) spatial-grid touch where unavoidable. These let single
+    // add / rename / delete operations skip the full O(N·V) OGR
+    // re-transform that rebuildSceneCoords() does on every feature.
+    void appendNodeSceneEntry();     ///< For new tail entry in m_nodes.
+    void appendLinkSceneEntry();     ///< For new tail entry in m_links.
+    void appendCatchSceneEntry();    ///< For new tail entry in m_catchments.
+    void appendGageSceneEntry();     ///< For new tail entry in m_gages.
+    void compactNodeSceneEntry(int nodeIdx);
+    void compactLinkSceneEntry(int linkIdx);
+    void compactCatchSceneEntry(int catchIdx);
+    void compactGageSceneEntry(int gageIdx);
+
+    /*! Update name-keyed indices (m_objectLocation, m_nameToSoa,
+     *  m_hiddenObjects) when a single element is renamed. Geometry
+     *  is unchanged, so this is the only work needed — caller must
+     *  NOT also call rebuildCategoryIndex() or buildGeometryCache(). */
+    void renameInIndices(const QString &oldName, const QString &newName);
+
+    /*! Recompute m_extent from current SoA + bbox caches without
+     *  doing any OGR transform. Used by incremental delete paths. */
+    void recomputeExtentFromCaches();
 
     // Incremented at the end of every rebuildSceneCoords() call.
     // SWMMLayerQSGRenderer uses this to invalidate its subcatchment
@@ -1358,14 +1650,13 @@ private:
     bool                         m_showSubcatchments = true;
     bool                         m_showRainGages   = true;
     bool                         m_showLabels      = false;
-    // Phase B.RHI — disabled by default until the QQuickWidget Metal-layer
-    // compositing issue is resolved (the opaque CAMetalLayer covers the
-    // raster m_frameBuffer content regardless of setClearColor(transparent)).
-    // With this false, SWMMLayerItem::paint() renders links / nodes /
-    // subcatchments / gages via QPainter into the QGraphicsScene, selection
-    // highlights (yellow) work correctly, and basemap / DTM / mesh remain
-    // visible because no Metal layer is composited on top.
-    bool                         m_glRenderingEnabled = false;
+    // VS.10 — m_labelConfig moved to OpenSWMMVisLayer (base owns it now).
+    // Per-kind QSG scope (see QsgKind / qsgRenderKinds() above).
+    // Default empty means the QSG overlay never runs and every kind is
+    // drawn by the CPU SWMMLayerItem path — matches pre-§QSG-1 behaviour
+    // and is what the Preferences toggle inverts when the user enables
+    // the experimental GPU path.
+    QsgKinds                     m_qsgKinds = QsgNone;
 
     // Slice O — per-object hidden set. Names listed here are skipped by
     // populateScene. Object names are unique across a SWMM model, so a
@@ -1522,6 +1813,26 @@ private:
     // loop reflects user edits without a per-feature symbolFor() refactor.
     std::vector<std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>> m_kindRenderers;
 
+    // Slice B.4 — RuleList mirroring the per-kind renderers. Lazy-built
+    // on first ruleList() call (cloned from m_kindRenderers). mutable
+    // so the const override can populate on first read.
+    mutable std::unique_ptr<OpenSWMM::Render::RuleList> m_ruleList;
+    void buildRuleListLazy() const;
+    // M1 — set when a kind renderer changes after the RuleList was built, so
+    // the next ruleList() rebuilds from the live per-kind renderers instead
+    // of handing back a stale mirror (the "dialog doesn't match what's drawn
+    // on open" bug). Rebuild happens only at read time (dialog open), never
+    // mid-session, so an open dialog's rule pointers stay valid.
+    mutable bool m_ruleListDirty = false;
+
+    // M2 — keep the per-kind renderer (the single source of truth)
+    // consistent when a legacy struct setter is called directly (e.g.
+    // preferences / project load). Updates only SingleSymbol renderers (in
+    // place — no signal, no recursion); classified renderers are left intact
+    // since the struct is the single-symbol fallback. Marks the RuleList
+    // dirty so the next dialog open reflects the change.
+    void syncSingleRendererFromStruct(Category c, const SWMMElementSymbol &s);
+
     // Slice BI Phase 8.13.6.4 (2026-05-24) — per-feature colour-override
     // cache populated when a kind's renderer is Graduated / Categorized /
     // RuleBased. Indexed by Category × SoA index. The painter checks
@@ -1529,9 +1840,33 @@ private:
     // path and the per-feature override path.
     QVector<QColor>  m_kindFeatureColors[NumCategories];
     QVector<double>  m_kindFeatureSizes[NumCategories];   /*!< Slice BI Phase 8.13.43-α — negative = no override. */
+    QVector<double>  m_kindFeatureOffsets[NumCategories]; /*!< Slice Z.5b-paint-graduated — per-feature line offset (px). 0 = no override. */
+    QVector<int>     m_kindFeatureShapes[NumCategories];  /*!< M3 — per-feature MarkerShape (int); -1 = no override. */
+    bool             m_kindHasAnyOffset[NumCategories]  = {}; /*!< Slice Z.5b-paint-graduated — short-circuit flag. */
     bool             m_kindUsesOverrides[NumCategories] = {};
 
     QStringList                  m_selectedNames;
+
+    // Engine-table partition cache (curves vs. timeseries). The engine
+    // stores both in the same unified table list keyed by type; without
+    // this cache, the Object Browser data-category views and pickers
+    // re-walked the entire table list on every row count / name lookup —
+    // O(N) per call × N rows = O(N²) per refresh.  Filled lazily in
+    // ensureTablePartition(); invalidated when a curve or timeseries is
+    // added / removed / renamed, and on every modelLoaded().
+    mutable QVector<int> m_curveTableIdx;
+    mutable QVector<int> m_tsTableIdx;
+    mutable bool         m_tablePartitionDirty = true;
+    void ensureTablePartition() const;
+
+public:
+    /*! Invalidate the cached engine-table partition (curves vs. time
+     *  series). External mutators (e.g. CurveRegistry / TimeseriesRegistry
+     *  during INP import) call this so the next Object Browser refresh
+     *  picks up the new entries. */
+    void invalidateDataObjectCache() { m_tablePartitionDirty = true; }
+
+private:
 
     // GDAL transform (layer CRS → canvas CRS)
     class OGRCoordinateTransformation *m_transform = nullptr;
@@ -1575,9 +1910,18 @@ private:
     void                        *m_patternRegistryEngineHandle  = nullptr;
     QObject                     *m_curveRegistry                = nullptr;
     void                        *m_curveRegistryEngineHandle    = nullptr;
+
+    // Slice BR Phase 6.8.1 — control-rule registry mirror.
+    QObject                     *m_controlRuleRegistry              = nullptr;
+    void                        *m_controlRuleRegistryEngineHandle  = nullptr;
+
+    // Slice BQ Phase 6.7.4 — transect registry mirror.
+    QObject                     *m_transectRegistry                 = nullptr;
+    void                        *m_transectRegistryEngineHandle     = nullptr;
 };
 
 Q_DECLARE_METATYPE(SWMMModelLayer *)
 Q_DECLARE_METATYPE(SWMMElementSymbol)
+Q_DECLARE_OPERATORS_FOR_FLAGS(SWMMModelLayer::QsgKinds)
 
 #endif // SWMMMODELLAYER_H

@@ -11,6 +11,7 @@
 #define WMSLAYER_H
 
 #include "layers/openswmmvislayer.h"
+#include "render/basemaprenderparams.h"
 
 #include <QImage>
 #include <QList>
@@ -169,6 +170,10 @@ public:
 
     void onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS) override;
 
+    /*! Slice X.22 — shared basemap render adjustments. */
+    [[nodiscard]] const OpenSWMM::Render::BasemapRenderParams &basemapRenderParams() const { return m_renderParams; }
+    void setBasemapRenderParams(const OpenSWMM::Render::BasemapRenderParams &p);
+
 signals:
     /*!
      * \brief Emitted when the GetCapabilities document has been parsed successfully.
@@ -190,6 +195,9 @@ signals:
     void activeStyleChanged(const QString &style);
     void imageFormatChanged(const QString &fmt);
     void transparentChanged(bool transparent);
+
+    /*! Slice X.22 — basemap render adjustments updated. */
+    void basemapRenderParamsChanged();
 
 private slots:
     void onCapabilitiesReply(QNetworkReply *reply);
@@ -229,6 +237,7 @@ private:
 
     // Tile cache — extent/size describe the image already in m_cachedTile
     QImage                  m_cachedTile;
+    OpenSWMM::Render::BasemapRenderParams m_renderParams;  /*!< X.22 */
     MapExtent               m_cacheExtent;
     int                     m_cacheWidth  = 0;
     int                     m_cacheHeight = 0;

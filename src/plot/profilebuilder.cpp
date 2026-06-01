@@ -170,9 +170,21 @@ SourceDerived compute(const PathStatic &path,
     const int N = path.nodes.size();
     const int P = src.periodCount;
 
-    out.hglByPeriod.resize(N);
-    out.eglByPeriod.resize(N);
-    out.waterSurfaceByPeriod.resize(N);
+    // Period-major derived arrays — see SourceDerived docstring. The
+    // renderer's per-frame access pattern is "one period across all
+    // nodes", so flipping the layout makes that a contiguous inner-
+    // vector walk instead of N separate pointer chases.
+    out.hglByPeriod.resize(P);
+    out.eglByPeriod.resize(P);
+    out.waterSurfaceByPeriod.resize(P);
+    for (int p = 0; p < P; ++p) {
+        // NaN-fill so the widget can skip absent values without us having
+        // to track a parallel "have value" bitmap. Per-period writes below
+        // overwrite the slots they actually touch.
+        out.hglByPeriod[p].fill(std::numeric_limits<double>::quiet_NaN(), N);
+        out.eglByPeriod[p].fill(std::numeric_limits<double>::quiet_NaN(), N);
+        out.waterSurfaceByPeriod[p].fill(std::numeric_limits<double>::quiet_NaN(), N);
+    }
     out.minHgl.fill(kPosInf, N);
     out.maxHgl.fill(kNegInf, N);
     out.minEgl.fill(kPosInf, N);
@@ -180,60 +192,53 @@ SourceDerived compute(const PathStatic &path,
     out.minWaterSurface.fill(kPosInf, N);
     out.maxWaterSurface.fill(kNegInf, N);
 
-    for (int n = 0; n < N; ++n) {
-        out.hglByPeriod[n].reserve(P);
-        out.eglByPeriod[n].reserve(P);
-        out.waterSurfaceByPeriod[n].reserve(P);
-    }
-
     // nodeDepth is optional per the SourceSeries contract — present only when
     // the caller pre-fetched it (the in-tree ProfileSourceFetcher does).  Test
     // the per-node row size at use-time so a partial array still works.
     const bool haveDepthArray = !src.nodeDepth.isEmpty();
 
     for (int p = 0; p < P; ++p) {
+        // Hoist the inner-vector references for this period — sequential
+        // writes within these refs are the whole point of period-major.
+        auto &hglRow = out.hglByPeriod[p];
+        auto &eglRow = out.eglByPeriod[p];
+        auto &wsRow  = out.waterSurfaceByPeriod[p];
+
         for (int n = 0; n < N; ++n) {
             // HGL = NodeHead from the .out file (the engine's hydraulic
-            // grade line output).  When this node is absent from the
-            // output file the row is empty — write NaN so the widget
-            // skips that node/period instead of rendering a bogus line at
-            // elevation 0.
+            // grade line output). When this node is absent from the
+            // output file the row is empty — leave the slot at NaN so the
+            // widget skips that node/period instead of rendering a bogus
+            // line at elevation 0. HGL and water-surface are written
+            // independently — a node may have depth data but no head
+            // (or vice versa).
             const auto &headRow = src.nodeHead[n];
-            const bool  haveHgl = (p < headRow.size());
-            const double hgl    = haveHgl
-                                      ? static_cast<double>(headRow[p])
-                                      : std::numeric_limits<double>::quiet_NaN();
-            const double vh     = velocityHead(path, src, n, p, gravity);
-            const double egl    = haveHgl ? (hgl + vh)
-                                          : std::numeric_limits<double>::quiet_NaN();
+            if (p < headRow.size()) {
+                const double hgl = static_cast<double>(headRow[p]);
+                const double vh  = velocityHead(path, src, n, p, gravity);
+                const double egl = hgl + vh;
+                hglRow[n] = hgl;
+                eglRow[n] = egl;
 
-            // Water surface = invert + depth.  Distinct from HGL when the
-            // conduit is pressurized (HGL > rim → free-surface caps at rim).
-            // Sized defensively in case nodeDepth has fewer rows than nodes.
-            double ws = std::numeric_limits<double>::quiet_NaN();
-            bool   haveWs = false;
-            if (haveDepthArray && n < src.nodeDepth.size()) {
-                const auto &depthRow = src.nodeDepth[n];
-                if (p < depthRow.size()) {
-                    ws = path.nodes[n].invertElev
-                         + static_cast<double>(depthRow[p]);
-                    haveWs = true;
-                }
-            }
-
-            out.hglByPeriod[n].push_back(hgl);
-            out.eglByPeriod[n].push_back(egl);
-            out.waterSurfaceByPeriod[n].push_back(ws);
-
-            if (haveHgl) {
                 if (hgl < out.minHgl[n]) out.minHgl[n] = hgl;
                 if (hgl > out.maxHgl[n]) out.maxHgl[n] = hgl;
                 if (egl < out.minEgl[n]) out.minEgl[n] = egl;
                 if (egl > out.maxEgl[n]) out.maxEgl[n] = egl;
             }
-            if (haveWs) {
-                if (ws < out.minWaterSurface[n]) out.minWaterSurface[n] = ws;
-                if (ws > out.maxWaterSurface[n]) out.maxWaterSurface[n] = ws;
+
+            // Water surface = invert + depth.  Distinct from HGL when the
+            // conduit is pressurized (HGL > rim → free-surface caps at
+            // rim). Sized defensively in case nodeDepth has fewer rows
+            // than nodes.
+            if (haveDepthArray && n < src.nodeDepth.size()) {
+                const auto &depthRow = src.nodeDepth[n];
+                if (p < depthRow.size()) {
+                    const double ws = path.nodes[n].invertElev
+                                      + static_cast<double>(depthRow[p]);
+                    wsRow[n] = ws;
+                    if (ws < out.minWaterSurface[n]) out.minWaterSurface[n] = ws;
+                    if (ws > out.maxWaterSurface[n]) out.maxWaterSurface[n] = ws;
+                }
             }
         }
     }

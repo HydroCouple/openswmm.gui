@@ -42,11 +42,14 @@ struct ObjectRef {
         Mesh2DCell = 4,    ///< triIdx valid; name unused (CF.3)
         Observed   = 5,    ///< name = observed series label (e.g. CSV header)
         System     = 6,    ///< single global series per attribute; name unused (AT.2)
+        Mesh2DEdge = 7,    ///< triIdx + edgeLocal valid; name unused — for edge-flux series
+        Mesh2DVertex = 8,  ///< triIdx holds the vertex index; depth/HGL interpolated from incident cells
     };
 
-    Kind     kind   = Kind::Unknown;
+    Kind     kind      = Kind::Unknown;
     QString  name;          ///< SWMM ID for 1D kinds; observed-series label for Observed; unused for System.
-    int      triIdx = -1;   ///< Triangle index for Mesh2DCell; -1 otherwise.
+    int      triIdx    = -1;   ///< Triangle index for Mesh2DCell / Mesh2DEdge; vertex index for Mesh2DVertex; -1 otherwise.
+    int      edgeLocal = -1;   ///< Local edge index 0..2 for Mesh2DEdge; -1 otherwise.
 
     constexpr ObjectRef() = default;
     ObjectRef(Kind k, QString n) : kind(k), name(std::move(n)) {}
@@ -54,22 +57,29 @@ struct ObjectRef {
     static ObjectRef forLink(QString n)       { return ObjectRef(Kind::Link, std::move(n)); }
     static ObjectRef forSubcatch(QString n)   { return ObjectRef(Kind::Subcatch, std::move(n)); }
     static ObjectRef forMesh2DCell(int idx)   { ObjectRef r; r.kind = Kind::Mesh2DCell; r.triIdx = idx; return r; }
+    static ObjectRef forMesh2DEdge(int tri, int edge)
+    { ObjectRef r; r.kind = Kind::Mesh2DEdge; r.triIdx = tri; r.edgeLocal = edge; return r; }
+    static ObjectRef forMesh2DVertex(int idx)
+    { ObjectRef r; r.kind = Kind::Mesh2DVertex; r.triIdx = idx; return r; }
     static ObjectRef forObserved(QString lbl) { return ObjectRef(Kind::Observed, std::move(lbl)); }
     static ObjectRef forSystem()              { ObjectRef r; r.kind = Kind::System; return r; }
 
     bool isValid() const noexcept
     {
         switch (kind) {
-        case Kind::Mesh2DCell: return triIdx >= 0;
-        case Kind::System:     return true;     // name is unused
-        case Kind::Unknown:    return false;
-        default:               return !name.isEmpty();
+        case Kind::Mesh2DCell:   return triIdx >= 0;
+        case Kind::Mesh2DVertex: return triIdx >= 0;
+        case Kind::Mesh2DEdge:   return triIdx >= 0 && edgeLocal >= 0 && edgeLocal <= 2;
+        case Kind::System:       return true;   // name is unused
+        case Kind::Unknown:      return false;
+        default:                 return !name.isEmpty();
         }
     }
 
     bool operator==(const ObjectRef& other) const noexcept
     {
-        return kind == other.kind && name == other.name && triIdx == other.triIdx;
+        return kind == other.kind && name == other.name
+            && triIdx == other.triIdx && edgeLocal == other.edgeLocal;
     }
     bool operator!=(const ObjectRef& other) const noexcept { return !(*this == other); }
 };

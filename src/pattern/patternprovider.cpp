@@ -140,6 +140,21 @@ bool PatternProvider::normalize(double targetSum, QString *reasonOut)
     return true;
 }
 
+bool PatternProvider::swapFactors(int i, int j, QString *reasonOut)
+{
+    if (i < 0 || i >= m_factors.size() || j < 0 || j >= m_factors.size()) {
+        const auto reason = tr("Swap indices (%1, %2) out of range [0, %3).")
+                              .arg(i).arg(j).arg(m_factors.size());
+        if (reasonOut) *reasonOut = reason;
+        emit mutationRejected(reason);
+        return false;
+    }
+    if (i == j) return true;
+    std::swap(m_factors[i], m_factors[j]);
+    emit factorsChanged();
+    return true;
+}
+
 void PatternProvider::setName(QString newName)
 {
     if (newName == m_name) return;

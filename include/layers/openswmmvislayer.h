@@ -18,8 +18,36 @@
 #include <QUuid>
 
 #include <cmath>
+#include <memory>
+#include <vector>
 
 #include "map/mapextent.h"
+// Slice Z.13-attach — per-layer temporal-animation config. Stored by
+// value, so the header is required (forward-decl insufficient).
+#include "render/temporalspec.h"
+
+#include "render/labelconfig.h"   // VS.10 — base-class label configuration
+// Slice Z.14-attach — per-layer polygon clip mask.
+#include "render/maskspec.h"
+// Slice Z.15-attach — per-layer auxiliary-storage (manual overrides DB).
+#include "render/auxiliarystoragespec.h"
+// Slice Z.16-attach — per-layer external-table joins (list — a layer
+// can carry multiple joins keyed on different attributes / sources).
+#include "render/joinspec.h"
+// Slice Z.12-attach — per-layer embedded chart (pie/bar/time-series).
+#include "render/diagramspec.h"
+
+// Forward declarations for the unified style-dialog hook (Slice U-2).
+namespace openswmmvis::ui { class ILayerStyleSubject; }
+
+// Forward decl for renderer plumbing (Slice BI Phase 8.13.6.6).
+// Most layers don't own a per-layer renderer; SWMMModelLayer and
+// SWMM2DMeshLayer override the virtual accessors below.
+namespace OpenSWMM::Render {
+class IFeatureRenderer;
+class RuleList;   // Slice B.1 — see ruleList() virtual below.
+}
+#include <memory>
 
 /*!
  *  \brief  Snap a tile's logical-pixel rect to **device** pixel boundaries.
@@ -92,6 +120,9 @@ class OpenSWMMVisLayer : public QObject
     Q_PROPERTY(QString      LayerId    READ layerId    CONSTANT)
     Q_PROPERTY(OpenSWMMVisLayerType LayerType READ layerType NOTIFY layerTypeChanged FINAL)
     Q_PROPERTY(QVector<OpenSWMMVisLayer*> Children READ children NOTIFY childrenChanged FINAL)
+    // Read-only CRS summary shown in the Properties window — e.g.
+    // "EPSG:2926 - NAD83(HARN) / Washington South" or "(none)".
+    Q_PROPERTY(QString      CRS        READ crsDescription NOTIFY srsChanged)
 
 public:
 
@@ -115,6 +146,7 @@ public:
         SWMMWMTSLayer             = 11, /*!< OGC WMTS service. */
         SWMM2DMeshLayer           = 12, /*!< Generated / loaded 2D triangular mesh (Slice AU). */
         SWMM2DResultsLayer        = 13, /*!< 2D surface routing results (depth heatmap) — Slice CF.MVP. */
+        SWMMAnnotationLayer       = 14, /*!< User-placed text annotations (styled labels). */
     };
 
     // ----- Constructors ----------------------------------------------------
@@ -185,6 +217,15 @@ public:
      * \details Transfers ownership of \p srs to this layer if \p ownsSRS is true.
      */
     void setSRS(SpatialReferenceSystem *srs, bool ownsSRS = false);
+
+    /*!
+     * \brief Returns a human-readable summary of this layer's CRS for
+     *        display in the Properties window.
+     * \details Format: "AUTH:CODE - description" when an authority code is
+     *          available (e.g. "EPSG:2926 - NAD83(HARN) / Washington South"),
+     *          otherwise the description alone or "(none)" if no CRS.
+     */
+    [[nodiscard]] QString crsDescription() const;
 
     /*!
      * \brief Returns the layer extent in the layer's own CRS.
@@ -332,6 +373,21 @@ public:
     [[nodiscard]] double layerZValue() const;
 
     /*!
+     * \brief Slice U-2 — return the styleable subjects for the unified
+     *        LayerStyleDialog.
+     *
+     *        Each returned subject becomes one tab (or sub-tab inside a
+     *        section) in the dialog. The dialog calls this once when it
+     *        opens and owns the returned unique_ptrs.
+     *
+     *        Default implementation returns an empty list (which still
+     *        yields a usable dialog — General/Rendering/Metadata tabs are
+     *        built-in). Layers override to surface their style bags.
+     */
+    [[nodiscard]] virtual std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
+        styleSubjects();
+
+    /*!
      * \brief Called by the canvas to set this layer's z-value band.
      */
     void setLayerZValue(double z);
@@ -342,6 +398,101 @@ public:
      * \param newCanvasSRS  The new canvas CRS.
      */
     virtual void onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS);
+
+    // ----- Renderer plumbing (default: layer has no renderer) -------------
+    //
+    // Most layer kinds (basemaps, GIS rasters) don't own a per-layer
+    // IFeatureRenderer. Subclasses that do (SWMMModelLayer,
+    // SWMM2DMeshLayer) override these. stylefileio.cpp consults the
+    // virtual surface so it stays layer-agnostic.
+    [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
+    virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>) {}
+
+    // ----- Rule Model (Phase B seam, Slice B.1) ---------------------------
+    //
+    // The Rule Model (RENDERING_RULE_MODEL_PLAN.md) is the user-facing
+    // styling surface. A layer opts in by returning a non-null RuleList;
+    // LayerStyleDialog detects this in a subsequent slice (B.2) and
+    // mounts the Active Rule combo + Rule List in the Symbology tab.
+    //
+    // Default returns nullptr — every existing layer continues to use
+    // the legacy styleSubjects() path unchanged. Subclasses migrate
+    // one at a time (Slices B.3 → B.4 → B.5).
+    [[nodiscard]] virtual OpenSWMM::Render::RuleList *ruleList() { return nullptr; }
+    [[nodiscard]] virtual const OpenSWMM::Render::RuleList *ruleList() const { return nullptr; }
+
+    // ----- Temporal animation (Slice Z.13-attach) -------------------------
+    //
+    // Per-layer animation config. Defaults to `enabled=false` so every
+    // existing layer keeps painting at a static reference time and the
+    // legacy status-bar animation toolbar continues to drive the canvas
+    // unchanged. Layers opt in by writing a TemporalSpec via setTemporalSpec
+    // (e.g. SWMMResultsLayer auto-enables on Single mode with the file's
+    // full time range; vector layers leave it disabled until the user
+    // assigns a datetime field through the Temporal tab).
+    [[nodiscard]] const OpenSWMM::Render::TemporalSpec &temporalSpec() const
+    { return m_temporalSpec; }
+    void setTemporalSpec(const OpenSWMM::Render::TemporalSpec &spec);
+
+    // ----- Optional labels (VS.10) ----------------------------------------
+    //
+    // Uniform, optional element labelling for every layer kind. Default
+    // disabled (LabelConfig::enabled == false). Feature-bearing layers paint
+    // labels per this config; subclasses that need extra bookkeeping on
+    // change (e.g. SWMMModelLayer syncing its legacy m_showLabels flag)
+    // override setLabelConfig() and chain to the base. Results / 2D layers
+    // inherit the storage so the Labels tab applies to them too.
+    [[nodiscard]] const OpenSWMM::Render::LabelConfig &labelConfig() const
+    { return m_labelConfig; }
+    virtual void setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg);
+
+    // ----- Polygon clip mask (Slice Z.14-attach) --------------------------
+    //
+    // Optional clip-by-polygon mask. Default-disabled, so every existing
+    // layer keeps painting unmasked. Z.14-paint integration consumes the
+    // spec at paint time; the data model + tab UI ship in the matching
+    // slices.
+    [[nodiscard]] const OpenSWMM::Render::MaskSpec &maskSpec() const
+    { return m_maskSpec; }
+    void setMaskSpec(const OpenSWMM::Render::MaskSpec &spec);
+
+    // ----- Auxiliary storage (Slice Z.15-attach) --------------------------
+    //
+    // Per-feature manual style overrides persisted to a sidecar SQLite
+    // DB. The spec is tiny — toggle + DB path; the override rows live
+    // in the DB itself, managed by the Auxiliary Storage tab UI and
+    // applied at paint time by Z.15-paint (separate slice).
+    [[nodiscard]] const OpenSWMM::Render::AuxiliaryStorageSpec &
+        auxStorageSpec() const { return m_auxStorageSpec; }
+    void setAuxStorageSpec(const OpenSWMM::Render::AuxiliaryStorageSpec &spec);
+
+    // ----- External-table joins (Slice Z.16-attach) -----------------------
+    //
+    // A layer may carry zero or more joins. The list is the unit of
+    // change — replace the whole list to mutate. Z.16-paint integration
+    // walks this list at attribute-access time, lazily building the
+    // joined columns from each enabled JoinSpec's source.
+    [[nodiscard]] const QVector<OpenSWMM::Render::JoinSpec> &joins() const
+    { return m_joins; }
+    void setJoins(const QVector<OpenSWMM::Render::JoinSpec> &joins);
+
+    // ----- Embedded chart diagram (Slice Z.12-attach) ---------------------
+    //
+    // One DiagramSpec per layer — pie / bar / histogram / time-series
+    // chart painted at each feature's anchor point. Default disabled;
+    // the Z.12-paint follow-up consumes the spec at paint time.
+    [[nodiscard]] const OpenSWMM::Render::DiagramSpec &diagramSpec() const
+    { return m_diagramSpec; }
+    void setDiagramSpec(const OpenSWMM::Render::DiagramSpec &spec);
+
+    // ----- Workspace accessor ---------------------------------------------
+    //
+    // Returns the workspace that owns this layer (or its session). Used
+    // by features that need to resolve sibling layers — e.g. Z.14-paint's
+    // mask resolver, which looks up the polygon source layer by id.
+    // May return nullptr for layers constructed without a workspace
+    // (typically only in tests).
+    [[nodiscard]] OpenSWMMVisWorkspace *workspace() const { return mParent; }
 
     // ----- HTTP authentication & headers ----------------------------------
 
@@ -369,6 +520,24 @@ signals:
     void extentChanged(const MapExtent &newExtent);
     void childrenChanged();
     void repaintRequested();
+    /*! Slice Z.13-attach — emitted when the per-layer TemporalSpec is
+     *  replaced (any field different from the previous spec). The
+     *  AnimationController observes this to retune its tick scheduling
+     *  in Z.13-controller. */
+    void temporalSpecChanged(const OpenSWMM::Render::TemporalSpec &spec);
+    /*! Slice Z.14-attach — emitted when the per-layer MaskSpec changes. */
+    void maskSpecChanged(const OpenSWMM::Render::MaskSpec &spec);
+    /*! Slice Z.15-attach — emitted when the AuxiliaryStorageSpec changes. */
+    void auxStorageSpecChanged(const OpenSWMM::Render::AuxiliaryStorageSpec &spec);
+    /*! Slice Z.16-attach — emitted when the joins list changes (any
+     *  add / remove / edit). Recipients re-resolve their attribute
+     *  access through the new list. */
+    void joinsChanged(const QVector<OpenSWMM::Render::JoinSpec> &joins);
+    /*! Slice Z.12-attach — emitted when the DiagramSpec changes. */
+    void diagramSpecChanged(const OpenSWMM::Render::DiagramSpec &spec);
+    /*! VS.10 — emitted whenever the layer's labelConfig() is mutated through
+     *  setLabelConfig(). Canvas + legend observe this to repaint labels. */
+    void labelConfigChanged();
 
 protected:
 
@@ -393,6 +562,19 @@ private:
     double               m_layerZValue = 0.0;
     int                  m_vpW         = 0;   /*!< Viewport pixel width (set by canvas). */
     int                  m_vpH         = 0;   /*!< Viewport pixel height. */
+
+    // Slice Z.13-attach — per-layer animation config (default disabled).
+    OpenSWMM::Render::TemporalSpec m_temporalSpec;
+    // VS.10 — per-layer label configuration (default disabled).
+    OpenSWMM::Render::LabelConfig  m_labelConfig;
+    // Slice Z.14-attach — per-layer clip mask (default disabled).
+    OpenSWMM::Render::MaskSpec     m_maskSpec;
+    // Slice Z.15-attach — per-layer manual-overrides DB (default disabled).
+    OpenSWMM::Render::AuxiliaryStorageSpec m_auxStorageSpec;
+    // Slice Z.16-attach — per-layer external-table joins (default empty).
+    QVector<OpenSWMM::Render::JoinSpec>    m_joins;
+    // Slice Z.12-attach — per-feature embedded chart (default disabled).
+    OpenSWMM::Render::DiagramSpec          m_diagramSpec;
 };
 
 Q_DECLARE_METATYPE(OpenSWMMVisLayer *)

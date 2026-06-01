@@ -62,6 +62,7 @@ QString SeriesStyleObject::displayLabelFor(const QString &name) const
     if (name == QStringLiteral("color"))               return QStringLiteral("Identity — Colour");
     if (name == QStringLiteral("opacity"))             return QStringLiteral("Identity — Opacity");
     if (name == QStringLiteral("legendName"))          return QStringLiteral("Identity — Legend name");
+    if (name == QStringLiteral("legendOverride"))      return QStringLiteral("Identity — Legend override");
 
     // Line
     if (name == QStringLiteral("showLine"))            return QStringLiteral("Line — Visible");
@@ -108,6 +109,16 @@ QString SeriesStyleObject::displayLabelFor(const QString &name) const
 IMPL_SETTER(color,              setColor,             colorChanged,             const QColor&)
 IMPL_SETTER(opacity,            setOpacity,           opacityChanged,           qreal)
 IMPL_SETTER(legendName,         setLegendName,        legendNameChanged,        const QString&)
+
+// legendOverride lives on the SeriesStyleObject itself (not in m_style), so
+// it has its own setter — no aggregate styleChanged() emission, distinct
+// signal so hosts can route it to SeriesSpec::legendOverride.
+void SeriesStyleObject::setLegendOverride(const QString& s)
+{
+    if (m_legendOverride == s) return;
+    m_legendOverride = s;
+    emit legendOverrideChanged(s);
+}
 
 IMPL_SETTER(showLine,           setShowLine,          showLineChanged,          bool)
 IMPL_SETTER(lineWidth,          setLineWidth,         lineWidthChanged,         qreal)

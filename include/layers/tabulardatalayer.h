@@ -33,8 +33,9 @@ public:
     ~TabularDataLayer() override;
 
     /*! Source file path the data was loaded from (empty if rows
-     *  were set programmatically). */
-    [[nodiscard]] QString sourcePath() const { return m_sourcePath; }
+     *  were set programmatically).  Returned as an absolute path so the
+     *  Properties window shows the full on-disk location. */
+    [[nodiscard]] QString sourcePath() const;
 
     /*! Column names in insertion order (== first-row headers). */
     [[nodiscard]] QStringList columnHeaders() const { return m_headers; }

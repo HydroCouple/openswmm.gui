@@ -10,8 +10,10 @@
  *         feature calls `binFor(value, breaks)` to look up which bin
  *         that feature falls into.
  *
- *         v1 supports EqualInterval, Quantile, and Manual. StdDev, Jenks,
- *         and the log-scale variants are deferred to full Slice BB.
+ *         Supports EqualInterval, Quantile, Manual, NaturalBreaks (Jenks),
+ *         StdDev, Logarithmic, and Exponential (VS.3). PrettyBreaks is the
+ *         one remaining QGIS method, deferred because it does not yield a
+ *         fixed (binCount-1) break count.
  *
  *         Cross-slice: GUI_IMPLEMENTATION_PLAN.md §L.BB-α Phase BB-α.4.
  */
@@ -32,6 +34,13 @@ enum class BinMethod : int
     EqualInterval = 0,  /*!< Breaks equally spaced between min and max. */
     Quantile      = 1,  /*!< Breaks such that each bin holds the same count. */
     Manual        = 2,  /*!< Breaks come from the manualBreaks field directly. */
+    // VS.3 — additional standard classification methods. Each still yields
+    // exactly (binCount-1) interior breaks so the GraduatedRenderer / legend
+    // contract is unchanged.
+    NaturalBreaks = 3,  /*!< Fisher–Jenks optimal breaks (minimise in-class variance). */
+    StdDev        = 4,  /*!< Breaks at mean ± k·σ, symmetric about the mean (1σ width). */
+    Logarithmic   = 5,  /*!< Equal spacing in log10 space (positive samples only). */
+    Exponential   = 6,  /*!< Geometric (base-2) growth of band widths. */
 };
 
 /*! \class IntervalBinner

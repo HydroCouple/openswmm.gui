@@ -11,6 +11,7 @@
 #include "layers/openswmmvislayer.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmm2dresultslayer.h"
+#include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "map/legendclasseditcommands.h"
 #include "map/mapcanvas.h"
@@ -70,9 +71,28 @@ QList<OpenSWMM::Render::LegendSymbolItem> legendItemsFor(OpenSWMMVisLayer *layer
         return l->renderer()->legendSymbolItems();
     if (auto *l = qobject_cast<GISVectorLayer *>(layer); l && l->renderer())
         return l->renderer()->legendSymbolItems();
+    if (auto *m = qobject_cast<SWMMModelLayer *>(layer))   // X4 — multi-kind
+        return m->legendSymbolItems();
     if (auto *l = qobject_cast<GISRasterLayer *>(layer); l && l->rasterRenderer())
         return l->rasterRenderer()->legendSymbolItems();
     return {};
+}
+
+// Slice BB Phase 8.6.10 / 8.6.16 — apply per-item overrides on top of the
+// renderer-supplied items so the on-canvas legend + the dock tree show
+// identical state. Mutates `items` in place.
+void applyItemOverrides(QList<OpenSWMM::Render::LegendSymbolItem> &items,
+                        OpenSWMMVisLayer *layer,
+                        const OpenSWMM::Render::LegendOverlayStyle *style)
+{
+    if (!style || !layer) return;
+    const QString lk = OpenSWMM::Render::LegendOverlayStyle::itemKey(layer, {});
+    for (auto &row : items) {
+        if (row.classKey.isEmpty()) continue;
+        const auto ov = style->itemOverride(lk, row.classKey);
+        if (!ov.visible)             row.visible = false;
+        if (!ov.userLabel.isEmpty()) row.userLabel = ov.userLabel;
+    }
 }
 
 } // namespace
@@ -172,13 +192,13 @@ void LegendOverlay::onStyleChanged()
 void LegendOverlay::connectLayer(OpenSWMMVisLayer *layer)
 {
     if (!layer) return;
+    // Qt 6 asserts on Qt::UniqueConnection with non-PMF slots; clear any
+    // prior connections from this layer to us so repeated calls don't stack.
+    disconnect(layer, nullptr, this, nullptr);
     auto refresh = [this]() { recomputeLayout(); update(); };
-    connect(layer, &OpenSWMMVisLayer::visibilityChanged, this, refresh,
-            Qt::UniqueConnection);
-    connect(layer, &OpenSWMMVisLayer::nameChanged,       this, refresh,
-            Qt::UniqueConnection);
-    connect(layer, &OpenSWMMVisLayer::repaintRequested,  this, refresh,
-            Qt::UniqueConnection);
+    connect(layer, &OpenSWMMVisLayer::visibilityChanged, this, refresh);
+    connect(layer, &OpenSWMMVisLayer::nameChanged,       this, refresh);
+    connect(layer, &OpenSWMMVisLayer::repaintRequested,  this, refresh);
 }
 
 void LegendOverlay::disconnectLayer(OpenSWMMVisLayer *layer)
@@ -221,7 +241,8 @@ void LegendOverlay::recomputeLayout()
         OpenSWMMVisLayer *layer = m_canvas->layers().at(i);
         if (!layer || !layer->isVisible()) continue;
 
-        const auto rows = legendItemsFor(layer);
+        auto rows = legendItemsFor(layer);
+        applyItemOverrides(rows, layer, m_style);
         if (!first) contentH += kLayerSpacing;
         first = false;
 
@@ -376,7 +397,9 @@ void LegendOverlay::paintEvent(QPaintEvent * /*event*/)
         y += hfm.height();
 
         p.setFont(m_style->itemFont());
-        for (const auto &row : legendItemsFor(layer)) {
+        auto paintRows = legendItemsFor(layer);
+        applyItemOverrides(paintRows, layer, m_style);
+        for (const auto &row : paintRows) {
             if (!row.visible) continue;
             const int itemTop = y;
             const QColor c = firstSymbolColor(row.symbol);

@@ -10,7 +10,13 @@
 #include "timeseries/timeseriesundocommands.h"
 
 #include <QDateTime>
+#include <QElapsedTimer>
+#include <QLoggingCategory>
 #include <QUndoStack>
+
+// Debug instrumentation for the .dat-file load stall investigation.
+// Enable with: QT_LOGGING_RULES="openswmm.ts-load.*=true"
+Q_LOGGING_CATEGORY(lcTsLoadModel, "openswmm.ts-load.model")
 
 namespace openswmmvis::ui {
 
@@ -275,19 +281,33 @@ void TimeseriesTableModel::onProviderPointsChanged_(int firstIndex, int count)
 
 void TimeseriesTableModel::onProviderPointsInserted_(int at, int count)
 {
+    QElapsedTimer t; t.start();
+    qCDebug(lcTsLoadModel) << "onProviderPointsInserted_ ENTER at=" << at
+                           << "count=" << count
+                           << "providers=" << m_providers.size();
     // Layout could shift (single → multi alignment). Re-detect + reset.
     beginResetModel();
+    const qint64 tDet0 = t.nsecsElapsed();
     detectLayout_();
+    const qint64 tDetMs = (t.nsecsElapsed() - tDet0) / 1'000'000;
     endResetModel();
-    Q_UNUSED(at); Q_UNUSED(count);
+    qCDebug(lcTsLoadModel) << "  detectLayout_ took" << tDetMs << "ms — layout ="
+                           << (m_layout == LayoutMode::SharedGrid ? "SharedGrid" : "Divergent");
+    qCDebug(lcTsLoadModel) << "onProviderPointsInserted_ EXIT total" << t.elapsed() << "ms";
 }
 
 void TimeseriesTableModel::onProviderPointsRemoved_(int at, int count)
 {
+    QElapsedTimer t; t.start();
+    qCDebug(lcTsLoadModel) << "onProviderPointsRemoved_ ENTER at=" << at
+                           << "count=" << count;
     beginResetModel();
+    const qint64 tDet0 = t.nsecsElapsed();
     detectLayout_();
+    const qint64 tDetMs = (t.nsecsElapsed() - tDet0) / 1'000'000;
     endResetModel();
-    Q_UNUSED(at); Q_UNUSED(count);
+    qCDebug(lcTsLoadModel) << "  detectLayout_ took" << tDetMs << "ms";
+    qCDebug(lcTsLoadModel) << "onProviderPointsRemoved_ EXIT total" << t.elapsed() << "ms";
 }
 
 void TimeseriesTableModel::onProviderMetadataChanged_()

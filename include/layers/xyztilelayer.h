@@ -9,6 +9,7 @@
 
 #include "layers/openswmmvislayer.h"
 #include "connections/basemapconnection.h"
+#include "render/basemaprenderparams.h"
 
 #include <QCache>
 #include <QImage>
@@ -89,6 +90,15 @@ public:
     [[nodiscard]] int            tilePixelRatio() const { return m_tilePixelRatio; }
     [[nodiscard]] TileAxisOrder  axisOrder()      const { return m_axisOrder; }
 
+    /*! Slice X.22 — basemap render adjustments (brightness / contrast
+     *  / saturation / resampling).  Applied to the composed tile mosaic
+     *  just before drawImage. */
+    [[nodiscard]] const OpenSWMM::Render::BasemapRenderParams &basemapRenderParams() const { return m_renderParams; }
+    void setBasemapRenderParams(const OpenSWMM::Render::BasemapRenderParams &p);
+
+signals:
+    void basemapRenderParamsChanged();
+
 private slots:
     void onTileReply(QNetworkReply *reply, const QString &key);
 
@@ -116,6 +126,7 @@ private:
     int                       m_tileSizePx    = 256; // 256 standard, 512 for @2x
     int                       m_tilePixelRatio = 0;  // 0=undefined,1=standard,2=HiDPI
     TileAxisOrder             m_axisOrder     = TileAxisOrder::ZXY;
+    OpenSWMM::Render::BasemapRenderParams m_renderParams;  /*!< X.22 */
 
     // Cached GDAL transforms (rebuilt on CRS change). Mutex guards the
     // render() ↔ rebuildTransforms() race: render runs in the MapRenderJob

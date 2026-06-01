@@ -1,4 +1,4 @@
-# 02 — The Interface
+@page manual_interface 02 — The Interface
 
 ## What you'll do
 

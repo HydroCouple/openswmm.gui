@@ -1,4 +1,4 @@
-# 03 — Working with Projects
+@page manual_projects 03 — Working with Projects
 
 ## What you'll do
 
@@ -94,7 +94,7 @@ you switch between them. Per-project state (CRS, units, undo) follows the active
 ## Related
 
 - [02 — The Interface](02_interface.md) — where the menus and status bar live.
-- [04 — Coordinate Reference Systems](04_coordinate_systems.md) (planned, Slice C) — what
+- [04 — Coordinate Reference Systems](04_crs.md) — what
   happens to coordinates when you Save with a different CRS.
-- [10 — Running Simulations](10_simulation.md) (planned, Slice E) — the next step after
+- [10 — Running Simulations](10_simulation_options.md) — the next step after
   opening a model.

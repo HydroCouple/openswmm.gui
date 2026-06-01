@@ -7,8 +7,10 @@
 #include "render/legendoverlaystyle.h"
 
 #include <QHash>
+#include <QJsonObject>
 #include <QJsonValue>
 #include <QMetaEnum>
+#include <QObject>
 
 namespace OpenSWMM::Render
 {
@@ -67,6 +69,78 @@ LegendOverlayStyle::LegendOverlayStyle(QObject *parent)
 {
     // The default-constructed QFont resolves to the application font, which
     // is what users expect: the legend follows their system theme.
+}
+
+QString LegendOverlayStyle::itemKey(const QObject *layer, const QString &)
+{
+    // classKey is intentionally unused in the key — the override hash is
+    // already two-level: layerKey × classKey. This helper just builds the
+    // layer half; LegendOverlayStyle::itemOverride concatenates them.
+    //
+    // Taking const QObject* means this translation unit needs no
+    // OpenSWMMVisLayer symbols (keeps the unit-test target light) and
+    // also avoids any cross-cast UB.
+    return layer ? layer->objectName() : QString{};
+}
+
+namespace {
+QString combinedKey(const QString &layerKey, const QString &classKey)
+{
+    return layerKey + QLatin1Char('|') + classKey;
+}
+} // namespace
+
+LegendOverlayStyle::ItemOverride LegendOverlayStyle::itemOverride(
+    const QString &layerKey, const QString &classKey) const
+{
+    const auto it = m_itemOverrides.constFind(combinedKey(layerKey, classKey));
+    return it != m_itemOverrides.constEnd() ? it.value() : ItemOverride{};
+}
+
+void LegendOverlayStyle::setItemOverride(const QString &layerKey,
+                                          const QString &classKey,
+                                          const ItemOverride &override)
+{
+    const QString k = combinedKey(layerKey, classKey);
+    // Default-shaped overrides (visible=true, empty label) ⇒ drop the entry
+    // so the hash stays minimal and toJson skips the noise.
+    if (override.visible && override.userLabel.isEmpty()) {
+        if (m_itemOverrides.remove(k) == 0) return;   // no-op
+    } else {
+        const auto it = m_itemOverrides.constFind(k);
+        if (it != m_itemOverrides.constEnd()
+            && it.value().visible == override.visible
+            && it.value().userLabel == override.userLabel) {
+            return;   // no-op — same value already stored.
+        }
+        m_itemOverrides.insert(k, override);
+    }
+    emit itemOverrideChanged(layerKey, classKey);
+    emit changed();
+}
+
+void LegendOverlayStyle::setItemVisible(const QString &layerKey,
+                                         const QString &classKey, bool visible)
+{
+    ItemOverride o = itemOverride(layerKey, classKey);
+    o.visible = visible;
+    setItemOverride(layerKey, classKey, o);
+}
+
+void LegendOverlayStyle::setItemUserLabel(const QString &layerKey,
+                                            const QString &classKey,
+                                            const QString &label)
+{
+    ItemOverride o = itemOverride(layerKey, classKey);
+    o.userLabel = label;
+    setItemOverride(layerKey, classKey, o);
+}
+
+void LegendOverlayStyle::clearItemOverrides()
+{
+    if (m_itemOverrides.isEmpty()) return;
+    m_itemOverrides.clear();
+    emit changed();
 }
 
 void LegendOverlayStyle::resetToDefaults()
@@ -162,6 +236,23 @@ QJsonObject LegendOverlayStyle::toJson() const
     j[QStringLiteral("gradientOrientation")] =
         m_gradientOrientation == Qt::Horizontal ? QStringLiteral("Horizontal")
                                                  : QStringLiteral("Vertical");
+
+    // Slice BB Phase 8.6.10 / 8.6.16 — per-item overrides. Stored as a
+    // flat { "layerKey|classKey": {visible, userLabel}, … } object;
+    // missing key ⇒ defaults.
+    if (!m_itemOverrides.isEmpty()) {
+        QJsonObject overrides;
+        for (auto it = m_itemOverrides.constBegin();
+             it != m_itemOverrides.constEnd(); ++it) {
+            QJsonObject entry;
+            if (!it.value().visible)            entry[QStringLiteral("visible")]   = false;
+            if (!it.value().userLabel.isEmpty()) entry[QStringLiteral("userLabel")] = it.value().userLabel;
+            if (!entry.isEmpty())
+                overrides[it.key()] = entry;
+        }
+        if (!overrides.isEmpty())
+            j[QStringLiteral("itemOverrides")] = overrides;
+    }
     return j;
 }
 
@@ -199,6 +290,25 @@ void LegendOverlayStyle::fromJson(const QJsonObject &j)
     if (j.contains(QStringLiteral("gradientOrientation"))) {
         const QString s = j.value(QStringLiteral("gradientOrientation")).toString();
         setGradientOrientation(s == QLatin1String("Horizontal") ? Qt::Horizontal : Qt::Vertical);
+    }
+
+    // Slice BB Phase 8.6.10 / 8.6.16 — per-item overrides round-trip.
+    m_itemOverrides.clear();
+    if (j.contains(QStringLiteral("itemOverrides"))) {
+        const QJsonObject obj = j.value(QStringLiteral("itemOverrides")).toObject();
+        for (auto it = obj.constBegin(); it != obj.constEnd(); ++it) {
+            const QJsonObject entry = it.value().toObject();
+            ItemOverride o;
+            o.visible   = entry.value(QStringLiteral("visible")).toBool(true);
+            o.userLabel = entry.value(QStringLiteral("userLabel")).toString();
+            // Only retain non-default entries.
+            if (!o.visible || !o.userLabel.isEmpty())
+                m_itemOverrides.insert(it.key(), o);
+        }
+        // No fine-grained signal — fromJson is a bulk reset; one changed()
+        // covers it. Listeners that care about per-row dataChanged should
+        // beginResetModel/endResetModel around fromJson at their level.
+        emit changed();
     }
 }
 

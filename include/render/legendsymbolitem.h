@@ -58,6 +58,11 @@ struct LegendSymbolItem
                                                IFeatureRenderer::setColorForClass etc. Renderer-specific:
                                                "0"…"N" for graduated/categorized, "single" for single-symbol.
                                                Empty when the renderer doesn't expose per-class editing. */
+    QString              sublayerId;      /*!< Slice S1 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md §4.3) —
+                                               identifies the ISublayer that produced this row, so the
+                                               legend dock right-click → "Edit Sublayer Style…" can jump
+                                               back to its style dialog. Empty when the row comes from a
+                                               whole-layer renderer rather than a specific sublayer. */
 
     [[nodiscard]] QJsonObject toJson() const;
     void fromJson(const QJsonObject &j);

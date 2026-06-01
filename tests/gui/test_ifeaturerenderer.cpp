@@ -70,6 +70,13 @@ private slots:
     void graduatedRenderer_autoClassifyConstantSampleWidens();
     void graduatedRenderer_symbolForOverridesColorInBaseSymbol();
     void graduatedRenderer_jsonRoundTrip();
+    // VS.4 — independent size + width output axes.
+    void graduatedRenderer_widthAxisIndependentOfSize();
+    void graduatedRenderer_widthAxisJsonRoundTrip();
+    void graduatedRenderer_legacyMigratesSizeAxisToWidth();
+    // P2 — static/dynamic source + range mode.
+    void graduatedRenderer_sourceAndRangeModeRoundTrip();
+    void graduatedRenderer_sourceAndRangeModeDefaults();
     void categorizedRenderer_paintAndFallback();
     void categorizedRenderer_jsonRoundTrip();
     void ruleBasedRenderer_emptyExpressionMatches();
@@ -545,6 +552,116 @@ void TestIFeatureRenderer::graduatedRenderer_jsonRoundTrip()
     QCOMPARE(out.binColors().at(0), QColor(QStringLiteral("#FF440154")));
     QCOMPARE(out.binColors().at(2), QColor(QStringLiteral("#FFFDE725")));
     QCOMPARE(out.baseSymbol().layers.size(), 1);
+}
+
+void TestIFeatureRenderer::graduatedRenderer_widthAxisIndependentOfSize()
+{
+    GraduatedRenderer r;
+    r.setClassifyAttribute(QStringLiteral("flow"));
+    r.setRange(0.0, 10.0);
+    r.setBinColors({ QColor(QStringLiteral("#000000")),
+                     QColor(QStringLiteral("#ffffff")) });   // 2 bins
+
+    // Base symbol carries both a "size" slot (marker) and a "width" slot
+    // (line) so we can prove the two axes drive them independently.
+    SymbolStyle base;
+    SymbolLayer sl;
+    sl.kind = SymbolLayerKind::SimpleLine;
+    sl.props.insert(QStringLiteral("color"), QStringLiteral("#000000"));
+    sl.props.insert(QStringLiteral("size"),  8.0);
+    sl.props.insert(QStringLiteral("width"), 1.0);
+    base.layers.append(sl);
+    r.setBaseSymbol(base);
+
+    r.setOutputSizeEnabled(true);
+    r.setOutputSizeRange(4.0, 20.0);
+    r.setOutputWidthEnabled(true);
+    r.setOutputWidthRange(0.5, 5.0);
+
+    // Top bin (value 9 → bin 1 of 2): size hits its max, width hits its
+    // max, and the two values differ — proving independence.
+    QVariantMap hi;
+    hi.insert(QStringLiteral("flow"), 9.0);
+    const SymbolStyle shi = r.symbolFor({}, hi);
+    QCOMPARE(shi.layers.at(0).props.value(QStringLiteral("size")).toDouble(),  20.0);
+    QCOMPARE(shi.layers.at(0).props.value(QStringLiteral("width")).toDouble(),  5.0);
+
+    // Bottom bin (value 1 → bin 0): both hit their minima.
+    QVariantMap lo;
+    lo.insert(QStringLiteral("flow"), 1.0);
+    const SymbolStyle slo = r.symbolFor({}, lo);
+    QCOMPARE(slo.layers.at(0).props.value(QStringLiteral("size")).toDouble(),  4.0);
+    QCOMPARE(slo.layers.at(0).props.value(QStringLiteral("width")).toDouble(), 0.5);
+}
+
+void TestIFeatureRenderer::graduatedRenderer_widthAxisJsonRoundTrip()
+{
+    GraduatedRenderer in;
+    in.setBinColors({ QColor(QStringLiteral("#000000")),
+                      QColor(QStringLiteral("#ffffff")) });
+    in.setOutputWidthEnabled(true);
+    in.setOutputWidthRange(1.25, 7.5);
+
+    GraduatedRenderer out;
+    out.fromJson(in.toJson());
+    QVERIFY(out.outputWidthEnabled());
+    QCOMPARE(out.outputWidthMin(), 1.25);
+    QCOMPARE(out.outputWidthMax(), 7.5);
+}
+
+void TestIFeatureRenderer::graduatedRenderer_legacyMigratesSizeAxisToWidth()
+{
+    // A pre-VS.4 project: the size axis was on and drove both size + width.
+    GraduatedRenderer base;
+    base.setBinColors({ QColor(QStringLiteral("#000000")),
+                        QColor(QStringLiteral("#ffffff")) });
+    base.setOutputSizeEnabled(true);
+    base.setOutputSizeRange(3.0, 9.0);
+
+    QJsonObject j = base.toJson();
+    j.remove(QStringLiteral("outputWidthEnabled"));
+    j.remove(QStringLiteral("outputWidthMin"));
+    j.remove(QStringLiteral("outputWidthMax"));
+
+    GraduatedRenderer out;
+    out.fromJson(j);
+    // Width axis is migrated from the size axis so old line widths survive.
+    QVERIFY(out.outputWidthEnabled());
+    QCOMPARE(out.outputWidthMin(), 3.0);
+    QCOMPARE(out.outputWidthMax(), 9.0);
+}
+
+void TestIFeatureRenderer::graduatedRenderer_sourceAndRangeModeRoundTrip()
+{
+    using OpenSWMM::Render::AttributeSourceKind;
+    using OpenSWMM::Render::RangeMode;
+    GraduatedRenderer in;
+    in.setBinColors({ QColor(QStringLiteral("#000000")),
+                      QColor(QStringLiteral("#ffffff")) });
+    in.setSourceKind(AttributeSourceKind::Dynamic);
+    in.setRangeMode(RangeMode::PerFrameAutoStretch);
+
+    GraduatedRenderer out;
+    out.fromJson(in.toJson());
+    QCOMPARE(out.sourceKind(), AttributeSourceKind::Dynamic);
+    QCOMPARE(out.rangeMode(),  RangeMode::PerFrameAutoStretch);
+}
+
+void TestIFeatureRenderer::graduatedRenderer_sourceAndRangeModeDefaults()
+{
+    using OpenSWMM::Render::AttributeSourceKind;
+    using OpenSWMM::Render::RangeMode;
+    // A pre-P2 JSON object (no sourceKind / rangeMode keys) must default to
+    // Static / FixedOverRun so old projects load unchanged.
+    GraduatedRenderer base;
+    base.setBinColors({ QColor(QStringLiteral("#000000")) });
+    QJsonObject j = base.toJson();
+    j.remove(QStringLiteral("sourceKind"));
+    j.remove(QStringLiteral("rangeMode"));
+    GraduatedRenderer out;
+    out.fromJson(j);
+    QCOMPARE(out.sourceKind(), AttributeSourceKind::Static);
+    QCOMPARE(out.rangeMode(),  RangeMode::FixedOverRun);
 }
 
 void TestIFeatureRenderer::categorizedRenderer_paintAndFallback()
