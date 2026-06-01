@@ -13,6 +13,8 @@
 #include "core/unitsystem.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
+#include "layers/annotationlayer.h"
+#include "layers/annotationtextitem.h"
 
 #include <QSettings>
 
@@ -878,4 +880,52 @@ void DeleteObjectCommand::restoreSubcatch()
     swmm_subcatch_set_width(eng,      idx, m_subcatch.width);
     swmm_subcatch_set_slope(eng,      idx, m_subcatch.slope);
     swmm_subcatch_set_imperv_pct(eng, idx, m_subcatch.impervPct);
+}
+
+// ===========================================================================
+// AddAnnotationCommand
+// ===========================================================================
+
+AddAnnotationCommand::AddAnnotationCommand(OpenSWMMVisAnnotationLayer *layer,
+                                           AnnotationTextItem *item,
+                                           MapCanvas *canvas,
+                                           QUndoCommand *parent)
+    : MapCommand(QObject::tr("Add Text Annotation"), canvas, parent)
+    , m_layer(layer)
+    , m_item(item)
+    , m_itemId(item ? item->id() : QString())
+{
+}
+
+AddAnnotationCommand::~AddAnnotationCommand()
+{
+    // Only delete the item when it lives outside the layer (i.e., the
+    // command holds the only reference). When m_present is true the layer
+    // owns the item via its QObject parent chain.
+    if (m_item && !m_present)
+        delete m_item;
+}
+
+void AddAnnotationCommand::redo()
+{
+    if (!m_layer || m_present || !m_item) return;
+    if (m_layer->addAnnotation(m_item)) {
+        m_present = true;
+        // The layer now owns the item; relinquish our raw-pointer hold so
+        // the destructor doesn't double-delete if the layer drops it first.
+        m_item = nullptr;
+        if (m_canvas)
+            m_canvas->invalidate(MapCanvas::Scene, QStringLiteral("addtext-redo"));
+    }
+}
+
+void AddAnnotationCommand::undo()
+{
+    if (!m_layer || !m_present) return;
+    m_item = m_layer->takeAnnotation(m_itemId);
+    if (m_item) {
+        m_present = false;
+        if (m_canvas)
+            m_canvas->invalidate(MapCanvas::Scene, QStringLiteral("addtext-undo"));
+    }
 }

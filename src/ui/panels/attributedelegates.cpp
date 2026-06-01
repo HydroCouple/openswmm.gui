@@ -6,6 +6,8 @@
 
 #include "ui/panels/attributedelegates.h"
 
+#include "ui/properties/linkcompoundeditbutton.h"
+#include "ui/properties/linkcompoundeditref.h"
 #include "ui/properties/nodecompoundeditbutton.h"
 #include "ui/properties/nodecompoundeditref.h"
 
@@ -152,10 +154,17 @@ CompoundEditDelegate::CompoundEditDelegate(QObject *parent)
 QString CompoundEditDelegate::displayText(const QVariant &value,
                                             const QLocale & /*locale*/) const
 {
-    if (value.canConvert<NodeCompoundEditRef>()) {
+    // §S.SC.1.c — Same delegate handles both node-side and link-side
+    // compound cells. Dispatch on userType so each variant renders its
+    // summary correctly without losing the "%1 — Edit…" affordance.
+    if (value.userType() == qMetaTypeId<NodeCompoundEditRef>()) {
         const auto ref = value.value<NodeCompoundEditRef>();
-        // Match the in-cell affordance the Property Browser uses, so
-        // the cell looks identical between the two views.
+        return ref.summary.isEmpty()
+                   ? tr("Edit…")
+                   : tr("%1 — Edit…").arg(ref.summary);
+    }
+    if (value.userType() == qMetaTypeId<LinkCompoundEditRef>()) {
+        const auto ref = value.value<LinkCompoundEditRef>();
         return ref.summary.isEmpty()
                    ? tr("Edit…")
                    : tr("%1 — Edit…").arg(ref.summary);
@@ -165,33 +174,50 @@ QString CompoundEditDelegate::displayText(const QVariant &value,
 
 QWidget *CompoundEditDelegate::createEditor(QWidget *parent,
                                               const QStyleOptionViewItem & /*opt*/,
-                                              const QModelIndex & /*index*/) const
+                                              const QModelIndex &index) const
 {
+    // §S.SC.1.c — The cell value's type drives which button widget
+    // we build. The button's dialog is the source of truth for the
+    // compound edit; the delegate only marshals values in/out.
+    const QVariant v = index.data(Qt::EditRole);
+    if (v.userType() == qMetaTypeId<LinkCompoundEditRef>())
+        return new LinkCompoundEditButton(parent);
     return new NodeCompoundEditButton(parent);
 }
 
 void CompoundEditDelegate::setEditorData(QWidget *editor,
                                            const QModelIndex &index) const
 {
-    auto *btn = qobject_cast<NodeCompoundEditButton *>(editor);
-    if (!btn) return;
     const QVariant v = index.data(Qt::EditRole);
-    if (v.canConvert<NodeCompoundEditRef>())
-        btn->setValue(v.value<NodeCompoundEditRef>());
+    if (auto *nb = qobject_cast<NodeCompoundEditButton *>(editor)) {
+        if (v.userType() == qMetaTypeId<NodeCompoundEditRef>())
+            nb->setValue(v.value<NodeCompoundEditRef>());
+        return;
+    }
+    if (auto *lb = qobject_cast<LinkCompoundEditButton *>(editor)) {
+        if (v.userType() == qMetaTypeId<LinkCompoundEditRef>())
+            lb->setValue(v.value<LinkCompoundEditRef>());
+        return;
+    }
 }
 
 void CompoundEditDelegate::setModelData(QWidget *editor,
                                           QAbstractItemModel *model,
                                           const QModelIndex &index) const
 {
-    auto *btn = qobject_cast<NodeCompoundEditButton *>(editor);
-    if (!btn) return;
     // After the dialog closes, the button holds a refreshed ref with
     // an updated summary. The model's commitValueDirect() path uses
     // this only as a trigger to invalidate the row cache + emit
     // objectEdited; the actual engine writes happened inside the
     // dialog as the user committed each entry.
-    model->setData(index, QVariant::fromValue(btn->value()), Qt::EditRole);
+    if (auto *nb = qobject_cast<NodeCompoundEditButton *>(editor)) {
+        model->setData(index, QVariant::fromValue(nb->value()), Qt::EditRole);
+        return;
+    }
+    if (auto *lb = qobject_cast<LinkCompoundEditButton *>(editor)) {
+        model->setData(index, QVariant::fromValue(lb->value()), Qt::EditRole);
+        return;
+    }
 }
 
 QVariantList EnumDelegate::makePairs(const QStringList &labels,

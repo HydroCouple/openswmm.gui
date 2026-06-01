@@ -188,8 +188,10 @@ void SWMMObjectTreeModel::setLayer(SWMMModelLayer *layer)
         // HydrographGroupEditor or any other MVC path: rebuild the
         // Unit Hydrographs branch so the user sees the change in the
         // Object Browser without needing to refresh manually.
+        // Qt 6 asserts on Qt::UniqueConnection with non-PMF slots; rely on
+        // signal-argument truncation to invoke the no-arg reload() PMF.
         connect(m_layer.data(), &SWMMModelLayer::hydrographChanged,
-                this, [this](const QString &) { reload(); },
+                this,           &SWMMObjectTreeModel::reload,
                 Qt::UniqueConnection);
     }
 }

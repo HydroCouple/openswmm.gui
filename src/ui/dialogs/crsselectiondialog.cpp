@@ -169,6 +169,13 @@ SpatialReferenceSystem *CRSSelectionDialog::selectedSRS() const
     if (m_selectedAuthCode.isEmpty())
         return nullptr;
 
+    // Synthetic Local entries — bypass the PROJ database and mint a local
+    // CRS in the requested linear unit.
+    if (m_selectedAuthCode == QLatin1String("LOCAL:METERS"))
+        return SpatialReferenceSystem::localFromMapUnits(QStringLiteral("METERS"));
+    if (m_selectedAuthCode == QLatin1String("LOCAL:FEET"))
+        return SpatialReferenceSystem::localFromMapUnits(QStringLiteral("FEET"));
+
     const int sep = m_selectedAuthCode.lastIndexOf(QLatin1Char(':'));
     if (sep < 0)
         return nullptr;
@@ -196,6 +203,48 @@ void CRSSelectionDialog::buildTree(const QString &authority,
                                    const QString &searchText)
 {
     m_treeModel->removeRows(0, m_treeModel->rowCount());
+
+    // ── Synthetic "Local" group ─────────────────────────────────────
+    // Two non-EPSG entries that mint a SpatialReferenceSystem via
+    // localFromMapUnits().  Use when the source data has no recognisable
+    // CRS but the units (ft / m) are known — keeps coordinates in their
+    // original numeric form while giving the 2D mesh writer a real linear
+    // unit to honour.  Filtered out when an authority filter or a
+    // mismatching type filter is active so the picker stays consistent.
+    const bool typeAllowsLocal = typeFilter.isEmpty()
+        || typeFilter.compare(QLatin1String("local"), Qt::CaseInsensitive) == 0;
+    if (authority.isEmpty() && typeAllowsLocal)
+    {
+        auto matchSearch = [&](const QString &name) {
+            return searchText.isEmpty()
+                || name.contains(searchText, Qt::CaseInsensitive)
+                || QStringLiteral("local").contains(searchText, Qt::CaseInsensitive);
+        };
+        auto *localType = new QStandardItem(tr("Local (no transform)"));
+        QFont f = localType->font(); f.setBold(true); localType->setFont(f);
+        localType->setData(false, IsLeafRole);
+        localType->setFlags(Qt::ItemIsEnabled);
+        auto *col1 = new QStandardItem();
+        col1->setFlags(Qt::ItemIsEnabled);
+        m_treeModel->appendRow({localType, col1});
+
+        auto addLocal = [&](const QString &label, const QString &authCode) {
+            if (!matchSearch(label)) return;
+            auto *name = new QStandardItem(label);
+            name->setData(authCode, AuthCodeRole);
+            name->setData(true, IsLeafRole);
+            name->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+            auto *code = new QStandardItem(authCode);
+            code->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+            localType->appendRow({name, code});
+        };
+        addLocal(tr("Local — metres (no transform)"), QStringLiteral("LOCAL:METERS"));
+        addLocal(tr("Local — feet (no transform)"),   QStringLiteral("LOCAL:FEET"));
+
+        // Drop the group if both leaves got filtered out by the search box.
+        if (localType->rowCount() == 0)
+            m_treeModel->removeRow(localType->row());
+    }
 
     const QList<CRSInfo> list =
         CRSManager::instance().queryDatabase(searchText, authority, false);
@@ -272,18 +321,25 @@ void CRSSelectionDialog::updatePreview()
         return;
     }
 
-    const int sep = m_selectedAuthCode.lastIndexOf(QLatin1Char(':'));
-    if (sep < 0)
-        return;
+    std::unique_ptr<SpatialReferenceSystem> srs;
+    if (m_selectedAuthCode == QLatin1String("LOCAL:METERS") ||
+        m_selectedAuthCode == QLatin1String("LOCAL:FEET"))
+    {
+        const QString u = (m_selectedAuthCode == QLatin1String("LOCAL:FEET"))
+                              ? QStringLiteral("FEET") : QStringLiteral("METERS");
+        srs.reset(SpatialReferenceSystem::localFromMapUnits(u));
+    }
+    else
+    {
+        const int sep = m_selectedAuthCode.lastIndexOf(QLatin1Char(':'));
+        if (sep < 0) return;
+        const QString auth = m_selectedAuthCode.left(sep);
+        bool ok = false;
+        const int code = m_selectedAuthCode.mid(sep + 1).toInt(&ok);
+        if (!ok) return;
+        srs.reset(CRSManager::instance().createFromAuthCode(auth, code));
+    }
 
-    const QString auth = m_selectedAuthCode.left(sep);
-    bool ok = false;
-    const int code = m_selectedAuthCode.mid(sep + 1).toInt(&ok);
-    if (!ok)
-        return;
-
-    std::unique_ptr<SpatialReferenceSystem> srs(
-        CRSManager::instance().createFromAuthCode(auth, code));
     if (!srs)
     {
         m_wktPreview->setPlainText(tr("Could not load CRS."));

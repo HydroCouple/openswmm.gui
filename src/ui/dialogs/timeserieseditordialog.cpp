@@ -11,6 +11,7 @@
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesregistry.h"
 #include "timeseries/timeseriesundocommands.h"
+#include "ui/dialogs/dialoglayoutpersistence.h"
 #include "ui/panels/timeseriestablemodel.h"
 #include "ui/widgets/interactivechartview.h"
 #include "ui/widgets/timeserieseditchartview.h"
@@ -21,13 +22,17 @@
 #include <QButtonGroup>
 #include <QCheckBox>
 #include <QClipboard>
+#include <QCloseEvent>
 #include <QComboBox>
 #include <QDateTime>
 #include <QDateTimeEdit>
+#include <QDir>
 #include <QDoubleSpinBox>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QLoggingCategory>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -39,21 +44,32 @@
 #include <QMenu>
 #include <QMimeData>
 #include <QPushButton>
+#include <QInputDialog>
+#include <QListView>
+#include <QMessageBox>
 #include <QRadioButton>
 #include <QRegularExpression>
 #include <QSet>
 #include <QSignalBlocker>
+#include <QSortFilterProxyModel>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTextStream>
 #include <QTableView>
 #include <QToolBar>
+#include <QToolButton>
 #include <QUndoStack>
 #include <QVBoxLayout>
 #include <QVector>
 
+#include "ui/panels/timeserieslistmodel.h"
+
 #include <algorithm>
 #include <limits>
+
+// Debug instrumentation for the .dat-file load stall investigation.
+// Enable with: QT_LOGGING_RULES="openswmm.ts-load.*=true"
+Q_LOGGING_CATEGORY(lcTsLoadDialog, "openswmm.ts-load.dialog")
 
 namespace openswmmvis::ui {
 
@@ -64,31 +80,76 @@ using openswmmvis::timeseries::TimeseriesRegistry;
 // Construction
 // ─────────────────────────────────────────────────────────────────────────────
 
-TimeseriesEditorDialog::TimeseriesEditorDialog(TimeseriesProvider *provider,
+TimeseriesEditorDialog::TimeseriesEditorDialog(TimeseriesRegistry *registry,
                                                 QUndoStack *undoStack,
-                                                QWidget *parent)
-    : TimeseriesEditorDialog(QVector<TimeseriesProvider *>{provider}, undoStack, parent)
-{
-}
-
-TimeseriesEditorDialog::TimeseriesEditorDialog(QVector<TimeseriesProvider *> providers,
-                                                QUndoStack *undoStack,
+                                                TimeseriesProvider *initialSelection,
                                                 QWidget *parent)
     : QDialog(parent, Qt::Tool | Qt::WindowStaysOnTopHint)
     , m_undoStack(undoStack)
+    , m_registry(registry)
 {
     setWindowTitle(tr("Time Series Editor"));
-    resize(900, 520);
+    // Step E.2 — objectName drives QSettings group + helper findChild lookup.
+    setObjectName(QStringLiteral("TimeseriesEditorDialog"));
+    // Step H — pin above the main window so a map click doesn't hide us.
+    openswmmvis::ui::applyAlwaysOnTopPolicy(this);
+    // Step D — generous default so the chart pane has room to breathe;
+    // splitter sizes below force the proportions explicitly. QSettings-backed
+    // restoreDialogLayout below overrides geometry + splitter state on
+    // subsequent opens.
+    resize(1400, 720);
 
-    for (auto *p : providers)
-        m_providers.push_back(QPointer<TimeseriesProvider>(p));
+    // Seed the bound-provider vector with the initial selection if any. The
+    // 3-pane editor always builds the list pane (Step A removed the
+    // 2-pane variants), so a null initialSelection just leaves grid + chart
+    // empty until the user picks a series from the left list.
+    if (initialSelection)
+        m_providers.push_back(QPointer<TimeseriesProvider>(initialSelection));
 
-    buildUi_(providers);
+    buildUi_(initialSelection ? QVector<TimeseriesProvider *>{initialSelection}
+                              : QVector<TimeseriesProvider *>{});
+    buildListPane_();
     wireProviderSignals_();
     updateStatusBar_();
+
+    if (initialSelection && m_listModel && m_listView) {
+        const int row = m_listModel->rowOf(initialSelection);
+        if (row >= 0) {
+            const QModelIndex src = m_listModel->index(row, 0);
+            const QModelIndex prx = m_listProxy ? m_listProxy->mapFromSource(src) : src;
+            m_listView->setCurrentIndex(prx);
+        }
+    }
+
+    // Step B — initial zoom-to-extent so the chart shows the full series on
+    // open. Guard against empty series (degenerate axes).
+    if (initialSelection && m_chartView && initialSelection->pointCount() > 0)
+        m_chartView->zoomToExtent();
+
+    // Step E.2 — restore persisted geometry + splitter state after the UI is
+    // built. The hard-coded defaults above (resize + setSizes in
+    // buildListPane_) only apply on first open; subsequent opens load the
+    // user's last-used layout.
+    openswmmvis::ui::restoreDialogLayout(this);
 }
 
 TimeseriesEditorDialog::~TimeseriesEditorDialog() = default;
+
+void TimeseriesEditorDialog::closeEvent(QCloseEvent *e)
+{
+    // Step E.2 — persist dialog geometry + splitter sizes BEFORE the
+    // close happens so we capture the user's last-used layout.
+    openswmmvis::ui::saveDialogLayout(this);
+
+    // Step F — dispose the currently-bound provider's cache if it's
+    // ExternalFile-backed. The provider survives in the registry; only its
+    // (re-readable) point vector is freed.
+    if (!m_providers.isEmpty()) {
+        if (auto *p = m_providers.first().data())
+            p->disposePointCache();
+    }
+    QDialog::closeEvent(e);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Slice BM.0-Add-New — CreateNew factory + create-card
@@ -98,14 +159,66 @@ TimeseriesEditorDialog *TimeseriesEditorDialog::createNew(TimeseriesRegistry *re
                                                           QUndoStack *undoStack,
                                                           QWidget *parent)
 {
-    auto *dlg = new TimeseriesEditorDialog(QVector<TimeseriesProvider *>{},
-                                           undoStack, parent);
-    dlg->m_registry = registry;
-    dlg->m_mode     = Mode::CreateNew;
+    auto *dlg = new TimeseriesEditorDialog(registry, undoStack,
+                                           /*initialSelection=*/nullptr, parent);
+    dlg->m_mode = Mode::CreateNew;
     dlg->buildCreateCard_();
     dlg->setWindowTitle(tr("New Time Series"));
     if (dlg->m_toolbar) dlg->m_toolbar->setEnabled(false);
     return dlg;
+}
+
+QString TimeseriesEditorDialog::pickTimeseries(TimeseriesRegistry *registry,
+                                                QUndoStack         *undoStack,
+                                                const QString      &initialName,
+                                                QWidget            *parent)
+{
+    if (!registry) return {};
+
+    // Stack-allocate so we can exec() modally without WA_DeleteOnClose.
+    // Mirrors HydrographGroupEditor::pickGroup.
+    TimeseriesProvider *initialProvider =
+        initialName.isEmpty() ? nullptr : registry->findByName(initialName);
+
+    TimeseriesEditorDialog dlg(registry, undoStack, initialProvider, parent);
+    dlg.setModal(true);
+
+    if (!initialProvider) {
+        // Empty / unknown initial name — open in CreateNew mode.
+        dlg.m_mode = Mode::CreateNew;
+        dlg.buildCreateCard_();
+        dlg.setWindowTitle(tr("New Time Series"));
+        if (dlg.m_toolbar) dlg.m_toolbar->setEnabled(false);
+    } else {
+        dlg.setWindowTitle(tr("Time Series Editor — %1").arg(initialProvider->name()));
+    }
+
+    dlg.exec();
+
+    // Flush any inline edits back to the engine so callers that read
+    // names via the engine API see the new/edited series.
+    registry->saveToEngine();
+
+    return dlg.currentName();
+}
+
+QString TimeseriesEditorDialog::currentName() const
+{
+    if (m_providers.isEmpty()) return {};
+    auto *p = m_providers.first().data();
+    return p ? p->name() : QString();
+}
+
+void TimeseriesEditorDialog::setProjectAnchor(const QString &dir)
+{
+    // Slice IO-11d — caller wires this to the active project's .inp dir;
+    // empty disables relative-path display (legacy behaviour).
+    if (dir == m_projectAnchor) return;
+    m_projectAnchor = dir;
+    // Refresh the source-mode card if it's already showing; otherwise the
+    // next refresh picks up the new anchor.
+    if (m_sourceCard && m_sourceCard->isVisible())
+        refreshSourceModeCardForProvider_();
 }
 
 void TimeseriesEditorDialog::buildCreateCard_()
@@ -213,6 +326,10 @@ void TimeseriesEditorDialog::bindNewProvider_(TimeseriesProvider *p)
 
     wireProviderSignals_();
     updateStatusBar_();
+    // Phase 6.7.3.6 bug-fix — without this the source-mode card stays in its
+    // "no provider bound → disabled" state from the initial build, so the
+    // External radio + Browse button never appear after the Create flow.
+    refreshSourceModeCardForProvider_();
 
     m_mode = Mode::Edit;
     setWindowTitle(tr("Time Series Editor — %1").arg(p->name()));
@@ -247,32 +364,47 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
 
     // ── Toolbar ─────────────────────────────────────────────────────────────
     m_toolbar = new QToolBar(this);
+    m_toolbar->setIconSize(QSize(20, 20));
+    m_toolbar->setToolButtonStyle(Qt::ToolButtonIconOnly);
     outer->addWidget(m_toolbar);
 
     auto *baseGroup = new QActionGroup(this);
     baseGroup->setExclusive(true);
 
-    m_actSelect  = m_toolbar->addAction(tr("Select"));
-    m_actPan     = m_toolbar->addAction(tr("Pan"));
-    m_actZoomIn  = m_toolbar->addAction(tr("Zoom In"));
-    m_actZoomOut = m_toolbar->addAction(tr("Zoom Out"));
+    m_actSelect  = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Select")),
+                                          tr("Select"));
+    m_actPan     = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Move")),
+                                          tr("Pan"));
+    m_actZoomIn  = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/ZoomIn")),
+                                          tr("Zoom In"));
+    m_actZoomOut = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/ZoomOut")),
+                                          tr("Zoom Out"));
     for (QAction *a : {m_actSelect, m_actPan, m_actZoomIn, m_actZoomOut}) {
         a->setCheckable(true);
         baseGroup->addAction(a);
     }
     m_actSelect->setChecked(true);
 
+    // Zoom to Extent — non-checkable, one-shot fit-all. Not part of the
+    // exclusive mode group; clicking refits axes without changing mode.
+    m_actZoomExt = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
+                                          tr("Zoom to Extent"));
+    m_actZoomExt->setToolTip(tr("Fit X and Y axes to all loaded points"));
+
     m_toolbar->addSeparator();
 
-    m_actEdit = m_toolbar->addAction(tr("Edit Points"));
+    m_actEdit = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/SelectEdit")),
+                                       tr("Edit Points"));
     m_actEdit->setCheckable(true);
     m_actEdit->setToolTip(tr("Y-drag to change values; Shift-drag to multi-select"));
 
-    m_actRotate = m_toolbar->addAction(tr("Rotate"));
+    m_actRotate = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Ruler")),
+                                         tr("Rotate"));
     m_actRotate->setCheckable(true);
     m_actRotate->setToolTip(tr("Rotate the current selection around a pivot (numeric panel)"));
 
-    m_actScale = m_toolbar->addAction(tr("Scale"));
+    m_actScale = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Style")),
+                                        tr("Scale"));
     m_actScale->setCheckable(true);
     m_actScale->setToolTip(tr("Scale the current selection around an anchor (numeric panel)"));
 
@@ -284,7 +416,8 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     editModeGroup->addAction(m_actRotate);
     editModeGroup->addAction(m_actScale);
 
-    m_actSnap = m_toolbar->addAction(tr("Snap"));
+    m_actSnap = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/ToggleOn")),
+                                       tr("Snap"));
     m_actSnap->setCheckable(true);
     m_actSnap->setToolTip(tr("Snap inserted/dragged times to the reporting step"));
 
@@ -304,22 +437,26 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     // Copy serialises selected rows to TSV; Paste parses via TimeseriesParse
     // (shared with file import) so Excel- and CSV-derived clipboard text
     // round-trips with the same time-format handling.
-    m_actAddRow = m_toolbar->addAction(tr("Add Row"));
+    m_actAddRow = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/New")),
+                                         tr("Add Row"));
     m_actAddRow->setShortcut(QKeySequence(Qt::Key_Insert));
     m_actAddRow->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_actAddRow->setToolTip(tr("Insert a new point (Insert key)"));
 
-    m_actDeleteRow = m_toolbar->addAction(tr("Delete Rows"));
+    m_actDeleteRow = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Clear")),
+                                            tr("Delete Rows"));
     m_actDeleteRow->setShortcut(QKeySequence::Delete);
     m_actDeleteRow->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_actDeleteRow->setToolTip(tr("Delete selected row(s) (Delete key)"));
 
-    m_actCopy = m_toolbar->addAction(tr("Copy"));
+    m_actCopy = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Copy")),
+                                       tr("Copy"));
     m_actCopy->setShortcut(QKeySequence::Copy);
     m_actCopy->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_actCopy->setToolTip(tr("Copy selected row(s) as TSV (Ctrl/Cmd+C)"));
 
-    m_actPaste = m_toolbar->addAction(tr("Paste"));
+    m_actPaste = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/AddDelimetered")),
+                                        tr("Paste"));
     m_actPaste->setShortcut(QKeySequence::Paste);
     m_actPaste->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_actPaste->setToolTip(tr("Paste rows from Excel / CSV / TSV clipboard (Ctrl/Cmd+V)"));
@@ -332,6 +469,9 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
 
     // ── Two-pane splitter: grid (left) | chart (right) ──────────────────────
     m_splitter = new QSplitter(Qt::Horizontal, this);
+    // Step E.2 — objectName lets the persistence helper round-trip
+    // splitter state via QSettings (per-named-splitter under the dialog).
+    m_splitter->setObjectName(QStringLiteral("main"));
     outer->addWidget(m_splitter, /*stretch=*/1);
 
     // Grid
@@ -356,6 +496,9 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     // setHeaderData (right-click header → "Rename…" action lands in a
     // follow-up sub-phase).
 
+    // Table->chart selection sync. Skipped while the chart is driving us.
+    m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_splitter->addWidget(m_table);
 
     // Chart (binds to providers[0])
@@ -363,10 +506,35 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     m_chartView->setUndoStack(m_undoStack);
     connect(m_chartView, &TimeseriesEditChartView::editModeChanged,
             this, [this]() { onChartEditModeChanged_(); });
+    // MVC chart<->table selection sync: clicking points / rubber-band on the
+    // chart mirrors into the table row selection, and vice versa. Guard with
+    // recursion-suppress flags so the two views don't loop forever.
+    connect(m_chartView, &TimeseriesEditChartView::selectionChanged, this,
+            [this](const QVector<int> &indices) {
+                if (m_suppressTableSelectionSync_ts) return;
+                if (!m_table || !m_table->selectionModel() || !m_tableModel) return;
+                m_suppressChartSelectionSync_ts = true;
+                auto *sel = m_table->selectionModel();
+                sel->clearSelection();
+                for (int row : indices) {
+                    if (row < 0 || row >= m_tableModel->rowCount()) continue;
+                    const QModelIndex tl = m_tableModel->index(row, 0);
+                    const QModelIndex br = m_tableModel->index(
+                        row, m_tableModel->columnCount() - 1);
+                    sel->select(QItemSelection(tl, br),
+                                QItemSelectionModel::Select);
+                }
+                if (!indices.isEmpty())
+                    m_table->scrollTo(m_tableModel->index(indices.first(), 0),
+                                       QAbstractItemView::EnsureVisible);
+                m_suppressChartSelectionSync_ts = false;
+            });
     m_splitter->addWidget(m_chartView);
 
-    m_splitter->setStretchFactor(0, 1);   // grid
-    m_splitter->setStretchFactor(1, 2);   // chart (wider by default)
+    // Step D — initial stretch factors are finalized in buildListPane_() after
+    // the list pane is inserted at index 0. Setting them here would be
+    // overwritten anyway. setSizes() in buildListPane_ overrides sizeHints so
+    // the chart isn't squeezed to a sliver by the grid's larger sizeHint.
 
     // ── Status bar ──────────────────────────────────────────────────────────
     m_status = new QStatusBar(this);
@@ -381,6 +549,9 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     connect(m_actPan,     &QAction::triggered, this, &TimeseriesEditorDialog::onPanModeTriggered_);
     connect(m_actZoomIn,  &QAction::triggered, this, &TimeseriesEditorDialog::onZoomInModeTriggered_);
     connect(m_actZoomOut, &QAction::triggered, this, &TimeseriesEditorDialog::onZoomOutModeTriggered_);
+    connect(m_actZoomExt, &QAction::triggered, this, [this]() {
+        if (m_chartView) m_chartView->zoomToExtent();
+    });
     connect(m_actEdit,    &QAction::triggered, this, &TimeseriesEditorDialog::onEditModeTriggered_);
     connect(m_actRotate,  &QAction::triggered, this, &TimeseriesEditorDialog::onEditModeTriggered_);
     connect(m_actScale,   &QAction::triggered, this, &TimeseriesEditorDialog::onEditModeTriggered_);
@@ -398,6 +569,25 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     addAction(m_actDeleteRow);
     addAction(m_actCopy);
     addAction(m_actPaste);
+
+    // Table->chart selection sync. Needs the table's selection model to be
+    // alive, hence wired after the table is built.
+    if (m_table && m_table->selectionModel()) {
+        connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged,
+                this, [this](const QItemSelection &, const QItemSelection &) {
+                    if (m_suppressChartSelectionSync_ts) return;
+                    if (!m_chartView) return;
+                    QVector<int> rows;
+                    if (m_table->selectionModel()) {
+                        for (const auto &idx : m_table->selectionModel()->selectedRows())
+                            rows.push_back(idx.row());
+                    }
+                    std::sort(rows.begin(), rows.end());
+                    m_suppressTableSelectionSync_ts = true;
+                    m_chartView->setSelection(rows);
+                    m_suppressTableSelectionSync_ts = false;
+                });
+    }
 }
 
 void TimeseriesEditorDialog::wireProviderSignals_()
@@ -490,12 +680,31 @@ void TimeseriesEditorDialog::onSnapToggled_(bool on)
 
 void TimeseriesEditorDialog::onMutationRejected_(const QString &reason)
 {
+    qCWarning(lcTsLoadDialog) << "onMutationRejected_:" << reason;
     if (m_status) m_status->showMessage(reason, 4000);
 }
 
-void TimeseriesEditorDialog::onProviderPointsChanged_()  { updateStatusBar_(); }
-void TimeseriesEditorDialog::onProviderPointsInserted_() { updateStatusBar_(); }
-void TimeseriesEditorDialog::onProviderPointsRemoved_()  { updateStatusBar_(); }
+void TimeseriesEditorDialog::onProviderPointsChanged_()
+{
+    QElapsedTimer t; t.start();
+    updateStatusBar_();
+    qCDebug(lcTsLoadDialog) << "onProviderPointsChanged_ → updateStatusBar_ took"
+                            << t.elapsed() << "ms";
+}
+void TimeseriesEditorDialog::onProviderPointsInserted_()
+{
+    QElapsedTimer t; t.start();
+    updateStatusBar_();
+    qCDebug(lcTsLoadDialog) << "onProviderPointsInserted_ → updateStatusBar_ took"
+                            << t.elapsed() << "ms";
+}
+void TimeseriesEditorDialog::onProviderPointsRemoved_()
+{
+    QElapsedTimer t; t.start();
+    updateStatusBar_();
+    qCDebug(lcTsLoadDialog) << "onProviderPointsRemoved_ → updateStatusBar_ took"
+                            << t.elapsed() << "ms";
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Row editing — Add / Delete / Copy / Paste (Phase 6.7.3.4-followup)
@@ -563,9 +772,40 @@ void TimeseriesEditorDialog::onAddRowTriggered_()
         return;
     }
 
-    const QDateTime t = defaultNextTime(first);
-    const double v = first->pointCount() > 0 ? first->pointAt(first->pointCount() - 1).value
-                                              : 0.0;
+    // If a row is selected, the new point lands immediately after it (midpoint
+    // between selected and next, or appended past the last with the median
+    // interval when the last row is selected). With no selection the new
+    // point is appended past the end.
+    int selectedRow = -1;
+    if (m_table && m_table->selectionModel()) {
+        for (const auto &idx : m_table->selectionModel()->selectedRows())
+            selectedRow = std::max(selectedRow, idx.row());
+        if (selectedRow < 0) {
+            const QModelIndex cur = m_table->selectionModel()->currentIndex();
+            if (cur.isValid()) selectedRow = cur.row();
+        }
+    }
+
+    const int n = first->pointCount();
+    QDateTime t;
+    double v = 0.0;
+    if (n == 0) {
+        t = QDateTime::currentDateTimeUtc();
+        v = 0.0;
+    } else if (selectedRow < 0 || selectedRow >= n - 1) {
+        // No selection or last row → append after the last point.
+        t = defaultNextTime(first);
+        v = first->pointAt(n - 1).value;
+    } else {
+        // Insert between selectedRow and the row after; midpoint in time
+        // preserves the strict-ascending-time invariant by construction.
+        const auto &a = first->pointAt(selectedRow);
+        const auto &b = first->pointAt(selectedRow + 1);
+        const qint64 midMs = (a.time.toMSecsSinceEpoch()
+                              + b.time.toMSecsSinceEpoch()) / 2;
+        t = QDateTime::fromMSecsSinceEpoch(midMs, Qt::UTC);
+        v = 0.5 * (a.value + b.value);
+    }
 
     if (m_undoStack) {
         m_undoStack->beginMacro(tr("Add timeseries row"));
@@ -579,13 +819,18 @@ void TimeseriesEditorDialog::onAddRowTriggered_()
             if (pp) pp->insertPoint(t, v);
     }
 
-    if (m_table) {
-        const int newRow = first->pointCount() - 1;
-        const QModelIndex idx = m_tableModel ? m_tableModel->index(newRow, 0)
-                                              : QModelIndex();
-        if (idx.isValid()) {
-            m_table->scrollTo(idx);
-            m_table->selectRow(newRow);
+    // Find + select the row that landed at time `t` so the user can see it.
+    if (m_table && m_tableModel) {
+        int landedRow = -1;
+        for (int i = 0; i < first->pointCount(); ++i) {
+            if (first->pointAt(i).time == t) { landedRow = i; break; }
+        }
+        if (landedRow >= 0) {
+            const QModelIndex idx = m_tableModel->index(landedRow, 0);
+            if (idx.isValid()) {
+                m_table->scrollTo(idx);
+                m_table->selectRow(landedRow);
+            }
         }
     }
 }
@@ -757,10 +1002,19 @@ void TimeseriesEditorDialog::buildSourceModeCard_()
     m_sourceCard->setFrameShape(QFrame::StyledPanel);
     m_sourceCard->setObjectName(QStringLiteral("sourceModeCard"));
 
-    auto *cardLayout = new QHBoxLayout(m_sourceCard);
+    // ── Two-row layout ──────────────────────────────────────────────────────
+    // Row 1: "Source:" label + radio set (always visible).
+    // Row 2: External-mode sub-controls (path / Browse / column / Reload /
+    //        Detach / status), visible only when External radio is checked.
+    // Previously these were jammed into a single horizontal row which crowded
+    // the Browse button off-screen at the default dialog width.
+    auto *cardLayout = new QVBoxLayout(m_sourceCard);
     cardLayout->setContentsMargins(8, 4, 8, 4);
+    cardLayout->setSpacing(4);
 
-    cardLayout->addWidget(new QLabel(tr("Source:"), m_sourceCard));
+    // Row 1 — radio set.
+    auto *row1 = new QHBoxLayout();
+    row1->addWidget(new QLabel(tr("Source:"), m_sourceCard));
 
     auto *modeGroup = new QButtonGroup(this);
     modeGroup->setExclusive(true);
@@ -770,48 +1024,58 @@ void TimeseriesEditorDialog::buildSourceModeCard_()
     modeGroup->addButton(m_radioInline);
     modeGroup->addButton(m_radioExternal);
     modeGroup->addButton(m_radioGeopackage);
-    cardLayout->addWidget(m_radioInline);
-    cardLayout->addWidget(m_radioExternal);
-    cardLayout->addWidget(m_radioGeopackage);
+    row1->addWidget(m_radioInline);
+    row1->addWidget(m_radioExternal);
+    row1->addWidget(m_radioGeopackage);
+    row1->addStretch(1);
 
-    // Separator
-    auto *sep = new QFrame(m_sourceCard);
-    sep->setFrameShape(QFrame::VLine);
-    cardLayout->addWidget(sep);
-
-    // ── External-file sub-controls ──────────────────────────────────────────
-    m_extPathEdit = new QLineEdit(m_sourceCard);
-    m_extPathEdit->setReadOnly(true);
-    m_extPathEdit->setPlaceholderText(tr("(no file linked)"));
-    cardLayout->addWidget(m_extPathEdit, /*stretch=*/2);
-
-    m_extBrowseBtn = new QPushButton(tr("Browse…"), m_sourceCard);
-    cardLayout->addWidget(m_extBrowseBtn);
-
-    m_extColumnCombo = new QComboBox(m_sourceCard);
-    m_extColumnCombo->setMinimumWidth(120);
-    m_extColumnCombo->setToolTip(tr("Pick which column to bind to this series"));
-    cardLayout->addWidget(m_extColumnCombo);
-
-    m_extReloadBtn = new QPushButton(tr("Reload"), m_sourceCard);
-    m_extReloadBtn->setToolTip(tr("Re-read the linked file from disk"));
-    cardLayout->addWidget(m_extReloadBtn);
-
-    m_extDetachBtn = new QPushButton(tr("Detach → Inline"), m_sourceCard);
-    m_extDetachBtn->setToolTip(tr("Copy current points into the project and break the file link (one-way)"));
-    cardLayout->addWidget(m_extDetachBtn);
-
-    m_extStatusLabel = new QLabel(m_sourceCard);
-    m_extStatusLabel->setStyleSheet(QStringLiteral("color: gray;"));
-    cardLayout->addWidget(m_extStatusLabel, /*stretch=*/1);
-
-    // Geopackage placeholder (this cut)
+    // Geopackage placeholder sits next to the radios in row 1 (visible only
+    // when Geopackage is selected).
     m_gpkgPlaceholderLbl = new QLabel(
-        tr("(GeoPackage observed series — follow-up sub-phase 6.7.3.7)"),
+        tr("(GeoPackage observed series — follow-up sub-phase)"),
         m_sourceCard);
     m_gpkgPlaceholderLbl->setStyleSheet(QStringLiteral("color: gray; font-style: italic;"));
     m_gpkgPlaceholderLbl->hide();
-    cardLayout->addWidget(m_gpkgPlaceholderLbl);
+    row1->addWidget(m_gpkgPlaceholderLbl);
+
+    cardLayout->addLayout(row1);
+
+    // Row 2 — External-file sub-controls (visible only in External mode).
+    auto *row2 = new QHBoxLayout();
+    row2->addWidget(new QLabel(tr("File:"), m_sourceCard));
+
+    m_extPathEdit = new QLineEdit(m_sourceCard);
+    m_extPathEdit->setReadOnly(true);
+    m_extPathEdit->setPlaceholderText(tr("(no file linked)"));
+    row2->addWidget(m_extPathEdit, /*stretch=*/2);
+
+    m_extBrowseBtn = new QPushButton(tr("Browse…"), m_sourceCard);
+    m_extBrowseBtn->setToolTip(tr("Pick a CSV / TSV / .dat file"));
+    row2->addWidget(m_extBrowseBtn);
+
+    row2->addWidget(new QLabel(tr("Column:"), m_sourceCard));
+    m_extColumnCombo = new QComboBox(m_sourceCard);
+    m_extColumnCombo->setMinimumWidth(120);
+    m_extColumnCombo->setToolTip(tr("Pick which column to bind to this series"));
+    row2->addWidget(m_extColumnCombo);
+
+    m_extReloadBtn = new QPushButton(tr("Reload"), m_sourceCard);
+    m_extReloadBtn->setToolTip(tr("Re-read the linked file from disk"));
+    row2->addWidget(m_extReloadBtn);
+
+    m_extDetachBtn = new QPushButton(tr("Detach → Inline"), m_sourceCard);
+    m_extDetachBtn->setToolTip(tr("Copy current points into the project and break the file link (one-way)"));
+    row2->addWidget(m_extDetachBtn);
+
+    m_extStatusLabel = new QLabel(m_sourceCard);
+    m_extStatusLabel->setStyleSheet(QStringLiteral("color: gray;"));
+    row2->addWidget(m_extStatusLabel, /*stretch=*/1);
+
+    // Wrap row 2 in a holder QWidget so we can show/hide the whole row at once.
+    auto *extRowHolder = new QWidget(m_sourceCard);
+    extRowHolder->setLayout(row2);
+    extRowHolder->setObjectName(QStringLiteral("extRowHolder"));
+    cardLayout->addWidget(extRowHolder);
 
     // Insert below toolbar (toolbar is at index 0).
     outer->insertWidget(1, m_sourceCard);
@@ -861,18 +1125,29 @@ void TimeseriesEditorDialog::refreshSourceModeCardForProvider_()
     const bool isExternal = (p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile);
     const bool isGpkg     = (p->sourceMode() == TimeseriesProvider::SourceMode::GeopackageObserved);
 
-    m_extPathEdit->setVisible(isExternal);
-    m_extBrowseBtn->setVisible(isExternal);
-    m_extColumnCombo->setVisible(isExternal);
-    m_extReloadBtn->setVisible(isExternal);
-    m_extDetachBtn->setVisible(isExternal);
-    m_extStatusLabel->setVisible(isExternal);
+    // Show/hide the entire External-mode row as a unit (cleaner than
+    // toggling six individual widgets, and avoids the "blank gap" effect when
+    // some are hidden but others stay).
+    if (auto *extHolder = m_sourceCard->findChild<QWidget *>(QStringLiteral("extRowHolder")))
+        extHolder->setVisible(isExternal);
     m_gpkgPlaceholderLbl->setVisible(isGpkg);
 
     if (isExternal) {
         const bool hasFile = !p->filePath().isEmpty();
 
-        m_extPathEdit->setText(p->filePath());
+        // Slice IO-11d — when a project anchor is set, render the path
+        // relative to it; the underlying provider still owns the absolute
+        // form. Tooltip surfaces the absolute for power users.
+        const QString abs   = p->filePath();
+        QString shown = abs;
+        if (!abs.isEmpty() && !m_projectAnchor.isEmpty()) {
+            QDir d(m_projectAnchor);
+            const QString rel = d.relativeFilePath(abs);
+            if (QFileInfo(rel).isRelative()) shown = rel;
+        }
+        m_extPathEdit->setText(shown);
+        m_extPathEdit->setToolTip(abs.isEmpty() ? tr("(no file linked)")
+                                                : tr("Resolved: %1").arg(abs));
 
         // Browse is ALWAYS enabled in External mode — that's the only way the
         // user can pick a file. The other sub-controls (column selector,
@@ -1046,12 +1321,93 @@ int TimeseriesEditorDialog::loadExternalFileIntoProvider_(
     TimeseriesProvider *p, const QString &path,
     const QString &columnSelector, QStringList *columnHeadersOut)
 {
-    if (!p || path.isEmpty()) return 0;
+    // Re-entrancy counter — a value >1 means a signal slot fired the load
+    // again while we were still inside it (a feedback loop is a plausible
+    // stall cause, e.g. populating the column combo refires onColumnSelectorChanged_).
+    static thread_local int s_depth = 0;
+    struct DepthGuard {
+        DepthGuard()  { ++s_depth; }
+        ~DepthGuard() { --s_depth; }
+    } depth;
+    QElapsedTimer tTotal; tTotal.start();
+    qCDebug(lcTsLoadDialog) << "loadExternalFileIntoProvider_ ENTER depth=" << s_depth
+                            << "path=" << path
+                            << "column=" << columnSelector;
+
+    if (!p || path.isEmpty()) {
+        qCDebug(lcTsLoadDialog) << "  early return: null provider or empty path";
+        return 0;
+    }
 
     QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return 0;
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qCWarning(lcTsLoadDialog) << "  QFile::open FAILED" << f.errorString();
+        return 0;
+    }
+    qCDebug(lcTsLoadDialog) << "  file size =" << f.size() << "bytes";
     QTextStream in(&f);
     in.setEncoding(QStringConverter::Utf8);
+
+    // SWMM .dat files use a different lexical syntax (whitespace-or-comma
+    // separated, no header, with cached-date semantics across 2-token vs
+    // 3-token rows). Branch to the engine-faithful parser; CSV / TSV / TXT
+    // continue through the header-aware path below.
+    if (QFileInfo(path).suffix().compare(QStringLiteral("dat"),
+                                          Qt::CaseInsensitive) == 0) {
+        // .dat has no header — fabricate one placeholder column name so the
+        // grid / chart / column selector all have something to bind to.
+        const QStringList headers{ QStringLiteral("value") };
+        if (columnHeadersOut) *columnHeadersOut = headers;
+
+        openswmmvis::io::SwmmDatState state;
+        // Anchor for "elapsed-only" .dat files (no date tokens) — the engine
+        // uses the simulation start date, but the GUI has no equivalent
+        // here. 2000-01-01 keeps the points in a reasonable, non-1899 range
+        // so the chart's date axis renders intelligibly.
+        state.lastDateJulian = openswmmvis::plot::dateTimeToSwmmJulian(
+            QDateTime(QDate(2000, 1, 1), QTime(0, 0), Qt::UTC));
+
+        QVector<TimeseriesPoint> pts;
+        QElapsedTimer tParse; tParse.start();
+        qint64 linesRead = 0, linesAccepted = 0, lastLogLines = 0;
+        qint64 lastLogElapsed = 0;
+        while (!in.atEnd()) {
+            const QString line = in.readLine();
+            ++linesRead;
+            double tJ = 0.0, v = 0.0;
+            if (openswmmvis::io::parseSwmmDatLine(line, state, tJ, v)) {
+                pts.push_back({openswmmvis::plot::swmmJulianToDateTime(tJ), v});
+                ++linesAccepted;
+            }
+            // Heartbeat every ~1s so we can see *where* a hang occurs.
+            const qint64 nowMs = tParse.elapsed();
+            if (nowMs - lastLogElapsed >= 1000) {
+                qCDebug(lcTsLoadDialog) << "  parse heartbeat: linesRead=" << linesRead
+                                        << "accepted=" << linesAccepted
+                                        << "lines/sec (last window)="
+                                        << (linesRead - lastLogLines);
+                lastLogLines = linesRead;
+                lastLogElapsed = nowMs;
+            }
+        }
+        qCDebug(lcTsLoadDialog) << "  .dat parse DONE linesRead=" << linesRead
+                                << "accepted=" << linesAccepted
+                                << "in" << tParse.elapsed() << "ms";
+
+        QElapsedTimer tSet; tSet.start();
+        p->setFileSource(path, /*columnSelector=*/QString(),
+                          QFileInfo(path).lastModified());
+        qCDebug(lcTsLoadDialog) << "  calling setAllPoints with" << pts.size() << "points";
+        p->setAllPoints(pts);
+        qCDebug(lcTsLoadDialog) << "  setAllPoints + setFileSource took" << tSet.elapsed() << "ms";
+
+        QElapsedTimer tMode; tMode.start();
+        p->setSourceMode(TimeseriesProvider::SourceMode::ExternalFile);
+        qCDebug(lcTsLoadDialog) << "  setSourceMode took" << tMode.elapsed() << "ms";
+        qCDebug(lcTsLoadDialog) << "loadExternalFileIntoProvider_ EXIT (.dat) total"
+                                << tTotal.elapsed() << "ms";
+        return pts.size();
+    }
 
     QString headerLine;
     while (!in.atEnd()) {
@@ -1378,6 +1734,214 @@ void TimeseriesEditorDialog::onApplyScaleClicked_()
                                                     tr("Scale (×%1, ×%2)").arg(sX).arg(sY)));
     else
         p->setAllPoints(std::move(newPts));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// List pane CRUD (Phase 6.7.3-CRUD) — mirrors HydrographGroupEditor's three-
+// pane convention: left list of all series + filter + New/Delete/Rename
+// buttons; selection drives which provider the grid + chart are bound to.
+// ─────────────────────────────────────────────────────────────────────────────
+
+void TimeseriesEditorDialog::buildListPane_()
+{
+    if (!m_splitter || !m_registry) return;
+
+    m_listPane = new QWidget(m_splitter);
+    auto *v = new QVBoxLayout(m_listPane);
+    v->setContentsMargins(0, 0, 0, 0);
+    v->setSpacing(4);
+
+    // Filter line edit (matches HydrographGroupEditor convention).
+    m_listFilterEdit = new QLineEdit(m_listPane);
+    m_listFilterEdit->setPlaceholderText(tr("Search series…"));
+    m_listFilterEdit->setClearButtonEnabled(true);
+    v->addWidget(m_listFilterEdit);
+
+    // List view over a filter proxy that wraps the registry-backed model.
+    m_listModel = new TimeseriesListModel(this);
+    m_listModel->setRegistry(m_registry);
+    m_listProxy = new QSortFilterProxyModel(this);
+    m_listProxy->setSourceModel(m_listModel);
+    m_listProxy->setFilterCaseSensitivity(Qt::CaseInsensitive);
+    m_listProxy->setSortCaseSensitivity(Qt::CaseInsensitive);
+    m_listProxy->sort(0, Qt::AscendingOrder);
+
+    m_listView = new QListView(m_listPane);
+    m_listView->setModel(m_listProxy);
+    m_listView->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_listView->setEditTriggers(QAbstractItemView::SelectedClicked
+                                 | QAbstractItemView::EditKeyPressed);
+    m_listView->setAlternatingRowColors(true);
+    v->addWidget(m_listView, /*stretch=*/1);
+
+    // Bottom button row: New / Delete / Rename.
+    auto *btnRow = new QHBoxLayout();
+    btnRow->setContentsMargins(0, 0, 0, 0);
+    btnRow->setSpacing(2);
+
+    auto makeBtn = [this](const QString &text, const QString &tip) {
+        auto *b = new QToolButton(m_listPane);
+        b->setText(text);
+        b->setToolTip(tip);
+        b->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        b->setAutoRaise(true);
+        return b;
+    };
+    m_listNewBtn    = makeBtn(QStringLiteral("+ New"),
+                                tr("Create a new time series"));
+    m_listDeleteBtn = makeBtn(QStringLiteral("− Delete"),
+                                tr("Delete the selected time series"));
+    m_listRenameBtn = makeBtn(QStringLiteral("Rename"),
+                                tr("Rename the selected time series"));
+    btnRow->addWidget(m_listNewBtn);
+    btnRow->addWidget(m_listDeleteBtn);
+    btnRow->addWidget(m_listRenameBtn);
+    btnRow->addStretch(1);
+    v->addLayout(btnRow);
+
+    // Insert as the leftmost pane in the splitter.
+    m_splitter->insertWidget(0, m_listPane);
+
+    // Step D — Explicit initial sizes (override sizeHints so the chart
+    // pane doesn't collapse to a sliver) + stretch factors that grow the
+    // chart preferentially on dialog resize. setSizes is honored as the
+    // initial layout; stretch factors govern subsequent resize behaviour.
+    // QSettings restoreState in Step E.2 overrides these on reopen.
+    m_listPane->setMinimumWidth(180);
+    if (m_chartView) m_chartView->setMinimumWidth(360);
+    m_splitter->setSizes({200, 300, 800});
+    m_splitter->setStretchFactor(0, 0);   // list — narrow, fixed-ish
+    m_splitter->setStretchFactor(1, 1);   // grid
+    m_splitter->setStretchFactor(2, 3);   // chart — soaks up extra width
+
+    // Wire signals.
+    connect(m_listView->selectionModel(), &QItemSelectionModel::currentChanged,
+            this, [this](const QModelIndex &, const QModelIndex &) {
+                onListSelectionChanged_();
+            });
+    connect(m_listFilterEdit, &QLineEdit::textChanged,
+            this, &TimeseriesEditorDialog::onListFilterChanged_);
+    connect(m_listNewBtn,    &QToolButton::clicked,
+            this, &TimeseriesEditorDialog::onNewSeriesClicked_);
+    connect(m_listDeleteBtn, &QToolButton::clicked,
+            this, &TimeseriesEditorDialog::onDeleteSeriesClicked_);
+    connect(m_listRenameBtn, &QToolButton::clicked,
+            this, &TimeseriesEditorDialog::onRenameSeriesClicked_);
+
+    // Initial Delete/Rename enabled state — no selection yet.
+    m_listDeleteBtn->setEnabled(false);
+    m_listRenameBtn->setEnabled(false);
+}
+
+void TimeseriesEditorDialog::rebindActiveProvider_(TimeseriesProvider *p)
+{
+    // Step F — dispose the outgoing provider's in-memory cache if it's
+    // ExternalFile-backed. The file path stays on the provider, so a future
+    // re-bind (or the user clicking the Reload button) re-reads from disk.
+    // Inline / Gpkg providers are unaffected (disposePointCache is a no-op).
+    if (!m_providers.isEmpty()) {
+        if (auto *prev = m_providers.first().data())
+            if (prev != p) prev->disposePointCache();
+    }
+
+    if (!p) {
+        m_providers.clear();
+        if (m_tableModel) m_tableModel->setProviders({});
+        if (m_chartView)  m_chartView->setProvider(nullptr);
+        updateStatusBar_();
+        refreshSourceModeCardForProvider_();
+        return;
+    }
+    m_providers.clear();
+    m_providers.push_back(QPointer<TimeseriesProvider>(p));
+
+    // Step F — lazy-load the incoming provider's cache if it's ExternalFile
+    // and not currently resident. Inline / Gpkg always report loaded so
+    // they no-op here.
+    if (p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile
+        && !p->isPointCacheLoaded()
+        && !p->filePath().isEmpty()) {
+        loadExternalFileIntoProvider_(p, p->filePath(), p->columnSelector());
+    }
+
+    if (m_tableModel) m_tableModel->setProviders({p});
+    if (m_chartView)  m_chartView->setProvider(p);
+    wireProviderSignals_();
+    updateStatusBar_();
+    refreshSourceModeCardForProvider_();
+    setWindowTitle(tr("Time Series Editor — %1").arg(p->name()));
+
+    // Step B — fit chart axes to the newly bound series on every switch.
+    // Skip when the series has no points (degenerate axis range otherwise).
+    if (m_chartView && p->pointCount() > 0)
+        m_chartView->zoomToExtent();
+}
+
+void TimeseriesEditorDialog::onListSelectionChanged_()
+{
+    if (!m_listView || !m_listModel || !m_listProxy) return;
+    const QModelIndex prx = m_listView->currentIndex();
+    const bool hasSelection = prx.isValid();
+    if (m_listDeleteBtn) m_listDeleteBtn->setEnabled(hasSelection);
+    if (m_listRenameBtn) m_listRenameBtn->setEnabled(hasSelection);
+    if (!hasSelection) {
+        rebindActiveProvider_(nullptr);
+        return;
+    }
+    const QModelIndex src = m_listProxy->mapToSource(prx);
+    auto *p = m_listModel->providerAt(src.row());
+    rebindActiveProvider_(p);
+}
+
+void TimeseriesEditorDialog::onListFilterChanged_(const QString &text)
+{
+    if (m_listProxy) m_listProxy->setFilterFixedString(text);
+}
+
+void TimeseriesEditorDialog::onNewSeriesClicked_()
+{
+    if (!m_registry) return;
+    // Create with a default-unique name and start inline-rename on the new
+    // row. The list view already routes setData through the registry.
+    QString name = QStringLiteral("TS1");
+    for (int i = 2; i < 9999 && m_registry->hasName(name); ++i)
+        name = QStringLiteral("TS%1").arg(i);
+    auto *p = m_registry->create(name);
+    if (!p) return;
+    const int row = m_listModel ? m_listModel->rowOf(p) : -1;
+    if (row >= 0 && m_listView) {
+        const QModelIndex src = m_listModel->index(row, 0);
+        const QModelIndex prx = m_listProxy
+            ? m_listProxy->mapFromSource(src) : src;
+        m_listView->setCurrentIndex(prx);
+        m_listView->edit(prx);
+    }
+}
+
+void TimeseriesEditorDialog::onDeleteSeriesClicked_()
+{
+    if (!m_registry || !m_listView) return;
+    const QModelIndex prx = m_listView->currentIndex();
+    if (!prx.isValid()) return;
+    const QModelIndex src = m_listProxy->mapToSource(prx);
+    auto *p = m_listModel->providerAt(src.row());
+    if (!p) return;
+
+    const auto choice = QMessageBox::question(this, tr("Delete time series"),
+        tr("Delete time series “%1”? This cannot be undone via the editor's Undo stack.").arg(p->name()),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (choice != QMessageBox::Yes) return;
+
+    m_registry->remove(p);   // also fires providerAboutToBeRemoved → list updates
+    // Selection auto-clears; rebind to whatever's now-current (or null).
+    onListSelectionChanged_();
+}
+
+void TimeseriesEditorDialog::onRenameSeriesClicked_()
+{
+    if (!m_listView) return;
+    const QModelIndex prx = m_listView->currentIndex();
+    if (prx.isValid()) m_listView->edit(prx);
 }
 
 } // namespace openswmmvis::ui

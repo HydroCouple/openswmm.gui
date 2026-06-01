@@ -21,6 +21,7 @@
 #include "mesh/meshresult.h"
 #include "mesh/dtmthinner.h"
 #include "mesh/inpmeshwriter.h"
+#include "mesh/naturalnbinterpolator.h"
 
 #include <openswmm/engine/openswmm_nodes.h>
 
@@ -55,8 +56,11 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QScrollArea>
+#include <QSet>
 #include <QSpinBox>
+#include <QStringList>
 #include <QVBoxLayout>
+#include <QWidget>
 
 #include <algorithm>
 #include <cmath>
@@ -300,6 +304,71 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     QVector<QPointF> seedXY;
     QVector<double>  seedZ;
 
+    // Provenance: keys (same quantisation as elevCache) whose z is already in
+    // model/mesh vertical units (rim, feature Z, flattened terrain).  These
+    // are excluded from the zConversionFactor multiply, which only applies to
+    // raster-unit DTM samples.
+    QSet<QPair<qint64,qint64>> modelUnitKeys;
+    auto keyOf = [](double x, double y) {
+        return qMakePair(qRound64(x * 1e7), qRound64(y * 1e7));
+    };
+
+    // 3D aux-line vertices: exact model-unit z seeded by coordinate.  Aux
+    // points travel through in.steinerPoints (handled in Step 1); lines only
+    // here — no double-seeding.
+    for (int i = 0; i < in.featureZSeedXY.size(); ++i)
+    {
+        const QPointF &p = in.featureZSeedXY[i];
+        const auto k = keyOf(p.x(), p.y());
+        elevCache.insert(k, in.featureZSeedZ[i]);
+        modelUnitKeys.insert(k);
+        seedXY.append(p);
+        seedZ .append(in.featureZSeedZ[i]);
+    }
+
+    // ── Node rim-flatten spatial hash ─────────────────────────────────
+    // When nodes use rim elevation and a flatten radius is set, terrain and
+    // refinement vertices within radius of a node are forced to that node's
+    // rim z.  Spatial hash with cell size = radius (mirrors the Poisson-disk
+    // grid below); a 3×3 neighbour scan is guaranteed to find any node within
+    // the radius.  flattenZ() returns the nearest in-range rim z, or NaN.
+    const bool   doFlatten = in.nodesUseRim && in.nodeFlattenRadius > 0.0
+                             && !in.nodeRimXY.isEmpty();
+    const double flatR2  = in.nodeFlattenRadius * in.nodeFlattenRadius;
+    const double invFlat = doFlatten ? 1.0 / in.nodeFlattenRadius : 0.0;
+    QHash<QPair<qint32,qint32>, QVector<int>> flatGrid;
+    if (doFlatten)
+    {
+        flatGrid.reserve(in.nodeRimXY.size());
+        for (int n = 0; n < in.nodeRimXY.size(); ++n)
+        {
+            const qint32 cx = qint32(std::floor(in.nodeRimXY[n].x() * invFlat));
+            const qint32 cy = qint32(std::floor(in.nodeRimXY[n].y() * invFlat));
+            flatGrid[qMakePair(cx, cy)].append(n);
+        }
+    }
+    auto flattenZ = [&](double px, double py) -> double {
+        if (!doFlatten) return std::numeric_limits<double>::quiet_NaN();
+        const qint32 cx = qint32(std::floor(px * invFlat));
+        const qint32 cy = qint32(std::floor(py * invFlat));
+        double best2 = flatR2;
+        double bestZ = std::numeric_limits<double>::quiet_NaN();
+        for (qint32 dy = -1; dy <= 1; ++dy)
+            for (qint32 dx = -1; dx <= 1; ++dx)
+            {
+                auto it = flatGrid.constFind(qMakePair(cx + dx, cy + dy));
+                if (it == flatGrid.constEnd()) continue;
+                for (const int n : *it)
+                {
+                    const double ex = in.nodeRimXY[n].x() - px;
+                    const double ey = in.nodeRimXY[n].y() - py;
+                    const double d2 = ex*ex + ey*ey;
+                    if (d2 <= best2) { best2 = d2; bestZ = in.nodeRimZ[n]; }
+                }
+            }
+        return bestZ;
+    };
+
     // ── Step 1: feature Steiner points — assign z from DEM or model ──
     // SWMM nodes, conduit vertices, aux-layer points, etc.  Their (x,y)
     // is already in mesh CRS; we transform to DTM CRS to sample, then
@@ -313,6 +382,9 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     for (const auto &sp0 : std::as_const(in.steinerPoints))
     {
         mesh::SteinerPoint sp = sp0;
+        // wasPreset: z arrived in model units (rim / feature Z); a value
+        // sampled from the DTM below is in raster units instead.
+        const bool wasPreset = sp.hasZ;
         if (!sp.hasZ && useDTM)
         {
             double sx = sp.xy.x(), sy = sp.xy.y();
@@ -322,8 +394,9 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         }
         if (sp.hasZ)
         {
-            elevCache.insert(
-                qMakePair(qRound64(sp.xy.x() * 1e7), qRound64(sp.xy.y() * 1e7)), sp.z);
+            const auto k = keyOf(sp.xy.x(), sp.xy.y());
+            elevCache.insert(k, sp.z);
+            if (wasPreset) modelUnitKeys.insert(k);
             seedXY.append(sp.xy);
             seedZ .append(sp.z);
         }
@@ -490,17 +563,26 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         }
 
         // Add all surviving terrain candidates as PSLG Steiner vertices.
+        // Candidates within a rim node's flatten radius are forced to that
+        // node's rim z (model units); the rest keep their raster-unit DTM z.
         elevCache.reserve(elevCache.size() + candidatesMesh.size());
         for (int ci = 0; ci < candidatesMesh.size(); ++ci)
         {
             const double cx = candidatesMesh[ci].x(), cy = candidatesMesh[ci].y();
+            double z = candidateZ[ci];
+            const double fz = flattenZ(cx, cy);
+            const bool flattened = std::isfinite(fz);
+            if (flattened) z = fz;
+
             mesh::SteinerPoint sp;
             sp.xy   = QPointF(cx, cy);
-            sp.z    = candidateZ[ci];
+            sp.z    = z;
             sp.hasZ = true;
             g.addSteinerPoint(sp);
-            elevCache.insert(qMakePair(qRound64(cx * 1e7), qRound64(cy * 1e7)),
-                             candidateZ[ci]);
+
+            const auto k = keyOf(cx, cy);
+            elevCache.insert(k, z);
+            if (flattened) modelUnitKeys.insert(k);
         }
 
         progress(38, QObject::tr("%1 DTM Steiner points added to PSLG")
@@ -528,10 +610,16 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // have their exact z in elevCache.  Only Triangle-inserted refinement
     // vertices need a fresh value — either by DTM sample (preferred) or
     // by inverse-distance interpolation from the seed points.
+    //
+    // zInModelUnits marks vertices whose z is already in model/mesh units
+    // (rim, feature Z, flattened terrain, or IDW from rim seeds) so they are
+    // excluded from the raster-unit zConversionFactor multiply below.
     progress(70, useDTM
                  ? QObject::tr("Sampling DTM elevations…")
                  : QObject::tr("Interpolating elevations from junction rims…"));
     if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+
+    QVector<bool> zInModelUnits(result.vertices.size(), false);
 
     if (useDTM)
     {
@@ -541,17 +629,22 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             const double vx = result.vertices[i].xy.x();
             const double vy = result.vertices[i].xy.y();
 
-            const auto key = qMakePair(qRound64(vx * 1e7), qRound64(vy * 1e7));
+            const auto key = keyOf(vx, vy);
             const auto it  = elevCache.constFind(key);
             if (it != elevCache.constEnd())
             {
                 result.vertices[i].z = it.value();
+                zInModelUnits[i] = modelUnitKeys.contains(key);
                 continue;
             }
 
             double x = vx, y = vy;
             if (meshToDTM) meshToDTM->Transform(1, &x, &y);
-            result.vertices[i].z = thinner.sampleAt(x, y);
+            result.vertices[i].z = thinner.sampleAt(x, y);  // raster units
+
+            // Refinement vertices near a rim node are flattened to its rim z.
+            const double fz = flattenZ(vx, vy);
+            if (std::isfinite(fz)) { result.vertices[i].z = fz; zInModelUnits[i] = true; }
 
             if ((i & 0x3FFF) == 0 && promise.isCanceled())
             {
@@ -563,11 +656,13 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     }
     else
     {
-        // No DTM: IDW from junction rim seeds. Power=2 (Shepard's method)
-        // is the standard default; weights = 1/d^2 give smooth surfaces
-        // that exactly honour the seed elevations at the seed locations.
-        // Brute-force O(V*S) — adequate for typical SWMM networks
-        // (hundreds of junctions, ~10^4 mesh vertices).
+        // No DTM: interpolate vertex z from the scattered seeds (junction rims
+        // + 3D feature Z).  Two methods, user-selectable:
+        //   IDW              — Shepard's method with configurable power p
+        //                      (w = 1/d^p); exactly honours seeds.
+        //   Natural neighbour — Sibson / Laplace; smoother, no bullseyes.
+        //                      Defined only inside the seed convex hull, so it
+        //                      falls back to IDW outside the hull / on failure.
         if (seedXY.isEmpty())
         {
             fail(QObject::tr(
@@ -577,6 +672,24 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 "the domain."));
             return;
         }
+
+        const double pw = in.idwPower;   // configurable Shepard exponent
+
+        // Build the natural-neighbour interpolator once (fewer than 3 unique
+        // seeds or collinear seeds → nnReady stays false → IDW for everything).
+        mesh::NaturalNeighbourInterpolator nn;
+        bool nnReady = false;
+        if (in.elevInterpMethod == MeshGenerationDialog::ElevInterpMethod::NaturalNeighbour)
+        {
+            nn.setVariant(in.nnVariant == MeshGenerationDialog::NNVariant::Sibson
+                              ? mesh::NaturalNeighbourInterpolator::Variant::Sibson
+                              : mesh::NaturalNeighbourInterpolator::Variant::Laplace);
+            QString nnErr;
+            nnReady = nn.build(seedXY, seedZ, &nnErr);
+            if (!nnReady)
+                qDebug() << "[Mesh] natural neighbour unavailable, using IDW:" << nnErr;
+        }
+
         const int nv = result.vertices.size();
         const int ns = seedXY.size();
         for (int i = 0; i < nv; ++i)
@@ -584,33 +697,56 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             const double vx = result.vertices[i].xy.x();
             const double vy = result.vertices[i].xy.y();
 
-            const auto key = qMakePair(qRound64(vx * 1e7), qRound64(vy * 1e7));
+            const auto key = keyOf(vx, vy);
             const auto it  = elevCache.constFind(key);
             if (it != elevCache.constEnd())
             {
                 result.vertices[i].z = it.value();
+                zInModelUnits[i] = modelUnitKeys.contains(key);
                 continue;
             }
 
-            double wsum = 0.0, zsum = 0.0;
-            bool exact = false;
-            for (int s = 0; s < ns; ++s)
+            double zval = 0.0;
+            bool   haveZ = false;
+
+            // Natural neighbour (inside hull); NaN → fall through to IDW.
+            if (nnReady)
             {
-                const double dx = seedXY[s].x() - vx;
-                const double dy = seedXY[s].y() - vy;
-                const double d2 = dx*dx + dy*dy;
-                if (d2 < 1e-18)
-                {
-                    result.vertices[i].z = seedZ[s];
-                    exact = true;
-                    break;
-                }
-                const double w = 1.0 / d2;   // power-2 IDW
-                wsum += w;
-                zsum += w * seedZ[s];
+                const double zn = nn.interpolate(vx, vy);
+                if (std::isfinite(zn)) { zval = zn; haveZ = true; }
             }
-            if (!exact)
-                result.vertices[i].z = (wsum > 0.0) ? (zsum / wsum) : 0.0;
+
+            if (!haveZ)
+            {
+                double wsum = 0.0, zsum = 0.0;
+                bool exact = false;
+                for (int s = 0; s < ns; ++s)
+                {
+                    const double dx = seedXY[s].x() - vx;
+                    const double dy = seedXY[s].y() - vy;
+                    const double d2 = dx*dx + dy*dy;
+                    if (d2 < 1e-18)
+                    {
+                        zval = seedZ[s];
+                        exact = true;
+                        break;
+                    }
+                    // power-p IDW: w = 1/d^p = 1/(d2)^(p/2).
+                    const double w = 1.0 / std::pow(d2, pw * 0.5);
+                    wsum += w;
+                    zsum += w * seedZ[s];
+                }
+                if (!exact)
+                    zval = (wsum > 0.0) ? (zsum / wsum) : 0.0;
+            }
+
+            result.vertices[i].z = zval;
+            // Seeds are rim / feature elevations — model units.
+            zInModelUnits[i] = true;
+
+            // Flatten override (in case a node is in range here too).
+            const double fz = flattenZ(vx, vy);
+            if (std::isfinite(fz)) result.vertices[i].z = fz;
 
             if ((i & 0x3FFF) == 0 && promise.isCanceled())
             {
@@ -623,14 +759,21 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     if (dtmToMesh) OGRCoordinateTransformation::DestroyCT(dtmToMesh);
 
     // ── Vertical unit conversion ─────────────────────────────────────
-    // Convert all DTM-sampled Z values from the raster's native vertical unit
-    // to the requested output vertical unit (SWMM model unit or explicit choice).
+    // Convert DTM-sampled Z values from the raster's native vertical unit to
+    // the requested output vertical unit.  Rim, feature-Z, flattened, and IDW
+    // values are already in model units (zInModelUnits) and must NOT be scaled.
     if (in.zConversionFactor != 1.0) {
-        for (auto &v : result.vertices) {
-            if (std::isfinite(v.z))
-                v.z *= in.zConversionFactor;
+        const int nv = result.vertices.size();
+        for (int i = 0; i < nv; ++i) {
+            if (!zInModelUnits[i] && std::isfinite(result.vertices[i].z))
+                result.vertices[i].z *= in.zConversionFactor;
         }
     }
+
+    // Note: XY are written in project-CRS units (no GUI-side conversion).
+    // The engine multiplies by 0.3048 in SurfaceRouter2D::initialize when
+    // SWMM FLOW_UNITS is US.  When the engine has been updated to honour
+    // `;; UNITS: SI (m)`, a future producer could opt into SI on disk.
 
     // ── CouplingMap ──────────────────────────────────────────────────
     mesh::CouplingMap coupling;
@@ -650,9 +793,14 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     progress(85, QObject::tr("Writing mesh file…"));
     if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
 
+    mesh::InpMeshWriter::UnitInfo units;
+    units.linearUnitName = in.meshLinearUnitName;  // ;; UNITS:
+    units.sourceCrsTag   = in.meshCRSTag;          // ;; SOURCE_CRS:
+
     QString writeErr;
     if (!mesh::InpMeshWriter::write(in.outputMode, in.inpPath, in.meshOutputPath,
-                                     result, coupling, in.manningsN, &writeErr))
+                                     result, coupling, in.manningsN, &writeErr,
+                                     units))
     {
         fail(QObject::tr("Write failed: %1").arg(writeErr)); return;
     }
@@ -775,6 +923,9 @@ void MeshGenerationDialog::buildUi()
                     } else {
                         m_dtmVertUnitLabel->setText(tr("—"));
                     }
+                    // Elevation-interpolation options only apply with no DTM.
+                    if (m_elevInterpGroup)
+                        m_elevInterpGroup->setEnabled(raster == nullptr);
                     updateZFactor();
                 });
 
@@ -831,10 +982,105 @@ void MeshGenerationDialog::buildUi()
         m_includeSubcatch  = new QCheckBox(tr("Subcatchments  →  triangle regions  (tag = subcatchment id)"), g);
 
         lay->addWidget(m_includeJunctions);
+
+        // Node elevation source: interpolate to terrain (default) vs rim.
+        m_nodesUseRim = new QCheckBox(
+            tr("Use node rim elevation (invert + max depth) instead of terrain"), g);
+        m_nodesUseRim->setToolTip(tr(
+            "Unchecked (default): node vertices are interpolated from the DTM,\n"
+            "like every other vertex.\n"
+            "Checked: node vertices are pinned to the rim elevation\n"
+            "(invert + maximum depth) read from the SWMM model.\n\n"
+            "When no DTM is selected, nodes always use rim elevation and\n"
+            "the rest of the mesh is interpolated (IDW) from those rims."));
+        auto *rimRow = new QHBoxLayout;
+        rimRow->setContentsMargins(20, 0, 0, 0);  // indent under junctions row
+        rimRow->addWidget(m_nodesUseRim);
+        lay->addLayout(rimRow);
+
+        // Flatten radius: terrain within this distance of a rim node is forced
+        // to the node's rim elevation, removing slivers from terrain/rim
+        // misalignment.  Only meaningful when nodes use rim elevation.
+        auto *flatRow = new QHBoxLayout;
+        flatRow->setContentsMargins(20, 0, 0, 0);
+        flatRow->addWidget(new QLabel(tr("Flatten terrain within radius:"), g));
+        m_nodeFlattenSpin = new QDoubleSpinBox(g);
+        m_nodeFlattenSpin->setRange(0.0, 1e9);
+        m_nodeFlattenSpin->setDecimals(3);
+        m_nodeFlattenSpin->setSingleStep(1.0);
+        m_nodeFlattenSpin->setSpecialValueText(tr("(off)"));
+        // suffix set by updateUnitDisplay()
+        m_nodeFlattenSpin->setToolTip(tr(
+            "Radius around each rim node within which all DTM terrain points\n"
+            "are forced to that node's rim elevation.  Prevents unnecessarily\n"
+            "small triangles where the terrain and rim elevations disagree.\n"
+            "0 = off.  Applies only when nodes use rim elevation."));
+        flatRow->addWidget(m_nodeFlattenSpin);
+        flatRow->addStretch();
+        lay->addLayout(flatRow);
+
         lay->addWidget(m_includeConduits);
         lay->addWidget(m_includeSubcatch);
 
+        auto syncCoupling = [this]{
+            const bool jc = m_includeJunctions->isChecked();
+            m_nodesUseRim->setEnabled(jc);
+            m_nodeFlattenSpin->setEnabled(jc && m_nodesUseRim->isChecked());
+        };
+        connect(m_includeJunctions, &QCheckBox::toggled, this, syncCoupling);
+        connect(m_nodesUseRim,      &QCheckBox::toggled, this, syncCoupling);
+        syncCoupling();
+
         sourcesVBox->addWidget(g);
+    }
+
+    // Elevation interpolation (no-DTM fallback) group
+    {
+        m_elevInterpGroup = new QGroupBox(tr("Elevation interpolation (no DTM)"), sourcesPage);
+        m_elevInterpGroup->setToolTip(tr(
+            "How mesh-vertex elevations are interpolated from the seed points\n"
+            "(junction rims and 3D feature Z) when no DTM raster is selected.\n"
+            "Ignored when a DTM is set."));
+        auto *f = new QFormLayout(m_elevInterpGroup);
+
+        m_elevMethodCombo = new QComboBox(m_elevInterpGroup);
+        m_elevMethodCombo->addItem(tr("Inverse distance weighting (IDW)"),
+                                   int(ElevInterpMethod::IDW));
+        m_elevMethodCombo->addItem(tr("Natural neighbour"),
+                                   int(ElevInterpMethod::NaturalNeighbour));
+        f->addRow(tr("Method:"), m_elevMethodCombo);
+
+        m_nnVariantCombo = new QComboBox(m_elevInterpGroup);
+        m_nnVariantCombo->addItem(tr("Sibson (area-stealing)"),
+                                  int(NNVariant::Sibson));
+        m_nnVariantCombo->addItem(tr("Laplace (edge-ratio)"),
+                                  int(NNVariant::Laplace));
+        m_nnVariantCombo->setToolTip(tr(
+            "Sibson: smooth area-based natural-neighbour coordinates.\n"
+            "Laplace: faster non-Sibsonian edge/distance ratio.\n"
+            "Both fall back to IDW outside the seed convex hull."));
+        f->addRow(tr("NN variant:"), m_nnVariantCombo);
+
+        m_idwPowerSpin = new QDoubleSpinBox(m_elevInterpGroup);
+        m_idwPowerSpin->setRange(0.1, 10.0);
+        m_idwPowerSpin->setDecimals(2);
+        m_idwPowerSpin->setSingleStep(0.5);
+        m_idwPowerSpin->setToolTip(tr(
+            "Shepard exponent p for IDW: weight = 1 / distance^p.\n"
+            "Higher p → sharper, more local influence. Default 2.\n"
+            "Also used as the natural-neighbour fallback outside the hull."));
+        f->addRow(tr("IDW power:"), m_idwPowerSpin);
+
+        auto syncElevInterp = [this]{
+            const bool nn = m_elevMethodCombo->currentData().toInt()
+                            == int(ElevInterpMethod::NaturalNeighbour);
+            m_nnVariantCombo->setEnabled(nn);
+        };
+        connect(m_elevMethodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [syncElevInterp](int){ syncElevInterp(); });
+        syncElevInterp();
+
+        sourcesVBox->addWidget(m_elevInterpGroup);
     }
 
     sourcesVBox->addStretch();
@@ -1147,12 +1393,13 @@ void MeshGenerationDialog::updateUnitDisplay()
 {
     const UnitSystem *us  = UnitSystem::instance();
     const QString     len = us->lengthLabel();       // "ft" or "m"
-    const QString     len2 = len + QStringLiteral("\xB2"); // "ft²" or "m²"
+    const QString     len2 = len + QStringLiteral("²"); // "ft²" or "m²"
     const QString     suf  = QStringLiteral(" ") + len;
 
     if (m_simplifyEpsSpin) m_simplifyEpsSpin->setSuffix(suf);
     if (m_snapEpsSpin)     m_snapEpsSpin->setSuffix(suf);
     if (m_minSpacingSpin)  m_minSpacingSpin->setSuffix(suf);
+    if (m_nodeFlattenSpin) m_nodeFlattenSpin->setSuffix(suf);
 
     if (m_maxAreaSpin)
         m_maxAreaSpin->setToolTip(
@@ -1164,6 +1411,10 @@ void MeshGenerationDialog::seedDefaults()
     m_includeJunctions->setChecked(true);
     m_includeConduits->setChecked(true);
     m_includeSubcatch->setChecked(true);
+    m_nodesUseRim->setChecked(false);   // interpolate nodes to terrain by default
+    m_elevMethodCombo->setCurrentIndex(0);  // IDW
+    m_nnVariantCombo->setCurrentIndex(0);   // Sibson
+    m_idwPowerSpin->setValue(2.0);          // Shepard power-2
     m_maxAreaSpin->setValue(0.0);
     m_minAngleSpin->setValue(33.0);
     m_maxSteinerSpin->setValue(-1);
@@ -1173,6 +1424,7 @@ void MeshGenerationDialog::seedDefaults()
     const double toUnit = UnitSystem::instance()->isSI() ? 1.0 : 1.0 / 0.3048;
     m_simplifyEpsSpin->setValue(0.1  * toUnit);
     m_snapEpsSpin->setValue(    0.01 * toUnit);
+    m_nodeFlattenSpin->setValue(5.0  * toUnit);   // 5 m default flatten radius
     m_thinningBox->setChecked(false);
     m_thinningToleranceSpin->setValue(0.70); // default normal dot threshold
     m_thinningIterationsSpin->setValue(0);
@@ -1231,21 +1483,65 @@ void MeshGenerationDialog::populateLayerCombos()
         if (auto *v = qobject_cast<GISVectorLayer *>(L))
             m_boundaryLayerCombo->addItem(v->name(), QVariant::fromValue<void *>(v));
 
-    auto fillList = [&](QListWidget *list) {
+    // Decide whether a vector layer carries 3D geometry — uses the declared
+    // layer type when known, otherwise probes the first feature.
+    auto detect3D = [](GISVectorLayer *v) -> bool {
+        OGRLayer *ol = v ? v->ogrLayer() : nullptr;
+        if (!ol) return false;
+        const OGRwkbGeometryType gt = ol->GetGeomType();
+        if (gt != wkbUnknown && gt != wkbNone)
+            return OGR_GT_HasZ(gt);
+        ol->ResetReading();
+        bool is3d = false;
+        if (OGRFeature *f = ol->GetNextFeature())
+        {
+            if (auto *geom = f->GetGeometryRef())
+                is3d = geom->Is3D();
+            OGRFeature::DestroyFeature(f);
+        }
+        ol->ResetReading();
+        return is3d;
+    };
+
+    // Each row gets an "include" checkbox and a "use Z" checkbox; the latter
+    // is enabled only when the layer's geometry is 3D.  Rows are stashed so
+    // collectInputs() can read both checkbox states directly.
+    auto fillList = [&](QListWidget *list, QVector<AuxLayerRow> &rows) {
         list->clear();
+        rows.clear();
         for (auto *L : layers)
             if (auto *v = qobject_cast<GISVectorLayer *>(L))
             {
-                auto *item = new QListWidgetItem(v->name(), list);
-                item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-                item->setCheckState(Qt::Unchecked);
-                item->setData(Qt::UserRole, QVariant::fromValue<void *>(v));
+                const bool is3D = detect3D(v);
+
+                auto *item = new QListWidgetItem(list);
+                auto *row  = new QWidget(list);
+                auto *h    = new QHBoxLayout(row);
+                h->setContentsMargins(4, 1, 4, 1);
+                h->setSpacing(8);
+
+                auto *inc = new QCheckBox(v->name(), row);
+                auto *uz  = new QCheckBox(tr("use Z"), row);
+                uz->setEnabled(is3D);
+                uz->setToolTip(is3D
+                    ? tr("Use the feature's Z coordinate as the vertex elevation\n"
+                         "(taken as-is in mesh vertical units; not reprojected).\n"
+                         "2D features in this layer fall back to the DTM.")
+                    : tr("Layer has no Z values — elevation comes from the DTM."));
+
+                h->addWidget(inc, 1);
+                h->addWidget(uz);
+
+                item->setSizeHint(row->sizeHint());
+                list->setItemWidget(item, row);
+
+                rows.append({v, inc, uz, is3D});
             }
         if (list->count() == 0)
             list->addItem(tr("(no vector layers)"));
     };
-    fillList(m_pointLayersList);
-    fillList(m_lineLayersList);
+    fillList(m_pointLayersList, m_pointLayerRows);
+    fillList(m_lineLayersList,  m_lineLayerRows);
 }
 
 // ---------------------------------------------------------------------------
@@ -1277,6 +1573,11 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     auto *dtmLayer = static_cast<GISRasterLayer *>(
         m_dtmCombo->currentData().value<void *>());
     out->dtmPath = dtmLayer ? dtmLayer->filePath() : QString();
+    const bool haveDTM = !out->dtmPath.isEmpty();
+
+    // Aux point/line layers that can supply no elevation (no DTM and no usable
+    // feature Z) are collected here and reported as a hard-block error below.
+    QStringList blockedLayers;
 
     // ── PSLG optimisation parameters ─────────────────────────────────
     out->pslgSimplifyEps = m_simplifyEpsSpin->value();
@@ -1304,6 +1605,36 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
             }
             CPLFree(wkt);
         }
+
+    // ── Frame validity: mesh CRS must be planar with a known linear unit ──
+    // Engine consumes vertex XY as SI metres. Capture the conversion factor
+    // here and refuse to mesh when the project CRS cannot be expressed in
+    // metres (geographic CRS, undefined units, non-finite scale).
+    if (auto *srs = layer->srs())
+    {
+        const auto lui = srs->planarLinearUnit();
+        if (!lui.usable)
+        {
+            return fail(tr(
+                "The project CRS (%1) has no usable planar linear unit.\n"
+                "2D mesh generation requires a projected or local CRS in "
+                "metres or feet. Geographic (lat/lon) CRSes are not "
+                "supported.\n\n"
+                "Fix: open Project → Change CRS… and pick a projected CRS, "
+                "or use the 'Local projected' option when the source units "
+                "are unknown.")
+                .arg(srs->description().isEmpty()
+                         ? srs->toAuthority() : srs->description()));
+        }
+        out->meshCRSTag = srs->toAuthority();   // "EPSG:32634" or "Local"
+        if (out->meshCRSTag.isEmpty())
+            out->meshCRSTag = srs->description();
+        out->meshLinearUnitName = lui.name;
+    }
+    else
+    {
+        return fail(tr("No CRS is set for the model."));
+    }
 
     // Build an OGRCoordinateTransformation from layerSRS → meshSRS.
     // Returns nullptr when no transform is needed (same CRS or one unknown).
@@ -1522,6 +1853,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // worker can either (a) prefer this over a DTM sample, or (b) use it
     // as the only elevation source when no DTM is selected.
     SWMM_Engine engineForRim = layer->engine();
+    const bool useRim = m_nodesUseRim->isChecked();
     int nextMarker = 100;
     if (m_includeJunctions->isChecked())
     {
@@ -1541,23 +1873,39 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
                 if (!inDomain(QPointF(x, y))) continue;
                 mesh::SteinerPoint sp;
                 sp.xy = QPointF(x, y); sp.marker = nextMarker; sp.tag = name;
-                if (engineForRim)
+
+                // Read the rim elevation (invert + maxDepth) once.  How it is
+                // used depends on the rim/terrain choice and DTM availability:
+                //   useRim          → pin the node vertex to rim, and flatten
+                //                     terrain around it (nodeRim list).
+                //   !useRim, DTM    → leave hasZ=false → worker samples the DTM.
+                //   !useRim, no DTM → still pin to rim so the IDW seed set is
+                //                     non-empty (rim is the only elevation source).
+                double invert = 0.0, maxDepth = 0.0;
+                const bool gotRim = engineForRim
+                    && swmm_node_get_invert_elev(engineForRim, idx, &invert) == SWMM_OK
+                    && swmm_node_get_max_depth   (engineForRim, idx, &maxDepth) == SWMM_OK;
+                const double rimZ = invert + maxDepth;
+
+                if (gotRim && (useRim || !haveDTM))
                 {
-                    double invert = 0.0, maxDepth = 0.0;
-                    const int er1 = swmm_node_get_invert_elev(engineForRim, idx, &invert);
-                    const int er2 = swmm_node_get_max_depth   (engineForRim, idx, &maxDepth);
-                    if (er1 == SWMM_OK && er2 == SWMM_OK)
-                    {
-                        sp.z    = invert + maxDepth;
-                        sp.hasZ = true;
-                    }
+                    sp.z    = rimZ;
+                    sp.hasZ = true;
                 }
+                if (gotRim && useRim)
+                {
+                    out->nodeRimXY.append(QPointF(x, y));
+                    out->nodeRimZ.append(rimZ);
+                }
+
                 out->steinerPoints.append(sp);
                 out->nodeMarkerToTag.insert(nextMarker, name);
                 ++nextMarker;
             }
         }
     }
+    out->nodesUseRim       = useRim;
+    out->nodeFlattenRadius = useRim ? m_nodeFlattenSpin->value() : 0.0;
 
     // ── Constraint segments (SWMM links — already in mesh CRS) ───────
     // Deduplicate consecutive duplicate vertices (digitising artefacts
@@ -1603,12 +1951,22 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // Apply a spatial filter to the OGR layer so only features within the
     // domain bbox are returned — avoids full-file scans of large shapefiles.
     // Reproject coordinates to mesh CRS when the layer CRS differs.
-    for (int i = 0; i < m_pointLayersList->count(); ++i)
+    for (const AuxLayerRow &rowP : std::as_const(m_pointLayerRows))
     {
-        auto *item = m_pointLayersList->item(i);
-        if (!item || item->checkState() != Qt::Checked) continue;
-        auto *vp = static_cast<GISVectorLayer *>(item->data(Qt::UserRole).value<void *>());
+        if (!rowP.include || !rowP.include->isChecked()) continue;
+        auto *vp = rowP.layer;
         if (!vp || !vp->ogrLayer()) continue;
+
+        // useFZ: read feature Z as elevation (only honoured for 3D layers).
+        // When no DTM is selected and the layer cannot supply Z, the points
+        // have no elevation source → hard-block.
+        const bool useFZ = rowP.useZ && rowP.useZ->isChecked() && rowP.is3D;
+        if (!haveDTM && !useFZ)
+        {
+            blockedLayers.append(vp->name());
+            continue;
+        }
+
         OGRLayer *ol = vp->ogrLayer();
 
         ol->SetSpatialFilterRect(domainBBox.left(),
@@ -1618,6 +1976,33 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         ol->ResetReading();
 
         OGRCoordinateTransformation *ct = makeTransform(vp);
+
+        // Append one point: use its Z when 3D + requested, else fall back to
+        // the DTM (hasZ=false).  A 3D-less feature with no DTM is blocked above.
+        auto pushPoint = [&](const OGRPoint *p) {
+            if (!p) return;
+            double x = p->getX(), y = p->getY();
+            xformPt(ct, x, y);  // Z is vertical — not reprojected by a 2D transform
+            if (!inDomain(QPointF(x, y))) return;
+            double z = 0.0;
+            const bool fz = useFZ && p->Is3D() && std::isfinite(z = p->getZ());
+            if (fz)
+            {
+                mesh::SteinerPoint sp; sp.xy = QPointF(x, y); sp.z = z; sp.hasZ = true;
+                out->steinerPoints.append(sp);
+            }
+            else if (haveDTM)
+            {
+                out->steinerPoints.append({QPointF(x, y), 0, {}});
+            }
+            else
+            {
+                // 2D feature inside a 3D layer with no DTM — no elevation source.
+                if (!blockedLayers.contains(vp->name()))
+                    blockedLayers.append(vp->name());
+            }
+        };
+
         OGRFeature *f = nullptr;
         while ((f = ol->GetNextFeature()) != nullptr)
         {
@@ -1626,23 +2011,13 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
                 const auto gt = wkbFlatten(geom->getGeometryType());
                 if (gt == wkbPoint)
                 {
-                    const auto *p = geom->toPoint();
-                    double x = p->getX(), y = p->getY();
-                    xformPt(ct, x, y);
-                    if (inDomain(QPointF(x, y)))
-                        out->steinerPoints.append({QPointF(x, y), 0, {}});
+                    pushPoint(geom->toPoint());
                 }
                 else if (gt == wkbMultiPoint)
                 {
                     const auto *mp = geom->toMultiPoint();
                     for (int j = 0; j < mp->getNumGeometries(); ++j)
-                    {
-                        const auto *pp = mp->getGeometryRef(j)->toPoint();
-                        double x = pp->getX(), y = pp->getY();
-                        xformPt(ct, x, y);
-                        if (inDomain(QPointF(x, y)))
-                            out->steinerPoints.append({QPointF(x, y), 0, {}});
-                    }
+                        pushPoint(mp->getGeometryRef(j)->toPoint());
                 }
             }
             OGRFeature::DestroyFeature(f);
@@ -1652,12 +2027,19 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     }
 
     // ── Aux line layers (may be in a different CRS) ───────────────────
-    for (int i = 0; i < m_lineLayersList->count(); ++i)
+    for (const AuxLayerRow &rowL : std::as_const(m_lineLayerRows))
     {
-        auto *item = m_lineLayersList->item(i);
-        if (!item || item->checkState() != Qt::Checked) continue;
-        auto *vl = static_cast<GISVectorLayer *>(item->data(Qt::UserRole).value<void *>());
+        if (!rowL.include || !rowL.include->isChecked()) continue;
+        auto *vl = rowL.layer;
         if (!vl || !vl->ogrLayer()) continue;
+
+        const bool useFZ = rowL.useZ && rowL.useZ->isChecked() && rowL.is3D;
+        if (!haveDTM && !useFZ)
+        {
+            blockedLayers.append(vl->name());
+            continue;
+        }
+
         OGRLayer *ol = vl->ogrLayer();
 
         ol->SetSpatialFilterRect(domainBBox.left(),
@@ -1672,13 +2054,33 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         {
             auto pushLS = [&](const OGRLineString *ls) {
                 if (!ls || ls->getNumPoints() < 2) return;
+                // A 2D feature with no DTM has no elevation source for its
+                // vertices — block rather than silently IDW from distant seeds.
+                const bool fz = useFZ && ls->Is3D();
+                if (!haveDTM && !fz)
+                {
+                    if (!blockedLayers.contains(vl->name()))
+                        blockedLayers.append(vl->name());
+                    return;
+                }
                 QVector<QPointF> raw;
                 raw.reserve(ls->getNumPoints());
                 for (int j = 0; j < ls->getNumPoints(); ++j)
                 {
                     double x = ls->getX(j), y = ls->getY(j);
-                    xformPt(ct, x, y);
+                    xformPt(ct, x, y);  // Z vertical — not reprojected
                     raw.append(QPointF(x, y));
+                    // Seed elevCache by coordinate from the RAW (pre-simplify)
+                    // vertices so PSLG simplification can never desync z.
+                    if (fz && inDomain(QPointF(x, y)))
+                    {
+                        const double z = ls->getZ(j);
+                        if (std::isfinite(z))
+                        {
+                            out->featureZSeedXY.append(QPointF(x, y));
+                            out->featureZSeedZ.append(z);
+                        }
+                    }
                 }
                 auto path = simplifyPolyline(
                     clipIntermediateToDomain(dedupeSegPath(raw)),
@@ -1704,6 +2106,20 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         }
         if (ct) OGRCoordinateTransformation::DestroyCT(ct);
         ol->SetSpatialFilter(nullptr);
+    }
+
+    // ── Hard-block: aux features with no elevation source ────────────
+    // A constraining point/line layer that is included with neither a DTM nor
+    // a usable feature Z has no way to be elevated — refuse to generate.
+    if (!blockedLayers.isEmpty())
+    {
+        blockedLayers.removeDuplicates();
+        return fail(tr(
+            "These constraining layers have no elevation source — they carry "
+            "no Z coordinate and no DTM raster is selected:\n\n  • %1\n\n"
+            "Select a DTM raster, enable \"use Z\" on a 3D layer, or uncheck "
+            "the layer.")
+            .arg(blockedLayers.join(QStringLiteral("\n  • "))));
     }
 
     // ── Region markers (subcatchments) ───────────────────────────────
@@ -1765,6 +2181,13 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
 
     // ── Vertical Z conversion factor ─────────────────────────────────
     out->zConversionFactor = m_zFactorSpin ? m_zFactorSpin->value() : 1.0;
+
+    // ── Elevation interpolation (no-DTM fallback) ────────────────────
+    out->elevInterpMethod = ElevInterpMethod(
+        m_elevMethodCombo->currentData().toInt());
+    out->nnVariant = NNVariant(
+        m_nnVariantCombo->currentData().toInt());
+    out->idwPower = m_idwPowerSpin->value();
 
     return true;
 }

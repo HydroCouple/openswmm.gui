@@ -24,10 +24,12 @@
 class QLineEdit;
 class QTimer;
 class QTreeView;
+class QUndoStack;
 class QSortFilterProxyModel;
 class QModelIndex;
 class SWMMObjectTreeModel;
 class MapCanvas;
+class SWMMResultsLayer;
 
 /*!
  * \class ObjectBrowserPanel
@@ -68,9 +70,16 @@ public:
 
 signals:
     /*! \brief Emitted when the user picks "Plot Time Series" from the
-     *         right-click menu. The receiver locates the project's
-     *         results layer (.out file) and opens TimeSeriesPlotDialog. */
+     *         right-click menu and exactly one results layer (.out) is
+     *         loaded — the receiver picks that single layer implicitly. */
     void plotTimeSeriesRequested(const SWMMObjectRef &object);
+
+    /*! \brief Emitted when more than one .out is loaded and the user
+     *  picks a specific results layer from the "Plot Time Series ▸"
+     *  submenu. The receiver plots \p object against that exact \p layer
+     *  (no auto-pick-first-found fallback). */
+    void plotTimeSeriesForLayerRequested(const SWMMObjectRef &object,
+                                          SWMMResultsLayer *layer);
 
 public:
     /*! Slice BM.0-Add-New (2026-05-24) — does this data category have a
@@ -90,6 +99,29 @@ public:
      *  context menu disables those, so this should be unreachable in
      *  production paths). */
     void launchAddNewEditor(SWMMModelLayer::DataCategory dc);
+
+    /*! 2026-05-29 — Open the comprehensive editor for an existing data
+     *  object referenced by \p ref, with that object pre-selected for
+     *  editing. Shared between three surfaces: the object-browser leaf
+     *  double-click, the object-browser leaf right-click "Edit…" menu,
+     *  and the attribute-panel header "Open in <Editor>…" button.
+     *
+     *  Static so the attribute panel can dispatch without needing an
+     *  object-browser instance; the dialogs are reused across calls via
+     *  file-scope `QPointer` statics inside the implementation, so a
+     *  single editor window is shared no matter which surface launched
+     *  it. No-op for non-data refs (Node/Link/Subcatchment/Unknown) and
+     *  for data kinds whose editor hasn't shipped.
+     *
+     *  \param layer      Active project's model layer; no-op when null.
+     *  \param undoStack  Canvas undo stack to feed dialogs that take one;
+     *                    null is acceptable (editors work without undo).
+     *  \param ref        Object to open. Must carry a non-empty name.
+     *  \param parent     QWidget parent for the spawned dialog. */
+    static void openComprehensiveEditorFor(SWMMModelLayer    *layer,
+                                            QUndoStack        *undoStack,
+                                            const SWMMObjectRef &ref,
+                                            QWidget           *parent);
 
 private slots:
     void onTreeSelectionChanged();
@@ -121,20 +153,6 @@ private:
      *  permutation onto the undo stack if one is available. */
     void sortCategoryAlphabetically(SWMMModelLayer::Category cat);
 
-    /*! Slice BM.0-Add-New — lazy-init / re-use the TimeseriesRegistry
-     *  scoped to the current engine handle. Returns nullptr if the layer
-     *  has no engine. Shared by the Add-New dispatch (createNew factory)
-     *  and the double-click-TS path so both routes see the same provider
-     *  instances. */
-    QObject *ensureTimeseriesRegistry_();
-
-    /*! Slice BQ Phase 6.7.2 — same pattern as ensureTimeseriesRegistry_,
-     *  but for the PatternRegistry. */
-    QObject *ensurePatternRegistry_();
-
-    /*! Slice BQ Phase 6.7.1 — same pattern, for the CurveRegistry. */
-    QObject *ensureCurveRegistry_();
-
     QLineEdit                      *m_searchEdit     = nullptr;
     QTreeView                      *m_view           = nullptr;
     SWMMObjectTreeModel            *m_model          = nullptr;
@@ -144,21 +162,6 @@ private:
     QPointer<SWMMModelLayer>        m_layer;
     QPointer<SelectionManager>      m_selMgr;
     QPointer<MapCanvas>             m_canvas;
-
-    // Slice BQ Phase 6.7.3.8 — lazy-loaded timeseries registry hosted on the
-    // panel until SWMMModelLayer gains a proper owner. Forward-declared via
-    // QObject* to keep this header free of the timeseries include; downcast
-    // happens in the .cpp once we know the layer changed.
-    QObject                        *m_tsRegistry = nullptr;
-    void                           *m_tsRegistryEngineHandle = nullptr;
-
-    // Slice BQ Phase 6.7.2 — same lazy-init pattern for time patterns.
-    QObject                        *m_patternRegistry = nullptr;
-    void                           *m_patternRegistryEngineHandle = nullptr;
-
-    // Slice BQ Phase 6.7.1 — same lazy-init pattern for curves.
-    QObject                        *m_curveRegistry = nullptr;
-    void                           *m_curveRegistryEngineHandle = nullptr;
 
     /*! Reentrancy guard — true while we're applying SelectionManager
      *  changes to the tree (don't bounce them back through

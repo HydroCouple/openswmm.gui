@@ -27,12 +27,17 @@ constexpr qreal kDimAlpha           = 0.35;   // dimmed candidates
 constexpr qreal kPromotedAlpha      = 1.00;
 constexpr qreal kEqualAlpha         = 0.75;   // no path highlighted
 
-// Z-values so the overlay sits firmly above the SWMM map items (which
-// typically render in the 0-500 range).  Halos above the path lines so
-// endpoints remain visible when paths overlap them.
-constexpr qreal kZDimmed      = 10000.0;
-constexpr qreal kZHighlighted = 10010.0;
-constexpr qreal kZHalo        = 10020.0;
+// Z-values so the overlay sits firmly above every map layer.  MapCanvas
+// assigns layer z as `i * 1000.0` (see mapcanvas.cpp updateLayerZValues),
+// so an overlay band starting at 1e7 leaves 4 orders of magnitude of
+// headroom — large enough that no realistic layer stack can collide.
+// Halos sit above the path lines so endpoints remain visible when paths
+// overlap them.  Transparency on the pen colours (kDimAlpha/kEqualAlpha)
+// lets the user still see whatever sits underneath.
+constexpr qreal kZBase        = 1.0e7;
+constexpr qreal kZDimmed      = kZBase + 0.0;
+constexpr qreal kZHighlighted = kZBase + 10.0;
+constexpr qreal kZHalo        = kZBase + 20.0;
 
 QPen makePathPen(const QColor &baseColor, qreal alpha, qreal width)
 {

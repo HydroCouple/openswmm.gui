@@ -5,6 +5,7 @@
  */
 
 #include "layers/gisrasterlayer.h"
+#include "ui/dialogs/ilayerstylesubject.h"
 #include "map/graphicsitems.h"
 #include "map/spatialreferencesystem.h"
 #include "map/mapextent.h"
@@ -27,9 +28,114 @@
 
 #include <limits>
 #include <cmath>
+#include <algorithm>
+#include <vector>
 
 // RasterColorRamp method bodies relocated to src/render/colorramp.cpp
 // (Slice BB-α, 2026-05-24).
+
+namespace {
+
+// P5/R-1 — lossless projection between the legacy RasterColorRamp value type
+// (the public colorRamp() API + persistence still speak it) and the live
+// SingleBandPseudoColorRenderer, which is now the single source of truth for
+// raster colouring. minValue/maxValue/stops/clamp/interp map 1:1, so the
+// round-trip is exact and the rendered pixels are byte-identical to the old
+// m_colorRamp path (the renderer mirrors RasterColorRamp's interpolation).
+using OpenSWMM::Render::SingleBandPseudoColorRenderer;
+
+void rampToRenderer(SingleBandPseudoColorRenderer *r, const RasterColorRamp &ramp)
+{
+    if (!r) return;
+    r->setRange(ramp.minValue, ramp.maxValue);
+    QList<SingleBandPseudoColorRenderer::Stop> stops;
+    stops.reserve(ramp.stops.size());
+    for (const auto &s : ramp.stops)
+        stops.append({ s.first, s.second });
+    r->setStops(std::move(stops));
+    r->setClampMin(ramp.clampMin);
+    r->setClampMax(ramp.clampMax);
+    r->setInterp(ramp.interp);
+}
+
+RasterColorRamp rendererToRamp(const SingleBandPseudoColorRenderer *r)
+{
+    RasterColorRamp ramp;
+    if (!r) return ramp;
+    ramp.minValue = r->minValue();
+    ramp.maxValue = r->maxValue();
+    ramp.stops.clear();
+    for (const auto &s : r->stops())
+        ramp.stops.append({ s.first, s.second });
+    ramp.clampMin = r->clampMin();
+    ramp.clampMax = r->clampMax();
+    ramp.interp   = r->interp();
+    return ramp;
+}
+
+// VS.6 — composite a hillshade lighting factor over already-colourised
+// pixels, using a Horn 3×3 surface-normal estimate from the elevation grid.
+// Mirrors the mesh renderer's normal·light shading (swmm2dmeshqsgrenderer.cpp)
+// adapted to a regular grid. NoData / NaN pixels are left untouched.
+void applyHillshadeInPlace(QImage &img, const std::vector<double> &raw,
+                           int w, int h, double cellX, double cellY,
+                           double azDeg, double altDeg,
+                           double zFactor, double strength,
+                           bool hasNoData, double noData)
+{
+    if (w < 3 || h < 3 || cellX <= 0.0 || cellY <= 0.0)
+        return;
+
+    const double az  = qDegreesToRadians(azDeg);
+    const double alt = qDegreesToRadians(altDeg);
+    const double lx  = std::sin(az) * std::cos(alt);
+    const double ly  = std::cos(az) * std::cos(alt);
+    const double lz  = std::sin(alt);
+
+    auto elev = [&](int x, int y) -> double {
+        x = std::clamp(x, 0, w - 1);
+        y = std::clamp(y, 0, h - 1);
+        return raw[static_cast<std::size_t>(y) * w + x];
+    };
+
+    for (int y = 0; y < h; ++y) {
+        QRgb *row = reinterpret_cast<QRgb *>(img.scanLine(y));
+        for (int x = 0; x < w; ++x) {
+            const double c = raw[static_cast<std::size_t>(y) * w + x];
+            if (std::isnan(c) || (hasNoData && c == noData))
+                continue;  // transparent NoData — leave as-is
+
+            // Horn central differences (8-neighbour weighted).
+            const double dzdx = ((elev(x + 1, y - 1) + 2 * elev(x + 1, y) + elev(x + 1, y + 1)) -
+                                 (elev(x - 1, y - 1) + 2 * elev(x - 1, y) + elev(x - 1, y + 1)))
+                                / (8.0 * cellX);
+            // Image row Y runs south (down); flip so +dzdy points to world-north.
+            const double dzdy = ((elev(x - 1, y - 1) + 2 * elev(x, y - 1) + elev(x + 1, y - 1)) -
+                                 (elev(x - 1, y + 1) + 2 * elev(x, y + 1) + elev(x + 1, y + 1)))
+                                / (8.0 * cellY);
+
+            double nx = -dzdx * zFactor;
+            double ny = -dzdy * zFactor;
+            double nz = 1.0;
+            const double nlen = std::sqrt(nx * nx + ny * ny + nz * nz);
+            if (nlen > 1e-12) { nx /= nlen; ny /= nlen; nz /= nlen; }
+
+            double lit = nx * lx + ny * ly + nz * lz;
+            lit = std::clamp(lit, 0.0, 1.0);
+            // 1.0 = unshaded; lit = fully shaded. strength scales the effect.
+            const double f = 1.0 - strength * (1.0 - lit);
+
+            const QRgb px = row[x];
+            const int a = qAlpha(px);
+            const int r = std::clamp(static_cast<int>(qRed(px)   * f), 0, 255);
+            const int g = std::clamp(static_cast<int>(qGreen(px) * f), 0, 255);
+            const int b = std::clamp(static_cast<int>(qBlue(px)  * f), 0, 255);
+            row[x] = qRgba(r, g, b, a);
+        }
+    }
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // GISRasterLayer — Constructor / Destructor
@@ -39,13 +145,15 @@ GISRasterLayer::GISRasterLayer(const QString &filePath, OpenSWMMVisWorkspace *pa
     : OpenSWMMVisLayer(parent)
 {
     setLayerType(SWMMRasterLayer);
-    m_colorRamp = RasterColorRamp::grayscale();
 
-    // Slice BI Phase 8.13.6.7 — raster-renderer plumbing.  Default to a
-    // SingleBandPseudoColorRenderer so rasterRenderer() never returns
-    // null.  warpToCanvas() still uses m_colorRamp directly; routing
-    // through the renderer is deferred to a later sub-phase.
-    m_rasterRenderer = std::make_unique<OpenSWMM::Render::SingleBandPseudoColorRenderer>();
+    // P5/R-1 — the SingleBandPseudoColorRenderer is the single source of
+    // truth for raster colouring; warpToCanvas() paints through it. Seed it
+    // from the default grayscale ramp so it renders immediately. The legacy
+    // m_colorRamp field is retired; colorRamp()/setColorRamp() now project
+    // to/from this renderer (see rampToRenderer / rendererToRamp).
+    auto sb = std::make_unique<OpenSWMM::Render::SingleBandPseudoColorRenderer>();
+    rampToRenderer(sb.get(), RasterColorRamp::grayscale());
+    m_rasterRenderer = std::move(sb);
 
     GDALAllRegister();
 
@@ -81,7 +189,13 @@ void GISRasterLayer::setRasterRenderer(std::unique_ptr<OpenSWMM::Render::IRaster
 // Dataset info
 // ---------------------------------------------------------------------------
 
-QString GISRasterLayer::filePath()    const { return m_filePath; }
+QString GISRasterLayer::filePath()    const
+{
+    // Properties window shows full on-disk path for the dataset.
+    return m_filePath.isEmpty()
+               ? m_filePath
+               : QFileInfo(m_filePath).absoluteFilePath();
+}
 int     GISRasterLayer::bandCount()   const { return m_dataset ? m_dataset->GetRasterCount() : 0; }
 int     GISRasterLayer::renderBand()  const { return m_renderBand; }
 double  GISRasterLayer::noDataValue() const { return m_noDataValue; }
@@ -148,14 +262,50 @@ void GISRasterLayer::setRenderBand(int band)
 // Colour ramp
 // ---------------------------------------------------------------------------
 
-RasterColorRamp GISRasterLayer::colorRamp() const { return m_colorRamp; }
+RasterColorRamp GISRasterLayer::colorRamp() const
+{
+    // Project the live renderer back to a RasterColorRamp. When a non-
+    // pseudocolor renderer is active (e.g. Paletted), the ramp API has no
+    // meaningful value, so fall back to grayscale.
+    if (auto *sb = dynamic_cast<const SingleBandPseudoColorRenderer *>(
+            m_rasterRenderer.get()))
+        return rendererToRamp(sb);
+    return RasterColorRamp::grayscale();
+}
 
 void GISRasterLayer::setColorRamp(const RasterColorRamp &ramp)
 {
-    m_colorRamp = ramp;
+    // Editing the ramp implies single-band pseudocolor mode. Reuse the live
+    // renderer when it already is one; otherwise install a fresh pseudocolor
+    // renderer carrying the ramp (the renderer is the source of truth).
+    if (auto *sb = dynamic_cast<SingleBandPseudoColorRenderer *>(
+            m_rasterRenderer.get()))
+    {
+        rampToRenderer(sb, ramp);
+    }
+    else
+    {
+        auto fresh = std::make_unique<SingleBandPseudoColorRenderer>();
+        rampToRenderer(fresh.get(), ramp);
+        m_rasterRenderer = std::move(fresh);
+        emit rasterRendererChanged();
+    }
     invalidateCache();
     emit colorRampChanged(ramp);
     emit repaintRequested();
+}
+
+// Slice U-7 — single subject pointing at this raster layer; the
+// Q_CLASSINFO groups split Source / Display / Color ramp into sub-tabs.
+std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
+GISRasterLayer::styleSubjects()
+{
+    using openswmmvis::ui::ILayerStyleSubject;
+    using openswmmvis::ui::LayerStyleSubject;
+    std::vector<std::unique_ptr<ILayerStyleSubject>> out;
+    out.push_back(std::make_unique<LayerStyleSubject>(
+        tr("Raster / DEM"), this, QStringLiteral("raster.layer"), QString()));
+    return out;
 }
 
 void GISRasterLayer::autoStretchColorRamp()
@@ -175,10 +325,14 @@ void GISRasterLayer::autoStretchColorRamp()
 
     if (err == CE_None)
     {
-        m_colorRamp.minValue = minV;
-        m_colorRamp.maxValue = maxV;
+        // Update only the range on the live renderer (stops/interp/clamp
+        // are preserved). Falls back to installing a pseudocolor renderer
+        // if a non-pseudocolor one is somehow active.
+        if (auto *sb = dynamic_cast<SingleBandPseudoColorRenderer *>(
+                m_rasterRenderer.get()))
+            sb->setRange(minV, maxV);
         invalidateCache();
-        emit colorRampChanged(m_colorRamp);
+        emit colorRampChanged(colorRamp());
         emit repaintRequested();
     }
 }
@@ -468,6 +622,28 @@ void GISRasterLayer::invalidateCache()
     m_rawCacheHeight = 0;
 }
 
+void GISRasterLayer::setHillshadeEnabled(bool on)
+{
+    if (m_hillshadeEnabled == on)
+        return;
+    m_hillshadeEnabled = on;
+    invalidateCache();         // force a re-warp so the overlay is (re)applied
+    emit repaintRequested();
+}
+
+void GISRasterLayer::setHillshadeParams(double azimuthDeg, double altitudeDeg,
+                                        double zFactor, double strength)
+{
+    m_hillshadeAzimuthDeg  = azimuthDeg;
+    m_hillshadeAltitudeDeg = altitudeDeg;
+    m_hillshadeZFactor     = zFactor;
+    m_hillshadeStrength    = strength;
+    if (m_hillshadeEnabled) {
+        invalidateCache();
+        emit repaintRequested();
+    }
+}
+
 QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
                                      const SpatialReferenceSystem *canvasSRS,
                                      int pixelWidth,
@@ -671,16 +847,28 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
             for (int x = 0; x < pixelWidth; ++x)
             {
                 const double val = raw[y * pixelWidth + x];
-                if (std::isnan(val) ||
-                    (m_hasNoData && val == m_noDataValue))
-                {
-                    row[x] = qRgba(0, 0, 0, 0);   // fully transparent
-                }
-                else
-                {
-                    row[x] = m_colorRamp.colorForValue(val).rgba();
-                }
+                const bool isNoData = std::isnan(val) ||
+                                      (m_hasNoData && val == m_noDataValue);
+                // P5/R-1 — colourise through the raster renderer (single
+                // source of truth). The renderer returns transparent for
+                // the no-data case, matching the previous behaviour.
+                row[x] = m_rasterRenderer->colorForValue(val, isNoData).rgba();
             }
+        }
+
+        // VS.6 — optional hillshade relief overlay. Composites a lighting
+        // factor derived from the warped elevation grid over the colour-ramped
+        // pixels. Cell sizes come from the destination geotransform (world
+        // units per pixel). NOTE for finishing pass: verify the azimuth
+        // orientation against a known DEM — image-row Y runs opposite to
+        // world-north, which the dz/dy sign below accounts for.
+        if (m_hillshadeEnabled)
+        {
+            applyHillshadeInPlace(result, raw, pixelWidth, pixelHeight,
+                                  dstGT[1], std::abs(dstGT[5]),
+                                  m_hillshadeAzimuthDeg, m_hillshadeAltitudeDeg,
+                                  m_hillshadeZFactor, m_hillshadeStrength,
+                                  m_hasNoData, m_noDataValue);
         }
     }
 

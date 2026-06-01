@@ -23,6 +23,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QUuid>                            // Slice QA.2 — stats-source identity
 
 #include <openswmm/engine/openswmm_engine.h>
 
@@ -30,6 +31,7 @@
 #include "ui/properties/nodecompoundeditref.h"
 
 class SWMMModelLayer;
+namespace openswmmvis { class OutputStatsRegistry; }    // Slice QA.2
 
 /*! Base node adapter — exposes only the attributes that ALL node
  *  types share (per the SWMM5 .inp [JUNCTIONS]/[OUTFALLS]/[STORAGE]/
@@ -203,6 +205,28 @@ public slots:
      *  adapter's stored name matches the engine's new name. */
     void updateStoredName(const QString &newName) { m_name = newName; }
 
+    // ------------------------------------------------------------------
+    // Slice QA.2 — stats-source dispatch
+    // ------------------------------------------------------------------
+    //
+    // The four `statMax*` getters dispatch on `m_statsSourceId`:
+    //   - null UUID  → today's behaviour (read from m_engine via
+    //                   swmm_node_get_stat_*, i.e. the editing-engine's
+    //                   ambient post-run stats).
+    //   - non-null   → look up the corresponding SWMMResultsLayer via
+    //                   m_statsRegistry and call its nodeStatMax*()
+    //                   accessor (returns 0 until engine API QA-01 lands
+    //                   — see swmmresultslayer.cpp QA.3 comment).
+    //
+    // setStatsRegistry is called once by AttributePanel when the adapter
+    // is first wired up; setStatsSource is called from the combo's
+    // currentIndexChanged slot every time the user picks a different
+    // source. Either may be called with nullptr / null UUID to revert
+    // to the editing-engine default.
+    void setStatsRegistry(openswmmvis::OutputStatsRegistry *registry);
+    void setStatsSource(const QUuid &id);
+    [[nodiscard]] QUuid statsSourceId() const { return m_statsSourceId; }
+
 signals:
     void changed();
     /*! Emitted when setName() is called with a non-empty, non-duplicate name.
@@ -228,6 +252,12 @@ protected:
     SWMM_Engine     m_engine;
     QString         m_name;
     SWMMModelLayer *m_layer = nullptr;  ///< DB.4c — for compound-cell pickers
+
+    /// Slice QA.2 — stats-source dispatch state. Null UUID = use the
+    /// editing engine's ambient stats; non-null = read from the
+    /// SWMMResultsLayer that the registry maps the UUID to.
+    QUuid                              m_statsSourceId;
+    openswmmvis::OutputStatsRegistry  *m_statsRegistry = nullptr;
 };
 
 /*! Junction adapter — `[JUNCTIONS]` columns:

@@ -6,6 +6,8 @@
 
 #include "ui/properties/swmmcontrolrulepropertyadapter.h"
 
+#include "layers/swmmmodellayer.h"
+
 #include <openswmm/engine/openswmm_controls.h>
 
 #include <vector>
@@ -46,12 +48,48 @@ QString SWMMControlRulePropertyAdapter::ruleText() const
 void SWMMControlRulePropertyAdapter::setRuleText(const QString &text)
 {
     if (!m_engine) return;
-    const int target = idx();
-    if (target < 0) return;
 
+    // Slice BR Phase 6.8.1 — route inline edits through the layer's
+    // apply helper so controlRulesChanged(name) fires and any other UI
+    // bound to the same rule (RulesEditorDialog, Object Browser, future
+    // scenario-comparison views) refreshes through the registry/MVC seam.
+    // When no layer is bound (test code constructing the adapter without
+    // a host SWMMModelLayer) we fall back to the legacy direct engine
+    // round-trip so existing unit tests keep passing.
+    if (m_layer) {
+        QString err;
+        if (!m_layer->applyControlRuleReplace(m_name, text, &err)) {
+            // Apply refused — likely the rule's name disappeared (manual
+            // engine reload between fetch + write). Fall through to the
+            // engine-direct path below as a recovery so the user's edit
+            // is not silently dropped.
+        } else {
+            // The stored name may have changed if the user retyped the
+            // `RULE <new_name>` header — surface the rename so callers
+            // can cascade references.
+            const int target = idx();
+            if (target >= 0) {
+                char nameBuf[256] = {};
+                if (swmm_control_get_id(m_engine, target, nameBuf, sizeof(nameBuf)) == SWMM_OK) {
+                    const QString newName = QString::fromUtf8(nameBuf);
+                    if (newName != m_name) {
+                        const QString oldName = m_name;
+                        m_name = newName;
+                        emit renameRequested(oldName, newName);
+                    }
+                }
+            }
+            emit changed();
+            return;
+        }
+    }
+
+    // Legacy direct-engine path (no layer bound, or apply helper rejected).
     // Engine has no per-rule mutator (DA-ENG-11): snapshot every rule,
     // clear, and re-add with the target slot's text replaced. This is
     // O(N) text but N is small (typically < 100 rules).
+    const int target = idx();
+    if (target < 0) return;
     const int n = swmm_control_count(m_engine);
     std::vector<std::string> snapshot;
     snapshot.reserve(n);
@@ -67,8 +105,6 @@ void SWMMControlRulePropertyAdapter::setRuleText(const QString &text)
     if (swmm_control_clear_rules(m_engine) != SWMM_OK) return;
     for (const auto &t : snapshot) swmm_control_add_rule(m_engine, t.c_str());
 
-    // The stored name may have changed if the user retyped the
-    // `RULE <new_name>` header — let the layer-side handler reconcile.
     char nameBuf[256] = {};
     if (swmm_control_get_id(m_engine, target, nameBuf, sizeof(nameBuf)) == SWMM_OK) {
         const QString newName = QString::fromUtf8(nameBuf);

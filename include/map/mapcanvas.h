@@ -309,6 +309,7 @@ private slots:
     void fireRasterChannel();
     void fireSceneChannel();
     void syncScaleBarFromPreferences();
+    void syncQsgRenderKindsFromPreferences();
 
 private:
 
@@ -318,7 +319,6 @@ private:
     [[nodiscard]] QRectF overlayVisibleSceneRect() const;
     [[nodiscard]] MapExtent arCorrectedExtent(const MapExtent &ext) const;
     void updateLayerZValues();
-    void addDefaultBasemap();
 
     // Render job management
     void startRenderJob();
@@ -409,6 +409,18 @@ private:
     // See docs/RENDERING_5M_PLAN.md (Phase B.RHI).
     class QQuickWidget          *m_qsgWidget   = nullptr;
     class SWMMLayerQSGRenderer  *m_qsgRenderer = nullptr;
+
+    // Cached QSG framebuffer (re-grabbed only when something the QSG
+    // renderer cares about actually changed — extent, layer, widget
+    // size, or a layer's repaintRequested signal). Without this cache,
+    // every basemap repaint event paid the cost of a synchronous
+    // repaint() + grabFramebuffer() on the QSG widget, which dominates
+    // paintEvent on large models.
+    QImage                       m_qsgFrameCache;
+    bool                         m_qsgFrameDirty = true;
+    MapExtent                    m_qsgCachedExtent;
+    class SWMMModelLayer        *m_qsgCachedLayer = nullptr;
+    QSize                        m_qsgCachedSize;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(MapCanvas::DirtyChannels)

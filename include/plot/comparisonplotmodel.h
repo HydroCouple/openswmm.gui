@@ -123,6 +123,11 @@ public:
     /*! \brief Update a series' style. Emits `styleChanged`. */
     void updateStyle(int seriesIndex, const SeriesStyle& style);
 
+    /*! \brief Update a series' legend override (spec-level — wins over
+     *  the auto-generated "run — object (attr)" label). Empty restores
+     *  the auto label. Emits `styleChanged` so chart rows relabel. */
+    void updateLegendOverride(int seriesIndex, const QString& legendOverride);
+
     int seriesCount() const noexcept { return m_specs.size(); }
     const SeriesSpec& spec(int i) const { return m_specs.at(i); }
     SeriesSpec&       spec(int i)       { return m_specs[i]; }

@@ -69,8 +69,10 @@ public:
 
     /*! Canonical sidecar path: same directory + basename as the
      *  given `.inp`, with the extension swapped to `.oswp`. Empty
-     *  input returns empty. */
-    [[nodiscard]] static QString sidecarPathFor(const QString &inpPath);
+     *  input returns empty. Inlined alongside toRelativePath /
+     *  resolveStoredPath (Slice RB.5) so unit tests can exercise
+     *  it without linking the full ProjectSerializer .cpp. */
+    [[nodiscard]] static inline QString sidecarPathFor(const QString &inpPath);
 
     // ------------------------------------------------------------
     // Path helpers (Slice AA-3.2) — used by every file-reference
@@ -138,6 +140,14 @@ inline QString ProjectSerializer::resolveStoredPath(const QString &stored,
     const QFileInfo oswpFi(oswpFile);
     const QDir oswpDir = oswpFi.absoluteDir();
     return QDir::cleanPath(oswpDir.absoluteFilePath(stored));
+}
+
+inline QString ProjectSerializer::sidecarPathFor(const QString &inpPath)
+{
+    if (inpPath.isEmpty()) return {};
+    const QFileInfo fi(inpPath);
+    return fi.absoluteDir().filePath(fi.completeBaseName() +
+                                     QStringLiteral(".oswp"));
 }
 
 #endif // PROJECTSERIALIZER_H

@@ -6,19 +6,26 @@
 
 #include "ui/properties/dataobjectpickereditor.h"
 
+#include "curve/curveregistry.h"
 #include "layers/swmmmodellayer.h"
+#include "pattern/patternregistry.h"
+#include "timeseries/timeseriesregistry.h"
+#include "ui/dialogs/curveeditordialog.h"
 #include "ui/dialogs/hydrographgroupeditor.h"
+#include "ui/dialogs/patterneditordialog.h"
+#include "ui/dialogs/timeserieseditordialog.h"
 #include "ui/panels/objectbrowserpanel.h"
-#include <QInputDialog>
-#include <QLineEdit>
-#include <QMessageBox>
 #include "ui/widgets/labeledcontrols.h"
 
 #include <QComboBox>
+#include <QDialog>
 #include <QHBoxLayout>
+#include <QMessageBox>
+#include <QPointer>
 #include <QSignalBlocker>
 #include <QToolButton>
 
+#include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_tables.h>
 
 DataObjectPickerEditor::DataObjectPickerEditor(QWidget *parent)
@@ -84,6 +91,27 @@ void DataObjectPickerEditor::repopulate()
             }
             break;
         }
+        case DataObjectRef::Pollutant: {
+            const int n = m_ref.layer->dataObjectCount(SWMMModelLayer::DataPollutants);
+            for (int i = 0; i < n; ++i) {
+                const QString nm = m_ref.layer->dataObjectNameAt(
+                    SWMMModelLayer::DataPollutants, i);
+                if (!nm.isEmpty()) items << nm;
+            }
+            break;
+        }
+        case DataObjectRef::RainGage: {
+            // Rain gages are spatial objects (no DataCategory entry); ask
+            // the layer directly. swmm_gage_count + _id round-trip through
+            // SWMMModelLayer::rainGageNames() (added alongside this slice
+            // if not present) — fall back to engine APIs inline if missing.
+            const int n = swmm_gage_count(m_ref.engine);
+            for (int i = 0; i < n; ++i) {
+                if (const char *id = swmm_gage_id(m_ref.engine, i))
+                    if (*id) items << QString::fromUtf8(id);
+            }
+            break;
+        }
         }
     }
 
@@ -104,6 +132,17 @@ void DataObjectPickerEditor::onPickerClicked()
 {
     if (!m_ref.layer) return;
 
+    // Rain gages have no comprehensive editor and no DataCategory entry.
+    // The combo still works for selection; the browse button surfaces a
+    // brief note so the click isn't silent.
+    if (m_ref.kind == DataObjectRef::RainGage) {
+        QMessageBox::information(this, tr("Rain Gage"),
+            tr("Rain gages are edited from the Object Browser "
+               "(Rain Gages → select → Attribute panel). No dedicated "
+               "editor dialog."));
+        return;
+    }
+
     SWMMModelLayer::DataCategory dc = SWMMModelLayer::DataTimeSeries;
     switch (m_ref.kind) {
     case DataObjectRef::TidalCurve:
@@ -111,58 +150,72 @@ void DataObjectPickerEditor::onPickerClicked()
     case DataObjectRef::TimeSeries:     dc = SWMMModelLayer::DataTimeSeries;  break;
     case DataObjectRef::Pattern:        dc = SWMMModelLayer::DataPatterns;    break;
     case DataObjectRef::UnitHydrograph: dc = SWMMModelLayer::DataHydrographs; break;
+    case DataObjectRef::Pollutant:      dc = SWMMModelLayer::DataPollutants;  break;
+    case DataObjectRef::RainGage:       /* handled above */                   break;
     }
 
-    // Slice BM.0-Add-New (2026-05-24) — gap categories (Curves / Patterns
-    // / Transects / etc.) don't have a complex editor yet; surface the
-    // gap tooltip directing the user to the future editor slice.
+    // Slice BM.0-Add-New (2026-05-24) — gap categories (Transects / LID /
+    // Pollutants / etc.) carry only a tooltip in the registry; surface it.
     if (!ObjectBrowserPanel::hasComplexEditor(dc)) {
         QMessageBox::information(this, tr("Create New"),
             ObjectBrowserPanel::gapTooltipFor(dc));
         return;
     }
 
-    // DA.4-step2 — dispatch through the real editor for categories that
-    // already ship one.
-    if (dc == SWMMModelLayer::DataHydrographs) {
-        // HydrographGroupEditor::pickGroup is purpose-built for this
-        // exact entry point ("Use this from the RDII picker's browse
-        // button" per its docstring). Synchronous, returns the chosen
-        // name on accept (Create + Apply / OK), empty on Cancel. Supports
-        // both create-new (currentName empty) and edit-existing.
-        const QString chosen = HydrographGroupEditor::pickGroup(
+    // DA.4-step2 — dispatch through the real editor for every shipped
+    // category. Three of four expose synchronous `pickXxx` factories that
+    // return the chosen name (mirroring `HydrographGroupEditor::pickGroup`);
+    // CurveEditorDialog ships only `createNew` (non-modal) today, so the
+    // curve flow opens the dialog non-modally and refreshes the combo on
+    // close — the user picks the new entry from the combo manually until
+    // a `pickCurve` is added (small follow-up).
+    QString chosen;
+    switch (dc) {
+    case SWMMModelLayer::DataHydrographs:
+        chosen = HydrographGroupEditor::pickGroup(
             m_ref.layer, m_ref.currentName, this);
-        if (chosen.isEmpty()) return;
-        m_ref.currentName = chosen;
-        repopulate();
-        emit valueChanged();
+        break;
+
+    case SWMMModelLayer::DataPatterns: {
+        using openswmmvis::pattern::PatternRegistry;
+        using openswmmvis::ui::PatternEditorDialog;
+        auto *reg = qobject_cast<PatternRegistry *>(m_ref.layer->ensurePatternRegistry());
+        if (!reg) return;
+        chosen = PatternEditorDialog::pickPattern(
+            reg, /*undoStack=*/nullptr, m_ref.currentName, this);
+        break;
+    }
+
+    case SWMMModelLayer::DataTimeSeries: {
+        using openswmmvis::timeseries::TimeseriesRegistry;
+        using openswmmvis::ui::TimeseriesEditorDialog;
+        auto *reg = qobject_cast<TimeseriesRegistry *>(m_ref.layer->ensureTimeseriesRegistry());
+        if (!reg) return;
+        chosen = TimeseriesEditorDialog::pickTimeseries(
+            reg, /*undoStack=*/nullptr, m_ref.currentName, this);
+        // Flush any newly-created provider out to the engine so the
+        // adapter's setter (which looks up by engine table index) can
+        // resolve the name.
+        if (!chosen.isEmpty()) reg->saveToEngine();
+        break;
+    }
+
+    case SWMMModelLayer::DataCurves: {
+        using openswmmvis::curve::CurveRegistry;
+        using openswmmvis::ui::CurveEditorDialog;
+        auto *reg = qobject_cast<CurveRegistry *>(m_ref.layer->ensureCurveRegistry());
+        if (!reg) return;
+        chosen = CurveEditorDialog::pickCurve(
+            reg, /*undoStack=*/nullptr, m_ref.currentName, this);
+        break;
+    }
+
+    default:
         return;
     }
 
-    // DataTimeSeries — TimeseriesEditorDialog::createNew is non-modal
-    // and binds to a `TimeseriesRegistry` currently owned privately by
-    // ObjectBrowserPanel. Exposing it from the layer is a larger
-    // refactor (tracked separately). Until then, the picker uses an
-    // inline name prompt and commits via createDataObject; the user
-    // populates data points by opening the new Time Series in the
-    // Object Browser (double-click → full TimeseriesEditorDialog).
-    const QString suggested = m_ref.layer->suggestUniqueDataObjectName(dc);
-    bool ok = false;
-    const QString name = QInputDialog::getText(
-        this,
-        tr("Create New Time Series"),
-        tr("Name:\n\nA new (empty) time series will be created and assigned\n"
-           "to this outfall. To enter time/value rows, open the new series\n"
-           "from the Object Browser (Data Objects → Time Series →\n"
-           "double-click) for the full editor."),
-        QLineEdit::Normal, suggested, &ok).trimmed();
-    if (!ok || name.isEmpty()) return;
-
-    QString err;
-    if (!m_ref.layer->createDataObject(dc, name, /*options=*/{}, &err))
-        return;
-
-    m_ref.currentName = name;
+    if (chosen.isEmpty()) return;
+    m_ref.currentName = chosen;
     repopulate();
     emit valueChanged();
 }

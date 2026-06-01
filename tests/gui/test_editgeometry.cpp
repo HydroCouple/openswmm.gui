@@ -137,6 +137,89 @@ private slots:
         QCOMPARE(seg, 1); // vertical segment is closer than the horizontal one
     }
 
+    // cleanPolyline ------------------------------------------------------
+    void cleanPolyline_emptyAndSingle_unchanged()
+    {
+        QCOMPARE(EditGeometry::cleanPolyline({}).size(), 0);
+        const QVector<QPointF> one{{1, 1}};
+        QCOMPARE(EditGeometry::cleanPolyline(one), one);
+    }
+
+    void cleanPolyline_nonDegenerate_preservedExactly()
+    {
+        const QVector<QPointF> v{{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+        QCOMPARE(EditGeometry::cleanPolyline(v), v);
+    }
+
+    void cleanPolyline_collapsesConsecutiveDuplicate()
+    {
+        const QVector<QPointF> v{{0, 0}, {1, 0}, {1, 0}, {2, 0}};
+        const QVector<QPointF> expected{{0, 0}, {1, 0}, {2, 0}};
+        QCOMPARE(EditGeometry::cleanPolyline(v), expected);
+    }
+
+    void cleanPolyline_collapsesRunOfThreeOrMore()
+    {
+        const QVector<QPointF> v{{0, 0}, {1, 0}, {1, 0}, {1, 0}, {2, 0}};
+        const QVector<QPointF> expected{{0, 0}, {1, 0}, {2, 0}};
+        QCOMPARE(EditGeometry::cleanPolyline(v), expected);
+    }
+
+    void cleanPolyline_nearCoincidentWithinTol_collapses()
+    {
+        // Second point is 1e-9 away — well inside the 1e-6 default tolerance.
+        const QVector<QPointF> v{{0, 0}, {1e-9, 0}, {1, 0}};
+        const QVector<QPointF> expected{{0, 0}, {1, 0}};
+        QCOMPARE(EditGeometry::cleanPolyline(v), expected);
+    }
+
+    void cleanPolyline_justOutsideTol_kept()
+    {
+        // 1e-3 separation is far outside the default tolerance — keep both.
+        const QVector<QPointF> v{{0, 0}, {1e-3, 0}, {1, 0}};
+        QCOMPARE(EditGeometry::cleanPolyline(v), v);
+    }
+
+    void cleanPolyline_collapsesToSinglePoint()
+    {
+        // Whole input coincident → degenerate result the caller must guard on.
+        const QVector<QPointF> v{{5, 5}, {5, 5}, {5, 5}};
+        const auto r = EditGeometry::cleanPolyline(v);
+        QCOMPARE(r.size(), 1);
+        QVERIFY(r.size() < 2);
+    }
+
+    // cleanPolygonRing ---------------------------------------------------
+    void cleanPolygonRing_dropsRedundantClosingPoint()
+    {
+        // Square with an explicit closing vertex repeating the first.
+        const QVector<QPointF> v{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}};
+        const QVector<QPointF> expected{{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+        QCOMPARE(EditGeometry::cleanPolygonRing(v), expected);
+    }
+
+    void cleanPolygonRing_openRing_preserved()
+    {
+        const QVector<QPointF> v{{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+        QCOMPARE(EditGeometry::cleanPolygonRing(v), v);
+    }
+
+    void cleanPolygonRing_collapsesAndDeCloses()
+    {
+        // Duplicate interior vertex AND an explicit closing point.
+        const QVector<QPointF> v{{0, 0}, {1, 0}, {1, 0}, {1, 1}, {0, 0}};
+        const QVector<QPointF> expected{{0, 0}, {1, 0}, {1, 1}};
+        QCOMPARE(EditGeometry::cleanPolygonRing(v), expected);
+    }
+
+    void cleanPolygonRing_degenerate_belowThreeDistinct()
+    {
+        // Collapses to two distinct points — caller skips a <3 ring.
+        const QVector<QPointF> v{{0, 0}, {0, 0}, {1, 1}, {0, 0}};
+        const auto r = EditGeometry::cleanPolygonRing(v);
+        QVERIFY(r.size() < 3);
+    }
+
     // Composite: auto-length after endpoint move ------------------------
     void autoLength_recomputeAfterEndpointMove()
     {

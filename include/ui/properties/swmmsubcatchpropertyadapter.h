@@ -19,6 +19,12 @@ class SWMMSubcatchPropertyAdapter : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString name        READ name  WRITE setName)
+    /*! Slice TA — free-form `[TAGS]` label. Direct engine read/write
+     *  (mirror of node/link tag wiring); the existing `changed()`
+     *  signal + AttributePanel.objectEdited fan-out is sufficient for
+     *  two-way sync with the Attribute Table since tag changes don't
+     *  affect map symbology or attribute-table layout. */
+    Q_PROPERTY(QString tag         READ tag         WRITE setTag         NOTIFY changed)
     Q_PROPERTY(double  area        READ area        WRITE setArea        NOTIFY changed)
     Q_PROPERTY(double  width       READ width       WRITE setWidth       NOTIFY changed)
     Q_PROPERTY(double  slope       READ slope       WRITE setSlope       NOTIFY changed)
@@ -33,6 +39,7 @@ public:
                                   QObject *parent = nullptr);
 
     [[nodiscard]] QString name() const { return m_name; }
+    [[nodiscard]] QString tag()  const;
 
     [[nodiscard]] double area()      const;
     [[nodiscard]] double width()     const;
@@ -48,6 +55,7 @@ public:
 
 public slots:
     void setName(const QString &newName);
+    void setTag(const QString &t);
     void setArea(double v);
     void setWidth(double v);
     void setSlope(double v);

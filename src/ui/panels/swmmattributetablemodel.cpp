@@ -7,13 +7,17 @@
 #include "ui/panels/swmmattributetablemodel.h"
 
 #include "core/unitsystem.h"
+#include "ui/properties/linkcompoundeditref.h"
 #include "ui/properties/nodecompoundeditref.h"
 
 #include <QUndoCommand>
 #include <QUndoStack>
 
+#include <cmath>
+
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_gages.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_inflows.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -143,6 +147,15 @@ QVariantList dividerTypeValues();
 // model's commitValueDirect path just refreshes the row when the
 // delegate fires setData (so other columns reflecting the same engine
 // state stay current).
+//
+// §S.SC.1.c (2026-05-25) — the same Compound editor kind also drives
+// link-side compound cells. The setter tag's prefix
+// ("node_*" vs "link_*") is what `data()` keys off to decide whether
+// to build a `NodeCompoundEditRef` (→ NodeCompoundEditDialog) or a
+// `LinkCompoundEditRef` (→ LinkCompoundEditDialog). The delegate
+// (`CompoundEditDelegate`) dispatches on the cell-value type, so both
+// kinds round-trip through the same delegate without a second
+// EditorKind enumerator.
 ColumnSpec compoundCol(const QString &key, const QString &label,
                         const QString &setterTag) {
     ColumnSpec c;
@@ -151,6 +164,50 @@ ColumnSpec compoundCol(const QString &key, const QString &label,
     c.editor = EditorKind::Compound;
     c.setter = setterTag;
     return c;
+}
+
+// §S.SC.1.c — Short summary string for a link's [XSECTIONS] state,
+// used as the read-only label on the XSection compound cell so the
+// user sees "CIRCULAR (3.0 ft)" / "IRREGULAR (Creek-A)" without
+// opening the dialog. Mirrors LinkCompoundEditDialog::computeXsectSummary
+// but pure (no dialog member access) so the table can call it cell-
+// by-cell.
+QString xsectSummaryFor(SWMM_Engine eng, int linkIdx)
+{
+    if (!eng || linkIdx < 0) return QString();
+    int shape = 0;
+    double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
+    if (swmm_link_get_xsect(eng, linkIdx, &shape, &g1, &g2, &g3, &g4) != SWMM_OK)
+        return QString();
+
+    static const char *shapeNames[] = {
+        "CIRCULAR", "FILLED_CIRCULAR", "RECT_CLOSED", "RECT_OPEN",
+        "TRAPEZOIDAL", "TRIANGULAR", "PARABOLIC", "POWER",
+        "RECT_TRIANGULAR", "RECT_ROUND", "MOD_BASKETHANDLE",
+        "HORIZ_ELLIPSE", "VERT_ELLIPSE", "ARCH", "EGGSHAPED",
+        "HORSESHOE", "GOTHIC", "CATENARY", "SEMIELLIPTICAL", "IRREGULAR",
+    };
+    const QString shapeStr = (shape >= 0 && shape < 20)
+        ? QString::fromLatin1(shapeNames[shape])
+        : QStringLiteral("UNKNOWN");
+
+    // IRREGULAR: geom1 is the transect index — resolve to name so the
+    // cell isn't cryptic.
+    if (shape == /*IRREGULAR*/ 19) {
+        const int tIdx = static_cast<int>(std::lround(g1));
+        QString txName;
+        if (tIdx >= 0 && tIdx < swmm_transect_count(eng)) {
+            if (const char *id = swmm_transect_id(eng, tIdx))
+                txName = QString::fromUtf8(id);
+        }
+        return QStringLiteral("%1 (%2)").arg(shapeStr,
+                                              txName.isEmpty()
+                                                  ? QStringLiteral("—") : txName);
+    }
+    if (g2 > 0.0)
+        return QStringLiteral("%1 (%2 × %3)")
+                   .arg(shapeStr).arg(g1, 0, 'g', 4).arg(g2, 0, 'g', 4);
+    return QStringLiteral("%1 (%2)").arg(shapeStr).arg(g1, 0, 'g', 4);
 }
 
 // Slice DB — coordinate columns, now editable. Setters route through
@@ -305,6 +362,11 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                                   -1e6, 1e6, 4, UnitKind::Length),
             num("Offset dn",   "Downstream Offset", "link_offset_dn",
                                                   -1e6, 1e6, 4, UnitKind::Length),
+            // §S.SC.1.c — XSection compound cell. Same dialog the
+            // Property Browser opens; lets the user pick a shape +
+            // geoms (or a transect, via the new picker) from the
+            // attribute table inline.
+            compoundCol("XSection", "Cross Section", "link_xsect_ref"),
             enumCol("Flap gate",    "Flap Gate",     "link_flap_gate",     yesNoValues()),
             enumCol("Culvert code", "Culvert Code",  "link_culvert_code",  culvertCodeValues()),
         };
@@ -336,6 +398,10 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             num("End contractions", "End Contractions",
                                                   "link_end_contractions",
                                                   0.0, 1e3, 0),
+            // §S.SC.1.c — XSection compound cell. The dialog filters
+            // the shape palette to the legal weir shapes
+            // (RECT_OPEN / TRAPEZOIDAL / TRIANGULAR) automatically.
+            compoundCol("XSection", "Cross Section", "link_xsect_ref"),
             enumCol("Flap gate", "Flap Gate",     "link_flap_gate", yesNoValues()),
         };
     case SWMMModelLayer::CatOrifices:
@@ -350,6 +416,10 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             num("Discharge coeff", "Discharge Coefficient",
                                                   "link_discharge_coeff",
                                                   0.0, 100.0, 4),
+            // §S.SC.1.c — XSection compound cell, restricted to
+            // CIRCULAR / RECT_CLOSED for orifices per the dialog's
+            // shape allow-list.
+            compoundCol("XSection", "Cross Section", "link_xsect_ref"),
             enumCol("Flap gate", "Flap Gate",       "link_flap_gate", yesNoValues()),
         };
     case SWMMModelLayer::CatOutlets:
@@ -600,6 +670,7 @@ void SWMMAttributeTableModel::setSource(SWMMModelLayer *layer,
     const int n = m_layer ? m_layer->categoryCount(m_category) : 0;
     m_rowCache.assign(n, {});
     m_rowCacheValid.assign(n, false);
+    invalidateCompoundCache();
     endResetModel();
 }
 
@@ -622,7 +693,85 @@ void SWMMAttributeTableModel::reload()
     const int n = m_layer ? m_layer->categoryCount(m_category) : 0;
     m_rowCache.assign(n, {});
     m_rowCacheValid.assign(n, false);
+    invalidateCompoundCache();
     endResetModel();
+}
+
+void SWMMAttributeTableModel::invalidateCompoundCache()
+{
+    m_inflowCountByNode.clear();
+    m_dwfCountByNode.clear();
+    m_rdiiCountByNode.clear();
+    m_treatmentActiveByNode.clear();
+    m_compoundPollutantCount = 0;
+    m_compoundCacheBuilt     = false;
+}
+
+void SWMMAttributeTableModel::ensureCompoundCacheBuilt() const
+{
+    if (m_compoundCacheBuilt) return;
+    if (!m_layer) { m_compoundCacheBuilt = true; return; }
+    SWMM_Engine eng = m_layer->engine();
+    if (!eng)     { m_compoundCacheBuilt = true; return; }
+
+    m_inflowCountByNode.clear();
+    m_dwfCountByNode.clear();
+    m_rdiiCountByNode.clear();
+    m_treatmentActiveByNode.clear();
+
+    // Inflows — one engine scan over all external inflows; bucket
+    // counts by destination node index. Replaces what used to be a
+    // full O(inflows) loop per *cell*.
+    {
+        const int total = swmm_ext_inflow_count(eng);
+        char consBuf[64], tsBuf[64], typeBuf[16], patBuf[64];
+        for (int i = 0; i < total; ++i) {
+            int ni = -1;
+            double mf = 0.0, sf = 0.0, base = 0.0;
+            if (swmm_ext_inflow_get(eng, i, &ni,
+                                      consBuf, sizeof(consBuf),
+                                      tsBuf,   sizeof(tsBuf),
+                                      typeBuf, sizeof(typeBuf),
+                                      &mf, &sf, &base,
+                                      patBuf,  sizeof(patBuf)) != SWMM_OK)
+                continue;
+            if (ni >= 0) ++m_inflowCountByNode[ni];
+        }
+    }
+    {
+        const int total = swmm_dwf_count(eng);
+        char consBuf[64], p1Buf[64], p2Buf[64], p3Buf[64], p4Buf[64];
+        for (int i = 0; i < total; ++i) {
+            int ni = -1;
+            double avg = 0.0;
+            if (swmm_dwf_get(eng, i, &ni,
+                              consBuf, sizeof(consBuf),
+                              &avg,
+                              p1Buf, sizeof(p1Buf),
+                              p2Buf, sizeof(p2Buf),
+                              p3Buf, sizeof(p3Buf),
+                              p4Buf, sizeof(p4Buf)) != SWMM_OK)
+                continue;
+            if (ni >= 0) ++m_dwfCountByNode[ni];
+        }
+    }
+    {
+        const int total = swmm_rdii_count(eng);
+        char uhBuf[128];
+        for (int i = 0; i < total; ++i) {
+            int ni = -1; double area = 0.0;
+            if (swmm_rdii_get(eng, i, &ni, uhBuf,
+                                sizeof(uhBuf), &area) != SWMM_OK) continue;
+            if (ni >= 0) ++m_rdiiCountByNode[ni];
+        }
+    }
+    // Treatment — pollutant_count is a one-time read; the per-node
+    // "active" count requires probing each (node, pollutant) pair. We
+    // defer that until a Treatment cell is actually requested
+    // (computed inline against the cached pollutant count) so we
+    // don't pay it on tables that never look at treatment.
+    m_compoundPollutantCount = swmm_pollutant_count(eng);
+    m_compoundCacheBuilt = true;
 }
 
 int SWMMAttributeTableModel::rowCount(const QModelIndex &parent) const
@@ -737,6 +886,25 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         const QString name = objectNameAt(row);
         SWMM_Engine eng = m_layer->engine();
         if (!eng || name.isEmpty()) return {};
+
+        // §S.SC.1.c — Link-side compound (XSection / CulvertCode /
+        // InletUsage). The setter tag's "link_" prefix routes here;
+        // node setters fall through to the existing branch below.
+        if (spec.setter.startsWith(QStringLiteral("link_"))) {
+            const int linkIdx = swmm_link_index(eng, name.toUtf8().constData());
+            if (linkIdx < 0) return {};
+
+            LinkCompoundEditRef lref;
+            lref.engine   = eng;
+            lref.linkName = name;
+            lref.layer    = m_layer;
+            if (spec.setter == QStringLiteral("link_xsect_ref")) {
+                lref.kind    = LinkCompoundEditRef::XSection;
+                lref.summary = xsectSummaryFor(eng, linkIdx);
+            }
+            return QVariant::fromValue(lref);
+        }
+
         const int nodeIdx = swmm_node_index(eng, name.toUtf8().constData());
         if (nodeIdx < 0) return {};
 
@@ -745,71 +913,45 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         ref.nodeName = name;
         ref.layer    = m_layer;
 
+        ensureCompoundCacheBuilt();
+
         if (spec.setter == QStringLiteral("node_inflows_ref")) {
             ref.kind = NodeCompoundEditRef::Inflows;
-            const int total = swmm_ext_inflow_count(eng);
-            int matched = 0;
-            char consBuf[64], tsBuf[64], typeBuf[16], patBuf[64];
-            for (int i = 0; i < total; ++i) {
-                int ni = -1;
-                double mf = 0.0, sf = 0.0, base = 0.0;
-                if (swmm_ext_inflow_get(eng, i, &ni,
-                                          consBuf, sizeof(consBuf),
-                                          tsBuf,   sizeof(tsBuf),
-                                          typeBuf, sizeof(typeBuf),
-                                          &mf, &sf, &base,
-                                          patBuf,  sizeof(patBuf)) != SWMM_OK)
-                    continue;
-                if (ni == nodeIdx) ++matched;
-            }
+            const int matched = m_inflowCountByNode.value(nodeIdx, 0);
             ref.summary = (matched > 0)
                 ? tr("%1 entries").arg(matched)
                 : tr("(none)");
         } else if (spec.setter == QStringLiteral("node_dwf_ref")) {
             ref.kind = NodeCompoundEditRef::Dwf;
-            const int total = swmm_dwf_count(eng);
-            int matched = 0;
-            char consBuf[64], p1Buf[64], p2Buf[64], p3Buf[64], p4Buf[64];
-            for (int i = 0; i < total; ++i) {
-                int ni = -1;
-                double avg = 0.0;
-                if (swmm_dwf_get(eng, i, &ni,
-                                  consBuf, sizeof(consBuf),
-                                  &avg,
-                                  p1Buf, sizeof(p1Buf),
-                                  p2Buf, sizeof(p2Buf),
-                                  p3Buf, sizeof(p3Buf),
-                                  p4Buf, sizeof(p4Buf)) != SWMM_OK)
-                    continue;
-                if (ni == nodeIdx) ++matched;
-            }
+            const int matched = m_dwfCountByNode.value(nodeIdx, 0);
             ref.summary = (matched > 0)
                 ? tr("%1 entries").arg(matched)
                 : tr("(none)");
         } else if (spec.setter == QStringLiteral("node_rdii_ref")) {
             ref.kind = NodeCompoundEditRef::Rdii;
-            const int total = swmm_rdii_count(eng);
-            int matched = 0;
-            char uhBuf[128];
-            for (int i = 0; i < total; ++i) {
-                int ni = -1; double area = 0.0;
-                if (swmm_rdii_get(eng, i, &ni, uhBuf,
-                                    sizeof(uhBuf), &area) != SWMM_OK) continue;
-                if (ni == nodeIdx) ++matched;
-            }
+            const int matched = m_rdiiCountByNode.value(nodeIdx, 0);
             ref.summary = (matched > 0)
                 ? tr("%1 entries").arg(matched)
                 : tr("(none)");
         } else if (spec.setter == QStringLiteral("node_treatment_ref")) {
             ref.kind = NodeCompoundEditRef::Treatment;
-            const int nPollut = swmm_pollutant_count(eng);
+            const int nPollut = m_compoundPollutantCount;
+            // Treatment "active" requires per-(node, pollutant) probes;
+            // cache them lazily per node so the row is paid once, not
+            // once per cell paint.
             int active = 0;
-            char buf[256];
-            for (int p = 0; p < nPollut; ++p) {
-                buf[0] = '\0';
-                if (swmm_treatment_get(eng, nodeIdx, p, buf, sizeof(buf)) != SWMM_OK)
-                    continue;
-                if (buf[0] != '\0') ++active;
+            auto it = m_treatmentActiveByNode.constFind(nodeIdx);
+            if (it != m_treatmentActiveByNode.constEnd()) {
+                active = it.value();
+            } else {
+                char buf[256];
+                for (int p = 0; p < nPollut; ++p) {
+                    buf[0] = '\0';
+                    if (swmm_treatment_get(eng, nodeIdx, p, buf, sizeof(buf)) != SWMM_OK)
+                        continue;
+                    if (buf[0] != '\0') ++active;
+                }
+                m_treatmentActiveByNode.insert(nodeIdx, active);
             }
             ref.summary = (active > 0)
                 ? tr("%1 / %2 pollutants").arg(active).arg(nPollut)

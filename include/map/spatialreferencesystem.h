@@ -142,6 +142,28 @@ public:
      */
     [[nodiscard]] QString angularUnitsName() const;
 
+    /*!
+     * \brief Planar linear-unit information used by the 2D mesh writer.
+     * \details `metresPerUnit` is the factor that converts this CRS's XY
+     *          coordinates to metres (the engine's SI contract).
+     *          `usable` is true only when the CRS is projected or local AND
+     *          `metresPerUnit` is finite and > 0. Geographic CRSes are
+     *          unusable for planar meshing.
+     */
+    struct LinearUnitInfo
+    {
+        double  metresPerUnit = 1.0;
+        QString name;
+        bool    usable = false;
+    };
+
+    /*!
+     * \brief Returns a LinearUnitInfo describing the planar linear unit.
+     * \details Use this at every boundary that must convert between
+     *          project-CRS XY and engine-SI metres (2D mesh write/read).
+     */
+    [[nodiscard]] LinearUnitInfo planarLinearUnit() const;
+
     // ----- GDAL interop ----------------------------------------------------
 
     /*!

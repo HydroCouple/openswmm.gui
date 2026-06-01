@@ -10,7 +10,11 @@
 #include "layers/gisrasterlayer.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
+#include "layers/swmmresultslayer.h"        // Slice QA.2 — registry hookup
+#include "layers/swmm2dresultslayer.h"      // active 2D analysis layer
+#include "output/outputstatsregistry.h"     // Slice QA.2 — owns the registry
 #include "project/openswmmvisworkspace.h"
+#include "project/projectserializer.h"      // Slice RB.1 — sidecar auto-create
 #include "map/tools/maptoolpan.h"
 #include "map/tools/maptoolzoom.h"
 #include "map/tools/maptoolselect.h"
@@ -20,7 +24,12 @@
 #include "map/tools/maptooladdlink.h"
 #include "map/tools/maptooladdgage.h"
 #include "map/tools/maptooladdsubcatchment.h"
+#include "map/tools/maptooladdtext.h"
 #include "map/tools/maptoolpick2dcells.h"
+#include "map/tools/maptoolmeshprofile.h"
+#include "map/tools/maptoolmeshselectvertex.h"
+#include "map/tools/maptoolmeshselectedge.h"
+#include "layers/annotationlayer.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
 #include "ui/dialogs/crsselectiondialog.h"
@@ -31,6 +40,7 @@
 #include "map/openswmmvisscene.h"
 #include "plugins/filefilterregistry.h"
 #include "selection/selectionmanager.h"
+#include "mesh/meshobjectref.h"             // MeshCell ref parsing for cell highlight
 
 #include <QCloseEvent>
 #include <QComboBox>
@@ -61,7 +71,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
       mWorkspace(workspace)
 {
     setAttribute(Qt::WA_DeleteOnClose);
-    setMinimumSize(600, 400);
+    setMinimumSize(200, 150);
     // NOTE: do NOT call setWindowFlags here. In TabbedView mode (the
     // .ui's default) re-flagging a QMdiSubWindow detaches it from the
     // tab stack and floats it as a free-standing window — not what we
@@ -72,6 +82,19 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // Per-project services (parented to this window so they die with it)
     mUnits            = new UnitSystem(this);
     mSelectionManager = new SelectionManager(this);
+    // Slice QA.2 — per-project output-identity registry. Layers wire
+    // themselves in / out below via the MapCanvas layerAdded /
+    // layerRemoved signals.
+    mStatsRegistry    = new openswmmvis::OutputStatsRegistry(this);
+
+    // Drive the 2D-results cell highlight from selection, keyed to the active
+    // 2D results layer (results-analysis demarcation, Part E). Cell picks made
+    // with MapToolPick2DCells land in the SelectionManager as MeshCell refs;
+    // we mirror them onto the active 2D results layer only — never onto every
+    // results layer (which is what the old mesh-toolbar path did).
+    connect(mSelectionManager, &SelectionManager::selectionChanged, this,
+            [this](const QSet<SWMMObjectRef> &, const QSet<SWMMObjectRef> &,
+                   const QSet<SWMMObjectRef> &) { refreshActive2DCellHighlight(); });
 
     // Engine version — start from the persisted default (Preferences →
     // General → Default engine mode). The status-bar engine picker still
@@ -86,6 +109,24 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // Canvas
     mCanvas = new MapCanvas(this);
     setWidget(mCanvas);
+
+    // Slice QA.2 — keep the stats registry in lockstep with the
+    // canvas's SWMMResultsLayer set. layerAdded fires after the layer
+    // is in the canvas's layer list; layerRemoved fires before removal
+    // completes. The registry's register/unregister are idempotent so
+    // either ordering is safe.
+    connect(mCanvas, &MapCanvas::layerAdded, this,
+            [this](OpenSWMMVisLayer *layer) {
+        if (auto *rl = qobject_cast<SWMMResultsLayer *>(layer)) {
+            mStatsRegistry->registerLayer(rl, rl->resultsFilePath());
+        }
+    });
+    connect(mCanvas, &MapCanvas::layerRemoved, this,
+            [this](OpenSWMMVisLayer *layer) {
+        if (auto *rl = qobject_cast<SWMMResultsLayer *>(layer)) {
+            mStatsRegistry->unregisterLayer(rl);
+        }
+    });
 
     // Model layer
     mModelLayer = new SWMMModelLayer(filePath, workspace);
@@ -121,15 +162,59 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
         mModelLayer->setWeirSymbol(weir);
     };
     applyLinkColorsFromPreferences();
+
+    // Mirror per-node-type pen / brush / size into the layer's symbol
+    // structs. The painter / GL / QSG paths all read fill, outline, and
+    // size off the SWMMElementSymbol so one push here covers every
+    // renderer. PreferencesManager::nodePen / nodeBrush / nodeSize
+    // normalise their argument internally, so the lower-case kind keys
+    // below match the canonical "Junction" / "Outfall" / … forms.
+    auto applyNodeStyleFromPreferences = [this]() {
+        auto *prefs = PreferencesManager::instance();
+        const QString kinds[4] = {
+            QStringLiteral("junction"),
+            QStringLiteral("outfall"),
+            QStringLiteral("storage"),
+            QStringLiteral("divider"),
+        };
+        SWMMElementSymbol syms[4] = {
+            mModelLayer->junctionSymbol(),
+            mModelLayer->outfallSymbol(),
+            mModelLayer->storageSymbol(),
+            mModelLayer->dividerSymbol(),
+        };
+        for (int i = 0; i < 4; ++i) {
+            const QBrush fill    = prefs->nodeBrush(kinds[i]);
+            const QPen   outline = prefs->nodePen(kinds[i]);
+            const double sizePx  = prefs->nodeSize(kinds[i]);
+            syms[i].fillColor    = fill.color();
+            syms[i].outlineColor = outline.color();
+            syms[i].outlineWidth = outline.widthF();
+            syms[i].size         = sizePx;
+        }
+        mModelLayer->setJunctionSymbol(syms[0]);
+        mModelLayer->setOutfallSymbol(syms[1]);
+        mModelLayer->setStorageSymbol(syms[2]);
+        mModelLayer->setDividerSymbol(syms[3]);
+    };
+    applyNodeStyleFromPreferences();
+
     connect(PreferencesManager::instance(), &PreferencesManager::preferenceChanged,
-            this, [this, applyLinkColorsFromPreferences](const QString &group,
-                                                         const QString &key) {
+            this, [this, applyLinkColorsFromPreferences,
+                   applyNodeStyleFromPreferences](const QString &group,
+                                                  const QString &key) {
                 if (group != QLatin1String("Rendering")) return;
                 if (key.startsWith(QLatin1String("LinkPen/"))) {
                     applyLinkColorsFromPreferences();
                     // Painter renderers consume linkPen() directly —
                     // kick a repaint so width/cap/join edits land
                     // immediately even when the colour didn't change.
+                    if (mModelLayer) emit mModelLayer->repaintRequested();
+                }
+                else if (key.startsWith(QLatin1String("NodePen/"))
+                      || key.startsWith(QLatin1String("NodeBrush/"))
+                      || key.startsWith(QLatin1String("NodeSize/"))) {
+                    applyNodeStyleFromPreferences();
                     if (mModelLayer) emit mModelLayer->repaintRequested();
                 }
             });
@@ -195,6 +280,12 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     mAddOutletTool    = new OpenSWMMVisMapToolAddLink(mCanvas, 4, QStringLiteral("outlet"),       this);
     mAddGageTool      = new OpenSWMMVisMapToolAddGage(mCanvas, this);
     mAddSubcatchTool  = new OpenSWMMVisMapToolAddSubcatchment(mCanvas, this);
+    // Annotation layer is lazy — created on first text placement or on
+    // project restore — so projects with no annotations stay tidy in the
+    // layer tree. The AddText tool is also lazy; activateAddTextTool()
+    // wires both before flipping the tool active.
+    mAnnotationLayer = nullptr;
+    mAddTextTool     = nullptr;
 
     // Terrain Z readout: sample, convert to model vertical units, push to canvas.
     connect(mCanvas, &MapCanvas::cursorPositionChanged, this,
@@ -519,6 +610,15 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
                     mb.setText(tr("A coordinate reference system is required to open this SWMM model."));
                     mb.setInformativeText(tr("Choose a CRS to continue, or abort opening the project."));
                     QPushButton *chooseBtn = mb.addButton(tr("Choose CRS…"), QMessageBox::AcceptRole);
+                    // Local-projected shortcut: matches the model's flow-unit
+                    // system (ft vs. m) so 2D mesh generation has a usable
+                    // linear unit without forcing the user through the picker.
+                    const QString lenLabel = (mUnits && mUnits->isSI())
+                                                 ? QStringLiteral("m")
+                                                 : QStringLiteral("ft");
+                    QPushButton *localBtn  = mb.addButton(
+                        tr("Use local projected (%1)").arg(lenLabel),
+                        QMessageBox::AcceptRole);
                     QPushButton *abortBtn  = mb.addButton(tr("Abort Open"),  QMessageBox::RejectRole);
                     mb.setDefaultButton(chooseBtn);
                     mb.exec();
@@ -528,7 +628,20 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
                         mModelLayer->setVisible(false);
                         return false;
                     }
-                    // else loop back and re-open the picker.
+                    if (mb.clickedButton() == localBtn)
+                    {
+                        const QString mapUnits = (mUnits && mUnits->isSI())
+                                                     ? QStringLiteral("METERS")
+                                                     : QStringLiteral("FEET");
+                        if (SpatialReferenceSystem *local =
+                                SpatialReferenceSystem::localFromMapUnits(mapUnits))
+                        {
+                            mModelLayer->setSRS(local, true);
+                            modelSRS = local;
+                            break;
+                        }
+                    }
+                    // else (Choose CRS…) loop back and re-open the picker.
                     Q_UNUSED(chooseBtn);
                 }
             }
@@ -737,6 +850,33 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         updateWindowTitle();
     }
     setHasChanges(false);
+
+    // Slice RB.1+2 — sidecar auto-create. Every successful built-in .inp
+    // write also produces a sibling .oswp project file. Plugin-driven
+    // writes (non-empty pluginId, e.g. GeoPackage export) are deliberately
+    // skipped — those are standalone exports per Slice AA-3.5 contract.
+    // RB.2: log a one-line "Creating sibling project file:" sentinel the
+    // first time the sidecar appears on disk so the user sees the
+    // auto-create. Subsequent saves of an existing .oswp are silent.
+    if (pluginId.isEmpty())
+    {
+        const QString oswpPath = ProjectSerializer::sidecarPathFor(newPath);
+        if (!oswpPath.isEmpty())
+        {
+            const bool sidecarPreExisted = QFile::exists(oswpPath);
+            QString sidecarErr;
+            if (!ProjectSerializer::saveToFile(oswpPath, this, &sidecarErr))
+            {
+                qWarning() << "ProjectSerializer::saveToFile failed:" << sidecarErr;
+                // Non-fatal — the .inp already saved, project is recoverable.
+            }
+            else if (!sidecarPreExisted)
+            {
+                qInfo().noquote()
+                    << QStringLiteral("Creating sibling project file: %1").arg(oswpPath);
+            }
+        }
+    }
     return true;
 }
 
@@ -880,12 +1020,32 @@ void SWMMVisProjectWindow::activateSelectTool()      { mCanvas->setActiveTool(mS
 void SWMMVisProjectWindow::activatePick2DCellsTool()
 {
     if (!mPick2DCellsTool) {
-        mPick2DCellsTool = new MapToolPick2DCells(mCanvas, this);
+        mPick2DCellsTool = new MapToolPick2DCells(mCanvas, mSelectionManager, this);
         // Forward the cellsPicked signal up to SWMMVis (parent path).
         QObject::connect(mPick2DCellsTool, &MapToolPick2DCells::cellsPicked,
                          this,             &SWMMVisProjectWindow::pick2DCellsPicked);
     }
     mCanvas->setActiveTool(mPick2DCellsTool);
+}
+
+void SWMMVisProjectWindow::activateMeshSelectVertexTool()
+{
+    if (!mMeshSelectVertexTool) {
+        mMeshSelectVertexTool = new MapToolMeshSelectVertex(mCanvas, mSelectionManager, this);
+        QObject::connect(mMeshSelectVertexTool, &MapToolMeshSelectVertex::plotVertexSeriesRequested,
+                         this,                  &SWMMVisProjectWindow::meshVertexSeriesRequested);
+    }
+    mCanvas->setActiveTool(mMeshSelectVertexTool);
+}
+
+void SWMMVisProjectWindow::activateMeshSelectEdgeTool()
+{
+    if (!mMeshSelectEdgeTool) {
+        mMeshSelectEdgeTool = new MapToolMeshSelectEdge(mCanvas, mSelectionManager, this);
+        QObject::connect(mMeshSelectEdgeTool, &MapToolMeshSelectEdge::plotEdgeFluxRequested,
+                         this,                &SWMMVisProjectWindow::meshEdgeFluxRequested);
+    }
+    mCanvas->setActiveTool(mMeshSelectEdgeTool);
 }
 void SWMMVisProjectWindow::activateMeasureTool()
 {
@@ -901,6 +1061,21 @@ void SWMMVisProjectWindow::activateSelectProfileTool()
     else
         mCanvas->setActiveTool(mSelectProfileTool);
 }
+
+void SWMMVisProjectWindow::activateMeshProfileTool()
+{
+    if (mMeshProfileTool && mCanvas->activeTool() == mMeshProfileTool) {
+        mCanvas->setActiveTool(mSelectTool);
+        return;
+    }
+    if (!mMeshProfileTool) {
+        mMeshProfileTool = new MapToolMeshProfile(mCanvas, this);
+        // Forward the finished polyline up to SWMMVis (parent path).
+        QObject::connect(mMeshProfileTool, &MapToolMeshProfile::profilePathTraced,
+                         this,             &SWMMVisProjectWindow::meshProfileTraced);
+    }
+    mCanvas->setActiveTool(mMeshProfileTool);
+}
 void SWMMVisProjectWindow::activateAddJunctionTool()    { mCanvas->setActiveTool(mAddJunctionTool); }
 void SWMMVisProjectWindow::activateAddOutfallTool()     { mCanvas->setActiveTool(mAddOutfallTool); }
 void SWMMVisProjectWindow::activateAddStorageTool()     { mCanvas->setActiveTool(mAddStorageTool); }
@@ -912,6 +1087,26 @@ void SWMMVisProjectWindow::activateAddWeirTool()        { mCanvas->setActiveTool
 void SWMMVisProjectWindow::activateAddOutletTool()      { mCanvas->setActiveTool(mAddOutletTool); }
 void SWMMVisProjectWindow::activateAddGageTool()        { mCanvas->setActiveTool(mAddGageTool); }
 void SWMMVisProjectWindow::activateAddSubcatchmentTool(){ mCanvas->setActiveTool(mAddSubcatchTool); }
+void SWMMVisProjectWindow::activateAddTextTool()
+{
+    ensureAnnotationLayer();
+    if (!mAddTextTool)
+        mAddTextTool = new OpenSWMMVisMapToolAddText(mCanvas, mAnnotationLayer, this);
+    mCanvas->setActiveTool(mAddTextTool);
+}
+
+OpenSWMMVisAnnotationLayer *SWMMVisProjectWindow::ensureAnnotationLayer()
+{
+    if (mAnnotationLayer)
+        return mAnnotationLayer;
+    mAnnotationLayer = new OpenSWMMVisAnnotationLayer(tr("Annotations"), nullptr);
+    // pushUndo=false: the layer creation isn't itself an undoable user
+    // action; it's a side-effect of the first AddAnnotationCommand, which
+    // is what shows up in the undo stack.
+    mCanvas->addLayer(mAnnotationLayer, /*pushUndo=*/false);
+    return mAnnotationLayer;
+}
+
 void SWMMVisProjectWindow::zoomToFullExtent()        { mCanvas->zoomToFullExtent(); }
 
 QHash<OpenSWMMVisMapTool *, QString> SWMMVisProjectWindow::toolActionKeys() const
@@ -934,9 +1129,18 @@ QHash<OpenSWMMVisMapTool *, QString> SWMMVisProjectWindow::toolActionKeys() cons
         { mAddOutletTool,      QStringLiteral("actionAddOutlet")      },
         { mAddGageTool,        QStringLiteral("actionRainGauge")      },
         { mAddSubcatchTool,    QStringLiteral("actionAddSubcatchment")},
-        // CF.3 — Pick 2D Cells tool (lazy-instantiated; key reserved so the
-        // toolbar action set can be checkable-synced on first activation).
-        { mPick2DCellsTool,    QStringLiteral("actionPick2DCells")    },
+        // Lazy tools — null entries are tolerated by the caller's `if (tool)`
+        // guards; the key reservation keeps the action's checkable state
+        // tracked once the tool first instantiates.
+        { mAddTextTool,          QStringLiteral("actionAddText")          },
+        { mPick2DCellsTool,      QStringLiteral("actionPick2DCells")      },
+        { mMeshProfileTool,      QStringLiteral("actionMeshProfile")      },
+        // Step G — mesh-toolbar vertex/edge selectors join the canvas-level
+        // active-tool radio so the general-purpose Select / 2D-cells picks
+        // visually uncheck them (and vice versa). objectNames come from
+        // MeshEditingToolbar::ctor.
+        { mMeshSelectVertexTool, QStringLiteral("actionMeshSelectVertex") },
+        { mMeshSelectEdgeTool,   QStringLiteral("actionMeshSelectEdge")   },
     };
 }
 
@@ -962,6 +1166,76 @@ void SWMMVisProjectWindow::setEngineVersion(const QString &version)
 QString SWMMVisProjectWindow::activeTerrainLayerPath() const
 {
     return mActiveTerrain ? mActiveTerrain->filePath() : QString();
+}
+
+SWMMResultsLayer *SWMMVisProjectWindow::activeResultsLayer() const
+{
+    return mActiveResultsLayer;
+}
+
+SWMM2DResultsLayer *SWMMVisProjectWindow::active2DResultsLayer() const
+{
+    return mActive2DResultsLayer;
+}
+
+void SWMMVisProjectWindow::setActiveResultsLayer(SWMMResultsLayer *layer)
+{
+    // Reject a layer that isn't on this window's canvas (defensive — a stale
+    // pointer from another tab must never become this tab's active layer).
+    if (layer && (!mCanvas || !mCanvas->layers().contains(layer)))
+        return;
+    if (mActiveResultsLayer == layer)
+        return;
+    mActiveResultsLayer = layer;
+    emit activeResultsLayerChanged(layer);
+}
+
+void SWMMVisProjectWindow::setActive2DResultsLayer(SWMM2DResultsLayer *layer)
+{
+    if (layer && (!mCanvas || !mCanvas->layers().contains(layer)))
+        return;
+    if (mActive2DResultsLayer == layer)
+        return;
+    mActive2DResultsLayer = layer;
+
+    // Re-point the 2D cell-pick tool so graphical analysis selection targets
+    // the active layer rather than the first-found one.
+    if (mPick2DCellsTool)
+        mPick2DCellsTool->setTargetLayer(layer);
+
+    // Move the cell highlight to the newly-active layer (and clear it off any
+    // other 2D results layer).
+    refreshActive2DCellHighlight();
+
+    emit active2DResultsLayerChanged(layer);
+}
+
+void SWMMVisProjectWindow::refreshActive2DCellHighlight()
+{
+    if (!mCanvas) return;
+
+    // Collect the currently-selected MeshCell triangle indices.
+    QSet<int> cellSet;
+    if (mSelectionManager) {
+        for (const SWMMObjectRef &ref : mSelectionManager->selection()) {
+            if (ref.objectType != SWMMObjectRef::MeshCell) continue;
+            QString lk; int tri = -1;
+            if (mesh::MeshObjectRef::parseCell(ref, &lk, &tri) && tri >= 0)
+                cellSet.insert(tri);
+        }
+    }
+
+    // Apply the highlight to the active 2D results layer only; clear every
+    // other 2D results layer so a stale highlight never lingers on a
+    // de-activated run (fixes the old unkeyed push-to-all-layers behaviour).
+    for (OpenSWMMVisLayer *l : mCanvas->layers()) {
+        auto *res = qobject_cast<SWMM2DResultsLayer *>(l);
+        if (!res) continue;
+        if (res == mActive2DResultsLayer)
+            res->highlightCells(cellSet);
+        else
+            res->highlightCells({});
+    }
 }
 
 void SWMMVisProjectWindow::setActiveTerrain(GISRasterLayer *layer)

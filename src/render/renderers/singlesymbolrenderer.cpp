@@ -117,6 +117,21 @@ QColor SingleSymbolRenderer::colorForClass(const QString &classKey) const
     return {};
 }
 
+qreal SingleSymbolRenderer::sizeForClass(const QString &classKey) const
+{
+    if (classKey != kSingleClassKey) return -1.0;
+    // Prefer "size" (markers); fall back to "width" (lines).
+    for (const SymbolLayer &sl : m_symbol.layers) {
+        const auto it = sl.props.constFind(QStringLiteral("size"));
+        if (it != sl.props.constEnd()) return it.value().toReal();
+    }
+    for (const SymbolLayer &sl : m_symbol.layers) {
+        const auto it = sl.props.constFind(QStringLiteral("width"));
+        if (it != sl.props.constEnd()) return it.value().toReal();
+    }
+    return -1.0;
+}
+
 void SingleSymbolRenderer::setColorForClass(const QString &classKey, const QColor &color)
 {
     if (classKey != kSingleClassKey || !color.isValid()) return;

@@ -8,6 +8,8 @@
 
 #include "core/unitsystem.h"
 #include "layers/swmmmodellayer.h"
+#include "layers/swmmresultslayer.h"        // Slice QA.2 — stats dispatch
+#include "output/outputstatsregistry.h"     // Slice QA.2
 
 #include <openswmm/engine/openswmm_inflows.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -197,10 +199,55 @@ GETTER(pondedArea,     swmm_node_get_ponded_area)
 GETTER(seepRate,       swmm_node_get_storage_seep_rate)
 GETTER(crownElev,        swmm_node_get_crown_elev)
 GETTER(fullVolume,       swmm_node_get_full_volume)
-GETTER(statMaxDepth,     swmm_node_get_stat_max_depth)
-GETTER(statMaxOverflow,  swmm_node_get_stat_max_overflow)
-GETTER(statVolFlooded,   swmm_node_get_stat_vol_flooded)
-GETTER(statTimeFlooded,  swmm_node_get_stat_time_flooded)
+// Slice QA.2 — stats getters now dispatch on m_statsSourceId.
+//   - null UUID  → today's behaviour: read from m_engine's ambient
+//                   post-run stats via swmm_node_get_stat_*. Preserves
+//                   the existing single-output workflow for users who
+//                   haven't picked a source from the combo.
+//   - non-null   → resolve the UUID to a SWMMResultsLayer via the
+//                   registry; call layer->nodeStatMax*(name).
+// Null-checks at every hop (registry, layer ptr post-QPointer) keep
+// the getter exception-free even mid-teardown.
+#define STAT_GETTER(METHOD, ENGINE_GET, LAYER_GET)                  \
+double SWMMNodePropertyAdapter::METHOD() const {                    \
+    if (m_statsSourceId.isNull() || !m_statsRegistry) {             \
+        const int idx = nodeIdx();                                  \
+        if (idx < 0) return 0.0;                                    \
+        double v = 0.0;                                             \
+        ENGINE_GET(m_engine, idx, &v);                              \
+        return v;                                                   \
+    }                                                               \
+    const auto id = m_statsRegistry->identityFor(m_statsSourceId);  \
+    if (!id.layer) return 0.0; /* layer destroyed since combo set */ \
+    return id.layer->LAYER_GET(m_name);                             \
+}
+
+STAT_GETTER(statMaxDepth,    swmm_node_get_stat_max_depth,    nodeStatMaxDepth)
+STAT_GETTER(statMaxOverflow, swmm_node_get_stat_max_overflow, nodeStatMaxOverflow)
+STAT_GETTER(statVolFlooded,  swmm_node_get_stat_vol_flooded,  nodeStatVolFlooded)
+STAT_GETTER(statTimeFlooded, swmm_node_get_stat_time_flooded, nodeStatTimeFlooded)
+
+#undef STAT_GETTER
+
+void SWMMNodePropertyAdapter::setStatsRegistry(
+        openswmmvis::OutputStatsRegistry *registry)
+{
+    m_statsRegistry = registry;
+    // No emit changed() — registry availability isn't a value change.
+    // The panel re-invokes setStatsSource after wiring up so the value
+    // refresh happens through the normal source-set path.
+}
+
+void SWMMNodePropertyAdapter::setStatsSource(const QUuid &id)
+{
+    if (m_statsSourceId == id) return;
+    m_statsSourceId = id;
+    // Re-prompt QPropertyModel to re-read every property so the four
+    // stat rows refresh against the new source. Matches the refresh()
+    // idiom existing setters use to push round-trip values back to
+    // the browser.
+    emit changed();
+}
 
 int SWMMNodePropertyAdapter::degree() const {
     const int idx = nodeIdx();

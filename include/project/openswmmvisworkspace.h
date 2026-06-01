@@ -112,12 +112,14 @@ public:
 	QVector<OpenSWMMVisSession*> layers() const;
 
 	/*!
-	* \brief loadProject method to load project file
-	* \param filepath QString file path
-	* \param warnings QList<QString> list of warnings
-	* \param errors QList<QString> list of errors
-	* \return bool true if project file is loaded successfully, false otherwise
-	* \sa saveProject
+	* \brief Saves the workspace project to the given file path.
+	* \param filepath  Destination path (`.oswp` or `.inp`).
+	* \param warnings  Populated with non-fatal save warnings.
+	* \param errors    Populated with error messages on failure.
+	* \return true on success; false otherwise.
+	* \note  Currently unimplemented at the workspace level; per-window save
+	*        is handled by SWMMVisProjectWindow::saveAs(). Calls log a
+	*        warning and append an error explaining the limitation.
 	*/
 	bool saveProject(
 		const QString& filepath,
@@ -126,12 +128,13 @@ public:
 	);
 
 	/*!
-	* \brief loadProject method to load project file
-	* \param filepath QString file path
-	* \param warnings QList<QString> list of warnings
-	* \param errors QList<QString> list of errors
-	* \return bool true if project file is loaded successfully, false otherwise
-	* \sa loadProject
+	* \brief Saves the SWMM model file companion (.inp) to the given path.
+	* \param filepath  Destination `.inp` path.
+	* \param warnings  Populated with non-fatal save warnings.
+	* \param errors    Populated with error messages on failure.
+	* \return true on success; false otherwise.
+	* \note  Currently unimplemented; see saveProject() for the same routing
+	*        contract.
 	*/
 	bool saveSWMMProject(
 		const QString& filepath,

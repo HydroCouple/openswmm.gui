@@ -12,9 +12,13 @@
 
 #include <QAbstractItemView>
 #include <QInputDialog>
+#include <QPaintEvent>
 #include <QPainter>
 #include <QStandardItem>
 #include <QStandardItemModel>
+#include <QStyle>
+#include <QStyleOptionComboBox>
+#include <QStylePainter>
 #include <QStyledItemDelegate>
 
 namespace
@@ -220,6 +224,70 @@ void ColorRampComboBox::onActivated(int index)
         return;
 
     emit rampChanged(currentRamp());
+}
+
+void ColorRampComboBox::paintEvent(QPaintEvent *)
+{
+    // Slice S4 — paint the standard combo box chrome (border + arrow) via
+    // QStylePainter, then overlay the current ramp's gradient swatch + the
+    // ramp's display name on top, mirroring the dropdown row layout. No
+    // text-only fallback after selection.
+    QStylePainter sp(this);
+    sp.setPen(palette().color(QPalette::Text));
+
+    QStyleOptionComboBox opt;
+    initStyleOption(&opt);
+    // Suppress the default text — we paint label + swatch ourselves below.
+    opt.currentText.clear();
+    sp.drawComplexControl(QStyle::CC_ComboBox, opt);
+
+    // Field rect (the inner area excluding the arrow button).
+    const QRect field = style()->subControlRect(QStyle::CC_ComboBox, &opt,
+                                                 QStyle::SC_ComboBoxEditField, this);
+    if (!field.isValid()) {
+        sp.drawControl(QStyle::CE_ComboBoxLabel, opt);
+        return;
+    }
+
+    const QString kind = itemData(currentIndex(), RampKindRole).toString();
+    const QVariant payload = itemData(currentIndex(), RampDataRole);
+
+    QPainter p(this);
+    p.setClipRect(field);
+    p.setRenderHint(QPainter::Antialiasing, false);
+
+    if (kind == QStringLiteral("builtin") || kind == QStringLiteral("custom")) {
+        if (payload.canConvert<RasterColorRamp>()) {
+            const auto ramp = payload.value<RasterColorRamp>();
+            const int pad = 2;
+            const int swatchW = std::min(field.width() / 2, 120);
+            QRect swatch(field.left() + pad,
+                         field.top() + pad,
+                         swatchW,
+                         field.height() - 2 * pad);
+            for (int x = swatch.left(); x < swatch.right(); ++x) {
+                const double t = (swatch.width() > 1)
+                    ? double(x - swatch.left()) / double(swatch.width() - 1)
+                    : 0.0;
+                p.setPen(ramp.colorAt(t));
+                p.drawLine(x, swatch.top(), x, swatch.bottom());
+            }
+            p.setPen(palette().color(QPalette::Mid));
+            p.drawRect(swatch);
+
+            QRect textRect = field;
+            textRect.setLeft(swatch.right() + 6);
+            p.setPen(palette().color(QPalette::Text));
+            p.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
+                       currentText());
+            return;
+        }
+    }
+
+    // Sentinel / separator / unknown — fall back to the default label.
+    p.setPen(palette().color(QPalette::Text));
+    p.drawText(field.adjusted(4, 0, -4, 0),
+               Qt::AlignVCenter | Qt::AlignLeft, currentText());
 }
 
 void ColorRampComboBox::openEditor()

@@ -60,6 +60,12 @@ private:
     /*! \brief Cached bed elevation per triangle = mean of vertex z's. */
     void ensureZBedCache_() const;
 
+    /*! \brief Cached per-vertex incident-triangle adjacency + per-vertex bed
+     *  elevation, built once from the source geometry. Used to interpolate a
+     *  depth/HGL time series at a mesh vertex (mean of the triangles touching
+     *  it). */
+    void ensureVertexAdjCache_() const;
+
     /*! \brief Reconstruct (Vx, Vy) for one cell from three edge fluxes
      *  and time-invariant edge geometry using the closed-form RT0
      *  least-squares solve. Returns false (NaN-filled) for dry cells. */
@@ -76,6 +82,10 @@ private:
     QPointer<SWMM2DResultsLayer> m_layer;
     mutable std::vector<float>   m_zBed;     ///< [triCount], cached on first use.
     mutable bool                 m_zBedReady = false;
+
+    mutable std::vector<std::vector<int>> m_vertexTris;  ///< [vtxCount] incident triangle indices.
+    mutable std::vector<float>            m_vertexZ;     ///< [vtxCount] bed elevation at the vertex.
+    mutable bool                          m_vertexAdjReady = false;
 };
 
 } // namespace openswmmvis::plot

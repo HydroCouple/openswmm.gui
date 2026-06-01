@@ -113,6 +113,22 @@ void SWMMPollutantPropertyAdapter::setCoPollutant(const QString &poll)
         emit changed();
 }
 
+// Slice BM.0-Browse-Edit (2026-05-25)
+DataObjectRef SWMMPollutantPropertyAdapter::coPollutantRef() const
+{
+    DataObjectRef r;
+    r.engine      = m_engine;
+    r.layer       = m_layer;
+    r.kind        = DataObjectRef::Pollutant;
+    r.currentName = coPollutant();
+    return r;
+}
+
+void SWMMPollutantPropertyAdapter::setCoPollutantRef(const DataObjectRef &ref)
+{
+    setCoPollutant(ref.currentName);
+}
+
 void SWMMPollutantPropertyAdapter::setCoPollutantFrac(double v)
 {
     const int i = idx();

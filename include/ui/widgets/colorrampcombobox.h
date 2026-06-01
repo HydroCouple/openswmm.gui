@@ -62,6 +62,12 @@ signals:
      *  also persisted to PreferencesManager. */
     void customRampSaved(const QString &name, const RasterColorRamp &ramp);
 
+protected:
+    /*! Slice S4 — override the QComboBox default text-only closed state
+     *  so the gradient swatch keeps rendering after selection. QGIS /
+     *  ArcGIS Pro idiom. */
+    void paintEvent(QPaintEvent *event) override;
+
 private slots:
     void onActivated(int index);
 

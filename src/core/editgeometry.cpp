@@ -12,6 +12,48 @@
 namespace EditGeometry
 {
 
+namespace
+{
+// Squared distance between two points — avoids a sqrt on the hot dedup path.
+inline double dist2(const QPointF &a, const QPointF &b)
+{
+    const double dx = a.x() - b.x();
+    const double dy = a.y() - b.y();
+    return dx * dx + dy * dy;
+}
+} // namespace
+
+QVector<QPointF> cleanPolyline(const QVector<QPointF> &v, double tol)
+{
+    if (v.size() < 2)
+        return v;
+
+    const double tol2 = tol * tol;
+    QVector<QPointF> out;
+    out.reserve(v.size());
+    out.append(v.first());
+    for (int i = 1; i < v.size(); ++i)
+    {
+        // Compare against the last KEPT point so runs of >2 dupes fully collapse.
+        if (dist2(v[i], out.last()) > tol2)
+            out.append(v[i]);
+    }
+    return out;
+}
+
+QVector<QPointF> cleanPolygonRing(const QVector<QPointF> &v, double tol)
+{
+    QVector<QPointF> out = cleanPolyline(v, tol);
+
+    // Drop a trailing point that repeats the first vertex: SWMM [POLYGONS]
+    // rings are stored open, with the closing edge implicit.
+    const double tol2 = tol * tol;
+    while (out.size() >= 2 && dist2(out.last(), out.first()) <= tol2)
+        out.removeLast();
+
+    return out;
+}
+
 double polylineLength(const QVector<QPointF> &vertices)
 {
     if (vertices.size() < 2)

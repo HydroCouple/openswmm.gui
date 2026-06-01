@@ -78,6 +78,47 @@
         <file alias="Options">images/options.svg</file>
         <file alias="CreateMesh">images/create_mesh.svg</file>
         <file alias="Plugin">images/plugin.svg</file>
+        <!-- Slice BR Phase 6.8.1 — control-rule validation badges. -->
+        <file alias="RuleValid">images/rule-valid.svg</file>
+        <file alias="RuleInvalid">images/rule-invalid.svg</file>
+        <file alias="RulePending">images/rule-pending.svg</file>
+        <!-- Slice §V.VB — Mesh Editing toolbar action icons. -->
+        <file alias="SelectTriNode">images/select_tri_node.svg</file>
+        <file alias="SelectTriEdge">images/select_tri_edge.svg</file>
+        <file alias="SelectCell">images/select_cell.svg</file>
+    </qresource>
+    <!-- Slice S.SC.1.a (2026-05-25) — Cross-section thumbnails for the
+         LinkCompoundEditDialog XSection page's QListWidget shape palette.
+         Files are referenced by base name so adding more (e.g. the four
+         Slice BN.6.4.4 shapes already shipped in resources/images/) is
+         one line. The dialog maps engine shape id → base name via
+         xsectSvgBasenameFor() in linkcompoundeditdialog.cpp. -->
+    <qresource prefix="/swmmvis/xsects">
+        <file alias="arch_xsect.svg">images/arch_xsect.svg</file>
+        <file alias="baskethandle_xsect.svg">images/baskethandle_xsect.svg</file>
+        <file alias="catenary_xsect.svg">images/catenary_xsect.svg</file>
+        <file alias="circular_xsect.svg">images/circular_xsect.svg</file>
+        <file alias="custom_xsect.svg">images/custom_xsect.svg</file>
+        <file alias="dummy_xsect.svg">images/dummy_xsect.svg</file>
+        <file alias="egg_xsect.svg">images/egg_xsect.svg</file>
+        <file alias="filled_circular_xsect.svg">images/filled_circular_xsect.svg</file>
+        <file alias="forcemain_xsect.svg">images/forcemain_xsect.svg</file>
+        <file alias="gothic_xsect.svg">images/gothic_xsect.svg</file>
+        <file alias="horizontal_ellipse_xsect.svg">images/horizontal_ellipse_xsect.svg</file>
+        <file alias="horseshoe_xsect.svg">images/horseshoe_xsect.svg</file>
+        <file alias="irregular_xsect.svg">images/irregular_xsect.svg</file>
+        <file alias="modified_baskethandle_xsect.svg">images/modified_baskethandle_xsect.svg</file>
+        <file alias="open_rectangular_xsect.svg">images/open_rectangular_xsect.svg</file>
+        <file alias="parabolic_xsect.svg">images/parabolic_xsect.svg</file>
+        <file alias="power_xsect.svg">images/power_xsect.svg</file>
+        <file alias="rectangular_round_xsect.svg">images/rectangular_round_xsect.svg</file>
+        <file alias="rectangular_triangular_xsect.svg">images/rectangular_triangular_xsect.svg</file>
+        <file alias="rectangular_xsect.svg">images/rectangular_xsect.svg</file>
+        <file alias="semi-elliptical_xsect.svg">images/semi-elliptical_xsect.svg</file>
+        <file alias="street_xsect.svg">images/street_xsect.svg</file>
+        <file alias="trapezoidal_xsect.svg">images/trapezoidal_xsect.svg</file>
+        <file alias="triangular_xsect.svg">images/triangular_xsect.svg</file>
+        <file alias="vertical_ellipse_xsect.svg">images/vertical_ellipse_xsect.svg</file>
     </qresource>
     <!-- Phase B.RHI of docs/RENDERING_5M_PLAN.md — QML wrapper for the
          scene-graph renderer that MapCanvas hosts via QQuickWidget. -->

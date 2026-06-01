@@ -293,7 +293,29 @@ void WMSLayer::render(QPainter *painter,
         pxLeft, pyTop, pxRight, pyBottom,
         painterDevicePixelRatio(painter));
 
-    painter->drawImage(dst, m_cachedTile);
+    // Slice X.22 — basemap adjustments applied on a per-paint copy
+    // when non-identity; cached tile is untouched.
+    QImage tileToDraw;
+    const QImage *src = &m_cachedTile;
+    if (!m_renderParams.isIdentity()) {
+        tileToDraw = m_cachedTile;
+        m_renderParams.applyTo(tileToDraw);
+        src = &tileToDraw;
+    }
+    painter->save();
+    if (m_renderParams.resampling == OpenSWMM::Render::BasemapRenderParams::Nearest)
+        painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
+    painter->drawImage(dst, *src);
+    painter->restore();
+}
+
+void WMSLayer::setBasemapRenderParams(
+    const OpenSWMM::Render::BasemapRenderParams &p)
+{
+    if (m_renderParams == p) return;
+    m_renderParams = p;
+    emit basemapRenderParamsChanged();
+    emit repaintRequested();
 }
 
 void WMSLayer::fetchCache(const MapExtent &canvasExtent,
@@ -707,7 +729,11 @@ void WMSLayer::parseCapabilities(const QByteArray &xml)
         }
         else if (eName == QLatin1String("Layer"))
         {
-            bool queryable = reader.attributes().value(QStringLiteral("queryable")) == "1";
+            // `value(...)` returns QStringView; MSVC rejects comparison with
+            // a raw "1" literal (no QStringView::operator==(const char*)).
+            // QLatin1String("1") gives an explicit overload that compiles on
+            // all platforms.
+            bool queryable = reader.attributes().value(QStringLiteral("queryable")) == QLatin1String("1");
 
             // Read child elements for this layer
             WMSLayerInfo layerInfo;

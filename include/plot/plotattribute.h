@@ -84,6 +84,9 @@ enum class PlotAttribute {
     SystemStorage     = 33, ///< m³ / ft³  — SYS_STORAGE     (total volume)
     SystemEvapTotal   = 34, ///< mm/d / in/d — SYS_EVAP_TOTAL (total rate)
     SystemPET         = 35, ///< mm/d / in/d — SYS_PET        (potential ET)
+
+    // ----- 2D mesh-edge variables ------------------------------------------
+    Mesh2DEdgeFlux    = 36, ///< m²/s / ft²/s — signed normal flux through a mesh edge
 };
 
 /*! \brief Short human label, e.g. "Depth", "Flow", "Velocity |V|". */

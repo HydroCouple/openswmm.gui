@@ -9,34 +9,48 @@
 #include "pattern/patternprovider.h"
 #include "pattern/patternregistry.h"
 #include "ui/panels/patternfactortablemodel.h"
+#include "ui/widgets/interactivechartview.h"
+#include "ui/widgets/patterneditchartview.h"
 
-#include <QBarCategoryAxis>
-#include <QBarSeries>
-#include <QBarSet>
+#include <QApplication>
+#include <QButtonGroup>
+#include <QCategoryAxis>
 #include <QChart>
-#include <QChartView>
-#include <QPainter>
-#include <QValueAxis>
+#include <QClipboard>
+#include <QCloseEvent>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QItemSelection>
+#include <QItemSelectionModel>
 #include <QInputDialog>
 #include <QLabel>
+#include <QLegend>
 #include <QLineEdit>
+#include <QLineSeries>
 #include <QListView>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPixmap>
 #include <QPushButton>
+#include <QScatterSeries>
+#include <QSettings>
 #include <QSortFilterProxyModel>
 #include <QSplitter>
 #include <QStandardItem>
 #include <QStandardItemModel>
 #include <QStatusBar>
+#include <QStringList>
+#include <QSvgGenerator>
 #include <QTableView>
 #include <QToolButton>
 #include <QUndoStack>
+#include <QValueAxis>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -90,12 +104,17 @@ PatternEditorDialog::PatternEditorDialog(PatternRegistry *registry,
     }
 
     rebuildListModel_();
-    // Pre-select the first pattern if any exist.
-    if (m_listModel->rowCount() > 0) {
+    // Pre-select the first pattern if any exist (use the proxy index so the
+    // selection model receives the same index type currentIndex() returns).
+    if (m_listProxy && m_listProxy->rowCount() > 0) {
+        m_listView->setCurrentIndex(m_listProxy->index(0, 0));
+    } else if (m_listModel->rowCount() > 0) {
         m_listView->setCurrentIndex(m_listModel->index(0, 0));
     } else {
         bindProvider_(nullptr);
     }
+
+    restoreDialogSettings_();
 }
 
 PatternEditorDialog::~PatternEditorDialog() = default;
@@ -122,6 +141,32 @@ void PatternEditorDialog::openForPattern(const QString &name)
     if (p) selectProviderInList_(p);
 }
 
+QString PatternEditorDialog::pickPattern(PatternRegistry *registry,
+                                          QUndoStack      *undoStack,
+                                          const QString   &initialName,
+                                          QWidget         *parent)
+{
+    if (!registry) return {};
+
+    PatternEditorDialog dlg(registry, undoStack, parent);
+    dlg.setModal(true);
+    if (initialName.isEmpty()) {
+        // CreateNew — mirror createNew()'s setup without WA_DeleteOnClose.
+        dlg.m_mode = Mode::CreateNew;
+        if (dlg.m_createCard) dlg.m_createCard->show();
+        if (dlg.m_nameEdit)   dlg.m_nameEdit->setFocus();
+        dlg.setWindowTitle(tr("New Time Pattern"));
+    } else {
+        dlg.setWindowTitle(tr("Edit Time Pattern"));
+        if (auto *p = registry->findByName(initialName))
+            dlg.selectProviderInList_(p);
+    }
+    dlg.exec();
+
+    auto *p = dlg.currentProvider();
+    return p ? p->name() : QString();
+}
+
 PatternProvider *PatternEditorDialog::currentProvider() const noexcept
 {
     return m_current.data();
@@ -142,20 +187,34 @@ void PatternEditorDialog::buildUi_()
     m_splitter->setHandleWidth(6);
     outer->addWidget(m_splitter, /*stretch=*/1);
 
-    // ── Left pane: patterns list + CRUD buttons ─────────────────────────────
+    // ── Left pane: patterns list + search + CRUD buttons ────────────────────
     {
         auto *leftHost = new QWidget(m_splitter);
         auto *leftLay  = new QVBoxLayout(leftHost);
         leftLay->setContentsMargins(8, 8, 8, 8);
         leftLay->addWidget(new QLabel(tr("Patterns"), leftHost));
 
+        m_searchEdit = new QLineEdit(leftHost);
+        m_searchEdit->setPlaceholderText(tr("Search patterns…"));
+        m_searchEdit->setClearButtonEnabled(true);
+        m_searchEdit->setToolTip(tr("Filter the list by case-insensitive name substring."));
+        leftLay->addWidget(m_searchEdit);
+
+        m_listModel = new QStandardItemModel(this);
+        m_listProxy = new QSortFilterProxyModel(this);
+        m_listProxy->setSourceModel(m_listModel);
+        m_listProxy->setFilterCaseSensitivity(Qt::CaseInsensitive);
+        m_listProxy->setFilterKeyColumn(0);
+
         m_listView = new QListView(leftHost);
-        m_listView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        // Inline rename via SelectedClicked / F2; itemChanged routes through
+        // the registry (replaces the old QInputDialog rename prompt).
+        m_listView->setEditTriggers(QAbstractItemView::SelectedClicked
+                                     | QAbstractItemView::EditKeyPressed);
         m_listView->setSelectionMode(QAbstractItemView::SingleSelection);
         m_listView->setUniformItemSizes(true);
         m_listView->setContextMenuPolicy(Qt::CustomContextMenu);
-        m_listModel = new QStandardItemModel(this);
-        m_listView->setModel(m_listModel);
+        m_listView->setModel(m_listProxy);
         leftLay->addWidget(m_listView, /*stretch=*/1);
 
         connect(m_listView->selectionModel(), &QItemSelectionModel::currentChanged,
@@ -164,22 +223,31 @@ void PatternEditorDialog::buildUi_()
                 });
         connect(m_listView, &QListView::customContextMenuRequested,
                 this, &PatternEditorDialog::onListContextMenu_);
+        connect(m_searchEdit, &QLineEdit::textChanged,
+                this, &PatternEditorDialog::onSearchTextChanged_);
+        connect(m_listModel, &QStandardItemModel::itemChanged,
+                this, &PatternEditorDialog::onListItemRenamed_);
 
         // CRUD buttons row.
         auto *crudRow = new QHBoxLayout();
-        m_newBtn    = new QPushButton(tr("+ New"), leftHost);
-        m_renameBtn = new QPushButton(tr("Rename"), leftHost);
-        m_deleteBtn = new QPushButton(tr("Delete"), leftHost);
+        m_newBtn       = new QPushButton(tr("+ New"), leftHost);
+        m_duplicateBtn = new QPushButton(tr("Duplicate"), leftHost);
+        m_renameBtn    = new QPushButton(tr("Rename"), leftHost);
+        m_deleteBtn    = new QPushButton(tr("Delete"), leftHost);
         m_newBtn->setToolTip(tr("Create a new time pattern."));
+        m_duplicateBtn->setToolTip(tr("Clone the selected pattern under a new name."));
         m_renameBtn->setToolTip(tr("Rename the selected pattern."));
         m_deleteBtn->setToolTip(tr("Delete the selected pattern."));
-        connect(m_newBtn,    &QPushButton::clicked,
+        connect(m_newBtn,       &QPushButton::clicked,
                 this, &PatternEditorDialog::onNewClicked_);
-        connect(m_renameBtn, &QPushButton::clicked,
+        connect(m_duplicateBtn, &QPushButton::clicked,
+                this, &PatternEditorDialog::onDuplicateClicked_);
+        connect(m_renameBtn,    &QPushButton::clicked,
                 this, &PatternEditorDialog::onRenameClicked_);
-        connect(m_deleteBtn, &QPushButton::clicked,
+        connect(m_deleteBtn,    &QPushButton::clicked,
                 this, &PatternEditorDialog::onDeleteClicked_);
         crudRow->addWidget(m_newBtn);
+        crudRow->addWidget(m_duplicateBtn);
         crudRow->addStretch(1);
         crudRow->addWidget(m_renameBtn);
         crudRow->addWidget(m_deleteBtn);
@@ -230,30 +298,199 @@ void PatternEditorDialog::buildUi_()
         m_splitter->addWidget(centerHost);
     }
 
-    // ── Right pane: bar chart preview ───────────────────────────────────────
+    // ── Right pane: step-line preview + plot toolbar ────────────────────────
     {
+        auto *rightHost = new QWidget(m_splitter);
+        auto *rightLay  = new QVBoxLayout(rightHost);
+        rightLay->setContentsMargins(0, 0, 0, 0);
+        rightLay->setSpacing(2);
+
         m_chart = new QChart();
         m_chart->setBackgroundRoundness(0);
         m_chart->legend()->hide();
         m_chart->setMargins(QMargins(8, 8, 8, 8));
 
-        m_barSet    = new QBarSet(tr("Factor"));
-        m_barSeries = new QBarSeries(m_chart);
-        m_barSeries->append(m_barSet);
-        m_chart->addSeries(m_barSeries);
+        m_lineSeries = new QLineSeries(m_chart);
+        m_lineSeries->setName(tr("Factor"));
+        m_chart->addSeries(m_lineSeries);
 
-        m_xAxis = new QBarCategoryAxis(m_chart);
+        m_scatterSeries = new QScatterSeries(m_chart);
+        m_scatterSeries->setName(tr("Slot"));
+        m_scatterSeries->setMarkerSize(7.0);
+        m_chart->addSeries(m_scatterSeries);
+
+        m_xAxis = new QCategoryAxis(m_chart);
+        m_xAxis->setLabelsPosition(QCategoryAxis::AxisLabelsPositionOnValue);
         m_chart->addAxis(m_xAxis, Qt::AlignBottom);
-        m_barSeries->attachAxis(m_xAxis);
+        m_lineSeries->attachAxis(m_xAxis);
+        m_scatterSeries->attachAxis(m_xAxis);
 
         m_yAxis = new QValueAxis(m_chart);
         m_yAxis->setLabelFormat(QStringLiteral("%.2f"));
+        m_yAxis->setTitleText(tr("Factor"));
         m_chart->addAxis(m_yAxis, Qt::AlignLeft);
-        m_barSeries->attachAxis(m_yAxis);
+        m_lineSeries->attachAxis(m_yAxis);
+        m_scatterSeries->attachAxis(m_yAxis);
 
-        m_chartView = new QChartView(m_chart, m_splitter);
+        // PatternEditChartView extends InteractiveChartView with vertex-drag
+        // editing (vertical = factor edit; horizontal = adjacent-slot swap).
+        // The chart, axes, and line/scatter series are owned by the dialog;
+        // the chart view adds a selection-highlight overlay and routes mouse
+        // events. All mutations flow through the bound PatternProvider (MVC).
+        m_chartView = new PatternEditChartView(m_chart, m_lineSeries, rightHost);
         m_chartView->setRenderHint(QPainter::Antialiasing, true);
-        m_splitter->addWidget(m_chartView);
+        m_chartView->setMinimumHeight(200);
+        m_chartView->setUndoStack(m_undoStack);
+
+        // Plot toolbar — same affordance set as the Unit Hydrograph editor's
+        // preview pane (zoom in/out, pan, extent, copy, export, style).
+        auto *plotTools = new QHBoxLayout;
+        plotTools->setContentsMargins(2, 2, 2, 0);
+        plotTools->setSpacing(2);
+
+        auto makePlotBtn = [rightHost](const QString &iconPath, const QString &tip) {
+            auto *b = new QToolButton(rightHost);
+            b->setIcon(QIcon(iconPath));
+            b->setToolTip(tip);
+            b->setToolButtonStyle(Qt::ToolButtonIconOnly);
+            b->setAutoRaise(true);
+            b->setIconSize({18, 18});
+            return b;
+        };
+        auto *selectBtn = makePlotBtn(QStringLiteral(":/swmmvis/Select"),
+                                       tr("Select / hover mode"));
+        selectBtn->setCheckable(true);
+        selectBtn->setChecked(true);
+        auto *panBtn    = makePlotBtn(QStringLiteral(":/swmmvis/Move"),
+                                       tr("Pan mode (drag the chart)"));
+        panBtn->setCheckable(true);
+        auto *zoomInBtn = makePlotBtn(QStringLiteral(":/swmmvis/ZoomIn"),
+                                       tr("Zoom in (also: scroll wheel up)"));
+        zoomInBtn->setCheckable(true);
+        auto *zoomOutBtn = makePlotBtn(QStringLiteral(":/swmmvis/ZoomOut"),
+                                        tr("Zoom out (also: scroll wheel down)"));
+        zoomOutBtn->setCheckable(true);
+
+        // Single-selection mode group so only one tool is active at a time.
+        auto *modeGroup = new QButtonGroup(this);
+        modeGroup->setExclusive(true);
+        modeGroup->addButton(selectBtn);
+        modeGroup->addButton(panBtn);
+        modeGroup->addButton(zoomInBtn);
+        modeGroup->addButton(zoomOutBtn);
+
+        auto *extentBtn = makePlotBtn(QStringLiteral(":/swmmvis/Extent"),
+                                       tr("Zoom to extent — reset to full range"));
+        auto *copyBtn   = makePlotBtn(QStringLiteral(":/swmmvis/Copy"),
+                                       tr("Copy chart to clipboard (PNG)"));
+        auto *exportBtn = makePlotBtn(QStringLiteral(":/swmmvis/SaveAs"),
+                                       tr("Export chart… (PNG or SVG)"));
+        auto *styleBtn  = makePlotBtn(QStringLiteral(":/swmmvis/Style"),
+                                       tr("Plot style — markers and step/smooth toggle"));
+
+        using Mode = InteractiveChartView::Mode;
+        connect(selectBtn,  &QToolButton::clicked, this, [this]{
+            if (m_chartView) m_chartView->setMode(Mode::Select);
+        });
+        connect(panBtn,     &QToolButton::clicked, this, [this]{
+            if (m_chartView) m_chartView->setMode(Mode::Pan);
+        });
+        connect(zoomInBtn,  &QToolButton::clicked, this, [this]{
+            if (m_chartView) m_chartView->setMode(Mode::ZoomIn);
+        });
+        connect(zoomOutBtn, &QToolButton::clicked, this, [this]{
+            if (m_chartView) m_chartView->setMode(Mode::ZoomOut);
+        });
+        // Reflect mode changes driven from the chart itself (right-click,
+        // wheel, keyboard) into the toolbar buttons.
+        connect(m_chartView, &InteractiveChartView::modeChanged, this,
+                [selectBtn, panBtn, zoomInBtn, zoomOutBtn](Mode m) {
+                    QToolButton *target = nullptr;
+                    switch (m) {
+                    case Mode::Select:  target = selectBtn;  break;
+                    case Mode::Pan:     target = panBtn;     break;
+                    case Mode::ZoomIn:  target = zoomInBtn;  break;
+                    case Mode::ZoomOut: target = zoomOutBtn; break;
+                    }
+                    if (target) target->setChecked(true);
+                });
+        connect(extentBtn, &QToolButton::clicked, this, [this]{
+            if (m_chartView) m_chartView->resetZoom();
+            refreshChart_();
+        });
+        connect(copyBtn,   &QToolButton::clicked,
+                this, &PatternEditorDialog::onCopyChartClicked_);
+        connect(exportBtn, &QToolButton::clicked,
+                this, &PatternEditorDialog::onExportChartClicked_);
+        connect(styleBtn,  &QToolButton::clicked, this, [this, styleBtn]{
+            onShowPlotStyleMenu_(
+                styleBtn->mapToGlobal(QPoint(0, styleBtn->height())));
+        });
+        connect(m_chartView, &InteractiveChartView::chartContextMenuRequested,
+                this, &PatternEditorDialog::onShowPlotStyleMenu_);
+
+        // Edit-points toggle — vertical drag edits the factor; horizontal
+        // drag swaps adjacent slots. Mutually exclusive with Pan/Zoom modes.
+        auto *editBtn = makePlotBtn(QStringLiteral(":/swmmvis/Edit"),
+                                     tr("Edit vertices — vertical drag = factor; horizontal drag = swap slots"));
+        editBtn->setCheckable(true);
+        connect(editBtn, &QToolButton::toggled, this,
+                [this, selectBtn](bool on) {
+                    if (!m_chartView) return;
+                    m_chartView->setEditMode(on
+                        ? PatternEditChartView::EditMode::EditPoints
+                        : PatternEditChartView::EditMode::None);
+                    if (on) {
+                        // Park the base mode at Select so Pan/Zoom don't
+                        // compete with vertex picking. selectBtn is in the
+                        // mode group; setChecked auto-unchecks Pan/ZoomIn/Out.
+                        m_chartView->setMode(InteractiveChartView::Mode::Select);
+                        selectBtn->setChecked(true);
+                    }
+                });
+
+        plotTools->addWidget(selectBtn);
+        plotTools->addWidget(panBtn);
+        plotTools->addWidget(zoomInBtn);
+        plotTools->addWidget(zoomOutBtn);
+        plotTools->addSpacing(8);
+        plotTools->addWidget(editBtn);
+        plotTools->addSpacing(8);
+        plotTools->addWidget(extentBtn);
+        plotTools->addSpacing(8);
+        plotTools->addWidget(copyBtn);
+        plotTools->addWidget(exportBtn);
+        plotTools->addSpacing(8);
+        plotTools->addWidget(styleBtn);
+        plotTools->addStretch(1);
+        rightLay->addLayout(plotTools);
+        rightLay->addWidget(m_chartView, /*stretch=*/1);
+
+        // MVC chart->table selection sync. Dialog mediates between the two
+        // views (selection state is not part of the provider model).
+        connect(m_chartView, &PatternEditChartView::selectionChanged, this,
+                [this](const QVector<int> &indices) {
+                    if (m_suppressTableSelectionSync) return;
+                    if (!m_table || !m_table->selectionModel() || !m_tableModel)
+                        return;
+                    m_suppressChartSelectionSync = true;
+                    auto *sel = m_table->selectionModel();
+                    sel->clearSelection();
+                    for (int row : indices) {
+                        if (row < 0 || row >= m_tableModel->rowCount()) continue;
+                        const QModelIndex tl = m_tableModel->index(row, 0);
+                        const QModelIndex br = m_tableModel->index(
+                            row, m_tableModel->columnCount() - 1);
+                        sel->select(QItemSelection(tl, br),
+                                    QItemSelectionModel::Select);
+                    }
+                    if (!indices.isEmpty())
+                        m_table->scrollTo(m_tableModel->index(indices.first(), 0),
+                                           QAbstractItemView::EnsureVisible);
+                    m_suppressChartSelectionSync = false;
+                });
+
+        m_splitter->addWidget(rightHost);
     }
 
     // Splitter weights — list narrow, table mid, chart wide.
@@ -266,6 +503,22 @@ void PatternEditorDialog::buildUi_()
     m_sumLabel = new QLabel(m_status);
     m_status->addPermanentWidget(m_sumLabel);
     outer->addWidget(m_status);
+
+    // Table->chart selection sync. Wired here so both widgets are alive.
+    if (m_table && m_table->selectionModel() && m_chartView) {
+        connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged,
+                this, [this](const QItemSelection &, const QItemSelection &) {
+                    if (m_suppressChartSelectionSync) return;
+                    if (!m_chartView || !m_table->selectionModel()) return;
+                    QVector<int> rows;
+                    for (const auto &idx : m_table->selectionModel()->selectedRows())
+                        rows.push_back(idx.row());
+                    std::sort(rows.begin(), rows.end());
+                    m_suppressTableSelectionSync = true;
+                    m_chartView->setSelection(rows);
+                    m_suppressTableSelectionSync = false;
+                });
+    }
 }
 
 void PatternEditorDialog::buildCreateCard_()
@@ -342,13 +595,16 @@ void PatternEditorDialog::selectProviderInList_(PatternProvider *p)
 {
     if (!p) return;
     for (int r = 0; r < m_listModel->rowCount(); ++r) {
-        const auto idx = m_listModel->index(r, 0);
-        auto *item = m_listModel->itemFromIndex(idx);
+        const auto srcIdx = m_listModel->index(r, 0);
+        auto *item = m_listModel->itemFromIndex(srcIdx);
         if (!item) continue;
         const auto ptr = reinterpret_cast<PatternProvider *>(
             item->data(Qt::UserRole + 1).value<quintptr>());
         if (ptr == p) {
-            m_listView->setCurrentIndex(idx);
+            const QModelIndex proxyIdx = m_listProxy
+                ? m_listProxy->mapFromSource(srcIdx) : srcIdx;
+            if (proxyIdx.isValid())
+                m_listView->setCurrentIndex(proxyIdx);
             return;
         }
     }
@@ -356,10 +612,12 @@ void PatternEditorDialog::selectProviderInList_(PatternProvider *p)
 
 void PatternEditorDialog::onListSelectionChanged_()
 {
-    const QModelIndex idx = m_listView->currentIndex();
+    const QModelIndex proxyIdx = m_listView->currentIndex();
+    const QModelIndex srcIdx = (m_listProxy && proxyIdx.isValid())
+        ? m_listProxy->mapToSource(proxyIdx) : proxyIdx;
     PatternProvider *p = nullptr;
-    if (idx.isValid()) {
-        auto *item = m_listModel->itemFromIndex(idx);
+    if (srcIdx.isValid()) {
+        auto *item = m_listModel->itemFromIndex(srcIdx);
         if (item) {
             p = reinterpret_cast<PatternProvider *>(
                 item->data(Qt::UserRole + 1).value<quintptr>());
@@ -380,6 +638,7 @@ void PatternEditorDialog::bindProvider_(PatternProvider *p)
     m_current = QPointer<PatternProvider>(p);
 
     if (m_tableModel) m_tableModel->setProvider(p);
+    if (m_chartView)  m_chartView->setProvider(p);
 
     if (m_typeLabel) {
         m_typeLabel->setText(p ? typeLabel(p->type()) : tr("(no pattern selected)"));
@@ -387,6 +646,7 @@ void PatternEditorDialog::bindProvider_(PatternProvider *p)
     if (m_normalizeBtn)         m_normalizeBtn->setEnabled(p != nullptr);
     if (m_normalizeTargetSpin)  m_normalizeTargetSpin->setEnabled(p != nullptr);
     if (m_renameBtn)            m_renameBtn->setEnabled(p != nullptr);
+    if (m_duplicateBtn)         m_duplicateBtn->setEnabled(p != nullptr);
     if (m_deleteBtn)            m_deleteBtn->setEnabled(p != nullptr);
 
     if (m_current) {
@@ -410,26 +670,53 @@ void PatternEditorDialog::bindProvider_(PatternProvider *p)
 
 void PatternEditorDialog::refreshChart_()
 {
-    if (!m_barSet || !m_xAxis || !m_yAxis) return;
+    if (!m_lineSeries || !m_scatterSeries || !m_xAxis || !m_yAxis) return;
 
-    // Clear the bar set + categories.
-    while (m_barSet->count() > 0) m_barSet->remove(0);
-    m_xAxis->clear();
+    m_lineSeries->clear();
+    m_scatterSeries->clear();
+    // QCategoryAxis has no clear(); rebuild by removing each existing label.
+    const QStringList prevLabels = m_xAxis->categoriesLabels();
+    for (const QString &lbl : prevLabels) m_xAxis->remove(lbl);
 
     if (!m_current || m_current->factorCount() == 0) {
+        m_xAxis->setRange(0.0, 1.0);
         m_yAxis->setRange(0.0, 1.0);
         return;
     }
 
-    QStringList categories;
+    const int n = m_current->factorCount();
     double maxV = 0.0;
-    for (int i = 0; i < m_current->factorCount(); ++i) {
-        const double v = m_current->factor(i);
-        m_barSet->append(v);
-        categories << PatternProvider::rowLabel(m_current->type(), i);
-        maxV = std::max(maxV, v);
+
+    if (m_smoothPreview) {
+        // Smooth mode: one point per slot at the slot centre.
+        for (int i = 0; i < n; ++i) {
+            const double v = m_current->factor(i);
+            m_lineSeries->append(i + 0.5, v);
+            maxV = std::max(maxV, v);
+        }
+    } else {
+        // Step-line mode: emit (i, f_i) and (i+1, f_i) so each slot draws as
+        // a unit-wide horizontal segment. 2·N points total.
+        for (int i = 0; i < n; ++i) {
+            const double v = m_current->factor(i);
+            m_lineSeries->append(double(i),     v);
+            m_lineSeries->append(double(i + 1), v);
+            maxV = std::max(maxV, v);
+        }
     }
-    m_xAxis->append(categories);
+
+    if (m_markersOn) {
+        for (int i = 0; i < n; ++i)
+            m_scatterSeries->append(i + 0.5, m_current->factor(i));
+    }
+    m_scatterSeries->setVisible(m_markersOn);
+
+    // Categorical x labels — Jan, Sun, 00:00 etc. — anchored at slot centres.
+    for (int i = 0; i < n; ++i) {
+        m_xAxis->append(PatternProvider::rowLabel(m_current->type(), i),
+                        i + 0.5);
+    }
+    m_xAxis->setRange(0.0, double(n));
     m_yAxis->setRange(0.0, std::max(1.0, maxV * 1.1));
 }
 
@@ -502,7 +789,9 @@ void PatternEditorDialog::onProviderRenamed_(PatternProvider *p,
         const auto ptr = reinterpret_cast<PatternProvider *>(
             item->data(Qt::UserRole + 1).value<quintptr>());
         if (ptr == p) {
+            m_suppressListItemRename = true;
             item->setText(now);
+            m_suppressListItemRename = false;
             break;
         }
     }
@@ -561,16 +850,33 @@ void PatternEditorDialog::onCancelCreateClicked_()
 
 void PatternEditorDialog::onRenameClicked_()
 {
-    if (!m_current || !m_registry) return;
-    bool ok = false;
-    const QString newName = QInputDialog::getText(
-        this, tr("Rename Pattern"),
-        tr("New name:"), QLineEdit::Normal,
-        m_current->name(), &ok).trimmed();
-    if (!ok || newName.isEmpty()) return;
-    if (!m_registry->rename(m_current, newName)) {
-        QMessageBox::warning(this, tr("Rename Pattern"),
-            tr("Could not rename to “%1” — name already in use.").arg(newName));
+    // No intermediate dialog — open inline edit on the current list row.
+    if (!m_listView) return;
+    const QModelIndex idx = m_listView->currentIndex();
+    if (!idx.isValid()) return;
+    m_listView->edit(idx);
+}
+
+void PatternEditorDialog::onListItemRenamed_(QStandardItem *item)
+{
+    if (!item || !m_registry || m_suppressListItemRename) return;
+    auto *p = reinterpret_cast<PatternProvider *>(
+        item->data(Qt::UserRole + 1).value<quintptr>());
+    if (!p) return;
+    const QString newName = item->text().trimmed();
+    if (newName.isEmpty() || newName == p->name()) {
+        m_suppressListItemRename = true;
+        item->setText(p->name());
+        m_suppressListItemRename = false;
+        return;
+    }
+    if (!m_registry->rename(p, newName)) {
+        m_suppressListItemRename = true;
+        item->setText(p->name());
+        m_suppressListItemRename = false;
+        if (m_status)
+            m_status->showMessage(
+                tr("A pattern named “%1” already exists.").arg(newName), 4000);
     }
 }
 
@@ -609,11 +915,145 @@ void PatternEditorDialog::onListContextMenu_(const QPoint &pos)
     m_listView->setCurrentIndex(idx);
 
     QMenu menu(this);
-    QAction *actRename = menu.addAction(tr("Rename…"));
-    QAction *actDelete = menu.addAction(tr("Delete"));
+    QAction *actNew       = menu.addAction(tr("New…"));
+    QAction *actDuplicate = menu.addAction(tr("Duplicate…"));
+    QAction *actRename    = menu.addAction(tr("Rename…"));
+    menu.addSeparator();
+    QAction *actDelete    = menu.addAction(tr("Delete"));
     QAction *picked = menu.exec(m_listView->viewport()->mapToGlobal(pos));
-    if (picked == actRename) onRenameClicked_();
-    else if (picked == actDelete) onDeleteClicked_();
+    if      (picked == actNew)       onNewClicked_();
+    else if (picked == actDuplicate) onDuplicateClicked_();
+    else if (picked == actRename)    onRenameClicked_();
+    else if (picked == actDelete)    onDeleteClicked_();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Duplicate / Search / Plot toolbar slots (Slice BR-PAT)
+// ─────────────────────────────────────────────────────────────────────────────
+
+void PatternEditorDialog::onDuplicateClicked_()
+{
+    if (!m_current || !m_registry) return;
+
+    // Auto-suggest "<name>_copy" / "<name>_copy_2" / … and create directly.
+    // The user can rename inline via the list-view edit affordance.
+    const QString base = m_current->name() + QLatin1String("_copy");
+    QString newName = base;
+    int n = 2;
+    while (m_registry->hasName(newName)) {
+        newName = base + QStringLiteral("_%1").arg(n++);
+    }
+
+    PatternProvider *clone = duplicateCurrent(newName);
+    if (!clone) {
+        QMessageBox::warning(this, tr("Duplicate Pattern"),
+            tr("Could not duplicate to “%1” — name already in use.").arg(newName));
+        return;
+    }
+    // Jump the user into inline-rename on the new row.
+    if (m_listView && m_listView->currentIndex().isValid())
+        m_listView->edit(m_listView->currentIndex());
+}
+
+PatternProvider *PatternEditorDialog::duplicateCurrent(const QString &newName)
+{
+    if (!m_current || !m_registry) return nullptr;
+    PatternProvider *clone = m_registry->duplicate(m_current->name(), newName);
+    if (clone) selectProviderInList_(clone);
+    return clone;
+}
+
+void PatternEditorDialog::onSearchTextChanged_(const QString &text)
+{
+    if (!m_listProxy) return;
+    m_listProxy->setFilterFixedString(text);
+
+    // If the previous selection got filtered out, clear the binding so the
+    // editor doesn't appear to act on a hidden item.
+    if (m_current) {
+        const QModelIndex cur = m_listView->currentIndex();
+        if (!cur.isValid()) bindProvider_(nullptr);
+    }
+}
+
+void PatternEditorDialog::onCopyChartClicked_()
+{
+    if (!m_chartView) return;
+    QClipboard *clip = QApplication::clipboard();
+    if (clip) clip->setPixmap(m_chartView->grab());
+}
+
+void PatternEditorDialog::onExportChartClicked_()
+{
+    if (!m_chartView) return;
+    const QString suggested =
+        (m_current ? m_current->name() : QStringLiteral("pattern")) +
+        QStringLiteral("_preview.png");
+    const QString chosen = QFileDialog::getSaveFileName(
+        this, tr("Export Chart"), suggested,
+        tr("PNG Image (*.png);;Scalable Vector Graphics (*.svg)"));
+    if (chosen.isEmpty()) return;
+
+    const QString suffix = QFileInfo(chosen).suffix().toLower();
+    if (suffix == QLatin1String("svg")) {
+        QSvgGenerator svg;
+        svg.setFileName(chosen);
+        const QSize sz = m_chartView->size();
+        svg.setSize(sz);
+        svg.setViewBox(QRect(QPoint(0, 0), sz));
+        svg.setTitle(tr("Pattern preview"));
+        QPainter painter(&svg);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        m_chartView->render(&painter);
+        painter.end();
+    } else {
+        QPixmap pm = m_chartView->grab();
+        if (!pm.save(chosen, "PNG")) {
+            QMessageBox::warning(this, tr("Export Chart"),
+                tr("Failed to write “%1”.").arg(chosen));
+        }
+    }
+}
+
+void PatternEditorDialog::onShowPlotStyleMenu_(const QPoint &globalPos)
+{
+    QMenu menu(this);
+
+    QAction *actStep = menu.addAction(tr("Step-line"));
+    actStep->setCheckable(true);
+    actStep->setChecked(!m_smoothPreview);
+
+    QAction *actSmooth = menu.addAction(tr("Smooth line"));
+    actSmooth->setCheckable(true);
+    actSmooth->setChecked(m_smoothPreview);
+
+    menu.addSeparator();
+
+    QAction *actMarkers = menu.addAction(tr("Show markers"));
+    actMarkers->setCheckable(true);
+    actMarkers->setChecked(m_markersOn);
+
+    QAction *picked = menu.exec(globalPos);
+    if (!picked) return;
+
+    if      (picked == actStep)    setStepLinePreview(true);
+    else if (picked == actSmooth)  setStepLinePreview(false);
+    else if (picked == actMarkers) setPreviewMarkersVisible(actMarkers->isChecked());
+}
+
+void PatternEditorDialog::setStepLinePreview(bool stepLine)
+{
+    const bool newSmooth = !stepLine;
+    if (newSmooth == m_smoothPreview) return;
+    m_smoothPreview = newSmooth;
+    refreshChart_();
+}
+
+void PatternEditorDialog::setPreviewMarkersVisible(bool visible)
+{
+    if (visible == m_markersOn) return;
+    m_markersOn = visible;
+    refreshChart_();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -678,6 +1118,50 @@ void PatternEditorDialog::onCreateNewSubmit_()
 
     // providerAdded slot already appended the row; just select it.
     selectProviderInList_(p);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Persistence — geometry, splitter, plot style toggles
+// ─────────────────────────────────────────────────────────────────────────────
+
+void PatternEditorDialog::closeEvent(QCloseEvent *e)
+{
+    saveDialogSettings_();
+    QDialog::closeEvent(e);
+}
+
+void PatternEditorDialog::saveDialogSettings_() const
+{
+    QSettings s;
+    s.beginGroup(QStringLiteral("dialogs/patternEditor"));
+    s.setValue(QStringLiteral("geometry"), saveGeometry());
+    if (m_splitter)
+        s.setValue(QStringLiteral("splitterState"), m_splitter->saveState());
+    s.setValue(QStringLiteral("plotStyle/smoothLine"), m_smoothPreview);
+    s.setValue(QStringLiteral("plotStyle/markers"),    m_markersOn);
+    s.endGroup();
+}
+
+void PatternEditorDialog::restoreDialogSettings_()
+{
+    QSettings s;
+    s.beginGroup(QStringLiteral("dialogs/patternEditor"));
+    const QByteArray geom = s.value(QStringLiteral("geometry")).toByteArray();
+    if (!geom.isEmpty()) restoreGeometry(geom);
+
+    if (m_splitter) {
+        const QByteArray ss = s.value(QStringLiteral("splitterState")).toByteArray();
+        if (!ss.isEmpty()) m_splitter->restoreState(ss);
+    }
+
+    m_smoothPreview = s.value(QStringLiteral("plotStyle/smoothLine"),
+                                m_smoothPreview).toBool();
+    m_markersOn     = s.value(QStringLiteral("plotStyle/markers"),
+                                m_markersOn).toBool();
+    s.endGroup();
+
+    // Re-render with the restored toggles.
+    refreshChart_();
 }
 
 } // namespace openswmmvis::ui

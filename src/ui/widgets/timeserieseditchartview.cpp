@@ -14,8 +14,10 @@
 #include <QContextMenuEvent>
 #include <QDateTime>
 #include <QDateTimeAxis>
+#include <QElapsedTimer>
 #include <QLineSeries>
 #include <QList>
+#include <QLoggingCategory>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPointF>
@@ -29,6 +31,10 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+
+// Debug instrumentation for the .dat-file load stall investigation.
+// Enable with: QT_LOGGING_RULES="openswmm.ts-load.*=true"
+Q_LOGGING_CATEGORY(lcTsLoadChart, "openswmm.ts-load.chart")
 
 namespace openswmmvis::ui {
 
@@ -67,6 +73,13 @@ TimeseriesEditChartView::TimeseriesEditChartView(TimeseriesProvider *provider, Q
     m_line = new QLineSeries(c);
     m_scatter = new QScatterSeries(c);
     m_selectedScatter = new QScatterSeries(c);
+
+    // QtCharts' default raster path falls over above ~50k points (every
+    // QPointF gets per-frame software-projected). OpenGL acceleration off-
+    // loads the projection + draw to the GPU; required to make NOAA-scale
+    // rainfall files (~2M points) plot without freezing the UI thread.
+    m_line->setUseOpenGL(true);
+    m_scatter->setUseOpenGL(true);
 
     m_scatter->setMarkerSize(kRegularMarker);
     m_selectedScatter->setMarkerSize(kSelectedMarker);
@@ -146,9 +159,12 @@ bool TimeseriesEditChartView::isEditingAllowed_() const
 void TimeseriesEditChartView::refreshSeriesFromProvider_()
 {
     if (!m_provider) return;
+    QElapsedTimer t; t.start();
+    const int n = m_provider->pointCount();
+    qCDebug(lcTsLoadChart) << "refreshSeriesFromProvider_ ENTER pointCount=" << n;
 
     QList<QPointF> pts;
-    pts.reserve(m_provider->pointCount());
+    pts.reserve(n);
     double yMin =  std::numeric_limits<double>::infinity();
     double yMax = -std::numeric_limits<double>::infinity();
     for (const TimeseriesPoint& p : m_provider->points()) {
@@ -157,8 +173,16 @@ void TimeseriesEditChartView::refreshSeriesFromProvider_()
         yMin = std::min(yMin, p.value);
         yMax = std::max(yMax, p.value);
     }
+    const qint64 tBuildMs = t.elapsed();
+    qCDebug(lcTsLoadChart) << "  built QPointF list in" << tBuildMs << "ms";
+    QElapsedTimer tReplace; tReplace.start();
     m_line->replace(pts);
+    const qint64 tLineMs = tReplace.elapsed();
+    tReplace.restart();
     m_scatter->replace(pts);
+    const qint64 tScatterMs = tReplace.elapsed();
+    qCDebug(lcTsLoadChart) << "  series replace: line=" << tLineMs
+                           << "ms scatter=" << tScatterMs << "ms";
 
     // Drop selection indices that fell out of range after a remove.
     QVector<int> kept;
@@ -171,8 +195,9 @@ void TimeseriesEditChartView::refreshSeriesFromProvider_()
     }
     refreshSelectionOverlay_();
 
-    // Axis range — only auto-fit when data is non-empty AND axis has not been
-    // touched by the user yet (cheap heuristic: zero range).
+    // Axis range — first-touch only (preserves user-set zoom on per-point
+    // edits). Bulk insert/remove paths call zoomToExtent() explicitly to
+    // refit after a new file load.
     if (!pts.isEmpty()) {
         if (m_xAxis->min() == m_xAxis->max())
             m_xAxis->setRange(m_provider->pointAt(0).time,
@@ -182,6 +207,24 @@ void TimeseriesEditChartView::refreshSeriesFromProvider_()
             m_yAxis->setRange(yMin - pad, yMax + pad);
         }
     }
+    qCDebug(lcTsLoadChart) << "refreshSeriesFromProvider_ EXIT total" << t.elapsed() << "ms";
+}
+
+void TimeseriesEditChartView::zoomToExtent()
+{
+    if (!m_provider) return;
+    const int n = m_provider->pointCount();
+    if (n == 0) return;
+
+    double yMin =  std::numeric_limits<double>::infinity();
+    double yMax = -std::numeric_limits<double>::infinity();
+    for (const TimeseriesPoint& p : m_provider->points()) {
+        yMin = std::min(yMin, p.value);
+        yMax = std::max(yMax, p.value);
+    }
+    const double pad = std::max(1e-6, 0.05 * (yMax - yMin));
+    m_xAxis->setRange(m_provider->pointAt(0).time, m_provider->pointAt(n - 1).time);
+    m_yAxis->setRange(yMin - pad, yMax + pad);
 }
 
 void TimeseriesEditChartView::refreshSelectionOverlay_()
@@ -231,11 +274,14 @@ void TimeseriesEditChartView::onProviderPointsInserted_(int at, int count)
 {
     Q_UNUSED(at); Q_UNUSED(count);
     refreshSeriesFromProvider_();
+    // Bulk insert (file load, paste) — refit axes so the new extent shows.
+    zoomToExtent();
 }
 void TimeseriesEditChartView::onProviderPointsRemoved_(int at, int count)
 {
     Q_UNUSED(at); Q_UNUSED(count);
     refreshSeriesFromProvider_();
+    zoomToExtent();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -405,9 +451,16 @@ void TimeseriesEditChartView::contextMenuEvent(QContextMenuEvent *e)
     const QPointF v = viewportToValue_(pos);
     const QDateTime tAtCursor = QDateTime::fromMSecsSinceEpoch(qint64(v.x()), Qt::UTC);
     const double yAtCursor = v.y();
+    const int hitIdx = hitTestPoint(pos, kHitRadiusPx);
 
-    QAction *insertAct = menu.addAction(tr("Insert point here"));
-    insertAct->setEnabled(tAtCursor.isValid());
+    QAction *insertAct = menu.addAction(tr("Insert vertex here"));
+    insertAct->setEnabled(tAtCursor.isValid() && hitIdx < 0);
+
+    // Right-clicking a vertex offers a one-shot delete on that specific point;
+    // independent of whatever multi-selection is active.
+    QAction *deleteVertexAct = nullptr;
+    if (hitIdx >= 0)
+        deleteVertexAct = menu.addAction(tr("Delete vertex"));
 
     QAction *deleteAct = menu.addAction(tr("Delete selected point(s)"));
     deleteAct->setEnabled(!m_selection.isEmpty());
@@ -429,6 +482,11 @@ void TimeseriesEditChartView::contextMenuEvent(QContextMenuEvent *e)
             m_undoStack->push(new InsertPointCommand(m_provider, t, yAtCursor));
         else
             m_provider->insertPoint(t, yAtCursor);
+    } else if (deleteVertexAct && chosen == deleteVertexAct) {
+        if (m_undoStack)
+            m_undoStack->push(new DeletePointsCommand(m_provider, {hitIdx}));
+        else
+            m_provider->removePointsAt({hitIdx});
     } else if (chosen == deleteAct) {
         if (m_undoStack)
             m_undoStack->push(new DeletePointsCommand(m_provider, m_selection));

@@ -9,15 +9,16 @@
  * Layout (left → right):
  *
  *   ┌──────────────┬───────────────────────────┬──────────────────────────┐
- *   │              │                           │                          │
- *   │  Patterns    │  Factor table             │  Bar-chart preview       │
- *   │  list view   │  (1 col × N rows;         │  (factors as bars,       │
- *   │  + Type      │   row labels are          │   x-axis = labels,       │
- *   │  badge       │   Jan..Dec / Sun..Sat /   │   y-axis = value;        │
- *   │              │   00:00..23:00 etc.)      │   refreshes live on      │
- *   │              │                           │   every factor change)   │
- *   │              │  [ Normalize sum=1.0 ]    │                          │
- *   │              │                           │                          │
+ *   │ [Search…]    │                           │ [zoom in/out · pan ·     │
+ *   │              │  Factor table             │  extent · copy · export  │
+ *   │  Patterns    │  (1 col × N rows;         │  · style]                │
+ *   │  list view   │   row labels are          │ ─────────────────────────│
+ *   │              │   Jan..Dec / Sun..Sat /   │  Step-line preview       │
+ *   │              │   00:00..23:00 etc.)      │  (one slot per category, │
+ *   │              │                           │   markers at slot centre │
+ *   │              │  [ Normalize sum=1.0 ]    │   on InteractiveChartView│
+ *   │ [New][Dup]   │                           │   for zoom + pan)        │
+ *   │ [Ren][Del]   │                           │                          │
  *   └──────────────┴───────────────────────────┴──────────────────────────┘
  *
  * Per Slice BM.0-Add-New (2026-05-24) the dialog also exposes a static
@@ -27,6 +28,12 @@
  * combo + Create button); on Create the dialog calls
  * `registry->create(name, type)`, binds the new provider to all three
  * panes, and transitions to `Mode::Edit`.
+ *
+ * Per Slice BR-PAT (2026-05-25) the right pane was ported from a bar chart
+ * on raw QChartView to a step-line preview hosted on InteractiveChartView,
+ * matching the Unit Hydrograph editor's zoom/pan/extent affordances. The
+ * list pane gained Duplicate + a Search filter and the dialog persists
+ * geometry, splitter, and plot-style toggles via QSettings.
  *
  * Pure view code — every mutation goes through the bound provider so
  * that the Object Browser, DWF inflow picker, and any other open view
@@ -47,6 +54,7 @@ class QListView;
 class QPushButton;
 class QSortFilterProxyModel;
 class QSplitter;
+class QStandardItem;
 class QStandardItemModel;
 class QStatusBar;
 class QTableView;
@@ -54,10 +62,9 @@ class QToolButton;
 class QUndoStack;
 
 class QChart;
-class QChartView;
-class QBarSet;
-class QBarSeries;
-class QBarCategoryAxis;
+class QCategoryAxis;
+class QLineSeries;
+class QScatterSeries;
 class QValueAxis;
 
 namespace openswmmvis::pattern {
@@ -67,6 +74,8 @@ class PatternRegistry;
 
 namespace openswmmvis::ui {
 
+class InteractiveChartView;
+class PatternEditChartView;
 class PatternFactorTableModel;
 
 class PatternEditorDialog : public QDialog
@@ -100,6 +109,18 @@ public:
      *  if absent). Convenience for the Object Browser double-click path. */
     void openForPattern(const QString &name);
 
+    /*! \brief Modal pick / create / edit entry point for callers that
+     *  round-trip a pattern selection inline (e.g. NodeCompoundEditDialog
+     *  inflow / DWF pickers). Empty \p initialName → CreateNew mode;
+     *  otherwise → Edit mode pre-selecting that pattern. Returns the
+     *  name of the pattern currently selected on close, or empty if no
+     *  commit happened. All edits persist through the registry/provider
+     *  MVC layer regardless of which button closes the dialog. */
+    static QString pickPattern(openswmmvis::pattern::PatternRegistry *registry,
+                                QUndoStack    *undoStack,
+                                const QString &initialName,
+                                QWidget       *parent = nullptr);
+
     /*! \brief Current mode. */
     Mode mode() const noexcept { return m_mode; }
 
@@ -110,8 +131,16 @@ public:
 
     QListView                *listView() const noexcept { return m_listView; }
     QTableView               *factorTable() const noexcept { return m_table; }
-    QChartView               *chartView() const noexcept { return m_chartView; }
+    PatternEditChartView     *chartView() const noexcept { return m_chartView; }
     PatternFactorTableModel  *tableModel() const noexcept { return m_tableModel; }
+    QLineSeries              *previewLineSeries() const noexcept { return m_lineSeries; }
+    QScatterSeries           *previewMarkerSeries() const noexcept { return m_scatterSeries; }
+    QLineEdit                *searchEdit() const noexcept { return m_searchEdit; }
+
+    /*! \brief The source (unfiltered) list model. Tests cast to QStandardItemModel
+     *  to inspect row count and item text; the view itself binds to a
+     *  QSortFilterProxyModel so the search edit can hide rows. */
+    QStandardItemModel       *patternListModel() const noexcept { return m_listModel; }
 
     /*! \brief CreateNew-mode: name in the create-card. Empty in Edit mode. */
     QString pendingName() const;
@@ -135,9 +164,30 @@ public:
      *  selection or the new name collides. */
     bool renameCurrent(const QString &newName);
 
+    /*! \brief Clone the currently selected pattern under \p newName.
+     *  Returns the new provider (also bound in the dialog), or nullptr on
+     *  failure. Used by the Duplicate button and as a test hook. */
+    openswmmvis::pattern::PatternProvider *duplicateCurrent(const QString &newName);
+
     /*! \brief Delete the currently selected pattern from the registry.
      *  Bypasses the confirmation dialog (test hook + UX). */
     void deleteCurrentSilently();
+
+    /*! \brief True iff the preview is drawn as a step line. False = smooth
+     *  segments between adjacent slot values. */
+    bool isStepLinePreview() const noexcept { return !m_smoothPreview; }
+
+    /*! \brief Toggle the preview between step-line and smooth-line. */
+    void setStepLinePreview(bool stepLine);
+
+    /*! \brief True iff slot-centre markers are drawn over the step line. */
+    bool arePreviewMarkersVisible() const noexcept { return m_markersOn; }
+
+    /*! \brief Toggle slot-centre markers on/off. */
+    void setPreviewMarkersVisible(bool visible);
+
+protected:
+    void closeEvent(QCloseEvent *e) override;
 
 private slots:
     void onListSelectionChanged_();
@@ -146,7 +196,12 @@ private slots:
     void onNewClicked_();
     void onRenameClicked_();
     void onDeleteClicked_();
+    void onDuplicateClicked_();
     void onCancelCreateClicked_();
+    void onSearchTextChanged_(const QString &text);
+    void onCopyChartClicked_();
+    void onExportChartClicked_();
+    void onShowPlotStyleMenu_(const QPoint &globalPos);
     void onProviderAdded_(openswmmvis::pattern::PatternProvider *p);
     void onProviderRemoved_(openswmmvis::pattern::PatternProvider *p);
     void onProviderRenamed_(openswmmvis::pattern::PatternProvider *p,
@@ -157,6 +212,7 @@ private slots:
     void onMutationRejected_(const QString &reason);
     void onCreateNewNameChanged_(const QString &text);
     void onCreateNewSubmit_();
+    void onListItemRenamed_(QStandardItem *item);
 
 private:
     void buildUi_();
@@ -166,6 +222,8 @@ private:
     void bindProvider_(openswmmvis::pattern::PatternProvider *p);
     void refreshChart_();
     void updateStatusBar_();
+    void saveDialogSettings_() const;
+    void restoreDialogSettings_();
 
     QPointer<openswmmvis::pattern::PatternRegistry> m_registry;
     QUndoStack                                      *m_undoStack = nullptr;
@@ -175,6 +233,8 @@ private:
     QSplitter                *m_splitter   = nullptr;
     QListView                *m_listView   = nullptr;
     QStandardItemModel       *m_listModel  = nullptr;
+    QSortFilterProxyModel    *m_listProxy  = nullptr;
+    QLineEdit                *m_searchEdit = nullptr;
 
     QLabel                   *m_typeLabel  = nullptr;
     QTableView               *m_table      = nullptr;
@@ -184,12 +244,15 @@ private:
     QStatusBar               *m_status     = nullptr;
     QLabel                   *m_sumLabel   = nullptr;
 
-    QChartView               *m_chartView  = nullptr;
+    PatternEditChartView     *m_chartView  = nullptr;
     QChart                   *m_chart      = nullptr;
-    QBarSet                  *m_barSet     = nullptr;
-    QBarSeries               *m_barSeries  = nullptr;
-    QBarCategoryAxis         *m_xAxis      = nullptr;
+    QLineSeries              *m_lineSeries = nullptr;   ///< Step-line (or smooth) factor preview.
+    QScatterSeries           *m_scatterSeries = nullptr; ///< Slot-centre markers.
+    QCategoryAxis            *m_xAxis      = nullptr;   ///< Categorical labels (Jan, Sun, 00:00 …).
     QValueAxis               *m_yAxis      = nullptr;
+
+    bool                      m_smoothPreview = false;  ///< false = step-line; persisted.
+    bool                      m_markersOn     = true;   ///< persisted.
 
     // CreateNew-mode UI (always built; hidden in Edit mode and revealed
     // by the "+ New" button or the createNew factory).
@@ -203,7 +266,14 @@ private:
     // List-pane CRUD buttons.
     QPushButton              *m_newBtn              = nullptr;
     QPushButton              *m_renameBtn           = nullptr;
+    QPushButton              *m_duplicateBtn        = nullptr;
     QPushButton              *m_deleteBtn           = nullptr;
+
+    // Suppress feedback loop when we reset list item text on collision.
+    bool                      m_suppressListItemRename = false;
+    // Guards to break the chart<->table selection feedback loop.
+    bool                      m_suppressTableSelectionSync = false;
+    bool                      m_suppressChartSelectionSync = false;
 };
 
 } // namespace openswmmvis::ui

@@ -38,6 +38,28 @@ QString SWMMHydrographPropertyAdapter::gageName() const
     return {};
 }
 
+// Slice BM.0-Browse-Edit (2026-05-25)
+DataObjectRef SWMMHydrographPropertyAdapter::gageNameRef() const
+{
+    DataObjectRef r;
+    r.engine      = m_engine;
+    r.layer       = m_layer;
+    r.kind        = DataObjectRef::RainGage;
+    r.currentName = gageName();
+    return r;
+}
+
+void SWMMHydrographPropertyAdapter::setGageNameRef(const DataObjectRef &ref)
+{
+    if (!m_engine || m_name.isEmpty()) return;
+    // Empty currentName clears the assignment (engine accepts NULL).
+    const QByteArray uh   = m_name.toUtf8();
+    const QByteArray gage = ref.currentName.toUtf8();
+    const char *gagePtr   = ref.currentName.isEmpty() ? nullptr : gage.constData();
+    if (swmm_hydrograph_set_gage(m_engine, uh.constData(), gagePtr) == SWMM_OK)
+        emit changed();
+}
+
 int SWMMHydrographPropertyAdapter::rowCount() const
 {
     if (!m_engine || m_name.isEmpty()) return 0;

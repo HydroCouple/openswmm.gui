@@ -55,16 +55,29 @@ public:
 
     /*! \brief Create + own a new provider with the given name + type.
      *  \returns the new provider, or nullptr if the name is already in use
-     *           or the name is empty. */
+     *           or the name is empty.
+     *
+     *  If an engine handle is attached (see attachEngine), the new pattern is
+     *  also added to the engine via `swmm_pattern_add` so the two stay in
+     *  sync from the moment of creation. */
     PatternProvider *create(const QString &name, PatternType type);
 
+    /*! \brief Clone an existing provider under a new name. Copies the source
+     *  provider's type and all factor values. Returns nullptr if either name
+     *  is invalid or \p newName already exists. */
+    PatternProvider *duplicate(const QString &srcName, const QString &newName);
+
     /*! \brief Remove + delete a provider. Safe to call with a stale pointer
-     *  (no-op if not owned by this registry). */
+     *  (no-op if not owned by this registry). When an engine handle is
+     *  attached the matching pattern is also dropped from the engine via
+     *  `swmm_pattern_remove`, cascading to any reference sites. */
     void remove(PatternProvider *p);
 
     /*! \brief Rename a provider. Performs the uniqueness check; returns
      *  false (and emits no signal) if \p newName collides with a different
-     *  existing provider. Same provider with same name is a no-op success. */
+     *  existing provider. Same provider with same name is a no-op success.
+     *  When an engine handle is attached the rename is mirrored via
+     *  `swmm_pattern_rename` so every engine-side reference updates atomically. */
     bool rename(PatternProvider *p, const QString &newName);
 
     // ── Engine I/O ──────────────────────────────────────────────────────────
@@ -86,6 +99,15 @@ public:
      *  \returns the number of patterns written. */
     int saveToEngine(void *engineHandle);
 
+    /*! \brief Attach an engine handle so subsequent mutations (create /
+     *  remove / rename / duplicate) are mirrored to the engine via the
+     *  matching `swmm_pattern_*` calls. Passing nullptr detaches. Used by
+     *  `SWMMModelLayer::ensurePatternRegistry`. */
+    void attachEngine(void *engineHandle) { m_engineHandle = engineHandle; }
+
+    /*! \brief The currently-attached engine handle (or nullptr). */
+    void *engineHandle() const noexcept { return m_engineHandle; }
+
 signals:
     /*! \brief A provider was created and added to the registry. */
     void providerAdded(openswmmvis::pattern::PatternProvider *provider);
@@ -100,6 +122,7 @@ signals:
 private:
     QVector<PatternProvider *>            m_providers;       ///< Insertion order.
     QHash<QString, PatternProvider *>     m_byLowerName;     ///< Case-insensitive index.
+    void                                 *m_engineHandle = nullptr; ///< Live engine for mirroring mutations.
 };
 
 } // namespace openswmmvis::pattern

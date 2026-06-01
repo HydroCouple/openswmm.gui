@@ -1,4 +1,4 @@
-# 01 — Getting Started
+@page manual_getting_started 01 — Getting Started
 
 ## What you'll do
 

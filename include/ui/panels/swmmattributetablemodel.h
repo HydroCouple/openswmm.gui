@@ -175,6 +175,22 @@ private:
     // access without hammering identifyByName() on every paint.
     mutable QVector<QVariantMap> m_rowCache;
     mutable QVector<bool>        m_rowCacheValid;
+
+    // Per-node summary caches used by compound cells (Inflows / DWF /
+    // RDII / Treatment columns). Without these, each cell paint runs
+    // an O(N) engine-wide scan over all external inflows / DWF entries /
+    // RDII entries, multiplied by the number of visible rows × paint
+    // events — millions of calls per second on a junction table.
+    // Filled lazily on first compound-cell access and cleared whenever
+    // the per-row cache is invalidated.
+    mutable QHash<int, int> m_inflowCountByNode;
+    mutable QHash<int, int> m_dwfCountByNode;
+    mutable QHash<int, int> m_rdiiCountByNode;
+    mutable QHash<int, int> m_treatmentActiveByNode;
+    mutable int             m_compoundPollutantCount = 0;
+    mutable bool            m_compoundCacheBuilt     = false;
+    void ensureCompoundCacheBuilt() const;
+    void invalidateCompoundCache();
 };
 
 #endif // SWMMATTRIBUTETABLEMODEL_H

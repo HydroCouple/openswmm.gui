@@ -11,6 +11,7 @@
 #define WMTSLAYER_H
 
 #include "layers/openswmmvislayer.h"
+#include "render/basemaprenderparams.h"
 
 #include <QCache>
 #include <ogr_spatialref.h>
@@ -200,6 +201,10 @@ signals:
     void imageFormatChanged(const QString &fmt);
     void tileCacheMaxSizeChanged(int maxTiles);
 
+    /*! Slice X.22 — fired when setBasemapRenderParams() commits a new
+     *  brightness / contrast / saturation / resampling tuple. */
+    void basemapRenderParamsChanged();
+
 private slots:
     void onCapabilitiesReply(QNetworkReply *reply);
     void onTileReply(QNetworkReply *reply, const QString &cacheKey, bool &pendingDecrement);
@@ -219,6 +224,10 @@ public:
         const MapExtent &canvasExtent,
         int pixelWidth) const;
     [[nodiscard]] QCache<QString, QImage> *tileCache();
+
+    /*! Slice X.22 — shared basemap render adjustments. */
+    [[nodiscard]] const OpenSWMM::Render::BasemapRenderParams &basemapRenderParams() const { return m_renderParams; }
+    void setBasemapRenderParams(const OpenSWMM::Render::BasemapRenderParams &p);
 
 private:
     void parseCapabilities(const QByteArray &xml);
@@ -244,6 +253,7 @@ private:
     QString                           m_imageFormat  = "image/png";
     WMTSServiceInfo                   m_serviceInfo;
     bool                              m_capsReady    = false;
+    OpenSWMM::Render::BasemapRenderParams m_renderParams;  /*!< X.22 */
 
     QNetworkAccessManager            *m_nam          = nullptr;
     QCache<QString, QImage>           m_tileCache;    /*!< Keyed by canonical tile ID. */

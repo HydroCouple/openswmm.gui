@@ -7,6 +7,8 @@
 
 #include "render/renderers/rulebasedrenderer.h"
 
+#include "render/expressionevaluator.h"
+
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -24,15 +26,23 @@ void RuleBasedRenderer::addRule(Rule r)
     m_rules.append(std::move(r));
 }
 
-SymbolStyle RuleBasedRenderer::symbolFor(const FeatureRef &, const QVariantMap &) const
+SymbolStyle RuleBasedRenderer::symbolFor(const FeatureRef &,
+                                          const QVariantMap &attrs) const
 {
-    // STUB: expression evaluation lands with Slice BI.2 (LabelExpression DSL
-    // parser). Until then, an empty-expression rule (which "matches always")
-    // can still take effect — useful for static "default rule first" setups.
+    // Slice X.25 — first-match rule evaluation via the lightweight
+    // ExpressionEvaluator.  Rules are checked in order; the first rule
+    // whose expression yields true picks the symbol.  Empty expressions
+    // still match always (legacy "default rule first" pattern).  Mal-
+    // formed expressions are skipped (treated as no-match) so a broken
+    // rule can't shadow later ones.
     for (const Rule &r : m_rules)
     {
-        if (r.expression.isEmpty())
+        QString err;
+        if (ExpressionEvaluator::eval(r.expression, attrs, &err)
+            && err.isEmpty())
+        {
             return r.symbol;
+        }
     }
     return m_fallback;
 }

@@ -1,4 +1,4 @@
-# 12. Map Editing
+@page manual_map_editing 12. Map Editing
 
 OpenSWMM lets you edit the geometry of a loaded SWMM network directly on
 the map canvas. Three tools are in the Editing toolbar: **Move Node**,

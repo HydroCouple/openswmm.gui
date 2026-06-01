@@ -1,4 +1,4 @@
-# 08 — Selection
+@page manual_selection 08 — Selection
 
 ## What you'll do
 

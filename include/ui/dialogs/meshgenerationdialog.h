@@ -33,10 +33,12 @@
 #include <QVector>
 
 class SWMMVisProjectWindow;
+class GISVectorLayer;
 
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
+class QGroupBox;
 class QLabel;
 class QLineEdit;
 class QListWidget;
@@ -54,6 +56,11 @@ public:
     // -----------------------------------------------------------------------
     // Data types exchanged between the main thread and the worker thread.
     // -----------------------------------------------------------------------
+
+    /*! \brief Elevation interpolation method for the no-DTM fallback. */
+    enum class ElevInterpMethod { IDW, NaturalNeighbour };
+    /*! \brief Natural-neighbour weighting variant. */
+    enum class NNVariant        { Sibson, Laplace };
 
     /*! \brief All inputs needed by the pipeline worker.
      *         Collected on the main thread by collectInputs() so the worker
@@ -107,6 +114,40 @@ public:
         // different vertical unit than the SWMM model.
         // e.g., DTM in metres + SWMM in feet → factor = 3.28084
         double zConversionFactor = 1.0;
+
+        // Short, human-readable mesh-CRS identifier ("EPSG:32634", "Local").
+        // Emitted in the ;; SOURCE_CRS: header line.  Separate from
+        // meshCRSWkt (full WKT) to keep the header compact.
+        QString meshCRSTag;
+
+        // Human-readable linear-unit name from the mesh CRS ("metre",
+        // "US survey foot", …).  Emitted in the ;; UNITS: header so the
+        // file is self-describing.  Writer does NOT use it to convert
+        // values — XY are written in project-CRS units, matching today's
+        // engine expectations.
+        QString meshLinearUnitName;
+
+        // 3D aux-line vertices: exact (x,y)->z in mesh CRS, seeded into
+        // elevCache by coordinate so PSLG simplification can't desync a
+        // per-vertex z carried on the (simplified) constraint segment.
+        QVector<QPointF> featureZSeedXY;
+        QVector<double>  featureZSeedZ;
+
+        // Node rim-flatten: when nodes use rim elevation and a flatten radius
+        // is set, every terrain / refinement vertex within radius of a node is
+        // forced to that node's rim elevation (invert + maxDepth).  Removes the
+        // sliver triangles that terrain/rim misalignment creates around nodes.
+        QVector<QPointF> nodeRimXY;
+        QVector<double>  nodeRimZ;
+        double           nodeFlattenRadius = 0.0;  // mesh units; 0 = off
+        bool             nodesUseRim       = false;
+
+        // Elevation interpolation for the no-DTM fallback.  IDW (configurable
+        // Shepard power) or natural neighbour (Sibson / Laplace); NN falls back
+        // to IDW outside the seed convex hull.  Ignored when a DTM is set.
+        ElevInterpMethod elevInterpMethod = ElevInterpMethod::IDW;
+        NNVariant        nnVariant        = NNVariant::Sibson;
+        double           idwPower         = 2.0;
 
         // Output
         mesh::MeshOutputMode outputMode    = mesh::MeshOutputMode::External;
@@ -164,10 +205,31 @@ private:
     QListWidget   *m_pointLayersList    = nullptr;
     QListWidget   *m_lineLayersList     = nullptr;
 
+    // One row per vector layer in the point / line lists.  Each row carries
+    // an "include" checkbox and a "use feature Z" checkbox; the latter is
+    // enabled only when the layer's geometry is 3D.
+    struct AuxLayerRow
+    {
+        GISVectorLayer *layer   = nullptr;
+        QCheckBox      *include = nullptr;
+        QCheckBox      *useZ    = nullptr;
+        bool            is3D    = false;
+    };
+    QVector<AuxLayerRow> m_pointLayerRows;
+    QVector<AuxLayerRow> m_lineLayerRows;
+
     // ── Constraints (SWMM-aware tagging) ────────────────────────────
     QCheckBox     *m_includeJunctions = nullptr;
     QCheckBox     *m_includeConduits  = nullptr;
     QCheckBox     *m_includeSubcatch  = nullptr;
+    QCheckBox      *m_nodesUseRim     = nullptr;  // rim elevation instead of terrain
+    QDoubleSpinBox *m_nodeFlattenSpin = nullptr;  // flatten terrain within radius of nodes
+
+    // ── Elevation interpolation (no-DTM fallback) ───────────────────
+    QGroupBox      *m_elevInterpGroup = nullptr;  // whole group (disabled when DTM set)
+    QComboBox      *m_elevMethodCombo = nullptr;  // IDW | Natural neighbour
+    QComboBox      *m_nnVariantCombo  = nullptr;  // Sibson | Laplace
+    QDoubleSpinBox *m_idwPowerSpin    = nullptr;  // Shepard exponent
 
     // ── Quality ─────────────────────────────────────────────────────
     QDoubleSpinBox *m_maxAreaSpin      = nullptr;

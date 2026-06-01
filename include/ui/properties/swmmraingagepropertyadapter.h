@@ -25,6 +25,12 @@ class SWMMRainGagePropertyAdapter : public SWMMDataObjectPropertyAdapter
     Q_PROPERTY(int    dataSource  READ dataSource  WRITE setDataSource  NOTIFY changed)
     /*! Current rainfall rate in project units — read-only display. */
     Q_PROPERTY(double currentRainfall READ currentRainfall NOTIFY changed)
+    /*! Slice IO-11e — external rain-file path for this gage. The string
+     *  is the original token (relative or absolute) as known to the
+     *  engine; reads also surface the resolved absolute via
+     *  resolvedFilePath() for tooltip / status display. */
+    Q_PROPERTY(QString filePath         READ filePath         WRITE setFilePath         NOTIFY changed)
+    Q_PROPERTY(QString resolvedFilePath READ resolvedFilePath                            NOTIFY changed)
 
 public:
     using SWMMDataObjectPropertyAdapter::SWMMDataObjectPropertyAdapter;
@@ -32,12 +38,15 @@ public:
     [[nodiscard]] int    rainType()         const;
     [[nodiscard]] int    dataSource()       const;
     [[nodiscard]] double currentRainfall()  const;
+    [[nodiscard]] QString filePath()         const;  ///< .original token
+    [[nodiscard]] QString resolvedFilePath() const;  ///< .absolute (post-resolve)
 
     Q_INVOKABLE QString displayLabelFor(const QString &property) const;
 
 public slots:
     void setRainType(int v);
     void setDataSource(int v);
+    void setFilePath(const QString &p);
 
 private:
     [[nodiscard]] int idx() const;

@@ -48,14 +48,26 @@ namespace OpenSWMM::Render
  */
 enum class SymbolLayerKind
 {
-    SimpleMarker,   /*!< Point marker (circle, square, …). [MUST] */
-    SimpleLine,     /*!< Stroked polyline. [MUST] */
-    SimpleFill,     /*!< Filled polygon. [MUST] */
-    MarkerLine,     /*!< Repeated marker along a polyline (flow arrows). [MUST] */
-    HatchFill,      /*!< Parallel-line / cross-hatch polygon fill. */
-    PatternFill,    /*!< Image-tile polygon fill. (UI editor deferred.) */
-    SvgMarker,      /*!< SVG path file marker. (UI editor deferred.) */
-    FontMarker      /*!< Unicode-character marker from a font. (UI editor deferred.) */
+    SimpleMarker,       /*!< Point marker (circle, square, …). [MUST] */
+    SimpleLine,         /*!< Stroked polyline. [MUST] */
+    SimpleFill,         /*!< Filled polygon. [MUST] */
+    MarkerLine,         /*!< Repeated marker along a polyline (flow arrows). [MUST] */
+    HatchFill,          /*!< Parallel-line / cross-hatch polygon fill. */
+    PatternFill,        /*!< Image-tile polygon fill. (UI editor deferred.) */
+    SvgMarker,          /*!< SVG path file marker. (UI editor deferred.) */
+    FontMarker,         /*!< Unicode-character marker from a font. (UI editor deferred.) */
+    // ── Slice Z.6 — Raster + TIN paint passes ─────────────────────────
+    RasterColorRamp,    /*!< Continuous-color raster ramp (DEM / 2D depth field). */
+    Hillshade,          /*!< Terrain hillshade overlay (azimuth / altitude / z-exag). */
+    Contour,            /*!< Contour lines + optional filled isobands. */
+    MeshEdge,           /*!< TIN / mesh wireframe edges. */
+    MeshNode,           /*!< TIN / mesh vertex markers. */
+    // Slice AN.1 — 2D results velocity field. The Rule's SymbolLayer
+    // carries glyph length / spacing / color / dryDepth cutoff; the
+    // painter (SWMM2DVelocityArrowsItem) re-samples per frame via the
+    // matching VelocityVectorSymbolLayerSpec. See
+    // docs/RENDERING_2D_RESULTS_STYLING_PLAN.md.
+    VectorGlyph         /*!< 2D vector-field glyph layer (velocity arrows). */
 };
 
 /*!

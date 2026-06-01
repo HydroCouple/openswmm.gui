@@ -14,9 +14,11 @@
 #define OPENSWMMVIS_MESH_INPMESHWRITER_H
 
 #include "meshresult.h"
+#include "meshedgebc.h"
 
 #include <QHash>
 #include <QString>
+#include <QVector>
 
 namespace mesh {
 
@@ -53,6 +55,35 @@ enum class MeshOutputMode {
 class InpMeshWriter
 {
 public:
+    /*! \brief Unit & provenance metadata written as `;;` header comments.
+     *
+     *  The writer does NOT perform any unit conversion — values are written
+     *  in whatever unit the caller's mesh already carries (the project CRS
+     *  linear unit, by convention aligned with the SWMM FLOW_UNITS).
+     *  The metadata is purely descriptive so the reader / engine can
+     *  branch on it.
+     *
+     *  Engine contract (today): `[2D_VERTICES]` XY is in the project's
+     *  length unit (feet for US flow units, metres otherwise). Engine
+     *  multiplies by 0.3048 in `SurfaceRouter2D::initialize` when the
+     *  project is US.  When the file declares `;; UNITS: SI (m)` and the
+     *  engine has been updated to honour it, the engine skips that
+     *  multiplication.
+     */
+    struct UnitInfo
+    {
+        QString linearUnitName;     ///< Goes into `;; UNITS:` (e.g. "metre", "US survey foot", "SI (m)").
+        QString sourceCrsTag;       ///< Goes into `;; SOURCE_CRS:` (e.g. "EPSG:2249").
+
+        // User-declared (out-of-line) default ctor: makes UnitInfo a
+        // non-aggregate so the `const UnitInfo & = {}` default arguments
+        // below invoke this constructor instead of aggregate-initialising
+        // with the in-class member initializer — which clang rejects as
+        // "needed within definition of enclosing class outside of member
+        // functions" when the type is nested in InpMeshWriter.
+        UnitInfo();
+    };
+
     /*! \brief Render the four 2D sections as a single text block.
      *
      *  Order: `[2D_VERTICES]`, `[2D_TRIANGLES]`, `[2D_VERTEX_NODE_MAP]`,
@@ -65,10 +96,54 @@ public:
      *  \param defaultMannings  used for triangles missing from
      *                          coupling.triangleMannings (default 0.035 ≈
      *                          natural channel / grass).
+     *  \param units            optional `;; UNITS:` / `;; SOURCE_CRS:`
+     *                          header metadata (purely descriptive).
      */
     [[nodiscard]] static QString buildSectionText(const MeshResult &mesh,
                                                   const CouplingMap &coupling,
-                                                  double defaultMannings = 0.035);
+                                                  double defaultMannings = 0.035,
+                                                  const UnitInfo &units = {});
+
+    /*! \brief Slice §V.VD.1 — render the `[2D_BOUNDARY_CONDITIONS]`
+     *  section for the per-edge BC vector. Returns an empty string when
+     *  every edge is Wall (avoids polluting the .inp with a section
+     *  that round-trips to default). Format:
+     *
+     *      [2D_BOUNDARY_CONDITIONS]
+     *      ;; TRI  EDGE  TYPE             PARAM_1        PARAM_2  GROUP
+     *         12   0     NORMAL_FLOW      0.002          *        *
+     *         12   1     SPECIFIED_STAGE  95.4           *        *
+     *         45   2     TS_STAGE         DownstreamTS   *        Outlet
+     *
+     *  TYPE is one of WALL / NORMAL_FLOW / SPECIFIED_STAGE / TS_STAGE /
+     *  SPECIFIED_FLOW / TS_FLOW / RATING_CURVE (see mesh::MeshBCTypes).
+     *  PARAM_1 is the type's primary parameter (slope / head / TS name /
+     *  flow / TS name / curve name). PARAM_2 is reserved for future
+     *  extensions; today always "*". GROUP is the optional named group
+     *  ("*" = none). */
+    [[nodiscard]] static QString buildBCSectionText(const QVector<MeshEdgeBC> &bcs);
+
+    /*! \brief Engine §11A — render the `[2D_EDGE_CONVEYANCE]` section.
+     *
+     *  Walks \p bcs (flat-indexed `tri * 3 + edge`, parallel to \p mesh)
+     *  and emits one row per edge whose conveyance differs from the
+     *  default 1.0. Interior edges occupy two slots that the GUI keeps in
+     *  sync (see SWMM2DMeshLayer::applyMeshEdgeConveyance), so the writer
+     *  canonicalises on the first encountered vertex-pair and silently
+     *  drops the second half — interior edges appear exactly once.
+     *  Returns an empty string when every edge is at default.
+     *
+     *  Format (matches the engine parser in `SectionHandlers2D.cpp`):
+     *
+     *      [2D_EDGE_CONVEYANCE]
+     *      ;; FROM_VERTEX  TO_VERTEX  CONVEYANCE
+     *         12           37         0.5
+     *         12           45         0
+     *
+     *  CONVEYANCE is a dimensionless multiplier in [0, 1]. 1.0 (default)
+     *  is unrestricted; 0.0 is a closed (impermeable) edge. */
+    [[nodiscard]] static QString buildConveyanceSectionText(
+        const MeshResult &mesh, const QVector<MeshEdgeBC> &bcs);
 
     /*! \brief Default mode: write the mesh into a sibling `.2dm` file and
      *         patch the `.inp` with a `[2D_MESH_FILE]` reference.
@@ -90,7 +165,20 @@ public:
                                              const MeshResult &mesh,
                                              const CouplingMap &coupling,
                                              double defaultMannings = 0.035,
-                                             QString *errorOut = nullptr);
+                                             QString *errorOut = nullptr,
+                                             const UnitInfo &units = {});
+
+    /*! \brief §V.VD.1 overload — additionally writes the
+     *  `[2D_BOUNDARY_CONDITIONS]` section. Empty / all-Wall BC vector
+     *  is equivalent to the non-BC overload (section is omitted). */
+    [[nodiscard]] static bool writeExternal(const QString &inpPath,
+                                             const QString &meshFilePath,
+                                             const MeshResult &mesh,
+                                             const CouplingMap &coupling,
+                                             const QVector<MeshEdgeBC> &bcs,
+                                             double defaultMannings,
+                                             QString *errorOut = nullptr,
+                                             const UnitInfo &units = {});
 
     /*! \brief Replace (or append) all four 2D sections in the .inp at
      *         \p inpPath. Existing 2D sections are stripped first; any
@@ -101,7 +189,18 @@ public:
                                            const MeshResult &mesh,
                                            const CouplingMap &coupling,
                                            double defaultMannings = 0.035,
-                                           QString *errorOut = nullptr);
+                                           QString *errorOut = nullptr,
+                                           const UnitInfo &units = {});
+
+    /*! \brief §V.VD.1 overload — additionally writes the
+     *  `[2D_BOUNDARY_CONDITIONS]` section inline. */
+    [[nodiscard]] static bool writeInline(const QString &inpPath,
+                                           const MeshResult &mesh,
+                                           const CouplingMap &coupling,
+                                           const QVector<MeshEdgeBC> &bcs,
+                                           double defaultMannings,
+                                           QString *errorOut = nullptr,
+                                           const UnitInfo &units = {});
 
     /*! \brief Convenience dispatch on \ref MeshOutputMode. */
     [[nodiscard]] static bool write(MeshOutputMode mode,
@@ -110,7 +209,8 @@ public:
                                      const MeshResult &mesh,
                                      const CouplingMap &coupling,
                                      double defaultMannings = 0.035,
-                                     QString *errorOut = nullptr);
+                                     QString *errorOut = nullptr,
+                                     const UnitInfo &units = {});
 };
 
 } // namespace mesh

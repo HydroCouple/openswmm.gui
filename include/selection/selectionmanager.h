@@ -57,6 +57,14 @@ struct SWMMObjectRef
         Hydrograph   = 15,
         Street       = 16,
         Inlet        = 17,
+        // 2D mesh elements (Slice §V.VA — Mesh Editing Toolbar). The
+        // `name` field encodes mesh-layer persistent id + element index
+        // (see `MeshObjectRef::vertex` / `::edge` on `SWMM2DMeshLayer`),
+        // so multiple meshes on one canvas can co-exist in selection
+        // without collision.
+        MeshVertex   = 18,
+        MeshEdge     = 19,
+        MeshCell     = 20,   ///< 2D mesh triangle/cell (see `MeshObjectRef::cell`)
     };
 
     ObjectType objectType = Unknown;

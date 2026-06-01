@@ -63,6 +63,10 @@ protected:
 private:
     QPointer<SWMMModelLayer> m_layer;
     MapExtent                m_extent;
+    // Extent at the last full content rebuild. Used by setMapExtent()
+    // to decide pan-only (transform refresh) vs. full rebuild based on
+    // how far the viewport has drifted from the cached cull window.
+    MapExtent                m_lastBuiltExtent;
 
     // Fixed scene-space centre of the dataset bounding box, recomputed at
     // the start of each content rebuild.  Vertex coords stored as

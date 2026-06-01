@@ -87,6 +87,24 @@ public:
      *  read-through cache is implemented in its dedicated sub-phase. */
     int pointCount() const noexcept { return m_points.size(); }
 
+    // ── Lazy cache (Step F — ExternalFile mode only) ────────────────────────
+
+    /*! \brief True iff the in-memory point vector is populated. Inline /
+     *  GeopackageObserved modes always return true (their points ARE the
+     *  authoritative storage). ExternalFile mode returns true between a
+     *  load and a `disposePointCache` call. */
+    bool isPointCacheLoaded() const noexcept;
+
+    /*! \brief Drop the in-memory point vector for ExternalFile-mode providers
+     *  to reclaim memory when the editor switches to a different series. The
+     *  file path / column selector / mtime stay so a later `Reload` can
+     *  re-read from disk. **No-op** for Inline / GeopackageObserved — those
+     *  caches are authoritative storage and disposing would lose data.
+     *  Emits `pointsChanged(0, prevCount)` so the table / chart views drop
+     *  to an empty-state render (and `pointCacheDisposed()` for callers
+     *  that need to distinguish "disposed" from "naturally empty"). */
+    void disposePointCache();
+
     /*! \brief Read a single point by index. Caller must ensure `0 ≤ i < pointCount()`. */
     const TimeseriesPoint& pointAt(int i) const { return m_points.at(i); }
 
@@ -156,6 +174,12 @@ signals:
     /*! \brief A mutator was refused because it would have violated an invariant.
      *  Surfaced to UI so the drag-edit status bar can show the offending state. */
     void mutationRejected(QString reason);
+
+    /*! \brief Step F — ExternalFile mode: the lazy point cache was dropped via
+     *  `disposePointCache`. Distinguishes "freed to save memory" from
+     *  "legitimately empty" so views can render a placeholder instead of
+     *  treating it as a parse failure. */
+    void pointCacheDisposed();
 
 private:
     QString                   m_name;
