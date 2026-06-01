@@ -206,14 +206,19 @@ struct SourceSeries
  * \brief Output of `compute()`: per-source HGL/EGL series and per-node
  *        envelope min/max.  Sized to match the input `SourceSeries`.
  *
- *        Layout: `hglByPeriod[pathNodeIdx][period]`, etc.  Envelope arrays
- *        are indexed only by `pathNodeIdx`.
+ *        Layout: `hglByPeriod[period][pathNodeIdx]`, etc. — period-major so
+ *        the renderer's per-frame access pattern (one period × all nodes)
+ *        reads from a single contiguous inner vector instead of pointer-
+ *        chasing across one inner vector per node.  Envelope arrays are
+ *        indexed only by `pathNodeIdx`.
  */
 struct SourceDerived
 {
+    /*! [period][pathNodeIdx] — period-major; see struct docstring. */
     QVector<QVector<double>> hglByPeriod;
+    /*! [period][pathNodeIdx] — period-major; see struct docstring. */
     QVector<QVector<double>> eglByPeriod;
-    /*! [pathNodeIdx][period] free-surface elevation = `invertElev + nodeDepth`.
+    /*! [period][pathNodeIdx] free-surface elevation = `invertElev + nodeDepth`.
      *  Differs from HGL when the conduit is pressurized (HGL > rim). */
     QVector<QVector<double>> waterSurfaceByPeriod;
     QVector<double>          minHgl;

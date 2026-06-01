@@ -16,6 +16,8 @@
 #include <QPalette>
 #include <QScreen>
 #include <QTimer>
+#include <QDialog>
+#include <QEvent>
 // #ifdef Q_OS_WIN
 // #include <windows.h> // for Sleep
 // #endif
@@ -78,6 +80,11 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
 
 
     this->setStyle(QStyleFactory::create("Fusion"));
+
+    // Keep every QDialog stacked above the main window. The filter reparents
+    // orphaned dialogs to the main window and raises them on show so a click
+    // on the main window cannot bury them.
+    installEventFilter(this);
 
     //set up splash screen
     QPixmap pixmap(":/swmmvis/splashscreen");
@@ -142,4 +149,28 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
 SWMMVisApplication::~SWMMVisApplication()
 {
 
+}
+
+bool SWMMVisApplication::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::Show)
+    {
+        if (auto *dlg = qobject_cast<QDialog *>(watched))
+        {
+            // Only act on top-level dialogs — embedded QDialog widgets in a
+            // layout are not what we're trying to keep on top.
+            if (dlg->isWindow())
+            {
+                // Defer until after the Show is processed so we operate on the
+                // realised platform window. raise()+activateWindow() brings the
+                // dialog above the main window without the always-on-top hint
+                // (which would also stay above other apps).
+                QTimer::singleShot(0, dlg, [dlg]() {
+                    dlg->raise();
+                    dlg->activateWindow();
+                });
+            }
+        }
+    }
+    return QApplication::eventFilter(watched, event);
 }

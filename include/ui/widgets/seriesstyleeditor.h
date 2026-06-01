@@ -46,12 +46,21 @@ public:
     /*! \brief Current style as edited by the user. */
     [[nodiscard]] openswmmvis::plot::SeriesStyle style() const;
 
+    /*! \brief Seed the spec-level legend override field. Empty = auto. */
+    void setLegendOverride(const QString& override);
+
+    /*! \brief Current legend override as edited by the user. */
+    [[nodiscard]] QString legendOverride() const;
+
     /*! \brief Underlying QObject — exposed for tests / advanced wiring. */
     openswmmvis::plot::SeriesStyleObject *styleObject() const { return m_obj; }
 
 signals:
-    /*! \brief Emitted whenever any field changes (live preview hook). */
+    /*! \brief Emitted whenever any style field changes (live preview hook). */
     void styleChanged(const openswmmvis::plot::SeriesStyle& style);
+
+    /*! \brief Emitted when the spec-level legend override is edited. */
+    void legendOverrideChanged(const QString& override);
 
 private:
     void buildUi();

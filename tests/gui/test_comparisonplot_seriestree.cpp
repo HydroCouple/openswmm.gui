@@ -59,6 +59,7 @@ private slots:
     void updateStyleNoOpDoesNotEmit();
     void removeSeriesEvictsSpec();
     void plotThisOnlyHidesSiblingsOnly();
+    void updateLegendOverrideWritesSpecAndDedupes();
 
 private:
     /*! Build a model with one run source and N series on a single attribute row. */
@@ -161,6 +162,31 @@ void TestComparisonPlotSeriesTree::plotThisOnlyHidesSiblingsOnly()
     QVERIFY(!model->spec(0).style.showLine);
     QVERIFY( model->spec(1).style.showLine);
     QVERIFY(!model->spec(2).style.showLine);
+}
+
+void TestComparisonPlotSeriesTree::updateLegendOverrideWritesSpecAndDedupes()
+{
+    // updateLegendOverride writes SeriesSpec::legendOverride and piggybacks
+    // on styleChanged so the dialog's existing onStyleChanged handler can
+    // refresh the chart legend label. No-op writes must NOT re-emit, so
+    // QPropertyModel edit churn doesn't trigger needless chart rebuilds.
+    auto model = makeModelWithSeries({QStringLiteral("J1")}, PlotAttribute::NodeDepth);
+    QCOMPARE(model->spec(0).legendOverride, QString());
+
+    QSignalSpy spy(model.get(), &ComparisonPlotModel::styleChanged);
+
+    model->updateLegendOverride(0, QStringLiteral("Upstream node"));
+    QCOMPARE(model->spec(0).legendOverride, QStringLiteral("Upstream node"));
+    QCOMPARE(spy.count(), 1);
+
+    // Repeat with same value — dedupe path.
+    model->updateLegendOverride(0, QStringLiteral("Upstream node"));
+    QCOMPARE(spy.count(), 1);
+
+    // Clear restores auto.
+    model->updateLegendOverride(0, QString());
+    QCOMPARE(model->spec(0).legendOverride, QString());
+    QCOMPARE(spy.count(), 2);
 }
 
 QTEST_MAIN(TestComparisonPlotSeriesTree)

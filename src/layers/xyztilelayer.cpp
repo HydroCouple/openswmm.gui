@@ -729,8 +729,26 @@ void XYZTileLayer::render(QPainter *painter,
         }
     }
 
+    // Slice X.22 — apply basemap visual adjustments (brightness /
+    // contrast / saturation) to the composed mosaic before paint.
+    // Resampling is honoured separately via the painter render hint.
+    m_renderParams.applyTo(dst);
+
     painter->save();
     painter->setOpacity(opacity());
+    if (m_renderParams.resampling == OpenSWMM::Render::BasemapRenderParams::Nearest)
+        painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
+    else
+        painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
     painter->drawImage(0, 0, dst);
     painter->restore();
+}
+
+void XYZTileLayer::setBasemapRenderParams(
+    const OpenSWMM::Render::BasemapRenderParams &p)
+{
+    if (m_renderParams == p) return;
+    m_renderParams = p;
+    emit basemapRenderParamsChanged();
+    emit repaintRequested();
 }

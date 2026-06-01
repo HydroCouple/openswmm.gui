@@ -5,20 +5,141 @@
  */
 
 #include "layers/gisvectorlayer.h"
+#include "layers/gisvectorsymboladapter.h"
+#include "ui/dialogs/ilayerstylesubject.h"
 #include "map/graphicsitems.h"
 #include "map/spatialreferencesystem.h"
 #include "map/mapextent.h"
 
 #include "render/ifeaturerenderer.h"
 #include "render/renderers/singlesymbolrenderer.h"
+// Slice B.3 — renderer ownership migrated to the Rule Model RuleList.
+#include "render/rule.h"
+#include "render/rulelist.h"
+#include "render/symbollayer.h"
+#include "render/symbolstyle.h"
+#include "render/featureref.h"
 
 #include <QGraphicsScene>
 #include <QDebug>
+#include <QFileInfo>
 
 #include <gdal_priv.h>
 #include <ogrsf_frmts.h>
 #include <ogr_spatialref.h>
 #include <ogr_geometry.h>
+
+// ---------------------------------------------------------------------------
+// Rule ↔ GISVectorSymbol bridge
+// ---------------------------------------------------------------------------
+//
+// The Rule Model (RENDERING_RULE_MODEL_PLAN.md §3) holds styling in a
+// SymbolStyle of compositional SymbolLayers, each carrying an opaque
+// QVariantMap of props. The SymbolStyleAdapter (Slice B.6c) writes user
+// edits into the first SymbolLayer's prop bag using archetype-agnostic
+// keys: "fillColor", "color", "outlineColor", "outlineWidth", "width",
+// "size", "shape", "penStyle".
+//
+// GISVectorLayer's paint loop still consumes the typed GISVectorSymbol
+// (point/line/polygon defaults in one value type). These helpers
+// translate between the two so Symbology-tab edits reach the canvas
+// without rewriting populateScene's per-geometry-type item construction.
+
+namespace {
+
+void seedSymbolStyleFromGISVectorSymbol(OpenSWMM::Render::SymbolStyle &style,
+                                        const GISVectorSymbol &sym)
+{
+    using OpenSWMM::Render::SymbolLayer;
+    using OpenSWMM::Render::SymbolLayerKind;
+
+    SymbolLayer sl;
+    sl.kind = SymbolLayerKind::SimpleMarker;
+    // Marker props — read by point paint and by the SymbolStyleAdapter's
+    // markerSize / markerShape / fillColor / outlineColor accessors.
+    sl.props.insert(QStringLiteral("shape"),           int(sym.markerShape));
+    sl.props.insert(QStringLiteral("size"),            sym.markerSize);
+    sl.props.insert(QStringLiteral("fillColor"),       sym.markerFill);
+    sl.props.insert(QStringLiteral("outlineColor"),    sym.markerOutline);
+    sl.props.insert(QStringLiteral("outlineWidth"),    sym.markerOutlineW);
+    sl.props.insert(QStringLiteral("outlinePenStyle"), int(Qt::SolidLine));
+    // Line / polygon props — adapter writes "color"/"width" alongside
+    // "outlineColor"/"outlineWidth" so line + polygon outline track the
+    // marker outline edit. Seed them with the existing line pen + polygon
+    // outline so the panel reads sensible initial values.
+    sl.props.insert(QStringLiteral("color"),           sym.linePen.color());
+    sl.props.insert(QStringLiteral("width"),           sym.linePen.widthF());
+    sl.props.insert(QStringLiteral("penStyle"),        int(sym.linePen.style()));
+
+    style.layers.clear();
+    style.layers.append(sl);
+    style.opacity = 1.0;
+}
+
+GISVectorSymbol deriveGISVectorSymbolFromStyle(const OpenSWMM::Render::SymbolStyle &style,
+                                               const GISVectorSymbol &fallback)
+{
+    if (style.layers.isEmpty())
+        return fallback;
+
+    GISVectorSymbol out = fallback;
+    const auto &p = style.layers.first().props;
+
+    auto readColor = [&](const QString &key, const QColor &def) {
+        const auto it = p.constFind(key);
+        if (it == p.constEnd()) return def;
+        const QColor c = it.value().value<QColor>();
+        if (c.isValid()) return c;
+        // SymbolStyleAdapter sometimes stores colours as their #AARRGGBB
+        // name string — accept that form too.
+        const QColor s(it.value().toString());
+        return s.isValid() ? s : def;
+    };
+    auto readReal = [&](const QString &key, qreal def) {
+        const auto it = p.constFind(key);
+        if (it == p.constEnd()) return def;
+        bool ok = false;
+        const qreal v = it.value().toReal(&ok);
+        return ok ? v : def;
+    };
+    auto readInt = [&](const QString &key, int def) {
+        const auto it = p.constFind(key);
+        if (it == p.constEnd()) return def;
+        bool ok = false;
+        const int v = it.value().toInt(&ok);
+        return ok ? v : def;
+    };
+
+    // ── Marker (point features) ─────────────────────────────────────
+    out.markerShape    = static_cast<GISVectorSymbol::MarkerShape>(
+        readInt(QStringLiteral("shape"), int(out.markerShape)));
+    out.markerSize     = readReal(QStringLiteral("size"),         out.markerSize);
+    out.markerFill     = readColor(QStringLiteral("fillColor"),   out.markerFill);
+    out.markerOutline  = readColor(QStringLiteral("outlineColor"), out.markerOutline);
+    out.markerOutlineW = readReal(QStringLiteral("outlineWidth"), out.markerOutlineW);
+
+    // ── Line (linestring features) ──────────────────────────────────
+    // SymbolStyleAdapter writes "color"/"width" for the stroke; fall
+    // back to the marker outline so a single colour edit affects both.
+    QPen linePen = out.linePen;
+    linePen.setColor(readColor(QStringLiteral("color"), linePen.color()));
+    linePen.setWidthF(readReal(QStringLiteral("width"), linePen.widthF()));
+    linePen.setStyle(static_cast<Qt::PenStyle>(
+        readInt(QStringLiteral("penStyle"), int(linePen.style()))));
+    out.linePen = linePen;
+
+    // ── Polygon (polygon features) ──────────────────────────────────
+    out.polygonFill = QBrush(readColor(QStringLiteral("fillColor"),
+                                        out.polygonFill.color()));
+    QPen polyOutline = out.polygonOutline;
+    polyOutline.setColor(readColor(QStringLiteral("outlineColor"), polyOutline.color()));
+    polyOutline.setWidthF(readReal(QStringLiteral("outlineWidth"), polyOutline.widthF()));
+    out.polygonOutline = polyOutline;
+
+    return out;
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Constructor / Destructor
@@ -34,7 +155,35 @@ GISVectorLayer::GISVectorLayer(const QString &filePath,
     // Slice BI Phase 8.13.6.6 — renderer plumbing.  Default to a
     // SingleSymbolRenderer so renderer() never returns null.  Paint loop
     // still reads m_symbol directly; refactor deferred to 8.13.6.4.
-    m_renderer = std::make_unique<OpenSWMM::Render::SingleSymbolRenderer>();
+    // Slice B.3 — RuleList is the canonical renderer home. Seed with one
+    // Rule wrapping a default SingleSymbolRenderer so renderer() never
+    // returns null. LayerStyleDialog's Symbology tab (Slice B.2) reads
+    // m_ruleList and mounts RuleSymbologyTab.
+    m_ruleList = std::make_unique<OpenSWMM::Render::RuleList>(this);
+    {
+        // Seed the default Rule's SingleSymbolRenderer with a SymbolStyle
+        // populated from the layer's GISVectorSymbol defaults. Without
+        // this seed the renderer ships an empty SymbolStyle and the
+        // Symbology tab reads invalid colours / size 0 on first open.
+        auto single = std::make_unique<OpenSWMM::Render::SingleSymbolRenderer>();
+        OpenSWMM::Render::SymbolStyle style;
+        seedSymbolStyleFromGISVectorSymbol(style, m_symbol);
+        single->setSymbol(std::move(style));
+        m_ruleList->append(std::make_unique<OpenSWMM::Render::Rule>(
+            tr("Default"), std::move(single)));
+    }
+
+    // Propagate Rule-side edits to the canvas. The SymbolStyleAdapter
+    // writes user edits into the active Rule's renderer prop bag and
+    // calls notifyRendererStateChanged() — that surfaces here as
+    // RuleList::ruleChanged. Derive a fresh GISVectorSymbol from the
+    // renderer and feed it through setSymbol(), which marks the scene
+    // dirty + emits repaintRequested.
+    connect(m_ruleList.get(), &OpenSWMM::Render::RuleList::ruleChanged,
+            this, [this](int) {
+                syncSymbolFromRenderer();
+                emit rendererChanged();
+            });
 
     GDALAllRegister(); // Idempotent – safe to call multiple times
 
@@ -51,7 +200,13 @@ GISVectorLayer::~GISVectorLayer()
 // Dataset info
 // ---------------------------------------------------------------------------
 
-QString GISVectorLayer::filePath()     const { return m_filePath; }
+QString GISVectorLayer::filePath()     const
+{
+    // Properties window shows full on-disk path for the dataset.
+    return m_filePath.isEmpty()
+               ? m_filePath
+               : QFileInfo(m_filePath).absoluteFilePath();
+}
 QString GISVectorLayer::ogrLayerName() const { return m_ogrLayerName; }
 
 int GISVectorLayer::featureCount() const
@@ -73,6 +228,104 @@ QStringList GISVectorLayer::fieldNames() const
         names.append(QString::fromUtf8(defn->GetFieldDefn(i)->GetNameRef()));
 
     return names;
+}
+
+// ---------------------------------------------------------------------------
+// Slice DM.3 — IAttributeProvider
+// ---------------------------------------------------------------------------
+//
+// Walks the OGR field defn and wraps each entry as an AttributeField.
+// Type maps OGR field types to Qt metatype enums best-effort. All
+// fields are isDynamic=false (vector attributes are static). Category
+// arg ignored — GIS layers don't carry a SWMM category.
+
+QVector<OpenSWMM::Render::AttributeField>
+GISVectorLayer::availableAttributes(OpenSWMMVis::SwmmCategory /*cat*/) const
+{
+    using OpenSWMM::Render::AttributeField;
+    QVector<AttributeField> out;
+    if (!m_ogrLayer) return out;
+
+    OGRFeatureDefn *defn = m_ogrLayer->GetLayerDefn();
+    out.reserve(defn->GetFieldCount());
+    for (int i = 0; i < defn->GetFieldCount(); ++i) {
+        OGRFieldDefn *fd = defn->GetFieldDefn(i);
+        AttributeField f;
+        f.name        = QString::fromUtf8(fd->GetNameRef());
+        f.displayName = f.name;
+        f.isDynamic   = false;
+        switch (fd->GetType()) {
+        case OFTInteger:
+        case OFTInteger64:  f.type = QMetaType::LongLong; break;
+        case OFTReal:       f.type = QMetaType::Double;   break;
+        case OFTString:     f.type = QMetaType::QString;  break;
+        case OFTDate:
+        case OFTDateTime:   f.type = QMetaType::QDateTime;break;
+        default:            f.type = QMetaType::QString;  break;
+        }
+        out.append(f);
+    }
+    return out;
+}
+
+void GISVectorLayer::appendScenePolygonsTo(QPainterPath &out) const
+{
+    // Slice Z.14-paint — Yields the layer's polygon geometry in scene
+    // coords for the mask-clip resolver. The OGR walk + Y-flip mirrors
+    // populateScene's polygon branch (avoiding a refactor of that path
+    // which is hot during canvas paint).
+    if (!m_ogrLayer) return;
+
+    // Save + clear the canvas's spatial filter so we walk every feature
+    // regardless of what canvasExtent populateScene last set. Restore
+    // on the way out so concurrent canvas painting isn't disturbed.
+    OGRGeometry *priorFilter = m_ogrLayer->GetSpatialFilter();
+    OGRGeometry *priorFilterCopy = priorFilter ? priorFilter->clone() : nullptr;
+    m_ogrLayer->SetSpatialFilter(nullptr);
+    m_ogrLayer->ResetReading();
+
+    auto addRing = [&](OGRLinearRing *ring) {
+        const int n = ring ? ring->getNumPoints() : 0;
+        if (n < 3) return;
+        // Mirror populateScene: scene-coords are map-coords with Y
+        // flipped. populateScene calls toScene(x, y) after the OGR
+        // transform; we replicate that step inline since toScene is
+        // file-local in gisvectorlayer.cpp.
+        out.moveTo(QPointF(ring->getX(0), -ring->getY(0)));
+        for (int i = 1; i < n; ++i)
+            out.lineTo(QPointF(ring->getX(i), -ring->getY(i)));
+        out.closeSubpath();
+    };
+
+    OGRFeature *feat = nullptr;
+    while ((feat = m_ogrLayer->GetNextFeature()) != nullptr) {
+        OGRGeometry *geom = feat->GetGeometryRef();
+        if (geom && m_transform) geom->transform(m_transform);
+        if (!geom) { OGRFeature::DestroyFeature(feat); continue; }
+
+        const OGRwkbGeometryType gt = wkbFlatten(geom->getGeometryType());
+        if (gt == wkbPolygon) {
+            auto *poly = geom->toPolygon();
+            addRing(poly->getExteriorRing());
+            for (int h = 0; h < poly->getNumInteriorRings(); ++h)
+                addRing(poly->getInteriorRing(h));
+        } else if (gt == wkbMultiPolygon) {
+            auto *mp = geom->toMultiPolygon();
+            for (int p = 0; p < mp->getNumGeometries(); ++p) {
+                auto *poly = mp->getGeometryRef(p)->toPolygon();
+                if (!poly) continue;
+                addRing(poly->getExteriorRing());
+                for (int h = 0; h < poly->getNumInteriorRings(); ++h)
+                    addRing(poly->getInteriorRing(h));
+            }
+        }
+        // Non-polygon types (lines / points) silently skipped — the
+        // mask-source contract is "polygon vector layer".
+        OGRFeature::DestroyFeature(feat);
+    }
+
+    m_ogrLayer->SetSpatialFilter(priorFilterCopy);
+    OGRGeometryFactory::destroyGeometry(priorFilterCopy);
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +358,98 @@ void GISVectorLayer::setFilterExpression(const QString &expr)
 
 GISVectorSymbol GISVectorLayer::symbol() const { return m_symbol; }
 
+// ---------------------------------------------------------------------------
+// GISVectorSymbol JSON round-trip (Slice X.19)
+// ---------------------------------------------------------------------------
+//
+// Stored flat — older readers can pick out the fields they understand
+// and ignore newer ones.  Pens/brushes round-trip via color + width to
+// stay schema-friendly (Qt's QPen::write isn't human-readable JSON).
+
+QJsonObject GISVectorSymbol::toJson() const
+{
+    QJsonObject j;
+    j[QStringLiteral("markerShape")]   = int(markerShape);
+    j[QStringLiteral("markerSize")]    = markerSize;
+    j[QStringLiteral("markerFill")]    = markerFill.name(QColor::HexArgb);
+    j[QStringLiteral("markerOutline")] = markerOutline.name(QColor::HexArgb);
+    j[QStringLiteral("markerOutlineW")] = markerOutlineW;
+
+    j[QStringLiteral("lineColor")]     = linePen.color().name(QColor::HexArgb);
+    j[QStringLiteral("lineWidth")]     = linePen.widthF();
+    j[QStringLiteral("lineDash")]      = int(linePen.style());
+
+    j[QStringLiteral("polygonFill")]   = polygonFill.color().name(QColor::HexArgb);
+    j[QStringLiteral("polygonOutline")] = polygonOutline.color().name(QColor::HexArgb);
+    j[QStringLiteral("polygonOutlineW")] = polygonOutline.widthF();
+
+    // Labels — write both the legacy scalars AND the rich LabelConfig.
+    j[QStringLiteral("showLabels")] = showLabels;
+    if (!labelField.isEmpty())
+        j[QStringLiteral("labelField")] = labelField;
+    j[QStringLiteral("labelColor")]    = labelColor.name(QColor::HexArgb);
+    j[QStringLiteral("labelFontFamily")] = labelFont.family();
+    j[QStringLiteral("labelFontSize")] = labelFont.pointSizeF() > 0
+        ? labelFont.pointSizeF() : 9.0;
+    j[QStringLiteral("labelConfig")]   = labelConfig.toJson();
+    return j;
+}
+
+void GISVectorSymbol::fromJson(const QJsonObject &j)
+{
+    if (j.contains(QStringLiteral("markerShape")))
+        markerShape = static_cast<MarkerShape>(
+            j.value(QStringLiteral("markerShape")).toInt(int(Circle)));
+    if (j.contains(QStringLiteral("markerSize")))
+        markerSize = j.value(QStringLiteral("markerSize")).toDouble(6.0);
+    if (j.contains(QStringLiteral("markerFill"))) {
+        const QColor c(j.value(QStringLiteral("markerFill")).toString());
+        if (c.isValid()) markerFill = c;
+    }
+    if (j.contains(QStringLiteral("markerOutline"))) {
+        const QColor c(j.value(QStringLiteral("markerOutline")).toString());
+        if (c.isValid()) markerOutline = c;
+    }
+    if (j.contains(QStringLiteral("markerOutlineW")))
+        markerOutlineW = j.value(QStringLiteral("markerOutlineW")).toDouble(1.0);
+
+    if (j.contains(QStringLiteral("lineColor"))) {
+        const QColor c(j.value(QStringLiteral("lineColor")).toString());
+        if (c.isValid()) linePen.setColor(c);
+    }
+    if (j.contains(QStringLiteral("lineWidth")))
+        linePen.setWidthF(j.value(QStringLiteral("lineWidth")).toDouble(2.0));
+    if (j.contains(QStringLiteral("lineDash")))
+        linePen.setStyle(static_cast<Qt::PenStyle>(
+            j.value(QStringLiteral("lineDash")).toInt(int(Qt::SolidLine))));
+
+    if (j.contains(QStringLiteral("polygonFill"))) {
+        const QColor c(j.value(QStringLiteral("polygonFill")).toString());
+        if (c.isValid()) polygonFill = QBrush(c);
+    }
+    if (j.contains(QStringLiteral("polygonOutline"))) {
+        const QColor c(j.value(QStringLiteral("polygonOutline")).toString());
+        if (c.isValid()) polygonOutline.setColor(c);
+    }
+    if (j.contains(QStringLiteral("polygonOutlineW")))
+        polygonOutline.setWidthF(j.value(QStringLiteral("polygonOutlineW")).toDouble(2.0));
+
+    if (j.contains(QStringLiteral("showLabels")))
+        showLabels = j.value(QStringLiteral("showLabels")).toBool(false);
+    if (j.contains(QStringLiteral("labelField")))
+        labelField = j.value(QStringLiteral("labelField")).toString();
+    if (j.contains(QStringLiteral("labelColor"))) {
+        const QColor c(j.value(QStringLiteral("labelColor")).toString());
+        if (c.isValid()) labelColor = c;
+    }
+    if (j.contains(QStringLiteral("labelFontFamily")))
+        labelFont.setFamily(j.value(QStringLiteral("labelFontFamily")).toString());
+    if (j.contains(QStringLiteral("labelFontSize")))
+        labelFont.setPointSizeF(j.value(QStringLiteral("labelFontSize")).toDouble(9.0));
+    if (j.contains(QStringLiteral("labelConfig")))
+        labelConfig.fromJson(j.value(QStringLiteral("labelConfig")).toObject());
+}
+
 void GISVectorLayer::setSymbol(const GISVectorSymbol &symbol)
 {
     m_symbol = symbol;
@@ -113,23 +458,127 @@ void GISVectorLayer::setSymbol(const GISVectorSymbol &symbol)
     emit repaintRequested();
 }
 
+void GISVectorLayer::syncSymbolFromRenderer()
+{
+    auto *single = dynamic_cast<OpenSWMM::Render::SingleSymbolRenderer *>(renderer());
+    if (!single)
+        return;  // Graduated / Categorized — per-feature dispatch follow-up.
+
+    // SingleSymbol returns the same style for every feature, so an
+    // empty FeatureRef + empty attrs is sufficient.
+    const OpenSWMM::Render::SymbolStyle style =
+        single->symbolFor(OpenSWMM::Render::FeatureRef{}, QVariantMap{});
+    const GISVectorSymbol derived = deriveGISVectorSymbolFromStyle(style, m_symbol);
+    if (derived.markerShape    == m_symbol.markerShape    &&
+        qFuzzyCompare(derived.markerSize + 1.0, m_symbol.markerSize + 1.0) &&
+        derived.markerFill     == m_symbol.markerFill     &&
+        derived.markerOutline  == m_symbol.markerOutline  &&
+        qFuzzyCompare(derived.markerOutlineW + 1.0, m_symbol.markerOutlineW + 1.0) &&
+        derived.linePen        == m_symbol.linePen        &&
+        derived.polygonFill    == m_symbol.polygonFill    &&
+        derived.polygonOutline == m_symbol.polygonOutline)
+        return;  // No-op edits (e.g. blendMode-only change) skip the rebuild.
+    setSymbol(derived);
+}
+
+// ---------------------------------------------------------------------------
+// Label configuration (Slice X.18)
+// ---------------------------------------------------------------------------
+
+// VS.10 — labelConfig() inherited from OpenSWMMVisLayer; only the setter is
+// overridden to mirror the relevant fields onto the legacy GISVectorSymbol
+// bag, then chain to the base which stores the config + emits the signals.
+void GISVectorLayer::setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg)
+{
+    if (labelConfig() == cfg) return;
+    GISVectorSymbol sym = m_symbol;
+    sym.showLabels  = cfg.enabled;
+    sym.labelField  = cfg.fieldName;
+    sym.labelColor  = cfg.color;
+    sym.labelFont   = cfg.effectiveFont();
+    sym.labelConfig = cfg;     // Slice X.19 — full mirror for JSON round-trip.
+    if (sym.showLabels != m_symbol.showLabels
+        || sym.labelField != m_symbol.labelField
+        || sym.labelColor != m_symbol.labelColor
+        || sym.labelFont  != m_symbol.labelFont)
+    {
+        m_symbol = sym;
+        emit symbolChanged(m_symbol);
+    }
+    OpenSWMMVisLayer::setLabelConfig(cfg);   // stores + emits labelConfigChanged + repaint
+}
+
+QStringList GISVectorLayer::ogrFieldNames() const
+{
+    if (!m_ogrLayer) return {};
+    QStringList names;
+    OGRFeatureDefn *defn = m_ogrLayer->GetLayerDefn();
+    if (!defn) return names;
+    for (int i = 0; i < defn->GetFieldCount(); ++i) {
+        if (OGRFieldDefn *fd = defn->GetFieldDefn(i))
+            names << QString::fromUtf8(fd->GetNameRef());
+    }
+    return names;
+}
+
+// Slice U-7 — expose the GISVectorSymbol via a QObject adapter (owned by
+// this layer) as the single styleable subject. The adapter forwards
+// edits to setSymbol() which already flags the rebuild + emits
+// symbolChanged + repaintRequested.
+std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
+GISVectorLayer::styleSubjects()
+{
+    using openswmmvis::ui::ILayerStyleSubject;
+    using openswmmvis::ui::LayerStyleSubject;
+
+    auto *adapter = new GisVectorSymbolAdapter(
+        m_symbol,
+        [this](const GISVectorSymbol &s) { setSymbol(s); },
+        this);
+
+    std::vector<std::unique_ptr<ILayerStyleSubject>> out;
+    out.push_back(std::make_unique<LayerStyleSubject>(
+        tr("Symbology"), adapter, QStringLiteral("vector.symbol"), QString()));
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 // Renderer (Slice BI Phase 8.13.6.6)
 // ---------------------------------------------------------------------------
 
 OpenSWMM::Render::IFeatureRenderer *GISVectorLayer::renderer() const
 {
-    return m_renderer.get();
+    // Slice B.3 — delegate to the active Rule's owned renderer.
+    if (!m_ruleList) return nullptr;
+    OpenSWMM::Render::Rule *r = m_ruleList->activeRule();
+    return r ? r->renderer() : nullptr;
 }
 
 void GISVectorLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r)
 {
-    if (!r)
+    if (!r || !m_ruleList)
         return;
-    if (r.get() == m_renderer.get())
+    OpenSWMM::Render::Rule *active = m_ruleList->activeRule();
+    if (!active)
         return;
-    m_renderer = std::move(r);
+    if (active->renderer() == r.get())
+        return;
+    active->setRenderer(std::move(r));
+    // Rule's ruleChanged signal already routes through to
+    // rendererChanged via the connect() in the ctor. Emit explicitly
+    // here too so callers that bypass the Rule path still see the
+    // signal in the same dispatch.
     emit rendererChanged();
+}
+
+OpenSWMM::Render::RuleList *GISVectorLayer::ruleList()
+{
+    return m_ruleList.get();
+}
+
+const OpenSWMM::Render::RuleList *GISVectorLayer::ruleList() const
+{
+    return m_ruleList.get();
 }
 
 // ---------------------------------------------------------------------------
@@ -287,6 +736,7 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         auto *item = new VectorPointItem(fid, mx, -my, m_symbol.markerSize / 2.0);
         item->setBrush(QBrush(selected ? Qt::yellow : m_symbol.markerFill));
         item->setPen(QPen(m_symbol.markerOutline, m_symbol.markerOutlineW));
+        item->setMarkerShape(int(m_symbol.markerShape));   // G-1 — canonical shape
         item->setHighlighted(selected);
         item->setOwnerLayer(this);
         item->setZValue(baseZ + 2);

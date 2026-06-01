@@ -81,6 +81,45 @@ add_swmmvis_unit_test(test_projectserializer_paths
     # inline static methods on ProjectSerializer (Slice AA-3.2).
 )
 
+# Slice RA.4 — Save-As path normalizer. Pure function, no widget deps.
+add_swmmvis_unit_test(test_saveaspathnormalizer
+    test_saveaspathnormalizer.cpp
+    ${PROJECT_SOURCE_DIR}/src/project/saveaspathnormalizer.cpp
+)
+
+# Slice QB.5 — Run-path resolver (Strategy C, GUI-only). Pure function,
+# no widget or QSettings dependency in the core resolver — the
+# resolveRunOutputPathFromSettings wrapper is a thin shim and is covered
+# by higher-level integration tests once a QSettings sandbox is wired.
+add_swmmvis_unit_test(test_runpathresolver
+    test_runpathresolver.cpp
+    ${PROJECT_SOURCE_DIR}/src/simulation/runpathresolver.cpp
+)
+
+# Slice QA — OutputStatsRegistry smoke. Full register/unregister coverage
+# with real SWMMResultsLayer instances lives in the GUI integration suite
+# once .out fixtures are reused; here we lock in the API surface.
+add_swmmvis_unit_test(test_outputstatsregistry
+    test_outputstatsregistry.cpp
+    ${PROJECT_SOURCE_DIR}/include/output/outputstatsregistry.h
+    ${PROJECT_SOURCE_DIR}/src/output/outputstatsregistry.cpp
+)
+# Needs Qt6::Gui because outputstatsregistry.cpp's transitive includes
+# (swmmresultslayer.h → openswmmvislayer.h) pull in <QPaintDevice>. Needs
+# openswmm_engine because the same chain pulls in swmmmodellayer.h which
+# pulls in <openswmm/engine/openswmm_callbacks.h>.
+target_link_libraries(test_outputstatsregistry PRIVATE Qt6::Gui openswmm_engine)
+
+# Slice RB.5 — Sidecar auto-create regression coverage (sidecarPathFor +
+# Preferences/AutoCreateOswpOnOpen default). The full integration tests
+# (SWMMVisProjectWindow::saveAs writes sidecar; openSingleINP creates
+# missing sidecar) live with the higher-level GUI suite once the
+# project-window scaffolding lands.
+add_swmmvis_unit_test(test_sidecar_autocreate
+    test_sidecar_autocreate.cpp
+    # No production .cpp needed — sidecarPathFor is inline in the header.
+)
+
 # Slice Z.2 — WHERE-clause parser/evaluator for the Attribute Table.
 # Pure Qt; no engine/widget deps.
 add_swmmvis_unit_test(test_queryparser
@@ -92,6 +131,48 @@ add_swmmvis_unit_test(test_queryparser
 add_swmmvis_unit_test(test_profilerouter
     test_profilerouter.cpp
     ${PROJECT_SOURCE_DIR}/src/plot/profilerouter.cpp
+)
+
+# Slice §V.VA — Mesh Editing Toolbar foundation: pure helpers, no layer
+# dependency (MeshObjectRef factories take a source-path QString).
+add_swmmvis_unit_test(test_meshobjectref
+    test_meshobjectref.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshobjectref.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshobjectref.cpp
+)
+
+add_swmmvis_unit_test(test_meshbctype
+    test_meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
+)
+
+# CSR-backed spatial index used by SWMM2DMeshLayer to cull triangles /
+# edges to the visible map extent. Extracted from the layer's nested
+# struct so this test can link only the index source, with no widget /
+# engine / renderer dependencies.
+add_swmmvis_unit_test(test_meshspatialgrid
+    test_meshspatialgrid.cpp
+    ${PROJECT_SOURCE_DIR}/include/layers/meshspatialgrid.h
+    ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
+)
+
+# Slice §V.VF adapter unit tests — DEFERRED to §V.VF.2 GUI integration
+# suite (requires linking SWMM2DMeshLayer + its renderer / layer
+# transitive cascade). The adapter classes themselves are verified by
+# the SWMMVis target's compile of meshvertexpropertyadapter.cpp +
+# meshedgepropertyadapter.cpp (Q_PROPERTY / MOC validity).
+
+# Slice §V.VD.1 — [2D_BOUNDARY_CONDITIONS] writer / reader round-trip.
+add_swmmvis_unit_test(test_meshinpbcroundtrip
+    test_meshinpbcroundtrip.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshedgebc.h
+    ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshreader.h
+    ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshwriter.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
 )
 
 # Slice BB Phase 8.6.16 — shared model for legend overlay chrome.

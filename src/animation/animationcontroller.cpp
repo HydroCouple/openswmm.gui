@@ -8,6 +8,13 @@
 #include "layers/swmmresultslayer.h"
 #include "layers/swmm2dresultslayer.h"
 
+// Slice S2.5a (RENDERING_OUTPUT_SUBLAYERS_PLAN.md §2 Decision 3) — per-tick
+// dispatch to ISublayerHost so only DYNAMIC sublayers invalidate on
+// animation ticks. The dynamic_cast in the slot bodies activates this only
+// when the layer actually inherits the host (1D layer adopted in S2.4;
+// 2D layer adopts in S5).
+#include "render/isublayerhost.h"
+
 #include <QTimer>
 
 AnimationController::AnimationController(QObject *parent)
@@ -63,12 +70,26 @@ SWMMResultsLayer *AnimationController::primaryLayer() const
 void AnimationController::connectPrimary()
 {
     if (!m_primaryLayer) return;
+    // Slice §Y.1 — only one wire from the primary into the cascade.
+    // onPrimaryPeriodChanged derives the wall-clock time from the layer and
+    // emits currentTimeChanged itself, so the second
+    // currentDateTimeChanged → onPrimaryTimeChanged bridge is gone. The
+    // layer still emits currentDateTimeChanged for direct Q_PROPERTY / UI
+    // consumers (DateTime edit widget binding).
     connect(m_primaryLayer, &SWMMResultsLayer::currentTimeStepChanged,
             this, &AnimationController::onPrimaryPeriodChanged);
-    connect(m_primaryLayer, &SWMMResultsLayer::currentDateTimeChanged,
-            this, &AnimationController::onPrimaryTimeChanged);
     connect(m_primaryLayer, &SWMMResultsLayer::totalTimeStepsChanged,
             this, &AnimationController::onPrimaryTotalStepsChanged);
+    // Slice Z.13-controller — refresh the timer interval whenever the
+    // primary's TemporalSpec changes (Temporal tab edit, project load,
+    // programmatic setter). The lambda gates on m_playing so we don't
+    // restart a stopped timer; updateTimerInterval is idempotent when
+    // the timer is idle.
+    connect(m_primaryLayer, &OpenSWMMVisLayer::temporalSpecChanged,
+            this, [this]() { updateTimerInterval(); });
+    // Reset direction when the primary switches — pingPong state is
+    // not preserved across layer swaps.
+    m_direction = 1;
 }
 
 void AnimationController::disconnectPrimary()
@@ -76,10 +97,13 @@ void AnimationController::disconnectPrimary()
     if (!m_primaryLayer) return;
     disconnect(m_primaryLayer, &SWMMResultsLayer::currentTimeStepChanged,
                this, &AnimationController::onPrimaryPeriodChanged);
-    disconnect(m_primaryLayer, &SWMMResultsLayer::currentDateTimeChanged,
-               this, &AnimationController::onPrimaryTimeChanged);
     disconnect(m_primaryLayer, &SWMMResultsLayer::totalTimeStepsChanged,
                this, &AnimationController::onPrimaryTotalStepsChanged);
+    // Slice Z.13-controller — drop the spec observer; the lambda we
+    // installed in connectPrimary captured `this` so disconnect needs
+    // the sender + receiver pair to undo it.
+    disconnect(m_primaryLayer, &OpenSWMMVisLayer::temporalSpecChanged,
+               this, nullptr);
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +140,13 @@ void AnimationController::connectFallback2D()
             this, &AnimationController::onFallback2DTimeChanged);
     connect(m_fallback2D, &SWMM2DResultsLayer::timeRangeChanged,
             this, &AnimationController::onFallback2DRangeChanged);
+    // Slice Z.13-controller-2d-fallback — refresh tick interval when the
+    // 2D layer's TemporalSpec changes (mirrors the 1D primary path in
+    // connectPrimary). Only meaningful when no 1D primary is set; when
+    // a 1D primary takes over, updateTimerInterval ignores this layer's
+    // spec.
+    connect(m_fallback2D, &OpenSWMMVisLayer::temporalSpecChanged,
+            this, [this]() { updateTimerInterval(); });
 }
 
 void AnimationController::disconnectFallback2D()
@@ -127,6 +158,8 @@ void AnimationController::disconnectFallback2D()
                this, &AnimationController::onFallback2DTimeChanged);
     disconnect(m_fallback2D, &SWMM2DResultsLayer::timeRangeChanged,
                this, &AnimationController::onFallback2DRangeChanged);
+    disconnect(m_fallback2D, &OpenSWMMVisLayer::temporalSpecChanged,
+               this, nullptr);
 }
 
 // ---------------------------------------------------------------------------
@@ -208,9 +241,27 @@ void AnimationController::setSpeed(double speed)
 
 void AnimationController::updateTimerInterval()
 {
-    const int ms = qMax(kMinIntervalMs,
-                        static_cast<int>(kDefaultStepMs / m_speed));
-    m_timer->setInterval(ms);
+    // Slice Z.13-controller — when the active driver's TemporalSpec is
+    // enabled, the spec's `frameRateFps` overrides the global step-rate
+    // calculation so the user gets the playback speed they set in the
+    // Temporal tab. The global `m_speed` multiplier still composes on
+    // top so the toolbar's 0.5×/2× buttons keep working.
+    //
+    // Active driver: 1D primary if set, else the 2D fallback (Slice
+    // Z.13-controller-2d-fallback — when no 1D primary is present, the
+    // 2D layer drives playback so its TemporalSpec should govern). Falls
+    // back to the legacy formula (kDefaultStepMs / speed) when no spec
+    // is enabled, preserving every existing project's animation
+    // behaviour unchanged.
+    int ms = static_cast<int>(kDefaultStepMs / m_speed);
+    const OpenSWMM::Render::TemporalSpec *activeSpec = nullptr;
+    if (m_primaryLayer)    activeSpec = &m_primaryLayer->temporalSpec();
+    else if (m_fallback2D) activeSpec = &m_fallback2D->temporalSpec();
+    if (activeSpec && activeSpec->enabled && activeSpec->frameRateFps > 0.0) {
+        const double effectiveFps = activeSpec->frameRateFps * m_speed;
+        ms = static_cast<int>(1000.0 / qMax(0.1, effectiveFps));
+    }
+    m_timer->setInterval(qMax(kMinIntervalMs, ms));
 }
 
 // ---------------------------------------------------------------------------
@@ -228,6 +279,11 @@ void AnimationController::play()
     if (driverCurrentStep() >= driverTotalSteps() - 1)
         driverSetStep(0);
 
+    // Slice Z.13-controller — reset direction at the start of every
+    // play so pingPong always begins forward. Otherwise a previous
+    // ping-pong cycle could have left m_direction at -1 and the user
+    // would press Play and watch the layer rewind.
+    m_direction = 1;
     m_playing = true;
     updateTimerInterval();
     m_timer->start();
@@ -252,40 +308,68 @@ void AnimationController::stop()
 
 void AnimationController::stepForward()
 {
-    if (m_primaryLayer) {
-        m_primaryLayer->stepForward(false);
-    } else if (m_fallback2D) {
-        const int n = driverTotalSteps();
-        if (n <= 0) return;
-        const int next = std::min(driverCurrentStep() + 1, n - 1);
-        m_fallback2D->setCurrentTimeIndex(next);
-    }
+    // Slice Z.13-controller-range — single path through the driver
+    // abstractions so the temporal-spec clamp applies uniformly to both
+    // 1D primary and 2D fallback drivers. The layer's own
+    // stepForward(loop=false) ignores the spec; doing the math here
+    // honors startTime/endTime.
+    int rMin = 0, rMax = 0;
+    effectiveStepRange(rMin, rMax);
+    if (rMax < rMin) return;
+    driverSetStep(std::min(driverCurrentStep() + 1, rMax));
 }
 
 void AnimationController::stepBackward()
 {
-    if (m_primaryLayer) {
-        m_primaryLayer->stepBackward(false);
-    } else if (m_fallback2D) {
-        const int prev = std::max(driverCurrentStep() - 1, 0);
-        m_fallback2D->setCurrentTimeIndex(prev);
-    }
+    int rMin = 0, rMax = 0;
+    effectiveStepRange(rMin, rMax);
+    if (rMax < rMin) return;
+    driverSetStep(std::max(driverCurrentStep() - 1, rMin));
 }
 
 void AnimationController::seekToFirst()
 {
-    driverSetStep(0);
+    int rMin = 0, rMax = 0;
+    effectiveStepRange(rMin, rMax);
+    driverSetStep(rMin);
 }
 
 void AnimationController::seekToLast()
 {
-    const int n = driverTotalSteps();
-    if (n > 0) driverSetStep(n - 1);
+    int rMin = 0, rMax = 0;
+    effectiveStepRange(rMin, rMax);
+    if (rMax >= rMin) driverSetStep(rMax);
 }
 
 void AnimationController::seekToPeriod(int period)
 {
-    driverSetStep(period);
+    int rMin = 0, rMax = 0;
+    effectiveStepRange(rMin, rMax);
+    driverSetStep(std::clamp(period, rMin, rMax));
+}
+
+void AnimationController::effectiveStepRange(int &outMin, int &outMax) const
+{
+    const int total = driverTotalSteps();
+    outMin = 0;
+    outMax = total > 0 ? total - 1 : 0;
+
+    // Only the 1D primary exposes a datetime → index converter. For the
+    // 2D fallback, range clamping by datetime is the named
+    // Z.13-controller-2d-range follow-up; for now the 2D path uses the
+    // full [0, total-1] interval.
+    if (!m_primaryLayer) return;
+    const auto &spec = m_primaryLayer->temporalSpec();
+    if (!spec.enabled) return;
+
+    if (spec.startTime.isValid()) {
+        const int idx = m_primaryLayer->periodIndexForDateTime(spec.startTime);
+        outMin = std::clamp(idx, 0, outMax);
+    }
+    if (spec.endTime.isValid()) {
+        const int idx = m_primaryLayer->periodIndexForDateTime(spec.endTime);
+        outMax = std::clamp(idx, outMin, outMax);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -305,9 +389,65 @@ void AnimationController::onTimerTick()
         return;
     }
 
-    const int next = driverCurrentStep() + 1;
-    if (next >= total) {
-        pause();
+    // Slice Z.13-controller — end-of-range behaviour comes from the
+    // primary's TemporalSpec when enabled. Three behaviours:
+    //   - default (spec disabled OR loop=false, pingPong=false): pause
+    //     on reaching the end. Preserves the legacy UX.
+    //   - loop=true, pingPong=false: wrap to rangeMin and keep playing.
+    //   - pingPong=true (implies loop=true per the spec doc): reverse
+    //     direction and step backwards until hitting rangeMin, then
+    //     reverse again. Forward-and-back forever.
+    bool loop     = false;
+    bool pingPong = false;
+    if (m_primaryLayer) {
+        const auto &spec = m_primaryLayer->temporalSpec();
+        if (spec.enabled) {
+            loop     = spec.loop || spec.pingPong;
+            pingPong = spec.pingPong;
+        }
+    } else if (m_fallback2D) {
+        // Slice Z.13-controller-2d-fallback — 2D layer's spec drives end-of-
+        // range behaviour when no 1D primary is set. The frame-rate path is
+        // handled in updateTimerInterval below.
+        const auto &spec = m_fallback2D->temporalSpec();
+        if (spec.enabled) {
+            loop     = spec.loop || spec.pingPong;
+            pingPong = spec.pingPong;
+        }
+    }
+
+    // Slice Z.13-controller-range — use the effective range, not the
+    // raw [0, total) bounds, so the end-of-range logic respects
+    // startTime / endTime when set.
+    int rMin = 0, rMax = total - 1;
+    effectiveStepRange(rMin, rMax);
+
+    const int cur = driverCurrentStep();
+    int next = cur + m_direction;
+
+    if (pingPong) {
+        if (next > rMax) {
+            m_direction = -1;
+            next = qMax(rMin, cur - 1);
+        } else if (next < rMin) {
+            m_direction = 1;
+            next = qMin(rMax, cur + 1);
+        }
+        driverSetStep(next);
+        return;
+    }
+
+    if (next > rMax) {
+        if (loop) {
+            driverSetStep(rMin);
+        } else {
+            pause();
+        }
+        return;
+    }
+    if (next < rMin) {
+        // Shouldn't happen in forward-only playback but guard anyway.
+        driverSetStep(rMin);
         return;
     }
 
@@ -316,17 +456,41 @@ void AnimationController::onTimerTick()
 
 void AnimationController::onPrimaryPeriodChanged(int step)
 {
+    // Slice S2.5a — give the primary layer a chance to invalidate its
+    // dynamic sublayers BEFORE we fan out the public signal. Consumers
+    // that observe currentPeriodChanged (renderers, comparison plot
+    // dialog, status bar) then see a layer whose sublayer state is
+    // already marked stale for the new period. Static sublayers stay
+    // untouched — the perf-relevant cut from Decision 3.
+    if (auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(m_primaryLayer.data()))
+        host->dispatchAnimationTick(step);
+
+    // Slice §Y.1 — derive wall-clock time once, fan it out to secondaries +
+    // the 2D fallback, and emit currentTimeChanged ourselves. Previously
+    // currentTimeChanged was emitted by onPrimaryTimeChanged via a separate
+    // signal bridge (currentDateTimeChanged), which meant one timestep
+    // produced two independent cascades from the layer into the controller.
+    QDateTime now;
+    if (m_primaryLayer) {
+        now = m_primaryLayer->currentDateTime();
+        if (now.isValid()) {
+            for (auto &sec : m_secondaryLayers) {
+                if (sec && sec.data() != m_primaryLayer.data())
+                    sec->setCurrentTimeStep(sec->periodIndexForDateTime(now));
+            }
+            if (m_fallback2D)
+                m_fallback2D->setCurrentSimTime(now);
+        }
+    }
+
     emit currentPeriodChanged(step);
+    if (now.isValid())
+        emit currentTimeChanged(now);
 }
 
 void AnimationController::onPrimaryTotalStepsChanged(int total)
 {
     emit totalPeriodsChanged(total);
-}
-
-void AnimationController::onPrimaryTimeChanged(const QDateTime &dt)
-{
-    emit currentTimeChanged(dt);
 }
 
 // ---------------------------------------------------------------------------
@@ -337,6 +501,15 @@ void AnimationController::onPrimaryTimeChanged(const QDateTime &dt)
 void AnimationController::onFallback2DPeriodChanged(int step)
 {
     if (m_primaryLayer) return;
+
+    // Slice S2.5a — same dispatch pattern as the 1D primary path. The
+    // dynamic_cast is a no-op today because SWMM2DResultsLayer does NOT
+    // yet inherit ISublayerHost (that's Slice S5). Wired here in advance
+    // so when S5 lands, no AnimationController change is needed —
+    // adoption alone activates the dispatch path.
+    if (auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(m_fallback2D.data()))
+        host->dispatchAnimationTick(step);
+
     emit currentPeriodChanged(step);
 }
 

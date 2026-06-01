@@ -19,6 +19,13 @@ TabularDataLayer::TabularDataLayer(const QString &name,
 
 TabularDataLayer::~TabularDataLayer() = default;
 
+QString TabularDataLayer::sourcePath() const
+{
+    return m_sourcePath.isEmpty()
+               ? m_sourcePath
+               : QFileInfo(m_sourcePath).absoluteFilePath();
+}
+
 QVariantMap TabularDataLayer::row(int idx) const
 {
     if (idx < 0 || idx >= m_rows.size()) return {};

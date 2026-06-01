@@ -140,10 +140,36 @@ MapCanvas::MapCanvas(QWidget *parent)
     // set for future use when a proper off-screen compositing path is available
     // (e.g. QQuickRenderControl + QOffscreenSurface → QImage → drawImage into
     // m_frameBuffer, bypassing the native-child compositing entirely).
-    m_qsgWidget = new QQuickWidget(this);
+    // QSG render widget is TOP-LEVEL + WA_DontShowOnScreen. As a
+    // hidden child of MapCanvas the QQuickWindow's render loop is
+    // gated by visibility — grabFramebuffer() returns blank pixels —
+    // and the new per-kind CPU bypass (SWMMLayerItem skips kinds
+    // QSG owns) then leaves the canvas empty of SWMM elements.
+    // Top-level + WA_DontShowOnScreen keeps the FBO render pipeline
+    // alive without ever showing a native window. Screen + DPR are
+    // explicitly synced to MapCanvas in showEvent() so the grabbed
+    // framebuffer composites at the same device resolution as the
+    // basemap and other CPU layers (otherwise on Retina the overlay
+    // renders at DPR=1 and appears half-resolution / offset).
+    m_qsgWidget = new QQuickWidget(nullptr);
     m_qsgWidget->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_qsgWidget->setAttribute(Qt::WA_DontShowOnScreen);
     m_qsgWidget->setClearColor(Qt::transparent);
     m_qsgWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    // Force MSAA on the QQuickWidget's offscreen FBO. main.cpp already
+    // puts samples=4 on QSurfaceFormat::defaultFormat for the main
+    // window, but QQuickWidget can construct its private FBO/RHI
+    // target with samples=0 unless told otherwise — that's why the
+    // SWMM overlay's lines/glyph silhouettes were aliased even with
+    // MSAA "enabled" globally. setting it on the widget itself before
+    // setSource() is the path that actually reaches the RHI render
+    // target.
+    {
+        QSurfaceFormat fmt = m_qsgWidget->format();
+        if (fmt.samples() < 4)
+            fmt.setSamples(4);
+        m_qsgWidget->setFormat(fmt);
+    }
     m_qsgWidget->setSource(QUrl(QStringLiteral("qrc:/openswmm/qml/swmmlayer.qml")));
     if (m_qsgWidget->status() != QQuickWidget::Ready) {
         qWarning() << "[MapCanvas] QML status:" << m_qsgWidget->status();
@@ -155,11 +181,7 @@ MapCanvas::MapCanvas(QWidget *parent)
     if (!m_qsgRenderer)
         qWarning() << "[MapCanvas] failed to obtain SWMMLayerQSGRenderer "
                       "as the QML root — got" << m_qsgWidget->rootObject();
-    // Explicitly hide so macOS never creates a CAMetalLayer child window for
-    // this widget.  An explicitly-hidden child is NOT shown when its parent is
-    // shown, unlike a widget that has simply never been shown.  This prevents
-    // the Metal layer from obscuring the raster content in m_frameBuffer.
-    m_qsgWidget->hide();
+    m_qsgWidget->show();
 
     // Scale bar appearance settings — child QObject so it's cleaned up with the canvas.
     m_scaleBarSettings = new ScaleBarSettings(this);
@@ -168,37 +190,27 @@ MapCanvas::MapCanvas(QWidget *parent)
     // Seed from persisted preferences and live-update whenever they change.
     syncScaleBarFromPreferences();
     connect(PreferencesManager::instance(), &PreferencesManager::preferenceChanged,
-            this, [this](const QString &group, const QString &) {
+            this, [this](const QString &group, const QString &key) {
                 if (group == QLatin1String("Decorations"))
                     syncScaleBarFromPreferences();
+                else if (group == QLatin1String("Rendering")
+                         && key == QLatin1String("QsgEnabled"))
+                    syncQsgRenderKindsFromPreferences();
             });
 
-    // Default basemap (CartoDB Positron via XYZ tiles).
-    addDefaultBasemap();
 }
 
 MapCanvas::~MapCanvas()
 {
     cancelRenderJob();
 
+    // The offscreen QSG widget is a top-level (parent = nullptr) so
+    // QObject parent-child cleanup doesn't free it. Delete explicitly.
+    if (m_qsgWidget)
+        m_qsgWidget->deleteLater();
+
     if (m_ownsSRS)
         delete m_canvasSRS;
-}
-
-void MapCanvas::addDefaultBasemap()
-{
-    // CartoDB Positron, HiDPI variant (@2x). 512-px tiles — sharper on
-    // retina / high-DPI displays than the default 256-px endpoint. Tile
-    // size is passed explicitly so bestZoom() picks a level that matches
-    // the source resolution rather than under-zooming against a 256-px
-    // assumption.
-    auto *tiles = new XYZTileLayer(
-        QStringLiteral("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png"),
-        /*tileSizePx=*/512,
-        nullptr);
-    tiles->setName(QStringLiteral("CartoDB Positron"));
-    tiles->setTilePixelRatio(2);  // @2x: 512-px image covers 256-px geographic area
-    addLayer(tiles, /*pushUndo=*/false);
 }
 
 // ---------------------------------------------------------------------------
@@ -481,6 +493,13 @@ void MapCanvas::insertLayer(int position, OpenSWMMVisLayer *layer, bool pushUndo
     // Only vector (non-raster) layers populate the overlay scene.
     if (!layer->isRasterLayer())
         layer->populateScene(m_scene, m_extent, m_canvasSRS);
+
+    // §QSG-1 — seed the new layer's per-kind QSG scope from the
+    // current Preferences mask so it lights up the GPU path
+    // immediately if the user already opted in, instead of waiting
+    // for the next preference change.
+    if (qobject_cast<SWMMModelLayer *>(layer))
+        syncQsgRenderKindsFromPreferences();
 
     emit layerAdded(layer);
     // Trigger a full render cycle so the new layer is fetched and composited
@@ -776,6 +795,30 @@ void MapCanvas::syncScaleBarFromPreferences()
     m_scaleBarSettings->setCompactNotation(p->scaleBarCompactNotation());
 }
 
+void MapCanvas::syncQsgRenderKindsFromPreferences()
+{
+    // §QSG-4 — translate the single Preferences toggle into a full
+    // QsgKinds bitmap and push it onto every SWMMModelLayer the
+    // canvas knows about. New layers added later pick the same
+    // mask up through this helper (called from insertLayer too).
+    // When the toggle is OFF, the mask is QsgNone — the CPU
+    // SWMMLayerItem path draws every kind as before.
+    const auto *p = PreferencesManager::instance();
+    const SWMMModelLayer::QsgKinds mask = p->qsgRenderEnabled()
+        ? SWMMModelLayer::QsgKinds(SWMMModelLayer::QsgNodes
+                                 | SWMMModelLayer::QsgLinks
+                                 | SWMMModelLayer::QsgCatch
+                                 | SWMMModelLayer::QsgGages)
+        : SWMMModelLayer::QsgKinds(SWMMModelLayer::QsgNone);
+    for (OpenSWMMVisLayer *layer : std::as_const(m_layers))
+        if (auto *sl = qobject_cast<SWMMModelLayer *>(layer))
+            sl->setQsgRenderKinds(mask);
+    // Always schedule a repaint — the toggle changes which pipeline
+    // owns the visible glyphs, so even with no QSG kinds active the
+    // CPU path needs to repaint its node branch.
+    update();
+}
+
 bool MapCanvas::showCoordinates() const { return m_showCoords; }
 
 void MapCanvas::setShowCoordinates(bool show)
@@ -1034,6 +1077,19 @@ void MapCanvas::refreshLayerItems()
     if (m_isPanning || m_isZooming)
         return;
 
+    // End-of-gesture trigger for the QSG framebuffer regrab. During pan
+    // and zoom, paintEvent uses a stale-buffer transform on the cached
+    // QSG frame (drawImage with translated/scaled dstRect) instead of
+    // re-running the synchronous repaint + grabFramebuffer pair, which
+    // is the most expensive single call in paintEvent on large models.
+    // When the gesture ends, refresh() fires this slot via the 50 ms
+    // debounce timer; if the viewport has drifted from the cached
+    // extent, mark the cache dirty so the next paint grabs a fresh
+    // frame at the current extent. Basemap-tile-arrived refreshes do
+    // NOT drift the extent, so they correctly skip the regrab.
+    if (m_qsgCachedExtent.isValid() && m_extent != m_qsgCachedExtent)
+        m_qsgFrameDirty = true;
+
     int vpW = width();
     int vpH = height();
     const QSize vpSize(vpW, vpH);
@@ -1188,30 +1244,15 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
     p.fillRect(rect(), m_bgColor);
 
     // ---- Layer 1: raster layers -------------------------------------------
-    // During pan, render raster layers directly from their in-memory tile
-    // caches using the live view extent from the overlay transform — this fills
-    // the full viewport with whatever is cached and avoids truncation.
-    // When not panning, blit the pre-rendered 1× raster buffer.
-    if (m_isPanning)
-    {
-        const QTransform &t = m_overlayView->transform();
-        const double s = t.m11();
-        if (s > 1e-12)
-        {
-            const double xMin =  -t.dx() / s;
-            const double yMax =   t.dy() / s;
-            const MapExtent liveExtent(xMin,
-                                       yMax - (double)height() / s,
-                                       xMin + (double)width()  / s,
-                                       yMax);
-            for (OpenSWMMVisLayer *layer : std::as_const(m_layers))
-            {
-                if (layer->isRasterLayer() && layer->isVisible())
-                    layer->render(&p, liveExtent, size(), m_canvasSRS);
-            }
-        }
-    }
-    else if (!m_mapBuffer.isNull())
+    // Always blit the pre-rendered raster buffer using the QGIS-style
+    // stale-buffer transform. During pan/zoom this draws m_mapBuffer at a
+    // translated/scaled destination rect — one drawImage call, fast enough
+    // for smooth gesture feedback. The per-pixel reverse-projection inside
+    // XYZTileLayer::render() is too expensive to run per mouse-move at
+    // device-pixel resolution (8M+ samples on Retina), and Qt coalesces the
+    // resulting slow paint events into a single mouse-up paint — which is
+    // why pan appeared frozen until release.
+    if (!m_mapBuffer.isNull())
     {
         // QGIS-style stale-buffer transform.
         //
@@ -1295,22 +1336,103 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                 break;
             }
         }
-        m_qsgRenderer->setLayer(firstSwmm);
-        m_qsgRenderer->setMapExtent(m_extent);
+        // §QSG-1: skip the GPU render + readback entirely when no kind
+        // is owned by the QSG overlay (the default Preferences state).
+        // grabFramebuffer() is the single most expensive thing in
+        // paintEvent on large models — running it on every paint when
+        // it's drawing nothing was the silent killer of pan/zoom
+        // responsiveness even with the QSG path nominally "off".
+        const bool qsgActive = firstSwmm
+            && firstSwmm->qsgRenderKinds() != SWMMModelLayer::QsgNone;
+        if (!qsgActive) {
+            // Skip the QSG render entirely; CPU layeritem owns every kind.
+        } else {
+            // QGIS-style stale-buffer transform for the QSG framebuffer.
+            // The cache is regrabbed only when the SWMM overlay's content
+            // actually changed (selection, symbology, layer swap, widget
+            // resize) — extent drift during pan/zoom does NOT trigger a
+            // regrab. During a gesture the cached frame is blitted into a
+            // translated/scaled destination rect that maps the extent it
+            // was rendered at (m_qsgCachedExtent) into the current
+            // viewport. End-of-gesture refresh marks m_qsgFrameDirty
+            // (see refreshLayerItems) so the next paint regrabs.
+            // grabFramebuffer() is the most expensive single call in
+            // paintEvent on large models; this path mirrors the basemap
+            // m_mapBuffer treatment a few lines above.
+            const bool layerChanged  = (firstSwmm != m_qsgCachedLayer);
+            const bool sizeChanged   = (size()    != m_qsgCachedSize);
+            if (m_qsgFrameDirty || layerChanged
+                || sizeChanged || m_qsgFrameCache.isNull()) {
+                m_qsgRenderer->setLayer(firstSwmm);
+                m_qsgRenderer->setMapExtent(m_extent);
 
-        // Keep the off-screen widget sized to the canvas.
-        if (m_qsgWidget->size() != size())
-            m_qsgWidget->resize(size());
+                // Render at DEVICE-pixel resolution so MSAA samples are
+                // taken at 1:1 with screen pixels. WA_DontShowOnScreen
+                // leaves the QQuickWidget's effectiveDevicePixelRatio at
+                // 1.0 even after setScreen(), so without this resize the
+                // FBO is rasterised at logical resolution (e.g. 800×600
+                // on a Retina canvas) and the subsequent drawImage(0,0)
+                // pixel-doubles the result into the device-pixel
+                // m_frameBuffer — exactly the "jagged even with MSAA"
+                // symptom. Resizing to logical × dpr gives the FBO the
+                // device resolution, and tagging the grabbed image's
+                // DPR lets QPainter draw it back at the correct logical
+                // extent below.
+                const qreal qsgDpr = devicePixelRatioF();
+                const QSize wantedDev(qRound(width()  * qsgDpr),
+                                      qRound(height() * qsgDpr));
+                if (m_qsgWidget->size() != wantedDev)
+                    m_qsgWidget->resize(wantedDev);
 
-        // Synchronous render: updatePaintNode() executes here so that the
-        // yellow selection overlay is always built from the latest flag arrays.
-        m_qsgWidget->repaint();
+                // Synchronous render: updatePaintNode() executes here so the
+                // selection overlay reflects the latest flag arrays.
+                m_qsgWidget->repaint();
+                m_qsgFrameCache   = m_qsgWidget->grabFramebuffer();
+                m_qsgFrameCache.setDevicePixelRatio(qsgDpr);
+                m_qsgFrameDirty   = false;
+                m_qsgCachedLayer  = firstSwmm;
+                m_qsgCachedExtent = m_extent;
+                m_qsgCachedSize   = size();
+            }
 
-        // Composite the QSG FBO content (SWMM network + selection highlight)
-        // into m_frameBuffer on top of the basemap / DTM / mesh layers.
-        const QImage qsgFrame = m_qsgWidget->grabFramebuffer();
-        if (!qsgFrame.isNull())
-            p.drawImage(0, 0, qsgFrame);
+            // Composite the cached QSG frame into m_frameBuffer on top of
+            // the basemap / DTM / mesh layers. When the current viewport
+            // has drifted from the cached extent (mid-pan, mid-zoom)
+            // compute the same dst-rect transform the basemap blit uses
+            // and draw scaled — one drawImage call, no GPU readback.
+            // Trade-off matches QGIS basemap behaviour: a thin
+            // background-coloured strip appears at the leading edge of
+            // the drag until refresh() triggers a fresh grab.
+            if (!m_qsgFrameCache.isNull()) {
+                if (m_qsgCachedExtent.isValid() && m_extent.isValid()
+                    && m_extent.width() > 0 && m_extent.height() > 0)
+                {
+                    const double pxPerCanvasX =
+                        static_cast<double>(width())  / m_extent.width();
+                    const double pxPerCanvasY =
+                        static_cast<double>(height()) / m_extent.height();
+
+                    const double dstLeft  =
+                        (m_qsgCachedExtent.xMin() - m_extent.xMin()) * pxPerCanvasX;
+                    const double dstRight =
+                        (m_qsgCachedExtent.xMax() - m_extent.xMin()) * pxPerCanvasX;
+                    const double dstTop   =
+                        (m_extent.yMax() - m_qsgCachedExtent.yMax()) * pxPerCanvasY;
+                    const double dstBottom =
+                        (m_extent.yMax() - m_qsgCachedExtent.yMin()) * pxPerCanvasY;
+
+                    const QRectF dstRect(dstLeft, dstTop,
+                                         dstRight - dstLeft,
+                                         dstBottom - dstTop);
+                    if (dstRect.isValid() && !dstRect.isEmpty())
+                        p.drawImage(dstRect, m_qsgFrameCache);
+                    else
+                        p.drawImage(0, 0, m_qsgFrameCache);
+                } else {
+                    p.drawImage(0, 0, m_qsgFrameCache);
+                }
+            }
+        } // close `} else {` for qsgActive path
     }
 
     // ---- Layer 3: tool overlay (rubber-band, measure, etc.) ---------------
@@ -1600,6 +1722,20 @@ void MapCanvas::showEvent(QShowEvent *event)
     // it is never presented by the OS, so there is no MDI-tab bleeding risk.
     // The canvas's own repaint cycle drives the QSG render via repaint() +
     // grabFramebuffer() in paintEvent().
+    //
+    // DPR sync: the offscreen QSG widget defaults to the primary screen
+    // (DPR may differ from MapCanvas's screen). Match it to MapCanvas
+    // so grabFramebuffer() returns pixels at the same device resolution
+    // as the basemap/raster layers — otherwise on multi-monitor or
+    // mismatched-Retina setups the overlay composites half-density.
+    if (m_qsgWidget) {
+        if (QWindow *qw = m_qsgWidget->windowHandle()) {
+            if (QScreen *target = window() && window()->windowHandle()
+                                   ? window()->windowHandle()->screen()
+                                   : screen())
+                qw->setScreen(target);
+        }
+    }
     refresh();
 }
 
@@ -1637,9 +1773,15 @@ void MapCanvas::resizeEvent(QResizeEvent *event)
 
 void MapCanvas::onLayerRepaintRequested()
 {
+    // Only invalidate the cached QSG framebuffer when the SWMM model
+    // layer itself signalled — basemap-tile-arrived and other
+    // non-SWMM repaints don't change the QSG overlay, and re-grabbing
+    // for those was the dominant cost of paintEvent on large models.
+    if (qobject_cast<SWMMModelLayer *>(sender()))
+        m_qsgFrameDirty = true;
     // Schedule a canvas repaint; paintEvent() will drive the QSG render
-    // synchronously via repaint() + grabFramebuffer() so the selection
-    // highlight is always current when the frame is composed.
+    // synchronously via repaint() + grabFramebuffer() when needed so the
+    // selection highlight is always current when the frame is composed.
     refresh();
 }
 

@@ -72,6 +72,42 @@ private:
     bool                       m_firstRedo = true;
 };
 
+/*!
+ * \class SetRendererClassSizeCommand
+ * \brief Records a per-class size (or line width) change on a layer's
+ *        IFeatureRenderer. Mirrors SetRendererClassColorCommand semantics:
+ *        snapshots `sizeForClass(classKey)` at construction, restores it
+ *        on undo, and merges consecutive edits on the same target so
+ *        spinbox drags collapse to a single undo step.
+ *
+ *        A negative `oldSize` denotes "no per-class size present"; the
+ *        renderer's setSizeForClass interprets the value verbatim — only
+ *        renderers whose supportsClassEdit(Size) returns true should be
+ *        targeted.
+ */
+class SetRendererClassSizeCommand : public QUndoCommand
+{
+public:
+    SetRendererClassSizeCommand(OpenSWMMVisLayer *layer,
+                                QString           classKey,
+                                qreal             newSize,
+                                QUndoCommand     *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+
+    int  id() const override { return 0x4C434553; /* "LCES" — legend class-edit size */ }
+    bool mergeWith(const QUndoCommand *other) override;
+
+private:
+    void applySize(qreal s);
+
+    QPointer<OpenSWMMVisLayer> m_layer;
+    QString                    m_classKey;
+    qreal                      m_oldSize = -1.0;
+    qreal                      m_newSize = -1.0;
+};
+
 } // namespace openswmmvis::map
 
 #endif // OPENSWMMVIS_MAP_LEGEND_CLASS_EDIT_COMMANDS_H

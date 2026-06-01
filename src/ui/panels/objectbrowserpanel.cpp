@@ -9,10 +9,15 @@
 #include "ui/dialogs/curveeditordialog.h"
 #include "ui/dialogs/hydrographgroupeditor.h"
 #include "ui/dialogs/patterneditordialog.h"
+#include "ui/dialogs/ruleseditordialog.h"
 #include "ui/dialogs/timeserieseditordialog.h"
+#include "ui/dialogs/transecteditordialog.h"
+#include "ui/editors/comprehensiveeditorregistry.h"
+#include "controls/controlruleregistry.h"
 #include "curve/curveprovider.h"
 #include "curve/curveregistry.h"
 #include "layers/swmmmodellayer.h"
+#include "layers/swmmresultslayer.h"
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
 #include "map/mapundostack.h"
@@ -20,6 +25,7 @@
 #include "pattern/patternregistry.h"
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesregistry.h"
+#include "transect/transectregistry.h"
 
 #include <QPointer>
 
@@ -272,12 +278,30 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
             return;
         }
 
-        // Leaf — Properties stub (registry returns nullptr today; the
-        // legacy AttributePanel property-tree path still drives editing
-        // of pollutants / land-uses via existing Z.5 delegates).
+        // 2026-05-29 — leaves with a shipped comprehensive editor (TS,
+        // Curve, Pattern, Hydrograph, Transect, Control) get an "Edit…"
+        // action that opens that editor with this object pre-selected.
+        // For gap categories the action is disabled with the registry's
+        // tooltip naming the future slice. "Properties…" stays as the
+        // existing path that just routes the selection through the bus
+        // so the AttributePanel mirrors the click.
+        const auto &editorReg = ComprehensiveEditorRegistry::instance();
+        const bool hasEditor  = editorReg.hasEditor(dc);
+        QAction *actEdit = dmenu.addAction(QIcon(QStringLiteral(":/swmmvis/Layers")),
+                                            tr("Edit…"));
+        actEdit->setEnabled(hasEditor);
+        if (!hasEditor) {
+            actEdit->setToolTip(editorReg.gapTooltip(dc));
+            dmenu.setToolTipsVisible(true);
+        }
         QAction *actProps = dmenu.addAction(tr("Properties…"));
         QAction *picked = dmenu.exec(m_view->viewport()->mapToGlobal(pos));
-        if (picked == actProps) {
+        if (picked == actEdit && hasEditor) {
+            openComprehensiveEditorFor(
+                m_layer,
+                m_canvas ? m_canvas->undoStack() : nullptr,
+                refForProxyIndex(proxyIdx), this);
+        } else if (picked == actProps) {
             // Future: dispatch through PropertyEditorRegistry. For now
             // this just emits the existing selection signal so the
             // attribute panel reflects the click.
@@ -348,13 +372,37 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
 
     // ── Leaf row ─────────────────────────────────────────────────────────
     const SWMMObjectRef ref = refForProxyIndex(proxyIdx);
+
+    // Plot entry layout depends on how many SWMM Output (.out) layers are
+    // loaded on the canvas: 0 → no entry, 1 → flat action emitting the
+    // implicit-pick signal, ≥2 → submenu listing each results layer so the
+    // user picks which .out to plot against before the variable picker.
+    QList<SWMMResultsLayer *> resultsLayers;
+    if (m_canvas) {
+        for (OpenSWMMVisLayer *l : m_canvas->layers()) {
+            if (auto *r = qobject_cast<SWMMResultsLayer *>(l))
+                resultsLayers.push_back(r);
+        }
+    }
+
     QAction *actPlot = nullptr;
+    QList<QAction *> resultsActs;   // one per results layer when submenu in use
     if (ref.objectType == SWMMObjectRef::Node
         || ref.objectType == SWMMObjectRef::Link
         || ref.objectType == SWMMObjectRef::Subcatchment)
     {
-        actPlot = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Chart")),
-                                 tr("Plot Time Series…"));
+        if (resultsLayers.size() <= 1) {
+            actPlot = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Chart")),
+                                     tr("Plot Time Series…"));
+        } else {
+            QMenu *sub = menu.addMenu(QIcon(QStringLiteral(":/swmmvis/Chart")),
+                                       tr("Plot Time Series"));
+            for (SWMMResultsLayer *r : resultsLayers) {
+                QAction *a = sub->addAction(r->name());
+                a->setData(QVariant::fromValue(static_cast<void *>(r)));
+                resultsActs.push_back(a);
+            }
+        }
     }
     QAction *actZoom = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
                                       tr("Zoom to Object"));
@@ -366,8 +414,16 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
     QAction *picked = menu.exec(m_view->viewport()->mapToGlobal(pos));
     if (!picked) return;
 
-    if      (picked == actPlot)  emit plotTimeSeriesRequested(ref);
-    else if (picked == actZoom)  zoomToObject(ref);
+    if (picked == actPlot) {
+        emit plotTimeSeriesRequested(ref);
+        return;
+    }
+    if (resultsActs.contains(picked)) {
+        auto *layer = static_cast<SWMMResultsLayer *>(picked->data().value<void *>());
+        emit plotTimeSeriesForLayerRequested(ref, layer);
+        return;
+    }
+    if      (picked == actZoom)  zoomToObject(ref);
     else if (picked == actSort)  sortCategoryAlphabetically(cat);
     else if (picked == actReset) {
         QVector<int> old = m_layer->objectOrder(cat);
@@ -383,60 +439,125 @@ void ObjectBrowserPanel::onItemDoubleClicked(const QModelIndex &proxyIdx)
     const SWMMObjectRef ref = refForProxyIndex(proxyIdx);
     if (ref.objectType == SWMMObjectRef::Unknown || ref.name.isEmpty())
         return;
+
+    // Non-spatial data leaves (TS / Curve / Pattern / Hydrograph / Transect /
+    // Control) route through the shared open-for-edit helper so double-click
+    // and the leaf right-click "Edit…" action use one code path. The helper
+    // is a no-op for spatial refs — we fall through to zoom-to-object for
+    // those.
+    switch (ref.objectType) {
+    case SWMMObjectRef::Hydrograph:
+    case SWMMObjectRef::Curve:
+    case SWMMObjectRef::TimePattern:
+    case SWMMObjectRef::Transect:
+    case SWMMObjectRef::Control:
+    case SWMMObjectRef::TimeSeries:
+        openComprehensiveEditorFor(
+            m_layer,
+            m_canvas ? m_canvas->undoStack() : nullptr,
+            ref, this);
+        return;
+    default:
+        break;
+    }
+
+    zoomToObject(ref);
+}
+
+// 2026-05-29 — Shared open-for-edit dispatch used by three surfaces: object
+// browser leaf double-click, leaf right-click "Edit…", and the attribute
+// panel's header "Open in <Editor>…" button. Each branch mirrors the
+// dialog wiring the corresponding Slice (BS.6.9.2 / BQ.6.7.1-4 / BR.6.8.1
+// / BQ.6.7.3.8) established for double-click. File-scope `QPointer`
+// statics keep one dialog instance per editor kind alive across calls so
+// switching surfaces re-uses the same window.
+void ObjectBrowserPanel::openComprehensiveEditorFor(SWMMModelLayer    *layer,
+                                                     QUndoStack        *undoStack,
+                                                     const SWMMObjectRef &ref,
+                                                     QWidget           *parent)
+{
+    if (!layer || ref.name.isEmpty()) return;
+
     // Slice BS Phase 6.9.2 — non-spatial Unit Hydrograph nodes don't have
-    // map geometry, so zoom-to-object is a no-op. Route double-click to
-    // the HydrographGroupEditor (non-modal, MVC-synced) instead.
-    if (ref.objectType == SWMMObjectRef::Hydrograph && m_layer) {
+    // map geometry, so zoom-to-object is a no-op. Route to the
+    // HydrographGroupEditor (non-modal, MVC-synced) instead.
+    if (ref.objectType == SWMMObjectRef::Hydrograph) {
         static QPointer<HydrographGroupEditor> editor;
-        if (!editor) editor = new HydrographGroupEditor(m_layer, this);
+        if (!editor) editor = new HydrographGroupEditor(layer, parent);
         editor->openForGroup(ref.name);
         return;
     }
     // Slice BQ Phase 6.7.1 — CURVE leaves open the CurveEditorDialog
-    // (modeless, MVC). Registry is lazy-initialised via ensureCurveRegistry_
-    // so Add-New (Slice BM.0-Add-New) and double-click share one instance.
-    if (ref.objectType == SWMMObjectRef::Curve && m_layer) {
+    // (modeless, MVC). The layer owns the registry; Add-New
+    // (Slice BM.0-Add-New) and open-for-edit share one instance.
+    if (ref.objectType == SWMMObjectRef::Curve) {
         using openswmmvis::curve::CurveRegistry;
         using openswmmvis::ui::CurveEditorDialog;
-        auto *reg = qobject_cast<CurveRegistry *>(ensureCurveRegistry_());
+        auto *reg = qobject_cast<CurveRegistry *>(layer->ensureCurveRegistry());
         if (!reg) return;
-        QUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr;
         static QPointer<CurveEditorDialog> editor;
         if (!editor) {
-            editor = new CurveEditorDialog(reg, stack, this);
+            editor = new CurveEditorDialog(reg, undoStack, parent);
         }
         editor->openForCurve(ref.name);
         return;
     }
 
     // Slice BQ Phase 6.7.2 — TIMEPATTERN leaves open the PatternEditorDialog
-    // (modeless, MVC). Registry is lazy-initialised via ensurePatternRegistry_
-    // so Add-New (Slice BM.0-Add-New) and double-click share one instance.
-    if (ref.objectType == SWMMObjectRef::TimePattern && m_layer) {
+    // (modeless, MVC). Layer owns the registry; Add-New and open-for-edit
+    // share one instance.
+    if (ref.objectType == SWMMObjectRef::TimePattern) {
         using openswmmvis::pattern::PatternRegistry;
         using openswmmvis::ui::PatternEditorDialog;
-        auto *reg = qobject_cast<PatternRegistry *>(ensurePatternRegistry_());
+        auto *reg = qobject_cast<PatternRegistry *>(layer->ensurePatternRegistry());
         if (!reg) return;
-        QUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr;
-        // Single instance kept alive across double-click events so the user
-        // can flick between patterns via the dialog's left-pane list.
+        // Single instance kept alive across calls so the user can flick
+        // between patterns via the dialog's left-pane list.
         static QPointer<PatternEditorDialog> editor;
         if (!editor) {
-            editor = new PatternEditorDialog(reg, stack, this);
+            editor = new PatternEditorDialog(reg, undoStack, parent);
         }
         editor->openForPattern(ref.name);
         return;
     }
 
+    // Slice BQ Phase 6.7.4 — TRANSECT leaves open the TransectEditorDialog
+    // (modeless, MVC). Registry is owned by the layer; the dialog is kept
+    // alive across calls so the user can flick between transects via the
+    // left-pane list.
+    if (ref.objectType == SWMMObjectRef::Transect) {
+        using openswmmvis::transect::TransectRegistry;
+        using openswmmvis::ui::TransectEditorDialog;
+        auto *reg = qobject_cast<TransectRegistry *>(layer->ensureTransectRegistry());
+        if (!reg) return;
+        static QPointer<TransectEditorDialog> editor;
+        if (!editor)
+            editor = new TransectEditorDialog(reg, layer, undoStack, parent);
+        editor->openForTransect(ref.name);
+        return;
+    }
+
+    // Slice BR Phase 6.8.1 — CONTROL leaves open the RulesEditorDialog
+    // (modeless, MVC). Layer owns the registry; reuses the dialog across
+    // calls so the user can navigate rules via its left list.
+    if (ref.objectType == SWMMObjectRef::Control) {
+        using openswmmvis::ui::RulesEditorDialog;
+        static QPointer<RulesEditorDialog> editor;
+        if (!editor)
+            editor = new RulesEditorDialog(layer, undoStack, parent);
+        editor->openForRule(ref.name);
+        return;
+    }
+
     // Slice BQ Phase 6.7.3.8 — TIMESERIES leaves open the TimeseriesEditorDialog
-    // (modeless, MVC). Registry is lazy-initialised via ensureTimeseriesRegistry_
-    // so Add-New (Slice BM.0-Add-New) and double-click share one instance.
-    if (ref.objectType == SWMMObjectRef::TimeSeries && m_layer) {
+    // (modeless, MVC). Layer owns the registry; Add-New (Slice BM.0-Add-New)
+    // and open-for-edit share one instance.
+    if (ref.objectType == SWMMObjectRef::TimeSeries) {
         using openswmmvis::timeseries::TimeseriesRegistry;
         using openswmmvis::timeseries::TimeseriesProvider;
         using openswmmvis::ui::TimeseriesEditorDialog;
 
-        auto *reg = qobject_cast<TimeseriesRegistry *>(ensureTimeseriesRegistry_());
+        auto *reg = qobject_cast<TimeseriesRegistry *>(layer->ensureTimeseriesRegistry());
         if (!reg) return;
 
         TimeseriesProvider *p = reg->findByName(ref.name);
@@ -447,8 +568,7 @@ void ObjectBrowserPanel::onItemDoubleClicked(const QModelIndex &proxyIdx)
             if (!p) return;
         }
 
-        QUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr;
-        auto *dlg = new TimeseriesEditorDialog(p, stack, this);
+        auto *dlg = new TimeseriesEditorDialog(reg, undoStack, p, parent);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
 
         // Phase 6.7.3.7 — auto-flush inline providers to the engine when the
@@ -457,14 +577,13 @@ void ObjectBrowserPanel::onItemDoubleClicked(const QModelIndex &proxyIdx)
         // sufficient here. This makes edits round-trip to .inp without the
         // user having to explicitly "Save Project" first.
         QPointer<TimeseriesRegistry> regPtr(reg);
-        connect(dlg, &QDialog::finished, dlg, [regPtr]() {
+        QObject::connect(dlg, &QDialog::finished, dlg, [regPtr]() {
             if (regPtr) regPtr->saveToEngine();
         });
 
         dlg->show();
         return;
     }
-    zoomToObject(ref);
 }
 
 void ObjectBrowserPanel::zoomToObject(const SWMMObjectRef &ref)
@@ -656,166 +775,39 @@ void ObjectBrowserPanel::sortCategoryAlphabetically(SWMMModelLayer::Category cat
 }
 
 // ---------------------------------------------------------------------------
-// Slice BM.0-Add-New (2026-05-24) — direct-launch complex editor dispatch
+// Slice BM.0-Browse-Edit (2026-05-25) — three-surface dispatch consolidated
+// behind ComprehensiveEditorRegistry. The static helpers below stay as
+// thin forwarders so the five external callers (swmmvis.cpp x2,
+// nodecompoundeditdialog.cpp, dataobjectpickereditor.cpp x2) keep
+// compiling unchanged.
 // ---------------------------------------------------------------------------
 
 bool ObjectBrowserPanel::hasComplexEditor(SWMMModelLayer::DataCategory dc) noexcept
 {
-    switch (dc) {
-    case SWMMModelLayer::DataTimeSeries:
-    case SWMMModelLayer::DataHydrographs:
-    case SWMMModelLayer::DataPatterns:        // Slice BQ Phase 6.7.2 — landed 2026-05-24.
-    case SWMMModelLayer::DataCurves:          // Slice BQ Phase 6.7.1 — landed 2026-05-24.
-        return true;
-    default:
-        return false;
-    }
+    return ComprehensiveEditorRegistry::instance().hasEditor(dc);
 }
 
 QString ObjectBrowserPanel::gapTooltipFor(SWMMModelLayer::DataCategory dc)
 {
-    // One-line edit per row as each future editor slice ships.
-    switch (dc) {
-    case SWMMModelLayer::DataTransects:
-        return tr("Editor coming in Slice BQ Phase 6.7.4 (TransectEditor).");
-    case SWMMModelLayer::DataLIDControls:
-        return tr("Editor coming in Slice BO Phase 6.5.x (LIDControlEditor).");
-    case SWMMModelLayer::DataPollutants:
-        return tr("Editor coming in Slice BP Phase 6.6.1 (PollutantEditor).");
-    case SWMMModelLayer::DataLandUses:
-        return tr("Editor coming in Slice BP Phase 6.6.2 (LandUseEditor).");
-    case SWMMModelLayer::DataAquifers:
-        return tr("Editor coming in Slice BP Phase 6.6.x (AquiferEditor).");
-    case SWMMModelLayer::DataSnowpacks:
-        return tr("Editor coming in Slice BP Phase 6.6.x (SnowpackEditor).");
-    case SWMMModelLayer::DataControls:
-        return tr("Editor coming in Slice BR Phase 6.8.1 (RulesEditorDialog).");
-    case SWMMModelLayer::DataStreets:
-        return tr("Editor coming in Slice BO Phase 6.5.x (StreetEditor; "
-                  "engine gap BO-STREET-01).");
-    case SWMMModelLayer::DataInlets:
-        return tr("Editor coming in Slice BO Phase 6.5.x (InletEditor; "
-                  "engine gap BO-INLET-01).");
-    case SWMMModelLayer::DataTimeSeries:
-    case SWMMModelLayer::DataHydrographs:
-    case SWMMModelLayer::DataPatterns:
-    case SWMMModelLayer::DataCurves:
-    default:
-        return QString();
-    }
+    return ComprehensiveEditorRegistry::instance().gapTooltip(dc);
 }
 
-QObject *ObjectBrowserPanel::ensureTimeseriesRegistry_()
-{
-    using openswmmvis::timeseries::TimeseriesRegistry;
-    if (!m_layer) return nullptr;
-    SWMM_Engine eng = m_layer->engine();
-    if (!eng) return nullptr;
-
-    auto *reg = qobject_cast<TimeseriesRegistry *>(m_tsRegistry);
-    if (!reg || m_tsRegistryEngineHandle != eng) {
-        // Tear down stale registry (different engine = different project).
-        if (m_tsRegistry) m_tsRegistry->deleteLater();
-        reg = new TimeseriesRegistry(this);
-        m_tsRegistry = reg;
-        m_tsRegistryEngineHandle = eng;
-        reg->loadFromEngine(eng);
-    }
-    return reg;
-}
-
-QObject *ObjectBrowserPanel::ensurePatternRegistry_()
-{
-    using openswmmvis::pattern::PatternRegistry;
-    if (!m_layer) return nullptr;
-    SWMM_Engine eng = m_layer->engine();
-    if (!eng) return nullptr;
-
-    auto *reg = qobject_cast<PatternRegistry *>(m_patternRegistry);
-    if (!reg || m_patternRegistryEngineHandle != eng) {
-        if (m_patternRegistry) m_patternRegistry->deleteLater();
-        reg = new PatternRegistry(this);
-        m_patternRegistry = reg;
-        m_patternRegistryEngineHandle = eng;
-        reg->loadFromEngine(eng);
-    }
-    return reg;
-}
-
-QObject *ObjectBrowserPanel::ensureCurveRegistry_()
-{
-    using openswmmvis::curve::CurveRegistry;
-    if (!m_layer) return nullptr;
-    SWMM_Engine eng = m_layer->engine();
-    if (!eng) return nullptr;
-
-    auto *reg = qobject_cast<CurveRegistry *>(m_curveRegistry);
-    if (!reg || m_curveRegistryEngineHandle != eng) {
-        if (m_curveRegistry) m_curveRegistry->deleteLater();
-        reg = new CurveRegistry(this);
-        m_curveRegistry = reg;
-        m_curveRegistryEngineHandle = eng;
-        reg->loadFromEngine(eng);
-    }
-    return reg;
-}
+// 2026-05-29 — `ensureTimeseriesRegistry_` / `ensurePatternRegistry_` /
+// `ensureCurveRegistry_` were forwarders used by the previous double-click
+// body. `openComprehensiveEditorFor` now calls layer->ensureXxxRegistry()
+// directly (it's static and has no `m_layer`), so the forwarders became
+// orphans of this refactor and were removed alongside their declarations.
 
 void ObjectBrowserPanel::launchAddNewEditor(SWMMModelLayer::DataCategory dc)
 {
     if (!m_layer) return;
-    using openswmmvis::timeseries::TimeseriesRegistry;
-    using openswmmvis::ui::TimeseriesEditorDialog;
-
-    switch (dc) {
-    case SWMMModelLayer::DataTimeSeries: {
-        auto *reg = qobject_cast<TimeseriesRegistry *>(ensureTimeseriesRegistry_());
-        if (!reg) return;
-        QUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr;
-        auto *dlg = TimeseriesEditorDialog::createNew(reg, stack, this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        // Phase 6.7.3.7 — auto-flush newly-created provider to engine on close.
-        QPointer<TimeseriesRegistry> regPtr(reg);
-        connect(dlg, &QDialog::finished, dlg, [regPtr]() {
-            if (regPtr) regPtr->saveToEngine();
-        });
-        dlg->show();
-        return;
-    }
-    case SWMMModelLayer::DataHydrographs: {
-        static QPointer<HydrographGroupEditor> editor;
-        if (!editor) editor = new HydrographGroupEditor(m_layer, this);
-        editor->beginNewGroup();
-        return;
-    }
-    case SWMMModelLayer::DataPatterns: {
-        using openswmmvis::pattern::PatternRegistry;
-        using openswmmvis::ui::PatternEditorDialog;
-        auto *reg = qobject_cast<PatternRegistry *>(ensurePatternRegistry_());
-        if (!reg) return;
-        QUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr;
-        auto *dlg = PatternEditorDialog::createNew(reg, stack, this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        dlg->show();
-        return;
-    }
-    case SWMMModelLayer::DataCurves: {
-        using openswmmvis::curve::CurveRegistry;
-        using openswmmvis::ui::CurveEditorDialog;
-        auto *reg = qobject_cast<CurveRegistry *>(ensureCurveRegistry_());
-        if (!reg) return;
-        QUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr;
-        auto *dlg = CurveEditorDialog::createNew(reg, stack, this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        dlg->show();
-        return;
-    }
-    default:
-        // Context menu / Data menu should have disabled the entry for gap
-        // categories before reaching here. If callers bypass that guard,
-        // assert in debug builds and silently ignore in release.
+    const auto *entry = ComprehensiveEditorRegistry::instance().find(dc);
+    if (!entry || !entry->openCreateNew) {
         Q_ASSERT_X(false, "ObjectBrowserPanel::launchAddNewEditor",
                    "gap category dispatched — Add-New should have been disabled");
         return;
     }
+    QUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr;
+    entry->openCreateNew(m_layer, stack, this);
 }
 

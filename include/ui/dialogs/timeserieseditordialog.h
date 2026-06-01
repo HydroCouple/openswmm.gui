@@ -39,15 +39,19 @@
 
 class QAction;
 class QCheckBox;
+class QCloseEvent;
 class QComboBox;
 class QDateTimeEdit;
 class QDoubleSpinBox;
 class QFrame;
 class QLabel;
 class QLineEdit;
+class QListView;
 class QPushButton;
 class QRadioButton;
+class QSortFilterProxyModel;
 class QSplitter;
+class QToolButton;
 class QStatusBar;
 class QTableView;
 class QToolBar;
@@ -61,6 +65,7 @@ class TimeseriesRegistry;
 namespace openswmmvis::ui {
 
 class TimeseriesEditChartView;
+class TimeseriesListModel;
 class TimeseriesTableModel;
 
 class TimeseriesEditorDialog : public QDialog
@@ -74,17 +79,18 @@ public:
     enum class Mode { Edit, CreateNew };
     Q_ENUM(Mode)
 
-    /*! \brief Construct with a single provider. Convenience overload for the
-     *  Object Browser double-click path. */
-    explicit TimeseriesEditorDialog(openswmmvis::timeseries::TimeseriesProvider *provider,
+    /*! \brief Sole public constructor (Phase 6.7.3-CRUD). Builds the
+     *  three-pane editor (left = list of all series in registry, middle = grid,
+     *  right = chart). If \p initialSelection is non-null AND is a member of
+     *  the registry, it's selected on open; otherwise the dialog opens with no
+     *  series bound and the list pane drives further selection.
+     *
+     *  The registry is required — callers that want a quick modal pick or
+     *  create flow use `pickTimeseries` / `createNew`. */
+    explicit TimeseriesEditorDialog(openswmmvis::timeseries::TimeseriesRegistry *registry,
                                     QUndoStack *undoStack,
+                                    openswmmvis::timeseries::TimeseriesProvider *initialSelection = nullptr,
                                     QWidget *parent = nullptr);
-
-    /*! \brief Construct with N sibling providers (multi-column grid). The
-     *  chart binds to providers[0]; later sub-phase can add a chart selector. */
-    TimeseriesEditorDialog(QVector<openswmmvis::timeseries::TimeseriesProvider *> providers,
-                           QUndoStack *undoStack,
-                           QWidget *parent = nullptr);
 
     ~TimeseriesEditorDialog() override;
 
@@ -101,6 +107,24 @@ public:
         openswmmvis::timeseries::TimeseriesRegistry *registry,
         QUndoStack *undoStack,
         QWidget *parent = nullptr);
+
+    /*! \brief Modal pick / create / edit entry point for callers that
+     *  round-trip a time series selection inline (e.g. the
+     *  NodeCompoundEditDialog inflow picker). Empty \p initialName →
+     *  CreateNew mode; otherwise → Edit mode bound to that series.
+     *  After the user closes the dialog, the registry is flushed back
+     *  to the engine (`saveToEngine`) so engine state matches the
+     *  edited points. Returns the name of the series currently bound
+     *  to the dialog on close, or empty if no commit happened. */
+    static QString pickTimeseries(openswmmvis::timeseries::TimeseriesRegistry *registry,
+                                   QUndoStack    *undoStack,
+                                   const QString &initialName,
+                                   QWidget       *parent = nullptr);
+
+    /*! \brief Name of the first provider currently bound to the dialog.
+     *  Empty before a CreateNew commits. Exposed for `pickTimeseries`
+     *  and for tests. */
+    QString currentName() const;
 
     /*! \brief Current mode. */
     Mode mode() const noexcept { return m_mode; }
@@ -122,6 +146,14 @@ public:
     /*! \brief Programmatically click the create-card's Create button (test hook). */
     void submitCreateNew();
 
+    /*! \brief Slice IO-11d — set the directory used to display external-file
+     *  paths in relative form. Typically the parent dir of the active
+     *  project's `.inp`. Empty disables relativisation (legacy behaviour).
+     *  The provider stores absolute paths regardless; this only affects
+     *  what the dialog *shows* in the read-only path field. */
+    void setProjectAnchor(const QString &dir);
+    [[nodiscard]] QString projectAnchor() const { return m_projectAnchor; }
+
     /*! \brief Bind the editor's first provider to an external file (CSV/TSV/.dat).
      *  Flips source mode to ExternalFile, populates the read-through point cache
      *  by parsing the file via the shared TimeseriesParse helper, and refreshes
@@ -131,6 +163,12 @@ public:
      *  Exposed both for tests and for programmatic linking (Object Browser hook
      *  could call this on drop-from-finder, etc.). */
     int linkExternalFile(const QString &path, const QString &columnSelector = QString());
+
+protected:
+    /*! \brief Step F + Step E.2 — dispose any ExternalFile-mode point cache
+     *  on the way out so the registry doesn't carry it around after the
+     *  editor closes, and persist dialog geometry + splitter sizes. */
+    void closeEvent(QCloseEvent *e) override;
 
 private slots:
     void onSelectModeTriggered_();
@@ -165,12 +203,25 @@ private slots:
     void onApplyScaleClicked_();
     void onChartEditModeChanged_();   ///< Refresh transform-panel visibility.
 
+    // ── List pane CRUD (Phase 6.7.3-CRUD) ───────────────────────────────────
+    void onListSelectionChanged_();   ///< Selection in left list → rebind grid + chart.
+    void onListFilterChanged_(const QString &text);
+    void onNewSeriesClicked_();
+    void onDeleteSeriesClicked_();
+    void onRenameSeriesClicked_();    ///< Triggers list-item edit on the current row.
+
 private:
     void buildUi_(const QVector<openswmmvis::timeseries::TimeseriesProvider *> &providers);
     void wireProviderSignals_();
     void updateStatusBar_();
     void buildCreateCard_();
     void bindNewProvider_(openswmmvis::timeseries::TimeseriesProvider *p);
+
+    // ── List pane CRUD (Phase 6.7.3-CRUD) ───────────────────────────────────
+    void buildListPane_();
+    /*! \brief Rebind the grid + chart + source card to a different provider.
+     *  Used by list-selection and the CreateNew flow. */
+    void rebindActiveProvider_(openswmmvis::timeseries::TimeseriesProvider *p);
 
     // ── Source-mode card helpers ────────────────────────────────────────────
     void buildSourceModeCard_();
@@ -198,6 +249,19 @@ private:
     QStatusBar              *m_status     = nullptr;
     QLabel                  *m_countLabel = nullptr;
     QLabel                  *m_rangeLabel = nullptr;
+    // Guards to break the chart<->table selection feedback loop.
+    bool                     m_suppressTableSelectionSync_ts = false;
+    bool                     m_suppressChartSelectionSync_ts = false;
+
+    // ── List pane CRUD (Phase 6.7.3-CRUD) ───────────────────────────────────
+    QWidget                                 *m_listPane          = nullptr;
+    QSortFilterProxyModel                   *m_listProxy         = nullptr;
+    QListView                               *m_listView          = nullptr;
+    QLineEdit                               *m_listFilterEdit    = nullptr;
+    QToolButton                             *m_listNewBtn        = nullptr;
+    QToolButton                             *m_listDeleteBtn     = nullptr;
+    QToolButton                             *m_listRenameBtn     = nullptr;
+    openswmmvis::ui::TimeseriesListModel    *m_listModel         = nullptr;
 
     // ── CreateNew-mode UI (null in Edit mode) ───────────────────────────────
     QFrame      *m_createCard          = nullptr;
@@ -210,6 +274,7 @@ private:
     QAction *m_actPan       = nullptr;
     QAction *m_actZoomIn    = nullptr;
     QAction *m_actZoomOut   = nullptr;
+    QAction *m_actZoomExt   = nullptr;
     QAction *m_actEdit      = nullptr;
     QAction *m_actRotate    = nullptr;
     QAction *m_actScale     = nullptr;
@@ -230,6 +295,7 @@ private:
     QRadioButton *m_radioGeopackage     = nullptr;
     QLineEdit    *m_extPathEdit         = nullptr;   ///< External file path (read-only display).
     QPushButton  *m_extBrowseBtn        = nullptr;
+    QString       m_projectAnchor;                   ///< IO-11d: render `m_extPathEdit` relative to this dir.
     QComboBox    *m_extColumnCombo      = nullptr;   ///< Populated from CSV/TSV header row.
     QLabel       *m_extStatusLabel      = nullptr;   ///< mtime / staleness indicator.
     QPushButton  *m_extReloadBtn        = nullptr;

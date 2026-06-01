@@ -41,6 +41,10 @@ struct DataObjectRef
         TimeSeries     = 2,  ///< Tables of type TIMESERIES (engine code 0)
         Pattern        = 3,  ///< Time patterns (filtered by `typeLock` when >= 0)
         UnitHydrograph = 4,  ///< RDII unit-hydrograph groups
+        Pollutant      = 5,  ///< [POLLUTANTS] entries — for co-pollutant picker
+        RainGage       = 6,  ///< Rain gages — for hydrograph gage picker; no
+                             ///  comprehensive editor yet, so the "…" button
+                             ///  is a no-op (combo selection only).
     };
 
     SWMM_Engine     engine      = nullptr;  ///< Engine handle (borrow)

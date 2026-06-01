@@ -203,6 +203,37 @@ int SimulationStatusModel::jobIdForRow(int row) const
     return m_jobs[row].id;
 }
 
+QList<int> SimulationStatusModel::clearJobsForModel(SWMMVisProjectWindow *model)
+{
+    QList<int> removedIds;
+    if (!model) return removedIds;
+
+    auto it = m_modelToJobId.find(model);
+    if (it == m_modelToJobId.end()) return removedIds;
+
+    const QList<int> jobIds = it.value().values();
+    m_modelToJobId.erase(it);
+
+    // Resolve to rows, then remove highest-index first so the indices we
+    // still need stay valid through the loop.
+    QList<int> rows;
+    rows.reserve(jobIds.size());
+    for (int jobId : jobIds) {
+        const int row = jobIndexById(jobId);
+        if (row >= 0) rows.append(row);
+    }
+    std::sort(rows.begin(), rows.end(), std::greater<int>());
+
+    for (int row : rows) {
+        beginRemoveRows(QModelIndex(), row, row);
+        removedIds.append(m_jobs[row].id);
+        m_jobs.removeAt(row);
+        endRemoveRows();
+    }
+
+    return removedIds;
+}
+
 // ---------------------------------------------------------------------------
 // QAbstractItemModel
 // ---------------------------------------------------------------------------

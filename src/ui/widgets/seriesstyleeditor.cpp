@@ -29,6 +29,10 @@ SeriesStyleEditor::SeriesStyleEditor(QWidget *parent)
     // hosts can subscribe in a single place.
     connect(m_obj, &SeriesStyleObject::styleChanged,
             this, &SeriesStyleEditor::styleChanged);
+    // Spec-level legendOverride is distinct from the style — forward it as
+    // its own signal so the dialog can write it back to SeriesSpec.
+    connect(m_obj, &SeriesStyleObject::legendOverrideChanged,
+            this, &SeriesStyleEditor::legendOverrideChanged);
 }
 
 SeriesStyleEditor::~SeriesStyleEditor() = default;
@@ -64,6 +68,18 @@ void SeriesStyleEditor::setStyle(const SeriesStyle& style)
 SeriesStyle SeriesStyleEditor::style() const
 {
     return m_obj ? m_obj->style() : SeriesStyle{};
+}
+
+void SeriesStyleEditor::setLegendOverride(const QString& override)
+{
+    if (!m_obj) return;
+    m_obj->setLegendOverride(override);
+    if (m_model) m_model->refreshValues();
+}
+
+QString SeriesStyleEditor::legendOverride() const
+{
+    return m_obj ? m_obj->legendOverride() : QString();
 }
 
 } // namespace openswmmvis::ui

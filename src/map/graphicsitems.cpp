@@ -7,6 +7,8 @@
 
 #include "map/graphicsitems.h"
 
+#include "render/markershape.h"   // G-1 — canonical marker shapes for VectorPointItem
+
 #include <QPainter>
 #include <QStyleOptionGraphicsItem>
 #include <QFontMetrics>
@@ -240,6 +242,27 @@ void VectorPointItem::setElementRadius(double r)
     QRectF rc = rect();
     double cx = rc.center().x(), cy = rc.center().y();
     setRect(cx - r, cy - r, r * 2.0, r * 2.0);
+}
+
+void VectorPointItem::paint(QPainter *painter,
+                            const QStyleOptionGraphicsItem *option,
+                            QWidget * /*widget*/)
+{
+    // G-1 — render the chosen canonical marker shape rather than the base
+    // QGraphicsEllipseItem's fixed ellipse. brush()/pen() carry the fill /
+    // outline set by populateScene (and the yellow highlight brush).
+    const QRectF rc = rect();
+    const QPointF center = rc.center();
+    const qreal sizePx = qMin(rc.width(), rc.height());
+    OpenSWMM::Render::drawMarkerShape(
+        painter, static_cast<OpenSWMM::Render::MarkerShape>(m_shape),
+        center, sizePx, brush(), pen());
+
+    if (option->state & QStyle::State_Selected) {
+        painter->setPen(QPen(QColor(0, 120, 255), 2.0, Qt::DashLine));
+        painter->setBrush(Qt::NoBrush);
+        painter->drawEllipse(rc.adjusted(-2, -2, 2, 2));
+    }
 }
 
 // ============================================================================

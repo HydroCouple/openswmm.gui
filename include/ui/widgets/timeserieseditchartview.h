@@ -111,6 +111,13 @@ public:
      *  point index, or -1 if no point lies within \p hitRadiusPx. */
     int hitTestPoint(const QPoint &viewportPx, int hitRadiusPx = 6) const;
 
+public slots:
+    /*! \brief Fit the X and Y axes to the full extent of the provider's
+     *  current points, with a small Y-padding. No-op if the provider is
+     *  empty. Toolbar "Zoom to Extent" button + auto-called on bulk
+     *  insert/remove (e.g. after loading an external file). */
+    void zoomToExtent();
+
 signals:
     /*! \brief Emitted after the selection set changes. */
     void selectionChanged(const QVector<int> &indices);

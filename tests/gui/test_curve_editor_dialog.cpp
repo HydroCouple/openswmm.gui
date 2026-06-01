@@ -233,7 +233,10 @@ private slots:
         CurveEditorDialog dlg(&reg, &stack);
         QVERIFY(dlg.currentProvider() == a);
 
-        auto *lm = qobject_cast<QStandardItemModel *>(dlg.listView()->model());
+        // Post-filter the dialog wraps the source QStandardItemModel in a
+        // QSortFilterProxyModel for the curve-type filter. Tests interact
+        // with the view-visible (proxy) model.
+        auto *lm = dlg.listView()->model();
         QVERIFY(lm && lm->rowCount() == 2);
         dlg.listView()->setCurrentIndex(lm->index(1, 0));
         QTest::qWait(0);

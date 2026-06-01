@@ -1,27 +1,29 @@
 /*!
  * \file   test_nonspatial_adapters.cpp
  * \brief  Slice DA.2 round-trip tests for the non-spatial property
- *         adapters. Exercises the three "rich" adapters (Pollutant,
- *         LandUse, RainGage) end-to-end against a real engine handle:
- *         build an object, set each writable Q_PROPERTY through the
- *         adapter, read it back, and verify the engine state agrees.
+ *         adapters. Exercises the four "rich" adapters (Pollutant,
+ *         LandUse, RainGage, Transect) end-to-end against a real engine
+ *         handle: build an object, set each writable Q_PROPERTY through
+ *         the adapter, read it back, and verify the engine state agrees.
  *
- *         The 11 other DA.2 adapters (Curve, TimeSeries, Pattern,
- *         Aquifer, Snowpack, LIDControl, Transect, Hydrograph, Street,
- *         Inlet, ControlRule) ship as thin or summary-only adapters
- *         today because the engine lacks per-field getters; they are
- *         exercised by `test_dataobjectnaming.cpp` (DA.1) for name +
- *         count + group enumeration.
+ *         The 10 remaining DA.2 adapters (Curve, TimeSeries, Pattern,
+ *         Aquifer, Snowpack, LIDControl, Hydrograph, Street, Inlet,
+ *         ControlRule) ship as thin or summary-only adapters today
+ *         because the engine lacks per-field getters; they are exercised
+ *         by `test_dataobjectnaming.cpp` (DA.1) for name + count + group
+ *         enumeration.
  */
 
 #include "ui/properties/swmmpollutantpropertyadapter.h"
 #include "ui/properties/swmmlandusepropertyadapter.h"
 #include "ui/properties/swmmraingagepropertyadapter.h"
+#include "ui/properties/swmmtransectpropertyadapter.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_pollutants.h>
 #include <openswmm/engine/openswmm_quality.h>
 #include <openswmm/engine/openswmm_gages.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
 
 #include <QObject>
 #include <QSignalSpy>
@@ -173,6 +175,132 @@ private slots:
         a.setName(QString());
         a.setName(QStringLiteral("Old"));
         QCOMPARE(spy.count(), 1);
+
+        swmm_engine_destroy(e);
+    }
+
+    // ====================================================================
+    // SWMMTransectPropertyAdapter — Phase 6.7.4 rich scalar coverage
+    // ====================================================================
+
+    void transectScalarRoundTrip()
+    {
+        SWMM_Engine e = swmm_engine_new();
+        QVERIFY(e);
+        QCOMPARE(swmm_transect_add(e, "MainChannel"), SWMM_OK);
+
+        SWMMTransectPropertyAdapter a(e, QStringLiteral("MainChannel"));
+        QCOMPARE(a.name(), QStringLiteral("MainChannel"));
+
+        // ── Roughness triple ────────────────────────────────────────────────
+        a.setNLeftBank(0.04);
+        a.setNRightBank(0.05);
+        a.setNChannel(0.03);
+        QCOMPARE(a.nLeftBank(),  0.04);
+        QCOMPARE(a.nRightBank(), 0.05);
+        QCOMPARE(a.nChannel(),   0.03);
+        // Cross-check that the engine actually accepted the triple — read
+        // back through the C API rather than the adapter.
+        int idx = swmm_transect_index(e, "MainChannel");
+        double nL = 0, nR = 0, nCh = 0;
+        QCOMPARE(swmm_transect_get_roughness(e, idx, &nL, &nR, &nCh), SWMM_OK);
+        QCOMPARE(nL, 0.04); QCOMPARE(nR, 0.05); QCOMPARE(nCh, 0.03);
+
+        // ── Bank stations ───────────────────────────────────────────────────
+        a.setXLeftBank(10.0);
+        a.setXRightBank(40.0);
+        QCOMPARE(a.xLeftBank(),  10.0);
+        QCOMPARE(a.xRightBank(), 40.0);
+        double xLb = 0, xRb = 0;
+        QCOMPARE(swmm_transect_get_bank_stations(e, idx, &xLb, &xRb), SWMM_OK);
+        QCOMPARE(xLb, 10.0); QCOMPARE(xRb, 40.0);
+
+        // ── Encroachment stations ───────────────────────────────────────────
+        a.setXLeftEncroachment(5.0);
+        a.setXRightEncroachment(45.0);
+        QCOMPARE(a.xLeftEncroachment(),  5.0);
+        QCOMPARE(a.xRightEncroachment(), 45.0);
+        double xLe = 0, xRe = 0;
+        QCOMPARE(swmm_transect_get_encroachment_stations(e, idx, &xLe, &xRe), SWMM_OK);
+        QCOMPARE(xLe, 5.0); QCOMPARE(xRe, 45.0);
+
+        // ── Modifiers ───────────────────────────────────────────────────────
+        a.setStationMultiplier(2.0);
+        a.setElevationOffset(1.5);
+        a.setMeanderFactor(1.25);
+        QCOMPARE(a.stationMultiplier(), 2.0);
+        QCOMPARE(a.elevationOffset(),   1.5);
+        QCOMPARE(a.meanderFactor(),     1.25);
+
+        // ── Comments round-trip ─────────────────────────────────────────────
+        a.setComments(QStringLiteral("Main channel — surveyed 2026-Q1"));
+        QCOMPARE(a.comments(), QStringLiteral("Main channel — surveyed 2026-Q1"));
+
+        swmm_engine_destroy(e);
+    }
+
+    void transectStationCountReadOnlySummary()
+    {
+        // The adapter doesn't edit the station list — that's the editor
+        // dialog's job — but it surfaces the count as a read-only summary
+        // so the Object Browser property panel can show "N stations" at
+        // a glance.
+        SWMM_Engine e = swmm_engine_new();
+        QVERIFY(e);
+        QCOMPARE(swmm_transect_add(e, "X"), SWMM_OK);
+        const int idx = swmm_transect_index(e, "X");
+        QCOMPARE(swmm_transect_add_station(e, idx, 0.0, 10.0), SWMM_OK);
+        QCOMPARE(swmm_transect_add_station(e, idx, 5.0,  0.0), SWMM_OK);
+        QCOMPARE(swmm_transect_add_station(e, idx, 10.0, 10.0), SWMM_OK);
+
+        SWMMTransectPropertyAdapter a(e, QStringLiteral("X"));
+        QCOMPARE(a.stationCount(), 3);
+
+        swmm_engine_destroy(e);
+    }
+
+    void transectChangedSignalFires()
+    {
+        // Every successful per-field setter must emit `changed()` so the
+        // QPropertyModel-bound view refreshes. Cross-field independence
+        // matters: setting roughness must not emit a bank-station change.
+        SWMM_Engine e = swmm_engine_new();
+        QVERIFY(e);
+        QCOMPARE(swmm_transect_add(e, "S"), SWMM_OK);
+
+        SWMMTransectPropertyAdapter a(e, QStringLiteral("S"));
+        QSignalSpy spy(&a, &SWMMDataObjectPropertyAdapter::changed);
+
+        a.setNLeftBank(0.07);            QCOMPARE(spy.count(), 1);
+        a.setNLeftBank(0.07);            QCOMPARE(spy.count(), 1);   // no-op
+        a.setXLeftBank(2.5);             QCOMPARE(spy.count(), 2);
+        a.setXLeftEncroachment(1.0);     QCOMPARE(spy.count(), 3);
+        a.setStationMultiplier(3.0);     QCOMPARE(spy.count(), 4);
+        a.setComments(QStringLiteral("c"));
+        QCOMPARE(spy.count(), 5);
+
+        swmm_engine_destroy(e);
+    }
+
+    void transectUnknownNameDegradesGracefully()
+    {
+        // An adapter bound to a name the engine never saw should return
+        // zeros from all getters and quietly drop all setters — no crash,
+        // no signal storm.
+        SWMM_Engine e = swmm_engine_new();
+        QVERIFY(e);
+
+        SWMMTransectPropertyAdapter a(e, QStringLiteral("DoesNotExist"));
+        QCOMPARE(a.nLeftBank(),         0.0);
+        QCOMPARE(a.xLeftBank(),         0.0);
+        QCOMPARE(a.stationMultiplier(), 1.0);  // modifiers default (unread → 1.0)
+        QCOMPARE(a.stationCount(),      0);
+        QCOMPARE(a.comments(),          QString());
+
+        QSignalSpy spy(&a, &SWMMDataObjectPropertyAdapter::changed);
+        a.setNLeftBank(0.05);
+        a.setComments(QStringLiteral("x"));
+        QCOMPARE(spy.count(), 0);
 
         swmm_engine_destroy(e);
     }

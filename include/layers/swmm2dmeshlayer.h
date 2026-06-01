@@ -20,13 +20,19 @@
 #ifndef OPENSWMMVIS_LAYERS_SWMM2DMESHLAYER_H
 #define OPENSWMMVIS_LAYERS_SWMM2DMESHLAYER_H
 
+#include "layers/meshspatialgrid.h"
 #include "layers/openswmmvislayer.h"
 #include "mesh/meshresult.h"
+#include "mesh/meshedgebc.h"
+#include "render/isublayerhost.h"
 
 #include <QColor>
 #include <QLineF>
+#include <QPair>
 #include <QPointF>
+#include <QPolygonF>
 #include <QRectF>
+#include <QSet>
 #include <QString>
 #include <QVector>
 
@@ -38,11 +44,70 @@ class QGraphicsScene;
 class QGraphicsItem;
 class SWMM2DMeshGraphicsItem;
 
-namespace OpenSWMM::Render { class IFeatureRenderer; }
+namespace OpenSWMM::Render
+{
+class IFeatureRenderer;
+class RuleList;   // Slice B.5b — see ruleList() override below.
+class MeshFillSublayer;
+class MeshEdgeSublayer;
+class MeshNodeSublayer;
+class ContourBandSublayer;
+class IsolineSublayer;
+}
 
-class SWMM2DMeshLayer : public OpenSWMMVisLayer
+class SWMM2DMeshLayer : public OpenSWMMVisLayer,
+                        public OpenSWMM::Render::ISublayerHost
 {
     Q_OBJECT
+
+    // Source path + mesh-size metadata for the Properties window. The mesh
+    // is immutable after construction so vertex / triangle counts are CONSTANT.
+    Q_PROPERTY(QString sourcePath          READ sourcePath           CONSTANT)
+    Q_PROPERTY(int    triangleCount        READ triangleCount        CONSTANT)
+    Q_PROPERTY(int    vertexCount          READ vertexCount          CONSTANT)
+
+    // Slice U-5 — Q_PROPERTYs for the unified LayerStyleDialog. Setters
+    // already emit repaintRequested() which the dialog treats as NOTIFY.
+    Q_PROPERTY(bool   showMeshNodes        READ showMeshNodes        WRITE setShowMeshNodes
+               NOTIFY repaintRequested)
+    Q_PROPERTY(bool   showEdges            READ showEdges            WRITE setShowEdges
+               NOTIFY repaintRequested)
+    Q_PROPERTY(double hillshadeAzimuth     READ hillshadeAzimuth     WRITE setHillshadeAzimuth
+               NOTIFY repaintRequested)
+    Q_PROPERTY(double hillshadeAltitude    READ hillshadeAltitude    WRITE setHillshadeAltitude
+               NOTIFY repaintRequested)
+    Q_PROPERTY(double hillshadeZExag       READ hillshadeZExag       WRITE setHillshadeZExag
+               NOTIFY repaintRequested)
+    Q_PROPERTY(double hillshadeMinLit      READ hillshadeMinLit      WRITE setHillshadeMinLit
+               NOTIFY repaintRequested)
+    Q_PROPERTY(bool   showContours         READ showContours         WRITE setShowContours
+               NOTIFY repaintRequested)
+    Q_PROPERTY(int    contourIntervalCount READ contourIntervalCount WRITE setContourIntervalCount
+               NOTIFY repaintRequested)
+    Q_PROPERTY(QColor contourColor         READ contourColor         WRITE setContourColor
+               NOTIFY repaintRequested)
+    Q_PROPERTY(double contourLineWidth     READ contourLineWidth     WRITE setContourLineWidth
+               NOTIFY repaintRequested)
+    Q_PROPERTY(bool   filledContours       READ filledContours       WRITE setFilledContours
+               NOTIFY repaintRequested)
+    Q_PROPERTY(double filledContoursOpacity READ filledContoursOpacity WRITE setFilledContoursOpacity
+               NOTIFY repaintRequested)
+
+    Q_CLASSINFO("group:sourcePath",           "Source")
+    Q_CLASSINFO("group:triangleCount",        "Mesh")
+    Q_CLASSINFO("group:vertexCount",          "Mesh")
+    Q_CLASSINFO("group:showMeshNodes",        "Display")
+    Q_CLASSINFO("group:showEdges",            "Display")
+    Q_CLASSINFO("group:hillshadeAzimuth",     "Hillshade")
+    Q_CLASSINFO("group:hillshadeAltitude",    "Hillshade")
+    Q_CLASSINFO("group:hillshadeZExag",       "Hillshade")
+    Q_CLASSINFO("group:hillshadeMinLit",      "Hillshade")
+    Q_CLASSINFO("group:showContours",         "Contours")
+    Q_CLASSINFO("group:contourIntervalCount", "Contours")
+    Q_CLASSINFO("group:contourColor",         "Contours")
+    Q_CLASSINFO("group:contourLineWidth",     "Contours")
+    Q_CLASSINFO("group:filledContours",       "Contours")
+    Q_CLASSINFO("group:filledContoursOpacity", "Contours")
 
 public:
     explicit SWMM2DMeshLayer(mesh::MeshResult result,
@@ -50,64 +115,175 @@ public:
                               OpenSWMMVisWorkspace *parent = nullptr);
     ~SWMM2DMeshLayer() override;
 
-    [[nodiscard]] QString sourcePath() const { return m_sourcePath; }
+    [[nodiscard]] QString sourcePath() const;
     void setSourcePath(const QString &path)  { m_sourcePath = path; }
+
+    /*! Number of triangles in the loaded mesh — exposed as metadata in
+     *  the Properties window. */
+    [[nodiscard]] int triangleCount() const { return int(m_mesh.triangles.size()); }
+
+    /*! Number of vertices in the loaded mesh — exposed as metadata in
+     *  the Properties window. */
+    [[nodiscard]] int vertexCount()   const { return int(m_mesh.vertices.size()); }
 
     [[nodiscard]] bool isActiveMesh() const { return m_active; }
     void setActiveMesh(bool active);
 
-    [[nodiscard]] bool showMeshNodes() const { return m_showMeshNodes; }
+    // ----- Display toggles ------------------------------------------------
+    // These remain on the layer so existing UI, JSON, and serialization
+    // round-trip the way they always have, but they are now thin shims
+    // that forward to the per-sublayer visibility flag.
+    [[nodiscard]] bool showMeshNodes() const;
     void setShowMeshNodes(bool show);
 
-    // ----- Slice AZ.3.4 — mesh wireframe (edges) toggle -------------------
-    // Defaults to true to preserve the slope-coloured wireframe shipped in
-    // AU.6 (thin+wide segments in SWMM2DMeshQSGRenderer Pass 2). Turning it
-    // off skips Pass 2 entirely — fills, hillshade and nodes remain.
-    [[nodiscard]] bool showEdges() const { return m_showEdges; }
+    [[nodiscard]] bool showEdges() const;
     void setShowEdges(bool show);
 
-    // ----- Slice AU.6.4-lite — tunable hillshade ---------------------------
-    // Defaults reproduce SWMM2DMeshQSGRenderer's previously-hardcoded values
-    // (kLx=kLy=-0.5774, kLz=+0.5774, kVertExag=3.0, kLitMin=0.15). Existing
-    // visuals are preserved when the user has not changed anything. Live
-    // setters emit repaintRequested() which marks the QSG content dirty.
-    //
-    // azimuth   — compass bearing the light comes FROM (0=N, 90=E, clockwise)
-    // altitude  — sun angle above horizon (0 = horizon, 90 = zenith)
-    // zExag     — vertical-exaggeration factor used when computing face normals
-    // minLit    — shadow-side brightness floor (0 = full black, 1 = no shadow)
+    // ----- Hillshade ------------------------------------------------------
+    // azimuth/altitude stay on the layer because they describe the light
+    // source, which is layer-wide (not per-sublayer). zExag and minLit
+    // map to the mesh-fill sublayer style's hillshadeStrength.
     [[nodiscard]] double hillshadeAzimuth()    const { return m_hillshadeAz; }
     [[nodiscard]] double hillshadeAltitude()   const { return m_hillshadeAlt; }
-    [[nodiscard]] double hillshadeZExag()      const { return m_hillshadeZExag; }
-    [[nodiscard]] double hillshadeMinLit()     const { return m_hillshadeMinLit; }
+    [[nodiscard]] double hillshadeZExag()      const;
+    [[nodiscard]] double hillshadeMinLit()     const;
     void setHillshadeAzimuth(double degrees);
     void setHillshadeAltitude(double degrees);
     void setHillshadeZExag(double factor);
     void setHillshadeMinLit(double minLit);
 
-    // ----- Slice BJ.2-lite — mesh-bed elevation contour lines --------------
-    // Lite cut ships isolines only (no filled isobands, no labels, no
-    // per-level colour ramp — those come in BJ.2 full once BB ColorRamp +
-    // BI.2 LabelExpression land). N evenly-spaced levels between zMin and
-    // zMax; single user-pickable colour + line width applied to all levels.
-    [[nodiscard]] bool   showContours()         const { return m_showContours; }
-    [[nodiscard]] int    contourIntervalCount() const { return m_contourIntervals; }
-    [[nodiscard]] QColor contourColor()         const { return m_contourColor; }
-    [[nodiscard]] double contourLineWidth()     const { return m_contourLineWidth; }
+    // ----- Bed-elevation contours -----------------------------------------
+    // Forward to the isoline + contour-band sublayers; the layer Q_PROPERTYs
+    // exist for backwards compatibility with .oswp files written before the
+    // sublayer refactor.
+    [[nodiscard]] bool   showContours()         const;
+    [[nodiscard]] int    contourIntervalCount() const;
+    [[nodiscard]] QColor contourColor()         const;
+    [[nodiscard]] double contourLineWidth()     const;
     void setShowContours(bool show);
     void setContourIntervalCount(int n);
     void setContourColor(const QColor &c);
     void setContourLineWidth(double widthPx);
 
-    // BJ.2-filled — filled iso-bands (categorical Viridis until BB ColorRamp ships)
-    [[nodiscard]] bool   filledContours()        const { return m_contourFilled; }
-    [[nodiscard]] double filledContoursOpacity() const { return m_contourFilledOpacity; }
+    [[nodiscard]] bool   filledContours()        const;
+    [[nodiscard]] double filledContoursOpacity() const;
     void setFilledContours(bool filled);
     void setFilledContoursOpacity(double a);
 
     [[nodiscard]] const mesh::MeshResult &mesh() const { return m_mesh; }
 
     [[nodiscard]] quint64 geomRevision() const { return m_geomRevision; }
+
+    // ---------------------------------------------------------------------
+    // Slice §V.VA — mesh-editing foundation: BC storage, picker / hover
+    // helpers, write-path apply* family, attributeChanged signal.
+    //
+    // The layer is the model in the §V MVC; all views (Mesh Editing
+    // toolbar, future Property Browser tab, Attribute Table, map renderer)
+    // subscribe to attributeChanged and write through the apply* helpers.
+    // ---------------------------------------------------------------------
+
+    /*! \brief Per-edge BC values; flat-indexed [tri*3 + edgeLocal]. Sized
+     *  to `n_triangles * 3` after mesh load; interior-edge slots stay at
+     *  the default Wall value (engine ignores them). */
+    [[nodiscard]] const QVector<mesh::MeshEdgeBC> &edgeBCs() const { return m_bc; }
+
+    /*! \brief Mutable BC view — used by INP reader to bulk-populate after
+     *  load. Prefer the apply* helpers for user-driven edits so views
+     *  receive the attributeChanged signal. */
+    QVector<mesh::MeshEdgeBC> &edgeBCsMutable() { return m_bc; }
+
+    /*! \brief Vertex pick. Returns the closest vertex index to scene
+     *  point (sx,sy) within \p tolPx screen-pixels, or -1 if none.
+     *  \p pxPerSceneUnit converts scene-units to screen-pixels (use the
+     *  active canvas zoom). */
+    [[nodiscard]] int pickVertexAt(double sx, double sy,
+                                    double tolPx, double pxPerSceneUnit) const;
+
+    /*! \brief Edge pick. Returns flat edge index `tri*3 + edgeLocal`
+     *  within \p tolPx of (sx,sy), or -1. When \p boundaryOnly is true,
+     *  interior edges are skipped. */
+    [[nodiscard]] int pickEdgeAt(double sx, double sy,
+                                  double tolPx, double pxPerSceneUnit,
+                                  bool boundaryOnly) const;
+
+    /*! \brief Triangle containing scene point (sx,sy), or -1 if outside
+     *  every triangle. */
+    [[nodiscard]] int locateTriangleAt(double sx, double sy) const;
+
+    /*! \brief Triangle (cell) containing scene point \p scenePt, or -1.
+     *  Peer of `SWMM2DResultsLayer::pickCellAt`; lets the Select 2D Cells
+     *  map tool work against the mesh layer when no results layer exists. */
+    [[nodiscard]] int pickCellAt(const QPointF &scenePt) const;
+
+    /*! \brief Triangle indices whose centroid falls inside \p sceneRect.
+     *  Peer of `SWMM2DResultsLayer::pickCellsInRect`. */
+    [[nodiscard]] QVector<int> pickCellsInRect(const QRectF &sceneRect) const;
+
+    /*! \brief Triangle indices whose centroid falls inside \p scenePoly.
+     *  Peer of `SWMM2DResultsLayer::pickCellsInPolygon`. */
+    [[nodiscard]] QVector<int> pickCellsInPolygon(const QPolygonF &scenePoly) const;
+
+    /*! \brief Barycentric Z sample at scene point (sx,sy). Returns NaN
+     *  when the point is outside every triangle. */
+    [[nodiscard]] double sampleZAt(double sx, double sy) const;
+
+    /*! \brief True when this edge slot is a boundary edge in the loaded
+     *  mesh (i.e. the corresponding triangle has no neighbour across it).
+     *  Boundary classification is derived from the mesh's MeshEdge list
+     *  populated by InpMeshReader; non-boundary edges return false. */
+    [[nodiscard]] bool isBoundaryEdge(int triIdx, int edgeLocal) const;
+
+    // ----- Write path (Slice §V.VA / §V.VB / §V.VC) ------------------------
+    /*! \brief Set vertex Z. Mutates the layer's MeshResult, rebuilds
+     *  scene geometry, emits attributeChanged with the vertex ref name. */
+    bool applyMeshVertexZ(int vertexIdx, double z);
+
+    /*! \brief Replace the entire BC value for edge `(triIdx,edgeLocal)`.
+     *  Emits attributeChanged. Apply-as-you-go. */
+    bool applyMeshEdgeBC(int triIdx, int edgeLocal, const mesh::MeshEdgeBC &bc);
+
+    /*! \brief Engine §11A — set the per-edge conveyance (flux attenuation
+     *  multiplier) in [0, 1]. Rejects out-of-range values (the C API does
+     *  the same; the toolbar's QDoubleSpinBox range guards against this at
+     *  the UI). Interior edges are mirrored to the neighbour slot so the
+     *  two halves always carry the same value (matches the engine's
+     *  symmetry invariant). Emits attributeChanged for the edited slot. */
+    bool applyMeshEdgeConveyance(int triIdx, int edgeLocal, double conveyance);
+
+    /*! \brief Slice §V.VE — set the vertex tag (used as coupled-node id).
+     *  Emits attributeChanged with the vertex ref name. */
+    bool applyMeshVertexTag(int vertexIdx, const QString &tag);
+
+    // ----- Selection highlighting (§V follow-up) ---------------------------
+    /*! \brief Indices of mesh vertices currently selected for highlight
+     *  rendering. Populated by the SelectionManager bridge (filtered to
+     *  this layer's mesh by MeshObjectRef::layerKey). */
+    [[nodiscard]] const QSet<int> &highlightedVertices() const { return m_selVertices; }
+    void setHighlightedVertices(const QSet<int> &indices);
+
+    /*! \brief Flat edge indices (`tri * 3 + edgeLocal`) currently
+     *  selected for highlight rendering. */
+    [[nodiscard]] const QSet<int> &highlightedEdges()    const { return m_selEdges; }
+    void setHighlightedEdges(const QSet<int> &flatIndices);
+
+    /*! \brief Triangle (cell) indices currently selected for highlight
+     *  rendering. Populated by the SelectionManager bridge (MeshCell refs). */
+    [[nodiscard]] const QSet<int> &highlightedTriangles() const { return m_selTriangles; }
+    void setHighlightedTriangles(const QSet<int> &indices);
+
+signals:
+    /*! \brief Emitted on any successful apply* mutation. \p refName is
+     *  the MeshObjectRef-encoded element name (see meshobjectref.h). */
+    void attributeChanged(const QString &refName);
+
+    /*! \brief Emitted when remesh / reload invalidates element indices
+     *  in any held selection — toolbar and tools clear on receipt. */
+    void selectionInvalidated();
+
+    /*! \brief Emitted when isActiveMesh() changes. */
+    void activeMeshChanged(bool isActive);
+public:
 
     // ----- Renderer (Slice BI Phase 8.13.6.6) -----------------------------
     // API plumbing only — paint loop still uses the per-vertex hillshade
@@ -119,7 +295,7 @@ public:
      * \details Constructed eagerly as a default SingleSymbolRenderer so
      *          callers never have to null-check.  Owned by the layer.
      */
-    [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+    [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const override;
 
     /*!
      * \brief Replaces the current renderer.
@@ -127,7 +303,28 @@ public:
      *          rejected.  Emits \ref rendererChanged() when the pointer
      *          actually changes.
      */
-    void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+    void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r) override;
+
+    // ----- ISublayerHost interface -----------------------------------------
+    /*! Ordered list of sublayers owned by this layer.
+     *  Paint order is list order (bottom-up):
+     *    mesh fill (static) → contour bands (filled) → mesh edges →
+     *    isolines → mesh vertex markers
+     *  The layer's existing Q_PROPERTYs (showEdges, showMeshNodes,
+     *  showContours, ...) act as thin shims that forward to the
+     *  corresponding sublayer's setVisible() / style so saved .oswp files
+     *  and existing UI still work. */
+    [[nodiscard]] QList<OpenSWMM::Render::ISublayer *> sublayers() const override;
+
+    /*! Reorder sublayers in paint order (bottom-up).  Emits
+     *  repaintRequested() on success.  Returns false on out-of-range indices. */
+    bool moveSublayer(int from, int to) override;
+
+    [[nodiscard]] OpenSWMM::Render::MeshFillSublayer    *meshFillSublayer()    const { return m_meshFillSublayer; }
+    [[nodiscard]] OpenSWMM::Render::MeshEdgeSublayer    *meshEdgeSublayer()    const { return m_meshEdgeSublayer; }
+    [[nodiscard]] OpenSWMM::Render::MeshNodeSublayer    *meshNodeSublayer()    const { return m_meshNodeSublayer; }
+    [[nodiscard]] OpenSWMM::Render::ContourBandSublayer *contourBandSublayer() const { return m_contourBandSublayer; }
+    [[nodiscard]] OpenSWMM::Render::IsolineSublayer     *isolineSublayer()     const { return m_isolineSublayer; }
 
     // ----- OpenSWMMVisLayer interface ----------------------------------------
 
@@ -142,6 +339,25 @@ public:
                       const SpatialReferenceSystem *canvasSRS) override;
 
     void onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS) override;
+
+    /*! Slice U-5 — surface the mesh layer itself as the single styleable
+     *  subject for the unified LayerStyleDialog. The Q_PROPERTYs declared
+     *  above drive the editor; Q_CLASSINFO("group:...") groups them into
+     *  Display / Hillshade / Contours tabs. */
+    [[nodiscard]] std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
+        styleSubjects() override;
+
+    // ----- Rule Model (Slice B.5b, Phase B) -------------------------------
+    //
+    // 2D mesh layers carry decoration-style rendering (fill / edges /
+    // nodes / hillshade / contours) rather than per-kind renderers, so
+    // the seed RuleList holds one Rule per decoration archetype with a
+    // SingleSymbolRenderer placeholder. The decoration specs from Z.6
+    // (HillshadeSymbolLayerSpec / ContourSymbolLayerSpec / MeshEdge /
+    // MeshNode) populate the SymbolStyle props inside each Rule. Paint
+    // integration that consumes those specs is the named Z.6a slice.
+    [[nodiscard]] OpenSWMM::Render::RuleList *ruleList() override;
+    [[nodiscard]] const OpenSWMM::Render::RuleList *ruleList() const override;
 
     // ----- Scene-geometry structs (public for SWMM2DMeshQSGRenderer) ---------
 
@@ -180,33 +396,52 @@ public:
     double             m_zMax     = 0.0;
     float              m_maxSlope = 0.0f;
 
+    // Uniform spatial grid over scene-space triangle / edge bboxes.
+    // The full type lives in layers/meshspatialgrid.h (extracted so it
+    // can be unit-tested without linking the rest of the layer); see
+    // that header for storage layout and threading contract.
+    MeshSpatialGrid    m_triGrid;
+    MeshSpatialGrid    m_edgeGrid;
+    QVector<QRectF>    m_triBBoxes;   ///< parallel to m_sceneTris
+    QVector<QRectF>    m_edgeBBoxes;  ///< parallel to m_sceneEdges
+
 signals:
     /*! \brief Emitted when setRenderer() swaps the renderer pointer. */
     void rendererChanged();
 
 private:
     void rebuildSceneGeometry();
+    void buildRuleListLazy() const;   // Slice B.5b — lazy ruleList init.
+
+    // Slice B.5b — Rule Model mirror over the mesh layer's decoration
+    // state. Lazy-built on first ruleList() call.
+    mutable std::unique_ptr<OpenSWMM::Render::RuleList> m_ruleList;
+
+    // §V.VA — keep m_bc sized to n_triangles * 3 in sync with the mesh,
+    // and rebuild the vertex→triangles adjacency used by sampleZAt /
+    // applyMeshVertexZ.
+    void resizeBCsToMesh();
+    void rebuildVertexAdjacency();
+
+    /*! Engine §11A helper — find the (tri, eLocal) slot on the other side
+     *  of an interior edge. Returns `(-1, -1)` when the edge is on the
+     *  mesh boundary (no neighbour) or the indices are out of range.
+     *  Uses the vertex→triangles adjacency, so requires
+     *  `rebuildVertexAdjacency()` to have run. */
+    QPair<int,int> findEdgeNeighbour(int triIdx, int edgeLocal) const;
 
     mesh::MeshResult             m_mesh;
     QString                      m_sourcePath;
     bool                         m_active        = false;
-    bool                         m_showMeshNodes = false;
-    bool                         m_showEdges     = true;   // AZ.3.4
 
-    // AU.6.4-lite — hillshade params (defaults reproduce historic constants)
+    // Hillshade state lives on the mesh-fill sublayer style; we keep a
+    // pair of simple knobs the renderer reads from the layer (azimuth,
+    // altitude) so the visual exactly reproduces the historic values
+    // when the user has not edited anything. The Q_PROPERTY setters
+    // forward through the sublayer styles where applicable.
     double                       m_hillshadeAz     = 225.0;   // compass deg
     double                       m_hillshadeAlt    =  35.264; // deg above horizon (asin(1/√3))
-    double                       m_hillshadeZExag  =   3.0;
-    double                       m_hillshadeMinLit =   0.15;
 
-    // BJ.2-lite — mesh-bed elevation contour lines
-    bool                         m_showContours      = false;
-    int                          m_contourIntervals  = 10;
-    QColor                       m_contourColor      = QColor(0x1a, 0x1a, 0x1a, 200);
-    double                       m_contourLineWidth  = 1.0;   // px
-    // BJ.2-filled — filled iso-bands (Viridis until BB ColorRamp ships)
-    bool                         m_contourFilled        = false;
-    double                       m_contourFilledOpacity = 0.55;
     quint64                      m_geomRevision  = 0;
     OGRCoordinateTransformation *m_transform     = nullptr;
     SWMM2DMeshGraphicsItem      *m_graphicsItem  = nullptr;
@@ -215,6 +450,43 @@ private:
     // the ctor (default SingleSymbolRenderer) so renderer() never returns
     // null.  Paint refactor deferred until Slice BB ColorRamp ships.
     std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> m_renderer;
+
+    // §V.VA — per-edge BC storage, sized to n_triangles * 3. Flat indexed
+    // as `tri * 3 + edgeLocal`. Interior-edge entries stay at the default
+    // Wall value; engine consults only boundary slots.
+    QVector<mesh::MeshEdgeBC>    m_bc;
+
+    // §V.VA — per-vertex CSR adjacency for fast incident-triangle lookup
+    // (used by sampleZAt / applyMeshVertexZ). Rebuilt by
+    // rebuildVertexAdjacency() in the ctor and on geometry-changing
+    // reloads (future).
+    QVector<int>                 m_vertTriPtr;  // size = n_vertices + 1
+    QVector<int>                 m_vertTriIdx;  // size = sum of incidences
+
+    // §V.VA — precomputed boundary status per (tri, edgeLocal). Flat
+    // indexed `tri*3 + eLocal`. true = this edge slot is a boundary edge
+    // in the loaded mesh. Rebuilt alongside m_bc / adjacency.
+    QVector<bool>                m_isBoundary;
+
+    // §V follow-up — selection highlight state. Drives the renderer's
+    // selection-overlay pass (cyan dots / cyan edges).
+    QSet<int>                    m_selVertices;
+    QSet<int>                    m_selEdges;
+    QSet<int>                    m_selTriangles;
+
+    // Sublayer host members. Each is QObject-parented to `this`, so the
+    // ISublayerHost contract is satisfied without manual delete in the
+    // dtor. The mesh layer surfaces these in sublayers() in paint order
+    // (bottom-up): fill → contour bands → edges → isolines → vertex
+    // markers.
+    OpenSWMM::Render::MeshFillSublayer    *m_meshFillSublayer    = nullptr;
+    OpenSWMM::Render::MeshEdgeSublayer    *m_meshEdgeSublayer    = nullptr;
+    OpenSWMM::Render::MeshNodeSublayer    *m_meshNodeSublayer    = nullptr;
+    OpenSWMM::Render::ContourBandSublayer *m_contourBandSublayer = nullptr;
+    OpenSWMM::Render::IsolineSublayer     *m_isolineSublayer     = nullptr;
+
+    // User-customisable paint order (Slice GUI-2026-05-30 §2).
+    mutable QList<OpenSWMM::Render::ISublayer *> m_sublayerOrder;
 };
 
 #endif // OPENSWMMVIS_LAYERS_SWMM2DMESHLAYER_H

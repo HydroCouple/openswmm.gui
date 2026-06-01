@@ -23,6 +23,7 @@
 
 #include <QColor>
 #include <QFont>
+#include <QHash>
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
@@ -86,8 +87,49 @@ public:
     Q_PROPERTY(QColor         gradientEndColor    READ gradientEndColor    WRITE setGradientEndColor    NOTIFY gradientEndColorChanged)
     Q_PROPERTY(Qt::Orientation gradientOrientation READ gradientOrientation WRITE setGradientOrientation NOTIFY gradientOrientationChanged)
 
+    /*!
+     * \struct ItemOverride
+     * \brief Per-(layer, class) overrides for a legend row's visibility +
+     *        label. Slice BB Phase 8.6.10 / 8.6.16 — the renderer remains
+     *        the source of truth for swatch colour / size; ItemOverride
+     *        only carries legend-only presentation overrides.
+     */
+    struct ItemOverride {
+        bool    visible   = true;
+        QString userLabel;   /*!< Empty = use renderer-supplied label. */
+    };
+
     explicit LegendOverlayStyle(QObject *parent = nullptr);
     ~LegendOverlayStyle() override = default;
+
+    /*! \brief Build the override hash key from a layer + classKey. Uses
+     *         the layer's QObject::objectName (stable across rename) — so
+     *         callers must set a unique objectName before relying on the
+     *         override hash. Taking const QObject* keeps this header free
+     *         of OpenSWMMVisLayer; callers pass their layer directly. */
+    static QString itemKey(const QObject *layer, const QString &classKey);
+
+    /*! \brief Read the override for \p layerKey + \p classKey, or a
+     *         default-constructed ItemOverride (visible=true, empty label)
+     *         when no entry exists. */
+    [[nodiscard]] ItemOverride itemOverride(const QString &layerKey,
+                                            const QString &classKey) const;
+
+    /*! \brief Replace the override entry. visible == true + empty label
+     *         removes the entry (defaults). Emits itemOverrideChanged()
+     *         and changed(). */
+    void setItemOverride(const QString &layerKey, const QString &classKey,
+                         const ItemOverride &override);
+
+    /*! \brief Convenience: set only the visible flag. */
+    void setItemVisible(const QString &layerKey, const QString &classKey, bool visible);
+
+    /*! \brief Convenience: set only the userLabel. */
+    void setItemUserLabel(const QString &layerKey, const QString &classKey,
+                           const QString &label);
+
+    /*! \brief Drop every per-item override. */
+    void clearItemOverrides();
 
     /*! \brief AT-style hook for QPropertyModel — returns human-readable,
      *         group-prefixed display labels (e.g. "General — Title font",
@@ -157,6 +199,11 @@ signals:
     // views with one-paint-per-edit semantics can subscribe to just this.
     void changed();
 
+    /*! \brief Fine-grained signal for per-item override edits — lets
+     *         views (e.g. the dock tree) update just one row instead of
+     *         a full reset. */
+    void itemOverrideChanged(const QString &layerKey, const QString &classKey);
+
     void showTitleChanged(bool);
     void titleChanged(const QString &);
     void titleFontChanged(const QFont &);
@@ -208,6 +255,11 @@ private:
     QColor          m_backgroundColor     = QColor(255, 255, 255, 225);
     QColor          m_gradientEndColor    = QColor(240, 240, 240, 225);
     Qt::Orientation m_gradientOrientation = Qt::Vertical;
+
+    // Slice BB Phase 8.6.10 / 8.6.16 — per-(layer, class) overrides for
+    // visibility + label. Keyed by "<layerKey>|<classKey>". Persisted in
+    // toJson/fromJson alongside chrome.
+    QHash<QString, ItemOverride> m_itemOverrides;
 };
 
 } // namespace OpenSWMM::Render

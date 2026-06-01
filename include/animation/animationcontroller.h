@@ -112,7 +112,6 @@ private slots:
     void onTimerTick();
     void onPrimaryPeriodChanged(int step);
     void onPrimaryTotalStepsChanged(int total);
-    void onPrimaryTimeChanged(const QDateTime &dt);
 
     // 2D fallback re-emit slots (mirror the 1D ones).
     void onFallback2DPeriodChanged(int step);
@@ -135,12 +134,26 @@ private:
     // Advance whichever driver is active to \p step.
     void driverSetStep(int step);
 
+    /*! Slice Z.13-controller-range — effective [min, max] step range
+     *  considering the primary's TemporalSpec.startTime/endTime. Falls
+     *  back to [0, totalSteps-1] when the spec is disabled or the start/
+     *  end times aren't valid. For the 2D fallback driver, currently
+     *  always returns the full range (datetime-keyed clamping there is
+     *  the Z.13-controller-2d-range follow-up). */
+    void effectiveStepRange(int &outMin, int &outMax) const;
+
     QPointer<SWMMResultsLayer>        m_primaryLayer;
     QList<QPointer<SWMMResultsLayer>> m_secondaryLayers;
     QPointer<SWMM2DResultsLayer>      m_fallback2D;
     QTimer *m_timer    = nullptr;
     bool    m_playing  = false;
     double  m_speed    = 1.0;
+
+    /*! Slice Z.13-controller — playback direction (+1 forward, -1
+     *  backward). Only flips to -1 when the primary's TemporalSpec has
+     *  pingPong=true and the playback hits an end of the range.
+     *  Forward-only otherwise so existing UI behaviour is preserved. */
+    int     m_direction = 1;
 
     static constexpr int kMinIntervalMs  = 50;
     static constexpr int kDefaultStepMs  = 200; // fallback when primary has no report step

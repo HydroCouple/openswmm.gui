@@ -143,6 +143,9 @@ private:
     void buildToolBar();
     void rebuildSeriesTree();
     void rebuildCharts();
+    /*! \brief Resolve a series' chart legend name: spec.legendOverride
+     *  if non-empty, else the auto label "<run> — <object> (<attr>)". */
+    QString legendNameFor(const openswmmvis::plot::SeriesSpec& spec) const;
     void updateChartForRow(int rowIndex);
     void applyAnimationCursorToCharts();
     /*! \brief Push the current toolbar Mode into every row's

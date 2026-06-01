@@ -75,7 +75,12 @@ QString Mesh2DRunLayer::persistenceKey() const
 
 bool Mesh2DRunLayer::supportsAttribute(PlotAttribute attr) const
 {
+    // Edge flux needs the source's per-edge flux feed (newer engines only).
+    if (attr == PlotAttribute::Mesh2DEdgeFlux)
+        return m_layer && m_layer->source() && m_layer->hasVelocityData();
     if (!isMesh2DAttribute(attr)) return false;
+    // Depth/HGL are also valid for a vertex ref (interpolated); the kind is
+    // checked in getSeriesAt, so just allow the attribute here.
     // Velocity attributes require edge flux + edge geometry. Older HDF5
     // files lack them; supportsAttribute() lets the dialog disable
     // those checkboxes when the layer can't supply them.
@@ -114,6 +119,31 @@ void Mesh2DRunLayer::ensureZBedCache_() const
         m_zBed[i] = static_cast<float>((z0 + z1 + z2) / 3.0);
     }
     m_zBedReady = true;
+}
+
+void Mesh2DRunLayer::ensureVertexAdjCache_() const
+{
+    if (m_vertexAdjReady) return;
+    if (!m_layer) return;
+    auto *src = m_layer->source();
+    if (!src) return;
+
+    std::vector<double> vx, vy, vz;
+    std::vector<std::array<int, 3>> tris;
+    if (!src->readMeshGeometry(vx, vy, vz, tris)) return;
+
+    const int nV = static_cast<int>(vz.size());
+    m_vertexZ.assign(nV, 0.0f);
+    for (int i = 0; i < nV; ++i) m_vertexZ[i] = static_cast<float>(vz[i]);
+
+    m_vertexTris.assign(nV, {});
+    for (int t = 0; t < static_cast<int>(tris.size()); ++t) {
+        for (int k = 0; k < 3; ++k) {
+            const int v = tris[t][k];
+            if (v >= 0 && v < nV) m_vertexTris[v].push_back(t);
+        }
+    }
+    m_vertexAdjReady = true;
 }
 
 bool Mesh2DRunLayer::reconstructVelocityAtCell_(int triIdx,
@@ -176,6 +206,83 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
         out.errorMessage = QStringLiteral("2D layer not available");
         return;
     }
+
+    // ── Vertex depth/HGL series (Mesh2DVertex ref) — interpolated as the
+    //    mean of the triangles incident on the vertex. ───────────────────────
+    if (ref.kind == ObjectRef::Kind::Mesh2DVertex) {
+        if (attr != PlotAttribute::Mesh2DDepth && attr != PlotAttribute::Mesh2DHGL) {
+            out.errorMessage = QStringLiteral("Vertex series supports depth / HGL only");
+            return;
+        }
+        ensureVertexAdjCache_();
+        auto *vsrc = m_layer->source();
+        const int v = ref.triIdx;   // triIdx carries the vertex index for this kind
+        if (v < 0 || v >= static_cast<int>(m_vertexTris.size())) {
+            out.errorMessage = QStringLiteral("Mesh vertex index out of range");
+            return;
+        }
+        const int nTv = vsrc->timeCount();
+        if (nTv <= 0) { out.errorMessage = QStringLiteral("No time steps available yet"); return; }
+        const std::vector<int> &inc = m_vertexTris[v];
+        const double zVtx = (v < static_cast<int>(m_vertexZ.size())) ? m_vertexZ[v] : 0.0;
+        out.timesJulian.reserve(static_cast<std::size_t>(nTv));
+        out.values.reserve(static_cast<std::size_t>(nTv));
+        std::vector<float> depths;
+        for (int t = 0; t < nTv; ++t) {
+            const QDateTime dt = vsrc->simTimeAt(t);
+            if (!dt.isValid()) continue;
+            double value = std::nan("");
+            if (!inc.empty() && vsrc->readDepthsAt(t, depths)) {
+                double sum = 0.0; int n = 0;
+                for (int tri : inc)
+                    if (tri >= 0 && tri < static_cast<int>(depths.size())) { sum += depths[tri]; ++n; }
+                if (n > 0) {
+                    const double d = sum / n;
+                    value = (attr == PlotAttribute::Mesh2DDepth) ? d : d + zVtx;
+                }
+            }
+            out.timesJulian.push_back(dateTimeToSwmmJulian(dt));
+            out.values.push_back(value);
+        }
+        out.ok = !out.timesJulian.empty();
+        if (!out.ok)
+            out.errorMessage = QStringLiteral("No samples for vertex %1").arg(v);
+        return;
+    }
+
+    // ── Edge-flux series (Mesh2DEdge ref + Mesh2DEdgeFlux attr) ─────────────
+    if (ref.kind == ObjectRef::Kind::Mesh2DEdge) {
+        if (attr != PlotAttribute::Mesh2DEdgeFlux) {
+            out.errorMessage = QStringLiteral("Edge ref only supports edge flux");
+            return;
+        }
+        auto *esrc = m_layer->source();
+        const int flat = ref.triIdx * 3 + ref.edgeLocal;
+        if (ref.triIdx < 0 || ref.triIdx >= esrc->triangleCount()
+            || ref.edgeLocal < 0 || ref.edgeLocal > 2) {
+            out.errorMessage = QStringLiteral("Mesh edge index out of range");
+            return;
+        }
+        const int nTe = esrc->timeCount();
+        if (nTe <= 0) { out.errorMessage = QStringLiteral("No time steps available yet"); return; }
+        out.timesJulian.reserve(static_cast<std::size_t>(nTe));
+        out.values.reserve(static_cast<std::size_t>(nTe));
+        std::vector<float> fbuf;
+        for (int t = 0; t < nTe; ++t) {
+            const QDateTime dt = esrc->simTimeAt(t);
+            if (!dt.isValid()) continue;
+            double value = std::nan("");
+            if (esrc->readEdgeFluxAt(t, fbuf) && flat < static_cast<int>(fbuf.size()))
+                value = static_cast<double>(fbuf[flat]);
+            out.timesJulian.push_back(dateTimeToSwmmJulian(dt));
+            out.values.push_back(value);
+        }
+        out.ok = !out.timesJulian.empty();
+        if (!out.ok)
+            out.errorMessage = QStringLiteral("No edge-flux samples (re-run with current engine?)");
+        return;
+    }
+
     if (ref.kind != ObjectRef::Kind::Mesh2DCell) {
         out.errorMessage = QStringLiteral("ObjectRef is not a Mesh2D cell");
         return;

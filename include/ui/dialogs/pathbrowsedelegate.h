@@ -38,6 +38,15 @@ public:
     void setFilter(const QString &f)      { m_filter = f; }
     void setPlaceholder(const QString &p) { m_placeholder = p; }
 
+    /*! Slice IO-11c — directory the editor normalises picked paths against.
+     *  Empty (the default) preserves legacy behaviour of storing whatever
+     *  QFileDialog returned, verbatim. When set, a browse outcome under
+     *  the anchor is rewritten to its relative form before being committed
+     *  to the model, so the engine slot ends up with a portable token
+     *  instead of a host-specific path. */
+    void setProjectAnchor(const QString &dir) { m_anchor = dir; }
+    [[nodiscard]] QString projectAnchor() const { return m_anchor; }
+
     // QStyledItemDelegate ------------------------------------------------------
     QWidget *createEditor(QWidget *parent,
                           const QStyleOptionViewItem &opt,
@@ -52,6 +61,7 @@ private:
     QString m_title;
     QString m_filter;
     QString m_placeholder;
+    QString m_anchor;   ///< IO-11c: relativise picked paths against this dir.
 };
 
 #endif // PATHBROWSEDELEGATE_H

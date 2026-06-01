@@ -51,6 +51,13 @@ class GISRasterLayer : public OpenSWMMVisLayer
     Q_PROPERTY(double   noDataValue READ noDataValue NOTIFY noDataValueChanged)
     Q_PROPERTY(RasterColorRamp colorRamp READ colorRamp WRITE setColorRamp NOTIFY colorRampChanged)
 
+    // Slice U-7 — Q_CLASSINFO groups for the unified LayerStyleDialog.
+    Q_CLASSINFO("group:filePath",    "Source")
+    Q_CLASSINFO("group:bandCount",   "Source")
+    Q_CLASSINFO("group:renderBand",  "Display")
+    Q_CLASSINFO("group:noDataValue", "Display")
+    Q_CLASSINFO("group:colorRamp",   "Color ramp")
+
 public:
 
     explicit GISRasterLayer(const QString &filePath,
@@ -95,13 +102,16 @@ public:
      */
     void autoStretchColorRamp();
 
-    // ----- Raster renderer (Slice BI Phase 8.13.6.7) ----------------------
-    // The raster renderer is the §J.2 seam every future raster paint path
-    // will go through.  In sub-phase 8.13.6.7 this is API plumbing only —
-    // the existing warpToCanvas() still reads m_colorRamp directly.  A
-    // later sub-phase will route warping through m_rasterRenderer, after
-    // which m_colorRamp becomes private implementation detail of the
-    // default SingleBandPseudoColorRenderer.
+    /*! Slice U-7 — surface this raster's Q_PROPERTYs as the single
+     *  styleable subject for the unified LayerStyleDialog. */
+    [[nodiscard]] std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
+        styleSubjects() override;
+
+    // ----- Raster renderer (Slice BI Phase 8.13.6.7; P5/R-1 full switch) ---
+    // The raster renderer is the §J.2 seam every raster paint path goes
+    // through. As of P5/R-1 warpToCanvas() colourises via
+    // m_rasterRenderer->colorForValue(); the legacy m_colorRamp field is
+    // retired and colorRamp()/setColorRamp() project to/from the renderer.
 
     /*!
      * \brief The IRasterRenderer that will drive this layer's warp pass.
@@ -160,6 +170,20 @@ public:
 
     void onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS) override;
 
+    // ----- VS.6 — hillshade relief overlay (single-band DTM rasters) ---------
+    // When enabled, warpToCanvas() composites a hillshade lighting factor over
+    // the colour-ramped pixels using the warped elevation grid. Parameters
+    // mirror HillshadeSymbolLayerSpec; stored as primitives to keep this
+    // header free of the render/ spec include.
+    [[nodiscard]] bool hillshadeEnabled() const { return m_hillshadeEnabled; }
+    void setHillshadeEnabled(bool on);
+    [[nodiscard]] double hillshadeAzimuthDeg()  const { return m_hillshadeAzimuthDeg; }
+    [[nodiscard]] double hillshadeAltitudeDeg() const { return m_hillshadeAltitudeDeg; }
+    [[nodiscard]] double hillshadeZFactor()     const { return m_hillshadeZFactor; }
+    [[nodiscard]] double hillshadeStrength()    const { return m_hillshadeStrength; }
+    void setHillshadeParams(double azimuthDeg, double altitudeDeg,
+                            double zFactor, double strength);
+
 signals:
     void filePathChanged(const QString &path);
     void renderBandChanged(int band);
@@ -186,7 +210,16 @@ private:
     int              m_renderBand = 1;
     double           m_noDataValue = std::numeric_limits<double>::quiet_NaN();
     bool             m_hasNoData  = false;
-    RasterColorRamp  m_colorRamp;
+    // P5/R-1 — m_colorRamp retired. The SingleBandPseudoColorRenderer
+    // (m_rasterRenderer, below) is the single source of truth for raster
+    // colouring; colorRamp()/setColorRamp() project to/from it.
+
+    // VS.6 — hillshade relief overlay parameters (see public accessors).
+    bool             m_hillshadeEnabled    = false;
+    double           m_hillshadeAzimuthDeg = 315.0;
+    double           m_hillshadeAltitudeDeg = 45.0;
+    double           m_hillshadeZFactor    = 1.0;
+    double           m_hillshadeStrength   = 0.5;
 
     // Float64 warped value cache — same spatial extent as m_cachedTile / m_cacheExtent
     // but stores raw elevation values (not color-rendered).  Populated by warpToCanvas
@@ -206,11 +239,10 @@ private:
     // Persistent scene item (kept visible as placeholder until new warp completes)
     RasterTileItem  *m_sceneItem  = nullptr;
 
-    // Slice BI Phase 8.13.6.7 — raster-renderer plumbing.  Initialised
-    // eagerly in the ctor (default SingleBandPseudoColorRenderer) so
-    // rasterRenderer() never returns null.  warpToCanvas() still reads
-    // m_colorRamp directly; routing through the renderer is deferred to a
-    // later sub-phase.
+    // Single source of truth for raster colouring (P5/R-1). Initialised
+    // eagerly in the ctor (a SingleBandPseudoColorRenderer seeded from the
+    // default grayscale ramp) so rasterRenderer() never returns null, and
+    // warpToCanvas() colourises through it.
     std::unique_ptr<OpenSWMM::Render::IRasterRenderer> m_rasterRenderer;
 };
 

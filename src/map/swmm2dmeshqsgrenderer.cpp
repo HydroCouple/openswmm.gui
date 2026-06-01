@@ -12,11 +12,27 @@
 
 #include "contour/marchingtriangles.h"
 #include "layers/swmm2dmeshlayer.h"
+#include "render/sublayers/contourbandsublayer.h"
+#include "render/sublayers/isolinesublayer.h"
+#include "render/sublayers/meshedgesublayer.h"
+#include "render/sublayers/meshfillsublayer.h"
+#include "render/sublayers/meshnodesublayer.h"
+// Slice Z.6a — paint reads from typed Symbol Layer specs.
+#include "render/colorramp.h"
+#include "render/rastersymbollayers.h"
 
+#include <QFont>
+#include <QFontMetricsF>
+#include <QImage>
 #include <QMatrix4x4>
+#include <QPainter>
+#include <QPainterPath>
+#include <QQuickWindow>
 #include <QSGFlatColorMaterial>
 #include <QSGGeometry>
 #include <QSGGeometryNode>
+#include <QSGSimpleTextureNode>
+#include <QSGTexture>
 #include <QSGTransformNode>
 #include <QSGVertexColorMaterial>
 #include <QtMath>
@@ -31,25 +47,58 @@ namespace {
 // ---------------------------------------------------------------------------
 // Elevation colour ramp  [0,1] → RGB   (matches MeshGraphicsItem)
 // ---------------------------------------------------------------------------
-void elevationColorRgb(double t, quint8 &r, quint8 &g, quint8 &b)
+// Slice Z.6a — moved from a hardcoded function to a RasterColorRamp factory
+// + a per-vertex sample helper. The factory reproduces the legacy 5-stop
+// elevation palette exactly so paint output is unchanged when no Rule
+// Model edits have been applied yet. The Rule Model dialog can swap the
+// ramp via the RuleSymbologyTab → MeshFill Rule path; the per-vertex
+// sample then picks up the new colours on the next paint.
+
+RasterColorRamp legacyElevationRamp()
 {
-    struct Stop { double t; quint8 r, g, b; };
-    static const Stop stops[] = {
-        {0.00, 0x1a, 0x3d, 0x6b},
-        {0.20, 0x2e, 0x8b, 0x57},
-        {0.50, 0xc8, 0xd9, 0x4e},
-        {0.75, 0xc8, 0xa0, 0x00},
-        {1.00, 0xf0, 0xf0, 0xe8},
+    RasterColorRamp ramp;
+    ramp.minValue = 0.0;
+    ramp.maxValue = 1.0;
+    ramp.interp   = RampInterp::Rgb;
+    ramp.stops = {
+        {0.00, QColor(0x1a, 0x3d, 0x6b)},
+        {0.20, QColor(0x2e, 0x8b, 0x57)},
+        {0.50, QColor(0xc8, 0xd9, 0x4e)},
+        {0.75, QColor(0xc8, 0xa0, 0x00)},
+        {1.00, QColor(0xf0, 0xf0, 0xe8)},
     };
-    constexpr int N = int(sizeof(stops)/sizeof(*stops));
-    t = qBound(0.0, t, 1.0);
-    int i = 0;
-    while (i < N - 2 && stops[i+1].t <= t) ++i;
-    const Stop &lo = stops[i], &hi = stops[i+1];
-    const double f = (hi.t > lo.t) ? (t - lo.t)/(hi.t - lo.t) : 0.0;
-    r = quint8(qRound(lo.r + f*(hi.r - lo.r)));
-    g = quint8(qRound(lo.g + f*(hi.g - lo.g)));
-    b = quint8(qRound(lo.b + f*(hi.b - lo.b)));
+    return ramp;
+}
+
+/*! Sample a normalised position [0,1] from a RasterColorRamp and unpack
+ *  the result into quint8 RGB. Mirrors the historic elevationColorRgb
+ *  function — same linear-interp algorithm, same RGB output — but the
+ *  stops come from the spec so user edits via the Rule Model dialog can
+ *  override the look without touching this function. */
+void colorFromRamp(double t,
+                   const RasterColorRamp &ramp,
+                   quint8 &r, quint8 &g, quint8 &b)
+{
+    const QColor c = ramp.colorAt(qBound(0.0, t, 1.0));
+    r = quint8(c.red());
+    g = quint8(c.green());
+    b = quint8(c.blue());
+}
+
+/*! Structural equality on RasterColorRamp.
+ *  Used by the Pass 1 fill-colour cache to detect when the ramp has been
+ *  edited via the style dialog. RasterColorRamp has no operator== of its
+ *  own; QGradientStops (QVector<QPair<qreal, QColor>>) does, and QColor
+ *  does, so the per-field comparison falls through to value semantics
+ *  the whole way down. */
+bool rampEqual(const RasterColorRamp &a, const RasterColorRamp &b)
+{
+    return a.minValue == b.minValue
+        && a.maxValue == b.maxValue
+        && a.clampMin == b.clampMin
+        && a.clampMax == b.clampMax
+        && a.interp   == b.interp
+        && a.stops    == b.stops;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +177,57 @@ void setFlatColor(QSGGeometryNode *node, QColor c)
     if (mat->color() != c) { mat->setColor(c); node->markDirty(QSGNode::DirtyMaterial); }
 }
 
+// ---------------------------------------------------------------------------
+// Isoline label rasterisation
+// ---------------------------------------------------------------------------
+//
+// Render `text` to a small QImage with a white halo so the label reads on
+// both light (high-elev terrain) and dark (deep-water) underlays. The image
+// is sized to fit the text plus a 2 px pad on every side. devicePixelRatio
+// is applied so the texture stays crisp on Hi-DPI displays.
+
+QImage rasteriseLabel(const QString &text, const QColor &color, double dpr)
+{
+    QFont f;
+    f.setPointSizeF(9.0);
+    f.setBold(true);
+    const QFontMetricsF fm(f);
+    const QRectF br = fm.boundingRect(text);
+    const int pad = 3;
+    const int w = int(std::ceil(br.width()))  + pad * 2;
+    const int h = int(std::ceil(br.height())) + pad * 2;
+
+    QImage img(int(w * dpr), int(h * dpr), QImage::Format_ARGB32_Premultiplied);
+    img.setDevicePixelRatio(dpr);
+    img.fill(Qt::transparent);
+
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setRenderHint(QPainter::TextAntialiasing, true);
+    p.setFont(f);
+
+    // White halo via QPainterPath stroke. We outline the glyph path twice
+    // (3 px and 2 px) to produce a soft glow that doesn't blur the glyph.
+    QPainterPath path;
+    path.addText(pad - br.left(), pad - br.top(), f, text);
+
+    QPen halo(QColor(255, 255, 255, 230));
+    halo.setWidthF(3.0);
+    halo.setJoinStyle(Qt::RoundJoin);
+    halo.setCapStyle(Qt::RoundCap);
+    p.setPen(halo);
+    p.setBrush(Qt::NoBrush);
+    p.drawPath(path);
+
+    // Fill the glyph with the user-configured colour.
+    p.setPen(Qt::NoPen);
+    p.setBrush(color);
+    p.drawPath(path);
+
+    p.end();
+    return img;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -138,7 +238,20 @@ SWMM2DMeshQSGRenderer::SWMM2DMeshQSGRenderer(QQuickItem *parent)
     setFlag(ItemHasContents, true);
 }
 
-SWMM2DMeshQSGRenderer::~SWMM2DMeshQSGRenderer() = default;
+SWMM2DMeshQSGRenderer::~SWMM2DMeshQSGRenderer()
+{
+    clearLabelTextureCache();
+}
+
+void SWMM2DMeshQSGRenderer::clearLabelTextureCache()
+{
+    // QSGTextures must be released on the render thread; deleteLater() is
+    // safe because the next render-thread iteration will process the
+    // pending delete queue before we re-create new textures here.
+    for (QSGTexture *t : std::as_const(m_labelTextureCache))
+        if (t) t->deleteLater();
+    m_labelTextureCache.clear();
+}
 
 void SWMM2DMeshQSGRenderer::setLayer(SWMM2DMeshLayer *layer)
 {
@@ -152,6 +265,7 @@ void SWMM2DMeshQSGRenderer::setLayer(SWMM2DMeshLayer *layer)
                     update();
                 });
     }
+    clearLabelTextureCache();
     m_contentDirty = true;
     update();
 }
@@ -175,36 +289,65 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
     }
 
     // ---- Node tree, z-order bottom→top:
-    //        triNode (Pass 1 hillshade)
-    //        isobandNode (Pass 4 filled contours — BJ.2-filled)
-    //        edgeThinNode + edgeWideNode (Pass 2 wireframe)
-    //        contourNode (Pass 3 isolines — BJ.2-lite)
+    //        triNode       (Pass 1: mesh fill — MeshFillSublayer)
+    //        isobandNode   (Pass 4: filled contour bands — ContourBandSublayer)
+    //        edgeThinNode  (Pass 2: thin wireframe — MeshEdgeSublayer)
+    //        edgeWideNode  (Pass 2: wide wireframe — slope emphasis)
+    //        contourNode   (Pass 3: isolines — IsolineSublayer)
+    //        contourLabels (Pass 3b: per-level isoline labels — IsolineStyle::labels)
+    //        nodeMarkNode  (Pass 5: vertex markers — MeshNodeSublayer)
+    //        selEdgeNode + selVertNode (§V selection-overlay pass — cyan)
     auto *root = static_cast<QSGTransformNode *>(oldNode);
-    QSGGeometryNode *triNode      = nullptr;
-    QSGGeometryNode *isobandNode  = nullptr;
-    QSGGeometryNode *edgeThinNode = nullptr;
-    QSGGeometryNode *edgeWideNode = nullptr;
-    QSGGeometryNode *contourNode  = nullptr;
+    QSGGeometryNode *triNode       = nullptr;
+    QSGGeometryNode *isobandNode   = nullptr;
+    QSGGeometryNode *edgeThinNode  = nullptr;
+    QSGGeometryNode *edgeWideNode  = nullptr;
+    QSGGeometryNode *contourNode   = nullptr;
+    QSGNode         *contourLabels = nullptr;
+    QSGGeometryNode *nodeMarkNode  = nullptr;
+    QSGGeometryNode *selTriNode    = nullptr;
+    QSGGeometryNode *selEdgeNode   = nullptr;
+    QSGGeometryNode *selVertNode   = nullptr;
+
+    // §V selection-overlay colours.
+    const QColor kSelTriColor (0x00, 0xc8, 0xff, 90);    // translucent cyan fill
+    const QColor kSelEdgeColor(0x00, 0xc8, 0xff, 235);   // bright cyan
+    const QColor kSelVertColor(0x00, 0xff, 0xff, 245);   // brighter cyan
 
     if (!root) {
-        root         = new QSGTransformNode();
-        triNode      = makeColoredNode();
-        isobandNode  = makeColoredNode();   // per-vertex colour for band fill
-        edgeThinNode = makeFlatNode(QColor(0, 0, 0, 130));
-        edgeWideNode = makeFlatNode(QColor(0, 0, 0, 210));
-        contourNode  = makeFlatNode(QColor(0x1a, 0x1a, 0x1a, 200));
+        root          = new QSGTransformNode();
+        triNode       = makeColoredNode();
+        isobandNode   = makeColoredNode();   // per-vertex colour for band fill
+        edgeThinNode  = makeFlatNode(QColor(0, 0, 0, 130));
+        edgeWideNode  = makeFlatNode(QColor(0, 0, 0, 210));
+        contourNode   = makeFlatNode(QColor(0x1a, 0x1a, 0x1a, 200));
+        contourLabels = new QSGNode();       // parent for QSGSimpleTextureNode labels
+        nodeMarkNode  = makeColoredNode();
+        selTriNode    = makeFlatNode(kSelTriColor);
+        selEdgeNode   = makeFlatNode(kSelEdgeColor);
+        selVertNode   = makeFlatNode(kSelVertColor);
         root->appendChildNode(triNode);
         root->appendChildNode(isobandNode);
         root->appendChildNode(edgeThinNode);
         root->appendChildNode(edgeWideNode);
         root->appendChildNode(contourNode);
+        root->appendChildNode(contourLabels);
+        root->appendChildNode(nodeMarkNode);
+        root->appendChildNode(selTriNode);
+        root->appendChildNode(selEdgeNode);
+        root->appendChildNode(selVertNode);
     } else {
         auto *c  = root->firstChild();
-        triNode      = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
-        isobandNode  = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
-        edgeThinNode = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
-        edgeWideNode = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
-        contourNode  = static_cast<QSGGeometryNode*>(c);
+        triNode       = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
+        isobandNode   = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
+        edgeThinNode  = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
+        edgeWideNode  = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
+        contourNode   = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
+        contourLabels = c;                                c = c->nextSibling();
+        nodeMarkNode  = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
+        selTriNode    = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
+        selEdgeNode   = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
+        selVertNode   = static_cast<QSGGeometryNode*>(c);
     }
 
     // ---- Shared render params ----------------------------------------------
@@ -238,6 +381,15 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             uploadFlatVerts(edgeThinNode,    empty_p);
             uploadFlatVerts(edgeWideNode,    empty_p);
             uploadFlatVerts(contourNode,     empty_p);
+            // Drop any cached label children — nothing visible.
+            while (auto *c = contourLabels->firstChild()) {
+                contourLabels->removeChildNode(c);
+                delete c;
+            }
+            uploadColoredVerts(nodeMarkNode, empty_c);
+            uploadFlatVerts(selTriNode,      empty_p);
+            uploadFlatVerts(selEdgeNode,     empty_p);
+            uploadFlatVerts(selVertNode,     empty_p);
             m_contentDirty = true;
             // Apply transform so stacking order is maintained, then exit.
             const float msx = float(width())  / float(m_extent.width());
@@ -268,127 +420,328 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         const double zMax   = m_layer->m_zMax;
         const float maxSlope = m_layer->m_maxSlope;
 
-        // Style constants (mirrors MeshGraphicsItem). Hillshade params come
-        // from the layer now (Slice AU.6.4-lite); defaults reproduce the
-        // historic constants kLx=kLy=-0.5774, kLz=+0.5774, kVertExag=3.0,
-        // kLitMin=0.15 when the user has not edited them.
+        // Resolve sublayer styles once per rebuild. Each is non-null in
+        // practice (constructed in SWMM2DMeshLayer's ctor), but we still
+        // guard so a partially-constructed layer doesn't crash the
+        // renderer during early QSG ticks.
+        const auto *fillSub  = m_layer->meshFillSublayer();
+        const auto *edgeSub  = m_layer->meshEdgeSublayer();
+        const auto *nodeSub  = m_layer->meshNodeSublayer();
+        const auto *bandSub  = m_layer->contourBandSublayer();
+        const auto *isoSub   = m_layer->isolineSublayer();
+        const auto *fillStyle = fillSub ? fillSub->fillStyle() : nullptr;
+        const auto *edgeStyle = edgeSub ? edgeSub->edgeStyle() : nullptr;
+        const auto *nodeStyle = nodeSub ? nodeSub->nodeStyle() : nullptr;
+        const auto *bandStyle = bandSub ? bandSub->bandStyle() : nullptr;
+        const auto *isoStyle  = isoSub  ? isoSub->isolineStyle() : nullptr;
+
+        // Slice Z.6a — build Z.6 typed specs from the legacy sublayer
+        // styles once at the top of the rebuild. Every pass below
+        // reads from the specs instead of the style getters; the spec
+        // values exactly reproduce the historic defaults so visual
+        // output is unchanged. Rule Model dialog edits flow into the
+        // legacy sublayer style fields (via the layer's connect
+        // handlers in buildRuleListLazy), which feed back into the
+        // specs on the next paint tick.
+        using OpenSWMM::Render::RasterColorRampSymbolLayerSpec;
+        using OpenSWMM::Render::HillshadeSymbolLayerSpec;
+        using OpenSWMM::Render::ContourSymbolLayerSpec;
+        using OpenSWMM::Render::MeshEdgeSymbolLayerSpec;
+        using OpenSWMM::Render::MeshNodeSymbolLayerSpec;
+
+        RasterColorRampSymbolLayerSpec rampSpec;
+        rampSpec.ramp = legacyElevationRamp();
+
+        HillshadeSymbolLayerSpec hillSpec;
+        hillSpec.azimuthDeg    = m_layer->hillshadeAzimuth();
+        hillSpec.altitudeDeg   = m_layer->hillshadeAltitude();
+        hillSpec.zExaggeration = m_layer->hillshadeZExag();
+        hillSpec.shadowFloor   = m_layer->hillshadeMinLit();
+        hillSpec.strength      = fillStyle ? fillStyle->hillshadeStrength() : 0.5;
+
+        MeshEdgeSymbolLayerSpec edgeSpec;
+        edgeSpec.color               = edgeStyle ? edgeStyle->color()
+                                                 : QColor(0, 0, 0, 130);
+        edgeSpec.width               = edgeStyle ? edgeStyle->lineWidthPx() : 0.35;
+        edgeSpec.useSlopeDrivenWidth = edgeStyle ? edgeStyle->useSlopeDrivenWidth() : true;
+        edgeSpec.slopeBreak          = edgeStyle ? edgeStyle->slopeBreak() : 0.35;
+        edgeSpec.wideWidthPx         = edgeStyle ? edgeStyle->wideWidthPx() : 0.9;
+        edgeSpec.wideColor           = edgeStyle ? edgeStyle->wideColor()
+                                                 : QColor(0, 0, 0, 210);
+
+        ContourSymbolLayerSpec isoSpec;
+        isoSpec.mode        = OpenSWMM::Render::ContourMode::Lines;
+        isoSpec.binner.setBinCount(isoStyle ? isoStyle->isoValueCount() : 8);
+        isoSpec.lineColor   = isoStyle ? isoStyle->color() : QColor(10, 10, 10, 220);
+        isoSpec.lineWidthPx = isoStyle ? isoStyle->lineWidthPx() : 1.0;
+        isoSpec.labelEveryN = (isoStyle && isoStyle->labels()) ? 1 : 0;
+
+        ContourSymbolLayerSpec bandSpec;
+        bandSpec.mode        = OpenSWMM::Render::ContourMode::Filled;
+        bandSpec.binner.setBinCount(bandStyle ? bandStyle->bandCount() : 8);
+        bandSpec.smoothBands = bandStyle ? bandStyle->smoothBands() : true;
+        // Encode lowColor → highColor as a two-stop ramp; the smooth
+        // gradient in Pass 4 reads ramp.stops[0] / stops[1] directly.
+        bandSpec.ramp.stops = {
+            { 0.0, bandStyle ? bandStyle->lowColor()
+                             : QColor( 60, 100, 200) },
+            { 1.0, bandStyle ? bandStyle->highColor()
+                             : QColor(200, 220, 255) },
+        };
+
+        MeshNodeSymbolLayerSpec nodeSpec;
+        nodeSpec.marker.fillColor = nodeStyle ? nodeStyle->color()
+                                              : QColor(40, 40, 40, 220);
+        nodeSpec.marker.sizePx    = nodeStyle ? nodeStyle->markerSizePx() : 3.0;
+        nodeSpec.marker.shape     = static_cast<OpenSWMM::Render::MarkerShape>(
+                                        nodeStyle ? int(nodeStyle->shape()) : 0);
+
+        // ---- Pre-computed paint constants derived from the specs ---------
+        // Hillshade direction vectors derive from azimuth/altitude — same
+        // formulae as before, now reading from hillSpec.
         const quint8 kFillAlpha   = quint8(active ? 160 : 110);
-        const float  kVertExag    = float(m_layer->hillshadeZExag());
-        const double azRad        = qDegreesToRadians(m_layer->hillshadeAzimuth());
-        const double altRad       = qDegreesToRadians(m_layer->hillshadeAltitude());
+        const float  kVertExag    = float(hillSpec.zExaggeration);
+        const double azRad        = qDegreesToRadians(hillSpec.azimuthDeg);
+        const double altRad       = qDegreesToRadians(hillSpec.altitudeDeg);
         const float  kLx          = float(std::sin(azRad) * std::cos(altRad));
         const float  kLy          = float(std::cos(azRad) * std::cos(altRad));
         const float  kLz          = float(std::sin(altRad));
-        const float  kLitMin      = float(m_layer->hillshadeMinLit());
-        const float  kSlopeBreak  = 0.35f;
-        const float  kThinHW      = (active ? 0.35f : 0.25f) * invView;
-        const float  kWideHW      = (active ? 0.90f : 0.60f) * invView;
-        const int    kThinAlpha   = 130;
-        const int    kWideAlpha   = 210;
+        const float  kLitMin      = float(hillSpec.shadowFloor);
+        // Edge spec values folded into pre-computed widths. The inactive-
+        // mesh edgeMute multiplier (0.714) is preserved from the historic
+        // visual.
+        const bool   useSlopeWidth  = edgeSpec.useSlopeDrivenWidth;
+        const float  kSlopeBreak    = float(edgeSpec.slopeBreak);
+        const float  edgeMute       = active ? 1.0f : 0.714f;
+        const float  kThinHW        = float(edgeSpec.width) * edgeMute * invView;
+        const float  kWideHW        = float(edgeSpec.wideWidthPx) * edgeMute * invView;
+        const QColor kEdgeColorThin = edgeSpec.color;
+        const QColor kEdgeColorWide = edgeSpec.wideColor;
+
+        // Spatial-grid pre-filter — replace the O(N) inline bbox cull in
+        // Pass 1 / Pass 2 with an O(visible) query against the uniform grid
+        // built in rebuildSceneGeometry(). The grid returns the set of
+        // triangle / edge indices whose bbox overlaps the cull rect, which
+        // is exactly the set the inline test would have accepted, so the
+        // inline tests are dropped below. Grid may be empty if the mesh
+        // hasn't been rebuilt yet — fall back to a full scan in that case
+        // to preserve correctness.
+        const QRectF cullRect(QPointF(cullX0, cullY0), QPointF(cullX1, cullY1));
+        const auto &triGrid  = m_layer->m_triGrid;
+        const auto &edgeGrid = m_layer->m_edgeGrid;
+        const bool useTriIdx  = !triGrid.isEmpty();
+        const bool useEdgeIdx = !edgeGrid.isEmpty();
+        const QVector<int> visibleTris  = useTriIdx  ? triGrid.query(cullRect)  : QVector<int>{};
+        const QVector<int> visibleEdges = useEdgeIdx ? edgeGrid.query(cullRect) : QVector<int>{};
 
         // ---- Pass 1: filled triangles --------------------------------------
-        {
+        // Slice Z.6a — paint reads from rampSpec / hillSpec built above.
+        const bool fillVisible = !fillSub || fillSub->isVisible();
+        if (fillVisible) {
             const auto &tris = m_layer->m_sceneTris;
+            const int triCount = useTriIdx ? visibleTris.size() : tris.size();
             std::vector<QSGGeometry::ColoredPoint2D> verts;
-            verts.reserve(size_t(tris.size()) * 3);
+            verts.reserve(size_t(triCount) * 3);
 
-            if (hasElev) {
+            const bool   useRamp = fillStyle ? fillStyle->useElevationRamp() : true;
+            const QColor flat    = fillStyle ? fillStyle->fillColor() : QColor(70, 130, 180);
+            const float  shade   = float(hillSpec.strength);
+            const float  fillOp  = fillSub  ? float(fillSub->opacity())  : 1.0f;
+            const quint8 alpha   = quint8(qBound(0, int(kFillAlpha * fillOp + 0.5f), 255));
+
+            if (hasElev && useRamp) {
                 const double invRange = 1.0 / (zMax - zMin);
-                for (const auto &t : tris) {
-                    // Frustum cull at triangle level (double precision —
-                    // float quantises projected-CRS coords ~1 m).
-                    const double tMinX = std::min({t.a.x(), t.b.x(), t.c.x()});
-                    const double tMaxX = std::max({t.a.x(), t.b.x(), t.c.x()});
-                    const double tMinY = std::min({t.a.y(), t.b.y(), t.c.y()});
-                    const double tMaxY = std::max({t.a.y(), t.b.y(), t.c.y()});
-                    if (tMaxX < cullX0 || tMinX > cullX1 ||
-                        tMaxY < cullY0 || tMinY > cullY1) continue;
 
-                    // Elevation colour
-                    quint8 cr, cg, cb;
-                    elevationColorRgb((t.zAvg - float(zMin)) * float(invRange), cr, cg, cb);
+                // Per-triangle fill-colour cache — see header for the full
+                // story. Key compare runs every paint; structural compare
+                // is cheap (one quint64, seven doubles, plus the ramp).
+                // On miss, drop the cache and let the per-triangle loop
+                // below populate entries lazily for visible triangles.
+                const quint64 curRev = m_layer->geomRevision();
+                const bool fillCacheHit =
+                    m_fillCacheValid
+                    && m_fillCacheRev         == curRev
+                    && m_fillCacheZMin        == zMin
+                    && m_fillCacheZMax        == zMax
+                    && m_fillCacheAzimuth     == hillSpec.azimuthDeg
+                    && m_fillCacheAltitude    == hillSpec.altitudeDeg
+                    && m_fillCacheZExag       == hillSpec.zExaggeration
+                    && m_fillCacheShadowFloor == hillSpec.shadowFloor
+                    && m_fillCacheStrength    == hillSpec.strength
+                    && rampEqual(m_fillCacheRamp, rampSpec.ramp)
+                    && m_cachedFillRgb.size() == size_t(tris.size());
 
-                    // Hillshade: face normal from edge vectors
-                    const float ax = float(t.b.x()-t.a.x()), ay = float(t.b.y()-t.a.y());
-                    const float bx = float(t.c.x()-t.a.x()), by = float(t.c.y()-t.a.y());
-                    const float az = (t.z1 - t.z0) * kVertExag;
-                    const float bz = (t.z2 - t.z0) * kVertExag;
-                    float nx = ay*bz - az*by;
-                    float ny = az*bx - ax*bz;
-                    float nz = ax*by - ay*bx;
-                    if (nz < 0.f) { nx=-nx; ny=-ny; nz=-nz; }
-                    const float nlen = std::sqrt(nx*nx+ny*ny+nz*nz);
-                    if (nlen > 1e-12f) { nx/=nlen; ny/=nlen; nz/=nlen; }
-                    const float lit = qBound(kLitMin, nx*kLx + ny*kLy + nz*kLz, 1.0f);
+                if (!fillCacheHit) {
+                    m_cachedFillRgb.assign(size_t(tris.size()), 0u);
+                    m_fillCacheRev         = curRev;
+                    m_fillCacheZMin        = zMin;
+                    m_fillCacheZMax        = zMax;
+                    m_fillCacheAzimuth     = hillSpec.azimuthDeg;
+                    m_fillCacheAltitude    = hillSpec.altitudeDeg;
+                    m_fillCacheZExag       = hillSpec.zExaggeration;
+                    m_fillCacheShadowFloor = hillSpec.shadowFloor;
+                    m_fillCacheStrength    = hillSpec.strength;
+                    m_fillCacheRamp        = rampSpec.ramp;
+                    m_fillCacheValid       = true;
+                }
 
-                    const quint8 r = quint8(qBound(0, int(float(cr)*lit), 255));
-                    const quint8 g = quint8(qBound(0, int(float(cg)*lit), 255));
-                    const quint8 b = quint8(qBound(0, int(float(cb)*lit), 255));
+                // Entries are 0u until first computed; bit 24 marks
+                // "valid" so a real black triangle (RGB 0,0,0) is still
+                // distinguishable from "not yet computed".
+                constexpr quint32 kValidBit = 0x01000000u;
+
+                for (int ii = 0; ii < triCount; ++ii) {
+                    const int   idx = useTriIdx ? visibleTris[ii] : ii;
+                    const auto &t   = tris[idx];
+
+                    quint32 packed = m_cachedFillRgb[size_t(idx)];
+                    if (packed == 0u) {
+                        // Slice Z.6a — colour sampling now goes through the
+                        // RasterColorRamp spec. Default seed reproduces the
+                        // legacy 5-stop palette; Rule Model edits flow here
+                        // when MeshFillStyle is updated by the dialog.
+                        quint8 cr, cg, cb;
+                        colorFromRamp(
+                            double(t.zAvg - float(zMin)) * invRange,
+                            rampSpec.ramp, cr, cg, cb);
+
+                        const float ax = float(t.b.x()-t.a.x()), ay = float(t.b.y()-t.a.y());
+                        const float bx = float(t.c.x()-t.a.x()), by = float(t.c.y()-t.a.y());
+                        const float az = (t.z1 - t.z0) * kVertExag;
+                        const float bz = (t.z2 - t.z0) * kVertExag;
+                        float nx = ay*bz - az*by;
+                        float ny = az*bx - ax*bz;
+                        float nz = ax*by - ay*bx;
+                        if (nz < 0.f) { nx=-nx; ny=-ny; nz=-nz; }
+                        const float nlen = std::sqrt(nx*nx+ny*ny+nz*nz);
+                        if (nlen > 1e-12f) { nx/=nlen; ny/=nlen; nz/=nlen; }
+                        const float litRaw = qBound(kLitMin, nx*kLx + ny*kLy + nz*kLz, 1.0f);
+                        // Blend between 'no shading' (1.0) and 'full
+                        // historic shading' (litRaw) by hillshadeStrength
+                        // so the slider smoothly mutes the relief without
+                        // changing colours.
+                        const float lit = 1.0f - shade * (1.0f - litRaw);
+
+                        const quint8 r = quint8(qBound(0, int(float(cr)*lit), 255));
+                        const quint8 g = quint8(qBound(0, int(float(cg)*lit), 255));
+                        const quint8 b = quint8(qBound(0, int(float(cb)*lit), 255));
+
+                        packed = kValidBit
+                               | (quint32(r) << 16)
+                               | (quint32(g) << 8)
+                               |  quint32(b);
+                        m_cachedFillRgb[size_t(idx)] = packed;
+                    }
+
+                    const quint8 r = quint8((packed >> 16) & 0xFFu);
+                    const quint8 g = quint8((packed >> 8)  & 0xFFu);
+                    const quint8 b = quint8( packed        & 0xFFu);
 
                     for (const QPointF *pt : {&t.a, &t.b, &t.c}) {
                         QSGGeometry::ColoredPoint2D v;
-                        v.set(float(pt->x() - ox), float(pt->y() - oy), r, g, b, kFillAlpha);
+                        v.set(float(pt->x() - ox), float(pt->y() - oy),
+                              r, g, b, alpha);
                         verts.push_back(v);
                     }
                 }
             } else {
-                // No elevation — flat steel blue
-                const quint8 fr=70, fg=130, fb=180;
-                for (const auto &t : tris) {
-                    const double tMinX = std::min({t.a.x(), t.b.x(), t.c.x()});
-                    const double tMaxX = std::max({t.a.x(), t.b.x(), t.c.x()});
-                    const double tMinY = std::min({t.a.y(), t.b.y(), t.c.y()});
-                    const double tMaxY = std::max({t.a.y(), t.b.y(), t.c.y()});
-                    if (tMaxX < cullX0 || tMinX > cullX1 ||
-                        tMaxY < cullY0 || tMinY > cullY1) continue;
+                // Flat fill — either the elevation ramp is off in the
+                // style or the mesh has no elevation range to remap.
+                const quint8 fr = quint8(flat.red());
+                const quint8 fg = quint8(flat.green());
+                const quint8 fb = quint8(flat.blue());
+                for (int ii = 0; ii < triCount; ++ii) {
+                    const auto &t = useTriIdx ? tris[visibleTris[ii]] : tris[ii];
                     for (const QPointF *pt : {&t.a, &t.b, &t.c}) {
                         QSGGeometry::ColoredPoint2D v;
-                        v.set(float(pt->x()-ox), float(pt->y()-oy), fr, fg, fb, kFillAlpha);
+                        v.set(float(pt->x()-ox), float(pt->y()-oy), fr, fg, fb, alpha);
                         verts.push_back(v);
                     }
                 }
             }
             uploadColoredVerts(triNode, verts);
+        } else {
+            uploadColoredVerts(triNode, std::vector<QSGGeometry::ColoredPoint2D>{});
         }
 
-        // ---- Pass 4: filled iso-bands (Slice BJ.2-filled) ----------------
+        // ---- Pass 4: filled iso-bands (ContourBandSublayer) --------------
         // Z-ordered above Pass 1 (hillshade) and below Pass 2 (edges) +
         // Pass 3 (lines) so the underlying hillshade can still show through
         // the configurable alpha while the line / wireframe overlays stay
-        // crisp on top.
-        if (hasElev && m_layer->filledContours()) {
-            const int nBands = m_layer->contourIntervalCount();
-            const auto levels = OpenSWMM::Contour::evenlySpacedLevelsInclusive(
+        // crisp on top. lowColor / highColor on ContourBandStyle drive a
+        // linear gradient between the bottom and top band; smoothBands
+        // toggles between the per-band viridis (categorical) and the
+        // smooth ramp.
+        const bool bandsVisible = bandSub && bandSub->isVisible();
+        if (hasElev && bandsVisible) {
+            // Slice Z.6a — driven by bandSpec built at the top.
+            const int    nBands = bandSpec.binner.binCount();
+            const auto   levels = OpenSWMM::Contour::evenlySpacedLevelsInclusive(
                 zMin, zMax, nBands + 1);
-            const quint8 alpha = quint8(qBound(0, int(m_layer->filledContoursOpacity() * 255.0 + 0.5), 255));
+            const quint8 alpha  = quint8(qBound(0, int(bandSub->opacity() * 255.0 + 0.5), 255));
+            // Two-stop ramp (low at 0.0, high at 1.0) — encoded by the
+            // top-of-rebuild spec build. Read directly to keep the
+            // historic smooth-gradient lerp formulation.
+            const QColor lowC   = (bandSpec.ramp.stops.size() >= 1)
+                                     ? bandSpec.ramp.stops.first().second
+                                     : QColor( 60, 100, 200);
+            const QColor highC  = (bandSpec.ramp.stops.size() >= 2)
+                                     ? bandSpec.ramp.stops.last().second
+                                     : QColor(200, 220, 255);
+            const bool   smooth = bandSpec.smoothBands;
 
-            const auto &sceneTris = m_layer->m_sceneTris;
-            const auto extract = [ox, oy](const SWMM2DMeshLayer::SceneTri &t,
-                                          QPointF &p0, QPointF &p1, QPointF &p2,
-                                          double  &v0, double  &v1, double  &v2) {
-                p0 = QPointF(t.a.x() - ox, t.a.y() - oy);
-                p1 = QPointF(t.b.x() - ox, t.b.y() - oy);
-                p2 = QPointF(t.c.x() - ox, t.c.y() - oy);
-                v0 = double(t.z0);
-                v1 = double(t.z1);
-                v2 = double(t.z2);
-            };
+            // Contour cache — marching-triangles output is invariant to
+            // pan/zoom. Recompute only when (geomRevision, zMin, zMax,
+            // nBands) changes; otherwise reuse m_cachedBands.
+            const quint64 geomRev = m_layer->geomRevision();
+            const bool bandCacheHit =
+                !m_cachedBands.empty()
+                && m_isobandCacheRev   == geomRev
+                && m_isobandCacheZMin  == zMin
+                && m_isobandCacheZMax  == zMax
+                && m_isobandCacheBands == nBands;
 
-            const auto bands = OpenSWMM::Contour::marchingTrianglesIsobands(
-                sceneTris, levels, extract);
+            if (!bandCacheHit) {
+                const auto &sceneTris = m_layer->m_sceneTris;
+                const auto extract = [ox, oy](const SWMM2DMeshLayer::SceneTri &t,
+                                              QPointF &p0, QPointF &p1, QPointF &p2,
+                                              double  &v0, double  &v1, double  &v2) {
+                    p0 = QPointF(t.a.x() - ox, t.a.y() - oy);
+                    p1 = QPointF(t.b.x() - ox, t.b.y() - oy);
+                    p2 = QPointF(t.c.x() - ox, t.c.y() - oy);
+                    v0 = double(t.z0);
+                    v1 = double(t.z1);
+                    v2 = double(t.z2);
+                };
 
-            // Triangulate each convex band polygon as a fan from vertex 0.
-            // Per-vertex colour = Viridis sampled at the band's mid-point
-            // in [0, 1]. nBands == 1 is a guard against div-by-zero — fall
-            // back to a single mid-ramp colour for that degenerate case.
+                m_cachedBands = OpenSWMM::Contour::marchingTrianglesIsobands(
+                    sceneTris, levels, extract);
+                m_isobandCacheRev   = geomRev;
+                m_isobandCacheZMin  = zMin;
+                m_isobandCacheZMax  = zMax;
+                m_isobandCacheBands = nBands;
+            }
+            const auto &bands = m_cachedBands;
+
+            // Per-band colour: smooth ⇒ lerp(lowC, highC) at the band's
+            // mid-fraction in [0, 1]; categorical ⇒ viridis sample.
+            // nBands == 1 is a guard against div-by-zero.
             const double bandDenom = (nBands > 0) ? double(nBands) : 1.0;
             std::vector<QSGGeometry::ColoredPoint2D> bandVerts;
-            bandVerts.reserve(bands.size() * 9);   // typical V=4 → 6 verts
+            bandVerts.reserve(bands.size() * 9);
 
             for (const auto &bp : bands) {
                 if (bp.verts.size() < 3) continue;
-                const double t = (double(bp.bandIndex) + 0.5) / bandDenom;
-                const QColor col = OpenSWMM::Contour::viridisAt(t);
+                const double tt = (double(bp.bandIndex) + 0.5) / bandDenom;
+                QColor col;
+                if (smooth) {
+                    col = QColor::fromRgbF(
+                        lowC.redF()   * (1.0 - tt) + highC.redF()   * tt,
+                        lowC.greenF() * (1.0 - tt) + highC.greenF() * tt,
+                        lowC.blueF()  * (1.0 - tt) + highC.blueF()  * tt);
+                } else {
+                    col = OpenSWMM::Contour::viridisAt(tt);
+                }
                 const quint8 r = quint8(col.red());
                 const quint8 g = quint8(col.green());
                 const quint8 b = quint8(col.blue());
@@ -408,32 +761,27 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             uploadColoredVerts(isobandNode, std::vector<QSGGeometry::ColoredPoint2D>{});
         }
 
-        // ---- Pass 2: edges — split into thin and wide ----------------------
-        // Slice AZ.3.4 — when SWMM2DMeshLayer::showEdges() is false, upload
-        // empty geometry to both edge nodes so the wireframe disappears
-        // without dismantling the QSG node tree. setShowEdges() emits
-        // repaintRequested() which sets m_contentDirty, landing us here.
-        if (m_layer->showEdges()) {
+        // ---- Pass 2: edges — split into thin and wide --------------------
+        // MeshEdgeSublayer drives this pass. Visibility, colours, widths,
+        // and the slope-driven thin/wide split all come from MeshEdgeStyle
+        // now. Defaults reproduce the historic visual exactly.
+        const bool edgesVisible = edgeSub && edgeSub->isVisible();
+        if (edgesVisible) {
             const auto &edges = m_layer->m_sceneEdges;
+            const int edgeCount = useEdgeIdx ? visibleEdges.size() : edges.size();
             const float invSlope = (maxSlope > 0.f) ? 1.0f / maxSlope : 0.0f;
 
             std::vector<QSGGeometry::Point2D> thinSegs, wideSegs;
-            thinSegs.reserve(edges.size() * 6);
-            wideSegs.reserve(edges.size() / 8 * 6);
+            thinSegs.reserve(size_t(edgeCount) * 6);
+            wideSegs.reserve(size_t(edgeCount) / 8 * 6);
 
-            for (const auto &e : edges) {
-                // Frustum cull per edge (double precision).
-                const double ex0 = qMin(e.line.x1(), e.line.x2());
-                const double ex1 = qMax(e.line.x1(), e.line.x2());
-                const double ey0 = qMin(e.line.y1(), e.line.y2());
-                const double ey1 = qMax(e.line.y1(), e.line.y2());
-                if (ex1 < cullX0 || ex0 > cullX1 ||
-                    ey1 < cullY0 || ey0 > cullY1) continue;
+            for (int ii = 0; ii < edgeCount; ++ii) {
+                const auto &e = useEdgeIdx ? edges[visibleEdges[ii]] : edges[ii];
 
                 const float ax = float(e.line.x1()-ox), ay = float(e.line.y1()-oy);
                 const float bx = float(e.line.x2()-ox), by = float(e.line.y2()-oy);
 
-                if (hasElev && (e.slope * invSlope > kSlopeBreak))
+                if (useSlopeWidth && hasElev && (e.slope * invSlope > kSlopeBreak))
                     appendThickSeg(wideSegs, ax, ay, bx, by, kWideHW);
                 else
                     appendThickSeg(thinSegs, ax, ay, bx, by, kThinHW);
@@ -441,43 +789,70 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             uploadFlatVerts(edgeThinNode, thinSegs);
             uploadFlatVerts(edgeWideNode, wideSegs);
 
-            setFlatColor(edgeThinNode, QColor(0, 0, 0, kThinAlpha));
-            setFlatColor(edgeWideNode, QColor(0, 0, 0, kWideAlpha));
+            // Apply sublayer opacity uniformly across both nodes.
+            const qreal edgeOp = edgeSub->opacity();
+            auto withOp = [edgeOp](const QColor &c) {
+                QColor r = c;
+                r.setAlpha(int(qBound(0.0, c.alpha() * edgeOp, 255.0)));
+                return r;
+            };
+            setFlatColor(edgeThinNode, withOp(kEdgeColorThin));
+            setFlatColor(edgeWideNode, withOp(kEdgeColorWide));
         } else {
             const std::vector<QSGGeometry::Point2D> empty;
             uploadFlatVerts(edgeThinNode, empty);
             uploadFlatVerts(edgeWideNode, empty);
         }
 
-        // ---- Pass 3: bed-elevation contour lines (Slice BJ.2-lite) -------
+        // ---- Pass 3: bed-elevation contour lines (IsolineSublayer) -------
         // Marching-triangles over m_sceneTris, N evenly-spaced levels in
-        // [zMin, zMax]. Lines drawn as a single thick-segment list so the
-        // user-configurable width is honoured on every RHI backend (same
-        // pattern as Pass 2).
-        if (hasElev && m_layer->showContours()) {
-            const int    nLevels = m_layer->contourIntervalCount();
-            const float  cHW     = float(0.5 * m_layer->contourLineWidth()) * invView;
+        // [zMin, zMax]. Line colour and width come from IsolineStyle; the
+        // labels property is reserved for the labelled-contour pass once
+        // the label engine lands.
+        const bool isoVisible = isoSub && isoSub->isVisible();
+        if (hasElev && isoVisible) {
+            // Slice Z.6a — driven by isoSpec built at the top.
+            const int    nLevels = isoSpec.binner.binCount();
+            const double widthPx = isoSpec.lineWidthPx;
+            const float  cHW     = float(0.5 * widthPx) * invView;
             const auto   levels  = OpenSWMM::Contour::evenlySpacedLevels(
                                        zMin, zMax, nLevels);
 
-            // Triangle iterator: extractor pulls (a/b/c, z0/z1/z2) from
-            // the existing scene cache and shifts xy by the bbox-centre
-            // anchor so the float vertex coords stay small.
-            const auto &sceneTris = m_layer->m_sceneTris;
-            const auto extract = [ox, oy](const SWMM2DMeshLayer::SceneTri &t,
-                                          QPointF &p0, QPointF &p1, QPointF &p2,
-                                          double  &v0, double  &v1, double  &v2)
-            {
-                p0 = QPointF(t.a.x() - ox, t.a.y() - oy);
-                p1 = QPointF(t.b.x() - ox, t.b.y() - oy);
-                p2 = QPointF(t.c.x() - ox, t.c.y() - oy);
-                v0 = double(t.z0);
-                v1 = double(t.z1);
-                v2 = double(t.z2);
-            };
+            // Contour cache — same memoisation pattern as Pass 4.
+            // Cache invalidated on geomRevision / zMin / zMax / nLevels.
+            const quint64 geomRev = m_layer->geomRevision();
+            const bool isoCacheHit =
+                !m_cachedSegs.empty()
+                && m_isolineCacheRev    == geomRev
+                && m_isolineCacheZMin   == zMin
+                && m_isolineCacheZMax   == zMax
+                && m_isolineCacheLevels == nLevels;
 
-            const auto segs = OpenSWMM::Contour::marchingTriangles(
-                sceneTris, levels, extract);
+            if (!isoCacheHit) {
+                // Triangle iterator: extractor pulls (a/b/c, z0/z1/z2) from
+                // the existing scene cache and shifts xy by the bbox-centre
+                // anchor so the float vertex coords stay small.
+                const auto &sceneTris = m_layer->m_sceneTris;
+                const auto extract = [ox, oy](const SWMM2DMeshLayer::SceneTri &t,
+                                              QPointF &p0, QPointF &p1, QPointF &p2,
+                                              double  &v0, double  &v1, double  &v2)
+                {
+                    p0 = QPointF(t.a.x() - ox, t.a.y() - oy);
+                    p1 = QPointF(t.b.x() - ox, t.b.y() - oy);
+                    p2 = QPointF(t.c.x() - ox, t.c.y() - oy);
+                    v0 = double(t.z0);
+                    v1 = double(t.z1);
+                    v2 = double(t.z2);
+                };
+
+                m_cachedSegs = OpenSWMM::Contour::marchingTriangles(
+                    sceneTris, levels, extract);
+                m_isolineCacheRev    = geomRev;
+                m_isolineCacheZMin   = zMin;
+                m_isolineCacheZMax   = zMax;
+                m_isolineCacheLevels = nLevels;
+            }
+            const auto &segs = m_cachedSegs;
 
             std::vector<QSGGeometry::Point2D> verts;
             verts.reserve(segs.size() * 6);
@@ -488,9 +863,250 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                                cHW);
             }
             uploadFlatVerts(contourNode, verts);
-            setFlatColor(contourNode, m_layer->contourColor());
+            // Slice Z.6a — line colour from spec; per-sublayer opacity
+            // still applied so users can fade isolines independently.
+            QColor isoColor = isoSpec.lineColor;
+            if (isoSub) {
+                isoColor.setAlpha(int(qBound(0.0, isoColor.alpha() * isoSub->opacity(), 255.0)));
+            }
+            setFlatColor(contourNode, isoColor);
+
+            // ---- Pass 3b: per-level labels ---------------------------
+            // Drop the previous label children first so toggling labels
+            // off mid-session releases the textures.
+            while (auto *c = contourLabels->firstChild()) {
+                contourLabels->removeChildNode(c);
+                delete c;
+            }
+            // Slice Z.6a — labelEveryN > 0 ⇒ wantLabels. Z.6a doesn't
+            // yet thread the every-N-segments mode; preserves the
+            // historic "one label per level at centroid" placement.
+            const bool wantLabels = (isoSpec.labelEveryN > 0);
+            if (wantLabels && window()) {
+                // One label per level, placed at the centroid of all
+                // segment midpoints at that level. Cheap and stable;
+                // long contours just get one label each. Labels every-N-
+                // pixels along the polyline is a follow-up.
+                struct LevelAccum { double sumX = 0.0, sumY = 0.0; int count = 0; };
+                QHash<double, LevelAccum> byLevel;
+                byLevel.reserve(int(segs.size() / 4 + 1));
+                for (const auto &s : segs) {
+                    auto &acc = byLevel[s.level];
+                    acc.sumX += 0.5 * (s.a.x() + s.b.x());
+                    acc.sumY += 0.5 * (s.a.y() + s.b.y());
+                    acc.count += 1;
+                }
+                const double dpr = window()->effectiveDevicePixelRatio();
+                const QColor labelColor = isoSpec.lineColor;
+                for (auto it = byLevel.constBegin(); it != byLevel.constEnd(); ++it) {
+                    if (it.value().count <= 0) continue;
+                    const double cx = it.value().sumX / double(it.value().count);
+                    const double cy = it.value().sumY / double(it.value().count);
+                    const QString text = QString::number(it.key(), 'g', 4);
+
+                    QSGTexture *tex = m_labelTextureCache.value(text, nullptr);
+                    if (!tex) {
+                        const QImage img = rasteriseLabel(text, labelColor, dpr);
+                        tex = window()->createTextureFromImage(
+                            img, QQuickWindow::TextureHasAlphaChannel);
+                        if (tex) m_labelTextureCache.insert(text, tex);
+                    }
+                    if (!tex) continue;
+
+                    const QSizeF sz = tex->textureSize() / dpr;
+                    const float w = float(sz.width())  * invView;
+                    const float h = float(sz.height()) * invView;
+
+                    auto *tn = new QSGSimpleTextureNode();
+                    tn->setTexture(tex);
+                    tn->setOwnsTexture(false); // cache owns it
+                    tn->setRect(QRectF(cx - 0.5 * w, cy - 0.5 * h, w, h));
+                    tn->setFiltering(QSGTexture::Linear);
+                    contourLabels->appendChildNode(tn);
+                }
+            }
         } else {
             uploadFlatVerts(contourNode, std::vector<QSGGeometry::Point2D>{});
+            // Hide labels too.
+            while (auto *c = contourLabels->firstChild()) {
+                contourLabels->removeChildNode(c);
+                delete c;
+            }
+        }
+
+        // ---- Pass 5: mesh-vertex markers (MeshNodeSublayer) --------------
+        // Stylable replacement for the historic showMeshNodes toggle. Each
+        // vertex is rendered as a triangle pair (quad / diamond) sized by
+        // markerSizePx in screen pixels. Tagged vertices (SWMM-coupled)
+        // get the taggedColor and taggedSizePx so coupled nodes stand out
+        // when the user enables the layer.
+        const bool nodesVisible = nodeSub && nodeSub->isVisible();
+        if (nodesVisible) {
+            const auto &nodes = m_layer->m_sceneNodes;
+            // Slice Z.6a — base marker driven by nodeSpec (wraps Z.4's
+            // MarkerSymbolLayerSpec). Tagged-vertex highlighting stays
+            // on the legacy nodeStyle since MarkerSymbolLayerSpec
+            // doesn't model the tagged variant — that's a deliberate
+            // Rule Model design (tagged emphasis is layer-state, not
+            // symbol style).
+            const QColor baseC    = nodeSpec.marker.fillColor;
+            const QColor taggedC  = nodeStyle ? nodeStyle->taggedColor()
+                                              : QColor(0xff, 0x8c, 0, 235);
+            const float  baseR    = float(nodeSpec.marker.sizePx) * 0.5f * invView;
+            const float  taggedR  = nodeStyle ? float(nodeStyle->taggedSizePx()) * 0.5f * invView
+                                              : 2.5f * invView;
+            const bool   highlightTag = nodeStyle ? nodeStyle->highlightTagged() : true;
+            const int    shape    = static_cast<int>(nodeSpec.marker.shape);
+            const qreal  nodeOp   = nodeSub->opacity();
+            const auto withOp = [nodeOp](QColor c) {
+                c.setAlpha(int(qBound(0.0, c.alpha() * nodeOp, 255.0)));
+                return c;
+            };
+            const QColor baseUsed   = withOp(baseC);
+            const QColor taggedUsed = withOp(taggedC);
+
+            std::vector<QSGGeometry::ColoredPoint2D> nodeVerts;
+            nodeVerts.reserve(size_t(nodes.size()) * 6);
+
+            auto emitCenteredQuad = [&](float cx, float cy, float r, const QColor &c) {
+                const quint8 cr = quint8(c.red());
+                const quint8 cg = quint8(c.green());
+                const quint8 cb = quint8(c.blue());
+                const quint8 ca = quint8(c.alpha());
+                auto V = [&](float x, float y) {
+                    QSGGeometry::ColoredPoint2D v;
+                    v.set(x, y, cr, cg, cb, ca);
+                    return v;
+                };
+                // shape 0/1 = square (fastest path covers Circle/Square at this size),
+                // shape 2 = triangle (upward), shape 3 = diamond (square rotated 45°).
+                if (shape == 2) {
+                    nodeVerts.push_back(V(cx,     cy - r));
+                    nodeVerts.push_back(V(cx + r, cy + r));
+                    nodeVerts.push_back(V(cx - r, cy + r));
+                } else if (shape == 3) {
+                    nodeVerts.push_back(V(cx,     cy - r));
+                    nodeVerts.push_back(V(cx + r, cy));
+                    nodeVerts.push_back(V(cx - r, cy));
+                    nodeVerts.push_back(V(cx + r, cy));
+                    nodeVerts.push_back(V(cx,     cy + r));
+                    nodeVerts.push_back(V(cx - r, cy));
+                } else {
+                    nodeVerts.push_back(V(cx - r, cy - r));
+                    nodeVerts.push_back(V(cx + r, cy - r));
+                    nodeVerts.push_back(V(cx - r, cy + r));
+                    nodeVerts.push_back(V(cx + r, cy - r));
+                    nodeVerts.push_back(V(cx + r, cy + r));
+                    nodeVerts.push_back(V(cx - r, cy + r));
+                }
+            };
+
+            for (const auto &n : nodes) {
+                const double nx = n.pt.x();
+                const double ny = n.pt.y();
+                if (nx < cullX0 || nx > cullX1 || ny < cullY0 || ny > cullY1) continue;
+                const bool tagged = n.tagged && highlightTag;
+                emitCenteredQuad(float(nx - ox), float(ny - oy),
+                                 tagged ? taggedR : baseR,
+                                 tagged ? taggedUsed : baseUsed);
+            }
+            uploadColoredVerts(nodeMarkNode, nodeVerts);
+        } else {
+            uploadColoredVerts(nodeMarkNode, std::vector<QSGGeometry::ColoredPoint2D>{});
+        }
+
+        // ---- §V selection-overlay pass ------------------------------------
+        // Cyan glyphs / cyan edge highlights drawn on top of every other
+        // pass so the user always sees the selected element regardless of
+        // the underlying fill/contour state. Two flat-coloured nodes:
+        //   selEdgeNode — thick-segment quads for selected edges
+        //   selVertNode — diamond marker (4-vertex screen-pixel quad) at
+        //                 each selected vertex's scene position
+        {
+            const auto &selV = m_layer->highlightedVertices();
+            const auto &selE = m_layer->highlightedEdges();
+            const auto &selT = m_layer->highlightedTriangles();
+            const auto &nodes  = m_layer->m_sceneNodes;
+            const auto &triangles = m_layer->mesh().triangles;
+
+            // Selected cells (triangles) — translucent fill drawn under the
+            // edge / vertex glyphs. One filled triangle (3 verts) per cell.
+            std::vector<QSGGeometry::Point2D> selTriVerts;
+            selTriVerts.reserve(selT.size() * 3);
+            for (int t : selT) {
+                if (t < 0 || t >= triangles.size()) continue;
+                const auto &tri = triangles[t];
+                if (tri.v0 < 0 || tri.v1 < 0 || tri.v2 < 0 ||
+                    tri.v0 >= nodes.size() || tri.v1 >= nodes.size() || tri.v2 >= nodes.size())
+                    continue;
+                auto pt = [&](int v) {
+                    QSGGeometry::Point2D p;
+                    p.x = float(nodes[v].pt.x() - ox);
+                    p.y = float(nodes[v].pt.y() - oy);
+                    return p;
+                };
+                selTriVerts.push_back(pt(tri.v0));
+                selTriVerts.push_back(pt(tri.v1));
+                selTriVerts.push_back(pt(tri.v2));
+            }
+            uploadFlatVerts(selTriNode, selTriVerts);
+            setFlatColor(selTriNode, kSelTriColor);
+
+            std::vector<QSGGeometry::Point2D> selEdgeSegs;
+            std::vector<QSGGeometry::Point2D> selVertQuads;
+            const float kSelEdgeHW = 1.6f * invView;   // ~3.2 px wide
+            const float kSelVertHR = 5.0f * invView;   // ~5 px diamond half-extent
+
+            selEdgeSegs.reserve(selE.size() * 6);
+            selVertQuads.reserve(selV.size() * 6);
+
+            // Selected edges first (under the vertex glyphs).
+            for (int flat : selE) {
+                const int t = flat / 3;
+                const int e = flat % 3;
+                if (t < 0 || t >= triangles.size()) continue;
+                const auto &tri = triangles[t];
+                int va = -1, vb = -1;
+                switch (e) {
+                case 0: va = tri.v1; vb = tri.v2; break;
+                case 1: va = tri.v2; vb = tri.v0; break;
+                case 2: va = tri.v0; vb = tri.v1; break;
+                default: continue;
+                }
+                if (va < 0 || vb < 0 || va >= nodes.size() || vb >= nodes.size()) continue;
+                const float ax = float(nodes[va].pt.x() - ox);
+                const float ay = float(nodes[va].pt.y() - oy);
+                const float bx = float(nodes[vb].pt.x() - ox);
+                const float by = float(nodes[vb].pt.y() - oy);
+                appendThickSeg(selEdgeSegs, ax, ay, bx, by, kSelEdgeHW);
+            }
+
+            // Selected vertices — diamond marker (axis-aligned bowtie, two
+            // triangles forming a square rotated 45°). Cheap and visible
+            // against both light and dark backgrounds.
+            auto pushQuad = [&](float cx, float cy, float r) {
+                auto v = [](float x, float y) {
+                    QSGGeometry::Point2D p; p.x = x; p.y = y; return p;
+                };
+                // Top → right, top → left, right → bottom, left → bottom.
+                selVertQuads.push_back(v(cx,     cy - r));
+                selVertQuads.push_back(v(cx + r, cy));
+                selVertQuads.push_back(v(cx - r, cy));
+                selVertQuads.push_back(v(cx + r, cy));
+                selVertQuads.push_back(v(cx,     cy + r));
+                selVertQuads.push_back(v(cx - r, cy));
+            };
+            for (int vi : selV) {
+                if (vi < 0 || vi >= nodes.size()) continue;
+                pushQuad(float(nodes[vi].pt.x() - ox),
+                         float(nodes[vi].pt.y() - oy),
+                         kSelVertHR);
+            }
+
+            uploadFlatVerts(selEdgeNode, selEdgeSegs);
+            uploadFlatVerts(selVertNode, selVertQuads);
+            setFlatColor(selEdgeNode, kSelEdgeColor);
+            setFlatColor(selVertNode, kSelVertColor);
         }
 
         m_contentDirty = false;

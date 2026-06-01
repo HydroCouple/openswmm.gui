@@ -6,7 +6,9 @@
  */
 #include "ui/dialogs/pathbrowsedelegate.h"
 
+#include <QDir>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QSignalBlocker>
@@ -71,7 +73,17 @@ QWidget *PathBrowseDelegate::createEditor(QWidget *parent,
                 ? QFileDialog::getSaveFileName(host, title, cur, filter)
                 : QFileDialog::getOpenFileName(host, title, cur, filter);
             if (p.isEmpty()) return;
-            edit->setText(p);
+            // Slice IO-11c — when a project anchor is set, store paths
+            // that fall under the anchor in their relative form so the
+            // engine slot persists a portable token. Cross-volume / cross
+            // -root picks fall back to the absolute form unchanged.
+            QString stored = p;
+            if (!m_anchor.isEmpty()) {
+                QDir d(m_anchor);
+                const QString rel = d.relativeFilePath(p);
+                if (QFileInfo(rel).isRelative()) stored = rel;
+            }
+            edit->setText(stored);
             auto *self = const_cast<PathBrowseDelegate *>(this);
             emit self->commitData(host);
         });

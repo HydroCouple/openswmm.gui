@@ -525,9 +525,13 @@ void SimulationRunner::start()
 
                 QProcess worker;
                 worker.setProgram(workerPath);
+                // 4th arg: progress emit interval (ms) from the user's
+                // progressTickMs preference, so the worker rate-limits by
+                // wall-clock the same way the in-process path does (Gap 2).
                 worker.setArguments({QString::fromUtf8(inp),
                                      QString::fromUtf8(rpt),
-                                     QString::fromUtf8(out)});
+                                     QString::fromUtf8(out),
+                                     QString::number(tickIntervalMs)});
                 worker.start();
 
                 if (!worker.waitForStarted(10000)) {
@@ -536,32 +540,80 @@ void SimulationRunner::start()
                                 .arg(workerPath), 0.0, 0.0};
                 }
 
-                // Block until the worker finishes. The thread-pool thread has no
-                // event loop so readyReadStandardOutput never fires here; parse all
-                // stdout in one shot after waitForFinished.
-                const bool finished = worker.waitForFinished(-1);
-                if (!finished) {
-                    worker.kill();
-                    worker.waitForFinished(5000);
-                    return {false, -1, QStringLiteral("Legacy worker did not finish"), 0.0, 0.0};
-                }
-
-                // Parse JSON lines emitted by the worker.
-                int    lastErrorCode = 0;
+                // ── Incremental stdout drain ──────────────────────────────
+                // The worker emits a JSON progress line every 10 steps and
+                // fflushes it. If we only read stdout AFTER the process exits
+                // (waitForFinished + readAll), a non-trivial run fills the OS
+                // pipe buffer (~64 KB on macOS), the worker blocks on fflush
+                // waiting for us to drain, and we block on waitForFinished
+                // waiting for it to exit → deadlock, the run hangs forever at
+                // 0 %. So drain continuously while it runs. waitForReadyRead()
+                // works without an event loop (it select()s on the channel
+                // fd), so it is safe on this thread-pool thread.
+                int     lastErrorCode = 0;
                 QString lastErrorMsg;
-                const QByteArray allOut = worker.readAllStandardOutput();
-                for (const QByteArray &rawLine : allOut.split('\n')) {
+                double  runoffErrFrac  = 0.0;  // final continuity errors, filled
+                double  routingErrFrac = 0.0;  // by the worker's "continuity" line
+                double  startOA   = 0.0;
+                double  endOA     = 0.0;
+                double  spanDays  = 0.0;
+                QDateTime simStart;
+                QByteArray pending;     // accumulates partial trailing stdout line
+                QByteArray stderrBuf;   // bounded capture of worker stderr (Gap 6)
+
+                auto handleLine = [&](const QByteArray &rawLine) {
                     const QByteArray line = rawLine.trimmed();
-                    if (line.isEmpty()) continue;
+                    if (line.isEmpty()) return;
                     const QJsonDocument doc = QJsonDocument::fromJson(line);
-                    if (!doc.isObject()) continue;
+                    if (!doc.isObject()) return;  // ignore engine console noise
                     const QJsonObject obj  = doc.object();
                     const QString     type = obj.value("type").toString();
+                    const int jobId = rawSelf->m_jobId;
 
-                    if (type == "warning") {
+                    if (type == "dates") {
+                        startOA  = obj.value("start").toDouble();
+                        endOA    = obj.value("end").toDouble();
+                        spanDays = endOA - startOA;
+                        simStart = oaDateToQDateTime(startOA);
+                        const QDateTime simEnd = oaDateToQDateTime(endOA);
+                        if (simStart.isValid() && simEnd.isValid()) {
+                            QMetaObject::invokeMethod(rawSelf,
+                                [rawSelf, jobId, simStart, simEnd]() {
+                                    emit rawSelf->simulationDatesKnown(
+                                        jobId, simStart, simEnd);
+                                }, Qt::QueuedConnection);
+                        }
+                    } else if (type == "progress") {
+                        const double elapsedDays = obj.value("elapsed").toDouble();
+                        const int    stepCount   = obj.value("stepCount").toInt();
+                        double frac = 0.0;
+                        if (spanDays > 0.0) {
+                            frac = elapsedDays / spanDays;
+                            if (frac < 0.0) frac = 0.0;
+                            if (frac > 1.0) frac = 1.0;
+                        }
+                        // Running average routing step (seconds). The worker
+                        // reports cumulative elapsed days plus the step count.
+                        const double avgTs = stepCount > 0
+                            ? (elapsedDays * 86400.0) / double(stepCount)
+                            : 0.0;
+                        // Running (timestep-by-timestep) continuity errors,
+                        // emitted by the worker via swmm_getRunningMassBalErr as
+                        // fractions. Absent on older workers → default 0.0.
+                        const double runoffErr  = obj.value("runoff").toDouble();
+                        const double routingErr = obj.value("routing").toDouble();
+                        const QDateTime curQDT = simStart.isValid()
+                            ? simStart.addMSecs(
+                                  static_cast<qint64>(elapsedDays * 86400.0 * 1000.0))
+                            : QDateTime();
+                        QMetaObject::invokeMethod(rawSelf,
+                            [rawSelf, jobId, frac, curQDT, runoffErr, routingErr, avgTs]() {
+                                emit rawSelf->progressChanged(jobId, frac, curQDT,
+                                                              runoffErr, routingErr, avgTs);
+                            }, Qt::QueuedConnection);
+                    } else if (type == "warning") {
                         const int     code = obj.value("code").toInt();
                         const QString msg  = obj.value("message").toString();
-                        const int jobId = rawSelf->m_jobId;
                         QMetaObject::invokeMethod(rawSelf,
                             [rawSelf, jobId, code, msg]() {
                                 emit rawSelf->warningReceived(jobId, code, msg);
@@ -569,20 +621,71 @@ void SimulationRunner::start()
                     } else if (type == "error") {
                         lastErrorCode = obj.value("code").toInt();
                         lastErrorMsg  = obj.value("message").toString();
+                    } else if (type == "continuity") {
+                        // Final mass-balance errors emitted by the worker after
+                        // swmm_end(). Stored as fractions (0.001 = 0.1 %) and
+                        // forwarded to finished() so the status model shows the
+                        // same continuity columns the refactored engine fills.
+                        runoffErrFrac  = obj.value("runoff").toDouble();
+                        routingErrFrac = obj.value("routing").toDouble();
                     }
+                };
+
+                auto drain = [&]() {
+                    pending += worker.readAllStandardOutput();
+                    int nl;
+                    while ((nl = pending.indexOf('\n')) >= 0) {
+                        handleLine(pending.left(nl));
+                        pending.remove(0, nl + 1);
+                    }
+                    // Capture stderr (engine console + worker "ERROR n: …" lines)
+                    // continuously so failure diagnostics survive even when an
+                    // "error" JSON line was also emitted. Bound to the last
+                    // kStderrCapBytes to avoid unbounded growth on a chatty run.
+                    stderrBuf += worker.readAllStandardError();
+                    constexpr int kStderrCapBytes = 16 * 1024;
+                    if (stderrBuf.size() > kStderrCapBytes)
+                        stderrBuf = stderrBuf.right(kStderrCapBytes);
+                };
+
+                bool cancelled = false;
+                while (worker.state() != QProcess::NotRunning) {
+                    if (rawSelf->m_cancel.load()) {
+                        worker.kill();
+                        worker.waitForFinished(5000);
+                        cancelled = true;
+                        break;
+                    }
+                    // Wakes on new output or after the timeout (so the cancel
+                    // flag is polled even during long quiet stretches).
+                    worker.waitForReadyRead(200);
+                    drain();
                 }
+                // Final drain — flush whatever arrived after the last wait and
+                // the trailing line that had no newline.
+                drain();
+                if (!pending.trimmed().isEmpty())
+                    handleLine(pending);
+
+                if (cancelled)
+                    return {false, 0, QStringLiteral("Cancelled"), 0.0, 0.0};
 
                 const int exitCode = worker.exitCode();
-                if (exitCode != 0) {
-                    const QString msg = lastErrorMsg.isEmpty()
-                        ? QStringLiteral("Legacy worker exited with code %1\n%2")
-                              .arg(exitCode)
-                              .arg(QString::fromUtf8(worker.readAllStandardError()))
-                        : lastErrorMsg;
-                    return {false, exitCode, msg, 0.0, 0.0};
+                if (worker.exitStatus() == QProcess::CrashExit || exitCode != 0) {
+                    QString msg = !lastErrorMsg.isEmpty()
+                        ? lastErrorMsg
+                        : QStringLiteral("Legacy worker exited with code %1").arg(exitCode);
+                    // Append captured stderr context (if any) so the detail is
+                    // not lost when an "error" JSON line was already seen. The
+                    // finished() handler logs errorMessage at Error severity.
+                    const QString errText = QString::fromUtf8(stderrBuf).trimmed();
+                    if (!errText.isEmpty())
+                        msg += QStringLiteral("\n\nWorker stderr:\n%1").arg(errText);
+                    return {false, exitCode != 0 ? exitCode : (lastErrorCode != 0 ? lastErrorCode : -1),
+                            msg, 0.0, 0.0};
                 }
 
-                return {true, 0, QString(), 0.0, 0.0};
+                return {true, 0, QString(), runoffErrFrac, routingErrFrac};
             }
         })
     );

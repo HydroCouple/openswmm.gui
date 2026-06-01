@@ -68,15 +68,19 @@ private:
     void populatePatternCombo(LabeledPickerCombo *p);
     void populateUhGroupCombo(LabeledPickerCombo *p);
 
-    /*! Inline create-new flow for the picker buttons. For categories with
-     *  a complex MVC editor (TS / UH today), prompts the user for a name
-     *  and commits via `m_ref.layer->createDataObject`. For gap categories,
-     *  shows the documented tooltip and returns empty. Replaces the prior
-     *  NewDataObjectDialog-based flow per Slice BM.0-Add-New (2026-05-24). */
-    QString launchNewDataObject(int dataCategory);
+    /*! Open the full complex editor for the given data category. If
+     *  \p currentName is empty the editor opens in CreateNew mode; if it
+     *  names an existing data object, the editor opens in Edit mode
+     *  pre-selecting that object. Returns the name of the object
+     *  selected when the editor closes — used to refresh the picker
+     *  combo. Categories without a complex editor surface the gap-
+     *  tooltip info box. */
+    QString launchObjectEditor(int dataCategory, const QString &currentName);
 
-    /*! Wire a picker's "..." button so it opens the right creation
-     *  dialog and re-populates itself when a new entry is created. */
+    /*! Wire a picker's "..." button so it opens the right complex
+     *  editor (Pattern / Time Series / UH group). After the editor
+     *  closes the combo is repopulated and the worked-on item is
+     *  re-selected. */
     void wirePicker(LabeledPickerCombo *picker, int dataCategory,
                      void (NodeCompoundEditDialog::*repopulate)(LabeledPickerCombo*));
 

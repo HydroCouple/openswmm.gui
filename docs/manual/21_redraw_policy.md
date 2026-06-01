@@ -1,4 +1,4 @@
-# 21 — Redraw Policy and Performance Tuning
+@page manual_redraw_policy 21 — Redraw Policy and Performance Tuning
 
 ## What this chapter covers
 

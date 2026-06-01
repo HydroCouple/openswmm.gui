@@ -123,6 +123,18 @@ void ComparisonPlotModel::updateStyle(int seriesIndex, const SeriesStyle& style)
     emit styleChanged(seriesIndex);
 }
 
+void ComparisonPlotModel::updateLegendOverride(int seriesIndex, const QString& legendOverride)
+{
+    if (seriesIndex < 0 || seriesIndex >= m_specs.size())
+        return;
+    if (m_specs[seriesIndex].legendOverride == legendOverride)
+        return;
+    m_specs[seriesIndex].legendOverride = legendOverride;
+    // Reuse styleChanged so chart rows rebuild their QLineSeries names
+    // without adding a parallel signal path through the dialog.
+    emit styleChanged(seriesIndex);
+}
+
 void ComparisonPlotModel::rebuildRows()
 {
     deriveRows_();

@@ -11,6 +11,7 @@
  * dialog-level wiring.
  */
 #include "timeseries/timeseriesprovider.h"
+#include "timeseries/timeseriesregistry.h"
 #include "ui/dialogs/timeserieseditordialog.h"
 #include "ui/panels/timeseriestablemodel.h"
 #include "ui/widgets/timeserieseditchartview.h"
@@ -39,6 +40,7 @@
 
 using openswmmvis::timeseries::TimeseriesPoint;
 using openswmmvis::timeseries::TimeseriesProvider;
+using openswmmvis::timeseries::TimeseriesRegistry;
 using openswmmvis::ui::TimeseriesEditorDialog;
 
 namespace {
@@ -71,10 +73,11 @@ private slots:
 
     void dialogOpens_BothViewsBound()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
         dlg.show();
         QTest::qWait(50);
 
@@ -85,24 +88,13 @@ private slots:
         QCOMPARE(linePointsFromChart(dlg.chartView()->chart()).size(), 3);
     }
 
-    void multiProviderConstructor_BuildsWideGrid()
-    {
-        TimeseriesProvider a(QStringLiteral("RAIN_A")), b(QStringLiteral("RAIN_B"));
-        QVERIFY(a.setAllPoints(fixture()));
-        QVERIFY(b.setAllPoints(fixture()));
-        QUndoStack stack;
-        TimeseriesEditorDialog dlg({&a, &b}, &stack);
-
-        QCOMPARE(dlg.tableModel()->columnCount(), 3);   // [Time | A | B]
-        QCOMPARE(dlg.tableModel()->rowCount(),    3);
-    }
-
     void editFromGrid_RefreshesChart()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         // Edit through the grid model — chart should auto-refresh via provider signals.
         QVERIFY(dlg.tableModel()->setData(dlg.tableModel()->index(1, 1), 42.0));
@@ -119,10 +111,11 @@ private slots:
 
     void editFromProvider_RefreshesGridAndChart()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         // External mutation (not from grid or chart) — both views must refresh.
         QVERIFY(p.setValueAt(0, 99.0));
@@ -132,10 +125,11 @@ private slots:
 
     void mutationRejectedSurfacesInStatusBar()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         // Provoke a rejection: try to move point 1 to a time before point 0.
         QString reason;
@@ -150,9 +144,10 @@ private slots:
 
     void undoRedoActionsExistWhenStackProvided()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         // Dialog has a toolbar with at least one undo action when a stack is bound.
         const auto actions = dlg.findChildren<QAction *>();
@@ -163,9 +158,10 @@ private slots:
 
     void editModeToggleFlipsChart()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         // Find the "Edit Points" action and trigger it.
         QAction *editAct = nullptr;
@@ -189,10 +185,11 @@ private slots:
 
     void addRowAppendsWithMedianInterval()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));   // 0h, 6h, 12h → 6h median
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         QAction *add = nullptr;
         for (auto *a : dlg.findChildren<QAction *>())
@@ -211,9 +208,10 @@ private slots:
 
     void addRowOnEmptyProviderUsesNow()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         QAction *add = nullptr;
         for (auto *a : dlg.findChildren<QAction *>())
@@ -228,10 +226,11 @@ private slots:
 
     void deleteRowsRemovesSelection()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         // Build a QTableView selection covering rows 0 and 2.
         auto *table = dlg.findChild<QTableView *>();
@@ -254,10 +253,11 @@ private slots:
 
     void copyPopulatesClipboard()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         // No explicit selection → copy-all.
         QAction *copy = nullptr;
@@ -275,10 +275,11 @@ private slots:
 
     void pasteInsertsRowsFromTsv()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         // Excel-style TSV: ISO timestamp + value per line. Two new times that
         // don't collide with existing 0h / 6h / 12h.
@@ -304,10 +305,11 @@ private slots:
 
     void pasteDuplicateTimesAreSkipped()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));   // already has 0h / 6h / 12h
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         // First row collides with existing 6h; second is novel.
         QApplication::clipboard()->setText(
@@ -325,10 +327,11 @@ private slots:
 
     void gridUsesCustomContextMenu()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         auto *table = dlg.findChild<QTableView *>();
         QVERIFY(table != nullptr);
@@ -340,11 +343,12 @@ private slots:
 
     void externalSourceModeDisablesRowEdits()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));
         p.setSourceMode(TimeseriesProvider::SourceMode::ExternalFile);
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         QAction *add = nullptr;
         for (auto *a : dlg.findChildren<QAction *>())
@@ -364,9 +368,10 @@ private slots:
 
     void sourceModeCardReflectsProviderMode()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         // Default mode is Inline → that radio is checked.
         const auto radios = dlg.findChildren<QRadioButton *>();
@@ -390,9 +395,10 @@ private slots:
         // Bug report: when External is selected, Browse should be enabled so
         // the user can pick a file. The other ext-controls (column / Reload /
         // Detach) gate on hasFile, but Browse always works in External mode.
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         // Switch to External mode (provider has no file yet).
         QRadioButton *rExt = nullptr;
@@ -423,10 +429,11 @@ private slots:
 
     void externalMode_EditAndRowToolbarsDisabled()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         // Flip to External via the provider directly (simulates a file-linked TS
         // loaded from the engine on dialog open).
@@ -477,9 +484,10 @@ private slots:
                 << "2026-01-01T12:00:00,3.0\n";
         }
 
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         const int n = dlg.linkExternalFile(path);
         QCOMPARE(n, 3);
@@ -509,9 +517,10 @@ private slots:
                 << "2026-01-01T06:00:00,2.0,20.0\n";
         }
 
-        TimeseriesProvider p(QStringLiteral("RAIN_B"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_B"));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         // Select the second column by name.
         const int n = dlg.linkExternalFile(path, QStringLiteral("rain_b"));
@@ -534,9 +543,10 @@ private slots:
                 << "2026-01-01T06:00:00,2.0\n";
         }
 
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
         QCOMPARE(dlg.linkExternalFile(path), 2);
         QCOMPARE(p.sourceMode(), TimeseriesProvider::SourceMode::ExternalFile);
 
@@ -556,10 +566,11 @@ private slots:
 
     void scalePanelDoublesSelectedValues()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));   // values 1, 2, 3
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         // Switch the chart into ScalePoints mode (so the panel becomes visible)
         // and select all three points.
@@ -615,10 +626,11 @@ private slots:
 
     void scaleUnitFactorIsNoop()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         dlg.chartView()->setEditMode(openswmmvis::ui::TimeseriesEditChartView::EditMode::ScalePoints);
         dlg.chartView()->setSelection({0, 1, 2});
@@ -650,10 +662,11 @@ private slots:
 
     void rotateByZeroIsNoop()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
         dlg.chartView()->setEditMode(openswmmvis::ui::TimeseriesEditChartView::EditMode::RotatePoints);
         dlg.chartView()->setSelection({0, 1, 2});
@@ -695,9 +708,10 @@ private slots:
         };
 
         write("time,rain\n2026-01-01T00:00:00,1.0\n");
-        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
         QCOMPARE(dlg.linkExternalFile(path), 1);
 
         // Rewrite the file with an extra row, then click Reload.

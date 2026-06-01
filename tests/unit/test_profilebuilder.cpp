@@ -132,11 +132,13 @@ TEST(ProfileBuilder, EGL_EqualsHGLPlusVelocityHead_USUnits)
     auto path = linearPath(3, 100.0, 5.0);
     auto src  = constantSource(path, {103.0, 103.0, 103.0}, {4.0, 4.0});
     auto d    = compute(path, src, kGravityFps2);
-    ASSERT_EQ(d.eglByPeriod.size(), 3);
+    // SourceDerived is period-major: outer = periodCount (1), inner = N (3).
+    ASSERT_EQ(d.eglByPeriod.size(), 1);
+    ASSERT_EQ(d.eglByPeriod[0].size(), 3);
     const double expectedVH = (4.0 * 4.0) / (2.0 * kGravityFps2);
     for (int n = 0; n < 3; ++n) {
-        EXPECT_NEAR(d.hglByPeriod[n][0], 103.0,             1e-9);
-        EXPECT_NEAR(d.eglByPeriod[n][0], 103.0 + expectedVH, 1e-3);
+        EXPECT_NEAR(d.hglByPeriod[0][n], 103.0,             1e-9);
+        EXPECT_NEAR(d.eglByPeriod[0][n], 103.0 + expectedVH, 1e-3);
     }
 }
 
@@ -320,8 +322,9 @@ TEST(ProfileBuilder, ZeroVelocity_EGLEqualsHGL)
     auto path = linearPath(3);
     auto src  = constantSource(path, {102.0, 102.0, 102.0}, {0.0, 0.0});
     auto d    = compute(path, src, kGravityFps2);
+    // SourceDerived is period-major: outer = period (0), inner = node n.
     for (int n = 0; n < 3; ++n) {
-        EXPECT_DOUBLE_EQ(d.hglByPeriod[n][0], d.eglByPeriod[n][0]);
+        EXPECT_DOUBLE_EQ(d.hglByPeriod[0][n], d.eglByPeriod[0][n]);
         EXPECT_DOUBLE_EQ(d.minHgl[n], d.minEgl[n]);
         EXPECT_DOUBLE_EQ(d.maxHgl[n], d.maxEgl[n]);
     }
@@ -335,10 +338,12 @@ TEST(ProfileBuilder, WaterSurface_EqualsInvertPlusDepth)
     // constantSource sets nodeDepth = head - invert, so WaterSurface == head here.
     auto src  = constantSource(path, {102.0, 103.5, 101.0}, {0.0, 0.0});
     auto d    = compute(path, src, kGravityFps2);
-    ASSERT_EQ(d.waterSurfaceByPeriod.size(), 3);
+    // SourceDerived is period-major: outer = periodCount (1), inner = N (3).
+    ASSERT_EQ(d.waterSurfaceByPeriod.size(), 1);
+    ASSERT_EQ(d.waterSurfaceByPeriod[0].size(), 3);
     EXPECT_NEAR(d.waterSurfaceByPeriod[0][0], 102.0, 1e-9);
-    EXPECT_NEAR(d.waterSurfaceByPeriod[1][0], 103.5, 1e-9);
-    EXPECT_NEAR(d.waterSurfaceByPeriod[2][0], 101.0, 1e-9);
+    EXPECT_NEAR(d.waterSurfaceByPeriod[0][1], 103.5, 1e-9);
+    EXPECT_NEAR(d.waterSurfaceByPeriod[0][2], 101.0, 1e-9);
 }
 
 // ---- 18. WaterSurface differs from HGL under pressurization --------------
@@ -364,10 +369,11 @@ TEST(ProfileBuilder, WaterSurface_CapsAtRimWhenPressurized)
     s.linkVelocity[0] = QVector<float>{0.0f};
 
     auto d = compute(path, s, kGravityFps2);
+    // SourceDerived is period-major: indices are [period][node].
     EXPECT_NEAR(d.hglByPeriod[0][0], 108.0, 1e-9);
-    EXPECT_NEAR(d.hglByPeriod[1][0], 107.0, 1e-9);
+    EXPECT_NEAR(d.hglByPeriod[0][1], 107.0, 1e-9);
     EXPECT_NEAR(d.waterSurfaceByPeriod[0][0], 105.0, 1e-9);
-    EXPECT_NEAR(d.waterSurfaceByPeriod[1][0], 105.0, 1e-9);
+    EXPECT_NEAR(d.waterSurfaceByPeriod[0][1], 105.0, 1e-9);
     EXPECT_GT(d.hglByPeriod[0][0], d.waterSurfaceByPeriod[0][0]);
 }
 

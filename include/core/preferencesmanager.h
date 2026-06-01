@@ -108,6 +108,17 @@ public:
     void setDefaultCrsAuthority(const QString &authority);
     void setDefaultCrsCode(int code);
 
+    // ── GPU / QSG rendering ──────────────────────────────────────────────
+    /*! Slice §QSG-4 (2026-05-27) — single switch for the GPU scene-graph
+     *  rendering path. When enabled, every newly-added SWMMModelLayer
+     *  has its qsgRenderKinds set to all four kinds (Nodes | Links |
+     *  Catch | Gages), the CPU SWMMLayerItem skips every kind, and the
+     *  QSG overlay draws everything. When disabled, the CPU painter
+     *  path renders the network — left as a fallback for users who hit
+     *  GPU-driver-specific issues. Default true. */
+    [[nodiscard]] bool qsgRenderEnabled()  const;
+    void setQsgRenderEnabled(bool enabled);
+
     // ── Snapping ─────────────────────────────────────────────────────────
     /*! Whether vertex snapping is active for all drawing tools. Default true. */
     [[nodiscard]] bool snapEnabled()     const;
@@ -151,6 +162,34 @@ public:
      *  returns the compile-time default. Emits preferenceChanged. Used by
      *  the Preferences dialog's "Reset to defaults" button. */
     void resetLinkPenToDefault(const QString &linkType);
+
+    /*! Outline pen for a node marker class — colour, width, cap, join,
+     *  style and dash are all user-tunable via the Preferences dialog's
+     *  Rendering page (a QPropertyModel-backed editor).
+     *
+     *  \p nodeType is one of: "junction", "outfall", "storage", "divider"
+     *  (case-insensitive). Unknown keys fall back to the junction default.
+     *
+     *  Stored under SWMMVis/Preferences/Rendering/NodePen/<Type>. */
+    [[nodiscard]] QPen   nodePen(const QString &nodeType) const;
+    void setNodePen(const QString &nodeType, const QPen &pen);
+
+    /*! Fill brush for a node marker class. Used as the glyph fill in the
+     *  CPU + QSG paint paths. Stored under
+     *  SWMMVis/Preferences/Rendering/NodeBrush/<Type>. */
+    [[nodiscard]] QBrush nodeBrush(const QString &nodeType) const;
+    void setNodeBrush(const QString &nodeType, const QBrush &brush);
+
+    /*! Marker diameter in pixels for a node class. Default 8 (junction /
+     *  divider), 12.5 (outfall), 12.0 (storage). Range 1–64 px. Stored
+     *  under SWMMVis/Preferences/Rendering/NodeSize/<Type>. */
+    [[nodiscard]] double nodeSize(const QString &nodeType) const;
+    void setNodeSize(const QString &nodeType, double sizePx);
+
+    /*! Clears any user-set pen + brush + size for \p nodeType so the
+     *  next query returns the compile-time defaults. Emits
+     *  preferenceChanged for each cleared key. */
+    void resetNodeStyleToDefault(const QString &nodeType);
 
     // ── Rendering / Custom color ramps (Slice BB-α) ──────────────────────
     /*! User-authored colour ramps keyed by display name, stored under

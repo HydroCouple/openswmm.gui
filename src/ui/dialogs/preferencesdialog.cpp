@@ -7,6 +7,7 @@
 #include "ui/dialogs/preferencesdialog.h"
 
 #include "core/linkrenderingprefs.h"
+#include "core/noderenderingprefs.h"
 #include "core/preferencesmanager.h"
 #include "core/selectionrenderingprefs.h"
 #include "ui/dialogs/licenseagreementdialog.h"
@@ -437,6 +438,56 @@ QWidget *PreferencesDialog::buildRenderingPage()
     lv->addWidget(tree, 1);
 
     outer->addWidget(linkGroup, 1);
+
+    // Node symbols — outline pen, fill brush, and marker size per node
+    // type. Same QPropertyModel pattern as link pens above: the bridge
+    // routes every edit straight into PreferencesManager so there is no
+    // pending-state to apply on OK and writeToManager() leaves these
+    // alone.
+    auto *nodeGroup = new QGroupBox(tr("Node Symbols"), page);
+    auto *nv        = new QVBoxLayout(nodeGroup);
+    nv->setContentsMargins(8, 8, 8, 8);
+
+    auto *nodeIntro = new QLabel(
+        tr("Edit marker size, fill brush, and outline pen per node type "
+           "(Junction, Outfall, Storage, Divider). Expand a row to access "
+           "individual pen and brush attributes. Changes apply immediately "
+           "to open project views."),
+        nodeGroup);
+    nodeIntro->setWordWrap(true);
+    nv->addWidget(nodeIntro);
+
+    m_nodePrefs      = new NodeRenderingPrefs(this);
+    m_nodeStyleModel = new QPropertyModel(this);
+    m_nodeStyleModel->setData(QVariant::fromValue(static_cast<QObject*>(m_nodePrefs)));
+
+    auto *nodeTree = new QTreeView(nodeGroup);
+    nodeTree->setModel(m_nodeStyleModel);
+    nodeTree->setItemDelegate(new QPropertyItemDelegate(m_nodeStyleModel));
+    nodeTree->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    nodeTree->setAlternatingRowColors(true);
+    nodeTree->setMinimumHeight(260);
+    nodeTree->expandToDepth(0);
+    nodeTree->resizeColumnToContents(0);
+    nv->addWidget(nodeTree, 1);
+
+    outer->addWidget(nodeGroup, 1);
+
+    // ── GPU rendering (Slice §QSG-4) ──────────────────────────────────────
+    auto *gpuGroup = new QGroupBox(tr("GPU Rendering"), page);
+    auto *xv = new QVBoxLayout(gpuGroup);
+    xv->setContentsMargins(8, 8, 8, 8);
+    m_qsgNodesBox = new QCheckBox(
+        tr("Use GPU rendering for SWMM layers (recommended)"), gpuGroup);
+    m_qsgNodesBox->setToolTip(tr(
+        "When enabled, junctions, outfalls, storage, dividers, links, "
+        "subcatchments, and rain gages are drawn by the GPU scene-graph "
+        "overlay. The CPU painter path is skipped while this is on so "
+        "the two pipelines never double-paint.\n\n"
+        "Turn this off only if you hit GPU-driver-specific rendering "
+        "issues — the legacy QPainter path remains the fallback."));
+    xv->addWidget(m_qsgNodesBox);
+    outer->addWidget(gpuGroup);
 
     outer->addStretch(0);
 
@@ -1011,9 +1062,12 @@ void PreferencesDialog::readFromManager()
     m_snapToVerticesBox->setChecked(p->snapToVertices());
 
     m_labelLodSpin->setValue(p->labelLodM11Min());
+    m_qsgNodesBox->setChecked(p->qsgRenderEnabled());
     // Link pens reflect live through LinkRenderingPrefs's getters, so
     // refresh the QPropertyModel rather than re-populating widgets.
     if (m_linkPenModel) m_linkPenModel->refreshValues();
+    // Node symbols reflect live through NodeRenderingPrefs's getters.
+    if (m_nodeStyleModel) m_nodeStyleModel->refreshValues();
 
     m_progressTickMsSpin->setValue(p->progressTickMs());
 
@@ -1157,6 +1211,7 @@ void PreferencesDialog::writeToManager()
     p->setSnapToVertices(m_snapToVerticesBox->isChecked());
 
     p->setLabelLodM11Min(m_labelLodSpin->value());
+    p->setQsgRenderEnabled(m_qsgNodesBox->isChecked());
     // Link pens already wrote through LinkRenderingPrefs's Q_PROPERTY
     // setters at edit time — nothing to flush here.
 
@@ -1324,6 +1379,7 @@ void PreferencesDialog::onResetToDefaults()
     m_snapToVerticesBox->setChecked(true);
 
     m_labelLodSpin->setValue(0.5);
+    m_qsgNodesBox->setChecked(true);  // default ON
 
     // Link pens — re-seed each type with its compile-time default
     // (see kConduitPenDefault / kPumpPenDefault / … in
@@ -1340,6 +1396,19 @@ void PreferencesDialog::onResetToDefaults()
                                    QStringLiteral("outlet") };
         for (const QString &k : keys) p->resetLinkPenToDefault(k);
         if (m_linkPenModel) m_linkPenModel->refreshValues();
+    }
+
+    // Node symbols — wipe per-type pen / brush / size keys so the next
+    // read falls back to kJunctionNodeDefault / kOutfallNodeDefault / …
+    // in preferencesmanager.cpp.
+    {
+        auto *p = PreferencesManager::instance();
+        const QStringList keys = { QStringLiteral("junction"),
+                                   QStringLiteral("outfall"),
+                                   QStringLiteral("storage"),
+                                   QStringLiteral("divider") };
+        for (const QString &k : keys) p->resetNodeStyleToDefault(k);
+        if (m_nodeStyleModel) m_nodeStyleModel->refreshValues();
     }
 
     auto resetColorButton = [](QPushButton *btn, QColor &held, const QColor &c) {

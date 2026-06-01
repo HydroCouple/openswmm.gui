@@ -27,6 +27,7 @@
 #define OPENSWMM_RENDER_SINGLEBANDPSEUDOCOLORRENDERER_H
 
 #include "render/irasterrenderer.h"
+#include "render/colorramp.h"   // RampInterp — match legacy ramp fidelity (P5/R-1)
 
 #include <QColor>
 #include <QList>
@@ -81,6 +82,15 @@ public:
     [[nodiscard]] bool clampMax() const { return m_clampMax; }
     void setClampMax(bool clamp) { m_clampMax = clamp; }
 
+    /*!
+     * \brief Colour-space used between adjacent stops (Rgb / HsvShort /
+     *        HsvLong). Carried so the renderer reproduces the legacy
+     *        RasterColorRamp output byte-for-byte after the P5 full switch
+     *        — without it, custom HSV ramps would drift to RGB lerp.
+     */
+    [[nodiscard]] RampInterp interp() const { return m_interp; }
+    void setInterp(RampInterp i) { m_interp = i; }
+
     // IRasterRenderer.
     [[nodiscard]] QString rendererId() const override
     {
@@ -99,6 +109,7 @@ private:
     QList<Stop>   m_stops;
     bool          m_clampMin = false;
     bool          m_clampMax = false;
+    RampInterp    m_interp   = RampInterp::Rgb;
 };
 
 } // namespace OpenSWMM::Render

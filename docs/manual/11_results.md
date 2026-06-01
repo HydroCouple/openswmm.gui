@@ -1,4 +1,4 @@
-# 11 — Running and Viewing Results
+@page manual_results 11 — Running and Viewing Results
 
 ## What you'll do
 

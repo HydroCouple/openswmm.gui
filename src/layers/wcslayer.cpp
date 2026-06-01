@@ -1132,12 +1132,32 @@ void WCSLayer::render(QPainter *painter,
         return;
     }
 
+    // Slice X.22 — basemap adjustments.
+    QImage toDraw;
+    const QImage *src = &m_cachedImage;
+    if (!m_renderParams.isIdentity()) {
+        toDraw = m_cachedImage;
+        m_renderParams.applyTo(toDraw);
+        src = &toDraw;
+    }
+
     painter->save();
     painter->setOpacity(opacity());
-    painter->drawImage(dstRect, m_cachedImage);
+    if (m_renderParams.resampling == OpenSWMM::Render::BasemapRenderParams::Nearest)
+        painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
+    painter->drawImage(dstRect, *src);
     painter->restore();
 
     qDebug() << "[WCS] render DONE — drew" << dstRect << "into" << imageSize;
+}
+
+void WCSLayer::setBasemapRenderParams(
+    const OpenSWMM::Render::BasemapRenderParams &p)
+{
+    if (m_renderParams == p) return;
+    m_renderParams = p;
+    emit basemapRenderParamsChanged();
+    emit repaintRequested();
 }
 
 // ---------------------------------------------------------------------------

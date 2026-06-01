@@ -31,6 +31,7 @@ QString SWMMSubcatchPropertyAdapter::displayLabelFor(const QString &property) co
                                        : QStringLiteral("in");
 
     if (property == QLatin1String("name"))      return tr("Name");
+    if (property == QLatin1String("tag"))       return tr("Tag");
     if (property == QLatin1String("area"))      return tr("Area (%1)").arg(A);
     if (property == QLatin1String("width"))     return tr("Width (%1)").arg(L);
     if (property == QLatin1String("slope"))     return tr("Slope (%)");
@@ -71,6 +72,30 @@ void SWMMSubcatchPropertyAdapter::setName(const QString &newName)
     const QString trimmed = newName.trimmed();
     if (trimmed.isEmpty() || trimmed == m_name) return;
     emit renameRequested(m_name, trimmed);
+}
+
+// Slice TA — `[TAGS]` accessor. Matches SWMMNodePropertyAdapter::tag /
+// setTag (and SWMMLinkPropertyAdapter Slice SA) line-for-line: direct
+// engine read/write, no model-layer route. Tag changes don't affect map
+// symbology or attribute-table layout, so the existing `changed()` signal
+// + AttributePanel.objectEdited fan-out is sufficient for two-way sync
+// with the Attribute Table.
+QString SWMMSubcatchPropertyAdapter::tag() const
+{
+    const int i = idx();
+    if (i < 0) return {};
+    char buf[256] = {0};
+    if (swmm_subcatch_get_tag(m_engine, i, buf, sizeof(buf)) != SWMM_OK) return {};
+    return QString::fromUtf8(buf);
+}
+
+void SWMMSubcatchPropertyAdapter::setTag(const QString &t)
+{
+    const int i = idx();
+    if (i < 0) return;
+    const QByteArray bytes = t.toUtf8();
+    if (swmm_subcatch_set_tag(m_engine, i, bytes.constData()) == SWMM_OK)
+        emit changed();
 }
 
 #define S(method, engineSet)                                        \

@@ -11,12 +11,15 @@
 #ifndef ATTRIBUTEPANEL_H
 #define ATTRIBUTEPANEL_H
 
+#include "layers/swmmmodellayer.h"
+
 #include <QDockWidget>
 #include <QList>
 #include <QVariantMap>
 
 class QTreeView;
 class QComboBox;
+class QPushButton;
 class QAbstractItemModel;
 class QAbstractItemDelegate;
 #ifdef HAVE_QPROPERTYMODEL
@@ -30,6 +33,8 @@ class SWMMLinkPropertyAdapter;
 class SWMMSubcatchPropertyAdapter;
 class SWMMDataObjectPropertyAdapter;
 struct IdentifyResult;
+
+namespace openswmmvis { class OutputStatsRegistry; }    // Slice QA.2
 
 /*!
  * \class AttributePanel
@@ -87,6 +92,13 @@ public:
      *  QPropertyModel auto-delegates).  Pass nullptr to detach. */
     void setProject(SWMMModelLayer *layer);
 
+    /*! Slice QA.2 — bind the per-project OutputStatsRegistry so the
+     *  Stats-source combo above the property tree can populate from
+     *  every loaded SWMMResultsLayer. Pass nullptr to hide the combo
+     *  (matches today's behaviour for projects with no results loaded
+     *  yet). Idempotent — repeated calls re-wire signals safely. */
+    void setStatsRegistry(openswmmvis::OutputStatsRegistry *registry);
+
     /*! Slice DA.2 — show a non-spatial Data Object (curve, time series,
      *  pattern, LID control, pollutant, land use, aquifer, snowpack,
      *  control rule, transect, hydrograph group, street, inlet, or
@@ -132,11 +144,51 @@ signals:
 private slots:
     void onLayerComboIndexChanged(int index);
 
+    /*! Slice BM.0-Browse-Edit (2026-05-25) — right-click on a property
+     *  row. For `DataObjectRef` rows: builds "Edit <name> in <editor>…"
+     *  routed through ComprehensiveEditorRegistry (greyed-out with gap
+     *  tooltip when the editor hasn't shipped yet). For
+     *  `NodeCompoundEditRef` rows: single "Edit…" launching
+     *  NodeCompoundEditDialog. Otherwise: no menu pops. */
+    void onTreeContextMenu(const QPoint &pos);
+
+    /*! 2026-05-29 — Header "Open in <Editor>…" button click. Routes the
+     *  active data adapter's category through the shared object-browser
+     *  open-for-edit dispatch (`ObjectBrowserPanel::openComprehensiveEditorFor`)
+     *  so the attribute-panel button and the object-browser leaf
+     *  double-click/right-click share one editor instance. No-op when
+     *  no data adapter is bound or its category has no shipped editor. */
+    void onOpenInEditorClicked();
+
 private:
     void setupUi();
 
+    /*! Slice QA.2 — repopulate the Stats-source combo from the bound
+     *  registry's current identities(). Called whenever the registry
+     *  emits identitiesChanged() AND when the node adapter changes
+     *  (so a node selection refreshes the combo state). Preserves the
+     *  current selection by stableId when possible. */
+    void refreshStatsSourceCombo();
+
+    /*! Slice QA.2 — push the combo's current selection into the bound
+     *  node adapter (idempotent; no-op when the node adapter is null
+     *  or the combo's payload is missing). */
+    void applyStatsSourceToAdapter();
+
     QTreeView                *m_treeView       = nullptr;
     QComboBox                *m_layerCombo     = nullptr;
+    QComboBox                *m_statsSourceCombo = nullptr;  ///< Slice QA.2
+    class QLabel             *m_statsSourceLabel = nullptr;  ///< Slice QA.2
+    /*! 2026-05-29 — Header button that opens the active data adapter's
+     *  category in its dedicated CRUD editor. Hidden unless a data
+     *  adapter is bound to a category with a shipped editor. */
+    QPushButton              *m_openEditorButton = nullptr;
+    /*! 2026-05-29 — DataCategory of the currently shown data adapter,
+     *  or `NumDataCategories` when the panel is not showing a data
+     *  object (spatial selection, layer properties, identify, or
+     *  cleared). Drives `m_openEditorButton` visibility. */
+    SWMMModelLayer::DataCategory m_dataObjectCategory =
+        SWMMModelLayer::NumDataCategories;
     QAbstractItemModel       *m_model          = nullptr;
     QAbstractItemDelegate    *m_delegate       = nullptr;
 
@@ -154,6 +206,10 @@ private:
     SWMMDataObjectPropertyAdapter *m_dataAdapter = nullptr;
 
     bool m_suppressEditForward = false; ///< Set during onObjectEditedExternally to break loop.
+
+    /// Slice QA.2 — bound registry; null when no project is active. The
+    /// panel never owns the registry (SWMMVisProjectWindow does).
+    openswmmvis::OutputStatsRegistry *m_statsRegistry = nullptr;
 };
 
 #endif // ATTRIBUTEPANEL_H

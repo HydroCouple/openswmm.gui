@@ -13,11 +13,16 @@
 #include <QHash>
 #include <QMdiSubWindow>
 #include <QList>
+#include <QPointF>
+#include <QPointer>
 #include <QString>
+#include <QVector>
 
 class OpenSWMMVisWorkspace;
 class MapCanvas;
 class SWMMModelLayer;
+class SWMMResultsLayer;
+class SWMM2DResultsLayer;
 class SelectionManager;
 class UnitSystem;
 class OpenSWMMVisMapTool;
@@ -29,10 +34,14 @@ class OpenSWMMVisMapToolAddNode;
 class OpenSWMMVisMapToolAddLink;
 class OpenSWMMVisMapToolAddGage;
 class OpenSWMMVisMapToolAddSubcatchment;
+class OpenSWMMVisMapToolAddText;
+class OpenSWMMVisAnnotationLayer;
 class GISRasterLayer;
 class QComboBox;
 class QLabel;
 class QFrame;
+
+namespace openswmmvis { class OutputStatsRegistry; }    // Slice QA.2
 
 /**
  * @brief MDI sub-window owning a MapCanvas, SWMMModelLayer, and map tools.
@@ -106,6 +115,19 @@ public:
      *  layer is loaded. */
     void activatePick2DCellsTool();
 
+    /*! Trace a free-form polyline across the 2D mesh to plot a longitudinal
+     *  profile. Lazy-creates the tool; toggles back to Select when already
+     *  active (mirrors activateSelectProfileTool). */
+    void activateMeshProfileTool();
+
+    /*! Slice §V.VB — activate the Mesh Vertex Select tool. Lazy-creates
+     *  on first call. */
+    void activateMeshSelectVertexTool();
+
+    /*! Slice §V.VB — activate the Mesh Edge Select tool. Lazy-creates
+     *  on first call. */
+    void activateMeshSelectEdgeTool();
+
     /*! Direct access to the Select tool so the main window can wire its
      *  context-menu `plotTimeSeriesRequested` into the same chart
      *  dialog that Object Browser right-clicks use. */
@@ -122,6 +144,47 @@ public:
      *  on first access via activatePick2DCellsTool). */
     class MapToolPick2DCells *pick2DCellsTool() const { return mPick2DCellsTool; }
 
+    /*! Free-form 2D-mesh profile-trace tool. Null until first activation. */
+    class MapToolMeshProfile *meshProfileTool() const { return mMeshProfileTool; }
+
+    /*! Slice QA.2 — per-project registry that tags every loaded
+     *  SWMMResultsLayer with a stable identity. Owned by the project
+     *  window; lives for the project's lifetime. Consumers (the node
+     *  attribute panel today, Slice CB Statistics dashboard tomorrow)
+     *  read from this single source of truth so the "which output
+     *  produced these stats?" answer is uniform across the GUI.
+     *  Never null. */
+    class openswmmvis::OutputStatsRegistry *statsRegistry() const
+    { return mStatsRegistry; }
+
+    // ── Active analysis layers (results-analysis demarcation) ────────────────
+    //
+    // A single model can have several loaded result sets. The "active" 1D and
+    // 2D results layers are the ones every analysis/visualization tool targets
+    // (Comparison plot, Profile plot, Tabular results, color-by-result, the
+    // animation transport, 2D cell picking) instead of the old "first results
+    // layer found on the canvas" guess. The user chooses them from the two
+    // analysis-toolbar combos or the layer-tree "Set as Active Results Layer"
+    // context action. State is per-project so each tab keeps its own choice.
+
+    /*! Active 1D results layer for analysis tools (may be null). Defined
+     *  out-of-line so the QPointer→T* conversion is only instantiated in the
+     *  .cpp (which includes the full layer headers); a forward declaration is
+     *  insufficient for QPointer's internal static_cast. */
+    [[nodiscard]] SWMMResultsLayer *activeResultsLayer() const;
+
+    /*! Active 2D results layer for analysis tools (may be null). */
+    [[nodiscard]] SWMM2DResultsLayer *active2DResultsLayer() const;
+
+    /*! Set the active 1D results layer. No-op if unchanged. Rejects a layer
+     *  not currently on this window's canvas. Passing nullptr clears the
+     *  selection (analysis tools then report "no results"). Emits
+     *  activeResultsLayerChanged on a real change. */
+    void setActiveResultsLayer(SWMMResultsLayer *layer);
+
+    /*! Set the active 2D results layer. Same contract as the 1D setter. */
+    void setActive2DResultsLayer(SWMM2DResultsLayer *layer);
+
     /*! Maps each tool pointer to a stable action-object-name key so the
      *  main window can sync toolbar checked states via activeToolChanged. */
     QHash<class OpenSWMMVisMapTool *, QString> toolActionKeys() const;
@@ -136,7 +199,16 @@ public:
     void activateAddOutletTool();
     void activateAddGageTool();
     void activateAddSubcatchmentTool();
+    void activateAddTextTool();
     void zoomToFullExtent();
+
+    /*! Annotation layer for user-placed text labels. Lazily added to the
+     *  canvas on first text placement; non-null after that point. */
+    OpenSWMMVisAnnotationLayer *annotationLayer() const { return mAnnotationLayer; }
+
+    /*! Get-or-create accessor used by ProjectSerializer to restore
+     *  annotations before any tool has been activated. */
+    OpenSWMMVisAnnotationLayer *ensureAnnotationLayer();
 
     /** Auto-length recalculates conduit length from polyline on every
      *  endpoint / vertex edit. Per-project, persisted to QSettings. */
@@ -218,10 +290,29 @@ signals:
     void offsetModeChanged(bool elevation);
     void autoLengthChanged(bool enabled);
 
+    /*! Fires when the active 1D / 2D results layer changes (including to
+     *  null). The main window re-points the shared AnimationController, the
+     *  analysis-toolbar combos, and the layer-tree check-state at these. */
+    void activeResultsLayerChanged(SWMMResultsLayer *layer);
+    void active2DResultsLayerChanged(SWMM2DResultsLayer *layer);
+
     /*! Slice CF.3 — forwards MapToolPick2DCells::cellsPicked up to the
      *  main window so it can open the Comparison Plot Dialog. */
     void pick2DCellsPicked(class SWMM2DResultsLayer *layer,
                             const QVector<int> &triIdxList);
+
+    /*! Forwards MapToolMeshProfile::profilePathTraced up to the main window
+     *  so it can open the MeshProfilePlotDialog. The polyline is in scene
+     *  coords (sx = mapX, sy = -mapY). */
+    void meshProfileTraced(const QVector<QPointF> &scenePolyline);
+
+    /*! Forwards MapToolMeshSelectEdge::plotEdgeFluxRequested up to the main
+     *  window so it can open the comparison plot with the edge's flux series. */
+    void meshEdgeFluxRequested(class SWMM2DMeshLayer *mesh, int triIdx, int edgeLocal);
+
+    /*! Forwards MapToolMeshSelectVertex::plotVertexSeriesRequested up to the
+     *  main window so it can plot interpolated depth/HGL for the vertices. */
+    void meshVertexSeriesRequested(class SWMM2DMeshLayer *mesh, const QVector<int> &vertexIdxList);
 
     /*! Slice BC — fires whenever the active terrain raster changes
      *  (set / cleared / swapped) or its vertical-unit conversion
@@ -248,6 +339,11 @@ private:
     void updateWindowTitle();
     void repositionMeasurePanel();
     void updateMeasureUnitCombo();
+
+    /*! Mirror the current MeshCell selection onto the active 2D results layer
+     *  (and clear it off all other 2D results layers). Driven by selection
+     *  changes and active-2D-layer changes (results-analysis demarcation). */
+    void refreshActive2DCellHighlight();
 
     OpenSWMMVisWorkspace *mWorkspace          = nullptr;
     MapCanvas            *mCanvas             = nullptr;
@@ -280,7 +376,12 @@ private:
     OpenSWMMVisMapToolAddLink     *mAddOutletTool     = nullptr;
     OpenSWMMVisMapToolAddGage     *mAddGageTool       = nullptr;
     OpenSWMMVisMapToolAddSubcatchment *mAddSubcatchTool = nullptr;
+    OpenSWMMVisMapToolAddText     *mAddTextTool      = nullptr;
+    OpenSWMMVisAnnotationLayer    *mAnnotationLayer  = nullptr;  ///< lazy; created on first text op
     class MapToolPick2DCells          *mPick2DCellsTool = nullptr;  ///< CF.3 — lazy
+    class MapToolMeshProfile          *mMeshProfileTool = nullptr;  ///< mesh profile-trace — lazy
+    class MapToolMeshSelectVertex     *mMeshSelectVertexTool = nullptr; ///< §V.VB — lazy
+    class MapToolMeshSelectEdge       *mMeshSelectEdgeTool   = nullptr; ///< §V.VB — lazy
 
     // Measure tool floating panel (child of mCanvas)
     QFrame    *mMeasurePanel       = nullptr;
@@ -298,6 +399,17 @@ private:
     // Cleared if the user switches to any tool other than Select before
     // clicking, so toggling back to profile keeps the prior path.
     bool                           mClearProfileOnNextCanvasClick = false;
+
+    // Slice QA.2 — output identity registry. Owned via QObject parent
+    // (constructed with `this` as parent in the .cpp constructor) so
+    // it follows the project window's lifetime.
+    openswmmvis::OutputStatsRegistry *mStatsRegistry = nullptr;
+
+    // Active analysis layers (results-analysis demarcation). QPointer so a
+    // layer destroyed/removed from the canvas auto-nulls the active pointer
+    // without a dangling reference.
+    QPointer<SWMMResultsLayer>   mActiveResultsLayer;
+    QPointer<SWMM2DResultsLayer> mActive2DResultsLayer;
 
     // Terrain editing state (per-project, persisted to .oswp)
     GISRasterLayer *mActiveTerrain      = nullptr;

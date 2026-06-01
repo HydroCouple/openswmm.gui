@@ -8,7 +8,19 @@
 #include "ui/panels/attributedelegates.h"
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/panels/tabulardatatablemodel.h"
+#include "ui/properties/dataobjectref.h"
+#include "ui/properties/linkcompoundeditref.h"
 #include "ui/properties/nodecompoundeditref.h"
+#include "ui/editors/comprehensiveeditorregistry.h"
+#include "ui/dialogs/curveeditordialog.h"
+#include "ui/dialogs/hydrographgroupeditor.h"
+#include "ui/dialogs/linkcompoundeditdialog.h"
+#include "ui/dialogs/nodecompoundeditdialog.h"
+#include "ui/dialogs/patterneditordialog.h"
+#include "ui/dialogs/timeserieseditordialog.h"
+#include "curve/curveregistry.h"
+#include "pattern/patternregistry.h"
+#include "timeseries/timeseriesregistry.h"
 
 #include <openswmm/engine/openswmm_edit.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -38,6 +50,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPalette>
+#include <QPointer>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QRegularExpression>
@@ -165,6 +178,17 @@ AttributeTablePanel::AttributeTablePanel(QWidget *parent)
     // browser may have already done this, both calls are safe.
     qRegisterMetaType<NodeCompoundEditRef>("NodeCompoundEditRef");
     registerNodeCompoundEditRefConverter();
+    // §S.SC.1.c — link-side compound cell (XSection / CulvertCode /
+    // InletUsage). Registered alongside the node variant so the
+    // attribute table can render link-compound summaries.
+    qRegisterMetaType<LinkCompoundEditRef>("LinkCompoundEditRef");
+    registerLinkCompoundEditRefConverter();
+    // §S.SC.1.c — data-object pickers (curve / pattern / TS / UH /
+    // pollutant / rain-gage). The right-click "Edit in …" dispatch
+    // surfaces editors from the table for any cell carrying a
+    // DataObjectRef variant.
+    qRegisterMetaType<DataObjectRef>("DataObjectRef");
+    registerDataObjectRefConverter();
 
     buildUi();
 }
@@ -935,6 +959,140 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
     if (!proxyIdx.isValid()) return;
 
     QMenu menu(this);
+
+    // §S.SC.1.c — Cell-type-aware "Edit in …" actions surfacing the
+    // CRUD editors (CurveEditorDialog / PatternEditorDialog /
+    // TimeseriesEditorDialog / HydrographGroupEditor /
+    // NodeCompoundEditDialog / LinkCompoundEditDialog) directly from
+    // the Attribute Table. Mirrors AttributePanel's right-click menu so
+    // the two surfaces have parity per [[feedback_mvc_synchronized_uis]].
+    // The dispatched action is queued via QAction::triggered (not
+    // executed inline) so the menu can keep its existing "Change Type"
+    // / "Zoom" entries unchanged below.
+    const QModelIndex sourceIdx = m_proxy ? m_proxy->mapToSource(proxyIdx)
+                                          : proxyIdx;
+    const QVariant cellValue = sourceIdx.isValid()
+        ? sourceIdx.data(Qt::EditRole) : QVariant();
+    const int metaId = cellValue.userType();
+    bool addedEditAction = false;
+
+    if (metaId == qMetaTypeId<NodeCompoundEditRef>()) {
+        const NodeCompoundEditRef ref = cellValue.value<NodeCompoundEditRef>();
+        if (ref.engine && !ref.nodeName.isEmpty()) {
+            QAction *act = menu.addAction(
+                ref.summary.isEmpty() ? tr("Edit…")
+                                      : tr("Edit \"%1\"…").arg(ref.summary));
+            connect(act, &QAction::triggered, this, [this, ref, sourceIdx]() {
+                NodeCompoundEditDialog dlg(ref, this);
+                dlg.exec();
+                NodeCompoundEditRef updated = ref;
+                updated.summary = dlg.updatedSummary();
+                m_model->setData(sourceIdx, QVariant::fromValue(updated),
+                                  Qt::EditRole);
+            });
+            addedEditAction = true;
+        }
+    } else if (metaId == qMetaTypeId<LinkCompoundEditRef>()) {
+        const LinkCompoundEditRef ref = cellValue.value<LinkCompoundEditRef>();
+        if (ref.engine && !ref.linkName.isEmpty()) {
+            QAction *act = menu.addAction(
+                ref.summary.isEmpty() ? tr("Edit…")
+                                      : tr("Edit \"%1\"…").arg(ref.summary));
+            connect(act, &QAction::triggered, this, [this, ref, sourceIdx]() {
+                LinkCompoundEditDialog dlg(ref, this);
+                dlg.exec();
+                LinkCompoundEditRef updated = ref;
+                updated.summary = dlg.updatedSummary();
+                m_model->setData(sourceIdx, QVariant::fromValue(updated),
+                                  Qt::EditRole);
+            });
+            addedEditAction = true;
+        }
+    } else if (metaId == qMetaTypeId<DataObjectRef>()) {
+        const DataObjectRef ref = cellValue.value<DataObjectRef>();
+        if (ref.layer && ref.kind != DataObjectRef::RainGage) {
+            SWMMModelLayer::DataCategory dc = SWMMModelLayer::DataTimeSeries;
+            switch (ref.kind) {
+            case DataObjectRef::TidalCurve:
+            case DataObjectRef::AnyCurve:       dc = SWMMModelLayer::DataCurves;      break;
+            case DataObjectRef::TimeSeries:     dc = SWMMModelLayer::DataTimeSeries;  break;
+            case DataObjectRef::Pattern:        dc = SWMMModelLayer::DataPatterns;    break;
+            case DataObjectRef::UnitHydrograph: dc = SWMMModelLayer::DataHydrographs; break;
+            case DataObjectRef::Pollutant:      dc = SWMMModelLayer::DataPollutants;  break;
+            case DataObjectRef::RainGage:       /* handled above */                   break;
+            }
+            const auto &reg = ComprehensiveEditorRegistry::instance();
+            const QString title  = reg.editorTitle(dc);
+            const bool   shipped = reg.hasEditor(dc);
+            QAction *act = menu.addAction(
+                ref.currentName.isEmpty()
+                    ? tr("Open %1…").arg(title.isEmpty() ? tr("Editor") : title)
+                    : tr("Edit \"%1\" in %2…")
+                          .arg(ref.currentName,
+                               title.isEmpty() ? tr("Editor") : title));
+            act->setEnabled(shipped);
+            if (!shipped) act->setToolTip(reg.gapTooltip(dc));
+            connect(act, &QAction::triggered, this, [this, ref, dc, sourceIdx]() {
+                QString chosen;
+                switch (dc) {
+                case SWMMModelLayer::DataHydrographs:
+                    chosen = HydrographGroupEditor::pickGroup(
+                        ref.layer, ref.currentName, this);
+                    break;
+                case SWMMModelLayer::DataPatterns: {
+                    using openswmmvis::pattern::PatternRegistry;
+                    using openswmmvis::ui::PatternEditorDialog;
+                    auto *r = qobject_cast<PatternRegistry *>(
+                        ref.layer->ensurePatternRegistry());
+                    if (!r) return;
+                    chosen = PatternEditorDialog::pickPattern(
+                        r, /*undoStack=*/nullptr, ref.currentName, this);
+                    break;
+                }
+                case SWMMModelLayer::DataTimeSeries: {
+                    using openswmmvis::timeseries::TimeseriesRegistry;
+                    using openswmmvis::ui::TimeseriesEditorDialog;
+                    auto *r = qobject_cast<TimeseriesRegistry *>(
+                        ref.layer->ensureTimeseriesRegistry());
+                    if (!r) return;
+                    chosen = TimeseriesEditorDialog::pickTimeseries(
+                        r, /*undoStack=*/nullptr, ref.currentName, this);
+                    if (!chosen.isEmpty()) r->saveToEngine();
+                    break;
+                }
+                case SWMMModelLayer::DataCurves: {
+                    using openswmmvis::curve::CurveRegistry;
+                    using openswmmvis::ui::CurveEditorDialog;
+                    auto *r = qobject_cast<CurveRegistry *>(
+                        ref.layer->ensureCurveRegistry());
+                    if (!r) return;
+                    QPointer<CurveEditorDialog> dlg = ref.currentName.isEmpty()
+                        ? CurveEditorDialog::createNew(r, /*undoStack=*/nullptr, this)
+                        : nullptr;
+                    if (!dlg) {
+                        dlg = new CurveEditorDialog(r, /*undoStack=*/nullptr, this);
+                        dlg->openForCurve(ref.currentName);
+                    }
+                    if (dlg) {
+                        dlg->setAttribute(Qt::WA_DeleteOnClose);
+                        dlg->show();
+                    }
+                    return;
+                }
+                default:
+                    return;
+                }
+                if (chosen.isEmpty()) return;
+                DataObjectRef updated = ref;
+                updated.currentName = chosen;
+                m_model->setData(sourceIdx, QVariant::fromValue(updated),
+                                  Qt::EditRole);
+            });
+            addedEditAction = true;
+        }
+    }
+
+    if (addedEditAction) menu.addSeparator();
 
     auto *changeTypeAct = menu.addAction(tr("Change Type…"));
     connect(changeTypeAct, &QAction::triggered,

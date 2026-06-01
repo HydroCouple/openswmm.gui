@@ -175,13 +175,24 @@ public:
     void setHighlighted(bool on);
     void setElementRadius(double r);
 
+    /*! G-1 — marker shape as a canonical OpenSWMM::Render::MarkerShape int
+     *  (0..18). Painted via drawMarkerShape so GIS vector points get the
+     *  full canonical shape set instead of always-ellipse. */
+    void setMarkerShape(int shapeValue) { m_shape = shapeValue; update(); }
+    [[nodiscard]] int markerShape() const { return m_shape; }
+
     void setOwnerLayer(OpenSWMMVisLayer *layer) { m_ownerLayer = layer; }
     [[nodiscard]] OpenSWMMVisLayer *ownerLayer() const { return m_ownerLayer; }
+
+protected:
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
+               QWidget *widget) override;
 
 private:
     qint64        m_fid;
     QVariantMap   m_attrs;
     bool          m_highlighted = false;
+    int           m_shape       = 0;   // canonical MarkerShape::Circle
     OpenSWMMVisLayer *m_ownerLayer  = nullptr;
 };
 

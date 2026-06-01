@@ -105,6 +105,12 @@ public:
      *  zero). Emits `factorsChanged()` on success. */
     bool normalize(double targetSum = 1.0, QString *reasonOut = nullptr);
 
+    /*! \brief Atomically swap the factor values at indices \p i and \p j.
+     *  Used by the chart view's slot-reorder drag (horizontal drag of a
+     *  vertex onto an adjacent slot). Emits a single `factorsChanged()`.
+     *  Returns false (and emits `mutationRejected`) on out-of-range indices. */
+    bool swapFactors(int i, int j, QString *reasonOut = nullptr);
+
     /*! \brief Rename the pattern. Uniqueness is the registry's responsibility;
      *  this just stores + notifies. */
     void setName(QString newName);

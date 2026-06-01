@@ -21,6 +21,7 @@
 #include <QDateTime>
 #include <QHash>
 #include <QPen>
+#include <QSet>
 #include <QString>
 #include <QVariantMap>
 #include <QVector>
@@ -29,8 +30,21 @@
 
 class OpenSWMMVisWorkspace;
 class SpatialReferenceSystem;
+class QGraphicsItem;   // Slice §Y.2 — m_itemByFeature stores QGraphicsItem*
 
-namespace OpenSWMM::Render { class IFeatureRenderer; }
+// Slice U-0 — granular per-Category sublayer mix. The legacy four
+// sublayers (NodeMarker / ConduitLine / ConduitArrow / SubcatchmentFill)
+// are replaced by one FeatureSublayer instance per SWMMModelLayer::Category
+// (11 in total). Each instance owns its own archetype-appropriate
+// style bag so every visual object type can be styled independently.
+#include "render/iattributeprovider.h"   // Slice DM.1
+#include "render/isublayerhost.h"
+#include "render/sublayers/feature/featuresublayer.h"
+
+namespace OpenSWMM::Render {
+class IFeatureRenderer;
+class RuleList;   // Slice B.5 — see ruleList() override below.
+}
 
 /*!
  * \enum SWMMResultVariable
@@ -73,9 +87,12 @@ enum class SWMMResultVariable
  *          The layer delegates geometry loading to an associated SWMMModelLayer
  *          and only manages the colour-mapping / time-stepped rendering.
  */
-class SWMMResultsLayer : public OpenSWMMVisLayer
+class SWMMResultsLayer : public OpenSWMMVisLayer,
+                         public OpenSWMM::Render::ISublayerHost,
+                         public OpenSWMM::Render::IAttributeProvider  // Slice DM.1
 {
     Q_OBJECT
+    Q_INTERFACES(OpenSWMM::Render::IAttributeProvider)  // Slice DM.1
 
     Q_PROPERTY(QString   resultsFilePath  READ resultsFilePath   NOTIFY resultsFilePathChanged)
     Q_PROPERTY(QString   scenarioName     READ scenarioName      WRITE setScenarioName
@@ -111,6 +128,11 @@ public:
                               OpenSWMMVisWorkspace *parent = nullptr);
 
     ~SWMMResultsLayer() override;
+
+    /*! The SWMM model layer that supplies network topology + attributes
+     *  for this run.  Categorized rendering on results layers reads
+     *  categorical strings ("tag", "Link type", …) through here. */
+    [[nodiscard]] class SWMMModelLayer *modelLayer() const { return m_modelLayer; }
 
     // ----- Results file ---------------------------------------------------
 
@@ -192,6 +214,31 @@ public:
     bool openResults(QList<QString> &warnings, QList<QString> &errors);
 
     void closeResults();
+
+    // ----- Per-output node summary statistics (Slice QA.3 + QA-01) -------
+    //
+    // These four accessors return the same statistics the editing-engine
+    // exposes via `swmm_node_get_stat_*`, but sourced from THIS output
+    // file rather than the editing engine's ambient state. The node
+    // attribute panel (Slice QA.2) dispatches to one of these when the
+    // user picks a non-null "Stats source" from the combo, so multiple
+    // loaded SWMMResultsLayers can be compared in the same panel.
+    //
+    // Backed by engine API QA-01 (`swmm_output_get_node_stat_*` in
+    // openswmm_output.h), which aggregates the four flooding stats
+    // on-demand from the .out file's per-period node results. The
+    // aggregation runs at REPORT-step resolution — see the QA-01
+    // header doc for the precision caveat when the routing step is
+    // much finer than the report step.
+    //
+    // \p nodeName is the SWMM model-side identifier (e.g. "J1"); the
+    // implementation resolves it to the output-side index via the
+    // already-built nodeOutputIndex() map. Returns 0.0 for unknown
+    // names or when the underlying file is closed.
+    [[nodiscard]] double nodeStatMaxDepth(const QString &nodeName) const;
+    [[nodiscard]] double nodeStatMaxOverflow(const QString &nodeName) const;
+    [[nodiscard]] double nodeStatVolFlooded(const QString &nodeName) const;
+    [[nodiscard]] double nodeStatTimeFlooded(const QString &nodeName) const;
 
     // ----- Animation ------------------------------------------------------
 
@@ -299,6 +346,25 @@ public:
      */
     void resetKindRendererToDefaults(SWMMModelLayer::Category c);
 
+    // ----- Rule Model (Slice B.5, Phase B) --------------------------------
+    //
+    // Mirrors SWMMModelLayer::ruleList() — 11 kindRenderer slots → 11
+    // Rules, lazy-built on first access. Each Rule owns a clone of the
+    // matching kindRenderer; Rule-side swaps propagate back via
+    // setKindRenderer. Same one-way sync caveat as B.4 — external
+    // setKindRenderer calls don't refresh the in-memory RuleList.
+    [[nodiscard]] OpenSWMM::Render::RuleList *ruleList() override;
+    [[nodiscard]] const OpenSWMM::Render::RuleList *ruleList() const override;
+
+    // ----- IAttributeProvider (Slice DM.1) --------------------------------
+    //
+    // Returns the engine output codes available for the given category.
+    // All entries are isDynamic=true (per-frame values). Drives the
+    // attribute combo in the Graduated / Categorized renderer panels —
+    // see RENDERING_DIALOG_DEMO_PLAN.md §2.
+    [[nodiscard]] QVector<OpenSWMM::Render::AttributeField>
+        availableAttributes(OpenSWMMVis::SwmmCategory cat) const override;
+
     // ----- Legend ---------------------------------------------------------
 
     [[nodiscard]] bool showLegend() const;
@@ -352,6 +418,67 @@ public:
 
     void onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS) override;
 
+    // ----- ISublayerHost interface (Slice U-0) ------------------------------
+    //
+    // Returns the granular per-Category sublayer mix (paint order = list
+    // order, bottom-up). Order matches SWMMModelLayer::Category but groups
+    // by archetype so polygon fills paint first, then lines, then point
+    // markers, then rain gages on top:
+    //
+    //   [0]  Subcatchments        (FillKind,    polygon archetype, dynamic)
+    //   [1]  Conduits             (LineKind,    line archetype,    dynamic)
+    //   [2]  Pumps                (LineKind,    line archetype,    dynamic)
+    //   [3]  Orifices             (LineKind,    line archetype,    dynamic)
+    //   [4]  Weirs                (LineKind,    line archetype,    dynamic)
+    //   [5]  Outlets              (LineKind,    line archetype,    dynamic)
+    //   [6]  Junctions            (MarkerKind,  point archetype,   dynamic)
+    //   [7]  Outfalls             (MarkerKind,  point archetype,   dynamic)
+    //   [8]  Storage              (MarkerKind,  point archetype,   dynamic)
+    //   [9]  Dividers             (MarkerKind,  point archetype,   dynamic)
+    //   [10] RainGages            (MarkerKind,  point archetype,   static)
+    //
+    // The sublayer instances are owned by this layer via QObject parent-
+    // child. dispatchAnimationTick() inherits the default base-class
+    // implementation, which invalidates only the dynamic sublayers per
+    // Decision 3 (see ISublayerHost).
+    [[nodiscard]] QList<OpenSWMM::Render::ISublayer *> sublayers() const override;
+
+    /*! Reorder sublayers in paint order (bottom-up).  Emits
+     *  repaintRequested() on success.  Returns false on out-of-range indices. */
+    bool moveSublayer(int from, int to) override;
+
+    /*! Typed convenience accessor by Category. Returns nullptr if the
+     *  category has no sublayer (out-of-range Category). */
+    [[nodiscard]] OpenSWMM::Render::FeatureSublayer *
+        featureSublayer(SWMMModelLayer::Category c) const;
+
+    /*!
+     * \brief Phase 8 (2026-05-25) — ramp-aware legend rows.
+     *
+     *        Replaces the generic ISublayer::legendSymbolItems()
+     *        single-swatch output with graduated legend rows that reflect
+     *        what populateScene actually paints (5 bins from m_colorRamp,
+     *        ranged across each sublayer's sampled attribute range, labelled
+     *        with value samples). Used by LegendLayerTreeModel when the
+     *        layer is a SWMMResultsLayer; the generic ISublayer aggregator
+     *        remains the fallback for other host layers.
+     *
+     *        Each item carries the sublayerId so the legend dock's
+     *        right-click → "Edit Sublayer Style…" path (Phase 5) keeps
+     *        working unchanged.
+     *
+     *        Non-const because it may trigger lazy ensure*AttributeRange()
+     *        sampling when first asked for an attribute's legend bins.
+     */
+    [[nodiscard]] QList<OpenSWMM::Render::LegendSymbolItem>
+        sublayerLegendItems();
+
+    /*! Slice U-2 — surface every visible-results sublayer (and the
+     *  scenario / variable controls) as styleable subjects for the
+     *  unified LayerStyleDialog. */
+    [[nodiscard]] std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
+        styleSubjects() override;
+
 signals:
     void resultsFilePathChanged(const QString &path);
     void scenarioNameChanged(const QString &name);
@@ -367,9 +494,43 @@ signals:
     /*! \brief Emitted when setRenderer() swaps the renderer pointer. */
     void rendererChanged();
 
+public:
+    /*!
+     * \brief Slice §Y.2 — incremental scene refresh.
+     * \details Branches on m_sceneDirty: ValuesDirty walks the per-feature
+     *          item cache and applies setBrush/setPen in place; Structural
+     *          falls back to the base class depopulate + populate path.
+     *          Clean returns immediately.  The cache is populated during
+     *          populateScene and cleared in depopulateScene.
+     */
+    void refreshScene(QGraphicsScene *scene,
+                      const MapExtent &canvasExtent,
+                      const SpatialReferenceSystem *canvasSRS) override;
+
 private:
     void fetchResultsForStep(int step);
     void buildOutputIdMaps();
+
+    /*! Slice §Y.2 — apply current per-feature colour / pen state to the
+     *  cached scene items without destroying / recreating them. Called from
+     *  refreshScene when m_sceneDirty == ValuesDirty. */
+    void restyleScene(QGraphicsScene *scene);
+
+    /*! Slice §Y.2 — incremental restyle path can't safely handle line
+     *  sublayers with flow arrows on (arrow geometry depends on the flow
+     *  value, not just its colour). Returns true when at least one visible
+     *  sublayer would need a structural rebuild. */
+    bool requiresStructuralRebuildForRestyle() const;
+
+    // Phase 7 (2026-05-25) — lazy attribute-range samplers. Walk every
+    // period of (kind, outCode) once; cache the (min, max) result. Cleared
+    // on closeResults. Used by populateScene to build a local
+    // RasterColorRamp whose range is data-derived rather than the
+    // hardcoded [0, 1] of the layer's m_colorRamp. Returns {0,1} on
+    // sampling failure so paint still has a defined ramp.
+    QPair<double, double> ensureNodeAttributeRange(int outCode);
+    QPair<double, double> ensureLinkAttributeRange(int outCode);
+    QPair<double, double> ensureSubcatchAttributeRange(int outCode);
 
     // Engine output handle ------------------------------------------------
     SWMM_Output          m_handle         = nullptr;
@@ -417,6 +578,14 @@ private:
     // loop in populateScene() to consult them.
     std::vector<std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>> m_kindRenderers;
 
+    // Slice B.5 — RuleList mirroring m_kindRenderers (lazy-built).
+    mutable std::unique_ptr<OpenSWMM::Render::RuleList> m_ruleList;
+    void buildRuleListLazy() const;
+
+    // Slice Z.7a — per-frame rebinning for Rules with rebinPerFrame=true.
+    // Connected to currentTimeStepChanged in buildRuleListLazy.
+    void rebinDynamicRulesIfNeeded();
+
     // Slice OUT.2 — per-feature override cache. Sized to category row
     // count at rebuild time. Read by populateScene's paint loop in
     // preference to m_colorRamp.colorForValue(). Rebuilt whenever
@@ -424,7 +593,20 @@ private:
     // animation tick) OR when setKindRenderer() swaps a slot.
     QVector<QColor>  m_kindFeatureColors[SWMMModelLayer::NumCategories];
     QVector<double>  m_kindFeatureSizes [SWMMModelLayer::NumCategories]; /*!< negative = no override */
+    QVector<double>  m_kindFeatureWidths[SWMMModelLayer::NumCategories]; /*!< negative = no override */
+    QVector<int>     m_kindFeatureShapes[SWMMModelLayer::NumCategories]; /*!< -1 = no override */
+    QVector<int>     m_kindFeatureDashes[SWMMModelLayer::NumCategories]; /*!< -1 = no override */
     bool             m_kindUsesOverrides[SWMMModelLayer::NumCategories] = {};
+
+    // Slice X.21 — categorized-renderer string-attribute cache.  Keyed
+    // by "<categoryOrdinal>/<classifyAttribute>" → per-row string
+    // value pulled from m_modelLayer->identifyByName(...).  Identity-
+    // by-name is a hot lookup that touches every cached node / link /
+    // subcatch entry, so re-fetching it every animation tick is
+    // wasteful — the source data is topology-invariant.  Flat string
+    // key avoids the QHash<QPair<int,QString>, …> requirement of an
+    // explicit qHash overload.
+    mutable QHash<QString, QVector<QString>> m_categoricalAttrCache;
 
     /*! Slice OUT.2 — recomputes the per-feature override cache for the
      *  one kind \p c by walking every feature in the category, building
@@ -445,6 +627,35 @@ private:
     QVector<float>       m_linkResults;     /*!< [linkIdx] for current step */
     QVector<float>       m_subcatchResults; /*!< [subIdx]  for current step */
 
+    // Phase 2 (2026-05-25) — concurrent multi-attribute paint. Each visible
+    // sublayer carries its own `style.attribute` Q_PROPERTY; per period,
+    // fetchResultsForStep populates a vector per (kind, varCode) pair that
+    // any visible sublayer needs. populateScene reads from these maps using
+    // the sublayer's attribute. The legacy m_nodeResults/m_linkResults/
+    // m_subcatchResults remain populated (for the active m_variable) so
+    // existing callers continue to work unchanged.
+    QHash<int, QVector<float>>  m_nodeResultsByVar;
+    QHash<int, QVector<float>>  m_linkResultsByVar;
+    QHash<int, QVector<float>>  m_subcatchResultsByVar;
+
+    // Phase 7 (2026-05-25) — per-attribute observed range, computed by
+    // sampling EVERY period of a variable when first needed. Replaces the
+    // hardcoded [0, 1] m_colorRamp range so values aren't clamped at one
+    // end of the ramp. Cleared on closeResults / openResults; lazily
+    // populated by ensure*AttributeRange() helpers in the cpp.
+    QHash<int, QPair<double, double>>  m_nodeAttributeRange;
+    QHash<int, QPair<double, double>>  m_linkAttributeRange;
+    QHash<int, QPair<double, double>>  m_subcatchAttributeRange;
+
+    // Per-attribute scan in-flight markers. A request from the paint path
+    // (ensure*AttributeRange) returns a placeholder range immediately,
+    // queues a background QtConcurrent scan of every period, and on
+    // completion the result is inserted into the matching cache and a
+    // repaintRequested() is emitted from the layer thread.
+    QSet<int>  m_nodeRangePending;
+    QSet<int>  m_linkRangePending;
+    QSet<int>  m_subcatchRangePending;
+
     // Name → output-file index maps (built once on openResults) -----------
     QHash<QString, int>  m_nodeOutputIdx;
     QHash<QString, int>  m_linkOutputIdx;
@@ -452,6 +663,49 @@ private:
 
     // GDAL coordinate transform -------------------------------------------
     class OGRCoordinateTransformation *m_transform = nullptr;
+
+    // Granular per-Category sublayer storage (Slice U-0) -------------------
+    // One FeatureSublayer per SWMMModelLayer::Category. Indexed by the
+    // category ordinal; size = SWMMModelLayer::NumCategories. Constructed
+    // in the ctor with `this` as QObject parent (no manual delete). The
+    // sublayers() return-list orders them by archetype (polygon → line →
+    // point) so paint order looks correct out of the box.
+    OpenSWMM::Render::FeatureSublayer *m_featureSublayers[SWMMModelLayer::NumCategories] = {};
+
+    // User-customisable sublayer paint order (Slice GUI-2026-05-30 §2).
+    // Populated lazily on first sublayers() / moveSublayer() call from the
+    // archetype-default sequence (polygon → line → marker).  Reordered via
+    // moveSublayer(); persisted by ISublayerHost::saveSublayersToJson and
+    // restored by loadSublayersFromJson on .oswp load.
+    mutable QList<OpenSWMM::Render::ISublayer *> m_sublayerOrder;
+
+    // Slice §Y.2 — incremental scene refresh state.
+    //
+    // m_sceneDirty drives refreshScene's branch.  Structural forces the
+    // legacy depopulate + populate path (every QGraphicsItem destroyed and
+    // re-allocated).  Values reuses the cached items and only mutates
+    // brush / pen.  Clean returns immediately.  The default is Structural
+    // so the first paint after construction (or after a results file
+    // open) still produces a full scene.
+    enum class SceneDirty : int { Clean = 0, Values = 1, Structural = 2 };
+    SceneDirty m_sceneDirty { SceneDirty::Structural };
+
+    // Per-Category item cache.  populateScene records the primary
+    // QGraphicsItem for every feature row into the matching slot; null
+    // entries are valid (NaN values / missing geometry / filtered rows).
+    // restyleScene walks the slots and applies setBrush / setPen in place.
+    // depopulateScene clears the slots.  Sizing tracks the model's
+    // categoryCount at population time; restyleScene falls back to
+    // structural when the size mismatches the current count (mid-session
+    // topology edit).
+    QVector<QGraphicsItem *> m_itemByFeature[SWMMModelLayer::NumCategories];
+
+    /*! Slice §Y.2 — flip to the strongest pending dirtiness without ever
+     *  downgrading (Structural beats Values beats Clean).  Used by the
+     *  setter cluster (setVariable, setColorRamp, sublayer toggles, …) so
+     *  a pending structural rebuild isn't lost when a subsequent values-
+     *  only mutation arrives. */
+    void escalateSceneDirty(SceneDirty next);
 };
 
 Q_DECLARE_METATYPE(SWMMResultsLayer *)

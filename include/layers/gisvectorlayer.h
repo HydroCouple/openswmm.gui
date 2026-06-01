@@ -11,10 +11,14 @@
 #define GISVECTORLAYER_H
 
 #include "layers/openswmmvislayer.h"
+#include "render/iattributeprovider.h"   // Slice DM.3
+#include "render/labelconfig.h"
 
 #include <QColor>
 #include <QFont>
+#include <QJsonObject>
 #include <QList>
+#include <QPainterPath>
 #include <QPen>
 #include <QBrush>
 #include <QString>
@@ -33,7 +37,10 @@ class OGRCoordinateTransformation;
 class SpatialReferenceSystem;
 class OpenSWMMVisWorkspace;
 
-namespace OpenSWMM::Render { class IFeatureRenderer; }
+namespace OpenSWMM::Render {
+class IFeatureRenderer;
+class RuleList;   // Slice B.3 — see m_ruleList below.
+}
 
 /*!
  * \struct GISVectorSymbol
@@ -66,6 +73,16 @@ struct GISVectorSymbol
     QString     labelField;             /*!< OGR field name used for labels. */
     QFont       labelFont;
     QColor      labelColor     = Qt::black;
+
+    /*! Slice X.19 — full LabelConfig (halo, placement, scale-range).
+     *  Mirrors the legacy showLabels/labelField/labelFont/labelColor
+     *  via GISVectorLayer::setLabelConfig; preserved here so when /
+     *  if the GIS-vector .oswp persistence path lands, the richer
+     *  fields ride along through the same symbol JSON. */
+    OpenSWMM::Render::LabelConfig labelConfig;
+
+    [[nodiscard]] QJsonObject toJson() const;
+    void fromJson(const QJsonObject &j);
 };
 
 /*!
@@ -80,9 +97,11 @@ struct GISVectorSymbol
  *          - Feature selection tracking.
  *          - An identify operation returning attributes as QVariantMap.
  */
-class GISVectorLayer : public OpenSWMMVisLayer
+class GISVectorLayer : public OpenSWMMVisLayer,
+                       public OpenSWMM::Render::IAttributeProvider  // Slice DM.3
 {
     Q_OBJECT
+    Q_INTERFACES(OpenSWMM::Render::IAttributeProvider)  // Slice DM.3
     Q_PROPERTY(QString    filePath     READ filePath     NOTIFY filePathChanged)
     Q_PROPERTY(QString    layerName    READ ogrLayerName NOTIFY layerNameChanged)
     Q_PROPERTY(int        featureCount READ featureCount NOTIFY featureCountChanged)
@@ -118,6 +137,24 @@ public:
     [[nodiscard]] class OGRLayer *ogrLayer() const { return m_ogrLayer; }
 
     /*!
+     * \brief Slice Z.14-paint — append every polygon ring this layer
+     *        currently exposes (post-attribute-filter) to \p out in
+     *        canvas-scene coords (Y-flipped, same space the canvas
+     *        QGraphicsItems paint into).
+     *
+     *        Multi-polygons contribute each sub-polygon's exterior +
+     *        holes. Non-polygon geometries are skipped silently —
+     *        callers (e.g. the mask-clip resolver) treat that as an
+     *        empty result and fall back to unclipped paint.
+     *
+     *        Idempotent w.r.t. the spatial-filter rectangle the canvas
+     *        has set on the underlying OGRLayer; the method clears the
+     *        filter, iterates every feature, then restores the prior
+     *        filter so concurrent canvas painting isn't disturbed.
+     */
+    void appendScenePolygonsTo(QPainterPath &out) const;
+
+    /*!
      * \brief Returns the number of features currently visible (after filtering).
      */
     [[nodiscard]] int featureCount() const;
@@ -126,6 +163,16 @@ public:
      * \brief Returns the list of field (attribute column) names.
      */
     [[nodiscard]] QStringList fieldNames() const;
+
+    // ----- IAttributeProvider (Slice DM.3) --------------------------------
+    //
+    // GIS layers have no SWMM category. The interface's `cat` arg is
+    // ignored; we always return the OGR field list (the same data
+    // fieldNames() exposes) wrapped as AttributeField. All entries
+    // are isDynamic=false — vector attributes don't change per
+    // animation frame.
+    [[nodiscard]] QVector<OpenSWMM::Render::AttributeField>
+        availableAttributes(OpenSWMMVis::SwmmCategory cat) const override;
 
     // ----- Filtering ------------------------------------------------------
 
@@ -146,10 +193,32 @@ public:
     [[nodiscard]] GISVectorSymbol symbol() const;
     void setSymbol(const GISVectorSymbol &symbol);
 
-    // ----- Renderer (Slice BI Phase 8.13.6.6) -----------------------------
+    /*! \brief Slice X.18 — full label configuration.
+     *
+     *         Wraps the legacy `GISVectorSymbol::showLabels` /
+     *         `labelField` / `labelFont` / `labelColor` fields plus
+     *         halo, placement, and scale-range so the Labels tab of
+     *         LayerStyleDialog has somewhere coherent to write. */
+    // VS.10 — labelConfig() inherited from OpenSWMMVisLayer; only the setter
+    // is overridden to mirror fields onto the legacy GISVectorSymbol bag.
+    void setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg) override;
+
+    /*! \brief Names of the OGR fields available for label expressions.
+     *         Empty when no dataset has been opened yet.  Used by the
+     *         Labels tab to populate the field combobox. */
+    [[nodiscard]] QStringList ogrFieldNames() const;
+
+    /*! Slice U-7 — expose the GISVectorSymbol via a QObject adapter as the
+     *  single styleable subject for the unified LayerStyleDialog. */
+    [[nodiscard]] std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
+        styleSubjects() override;
+
+    // ----- Renderer (Slice BI Phase 8.13.6.6 + Slice B.3) -----------------
     // API plumbing only — paint loop still consults m_symbol directly.
     // Sub-phase 8.13.6.4 (deferred until Slice BB ColorRamp lands) will
-    // refactor the paint loop to consult m_renderer instead.
+    // refactor the paint loop to consult the renderer instead. Slice B.3
+    // migrated the renderer's home to the m_ruleList's active Rule —
+    // renderer() / setRenderer() are facades over the Rule.
 
     /*!
      * \brief The IFeatureRenderer that will drive this layer's paint pass.
@@ -165,6 +234,17 @@ public:
      *          the renderer pointer actually changes.
      */
     void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+
+    // ----- Rule Model (Slice B.3, Phase B) --------------------------------
+    //
+    // GISVectorLayer is the first concrete layer to migrate to the Rule
+    // Model. The layer owns a single-Rule RuleList that wraps the
+    // renderer; `renderer()` and `setRenderer()` are facades over the
+    // active Rule's owned IFeatureRenderer. LayerStyleDialog detects
+    // `ruleList() != nullptr` and mounts RuleSymbologyTab in the
+    // Symbology tab (Slice B.2 dispatch).
+    [[nodiscard]] OpenSWMM::Render::RuleList *ruleList() override;
+    [[nodiscard]] const OpenSWMM::Render::RuleList *ruleList() const override;
 
     // ----- Selection ------------------------------------------------------
 
@@ -223,6 +303,8 @@ signals:
     void featureCountChanged(int count);
     void filterExpressionChanged(const QString &expr);
     void symbolChanged(const GISVectorSymbol &symbol);
+
+    // VS.10 — labelConfigChanged() is inherited from OpenSWMMVisLayer.
     void selectionChanged(const QSet<long long> &selectedIds);
     /*! \brief Emitted when setRenderer() swaps the renderer pointer. */
     void rendererChanged();
@@ -232,10 +314,19 @@ private:
     void closeDataset();
     void rebuildTransform(const SpatialReferenceSystem *canvasSRS);
 
+    /*! \brief Derive a GISVectorSymbol from the active Rule's renderer
+     *         and feed it through setSymbol(). Called when the Rule's
+     *         renderer state changes (Symbology-tab edits via
+     *         SymbolStyleAdapter). For SingleSymbol the derivation is
+     *         a single symbolFor() call; per-feature dispatch (needed
+     *         for Graduated / Categorized) lands in a follow-up. */
+    void syncSymbolFromRenderer();
+
     QString                      m_filePath;
     QString                      m_ogrLayerName;
     QString                      m_filterExpr;
     GISVectorSymbol              m_symbol;
+    // VS.10 — m_labelConfig moved to OpenSWMMVisLayer (base owns it now).
     QSet<long long>              m_selectedIds;
 
     GDALDataset                 *m_dataset   = nullptr; /*!< Owned GDAL dataset. */
@@ -245,7 +336,14 @@ private:
     // Slice BI Phase 8.13.6.6 — renderer plumbing.  Initialised eagerly in
     // the ctor (default SingleSymbolRenderer) so renderer() never returns
     // null.  Paint refactor deferred until Slice BB ColorRamp ships.
-    std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> m_renderer;
+    //
+    // Slice B.3 — renderer ownership migrated to m_ruleList. The
+    // canonical home for the renderer is now the active Rule's owned
+    // IFeatureRenderer. renderer() and setRenderer() are thin facades
+    // over m_ruleList->activeRule()->renderer() — no per-layer unique_ptr
+    // duplicate. Legend code paths (legendoverlay, legendlayertreemodel,
+    // legendclasseditcommands) keep working through the facade.
+    std::unique_ptr<OpenSWMM::Render::RuleList>         m_ruleList;
 
     // Dirty flag — skip scene rebuild when only the view extent changed
     bool                         m_needsRebuild = true;

@@ -1,4 +1,4 @@
-# 05 — Layer Management
+@page manual_layers 05 — Layer Management
 
 ## What you'll do
 

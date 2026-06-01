@@ -13,6 +13,8 @@
 #include <ogr_spatialref.h>
 #include <ogr_api.h>
 
+#include <cmath>
+
 // ---------------------------------------------------------------------------
 // Constructors / destructor
 // ---------------------------------------------------------------------------
@@ -202,6 +204,25 @@ QString SpatialReferenceSystem::angularUnitsName() const
     const char *unit = nullptr;
     m_ogrSRS->GetAngularUnits(&unit);
     return unit ? QString::fromUtf8(unit) : QString();
+}
+
+SpatialReferenceSystem::LinearUnitInfo
+SpatialReferenceSystem::planarLinearUnit() const
+{
+    LinearUnitInfo info;
+    if (!m_ogrSRS) return info;
+
+    // Geographic CRSes have angular units — cannot be meshed in SI.
+    if (m_ogrSRS->IsGeographic()) return info;
+
+    const char *unit = nullptr;
+    const double m = m_ogrSRS->GetLinearUnits(&unit);
+    if (!std::isfinite(m) || m <= 0.0) return info;
+
+    info.metresPerUnit = m;
+    info.name          = unit ? QString::fromUtf8(unit) : QString();
+    info.usable        = m_ogrSRS->IsProjected() || m_ogrSRS->IsLocal();
+    return info;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-# 04 — Coordinate Reference Systems
+@page manual_crs 04 — Coordinate Reference Systems
 
 ## What you'll do
 

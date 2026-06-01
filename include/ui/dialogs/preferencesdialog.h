@@ -30,6 +30,7 @@ class QSpinBox;
 class QStackedWidget;
 
 class LinkRenderingPrefs;
+class NodeRenderingPrefs;
 class SelectionRenderingPrefs;
 class QPropertyModel;
 
@@ -110,6 +111,14 @@ private:
     QDoubleSpinBox     *m_labelLodSpin    = nullptr;
     LinkRenderingPrefs *m_linkPrefs       = nullptr;
     QPropertyModel     *m_linkPenModel    = nullptr;
+    // Node symbols — same QPropertyModel pattern as link pens. The bridge
+    // exposes pen, fill brush, and size per node type so QPenPropertyItem
+    // and QBrushPropertyItem handle every sub-attribute (colour / width /
+    // dash / cap / join / brush style), and a plain double row drives the
+    // marker diameter.
+    NodeRenderingPrefs *m_nodePrefs       = nullptr;
+    QPropertyModel     *m_nodeStyleModel  = nullptr;
+    QCheckBox          *m_qsgNodesBox     = nullptr;
 
     // Simulation
     QSpinBox   *m_progressTickMsSpin    = nullptr;

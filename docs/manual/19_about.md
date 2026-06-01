@@ -1,4 +1,4 @@
-# 19 — About and Licenses
+@page manual_about 19 — About and Licenses
 
 ## What you'll do
 
