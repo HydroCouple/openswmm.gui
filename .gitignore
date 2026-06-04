@@ -69,3 +69,12 @@ __recovery/
 modules/
 
 CMakeUserPresets.json
+
+# --- Build & generated artifacts (added 2026-06-04) ---
+build/
+packages/
+docs/html/
+docs/test_output/
+examples/
+.idea/
+.DS_Store

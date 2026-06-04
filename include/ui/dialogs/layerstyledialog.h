@@ -47,6 +47,7 @@ class QPlainTextEdit;
 class QTabWidget;
 
 class OpenSWMMVisLayer;
+class QUndoStack;   // #36 — optional app-level undo for symbology edits
 
 namespace openswmmvis::ui {
 
@@ -88,7 +89,8 @@ class LayerStyleDialog : public QDialog
 public:
     explicit LayerStyleDialog(OpenSWMMVisLayer *layer,
                               QString initialRoutingId = {},
-                              QWidget *parent = nullptr);
+                              QWidget *parent = nullptr,
+                              QUndoStack *undoStack = nullptr);   // #36 — optional
     ~LayerStyleDialog() override;
 
 private slots:
@@ -130,6 +132,13 @@ private:
     // and rendered into the Symbology / Labels tabs as appropriate.
     std::vector<std::unique_ptr<ILayerStyleSubject>> m_subjects;
     std::vector<QJsonObject> m_subjectSnapshots;
+
+    // #36 — app-level undo. m_undoBaseline is the subject state at dialog
+    // open; on OK, if it changed, push an EditLayerStyleCommand(before,after)
+    // onto m_undoStack so the symbology edit is undoable after the dialog
+    // closes. Null stack → no command (back-compat for callers without one).
+    QUndoStack              *m_undoStack = nullptr;
+    std::vector<QJsonObject>  m_undoBaseline;
 
     QString  m_initialRoutingId;
 

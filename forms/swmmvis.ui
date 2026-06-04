@@ -387,12 +387,6 @@
      <verstretch>0</verstretch>
     </sizepolicy>
    </property>
-   <property name="minimumSize">
-    <size>
-     <width>124</width>
-     <height>228</height>
-    </size>
-   </property>
    <property name="toolTip">
     <string>Layers</string>
    </property>
@@ -498,12 +492,6 @@
      <verstretch>0</verstretch>
     </sizepolicy>
    </property>
-   <property name="minimumSize">
-    <size>
-     <width>102</width>
-     <height>124</height>
-    </size>
-   </property>
    <property name="toolTip">
     <string>Properties</string>
    </property>
@@ -537,12 +525,6 @@
       <horstretch>0</horstretch>
       <verstretch>0</verstretch>
      </sizepolicy>
-    </property>
-    <property name="minimumSize">
-     <size>
-      <width>102</width>
-      <height>124</height>
-     </size>
     </property>
     <property name="toolTip">
      <string>Analysis Toolbox</string>
@@ -613,6 +595,7 @@
     <property name="title">
      <string>&amp;View</string>
     </property>
+    <addaction name="actionLayerStylingDock"/>
    </widget>
    <widget class="QMenu" name="menuTools">
     <property name="title">
@@ -621,6 +604,7 @@
     <addaction name="actionOptions"/>
     <addaction name="separator"/>
     <addaction name="actionPlugins"/>
+    <addaction name="actionStyleManager"/>
     <addaction name="separator"/>
     <addaction name="actionSettings"/>
    </widget>
@@ -700,9 +684,6 @@
    </attribute>
    <addaction name="actionEditExisting"/>
    <addaction name="separator"/>
-   <addaction name="actionAddNode"/>
-   <addaction name="actionAddPolyline"/>
-   <addaction name="actionAddPolygon"/>
    <addaction name="actionAddText"/>
    <addaction name="separator"/>
    <addaction name="actionAddSubcatchment"/>
@@ -885,6 +866,37 @@
    </property>
    <property name="statusTip">
     <string>Inspect installed file-format plugins and built-in filters</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionStyleManager">
+   <property name="text">
+    <string>St&amp;yle Manager…</string>
+   </property>
+   <property name="toolTip">
+    <string>Browse, apply, save, import, and export saved Rule Lists</string>
+   </property>
+   <property name="statusTip">
+    <string>Browse the per-user style library and apply Rule Lists to the active layer</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionLayerStylingDock">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Layer Styling &amp;Dock</string>
+   </property>
+   <property name="toolTip">
+    <string>Show / hide the live layer-styling editor dock</string>
+   </property>
+   <property name="statusTip">
+    <string>Always-open variant of the Symbology tab — edits apply live to the canvas</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>
@@ -1267,60 +1279,6 @@
     <string/>
    </property>
   </action>
-  <action name="actionAddNode">
-   <property name="icon">
-    <iconset resource="../resources/swmmvis.qrc">
-     <normaloff>:/swmmvis/Node</normaloff>:/swmmvis/Node</iconset>
-   </property>
-   <property name="text">
-    <string>&amp;Add Node</string>
-   </property>
-   <property name="statusTip">
-    <string>Add Node</string>
-   </property>
-   <property name="whatsThis">
-    <string>Add Node</string>
-   </property>
-   <property name="shortcut">
-    <string/>
-   </property>
-  </action>
-  <action name="actionAddPolyline">
-   <property name="icon">
-    <iconset resource="../resources/swmmvis.qrc">
-     <normaloff>:/swmmvis/Polyline</normaloff>:/swmmvis/Polyline</iconset>
-   </property>
-   <property name="text">
-    <string>&amp;Add Polyline</string>
-   </property>
-   <property name="statusTip">
-    <string>Add Link</string>
-   </property>
-   <property name="whatsThis">
-    <string>Add Link</string>
-   </property>
-   <property name="shortcut">
-    <string/>
-   </property>
-  </action>
-  <action name="actionAddPolygon">
-   <property name="icon">
-    <iconset resource="../resources/swmmvis.qrc">
-     <normaloff>:/swmmvis/Polygon</normaloff>:/swmmvis/Polygon</iconset>
-   </property>
-   <property name="text">
-    <string>&amp;Add Polygon</string>
-   </property>
-   <property name="statusTip">
-    <string>Add Polygon</string>
-   </property>
-   <property name="whatsThis">
-    <string>Add Polygon</string>
-   </property>
-   <property name="shortcut">
-    <string/>
-   </property>
-  </action>
   <action name="actionRainGauge">
    <property name="icon">
     <iconset resource="../resources/swmmvis.qrc">
@@ -1439,15 +1397,24 @@
    </property>
   </action>
   <action name="actionAddText">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
    <property name="icon">
     <iconset resource="../resources/swmmvis.qrc">
      <normaloff>:/swmmvis/Text</normaloff>:/swmmvis/Text</iconset>
    </property>
    <property name="text">
-    <string>addText</string>
+    <string>Add &amp;Text</string>
    </property>
    <property name="toolTip">
     <string>Add Text</string>
+   </property>
+   <property name="statusTip">
+    <string>Place a text annotation on the map</string>
+   </property>
+   <property name="whatsThis">
+    <string>Add a styled text annotation (font, fill, outline, halo, background) at a point on the map.</string>
    </property>
    <property name="menuRole">
     <enum>QAction::TextHeuristicRole</enum>

@@ -12,6 +12,7 @@
 #include "ui/dialogs/pluginstablemodel.h"
 #include "core/preferencesmanager.h"
 #include "layers/swmmmodellayer.h"
+#include "mesh/inpmeshwriter.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
 #include "plugins/filefilterregistry.h"
@@ -976,24 +977,12 @@ void SimulationOptionsDialog::buildMeshTab(QTabWidget *tabs)
     m_meshActiveLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     vlay->addWidget(m_meshActiveLabel);
 
-    // For the demo cut, Refresh + listing are live. Set Active / Remove
-    // become live alongside the MeshGenerationDialog (Slice AU.4) so
-    // the .inp [2D_MESH_FILE] retarget logic ships in one place.
     connect(btnRefresh, &QPushButton::clicked, this,
             &SimulationOptionsDialog::refreshMeshList);
-    connect(btnSetActive, &QPushButton::clicked, this, [this]() {
-        // Selecting an active mesh implies the user wants 2D on. Flip the
-        // module checkbox so the corresponding tab + persistence follow.
-        if (m_module2DBox && !m_module2DBox->isChecked())
-            m_module2DBox->setChecked(true);
-        QMessageBox::information(this, tr("Set Active Mesh"),
-            tr("[2D_MESH_FILE] re-targeting lands alongside the "
-               "Generate Mesh dialog (Slice AU.4)."));
-    });
-    connect(btnRemove, &QPushButton::clicked, this, [this]() {
-        QMessageBox::information(this, tr("Remove Mesh"),
-            tr("Removal lands alongside the Generate Mesh dialog."));
-    });
+    connect(btnSetActive, &QPushButton::clicked, this,
+            &SimulationOptionsDialog::onMeshSetActive);
+    connect(btnRemove, &QPushButton::clicked, this,
+            &SimulationOptionsDialog::onMeshRemove);
 
     refreshMeshList();
     tabs->addTab(page, tr("Mesh"));
@@ -1066,6 +1055,86 @@ void SimulationOptionsDialog::refreshMeshList()
     m_meshActiveLabel->setText(active.isEmpty()
         ? tr("Active mesh reference: <none — engine reads inline mesh, if any>")
         : tr("Active mesh reference: %1").arg(active));
+}
+
+void SimulationOptionsDialog::onMeshSetActive()
+{
+    if (!m_meshList || !m_layer) return;
+
+    QListWidgetItem *item = m_meshList->currentItem();
+    if (!item) {
+        QMessageBox::information(this, tr("Set Active Mesh"),
+            tr("Select a mesh (.2dm) from the list first."));
+        return;
+    }
+
+    const QString modelPath = m_layer->modelFilePath();
+    if (modelPath.isEmpty()) {
+        QMessageBox::warning(this, tr("Set Active Mesh"),
+            tr("Save the project first — the [2D_MESH_FILE] reference is "
+               "written into the .inp on disk."));
+        return;
+    }
+
+    const QString meshPath =
+        QFileInfo(modelPath).absoluteDir().absoluteFilePath(item->text());
+
+    QString err;
+    if (!mesh::InpMeshWriter::writeMeshFileRef(modelPath, meshPath, &err)) {
+        QMessageBox::critical(this, tr("Set Active Mesh"),
+            tr("Could not update [2D_MESH_FILE]:\n%1").arg(err));
+        return;
+    }
+
+    // Selecting an active mesh implies the user wants 2D on. Flip the
+    // module checkbox so the corresponding tab + persistence follow.
+    if (m_module2DBox && !m_module2DBox->isChecked())
+        m_module2DBox->setChecked(true);
+
+    refreshMeshList();
+}
+
+void SimulationOptionsDialog::onMeshRemove()
+{
+    if (!m_meshList || !m_layer) return;
+
+    QListWidgetItem *item = m_meshList->currentItem();
+    if (!item) {
+        QMessageBox::information(this, tr("Remove Mesh"),
+            tr("Select a mesh (.2dm) from the list first."));
+        return;
+    }
+
+    const QString modelPath = m_layer->modelFilePath();
+    if (modelPath.isEmpty()) return;
+
+    const QString name     = item->text();
+    const QString meshPath =
+        QFileInfo(modelPath).absoluteDir().absoluteFilePath(name);
+
+    // Warn (but allow) when deleting the file the .inp currently references —
+    // the [2D_MESH_FILE] block survives and would dangle until retargeted.
+    const bool isActive = m_meshActiveLabel &&
+        m_meshActiveLabel->text().contains(name);
+    const QString question = isActive
+        ? tr("\"%1\" is the active [2D_MESH_FILE] reference. Deleting it will "
+             "leave the .inp pointing at a missing file until you set a new "
+             "active mesh.\n\nDelete it anyway?").arg(name)
+        : tr("Delete \"%1\" from disk? This cannot be undone.").arg(name);
+
+    if (QMessageBox::question(this, tr("Remove Mesh"), question,
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
+        != QMessageBox::Yes)
+        return;
+
+    QFile f(meshPath);
+    if (f.exists() && !f.remove()) {
+        QMessageBox::critical(this, tr("Remove Mesh"),
+            tr("Could not delete %1:\n%2").arg(meshPath, f.errorString()));
+        return;
+    }
+
+    refreshMeshList();
 }
 
 void SimulationOptionsDialog::on2DModuleToggled(bool enabled)

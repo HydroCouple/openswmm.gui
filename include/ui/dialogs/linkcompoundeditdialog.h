@@ -80,6 +80,17 @@ private:
      *  picker's "..." button. */
     void onTransectPickerClicked();
 
+    /*! Refresh the street picker's items from the layer's StreetRegistry
+     *  and select \p selected if non-empty. Mirrors
+     *  refreshTransectPickerItems for the STREET shape. */
+    void refreshStreetPickerItems(const QString &selected = {});
+
+    /*! Open `StreetEditorDialog::pickStreet` modally and, on a non-empty
+     *  return, update the picker selection + commit the new street index
+     *  to the engine via `applyXsect`. Triggered by the street picker's
+     *  "..." button. */
+    void onStreetPickerClicked();
+
     LinkCompoundEditRef m_ref;
 
     // XSection page widgets — §S.SC.1.a (2026-05-25) reworked: the
@@ -112,6 +123,12 @@ private:
     // transect index → geom1.
     QLabel             *m_xsTransectLabel  = nullptr;
     LabeledPickerCombo *m_xsTransectPicker = nullptr;
+
+    // STREET shape — same picker pattern as IRREGULAR: geom1 is a street
+    // *index*, surfaced as a name dropdown + "..." button that opens the
+    // StreetEditorDialog CRUD modal (`pickStreet`).
+    QLabel             *m_xsStreetLabel  = nullptr;
+    LabeledPickerCombo *m_xsStreetPicker = nullptr;
 
     // Re-entrancy guard: when we populate widgets from engine state
     // on dialog open / page activation, the QSignals fire and would

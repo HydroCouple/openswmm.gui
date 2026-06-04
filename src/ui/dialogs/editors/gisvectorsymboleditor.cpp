@@ -51,6 +51,7 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
         form->addRow(tr("Size:"), m_markerSize);
 
         m_markerFill = new ColorButton(page);
+        m_markerFill->setShowAlpha(true);   // allow per-colour transparency
         form->addRow(tr("Fill:"), m_markerFill);
 
         m_markerStroke = new ColorButton(page);
@@ -111,6 +112,7 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
         auto *form = new QFormLayout;
 
         m_polyFill = new ColorButton(page);
+        m_polyFill->setShowAlpha(true);   // polygon fill transparency
         form->addRow(tr("Fill colour:"), m_polyFill);
 
         m_polyOutline = new ColorButton(page);

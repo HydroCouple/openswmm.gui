@@ -1995,10 +1995,10 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
             }
         }
     }
-    if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr)) {
-        if (g->lastBreaks().isEmpty() && !values.isEmpty())
-            g->autoClassify(values);
-    }
+    // F4 — shared classify gate (same isEmpty + non-empty-samples condition as
+    // the model layer) so the two rebuild paths cannot drift.
+    if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr))
+        OpenSWMM::Render::GraduatedRenderer::classifyIfNeeded(g, values);
 
     for (int row = 0; row < count; ++row) {
         const QString name = m_modelLayer->objectNameAt(c, row);
@@ -2609,6 +2609,10 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
             case FeatureSublayer::Archetype::Polygon: paintPolygon(sub); break;
         }
     }
+
+    // L-1 — build labels after the feature items exist (positions anchor off
+    // m_itemByFeature). No-op when labelConfig().enabled is false.
+    refreshLabels(scene);
 }
 
 void SWMMResultsLayer::depopulateScene(QGraphicsScene *scene)
@@ -2616,9 +2620,12 @@ void SWMMResultsLayer::depopulateScene(QGraphicsScene *scene)
     OpenSWMMVisLayer::depopulateScene(scene);
     // Slice §Y.2 — base class destroyed every item we cached, so the
     // pointers are now dangling. Drop them; the next populateScene
-    // refills the slots.
-    for (int k = 0; k < SWMMModelLayer::NumCategories; ++k)
+    // refills the slots. L-1 — label items are tagged with the same owner
+    // tag, so the base destroyed them too; drop the dangling handles.
+    for (int k = 0; k < SWMMModelLayer::NumCategories; ++k) {
         m_itemByFeature[k].clear();
+        m_labelByFeature[k].clear();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2671,7 +2678,7 @@ void SWMMResultsLayer::refreshScene(QGraphicsScene *scene,
     m_sceneDirty = SceneDirty::Clean;
 }
 
-void SWMMResultsLayer::restyleScene(QGraphicsScene * /*scene*/)
+void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
 {
     if (!isVisible() || !m_modelLayer || opacity() <= 0.0)
         return;
@@ -2929,5 +2936,202 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene * /*scene*/)
             break;
         }
         }
+    }
+
+    // L-1 — refresh per-feature labels with the new frame's values.
+    refreshLabels(scene);
+}
+
+// ---------------------------------------------------------------------------
+// L-1 — per-feature "name: value" labels for animated results
+// ---------------------------------------------------------------------------
+
+void SWMMResultsLayer::clearLabels()
+{
+    // Called when labels are disabled (no depopulate has run, so the cached
+    // pointers are still live). Proactively remove + delete so the disable
+    // takes effect on the next paint.
+    for (int k = 0; k < SWMMModelLayer::NumCategories; ++k) {
+        for (QGraphicsSimpleTextItem *lbl : m_labelByFeature[k]) {
+            if (!lbl) continue;
+            if (QGraphicsScene *sc = lbl->scene())
+                sc->removeItem(lbl);
+            delete lbl;
+        }
+        m_labelByFeature[k].clear();
+    }
+}
+
+void SWMMResultsLayer::setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg)
+{
+    OpenSWMMVisLayer::setLabelConfig(cfg);   // store + emit labelConfigChanged/repaint
+    // A label-only change leaves the scene "Clean"; escalate so the next
+    // refresh runs restyleScene → refreshLabels and the change is applied.
+    escalateSceneDirty(SceneDirty::Values);
+}
+
+void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
+{
+    // L-1 — per-sublayer labels. Each FeatureSublayer carries its own
+    // LabelConfig (enable / expression / colour / placement), so the user can
+    // label, say, Junctions with "{name}: {depth} m" and Conduits with
+    // "{flow} m³/s" independently. The label text is an expression template:
+    // {name} → element name, {field} → that feature's current value for the
+    // named result variable; literal text is kept verbatim.
+    if (!scene || !m_modelLayer) { clearLabels(); return; }
+
+    using OpenSWMM::Render::FeatureSublayer;
+    const quintptr ownerTag = reinterpret_cast<quintptr>(this);
+    const qreal    opMul = opacity();
+
+    // Resolve any result field's current value for one feature in a scope
+    // (0=node, 1=link, 2=subcatch). Empty when no data / non-finite.
+    auto fieldValueStr = [&](int scope, const QString &field, const QString &name) -> QString {
+        const QVector<float> *vec = nullptr;
+        if (scope == 0) {
+            const int oc = nodeOutCodeForAttribute(field);
+            if (oc >= 0) { const auto it = m_nodeResultsByVar.constFind(oc);
+                if (it != m_nodeResultsByVar.constEnd()) vec = &it.value(); }
+        } else if (scope == 1) {
+            const int oc = linkOutCodeForAttribute(field);
+            if (oc >= 0) { const auto it = m_linkResultsByVar.constFind(oc);
+                if (it != m_linkResultsByVar.constEnd()) vec = &it.value(); }
+        } else {
+            const int oc = subcatchOutCodeForAttribute(field);
+            if (oc >= 0) { const auto it = m_subcatchResultsByVar.constFind(oc);
+                if (it != m_subcatchResultsByVar.constEnd()) vec = &it.value(); }
+        }
+        if (!vec) return QString();
+        const int oi = (scope == 0) ? nodeOutputIndex(name)
+                     : (scope == 1) ? linkOutputIndex(name)
+                                    : subcatchOutputIndex(name);
+        if (oi < 0 || oi >= vec->size()) return QString();
+        const float v = (*vec)[oi];
+        return std::isfinite(v) ? QString::number(double(v), 'g', 4) : QString();
+    };
+
+    // Substitute {token} placeholders in an expression.
+    auto evalExpr = [&](const QString &expr, int scope, const QString &name) -> QString {
+        QString out;
+        int i = 0;
+        while (i < expr.size()) {
+            if (expr.at(i) == QLatin1Char('{')) {
+                const int j = expr.indexOf(QLatin1Char('}'), i + 1);
+                if (j < 0) { out += expr.mid(i); break; }
+                const QString tok = expr.mid(i + 1, j - i - 1).trimmed();
+                if (tok.compare(QLatin1String("name"), Qt::CaseInsensitive) == 0)
+                    out += name;
+                else
+                    out += fieldValueStr(scope, tok, name);
+                i = j + 1;
+            } else {
+                out += expr.at(i);
+                ++i;
+            }
+        }
+        return out;
+    };
+
+    auto offsetFor = [](OpenSWMM::Render::LabelConfig::Placement pl,
+                        qreal w, qreal h) -> QPointF {
+        using LC = OpenSWMM::Render::LabelConfig;
+        switch (pl) {
+        case LC::Above:  return { -w * 0.5, -h - 2.0 };
+        case LC::Below:  return { -w * 0.5,  4.0 };
+        case LC::Left:   return { -w - 6.0, -h * 0.5 };
+        case LC::Right:  return {  6.0,     -h * 0.5 };
+        case LC::Centre: return { -w * 0.5, -h * 0.5 };
+        case LC::AutoPlacement:
+        default:         return {  6.0,     -h - 2.0 };
+        }
+    };
+
+    bool labelled[SWMMModelLayer::NumCategories] = { false };
+
+    for (auto *base : sublayers()) {
+        auto *sub = qobject_cast<FeatureSublayer *>(base);
+        if (!sub || !sub->isVisible() || sub->opacity() <= 0.0) continue;
+
+        auto *stylePtr = sub->featureStyle();
+        if (!stylePtr) continue;
+        const OpenSWMM::Render::LabelConfig &lc = stylePtr->labelConfig();
+        if (!lc.enabled) continue;   // per-sublayer toggle — left unlabelled
+
+        const SWMMModelLayer::Category cat = sub->category();
+        const int catIdx = static_cast<int>(cat);
+        const int count  = m_modelLayer->categoryCount(cat);
+        if (count <= 0 || m_itemByFeature[catIdx].size() != count) continue;
+
+        const int scope = (sub->archetype() == FeatureSublayer::Archetype::Point)  ? 0
+                        : (sub->archetype() == FeatureSublayer::Archetype::Line)   ? 1
+                                                                                   : 2;
+        const QString attr = stylePtr->attribute();   // default-text fallback
+        QString unit;
+        if (lc.expression.isEmpty())
+            for (const auto &f : availableAttributes(cat))
+                if (f.name == attr) { unit = f.unit; break; }
+
+        const QFont  font = lc.effectiveFont();
+        const QBrush textBrush(lc.color);
+
+        if (m_labelByFeature[catIdx].size() != count) {
+            for (QGraphicsSimpleTextItem *l : m_labelByFeature[catIdx]) {
+                if (!l) continue;
+                if (QGraphicsScene *sc = l->scene()) sc->removeItem(l);
+                delete l;
+            }
+            m_labelByFeature[catIdx] = QVector<QGraphicsSimpleTextItem *>(count, nullptr);
+        }
+        labelled[catIdx] = true;
+
+        for (int row = 0; row < count; ++row) {
+            QGraphicsItem *fi = m_itemByFeature[catIdx][row];
+            QGraphicsSimpleTextItem *&lbl = m_labelByFeature[catIdx][row];
+            if (!fi || !fi->isVisible()) { if (lbl) lbl->setVisible(false); continue; }
+
+            const QString name = m_modelLayer->objectNameAt(cat, row);
+            QString text;
+            if (!lc.expression.isEmpty()) {
+                text = evalExpr(lc.expression, scope, name);
+            } else {
+                // No expression → default "name: value unit".
+                text = name;
+                const QString v = fieldValueStr(scope, attr, name);
+                if (!v.isEmpty()) {
+                    text += QStringLiteral(": ") + v;
+                    if (!unit.isEmpty()) text += QChar(' ') + unit;
+                }
+            }
+            if (text.isEmpty()) { if (lbl) lbl->setVisible(false); continue; }
+
+            if (!lbl) {
+                lbl = new QGraphicsSimpleTextItem();
+                lbl->setData(0, QVariant::fromValue<quintptr>(ownerTag));
+                lbl->setZValue(20.0);   // above markers (z=10)
+                lbl->setFlag(QGraphicsItem::ItemIsSelectable, false);
+                lbl->setAcceptedMouseButtons(Qt::NoButton);
+                scene->addItem(lbl);
+            }
+            lbl->setText(text);
+            lbl->setFont(font);
+            lbl->setBrush(textBrush);
+            lbl->setOpacity(opMul);
+            const QPointF anchor = fi->sceneBoundingRect().center();
+            const QRectF  br = lbl->boundingRect();
+            lbl->setPos(anchor + offsetFor(lc.placement, br.width(), br.height()));
+            lbl->setVisible(true);
+        }
+    }
+
+    // Drop labels for categories not labelled this pass (sublayer disabled /
+    // hidden / removed).
+    for (int k = 0; k < SWMMModelLayer::NumCategories; ++k) {
+        if (labelled[k]) continue;
+        for (QGraphicsSimpleTextItem *l : m_labelByFeature[k]) {
+            if (!l) continue;
+            if (QGraphicsScene *sc = l->scene()) sc->removeItem(l);
+            delete l;
+        }
+        m_labelByFeature[k].clear();
     }
 }

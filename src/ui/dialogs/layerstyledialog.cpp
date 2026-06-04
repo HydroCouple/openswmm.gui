@@ -21,6 +21,7 @@
 #include "ui/dialogs/crsselectiondialog.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/gisvectorlayer.h"
+#include "layers/gisvectorsymboladapter.h"   // G-1/G-2 — tabbed point/line/polygon editor
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "layers/swmm2dresultslayer.h"
@@ -36,7 +37,10 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDialogButtonBox>
+#include <QUndoCommand>
+#include <QUndoStack>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QMessageBox>
@@ -67,6 +71,44 @@
 namespace openswmmvis::ui {
 
 namespace {
+
+// #36 — app-level undo for symbology edits. Captures the layer's style-subject
+// snapshots before/after a dialog session and restores them on undo/redo by
+// re-acquiring styleSubjects() (the subjects write through to the layer). This
+// covers exactly what the dialog's snapshot/Cancel mechanism covers.
+void applyStyleSnapshots(OpenSWMMVisLayer *layer, const std::vector<QJsonObject> &snaps)
+{
+    if (!layer) return;
+    auto subs = layer->styleSubjects();
+    const size_t n = std::min(subs.size(), snaps.size());
+    for (size_t i = 0; i < n; ++i)
+        if (subs[i]) subs[i]->restore(snaps[i]);
+}
+
+class EditLayerStyleCommand : public QUndoCommand
+{
+public:
+    EditLayerStyleCommand(OpenSWMMVisLayer *layer,
+                          std::vector<QJsonObject> before,
+                          std::vector<QJsonObject> after)
+        : m_layer(layer), m_before(std::move(before)), m_after(std::move(after))
+    {
+        setText(QCoreApplication::translate("LayerStyleDialog", "Edit layer style")
+                + (layer ? QStringLiteral(" — %1").arg(layer->objectName()) : QString()));
+    }
+    void undo() override { applyStyleSnapshots(m_layer.data(), m_before); }
+    void redo() override
+    {
+        // QUndoStack::push fires redo() immediately; the layer is already in
+        // the "after" state (edits applied live), so the first redo is a
+        // harmless re-apply.
+        applyStyleSnapshots(m_layer.data(), m_after);
+    }
+private:
+    QPointer<OpenSWMMVisLayer> m_layer;
+    std::vector<QJsonObject>   m_before;
+    std::vector<QJsonObject>   m_after;
+};
 
 // ---------------------------------------------------------------------------
 // QPropertyModel proxy that filters property rows by Q_CLASSINFO group.
@@ -271,10 +313,12 @@ LayerCapabilities layerCapabilities(OpenSWMMVisLayer *layer)
 
 LayerStyleDialog::LayerStyleDialog(OpenSWMMVisLayer *layer,
                                     QString initialRoutingId,
-                                    QWidget *parent)
+                                    QWidget *parent,
+                                    QUndoStack *undoStack)
     : QDialog(parent)
     , m_layer(layer)
     , m_initialRoutingId(std::move(initialRoutingId))
+    , m_undoStack(undoStack)
 {
     setWindowTitle(layer ? tr("%1 — Layer Properties").arg(layer->name())
                          : tr("Layer Properties"));
@@ -283,6 +327,13 @@ LayerStyleDialog::LayerStyleDialog(OpenSWMMVisLayer *layer,
     m_caps = layerCapabilities(layer);
 
     auto *root = new QVBoxLayout(this);
+    // Don't let the layout pin a minimum dialog size — the default
+    // SetDefaultConstraint forces the dialog's minimumHeight to the summed
+    // child minimums, preventing the user from making it shorter. Allow free
+    // resize (the scroll/clip behaviour of the inner widgets handles small
+    // sizes gracefully).
+    root->setSizeConstraint(QLayout::SetNoConstraint);
+    setMinimumSize(0, 0);
     m_tabs = new QTabWidget(this);
     m_tabs->setTabPosition(QTabWidget::North);    // Slice X.17 — horizontal tabs.
     m_tabs->setDocumentMode(true);
@@ -296,6 +347,7 @@ LayerStyleDialog::LayerStyleDialog(OpenSWMMVisLayer *layer,
     if (m_layer) {
         readFromLayer();
         snapshotSubjects();
+        m_undoBaseline = m_subjectSnapshots;   // #36 — open-time state for undo
         focusInitialSubject();
     }
 
@@ -490,8 +542,28 @@ void LayerStyleDialog::buildSymbologyTab()
         // colour/shape styling stays on the layer-tree sub-rows.
         auto *panel = new Swmm2DResultsStylePanel(r2d, page);
         root->addWidget(panel, 1);
+    } else if (qobject_cast<GISVectorLayer *>(m_layer.data())) {
+        // G-1/G-2 — GIS vector uses its purpose-built tabbed editor
+        // (Marker / Line / Polygon / Labels). It writes the GISVectorSymbol
+        // directly via the adapter, so every geometry type (incl. polygon
+        // fill/outline) edits reliably — the renderer-derive SymbologyTab
+        // path only reliably surfaced point/line. Mount the editor from the
+        // layer's style subject (the GisVectorSymbolAdapter).
+        QObject *adapter = nullptr;
+        for (const auto &subj : m_subjects)
+            if (subj && qobject_cast<GisVectorSymbolAdapter *>(subj->propertyObject())) {
+                adapter = subj->propertyObject();
+                break;
+            }
+        if (adapter) {
+            root->addWidget(buildSubjectEditor(adapter, page), 1);
+        } else {
+            RendererPanelContext ctx;
+            ctx.hostLayer = m_layer.data();
+            root->addWidget(new SymbologyTab(ctx, page), 1);
+        }
     } else {
-        // Single-renderer layers (GIS vector, raster/DEM, 2D mesh).
+        // Single-renderer layers (raster/DEM, 2D mesh).
         RendererPanelContext ctx;
         ctx.hostLayer = m_layer.data();
         auto *tab = new SymbologyTab(ctx, page);
@@ -821,6 +893,19 @@ void LayerStyleDialog::onApply()
 void LayerStyleDialog::onAccept()
 {
     writeGeneralRenderingToLayer();
+
+    // #36 — if an undo stack was supplied and the symbology actually changed,
+    // push one command capturing the open-time vs final subject snapshots so
+    // the whole dialog edit is a single undoable step after the dialog closes.
+    if (m_undoStack && m_layer && !m_subjects.empty()) {
+        std::vector<QJsonObject> after;
+        after.reserve(m_subjects.size());
+        for (const auto &s : m_subjects)
+            after.push_back(s ? s->snapshot() : QJsonObject{});
+        if (after != m_undoBaseline)
+            m_undoStack->push(new EditLayerStyleCommand(
+                m_layer.data(), m_undoBaseline, std::move(after)));
+    }
     accept();
 }
 

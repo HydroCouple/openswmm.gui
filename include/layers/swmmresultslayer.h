@@ -31,6 +31,7 @@
 class OpenSWMMVisWorkspace;
 class SpatialReferenceSystem;
 class QGraphicsItem;   // Slice §Y.2 — m_itemByFeature stores QGraphicsItem*
+class QGraphicsSimpleTextItem;   // L-1 — m_labelByFeature stores label items
 
 // Slice U-0 — granular per-Category sublayer mix. The legacy four
 // sublayers (NodeMarker / ConduitLine / ConduitArrow / SubcatchmentFill)
@@ -416,6 +417,12 @@ public:
 
     void depopulateScene(QGraphicsScene *scene) override;
 
+    /*! L-1 — a label-config change (enable / font / placement) only affects
+     *  the label items, but refreshScene early-returns when the scene is
+     *  Clean. Escalate to Values so the next refresh runs restyleScene →
+     *  refreshLabels and the change is reflected without an animation tick. */
+    void setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg) override;
+
     void onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS) override;
 
     // ----- ISublayerHost interface (Slice U-0) ------------------------------
@@ -515,6 +522,14 @@ private:
      *  cached scene items without destroying / recreating them. Called from
      *  refreshScene when m_sceneDirty == ValuesDirty. */
     void restyleScene(QGraphicsScene *scene);
+
+    /*! L-1 — (re)build / update per-feature labels from labelConfig(). Each
+     *  visible feature gets a "name: value unit" text item showing the
+     *  current timestep's value for the colouring attribute. Called at the
+     *  end of populateScene (structural) and restyleScene (per-frame) so the
+     *  text follows the animation. No-op (and clears) when labels are off. */
+    void refreshLabels(QGraphicsScene *scene);
+    void clearLabels();
 
     /*! Slice §Y.2 — incremental restyle path can't safely handle line
      *  sublayers with flow arrows on (arrow geometry depends on the flow
@@ -699,6 +714,11 @@ private:
     // structural when the size mismatches the current count (mid-session
     // topology edit).
     QVector<QGraphicsItem *> m_itemByFeature[SWMMModelLayer::NumCategories];
+
+    // L-1 — parallel per-feature label items ("name: value"). Same sizing /
+    // lifecycle contract as m_itemByFeature: built/refreshed by refreshLabels,
+    // cleared by depopulateScene (base destroys the tagged scene items).
+    QVector<QGraphicsSimpleTextItem *> m_labelByFeature[SWMMModelLayer::NumCategories];
 
     /*! Slice §Y.2 — flip to the strongest pending dirtiness without ever
      *  downgrading (Structural beats Values beats Clean).  Used by the

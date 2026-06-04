@@ -7,6 +7,7 @@
 #include "ui/dialogs/editors/featurestyleeditor.h"
 
 #include "layers/openswmmvislayer.h"
+#include "render/iattributeprovider.h"   // L-1 — available label fields
 #include "render/sublayers/feature/featuresublayer.h"
 #include "render/sublayers/feature/featuresublayerstyle.h"
 #include "ui/dialogs/editors/kindrendererpanel.h"
@@ -77,6 +78,56 @@ void FeatureStyleEditorBase::buildCommonRows()
     connect(m_useRampBox, &QCheckBox::toggled, this, [this](bool v) {
         m_style->setUseColorRamp(v);
     });
+
+    // ── L-1 — per-sublayer Labels group ─────────────────────────────────
+    auto *labelBox  = new QGroupBox(tr("Labels"), this);
+    auto *labelForm = new QFormLayout(labelBox);
+
+    m_labelsEnable = new QCheckBox(tr("Show labels"), this);
+    labelForm->addRow(QString(), m_labelsEnable);
+
+    m_labelExpr = new QLineEdit(this);
+    m_labelExpr->setPlaceholderText(tr("e.g. {name}: {depth} m"));
+    m_labelExpr->setToolTip(tr("Template — {token} placeholders are replaced "
+                               "with the feature's values; literal text is kept."));
+    labelForm->addRow(tr("Expression:"), m_labelExpr);
+
+    m_labelColorBtn = new ColorButton(this);
+    labelForm->addRow(tr("Colour:"), m_labelColorBtn);
+
+    m_labelFieldsHint = new QLabel(this);
+    m_labelFieldsHint->setWordWrap(true);
+    m_labelFieldsHint->setStyleSheet(QStringLiteral("color: palette(mid);"));
+    labelForm->addRow(tr("Fields:"), m_labelFieldsHint);
+
+    // Populate the available-field hint from the host layer's attribute
+    // provider for this sublayer's category (plus the always-available name).
+    QStringList tokens{ QStringLiteral("{name}") };
+    if (auto *sub = qobject_cast<OpenSWMM::Render::FeatureSublayer *>(m_style->parent())) {
+        if (auto *host = qobject_cast<OpenSWMMVisLayer *>(sub->parent())) {
+            if (auto *prov = dynamic_cast<OpenSWMM::Render::IAttributeProvider *>(host)) {
+                for (const auto &f : prov->availableAttributes(sub->category()))
+                    tokens << QStringLiteral("{%1}").arg(f.name);
+            }
+        }
+    }
+    m_labelFieldsHint->setText(tokens.join(QStringLiteral("  ")));
+
+    layout()->addWidget(labelBox);
+
+    connect(m_labelsEnable, &QCheckBox::toggled, this, [this](bool) { pushLabelConfig(); });
+    connect(m_labelExpr, &QLineEdit::editingFinished, this, [this]() { pushLabelConfig(); });
+    connect(m_labelColorBtn, &ColorButton::colorChanged, this, [this](const QColor &) { pushLabelConfig(); });
+}
+
+void FeatureStyleEditorBase::pushLabelConfig()
+{
+    if (!m_style || !m_labelsEnable) return;
+    OpenSWMM::Render::LabelConfig cfg = m_style->labelConfig();  // keep font/placement
+    cfg.enabled    = m_labelsEnable->isChecked();
+    cfg.expression = m_labelExpr->text();
+    cfg.color      = m_labelColorBtn->color();
+    m_style->setLabelConfig(cfg);
 }
 
 void FeatureStyleEditorBase::addPreviewRow()
@@ -105,6 +156,15 @@ void FeatureStyleEditorBase::refreshFromModel()
     m_attributeEdit->setText(m_style->attribute());
     m_singleColorBtn->setColor(m_style->color());
     m_useRampBox->setChecked(m_style->useColorRamp());
+
+    // L-1 — label controls (created lazily in buildCommonRows, so guard).
+    if (m_labelsEnable) {
+        QSignalBlocker bl(m_labelsEnable), be(m_labelExpr), bc(m_labelColorBtn);
+        const auto &lc = m_style->labelConfig();
+        m_labelsEnable->setChecked(lc.enabled);
+        m_labelExpr->setText(lc.expression);
+        m_labelColorBtn->setColor(lc.color);
+    }
     updatePreview();
 }
 

@@ -39,6 +39,14 @@ set(CMAKE_AUTOUIC_SEARCH_PATHS forms)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Source files are UTF-8. Without /utf-8 MSVC reads them as the system ANSI
+# codepage and bakes UTF-8 string literals (×, ², ³, °, …) into the binary as
+# mojibake. GCC/Clang already default to UTF-8 for both input and execution
+# charset, so the flag is MSVC-only.
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 option(SWMMVIS_BUILD_TESTS "Build unit tests" ON)
 
 # Project CMake helpers live under cmake/.
@@ -138,6 +146,7 @@ set(
         include/core/queryparser.h
         include/core/preferencesmanager.h
         include/core/linkrenderingprefs.h
+        include/core/noderenderingprefs.h
         include/core/selectionrenderingprefs.h
         include/core/unitsystem.h
         include/core/crsreproject.h
@@ -153,6 +162,12 @@ set(
         # Slice BB-α — colour-ramp data type + interval binner.
         include/render/colorramp.h
         include/render/intervalbinner.h
+        # P2 — static/dynamic source + range-mode spine (header-only enums).
+        include/render/attributesource.h
+        include/render/labelconfig.h
+        include/render/basemaprenderparams.h
+        include/render/stylefileio.h
+        include/render/expressionevaluator.h
         # Slice BI Phase 8.13.7-α / 8.13.43-α — typed data-defined scalar.
         include/render/datadefined.h
         # Slice BI Phase 8.13.6.1 — IFeatureRenderer abstraction + types.
@@ -170,10 +185,87 @@ set(
         include/render/renderers/graduatedrenderer.h
         include/render/renderers/categorizedrenderer.h
         include/render/renderers/rulebasedrenderer.h
+        # Slice Z.9 — continuous-colour (no-bins) renderer
+        # (RENDERING_RULE_MODEL_PLAN.md §5).
+        include/render/renderers/unclassedcolorsrenderer.h
         # Slice BI Phase 8.13.6.7 — raster-renderer sister interface +
         # SingleBandPseudoColor stub.
         include/render/irasterrenderer.h
         include/render/renderers/singlebandpseudocolorrenderer.h
+        # VS.6 — categorical / paletted raster renderer.
+        include/render/renderers/palettedrasterrenderer.h
+        # Slice S1 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md) — sublayer foundation:
+        # ISublayer interface, SublayerStyle property-bag base, SizeUnit enum,
+        # and the screen-pixel inverse-zoom helpers consumed by S2+ sublayers.
+        include/render/sizeunit.h
+        include/render/screenpixels.h
+        include/render/sublayerstyle.h
+        include/render/isublayer.h
+        # Slice S2.1 — host mixin a layer adopts to expose a sublayer list +
+        # the AnimationController dispatch contract (only dynamic sublayers
+        # invalidate per tick — RENDERING_OUTPUT_SUBLAYERS_PLAN.md §2 Decision 3).
+        include/render/isublayerhost.h
+        # Slice U-0 — granular per-Category sublayer base + archetype style
+        # bags (Point / Line / Polygon). Replaces the legacy NodeMarker /
+        # ConduitLine / ConduitArrow / SubcatchmentFill mix with one
+        # FeatureSublayer instance per SWMMModelLayer::Category (11 total).
+        include/render/sublayers/feature/featuresublayerstyle.h
+        include/render/sublayers/feature/featuresublayer.h
+        # Slice S5 — five 2D sublayer classes for the SWMM2DResultsLayer mix.
+        include/render/sublayers/meshfillsublayer.h
+        include/render/sublayers/meshedgesublayer.h
+        include/render/sublayers/meshnodesublayer.h
+        include/render/sublayers/depthcolorrampsublayer.h
+        include/render/sublayers/velocityvectorsublayer.h
+        include/render/sublayers/flowarrowsublayer.h
+        include/render/sublayers/isolinesublayer.h
+        include/render/sublayers/contourbandsublayer.h
+        # Slice Z.1 — layer-scope Rule + RuleList (Q_OBJECT classes;
+        # AUTOMOC needs the headers in this list).
+        include/render/rule.h
+        include/render/rulelist.h
+        # Slice B.6c — SymbolStyleAdapter (Q_OBJECT — AUTOMOC needs it).
+        include/render/symbolstyleadapter.h
+        # Slice DM.1 — IAttributeProvider seam (Q_DECLARE_INTERFACE +
+        # Q_DECLARE_METATYPE). Header-only; listing keeps it in the
+        # project tree for tooling and AUTOMOC interface discovery on
+        # layers that Q_INTERFACES it.
+        include/render/iattributeprovider.h
+        # Slice Z.4 — canonical MarkerShape enum + typed
+        # MarkerSymbolLayerSpec (RENDERING_RULE_MODEL_PLAN.md §6.1).
+        include/render/markershape.h
+        include/render/markersymbollayer.h
+        # Slice Z.5 — typed LineSymbolLayerSpec + arrow spec
+        # (RENDERING_RULE_MODEL_PLAN.md §6.2).
+        include/render/linesymbollayer.h
+        # Slice Z.5b — polyline perpendicular offset.
+        include/render/polylineoffset.h
+        # Slice Z.6 — Raster + TIN Symbol Layer specs
+        # (RENDERING_RULE_MODEL_PLAN.md §6.4).
+        include/render/rastersymbollayers.h
+        # Slice Z.7 — animation bin sampler
+        # (RENDERING_RULE_MODEL_PLAN.md §14.1).
+        include/render/binsampler.h
+        # Slice Z.11 — Symbol Levels paint-order helper
+        # (RENDERING_RULE_MODEL_PLAN.md §8).
+        include/render/symbollevels.h
+        # Slice Z.17-files — native .swmm-rule.json I/O
+        # (RENDERING_RULE_MODEL_PLAN.md §12.1).
+        include/render/rulelistio.h
+        # Slice Z.17b — QGIS .qml import/export for Rule Lists.
+        include/render/qmlrulelistio.h
+        # Slice Z.13-data — TemporalSpec for the Temporal tab.
+        include/render/temporalspec.h
+        # Slice Z.14-data — MaskSpec for the Mask tab.
+        include/render/maskspec.h
+        # Slice Z.14-paint — runtime clip-path resolver.
+        include/render/maskclipresolver.h
+        # Slice Z.15-data — AuxiliaryStorageSpec for the Auxiliary Storage tab.
+        include/render/auxiliarystoragespec.h
+        # Slice Z.16-data — JoinSpec for the Joins tab.
+        include/render/joinspec.h
+        # Slice Z.12-data — DiagramSpec for the Diagrams tab.
+        include/render/diagramspec.h
 
         # ── Plot ─────────────────────────────────────────────────────────────
         include/plot/profilerouter.h
@@ -181,6 +273,9 @@ set(
         include/plot/profilenetworkadapter.h
         include/plot/profileplotwidget.h
         include/plot/profileplotoptions.h
+        include/plot/meshprofilesampler.h
+        include/plot/meshprofileplotwidget.h
+        include/plot/meshprofileplotoptions.h
         include/plot/profilesourcefetcher.h
         include/plot/plotattribute.h
         include/plot/chartproperties.h
@@ -198,15 +293,20 @@ set(
         # ── Layers ───────────────────────────────────────────────────────────
         include/layers/openswmmvislayer.h
         include/layers/gisvectorlayer.h
+        include/layers/gisvectorsymboladapter.h
         include/layers/gisrasterlayer.h
         include/layers/wcslayer.h
         include/layers/wmslayer.h
         include/layers/wmtslayer.h
+        include/layers/swmm_category.h
         include/layers/swmmmodellayer.h
+        include/layers/swmmelementsymboladapter.h
         include/layers/hydrographmodels.h
         include/layers/swmmresultslayer.h
         include/layers/tabulardatalayer.h
         include/layers/xyztilelayer.h
+        include/layers/annotationtextitem.h
+        include/layers/annotationlayer.h
 
         # ── Map / GIS ────────────────────────────────────────────────────────
         include/map/spatialreferencesystem.h
@@ -236,11 +336,15 @@ set(
         include/map/tools/maptoolselect.h
         include/map/tools/maptoolplotpick.h
         include/map/tools/maptoolpick2dcells.h
+        include/map/tools/maptoolmeshprofile.h
+        include/map/tools/maptoolmeshselectvertex.h
+        include/map/tools/maptoolmeshselectedge.h
         include/map/tools/maptoolidentify.h
         include/map/tools/maptooladdnode.h
         include/map/tools/maptooladdlink.h
         include/map/tools/maptooladdgage.h
         include/map/tools/maptooladdsubcatchment.h
+        include/map/tools/maptooladdtext.h
         include/map/tools/maptoolselectprofile.h
 
         # ── Project / workspace ──────────────────────────────────────────────
@@ -248,6 +352,7 @@ set(
         include/project/openswmmvisworkspacemodel.h
         include/project/openswmmvissession.h
         include/project/projectserializer.h
+        include/project/saveaspathnormalizer.h
         include/project/swmmvisproject.h
 
         # ── Plugins (engine plugin SDK bridge) ───────────────────────────────
@@ -260,10 +365,40 @@ set(
         # ── Curve (Slice BQ Phase 6.7.1) ─────────────────────────────────────
         include/curve/curveprovider.h
         include/curve/curveregistry.h
+        include/curve/curveundocommands.h
 
         # ── Pattern (Slice BQ Phase 6.7.2) ───────────────────────────────────
         include/pattern/patternprovider.h
         include/pattern/patternregistry.h
+        include/pattern/patternundocommands.h
+
+        # ── Controls (Slice BR Phase 6.8.1/2) ────────────────────────────────
+        include/controls/controlruleprovider.h
+        include/controls/controlruleregistry.h
+        include/controls/rulesyntaxhighlighter.h
+        include/controls/rulevalidator.h
+        include/ui/models/rulelistmodel.h
+        include/ui/widgets/rulecodeeditor.h
+        include/ui/dialogs/ruleseditordialog.h
+
+        # ── Transect (Slice BQ Phase 6.7.4) ──────────────────────────────────
+        include/transect/transectprovider.h
+        include/transect/transectregistry.h
+        include/transect/transectundocommands.h
+        include/ui/models/transectlistmodel.h
+        include/ui/models/transectstationtablemodel.h
+        include/ui/widgets/transectchartview.h
+        include/ui/dialogs/transectpropertybag.h
+        include/ui/dialogs/transecteditordialog.h
+
+        # ── Street ([STREETS] parametric cross-sections) ─────────────────────
+        include/street/streetprovider.h
+        include/street/streetregistry.h
+        include/ui/models/streetlistmodel.h
+        include/ui/dialogs/streeteditordialog.h
+
+        # ── User flags ([USER_FLAGS] / [USER_FLAG_VALUES]) ───────────────────
+        include/ui/models/userflagsmodel.h
 
         # ── Timeseries (Slice BQ Phase 6.7.3) ────────────────────────────────
         include/timeseries/timeseriesprovider.h
@@ -273,11 +408,19 @@ set(
         include/mesh/dtmthinner.h
         include/mesh/inpmeshreader.h
         include/mesh/inpmeshwriter.h
+        include/mesh/meshbctype.h
+        include/mesh/meshedgebc.h
         include/mesh/meshgenerator.h
+        include/mesh/meshhoverprobe.h
+        include/mesh/meshobjectref.h
         include/mesh/meshresult.h
         include/plugins/filefilterregistry.h
 
+        # ── Output (Slice QA) ────────────────────────────────────────────────
+        include/output/outputstatsregistry.h
+
         # ── Simulation ───────────────────────────────────────────────────────
+        include/simulation/runpathresolver.h
         include/simulation/simulationrunner.h
         include/simulation/simulationstatusmodel.h
 
@@ -286,23 +429,41 @@ set(
         include/ui/panels/attributepanel.h
         include/ui/panels/attributetablepanel.h
         include/ui/panels/layertreepanel.h
+        include/ui/panels/layertreecategories.h
         include/ui/panels/objectbrowserpanel.h
         include/ui/panels/swmmattributetablemodel.h
         include/ui/panels/swmmobjecttreemodel.h
         include/ui/panels/tabulardatatablemodel.h
         include/ui/panels/curvepointtablemodel.h
         include/ui/panels/patternfactortablemodel.h
+        include/ui/panels/timeserieslistmodel.h
         include/ui/panels/timeseriestablemodel.h
         include/ui/panels/overviewmappanel.h
+        # Slice BB Phase 8.6.11 / 8.6.16 — dockable per-class legend / style editor.
+        include/ui/panels/legenddock.h
+        # Slice Z.18 — always-open layer-styling editor dock.
+        include/ui/panels/layerstylingdock.h
+
+        # ── UI models (Slice BB Phase 8.6.16) ────────────────────────────────
+        include/ui/models/legendlayertreemodel.h
+
+        # ── UI delegates (Slice BB Phase 8.6.16) ─────────────────────────────
+        include/ui/delegates/legendcolordelegate.h
 
         # ── UI property adapters (Slice Z.5.3 / AG.3) ────────────────────────
         include/ui/properties/swmmlinkpropertyadapter.h
         include/ui/properties/swmmnodepropertyadapter.h
         include/ui/properties/swmmsubcatchpropertyadapter.h
+        include/ui/properties/meshvertexpropertyadapter.h    # §V.VF
+        include/ui/properties/meshedgepropertyadapter.h      # §V.VF
 
         # ── Compound editor cell widget (Slice DB.2) ─────────────────────────
         include/ui/properties/nodecompoundeditref.h
         include/ui/properties/nodecompoundeditbutton.h
+
+        # ── Link compound editor cell widget (Slice SC.1) ────────────────────
+        include/ui/properties/linkcompoundeditref.h
+        include/ui/properties/linkcompoundeditbutton.h
 
         # ── Data-object picker cell widget (Slice DA.4.3) ───────────────────
         include/ui/properties/dataobjectref.h
@@ -329,11 +490,15 @@ set(
         include/ui/properties/ipropertyeditor.h
         include/ui/properties/propertyeditorregistry.h
 
+        # ── UI editors (Slice BM.0-Browse-Edit) ──────────────────────────────
+        include/ui/editors/comprehensiveeditorregistry.h
+
         # ── Connections ──────────────────────────────────────────────────────
         include/connections/basemapconnection.h
         include/connections/basemapconnectionstore.h
 
         # ── UI toolbars ──────────────────────────────────────────────────────
+        include/ui/toolbars/mesheditingtoolbar.h
         include/ui/toolbars/terraintoolbar.h
 
         # ── UI widgets ───────────────────────────────────────────────────────
@@ -344,6 +509,8 @@ set(
         include/ui/widgets/legendoverlay.h
         include/ui/widgets/interactivechartview.h
         include/ui/widgets/timeserieseditchartview.h
+        include/ui/widgets/curveeditchartview.h
+        include/ui/widgets/patterneditchartview.h
         include/ui/widgets/attributepickermenu.h
         include/ui/widgets/rangeslider.h
         include/ui/widgets/statssummarypanel.h
@@ -356,9 +523,9 @@ set(
         include/ui/dialogs/crsselectiondialog.h
         include/ui/dialogs/crschangedialog.h
         include/ui/dialogs/aboutdialog.h
-        include/ui/dialogs/layerpropertiesdialog.h
         include/ui/dialogs/meshgenerationdialog.h
         include/ui/dialogs/nodecompoundeditdialog.h
+        include/ui/dialogs/linkcompoundeditdialog.h
         include/ui/dialogs/hydrographgroupeditor.h
         include/ui/dialogs/newprojectdialog.h
         include/ui/dialogs/pluginsdialog.h
@@ -367,11 +534,52 @@ set(
         include/ui/dialogs/hotstartsavesmodel.h
         include/ui/dialogs/pathbrowsedelegate.h
         include/ui/dialogs/pluginstablemodel.h
-        include/ui/dialogs/timeseriesplotdialog.h
         include/ui/dialogs/comparisonplotdialog.h
         include/ui/dialogs/chartpropertiesdialog.h
         # Slice BB Phase 8.6.16 — legend right-click "Properties…" dialog.
         include/ui/dialogs/legendpropertiesdialog.h
+        # Slice S3 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md §4.2) — modeless
+        # QPropertyModel-backed editor for one ISublayer's style bag.
+        include/ui/dialogs/sublayerstyledialog.h
+        # Slice U-2 — ILayerStyleSubject interface for the unified
+        # LayerStyleDialog. Each layer surfaces its styleable subjects
+        # (sublayers, kind-symbols, raster-renderer config, etc.) via
+        # OpenSWMMVisLayer::styleSubjects().
+        include/ui/dialogs/ilayerstylesubject.h
+        include/ui/dialogs/istyleeditorwidget.h
+        include/ui/dialogs/irendererpanel.h
+        include/ui/dialogs/symbologytab.h
+        include/ui/dialogs/labelstab.h
+        # VS.5/VS.11 — Temporal/Mask/AuxStorage/Joins/Diagrams tab widgets
+        # removed (deferred-feature tabs dropped from the layer dialog).
+        include/ui/dialogs/stylemanagerdialog.h
+        include/ui/dialogs/kindtreesymbologypanel.h
+        include/ui/dialogs/layerstyledialog.h
+        # Slice Z.2 — Rule-as-ILayerStyleSubject adapter
+        # (RENDERING_RULE_MODEL_PLAN.md).
+        include/ui/dialogs/rulestylesubject.h
+        # Slice Z.3 — Rule-driven Symbology tab widget.
+        include/ui/dialogs/rulesymbologytab.h
+        # Slice U-V — custom GIS-themed editor widgets.
+        include/ui/dialogs/editors/featurestyleeditor.h
+        # SE.1–SE.3 — dedicated editors for the *SymbolStyleAdapter family.
+        include/ui/dialogs/editors/symbolstyleeditors.h
+        # O2-1 — 2D results layer-level display panel.
+        include/ui/dialogs/swmm2dresultsstylepanel.h
+        # SE.4 — dedicated editors for the raster / mesh / 2D archetypes.
+        include/ui/dialogs/editors/symbolstyleeditors2d.h
+        include/ui/dialogs/editors/swmmelementsymboleditor.h
+        include/ui/dialogs/editors/gisvectorsymboleditor.h
+        include/ui/dialogs/editors/rastercolorrampeditor.h
+        include/ui/dialogs/editors/kindrendererpanel.h
+        include/ui/dialogs/editors/markershapeeditor.h
+        include/ui/dialogs/editors/meshhillshadeeditor.h
+        include/ui/widgets/colorbutton.h
+        include/ui/widgets/dashstylecombo.h
+        include/ui/widgets/markershapecombo.h
+        include/ui/widgets/stylepreviewswatch.h
+        include/ui/widgets/relativepathpicker.h
+        include/ui/dialogs/dialoglayoutpersistence.h
         include/ui/dialogs/curveeditordialog.h
         include/ui/dialogs/patterneditordialog.h
         include/ui/dialogs/timeserieseditordialog.h
@@ -381,11 +589,12 @@ set(
         include/ui/dialogs/tabularresultsdialog.h
         include/ui/dialogs/scatterplotdialog.h
         include/ui/dialogs/customreportdialog.h
-        include/ui/dialogs/symbologydialog.h
+        include/ui/dialogs/annotationstyledialog.h
         include/ui/dialogs/calibrationdatadialog.h
         include/ui/dialogs/profilepathpickerdialog.h
         include/ui/dialogs/profileplotdialog.h
         include/ui/dialogs/profileoptionsdialog.h
+        include/ui/dialogs/meshprofileplotdialog.h
         include/ui/dialogs/profilesourcestyleadapter.h
         include/ui/dialogs/wmsconnectiondialog.h
         include/ui/dialogs/wmtsconnectiondialog.h
@@ -405,6 +614,7 @@ set(
         src/core/openswmmvislogmessage.cpp
         src/core/preferencesmanager.cpp
         src/core/linkrenderingprefs.cpp
+        src/core/noderenderingprefs.cpp
         src/core/selectionrenderingprefs.cpp
         src/core/queryparser.cpp
         src/core/unitsystem.cpp
@@ -426,6 +636,10 @@ set(
         src/render/categoricalpalette.cpp
         # Slice BB-α — colour-ramp data type + interval binner impls.
         src/render/colorramp.cpp
+        src/render/labelconfig.cpp
+        src/render/basemaprenderparams.cpp
+        src/render/stylefileio.cpp
+        src/render/expressionevaluator.cpp
         src/render/intervalbinner.cpp
         # Slice BI Phase 8.13.7-α / 8.13.43-α — DataDefinedScalar impl.
         src/render/datadefined.cpp
@@ -442,10 +656,62 @@ set(
         src/render/renderers/graduatedrenderer.cpp
         src/render/renderers/categorizedrenderer.cpp
         src/render/renderers/rulebasedrenderer.cpp
+        # Slice Z.9 — UnclassedColorsRenderer impl.
+        src/render/renderers/unclassedcolorsrenderer.cpp
         # Slice BI Phase 8.13.6.7 — raster-renderer stub impl.
         src/render/renderers/singlebandpseudocolorrenderer.cpp
+        # VS.6 — categorical / paletted raster renderer.
+        src/render/renderers/palettedrasterrenderer.cpp
         # Slice BI-MK.1 Phase 8.13.40 — per-kind renderer dispatch adapter.
         src/render/multikindrenderer.cpp
+        # Slice Z.1 — layer-scope Rule + RuleList (RENDERING_RULE_MODEL_PLAN.md).
+        src/render/rule.cpp
+        src/render/rulelist.cpp
+        # Slice B.6c — SymbolStyleAdapter for Single Symbol Rule editing.
+        src/render/symbolstyleadapter.cpp
+        # Slice Z.4 — MarkerShape enum + draw helper + MarkerSymbolLayerSpec.
+        src/render/markershape.cpp
+        src/render/markersymbollayer.cpp
+        # Slice Z.5 — LineSymbolLayerSpec + arrow draw helper.
+        src/render/linesymbollayer.cpp
+        # VS.2 — FillSymbolLayerSpec + fill draw helper (third primitive).
+        src/render/fillsymbollayer.cpp
+        # Slice Z.5b — polyline perpendicular offset impl.
+        src/render/polylineoffset.cpp
+        # Slice Z.6 — Raster + TIN Symbol Layer spec impls.
+        src/render/rastersymbollayers.cpp
+        # Slice Z.7 — animation bin sampler impl.
+        src/render/binsampler.cpp
+        # Slice Z.11 — Symbol Levels paint-order impl.
+        src/render/symbollevels.cpp
+        # Slice Z.17-files — .swmm-rule.json I/O impl.
+        src/render/rulelistio.cpp
+        # Slice Z.17b — QGIS .qml import/export for Rule Lists impl.
+        src/render/qmlrulelistio.cpp
+        # Slice Z.13-data — TemporalSpec impl.
+        src/render/temporalspec.cpp
+        # Slice Z.14-data — MaskSpec impl.
+        src/render/maskspec.cpp
+        # Slice Z.14-paint — runtime clip-path resolver impl.
+        src/render/maskclipresolver.cpp
+        # Slice Z.15-data — AuxiliaryStorageSpec impl.
+        src/render/auxiliarystoragespec.cpp
+        # Slice Z.16-data — JoinSpec impl.
+        src/render/joinspec.cpp
+        # Slice Z.12-data — DiagramSpec impl.
+        src/render/diagramspec.cpp
+        # Slice U-0 — granular per-Category FeatureSublayer impl. Replaces
+        # the four legacy sublayer .cpps.
+        src/render/sublayers/feature/featuresublayer.cpp
+        # Slice S5 — five 2D sublayer .cpp impls.
+        src/render/sublayers/meshfillsublayer.cpp
+        src/render/sublayers/meshedgesublayer.cpp
+        src/render/sublayers/meshnodesublayer.cpp
+        src/render/sublayers/depthcolorrampsublayer.cpp
+        src/render/sublayers/velocityvectorsublayer.cpp
+        src/render/sublayers/flowarrowsublayer.cpp
+        src/render/sublayers/isolinesublayer.cpp
+        src/render/sublayers/contourbandsublayer.cpp
 
         # Plot
         src/plot/profilerouter.cpp
@@ -454,6 +720,9 @@ set(
         src/plot/profilenetworkadapter_model.cpp
         src/plot/profileplotwidget.cpp
         src/plot/profileplotoptions.cpp
+        src/plot/meshprofilesampler.cpp
+        src/plot/meshprofileplotwidget.cpp
+        src/plot/meshprofileplotoptions.cpp
         src/plot/profilesourcefetcher.cpp
         src/plot/plotattribute.cpp
         src/plot/chartproperties.cpp
@@ -479,6 +748,8 @@ set(
         src/layers/swmmresultslayer.cpp
         src/layers/tabulardatalayer.cpp
         src/layers/xyztilelayer.cpp
+        src/layers/annotationtextitem.cpp
+        src/layers/annotationlayer.cpp
 
         # Map / GIS
         src/map/spatialreferencesystem.cpp
@@ -508,11 +779,15 @@ set(
         src/map/tools/maptoolselect.cpp
         src/map/tools/maptoolplotpick.cpp
         src/map/tools/maptoolpick2dcells.cpp
+        src/map/tools/maptoolmeshprofile.cpp
+        src/map/tools/maptoolmeshselectvertex.cpp
+        src/map/tools/maptoolmeshselectedge.cpp
         src/map/tools/maptoolidentify.cpp
         src/map/tools/maptooladdnode.cpp
         src/map/tools/maptooladdlink.cpp
         src/map/tools/maptooladdgage.cpp
         src/map/tools/maptooladdsubcatchment.cpp
+        src/map/tools/maptooladdtext.cpp
         src/map/tools/maptoolselectprofile.cpp
 
         # Project / workspace
@@ -520,11 +795,13 @@ set(
         src/project/openswmmvisworkspacemodel.cpp
         src/project/openswmmvissession.cpp
         src/project/projectserializer.cpp
+        src/project/saveaspathnormalizer.cpp
         src/project/swmmvisproject.cpp
 
         # Plugins (engine plugin SDK bridge)
         src/layers/swmm2dmeshlayer.cpp
         src/layers/swmm2dresultslayer.cpp
+        src/layers/meshspatialgrid.cpp
         src/io/mesh2dh5reader.cpp
         src/io/rptparser.cpp
         src/io/timeseriesparse.cpp
@@ -532,10 +809,40 @@ set(
         # ── Curve (Slice BQ Phase 6.7.1) ─────────────────────────────────────
         src/curve/curveprovider.cpp
         src/curve/curveregistry.cpp
+        src/curve/curveundocommands.cpp
 
         # ── Pattern (Slice BQ Phase 6.7.2) ───────────────────────────────────
         src/pattern/patternprovider.cpp
         src/pattern/patternregistry.cpp
+        src/pattern/patternundocommands.cpp
+
+        # ── Controls (Slice BR Phase 6.8.1/2) ────────────────────────────────
+        src/controls/controlruleprovider.cpp
+        src/controls/controlruleregistry.cpp
+        src/controls/rulesyntaxhighlighter.cpp
+        src/controls/rulevalidator.cpp
+        src/ui/models/rulelistmodel.cpp
+        src/ui/widgets/rulecodeeditor.cpp
+        src/ui/dialogs/ruleseditordialog.cpp
+
+        # ── Transect (Slice BQ Phase 6.7.4) ──────────────────────────────────
+        src/transect/transectprovider.cpp
+        src/transect/transectregistry.cpp
+        src/transect/transectundocommands.cpp
+        src/ui/models/transectlistmodel.cpp
+        src/ui/models/transectstationtablemodel.cpp
+        src/ui/widgets/transectchartview.cpp
+        src/ui/dialogs/transectpropertybag.cpp
+        src/ui/dialogs/transecteditordialog.cpp
+
+        # ── Street ([STREETS] parametric cross-sections) ─────────────────────
+        src/street/streetprovider.cpp
+        src/street/streetregistry.cpp
+        src/ui/models/streetlistmodel.cpp
+        src/ui/dialogs/streeteditordialog.cpp
+
+        # ── User flags ([USER_FLAGS] / [USER_FLAG_VALUES]) ───────────────────
+        src/ui/models/userflagsmodel.cpp
 
         # ── Timeseries (Slice BQ Phase 6.7.3) ────────────────────────────────
         src/timeseries/timeseriesprovider.cpp
@@ -545,10 +852,18 @@ set(
         src/mesh/dtmthinner.cpp
         src/mesh/inpmeshreader.cpp
         src/mesh/inpmeshwriter.cpp
+        src/mesh/meshbctype.cpp
         src/mesh/meshgenerator.cpp
+        src/mesh/meshhoverprobe.cpp
+        src/mesh/meshobjectref.cpp
+        src/mesh/naturalnbinterpolator.cpp
         src/plugins/filefilterregistry.cpp
 
+        # Output (Slice QA)
+        src/output/outputstatsregistry.cpp
+
         # Simulation
+        src/simulation/runpathresolver.cpp
         src/simulation/simulationrunner.cpp
         src/simulation/simulationstatusmodel.cpp
 
@@ -557,6 +872,7 @@ set(
         src/ui/panels/attributepanel.cpp
         src/ui/panels/attributetablepanel.cpp
         src/ui/panels/layertreepanel.cpp
+        src/ui/panels/layertreecategories.cpp
         src/ui/panels/objectbrowserpanel.cpp
         src/ui/panels/overviewmappanel.cpp
         src/ui/panels/swmmattributetablemodel.cpp
@@ -564,16 +880,33 @@ set(
         src/ui/panels/curvepointtablemodel.cpp
         src/ui/panels/patternfactortablemodel.cpp
         src/ui/panels/tabulardatatablemodel.cpp
+        src/ui/panels/timeserieslistmodel.cpp
         src/ui/panels/timeseriestablemodel.cpp
+        # Slice BB Phase 8.6.11 / 8.6.16 — dockable per-class legend / style editor.
+        src/ui/panels/legenddock.cpp
+        # Slice Z.18 — always-open layer-styling editor dock.
+        src/ui/panels/layerstylingdock.cpp
+
+        # UI models (Slice BB Phase 8.6.16 — legend layer tree).
+        src/ui/models/legendlayertreemodel.cpp
+
+        # UI delegates (Slice BB Phase 8.6.16 — legend swatch click-to-edit).
+        src/ui/delegates/legendcolordelegate.cpp
 
         # UI property adapters
         src/ui/properties/swmmlinkpropertyadapter.cpp
         src/ui/properties/swmmnodepropertyadapter.cpp
         src/ui/properties/swmmsubcatchpropertyadapter.cpp
+        src/ui/properties/meshvertexpropertyadapter.cpp      # §V.VF
+        src/ui/properties/meshedgepropertyadapter.cpp        # §V.VF
 
         # Compound editor cell widget (Slice DB.2)
         src/ui/properties/nodecompoundeditref.cpp
         src/ui/properties/nodecompoundeditbutton.cpp
+
+        # Link compound editor cell widget (Slice SC.1)
+        src/ui/properties/linkcompoundeditref.cpp
+        src/ui/properties/linkcompoundeditbutton.cpp
 
         # Data-object picker cell widget (Slice DA.4.3)
         src/ui/properties/dataobjectref.cpp
@@ -599,13 +932,16 @@ set(
         # Property editor framework (Slice BM)
         src/ui/properties/propertyeditorregistry.cpp
 
+        # UI editors (Slice BM.0-Browse-Edit)
+        src/ui/editors/comprehensiveeditorregistry.cpp
+
         # Dialogs
         src/ui/dialogs/crsselectiondialog.cpp
         src/ui/dialogs/crschangedialog.cpp
         src/ui/dialogs/aboutdialog.cpp
-        src/ui/dialogs/layerpropertiesdialog.cpp
         src/ui/dialogs/meshgenerationdialog.cpp
         src/ui/dialogs/nodecompoundeditdialog.cpp
+        src/ui/dialogs/linkcompoundeditdialog.cpp
         src/ui/dialogs/hydrographgroupeditor.cpp
         src/ui/dialogs/newprojectdialog.cpp
         src/ui/dialogs/pluginsdialog.cpp
@@ -615,11 +951,53 @@ set(
         src/ui/dialogs/hotstartsavesmodel.cpp
         src/ui/dialogs/pathbrowsedelegate.cpp
         src/ui/dialogs/pluginstablemodel.cpp
-        src/ui/dialogs/timeseriesplotdialog.cpp
         src/ui/dialogs/comparisonplotdialog.cpp
         src/ui/dialogs/chartpropertiesdialog.cpp
         # Slice BB Phase 8.6.16 — legend right-click "Properties…" dialog.
         src/ui/dialogs/legendpropertiesdialog.cpp
+        # Slice S3 — SublayerStyleDialog implementation.
+        src/ui/dialogs/sublayerstyledialog.cpp
+        # Slice U-2 / U-3 — unified LayerStyleDialog + ILayerStyleSubject impl.
+        src/ui/dialogs/ilayerstylesubject.cpp
+        src/ui/dialogs/istyleeditorwidget.cpp
+        src/ui/dialogs/irendererpanel.cpp
+        src/ui/dialogs/symbologytab.cpp
+        src/ui/dialogs/labelstab.cpp
+        # VS.5/VS.11 — Temporal/Mask/AuxStorage/Joins/Diagrams tab widgets removed.
+        src/ui/dialogs/stylemanagerdialog.cpp
+        src/ui/dialogs/kindtreesymbologypanel.cpp
+        src/ui/dialogs/layerstyledialog.cpp
+        # Slice Z.2 — Rule-as-ILayerStyleSubject adapter impl.
+        src/ui/dialogs/rulestylesubject.cpp
+        # Slice Z.3 — Rule-driven Symbology tab widget impl.
+        src/ui/dialogs/rulesymbologytab.cpp
+        # Slice U-V — custom GIS-themed editor widgets.
+        src/ui/dialogs/editors/featurestyleeditor.cpp
+        # SE.1–SE.3 — dedicated editors for the *SymbolStyleAdapter family.
+        src/ui/dialogs/editors/symbolstyleeditors.cpp
+        # O2-1 — 2D results layer-level display panel.
+        src/ui/dialogs/swmm2dresultsstylepanel.cpp
+        # SE.4 — dedicated editors for the raster / mesh / 2D archetypes.
+        src/ui/dialogs/editors/symbolstyleeditors2d.cpp
+        src/ui/dialogs/editors/swmmelementsymboleditor.cpp
+        src/ui/dialogs/editors/gisvectorsymboleditor.cpp
+        src/ui/dialogs/editors/rastercolorrampeditor.cpp
+        src/ui/dialogs/editors/kindrendererpanel.cpp
+        src/ui/dialogs/editors/meshhillshadeeditor.cpp
+        src/ui/dialogs/editors/singlesymbolrendererpanel.cpp
+        src/ui/dialogs/editors/markershapeeditor.cpp
+        src/ui/dialogs/editors/graduatedrendererpanel.cpp
+        src/ui/dialogs/editors/categorizedrendererpanel.cpp
+        src/ui/dialogs/editors/rulebasedrendererpanel.cpp
+        # Slice IO-10 — relative-path picker + portability normalizer.
+        src/ui/widgets/relativepathpicker.cpp
+        src/project/ioportabilitynormalizer.cpp
+
+        src/ui/widgets/colorbutton.cpp
+        src/ui/widgets/dashstylecombo.cpp
+        src/ui/widgets/markershapecombo.cpp
+        src/ui/widgets/stylepreviewswatch.cpp
+        src/ui/dialogs/dialoglayoutpersistence.cpp
         src/ui/dialogs/curveeditordialog.cpp
         src/ui/dialogs/patterneditordialog.cpp
         src/ui/dialogs/timeserieseditordialog.cpp
@@ -629,11 +1007,12 @@ set(
         src/ui/dialogs/tabularresultsdialog.cpp
         src/ui/dialogs/scatterplotdialog.cpp
         src/ui/dialogs/customreportdialog.cpp
-        src/ui/dialogs/symbologydialog.cpp
+        src/ui/dialogs/annotationstyledialog.cpp
         src/ui/dialogs/calibrationdatadialog.cpp
         src/ui/dialogs/profilepathpickerdialog.cpp
         src/ui/dialogs/profileplotdialog.cpp
         src/ui/dialogs/profileoptionsdialog.cpp
+        src/ui/dialogs/meshprofileplotdialog.cpp
         src/ui/dialogs/profilesourcestyleadapter.cpp
         src/ui/dialogs/wmsconnectiondialog.cpp
         src/ui/dialogs/wmtsconnectiondialog.cpp
@@ -641,6 +1020,7 @@ set(
         src/ui/dialogs/licenseagreementdialog.cpp
 
         # Toolbars
+        src/ui/toolbars/mesheditingtoolbar.cpp
         src/ui/toolbars/terraintoolbar.cpp
 
         # Widgets
@@ -651,6 +1031,8 @@ set(
         src/ui/widgets/legendoverlay.cpp
         src/ui/widgets/interactivechartview.cpp
         src/ui/widgets/timeserieseditchartview.cpp
+        src/ui/widgets/curveeditchartview.cpp
+        src/ui/widgets/patterneditchartview.cpp
         src/ui/widgets/attributepickermenu.cpp
         src/ui/widgets/rangeslider.cpp
         src/ui/widgets/statssummarypanel.cpp
@@ -722,6 +1104,17 @@ target_link_libraries(SWMMVis
         openswmm_engine
         triangle_lib
         ${HDF5_C_LIBRARIES}
+)
+
+# SE.0 — define HAVE_QPROPERTYMODEL whenever the QPropertyModel target is
+# available (it's linked just above under the same guard). This compiles in
+# the QPropertyModel-backed property-grid fallback in SingleSymbolPanel
+# (singlesymbolrendererpanel.cpp), which surfaces every *SymbolStyleAdapter's
+# grouped Q_PROPERTYs — including the marker-shape combo — so the Single
+# Symbol editor is never an empty "no editor registered" panel.
+target_compile_definitions(SWMMVis
+    PRIVATE
+        $<$<TARGET_EXISTS:QPropertyModel>:HAVE_QPROPERTYMODEL>
 )
 
 set_target_properties(SWMMVis PROPERTIES
@@ -803,6 +1196,24 @@ if(APPLE)
               "$ENV{QT_ROOT_DIR}/bin"
     )
     if(MACDEPLOYQT_EXECUTABLE)
+        # Capture a real dSYM BEFORE macdeployqt + codesign run, so the
+        # debug-map links (N_OSO STABS) to per-.o DWARF are still intact.
+        # macdeployqt re-links frameworks (@rpath rewrites) and codesign
+        # re-stamps the executable; both can invalidate the embedded debug
+        # map and prevent `atos` / `lldb image lookup` from resolving
+        # SWMMVis frames to source.  Only emit the dSYM for Debug / RWDI
+        # configs where users actually want backtraces — release builds
+        # keep the existing fast path.
+        find_program(DSYMUTIL_EXECUTABLE dsymutil)
+        if(DSYMUTIL_EXECUTABLE)
+            add_custom_command(TARGET SWMMVis POST_BUILD
+                COMMAND "${DSYMUTIL_EXECUTABLE}"
+                        "$<TARGET_FILE:SWMMVis>"
+                        -o "$<TARGET_BUNDLE_DIR:SWMMVis>.dSYM"
+                COMMENT "dsymutil: producing SWMMVis.app.dSYM for symbolicated backtraces"
+                VERBATIM
+            )
+        endif()
         # POST_BUILD: produce a self-contained .app in the build tree
         add_custom_command(TARGET SWMMVis POST_BUILD
             COMMAND "${MACDEPLOYQT_EXECUTABLE}"
