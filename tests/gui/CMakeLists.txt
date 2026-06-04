@@ -669,6 +669,16 @@ add_swmmvis_gui_test(test_timeseries_registry_engine
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesregistry.cpp
 )
 
+# Phase 1 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — UserFlagsModel
+# define/undefine/value round-trips against a real engine handle, signal
+# emission, and [USER_FLAGS]/[USER_FLAG_VALUES] INP persistence (the
+# round-trip .inp is written to the gui-test data dir for review).
+add_swmmvis_gui_test(test_userflagsmodel
+    test_userflagsmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/models/userflagsmodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/models/userflagsmodel.cpp
+)
+
 # Slice AT.2 — pins the recursion-guarded X-axis linking idiom used in
 # ComparisonPlotDialog::wireXAxisSync. Self-contained: in-test XAxisSyncBus
 # mirrors the dialog's pattern; no dialog code needed. Needs Qt6::Charts

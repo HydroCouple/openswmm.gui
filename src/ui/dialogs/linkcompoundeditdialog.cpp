@@ -10,6 +10,9 @@
 #include "transect/transectprovider.h"
 #include "transect/transectregistry.h"
 #include "ui/dialogs/transecteditordialog.h"
+#include "street/streetprovider.h"
+#include "street/streetregistry.h"
+#include "ui/dialogs/streeteditordialog.h"
 #include "ui/widgets/labeledcontrols.h"
 
 #include <openswmm/engine/openswmm_engine.h>
@@ -21,6 +24,7 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QFontMetrics>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -68,6 +72,7 @@ static const ShapeRow kShapes[] = {
     { "CATENARY",        17, "Max Depth", "",                "",               ""  },
     { "SEMIELLIPTICAL",  18, "Max Depth", "",                "",               ""  },
     { "IRREGULAR",       19, "Transect (index)", "",         "",               ""  },
+    { "STREET",          24, "Street (index)",   "",         "",               ""  },
 };
 
 const ShapeRow *findShapeRow(int engineId)
@@ -113,8 +118,9 @@ const char *xsectSvgBasenameFor(int engineId)
     case 17: return "catenary_xsect.svg";                 // CATENARY
     case 18: return "semi-elliptical_xsect.svg";          // SEMIELLIPTICAL
     case 19: return "irregular_xsect.svg";                // IRREGULAR
+    case 24: return "street_xsect.svg";                   // STREET (SWMM_XSECT_STREET)
     // BN.6.4.4 will extend kShapes with BASKETHANDLE / CUSTOM / DUMMY /
-    // FORCE_MAIN / STREET; the matching SVGs are already registered in
+    // FORCE_MAIN; the matching SVGs are already registered in
     // resources/swmmvis.qrc (baskethandle_xsect.svg etc.).
     default: return nullptr;
     }
@@ -256,15 +262,26 @@ void LinkCompoundEditDialog::buildXSectionPage()
     m_xsShapeList->setResizeMode(QListView::Adjust);
     m_xsShapeList->setMovement(QListView::Static);
     m_xsShapeList->setSelectionMode(QAbstractItemView::SingleSelection);
-    // Tile sized so the widest engine shape names (MOD_BASKETHANDLE,
-    // SEMIELLIPTICAL, FILLED_CIRCULAR, RECT_TRIANGULAR) fit on two lines
-    // without truncation at the default font.
-    m_xsShapeList->setIconSize(QSize(80, 60));
-    m_xsShapeList->setGridSize(QSize(124, 116));
+    // Tile sized so the widest engine shape names fit on a single line
+    // without truncation. The names contain underscores (e.g.
+    // MOD_BASKETHANDLE, FILLED_CIRCULAR) which are not word-wrap break
+    // points, so the cell must be as wide as the widest label rather than
+    // relying on wrapping. Derive the width from the actual list font.
+    const QSize kIconSize(112, 84);
+    m_xsShapeList->setIconSize(kIconSize);
+    const QFontMetrics fm(m_xsShapeList->font());
+    int maxTextW = 0;
+    for (const auto &row : kShapes)
+        maxTextW = qMax(maxTextW,
+                        fm.horizontalAdvance(QString::fromLatin1(row.name)));
+    const int kCellPad = 16;
+    const int gridW = qMax(kIconSize.width(), maxTextW) + kCellPad;
+    const int gridH = kIconSize.height() + fm.height() + kCellPad;
+    m_xsShapeList->setGridSize(QSize(gridW, gridH));
     m_xsShapeList->setSpacing(6);
     m_xsShapeList->setUniformItemSizes(true);
     m_xsShapeList->setWordWrap(true);
-    m_xsShapeList->setMinimumWidth(280);
+    m_xsShapeList->setMinimumWidth(2 * (gridW + 12) + 24);
 
     for (const auto &row : kShapes) {
         if (!shapeAllowed(row.engineId)) continue;
@@ -308,6 +325,11 @@ void LinkCompoundEditDialog::buildXSectionPage()
     m_xsTransectLabel  = new QLabel(tr("Transect"), paramsPane);
     m_xsTransectPicker = new LabeledPickerCombo(QString(), paramsPane);
     form->addRow(m_xsTransectLabel, m_xsTransectPicker);
+
+    // Street picker row (visible only for STREET). Same pattern as transect.
+    m_xsStreetLabel  = new QLabel(tr("Street"), paramsPane);
+    m_xsStreetPicker = new LabeledPickerCombo(QString(), paramsPane);
+    form->addRow(m_xsStreetLabel, m_xsStreetPicker);
 
     form->addRow(tr("Barrels"),   m_xsBarrelsSpin);
 
@@ -363,6 +385,18 @@ void LinkCompoundEditDialog::buildXSectionPage()
         }
         refreshTransectPickerItems(currentTransectName);
 
+        // Populate the street picker. For STREET shape geom1 carries the
+        // street index; translate to the name via the engine API.
+        QString currentStreetName;
+        if (shape == /*STREET*/ 24) {
+            const int sIdx = static_cast<int>(std::lround(g1));
+            if (m_ref.engine && sIdx >= 0 && sIdx < swmm_street_count(m_ref.engine)) {
+                if (const char *id = swmm_street_id(m_ref.engine, sIdx))
+                    currentStreetName = QString::fromUtf8(id);
+            }
+        }
+        refreshStreetPickerItems(currentStreetName);
+
         m_xsSuppressApply = false;
         updateXsectFieldVisibility();
     }
@@ -403,6 +437,16 @@ void LinkCompoundEditDialog::buildXSectionPage()
             });
     connect(m_xsTransectPicker, &LabeledPickerCombo::pickerClicked,
             this, &LinkCompoundEditDialog::onTransectPickerClicked);
+
+    // Street picker wiring — same contract as the transect picker, mapping
+    // name → street index for STREET shape via applyXsect().
+    connect(m_xsStreetPicker, &LabeledPickerCombo::currentTextChanged,
+            this, [this](const QString &) {
+                if (m_xsSuppressApply) return;
+                applyXsect();
+            });
+    connect(m_xsStreetPicker, &LabeledPickerCombo::pickerClicked,
+            this, &LinkCompoundEditDialog::onStreetPickerClicked);
 
     m_xsSummaryLabel->setText(computeXsectSummary());
     m_stack->addWidget(page);
@@ -458,12 +502,52 @@ void LinkCompoundEditDialog::onTransectPickerClicked()
     applyXsect();
 }
 
+void LinkCompoundEditDialog::refreshStreetPickerItems(const QString &selected)
+{
+    if (!m_xsStreetPicker) return;
+
+    QStringList names;
+    if (m_ref.layer) {
+        if (auto *reg = qobject_cast<openswmmvis::street::StreetRegistry *>(
+                m_ref.layer->ensureStreetRegistry())) {
+            for (auto *p : reg->providers())
+                if (p) names << p->name();
+        }
+    }
+
+    const bool prevSuppress = m_xsSuppressApply;
+    m_xsSuppressApply = true;
+    m_xsStreetPicker->setItems(names, selected);
+    m_xsSuppressApply = prevSuppress;
+}
+
+void LinkCompoundEditDialog::onStreetPickerClicked()
+{
+    if (!m_ref.layer) return;
+    auto *reg = qobject_cast<openswmmvis::street::StreetRegistry *>(
+        m_ref.layer->ensureStreetRegistry());
+    if (!reg) return;
+
+    const QString initial = m_xsStreetPicker
+        ? m_xsStreetPicker->currentText() : QString();
+    const QString chosen = openswmmvis::ui::StreetEditorDialog::pickStreet(
+        reg, m_ref.layer, initial, this);
+    if (chosen.isEmpty()) {
+        refreshStreetPickerItems(initial);
+        return;
+    }
+
+    refreshStreetPickerItems(chosen);
+    applyXsect();
+}
+
 void LinkCompoundEditDialog::updateXsectFieldVisibility()
 {
     QListWidgetItem *cur = m_xsShapeList ? m_xsShapeList->currentItem() : nullptr;
     const int shapeId = cur ? cur->data(Qt::UserRole).toInt() : 0;
     const ShapeRow *row = findShapeRow(shapeId);
     const bool isIrregular = (shapeId == /*IRREGULAR*/ 19);
+    const bool isStreet    = (shapeId == /*STREET*/ 24);
 
     auto setRow = [](QLabel *lbl, QDoubleSpinBox *spin, const char *text) {
         const bool show = (text && *text);
@@ -471,10 +555,11 @@ void LinkCompoundEditDialog::updateXsectFieldVisibility()
         spin->setVisible(show);
         if (show) lbl->setText(QString::fromLatin1(text));
     };
-    // §S.SC.1.b — For IRREGULAR the engine's geom1 is a transect index,
-    // not a length-like geometry, so hide the numeric spin and surface
-    // the name picker instead. All other shapes use the spin as before.
-    if (isIrregular) {
+    // §S.SC.1.b — For IRREGULAR (and STREET) the engine's geom1 is an
+    // index into the transect / street list, not a length-like geometry,
+    // so hide the numeric spin and surface the name picker instead. All
+    // other shapes use the spin as before.
+    if (isIrregular || isStreet) {
         m_xsGeom1Label->setVisible(false);
         m_xsGeom1Spin->setVisible(false);
     } else {
@@ -486,6 +571,8 @@ void LinkCompoundEditDialog::updateXsectFieldVisibility()
 
     if (m_xsTransectLabel)  m_xsTransectLabel->setVisible(isIrregular);
     if (m_xsTransectPicker) m_xsTransectPicker->setVisible(isIrregular);
+    if (m_xsStreetLabel)    m_xsStreetLabel->setVisible(isStreet);
+    if (m_xsStreetPicker)   m_xsStreetPicker->setVisible(isStreet);
 }
 
 QString LinkCompoundEditDialog::computeXsectSummary() const
@@ -509,6 +596,17 @@ QString LinkCompoundEditDialog::computeXsectSummary() const
         }
         return tr("%1 (%2)").arg(QString::fromLatin1(row->name),
                                   txName.isEmpty() ? tr("—") : txName);
+    }
+    // STREET's geom1 is a street index; resolve to the street name.
+    if (shape == /*STREET*/ 24) {
+        const int sIdx = static_cast<int>(std::lround(g1));
+        QString stName;
+        if (sIdx >= 0 && sIdx < swmm_street_count(m_ref.engine)) {
+            if (const char *id = swmm_street_id(m_ref.engine, sIdx))
+                stName = QString::fromUtf8(id);
+        }
+        return tr("%1 (%2)").arg(QString::fromLatin1(row->name),
+                                  stName.isEmpty() ? tr("—") : stName);
     }
     if (g2 > 0.0)
         return tr("%1 (%2 × %3)").arg(QString::fromLatin1(row->name))
@@ -542,6 +640,16 @@ void LinkCompoundEditDialog::applyXsect()
             m_ref.engine, name.toUtf8().constData());
         if (tIdx < 0) return;
         g1 = static_cast<double>(tIdx);
+    }
+    // STREET: geom1 = street index, picked by name in m_xsStreetPicker.
+    if (shape == /*STREET*/ 24) {
+        if (!m_xsStreetPicker || !m_ref.engine) return;
+        const QString name = m_xsStreetPicker->currentText();
+        if (name.isEmpty()) return;
+        const int sIdx = swmm_street_index(
+            m_ref.engine, name.toUtf8().constData());
+        if (sIdx < 0) return;
+        g1 = static_cast<double>(sIdx);
     }
 
     bool ok = false;

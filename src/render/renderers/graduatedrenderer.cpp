@@ -78,6 +78,12 @@ void GraduatedRenderer::setRamp(RasterColorRamp ramp)
 void GraduatedRenderer::setBinner(IntervalBinner b)
 {
     m_binner = std::move(b);
+    // The binner config (method / bin count / manual breaks) just changed, so
+    // the cached breaks are stale. Clear them; the owning layer's next rebuild
+    // re-derives them from data via classifyIfNeeded(). This is what makes a
+    // "change bin count / method" edit actually re-sample. (Load paths set
+    // m_binner directly in fromJson, so saved breaks are unaffected.)
+    m_lastBreaks.clear();
 }
 
 QList<QColor> GraduatedRenderer::binColors() const

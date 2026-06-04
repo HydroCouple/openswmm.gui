@@ -22,6 +22,7 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QScrollArea>
 #include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QVBoxLayout>
@@ -213,8 +214,18 @@ void SymbologyTab::mountPanelForId(const QString &rendererId)
     }
 
     if (auto *panel = entry->factory(m_ctx, m_stack)) {
-        m_stack->addWidget(panel);
-        m_stack->setCurrentWidget(panel);
+        // Wrap the panel in a scroll area: renderer editors (e.g. the SWMM
+        // element-symbol editor) stack several group boxes — Symbology, Labels,
+        // Flow arrows, Preview — that together exceed the dialog height. Without
+        // scrolling, the lower groups (including the flow-direction-arrow
+        // toggle) were clipped off the bottom and unreachable.
+        auto *scroll = new QScrollArea(m_stack);
+        scroll->setWidgetResizable(true);
+        scroll->setFrameShape(QFrame::NoFrame);
+        scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        scroll->setWidget(panel);
+        m_stack->addWidget(scroll);
+        m_stack->setCurrentWidget(scroll);
         panel->refreshFromModel();
     }
 }

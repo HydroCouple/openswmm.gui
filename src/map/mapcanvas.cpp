@@ -813,6 +813,16 @@ void MapCanvas::syncQsgRenderKindsFromPreferences()
     for (OpenSWMMVisLayer *layer : std::as_const(m_layers))
         if (auto *sl = qobject_cast<SWMMModelLayer *>(layer))
             sl->setQsgRenderKinds(mask);
+    // The toggle flips which pipeline owns the visible glyphs. Invalidate the
+    // cached QSG framebuffer and force the overlay renderer to rebuild its
+    // geometry, otherwise re-enabling the GPU path composites a stale/empty
+    // frame: setLayer() no-ops on the unchanged layer, and a self-render while
+    // the overlay was off may already have consumed m_contentDirty against
+    // empty (un-owned) geometry — the "glyphs vanish after toggling back" bug.
+    m_qsgFrameDirty = true;
+    m_qsgFrameCache = QImage();
+    if (m_qsgRenderer)
+        m_qsgRenderer->forceRebuild();
     // Always schedule a repaint — the toggle changes which pipeline
     // owns the visible glyphs, so even with no QSG kinds active the
     // CPU path needs to repaint its node branch.
@@ -1062,6 +1072,45 @@ void MapCanvas::fireSceneChannel()
 }
 
 // ---------------------------------------------------------------------------
+// renderSceneBuffer — rasterise the vector QGraphicsScene into m_sceneBuffer
+// ---------------------------------------------------------------------------
+//
+// QGIS-style cache for the vector overlay (2D mesh, GIS vectors, annotations).
+// Called from paintEvent on every non-gesture paint: it renders the scene live
+// into m_sceneBuffer (so selection / profile / hover stay immediate) and the
+// caller blits it 1:1. The same buffer is then blitted with a stale-buffer
+// transform during an active pan/zoom gesture, so QGraphicsScene::render() —
+// which paints the full mesh — does not run on every gesture frame (same
+// approach as m_mapBuffer for raster layers).
+void MapCanvas::renderSceneBuffer()
+{
+    if (!m_scene || !m_extent.isValid() || width() <= 0 || height() <= 0)
+        return;
+
+    const qreal dpr = devicePixelRatioF();
+    const QSize devSize(qRound(width() * dpr), qRound(height() * dpr));
+    if (m_sceneBuffer.size() != devSize
+        || !qFuzzyCompare(m_sceneBuffer.devicePixelRatio(), dpr))
+    {
+        m_sceneBuffer = QImage(devSize, QImage::Format_ARGB32_Premultiplied);
+        m_sceneBuffer.setDevicePixelRatio(dpr);
+    }
+    m_sceneBuffer.fill(Qt::transparent);
+
+    QPainter sp(&m_sceneBuffer);
+    sp.setRenderHints(QPainter::Antialiasing
+                      | QPainter::TextAntialiasing
+                      | QPainter::SmoothPixmapTransform);
+    const QRectF targetRect(0, 0, width(), height());
+    const QRectF sourceRect(m_extent.xMin(), -m_extent.yMax(),
+                            m_extent.width(), m_extent.height());
+    m_scene->render(&sp, targetRect, sourceRect, Qt::IgnoreAspectRatio);
+    sp.end();
+
+    m_sceneBufferExtent = m_extent;
+}
+
+// ---------------------------------------------------------------------------
 // Legacy refresh API — preserved verbatim so existing callers don't change
 // behavior. Callers should migrate to invalidate(channels) over time.
 // ---------------------------------------------------------------------------
@@ -1296,18 +1345,45 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
     }
 
     // ---- Layer 2: vector scene items ----------------------------------------
-    // Render the scene directly via QGraphicsScene::render() — this is more
-    // reliable than going through the hidden QGraphicsView, which can produce
-    // empty output when the view's viewport hasn't been laid out (especially
-    // on first paint after model load). target = canvas pixel rect; source =
-    // visible portion of the scene in scene coordinates derived from m_extent
-    // (with the standard scene Y-flip: scene_y = -map_y).
+    // The vector scene (2D mesh, GIS vectors, annotations) is expensive to
+    // render on a large mesh, so the cost is scoped to *active pan/zoom
+    // gestures* only: during a gesture we blit the cached m_sceneBuffer with
+    // the basemap's stale-buffer transform, so the gesture stays smooth
+    // regardless of triangle count. When NOT in a gesture we render the scene
+    // live — so selection, the mesh profile tool, hover, and any scene edit
+    // are immediately visible (the spatial-grid cull and the LOD overview keep
+    // this affordable) — and keep m_sceneBuffer current for the next gesture.
     if (m_extent.isValid() && width() > 0 && height() > 0 && m_scene)
     {
-        const QRectF targetRect(0, 0, width(), height());
-        const QRectF sourceRect(m_extent.xMin(), -m_extent.yMax(),
-                                m_extent.width(), m_extent.height());
-        m_scene->render(&p, targetRect, sourceRect, Qt::IgnoreAspectRatio);
+        const bool gesture = m_isPanning || m_isZooming;
+        if (gesture && !m_sceneBuffer.isNull() && m_sceneBufferExtent.isValid()
+            && m_extent.width() > 0 && m_extent.height() > 0)
+        {
+            // Fast path: stale-buffer transform (same math as the basemap).
+            const double pxPerCanvasX = double(width())  / m_extent.width();
+            const double pxPerCanvasY = double(height()) / m_extent.height();
+            const double dstLeft   =
+                (m_sceneBufferExtent.xMin() - m_extent.xMin()) * pxPerCanvasX;
+            const double dstRight  =
+                (m_sceneBufferExtent.xMax() - m_extent.xMin()) * pxPerCanvasX;
+            const double dstTop    =
+                (m_extent.yMax() - m_sceneBufferExtent.yMax()) * pxPerCanvasY;
+            const double dstBottom =
+                (m_extent.yMax() - m_sceneBufferExtent.yMin()) * pxPerCanvasY;
+            const QRectF dstRect(dstLeft, dstTop,
+                                 dstRight - dstLeft, dstBottom - dstTop);
+            if (dstRect.isValid() && !dstRect.isEmpty())
+                p.drawImage(dstRect, m_sceneBuffer);
+            else
+                p.drawImage(0, 0, m_sceneBuffer);
+        }
+        else
+        {
+            // Live render (also refreshes the cache for the next gesture).
+            renderSceneBuffer();
+            if (!m_sceneBuffer.isNull())
+                p.drawImage(0, 0, m_sceneBuffer);
+        }
     }
 
     // ---- Layer 2b: SWMM layer QSG rendering (Phase B.RHI) -----------------

@@ -13,6 +13,8 @@
 #include "curve/curveregistry.h"
 #include "controls/controlruleregistry.h"
 #include "transect/transectregistry.h"
+#include "street/streetregistry.h"
+#include "ui/models/userflagsmodel.h"
 #include "transect/transectprovider.h"
 #include "core/editgeometry.h"
 #include "core/preferencesmanager.h"
@@ -427,12 +429,23 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
     m_dividerSym.fillColor    = Qt::green;
     m_dividerSym.size         = 8.0;
     m_dividerSym.markerShape  = Marker::Diamond;
+    // Link kinds paint from the per-kind symbol's fillColor (line colour) and
+    // size (line width in px) — see linkPenForType() in swmmlayeritem.cpp and
+    // the QSG link pass. The fill colours below already match the global
+    // PreferencesManager link-pen defaults (kDefault*Color), and `size` is
+    // seeded to the matching default pen widths, so first-open is pixel-
+    // identical to the previous prefs-driven look; per-layer dialog edits then
+    // diverge from the global defaults.
     m_conduitSym.fillColor   = QColor(50,  50, 200);
+    m_conduitSym.size        = 1.0;   // = kConduitPenDefault width
     m_conduitSym.outlineWidth = 1.5;
     m_pumpSym.fillColor      = Qt::red;
+    m_pumpSym.size           = 3.0;   // = kPumpPenDefault width
     m_pumpSym.outlineWidth   = 2.0;
     m_orificeSym.fillColor   = QColor(200, 150, 0);
+    m_orificeSym.size        = 2.5;   // = kOrificePenDefault width
     m_weirSym.fillColor      = QColor(0, 180, 100);
+    m_weirSym.size           = 2.5;   // = kWeirPenDefault width
     m_subcatchSym.fillColor    = QColor(180, 220, 180);
     m_subcatchSym.outlineColor = QColor(0,    60,   0);   // dark forest green
     m_subcatchSym.outlineWidth = 1.5;
@@ -445,6 +458,9 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
     // current paint loop (which still reads m_*Sym directly); the paint
     // refactor swaps in a MultiKindRenderer adapter and flips the path.
     m_renderer = std::make_unique<OpenSWMM::Render::SingleSymbolRenderer>();
+
+    // Per-kind opacity defaults to fully opaque (1.0) for every category.
+    for (qreal &o : m_categoryOpacity) o = 1.0;
 
     // Slice BI-MK.1 / BI-MK.LT (2026-05-24) — seed the 11 per-kind
     // renderers from the matching SWMMElementSymbol defaults above so
@@ -1522,6 +1538,24 @@ void SWMMModelLayer::setCategoryVisible(Category c, bool visible)
     }
 }
 
+qreal SWMMModelLayer::categoryOpacity(Category c) const
+{
+    const int i = static_cast<int>(c);
+    if (i < 0 || i >= static_cast<int>(NumCategories)) return 1.0;
+    return m_categoryOpacity[i];
+}
+
+void SWMMModelLayer::setCategoryOpacity(Category c, qreal opacity)
+{
+    const int i = static_cast<int>(c);
+    if (i < 0 || i >= static_cast<int>(NumCategories)) return;
+    const qreal clamped = std::clamp(opacity, 0.0, 1.0);
+    if (qFuzzyCompare(m_categoryOpacity[i] + 1.0, clamped + 1.0)) return;
+    m_categoryOpacity[i] = clamped;
+    m_needsRebuild = true;          // re-bake per-feature colours with new alpha
+    emit repaintRequested();
+}
+
 bool SWMMModelLayer::findObjectLocation(const QString &name,
                                          Category *cat, int *row) const
 {
@@ -2228,8 +2262,15 @@ void SWMMModelLayer::buildRuleListLazy() const
         // override caches instead (see plan §4.5).
         QObject::connect(rule, &OpenSWMM::Render::Rule::rendererReplaced,
                          self, [self, c, rule]() {
-            if (auto *r = rule->renderer())
+            if (auto *r = rule->renderer()) {
+                // Classify the Rule's own renderer in place so the editor —
+                // which reads the Rule's renderer (currentRenderer()) — sees
+                // the data-derived breaks + range. The clone below then
+                // inherits them, so paint + dialog stay in lockstep.
+                if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(r))
+                    self->classifyGraduatedIfNeeded(c, g);
                 self->setKindRenderer(c, r->clone());
+            }
 
             // Slice SS.4 — back-propagate to legacy struct.
             using L = SWMMModelLayer;
@@ -2326,6 +2367,35 @@ bool SWMMModelLayer::kindHasAnyOffset(Category c) const
     return m_kindHasAnyOffset[c];
 }
 
+void SWMMModelLayer::classifyGraduatedIfNeeded(
+    Category c, OpenSWMM::Render::GraduatedRenderer *g)
+{
+    if (!g) return;
+    // Already classified (data-derived breaks present) — nothing to do. The
+    // editor clears breaks (clearBreaks / setBinner) to request a re-classify.
+    if (!g->lastBreaks().isEmpty()) return;
+    const QString attr = g->classifyAttribute();
+    if (attr.isEmpty()) return;
+
+    const int n = categoryCount(c);
+    if (n <= 0) return;
+
+    // Gather the classify attribute across this kind's features. Model fields
+    // are static (invertElev, diameter, length, …); identifyByName returns
+    // them. A dynamic results name (e.g. "depth") simply isn't present here,
+    // so samples stay empty and classifyIfNeeded leaves the renderer alone —
+    // dynamic classification is the results layer's job.
+    QVector<double> samples;
+    samples.reserve(n);
+    for (int i = 0; i < n; ++i) {
+        const QVariant v = identifyByName(objectNameAt(c, i)).value(attr);
+        bool ok = false;
+        const double dv = v.toDouble(&ok);
+        if (ok && std::isfinite(dv)) samples.push_back(dv);
+    }
+    OpenSWMM::Render::GraduatedRenderer::classifyIfNeeded(g, samples);
+}
+
 void SWMMModelLayer::rebuildKindFeatureColors(Category c)
 {
     if (c < 0 || c >= NumCategories) return;
@@ -2336,6 +2406,12 @@ void SWMMModelLayer::rebuildKindFeatureColors(Category c)
 
     auto *r = kindRenderer(c);
     if (!r) return;
+    // Data-derive Graduated breaks + range from the kind's own attribute
+    // values before sampling per-feature colours. Without this the renderer
+    // stays at its default range ([0,1]) and every feature clamps into one
+    // bin. No-op once classified (the editor clears breaks to re-classify).
+    if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(r))
+        classifyGraduatedIfNeeded(c, g);
     // Slice BI Phase 8.13.43-α — even a SingleSymbol renderer may carry a
     // data-defined size override; only short-circuit when the renderer is
     // a Single WITHOUT data-defined size. We detect by sampling the
@@ -4495,6 +4571,37 @@ QObject *SWMMModelLayer::ensureTransectRegistry()
         reg->loadFromEngine(eng);
     }
     return reg;
+}
+
+QObject *SWMMModelLayer::ensureStreetRegistry()
+{
+    using openswmmvis::street::StreetRegistry;
+    SWMM_Engine eng = engine();
+    if (!eng) return nullptr;
+
+    auto *reg = qobject_cast<StreetRegistry *>(m_streetRegistry);
+    if (!reg || m_streetRegistryEngineHandle != eng) {
+        if (m_streetRegistry) m_streetRegistry->deleteLater();
+        reg = new StreetRegistry(this);
+        m_streetRegistry = reg;
+        m_streetRegistryEngineHandle = eng;
+        reg->loadFromEngine(eng);
+    }
+    return reg;
+}
+
+openswmmvis::ui::UserFlagsModel *SWMMModelLayer::ensureUserFlagsModel()
+{
+    using openswmmvis::ui::UserFlagsModel;
+    SWMM_Engine eng = engine();
+    if (!eng) return nullptr;
+
+    if (!m_userFlagsModel || m_userFlagsModelEngineHandle != eng) {
+        if (m_userFlagsModel) m_userFlagsModel->deleteLater();
+        m_userFlagsModel = new UserFlagsModel(eng, this);
+        m_userFlagsModelEngineHandle = eng;
+    }
+    return m_userFlagsModel;
 }
 
 namespace {

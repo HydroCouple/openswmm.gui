@@ -10,10 +10,13 @@
 #include "render/symbolstyleadapter.h"
 
 #include "render/ifeaturerenderer.h"
+#include "render/markershape.h"   // X1 dialog-read — markerShapeFromString
 #include "render/renderers/singlesymbolrenderer.h"
 #include "render/rule.h"
 #include "render/symbollayer.h"
 #include "render/symbolstyle.h"
+
+#include <QMetaType>
 
 #include <algorithm>
 
@@ -60,6 +63,51 @@ T readPropOn(const Rule *rule, const QString &key, const T &fallback)
     if (it == layer->props.constEnd()) return fallback;
     if (!it.value().canConvert<T>()) return fallback;
     return it.value().value<T>();
+}
+
+/*! Tolerant colour read for the properties dialog. A SymbolLayer colour prop
+ *  may be stored as a QColor variant (the *SymbolStyleAdapter write path) OR a
+ *  "#AARRGGBB" hex string (the struct-regen path styleFromElementSymbol), and
+ *  the fill may live under either "fillColor" (typed-spec path) or "color"
+ *  (struct-regen path). value<QColor>() does NOT parse a hex QString in this
+ *  codebase, so a plain read returned an invalid colour and the dialog opened
+ *  showing defaults. This reader accepts both encodings and an optional
+ *  secondary key. */
+QColor readColorOn(const Rule *rule, const QString &key,
+                   const QColor &fallback, const QString &altKey = QString())
+{
+    const SymbolLayer *layer = firstLayerOf(rule);
+    if (!layer) return fallback;
+    auto tryKey = [&](const QString &k, QColor &out) -> bool {
+        const auto it = layer->props.constFind(k);
+        if (it == layer->props.constEnd()) return false;
+        QColor c = it.value().value<QColor>();              // QColor variant
+        if (!c.isValid()) c = QColor(it.value().toString()); // hex string
+        if (c.isValid()) { out = c; return true; }
+        return false;
+    };
+    QColor c;
+    if (tryKey(key, c)) return c;
+    if (!altKey.isEmpty() && tryKey(altKey, c)) return c;
+    return fallback;
+}
+
+/*! Tolerant marker-shape read: the typed-spec path stores "shape" as an int,
+ *  the struct-regen path stores it as a token string (markerShapeToString).
+ *  Accept both. */
+int readShapeOn(const Rule *rule, int fallback)
+{
+    const SymbolLayer *layer = firstLayerOf(rule);
+    if (!layer) return fallback;
+    const auto it = layer->props.constFind(QStringLiteral("shape"));
+    if (it == layer->props.constEnd()) return fallback;
+    const QVariant &v = it.value();
+    if (v.typeId() == QMetaType::QString)
+        return static_cast<int>(
+            OpenSWMM::Render::markerShapeFromString(v.toString()));
+    bool ok = false;
+    const int i = v.toInt(&ok);
+    return ok ? i : fallback;
 }
 
 /*! Write a typed prop into the Rule's first SymbolLayer. Creates a
@@ -430,9 +478,10 @@ void PointSymbolStyleAdapter::setOpacity(qreal v)
 
 MarkerShape PointSymbolStyleAdapter::markerShape() const
 {
-    return static_cast<MarkerShape>(readPropOn<int>(
-        m_rule, QLatin1String(keys::kShape),
-        static_cast<int>(MarkerShape::Circle)));
+    // X1 dialog-read fix — "shape" may be an int (typed-spec) or a token
+    // string (struct-regen path). readShapeOn accepts both.
+    return static_cast<MarkerShape>(
+        readShapeOn(m_rule, static_cast<int>(MarkerShape::Circle)));
 }
 
 void PointSymbolStyleAdapter::setMarkerShape(MarkerShape v)
@@ -452,7 +501,10 @@ void PointSymbolStyleAdapter::setMarkerSize(qreal v)
 
 QColor PointSymbolStyleAdapter::fillColor() const
 {
-    return readPropOn<QColor>(m_rule, QLatin1String(keys::kFillColor), QColor());
+    // X1 dialog-read fix — accept "fillColor" (typed-spec) OR "color"
+    // (struct-regen), QColor variant OR hex string.
+    return readColorOn(m_rule, QLatin1String(keys::kFillColor), QColor(),
+                       QStringLiteral("color"));
 }
 
 void PointSymbolStyleAdapter::setFillColor(const QColor &c)
@@ -462,7 +514,7 @@ void PointSymbolStyleAdapter::setFillColor(const QColor &c)
 
 QColor PointSymbolStyleAdapter::outlineColor() const
 {
-    return readPropOn<QColor>(m_rule, QLatin1String(keys::kOutlineColor), QColor());
+    return readColorOn(m_rule, QLatin1String(keys::kOutlineColor), QColor());
 }
 
 void PointSymbolStyleAdapter::setOutlineColor(const QColor &c)
@@ -502,7 +554,7 @@ void PointSymbolStyleAdapter::setLabelFont(const QFont &f)
 
 QColor PointSymbolStyleAdapter::labelColor() const
 {
-    return readPropOn<QColor>(m_rule, QLatin1String(keys::kLabelColor), QColor(Qt::black));
+    return readColorOn(m_rule, QLatin1String(keys::kLabelColor), QColor(Qt::black));
 }
 
 void PointSymbolStyleAdapter::setLabelColor(const QColor &c)
@@ -547,7 +599,7 @@ void LineSymbolStyleAdapter::setOpacity(qreal v)
 
 QColor LineSymbolStyleAdapter::lineColor() const
 {
-    return readPropOn<QColor>(m_rule, QLatin1String(keys::kLineColor), QColor());
+    return readColorOn(m_rule, QLatin1String(keys::kLineColor), QColor());
 }
 
 void LineSymbolStyleAdapter::setLineColor(const QColor &c)
@@ -608,7 +660,7 @@ void LineSymbolStyleAdapter::setLabelFont(const QFont &f)
 
 QColor LineSymbolStyleAdapter::labelColor() const
 {
-    return readPropOn<QColor>(m_rule, QLatin1String(keys::kLabelColor), QColor(Qt::black));
+    return readColorOn(m_rule, QLatin1String(keys::kLabelColor), QColor(Qt::black));
 }
 
 void LineSymbolStyleAdapter::setLabelColor(const QColor &c)
@@ -638,8 +690,8 @@ void LineSymbolStyleAdapter::setArrowSize(qreal v)
 
 QColor LineSymbolStyleAdapter::arrowColor() const
 {
-    return readPropOn<QColor>(m_rule, QLatin1String(keys::kArrowColor),
-                              QColor(34, 34, 34));
+    return readColorOn(m_rule, QLatin1String(keys::kArrowColor),
+                       QColor(34, 34, 34));
 }
 
 void LineSymbolStyleAdapter::setArrowColor(const QColor &c)
@@ -694,7 +746,8 @@ void PolygonSymbolStyleAdapter::setOpacity(qreal v)
 
 QColor PolygonSymbolStyleAdapter::fillColor() const
 {
-    return readPropOn<QColor>(m_rule, QLatin1String(keys::kFillColor), QColor());
+    return readColorOn(m_rule, QLatin1String(keys::kFillColor), QColor(),
+                       QStringLiteral("color"));
 }
 
 void PolygonSymbolStyleAdapter::setFillColor(const QColor &c)
@@ -715,7 +768,7 @@ void PolygonSymbolStyleAdapter::setFillOpacity(qreal v)
 
 QColor PolygonSymbolStyleAdapter::outlineColor() const
 {
-    return readPropOn<QColor>(m_rule, QLatin1String(keys::kOutlineColor), QColor());
+    return readColorOn(m_rule, QLatin1String(keys::kOutlineColor), QColor());
 }
 
 void PolygonSymbolStyleAdapter::setOutlineColor(const QColor &c)

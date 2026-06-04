@@ -42,6 +42,7 @@ class SpatialReferenceSystem;
 
 namespace OpenSWMM::Render {
 class IFeatureRenderer;
+class GraduatedRenderer;   // classifyGraduatedIfNeeded — data-derived breaks.
 class RuleList;   // Slice B.4 — see ruleList() override below.
 enum class ClassEditKind;   // X4 — legend-as-editor facade (full def in ifeaturerenderer.h)
 }
@@ -54,6 +55,10 @@ class HydrographGroupListModel;
 class HydrographRtkTableModel;
 class HydrographIaTableModel;
 class HydrographDecayTableModel;
+
+namespace openswmmvis::ui {
+class UserFlagsModel;   // [USER_FLAGS] / [USER_FLAG_VALUES] store — see ensureUserFlagsModel().
+}
 
 /*!
  * \struct SWMMElementSymbol
@@ -460,6 +465,16 @@ public:
     void setCategoryVisible(Category c, bool visible);
 
     /*!
+     * \brief Per-kind (sub-layer) opacity in [0,1], applied on top of the
+     *        layer opacity. Lets the user fade, say, Conduits independently
+     *        of Junctions via the layer-tree Opacity column. Default 1.0.
+     *        The painter multiplies each feature's alpha by this; setting it
+     *        flags a rebuild + repaint.
+     */
+    [[nodiscard]] qreal categoryOpacity(Category c) const;
+    void setCategoryOpacity(Category c, qreal opacity);
+
+    /*!
      * \brief Locate an object by name, returning true and writing
      *        \p cat + \p row on success. O(1) hash lookup against the
      *        `m_objectLocation` map built at cache time. Used by the
@@ -743,6 +758,17 @@ public:
      *  automatically from setKindRenderer when the new renderer is
      *  non-SingleSymbol or has data-defined size enabled. */
     void rebuildKindFeatureColors(Category c);
+
+    /*! Data-derive a GraduatedRenderer's breaks + value range for kind \p c
+     *  when they are not yet set (empty breaks). Gathers the renderer's
+     *  classifyAttribute() across this kind's features (static model fields
+     *  via identifyByName) and calls GraduatedRenderer::classifyIfNeeded.
+     *  Shared by rebuildKindFeatureColors (paint cache) and the Rule→layer
+     *  rendererReplaced handler (editor reads the Rule's renderer) so both
+     *  see the same data-derived classification. No-op when already
+     *  classified, the attribute is empty, or it isn't a static field. */
+    void classifyGraduatedIfNeeded(Category c,
+                                   OpenSWMM::Render::GraduatedRenderer *g);
 
     // ----- Selection ------------------------------------------------------
 
@@ -1431,6 +1457,22 @@ public:
     /*! \brief Lazy accessor for the project-scoped TransectRegistry. */
     QObject *ensureTransectRegistry();
 
+    /*! \brief Lazy accessor for the project-scoped StreetRegistry. */
+    QObject *ensureStreetRegistry();
+
+    // ===== User flags ([USER_FLAGS] / [USER_FLAG_VALUES]) ==================
+    //
+    // Phase 1 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md. Same lazy-init /
+    // engine-handle-guard pattern as the registries above. All engine
+    // user-flag mutation calls live in UserFlagsModel; UI surfaces (User
+    // Flags Manager dialog, Attribute Table flag columns, Attribute Panel
+    // rows) share this instance and re-render off its defsChanged() /
+    // valueChanged() signals.
+
+    /*! \brief Lazy accessor for the project-scoped UserFlagsModel.
+     *  Returns nullptr if the engine isn't open. */
+    openswmmvis::ui::UserFlagsModel *ensureUserFlagsModel();
+
 signals:
     void modelFilePathChanged(const QString &path);
     void showNodesChanged(bool show);
@@ -1748,6 +1790,12 @@ private:
     // categoryCheckState() is O(1). Seeded to 0 at cache rebuild.
     int                          m_hiddenCountByCategory[NumCategories] = {};
 
+    // Per-kind (sub-layer) opacity in [0,1], default 1.0. Multiplies each
+    // feature's alpha in both paint paths; edited via the layer-tree Opacity
+    // column on kind rows. NumCategories entries, brace-init below leaves
+    // them 0 — the ctor fills 1.0 (see swmmmodellayer.cpp).
+    qreal                        m_categoryOpacity[NumCategories];
+
     // User-controlled display order for the Object Browser (Slice T.2).
     // Seeded to the enum sequence in rebuildCategoryIndex() so a fresh
     // model starts with the default order.
@@ -1918,6 +1966,14 @@ private:
     // Slice BQ Phase 6.7.4 — transect registry mirror.
     QObject                     *m_transectRegistry                 = nullptr;
     void                        *m_transectRegistryEngineHandle     = nullptr;
+
+    // Street registry mirror (parametric [STREETS] cross-sections).
+    QObject                     *m_streetRegistry                   = nullptr;
+    void                        *m_streetRegistryEngineHandle       = nullptr;
+
+    // User-flags store — see ensureUserFlagsModel().
+    openswmmvis::ui::UserFlagsModel *m_userFlagsModel               = nullptr;
+    void                        *m_userFlagsModelEngineHandle       = nullptr;
 };
 
 Q_DECLARE_METATYPE(SWMMModelLayer *)

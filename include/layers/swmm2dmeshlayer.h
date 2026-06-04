@@ -396,6 +396,30 @@ public:
     double             m_zMax     = 0.0;
     float              m_maxSlope = 0.0f;
 
+    // ── Level-of-detail (LOD) overview for far-zoom rendering ──────────────
+    // A coarse, fixed-resolution decimation of m_sceneTris built once by
+    // rebuildOverview(): each occupied cell of a low-res aggregation grid
+    // becomes a quad (two SceneTris) coloured by the mean elevation of the
+    // triangles whose centroid falls in it, with corner heights averaged
+    // from neighbouring cells so hillshade still reads. The painter draws
+    // this instead of the full mesh when the native triangles project below
+    // ~2 px (see SWMM2DMeshGraphicsItem::paint), turning a 5M-triangle fill
+    // into a few-tens-of-thousands-triangle fill at full extent. Zoomed-in
+    // views (native triangle ≥ threshold) keep the exact legacy path.
+    QVector<SceneTri>  m_overviewTris;            ///< coarse LOD fill geometry (gap-fill floor)
+    double             m_nativeTriSpan = 0.0;     ///< representative native tri edge (scene units)
+
+    // Triangle indices into m_sceneTris sorted by descending scene-space area.
+    // Drives adaptive far-zoom culling: at low zoom the painter walks this from
+    // the front, drawing real cells while their projected area stays above a
+    // pixel threshold and stopping as soon as it drops below — so large cells
+    // render faithfully and tiny sub-pixel cells are skipped, in O(kept) rather
+    // than O(all). Built alongside the overview for meshes past the threshold.
+    QVector<int>       m_trisBySizeDesc;
+
+    /*! \brief True when an LOD overview has been built and is worth using. */
+    [[nodiscard]] bool hasOverview() const { return !m_overviewTris.isEmpty(); }
+
     // Uniform spatial grid over scene-space triangle / edge bboxes.
     // The full type lives in layers/meshspatialgrid.h (extracted so it
     // can be unit-tested without linking the rest of the layer); see
@@ -411,6 +435,12 @@ signals:
 
 private:
     void rebuildSceneGeometry();
+
+    /*! \brief Build the coarse LOD overview (m_overviewTris) from
+     *  m_sceneTris. Called at the end of rebuildSceneGeometry(); a no-op
+     *  for meshes below the size threshold (small meshes render full-res
+     *  fast enough that an overview would only add popping). */
+    void rebuildOverview();
     void buildRuleListLazy() const;   // Slice B.5b — lazy ruleList init.
 
     // Slice B.5b — Rule Model mirror over the mesh layer's decoration

@@ -18,6 +18,7 @@
 #define OPENSWMM_RENDER_SUBLAYERS_FEATURE_FEATURESUBLAYERSTYLE_H
 
 #include "render/sublayerstyle.h"
+#include "render/labelconfig.h"   // L-1 — per-sublayer labels
 
 #include <QColor>
 #include <QJsonObject>
@@ -64,12 +65,21 @@ public:
     void setColor(const QColor &v)         { if (m_color        == v) return; m_color        = v; setDirty(); }
     void setUseColorRamp(bool v)           { if (m_useColorRamp == v) return; m_useColorRamp = v; setDirty(); }
 
+    // L-1 — per-sublayer labels. Each sublayer (kind) carries its own
+    // LabelConfig so the user can label, say, Junctions but not Conduits,
+    // and give each its own expression ("{name}: {depth} m"). The results
+    // layer's refreshLabels() reads this instead of the layer-level config.
+    [[nodiscard]] const LabelConfig &labelConfig() const { return m_labelConfig; }
+    void setLabelConfig(const LabelConfig &c) { if (m_labelConfig == c) return; m_labelConfig = c; setDirty(); }
+
     [[nodiscard]] QJsonObject toJson() const override
     {
         QJsonObject j;
         j[QStringLiteral("attribute")]    = m_attribute;
         j[QStringLiteral("color")]        = m_color.name(QColor::HexArgb);
         j[QStringLiteral("useColorRamp")] = m_useColorRamp;
+        if (m_labelConfig.enabled || !m_labelConfig.expression.isEmpty())
+            j[QStringLiteral("labelConfig")] = m_labelConfig.toJson();
         return j;
     }
     void fromJson(const QJsonObject &j) override
@@ -82,13 +92,16 @@ public:
         }
         if (j.contains(QStringLiteral("useColorRamp")))
             m_useColorRamp = j.value(QStringLiteral("useColorRamp")).toBool(true);
+        if (j.contains(QStringLiteral("labelConfig")))
+            m_labelConfig.fromJson(j.value(QStringLiteral("labelConfig")).toObject());
         setDirty();
     }
 
 private:
-    QString m_attribute    = QStringLiteral("depth");
-    QColor  m_color        = QColor(60, 60, 60);
-    bool    m_useColorRamp = true;
+    QString     m_attribute    = QStringLiteral("depth");
+    QColor      m_color        = QColor(60, 60, 60);
+    bool        m_useColorRamp = true;
+    LabelConfig m_labelConfig;            // L-1 — per-sublayer label settings
 };
 
 // ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ env:
 
 jobs:
   build:
+    name: Build and Package (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -24,6 +25,7 @@ jobs:
             shell_ext: .bat
             # For Qt 6.7.x on aqt, addon modules are reliably available on the MSVC2019 kit.
             qt_arch: win64_msvc2019_64
+            cmake_osx_arch: ""
 
           - os: ubuntu-latest
             cmake_preset: Linux
@@ -32,6 +34,7 @@ jobs:
             shell_ext: .sh
             qt_arch: linux_gcc_64
             appimage_arch: x86_64
+            cmake_osx_arch: ""
 
           - os: macos-latest
             cmake_preset: Darwin
@@ -39,6 +42,22 @@ jobs:
             vcpkg_triplet: arm64-osx
             shell_ext: .sh
             qt_arch: clang_64
+            cmake_osx_arch: arm64
+
+          # Intel-Mac build — mirrors openswmm.engine's deployment.yml matrix.
+          # `macos-15-intel` is GitHub's only hosted x86_64 macOS runner. Pair
+          # with the `x64-osx` vcpkg triplet and Qt's clang_64 kit (aqtinstall
+          # serves the x86_64 Qt under that arch tag on Intel hosts). The
+          # Configure step forces -DCMAKE_OSX_ARCHITECTURES=x86_64 so the GUI
+          # and the transitively-built engine pin to a single arch (no fat
+          # binary — Qt from aqtinstall ships single-arch).
+          - os: macos-15-intel
+            cmake_preset: Darwin
+            build_subdir: darwin
+            vcpkg_triplet: x64-osx
+            shell_ext: .sh
+            qt_arch: clang_64
+            cmake_osx_arch: x86_64
 
     runs-on: ${{ matrix.os }}
 
@@ -185,7 +204,10 @@ jobs:
           if [ -n "$CODESIGN_IDENTITY" ]; then
             EXTRA="-DCODESIGN_IDENTITY=$CODESIGN_IDENTITY"
           fi
-          cmake --preset=${{ matrix.cmake_preset }} -DSWMMVIS_BUILD_TESTS=ON $EXTRA
+          cmake --preset=${{ matrix.cmake_preset }} \
+            -DSWMMVIS_BUILD_TESTS=ON \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }} \
+            $EXTRA
         shell: bash
 
       # Diagnostic — only fires if a prior step (Configure or Build) fails.

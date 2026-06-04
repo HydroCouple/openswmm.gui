@@ -314,6 +314,7 @@ private slots:
 private:
 
     // Extent / overlay management
+    void renderSceneBuffer();   ///< Rasterise the vector scene into m_sceneBuffer at the current extent.
     void applyExtentToOverlay();
     void ensureOverlaySceneRectCovers(const QRectF &needed);
     [[nodiscard]] QRectF overlayVisibleSceneRect() const;
@@ -381,6 +382,15 @@ private:
                                                        into m_mapBufferExtent when the result arrives. */
     QImage                  m_frameBuffer;        /*!< Double-buffer: composite of all layers, blitted in one shot. */
     MapRenderJob           *m_renderJob   = nullptr;
+
+    // QGIS-style cache for the vector QGraphicsScene (2D mesh, GIS vectors,
+    // annotations), used only during an active pan/zoom gesture: the scene is
+    // rasterised live when idle (so selection / profile / hover stay
+    // immediate) and that same buffer is blitted with a stale-buffer transform
+    // during pan/zoom, instead of re-running QGraphicsScene::render() — which
+    // paints the full mesh — on every gesture frame.
+    QImage                  m_sceneBuffer;
+    MapExtent               m_sceneBufferExtent;
 
     // ----- Pan / zoom state -----------------------------------------------
     bool                    m_isPanning      = false;

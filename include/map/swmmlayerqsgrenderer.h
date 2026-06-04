@@ -56,6 +56,13 @@ public:
      *  m_contentDirty so line widths and glyph sizes are recomputed. */
     void setMapExtent(const MapExtent &extent);
 
+    /*! Force a full geometry rebuild on the next updatePaintNode, even when
+     *  the bound layer pointer is unchanged. Needed when the GPU/CPU render
+     *  toggle flips qsgRenderKinds back on: setLayer() no-ops on the same
+     *  layer, and a self-render while the overlay was off may have already
+     *  consumed m_contentDirty against empty (un-owned) geometry. */
+    void forceRebuild();
+
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode,
                              UpdatePaintNodeData *) override;

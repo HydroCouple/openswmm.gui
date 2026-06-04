@@ -99,6 +99,10 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     m_zSpin->setDecimals(3);
     m_zSpin->setSingleStep(0.1);
     m_zSpin->setMinimumWidth(110);
+    // Coalesce edits: emit valueChanged only when editing finishes (Enter,
+    // focus-out, or arrow step) rather than on every keystroke, so applying
+    // the elevation doesn't trigger a mesh recompute + redraw per digit typed.
+    m_zSpin->setKeyboardTracking(false);
     m_zSpin->setToolTip(tr(
         "Elevation of the selected vertex in project vertical units.\n"
         "Edits propagate via the layer's attributeChanged signal."));

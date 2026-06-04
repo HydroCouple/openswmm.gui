@@ -9,14 +9,24 @@
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
+#include "render/iattributeprovider.h"   // L-1 — label field hints
 #include "render/ifeaturerenderer.h"
 #include "render/rulelist.h"
+#include "render/sublayers/feature/featuresublayer.h"        // L-1 — per-sublayer labels
+#include "render/sublayers/feature/featuresublayerstyle.h"   // L-1
 #include "ui/dialogs/irendererpanel.h"
 #include "ui/dialogs/symbologytab.h"
+#include "ui/widgets/colorbutton.h"
 
+#include <QCheckBox>
+#include <QFormLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QLabel>
+#include <QLineEdit>
 #include <QSignalBlocker>
+#include <QSplitter>
 #include <QStackedWidget>
 #include <QStandardItem>
 #include <QStandardItemModel>
@@ -39,6 +49,62 @@ QString badgeForRendererId(const QString &id)
     return QString();
 }
 
+// L-1 — per-sublayer Labels editor for a results FeatureSublayerStyle. The
+// label is an expression template ("{name}: {depth} m"); {token}s resolve to
+// the element name / its current value for that result field. Edits write
+// the style's LabelConfig (which fires the sublayer's invalidate → repaint →
+// refreshLabels). `host` supplies the available field tokens for the hint.
+QWidget *makeSublayerLabelBox(OpenSWMM::Render::FeatureSublayerStyle *style,
+                              OpenSWMMVisLayer *host,
+                              OpenSWMMVis::SwmmCategory cat,
+                              QWidget *parent)
+{
+    using OpenSWMM::Render::LabelConfig;
+    auto *box  = new QGroupBox(QObject::tr("Labels"), parent);
+    auto *form = new QFormLayout(box);
+
+    auto *enable = new QCheckBox(QObject::tr("Show labels"), box);
+    form->addRow(QString(), enable);
+
+    auto *expr = new QLineEdit(box);
+    expr->setPlaceholderText(QObject::tr("e.g. {name}: {depth} m"));
+    expr->setToolTip(QObject::tr("Template — {token} placeholders are replaced "
+                                 "with the feature's values; literal text is kept."));
+    form->addRow(QObject::tr("Expression:"), expr);
+
+    auto *colorBtn = new ColorButton(box);
+    form->addRow(QObject::tr("Colour:"), colorBtn);
+
+    auto *hint = new QLabel(box);
+    hint->setWordWrap(true);
+    hint->setStyleSheet(QStringLiteral("color: palette(mid);"));
+    form->addRow(QObject::tr("Fields:"), hint);
+
+    const LabelConfig &lc = style->labelConfig();
+    enable->setChecked(lc.enabled);
+    expr->setText(lc.expression);
+    colorBtn->setColor(lc.color);
+
+    QStringList tokens{ QStringLiteral("{name}") };
+    if (auto *prov = dynamic_cast<OpenSWMM::Render::IAttributeProvider *>(host))
+        for (const auto &f : prov->availableAttributes(cat))
+            tokens << QStringLiteral("{%1}").arg(f.name);
+    hint->setText(tokens.join(QStringLiteral("  ")));
+
+    auto push = [style, enable, expr, colorBtn]() {
+        LabelConfig c = style->labelConfig();
+        c.enabled    = enable->isChecked();
+        c.expression = expr->text();
+        c.color      = colorBtn->color();
+        style->setLabelConfig(c);
+    };
+    QObject::connect(enable,   &QCheckBox::toggled,          box, [push](bool)            { push(); });
+    QObject::connect(expr,     &QLineEdit::editingFinished,  box, [push]()                { push(); });
+    QObject::connect(colorBtn, &ColorButton::colorChanged,   box, [push](const QColor &)  { push(); });
+
+    return box;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -54,26 +120,39 @@ KindTreeSymbologyPanel::KindTreeSymbologyPanel(OpenSWMMVisLayer *hostLayer,
 
     auto *root = new QHBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
-    root->setSpacing(8);
+    root->setSpacing(0);
+
+    // Draggable split between the kind tree (left) and the editor (right)
+    // so the user can rebalance the panel.
+    auto *splitter = new QSplitter(Qt::Horizontal, this);
+    splitter->setChildrenCollapsible(false);
 
     // ── Left — kind tree ───────────────────────────────────────────────
-    m_tree  = new QTreeView(this);
+    m_tree  = new QTreeView(splitter);
     m_model = new QStandardItemModel(this);
     m_model->setHorizontalHeaderLabels({tr("Kind"), tr("Renderer")});
     m_tree->setModel(m_model);
-    m_tree->setMinimumWidth(220);
+    m_tree->setMinimumWidth(180);
     m_tree->setRootIsDecorated(true);
     m_tree->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_tree->setSelectionMode(QAbstractItemView::SingleSelection);
     m_tree->setHeaderHidden(false);
-    m_tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    m_tree->header()->setSectionResizeMode(1, QHeaderView::Fixed);
-    m_tree->header()->resizeSection(1, 36);
-    root->addWidget(m_tree, 1);
+    // Interactive (user-resizable) columns; seed sensible widths.
+    m_tree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_tree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
+    m_tree->header()->setStretchLastSection(false);
+    m_tree->header()->resizeSection(0, 180);
+    m_tree->header()->resizeSection(1, 40);
+    splitter->addWidget(m_tree);
 
     // ── Right — per-kind editor stack ──────────────────────────────────
-    m_stack = new QStackedWidget(this);
-    root->addWidget(m_stack, 3);
+    m_stack = new QStackedWidget(splitter);
+    splitter->addWidget(m_stack);
+
+    splitter->setStretchFactor(0, 1);
+    splitter->setStretchFactor(1, 3);
+    splitter->setSizes({220, 560});
+    root->addWidget(splitter);
 
     buildTree();
 
@@ -248,19 +327,46 @@ void KindTreeSymbologyPanel::mountEditorForCategory(OpenSWMMVis::SwmmCategory ca
     ctx.category  = cat;
 
     // Feed the kind's Rule so the Symbology panel mounts the renderer-based
-    // editors (PointSymbolStyleEditor et al., bound to the single-source
-    // renderer) rather than the legacy per-kind struct editor. The RuleList
-    // stores one Rule per Category in ordinal order, so at(int(cat)) is the
-    // matching rule. Falls back to the category path when the layer exposes
-    // no RuleList.
-    if (m_layer) {
+    // archetype editors (PointSymbolStyleEditor et al., bound to the
+    // single-source renderer). The RuleList stores one Rule per Category in
+    // ordinal order, so at(int(cat)) is the matching rule.
+    //
+    // EXCEPTION — 1D SWMM **model** layers: do NOT feed the Rule. The
+    // archetype/rule editors are incomplete for SWMM kinds (they mis-detect the
+    // archetype — a conduit resolves to a Point/Isoline editor — and, crucially,
+    // omit the SWMM-specific controls such as the flow-direction-arrow toggle).
+    // With ctx.rule unset, SingleSymbolPanel takes the per-kind
+    // SwmmElementSymbolAdapter path → SwmmElementSymbolEditor, which carries the
+    // full SWMM styling (fill/outline/size, labels, flow arrows). Results layers
+    // keep the rule editors, whose archetype mapping is correct for them.
+    if (m_layer && !qobject_cast<SWMMModelLayer *>(m_layer.data())) {
         if (const auto *rl = m_layer->ruleList())
             ctx.rule = rl->at(static_cast<int>(cat));
     }
 
     auto *tab = new SymbologyTab(ctx, m_stack);
-    m_stack->addWidget(tab);
-    m_stack->setCurrentWidget(tab);
+
+    // L-1 — for results layers, add a per-sublayer Labels editor below the
+    // renderer editor so each kind can be labelled independently with its own
+    // expression. 1D model layers don't carry the per-feature result values
+    // an expression references, so labels there stay on the layer Labels tab.
+    OpenSWMM::Render::FeatureSublayerStyle *fstyle = nullptr;
+    if (auto *res = qobject_cast<SWMMResultsLayer *>(m_layer.data()))
+        if (auto *sub = res->featureSublayer(cat))
+            fstyle = sub->featureStyle();
+
+    if (fstyle) {
+        auto *container = new QWidget(m_stack);
+        auto *vlay = new QVBoxLayout(container);
+        vlay->setContentsMargins(0, 0, 0, 0);
+        vlay->addWidget(tab, 1);
+        vlay->addWidget(makeSublayerLabelBox(fstyle, m_layer.data(), cat, container));
+        m_stack->addWidget(container);
+        m_stack->setCurrentWidget(container);
+    } else {
+        m_stack->addWidget(tab);
+        m_stack->setCurrentWidget(tab);
+    }
 }
 
 void KindTreeSymbologyPanel::focusKind(const QString &routingId)

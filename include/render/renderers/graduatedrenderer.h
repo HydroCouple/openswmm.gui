@@ -118,6 +118,27 @@ public:
     [[nodiscard]] const QVector<double> &lastBreaks() const { return m_lastBreaks; }
 
     /*!
+     * \brief Drops the cached breaks so the next classify pass (driven by the
+     *        owning layer's rebuild) re-derives them from data. The editor
+     *        calls this when the attribute / bin count / method changes so a
+     *        re-classify actually re-samples instead of reusing stale breaks.
+     */
+    void clearBreaks() { m_lastBreaks.clear(); }
+
+    /*!
+     * \brief Shared classify gate used by every owning layer's rebuild so the
+     *        model + results paths cannot drift. Classifies only when the
+     *        breaks are empty (a fresh renderer, or after clearBreaks()) and
+     *        there is finite data to classify from; otherwise leaves the
+     *        renderer untouched.
+     */
+    static void classifyIfNeeded(GraduatedRenderer *g, const QVector<double> &samples)
+    {
+        if (g && g->lastBreaks().isEmpty() && !samples.isEmpty())
+            g->autoClassify(samples);
+    }
+
+    /*!
      * \brief Per-bin colours (derived view). Computed from the ramp +
      *        binCount at request time; kept on the legacy surface so
      *        callers that haven't migrated to ramp() still work.

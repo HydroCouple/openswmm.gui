@@ -893,8 +893,15 @@ void GISVectorLayer::refreshScene(QGraphicsScene *scene,
                                    const MapExtent &canvasExtent,
                                    const SpatialReferenceSystem *canvasSRS)
 {
-    if (!m_needsRebuild)
-        return;  // Items already in scene at correct positions
+    if (!m_needsRebuild) {
+        // Geometry/symbol unchanged — but a layer-opacity edit (from the
+        // tree's Opacity column) doesn't flag a rebuild, yet must still
+        // reflect. Re-apply the current opacity to the cached items in
+        // place; cheap and avoids a full re-read of the OGR source.
+        for (auto *item : std::as_const(m_sceneItems))
+            if (item) item->setOpacity(opacity());
+        return;
+    }
 
     depopulateScene(scene);
     populateScene(scene, canvasExtent, canvasSRS);

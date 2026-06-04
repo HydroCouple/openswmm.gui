@@ -192,8 +192,97 @@ public:
         const int triCount  = useTriIdx  ? visibleTris.size()  : tris.size();
         const int edgeCount = useEdgeIdx ? visibleEdges.size() : edges.size();
 
+        // ---- Level-of-detail (LOD) selection ---------------------------------
+        // When the native triangles project below ~2 px, drawing millions of
+        // per-triangle polygons is wasted work. Rather than replacing the mesh
+        // with a uniform aggregation grid (which reads as an artificial grid
+        // and discards the real cell shapes), we cull adaptively by on-screen
+        // size: the real cells that still project above a few pixels are drawn
+        // faithfully (via the size-sorted index, largest first), and tiny
+        // sub-pixel cells are skipped. The coarse overview is drawn only as a
+        // fallback floor when no real cell is large enough (e.g. a uniformly
+        // fine mesh zoomed right out), so the mesh never vanishes. Zoomed-in
+        // views keep the exact legacy per-triangle path below.
+        const double pxPerScene = p->worldTransform().m11();   // scene units → device px
+        constexpr double kLodTriPx = 2.0;
+        const bool useLod = m_layer->hasOverview()
+                         && (m_layer->m_nativeTriSpan * pxPerScene) < kLodTriPx;
+        const auto &overview = m_layer->m_overviewTris;
+
+        // Shared helpers for the LOD passes.
+        auto exposedRejects = [&](const SWMM2DMeshLayer::SceneTri &t) -> bool {
+            if (!haveExposed) return false;
+            const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
+            const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
+            const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
+            const double maxY = std::max({t.a.y(), t.b.y(), t.c.y()});
+            return (maxX < exposed.left() || minX > exposed.right() ||
+                    maxY < exposed.top()  || minY > exposed.bottom());
+        };
+        auto fillColor = [&](const SWMM2DMeshLayer::SceneTri &t,
+                             int &cr, int &cg, int &cb) {
+            if (hasElev) {
+                elevationColorRgb((t.zAvg - zMin) / zRange, cr, cg, cb);
+                const float ax = float(t.b.x()-t.a.x()), ay = float(t.b.y()-t.a.y());
+                const float bx = float(t.c.x()-t.a.x()), by = float(t.c.y()-t.a.y());
+                const float az = (t.z1 - t.z0) * kVertExag;
+                const float bz = (t.z2 - t.z0) * kVertExag;
+                float nx = ay*bz - az*by;
+                float ny = az*bx - ax*bz;
+                float nz = ax*by - ay*bx;
+                if (nz < 0.f) { nx=-nx; ny=-ny; nz=-nz; }
+                const float nlen = std::sqrt(nx*nx+ny*ny+nz*nz);
+                if (nlen > 1e-12f) { nx/=nlen; ny/=nlen; nz/=nlen; }
+                const float lit = qBound(kLitMin, nx*kLx + ny*kLy + nz*kLz, 1.0f);
+                cr = qBound(0, int(float(cr)*lit), 255);
+                cg = qBound(0, int(float(cg)*lit), 255);
+                cb = qBound(0, int(float(cb)*lit), 255);
+            } else {
+                cr = 70; cg = 130; cb = 180;   // flat steel blue
+            }
+        };
+
         // ---- Pass 1: filled triangles (MeshFillSublayer) ---------------------
-        if (fillVisible) {
+        if (fillVisible && useLod) {
+            const int fa = qBound(0, int(fillAlpha * fillOpacity + 0.5), 255);
+            auto drawTri = [&](const SWMM2DMeshLayer::SceneTri &t) {
+                int cr, cg, cb; fillColor(t, cr, cg, cb);
+                p->setBrush(QColor(cr, cg, cb, fa));
+                const QPointF pts[3] = {t.a, t.b, t.c};
+                p->drawConvexPolygon(pts, 3);
+            };
+
+            // (a) Coarse overview as a continuous base. It is built by bbox
+            //     coverage (see rebuildOverview), so every region of the mesh
+            //     is filled with no holes — areas made of culled small cells
+            //     are always backed by the overview and the mesh can never
+            //     vanish, at any zoom.
+            for (const SWMM2DMeshLayer::SceneTri &t : overview) {
+                if (exposedRejects(t)) continue;
+                drawTri(t);
+            }
+
+            // (b) On top, the real cells still large enough to matter on
+            //     screen, largest first. Stop once a cell falls below the
+            //     pixel threshold — the rest are smaller (index is sorted by
+            //     descending area), so this is O(kept), not O(all). Large
+            //     cells thus render with their true geometry while tiny cells
+            //     stay represented by the overview base from (a).
+            const double pxArea          = pxPerScene * pxPerScene;
+            constexpr double kLodKeepPx2 = 16.0;   // real cells ≳ 4×4 px
+            const double minAreaScene = (pxArea > 0.0) ? (kLodKeepPx2 / pxArea) : 0.0;
+            const auto &bySize = m_layer->m_trisBySizeDesc;
+            for (int idx : bySize) {
+                const SWMM2DMeshLayer::SceneTri &t = tris[idx];
+                const double ux = t.b.x()-t.a.x(), uy = t.b.y()-t.a.y();
+                const double vx = t.c.x()-t.a.x(), vy = t.c.y()-t.a.y();
+                const double areaScene = 0.5 * std::abs(ux*vy - uy*vx);
+                if (areaScene < minAreaScene) break;   // sorted desc → rest smaller
+                if (exposedRejects(t)) continue;
+                drawTri(t);
+            }
+        }
+        else if (fillVisible) {
             const int fa = qBound(0, int(fillAlpha * fillOpacity + 0.5), 255);
             for (int i = 0; i < triCount; ++i) {
                 const SWMM2DMeshLayer::SceneTri &t =
@@ -249,8 +338,11 @@ public:
                 p0 = t.a; p1 = t.b; p2 = t.c;
                 v0 = t.z0; v1 = t.z1; v2 = t.z2;
             };
+            // At far zoom run marching-triangles over the coarse overview so
+            // enabling bands on a multi-million-triangle mesh stays affordable.
+            const auto &contourTris = useLod ? overview : tris;
             const auto bands = OpenSWMM::Contour::marchingTrianglesIsobands(
-                tris, levels, extract);
+                contourTris, levels, extract);
 
             const double bandDenom = (nBands > 0) ? double(nBands) : 1.0;
             p->setPen(Qt::NoPen);
@@ -276,7 +368,7 @@ public:
         const float invSlope = (maxSlope > 0.f) ? 1.0f / maxSlope : 0.0f;
         constexpr float kSlopeBreak = 0.35f;
 
-        if (edgesVisible) {
+        if (edgesVisible && !useLod) {
             for (int i = 0; i < edgeCount; ++i) {
                 const SWMM2DMeshLayer::SceneEdge &e =
                     useEdgeIdx ? edges[visibleEdges[i]] : edges[i];
@@ -312,8 +404,9 @@ public:
                 p0 = t.a; p1 = t.b; p2 = t.c;
                 v0 = t.z0; v1 = t.z1; v2 = t.z2;
             };
+            const auto &contourTris = useLod ? overview : tris;
             const auto segs = OpenSWMM::Contour::marchingTriangles(
-                tris, levels, extract);
+                contourTris, levels, extract);
 
             QPen pen(withOpacity(lineCol, isoSub->opacity()));
             pen.setWidthF(widthPx);
@@ -330,7 +423,7 @@ public:
         // (SWMM-coupled) vertices get the highlight colour / size. Off by
         // default. Marker radius is specified in pixels, so convert to scene
         // units via the painter's current scale.
-        if (nodesVisible) {
+        if (nodesVisible && !useLod) {
             const auto &nodes = m_layer->m_sceneNodes;
             const auto *nodeStyle = nodeSub->nodeStyle();
             const QColor baseC   = nodeStyle ? nodeStyle->color() : QColor(40, 40, 40, 220);
@@ -666,11 +759,144 @@ void SWMM2DMeshLayer::rebuildSceneGeometry()
     m_triGrid.rebuild(m_triBBoxes);
     m_edgeGrid.rebuild(m_edgeBBoxes);
 
+    // ── LOD overview for far-zoom rendering ──────────────────────────────────
+    rebuildOverview();
+
     ++m_geomRevision;
 
     // Notify the graphics item (if any) that its geometry changed.
     if (m_graphicsItem)
         m_graphicsItem->geometryChanged();
+}
+
+// ---------------------------------------------------------------------------
+// rebuildOverview — coarse LOD decimation for far-zoom rendering
+// ---------------------------------------------------------------------------
+//
+// Bins triangle centroids into a fixed-resolution grid (~15k cells), averages
+// elevation per cell, and emits one quad (two SceneTris) per occupied cell.
+// Corner heights are averaged from the up-to-4 neighbouring cell means so the
+// existing hillshade face-normal still produces relief on the coarse mesh.
+// Empty cells (holes in the source mesh) emit nothing, so the overview keeps
+// the mesh's outline. Cost is one O(triangles) binning pass at load time.
+void SWMM2DMeshLayer::rebuildOverview()
+{
+    m_overviewTris.clear();
+    m_trisBySizeDesc.clear();
+    m_nativeTriSpan = 0.0;
+
+    const int nTri = m_sceneTris.size();
+    if (nTri == 0 || m_sceneBBox.isNull()) return;
+
+    const double bw = m_sceneBBox.width();
+    const double bh = m_sceneBBox.height();
+    const double area = bw * bh;
+    if (area <= 0.0) return;
+
+    // Representative native triangle edge length (scene units). sqrt(area /
+    // triCount) is the side of an equal-area square per triangle — close
+    // enough for the painter's pixel-size LOD test.
+    m_nativeTriSpan = std::sqrt(area / double(nTri));
+
+    // Small meshes draw full-res fast enough that an overview would only add
+    // zoom popping; skip it for them.
+    constexpr int kOverviewMinTris = 200000;
+    if (nTri < kOverviewMinTris) return;
+
+    // Aim for ~15k cells (~30k overview triangles) regardless of source size,
+    // so far-zoom fill stays a few-tens-of-thousands of polygons.
+    constexpr int kTargetCells = 15000;
+    const double aspect = (bh > 0.0) ? (bw / bh) : 1.0;
+    const int cols = qMax(1, int(std::round(std::sqrt(double(kTargetCells) * aspect))));
+    const int rows = qMax(1, int(std::round(double(kTargetCells) / double(cols))));
+
+    const double cw = bw / double(cols);
+    const double ch = bh / double(rows);
+    const double ox = m_sceneBBox.left();
+    const double oy = m_sceneBBox.top();
+    if (cw <= 0.0 || ch <= 0.0) return;
+
+    // Accumulate by *bbox coverage*, not centroid: a cell receives every
+    // triangle whose bounding box overlaps it. A large triangle therefore
+    // fills all the overview cells it spans (centroid binning would fill only
+    // one and leave holes under the rest), so the overview is a gap-free floor.
+    QVector<double> zsum(cols * rows, 0.0);
+    QVector<int>    cnt (cols * rows, 0);
+    for (const SceneTri &t : m_sceneTris) {
+        const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
+        const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
+        const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
+        const double maxY = std::max({t.a.y(), t.b.y(), t.c.y()});
+        const int ci0 = qBound(0, int((minX - ox) / cw), cols - 1);
+        const int ci1 = qBound(0, int((maxX - ox) / cw), cols - 1);
+        const int cj0 = qBound(0, int((minY - oy) / ch), rows - 1);
+        const int cj1 = qBound(0, int((maxY - oy) / ch), rows - 1);
+        for (int cj = cj0; cj <= cj1; ++cj)
+            for (int ci = ci0; ci <= ci1; ++ci) {
+                const int k = cj * cols + ci;
+                zsum[k] += t.zAvg;
+                ++cnt[k];
+            }
+    }
+
+    auto cellMean = [&](int i, int j, double &out) -> bool {
+        if (i < 0 || j < 0 || i >= cols || j >= rows) return false;
+        const int k = j * cols + i;
+        if (cnt[k] == 0) return false;
+        out = zsum[k] / double(cnt[k]);
+        return true;
+    };
+    // Corner height = mean of the up-to-4 surrounding cell means.
+    auto cornerZ = [&](int i, int j) -> float {
+        double s = 0.0; int n = 0; double m = 0.0;
+        for (int dj = -1; dj <= 0; ++dj)
+            for (int di = -1; di <= 0; ++di)
+                if (cellMean(i + di, j + dj, m)) { s += m; ++n; }
+        return n ? float(s / n) : 0.0f;
+    };
+
+    m_overviewTris.reserve(cols * rows * 2);
+    for (int j = 0; j < rows; ++j) {
+        for (int i = 0; i < cols; ++i) {
+            if (cnt[j * cols + i] == 0) continue;   // hole — emit no fill
+            const double x0 = ox + i * cw, x1 = x0 + cw;
+            const double y0 = oy + j * ch, y1 = y0 + ch;
+            const float z00 = cornerZ(i,     j);
+            const float z10 = cornerZ(i + 1, j);
+            const float z01 = cornerZ(i,     j + 1);
+            const float z11 = cornerZ(i + 1, j + 1);
+
+            SceneTri t1;
+            t1.a = QPointF(x0, y0); t1.b = QPointF(x1, y0); t1.c = QPointF(x1, y1);
+            t1.z0 = z00; t1.z1 = z10; t1.z2 = z11;
+            t1.zAvg = (z00 + z10 + z11) / 3.0f;
+            m_overviewTris.append(t1);
+
+            SceneTri t2;
+            t2.a = QPointF(x0, y0); t2.b = QPointF(x1, y1); t2.c = QPointF(x0, y1);
+            t2.z0 = z00; t2.z1 = z11; t2.z2 = z01;
+            t2.zAvg = (z00 + z11 + z01) / 3.0f;
+            m_overviewTris.append(t2);
+        }
+    }
+
+    // Size-sorted triangle index for adaptive far-zoom culling (see the
+    // header). Sort indices by descending scene-space area so the painter can
+    // walk the largest cells first and stop once they fall below the on-screen
+    // pixel threshold. Areas are computed into a scratch array and discarded.
+    {
+        QVector<float> areaTmp(nTri);
+        for (int i = 0; i < nTri; ++i) {
+            const SceneTri &t = m_sceneTris[i];
+            const double ux = t.b.x() - t.a.x(), uy = t.b.y() - t.a.y();
+            const double vx = t.c.x() - t.a.x(), vy = t.c.y() - t.a.y();
+            areaTmp[i] = float(0.5 * std::abs(ux * vy - uy * vx));
+        }
+        m_trisBySizeDesc.resize(nTri);
+        for (int i = 0; i < nTri; ++i) m_trisBySizeDesc[i] = i;
+        std::sort(m_trisBySizeDesc.begin(), m_trisBySizeDesc.end(),
+                  [&areaTmp](int p, int q) { return areaTmp[p] > areaTmp[q]; });
+    }
 }
 
 // MeshSpatialGrid — definitions live in src/layers/meshspatialgrid.cpp so
@@ -950,7 +1176,45 @@ bool SWMM2DMeshLayer::applyMeshVertexZ(int vertexIdx, double z)
     if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size()) return false;
     if (m_mesh.vertices[vertexIdx].z == z) return true;
     m_mesh.vertices[vertexIdx].z = z;
-    rebuildSceneGeometry();
+
+    // Incremental update. Changing an elevation moves nothing in XY, so the
+    // spatial grids, triangle/edge bounding boxes, the area-based size-sorted
+    // LOD index and the overview *cell layout* are all unchanged. We only need
+    // to refresh the z-dependent fields of the elements incident to this
+    // vertex — O(incident) — instead of the full O(N) rebuildSceneGeometry(),
+    // which on a multi-million-cell mesh turned one edit (or one per selected
+    // vertex) into a multi-second stall. Falls back to a full rebuild if the
+    // scene caches aren't in the expected 1:1 shape (e.g. some triangles were
+    // skipped as degenerate during the last full build).
+    const bool canIncremental =
+        m_sceneTris.size() == m_mesh.triangles.size()
+        && vertexIdx < m_sceneNodes.size()
+        && (vertexIdx + 1) < m_vertTriPtr.size();
+    if (canIncremental) {
+        m_sceneNodes[vertexIdx].z = float(z);
+        const int beg = m_vertTriPtr[vertexIdx];
+        const int end = m_vertTriPtr[vertexIdx + 1];
+        for (int k = beg; k < end; ++k) {
+            const int ti = m_vertTriIdx[k];
+            if (ti < 0 || ti >= m_sceneTris.size()) continue;
+            const auto &mt = m_mesh.triangles[ti];
+            SceneTri &st = m_sceneTris[ti];
+            st.z0   = float(m_mesh.vertices[mt.v0].z);
+            st.z1   = float(m_mesh.vertices[mt.v1].z);
+            st.z2   = float(m_mesh.vertices[mt.v2].z);
+            st.zAvg = (st.z0 + st.z1 + st.z2) / 3.0f;
+        }
+        // Keep the elevation range a valid superset (expand only). A loosened
+        // range slightly compresses the colour ramp until the next full
+        // rebuild; re-tightening exactly would cost O(N). Incident mesh edges'
+        // slope styling and the far-zoom overview colour are left until the
+        // next full rebuild (both are secondary to the fill/hillshade update).
+        if (z < m_zMin) m_zMin = z;
+        if (z > m_zMax) m_zMax = z;
+    } else {
+        rebuildSceneGeometry();
+    }
+
     emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
     emit repaintRequested();
     return true;
