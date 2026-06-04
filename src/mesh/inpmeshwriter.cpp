@@ -350,6 +350,51 @@ bool InpMeshWriter::writeExternal(const QString &inpPath,
     return atomicWrite(inpPath, patched, errorOut);
 }
 
+bool InpMeshWriter::writeMeshFileRef(const QString &inpPath,
+                                     const QString &meshFilePath,
+                                     QString *errorOut)
+{
+    auto fail = [&](const QString &msg) -> bool {
+        if (errorOut) *errorOut = msg;
+        return false;
+    };
+
+    if (meshFilePath.isEmpty())
+        return fail(QStringLiteral("No mesh file specified."));
+    if (!QFileInfo::exists(meshFilePath))
+        return fail(QStringLiteral("Mesh file does not exist: %1").arg(meshFilePath));
+
+    const ReadResult r = readInp(inpPath);
+    if (!r.ok) return fail(r.err);
+
+    // Retarget-only: strip any inline [2D_*] mesh data AND a prior
+    // [2D_MESH_FILE] block so the engine reads exactly the one external
+    // file we point at. No mesh geometry is written — the .2dm already
+    // exists on disk; we only repoint the reference.
+    QString patched = stripExistingMeshSections(r.text, /*alsoMeshFileRef=*/true);
+
+    // Path relative to the .inp directory when both share a parent;
+    // absolute otherwise. Mirrors writeExternal so generation and
+    // retargeting produce identical reference forms.
+    const QFileInfo inpFi(inpPath);
+    QString refPath;
+    {
+        const QString meshAbs = QFileInfo(meshFilePath).absoluteFilePath();
+        const QString inpDir  = inpFi.absoluteDir().absolutePath();
+        if (meshAbs.startsWith(inpDir + QChar('/')))
+            refPath = meshAbs.mid(inpDir.size() + 1);
+        else
+            refPath = meshAbs;
+    }
+
+    if (!patched.endsWith(QChar('\n')))
+        patched.append(QChar('\n'));
+    patched.append(QStringLiteral("\n[2D_MESH_FILE]\n;; FILE  <path relative to this .inp, or absolute>\nFILE  %1\n\n")
+                       .arg(refPath));
+
+    return atomicWrite(inpPath, patched, errorOut);
+}
+
 bool InpMeshWriter::write(MeshOutputMode mode,
                           const QString &inpPath,
                           const QString &meshFilePath,

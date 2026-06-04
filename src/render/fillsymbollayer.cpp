@@ -70,6 +70,8 @@ FillSymbolLayerSpec FillSymbolLayerSpec::fromSymbolLayer(const SymbolLayer &laye
 void FillSymbolLayerSpec::writeToSymbolLayer(SymbolLayer &layer) const
 {
     layer.kind = SymbolLayerKind::SimpleFill;
+    // QColor variants (hex reverted — readers use value<QColor>() which doesn't
+    // parse hex strings here; X1 regression fix 2026-06-01).
     layer.props[QStringLiteral("fillColor")]       = fillColor;
     layer.props[QStringLiteral("fillStyle")]       = static_cast<int>(fillStyle);
     layer.props[QStringLiteral("outlineColor")]    = outlineColor;

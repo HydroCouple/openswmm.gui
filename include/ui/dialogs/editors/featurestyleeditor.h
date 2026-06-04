@@ -69,6 +69,14 @@ protected:
     QCheckBox          *m_useRampBox    = nullptr;
     StylePreviewSwatch *m_preview       = nullptr;
 
+    // L-1 — per-sublayer label controls (built in buildCommonRows()).
+    QCheckBox          *m_labelsEnable  = nullptr;
+    QLineEdit          *m_labelExpr     = nullptr;
+    ColorButton        *m_labelColorBtn = nullptr;
+    QLabel             *m_labelFieldsHint = nullptr;
+    /*! Compose a LabelConfig from the label widgets + push to the style. */
+    void pushLabelConfig();
+
 private:
     // Forward-declared in the global namespace to avoid pulling in
     // <QFormLayout> from a widely-included header.

@@ -35,6 +35,7 @@ Doxygen reference at `docs/html/`.
 | 20 | Keyboard Shortcuts | — |
 | 21 | [Redraw Policy and Performance](manual/21_redraw_policy.md) | H |
 | 22 | Troubleshooting | A |
+| 25 | [Project Portability](manual/25_portability.md) | IO |
 
 ### Tutorials
 

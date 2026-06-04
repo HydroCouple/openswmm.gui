@@ -32,6 +32,7 @@
 #include <QDataStream>
 #include <QDebug>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QIcon>
 #include <QIODevice>
 #include <QLineEdit>
@@ -229,55 +230,9 @@ public:
         }
     }
 
-    void paint(QPainter *p, const QStyleOptionViewItem &opt,
-               const QModelIndex &index) const override
-    {
-        // Only decorate layer / sublayer opacity cells (UserRole carries qreal 0..1).
-        const QVariant raw = index.data(Qt::UserRole);
-        bool ok = false;
-        const double op01 = raw.toDouble(&ok);
-        if (!ok || index.column() != 1) {
-            QStyledItemDelegate::paint(p, opt, index);
-            return;
-        }
-
-        // Background fill / selection highlight (default behaviour).
-        QStyleOptionViewItem o = opt;
-        initStyleOption(&o, index);
-        QStyle *style = o.widget ? o.widget->style() : QApplication::style();
-        style->drawPrimitive(QStyle::PE_PanelItemViewItem, &o, p, o.widget);
-
-        // Opacity bar — thin pill behind the text. Width tracks the value
-        // (0..100 %); colour fades with opacity for instant feedback.
-        QRect r = o.rect.adjusted(4, 4, -4, -4);
-        const int barH = qMax(4, r.height() / 3);
-        QRect track(r.left(), r.center().y() - barH / 2,
-                    r.width(), barH);
-        QRect fill = track;
-        fill.setWidth(int(track.width() * qBound(0.0, op01, 1.0)));
-
-        QColor accent = o.palette.color(QPalette::Highlight);
-        accent.setAlphaF(qBound(0.20, op01, 1.0));
-        p->save();
-        p->setRenderHint(QPainter::Antialiasing, true);
-        p->setPen(Qt::NoPen);
-        p->setBrush(o.palette.color(QPalette::AlternateBase));
-        p->drawRoundedRect(track, 2, 2);
-        p->setBrush(accent);
-        p->drawRoundedRect(fill, 2, 2);
-        p->restore();
-
-        // Percent text on top.
-        const QString text = QStringLiteral("%1 %").arg(qRound(op01 * 100.0));
-        o.palette.setColor(QPalette::Text,
-            o.palette.color(o.state & QStyle::State_Selected
-                                 ? QPalette::HighlightedText
-                                 : QPalette::Text));
-        p->save();
-        p->setPen(o.palette.color(QPalette::Text));
-        p->drawText(r, Qt::AlignCenter, text);
-        p->restore();
-    }
+    // No custom paint() — the opacity column shows just the model's
+    // DisplayRole text ("N %"). The progress-bar decoration was removed at
+    // user request (distracting). Editing still uses the spinbox editor above.
 };
 
 } // anonymous
@@ -778,6 +733,19 @@ QVariant LayerTreeModel::data(const QModelIndex &index, int role) const
         auto *results = qobject_cast<SWMMResultsLayer *>(kr->layer);
         if (!swmm && !results) return {};
         const auto cat = static_cast<SWMMModelLayer::Category>(kr->kindOrdinal);
+        // Column 1 — per-kind opacity (SWMM model kinds only). Mirrors the
+        // layer/sublayer opacity cell: DisplayRole "N%", UserRole qreal 0..1.
+        if (index.column() == 1) {
+            if (!swmm) return {};
+            switch (role) {
+            case Qt::DisplayRole:
+            case Qt::EditRole:
+                return QStringLiteral("%1%").arg(qRound(swmm->categoryOpacity(cat) * 100.0));
+            case Qt::UserRole:
+                return swmm->categoryOpacity(cat);
+            }
+            return {};
+        }
         if (index.column() != 0) return {};
         switch (role) {
         case Qt::DisplayRole: {
@@ -932,16 +900,29 @@ bool LayerTreeModel::setData(const QModelIndex &index, const QVariant &value, in
         return false;
     }
 
-    // Slice BI-MK.LT — kind-row check-state toggles per-kind visibility.
+    // Slice BI-MK.LT — kind-row check-state toggles per-kind visibility;
+    // column-1 edit sets per-kind opacity (SWMM model kinds only).
     if (p && m_kindRowPtrSet.contains(p)) {
-        if (index.column() != 0 || role != Qt::CheckStateRole) return false;
         const KindRow *kr = static_cast<const KindRow *>(p);
         auto *swmm = qobject_cast<SWMMModelLayer *>(kr->layer);
         if (!swmm) return false;
         const auto cat = static_cast<SWMMModelLayer::Category>(kr->kindOrdinal);
-        swmm->setCategoryVisible(cat, value.toInt() == Qt::Checked);
-        emit dataChanged(index, index, {Qt::CheckStateRole});
-        return true;
+        if (index.column() == 0 && role == Qt::CheckStateRole) {
+            swmm->setCategoryVisible(cat, value.toInt() == Qt::Checked);
+            emit dataChanged(index, index, {Qt::CheckStateRole});
+            return true;
+        }
+        if (index.column() == 1 && (role == Qt::EditRole || role == Qt::UserRole)) {
+            bool ok = false;
+            double op = value.toDouble(&ok);
+            if (!ok) op = value.toString().remove('%').trimmed().toDouble(&ok);
+            if (ok) {
+                swmm->setCategoryOpacity(cat, op / 100.0);
+                emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
+                return true;
+            }
+        }
+        return false;
     }
 
     auto *layer = static_cast<OpenSWMMVisLayer *>(p);
@@ -1001,6 +982,8 @@ Qt::ItemFlags LayerTreeModel::flags(const QModelIndex &index) const
         Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
         if (isModel && index.column() == 0)
             f |= Qt::ItemIsUserCheckable;
+        if (isModel && index.column() == 1)   // per-kind opacity editor
+            f |= Qt::ItemIsEditable;
         return f;
     }
 
@@ -1487,6 +1470,10 @@ void LayerTreePanel::setupUi()
     m_proxy->setFilterCaseSensitivity(Qt::CaseInsensitive);
     m_proxy->setFilterKeyColumn(0);
     m_treeView->setModel(m_proxy);
+    // User-resizable columns: don't let the last section auto-stretch (which
+    // otherwise pins the Opacity column width and blocks manual resize).
+    m_treeView->header()->setSectionResizeMode(QHeaderView::Interactive);
+    m_treeView->header()->setStretchLastSection(false);
     m_treeView->setColumnWidth(0, 220);
     m_treeView->setColumnWidth(1, 60);
     m_treeView->expandAll();

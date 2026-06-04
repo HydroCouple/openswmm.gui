@@ -202,7 +202,7 @@ void LineSymbolLayerSpec::writeToSymbolLayer(SymbolLayer &layer) const
 {
     layer.kind = drawArrows ? SymbolLayerKind::MarkerLine
                             : SymbolLayerKind::SimpleLine;
-    layer.props[QStringLiteral("color")]      = color;
+    layer.props[QStringLiteral("color")]      = color;   // QColor variant (hex reverted — X1 regression)
     layer.props[QStringLiteral("width")]      = width;
     layer.props[QStringLiteral("penStyle")]   = static_cast<int>(penStyle);
     layer.props[QStringLiteral("capStyle")]   = static_cast<int>(capStyle);
@@ -211,7 +211,7 @@ void LineSymbolLayerSpec::writeToSymbolLayer(SymbolLayer &layer) const
     layer.props[QStringLiteral("offsetPx")]   = offsetPx;
 
     layer.props[QStringLiteral("drawArrows")]     = drawArrows;
-    layer.props[QStringLiteral("arrowColor")]     = arrows.color;
+    layer.props[QStringLiteral("arrowColor")]     = arrows.color;   // QColor variant (hex reverted)
     layer.props[QStringLiteral("arrowLengthPx")]  = arrows.lengthPx;
     layer.props[QStringLiteral("arrowWidthPx")]   = arrows.widthPx;
     layer.props[QStringLiteral("arrowPlacement")] = static_cast<int>(arrows.placement);
@@ -222,7 +222,7 @@ void LineSymbolLayerSpec::writeToSymbolLayer(SymbolLayer &layer) const
     layer.props[QStringLiteral("arrowOnlyWhenFlowPos")] = arrowOnlyWhenFlowPos;
     layer.props[QStringLiteral("showLabel")]            = showLabel;
     layer.props[QStringLiteral("labelFont")]            = labelFont;
-    layer.props[QStringLiteral("labelColor")]           = labelColor;
+    layer.props[QStringLiteral("labelColor")]           = labelColor;   // QColor variant (hex reverted)
 }
 
 // ── Arrow paint ──────────────────────────────────────────────────────

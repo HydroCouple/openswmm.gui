@@ -202,6 +202,23 @@ public:
                                            QString *errorOut = nullptr,
                                            const UnitInfo &units = {});
 
+    /*! \brief Retarget the `.inp`'s `[2D_MESH_FILE]` reference at an
+     *         already-existing `.2dm` without writing any mesh geometry.
+     *
+     *  Strips any inline `[2D_*]` mesh-data sections and any prior
+     *  `[2D_MESH_FILE]` block, then injects a fresh `[2D_MESH_FILE] FILE
+     *  <path>` pointing at \p meshFilePath. The stored path is relative to
+     *  the `.inp` directory when the mesh is a sibling, absolute otherwise
+     *  — identical to \ref writeExternal. Atomic via `QSaveFile`.
+     *
+     *  \param inpPath      SWMM input file to patch.
+     *  \param meshFilePath Existing `.2dm` to reference (must exist on disk).
+     *  \param errorOut     Set on failure.
+     *  \returns true on success. */
+    [[nodiscard]] static bool writeMeshFileRef(const QString &inpPath,
+                                               const QString &meshFilePath,
+                                               QString *errorOut = nullptr);
+
     /*! \brief Convenience dispatch on \ref MeshOutputMode. */
     [[nodiscard]] static bool write(MeshOutputMode mode,
                                      const QString &inpPath,

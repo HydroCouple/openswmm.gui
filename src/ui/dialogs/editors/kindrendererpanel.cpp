@@ -151,9 +151,16 @@ KindRendererPanel::KindRendererPanel(OpenSWMMVisLayer *hostLayer,
     gForm->addRow(tr("Colour ramp:"), m_rampCombo);
 
     m_methodCombo = new QComboBox(m_graduatedBox);
-    m_methodCombo->addItem(tr("Equal interval"), int(BinMethod::EqualInterval));
-    m_methodCombo->addItem(tr("Quantile"),        int(BinMethod::Quantile));
-    m_methodCombo->addItem(tr("Manual"),          int(BinMethod::Manual));
+    // Data-sampling classification methods (compute breaks from the layer's
+    // values when Auto-classify runs) + Manual (user types the breaks in the
+    // table below). VS.3 added Natural breaks / Std dev / Log / Exponential.
+    m_methodCombo->addItem(tr("Equal interval"),       int(BinMethod::EqualInterval));
+    m_methodCombo->addItem(tr("Quantile"),             int(BinMethod::Quantile));
+    m_methodCombo->addItem(tr("Natural breaks (Jenks)"), int(BinMethod::NaturalBreaks));
+    m_methodCombo->addItem(tr("Standard deviation"),   int(BinMethod::StdDev));
+    m_methodCombo->addItem(tr("Logarithmic"),          int(BinMethod::Logarithmic));
+    m_methodCombo->addItem(tr("Exponential"),          int(BinMethod::Exponential));
+    m_methodCombo->addItem(tr("Manual"),               int(BinMethod::Manual));
     gForm->addRow(tr("Method:"), m_methodCombo);
 
     m_countSpin = new QSpinBox(m_graduatedBox);
@@ -290,7 +297,11 @@ void KindRendererPanel::refreshFromModel()
     QString currentAttribute;
     if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(r)) {
         modeRow = kModeGraduated;
-        m_methodCombo->setCurrentIndex(int(g->binner().method()));
+        // findData (not setCurrentIndex(enum)) — combo order no longer
+        // matches the BinMethod enum values now that Jenks/StdDev/Log/Exp
+        // sit between Quantile and Manual.
+        m_methodCombo->setCurrentIndex(
+            m_methodCombo->findData(int(g->binner().method())));
         m_countSpin->setValue(g->binner().binCount());
         m_rangeCombo->setCurrentIndex(m_rangeCombo->findData(int(g->rangeMode())));
         currentAttribute = g->classifyAttribute();
@@ -364,8 +375,12 @@ void KindRendererPanel::onAttributeChanged(int comboRow)
     const QString name = m_attrCombo->itemData(comboRow).toString();
     if (name == g->classifyAttribute()) return;
     auto fresh = g->clone();
-    if (auto *gfresh = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(fresh.get()))
+    if (auto *gfresh = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(fresh.get())) {
         gfresh->setClassifyAttribute(name);
+        // New attribute → the old breaks/range are meaningless. Clear them so
+        // the layer rebuild re-samples this attribute's values.
+        gfresh->clearBreaks();
+    }
     installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category,
                     std::move(fresh));
     rebuildBreaksTable();
@@ -458,8 +473,25 @@ void KindRendererPanel::onBinMethodChanged(int comboRow)
 {
     auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(currentRenderer());
     if (!g) return;
+    const auto method = static_cast<BinMethod>(m_methodCombo->itemData(comboRow).toInt());
     IntervalBinner b = g->binner();
-    b.setMethod(static_cast<BinMethod>(m_methodCombo->itemData(comboRow).toInt()));
+    b.setMethod(method);
+
+    if (method == BinMethod::Manual) {
+        // Switching to Manual: seed the editable breaks from the current
+        // (data-derived) classification so the user tweaks from a sensible
+        // starting point rather than a collapsed/empty set. The user then
+        // edits the "Upper" cells in the table to specify bins by hand.
+        if (b.manualBreaks().isEmpty() && !g->lastBreaks().isEmpty())
+            b.setManualBreaks(g->lastBreaks());
+        g->setBinner(b);
+        installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category, g->clone());
+        rebuildBreaksTable();
+        return;
+    }
+
+    // Data-sampling methods (Equal interval / Quantile / Jenks / StdDev /
+    // Log / Exponential): re-classify against the layer's actual values.
     g->setBinner(b);
     onAutoClassify();
 }
@@ -480,11 +512,11 @@ void KindRendererPanel::onAutoClassify()
     // which will autoClassify against real data + repaint.
     auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(currentRenderer());
     if (!g) return;
-    // Clone then strip lastBreaks via a fresh binner so the next
-    // rebuildKindFeatureOverrides re-runs autoClassify against real data.
+    // Clone then clear lastBreaks so the next layer rebuild re-runs
+    // classifyIfNeeded against real data (re-samples + re-derives the range).
     auto fresh = g->clone();
     if (auto *gfresh = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(fresh.get()))
-        gfresh->setBinner(g->binner());
+        gfresh->clearBreaks();
     installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category, std::move(fresh));
     rebuildBreaksTable();
 }
@@ -512,10 +544,19 @@ void KindRendererPanel::onBreakEdited(QStandardItem *item)
         g->setBinner(b);
         // Reflect Manual in the method combo without re-triggering it.
         QSignalBlocker bm(m_methodCombo);
-        m_methodCombo->setCurrentIndex(int(BinMethod::Manual));
+        m_methodCombo->setCurrentIndex(
+            m_methodCombo->findData(int(BinMethod::Manual)));
     }
 
-    Q_UNUSED(item);
+    // Per-bin colour override — the swatch cell (column 2). The bin index is
+    // the row; GraduatedRenderer keys per-bin colour overrides by bin-index
+    // string. This hooks the graduated colours up to the breaks table so the
+    // user can recolour an individual class directly here.
+    if (item && item->column() == 2) {
+        const QColor c = item->data(Qt::BackgroundRole).value<QColor>();
+        if (c.isValid())
+            g->setColorForClass(QString::number(item->row()), c);
+    }
 
     auto fresh = g->clone();
     installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category, std::move(fresh));
@@ -552,8 +593,12 @@ void KindRendererPanel::rebuildBreaksTable()
         auto *upperItem = new QStandardItem(QString::number(uppers[i], 'g', 6));
         upperItem->setEditable(i < n - 1);              // last bin's upper is rampMax (fixed)
         auto *colorItem = new QStandardItem;
+        // Show the per-bin override colour when the user has set one
+        // (g->colorForClass returns invalid when there's no override), else
+        // the ramp colour for the bin's midpoint.
         const double t = (n > 1) ? (double(i) + 0.5) / double(n) : 0.5;
-        const QColor c = g->ramp().colorAt(t);
+        const QColor ov = g->colorForClass(QString::number(i));
+        const QColor c  = ov.isValid() ? ov : g->ramp().colorAt(t);
         colorItem->setData(c, Qt::BackgroundRole);
         colorItem->setEditable(true);
         auto *labelItem = new QStandardItem(tr("Class %1").arg(i + 1));

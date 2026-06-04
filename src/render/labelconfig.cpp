@@ -16,6 +16,8 @@ QJsonObject LabelConfig::toJson() const
     j[QStringLiteral("enabled")]      = enabled;
     if (!fieldName.isEmpty())
         j[QStringLiteral("field")]    = fieldName;
+    if (!expression.isEmpty())
+        j[QStringLiteral("expression")] = expression;
     j[QStringLiteral("fontFamily")]   = font.family();
     j[QStringLiteral("fontBold")]     = font.bold();
     j[QStringLiteral("fontItalic")]   = font.italic();
@@ -47,6 +49,8 @@ void LabelConfig::fromJson(const QJsonObject &j)
         enabled = j.value(QStringLiteral("enabled")).toBool(false);
     if (j.contains(QStringLiteral("field")))
         fieldName = j.value(QStringLiteral("field")).toString();
+    if (j.contains(QStringLiteral("expression")))
+        expression = j.value(QStringLiteral("expression")).toString();
     if (j.contains(QStringLiteral("fontFamily")))
         font.setFamily(j.value(QStringLiteral("fontFamily")).toString());
     if (j.contains(QStringLiteral("fontBold")))

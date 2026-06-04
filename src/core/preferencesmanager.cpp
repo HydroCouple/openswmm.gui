@@ -55,7 +55,12 @@ struct LinkPenDefault {
     Qt::PenCapStyle  cap;
     Qt::PenJoinStyle join;
 };
-const LinkPenDefault kConduitPenDefault = { kDefaultConduitColor, 1.0, Qt::FlatCap,  Qt::BevelJoin };
+// Conduits are the multi-vertex polylines; the CPU painter draws them as
+// independent segments (drawLines), so RoundCap is what rounds the shared
+// vertices — overlapping round caps fill the bend. FlatCap left wedge gaps
+// ("broken corners"). RoundJoin matches the other link kinds and applies if
+// a connected-polyline draw path is ever used.
+const LinkPenDefault kConduitPenDefault = { kDefaultConduitColor, 1.0, Qt::RoundCap, Qt::RoundJoin };
 const LinkPenDefault kPumpPenDefault    = { kDefaultPumpColor,    3.0, Qt::RoundCap, Qt::RoundJoin };
 const LinkPenDefault kOrificePenDefault = { kDefaultOrificeColor, 2.5, Qt::RoundCap, Qt::RoundJoin };
 const LinkPenDefault kWeirPenDefault    = { kDefaultWeirColor,    2.5, Qt::RoundCap, Qt::RoundJoin };

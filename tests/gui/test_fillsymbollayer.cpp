@@ -99,6 +99,7 @@ private slots:
         QCOMPARE(r.joinStyle,       Qt::MiterJoin);
     }
 
+
     void fromSymbolLayer_emptyPropsYieldsDefaults()
     {
         SymbolLayer layer;             // no props

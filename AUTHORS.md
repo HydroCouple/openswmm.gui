@@ -1,4 +1,4 @@
-# Authors
+@page authors Authors
 
 OpenSWMM is an independent open-source project. The contributors listed below have developed and extended the software.
 

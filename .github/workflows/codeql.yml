@@ -2,9 +2,9 @@ name: CodeQL
 
 on:
   push:
-    branches: [main, master, dev, swmm6_gui]
+    branches: [main, master, dev]
   pull_request:
-    branches: [main, master, dev, swmm6_gui]
+    branches: [main, master, dev]
   schedule:
     # Weekly scan so newly disclosed CWE queries hit dormant branches too.
     # Mondays at 06:00 UTC — outside US-business hours but before EU-morning.

@@ -330,6 +330,108 @@ void appendThickSegment(std::vector<QSGGeometry::Point2D> &out,
     out.push_back(v(bx+nx,by+ny)); out.push_back(v(bx-nx,by-ny)); out.push_back(v(ax-nx,ay-ny));
 }
 
+// #33 Stage 1b — coloured thick segment (bakes a per-link colour into every
+// vertex) so the link `lines` node can carry per-feature Graduated/Categorized
+// colours on the GPU path, matching the CPU painter.
+void appendThickSegmentColored(std::vector<QSGGeometry::ColoredPoint2D> &out,
+                               float ax, float ay, float bx, float by, float hw,
+                               uchar cr, uchar cg, uchar cb, uchar ca)
+{
+    const float dx=bx-ax, dy=by-ay, len=std::sqrt(dx*dx+dy*dy);
+    if (len < 1e-9f) return;
+    const float nx=-dy/len*hw, ny=dx/len*hw;
+    auto v=[&](float x,float y){QSGGeometry::ColoredPoint2D p;p.x=x;p.y=y;p.r=cr;p.g=cg;p.b=cb;p.a=ca;return p;};
+    out.push_back(v(ax+nx,ay+ny)); out.push_back(v(bx+nx,by+ny)); out.push_back(v(ax-nx,ay-ny));
+    out.push_back(v(bx+nx,by+ny)); out.push_back(v(bx-nx,by-ny)); out.push_back(v(ax-nx,ay-ny));
+}
+
+// Round-join / round-cap disc emitted as a triangle-fan-as-list (the link
+// nodes are DrawTriangles). The thick-segment quads above have flat ends, so
+// at an interior polyline vertex two quads leave a wedge gap on the outer side
+// of the bend — the "broken corners". Stamping a disc of radius = half-width
+// at the shared vertex fills that wedge and rounds the corner. For opaque
+// links it blends seamlessly (same colour); under per-kind opacity < 1 the
+// disc overlaps the two quads, so bends read very slightly darker — an
+// acceptable trade for smooth corners on the batched GPU path.
+constexpr int kJoinDiscSegs = 12;
+
+void appendDiscColored(std::vector<QSGGeometry::ColoredPoint2D> &out,
+                       float cx, float cy, float r,
+                       uchar cr, uchar cg, uchar cb, uchar ca)
+{
+    if (r <= 0.f) return;
+    auto v=[&](float x,float y){QSGGeometry::ColoredPoint2D p;p.x=x;p.y=y;p.r=cr;p.g=cg;p.b=cb;p.a=ca;return p;};
+    const float step = 6.28318531f / float(kJoinDiscSegs);
+    float px=cx+r, py=cy;
+    for (int s=1; s<=kJoinDiscSegs; ++s) {
+        const float a=step*float(s);
+        const float nx=cx+r*std::cos(a), ny=cy+r*std::sin(a);
+        out.push_back(v(cx,cy)); out.push_back(v(px,py)); out.push_back(v(nx,ny));
+        px=nx; py=ny;
+    }
+}
+
+void appendDisc(std::vector<QSGGeometry::Point2D> &out,
+                float cx, float cy, float r)
+{
+    if (r <= 0.f) return;
+    auto v=[](float x,float y){QSGGeometry::Point2D p;p.x=x;p.y=y;return p;};
+    const float step = 6.28318531f / float(kJoinDiscSegs);
+    float px=cx+r, py=cy;
+    for (int s=1; s<=kJoinDiscSegs; ++s) {
+        const float a=step*float(s);
+        const float nx=cx+r*std::cos(a), ny=cy+r*std::sin(a);
+        out.push_back(v(cx,cy)); out.push_back(v(px,py)); out.push_back(v(nx,ny));
+        px=nx; py=ny;
+    }
+}
+
+// Flow-direction arrow (GPU mirror of swmmlayeritem.cpp drawFlowArrow +
+// polylineMidpoint). Walks the link's scene polyline (absolute scene doubles,
+// interleaved xy, `count` verts), finds the half-length midpoint and the local
+// tangent there, and appends ONE filled arrowhead triangle pointing along the
+// from→to direction (upstream → downstream). Vertices are emitted
+// anchor-relative (minus ox/oy) and narrowed to float, matching the link
+// segment buffer. `lenScene` is the arrow length in scene units
+// (arrowSize_px * invView). Returns silently on degenerate polylines.
+void appendFlowArrowColored(std::vector<QSGGeometry::ColoredPoint2D> &out,
+                            const double *xy, uint32_t count,
+                            double ox, double oy, float lenScene,
+                            uchar cr, uchar cg, uchar cb, uchar ca)
+{
+    if (count < 2 || !xy || lenScene <= 0.f) return;
+    double total = 0.0;
+    for (uint32_t i = 1; i < count; ++i)
+        total += std::hypot(xy[i*2] - xy[(i-1)*2], xy[i*2+1] - xy[(i-1)*2+1]);
+    if (total <= 0.0) return;
+
+    const double half = total * 0.5;
+    double acc = 0.0, mx = 0.0, my = 0.0, ang = 0.0;
+    for (uint32_t i = 1; i < count; ++i) {
+        const double x0=xy[(i-1)*2], y0=xy[(i-1)*2+1], x1=xy[i*2], y1=xy[i*2+1];
+        const double segLen = std::hypot(x1-x0, y1-y0);
+        if (acc + segLen >= half) {
+            const double t = (segLen > 0.0) ? (half - acc) / segLen : 0.0;
+            mx = x0 + t*(x1-x0); my = y0 + t*(y1-y0);
+            ang = std::atan2(y1-y0, x1-x0);
+            break;
+        }
+        acc += segLen;
+    }
+
+    const double w  = lenScene * 0.6;   // arrow half-width (matches CPU)
+    const double cs = std::cos(ang), sn = std::sin(ang);
+    auto v=[&](double lx,double ly){
+        QSGGeometry::ColoredPoint2D p;
+        p.x = float(mx + lx*cs - ly*sn - ox);
+        p.y = float(my + lx*sn + ly*cs - oy);
+        p.r=cr; p.g=cg; p.b=cb; p.a=ca; return p;
+    };
+    out.push_back(v( lenScene*0.5, 0.0));   // tip (downstream)
+    out.push_back(v(-lenScene*0.5,  w));
+    out.push_back(v(-lenScene*0.5, -w));
+}
+
 QSGGeometryNode *makeFlatColorNode(QSGGeometry::DrawingMode mode, QColor color, float lw=1.0f)
 {
     auto *node = new QSGGeometryNode();
@@ -482,6 +584,15 @@ void SWMMLayerQSGRenderer::setLayer(SWMMModelLayer *layer)
     update();
 }
 
+void SWMMLayerQSGRenderer::forceRebuild()
+{
+    m_catchTriCache.revision = std::numeric_limits<quint64>::max();
+    m_contentDirty     = true;
+    m_selDirty         = true;
+    m_selectionPending = false;
+    update();
+}
+
 void SWMMLayerQSGRenderer::setMapExtent(const MapExtent &extent)
 {
     if (extent == m_extent) return;
@@ -555,7 +666,9 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         const QColor selLine     = selPenColor("link");
 
         root          = new QSGTransformNode();
-        catchFill     = makeFlatColorNode(QSGGeometry::DrawTriangles, m_layer->subcatchmentSymbol().fillColor);
+        // #33 Stage 1b — catchFill is now vertex-coloured so each subcatchment
+        // can carry its own per-feature override colour (Graduated/Categorized).
+        catchFill     = makeColoredNode(QSGGeometry::DrawTriangles);
         catchSelFill  = makeFlatColorNode(QSGGeometry::DrawTriangles, selPolyFill);
         catchEdge     = makeFlatColorNode(QSGGeometry::DrawLines,     m_layer->subcatchmentSymbol().outlineColor, 1.0f);
         catchSelEdge  = makeFlatColorNode(QSGGeometry::DrawTriangles, selPoly);
@@ -571,7 +684,9 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         storageBase   = makeColoredNode(QSGGeometry::DrawTriangles);
         dividersBase  = makeColoredNode(QSGGeometry::DrawTriangles);
         gagesBase     = makeFlatColorNode(QSGGeometry::DrawTriangles, m_layer->rainGageSymbol().fillColor);
-        lines         = makeFlatColorNode(QSGGeometry::DrawTriangles, m_layer->conduitSymbol().fillColor);
+        // #33 Stage 1b — link base node is vertex-coloured for per-feature
+        // (Graduated/Categorized) link colours; the selection halo stays flat.
+        lines         = makeColoredNode(QSGGeometry::DrawTriangles);
         linesSel      = makeFlatColorNode(QSGGeometry::DrawTriangles, selLine);
         // §QSG-3 — nodesSel uses vertex-coloured material so each
         // selected glyph carries its own colour in the vertex stream.
@@ -630,7 +745,15 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
     // the viewport scrolls.
     const float sx_r    = float(width())  / float(m_extent.width());
     const float invView = (sx_r > 0.0f) ? 1.0f / sx_r : 1.0f;
-    const double ox = m_anchorX, oy = m_anchorY;
+    // Precision anchor used to make GPU vertices small relative to a local
+    // origin before the float() narrowing. NOTE: this is refreshed inside the
+    // content-rebuild block below AFTER m_anchorX/Y are recomputed — the
+    // recompute and the vertex building must agree on the same anchor, or the
+    // transform matrix (which uses the recomputed m_anchorX/Y) and the vertices
+    // (which use ox/oy) disagree, throwing every vertex off by the anchor delta
+    // and quantising the un-anchored coords to a float grid (the "fishnet
+    // conduits + invisible nodes on first load" bug).
+    double ox = m_anchorX, oy = m_anchorY;
     // Wide cull margin (half the viewport on each side) so a pan that
     // shifts the viewport by up to half its width/height stays within
     // the cached vertex set — setMapExtent() exploits this to skip
@@ -655,6 +778,13 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             m_anchorX = (minX<=maxX) ? (minX+maxX)*0.5 : 0.0;
             m_anchorY = (minY<=maxY) ? (minY+maxY)*0.5 : 0.0;
         }
+        // Re-sync the local anchor to the freshly recomputed member so the
+        // vertices built below and the transform matrix at the end of this
+        // function use the SAME origin. Without this, the first rebuild after
+        // a model load (anchor 0 → scene-centre) builds every vertex against
+        // a stale origin, producing the fishnet + off-screen-nodes artifact.
+        ox = m_anchorX;
+        oy = m_anchorY;
 
         // Material refresh.
         // Selection style — pens carry outline colour, brushes carry
@@ -667,7 +797,9 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         const QColor selNode     = selBrushColor("node");
         const QColor selGage     = selBrushColor("gage");
         const QColor selLine     = selPenColor("link");
-        setNodeColor(catchFill,     m_layer->subcatchmentSymbol().fillColor);
+        // #33 Stage 1b — catchFill + lines are now QSGVertexColorMaterial;
+        // their colours are baked per-vertex at upload time, so NO
+        // material-level setColor (which would crash the static_cast).
         setNodeColor(catchSelFill,  selPolyFill);
         setNodeColor(catchEdge,     m_layer->subcatchmentSymbol().outlineColor);
         setNodeColor(catchSelEdge,  selPoly);
@@ -675,7 +807,6 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         // use QSGVertexColorMaterial; colours are baked per-vertex at
         // upload time, no material-level setColor required.
         setNodeColor(gagesBase,     m_layer->rainGageSymbol().fillColor);
-        setNodeColor(lines,         m_layer->conduitSymbol().fillColor);
         setNodeColor(linesSel,      selLine);
         // §QSG-3 — nodesSel uses QSGVertexColorMaterial; the colour is
         // baked into each vertex at upload time, so no material-level
@@ -705,8 +836,12 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 m_catchTriCache.revision = rev;
             }
 
-            std::vector<QSGGeometry::Point2D> fillBase,fillSel,edgeBase,edgeSelTris;
+            // #33 Stage 1b — fillBase is vertex-coloured (per-subcatchment
+            // override colour); selection fill + edges stay flat.
+            std::vector<QSGGeometry::ColoredPoint2D> fillBase;
+            std::vector<QSGGeometry::Point2D> fillSel,edgeBase,edgeSelTris;
             const float selEdgeHW = 1.5f * invView;
+            const QColor catchDef = m_layer->subcatchmentSymbol().fillColor;
             for (int i = 0; i < cps.size(); ++i) {
                 if (size_t(i)<cHid.size() && cHid[i]) continue;
                 if (size_t(i)<size_t(cBboxes.size())) {
@@ -718,9 +853,18 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if (poly.size() < 3) continue;
                 const QVector<int> &tris = m_catchTriCache.tris[i];
                 const bool sel = size_t(i)<cSel.size() && cSel[i];
+                // Per-feature override colour (Graduated/Categorized) or the
+                // kind default; `i` is the catch SoA index = featureColor key.
+                const QColor fc = m_layer->featureColor(SWMMModelLayer::CatSubcatchments, i);
+                const QColor cc = fc.isValid() ? fc : catchDef;
+                const qreal ckop = m_layer->categoryOpacity(SWMMModelLayer::CatSubcatchments);
+                const uchar fR=uchar(cc.red()), fG=uchar(cc.green()),
+                            fB=uchar(cc.blue()),
+                            fA=uchar(ckop < 1.0 ? cc.alpha() * ckop : cc.alpha());
                 for (int idx : tris) {
-                    QSGGeometry::Point2D p;
+                    QSGGeometry::ColoredPoint2D p;
                     p.x=float(poly[idx].x()-ox); p.y=float(poly[idx].y()-oy);
+                    p.r=fR; p.g=fG; p.b=fB; p.a=fA;
                     fillBase.push_back(p);
                 }
                 for (int j = 0; j < poly.size(); ++j) {
@@ -744,14 +888,14 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     }
                 }
             }
-            uploadVerts(catchFill,    fillBase);
+            uploadColoredVerts(catchFill, fillBase);   // #33 Stage 1b — per-feature
             uploadVerts(catchSelFill, fillSel);
             uploadVerts(catchEdge,    edgeBase);
             uploadVerts(catchSelEdge, edgeSelTris);
         } else {
             // Subcatchments not in QSG scope — clear so the CPU path
             // owns this kind without the GPU drawing on top of it.
-            uploadVerts(catchFill,    {});
+            uploadColoredVerts(catchFill, {});   // #33 Stage 1b — colored node
             uploadVerts(catchSelFill, {});
             uploadVerts(catchEdge,    {});
             uploadVerts(catchSelEdge, {});
@@ -766,9 +910,76 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             const auto &lSel    = m_layer->m_linkSelectedFlag;
             const auto &lHid    = m_layer->m_linkHiddenFlag;
             const QVector<QRectF> &lBboxes = m_layer->m_linkSceneBBoxes;
-            const float baseHW = 1.0f*invView, selHW = 2.0f*invView;
+            const auto &links = m_layer->m_links;
+            static constexpr SWMMModelLayer::Category kLinkCat[5] = {
+                SWMMModelLayer::CatConduits, SWMMModelLayer::CatPumps,
+                SWMMModelLayer::CatOrifices, SWMMModelLayer::CatWeirs,
+                SWMMModelLayer::CatOutlets };
+            // Per-link-type colour + half-width, mirroring the CPU
+            // linkPenForType(): start from the kind's preference pen, then let
+            // the per-type SWMMElementSymbol override colour / width. Without
+            // this every link took the conduit colour + width, so on initial
+            // load all link types rendered the same conduit blue at conduit
+            // thickness. The per-feature Graduated/Categorized colour
+            // (featureColor) still wins over this default when present.
+            auto *prefs = PreferencesManager::instance();
+            struct LinkStyle { QColor color; float hw; };
+            LinkStyle lstyle[5];
+            {
+                auto build = [&](const char *kind, const SWMMElementSymbol *sym) {
+                    QPen pen = prefs->linkPen(QString::fromLatin1(kind));
+                    QColor c = pen.color();
+                    double  w = pen.widthF();
+                    if (sym) {
+                        if (sym->fillColor.isValid()) c = sym->fillColor;
+                        if (sym->size > 0.0)          w = sym->size;
+                    }
+                    return LinkStyle{ c, float((w > 0.0 ? w : 1.0) * invView) };
+                };
+                const SWMMElementSymbol cd = m_layer->conduitSymbol();
+                const SWMMElementSymbol pm = m_layer->pumpSymbol();
+                const SWMMElementSymbol orf = m_layer->orificeSymbol();
+                const SWMMElementSymbol wr = m_layer->weirSymbol();
+                lstyle[0] = build("conduit", &cd);
+                lstyle[1] = build("pump",    &pm);
+                lstyle[2] = build("orifice", &orf);
+                lstyle[3] = build("weir",    &wr);
+                lstyle[4] = build("outlet",  nullptr);  // outlets share the prefs outlet pen
+            }
+            // Selection halo is a uniform +1 px cue over the conduit pen.
+            const float selHW = (float(m_layer->conduitSymbol().size > 0.0
+                                       ? m_layer->conduitSymbol().size : 1.0) + 1.0f)*invView;
 
-            std::vector<QSGGeometry::Point2D> baseTri,selTri;
+            // Per-kind flow-direction arrow config (GPU mirror of the CPU arrow
+            // pass in SWMMLayerItem::paint). Styling comes from each kind's
+            // SWMMElementSymbol: showArrows / arrowSize (px) / arrowColor /
+            // arrowOnlyWhenFlowPos. Arrowheads collect into a separate buffer
+            // and are appended to the link buffer after the segment loop so they
+            // draw last (over the links). The arrow points along the polyline
+            // from→to direction, which is upstream→downstream.
+            struct ArrowStyle { bool on; bool onlyFlowPos; float lenScene;
+                                uchar r,g,b,a; };
+            ArrowStyle astyle[5];
+            {
+                auto buildA = [&](const SWMMElementSymbol &s) {
+                    const QColor c = s.arrowColor;
+                    return ArrowStyle{ s.showArrows, s.arrowOnlyWhenFlowPos,
+                                       float(s.arrowSize * invView),
+                                       uchar(c.red()), uchar(c.green()),
+                                       uchar(c.blue()), uchar(c.alpha()) };
+                };
+                astyle[0]=buildA(m_layer->conduitSymbol());
+                astyle[1]=buildA(m_layer->pumpSymbol());
+                astyle[2]=buildA(m_layer->orificeSymbol());
+                astyle[3]=buildA(m_layer->weirSymbol());
+                astyle[4]=buildA(m_layer->m_outletSym);
+            }
+            const bool anyArrows = astyle[0].on||astyle[1].on||astyle[2].on
+                                 ||astyle[3].on||astyle[4].on;
+            std::vector<QSGGeometry::ColoredPoint2D> arrowTri;
+
+            std::vector<QSGGeometry::ColoredPoint2D> baseTri;
+            std::vector<QSGGeometry::Point2D>        selTri;
             size_t baseSegs=0, selSegs=0;
             for (size_t i = 0; i < counts.size(); ++i) {
                 if (counts[i]<2) continue;
@@ -792,19 +1003,50 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     if(bb.right()<cullX0||bb.left()>cullX1||
                        bb.bottom()<cullY0||bb.top()>cullY1) continue;
                 }
+                // Per-feature colour: link type → category → featureColor(cat,i)
+                // (m_kindFeatureColors is SoA-indexed, so `i` is the key).
+                const int lt = (int(i) < links.size()
+                                && links[int(i)].linkType >= 0
+                                && links[int(i)].linkType < 5)
+                               ? links[int(i)].linkType : 0;
+                const QColor fc = m_layer->featureColor(kLinkCat[lt], int(i));
+                const QColor lc = fc.isValid() ? fc : lstyle[lt].color;
+                const float  hw = lstyle[lt].hw;   // per-type line half-width
+                const qreal lkop = m_layer->categoryOpacity(kLinkCat[lt]);  // per-kind opacity
+                const uchar lR=uchar(lc.red()), lG=uchar(lc.green()),
+                            lB=uchar(lc.blue()),
+                            lA=uchar(lkop < 1.0 ? lc.alpha() * lkop : lc.alpha());
                 const double *p=flat.data()+size_t(offsets[i])*2;
                 const bool sel=i<lSel.size()&&lSel[i];
                 for (uint32_t j=1; j<cnt; ++j) {
                     const float ax=float(p[(j-1)*2]-ox), ay=float(p[(j-1)*2+1]-oy);
                     const float bx=float(p[j*2]-ox),     by=float(p[j*2+1]-oy);
-                    appendThickSegment(baseTri,ax,ay,bx,by,baseHW);
+                    appendThickSegmentColored(baseTri,ax,ay,bx,by,hw,lR,lG,lB,lA);
                     if (sel) appendThickSegment(selTri,ax,ay,bx,by,selHW);
                 }
+                // Round joins at interior vertices so polyline bends are smooth
+                // instead of leaving the flat-cap wedge gap ("broken corners").
+                // Straight 2-point links (cnt==2) have no interior vertex, so
+                // they emit nothing here and are unaffected.
+                for (uint32_t j=1; j+1<cnt; ++j) {
+                    const float vx=float(p[j*2]-ox), vy=float(p[j*2+1]-oy);
+                    appendDiscColored(baseTri,vx,vy,hw,lR,lG,lB,lA);
+                    if (sel) appendDisc(selTri,vx,vy,selHW);
+                }
+                // Flow-direction arrowhead (collected separately, drawn last).
+                if (anyArrows && astyle[lt].on
+                    && !(astyle[lt].onlyFlowPos && m_layer->linkFlow(int(i)) <= 0.0))
+                    appendFlowArrowColored(arrowTri, p, cnt, ox, oy,
+                                           astyle[lt].lenScene, astyle[lt].r,
+                                           astyle[lt].g, astyle[lt].b, astyle[lt].a);
             }
-            uploadVerts(lines,    baseTri);
+            // Append arrows last so they overlay the link segments (matches the
+            // CPU SWMMLayerItem draw order).
+            baseTri.insert(baseTri.end(), arrowTri.begin(), arrowTri.end());
+            uploadColoredVerts(lines, baseTri);   // #33 Stage 1b — per-feature
             uploadVerts(linesSel, selTri);
         } else {
-            uploadVerts(lines,    {});
+            uploadColoredVerts(lines, {});        // #33 Stage 1b — colored node
             uploadVerts(linesSel, {});
         }
 
@@ -858,11 +1100,28 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 auto *bucket=&junc;
                 uchar cR=jR,cG=jG,cB=jB,cA=jA;
                 auto shape = jShape;
-                if      (nt==1) { bucket=&outf; cR=oR; cG=oG; cB=oB; cA=oA; shape=oShape; }
-                else if (nt==2) { bucket=&stor; cR=sR; cG=sG; cB=sB; cA=sA; shape=sShape; }
-                else if (nt==3) { bucket=&divr; cR=dR; cG=dG; cB=dB; cA=dA; shape=dShape; }
-                // Selection: replace the per-kind base colour with the
-                // selection brush colour. Same shape and size, just a
+                SWMMModelLayer::Category cat = SWMMModelLayer::CatJunctions;
+                if      (nt==1) { bucket=&outf; cR=oR; cG=oG; cB=oB; cA=oA; shape=oShape; cat=SWMMModelLayer::CatOutfalls; }
+                else if (nt==2) { bucket=&stor; cR=sR; cG=sG; cB=sB; cA=sA; shape=sShape; cat=SWMMModelLayer::CatStorage; }
+                else if (nt==3) { bucket=&divr; cR=dR; cG=dG; cB=dB; cA=dA; shape=dShape; cat=SWMMModelLayer::CatDividers; }
+                // #33 Stage 1 (X3) — per-feature override colour from the
+                // renderer-driven cache (Graduated / Categorized). `i` is the
+                // node SoA index, which is exactly what featureColor() is keyed
+                // by (m_kindFeatureColors is SoA-indexed). Invalid → no override
+                // → keep the kind's struct colour above. This is what makes the
+                // GPU path match the CPU SWMMLayerItem path.
+                {
+                    const QColor ov = m_layer->featureColor(cat, i);
+                    if (ov.isValid()) {
+                        cR=uchar(ov.red()); cG=uchar(ov.green());
+                        cB=uchar(ov.blue()); cA=uchar(ov.alpha());
+                    }
+                    // Per-kind (sub-layer) opacity — fade this kind's alpha.
+                    const qreal kop = m_layer->categoryOpacity(cat);
+                    if (kop < 1.0) cA = uchar(cA * kop);
+                }
+                // Selection: replace the per-kind/per-feature base colour with
+                // the selection brush colour. Same shape and size, just a
                 // recolour — matches CPU painter behaviour.
                 if (size_t(i)<nSel.size()&&nSel[i]) {
                     cR=selR; cG=selG; cB=selB; cA=selA;
@@ -997,10 +1256,16 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                        bb.bottom()<cullY0||bb.top()>cullY1) continue;
                 }
                 const double *p=flat.data()+size_t(offsets[i])*2;
-                for (uint32_t j=1; j<counts[i]; ++j) {
+                const uint32_t cnt=counts[i];
+                for (uint32_t j=1; j<cnt; ++j) {
                     const float ax=float(p[(j-1)*2]-ox), ay=float(p[(j-1)*2+1]-oy);
                     const float bx=float(p[j*2]-ox),     by=float(p[j*2+1]-oy);
                     appendThickSegment(selTri,ax,ay,bx,by,selHW);
+                }
+                // Round joins at interior vertices — smooth bends on the halo.
+                for (uint32_t j=1; j+1<cnt; ++j) {
+                    const float vx=float(p[j*2]-ox), vy=float(p[j*2+1]-oy);
+                    appendDisc(selTri,vx,vy,selHW);
                 }
             }
             setNodeColor(linesSel, selLine);

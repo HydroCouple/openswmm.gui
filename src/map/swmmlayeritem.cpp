@@ -342,13 +342,19 @@ void SWMMLayerItem::paint(QPainter *painter,
     if (!qsgCatch && m_layer->m_showSubcatchments)
     {
         const auto &sym = m_layer->m_subcatchSym;
-        QPen pen(sym.outlineColor, sym.outlineWidth);
+        // Per-kind opacity for subcatchments.
+        const qreal kindOp = m_layer->categoryOpacity(SWMMModelLayer::CatSubcatchments);
+        auto fade = [kindOp](QColor c) {
+            if (kindOp < 1.0 && c.isValid()) c.setAlphaF(c.alphaF() * kindOp);
+            return c;
+        };
+        QPen pen(fade(sym.outlineColor), sym.outlineWidth);
         pen.setCosmetic(true);
         pen.setCapStyle (Qt::RoundCap);
         pen.setJoinStyle(Qt::RoundJoin);
 
         painter->setPen(pen);
-        painter->setBrush(QBrush(sym.fillColor));
+        painter->setBrush(QBrush(fade(sym.fillColor)));
 
         // Phase 8.13.6.4 — when subcatchments use a non-Single renderer,
         // fall through to per-feature setBrush so each polygon gets its
@@ -376,10 +382,10 @@ void SWMMLayerItem::paint(QPainter *painter,
             } else if (catchOverrides) {
                 const QColor col = m_layer->featureColor(
                     SWMMModelLayer::CatSubcatchments, i);
-                painter->setBrush(QBrush(col.isValid() ? col : sym.fillColor));
+                painter->setBrush(QBrush(fade(col.isValid() ? col : sym.fillColor)));
             }
             painter->drawPolygon(poly);
-            if (sel || catchOverrides) painter->setBrush(QBrush(sym.fillColor));
+            if (sel || catchOverrides) painter->setBrush(QBrush(fade(sym.fillColor)));
         }
 
         // ── Outlet connector lines: PIA → outlet node / subcatchment ──
@@ -587,9 +593,17 @@ void SWMMLayerItem::paint(QPainter *painter,
 
         painter->setBrush(Qt::NoBrush);
         for (int t = 0; t < 5; ++t) {
+            // Per-kind (sub-layer) opacity for this link type.
+            const qreal kindOp =
+                m_layer->categoryOpacity(linkTypeToCategory[size_t(t)]);
+            auto fade = [kindOp](QColor c) {
+                if (kindOp < 1.0 && c.isValid()) c.setAlphaF(c.alphaF() * kindOp);
+                return c;
+            };
             // Legacy fast path — single pen per kind.
             if (!segsByType[size_t(t)].isEmpty()) {
                 QPen pen = linkPenForType(t);
+                pen.setColor(fade(pen.color()));
                 pen.setCosmetic(true);
                 painter->setPen(pen);
                 painter->drawLines(segsByType[size_t(t)]);
@@ -603,7 +617,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                 pen.setCosmetic(true);
                 for (auto it = overrideSegsByType[size_t(t)].constBegin();
                      it != overrideSegsByType[size_t(t)].constEnd(); ++it) {
-                    pen.setColor(QColor::fromRgba(it.key()));
+                    pen.setColor(fade(QColor::fromRgba(it.key())));
                     painter->setPen(pen);
                     painter->drawLines(it.value());
                 }
@@ -739,16 +753,23 @@ void SWMMLayerItem::paint(QPainter *painter,
             const bool   overrides = m_layer->kindUsesOverrides(b.cat);
 
             const auto kindShape = b.sym->markerShape;
+            // Per-kind (sub-layer) opacity — multiplies every glyph's alpha.
+            const qreal kindOp = m_layer->categoryOpacity(b.cat);
+            auto fade = [kindOp](QColor c) {
+                if (kindOp < 1.0 && c.isValid())
+                    c.setAlphaF(c.alphaF() * kindOp);
+                return c;
+            };
 
             // Base pass.
             if (!b.scenePts.isEmpty()) {
-                QPen pen(b.sym->outlineColor, b.sym->outlineWidth);
+                QPen pen(fade(b.sym->outlineColor), b.sym->outlineWidth);
                 pen.setCosmetic(true);
                 painter->setPen(pen);
                 if (!overrides) {
                     // Legacy bucketed fast path — single brush for the
                     // entire bucket.
-                    painter->setBrush(QBrush(b.sym->fillColor));
+                    painter->setBrush(QBrush(fade(b.sym->fillColor)));
                     for (const QPointF &c : b.scenePts)
                         drawNodeGlyph(painter, c, r, kindShape);
                 } else {
@@ -759,7 +780,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                     // keep kind's default glyph radius).
                     for (int j = 0; j < b.scenePts.size(); ++j) {
                         const QColor col = m_layer->featureColor(b.cat, b.indices[j]);
-                        painter->setBrush(QBrush(col.isValid() ? col : b.sym->fillColor));
+                        painter->setBrush(QBrush(fade(col.isValid() ? col : b.sym->fillColor)));
                         const double szOverride = m_layer->featureSize(b.cat, b.indices[j]);
                         const double rEff = (szOverride > 0.0)
                             ? (szOverride * 0.5 * invViewScale)

@@ -671,7 +671,15 @@ void SimulationRunner::start()
                     return {false, 0, QStringLiteral("Cancelled"), 0.0, 0.0};
 
                 const int exitCode = worker.exitCode();
-                if (worker.exitStatus() == QProcess::CrashExit || exitCode != 0) {
+                // A worker that emitted an {"type":"error"} line but still
+                // exited 0 must NOT be reported as success — otherwise the
+                // failure reason is silently discarded and the run "fails
+                // without a message". Treat any seen error (message or
+                // non-zero code) as a failure alongside the crash /
+                // non-zero-exit cases.
+                const bool crashed      = worker.exitStatus() == QProcess::CrashExit;
+                const bool emittedError = !lastErrorMsg.isEmpty() || lastErrorCode != 0;
+                if (crashed || exitCode != 0 || emittedError) {
                     QString msg = !lastErrorMsg.isEmpty()
                         ? lastErrorMsg
                         : QStringLiteral("Legacy worker exited with code %1").arg(exitCode);
@@ -681,8 +689,9 @@ void SimulationRunner::start()
                     const QString errText = QString::fromUtf8(stderrBuf).trimmed();
                     if (!errText.isEmpty())
                         msg += QStringLiteral("\n\nWorker stderr:\n%1").arg(errText);
-                    return {false, exitCode != 0 ? exitCode : (lastErrorCode != 0 ? lastErrorCode : -1),
-                            msg, 0.0, 0.0};
+                    const int code = exitCode != 0 ? exitCode
+                                   : (lastErrorCode != 0 ? lastErrorCode : -1);
+                    return {false, code, msg, 0.0, 0.0};
                 }
 
                 return {true, 0, QString(), runoffErrFrac, routingErrFrac};

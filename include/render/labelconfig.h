@@ -54,6 +54,14 @@ struct LabelConfig
      *  name, GIS feature's FID). */
     QString fieldName;
 
+    /*! Label expression / template (L-1 results labels). When non-empty it
+     *  wins over fieldName: the paint path substitutes `{token}` placeholders
+     *  with field values — `{name}` for the element name and any
+     *  result/attribute field name (e.g. `{depth}`, `{flow}`) for that
+     *  feature's current value. Literal text between tokens is kept verbatim,
+     *  so "{name}: {depth} m" → "J1: 2.84 m". Unknown tokens resolve to empty. */
+    QString expression;
+
     /*! Font — family / weight / italic flags ride here. */
     QFont   font;
 
@@ -132,6 +140,7 @@ inline bool operator==(const LabelConfig &a, const LabelConfig &b)
 {
     return a.enabled       == b.enabled
         && a.fieldName     == b.fieldName
+        && a.expression    == b.expression
         && a.font          == b.font
         && qFuzzyCompare(a.fontSizePt,   b.fontSizePt)
         && a.color         == b.color

@@ -77,6 +77,11 @@ void MarkerSymbolLayerSpec::writeToSymbolLayer(SymbolLayer &layer) const
     layer.kind = SymbolLayerKind::SimpleMarker;
     layer.props[QStringLiteral("shape")]           = static_cast<int>(shape);
     layer.props[QStringLiteral("size")]            = sizePx;
+    // NOTE: colours are stored as QColor variants (NOT hex strings). The
+    // readers here and across the symbol-style stack use QVariant::value<QColor>(),
+    // which does NOT parse a #AARRGGBB QString in this codebase — storing hex
+    // made every colour read back invalid and reset to defaults (X1 regression,
+    // reverted 2026-06-01).
     layer.props[QStringLiteral("fillColor")]       = fillColor;
     layer.props[QStringLiteral("outlineColor")]    = outlineColor;
     layer.props[QStringLiteral("outlineWidth")]    = outlineWidth;

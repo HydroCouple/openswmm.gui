@@ -60,6 +60,7 @@
 #include "ui/widgets/attributepickermenu.h"  // Slice PT.1 — picker for plotTimeSeries
 #include "core/preferencesmanager.h"
 #include "map/mapcanvas.h"
+#include "map/mapundostack.h"   // #36 — MapUndoStack* → QUndoStack* upcast at dialog calls
 #include "map/spatialreferencesystem.h"
 #include "map/openswmmvisscene.h"
 #include "map/mapextent.h"
@@ -1315,7 +1316,9 @@ void SWMMVis::initializeLayersDockWidget()
     connect(mLayerTreePanel, &LayerTreePanel::layerPropertiesRequested,
             this, [this](OpenSWMMVisLayer *layer) {
                 if (!layer) return;
-                openswmmvis::ui::LayerStyleDialog dlg(layer, QString(), this);
+                openswmmvis::ui::LayerStyleDialog dlg(
+                    layer, QString(), this,
+                    activeCanvas() ? activeCanvas()->undoStack() : nullptr);  // #36
                 dlg.exec();
                 if (auto *c = activeCanvas())
                     c->invalidate(MapCanvas::Raster | MapCanvas::Scene,
@@ -1328,7 +1331,9 @@ void SWMMVis::initializeLayersDockWidget()
     connect(mLayerTreePanel, &LayerTreePanel::layerStyleRequested,
             this, [this](OpenSWMMVisLayer *layer) {
                 if (!layer) return;
-                openswmmvis::ui::LayerStyleDialog dlg(layer, QString(), this);
+                openswmmvis::ui::LayerStyleDialog dlg(
+                    layer, QString(), this,
+                    activeCanvas() ? activeCanvas()->undoStack() : nullptr);  // #36
                 dlg.exec();
                 if (auto *c = activeCanvas())
                     c->invalidate(MapCanvas::Raster | MapCanvas::Scene,
@@ -1630,7 +1635,9 @@ void SWMMVis::onLayerKindStyleRequested(OpenSWMMVisLayer *layer,
         }
     }();
 
-    openswmmvis::ui::LayerStyleDialog dlg(layer, kindRoutingId, this);
+    openswmmvis::ui::LayerStyleDialog dlg(
+        layer, kindRoutingId, this,
+        activeCanvas() ? activeCanvas()->undoStack() : nullptr);  // #36
     dlg.exec();
     if (auto *cv = activeCanvas())
         cv->invalidate(MapCanvas::Scene, QStringLiteral("layer-style-apply"));
@@ -2605,7 +2612,9 @@ void SWMMVis::initializeMenus()
             return;
         }
         // Slice S1 — toolbar/menu fallback also routes to LayerStyleDialog.
-        openswmmvis::ui::LayerStyleDialog dlg(target, QString(), this);
+        openswmmvis::ui::LayerStyleDialog dlg(
+            target, QString(), this,
+            activeCanvas() ? activeCanvas()->undoStack() : nullptr);  // #36
         dlg.exec();
         if (auto *c = activeCanvas())
             c->invalidate(MapCanvas::Raster | MapCanvas::Scene,
@@ -5131,9 +5140,10 @@ void SWMMVis::onRunSimulation()
     QPointer<SWMMVis> self(this);
     QPointer<SWMMVisProjectWindow> pwGuard(pw);
     QString outPathCopy  = outPath;
+    QString rptPathCopy  = rptPath;
 
     connect(runner, &SimulationRunner::finished, this,
-            [self, runner, pwGuard, outPathCopy, instanceName]
+            [self, runner, pwGuard, outPathCopy, rptPathCopy, instanceName]
             (int finishedJobId, bool success, int errCode, QString errMsg,
              double runoffFrac, double routingFrac) {
                 if (!self) return;
@@ -5164,6 +5174,8 @@ void SWMMVis::onRunSimulation()
                 // different text and auto-load the partial results so the
                 // user can still inspect whatever was written.
                 const bool cancelled = !success && errCode == 0;
+                const bool outHasData = QFileInfo(outPathCopy).exists()
+                    && QFileInfo(outPathCopy).size() > 0;
                 if (cancelled) {
                     self->onLogMessage(
                         tr("Simulation cancelled. Partial results: %1")
@@ -5174,6 +5186,18 @@ void SWMMVis::onRunSimulation()
                         tr("Simulation failed (code %1): %2 — %3")
                             .arg(errCode).arg(instanceName).arg(errMsg),
                         OpenSWMMVisLogMessage::Error);
+                } else if (!outHasData) {
+                    // The run reported success but wrote no output. This almost
+                    // always means the engine failed during input parsing or
+                    // setup and the worker didn't surface it as a non-zero exit.
+                    // Don't claim success — point the user at the report file,
+                    // which carries the actual ERROR line.
+                    self->onLogMessage(
+                        tr("Simulation reported success but produced no output: %1\n"
+                           "The run likely failed during input parsing or setup — "
+                           "see the report file for the cause: %2")
+                            .arg(instanceName, rptPathCopy),
+                        OpenSWMMVisLogMessage::Error);
                 } else {
                     self->onLogMessage(
                         tr("Simulation finished. Results: %1").arg(outPathCopy));
@@ -5183,9 +5207,7 @@ void SWMMVis::onRunSimulation()
                 // cancel/success — the engine flushed partial output
                 // either way, and the user explicitly asked for Cancel to
                 // save results. Only skip on engine-error with no output.
-                const bool hasResults = (success || cancelled)
-                    && QFileInfo(outPathCopy).exists()
-                    && QFileInfo(outPathCopy).size() > 0;
+                const bool hasResults = (success || cancelled) && outHasData;
                 if (hasResults && pwGuard && pwGuard->canvas() && pwGuard->modelLayer()) {
                     // Reuse any existing layer pointing at this .out
                     // (typical case: same model re-run, or the
