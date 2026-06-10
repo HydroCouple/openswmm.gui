@@ -109,7 +109,7 @@ QList<LegendSymbolItem> DepthColorRampSublayer::legendSymbolItems() const
     lo.range      = { m_style->minValue(), m_style->minValue() };
     SymbolLayer loFill;
     loFill.kind = SymbolLayerKind::SimpleFill;
-    loFill.props.insert(QStringLiteral("color"), m_style->lowColor().name(QColor::HexArgb));
+    SymbolProps::writeColor(loFill.props, QStringLiteral("color"), m_style->lowColor());
     lo.symbol.layers.append(loFill);
     lo.symbol.opacity = m_opacity;
     out.append(lo);
@@ -120,7 +120,7 @@ QList<LegendSymbolItem> DepthColorRampSublayer::legendSymbolItems() const
     hi.range      = { m_style->maxValue(), m_style->maxValue() };
     SymbolLayer hiFill;
     hiFill.kind = SymbolLayerKind::SimpleFill;
-    hiFill.props.insert(QStringLiteral("color"), m_style->highColor().name(QColor::HexArgb));
+    SymbolProps::writeColor(hiFill.props, QStringLiteral("color"), m_style->highColor());
     hi.symbol.layers.append(hiFill);
     hi.symbol.opacity = m_opacity;
     out.append(hi);

@@ -80,6 +80,8 @@ struct ColumnSpec {
     double       maxValue =  std::numeric_limits<double>::infinity();
     int          decimals = 4;
     UnitKind     unit = UnitKind::None;  ///< Semantic unit (resolved at render)
+    QString      tooltip;      ///< Header tooltip override (user-flag
+                               ///< description); empty = unit tooltip.
 };
 
 } // namespace openswmmvis
@@ -161,6 +163,10 @@ signals:
 
 private:
     void rebuildColumnSchema();
+    /*! Phase 3 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — append one
+     *  editable column per defined user flag (key "userflag:<NAME>")
+     *  when the bound category maps to an engine object type. */
+    void appendUserFlagColumns();
     QVariantMap rowData(int row) const;
 
     QPointer<SWMMModelLayer>           m_layer;

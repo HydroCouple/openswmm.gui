@@ -1263,26 +1263,60 @@ void SWMM2DResultsLayer::setMaxDepth(double d)
     if (graphics_item_) graphics_item_->geometryChanged();
 }
 
+// Gap A3.1 — velocity knobs are facades over the VelocityVector sublayer.
+// The sublayer model is what the paint pass gates on / reads from, so the
+// dialog's legacy setters and the layer tree's sublayer toggles converge on
+// one state. Sublayer style mutations emit styleChanged → invalidated →
+// repaint, so no manual geometryChanged is needed on those paths.
+
+bool SWMM2DResultsLayer::velocityVectorsVisible() const
+{
+    return m_velocityVectorSublayer ? m_velocityVectorSublayer->isVisible()
+                                    : velocity_visible_;
+}
+
 void SWMM2DResultsLayer::setVelocityVectorsVisible(bool v)
 {
-    if (v == velocity_visible_) return;
     velocity_visible_ = v;
+    if (m_velocityVectorSublayer) {
+        m_velocityVectorSublayer->setVisible(v);
+        return;
+    }
     if (arrows_item_) arrows_item_->geometryChanged();
+}
+
+qreal SWMM2DResultsLayer::velocityOpacity() const
+{
+    return m_velocityVectorSublayer ? m_velocityVectorSublayer->opacity()
+                                    : velocity_opacity_;
 }
 
 void SWMM2DResultsLayer::setVelocityOpacity(qreal alpha)
 {
     alpha = std::clamp<qreal>(alpha, 0.0, 1.0);
-    if (alpha == velocity_opacity_) return;
     velocity_opacity_ = alpha;
+    if (m_velocityVectorSublayer) {
+        m_velocityVectorSublayer->setOpacity(alpha);
+        return;
+    }
     if (arrows_item_) arrows_item_->geometryChanged();
+}
+
+double SWMM2DResultsLayer::velocityArrowScale() const
+{
+    if (m_velocityVectorSublayer && m_velocityVectorSublayer->vectorStyle())
+        return m_velocityVectorSublayer->vectorStyle()->glyphLengthScalePxPerMps();
+    return velocity_arrow_scale_;
 }
 
 void SWMM2DResultsLayer::setVelocityArrowScale(double scale)
 {
     if (scale <= 0.0) return;
-    if (scale == velocity_arrow_scale_) return;
     velocity_arrow_scale_ = scale;
+    if (m_velocityVectorSublayer && m_velocityVectorSublayer->vectorStyle()) {
+        m_velocityVectorSublayer->vectorStyle()->setGlyphLengthScalePxPerMps(scale);
+        return;
+    }
     if (arrows_item_) arrows_item_->geometryChanged();
 }
 
@@ -1314,56 +1348,128 @@ void SWMM2DResultsLayer::setColorClasses(int n)
     if (graphics_item_) graphics_item_->geometryChanged();
 }
 
+// Gap A3.1 — band / isoline knobs are facades over the ContourBand /
+// Isoline sublayers (visibility, sublayer opacity, style-bag props). Paint
+// gates on sublayer visibility and prefers the style-bag values, so before
+// this change the dialog's setters wrote fields paint never consulted —
+// every "Show bands"/"Levels"/"Colour" control in the 2D panel was dead.
+
+bool SWMM2DResultsLayer::filledContours() const
+{
+    return m_contourBandSublayer ? m_contourBandSublayer->isVisible()
+                                 : filled_contours_;
+}
+
 void SWMM2DResultsLayer::setFilledContours(bool on)
 {
-    if (on == filled_contours_) return;
     filled_contours_ = on;
+    if (m_contourBandSublayer) {
+        m_contourBandSublayer->setVisible(on);
+        return;
+    }
     if (graphics_item_) graphics_item_->geometryChanged();
+}
+
+double SWMM2DResultsLayer::filledContoursOpacity() const
+{
+    return m_contourBandSublayer ? m_contourBandSublayer->opacity()
+                                 : filled_contours_opacity_;
 }
 
 void SWMM2DResultsLayer::setFilledContoursOpacity(double a)
 {
     a = std::clamp(a, 0.0, 1.0);
-    if (a == filled_contours_opacity_) return;
     filled_contours_opacity_ = a;
+    if (m_contourBandSublayer) {
+        m_contourBandSublayer->setOpacity(a);
+        return;
+    }
     if (graphics_item_) graphics_item_->geometryChanged();
+}
+
+int SWMM2DResultsLayer::filledContoursLevels() const
+{
+    if (m_contourBandSublayer && m_contourBandSublayer->bandStyle())
+        return m_contourBandSublayer->bandStyle()->bandCount();
+    return filled_contours_levels_;
 }
 
 void SWMM2DResultsLayer::setFilledContoursLevels(int n)
 {
     n = std::clamp(n, 2, 32);
-    if (n == filled_contours_levels_) return;
     filled_contours_levels_ = n;
+    if (m_contourBandSublayer && m_contourBandSublayer->bandStyle()) {
+        m_contourBandSublayer->bandStyle()->setBandCount(n);
+        return;
+    }
     if (graphics_item_) graphics_item_->geometryChanged();
+}
+
+bool SWMM2DResultsLayer::isolines() const
+{
+    return m_isolineSublayer ? m_isolineSublayer->isVisible() : isolines_;
 }
 
 void SWMM2DResultsLayer::setIsolines(bool on)
 {
-    if (on == isolines_) return;
     isolines_ = on;
+    if (m_isolineSublayer) {
+        m_isolineSublayer->setVisible(on);
+        return;
+    }
     if (graphics_item_) graphics_item_->geometryChanged();
+}
+
+int SWMM2DResultsLayer::isolinesLevels() const
+{
+    if (m_isolineSublayer && m_isolineSublayer->isolineStyle())
+        return m_isolineSublayer->isolineStyle()->isoValueCount();
+    return isolines_levels_;
 }
 
 void SWMM2DResultsLayer::setIsolinesLevels(int n)
 {
     n = std::clamp(n, 1, 32);
-    if (n == isolines_levels_) return;
     isolines_levels_ = n;
+    if (m_isolineSublayer && m_isolineSublayer->isolineStyle()) {
+        m_isolineSublayer->isolineStyle()->setIsoValueCount(n);
+        return;
+    }
     if (graphics_item_) graphics_item_->geometryChanged();
+}
+
+QColor SWMM2DResultsLayer::isolinesColor() const
+{
+    if (m_isolineSublayer && m_isolineSublayer->isolineStyle())
+        return m_isolineSublayer->isolineStyle()->color();
+    return isolines_color_;
 }
 
 void SWMM2DResultsLayer::setIsolinesColor(QColor c)
 {
-    if (c == isolines_color_) return;
     isolines_color_ = c;
+    if (m_isolineSublayer && m_isolineSublayer->isolineStyle()) {
+        m_isolineSublayer->isolineStyle()->setColor(c);
+        return;
+    }
     if (graphics_item_) graphics_item_->geometryChanged();
+}
+
+double SWMM2DResultsLayer::isolinesWidth() const
+{
+    if (m_isolineSublayer && m_isolineSublayer->isolineStyle())
+        return m_isolineSublayer->isolineStyle()->lineWidthPx();
+    return isolines_width_;
 }
 
 void SWMM2DResultsLayer::setIsolinesWidth(double px)
 {
     px = std::clamp(px, 0.25, 10.0);
-    if (px == isolines_width_) return;
     isolines_width_ = px;
+    if (m_isolineSublayer && m_isolineSublayer->isolineStyle()) {
+        m_isolineSublayer->isolineStyle()->setLineWidthPx(px);
+        return;
+    }
     if (graphics_item_) graphics_item_->geometryChanged();
 }
 
@@ -1814,7 +1920,7 @@ SWMM2DResultsLayer::sublayerLegendItems() const
 
         SymbolLayer sl;
         sl.kind = SymbolLayerKind::SimpleFill;
-        sl.props.insert(QStringLiteral("color"), c.name(QColor::HexArgb));
+        OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"), c);
         item.symbol.layers.append(sl);
         out.append(item);
     }
@@ -1847,7 +1953,7 @@ SWMM2DResultsLayer::sublayerLegendItems() const
             item.range      = { lo, hi };
             SymbolLayer sl;
             sl.kind = SymbolLayerKind::SimpleFill;
-            sl.props.insert(QStringLiteral("color"), c.name(QColor::HexArgb));
+            OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"), c);
             item.symbol.layers.append(sl);
             out.append(item);
         }
@@ -1861,8 +1967,8 @@ SWMM2DResultsLayer::sublayerLegendItems() const
                                             : QString();
         SymbolLayer sl;
         sl.kind = SymbolLayerKind::SimpleLine;
-        sl.props.insert(QStringLiteral("color"),
-                        isolines_color_.name(QColor::HexArgb));
+        OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"),
+                                isolines_color_);
         sl.props.insert(QStringLiteral("width"), isolines_width_);
         item.symbol.layers.append(sl);
         out.append(item);
@@ -1879,8 +1985,8 @@ SWMM2DResultsLayer::sublayerLegendItems() const
         sl.props.insert(QStringLiteral("shape"), QStringLiteral("arrow"));
         int r = 0, g = 0, b = 0;
         velocityColorRgb(max_velocity_, max_velocity_, r, g, b);
-        sl.props.insert(QStringLiteral("color"),
-                        QColor(r, g, b, 230).name(QColor::HexArgb));
+        OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"),
+                                QColor(r, g, b, 230));
         sl.props.insert(QStringLiteral("size"), 12.0);
         item.symbol.layers.append(sl);
         out.append(item);

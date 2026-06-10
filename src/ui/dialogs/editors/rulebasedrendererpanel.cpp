@@ -101,21 +101,18 @@ OpenSWMM::Render::SymbolStyle makeColourSymbol(const QColor &c)
 {
     OpenSWMM::Render::SymbolStyle s;
     OpenSWMM::Render::SymbolLayer layer;
-    layer.props.insert(QStringLiteral("color"), c.name(QColor::HexArgb));
+    // Gap A1.2 — canonical QColor variant (hex strings are unreadable
+    // through the typed spec readers' value<QColor>()).
+    OpenSWMM::Render::SymbolProps::writeColor(
+        layer.props, QStringLiteral("color"), c);
     s.layers.append(layer);
     return s;
 }
 
 QColor swatchFromSymbol(const OpenSWMM::Render::SymbolStyle &sty)
 {
-    for (const auto &sl : sty.layers) {
-        const auto it = sl.props.constFind(QStringLiteral("color"));
-        if (it != sl.props.constEnd()) {
-            const QColor c(it.value().toString());
-            if (c.isValid()) return c;
-        }
-    }
-    return {};
+    // Gap A1.2 — tolerant read over both encodings and grammar keys.
+    return OpenSWMM::Render::SymbolProps::firstColor(sty);
 }
 
 // ---------------------------------------------------------------------------
@@ -384,8 +381,9 @@ private:
                     if (ru.symbol.layers.isEmpty())
                         ru.symbol = makeColourSymbol(sw);
                     else
-                        ru.symbol.layers.first().props.insert(
-                            QStringLiteral("color"), sw.name(QColor::HexArgb));
+                        OpenSWMM::Render::SymbolProps::writeColor(
+                            ru.symbol.layers.first().props,
+                            QStringLiteral("color"), sw);
                 }
             } else {
                 ru.symbol = makeColourSymbol(sw.isValid() ? sw : QColor(Qt::gray));
@@ -414,10 +412,14 @@ private:
 
 } // namespace
 
-REGISTER_RENDERER_PANEL(
+// Gap A4.2 — rule expressions reference attributes; grey out when the
+// provider exposes none.
+REGISTER_RENDERER_PANEL_GATED(
     "rule", "Rule-based",
-    [](const RendererPanelContext &ctx, QWidget *parent) -> IRendererPanel * {
+    ([](const RendererPanelContext &ctx, QWidget *parent) -> IRendererPanel * {
         return new RuleBasedPanel(ctx, parent);
-    })
+    }),
+    ([](const RendererPanelContext &ctx) { return !ctx.fields.isEmpty(); }),
+    "No attributes available for this kind")
 
 } // namespace openswmmvis::ui

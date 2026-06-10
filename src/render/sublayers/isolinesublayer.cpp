@@ -97,7 +97,7 @@ QList<LegendSymbolItem> IsolineSublayer::legendSymbolItems() const
 
     SymbolLayer line;
     line.kind = SymbolLayerKind::SimpleLine;
-    line.props.insert(QStringLiteral("color"), m_style->color().name(QColor::HexArgb));
+    SymbolProps::writeColor(line.props, QStringLiteral("color"), m_style->color());
     line.props.insert(QStringLiteral("width"), m_style->lineWidthPx());
     const QMetaEnum me = QMetaEnum::fromType<Qt::PenStyle>();
     line.props.insert(QStringLiteral("dashPattern"),

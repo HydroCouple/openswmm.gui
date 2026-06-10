@@ -116,17 +116,8 @@ public:
             }
         }
 
-        // TEMP DIAGNOSTIC (missing flow-arrow toggle investigation).
-        qDebug().noquote() << "[SSPANEL] hostLayer="
-            << (m_ctx.hostLayer ? m_ctx.hostLayer->metaObject()->className() : "null")
-            << "cat=" << (m_ctx.category.has_value() ? int(*m_ctx.category) : -1)
-            << "style=" << (style ? style->metaObject()->className() : "NULL-STYLE");
-
         if (style) {
             auto *editor = StyleEditorRegistry::instance().createEditorFor(style, this);
-            qDebug().noquote() << "[SSPANEL]   -> editor="
-                << (editor ? editor->metaObject()->className()
-                           : "NULL (no editor registered for this style class)");
             if (editor) {
                 lay->addWidget(editor, 1);
                 return;

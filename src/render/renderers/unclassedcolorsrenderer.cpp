@@ -20,17 +20,9 @@ namespace OpenSWMM::Render
 
 namespace {
 
-/*! Mirror GraduatedRenderer's "color" override convention: hex string in
- *  every SymbolLayer's props["color"] slot, applied only when the slot
- *  already exists. Keeps JSON round-trip lossless. */
-void overrideColorInPlace(SymbolStyle &style, const QColor &c)
-{
-    const QString hex = c.name(QColor::HexArgb);
-    for (SymbolLayer &sl : style.layers) {
-        if (sl.props.contains(QStringLiteral("color")))
-            sl.props.insert(QStringLiteral("color"), hex);
-    }
-}
+// Gap A1.2 — colour convention now lives in one place: SymbolProps
+// (render/symbolstyle.h). Local alias keeps the call sites unchanged.
+using SymbolProps::overrideColorInPlace;
 
 QString jsonObjectToString(const QJsonObject &obj)
 {

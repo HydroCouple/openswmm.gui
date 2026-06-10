@@ -8,9 +8,11 @@
 
 #include "render/symbollayer.h"
 
+#include <QColor>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QStringList>
 
 namespace OpenSWMM::Render
 {
@@ -61,11 +63,35 @@ SymbolLayerKind symbolLayerKindFromString(const QString &s)
     return SymbolLayerKind::SimpleMarker;
 }
 
+namespace {
+
+// X1 — colour props are QColor *variants* in memory (the typed spec readers
+// use QVariant::value<QColor>(), which does not parse hex strings), but
+// QJsonObject::fromVariantMap silently drops QColor variants (they have no
+// JSON mapping). Convert colours to hex at the JSON boundary on save and
+// back to QColor variants on load so both the readers and persistence work.
+//
+// Gap A1.2 — key *suffix* heuristic instead of a fixed list: the old list
+// missed the raster grammar keys (noDataColor / lineColor / wideColor), so
+// raster symbol colours stayed hex strings after load and every
+// value<QColor>() read silently fell back to defaults.
+bool isColorPropKey(const QString &key)
+{
+    return key == QLatin1String("color") || key.endsWith(QLatin1String("Color"));
+}
+
+} // namespace
+
 QJsonObject SymbolLayer::toJson() const
 {
     QJsonObject obj;
     obj.insert(QStringLiteral("kind"), symbolLayerKindToString(kind));
-    obj.insert(QStringLiteral("props"), QJsonObject::fromVariantMap(props));
+    QVariantMap jsonProps = props;
+    for (auto it = jsonProps.begin(); it != jsonProps.end(); ++it) {
+        if (it.value().userType() == QMetaType::QColor)
+            it.value() = it.value().value<QColor>().name(QColor::HexArgb);
+    }
+    obj.insert(QStringLiteral("props"), QJsonObject::fromVariantMap(jsonProps));
 
     if (!dataDefinedOverrides.isEmpty())
     {
@@ -84,6 +110,14 @@ void SymbolLayer::fromJson(const QJsonObject &j)
 {
     kind = symbolLayerKindFromString(j.value(QStringLiteral("kind")).toString());
     props = j.value(QStringLiteral("props")).toObject().toVariantMap();
+    // X1 — rehydrate colour keys saved as hex strings into QColor variants
+    // (the in-memory canonical form; see toJson).
+    for (auto it = props.begin(); it != props.end(); ++it) {
+        if (!isColorPropKey(it.key())) continue;
+        if (it.value().userType() == QMetaType::QColor) continue;
+        const QColor c(it.value().toString());
+        if (c.isValid()) it.value() = QVariant::fromValue(c);
+    }
 
     dataDefinedOverrides.clear();
     const QJsonObject ddo = j.value(QStringLiteral("dataDefinedOverrides")).toObject();

@@ -8,7 +8,9 @@
 #include "ui/dialogs/statusreportdialog.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDialogButtonBox>
+#include <QFileInfo>
 #include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -17,6 +19,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QSignalBlocker>
 #include <QSortFilterProxyModel>
 #include <QSplitter>
 #include <QStandardItem>
@@ -123,43 +126,60 @@ private:
 // ---------------------------------------------------------------------------
 
 StatusReportDialog::StatusReportDialog(const QString &rptPath, QWidget *parent)
-    : QDialog(parent), m_path(rptPath)
+    : StatusReportDialog(QVector<ReportSource>{
+          { QFileInfo(rptPath).fileName(), rptPath } }, 0, parent)
 {
-    setWindowTitle(tr("Report Viewer — %1").arg(rptPath));
-    resize(1100, 760);
+}
 
-    QString err;
-    const auto sections = openswmmvis::io::RptParser::parse(m_path, &err);
-    if (sections.isEmpty()) {
-        QMessageBox::warning(this, tr("Couldn't parse .rpt"),
-            tr("Could not read %1:\n%2").arg(m_path, err));
+StatusReportDialog::StatusReportDialog(const QVector<ReportSource> &sources,
+                                       int initialIndex, QWidget *parent)
+    : QDialog(parent), m_sources(sources)
+{
+    resize(1100, 760);
+    buildUi();
+    if (!m_sources.isEmpty()) {
+        const int idx = qBound(0, initialIndex, int(m_sources.size()) - 1);
+        if (m_runCombo) {
+            QSignalBlocker b(m_runCombo);
+            m_runCombo->setCurrentIndex(idx);
+        }
+        loadReport(idx);
     }
-    buildUi(sections);
-    populateText(sections);
 }
 
 StatusReportDialog::~StatusReportDialog() = default;
 
-void StatusReportDialog::buildUi(const QVector<openswmmvis::io::RptSection> &sections)
+void StatusReportDialog::buildUi()
 {
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(6, 6, 6, 6);
     root->setSpacing(4);
 
-    // Continuity-error banner.
+    // Run selector — one entry per loaded run's report; hidden for a
+    // single source so the classic single-report layout is unchanged.
+    if (m_sources.size() > 1) {
+        auto *runRow = new QHBoxLayout;
+        runRow->setContentsMargins(0, 0, 0, 0);
+        runRow->addWidget(new QLabel(tr("Run:"), this));
+        m_runCombo = new QComboBox(this);
+        for (const auto &src : m_sources) {
+            m_runCombo->addItem(src.label);
+            m_runCombo->setItemData(m_runCombo->count() - 1, src.path,
+                                    Qt::ToolTipRole);
+        }
+        runRow->addWidget(m_runCombo, 1);
+        root->addLayout(runRow);
+        connect(m_runCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+                this, [this](int idx) { loadReport(idx); });
+    }
+
+    // Continuity-error banner (text + visibility set per report in loadReport).
     m_continuityBanner = new QLabel(this);
     m_continuityBanner->setStyleSheet(
         QStringLiteral("QLabel { background-color: #ffe7e3; color: #8a1f00; "
                        "padding: 6px; border-radius: 3px; font-weight: bold; }"));
     m_continuityBanner->setWordWrap(true);
-    if (openswmmvis::io::RptParser::hasHighContinuityError(sections)) {
-        m_continuityBanner->setText(
-            tr("⚠ Continuity error above %1 % detected. "
-               "Check the Runoff / Routing Continuity sections.")
-                .arg(kContinuityErrorThresholdPct, 0, 'f', 0));
-    } else {
-        m_continuityBanner->hide();
-    }
+    m_continuityBanner->hide();
     root->addWidget(m_continuityBanner);
 
     // ── Splitter ───────────────────────────────────────────────────────
@@ -260,9 +280,37 @@ void StatusReportDialog::buildUi(const QVector<openswmmvis::io::RptSection> &sec
             this, [this](bool){ updateMatchCounter(); });
 }
 
+void StatusReportDialog::loadReport(int sourceIndex)
+{
+    if (sourceIndex < 0 || sourceIndex >= m_sources.size()) return;
+    m_path = m_sources[sourceIndex].path;
+    setWindowTitle(tr("Report Viewer — %1").arg(m_path));
+
+    QString err;
+    const auto sections = openswmmvis::io::RptParser::parse(m_path, &err);
+    if (sections.isEmpty()) {
+        QMessageBox::warning(this, tr("Couldn't parse .rpt"),
+            tr("Could not read %1:\n%2").arg(m_path, err));
+    }
+
+    if (openswmmvis::io::RptParser::hasHighContinuityError(sections)) {
+        m_continuityBanner->setText(
+            tr("⚠ Continuity error above %1 % detected. "
+               "Check the Runoff / Routing Continuity sections.")
+                .arg(kContinuityErrorThresholdPct, 0, 'f', 0));
+        m_continuityBanner->show();
+    } else {
+        m_continuityBanner->hide();
+    }
+
+    populateText(sections);
+}
+
 void StatusReportDialog::populateText(
     const QVector<openswmmvis::io::RptSection> &sections)
 {
+    m_sectionsModel->removeRows(0, m_sectionsModel->rowCount());
+
     QString full;
     m_sectionAnchors.clear();
     m_sectionAnchors.reserve(sections.size());
@@ -292,7 +340,10 @@ void StatusReportDialog::populateText(
     m_viewer->setPlainText(full);
 
     // Highlighter installed after text so the initial highlight applies.
-    m_highlighter = new RptSyntaxHighlighter(m_viewer->document());
+    // Created once — it stays attached to the (persistent) document across
+    // run switches.
+    if (!m_highlighter)
+        m_highlighter = new RptSyntaxHighlighter(m_viewer->document());
 
     // Move cursor to top.
     QTextCursor c = m_viewer->textCursor();

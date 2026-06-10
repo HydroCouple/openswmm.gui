@@ -6,11 +6,13 @@
 
 #include "ui/panels/attributetablepanel.h"
 #include "ui/panels/attributedelegates.h"
+#include "ui/models/userflagsmodel.h"
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/panels/tabulardatatablemodel.h"
 #include "ui/properties/dataobjectref.h"
 #include "ui/properties/linkcompoundeditref.h"
 #include "ui/properties/nodecompoundeditref.h"
+#include "ui/properties/userflagseditref.h"   // per-object User Flags cell
 #include "ui/editors/comprehensiveeditorregistry.h"
 #include "ui/dialogs/curveeditordialog.h"
 #include "ui/dialogs/hydrographgroupeditor.h"
@@ -178,9 +180,9 @@ AttributeTablePanel::AttributeTablePanel(QWidget *parent)
     // browser may have already done this, both calls are safe.
     qRegisterMetaType<NodeCompoundEditRef>("NodeCompoundEditRef");
     registerNodeCompoundEditRefConverter();
-    // §S.SC.1.c — link-side compound cell (XSection / CulvertCode /
-    // InletUsage). Registered alongside the node variant so the
-    // attribute table can render link-compound summaries.
+    // §S.SC.1.c — link-side compound cell (XSection / InletUsage).
+    // Registered alongside the node variant so the attribute table
+    // can render link-compound summaries.
     qRegisterMetaType<LinkCompoundEditRef>("LinkCompoundEditRef");
     registerLinkCompoundEditRefConverter();
     // §S.SC.1.c — data-object pickers (curve / pattern / TS / UH /
@@ -189,6 +191,11 @@ AttributeTablePanel::AttributeTablePanel(QWidget *parent)
     // DataObjectRef variant.
     qRegisterMetaType<DataObjectRef>("DataObjectRef");
     registerDataObjectRefConverter();
+    // ATTRIBUTE_EDITOR_WIRING follow-up (2026-06-04) — per-object
+    // "User Flags" cell (Property Browser parity); the converter
+    // renders the "n of m set" summary in non-edit cells.
+    qRegisterMetaType<UserFlagsEditRef>("UserFlagsEditRef");
+    registerUserFlagsEditRefConverter();
 
     buildUi();
 }
@@ -483,6 +490,20 @@ void AttributeTablePanel::refresh()
         // explode.
         qCWarning(lcAttrTbl) << "refresh() called with null UI/model — skipping";
         return;
+    }
+
+    // Phase 3 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — rebuild the table
+    // (schema + delegates) whenever the User Flags Manager changes the
+    // definition set. The flags model is lazily created once the engine is
+    // open, so (re-)establish the connection here rather than in
+    // setProject(); UniqueConnection makes the repeat calls idempotent,
+    // and ensureUserFlagsModel() re-creating the model on an engine swap
+    // drops the stale connection with the old instance.
+    if (m_layer) {
+        if (auto *ufm = m_layer->ensureUserFlagsModel())
+            connect(ufm, &openswmmvis::ui::UserFlagsModel::defsChanged,
+                    this, &AttributeTablePanel::refresh,
+                    Qt::UniqueConnection);
     }
 
     // Rebuild category combo entries — SWMM categories first

@@ -86,7 +86,7 @@ QList<LegendSymbolItem> MeshFillSublayer::legendSymbolItems() const
 
     SymbolLayer fill;
     fill.kind = SymbolLayerKind::SimpleFill;
-    fill.props.insert(QStringLiteral("color"), m_style->fillColor().name(QColor::HexArgb));
+    SymbolProps::writeColor(fill.props, QStringLiteral("color"), m_style->fillColor());
     item.symbol.layers.append(fill);
     item.symbol.opacity = m_opacity;
     return { item };

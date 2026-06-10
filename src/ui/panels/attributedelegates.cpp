@@ -10,6 +10,14 @@
 #include "ui/properties/linkcompoundeditref.h"
 #include "ui/properties/nodecompoundeditbutton.h"
 #include "ui/properties/nodecompoundeditref.h"
+// ATTRIBUTE_EDITOR_WIRING follow-up (2026-06-04) — the same Compound
+// delegate also serves DataObjectRef cells (pump curve picker) and
+// UserFlagsEditRef cells (per-object User Flags), reusing the exact
+// editor widgets the Property Browser registers for those metatypes.
+#include "ui/properties/dataobjectpickereditor.h"
+#include "ui/properties/dataobjectref.h"
+#include "ui/properties/userflagseditbutton.h"
+#include "ui/properties/userflagseditref.h"
 
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -169,6 +177,17 @@ QString CompoundEditDelegate::displayText(const QVariant &value,
                    ? tr("Edit…")
                    : tr("%1 — Edit…").arg(ref.summary);
     }
+    if (value.userType() == qMetaTypeId<DataObjectRef>()) {
+        const auto ref = value.value<DataObjectRef>();
+        return ref.currentName.isEmpty() ? tr("(unassigned)")
+                                         : ref.currentName;
+    }
+    if (value.userType() == qMetaTypeId<UserFlagsEditRef>()) {
+        const auto ref = value.value<UserFlagsEditRef>();
+        return ref.summary.isEmpty()
+                   ? tr("Edit…")
+                   : tr("%1 — Edit…").arg(ref.summary);
+    }
     return value.toString();
 }
 
@@ -182,6 +201,10 @@ QWidget *CompoundEditDelegate::createEditor(QWidget *parent,
     const QVariant v = index.data(Qt::EditRole);
     if (v.userType() == qMetaTypeId<LinkCompoundEditRef>())
         return new LinkCompoundEditButton(parent);
+    if (v.userType() == qMetaTypeId<DataObjectRef>())
+        return new DataObjectPickerEditor(parent);
+    if (v.userType() == qMetaTypeId<UserFlagsEditRef>())
+        return new UserFlagsEditButton(parent);
     return new NodeCompoundEditButton(parent);
 }
 
@@ -197,6 +220,16 @@ void CompoundEditDelegate::setEditorData(QWidget *editor,
     if (auto *lb = qobject_cast<LinkCompoundEditButton *>(editor)) {
         if (v.userType() == qMetaTypeId<LinkCompoundEditRef>())
             lb->setValue(v.value<LinkCompoundEditRef>());
+        return;
+    }
+    if (auto *pe = qobject_cast<DataObjectPickerEditor *>(editor)) {
+        if (v.userType() == qMetaTypeId<DataObjectRef>())
+            pe->setValue(v.value<DataObjectRef>());
+        return;
+    }
+    if (auto *fb = qobject_cast<UserFlagsEditButton *>(editor)) {
+        if (v.userType() == qMetaTypeId<UserFlagsEditRef>())
+            fb->setValue(v.value<UserFlagsEditRef>());
         return;
     }
 }
@@ -216,6 +249,17 @@ void CompoundEditDelegate::setModelData(QWidget *editor,
     }
     if (auto *lb = qobject_cast<LinkCompoundEditButton *>(editor)) {
         model->setData(index, QVariant::fromValue(lb->value()), Qt::EditRole);
+        return;
+    }
+    // DataObjectRef (pump curve) is the exception: the picker carries
+    // no setter callback, so this setData round-trip is what triggers
+    // the engine write in commitValueDirect.
+    if (auto *pe = qobject_cast<DataObjectPickerEditor *>(editor)) {
+        model->setData(index, QVariant::fromValue(pe->value()), Qt::EditRole);
+        return;
+    }
+    if (auto *fb = qobject_cast<UserFlagsEditButton *>(editor)) {
+        model->setData(index, QVariant::fromValue(fb->value()), Qt::EditRole);
         return;
     }
 }

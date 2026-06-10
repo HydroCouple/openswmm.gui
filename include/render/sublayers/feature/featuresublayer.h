@@ -109,8 +109,30 @@ public:
     /*! Convert a Category to its Archetype.  Public so renderer-class
      *  editor panels (CategorizedRendererPanel's per-class symbol
      *  dialog) can ask "what archetype am I editing for?" without
-     *  needing a live sublayer instance. */
-    static Archetype archetypeFor(OpenSWMMVis::SwmmCategory c);
+     *  needing a live sublayer instance.  Inline (gap A4.1) so headers
+     *  that only need the mapping (RendererPanelContext::resolve,
+     *  RendererFactory) carry no link dependency on this TU. */
+    static Archetype archetypeFor(OpenSWMMVis::SwmmCategory c)
+    {
+        switch (c) {
+            case OpenSWMMVis::CatJunctions:
+            case OpenSWMMVis::CatOutfalls:
+            case OpenSWMMVis::CatStorage:
+            case OpenSWMMVis::CatDividers:
+            case OpenSWMMVis::CatRainGages:
+                return Archetype::Point;
+            case OpenSWMMVis::CatConduits:
+            case OpenSWMMVis::CatPumps:
+            case OpenSWMMVis::CatOrifices:
+            case OpenSWMMVis::CatWeirs:
+            case OpenSWMMVis::CatOutlets:
+                return Archetype::Line;
+            case OpenSWMMVis::CatSubcatchments:
+                return Archetype::Polygon;
+            default:
+                return Archetype::Point;
+        }
+    }
 };
 
 } // namespace OpenSWMM::Render

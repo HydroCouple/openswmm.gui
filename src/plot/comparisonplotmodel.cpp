@@ -6,6 +6,7 @@
  */
 #include "plot/comparisonplotmodel.h"
 
+#include <QFileInfo>
 #include <QHash>
 
 #include <algorithm>
@@ -25,6 +26,11 @@ int ComparisonPlotModel::addRunSource(RunSource src)
 {
     if (src.label.isEmpty() && src.layer)
         src.label = src.layer->scenarioName();
+    // Fall back to the output name (file name portion of the persistence
+    // key) so runs without a user-set scenario name still show a real
+    // label in the series tree instead of a blank entry.
+    if (src.label.isEmpty() && src.layer)
+        src.label = QFileInfo(src.layer->persistenceKey()).fileName();
 
     m_runs.push_back(std::move(src));
     const int idx = m_runs.size() - 1;
@@ -43,9 +49,12 @@ void ComparisonPlotModel::removeRunSource(int runIndex)
         return;
 
     // Drop any series referencing this run; shift run indices on the rest.
+    bool pairsTouched = false;
     for (int i = m_specs.size() - 1; i >= 0; --i) {
         if (m_specs[i].runIndex == runIndex) {
             m_specs.removeAt(i);
+            // Phase 5 — keep the 1v1 pair list aligned with spec indices.
+            pairsTouched |= fixupPairsAfterSeriesRemoval_(i);
             emit seriesRemoved(i);
         } else if (m_specs[i].runIndex > runIndex) {
             --m_specs[i].runIndex;
@@ -63,6 +72,8 @@ void ComparisonPlotModel::removeRunSource(int runIndex)
     if (m_baselineIdx >= 0)
         emit baselineChanged(m_baselineIdx);
     emit rowsChanged();
+    if (pairsTouched)
+        emit pairsChanged();
 }
 
 int ComparisonPlotModel::findRunByLayer(const IRunLayer* layer) const
@@ -110,9 +121,69 @@ void ComparisonPlotModel::removeSeries(int seriesIndex)
     if (seriesIndex < 0 || seriesIndex >= m_specs.size())
         return;
     m_specs.removeAt(seriesIndex);
+    const bool pairsTouched = fixupPairsAfterSeriesRemoval_(seriesIndex);
     deriveRows_();
     emit seriesRemoved(seriesIndex);
     emit rowsChanged();
+    if (pairsTouched)
+        emit pairsChanged();
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 — 1v1 comparison pairs (COMPARISON_PLOT_1V1_AND_TREE_PLAN)
+// ---------------------------------------------------------------------------
+
+int ComparisonPlotModel::addPair(ComparisonPair pair)
+{
+    const auto validIdx = [this](int i) {
+        return i >= 0 && i < m_specs.size();
+    };
+    if (!validIdx(pair.xSeriesIndex) || !validIdx(pair.ySeriesIndex))
+        return -1;
+    if (pair.xSeriesIndex == pair.ySeriesIndex)
+        return -1;
+    // Same attribute = same chart row; cross-attribute scatters would mix
+    // units on one axis pair.
+    if (m_specs[pair.xSeriesIndex].attribute != m_specs[pair.ySeriesIndex].attribute)
+        return -1;
+    if (m_pairs.contains(pair))
+        return -1;
+
+    m_pairs.push_back(pair);
+    emit pairsChanged();
+    return m_pairs.size() - 1;
+}
+
+void ComparisonPlotModel::removePair(int pairIndex)
+{
+    if (pairIndex < 0 || pairIndex >= m_pairs.size())
+        return;
+    m_pairs.removeAt(pairIndex);
+    emit pairsChanged();
+}
+
+void ComparisonPlotModel::clearPairs()
+{
+    if (m_pairs.isEmpty())
+        return;
+    m_pairs.clear();
+    emit pairsChanged();
+}
+
+bool ComparisonPlotModel::fixupPairsAfterSeriesRemoval_(int seriesIndex)
+{
+    bool changed = false;
+    for (int i = m_pairs.size() - 1; i >= 0; --i) {
+        ComparisonPair &p = m_pairs[i];
+        if (p.xSeriesIndex == seriesIndex || p.ySeriesIndex == seriesIndex) {
+            m_pairs.removeAt(i);
+            changed = true;
+            continue;
+        }
+        if (p.xSeriesIndex > seriesIndex) { --p.xSeriesIndex; changed = true; }
+        if (p.ySeriesIndex > seriesIndex) { --p.ySeriesIndex; changed = true; }
+    }
+    return changed;
 }
 
 void ComparisonPlotModel::updateStyle(int seriesIndex, const SeriesStyle& style)

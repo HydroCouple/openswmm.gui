@@ -7,6 +7,7 @@
 #include "ui/properties/swmmsubcatchpropertyadapter.h"
 
 #include "core/unitsystem.h"
+#include "layers/swmmmodellayer.h"   // USER_FLAGS Phase 4 — ensureUserFlagsModel()
 
 #include <openswmm/engine/openswmm_subcatchments.h>
 
@@ -40,6 +41,8 @@ QString SWMMSubcatchPropertyAdapter::displayLabelFor(const QString &property) co
     if (property == QLatin1String("nPerv"))     return tr("N-Perv");
     if (property == QLatin1String("dsImperv"))  return tr("Dstore-Imperv (%1)").arg(D);
     if (property == QLatin1String("dsPerv"))    return tr("Dstore-Perv (%1)").arg(D);
+    // USER_FLAGS Phase 4.
+    if (property == QLatin1String("userFlags")) return tr("User Flags");
 
     return {};
 }
@@ -96,6 +99,16 @@ void SWMMSubcatchPropertyAdapter::setTag(const QString &t)
     const QByteArray bytes = t.toUtf8();
     if (swmm_subcatch_set_tag(m_engine, i, bytes.constData()) == SWMM_OK)
         emit changed();
+}
+
+UserFlagsEditRef SWMMSubcatchPropertyAdapter::userFlagsRef() const
+{
+    UserFlagsEditRef r;
+    r.objectType = QStringLiteral("SUBCATCHMENT");
+    r.objectName = m_name;
+    r.model      = m_layer ? m_layer->ensureUserFlagsModel() : nullptr;
+    r.summary    = userFlagsSummaryFor(r.model, r.objectType, r.objectName);
+    return r;
 }
 
 #define S(method, engineSet)                                        \

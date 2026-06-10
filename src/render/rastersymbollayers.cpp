@@ -8,6 +8,8 @@
 
 #include "render/rastersymbollayers.h"
 
+#include "render/symbolstyle.h"
+
 #include <QJsonDocument>
 #include <QJsonObject>
 
@@ -119,10 +121,9 @@ RasterColorRampSymbolLayerSpec::fromSymbolLayer(const SymbolLayer &layer)
         s.clampMin = p.value(QStringLiteral("clampMin")).toDouble();
     if (p.contains(QStringLiteral("clampMax")))
         s.clampMax = p.value(QStringLiteral("clampMax")).toDouble();
-    if (p.contains(QStringLiteral("noDataColor"))) {
-        const QColor c = p.value(QStringLiteral("noDataColor")).value<QColor>();
-        if (c.isValid()) s.noDataColor = c;
-    }
+    // Gap A1.2 — tolerant read (QColor variant or legacy hex string).
+    s.noDataColor = SymbolProps::readColor(p, QStringLiteral("noDataColor"),
+                                           s.noDataColor);
     if (p.contains(QStringLiteral("opacity")))
         s.opacity = std::clamp(p.value(QStringLiteral("opacity")).toDouble(),
                                0.0, 1.0);
@@ -210,10 +211,8 @@ ContourSymbolLayerSpec::fromSymbolLayer(const SymbolLayer &layer)
             p.value(QStringLiteral("mode")).toInt());
     s.binner = readBinnerFromProps(p, QStringLiteral("binner"), s.binner);
     s.ramp   = readRampFromProps(p, QStringLiteral("ramp"), s.ramp);
-    if (p.contains(QStringLiteral("lineColor"))) {
-        const QColor c = p.value(QStringLiteral("lineColor")).value<QColor>();
-        if (c.isValid()) s.lineColor = c;
-    }
+    s.lineColor = SymbolProps::readColor(p, QStringLiteral("lineColor"),
+                                         s.lineColor);
     if (p.contains(QStringLiteral("lineWidthPx")))
         s.lineWidthPx = p.value(QStringLiteral("lineWidthPx")).toDouble();
     if (p.contains(QStringLiteral("labelEveryN")))
@@ -267,10 +266,7 @@ MeshEdgeSymbolLayerSpec::fromSymbolLayer(const SymbolLayer &layer)
     MeshEdgeSymbolLayerSpec s;
     const QVariantMap &p = layer.props;
 
-    if (p.contains(QStringLiteral("color"))) {
-        const QColor c = p.value(QStringLiteral("color")).value<QColor>();
-        if (c.isValid()) s.color = c;
-    }
+    s.color = SymbolProps::readColor(p, QStringLiteral("color"), s.color);
     if (p.contains(QStringLiteral("width")))
         s.width = p.value(QStringLiteral("width")).toDouble();
     if (p.contains(QStringLiteral("penStyle")))
@@ -285,10 +281,8 @@ MeshEdgeSymbolLayerSpec::fromSymbolLayer(const SymbolLayer &layer)
         s.slopeBreak = p.value(QStringLiteral("slopeBreak")).toDouble();
     if (p.contains(QStringLiteral("wideWidthPx")))
         s.wideWidthPx = p.value(QStringLiteral("wideWidthPx")).toDouble();
-    if (p.contains(QStringLiteral("wideColor"))) {
-        const QColor c = p.value(QStringLiteral("wideColor")).value<QColor>();
-        if (c.isValid()) s.wideColor = c;
-    }
+    s.wideColor = SymbolProps::readColor(p, QStringLiteral("wideColor"),
+                                         s.wideColor);
     return s;
 }
 
@@ -360,10 +354,7 @@ VelocityVectorSymbolLayerSpec::fromSymbolLayer(const SymbolLayer &layer)
         s.glyphSpacingPx = p.value(QStringLiteral("glyphSpacingPx")).toDouble();
     if (p.contains(QStringLiteral("headSizePx")))
         s.headSizePx = p.value(QStringLiteral("headSizePx")).toDouble();
-    if (p.contains(QStringLiteral("color"))) {
-        const QColor c = p.value(QStringLiteral("color")).value<QColor>();
-        if (c.isValid()) s.color = c;
-    }
+    s.color = SymbolProps::readColor(p, QStringLiteral("color"), s.color);
     if (p.contains(QStringLiteral("dryDepthCutoff")))
         s.dryDepthCutoff = p.value(QStringLiteral("dryDepthCutoff")).toDouble();
 

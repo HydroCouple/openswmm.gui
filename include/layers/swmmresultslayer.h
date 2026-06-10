@@ -45,6 +45,7 @@ class QGraphicsSimpleTextItem;   // L-1 — m_labelByFeature stores label items
 namespace OpenSWMM::Render {
 class IFeatureRenderer;
 class RuleList;   // Slice B.5 — see ruleList() override below.
+enum class ClassEditKind;   // Gap B1 — legend facade (full def in ifeaturerenderer.h)
 }
 
 /*!
@@ -138,6 +139,16 @@ public:
     // ----- Results file ---------------------------------------------------
 
     [[nodiscard]] QString resultsFilePath() const;
+
+    /*!
+     * \brief Path of the `.rpt` summary report written by the run that
+     *        produced this layer's `.out` file (empty when unknown).
+     * \details Set by SWMMVis when a simulation finishes; persisted in the
+     *          `.oswp` sidecar (keyed by the result path) so the Report
+     *          Viewer can list every run's report after a project reload.
+     */
+    [[nodiscard]] QString reportFilePath() const;
+    void setReportFilePath(const QString &path);
 
     /*!
      * \brief User-visible name for this run/scenario (editable, persisted in .oswp).
@@ -347,6 +358,28 @@ public:
      */
     void resetKindRendererToDefaults(SWMMModelLayer::Category c);
 
+    /*!
+     * \brief True when the installed kind renderer for \p c is semantically
+     *        identical to the compile-time default — ignoring derived state
+     *        (classification breaks, sampled ramp range). Gap A2.1 installs
+     *        defaults eagerly on openResults(); the project serializer uses
+     *        this to elide untouched slots so .oswp files stay minimal.
+     */
+    [[nodiscard]] bool kindRendererIsDefault(SWMMModelLayer::Category c) const;
+
+    // ----- Gap B1 — legend-as-editor facade (mirrors SWMMModelLayer) -----
+    //
+    // The legend views read rows through legendSymbolItems() and route
+    // per-class edits through the facade below. Class keys are
+    // kind-qualified ("<kindKey>\x1F<innerKey>") so edits land on the
+    // right kind renderer even when two kinds share inner keys.
+
+    [[nodiscard]] QList<OpenSWMM::Render::LegendSymbolItem> legendSymbolItems();
+    [[nodiscard]] bool   supportsClassEdit(OpenSWMM::Render::ClassEditKind kind) const;
+    [[nodiscard]] QColor colorForClass(const QString &classKey) const;
+    void                 setColorForClass(const QString &classKey, const QColor &color);
+    [[nodiscard]] qreal  sizeForClass(const QString &classKey) const;
+
     // ----- Rule Model (Slice B.5, Phase B) --------------------------------
     //
     // Mirrors SWMMModelLayer::ruleList() — 11 kindRenderer slots → 11
@@ -552,6 +585,7 @@ private:
 
     // File & scenario metadata --------------------------------------------
     QString              m_resultsFilePath;
+    QString              m_reportFilePath;   ///< sibling .rpt of the run (may be empty)
     QString              m_scenarioName;
     QColor               m_profileLineColor;
     int                  m_reportStepSec  = 0;
@@ -636,6 +670,14 @@ private:
     /*! Slice OUT.2 — rebuilds every kind whose geometry scope matches
      *  the layer's current m_variable (Nodes / Links / Subcatch). */
     void rebuildAllActiveKindFeatureOverrides();
+
+    /*! Gap A2.2 — called on the layer thread when an async full-run
+     *  attribute-range scan resolves. Re-classifies every Graduated kind
+     *  renderer in \p scope (0 = node, 1 = link, 2 = subcatch) whose
+     *  classify attribute maps to \p outCode and whose RangeMode is
+     *  FixedOverRun, so breaks span the whole run instead of the frame
+     *  that happened to be showing at install time. */
+    void reclassifyKindsForResolvedRange(int scope, int outCode);
 
     // Per-step result caches (fetched from .out each time step changes) ----
     QVector<float>       m_nodeResults;     /*!< [nodeIdx] for current step */

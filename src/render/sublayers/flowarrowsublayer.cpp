@@ -142,7 +142,7 @@ QList<LegendSymbolItem> FlowArrowSublayer::legendSymbolItems() const
 
     SymbolLayer arrow;
     arrow.kind = SymbolLayerKind::MarkerLine;
-    arrow.props.insert(QStringLiteral("color"),  m_style->color().name(QColor::HexArgb));
+    SymbolProps::writeColor(arrow.props, QStringLiteral("color"), m_style->color());
     arrow.props.insert(QStringLiteral("sizePx"), m_style->arrowLengthPx());
     item.symbol.layers.append(arrow);
     item.symbol.opacity = m_opacity;

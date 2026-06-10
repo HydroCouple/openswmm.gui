@@ -204,11 +204,14 @@ void TestIRasterRenderer::legendSymbolItems_oneItemPerStop()
     QCOMPARE(items.at(2).sortIndex, 2);
 
     // Each swatch is a single-layer SimpleFill whose colour matches the stop.
+    // (Gap A1.2 — compare as QColor via the tolerant read; the canonical
+    // in-memory encoding is a QColor variant, not a hex string.)
     const auto first = items.first().symbol.layers;
     QCOMPARE(first.size(), 1);
     QCOMPARE(first.first().kind, SymbolLayerKind::SimpleFill);
-    QCOMPARE(first.first().props.value(QStringLiteral("color")).toString(),
-             QColor(Qt::red).name(QColor::HexArgb));
+    QCOMPARE(SymbolProps::readColor(first.first().props,
+                                    QStringLiteral("color")),
+             QColor(Qt::red));
 }
 
 void TestIRasterRenderer::jsonRoundTrip_preservesAllFields()

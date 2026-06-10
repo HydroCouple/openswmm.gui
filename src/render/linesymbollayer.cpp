@@ -8,6 +8,8 @@
 
 #include "render/linesymbollayer.h"
 
+#include "render/symbolstyle.h"
+
 #include <QPainter>
 #include <QPainterPath>
 #include <QPolygonF>
@@ -141,10 +143,8 @@ LineSymbolLayerSpec LineSymbolLayerSpec::fromSymbolLayer(const SymbolLayer &laye
     LineSymbolLayerSpec s;
     const QVariantMap &p = layer.props;
 
-    if (p.contains(QStringLiteral("color"))) {
-        const QColor c = p.value(QStringLiteral("color")).value<QColor>();
-        if (c.isValid()) s.color = c;
-    }
+    // Gap A1.2 — tolerant read (QColor variant or legacy hex string).
+    s.color = SymbolProps::readColor(p, QStringLiteral("color"), s.color);
     if (p.contains(QStringLiteral("width")))
         s.width = p.value(QStringLiteral("width")).toDouble();
     if (p.contains(QStringLiteral("penStyle")))
@@ -164,10 +164,8 @@ LineSymbolLayerSpec LineSymbolLayerSpec::fromSymbolLayer(const SymbolLayer &laye
 
     if (p.contains(QStringLiteral("drawArrows")))
         s.drawArrows = p.value(QStringLiteral("drawArrows")).toBool();
-    if (p.contains(QStringLiteral("arrowColor"))) {
-        const QColor c = p.value(QStringLiteral("arrowColor")).value<QColor>();
-        if (c.isValid()) s.arrows.color = c;
-    }
+    s.arrows.color = SymbolProps::readColor(p, QStringLiteral("arrowColor"),
+                                            s.arrows.color);
     if (p.contains(QStringLiteral("arrowLengthPx")))
         s.arrows.lengthPx = p.value(QStringLiteral("arrowLengthPx")).toDouble();
     if (p.contains(QStringLiteral("arrowWidthPx")))
@@ -190,10 +188,8 @@ LineSymbolLayerSpec LineSymbolLayerSpec::fromSymbolLayer(const SymbolLayer &laye
         const QFont f = p.value(QStringLiteral("labelFont")).value<QFont>();
         s.labelFont = f;
     }
-    if (p.contains(QStringLiteral("labelColor"))) {
-        const QColor c = p.value(QStringLiteral("labelColor")).value<QColor>();
-        if (c.isValid()) s.labelColor = c;
-    }
+    s.labelColor = SymbolProps::readColor(p, QStringLiteral("labelColor"),
+                                          s.labelColor);
 
     return s;
 }

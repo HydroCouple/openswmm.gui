@@ -93,6 +93,12 @@ const QString kResultLayerSublayers = QStringLiteral("resultLayerSublayers");
 // ignore it and the layer's compiled defaults are used.
 const QString kResultLayerKindRenderers = QStringLiteral("resultLayerKindRenderers");
 
+// Companion map for per-run report files. Keyed by the same relative
+// results-file path used in kResultLayers; value is the run's `.rpt`
+// path relative to the .oswp. Schema additive — older readers ignore
+// it; loads without it leave the layer's report path empty.
+const QString kResultLayerReports = QStringLiteral("resultLayerReports");
+
 // Schema v4 — multi-instance project (Slice AA-3.2)
 const QString kSessions      = QStringLiteral("sessions");
 const QString kSessionId     = QStringLiteral("id");
@@ -427,11 +433,16 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
         QJsonObject sublayerMap;
         // Slice X.14 — companion map (path → kindKey → renderer JSON).
         QJsonObject kindRendererMap;
+        // Companion map (path → relative .rpt path) for the Report Viewer.
+        QJsonObject reportMap;
         for (OpenSWMMVisLayer *l : canvas->layers()) {
             if (auto *rl = qobject_cast<SWMMResultsLayer *>(l)) {
                 const QString rel = toRelativePath(rl->resultsFilePath(), oswpFile);
                 if (!rel.isEmpty()) {
                     resultArr.append(rel);
+                    if (!rl->reportFilePath().isEmpty())
+                        reportMap.insert(rel,
+                            toRelativePath(rl->reportFilePath(), oswpFile));
                     // S2.4 adopted ISublayerHost on SWMMResultsLayer. The
                     // dynamic_cast tolerates layers that haven't adopted
                     // yet (or future variants); they simply skip the
@@ -445,11 +456,15 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
                     // layer's elision rule: drop vanilla SingleSymbolRenderer
                     // slots with empty symbol payload so the .oswp stays
                     // minimal for users who never touched the styling.
+                    // Gap A2.1 — openResults() now installs Graduated
+                    // defaults eagerly on every result-bearing kind;
+                    // kindRendererIsDefault() elides those untouched slots.
                     QJsonObject kindObj;
                     for (int i = 0; i < int(SWMMModelLayer::NumCategories); ++i) {
                         const auto cat = static_cast<SWMMModelLayer::Category>(i);
                         const auto *kr = rl->kindRenderer(cat);
                         if (!kr) continue;
+                        if (rl->kindRendererIsDefault(cat)) continue;
                         const QJsonObject j = kr->toJson();
                         if (kr->rendererId() == QStringLiteral("single")) {
                             const QJsonObject sym = j.value(QStringLiteral("symbol")).toObject();
@@ -468,6 +483,8 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
             obj[kResultLayerSublayers] = sublayerMap;
         if (!kindRendererMap.isEmpty())
             obj[kResultLayerKindRenderers] = kindRendererMap;
+        if (!reportMap.isEmpty())
+            obj[kResultLayerReports] = reportMap;
     }
 
     // Terrain editing state — active raster path + invert offsets.
@@ -738,6 +755,8 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
             sessionObj.value(kResultLayerSublayers).toObject();
         const QJsonObject kindRendererMap =
             sessionObj.value(kResultLayerKindRenderers).toObject();
+        const QJsonObject reportMap =
+            sessionObj.value(kResultLayerReports).toObject();
         for (const QJsonValue &v : sessionObj.value(kResultLayers).toArray()) {
             const QString relPath = v.toString();
             if (relPath.isEmpty()) continue;
@@ -745,6 +764,11 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
             if (!QFile::exists(absPath)) continue;
             auto *rl = new SWMMResultsLayer(absPath, pw->modelLayer());
             rl->setName(QFileInfo(absPath).fileName());
+
+            // Restore the run's .rpt association for the Report Viewer.
+            const QString relRpt = reportMap.value(relPath).toString();
+            if (!relRpt.isEmpty())
+                rl->setReportFilePath(resolveStoredPath(relRpt, oswpFile));
             pw->canvas()->addLayer(rl, /*pushUndo=*/false);
             QList<QString> w, e;
             rl->openResults(w, e);

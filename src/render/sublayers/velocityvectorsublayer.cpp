@@ -138,7 +138,7 @@ QList<LegendSymbolItem> VelocityVectorSublayer::legendSymbolItems() const
     SymbolLayer arrow;
     arrow.kind = SymbolLayerKind::SimpleMarker;
     arrow.props.insert(QStringLiteral("shape"), QStringLiteral("arrow"));
-    arrow.props.insert(QStringLiteral("color"), m_style->color().name(QColor::HexArgb));
+    SymbolProps::writeColor(arrow.props, QStringLiteral("color"), m_style->color());
     arrow.props.insert(QStringLiteral("size"),  m_style->headSizePx());
     item.symbol.layers.append(arrow);
     item.symbol.opacity = m_opacity;

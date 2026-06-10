@@ -76,6 +76,13 @@ add_swmmvis_gui_test(test_ifeaturerenderer
     ${CMAKE_SOURCE_DIR}/src/render/renderers/graduatedrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/categorizedrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/rulebasedrenderer.cpp
+    # Gap A1.3 — archetype-seeded renderer factory + the typed specs it
+    # uses for prop skeletons; UnclassedColors is a factory product too.
+    ${CMAKE_SOURCE_DIR}/src/render/rendererfactory.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/renderers/unclassedcolorsrenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/markersymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/linesymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/fillsymbollayer.cpp
     ${CMAKE_SOURCE_DIR}/include/render/featureref.h
     ${CMAKE_SOURCE_DIR}/include/render/symbollayer.h
     ${CMAKE_SOURCE_DIR}/include/render/symbolstyle.h
@@ -87,6 +94,27 @@ add_swmmvis_gui_test(test_ifeaturerenderer
     ${CMAKE_SOURCE_DIR}/include/render/renderers/graduatedrenderer.h
     ${CMAKE_SOURCE_DIR}/include/render/renderers/categorizedrenderer.h
     ${CMAKE_SOURCE_DIR}/include/render/renderers/rulebasedrenderer.h
+)
+
+# Gap A1.2 — canonical colour prop convention: SymbolProps tolerant reads /
+# canonical writes, typed-spec hex tolerance, JSON-boundary rehydration of
+# every colour-suffixed key (incl. raster grammar keys).
+add_swmmvis_gui_test(test_symbolprops_color
+    test_symbolprops_color.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/symbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/symbolstyle.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/markersymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/linesymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/fillsymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/rastersymbollayers.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/intervalbinner.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/symbollayer.h
+    ${CMAKE_SOURCE_DIR}/include/render/symbolstyle.h
+    ${CMAKE_SOURCE_DIR}/include/render/markersymbollayer.h
+    ${CMAKE_SOURCE_DIR}/include/render/linesymbollayer.h
+    ${CMAKE_SOURCE_DIR}/include/render/fillsymbollayer.h
+    ${CMAKE_SOURCE_DIR}/include/render/rastersymbollayers.h
 )
 
 # Slice Z.1 — Rule + RuleList data model (RENDERING_RULE_MODEL_PLAN.md).
@@ -108,6 +136,11 @@ add_swmmvis_gui_test(test_rule
     ${CMAKE_SOURCE_DIR}/src/render/renderers/rulebasedrenderer.cpp
     # Slice Z.9 — rule.cpp now factories "unclassed".
     ${CMAKE_SOURCE_DIR}/src/render/renderers/unclassedcolorsrenderer.cpp
+    # Gap A1.3 — rule.cpp constructs through the archetype-seeded factory.
+    ${CMAKE_SOURCE_DIR}/src/render/rendererfactory.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/markersymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/linesymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/fillsymbollayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/rule.cpp
     ${CMAKE_SOURCE_DIR}/src/render/rulelist.cpp
     # Slice Z.2 — Rule-as-ILayerStyleSubject adapter.
@@ -187,8 +220,18 @@ add_swmmvis_gui_test(test_symbolstyleadapter
     ${CMAKE_SOURCE_DIR}/src/render/renderers/categorizedrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/rulebasedrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/unclassedcolorsrenderer.cpp
+    # Gap A1.3 — rule.cpp constructs through the archetype-seeded factory.
+    ${CMAKE_SOURCE_DIR}/src/render/rendererfactory.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/markersymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/linesymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/fillsymbollayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/rule.cpp
     ${CMAKE_SOURCE_DIR}/src/render/symbolstyleadapter.cpp
+    # symbolstyleadapter.cpp reads MarkerShape via markerShapeFromString;
+    # the header carries Q_NAMESPACE so AUTOMOC must see it to generate
+    # the namespace staticMetaObject.
+    ${CMAKE_SOURCE_DIR}/src/render/markershape.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/markershape.h
     ${CMAKE_SOURCE_DIR}/include/render/rule.h
     ${CMAKE_SOURCE_DIR}/include/render/symbolstyleadapter.h
 )
@@ -219,6 +262,11 @@ add_swmmvis_gui_test(test_rulelistio
     ${CMAKE_SOURCE_DIR}/src/render/renderers/categorizedrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/rulebasedrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/unclassedcolorsrenderer.cpp
+    # Gap A1.3 — rule.cpp constructs through the archetype-seeded factory.
+    ${CMAKE_SOURCE_DIR}/src/render/rendererfactory.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/markersymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/linesymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/fillsymbollayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/rule.cpp
     ${CMAKE_SOURCE_DIR}/src/render/rulelist.cpp
     ${CMAKE_SOURCE_DIR}/src/render/rulelistio.cpp
@@ -245,6 +293,11 @@ add_swmmvis_gui_test(test_rendererpanelcontext
     ${CMAKE_SOURCE_DIR}/src/render/renderers/categorizedrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/rulebasedrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/unclassedcolorsrenderer.cpp
+    # Gap A1.3 — rule.cpp constructs through the archetype-seeded factory.
+    ${CMAKE_SOURCE_DIR}/src/render/rendererfactory.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/markersymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/linesymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/fillsymbollayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/rule.cpp
     ${CMAKE_SOURCE_DIR}/include/render/rule.h
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/irendererpanel.h
@@ -308,6 +361,11 @@ add_swmmvis_gui_test(test_unclassedcolorsrenderer
     ${CMAKE_SOURCE_DIR}/src/render/renderers/categorizedrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/rulebasedrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/renderers/unclassedcolorsrenderer.cpp
+    # Gap A1.3 — rule.cpp constructs through the archetype-seeded factory.
+    ${CMAKE_SOURCE_DIR}/src/render/rendererfactory.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/markersymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/linesymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/fillsymbollayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/rule.cpp
     ${CMAKE_SOURCE_DIR}/include/render/renderers/unclassedcolorsrenderer.h
     ${CMAKE_SOURCE_DIR}/include/render/rule.h
@@ -364,6 +422,11 @@ add_swmmvis_gui_test(test_rulesymbologytab
     ${CMAKE_SOURCE_DIR}/src/render/renderers/rulebasedrenderer.cpp
     # Z.9 — rule.cpp now factories "unclassed".
     ${CMAKE_SOURCE_DIR}/src/render/renderers/unclassedcolorsrenderer.cpp
+    # Gap A1.3 — rule.cpp constructs through the archetype-seeded factory.
+    ${CMAKE_SOURCE_DIR}/src/render/rendererfactory.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/markersymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/linesymbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/fillsymbollayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/rule.cpp
     ${CMAKE_SOURCE_DIR}/src/render/rulelist.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/irendererpanel.cpp
@@ -438,6 +501,8 @@ add_swmmvis_gui_test(test_featuresublayer
     ${CMAKE_SOURCE_DIR}/src/render/symbolstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/render/legendsymbolitem.cpp
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/feature/featuresublayer.cpp
+    # FeatureSublayerStyle's L-1 label config round-trips through LabelConfig.
+    ${CMAKE_SOURCE_DIR}/src/render/labelconfig.cpp
     ${CMAKE_SOURCE_DIR}/include/render/symbollayer.h
     ${CMAKE_SOURCE_DIR}/include/render/symbolstyle.h
     ${CMAKE_SOURCE_DIR}/include/render/legendsymbolitem.h
@@ -461,6 +526,8 @@ add_swmmvis_gui_test(test_2d_sublayers
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/velocityvectorsublayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/isolinesublayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/contourbandsublayer.cpp
+    # VelocityVectorStyle::colorForSpeed samples a named RasterColorRamp.
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
     ${CMAKE_SOURCE_DIR}/include/render/symbollayer.h
     ${CMAKE_SOURCE_DIR}/include/render/symbolstyle.h
     ${CMAKE_SOURCE_DIR}/include/render/legendsymbolitem.h
@@ -679,6 +746,40 @@ add_swmmvis_gui_test(test_userflagsmodel
     ${CMAKE_SOURCE_DIR}/src/ui/models/userflagsmodel.cpp
 )
 
+# Phase 2 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — UserFlagsDialog staged
+# commit: add / remove (value cascade), description-only redefine keeps
+# values, type change clears them, empty/duplicate-name validation.
+add_swmmvis_gui_test(test_userflagsdialog
+    test_userflagsdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/models/userflagsmodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/models/userflagsmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/userflagsdialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/userflagsdialog.cpp
+)
+
+# Phase 4 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — per-object
+# UserFlagValuesDialog: staged set/clear by type, engine rejection of
+# mistyped values, and userFlagsSummaryFor() cell summaries.
+add_swmmvis_gui_test(test_userflagvaluesdialog
+    test_userflagvaluesdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/models/userflagsmodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/models/userflagsmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/userflagvaluesdialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/userflagvaluesdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/userflagseditref.h
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/userflagseditref.cpp
+)
+
+# Phase 5 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — full INP round-trip
+# from data/userflags_fixture.inp: mixed-case names, quoted strings,
+# negative integers, %g reals; edit → save → reopen fidelity. Output INP
+# (userflags_phase5_out.inp) stays in data/ for review.
+add_swmmvis_gui_test(test_userflags_roundtrip
+    test_userflags_roundtrip.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/models/userflagsmodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/models/userflagsmodel.cpp
+)
+
 # Slice AT.2 — pins the recursion-guarded X-axis linking idiom used in
 # ComparisonPlotDialog::wireXAxisSync. Self-contained: in-test XAxisSyncBus
 # mirrors the dialog's pattern; no dialog code needed. Needs Qt6::Charts
@@ -720,6 +821,36 @@ add_swmmvis_gui_test(test_comparisonplot_statstab
     ${CMAKE_SOURCE_DIR}/src/plot/seriesstatistics.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/seriesstatistics.h
 )
+
+# COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 2 — pins the 1v1 scatter pairing
+# walk (pairSamplesNearest) + the per-attribute-row pairing recipe so every
+# chart row produces baseline↔comparison pairs (second-row regression).
+add_swmmvis_gui_test(test_comparisonplot_scatter
+    test_comparisonplot_scatter.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/seriespairing.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/comparisonplotmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/seriesstyle.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/seriespairing.h
+    ${CMAKE_SOURCE_DIR}/include/plot/comparisonplotmodel.h
+    ${CMAKE_SOURCE_DIR}/include/plot/irunlayer.h
+)
+# seriesstyle.cpp includes <QScatterSeries> (Qt6::Charts).
+target_link_libraries(test_comparisonplot_scatter PRIVATE Qt6::Charts)
+
+# COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 5 — pins the ComparisonPair
+# surface (addPair validation, remove/clear, reindexing on series/run
+# removal, pairsChanged emission).
+add_swmmvis_gui_test(test_comparisonplot_pairs
+    test_comparisonplot_pairs.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/comparisonplotmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/seriesstyle.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/comparisonplotmodel.h
+    ${CMAKE_SOURCE_DIR}/include/plot/irunlayer.h
+)
+# seriesstyle.cpp includes <QScatterSeries> (Qt6::Charts).
+target_link_libraries(test_comparisonplot_pairs PRIVATE Qt6::Charts)
 
 # Slice AT.3 — pins the model surface that the series-tree checkbox + context
 # menu drives (updateStyle / removeSeries / Plot-This-Only loop).

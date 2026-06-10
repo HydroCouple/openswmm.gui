@@ -25,8 +25,12 @@
 #define OPENSWMMVIS_UI_DIALOGS_IRENDERERPANEL_H
 
 #include "layers/swmm_category.h"
+// Gap A4.1 — resolved capability snapshot (attribute fields + archetype).
+#include "render/iattributeprovider.h"
+#include "render/sublayers/feature/featuresublayer.h"
 
 #include <QString>
+#include <QVector>
 #include <QWidget>
 
 #include <functional>
@@ -71,6 +75,45 @@ struct RendererPanelContext
     OpenSWMMVisLayer                                *hostLayer = nullptr;
     std::optional<OpenSWMMVis::SwmmCategory>        category;     // empty => layer-level
     OpenSWMM::Render::Rule                          *rule = nullptr;  // Slice Z.3b
+
+    // ----- Gap A4.1 — resolved capability snapshot -----------------------
+    // Filled by resolve(); declarative inputs for contextual gating so the
+    // panels and the renderer-class dropdown share one source of truth
+    // instead of re-deriving (and drifting on) provider lookups and
+    // rule→layer parent walks.
+
+    /*! Attribute fields exposed by the host's IAttributeProvider for the
+     *  target category (empty when no provider / no fields). */
+    QVector<OpenSWMM::Render::AttributeField>       fields;
+
+    /*! Geometry archetype of the target kind (Point when unknown). */
+    OpenSWMM::Render::FeatureSublayer::Archetype    archetype =
+        OpenSWMM::Render::FeatureSublayer::Archetype::Point;
+
+    /*! True when the host is an animated (results) layer — gates
+     *  range-mode rows and per-frame rebin options. */
+    bool                                            animated = false;
+
+    [[nodiscard]] bool hasNumeric() const
+    {
+        for (const auto &f : fields)
+            if (f.type != QMetaType::QString) return true;
+        return false;
+    }
+    [[nodiscard]] bool hasString() const
+    {
+        for (const auto &f : fields)
+            if (f.type == QMetaType::QString) return true;
+        return false;
+    }
+
+    /*! Build a context with the capability snapshot resolved: provider
+     *  lookup (including the rule → RuleList → layer parent walk),
+     *  archetype from the category, animated from the host layer type. */
+    [[nodiscard]] static RendererPanelContext resolve(
+        OpenSWMMVisLayer *layer,
+        std::optional<OpenSWMMVis::SwmmCategory> category,
+        OpenSWMM::Render::Rule *rule = nullptr);
 };
 
 /*! Base interface every renderer panel inherits.  Same QWidget contract
@@ -102,15 +145,25 @@ public:
     using Factory = std::function<IRendererPanel *(const RendererPanelContext &ctx,
                                                     QWidget *parent)>;
 
+    /*! Gap A4.2 — declarative applicability: returns true when the
+     *  renderer class makes sense for the resolved context (e.g.
+     *  Graduated needs at least one numeric attribute). Null predicate =
+     *  always applicable. */
+    using Applicable = std::function<bool(const RendererPanelContext &ctx)>;
+
     struct Entry {
-        QString rendererId;     // "single" / "graduated" / "categorized" / "rulebased" / ...
-        QString displayName;    // shown in the dropdown
-        Factory factory;
+        QString    rendererId;     // "single" / "graduated" / "categorized" / "rulebased" / ...
+        QString    displayName;    // shown in the dropdown
+        Factory    factory;
+        Applicable applicable;     // Gap A4.2 — null => always applicable
+        QString    disabledReason; // tooltip shown on the greyed-out row
     };
 
     static RendererPanelRegistry &instance();
 
-    void registerRenderer(QString rendererId, QString displayName, Factory factory);
+    void registerRenderer(QString rendererId, QString displayName, Factory factory,
+                          Applicable applicable = {},
+                          QString disabledReason = QString());
 
     /*! All registered renderer IDs in registration order — the
      *  SymbologyTab walks this to populate the dropdown. */
@@ -126,15 +179,18 @@ private:
     std::vector<Entry> m_entries;
 };
 
-/*! RAII registration helper.  Use the macro below. */
+/*! RAII registration helper.  Use the macros below. */
 class RendererPanelRegistrar
 {
 public:
     RendererPanelRegistrar(QString rendererId, QString displayName,
-                            RendererPanelRegistry::Factory factory)
+                            RendererPanelRegistry::Factory factory,
+                            RendererPanelRegistry::Applicable applicable = {},
+                            QString disabledReason = QString())
     {
         RendererPanelRegistry::instance().registerRenderer(
-            std::move(rendererId), std::move(displayName), std::move(factory));
+            std::move(rendererId), std::move(displayName), std::move(factory),
+            std::move(applicable), std::move(disabledReason));
     }
 };
 
@@ -142,6 +198,15 @@ public:
     static const openswmmvis::ui::RendererPanelRegistrar \
         s_register_renderer_##__LINE__( \
             QStringLiteral(ID_STRING), QStringLiteral(DISPLAY_STRING), FACTORY);
+
+/*! Gap A4.2 — registration with a declarative applicability predicate +
+ *  tooltip reason for the greyed-out dropdown row. */
+#define REGISTER_RENDERER_PANEL_GATED(ID_STRING, DISPLAY_STRING, FACTORY, \
+                                      APPLICABLE, REASON_STRING) \
+    static const openswmmvis::ui::RendererPanelRegistrar \
+        s_register_renderer_##__LINE__( \
+            QStringLiteral(ID_STRING), QStringLiteral(DISPLAY_STRING), FACTORY, \
+            APPLICABLE, QStringLiteral(REASON_STRING));
 
 } // namespace openswmmvis::ui
 

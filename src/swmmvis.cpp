@@ -32,7 +32,10 @@
 #include <QDir>
 #include <QInputDialog>
 #include <QJsonDocument>
+#include <algorithm>    // std::sort — Message Log copy actions
+#include <QClipboard>   // 2026-06-04 — Message Log copy actions
 #include <QCursor>      // Slice PT.1 — exec menu at pointer
+#include <QGuiApplication>
 #include <QMenu>
 #include <QMenuBar>
 #include <QToolBar>
@@ -93,6 +96,7 @@
 // Slice Z.18 — Layer Styling dock.
 #include "ui/panels/layerstylingdock.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
+#include "ui/dialogs/userflagsdialog.h"
 #include "ui/dialogs/profileplotdialog.h"
 #include "ui/dialogs/meshprofileplotdialog.h"
 #include "ui/dialogs/comparisonplotdialog.h"
@@ -728,7 +732,13 @@ void SWMMVis::initializeAnalysisLayerCombos()
     // analysis / visualization tool (Comparison plot, Profile, Tabular, color-
     // by-result, animation, 2D cell picking). "— none —" returns to model
     // editing. This replaces the old "first results layer found" guess.
-    ui->toolBarAnalysis->addSeparator();
+    //
+    // The combos lead the toolbar (inserted before the .ui-defined actions)
+    // so the run selection reads left-to-right ahead of the analysis tools
+    // that act on it.
+    QAction *anchor = ui->toolBarAnalysis->actions().isEmpty()
+                          ? nullptr
+                          : ui->toolBarAnalysis->actions().first();
 
     mLabelActiveResults1D = new QLabel(tr("1D results:"), this);
     mLabelActiveResults1D->setContentsMargins(6, 0, 4, 0);
@@ -738,8 +748,8 @@ void SWMMVis::initializeAnalysisLayerCombos()
         "Active 1D results layer for analysis (plots, tables, color-by-result, "
         "animation). Pick a run to analyze its elements; choose \"— none —\" to "
         "return to model editing."));
-    ui->toolBarAnalysis->addWidget(mLabelActiveResults1D);
-    ui->toolBarAnalysis->addWidget(mComboActiveResults1D);
+    ui->toolBarAnalysis->insertWidget(anchor, mLabelActiveResults1D);
+    ui->toolBarAnalysis->insertWidget(anchor, mComboActiveResults1D);
 
     mLabelActiveResults2D = new QLabel(tr("2D results:"), this);
     mLabelActiveResults2D->setContentsMargins(10, 0, 4, 0);
@@ -749,8 +759,9 @@ void SWMMVis::initializeAnalysisLayerCombos()
         "Active 2D results layer for analysis (mesh-cell depth / velocity plots, "
         "mesh profiles, animation). Pick a run, or \"— none —\" to return to "
         "mesh editing."));
-    ui->toolBarAnalysis->addWidget(mLabelActiveResults2D);
-    ui->toolBarAnalysis->addWidget(mComboActiveResults2D);
+    ui->toolBarAnalysis->insertWidget(anchor, mLabelActiveResults2D);
+    ui->toolBarAnalysis->insertWidget(anchor, mComboActiveResults2D);
+    ui->toolBarAnalysis->insertSeparator(anchor);
 
     // User picks → set the active layer on the current project window. The
     // stored item data is the layer pointer (quintptr) or 0 for "— none —".
@@ -2447,6 +2458,51 @@ void SWMMVis::initializeMessageLogDockWidget()
     mLogMessagesModel = new QStandardItemModel(0, 3, this);
     mLogMessagesModel->setHorizontalHeaderLabels({"Time", "Type", "Message"});
     ui->treeViewMessageLogs->setModel(mLogMessagesModel);
+
+    // 2026-06-04 — right-click copy (selected rows or the entire log).
+    // The view's contextMenuPolicy is Qt::ActionsContextMenu (set in
+    // swmmvis.ui), so actions added to the widget surface directly as
+    // its context menu — no extra menu plumbing needed.
+    auto *view = ui->treeViewMessageLogs;
+    view->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    view->setSelectionBehavior(QAbstractItemView::SelectRows);
+
+    // One tab-separated line per row (Time \t Type \t Message) —
+    // pastes cleanly into spreadsheets and plain-text editors alike.
+    const auto rowText = [this](int r) {
+        QStringList cells;
+        for (int c = 0; c < mLogMessagesModel->columnCount(); ++c)
+            cells << mLogMessagesModel->index(r, c).data().toString();
+        return cells.join(QLatin1Char('\t'));
+    };
+
+    auto *copySelected = new QAction(tr("Copy"), view);
+    copySelected->setShortcut(QKeySequence::Copy);
+    copySelected->setShortcutContext(Qt::WidgetShortcut);
+    connect(copySelected, &QAction::triggered, this, [view, rowText]() {
+        if (!view->selectionModel()) return;
+        QModelIndexList rows = view->selectionModel()->selectedRows();
+        std::sort(rows.begin(), rows.end(),
+                  [](const QModelIndex &a, const QModelIndex &b) {
+                      return a.row() < b.row();
+                  });
+        QStringList lines;
+        for (const QModelIndex &idx : rows)
+            lines << rowText(idx.row());
+        if (!lines.isEmpty())
+            QGuiApplication::clipboard()->setText(lines.join(QLatin1Char('\n')));
+    });
+    view->addAction(copySelected);
+
+    auto *copyAll = new QAction(tr("Copy All"), view);
+    connect(copyAll, &QAction::triggered, this, [this, rowText]() {
+        QStringList lines;
+        lines << QStringLiteral("Time\tType\tMessage");
+        for (int r = 0; r < mLogMessagesModel->rowCount(); ++r)
+            lines << rowText(r);
+        QGuiApplication::clipboard()->setText(lines.join(QLatin1Char('\n')));
+    });
+    view->addAction(copyAll);
 }
 
 void SWMMVis::initializeMenus()
@@ -2464,6 +2520,10 @@ void SWMMVis::initializeMenus()
 
     connect(ui->actionAddWMSData,    &QAction::triggered, this, &SWMMVis::onAddWMSLayer);
     connect(ui->actionAddBasemap,    &QAction::triggered, this, &SWMMVis::onAddBasemapLayer);
+    // 2026-06-04 — Add Basemap duplicates the Add WMS/WCS flow; hidden
+    // (not removed) so the action, dialog, and connect stay intact for
+    // an easy re-enable if the flows diverge again.
+    ui->actionAddBasemap->setVisible(false);
     connect(ui->actionAddVectorData, &QAction::triggered, this, &SWMMVis::onAddVectorLayer);
     connect(ui->actionAddRasterData, &QAction::triggered, this, &SWMMVis::onAddRasterLayer);
     connect(ui->actionAddSWMMOutput, &QAction::triggered, this, &SWMMVis::onAddSWMMResultsLayer);
@@ -2556,6 +2616,7 @@ void SWMMVis::initializeMenus()
         }
     });
     connect(ui->actionOptions,       &QAction::triggered, this, &SWMMVis::onSimulationOptions);
+    connect(ui->actionUserFlags,     &QAction::triggered, this, &SWMMVis::onUserFlags);
 
     // Animation toolbar — Show Legend toggles the on-canvas legend
     // overlay for the active project window's canvas. The overlay is
@@ -4865,6 +4926,23 @@ void SWMMVis::onSimulationOptions()
     }
 }
 
+void SWMMVis::onUserFlags()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine())
+    {
+        onLogMessage(tr("Open a SWMM project first to edit user flags."),
+                     OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+
+    UserFlagsDialog dlg(pw->modelLayer()->ensureUserFlagsModel(), this);
+    dlg.exec();
+    // Apply may have written even if the dialog was later cancelled.
+    if (dlg.wroteAnyChanges())
+        pw->setHasChanges(true);
+}
+
 void SWMMVis::onRunSimulation()
 {
     auto *pw = activeProjectWindow();
@@ -5232,6 +5310,9 @@ void SWMMVis::onRunSimulation()
                         rl->setName(QFileInfo(outPathCopy).fileName());
                         pwGuard->canvas()->addLayer(rl, true);
                     }
+                    // Remember which .rpt this run wrote so the Report
+                    // Viewer can list it (persisted in the .oswp sidecar).
+                    rl->setReportFilePath(rptPathCopy);
 
                     QList<QString> rlWarnings, rlErrors;
                     if (rl->openResults(rlWarnings, rlErrors))
@@ -5568,16 +5649,52 @@ void SWMMVis::onShowReport()
             tr("Save the project before viewing the report."));
         return;
     }
+
+    // One report source per loaded run (results layer). Each layer carries
+    // the .rpt its run wrote (persisted in the .oswp); layers loaded from
+    // older projects fall back to the sibling <outStem>.rpt convention.
+    QVector<openswmmvis::ui::ReportSource> sources;
+    QSet<QString> seen;
+    int initialIndex = 0;
+    auto addSource = [&sources, &seen](const QString &label,
+                                       const QString &path) -> bool {
+        if (path.isEmpty() || !QFileInfo::exists(path)) return false;
+        const QString canon = QFileInfo(path).absoluteFilePath();
+        if (seen.contains(canon)) return false;
+        seen.insert(canon);
+        sources.append({ label, canon });
+        return true;
+    };
+    if (pw->canvas()) {
+        for (OpenSWMMVisLayer *l : pw->canvas()->layers()) {
+            auto *rl = qobject_cast<SWMMResultsLayer *>(l);
+            if (!rl) continue;
+            QString rpt = rl->reportFilePath();
+            if (rpt.isEmpty()) {
+                const QFileInfo outFi(rl->resultsFilePath());
+                rpt = outFi.absoluteDir().filePath(
+                    outFi.completeBaseName() + QStringLiteral(".rpt"));
+            }
+            const QString label = rl->scenarioName().isEmpty()
+                                      ? rl->name() : rl->scenarioName();
+            if (addSource(label, rpt) && rl == pw->activeResultsLayer())
+                initialIndex = sources.size() - 1;
+        }
+    }
+    // Settings-resolved path — covers the no-results-layer case (e.g. a run
+    // that failed before writing a .out but still produced a .rpt).
     const QString rptPath = openswmmvis::resolveRunOutputPathFromSettings(
         inpPath, openswmmvis::RunOutputKind::Rpt);
-    if (!QFileInfo::exists(rptPath)) {
+    addSource(QFileInfo(rptPath).fileName(), rptPath);
+
+    if (sources.isEmpty()) {
         QMessageBox::information(this, tr("Report"),
             tr("No report file found at:\n%1\n\n"
                "Run a simulation to generate the report.").arg(rptPath));
         return;
     }
 
-    auto *dlg = new openswmmvis::ui::StatusReportDialog(rptPath, this);
+    auto *dlg = new openswmmvis::ui::StatusReportDialog(sources, initialIndex, this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
 }

@@ -322,18 +322,25 @@ public:
     void   setMaxDepth(double d);
 
     // ----- Velocity vector overlay (CF.2) -----------------------------------
+    //
+    // Gap A3.1 — these knobs (and the band / isoline ones below) are now
+    // facades over the sublayer model (visibility + style bags), which is
+    // the single source of truth the paint passes consult. The legacy
+    // fields survive only as fallbacks for the (never-hit) no-sublayer
+    // case. Both the dialog (legacy setters) and the layer tree (sublayer
+    // toggles) therefore drive — and report — the same state.
 
     /*! \brief Whether centroid arrow glyphs are drawn over the depth fill. */
-    bool   velocityVectorsVisible() const noexcept { return velocity_visible_; }
+    bool   velocityVectorsVisible() const;
     void   setVelocityVectorsVisible(bool v);
 
     /*! \brief Overall alpha applied to all arrow glyphs, 0..1. Default 0.9. */
-    qreal  velocityOpacity() const noexcept { return velocity_opacity_; }
+    qreal  velocityOpacity() const;
     void   setVelocityOpacity(qreal alpha);
 
     /*! \brief Per-glyph pixel scale: \c arrow_length_px = \p scale * log1p(vmag / vmagRef).
      *  Default 30 — a 1 m/s velocity renders ~21 px at any zoom. */
-    double velocityArrowScale() const noexcept { return velocity_arrow_scale_; }
+    double velocityArrowScale() const;
     void   setVelocityArrowScale(double scale);
 
     /*! \brief Upper end of the velocity colour ramp (m/s). Auto-tracks the
@@ -362,22 +369,25 @@ public:
     [[nodiscard]] int  colorClasses() const noexcept { return color_classes_; }
     void               setColorClasses(int n);
 
-    /*! \brief Show filled-band contour polygons over the heatmap (off by default). */
-    [[nodiscard]] bool   filledContours()        const noexcept { return filled_contours_; }
+    /*! \brief Show filled-band contour polygons over the heatmap (off by
+     *  default). Gap A3.1 — facades over the ContourBand sublayer
+     *  (visibility / sublayer opacity / bandCount style prop). */
+    [[nodiscard]] bool   filledContours()        const;
     void                 setFilledContours(bool on);
-    [[nodiscard]] double filledContoursOpacity() const noexcept { return filled_contours_opacity_; }
+    [[nodiscard]] double filledContoursOpacity() const;
     void                 setFilledContoursOpacity(double a);
-    [[nodiscard]] int    filledContoursLevels()  const noexcept { return filled_contours_levels_; }
+    [[nodiscard]] int    filledContoursLevels()  const;
     void                 setFilledContoursLevels(int n);
 
-    /*! \brief Stroke iso-depth contour lines over the heatmap (off by default). */
-    [[nodiscard]] bool   isolines()        const noexcept { return isolines_; }
+    /*! \brief Stroke iso-depth contour lines over the heatmap (off by
+     *  default). Gap A3.1 — facades over the Isoline sublayer + style bag. */
+    [[nodiscard]] bool   isolines()        const;
     void                 setIsolines(bool on);
-    [[nodiscard]] int    isolinesLevels()  const noexcept { return isolines_levels_; }
+    [[nodiscard]] int    isolinesLevels()  const;
     void                 setIsolinesLevels(int n);
-    [[nodiscard]] QColor isolinesColor()   const noexcept { return isolines_color_; }
+    [[nodiscard]] QColor isolinesColor()   const;
     void                 setIsolinesColor(QColor c);
-    [[nodiscard]] double isolinesWidth()   const noexcept { return isolines_width_; }
+    [[nodiscard]] double isolinesWidth()   const;
     void                 setIsolinesWidth(double px);
 
     // ----- Renderer (Slice BI Phase 8.13.6.6) -----------------------------

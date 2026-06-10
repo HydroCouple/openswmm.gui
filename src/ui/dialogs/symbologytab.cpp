@@ -9,15 +9,15 @@
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
+#include "render/iattributeprovider.h"
 #include "render/ifeaturerenderer.h"
-#include "render/renderers/categorizedrenderer.h"
-#include "render/renderers/graduatedrenderer.h"
-#include "render/renderers/rulebasedrenderer.h"
-#include "render/renderers/singlesymbolrenderer.h"
+// Gap A1.3 — archetype-seeded renderer construction.
+#include "render/rendererfactory.h"
 // Slice Z.3b — Rule-aware read + class-swap.
 #include "render/rule.h"
 
 #include <QComboBox>
+#include <QStandardItemModel>
 #include <QFormLayout>
 #include <QFrame>
 #include <QHBoxLayout>
@@ -69,6 +69,12 @@ QString currentRendererIdFor(const RendererPanelContext &ctx)
 SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
     : QWidget(parent), m_ctx(ctx)
 {
+    // Gap A4.1 — ensure the capability snapshot is resolved even when the
+    // caller hands us a bare (layer, category, rule) triple.
+    if (m_ctx.fields.isEmpty())
+        m_ctx = RendererPanelContext::resolve(m_ctx.hostLayer, m_ctx.category,
+                                              m_ctx.rule);
+
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(8, 8, 8, 8);
     root->setSpacing(8);
@@ -80,8 +86,23 @@ SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
     topLay->addWidget(new QLabel(tr("Renderer:"), topRow));
 
     m_rendererCombo = new QComboBox(topRow);
-    for (const auto &entry : RendererPanelRegistry::instance().entries())
+    for (const auto &entry : RendererPanelRegistry::instance().entries()) {
         m_rendererCombo->addItem(entry.displayName, entry.rendererId);
+        // Gap A4.2 — declarative applicability: grey out renderer classes
+        // that make no sense for this kind (e.g. Graduated on Rain gages,
+        // which expose no numeric attributes) with a tooltip explaining why.
+        if (entry.applicable && !entry.applicable(m_ctx)) {
+            const int row = m_rendererCombo->count() - 1;
+            auto *model = qobject_cast<QStandardItemModel *>(
+                m_rendererCombo->model());
+            if (model) {
+                if (QStandardItem *item = model->item(row)) {
+                    item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+                    item->setToolTip(entry.disabledReason);
+                }
+            }
+        }
+    }
     topLay->addWidget(m_rendererCombo, 1);
     root->addWidget(topRow);
 
@@ -128,30 +149,19 @@ QString SymbologyTab::currentRendererId() const
 
 namespace {
 
-/*! Construct a fresh IFeatureRenderer for a given id, or nullptr if
- *  the id is unknown. Shared by the Rule path and the layer-kind path
- *  in installRendererClassIfChanged. */
-std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>
-makeRendererForId(const QString &id)
-{
-    using namespace OpenSWMM::Render;
-    if (id == QLatin1String("single"))
-        return std::make_unique<SingleSymbolRenderer>();
-    if (id == QLatin1String("graduated"))
-        return std::make_unique<GraduatedRenderer>();
-    if (id == QLatin1String("categorized"))
-        return std::make_unique<CategorizedRenderer>();
-    if (id == QLatin1String("rule"))
-        return std::make_unique<RuleBasedRenderer>();
-    return nullptr;
-}
-
 /*! Install a fresh renderer of the picked class when the dropdown
  *  switches to a different class than the one currently installed.
  *
  *  Slice Z.3b: when `ctx.rule` is set, delegate to
  *  `Rule::setRendererById` — keeps the Rule path entirely inside the
  *  Rule type. Otherwise fall back to the legacy layer + category path.
+ *
+ *  Gap A1.3 — construction goes through RendererFactory::makeRenderer so
+ *  the new renderer's base/fallback symbol is seeded from the outgoing
+ *  renderer (or the archetype skeleton) and its classify attribute from
+ *  the host's IAttributeProvider. A default-constructed renderer has an
+ *  EMPTY base symbol, which made paint silently fall back to the legacy
+ *  colour ramp.
  */
 void installRendererClassIfChanged(const RendererPanelContext &ctx,
                                    const QString &targetId)
@@ -159,7 +169,8 @@ void installRendererClassIfChanged(const RendererPanelContext &ctx,
     if (targetId.isEmpty()) return;
     using namespace OpenSWMM::Render;
 
-    // Z.3b — Rule path takes priority.
+    // Z.3b — Rule path takes priority (Rule derives the archetype from
+    // its current renderer's symbol internally).
     if (ctx.rule) {
         ctx.rule->setRendererById(targetId);
         return;
@@ -177,7 +188,13 @@ void installRendererClassIfChanged(const RendererPanelContext &ctx,
     if (cur && cur->rendererId() == targetId)
         return;     // already the right class — nothing to swap
 
-    auto next = makeRendererForId(targetId);
+    QVector<AttributeField> fields;
+    if (auto *provider = qobject_cast<IAttributeProvider *>(ctx.hostLayer))
+        fields = provider->availableAttributes(*ctx.category);
+
+    auto next = RendererFactory::makeRenderer(
+        targetId, FeatureSublayer::archetypeFor(*ctx.category), cur,
+        fields.isEmpty() ? nullptr : &fields);
     if (!next) return;
 
     if (auto *swmm = qobject_cast<SWMMModelLayer *>(ctx.hostLayer))

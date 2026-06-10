@@ -21,7 +21,6 @@
 
 #include <cmath>
 
-#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFontMetrics>
@@ -162,21 +161,6 @@ QIcon makeShapeIcon(int engineId)
     return makePlaceholderShapeIcon(engineId);
 }
 
-// FHWA culvert chart codes (1..6 in legacy SWMM-GUI; 0 = none).
-struct CulvertCode {
-    int         code;
-    const char *label;
-};
-static const CulvertCode kCulvertCodes[] = {
-    { 0, "(none)" },
-    { 1, "Code 1 — Circular Concrete (square-edge headwall)" },
-    { 2, "Code 2 — Circular Concrete (grooved end with headwall)" },
-    { 3, "Code 3 — Circular Concrete (grooved end projecting)" },
-    { 4, "Code 4 — Circular CMP (headwall)" },
-    { 5, "Code 5 — Circular CMP (mitered to slope)" },
-    { 6, "Code 6 — Circular CMP (projecting)" },
-};
-
 } // namespace
 
 LinkCompoundEditDialog::LinkCompoundEditDialog(LinkCompoundEditRef ref,
@@ -187,13 +171,11 @@ LinkCompoundEditDialog::LinkCompoundEditDialog(LinkCompoundEditRef ref,
 
     m_stack = new QStackedWidget(this);
     buildXSectionPage();
-    buildCulvertCodePage();
     buildInletUsagePage();
 
     switch (m_ref.kind) {
     case LinkCompoundEditRef::XSection:    m_stack->setCurrentIndex(0); break;
-    case LinkCompoundEditRef::CulvertCode: m_stack->setCurrentIndex(1); break;
-    case LinkCompoundEditRef::InletUsage:  m_stack->setCurrentIndex(2); break;
+    case LinkCompoundEditRef::InletUsage:  m_stack->setCurrentIndex(1); break;
     }
 
     m_buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
@@ -666,46 +648,6 @@ void LinkCompoundEditDialog::applyXsect()
 
     m_ref.summary = computeXsectSummary();
     if (m_xsSummaryLabel) m_xsSummaryLabel->setText(m_ref.summary);
-}
-
-// ---------------------------------------------------------------------------
-// Culvert code page
-// ---------------------------------------------------------------------------
-
-void LinkCompoundEditDialog::buildCulvertCodePage()
-{
-    auto *page = new QWidget(m_stack);
-    auto *form = new QFormLayout(page);
-
-    m_cvCodeCombo = new QComboBox(page);
-    for (const auto &c : kCulvertCodes)
-        m_cvCodeCombo->addItem(QString::fromLatin1(c.label), c.code);
-    form->addRow(tr("Culvert Code"), m_cvCodeCombo);
-
-    const int idx = linkIdx();
-    if (idx >= 0) {
-        int code = 0;
-        swmm_link_get_culvert_code(m_ref.engine, idx, &code);
-        m_cvSuppressApply = true;
-        const int i = m_cvCodeCombo->findData(code);
-        m_cvCodeCombo->setCurrentIndex(i >= 0 ? i : 0);
-        m_cvSuppressApply = false;
-    }
-
-    connect(m_cvCodeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this](int) {
-                if (m_cvSuppressApply) return;
-                const int idx = linkIdx();
-                if (idx < 0) return;
-                const int code = m_cvCodeCombo->currentData().toInt();
-                if (m_ref.layer)
-                    m_ref.layer->applyLinkCulvertCode(idx, code);
-                else
-                    swmm_link_set_culvert_code(m_ref.engine, idx, code);
-                m_ref.summary = m_cvCodeCombo->currentText();
-            });
-
-    m_stack->addWidget(page);
 }
 
 // ---------------------------------------------------------------------------

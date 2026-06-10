@@ -485,7 +485,7 @@
     </layout>
    </widget>
   </widget>
-  <widget class="QDockWidget" name="dockWidgetProperties">
+  <!-- <widget class="QDockWidget" name="dockWidgetProperties">
    <property name="sizePolicy">
     <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
      <horstretch>0</horstretch>
@@ -518,7 +518,7 @@
      </item>
     </layout>
    </widget>
-  </widget>
+  </widget> -->
   <widget class="QDockWidget" name="dockWidgetAnalysisToolBox">
     <property name="sizePolicy">
      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
@@ -602,6 +602,7 @@
      <string>Tools</string>
     </property>
     <addaction name="actionOptions"/>
+    <addaction name="actionUserFlags"/>
     <addaction name="separator"/>
     <addaction name="actionPlugins"/>
     <addaction name="actionStyleManager"/>
@@ -1999,6 +2000,17 @@
    </property>
    <property name="toolTip">
     <string>Simulation Options</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionUserFlags">
+   <property name="text">
+    <string>User Flags…</string>
+   </property>
+   <property name="toolTip">
+    <string>Define user flags for tagging model objects</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>

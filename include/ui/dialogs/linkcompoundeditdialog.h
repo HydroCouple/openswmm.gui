@@ -5,7 +5,9 @@
  * \license GPL-3.0-or-later
  *
  * Slice SC.1 — One modal dialog with a stacked-widget body, one page
- * per compound link attribute (XSection / Culvert Code / Inlet Usage).
+ * per compound link attribute (XSection / Inlet Usage). The former
+ * Culvert Code page moved to an inline `CulvertCodeComboBox` per
+ * docs/ATTRIBUTE_EDITOR_WIRING_PLAN_2026-06-04.md Phase 0.
  *
  * Apply-as-you-go: each page commits changes to the engine via the
  * model layer's `applyLink*` helpers as the user edits. The dialog's
@@ -27,7 +29,6 @@
 
 class QStackedWidget;
 class QDialogButtonBox;
-class QComboBox;
 class QDoubleSpinBox;
 class QSpinBox;
 class QLabel;
@@ -49,7 +50,6 @@ public:
 
 private:
     void buildXSectionPage();
-    void buildCulvertCodePage();
     void buildInletUsagePage();
 
     /*! Look up the bound link's index on the engine. Returns -1 if the
@@ -135,10 +135,6 @@ private:
     // otherwise bounce right back through `applyXsect()`. Set true
     // while populating; the slot bails when set.
     bool m_xsSuppressApply = false;
-
-    // Culvert page widgets.
-    QComboBox *m_cvCodeCombo = nullptr;
-    bool       m_cvSuppressApply = false;
 
     QStackedWidget   *m_stack   = nullptr;
     QDialogButtonBox *m_buttons = nullptr;

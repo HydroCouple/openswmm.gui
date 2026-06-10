@@ -11,8 +11,10 @@
 #include "plot/mesh2drunlayer.h"
 #include "plot/observedcsvrunlayer.h"
 #include "plot/fitmetrics.h"
+#include "plot/seriespairing.h"
 #include "plot/chartproperties.h"
 #include "ui/dialogs/chartpropertiesdialog.h"
+#include "ui/dialogs/comparisonpairsdialog.h"
 #include "ui/widgets/interactivechartview.h"
 #include "ui/widgets/rangeslider.h"
 #include "ui/widgets/seriesstyleeditor.h"
@@ -90,6 +92,9 @@ ComparisonPlotDialog::ComparisonPlotDialog(QWidget *parent)
             this, &ComparisonPlotDialog::onRowsChanged);
     connect(m_model.get(), &ComparisonPlotModel::animationTimeChanged,
             this, &ComparisonPlotDialog::onAnimationTimeChanged);
+    // Phase 5 — 1v1 pair list edits rebuild the scatter column.
+    connect(m_model.get(), &ComparisonPlotModel::pairsChanged,
+            this, [this]() { rebuildCharts(); });
 }
 
 ComparisonPlotDialog::~ComparisonPlotDialog() = default;
@@ -354,6 +359,25 @@ void ComparisonPlotDialog::buildToolBar()
             this, &ComparisonPlotDialog::onShowStatsToggled);
     m_toolBar->addAction(m_actShowStats);
 
+    // COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 4 — optional 1v1 column.
+    m_actShow1v1 = new QAction(tr("1v1 Plots"), this);
+    m_actShow1v1->setCheckable(true);
+    m_actShow1v1->setChecked(true);
+    m_actShow1v1->setStatusTip(tr("Show/hide the 1v1 comparison scatter column"));
+    m_actShow1v1->setToolTip(m_actShow1v1->statusTip());
+    connect(m_actShow1v1, &QAction::toggled,
+            this, &ComparisonPlotDialog::onShow1v1Toggled);
+    m_toolBar->addAction(m_actShow1v1);
+
+    // COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 5 — configure the pairs.
+    m_actConfig1v1 = new QAction(tr("Configure 1v1…"), this);
+    m_actConfig1v1->setStatusTip(tr("Choose which series pair up in the 1v1 "
+                                    "comparison plots"));
+    m_actConfig1v1->setToolTip(m_actConfig1v1->statusTip());
+    connect(m_actConfig1v1, &QAction::triggered,
+            this, &ComparisonPlotDialog::onConfigure1v1Clicked);
+    m_toolBar->addAction(m_actConfig1v1);
+
     m_actChartsOnly = new QAction(tr("Charts Only"), this);
     m_actChartsOnly->setCheckable(true);
     m_actChartsOnly->setStatusTip(tr("Hide series, slider, and stats panels to show only the charts"));
@@ -383,7 +407,10 @@ void ComparisonPlotDialog::propagateModeToRows()
     else if (m_actZoomIn  && m_actZoomIn->isChecked())  m = Mode::ZoomIn;
     else if (m_actZoomOut && m_actZoomOut->isChecked()) m = Mode::ZoomOut;
     for (RowWidgets &rw : m_rowWidgets) {
-        if (rw.view) rw.view->setMode(m);
+        if (rw.view)        rw.view->setMode(m);
+        // COMPARISON_PLOT_1V1_AND_TREE_PLAN — 1v1 scatter views follow
+        // the same toolbar mode (Select/Pan/ZoomIn/ZoomOut).
+        if (rw.scatterView) rw.scatterView->setMode(m);
     }
 }
 
@@ -547,6 +574,22 @@ void ComparisonPlotDialog::onChartsOnlyToggled(bool chartsOnly)
     if (m_actShowStats)  m_actShowStats ->setChecked(!chartsOnly);
 }
 
+void ComparisonPlotDialog::onShow1v1Toggled(bool /*show*/)
+{
+    // COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 4 — the toggle gates the
+    // scatter build inside rebuildCharts (off = skip the pairing work
+    // entirely, not just hide the panes).
+    rebuildCharts();
+}
+
+void ComparisonPlotDialog::onConfigure1v1Clicked()
+{
+    // Phase 5 — modal editor over the model's pair list. The model emits
+    // pairsChanged on every edit, which rebuilds the scatter column live.
+    ComparisonPairsDialog dlg(m_model.get(), this);
+    dlg.exec();
+}
+
 void ComparisonPlotDialog::onAddSystemSeriesClicked()
 {
     // Find a 1D run source to host the series (system attrs are global per run).
@@ -649,7 +692,6 @@ int ComparisonPlotDialog::ensureRunSourceForLayer(SWMMResultsLayer *layer,
 
     RunSource rs;
     rs.layer = std::make_shared<SwmmOutRunLayer>(layer);
-    rs.label = rs.layer->scenarioName();
     rs.isBaseline = makeBaseline;
     const int idx = m_model->addRunSource(std::move(rs));
     if (makeBaseline)
@@ -687,7 +729,6 @@ int ComparisonPlotDialog::ensureRunSourceForMeshLayer(SWMM2DResultsLayer *layer)
 
     RunSource rs;
     rs.layer = std::make_shared<Mesh2DRunLayer>(layer);
-    rs.label = rs.layer->scenarioName();
     return m_model->addRunSource(std::move(rs));
 }
 
@@ -1035,7 +1076,6 @@ void ComparisonPlotDialog::onLoadObservedClicked()
     }
 
     RunSource rs;
-    rs.label = layer->scenarioName();
     rs.layer = std::shared_ptr<openswmmvis::plot::ObservedCsvRunLayer>(
         layer.release());
     const int runIdx = m_model->addRunSource(std::move(rs));
@@ -1178,8 +1218,13 @@ void ComparisonPlotDialog::rebuildCharts()
     }
     m_rowWidgets.clear();
 
-    // Scatter column is visible only when ≥2 runs are loaded.
-    const bool haveScatter = (m_model->runSourceCount() >= 2);
+    // Scatter column is visible only when the "1v1 Plots" toolbar toggle
+    // is on (Phase 4) AND there's something to pair: ≥2 runs for auto
+    // mode, or user-configured pairs (Phase 5 — these may pair two
+    // series of a single run, e.g. two objects).
+    const bool show1v1     = !m_actShow1v1 || m_actShow1v1->isChecked();
+    const bool haveScatter = show1v1 &&
+        (m_model->runSourceCount() >= 2 || !m_model->pairs().isEmpty());
     const int baselineIdx  = m_model->baselineRunIndex();
 
     // Build one chart per row.
@@ -1307,45 +1352,119 @@ void ComparisonPlotDialog::rebuildCharts()
 
         // ----- Column 1: 1v1 scatter (FitMetrics in title) ----------------
         // Built only when ≥2 runs are loaded AND this row has a baseline
-        // series plus at least one comparison series.
-        if (haveScatter && baselineIdx >= 0) {
-            // Index baseline samples by objectRef so we can pair them with
-            // comparison-run samples for the same object. Pairing is exact-
-            // timestep nearest-match (round to closest Julian within ½-step).
-            struct BaselineCol {
-                std::vector<double> t, v;
+        // series plus at least one comparison series that actually pairs
+        // with it. Pairing is computed FIRST; the chart is only created
+        // when at least one pairing produced points, so rows without a
+        // baseline/comparison overlap show the time series full-width
+        // instead of an empty 0..1 scatter.
+        if (haveScatter) {
+            // Deferred chart creation: collect the non-empty pairings
+            // first; the chart only exists when at least one pairing
+            // produced points.
+            struct PendingScatter {
+                int           xSpecIdx;   ///< -1 in auto mode (baseline column).
+                int           ySpecIdx;   ///< Styles the scatter points.
+                PairedSamples samples;
             };
-            QMap<QString, BaselineCol> baseByObj;   // key = obj name|kind|triIdx
+            std::vector<PendingScatter> pending;
 
-            auto refKey = [](const ObjectRef &r) -> QString {
-                return QStringLiteral("%1|%2|%3")
-                    .arg(static_cast<int>(r.kind)).arg(r.name).arg(r.triIdx);
-            };
+            const QVector<ComparisonPair> &userPairs = m_model->pairs();
+            if (!userPairs.isEmpty()) {
+                // Phase 5 — user-configured pairs override auto pairing.
+                // Pairs live on the row whose attribute they target.
+                for (const ComparisonPair &cp : userPairs) {
+                    if (cp.xSeriesIndex < 0 || cp.xSeriesIndex >= m_model->seriesCount() ||
+                        cp.ySeriesIndex < 0 || cp.ySeriesIndex >= m_model->seriesCount())
+                        continue;
+                    if (m_model->spec(cp.xSeriesIndex).attribute != row.attribute)
+                        continue;   // belongs to another row
 
-            // First pass: collect baseline samples for this row.
-            for (int sIdx : row.seriesIndices) {
-                const SeriesSpec &spec = m_model->spec(sIdx);
-                if (spec.runIndex != baselineIdx) continue;
-                SeriesData data;
-                m_model->resolveSeries(sIdx, data);
-                if (!data.ok) continue;
-                BaselineCol bc;
-                bc.t.assign(data.timesJulian.begin(), data.timesJulian.end());
-                bc.v.assign(data.values.begin(),       data.values.end());
-                baseByObj[refKey(spec.objectRef)] = std::move(bc);
+                    SeriesData xData, yData;
+                    m_model->resolveSeries(cp.xSeriesIndex, xData);
+                    m_model->resolveSeries(cp.ySeriesIndex, yData);
+                    if (!xData.ok || !yData.ok) continue;
+
+                    PairedSamples ps = pairSamplesNearest(
+                        xData.timesJulian, xData.values,
+                        yData.timesJulian, yData.values);
+                    if (ps.x.empty()) continue;
+                    pending.push_back({cp.xSeriesIndex, cp.ySeriesIndex,
+                                       std::move(ps)});
+                }
+            } else if (baselineIdx >= 0) {
+                // Auto mode — baseline vs every other run, matched by
+                // objectRef. Index baseline samples by objectRef so we can
+                // pair them with comparison-run samples for the same object.
+                struct BaselineCol {
+                    std::vector<double> t, v;
+                };
+                QMap<QString, BaselineCol> baseByObj;   // key = obj name|kind|triIdx
+
+                auto refKey = [](const ObjectRef &r) -> QString {
+                    return QStringLiteral("%1|%2|%3")
+                        .arg(static_cast<int>(r.kind)).arg(r.name).arg(r.triIdx);
+                };
+
+                // First pass: collect baseline samples for this row.
+                for (int sIdx : row.seriesIndices) {
+                    const SeriesSpec &spec = m_model->spec(sIdx);
+                    if (spec.runIndex != baselineIdx) continue;
+                    SeriesData data;
+                    m_model->resolveSeries(sIdx, data);
+                    if (!data.ok) continue;
+                    BaselineCol bc;
+                    bc.t.assign(data.timesJulian.begin(), data.timesJulian.end());
+                    bc.v.assign(data.values.begin(),       data.values.end());
+                    baseByObj[refKey(spec.objectRef)] = std::move(bc);
+                }
+
+                // Second pass: pair every comparison series against its
+                // baseline column (timestep nearest-match — see
+                // plot/seriespairing.h).
+                for (int sIdx : row.seriesIndices) {
+                    const SeriesSpec &spec = m_model->spec(sIdx);
+                    if (spec.runIndex == baselineIdx) continue;
+
+                    auto baseIt = baseByObj.find(refKey(spec.objectRef));
+                    if (baseIt == baseByObj.end()) continue;   // no baseline for this object on this row
+
+                    SeriesData data;
+                    m_model->resolveSeries(sIdx, data);
+                    if (!data.ok) continue;
+
+                    PairedSamples ps = pairSamplesNearest(
+                        baseIt.value().t, baseIt.value().v,
+                        data.timesJulian, data.values);
+                    if (ps.x.empty()) continue;
+                    pending.push_back({-1, sIdx, std::move(ps)});
+                }
             }
 
-            // Build the scatter chart only when there's at least one
-            // baseline series; otherwise the row plots time-series only.
+            if (!pending.empty()) {
+            // Axis titles: auto mode keeps Baseline/Comparison; a single
+            // configured pair names the actual series; multiple pairs on
+            // one row stay generic.
+            QString xTitle = tr("Baseline");
+            QString yTitle = tr("Comparison");
+            if (!userPairs.isEmpty()) {
+                if (pending.size() == 1 && pending.front().xSpecIdx >= 0) {
+                    xTitle = legendNameFor(m_model->spec(pending.front().xSpecIdx));
+                    yTitle = legendNameFor(m_model->spec(pending.front().ySpecIdx));
+                } else {
+                    xTitle = tr("X series");
+                    yTitle = tr("Y series");
+                }
+            }
+
             rw.scatterChart = new QChart;
             rw.scatterChart->legend()->setVisible(false);
 
             rw.scatterXAxis = new QValueAxis;
-            rw.scatterXAxis->setTitleText(tr("Baseline"));
+            rw.scatterXAxis->setTitleText(xTitle);
             rw.scatterChart->addAxis(rw.scatterXAxis, Qt::AlignBottom);
 
             rw.scatterYAxis = new QValueAxis;
-            rw.scatterYAxis->setTitleText(tr("Comparison"));
+            rw.scatterYAxis->setTitleText(yTitle);
             rw.scatterChart->addAxis(rw.scatterYAxis, Qt::AlignLeft);
 
             double scMin = std::numeric_limits<double>::infinity();
@@ -1357,48 +1476,10 @@ void ComparisonPlotDialog::rebuildCharts()
             FitMetrics bestFit;
             bool       haveAnyFit = false;
 
-            // Second pass: build a scatter series per comparison series.
-            for (int sIdx : row.seriesIndices) {
-                const SeriesSpec &spec = m_model->spec(sIdx);
-                if (spec.runIndex == baselineIdx) continue;
-
-                auto baseIt = baseByObj.find(refKey(spec.objectRef));
-                if (baseIt == baseByObj.end()) continue;   // no baseline for this object on this row
-
-                SeriesData data;
-                m_model->resolveSeries(sIdx, data);
-                if (!data.ok) continue;
-
-                // Exact-timestep nearest-pair (no resampling yet). Walk both
-                // streams in lockstep; when the timestamps disagree by more
-                // than half a report step, drop the further sample.
-                const auto &bt = baseIt.value().t;
-                const auto &bv = baseIt.value().v;
-                const double halfStep = (bt.size() >= 2)
-                    ? 0.5 * std::fabs(bt[1] - bt[0]) : 0.0;
-
-                std::vector<double> xs, ys;
-                xs.reserve(std::min(bt.size(), data.timesJulian.size()));
-                ys.reserve(xs.capacity());
-
-                std::size_t i = 0, j = 0;
-                while (i < bt.size() && j < data.timesJulian.size()) {
-                    const double tb = bt[i];
-                    const double tc = data.timesJulian[j];
-                    if (std::fabs(tb - tc) <= halfStep) {
-                        if (std::isfinite(bv[i]) && std::isfinite(data.values[j])) {
-                            xs.push_back(bv[i]);
-                            ys.push_back(data.values[j]);
-                        }
-                        ++i; ++j;
-                    } else if (tb < tc) {
-                        ++i;
-                    } else {
-                        ++j;
-                    }
-                }
-
-                if (xs.empty()) continue;
+            for (const PendingScatter &p : pending) {
+                const SeriesSpec &spec = m_model->spec(p.ySpecIdx);
+                const auto &xs = p.samples.x;
+                const auto &ys = p.samples.y;
 
                 auto *scatter = new QScatterSeries;
                 scatter->setMarkerSize(5.0);
@@ -1464,9 +1545,26 @@ void ComparisonPlotDialog::rebuildCharts()
                     QStringLiteral("  (NSE=%1)").arg(bestFit.nse, 0, 'f', 2));
             }
 
-            rw.scatterView = new QChartView(rw.scatterChart);
+            // COMPARISON_PLOT_1V1_AND_TREE_PLAN — InteractiveChartView
+            // (not plain QChartView) so the toolbar Mode actions and
+            // wheel-zoom work on the 1v1 plots too. The Shift-drag
+            // X-selection signal is NOT connected here: it carries
+            // QDateTime bounds, which don't apply to value-value axes.
+            rw.scatterView = new InteractiveChartView(rw.scatterChart);
             rw.scatterView->setRenderHint(QPainter::Antialiasing);
             rw.scatterView->setMinimumHeight(220);
+            connect(rw.scatterView,
+                    &InteractiveChartView::chartContextMenuRequested,
+                    this, [this, r](const QPoint &globalPos) {
+                        QMenu menu(this);
+                        QAction *reset  = menu.addAction(tr("Reset Zoom"));
+                        QAction *chosen = menu.exec(globalPos);
+                        if (chosen == reset && r < m_rowWidgets.size()
+                            && m_rowWidgets[r].scatterView) {
+                            m_rowWidgets[r].scatterView->resetZoom();
+                        }
+                    });
+            } // if (!pending.empty()) — no pairs → no scatter pane
         }
 
         // Slice AT.2 — wrap the time-series + (optional) scatter into a

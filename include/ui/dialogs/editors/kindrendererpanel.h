@@ -42,7 +42,9 @@ class SWMMResultsLayer;
 
 class ColorRampComboBox;
 
+class QCheckBox;
 class QComboBox;
+class QDoubleSpinBox;
 class QPushButton;
 class QSpinBox;
 class QStandardItem;
@@ -93,6 +95,10 @@ private slots:
     // O1-3 — animated range mode (Fixed over run / Per-frame auto-stretch /
     // Fixed user). Only shown when the host is a results (animated) layer.
     void onRangeModeChanged(int comboRow);
+    // Gap A2.2 — user-defined min/max, shown only for RangeMode::FixedUser.
+    void onUserRangeChanged();
+    // Gap A4.5 — output axes: size-by-value (points) / width-by-value (lines).
+    void onOutputAxisChanged();
 
 private:
     void rebuildBreaksTable();
@@ -117,6 +123,16 @@ private:
     QComboBox          *m_methodCombo  = nullptr;
     QComboBox          *m_rangeCombo   = nullptr;   // O1-3 — animated range mode
     QWidget            *m_rangeRow     = nullptr;   // O1-3 — hidden for static layers
+    // Gap A2.2 — user range row (min/max), visible only for FixedUser.
+    QWidget            *m_userRangeRow = nullptr;
+    QDoubleSpinBox     *m_userMinSpin  = nullptr;
+    QDoubleSpinBox     *m_userMaxSpin  = nullptr;
+    // Gap A4.5 — output-axis row, archetype-gated (size → points,
+    // width → lines, hidden for polygons).
+    QWidget            *m_axisRow      = nullptr;
+    QCheckBox          *m_axisCheck    = nullptr;
+    QDoubleSpinBox     *m_axisMinSpin  = nullptr;
+    QDoubleSpinBox     *m_axisMaxSpin  = nullptr;
     QSpinBox           *m_countSpin    = nullptr;
     QTableView         *m_breaksTable  = nullptr;
     QStandardItemModel *m_breaksModel  = nullptr;

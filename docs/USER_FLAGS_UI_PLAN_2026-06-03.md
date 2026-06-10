@@ -27,6 +27,67 @@ Progress log:
   concrete type (forward-declared), and dirty-marking stays with consumers
   (dialogs/panels), mirroring how `setOption()`/SimulationOptionsDialog
   handle it — the model itself only emits change signals.
+- 2026-06-04 Phase 2 implemented: `UserFlagsDialog`
+  (include/ui/dialogs/userflagsdialog.h/.cpp) — staged Name/Type/Description
+  table with Add/Remove, commit on Apply/OK via UserFlagsModel, Cancel
+  discards; destructive confirmations (remove defined flag, type change
+  clears values) via QMessageBox, suppressible for tests. Type changes
+  route through undefine→define so stale-typed values are cleared using
+  the existing C API (no value-enumeration API needed). Menu: new
+  `actionUserFlags` ("User Flags…") in Tools after Simulation Options;
+  `SWMMVis::onUserFlags()` constructs the dialog over
+  `ensureUserFlagsModel()` and marks the project dirty off
+  `wroteAnyChanges()`. Test: tests/gui/test_userflagsdialog.cpp. Design
+  refinement vs. §4: constructor takes `UserFlagsModel*` (not the layer)
+  so the dialog is testable against a bare engine handle.
+- 2026-06-04 Phase 3 implemented: per-flag Attribute Table columns.
+  `SWMMAttributeTableModel::appendUserFlagColumns()` appends one column per
+  definition after the built-in schema (key `userflag:<NAME>`, setter tag
+  `userflag`, header tooltip = flag description via new optional
+  `ColumnSpec::tooltip`); `userFlagObjectType()` maps categories to
+  NODE/LINK/SUBCATCHMENT/GAGE. Reads/commits route through
+  `UserFlagsModel`; blank display = unset. `AttributeTablePanel::refresh()`
+  (re-)connects `defsChanged()` → refresh (UniqueConnection) so the table
+  rebuilds live when the manager dialog edits definitions. Undo works via
+  the existing generic `AttributeEditCommand` path (old EditRole value
+  round-trips unset as -1 / empty string). Design refinements vs. §5:
+  Integer/Real flags edit as **Text** (not spin boxes) so a blank commit
+  can clear the assignment — the engine validates numeric strings against
+  the declared type and rejects bad input; Boolean combo entries are
+  `(unset)/YES/NO` matching the INP tokens. No automated test: the table
+  model TU is not standalone-compilable (full layer dependency web, same
+  reason test_hydrograph_models is parked) — verify per §8 Phase 3 steps
+  manually. Query-bar predicates over flag columns remain out of scope
+  (§9).
+- 2026-06-04 Phase 4 implemented (§6 decision resolved: **option (b)**;
+  the feasibility check confirmed QPropertyModel enumerates only static
+  metaObject Q_PROPERTYs, so dynamic properties are not viable). New
+  compound-ref pipeline mirroring NodeCompoundEditRef: `UserFlagsEditRef`
+  (ui/properties/userflagseditref.{h,cpp}, with `userFlagsSummaryFor()`
+  "n of m set" helper + metatype converter), `UserFlagsEditButton`
+  (ui/properties/userflagseditbutton.{h,cpp}), and per-object
+  `UserFlagValuesDialog` (ui/dialogs/userflagvaluesdialog.{h,cpp}; staged
+  OK-commit, boolean (unset)/YES/NO combo, blank text clears). Adapters:
+  `userFlagsRef()/setUserFlagsRef()` on the node base (Q_PROPERTY on all
+  4 node subclasses), link base (Q_PROPERTY on all 5 link subclasses),
+  subcatchment (gained `setModelLayer()`, bound in AttributePanel), and
+  rain gage; all `displayLabelFor()` maps return "User Flags".
+  AttributePanel registers the metatype/converter/editor-creator beside
+  the existing compound refs. Sync rides the existing
+  `changed()` → `objectEdited(name)` fan-out; the table's flag cells
+  re-read live on `refreshObject()`. Test:
+  tests/gui/test_userflagvaluesdialog.cpp.
+- 2026-06-04 Phases 1–3 verified in a local build (manager dialog in use;
+  Phase 3 manual checklist accepted). Manager-dialog columns made
+  user-resizable (Interactive + stretch-last-section).
+- 2026-06-04 Phase 5 implemented: committed fixture
+  tests/gui/data/userflags_fixture.inp ([USER_FLAGS] +
+  [USER_FLAG_VALUES] over a minimal runnable network, covering
+  mixed-case flag names, quoted strings with spaces, negative integers,
+  scientific-notation reals) + tests/gui/test_userflags_roundtrip.cpp
+  (open → verify → edit → save → reopen → verify; output saved to
+  tests/gui/data/userflags_phase5_out.inp for review). Remaining: run
+  the full ctest suite as the regression pass, then the plan is done.
 
 ---
 

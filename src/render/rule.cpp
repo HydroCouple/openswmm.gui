@@ -8,6 +8,8 @@
 
 #include "render/rule.h"
 
+// Gap A1.3 — archetype-seeded renderer construction.
+#include "render/rendererfactory.h"
 #include "render/renderers/categorizedrenderer.h"
 #include "render/renderers/graduatedrenderer.h"
 #include "render/renderers/rulebasedrenderer.h"
@@ -156,18 +158,17 @@ bool Rule::setRendererById(const QString &id)
     if (m_renderer && m_renderer->rendererId() == id)
         return false;  // no-op — same class
 
-    std::unique_ptr<IFeatureRenderer> next;
-    if (id == QLatin1String("single"))
-        next = std::make_unique<SingleSymbolRenderer>();
-    else if (id == QLatin1String("graduated"))
-        next = std::make_unique<GraduatedRenderer>();
-    else if (id == QLatin1String("categorized"))
-        next = std::make_unique<CategorizedRenderer>();
-    else if (id == QLatin1String("rule"))
-        next = std::make_unique<RuleBasedRenderer>();
-    else if (id == QLatin1String("unclassed"))
-        next = std::make_unique<UnclassedColorsRenderer>();
+    // Gap A1.3 — construct through the shared factory so the new
+    // renderer's base/fallback symbol is seeded from the outgoing one
+    // (or an archetype-appropriate skeleton). The Rule holds no category,
+    // so the archetype is inferred from the current symbol's layer kind.
+    const FeatureSublayer::Archetype archetype =
+        RendererFactory::archetypeFromSymbol(
+            RendererFactory::baseSymbolOf(m_renderer.get()),
+            FeatureSublayer::Archetype::Point);
 
+    auto next = RendererFactory::makeRenderer(id, archetype,
+                                              m_renderer.get());
     if (!next)
         return false;
     setRenderer(std::move(next));

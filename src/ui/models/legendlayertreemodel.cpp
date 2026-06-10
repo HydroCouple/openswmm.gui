@@ -14,6 +14,7 @@
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "map/legendclasseditcommands.h"
+#include "map/legendcontent.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
 #include "render/ifeaturerenderer.h"
@@ -28,47 +29,18 @@ namespace openswmmvis::ui {
 
 namespace {
 
+// Gap B1 — both helpers delegate to the canonical LegendContent copy so
+// the dock tree, the on-canvas legend and the per-class edit routing read
+// the SAME rows (results layers now aggregate their per-kind renderers
+// instead of showing the dormant layer-level renderer).
 QColor firstSymbolColor(const OpenSWMM::Render::SymbolStyle &style)
 {
-    for (const auto &sl : style.layers) {
-        const auto it = sl.props.constFind(QStringLiteral("color"));
-        if (it != sl.props.constEnd()) {
-            QColor c(it.value().toString());
-            if (c.isValid()) return c;
-        }
-    }
-    return QColor(Qt::gray);
+    return openswmmvis::map::LegendContent::firstSymbolColor(style);
 }
 
-OpenSWMM::Render::IFeatureRenderer *featureRendererFor(OpenSWMMVisLayer *layer)
-{
-    if (!layer) return nullptr;
-    if (auto *l = qobject_cast<SWMMResultsLayer *>(layer))    return l->renderer();
-    if (auto *l = qobject_cast<SWMM2DResultsLayer *>(layer))  return l->renderer();
-    if (auto *l = qobject_cast<SWMM2DMeshLayer *>(layer))     return l->renderer();
-    if (auto *l = qobject_cast<GISVectorLayer *>(layer))      return l->renderer();
-    return nullptr;
-}
-
-// Mirrors LegendOverlay::legendItemsFor() so the tree model and the
-// on-canvas legend show identical rows. The sublayer-derived rows
-// (RENDERING_OUTPUT_SUBLAYERS_PLAN §S4) are no longer appended — the
-// rule model retired the user-facing sublayer concept in favour of
-// the Rule List, so the tree view shows only renderer-supplied legend
-// rows now.
 QList<OpenSWMM::Render::LegendSymbolItem> legendItemsFor(OpenSWMMVisLayer *layer)
 {
-    using namespace OpenSWMM::Render;
-
-    QList<LegendSymbolItem> items;
-    if (auto *r = featureRendererFor(layer))
-        items = r->legendSymbolItems();
-    else if (auto *m = qobject_cast<SWMMModelLayer *>(layer))
-        items = m->legendSymbolItems();   // X4 — multi-kind aggregation
-    else if (auto *l = qobject_cast<GISRasterLayer *>(layer); l && l->rasterRenderer())
-        items = l->rasterRenderer()->legendSymbolItems();
-
-    return items;
+    return openswmmvis::map::LegendContent::legendItemsFor(layer);
 }
 
 // Encodes parent/child position in QModelIndex::internalId. Top-level
@@ -157,6 +129,26 @@ void LegendLayerTreeModel::connectLayer(OpenSWMMVisLayer *layer)
             Qt::UniqueConnection);
     m_connectedLayers.append(layer);
 
+    // Gap B1 — renderer swaps (kind-tree edits, variable retargeting) and
+    // result-variable changes must refresh the legend rows; neither emits
+    // repaintRequested in every path, so subscribe explicitly.
+    if (auto *rl = qobject_cast<SWMMResultsLayer *>(layer)) {
+        connect(rl, &SWMMResultsLayer::rendererChanged,
+                this, &LegendLayerTreeModel::onLayerRepaintRequested,
+                Qt::UniqueConnection);
+        // Signal carries the variable; the slot ignores it (Qt drops
+        // trailing signal arguments). A member-function slot is required —
+        // Qt::UniqueConnection asserts on lambdas.
+        connect(rl, &SWMMResultsLayer::variableChanged,
+                this, &LegendLayerTreeModel::onLayerRepaintRequested,
+                Qt::UniqueConnection);
+    }
+    if (auto *l2d = qobject_cast<SWMM2DResultsLayer *>(layer)) {
+        connect(l2d, &SWMM2DResultsLayer::rendererChanged,
+                this, &LegendLayerTreeModel::onLayerRepaintRequested,
+                Qt::UniqueConnection);
+    }
+
     // VS.9 — a sublayer's style / visibility / opacity edit emits
     // invalidated() and repaints the canvas, but does NOT raise the parent
     // layer's repaintRequested, so the legend would otherwise go stale.
@@ -187,21 +179,22 @@ void LegendLayerTreeModel::rebuildLayerCache()
         LayerNode node;
         node.layer = layer;
         node.name  = layer->name();
-        auto *modelLayer = qobject_cast<SWMMModelLayer *>(layer);  // X4
-        if (auto *r = featureRendererFor(layer)) {
-            node.editableColor = r->supportsClassEdit(OpenSWMM::Render::ClassEditKind::Color);
-            node.editableSize  = r->supportsClassEdit(OpenSWMM::Render::ClassEditKind::Size);
-        } else if (modelLayer) {
-            node.editableColor = modelLayer->supportsClassEdit(OpenSWMM::Render::ClassEditKind::Color);
-            node.editableSize  = modelLayer->supportsClassEdit(OpenSWMM::Render::ClassEditKind::Size);
-        }
+        // Gap B1 — single dispatch through LegendContent (covers the
+        // single-renderer layers AND the multi-kind facades: SWMMModelLayer,
+        // SWMMResultsLayer).
+        node.editableColor = openswmmvis::map::LegendContent::supportsClassEdit(
+            layer, OpenSWMM::Render::ClassEditKind::Color);
+        node.editableSize = openswmmvis::map::LegendContent::supportsClassEdit(
+            layer, OpenSWMM::Render::ClassEditKind::Size);
 
         // Apply per-item overrides from the shared style so the tree shows
         // the same visibility + label state as the on-canvas overlay.
         const QString layerKey =
             m_style ? OpenSWMM::Render::LegendOverlayStyle::itemKey(layer, {})
                     : QString();
-        auto *renderer = featureRendererFor(layer);
+        auto *renderer = openswmmvis::map::LegendContent::featureRendererFor(layer);
+        auto *modelLayer = qobject_cast<SWMMModelLayer *>(layer);    // X4
+        auto *resultsLayer = qobject_cast<SWMMResultsLayer *>(layer); // Gap B1
         for (const auto &row : legendItemsFor(layer)) {
             ItemRow ir;
             ir.classKey   = row.classKey;
@@ -214,6 +207,9 @@ void LegendLayerTreeModel::rebuildLayerCache()
                 if (s > 0.0) ir.size = s;
             } else if (modelLayer && !row.classKey.isEmpty()) {
                 const qreal s = modelLayer->sizeForClass(row.classKey);
+                if (s > 0.0) ir.size = s;
+            } else if (resultsLayer && !row.classKey.isEmpty()) {
+                const qreal s = resultsLayer->sizeForClass(row.classKey);
                 if (s > 0.0) ir.size = s;
             }
             if (m_style && !row.classKey.isEmpty()) {

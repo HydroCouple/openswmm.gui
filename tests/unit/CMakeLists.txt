@@ -96,6 +96,14 @@ add_swmmvis_unit_test(test_runpathresolver
     ${PROJECT_SOURCE_DIR}/src/simulation/runpathresolver.cpp
 )
 
+# Slice BE — section-aware .rpt parser for the Report Viewer. Exercised
+# against a real engine-written report (data/weir_culvert.rpt) so the
+# indented / column-annotated header style is locked in.
+add_swmmvis_unit_test(test_rptparser
+    test_rptparser.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/rptparser.cpp
+)
+
 # Slice QA — OutputStatsRegistry smoke. Full register/unregister coverage
 # with real SWMMResultsLayer instances lives in the GUI integration suite
 # once .out fixtures are reused; here we lock in the API surface.

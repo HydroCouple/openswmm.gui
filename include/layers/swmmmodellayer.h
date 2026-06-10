@@ -117,10 +117,6 @@ class SWMMModelLayer : public OpenSWMMVisLayer,
     // The batched scene-item renderer reads the SoA + GDAL transform
     // directly so paint() is a single tight pass over the cached data.
     friend class SWMMLayerItem;
-    // Phase B.3 — the offscreen GL renderer reads m_linkSceneFlat /
-    // m_linkVertexOffset / m_linkVertexCount directly to upload the
-    // VBO; same private-data access rationale as SWMMLayerItem.
-    friend class SWMMLayerGLRenderer;
     // Phase B.RHI — the QSG renderer reads the same flat buffers to
     // populate its QSGGeometryNode vertex data on geometry change.
     friend class SWMMLayerQSGRenderer;
