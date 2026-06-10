@@ -51,6 +51,16 @@ public:
     { out.ok = false; out.errorMessage = QStringLiteral("stub"); }
 };
 
+// Stub with no scenario name — exercises the model's run-label fallback
+// to the output name (file name portion of persistenceKey()).
+class UnnamedRunLayer : public StubRunLayer
+{
+public:
+    QString scenarioName()   const override { return QString(); }
+    QString persistenceKey() const override
+    { return QStringLiteral("/tmp/results/model_run2.out"); }
+};
+
 class TestComparisonPlotSeriesTree : public QObject
 {
     Q_OBJECT
@@ -60,6 +70,7 @@ private slots:
     void removeSeriesEvictsSpec();
     void plotThisOnlyHidesSiblingsOnly();
     void updateLegendOverrideWritesSpecAndDedupes();
+    void runLabelFallsBackToOutputName();
 
 private:
     /*! Build a model with one run source and N series on a single attribute row. */
@@ -187,6 +198,30 @@ void TestComparisonPlotSeriesTree::updateLegendOverrideWritesSpecAndDedupes()
     model->updateLegendOverride(0, QString());
     QCOMPARE(model->spec(0).legendOverride, QString());
     QCOMPARE(spy.count(), 2);
+}
+
+void TestComparisonPlotSeriesTree::runLabelFallsBackToOutputName()
+{
+    auto model = std::make_unique<ComparisonPlotModel>();
+
+    // No label, empty scenario name → output file name from persistenceKey.
+    RunSource rs;
+    rs.layer = std::make_shared<UnnamedRunLayer>();
+    const int idx = model->addRunSource(std::move(rs));
+    QCOMPARE(model->runSource(idx).label, QStringLiteral("model_run2.out"));
+
+    // A non-empty scenario name still wins over the fallback.
+    RunSource named;
+    named.layer = std::make_shared<StubRunLayer>();
+    const int namedIdx = model->addRunSource(std::move(named));
+    QCOMPARE(model->runSource(namedIdx).label, QStringLiteral("Stub"));
+
+    // An explicit label wins over everything.
+    RunSource explicitLabel;
+    explicitLabel.layer = std::make_shared<UnnamedRunLayer>();
+    explicitLabel.label = QStringLiteral("Custom");
+    const int explicitIdx = model->addRunSource(std::move(explicitLabel));
+    QCOMPARE(model->runSource(explicitIdx).label, QStringLiteral("Custom"));
 }
 
 QTEST_MAIN(TestComparisonPlotSeriesTree)

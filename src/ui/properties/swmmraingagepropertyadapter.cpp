@@ -6,6 +6,8 @@
 
 #include "ui/properties/swmmraingagepropertyadapter.h"
 
+#include "layers/swmmmodellayer.h"   // USER_FLAGS Phase 4 — ensureUserFlagsModel()
+
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_model.h>
 
@@ -23,6 +25,8 @@ QString SWMMRainGagePropertyAdapter::displayLabelFor(const QString &property) co
     if (property == QLatin1String("currentRainfall"))  return tr("Current Rainfall");
     if (property == QLatin1String("filePath"))         return tr("Rain File (path)");
     if (property == QLatin1String("resolvedFilePath")) return tr("Rain File (resolved)");
+    // USER_FLAGS Phase 4.
+    if (property == QLatin1String("userFlags"))        return tr("User Flags");
     return {};
 }
 
@@ -107,4 +111,15 @@ void SWMMRainGagePropertyAdapter::setFilePath(const QString &p)
                             m_name.toUtf8().constData(),
                             p.toUtf8().constData()) == SWMM_OK)
         emit changed();
+}
+
+UserFlagsEditRef SWMMRainGagePropertyAdapter::userFlagsRef() const
+{
+    UserFlagsEditRef r;
+    r.objectType = QStringLiteral("GAGE");
+    r.objectName = name();
+    r.model      = modelLayer() ? modelLayer()->ensureUserFlagsModel()
+                                : nullptr;
+    r.summary    = userFlagsSummaryFor(r.model, r.objectType, r.objectName);
+    return r;
 }

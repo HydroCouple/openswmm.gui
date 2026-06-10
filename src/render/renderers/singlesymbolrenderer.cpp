@@ -105,16 +105,9 @@ void writePropOnAllLayers(SymbolStyle &style, QLatin1String key, const QVariant 
 QColor SingleSymbolRenderer::colorForClass(const QString &classKey) const
 {
     if (classKey != kSingleClassKey) return {};
-    // Return the first matching layer's stored colour; matches what the
-    // legend swatch displays (firstSymbolColor convention).
-    for (const SymbolLayer &sl : m_symbol.layers) {
-        const auto it = sl.props.constFind(QStringLiteral("color"));
-        if (it != sl.props.constEnd()) {
-            const QColor c(it.value().toString());
-            if (c.isValid()) return c;
-        }
-    }
-    return {};
+    // Gap A1.2 — tolerant read over both grammar keys ("color" then
+    // "fillColor"); matches the legend-swatch convention.
+    return SymbolProps::firstColor(m_symbol);
 }
 
 qreal SingleSymbolRenderer::sizeForClass(const QString &classKey) const
@@ -135,7 +128,7 @@ qreal SingleSymbolRenderer::sizeForClass(const QString &classKey) const
 void SingleSymbolRenderer::setColorForClass(const QString &classKey, const QColor &color)
 {
     if (classKey != kSingleClassKey || !color.isValid()) return;
-    writePropOnAllLayers(m_symbol, QLatin1String("color"), color.name(QColor::HexArgb));
+    SymbolProps::overrideColorInPlace(m_symbol, color);
 }
 
 void SingleSymbolRenderer::setSizeForClass(const QString &classKey, qreal size)

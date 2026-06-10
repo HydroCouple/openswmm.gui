@@ -104,14 +104,9 @@ QColor CategorizedRenderer::colorForClass(const QString &classKey) const
     bool ok = false;
     const int idx = classKey.toInt(&ok);
     if (!ok || idx < 0 || idx >= m_categories.size()) return {};
-    for (const SymbolLayer &sl : m_categories.at(idx).symbol.layers) {
-        const auto it = sl.props.constFind(QStringLiteral("color"));
-        if (it != sl.props.constEnd()) {
-            const QColor c(it.value().toString());
-            if (c.isValid()) return c;
-        }
-    }
-    return {};
+    // Gap A1.2 — tolerant read over both grammar keys ("color" then
+    // "fillColor"), so marker/fill-spec'd categories report their swatch.
+    return SymbolProps::firstColor(m_categories.at(idx).symbol);
 }
 
 void CategorizedRenderer::setColorForClass(const QString &classKey, const QColor &color)
@@ -120,11 +115,7 @@ void CategorizedRenderer::setColorForClass(const QString &classKey, const QColor
     const int idx = classKey.toInt(&ok);
     if (!ok || idx < 0 || idx >= m_categories.size() || !color.isValid())
         return;
-    const QString hex = color.name(QColor::HexArgb);
-    for (SymbolLayer &sl : m_categories[idx].symbol.layers) {
-        if (sl.props.contains(QStringLiteral("color")))
-            sl.props.insert(QStringLiteral("color"), hex);
-    }
+    SymbolProps::overrideColorInPlace(m_categories[idx].symbol, color);
 }
 
 void CategorizedRenderer::setSymbolForClass(const QString &classKey, const SymbolStyle &style)

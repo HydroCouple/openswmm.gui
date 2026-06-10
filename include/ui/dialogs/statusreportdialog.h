@@ -24,6 +24,7 @@
 #include <QVector>
 
 class QCheckBox;
+class QComboBox;
 class QLabel;
 class QLineEdit;
 class QListView;
@@ -35,11 +36,24 @@ class QSyntaxHighlighter;
 
 namespace openswmmvis::ui {
 
+/*! One selectable report in the viewer's run combo — typically the
+ *  scenario name of a run plus the `.rpt` path it wrote. */
+struct ReportSource {
+    QString label;   ///< user-visible run / scenario name.
+    QString path;    ///< absolute `.rpt` path.
+};
+
 class StatusReportDialog : public QDialog
 {
     Q_OBJECT
 public:
     explicit StatusReportDialog(const QString &rptPath, QWidget *parent = nullptr);
+
+    /*! Multi-run overload — shows a run selector combo when more than one
+     *  source is given.  \p initialIndex selects the initially shown run. */
+    explicit StatusReportDialog(const QVector<ReportSource> &sources,
+                                int initialIndex = 0,
+                                QWidget *parent = nullptr);
     ~StatusReportDialog() override;
 
 private slots:
@@ -50,12 +64,16 @@ private slots:
     void onSectionActivated(const QModelIndex &proxyIdx);
 
 private:
-    void buildUi(const QVector<openswmmvis::io::RptSection> &sections);
+    void buildUi();
+    void loadReport(int sourceIndex);
     void populateText(const QVector<openswmmvis::io::RptSection> &sections);
     void runFind(bool backwards);
     void updateMatchCounter();
 
+    QVector<ReportSource>  m_sources;
     QString                m_path;
+
+    QComboBox             *m_runCombo         = nullptr;
 
     QSplitter             *m_splitter         = nullptr;
 

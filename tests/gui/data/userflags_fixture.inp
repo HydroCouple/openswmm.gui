@@ -1,0 +1,51 @@
+[TITLE]
+USER_FLAGS Phase 5 round-trip fixture - docs/USER_FLAGS_UI_PLAN_2026-06-03.md
+Covers: mixed-case flag names, quoted strings with spaces, negative
+integers, scientific-notation reals, and an undefined-flag-free model.
+
+[OPTIONS]
+FLOW_UNITS       CFS
+INFILTRATION     HORTON
+FLOW_ROUTING     DYNWAVE
+LINK_OFFSETS     DEPTH
+MIN_SLOPE        0
+START_DATE       01/01/2026
+START_TIME       00:00:00
+REPORT_START_DATE 01/01/2026
+REPORT_START_TIME 00:00:00
+END_DATE         01/01/2026
+END_TIME         00:30:00
+REPORT_STEP      00:01:00
+ROUTING_STEP     00:00:30
+
+[JUNCTIONS]
+;;Name    Elev    MaxDepth    InitDepth    SurDepth    Aponded
+J1        100.0   10.0        0            0           0
+
+[OUTFALLS]
+;;Name    Elev    Type    StageData    Gated
+O1        95.0    FREE                  NO
+
+[CONDUITS]
+;;Name    From    To    Length    Roughness    InOffset    OutOffset    InitFlow    MaxFlow
+C_MAIN    J1      O1    100.0     0.013        0.5         1.5          0           0
+
+[XSECTIONS]
+;;Link    Shape       Geom1    Geom2    Geom3    Geom4    Barrels
+C_MAIN    CIRCULAR    1.0      0        0        0        1
+
+[USER_FLAGS]
+;;Name                Type       Description
+;;--------------------  ----------
+Inspected             BOOLEAN    "Has the object been field-inspected?"
+priority              INTEGER    "Maintenance priority (1 = highest)"
+ROUGHNESS_ADJ         REAL       "Site-specific roughness multiplier"
+ASSET_ID              STRING     "External asset-management system ID"
+
+[USER_FLAG_VALUES]
+;;ObjectType  ObjectName   FlagName       Value
+;;--------------  ----------------  --------------------
+NODE          J1           inspected      YES
+node          J1           PRIORITY       -5
+LINK          C_MAIN       ROUGHNESS_ADJ  1e-6
+LINK          C_MAIN       ASSET_ID       "AM 00341"

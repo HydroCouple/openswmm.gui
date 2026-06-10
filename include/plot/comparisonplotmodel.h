@@ -73,6 +73,19 @@ struct AttributeRow {
     QString           unitsLabel;      ///< e.g. "ft", "m/s".
 };
 
+/*! \brief One user-configured 1v1 comparison: X-series vs Y-series
+ *  (COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 5). Both series must target
+ *  the same PlotAttribute (same chart row). When the pair list is empty
+ *  the view falls back to auto pairing (baseline vs every other run,
+ *  matched by objectRef). */
+struct ComparisonPair {
+    int xSeriesIndex = -1;   ///< Index into specs() — scatter X values.
+    int ySeriesIndex = -1;   ///< Index into specs() — scatter Y values.
+
+    bool operator==(const ComparisonPair& o) const noexcept
+    { return xSeriesIndex == o.xSeriesIndex && ySeriesIndex == o.ySeriesIndex; }
+};
+
 /*! \brief Model layer for the Comparison Plot Dialog.
  *
  * Lifecycle:
@@ -133,6 +146,23 @@ public:
     SeriesSpec&       spec(int i)       { return m_specs[i]; }
     const QVector<SeriesSpec>& specs() const noexcept { return m_specs; }
 
+    // ----- 1v1 comparison pairs (Phase 5) ----------------------------------
+    // Empty list = auto mode (baseline vs every other run by objectRef).
+
+    /*! \brief Append a pair. Rejects (returns -1) invalid/duplicate pairs,
+     *  self-pairs, and pairs whose series target different attributes.
+     *  Emits `pairsChanged` on success. */
+    int addPair(ComparisonPair pair);
+
+    /*! \brief Remove a pair by index. Emits `pairsChanged`. */
+    void removePair(int pairIndex);
+
+    /*! \brief Drop all pairs (back to auto mode). Emits `pairsChanged`
+     *  when the list was non-empty. */
+    void clearPairs();
+
+    const QVector<ComparisonPair>& pairs() const noexcept { return m_pairs; }
+
     // ----- Derived row layout --------------------------------------------
 
     /*! \brief Distinct attributes present in the spec list, ordered by the
@@ -169,15 +199,24 @@ signals:
     void rowsChanged();
     void animationTimeChanged(QDateTime t);
 
+    /*! \brief Phase 5 — the 1v1 pair list changed (add/remove/clear or
+     *  reindex after a series removal). */
+    void pairsChanged();
+
 private:
     QVector<RunSource>   m_runs;
     QVector<SeriesSpec>  m_specs;
     QVector<AttributeRow> m_rows;
+    QVector<ComparisonPair> m_pairs;        ///< Phase 5 — empty = auto mode.
     int                  m_baselineIdx = -1;
     QDateTime            m_animTime;        ///< Invalid when no AC bound / stopped.
 
     /*! \brief Populate `m_rows` from `m_specs`. Idempotent. */
     void deriveRows_();
+
+    /*! \brief Phase 5 — drop pairs referencing the removed series index and
+     *  shift higher indices down. Returns true when the list changed. */
+    bool fixupPairsAfterSeriesRemoval_(int seriesIndex);
 };
 
 } // namespace openswmmvis::plot

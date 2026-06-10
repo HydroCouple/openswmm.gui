@@ -7,6 +7,7 @@
 #include "ui/properties/swmmlinkpropertyadapter.h"
 
 #include "core/unitsystem.h"
+#include "layers/swmmmodellayer.h"   // USER_FLAGS Phase 4 — ensureUserFlagsModel()
 
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -77,6 +78,8 @@ QString SWMMLinkPropertyAdapter::displayLabelFor(const QString &property) const
     if (property == QLatin1String("xsection"))        return tr("Cross Section");
     if (property == QLatin1String("culvertCode"))     return tr("Culvert Code");
     if (property == QLatin1String("inletUsage"))      return tr("Inlets");
+    // USER_FLAGS Phase 4.
+    if (property == QLatin1String("userFlags"))       return tr("User Flags");
 
     return {};
 }
@@ -350,22 +353,21 @@ LinkCompoundEditRef SWMMLinkPropertyAdapter::xsectionRef() const
     return r;
 }
 
-LinkCompoundEditRef SWMMLinkPropertyAdapter::culvertCodeRef() const
+CulvertCodeRef SWMMLinkPropertyAdapter::culvertCodeRef() const
 {
-    LinkCompoundEditRef r;
+    // ATTRIBUTE_EDITOR_WIRING Phase 0 — inline combobox value (display
+    // label comes from the CulvertCodeRef → QString converter, which
+    // resolves the descriptive HDS-5 label via culvertCodeLabel()).
+    CulvertCodeRef r;
     r.engine   = m_engine;
     r.linkName = m_name;
-    r.kind     = LinkCompoundEditRef::CulvertCode;
     r.layer    = m_layer;
 
     const int idx = linkIdx();
     if (idx >= 0) {
         int code = 0;
-        if (swmm_link_get_culvert_code(m_engine, idx, &code) == SWMM_OK) {
-            r.summary = (code <= 0)
-                            ? tr("(none)")
-                            : tr("Code %1").arg(code);
-        }
+        if (swmm_link_get_culvert_code(m_engine, idx, &code) == SWMM_OK)
+            r.code = code;
     }
     return r;
 }
@@ -380,6 +382,15 @@ LinkCompoundEditRef SWMMLinkPropertyAdapter::inletUsageRef() const
     // No engine accessor for inlet-usage count today (BN-LINK-11 gap).
     // Show a placeholder until Slice BO 6.5.8 wires the deep editor.
     r.summary  = tr("(engine API pending — Slice BO 6.5.8)");
+    return r;
+}
+
+UserFlagsEditRef SWMMLinkPropertyAdapter::userFlagsRef() const {
+    UserFlagsEditRef r;
+    r.objectType = QStringLiteral("LINK");
+    r.objectName = m_name;
+    r.model      = m_layer ? m_layer->ensureUserFlagsModel() : nullptr;
+    r.summary    = userFlagsSummaryFor(r.model, r.objectType, r.objectName);
     return r;
 }
 

@@ -14,6 +14,7 @@
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "map/legendclasseditcommands.h"
+#include "map/legendcontent.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
 #include "render/ifeaturerenderer.h"
@@ -46,36 +47,18 @@ constexpr int  kSwatchPadding = 6;
 constexpr int  kLayerSpacing  = 6;
 constexpr int  kMaxLabelWidth = 220;
 
+// Gap B1 — both helpers delegate to the canonical LegendContent copy so the
+// on-canvas legend, the dock tree and the per-class edit routing read the
+// SAME rows (results layers now aggregate their per-kind renderers instead
+// of showing the dormant layer-level renderer).
 QColor firstSymbolColor(const OpenSWMM::Render::SymbolStyle &style)
 {
-    for (const auto &sl : style.layers)
-    {
-        const auto it = sl.props.constFind(QStringLiteral("color"));
-        if (it != sl.props.constEnd())
-        {
-            QColor c(it.value().toString());
-            if (c.isValid()) return c;
-        }
-    }
-    return QColor(Qt::gray);
+    return openswmmvis::map::LegendContent::firstSymbolColor(style);
 }
 
 QList<OpenSWMM::Render::LegendSymbolItem> legendItemsFor(OpenSWMMVisLayer *layer)
 {
-    using namespace OpenSWMM::Render;
-    if (auto *l = qobject_cast<SWMMResultsLayer *>(layer); l && l->renderer())
-        return l->renderer()->legendSymbolItems();
-    if (auto *l = qobject_cast<SWMM2DResultsLayer *>(layer); l && l->renderer())
-        return l->renderer()->legendSymbolItems();
-    if (auto *l = qobject_cast<SWMM2DMeshLayer *>(layer); l && l->renderer())
-        return l->renderer()->legendSymbolItems();
-    if (auto *l = qobject_cast<GISVectorLayer *>(layer); l && l->renderer())
-        return l->renderer()->legendSymbolItems();
-    if (auto *m = qobject_cast<SWMMModelLayer *>(layer))   // X4 — multi-kind
-        return m->legendSymbolItems();
-    if (auto *l = qobject_cast<GISRasterLayer *>(layer); l && l->rasterRenderer())
-        return l->rasterRenderer()->legendSymbolItems();
-    return {};
+    return openswmmvis::map::LegendContent::legendItemsFor(layer);
 }
 
 // Slice BB Phase 8.6.10 / 8.6.16 — apply per-item overrides on top of the
@@ -509,14 +492,14 @@ void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
     // right-click directly on a row offers the per-class actions inline.
     const auto [itemLayer, classKey] = itemAtY(event->pos().y());
     if (itemLayer && !classKey.isEmpty()) {
-        OpenSWMM::Render::IFeatureRenderer *r = nullptr;
-        if (auto *l = qobject_cast<SWMMResultsLayer *>(itemLayer))    r = l->renderer();
-        else if (auto *l = qobject_cast<SWMM2DResultsLayer *>(itemLayer))  r = l->renderer();
-        else if (auto *l = qobject_cast<SWMM2DMeshLayer *>(itemLayer))     r = l->renderer();
-        else if (auto *l = qobject_cast<GISVectorLayer *>(itemLayer))      r = l->renderer();
-
-        const bool canEditColor =
-            r && r->supportsClassEdit(OpenSWMM::Render::ClassEditKind::Color);
+        // Gap B1 — dispatch through LegendContent so multi-kind layers
+        // (SWMMModelLayer) and results layers route through their
+        // kind-qualified facades. The old qobject_cast chain permanently
+        // disabled "Change color…" for model-layer rows on the overlay
+        // even though the same edit worked from the dock.
+        namespace LC = openswmmvis::map::LegendContent;
+        const bool canEditColor = LC::supportsClassEdit(
+            itemLayer, OpenSWMM::Render::ClassEditKind::Color);
 
         QAction *changeColor = menu.addAction(tr("Change color…"));
         changeColor->setEnabled(canEditColor);
@@ -527,10 +510,10 @@ void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
             const QString classKeyCopy = classKey;
             // Best-effort starting colour for the colour picker — current
             // override if any, else first symbol color from the legend row.
-            QColor seed = r->colorForClass(classKey);
+            QColor seed = LC::colorForClass(itemLayer, classKey);
             if (!seed.isValid()) {
-                // Walk legendSymbolItems to find this class's effective colour.
-                for (const auto &row : r->legendSymbolItems()) {
+                // Walk the canonical rows to find this class's colour.
+                for (const auto &row : LC::legendItemsFor(itemLayer)) {
                     if (row.classKey == classKey) {
                         seed = firstSymbolColor(row.symbol);
                         break;

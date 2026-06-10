@@ -21,19 +21,9 @@ namespace OpenSWMM::Render
 namespace
 {
 
-// Convention for SymbolLayer::props: any colour value is stored as a hex
-// string (e.g. "#FF1F77B4") rather than a QColor variant, so JSON
-// round-trip is lossless. This helper does the swap.
-void overrideColorInPlace(SymbolStyle &style, const QColor &c)
-{
-    const QString hex = c.name(QColor::HexArgb);
-    for (SymbolLayer &sl : style.layers)
-    {
-        // Apply only when the symbol layer already advertises a colour slot.
-        if (sl.props.contains(QStringLiteral("color")))
-            sl.props.insert(QStringLiteral("color"), hex);
-    }
-}
+// Gap A1.2 — colour convention now lives in one place: SymbolProps
+// (render/symbolstyle.h). Local alias keeps the call sites unchanged.
+using SymbolProps::overrideColorInPlace;
 
 // Slice BB-α legacy-load shim: synthesise a discrete ramp from a list of
 // per-bin colours saved by pre-BB-α schemas. The synthesised ramp uses N

@@ -38,6 +38,8 @@
 #include "render/renderers/graduatedrenderer.h"
 #include "render/renderers/rulebasedrenderer.h"
 #include "render/renderers/singlesymbolrenderer.h"
+// Gap A1.3 — archetype-seeded renderer factory.
+#include "render/rendererfactory.h"
 
 using namespace OpenSWMM::Render;
 
@@ -91,6 +93,13 @@ private slots:
     void classEdit_categorized_colorAndSymbolEditsByIndex();
     void classEdit_categorized_outOfRangeIndexIsNoOp();
     void classEdit_ruleBased_supportsClassEditReturnsFalse();
+
+    // Gap A1.3 — archetype-seeded renderer factory.
+    void factory_seedsArchetypeSkeletonPerArchetype();
+    void factory_graduatedSymbolForHasColorForPointAndLine();
+    void factory_carriesSymbolAndAttributeAcrossClassSwap();
+    void factory_seedsAttributeFromFieldsByType();
+    void factory_unknownIdReturnsNull();
 };
 
 void TestIFeatureRenderer::featureRef_defaults()
@@ -144,7 +153,10 @@ void TestIFeatureRenderer::symbolLayer_jsonRoundTrip()
     out.fromJson(j);
 
     QCOMPARE(out.kind, SymbolLayerKind::SimpleLine);
-    QCOMPARE(out.props.value(QStringLiteral("color")).toString(), QStringLiteral("#1f77b4"));
+    // X1 — colour props rehydrate as QColor variants on load (the in-memory
+    // canonical form); compare colour VALUES, not string representations.
+    QCOMPARE(out.props.value(QStringLiteral("color")).value<QColor>(),
+             QColor(QStringLiteral("#1f77b4")));
     QCOMPARE(out.props.value(QStringLiteral("width")).toDouble(), 2.5);
 }
 
@@ -212,8 +224,8 @@ void TestIFeatureRenderer::symbolStyle_jsonRoundTripStacked()
     QCOMPARE(out.layers.at(0).props.value(QStringLiteral("shape")).toString(),
              QStringLiteral("circle"));
     QCOMPARE(out.layers.at(0).props.value(QStringLiteral("size")).toDouble(), 12.0);
-    QCOMPARE(out.layers.at(1).props.value(QStringLiteral("color")).toString(),
-             QStringLiteral("#17becf"));
+    QCOMPARE(out.layers.at(1).props.value(QStringLiteral("color")).value<QColor>(),
+             QColor(QStringLiteral("#17becf")));
     QCOMPARE(out.layers.at(2).props.value(QStringLiteral("shape")).toString(),
              QStringLiteral("cross"));
 }
@@ -251,8 +263,8 @@ void TestIFeatureRenderer::legendSymbolItem_jsonRoundTripGraduated()
     QCOMPARE(out.userLabel, QStringLiteral("Low"));
     QCOMPARE(out.visible, true);
     QCOMPARE(out.symbol.layers.size(), 1);
-    QCOMPARE(out.symbol.layers.at(0).props.value(QStringLiteral("color")).toString(),
-             QStringLiteral("#440154"));
+    QCOMPARE(out.symbol.layers.at(0).props.value(QStringLiteral("color")).value<QColor>(),
+             QColor(QStringLiteral("#440154")));
 }
 
 void TestIFeatureRenderer::legendSymbolItem_jsonRoundTripCategorical()
@@ -392,8 +404,8 @@ void TestIFeatureRenderer::singleSymbolRenderer_jsonRoundTrip()
     QCOMPARE(out.rendererId(), QStringLiteral("single"));
     QCOMPARE(out.legendLabel(), QStringLiteral("X"));
     QCOMPARE(out.symbol().layers.size(), 1);
-    QCOMPARE(out.symbol().layers.at(0).props.value(QStringLiteral("color")).toString(),
-             QStringLiteral("#2ca02c"));
+    QCOMPARE(out.symbol().layers.at(0).props.value(QStringLiteral("color")).value<QColor>(),
+             QColor(QStringLiteral("#2ca02c")));
 }
 
 void TestIFeatureRenderer::singleSymbolRenderer_cloneIsIndependent()
@@ -456,13 +468,11 @@ void TestIFeatureRenderer::graduatedRenderer_legendItemsMatchBins()
     QCOMPARE(items.at(3).range.second, 4.0);  // last bin closes exactly at maxValue
 
     // Each swatch carries the matching per-bin colour (override applied).
-    // QColor::name(QColor::HexArgb) emits lowercase hex — the literal "#ff…"
-    // here matches that exactly; case in `setBinColors` input does not survive
-    // round-trip through QColor.
-    QCOMPARE(items.at(0).symbol.layers.at(0).props.value(QStringLiteral("color")).toString(),
-             QStringLiteral("#ff440154"));
-    QCOMPARE(items.at(3).symbol.layers.at(0).props.value(QStringLiteral("color")).toString(),
-             QStringLiteral("#fffde725"));
+    // X1 — the override writes QColor variants; compare colour VALUES.
+    QCOMPARE(items.at(0).symbol.layers.at(0).props.value(QStringLiteral("color")).value<QColor>(),
+             QColor(QStringLiteral("#440154")));
+    QCOMPARE(items.at(3).symbol.layers.at(0).props.value(QStringLiteral("color")).value<QColor>(),
+             QColor(QStringLiteral("#fde725")));
 
     // sortIndex set in ascending order.
     QCOMPARE(items.at(0).sortIndex, 0);
@@ -522,14 +532,18 @@ void TestIFeatureRenderer::graduatedRenderer_symbolForOverridesColorInBaseSymbol
     const SymbolStyle s = r.symbolFor({}, attrs);
     // Size from the template is preserved.
     QCOMPARE(s.layers.at(0).props.value(QStringLiteral("size")).toDouble(), 12.0);
-    // Colour is overwritten to bin 1's white. (lowercase per QColor::HexArgb)
-    QCOMPARE(s.layers.at(0).props.value(QStringLiteral("color")).toString(),
-             QStringLiteral("#ffffffff"));
+    // Colour is overwritten to bin 1's white. (Gap A1.2 — compare as
+    // QColor via the tolerant read; the canonical in-memory encoding is a
+    // QColor variant, not a hex string.)
+    QCOMPARE(SymbolProps::readColor(s.layers.at(0).props,
+                                    QStringLiteral("color")),
+             QColor(QStringLiteral("#ffffff")));
 
     // Attribute missing → template returned untouched (no override).
     const SymbolStyle smiss = r.symbolFor({}, {});
-    QCOMPARE(smiss.layers.at(0).props.value(QStringLiteral("color")).toString(),
-             QStringLiteral("#ff00ff"));
+    QCOMPARE(SymbolProps::readColor(smiss.layers.at(0).props,
+                                    QStringLiteral("color")),
+             QColor(QStringLiteral("#ff00ff")));
 }
 
 void TestIFeatureRenderer::graduatedRenderer_jsonRoundTrip()
@@ -765,9 +779,11 @@ void TestIFeatureRenderer::classEdit_singleSymbol_colorSizeWidthSymbol()
     QVERIFY(r.supportsClassEdit(ClassEditKind::Symbol));
 
     // Colour edit writes through to every layer that has a colour slot.
+    // (Gap A1.2 — compare as QColor; canonical encoding is a QColor variant.)
     r.setColorForClass(QStringLiteral("single"), QColor(QStringLiteral("#abcdef")));
-    QCOMPARE(r.symbol().layers.at(0).props.value(QStringLiteral("color")).toString().toLower(),
-             QStringLiteral("#ffabcdef"));   // HexArgb prepends opaque alpha
+    QCOMPARE(SymbolProps::readColor(r.symbol().layers.at(0).props,
+                                    QStringLiteral("color")),
+             QColor(QStringLiteral("#abcdef")));
 
     // Size edit updates the marker size.
     r.setSizeForClass(QStringLiteral("single"), 17.0);
@@ -857,13 +873,15 @@ void TestIFeatureRenderer::classEdit_categorized_colorAndSymbolEditsByIndex()
     QVERIFY(!r.supportsClassEdit(ClassEditKind::Size));   // not editable here
 
     // Colour edit on index 1 mutates the second category's symbol.
+    // (Gap A1.2 — compare as QColor; canonical encoding is a QColor variant.)
     r.setColorForClass(QStringLiteral("1"), QColor(QStringLiteral("#abcdef")));
-    QCOMPARE(r.categories().at(1).symbol.layers.at(0).props.value(QStringLiteral("color"))
-                                                          .toString().toLower(),
-             QStringLiteral("#ffabcdef"));
+    QCOMPARE(SymbolProps::readColor(r.categories().at(1).symbol.layers.at(0).props,
+                                    QStringLiteral("color")),
+             QColor(QStringLiteral("#abcdef")));
     // Index 0 is untouched.
-    QCOMPARE(r.categories().at(0).symbol.layers.at(0).props.value(QStringLiteral("color")).toString(),
-             QStringLiteral("#1f77b4"));
+    QCOMPARE(SymbolProps::readColor(r.categories().at(0).symbol.layers.at(0).props,
+                                    QStringLiteral("color")),
+             QColor(QStringLiteral("#1f77b4")));
 
     // Wholesale symbol replacement on index 0.
     r.setSymbolForClass(QStringLiteral("0"),
@@ -898,6 +916,129 @@ void TestIFeatureRenderer::classEdit_ruleBased_supportsClassEditReturnsFalse()
     // No-op setters shouldn't crash or change anything observable.
     r.setColorForClass(QStringLiteral("0"), QColor(QStringLiteral("#ff0000")));
     r.setSymbolForClass(QStringLiteral("0"), SymbolStyle{});
+}
+
+// ── Gap A1.3 — archetype-seeded renderer factory ───────────────────────
+
+void TestIFeatureRenderer::factory_seedsArchetypeSkeletonPerArchetype()
+{
+    using FeatureSublayer = OpenSWMM::Render::FeatureSublayer;
+
+    // Point → SimpleMarker skeleton with a fillColor slot.
+    const SymbolStyle pt = RendererFactory::defaultSymbolForArchetype(
+        FeatureSublayer::Archetype::Point);
+    QCOMPARE(pt.layers.size(), 1);
+    QCOMPARE(pt.layers.first().kind, SymbolLayerKind::SimpleMarker);
+    QVERIFY(pt.layers.first().props.contains(QStringLiteral("fillColor")));
+    QVERIFY(pt.layers.first().props.contains(QStringLiteral("size")));
+
+    // Line → SimpleLine skeleton with a color + width slot.
+    const SymbolStyle ln = RendererFactory::defaultSymbolForArchetype(
+        FeatureSublayer::Archetype::Line);
+    QCOMPARE(ln.layers.first().kind, SymbolLayerKind::SimpleLine);
+    QVERIFY(ln.layers.first().props.contains(QStringLiteral("color")));
+    QVERIFY(ln.layers.first().props.contains(QStringLiteral("width")));
+
+    // Polygon → SimpleFill skeleton with fill + outline slots.
+    const SymbolStyle pg = RendererFactory::defaultSymbolForArchetype(
+        FeatureSublayer::Archetype::Polygon);
+    QCOMPARE(pg.layers.first().kind, SymbolLayerKind::SimpleFill);
+    QVERIFY(pg.layers.first().props.contains(QStringLiteral("fillColor")));
+    QVERIFY(pg.layers.first().props.contains(QStringLiteral("outlineColor")));
+}
+
+void TestIFeatureRenderer::factory_graduatedSymbolForHasColorForPointAndLine()
+{
+    using FeatureSublayer = OpenSWMM::Render::FeatureSublayer;
+
+    // The historical failure: a default-constructed GraduatedRenderer has
+    // an EMPTY base symbol, so symbolFor() returned a colour-less style and
+    // paint fell back to the legacy ramp. The factory must prevent that for
+    // BOTH points (fillColor grammar) and lines (color grammar).
+    for (auto archetype : { FeatureSublayer::Archetype::Point,
+                            FeatureSublayer::Archetype::Line }) {
+        auto r = RendererFactory::makeRenderer(QStringLiteral("graduated"),
+                                               archetype);
+        QVERIFY(r);
+        auto *g = dynamic_cast<GraduatedRenderer *>(r.get());
+        QVERIFY(g);
+        g->setClassifyAttribute(QStringLiteral("depth"));
+        g->autoClassify({ 0.0, 1.0, 2.0, 3.0, 4.0 });
+
+        QVariantMap attrs;
+        attrs.insert(QStringLiteral("depth"), 2.0);
+        const SymbolStyle styled = g->symbolFor(FeatureRef{}, attrs);
+        QVERIFY(!styled.layers.isEmpty());
+        QVERIFY(SymbolProps::firstColor(styled).isValid());
+    }
+}
+
+void TestIFeatureRenderer::factory_carriesSymbolAndAttributeAcrossClassSwap()
+{
+    using FeatureSublayer = OpenSWMM::Render::FeatureSublayer;
+
+    // Author a distinctive single-symbol look…
+    auto single = RendererFactory::makeRenderer(
+        QStringLiteral("single"), FeatureSublayer::Archetype::Line);
+    auto *ssr = dynamic_cast<SingleSymbolRenderer *>(single.get());
+    QVERIFY(ssr);
+    ssr->setColorForClass(QStringLiteral("single"), QColor(10, 20, 30));
+
+    // …switch class to graduated: the base symbol must carry over.
+    auto grad = RendererFactory::makeRenderer(
+        QStringLiteral("graduated"), FeatureSublayer::Archetype::Line,
+        single.get());
+    auto *g = dynamic_cast<GraduatedRenderer *>(grad.get());
+    QVERIFY(g);
+    QCOMPARE(SymbolProps::firstColor(g->baseSymbol()), QColor(10, 20, 30));
+
+    // …and a graduated → categorized swap carries the classify attribute.
+    g->setClassifyAttribute(QStringLiteral("flow"));
+    auto cat = RendererFactory::makeRenderer(
+        QStringLiteral("categorized"), FeatureSublayer::Archetype::Line,
+        grad.get());
+    auto *c = dynamic_cast<CategorizedRenderer *>(cat.get());
+    QVERIFY(c);
+    QCOMPARE(c->classifyAttribute(), QStringLiteral("flow"));
+    QCOMPARE(SymbolProps::firstColor(c->fallbackSymbol()), QColor(10, 20, 30));
+}
+
+void TestIFeatureRenderer::factory_seedsAttributeFromFieldsByType()
+{
+    using FeatureSublayer = OpenSWMM::Render::FeatureSublayer;
+    using OpenSWMM::Render::AttributeField;
+
+    QVector<AttributeField> fields;
+    AttributeField tag;
+    tag.name = QStringLiteral("tag");
+    tag.type = QMetaType::QString;
+    AttributeField depth;
+    depth.name = QStringLiteral("depth");
+    depth.type = QMetaType::Double;
+    fields << tag << depth;
+
+    // Graduated prefers the first NON-string field…
+    auto grad = RendererFactory::makeRenderer(
+        QStringLiteral("graduated"), FeatureSublayer::Archetype::Point,
+        nullptr, &fields);
+    QCOMPARE(dynamic_cast<GraduatedRenderer *>(grad.get())->classifyAttribute(),
+             QStringLiteral("depth"));
+
+    // …Categorized prefers the first string field.
+    auto cat = RendererFactory::makeRenderer(
+        QStringLiteral("categorized"), FeatureSublayer::Archetype::Point,
+        nullptr, &fields);
+    QCOMPARE(dynamic_cast<CategorizedRenderer *>(cat.get())->classifyAttribute(),
+             QStringLiteral("tag"));
+}
+
+void TestIFeatureRenderer::factory_unknownIdReturnsNull()
+{
+    using FeatureSublayer = OpenSWMM::Render::FeatureSublayer;
+    QVERIFY(!RendererFactory::makeRenderer(QStringLiteral("heatmap"),
+                                           FeatureSublayer::Archetype::Point));
+    QVERIFY(!RendererFactory::makeRenderer(QString(),
+                                           FeatureSublayer::Archetype::Point));
 }
 
 QTEST_MAIN(TestIFeatureRenderer)

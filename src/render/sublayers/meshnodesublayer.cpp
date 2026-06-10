@@ -103,7 +103,7 @@ QList<LegendSymbolItem> MeshNodeSublayer::legendSymbolItems() const
 
     SymbolLayer marker;
     marker.kind = SymbolLayerKind::SimpleMarker;
-    marker.props.insert(QStringLiteral("color"),   m_style->color().name(QColor::HexArgb));
+    SymbolProps::writeColor(marker.props, QStringLiteral("color"), m_style->color());
     marker.props.insert(QStringLiteral("sizePx"),  m_style->markerSizePx());
     marker.props.insert(QStringLiteral("shape"),   int(m_style->shape()));
     item.symbol.layers.append(marker);

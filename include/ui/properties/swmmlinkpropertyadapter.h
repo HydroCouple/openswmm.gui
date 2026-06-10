@@ -20,8 +20,10 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 
+#include "ui/properties/culvertcoderef.h"        // ATTRIBUTE_EDITOR_WIRING Phase 0
 #include "ui/properties/dataobjectref.h"
 #include "ui/properties/linkcompoundeditref.h"   // Slice SC.1
+#include "ui/properties/userflagseditref.h"      // USER_FLAGS Phase 4
 
 class SWMMModelLayer;
 
@@ -143,13 +145,21 @@ public:
      *  is assigned yet (the engine returns curveIdx == -1). */
     [[nodiscard]] DataObjectRef pumpCurveRef() const;
 
-    /*! Slice SC.1 — Compound-attribute refs for the three link-side
-     *  Property Browser cells (cross section / culvert code / inlet
-     *  usage). Each builds the engine summary live so the cell shows
-     *  a useful preview even before the user opens the dialog. */
+    /*! Slice SC.1 — Compound-attribute refs for the link-side Property
+     *  Browser cells (cross section / inlet usage). Each builds the
+     *  engine summary live so the cell shows a useful preview even
+     *  before the user opens the dialog. */
     [[nodiscard]] LinkCompoundEditRef xsectionRef()    const;
-    [[nodiscard]] LinkCompoundEditRef culvertCodeRef() const;
     [[nodiscard]] LinkCompoundEditRef inletUsageRef()  const;
+
+    /*! ATTRIBUTE_EDITOR_WIRING Phase 0 — culvert code is a single
+     *  HDS-5 enum value, edited inline via `CulvertCodeComboBox`
+     *  (no separate dialog). */
+    [[nodiscard]] CulvertCodeRef culvertCodeRef() const;
+
+    /*! Phase 4 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — per-object
+     *  user-flag assignments row (see SWMMNodePropertyAdapter). */
+    [[nodiscard]] UserFlagsEditRef userFlagsRef() const;
 
     /*! See SWMMNodePropertyAdapter::displayLabelFor — same contract,
      *  returns "" for unknown property names. */
@@ -204,7 +214,8 @@ public slots:
      *  cell editable — without these, the cell never enters edit mode
      *  and the registered `LinkCompoundEditButton` creator never fires. */
     void setXsectionRef(const LinkCompoundEditRef &)    { emit changed(); }
-    void setCulvertCodeRef(const LinkCompoundEditRef &) { emit changed(); }
+    void setUserFlagsRef(const UserFlagsEditRef &)      { emit changed(); }
+    void setCulvertCodeRef(const CulvertCodeRef &)      { emit changed(); }
     void setInletUsageRef(const LinkCompoundEditRef &)  { emit changed(); }
 
     /*! Round-4 follow-up — see SWMMNodePropertyAdapter::refresh. */
@@ -254,10 +265,12 @@ class SWMMConduitPropertyAdapter : public SWMMLinkPropertyAdapter
     // Slice SC.1 — compound-attribute "Edit…" cells.
     Q_PROPERTY(LinkCompoundEditRef xsection
                READ xsectionRef    WRITE setXsectionRef    NOTIFY changed)
-    Q_PROPERTY(LinkCompoundEditRef culvertCode
+    Q_PROPERTY(CulvertCodeRef culvertCode
                READ culvertCodeRef WRITE setCulvertCodeRef NOTIFY changed)
     Q_PROPERTY(LinkCompoundEditRef inletUsage
                READ inletUsageRef  WRITE setInletUsageRef  NOTIFY changed)
+    Q_PROPERTY(UserFlagsEditRef userFlags
+               READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
     using SWMMLinkPropertyAdapter::SWMMLinkPropertyAdapter;
 };
@@ -280,6 +293,8 @@ class SWMMPumpPropertyAdapter : public SWMMLinkPropertyAdapter
                READ pumpStartupDepth WRITE setPumpStartupDepth NOTIFY changed)
     Q_PROPERTY(double shutoffDepth
                READ pumpShutoffDepth WRITE setPumpShutoffDepth NOTIFY changed)
+    Q_PROPERTY(UserFlagsEditRef userFlags
+               READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
     using SWMMLinkPropertyAdapter::SWMMLinkPropertyAdapter;
 };
@@ -310,6 +325,8 @@ class SWMMOrificePropertyAdapter : public SWMMLinkPropertyAdapter
                READ orificeOpenCloseRate WRITE setOrificeOpenCloseRate NOTIFY changed)
     Q_PROPERTY(LinkCompoundEditRef xsection
                READ xsectionRef WRITE setXsectionRef NOTIFY changed)
+    Q_PROPERTY(UserFlagsEditRef userFlags
+               READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
     using SWMMLinkPropertyAdapter::SWMMLinkPropertyAdapter;
 };
@@ -338,6 +355,8 @@ class SWMMWeirPropertyAdapter : public SWMMLinkPropertyAdapter
                READ flapGate WRITE setFlapGate NOTIFY changed)
     Q_PROPERTY(LinkCompoundEditRef xsection
                READ xsectionRef WRITE setXsectionRef NOTIFY changed)
+    Q_PROPERTY(UserFlagsEditRef userFlags
+               READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
     using SWMMLinkPropertyAdapter::SWMMLinkPropertyAdapter;
 };
@@ -368,6 +387,8 @@ class SWMMOutletPropertyAdapter : public SWMMLinkPropertyAdapter
                READ pumpCurveRef WRITE setPumpCurveRef NOTIFY changed)
     Q_PROPERTY(SWMMLinkPropertyAdapter::FlapGate flapGate
                READ flapGate WRITE setFlapGate NOTIFY changed)
+    Q_PROPERTY(UserFlagsEditRef userFlags
+               READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
     using SWMMLinkPropertyAdapter::SWMMLinkPropertyAdapter;
 };

@@ -146,7 +146,10 @@ OpenSWMM::Render::SymbolStyle makeColourSymbol(const QColor &c)
 {
     OpenSWMM::Render::SymbolStyle s;
     OpenSWMM::Render::SymbolLayer layer;
-    layer.props.insert(QStringLiteral("color"), c.name(QColor::HexArgb));
+    // Gap A1.2 — canonical QColor variant (the old hex-string write was
+    // unreadable through the typed spec readers' value<QColor>()).
+    OpenSWMM::Render::SymbolProps::writeColor(
+        layer.props, QStringLiteral("color"), c);
     s.layers.append(layer);
     return s;
 }
@@ -386,9 +389,16 @@ public:
                           m_ctx.hostLayer)
                     : nullptr;
                 if (provider) {
+                    // Gap A4.3 — string fields first (the natural
+                    // categorisation targets: tag / status / group), then
+                    // numerics (legal but secondary, QGIS-style).
                     const auto fields = provider->availableAttributes(*m_ctx.category);
                     for (const auto &f : fields)
-                        m_attrCombo->addItem(f.displayName, f.name);
+                        if (f.type == QMetaType::QString)
+                            m_attrCombo->addItem(f.displayName, f.name);
+                    for (const auto &f : fields)
+                        if (f.type != QMetaType::QString)
+                            m_attrCombo->addItem(f.displayName, f.name);
                 } else {
                     m_attrCombo->addItems(suggestedAttributesFor(*m_ctx.category));
                 }
@@ -452,15 +462,9 @@ private:
             auto *labelItem = new QStandardItem(c.label.isEmpty() ? c.value : c.label);
             auto *colorItem = new QStandardItem;
 
-            // Pull colour out of the symbol if it exposes one.
-            QColor swatch;
-            for (const auto &sl : c.symbol.layers) {
-                const auto it = sl.props.constFind(QStringLiteral("color"));
-                if (it != sl.props.constEnd()) {
-                    const QColor cc(it.value().toString());
-                    if (cc.isValid()) { swatch = cc; break; }
-                }
-            }
+            // Pull colour out of the symbol if it exposes one (gap A1.2 —
+            // tolerant read over both grammar keys via SymbolProps).
+            QColor swatch = OpenSWMM::Render::SymbolProps::firstColor(c.symbol);
             if (!swatch.isValid()) swatch = QColor::fromHsvF(
                 (m_model->rowCount() * 0.137) - std::floor(m_model->rowCount() * 0.137),
                 0.55, 0.85);
@@ -650,8 +654,9 @@ private:
                     if (c.symbol.layers.isEmpty())
                         c.symbol = makeColourSymbol(sw);
                     else
-                        c.symbol.layers.first().props.insert(
-                            QStringLiteral("color"), sw.name(QColor::HexArgb));
+                        OpenSWMM::Render::SymbolProps::writeColor(
+                            c.symbol.layers.first().props,
+                            QStringLiteral("color"), sw);
                 }
             } else {
                 c.symbol = makeColourSymbol(sw.isValid() ? sw : QColor(Qt::gray));
@@ -680,10 +685,14 @@ private:
 
 } // namespace
 
-REGISTER_RENDERER_PANEL(
+// Gap A4.2 — Categorized needs at least one attribute (string OR numeric;
+// numeric categorisation stays legal, QGIS-style).
+REGISTER_RENDERER_PANEL_GATED(
     "categorized", "Categorized",
-    [](const RendererPanelContext &ctx, QWidget *parent) -> IRendererPanel * {
+    ([](const RendererPanelContext &ctx, QWidget *parent) -> IRendererPanel * {
         return new CategorizedPanel(ctx, parent);
-    })
+    }),
+    ([](const RendererPanelContext &ctx) { return !ctx.fields.isEmpty(); }),
+    "No attributes available for this kind")
 
 } // namespace openswmmvis::ui

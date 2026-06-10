@@ -6,10 +6,11 @@
  *
  * Slice SC.1 — Compound-attribute cell value for the link Property
  * Browser. Mirror of `NodeCompoundEditRef` (Slice DB.2) for link-side
- * compound concepts: cross section (shape + geoms + barrels), culvert
- * code (FHWA chart number), and inlet usage (`[INLETS]` per-conduit
- * rows). Each of these legacy SWMM concepts has its own dedicated
- * sub-dialog page hosted by `LinkCompoundEditDialog`.
+ * compound concepts: cross section (shape + geoms + barrels) and inlet
+ * usage (`[INLETS]` per-conduit rows). Each of these legacy SWMM
+ * concepts has its own dedicated sub-dialog page hosted by
+ * `LinkCompoundEditDialog`. (Culvert code moved to an inline
+ * `CulvertCodeComboBox` — ATTRIBUTE_EDITOR_WIRING Phase 0.)
  *
  * Registered as a Qt metatype so QPropertyModel can store it via
  * `QVariant::fromValue(...)` and the matching custom editor creator
@@ -33,11 +34,10 @@ class SWMMModelLayer;
 struct LinkCompoundEditRef
 {
     /*! Which legacy SWMM concept this cell wraps. Order matches the
-     *  visual layout of `ConduitProps` rows 5/19/20 in
-     *  `SWMM-GUI/Epaswmm5/objprops.txt` (Shape, Culvert Code, Inlets). */
+     *  visual layout of `ConduitProps` rows 5/20 in
+     *  `SWMM-GUI/Epaswmm5/objprops.txt` (Shape, Inlets). */
     enum Kind {
         XSection = 0,  ///< `[XSECTIONS]` per-link shape + geom1..4 + barrels
-        CulvertCode,   ///< `[CULVERT]` per-link FHWA chart number
         InletUsage,    ///< `[INLETS]` per-conduit usage rows (placeholder)
     };
 

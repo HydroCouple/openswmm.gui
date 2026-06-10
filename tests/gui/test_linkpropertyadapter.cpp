@@ -17,6 +17,7 @@
  */
 
 #include "ui/properties/swmmlinkpropertyadapter.h"
+#include "ui/properties/culvertcodes.h"   // ATTRIBUTE_EDITOR_WIRING Phase 0
 #include "ui/dialogs/linkcompoundeditdialog.h"
 
 #include <openswmm/engine/openswmm_engine.h>
@@ -358,9 +359,13 @@ private slots:
         // summary must still be non-empty so the cell shows something.
         QVERIFY(!xr.summary.isEmpty());
 
-        const LinkCompoundEditRef cr = a.culvertCodeRef();
-        QCOMPARE(cr.kind, LinkCompoundEditRef::CulvertCode);
-        QVERIFY(!cr.summary.isEmpty());
+        // ATTRIBUTE_EDITOR_WIRING Phase 0 — culvert code is now an
+        // inline-combobox value type, not a compound-dialog ref.
+        const CulvertCodeRef cr = a.culvertCodeRef();
+        QCOMPARE(cr.engine,   e);
+        QCOMPARE(cr.linkName, QStringLiteral("C1"));
+        QCOMPARE(cr.code,     0);   // fresh conduit — no culvert code
+        QVERIFY(!culvertCodeLabel(cr.code).isEmpty());
 
         const LinkCompoundEditRef ir = a.inletUsageRef();
         QCOMPARE(ir.kind, LinkCompoundEditRef::InletUsage);

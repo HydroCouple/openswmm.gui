@@ -10,27 +10,8 @@
 namespace OpenSWMM::Render
 {
 
-FeatureSublayer::Archetype FeatureSublayer::archetypeFor(OpenSWMMVis::SwmmCategory c)
-{
-    switch (c) {
-        case OpenSWMMVis::CatJunctions:
-        case OpenSWMMVis::CatOutfalls:
-        case OpenSWMMVis::CatStorage:
-        case OpenSWMMVis::CatDividers:
-        case OpenSWMMVis::CatRainGages:
-            return Archetype::Point;
-        case OpenSWMMVis::CatConduits:
-        case OpenSWMMVis::CatPumps:
-        case OpenSWMMVis::CatOrifices:
-        case OpenSWMMVis::CatWeirs:
-        case OpenSWMMVis::CatOutlets:
-            return Archetype::Line;
-        case OpenSWMMVis::CatSubcatchments:
-            return Archetype::Polygon;
-        default:
-            return Archetype::Point;
-    }
-}
+// archetypeFor moved inline into the header (gap A4.1) so header-only
+// consumers carry no link dependency on this TU.
 
 FeatureSublayer::FeatureSublayer(OpenSWMMVis::SwmmCategory category,
                                   QString id_,
@@ -118,9 +99,9 @@ QList<LegendSymbolItem> FeatureSublayer::legendSymbolItems() const
         case Archetype::Line:    sl.kind = SymbolLayerKind::SimpleLine;   break;
         case Archetype::Polygon: sl.kind = SymbolLayerKind::SimpleFill;   break;
     }
-    sl.props.insert(QStringLiteral("color"),
-                    m_style ? m_style->color().name(QColor::HexArgb)
-                            : QStringLiteral("#606060"));
+    SymbolProps::writeColor(sl.props, QStringLiteral("color"),
+                            m_style ? m_style->color()
+                                    : QColor(0x60, 0x60, 0x60));
     if (auto *ps = pointStyle())
         sl.props.insert(QStringLiteral("size"), ps->markerSizePx());
     else if (auto *ls = lineStyle())

@@ -8,6 +8,8 @@
 
 #include "render/fillsymbollayer.h"
 
+#include "render/symbolstyle.h"
+
 #include <QPainter>
 
 namespace OpenSWMM::Render
@@ -44,17 +46,14 @@ FillSymbolLayerSpec FillSymbolLayerSpec::fromSymbolLayer(const SymbolLayer &laye
     FillSymbolLayerSpec s;
     const QVariantMap &p = layer.props;
 
-    if (p.contains(QStringLiteral("fillColor"))) {
-        const QColor c = p.value(QStringLiteral("fillColor")).value<QColor>();
-        if (c.isValid()) s.fillColor = c;
-    }
+    // Gap A1.2 — tolerant reads (QColor variant or legacy hex string).
+    s.fillColor = SymbolProps::readColor(p, QStringLiteral("fillColor"),
+                                         s.fillColor);
     if (p.contains(QStringLiteral("fillStyle")))
         s.fillStyle = static_cast<Qt::BrushStyle>(
             p.value(QStringLiteral("fillStyle")).toInt());
-    if (p.contains(QStringLiteral("outlineColor"))) {
-        const QColor c = p.value(QStringLiteral("outlineColor")).value<QColor>();
-        if (c.isValid()) s.outlineColor = c;
-    }
+    s.outlineColor = SymbolProps::readColor(p, QStringLiteral("outlineColor"),
+                                            s.outlineColor);
     if (p.contains(QStringLiteral("outlineWidth")))
         s.outlineWidth = p.value(QStringLiteral("outlineWidth")).toDouble();
     if (p.contains(QStringLiteral("outlinePenStyle")))

@@ -18,6 +18,12 @@
 #include "ui/dialogs/linkcompoundeditdialog.h"
 #include "ui/properties/linkcompoundeditbutton.h"
 #include "ui/properties/linkcompoundeditref.h"
+// ATTRIBUTE_EDITOR_WIRING Phase 0 — culvert code inline combobox.
+#include "ui/properties/culvertcodecombobox.h"
+#include "ui/properties/culvertcoderef.h"
+// USER_FLAGS Phase 4 — per-object "User Flags" row ref + cell editor.
+#include "ui/properties/userflagseditbutton.h"
+#include "ui/properties/userflagseditref.h"
 // Slice BM.0-Browse-Edit — right-click menu dispatches to editors via the registry.
 #include "ui/editors/comprehensiveeditorregistry.h"
 #include "ui/dialogs/curveeditordialog.h"
@@ -255,12 +261,22 @@ void AttributePanel::setupUi()
         new QStandardItemEditorCreator<NodeCompoundEditButton>());
 
     // Slice SC.1 — same dance for the link-side compound-edit ref
-    // (cross section / culvert code / inlet usage cells on conduits).
+    // (cross section / inlet usage cells on conduits).
     qRegisterMetaType<LinkCompoundEditRef>("LinkCompoundEditRef");
     registerLinkCompoundEditRefConverter();
     delegate->registerCustomTypeEditorCreator(
         QMetaType::Type(qMetaTypeId<LinkCompoundEditRef>()),
         new QStandardItemEditorCreator<LinkCompoundEditButton>());
+
+    // ATTRIBUTE_EDITOR_WIRING Phase 0 (2026-06-04) — culvert code left
+    // the compound dialog and became an inline combobox. The converter
+    // renders the descriptive HDS-5 label in the read-only cell; the
+    // editor creator hands out a CulvertCodeComboBox in edit mode.
+    qRegisterMetaType<CulvertCodeRef>("CulvertCodeRef");
+    registerCulvertCodeRefConverter();
+    delegate->registerCustomTypeEditorCreator(
+        QMetaType::Type(qMetaTypeId<CulvertCodeRef>()),
+        new QStandardItemEditorCreator<CulvertCodeComboBox>());
 
     // Slice DA.4.3 — same dance for `DataObjectRef`, used by the new
     // outfall stage-data picker rows (Tidal Curve, Stage Time Series).
@@ -271,6 +287,16 @@ void AttributePanel::setupUi()
     delegate->registerCustomTypeEditorCreator(
         QMetaType::Type(qMetaTypeId<DataObjectRef>()),
         new QStandardItemEditorCreator<DataObjectPickerEditor>());
+
+    // Phase 4 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — same dance for
+    // the per-object "User Flags" row (UserFlagsEditRef): converter shows
+    // the "n of m set" summary, editor creator hands out the button that
+    // opens UserFlagValuesDialog.
+    qRegisterMetaType<UserFlagsEditRef>("UserFlagsEditRef");
+    registerUserFlagsEditRefConverter();
+    delegate->registerCustomTypeEditorCreator(
+        QMetaType::Type(qMetaTypeId<UserFlagsEditRef>()),
+        new QStandardItemEditorCreator<UserFlagsEditButton>());
 #else
     m_model    = new QStandardItemModel(this);
 #endif
@@ -599,6 +625,9 @@ void AttributePanel::onLayerComboIndexChanged(int index)
             if (m_subcatchAdapter) m_subcatchAdapter->deleteLater();
             m_subcatchAdapter = new SWMMSubcatchPropertyAdapter(
                 m_swmmLayer->engine(), name, this);
+            // USER_FLAGS Phase 4 — layer binding so the User Flags row
+            // reaches the shared UserFlagsModel.
+            m_subcatchAdapter->setModelLayer(m_swmmLayer);
             if (pm) pm->setData(QVariant::fromValue<QObject *>(m_subcatchAdapter));
             connect(m_subcatchAdapter, &SWMMSubcatchPropertyAdapter::changed,
                     this, [this, name]() {

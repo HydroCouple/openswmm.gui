@@ -269,19 +269,38 @@ SymbolStyle styleFromElementSymbol(const SWMMElementSymbol &s, SWMMModelLayer::C
     SymbolStyle style;
     SymbolLayer layer;
     layer.kind = layerKindFor(c);
-    layer.props.insert(QStringLiteral("color"),
-                       s.fillColor.name(QColor::HexArgb));
+    // X1 — canonical colour encoding: QColor *variants* under the keys the
+    // typed spec readers use (Marker/Fill specs read "fillColor" +
+    // "outlineColor"; Line spec reads its pen colour from "color"). The
+    // previous hex-string writes under "color"/"outlineColor" were invisible
+    // to the spec readers (value<QColor>() does not parse hex) and to the
+    // legend (reads "color" only) — the dialog opened on defaults and the
+    // legend fell back to gray.
+    if (layer.kind == SymbolLayerKind::SimpleLine) {
+        // The legacy link painter draws with the *pen* (outlineColor); the
+        // line grammar's editable colour key is "color". Keep fillColor too
+        // so the struct round-trips losslessly (M1.a).
+        layer.props.insert(QStringLiteral("color"),
+                           QVariant::fromValue(s.outlineColor));
+        layer.props.insert(QStringLiteral("fillColor"),
+                           QVariant::fromValue(s.fillColor));
+    } else {
+        layer.props.insert(QStringLiteral("fillColor"),
+                           QVariant::fromValue(s.fillColor));
+    }
     layer.props.insert(QStringLiteral("outlineColor"),
-                       s.outlineColor.name(QColor::HexArgb));
+                       QVariant::fromValue(s.outlineColor));
     layer.props.insert(QStringLiteral("outlineWidth"), s.outlineWidth);
     if (layer.kind == SymbolLayerKind::SimpleLine) {
         layer.props.insert(QStringLiteral("width"), s.size);
     } else {
         layer.props.insert(QStringLiteral("size"), s.size);
         if (layer.kind == SymbolLayerKind::SimpleMarker) {
-            layer.props.insert(
-                QStringLiteral("shape"),
-                OpenSWMM::Render::markerShapeToString(s.markerShape));
+            // X1 — store the canonical int (the adapters write ints and
+            // MarkerSymbolLayerSpec reads via toInt(); a token string read
+            // through toInt() collapsed every shape to 0 = Circle).
+            layer.props.insert(QStringLiteral("shape"),
+                               static_cast<int>(s.markerShape));
         }
     }
     // M1 — round-trip labels + flow arrows so the SymbolStyle is a LOSSLESS
@@ -290,11 +309,11 @@ SymbolStyle styleFromElementSymbol(const SWMMElementSymbol &s, SWMMModelLayer::C
     // reconstructable from the style; see elementSymbolFromStyle).
     layer.props.insert(QStringLiteral("showLabel"),  s.showLabel);
     layer.props.insert(QStringLiteral("labelFont"),  QVariant::fromValue(s.labelFont));
-    layer.props.insert(QStringLiteral("labelColor"), s.labelColor.name(QColor::HexArgb));
+    layer.props.insert(QStringLiteral("labelColor"), QVariant::fromValue(s.labelColor));
     if (layer.kind == SymbolLayerKind::SimpleLine) {
         layer.props.insert(QStringLiteral("drawArrows"),           s.showArrows);
         layer.props.insert(QStringLiteral("arrowLengthPx"),        s.arrowSize);
-        layer.props.insert(QStringLiteral("arrowColor"),           s.arrowColor.name(QColor::HexArgb));
+        layer.props.insert(QStringLiteral("arrowColor"),           QVariant::fromValue(s.arrowColor));
         layer.props.insert(QStringLiteral("arrowOnlyWhenFlowPos"), s.arrowOnlyWhenFlowPos);
     }
     style.layers.append(layer);
@@ -2696,6 +2715,23 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name) const
                     m[QStringLiteral("Vol flooded")] = v;
                 if (swmm_node_get_stat_time_flooded(m_engine, idx, &v) == SWMM_OK)
                     m[QStringLiteral("Time flooded (hr)")] = v;
+                // Canonical static fields, keyed exactly as advertised by
+                // availableAttributes(). Graduated/categorized classification
+                // (classifyGraduatedIfNeeded) and the per-feature symbolFor
+                // attrs both read THESE names — without them sampling came
+                // back empty and the graduated renderer never classified.
+                if (swmm_node_get_invert_elev(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("invertElev")] = v;
+                if (swmm_node_get_max_depth(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("maxDepth")] = v;
+                if (swmm_node_get_initial_depth(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("initDepth")] = v;
+                if (swmm_node_get_ponded_area(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("surfaceArea")] = v;
+                char tag[256] = {0};
+                if (swmm_node_get_tag(m_engine, idx, tag, sizeof(tag)) == SWMM_OK
+                    && tag[0])
+                    m[QStringLiteral("tag")] = QString::fromUtf8(tag);
             }
         }
         return m;
@@ -2709,6 +2745,37 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name) const
         if (l.linkType >= 0 && l.linkType <= 4)
             m[QStringLiteral("Link type")] = QString::fromLatin1(kinds[l.linkType]);
         m[QStringLiteral("Vertex count")] = cachedLinkPolyline(i).size();
+        // Canonical static fields (see node branch above for why).
+        if (m_engine) {
+            const int idx = swmm_link_index(m_engine, l.name.toUtf8().constData());
+            if (idx >= 0) {
+                double v = 0.0;
+                if (swmm_link_get_length(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("length")] = v;
+                if (swmm_link_get_slope(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("slope")] = v;
+                if (swmm_link_get_roughness(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("roughness")] = v;
+                if (swmm_link_get_offset_up(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("inletOffset")] = v;
+                if (swmm_link_get_offset_dn(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("outletOffset")] = v;
+                int shape = 0;
+                double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
+                if (swmm_link_get_xsect(m_engine, idx, &shape,
+                                        &g1, &g2, &g3, &g4) == SWMM_OK) {
+                    m[QStringLiteral("maxDepth")] = g1;  // xsect full depth
+                    // SWMM_XSectShape 0/1 = CIRCULAR / FILLED_CIRCULAR,
+                    // where full depth IS the diameter.
+                    if (shape == 0 || shape == 1)
+                        m[QStringLiteral("diameter")] = g1;
+                }
+                char tag[256] = {0};
+                if (swmm_link_get_tag(m_engine, idx, tag, sizeof(tag)) == SWMM_OK
+                    && tag[0])
+                    m[QStringLiteral("tag")] = QString::fromUtf8(tag);
+            }
+        }
         return m;
     }
     if (int i = findCatch(); i >= 0)
@@ -2717,6 +2784,29 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name) const
         m[QStringLiteral("Type")] = QStringLiteral("Subcatchment");
         m[QStringLiteral("Name")] = c.name;
         m[QStringLiteral("Polygon vertices")] = c.vertices.size();
+        // Canonical static fields (see node branch above for why).
+        if (m_engine) {
+            const int idx = swmm_subcatch_index(m_engine, c.name.toUtf8().constData());
+            if (idx >= 0) {
+                double v = 0.0;
+                if (swmm_subcatch_get_area(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("area")] = v;
+                if (swmm_subcatch_get_width(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("width")] = v;
+                if (swmm_subcatch_get_slope(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("slope")] = v;
+                if (swmm_subcatch_get_imperv_pct(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("impervPct")] = v;
+                if (swmm_subcatch_get_n_imperv(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("nImperv")] = v;
+                if (swmm_subcatch_get_n_perv(m_engine, idx, &v) == SWMM_OK)
+                    m[QStringLiteral("nPerv")] = v;
+                char tag[256] = {0};
+                if (swmm_subcatch_get_tag(m_engine, idx, tag, sizeof(tag)) == SWMM_OK
+                    && tag[0])
+                    m[QStringLiteral("tag")] = QString::fromUtf8(tag);
+            }
+        }
         return m;
     }
     if (int i = findGage(); i >= 0)

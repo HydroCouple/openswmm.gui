@@ -86,6 +86,8 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
     if (property == QLatin1String("dwf"))             return tr("Dry Weather Flow");
     if (property == QLatin1String("rdii"))            return tr("RDII");
     if (property == QLatin1String("treatment"))       return tr("Pollutant Treatment");
+    // USER_FLAGS Phase 4.
+    if (property == QLatin1String("userFlags"))       return tr("User Flags");
 
     return {};
 }
@@ -434,6 +436,15 @@ NodeCompoundEditRef SWMMNodePropertyAdapter::treatmentRef() const {
             ? tr("%1 / %2 pollutants").arg(active).arg(nPollut)
             : tr("(none)");
     }
+    return r;
+}
+
+UserFlagsEditRef SWMMNodePropertyAdapter::userFlagsRef() const {
+    UserFlagsEditRef r;
+    r.objectType = QStringLiteral("NODE");
+    r.objectName = m_name;
+    r.model      = m_layer ? m_layer->ensureUserFlagsModel() : nullptr;
+    r.summary    = userFlagsSummaryFor(r.model, r.objectType, r.objectName);
     return r;
 }
 

@@ -5,7 +5,7 @@
  * \license GPL-3.0-or-later
  *
  * Slice SC.1 — Custom cell editor widget for compound link attributes
- * (XSection / CulvertCode / InletUsage).
+ * (XSection / InletUsage).
  *
  * Registered with `QPropertyItemDelegate::registerCustomTypeEditorCreator`
  * against the `LinkCompoundEditRef` metatype; QPropertyModel instantiates

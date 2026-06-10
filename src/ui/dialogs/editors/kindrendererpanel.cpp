@@ -13,6 +13,8 @@
 #include "render/ifeaturerenderer.h"
 #include "render/attributesource.h"   // O1-3 — RangeMode enum
 #include "render/intervalbinner.h"
+// Gap A1.3 — archetype-seeded renderer construction.
+#include "render/rendererfactory.h"
 #include "render/renderers/singlesymbolrenderer.h"
 #include "render/renderers/graduatedrenderer.h"
 #include "render/renderers/categorizedrenderer.h"
@@ -21,9 +23,11 @@
 #include "ui/widgets/colorbutton.h"
 #include "ui/widgets/colorrampcombobox.h"
 
+#include <QCheckBox>
 #include <QColor>
 #include <QColorDialog>
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QEvent>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -187,6 +191,62 @@ KindRendererPanel::KindRendererPanel(OpenSWMMVisLayer *hostLayer,
     }
     gForm->addRow(m_rangeRow);
 
+    // Gap A2.2 — user-defined min/max, applied as the ramp range. Visible
+    // only when "Fixed (user)" is the active range mode; FixedUser skips
+    // every auto-classification so the breaks always honour these bounds.
+    m_userRangeRow = new QWidget(m_graduatedBox);
+    {
+        auto *rowLay = new QHBoxLayout(m_userRangeRow);
+        rowLay->setContentsMargins(0, 0, 0, 0);
+        auto makeSpin = [this]() {
+            auto *s = new QDoubleSpinBox(m_userRangeRow);
+            s->setRange(-1.0e12, 1.0e12);
+            s->setDecimals(4);
+            s->setKeyboardTracking(false);
+            return s;
+        };
+        m_userMinSpin = makeSpin();
+        m_userMaxSpin = makeSpin();
+        m_userMaxSpin->setValue(1.0);
+        rowLay->addWidget(new QLabel(tr("Min:"), m_userRangeRow));
+        rowLay->addWidget(m_userMinSpin, 1);
+        rowLay->addWidget(new QLabel(tr("Max:"), m_userRangeRow));
+        rowLay->addWidget(m_userMaxSpin, 1);
+    }
+    gForm->addRow(m_userRangeRow);
+    m_userRangeRow->setVisible(false);
+
+    // Gap A4.5 — output axis, archetype-gated: Point kinds scale marker
+    // SIZE by the classified value, Line kinds scale stroke WIDTH; Polygon
+    // kinds get neither (the row stays hidden). Model + persistence +
+    // paint consumption already exist (Slices 8.13.43-α / VS.4) — this is
+    // the missing editor surface.
+    m_axisRow = new QWidget(m_graduatedBox);
+    {
+        auto *rowLay = new QHBoxLayout(m_axisRow);
+        rowLay->setContentsMargins(0, 0, 0, 0);
+        m_axisCheck = new QCheckBox(tr("Size by value"), m_axisRow);
+        auto makeSpin = [this]() {
+            auto *s = new QDoubleSpinBox(m_axisRow);
+            s->setRange(0.1, 256.0);
+            s->setDecimals(1);
+            s->setSuffix(QStringLiteral(" px"));
+            s->setKeyboardTracking(false);
+            return s;
+        };
+        m_axisMinSpin = makeSpin();
+        m_axisMinSpin->setValue(4.0);
+        m_axisMaxSpin = makeSpin();
+        m_axisMaxSpin->setValue(18.0);
+        rowLay->addWidget(m_axisCheck, 1);
+        rowLay->addWidget(new QLabel(tr("Min:"), m_axisRow));
+        rowLay->addWidget(m_axisMinSpin);
+        rowLay->addWidget(new QLabel(tr("Max:"), m_axisRow));
+        rowLay->addWidget(m_axisMaxSpin);
+    }
+    gForm->addRow(m_axisRow);
+    m_axisRow->setVisible(false);
+
     m_autoBtn = new QToolButton(m_graduatedBox);
     m_autoBtn->setText(tr("Auto-classify from data"));
     m_autoBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
@@ -225,6 +285,16 @@ KindRendererPanel::KindRendererPanel(OpenSWMMVisLayer *hostLayer,
             this, &KindRendererPanel::onAutoClassify);
     connect(m_rangeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &KindRendererPanel::onRangeModeChanged);
+    connect(m_userMinSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, &KindRendererPanel::onUserRangeChanged);
+    connect(m_userMaxSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, &KindRendererPanel::onUserRangeChanged);
+    connect(m_axisCheck, &QCheckBox::toggled,
+            this, &KindRendererPanel::onOutputAxisChanged);
+    connect(m_axisMinSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, &KindRendererPanel::onOutputAxisChanged);
+    connect(m_axisMaxSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, &KindRendererPanel::onOutputAxisChanged);
     connect(m_breaksModel, &QStandardItemModel::itemChanged,
             this, &KindRendererPanel::onBreakEdited);
 
@@ -332,8 +402,13 @@ void KindRendererPanel::refreshFromModel()
     m_attrCombo->clear();
     if (provider) {
         const auto fields = provider->availableAttributes(m_category);
-        for (const auto &f : fields)
+        for (const auto &f : fields) {
+            // Gap A4.3 — Graduated classifies numerics; string fields
+            // (tag / status / group) belong to the Categorized panel.
+            if (f.type == QMetaType::QString)
+                continue;
             m_attrCombo->addItem(f.displayName, f.name);
+        }
         // Restore selection by canonical name. When the renderer's
         // current attribute isn't in the list, prepend it so the
         // existing state isn't silently lost.
@@ -356,10 +431,128 @@ void KindRendererPanel::refreshFromModel()
     // O1-3 — the animated range mode only applies to results (animated)
     // layers. Hide the row for static model / GIS layers so it doesn't
     // imply a behaviour that never fires.
+    //
+    // Gap A4.4 — gate on the SELECTED attribute's dynamism, not just the
+    // host type: a static field on an animated layer cannot vary per frame,
+    // so per-frame range modes would be a no-op lie for it.
     const bool isAnimated =
         qobject_cast<SWMMResultsLayer *>(layerForProvider) != nullptr;
-    m_rangeRow->setVisible(isAnimated && modeRow == kModeGraduated);
+    bool attrIsDynamic = isAnimated;
+    if (provider && !currentAttribute.isEmpty()) {
+        const auto fields = provider->availableAttributes(m_category);
+        for (const auto &f : fields) {
+            if (f.name == currentAttribute) {
+                attrIsDynamic = f.isDynamic;
+                break;
+            }
+        }
+    }
+    m_rangeRow->setVisible(isAnimated && attrIsDynamic
+                           && modeRow == kModeGraduated);
 
+    // Gap A2.2 — user range row tracks the FixedUser mode; values mirror
+    // the renderer's ramp range (FixedUser stores the user range there).
+    {
+        bool userMode = false;
+        if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(r)) {
+            userMode = (g->rangeMode() == OpenSWMM::Render::RangeMode::FixedUser);
+            QSignalBlocker bmin(m_userMinSpin), bmax(m_userMaxSpin);
+            m_userMinSpin->setValue(g->ramp().minValue);
+            m_userMaxSpin->setValue(g->ramp().maxValue);
+        }
+        m_userRangeRow->setVisible(isAnimated && modeRow == kModeGraduated
+                                   && userMode);
+    }
+
+    // Gap A4.5 — output-axis row, archetype-gated. Point kinds expose the
+    // size axis, Line kinds the width axis, Polygon kinds neither.
+    {
+        using OpenSWMM::Render::FeatureSublayer;
+        const auto archetype = FeatureSublayer::archetypeFor(m_category);
+        const bool axisApplies =
+            modeRow == kModeGraduated
+            && archetype != FeatureSublayer::Archetype::Polygon;
+        m_axisRow->setVisible(axisApplies);
+        if (axisApplies) {
+            m_axisCheck->setText(archetype == FeatureSublayer::Archetype::Point
+                                     ? tr("Size by value")
+                                     : tr("Width by value"));
+            if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(r)) {
+                QSignalBlocker bc(m_axisCheck);
+                QSignalBlocker bmin(m_axisMinSpin), bmax(m_axisMaxSpin);
+                if (archetype == FeatureSublayer::Archetype::Point) {
+                    m_axisCheck->setChecked(g->outputSizeEnabled());
+                    m_axisMinSpin->setValue(g->outputSizeMin());
+                    m_axisMaxSpin->setValue(g->outputSizeMax());
+                } else {
+                    m_axisCheck->setChecked(g->outputWidthEnabled());
+                    m_axisMinSpin->setValue(g->outputWidthMin());
+                    m_axisMaxSpin->setValue(g->outputWidthMax());
+                }
+                m_axisMinSpin->setEnabled(m_axisCheck->isChecked());
+                m_axisMaxSpin->setEnabled(m_axisCheck->isChecked());
+            }
+        }
+    }
+
+    rebuildBreaksTable();
+}
+
+void KindRendererPanel::onOutputAxisChanged()
+{
+    // Gap A4.5 — push the axis toggle + pixel range onto the renderer.
+    // The axis is archetype-selected: SIZE for point kinds, WIDTH for line
+    // kinds (the row is hidden for polygons, so no third case).
+    if (m_suppressEdits) return;
+    auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(currentRenderer());
+    if (!g) return;
+
+    using OpenSWMM::Render::FeatureSublayer;
+    const auto archetype = FeatureSublayer::archetypeFor(m_category);
+    if (archetype == FeatureSublayer::Archetype::Polygon) return;
+
+    double mn = m_axisMinSpin->value();
+    double mx = m_axisMaxSpin->value();
+    if (mn > mx) std::swap(mn, mx);
+    const bool on = m_axisCheck->isChecked();
+    m_axisMinSpin->setEnabled(on);
+    m_axisMaxSpin->setEnabled(on);
+
+    auto fresh = g->clone();
+    if (auto *gf = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(fresh.get())) {
+        if (archetype == FeatureSublayer::Archetype::Point) {
+            gf->setOutputSizeEnabled(on);
+            gf->setOutputSizeRange(mn, mx);
+        } else {
+            gf->setOutputWidthEnabled(on);
+            gf->setOutputWidthRange(mn, mx);
+        }
+    }
+    installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category,
+                    std::move(fresh));
+}
+
+void KindRendererPanel::onUserRangeChanged()
+{
+    // Gap A2.2 — push the user min/max into the renderer as the ramp range
+    // and drop derived breaks; FixedUser mode never auto-classifies, so the
+    // painter's inline equal-interval over the ramp range takes effect.
+    if (m_suppressEdits) return;
+    auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(currentRenderer());
+    if (!g || g->rangeMode() != OpenSWMM::Render::RangeMode::FixedUser) return;
+
+    double mn = m_userMinSpin->value();
+    double mx = m_userMaxSpin->value();
+    if (mn > mx) std::swap(mn, mx);
+    if (mn == mx) mx = mn + 1.0;   // degenerate range guard
+
+    auto fresh = g->clone();
+    if (auto *gf = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(fresh.get())) {
+        gf->setRange(mn, mx);
+        gf->clearBreaks();
+    }
+    installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category,
+                    std::move(fresh));
     rebuildBreaksTable();
 }
 
@@ -399,10 +592,23 @@ void KindRendererPanel::onRangeModeChanged(int comboRow)
         m_rangeCombo->itemData(comboRow).toInt());
     if (mode == g->rangeMode()) return;
     auto fresh = g->clone();
-    if (auto *gfresh = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(fresh.get()))
+    if (auto *gfresh = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(fresh.get())) {
         gfresh->setRangeMode(mode);
+        // Gap A2.2 — mode changes invalidate breaks derived under the old
+        // mode: FixedUser takes the spin-box range; the auto modes
+        // re-classify on the next override rebuild.
+        if (mode == OpenSWMM::Render::RangeMode::FixedUser) {
+            double mn = m_userMinSpin->value();
+            double mx = m_userMaxSpin->value();
+            if (mn > mx) std::swap(mn, mx);
+            if (mn == mx) mx = mn + 1.0;
+            gfresh->setRange(mn, mx);
+        }
+        gfresh->clearBreaks();
+    }
     installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category,
                     std::move(fresh));
+    refreshFromModel();   // toggles the user-range row visibility
 }
 
 void KindRendererPanel::onModeChanged(int comboRow)
@@ -418,13 +624,14 @@ void KindRendererPanel::onModeChanged(int comboRow)
         refreshFromModel();
         return;
     }
-    if (mode == kModeGraduated) {
-        auto g = std::make_unique<GraduatedRenderer>();
-        // Slice DM.2 — seed the new Graduated renderer with the first
-        // attribute the host's IAttributeProvider exposes (when any).
-        // Avoids the "Graduated mode picked but no attribute selected"
-        // dead state that used to require the user to know to type a
-        // field name into a separate row that didn't exist yet.
+
+    // Gap A1.3 — construct through the shared factory: it seeds the new
+    // renderer's base/fallback symbol from the outgoing renderer (or the
+    // archetype skeleton — a default-constructed renderer's EMPTY base
+    // symbol made paint silently fall back to the legacy ramp) and the
+    // classify attribute from the host's IAttributeProvider (DM.2).
+    QVector<AttributeField> fields;
+    {
         OpenSWMMVisLayer *layerForProvider = m_hostLayer;
         if (!layerForProvider && m_rule) {
             // A Rule's QObject parent is its RuleList; the RuleList's
@@ -435,19 +642,27 @@ void KindRendererPanel::onModeChanged(int comboRow)
         }
         if (auto *provider = layerForProvider
             ? qobject_cast<OpenSWMM::Render::IAttributeProvider *>(layerForProvider)
-            : nullptr) {
-            const auto fields = provider->availableAttributes(m_category);
-            if (!fields.isEmpty())
-                g->setClassifyAttribute(fields.first().name);
+            : nullptr)
+            fields = provider->availableAttributes(m_category);
+    }
+    const auto archetype = FeatureSublayer::archetypeFor(m_category);
+
+    if (mode == kModeGraduated) {
+        next = RendererFactory::makeRenderer(
+            QStringLiteral("graduated"), archetype, currentRenderer(),
+            fields.isEmpty() ? nullptr : &fields);
+        if (auto *g = dynamic_cast<GraduatedRenderer *>(next.get())) {
+            // Panel-local knobs override the factory defaults.
+            g->setRamp(m_rampCombo->currentRamp());
+            IntervalBinner b;
+            b.setMethod(BinMethod::EqualInterval);
+            b.setBinCount(m_countSpin->value());
+            g->setBinner(b);
         }
-        g->setRamp(m_rampCombo->currentRamp());
-        IntervalBinner b;
-        b.setMethod(BinMethod::EqualInterval);
-        b.setBinCount(m_countSpin->value());
-        g->setBinner(b);
-        next = std::move(g);
     } else if (mode == kModeCategorized) {
-        next = std::make_unique<CategorizedRenderer>();
+        next = RendererFactory::makeRenderer(
+            QStringLiteral("categorized"), archetype, currentRenderer(),
+            fields.isEmpty() ? nullptr : &fields);
     }
 
     if (next)

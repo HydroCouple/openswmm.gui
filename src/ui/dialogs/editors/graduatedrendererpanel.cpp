@@ -55,10 +55,14 @@ public:
 
 } // namespace
 
-REGISTER_RENDERER_PANEL(
+// Gap A4.2 — Graduated classifies a numeric attribute; grey the dropdown
+// row out for kinds whose provider exposes none (e.g. Rain gages).
+REGISTER_RENDERER_PANEL_GATED(
     "graduated", "Graduated",
-    [](const RendererPanelContext &ctx, QWidget *parent) -> IRendererPanel * {
+    ([](const RendererPanelContext &ctx, QWidget *parent) -> IRendererPanel * {
         return new GraduatedPanel(ctx, parent);
-    })
+    }),
+    ([](const RendererPanelContext &ctx) { return ctx.hasNumeric(); }),
+    "No numeric attributes available for this kind")
 
 } // namespace openswmmvis::ui
