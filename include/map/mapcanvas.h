@@ -405,12 +405,6 @@ private:
     bool                    m_middlePanActive = false;
     QPoint                  m_middlePanStart;
 
-    // ----- Phase B.2 — per-SWMM-layer GL renderers ------------------------
-    // (Abandoned — see docs/RENDERING_5M_PLAN.md. Kept around briefly
-    // until the OpenGL files are deleted in B.RHI.4.)
-    QHash<class SWMMModelLayer *, QPointer<class SWMMLayerGLRenderer>>
-                            m_glRenderers;
-
     // ----- Phase B.RHI — QQuickWidget host for the QSG renderer -----------
     // A transparent child widget overlaying the canvas, hosting
     // SWMMLayerQSGRenderer (SWMM network: nodes/links/subcatchments).

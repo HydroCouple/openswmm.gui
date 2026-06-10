@@ -317,13 +317,14 @@ set(
         include/map/mapundostack.h
         # Slice BB Phase 8.6.16 — QUndoCommand for per-class renderer edits.
         include/map/legendclasseditcommands.h
+        # Gap B1 — canonical legend-content helpers shared by both legend views.
+        include/map/legendcontent.h
         include/map/openswmmvisgraphicsview.h
         include/map/openswmmvisscene.h
         include/map/graphicsitems.h
         include/map/scalebarsettings.h
         include/map/snapengine.h
         include/map/swmmlayeritem.h
-        include/map/swmmlayerglrenderer.h
         include/map/swmmlayerqsgrenderer.h
         include/map/swmm2dmeshqsgrenderer.h
         include/map/profilepathoverlay.h
@@ -399,6 +400,10 @@ set(
 
         # ── User flags ([USER_FLAGS] / [USER_FLAG_VALUES]) ───────────────────
         include/ui/models/userflagsmodel.h
+        include/ui/dialogs/userflagsdialog.h
+        include/ui/dialogs/userflagvaluesdialog.h
+        include/ui/properties/userflagseditref.h
+        include/ui/properties/userflagseditbutton.h
 
         # ── Timeseries (Slice BQ Phase 6.7.3) ────────────────────────────────
         include/timeseries/timeseriesprovider.h
@@ -464,6 +469,11 @@ set(
         # ── Link compound editor cell widget (Slice SC.1) ────────────────────
         include/ui/properties/linkcompoundeditref.h
         include/ui/properties/linkcompoundeditbutton.h
+
+        # ── Culvert code inline combobox (ATTRIBUTE_EDITOR_WIRING Phase 0) ──
+        include/ui/properties/culvertcodes.h
+        include/ui/properties/culvertcoderef.h
+        include/ui/properties/culvertcodecombobox.h
 
         # ── Data-object picker cell widget (Slice DA.4.3) ───────────────────
         include/ui/properties/dataobjectref.h
@@ -535,6 +545,7 @@ set(
         include/ui/dialogs/pathbrowsedelegate.h
         include/ui/dialogs/pluginstablemodel.h
         include/ui/dialogs/comparisonplotdialog.h
+        include/ui/dialogs/comparisonpairsdialog.h
         include/ui/dialogs/chartpropertiesdialog.h
         # Slice BB Phase 8.6.16 — legend right-click "Properties…" dialog.
         include/ui/dialogs/legendpropertiesdialog.h
@@ -648,6 +659,8 @@ set(
         # Slice BI Phase 8.13.6.1 — JSON round-trip impls for the new types.
         src/render/symbollayer.cpp
         src/render/symbolstyle.cpp
+        # Gap A1.3 — single archetype-seeded renderer construction path.
+        src/render/rendererfactory.cpp
         src/render/legendsymbolitem.cpp
         # Slice BB Phase 8.6.16 — shared model for on-canvas legend chrome.
         src/render/legendoverlaystyle.cpp
@@ -730,6 +743,7 @@ set(
         src/plot/seriesstyle.cpp
         src/plot/seriesstyleobject.cpp
         src/plot/fitmetrics.cpp
+        src/plot/seriespairing.cpp
         src/plot/comparisonplotmodel.cpp
         src/plot/swmmoutrunlayer.cpp
         src/plot/swmmoutrunlayer_codes.cpp
@@ -760,13 +774,14 @@ set(
         src/map/mapundostack.cpp
         # Slice BB Phase 8.6.16 — QUndoCommand for per-class renderer edits.
         src/map/legendclasseditcommands.cpp
+        # Gap B1 — canonical legend-content helpers shared by both legend views.
+        src/map/legendcontent.cpp
         src/map/openswmmvisgraphicsview.cpp
         src/map/openswmmvisscene.cpp
         src/map/graphicsitems.cpp
         src/map/scalebarsettings.cpp
         src/map/snapengine.cpp
         src/map/swmmlayeritem.cpp
-        src/map/swmmlayerglrenderer.cpp
         src/map/swmmlayerqsgrenderer.cpp
         src/map/swmm2dmeshqsgrenderer.cpp
         src/map/profilepathoverlay.cpp
@@ -843,6 +858,10 @@ set(
 
         # ── User flags ([USER_FLAGS] / [USER_FLAG_VALUES]) ───────────────────
         src/ui/models/userflagsmodel.cpp
+        src/ui/dialogs/userflagsdialog.cpp
+        src/ui/dialogs/userflagvaluesdialog.cpp
+        src/ui/properties/userflagseditref.cpp
+        src/ui/properties/userflagseditbutton.cpp
 
         # ── Timeseries (Slice BQ Phase 6.7.3) ────────────────────────────────
         src/timeseries/timeseriesprovider.cpp
@@ -908,6 +927,11 @@ set(
         src/ui/properties/linkcompoundeditref.cpp
         src/ui/properties/linkcompoundeditbutton.cpp
 
+        # Culvert code inline combobox (ATTRIBUTE_EDITOR_WIRING Phase 0)
+        src/ui/properties/culvertcodes.cpp
+        src/ui/properties/culvertcoderef.cpp
+        src/ui/properties/culvertcodecombobox.cpp
+
         # Data-object picker cell widget (Slice DA.4.3)
         src/ui/properties/dataobjectref.cpp
         src/ui/properties/dataobjectpickereditor.cpp
@@ -952,6 +976,7 @@ set(
         src/ui/dialogs/pathbrowsedelegate.cpp
         src/ui/dialogs/pluginstablemodel.cpp
         src/ui/dialogs/comparisonplotdialog.cpp
+        src/ui/dialogs/comparisonpairsdialog.cpp
         src/ui/dialogs/chartpropertiesdialog.cpp
         # Slice BB Phase 8.6.16 — legend right-click "Properties…" dialog.
         src/ui/dialogs/legendpropertiesdialog.cpp

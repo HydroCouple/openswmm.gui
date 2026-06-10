@@ -98,7 +98,7 @@ QList<LegendSymbolItem> MeshEdgeSublayer::legendSymbolItems() const
 
     SymbolLayer line;
     line.kind = SymbolLayerKind::SimpleLine;
-    line.props.insert(QStringLiteral("color"), m_style->color().name(QColor::HexArgb));
+    SymbolProps::writeColor(line.props, QStringLiteral("color"), m_style->color());
     line.props.insert(QStringLiteral("widthPx"), m_style->lineWidthPx());
     item.symbol.layers.append(line);
     item.symbol.opacity = m_opacity;

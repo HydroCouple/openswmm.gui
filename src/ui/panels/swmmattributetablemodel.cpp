@@ -7,8 +7,12 @@
 #include "ui/panels/swmmattributetablemodel.h"
 
 #include "core/unitsystem.h"
+#include "ui/models/userflagsmodel.h"
+#include "ui/properties/culvertcodes.h"      // ATTRIBUTE_EDITOR_WIRING Phase 0
+#include "ui/properties/dataobjectref.h"     // pump-curve picker cell
 #include "ui/properties/linkcompoundeditref.h"
 #include "ui/properties/nodecompoundeditref.h"
+#include "ui/properties/userflagseditref.h"  // per-object User Flags cell
 
 #include <QUndoCommand>
 #include <QUndoStack>
@@ -20,11 +24,13 @@
 #include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_inflows.h>
 #include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_model.h>    // gage data-file path registry
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_pollutants.h>
 #include <openswmm/engine/openswmm_quality.h>
 #include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
+#include <openswmm/engine/openswmm_tables.h>   // pump-curve picker cell
 
 namespace {
 
@@ -44,6 +50,34 @@ int indexForName(SWMM_Engine engine, EntityKind kind, const char *name) {
     case EntityKind::Gage:     return swmm_gage_index(engine, name);
     }
     return -1;
+}
+
+// Phase 3 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — column-key prefix
+// and category → [USER_FLAG_VALUES] ObjectType token mapping for the
+// per-flag columns. Categories without a token (none today) get no
+// flag columns.
+const QString kUserFlagKeyPrefix = QStringLiteral("userflag:");
+
+QString userFlagObjectType(SWMMModelLayer::Category cat) {
+    switch (cat) {
+    case SWMMModelLayer::CatJunctions:
+    case SWMMModelLayer::CatOutfalls:
+    case SWMMModelLayer::CatStorage:
+    case SWMMModelLayer::CatDividers:
+        return QStringLiteral("NODE");
+    case SWMMModelLayer::CatConduits:
+    case SWMMModelLayer::CatPumps:
+    case SWMMModelLayer::CatOrifices:
+    case SWMMModelLayer::CatWeirs:
+    case SWMMModelLayer::CatOutlets:
+        return QStringLiteral("LINK");
+    case SWMMModelLayer::CatSubcatchments:
+        return QStringLiteral("SUBCATCHMENT");
+    case SWMMModelLayer::CatRainGages:
+        return QStringLiteral("GAGE");
+    default:
+        return QString();
+    }
 }
 
 // Helper — read-only column.
@@ -71,6 +105,18 @@ ColumnSpec tagCol(const QString &setterTag) {
     c.label  = QStringLiteral("Tag");
     c.editor = EditorKind::Text;
     c.setter = setterTag;
+    return c;
+}
+
+// ATTRIBUTE_EDITOR_WIRING Phase 1 — integer editable column
+// (IntegerDelegate / QSpinBox). First user: conduit Barrels.
+ColumnSpec intCol(const QString &key, const QString &label,
+                   const QString &setter, int minVal, int maxVal) {
+    ColumnSpec c;
+    c.key = key; c.label = label;
+    c.editor = EditorKind::Integer;
+    c.setter = setter;
+    c.minValue = minVal; c.maxValue = maxVal;
     return c;
 }
 
@@ -137,6 +183,13 @@ QVariantList yesNoValues();
 QVariantList offOnValues();
 QVariantList culvertCodeValues();
 QVariantList dividerTypeValues();
+// ATTRIBUTE_EDITOR_WIRING Phase 1 — link sub-type enums.
+QVariantList orificeTypeValues();
+QVariantList weirTypeValues();
+QVariantList outletRatingTypeValues();
+// ATTRIBUTE_EDITOR_WIRING parity pass — rain gage enums.
+QVariantList gageRainTypeValues();
+QVariantList gageDataSourceValues();
 
 // Compound-attribute column (Inflows / DWF / RDII / Treatment). The
 // cell holds a NodeCompoundEditRef built live in data(); the delegate
@@ -288,6 +341,10 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
     case SWMMModelLayer::CatOutfalls: {
         // SWMM5 [OUTFALLS]: Name | Elev | Type | Gated | (StageData when FIXED).
         // No MaxDepth / InitDepth / SurDepth / Aponded at a boundary node.
+        // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — stage-data
+        // rows (fixed stage / tidal curve / stage time series) + the
+        // four node compound cells, Property Browser parity (Slice
+        // DA.4.3 rows on SWMMOutfallPropertyAdapter).
         QList<ColumnSpec> cols = {
             nameCol(),
             ro("Node type",  "Node Type"),
@@ -299,11 +356,21 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             enumCol("Outfall type", "Boundary Type",
                                                 "node_outfall_type",
                                                 outfallTypeValues()),
+            num("Stage elev",  "Fixed Stage Elevation", "node_outfall_stage",
+                                                      -1e9, 1e9, 4, UnitKind::Length),
+            compoundCol("Tidal curve", "Tidal Curve", "node_outfall_tidal_ref"),
+            compoundCol("Stage series", "Stage Time Series",
+                                                "node_outfall_timeseries_ref"),
             enumCol("Flap gate",   "Flap Gate",
                                                 "node_outfall_flap_gate",
                                                 yesNoValues()),
         };
         cols.append(nodeStatBlock());
+        cols.append(compoundCol("Inflows",   "External Inflows",  "node_inflows_ref"));
+        cols.append(compoundCol("DWF",       "Dry Weather Flow",  "node_dwf_ref"));
+        cols.append(compoundCol("RDII",      "RDII",              "node_rdii_ref"));
+        cols.append(compoundCol("Treatment", "Pollutant Treatment",
+                                  "node_treatment_ref"));
         return cols;
     }
     case SWMMModelLayer::CatStorage: {
@@ -325,6 +392,13 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                                           0.0, 1e6, 4, UnitKind::Rate),
         };
         cols.append(nodeStatBlock());
+        // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — browser
+        // shows the four compound cells on every node kind.
+        cols.append(compoundCol("Inflows",   "External Inflows",  "node_inflows_ref"));
+        cols.append(compoundCol("DWF",       "Dry Weather Flow",  "node_dwf_ref"));
+        cols.append(compoundCol("RDII",      "RDII",              "node_rdii_ref"));
+        cols.append(compoundCol("Treatment", "Pollutant Treatment",
+                                  "node_treatment_ref"));
         return cols;
     }
     case SWMMModelLayer::CatDividers: {
@@ -345,15 +419,30 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             enumCol("Divider type", "Divider Type",
                                                 "node_divider_type",
                                                 dividerTypeValues()),
+            // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) —
+            // browser's SWMMDividerPropertyAdapter exposes ponded area.
+            num("Ponded area",     "Ponded Area",        "node_ponded_area",
+                                                          0.0, 1e9, 2, UnitKind::Area),
         };
         cols.append(nodeStatBlock());
+        cols.append(compoundCol("Inflows",   "External Inflows",  "node_inflows_ref"));
+        cols.append(compoundCol("DWF",       "Dry Weather Flow",  "node_dwf_ref"));
+        cols.append(compoundCol("RDII",      "RDII",              "node_rdii_ref"));
+        cols.append(compoundCol("Treatment", "Pollutant Treatment",
+                                  "node_treatment_ref"));
         return cols;
     }
     case SWMMModelLayer::CatConduits:
+        // ATTRIBUTE_EDITOR_WIRING Phase 1 — full ConduitProps parity
+        // (SWMM-GUI/Epaswmm5/objprops.txt rows 4, 11-16, 23): Tag,
+        // Init/Max Flow, Entry/Exit/Avg Loss, Seepage Rate, Barrels.
         return {
             nameCol(),
             ro("Link type",    "Link Type"),
             ro("Vertex count", "Vertex Count"),
+            ro("From node",    "From Node"),
+            ro("To node",      "To Node"),
+            tagCol("link_tag"),
             num("Length",      "Length",        "link_length",
                                                   0.0, 1e9, 2, UnitKind::Length),
             num("Roughness",   "Manning's n",   "link_roughness",
@@ -362,34 +451,74 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                                   -1e6, 1e6, 4, UnitKind::Length),
             num("Offset dn",   "Downstream Offset", "link_offset_dn",
                                                   -1e6, 1e6, 4, UnitKind::Length),
+            num("Init flow",   "Initial Flow",  "link_initial_flow",
+                                                  0.0, 1e9, 4, UnitKind::FlowRate),
+            num("Max flow",    "Maximum Flow",  "link_max_flow",
+                                                  0.0, 1e9, 4, UnitKind::FlowRate),
+            num("Loss inlet",  "Entry Loss Coefficient", "link_loss_inlet",
+                                                  0.0, 100.0, 4),
+            num("Loss outlet", "Exit Loss Coefficient",  "link_loss_outlet",
+                                                  0.0, 100.0, 4),
+            num("Loss avg",    "Avg. Loss Coefficient",  "link_loss_avg",
+                                                  0.0, 100.0, 4),
+            num("Seep rate",   "Seepage Rate",  "link_seep_rate",
+                                                  0.0, 1e6, 4, UnitKind::Rate),
             // §S.SC.1.c — XSection compound cell. Same dialog the
             // Property Browser opens; lets the user pick a shape +
             // geoms (or a transect, via the new picker) from the
             // attribute table inline.
             compoundCol("XSection", "Cross Section", "link_xsect_ref"),
+            intCol("Barrels",       "Barrels",       "link_barrels", 1, 1000),
             enumCol("Flap gate",    "Flap Gate",     "link_flap_gate",     yesNoValues()),
             enumCol("Culvert code", "Culvert Code",  "link_culvert_code",  culvertCodeValues()),
+            // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) —
+            // browser parity; placeholder page until BO 6.5.8 deepens.
+            compoundCol("Inlet usage", "Inlet Usage", "link_inlet_usage_ref"),
         };
     case SWMMModelLayer::CatPumps:
         // SWMM5 [PUMPS]: Name | FromNode | ToNode | PumpCurve | Status | Startup | Shutoff.
-        // Startup/Shutoff have no engine accessors today; PumpCurve is
-        // read-only (name picker lands in AG.5).
+        // ATTRIBUTE_EDITOR_WIRING Phase 1 — Tag + Startup/Shutoff rows
+        // (PumpProps rows 4, 7-8 in objprops.txt; BN-LINK-05 engine
+        // accessors). PumpCurve stays Property-Browser-only (DataObjectRef
+        // picker); the table has no picker delegate yet.
         return {
             nameCol(),
             ro("Link type",    "Link Type"),
             ro("Vertex count", "Vertex Count"),
+            ro("From node",    "From Node"),
+            ro("To node",      "To Node"),
+            tagCol("link_tag"),
+            // Picker cell (DataObjectRef) — same editor the Property
+            // Browser row hands out; legacy PumpProps[5] position.
+            compoundCol("Pump curve", "Pump Curve", "link_pump_curve_ref"),
             enumCol("Initial state", "Initial State",
                                                 "link_pump_init_state",
                                                 offOnValues()),
+            num("Startup depth", "Startup Depth", "link_pump_startup_depth",
+                                                  0.0, 1e6, 4, UnitKind::Length),
+            num("Shutoff depth", "Shutoff Depth", "link_pump_shutoff_depth",
+                                                  0.0, 1e6, 4, UnitKind::Length),
         };
     case SWMMModelLayer::CatWeirs:
         // SWMM5 [WEIRS]: Name | FromNode | ToNode | Type | CrestHt | Cd |
         // Gated | EndCon | EndCoeff.  No offsets — weirs sit at the
         // crest elevation directly.
+        // ATTRIBUTE_EDITOR_WIRING Phase 1 — Tag + Type rows (WeirProps
+        // rows 4-5 in objprops.txt; BN-LINK-03 engine accessors).
         return {
             nameCol(),
             ro("Link type",    "Link Type"),
             ro("Vertex count", "Vertex Count"),
+            ro("From node",    "From Node"),
+            ro("To node",      "To Node"),
+            tagCol("link_tag"),
+            enumCol("Weir type", "Type", "link_weir_type", weirTypeValues()),
+            // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — the
+            // browser's weir adapter exposes both offsets.
+            num("Offset up",   "Upstream Offset",   "link_offset_up",
+                                                  -1e6, 1e6, 4, UnitKind::Length),
+            num("Offset dn",   "Downstream Offset", "link_offset_dn",
+                                                  -1e6, 1e6, 4, UnitKind::Length),
             num("Crest height", "Crest Height",   "link_crest_height",
                                                   0.0, 1e6, 4, UnitKind::Length),
             num("Discharge coeff", "Discharge Coefficient",
@@ -407,10 +536,20 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
     case SWMMModelLayer::CatOrifices:
         // SWMM5 [ORIFICES]: Name | FromNode | ToNode | Type | Offset |
         // Cd | Gated.  One offset (no downstream offset).
+        // ATTRIBUTE_EDITOR_WIRING Phase 1 — Tag + Type + Open/Close
+        // Rate rows (OrificeProps rows 4-5, 12 in objprops.txt;
+        // BN-LINK-02/-06 engine accessors). The engine stores a rate
+        // in 1/s — legacy displays hours; conversion UX is deferred
+        // alongside the Property Browser's identical raw-rate row.
         return {
             nameCol(),
             ro("Link type",    "Link Type"),
             ro("Vertex count", "Vertex Count"),
+            ro("From node",    "From Node"),
+            ro("To node",      "To Node"),
+            tagCol("link_tag"),
+            enumCol("Orifice type", "Type", "link_orifice_type",
+                                                  orificeTypeValues()),
             num("Offset up",   "Offset",   "link_offset_up",
                                                   -1e6, 1e6, 4, UnitKind::Length),
             num("Discharge coeff", "Discharge Coefficient",
@@ -421,17 +560,40 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             // shape allow-list.
             compoundCol("XSection", "Cross Section", "link_xsect_ref"),
             enumCol("Flap gate", "Flap Gate",       "link_flap_gate", yesNoValues()),
+            num("Open/close rate", "Open/Close Rate",
+                                                  "link_orifice_open_close_rate",
+                                                  0.0, 1e6, 4),
         };
     case SWMMModelLayer::CatOutlets:
         // SWMM5 [OUTLETS]: Name | FromNode | ToNode | Offset | Type |
-        // Coeff | Expon.  Coeff/Expon land with AG.4's conditional
-        // type picker.
+        // Coeff | Expon.
+        // ATTRIBUTE_EDITOR_WIRING Phase 1 — Tag + Rating Curve type +
+        // Coefficient + Exponent rows (OutletProps rows 4, 7, 9-10 in
+        // objprops.txt; BN-LINK-04 engine accessors). Coefficient
+        // reuses the shared discharge-coeff scalar (same engine cd
+        // field — see SWMMOutletPropertyAdapter). The tabular curve
+        // picker stays Property-Browser-only (DataObjectRef row).
         return {
             nameCol(),
             ro("Link type",    "Link Type"),
             ro("Vertex count", "Vertex Count"),
+            ro("From node",    "From Node"),
+            ro("To node",      "To Node"),
+            tagCol("link_tag"),
             num("Offset up",   "Offset",   "link_offset_up",
                                                   -1e6, 1e6, 4, UnitKind::Length),
+            enumCol("Rating type", "Rating Curve", "link_outlet_rating_type",
+                                                  outletRatingTypeValues()),
+            num("Coefficient", "Coefficient",  "link_discharge_coeff",
+                                                  0.0, 1e6, 4),
+            num("Exponent",    "Exponent",     "link_outlet_expon",
+                                                  0.0, 100.0, 4),
+            // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) —
+            // tabular rating-curve picker. Same setter tag as the pump
+            // curve cell: the engine shares the curve-index slot
+            // between pumps and tabular outlets (see
+            // SWMMOutletPropertyAdapter::outletCurve).
+            compoundCol("Outlet curve", "Tabular Curve", "link_pump_curve_ref"),
             enumCol("Flap gate", "Flap Gate",       "link_flap_gate", yesNoValues()),
         };
     case SWMMModelLayer::CatSubcatchments:
@@ -457,15 +619,111 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                                       "subcatch_ds_perv",
                                                        0.0, 1e3, 4, UnitKind::Depression),
         };
-    case SWMMModelLayer::CatRainGages:
+    case SWMMModelLayer::CatRainGages: {
+        // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — rain
+        // format / data source / file path rows, Property Browser
+        // parity (SWMMRainGagePropertyAdapter). Labels match the
+        // adapter's displayLabelFor. The read-only currentRainfall /
+        // resolvedFilePath browser rows are sim-time / derived values
+        // and stay browser-only.
+        ColumnSpec fileCol;
+        fileCol.key    = QStringLiteral("Rain file");
+        fileCol.label  = QStringLiteral("Rain File (path)");
+        fileCol.editor = EditorKind::Text;
+        fileCol.setter = QStringLiteral("gage_file_path");
         return {
             nameCol(),
             ro("X",    "X Coordinate"),
             ro("Y",    "Y Coordinate"),
+            enumCol("Rain type",   "Rain Type",   "gage_rain_type",
+                                                  gageRainTypeValues()),
+            enumCol("Data source", "Data Source", "gage_data_source",
+                                                  gageDataSourceValues()),
+            fileCol,
         };
+    }
     default:
         return { nameCol() };
     }
+}
+
+// ATTRIBUTE_EDITOR_WIRING Phase 1 — loss-coefficient adapters. The
+// engine reads/writes the (inlet, outlet, avg) triple atomically
+// (`swmm_link_get/set_loss_coeff`), but the table surfaces three
+// independent columns. These wrappers match the single-double
+// SetterEntry shape: each setter re-reads the other two coefficients
+// then writes the full triple — same contract the Property Browser's
+// setLossInlet/Outlet/Avg slots honour (§S.1 Q-S4 decision).
+int lossGetInlet(SWMM_Engine e, int idx, double *v) {
+    double in = 0, out = 0, avg = 0;
+    const int rc = swmm_link_get_loss_coeff(e, idx, &in, &out, &avg);
+    *v = in;  return rc;
+}
+int lossGetOutlet(SWMM_Engine e, int idx, double *v) {
+    double in = 0, out = 0, avg = 0;
+    const int rc = swmm_link_get_loss_coeff(e, idx, &in, &out, &avg);
+    *v = out; return rc;
+}
+int lossGetAvg(SWMM_Engine e, int idx, double *v) {
+    double in = 0, out = 0, avg = 0;
+    const int rc = swmm_link_get_loss_coeff(e, idx, &in, &out, &avg);
+    *v = avg; return rc;
+}
+int lossSetInlet(SWMM_Engine e, int idx, double v) {
+    double in = 0, out = 0, avg = 0;
+    const int rc = swmm_link_get_loss_coeff(e, idx, &in, &out, &avg);
+    if (rc != SWMM_OK) return rc;
+    return swmm_link_set_loss_coeff(e, idx, v, out, avg);
+}
+int lossSetOutlet(SWMM_Engine e, int idx, double v) {
+    double in = 0, out = 0, avg = 0;
+    const int rc = swmm_link_get_loss_coeff(e, idx, &in, &out, &avg);
+    if (rc != SWMM_OK) return rc;
+    return swmm_link_set_loss_coeff(e, idx, in, v, avg);
+}
+int lossSetAvg(SWMM_Engine e, int idx, double v) {
+    double in = 0, out = 0, avg = 0;
+    const int rc = swmm_link_get_loss_coeff(e, idx, &in, &out, &avg);
+    if (rc != SWMM_OK) return rc;
+    return swmm_link_set_loss_coeff(e, idx, in, out, v);
+}
+
+// ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — outfall fixed
+// stage. The engine stores stage / tidal-curve-idx / timeseries-idx in
+// a shared union slot (`outfall_param`), so the getter reads as 0 when
+// the outfall isn't FIXED — mirrors
+// SWMMNodePropertyAdapter::outfallStage(). The setter flips the
+// outfall type to FIXED (deliberate engine invariant).
+int outfallStageGet(SWMM_Engine e, int idx, double *v) {
+    *v = 0.0;
+    int type = -1;
+    const int rc = swmm_node_get_outfall_type(e, idx, &type);
+    if (rc != SWMM_OK) return rc;
+    if (type != /*FIXED*/ 2) return SWMM_OK;
+    return swmm_node_get_outfall_param(e, idx, v);
+}
+
+// Parity pass — rain gage data-file path. The engine keys file paths
+// by object NAME through the relative-path registry
+// (swmm_file_path_get/set), so adapt to the (engine, idx) shape the
+// dispatch table expects. Mirrors SWMMRainGagePropertyAdapter::
+// filePath / setFilePath (displays the original, possibly relative,
+// path; the resolved absolute path stays a browser-only row).
+int gageFilePathGet(SWMM_Engine e, int idx, char *buf, int len) {
+    const char *id = swmm_gage_id(e, idx);
+    if (!id) return SWMM_ERR_BADINDEX;
+    char abs[1024] = {};
+    char orig[1024] = {};
+    const int rc = swmm_file_path_get(e, SWMM_FILE_RAINGAGE_DATA, id,
+                                       abs, int(sizeof(abs)),
+                                       orig, int(sizeof(orig)));
+    if (rc == SWMM_OK) qstrncpy(buf, orig, len);
+    return rc;
+}
+int gageFilePathSet(SWMM_Engine e, int idx, const char *path) {
+    const char *id = swmm_gage_id(e, idx);
+    if (!id) return SWMM_ERR_BADINDEX;
+    return swmm_file_path_set(e, SWMM_FILE_RAINGAGE_DATA, id, path);
 }
 
 // Dispatch table — map a setter-tag string to the engine call.
@@ -503,6 +761,10 @@ SetterEntry setterFor(const QString &tag) {
     if (tag == QStringLiteral("node_storage_seep_rate"))
         return {EntityKind::Node, &swmm_node_set_storage_seep_rate,
                                   &swmm_node_get_storage_seep_rate};
+    // ATTRIBUTE_EDITOR_WIRING parity pass — outfall fixed stage. The
+    // setter also flips the outfall type to FIXED (engine invariant).
+    if (tag == QStringLiteral("node_outfall_stage"))
+        return {EntityKind::Node, &swmm_node_set_outfall_stage, &outfallStageGet};
 
     // Node — int / enum
     if (tag == QStringLiteral("node_outfall_type")) {
@@ -548,6 +810,34 @@ SetterEntry setterFor(const QString &tag) {
     if (tag == QStringLiteral("link_end_contractions"))
         return {EntityKind::Link, &swmm_link_set_end_contractions,
                                   &swmm_link_get_end_contractions};
+    // ATTRIBUTE_EDITOR_WIRING Phase 1 — conduit scalar parity.
+    if (tag == QStringLiteral("link_initial_flow"))
+        return {EntityKind::Link, &swmm_link_set_initial_flow, &swmm_link_get_initial_flow};
+    if (tag == QStringLiteral("link_max_flow"))
+        return {EntityKind::Link, &swmm_link_set_max_flow,     &swmm_link_get_max_flow};
+    if (tag == QStringLiteral("link_loss_inlet"))
+        return {EntityKind::Link, &lossSetInlet,  &lossGetInlet};
+    if (tag == QStringLiteral("link_loss_outlet"))
+        return {EntityKind::Link, &lossSetOutlet, &lossGetOutlet};
+    if (tag == QStringLiteral("link_loss_avg"))
+        return {EntityKind::Link, &lossSetAvg,    &lossGetAvg};
+    if (tag == QStringLiteral("link_seep_rate"))
+        return {EntityKind::Link, &swmm_link_set_seep_rate, &swmm_link_get_seep_rate};
+    // Phase 1 — pump startup/shutoff (BN-LINK-05).
+    if (tag == QStringLiteral("link_pump_startup_depth"))
+        return {EntityKind::Link, &swmm_link_set_pump_startup_depth,
+                                  &swmm_link_get_pump_startup_depth};
+    if (tag == QStringLiteral("link_pump_shutoff_depth"))
+        return {EntityKind::Link, &swmm_link_set_pump_shutoff_depth,
+                                  &swmm_link_get_pump_shutoff_depth};
+    // Phase 1 — orifice open/close rate (BN-LINK-06) + outlet exponent
+    // (BN-LINK-04).
+    if (tag == QStringLiteral("link_orifice_open_close_rate"))
+        return {EntityKind::Link, &swmm_link_set_orifice_open_close_rate,
+                                  &swmm_link_get_orifice_open_close_rate};
+    if (tag == QStringLiteral("link_outlet_expon"))
+        return {EntityKind::Link, &swmm_link_set_outlet_expon,
+                                  &swmm_link_get_outlet_expon};
 
     // Link — int / enum / bool
     if (tag == QStringLiteral("link_flap_gate")) {
@@ -566,6 +856,59 @@ SetterEntry setterFor(const QString &tag) {
         e.kind = EntityKind::Link;
         e.setFnI = &swmm_link_set_culvert_code;
         e.getFnI = &swmm_link_get_culvert_code;
+        return e;
+    }
+    // ATTRIBUTE_EDITOR_WIRING Phase 1 — link sub-type enums + barrels.
+    if (tag == QStringLiteral("link_orifice_type")) {
+        e.kind = EntityKind::Link;
+        e.setFnI = &swmm_link_set_orifice_type;
+        e.getFnI = &swmm_link_get_orifice_type;
+        return e;
+    }
+    if (tag == QStringLiteral("link_weir_type")) {
+        e.kind = EntityKind::Link;
+        e.setFnI = &swmm_link_set_weir_type;
+        e.getFnI = &swmm_link_get_weir_type;
+        return e;
+    }
+    if (tag == QStringLiteral("link_outlet_rating_type")) {
+        e.kind = EntityKind::Link;
+        e.setFnI = &swmm_link_set_outlet_rating_type;
+        e.getFnI = &swmm_link_get_outlet_rating_type;
+        return e;
+    }
+    if (tag == QStringLiteral("link_barrels")) {
+        e.kind = EntityKind::Link;
+        e.setFnI = &swmm_link_set_barrels;
+        e.getFnI = &swmm_link_get_barrels;
+        return e;
+    }
+
+    // Link — string ([TAGS], mirrors node_tag).
+    if (tag == QStringLiteral("link_tag")) {
+        e.kind   = EntityKind::Link;
+        e.setFnS = &swmm_link_set_tag;
+        e.getFnS = &swmm_link_get_tag;
+        return e;
+    }
+
+    // ATTRIBUTE_EDITOR_WIRING parity pass — rain gage rows.
+    if (tag == QStringLiteral("gage_rain_type")) {
+        e.kind = EntityKind::Gage;
+        e.setFnI = &swmm_gage_set_rain_type;
+        e.getFnI = &swmm_gage_get_rain_type;
+        return e;
+    }
+    if (tag == QStringLiteral("gage_data_source")) {
+        e.kind = EntityKind::Gage;
+        e.setFnI = &swmm_gage_set_data_source;
+        e.getFnI = &swmm_gage_get_data_source;
+        return e;
+    }
+    if (tag == QStringLiteral("gage_file_path")) {
+        e.kind   = EntityKind::Gage;
+        e.setFnS = &gageFilePathSet;
+        e.getFnS = &gageFilePathGet;
         return e;
     }
 
@@ -627,18 +970,70 @@ QVariantList dividerTypeValues() {
         makePair("WEIR",     3),
     };
 }
+// ATTRIBUTE_EDITOR_WIRING Phase 1 — link sub-type enums. Values mirror
+// the engine enums in openswmm_links.h (single ordering source: the
+// Q_ENUMs on SWMMLinkPropertyAdapter cite the same legacy combos).
+QVariantList orificeTypeValues() {
+    // SWMM_OrificeType; legacy combo at objprops.txt OrificeProps[5].
+    return {
+        makePair("SIDE",   0),
+        makePair("BOTTOM", 1),
+    };
+}
+QVariantList weirTypeValues() {
+    // SWMM_WeirType; legacy combo at objprops.txt WeirProps[5].
+    return {
+        makePair("TRANSVERSE",  0),
+        makePair("SIDEFLOW",    1),
+        makePair("V-NOTCH",     2),
+        makePair("TRAPEZOIDAL", 3),
+        makePair("ROADWAY",     4),
+    };
+}
+QVariantList outletRatingTypeValues() {
+    // SWMM_OutletRatingType; combo listed in the legacy display order
+    // (objprops.txt OutletProps[7]) while the data values carry the
+    // engine's numeric encoding.
+    return {
+        makePair("FUNCTIONAL/DEPTH", 1),
+        makePair("TABULAR/DEPTH",    3),
+        makePair("FUNCTIONAL/HEAD",  0),
+        makePair("TABULAR/HEAD",     2),
+    };
+}
+// ATTRIBUTE_EDITOR_WIRING parity pass — rain gage enums. Values mirror
+// SWMM_GageRainType / SWMM_GageDataSource in openswmm_gages.h.
+QVariantList gageRainTypeValues() {
+    return {
+        makePair("INTENSITY",  0),
+        makePair("VOLUME",     1),
+        makePair("CUMULATIVE", 2),
+    };
+}
+QVariantList gageDataSourceValues() {
+    return {
+        makePair("TIMESERIES", 0),
+        makePair("FILE",       1),
+    };
+}
 QVariantList culvertCodeValues() {
     // Per legacy SWMM5 — 0 = no inlet control (default), 1..57 are
-    // HDS-5 culvert codes.  Surfacing the common entries here; for
-    // the long tail users can still type a number via the schema's
-    // Integer delegate (a future polish).
-    return {
-        makePair("None (0)",                       0),
-        makePair("Circular concrete (1)",          1),
-        makePair("Circular CMP (2)",               2),
-        makePair("Box concrete (29)",              29),
-        makePair("Box CMP (30)",                   30),
-    };
+    // HDS-5 culvert codes. ATTRIBUTE_EDITOR_WIRING Phase 0
+    // (2026-06-04): built from the shared table in
+    // ui/properties/culvertcodes.h so this combo, the Property
+    // Browser combobox, and any future UI show identical labels.
+    QVariantList values;
+    {
+        QVariantList p;
+        p << culvertCodeLabel(0) << QVariant(0);
+        values << QVariant(p);
+    }
+    for (const CulvertCodeInfo &c : culvertCodes()) {
+        QVariantList p;
+        p << culvertCodeLabel(c.code) << QVariant(c.code);
+        values << QVariant(p);
+    }
+    return values;
 }
 
 } // anonymous
@@ -677,6 +1072,7 @@ void SWMMAttributeTableModel::setSource(SWMMModelLayer *layer,
 void SWMMAttributeTableModel::rebuildColumnSchema()
 {
     m_columnSpecs = schemaForCategory(m_category);
+    appendUserFlagColumns();
     m_columnKeys.clear();
     m_columnLabels.clear();
     m_columnKeys.reserve(m_columnSpecs.size());
@@ -695,6 +1091,49 @@ void SWMMAttributeTableModel::reload()
     m_rowCacheValid.assign(n, false);
     invalidateCompoundCache();
     endResetModel();
+}
+
+void SWMMAttributeTableModel::appendUserFlagColumns()
+{
+    if (!m_layer) return;
+    const QString objType = userFlagObjectType(m_category);
+    if (objType.isEmpty()) return;
+    auto *ufm = m_layer->ensureUserFlagsModel();
+    if (!ufm) return;
+
+    // ATTRIBUTE_EDITOR_WIRING follow-up (2026-06-04) — per-object
+    // "User Flags" cell, Property Browser parity: every category whose
+    // objects carry [USER_FLAG_VALUES] assignments gets the same
+    // summary + UserFlagValuesDialog button the browser row shows,
+    // ahead of the per-flag columns below.
+    m_columnSpecs.append(compoundCol(QStringLiteral("User flags"),
+                                      QStringLiteral("User Flags"),
+                                      QStringLiteral("userflags_ref")));
+
+    using openswmmvis::ui::UserFlagsModel;
+    for (const auto &def : ufm->defs()) {
+        ColumnSpec spec;
+        spec.key     = kUserFlagKeyPrefix + def.name;
+        spec.label   = def.name;
+        spec.setter  = QStringLiteral("userflag");  // marks editable; commit
+                                                    // dispatches on the key
+        spec.tooltip = def.description;
+        if (def.type == UserFlagsModel::FlagType::Boolean) {
+            // Explicit (unset) entry so the user can return a boolean flag
+            // to the unassigned state from the combo. Labels match the INP
+            // tokens the engine round-trips (YES / NO).
+            spec.editor = EditorKind::Enum;
+            spec.enumValues = { makePair("(unset)", -1),
+                                makePair("YES", 1),
+                                makePair("NO", 0) };
+        } else {
+            // Integer / Real / String all edit as text: a blank commit
+            // clears the assignment (returns the flag to unset), and the
+            // engine validates numeric strings against the declared type.
+            spec.editor = EditorKind::Text;
+        }
+        m_columnSpecs.append(spec);
+    }
 }
 
 void SWMMAttributeTableModel::invalidateCompoundCache()
@@ -798,8 +1237,12 @@ QVariant SWMMAttributeTableModel::headerData(int section,
         && section < m_columnSpecs.size()) {
         const auto &spec = m_columnSpecs[section];
         const QString u = unitLabel(spec.unit);
-        if (role == Qt::ToolTipRole)
+        if (role == Qt::ToolTipRole) {
+            // User-flag columns carry the flag description instead of a
+            // unit suffix.
+            if (!spec.tooltip.isEmpty()) return spec.tooltip;
             return u.isEmpty() ? QVariant() : QVariant(tr("Units: %1").arg(u));
+        }
         if (role == Qt::DisplayRole) {
             if (u.isEmpty()) return spec.label;
             return tr("%1 (%2)").arg(spec.label, u);
@@ -887,12 +1330,45 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         SWMM_Engine eng = m_layer->engine();
         if (!eng || name.isEmpty()) return {};
 
-        // §S.SC.1.c — Link-side compound (XSection / CulvertCode /
-        // InletUsage). The setter tag's "link_" prefix routes here;
+        // ATTRIBUTE_EDITOR_WIRING follow-up (2026-06-04) — per-object
+        // "User Flags" cell, Property Browser parity. Mirrors
+        // SWMM*PropertyAdapter::userFlagsRef(); the button's dialog
+        // (UserFlagValuesDialog) performs the writes.
+        if (spec.setter == QStringLiteral("userflags_ref")) {
+            UserFlagsEditRef ref;
+            ref.objectType = userFlagObjectType(m_category);
+            ref.objectName = name;
+            ref.model      = m_layer->ensureUserFlagsModel();
+            ref.summary    = userFlagsSummaryFor(ref.model, ref.objectType,
+                                                  ref.objectName);
+            return QVariant::fromValue(ref);
+        }
+
+        // §S.SC.1.c — Link-side compound (XSection / InletUsage).
+        // The setter tag's "link_" prefix routes here;
         // node setters fall through to the existing branch below.
         if (spec.setter.startsWith(QStringLiteral("link_"))) {
             const int linkIdx = swmm_link_index(eng, name.toUtf8().constData());
             if (linkIdx < 0) return {};
+
+            // ATTRIBUTE_EDITOR_WIRING follow-up (2026-06-04) — pump
+            // curve picker cell. Mirrors
+            // SWMMLinkPropertyAdapter::pumpCurveRef(); the engine
+            // write happens in commitValueDirect (the picker editor
+            // carries no setter callback by design).
+            if (spec.setter == QStringLiteral("link_pump_curve_ref")) {
+                DataObjectRef dref;
+                dref.engine = eng;
+                dref.layer  = m_layer;
+                dref.kind   = DataObjectRef::AnyCurve;
+                int curveIdx = -1;
+                if (swmm_link_get_pump_curve(eng, linkIdx, &curveIdx) == SWMM_OK
+                    && curveIdx >= 0) {
+                    if (const char *id = swmm_table_id(eng, curveIdx))
+                        dref.currentName = QString::fromUtf8(id);
+                }
+                return QVariant::fromValue(dref);
+            }
 
             LinkCompoundEditRef lref;
             lref.engine   = eng;
@@ -901,8 +1377,44 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             if (spec.setter == QStringLiteral("link_xsect_ref")) {
                 lref.kind    = LinkCompoundEditRef::XSection;
                 lref.summary = xsectSummaryFor(eng, linkIdx);
+            } else if (spec.setter == QStringLiteral("link_inlet_usage_ref")) {
+                // Parity pass — placeholder summary mirrors
+                // SWMMLinkPropertyAdapter::inletUsageRef (BN-LINK-11).
+                lref.kind    = LinkCompoundEditRef::InletUsage;
+                lref.summary = tr("(engine API pending — Slice BO 6.5.8)");
             }
             return QVariant::fromValue(lref);
+        }
+
+        // Parity pass — outfall stage-data pickers (DataObjectRef
+        // cells). Mirrors SWMMNodePropertyAdapter::outfallTidalCurveRef
+        // / outfallTimeseriesRef: the name resolves only when the
+        // outfall's current type matches what the cell means.
+        if (spec.setter == QStringLiteral("node_outfall_tidal_ref")
+            || spec.setter == QStringLiteral("node_outfall_timeseries_ref")) {
+            const bool tidal =
+                (spec.setter == QStringLiteral("node_outfall_tidal_ref"));
+            const int nodeIdx = swmm_node_index(eng, name.toUtf8().constData());
+            if (nodeIdx < 0) return {};
+            DataObjectRef dref;
+            dref.engine = eng;
+            dref.layer  = m_layer;
+            dref.kind   = tidal ? DataObjectRef::TidalCurve
+                                : DataObjectRef::TimeSeries;
+            int type = -1;
+            swmm_node_get_outfall_type(eng, nodeIdx, &type);
+            const int wantType = tidal ? /*TIDAL*/ 3 : /*TIMESERIES*/ 4;
+            if (type == wantType) {
+                int tblIdx = -1;
+                const int rc = tidal
+                    ? swmm_node_get_outfall_tidal(eng, nodeIdx, &tblIdx)
+                    : swmm_node_get_outfall_timeseries(eng, nodeIdx, &tblIdx);
+                if (rc == SWMM_OK && tblIdx >= 0) {
+                    if (const char *id = swmm_table_id(eng, tblIdx))
+                        dref.currentName = QString::fromUtf8(id);
+                }
+            }
+            return QVariant::fromValue(dref);
         }
 
         const int nodeIdx = swmm_node_index(eng, name.toUtf8().constData());
@@ -960,6 +1472,28 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         return QVariant::fromValue(ref);
     }
 
+    // User-flag columns (Phase 3, docs/USER_FLAGS_UI_PLAN_2026-06-03.md):
+    // values live in the engine's UserFlags store, not the identify map
+    // or the setter dispatch table. Unset reads as blank; booleans hand
+    // the delegate's combo -1 / 0 / 1 for (unset) / NO / YES.
+    if (spec.key.startsWith(kUserFlagKeyPrefix) && m_layer) {
+        auto *ufm = m_layer->ensureUserFlagsModel();
+        if (!ufm) return {};
+        const QString flagName = spec.key.mid(kUserFlagKeyPrefix.size());
+        const QString objType  = userFlagObjectType(m_category);
+        const QString name     = objectNameAt(row);
+        bool found = false;
+        const QString v = ufm->value(objType, name, flagName, &found);
+        if (spec.editor == EditorKind::Enum) {  // Boolean flag
+            const int iv = !found ? -1
+                         : (v == QStringLiteral("YES") ? 1 : 0);
+            if (role == Qt::DisplayRole)
+                return found ? QVariant(v) : QVariant(QString());
+            return iv;  // EditRole — combo data
+        }
+        return v;  // blank when unset (both Display and Edit roles)
+    }
+
     // Editable columns: read from the engine setter's matching
     // getter so the value reflects post-commit state (the
     // identifyByName cache doesn't track per-attribute updates).
@@ -989,6 +1523,27 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                     return QString::fromUtf8(sbuf);
             }
         }
+    }
+
+    // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — link
+    // endpoints. identifyByName doesn't carry From/To node keys, so
+    // resolve them live from the engine (mirrors
+    // SWMMLinkPropertyAdapter::fromNode / toNode).
+    if (spec.editor == EditorKind::ReadOnly && m_layer
+        && (spec.key == QStringLiteral("From node")
+            || spec.key == QStringLiteral("To node"))) {
+        SWMM_Engine eng = m_layer->engine();
+        const QString name = objectNameAt(row);
+        if (!eng || name.isEmpty()) return {};
+        const int linkIdx = swmm_link_index(eng, name.toUtf8().constData());
+        if (linkIdx < 0) return {};
+        int nodeIdx = -1;
+        const int rc = (spec.key == QStringLiteral("From node"))
+            ? swmm_link_get_from_node(eng, linkIdx, &nodeIdx)
+            : swmm_link_get_to_node(eng, linkIdx, &nodeIdx);
+        if (rc != SWMM_OK || nodeIdx < 0) return {};
+        const char *n = swmm_node_id(eng, nodeIdx);
+        return n ? QString::fromUtf8(n) : QString();
     }
 
     const QVariantMap m = rowData(row);
@@ -1100,6 +1655,95 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
             m_rowCacheValid[row] = false;
         emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
         emit objectEdited(newName);
+        return true;
+    }
+
+    // User-flag columns (Phase 3, docs/USER_FLAGS_UI_PLAN_2026-06-03.md).
+    // Boolean combos commit -1 / 0 / 1 ((unset) / NO / YES); text columns
+    // commit strings where blank clears the assignment. All writes route
+    // through UserFlagsModel so the Attribute Panel and any other observer
+    // see the same valueChanged() notification.
+    if (spec.key.startsWith(kUserFlagKeyPrefix)) {
+        auto *ufm = m_layer->ensureUserFlagsModel();
+        if (!ufm) return false;
+        const QString flagName = spec.key.mid(kUserFlagKeyPrefix.size());
+        const QString objType  = userFlagObjectType(m_category);
+        const QString name     = objectNameAt(row);
+        if (objType.isEmpty() || name.isEmpty()) return false;
+
+        bool ok = false;
+        if (spec.editor == EditorKind::Enum) {  // Boolean flag
+            const int iv = value.toInt();
+            ok = (iv < 0)
+                ? ufm->clearValue(objType, name, flagName)
+                : ufm->setValue(objType, name, flagName,
+                                iv ? QStringLiteral("YES")
+                                   : QStringLiteral("NO"));
+        } else {
+            const QString s = value.toString().trimmed();
+            ok = s.isEmpty()
+                ? ufm->clearValue(objType, name, flagName)
+                : ufm->setValue(objType, name, flagName, s);
+        }
+        if (!ok) return false;
+
+        emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
+        emit objectEdited(name);
+        return true;
+    }
+
+    // ATTRIBUTE_EDITOR_WIRING (2026-06-04) — picker cells
+    // (DataObjectRef). Unlike the dialog-backed compound cells, the
+    // DataObjectPickerEditor carries no setter callback (MVC contract:
+    // the ref is just a coordinate), so the engine write happens here,
+    // dispatched on the setter tag. Mirrors the matching adapter WRITE
+    // slots (setPumpCurveRef / setOutfallTidalCurveRef /
+    // setOutfallTimeseriesRef).
+    if (value.userType() == qMetaTypeId<DataObjectRef>()) {
+        SWMM_Engine eng = m_layer->engine();
+        const QString name = objectNameAt(row);
+        if (!eng || name.isEmpty()) return false;
+        const auto dref = value.value<DataObjectRef>();
+
+        int rc = -1;
+        if (spec.setter == QStringLiteral("link_pump_curve_ref")) {
+            // Pump curve / tabular outlet curve (shared engine slot).
+            // Empty name clears the assignment (curveIdx == -1).
+            const int linkIdx = swmm_link_index(eng, name.toUtf8().constData());
+            if (linkIdx < 0) return false;
+            int curveIdx = -1;
+            if (!dref.currentName.isEmpty()) {
+                curveIdx = swmm_table_index(eng,
+                                             dref.currentName.toUtf8().constData());
+                if (curveIdx < 0) return false;   // unknown curve — ignore
+            }
+            rc = swmm_link_set_pump_curve(eng, linkIdx, curveIdx);
+        } else if (spec.setter == QStringLiteral("node_outfall_tidal_ref")
+                   || spec.setter == QStringLiteral("node_outfall_timeseries_ref")) {
+            // Engine setters also flip the outfall type (TIDAL /
+            // TIMESERIES) — deliberate invariant, same as the browser.
+            // No-op on empty name, mirroring the adapter slots.
+            const int nodeIdx = swmm_node_index(eng, name.toUtf8().constData());
+            if (nodeIdx < 0 || dref.currentName.isEmpty()) return false;
+            const int tblIdx = swmm_table_index(eng,
+                                                 dref.currentName.toUtf8().constData());
+            if (tblIdx < 0) return false;
+            rc = (spec.setter == QStringLiteral("node_outfall_tidal_ref"))
+                ? swmm_node_set_outfall_tidal(eng, nodeIdx, tblIdx)
+                : swmm_node_set_outfall_timeseries(eng, nodeIdx, tblIdx);
+        } else {
+            return false;
+        }
+        if (rc != SWMM_OK) return false;
+
+        if (row >= 0 && row < m_rowCacheValid.size())
+            m_rowCacheValid[row] = false;
+        // Outfall picker writes flip the type enum too — repaint the
+        // whole row so the Boundary Type cell tracks the change.
+        const int lastCol = columnCount() - 1;
+        emit dataChanged(this->index(row, 0), this->index(row, lastCol),
+                         {Qt::DisplayRole, Qt::EditRole});
+        emit objectEdited(name);
         return true;
     }
 

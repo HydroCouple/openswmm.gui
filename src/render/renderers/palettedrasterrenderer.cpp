@@ -32,7 +32,7 @@ SymbolStyle swatchFor(const QColor &c)
     fill.outlineColor = QColor(60, 60, 60);
     fill.outlineWidth = 0.5;
     SymbolLayer sl = fill.toSymbolLayer();
-    sl.props.insert(QStringLiteral("color"), c.name(QColor::HexArgb));
+    SymbolProps::writeColor(sl.props, QStringLiteral("color"), c);
     SymbolStyle s;
     s.layers.append(sl);
     return s;

@@ -292,8 +292,13 @@ SymbolStyle makeFromQmlProps(const QHash<QString, QString> &props)
     SymbolLayer layer;
     const QString colorStr = props.value(QStringLiteral("color"));
     const QColor  col      = parseQgisColor(colorStr);
-    if (col.isValid())
-        layer.props.insert(QStringLiteral("color"), col.name(QColor::HexArgb));
+    if (col.isValid()) {
+        // X1 — in-memory colour props are QColor variants (the spec readers
+        // use value<QColor>()); write both grammar keys so marker/fill
+        // ("fillColor") and line ("color") consumers find it.
+        layer.props.insert(QStringLiteral("color"), QVariant::fromValue(col));
+        layer.props.insert(QStringLiteral("fillColor"), QVariant::fromValue(col));
+    }
     const QString widthStr = props.value(QStringLiteral("line_width"));
     if (!widthStr.isEmpty())
         layer.props.insert(QStringLiteral("width"), widthStr);

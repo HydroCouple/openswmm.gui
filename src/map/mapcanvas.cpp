@@ -19,7 +19,6 @@
 #include "layers/xyztilelayer.h"
 #include "map/spatialreferencesystem.h"
 #include "map/crsmanager.h"
-#include "map/swmmlayerglrenderer.h"
 #include "map/swmmlayerqsgrenderer.h"
 
 #include <QQmlError>
@@ -526,14 +525,6 @@ OpenSWMMVisLayer *MapCanvas::takeLayer(int index, bool pushUndo)
 
     disconnect(layer, &OpenSWMMVisLayer::repaintRequested,
                this, &MapCanvas::onLayerRepaintRequested);
-
-    // Drop any per-layer GL renderer (Phase B.2). The QPointer slot
-    // owned by m_glRenderers carries the cleanup; its destructor
-    // takes care of context + FBO teardown.
-    if (auto *sl = qobject_cast<SWMMModelLayer *>(layer)) {
-        if (auto slot = m_glRenderers.take(sl); slot)
-            slot->deleteLater();
-    }
 
     if (!layer->isRasterLayer())
         layer->depopulateScene(m_scene);

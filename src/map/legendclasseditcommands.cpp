@@ -20,26 +20,29 @@ namespace openswmmvis::map {
 
 namespace {
 
-// Mirrors LegendOverlay::legendItemsFor()'s per-kind dispatch — the layer
-// kinds that own an IFeatureRenderer. GISRasterLayer uses IRasterRenderer
-// and is excluded; its per-class edits flow through a sister command (TBD).
+// Gap B1 — single-renderer layer kinds only. SWMMResultsLayer is routed
+// through its kind-qualified facade below (its rows aggregate per-kind
+// renderers, so the layer-level renderer would mis-route bin keys).
+// GISRasterLayer uses IRasterRenderer and is excluded; its per-class edits
+// flow through a sister command (TBD).
 OpenSWMM::Render::IFeatureRenderer *rendererFor(OpenSWMMVisLayer *layer)
 {
     if (!layer) return nullptr;
-    if (auto *l = qobject_cast<SWMMResultsLayer *>(layer))    return l->renderer();
     if (auto *l = qobject_cast<SWMM2DResultsLayer *>(layer))  return l->renderer();
     if (auto *l = qobject_cast<SWMM2DMeshLayer *>(layer))     return l->renderer();
     if (auto *l = qobject_cast<GISVectorLayer *>(layer))      return l->renderer();
     return nullptr;
 }
 
-// X4 — the multi-kind SWMMModelLayer has no single IFeatureRenderer, so its
-// per-class edits route through the layer's legend facade instead. These
-// helpers dispatch to whichever path the layer supports.
+// X4 / Gap B1 — multi-kind layers (SWMMModelLayer, SWMMResultsLayer) have
+// no single IFeatureRenderer, so their per-class edits route through the
+// layers' kind-qualified legend facades instead. These helpers dispatch to
+// whichever path the layer supports.
 QColor readClassColor(OpenSWMMVisLayer *layer, const QString &key)
 {
     if (auto *r = rendererFor(layer)) return r->colorForClass(key);
     if (auto *m = qobject_cast<SWMMModelLayer *>(layer)) return m->colorForClass(key);
+    if (auto *rl = qobject_cast<SWMMResultsLayer *>(layer)) return rl->colorForClass(key);
     return {};
 }
 
@@ -50,6 +53,8 @@ void writeClassColor(OpenSWMMVisLayer *layer, const QString &key, const QColor &
         emit layer->repaintRequested();   // renderer is plain C++ — repaint manually
     } else if (auto *m = qobject_cast<SWMMModelLayer *>(layer)) {
         m->setColorForClass(key, c);      // facade rebuilds overrides + repaints
+    } else if (auto *rl = qobject_cast<SWMMResultsLayer *>(layer)) {
+        rl->setColorForClass(key, c);     // facade rebuilds overrides + repaints
     }
 }
 
@@ -57,6 +62,7 @@ qreal readClassSize(OpenSWMMVisLayer *layer, const QString &key)
 {
     if (auto *r = rendererFor(layer)) return r->sizeForClass(key);
     if (auto *m = qobject_cast<SWMMModelLayer *>(layer)) return m->sizeForClass(key);
+    if (auto *rl = qobject_cast<SWMMResultsLayer *>(layer)) return rl->sizeForClass(key);
     return -1.0;
 }
 
@@ -68,6 +74,8 @@ void writeClassSize(OpenSWMMVisLayer *layer, const QString &key, qreal s)
     } else if (auto *m = qobject_cast<SWMMModelLayer *>(layer)) {
         m->setSizeForClass(key, s);
     }
+    // SWMMResultsLayer facade carries no size write-path yet — per-bin
+    // size edits on results kinds arrive with the output-axis follow-up.
 }
 
 } // namespace

@@ -94,7 +94,7 @@ SymbolStyle makeSwatch(const QColor &c)
     SymbolStyle s;
     SymbolLayer sl;
     sl.kind = SymbolLayerKind::SimpleFill;
-    sl.props.insert(QStringLiteral("color"), c.name(QColor::HexArgb));
+    SymbolProps::writeColor(sl.props, QStringLiteral("color"), c);
     s.layers.append(sl);
     return s;
 }

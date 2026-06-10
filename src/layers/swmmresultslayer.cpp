@@ -14,6 +14,8 @@
 #include "render/fillsymbollayer.h"   // VS.2b — fill primitive for polygon brush
 #include "render/ifeaturerenderer.h"
 #include "render/intervalbinner.h"   // Slice OUT.1 — default kind binner
+// Gap A1.3 — archetype-seeded renderer construction.
+#include "render/rendererfactory.h"
 #include "render/renderers/graduatedrenderer.h"
 #include "render/renderers/categorizedrenderer.h"
 // Slice B.5 — Rule Model mirror over per-kind renderers.
@@ -66,6 +68,14 @@
 #include <ogr_spatialref.h>
 
 namespace {
+
+// Forward declarations for TU-local helpers defined further down (their
+// definitions live next to the Slice OUT.1 / OUT.2 blocks they belong to).
+bool catIsNodeScope(SWMMModelLayer::Category c);
+bool catIsLinkScope(SWMMModelLayer::Category c);
+bool catIsSubcatchScope(SWMMModelLayer::Category c);
+std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>
+makeDefaultKindRenderer(SWMMModelLayer::Category c);
 
 // Scene-space Y-flip — matches SWMMLayerItem convention.
 inline QPointF toScene(double mx, double my) { return QPointF(mx, -my); }
@@ -329,6 +339,14 @@ SWMMResultsLayer::SWMMResultsLayer(const QString &resultsFilePath,
     };
     for (auto *s : m_featureSublayers)
         wireRefresh(s);
+
+    // Slice Z.7a / gap A1.1 — per-frame rebinning. Connected here (not in
+    // buildRuleListLazy) so PerFrameAutoStretch works on projects restored
+    // from .oswp even when the symbology dialog — and therefore the lazy
+    // rule-list mirror — was never opened. rebinDynamicRulesIfNeeded()
+    // drives off m_kindRenderers directly, so no rule list is required.
+    connect(this, &SWMMResultsLayer::currentTimeStepChanged,
+            this, [this](int) { rebinDynamicRulesIfNeeded(); });
 }
 
 QList<OpenSWMM::Render::ISublayer *> SWMMResultsLayer::sublayers() const
@@ -444,6 +462,18 @@ QString SWMMResultsLayer::resultsFilePath() const
     return m_resultsFilePath.isEmpty()
                ? m_resultsFilePath
                : QFileInfo(m_resultsFilePath).absoluteFilePath();
+}
+
+QString SWMMResultsLayer::reportFilePath() const
+{
+    return m_reportFilePath.isEmpty()
+               ? m_reportFilePath
+               : QFileInfo(m_reportFilePath).absoluteFilePath();
+}
+
+void SWMMResultsLayer::setReportFilePath(const QString &path)
+{
+    m_reportFilePath = path;
 }
 
 QString SWMMResultsLayer::scenarioName() const
@@ -659,7 +689,24 @@ bool SWMMResultsLayer::openResults(QList<QString> &warnings, QList<QString> &err
     // Build name → output-index maps for fast lookup during rendering.
     buildOutputIdMaps();
 
-    // Pre-fetch results for period 0.
+    // Gap A2.1 — eager per-kind renderers. Install an archetype-seeded
+    // Graduated default for every result-bearing kind that doesn't already
+    // carry one (kinds restored from .oswp keep theirs; the serializer
+    // re-applies after open either way). The renderer-driven override-cache
+    // path thereby becomes the only paint path; the legacy m_colorRamp
+    // branch survives only as the data-missing fallback. RainGages carry
+    // no result feed, so they keep their lazy (null) slot.
+    for (int i = 0; i < static_cast<int>(SWMMModelLayer::NumCategories); ++i) {
+        const auto c = static_cast<SWMMModelLayer::Category>(i);
+        if (c == SWMMModelLayer::CatRainGages)
+            continue;
+        if (!kindRenderer(c))
+            setKindRenderer(c, makeDefaultKindRenderer(c));
+    }
+
+    // Pre-fetch results for period 0. (Runs after the eager-renderer
+    // install so the fetch collects each renderer's classify attribute and
+    // the trailing rebuildAllActiveKindFeatureOverrides sees real data.)
     m_currentStep = 0;
     fetchResultsForStep(0);
 
@@ -841,6 +888,31 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
         }
     }
 
+    // Gap A2.1 — kind renderers can classify a different output variable
+    // than their sublayer's attribute (graduated Conduits on LinkVelocity
+    // while the conduit sublayer attribute reads "flow"). Include every
+    // installed renderer's classify attribute so the override-cache
+    // rebuild at the end of this fetch always finds its data.
+    for (int i = 0; i < static_cast<int>(SWMMModelLayer::NumCategories); ++i) {
+        if (i >= static_cast<int>(m_kindRenderers.size()))
+            break;
+        auto *kr = m_kindRenderers[static_cast<size_t>(i)].get();
+        if (!kr) continue;
+        QString attr;
+        if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr))
+            attr = g->classifyAttribute();
+        else if (auto *cz = dynamic_cast<OpenSWMM::Render::CategorizedRenderer *>(kr))
+            attr = cz->classifyAttribute();
+        if (attr.isEmpty()) continue;
+        const auto c = static_cast<SWMMModelLayer::Category>(i);
+        if (catIsNodeScope(c))
+            collect(neededNodeVars,     nodeOutCodeForAttribute(attr));
+        else if (catIsLinkScope(c))
+            collect(neededLinkVars,     linkOutCodeForAttribute(attr));
+        else if (catIsSubcatchScope(c))
+            collect(neededSubcatchVars, subcatchOutCodeForAttribute(attr));
+    }
+
     // Drop cache entries for vars no longer needed (sublayer toggled off /
     // attribute changed) so memory tracks visible-sublayer set. QHash
     // iterators don't support arithmetic, so explicit if/else around
@@ -997,6 +1069,9 @@ QPair<double, double> SWMMResultsLayer::ensureNodeAttributeRange(int outCode)
             if (!self) return;
             self->m_nodeAttributeRange.insert(outCode, range);
             self->m_nodeRangePending.remove(outCode);
+            // Gap A2.2 — FixedOverRun renderers classified against the
+            // frame showing at install time re-classify with run extremes.
+            self->reclassifyKindsForResolvedRange(0, outCode);
             emit self->repaintRequested();
         }, Qt::QueuedConnection);
     });
@@ -1023,6 +1098,7 @@ QPair<double, double> SWMMResultsLayer::ensureLinkAttributeRange(int outCode)
             if (!self) return;
             self->m_linkAttributeRange.insert(outCode, range);
             self->m_linkRangePending.remove(outCode);
+            self->reclassifyKindsForResolvedRange(1, outCode);   // Gap A2.2
             emit self->repaintRequested();
         }, Qt::QueuedConnection);
     });
@@ -1049,6 +1125,7 @@ QPair<double, double> SWMMResultsLayer::ensureSubcatchAttributeRange(int outCode
             if (!self) return;
             self->m_subcatchAttributeRange.insert(outCode, range);
             self->m_subcatchRangePending.remove(outCode);
+            self->reclassifyKindsForResolvedRange(2, outCode);   // Gap A2.2
             emit self->repaintRequested();
         }, Qt::QueuedConnection);
     });
@@ -1093,8 +1170,8 @@ SWMMResultsLayer::sublayerLegendItems()
             item.range      = range;
             SymbolLayer sl;
             sl.kind = swatchKind;
-            sl.props.insert(QStringLiteral("color"),
-                            m_colorRamp.colorForValue(range.first).name(QColor::HexArgb));
+            OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"),
+                                    m_colorRamp.colorForValue(range.first));
             if (swatchKind == SymbolLayerKind::SimpleMarker)
                 sl.props.insert(QStringLiteral("size"), sizeOrWidthPx);
             if (swatchKind == SymbolLayerKind::SimpleLine)
@@ -1132,7 +1209,7 @@ SWMMResultsLayer::sublayerLegendItems()
             QColor col = localRamp.colorForValue(value);
             SymbolLayer sl;
             sl.kind = swatchKind;
-            sl.props.insert(QStringLiteral("color"), col.name(QColor::HexArgb));
+            OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"), col);
             if (swatchKind == SymbolLayerKind::SimpleMarker)
                 sl.props.insert(QStringLiteral("size"), sizeOrWidthPx);
             if (swatchKind == SymbolLayerKind::SimpleLine)
@@ -1209,35 +1286,72 @@ SWMMResultsLayer::sublayerLegendItems()
             }
         }
 
-        // Header row — labelled with the kind + attribute (or kind alone
-        // when the sublayer paints a single symbol).
-        LegendSymbolItem header;
-        header.label = useRamp && haveData
-                         ? QStringLiteral("%1 — %2").arg(sub->displayName(), attribute)
-                         : sub->displayName();
-        header.sublayerId = sublayerId;
-        out.append(header);
+        // Gap A2.3 — legend-from-renderer (§J.5 invariant): when a kind
+        // renderer is installed, paint colours come from its override
+        // cache, so the legend rows MUST come from the same renderer or
+        // map and legend disagree (e.g. Jenks-7 breaks on the map vs the
+        // synthesized 5-equal-bin block below). The synthesized path
+        // survives only as the no-renderer fallback.
+        bool rendererDrove = false;
+        if (auto *kr = kindRenderer(sub->category())) {
+            QString rendererAttr;
+            if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr))
+                rendererAttr = g->classifyAttribute();
+            else if (auto *cz = dynamic_cast<OpenSWMM::Render::CategorizedRenderer *>(kr))
+                rendererAttr = cz->classifyAttribute();
+            const auto rows = kr->legendSymbolItems();
+            if (!rows.isEmpty()) {
+                LegendSymbolItem header;
+                header.label = rendererAttr.isEmpty()
+                                 ? sub->displayName()
+                                 : QStringLiteral("%1 — %2")
+                                       .arg(sub->displayName(), rendererAttr);
+                header.sublayerId = sublayerId;
+                out.append(header);
+                const QString kk = SWMMModelLayer::kindKey(sub->category());
+                for (LegendSymbolItem item : rows) {
+                    item.sublayerId = sublayerId;
+                    // Gap B1 — kind-qualify so per-class edits route back
+                    // to this kind's renderer (two kinds share bin keys).
+                    if (!item.classKey.isEmpty())
+                        item.classKey = kk + QChar(0x1F) + item.classKey;
+                    out.append(item);
+                }
+                rendererDrove = true;
+            }
+        }
 
-        if (useRamp && haveData) {
-            appendRampRows(sublayerId, attribute, range, swatchKind, swatchSize);
-        } else {
-            // Single-symbol row for static / no-attribute sublayers.
-            LegendSymbolItem item;
-            item.label      = singleCol.isValid()
-                                ? singleCol.name(QColor::HexArgb)
-                                : QStringLiteral("single symbol");
-            item.sublayerId = sublayerId;
-            SymbolLayer sl;
-            sl.kind = swatchKind;
-            sl.props.insert(QStringLiteral("color"),
-                            singleCol.isValid() ? singleCol.name(QColor::HexArgb)
-                                                : QStringLiteral("#606060"));
-            if (swatchKind == SymbolLayerKind::SimpleMarker)
-                sl.props.insert(QStringLiteral("size"), swatchSize);
-            if (swatchKind == SymbolLayerKind::SimpleLine)
-                sl.props.insert(QStringLiteral("width"), swatchSize);
-            item.symbol.layers.append(sl);
-            out.append(item);
+        if (!rendererDrove) {
+            // Header row — labelled with the kind + attribute (or kind alone
+            // when the sublayer paints a single symbol).
+            LegendSymbolItem header;
+            header.label = useRamp && haveData
+                             ? QStringLiteral("%1 — %2").arg(sub->displayName(), attribute)
+                             : sub->displayName();
+            header.sublayerId = sublayerId;
+            out.append(header);
+
+            if (useRamp && haveData) {
+                appendRampRows(sublayerId, attribute, range, swatchKind, swatchSize);
+            } else {
+                // Single-symbol row for static / no-attribute sublayers.
+                LegendSymbolItem item;
+                item.label      = singleCol.isValid()
+                                    ? singleCol.name(QColor::HexArgb)
+                                    : QStringLiteral("single symbol");
+                item.sublayerId = sublayerId;
+                SymbolLayer sl;
+                sl.kind = swatchKind;
+                OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"),
+                                        singleCol.isValid() ? singleCol
+                                                            : QColor(0x60, 0x60, 0x60));
+                if (swatchKind == SymbolLayerKind::SimpleMarker)
+                    sl.props.insert(QStringLiteral("size"), swatchSize);
+                if (swatchKind == SymbolLayerKind::SimpleLine)
+                    sl.props.insert(QStringLiteral("width"), swatchSize);
+                item.symbol.layers.append(sl);
+                out.append(item);
+            }
         }
 
         // Optional: emit a Flow-arrows row when the line sublayer has
@@ -1256,8 +1370,8 @@ SWMMResultsLayer::sublayerLegendItems()
                 SymbolLayer sl;
                 sl.kind = SymbolLayerKind::SimpleMarker;
                 sl.props.insert(QStringLiteral("shape"), QStringLiteral("arrow"));
-                sl.props.insert(QStringLiteral("color"),
-                                st->arrowColor().name(QColor::HexArgb));
+                OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"),
+                                        st->arrowColor());
                 sl.props.insert(QStringLiteral("size"), st->arrowLengthPx());
                 item.symbol.layers.append(sl);
                 out.append(item);
@@ -1347,13 +1461,46 @@ void SWMMResultsLayer::stepBackward(bool loop)
 
 SWMMResultVariable SWMMResultsLayer::variable() const { return m_variable; }
 
+namespace {
+// Defined in the Slice OUT.2 block further down this TU.
+QString variableEnumName(SWMMResultVariable v);
+} // namespace
+
 void SWMMResultsLayer::setVariable(SWMMResultVariable var)
 {
     if (m_variable == var)
         return;
 
     m_variable = var;
-    // Re-fetch results for the current step with the new variable.
+
+    // Gap A2.4 — facade over the per-kind renderers: the renderer model is
+    // the single source of truth for what paints, so retarget every kind
+    // in the variable's scope. The classify attribute uses the enumerator
+    // name ("NodeDepth", "LinkFlow", …) — the same vocabulary the kind
+    // panels and the override-cache rebuild round-trip through. Breaks are
+    // dropped so the next rebuild re-classifies against the new variable.
+    const QString attrName = variableEnumName(var);
+    if (!attrName.isEmpty()) {
+        for (int i = 0; i < static_cast<int>(SWMMModelLayer::NumCategories); ++i) {
+            const auto c = static_cast<SWMMModelLayer::Category>(i);
+            const bool scopeMatch =
+                (isNodeVar(var)     && catIsNodeScope(c)) ||
+                (isLinkVar(var)     && catIsLinkScope(c)) ||
+                (isSubcatchVar(var) && catIsSubcatchScope(c));
+            if (!scopeMatch)
+                continue;
+            auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(
+                kindRenderer(c));
+            if (!g || g->classifyAttribute() == attrName)
+                continue;
+            g->setClassifyAttribute(attrName);
+            g->clearBreaks();
+        }
+    }
+
+    // Re-fetch results for the current step with the new variable. The
+    // fetch collects the retargeted renderers' attributes and its trailing
+    // rebuildAllActiveKindFeatureOverrides re-classifies + recolours.
     m_nodeResults.clear();
     m_linkResults.clear();
     m_subcatchResults.clear();
@@ -1372,6 +1519,23 @@ RasterColorRamp SWMMResultsLayer::colorRamp() const { return m_colorRamp; }
 void SWMMResultsLayer::setColorRamp(const RasterColorRamp &ramp)
 {
     m_colorRamp = ramp;
+
+    // Gap A2.4 — facade over the per-kind renderers (legacy semantic:
+    // one ramp for the whole layer). Each renderer keeps its own
+    // classified range; only the stops / interpolation change.
+    for (int i = 0; i < static_cast<int>(SWMMModelLayer::NumCategories); ++i) {
+        const auto c = static_cast<SWMMModelLayer::Category>(i);
+        auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(
+            kindRenderer(c));
+        if (!g)
+            continue;
+        RasterColorRamp r  = ramp;
+        r.minValue = g->ramp().minValue;
+        r.maxValue = g->ramp().maxValue;
+        g->setRamp(r);
+        rebuildKindFeatureOverrides(c);
+    }
+
     // Slice §Y.2 — ramp swap only changes colours, not geometry.
     escalateSceneDirty(SceneDirty::Values);
     emit repaintRequested();
@@ -1438,14 +1602,22 @@ QString kindDefaultResultVariable(SWMMModelLayer::Category c)
 std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>
 makeDefaultKindRenderer(SWMMModelLayer::Category c)
 {
-    auto g = std::make_unique<OpenSWMM::Render::GraduatedRenderer>();
-    g->setClassifyAttribute(kindDefaultResultVariable(c));
-    g->setRamp(RasterColorRamp::viridis(0.0, 1.0));
-    OpenSWMM::Render::IntervalBinner b;
-    b.setMethod(OpenSWMM::Render::BinMethod::EqualInterval);
-    b.setBinCount(5);
-    g->setBinner(b);
-    return g;
+    using namespace OpenSWMM::Render;
+    // Gap A1.3 — construct through the shared factory so the renderer
+    // carries an archetype-appropriate, fully-keyed base symbol (an empty
+    // base symbol made paint silently fall back to the legacy ramp).
+    // Factory defaults match the old inline construction: viridis ramp +
+    // 5 equal intervals.
+    auto r = RendererFactory::makeRenderer(
+        QStringLiteral("graduated"), FeatureSublayer::archetypeFor(c));
+    if (auto *g = dynamic_cast<GraduatedRenderer *>(r.get())) {
+        g->setClassifyAttribute(kindDefaultResultVariable(c));
+        // Gap A2.1 — results-layer kinds classify a per-frame output
+        // variable; FixedOverRun keeps colours stable across animation.
+        g->setSourceKind(OpenSWMM::Render::AttributeSourceKind::Dynamic);
+        g->setRangeMode(OpenSWMM::Render::RangeMode::FixedOverRun);
+    }
+    return r;
 }
 
 } // namespace
@@ -1608,13 +1780,9 @@ void SWMMResultsLayer::buildRuleListLazy() const
         });
     }
 
-    // Slice Z.7a — per-frame rebinning. On each animation tick, walk
-    // the rules; for any rule with rebinPerFrame=true, re-sample the
-    // bound attribute from the current step's data and re-classify
-    // its graduated renderer. The Rule-aware setKindRenderer chain
-    // already refreshes per-feature override caches + emits repaint.
-    QObject::connect(self, &SWMMResultsLayer::currentTimeStepChanged,
-                     self, [self](int) { self->rebinDynamicRulesIfNeeded(); });
+    // Per-frame rebinning is wired in the constructor (gap A1.1) — it
+    // drives off m_kindRenderers directly and must not depend on this
+    // lazily-built rule-list mirror.
 }
 
 // ---------------------------------------------------------------------------
@@ -1763,6 +1931,146 @@ void SWMMResultsLayer::resetKindRendererToDefaults(SWMMModelLayer::Category c)
     setKindRenderer(c, makeDefaultKindRenderer(c));
 }
 
+void SWMMResultsLayer::reclassifyKindsForResolvedRange(int scope, int outCode)
+{
+    using namespace OpenSWMM::Render;
+    if (outCode < 0)
+        return;
+
+    bool any = false;
+    for (int i = 0; i < static_cast<int>(SWMMModelLayer::NumCategories); ++i) {
+        if (i >= static_cast<int>(m_kindRenderers.size()))
+            break;
+        const auto c = static_cast<SWMMModelLayer::Category>(i);
+        const bool scopeMatch =
+            (scope == 0 && catIsNodeScope(c)) ||
+            (scope == 1 && catIsLinkScope(c)) ||
+            (scope == 2 && catIsSubcatchScope(c));
+        if (!scopeMatch)
+            continue;
+
+        auto *g = dynamic_cast<GraduatedRenderer *>(
+            m_kindRenderers[static_cast<size_t>(i)].get());
+        if (!g || g->rangeMode() != RangeMode::FixedOverRun)
+            continue;
+
+        const QString attr = g->classifyAttribute();
+        const int krCode = (scope == 0) ? nodeOutCodeForAttribute(attr)
+                         : (scope == 1) ? linkOutCodeForAttribute(attr)
+                                        : subcatchOutCodeForAttribute(attr);
+        if (krCode != outCode)
+            continue;
+
+        // Drop frame-derived breaks; the rebuild below re-classifies with
+        // the run extremes appended (the cache is now populated).
+        g->clearBreaks();
+        rebuildKindFeatureOverrides(c);
+        any = true;
+    }
+    if (any)
+        escalateSceneDirty(SceneDirty::Values);
+    // repaintRequested is emitted by the caller (scan-completion hook).
+}
+
+bool SWMMResultsLayer::kindRendererIsDefault(SWMMModelLayer::Category c) const
+{
+    const auto *kr = kindRenderer(c);
+    if (!kr)
+        return true;   // empty slot — nothing to persist either way
+
+    const auto def = makeDefaultKindRenderer(c);
+    if (!def || kr->rendererId() != def->rendererId())
+        return false;
+
+    // Compare normalized JSON: classification breaks and the sampled ramp
+    // range are derived from the data, not user intent — strip them so a
+    // default renderer that has merely classified still counts as default.
+    auto normalize = [](QJsonObject j) {
+        j.remove(QStringLiteral("lastBreaks"));
+        QJsonObject ramp = j.value(QStringLiteral("ramp")).toObject();
+        ramp.remove(QStringLiteral("minValue"));
+        ramp.remove(QStringLiteral("maxValue"));
+        j.insert(QStringLiteral("ramp"), ramp);
+        return j;
+    };
+    return normalize(kr->toJson()) == normalize(def->toJson());
+}
+
+// ----- Gap B1 — legend-as-editor facade (mirrors SWMMModelLayer X4) --------
+
+namespace {
+// Kind-qualified legend class key separator; never appears in renderer
+// class keys, so the split is unambiguous. Same convention as
+// SWMMModelLayer's X4 facade.
+const QChar kResultsKindClassSep = QChar(0x1F);
+
+bool decodeResultsLegendClassKey(const QString &key,
+                                 SWMMModelLayer::Category *catOut,
+                                 QString *innerOut)
+{
+    const int sep = key.indexOf(kResultsKindClassSep);
+    if (sep < 0) return false;
+    const QString kk = key.left(sep);
+    for (int i = 0; i < static_cast<int>(SWMMModelLayer::NumCategories); ++i) {
+        const auto c = static_cast<SWMMModelLayer::Category>(i);
+        if (SWMMModelLayer::kindKey(c) == kk) {
+            if (catOut)   *catOut = c;
+            if (innerOut) *innerOut = key.mid(sep + 1);
+            return true;
+        }
+    }
+    return false;
+}
+} // namespace
+
+QList<OpenSWMM::Render::LegendSymbolItem> SWMMResultsLayer::legendSymbolItems()
+{
+    // The renderer-driven sublayer walk already aggregates per-kind rows
+    // (gap A2.3); it is the single source the legend views should read.
+    return sublayerLegendItems();
+}
+
+bool SWMMResultsLayer::supportsClassEdit(
+    OpenSWMM::Render::ClassEditKind kind) const
+{
+    for (size_t i = 0; i < m_kindRenderers.size(); ++i) {
+        if (m_kindRenderers[i] && m_kindRenderers[i]->supportsClassEdit(kind))
+            return true;
+    }
+    return false;
+}
+
+QColor SWMMResultsLayer::colorForClass(const QString &classKey) const
+{
+    SWMMModelLayer::Category c; QString inner;
+    if (!decodeResultsLegendClassKey(classKey, &c, &inner)) return {};
+    auto *r = kindRenderer(c);
+    return r ? r->colorForClass(inner) : QColor{};
+}
+
+void SWMMResultsLayer::setColorForClass(const QString &classKey,
+                                        const QColor &color)
+{
+    SWMMModelLayer::Category c; QString inner;
+    if (!decodeResultsLegendClassKey(classKey, &c, &inner)) return;
+    auto *r = kindRenderer(c);
+    if (!r) return;
+    r->setColorForClass(inner, color);
+    // The renderer is plain C++ — refresh the override cache + repaint so
+    // map and legend update together.
+    rebuildKindFeatureOverrides(c);
+    escalateSceneDirty(SceneDirty::Values);
+    emit repaintRequested();
+}
+
+qreal SWMMResultsLayer::sizeForClass(const QString &classKey) const
+{
+    SWMMModelLayer::Category c; QString inner;
+    if (!decodeResultsLegendClassKey(classKey, &c, &inner)) return -1.0;
+    auto *r = kindRenderer(c);
+    return r ? r->sizeForClass(inner) : -1.0;
+}
+
 // ---------------------------------------------------------------------------
 // Slice OUT.2 — per-feature override cache
 // ---------------------------------------------------------------------------
@@ -1819,20 +2127,14 @@ bool catMatchesVariable(SWMMModelLayer::Category c, SWMMResultVariable v)
     return false;
 }
 
-// Extract a QColor from the first SymbolLayer's "color" prop. Tolerant
-// of QColor variants (Qt registers QColor metatype) and string hex
-// shortcuts ("#rrggbb" / named).
+// Extract a QColor from a SymbolStyle. Gap A1.2 — delegates to
+// SymbolProps::firstColor, which tolerates both encodings AND checks both
+// grammar keys ("color" then "fillColor"). The old "color"-only read made
+// single-symbol marker base symbols (keyed "fillColor") silently fall back
+// to the legacy ramp colour.
 QColor extractStyleColor(const OpenSWMM::Render::SymbolStyle &s, QColor fallback)
 {
-    if (s.layers.isEmpty()) return fallback;
-    const QVariant v = s.layers.first().props.value(QStringLiteral("color"));
-    if (!v.isValid()) return fallback;
-    if (v.canConvert<QColor>()) {
-        const QColor c = v.value<QColor>();
-        if (c.isValid()) return c;
-    }
-    const QColor c(v.toString());
-    return c.isValid() ? c : fallback;
+    return OpenSWMM::Render::SymbolProps::firstColor(s, fallback);
 }
 
 double extractStyleSize(const OpenSWMM::Render::SymbolStyle &s)
@@ -1920,24 +2222,27 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
     // Choose the right (outputIdxMap, perVarResults) pair for the scope.
     // For each row we look up the feature's output index then pull the
     // value from the per-var cache keyed by the renderer's attribute.
+    // Gap A2.2 — `scopeOutCode` is kept so the classification step below
+    // can consult the full-run attribute-range cache for FixedOverRun.
     const QHash<QString, int> *outIdxMap = nullptr;
     const QVector<float>      *valuesPtr = nullptr;
+    int scopeOutCode = -1;
     if (catIsNodeScope(c)) {
         outIdxMap = &m_nodeOutputIdx;
-        const int outCode = nodeOutCodeForAttribute(classifyAttr);
-        const auto it = m_nodeResultsByVar.constFind(outCode);
+        scopeOutCode = nodeOutCodeForAttribute(classifyAttr);
+        const auto it = m_nodeResultsByVar.constFind(scopeOutCode);
         if (it != m_nodeResultsByVar.constEnd())
             valuesPtr = &it.value();
     } else if (catIsLinkScope(c)) {
         outIdxMap = &m_linkOutputIdx;
-        const int outCode = linkOutCodeForAttribute(classifyAttr);
-        const auto it = m_linkResultsByVar.constFind(outCode);
+        scopeOutCode = linkOutCodeForAttribute(classifyAttr);
+        const auto it = m_linkResultsByVar.constFind(scopeOutCode);
         if (it != m_linkResultsByVar.constEnd())
             valuesPtr = &it.value();
     } else if (catIsSubcatchScope(c)) {
         outIdxMap = &m_subcatchOutputIdx;
-        const int outCode = subcatchOutCodeForAttribute(classifyAttr);
-        const auto it = m_subcatchResultsByVar.constFind(outCode);
+        scopeOutCode = subcatchOutCodeForAttribute(classifyAttr);
+        const auto it = m_subcatchResultsByVar.constFind(scopeOutCode);
         if (it != m_subcatchResultsByVar.constEnd())
             valuesPtr = &it.value();
     } else {
@@ -1997,8 +2302,46 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
     }
     // F4 — shared classify gate (same isEmpty + non-empty-samples condition as
     // the model layer) so the two rebuild paths cannot drift.
-    if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr))
-        OpenSWMM::Render::GraduatedRenderer::classifyIfNeeded(g, values);
+    //
+    // Gap A2.2 — classification honours the renderer's RangeMode:
+    //   FixedUser          — never auto-classify; the user's range lives in
+    //                        the ramp (setRange) and empty breaks fall back
+    //                        to the painter's inline equal-interval over it.
+    //   FixedOverRun       — "fixed over the RUN", not "fixed at whatever
+    //                        frame was showing": extend the current frame's
+    //                        samples with the full-run extremes from the
+    //                        async attribute-range cache so breaks span the
+    //                        whole simulation. While the scan is pending the
+    //                        frame samples stand in; the scan-completion
+    //                        hook re-classifies (reclassifyKindsForResolvedRange).
+    //   PerFrameAutoStretch — classify from this frame's samples;
+    //                        rebinDynamicRulesIfNeeded refreshes per tick.
+    if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr)) {
+        using OpenSWMM::Render::RangeMode;
+        if (g->rangeMode() == RangeMode::FixedOverRun
+            && g->sourceKind() == OpenSWMM::Render::AttributeSourceKind::Dynamic
+            && scopeOutCode >= 0) {
+            const QHash<int, QPair<double, double>> *rangeCache = nullptr;
+            if (catIsNodeScope(c))          rangeCache = &m_nodeAttributeRange;
+            else if (catIsLinkScope(c))     rangeCache = &m_linkAttributeRange;
+            else if (catIsSubcatchScope(c)) rangeCache = &m_subcatchAttributeRange;
+            if (rangeCache) {
+                const auto it = rangeCache->constFind(scopeOutCode);
+                if (it != rangeCache->constEnd()) {
+                    values.append(it.value().first);
+                    values.append(it.value().second);
+                } else {
+                    // Kick the async scan; completion re-classifies.
+                    if (catIsNodeScope(c))          ensureNodeAttributeRange(scopeOutCode);
+                    else if (catIsLinkScope(c))     ensureLinkAttributeRange(scopeOutCode);
+                    else if (catIsSubcatchScope(c)) ensureSubcatchAttributeRange(scopeOutCode);
+                }
+            }
+            OpenSWMM::Render::GraduatedRenderer::classifyIfNeeded(g, values);
+        } else if (g->rangeMode() != RangeMode::FixedUser) {
+            OpenSWMM::Render::GraduatedRenderer::classifyIfNeeded(g, values);
+        }
+    }
 
     for (int row = 0; row < count; ++row) {
         const QString name = m_modelLayer->objectNameAt(c, row);

@@ -238,6 +238,10 @@ private slots:
     /*! \brief Open the Simulation Options dialog for the active project. */
     void onSimulationOptions();
 
+    /*! \brief Open the User Flags Manager for the active project
+     *  (docs/USER_FLAGS_UI_PLAN_2026-06-03.md Phase 2). */
+    void onUserFlags();
+
     /*! \brief Start a simulation run for the active project. */
     void onRunSimulation();
 

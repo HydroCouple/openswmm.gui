@@ -162,9 +162,10 @@ void TestUnclassedColorsRenderer::symbolFor_overridesColorPropWhenPresent()
     attrs.insert(QStringLiteral("depth"), 5.0);
     SymbolStyle s = r.symbolFor({}, attrs);
     QVERIFY(s.layers.first().props.contains(QStringLiteral("color")));
-    // Colour changed from the original black.
-    QVERIFY(s.layers.first().props.value(QStringLiteral("color")).toString()
-            != QStringLiteral("#FF000000"));
+    // Colour changed from the original black. (X1 — the override writes a
+    // QColor variant; compare colour values.)
+    QVERIFY(s.layers.first().props.value(QStringLiteral("color")).value<QColor>()
+            != QColor(QStringLiteral("#FF000000")));
 }
 
 void TestUnclassedColorsRenderer::symbolFor_leavesNonColorPropsUntouched()
@@ -198,7 +199,7 @@ void TestUnclassedColorsRenderer::symbolFor_missingAttributeReturnsNoData()
     r.setBaseSymbol(base);
 
     SymbolStyle s = r.symbolFor({}, QVariantMap{});
-    QCOMPARE(QColor(s.layers.first().props.value(QStringLiteral("color")).toString()),
+    QCOMPARE(s.layers.first().props.value(QStringLiteral("color")).value<QColor>(),
              QColor(Qt::yellow));
 }
 
@@ -216,7 +217,7 @@ void TestUnclassedColorsRenderer::symbolFor_nonNumericAttributeReturnsNoData()
     QVariantMap attrs;
     attrs.insert(QStringLiteral("kind"), QStringLiteral("apples"));
     SymbolStyle s = r.symbolFor({}, attrs);
-    QCOMPARE(QColor(s.layers.first().props.value(QStringLiteral("color")).toString()),
+    QCOMPARE(s.layers.first().props.value(QStringLiteral("color")).value<QColor>(),
              QColor(Qt::cyan));
 }
 

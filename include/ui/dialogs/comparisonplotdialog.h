@@ -138,6 +138,12 @@ private slots:
     void onShowSliderToggled(bool show);
     void onChartsOnlyToggled(bool chartsOnly);
 
+    // COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 4 — optional 1v1 column.
+    void onShow1v1Toggled(bool show);
+
+    // COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 5 — pair configuration.
+    void onConfigure1v1Clicked();
+
 private:
     void buildUi();
     void buildToolBar();
@@ -193,6 +199,8 @@ private:
     QAction      *m_actShowStats    = nullptr;  ///< Show/hide bottom stats panel
     QAction      *m_actShowSlider   = nullptr;  ///< Show/hide X-range slider row
     QAction      *m_actChartsOnly   = nullptr;  ///< Convenience: all three off
+    QAction      *m_actShow1v1      = nullptr;  ///< Show/hide 1v1 scatter column
+    QAction      *m_actConfig1v1    = nullptr;  ///< Open the 1v1 pairs editor
 
     // Cached splitter sizes for restore when a pane is re-shown.
     QList<int>    m_savedSplitterSizes;       ///< outer (series | charts)
@@ -211,8 +219,10 @@ private:
         QLineSeries          *cursorLine = nullptr;
         QVector<QLineSeries*> series;     ///< Parallel to model row's seriesIndices.
 
-        // Column 1 — 1v1 scatter (visible only when ≥2 runs).
-        QChartView         *scatterView   = nullptr;
+        // Column 1 — 1v1 scatter (visible only when ≥2 runs produce
+        // baseline↔comparison pairs). InteractiveChartView so toolbar
+        // modes + wheel zoom apply (COMPARISON_PLOT_1V1_AND_TREE_PLAN).
+        InteractiveChartView *scatterView  = nullptr;
         QChart             *scatterChart  = nullptr;
         QValueAxis         *scatterXAxis  = nullptr;
         QValueAxis         *scatterYAxis  = nullptr;

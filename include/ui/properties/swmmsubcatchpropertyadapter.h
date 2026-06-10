@@ -15,6 +15,10 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 
+#include "ui/properties/userflagseditref.h"   // USER_FLAGS Phase 4
+
+class SWMMModelLayer;
+
 class SWMMSubcatchPropertyAdapter : public QObject
 {
     Q_OBJECT
@@ -33,10 +37,22 @@ class SWMMSubcatchPropertyAdapter : public QObject
     Q_PROPERTY(double  nPerv       READ nPerv       WRITE setNPerv       NOTIFY changed)
     Q_PROPERTY(double  dsImperv    READ dsImperv    WRITE setDsImperv    NOTIFY changed)
     Q_PROPERTY(double  dsPerv      READ dsPerv      WRITE setDsPerv      NOTIFY changed)
+    /*! Phase 4 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — per-object
+     *  user-flag assignments row (see SWMMNodePropertyAdapter). */
+    Q_PROPERTY(UserFlagsEditRef userFlags
+               READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 
 public:
     SWMMSubcatchPropertyAdapter(SWMM_Engine engine, QString name,
                                   QObject *parent = nullptr);
+
+    /*! USER_FLAGS Phase 4 — bind the owning layer so userFlagsRef() can
+     *  reach the shared UserFlagsModel (mirror of
+     *  SWMMNodePropertyAdapter::setModelLayer; nullptr-safe). */
+    void setModelLayer(SWMMModelLayer *layer) { m_layer = layer; }
+    [[nodiscard]] SWMMModelLayer *modelLayer() const { return m_layer; }
+
+    [[nodiscard]] UserFlagsEditRef userFlagsRef() const;
 
     [[nodiscard]] QString name() const { return m_name; }
     [[nodiscard]] QString tag()  const;
@@ -65,6 +81,8 @@ public slots:
     void setDsImperv(double v);
     void setDsPerv(double v);
 
+    void setUserFlagsRef(const UserFlagsEditRef &) { emit changed(); }
+
     /*! Round-4 follow-up 2026-05-12 — see SWMMNodePropertyAdapter::refresh. */
     void refresh() { emit changed(); }
 
@@ -79,8 +97,9 @@ signals:
 
 private:
     [[nodiscard]] int idx() const;
-    SWMM_Engine m_engine;
-    QString     m_name;
+    SWMM_Engine     m_engine;
+    QString         m_name;
+    SWMMModelLayer *m_layer = nullptr;   ///< USER_FLAGS Phase 4 — borrow.
 };
 
 #endif // SWMMSUBCATCHPROPERTYADAPTER_H

@@ -17,6 +17,7 @@
 #define SWMMRAINGAGEPROPERTYADAPTER_H
 
 #include "ui/properties/swmmdataobjectpropertyadapter.h"
+#include "ui/properties/userflagseditref.h"   // USER_FLAGS Phase 4
 
 class SWMMRainGagePropertyAdapter : public SWMMDataObjectPropertyAdapter
 {
@@ -31,9 +32,15 @@ class SWMMRainGagePropertyAdapter : public SWMMDataObjectPropertyAdapter
      *  resolvedFilePath() for tooltip / status display. */
     Q_PROPERTY(QString filePath         READ filePath         WRITE setFilePath         NOTIFY changed)
     Q_PROPERTY(QString resolvedFilePath READ resolvedFilePath                            NOTIFY changed)
+    /*! Phase 4 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — per-object
+     *  user-flag assignments row (see SWMMNodePropertyAdapter). */
+    Q_PROPERTY(UserFlagsEditRef userFlags
+               READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 
 public:
     using SWMMDataObjectPropertyAdapter::SWMMDataObjectPropertyAdapter;
+
+    [[nodiscard]] UserFlagsEditRef userFlagsRef() const;
 
     [[nodiscard]] int    rainType()         const;
     [[nodiscard]] int    dataSource()       const;
@@ -47,6 +54,7 @@ public slots:
     void setRainType(int v);
     void setDataSource(int v);
     void setFilePath(const QString &p);
+    void setUserFlagsRef(const UserFlagsEditRef &) { emit changed(); }
 
 private:
     [[nodiscard]] int idx() const;

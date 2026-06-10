@@ -8,6 +8,8 @@
 
 #include "render/markersymbollayer.h"
 
+#include "render/symbolstyle.h"
+
 namespace OpenSWMM::Render
 {
 
@@ -37,14 +39,11 @@ MarkerSymbolLayerSpec MarkerSymbolLayerSpec::fromSymbolLayer(const SymbolLayer &
             p.value(QStringLiteral("shape")).toInt());
     if (p.contains(QStringLiteral("size")))
         s.sizePx = p.value(QStringLiteral("size")).toDouble();
-    if (p.contains(QStringLiteral("fillColor"))) {
-        const QColor c = p.value(QStringLiteral("fillColor")).value<QColor>();
-        if (c.isValid()) s.fillColor = c;
-    }
-    if (p.contains(QStringLiteral("outlineColor"))) {
-        const QColor c = p.value(QStringLiteral("outlineColor")).value<QColor>();
-        if (c.isValid()) s.outlineColor = c;
-    }
+    // Gap A1.2 — tolerant reads (QColor variant or legacy hex string).
+    s.fillColor    = SymbolProps::readColor(p, QStringLiteral("fillColor"),
+                                            s.fillColor);
+    s.outlineColor = SymbolProps::readColor(p, QStringLiteral("outlineColor"),
+                                            s.outlineColor);
     if (p.contains(QStringLiteral("outlineWidth")))
         s.outlineWidth = p.value(QStringLiteral("outlineWidth")).toDouble();
     if (p.contains(QStringLiteral("outlinePenStyle")))
@@ -64,10 +63,8 @@ MarkerSymbolLayerSpec MarkerSymbolLayerSpec::fromSymbolLayer(const SymbolLayer &
         const QFont f = p.value(QStringLiteral("labelFont")).value<QFont>();
         s.labelFont = f;
     }
-    if (p.contains(QStringLiteral("labelColor"))) {
-        const QColor c = p.value(QStringLiteral("labelColor")).value<QColor>();
-        if (c.isValid()) s.labelColor = c;
-    }
+    s.labelColor = SymbolProps::readColor(p, QStringLiteral("labelColor"),
+                                          s.labelColor);
 
     return s;
 }

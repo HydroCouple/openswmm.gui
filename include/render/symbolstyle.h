@@ -24,6 +24,7 @@
 
 #include "render/symbollayer.h"
 
+#include <QColor>
 #include <QJsonObject>
 #include <QList>
 
@@ -42,6 +43,44 @@ struct SymbolStyle
     [[nodiscard]] QJsonObject toJson() const;
     void fromJson(const QJsonObject &j);
 };
+
+/*!
+ * \namespace SymbolProps
+ * \brief Canonical colour prop accessors for SymbolLayer prop bags (gap A1.2).
+ *
+ *        Convention (X1): colours live in memory as QColor *variants*;
+ *        SymbolLayer::toJson/fromJson convert to/from hex strings at the
+ *        JSON boundary. Historically some writers stored hex strings in
+ *        memory while readers used QVariant::value<QColor>() (which does
+ *        not parse hex), silently dropping colours. These helpers end the
+ *        split: reads tolerate BOTH encodings forever (back-compat with
+ *        styles authored before the canonicalisation); writes emit the one
+ *        canonical form. All new code must go through them.
+ */
+namespace SymbolProps
+{
+
+/*! Tolerant colour read: accepts a QColor variant or a hex/named string.
+ *  Returns \a fallback when the key is absent or unparseable. */
+[[nodiscard]] QColor readColor(const QVariantMap &props, const QString &key,
+                               const QColor &fallback = QColor());
+
+/*! Canonical colour write: stores a QColor variant (never a string). */
+void writeColor(QVariantMap &props, const QString &key, const QColor &c);
+
+/*! First resolvable colour across the stack, checking the grammar keys
+ *  "fillColor" (marker/fill specs), then "color" (line spec), then
+ *  "outlineColor" per layer. Matches the legend-swatch convention. */
+[[nodiscard]] QColor firstColor(const SymbolStyle &style,
+                                const QColor &fallback = QColor());
+
+/*! Write \a c into whichever colour slot(s) each layer already advertises
+ *  ("fillColor" and/or "color"). Layers without a colour slot are left
+ *  untouched. Single shared copy of the helper previously duplicated in
+ *  Graduated / Categorized / SingleSymbol / UnclassedColors renderers. */
+void overrideColorInPlace(SymbolStyle &style, const QColor &c);
+
+} // namespace SymbolProps
 
 } // namespace OpenSWMM::Render
 
