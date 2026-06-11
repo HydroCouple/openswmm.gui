@@ -614,6 +614,13 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
         return false;
     }
 
+    // Load-time phase profiling. Surfaces a per-phase breakdown so a slow
+    // open can be attributed (engine parse vs. SoA copy vs. CRS/PROJ init vs.
+    // geometry cache) instead of guessed at. Emitted to stderr + warnings.
+    QElapsedTimer loadTimer;
+    loadTimer.start();
+    qint64 msOpen = 0, msParse = 0, msCrs = 0, msGeom = 0;
+
     // Open model (read-only: pass empty strings for rpt/out)
     m_tablePartitionDirty = true;
     m_engine = swmm_engine_create();
@@ -630,7 +637,17 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
         // Surface the engine's real diagnostic (e.g. the offending section
         // and line) instead of a generic failure — otherwise a parse error
         // looks identical to a missing file and needs a CLI repro to debug.
-        const QString detail = QString::fromUtf8(swmm_error_message(openRc)).trimmed();
+        //
+        // Prefer the detailed last-error string the engine recorded during
+        // open() (e.g. "[2D] [2D_BOUNDARY_CONDITIONS] invalid TRI index —
+        // line: ...").  swmm_error_message(openRc) is only the generic
+        // category for the numeric code, and that code is unreliable: 2D
+        // section parse failures return code 1, which swmm_error_message maps
+        // to "Out of memory" — turning a parse error into a bogus OOM report.
+        // Grab the detail BEFORE swmm_engine_destroy() frees the engine.
+        QString detail = QString::fromUtf8(swmm_get_last_error_msg(m_engine)).trimmed();
+        if (detail.isEmpty())
+            detail = QString::fromUtf8(swmm_error_message(openRc)).trimmed();
         errors.append(detail.isEmpty()
             ? QStringLiteral("Failed to open model (error %1): %2")
                   .arg(openRc).arg(m_modelFilePath)
@@ -654,6 +671,8 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
     // Table appeared to commit edits (cells flashed the new value) but
     // the engine getter then returned the unchanged SoA value, so
     // cells reverted (caleb 2026-05-12).
+
+    msOpen = loadTimer.elapsed();  // engine parse + initial state
 
     // Sync flow units from loaded model
     UnitSystem::instance()->syncFromEngine(m_engine);
@@ -798,6 +817,8 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
         }
     }
 
+    msParse = loadTimer.elapsed() - msOpen;  // node/link/catch/gage SoA copy
+
     // ---- CRS ----
     // Resolution order:
     //   1. CRS stored in the .inp (via swmm_get_crs) — preferred.
@@ -830,7 +851,10 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
         setSRS(layerSRS, true);
     }
 
+    msCrs = loadTimer.elapsed() - msOpen - msParse;  // CRS resolve + PROJ init
+
     buildGeometryCache();
+    msGeom = loadTimer.elapsed() - msOpen - msParse - msCrs;  // geometry cache
     m_needsRebuild = true;
     emit repaintRequested();  // ensure canvas redraws after geometry is ready
 
@@ -847,6 +871,15 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
         .arg(extent().isValid() ? "yes" : "no");
     qDebug().noquote() << counts;
     warnings.append(counts);
+
+    const QString timing = QStringLiteral(
+        "[SWMMModelLayer] %1 load timing (ms): engine_open=%2 soa_copy=%3 "
+        "crs_init=%4 geometry_cache=%5 total=%6")
+        .arg(fi.fileName())
+        .arg(msOpen).arg(msParse).arg(msCrs).arg(msGeom)
+        .arg(loadTimer.elapsed());
+    qDebug().noquote() << timing;
+    warnings.append(timing);
 
     setName(fi.baseName());
     emit modelFilePathChanged(m_modelFilePath);
