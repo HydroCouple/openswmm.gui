@@ -114,7 +114,7 @@ public:
 private:
     double m_glyphLengthScalePxPerMps = 20.0;
     LengthScaling m_lengthScaling     = LengthScaling::Log;
-    double m_glyphLengthMinPx         = 6.0;
+    double m_glyphLengthMinPx         = 20.0;
     double m_glyphLengthMaxPx         = 44.0;
     double m_glyphSpacingPx           = 30.0;
     double m_headSizePx               = 8.0;

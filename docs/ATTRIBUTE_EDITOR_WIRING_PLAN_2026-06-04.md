@@ -175,9 +175,30 @@ rows; sim-time/derived ro rows like gage currentRainfall stay browser-only):
   AND table (Slice DA.4.3 started the browser side); table needs
   outfall-specific columns. [DONE — see §3b]
 - Storage: storage curve (R3 picker: functional vs tabular per legacy —
-  functional coefficients as numerics), exfiltration/seepage parameter rows
-  (suction, conductivity, initial deficit) wherever engine accessors exist;
-  file engine-API gap tickets where they don't.
+  functional coefficients as numerics) [DONE — Slice AG.4, see below],
+  exfiltration/seepage parameter rows (suction, conductivity, initial
+  deficit) wherever engine accessors exist; file engine-API gap tickets
+  where they don't. [exfiltration rows still pending — engine accessors
+  `swmm_node_get/set_exfil_params` exist (openswmm_nodes.h:416/427)]
+
+  Slice AG.4 (storage geometry, browser + table parity):
+  - `DataObjectRef::StorageCurve` kind (engine table type 1 = CURVE_STORAGE)
+    added to `dataobjectref.h`; picker populate + "…" browse cases wired in
+    `dataobjectpickereditor.cpp` and the two mirror switches in
+    `attributepanel.cpp` / `attributetablepanel.cpp`.
+  - `SWMMStoragePropertyAdapter`: `StorageShape` enum (Functional/Tabular,
+    derived from whether `storage_curve >= 0`), `storageCurve` picker, and
+    `storageCoeffA/ExpB/ConstC` rows over the engine's atomic
+    `swmm_node_get/set_storage_functional` triple (read-modify-write per row).
+    `AttributePanel` greys curve vs. coefficient rows by live shape, mirroring
+    the outfall stage-data wiring.
+  - Attribute table (`swmmattributetablemodel.cpp`): Storage Shape enum,
+    Storage Curve picker (`node_storage_curve_ref`), and the three coefficient
+    columns, with read-modify-write wrappers + a whole-row repaint on the
+    shape flip so the sibling curve cell tracks the change.
+  - Tests: `tests/gui/test_nodepropertyadapter.cpp` —
+    `storageFunctionalRoundTrip`, `storageTabularRoundTripAndShapeSwitch`,
+    `storageGeometryPropsWritableViaMetaObject` (real-engine, no mocks).
 - Junctions: already near-parity; confirm ponded area + surcharge depth in
   both views.
 

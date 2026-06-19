@@ -1579,9 +1579,21 @@ void SWMM2DResultsLayer::closeSource()
 
 void SWMM2DResultsLayer::setDryDepth(double d)
 {
-    if (d == dry_depth_) return;
+    const bool changed = (d != dry_depth_);
     dry_depth_ = d;
-    if (graphics_item_) graphics_item_->geometryChanged();
+    // Drive the vector overlays' wet/dry cutoff from the same model DRY_DEPTH so
+    // the rendered wet extent (cells AND velocity/flow vectors) matches what the
+    // solver considers wet. The paint pass gates vectors on
+    // max(sublayer dryDepthCutoff, layer dryDepth) (see paint loops ~757/896),
+    // so the sublayer floor must track the layer threshold, not the 1 cm default.
+    // Sync unconditionally (idempotent): the layer default already equals some
+    // models' DRY_DEPTH, so an early return on `changed` would leave the 1 cm
+    // sublayer floor in place and keep clipping shallow vectors.
+    if (m_velocityVectorSublayer && m_velocityVectorSublayer->vectorStyle())
+        m_velocityVectorSublayer->vectorStyle()->setDryDepthCutoff(d);
+    if (m_flowArrowSublayer && m_flowArrowSublayer->flowArrowStyle())
+        m_flowArrowSublayer->flowArrowStyle()->setDryDepthCutoff(d);
+    if (changed && graphics_item_) graphics_item_->geometryChanged();
 }
 
 void SWMM2DResultsLayer::setMaxDepth(double d)
@@ -1929,6 +1941,27 @@ float SWMM2DResultsLayer::depthAtSceneInterp(const QPointF& scenePt) const
     return depthAtCellInterp(pickCellAt(scenePt), scenePt);
 }
 
+float SWMM2DResultsLayer::clampToDrivingHead_(int idx, double depthBlend,
+                                              double w, double v, double u,
+                                              double sd0, double sd1, double sd2) const
+{
+    if (idx < 0 || idx >= static_cast<int>(tris_.size()))
+        return std::max(0.0f, float(depthBlend));
+    const auto& tri = tris_[idx];
+    const int nVert = static_cast<int>(vz_.size());
+    auto z = [&](int k) -> double {
+        const int vi = tri[k];
+        return (vi >= 0 && vi < nVert) ? vz_[vi] : 0.0;
+    };
+    // Per-vertex free surface η_v = z_v + signed-depth_v, and the ground at the
+    // sample under the SAME weights (ground + depth = η interpolated linearly).
+    const double e0 = z(0) + sd0, e1 = z(1) + sd1, e2 = z(2) + sd2;
+    const double maxEta       = std::max(e0, std::max(e1, e2));
+    const double groundInterp = w * z(0) + v * z(1) + u * z(2);
+    const double capDepth     = maxEta - groundInterp;   // depth that puts WSE at the driving HGL
+    return std::max(0.0f, float(std::min(depthBlend, capDepth)));
+}
+
 float SWMM2DResultsLayer::depthAtCellInterp(int idx, const QPointF& scenePt) const
 {
     // Interpolate depth at a point whose containing cell is already known
@@ -1936,6 +1969,16 @@ float SWMM2DResultsLayer::depthAtCellInterp(int idx, const QPointF& scenePt) con
     // search entirely. Bounds-checks idx so a stale cached index can't crash —
     // worst case it returns 0 until the profile rebuilds.
     if (idx < 0 || idx >= m_sceneTris.size()) return 0.0f;
+    // Dry-cell mask: a cell the solver marks dry this frame (cell-mean depth
+    // below DRY_DEPTH) carries no water, even if its vertices borrowed a free
+    // surface from a still-wet neighbour. Without this gate the barycentric
+    // blend paints water into a cell the engine considers dry — water with no
+    // driving head in its own cell. Mirrors the per-cell max mask the envelope
+    // path uses, so the current-frame line and the max envelope treat dry cells
+    // identically.
+    if (idx < static_cast<int>(current_depths_.size()) &&
+        current_depths_[idx] < float(dry_depth_))
+        return 0.0f;
     const auto& t = m_sceneTris[idx];
     // No whole-cell wet/dry gate: dv0/dv1/dv2 are now the SIGNED VFR depth
     // (η_vertex − z_vertex) from applyCurrentDepths_, so their barycentric blend
@@ -1959,8 +2002,11 @@ float SWMM2DResultsLayer::depthAtCellInterp(int idx, const QPointF& scenePt) con
     const double u = (d11 * d20 - d01 * d21) / denom;   // weight for c
     const double v = (d00 * d21 - d01 * d20) / denom;   // weight for b
     const double w = 1.0 - u - v;                       // weight for a
-    return std::max(0.0f,
-                    float(w * double(t.dv0) + v * double(t.dv1) + u * double(t.dv2)));
+    const double blend = w * double(t.dv0) + v * double(t.dv1) + u * double(t.dv2);
+    // Clamp the implied water surface to the cell's driving HGL so an edge
+    // sample with extrapolating weights can't push water above the head the
+    // wet vertices supply (then floor at 0 for the sub-cell dry side).
+    return clampToDrivingHead_(idx, blend, w, v, u, t.dv0, t.dv1, t.dv2);
 }
 
 QVector<float> SWMM2DResultsLayer::maxDepthPerCell() const
@@ -2059,9 +2105,12 @@ float SWMM2DResultsLayer::maxDepthAtSceneInterp(const QPointF& scenePt,
     const double u = (d11 * d20 - d01 * d21) / denom;   // weight for c
     const double v = (d00 * d21 - d01 * d20) / denom;   // weight for b
     const double w = 1.0 - u - v;                       // weight for a
-    // vertMax is the SIGNED per-vertex max depth (η_max − z); clamp the blend at
-    // 0 so the envelope tapers to dry inside partially-wet cells.
-    return std::max(0.0f, float(w * vm(0) + v * vm(1) + u * vm(2)));
+    // vertMax is the SIGNED per-vertex max depth (η_max − z). Clamp the blend to
+    // the cell's driving HGL (max η_v) so extrapolating edge weights can't lift
+    // the envelope above the head the wet vertices reached, then floor at 0 so
+    // the envelope tapers to dry inside partially-wet cells.
+    const double blend = w * vm(0) + v * vm(1) + u * vm(2);
+    return clampToDrivingHead_(idx, blend, w, v, u, vm(0), vm(1), vm(2));
 }
 
 void SWMM2DResultsLayer::highlightCells(const QSet<int>& triIdxSet)

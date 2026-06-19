@@ -2248,7 +2248,8 @@ void SWMMVis::openComparisonPlotForCells(SWMM2DResultsLayer *layer,
     dlg->activateWindow();
 }
 
-void SWMMVis::openMeshEdgeFluxPlotFor(SWMM2DMeshLayer *mesh, int triIdx, int edgeLocal)
+void SWMMVis::openMeshEdgeFluxPlotFor(SWMM2DMeshLayer *mesh, int triIdx, int edgeLocal,
+                                      openswmmvis::plot::PlotAttribute attr)
 {
     Q_UNUSED(mesh);  // triIdx/edgeLocal index the shared engine mesh; the
                      // results layer's source carries the per-edge flux feed.
@@ -2289,11 +2290,10 @@ void SWMMVis::openMeshEdgeFluxPlotFor(SWMM2DMeshLayer *mesh, int triIdx, int edg
         return;
     }
 
-    // Add both edge series for the picked edge: volumetric flow Q (m³/s) and
-    // unit-width flux q (m²/s). Each attribute lands on its own chart row.
+    // Add the single requested edge series — flow Q (m³/s) or unit-width flux q
+    // (m²/s) — for the picked edge; it lands on its own chart row.
     const auto edgeRef = openswmmvis::plot::ObjectRef::forMesh2DEdge(triIdx, edgeLocal);
-    dlg->addSeries(runIdx, edgeRef, openswmmvis::plot::PlotAttribute::Mesh2DEdgeFlow);
-    dlg->addSeries(runIdx, edgeRef, openswmmvis::plot::PlotAttribute::Mesh2DEdgeFlux);
+    dlg->addSeries(runIdx, edgeRef, attr);
     dlg->show();
     dlg->raise();
     dlg->activateWindow();
@@ -4168,19 +4168,25 @@ void SWMMVis::openSingleINP(const QString &filePath)
                             if (m > peakDepth) { peakDepth = m; peakFrame = t; }
                         }
 
-                        // Honour the engine's DRY_DEPTH (via the live engine
-                        // handle) so the GUI render threshold matches what
-                        // the solver considers wet — without this, the
-                        // GUI default (5 mm) clips shallow runs invisibly.
-                        // Falls back to a small data-derived floor when the
-                        // engine doesn't yet have 2D options live.
+                        // Honour the model's DRY_DEPTH so the GUI render
+                        // threshold (cells AND velocity/flow vectors) matches
+                        // what the solver considers wet — without this, the GUI
+                        // default clips shallow runs invisibly. Prefer the live
+                        // engine handle; when none is attached (opened a model
+                        // without running), read [2D_OPTIONS] DRY_DEPTH straight
+                        // from the .inp. Last resort: a small data-derived floor.
                         double engineDry = 0.0;
+                        const double inpDry =
+                            SimulationRunner::parseTwoDOption(
+                                filePath, QStringLiteral("DRY_DEPTH")).toDouble();
                         if (window->modelLayer() && window->modelLayer()->engine() &&
                             swmm_2d_get_dry_depth(window->modelLayer()->engine(),
                                                    &engineDry) == SWMM_OK &&
                             engineDry > 0.0)
                         {
                             resLayer->setDryDepth(engineDry);
+                        } else if (inpDry > 0.0) {
+                            resLayer->setDryDepth(inpDry);
                         } else if (peakDepth > 0.0f) {
                             resLayer->setDryDepth(std::max(1e-5, 0.05 * peakDepth));
                         }
@@ -5740,6 +5746,21 @@ void SWMMVis::onRunSimulation()
                                                    .arg(layer->currentPeak().second)
                                                    .arg(peakFrame));
                         }
+                    }
+
+                    // Run finished — refresh the 2D results selector so the
+                    // "(live)" label drops to "2D Results", and re-arm the
+                    // animation controller against the now-static (scrubbable)
+                    // source so play/scrub operate on the full results. The
+                    // detach + re-attach forces a clean state re-sync of the
+                    // toolbar range/cursor from the swapped source; it only
+                    // runs when this layer is the active 2D driver (no 1D
+                    // primary), mirroring the registration guard at run start.
+                    self->refreshActiveResultsCombos();
+                    if (auto *ac = self->mAnimationController;
+                        ac && ac->fallback2DLayer() == layer) {
+                        ac->setFallback2DLayer(nullptr);
+                        ac->setFallback2DLayer(layer);
                     }
                 }
                 self->mActive2DResultsLayers.erase(it);

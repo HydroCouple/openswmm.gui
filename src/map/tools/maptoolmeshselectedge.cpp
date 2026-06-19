@@ -97,10 +97,15 @@ void MapToolMeshSelectEdge::mousePressEvent(QMouseEvent *event)
             m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("mesh-edge-rclick"));
 
         QMenu menu;
-        QAction *plot = menu.addAction(tr("Plot edge flow && flux"));
+        QAction *flowAct = menu.addAction(tr("Plot edge flow"));
+        QAction *fluxAct = menu.addAction(tr("Plot edge flux"));
         QAction *picked = menu.exec(event->globalPosition().toPoint());
-        if (picked == plot)
-            emit plotEdgeFluxRequested(m_target, tri, eLocal);
+        if (picked == flowAct)
+            emit plotEdgeFluxRequested(m_target, tri, eLocal,
+                                       openswmmvis::plot::PlotAttribute::Mesh2DEdgeFlow);
+        else if (picked == fluxAct)
+            emit plotEdgeFluxRequested(m_target, tri, eLocal,
+                                       openswmmvis::plot::PlotAttribute::Mesh2DEdgeFlux);
         return;
     }
 

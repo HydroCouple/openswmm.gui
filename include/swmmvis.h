@@ -352,9 +352,11 @@ private slots:
                                class SWMM2DResultsLayer *results,
                                const QString &title);
 
-    /*! Open the comparison plot with the signed-normal-flux time series of the
-     *  mesh edge the user right-clicked in the edge-select tool. */
-    void openMeshEdgeFluxPlotFor(class SWMM2DMeshLayer *mesh, int triIdx, int edgeLocal);
+    /*! Open the comparison plot with one time series — edge flow (Q) or edge
+     *  flux (q), per `attr` — of the mesh edge the user right-clicked in the
+     *  edge-select tool. */
+    void openMeshEdgeFluxPlotFor(class SWMM2DMeshLayer *mesh, int triIdx, int edgeLocal,
+                                 openswmmvis::plot::PlotAttribute attr);
 
     /*! Open the comparison plot with interpolated depth + HGL time series for
      *  the selected mesh vertices (right-clicked in the vertex-select tool). */

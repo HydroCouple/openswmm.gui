@@ -18,6 +18,8 @@
 #include <QString>
 #include <QVector>
 
+#include "plot/plotattribute.h"   // PlotAttribute (edge flow vs flux relay)
+
 class OpenSWMMVisWorkspace;
 class MapCanvas;
 class SWMMModelLayer;
@@ -328,8 +330,10 @@ signals:
     void analysisMeshProfileTraced(const QVector<QPointF> &scenePolyline);
 
     /*! Forwards MapToolMeshSelectEdge::plotEdgeFluxRequested up to the main
-     *  window so it can open the comparison plot with the edge's flux series. */
-    void meshEdgeFluxRequested(class SWMM2DMeshLayer *mesh, int triIdx, int edgeLocal);
+     *  window so it can open the comparison plot with the edge's flow OR flux
+     *  series (carried by `attr`). */
+    void meshEdgeFluxRequested(class SWMM2DMeshLayer *mesh, int triIdx, int edgeLocal,
+                               openswmmvis::plot::PlotAttribute attr);
 
     /*! Forwards MapToolMeshSelectVertex::plotVertexSeriesRequested up to the
      *  main window so it can plot interpolated depth/HGL for the vertices. */

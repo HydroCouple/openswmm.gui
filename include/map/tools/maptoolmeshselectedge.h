@@ -16,6 +16,7 @@
 #define OPENSWMMVIS_MAP_TOOLS_MAPTOOLMESHSELECTEDGE_H
 
 #include "map/tools/maptool.h"
+#include "plot/plotattribute.h"   // PlotAttribute (edge flow vs flux)
 
 #include <QPoint>
 #include <QPointer>
@@ -48,9 +49,11 @@ public:
 
 signals:
     /*! \brief Emitted when the user right-clicks an edge and chooses
-     *  "Plot edge flux". The host opens the comparison plot with the edge's
-     *  signed-normal-flux time series. */
-    void plotEdgeFluxRequested(SWMM2DMeshLayer *mesh, int triIdx, int edgeLocal);
+     *  "Plot edge flow" or "Plot edge flux". The host opens the comparison plot
+     *  with that one series for the edge; `attr` is Mesh2DEdgeFlow (volumetric
+     *  Q, m³/s) or Mesh2DEdgeFlux (unit-width q, m²/s). */
+    void plotEdgeFluxRequested(SWMM2DMeshLayer *mesh, int triIdx, int edgeLocal,
+                               openswmmvis::plot::PlotAttribute attr);
 
 private:
     SWMM2DMeshLayer *findActiveMeshLayer_() const;

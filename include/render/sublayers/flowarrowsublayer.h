@@ -97,7 +97,7 @@ public:
     void fromJson(const QJsonObject &j) override;
 
 private:
-    double m_arrowLengthPx      = 18.0;
+    double m_arrowLengthPx      = 20.0;
     double m_arrowSpacingPx     = 36.0;
     double m_headSizePx         = 6.0;
     double m_shaftWidthPx       = 1.6;
