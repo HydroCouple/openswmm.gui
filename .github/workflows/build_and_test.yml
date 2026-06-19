@@ -10,6 +10,12 @@ env:
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_ROOT: ${{ github.workspace }}/vcpkg
   OMP_NUM_THREADS: 1
+  # openswmm.engine is consumed as a PREBUILT installed package via
+  # find_package(OpenSWMMEngine) (cmake/FetchOpenSWMMEngine.cmake). CI checks it
+  # out and builds+installs it before configuring the GUI. Bump in lockstep with
+  # the engine ref the GUI is developed against.
+  OPENSWMM_ENGINE_REPO: HydroCouple/openswmm.engine
+  OPENSWMM_ENGINE_REF: swmm6_rel
 
 jobs:
   build:
@@ -125,9 +131,10 @@ jobs:
           restore-keys: |
             vcpkg-installed-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-2025.10.17-v2-
 
-      # openswmm.engine and QPropertyModel are fetched automatically via
-      # FetchOpenSWMMEngine.cmake / FetchQPropertyModel.cmake at configure time.
-      # No explicit checkout steps needed.
+      # QPropertyModel is fetched automatically via FetchQPropertyModel.cmake at
+      # configure time. openswmm.engine, however, is now consumed as a PREBUILT
+      # installed package (find_package), so it is checked out + built + installed
+      # explicitly below (with hypre/AMG on by default) before the GUI Configure.
 
       # ── System dependencies ──────────────────────────────────────────────────
       - name: Install system dependencies (Linux)
@@ -194,6 +201,49 @@ jobs:
           modules: 'qtcharts'
           cache: true
 
+      # ── openswmm.engine (prebuilt, hypre/AMG-enabled) ───────────────────────
+      # The GUI links the engine as a prebuilt installed package
+      # (find_package(OpenSWMMEngine) in cmake/FetchOpenSWMMEngine.cmake), so it
+      # must be built + installed BEFORE the GUI Configure. hypre BoomerAMG
+      # (PRECONDITIONER=AMG) is a vcpkg default-feature and OPENSWMM_WITH_HYPRE
+      # defaults ON in the engine, so the engine built here ships AMG with no
+      # extra flags; macdeployqt + the bundle rules then carry it into the GUI
+      # package. The engine reuses this job's VCPKG_ROOT + x-gha binary cache.
+      - name: Checkout openswmm.engine
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.OPENSWMM_ENGINE_REPO }}
+          ref: ${{ env.OPENSWMM_ENGINE_REF }}
+          path: openswmm.engine
+          fetch-depth: 0
+
+      # The engine's Windows preset uses the Ninja Multi-Config generator (the
+      # GUI's own preset uses the Visual Studio generator, which supplies the
+      # toolchain implicitly). Ninja needs cl.exe/link.exe on PATH, so set up the
+      # MSVC dev environment before the engine build (mirrors the engine repo's
+      # unit_testing.yml). Harmless for the GUI's later VS-generator Configure.
+      - name: Set up MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build and install openswmm.engine (with hypre/AMG)
+        working-directory: ${{ github.workspace }}/openswmm.engine
+        shell: bash
+        run: |
+          # cmake_preset (Darwin/Linux/Windows) == CMAKE_HOST_SYSTEM_NAME, which
+          # is the <System> dir the GUI's OPENSWMMENGINE_INSTALL_DIR resolves to.
+          cmake --preset=${{ matrix.cmake_preset }} \
+            -DCMAKE_INSTALL_PREFIX="$PWD/install/${{ matrix.cmake_preset }}" \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }} \
+            -DOPENSWMM_BUILD_TESTS=OFF \
+            -DOPENSWMM_BUILD_UNIT_TESTS=OFF \
+            -DOPENSWMM_BUILD_REGRESSION_TESTS=OFF \
+            -DOPENSWMM_BUILD_BENCHMARKS=OFF
+          cmake --build   build/${{ matrix.build_subdir }} --config Release
+          cmake --install build/${{ matrix.build_subdir }} --config Release
+
       # ── Build ────────────────────────────────────────────────────────────────
       - name: Configure
         run: |
@@ -206,6 +256,7 @@ jobs:
           fi
           cmake --preset=${{ matrix.cmake_preset }} \
             -DSWMMVIS_BUILD_TESTS=ON \
+            -DOPENSWMMENGINE_INSTALL_DIR="${{ github.workspace }}/openswmm.engine/install/${{ matrix.cmake_preset }}" \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }} \
             $EXTRA
         shell: bash
