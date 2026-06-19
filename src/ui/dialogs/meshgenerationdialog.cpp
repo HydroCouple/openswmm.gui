@@ -2248,7 +2248,7 @@ void MeshGenerationDialog::onMeshFinished()
         return;
     }
 
-    const PipelineResult result = m_watcher->result();
+    PipelineResult result = m_watcher->result();
     m_watcher->deleteLater();
     m_watcher = nullptr;
 
@@ -2265,6 +2265,16 @@ void MeshGenerationDialog::onMeshFinished()
         for (auto *L : canvas->layers())
             if (auto *m = qobject_cast<SWMM2DMeshLayer *>(L))
                 m->setActiveMesh(false);
+
+        // Carry the generated 1D<->2D coupling onto the mesh vertices'
+        // coupledNode field so the layer (and any later engine-sync save)
+        // reflects it without a reload. The descriptive tag stays separate.
+        for (auto it = result.coupling.vertexToNode.cbegin();
+             it != result.coupling.vertexToNode.cend(); ++it) {
+            const int vi = it.key();
+            if (vi >= 0 && vi < result.meshResult.vertices.size())
+                result.meshResult.vertices[vi].coupledNode = it.value();
+        }
 
         const bool isExt = (result.outputMode == mesh::MeshOutputMode::External);
         auto *meshLayer  = new SWMM2DMeshLayer(result.meshResult, result.meshPath);

@@ -734,7 +734,7 @@ void SWMM2DMeshLayer::rebuildSceneGeometry()
         SceneNode n;
         n.pt     = scenePts[i];
         n.z      = static_cast<float>(m_mesh.vertices[i].z);
-        n.tagged = !m_mesh.vertices[i].tag.isEmpty();
+        n.tagged = !m_mesh.vertices[i].coupledNode.isEmpty();
         m_sceneNodes.append(n);
 
         if (first) { m_sceneBBox = QRectF(n.pt, QSizeF(0,0)); first = false; }
@@ -1389,11 +1389,42 @@ bool SWMM2DMeshLayer::applyMeshVertexTag(int vertexIdx, const QString &tag)
     if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size()) return false;
     if (m_mesh.vertices[vertexIdx].tag == tag) return true;
     m_mesh.vertices[vertexIdx].tag = tag;
-    // The scene node "tagged" flag follows this — repaint so the
+    emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
+    emit repaintRequested();
+    return true;
+}
+
+bool SWMM2DMeshLayer::applyMeshVertexCoupledNode(int vertexIdx, const QString &node)
+{
+    if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size()) return false;
+    if (m_mesh.vertices[vertexIdx].coupledNode == node) return true;
+    m_mesh.vertices[vertexIdx].coupledNode = node;
+    // The scene node "tagged" flag tracks coupling — repaint so the
     // SWMM-coupled-vertex glyph reflects the change.
     if (vertexIdx < m_sceneNodes.size())
-        m_sceneNodes[vertexIdx].tagged = !tag.isEmpty();
+        m_sceneNodes[vertexIdx].tagged = !node.isEmpty();
     emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
+    emit repaintRequested();
+    return true;
+}
+
+bool SWMM2DMeshLayer::applyMeshTriangleMannings(int triIdx, double mannings)
+{
+    if (triIdx < 0 || triIdx >= m_mesh.triangles.size()) return false;
+    if (!(mannings > 0.0)) return false;
+    if (m_mesh.triangles[triIdx].mannings == mannings) return true;
+    m_mesh.triangles[triIdx].mannings = mannings;
+    emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
+    emit repaintRequested();
+    return true;
+}
+
+bool SWMM2DMeshLayer::applyMeshTriangleTag(int triIdx, const QString &tag)
+{
+    if (triIdx < 0 || triIdx >= m_mesh.triangles.size()) return false;
+    if (m_mesh.triangles[triIdx].tag == tag) return true;
+    m_mesh.triangles[triIdx].tag = tag;
+    emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
     emit repaintRequested();
     return true;
 }

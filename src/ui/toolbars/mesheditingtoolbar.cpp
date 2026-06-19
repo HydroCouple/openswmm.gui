@@ -30,6 +30,8 @@
 #include <QVariant>
 #include <QWidget>
 
+#include <cmath>
+
 namespace {
 constexpr int kNoneIndex = 0;
 }
@@ -110,6 +112,34 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     addWidget(m_zSpin);
     connect(m_zSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
             this, &MeshEditingToolbar::onZSpinChanged);
+
+    // Descriptive tag + coupled-node editors for the selected vertex. Commit
+    // on editingFinished (Enter / focus-out) so a partial id isn't applied
+    // per keystroke. Disabled until a single vertex is selected.
+    m_vertexTagEdit = new QLineEdit(this);
+    m_vertexTagEdit->setMinimumWidth(90);
+    m_vertexTagEdit->setPlaceholderText(tr("tag"));
+    m_vertexTagEdit->setToolTip(tr("Descriptive vertex tag ([2D_VERTICES] TAG column)."));
+    m_vertexTagEdit->setEnabled(false);
+    m_actVertexTag = addWidget(m_vertexTagEdit);
+    connect(m_vertexTagEdit, &QLineEdit::editingFinished,
+            this, &MeshEditingToolbar::onVertexTagCommit);
+
+    // Coupled SWMM node: a dropdown of available nodes (editable so a name can
+    // still be typed). A blank entry clears the coupling. Populated from the
+    // node lister SWMMVis installs.
+    m_vertexCoupledCombo = new QComboBox(this);
+    m_vertexCoupledCombo->setEditable(true);
+    m_vertexCoupledCombo->setInsertPolicy(QComboBox::NoInsert);
+    m_vertexCoupledCombo->setMinimumWidth(120);
+    m_vertexCoupledCombo->setToolTip(tr("Coupled SWMM node ([2D_VERTEX_NODE_MAP]); blank = uncoupled."));
+    m_vertexCoupledCombo->setEnabled(false);
+    m_actVertexCoupled = addWidget(m_vertexCoupledCombo);
+    connect(m_vertexCoupledCombo, &QComboBox::activated,
+            this, &MeshEditingToolbar::onVertexCoupledCommit);
+    if (m_vertexCoupledCombo->lineEdit())
+        connect(m_vertexCoupledCombo->lineEdit(), &QLineEdit::editingFinished,
+                this, &MeshEditingToolbar::onVertexCoupledCommit);
 
     addSeparator();
 
@@ -288,6 +318,30 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     m_cellInfoLbl->setMinimumWidth(150);
     m_cellInfoLbl->setToolTip(tr("Selected 2D cell index and tag (if any)."));
 
+    // Per-triangle Manning's n + descriptive tag editors. Created here but NOT
+    // placed: SWMMVis inserts them right after the cell info label (via
+    // setCellEditorActions) so they sit in the 2D-cell group, and the toolbar
+    // hides them unless a single cell is selected.
+    m_manningsSpin = new QDoubleSpinBox(this);
+    m_manningsSpin->setRange(0.001, 1.0);
+    m_manningsSpin->setDecimals(4);
+    m_manningsSpin->setSingleStep(0.001);
+    m_manningsSpin->setMinimumWidth(90);
+    m_manningsSpin->setKeyboardTracking(false);
+    m_manningsSpin->setPrefix(tr("n="));
+    m_manningsSpin->setToolTip(tr("Manning's roughness of the selected 2D cell."));
+    m_manningsSpin->setEnabled(false);
+    connect(m_manningsSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, &MeshEditingToolbar::onManningsCommit);
+
+    m_cellTagEdit = new QLineEdit(this);
+    m_cellTagEdit->setMinimumWidth(90);
+    m_cellTagEdit->setPlaceholderText(tr("cell tag"));
+    m_cellTagEdit->setToolTip(tr("Descriptive triangle tag ([2D_TRIANGLES] TAG column)."));
+    m_cellTagEdit->setEnabled(false);
+    connect(m_cellTagEdit, &QLineEdit::editingFinished,
+            this, &MeshEditingToolbar::onCellTagCommit);
+
     // Expanding spacer pins everything to the left. Trailing tool actions
     // (Pick 2D Cell / Trace Profile) insert *before* this spacer via
     // addToolAction(), so they sit at the right end of the left-aligned
@@ -304,6 +358,16 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
             this, &MeshEditingToolbar::onHoverElevation);
 
     updateEnabledState();
+}
+
+QWidget *MeshEditingToolbar::cellManningsWidget() const { return m_manningsSpin; }
+QWidget *MeshEditingToolbar::cellTagWidget() const      { return m_cellTagEdit; }
+
+void MeshEditingToolbar::setCellEditorActions(QAction *manningsAct, QAction *tagAct)
+{
+    m_actManningsSpin = manningsAct;
+    m_actCellTag      = tagAct;
+    updateEnabledState();   // apply initial hidden state
 }
 
 MeshEditingToolbar::~MeshEditingToolbar() = default;
@@ -365,6 +429,7 @@ void MeshEditingToolbar::rebindCanvas(MapCanvas *canvas)
     m_hover->setCanvas(m_canvas);
     rebuildMeshCombo();
     refreshBCNameLists();
+    refreshNodeList();   // populate the coupled-node dropdown for this project
     updateEnabledState();
 }
 
@@ -534,23 +599,6 @@ void MeshEditingToolbar::disconnectMeshLayer(SWMM2DMeshLayer *layer)
 // Selection + editor refresh
 // ---------------------------------------------------------------------
 
-int MeshEditingToolbar::currentSingleSelectedVertex() const
-{
-    if (!m_selection || !m_activeMesh) return -1;
-    int found = -1;
-    const QString wantKey = mesh::MeshObjectRef::layerKey(m_activeMesh->sourcePath());
-    for (const SWMMObjectRef &ref : m_selection->selection()) {
-        if (ref.objectType != SWMMObjectRef::MeshVertex) continue;
-        QString lk;
-        int vi = -1;
-        if (!mesh::MeshObjectRef::parseVertex(ref, &lk, &vi)) continue;
-        if (lk != wantKey) continue;
-        if (found != -1) return -1;  // more than one — caller wants exactly 1
-        found = vi;
-    }
-    return found;
-}
-
 QList<int> MeshEditingToolbar::currentSelectedVertices() const
 {
     QList<int> out;
@@ -570,6 +618,9 @@ QList<int> MeshEditingToolbar::currentSelectedVertices() const
 void MeshEditingToolbar::refreshVertexEditor()
 {
     const QList<int> verts = currentSelectedVertices();
+    // The coupled-node dropdown's item list is refreshed on rebind; here we
+    // only set the current value. Visibility/enablement is owned by
+    // updateEnabledState().
     if (verts.isEmpty() || !m_activeMesh) {
         m_vertexInfoLbl->setText(tr("Vertex: (none)"));
         QSignalBlocker block(m_zSpin);
@@ -580,38 +631,53 @@ void MeshEditingToolbar::refreshVertexEditor()
 
     const auto &vertices = m_activeMesh->mesh().vertices;
 
-    if (verts.size() > 1) {
-        // Multi-select: show the count and let the Z spinbox edit ALL
-        // selected vertices at once. Seed the spinbox with the mean Z so the
-        // user sees a sensible starting value (committing overwrites all).
-        double sumZ = 0.0; int n = 0;
-        for (int vi : verts)
-            if (vi >= 0 && vi < vertices.size()) { sumZ += vertices[vi].z; ++n; }
-        m_vertexInfoLbl->setText(tr("%1 vertices selected").arg(verts.size()));
-        QSignalBlocker block(m_zSpin);
-        m_zSpin->setValue(n > 0 ? sumZ / n : 0.0);
-        m_zSpin->setEnabled(m_actEditVertex->isChecked());
-        return;
+    // Aggregate across the selection: mean Z, plus the common tag / coupled
+    // node (blank when the selected vertices disagree). Committing overwrites
+    // every selected vertex, mirroring the Z spinbox's multi-edit behaviour.
+    double sumZ = 0.0; int n = 0;
+    QString commonTag, commonNode;
+    bool first = true, tagSame = true, nodeSame = true;
+    for (int vi : verts) {
+        if (vi < 0 || vi >= vertices.size()) continue;
+        const auto &v = vertices[vi];
+        sumZ += v.z; ++n;
+        if (first) { commonTag = v.tag; commonNode = v.coupledNode; first = false; }
+        else {
+            if (v.tag != commonTag)          tagSame  = false;
+            if (v.coupledNode != commonNode) nodeSame = false;
+        }
     }
-
-    const int vIdx = verts.front();
-    if (vIdx < 0 || vIdx >= vertices.size()) {
+    if (n == 0) {
         m_vertexInfoLbl->setText(tr("Vertex: (none)"));
         QSignalBlocker block(m_zSpin);
         m_zSpin->setValue(0.0);
         m_zSpin->setEnabled(false);
         return;
     }
-    const auto &v = vertices[vIdx];
-    // "Vertex #N (tag)" — tag is the coupled-SWMM-node id when assigned.
-    if (v.tag.isEmpty())
-        m_vertexInfoLbl->setText(tr("Vertex #%1").arg(vIdx));
-    else
-        m_vertexInfoLbl->setText(tr("Vertex #%1 (%2)").arg(vIdx).arg(v.tag));
+
+    if (verts.size() == 1) {
+        const auto &v = vertices[verts.front()];
+        QString vLabel = tr("Vertex #%1").arg(verts.front());
+        if (!v.tag.isEmpty())         vLabel += tr(" [%1]").arg(v.tag);
+        if (!v.coupledNode.isEmpty()) vLabel += tr(" (%1)").arg(v.coupledNode);
+        m_vertexInfoLbl->setText(vLabel);
+    } else {
+        m_vertexInfoLbl->setText(tr("%1 vertices selected").arg(verts.size()));
+    }
+
     {
         QSignalBlocker block(m_zSpin);
-        m_zSpin->setValue(v.z);
+        m_zSpin->setValue(sumZ / n);
         m_zSpin->setEnabled(m_actEditVertex->isChecked());
+    }
+    if (m_vertexTagEdit) {
+        QSignalBlocker block(m_vertexTagEdit);
+        m_vertexTagEdit->setText(tagSame ? commonTag : QString());
+        m_vertexTagEdit->setPlaceholderText(tagSame ? QString() : tr("<multiple>"));
+    }
+    if (m_vertexCoupledCombo) {
+        QSignalBlocker block(m_vertexCoupledCombo);
+        m_vertexCoupledCombo->setCurrentText(nodeSame ? commonNode : QString());
     }
 }
 
@@ -721,23 +787,53 @@ void MeshEditingToolbar::refreshCellEditor()
 {
     if (!m_cellInfoLbl) return;
     const QList<int> cells = currentSelectedCells();
+
+    // Visibility / enablement is owned by updateEnabledState(); here we only
+    // populate values. For a multi-cell selection we seed the common value
+    // (blank / default when the cells disagree); committing overwrites all.
     if (cells.isEmpty()) {
         m_cellInfoLbl->setText(tr("Cell: (none)"));
         return;
     }
-    if (cells.size() == 1) {
-        const int t = cells.front();
-        // Tag comes from the active mesh layer if one is loaded; otherwise the
-        // index alone (results-only meshes carry no per-triangle tags here).
-        QString tag;
-        if (m_activeMesh) {
-            const auto &triangles = m_activeMesh->mesh().triangles;
-            if (t >= 0 && t < triangles.size()) tag = triangles[t].tag;
+
+    bool first = true, manningSame = true, tagSame = true;
+    double commonMann = 0.035;
+    QString commonTag;
+    int counted = 0;
+    if (m_activeMesh) {
+        const auto &triangles = m_activeMesh->mesh().triangles;
+        for (int t : cells) {
+            if (t < 0 || t >= triangles.size()) continue;
+            const auto &tri = triangles[t];
+            const double m = std::isfinite(tri.mannings) ? tri.mannings : 0.035;
+            ++counted;
+            if (first) { commonMann = m; commonTag = tri.tag; first = false; }
+            else {
+                if (m != commonMann)      manningSame = false;
+                if (tri.tag != commonTag) tagSame = false;
+            }
         }
-        if (tag.isEmpty())
-            m_cellInfoLbl->setText(tr("Cell #%1").arg(t));
+    }
+    if (m_manningsSpin) {
+        QSignalBlocker block(m_manningsSpin);
+        m_manningsSpin->setValue(manningSame ? commonMann : 0.035);
+    }
+    if (m_cellTagEdit) {
+        QSignalBlocker block(m_cellTagEdit);
+        m_cellTagEdit->setText(tagSame ? commonTag : QString());
+        m_cellTagEdit->setPlaceholderText(tagSame ? tr("cell tag") : tr("<multiple>"));
+    }
+
+    if (cells.size() == 1) {
+        // Echo the live n + tag so single-cell edits are visibly confirmed
+        // (these attributes are not drawn on the map).
+        const QString detail = (counted && manningSame)
+            ? tr("  n=%1").arg(commonMann, 0, 'g', 4) : QString();
+        if (commonTag.isEmpty() || !tagSame)
+            m_cellInfoLbl->setText(tr("Cell #%1%2").arg(cells.front()).arg(detail));
         else
-            m_cellInfoLbl->setText(tr("Cell #%1 (%2)").arg(t).arg(tag));
+            m_cellInfoLbl->setText(
+                tr("Cell #%1%2 (%3)").arg(cells.front()).arg(detail).arg(commonTag));
     } else {
         m_cellInfoLbl->setText(tr("Cells: %1 selected").arg(cells.size()));
     }
@@ -795,17 +891,16 @@ void MeshEditingToolbar::onSelectionChanged()
 
 void MeshEditingToolbar::onAttributeChanged(const QString &refName)
 {
-    // If the changed object is the currently-selected vertex, refresh
-    // the spinbox value (some other view edited it).
-    if (!m_activeMesh) return;
-    const int vIdx = currentSingleSelectedVertex();
-    if (vIdx < 0) return;
-    const SWMMObjectRef wantRef =
-        mesh::MeshObjectRef::vertex(m_activeMesh->sourcePath(), vIdx);
-    if (refName == wantRef.name)
-        refreshVertexEditor();
-    // Edges with mixed BC values are surfaced in §V.VC; nothing to do for §V.VB.
     Q_UNUSED(refName);
+    if (!m_activeMesh) return;
+    // Re-read the affected editor so an edit (from here or any other view) is
+    // reflected immediately. Each refresh keys off the current selection, so
+    // only the editor showing the changed element actually updates. This is
+    // the only on-screen confirmation for attributes that aren't drawn on the
+    // map (Manning's n, tags, coupling).
+    refreshVertexEditor();
+    refreshEdgeEditor();
+    refreshCellEditor();
 }
 
 void MeshEditingToolbar::onHoverElevation(double z, bool finite)
@@ -827,6 +922,42 @@ void MeshEditingToolbar::onZSpinChanged(double z)
         m_activeMesh->applyMeshVertexZ(vIdx, z);
 }
 
+void MeshEditingToolbar::onVertexTagCommit()
+{
+    if (!m_activeMesh || !m_vertexTagEdit) return;
+    const QList<int> verts = currentSelectedVertices();
+    if (verts.isEmpty()) return;
+    const QString tag = m_vertexTagEdit->text().trimmed();
+    for (int vIdx : verts) m_activeMesh->applyMeshVertexTag(vIdx, tag);
+}
+
+void MeshEditingToolbar::onVertexCoupledCommit()
+{
+    if (!m_activeMesh || !m_vertexCoupledCombo) return;
+    const QList<int> verts = currentSelectedVertices();
+    if (verts.isEmpty()) return;
+    const QString node = m_vertexCoupledCombo->currentText().trimmed();
+    for (int vIdx : verts) m_activeMesh->applyMeshVertexCoupledNode(vIdx, node);
+}
+
+void MeshEditingToolbar::onManningsCommit()
+{
+    if (!m_activeMesh || !m_manningsSpin) return;
+    const QList<int> cells = currentSelectedCells();
+    if (cells.isEmpty()) return;
+    const double v = m_manningsSpin->value();
+    for (int t : cells) m_activeMesh->applyMeshTriangleMannings(t, v);
+}
+
+void MeshEditingToolbar::onCellTagCommit()
+{
+    if (!m_activeMesh || !m_cellTagEdit) return;
+    const QList<int> cells = currentSelectedCells();
+    if (cells.isEmpty()) return;
+    const QString tag = m_cellTagEdit->text().trimmed();
+    for (int t : cells) m_activeMesh->applyMeshTriangleTag(t, tag);
+}
+
 void MeshEditingToolbar::updateEnabledState()
 {
     const bool haveMesh = m_activeMesh != nullptr;
@@ -835,6 +966,24 @@ void MeshEditingToolbar::updateEnabledState()
 
     const bool vertexMode = haveMesh && m_actEditVertex->isChecked();
     m_zSpin->setEnabled(vertexMode && !currentSelectedVertices().isEmpty());
+
+    // Vertex tag + coupled-node editors (vertex group): shown + editable when
+    // one OR MORE vertices are selected in vertex mode; committing overwrites
+    // every selected vertex. Hidden otherwise (same collapse as BC controls).
+    const bool showVertexEdit =
+        vertexMode && !currentSelectedVertices().isEmpty();
+    if (m_actVertexTag)       m_actVertexTag->setVisible(showVertexEdit);
+    if (m_actVertexCoupled)   m_actVertexCoupled->setVisible(showVertexEdit);
+    if (m_vertexTagEdit)      m_vertexTagEdit->setEnabled(showVertexEdit);
+    if (m_vertexCoupledCombo) m_vertexCoupledCombo->setEnabled(showVertexEdit);
+
+    // Manning's n + cell-tag editors (2D-cell group): shown + editable when one
+    // OR MORE cells are selected on an editable mesh; committing overwrites all.
+    const bool showCellEdit = haveMesh && !currentSelectedCells().isEmpty();
+    if (m_actManningsSpin) m_actManningsSpin->setVisible(showCellEdit);
+    if (m_actCellTag)      m_actCellTag->setVisible(showCellEdit);
+    if (m_manningsSpin)    m_manningsSpin->setEnabled(showCellEdit);
+    if (m_cellTagEdit)     m_cellTagEdit->setEnabled(showCellEdit);
 
     // Slice §V.VC — BC controls follow Edit Edge mode + selection state.
     // BCs apply to boundary edges only, so the param stack enables only when
@@ -1030,4 +1179,16 @@ void MeshEditingToolbar::refreshBCNameLists()
     repop(m_stageTSCombo, tsNames);
     repop(m_flowTSCombo,  tsNames);
     repop(m_curveCombo,   curveNames);
+}
+
+void MeshEditingToolbar::refreshNodeList()
+{
+    if (!m_vertexCoupledCombo) return;
+    const QString keep = m_vertexCoupledCombo->currentText();
+    QSignalBlocker block(m_vertexCoupledCombo);
+    m_vertexCoupledCombo->clear();
+    m_vertexCoupledCombo->addItem(QString());   // blank = uncoupled
+    const QStringList nodes = m_nodeLister ? m_nodeLister() : QStringList{};
+    for (const QString &n : nodes) m_vertexCoupledCombo->addItem(n);
+    m_vertexCoupledCombo->setCurrentText(keep);
 }

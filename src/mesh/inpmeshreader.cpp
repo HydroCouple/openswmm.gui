@@ -24,6 +24,7 @@ namespace {
 constexpr const char *kSecVertices       = "[2D_VERTICES]";
 constexpr const char *kSecTriangles      = "[2D_TRIANGLES]";
 constexpr const char *kSecMeshFile       = "[2D_MESH_FILE]";
+constexpr const char *kSecVertexNodeMap  = "[2D_VERTEX_NODE_MAP]";      // 1D<->2D coupling
 constexpr const char *kSecBC             = "[2D_BOUNDARY_CONDITIONS]";  // §V.VD.1
 constexpr const char *kSecConveyance     = "[2D_EDGE_CONVEYANCE]";       // Engine §11A
 
@@ -121,14 +122,37 @@ QString parseSection(const QString &sectionName,
                 return QStringLiteral("[2D_TRIANGLES] non-integer vertex index (got: %1)").arg(raw.trimmed());
             MeshTriangle t;
             t.v0 = v0; t.v1 = v1; t.v2 = v2;
-            // tok[3] is MANNINGS_N — ignored for rendering. tok[4] is TAG.
+            // tok[3] is MANNINGS_N, tok[4] is TAG.
+            if (tok.size() >= 4) {
+                bool okn = false;
+                const double n = tok[3].toDouble(&okn);
+                if (okn) t.mannings = n;
+            }
             if (tok.size() >= 5) t.tag = tok[4];
             out.triangles.append(t);
         }
         return {};
     }
 
-    // Other sections (coupling maps, options) carry no rendering data.
+    // [2D_VERTEX_NODE_MAP] — VERTEX NODE [CD AREA]. The engine's authoritative
+    // 1D<->2D coupling, distinct from the [2D_VERTICES] TAG column. Lands on
+    // MeshVertex::coupledNode (the descriptive tag keeps its own field).
+    if (sectionName.compare(QLatin1String(kSecVertexNodeMap),
+                            Qt::CaseInsensitive) == 0)
+    {
+        for (const QString &raw : bodyLines)
+        {
+            const QStringList tok = tokenize(raw);
+            if (tok.size() < 2) continue;
+            bool okv = false;
+            const int v = tok[0].toInt(&okv);
+            if (!okv || v < 0 || v >= out.vertices.size()) continue;
+            out.vertices[v].coupledNode = tok[1];
+        }
+        return {};
+    }
+
+    // Other sections (triangle node map, options) carry no rendering data.
     return {};
 }
 
