@@ -37,6 +37,14 @@ public:
     enum LabelFormatMode { Decimals = 0, SignificantFigures = 1 };
     Q_ENUM(LabelFormatMode)
 
+    /*! \brief Axis label decimal places (0–10). Declared as a Q_ENUM so the
+     *  property grid renders it as a combobox dropdown rather than a spinbox;
+     *  the integer value equals the number of decimals. */
+    enum DecimalPlaces { Zero = 0, One = 1, Two = 2, Three = 3, Four = 4,
+                         Five = 5, Six = 6, Seven = 7, Eight = 8, Nine = 9,
+                         Ten = 10 };
+    Q_ENUM(DecimalPlaces)
+
     enum LegendPosition   { TopRight = 0, TopLeft = 1,
                             BottomLeft = 2, BottomRight = 3 };
     Q_ENUM(LegendPosition)
@@ -71,10 +79,12 @@ public:
     // global Preferences default; edits here override per-plot.
     Q_PROPERTY(ProfilePlotOptions::LabelFormatMode xLabelFormatMode
                READ xLabelFormatMode WRITE setXLabelFormatMode NOTIFY changed)
-    Q_PROPERTY(int xLabelPrecision   READ xLabelPrecision  WRITE setXLabelPrecision  NOTIFY changed)
+    Q_PROPERTY(ProfilePlotOptions::DecimalPlaces xLabelPrecision
+               READ xLabelPrecision  WRITE setXLabelPrecision  NOTIFY changed)
     Q_PROPERTY(ProfilePlotOptions::LabelFormatMode yLabelFormatMode
                READ yLabelFormatMode WRITE setYLabelFormatMode NOTIFY changed)
-    Q_PROPERTY(int yLabelPrecision   READ yLabelPrecision  WRITE setYLabelPrecision  NOTIFY changed)
+    Q_PROPERTY(ProfilePlotOptions::DecimalPlaces yLabelPrecision
+               READ yLabelPrecision  WRITE setYLabelPrecision  NOTIFY changed)
 
     // ── Ground / terrain ────────────────────────────────────────────────
     Q_PROPERTY(bool useTerrainGround READ useTerrainGround WRITE setUseTerrainGround NOTIFY changed)
@@ -168,9 +178,9 @@ public:
     LabelOrientation labelOrientation() const { return m_labelOrientation; }
     int      labelAngleDeg()    const { return m_labelAngleDeg; }
     LabelFormatMode xLabelFormatMode() const { return m_xLabelMode; }
-    int      xLabelPrecision()  const { return m_xLabelPrecision; }
+    DecimalPlaces xLabelPrecision()  const { return static_cast<DecimalPlaces>(m_xLabelPrecision); }
     LabelFormatMode yLabelFormatMode() const { return m_yLabelMode; }
-    int      yLabelPrecision()  const { return m_yLabelPrecision; }
+    DecimalPlaces yLabelPrecision()  const { return static_cast<DecimalPlaces>(m_yLabelPrecision); }
     /*! \brief Current X/Y axis label format as the shared value type. */
     openswmmvis::plot::NumberFormat xFormat() const
     { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_xLabelMode), m_xLabelPrecision }; }
@@ -239,9 +249,9 @@ public slots:
     void setLabelOrientation(LabelOrientation o);
     void setLabelAngleDeg   (int deg);
     void setXLabelFormatMode(LabelFormatMode m);
-    void setXLabelPrecision (int count);
+    void setXLabelPrecision (DecimalPlaces count);
     void setYLabelFormatMode(LabelFormatMode m);
-    void setYLabelPrecision (int count);
+    void setYLabelPrecision (DecimalPlaces count);
     void setUseTerrainGround(bool v);
     void setFloodRadiusPx (double r);
     void setFloodSweepDeg (int deg);

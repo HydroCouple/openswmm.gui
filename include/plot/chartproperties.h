@@ -43,6 +43,14 @@ public:
     enum LabelFormatMode { Decimals = 0, SignificantFigures = 1 };
     Q_ENUM(LabelFormatMode)
 
+    /*! \brief Axis label decimal places (0–10). Declared as a Q_ENUM so the
+     *  property grid renders it as a combobox dropdown rather than a spinbox;
+     *  the integer value equals the number of decimals. */
+    enum DecimalPlaces { Zero = 0, One = 1, Two = 2, Three = 3, Four = 4,
+                         Five = 5, Six = 6, Seven = 7, Eight = 8, Nine = 9,
+                         Ten = 10 };
+    Q_ENUM(DecimalPlaces)
+
     Q_PROPERTY(QString titleText        READ titleText        WRITE setTitleText        NOTIFY titleTextChanged)
     Q_PROPERTY(QFont   titleFont        READ titleFont        WRITE setTitleFont        NOTIFY titleFontChanged)
 
@@ -62,9 +70,9 @@ public:
     Q_PROPERTY(int     chartTheme       READ chartTheme       WRITE setChartTheme       NOTIFY chartThemeChanged)
 
     Q_PROPERTY(ChartProperties::LabelFormatMode xLabelFormatMode READ xLabelFormatMode WRITE setXLabelFormatMode NOTIFY xLabelFormatModeChanged)
-    Q_PROPERTY(int     xLabelPrecision  READ xLabelPrecision  WRITE setXLabelPrecision  NOTIFY xLabelPrecisionChanged)
+    Q_PROPERTY(ChartProperties::DecimalPlaces xLabelPrecision  READ xLabelPrecision  WRITE setXLabelPrecision  NOTIFY xLabelPrecisionChanged)
     Q_PROPERTY(ChartProperties::LabelFormatMode yLabelFormatMode READ yLabelFormatMode WRITE setYLabelFormatMode NOTIFY yLabelFormatModeChanged)
-    Q_PROPERTY(int     yLabelPrecision  READ yLabelPrecision  WRITE setYLabelPrecision  NOTIFY yLabelPrecisionChanged)
+    Q_PROPERTY(ChartProperties::DecimalPlaces yLabelPrecision  READ yLabelPrecision  WRITE setYLabelPrecision  NOTIFY yLabelPrecisionChanged)
 
 public:
     explicit ChartProperties(QChart *chart, QObject *parent = nullptr);
@@ -96,9 +104,9 @@ public:
     int     chartTheme()      const;
 
     LabelFormatMode xLabelFormatMode() const noexcept { return m_xLabelMode; }
-    int             xLabelPrecision()  const noexcept { return m_xLabelPrecision; }
+    DecimalPlaces   xLabelPrecision()  const noexcept { return static_cast<DecimalPlaces>(m_xLabelPrecision); }
     LabelFormatMode yLabelFormatMode() const noexcept { return m_yLabelMode; }
-    int             yLabelPrecision()  const noexcept { return m_yLabelPrecision; }
+    DecimalPlaces   yLabelPrecision()  const noexcept { return static_cast<DecimalPlaces>(m_yLabelPrecision); }
 
     /*! \brief Current X/Y label format as the shared value type. */
     NumberFormat xFormat() const noexcept;
@@ -120,9 +128,9 @@ public slots:
     void setChartTheme(int theme);
 
     void setXLabelFormatMode(ChartProperties::LabelFormatMode mode);
-    void setXLabelPrecision(int count);
+    void setXLabelPrecision(ChartProperties::DecimalPlaces count);
     void setYLabelFormatMode(ChartProperties::LabelFormatMode mode);
-    void setYLabelPrecision(int count);
+    void setYLabelPrecision(ChartProperties::DecimalPlaces count);
 
 signals:
     void titleTextChanged(const QString &);

@@ -275,12 +275,13 @@ void ChartProperties::setXLabelFormatMode(LabelFormatMode mode)
     emit xLabelFormatModeChanged(mode);
 }
 
-void ChartProperties::setXLabelPrecision(int count)
+void ChartProperties::setXLabelPrecision(DecimalPlaces count)
 {
-    if (count < 0 || count > 10 || m_xLabelPrecision == count) return;
-    m_xLabelPrecision = count;
+    const int c = static_cast<int>(count);
+    if (c < 0 || c > 10 || m_xLabelPrecision == c) return;
+    m_xLabelPrecision = c;
     applyLabelFormats_();
-    emit xLabelPrecisionChanged(count);
+    emit xLabelPrecisionChanged(c);
 }
 
 void ChartProperties::setYLabelFormatMode(LabelFormatMode mode)
@@ -291,12 +292,13 @@ void ChartProperties::setYLabelFormatMode(LabelFormatMode mode)
     emit yLabelFormatModeChanged(mode);
 }
 
-void ChartProperties::setYLabelPrecision(int count)
+void ChartProperties::setYLabelPrecision(DecimalPlaces count)
 {
-    if (count < 0 || count > 10 || m_yLabelPrecision == count) return;
-    m_yLabelPrecision = count;
+    const int c = static_cast<int>(count);
+    if (c < 0 || c > 10 || m_yLabelPrecision == c) return;
+    m_yLabelPrecision = c;
     applyLabelFormats_();
-    emit yLabelPrecisionChanged(count);
+    emit yLabelPrecisionChanged(c);
 }
 
 } // namespace openswmmvis::plot
