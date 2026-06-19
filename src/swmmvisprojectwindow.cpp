@@ -13,6 +13,7 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmmresultslayer.h"        // Slice QA.2 — registry hookup
 #include "layers/swmm2dresultslayer.h"      // active 2D analysis layer
+#include "mesh/meshenginesync.h"            // push mesh-layer edits into the engine before save
 #include "output/outputstatsregistry.h"     // Slice QA.2 — owns the registry
 #include "project/openswmmvisworkspace.h"
 #include "project/projectserializer.h"      // Slice RB.1 — sidecar auto-create
@@ -820,6 +821,23 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     };
 
     const QString pluginId = pluginIdForExt(QFileInfo(newPath).suffix());
+
+    // Mesh edits live on the SWMM2DMeshLayer (its own MeshResult / BC SoA),
+    // not in the engine that the writer below serialises. Push them into the
+    // engine's in-memory 2D mesh first so vertex-Z / conveyance / BC edits are
+    // saved. The engine remains the source of truth for everything the GUI
+    // mesh model does not carry (coupling maps, Manning's n, units, options).
+    if (canvas()) {
+        for (OpenSWMMVisLayer *l : canvas()->layers()) {
+            auto *meshLayer = qobject_cast<SWMM2DMeshLayer *>(l);
+            if (!meshLayer || meshLayer->mesh().vertices.isEmpty()) continue;
+            QStringList syncWarnings;
+            mesh::pushMeshEditsToEngine(mModelLayer->engine(), meshLayer->mesh(),
+                                        meshLayer->edgeBCs(), &syncWarnings);
+            for (const QString &w : syncWarnings)
+                qWarning().noquote() << w;
+        }
+    }
 
     QByteArray utf8 = newPath.toUtf8();
     QByteArray idUtf8 = pluginId.toUtf8();

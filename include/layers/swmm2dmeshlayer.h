@@ -251,9 +251,21 @@ public:
      *  symmetry invariant). Emits attributeChanged for the edited slot. */
     bool applyMeshEdgeConveyance(int triIdx, int edgeLocal, double conveyance);
 
-    /*! \brief Slice §V.VE — set the vertex tag (used as coupled-node id).
-     *  Emits attributeChanged with the vertex ref name. */
+    /*! \brief Set the vertex's descriptive tag ([2D_VERTICES] TAG column).
+     *  Distinct from the coupled node. Emits attributeChanged. */
     bool applyMeshVertexTag(int vertexIdx, const QString &tag);
+
+    /*! \brief Set the vertex's coupled SWMM node ([2D_VERTEX_NODE_MAP]).
+     *  Drives the coupled-vertex glyph. Emits attributeChanged. */
+    bool applyMeshVertexCoupledNode(int vertexIdx, const QString &node);
+
+    /*! \brief Set a triangle's Manning's roughness. Emits attributeChanged
+     *  with the cell ref name. */
+    bool applyMeshTriangleMannings(int triIdx, double mannings);
+
+    /*! \brief Set a triangle's descriptive tag ([2D_TRIANGLES] TAG column).
+     *  Emits attributeChanged with the cell ref name. */
+    bool applyMeshTriangleTag(int triIdx, const QString &tag);
 
     // ----- Selection highlighting (§V follow-up) ---------------------------
     /*! \brief Indices of mesh vertices currently selected for highlight

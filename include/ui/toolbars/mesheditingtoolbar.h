@@ -85,7 +85,10 @@ public:
     using ListerFn = std::function<QStringList()>;
     void setTimeseriesLister(ListerFn fn) { m_tsLister    = std::move(fn); }
     void setCurveLister(ListerFn fn)      { m_curveLister = std::move(fn); }
+    /*! \brief Lister of couplable SWMM node ids for the coupled-node dropdown. */
+    void setNodeLister(ListerFn fn)       { m_nodeLister = std::move(fn); }
     void refreshBCNameLists();    // re-query listers + repopulate combos
+    void refreshNodeList();       // re-query node lister + repopulate the combo
 
     /*! \brief Add a trailing tool action (e.g. Pick 2D Cells / Trace Profile)
      *  to the *left* of the expanding spacer so it stays visible. Use this
@@ -102,6 +105,15 @@ public:
     /*! \brief The cell-selection info label (created in the ctor; placed by
      *  SWMMVis right after the Select-2D-Cells action via addToolWidget). */
     [[nodiscard]] QLabel *cellInfoLabel() const { return m_cellInfoLbl; }
+
+    /*! \brief Per-cell editor widgets (Manning's n + descriptive tag).
+     *  Created in the ctor but NOT placed — SWMMVis positions them right
+     *  after the cell info label so they sit in the 2D-cell group, then
+     *  hands the embedding QActions back via setCellEditorActions() so the
+     *  toolbar can hide them when no cell is selected. */
+    [[nodiscard]] QWidget *cellManningsWidget() const;
+    [[nodiscard]] QWidget *cellTagWidget() const;
+    void setCellEditorActions(QAction *manningsAct, QAction *tagAct);
 
     [[nodiscard]] SWMM2DMeshLayer *activeMesh() const { return m_activeMesh; }
 
@@ -122,6 +134,10 @@ private slots:
     void onAttributeChanged(const QString &refName);
     void onHoverElevation(double z, bool finite);
     void onZSpinChanged(double z);
+    void onVertexTagCommit();        // descriptive vertex tag → selected vertex
+    void onVertexCoupledCommit();    // coupled SWMM node → selected vertex
+    void onManningsCommit();         // Manning's n → selected cell
+    void onCellTagCommit();          // descriptive triangle tag → selected cell
     void onSelectionChanged();
     void onBCTypeChanged(int index);
     void commitBCParam();             // apply-as-you-go: write current param to selected edges
@@ -139,7 +155,6 @@ private:
     void refreshEdgeEditor();
     void refreshCellEditor();
     void updateEnabledState();
-    int  currentSingleSelectedVertex() const;  // -1 if not exactly one
     QList<int> currentSelectedVertices() const;          // all selected vertex indices
     QList<QPair<int,int>> currentSelectedEdges() const;  // (tri, eLocal) pairs
     QList<int> currentSelectedCells() const;             // all selected triangle indices
@@ -162,6 +177,10 @@ private:
     // Vertex Z editor
     QLabel        *m_vertexInfoLbl  = nullptr;
     QDoubleSpinBox*m_zSpin          = nullptr;
+    QLineEdit     *m_vertexTagEdit  = nullptr;   // descriptive tag
+    QComboBox     *m_vertexCoupledCombo = nullptr;// coupled SWMM node (dropdown)
+    QAction       *m_actVertexTag     = nullptr; // embedding actions for hide
+    QAction       *m_actVertexCoupled = nullptr;
 
     // BC controls (Slice §V.VC — fully wired for all 7 GUI BC types).
     QComboBox     *m_bcTypeCombo    = nullptr;
@@ -175,6 +194,10 @@ private:
 
     // Cell-selection info label (after the Select-2D-Cells tool).
     QLabel        *m_cellInfoLbl    = nullptr;
+    QDoubleSpinBox*m_manningsSpin   = nullptr;   // per-triangle Manning's n
+    QLineEdit     *m_cellTagEdit    = nullptr;   // descriptive triangle tag
+    QAction       *m_actManningsSpin = nullptr;  // embedding actions for hide
+    QAction       *m_actCellTag      = nullptr;
 
     // Param-page widgets (held directly so the apply path reads values
     // without going through QStackedWidget::currentWidget casts).
@@ -200,6 +223,7 @@ private:
 
     ListerFn       m_tsLister;
     ListerFn       m_curveLister;
+    ListerFn       m_nodeLister;
 };
 
 #endif // OPENSWMMVIS_UI_TOOLBARS_MESHEDITINGTOOLBAR_H

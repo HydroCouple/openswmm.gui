@@ -470,6 +470,7 @@ set(
         include/ui/properties/swmmsubcatchpropertyadapter.h
         include/ui/properties/meshvertexpropertyadapter.h    # §V.VF
         include/ui/properties/meshedgepropertyadapter.h      # §V.VF
+        include/ui/properties/meshtrianglepropertyadapter.h  # §V.VF
 
         # ── Compound editor cell widget (Slice DB.2) ─────────────────────────
         include/ui/properties/nodecompoundeditref.h
@@ -486,6 +487,10 @@ set(
         include/ui/properties/culvertcodes.h
         include/ui/properties/culvertcoderef.h
         include/ui/properties/culvertcodecombobox.h
+
+        # ── Rain gage recording-interval H:MM combo (DA.2 parity) ───────────
+        include/ui/properties/rainintervalref.h
+        include/ui/properties/rainintervalcombobox.h
 
         # ── Data-object picker cell widget (Slice DA.4.3) ───────────────────
         include/ui/properties/dataobjectref.h
@@ -946,6 +951,7 @@ set(
         src/ui/properties/swmmsubcatchpropertyadapter.cpp
         src/ui/properties/meshvertexpropertyadapter.cpp      # §V.VF
         src/ui/properties/meshedgepropertyadapter.cpp        # §V.VF
+        src/ui/properties/meshtrianglepropertyadapter.cpp    # §V.VF
 
         # Compound editor cell widget (Slice DB.2)
         src/ui/properties/nodecompoundeditref.cpp
@@ -962,6 +968,10 @@ set(
         src/ui/properties/culvertcodes.cpp
         src/ui/properties/culvertcoderef.cpp
         src/ui/properties/culvertcodecombobox.cpp
+
+        # Rain gage recording-interval H:MM combo (DA.2 parity)
+        src/ui/properties/rainintervalref.cpp
+        src/ui/properties/rainintervalcombobox.cpp
 
         # Data-object picker cell widget (Slice DA.4.3)
         src/ui/properties/dataobjectref.cpp

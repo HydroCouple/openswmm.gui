@@ -15,6 +15,8 @@
 #include <QString>
 #include <QVector>
 
+#include <limits>
+
 namespace mesh {
 
 /*! \brief A vertex in the generated mesh. */
@@ -23,7 +25,8 @@ struct MeshVertex
     QPointF xy;            ///< Map units (project CRS).
     double  z       = 0.0; ///< Sampled DTM elevation (set by DTMSampler; 0 until then).
     int     marker  = 0;   ///< Triangle's input/output point marker (carries our tag id).
-    QString tag;           ///< Resolved string (e.g. SWMM node ID); empty if untagged.
+    QString tag;           ///< Descriptive label ([2D_VERTICES] TAG column); empty if none.
+    QString coupledNode;   ///< Coupled SWMM node id ([2D_VERTEX_NODE_MAP]); empty if uncoupled.
 };
 
 /*! \brief A triangle in the generated mesh, indices into \ref MeshResult::vertices. */
@@ -31,6 +34,10 @@ struct MeshTriangle
 {
     int     v0 = 0, v1 = 0, v2 = 0;
     QString tag;          ///< Region tag (e.g. subcatchment ID); empty if untagged.
+    /// Manning's roughness ([2D_TRIANGLES] MANNINGS_N). NaN = unset, so the
+    /// writer falls back to the caller's default (mesh generation uses a
+    /// uniform value); a loaded mesh carries the per-triangle value.
+    double  mannings = std::numeric_limits<double>::quiet_NaN();
 };
 
 /*! \brief A boundary edge with its source-segment marker preserved. */
