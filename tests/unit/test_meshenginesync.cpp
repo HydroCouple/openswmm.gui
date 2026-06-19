@@ -156,3 +156,53 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
     EXPECT_TRUE(text.contains(QStringLiteral("J1")))
         << "vertex->node coupling lost (regression)";
 }
+
+// The GUI keeps the engine OPENED (never INITIALIZED) so 1D property edits stay
+// legal. Mesh edits must still persist in that state — this is the scenario the
+// inline-mesh save bug came from. Same edits as above, but no initialize().
+TEST(MeshEngineSync, EditsPersistInOpenedState)
+{
+    const QString inPath  = QStringLiteral("mesh_sync_fixture.inp");
+    const QString outPath = QStringLiteral("mesh_sync_opened_out.inp");
+
+    const mesh::InpMeshReadResult rr = mesh::InpMeshReader::read(inPath);
+    ASSERT_TRUE(rr.hasMesh) << rr.errorMsg.toStdString();
+    mesh::MeshResult         meshState = rr.mesh;
+    QVector<mesh::MeshEdgeBC> bcs      = rr.edgeBCs;
+
+    SWMM_Engine e = swmm_engine_new();
+    ASSERT_NE(e, nullptr);
+    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(),
+                               "mesh_sync_opened.rpt", "mesh_sync_opened.out",
+                               nullptr), 0);
+    // NOTE: deliberately NOT calling swmm_engine_initialize — mirrors the GUI.
+
+    int nv = 0, nt = 0;
+    ASSERT_EQ(swmm_2d_vertex_count(e, &nv), 0)
+        << "vertex_count must work in OPENED state";
+    ASSERT_EQ(swmm_2d_triangle_count(e, &nt), 0);
+    ASSERT_EQ(nv, meshState.vertices.size());
+    ASSERT_EQ(bcs.size(), nt * 3);
+
+    // Edit a vertex Z, an edge conveyance, and an edge stage BC.
+    meshState.vertices[0].z   = 333.3;
+    bcs[0 * 3 + 0].conveyance = 0.41;
+    bcs[5 * 3 + 0].type       = mesh::MeshBCTypes::Type::SpecifiedStageConst;
+    bcs[5 * 3 + 0].head       = 88.8;
+    bcs[5 * 3 + 0].tseries.clear();
+
+    QStringList warnings;
+    ASSERT_TRUE(mesh::pushMeshEditsToEngine(e, meshState, bcs, &warnings));
+    EXPECT_TRUE(warnings.isEmpty()) << warnings.join("; ").toStdString();
+    ASSERT_EQ(swmm_model_write(e, outPath.toUtf8().constData()), 0);
+    swmm_engine_destroy(e);
+
+    const QString text = readAll(outPath);
+    ASSERT_FALSE(text.isEmpty());
+    EXPECT_TRUE(text.contains(QStringLiteral("333.3")))
+        << "vertex Z edit not saved in OPENED state";
+    EXPECT_TRUE(text.contains(QStringLiteral("0.41")))
+        << "edge conveyance edit not saved in OPENED state";
+    EXPECT_TRUE(text.contains(QStringLiteral("88.8")))
+        << "edge stage BC edit not saved in OPENED state";
+}
