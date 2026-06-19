@@ -231,12 +231,13 @@ private slots:
 
     void setProvider_OnChartView_RebindsCleanly()
     {
-        TimeseriesProvider pa(QStringLiteral("RAIN_A"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &pa = *reg.create(QStringLiteral("RAIN_A"));
         QVERIFY(pa.setAllPoints({
             {QDateTime(QDate(2026, 1, 1), QTime(0, 0), Qt::UTC), 1.0},
             {QDateTime(QDate(2026, 1, 1), QTime(1, 0), Qt::UTC), 2.0},
         }));
-        TimeseriesProvider pb(QStringLiteral("RAIN_B"));
+        TimeseriesProvider &pb = *reg.create(QStringLiteral("RAIN_B"));
         QVERIFY(pb.setAllPoints({
             {QDateTime(QDate(2026, 1, 1), QTime(0, 0), Qt::UTC), 5.0},
             {QDateTime(QDate(2026, 1, 1), QTime(1, 0), Qt::UTC), 6.0},
@@ -244,7 +245,7 @@ private slots:
         }));
 
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&pa, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &pa);
         QVERIFY(dlg.chartView() != nullptr);
         QCOMPARE(dlg.chartView()->provider(), &pa);
 
@@ -258,13 +259,14 @@ private slots:
 
     void editModeCtor_StillWorks_RegressionGuard()
     {
-        TimeseriesProvider p(QStringLiteral("RAIN_F"));
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_F"));
         QVERIFY(p.setAllPoints({
             {QDateTime(QDate(2026, 1, 1), QTime(0, 0), Qt::UTC), 1.0},
             {QDateTime(QDate(2026, 1, 1), QTime(6, 0), Qt::UTC), 2.0},
         }));
         QUndoStack stack;
-        TimeseriesEditorDialog dlg(&p, &stack);
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
         QCOMPARE(int(dlg.mode()), int(TimeseriesEditorDialog::Mode::Edit));
         QVERIFY(dlg.tableModel() != nullptr);
         QVERIFY(dlg.chartView()  != nullptr);
