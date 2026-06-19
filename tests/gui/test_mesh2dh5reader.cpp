@@ -24,12 +24,27 @@ using openswmmvis::io::Mesh2DH5Reader;
 
 namespace {
 
-QString writeFixture()
+// VS-vertex — fixture node heads (z + depth at the vertex), [n_time, n_vert].
+// t=0 dry (head == ground), t=1 shallow, t=2 peak. Vertex z = {10,10,11,11}.
+constexpr double kNodeHeads[3 * 4] = {
+    10.00, 10.00, 11.00, 11.00,   // t=0 — dry: head pinned at ground
+    10.05, 10.05, 11.00, 11.02,   // t=1
+    10.20, 10.25, 11.10, 11.30,   // t=2 (peak)
+};
+
+QString writeFixture(bool withNodeHead = false)
 {
-    // Use a temp file path — leak the QTemporaryFile (it auto-deletes when
-    // cleaned up but we want the file to persist for the H5Fopen call).
     QString path;
-    {
+    if (withNodeHead) {
+        // Transparent-IO rule (CLAUDE.md): new test artefacts go to a
+        // user-reviewable location (cwd = the build dir under ctest), not a
+        // temp folder.
+        QDir out(QDir::currentPath() + QStringLiteral("/test_artifacts"));
+        if (!out.exists()) QDir().mkpath(out.absolutePath());
+        path = out.filePath(QStringLiteral("mesh2d_fixture_with_heads.h5"));
+    } else {
+        // Use a temp file path — leak the QTemporaryFile (it auto-deletes when
+        // cleaned up but we want the file to persist for the H5Fopen call).
         QTemporaryFile tmp(QDir::tempPath() + "/mesh2d_fixture_XXXXXX.h5");
         tmp.setAutoRemove(false);
         if (!tmp.open()) return {};
@@ -106,6 +121,19 @@ QString writeFixture()
         H5Sclose(sp);
     }
 
+    // /Mesh2_node_head [n_time, n_vert] — only on the "new engine" fixture;
+    // the plain fixture doubles as the older-file probe case.
+    if (withNodeHead) {
+        hsize_t dims[2] = { n_time, n_vert };
+        hid_t sp = H5Screate_simple(2, dims, nullptr);
+        hid_t ds = H5Dcreate2(fid, "Mesh2_node_head", H5T_NATIVE_DOUBLE, sp,
+                               H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                 kNodeHeads);
+        H5Dclose(ds);
+        H5Sclose(sp);
+    }
+
     H5Fclose(fid);
     return path;
 }
@@ -122,11 +150,16 @@ private slots:
         fixturePath_ = writeFixture();
         QVERIFY(!fixturePath_.isEmpty());
         QVERIFY(QFile::exists(fixturePath_));
+
+        fixtureWithHeadsPath_ = writeFixture(/*withNodeHead=*/true);
+        QVERIFY(!fixtureWithHeadsPath_.isEmpty());
+        QVERIFY(QFile::exists(fixtureWithHeadsPath_));
     }
 
     void cleanupTestCase()
     {
         if (!fixturePath_.isEmpty()) QFile::remove(fixturePath_);
+        // The with-heads fixture stays on disk for review (transparent-IO).
     }
 
     void opensAndReportsCounts()
@@ -200,8 +233,48 @@ private slots:
         QVERIFY(!r.lastError().isEmpty());
     }
 
+    // ── VS-vertex — /Mesh2_node_head ────────────────────────────────────
+
+    void readsVertexHeads()
+    {
+        Mesh2DH5Reader r;
+        QVERIFY2(r.open(fixtureWithHeadsPath_), qPrintable(r.lastError()));
+        std::vector<double> h;
+        QVERIFY2(r.readVertexHeadsAt(1, h), qPrintable(r.lastError()));
+        QCOMPARE(int(h.size()), 4);
+        QCOMPARE(h[0], kNodeHeads[4 + 0]);
+        QCOMPARE(h[3], kNodeHeads[4 + 3]);
+
+        QVERIFY(r.readVertexHeadsAt(2, h));
+        QCOMPARE(h[1], kNodeHeads[8 + 1]);
+    }
+
+    void vertexHeadsAbsentReturnsFalse()
+    {
+        // Older file (no Mesh2_node_head): false both times — the second
+        // call exercises the probe-once cache path.
+        Mesh2DH5Reader r;
+        QVERIFY(r.open(fixturePath_));
+        std::vector<double> h;
+        QVERIFY(!r.readVertexHeadsAt(0, h));
+        QVERIFY(!r.readVertexHeadsAt(1, h));
+        QVERIFY(!r.lastError().isEmpty());
+        // Other readers keep working after the failed probe.
+        std::vector<float> d;
+        QVERIFY(r.readDepthsAt(1, d));
+    }
+
+    void vertexHeadsRejectOutOfRange()
+    {
+        Mesh2DH5Reader r;
+        QVERIFY(r.open(fixtureWithHeadsPath_));
+        std::vector<double> h;
+        QVERIFY(!r.readVertexHeadsAt(99, h));
+    }
+
 private:
     QString fixturePath_;
+    QString fixtureWithHeadsPath_;
 };
 
 QTEST_GUILESS_MAIN(TestMesh2DH5Reader)

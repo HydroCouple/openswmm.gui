@@ -440,15 +440,38 @@ void SWMMLayerItem::paint(QPainter *painter,
         // Preferences dialog's Rendering page. Outlets (case 4) now
         // pull their own pen instead of falling back to the conduit
         // symbol.
-        auto linkPenForType = [](int linkType) {
+        // Pen resolution mirrors the QSG renderer: start from the kind's
+        // preference pen, then let the per-kind SWMMElementSymbol override
+        // colour and width. The old prefs-only read meant thickness /
+        // colour edits in the style dialog never reached this (CPU) paint
+        // path even though the QSG path honoured them.
+        auto linkPenForType = [this](int linkType) {
             auto *prefs = PreferencesManager::instance();
+            QPen pen;
+            SWMMElementSymbol sym;
+            bool hasSym = true;
             switch (linkType) {
-            case 1:  return prefs->linkPen(QStringLiteral("pump"));
-            case 2:  return prefs->linkPen(QStringLiteral("orifice"));
-            case 3:  return prefs->linkPen(QStringLiteral("weir"));
-            case 4:  return prefs->linkPen(QStringLiteral("outlet"));
-            default: return prefs->linkPen(QStringLiteral("conduit"));
+            case 1:
+                pen = prefs->linkPen(QStringLiteral("pump"));
+                sym = m_layer->pumpSymbol();    break;
+            case 2:
+                pen = prefs->linkPen(QStringLiteral("orifice"));
+                sym = m_layer->orificeSymbol(); break;
+            case 3:
+                pen = prefs->linkPen(QStringLiteral("weir"));
+                sym = m_layer->weirSymbol();    break;
+            case 4:
+                pen = prefs->linkPen(QStringLiteral("outlet"));
+                hasSym = false;                 break;  // QSG parity
+            default:
+                pen = prefs->linkPen(QStringLiteral("conduit"));
+                sym = m_layer->conduitSymbol(); break;
             }
+            if (hasSym) {
+                if (sym.fillColor.isValid()) pen.setColor(sym.fillColor);
+                if (sym.size > 0.0)          pen.setWidthF(sym.size);
+            }
+            return pen;
         };
 
         // Bucket by link type: 0=Conduit, 1=Pump, 2=Orifice, 3=Weir, 4=Outlet.
@@ -592,6 +615,23 @@ void SWMMLayerItem::paint(QPainter *painter,
         }
 
         painter->setBrush(Qt::NoBrush);
+        // Large projected coordinates (e.g. State Plane ~2e6) feed QPainter's
+        // raster engine garbage at low zoom — the conduit "flashing lines"
+        // bug. Project each segment to device pixels in double and stroke with
+        // the transform reset, so the rasteriser only ever sees small on-screen
+        // coordinates. This is the CPU-path equivalent of the content anchor
+        // the QSG renderer already uses.
+        const QTransform xf = painter->transform();
+        auto drawDeviceLines = [&](const QVector<QLineF> &segs) {
+            if (segs.isEmpty()) return;
+            QVector<QLineF> dev;
+            dev.reserve(segs.size());
+            for (const QLineF &l : segs)
+                dev.append(QLineF(xf.map(l.p1()), xf.map(l.p2())));
+            painter->drawLines(dev);
+        };
+        painter->save();
+        painter->resetTransform();   // draw link strokes in device space
         for (int t = 0; t < 5; ++t) {
             // Per-kind (sub-layer) opacity for this link type.
             const qreal kindOp =
@@ -606,7 +646,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                 pen.setColor(fade(pen.color()));
                 pen.setCosmetic(true);
                 painter->setPen(pen);
-                painter->drawLines(segsByType[size_t(t)]);
+                drawDeviceLines(segsByType[size_t(t)]);
             }
             // Phase 8.13.6.4 override path — one pen per unique colour
             // within the kind. The pen's width / style / cap / join are
@@ -619,7 +659,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                      it != overrideSegsByType[size_t(t)].constEnd(); ++it) {
                     pen.setColor(fade(QColor::fromRgba(it.key())));
                     painter->setPen(pen);
-                    painter->drawLines(it.value());
+                    drawDeviceLines(it.value());
                 }
             }
         }
@@ -640,8 +680,9 @@ void SWMMLayerItem::paint(QPainter *painter,
             if (selPen.style() != Qt::SolidLine) hi.setStyle(selPen.style());
             hi.setCosmetic(true);
             painter->setPen(hi);
-            painter->drawLines(selSegsByType[size_t(t)]);
+            drawDeviceLines(selSegsByType[size_t(t)]);
         }
+        painter->restore();   // back to scene transform
 
         // ── Flow-direction arrows (Slice BI Phase 8.13.8-mini, 2026-05-24) ──
         // For each link kind whose SWMMElementSymbol::showArrows is true,
@@ -665,6 +706,12 @@ void SWMMLayerItem::paint(QPainter *painter,
                                            [](const ArrowCfg &c) { return c.enabled; });
         if (anyArrows)
         {
+            // Same large-coordinate remedy as the link strokes: map the arrow
+            // anchor to device pixels and draw with the transform reset, so the
+            // arrowheads don't garble/vanish at low zoom with large projected
+            // coords. arrowSize is already in pixels, so it IS the device size.
+            painter->save();
+            painter->resetTransform();
             for (int k = 0; k < total; ++k)
             {
                 const int i = useGrid ? visible[k] : k;
@@ -686,9 +733,24 @@ void SWMMLayerItem::paint(QPainter *painter,
                 QPointF mid;
                 double  angle = 0.0;
                 if (!polylineMidpoint(p, cnt, &mid, &angle)) continue;
-                const double lenScene = cfg.sym->arrowSize * invViewScale;
-                drawFlowArrow(painter, mid, angle, lenScene, cfg.sym->arrowColor);
+                // QSG-parity — arrows fade with the kind's (sub-layer)
+                // opacity like the base links do.
+                QColor ac = cfg.sym->arrowColor;
+                const qreal kop = m_layer->categoryOpacity(
+                    linkTypeToCategory[size_t(type)]);
+                if (kop < 1.0 && ac.isValid())
+                    ac.setAlphaF(ac.alphaF() * kop);
+                // Re-derive the heading in device space (robust to the view's
+                // scale / Y orientation) by mapping the tangent through xf.
+                const QPointF devMid = xf.map(mid);
+                const QPointF devDir = xf.map(mid + QPointF(std::cos(angle),
+                                                            std::sin(angle)));
+                const double devAngle = std::atan2(devDir.y() - devMid.y(),
+                                                   devDir.x() - devMid.x());
+                drawFlowArrow(painter, devMid, devAngle,
+                              cfg.sym->arrowSize, ac);
             }
+            painter->restore();
         }
     }
 
@@ -744,6 +806,18 @@ void SWMMLayerItem::paint(QPainter *painter,
             else     { b.scenePts.append(sp); b.indices.append(i);    }
         }
 
+        // Device-space projection (same large-coordinate remedy as the link
+        // strokes): map each glyph centre to pixels and draw with the transform
+        // reset, so node markers don't garble at low zoom with large projected
+        // coords. Scene-unit radii are scaled back to pixels via the view scale.
+        const QTransform xf = painter->transform();
+        const double devScale = (xf.m11() > 0.0) ? xf.m11() : 1.0;
+        auto devGlyph = [&](const QPointF &cScene, double rScene,
+                            OpenSWMM::Render::MarkerShape shape) {
+            drawNodeGlyph(painter, xf.map(cScene), rScene * devScale, shape);
+        };
+        painter->save();
+        painter->resetTransform();   // draw glyphs in device space
         for (const Bucket &b : buckets) {
             if (b.scenePts.isEmpty() && b.selPts.isEmpty()) continue;
             // Fixed pixel-size glyphs — see the invViewScale comment at
@@ -771,7 +845,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                     // entire bucket.
                     painter->setBrush(QBrush(fade(b.sym->fillColor)));
                     for (const QPointF &c : b.scenePts)
-                        drawNodeGlyph(painter, c, r, kindShape);
+                        devGlyph(c, r, kindShape);
                 } else {
                     // Phase 8.13.6.4 per-feature override path — fill
                     // colour comes from the renderer's per-feature
@@ -791,7 +865,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                         const auto shp = (fsh >= 0)
                             ? static_cast<OpenSWMM::Render::MarkerShape>(fsh)
                             : kindShape;
-                        drawNodeGlyph(painter, b.scenePts[j], rEff, shp);
+                        devGlyph(b.scenePts[j], rEff, shp);
                     }
                 }
             }
@@ -807,9 +881,10 @@ void SWMMLayerItem::paint(QPainter *painter,
                 painter->setPen(pen);
                 painter->setBrush(prefs->selectionBrush(QStringLiteral("node")));
                 for (const QPointF &c : b.selPts)
-                    drawNodeGlyph(painter, c, r, kindShape);
+                    devGlyph(c, r, kindShape);
             }
         }
+        painter->restore();   // back to scene transform
     }
 
     // ---------------------------------------------------------------- Rain gages
@@ -848,6 +923,16 @@ void SWMMLayerItem::paint(QPainter *painter,
 
         const auto gageShape = sym.markerShape;
 
+        // Device-space projection (same large-coordinate remedy as links/nodes).
+        const QTransform xf = painter->transform();
+        const double devScale = (xf.m11() > 0.0) ? xf.m11() : 1.0;
+        auto devGlyph = [&](const QPointF &cScene, double rScene,
+                            OpenSWMM::Render::MarkerShape shape) {
+            drawNodeGlyph(painter, xf.map(cScene), rScene * devScale, shape);
+        };
+        painter->save();
+        painter->resetTransform();   // draw glyphs in device space
+
         if (!basePts.isEmpty()) {
             QPen pen(sym.outlineColor, sym.outlineWidth);
             pen.setCosmetic(true);
@@ -855,7 +940,7 @@ void SWMMLayerItem::paint(QPainter *painter,
             if (!gageOverrides) {
                 painter->setBrush(QBrush(sym.fillColor));
                 for (const QPointF &sp : basePts)
-                    drawNodeGlyph(painter, sp, r, gageShape);
+                    devGlyph(sp, r, gageShape);
             } else {
                 for (int j = 0; j < basePts.size(); ++j) {
                     const QColor col = m_layer->featureColor(
@@ -866,7 +951,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                     const double rEff = (szOverride > 0.0)
                         ? (szOverride * 0.5 * invViewScale)
                         : r;
-                    drawNodeGlyph(painter, basePts[j], rEff, gageShape);
+                    devGlyph(basePts[j], rEff, gageShape);
                 }
             }
         }
@@ -877,8 +962,9 @@ void SWMMLayerItem::paint(QPainter *painter,
             painter->setPen(pen);
             painter->setBrush(prefs->selectionBrush(QStringLiteral("gage")));
             for (const QPointF &sp : selPts)
-                drawNodeGlyph(painter, sp, r, gageShape);
+                devGlyph(sp, r, gageShape);
         }
+        painter->restore();   // back to scene transform
     }
 
     // ---------------------------------------------------------------- Labels

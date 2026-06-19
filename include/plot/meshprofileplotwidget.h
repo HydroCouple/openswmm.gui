@@ -59,12 +59,27 @@ public:
 
     void setAxisLabels(const QString &xLabel, const QString &yLabel);
 
+    // ── Position cursor (chart ↔ map sync) ──────────────────────────────
+    /*! \brief Show/move the vertical position cursor at \p chainage (scene
+     *  units along the path). Clamped to the path extent. Display-only — does
+     *  NOT emit cursorChainageChanged, so the map can drive it without an echo
+     *  loop. Pass a negative value to hide the cursor. */
+    void setCursorChainage(double chainage);
+    [[nodiscard]] bool   hasCursor()      const { return m_hasCursor; }
+    [[nodiscard]] double cursorChainage() const { return m_cursorChainage; }
+
     // ── Zoom / pan (driven by the dialog toolbar) ───────────────────────
     enum class Mode { Identify = 0, Pan, ZoomIn, ZoomOut };
     void setMode(Mode m);
     [[nodiscard]] Mode mode() const { return m_mode; }
     void zoomBy(double factor);
     void fitToExtent();
+
+signals:
+    /*! \brief Emitted while the user drags the position cursor on the chart.
+     *  \p chainage is the scene-unit distance along the path. The dialog maps
+     *  it to a scene point and moves the map arrow. */
+    void cursorChainageChanged(double chainage);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -77,6 +92,10 @@ protected:
 private:
     [[nodiscard]] QRectF  plotRect() const;
     [[nodiscard]] QPointF dataToPixel(double chainage, double elev) const;
+    [[nodiscard]] double  pixelToChainage(double px) const;
+    /*! \brief Linearly interpolate ground + water-surface elevation at
+     *  \p chain from the samples. Returns false off-mesh / no samples. */
+    [[nodiscard]] bool sampleAtChainage(double chain, double &ground, double &wse) const;
     void recomputeBounds();
 
     void paintBackgroundAndAxes(QPainter &p) const;
@@ -85,6 +104,8 @@ private:
     void paintDepthFill(QPainter &p) const;
     void paintWseLine(QPainter &p) const;
     void paintGroundLine(QPainter &p) const;
+    void paintCellBoundaryDots(QPainter &p) const;
+    void paintCursor(QPainter &p) const;
     void paintLegend(QPainter &p) const;
     void paintTimeLabel(QPainter &p) const;
 
@@ -112,6 +133,11 @@ private:
     enum class OverlayDrag { None = 0, Legend, TimeLabel };
     OverlayDrag m_overlayDrag = OverlayDrag::None;
     QPoint      m_overlayDragLastPos;
+
+    // Position cursor (a draggable vertical line synced with the map arrow).
+    bool   m_hasCursor      = false;
+    double m_cursorChainage = 0.0;
+    bool   m_cursorDragging = false;
 };
 
 #endif // MESH_PROFILE_PLOT_WIDGET_H

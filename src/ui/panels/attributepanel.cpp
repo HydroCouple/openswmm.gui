@@ -410,6 +410,36 @@ void AttributePanel::onObjectEditedExternally(const QString &name)
     m_suppressEditForward = true;
 #ifdef HAVE_QPROPERTYMODEL
     auto *pm = qobject_cast<QPropertyModel*>(m_model);
+
+    // A right-click "Convert To" can change the bound object's SWMM type.
+    // The adapter subclass is type-specific (Junction vs Storage, Conduit
+    // vs Pump, …), so a bare refreshValues() would leave the wrong fields
+    // exposed. Detect the kind change and replay the bind, which reads the
+    // type live from the engine and constructs the matching subclass.
+    if (pm && m_swmmLayer && m_swmmLayer->engine()) {
+        if (m_nodeAdapter && m_nodeAdapter->name() == name) {
+            const int idx = swmm_node_index(
+                m_swmmLayer->engine(), name.toUtf8().constData());
+            int kind = m_nodeAdapterKind;
+            if (idx >= 0) swmm_node_get_type(m_swmmLayer->engine(), idx, &kind);
+            if (kind != m_nodeAdapterKind) {
+                onLayerComboIndexChanged(m_layerCombo->currentIndex());
+                m_suppressEditForward = false;
+                return;
+            }
+        } else if (m_linkAdapter && m_linkAdapter->name() == name) {
+            const int idx = swmm_link_index(
+                m_swmmLayer->engine(), name.toUtf8().constData());
+            int kind = m_linkAdapterKind;
+            if (idx >= 0) swmm_link_get_type(m_swmmLayer->engine(), idx, &kind);
+            if (kind != m_linkAdapterKind) {
+                onLayerComboIndexChanged(m_layerCombo->currentIndex());
+                m_suppressEditForward = false;
+                return;
+            }
+        }
+    }
+
     if (pm && (
             (m_nodeAdapter     && m_nodeAdapter->name()     == name) ||
             (m_linkAdapter     && m_linkAdapter->name()     == name) ||
@@ -507,6 +537,7 @@ void AttributePanel::onLayerComboIndexChanged(int index)
                     m_swmmLayer->engine(), name, this);
                 break;
             }
+            m_nodeAdapterKind = nodeKind;
             // DB.4c — thread the layer pointer so the compound-edit
             // pickers (Inflows TS / Pattern, DWF patterns, RDII UH)
             // can call back into `layer->createDataObject(...)`.
@@ -544,6 +575,32 @@ void AttributePanel::onLayerComboIndexChanged(int index)
                 // the property tree so findPropertyIndexByDisplayLabel can
                 // locate the rows.
                 applyOutfallRowFlags();
+            }
+
+            // Slice AG.4 — storage units: drive editability of the geometry
+            // rows from the live Storage Shape. FUNCTIONAL enables the three
+            // coefficient rows and greys the curve picker; TABULAR does the
+            // reverse. Same trigger/contract as the outfall block above.
+            if (auto *storageAdapter =
+                    qobject_cast<SWMMStoragePropertyAdapter*>(m_nodeAdapter))
+            {
+                auto applyStorageRowFlags = [pm, storageAdapter]() {
+                    if (!pm) return;
+                    const bool functional =
+                        storageAdapter->storageShape()
+                            == SWMMNodePropertyAdapter::Functional;
+                    setRowEditable(pm, storageAdapter,
+                                   QStringLiteral("storageCurve"),  !functional);
+                    setRowEditable(pm, storageAdapter,
+                                   QStringLiteral("storageCoeffA"),  functional);
+                    setRowEditable(pm, storageAdapter,
+                                   QStringLiteral("storageExpB"),    functional);
+                    setRowEditable(pm, storageAdapter,
+                                   QStringLiteral("storageConstC"),  functional);
+                };
+                connect(storageAdapter, &SWMMNodePropertyAdapter::changed,
+                        pm, applyStorageRowFlags);
+                applyStorageRowFlags();
             }
 
             connect(m_nodeAdapter, &SWMMNodePropertyAdapter::changed,
@@ -604,6 +661,7 @@ void AttributePanel::onLayerComboIndexChanged(int index)
                     m_swmmLayer->engine(), name, this);
                 break;
             }
+            m_linkAdapterKind = linkKind;
             // Slice BM.0-Browse-Edit (2026-05-25) — thread the layer
             // pointer so DataObjectRef-typed Q_PROPERTYs (pumpCurve) can
             // construct refs with the right layer for the picker editor.
@@ -996,7 +1054,8 @@ void AttributePanel::onTreeContextMenu(const QPoint &pos)
         SWMMModelLayer::DataCategory dc = SWMMModelLayer::DataTimeSeries;
         switch (ref.kind) {
         case DataObjectRef::TidalCurve:
-        case DataObjectRef::AnyCurve:       dc = SWMMModelLayer::DataCurves;      break;
+        case DataObjectRef::AnyCurve:
+        case DataObjectRef::StorageCurve:   dc = SWMMModelLayer::DataCurves;      break;
         case DataObjectRef::TimeSeries:     dc = SWMMModelLayer::DataTimeSeries;  break;
         case DataObjectRef::Pattern:        dc = SWMMModelLayer::DataPatterns;    break;
         case DataObjectRef::UnitHydrograph: dc = SWMMModelLayer::DataHydrographs; break;

@@ -19,6 +19,7 @@
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_spatial.h>
+#include <openswmm/engine/openswmm_tables.h>  // Slice AG.4 — storage curve
 
 #include <QObject>
 #include <QSignalSpy>
@@ -328,6 +329,114 @@ private slots:
         {
             SWMMDividerPropertyAdapter a(e, QStringLiteral("J1"));
             checkAdvertises(a, "Divider");
+        }
+
+        swmm_engine_destroy(e);
+    }
+
+    // ====================================================================
+    // Slice AG.4 — storage-unit geometry (functional + tabular)
+    // ====================================================================
+
+    // A storage unit (S1) plus one [STORAGE]-type curve (SC1) so both the
+    // functional and tabular paths have something to bind to.
+    SWMM_Engine buildStorageFixture()
+    {
+        SWMM_Engine e = swmm_engine_new();
+        if (!e) return nullptr;
+        swmm_node_add(e, "S1", 2);   // 2 = Storage
+        swmm_curve_add(e, "SC1", 1); // 1 = CURVE_STORAGE
+        const int ci = swmm_table_index(e, "SC1");
+        swmm_table_add_point(e, ci, 0.0, 100.0);
+        swmm_table_add_point(e, ci, 5.0, 400.0);
+        return e;
+    }
+
+    void storageFunctionalRoundTrip()
+    {
+        SWMM_Engine e = buildStorageFixture();
+        QVERIFY(e);
+        SWMMStoragePropertyAdapter a(e, QStringLiteral("S1"));
+
+        // No curve assigned → functional form by default.
+        QCOMPARE(a.storageShape(), SWMMNodePropertyAdapter::Functional);
+
+        // Each coefficient setter edits one term of the engine's atomic
+        // (A,B,C) triple without clobbering the others.
+        a.setStorageCoeffA(1500.0);
+        a.setStorageExpB(0.5);
+        a.setStorageConstC(250.0);
+        QCOMPARE(a.storageCoeffA(), 1500.0);
+        QCOMPARE(a.storageExpB(),   0.5);
+        QCOMPARE(a.storageConstC(), 250.0);
+
+        // Mirror the read against the raw engine triple.
+        const int idx = swmm_node_index(e, "S1");
+        double av = 0, bv = 0, cv = 0;
+        swmm_node_get_storage_functional(e, idx, &av, &bv, &cv);
+        QCOMPARE(av, 1500.0);
+        QCOMPARE(bv, 0.5);
+        QCOMPARE(cv, 250.0);
+
+        swmm_engine_destroy(e);
+    }
+
+    void storageTabularRoundTripAndShapeSwitch()
+    {
+        SWMM_Engine e = buildStorageFixture();
+        QVERIFY(e);
+        SWMMStoragePropertyAdapter a(e, QStringLiteral("S1"));
+
+        // Assign the curve by name through the picker ref → TABULAR.
+        DataObjectRef r = a.storageCurveRef();
+        r.currentName = QStringLiteral("SC1");
+        a.setStorageCurveRef(r);
+        QCOMPARE(a.storageShape(), SWMMNodePropertyAdapter::Tabular);
+        QCOMPARE(a.storageCurveRef().currentName, QStringLiteral("SC1"));
+
+        const int idx = swmm_node_index(e, "S1");
+        int curveIdx = -1;
+        swmm_node_get_storage_curve(e, idx, &curveIdx);
+        QCOMPARE(curveIdx, swmm_table_index(e, "SC1"));
+
+        // Switching the shape back to FUNCTIONAL detaches the curve.
+        a.setStorageShape(SWMMNodePropertyAdapter::Functional);
+        QCOMPARE(a.storageShape(), SWMMNodePropertyAdapter::Functional);
+        QVERIFY(a.storageCurveRef().currentName.isEmpty());
+
+        // setStorageShape(Tabular) re-binds the first storage curve when
+        // none is currently assigned.
+        a.setStorageShape(SWMMNodePropertyAdapter::Tabular);
+        QCOMPARE(a.storageShape(), SWMMNodePropertyAdapter::Tabular);
+        QCOMPARE(a.storageCurveRef().currentName, QStringLiteral("SC1"));
+
+        // Clearing the curve ref (empty name) also reverts to FUNCTIONAL.
+        DataObjectRef empty = a.storageCurveRef();
+        empty.currentName.clear();
+        a.setStorageCurveRef(empty);
+        QCOMPARE(a.storageShape(), SWMMNodePropertyAdapter::Functional);
+
+        swmm_engine_destroy(e);
+    }
+
+    void storageGeometryPropsWritableViaMetaObject()
+    {
+        SWMM_Engine e = buildStorageFixture();
+        QVERIFY(e);
+        SWMMStoragePropertyAdapter a(e, QStringLiteral("S1"));
+
+        const auto *mo = a.metaObject();
+        const QStringList writableProps = {
+            QStringLiteral("storageShape"),  QStringLiteral("storageCurve"),
+            QStringLiteral("storageCoeffA"), QStringLiteral("storageExpB"),
+            QStringLiteral("storageConstC"),
+        };
+        for (const QString &name : writableProps) {
+            const int idx = mo->indexOfProperty(name.toUtf8().constData());
+            QVERIFY2(idx >= 0, qPrintable(name));
+            QVERIFY2(mo->property(idx).isWritable(),
+                     qPrintable(QStringLiteral("expected %1 writable").arg(name)));
+            QVERIFY2(!a.displayLabelFor(name).isEmpty(), qPrintable(name));
         }
 
         swmm_engine_destroy(e);

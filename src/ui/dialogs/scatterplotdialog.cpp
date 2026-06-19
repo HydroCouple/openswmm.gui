@@ -6,6 +6,7 @@
  */
 #include "ui/dialogs/scatterplotdialog.h"
 
+#include "core/preferencesmanager.h"
 #include "layers/swmmresultslayer.h"
 
 #include <openswmm/engine/openswmm_output.h>
@@ -246,8 +247,10 @@ void ScatterPlotDialog::replot()
     }
     chart->addSeries(scatter);
 
+    auto *prefs = PreferencesManager::instance();
     auto *xAx = new QValueAxis;
     xAx->setTitleText(xLabel);
+    xAx->setLabelFormat(prefs->plotXAxisFormat().printfSpec());
     chart->addAxis(xAx, Qt::AlignBottom);
     scatter->attachAxis(xAx);
     if (std::isfinite(xMin) && std::isfinite(xMax) && xMax > xMin) {
@@ -257,6 +260,7 @@ void ScatterPlotDialog::replot()
 
     auto *yAx = new QValueAxis;
     yAx->setTitleText(yLabel);
+    yAx->setLabelFormat(prefs->plotYAxisFormat().printfSpec());
     chart->addAxis(yAx, Qt::AlignLeft);
     scatter->attachAxis(yAx);
     if (std::isfinite(yMin) && std::isfinite(yMax) && yMax > yMin) {

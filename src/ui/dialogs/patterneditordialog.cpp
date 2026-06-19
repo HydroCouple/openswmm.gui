@@ -6,6 +6,7 @@
  */
 #include "ui/dialogs/patterneditordialog.h"
 
+#include "core/preferencesmanager.h"
 #include "pattern/patternprovider.h"
 #include "pattern/patternregistry.h"
 #include "ui/panels/patternfactortablemodel.h"
@@ -326,7 +327,7 @@ void PatternEditorDialog::buildUi_()
         m_scatterSeries->attachAxis(m_xAxis);
 
         m_yAxis = new QValueAxis(m_chart);
-        m_yAxis->setLabelFormat(QStringLiteral("%.2f"));
+        m_yAxis->setLabelFormat(PreferencesManager::instance()->plotYAxisFormat().printfSpec());
         m_yAxis->setTitleText(tr("Factor"));
         m_chart->addAxis(m_yAxis, Qt::AlignLeft);
         m_lineSeries->attachAxis(m_yAxis);

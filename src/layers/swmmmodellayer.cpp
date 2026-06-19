@@ -2545,6 +2545,15 @@ void SWMMModelLayer::rebuildKindFeatureColors(Category c)
         const auto style = r->symbolFor(ref, attrs);
         QColor col;
         double sz = -1.0;
+        // A Graduated renderer drives geometry ONLY through its explicit
+        // output axes; its base symbol is an archetype skeleton (gap A1.3)
+        // whose size/width/shape placeholders are NOT user intent and must
+        // not shadow the kind's style knobs. SingleSymbol / Categorized
+        // symbols are user-authored, so theirs remain authoritative.
+        const auto *gR = dynamic_cast<const OpenSWMM::Render::GraduatedRenderer *>(r);
+        const bool sizeAuthoritative =
+            !gR || gR->outputSizeEnabled() || gR->outputWidthEnabled();
+        const bool shapeAuthoritative = !gR;
         if (!style.layers.isEmpty())
         {
             const auto &props = style.layers.first().props;
@@ -2556,11 +2565,13 @@ void SWMMModelLayer::rebuildKindFeatureColors(Category c)
                 col = parsed;
             // Extract per-feature size if the renderer wrote one (Graduated
             // with outputSizeEnabled or SingleSymbol with sizeData set).
-            QVariant sv = props.value(QStringLiteral("size"));
-            if (!sv.isValid()) sv = props.value(QStringLiteral("width"));
-            bool ok = false;
-            const double v = sv.toDouble(&ok);
-            if (ok && v > 0.0) sz = v;
+            if (sizeAuthoritative) {
+                QVariant sv = props.value(QStringLiteral("size"));
+                if (!sv.isValid()) sv = props.value(QStringLiteral("width"));
+                bool ok = false;
+                const double v = sv.toDouble(&ok);
+                if (ok && v > 0.0) sz = v;
+            }
 
             // Slice Z.5b-paint-graduated — per-feature line offset (px).
             // Only meaningful when the symbol layer is a line kind, but
@@ -2578,8 +2589,13 @@ void SWMMModelLayer::rebuildKindFeatureColors(Category c)
 
             // M3 — per-feature marker shape (Categorized / Rule-based vary it).
             // propShape accepts an int (adapter) or a token string (regen).
-            if (const int sh = propShape(props); sh >= 0)
-                m_kindFeatureShapes[c][soa] = sh;
+            // Skipped for Graduated — shape is not a graduated output axis,
+            // so the skeleton's Circle placeholder must not shadow the
+            // kind's configured shape.
+            if (shapeAuthoritative) {
+                if (const int sh = propShape(props); sh >= 0)
+                    m_kindFeatureShapes[c][soa] = sh;
+            }
         }
         m_kindFeatureColors[c][soa] = col;
         m_kindFeatureSizes [c][soa] = sz;
@@ -3718,6 +3734,105 @@ bool SWMMModelLayer::applyLinkCulvertCode(int linkIdx, int code)
     if (swmm_link_set_culvert_code(m_engine, linkIdx, code) != 0)
         return false;
     emit attributeChanged(m_links[linkIdx].name);
+    return true;
+}
+
+// Type conversion — wraps swmm_node_convert / swmm_link_convert and keeps
+// the cached SoA type in sync. The SoA nodeType/linkType is otherwise only
+// written at loadModel/applyNodeAdd, so without the explicit update here the
+// category buckets, map symbol, and Object Browser placement would go stale
+// after a conversion (reloadGeometry() does not re-read types from the
+// engine). Positions are unchanged by a type-only edit, so kd-trees, scene
+// coords, and the index-keyed selection/hidden flag arrays all stay valid.
+namespace {
+void marshalConversionResult(const SWMM_ConversionResult &res,
+                             QStringList *outCleared,
+                             QStringList *outWarnings)
+{
+    if (outCleared) {
+        outCleared->clear();
+        for (int i = 0; i < res.n_cleared; ++i)
+            outCleared->append(QString::fromUtf8(res.cleared_fields[i]));
+    }
+    if (outWarnings) {
+        outWarnings->clear();
+        for (int i = 0; i < res.n_warnings; ++i)
+            outWarnings->append(QString::fromUtf8(res.warnings[i]));
+    }
+}
+} // namespace
+
+bool SWMMModelLayer::applyNodeConvert(const QString &name, int newNodeType,
+                                      QStringList *outCleared,
+                                      QStringList *outWarnings,
+                                      QString *outError)
+{
+    if (!m_engine) {
+        if (outError) *outError = tr("No engine loaded.");
+        return false;
+    }
+    const int soaIdx = nodeIndex(name);
+    const int idx = swmm_node_index(m_engine, name.toUtf8().constData());
+    if (soaIdx < 0 || idx < 0) {
+        if (outError) *outError = tr("Node \"%1\" not found.").arg(name);
+        return false;
+    }
+
+    SWMM_ConversionResult res{};
+    const int rc = swmm_node_convert(m_engine, idx, newNodeType, &res);
+    if (rc != SWMM_OK) {
+        if (outError)
+            *outError = tr("Engine rejected conversion (error %1).").arg(rc);
+        swmm_conversion_result_free(&res);
+        return false;
+    }
+    marshalConversionResult(res, outCleared, outWarnings);
+    swmm_conversion_result_free(&res);
+
+    m_nodes[soaIdx].nodeType = newNodeType;
+    rebuildCategoryIndex();
+
+    m_needsRebuild = true;       // scene items are bucketed by type
+    emit repaintRequested();
+    emit geometryChanged();
+    emit attributeChanged(name);
+    return true;
+}
+
+bool SWMMModelLayer::applyLinkConvert(const QString &name, int newLinkType,
+                                      QStringList *outCleared,
+                                      QStringList *outWarnings,
+                                      QString *outError)
+{
+    if (!m_engine) {
+        if (outError) *outError = tr("No engine loaded.");
+        return false;
+    }
+    const int soaIdx = linkIndex(name);
+    const int idx = swmm_link_index(m_engine, name.toUtf8().constData());
+    if (soaIdx < 0 || idx < 0) {
+        if (outError) *outError = tr("Link \"%1\" not found.").arg(name);
+        return false;
+    }
+
+    SWMM_ConversionResult res{};
+    const int rc = swmm_link_convert(m_engine, idx, newLinkType, &res);
+    if (rc != SWMM_OK) {
+        if (outError)
+            *outError = tr("Engine rejected conversion (error %1).").arg(rc);
+        swmm_conversion_result_free(&res);
+        return false;
+    }
+    marshalConversionResult(res, outCleared, outWarnings);
+    swmm_conversion_result_free(&res);
+
+    m_links[soaIdx].linkType = newLinkType;
+    rebuildCategoryIndex();
+
+    m_needsRebuild = true;       // scene items are bucketed by type
+    emit repaintRequested();
+    emit geometryChanged();
+    emit attributeChanged(name);
     return true;
 }
 

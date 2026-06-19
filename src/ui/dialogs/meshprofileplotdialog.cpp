@@ -8,6 +8,9 @@
 #include "animation/animationcontroller.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmm2dresultslayer.h"
+#include "map/mapcanvas.h"
+#include "map/meshprofileoverlay.h"
+#include "map/tools/maptoolprofilemarker.h"
 #include "plot/meshprofileplotoptions.h"
 #include "plot/meshprofileplotwidget.h"
 #include "plot/meshprofilesampler.h"
@@ -25,6 +28,7 @@
 #include <QKeySequence>
 #include <QLabel>
 #include <QToolBar>
+#include <QToolButton>
 #include <QTreeView>
 #include <QVBoxLayout>
 
@@ -54,6 +58,7 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
 
     buildLayout();
     rebuildProfile();
+    setupMapOverlay();
 
     // Animate the depth column off the 2D results layer's frame changes —
     // the global AnimationController advances the layer (for visible layers),
@@ -66,6 +71,19 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
         // Recompute the max-depth envelope when more frames stream in (live).
         connect(m_results, &SWMM2DResultsLayer::timeRangeChanged,
                 this, [this](int, int) { rebuildProfile(); });
+
+        // Drive our own layer from the global animation clock so the profile
+        // animates even when the layer is hidden. The canvas only advances
+        // VISIBLE 2D layers per frame (swmmvis.cpp), so a profile on a hidden
+        // layer would otherwise freeze. setCurrentSimTime snaps to the nearest
+        // frame and re-emits currentTimeChanged (consumed above); it's a no-op
+        // when the layer is already on that frame, so this can't double-work.
+        if (m_anim) {
+            connect(m_anim, &AnimationController::currentTimeChanged,
+                    this, [this](const QDateTime &dt) {
+                if (m_results) m_results->setCurrentSimTimeAsOf(dt);
+            });
+        }
 
         // Initial timestamp + depths for the frame already showing.
         if (auto *src = m_results->source()) {
@@ -80,6 +98,7 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
                 this, [this] {
             if (m_anim)    disconnect(m_anim.data(),    nullptr, this, nullptr);
             if (m_results) disconnect(m_results.data(), nullptr, this, nullptr);
+            removeOverlay();   // detach from the scene before it's torn down
             close();
         });
     }
@@ -87,6 +106,7 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
 
 MeshProfilePlotDialog::~MeshProfilePlotDialog()
 {
+    removeOverlay();
     if (m_results) disconnect(m_results.data(), nullptr, this, nullptr);
     if (m_anim)    disconnect(m_anim.data(),    nullptr, this, nullptr);
 }
@@ -117,6 +137,19 @@ void MeshProfilePlotDialog::buildLayout()
     modeGroup->addAction(actZoomOut);
     modeGroup->addAction(actPan);
     toolbar->addSeparator();
+    auto *actCells = toolbar->addAction(tr("Cell boundaries"));
+    actCells->setCheckable(true);
+    actCells->setChecked(m_options->showCellBoundaries());
+    actCells->setToolTip(tr("Show mesh-cell edge crossings as dots on the ground line"));
+    auto *actMapMarker = toolbar->addAction(tr("Move marker on map"));
+    actMapMarker->setCheckable(true);
+    actMapMarker->setToolTip(tr("Drag the position arrow along the profile on the map"));
+    // Text-only on just these buttons so the existing icon-only actions are
+    // left untouched.
+    for (QAction *a : { actCells, actMapMarker })
+        if (auto *btn = qobject_cast<QToolButton *>(toolbar->widgetForAction(a)))
+            btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    toolbar->addSeparator();
     auto *actOptions = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Settings")),
                                           tr("Display Options…"));
     root->addWidget(toolbar);
@@ -136,6 +169,8 @@ void MeshProfilePlotDialog::buildLayout()
     connect(actZoomOut, &QAction::triggered, this, [this] { m_plot->setMode(MeshProfilePlotWidget::Mode::ZoomOut); });
     connect(actPan,     &QAction::triggered, this, [this] { m_plot->setMode(MeshProfilePlotWidget::Mode::Pan); });
     connect(actFit,     &QAction::triggered, this, [this] { m_plot->fitToExtent(); });
+    connect(actCells,   &QAction::toggled,   this, [this](bool on) { m_options->setShowCellBoundaries(on); });
+    connect(actMapMarker, &QAction::toggled, this, [this](bool on) { setMarkerToolActive(on); });
     connect(actOptions, &QAction::triggered, this, &MeshProfilePlotDialog::openDisplayOptions);
 }
 
@@ -155,9 +190,76 @@ void MeshProfilePlotDialog::refreshCurrentDepths()
     // max-depth envelope on every animation tick.
     QVector<double> depths;
     depths.reserve(m_profile.samples.size());
+    // Reuse each sample's cached containing cell (triIdx, captured by
+    // buildMeshProfile) so per-frame animation skips the cell search entirely.
     for (const auto &s : m_profile.samples)
-        depths.push_back(m_results->depthAtSceneNow(s.scenePt));
+        depths.push_back(m_results->depthAtCellInterp(s.triIdx, s.scenePt));
     m_plot->setCurrentDepths(depths);
+}
+
+void MeshProfilePlotDialog::setupMapOverlay()
+{
+    if (!m_projectWindow || m_scenePolyline.size() < 2) return;
+    MapCanvas *canvas = m_projectWindow->canvas();
+    if (!canvas) return;
+
+    // Persistent profile line on the map (cleared when this dialog closes).
+    // Bound to the canvas, which paints it ABOVE the QSG flood-map mesh.
+    m_overlay = new MeshProfileOverlay();
+    m_overlay->setPolyline(m_scenePolyline);
+    canvas->setMeshProfileOverlay(m_overlay);
+
+    // Chart cursor → map arrow. setCursorChainage on the chart is display-only,
+    // so this connection cannot echo back into the chart.
+    connect(m_plot, &MeshProfilePlotWidget::cursorChainageChanged,
+            this, [this](double chainage) {
+        if (!m_overlay) return;
+        m_overlay->setArrowChainage(chainage);
+        if (m_projectWindow && m_projectWindow->canvas())
+            m_projectWindow->canvas()->invalidate(
+                MapCanvas::Overlay, QStringLiteral("mesh-profile-marker"));
+    });
+
+    // Map-drag tool → chart cursor (display-only; no echo).
+    m_markerTool = new MapToolProfileMarker(canvas, this);
+    m_markerTool->setOverlay(m_overlay);
+    connect(m_markerTool, &MapToolProfileMarker::markerChainageChanged,
+            this, [this](double chainage) { m_plot->setCursorChainage(chainage); });
+
+    // Start the cursor mid-profile so the marker is immediately discoverable.
+    const double mid = m_overlay->totalLength() * 0.5;
+    m_plot->setCursorChainage(mid);
+    m_overlay->setArrowChainage(mid);
+    canvas->invalidate(MapCanvas::Overlay, QStringLiteral("mesh-profile-overlay"));
+}
+
+void MeshProfilePlotDialog::setMarkerToolActive(bool on)
+{
+    if (!m_projectWindow || !m_markerTool) return;
+    MapCanvas *canvas = m_projectWindow->canvas();
+    if (!canvas) return;
+    if (on) {
+        if (canvas->activeTool() == m_markerTool) return;
+        m_prevTool = canvas->activeTool();
+        canvas->setActiveTool(m_markerTool);
+    } else if (canvas->activeTool() == m_markerTool) {
+        canvas->setActiveTool(m_prevTool ? m_prevTool.data() : nullptr);
+    }
+}
+
+void MeshProfilePlotDialog::removeOverlay()
+{
+    if (m_projectWindow && m_projectWindow->canvas()) {
+        MapCanvas *canvas = m_projectWindow->canvas();
+        // Restore the canvas tool if we left the marker tool active.
+        if (m_markerTool && canvas->activeTool() == m_markerTool)
+            canvas->setActiveTool(m_prevTool ? m_prevTool.data() : nullptr);
+        // Detach from the canvas (which repaints) before the overlay is freed.
+        canvas->setMeshProfileOverlay(nullptr);
+    }
+    if (m_markerTool) m_markerTool->setOverlay(nullptr);
+    delete m_overlay;        // not a QObject — manual delete after detaching
+    m_overlay = nullptr;
 }
 
 void MeshProfilePlotDialog::openDisplayOptions()

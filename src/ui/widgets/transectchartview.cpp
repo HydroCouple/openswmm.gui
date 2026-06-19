@@ -6,6 +6,7 @@
  */
 #include "ui/widgets/transectchartview.h"
 
+#include "core/preferencesmanager.h"
 #include "transect/transectprovider.h"
 
 #include <QAreaSeries>
@@ -48,8 +49,9 @@ TransectChartView::TransectChartView(QWidget *parent)
     m_yAxis = new QValueAxis(m_chart);
     m_xAxis->setTitleText(tr("Station"));
     m_yAxis->setTitleText(tr("Elevation"));
-    m_xAxis->setLabelFormat(QStringLiteral("%.3g"));
-    m_yAxis->setLabelFormat(QStringLiteral("%.3g"));
+    auto *prefs = PreferencesManager::instance();
+    m_xAxis->setLabelFormat(prefs->plotXAxisFormat().printfSpec());
+    m_yAxis->setLabelFormat(prefs->plotYAxisFormat().printfSpec());
     m_chart->addAxis(m_xAxis, Qt::AlignBottom);
     m_chart->addAxis(m_yAxis, Qt::AlignLeft);
 

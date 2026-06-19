@@ -274,6 +274,14 @@ public:
     [[nodiscard]] int periodIndexForDateTime(const QDateTime &dt) const;
 
     /*!
+     * \brief Causal peer of \ref periodIndexForDateTime: the latest period at
+     *        or before \p dt (floor instead of nearest), clamped to
+     *        [0, totalTimeSteps-1]. Used by AnimationController so a secondary
+     *        output never displays a frame ahead of the animation cursor.
+     */
+    [[nodiscard]] int periodIndexForDateTimeAsOf(const QDateTime &dt) const;
+
+    /*!
      * \brief Advances to the next time step (wraps at end if \p loop is true).
      */
     void stepForward(bool loop = false);
@@ -366,6 +374,16 @@ public:
      *        this to elide untouched slots so .oswp files stay minimal.
      */
     [[nodiscard]] bool kindRendererIsDefault(SWMMModelLayer::Category c) const;
+
+    /*!
+     * \brief Re-clones the live kind renderer for \p c into the Rule
+     *        mirror (no-op when the rule list hasn't been built). Dialog
+     *        editors read the mirror; call this before mounting one so it
+     *        reflects in-place mutations (variable retargeting,
+     *        re-classification, per-frame rebin) the setKindRenderer sync
+     *        hook cannot observe.
+     */
+    void refreshRuleMirror(SWMMModelLayer::Category c);
 
     // ----- Gap B1 — legend-as-editor facade (mirrors SWMMModelLayer) -----
     //
@@ -629,6 +647,10 @@ private:
 
     // Slice B.5 — RuleList mirroring m_kindRenderers (lazy-built).
     mutable std::unique_ptr<OpenSWMM::Render::RuleList> m_ruleList;
+    /*! Re-entrancy guard for the kind ↔ Rule mirror sync: set while a
+     *  Rule-side renderer swap is being propagated INTO setKindRenderer so
+     *  the mirror-refresh there doesn't bounce back into the Rule. */
+    bool m_ruleKindSyncGuard = false;
     void buildRuleListLazy() const;
 
     // Slice Z.7a — per-frame rebinning for Rules with rebinPerFrame=true.

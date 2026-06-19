@@ -106,17 +106,22 @@ signals:
      *                          drift across DST boundaries).
      * @param runoffErrFrac     cumulative runoff continuity error so far
      * @param routingErrFrac    cumulative routing continuity error so far
+     * @param twoDErrFrac       cumulative 2D surface continuity error so far;
+     *                          NaN when the run has no active 2D model
      */
     void progressChanged(int jobId, double fraction, QDateTime currentSimDate,
                          double runoffErrFrac, double routingErrFrac,
-                         double avgTimestepSec);
+                         double avgTimestepSec, double twoDErrFrac);
     void warningReceived(int jobId, int code, QString message);
     /**
      * @param runoffErrFrac   runoff continuity error fraction (0.001 = 0.1 %)
      * @param routingErrFrac  routing continuity error fraction
+     * @param twoDErrFrac     2D surface continuity error fraction; NaN when
+     *                        the run has no active 2D model
      */
     void finished(int jobId, bool success, int errorCode, QString errorMessage,
-                  double runoffErrFrac, double routingErrFrac);
+                  double runoffErrFrac, double routingErrFrac,
+                  double twoDErrFrac);
 
     // ── Slice CF.MVP — 2D inundation viz hooks ─────────────────────────────
     //
@@ -159,6 +164,14 @@ signals:
     // GUI thread, paired with the matching depth tick by elapsedSec.
     void twoDFluxAvailable(int jobId, QVector<float> flux,
                             QDateTime simTime, double elapsedSec);
+
+    // Per-tick reconstructed vertex heads from swmm_2d_vertex_get_heads_bulk
+    // (the engine's pseudo-Laplacian reconstruction). Same cadence/pairing as
+    // twoDFluxAvailable; pushed into EngineMesh2DSource::pushVertexHeads.
+    // Heads ship as double — they carry the elevation datum, and the GUI's
+    // head − z subtraction must not happen in float.
+    void twoDVertexHeadsAvailable(int jobId, QVector<double> heads,
+                                   QDateTime simTime, double elapsedSec);
 
 private:
     // Warning callback — fires on the worker thread during engine

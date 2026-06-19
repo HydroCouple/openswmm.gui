@@ -129,9 +129,16 @@ void LegendDock::setCanvas(MapCanvas *canvas)
             m_tree, &QTreeView::expandAll, Qt::UniqueConnection);
 
     if (auto *hdr = m_tree->header()) {
-        hdr->setSectionResizeMode(LegendLayerTreeModel::ColItem, QHeaderView::Stretch);
-        hdr->setSectionResizeMode(LegendLayerTreeModel::ColColor, QHeaderView::Fixed);
-        hdr->setSectionResizeMode(LegendLayerTreeModel::ColSize,  QHeaderView::Fixed);
+        // All columns user-resizable (drag the header dividers). Interactive
+        // is mutually exclusive with Stretch, so the name column no longer
+        // auto-fills; the widths below are the initial defaults the user can
+        // then drag. Disable last-section stretch so the dragged Size width
+        // sticks instead of snapping to fill the viewport.
+        hdr->setSectionResizeMode(LegendLayerTreeModel::ColItem,  QHeaderView::Interactive);
+        hdr->setSectionResizeMode(LegendLayerTreeModel::ColColor, QHeaderView::Interactive);
+        hdr->setSectionResizeMode(LegendLayerTreeModel::ColSize,  QHeaderView::Interactive);
+        hdr->setStretchLastSection(false);
+        hdr->resizeSection(LegendLayerTreeModel::ColItem,  200);
         hdr->resizeSection(LegendLayerTreeModel::ColColor, 80);
         hdr->resizeSection(LegendLayerTreeModel::ColSize,  60);
     }

@@ -42,6 +42,7 @@ void SeriesStyleObject::setStyle(const SeriesStyle& s)
     setShowPointLabels(s.showPointLabels);
     setPointLabelFont(s.pointLabelFont);
     setPointLabelColor(s.pointLabelColor);
+    setPointLabelFormatMode(static_cast<LabelFormatModeQ>(s.pointLabelFormatMode));
     setPointLabelPrecision(s.pointLabelPrecision);
 
     setShowAreaFill(s.showAreaFill);
@@ -83,7 +84,8 @@ QString SeriesStyleObject::displayLabelFor(const QString &name) const
     if (name == QStringLiteral("showPointLabels"))     return QStringLiteral("Labels — Visible");
     if (name == QStringLiteral("pointLabelFont"))      return QStringLiteral("Labels — Font");
     if (name == QStringLiteral("pointLabelColor"))     return QStringLiteral("Labels — Colour");
-    if (name == QStringLiteral("pointLabelPrecision")) return QStringLiteral("Labels — Decimals");
+    if (name == QStringLiteral("pointLabelFormatMode")) return QStringLiteral("Labels — Number format");
+    if (name == QStringLiteral("pointLabelPrecision")) return QStringLiteral("Labels — Precision");
 
     // Area
     if (name == QStringLiteral("showAreaFill"))        return QStringLiteral("Area — Visible");
@@ -150,6 +152,17 @@ void SeriesStyleObject::setShape(MarkerShapeQ s)
     if (m_style.shape == target) return;
     m_style.shape = target;
     emit shapeChanged(s);
+    emitAggregate_();
+}
+
+// Point-label format mode: Q_ENUM mirror (LabelFormatModeQ) differs from the
+// storage type (NumberFormatMode) — same pattern as setShape above.
+void SeriesStyleObject::setPointLabelFormatMode(LabelFormatModeQ m)
+{
+    const auto target = static_cast<NumberFormatMode>(m);
+    if (m_style.pointLabelFormatMode == target) return;
+    m_style.pointLabelFormatMode = target;
+    emit pointLabelFormatModeChanged(m);
     emitAggregate_();
 }
 

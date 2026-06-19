@@ -467,13 +467,49 @@ QSGGeometryNode *makeColoredNode(QSGGeometry::DrawingMode mode)
 void uploadColoredVerts(QSGGeometryNode *node,
                         const std::vector<QSGGeometry::ColoredPoint2D> &verts)
 {
-    auto *geo = node->geometry();
-    const int n = int(verts.size());
-    if (geo->vertexCount() != n) geo->allocate(n);
-    if (n > 0)
-        std::memcpy(geo->vertexDataAsColoredPoint2D(), verts.data(),
-                    n * sizeof(QSGGeometry::ColoredPoint2D));
-    node->markDirty(QSGNode::DirtyGeometry);
+    // QSG's batch renderer indexes batched geometry with 16-bit indices, so a
+    // single geometry node above 65535 vertices wraps those indices and draws
+    // garbage triangles spanning unrelated primitives — the low-zoom
+    // "polygonal triangles connecting conduits that aren't connected" artifact
+    // (every link visible at once easily exceeds the limit). Keep the node
+    // itself under the cap and spill the remainder into child geometry nodes,
+    // each also under the cap. (60000 is a safe multiple of 6 = whole quads.)
+    constexpr int kMaxPerNode = 60000;
+    const int total = int(verts.size());
+
+    auto fill = [](QSGGeometryNode *gn,
+                   const QSGGeometry::ColoredPoint2D *src, int n) {
+        auto *geo = gn->geometry();
+        if (geo->vertexCount() != n) geo->allocate(n);
+        if (n > 0)
+            std::memcpy(geo->vertexDataAsColoredPoint2D(), src,
+                        size_t(n) * sizeof(QSGGeometry::ColoredPoint2D));
+        gn->markDirty(QSGNode::DirtyGeometry);
+    };
+
+    // Chunk 0 → the node itself.
+    fill(node, verts.data(), std::min(kMaxPerNode, total));
+
+    // Remaining chunks → child geometry nodes (created on demand, reused
+    // across frames; surplus children from a larger frame are emptied below).
+    int off = kMaxPerNode;
+    QSGNode *child = node->firstChild();
+    while (off < total) {
+        QSGGeometryNode *gn;
+        if (child) {
+            gn = static_cast<QSGGeometryNode *>(child);
+            child = child->nextSibling();
+        } else {
+            gn = makeColoredNode(QSGGeometry::DrawTriangles);
+            node->appendChildNode(gn);
+        }
+        fill(gn, verts.data() + off, std::min(kMaxPerNode, total - off));
+        off += kMaxPerNode;
+    }
+    while (child) {
+        fill(static_cast<QSGGeometryNode *>(child), nullptr, 0);
+        child = child->nextSibling();
+    }
 }
 
 // Coloured variant of appendNodeGlyphTriangles — bakes the colour into
@@ -683,7 +719,10 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         outfallsBase  = makeColoredNode(QSGGeometry::DrawTriangles);
         storageBase   = makeColoredNode(QSGGeometry::DrawTriangles);
         dividersBase  = makeColoredNode(QSGGeometry::DrawTriangles);
-        gagesBase     = makeFlatColorNode(QSGGeometry::DrawTriangles, m_layer->rainGageSymbol().fillColor);
+        // CPU-parity — vertex-coloured so per-gage renderer overrides
+        // (featureColor) and the kind opacity fade bake per vertex, same
+        // as the node buckets.
+        gagesBase     = makeColoredNode(QSGGeometry::DrawTriangles);
         // #33 Stage 1b — link base node is vertex-coloured for per-feature
         // (Graduated/Categorized) link colours; the selection halo stays flat.
         lines         = makeColoredNode(QSGGeometry::DrawTriangles);
@@ -801,12 +840,23 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         // their colours are baked per-vertex at upload time, so NO
         // material-level setColor (which would crash the static_cast).
         setNodeColor(catchSelFill,  selPolyFill);
-        setNodeColor(catchEdge,     m_layer->subcatchmentSymbol().outlineColor);
+        // CPU-parity — fade the subcatchment outline by the kind's
+        // (sub-layer) opacity, matching the fill fade + the CPU painter.
+        {
+            QColor edge = m_layer->subcatchmentSymbol().outlineColor;
+            const qreal kop =
+                m_layer->categoryOpacity(SWMMModelLayer::CatSubcatchments);
+            if (kop < 1.0 && edge.isValid())
+                edge.setAlphaF(edge.alphaF() * kop);
+            setNodeColor(catchEdge, edge);
+        }
         setNodeColor(catchSelEdge,  selPoly);
         // §QSG-3 — junctionsBase/outfallsBase/storageBase/dividersBase
         // use QSGVertexColorMaterial; colours are baked per-vertex at
         // upload time, no material-level setColor required.
-        setNodeColor(gagesBase,     m_layer->rainGageSymbol().fillColor);
+        // gagesBase now uses QSGVertexColorMaterial — per-gage colour (incl.
+        // featureColor overrides + kind opacity fade) bakes per vertex at
+        // upload time; material-level setColor would crash the static_cast.
         setNodeColor(linesSel,      selLine);
         // §QSG-3 — nodesSel uses QSGVertexColorMaterial; the colour is
         // baked into each vertex at upload time, so no material-level
@@ -961,18 +1011,24 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                                 uchar r,g,b,a; };
             ArrowStyle astyle[5];
             {
-                auto buildA = [&](const SWMMElementSymbol &s) {
-                    const QColor c = s.arrowColor;
+                // CPU-parity — arrows fade with the kind's (sub-layer)
+                // opacity like the base links do.
+                auto buildA = [&](const SWMMElementSymbol &s,
+                                  SWMMModelLayer::Category cat) {
+                    QColor c = s.arrowColor;
+                    const qreal kop = m_layer->categoryOpacity(cat);
+                    if (kop < 1.0 && c.isValid())
+                        c.setAlphaF(c.alphaF() * kop);
                     return ArrowStyle{ s.showArrows, s.arrowOnlyWhenFlowPos,
                                        float(s.arrowSize * invView),
                                        uchar(c.red()), uchar(c.green()),
                                        uchar(c.blue()), uchar(c.alpha()) };
                 };
-                astyle[0]=buildA(m_layer->conduitSymbol());
-                astyle[1]=buildA(m_layer->pumpSymbol());
-                astyle[2]=buildA(m_layer->orificeSymbol());
-                astyle[3]=buildA(m_layer->weirSymbol());
-                astyle[4]=buildA(m_layer->m_outletSym);
+                astyle[0]=buildA(m_layer->conduitSymbol(), kLinkCat[0]);
+                astyle[1]=buildA(m_layer->pumpSymbol(),    kLinkCat[1]);
+                astyle[2]=buildA(m_layer->orificeSymbol(), kLinkCat[2]);
+                astyle[3]=buildA(m_layer->weirSymbol(),    kLinkCat[3]);
+                astyle[4]=buildA(m_layer->m_outletSym,     kLinkCat[4]);
             }
             const bool anyArrows = astyle[0].on||astyle[1].on||astyle[2].on
                                  ||astyle[3].on||astyle[4].on;
@@ -1094,8 +1150,6 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if(nt==1) pxR=float(m_layer->outfallSymbol().size)*0.5f;
                 else if(nt==2) pxR=float(m_layer->storageSymbol().size)*0.5f;
                 else if(nt==3) pxR=float(m_layer->dividerSymbol().size)*0.5f;
-                if (pxR<kMinPx) continue;
-                const float r=pxR*invView;
                 const float fx=float(p.x()-ox), fy=float(p.y()-oy);
                 auto *bucket=&junc;
                 uchar cR=jR,cG=jG,cB=jB,cA=jA;
@@ -1104,6 +1158,21 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if      (nt==1) { bucket=&outf; cR=oR; cG=oG; cB=oB; cA=oA; shape=oShape; cat=SWMMModelLayer::CatOutfalls; }
                 else if (nt==2) { bucket=&stor; cR=sR; cG=sG; cB=sB; cA=sA; shape=sShape; cat=SWMMModelLayer::CatStorage; }
                 else if (nt==3) { bucket=&divr; cR=dR; cG=dG; cB=dB; cA=dA; shape=dShape; cat=SWMMModelLayer::CatDividers; }
+                // CPU-parity — per-feature SIZE override (Graduated "size by
+                // value") and SHAPE override (Categorized / Rule-based). The
+                // CPU painter honoured both (swmmlayeritem.cpp node loop);
+                // this path rendered every node of a kind at the uniform
+                // struct size/shape, so the output-size axis showed only on
+                // the QPainter path. Negative sentinels = no override.
+                {
+                    const double szOv = m_layer->featureSize(cat, i);
+                    if (szOv > 0.0) pxR = float(szOv) * 0.5f;
+                    const int shOv = m_layer->featureShape(cat, i);
+                    if (shOv >= 0)
+                        shape = static_cast<OpenSWMM::Render::MarkerShape>(shOv);
+                }
+                if (pxR<kMinPx) continue;
+                const float r=pxR*invView;
                 // #33 Stage 1 (X3) — per-feature override colour from the
                 // renderer-driven cache (Graduated / Categorized). `i` is the
                 // node SoA index, which is exactly what featureColor() is keyed
@@ -1150,29 +1219,48 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             constexpr float kMinPx = 1.0f;
             const float gagePxR = float(m_layer->rainGageSymbol().size)*0.5f;
             const auto gShape   = m_layer->rainGageSymbol().markerShape;
-            std::vector<QSGGeometry::Point2D> base,sel;
-            if (gagePxR >= kMinPx) {
+            const QColor gFill  = m_layer->rainGageSymbol().fillColor;
+            const qreal  gKop   =
+                m_layer->categoryOpacity(SWMMModelLayer::CatRainGages);
+            std::vector<QSGGeometry::ColoredPoint2D> base;
+            std::vector<QSGGeometry::Point2D> sel;
+            {
                 const auto &gps  = m_layer->m_gageScenePts;
                 const auto &gages= m_layer->m_gages;
                 const auto &gHid = m_layer->m_gageHiddenFlag;
                 const auto &gSel = m_layer->m_gageSelectedFlag;
-                const float r=gagePxR*invView;
                 for (int i = 0; i < gages.size(); ++i) {
                     if (size_t(i)<gHid.size()&&gHid[i]) continue;
                     if (i>=gps.size()) continue;
                     const QPointF &p=gps[i];
                     if(p.x()<cullX0||p.x()>cullX1||
                        p.y()<cullY0||p.y()>cullY1) continue;
+                    // CPU-parity — per-gage renderer overrides: size from
+                    // featureSize (Graduated "size by value"), colour from
+                    // featureColor (Graduated / Categorized), faded by the
+                    // kind opacity. Negative / invalid sentinels = struct.
+                    float pxR = gagePxR;
+                    const double szOv =
+                        m_layer->featureSize(SWMMModelLayer::CatRainGages, i);
+                    if (szOv > 0.0) pxR = float(szOv) * 0.5f;
+                    if (pxR < kMinPx) continue;
+                    const float r = pxR*invView;
+                    QColor c =
+                        m_layer->featureColor(SWMMModelLayer::CatRainGages, i);
+                    if (!c.isValid()) c = gFill;
+                    if (gKop < 1.0) c.setAlphaF(c.alphaF() * gKop);
                     const float fx=float(p.x()-ox), fy=float(p.y()-oy);
-                    appendGageTriangles(base,fx,fy,r,gShape);
+                    appendNodeGlyphTrianglesColored(base,fx,fy,r,gShape,
+                        uchar(c.red()),uchar(c.green()),
+                        uchar(c.blue()),uchar(c.alpha()));
                     if (size_t(i)<gSel.size()&&gSel[i])
                         appendGageTriangles(sel,fx,fy,r,gShape);  // §QSG-3 — same size as base
                 }
             }
-            uploadVerts(gagesBase,base);
+            uploadColoredVerts(gagesBase,base);
             uploadVerts(gagesSel, sel);
         } else {
-            uploadVerts(gagesBase, {});
+            uploadColoredVerts(gagesBase, {});
             uploadVerts(gagesSel,  {});
         }
 

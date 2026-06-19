@@ -41,6 +41,7 @@ class QToolButton;
 class QComboBox;
 class QLineEdit;
 class QSlider;
+class QDoubleSpinBox;
 class QDateTimeEdit;
 class QProgressBar;
 class QStandardItemModel;
@@ -60,6 +61,7 @@ class AttributeTablePanel;
 class SimulationStatusModel;
 class ProfilePlotDialog;
 
+namespace openswmmvis::ui { class RangeSliderWidget; }
 namespace openswmmvis::ui { class PerAttributeThemingWidget; }
 namespace openswmmvis::ui { class LegendDock; }
 namespace openswmmvis::ui { class LayerStylingDock; }
@@ -331,8 +333,24 @@ private slots:
     void openProfilePlotFor(const ProfileRouter::Path &path);
 
     /*! Open the 2D-mesh longitudinal profile dialog for the polyline the
-     *  MapToolMeshProfile just traced (scene coords). One window per trace. */
+     *  MapToolMeshProfile just traced (scene coords). One window per trace.
+     *
+     *  Slice US.A1 — openMeshProfilePlotFor is the ANALYSIS variant (ground +
+     *  animated depth + envelope against the active 2D results layer);
+     *  openMeshBedProfilePlotFor is the MESH-TOOLBAR variant (bed/terrain only,
+     *  results = nullptr). Both delegate to openMeshProfileDialog. */
     void openMeshProfilePlotFor(const QVector<QPointF> &scenePolyline);
+    void openMeshBedProfilePlotFor(const QVector<QPointF> &scenePolyline);
+
+    /*! Slice US.A2 — context-sensitive Analysis "Plot Profile": dispatch to a
+     *  network (pipe HGL) profile or a 2D-surface profile based on selection +
+     *  what's loaded. \p forceMode: 0 = auto, 1 = network, 2 = mesh surface. */
+    void onPlotProfileTriggered(int forceMode = 0);
+
+    /*! Shared mesh-profile dialog builder. \p results may be null (bed-only). */
+    void openMeshProfileDialog(const QVector<QPointF> &scenePolyline,
+                               class SWMM2DResultsLayer *results,
+                               const QString &title);
 
     /*! Open the comparison plot with the signed-normal-flux time series of the
      *  mesh edge the user right-clicked in the edge-select tool. */
@@ -379,11 +397,14 @@ private:
     QComboBox    *mComboBoxMapScale                    = nullptr;
     QComboBox    *mComboBoxFlowUnits                   = nullptr;
     QComboBox    *mComboBoxEngineVersion               = nullptr;
-    QSlider       *mSliderAnimationTime                = nullptr;
     QProgressBar  *mProgressBar                       = nullptr;
     QDateTimeEdit *mDateTimeEditAnimationTime         = nullptr;
     QLabel        *mLabelAnimationSpeed               = nullptr;
     QComboBox     *mComboAnimationSpeed               = nullptr;
+    // Causal "as-of within timespan" sync controls (look-back window).
+    QLabel        *mLabelAnimationWindow              = nullptr;
+    QDoubleSpinBox *mSpinAnimationWindow              = nullptr;
+    openswmmvis::ui::RangeSliderWidget *mRangeSliderAnimation = nullptr;
     // Active analysis-layer selectors on the Analysis toolbar. The user picks
     // which 1D / 2D results layer every analysis tool targets; "— none —"
     // returns to model editing. Populated from the active project window's

@@ -3,162 +3,711 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  * \license GPL-3.0-or-later
- * \brief  O2-1 — SWMM2DResultsLayer layer-level display controls.
+ * \brief  O2-1 / VS.8 — multi-tab styling panel for SWMM2DResultsLayer.
+ *
+ *         Pattern: each control is initialised from the style bag BEFORE
+ *         its change-signal is connected, so construction never fires
+ *         spurious writes; afterwards every edit applies live (the same
+ *         apply-on-edit model the rest of the styling UI uses).
  */
 #include "ui/dialogs/swmm2dresultsstylepanel.h"
 
 #include "layers/swmm2dresultslayer.h"
+#include "ui/dialogs/editors/classificationbindings.h"
+#include "ui/widgets/classificationeditor.h"
 #include "ui/widgets/colorbutton.h"
+#include "ui/widgets/colorrampcombobox.h"
+#include "ui/widgets/dashstylecombo.h"
 
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGroupBox>
-#include <QSignalBlocker>
+#include <QLabel>
+#include <QScrollArea>
 #include <QSpinBox>
+#include <QTabWidget>
 #include <QVBoxLayout>
 
+#include <functional>
+
 namespace openswmmvis::ui {
+
+namespace {
+
+using OpenSWMM::Render::ContourBandStyle;
+using OpenSWMM::Render::DepthColorRampStyle;
+using OpenSWMM::Render::FlowArrowStyle;
+using OpenSWMM::Render::ISublayer;
+using OpenSWMM::Render::IsolineStyle;
+using OpenSWMM::Render::VelocityVectorStyle;
+
+// Minimum field widths — keeps the QFormLayouts from compressing the
+// editors when the dialog is narrow; the per-tab scroll areas pick up the
+// slack instead (see the ctor).
+constexpr int kSpinMinWidthPx  = 110;
+constexpr int kComboMinWidthPx = 140;
+
+QDoubleSpinBox *makeDSpin(QWidget *parent, double lo, double hi, double step,
+                          int decimals, double value,
+                          const QString &suffix = QString())
+{
+    auto *s = new QDoubleSpinBox(parent);
+    s->setRange(lo, hi);
+    s->setSingleStep(step);
+    s->setDecimals(decimals);
+    if (!suffix.isEmpty()) s->setSuffix(suffix);
+    s->setValue(value);
+    s->setMinimumWidth(kSpinMinWidthPx);
+    return s;
+}
+
+QSpinBox *makeSpin(QWidget *parent, int lo, int hi, int value)
+{
+    auto *s = new QSpinBox(parent);
+    s->setRange(lo, hi);
+    s->setValue(value);
+    s->setMinimumWidth(kSpinMinWidthPx);
+    return s;
+}
+
+/*! "Show <name>" checkbox + opacity spin bound to the sublayer's
+ *  visibility / opacity — the shared header row of every tab. */
+QWidget *makeSublayerHeader(QWidget *parent, ISublayer *sub,
+                            const QString &showLabel)
+{
+    auto *row  = new QWidget(parent);
+    auto *form = new QFormLayout(row);
+    form->setContentsMargins(0, 0, 0, 0);
+
+    auto *show = new QCheckBox(showLabel, row);
+    show->setChecked(sub && sub->isVisible());
+    form->addRow(QString(), show);
+
+    auto *opacity = makeDSpin(row, 0.0, 1.0, 0.05, 2,
+                              sub ? double(sub->opacity()) : 1.0);
+    form->addRow(QObject::tr("Opacity:"), opacity);
+
+    if (sub) {
+        QObject::connect(show, &QCheckBox::toggled, sub,
+                         [sub](bool on) { sub->setVisible(on); });
+        QObject::connect(opacity, qOverload<double>(&QDoubleSpinBox::valueChanged),
+                         sub, [sub](double a) { sub->setOpacity(a); });
+    }
+    return row;
+}
+
+/*! Colour-source block shared by the Depth and Contour-band tabs:
+ *  [Two-colour gradient | Colour ramp] selector, ramp combo + invert,
+ *  low/high colour buttons. `rampName`/`setRampName` etc. adapt the two
+ *  style bags without a common base. */
+struct ColorSourceBindings {
+    std::function<QString()>            rampName;
+    std::function<void(const QString &)> setRampName;
+    std::function<bool()>               invert;
+    std::function<void(bool)>           setInvert;
+    std::function<QColor()>             lowColor;
+    std::function<void(const QColor &)> setLowColor;
+    std::function<QColor()>             highColor;
+    std::function<void(const QColor &)> setHighColor;
+};
+
+QGroupBox *makeColorSourceGroup(QWidget *parent, const ColorSourceBindings &b)
+{
+    auto *box  = new QGroupBox(QObject::tr("Colour"), parent);
+    auto *form = new QFormLayout(box);
+
+    const bool usingRamp = !b.rampName().isEmpty();
+
+    auto *source = new QComboBox(box);
+    source->addItem(QObject::tr("Colour ramp"));
+    source->addItem(QObject::tr("Two-colour gradient"));
+    source->setCurrentIndex(usingRamp ? 0 : 1);
+    source->setMinimumWidth(kComboMinWidthPx);
+    form->addRow(QObject::tr("Source:"), source);
+
+    auto *ramp = new ColorRampComboBox(box);
+    if (usingRamp) ramp->setCurrentRampByName(b.rampName());
+    ramp->setMinimumWidth(kComboMinWidthPx);
+    form->addRow(QObject::tr("Ramp:"), ramp);
+
+    auto *invert = new QCheckBox(QObject::tr("Invert ramp"), box);
+    invert->setChecked(b.invert());
+    form->addRow(QString(), invert);
+
+    auto *low = new ColorButton(box);
+    low->setShowAlpha(true);
+    low->setColor(b.lowColor());
+    form->addRow(QObject::tr("Low colour:"), low);
+
+    auto *high = new ColorButton(box);
+    high->setShowAlpha(true);
+    high->setColor(b.highColor());
+    form->addRow(QObject::tr("High colour:"), high);
+
+    auto applyEnabled = [source, ramp, low, high]() {
+        const bool useRamp = (source->currentIndex() == 0);
+        ramp->setEnabled(useRamp);
+        low->setEnabled(!useRamp);
+        high->setEnabled(!useRamp);
+    };
+    applyEnabled();
+
+    QObject::connect(source, qOverload<int>(&QComboBox::currentIndexChanged), box,
+        [b, ramp, applyEnabled](int idx) {
+            applyEnabled();
+            b.setRampName(idx == 0 ? ramp->currentText() : QString());
+        });
+    QObject::connect(ramp, &ColorRampComboBox::rampChanged, box,
+        [b, source, ramp](const RasterColorRamp &) {
+            if (source->currentIndex() == 0)
+                b.setRampName(ramp->currentText());
+        });
+    QObject::connect(invert, &QCheckBox::toggled, box,
+                     [b](bool on) { b.setInvert(on); });
+    QObject::connect(low, &ColorButton::colorChanged, box,
+                     [b](const QColor &c) { b.setLowColor(c); });
+    QObject::connect(high, &ColorButton::colorChanged, box,
+                     [b](const QColor &c) { b.setHighColor(c); });
+    return box;
+}
+
+} // namespace
 
 Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWidget *parent)
     : QWidget(parent), m_layer(layer)
 {
     auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(8, 8, 8, 8);
+    root->setContentsMargins(4, 4, 4, 4);
 
-    // ── Depth heatmap ───────────────────────────────────────────────────
-    auto *depthBox  = new QGroupBox(tr("Depth heatmap"), this);
-    auto *depthForm = new QFormLayout(depthBox);
-
-    m_dryDepth = new QDoubleSpinBox(depthBox);
-    m_dryDepth->setRange(0.0, 1000.0); m_dryDepth->setDecimals(3);
-    m_dryDepth->setSingleStep(0.01); m_dryDepth->setSuffix(tr(" m"));
-    depthForm->addRow(tr("Dry depth:"), m_dryDepth);
-
-    m_maxDepth = new QDoubleSpinBox(depthBox);
-    m_maxDepth->setRange(0.0, 100000.0); m_maxDepth->setDecimals(3);
-    m_maxDepth->setSingleStep(0.1); m_maxDepth->setSuffix(tr(" m"));
-    depthForm->addRow(tr("Max depth:"), m_maxDepth);
-
-    m_rampStyle = new QComboBox(depthBox);
-    m_rampStyle->addItem(tr("Smooth"),    int(SWMM2DResultsLayer::ColorRampStyle::Smooth));
-    m_rampStyle->addItem(tr("Graduated"), int(SWMM2DResultsLayer::ColorRampStyle::Graduated));
-    depthForm->addRow(tr("Ramp style:"), m_rampStyle);
-
-    m_classes = new QSpinBox(depthBox);
-    m_classes->setRange(2, 64);
-    depthForm->addRow(tr("Classes:"), m_classes);
-    root->addWidget(depthBox);
-
-    // ── Filled contours ─────────────────────────────────────────────────
-    auto *bandBox  = new QGroupBox(tr("Filled contours"), this);
-    auto *bandForm = new QFormLayout(bandBox);
-    m_bandsOn = new QCheckBox(tr("Show filled contour bands"), bandBox);
-    bandForm->addRow(QString(), m_bandsOn);
-    m_bandLevels = new QSpinBox(bandBox); m_bandLevels->setRange(2, 64);
-    bandForm->addRow(tr("Levels:"), m_bandLevels);
-    m_bandOpacity = new QDoubleSpinBox(bandBox);
-    m_bandOpacity->setRange(0.0, 1.0); m_bandOpacity->setDecimals(2);
-    m_bandOpacity->setSingleStep(0.05);
-    bandForm->addRow(tr("Opacity:"), m_bandOpacity);
-    root->addWidget(bandBox);
-
-    // ── Isolines ─────────────────────────────────────────────────────────
-    auto *isoBox  = new QGroupBox(tr("Iso-depth lines"), this);
-    auto *isoForm = new QFormLayout(isoBox);
-    m_isoOn = new QCheckBox(tr("Show iso-depth lines"), isoBox);
-    isoForm->addRow(QString(), m_isoOn);
-    m_isoLevels = new QSpinBox(isoBox); m_isoLevels->setRange(1, 64);
-    isoForm->addRow(tr("Levels:"), m_isoLevels);
-    m_isoColor = new ColorButton(isoBox); m_isoColor->setShowAlpha(true);
-    isoForm->addRow(tr("Colour:"), m_isoColor);
-    m_isoWidth = new QDoubleSpinBox(isoBox);
-    m_isoWidth->setRange(0.25, 20.0); m_isoWidth->setDecimals(2);
-    m_isoWidth->setSingleStep(0.25); m_isoWidth->setSuffix(tr(" px"));
-    isoForm->addRow(tr("Width:"), m_isoWidth);
-    root->addWidget(isoBox);
-
-    // ── Velocity arrows ──────────────────────────────────────────────────
-    auto *velBox  = new QGroupBox(tr("Velocity arrows"), this);
-    auto *velForm = new QFormLayout(velBox);
-    m_velOn = new QCheckBox(tr("Show velocity arrows"), velBox);
-    velForm->addRow(QString(), m_velOn);
-    m_velOpacity = new QDoubleSpinBox(velBox);
-    m_velOpacity->setRange(0.0, 1.0); m_velOpacity->setDecimals(2);
-    m_velOpacity->setSingleStep(0.05);
-    velForm->addRow(tr("Opacity:"), m_velOpacity);
-    m_velScale = new QDoubleSpinBox(velBox);
-    m_velScale->setRange(1.0, 500.0); m_velScale->setDecimals(1);
-    velForm->addRow(tr("Arrow scale:"), m_velScale);
-    m_velMax = new QDoubleSpinBox(velBox);
-    m_velMax->setRange(0.0, 1000.0); m_velMax->setDecimals(3);
-    m_velMax->setSingleStep(0.1); m_velMax->setSuffix(tr(" m/s"));
-    velForm->addRow(tr("Max velocity:"), m_velMax);
-    root->addWidget(velBox);
-    root->addStretch();
+    auto *tabs = new QTabWidget(this);
+    root->addWidget(tabs, 1);
 
     if (!m_layer) return;
-    auto *L = m_layer.data();
 
-    using RS = SWMM2DResultsLayer::ColorRampStyle;
-    connect(m_dryDepth, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [L](double v) { L->setDryDepth(v); });
-    connect(m_maxDepth, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [L](double v) { L->setMaxDepth(v); });
-    connect(m_rampStyle, qOverload<int>(&QComboBox::currentIndexChanged), this,
-            [this, L](int i) { L->setColorRampStyle(static_cast<RS>(m_rampStyle->itemData(i).toInt())); });
-    connect(m_classes, qOverload<int>(&QSpinBox::valueChanged), this,
-            [L](int n) { L->setColorClasses(n); });
-
-    connect(m_bandsOn, &QCheckBox::toggled, this, [L](bool on) { L->setFilledContours(on); });
-    connect(m_bandLevels, qOverload<int>(&QSpinBox::valueChanged), this,
-            [L](int n) { L->setFilledContoursLevels(n); });
-    connect(m_bandOpacity, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [L](double a) { L->setFilledContoursOpacity(a); });
-
-    connect(m_isoOn, &QCheckBox::toggled, this, [L](bool on) { L->setIsolines(on); });
-    connect(m_isoLevels, qOverload<int>(&QSpinBox::valueChanged), this,
-            [L](int n) { L->setIsolinesLevels(n); });
-    connect(m_isoColor, &ColorButton::colorChanged, this,
-            [L](const QColor &c) { L->setIsolinesColor(c); });
-    connect(m_isoWidth, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [L](double w) { L->setIsolinesWidth(w); });
-
-    connect(m_velOn, &QCheckBox::toggled, this, [L](bool on) { L->setVelocityVectorsVisible(on); });
-    connect(m_velOpacity, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [L](double a) { L->setVelocityOpacity(a); });
-    connect(m_velScale, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [L](double s) { L->setVelocityArrowScale(s); });
-    connect(m_velMax, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [L](double v) { L->setMaxVelocity(v); });
-
-    refreshFromLayer();
+    // Each page sits in a scroll area so a narrow/short dialog scrolls
+    // instead of compressing the editors below their minimum sizes.
+    auto wrapScroll = [tabs](QWidget *page) {
+        auto *scroll = new QScrollArea(tabs);
+        scroll->setWidgetResizable(true);
+        scroll->setFrameShape(QFrame::NoFrame);
+        scroll->setWidget(page);
+        return scroll;
+    };
+    tabs->addTab(wrapScroll(buildDepthTab(tabs)),       tr("Depth Fill"));
+    tabs->addTab(wrapScroll(buildContourBandTab(tabs)), tr("Contour Bands"));
+    tabs->addTab(wrapScroll(buildIsolineTab(tabs)),     tr("Isolines"));
+    tabs->addTab(wrapScroll(buildVelocityTab(tabs)),    tr("Velocity Vectors"));
+    tabs->addTab(wrapScroll(buildFlowArrowTab(tabs)),   tr("Flow Arrows"));
 }
 
-void Swmm2DResultsStylePanel::refreshFromLayer()
+// ─── Depth fill ─────────────────────────────────────────────────────────────
+
+QWidget *Swmm2DResultsStylePanel::buildDepthTab(QWidget *parent)
 {
-    if (!m_layer) return;
-    auto *L = m_layer.data();
-    QSignalBlocker b0(m_dryDepth), b1(m_maxDepth), b2(m_rampStyle), b3(m_classes),
-        b4(m_bandsOn), b5(m_bandLevels), b6(m_bandOpacity),
-        b7(m_isoOn), b8(m_isoLevels), b9(m_isoColor), b10(m_isoWidth),
-        b11(m_velOn), b12(m_velOpacity), b13(m_velScale), b14(m_velMax);
-    m_dryDepth->setValue(L->dryDepth());
-    m_maxDepth->setValue(L->maxDepth());
-    m_rampStyle->setCurrentIndex(m_rampStyle->findData(int(L->colorRampStyle())));
-    m_classes->setValue(L->colorClasses());
-    m_bandsOn->setChecked(L->filledContours());
-    m_bandLevels->setValue(L->filledContoursLevels());
-    m_bandOpacity->setValue(L->filledContoursOpacity());
-    m_isoOn->setChecked(L->isolines());
-    m_isoLevels->setValue(L->isolinesLevels());
-    m_isoColor->setColor(L->isolinesColor());
-    m_isoWidth->setValue(L->isolinesWidth());
-    m_velOn->setChecked(L->velocityVectorsVisible());
-    m_velOpacity->setValue(L->velocityOpacity());
-    m_velScale->setValue(L->velocityArrowScale());
-    m_velMax->setValue(L->maxVelocity());
+    auto *page = new QWidget(parent);
+    auto *lay  = new QVBoxLayout(page);
+
+    auto *L   = m_layer.data();
+    auto *sub = L->depthRampSublayer();
+    DepthColorRampStyle *st = sub ? sub->rampStyle() : nullptr;
+
+    lay->addWidget(makeSublayerHeader(page, sub, tr("Show depth fill")));
+
+    // Range / scaling.
+    auto *rangeBox  = new QGroupBox(tr("Value range"), page);
+    auto *rangeForm = new QFormLayout(rangeBox);
+    auto *dry = makeDSpin(rangeBox, 0.0, 1000.0, 0.01, 3, L->dryDepth(), tr(" m"));
+    dry->setToolTip(tr("Cells shallower than this draw as dry (transparent)"));
+    rangeForm->addRow(tr("Dry depth:"), dry);
+    auto *mx = makeDSpin(rangeBox, 0.0, 100000.0, 0.1, 3, L->maxDepth(), tr(" m"));
+    mx->setToolTip(tr("Upper end of the colour ramp; auto-grows from data "
+                      "until set explicitly"));
+    rangeForm->addRow(tr("Max depth:"), mx);
+    auto *logScale = new QCheckBox(tr("Logarithmic scaling"), rangeBox);
+    logScale->setChecked(st && st->useLogScale());
+    rangeForm->addRow(QString(), logScale);
+    lay->addWidget(rangeBox);
+
+    // Classification.
+    auto *classBox  = new QGroupBox(tr("Classification"), page);
+    auto *classForm = new QFormLayout(classBox);
+    using RS = SWMM2DResultsLayer::ColorRampStyle;
+    auto *mode = new QComboBox(classBox);
+    mode->addItem(tr("Smooth (continuous)"), int(RS::Smooth));
+    mode->addItem(tr("Graduated (classes)"), int(RS::Graduated));
+    mode->setCurrentIndex(mode->findData(int(L->colorRampStyle())));
+    mode->setMinimumWidth(kComboMinWidthPx);
+    classForm->addRow(tr("Mode:"), mode);
+    auto *classes = makeSpin(classBox, 2, 64, L->colorClasses());
+    classes->setEnabled(L->colorRampStyle() == RS::Graduated);
+    classForm->addRow(tr("Classes:"), classes);
+    lay->addWidget(classBox);
+
+    // Colour source.
+    if (st) {
+        ColorSourceBindings b;
+        b.rampName     = [st] { return st->colorRampName(); };
+        b.setRampName  = [st](const QString &n) { st->setColorRampName(n); };
+        b.invert       = [st] { return st->invertRamp(); };
+        b.setInvert    = [st](bool v) { st->setInvertRamp(v); };
+        b.lowColor     = [st] { return st->lowColor(); };
+        b.setLowColor  = [st](const QColor &c) { st->setLowColor(c); };
+        b.highColor    = [st] { return st->highColor(); };
+        b.setHighColor = [st](const QColor &c) { st->setHighColor(c); };
+        lay->addWidget(makeColorSourceGroup(page, b));
+    }
+    lay->addStretch();
+
+    connect(dry, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [L](double v) { L->setDryDepth(v); });
+    connect(mx, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [L](double v) { L->setMaxDepth(v); });
+    if (st)
+        connect(logScale, &QCheckBox::toggled, this,
+                [st](bool on) { st->setUseLogScale(on); });
+    connect(mode, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [L, mode, classes](int i) {
+                const auto rs = static_cast<RS>(mode->itemData(i).toInt());
+                classes->setEnabled(rs == RS::Graduated);
+                L->setColorRampStyle(rs);
+            });
+    connect(classes, qOverload<int>(&QSpinBox::valueChanged), this,
+            [L](int n) { L->setColorClasses(n); });
+    return page;
+}
+
+// ─── Contour bands ──────────────────────────────────────────────────────────
+
+QWidget *Swmm2DResultsStylePanel::buildContourBandTab(QWidget *parent)
+{
+    auto *page = new QWidget(parent);
+    auto *lay  = new QVBoxLayout(page);
+
+    auto *sub = m_layer->contourBandSublayer();
+    ContourBandStyle *st = sub ? sub->bandStyle() : nullptr;
+
+    lay->addWidget(makeSublayerHeader(page, sub, tr("Show filled contour bands")));
+
+    if (st) {
+        // Slice US.2 — the shared classification editor: method (equal
+        // interval / quantile / Jenks / …), class count, colour ramp + invert,
+        // custom range, and a per-class colour/label table. The renderer reads
+        // st->scheme() to march the bands.
+        auto *L = m_layer.data();
+        auto *binding = new SublayerSchemeBinding(
+            [st] { return st->scheme(); },
+            [st](const OpenSWMM::Render::ClassificationScheme &s) { st->setScheme(s); },
+            [] { return QVector<double>{}; },            // table preview only; map samples per frame
+            [L] { return qMakePair(L->dryDepth(), L->maxDepth()); },
+            /*supportsContinuousMode=*/false,
+            /*supportsRangeModes=*/false);
+        lay->addWidget(new ClassificationEditor(binding, /*ownBinding=*/true, page));
+
+        auto *renderBox  = new QGroupBox(tr("Rendering"), page);
+        auto *renderForm = new QFormLayout(renderBox);
+        auto *smooth = new QCheckBox(tr("Smooth band boundaries"), renderBox);
+        smooth->setChecked(st->smoothBands());
+        smooth->setToolTip(tr("On: class boundaries are interpolated through "
+                              "cells (marching triangles). Off: each cell is "
+                              "filled flat with its band colour."));
+        renderForm->addRow(QString(), smooth);
+        lay->addWidget(renderBox);
+
+        connect(smooth, &QCheckBox::toggled, this,
+                [st](bool on) { st->setSmoothBands(on); });
+    }
+    lay->addStretch();
+    return page;
+}
+
+// ─── Isolines ───────────────────────────────────────────────────────────────
+
+QWidget *Swmm2DResultsStylePanel::buildIsolineTab(QWidget *parent)
+{
+    auto *page = new QWidget(parent);
+    auto *lay  = new QVBoxLayout(page);
+
+    auto *sub = m_layer->isolineSublayer();
+    IsolineStyle *st = sub ? sub->isolineStyle() : nullptr;
+
+    lay->addWidget(makeSublayerHeader(page, sub, tr("Show isolines")));
+
+    if (st) {
+        using LM = IsolineStyle::LevelMode;
+
+        auto *levelBox  = new QGroupBox(tr("Levels"), page);
+        auto *levelForm = new QFormLayout(levelBox);
+        auto *mode = new QComboBox(levelBox);
+        mode->addItem(tr("Fixed count"),             int(LM::Count));
+        mode->addItem(tr("Fixed interval + base"),   int(LM::FixedInterval));
+        mode->setCurrentIndex(mode->findData(int(st->levelMode())));
+        mode->setMinimumWidth(kComboMinWidthPx);
+        levelForm->addRow(tr("Mode:"), mode);
+        auto *count = makeSpin(levelBox, 1, 64, st->isoValueCount());
+        levelForm->addRow(tr("Count:"), count);
+        // Slice US.2 — classification method for the Count idiom (equal
+        // interval reproduces the legacy even spacing; quantile / Jenks /
+        // std-dev bin the wet-cell depths). FixedInterval ignores it.
+        using BM = OpenSWMM::Render::BinMethod;
+        auto *method = new QComboBox(levelBox);
+        method->addItem(tr("Equal interval"),         int(BM::EqualInterval));
+        method->addItem(tr("Quantile"),               int(BM::Quantile));
+        method->addItem(tr("Natural breaks (Jenks)"), int(BM::NaturalBreaks));
+        method->addItem(tr("Standard deviation"),     int(BM::StdDev));
+        method->addItem(tr("Logarithmic"),            int(BM::Logarithmic));
+        method->addItem(tr("Exponential"),            int(BM::Exponential));
+        method->setCurrentIndex(method->findData(int(st->scheme().method())));
+        method->setMinimumWidth(kComboMinWidthPx);
+        levelForm->addRow(tr("Method:"), method);
+        auto *interval = makeDSpin(levelBox, 1e-6, 1e6, 0.1, 3,
+                                   st->levelInterval(), tr(" m"));
+        levelForm->addRow(tr("Interval:"), interval);
+        auto *base = makeDSpin(levelBox, -1e6, 1e6, 0.1, 3,
+                               st->baseLevel(), tr(" m"));
+        base->setToolTip(tr("Contours fall at base + k × interval"));
+        levelForm->addRow(tr("Base level:"), base);
+        lay->addWidget(levelBox);
+
+        auto applyMode = [count, method, interval, base](LM m) {
+            count->setEnabled(m == LM::Count);
+            method->setEnabled(m == LM::Count);
+            interval->setEnabled(m == LM::FixedInterval);
+            base->setEnabled(m == LM::FixedInterval);
+        };
+        applyMode(st->levelMode());
+
+        auto *symBox  = new QGroupBox(tr("Symbology"), page);
+        auto *symForm = new QFormLayout(symBox);
+        auto *color = new ColorButton(symBox);
+        color->setShowAlpha(true);
+        color->setColor(st->color());
+        symForm->addRow(tr("Colour:"), color);
+        auto *width = makeDSpin(symBox, 0.25, 20.0, 0.25, 2,
+                                st->lineWidthPx(), tr(" px"));
+        symForm->addRow(tr("Width:"), width);
+        auto *dash = new DashStyleCombo(symBox);
+        dash->setPenStyle(st->dashPattern());
+        dash->setMinimumWidth(kComboMinWidthPx);
+        symForm->addRow(tr("Stroke style:"), dash);
+        auto *idxEvery = makeSpin(symBox, 0, 50, st->indexEvery());
+        idxEvery->setSpecialValueText(tr("Off"));
+        idxEvery->setToolTip(tr("Emphasise every Nth contour (topographic "
+                                "index contours); 0 disables"));
+        symForm->addRow(tr("Index contour every:"), idxEvery);
+        auto *idxWidth = makeDSpin(symBox, 0.25, 20.0, 0.25, 2,
+                                   st->indexWidthPx(), tr(" px"));
+        idxWidth->setEnabled(st->indexEvery() >= 2);
+        symForm->addRow(tr("Index width:"), idxWidth);
+        lay->addWidget(symBox);
+
+        auto *labelBox  = new QGroupBox(tr("Labels"), page);
+        auto *labelForm = new QFormLayout(labelBox);
+        auto *labelsOn = new QCheckBox(tr("Label contour values along lines"),
+                                       labelBox);
+        labelsOn->setChecked(st->labels());
+        labelForm->addRow(QString(), labelsOn);
+        auto *decimals = makeSpin(labelBox, 0, 9, st->labelDecimals());
+        decimals->setEnabled(st->labels());
+        labelForm->addRow(tr("Decimals:"), decimals);
+        auto *fontPt = makeDSpin(labelBox, 4.0, 72.0, 0.5, 1,
+                                 st->labelFontPt(), tr(" pt"));
+        fontPt->setEnabled(st->labels());
+        labelForm->addRow(tr("Font size:"), fontPt);
+        auto *halo = new QCheckBox(tr("White halo"), labelBox);
+        halo->setChecked(st->labelHalo());
+        halo->setEnabled(st->labels());
+        labelForm->addRow(QString(), halo);
+        lay->addWidget(labelBox);
+
+        connect(mode, qOverload<int>(&QComboBox::currentIndexChanged), this,
+                [st, mode, applyMode](int i) {
+                    const auto m = static_cast<LM>(mode->itemData(i).toInt());
+                    applyMode(m);
+                    st->setLevelMode(m);
+                });
+        connect(count, qOverload<int>(&QSpinBox::valueChanged), this,
+                [st](int n) { st->setIsoValueCount(n); });
+        connect(method, qOverload<int>(&QComboBox::currentIndexChanged), this,
+                [st, method](int i) {
+                    auto s = st->scheme();
+                    s.setMethod(static_cast<OpenSWMM::Render::BinMethod>(
+                        method->itemData(i).toInt()));
+                    st->setScheme(s);
+                });
+        connect(interval, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setLevelInterval(v); });
+        connect(base, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setBaseLevel(v); });
+        connect(color, &ColorButton::colorChanged, this,
+                [st](const QColor &c) { st->setColor(c); });
+        connect(width, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double w) { st->setLineWidthPx(w); });
+        connect(dash, &DashStyleCombo::penStyleChanged, this,
+                [st](Qt::PenStyle s) { st->setDashPattern(s); });
+        connect(idxEvery, qOverload<int>(&QSpinBox::valueChanged), this,
+                [st, idxWidth](int n) {
+                    idxWidth->setEnabled(n >= 2);
+                    st->setIndexEvery(n);
+                });
+        connect(idxWidth, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double w) { st->setIndexWidthPx(w); });
+        connect(labelsOn, &QCheckBox::toggled, this,
+                [st, decimals, fontPt, halo](bool on) {
+                    decimals->setEnabled(on);
+                    fontPt->setEnabled(on);
+                    halo->setEnabled(on);
+                    st->setLabels(on);
+                });
+        connect(decimals, qOverload<int>(&QSpinBox::valueChanged), this,
+                [st](int n) { st->setLabelDecimals(n); });
+        connect(fontPt, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setLabelFontPt(v); });
+        connect(halo, &QCheckBox::toggled, this,
+                [st](bool on) { st->setLabelHalo(on); });
+    }
+    lay->addStretch();
+    return page;
+}
+
+// ─── Velocity vectors ───────────────────────────────────────────────────────
+
+QWidget *Swmm2DResultsStylePanel::buildVelocityTab(QWidget *parent)
+{
+    auto *page = new QWidget(parent);
+    auto *lay  = new QVBoxLayout(page);
+
+    auto *sub = m_layer->velocityVectorSublayer();
+    VelocityVectorStyle *st = sub ? sub->vectorStyle() : nullptr;
+
+    lay->addWidget(makeSublayerHeader(page, sub, tr("Show velocity vectors")));
+
+    if (st) {
+        using LS = VelocityVectorStyle::LengthScaling;
+
+        auto *sizeBox  = new QGroupBox(tr("Sizing"), page);
+        auto *sizeForm = new QFormLayout(sizeBox);
+        auto *scaling = new QComboBox(sizeBox);
+        scaling->addItem(tr("Linear"),      int(LS::Linear));
+        scaling->addItem(tr("Square root"), int(LS::SquareRoot));
+        scaling->addItem(tr("Logarithmic"), int(LS::Log));
+        scaling->setCurrentIndex(scaling->findData(int(st->lengthScaling())));
+        scaling->setToolTip(tr("How |v| maps to arrow length before the "
+                               "min/max clamps"));
+        scaling->setMinimumWidth(kComboMinWidthPx);
+        sizeForm->addRow(tr("Length scaling:"), scaling);
+        auto *scale = makeDSpin(sizeBox, 0.1, 500.0, 1.0, 1,
+                                st->glyphLengthScalePxPerMps(),
+                                tr(" px per m/s"));
+        sizeForm->addRow(tr("Scale:"), scale);
+        auto *minLen = makeDSpin(sizeBox, 0.0, 200.0, 1.0, 1,
+                                 st->glyphLengthMinPx(), tr(" px"));
+        sizeForm->addRow(tr("Min length:"), minLen);
+        auto *maxLen = makeDSpin(sizeBox, 1.0, 500.0, 1.0, 1,
+                                 st->glyphLengthMaxPx(), tr(" px"));
+        sizeForm->addRow(tr("Max length:"), maxLen);
+        auto *head = makeDSpin(sizeBox, 0.0, 50.0, 0.5, 1,
+                               st->headSizePx(), tr(" px"));
+        sizeForm->addRow(tr("Head size:"), head);
+        auto *shaft = makeDSpin(sizeBox, 0.1, 10.0, 0.1, 1,
+                                st->shaftWidthPx(), tr(" px"));
+        sizeForm->addRow(tr("Shaft width:"), shaft);
+        lay->addWidget(sizeBox);
+
+        auto *colorBox  = new QGroupBox(tr("Colour"), page);
+        auto *colorForm = new QFormLayout(colorBox);
+        auto *byMag = new QCheckBox(tr("Colour by magnitude"), colorBox);
+        byMag->setChecked(st->colorByMagnitude());
+        colorForm->addRow(QString(), byMag);
+        auto *flat = new ColorButton(colorBox);
+        flat->setShowAlpha(true);
+        flat->setColor(st->color());
+        flat->setEnabled(!st->colorByMagnitude());
+        colorForm->addRow(tr("Single colour:"), flat);
+        auto *ramp = new ColorRampComboBox(colorBox);
+        ramp->setCurrentRampByName(st->colorRampName());
+        ramp->setEnabled(st->colorByMagnitude());
+        ramp->setMinimumWidth(kComboMinWidthPx);
+        colorForm->addRow(tr("Ramp:"), ramp);
+        auto *spdMin = makeDSpin(colorBox, 0.0, 1000.0, 0.1, 3,
+                                 st->speedMinMps(), tr(" m/s"));
+        spdMin->setEnabled(st->colorByMagnitude());
+        colorForm->addRow(tr("Speed min:"), spdMin);
+        auto *spdMax = makeDSpin(colorBox, 0.0, 1000.0, 0.1, 3,
+                                 st->speedMaxMps(), tr(" m/s"));
+        spdMax->setEnabled(st->colorByMagnitude());
+        colorForm->addRow(tr("Speed max:"), spdMax);
+        auto *classCount = makeSpin(colorBox, 0, 32, st->colorClassCount());
+        classCount->setSpecialValueText(tr("Continuous"));
+        classCount->setToolTip(tr("Discretise the ramp into N colour bands; "
+                                  "0 keeps a continuous gradient"));
+        classCount->setEnabled(st->colorByMagnitude());
+        colorForm->addRow(tr("Colour bands:"), classCount);
+        lay->addWidget(colorBox);
+
+        auto *placeBox  = new QGroupBox(tr("Placement && filtering"), page);
+        auto *placeForm = new QFormLayout(placeBox);
+        auto *spacing = makeDSpin(placeBox, 1.0, 500.0, 5.0, 0,
+                                  st->glyphSpacingPx(), tr(" px"));
+        spacing->setToolTip(tr("Minimum on-screen spacing between arrows "
+                               "(strongest cell per grid slot wins); 1 px "
+                               "draws every wet cell"));
+        placeForm->addRow(tr("Spacing:"), spacing);
+        auto *dryCut = makeDSpin(placeBox, 0.0, 1000.0, 0.01, 3,
+                                 st->dryDepthCutoff(), tr(" m"));
+        dryCut->setToolTip(tr("Suppress arrows where depth is below this"));
+        placeForm->addRow(tr("Dry depth cutoff:"), dryCut);
+        lay->addWidget(placeBox);
+
+        connect(scaling, qOverload<int>(&QComboBox::currentIndexChanged), this,
+                [st, scaling](int i) {
+                    st->setLengthScaling(
+                        static_cast<LS>(scaling->itemData(i).toInt()));
+                });
+        connect(scale, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setGlyphLengthScalePxPerMps(v); });
+        connect(minLen, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setGlyphLengthMinPx(v); });
+        connect(maxLen, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setGlyphLengthMaxPx(v); });
+        connect(head, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setHeadSizePx(v); });
+        connect(shaft, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setShaftWidthPx(v); });
+        connect(byMag, &QCheckBox::toggled, this,
+                [st, flat, ramp, spdMin, spdMax, classCount](bool on) {
+                    flat->setEnabled(!on);
+                    ramp->setEnabled(on);
+                    spdMin->setEnabled(on);
+                    spdMax->setEnabled(on);
+                    classCount->setEnabled(on);
+                    st->setColorByMagnitude(on);
+                });
+        connect(flat, &ColorButton::colorChanged, this,
+                [st](const QColor &c) { st->setColor(c); });
+        connect(ramp, &ColorRampComboBox::rampChanged, this,
+                [st, ramp](const RasterColorRamp &) {
+                    st->setColorRampName(ramp->currentText());
+                });
+        connect(spdMin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setSpeedMinMps(v); });
+        connect(spdMax, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setSpeedMaxMps(v); });
+        connect(classCount, qOverload<int>(&QSpinBox::valueChanged), this,
+                [st](int n) { st->setColorClassCount(n); });
+        connect(spacing, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setGlyphSpacingPx(v); });
+        connect(dryCut, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setDryDepthCutoff(v); });
+    }
+    lay->addStretch();
+    return page;
+}
+
+// ─── Flow arrows ────────────────────────────────────────────────────────────
+
+QWidget *Swmm2DResultsStylePanel::buildFlowArrowTab(QWidget *parent)
+{
+    auto *page = new QWidget(parent);
+    auto *lay  = new QVBoxLayout(page);
+
+    auto *sub = m_layer->flowArrowSublayer();
+    FlowArrowStyle *st = sub ? sub->flowArrowStyle() : nullptr;
+
+    lay->addWidget(makeSublayerHeader(page, sub, tr("Show flow direction arrows")));
+
+    if (st) {
+        auto *arrowBox  = new QGroupBox(tr("Arrow"), page);
+        auto *arrowForm = new QFormLayout(arrowBox);
+        auto *len = makeDSpin(arrowBox, 2.0, 200.0, 1.0, 1,
+                              st->arrowLengthPx(), tr(" px"));
+        arrowForm->addRow(tr("Length:"), len);
+        auto *head = makeDSpin(arrowBox, 1.0, 50.0, 0.5, 1,
+                               st->headSizePx(), tr(" px"));
+        arrowForm->addRow(tr("Head size:"), head);
+        auto *shaft = makeDSpin(arrowBox, 0.5, 10.0, 0.1, 1,
+                                st->shaftWidthPx(), tr(" px"));
+        arrowForm->addRow(tr("Shaft width:"), shaft);
+        auto *color = new ColorButton(arrowBox);
+        color->setShowAlpha(true);
+        color->setColor(st->color());
+        arrowForm->addRow(tr("Colour:"), color);
+        auto *outline = new ColorButton(arrowBox);
+        outline->setShowAlpha(true);
+        outline->setColor(st->outlineColor());
+        arrowForm->addRow(tr("Outline colour:"), outline);
+        lay->addWidget(arrowBox);
+
+        auto *colorBox  = new QGroupBox(tr("Colour by magnitude"), page);
+        auto *colorForm = new QFormLayout(colorBox);
+        auto *byMag = new QCheckBox(tr("Colour shafts by speed"), colorBox);
+        byMag->setChecked(st->colorByMagnitude());
+        colorForm->addRow(QString(), byMag);
+        auto *ramp = new ColorRampComboBox(colorBox);
+        ramp->setCurrentRampByName(st->colorRampName());
+        ramp->setEnabled(st->colorByMagnitude());
+        ramp->setMinimumWidth(kComboMinWidthPx);
+        colorForm->addRow(tr("Ramp:"), ramp);
+        auto *spdMin = makeDSpin(colorBox, 0.0, 1000.0, 0.1, 3,
+                                 st->speedMinMps(), tr(" m/s"));
+        spdMin->setEnabled(st->colorByMagnitude());
+        colorForm->addRow(tr("Speed min:"), spdMin);
+        auto *spdMax = makeDSpin(colorBox, 0.0, 1000.0, 0.1, 3,
+                                 st->speedMaxMps(), tr(" m/s"));
+        spdMax->setEnabled(st->colorByMagnitude());
+        colorForm->addRow(tr("Speed max:"), spdMax);
+        lay->addWidget(colorBox);
+
+        auto *placeBox  = new QGroupBox(tr("Placement && filtering"), page);
+        auto *placeForm = new QFormLayout(placeBox);
+        auto *spacing = makeDSpin(placeBox, 4.0, 500.0, 5.0, 0,
+                                  st->arrowSpacingPx(), tr(" px"));
+        placeForm->addRow(tr("Grid spacing:"), spacing);
+        auto *atCenters = new QCheckBox(tr("Place at cell centres "
+                                           "(instead of screen grid)"),
+                                        placeBox);
+        atCenters->setChecked(st->placeAtCellCenters());
+        placeForm->addRow(QString(), atCenters);
+        auto *dryCut = makeDSpin(placeBox, 0.0, 1000.0, 0.01, 3,
+                                 st->dryDepthCutoff(), tr(" m"));
+        placeForm->addRow(tr("Dry depth cutoff:"), dryCut);
+        lay->addWidget(placeBox);
+
+        connect(len, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setArrowLengthPx(v); });
+        connect(head, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setHeadSizePx(v); });
+        connect(shaft, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setShaftWidthPx(v); });
+        connect(color, &ColorButton::colorChanged, this,
+                [st](const QColor &c) { st->setColor(c); });
+        connect(outline, &ColorButton::colorChanged, this,
+                [st](const QColor &c) { st->setOutlineColor(c); });
+        connect(byMag, &QCheckBox::toggled, this,
+                [st, ramp, spdMin, spdMax](bool on) {
+                    ramp->setEnabled(on);
+                    spdMin->setEnabled(on);
+                    spdMax->setEnabled(on);
+                    st->setColorByMagnitude(on);
+                });
+        connect(ramp, &ColorRampComboBox::rampChanged, this,
+                [st, ramp](const RasterColorRamp &) {
+                    st->setColorRampName(ramp->currentText());
+                });
+        connect(spdMin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setSpeedMinMps(v); });
+        connect(spdMax, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setSpeedMaxMps(v); });
+        connect(spacing, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setArrowSpacingPx(v); });
+        connect(atCenters, &QCheckBox::toggled, this,
+                [st](bool on) { st->setPlaceAtCellCenters(on); });
+        connect(dryCut, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setDryDepthCutoff(v); });
+    }
+    lay->addStretch();
+    return page;
 }
 
 } // namespace openswmmvis::ui

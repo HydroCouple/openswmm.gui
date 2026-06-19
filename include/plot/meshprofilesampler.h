@@ -14,7 +14,9 @@
  *         The geometry-dependent columns (chainage / ground / triIdx /
  *         maxDepth) are static once traced; only `depthNow` changes per
  *         animation frame — recompute just that column via
- *         SWMM2DResultsLayer::depthAtSceneNow on each tick.
+ *         SWMM2DResultsLayer::depthAtSceneInterp on each tick (barycentric
+ *         per-vertex depth, so the water-surface line stays smooth across
+ *         cells).
  */
 
 #ifndef MESH_PROFILE_SAMPLER_H
@@ -48,12 +50,27 @@ struct Sample
 };
 
 /*!
+ * \struct CellCrossing
+ * \brief A point where the traced line crosses a mesh-cell (triangle) edge.
+ *        Plotted as a dot on the ground line so the per-cell interpolation
+ *        basis (constant-per-cell depth → stepped WSE) is visible: each dot
+ *        marks a cell boundary; the span between two dots is one cell.
+ */
+struct CellCrossing
+{
+    double  chainage = 0.0;  /*!< cumulative scene-unit distance from start. */
+    double  ground   = 0.0;  /*!< terrain Z at the crossing (barycentric). */
+    QPointF scenePt;         /*!< scene-space crossing location (for the map dot). */
+};
+
+/*!
  * \struct MeshProfile
  * \brief The assembled cross-section: ordered samples + a results flag.
  */
 struct MeshProfile
 {
     QVector<Sample> samples;
+    QVector<CellCrossing> crossings;  /*!< cell-edge crossings along the path. */
     bool hasResults = false;   /*!< true when a results layer with ≥1 frame backed the sampling. */
 };
 

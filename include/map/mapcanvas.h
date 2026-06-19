@@ -29,6 +29,7 @@ class SpatialReferenceSystem;
 class OpenSWMMVisMapTool;
 class MapUndoStack;
 class MapRenderJob;
+class MeshProfileOverlay;
 class QGestureEvent;
 
 /*!
@@ -170,6 +171,14 @@ public:
 
     [[nodiscard]] OpenSWMMVisMapTool *activeTool() const;
     void setActiveTool(OpenSWMMVisMapTool *tool);
+
+    // ----- Mesh-profile overlay ------------------------------------------
+
+    /*! \brief Bind the 2D-mesh profile overlay (line + position marker) drawn
+     *  ON TOP of every map layer — including the QSG flood-map mesh, which a
+     *  QGraphicsScene item can't sit above. Pass null to detach. The overlay
+     *  is owned by MeshProfilePlotDialog, not the canvas. */
+    void setMeshProfileOverlay(MeshProfileOverlay *overlay);
 
     // ----- Undo ----------------------------------------------------------
 
@@ -349,6 +358,11 @@ private:
     OpenSWMMVisMapTool         *m_activeTool     = nullptr;
     MapUndoStack           *m_undoStack      = nullptr;
 
+    // ----- Mesh-profile overlay (painted above the QSG frame) -------------
+    // Not owned: MeshProfilePlotDialog creates it and clears this pointer
+    // (setMeshProfileOverlay(nullptr)) before deleting it.
+    MeshProfileOverlay         *m_meshProfileOverlay = nullptr;
+
     // ----- Decorations ----------------------------------------------------
     bool                    m_showScaleBar   = true;
     bool                    m_showCoords     = false;
@@ -405,14 +419,17 @@ private:
     bool                    m_middlePanActive = false;
     QPoint                  m_middlePanStart;
 
-    // ----- Phase B.RHI — QQuickWidget host for the QSG renderer -----------
-    // A transparent child widget overlaying the canvas, hosting
+    // ----- Phase B.RHI — QQuickWidget host for the QSG renderers ----------
+    // A transparent child widget overlaying the canvas, hosting (VS.8) a
+    // root Item with two stacked renderers: SWMM2DResultsQSGRenderer
+    // (flood map: Gouraud depth fill / bands / isolines / arrows) BELOW
     // SWMMLayerQSGRenderer (SWMM network: nodes/links/subcatchments).
-    // The 2D mesh layer renders via QGraphicsScene (QPainter path).
+    // The 2D TERRAIN mesh layer renders via QGraphicsScene (QPainter path).
     // Native Metal on macOS, Vulkan on Linux, D3D11 on Windows.
     // See docs/RENDERING_5M_PLAN.md (Phase B.RHI).
-    class QQuickWidget          *m_qsgWidget   = nullptr;
-    class SWMMLayerQSGRenderer  *m_qsgRenderer = nullptr;
+    class QQuickWidget               *m_qsgWidget     = nullptr;
+    class SWMMLayerQSGRenderer       *m_qsgRenderer   = nullptr;
+    class SWMM2DResultsQSGRenderer   *m_qsg2DRenderer = nullptr;
 
     // Cached QSG framebuffer (re-grabbed only when something the QSG
     // renderer cares about actually changed — extent, layer, widget
@@ -424,7 +441,14 @@ private:
     bool                         m_qsgFrameDirty = true;
     MapExtent                    m_qsgCachedExtent;
     class SWMMModelLayer        *m_qsgCachedLayer = nullptr;
+    class SWMM2DResultsLayer    *m_qsgCached2DLayer = nullptr;
     QSize                        m_qsgCachedSize;
+
+    // VS.8 — true while the canvas force-enabled the 1D QSG kinds because a
+    // 2D results layer is QSG-owned (the network must composite above the
+    // flood map inside the same QSG frame). Restored from Preferences when
+    // the 2D layer goes away.
+    bool                         m_qsg1DForced = false;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(MapCanvas::DirtyChannels)

@@ -45,6 +45,7 @@ struct DataObjectRef
         RainGage       = 6,  ///< Rain gages — for hydrograph gage picker; no
                              ///  comprehensive editor yet, so the "…" button
                              ///  is a no-op (combo selection only).
+        StorageCurve   = 7,  ///< Curves filtered to type == STORAGE (engine table type 1)
     };
 
     SWMM_Engine     engine      = nullptr;  ///< Engine handle (borrow)

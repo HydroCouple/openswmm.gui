@@ -6,6 +6,8 @@
 
 #include "plot/profileplotoptions.h"
 
+#include "core/preferencesmanager.h"
+
 #include <QFontDatabase>
 #include <QHash>
 
@@ -26,6 +28,13 @@ ProfilePlotOptions::ProfilePlotOptions(QObject *parent)
     // dash sequence stays explicit and easy to tweak.
     m_eglLinePen.setDashPattern({12.0, 6.0});
     m_eglLinePen.setCapStyle(Qt::FlatCap);
+
+    // Inherit the global default axis precision; per-plot edits override it.
+    auto *prefs = PreferencesManager::instance();
+    m_xLabelMode      = static_cast<LabelFormatMode>(prefs->plotXAxisFormatMode());
+    m_xLabelPrecision = prefs->plotXAxisPrecision();
+    m_yLabelMode      = static_cast<LabelFormatMode>(prefs->plotYAxisFormatMode());
+    m_yLabelPrecision = prefs->plotYAxisPrecision();
 }
 
 QString ProfilePlotOptions::displayLabelFor(const QString &propertyName) const
@@ -46,6 +55,11 @@ QString ProfilePlotOptions::displayLabelFor(const QString &propertyName) const
         { QStringLiteral("inlineNodeLabels"), QObject::tr("Inline node IDs (over rim)") },
         { QStringLiteral("labelOrientation"), QObject::tr("Label orientation") },
         { QStringLiteral("labelAngleDeg"),    QObject::tr("Label angle (°)") },
+        // Axis number format
+        { QStringLiteral("xLabelFormatMode"), QObject::tr("X Axis — Number format") },
+        { QStringLiteral("xLabelPrecision"),  QObject::tr("X Axis — Precision") },
+        { QStringLiteral("yLabelFormatMode"), QObject::tr("Y Axis — Number format") },
+        { QStringLiteral("yLabelPrecision"),  QObject::tr("Y Axis — Precision") },
         // Ground
         { QStringLiteral("useTerrainGround"), QObject::tr("Use terrain DEM for ground") },
         // Flooding indicator
@@ -119,6 +133,16 @@ void ProfilePlotOptions::setLabelOrientation(LabelOrientation o) { SET_PRIM(m_la
 void ProfilePlotOptions::setLabelAngleDeg   (int deg)  {
     deg = std::clamp(deg, 1, 89);
     SET_PRIM(m_labelAngleDeg, deg);
+}
+void ProfilePlotOptions::setXLabelFormatMode(LabelFormatMode m) { SET_PRIM(m_xLabelMode, m); }
+void ProfilePlotOptions::setXLabelPrecision (int count) {
+    count = std::clamp(count, 0, 10);
+    SET_PRIM(m_xLabelPrecision, count);
+}
+void ProfilePlotOptions::setYLabelFormatMode(LabelFormatMode m) { SET_PRIM(m_yLabelMode, m); }
+void ProfilePlotOptions::setYLabelPrecision (int count) {
+    count = std::clamp(count, 0, 10);
+    SET_PRIM(m_yLabelPrecision, count);
 }
 void ProfilePlotOptions::setUseTerrainGround(bool v)   { SET_PRIM(m_useTerrainGround, v); }
 void ProfilePlotOptions::setFloodRadiusPx (double r) {

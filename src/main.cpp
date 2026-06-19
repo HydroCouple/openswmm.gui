@@ -23,6 +23,7 @@
 #include "swmmvis.h"
 #include "map/swmmlayerqsgrenderer.h"
 #include "map/swmm2dmeshqsgrenderer.h"
+#include "map/swmm2dresultsqsgrenderer.h"
 
 /*!
  * \brief main
@@ -98,6 +99,10 @@ int main(int argc, char *argv[])
                                            "SWMMLayerQSGRenderer");
     qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0,
                                             "SWMM2DMeshQSGRenderer");
+    // VS.8 — GPU renderer for the 2D results layer (Gouraud depth fill,
+    // contour bands, isolines, velocity arrows).
+    qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0,
+                                               "SWMM2DResultsQSGRenderer");
        
     QScopedPointer<QCoreApplication> application(applicationInstance);
 

@@ -15,6 +15,8 @@
 #ifndef PROFILE_PLOT_OPTIONS_H
 #define PROFILE_PLOT_OPTIONS_H
 
+#include "plot/numberformat.h"
+
 #include <QBrush>
 #include <QColor>
 #include <QFont>
@@ -29,6 +31,11 @@ class ProfilePlotOptions : public QObject
 public:
     enum LabelOrientation { Vertical = 0, Horizontal = 1, Diagonal = 2 };
     Q_ENUM(LabelOrientation)
+
+    /*! \brief Axis label number mode; values mirror
+     *  openswmmvis::plot::NumberFormatMode (0=Decimals, 1=SignificantFigures). */
+    enum LabelFormatMode { Decimals = 0, SignificantFigures = 1 };
+    Q_ENUM(LabelFormatMode)
 
     enum LegendPosition   { TopRight = 0, TopLeft = 1,
                             BottomLeft = 2, BottomRight = 3 };
@@ -58,6 +65,16 @@ public:
     Q_PROPERTY(ProfilePlotOptions::LabelOrientation labelOrientation
                READ labelOrientation WRITE setLabelOrientation NOTIFY changed)
     Q_PROPERTY(int labelAngleDeg     READ labelAngleDeg    WRITE setLabelAngleDeg    NOTIFY changed)
+
+    // ── Axis number format ──────────────────────────────────────────────
+    // X axis = distance/chainage; Y axis = elevation/value. Seeded from the
+    // global Preferences default; edits here override per-plot.
+    Q_PROPERTY(ProfilePlotOptions::LabelFormatMode xLabelFormatMode
+               READ xLabelFormatMode WRITE setXLabelFormatMode NOTIFY changed)
+    Q_PROPERTY(int xLabelPrecision   READ xLabelPrecision  WRITE setXLabelPrecision  NOTIFY changed)
+    Q_PROPERTY(ProfilePlotOptions::LabelFormatMode yLabelFormatMode
+               READ yLabelFormatMode WRITE setYLabelFormatMode NOTIFY changed)
+    Q_PROPERTY(int yLabelPrecision   READ yLabelPrecision  WRITE setYLabelPrecision  NOTIFY changed)
 
     // ── Ground / terrain ────────────────────────────────────────────────
     Q_PROPERTY(bool useTerrainGround READ useTerrainGround WRITE setUseTerrainGround NOTIFY changed)
@@ -150,6 +167,15 @@ public:
     bool     inlineNodeLabels() const { return m_inlineNodeLabels; }
     LabelOrientation labelOrientation() const { return m_labelOrientation; }
     int      labelAngleDeg()    const { return m_labelAngleDeg; }
+    LabelFormatMode xLabelFormatMode() const { return m_xLabelMode; }
+    int      xLabelPrecision()  const { return m_xLabelPrecision; }
+    LabelFormatMode yLabelFormatMode() const { return m_yLabelMode; }
+    int      yLabelPrecision()  const { return m_yLabelPrecision; }
+    /*! \brief Current X/Y axis label format as the shared value type. */
+    openswmmvis::plot::NumberFormat xFormat() const
+    { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_xLabelMode), m_xLabelPrecision }; }
+    openswmmvis::plot::NumberFormat yFormat() const
+    { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_yLabelMode), m_yLabelPrecision }; }
     bool     useTerrainGround() const { return m_useTerrainGround; }
 
     double   floodRadiusPx()    const { return m_floodRadiusPx; }
@@ -212,6 +238,10 @@ public slots:
     void setInlineNodeLabels(bool v);
     void setLabelOrientation(LabelOrientation o);
     void setLabelAngleDeg   (int deg);
+    void setXLabelFormatMode(LabelFormatMode m);
+    void setXLabelPrecision (int count);
+    void setYLabelFormatMode(LabelFormatMode m);
+    void setYLabelPrecision (int count);
     void setUseTerrainGround(bool v);
     void setFloodRadiusPx (double r);
     void setFloodSweepDeg (int deg);
@@ -275,6 +305,12 @@ private:
     bool             m_inlineNodeLabels = false;
     LabelOrientation m_labelOrientation = Vertical;
     int              m_labelAngleDeg    = 45;
+    // Axis number format — seeded from the global Preferences default in the
+    // constructor (hence no in-class initializer values relied upon here).
+    LabelFormatMode  m_xLabelMode       = Decimals;
+    int              m_xLabelPrecision  = 0;
+    LabelFormatMode  m_yLabelMode       = Decimals;
+    int              m_yLabelPrecision  = 2;
     bool             m_useTerrainGround = false;
 
     // Flooding-glyph defaults: a 60° wedge with a 15 px radius reads at

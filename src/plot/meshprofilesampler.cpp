@@ -71,29 +71,53 @@ MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
     if (totalLen / step > kMaxSamples)
         step = totalLen / kMaxSamples;
 
-    // Per-cell max-depth envelope — computed once, indexed by triangle.
-    QVector<float> perTriMax;
-    if (out.hasResults)
-        perTriMax = results->maxDepthPerCell();
+    // Max-depth envelope — barycentric per-vertex (smooth across wet cells),
+    // but masked to the per-cell max so it doesn't bleed onto cells that were
+    // never wet (the same dry-hump artifact the water line avoids).
+    QVector<float> vertMax, perCellMax;
+    double dry = 0.0;
+    if (out.hasResults) {
+        vertMax    = results->maxDepthPerVertex();
+        perCellMax = results->maxDepthPerCell();
+        dry        = results->dryDepth();
+    }
 
-    // Walk each segment, emitting a sample every `step` units, and always
-    // emit an exact sample at each vertex so corners aren't skipped.
-    auto emitSample = [&](const QPointF &sp, double chain) {
+    // Mesh-triangle index per emitted sample, parallel to out.samples. Drives
+    // the cell-boundary crossing pass below (where the line leaves one mesh
+    // cell for the next). Kept on the mesh (ground) triangulation so it works
+    // for bed-only profiles too.
+    QVector<int> meshTriOf;
+
+    // Build one fully-populated sample at a scene point. Shared by the regular
+    // resample pass and the cell-crossing fold-in below so both produce
+    // identical ground/depth columns.
+    auto makeSample = [&](const QPointF &sp, double chain) -> Sample {
         Sample s;
         s.scenePt  = sp;
         s.chainage = chain;
-        const double g = mesh->sampleZAt(sp.x(), sp.y());
-        s.ground = g;   // NaN off-mesh — propagated to the plot as a gap.
+        s.ground = mesh->sampleZAt(sp.x(), sp.y());   // NaN off-mesh — a plot gap.
         if (results) {
             const int tri = results->pickCellAt(sp);
             s.triIdx = tri;
             if (tri >= 0) {
-                s.depthNow = results->depthAtSceneNow(sp);
-                if (tri < perTriMax.size())
-                    s.maxDepth = perTriMax[tri];
+                // Barycentric (smooth) depth + envelope — same interpolation
+                // basis as the ground line, so WSE = ground + depth no longer
+                // steps at cell boundaries (matches the contour map).
+                // depthAtSceneInterp clamps dry cells internally; mask the
+                // envelope the same way via the per-cell max.
+                s.depthNow = results->depthAtSceneInterp(sp);
+                if (tri < perCellMax.size() && perCellMax[tri] >= dry)
+                    s.maxDepth = results->maxDepthAtSceneInterp(sp, vertMax);
             }
         }
-        out.samples.push_back(s);
+        return s;
+    };
+
+    // Walk each segment, emitting a sample every `step` units, and always
+    // emit an exact sample at each vertex so corners aren't skipped.
+    auto emitSample = [&](const QPointF &sp, double chain) {
+        out.samples.push_back(makeSample(sp, chain));
+        meshTriOf.push_back(mesh->locateTriangleAt(sp.x(), sp.y()));
     };
 
     double chainAtVertex = 0.0;
@@ -115,6 +139,63 @@ MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
         }
         chainAtVertex += segLen;
         emitSample(b, chainAtVertex);   // exact vertex sample
+    }
+
+    // Cell-boundary crossings: wherever the mesh-triangle index changes
+    // between consecutive samples, the line has crossed a cell edge. Refine
+    // the exact crossing along the straight chord between the two samples
+    // (every consecutive pair is collinear with the polyline) by bisecting on
+    // triangle membership, then record (chainage, ground) for a dot on the
+    // ground line. Land the dot on whichever side is on-mesh so the ground is
+    // finite even at the mesh boundary.
+    auto refineCrossing = [&](const QPointF &pa, double ca, int triA,
+                              const QPointF &pb, double cb) -> CellCrossing {
+        double lo = 0.0, hi = 1.0;     // lo stays in triA, hi is past the edge
+        for (int it = 0; it < 24; ++it) {
+            const double mid = 0.5 * (lo + hi);
+            const QPointF pm(pa.x() + (pb.x() - pa.x()) * mid,
+                             pa.y() + (pb.y() - pa.y()) * mid);
+            if (mesh->locateTriangleAt(pm.x(), pm.y()) == triA) lo = mid;
+            else                                                hi = mid;
+        }
+        const double t = (triA >= 0) ? lo : hi;   // pick the on-mesh side
+        CellCrossing c;
+        c.scenePt  = QPointF(pa.x() + (pb.x() - pa.x()) * t,
+                             pa.y() + (pb.y() - pa.y()) * t);
+        c.chainage = ca + (cb - ca) * t;
+        c.ground   = mesh->sampleZAt(c.scenePt.x(), c.scenePt.y());
+        return c;
+    };
+
+    for (int i = 1; i < out.samples.size(); ++i) {
+        if (meshTriOf[i] == meshTriOf[i - 1]) continue;
+        const Sample &A = out.samples[i - 1];
+        const Sample &B = out.samples[i];
+        const CellCrossing c = refineCrossing(A.scenePt, A.chainage, meshTriOf[i - 1],
+                                              B.scenePt, B.chainage);
+        if (std::isfinite(c.ground))
+            out.crossings.push_back(c);
+    }
+
+    // Fold the cell-edge crossings into the sample list as real ground
+    // vertices. The resampled ground line is piecewise-linear between
+    // resample points, but the terrain has a slope break at each cell edge —
+    // so a crossing dot (true terrain at the edge) floats off the straight
+    // chord, and zooming the chart in magnifies that gap. Inserting the
+    // crossing as a vertex makes the curve bend exactly at the edge so the
+    // dot sits on the line at every zoom. ground is copied from the crossing
+    // (not re-sampled) so the dot and the vertex are bit-identical.
+    if (!out.crossings.isEmpty()) {
+        out.samples.reserve(out.samples.size() + out.crossings.size());
+        for (const CellCrossing &c : out.crossings) {
+            Sample s = makeSample(c.scenePt, c.chainage);
+            s.ground = c.ground;
+            out.samples.push_back(s);
+        }
+        std::stable_sort(out.samples.begin(), out.samples.end(),
+                         [](const Sample &a, const Sample &b) {
+                             return a.chainage < b.chainage;
+                         });
     }
 
     return out;

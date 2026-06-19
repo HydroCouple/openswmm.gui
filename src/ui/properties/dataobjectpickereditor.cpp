@@ -63,6 +63,10 @@ void DataObjectPickerEditor::repopulate()
         case DataObjectRef::AnyCurve:
             items = m_ref.layer->tableIdsOfType(-1);
             break;
+        case DataObjectRef::StorageCurve:
+            // engine table type 1 = CURVE_STORAGE (per openswmm_tables.h comment)
+            items = m_ref.layer->tableIdsOfType(1);
+            break;
         case DataObjectRef::TimeSeries:
             items = m_ref.layer->tableIdsOfType(0);
             break;
@@ -146,7 +150,8 @@ void DataObjectPickerEditor::onPickerClicked()
     SWMMModelLayer::DataCategory dc = SWMMModelLayer::DataTimeSeries;
     switch (m_ref.kind) {
     case DataObjectRef::TidalCurve:
-    case DataObjectRef::AnyCurve:       dc = SWMMModelLayer::DataCurves;      break;
+    case DataObjectRef::AnyCurve:
+    case DataObjectRef::StorageCurve:   dc = SWMMModelLayer::DataCurves;      break;
     case DataObjectRef::TimeSeries:     dc = SWMMModelLayer::DataTimeSeries;  break;
     case DataObjectRef::Pattern:        dc = SWMMModelLayer::DataPatterns;    break;
     case DataObjectRef::UnitHydrograph: dc = SWMMModelLayer::DataHydrographs; break;

@@ -1313,13 +1313,22 @@ void ProfilePlotWidget::paintBackgroundAndAxes(QPainter &p) const
     p.drawRect(r);
 
     // Y tick labels (5 divisions).
+    // Axis number format comes from the plot options (which inherit the
+    // global Preferences default); fall back to the legacy precision when
+    // no options object is attached.
+    using openswmmvis::plot::NumberFormat;
+    using openswmmvis::plot::NumberFormatMode;
+    const NumberFormat yFmt = m_options ? m_options->yFormat()
+                                        : NumberFormat{NumberFormatMode::Decimals, 1};
+    const NumberFormat xFmt = m_options ? m_options->xFormat()
+                                        : NumberFormat{NumberFormatMode::Decimals, 0};
     QFontMetricsF fm(p.font());
     p.setPen(kAxisColor);
     for (int i = 0; i <= 5; ++i) {
         const double frac = i / 5.0;
         const double y = r.bottom() - r.height() * frac;
         const double val = m_dataYMin + frac * (m_dataYMax - m_dataYMin);
-        const QString s = QString::number(val, 'f', 1);
+        const QString s = yFmt.format(val);
         p.drawText(QRectF(0, y - 8, kMarginLeft - 4, 16),
                    Qt::AlignRight | Qt::AlignVCenter, s);
         p.drawLine(QPointF(r.left() - 3, y), QPointF(r.left(), y));
@@ -1334,7 +1343,7 @@ void ProfilePlotWidget::paintBackgroundAndAxes(QPainter &p) const
         const double x = r.left() + r.width() * frac;
         const double vx  = m_dataXMin + frac * (m_dataXMax - m_dataXMin);
         const double val = virtualToRealChainage(vx);
-        const QString s = QString::number(val, 'f', 0);
+        const QString s = xFmt.format(val);
         p.drawText(QRectF(x - 30, r.bottom() + 2, 60, 16),
                    Qt::AlignHCenter | Qt::AlignTop, s);
         p.drawLine(QPointF(x, r.bottom()), QPointF(x, r.bottom() + 3));
