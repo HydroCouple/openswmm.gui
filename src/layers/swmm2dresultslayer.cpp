@@ -1953,12 +1953,28 @@ float SWMM2DResultsLayer::clampToDrivingHead_(int idx, double depthBlend,
         const int vi = tri[k];
         return (vi >= 0 && vi < nVert) ? vz_[vi] : 0.0;
     };
-    // Per-vertex free surface η_v = z_v + signed-depth_v, and the ground at the
-    // sample under the SAME weights (ground + depth = η interpolated linearly).
-    const double e0 = z(0) + sd0, e1 = z(1) + sd1, e2 = z(2) + sd2;
-    const double maxEta       = std::max(e0, std::max(e1, e2));
-    const double groundInterp = w * z(0) + v * z(1) + u * z(2);
-    const double capDepth     = maxEta - groundInterp;   // depth that puts WSE at the driving HGL
+    const double z0 = z(0), z1 = z(1), z2 = z(2);
+    // Driving HGL = the highest free surface η_v = z_v + sd_v among the WET
+    // vertices only (sd_v > 0 — water actually stands above their bed). A dry
+    // vertex carries sd_v = 0 (its η collapses to its own ground), so a high-
+    // and-dry ridge vertex must NOT count toward the cap — otherwise the blend
+    // would march water up the adverse slope to the crest with no head to drive
+    // it. With no wet vertex there is no driving head at all → depth 0.
+    bool   wet    = false;
+    double maxEta = 0.0;
+    auto consider = [&](double zk, double sdk) {
+        if (sdk > 0.0) {
+            const double e = zk + sdk;
+            if (!wet || e > maxEta) { maxEta = e; wet = true; }
+        }
+    };
+    consider(z0, sd0); consider(z1, sd1); consider(z2, sd2);
+    if (!wet) return 0.0f;
+    // Ground at the sample under the SAME weights (ground + depth = η blended
+    // linearly). capDepth is the depth that puts the water surface exactly at
+    // the driving HGL; clamp the blend to it so WSE never exceeds the head.
+    const double groundInterp = w * z0 + v * z1 + u * z2;
+    const double capDepth      = maxEta - groundInterp;
     return std::max(0.0f, float(std::min(depthBlend, capDepth)));
 }
 
