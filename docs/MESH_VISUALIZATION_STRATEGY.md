@@ -166,33 +166,51 @@ Unchanged from the prior slice.  Plain vertices: 2.5 px dots colored by
 elevation.  SWMM-tagged (coupled) vertices: 5 px white halo + 3.5 px
 elevation-colored dot.
 
-### Theming hook (Slice AC.4)
+### Theming hook (Slice AC.4) — IMPLEMENTED
 
-When the layer-style system lands, `MeshGraphicsItem` will accept a
-`MeshLayerStyle` value passed through `SWMM2DMeshLayer::setStyle()`.  All
-hardcoded values above — color ramp stops, alpha, light direction, edge widths,
-slope threshold — become fields of `MeshLayerStyle` with the current values as
-defaults.  The hook site is marked with a comment in `MeshGraphicsItem::paint()`
-so it is easy to find.
+The theming layer landed, but as a property/sublayer model rather than the
+single `MeshLayerStyle` struct this doc originally predicted. The as-built
+design:
 
-```cpp
-// ── Theming hook (Slice AC.4) ─────────────────────────────────────
-// Replace hardcoded constants below with m_style fields once
-// SWMM2DMeshLayer::setStyle(MeshLayerStyle) is wired up.
-// ─────────────────────────────────────────────────────────────────
-```
+- **Light + relief** (`hillshadeAzimuth`, `hillshadeAltitude`,
+  `hillshadeZExag`, `hillshadeMinLit`) are `Q_PROPERTY`s on `SWMM2DMeshLayer`.
+  `MeshGraphicsItem::paint()` reads them each frame (see the *Theming hook
+  (Slice AC.4)* comment in `swmm2dmeshlayer.cpp`); the azimuth/altitude →
+  light-vector formula is shared verbatim with the QSG renderer so both paths
+  agree. Layer defaults (az=225°, alt=35.264°, zExag=3, minLit=0.15)
+  reproduce the historic NW-35° constants. `hillshadeZExag` maps to the
+  mesh-fill sublayer's `hillshadeStrength` (seeded to 0.3 → zExag 3.0).
+- **Fill colour / shading darkness** live on `MeshFillStyle` (the
+  `mesh.fill` sublayer's style bag): elevation-ramp toggle, flat fill
+  colour, `hillshadeStrength`.
+- **Contours** (`showContours`, `contourIntervalCount`, `contourColor`,
+  `contourLineWidth`, `filledContours`, `filledContoursOpacity`) are
+  `Q_PROPERTY`s forwarding to the `mesh.isolines` and `mesh.contourBands`
+  sublayers.
+- **Edges / nodes** are styled via their own `MeshEdgeStyle` /
+  `MeshNodeStyle` sublayer bags.
+
+**Properties dialog:** all of the above surface in the layer's **Symbology**
+tab. The mesh layer is routed through `buildSubjectsPanel()` in
+`layerstyledialog.cpp`, which renders `styleSubjects()` as a "Mesh / TIN" tab
+(the registered `MeshHillshadeEditor` with the sun-position thumb + contour
+controls) plus a "Sublayers" group holding each sublayer's style editor.
 
 ### Files touched
 
 | File | Change |
 |---|---|
-| `src/layers/swmm2dmeshlayer.cpp` | `MeshGraphicsItem::paint()` — fill alpha, hillshade blend, edge pass |
+| `src/layers/swmm2dmeshlayer.cpp` | `MeshGraphicsItem::paint()` — fill alpha, theme-driven hillshade (az/alt/zExag/minLit), edge pass; ctor seeds fill `hillshadeStrength` |
+| `src/ui/dialogs/editors/meshhillshadeeditor.cpp` | hillshade + contour editor, registered for `SWMM2DMeshLayer` |
+| `src/ui/dialogs/layerstyledialog.cpp` | `buildSubjectsPanel()` + mesh-layer Symbology routing |
 | `src/ui/dialogs/meshgenerationdialog.cpp` | `buildUi()` — tab layout, footer |
 | `docs/MESH_VISUALIZATION_STRATEGY.md` | this document |
 
-### Not in scope (deferred to Slice AC.4)
+### Still not in scope
 
-- `MeshLayerStyle` struct and `SWMM2DMeshLayer::setStyle()` API
-- Layer Properties panel "Style" tab for mesh layers
-- Result-animation color scale (time-varying depth / velocity)
-- Legend / color-bar overlay widget
+- Result-animation color scale (time-varying depth / velocity) — handled
+  separately by `SWMM2DResultsLayer`.
+- Legend / color-bar overlay widget for the static terrain ramp.
+- Per-stop editing of the elevation ramp from the mesh dialog (the 5-stop
+  ramp is still seeded in code; `MeshFillStyle` exposes the ramp toggle and
+  flat colour, not per-stop editing).

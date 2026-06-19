@@ -636,6 +636,19 @@ private:
     void applyCurrentDepths_();     ///< Copy `current_depths_` into the SceneTri buffer.
     void applyCurrentFlux_();       ///< Run RT0 reconstruction → write vx/vy/vmag into SceneTri.
 
+    /*! \brief Clamp a barycentric depth blend to the driving HGL of cell \p idx.
+     *  The implied water surface (ground + depth) must not exceed the highest
+     *  per-vertex free surface η_v = z_v + sd_v of the cell — the head the wet
+     *  cells actually supply. Barycentric weights leave [0,1] for a sample on or
+     *  just past a cell edge and extrapolate the blend above every vertex, which
+     *  would march water up an adverse slope with no head to drive it. \p sd0..2
+     *  are the per-vertex SIGNED depths (η_v − z_v); \p w,\p v,\p u the weights
+     *  for tri vertices 0,1,2. Returns the blend capped at the cell's max η and
+     *  floored at 0. */
+    [[nodiscard]] float clampToDrivingHead_(int idx, double depthBlend,
+                                            double w, double v, double u,
+                                            double sd0, double sd1, double sd2) const;
+
     std::unique_ptr<IMesh2DSource> source_;
     std::vector<double>            vx_, vy_, vz_;
     std::vector<std::array<int,3>> tris_;

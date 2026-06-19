@@ -135,14 +135,14 @@ void ProfilePlotOptions::setLabelAngleDeg   (int deg)  {
     SET_PRIM(m_labelAngleDeg, deg);
 }
 void ProfilePlotOptions::setXLabelFormatMode(LabelFormatMode m) { SET_PRIM(m_xLabelMode, m); }
-void ProfilePlotOptions::setXLabelPrecision (int count) {
-    count = std::clamp(count, 0, 10);
-    SET_PRIM(m_xLabelPrecision, count);
+void ProfilePlotOptions::setXLabelPrecision (DecimalPlaces count) {
+    const int c = std::clamp(static_cast<int>(count), 0, 10);
+    SET_PRIM(m_xLabelPrecision, c);
 }
 void ProfilePlotOptions::setYLabelFormatMode(LabelFormatMode m) { SET_PRIM(m_yLabelMode, m); }
-void ProfilePlotOptions::setYLabelPrecision (int count) {
-    count = std::clamp(count, 0, 10);
-    SET_PRIM(m_yLabelPrecision, count);
+void ProfilePlotOptions::setYLabelPrecision (DecimalPlaces count) {
+    const int c = std::clamp(static_cast<int>(count), 0, 10);
+    SET_PRIM(m_yLabelPrecision, c);
 }
 void ProfilePlotOptions::setUseTerrainGround(bool v)   { SET_PRIM(m_useTerrainGround, v); }
 void ProfilePlotOptions::setFloodRadiusPx (double r) {

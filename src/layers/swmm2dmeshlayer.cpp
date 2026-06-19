@@ -25,6 +25,7 @@
 #include "render/rule.h"
 #include "render/rulelist.h"
 #include "render/symbollayer.h"
+#include "render/symbolstyleadapter.h"
 #include "render/symbolstyle.h"
 // Slice Z.14-paint — polygon clip mask.
 #include "render/maskclipresolver.h"
@@ -1856,26 +1857,123 @@ void SWMM2DMeshLayer::buildRuleListLazy() const
 std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
 SWMM2DMeshLayer::styleSubjects()
 {
+    using namespace OpenSWMM::Render;
     using openswmmvis::ui::ILayerStyleSubject;
     using openswmmvis::ui::LayerStyleSubject;
     std::vector<std::unique_ptr<ILayerStyleSubject>> out;
 
+    // Layer-level terrain styling (hillshade light + bed-elevation contour
+    // controls) keeps its dedicated MeshHillshadeEditor, registered for the
+    // SWMM2DMeshLayer class — so the layer itself is the propertyObject.
     out.push_back(std::make_unique<LayerStyleSubject>(
         tr("Mesh / TIN"), this,
         QStringLiteral("mesh.layer"),
         QString()));
 
+    // Per-sublayer styling now mounts the registered 2D adapter editors
+    // (color pickers / combos via symbolstyleeditors2d) instead of the
+    // generic QPropertyModel grid — which lacks a QColor item and so showed
+    // no colour picker. The adapter edits the matching Rule; the Rule →
+    // legacy-style back-prop wired in buildRuleListLazy() applies the change
+    // to the painted sublayer style.
+    //
+    // The Rule specs are default-seeded in buildRuleListLazy(), so before
+    // handing an adapter to the dialog we forward-seed each Rule's
+    // SymbolLayer from the *current* legacy sublayer style. Without this the
+    // editor would open on defaults and the back-prop would reset the user's
+    // styling on the first edit.
+    if (!m_ruleList)
+        buildRuleListLazy();
+
     const QString sect = tr("Sublayers");
-    auto add = [&](OpenSWMM::Render::ISublayer *sub) {
-        if (!sub || !sub->style()) return;
-        out.push_back(std::make_unique<LayerStyleSubject>(
-            sub->displayName(), sub->style(), sub->id(), sect));
+
+    // Replace a Rule's single SymbolLayer with one carrying the current
+    // legacy-style values (so the adapter/editor opens on real values).
+    auto setRuleLayer = [](Rule *r, const SymbolLayer &sl) {
+        if (!r) return;
+        auto *single = dynamic_cast<SingleSymbolRenderer *>(r->renderer());
+        if (!single) return;
+        SymbolStyle sym = single->symbol();
+        sym.layers.clear();
+        sym.layers.append(sl);
+        single->setSymbol(sym);
     };
-    add(m_meshFillSublayer);
-    add(m_meshEdgeSublayer);
-    add(m_meshNodeSublayer);
-    add(m_contourBandSublayer);
-    add(m_isolineSublayer);
+    auto addAdapter = [&](Rule *r, const QString &title, const QString &id) {
+        if (!r) return;
+        if (QObject *adapter = SymbolStyleAdapter::createFor(r, this))
+            out.push_back(std::make_unique<LayerStyleSubject>(title, adapter, id, sect));
+    };
+
+    const int n = m_ruleList->count();
+    Rule *rFill = n > 0 ? m_ruleList->at(0) : nullptr;  // Mesh fill (RasterColorRamp)
+    Rule *rBand = n > 2 ? m_ruleList->at(2) : nullptr;  // Contour bands (Filled)
+    Rule *rLine = n > 3 ? m_ruleList->at(3) : nullptr;  // Contour lines (Lines)
+    Rule *rEdge = n > 4 ? m_ruleList->at(4) : nullptr;  // Mesh edges
+    Rule *rNode = n > 5 ? m_ruleList->at(5) : nullptr;  // Mesh nodes
+
+    // Mesh fill — flat fill colour + opacity ride the ramp spec's
+    // noDataColor/opacity (the only fields the fill back-prop consumes; other
+    // ramp fields are inert for the flat terrain fill).
+    if (rFill && m_meshFillSublayer && m_meshFillSublayer->fillStyle()) {
+        RasterColorRampSymbolLayerSpec spec;
+        spec.opacity     = m_meshFillSublayer->opacity();
+        spec.noDataColor = m_meshFillSublayer->fillStyle()->fillColor();
+        setRuleLayer(rFill, spec.toSymbolLayer());
+        addAdapter(rFill, m_meshFillSublayer->displayName(), m_meshFillSublayer->id());
+    }
+
+    // Mesh edges.
+    if (rEdge && m_meshEdgeSublayer && m_meshEdgeSublayer->edgeStyle()) {
+        auto *st = m_meshEdgeSublayer->edgeStyle();
+        MeshEdgeSymbolLayerSpec spec;
+        spec.color               = st->color();
+        spec.width               = st->lineWidthPx();
+        spec.penStyle            = st->dashPattern();
+        spec.useSlopeDrivenWidth = st->useSlopeDrivenWidth();
+        spec.slopeBreak          = st->slopeBreak();
+        spec.wideWidthPx         = st->wideWidthPx();
+        spec.wideColor           = st->wideColor();
+        setRuleLayer(rEdge, spec.toSymbolLayer());
+        addAdapter(rEdge, m_meshEdgeSublayer->displayName(), m_meshEdgeSublayer->id());
+    }
+
+    // Mesh nodes (vertex markers).
+    if (rNode && m_meshNodeSublayer && m_meshNodeSublayer->nodeStyle()) {
+        auto *st = m_meshNodeSublayer->nodeStyle();
+        MeshNodeSymbolLayerSpec spec;
+        spec.marker.fillColor    = st->color();
+        spec.marker.sizePx       = st->markerSizePx();
+        spec.marker.outlineColor = st->outlineColor();
+        spec.marker.outlineWidth = st->outlineWidthPx();
+        spec.marker.shape        = static_cast<MarkerShape>(static_cast<int>(st->shape()));
+        setRuleLayer(rNode, spec.toSymbolLayer());
+        addAdapter(rNode, m_meshNodeSublayer->displayName(), m_meshNodeSublayer->id());
+    }
+
+    // Contour bands (filled isobands).
+    if (rBand && m_contourBandSublayer && m_contourBandSublayer->bandStyle()) {
+        auto *st = m_contourBandSublayer->bandStyle();
+        ContourSymbolLayerSpec spec;
+        spec.mode        = ContourMode::Filled;
+        spec.smoothBands = st->smoothBands();
+        spec.binner.setBinCount(st->bandCount());
+        spec.ramp.stops  = QGradientStops{ {0.0, st->lowColor()}, {1.0, st->highColor()} };
+        setRuleLayer(rBand, spec.toSymbolLayer());
+        addAdapter(rBand, m_contourBandSublayer->displayName(), m_contourBandSublayer->id());
+    }
+
+    // Contour lines (isolines).
+    if (rLine && m_isolineSublayer && m_isolineSublayer->isolineStyle()) {
+        auto *st = m_isolineSublayer->isolineStyle();
+        ContourSymbolLayerSpec spec;
+        spec.mode        = ContourMode::Lines;
+        spec.lineColor   = st->color();
+        spec.lineWidthPx = st->lineWidthPx();
+        spec.labelEveryN = st->labels() ? 1 : 0;
+        spec.binner.setBinCount(st->isoValueCount());
+        setRuleLayer(rLine, spec.toSymbolLayer());
+        addAdapter(rLine, m_isolineSublayer->displayName(), m_isolineSublayer->id());
+    }
 
     return out;
 }

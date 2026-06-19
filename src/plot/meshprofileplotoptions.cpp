@@ -80,14 +80,14 @@ void MeshProfilePlotOptions::setMaxEnvelopePen(const QPen &p)    { SET_OBJ(m_max
 void MeshProfilePlotOptions::setMaxEnvelopeBrush(const QBrush &b){ SET_OBJ(m_maxEnvelopeBrush, b); }
 
 void MeshProfilePlotOptions::setXLabelFormatMode(LabelFormatMode m) { SET_PRIM(m_xLabelMode, m); }
-void MeshProfilePlotOptions::setXLabelPrecision(int count) {
-    count = std::clamp(count, 0, 10);
-    SET_PRIM(m_xLabelPrecision, count);
+void MeshProfilePlotOptions::setXLabelPrecision(DecimalPlaces count) {
+    const int c = std::clamp(static_cast<int>(count), 0, 10);
+    SET_PRIM(m_xLabelPrecision, c);
 }
 void MeshProfilePlotOptions::setYLabelFormatMode(LabelFormatMode m) { SET_PRIM(m_yLabelMode, m); }
-void MeshProfilePlotOptions::setYLabelPrecision(int count) {
-    count = std::clamp(count, 0, 10);
-    SET_PRIM(m_yLabelPrecision, count);
+void MeshProfilePlotOptions::setYLabelPrecision(DecimalPlaces count) {
+    const int c = std::clamp(static_cast<int>(count), 0, 10);
+    SET_PRIM(m_yLabelPrecision, c);
 }
 
 void MeshProfilePlotOptions::setLegendVisible(bool v)           { SET_PRIM(m_legendVisible, v); }
