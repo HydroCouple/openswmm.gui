@@ -53,6 +53,13 @@ QString MeshVertexPropertyAdapter::coupledNodeId() const
 {
     if (!m_layer) return {};
     if (m_idx < 0 || m_idx >= m_layer->mesh().vertices.size()) return {};
+    return m_layer->mesh().vertices[m_idx].coupledNode;
+}
+
+QString MeshVertexPropertyAdapter::tag() const
+{
+    if (!m_layer) return {};
+    if (m_idx < 0 || m_idx >= m_layer->mesh().vertices.size()) return {};
     return m_layer->mesh().vertices[m_idx].tag;
 }
 
@@ -67,7 +74,13 @@ void MeshVertexPropertyAdapter::setZ(double v)
 void MeshVertexPropertyAdapter::setCoupledNodeId(const QString &id)
 {
     if (!m_layer) return;
-    m_layer->applyMeshVertexTag(m_idx, id);
+    m_layer->applyMeshVertexCoupledNode(m_idx, id);
+}
+
+void MeshVertexPropertyAdapter::setTag(const QString &tag)
+{
+    if (!m_layer) return;
+    m_layer->applyMeshVertexTag(m_idx, tag);
 }
 
 void MeshVertexPropertyAdapter::onLayerAttributeChanged(const QString &refName)
@@ -82,5 +95,6 @@ QString MeshVertexPropertyAdapter::displayLabelFor(const QString &property) cons
     if (property == QStringLiteral("y"))             return QCoreApplication::translate("MeshVertex", "Y");
     if (property == QStringLiteral("z"))             return QCoreApplication::translate("MeshVertex", "Elevation (Z)");
     if (property == QStringLiteral("coupledNodeId")) return QCoreApplication::translate("MeshVertex", "Coupled SWMM node");
+    if (property == QStringLiteral("tag"))           return QCoreApplication::translate("MeshVertex", "Tag");
     return property;
 }

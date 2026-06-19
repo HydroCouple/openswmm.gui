@@ -120,6 +120,7 @@
 
 #include <openswmm/engine/openswmm_2d.h>
 #include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_nodes.h>   // node id enumeration for coupled-node dropdown
 #include "map/tools/maptoolidentify.h"   // IdentifyResult
 
 #include <QPointer>
@@ -685,6 +686,20 @@ void SWMMVis::initializeMeshEditingToolBar()
         names.sort(Qt::CaseInsensitive);
         return names;
     });
+    // Couplable SWMM node ids for the mesh vertex coupled-node dropdown.
+    mMeshEditingToolbar->setNodeLister([this]() -> QStringList {
+        auto *pw = activeProjectWindow();
+        if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine()) return {};
+        SWMM_Engine e = pw->modelLayer()->engine();
+        QStringList ids;
+        const int nNodes = swmm_node_count(e);
+        for (int i = 0; i < nNodes; ++i) {
+            const char *id = swmm_node_id(e, i);
+            if (id && id[0] != '\0') ids.append(QString::fromUtf8(id));
+        }
+        ids.sort(Qt::CaseInsensitive);
+        return ids;
+    });
     mMeshEditingToolbar->setCurveLister([this]() -> QStringList {
         auto *pw = activeProjectWindow();
         if (!pw || !pw->modelLayer()) return {};
@@ -724,8 +739,15 @@ void SWMMVis::initializeMeshEditingToolBar()
     });
     mMeshEditingToolbar->addToolAction(actPick2DCells);
     // Cell-selection info label right after the Select-2D-Cells tool (like the
-    // edge label after Edit Edge).
+    // edge label after Edit Edge), then the per-cell editors (Manning's n +
+    // tag) so they sit in the 2D-cell group. The toolbar hides them unless a
+    // single cell is selected.
     mMeshEditingToolbar->addToolWidget(mMeshEditingToolbar->cellInfoLabel());
+    QAction *cellManningsAct =
+        mMeshEditingToolbar->addToolWidget(mMeshEditingToolbar->cellManningsWidget());
+    QAction *cellTagAct =
+        mMeshEditingToolbar->addToolWidget(mMeshEditingToolbar->cellTagWidget());
+    mMeshEditingToolbar->setCellEditorActions(cellManningsAct, cellTagAct);
 
     // Icon-only on the toolbar — like Edit Vertex / Edit Edge above, the
     // QAction text is left empty so only the icon shows; the descriptive

@@ -188,6 +188,23 @@ add_swmmvis_unit_test(test_meshinpbcroundtrip
     ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
 )
 
+# Mesh-edit persistence — layer edits pushed into the engine survive the
+# .inp write (vertex Z / conveyance / BC), with Manning's n + coupling kept.
+# Needs the real engine, so it is only built when the engine target exists.
+if(TARGET openswmm_engine)
+    add_swmmvis_unit_test(test_meshenginesync
+        test_meshenginesync.cpp
+        ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
+        ${PROJECT_SOURCE_DIR}/include/mesh/meshedgebc.h
+        ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshreader.h
+        ${PROJECT_SOURCE_DIR}/include/mesh/meshenginesync.h
+        ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/meshenginesync.cpp
+    )
+    target_link_libraries(test_meshenginesync PRIVATE Qt6::Gui openswmm_engine)
+endif()
+
 # Slice BB Phase 8.6.16 — shared model for legend overlay chrome.
 # Needs Qt6::Gui for QColor/QFont; no widget dependencies.
 # Header listed in sources so AUTOMOC picks up the Q_OBJECT macro.
