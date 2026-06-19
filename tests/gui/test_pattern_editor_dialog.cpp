@@ -26,6 +26,7 @@
 #include "pattern/patternregistry.h"
 #include "ui/dialogs/patterneditordialog.h"
 #include "ui/panels/patternfactortablemodel.h"
+#include "ui/widgets/patterneditchartview.h"  // complete type for chartView()->grab()
 
 #include <QApplication>
 #include <QChartView>
