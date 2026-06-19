@@ -12,6 +12,7 @@
 #include "ui/properties/dataobjectref.h"     // pump-curve picker cell
 #include "ui/properties/linkcompoundeditref.h"
 #include "ui/properties/nodecompoundeditref.h"
+#include "ui/properties/subcatchcompoundeditref.h"  // Phase 3 compound cells
 #include "ui/properties/userflagseditref.h"  // per-object User Flags cell
 
 #include <QUndoCommand>
@@ -185,6 +186,7 @@ QVariantList culvertCodeValues();
 QVariantList dividerTypeValues();
 // Slice AG.4 — storage geometry shape enum.
 QVariantList storageShapeValues();
+QVariantList infilModelValues();
 // ATTRIBUTE_EDITOR_WIRING Phase 1 — link sub-type enums.
 QVariantList orificeTypeValues();
 QVariantList weirTypeValues();
@@ -192,6 +194,7 @@ QVariantList outletRatingTypeValues();
 // ATTRIBUTE_EDITOR_WIRING parity pass — rain gage enums.
 QVariantList gageRainTypeValues();
 QVariantList gageDataSourceValues();
+QVariantList gageRainUnitsValues();
 
 // Compound-attribute column (Inflows / DWF / RDII / Treatment). The
 // cell holds a NodeCompoundEditRef built live in data(); the delegate
@@ -635,6 +638,27 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             num("Ds-Perv",   "Depression Storage (Perv.)",
                                                       "subcatch_ds_perv",
                                                        0.0, 1e3, 4, UnitKind::Depression),
+            // Phase 3 — Rain gage + outlet pickers (DataObjectRef cells),
+            // infiltration model enum, and the per-model parameter columns.
+            // Parameter columns are always present (no per-row greying in the
+            // table); they read/write the active model's shared param store.
+            compoundCol("Rain gage", "Rain Gage",  "subcatch_rain_gage_ref"),
+            compoundCol("Outlet",    "Outlet",     "subcatch_outlet_ref"),
+            enumCol("Infil. model",  "Infiltration Model",
+                                                   "subcatch_infil_model",
+                                                   infilModelValues()),
+            num("Max. rate",  "Max. Infil. Rate",  "subcatch_horton_f0",     0.0, 1e3, 4),
+            num("Min. rate",  "Min. Infil. Rate",  "subcatch_horton_fmin",   0.0, 1e3, 4),
+            num("Decay",      "Decay Constant",    "subcatch_horton_decay",  0.0, 100.0, 4),
+            num("Dry time",   "Drying Time",       "subcatch_horton_drytime",0.0, 100.0, 4),
+            num("Suction",    "Suction Head",      "subcatch_ga_suction",    0.0, 1e3, 4),
+            num("Conduct.",   "Conductivity",      "subcatch_ga_conduct",    0.0, 1e3, 4),
+            num("Init.def.",  "Initial Deficit",   "subcatch_ga_deficit",    0.0, 1.0, 4),
+            num("Curve no.",  "Curve Number",      "subcatch_cn",            0.0, 100.0, 2),
+            // Compound cells (open SubcatchCompoundEditDialog tabs).
+            compoundCol("Land uses",   "Land Use Coverage", "subcatch_landuse_ref"),
+            compoundCol("Groundwater", "Groundwater",       "subcatch_groundwater_ref"),
+            compoundCol("LID usage",   "LID Usage",         "subcatch_lid_ref"),
         };
     case SWMMModelLayer::CatRainGages: {
         // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — rain
@@ -648,15 +672,31 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         fileCol.label  = QStringLiteral("Rain File (path)");
         fileCol.editor = EditorKind::Text;
         fileCol.setter = QStringLiteral("gage_file_path");
+        ColumnSpec stationCol;
+        stationCol.key    = QStringLiteral("Station ID");
+        stationCol.label  = QStringLiteral("Station ID");
+        stationCol.editor = EditorKind::Text;
+        stationCol.setter = QStringLiteral("gage_station_id");
+        // DA.2 parity — full legacy [RAINGAGES] field set: rain format,
+        // recording interval, snow-catch factor, data source, then the
+        // source-specific rows (series picker vs. file path / station / units).
         return {
             nameCol(),
             ro("X",    "X Coordinate"),
             ro("Y",    "Y Coordinate"),
             enumCol("Rain type",   "Rain Type",   "gage_rain_type",
                                                   gageRainTypeValues()),
+            num("Recording interval", "Recording Interval (s)", "gage_interval",
+                                                  0.0, 1e7, 0),
+            num("Snow catch factor",  "Snow Catch Factor",      "gage_snow_factor",
+                                                  0.0, 1e3, 4),
             enumCol("Data source", "Data Source", "gage_data_source",
                                                   gageDataSourceValues()),
+            compoundCol("Series name", "Series Name", "gage_series_ref"),
             fileCol,
+            stationCol,
+            enumCol("Rain units",  "Rain Units",  "gage_rain_units",
+                                                  gageRainUnitsValues()),
         };
     }
     default:
@@ -704,6 +744,57 @@ int lossSetAvg(SWMM_Engine e, int idx, double v) {
     if (rc != SWMM_OK) return rc;
     return swmm_link_set_loss_coeff(e, idx, in, out, v);
 }
+
+// Phase 3 — subcatchment infiltration. Model code via the int path; the
+// per-model parameter columns read/write the engine's shared infil_p1..p4
+// store through the typed getters/setters. The double setters preserve the
+// model code (the engine's set_infil_horton/_green_ampt stamp the canonical
+// code, which would demote a Mod-Horton/Mod-GA subcatchment) — mirrors
+// SWMMSubcatchPropertyAdapter's read-modify-write slots.
+int infilModelGetI(SWMM_Engine e, int idx, int *v) {
+    return swmm_subcatch_get_infil_model(e, idx, v);
+}
+int infilModelSetI(SWMM_Engine e, int idx, int v) {
+    return swmm_subcatch_set_infil_model(e, idx, v);
+}
+int hortonF0Get(SWMM_Engine e, int i, double *v) {
+    double f0=0,fmin=0,d=0,dt=0; int rc=swmm_subcatch_get_infil_horton(e,i,&f0,&fmin,&d,&dt); *v=f0; return rc; }
+int hortonFminGet(SWMM_Engine e, int i, double *v) {
+    double f0=0,fmin=0,d=0,dt=0; int rc=swmm_subcatch_get_infil_horton(e,i,&f0,&fmin,&d,&dt); *v=fmin; return rc; }
+int hortonDecayGet(SWMM_Engine e, int i, double *v) {
+    double f0=0,fmin=0,d=0,dt=0; int rc=swmm_subcatch_get_infil_horton(e,i,&f0,&fmin,&d,&dt); *v=d; return rc; }
+int hortonDryGet(SWMM_Engine e, int i, double *v) {
+    double f0=0,fmin=0,d=0,dt=0; int rc=swmm_subcatch_get_infil_horton(e,i,&f0,&fmin,&d,&dt); *v=dt; return rc; }
+int hortonWrite(SWMM_Engine e, int i, double f0, double fmin, double d, double dt) {
+    int model=0; swmm_subcatch_get_infil_model(e,i,&model);
+    const int rc=swmm_subcatch_set_infil_horton(e,i,f0,fmin,d,dt);
+    if (rc==SWMM_OK) swmm_subcatch_set_infil_model(e,i,model);
+    return rc; }
+int hortonF0Set(SWMM_Engine e, int i, double v) {
+    double f0=0,fmin=0,d=0,dt=0; if (swmm_subcatch_get_infil_horton(e,i,&f0,&fmin,&d,&dt)!=SWMM_OK) return SWMM_ERR_BADINDEX; return hortonWrite(e,i,v,fmin,d,dt); }
+int hortonFminSet(SWMM_Engine e, int i, double v) {
+    double f0=0,fmin=0,d=0,dt=0; if (swmm_subcatch_get_infil_horton(e,i,&f0,&fmin,&d,&dt)!=SWMM_OK) return SWMM_ERR_BADINDEX; return hortonWrite(e,i,f0,v,d,dt); }
+int hortonDecaySet(SWMM_Engine e, int i, double v) {
+    double f0=0,fmin=0,d=0,dt=0; if (swmm_subcatch_get_infil_horton(e,i,&f0,&fmin,&d,&dt)!=SWMM_OK) return SWMM_ERR_BADINDEX; return hortonWrite(e,i,f0,fmin,v,dt); }
+int hortonDrySet(SWMM_Engine e, int i, double v) {
+    double f0=0,fmin=0,d=0,dt=0; if (swmm_subcatch_get_infil_horton(e,i,&f0,&fmin,&d,&dt)!=SWMM_OK) return SWMM_ERR_BADINDEX; return hortonWrite(e,i,f0,fmin,d,v); }
+int gaSuctionGet(SWMM_Engine e, int i, double *v) {
+    double s=0,k=0,d=0; int rc=swmm_subcatch_get_infil_green_ampt(e,i,&s,&k,&d); *v=s; return rc; }
+int gaConductGet(SWMM_Engine e, int i, double *v) {
+    double s=0,k=0,d=0; int rc=swmm_subcatch_get_infil_green_ampt(e,i,&s,&k,&d); *v=k; return rc; }
+int gaDeficitGet(SWMM_Engine e, int i, double *v) {
+    double s=0,k=0,d=0; int rc=swmm_subcatch_get_infil_green_ampt(e,i,&s,&k,&d); *v=d; return rc; }
+int gaWrite(SWMM_Engine e, int i, double s, double k, double d) {
+    int model=0; swmm_subcatch_get_infil_model(e,i,&model);
+    const int rc=swmm_subcatch_set_infil_green_ampt(e,i,s,k,d);
+    if (rc==SWMM_OK) swmm_subcatch_set_infil_model(e,i,model);
+    return rc; }
+int gaSuctionSet(SWMM_Engine e, int i, double v) {
+    double s=0,k=0,d=0; if (swmm_subcatch_get_infil_green_ampt(e,i,&s,&k,&d)!=SWMM_OK) return SWMM_ERR_BADINDEX; return gaWrite(e,i,v,k,d); }
+int gaConductSet(SWMM_Engine e, int i, double v) {
+    double s=0,k=0,d=0; if (swmm_subcatch_get_infil_green_ampt(e,i,&s,&k,&d)!=SWMM_OK) return SWMM_ERR_BADINDEX; return gaWrite(e,i,s,v,d); }
+int gaDeficitSet(SWMM_Engine e, int i, double v) {
+    double s=0,k=0,d=0; if (swmm_subcatch_get_infil_green_ampt(e,i,&s,&k,&d)!=SWMM_OK) return SWMM_ERR_BADINDEX; return gaWrite(e,i,s,k,v); }
 
 // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — outfall fixed
 // stage. The engine stores stage / tidal-curve-idx / timeseries-idx in
@@ -1007,6 +1098,30 @@ SetterEntry setterFor(const QString &tag) {
         e.getFnS = &gageFilePathGet;
         return e;
     }
+    if (tag == QStringLiteral("gage_interval")) {
+        e.kind  = EntityKind::Gage;
+        e.setFn = &swmm_gage_set_rain_interval;
+        e.getFn = &swmm_gage_get_rain_interval;
+        return e;
+    }
+    if (tag == QStringLiteral("gage_snow_factor")) {
+        e.kind  = EntityKind::Gage;
+        e.setFn = &swmm_gage_set_snow_factor;
+        e.getFn = &swmm_gage_get_snow_factor;
+        return e;
+    }
+    if (tag == QStringLiteral("gage_station_id")) {
+        e.kind   = EntityKind::Gage;
+        e.setFnS = &swmm_gage_set_station_id;
+        e.getFnS = &swmm_gage_get_station_id;
+        return e;
+    }
+    if (tag == QStringLiteral("gage_rain_units")) {
+        e.kind   = EntityKind::Gage;
+        e.setFnI = &swmm_gage_set_rain_units;
+        e.getFnI = &swmm_gage_get_rain_units;
+        return e;
+    }
 
     // Subcatchment — numeric
     if (tag == QStringLiteral("subcatch_area"))
@@ -1025,6 +1140,29 @@ SetterEntry setterFor(const QString &tag) {
         return {EntityKind::Subcatch, &swmm_subcatch_set_ds_imperv,  &swmm_subcatch_get_ds_imperv};
     if (tag == QStringLiteral("subcatch_ds_perv"))
         return {EntityKind::Subcatch, &swmm_subcatch_set_ds_perv,    &swmm_subcatch_get_ds_perv};
+
+    // Phase 3 — infiltration model (int path) + per-model parameters (double).
+    if (tag == QStringLiteral("subcatch_infil_model")) {
+        SetterEntry e; e.kind = EntityKind::Subcatch;
+        e.setFnI = &infilModelSetI; e.getFnI = &infilModelGetI; return e;
+    }
+    if (tag == QStringLiteral("subcatch_horton_f0"))
+        return {EntityKind::Subcatch, &hortonF0Set,    &hortonF0Get};
+    if (tag == QStringLiteral("subcatch_horton_fmin"))
+        return {EntityKind::Subcatch, &hortonFminSet,  &hortonFminGet};
+    if (tag == QStringLiteral("subcatch_horton_decay"))
+        return {EntityKind::Subcatch, &hortonDecaySet, &hortonDecayGet};
+    if (tag == QStringLiteral("subcatch_horton_drytime"))
+        return {EntityKind::Subcatch, &hortonDrySet,   &hortonDryGet};
+    if (tag == QStringLiteral("subcatch_ga_suction"))
+        return {EntityKind::Subcatch, &gaSuctionSet,   &gaSuctionGet};
+    if (tag == QStringLiteral("subcatch_ga_conduct"))
+        return {EntityKind::Subcatch, &gaConductSet,   &gaConductGet};
+    if (tag == QStringLiteral("subcatch_ga_deficit"))
+        return {EntityKind::Subcatch, &gaDeficitSet,   &gaDeficitGet};
+    if (tag == QStringLiteral("subcatch_cn"))
+        return {EntityKind::Subcatch, &swmm_subcatch_set_infil_curve_number,
+                                      &swmm_subcatch_get_infil_curve_number};
 
     return {};
 }
@@ -1074,6 +1212,17 @@ QVariantList storageShapeValues() {
         makePair("TABULAR",    1),
     };
 }
+// Phase 3 — infiltration model. Mirrors SWMMSubcatchPropertyAdapter::InfilModel
+// and the engine [INFILTRATION] code order.
+QVariantList infilModelValues() {
+    return {
+        makePair("HORTON",         0),
+        makePair("MODIFIED_HORTON",1),
+        makePair("GREEN_AMPT",     2),
+        makePair("MODIFIED_GREEN_AMPT", 3),
+        makePair("CURVE_NUMBER",   4),
+    };
+}
 // ATTRIBUTE_EDITOR_WIRING Phase 1 — link sub-type enums. Values mirror
 // the engine enums in openswmm_links.h (single ordering source: the
 // Q_ENUMs on SWMMLinkPropertyAdapter cite the same legacy combos).
@@ -1118,6 +1267,13 @@ QVariantList gageDataSourceValues() {
     return {
         makePair("TIMESERIES", 0),
         makePair("FILE",       1),
+    };
+}
+// DA.2 parity — file rain-depth units. Mirrors GageData.rain_units (0=IN, 1=MM).
+QVariantList gageRainUnitsValues() {
+    return {
+        makePair("IN", 0),
+        makePair("MM", 1),
     };
 }
 QVariantList culvertCodeValues() {
@@ -1448,6 +1604,22 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             return QVariant::fromValue(ref);
         }
 
+        // DA.2 parity — rain gage TIME SERIES picker (DataObjectRef cell).
+        // Mirrors SWMMRainGagePropertyAdapter::seriesNameRef; the engine
+        // write happens in commitValueDirect.
+        if (spec.setter == QStringLiteral("gage_series_ref")) {
+            const int gIdx = swmm_gage_index(eng, name.toUtf8().constData());
+            if (gIdx < 0) return {};
+            DataObjectRef dref;
+            dref.engine = eng;
+            dref.layer  = m_layer;
+            dref.kind   = DataObjectRef::TimeSeries;
+            char buf[256] = {};
+            if (swmm_gage_get_timeseries(eng, gIdx, buf, sizeof(buf)) == SWMM_OK)
+                dref.currentName = QString::fromUtf8(buf);
+            return QVariant::fromValue(dref);
+        }
+
         // §S.SC.1.c — Link-side compound (XSection / InletUsage).
         // The setter tag's "link_" prefix routes here;
         // node setters fall through to the existing branch below.
@@ -1539,6 +1711,81 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                 }
             }
             return QVariant::fromValue(dref);
+        }
+
+        // Phase 3 — subcatchment rain gage + outlet pickers (DataObjectRef
+        // cells). Mirror SWMMSubcatchPropertyAdapter::rainGageRef / outletRef;
+        // the engine write happens in commitValueDirect.
+        if (spec.setter == QStringLiteral("subcatch_rain_gage_ref")
+            || spec.setter == QStringLiteral("subcatch_outlet_ref")) {
+            const int sIdx = swmm_subcatch_index(eng, name.toUtf8().constData());
+            if (sIdx < 0) return {};
+            DataObjectRef dref;
+            dref.engine = eng;
+            dref.layer  = m_layer;
+            if (spec.setter == QStringLiteral("subcatch_rain_gage_ref")) {
+                dref.kind = DataObjectRef::RainGage;
+                int g = -1;
+                if (swmm_subcatch_get_gage(eng, sIdx, &g) == SWMM_OK && g >= 0)
+                    if (const char *id = swmm_gage_id(eng, g))
+                        dref.currentName = QString::fromUtf8(id);
+            } else {
+                dref.kind = DataObjectRef::SubcatchOutlet;
+                int sc = -1;
+                if (swmm_subcatch_get_outlet_subcatch(eng, sIdx, &sc) == SWMM_OK && sc >= 0) {
+                    if (const char *id = swmm_subcatch_id(eng, sc))
+                        dref.currentName = QString::fromUtf8(id);
+                } else {
+                    int nd = -1;
+                    if (swmm_subcatch_get_outlet(eng, sIdx, &nd) == SWMM_OK && nd >= 0)
+                        if (const char *id = swmm_node_id(eng, nd))
+                            dref.currentName = QString::fromUtf8(id);
+                }
+            }
+            return QVariant::fromValue(dref);
+        }
+
+        // Phase 3 — subcatchment compound cells (land use / groundwater / LID
+        // usage). The SubcatchCompoundEditDialog performs the engine writes;
+        // the cell only carries the coordinate + a live summary.
+        if (spec.setter == QStringLiteral("subcatch_landuse_ref")
+            || spec.setter == QStringLiteral("subcatch_groundwater_ref")
+            || spec.setter == QStringLiteral("subcatch_lid_ref")) {
+            const int sIdx = swmm_subcatch_index(eng, name.toUtf8().constData());
+            if (sIdx < 0) return {};
+            SubcatchCompoundEditRef sref;
+            sref.engine = eng;
+            sref.layer  = m_layer;
+            sref.subName = name;
+            if (spec.setter == QStringLiteral("subcatch_landuse_ref")) {
+                sref.kind = SubcatchCompoundEditRef::LandUse;
+                int assigned = 0;
+                const int nLu = swmm_landuse_count(eng);
+                for (int lu = 0; lu < nLu; ++lu) {
+                    double frac = 0.0;
+                    if (swmm_subcatch_get_coverage(eng, sIdx, lu, &frac) == SWMM_OK && frac > 0.0)
+                        ++assigned;
+                }
+                sref.summary = assigned > 0 ? tr("%1 land use(s)").arg(assigned) : tr("(none)");
+            } else if (spec.setter == QStringLiteral("subcatch_groundwater_ref")) {
+                sref.kind = SubcatchCompoundEditRef::Groundwater;
+                int aq = -1;
+                swmm_subcatch_get_aquifer(eng, sIdx, &aq);
+                sref.summary = aq >= 0 ? tr("aquifer set") : tr("(none)");
+            } else {
+                sref.kind = SubcatchCompoundEditRef::LidUsage;
+                int mine = 0;
+                const int nU = swmm_lid_usage_count(eng);
+                for (int u = 0; u < nU; ++u) {
+                    int sc = -1;
+                    if (swmm_lid_usage_get(eng, u, &sc, nullptr, nullptr, nullptr,
+                                           nullptr, nullptr, nullptr, nullptr, nullptr) == SWMM_OK
+                        && sc == sIdx)
+                        ++mine;
+                }
+                sref.summary = mine > 0 ? tr("%1 LID(s)").arg(mine) : tr("(none)");
+            }
+            return QVariant::fromValue(sref);
         }
 
         const int nodeIdx = swmm_node_index(eng, name.toUtf8().constData());
@@ -1868,6 +2115,37 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
                 if (curveIdx < 0) return false;   // unknown curve — ignore
             }
             rc = swmm_node_set_storage_curve(eng, nodeIdx, curveIdx);
+        } else if (spec.setter == QStringLiteral("gage_series_ref")) {
+            // DA.2 parity — assign a [TIMESERIES] source to the gage. The
+            // engine setter also flips the data source to TIMESERIES.
+            // Mirrors SWMMRainGagePropertyAdapter::setSeriesNameRef; an
+            // empty pick is ignored (series is required for this source).
+            const int gIdx = swmm_gage_index(eng, name.toUtf8().constData());
+            if (gIdx < 0 || dref.currentName.isEmpty()) return false;
+            rc = swmm_gage_set_timeseries(eng, gIdx,
+                                          dref.currentName.toUtf8().constData());
+        } else if (spec.setter == QStringLiteral("subcatch_rain_gage_ref")) {
+            // Mirrors SWMMSubcatchPropertyAdapter::setRainGageRef; gage is
+            // required, so an empty pick is ignored.
+            const int sIdx = swmm_subcatch_index(eng, name.toUtf8().constData());
+            if (sIdx < 0 || dref.currentName.isEmpty()) return false;
+            const int g = swmm_gage_index(eng, dref.currentName.toUtf8().constData());
+            if (g < 0) return false;
+            rc = swmm_subcatch_set_gage(eng, sIdx, g);
+        } else if (spec.setter == QStringLiteral("subcatch_outlet_ref")) {
+            // Combined node/subcatch outlet; node takes precedence on a name
+            // collision. Mirrors SWMMSubcatchPropertyAdapter::setOutletRef.
+            const int sIdx = swmm_subcatch_index(eng, name.toUtf8().constData());
+            if (sIdx < 0 || dref.currentName.isEmpty()) return false;
+            const QByteArray nm = dref.currentName.toUtf8();
+            const int nd = swmm_node_index(eng, nm.constData());
+            if (nd >= 0) {
+                rc = swmm_subcatch_set_outlet(eng, sIdx, nd);
+            } else {
+                const int sc = swmm_subcatch_index(eng, nm.constData());
+                if (sc < 0 || sc == sIdx) return false;
+                rc = swmm_subcatch_set_outlet_subcatch(eng, sIdx, sc);
+            }
         } else {
             return false;
         }

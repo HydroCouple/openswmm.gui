@@ -12,6 +12,7 @@
 #include "ui/properties/dataobjectref.h"
 #include "ui/properties/linkcompoundeditref.h"
 #include "ui/properties/nodecompoundeditref.h"
+#include "ui/properties/subcatchcompoundeditref.h"
 #include "ui/properties/userflagseditref.h"   // per-object User Flags cell
 #include "ui/editors/comprehensiveeditorregistry.h"
 #include "ui/dialogs/curveeditordialog.h"
@@ -181,6 +182,9 @@ AttributeTablePanel::AttributeTablePanel(QWidget *parent)
     // browser may have already done this, both calls are safe.
     qRegisterMetaType<NodeCompoundEditRef>("NodeCompoundEditRef");
     registerNodeCompoundEditRefConverter();
+    // Phase 3 — subcatchment-side compound cell (land use / GW / LID).
+    qRegisterMetaType<SubcatchCompoundEditRef>("SubcatchCompoundEditRef");
+    registerSubcatchCompoundEditRefConverter();
     // §S.SC.1.c — link-side compound cell (XSection / InletUsage).
     // Registered alongside the node variant so the attribute table
     // can render link-compound summaries.
@@ -1032,7 +1036,8 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
         }
     } else if (metaId == qMetaTypeId<DataObjectRef>()) {
         const DataObjectRef ref = cellValue.value<DataObjectRef>();
-        if (ref.layer && ref.kind != DataObjectRef::RainGage) {
+        if (ref.layer && ref.kind != DataObjectRef::RainGage
+            && ref.kind != DataObjectRef::SubcatchOutlet) {
             SWMMModelLayer::DataCategory dc = SWMMModelLayer::DataTimeSeries;
             switch (ref.kind) {
             case DataObjectRef::TidalCurve:
@@ -1043,6 +1048,7 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             case DataObjectRef::UnitHydrograph: dc = SWMMModelLayer::DataHydrographs; break;
             case DataObjectRef::Pollutant:      dc = SWMMModelLayer::DataPollutants;  break;
             case DataObjectRef::RainGage:       /* handled above */                   break;
+            case DataObjectRef::SubcatchOutlet: /* handled above */                   break;
             }
             const auto &reg = ComprehensiveEditorRegistry::instance();
             const QString title  = reg.editorTitle(dc);

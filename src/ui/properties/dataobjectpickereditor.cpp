@@ -27,6 +27,8 @@
 
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_tables.h>
+#include <openswmm/engine/openswmm_nodes.h>          // SubcatchOutlet combined list
+#include <openswmm/engine/openswmm_subcatchments.h>  // SubcatchOutlet combined list
 
 DataObjectPickerEditor::DataObjectPickerEditor(QWidget *parent)
     : QWidget(parent), m_combo(new LabeledPickerCombo(QString(), this))
@@ -116,6 +118,20 @@ void DataObjectPickerEditor::repopulate()
             }
             break;
         }
+        case DataObjectRef::SubcatchOutlet: {
+            // Combined outlet target list: every node, then every subcatchment.
+            // The owning adapter resolves the picked name back to a node-outlet
+            // vs. cascade-outlet engine write.
+            const int nn = swmm_node_count(m_ref.engine);
+            for (int i = 0; i < nn; ++i)
+                if (const char *id = swmm_node_id(m_ref.engine, i))
+                    if (*id) items << QString::fromUtf8(id);
+            const int ns = swmm_subcatch_count(m_ref.engine);
+            for (int i = 0; i < ns; ++i)
+                if (const char *id = swmm_subcatch_id(m_ref.engine, i))
+                    if (*id) items << QString::fromUtf8(id);
+            break;
+        }
         }
     }
 
@@ -146,6 +162,14 @@ void DataObjectPickerEditor::onPickerClicked()
                "editor dialog."));
         return;
     }
+    // The outlet picker is pure selection over existing nodes/subcatchments —
+    // no "create new" target, so the browse button is a no-op note.
+    if (m_ref.kind == DataObjectRef::SubcatchOutlet) {
+        QMessageBox::information(this, tr("Subcatchment Outlet"),
+            tr("Pick an existing node or subcatchment as this "
+               "subcatchment's outlet from the dropdown."));
+        return;
+    }
 
     SWMMModelLayer::DataCategory dc = SWMMModelLayer::DataTimeSeries;
     switch (m_ref.kind) {
@@ -157,6 +181,7 @@ void DataObjectPickerEditor::onPickerClicked()
     case DataObjectRef::UnitHydrograph: dc = SWMMModelLayer::DataHydrographs; break;
     case DataObjectRef::Pollutant:      dc = SWMMModelLayer::DataPollutants;  break;
     case DataObjectRef::RainGage:       /* handled above */                   break;
+    case DataObjectRef::SubcatchOutlet: /* handled above */                   break;
     }
 
     // Slice BM.0-Add-New (2026-05-24) — gap categories (Transects / LID /
