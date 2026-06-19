@@ -17,6 +17,8 @@
 #include "ui/properties/dataobjectpickereditor.h"
 #include "ui/properties/dataobjectref.h"
 #include "ui/properties/userflagseditbutton.h"
+#include "ui/properties/subcatchcompoundeditbutton.h"
+#include "ui/properties/subcatchcompoundeditref.h"
 #include "ui/properties/userflagseditref.h"
 
 #include <QComboBox>
@@ -188,6 +190,12 @@ QString CompoundEditDelegate::displayText(const QVariant &value,
                    ? tr("Edit…")
                    : tr("%1 — Edit…").arg(ref.summary);
     }
+    if (value.userType() == qMetaTypeId<SubcatchCompoundEditRef>()) {
+        const auto ref = value.value<SubcatchCompoundEditRef>();
+        return ref.summary.isEmpty()
+                   ? tr("Edit…")
+                   : tr("%1 — Edit…").arg(ref.summary);
+    }
     return value.toString();
 }
 
@@ -205,6 +213,8 @@ QWidget *CompoundEditDelegate::createEditor(QWidget *parent,
         return new DataObjectPickerEditor(parent);
     if (v.userType() == qMetaTypeId<UserFlagsEditRef>())
         return new UserFlagsEditButton(parent);
+    if (v.userType() == qMetaTypeId<SubcatchCompoundEditRef>())
+        return new SubcatchCompoundEditButton(parent);
     return new NodeCompoundEditButton(parent);
 }
 
@@ -230,6 +240,11 @@ void CompoundEditDelegate::setEditorData(QWidget *editor,
     if (auto *fb = qobject_cast<UserFlagsEditButton *>(editor)) {
         if (v.userType() == qMetaTypeId<UserFlagsEditRef>())
             fb->setValue(v.value<UserFlagsEditRef>());
+        return;
+    }
+    if (auto *sb = qobject_cast<SubcatchCompoundEditButton *>(editor)) {
+        if (v.userType() == qMetaTypeId<SubcatchCompoundEditRef>())
+            sb->setValue(v.value<SubcatchCompoundEditRef>());
         return;
     }
 }
@@ -260,6 +275,10 @@ void CompoundEditDelegate::setModelData(QWidget *editor,
     }
     if (auto *fb = qobject_cast<UserFlagsEditButton *>(editor)) {
         model->setData(index, QVariant::fromValue(fb->value()), Qt::EditRole);
+        return;
+    }
+    if (auto *sb = qobject_cast<SubcatchCompoundEditButton *>(editor)) {
+        model->setData(index, QVariant::fromValue(sb->value()), Qt::EditRole);
         return;
     }
 }

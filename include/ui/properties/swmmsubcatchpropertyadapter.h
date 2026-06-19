@@ -16,6 +16,8 @@
 #include <openswmm/engine/openswmm_engine.h>
 
 #include "ui/properties/userflagseditref.h"   // USER_FLAGS Phase 4
+#include "ui/properties/dataobjectref.h"       // Phase 3 — gage / outlet pickers
+#include "ui/properties/subcatchcompoundeditref.h" // Phase 3 — landuse/GW/LID
 
 class SWMMModelLayer;
 
@@ -37,12 +39,44 @@ class SWMMSubcatchPropertyAdapter : public QObject
     Q_PROPERTY(double  nPerv       READ nPerv       WRITE setNPerv       NOTIFY changed)
     Q_PROPERTY(double  dsImperv    READ dsImperv    WRITE setDsImperv    NOTIFY changed)
     Q_PROPERTY(double  dsPerv      READ dsPerv      WRITE setDsPerv      NOTIFY changed)
+
+    // Phase 3 — Subcatchment gaps (docs/ATTRIBUTE_EDITOR_WIRING_PLAN_2026-06-04.md).
+    /*! Rain gage assignment (R3 picker over gage names). */
+    Q_PROPERTY(DataObjectRef rainGage READ rainGageRef WRITE setRainGageRef NOTIFY changed)
+    /*! Outlet target — a node OR another subcatchment (cascade). Combined
+     *  picker; the WRITE slot resolves the name to the right engine call. */
+    Q_PROPERTY(DataObjectRef outlet   READ outletRef   WRITE setOutletRef   NOTIFY changed)
+    /*! Infiltration model (Horton / Mod-Horton / Green-Ampt / Mod-GA / CN). */
+    Q_PROPERTY(InfilModel infilModel  READ infilModel  WRITE setInfilModel  NOTIFY changed)
+    // Per-model parameter rows. Editability is gated by the live model in
+    // AttributePanel (mirror of the storage Functional/Tabular greying).
+    Q_PROPERTY(double hortonF0      READ hortonF0      WRITE setHortonF0      NOTIFY changed)
+    Q_PROPERTY(double hortonFmin    READ hortonFmin    WRITE setHortonFmin    NOTIFY changed)
+    Q_PROPERTY(double hortonDecay   READ hortonDecay   WRITE setHortonDecay   NOTIFY changed)
+    Q_PROPERTY(double hortonDryTime READ hortonDryTime WRITE setHortonDryTime NOTIFY changed)
+    Q_PROPERTY(double gaSuction      READ gaSuction      WRITE setGaSuction      NOTIFY changed)
+    Q_PROPERTY(double gaConductivity READ gaConductivity WRITE setGaConductivity NOTIFY changed)
+    Q_PROPERTY(double gaInitDeficit  READ gaInitDeficit  WRITE setGaInitDeficit  NOTIFY changed)
+    Q_PROPERTY(double cnNumber       READ cnNumber       WRITE setCnNumber       NOTIFY changed)
+    // Compound cells (open SubcatchCompoundEditDialog tabs).
+    Q_PROPERTY(SubcatchCompoundEditRef landUse
+               READ landUseRef     WRITE setLandUseRef     NOTIFY changed)
+    Q_PROPERTY(SubcatchCompoundEditRef groundwater
+               READ groundwaterRef WRITE setGroundwaterRef NOTIFY changed)
+    Q_PROPERTY(SubcatchCompoundEditRef lidUsage
+               READ lidUsageRef    WRITE setLidUsageRef    NOTIFY changed)
+
     /*! Phase 4 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — per-object
      *  user-flag assignments row (see SWMMNodePropertyAdapter). */
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 
 public:
+    /*! Infiltration model codes (engine [INFILTRATION] order). */
+    enum InfilModel { Horton = 0, ModHorton = 1, GreenAmpt = 2,
+                      ModGreenAmpt = 3, CurveNumber = 4 };
+    Q_ENUM(InfilModel)
+
     SWMMSubcatchPropertyAdapter(SWMM_Engine engine, QString name,
                                   QObject *parent = nullptr);
 
@@ -66,6 +100,22 @@ public:
     [[nodiscard]] double dsImperv()  const;
     [[nodiscard]] double dsPerv()    const;
 
+    // Phase 3 — picker / enum / infiltration param accessors.
+    [[nodiscard]] DataObjectRef rainGageRef() const;
+    [[nodiscard]] DataObjectRef outletRef()   const;
+    [[nodiscard]] InfilModel    infilModel()  const;
+    [[nodiscard]] double hortonF0()      const;
+    [[nodiscard]] double hortonFmin()    const;
+    [[nodiscard]] double hortonDecay()   const;
+    [[nodiscard]] double hortonDryTime() const;
+    [[nodiscard]] double gaSuction()      const;
+    [[nodiscard]] double gaConductivity() const;
+    [[nodiscard]] double gaInitDeficit()  const;
+    [[nodiscard]] double cnNumber()       const;
+    [[nodiscard]] SubcatchCompoundEditRef landUseRef()     const;
+    [[nodiscard]] SubcatchCompoundEditRef groundwaterRef() const;
+    [[nodiscard]] SubcatchCompoundEditRef lidUsageRef()    const;
+
     /*! See SWMMNodePropertyAdapter::displayLabelFor. */
     Q_INVOKABLE QString displayLabelFor(const QString &property) const;
 
@@ -80,6 +130,23 @@ public slots:
     void setNPerv(double v);
     void setDsImperv(double v);
     void setDsPerv(double v);
+
+    // Phase 3 — picker / enum / infiltration param write slots.
+    void setRainGageRef(const DataObjectRef &r);
+    void setOutletRef(const DataObjectRef &r);
+    void setInfilModel(InfilModel m);
+    void setHortonF0(double v);
+    void setHortonFmin(double v);
+    void setHortonDecay(double v);
+    void setHortonDryTime(double v);
+    void setGaSuction(double v);
+    void setGaConductivity(double v);
+    void setGaInitDeficit(double v);
+    void setCnNumber(double v);
+    // Compound refs are coordinates only; the dialog performs the writes.
+    void setLandUseRef(const SubcatchCompoundEditRef &)     { emit changed(); }
+    void setGroundwaterRef(const SubcatchCompoundEditRef &) { emit changed(); }
+    void setLidUsageRef(const SubcatchCompoundEditRef &)    { emit changed(); }
 
     void setUserFlagsRef(const UserFlagsEditRef &) { emit changed(); }
 

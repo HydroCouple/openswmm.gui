@@ -46,6 +46,11 @@ struct DataObjectRef
                              ///  comprehensive editor yet, so the "…" button
                              ///  is a no-op (combo selection only).
         StorageCurve   = 7,  ///< Curves filtered to type == STORAGE (engine table type 1)
+        SubcatchOutlet = 8,  ///< Subcatchment outlet target — a combined list of
+                             ///  node names + subcatchment names. The owning
+                             ///  adapter's WRITE slot resolves the picked name to
+                             ///  swmm_subcatch_set_outlet (node) or
+                             ///  set_outlet_subcatch (cascade). No "…" editor.
     };
 
     SWMM_Engine     engine      = nullptr;  ///< Engine handle (borrow)

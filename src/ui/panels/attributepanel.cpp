@@ -14,6 +14,9 @@
 #include "ui/properties/dataobjectref.h"
 #include "ui/properties/nodecompoundeditbutton.h"
 #include "ui/properties/nodecompoundeditref.h"
+// Phase 3 — subcatchment-side compound-edit ref + cell editor.
+#include "ui/properties/subcatchcompoundeditbutton.h"
+#include "ui/properties/subcatchcompoundeditref.h"
 // Slice SC.1 — link-side compound-edit ref + cell editor.
 #include "ui/dialogs/linkcompoundeditdialog.h"
 #include "ui/properties/linkcompoundeditbutton.h"
@@ -259,6 +262,14 @@ void AttributePanel::setupUi()
     delegate->registerCustomTypeEditorCreator(
         QMetaType::Type(qMetaTypeId<NodeCompoundEditRef>()),
         new QStandardItemEditorCreator<NodeCompoundEditButton>());
+
+    // Phase 3 — same dance for the subcatchment-side compound-edit ref
+    // (land-use coverage / groundwater / LID usage cells).
+    qRegisterMetaType<SubcatchCompoundEditRef>("SubcatchCompoundEditRef");
+    registerSubcatchCompoundEditRefConverter();
+    delegate->registerCustomTypeEditorCreator(
+        QMetaType::Type(qMetaTypeId<SubcatchCompoundEditRef>()),
+        new QStandardItemEditorCreator<SubcatchCompoundEditButton>());
 
     // Slice SC.1 — same dance for the link-side compound-edit ref
     // (cross section / inlet usage cells on conduits).
@@ -698,6 +709,33 @@ void AttributePanel::onLayerComboIndexChanged(int index)
                             emit objectEdited(newN);
                         }
                     });
+            // Phase 3 — grey the infiltration parameter rows by the live model
+            // (Horton/Mod-Horton → Horton rows; Green-Ampt/Mod-GA → GA rows;
+            // Curve-Number → CN row). Same trigger/contract as the storage
+            // Functional/Tabular greying.
+            {
+                auto *sub = m_subcatchAdapter;
+                auto applyInfilRowFlags = [pm, sub]() {
+                    if (!pm) return;
+                    const auto m = sub->infilModel();
+                    const bool horton = (m == SWMMSubcatchPropertyAdapter::Horton
+                                      || m == SWMMSubcatchPropertyAdapter::ModHorton);
+                    const bool ga     = (m == SWMMSubcatchPropertyAdapter::GreenAmpt
+                                      || m == SWMMSubcatchPropertyAdapter::ModGreenAmpt);
+                    const bool cn     = (m == SWMMSubcatchPropertyAdapter::CurveNumber);
+                    setRowEditable(pm, sub, QStringLiteral("hortonF0"),      horton);
+                    setRowEditable(pm, sub, QStringLiteral("hortonFmin"),    horton);
+                    setRowEditable(pm, sub, QStringLiteral("hortonDecay"),   horton);
+                    setRowEditable(pm, sub, QStringLiteral("hortonDryTime"), horton);
+                    setRowEditable(pm, sub, QStringLiteral("gaSuction"),      ga);
+                    setRowEditable(pm, sub, QStringLiteral("gaConductivity"), ga);
+                    setRowEditable(pm, sub, QStringLiteral("gaInitDeficit"),  ga);
+                    setRowEditable(pm, sub, QStringLiteral("cnNumber"),       cn);
+                };
+                connect(sub, &SWMMSubcatchPropertyAdapter::changed,
+                        pm, applyInfilRowFlags);
+                applyInfilRowFlags();
+            }
             routedThroughAdapter = true;
         }
     }
@@ -891,6 +929,29 @@ void AttributePanel::showDataObject(SWMMModelLayer *layer, int objectKind,
                 }
             });
 
+    // DA.2 parity — rain gage: drive editability of the source-specific rows
+    // from the live dataSource. TIMESERIES enables the Series Name picker and
+    // greys the file rows; FILE does the reverse. Recording interval and snow
+    // catch factor apply to both sources and stay editable. Same trigger /
+    // contract as the outfall + storage blocks in the node path above.
+    if (auto *gageAdapter =
+            qobject_cast<SWMMRainGagePropertyAdapter*>(m_dataAdapter))
+    {
+        if (auto *pm = qobject_cast<QPropertyModel*>(m_model)) {
+            auto applyGageRowFlags = [pm, gageAdapter]() {
+                if (!pm) return;
+                const bool isFile = gageAdapter->dataSource() == 1; // FILE
+                setRowEditable(pm, gageAdapter, QStringLiteral("seriesName"), !isFile);
+                setRowEditable(pm, gageAdapter, QStringLiteral("filePath"),    isFile);
+                setRowEditable(pm, gageAdapter, QStringLiteral("stationId"),   isFile);
+                setRowEditable(pm, gageAdapter, QStringLiteral("rainUnits"),   isFile);
+            };
+            connect(gageAdapter, &SWMMDataObjectPropertyAdapter::changed,
+                    pm, applyGageRowFlags);
+            applyGageRowFlags();
+        }
+    }
+
     m_treeView->expandAll();
     setWindowTitle(tr("Attributes — %1").arg(name));
 
@@ -1046,9 +1107,11 @@ void AttributePanel::onTreeContextMenu(const QPoint &pos)
         const DataObjectRef ref = value.value<DataObjectRef>();
         if (!ref.layer) return;
 
-        // Rain gages have no editor — skip the menu entirely (combo
-        // selection on the cell is sufficient; right-click adds no value).
-        if (ref.kind == DataObjectRef::RainGage) return;
+        // Rain gages and the subcatch outlet picker have no comprehensive
+        // editor — skip the menu entirely (combo selection on the cell is
+        // sufficient; right-click adds no value).
+        if (ref.kind == DataObjectRef::RainGage
+            || ref.kind == DataObjectRef::SubcatchOutlet) return;
 
         // Kind → category (mirrors dataobjectpickereditor.cpp).
         SWMMModelLayer::DataCategory dc = SWMMModelLayer::DataTimeSeries;
@@ -1061,6 +1124,7 @@ void AttributePanel::onTreeContextMenu(const QPoint &pos)
         case DataObjectRef::UnitHydrograph: dc = SWMMModelLayer::DataHydrographs; break;
         case DataObjectRef::Pollutant:      dc = SWMMModelLayer::DataPollutants;  break;
         case DataObjectRef::RainGage:       /* unreachable, handled above */      break;
+        case DataObjectRef::SubcatchOutlet: /* unreachable, handled above */      break;
         }
 
         const auto &reg = ComprehensiveEditorRegistry::instance();
