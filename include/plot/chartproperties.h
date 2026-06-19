@@ -22,6 +22,8 @@
 #ifndef OPENSWMMVIS_PLOT_CHARTPROPERTIES_H
 #define OPENSWMMVIS_PLOT_CHARTPROPERTIES_H
 
+#include "plot/numberformat.h"
+
 #include <QChart>
 #include <QColor>
 #include <QFont>
@@ -34,6 +36,12 @@ namespace openswmmvis::plot {
 class ChartProperties : public QObject
 {
     Q_OBJECT
+
+public:
+    /*! \brief Axis label number mode; values mirror
+     *  openswmmvis::plot::NumberFormatMode (0=Decimals, 1=SignificantFigures). */
+    enum LabelFormatMode { Decimals = 0, SignificantFigures = 1 };
+    Q_ENUM(LabelFormatMode)
 
     Q_PROPERTY(QString titleText        READ titleText        WRITE setTitleText        NOTIFY titleTextChanged)
     Q_PROPERTY(QFont   titleFont        READ titleFont        WRITE setTitleFont        NOTIFY titleFontChanged)
@@ -52,6 +60,11 @@ class ChartProperties : public QObject
     Q_PROPERTY(QColor  gridColor        READ gridColor        WRITE setGridColor        NOTIFY gridColorChanged)
 
     Q_PROPERTY(int     chartTheme       READ chartTheme       WRITE setChartTheme       NOTIFY chartThemeChanged)
+
+    Q_PROPERTY(ChartProperties::LabelFormatMode xLabelFormatMode READ xLabelFormatMode WRITE setXLabelFormatMode NOTIFY xLabelFormatModeChanged)
+    Q_PROPERTY(int     xLabelPrecision  READ xLabelPrecision  WRITE setXLabelPrecision  NOTIFY xLabelPrecisionChanged)
+    Q_PROPERTY(ChartProperties::LabelFormatMode yLabelFormatMode READ yLabelFormatMode WRITE setYLabelFormatMode NOTIFY yLabelFormatModeChanged)
+    Q_PROPERTY(int     yLabelPrecision  READ yLabelPrecision  WRITE setYLabelPrecision  NOTIFY yLabelPrecisionChanged)
 
 public:
     explicit ChartProperties(QChart *chart, QObject *parent = nullptr);
@@ -82,6 +95,15 @@ public:
     QColor  gridColor()       const noexcept { return m_gridColor; }
     int     chartTheme()      const;
 
+    LabelFormatMode xLabelFormatMode() const noexcept { return m_xLabelMode; }
+    int             xLabelPrecision()  const noexcept { return m_xLabelPrecision; }
+    LabelFormatMode yLabelFormatMode() const noexcept { return m_yLabelMode; }
+    int             yLabelPrecision()  const noexcept { return m_yLabelPrecision; }
+
+    /*! \brief Current X/Y label format as the shared value type. */
+    NumberFormat xFormat() const noexcept;
+    NumberFormat yFormat() const noexcept;
+
 public slots:
     void setTitleText(const QString &text);
     void setTitleFont(const QFont &font);
@@ -96,6 +118,11 @@ public slots:
     void setPlotAreaColor(const QColor &c);
     void setGridColor(const QColor &c);
     void setChartTheme(int theme);
+
+    void setXLabelFormatMode(ChartProperties::LabelFormatMode mode);
+    void setXLabelPrecision(int count);
+    void setYLabelFormatMode(ChartProperties::LabelFormatMode mode);
+    void setYLabelPrecision(int count);
 
 signals:
     void titleTextChanged(const QString &);
@@ -112,13 +139,30 @@ signals:
     void gridColorChanged(const QColor &);
     void chartThemeChanged(int);
 
+    void xLabelFormatModeChanged(ChartProperties::LabelFormatMode);
+    void xLabelPrecisionChanged(int);
+    void yLabelFormatModeChanged(ChartProperties::LabelFormatMode);
+    void yLabelPrecisionChanged(int);
+
 private:
+    // Push the cached X/Y label formats onto the chart's value axes
+    // (QDateTimeAxis/QCategoryAxis are skipped — only QValueAxis honours it).
+    void applyLabelFormats_();
+
     QPointer<QChart> m_chart;
 
     // Cached values for QChart configuration that's awkward to read back
     // (grid colour isn't a first-class QChart attribute; it's per-axis pen).
     bool   m_yAutoRange = true;
     QColor m_gridColor  = QColor("#cccccc");
+
+    // Axis label number formats. Seeded from the global Preferences default
+    // in the constructor; per-chart edits override them (cached because a
+    // printf format string can't be reliably parsed back to mode+count).
+    LabelFormatMode m_xLabelMode      = Decimals;
+    int             m_xLabelPrecision = 0;
+    LabelFormatMode m_yLabelMode      = Decimals;
+    int             m_yLabelPrecision = 2;
 };
 
 } // namespace openswmmvis::plot

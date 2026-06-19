@@ -24,8 +24,10 @@
 #include "ui/dialogs/istyleeditorwidget.h"
 
 class SWMM2DMeshLayer;
+class ColorRampComboBox;
 
 class QCheckBox;
+class QComboBox;
 class QDoubleSpinBox;
 class QSlider;
 class QSpinBox;
@@ -83,9 +85,11 @@ private:
     // Contours
     QCheckBox      *m_showContours      = nullptr;
     QSpinBox       *m_intervals         = nullptr;
+    QComboBox      *m_contourMethod     = nullptr;   // Slice US.3 — band classification method
     ColorButton    *m_contourColor      = nullptr;
     QDoubleSpinBox *m_contourWidth      = nullptr;
     QCheckBox      *m_filledContours    = nullptr;
+    ColorRampComboBox *m_contourRamp    = nullptr;   // Slice US.3 — band colour scale
     QDoubleSpinBox *m_filledOpacity     = nullptr;
 };
 

@@ -69,6 +69,7 @@ void PreferencesDialog::buildUi()
     m_categoryList->addItem(tr("Dynamic Wave Defaults"));
     m_categoryList->addItem(tr("Map Display"));
     m_categoryList->addItem(tr("Measure Tool"));
+    m_categoryList->addItem(tr("Plots"));
     m_categoryList->addItem(tr("Naming"));
     split->addWidget(m_categoryList);
 
@@ -82,6 +83,7 @@ void PreferencesDialog::buildUi()
     m_pages->addWidget(buildDynamicWaveDefaultsPage());
     m_pages->addWidget(buildMapDisplayPage());
     m_pages->addWidget(buildMeasureToolPage());
+    m_pages->addWidget(buildPlotsPage());
     m_pages->addWidget(buildNamingPage());
     split->addWidget(m_pages, 1);
 
@@ -990,6 +992,50 @@ QWidget *PreferencesDialog::buildMeasureToolPage()
     return page;
 }
 
+QWidget *PreferencesDialog::buildPlotsPage()
+{
+    auto *page  = new QWidget(this);
+    auto *outer = new QVBoxLayout(page);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->setSpacing(12);
+
+    auto *intro = new QLabel(tr(
+        "Default numeric precision for chart plots (profiles, time series, "
+        "curves, scatter). Each plot's own properties dialog can override "
+        "these. Time/date axes are unaffected."), page);
+    intro->setWordWrap(true);
+    outer->addWidget(intro);
+
+    // Helper: build a "Number format" combo + "Precision" spin pair into a
+    // group box. Returns nothing — widgets are assigned to the members.
+    auto buildAxisGroup = [this, page](const QString &title,
+                                       QComboBox *&modeCombo,
+                                       QSpinBox *&precisionSpin) {
+        auto *group = new QGroupBox(title, page);
+        auto *f     = new QFormLayout(group);
+
+        modeCombo = new QComboBox(group);
+        modeCombo->addItem(tr("Decimal places"),      0);
+        modeCombo->addItem(tr("Significant figures"), 1);
+        f->addRow(tr("Number format"), modeCombo);
+
+        precisionSpin = new QSpinBox(group);
+        precisionSpin->setRange(0, 10);
+        precisionSpin->setToolTip(tr(
+            "Number of decimal places, or significant figures when that "
+            "format is selected."));
+        f->addRow(tr("Precision"), precisionSpin);
+        return group;
+    };
+
+    outer->addWidget(buildAxisGroup(tr("X Axis"),
+                                    m_plotXFormatModeCombo, m_plotXPrecisionSpin));
+    outer->addWidget(buildAxisGroup(tr("Y Axis"),
+                                    m_plotYFormatModeCombo, m_plotYPrecisionSpin));
+    outer->addStretch(1);
+    return page;
+}
+
 // ---------------------------------------------------------------------------
 // I/O
 // ---------------------------------------------------------------------------
@@ -1155,6 +1201,14 @@ void PreferencesDialog::readFromManager()
     applyColor(m_measureFillColorBtn, m_pendingMeasureFillColor, p->measureFillColor());
     m_measureFillOpacitySpin->setValue(p->measureFillOpacity());
 
+    // Plots — default numeric precision
+    m_plotXFormatModeCombo->setCurrentIndex(
+        m_plotXFormatModeCombo->findData(p->plotXAxisFormatMode()));
+    m_plotXPrecisionSpin->setValue(p->plotXAxisPrecision());
+    m_plotYFormatModeCombo->setCurrentIndex(
+        m_plotYFormatModeCombo->findData(p->plotYAxisFormatMode()));
+    m_plotYPrecisionSpin->setValue(p->plotYAxisPrecision());
+
     // Naming prefixes
     m_prefixJunction    ->setText(p->elementNamePrefix(QStringLiteral("junction")));
     m_prefixOutfall     ->setText(p->elementNamePrefix(QStringLiteral("outfall")));
@@ -1287,6 +1341,12 @@ void PreferencesDialog::writeToManager()
     if (m_pendingMeasureFillColor.isValid())
         p->setMeasureFillColor(m_pendingMeasureFillColor);
     p->setMeasureFillOpacity(m_measureFillOpacitySpin->value());
+
+    // Plots — default numeric precision
+    p->setPlotXAxisFormatMode(m_plotXFormatModeCombo->currentData().toInt());
+    p->setPlotXAxisPrecision(m_plotXPrecisionSpin->value());
+    p->setPlotYAxisFormatMode(m_plotYFormatModeCombo->currentData().toInt());
+    p->setPlotYAxisPrecision(m_plotYPrecisionSpin->value());
 
     // Naming prefixes
     auto savePrefix = [&](QLineEdit *ed, const QString &kind) {
@@ -1508,6 +1568,12 @@ void PreferencesDialog::onResetToDefaults()
     m_measureLabelFontBtn->setText(QStringLiteral("sans-serif, 8pt"));
     m_measureLabelDecimalsSpin->setValue(2);
     m_measureFillOpacitySpin->setValue(30);
+
+    // Plots — default numeric precision (X: 0 decimals, Y: 2 decimals)
+    m_plotXFormatModeCombo->setCurrentIndex(m_plotXFormatModeCombo->findData(0));
+    m_plotXPrecisionSpin->setValue(0);
+    m_plotYFormatModeCombo->setCurrentIndex(m_plotYFormatModeCombo->findData(0));
+    m_plotYPrecisionSpin->setValue(2);
 
     // Naming prefix defaults
     m_prefixJunction    ->setText(QStringLiteral("J"));

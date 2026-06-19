@@ -326,6 +326,11 @@ public:
     [[nodiscard]] OpenSWMM::Render::ContourBandSublayer *contourBandSublayer() const { return m_contourBandSublayer; }
     [[nodiscard]] OpenSWMM::Render::IsolineSublayer     *isolineSublayer()     const { return m_isolineSublayer; }
 
+    /*! Slice US.3 — bed-elevation range of the loaded mesh, the data range the
+     *  contour-band / isoline classification scheme classifies over. */
+    [[nodiscard]] double zMin() const { return m_zMin; }
+    [[nodiscard]] double zMax() const { return m_zMax; }
+
     // ----- OpenSWMMVisLayer interface ----------------------------------------
 
     void populateScene(QGraphicsScene *scene,

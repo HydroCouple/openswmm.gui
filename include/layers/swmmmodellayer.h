@@ -1182,6 +1182,35 @@ public:
     bool applyLinkCulvertCode(int linkIdx, int code);
 
     /*!
+     * \brief Convert node \p name to \p newNodeType (SWMM_NodeType value)
+     *        via `swmm_node_convert`. The engine preserves common props
+     *        (invert, depths, coordinates), clears old-type-specific
+     *        fields and applies new-type defaults. On success the cached
+     *        SoA nodeType and category buckets are updated and
+     *        repaintRequested() + geometryChanged() + attributeChanged()
+     *        are emitted so map symbology, Object Browser, Attribute
+     *        Table, and Property Browser all refresh in one tick.
+     * \param[out] outCleared   Engine-reported cleared field names.
+     * \param[out] outWarnings  Engine-reported topology warnings.
+     * \param[out] outError     Human-readable failure reason.
+     */
+    bool applyNodeConvert(const QString &name, int newNodeType,
+                          QStringList *outCleared  = nullptr,
+                          QStringList *outWarnings = nullptr,
+                          QString *outError = nullptr);
+
+    /*!
+     * \brief Convert link \p name to \p newLinkType (SWMM_LinkType value)
+     *        via `swmm_link_convert`. Endpoints, offsets, and interior
+     *        vertices are preserved by the engine. Same cache update and
+     *        signal contract as applyNodeConvert().
+     */
+    bool applyLinkConvert(const QString &name, int newLinkType,
+                          QStringList *outCleared  = nullptr,
+                          QStringList *outWarnings = nullptr,
+                          QString *outError = nullptr);
+
+    /*!
      * \brief Apply interior vertices to a link: engine + cache, rebuilding
      *        the cached polyline from the node endpoints + new interior.
      */

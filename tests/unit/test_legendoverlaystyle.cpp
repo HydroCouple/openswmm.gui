@@ -72,11 +72,21 @@ TEST_F(QtAppFixture, JsonRoundTrip_PreservesAllFields)
     QFont tf; tf.setPointSize(13); tf.setBold(true);
     src.setTitleFont(tf);
     src.setItemColor(QColor(50, 60, 70));
+    // Slice US.B1 — size / position.
+    src.setExplicitWidth(320);
+    src.setExplicitHeight(200);
+    src.setMaxLabelWidth(160);
+    src.setFreePosition(QPoint(42, 17));
 
     const QJsonObject blob = src.toJson();
 
     LegendOverlayStyle dst;
     dst.fromJson(blob);
+
+    EXPECT_EQ(dst.explicitWidth(), 320);
+    EXPECT_EQ(dst.explicitHeight(), 200);
+    EXPECT_EQ(dst.maxLabelWidth(), 160);
+    EXPECT_EQ(dst.freePosition(), QPoint(42, 17));
 
     EXPECT_EQ(dst.showTitle(), src.showTitle());
     EXPECT_EQ(dst.title(), src.title());
@@ -162,4 +172,28 @@ TEST_F(QtAppFixture, ResetToDefaults_RestoresAllFields)
     EXPECT_TRUE(style.title().isEmpty());
     EXPECT_EQ(style.anchor(), LegendOverlayStyle::Anchor::BottomRight);
     EXPECT_EQ(style.backgroundMode(), LegendOverlayStyle::BackgroundMode::Solid);
+}
+
+// ── Slice US.B1 — size clamping + auto sentinel ─────────────────────────
+
+TEST_F(QtAppFixture, ExplicitSize_ClampsToUsableMinimumOrAuto)
+{
+    LegendOverlayStyle style;
+    EXPECT_EQ(style.explicitWidth(), 0);   // 0 = auto by default
+    EXPECT_EQ(style.explicitHeight(), 0);
+    EXPECT_EQ(style.maxLabelWidth(), 220);
+
+    style.setExplicitWidth(20);            // below floor → 80
+    EXPECT_EQ(style.explicitWidth(), 80);
+    style.setExplicitHeight(5);            // below floor → 48
+    EXPECT_EQ(style.explicitHeight(), 48);
+    style.setExplicitWidth(0);             // auto sentinel passes through
+    EXPECT_EQ(style.explicitWidth(), 0);
+    style.setExplicitWidth(-10);           // negative → auto
+    EXPECT_EQ(style.explicitWidth(), 0);
+
+    style.setMaxLabelWidth(10);            // clamps up to 60
+    EXPECT_EQ(style.maxLabelWidth(), 60);
+    style.setMaxLabelWidth(5000);          // clamps down to 1200
+    EXPECT_EQ(style.maxLabelWidth(), 1200);
 }

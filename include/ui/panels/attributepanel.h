@@ -199,6 +199,12 @@ private:
     SWMMNodePropertyAdapter     *m_nodeAdapter   = nullptr;
     SWMMLinkPropertyAdapter     *m_linkAdapter   = nullptr;
     SWMMSubcatchPropertyAdapter *m_subcatchAdapter = nullptr;
+    // SWMM_NodeType / SWMM_LinkType the bound adapter subclass was built
+    // for, so an external type conversion (right-click "Convert To") can
+    // detect the kind changed and rebind the correct subclass instead of
+    // refreshing a now-wrong one. -1 when no adapter is bound.
+    int                          m_nodeAdapterKind = -1;
+    int                          m_linkAdapterKind = -1;
     // Slice DA.2 — single cached adapter for the 14 non-spatial Data
     // Object kinds. Replaced on every selection; the previous instance
     // is `deleteLater()`d so the QPropertyModel stops referencing it

@@ -99,6 +99,14 @@ constexpr int         kDefaultMeasureLabelFontSize   = 8;
 constexpr int         kDefaultMeasureLabelDecimals   = 2;
 constexpr int         kDefaultMeasureFillOpacity     = 30;
 
+// Plot numeric precision: X defaults to 0 decimals (distance/index axes
+// read cleanly as whole numbers, matching the legacy profile X look),
+// Y to 2 decimals (matches the point-label default).
+constexpr int         kDefaultPlotXAxisFormatMode    = 0;  // NumberFormatMode::Decimals
+constexpr int         kDefaultPlotXAxisPrecision     = 0;
+constexpr int         kDefaultPlotYAxisFormatMode    = 0;  // NumberFormatMode::Decimals
+constexpr int         kDefaultPlotYAxisPrecision     = 2;
+
 // ── Element naming prefix defaults ───────────────────────────────────────
 struct PrefixDefault { const char *kind; const char *prefix; };
 constexpr PrefixDefault kPrefixDefaults[] = {
@@ -1164,6 +1172,67 @@ void PreferencesManager::setMeasureFillOpacity(int opacity)
     if (opacity < 0 || opacity > 100 || opacity == measureFillOpacity()) return;
     m_settings.setValue(QStringLiteral("%1/Decorations/MeasureTool/FillOpacity").arg(kGroupRoot), opacity);
     emit preferenceChanged(QStringLiteral("Decorations"), QStringLiteral("MeasureTool/FillOpacity"));
+}
+
+// ── Plots: default numeric precision ───────────────────────────────────────
+
+int PreferencesManager::plotXAxisFormatMode() const
+{
+    return m_settings.value(QStringLiteral("%1/Plots/XAxisFormatMode").arg(kGroupRoot),
+                            kDefaultPlotXAxisFormatMode).toInt();
+}
+void PreferencesManager::setPlotXAxisFormatMode(int mode)
+{
+    if ((mode != 0 && mode != 1) || mode == plotXAxisFormatMode()) return;
+    m_settings.setValue(QStringLiteral("%1/Plots/XAxisFormatMode").arg(kGroupRoot), mode);
+    emit preferenceChanged(QStringLiteral("Plots"), QStringLiteral("XAxisFormatMode"));
+}
+
+int PreferencesManager::plotXAxisPrecision() const
+{
+    return m_settings.value(QStringLiteral("%1/Plots/XAxisPrecision").arg(kGroupRoot),
+                            kDefaultPlotXAxisPrecision).toInt();
+}
+void PreferencesManager::setPlotXAxisPrecision(int count)
+{
+    if (count < 0 || count > 10 || count == plotXAxisPrecision()) return;
+    m_settings.setValue(QStringLiteral("%1/Plots/XAxisPrecision").arg(kGroupRoot), count);
+    emit preferenceChanged(QStringLiteral("Plots"), QStringLiteral("XAxisPrecision"));
+}
+
+int PreferencesManager::plotYAxisFormatMode() const
+{
+    return m_settings.value(QStringLiteral("%1/Plots/YAxisFormatMode").arg(kGroupRoot),
+                            kDefaultPlotYAxisFormatMode).toInt();
+}
+void PreferencesManager::setPlotYAxisFormatMode(int mode)
+{
+    if ((mode != 0 && mode != 1) || mode == plotYAxisFormatMode()) return;
+    m_settings.setValue(QStringLiteral("%1/Plots/YAxisFormatMode").arg(kGroupRoot), mode);
+    emit preferenceChanged(QStringLiteral("Plots"), QStringLiteral("YAxisFormatMode"));
+}
+
+int PreferencesManager::plotYAxisPrecision() const
+{
+    return m_settings.value(QStringLiteral("%1/Plots/YAxisPrecision").arg(kGroupRoot),
+                            kDefaultPlotYAxisPrecision).toInt();
+}
+void PreferencesManager::setPlotYAxisPrecision(int count)
+{
+    if (count < 0 || count > 10 || count == plotYAxisPrecision()) return;
+    m_settings.setValue(QStringLiteral("%1/Plots/YAxisPrecision").arg(kGroupRoot), count);
+    emit preferenceChanged(QStringLiteral("Plots"), QStringLiteral("YAxisPrecision"));
+}
+
+openswmmvis::plot::NumberFormat PreferencesManager::plotXAxisFormat() const
+{
+    return { static_cast<openswmmvis::plot::NumberFormatMode>(plotXAxisFormatMode()),
+             plotXAxisPrecision() };
+}
+openswmmvis::plot::NumberFormat PreferencesManager::plotYAxisFormat() const
+{
+    return { static_cast<openswmmvis::plot::NumberFormatMode>(plotYAxisFormatMode()),
+             plotYAxisPrecision() };
 }
 
 // ---------------------------------------------------------------------------

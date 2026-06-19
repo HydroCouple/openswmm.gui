@@ -26,9 +26,6 @@
             "name": "nanoflann"
         },
         {
-            "name": "sundials"
-        },
-        {
             "name": "hdf5",
             "default-features": false
         },

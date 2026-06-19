@@ -16,6 +16,8 @@
  *   /Mesh2_face_nodes [nFace, 3]      triangle connectivity (int)
  *   /time           [nTime]           seconds since simulation start
  *   /Mesh2_face_depth [nTime, nFace]  overland flow depth (m)
+ *   /Mesh2_node_head  [nTime, nNode]  reconstructed vertex head (m; engine
+ *                                     pseudo-Laplacian, VertexReconstruction)
  *   /Mesh2_edge_flux  [nTime, nFace, 3] signed normal flux per edge (m^2 s^-1)
  *   /Mesh2_edge_length [nFace, 3]     edge length (m, CF.2 / new in engine 6.0+)
  *   /Mesh2_edge_nx    [nFace, 3]      edge outward unit normal x (CF.2)
@@ -111,6 +113,19 @@ public:
     bool readDepthsAt(int timeIdx, std::vector<float>& depths) const;
 
     /*!
+     * \brief Read one time slice of \c /Mesh2_node_head — the engine's
+     *        pseudo-Laplacian vertex-head reconstruction.
+     * \param timeIdx 0-based time index (must be < timeCount()).
+     * \param heads   Output, resized to vertexCount(). Values in metres,
+     *                read as double — heads carry the elevation datum, and a
+     *                float ulp at high z exceeds the dry-depth threshold.
+     * \returns true on success; false (without HDF5 error spam — presence is
+     *          probed once via H5Lexists and cached) when the file predates
+     *          the dataset.
+     */
+    bool readVertexHeadsAt(int timeIdx, std::vector<double>& heads) const;
+
+    /*!
      * \brief Read one time slice of \c /Mesh2_edge_flux.
      * \param timeIdx 0-based time index (must be < timeCount()).
      * \param flux    Output, resized to \c triangleCount()*3, indexed
@@ -146,6 +161,7 @@ private:
                                  // to avoid including <hdf5.h> from this header)
     mutable int   cached_n_vert_ = -1;
     mutable int   cached_n_face_ = -1;
+    mutable int   cached_has_node_head_ = -1;  ///< -1 unknown, 0 absent, 1 present
     mutable QString last_error_;
 
     bool readDim_(const char* dataset, int axis, int& out) const;

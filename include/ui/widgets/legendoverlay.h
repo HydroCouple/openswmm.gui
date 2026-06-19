@@ -88,11 +88,19 @@ private slots:
     void openPropertiesDialog();
     void copyLegendImage();
     void resetLayout();
+    void autoSize();   ///< Slice US.B2 — clear explicit size back to auto-fit.
 
 private:
     void recomputeLayout();
     void clampInsideCanvas();
     void anchorToCanvas();   // re-place per style().anchor() if not Free.
+
+    // ── Slice US.B2 — interactive resize ────────────────────────────────
+    /*! Bitmask of edges within grip range of \p pos (widget coords):
+     *  1=Left, 2=Right, 4=Top, 8=Bottom. 0 = interior (drag-to-move). */
+    [[nodiscard]] int edgesAt(const QPoint &pos) const;
+    /*! Pick the cursor (resize arrows / size-all / arrow) for an edge mask. */
+    void updateCursor(int edges);
     void connectLayer(OpenSWMMVisLayer *layer);
     void disconnectLayer(OpenSWMMVisLayer *layer);
 
@@ -125,6 +133,12 @@ private:
     bool                                      m_dragging       = false;
     bool                                      m_positioned     = false;  ///< first paint anchors per style
     QVector<LayerBand>                        m_layerBands;              ///< populated by paintEvent()
+
+    // Slice US.B2 — interactive resize state.
+    int    m_resizeEdges     = 0;       ///< active edge mask while resizing; 0 = not resizing
+    QRect  m_resizeStartGeom;           ///< widget geometry at resize start
+    QPoint m_resizeStartGlobal;         ///< global cursor pos at resize start
+    bool   m_resizing        = false;   ///< guard against anchorToCanvas() fighting a live resize
 };
 
 } // namespace openswmmvis::ui

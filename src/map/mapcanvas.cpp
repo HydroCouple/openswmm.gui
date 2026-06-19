@@ -13,6 +13,7 @@
 #include "map/mapextent.h"
 #include "map/mapundostack.h"
 #include "map/maprenderjob.h"
+#include "map/meshprofileoverlay.h"
 #include "map/tools/maptool.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
@@ -20,6 +21,8 @@
 #include "map/spatialreferencesystem.h"
 #include "map/crsmanager.h"
 #include "map/swmmlayerqsgrenderer.h"
+#include "map/swmm2dresultsqsgrenderer.h"
+#include "layers/swmm2dresultslayer.h"
 
 #include <QQmlError>
 #include <QQuickItem>
@@ -153,6 +156,12 @@ MapCanvas::MapCanvas(QWidget *parent)
     m_qsgWidget = new QQuickWidget(nullptr);
     m_qsgWidget->setAttribute(Qt::WA_TransparentForMouseEvents);
     m_qsgWidget->setAttribute(Qt::WA_DontShowOnScreen);
+    // WA_DontShowOnScreen keeps it off screen but it is still a *logically
+    // visible* top-level with WA_QuitOnClose (default true), so
+    // QApplicationPrivate::shouldQuit() counts it as a primary window and
+    // lastWindowClosed never fires after the main window closes — the app
+    // lingers in the Dock with no windows. Opt it out of the quit check.
+    m_qsgWidget->setAttribute(Qt::WA_QuitOnClose, false);
     m_qsgWidget->setClearColor(Qt::transparent);
     m_qsgWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
     // Force MSAA on the QQuickWidget's offscreen FBO. main.cpp already
@@ -175,11 +184,21 @@ MapCanvas::MapCanvas(QWidget *parent)
         for (const QQmlError &err : m_qsgWidget->errors())
             qWarning() << "[MapCanvas]  QML error:" << err.toString();
     }
-    m_qsgRenderer = qobject_cast<SWMMLayerQSGRenderer *>(
-        m_qsgWidget->rootObject());
+    // VS.8 — the QML root is now a plain Item stacking the 2D-results
+    // renderer (below) and the 1D network renderer (above); locate both by
+    // objectName.
+    if (QQuickItem *qmlRoot = m_qsgWidget->rootObject()) {
+        m_qsgRenderer = qmlRoot->findChild<SWMMLayerQSGRenderer *>(
+            QStringLiteral("swmmRenderer"));
+        m_qsg2DRenderer = qmlRoot->findChild<SWMM2DResultsQSGRenderer *>(
+            QStringLiteral("results2dRenderer"));
+    }
     if (!m_qsgRenderer)
         qWarning() << "[MapCanvas] failed to obtain SWMMLayerQSGRenderer "
-                      "as the QML root — got" << m_qsgWidget->rootObject();
+                      "from the QML scene — got" << m_qsgWidget->rootObject();
+    if (!m_qsg2DRenderer)
+        qWarning() << "[MapCanvas] failed to obtain SWMM2DResultsQSGRenderer "
+                      "from the QML scene";
     m_qsgWidget->show();
 
     // Scale bar appearance settings — child QObject so it's cleaned up with the canvas.
@@ -526,6 +545,19 @@ OpenSWMMVisLayer *MapCanvas::takeLayer(int index, bool pushUndo)
     disconnect(layer, &OpenSWMMVisLayer::repaintRequested,
                this, &MapCanvas::onLayerRepaintRequested);
 
+    // VS.8 — a removed 2D results layer must fall back to CPU painting (it
+    // may be re-hosted on a canvas without the QSG path) and the cached
+    // pointer must not dangle.
+    if (auto *r2d = qobject_cast<SWMM2DResultsLayer *>(layer)) {
+        r2d->setQsgOwnsRendering(false);
+        if (m_qsgCached2DLayer == r2d) {
+            m_qsgCached2DLayer = nullptr;
+            m_qsgFrameDirty    = true;
+        }
+        if (m_qsg2DRenderer)
+            m_qsg2DRenderer->setLayer(nullptr);
+    }
+
     if (!layer->isRasterLayer())
         layer->depopulateScene(m_scene);
 
@@ -739,6 +771,14 @@ void MapCanvas::setActiveTool(OpenSWMMVisMapTool *tool)
     emit activeToolChanged(m_activeTool);
 }
 
+void MapCanvas::setMeshProfileOverlay(MeshProfileOverlay *overlay)
+{
+    if (m_meshProfileOverlay == overlay)
+        return;
+    m_meshProfileOverlay = overlay;
+    invalidate(Overlay, QStringLiteral("mesh-profile-overlay-bind"));
+}
+
 // ---------------------------------------------------------------------------
 // Undo stack
 // ---------------------------------------------------------------------------
@@ -814,6 +854,8 @@ void MapCanvas::syncQsgRenderKindsFromPreferences()
     m_qsgFrameCache = QImage();
     if (m_qsgRenderer)
         m_qsgRenderer->forceRebuild();
+    if (m_qsg2DRenderer)
+        m_qsg2DRenderer->forceRebuild();
     // Always schedule a repaint — the toggle changes which pipeline
     // owns the visible glyphs, so even with no QSG kinds active the
     // CPU path needs to repaint its node branch.
@@ -1394,7 +1436,7 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
     //   3. grabFramebuffer() reads the FBO → QImage.
     //   4. drawImage() into m_frameBuffer AFTER basemap / DTM / mesh so
     //      the stacking order is deterministic and all layers are visible.
-    if (m_qsgRenderer && m_qsgWidget) {
+    if ((m_qsgRenderer || m_qsg2DRenderer) && m_qsgWidget) {
         SWMMModelLayer *firstSwmm = nullptr;
         for (OpenSWMMVisLayer *layer : std::as_const(m_layers)) {
             if (!layer->isVisible()) continue;
@@ -1403,14 +1445,56 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                 break;
             }
         }
+
+        // VS.8 — first visible 2D results layer. The GPU path owns its
+        // rendering whenever the renderer item exists and no mask clip is
+        // active (the QPainter mask path has no cheap QSG equivalent, so a
+        // masked layer falls back to the CPU passes wholesale).
+        SWMM2DResultsLayer *first2D = nullptr;
+        for (OpenSWMMVisLayer *layer : std::as_const(m_layers)) {
+            if (!layer->isVisible()) continue;
+            if (auto *rl = qobject_cast<SWMM2DResultsLayer *>(layer)) {
+                first2D = rl;
+                break;
+            }
+        }
+        const bool own2D = first2D && m_qsg2DRenderer
+                           && !first2D->maskSpec().enabled;
+
+        // Ownership handoff — the setters no-op when unchanged, and their
+        // repaintRequested emissions only schedule (not re-enter) a paint.
+        if (m_qsgCached2DLayer && m_qsgCached2DLayer != first2D)
+            m_qsgCached2DLayer->setQsgOwnsRendering(false);
+        if (first2D)
+            first2D->setQsgOwnsRendering(own2D);
+
+        // While the flood map renders in the QSG frame, the 1D network must
+        // render there too (above it) — a CPU-painted network in the scene
+        // buffer would composite UNDER the flood map. Force the kinds on and
+        // restore the preference-derived mask when the 2D layer goes away.
+        if (own2D && firstSwmm
+            && firstSwmm->qsgRenderKinds() == SWMMModelLayer::QsgNone) {
+            firstSwmm->setQsgRenderKinds(
+                SWMMModelLayer::QsgKinds(SWMMModelLayer::QsgNodes
+                                       | SWMMModelLayer::QsgLinks
+                                       | SWMMModelLayer::QsgCatch
+                                       | SWMMModelLayer::QsgGages));
+            m_qsg1DForced = true;
+        } else if (!own2D && m_qsg1DForced) {
+            m_qsg1DForced = false;
+            syncQsgRenderKindsFromPreferences();
+        }
+
         // §QSG-1: skip the GPU render + readback entirely when no kind
         // is owned by the QSG overlay (the default Preferences state).
         // grabFramebuffer() is the single most expensive thing in
         // paintEvent on large models — running it on every paint when
         // it's drawing nothing was the silent killer of pan/zoom
         // responsiveness even with the QSG path nominally "off".
-        const bool qsgActive = firstSwmm
-            && firstSwmm->qsgRenderKinds() != SWMMModelLayer::QsgNone;
+        const bool qsgActive =
+            (firstSwmm
+             && firstSwmm->qsgRenderKinds() != SWMMModelLayer::QsgNone)
+            || own2D;
         if (!qsgActive) {
             // Skip the QSG render entirely; CPU layeritem owns every kind.
         } else {
@@ -1426,12 +1510,20 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
             // grabFramebuffer() is the most expensive single call in
             // paintEvent on large models; this path mirrors the basemap
             // m_mapBuffer treatment a few lines above.
-            const bool layerChanged  = (firstSwmm != m_qsgCachedLayer);
-            const bool sizeChanged   = (size()    != m_qsgCachedSize);
+            SWMM2DResultsLayer *want2D = own2D ? first2D : nullptr;
+            const bool layerChanged   = (firstSwmm != m_qsgCachedLayer)
+                                        || (want2D != m_qsgCached2DLayer);
+            const bool sizeChanged    = (size()    != m_qsgCachedSize);
             if (m_qsgFrameDirty || layerChanged
                 || sizeChanged || m_qsgFrameCache.isNull()) {
-                m_qsgRenderer->setLayer(firstSwmm);
-                m_qsgRenderer->setMapExtent(m_extent);
+                if (m_qsgRenderer) {
+                    m_qsgRenderer->setLayer(firstSwmm);
+                    m_qsgRenderer->setMapExtent(m_extent);
+                }
+                if (m_qsg2DRenderer) {
+                    m_qsg2DRenderer->setLayer(want2D);
+                    m_qsg2DRenderer->setMapExtent(m_extent);
+                }
 
                 // Render at DEVICE-pixel resolution so MSAA samples are
                 // taken at 1:1 with screen pixels. WA_DontShowOnScreen
@@ -1454,12 +1546,13 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                 // Synchronous render: updatePaintNode() executes here so the
                 // selection overlay reflects the latest flag arrays.
                 m_qsgWidget->repaint();
-                m_qsgFrameCache   = m_qsgWidget->grabFramebuffer();
+                m_qsgFrameCache    = m_qsgWidget->grabFramebuffer();
                 m_qsgFrameCache.setDevicePixelRatio(qsgDpr);
-                m_qsgFrameDirty   = false;
-                m_qsgCachedLayer  = firstSwmm;
-                m_qsgCachedExtent = m_extent;
-                m_qsgCachedSize   = size();
+                m_qsgFrameDirty    = false;
+                m_qsgCachedLayer   = firstSwmm;
+                m_qsgCached2DLayer = want2D;
+                m_qsgCachedExtent  = m_extent;
+                m_qsgCachedSize    = size();
             }
 
             // Composite the cached QSG frame into m_frameBuffer on top of
@@ -1500,6 +1593,21 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                 }
             }
         } // close `} else {` for qsgActive path
+    }
+
+    // ---- Layer 2c: mesh-profile overlay (above the QSG flood-map mesh) -----
+    // Drawn here — after the QSG frame is composited — so the traced profile
+    // line and its position marker are never hidden by the 2D mesh. A
+    // QGraphicsScene item can't achieve this: the whole scene buffer composites
+    // UNDER the QSG frame above. Scene coords (sx = mapX, sy = -mapY) map to
+    // device pixels through the same m_extent the basemap/scene/QSG all use, so
+    // it stays aligned with the mesh at every zoom.
+    if (m_meshProfileOverlay) {
+        m_meshProfileOverlay->paint(p, [this](const QPointF &sp) {
+            int px = 0, py = 0;
+            toPixelCoords(sp.x(), -sp.y(), px, py);
+            return QPointF(px, py);
+        });
     }
 
     // ---- Layer 3: tool overlay (rubber-band, measure, etc.) ---------------
@@ -1840,11 +1948,14 @@ void MapCanvas::resizeEvent(QResizeEvent *event)
 
 void MapCanvas::onLayerRepaintRequested()
 {
-    // Only invalidate the cached QSG framebuffer when the SWMM model
-    // layer itself signalled — basemap-tile-arrived and other
+    // Only invalidate the cached QSG framebuffer when a layer the QSG
+    // overlay renders signalled — basemap-tile-arrived and other
     // non-SWMM repaints don't change the QSG overlay, and re-grabbing
     // for those was the dominant cost of paintEvent on large models.
-    if (qobject_cast<SWMMModelLayer *>(sender()))
+    // VS.8 — 2D results layers live in the overlay too (animation ticks
+    // and style edits arrive through this same channel).
+    if (qobject_cast<SWMMModelLayer *>(sender())
+        || qobject_cast<SWMM2DResultsLayer *>(sender()))
         m_qsgFrameDirty = true;
     // Schedule a canvas repaint; paintEvent() will drive the QSG render
     // synchronously via repaint() + grabFramebuffer() when needed so the

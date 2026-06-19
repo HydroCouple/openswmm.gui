@@ -951,6 +951,17 @@ add_swmmvis_gui_test(test_nonspatial_adapters
 #
 # add_swmmvis_gui_test(test_linkpropertyadapter test_linkpropertyadapter.cpp …)
 
+# Node/link type conversion — the shared TypeConversionFlow text builders
+# plus the engine swmm_node_convert / swmm_link_convert contract the layer
+# methods wrap. Self-contained: compiles typeconversionflow.cpp and stubs
+# the two SWMMModelLayer::apply*Convert methods at link time (the modal
+# run() is never invoked), so it avoids the full SWMMModelLayer link chain.
+add_swmmvis_gui_test(test_typeconversionflow
+    test_typeconversionflow.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/typeconversionflow.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/typeconversionflow.h
+)
+
 # Slice TA, §T.6 — covers the subcatchment-side `tag` Q_PROPERTY round-trip
 #   (mirror of the Slice SA link test) + the metaobject writable contract
 #   + `displayLabelFor` localisation + rename-keeps-tag + multi-subcatch
@@ -1218,6 +1229,25 @@ if(TARGET Qt6::Quick)
     target_link_libraries(spike_qsgnode PRIVATE
         Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Quick)
 endif()
+
+# Simulation Status "2D Err (%)" column — runs the real SimulationRunner
+# (in-process engine) wired to a real SimulationStatusModel against a minimal
+# inline 2D model and a minimal 1D model. Run artifacts land in
+# tests/gui/data/output_simstatus2derr/ for post-test review.
+find_package(Qt6 REQUIRED COMPONENTS Concurrent)
+# Headers are listed explicitly because they live in include/ (not next to
+# the .cpp), so AUTOMOC would otherwise skip their Q_OBJECT moc output.
+add_swmmvis_gui_test(test_simstatus_2derr
+    test_simstatus_2derr.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/simulation/simulationrunner.h
+    ${CMAKE_SOURCE_DIR}/include/simulation/simulationstatusmodel.h
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+)
+target_link_libraries(test_simstatus_2derr PRIVATE Qt6::Concurrent)
 
 # LayerTreeModel test (test_layertreemodel.cpp) is parked until the
 # `swmmvis_core` static-library extraction lands. Compiling layertreepanel.cpp

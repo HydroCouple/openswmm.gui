@@ -20,6 +20,8 @@
 #ifndef OPENSWMMVIS_PLOT_SERIESSTYLE_H
 #define OPENSWMMVIS_PLOT_SERIESSTYLE_H
 
+#include "plot/numberformat.h"
+
 #include <QColor>
 #include <QFont>
 #include <QJsonObject>
@@ -68,7 +70,8 @@ struct SeriesStyle {
     bool   showPointLabels      = false;
     QFont  pointLabelFont;                   // default = QFont()
     QColor pointLabelColor;                  // invalid = derive from color
-    int    pointLabelPrecision  = 2;         // decimal places
+    int    pointLabelPrecision  = 2;         // decimals or sig figs (see mode)
+    NumberFormatMode pointLabelFormatMode = NumberFormatMode::Decimals;
 
     // ---- Area fill ------------------------------------------------------
     bool   showAreaFill = false;

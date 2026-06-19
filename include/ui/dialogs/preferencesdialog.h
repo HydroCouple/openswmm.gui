@@ -61,6 +61,7 @@ private:
     QWidget *buildDynamicWaveDefaultsPage();
     QWidget *buildMapDisplayPage();
     QWidget *buildMeasureToolPage();
+    QWidget *buildPlotsPage();
     QWidget *buildNamingPage();
 
     QListWidget    *m_categoryList = nullptr;
@@ -183,6 +184,12 @@ private:
     QPushButton   *m_measureFillColorBtn      = nullptr;
     QColor         m_pendingMeasureFillColor;
     QSpinBox      *m_measureFillOpacitySpin   = nullptr;
+
+    // Plots — default numeric precision (X / Y axis)
+    QComboBox     *m_plotXFormatModeCombo     = nullptr;   // 0=Decimals, 1=Sig figs
+    QSpinBox      *m_plotXPrecisionSpin       = nullptr;   // 0..10
+    QComboBox     *m_plotYFormatModeCombo     = nullptr;
+    QSpinBox      *m_plotYPrecisionSpin       = nullptr;
 
     // Naming prefixes (one QLineEdit per element kind)
     QLineEdit *m_prefixJunction     = nullptr;

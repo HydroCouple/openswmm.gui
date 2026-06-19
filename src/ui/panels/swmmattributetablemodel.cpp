@@ -183,6 +183,8 @@ QVariantList yesNoValues();
 QVariantList offOnValues();
 QVariantList culvertCodeValues();
 QVariantList dividerTypeValues();
+// Slice AG.4 — storage geometry shape enum.
+QVariantList storageShapeValues();
 // ATTRIBUTE_EDITOR_WIRING Phase 1 — link sub-type enums.
 QVariantList orificeTypeValues();
 QVariantList weirTypeValues();
@@ -391,6 +393,21 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             num("Seep rate",       "Seepage Rate",       "node_storage_seep_rate",
                                                           0.0, 1e6, 4, UnitKind::Rate),
         };
+        // Slice AG.4 — storage geometry, Property Browser parity: shape
+        // selector, tabular depth–area curve picker, and the three
+        // functional power-law coefficients (Area = A·Depth^B + C).
+        // Picking a curve switches the node to TABULAR; clearing it (or
+        // setting Shape=FUNCTIONAL) reverts to the coefficient form.
+        cols.append(enumCol("Storage shape", "Storage Shape",
+                             "node_storage_shape", storageShapeValues()));
+        cols.append(compoundCol("Storage curve", "Storage Curve",
+                                 "node_storage_curve_ref"));
+        cols.append(num("Func coeff A", "Functional Coefficient (A)",
+                        "node_storage_coeff_a", 0.0, 1e9, 4, UnitKind::None));
+        cols.append(num("Func exp B",   "Functional Exponent (B)",
+                        "node_storage_exp_b",   0.0, 1e9, 4, UnitKind::None));
+        cols.append(num("Func const C", "Functional Constant (C)",
+                        "node_storage_const_c", 0.0, 1e9, 4, UnitKind::Area));
         cols.append(nodeStatBlock());
         // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — browser
         // shows the four compound cells on every node kind.
@@ -726,6 +743,69 @@ int gageFilePathSet(SWMM_Engine e, int idx, const char *path) {
     return swmm_file_path_set(e, SWMM_FILE_RAINGAGE_DATA, id, path);
 }
 
+// Slice AG.4 — storage-unit geometry. The engine stores the functional
+// power-law coefficients (A, B, C) as an atomic triple and the tabular
+// curve index in a separate slot. A node is TABULAR when a curve is
+// assigned (storage_curve >= 0), FUNCTIONAL otherwise. These wrappers
+// adapt that to the (engine, idx, scalar) dispatch shape the table uses,
+// mirroring SWMMNodePropertyAdapter's storage accessors so both views agree.
+int storageShapeGetI(SWMM_Engine e, int idx, int *v) {
+    int curveIdx = -1;
+    const int rc = swmm_node_get_storage_curve(e, idx, &curveIdx);
+    if (rc != SWMM_OK) return rc;
+    *v = (curveIdx >= 0) ? 1 /*TABULAR*/ : 0 /*FUNCTIONAL*/;
+    return SWMM_OK;
+}
+int storageShapeSetI(SWMM_Engine e, int idx, int v) {
+    if (v == 0) return swmm_node_set_storage_curve(e, idx, -1);  // functional
+    int curveIdx = -1;
+    swmm_node_get_storage_curve(e, idx, &curveIdx);
+    if (curveIdx >= 0) return SWMM_OK;                            // already tabular
+    const int n = swmm_table_count(e);
+    for (int i = 0; i < n; ++i) {
+        int t = -1;
+        if (swmm_table_get_type(e, i, &t) == SWMM_OK && t == 1 /*CURVE_STORAGE*/)
+            return swmm_node_set_storage_curve(e, idx, i);
+    }
+    return SWMM_OK;  // no storage curve exists; stays functional
+}
+int storageCoeffAGet(SWMM_Engine e, int idx, double *v) {
+    double a = 0, b = 0, c = 0;
+    const int rc = swmm_node_get_storage_functional(e, idx, &a, &b, &c);
+    if (rc == SWMM_OK) *v = a;
+    return rc;
+}
+int storageCoeffASet(SWMM_Engine e, int idx, double v) {
+    double a = 0, b = 0, c = 0;
+    const int rc = swmm_node_get_storage_functional(e, idx, &a, &b, &c);
+    if (rc != SWMM_OK) return rc;
+    return swmm_node_set_storage_functional(e, idx, v, b, c);
+}
+int storageExpBGet(SWMM_Engine e, int idx, double *v) {
+    double a = 0, b = 0, c = 0;
+    const int rc = swmm_node_get_storage_functional(e, idx, &a, &b, &c);
+    if (rc == SWMM_OK) *v = b;
+    return rc;
+}
+int storageExpBSet(SWMM_Engine e, int idx, double v) {
+    double a = 0, b = 0, c = 0;
+    const int rc = swmm_node_get_storage_functional(e, idx, &a, &b, &c);
+    if (rc != SWMM_OK) return rc;
+    return swmm_node_set_storage_functional(e, idx, a, v, c);
+}
+int storageConstCGet(SWMM_Engine e, int idx, double *v) {
+    double a = 0, b = 0, c = 0;
+    const int rc = swmm_node_get_storage_functional(e, idx, &a, &b, &c);
+    if (rc == SWMM_OK) *v = c;
+    return rc;
+}
+int storageConstCSet(SWMM_Engine e, int idx, double v) {
+    double a = 0, b = 0, c = 0;
+    const int rc = swmm_node_get_storage_functional(e, idx, &a, &b, &c);
+    if (rc != SWMM_OK) return rc;
+    return swmm_node_set_storage_functional(e, idx, a, b, v);
+}
+
 // Dispatch table — map a setter-tag string to the engine call.
 // Double-typed setters drive Numeric columns; Int-typed setters
 // drive Enum / Integer / Bool columns.  Each entry populates one
@@ -761,6 +841,14 @@ SetterEntry setterFor(const QString &tag) {
     if (tag == QStringLiteral("node_storage_seep_rate"))
         return {EntityKind::Node, &swmm_node_set_storage_seep_rate,
                                   &swmm_node_get_storage_seep_rate};
+    // Slice AG.4 — storage functional coefficients (read-modify-write over
+    // the engine's atomic (A,B,C) triple).
+    if (tag == QStringLiteral("node_storage_coeff_a"))
+        return {EntityKind::Node, &storageCoeffASet, &storageCoeffAGet};
+    if (tag == QStringLiteral("node_storage_exp_b"))
+        return {EntityKind::Node, &storageExpBSet,   &storageExpBGet};
+    if (tag == QStringLiteral("node_storage_const_c"))
+        return {EntityKind::Node, &storageConstCSet, &storageConstCGet};
     // ATTRIBUTE_EDITOR_WIRING parity pass — outfall fixed stage. The
     // setter also flips the outfall type to FIXED (engine invariant).
     if (tag == QStringLiteral("node_outfall_stage"))
@@ -783,6 +871,14 @@ SetterEntry setterFor(const QString &tag) {
         e.kind = EntityKind::Node;
         e.setFnI = &swmm_node_set_divider_type;
         e.getFnI = &swmm_node_get_divider_type;
+        return e;
+    }
+    // Slice AG.4 — storage shape (FUNCTIONAL/TABULAR). The setter assigns
+    // or detaches a storage curve to flip the form (see storageShapeSetI).
+    if (tag == QStringLiteral("node_storage_shape")) {
+        e.kind = EntityKind::Node;
+        e.setFnI = &storageShapeSetI;
+        e.getFnI = &storageShapeGetI;
         return e;
     }
 
@@ -968,6 +1064,14 @@ QVariantList dividerTypeValues() {
         makePair("OVERFLOW", 1),
         makePair("TABULAR",  2),
         makePair("WEIR",     3),
+    };
+}
+// Slice AG.4 — storage geometry shape. Mirrors
+// SWMMNodePropertyAdapter::StorageShape (0=Functional, 1=Tabular).
+QVariantList storageShapeValues() {
+    return {
+        makePair("FUNCTIONAL", 0),
+        makePair("TABULAR",    1),
     };
 }
 // ATTRIBUTE_EDITOR_WIRING Phase 1 — link sub-type enums. Values mirror
@@ -1386,6 +1490,26 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             return QVariant::fromValue(lref);
         }
 
+        // Slice AG.4 — storage tabular curve picker (DataObjectRef cell).
+        // Mirrors SWMMNodePropertyAdapter::storageCurveRef: resolves to the
+        // assigned [STORAGE]-type curve name, empty when the node is using
+        // the functional form. The engine write happens in commitValueDirect.
+        if (spec.setter == QStringLiteral("node_storage_curve_ref")) {
+            const int nodeIdx = swmm_node_index(eng, name.toUtf8().constData());
+            if (nodeIdx < 0) return {};
+            DataObjectRef dref;
+            dref.engine = eng;
+            dref.layer  = m_layer;
+            dref.kind   = DataObjectRef::StorageCurve;
+            int curveIdx = -1;
+            if (swmm_node_get_storage_curve(eng, nodeIdx, &curveIdx) == SWMM_OK
+                && curveIdx >= 0) {
+                if (const char *id = swmm_table_id(eng, curveIdx))
+                    dref.currentName = QString::fromUtf8(id);
+            }
+            return QVariant::fromValue(dref);
+        }
+
         // Parity pass — outfall stage-data pickers (DataObjectRef
         // cells). Mirrors SWMMNodePropertyAdapter::outfallTidalCurveRef
         // / outfallTimeseriesRef: the name resolves only when the
@@ -1731,6 +1855,19 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
             rc = (spec.setter == QStringLiteral("node_outfall_tidal_ref"))
                 ? swmm_node_set_outfall_tidal(eng, nodeIdx, tblIdx)
                 : swmm_node_set_outfall_timeseries(eng, nodeIdx, tblIdx);
+        } else if (spec.setter == QStringLiteral("node_storage_curve_ref")) {
+            // Slice AG.4 — assign a [STORAGE]-type curve (TABULAR) or, on an
+            // empty name, detach it (curveIdx == -1) reverting to FUNCTIONAL.
+            // Mirrors SWMMNodePropertyAdapter::setStorageCurveRef.
+            const int nodeIdx = swmm_node_index(eng, name.toUtf8().constData());
+            if (nodeIdx < 0) return false;
+            int curveIdx = -1;
+            if (!dref.currentName.isEmpty()) {
+                curveIdx = swmm_table_index(eng,
+                                             dref.currentName.toUtf8().constData());
+                if (curveIdx < 0) return false;   // unknown curve — ignore
+            }
+            rc = swmm_node_set_storage_curve(eng, nodeIdx, curveIdx);
         } else {
             return false;
         }
@@ -1788,6 +1925,29 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
         // Repaint the whole row — moving the node updates X, Y, and the
         // stat block reads (Max Depth Sim. is location-independent but
         // re-issuing dataChanged keeps the view consistent).
+        const int lastCol = columnCount() - 1;
+        emit dataChanged(this->index(row, 0), this->index(row, lastCol),
+                         {Qt::DisplayRole, Qt::EditRole});
+        emit objectEdited(name);
+        return true;
+    }
+
+    // Slice AG.4 — storage shape flips between functional coefficients and a
+    // tabular curve, which mutates the sibling Storage Curve cell. Commit via
+    // the same dispatch table, then repaint the whole row so the curve cell
+    // tracks the change (the generic tail below repaints only the edited cell).
+    if (spec.setter == QStringLiteral("node_storage_shape")) {
+        const QString name = objectNameAt(row);
+        const int nodeIdx = swmm_node_index(m_layer->engine(),
+                                             name.toUtf8().constData());
+        if (nodeIdx < 0) return false;
+        bool ok = false;
+        const int iv = value.toInt(&ok);
+        if (!ok) return false;
+        if (storageShapeSetI(m_layer->engine(), nodeIdx, iv) != SWMM_OK)
+            return false;
+        if (row >= 0 && row < m_rowCacheValid.size())
+            m_rowCacheValid[row] = false;
         const int lastCol = columnCount() - 1;
         emit dataChanged(this->index(row, 0), this->index(row, lastCol),
                          {Qt::DisplayRole, Qt::EditRole});

@@ -19,7 +19,10 @@
 #include <QComboBox>
 #include <QToolButton>
 #include <QSlider>
+#include <QDoubleSpinBox>
 #include <QDateTimeEdit>
+
+#include "ui/widgets/rangeslider.h"
 #include <QProgressBar>
 #include <QStandardItemModel>
 #include <QMessageBox>
@@ -316,6 +319,25 @@ public:
 };
 
 /**
+ * @brief Show/hide the MDI tab belonging to a sub-window. QMdiArea only
+ *        removes tabs when a sub-window is removed from the area — a
+ *        merely *hidden* sub-window keeps its tab on screen — so the
+ *        hide-in-place welcome scheme must drive the tab's visibility
+ *        itself. Tab index == position in subWindowList(): QMdiArea
+ *        appends tabs in child-insertion order and its internal tab bar
+ *        is not user-reorderable.
+ */
+void setSubWindowTabVisible(QMdiArea *area, QMdiSubWindow *sub, bool visible)
+{
+    if (!area || !sub) return;
+    auto *tabBar = area->findChild<QTabBar *>();
+    if (!tabBar) return;
+    const int idx = area->subWindowList().indexOf(sub);
+    if (idx >= 0 && idx < tabBar->count())
+        tabBar->setTabVisible(idx, visible);
+}
+
+/**
  * @brief Item delegate that paints a QProgressBar in the Progress
  *        column of the Simulation Status tree view. Reads the percent
  *        value from Qt::UserRole (an integer 0–100 carried by the
@@ -416,28 +438,6 @@ public:
     // No setModelData — readonly.
 };
 
-/**
- * @brief Pick a "nice" tick step from the 1 / 2 / 5 × 10^n ladder so that
- *        a slider of range [0, total] shows at most ~targetTicks ticks.
- *
- * Returns 0 when total < 2 (caller hides ticks entirely). Otherwise the
- * smallest step from {1, 2, 5, 10, 20, 50, ...} such that
- * total / step <= targetTicks.
- */
-int niceTickStep(int total, int targetTicks = 50)
-{
-    if (total < 2) return 0;
-    static constexpr int kMantissas[] = {1, 2, 5};
-    int pow10 = 1;
-    int idx   = 0;
-    while (true) {
-        const int step = kMantissas[idx] * pow10;
-        if (step <= 0) return total;  // overflow guard
-        if (total / step <= targetTicks) return step;
-        if (++idx == 3) { idx = 0; pow10 *= 10; }
-    }
-}
-
 } // anonymous namespace
 
 void SWMMVis::initializeWelcomeScreen()
@@ -445,11 +445,26 @@ void SWMMVis::initializeWelcomeScreen()
     clearPreviousWelcomeScreenElements();
 
     // Force the MDI's internal tab bar to render close-X on the RIGHT
-    // (macOS defaults to LEFT via the native style hint). Apply before
-    // tabs are populated so every tab picks up the new position.
+    // (macOS defaults to LEFT via the native style hint).
     if (auto *tabBar = ui->mdiAreaCentral->findChild<QTabBar *>())
     {
         tabBar->setStyle(new TabCloseRightStyle(tabBar->style()));
+        // Tabs that already exist (the welcome tab is added during
+        // setupUi, before this style swap) carry their close button in
+        // the LEFT slot. QTabBarPrivate::closeTab() looks the clicked
+        // button up only on the side the hint reports at click time —
+        // RightSide from here on — so a left-slot button no longer maps
+        // to any tab and its clicks are silently dropped (welcome tab
+        // X did nothing). Migrate existing buttons to the right slot.
+        for (int i = 0; i < tabBar->count(); ++i)
+        {
+            QWidget *btn = tabBar->tabButton(i, QTabBar::LeftSide);
+            if (btn && !tabBar->tabButton(i, QTabBar::RightSide))
+            {
+                tabBar->setTabButton(i, QTabBar::LeftSide, nullptr);
+                tabBar->setTabButton(i, QTabBar::RightSide, btn);
+            }
+        }
     }
 
     // Welcome sub-window lifecycle (simplified from the previous
@@ -459,8 +474,10 @@ void SWMMVis::initializeWelcomeScreen()
     // state). New scheme: the sub-window is KEPT alive (not destroyed
     // on close) and we just toggle its visibility. Closing via the tab
     // X hides the sub (Qt's default for close() when WA_DeleteOnClose
-    // is false) — QMdiArea's TabbedView drops the tab for a hidden
-    // sub, so the user sees "the welcome closed." Reopen = show().
+    // is false). NOTE: QMdiArea does NOT drop the tab of a hidden sub
+    // (tabs are only removed when a sub leaves the area), so every
+    // hide/show of the sub also toggles its tab via
+    // setSubWindowTabVisible. Reopen = show() + tab visible.
     if (QMdiSubWindow *sub = welcomeSubWindow())
     {
         sub->setAttribute(Qt::WA_DeleteOnClose, false);
@@ -485,7 +502,10 @@ void SWMMVis::initializeWelcomeScreen()
     if (!mShowWelcomeScreenOnStartUp)
     {
         if (QMdiSubWindow *sub = welcomeSubWindow())
+        {
             sub->hide();  // hide without triggering the close event
+            setSubWindowTabVisible(ui->mdiAreaCentral, sub, false);
+        }
     }
 
     // Populate Learn SWMM links
@@ -707,14 +727,18 @@ void SWMMVis::initializeMeshEditingToolBar()
     // edge label after Edit Edge).
     mMeshEditingToolbar->addToolWidget(mMeshEditingToolbar->cellInfoLabel());
 
+    // Icon-only on the toolbar — like Edit Vertex / Edit Edge above, the
+    // QAction text is left empty so only the icon shows; the descriptive
+    // label lives in the tooltip set below.
     auto *actMeshProfile = new QAction(QIcon(QStringLiteral(":/swmmvis/Profile")),
-                                       tr("Trace Profile Path"), mMeshEditingToolbar);
+                                       QString(), mMeshEditingToolbar);
     actMeshProfile->setObjectName(QStringLiteral("actionMeshProfile"));
     actMeshProfile->setCheckable(true);
     actMeshProfile->setToolTip(tr(
-        "Draw a polyline across the 2D mesh to plot a longitudinal profile "
-        "(ground, animated depth, max-depth envelope). Click to add vertices, "
-        "double-click or Enter to finish, right-click to undo, Esc to cancel."));
+        "Draw a polyline across the 2D mesh to plot a bed/terrain elevation "
+        "profile. For water depth + envelope, use the Analysis toolbar's Plot "
+        "Profile. Click to add vertices, double-click or Enter to finish, "
+        "right-click to undo, Esc to cancel."));
     connect(actMeshProfile, &QAction::toggled, this,
             [this, actMeshProfile](bool checked) {
         auto *pw = activeProjectWindow();
@@ -848,13 +872,32 @@ void SWMMVis::initializeAnimationToolBar()
 {
     mAnimationController = new AnimationController(this);
 
-    mSliderAnimationTime = new QSlider(Qt::Horizontal, this);
-    mSliderAnimationTime->setSingleStep(1);
-    mSliderAnimationTime->setPageStep(1);
-    mSliderAnimationTime->setTickPosition(QSlider::NoTicks);  // ticks appear once a run loads
-    mSliderAnimationTime->setToolTip(tr("Animation Time"));
-    mSliderAnimationTime->setStatusTip(tr("Animation Time"));
-    mSliderAnimationTime->setMinimumWidth(300);
+    // Animation scrubber + look-back window in one control: a two-handle range
+    // slider replaces the plain time slider. The RIGHT handle is the current
+    // time (cursor); the gap back to the LEFT handle is the look-back window,
+    // so coupled outputs with non-aligned timesteps each show their latest
+    // frame at or before the cursor. The "Window" box mirrors the gap, and the
+    // two stay in sync bidirectionally.
+    mRangeSliderAnimation = new openswmmvis::ui::RangeSliderWidget(this);
+    mRangeSliderAnimation->setMinimumWidth(240);
+    // Stretch to fill the toolbar's free width (the cursor + window band read
+    // more precisely on a wide track).
+    mRangeSliderAnimation->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    mRangeSliderAnimation->setToolTip(
+        tr("Animation time (right handle) and look-back window (gap). Drag the "
+           "band to scrub; drag a handle to resize the window."));
+    mRangeSliderAnimation->setStatusTip(tr("Animation Time"));
+
+    mLabelAnimationWindow = new QLabel(tr("Window:"), this);
+    mLabelAnimationWindow->setContentsMargins(6, 0, 4, 0);
+    mSpinAnimationWindow = new QDoubleSpinBox(this);
+    mSpinAnimationWindow->setDecimals(1);
+    mSpinAnimationWindow->setRange(0.0, 1.0e6);
+    mSpinAnimationWindow->setSingleStep(1.0);
+    mSpinAnimationWindow->setSuffix(tr(" min"));
+    mSpinAnimationWindow->setToolTip(
+        tr("Look-back window: each output shows its latest frame within this "
+           "span at or before the cursor (0 = latest at-or-before)."));
 
     mDateTimeEditAnimationTime = new QDateTimeEdit(this);
     mDateTimeEditAnimationTime->setDisplayFormat(QStringLiteral("MM/dd/yyyy hh:mm"));
@@ -862,7 +905,9 @@ void SWMMVis::initializeAnimationToolBar()
     mDateTimeEditAnimationTime->setToolTip(tr("Animation Time"));
     mDateTimeEditAnimationTime->setStatusTip(tr("Animation Time"));
 
-    ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mSliderAnimationTime);
+    ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mRangeSliderAnimation);
+    ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mLabelAnimationWindow);
+    ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mSpinAnimationWindow);
     ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mDateTimeEditAnimationTime);
 
     // Speed selector — sits after Stop, before SkipForward (separator already
@@ -935,15 +980,6 @@ void SWMMVis::initializeAnimationToolBar()
         ui->actionPause->setChecked(!playing);
     });
 
-    // Slider ↔ controller (bidirectional, guarded against feedback loops).
-    connect(mAnimationController, &AnimationController::currentPeriodChanged,
-            this, [this](int period) {
-        QSignalBlocker b(mSliderAnimationTime);
-        mSliderAnimationTime->setValue(period);
-    });
-    connect(mSliderAnimationTime, &QSlider::valueChanged,
-            mAnimationController, &AnimationController::seekToPeriod);
-
     // DateTime display (read-only — controller drives it). Also fans the
     // time scrub out to any 2D results layer on the active canvas so the
     // single slider drives both 1D and 2D playback in lockstep.
@@ -962,28 +998,98 @@ void SWMMVis::initializeAnimationToolBar()
                 for (OpenSWMMVisLayer *l : canvas->layers()) {
                     auto *r2d = qobject_cast<SWMM2DResultsLayer *>(l);
                     if (r2d && r2d->isVisible())
-                        r2d->setCurrentSimTime(dt);
+                        r2d->setCurrentSimTimeAsOf(dt);   // causal: never ahead of cursor
                 }
             }
         }
     });
 
-    // Slider range tracks total periods. Tick density is recomputed from a
-    // 1/2/5×10ⁿ ladder so long runs (10³–10⁵ periods) don't smear the rail.
-    connect(mAnimationController, &AnimationController::totalPeriodsChanged,
-            this, [this](int total) {
-        mSliderAnimationTime->setRange(0, qMax(0, total - 1));
-        const int step = niceTickStep(total);
-        if (step <= 0) {
-            mSliderAnimationTime->setTickPosition(QSlider::NoTicks);
-            mSliderAnimationTime->setTickInterval(0);
-            mSliderAnimationTime->setPageStep(1);
-        } else {
-            mSliderAnimationTime->setTickPosition(QSlider::TicksBelow);
-            mSliderAnimationTime->setTickInterval(step);
-            mSliderAnimationTime->setPageStep(step);
-        }
+
+    // ── Sync window: range slider ↔ span box ↔ controller cursor/window ──
+    // All controls share the controller's cursor (currentTime) and windowMs as
+    // the single source of truth; programmatic updates are guarded against
+    // feedback with QSignalBlocker, mirroring the single-slider wiring above.
+    auto driverSpanMs = [this]() -> qint64 {
+        const QDateTime s = mAnimationController->driverStartTime();
+        const QDateTime e = mAnimationController->driverEndTime();
+        return (s.isValid() && e.isValid()) ? s.msecsTo(e) : 0;
+    };
+    auto normTime = [this, driverSpanMs](const QDateTime &dt) -> qreal {
+        const qint64 span = driverSpanMs();
+        if (span <= 0 || !dt.isValid()) return 0.0;
+        return std::clamp(double(mAnimationController->driverStartTime().msecsTo(dt))
+                              / double(span), 0.0, 1.0);
+    };
+    auto denormTime = [this, driverSpanMs](qreal v) -> QDateTime {
+        const QDateTime s = mAnimationController->driverStartTime();
+        const qint64 span = driverSpanMs();
+        if (span <= 0 || !s.isValid()) return s;
+        return s.addMSecs(static_cast<qint64>(std::clamp(v, 0.0, 1.0) * double(span)));
+    };
+    // Push the controller's cursor + window into the range slider (no echo).
+    // The band keeps a FIXED width (the window) and the two handles translate
+    // together as the cursor advances. Clamp the pair as a unit at the timeline
+    // edges so the span never grows/shrinks (which is what happens if lo and hi
+    // are clamped independently near t = start/end).
+    auto syncRangeFromState = [this, driverSpanMs, normTime]() {
+        if (!mRangeSliderAnimation) return;
+        const qint64 spanMs = driverSpanMs();
+        if (spanMs <= 0) return;
+        const QDateTime t = mAnimationController->currentDateTime();
+        if (!t.isValid()) return;
+        const qreal wN  = std::clamp(double(mAnimationController->windowMs())
+                                         / double(spanMs), 0.0, 1.0);
+        qreal hiN = normTime(t);          // cursor (already clamped to [0,1])
+        qreal loN = hiN - wN;
+        if (loN < 0.0) { loN = 0.0; hiN = wN; }   // slide the pair right, keep width
+        QSignalBlocker b(mRangeSliderAnimation);
+        mRangeSliderAnimation->setRange(loN, hiN);
+    };
+
+    // Range slider (user) → controller: right handle = cursor, gap = window.
+    connect(mRangeSliderAnimation, &openswmmvis::ui::RangeSliderWidget::rangeChanged,
+            this, [this, denormTime](qreal lo, qreal hi) {
+        const QDateTime tLo = denormTime(lo);
+        const QDateTime tHi = denormTime(hi);
+        if (!tHi.isValid()) return;
+        const qint64 winMs = tLo.isValid() ? std::max<qint64>(0, tLo.msecsTo(tHi)) : 0;
+        // Block the range slider while the controller fans the change back out
+        // through windowChanged / currentTimeChanged (which re-set its range).
+        QSignalBlocker b(mRangeSliderAnimation);
+        mAnimationController->setWindowMs(winMs);
+        mAnimationController->seekToTime(tHi);
     });
+
+    // Span box (user) → controller window.
+    connect(mSpinAnimationWindow, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double minutes) {
+        mAnimationController->setWindowSec(minutes * 60.0);
+    });
+
+    // Controller window → span box + range slider (no echo).
+    connect(mAnimationController, &AnimationController::windowChanged,
+            this, [this, syncRangeFromState](qint64 ms) {
+        QSignalBlocker b(mSpinAnimationWindow);
+        mSpinAnimationWindow->setValue(double(ms) / 60000.0);
+        syncRangeFromState();
+    });
+
+    // Controller cursor time → range slider (left handle follows the window).
+    connect(mAnimationController, &AnimationController::currentTimeChanged,
+            this, [syncRangeFromState](const QDateTime &) { syncRangeFromState(); });
+
+    // Run loaded / range changed → refresh span-box max (run duration) + slider.
+    connect(mAnimationController, &AnimationController::totalPeriodsChanged,
+            this, [this, driverSpanMs, syncRangeFromState](int) {
+        const qint64 span = driverSpanMs();
+        QSignalBlocker b(mSpinAnimationWindow);
+        mSpinAnimationWindow->setMaximum(span > 0 ? double(span) / 60000.0 : 1.0e6);
+        syncRangeFromState();
+    });
+
+    // Default look-back window: 10 minutes. Set after the controls are wired so
+    // windowChanged fans the value out to the span box + range slider.
+    mAnimationController->setWindowSec(600.0);
 }
 
 void SWMMVis::initializeMapTools()
@@ -1036,8 +1142,22 @@ void SWMMVis::initializeMapTools()
         if (auto *w = activeProjectWindow()) w->activateMeasureTool();
     });
     connect(ui->actionPlotProfile, &QAction::triggered, this, [this]() {
-        if (auto *w = activeProjectWindow()) w->activateSelectProfileTool();
+        onPlotProfileTriggered(/*forceMode=*/0);
     });
+    // US.A2 — explicit override dropdown on the Plot Profile button: lets the
+    // user force a Network or 2D-Surface profile even when both are loaded.
+    {
+        auto *menu = new QMenu(this);
+        QAction *net  = menu->addAction(tr("Network Profile…"));
+        QAction *surf = menu->addAction(tr("Surface (2D mesh) Profile…"));
+        connect(net,  &QAction::triggered, this, [this]() { onPlotProfileTriggered(1); });
+        connect(surf, &QAction::triggered, this, [this]() { onPlotProfileTriggered(2); });
+        if (auto *btn = qobject_cast<QToolButton *>(
+                ui->toolBarAnalysis->widgetForAction(ui->actionPlotProfile))) {
+            btn->setMenu(menu);
+            btn->setPopupMode(QToolButton::MenuButtonPopup);
+        }
+    }
     // Slice GUI-2026-05-30 §6 — Analysis toolbar Report action opens the
     // two-panel Report Viewer over the active project's .rpt sibling.
     connect(ui->actionReport, &QAction::triggered, this, &SWMMVis::onShowReport);
@@ -2142,10 +2262,10 @@ void SWMMVis::openMeshEdgeFluxPlotFor(SWMM2DMeshLayer *mesh, int triIdx, int edg
                "selector (run a 2D simulation first if none are loaded)."));
         return;
     }
-    if (!layer->hasVelocityData()) {
-        QMessageBox::information(this, tr("Edge flux unavailable"),
+    if (!layer->hasEdgeFluxData()) {
+        QMessageBox::information(this, tr("Edge flow/flux unavailable"),
             tr("This run has no per-edge flux data. Re-run with the current "
-               "engine to enable edge-flux plotting."));
+               "engine to enable edge flow / flux plotting."));
         return;
     }
 
@@ -2169,9 +2289,11 @@ void SWMMVis::openMeshEdgeFluxPlotFor(SWMM2DMeshLayer *mesh, int triIdx, int edg
         return;
     }
 
-    dlg->addSeries(runIdx,
-                   openswmmvis::plot::ObjectRef::forMesh2DEdge(triIdx, edgeLocal),
-                   openswmmvis::plot::PlotAttribute::Mesh2DEdgeFlux);
+    // Add both edge series for the picked edge: volumetric flow Q (m³/s) and
+    // unit-width flux q (m²/s). Each attribute lands on its own chart row.
+    const auto edgeRef = openswmmvis::plot::ObjectRef::forMesh2DEdge(triIdx, edgeLocal);
+    dlg->addSeries(runIdx, edgeRef, openswmmvis::plot::PlotAttribute::Mesh2DEdgeFlow);
+    dlg->addSeries(runIdx, edgeRef, openswmmvis::plot::PlotAttribute::Mesh2DEdgeFlux);
     dlg->show();
     dlg->raise();
     dlg->activateWindow();
@@ -2269,16 +2391,16 @@ void SWMMVis::openProfilePlotFor(const ProfileRouter::Path &path)
     dlg->show();
 }
 
-void SWMMVis::openMeshProfilePlotFor(const QVector<QPointF> &scenePolyline)
+void SWMMVis::openMeshProfileDialog(const QVector<QPointF> &scenePolyline,
+                                    SWMM2DResultsLayer *results,
+                                    const QString &title)
 {
     auto *pw = activeProjectWindow();
     if (!pw) return;
     if (scenePolyline.size() < 2) return;
 
-    // Resolve the active 2D mesh (geometry → ground) and the ACTIVE 2D results
-    // layer (depth → animation + envelope). The mesh is required; results are
-    // optional (ground/soil-only when absent). Results come from the user's
-    // analysis-toolbar choice, not a first-found guess.
+    // Resolve the active 2D mesh (geometry → ground). The mesh is required;
+    // results are optional — bed-only (terrain) when null.
     SWMM2DMeshLayer *mesh = mMeshEditingToolbar ? mMeshEditingToolbar->activeMesh()
                                                 : nullptr;
     if (!mesh) {
@@ -2286,7 +2408,6 @@ void SWMMVis::openMeshProfilePlotFor(const QVector<QPointF> &scenePolyline)
             for (OpenSWMMVisLayer *l : canvas->layers())
                 if (auto *m = qobject_cast<SWMM2DMeshLayer *>(l)) { mesh = m; break; }
     }
-    SWMM2DResultsLayer *results = pw->active2DResultsLayer();
     if (!mesh) {
         QMessageBox::information(this, tr("No 2D mesh"),
             tr("Load or generate a 2D mesh before tracing a profile path."));
@@ -2296,7 +2417,62 @@ void SWMMVis::openMeshProfilePlotFor(const QVector<QPointF> &scenePolyline)
     auto *dlg = new MeshProfilePlotDialog(mesh, results, mAnimationController,
                                           scenePolyline, pw, /*parent=*/pw);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
+    if (!title.isEmpty())
+        dlg->setWindowTitle(title);
     dlg->show();
+}
+
+void SWMMVis::openMeshProfilePlotFor(const QVector<QPointF> &scenePolyline)
+{
+    // Slice US.A1 — Analysis variant: ground + animated depth + envelope from
+    // the user's chosen active 2D results layer.
+    auto *pw = activeProjectWindow();
+    openMeshProfileDialog(scenePolyline,
+                          pw ? pw->active2DResultsLayer() : nullptr,
+                          tr("2D Mesh Profile"));
+}
+
+void SWMMVis::openMeshBedProfilePlotFor(const QVector<QPointF> &scenePolyline)
+{
+    // Slice US.A1 — mesh-toolbar variant: bed/terrain only (no water surface).
+    // The sampler + plot widget already render a ground-only profile when
+    // results is null.
+    openMeshProfileDialog(scenePolyline, /*results=*/nullptr,
+                          tr("2D Mesh Bed Profile"));
+}
+
+void SWMMVis::onPlotProfileTriggered(int forceMode)
+{
+    // Slice US.A2 — context-sensitive dispatch. The single Analysis "Plot
+    // Profile" entry plots a network (pipe HGL) profile or a 2D surface
+    // profile depending on selection + what's loaded. The toolbar button's
+    // dropdown passes forceMode 1 / 2 for an explicit override.
+    auto *pw = activeProjectWindow();
+    if (!pw) return;
+
+    if (forceMode == 1) { pw->activateSelectProfileTool();        return; }
+    if (forceMode == 2) { pw->activateAnalysisMeshProfileTool();  return; }
+
+    const bool hasModel = pw->hasModelLayer();
+    const bool hasMesh  = pw->hasMeshLayer();
+
+    if (!hasModel && !hasMesh) {
+        QMessageBox::information(this, tr("Nothing to profile"),
+            tr("Load a SWMM network or a 2D mesh before plotting a profile."));
+        return;
+    }
+
+    // Explicit 1D selection wins — the user pointed at pipes/nodes.
+    bool oneDSelected = false;
+    if (auto *canvas = pw->canvas())
+        for (OpenSWMMVisLayer *l : canvas->layers())
+            if (auto *m = qobject_cast<SWMMModelLayer *>(l))
+                if (!m->selectedElementNames().isEmpty()) { oneDSelected = true; break; }
+
+    if (hasMesh && !hasModel)        pw->activateAnalysisMeshProfileTool();
+    else if (hasModel && !hasMesh)   pw->activateSelectProfileTool();
+    else if (oneDSelected)           pw->activateSelectProfileTool();
+    else                             pw->activateSelectProfileTool(); // both, no 1D pick → network default (use dropdown for surface)
 }
 
 void SWMMVis::openComparisonPlotOverlayForProfile(ProfilePlotDialog *profileDlg,
@@ -2421,6 +2597,7 @@ void SWMMVis::initializeSimulationStatusDockWidget()
     view->setColumnWidth(SimulationStatusModel::ColEndDate,     140);
     view->setColumnWidth(SimulationStatusModel::ColRunoffErr,    90);
     view->setColumnWidth(SimulationStatusModel::ColRoutingErr,   90);
+    view->setColumnWidth(SimulationStatusModel::ColTwoDErr,      90);
     view->setColumnWidth(SimulationStatusModel::ColVersion,      90);
     view->header()->setSectionResizeMode(SimulationStatusModel::ColDuration,
                                          QHeaderView::Stretch);
@@ -2777,19 +2954,20 @@ void SWMMVis::initializeMenus()
             struct ToolEntry {
                 SWMMModelLayer::DataCategory dc;
                 const char                  *tooltip;
+                const char                  *icon;
             };
             static const ToolEntry kToolEntries[] = {
-                {SWMMModelLayer::DataTimeSeries,  QT_TR_NOOP("New Time Series…")},
-                {SWMMModelLayer::DataCurves,      QT_TR_NOOP("New Curve…")},
-                {SWMMModelLayer::DataPatterns,    QT_TR_NOOP("New Time Pattern…")},
-                {SWMMModelLayer::DataControls,    QT_TR_NOOP("New Control Rule…")},
-                {SWMMModelLayer::DataTransects,   QT_TR_NOOP("New Transect…")},
-                {SWMMModelLayer::DataLIDControls, QT_TR_NOOP("New LID Control…")},
-                {SWMMModelLayer::DataPollutants,  QT_TR_NOOP("New Pollutant…")},
+                {SWMMModelLayer::DataTimeSeries,  QT_TR_NOOP("New Time Series…"),  ":/swmmvis/AddTimeSeries"},
+                {SWMMModelLayer::DataCurves,      QT_TR_NOOP("New Curve…"),        ":/swmmvis/AddCurve"},
+                {SWMMModelLayer::DataPatterns,    QT_TR_NOOP("New Time Pattern…"), ":/swmmvis/AddPattern"},
+                {SWMMModelLayer::DataControls,    QT_TR_NOOP("New Control Rule…"), ":/swmmvis/AddControlRule"},
+                {SWMMModelLayer::DataTransects,   QT_TR_NOOP("New Transect…"),     ":/swmmvis/AddTransect"},
+                {SWMMModelLayer::DataLIDControls, QT_TR_NOOP("New LID Control…"),  ":/swmmvis/Layers"},
+                {SWMMModelLayer::DataPollutants,  QT_TR_NOOP("New Pollutant…"),    ":/swmmvis/Layers"},
             };
             for (const auto &e : kToolEntries) {
                 auto *act = editBar->addAction(
-                    QIcon(QStringLiteral(":/swmmvis/Layers")),
+                    QIcon(QString::fromLatin1(e.icon)),
                     tr(e.tooltip));
                 // Slice BM.0-Add-New — gap categories greyed out with a
                 // tooltip naming the future editor slice. Today only Time
@@ -3135,10 +3313,11 @@ bool SWMMVis::eventFilter(QObject *watched, QEvent *event)
         if (auto *sub = qobject_cast<QMdiSubWindow *>(watched);
             sub && ui && ui->welcomeWidget && sub->widget() == ui->welcomeWidget)
         {
-            // Eat the close event and hide the sub-window in place.
-            // QMdiArea::TabbedView automatically removes the tab for any
-            // hidden sub-window, so the user sees the tab disappear.
-            // The widget and its content are fully preserved for reuse.
+            // Eat the close event and hide the sub-window in place; the
+            // widget and its content are fully preserved for reuse. The
+            // tab must be hidden explicitly — QMdiArea keeps tabs of
+            // hidden sub-windows (verified Qt 6.9.3: tabs are only
+            // removed when a sub leaves the area).
             QMdiSubWindow *next = nullptr;
             for (QMdiSubWindow *other : ui->mdiAreaCentral->subWindowList())
             {
@@ -3146,6 +3325,7 @@ bool SWMMVis::eventFilter(QObject *watched, QEvent *event)
                 if (other->isVisible()) { next = other; break; }
             }
             sub->hide();
+            setSubWindowTabVisible(ui->mdiAreaCentral, sub, false);
             if (next) ui->mdiAreaCentral->setActiveSubWindow(next);
             return true;  // eat the event — sub-window stays in MDI list
         }
@@ -3642,9 +3822,11 @@ void SWMMVis::onShowWelcomeScreen()
     if (!ui->mdiAreaCentral) return;
 
     // The welcome sub-window is kept in the MDI list always (never removed).
-    // Hide-on-close preserves all widget content; show() restores the tab.
+    // Hide-on-close preserves all widget content; restore = show the sub
+    // AND its tab (tab visibility is managed by hand — see eventFilter).
     if (QMdiSubWindow *sub = welcomeSubWindow())
     {
+        setSubWindowTabVisible(ui->mdiAreaCentral, sub, true);
         sub->show();
         ui->mdiAreaCentral->setActiveSubWindow(sub);
     }
@@ -4468,9 +4650,13 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
             this, &SWMMVis::openComparisonPlotForCells,
             Qt::UniqueConnection);
 
-    // Trace Profile Path tool: project window forwards the finished polyline
-    // here, and we open a MeshProfilePlotDialog for the active 2D mesh.
+    // Trace Profile Path tool: project window forwards the finished polyline.
+    // US.A1 — the mesh-toolbar tool draws a BED-ONLY profile; the analysis
+    // tool draws ground + animated depth + envelope.
     connect(pw, &SWMMVisProjectWindow::meshProfileTraced,
+            this, &SWMMVis::openMeshBedProfilePlotFor,
+            Qt::UniqueConnection);
+    connect(pw, &SWMMVisProjectWindow::analysisMeshProfileTraced,
             this, &SWMMVis::openMeshProfilePlotFor,
             Qt::UniqueConnection);
 
@@ -5223,10 +5409,11 @@ void SWMMVis::onRunSimulation()
     connect(runner, &SimulationRunner::finished, this,
             [self, runner, pwGuard, outPathCopy, rptPathCopy, instanceName]
             (int finishedJobId, bool success, int errCode, QString errMsg,
-             double runoffFrac, double routingFrac) {
+             double runoffFrac, double routingFrac, double twoDFrac) {
                 if (!self) return;
                 self->mSimStatusModel->finishJob(finishedJobId, success, errCode,
-                                                 errMsg, runoffFrac, routingFrac);
+                                                 errMsg, runoffFrac, routingFrac,
+                                                 twoDFrac);
                 // Drop this job from the running-progress + runner maps;
                 // the bottom progress bar hides automatically when the
                 // last sim finishes.
@@ -5463,6 +5650,25 @@ void SWMMVis::onRunSimulation()
                 layer->refreshTimeRange();
             });
 
+    // Per-tick reconstructed vertex heads — feeds the smooth (Gouraud) depth
+    // fill + contour interpolation. Paired with the matching depth tick by
+    // elapsedSec, like flux. No refreshTimeRange() here: only the depths
+    // push advances the frame counter, heads alone must not add a frame.
+    connect(runner, &SimulationRunner::twoDVertexHeadsAvailable, this,
+            [self](int twoDJobId, QVector<double> heads,
+                   QDateTime simTime, double elapsedSec) {
+                if (!self) return;
+                auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
+                if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
+                    return;
+                auto *engineSrc =
+                    dynamic_cast<EngineMesh2DSource *>(it.value()->source());
+                if (!engineSrc) return;
+                engineSrc->pushVertexHeads(
+                    std::vector<double>(heads.begin(), heads.end()),
+                    simTime, elapsedSec);
+            });
+
     // On finished (success path), swap the layer's source from the live
     // EngineMesh2DSource to an HDF5Mesh2DSource so the user can scrub back.
     // The .h5 path was stashed on the layer in the twoDInitialized handler.
@@ -5474,6 +5680,12 @@ void SWMMVis::onRunSimulation()
                 if (it == self->mActive2DResultsLayers.end()) return;
                 if (success && it.value()) {
                     SWMM2DResultsLayer *layer = it.value();
+                    // Run finished — drop the "(live)" qualifier so results read
+                    // as final and fully available for visualization. The
+                    // file-backed source is installed below when the .h5 is
+                    // present; otherwise the in-memory history from the live run
+                    // is retained (still a complete, scrubbable source).
+                    layer->setName(QStringLiteral("2D Results"));
                     const QString h5Path =
                         layer->property("snoopy_h5_path").toString();
                     if (!h5Path.isEmpty() && QFileInfo::exists(h5Path)) {
@@ -5506,7 +5718,6 @@ void SWMMVis::onRunSimulation()
                                 if (m > peakDepth) { peakDepth = m; peakFrame = t; }
                             }
 
-                            layer->setName(QStringLiteral("2D Results"));
                             layer->setSource(std::move(h5Src));
 
                             // Auto-tune the ramp + dry threshold to the

@@ -25,8 +25,11 @@
 #include <QVector>
 
 class AnimationController;
+class MapToolProfileMarker;
+class MeshProfileOverlay;
 class MeshProfilePlotOptions;
 class MeshProfilePlotWidget;
+class OpenSWMMVisMapTool;
 class SWMM2DMeshLayer;
 class SWMM2DResultsLayer;
 class SWMMVisProjectWindow;
@@ -49,6 +52,12 @@ private:
     void refreshCurrentDepths();    // per-frame depth-column update
     void openDisplayOptions();
 
+    // Persistent map overlay (profile line + position arrow) + the map-drag
+    // tool that scrubs the arrow. Lifetime tied to this dialog.
+    void setupMapOverlay();
+    void removeOverlay();
+    void setMarkerToolActive(bool on);   // toggle map-side dragging
+
     QPointer<SWMM2DMeshLayer>     m_mesh;
     QPointer<SWMM2DResultsLayer>  m_results;
     QPointer<AnimationController> m_anim;
@@ -57,6 +66,10 @@ private:
 
     MeshProfilePlotWidget        *m_plot    = nullptr;
     MeshProfilePlotOptions       *m_options = nullptr;
+
+    MeshProfileOverlay           *m_overlay    = nullptr;  // owned by map scene
+    MapToolProfileMarker         *m_markerTool = nullptr;  // parented to dialog
+    QPointer<OpenSWMMVisMapTool>  m_prevTool;              // restore on toggle-off/close
 
     // Cached profile — geometry/envelope stay static across animation frames;
     // only the depth column is re-sampled per tick (cheap vs a full rebuild).

@@ -11,11 +11,13 @@
  */
 #include "layers/swmm2dresultslayer.h"
 
+#include "contour/contourchain.h"
 #include "contour/marchingtriangles.h"
 #include "io/mesh2dh5reader.h"
 #include "map/mapextent.h"
 
 #include "render/ifeaturerenderer.h"
+#include "render/labelpainter.h"
 #include "render/renderers/graduatedrenderer.h"
 // Slice B.5b — Rule Model mirror for 2D results layers.
 #include "render/rastersymbollayers.h"
@@ -28,14 +30,19 @@
 #include "render/maskclipresolver.h"
 #include "ui/dialogs/ilayerstylesubject.h"
 
+#include <QDateTime>
 #include <QGraphicsItem>
 #include <QGraphicsScene>
+#include <QMultiHash>
+#include <QTimeZone>
 #include <QPainter>
 #include <QPainterPath>
 #include <QStyleOptionGraphicsItem>
+#include <QtMath>
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <utility>
 
@@ -131,6 +138,9 @@ public:
                QWidget*) override
     {
         if (!layer_->isVisible()) return;
+        // VS.8 — when the QSG renderer owns this layer's pixels the CPU
+        // passes stand down (SWMMLayerItem §QSG-1 bypass pattern).
+        if (layer_->qsgOwnsRendering()) return;
         const auto& tris = layer_->m_sceneTris;
         if (tris.isEmpty()) return;
 
@@ -195,12 +205,6 @@ public:
         const bool graduated =
             (rampStyle == SWMM2DResultsLayer::ColorRampStyle::Graduated);
 
-        auto rampLerp = [](const QColor &lo, const QColor &hi, double f) -> QColor {
-            f = std::clamp(f, 0.0, 1.0);
-            auto mix = [&](int a0, int b0) { return int(std::lround(a0 + (b0 - a0) * f)); };
-            return QColor(mix(lo.red(), hi.red()), mix(lo.green(), hi.green()),
-                          mix(lo.blue(), hi.blue()), mix(lo.alpha(), hi.alpha()));
-        };
         auto colorForDepth = [&](double depth) -> QColor {
             if (depth < dryDepth || maxDepth <= dryDepth)
                 return QColor(0, 0, 0, 0);   // dry → transparent
@@ -214,83 +218,131 @@ public:
                 const int bin = std::min(nClasses - 1, int(f * double(nClasses)));
                 f = (double(bin) + 0.5) / double(nClasses);
             }
+            // VS.8 — colorAtF samples the style's named ramp (inverted when
+            // requested) or falls back to the low→high two-colour gradient.
             if (drs)
-                return rampLerp(drs->lowColor(), drs->highColor(), f);
+                return drs->colorAtF(f);
             int r, g, b, a;
             const double d = dryDepth + f * (maxDepth - dryDepth);
             inundationColorRgba(d, dryDepth, maxDepth, r, g, b, a);
             return QColor(r, g, b, a);
         };
 
-        if (paintHeatmap)
-        for (const auto& t : tris) {
-            // Bounding-box cull
-            const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
-            const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
-            const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
-            const double maxY = std::max({t.a.y(), t.b.y(), t.c.y()});
-            if (!exposed.isNull() &&
-                (maxX < exposed.left()  || minX > exposed.right() ||
-                 maxY < exposed.top()   || minY > exposed.bottom())) continue;
+        if (paintHeatmap) {
+            // VS.8 — honour the depth sublayer's opacity slider.
+            p->save();
+            if (depthSub)
+                p->setOpacity(std::clamp<qreal>(depthSub->opacity(), 0.0, 1.0));
+            for (const auto& t : tris) {
+                // Bounding-box cull
+                const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
+                const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
+                const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
+                const double maxY = std::max({t.a.y(), t.b.y(), t.c.y()});
+                if (!exposed.isNull() &&
+                    (maxX < exposed.left()  || minX > exposed.right() ||
+                     maxY < exposed.top()   || minY > exposed.bottom())) continue;
 
-            const QColor c = colorForDepth(t.depth);
-            if (c.alpha() == 0) continue;  // dry → don't paint
+                const QColor c = colorForDepth(t.depth);
+                if (c.alpha() == 0) continue;  // dry → don't paint
 
-            p->setBrush(c);
-            const QPointF pts[3] = { t.a, t.b, t.c };
-            p->drawConvexPolygon(pts, 3);
+                p->setBrush(c);
+                const QPointF pts[3] = { t.a, t.b, t.c };
+                p->drawConvexPolygon(pts, 3);
+            }
+            p->restore();
         }
 
         // --- Pass 2 (optional): filled isobands. Phase 9 — sublayer gate +
-        // sublayer-style-driven band count. The ContourBandStyle.bandCount
-        // Q_PROPERTY is the authoritative number of bands; the legacy
-        // filledContoursLevels() is the fallback when no sublayer is bound.
+        // sublayer-style-driven band count. VS.8 — the ContourBandStyle bag
+        // also drives the colour source (named ramp / two-colour gradient,
+        // optionally inverted), the classification range (auto [dry, max]
+        // or a fixed user range) and the smooth-vs-flat rendering mode.
         if (paintBands && maxDepth > dryDepth) {
             using namespace OpenSWMM::Contour;
-            const int bandCount = (bandSub && bandSub->bandStyle())
-                ? bandSub->bandStyle()->bandCount()
-                : layer_->filledContoursLevels();
+            const OpenSWMM::Render::ContourBandStyle *bs =
+                (bandSub && bandSub->bandStyle()) ? bandSub->bandStyle()
+                                                  : nullptr;
+            const int bandCount = std::max(2,
+                bs ? bs->bandCount() : layer_->filledContoursLevels());
+
+            double bandLo = dryDepth, bandHi = maxDepth;
+            if (bs && bs->useCustomRange() && bs->rangeMax() > bs->rangeMin()) {
+                bandLo = bs->rangeMin();
+                bandHi = bs->rangeMax();
+            }
+
             const auto levels = evenlySpacedLevelsInclusive(
-                dryDepth, maxDepth, bandCount);
+                bandLo, bandHi, bandCount + 1);
             if (levels.size() >= 2) {
-                auto extract = [](const SWMM2DResultsLayer::SceneTri &t,
-                                  QPointF &p0, QPointF &p1, QPointF &p2,
-                                  double  &v0, double  &v1, double  &v2) {
-                    p0 = t.a; p1 = t.b; p2 = t.c;
-                    v0 = double(t.dv0);
-                    v1 = double(t.dv1);
-                    v2 = double(t.dv2);
-                };
-                const auto bands = marchingTrianglesIsobands(tris, levels, extract);
                 const double alphaScalar = layer_->filledContoursOpacity();
                 const int    nBands      = int(levels.size()) - 1;
+                auto bandColor = [&](int idx) -> QColor {
+                    QColor c = bs ? bs->colorForBand(idx, nBands)
+                                  : viridisAt((double(idx) + 0.5) / double(nBands));
+                    c.setAlphaF(c.alphaF() * alphaScalar);
+                    return c;
+                };
                 p->setPen(Qt::NoPen);
-                for (const auto &bp : bands) {
-                    if (bp.verts.size() < 3) continue;
-                    QColor c = viridisAt(
-                        (double(bp.bandIndex) + 0.5) / double(nBands));
-                    c.setAlphaF(alphaScalar);
-                    p->setBrush(c);
-                    // Fan-triangulate the convex polygon by drawing it
-                    // directly — QPainter handles convex polys efficiently.
-                    p->drawConvexPolygon(bp.verts.data(),
-                                         int(bp.verts.size()));
+
+                if (!bs || bs->smoothBands()) {
+                    // Smooth — marching-triangles isobands over the
+                    // vertex-interpolated field (class boundaries cut
+                    // through cells).
+                    auto extract = [](const SWMM2DResultsLayer::SceneTri &t,
+                                      QPointF &p0, QPointF &p1, QPointF &p2,
+                                      double  &v0, double  &v1, double  &v2) {
+                        p0 = t.a; p1 = t.b; p2 = t.c;
+                        v0 = double(t.dv0);
+                        v1 = double(t.dv1);
+                        v2 = double(t.dv2);
+                    };
+                    const auto bands = marchingTrianglesIsobands(tris, levels, extract);
+                    for (const auto &bp : bands) {
+                        if (bp.verts.size() < 3) continue;
+                        p->setBrush(bandColor(bp.bandIndex));
+                        // Fan-triangulate the convex polygon by drawing it
+                        // directly — QPainter handles convex polys efficiently.
+                        p->drawConvexPolygon(bp.verts.data(),
+                                             int(bp.verts.size()));
+                    }
+                } else {
+                    // Flat — classify each cell by its centre depth and fill
+                    // the whole triangle with the band colour (the per-cell
+                    // "stepped" look raster GIS users expect).
+                    const double span = bandHi - bandLo;
+                    for (const auto &t : tris) {
+                        if (t.depth < bandLo || span <= 0.0) continue;
+                        const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
+                        const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
+                        const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
+                        const double maxY = std::max({t.a.y(), t.b.y(), t.c.y()});
+                        if (!exposed.isNull() &&
+                            (maxX < exposed.left()  || minX > exposed.right() ||
+                             maxY < exposed.top()   || minY > exposed.bottom())) continue;
+                        const int idx = std::min(nBands - 1,
+                            int((t.depth - bandLo) / span * double(nBands)));
+                        p->setBrush(bandColor(idx));
+                        const QPointF pts[3] = { t.a, t.b, t.c };
+                        p->drawConvexPolygon(pts, 3);
+                    }
                 }
             }
         }
 
         // --- Pass 3 (optional): iso-line contour strokes. Phase 9 — sublayer
         // gate + sublayer-style-driven iso count + colour + line width.
+        // VS.8 — levels by count OR fixed interval + base, index contours
+        // every Nth level, and along-line labels (decimals / font / halo).
         if (paintIsolines && maxDepth > dryDepth) {
             using namespace OpenSWMM::Contour;
             const auto *isoStyle =
                 (isolineSub && isolineSub->isolineStyle())
                 ? isolineSub->isolineStyle() : nullptr;
-            const int isoCount = isoStyle
-                ? isoStyle->isoValueCount()
-                : layer_->isolinesLevels();
-            const auto levels = evenlySpacedLevels(
-                dryDepth, maxDepth, isoCount);
+            const std::vector<double> levels = isoStyle
+                ? isoStyle->levelsForRange(dryDepth, maxDepth)
+                : evenlySpacedLevels(dryDepth, maxDepth,
+                                     layer_->isolinesLevels());
             if (!levels.empty()) {
                 auto extract = [](const SWMM2DResultsLayer::SceneTri &t,
                                   QPointF &p0, QPointF &p1, QPointF &p2,
@@ -307,66 +359,144 @@ public:
                     const double isoWidthPx = isoStyle
                         ? std::max(0.5, isoStyle->lineWidthPx())
                         : layer_->isolinesWidth();
+
+                    // Index-contour predicate. FixedInterval mode follows
+                    // the topographic-map convention (levels at multiples
+                    // of indexEvery × interval from the base contour);
+                    // Count mode emphasises every Nth ordinal level.
+                    const int idxEvery = isoStyle ? isoStyle->indexEvery() : 0;
+                    QHash<double, int> ordinalOf;
+                    for (int i = 0; i < int(levels.size()); ++i)
+                        ordinalOf.insert(levels[i], i);
+                    auto isIndexLevel = [&](double level) -> bool {
+                        if (!isoStyle || idxEvery < 2) return false;
+                        if (isoStyle->levelMode() ==
+                            OpenSWMM::Render::IsolineStyle::LevelMode::FixedInterval) {
+                            const long k = std::lround(
+                                (level - isoStyle->baseLevel())
+                                / std::max(isoStyle->levelInterval(), 1e-12));
+                            return (k % idxEvery) == 0;
+                        }
+                        return ((ordinalOf.value(level, 0) + 1) % idxEvery) == 0;
+                    };
+
                     QPen linePen(isoColor);
                     linePen.setCosmetic(true);   // constant pixel width across zoom
                     linePen.setWidthF(isoWidthPx);
                     if (isoStyle) linePen.setStyle(isoStyle->dashPattern());
+                    QPen indexPen = linePen;
+                    if (isoStyle)
+                        indexPen.setWidthF(std::max(isoWidthPx,
+                                                    isoStyle->indexWidthPx()));
                     p->setPen(linePen);
                     p->setBrush(Qt::NoBrush);
                     for (const auto &s : segs)
-                        p->drawLine(s.a, s.b);
+                        if (!isIndexLevel(s.level)) p->drawLine(s.a, s.b);
+                    if (idxEvery >= 2) {
+                        p->setPen(indexPen);
+                        for (const auto &s : segs)
+                            if (isIndexLevel(s.level)) p->drawLine(s.a, s.b);
+                    }
 
-                    // Optional per-level labels (IsolineStyle::labels).
-                    // QPainter-side mirror of the QSG mesh-renderer label
-                    // pass: one label per level at the centroid of all its
-                    // segment midpoints. The label text is drawn upright
-                    // (no rotation) so it stays readable when the user
-                    // zooms in.
+                    // Optional labels (IsolineStyle::labels). VS.8 — GIS-style
+                    // along-line placement: segments of each level are chained
+                    // into polylines, then a label is dropped every ~250 screen
+                    // px along each chain, rotated to the local line direction
+                    // (flipped when it would read upside-down). Decimals, font
+                    // size and halo come from the style bag. Density self-adapts
+                    // to zoom because spacing is measured in screen pixels.
                     if (isoStyle && isoStyle->labels()) {
-                        struct Acc { double sx = 0, sy = 0; int n = 0; };
-                        QHash<double, Acc> byLevel;
-                        for (const auto &s : segs) {
-                            auto &a = byLevel[s.level];
-                            a.sx += 0.5 * (s.a.x() + s.b.x());
-                            a.sy += 0.5 * (s.a.y() + s.b.y());
-                            a.n  += 1;
-                        }
+                        QHash<double, QVector<QLineF>> byLevel;
+                        for (const auto &s : segs)
+                            byLevel[s.level].append(QLineF(s.a, s.b));
+
                         QFont f;
-                        f.setPointSizeF(9.0);
+                        f.setPointSizeF(isoStyle->labelFontPt());
                         f.setBold(true);
-                        p->save();
-                        p->setRenderHint(QPainter::TextAntialiasing, true);
+                        const QFontMetricsF fm(f);
+                        const int  decimals = isoStyle->labelDecimals();
+                        const bool halo     = isoStyle->labelHalo();
+                        constexpr double kLabelSpacingPx = 250.0;
+
                         const QTransform wt = p->worldTransform();
-                        const double scaleT = std::max(std::abs(wt.m11()), 1e-9);
-                        // Render label in screen space so the font size is
-                        // pixel-constant. Reset to identity for text only.
+                        const double quantum = 1e-9 * std::max(
+                            {layer_->m_sceneBBox.width(),
+                             layer_->m_sceneBBox.height(), 1.0});
+
+                        p->save();
+                        p->setRenderHint(QPainter::Antialiasing, true);
+                        p->setRenderHint(QPainter::TextAntialiasing, true);
+                        // Labels are laid out in screen space so the font
+                        // size stays pixel-constant across zoom.
                         p->setWorldMatrixEnabled(false);
-                        p->setFont(f);
-                        QFontMetricsF fm(f);
-                        for (auto it = byLevel.constBegin(); it != byLevel.constEnd(); ++it) {
-                            if (it.value().n <= 0) continue;
-                            const QString text = QString::number(it.key(), 'g', 4);
-                            const QPointF scenePt(it.value().sx / it.value().n,
-                                                  it.value().sy / it.value().n);
-                            // Apply the world transform manually so we get
-                            // screen-pixel coordinates for the text origin.
-                            const QPointF px = wt.map(scenePt);
-                            const QRectF br = fm.boundingRect(text);
-                            const QPointF origin(px.x() - br.width() * 0.5,
-                                                  px.y() + br.height() * 0.25);
-                            // White halo for legibility on both light and
-                            // dark underlays.
-                            p->setPen(QPen(QColor(255, 255, 255, 230), 3.0,
-                                            Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-                            QPainterPath path;
-                            path.addText(origin, f, text);
-                            p->drawPath(path);
-                            p->setPen(Qt::NoPen);
-                            p->setBrush(isoColor);
-                            p->drawPath(path);
+
+                        for (auto it = byLevel.constBegin();
+                             it != byLevel.constEnd(); ++it) {
+                            const QString text =
+                                QString::number(it.key(), 'f', decimals);
+                            const QRectF  br = fm.boundingRect(text);
+
+                            const auto chains =
+                                OpenSWMM::Contour::chainIsoSegments(
+                                    it.value(), quantum);
+                            for (const QPolygonF &chain : chains) {
+                                if (chain.size() < 2) continue;
+                                QPolygonF sp;
+                                sp.reserve(chain.size());
+                                for (const QPointF &pt : chain)
+                                    sp.append(wt.map(pt));
+                                double total = 0.0;
+                                for (int i = 1; i < sp.size(); ++i)
+                                    total += QLineF(sp[i - 1], sp[i]).length();
+                                // Chains shorter than ~1.5 label widths get
+                                // no label — avoids clutter on fragments.
+                                if (total < br.width() * 1.5) continue;
+
+                                double acc    = 0.0;
+                                double nextAt = std::max(kLabelSpacingPx * 0.5,
+                                                         br.width());
+                                for (int i = 1; i < sp.size(); ++i) {
+                                    const QPointF a = sp[i - 1];
+                                    const QPointF b = sp[i];
+                                    const double segLen = QLineF(a, b).length();
+                                    if (segLen <= 0.0) continue;
+                                    while (acc + segLen >= nextAt) {
+                                        const double tf = (nextAt - acc) / segLen;
+                                        const QPointF pos = a + tf * (b - a);
+                                        double angle = qRadiansToDegrees(
+                                            std::atan2(b.y() - a.y(),
+                                                       b.x() - a.x()));
+                                        if (angle >  90.0) angle -= 180.0;
+                                        if (angle < -90.0) angle += 180.0;
+
+                                        QPainterPath path;
+                                        path.addText(
+                                            QPointF(-br.width() * 0.5,
+                                                     br.height() * 0.25),
+                                            f, text);
+                                        QTransform tr;
+                                        tr.translate(pos.x(), pos.y());
+                                        tr.rotate(angle);
+                                        const QPainterPath placed = tr.map(path);
+
+                                        if (halo) {
+                                            p->setPen(QPen(
+                                                QColor(255, 255, 255, 230), 3.0,
+                                                Qt::SolidLine, Qt::RoundCap,
+                                                Qt::RoundJoin));
+                                            p->setBrush(Qt::NoBrush);
+                                            p->drawPath(placed);
+                                        }
+                                        p->setPen(Qt::NoPen);
+                                        p->setBrush(isoColor);
+                                        p->drawPath(placed);
+                                        nextAt += kLabelSpacingPx;
+                                    }
+                                    acc += segLen;
+                                }
+                            }
                         }
                         p->setWorldMatrixEnabled(true);
-                        Q_UNUSED(scaleT);
                         p->restore();
                     }
                 }
@@ -492,25 +622,20 @@ public:
                         const qint64 key = qint64(cy) * nCols + cx;
                         if (!bucket.contains(key)) bucket.insert(key, i);
                     }
+                    // Slice US.B3 — render through the shared LabelPainter so
+                    // halo + the (new) optional background frame match every
+                    // other label path. Drawn in screen space at a constant
+                    // point size. The baseline sat at the centroid screen
+                    // point before, so offset top-left up by the font ascent.
+                    const double ascent = QFontMetricsF(f).ascent();
                     p->save();
-                    p->setRenderHint(QPainter::TextAntialiasing, true);
                     p->setWorldMatrixEnabled(false);   // screen space
                     for (auto it = bucket.constBegin(); it != bucket.constEnd(); ++it) {
                         const auto &t = tris[it.value()];
                         const QString text = QString::number(t.depth, 'f', 2);
                         const QPointF px = wt.map(t.centroid);
-                        QPainterPath path;
-                        path.addText(px, f, text);
-                        if (lc.haloEnabled) {
-                            p->setPen(QPen(lc.haloColor,
-                                           std::max(1.0, lc.haloRadiusPx) * 2.0,
-                                           Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-                            p->setBrush(Qt::NoBrush);
-                            p->drawPath(path);
-                        }
-                        p->setPen(Qt::NoPen);
-                        p->setBrush(lc.color);
-                        p->drawPath(path);
+                        OpenSWMM::Render::LabelPainter::drawLabel(
+                            *p, QPointF(px.x(), px.y() - ascent), text, lc);
                     }
                     p->setWorldMatrixEnabled(true);
                     p->restore();
@@ -593,6 +718,21 @@ public:
                QWidget*) override
     {
         if (!layer_->isVisible()) return;
+        // VS.8 — QSG ownership bypass (see SWMM2DResultsGraphicsItem).
+        if (layer_->qsgOwnsRendering()) return;
+        if (!layer_->hasVelocityData()) return;
+        if (layer_->m_sceneTris.isEmpty()) return;
+        // Two independent passes, each gated on its own sublayer's
+        // visibility: velocity glyphs OFF must not suppress the
+        // direction-only flow arrows (and vice versa).
+        paintVelocityGlyphs(p, option);
+        paintFlowArrows(p, option);
+    }
+
+private:
+    void paintVelocityGlyphs(QPainter* p,
+                             const QStyleOptionGraphicsItem* option)
+    {
         // Phase 9 (2026-05-25) — sublayer.isVisible() is the authoritative
         // gate (MVC). Falls back to the legacy velocityVectorsVisible()
         // when no sublayer is bound, preserving back-compat with UI code
@@ -602,16 +742,21 @@ public:
             ? velSub->isVisible()
             : layer_->velocityVectorsVisible();
         if (!wantArrows) return;
-        if (!layer_->hasVelocityData()) return;
 
         const auto& tris = layer_->m_sceneTris;
-        if (tris.isEmpty()) return;
-
         const QRectF exposed   = option->exposedRect;
-        const double dryDepth  = layer_->dryDepth();
-        const double maxVel    = std::max(layer_->maxVelocity(), 1e-6);
-        const double arrowPx   = layer_->velocityArrowScale();
         const qreal  alpha     = std::clamp<qreal>(layer_->velocityOpacity(), 0.0, 1.0);
+
+        // VS.8 — the VelocityVectorStyle bag is the single source of truth
+        // for sizing / colour / placement. The legacy layer fields survive
+        // only for the (never-hit) no-sublayer case.
+        const OpenSWMM::Render::VelocityVectorStyle *vs =
+            velSub ? velSub->vectorStyle() : nullptr;
+
+        const double dryCut = vs
+            ? std::max(vs->dryDepthCutoff(), layer_->dryDepth())
+            : layer_->dryDepth();
+        const double maxVel = std::max(layer_->maxVelocity(), 1e-6);
 
         // Convert pixel-space arrow length to scene units so glyphs render
         // at a constant on-screen size regardless of zoom.
@@ -622,7 +767,8 @@ public:
         // Pen width also kept constant in pixels.
         QPen pen;
         pen.setCosmetic(true);
-        pen.setWidthF(1.5);
+        pen.setWidthF(vs ? vs->shaftWidthPx() : 1.5);
+        pen.setCapStyle(Qt::RoundCap);
 
         p->save();
         p->setOpacity(alpha);
@@ -632,28 +778,32 @@ public:
         const double vmagSkip = std::max(static_cast<double>(maxVel) * 1e-4,
                                           1e-9);
 
-        for (const auto& t : tris) {
-            if (t.depth < dryDepth) continue;
-            if (t.vmag < vmagSkip) continue;          // sub-threshold cell
-
-            // Cheap viewport cull around the centroid.
-            if (!exposed.isNull() &&
-                !exposed.contains(t.centroid)) continue;
-
-            // Log-scaled arrow length: arrowPx * log1p(vmag / vmagRef)
-            // where vmagRef = max_vel ⇒ glyph never exceeds arrowPx.
-            const double mag_norm  = std::clamp(t.vmag / maxVel, 0.0, 1.0);
-            const double len_scene = pxToScene * arrowPx * std::log1p(mag_norm) /
-                                      std::log1p(1.0);
-            if (len_scene <= 0.0) continue;
+        auto drawGlyph = [&](const SWMM2DResultsLayer::SceneTri &t) {
+            // Glyph length: style-driven scaling (linear / sqrt / log with
+            // min/max pixel clamps); legacy normalised-log fallback when no
+            // style bag is bound.
+            double lenPx = 0.0;
+            if (vs) {
+                lenPx = vs->glyphLengthPxForSpeed(t.vmag);
+            } else {
+                const double mag_norm = std::clamp(t.vmag / maxVel, 0.0, 1.0);
+                lenPx = layer_->velocityArrowScale() * std::log1p(mag_norm) /
+                        std::log1p(1.0);
+            }
+            const double len_scene = pxToScene * lenPx;
+            if (len_scene <= 0.0) return;
 
             const double inv_vmag = 1.0 / t.vmag;
             const double dx = t.vx * inv_vmag * len_scene;
             const double dy = t.vy * inv_vmag * len_scene;
 
-            int r, g, b;
-            velocityColorRgb(t.vmag, maxVel, r, g, b);
-            pen.setColor(QColor(r, g, b));
+            if (vs) {
+                pen.setColor(vs->colorForSpeed(t.vmag));
+            } else {
+                int r, g, b;
+                velocityColorRgb(t.vmag, maxVel, r, g, b);
+                pen.setColor(QColor(r, g, b));
+            }
             p->setPen(pen);
 
             const QPointF tail = t.centroid;
@@ -661,7 +811,8 @@ public:
             p->drawLine(tail, head);
 
             // Chevron arrowhead — two short legs at ±25° from the back-facing direction.
-            const double headLen = len_scene * 0.32;
+            const double headLen = vs ? vs->headSizePx() * pxToScene
+                                      : len_scene * 0.32;
             const double cosA = std::cos(0.43);   // ≈25°
             const double sinA = std::sin(0.43);
             const double ux = -dx / len_scene;    // unit vector head → tail
@@ -672,9 +823,57 @@ public:
                                   head.y() + headLen * (-ux * sinA + uy * cosA) );
             p->drawLine(head, left);
             p->drawLine(head, right);
+        };
+
+        // VS.8 — screen-grid placement: one glyph per glyphSpacingPx-sized
+        // cell, keyed to the strongest |v| triangle whose centroid lands in
+        // it. Spacing <= 1 px degenerates to per-cell glyphs (legacy look).
+        const double spacingPx = vs ? vs->glyphSpacingPx() : 0.0;
+        if (spacingPx > 1.0) {
+            const QRectF area = exposed.isNull() ? layer_->m_sceneBBox : exposed;
+            const double gridStep = spacingPx * pxToScene;
+            if (gridStep > 0.0 && area.isValid()) {
+                const int nCols = std::max(1, int(area.width()  / gridStep));
+                const int nRows = std::max(1, int(area.height() / gridStep));
+                const double cellW = area.width()  / double(nCols);
+                const double cellH = area.height() / double(nRows);
+                QHash<qint64, int> bucket;
+                for (int i = 0; i < tris.size(); ++i) {
+                    const auto &t = tris[i];
+                    if (t.depth < dryCut)  continue;
+                    if (t.vmag < vmagSkip) continue;
+                    const double rx = t.centroid.x() - area.left();
+                    const double ry = t.centroid.y() - area.top();
+                    if (rx < 0 || ry < 0 || rx > area.width() || ry > area.height())
+                        continue;
+                    const int cx = std::min(nCols - 1, int(rx / cellW));
+                    const int cy = std::min(nRows - 1, int(ry / cellH));
+                    const qint64 key = qint64(cy) * nCols + cx;
+                    const auto it = bucket.constFind(key);
+                    if (it == bucket.constEnd() || tris[it.value()].vmag < t.vmag)
+                        bucket.insert(key, i);
+                }
+                for (auto it = bucket.constBegin(); it != bucket.constEnd(); ++it)
+                    drawGlyph(tris[it.value()]);
+            }
+        } else {
+            for (const auto& t : tris) {
+                if (t.depth < dryCut)  continue;
+                if (t.vmag < vmagSkip) continue;          // sub-threshold cell
+                if (!exposed.isNull() &&
+                    !exposed.contains(t.centroid)) continue;
+                drawGlyph(t);
+            }
         }
 
         p->restore();
+    }
+
+    void paintFlowArrows(QPainter* p,
+                         const QStyleOptionGraphicsItem* option)
+    {
+        const auto& tris = layer_->m_sceneTris;
+        const QRectF exposed = option->exposedRect;
 
         // ------------------------------------------------------------------
         // Direction-only flow arrows (FlowArrowSublayer).
@@ -863,6 +1062,35 @@ void EngineMesh2DSource::pushFlux(std::vector<float> flux,
     history_.emplace_back(std::move(t));
 }
 
+void EngineMesh2DSource::pushVertexHeads(std::vector<double> heads,
+                                          QDateTime simTime,
+                                          double elapsedSec)
+{
+    // Convert head → depth immediately, in double, against the stored vertex
+    // elevations. History then carries compact floats (a depth never exceeds
+    // tens of metres, so float is exact enough; a HEAD in float would lose
+    // the dry-threshold signal at high elevation datums).
+    std::vector<float> vdepths(heads.size(), 0.0f);
+    const size_t n = std::min(heads.size(), vz_.size());
+    for (size_t v = 0; v < n; ++v)
+        vdepths[v] = float(std::max(0.0, heads[v] - vz_[v]));
+
+    // Pair with the tick whose elapsed time matches (same convention as
+    // pushFlux); otherwise open a new tick with empty depths so a late
+    // depths push folds in.
+    if (!history_.empty() &&
+        std::abs(history_.back().elapsed_sec - elapsedSec) < 1e-6)
+    {
+        history_.back().vertex_depths = std::move(vdepths);
+        return;
+    }
+    Tick t;
+    t.vertex_depths = std::move(vdepths);
+    t.sim_time      = simTime;
+    t.elapsed_sec   = elapsedSec;
+    history_.emplace_back(std::move(t));
+}
+
 void EngineMesh2DSource::setEdgeGeometry(std::vector<float> length,
                                           std::vector<float> nx,
                                           std::vector<float> ny)
@@ -928,6 +1156,21 @@ bool EngineMesh2DSource::readEdgeGeometry(std::vector<float>& length,
     return true;
 }
 
+bool EngineMesh2DSource::readVertexDepthsAt(int timeIdx,
+                                             std::vector<float>& vdepths)
+{
+    if (timeIdx < 0 || timeIdx >= static_cast<int>(history_.size()))
+        return false;
+    const auto& src = history_[timeIdx].vertex_depths;
+    if (src.empty()) {
+        // Tick was pushed without heads — engine lacks the vertex API (or
+        // the heads message hasn't landed yet); caller falls back.
+        return false;
+    }
+    vdepths = src;
+    return true;
+}
+
 // ===========================================================================
 // HDF5Mesh2DSource
 // ===========================================================================
@@ -974,17 +1217,49 @@ bool HDF5Mesh2DSource::readEdgeGeometry(std::vector<float>& length,
     return reader_->readEdgeGeometry(length, nx, ny);
 }
 
+bool HDF5Mesh2DSource::readVertexDepthsAt(int timeIdx,
+                                           std::vector<float>& vdepths)
+{
+    if (!reader_->readVertexHeadsAt(timeIdx, head_buf_))
+        return false;
+
+    // Lazily cache vertex elevations for the head → depth conversion.
+    if (node_z_cache_.size() != head_buf_.size()) {
+        std::vector<double> vx, vy;
+        if (!reader_->readMeshGeometry(vx, vy, node_z_cache_))
+            return false;
+        if (node_z_cache_.size() != head_buf_.size())
+            return false;
+    }
+
+    const size_t n = head_buf_.size();
+    vdepths.resize(n);
+    for (size_t v = 0; v < n; ++v)
+        vdepths[v] = float(std::max(0.0, head_buf_[v] - node_z_cache_[v]));
+    return true;
+}
+
 QDateTime HDF5Mesh2DSource::simTimeAt(int timeIdx) const
 {
-    if (!sim_start_.isValid() || !reader_) return {};
-    // /time is in days since simulation start per Default2DOutputPlugin
-    // ("units = days since simulation start"). Re-read each call instead of
-    // caching so live-tail growth is reflected; the call is O(1) once HDF5
-    // has parsed the file metadata.
+    if (!reader_) return {};
+    // The /time dataset stores the SWMM **absolute** DateTime (days since
+    // 1899-12-30), NOT days-since-start: the engine writes
+    // SimulationSnapshot::sim_time (= ctx.current_date) verbatim
+    // (Default2DOutputPlugin.cpp), and only the HDF5 units *attribute* is
+    // mislabelled "days since simulation start". Treating it as relative and
+    // adding sim_start_ double-counted the epoch and shifted every 2D frame
+    // ~126 years into the future (2152 vs 2026), so the animation controller's
+    // causal compare (ti <= cursor) was always false and 2D playback froze on
+    // frame 0. Convert as an absolute OADate so the 2D axis shares the 1D
+    // results clock's basis (SWMMResultsLayer::julianToDateTime — UTC, epoch
+    // 1899-12-30). Re-read each call so live-tail growth is reflected; O(1)
+    // once HDF5 has parsed the file metadata.
     std::vector<double> times;
     if (!reader_->readTimes(times)) return {};
     if (timeIdx < 0 || timeIdx >= static_cast<int>(times.size())) return {};
-    return sim_start_.addMSecs(qint64(times[timeIdx] * 86400.0 * 1000.0));
+    static const QDateTime kSwmmEpoch(QDate(1899, 12, 30), QTime(0, 0),
+                                      QTimeZone::utc());
+    return kSwmmEpoch.addMSecs(static_cast<qint64>(times[timeIdx] * 86400.0 * 1000.0));
 }
 
 // ===========================================================================
@@ -1032,11 +1307,17 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
     // graphics_item_; velocity has its own arrows_item_ so route those
     // separately. Lambda captures `this` so we always observe the
     // current item pointers (they're recreated on every populateScene).
+    // NOTE: the item's geometryChanged()/update() alone does NOT refresh
+    // MapCanvas's cached scene buffer — the canvas only re-renders on
+    // repaintRequested/invalidate (same trap documented in highlightCells).
+    // Without the emit, toggling a sublayer or editing its style shows
+    // nothing until some other event repaints the canvas (pan/zoom/tick).
     auto wireMeshRepaint = [this](OpenSWMM::Render::ISublayer *s) {
         if (!s) return;
         QObject::connect(s, &OpenSWMM::Render::ISublayer::invalidated,
                          this, [this]() {
                              if (graphics_item_) graphics_item_->geometryChanged();
+                             emit repaintRequested();
                          });
     };
     auto wireArrowRepaint = [this](OpenSWMM::Render::ISublayer *s) {
@@ -1044,6 +1325,7 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
         QObject::connect(s, &OpenSWMM::Render::ISublayer::invalidated,
                          this, [this]() {
                              if (arrows_item_) arrows_item_->geometryChanged();
+                             emit repaintRequested();
                          });
     };
     wireMeshRepaint(m_meshFillSublayer);
@@ -1119,6 +1401,24 @@ void SWMM2DResultsLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureR
     emit rendererChanged();
 }
 
+bool SWMM2DResultsLayer::hasEdgeFluxData() const
+{
+    // Frame-independent capability probe, cached as a tri-state. Unlike
+    // have_velocity_ (recomputed per tick from the shown frame's reconstructed
+    // velocity, hence false on dry frames), this answers "does the run carry a
+    // per-edge flux feed at all" — the correct gate for whole-series plotting.
+    if (edge_flux_probe_ != 0) return edge_flux_probe_ > 0;
+    if (!source_) return false;
+    const int nTri = source_->triangleCount();
+    if (nTri <= 0 || source_->timeCount() <= 0)
+        return false;   // not yet knowable (e.g. live source with no frames); don't cache
+    std::vector<float> probe;
+    const bool ok = source_->readEdgeFluxAt(0, probe) &&
+                    probe.size() == static_cast<std::size_t>(nTri) * 3;
+    edge_flux_probe_ = ok ? 1 : -1;
+    return ok;
+}
+
 void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
 {
     source_ = std::move(source);
@@ -1126,6 +1426,7 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
     current_depths_.clear();
     current_flux_.clear();
     have_velocity_ = false;
+    edge_flux_probe_ = 0;   // re-probe edge-flux availability for the new source
     rebuildSceneGeometry_();
 
     const int n = source_ ? source_->timeCount() : 0;
@@ -1176,8 +1477,10 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
         }
     }
 
-    // Show the latest frame immediately if any are available.
-    if (n > 0) setCurrentTimeIndex(n - 1);
+    // Show a frame immediately if any are available. A live source shows its
+    // first frame (playback stays user-driven); a completed source shows the
+    // latest.
+    if (n > 0) setCurrentTimeIndex(source_->isLive() ? 0 : (n - 1));
     else {
         if (graphics_item_) graphics_item_->geometryChanged();
         if (arrows_item_)   arrows_item_->geometryChanged();
@@ -1213,6 +1516,21 @@ void SWMM2DResultsLayer::setCurrentTimeIndex(int t)
     if (arrows_item_)   arrows_item_->geometryChanged();
     emit currentTimeChanged(t);
     emit currentDateTimeChanged(source_->simTimeAt(t));
+    // VS.8 — route the tick through the canvas's standard repaint channel
+    // so the QSG path invalidates its cached framebuffer (the QGraphicsItem
+    // updates above only reach the CPU scene buffer).
+    emit repaintRequested();
+}
+
+void SWMM2DResultsLayer::setQsgOwnsRendering(bool own)
+{
+    if (m_qsgOwnsRendering == own) return;
+    m_qsgOwnsRendering = own;
+    // Both pipelines need a repaint: the CPU items must clear (or redraw)
+    // and the canvas must regrab the QSG frame.
+    if (graphics_item_) graphics_item_->geometryChanged();
+    if (arrows_item_)   arrows_item_->geometryChanged();
+    emit repaintRequested();
 }
 
 void SWMM2DResultsLayer::refreshTimeRange()
@@ -1220,9 +1538,19 @@ void SWMM2DResultsLayer::refreshTimeRange()
     if (!source_) return;
     const int n = source_->timeCount();
     emit timeRangeChanged(0, std::max(0, n - 1));
-    if (n > 0 && current_time_idx_ < n - 1) {
-        setCurrentTimeIndex(n - 1);
+    if (n <= 0) return;
+
+    // Live (streaming) sources must NOT auto-advance to the newest frame — that
+    // makes the animation "play itself" as ticks arrive. Playback is the user's
+    // to drive (slider / Play). We only seed the very first frame so the map
+    // isn't blank, then leave the cursor where the user put it.
+    if (source_->isLive()) {
+        if (current_time_idx_ < 0) setCurrentTimeIndex(0);
+        return;
     }
+    // Non-live (e.g. a file source still being appended) keeps follow-latest.
+    if (current_time_idx_ < n - 1)
+        setCurrentTimeIndex(n - 1);
 }
 
 void SWMM2DResultsLayer::closeSource()
@@ -1238,6 +1566,7 @@ void SWMM2DResultsLayer::closeSource()
     // rebuildSceneGeometry_(); for the moment, just blank the canvas.
     for (auto &t : m_sceneTris) {
         t.depth = 0.0f;
+        t.dv0 = t.dv1 = t.dv2 = 0.0f;
         t.vx = t.vy = t.vmag = 0.0f;
     }
     have_velocity_ = false;
@@ -1500,6 +1829,22 @@ void SWMM2DResultsLayer::setCurrentSimTime(QDateTime t)
     setCurrentTimeIndex(best);
 }
 
+void SWMM2DResultsLayer::setCurrentSimTimeAsOf(QDateTime cursor)
+{
+    if (!source_ || !cursor.isValid()) return;
+    const int n = source_->timeCount();
+    if (n == 0) return;
+
+    // Largest index whose frame time is at or before the cursor (causal floor).
+    // Clamp to 0 (hold the first frame) when the cursor precedes every frame.
+    int best = 0;
+    for (int i = 0; i < n; ++i) {
+        const QDateTime ti = source_->simTimeAt(i);
+        if (ti.isValid() && ti <= cursor) best = i;
+    }
+    setCurrentTimeIndex(best);
+}
+
 // ---------------------------------------------------------------------------
 // CF.3 — cell selection / highlight
 // ---------------------------------------------------------------------------
@@ -1549,7 +1894,21 @@ inline bool pointInTriangle(const QPointF& p,
 
 int SWMM2DResultsLayer::pickCellAt(const QPointF& scenePt) const
 {
-    // Linear scan over m_sceneTris. Stops at first hit.
+    // Fast path: the spatial grid narrows the search to the one cell containing
+    // the point — O(candidates) instead of an O(n) scan over all cells. The
+    // containing triangle is guaranteed to be registered in that cell.
+    if (!m_triGrid.isEmpty()) {
+        const int *b = nullptr, *e = nullptr;
+        m_triGrid.candidatesAtPoint(scenePt.x(), scenePt.y(), b, e);
+        for (const int *p = b; p < e; ++p) {
+            const auto& t = m_sceneTris[*p];
+            if (pointInTriangle(scenePt, t.a, t.b, t.c))
+                return *p;
+        }
+        return -1;
+    }
+
+    // Fallback: linear scan when the grid isn't built. Stops at first hit.
     for (int i = 0; i < m_sceneTris.size(); ++i) {
         const auto& t = m_sceneTris[i];
         if (pointInTriangle(scenePt, t.a, t.b, t.c))
@@ -1563,6 +1922,45 @@ float SWMM2DResultsLayer::depthAtSceneNow(const QPointF& scenePt) const
     const int idx = pickCellAt(scenePt);
     if (idx < 0 || idx >= m_sceneTris.size()) return 0.0f;
     return m_sceneTris[idx].depth;
+}
+
+float SWMM2DResultsLayer::depthAtSceneInterp(const QPointF& scenePt) const
+{
+    return depthAtCellInterp(pickCellAt(scenePt), scenePt);
+}
+
+float SWMM2DResultsLayer::depthAtCellInterp(int idx, const QPointF& scenePt) const
+{
+    // Interpolate depth at a point whose containing cell is already known
+    // (e.g. the cached Sample::triIdx during animation), skipping the cell
+    // search entirely. Bounds-checks idx so a stale cached index can't crash —
+    // worst case it returns 0 until the profile rebuilds.
+    if (idx < 0 || idx >= m_sceneTris.size()) return 0.0f;
+    const auto& t = m_sceneTris[idx];
+    // No whole-cell wet/dry gate: dv0/dv1/dv2 are now the SIGNED VFR depth
+    // (η_vertex − z_vertex) from applyCurrentDepths_, so their barycentric blend
+    // is η_interp − ground_interp at the sample, going negative over the dry
+    // part of a partially-wet cell. Clamping the result at 0 (below) lets the
+    // profile water line meet ground at the sub-cell intercept instead of
+    // stepping at the cell boundary.
+    // Barycentric weights against (a,b,c) — identical construction to
+    // SWMM2DMeshLayer::sampleZAt so ground and depth share one interpolation
+    // basis (ground_bary + depth_bary is linear = interpolating per-vertex WSE).
+    const double v0x = t.c.x() - t.a.x(), v0y = t.c.y() - t.a.y();
+    const double v1x = t.b.x() - t.a.x(), v1y = t.b.y() - t.a.y();
+    const double v2x = scenePt.x() - t.a.x(), v2y = scenePt.y() - t.a.y();
+    const double d00 = v0x * v0x + v0y * v0y;
+    const double d01 = v0x * v1x + v0y * v1y;
+    const double d11 = v1x * v1x + v1y * v1y;
+    const double d20 = v2x * v0x + v2y * v0y;
+    const double d21 = v2x * v1x + v2y * v1y;
+    const double denom = d00 * d11 - d01 * d01;
+    if (denom == 0.0) return t.depth;            // degenerate — cell value
+    const double u = (d11 * d20 - d01 * d21) / denom;   // weight for c
+    const double v = (d00 * d21 - d01 * d20) / denom;   // weight for b
+    const double w = 1.0 - u - v;                       // weight for a
+    return std::max(0.0f,
+                    float(w * double(t.dv0) + v * double(t.dv1) + u * double(t.dv2)));
 }
 
 QVector<float> SWMM2DResultsLayer::maxDepthPerCell() const
@@ -1582,6 +1980,88 @@ QVector<float> SWMM2DResultsLayer::maxDepthPerCell() const
             if (buf[i] > out[i]) out[i] = buf[i];
     }
     return out;
+}
+
+QVector<float> SWMM2DResultsLayer::maxDepthPerVertex() const
+{
+    QVector<float> out;
+    if (!source_) return out;
+    const int nVert = source_->vertexCount();
+    const int nTri  = static_cast<int>(tris_.size());
+    const int nT    = source_->timeCount();
+    if (nVert <= 0 || nTri <= 0 || nT <= 0) return out;
+    if (static_cast<int>(cellZc_.size()) != nTri) return out;
+
+    const float dryF = float(dry_depth_);
+
+    // Max inundation = the highest instantaneous free surface each vertex ever
+    // saw, reconstructed with the SAME depth-weighted scheme as the per-frame
+    // fill (applyCurrentDepths_) so the static envelope shares its smooth
+    // sub-cell shoreline. For each frame, reconstruct the depth-weighted
+    // per-vertex η and keep the running per-vertex max. (Run once on profile
+    // build / time-range change, not per animation tick.)
+    std::vector<float>   vertEtaMax(size_t(nVert), 0.0f);
+    std::vector<uint8_t> vertWet(size_t(nVert), 0);
+    std::vector<float>   vsum(size_t(nVert), 0.0f), wsum(size_t(nVert), 0.0f);
+    std::vector<float>   buf;
+    for (int t = 0; t < nT; ++t) {
+        if (!source_->readDepthsAt(t, buf)) continue;
+        const int n = std::min<int>(nTri, static_cast<int>(buf.size()));
+        std::fill(vsum.begin(), vsum.end(), 0.0f);
+        std::fill(wsum.begin(), wsum.end(), 0.0f);
+        for (int i = 0; i < n; ++i) {
+            const float h = buf[i];
+            if (h < dryF) continue;
+            const float we = h * (cellZc_[i] + h);   // depth-weighted η contribution
+            const auto& tri = tris_[i];
+            for (int k = 0; k < 3; ++k) {
+                const int vi = tri[k];
+                if (vi < 0 || vi >= nVert) continue;
+                vsum[vi] += we;
+                wsum[vi] += h;
+            }
+        }
+        for (int v = 0; v < nVert; ++v) {
+            if (wsum[v] <= 0.0f) continue;
+            const float etaV = vsum[v] / wsum[v];
+            if (!vertWet[v] || etaV > vertEtaMax[v]) { vertEtaMax[v] = etaV; vertWet[v] = 1; }
+        }
+    }
+    out = QVector<float>(nVert, 0.0f);
+    for (int v = 0; v < nVert; ++v)
+        if (vertWet[v]) out[v] = float(double(vertEtaMax[v]) - vz_[v]);   // signed
+    return out;
+}
+
+float SWMM2DResultsLayer::maxDepthAtSceneInterp(const QPointF& scenePt,
+                                                const QVector<float>& vertMax) const
+{
+    const int idx = pickCellAt(scenePt);
+    if (idx < 0 || idx >= m_sceneTris.size() || idx >= static_cast<int>(tris_.size()))
+        return 0.0f;
+    const auto& t   = m_sceneTris[idx];
+    const auto& tri = tris_[idx];
+    auto vm = [&](int k) {
+        const int vi = tri[k];
+        return (vi >= 0 && vi < vertMax.size()) ? double(vertMax[vi]) : 0.0;
+    };
+    // Same barycentric construction as depthAtSceneInterp (a→w, b→v, c→u).
+    const double v0x = t.c.x() - t.a.x(), v0y = t.c.y() - t.a.y();
+    const double v1x = t.b.x() - t.a.x(), v1y = t.b.y() - t.a.y();
+    const double v2x = scenePt.x() - t.a.x(), v2y = scenePt.y() - t.a.y();
+    const double d00 = v0x * v0x + v0y * v0y;
+    const double d01 = v0x * v1x + v0y * v1y;
+    const double d11 = v1x * v1x + v1y * v1y;
+    const double d20 = v2x * v0x + v2y * v0y;
+    const double d21 = v2x * v1x + v2y * v1y;
+    const double denom = d00 * d11 - d01 * d01;
+    if (denom == 0.0) return vertMax.isEmpty() ? 0.0f : std::max(0.0f, float(vm(0)));
+    const double u = (d11 * d20 - d01 * d21) / denom;   // weight for c
+    const double v = (d00 * d21 - d01 * d20) / denom;   // weight for b
+    const double w = 1.0 - u - v;                       // weight for a
+    // vertMax is the SIGNED per-vertex max depth (η_max − z); clamp the blend at
+    // 0 so the envelope tapers to dry inside partially-wet cells.
+    return std::max(0.0f, float(w * vm(0) + v * vm(1) + u * vm(2)));
 }
 
 void SWMM2DResultsLayer::highlightCells(const QSet<int>& triIdxSet)
@@ -1614,6 +2094,12 @@ void SWMM2DResultsLayer::clearHighlights()
 void SWMM2DResultsLayer::rebuildSceneGeometry_()
 {
     m_sceneTris.clear();
+    m_triGrid.clear();   // drop the stale index; every early-return path below
+                         // leaves an empty grid so pickCellAt falls back safely.
+    cellZc_.clear();
+    eta_cell_.clear();
+    eta_vsum_.clear();
+    eta_wsum_.clear();
     m_sceneBBox = QRectF();
 
     if (!source_) return;
@@ -1659,6 +2145,35 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
         st.vx = st.vy = st.vmag = 0.0f;
     }
 
+    // Build the point-location index over the triangle bboxes (parallel to
+    // m_sceneTris) so pickCellAt — and the profile depth sampling that rides on
+    // it — is O(cell) instead of O(n).
+    QVector<QRectF> triBBoxes(m_sceneTris.size());
+    for (int i = 0; i < m_sceneTris.size(); ++i) {
+        const SceneTri& t = m_sceneTris[i];
+        const double bMinX = std::min({t.a.x(), t.b.x(), t.c.x()});
+        const double bMaxX = std::max({t.a.x(), t.b.x(), t.c.x()});
+        const double bMinY = std::min({t.a.y(), t.b.y(), t.c.y()});
+        const double bMaxY = std::max({t.a.y(), t.b.y(), t.c.y()});
+        triBBoxes[i] = QRectF(QPointF(bMinX, bMinY), QPointF(bMaxX, bMaxY));
+    }
+    m_triGrid.rebuild(triBBoxes);
+
+    // Per-cell centroid bed elevation = (z0+z1+z2)/3 (the engine's tri_cz). The
+    // engine's free surface is η = z_centroid + h, so this is the only per-cell
+    // geometry the per-frame reconstruction needs. Stored as float parallel to
+    // tris_; the per-frame eta_* scratch is sized here too so
+    // applyCurrentDepths_ never allocates.
+    const int nVert = static_cast<int>(vx_.size());
+    cellZc_.resize(m_sceneTris.size());
+    for (int i = 0; i < m_sceneTris.size(); ++i) {
+        const auto& tri = tris_[i];
+        cellZc_[i] = float((vz_[tri[0]] + vz_[tri[1]] + vz_[tri[2]]) / 3.0);
+    }
+    eta_cell_.assign(m_sceneTris.size(), 0.0f);
+    eta_vsum_.assign(nVert, 0.0f);
+    eta_wsum_.assign(nVert, 0.0f);
+
     // Pull time-invariant edge geometry once per source swap. When the source
     // can't provide it (older engine without the bulk API, .h5 file without
     // the geometry datasets), the velocity overlay simply stays empty.
@@ -1685,33 +2200,63 @@ void SWMM2DResultsLayer::applyCurrentDepths_()
         m_sceneTris[i].depth = current_depths_[i];
     }
 
-    // Compute per-vertex depths by averaging incident-cell depths so the
-    // marching-triangles contour passes see a continuous scalar field. The
-    // engine reports depth per-cell (RT0), but contour extraction needs
-    // per-vertex values — a uniform cell field produces zero crossings and
-    // the algorithm skips every triangle as "degenerate".
     const int nVert = static_cast<int>(vx_.size());
-    std::vector<float> vsum(size_t(nVert), 0.0f);
-    std::vector<int>   vcount(size_t(nVert), 0);
+    if (static_cast<int>(cellZc_.size()) != nTri) return;   // geometry not built yet
+
+    const float dryF = float(dry_depth_);
+
+    // --- Sub-cell free-surface reconstruction. The engine reports a per-cell
+    // mean depth h = V/A under a flat-cell closure whose free surface is
+    // η = z_centroid + h (horizontal at equilibrium — the engine equalises head
+    // across wet cells). We reconstruct that η at the vertices and write a
+    // SIGNED per-vertex depth (η − z) into dv0/dv1/dv2. The sign lets the
+    // downstream marching-triangles bands/isolines and the Gouraud fill cut the
+    // wet/dry shoreline THROUGH partially-wet cells (at the dryDepth level)
+    // instead of snapping it to cell edges, while the surface stays a flat plane
+    // over still water (all wet cells share η). (NB: applying the sloped
+    // Begnudelli–Sanders VFR to this flat-cell h would tilt the surface — water
+    // climbing the walls — so we render the engine's own head.)
+
+    // Phase 1 — per-cell free surface η = z_centroid + h. depth stays the cell
+    // mean h ≥ 0 (drives colour, the velocity dry-test, flat-band classify).
     for (int i = 0; i < nTri; ++i) {
-        const float d = current_depths_[i];
+        m_sceneTris[i].depth = current_depths_[i];
+        eta_cell_[i] = cellZc_[i] + current_depths_[i];
+    }
+
+    // Phase 2 — reconstruct η at vertices as a DEPTH-WEIGHTED mean of η over
+    // wetted incident cells (weight = cell depth h). Weighting by depth lets the
+    // deep, fully-wet cells — whose flat-cell η equals the true horizontal water
+    // level — dominate the shoreline vertices, instead of thin, transiently-wet
+    // cells up a slope (η = z_centroid + small ≈ their high bed) dragging the
+    // surface up the wall. A simple unweighted mean climbed adverse slopes.
+    std::fill(eta_vsum_.begin(), eta_vsum_.end(), 0.0f);
+    std::fill(eta_wsum_.begin(), eta_wsum_.end(), 0.0f);
+    for (int i = 0; i < nTri; ++i) {
+        const float h = current_depths_[i];
+        if (h < dryF) continue;                    // only wetted cells contribute
         const auto& tri = tris_[i];
+        const float we = h * eta_cell_[i];
         for (int k = 0; k < 3; ++k) {
             const int vi = tri[k];
             if (vi < 0 || vi >= nVert) continue;
-            vsum[vi] += d;
-            ++vcount[vi];
+            eta_vsum_[vi] += we;
+            eta_wsum_[vi] += h;
         }
     }
-    for (int v = 0; v < nVert; ++v) {
-        if (vcount[v] > 0) vsum[v] /= float(vcount[v]);
-    }
+
+    // Phase 3/4 — per-vertex signed depth dv = η_vertex − z_vertex; fully-dry
+    // vertices (no wetted incident cell) get 0.
+    auto vDepth = [&](int vi) -> float {
+        if (vi < 0 || vi >= nVert || eta_wsum_[vi] <= 0.0f) return 0.0f;
+        return eta_vsum_[vi] / eta_wsum_[vi] - float(vz_[vi]);
+    };
     for (int i = 0; i < nTri; ++i) {
         const auto& tri = tris_[i];
         SceneTri& st = m_sceneTris[i];
-        st.dv0 = (tri[0] >= 0 && tri[0] < nVert) ? vsum[tri[0]] : 0.0f;
-        st.dv1 = (tri[1] >= 0 && tri[1] < nVert) ? vsum[tri[1]] : 0.0f;
-        st.dv2 = (tri[2] >= 0 && tri[2] < nVert) ? vsum[tri[2]] : 0.0f;
+        st.dv0 = vDepth(tri[0]);
+        st.dv1 = vDepth(tri[1]);
+        st.dv2 = vDepth(tri[2]);
     }
 }
 
@@ -1900,15 +2445,28 @@ SWMM2DResultsLayer::sublayerLegendItems() const
         out.append(header);
     }
 
+    // VS.8 — legend rows mirror the style-driven paint passes: depth swatches
+    // sample the DepthColorRampStyle (named ramp / two-colour gradient),
+    // band swatches use ContourBandStyle::colorForBand, and the velocity
+    // rows delegate to the sublayer (flat row, or one row per colour band).
+    const OpenSWMM::Render::DepthColorRampStyle *drs =
+        m_depthRampSublayer ? m_depthRampSublayer->rampStyle() : nullptr;
+
     for (int i = 0; i < bins; ++i) {
         const double t  = (i + 0.5) / bins;
         const double v  = dry + t * (mx - dry);
         const double lo = dry + double(i)     / bins * (mx - dry);
         const double hi = dry + double(i + 1) / bins * (mx - dry);
 
-        int r = 0, g = 0, b = 0, a = 0;
-        inundationColorRgba(v, dry, mx, r, g, b, a);
-        const QColor c(r, g, b, std::max(a, 200));
+        QColor c;
+        if (drs) {
+            c = drs->colorAtF(t);
+            c.setAlpha(std::max(c.alpha(), 200));
+        } else {
+            int r = 0, g = 0, b = 0, a = 0;
+            inundationColorRgba(v, dry, mx, r, g, b, a);
+            c = QColor(r, g, b, std::max(a, 200));
+        }
 
         LegendSymbolItem item;
         item.label      = QStringLiteral("%1 – %2")
@@ -1926,70 +2484,115 @@ SWMM2DResultsLayer::sublayerLegendItems() const
     }
 
     // Filled contour bands (only when enabled) — single header row + N bands.
-    if (filled_contours_) {
+    if (filledContours()) {
         LegendSymbolItem header;
         header.label = tr("Filled bands");
         header.sublayerId = m_contourBandSublayer
                               ? m_contourBandSublayer->id() : QString();
         out.append(header);
 
-        const int n = std::max(2, filled_contours_levels_);
-        for (int i = 0; i < n; ++i) {
-            const double t = (i + 0.5) / n;
-            const double v = dry + t * (mx - dry);
-            int r = 0, g = 0, b = 0, a = 0;
-            inundationColorRgba(v, dry, mx, r, g, b, a);
-            const int alpha = std::clamp(
-                int(std::lround(filled_contours_opacity_ * 255.0)), 0, 255);
-            QColor c(r, g, b, alpha);
+        const OpenSWMM::Render::ContourBandStyle *bs =
+            m_contourBandSublayer ? m_contourBandSublayer->bandStyle() : nullptr;
+        const int alpha = std::clamp(
+            int(std::lround(filledContoursOpacity() * 255.0)), 0, 255);
+        const QString bandSubId =
+            m_contourBandSublayer ? m_contourBandSublayer->id() : QString();
 
-            LegendSymbolItem item;
-            const double lo = dry + double(i)     / n * (mx - dry);
-            const double hi = dry + double(i + 1) / n * (mx - dry);
-            item.label      = QStringLiteral("%1 – %2 m")
-                                .arg(lo, 0, 'g', 3).arg(hi, 0, 'g', 3);
-            item.sublayerId = m_contourBandSublayer
-                                ? m_contourBandSublayer->id() : QString();
-            item.range      = { lo, hi };
-            SymbolLayer sl;
-            sl.kind = SymbolLayerKind::SimpleFill;
-            OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"), c);
-            item.symbol.layers.append(sl);
-            out.append(item);
+        if (bs) {
+            // Slice US.2 — rows straight from the classification scheme so the
+            // value labels follow the actual class edges (equal interval,
+            // quantile, Jenks, …) and pick up per-class colour overrides. The
+            // swatch colours match colorForBand the renderer paints with.
+            const auto items = bs->scheme().legendItems(dry, mx, 3);
+            for (LegendSymbolItem item : items) {
+                item.sublayerId = bandSubId;
+                item.symbol.opacity = filledContoursOpacity();
+                out.append(item);
+            }
+        } else {
+            double bandLo = dry, bandHi = mx;
+            const int n = std::max(2, filledContoursLevels());
+            for (int i = 0; i < n; ++i) {
+                const double t = (i + 0.5) / n;
+                int r = 0, g = 0, b = 0, a = 0;
+                inundationColorRgba(bandLo + t * (bandHi - bandLo),
+                                    bandLo, bandHi, r, g, b, a);
+                QColor c(r, g, b);
+                c.setAlpha(alpha);
+
+                LegendSymbolItem item;
+                const double lo = bandLo + double(i)     / n * (bandHi - bandLo);
+                const double hi = bandLo + double(i + 1) / n * (bandHi - bandLo);
+                item.label      = QStringLiteral("%1 – %2 m")
+                                    .arg(lo, 0, 'g', 3).arg(hi, 0, 'g', 3);
+                item.sublayerId = bandSubId;
+                item.range      = { lo, hi };
+                item.classKey   = QString::number(i);
+                SymbolLayer sl;
+                sl.kind = SymbolLayerKind::SimpleFill;
+                OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"), c);
+                item.symbol.layers.append(sl);
+                out.append(item);
+            }
         }
     }
 
-    // Iso-line strokes (single row — stroke colour + width).
-    if (isolines_) {
+    // Iso-line strokes — one row for the regular lines, plus an index-contour
+    // row when emphasis is enabled.
+    if (isolines()) {
+        const OpenSWMM::Render::IsolineStyle *is =
+            m_isolineSublayer ? m_isolineSublayer->isolineStyle() : nullptr;
+
         LegendSymbolItem item;
-        item.label = tr("Iso-depth lines (%1 levels)").arg(isolines_levels_);
+        if (is && is->levelMode() ==
+                OpenSWMM::Render::IsolineStyle::LevelMode::FixedInterval)
+            item.label = tr("Iso-depth lines (every %1 m)")
+                             .arg(is->levelInterval(), 0, 'g', 3);
+        else
+            item.label = tr("Iso-depth lines (%1 levels)").arg(isolinesLevels());
         item.sublayerId = m_isolineSublayer ? m_isolineSublayer->id()
                                             : QString();
         SymbolLayer sl;
         sl.kind = SymbolLayerKind::SimpleLine;
         OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"),
-                                isolines_color_);
-        sl.props.insert(QStringLiteral("width"), isolines_width_);
+                                isolinesColor());
+        sl.props.insert(QStringLiteral("width"), isolinesWidth());
         item.symbol.layers.append(sl);
         out.append(item);
+
+        if (is && is->indexEvery() >= 2) {
+            LegendSymbolItem idx;
+            idx.label = tr("Index contours (every %1th)").arg(is->indexEvery());
+            idx.sublayerId = m_isolineSublayer->id();
+            SymbolLayer isl;
+            isl.kind = SymbolLayerKind::SimpleLine;
+            OpenSWMM::Render::SymbolProps::writeColor(isl.props, QStringLiteral("color"),
+                                    isolinesColor());
+            isl.props.insert(QStringLiteral("width"), is->indexWidthPx());
+            idx.symbol.layers.append(isl);
+            out.append(idx);
+        }
     }
 
-    // Velocity arrows (single row) — visible only when feed has data.
-    if (velocity_visible_ && have_velocity_) {
-        LegendSymbolItem item;
-        item.label = tr("Velocity (max %1 m/s)").arg(max_velocity_, 0, 'g', 3);
-        item.sublayerId = m_velocityVectorSublayer
-                            ? m_velocityVectorSublayer->id() : QString();
-        SymbolLayer sl;
-        sl.kind = SymbolLayerKind::SimpleMarker;
-        sl.props.insert(QStringLiteral("shape"), QStringLiteral("arrow"));
-        int r = 0, g = 0, b = 0;
-        velocityColorRgb(max_velocity_, max_velocity_, r, g, b);
-        OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"),
-                                QColor(r, g, b, 230));
-        sl.props.insert(QStringLiteral("size"), 12.0);
-        item.symbol.layers.append(sl);
-        out.append(item);
+    // Velocity arrows — visible only when the feed has data. Delegates to
+    // the sublayer so the rows match the painted colour bands exactly.
+    if (velocityVectorsVisible() && have_velocity_) {
+        if (m_velocityVectorSublayer) {
+            out.append(m_velocityVectorSublayer->legendSymbolItems());
+        } else {
+            LegendSymbolItem item;
+            item.label = tr("Velocity (max %1 m/s)").arg(max_velocity_, 0, 'g', 3);
+            SymbolLayer sl;
+            sl.kind = SymbolLayerKind::SimpleMarker;
+            sl.props.insert(QStringLiteral("shape"), QStringLiteral("arrow"));
+            int r = 0, g = 0, b = 0;
+            velocityColorRgb(max_velocity_, max_velocity_, r, g, b);
+            OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"),
+                                    QColor(r, g, b, 230));
+            sl.props.insert(QStringLiteral("size"), 12.0);
+            item.symbol.layers.append(sl);
+            out.append(item);
+        }
     }
 
     return out;

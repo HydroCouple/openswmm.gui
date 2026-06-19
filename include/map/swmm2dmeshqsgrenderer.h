@@ -91,12 +91,14 @@ private:
     double  m_isobandCacheZMin   = 0.0;
     double  m_isobandCacheZMax   = 0.0;
     int     m_isobandCacheBands  = -1;
+    quint64 m_isobandCacheScheme = 0;   ///< Slice US.3 — ClassificationScheme::revision()
     std::vector<OpenSWMM::Contour::IsoBandPolygon> m_cachedBands;
 
     quint64 m_isolineCacheRev    = 0;
     double  m_isolineCacheZMin   = 0.0;
     double  m_isolineCacheZMax   = 0.0;
     int     m_isolineCacheLevels = -1;
+    quint64 m_isolineCacheScheme = 0;   ///< Slice US.3 — ClassificationScheme::revision()
     std::vector<OpenSWMM::Contour::IsoLineSegment> m_cachedSegs;
 
     // ── Pass 1 per-triangle fill-colour cache ──────────────────────────

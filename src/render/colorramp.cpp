@@ -611,7 +611,10 @@ RasterColorRamp RasterColorRamp::builtin(const QString &name)
     const QString key = name.trimmed().toLower();
     for (const BuiltinEntry &e : builtinTable())
     {
-        if (e.key == key)
+        // Match the internal key or the combobox display name — style bags
+        // store whichever the UI handed them.
+        if (e.key == key
+            || e.displayName.compare(name.trimmed(), Qt::CaseInsensitive) == 0)
             return e.factory(0.0, 1.0);
     }
     return grayscale();

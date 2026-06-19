@@ -20,6 +20,7 @@
 #define PREFERENCESMANAGER_H
 
 #include "render/colorramp.h"
+#include "plot/numberformat.h"
 
 #include <QBrush>
 #include <QColor>
@@ -294,6 +295,26 @@ public:
 
     [[nodiscard]] int     measureFillOpacity() const;  ///< Area fill opacity 0–100 %. Default 30
     void setMeasureFillOpacity(int opacity);
+
+    // ── Plots: default numeric precision ─────────────────────────────────
+    /*! App-wide default for how chart plots render numbers, separately for
+     *  the X and Y axes. A plot inherits these unless its own properties
+     *  dialog overrides them. `*FormatMode` is `NumberFormatMode` as int
+     *  (0=Decimals, 1=SignificantFigures); `*Precision` is the digit count
+     *  (decimals 0–10, sig figs 1–10). Time/date axes are unaffected. */
+    [[nodiscard]] int  plotXAxisFormatMode() const;  ///< Default 0 (Decimals)
+    void setPlotXAxisFormatMode(int mode);
+    [[nodiscard]] int  plotXAxisPrecision()  const;  ///< Default 0; range 0–10
+    void setPlotXAxisPrecision(int count);
+
+    [[nodiscard]] int  plotYAxisFormatMode() const;  ///< Default 0 (Decimals)
+    void setPlotYAxisFormatMode(int mode);
+    [[nodiscard]] int  plotYAxisPrecision()  const;  ///< Default 2; range 0–10
+    void setPlotYAxisPrecision(int count);
+
+    /*! Convenience: the global default X/Y format as a value type. */
+    [[nodiscard]] openswmmvis::plot::NumberFormat plotXAxisFormat() const;
+    [[nodiscard]] openswmmvis::plot::NumberFormat plotYAxisFormat() const;
 
     // ── Element naming prefixes ──────────────────────────────────────────
     /*! Name prefix used when auto-generating IDs for newly placed SWMM objects.

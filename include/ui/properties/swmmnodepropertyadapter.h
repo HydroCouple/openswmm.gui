@@ -59,10 +59,16 @@ public:
     enum OutfallType { FREE = 0, NORMAL = 1, FIXED = 2, TIDAL = 3, TIMESERIES = 4 };
     enum DividerType { CUTOFF = 0, OVERFLOW_ = 1, TABULAR = 2, WEIR = 3 };
     enum FlapGate    { NO = 0, YES = 1 };
+    /*! Storage geometry form. FUNCTIONAL = power-law Area = A·Depth^B + C
+     *  (engine `swmm_node_set_storage_functional`); TABULAR = depth–area
+     *  curve referenced by id (engine `swmm_node_set_storage_curve`). The
+     *  engine distinguishes them by whether `storage_curve >= 0`. */
+    enum StorageShape { Functional = 0, Tabular = 1 };
     Q_ENUM(NodeKind)
     Q_ENUM(OutfallType)
     Q_ENUM(DividerType)
     Q_ENUM(FlapGate)
+    Q_ENUM(StorageShape)
 
     // Common to every node type — Name + Type + Invert + Coords + Tag.
     Q_PROPERTY(QString  name        READ name  WRITE setName)
@@ -152,6 +158,19 @@ public:
     [[nodiscard]] DataObjectRef  outfallTidalCurveRef()    const;
     [[nodiscard]] DataObjectRef  outfallTimeseriesRef()    const;
 
+    // Slice AG.4 — storage-unit geometry accessors. Live on the base class
+    // (like the outfall stage-data accessors above) so the cpp can reuse the
+    // shared `nodeIdx() / m_engine` helpers; only SWMMStoragePropertyAdapter
+    // declares them as Q_PROPERTY. The engine stores the functional
+    // coefficients (A, B, C) and the tabular curve index in independent
+    // slots; `storageShape()` reports TABULAR when a curve is assigned
+    // (curve_idx >= 0) and FUNCTIONAL otherwise.
+    [[nodiscard]] StorageShape   storageShape()      const;
+    [[nodiscard]] DataObjectRef  storageCurveRef()   const;
+    [[nodiscard]] double         storageCoeffA()     const;
+    [[nodiscard]] double         storageExpB()       const;
+    [[nodiscard]] double         storageConstC()     const;
+
     /*! Maps a Q_PROPERTY identifier (e.g. \c "maxDepth") to a
      *  human-readable column-0 label (e.g. \c "Max Depth (ft)") with
      *  unit suffixes pulled live from \c UnitSystem::instance().
@@ -202,6 +221,20 @@ public slots:
     void setOutfallStage(double v);
     void setOutfallTidalCurveRef(const DataObjectRef &r);
     void setOutfallTimeseriesRef(const DataObjectRef &r);
+
+    // Slice AG.4 — storage geometry setters.
+    //   setStorageShape(Functional) detaches any tabular curve so the engine
+    //     falls back to the functional coefficients.
+    //   setStorageShape(Tabular) keeps the current curve if one is assigned,
+    //     else assigns the first [STORAGE]-type curve in the model; if none
+    //     exist it is a no-op (the row stays FUNCTIONAL after re-read).
+    //   The coefficient setters read-modify-write the engine's atomic (A,B,C)
+    //     triple so each row edits one term without clobbering the others.
+    void setStorageShape(StorageShape v);
+    void setStorageCurveRef(const DataObjectRef &r);
+    void setStorageCoeffA(double v);
+    void setStorageExpB(double v);
+    void setStorageConstC(double v);
 
     /*! Round-4 follow-up 2026-05-12 — force the Property Browser
      *  to re-query.  Used when the table view edits the same object
@@ -364,6 +397,17 @@ class SWMMStoragePropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double initialDepth    READ initialDepth    WRITE setInitialDepth    NOTIFY changed)
     Q_PROPERTY(double surchargeDepth  READ surchargeDepth  WRITE setSurchargeDepth  NOTIFY changed)
     Q_PROPERTY(double seepRate        READ seepRate        WRITE setSeepRate        NOTIFY changed)
+    // Slice AG.4 — storage geometry. The Shape combobox switches between the
+    // functional power-law form and a tabular depth–area curve. AttributePanel
+    // greys out the inapplicable rows (curve vs. coefficients) based on the
+    // live shape, mirroring the outfall stage-data wiring.
+    Q_PROPERTY(SWMMNodePropertyAdapter::StorageShape storageShape
+               READ storageShape    WRITE setStorageShape    NOTIFY changed)
+    Q_PROPERTY(DataObjectRef storageCurve
+               READ storageCurveRef WRITE setStorageCurveRef NOTIFY changed)
+    Q_PROPERTY(double storageCoeffA   READ storageCoeffA   WRITE setStorageCoeffA   NOTIFY changed)
+    Q_PROPERTY(double storageExpB     READ storageExpB     WRITE setStorageExpB     NOTIFY changed)
+    Q_PROPERTY(double storageConstC   READ storageConstC   WRITE setStorageConstC   NOTIFY changed)
     // Slice DB — same read-only summary block; full volume is especially
     // useful at storage nodes because it's the integrated curve volume.
     Q_PROPERTY(double crownElev       READ crownElev       NOTIFY changed)

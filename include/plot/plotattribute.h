@@ -86,7 +86,10 @@ enum class PlotAttribute {
     SystemPET         = 35, ///< mm/d / in/d — SYS_PET        (potential ET)
 
     // ----- 2D mesh-edge variables ------------------------------------------
-    Mesh2DEdgeFlux    = 36, ///< m²/s / ft²/s — signed normal flux through a mesh edge
+    // Both derive from the engine's single Mesh2_edge_flux dataset (volumetric
+    // F_e, m³/s). Flow is that value directly; unit-width flux is F_e ÷ edge length.
+    Mesh2DEdgeFlux    = 36, ///< m²/s / ft²/s — unit-width flux q = F_e / edge length
+    Mesh2DEdgeFlow    = 37, ///< m³/s / ft³/s — volumetric flow Q across a mesh edge (= F_e)
 };
 
 /*! \brief Short human label, e.g. "Depth", "Flow", "Velocity |V|". */

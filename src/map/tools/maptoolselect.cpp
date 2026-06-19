@@ -17,8 +17,10 @@
 #include "core/editgeometry.h"
 #include "core/unitsystem.h"
 #include "ui/widgets/attributepickermenu.h"
+#include "ui/dialogs/typeconversionflow.h"
 
 #include <openswmm/engine/openswmm_subcatchments.h>
+#include <openswmm/engine/openswmm_nodes.h>
 
 #include <QAction>
 #include <QDebug>
@@ -1207,10 +1209,57 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     }
 
     menu.addSeparator();
+
+    // Convert To ▸ — nodes and links only. The identify hit map carries
+    // only elementType/elementName, so read the current kind live from the
+    // engine (same pattern as the Attribute Table's Change Type). Using
+    // ref.objectType to pick the node-vs-link namespace is deliberate: a
+    // node and a link may share a name, so findObjectLocation would be
+    // ambiguous here.
+    QHash<QAction *, int> convertTargets;
+    int currentType = -1;
+    if (hitLayer && hitLayer->engine() &&
+        (ref.objectType == SWMMObjectRef::Node ||
+         ref.objectType == SWMMObjectRef::Link)) {
+        SWMM_Engine eng = hitLayer->engine();
+        const bool isNode = (ref.objectType == SWMMObjectRef::Node);
+        const QByteArray id = ref.name.toUtf8();
+        const int idx = isNode ? swmm_node_index(eng, id.constData())
+                               : swmm_link_index(eng, id.constData());
+        const int rcT = (idx < 0) ? -1
+            : (isNode ? swmm_node_get_type(eng, idx, &currentType)
+                      : swmm_link_get_type(eng, idx, &currentType));
+        if (rcT == SWMM_OK) {
+            QMenu *convertMenu = menu.addMenu(QObject::tr("Convert To"));
+            const int nKinds = isNode ? 4 : 5;
+            for (int t = 0; t < nKinds; ++t) {
+                if (t == currentType) continue;
+                const QString label = isNode
+                    ? openswmmvis::ui::TypeConversionFlow::nodeTypeLabel(t)
+                    : openswmmvis::ui::TypeConversionFlow::linkTypeLabel(t);
+                convertTargets.insert(convertMenu->addAction(label), t);
+            }
+        }
+    }
+
     QAction *actDelete = menu.addAction(QObject::tr("Delete…"));
 
     QAction *picked = menu.exec(globalPt);
     if (!picked) return;
+
+    // Convert To ▸ dispatch — run the shared confirm/convert/summary flow.
+    // On success drop any now-stale inline vertex-edit session on this
+    // element (e.g. conduit handles after a convert to pump).
+    if (convertTargets.contains(picked) && hitLayer) {
+        const bool isNode = (ref.objectType == SWMMObjectRef::Node);
+        if (openswmmvis::ui::TypeConversionFlow::run(
+                widget, hitLayer, isNode, ref.name,
+                currentType, convertTargets.value(picked))) {
+            if (m_editKind != EditKind::None && m_editName == ref.name)
+                clearEditMode();
+        }
+        return;
+    }
 
     // Slice AT.2 — submenu actions: dispatch to plotAttributeRequested.
     // attributeFrom() returns Unknown for the "All attributes" sentinel;

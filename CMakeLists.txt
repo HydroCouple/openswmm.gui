@@ -162,9 +162,13 @@ set(
         # Slice BB-α — colour-ramp data type + interval binner.
         include/render/colorramp.h
         include/render/intervalbinner.h
+        # Slice US.1 — shared classification scheme (UNIFIED_STYLING plan S1).
+        include/render/classificationscheme.h
         # P2 — static/dynamic source + range-mode spine (header-only enums).
         include/render/attributesource.h
         include/render/labelconfig.h
+        # Slice US.B3 — shared label painter (UNIFIED_STYLING plan B3).
+        include/render/labelpainter.h
         include/render/basemaprenderparams.h
         include/render/stylefileio.h
         include/render/expressionevaluator.h
@@ -278,6 +282,7 @@ set(
         include/plot/meshprofileplotoptions.h
         include/plot/profilesourcefetcher.h
         include/plot/plotattribute.h
+        include/plot/numberformat.h
         include/plot/chartproperties.h
         include/plot/seriesstatistics.h
         include/plot/swmmjuliandatetime.h
@@ -327,10 +332,13 @@ set(
         include/map/swmmlayeritem.h
         include/map/swmmlayerqsgrenderer.h
         include/map/swmm2dmeshqsgrenderer.h
+        include/map/swmm2dresultsqsgrenderer.h
         include/map/profilepathoverlay.h
+        include/map/meshprofileoverlay.h
 
         # ── Map tools ────────────────────────────────────────────────────────
         include/map/tools/maptool.h
+        include/map/tools/maptoolprofilemarker.h
         include/map/tools/maptoolpan.h
         include/map/tools/maptoolzoom.h
         include/map/tools/maptoolmeasure.h
@@ -527,8 +535,12 @@ set(
         include/ui/widgets/labeledcontrols.h
         # Slice BB-α — colour-ramp combobox with gradient-swatch dropdown.
         include/ui/widgets/colorrampcombobox.h
+        # Slice US.1 — shared classification editor (UNIFIED_STYLING plan S1).
+        include/ui/widgets/classificationeditor.h
 
         # ── Dialogs ──────────────────────────────────────────────────────────
+        # Shared confirm → convert → summary flow for node/link type changes.
+        include/ui/dialogs/typeconversionflow.h
         include/ui/dialogs/addbasemapdialog.h
         include/ui/dialogs/crsselectiondialog.h
         include/ui/dialogs/crschangedialog.h
@@ -583,6 +595,8 @@ set(
         include/ui/dialogs/editors/gisvectorsymboleditor.h
         include/ui/dialogs/editors/rastercolorrampeditor.h
         include/ui/dialogs/editors/kindrendererpanel.h
+        # Slice US.1 — classification bindings (UNIFIED_STYLING plan S1).
+        include/ui/dialogs/editors/classificationbindings.h
         include/ui/dialogs/editors/markershapeeditor.h
         include/ui/dialogs/editors/meshhillshadeeditor.h
         include/ui/widgets/colorbutton.h
@@ -648,10 +662,14 @@ set(
         # Slice BB-α — colour-ramp data type + interval binner impls.
         src/render/colorramp.cpp
         src/render/labelconfig.cpp
+        # Slice US.B3 — shared label painter impl (UNIFIED_STYLING plan B3).
+        src/render/labelpainter.cpp
         src/render/basemaprenderparams.cpp
         src/render/stylefileio.cpp
         src/render/expressionevaluator.cpp
         src/render/intervalbinner.cpp
+        # Slice US.1 — shared classification scheme (UNIFIED_STYLING plan S1).
+        src/render/classificationscheme.cpp
         # Slice BI Phase 8.13.7-α / 8.13.43-α — DataDefinedScalar impl.
         src/render/datadefined.cpp
         # Slice CTX.1 / CTX.3 — per-(layer,kind) attribute candidate lists.
@@ -738,6 +756,7 @@ set(
         src/plot/meshprofileplotoptions.cpp
         src/plot/profilesourcefetcher.cpp
         src/plot/plotattribute.cpp
+        src/plot/numberformat.cpp
         src/plot/chartproperties.cpp
         src/plot/seriesstatistics.cpp
         src/plot/seriesstyle.cpp
@@ -784,10 +803,13 @@ set(
         src/map/swmmlayeritem.cpp
         src/map/swmmlayerqsgrenderer.cpp
         src/map/swmm2dmeshqsgrenderer.cpp
+        src/map/swmm2dresultsqsgrenderer.cpp
         src/map/profilepathoverlay.cpp
+        src/map/meshprofileoverlay.cpp
 
         # Map tools
         src/map/tools/maptool.cpp
+        src/map/tools/maptoolprofilemarker.cpp
         src/map/tools/maptoolpan.cpp
         src/map/tools/maptoolzoom.cpp
         src/map/tools/maptoolmeasure.cpp
@@ -960,6 +982,8 @@ set(
         src/ui/editors/comprehensiveeditorregistry.cpp
 
         # Dialogs
+        # Shared confirm → convert → summary flow for node/link type changes.
+        src/ui/dialogs/typeconversionflow.cpp
         src/ui/dialogs/crsselectiondialog.cpp
         src/ui/dialogs/crschangedialog.cpp
         src/ui/dialogs/aboutdialog.cpp
@@ -1008,6 +1032,8 @@ set(
         src/ui/dialogs/editors/gisvectorsymboleditor.cpp
         src/ui/dialogs/editors/rastercolorrampeditor.cpp
         src/ui/dialogs/editors/kindrendererpanel.cpp
+        # Slice US.1 — classification bindings impl (UNIFIED_STYLING plan S1).
+        src/ui/dialogs/editors/classificationbindings.cpp
         src/ui/dialogs/editors/meshhillshadeeditor.cpp
         src/ui/dialogs/editors/singlesymbolrendererpanel.cpp
         src/ui/dialogs/editors/markershapeeditor.cpp
@@ -1064,6 +1090,8 @@ set(
         src/ui/widgets/labeledcontrols.cpp
         # Slice BB-α — colour-ramp combobox impl.
         src/ui/widgets/colorrampcombobox.cpp
+        # Slice US.1 — shared classification editor impl (UNIFIED_STYLING plan S1).
+        src/ui/widgets/classificationeditor.cpp
 
         # ── Forms ────────────────────────────────────────────────────────────
         forms/swmmvis.ui
@@ -1097,13 +1125,11 @@ target_include_directories(SWMMVis
     PRIVATE include
     PRIVATE forms
     PRIVATE ${GDAL_INCLUDE_DIRS}
-    # legacy_version.h is generated into the legacy engine's build dir;
-    # expose it so swmmvis.cpp can use LEGACY_SWMM_VERSION macros. Query the
-    # target's BINARY_DIR rather than hardcoding ${CMAKE_BINARY_DIR}/openswmm_engine,
-    # since FetchContent lands the build at _deps/openswmm_engine-build/ while
-    # add_subdirectory(sibling-checkout) lands it at openswmm_engine/ — the
-    # property is correct for both layouts.
-    PRIVATE "$<TARGET_PROPERTY:openswmm_legacy_engine,BINARY_DIR>"
+    # legacy_version.h (LEGACY_SWMM_VERSION macros used by swmmvis.cpp) is
+    # provided transitively by the prebuilt engine: the installed package puts
+    # the generated header on OpenSWMMEngine::openswmm_engine's INSTALL_INTERFACE
+    # include path (include/openswmm/legacy/engine), so linking the engine is
+    # sufficient — no reference to the engine's internal build targets.
 )
 
 find_package(HDF5 REQUIRED COMPONENTS C)
@@ -1208,11 +1234,17 @@ endif()
 #          transitive deps) into the .app bundle. Runs at POST_BUILD and again
 #          at install time on the freshly-installed bundle.
 # Windows: windeployqt copies Qt DLLs (POST_BUILD + install); the entire vcpkg
-#          bin/ is copied for GDAL and every transitive DLL; openswmm_engine.dll
-#          is copied explicitly (it is built by FetchContent, not vcpkg).
+#          bin/ is copied for GDAL and every transitive DLL; the prebuilt
+#          openswmm_engine.dll (imported package) is copied explicitly.
 # Linux  : vcpkg lib/*.so* are copied next to the executable via a cmake -P
-#          helper that follows symlink chains; openswmm_engine.so is copied
-#          explicitly; RPATH is set to $ORIGIN so the loader finds them.
+#          helper that follows symlink chains; the prebuilt openswmm_engine.so
+#          (imported package) is copied explicitly; RPATH is set to $ORIGIN.
+#
+# On EVERY platform the engine's runtime-loaded GPU surface-solver plugin
+# (openswmm_gpu_omp) is co-located with the engine library: it is dlopen()ed by
+# the engine (SurfaceSolverFactory), never link-time, so no deploy tool sees it.
+# Placing it beside the engine lib lets the factory's dladdr/GetModuleHandleEx
+# search root find it and `auto`-select the OpenMP backend on large meshes.
 
 if(APPLE)
     find_program(MACDEPLOYQT_EXECUTABLE macdeployqt
@@ -1252,6 +1284,31 @@ if(APPLE)
             "macdeployqt not found — Qt frameworks will not be bundled. "
             "Set QT_ROOT_DIR or add the Qt bin directory to PATH.")
     endif()
+
+    # Bundle the engine's runtime-loaded GPU surface-solver plugin (Kokkos
+    # OpenMP, openswmm_gpu_omp). It is NOT a link-time dependency of SWMMVis —
+    # the engine dlopen()s it at runtime — so macdeployqt does not see it and
+    # never copies it. Place it next to the engine dylib in Contents/Frameworks
+    # (where macdeployqt lands libopenswmm.engine.*.dylib) so the engine's
+    # SurfaceSolverFactory, which resolves its search root via dladdr on the
+    # loaded engine, discovers it and `auto` selects the OpenMP backend. libomp
+    # is the plugin's only non-static, non-system dependency; co-locate it too
+    # (the plugin's @loader_path RPATH then resolves it — and the engine itself
+    # also needs it). The codesign step below re-signs the bundle including
+    # these added dylibs. Source paths come from the prebuilt engine package
+    # (OPENSWMMENGINE_INSTALL_DIR, set in cmake/FetchOpenSWMMEngine.cmake).
+    set(_swmmvis_frameworks "$<TARGET_BUNDLE_DIR:SWMMVis>/Contents/Frameworks")
+    add_custom_command(TARGET SWMMVis POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${_swmmvis_frameworks}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${OPENSWMMENGINE_INSTALL_DIR}/lib/libopenswmm_gpu_omp.dylib"
+                "${_swmmvis_frameworks}/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${OPENSWMMENGINE_INSTALL_DIR}/bin/libomp.dylib"
+                "${_swmmvis_frameworks}/"
+        COMMENT "Bundle GPU plugin (openswmm_gpu_omp) + libomp into SWMMVis.app/Contents/Frameworks"
+        VERBATIM
+    )
 
     # Ad-hoc re-sign after every build. Without this, when CMake
     # rebuilds a dependent dylib (engine, QPropertyModel, …) macOS's
@@ -1334,7 +1391,8 @@ elseif(WIN32)
         )
     endif()
 
-    # openswmm_engine is a SHARED lib built via FetchContent — not in vcpkg bin/.
+    # openswmm_engine is a prebuilt IMPORTED package (find_package) — not in
+    # vcpkg bin/ — so copy its DLL next to the exe explicitly.
     add_custom_command(TARGET SWMMVis POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_FILE:openswmm_engine>"
@@ -1343,8 +1401,45 @@ elseif(WIN32)
         VERBATIM
     )
 
+    # Engine GPU plugin (openswmm_gpu_omp): dlopen()ed by the engine at runtime,
+    # so no deploy tool sees it. SurfaceSolverFactory resolves its search root via
+    # GetModuleHandleEx on the loaded engine DLL, so the plugin must sit beside
+    # openswmm_engine.dll (next to the exe here). The engine package installs the
+    # plugin to bin/ on Windows; glob bin/+lib/ to stay layout-agnostic. Also
+    # co-locate any libomp the engine ships (the plugin shares the engine's
+    # OpenMP runtime; MSVC's vcomp140 is a system DLL and needs no bundling).
+    # Absent the plugin, large meshes (>20k cells) fall back to the serial CVODE
+    # solver — still hypre/BoomerAMG, just not OpenMP-parallel.
+    file(GLOB _swmmvis_gpu_plugin
+        "${OPENSWMMENGINE_INSTALL_DIR}/bin/*openswmm_gpu_omp*.dll"
+        "${OPENSWMMENGINE_INSTALL_DIR}/lib/*openswmm_gpu_omp*.dll")
+    file(GLOB _swmmvis_engine_omp
+        "${OPENSWMMENGINE_INSTALL_DIR}/bin/libomp*.dll"
+        "${OPENSWMMENGINE_INSTALL_DIR}/lib/libomp*.dll")
+    if(_swmmvis_gpu_plugin)
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${_swmmvis_gpu_plugin} ${_swmmvis_engine_omp}
+                    "$<TARGET_FILE_DIR:SWMMVis>/"
+            COMMENT "Bundle GPU plugin (openswmm_gpu_omp) alongside SWMMVis.exe"
+            VERBATIM
+        )
+        install(FILES ${_swmmvis_gpu_plugin} ${_swmmvis_engine_omp}
+            DESTINATION ${CMAKE_INSTALL_BINDIR}
+            COMPONENT Runtime
+        )
+    else()
+        message(WARNING
+            "openswmm_gpu_omp plugin not found under ${OPENSWMMENGINE_INSTALL_DIR} "
+            "(bin/ or lib/) — large-mesh OpenMP acceleration will be unavailable; "
+            "the engine falls back to the serial CVODE+AMG solver.")
+    endif()
+
     install(TARGETS SWMMVis     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-    install(TARGETS openswmm_engine RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    # openswmm_engine is now a prebuilt IMPORTED target (find_package), so it
+    # cannot be install(TARGETS)'d — install its runtime artifact (the DLL).
+    install(IMPORTED_RUNTIME_ARTIFACTS OpenSWMMEngine::openswmm_engine
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
     if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
         install(DIRECTORY "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/"
@@ -1392,7 +1487,8 @@ else()
         )
     endif()
 
-    # openswmm_engine is a SHARED lib built via FetchContent — copy explicitly.
+    # openswmm_engine is a prebuilt IMPORTED package (find_package) — copy its
+    # .so next to the exe explicitly.
     add_custom_command(TARGET SWMMVis POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_FILE:openswmm_engine>"
@@ -1400,6 +1496,38 @@ else()
         COMMENT "Copy openswmm_engine shared library alongside SWMMVis"
         VERBATIM
     )
+
+    # Engine GPU plugin (openswmm_gpu_omp): dlopen()ed by the engine at runtime,
+    # so no deploy tool sees it. SurfaceSolverFactory resolves its search root via
+    # dladdr on the loaded engine .so, so the plugin must sit beside the engine
+    # lib — next to the exe in the build tree, and in LIBDIR in the install tree
+    # (where the engine .so installs, and where the AppImage's `cp -r dist/*`
+    # lands it under usr/lib so linuxdeploy then resolves the plugin's own deps,
+    # e.g. libgomp). The plugin otherwise shares the engine's already-loaded
+    # OpenMP runtime. The engine package installs the plugin to lib/ on Linux;
+    # glob lib/+bin/ to stay layout-agnostic. Absent the plugin, large meshes
+    # (>20k cells) fall back to the serial CVODE solver — still hypre/BoomerAMG.
+    file(GLOB _swmmvis_gpu_plugin
+        "${OPENSWMMENGINE_INSTALL_DIR}/lib/*openswmm_gpu_omp*"
+        "${OPENSWMMENGINE_INSTALL_DIR}/bin/*openswmm_gpu_omp*")
+    if(_swmmvis_gpu_plugin)
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${_swmmvis_gpu_plugin}
+                    "$<TARGET_FILE_DIR:SWMMVis>/"
+            COMMENT "Bundle GPU plugin (openswmm_gpu_omp) alongside the engine lib"
+            VERBATIM
+        )
+        install(FILES ${_swmmvis_gpu_plugin}
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            COMPONENT Runtime
+        )
+    else()
+        message(WARNING
+            "openswmm_gpu_omp plugin not found under ${OPENSWMMENGINE_INSTALL_DIR} "
+            "(lib/ or bin/) — large-mesh OpenMP acceleration will be unavailable; "
+            "the engine falls back to the serial CVODE+AMG solver.")
+    endif()
 
     set_target_properties(SWMMVis PROPERTIES
         BUILD_RPATH   "$ORIGIN"
@@ -1454,7 +1582,10 @@ else()
     unset(_qt_qmake)
 
     install(TARGETS SWMMVis     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-    install(TARGETS openswmm_engine LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    # openswmm_engine is now a prebuilt IMPORTED target (find_package), so it
+    # cannot be install(TARGETS)'d — install its runtime artifact (the .so).
+    install(IMPORTED_RUNTIME_ARTIFACTS OpenSWMMEngine::openswmm_engine
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif()
 
 if(QT_VERSION_MAJOR EQUAL 6)

@@ -77,7 +77,7 @@ void MapToolMeshSelectEdge::mousePressEvent(QMouseEvent *event)
     if (!m_canvas || !m_selection) return;
 
     if (event->button() == Qt::RightButton) {
-        // Right-click an edge → context menu to plot its flux time series.
+        // Right-click an edge → context menu to plot its flow + flux time series.
         if (!m_target) m_target = findActiveMeshLayer_();
         if (!m_target) return;
         const QPointF sp  = pixelToScene_(event->pos().x(), event->pos().y());
@@ -97,7 +97,7 @@ void MapToolMeshSelectEdge::mousePressEvent(QMouseEvent *event)
             m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("mesh-edge-rclick"));
 
         QMenu menu;
-        QAction *plot = menu.addAction(tr("Plot edge flux"));
+        QAction *plot = menu.addAction(tr("Plot edge flow && flux"));
         QAction *picked = menu.exec(event->globalPosition().toPoint());
         if (picked == plot)
             emit plotEdgeFluxRequested(m_target, tri, eLocal);

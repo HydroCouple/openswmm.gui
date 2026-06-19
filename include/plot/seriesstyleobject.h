@@ -63,6 +63,7 @@ class SeriesStyleObject : public QObject
     Q_PROPERTY(bool   showPointLabels     READ showPointLabels     WRITE setShowPointLabels     NOTIFY showPointLabelsChanged)
     Q_PROPERTY(QFont  pointLabelFont      READ pointLabelFont      WRITE setPointLabelFont      NOTIFY pointLabelFontChanged)
     Q_PROPERTY(QColor pointLabelColor     READ pointLabelColor     WRITE setPointLabelColor     NOTIFY pointLabelColorChanged)
+    Q_PROPERTY(LabelFormatModeQ pointLabelFormatMode READ pointLabelFormatMode WRITE setPointLabelFormatMode NOTIFY pointLabelFormatModeChanged)
     Q_PROPERTY(int    pointLabelPrecision READ pointLabelPrecision WRITE setPointLabelPrecision NOTIFY pointLabelPrecisionChanged)
 
     // ---- Area fill ---------------------------------------------------------
@@ -82,6 +83,15 @@ public:
         Plus     = static_cast<int>(MarkerShape::Plus),
     };
     Q_ENUM(MarkerShapeQ)
+
+    /*! \brief Q_ENUM mirror of `NumberFormatMode` so QPropertyModel can
+     *  render a combo-box for the point-label number format. Values track
+     *  `NumberFormatMode` 1:1. */
+    enum class LabelFormatModeQ : int {
+        Decimals           = static_cast<int>(NumberFormatMode::Decimals),
+        SignificantFigures = static_cast<int>(NumberFormatMode::SignificantFigures),
+    };
+    Q_ENUM(LabelFormatModeQ)
 
     explicit SeriesStyleObject(QObject *parent = nullptr);
     explicit SeriesStyleObject(const SeriesStyle& initial, QObject *parent = nullptr);
@@ -137,6 +147,8 @@ public:
     bool   showPointLabels()     const noexcept { return m_style.showPointLabels; }
     QFont  pointLabelFont()      const noexcept { return m_style.pointLabelFont; }
     QColor pointLabelColor()     const noexcept { return m_style.pointLabelColor; }
+    LabelFormatModeQ pointLabelFormatMode() const noexcept
+    { return static_cast<LabelFormatModeQ>(m_style.pointLabelFormatMode); }
     int    pointLabelPrecision() const noexcept { return m_style.pointLabelPrecision; }
 
     bool   showAreaFill()  const noexcept { return m_style.showAreaFill; }
@@ -164,6 +176,7 @@ public slots:
     void setShowPointLabels(bool on);
     void setPointLabelFont(const QFont& f);
     void setPointLabelColor(const QColor& c);
+    void setPointLabelFormatMode(LabelFormatModeQ m);
     void setPointLabelPrecision(int n);
 
     void setShowAreaFill(bool on);
@@ -191,6 +204,7 @@ signals:
     void showPointLabelsChanged(bool);
     void pointLabelFontChanged(const QFont&);
     void pointLabelColorChanged(const QColor&);
+    void pointLabelFormatModeChanged(LabelFormatModeQ);
     void pointLabelPrecisionChanged(int);
 
     void showAreaFillChanged(bool);
@@ -210,5 +224,6 @@ private:
 } // namespace openswmmvis::plot
 
 Q_DECLARE_METATYPE(openswmmvis::plot::SeriesStyleObject::MarkerShapeQ)
+Q_DECLARE_METATYPE(openswmmvis::plot::SeriesStyleObject::LabelFormatModeQ)
 
 #endif // OPENSWMMVIS_PLOT_SERIESSTYLEOBJECT_H

@@ -14,6 +14,8 @@
 #ifndef MESH_PROFILE_PLOT_OPTIONS_H
 #define MESH_PROFILE_PLOT_OPTIONS_H
 
+#include "plot/numberformat.h"
+
 #include <QBrush>
 #include <QColor>
 #include <QFont>
@@ -29,6 +31,11 @@ class MeshProfilePlotOptions : public QObject
 public:
     enum LegendPosition    { TopRight = 0, TopLeft = 1, BottomLeft = 2, BottomRight = 3 };
     Q_ENUM(LegendPosition)
+
+    /*! \brief Axis label number mode; values mirror
+     *  openswmmvis::plot::NumberFormatMode (0=Decimals, 1=SignificantFigures). */
+    enum LabelFormatMode { Decimals = 0, SignificantFigures = 1 };
+    Q_ENUM(LabelFormatMode)
     enum TimeLabelPosition { TimeTopRight = 0, TimeTopLeft = 1,
                              TimeBottomLeft = 2, TimeBottomRight = 3 };
     Q_ENUM(TimeLabelPosition)
@@ -38,6 +45,7 @@ public:
     Q_PROPERTY(bool showWseLine         READ showWseLine         WRITE setShowWseLine         NOTIFY changed)
     Q_PROPERTY(bool showMaxEnvelopeFill READ showMaxEnvelopeFill WRITE setShowMaxEnvelopeFill NOTIFY changed)
     Q_PROPERTY(bool showMaxEnvelopeLine READ showMaxEnvelopeLine WRITE setShowMaxEnvelopeLine NOTIFY changed)
+    Q_PROPERTY(bool showCellBoundaries  READ showCellBoundaries  WRITE setShowCellBoundaries  NOTIFY changed)
 
     // ── Terrain / water styling ─────────────────────────────────────────
     Q_PROPERTY(QBrush soilFill          READ soilFill          WRITE setSoilFill          NOTIFY changed)
@@ -46,6 +54,17 @@ public:
     Q_PROPERTY(QPen   wseLinePen        READ wseLinePen        WRITE setWseLinePen        NOTIFY changed)
     Q_PROPERTY(QPen   maxEnvelopePen    READ maxEnvelopePen    WRITE setMaxEnvelopePen    NOTIFY changed)
     Q_PROPERTY(QBrush maxEnvelopeBrush  READ maxEnvelopeBrush  WRITE setMaxEnvelopeBrush  NOTIFY changed)
+    Q_PROPERTY(QColor cellBoundaryColor READ cellBoundaryColor WRITE setCellBoundaryColor NOTIFY changed)
+
+    // ── Axis number format ──────────────────────────────────────────────
+    // X axis = chainage/distance; Y axis = elevation. Seeded from the global
+    // Preferences default; edits here override per-plot.
+    Q_PROPERTY(MeshProfilePlotOptions::LabelFormatMode xLabelFormatMode
+               READ xLabelFormatMode WRITE setXLabelFormatMode NOTIFY changed)
+    Q_PROPERTY(int xLabelPrecision   READ xLabelPrecision  WRITE setXLabelPrecision  NOTIFY changed)
+    Q_PROPERTY(MeshProfilePlotOptions::LabelFormatMode yLabelFormatMode
+               READ yLabelFormatMode WRITE setYLabelFormatMode NOTIFY changed)
+    Q_PROPERTY(int yLabelPrecision   READ yLabelPrecision  WRITE setYLabelPrecision  NOTIFY changed)
 
     // ── Legend ──────────────────────────────────────────────────────────
     Q_PROPERTY(bool legendVisible    READ legendVisible    WRITE setLegendVisible    NOTIFY changed)
@@ -75,12 +94,23 @@ public:
     bool   showWseLine()         const { return m_showWseLine; }
     bool   showMaxEnvelopeFill() const { return m_showMaxEnvelopeFill; }
     bool   showMaxEnvelopeLine() const { return m_showMaxEnvelopeLine; }
+    bool   showCellBoundaries()  const { return m_showCellBoundaries; }
+    QColor cellBoundaryColor()   const { return m_cellBoundaryColor; }
     QBrush soilFill()            const { return m_soilFill; }
     QPen   groundLinePen()       const { return m_groundLinePen; }
     QBrush depthFillBrush()      const { return m_depthFillBrush; }
     QPen   wseLinePen()          const { return m_wseLinePen; }
     QPen   maxEnvelopePen()      const { return m_maxEnvelopePen; }
     QBrush maxEnvelopeBrush()    const { return m_maxEnvelopeBrush; }
+    LabelFormatMode xLabelFormatMode() const { return m_xLabelMode; }
+    int    xLabelPrecision()     const { return m_xLabelPrecision; }
+    LabelFormatMode yLabelFormatMode() const { return m_yLabelMode; }
+    int    yLabelPrecision()     const { return m_yLabelPrecision; }
+    /*! \brief Current X/Y axis label format as the shared value type. */
+    openswmmvis::plot::NumberFormat xFormat() const
+    { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_xLabelMode), m_xLabelPrecision }; }
+    openswmmvis::plot::NumberFormat yFormat() const
+    { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_yLabelMode), m_yLabelPrecision }; }
     bool   legendVisible()       const { return m_legendVisible; }
     LegendPosition legendPosition() const { return m_legendPosition; }
     QFont  legendFont()          const { return m_legendFont; }
@@ -98,12 +128,18 @@ public slots:
     void setShowWseLine(bool v);
     void setShowMaxEnvelopeFill(bool v);
     void setShowMaxEnvelopeLine(bool v);
+    void setShowCellBoundaries(bool v);
+    void setCellBoundaryColor(const QColor &c);
     void setSoilFill(const QBrush &b);
     void setGroundLinePen(const QPen &p);
     void setDepthFillBrush(const QBrush &b);
     void setWseLinePen(const QPen &p);
     void setMaxEnvelopePen(const QPen &p);
     void setMaxEnvelopeBrush(const QBrush &b);
+    void setXLabelFormatMode(LabelFormatMode m);
+    void setXLabelPrecision(int count);
+    void setYLabelFormatMode(LabelFormatMode m);
+    void setYLabelPrecision(int count);
     void setLegendVisible(bool v);
     void setLegendPosition(LegendPosition p);
     void setLegendFont(const QFont &f);
@@ -124,6 +160,7 @@ private:
     bool m_showWseLine         = true;
     bool m_showMaxEnvelopeFill = true;
     bool m_showMaxEnvelopeLine = true;
+    bool m_showCellBoundaries  = true;
 
     // Terrain earth tone (matches the 1D profile soil fill) + crisp ground
     // line; animated depth in a translucent water blue; max envelope a
@@ -134,6 +171,17 @@ private:
     QPen   m_wseLinePen       = QPen(QColor(0x1F, 0x6F, 0xB7), 2.0, Qt::SolidLine);
     QPen   m_maxEnvelopePen   = QPen(QColor(0x1F, 0x6F, 0xB7), 1.4, Qt::DashLine);
     QBrush m_maxEnvelopeBrush {QColor(0x55, 0xA8, 0xE6, 60)};
+
+    // Diagnostic dots where the traced line crosses a mesh-cell edge — a warm
+    // accent that reads against the blue water and brown ground.
+    QColor m_cellBoundaryColor {0xD9, 0x53, 0x1E};
+
+    // Axis number format — seeded from the global Preferences default in the
+    // constructor.
+    LabelFormatMode m_xLabelMode      = Decimals;
+    int             m_xLabelPrecision = 0;
+    LabelFormatMode m_yLabelMode      = Decimals;
+    int             m_yLabelPrecision = 2;
 
     bool           m_legendVisible  = true;
     LegendPosition m_legendPosition = TopRight;

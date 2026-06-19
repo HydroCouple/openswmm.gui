@@ -83,6 +83,21 @@ public:
     [[nodiscard]] bool   isPlaying() const { return m_playing; }
     [[nodiscard]] double speed()     const { return m_speed;   }
 
+    // ----- Sync window (causal "as-of within timespan") ------------------
+    //
+    // Non-driver outputs display the latest frame at or before the cursor
+    // (causal floor). The window is the look-back span [t - w, t] used by the
+    // range-slider UI and to classify an output as fresh/stale; under the
+    // hold-last policy it does not change which frame shows.
+    [[nodiscard]] qint64 windowMs() const { return m_windowMs; }
+
+    /*! Run time span of the active driver (1D primary, else 2D fallback),
+     *  used to normalise the range slider. Invalid when no driver. */
+    [[nodiscard]] QDateTime driverStartTime() const;
+    [[nodiscard]] QDateTime driverEndTime()   const;
+    /*! Current cursor time of the active driver. Invalid when no driver. */
+    [[nodiscard]] QDateTime currentDateTime() const;
+
     // ----- Speed ---------------------------------------------------------
 
     /*!
@@ -90,6 +105,11 @@ public:
      * \details Restarts the timer at the new interval if currently playing.
      */
     void setSpeed(double speed);
+
+    /*! Set the look-back window. \p ms < 0 is clamped to 0. Emits
+     *  windowChanged when the value moves. */
+    void setWindowMs(qint64 ms);
+    void setWindowSec(double sec) { setWindowMs(static_cast<qint64>(sec * 1000.0)); }
 
 public slots:
     void play();
@@ -100,6 +120,9 @@ public slots:
     void seekToFirst();
     void seekToLast();
     void seekToPeriod(int period);
+    /*! Seek the driver to \p dt (1D primary: nearest report step; 2D
+     *  fallback: nearest frame). Used by the range-slider cursor handle. */
+    void seekToTime(const QDateTime &dt);
 
 signals:
     void currentTimeChanged(const QDateTime &dt);
@@ -107,6 +130,7 @@ signals:
     void playStateChanged(bool playing);
     void totalPeriodsChanged(int total);
     void primaryLayerChanged(SWMMResultsLayer *layer);
+    void windowChanged(qint64 windowMs);
 
 private slots:
     void onTimerTick();
@@ -148,6 +172,14 @@ private:
     QTimer *m_timer    = nullptr;
     bool    m_playing  = false;
     double  m_speed    = 1.0;
+    qint64  m_windowMs = 0;   ///< look-back sync window (0 = floor with no band)
+
+    /*! Frames advanced per timer tick. The tick interval floors at
+     *  kMinIntervalMs (~20 Hz), so high speed multipliers that ask for a
+     *  shorter interval instead advance multiple frames per tick (skipping
+     *  intermediates) — that's what makes 8× actually faster than 4×, and it
+     *  also keeps the slide moving when per-frame render cost dominates. */
+    int     m_stepsPerTick = 1;
 
     /*! Slice Z.13-controller — playback direction (+1 forward, -1
      *  backward). Only flips to -1 when the primary's TemporalSpec has

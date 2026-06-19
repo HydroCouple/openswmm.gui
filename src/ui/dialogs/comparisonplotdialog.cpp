@@ -6,6 +6,7 @@
  */
 #include "ui/dialogs/comparisonplotdialog.h"
 
+#include "core/preferencesmanager.h"
 #include "plot/swmmjuliandatetime.h"
 #include "plot/swmmoutrunlayer.h"
 #include "plot/mesh2drunlayer.h"
@@ -1244,6 +1245,8 @@ void ComparisonPlotDialog::rebuildCharts()
 
         rw.yAxis = new QValueAxis;
         rw.yAxis->setTitleText(row.unitsLabel);
+        // Inherit the global default Y precision (X is a time axis → unchanged).
+        rw.yAxis->setLabelFormat(PreferencesManager::instance()->plotYAxisFormat().printfSpec());
         rw.chart->addAxis(rw.yAxis, Qt::AlignLeft);
 
         // Aggregate y range across all child series; track X range too.
@@ -1461,10 +1464,12 @@ void ComparisonPlotDialog::rebuildCharts()
 
             rw.scatterXAxis = new QValueAxis;
             rw.scatterXAxis->setTitleText(xTitle);
+            rw.scatterXAxis->setLabelFormat(PreferencesManager::instance()->plotXAxisFormat().printfSpec());
             rw.scatterChart->addAxis(rw.scatterXAxis, Qt::AlignBottom);
 
             rw.scatterYAxis = new QValueAxis;
             rw.scatterYAxis->setTitleText(yTitle);
+            rw.scatterYAxis->setLabelFormat(PreferencesManager::instance()->plotYAxisFormat().printfSpec());
             rw.scatterChart->addAxis(rw.scatterYAxis, Qt::AlignLeft);
 
             double scMin = std::numeric_limits<double>::infinity();

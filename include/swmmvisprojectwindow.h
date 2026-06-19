@@ -117,8 +117,24 @@ public:
 
     /*! Trace a free-form polyline across the 2D mesh to plot a longitudinal
      *  profile. Lazy-creates the tool; toggles back to Select when already
-     *  active (mirrors activateSelectProfileTool). */
+     *  active (mirrors activateSelectProfileTool).
+     *
+     *  Slice US.A1 — this is the MESH-TOOLBAR profile tool: bed/terrain only
+     *  (emits meshProfileTraced, routed to a results=nullptr dialog). The
+     *  Analysis-toolbar water-depth variant is activateAnalysisMeshProfileTool. */
     void activateMeshProfileTool();
+
+    /*! Slice US.A1 — the ANALYSIS-toolbar 2D-surface profile tool: traces the
+     *  same polyline but plots ground + animated depth + envelope against the
+     *  active 2D results layer (emits analysisMeshProfileTraced). A second
+     *  MapToolMeshProfile instance so its checked state tracks actionPlotProfile
+     *  while the mesh-toolbar tool tracks actionMeshProfile independently. */
+    void activateAnalysisMeshProfileTool();
+
+    /*! Slice US.A2 — availability probes for the context-sensitive Plot Profile
+     *  dispatcher: is there a 1D SWMM model / a 2D mesh on the canvas? */
+    [[nodiscard]] bool hasModelLayer() const;
+    [[nodiscard]] bool hasMeshLayer() const;
 
     /*! Slice §V.VB — activate the Mesh Vertex Select tool. Lazy-creates
      *  on first call. */
@@ -303,8 +319,13 @@ signals:
 
     /*! Forwards MapToolMeshProfile::profilePathTraced up to the main window
      *  so it can open the MeshProfilePlotDialog. The polyline is in scene
-     *  coords (sx = mapX, sy = -mapY). */
+     *  coords (sx = mapX, sy = -mapY).
+     *
+     *  Slice US.A1 — meshProfileTraced is the MESH-TOOLBAR (bed-only) channel;
+     *  analysisMeshProfileTraced is the ANALYSIS (ground+depth+envelope)
+     *  channel. Same polyline payload; different dialog target. */
     void meshProfileTraced(const QVector<QPointF> &scenePolyline);
+    void analysisMeshProfileTraced(const QVector<QPointF> &scenePolyline);
 
     /*! Forwards MapToolMeshSelectEdge::plotEdgeFluxRequested up to the main
      *  window so it can open the comparison plot with the edge's flux series. */
@@ -379,7 +400,8 @@ private:
     OpenSWMMVisMapToolAddText     *mAddTextTool      = nullptr;
     OpenSWMMVisAnnotationLayer    *mAnnotationLayer  = nullptr;  ///< lazy; created on first text op
     class MapToolPick2DCells          *mPick2DCellsTool = nullptr;  ///< CF.3 — lazy
-    class MapToolMeshProfile          *mMeshProfileTool = nullptr;  ///< mesh profile-trace — lazy
+    class MapToolMeshProfile          *mMeshProfileTool = nullptr;  ///< mesh-toolbar (bed-only) profile-trace — lazy
+    class MapToolMeshProfile          *mAnalysisMeshProfileTool = nullptr; ///< US.A1 — analysis (ground+depth) profile-trace — lazy
     class MapToolMeshSelectVertex     *mMeshSelectVertexTool = nullptr; ///< §V.VB — lazy
     class MapToolMeshSelectEdge       *mMeshSelectEdgeTool   = nullptr; ///< §V.VB — lazy
 

@@ -12,6 +12,8 @@
 #include <QMetaEnum>
 #include <QObject>
 
+#include <algorithm>
+
 namespace OpenSWMM::Render
 {
 
@@ -159,6 +161,10 @@ void LegendOverlayStyle::resetToDefaults()
     setPadding(8);
     setAnchor(Anchor::BottomRight);
     setOpacity(1.0);
+    setExplicitWidth(0);
+    setExplicitHeight(0);
+    setMaxLabelWidth(220);
+    setFreePosition(QPoint());
 
     setShowFrame(true);
     setFrameColor(QColor(80, 80, 80, 180));
@@ -188,6 +194,9 @@ QString LegendOverlayStyle::displayLabelFor(const QString &propertyName) const
         { QStringLiteral("padding"),           QStringLiteral("General — Padding") },
         { QStringLiteral("anchor"),            QStringLiteral("General — Anchor") },
         { QStringLiteral("opacity"),           QStringLiteral("General — Opacity") },
+        { QStringLiteral("explicitWidth"),     QStringLiteral("Size — Width (0 = auto)") },
+        { QStringLiteral("explicitHeight"),    QStringLiteral("Size — Height (0 = auto)") },
+        { QStringLiteral("maxLabelWidth"),     QStringLiteral("Size — Max label width") },
 
         // Frame
         { QStringLiteral("showFrame"),         QStringLiteral("Frame — Show frame") },
@@ -222,6 +231,12 @@ QJsonObject LegendOverlayStyle::toJson() const
     j[QStringLiteral("padding")]          = m_padding;
     j[QStringLiteral("anchor")]           = enumToString(m_anchor);
     j[QStringLiteral("opacity")]          = m_opacity;
+    // Slice US.B1 — size / position.
+    j[QStringLiteral("explicitWidth")]    = m_explicitWidth;
+    j[QStringLiteral("explicitHeight")]   = m_explicitHeight;
+    j[QStringLiteral("maxLabelWidth")]    = m_maxLabelWidth;
+    j[QStringLiteral("freeX")]            = m_freePosition.x();
+    j[QStringLiteral("freeY")]            = m_freePosition.y();
 
     // Frame
     j[QStringLiteral("showFrame")]        = m_showFrame;
@@ -276,6 +291,12 @@ void LegendOverlayStyle::fromJson(const QJsonObject &j)
     if (j.contains(QStringLiteral("padding")))          setPadding(j.value(QStringLiteral("padding")).toInt(m_padding));
     if (j.contains(QStringLiteral("anchor")))           setAnchor(enumFromString<Anchor>(j.value(QStringLiteral("anchor")).toString(), m_anchor));
     if (j.contains(QStringLiteral("opacity")))          setOpacity(j.value(QStringLiteral("opacity")).toDouble(m_opacity));
+    if (j.contains(QStringLiteral("explicitWidth")))    setExplicitWidth(j.value(QStringLiteral("explicitWidth")).toInt(m_explicitWidth));
+    if (j.contains(QStringLiteral("explicitHeight")))   setExplicitHeight(j.value(QStringLiteral("explicitHeight")).toInt(m_explicitHeight));
+    if (j.contains(QStringLiteral("maxLabelWidth")))    setMaxLabelWidth(j.value(QStringLiteral("maxLabelWidth")).toInt(m_maxLabelWidth));
+    if (j.contains(QStringLiteral("freeX")) || j.contains(QStringLiteral("freeY")))
+        setFreePosition(QPoint(j.value(QStringLiteral("freeX")).toInt(m_freePosition.x()),
+                               j.value(QStringLiteral("freeY")).toInt(m_freePosition.y())));
 
     // Frame
     if (j.contains(QStringLiteral("showFrame")))        setShowFrame(j.value(QStringLiteral("showFrame")).toBool());
@@ -337,6 +358,7 @@ SETTER(int,             SwatchSize,       m_swatchSize,       swatchSizeChanged)
 SETTER(int,             Padding,          m_padding,          paddingChanged)
 SETTER(LegendOverlayStyle::Anchor, Anchor,m_anchor,           anchorChanged)
 SETTER(qreal,           Opacity,          m_opacity,          opacityChanged)
+SETTER(const QPoint &,  FreePosition,     m_freePosition,     freePositionChanged)
 
 SETTER(bool,            ShowFrame,        m_showFrame,        showFrameChanged)
 SETTER(const QColor &,  FrameColor,       m_frameColor,       frameColorChanged)
@@ -349,5 +371,36 @@ SETTER(const QColor &,  GradientEndColor,    m_gradientEndColor,    gradientEndC
 SETTER(Qt::Orientation, GradientOrientation, m_gradientOrientation, gradientOrientationChanged)
 
 #undef SETTER
+
+// Slice US.B1 — clamped size setters (0 = auto on that axis; explicit sizes
+// are floored at a usable minimum so the legend can't be dragged to nothing).
+void LegendOverlayStyle::setExplicitWidth(int px)
+{
+    if (px < 0) px = 0;
+    if (px > 0 && px < 80) px = 80;
+    if (m_explicitWidth == px) return;
+    m_explicitWidth = px;
+    emit explicitWidthChanged(px);
+    emit changed();
+}
+
+void LegendOverlayStyle::setExplicitHeight(int px)
+{
+    if (px < 0) px = 0;
+    if (px > 0 && px < 48) px = 48;
+    if (m_explicitHeight == px) return;
+    m_explicitHeight = px;
+    emit explicitHeightChanged(px);
+    emit changed();
+}
+
+void LegendOverlayStyle::setMaxLabelWidth(int px)
+{
+    px = std::clamp(px, 60, 1200);
+    if (m_maxLabelWidth == px) return;
+    m_maxLabelWidth = px;
+    emit maxLabelWidthChanged(px);
+    emit changed();
+}
 
 } // namespace OpenSWMM::Render

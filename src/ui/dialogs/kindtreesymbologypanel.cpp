@@ -340,6 +340,13 @@ void KindTreeSymbologyPanel::mountEditorForCategory(OpenSWMMVis::SwmmCategory ca
     // full SWMM styling (fill/outline/size, labels, flow arrows). Results layers
     // keep the rule editors, whose archetype mapping is correct for them.
     if (m_layer && !qobject_cast<SWMMModelLayer *>(m_layer.data())) {
+        // Read-time sync — the Rule mirror is a clone of the kind renderer
+        // and goes stale on in-place mutations (variable retargeting,
+        // re-classification, per-frame rebin). Refresh it from the live
+        // renderer so the mounted editor shows the CURRENT style, not the
+        // state captured when the rule list was first built.
+        if (auto *res = qobject_cast<SWMMResultsLayer *>(m_layer.data()))
+            res->refreshRuleMirror(cat);
         if (const auto *rl = m_layer->ruleList())
             ctx.rule = rl->at(static_cast<int>(cat));
     }

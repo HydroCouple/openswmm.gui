@@ -6,6 +6,7 @@
  */
 #include "ui/widgets/statssummarypanel.h"
 
+#include "core/preferencesmanager.h"
 #include "plot/comparisonplotmodel.h"
 #include "plot/fitmetrics.h"
 #include "plot/irunlayer.h"
@@ -57,7 +58,8 @@ const QStringList kFitColumns = {
 QString fmt(double v)
 {
     if (!std::isfinite(v)) return QStringLiteral("—");
-    return QString::number(v, 'g', 4);
+    // Stats values are data-value readouts → honour the global Y precision.
+    return PreferencesManager::instance()->plotYAxisFormat().format(v);
 }
 } // namespace
 
