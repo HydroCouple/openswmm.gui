@@ -6,6 +6,8 @@
  */
 #include "ui/widgets/interactivechartview.h"
 
+#include "core/preferencesmanager.h"
+
 #include <QAbstractAxis>
 #include <QChart>
 #include <QContextMenuEvent>
@@ -446,7 +448,7 @@ void InteractiveChartView::updateHoverTooltip(const QPointF &viewportPx)
     const QString text = QStringLiteral("%1\n%2: %3")
         .arg(bestName,
              dt.toString(QStringLiteral("yyyy-MM-dd hh:mm")),
-             QString::number(bestY, 'g', 6));
+             PreferencesManager::instance()->plotYAxisFormat().format(bestY));
     QToolTip::showText(mapToGlobal(viewportPx.toPoint()), text, this);
 }
 

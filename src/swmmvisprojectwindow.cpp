@@ -10,6 +10,7 @@
 #include "layers/gisrasterlayer.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
+#include "layers/swmm2dmeshlayer.h"
 #include "layers/swmmresultslayer.h"        // Slice QA.2 — registry hookup
 #include "layers/swmm2dresultslayer.h"      // active 2D analysis layer
 #include "output/outputstatsregistry.h"     // Slice QA.2 — owns the registry
@@ -1070,11 +1071,45 @@ void SWMMVisProjectWindow::activateMeshProfileTool()
     }
     if (!mMeshProfileTool) {
         mMeshProfileTool = new MapToolMeshProfile(mCanvas, this);
-        // Forward the finished polyline up to SWMMVis (parent path).
+        // Forward the finished polyline up to SWMMVis (parent path) on the
+        // bed-only channel (US.A1).
         QObject::connect(mMeshProfileTool, &MapToolMeshProfile::profilePathTraced,
                          this,             &SWMMVisProjectWindow::meshProfileTraced);
     }
     mCanvas->setActiveTool(mMeshProfileTool);
+}
+
+void SWMMVisProjectWindow::activateAnalysisMeshProfileTool()
+{
+    // Slice US.A1 — Analysis-toolbar 2D surface profile. A second, independent
+    // MapToolMeshProfile so this tool's checked state tracks actionPlotProfile
+    // while the mesh-toolbar tool tracks actionMeshProfile.
+    if (mAnalysisMeshProfileTool && mCanvas->activeTool() == mAnalysisMeshProfileTool) {
+        mCanvas->setActiveTool(mSelectTool);
+        return;
+    }
+    if (!mAnalysisMeshProfileTool) {
+        mAnalysisMeshProfileTool = new MapToolMeshProfile(mCanvas, this);
+        QObject::connect(mAnalysisMeshProfileTool, &MapToolMeshProfile::profilePathTraced,
+                         this, &SWMMVisProjectWindow::analysisMeshProfileTraced);
+    }
+    mCanvas->setActiveTool(mAnalysisMeshProfileTool);
+}
+
+bool SWMMVisProjectWindow::hasModelLayer() const
+{
+    if (!mCanvas) return false;
+    for (OpenSWMMVisLayer *l : mCanvas->layers())
+        if (qobject_cast<SWMMModelLayer *>(l)) return true;
+    return false;
+}
+
+bool SWMMVisProjectWindow::hasMeshLayer() const
+{
+    if (!mCanvas) return false;
+    for (OpenSWMMVisLayer *l : mCanvas->layers())
+        if (qobject_cast<SWMM2DMeshLayer *>(l)) return true;
+    return false;
 }
 void SWMMVisProjectWindow::activateAddJunctionTool()    { mCanvas->setActiveTool(mAddJunctionTool); }
 void SWMMVisProjectWindow::activateAddOutfallTool()     { mCanvas->setActiveTool(mAddOutfallTool); }
@@ -1135,6 +1170,10 @@ QHash<OpenSWMMVisMapTool *, QString> SWMMVisProjectWindow::toolActionKeys() cons
         { mAddTextTool,          QStringLiteral("actionAddText")          },
         { mPick2DCellsTool,      QStringLiteral("actionPick2DCells")      },
         { mMeshProfileTool,      QStringLiteral("actionMeshProfile")      },
+        // US.A1 — analysis mesh-profile tool shares the Plot Profile action's
+        // checked state with the network select-profile tool (two tools per
+        // key is safe in the checked-state sync).
+        { mAnalysisMeshProfileTool, QStringLiteral("actionPlotProfile")   },
         // Step G — mesh-toolbar vertex/edge selectors join the canvas-level
         // active-tool radio so the general-purpose Select / 2D-cells picks
         // visually uncheck them (and vice versa). objectNames come from

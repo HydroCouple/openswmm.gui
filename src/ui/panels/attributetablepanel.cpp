@@ -24,10 +24,11 @@
 #include "pattern/patternregistry.h"
 #include "timeseries/timeseriesregistry.h"
 
-#include <openswmm/engine/openswmm_edit.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_links.h>
 
 #include "core/queryparser.h"
+#include "ui/dialogs/typeconversionflow.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/tabulardatalayer.h"
 #include "map/mapcanvas.h"
@@ -1035,7 +1036,8 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             SWMMModelLayer::DataCategory dc = SWMMModelLayer::DataTimeSeries;
             switch (ref.kind) {
             case DataObjectRef::TidalCurve:
-            case DataObjectRef::AnyCurve:       dc = SWMMModelLayer::DataCurves;      break;
+            case DataObjectRef::AnyCurve:
+            case DataObjectRef::StorageCurve:   dc = SWMMModelLayer::DataCurves;      break;
             case DataObjectRef::TimeSeries:     dc = SWMMModelLayer::DataTimeSeries;  break;
             case DataObjectRef::Pattern:        dc = SWMMModelLayer::DataPatterns;    break;
             case DataObjectRef::UnitHydrograph: dc = SWMMModelLayer::DataHydrographs; break;
@@ -1322,11 +1324,10 @@ void AttributeTablePanel::onObjectEditedExternally(const QString &name)
 
 void AttributeTablePanel::onChangeTypeTriggered()
 {
-    // Engine exposes swmm_node_convert / swmm_link_convert (openswmm_edit.h)
-    // — common props (invert, depths, coordinates / endpoints) are preserved,
-    // type-specific fields cleared, defaults applied. Engine returns a list
-    // of cleared fields and topology warnings the user should see before
-    // committing — we surface them in a confirmation message after the call.
+    // Resolve the right-clicked object, then hand off to the shared
+    // TypeConversionFlow (node + link). The flow warns that type-specific
+    // attributes will be lost, converts via the layer, and shows the
+    // engine-reported cleared fields + topology warnings.
     if (!m_view || !m_model || !m_layer || !m_layer->engine()) return;
 
     const auto sel = m_view->selectionModel();
@@ -1346,76 +1347,52 @@ void AttributeTablePanel::onChangeTypeTriggered()
                          cat == SWMMModelLayer::CatOutfalls  ||
                          cat == SWMMModelLayer::CatStorage   ||
                          cat == SWMMModelLayer::CatDividers);
-    if (!isNode) {
-        // Link convert exists too but the GUI plumbing for picking a target
-        // link kind isn't wired yet — punt with a clear message.
+    const bool isLink = (cat == SWMMModelLayer::CatConduits  ||
+                         cat == SWMMModelLayer::CatPumps     ||
+                         cat == SWMMModelLayer::CatOrifices  ||
+                         cat == SWMMModelLayer::CatWeirs     ||
+                         cat == SWMMModelLayer::CatOutlets);
+    if (!isNode && !isLink) {
         QMessageBox::information(this, tr("Change Type"),
-            tr("Link-type conversion is not yet exposed from this menu. "
-               "Use `swmm_link_convert` programmatically until the GUI "
-               "picker lands."));
+            tr("Only nodes and links can be converted to another type."));
         return;
     }
 
-    // Pick the target node type. The user can convert to any of the four
-    // node kinds EXCEPT the current one (engine returns SWMM_ERR_BADPARAM).
+    // Read the current type so the picker can exclude it (the engine
+    // rejects a same-type convert with SWMM_ERR_BADPARAM). Nodes have four
+    // kinds, links five.
     SWMM_Engine eng = m_layer->engine();
-    const int nodeIdx = swmm_node_index(eng, name.toUtf8().constData());
-    if (nodeIdx < 0) return;
+    const QByteArray id = name.toUtf8();
+    const int idx = isNode ? swmm_node_index(eng, id.constData())
+                           : swmm_link_index(eng, id.constData());
+    if (idx < 0) return;
     int currentType = 0;
-    swmm_node_get_type(eng, nodeIdx, &currentType);
+    if (isNode) swmm_node_get_type(eng, idx, &currentType);
+    else        swmm_link_get_type(eng, idx, &currentType);
 
     QStringList labels;
     QVector<int> values;
-    if (currentType != SWMM_NODE_JUNCTION) { labels << tr("Junction"); values << SWMM_NODE_JUNCTION; }
-    if (currentType != SWMM_NODE_OUTFALL)  { labels << tr("Outfall");  values << SWMM_NODE_OUTFALL;  }
-    if (currentType != SWMM_NODE_STORAGE)  { labels << tr("Storage");  values << SWMM_NODE_STORAGE;  }
-    if (currentType != SWMM_NODE_DIVIDER)  { labels << tr("Divider");  values << SWMM_NODE_DIVIDER;  }
+    const int nKinds = isNode ? 4 : 5;
+    for (int t = 0; t < nKinds; ++t) {
+        if (t == currentType) continue;
+        labels << (isNode
+            ? openswmmvis::ui::TypeConversionFlow::nodeTypeLabel(t)
+            : openswmmvis::ui::TypeConversionFlow::linkTypeLabel(t));
+        values << t;
+    }
 
     bool ok = false;
-    const QString choice = QInputDialog::getItem(this, tr("Change Node Type"),
+    const QString choice = QInputDialog::getItem(this,
+        isNode ? tr("Change Node Type") : tr("Change Link Type"),
         tr("Convert <b>%1</b> to:").arg(name),
         labels, 0, false, &ok);
     if (!ok || choice.isEmpty()) return;
     const int newType = values[labels.indexOf(choice)];
 
-    SWMM_ConversionResult result{};
-    const int rc = swmm_node_convert(eng, nodeIdx, newType, &result);
-    if (rc != SWMM_OK) {
-        QMessageBox::warning(this, tr("Change Type"),
-            tr("Engine rejected conversion (error %1).").arg(rc));
-        swmm_conversion_result_free(&result);
-        return;
-    }
-
-    // Show a summary of what changed (cleared fields + topology warnings),
-    // then refresh so the row jumps into the right category tab.
-    QString details;
-    if (result.n_cleared > 0) {
-        QStringList cleared;
-        for (int i = 0; i < result.n_cleared; ++i)
-            cleared << QString::fromUtf8(result.cleared_fields[i]);
-        details += tr("<b>Cleared fields:</b><br>%1<br><br>")
-                       .arg(cleared.join(QStringLiteral(", ")));
-    }
-    if (result.n_warnings > 0) {
-        QStringList warnings;
-        for (int i = 0; i < result.n_warnings; ++i)
-            warnings << QStringLiteral("• ") +
-                        QString::fromUtf8(result.warnings[i]);
-        details += tr("<b>Topology warnings:</b><br>%1")
-                       .arg(warnings.join(QStringLiteral("<br>")));
-    }
-    if (details.isEmpty())
-        details = tr("(no side effects)");
-    QMessageBox::information(this, tr("Conversion Complete"),
-        tr("Converted <b>%1</b> to %2.<br><br>%3")
-            .arg(name, choice, details));
-    swmm_conversion_result_free(&result);
-
-    // The node moved categories — push a refresh so the panel rebuilds the
-    // category combo and lands on the new tab. Also notify external listeners
-    // (Property Browser) so they re-bind their adapter.
-    if (m_layer) m_layer->reloadGeometry();
-    refresh();
-    emit objectEdited(name);
+    // The shared flow confirms, converts via the layer (which emits the
+    // geometryChanged / attributeChanged signals this panel and the
+    // Property Browser already listen to), and shows the summary. No
+    // explicit reloadGeometry()/refresh()/emit is needed here.
+    openswmmvis::ui::TypeConversionFlow::run(this, m_layer, isNode, name,
+                                             currentType, newType);
 }

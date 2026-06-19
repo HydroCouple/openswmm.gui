@@ -66,6 +66,7 @@ int SimulationStatusModel::addOrReuseJobForModel(SWMMVisProjectWindow *model,
             rec.progress          = 0.0;
             rec.runoffErrPct      = 0.0;
             rec.routingErrPct     = 0.0;
+            rec.twoDErrPct        = qQNaN();
             rec.errorCode         = 0;
             rec.errorMessage.clear();
             rec.startedAt         = QDateTime::currentDateTime();
@@ -97,7 +98,7 @@ int SimulationStatusModel::addOrReuseJobForModel(SWMMVisProjectWindow *model,
 void SimulationStatusModel::updateProgress(int jobId, double fraction,
                                            const QDateTime &currentSimDate,
                                            double runoffErrFrac, double routingErrFrac,
-                                           double avgTimestepSec)
+                                           double avgTimestepSec, double twoDErrFrac)
 {
     const int row = jobIndexById(jobId);
     if (row < 0) return;
@@ -106,6 +107,7 @@ void SimulationStatusModel::updateProgress(int jobId, double fraction,
     rec.progress        = fraction;
     rec.runoffErrPct    = runoffErrFrac  * 100.0;
     rec.routingErrPct   = routingErrFrac * 100.0;
+    rec.twoDErrPct      = twoDErrFrac    * 100.0;  // NaN passes through
     rec.avgTimestepSec  = avgTimestepSec;
     // Store the runner-provided current date verbatim. The worker thread
     // converts the engine OADate to QDateTime via the canonical epoch, so
@@ -156,7 +158,8 @@ void SimulationStatusModel::addWarning(int jobId, int code, const QString &messa
 
 void SimulationStatusModel::finishJob(int jobId, bool success, int errCode,
                                       const QString &errMsg,
-                                      double runoffErrFrac, double routingErrFrac)
+                                      double runoffErrFrac, double routingErrFrac,
+                                      double twoDErrFrac)
 {
     const int row = jobIndexById(jobId);
     if (row < 0) return;
@@ -165,6 +168,7 @@ void SimulationStatusModel::finishJob(int jobId, bool success, int errCode,
     rec.finishedAt     = QDateTime::currentDateTime();
     rec.runoffErrPct   = runoffErrFrac  * 100.0;
     rec.routingErrPct  = routingErrFrac * 100.0;
+    rec.twoDErrPct     = twoDErrFrac    * 100.0;  // NaN passes through
     rec.progress       = 1.0;
     rec.errorCode      = errCode;
     rec.errorMessage   = errMsg;
@@ -336,6 +340,10 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
             return QStringLiteral("%1 %").arg(rec.runoffErrPct, 0, 'f', 3);
         case ColRoutingErr:
             return QStringLiteral("%1 %").arg(rec.routingErrPct, 0, 'f', 3);
+        case ColTwoDErr:
+            if (qIsNaN(rec.twoDErrPct))
+                return QStringLiteral("—");
+            return QStringLiteral("%1 %").arg(rec.twoDErrPct, 0, 'f', 3);
         case ColDuration: {
             if (!rec.finishedAt.isValid())
                 return QStringLiteral("%1 s")
@@ -385,6 +393,7 @@ QVariant SimulationStatusModel::headerData(int section, Qt::Orientation orientat
     case ColEndDate:     return tr("Sim End");
     case ColRunoffErr:   return tr("Runoff Err (%)");
     case ColRoutingErr:  return tr("Routing Err (%)");
+    case ColTwoDErr:     return tr("2D Err (%)");
     case ColDuration:     return tr("Duration");
     case ColAvgTimestep:  return tr("Avg Timestep");
     case ColVersion:      return tr("Engine Version");

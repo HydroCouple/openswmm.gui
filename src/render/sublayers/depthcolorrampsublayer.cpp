@@ -4,10 +4,28 @@
  */
 #include "render/sublayers/depthcolorrampsublayer.h"
 
+#include "render/colorramp.h"
+
 #include <QJsonObject>
+
+#include <algorithm>
+#include <cmath>
 
 namespace OpenSWMM::Render
 {
+
+DepthColorRampStyle::DepthColorRampStyle(QObject *parent) : SublayerStyle(parent)
+{
+    // Defaults reproduce the pre-US.2 depth fill: smooth (Continuous) two-
+    // colour blue gradient over [0,1].
+    m_scheme.setMode(ClassificationScheme::ClassMode::Continuous);
+    m_scheme.setRampName(QString());                       // "" = two-colour
+    m_scheme.setLowColor(QColor( 60, 100, 200, 200));      // bluish
+    m_scheme.setHighColor(QColor(200, 220, 255, 200));     // pale blue
+    m_scheme.setRangeMin(0.0);
+    m_scheme.setRangeMax(1.0);
+    m_scheme.setClassCount(5);
+}
 
 void DepthColorRampStyle::setAttribute(const QString &v)
 {
@@ -18,20 +36,22 @@ void DepthColorRampStyle::setAttribute(const QString &v)
 
 void DepthColorRampStyle::setMinValue(double v)
 {
-    if (qFuzzyCompare(m_minValue + 1.0, v + 1.0)) return;
-    m_minValue = v;
+    if (qFuzzyCompare(m_scheme.rangeMin() + 1.0, v + 1.0)) return;
+    m_scheme.setRangeMin(v);
     setDirty();
 }
 
 void DepthColorRampStyle::setMaxValue(double v)
 {
-    if (qFuzzyCompare(m_maxValue + 1.0, v + 1.0)) return;
-    m_maxValue = v;
+    if (qFuzzyCompare(m_scheme.rangeMax() + 1.0, v + 1.0)) return;
+    m_scheme.setRangeMax(v);
     setDirty();
 }
 
-void DepthColorRampStyle::setLowColor(const QColor &v)      { if (m_lowColor      != v) { m_lowColor      = v; setDirty(); } }
-void DepthColorRampStyle::setHighColor(const QColor &v)     { if (m_highColor     != v) { m_highColor     = v; setDirty(); } }
+void DepthColorRampStyle::setColorRampName(const QString &v) { if (m_scheme.rampName()  != v) { m_scheme.setRampName(v);  setDirty(); } }
+void DepthColorRampStyle::setInvertRamp(bool v)              { if (m_scheme.invertRamp() != v) { m_scheme.setInvertRamp(v); setDirty(); } }
+void DepthColorRampStyle::setLowColor(const QColor &v)      { if (m_scheme.lowColor()  != v) { m_scheme.setLowColor(v);  setDirty(); } }
+void DepthColorRampStyle::setHighColor(const QColor &v)     { if (m_scheme.highColor() != v) { m_scheme.setHighColor(v); setDirty(); } }
 void DepthColorRampStyle::setBelowMinColor(const QColor &v) { if (m_belowMinColor != v) { m_belowMinColor = v; setDirty(); } }
 void DepthColorRampStyle::setAboveMaxColor(const QColor &v) { if (m_aboveMaxColor != v) { m_aboveMaxColor = v; setDirty(); } }
 
@@ -42,35 +62,43 @@ void DepthColorRampStyle::setUseLogScale(bool v)
     setDirty();
 }
 
+void DepthColorRampStyle::setScheme(const ClassificationScheme &s)
+{
+    if (m_scheme == s) return;
+    m_scheme = s;
+    setDirty();
+}
+
+QColor DepthColorRampStyle::colorAtF(double f) const
+{
+    return m_scheme.colorAtF(f);
+}
+
 QJsonObject DepthColorRampStyle::toJson() const
 {
     QJsonObject obj;
     obj.insert(QStringLiteral("attribute"),     m_attribute);
-    obj.insert(QStringLiteral("minValue"),      m_minValue);
-    obj.insert(QStringLiteral("maxValue"),      m_maxValue);
-    obj.insert(QStringLiteral("lowColor"),      m_lowColor.name(QColor::HexArgb));
-    obj.insert(QStringLiteral("highColor"),     m_highColor.name(QColor::HexArgb));
     obj.insert(QStringLiteral("belowMinColor"), m_belowMinColor.name(QColor::HexArgb));
     obj.insert(QStringLiteral("aboveMaxColor"), m_aboveMaxColor.name(QColor::HexArgb));
     obj.insert(QStringLiteral("useLogScale"),   m_useLogScale);
+    obj.insert(QStringLiteral("classification"), m_scheme.toJson());
     return obj;
 }
 
 void DepthColorRampStyle::fromJson(const QJsonObject &j)
 {
     m_attribute   = j.value(QStringLiteral("attribute")).toString(m_attribute);
-    m_minValue    = j.value(QStringLiteral("minValue")).toDouble(m_minValue);
-    m_maxValue    = j.value(QStringLiteral("maxValue")).toDouble(m_maxValue);
     m_useLogScale = j.value(QStringLiteral("useLogScale")).toBool(m_useLogScale);
 
     auto readColor = [&](const char *key, QColor &slot) {
         const QString t = j.value(QString::fromLatin1(key)).toString();
         if (!t.isEmpty()) { const QColor c(t); if (c.isValid()) slot = c; }
     };
-    readColor("lowColor",      m_lowColor);
-    readColor("highColor",     m_highColor);
     readColor("belowMinColor", m_belowMinColor);
     readColor("aboveMaxColor", m_aboveMaxColor);
+
+    if (j.contains(QStringLiteral("classification")))
+        m_scheme = ClassificationScheme::fromJson(j.value(QStringLiteral("classification")).toObject());
 
     setDirty();
 }

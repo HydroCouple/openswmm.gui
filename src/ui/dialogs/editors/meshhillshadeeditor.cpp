@@ -7,9 +7,13 @@
 #include "ui/dialogs/editors/meshhillshadeeditor.h"
 
 #include "layers/swmm2dmeshlayer.h"
+#include "render/sublayers/contourbandsublayer.h"
+#include "render/sublayers/isolinesublayer.h"
 #include "ui/widgets/colorbutton.h"
+#include "ui/widgets/colorrampcombobox.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -23,6 +27,21 @@
 #include <QVBoxLayout>
 
 #include <cmath>
+
+namespace {
+
+OpenSWMM::Render::ContourBandStyle *bandStyleOf(SWMM2DMeshLayer *layer)
+{
+    auto *sub = layer ? layer->contourBandSublayer() : nullptr;
+    return sub ? sub->bandStyle() : nullptr;
+}
+OpenSWMM::Render::IsolineStyle *isoStyleOf(SWMM2DMeshLayer *layer)
+{
+    auto *sub = layer ? layer->isolineSublayer() : nullptr;
+    return sub ? sub->isolineStyle() : nullptr;
+}
+
+} // namespace
 
 namespace openswmmvis::ui {
 
@@ -182,6 +201,19 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     m_intervals->setSingleStep(1);
     cForm->addRow(tr("Intervals:"), m_intervals);
 
+    // Slice US.3 — classification method for the filled bands / isolines.
+    // EqualInterval reproduces the legacy even spacing; quantile / Jenks /
+    // std-dev bin the bed elevations.
+    using BM = OpenSWMM::Render::BinMethod;
+    m_contourMethod = new QComboBox(this);
+    m_contourMethod->addItem(tr("Equal interval"),         int(BM::EqualInterval));
+    m_contourMethod->addItem(tr("Quantile"),               int(BM::Quantile));
+    m_contourMethod->addItem(tr("Natural breaks (Jenks)"), int(BM::NaturalBreaks));
+    m_contourMethod->addItem(tr("Standard deviation"),     int(BM::StdDev));
+    m_contourMethod->addItem(tr("Logarithmic"),            int(BM::Logarithmic));
+    m_contourMethod->addItem(tr("Exponential"),            int(BM::Exponential));
+    cForm->addRow(tr("Method:"), m_contourMethod);
+
     m_contourColor = new ColorButton(this);
     cForm->addRow(tr("Line colour:"), m_contourColor);
 
@@ -192,8 +224,12 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     m_contourWidth->setSuffix(tr(" px"));
     cForm->addRow(tr("Line width:"), m_contourWidth);
 
-    m_filledContours = new QCheckBox(tr("Filled iso-bands (Viridis)"), cBox);
+    m_filledContours = new QCheckBox(tr("Filled elevation bands"), cBox);
     cForm->addRow(QString(), m_filledContours);
+
+    // Slice US.3 — colour scale for the filled bands.
+    m_contourRamp = new ColorRampComboBox(this);
+    cForm->addRow(tr("Band colour scale:"), m_contourRamp);
 
     m_filledOpacity = new QDoubleSpinBox(this);
     m_filledOpacity->setRange(0.0, 1.0);
@@ -248,6 +284,29 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     connect(m_filledContours, &QCheckBox::toggled, this, [this](bool v) { m_layer->setFilledContours(v); });
     connect(m_filledOpacity, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) { m_layer->setFilledContoursOpacity(v); });
 
+    // Slice US.3 — push the band classification method + colour scale onto the
+    // band sublayer's scheme (the isoline scheme shares the method so lines and
+    // bands stay coherent). Both renderers read the scheme each paint.
+    connect(m_contourMethod, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this](int i) {
+                const auto m = static_cast<OpenSWMM::Render::BinMethod>(
+                    m_contourMethod->itemData(i).toInt());
+                if (auto *band = bandStyleOf(m_layer)) {
+                    auto s = band->scheme(); s.setMethod(m); band->setScheme(s);
+                }
+                if (auto *iso = isoStyleOf(m_layer)) {
+                    auto s = iso->scheme(); s.setMethod(m); iso->setScheme(s);
+                }
+            });
+    connect(m_contourRamp, &ColorRampComboBox::rampChanged, this,
+            [this](const RasterColorRamp &) {
+                if (auto *band = bandStyleOf(m_layer)) {
+                    auto s = band->scheme();
+                    s.setRampName(m_contourRamp->currentText());
+                    band->setScheme(s);
+                }
+            });
+
     refreshFromModel();
 }
 
@@ -261,7 +320,8 @@ void MeshHillshadeEditor::refreshFromModel()
         b7(m_zExag), b8(m_minLit), b9(m_minLitSlider),
         b10(m_showContours), b11(m_intervals),
         b12(m_contourColor), b13(m_contourWidth),
-        b14(m_filledContours), b15(m_filledOpacity);
+        b14(m_filledContours), b15(m_filledOpacity),
+        b16(m_contourMethod), b17(m_contourRamp);
 
     m_showEdges->setChecked(m_layer->showEdges());
     m_showNodes->setChecked(m_layer->showMeshNodes());
@@ -289,6 +349,16 @@ void MeshHillshadeEditor::refreshFromModel()
     m_contourWidth->setValue(m_layer->contourLineWidth());
     m_filledContours->setChecked(m_layer->filledContours());
     m_filledOpacity->setValue(m_layer->filledContoursOpacity());
+
+    // Slice US.3 — sync the classification method + colour scale from the band
+    // sublayer scheme.
+    if (auto *band = bandStyleOf(m_layer)) {
+        m_contourMethod->setCurrentIndex(
+            m_contourMethod->findData(int(band->scheme().method())));
+        const QString ramp = band->scheme().rampName();
+        if (!ramp.isEmpty())
+            m_contourRamp->setCurrentRampByName(ramp);
+    }
 }
 
 // Registry — MeshHillshadeEditor displaces the QPropertyModel fallback for

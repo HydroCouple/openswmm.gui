@@ -62,6 +62,14 @@ RangeSliderWidget::DragKind RangeSliderWidget::hitTest(const QPoint &p) const no
 {
     const int xLo = normToPixel(m_lo);
     const int xHi = normToPixel(m_hi);
+    // Coincident (or near-coincident) thumbs — e.g. a collapsed/zero-width
+    // window. Split the thumb: the left half grabs lo, the right half grabs hi,
+    // so the user can drag either way to expand the span from zero.
+    if (std::abs(xHi - xLo) <= kThumbHalfW) {
+        const int center = (xLo + xHi) / 2;
+        if (std::abs(p.x() - center) <= kThumbHalfW + 2)
+            return (p.x() < center) ? DragKind::Lo : DragKind::Hi;
+    }
     if (std::abs(p.x() - xLo) <= kThumbHalfW + 2) return DragKind::Lo;
     if (std::abs(p.x() - xHi) <= kThumbHalfW + 2) return DragKind::Hi;
     if (p.x() > xLo + kThumbHalfW && p.x() < xHi - kThumbHalfW)

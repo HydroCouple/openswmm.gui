@@ -6,6 +6,8 @@
  */
 #include "plot/chartproperties.h"
 
+#include "core/preferencesmanager.h"
+
 #include <QAbstractAxis>
 #include <QBrush>
 #include <QValueAxis>
@@ -31,7 +33,39 @@ QAbstractAxis *firstXAxis(QChart *chart)
 
 ChartProperties::ChartProperties(QChart *chart, QObject *parent)
     : QObject(parent), m_chart(chart)
-{}
+{
+    // Seed the axis label formats from the global Preferences default, then
+    // push them onto the chart so it opens with the user's chosen precision.
+    auto *prefs = PreferencesManager::instance();
+    m_xLabelMode      = static_cast<LabelFormatMode>(prefs->plotXAxisFormatMode());
+    m_xLabelPrecision = prefs->plotXAxisPrecision();
+    m_yLabelMode      = static_cast<LabelFormatMode>(prefs->plotYAxisFormatMode());
+    m_yLabelPrecision = prefs->plotYAxisPrecision();
+    applyLabelFormats_();
+}
+
+NumberFormat ChartProperties::xFormat() const noexcept
+{
+    return { static_cast<NumberFormatMode>(m_xLabelMode), m_xLabelPrecision };
+}
+
+NumberFormat ChartProperties::yFormat() const noexcept
+{
+    return { static_cast<NumberFormatMode>(m_yLabelMode), m_yLabelPrecision };
+}
+
+void ChartProperties::applyLabelFormats_()
+{
+    if (!m_chart) return;
+    const QString xSpec = xFormat().printfSpec();
+    const QString ySpec = yFormat().printfSpec();
+    // Only QValueAxis honours a printf label format; QDateTimeAxis (the
+    // comparison-plot time axis) and QCategoryAxis are left untouched.
+    for (auto *ax : m_chart->axes(Qt::Horizontal))
+        if (auto *va = qobject_cast<QValueAxis*>(ax)) va->setLabelFormat(xSpec);
+    for (auto *ax : m_chart->axes(Qt::Vertical))
+        if (auto *va = qobject_cast<QValueAxis*>(ax)) va->setLabelFormat(ySpec);
+}
 
 QString ChartProperties::displayLabelFor(const QString &name) const
 {
@@ -49,6 +83,10 @@ QString ChartProperties::displayLabelFor(const QString &name) const
     if (name == QStringLiteral("plotAreaColor"))   return QStringLiteral("Colours — Plot area");
     if (name == QStringLiteral("gridColor"))       return QStringLiteral("Colours — Grid");
     if (name == QStringLiteral("chartTheme"))      return QStringLiteral("Theme");
+    if (name == QStringLiteral("xLabelFormatMode")) return QStringLiteral("X Axis — Number format");
+    if (name == QStringLiteral("xLabelPrecision"))  return QStringLiteral("X Axis — Precision");
+    if (name == QStringLiteral("yLabelFormatMode")) return QStringLiteral("Y Axis — Number format");
+    if (name == QStringLiteral("yLabelPrecision"))  return QStringLiteral("Y Axis — Precision");
     return {};   // empty → fall back to default name
 }
 
@@ -227,6 +265,38 @@ void ChartProperties::setChartTheme(int theme)
     if (m_chart->theme() == t) return;
     m_chart->setTheme(t);
     emit chartThemeChanged(theme);
+}
+
+void ChartProperties::setXLabelFormatMode(LabelFormatMode mode)
+{
+    if (m_xLabelMode == mode) return;
+    m_xLabelMode = mode;
+    applyLabelFormats_();
+    emit xLabelFormatModeChanged(mode);
+}
+
+void ChartProperties::setXLabelPrecision(int count)
+{
+    if (count < 0 || count > 10 || m_xLabelPrecision == count) return;
+    m_xLabelPrecision = count;
+    applyLabelFormats_();
+    emit xLabelPrecisionChanged(count);
+}
+
+void ChartProperties::setYLabelFormatMode(LabelFormatMode mode)
+{
+    if (m_yLabelMode == mode) return;
+    m_yLabelMode = mode;
+    applyLabelFormats_();
+    emit yLabelFormatModeChanged(mode);
+}
+
+void ChartProperties::setYLabelPrecision(int count)
+{
+    if (count < 0 || count > 10 || m_yLabelPrecision == count) return;
+    m_yLabelPrecision = count;
+    applyLabelFormats_();
+    emit yLabelPrecisionChanged(count);
 }
 
 } // namespace openswmmvis::plot

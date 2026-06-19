@@ -31,6 +31,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QCoreApplication>
+#include <QtNumeric>
 
 #include <cmath>
 
@@ -44,8 +45,16 @@ namespace {
 QDateTime oaDateToQDateTime(double oaDate)
 {
     if (!(oaDate > 0.0) || !std::isfinite(oaDate)) return QDateTime();
+    // UTC, NOT LocalTime: this anchors the 2D results time axis (HDF5 sim_start_
+    // and the live per-tick curQDT). The 1D results clock is built in UTC
+    // (SWMMResultsLayer::julianToDateTime). The animation controller's causal
+    // sync compares 2D frame times against the 1D cursor as absolute instants
+    // (setCurrentSimTimeAsOf: ti <= cursor), so a LocalTime epoch here offset
+    // every 2D frame by the local UTC offset and froze 2D playback (the cursor
+    // never reached the shifted frames). SWMM dates are nominal/zone-less, so
+    // UTC reproduces the model date verbatim and keeps both axes on one basis.
     static const QDateTime kSwmmEpoch(QDate(1899, 12, 30),
-                                      QTime(0, 0), QTimeZone::LocalTime);
+                                      QTime(0, 0), QTimeZone::utc());
     return kSwmmEpoch.addMSecs(static_cast<qint64>(oaDate * 86400.0 * 1000.0));
 }
 
@@ -158,6 +167,8 @@ struct SimulationResult {
     QString errorMessage;
     double  runoffErrFrac;
     double  routingErrFrac;
+    // Defaulted so brace-init error returns report "no 2D value".
+    double  twoDErrFrac = qQNaN();
 };
 
 Q_DECLARE_METATYPE(SimulationResult)
@@ -218,7 +229,8 @@ void SimulationRunner::start()
                 SimulationResult res = watcher->result();
                 watcher->deleteLater();
                 emit finished(m_jobId, res.success, res.errorCode,
-                              res.errorMessage, res.runoffErrFrac, res.routingErrFrac);
+                              res.errorMessage, res.runoffErrFrac, res.routingErrFrac,
+                              res.twoDErrFrac);
             });
 
     // Snapshot the progress-tick interval on the GUI thread so the
@@ -383,9 +395,11 @@ void SimulationRunner::start()
             {
                 const int jobId = rawSelf->m_jobId;
                 const QDateTime initial = simStart;
+                const double twoDErr0 = twoD_active ? 0.0 : qQNaN();
                 QMetaObject::invokeMethod(rawSelf,
-                    [rawSelf, jobId, initial]() {
-                        emit rawSelf->progressChanged(jobId, 0.0, initial, 0.0, 0.0, 0.0);
+                    [rawSelf, jobId, initial, twoDErr0]() {
+                        emit rawSelf->progressChanged(jobId, 0.0, initial, 0.0, 0.0, 0.0,
+                                                      twoDErr0);
                     },
                     Qt::QueuedConnection);
             }
@@ -429,6 +443,9 @@ void SimulationRunner::start()
                 double runoffErr = 0.0, routingErr = 0.0;
                 swmm_get_runoff_continuity_error (eng, &runoffErr);
                 swmm_get_routing_continuity_error(eng, &routingErr);
+                double twoDErr = qQNaN();
+                if (twoD_active)
+                    swmm_2d_get_continuity_error(eng, &twoDErr);
 
                 const double avgTs = stepCount > 0 ? totalElapsedSec / double(stepCount) : 0.0;
                 const int jobId = rawSelf->m_jobId;
@@ -436,9 +453,10 @@ void SimulationRunner::start()
                     ? simStart.addMSecs(static_cast<qint64>(curTSec * 1000.0))
                     : QDateTime();
                 QMetaObject::invokeMethod(rawSelf,
-                    [rawSelf, jobId, frac, curQDT, runoffErr, routingErr, avgTs]() {
+                    [rawSelf, jobId, frac, curQDT, runoffErr, routingErr, avgTs, twoDErr]() {
                         emit rawSelf->progressChanged(jobId, frac, curQDT,
-                                                      runoffErr, routingErr, avgTs);
+                                                      runoffErr, routingErr, avgTs,
+                                                      twoDErr);
                     },
                     Qt::QueuedConnection);
 
@@ -483,6 +501,26 @@ void SimulationRunner::start()
                             },
                             Qt::QueuedConnection);
                     }
+
+                    // Per-tick reconstructed vertex heads — drives the smooth
+                    // (Gouraud) depth fill + contour interpolation. Same
+                    // SWMM_OK gating as the flux call: an engine without the
+                    // API simply never emits, and the GUI falls back to its
+                    // incident-cell vertex average.
+                    if (twoD_n_vert > 0) {
+                        QVector<double> heads(twoD_n_vert);
+                        if (swmm_2d_vertex_get_heads_bulk(eng, heads.data())
+                            == SWMM_OK)
+                        {
+                            QMetaObject::invokeMethod(rawSelf,
+                                [rawSelf, jobId, heads = std::move(heads),
+                                 curQDT, totalElapsedSec]() mutable {
+                                    emit rawSelf->twoDVertexHeadsAvailable(
+                                        jobId, heads, curQDT, totalElapsedSec);
+                                },
+                                Qt::QueuedConnection);
+                        }
+                    }
                 }
             }
 
@@ -494,9 +532,18 @@ void SimulationRunner::start()
             double routingErr = 0.0;
             swmm_get_runoff_continuity_error (eng, &runoffErr);
             swmm_get_routing_continuity_error(eng, &routingErr);
+            double twoDErr = qQNaN();
+            if (twoD_active)
+                swmm_2d_get_continuity_error(eng, &twoDErr);
 
-            // Determine overall success
+            // Determine overall success. Capture the engine's own error
+            // message (e.g. "ERROR 145: Drainage system has no acceptable
+            // outlet nodes.") before destroy — swmm_error_message(code)
+            // only yields the generic category text ("Input file parse
+            // error"), which hides the actual cause from the user.
             const int lastErr = swmm_get_last_error(eng);
+            const QString lastErrMsg =
+                QString::fromUtf8(swmm_get_last_error_msg(eng)).trimmed();
             const bool cancelled = rawSelf->m_cancel.load();
 
             // Report + close
@@ -505,13 +552,15 @@ void SimulationRunner::start()
             swmm_engine_destroy(eng);
 
             if (cancelled)
-                return {false, 0, QStringLiteral("Cancelled"), runoffErr, routingErr};
+                return {false, 0, QStringLiteral("Cancelled"), runoffErr, routingErr, twoDErr};
 
             if (lastErr != SWMM_OK) {
-                const QString msg = QString::fromUtf8(swmm_error_message(lastErr));
-                return {false, lastErr, msg, runoffErr, routingErr};
+                const QString msg = !lastErrMsg.isEmpty()
+                    ? lastErrMsg
+                    : QString::fromUtf8(swmm_error_message(lastErr));
+                return {false, lastErr, msg, runoffErr, routingErr, twoDErr};
             }
-            return {true, SWMM_OK, {}, runoffErr, routingErr};
+            return {true, SWMM_OK, {}, runoffErr, routingErr, twoDErr};
 
             } else {
                 // ===== LEGACY ENGINE WORKER PROCESS PATH =====
@@ -609,7 +658,8 @@ void SimulationRunner::start()
                         QMetaObject::invokeMethod(rawSelf,
                             [rawSelf, jobId, frac, curQDT, runoffErr, routingErr, avgTs]() {
                                 emit rawSelf->progressChanged(jobId, frac, curQDT,
-                                                              runoffErr, routingErr, avgTs);
+                                                              runoffErr, routingErr, avgTs,
+                                                              qQNaN() /* legacy: no 2D */);
                             }, Qt::QueuedConnection);
                     } else if (type == "warning") {
                         const int     code = obj.value("code").toInt();

@@ -40,6 +40,8 @@
 #include <QVector>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 namespace {
 
@@ -282,4 +284,114 @@ TEST(MeshSpatialGrid, ClearResetsGrid)
 
     g.rebuild({ QRectF(0, 0, 1, 1) });
     EXPECT_EQ(g.query(QRectF(-1, -1, 3, 3)), (QVector<int>{0}));
+}
+
+// ---------------------------------------------------------------------------
+// candidatesAtPoint() — the allocation-free single-cell lookup used for point
+// location (SWMM2DMeshLayer::locateTriangleAt / SWMM2DResultsLayer::pickCellAt).
+//
+// The contract those callers depend on: the slice for a point's cell contains
+// EVERY bbox registered in that cell, which is guaranteed to include any bbox
+// that contains the point. So a barycentric/containment test over the slice
+// never misses the true container.
+// ---------------------------------------------------------------------------
+namespace {
+// Materialise the candidate slice into a vector for easy assertions.
+QVector<int> candidatesAt(const MeshSpatialGrid &g, double x, double y)
+{
+    const int *b = nullptr, *e = nullptr;
+    g.candidatesAtPoint(x, y, b, e);
+    QVector<int> out;
+    for (const int *p = b; p < e; ++p) out.append(*p);
+    return out;
+}
+} // namespace
+
+// 10. Empty / unbuilt grid yields an empty range (begin == end == nullptr),
+//     so callers fall back to the linear scan.
+TEST(MeshSpatialGrid, CandidatesEmptyGridYieldsEmptyRange)
+{
+    MeshSpatialGrid g;
+    int dummy = 0;
+    const int *b = &dummy, *e = &dummy;
+    g.candidatesAtPoint(0.5, 0.5, b, e);
+    EXPECT_EQ(b, nullptr);
+    EXPECT_EQ(e, nullptr);
+}
+
+// 11. Completeness: every box's own centroid lands in a cell whose candidate
+//     slice contains that box. This is the exact property point-location relies
+//     on (the containing triangle is always among the candidates).
+TEST(MeshSpatialGrid, CandidatesContainBoxAtItsCentroid)
+{
+    const auto boxes = makeGridOfSmallBoxes(6);
+    MeshSpatialGrid g;
+    g.rebuild(boxes);
+    for (int i = 0; i < boxes.size(); ++i) {
+        const QPointF c = boxes[i].center();
+        const QVector<int> cand = candidatesAt(g, c.x(), c.y());
+        EXPECT_TRUE(cand.contains(i))
+            << "box " << i << " missing from the candidates of its own cell";
+    }
+}
+
+// 12. Strong guarantee on overlapping boxes: at any sampled point, every box
+//     that truly contains the point is present in the candidate slice.
+TEST(MeshSpatialGrid, CandidatesSupersetOfTrueContainers)
+{
+    QVector<QRectF> boxes;
+    for (int i = 0; i < 50; ++i)
+        boxes.append(QRectF(i * 0.5, (i % 7) * 0.5, 1.3, 1.1));   // overlapping
+    MeshSpatialGrid g;
+    g.rebuild(boxes);
+
+    // Deterministic, edge-avoiding sample lattice (no RNG → reproducible).
+    for (double x = -0.5; x < 26.0; x += 0.37) {
+        for (double y = -0.5; y < 5.0; y += 0.31) {
+            const QVector<int> cand = candidatesAt(g, x, y);
+            const QSet<int> candSet(cand.begin(), cand.end());
+            for (int i = 0; i < boxes.size(); ++i) {
+                if (boxes[i].contains(QPointF(x, y)))
+                    EXPECT_TRUE(candSet.contains(i))
+                        << "box " << i << " contains (" << x << "," << y
+                        << ") but is absent from its cell candidates";
+            }
+        }
+    }
+}
+
+// 13. Off-extent point clamps to a border cell and returns a valid, in-bounds
+//     slice (never an out-of-range pointer) — the caller's containment test
+//     then rejects every candidate, resolving to "not found".
+TEST(MeshSpatialGrid, CandidatesOffExtentClampInBounds)
+{
+    const auto boxes = makeGridOfSmallBoxes(4);
+    MeshSpatialGrid g;
+    g.rebuild(boxes);
+
+    const int *b = nullptr, *e = nullptr;
+    g.candidatesAtPoint(-1000.0, -1000.0, b, e);   // far outside the extent
+    ASSERT_LE(b, e);
+    const int *base = g.cellIndices.constData();
+    EXPECT_GE(b, base);
+    EXPECT_LE(e, base + g.cellIndices.size());
+}
+
+// 14. Non-finite coordinates yield an empty range (deterministic, no UB from
+//     int(NaN)).
+TEST(MeshSpatialGrid, CandidatesNonFinitePointYieldsEmptyRange)
+{
+    MeshSpatialGrid g;
+    g.rebuild(makeGridOfSmallBoxes(4));
+
+    int dummy = 0;
+    const int *b = &dummy, *e = &dummy;
+    g.candidatesAtPoint(std::nan(""), 0.5, b, e);
+    EXPECT_EQ(b, nullptr);
+    EXPECT_EQ(e, nullptr);
+
+    b = &dummy; e = &dummy;
+    g.candidatesAtPoint(0.5, std::numeric_limits<double>::infinity(), b, e);
+    EXPECT_EQ(b, nullptr);
+    EXPECT_EQ(e, nullptr);
 }

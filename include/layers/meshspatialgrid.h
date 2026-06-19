@@ -41,6 +41,8 @@
 #include <QVector>
 #include <QtGlobal>
 
+#include <algorithm>
+#include <cmath>
 #include <vector>
 
 /*!
@@ -113,6 +115,38 @@ struct MeshSpatialGrid
      * cell sweep. Empty grid, empty query, or no-intersection all yield
      * an empty vector. */
     [[nodiscard]] QVector<int> query(const QRectF &rect) const;
+
+    /*! \brief Candidate bbox indices for the single grid cell containing the
+     *  point (x,y), returned as the CSR slice [*begin, *end) into cellIndices.
+     *
+     *  For point location this is preferable to \ref query: a point lands in
+     *  exactly one cell, and the bbox that contains it is guaranteed to be
+     *  registered in that cell (rebuild() inserts each bbox into every cell its
+     *  area overlaps, and the point's cell is always within the bbox's cell
+     *  range). So no dedup is needed and no QVector is allocated — the caller
+     *  just runs its exact point-in-shape test over the slice.
+     *
+     *  Yields an empty range (begin == end == nullptr) when the grid is unbuilt
+     *  or the point is non-finite. An off-extent point clamps to the nearest
+     *  border cell; its candidates simply fail the caller's containment test,
+     *  so a true miss still resolves to "not found".
+     *
+     *  Reads only the immutable post-rebuild state — it does NOT touch the
+     *  mutable seen/epoch scratch used by query() — so it allocates nothing and
+     *  is safe to call in a per-point hot loop. */
+    inline void candidatesAtPoint(double x, double y,
+                                  const int *&begin, const int *&end) const
+    {
+        begin = end = nullptr;
+        if (cellOffsets.isEmpty() || !std::isfinite(x) || !std::isfinite(y))
+            return;
+        const int cx = std::clamp(int(std::floor((x - extent.left()) / cellW)), 0, cols - 1);
+        const int cy = std::clamp(int(std::floor((y - extent.top())  / cellH)), 0, rows - 1);
+        const int  k = cy * cols + cx;
+        const int *d = cellIndices.constData();
+        begin = d + cellOffsets[k];
+        end   = d + cellOffsets[k + 1];
+    }
 };
 
 #endif // OPENSWMMVIS_LAYERS_MESHSPATIALGRID_H

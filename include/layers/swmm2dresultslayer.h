@@ -22,6 +22,7 @@
 #define OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H
 
 #include "layers/openswmmvislayer.h"
+#include "layers/meshspatialgrid.h"
 #include "map/mapextent.h"
 
 #include <QDateTime>
@@ -84,6 +85,12 @@ public:
     /*! \brief Latest known time-step count (grows during live mode). */
     virtual int timeCount() const = 0;
 
+    /*! \brief True while this source is streaming from a running simulation
+     *  (frames keep arriving). The animation must NOT auto-advance to the
+     *  newest frame for a live source — the user drives playback via the
+     *  slider / Play. A completed file source returns false. */
+    virtual bool isLive() const { return false; }
+
     /*! \brief Fetch mesh geometry. Resizes outputs. */
     virtual bool readMeshGeometry(std::vector<double>& vx,
                                    std::vector<double>& vy,
@@ -121,6 +128,22 @@ public:
                                   std::vector<float>& ny)
     {
         (void)length; (void)nx; (void)ny;
+        return false;
+    }
+
+    /*!
+     * \brief Fetch per-vertex water depth (m) at \p timeIdx — the engine's
+     * pseudo-Laplacian vertex-head reconstruction minus vertex elevation,
+     * clamped ≥ 0 (the head − z subtraction is done in double precision by
+     * the source). Resized to \c vertexCount().
+     * \returns true on success. Default returns false so callers can probe
+     *          whether the source carries vertex data (older engines / older
+     *          HDF5 files without \c Mesh2_node_head) and fall back to a
+     *          GUI-side interpolation.
+     */
+    virtual bool readVertexDepthsAt(int timeIdx, std::vector<float>& vdepths)
+    {
+        (void)timeIdx; (void)vdepths;
         return false;
     }
 };
@@ -170,6 +193,17 @@ public:
                   double elapsedSec);
 
     /*!
+     * \brief Append one tick's worth of reconstructed per-vertex heads
+     * (\c swmm_2d_vertex_get_heads_bulk). Mirrors \ref pushFlux — pairs with
+     * the tick whose elapsed time matches. Heads arrive as double and are
+     * converted immediately to depths (\c max(0, head − vz)) so history
+     * stores compact floats without losing the dry-threshold signal.
+     */
+    void pushVertexHeads(std::vector<double> heads,
+                         QDateTime simTime,
+                         double elapsedSec);
+
+    /*!
      * \brief Install time-invariant edge geometry queried via
      * \c swmm_2d_edge_get_geometry_bulk once at twoDInitialized. Sizes are
      * \c triangleCount()*3 each. Optional — when not called, the source
@@ -183,6 +217,7 @@ public:
     int  vertexCount()   const override { return static_cast<int>(vx_.size()); }
     int  triangleCount() const override { return static_cast<int>(tris_.size()); }
     int  timeCount()     const override { return static_cast<int>(history_.size()); }
+    bool isLive()        const override { return true; }   // streaming from the running sim
     bool readMeshGeometry(std::vector<double>& vx,
                           std::vector<double>& vy,
                           std::vector<double>& vz,
@@ -194,6 +229,7 @@ public:
     bool readEdgeGeometry(std::vector<float>& length,
                           std::vector<float>& nx,
                           std::vector<float>& ny) override;
+    bool readVertexDepthsAt(int timeIdx, std::vector<float>& vdepths) override;
 
 private:
     std::vector<double>              vx_, vy_, vz_;
@@ -202,6 +238,7 @@ private:
     struct Tick {
         std::vector<float> depths;
         std::vector<float> flux;       ///< [tri*3 + localEdge]; empty when source has no flux feed.
+        std::vector<float> vertex_depths; ///< [vertex]; empty when engine lacks the heads API.
         QDateTime          sim_time;
         double             elapsed_sec = 0.0;
     };
@@ -242,6 +279,7 @@ public:
     bool readEdgeGeometry(std::vector<float>& length,
                           std::vector<float>& nx,
                           std::vector<float>& ny) override;
+    bool readVertexDepthsAt(int timeIdx, std::vector<float>& vdepths) override;
 
     /*! \brief Anchor wall-clock time for the simulation start (so /time
      *  (seconds since start) maps back to a QDateTime for the global slider). */
@@ -251,6 +289,8 @@ private:
     QString                                            path_;
     std::unique_ptr<openswmmvis::io::Mesh2DH5Reader>   reader_;
     QDateTime                                          sim_start_;
+    std::vector<double>                                node_z_cache_;  ///< lazy, for head→depth conversion
+    std::vector<double>                                head_buf_;      ///< per-frame scratch
 };
 
 // ---------------------------------------------------------------------------
@@ -316,6 +356,15 @@ public:
     double dryDepth() const noexcept { return dry_depth_; }
     void   setDryDepth(double d);
 
+    // ----- VS.8 — QSG (GPU) rendering ownership ------------------------------
+    //
+    // When MapCanvas hosts this layer in SWMM2DResultsQSGRenderer, it sets
+    // this flag and the QGraphicsItem QPainter passes return early (same
+    // per-kind bypass pattern as SWMMLayerItem §QSG-1). The CPU path stays
+    // intact as the fallback (mask clip active, QSG init failure).
+    [[nodiscard]] bool qsgOwnsRendering() const noexcept { return m_qsgOwnsRendering; }
+    void setQsgOwnsRendering(bool own);
+
     /*! \brief Upper end of the colour ramp (metres). Auto-tracks the global max
      *         depth seen so far across all loaded ticks unless explicitly set. */
     double maxDepth() const noexcept { return max_depth_; }
@@ -349,8 +398,16 @@ public:
     void   setMaxVelocity(double v);
 
     /*! \brief Whether the active source produced both edge geometry and a
-     *  flux slice — i.e. whether the velocity overlay has data to render. */
+     *  flux slice — i.e. whether the velocity overlay has data to render.
+     *  NOTE: this reflects the CURRENTLY shown frame's reconstructed velocity
+     *  magnitude; it is false on dry frames. Use \ref hasEdgeFluxData for a
+     *  frame-independent "does this run carry edge flux" capability check. */
     bool   hasVelocityData() const noexcept { return have_velocity_; }
+
+    /*! \brief Whether the run carries per-edge flux data at all, independent of
+     *  the current frame. Probes the source once (cached) and is the correct
+     *  gate for whole-series edge flow / flux / velocity plotting. */
+    bool   hasEdgeFluxData() const;
 
     // ----- Color-ramp + contour styling (Slice CF.MVP-fix.3) ----------------
 
@@ -425,6 +482,16 @@ public:
      */
     void setCurrentSimTime(QDateTime t);
 
+    /*!
+     * \brief Set the current frame **causally**: the latest frame whose
+     * simulation time is at or before \p cursor (floor), so a coupled output
+     * with a coarser report step never jumps to a frame ahead of the animation
+     * cursor. Clamps to frame 0 when \p cursor precedes the first frame (hold
+     * first). Peer of SWMMResultsLayer::periodIndexForDateTimeAsOf; used by the
+     * animation sync path so misaligned outputs hold their last-known frame.
+     */
+    void setCurrentSimTimeAsOf(QDateTime cursor);
+
     // ----- Cell selection / picking (CF.3) ----------------------------------
 
     /*!
@@ -450,12 +517,44 @@ public:
      *  the mesh-profile cross-section to sample the animated depth column. */
     [[nodiscard]] float depthAtSceneNow(const QPointF& scenePt) const;
 
+    /*! \brief Current-frame water depth (m) at \p scenePt, **barycentrically
+     *  interpolated** from the containing cell's per-vertex depths
+     *  (`dv0/dv1/dv2`) — the same continuous field the marching-triangles
+     *  contour passes render. Mirrors `SWMM2DMeshLayer::sampleZAt`'s
+     *  interpolation so the mesh-profile water-surface line varies smoothly
+     *  across cell boundaries instead of stepping at each cell centre.
+     *  Returns 0 off-mesh / no-frame. */
+    [[nodiscard]] float depthAtSceneInterp(const QPointF& scenePt) const;
+
+    /*! \brief Barycentrically interpolated current-frame depth (m) at \p scenePt
+     *  when its containing cell index is already known (e.g. the cached
+     *  `Sample::triIdx`), skipping the cell search. Bounds-checks \p triIdx and
+     *  returns 0 when out of range. \ref depthAtSceneInterp is this plus a
+     *  \ref pickCellAt. */
+    [[nodiscard]] float depthAtCellInterp(int triIdx, const QPointF& scenePt) const;
+
     /*! \brief Per-cell maximum water depth (m) over the whole loaded time
      *  range. Iterates `source()->readDepthsAt` for every frame in
      *  `[0, timeCount())` and reduces to a per-triangle max. Size equals
      *  `source()->triangleCount()`, or empty when no source / no frames.
      *  Used to draw the static max-depth envelope on the mesh profile. */
     [[nodiscard]] QVector<float> maxDepthPerCell() const;
+
+    /*! \brief Per-**vertex** maximum water depth (m), reduced from
+     *  \ref maxDepthPerCell as the max over each vertex's incident cells.
+     *  Sized to `vertexCount()`, or empty when no source / no frames. Feeds
+     *  the smooth (barycentric) max-depth envelope on the mesh profile — the
+     *  peer of `dv0/dv1/dv2` for the historical maximum. Build once and pass
+     *  to \ref maxDepthAtSceneInterp. */
+    [[nodiscard]] QVector<float> maxDepthPerVertex() const;
+
+    /*! \brief Barycentrically interpolated max water depth (m) at \p scenePt
+     *  from a precomputed per-vertex max array \p vertMax (see
+     *  \ref maxDepthPerVertex). Mirrors \ref depthAtSceneInterp so the
+     *  envelope and the water-surface line share one interpolation basis.
+     *  Returns 0 off-mesh. */
+    [[nodiscard]] float maxDepthAtSceneInterp(const QPointF& scenePt,
+                                              const QVector<float>& vertMax) const;
 
     /*! \brief Replace the highlight set. Triggers an Overlay repaint via the
      *  layer's existing invalidate path. */
@@ -504,6 +603,9 @@ public:
 
     QRectF             m_sceneBBox;
     QVector<SceneTri>  m_sceneTris;
+    /*! Point-location index over m_sceneTris bboxes (parallel indices). Built in
+     *  rebuildSceneGeometry_; accelerates pickCellAt from O(n) to O(cell). */
+    MeshSpatialGrid    m_triGrid;
 
 signals:
     /*! Emitted when `source()->timeCount()` changes (either via setSource or refreshTimeRange). */
@@ -539,6 +641,19 @@ private:
     std::vector<std::array<int,3>> tris_;
     std::vector<float>             current_depths_;
 
+    // Sub-cell free-surface reconstruction for partial wet/dry rendering. The
+    // engine reports a per-cell mean depth h = V/A under a flat-cell closure;
+    // its free surface is η = z_centroid + h (horizontal at equilibrium). We
+    // reconstruct that η at vertices and carry a SIGNED per-vertex depth so the
+    // wet/dry shoreline cuts through cells instead of snapping to cell edges.
+    // cellZc_ is each cell's centroid bed elevation (static; built once in
+    // rebuildSceneGeometry_); the eta_* vectors are per-frame scratch reused by
+    // applyCurrentDepths_ to avoid per-frame allocation.
+    std::vector<float>             cellZc_;       ///< per-cell centroid bed elev, parallel to tris_
+    std::vector<float>             eta_cell_;     ///< scratch — per-cell free surface η
+    std::vector<float>             eta_vsum_;     ///< scratch — per-vertex Σ(weight·η)
+    std::vector<float>             eta_wsum_;     ///< scratch — per-vertex Σ(weight) (depth weight)
+
     // CF.2 — per-tick flux + time-invariant edge geometry pulled once from the source.
     std::vector<float>             current_flux_;     ///< [tri*3 + localEdge], m^2/s.
     std::vector<float>             edge_length_;      ///< [tri*3], m.
@@ -546,6 +661,9 @@ private:
     std::vector<float>             edge_ny_;          ///< [tri*3], dimensionless.
     bool                           have_edge_geom_   = false;
     bool                           have_velocity_    = false;
+    /*! Tri-state cache for hasEdgeFluxData(): 0 = not yet determined,
+     *  +1 = edge flux present, -1 = absent. Reset on setSource. */
+    mutable int                    edge_flux_probe_  = 0;
 
     int                            current_time_idx_ = -1;
     double                         dry_depth_        = 1e-4;  // 0.1 mm — auto-tuned per project
@@ -564,6 +682,9 @@ private:
 
     SWMM2DResultsGraphicsItem*     graphics_item_    = nullptr;
     SWMM2DVelocityArrowsItem*      arrows_item_      = nullptr;
+
+    // VS.8 — true while SWMM2DResultsQSGRenderer owns the on-screen pixels.
+    bool                           m_qsgOwnsRendering = false;
 
     // CF.3 — selection / highlight state.
     QSet<int>                      m_highlighted;

@@ -469,25 +469,14 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         edgeSpec.wideColor           = edgeStyle ? edgeStyle->wideColor()
                                                  : QColor(0, 0, 0, 210);
 
+        // Slice US.3 — the band/iso passes now read class edges + colours
+        // straight from the sublayer ClassificationScheme (method-aware ramp
+        // classification), so only the line-symbology spec remains.
         ContourSymbolLayerSpec isoSpec;
         isoSpec.mode        = OpenSWMM::Render::ContourMode::Lines;
-        isoSpec.binner.setBinCount(isoStyle ? isoStyle->isoValueCount() : 8);
         isoSpec.lineColor   = isoStyle ? isoStyle->color() : QColor(10, 10, 10, 220);
         isoSpec.lineWidthPx = isoStyle ? isoStyle->lineWidthPx() : 1.0;
         isoSpec.labelEveryN = (isoStyle && isoStyle->labels()) ? 1 : 0;
-
-        ContourSymbolLayerSpec bandSpec;
-        bandSpec.mode        = OpenSWMM::Render::ContourMode::Filled;
-        bandSpec.binner.setBinCount(bandStyle ? bandStyle->bandCount() : 8);
-        bandSpec.smoothBands = bandStyle ? bandStyle->smoothBands() : true;
-        // Encode lowColor → highColor as a two-stop ramp; the smooth
-        // gradient in Pass 4 reads ramp.stops[0] / stops[1] directly.
-        bandSpec.ramp.stops = {
-            { 0.0, bandStyle ? bandStyle->lowColor()
-                             : QColor( 60, 100, 200) },
-            { 1.0, bandStyle ? bandStyle->highColor()
-                             : QColor(200, 220, 255) },
-        };
 
         MeshNodeSymbolLayerSpec nodeSpec;
         nodeSpec.marker.fillColor = nodeStyle ? nodeStyle->color()
@@ -674,32 +663,49 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         // smooth ramp.
         const bool bandsVisible = bandSub && bandSub->isVisible();
         if (hasElev && bandsVisible) {
-            // Slice Z.6a — driven by bandSpec built at the top.
-            const int    nBands = bandSpec.binner.binCount();
-            const auto   levels = OpenSWMM::Contour::evenlySpacedLevelsInclusive(
-                zMin, zMax, nBands + 1);
+            // Slice US.3 — class edges from the band sublayer's
+            // ClassificationScheme over the elevation range (method-aware:
+            // EqualInterval reproduces the legacy even spacing; Quantile /
+            // Jenks / StdDev bin the mesh's vertex elevations). Band colours
+            // come from colorForBand (named ramp / two-colour / per-class
+            // override), not the old two-stop lerp.
+            std::vector<double> levels;
+            quint64 schemeRev = 0;
+            if (bandStyle) {
+                QVector<double> zSamples;
+                const auto m = bandStyle->scheme().method();
+                if (m == OpenSWMM::Render::BinMethod::Quantile
+                    || m == OpenSWMM::Render::BinMethod::NaturalBreaks
+                    || m == OpenSWMM::Render::BinMethod::StdDev) {
+                    const auto &st = m_layer->m_sceneTris;
+                    zSamples.reserve(st.size() * 3);
+                    for (const auto &t : st) {
+                        zSamples.push_back(double(t.z0));
+                        zSamples.push_back(double(t.z1));
+                        zSamples.push_back(double(t.z2));
+                    }
+                }
+                const QVector<double> edges =
+                    bandStyle->scheme().levelEdges(zMin, zMax, zSamples);
+                levels.assign(edges.cbegin(), edges.cend());
+                schemeRev = bandStyle->scheme().revision();
+            } else {
+                levels = OpenSWMM::Contour::evenlySpacedLevelsInclusive(zMin, zMax, 9);
+            }
+            const int    nBands = std::max(1, int(levels.size()) - 1);
             const quint8 alpha  = quint8(qBound(0, int(bandSub->opacity() * 255.0 + 0.5), 255));
-            // Two-stop ramp (low at 0.0, high at 1.0) — encoded by the
-            // top-of-rebuild spec build. Read directly to keep the
-            // historic smooth-gradient lerp formulation.
-            const QColor lowC   = (bandSpec.ramp.stops.size() >= 1)
-                                     ? bandSpec.ramp.stops.first().second
-                                     : QColor( 60, 100, 200);
-            const QColor highC  = (bandSpec.ramp.stops.size() >= 2)
-                                     ? bandSpec.ramp.stops.last().second
-                                     : QColor(200, 220, 255);
-            const bool   smooth = bandSpec.smoothBands;
 
             // Contour cache — marching-triangles output is invariant to
             // pan/zoom. Recompute only when (geomRevision, zMin, zMax,
-            // nBands) changes; otherwise reuse m_cachedBands.
+            // nBands, scheme revision) changes; otherwise reuse m_cachedBands.
             const quint64 geomRev = m_layer->geomRevision();
             const bool bandCacheHit =
                 !m_cachedBands.empty()
-                && m_isobandCacheRev   == geomRev
-                && m_isobandCacheZMin  == zMin
-                && m_isobandCacheZMax  == zMax
-                && m_isobandCacheBands == nBands;
+                && m_isobandCacheRev    == geomRev
+                && m_isobandCacheZMin   == zMin
+                && m_isobandCacheZMax   == zMax
+                && m_isobandCacheBands  == nBands
+                && m_isobandCacheScheme == schemeRev;
 
             if (!bandCacheHit) {
                 const auto &sceneTris = m_layer->m_sceneTris;
@@ -716,32 +722,23 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
 
                 m_cachedBands = OpenSWMM::Contour::marchingTrianglesIsobands(
                     sceneTris, levels, extract);
-                m_isobandCacheRev   = geomRev;
-                m_isobandCacheZMin  = zMin;
-                m_isobandCacheZMax  = zMax;
-                m_isobandCacheBands = nBands;
+                m_isobandCacheRev    = geomRev;
+                m_isobandCacheZMin   = zMin;
+                m_isobandCacheZMax   = zMax;
+                m_isobandCacheBands  = nBands;
+                m_isobandCacheScheme = schemeRev;
             }
             const auto &bands = m_cachedBands;
 
-            // Per-band colour: smooth ⇒ lerp(lowC, highC) at the band's
-            // mid-fraction in [0, 1]; categorical ⇒ viridis sample.
-            // nBands == 1 is a guard against div-by-zero.
-            const double bandDenom = (nBands > 0) ? double(nBands) : 1.0;
             std::vector<QSGGeometry::ColoredPoint2D> bandVerts;
             bandVerts.reserve(bands.size() * 9);
 
             for (const auto &bp : bands) {
                 if (bp.verts.size() < 3) continue;
-                const double tt = (double(bp.bandIndex) + 0.5) / bandDenom;
-                QColor col;
-                if (smooth) {
-                    col = QColor::fromRgbF(
-                        lowC.redF()   * (1.0 - tt) + highC.redF()   * tt,
-                        lowC.greenF() * (1.0 - tt) + highC.greenF() * tt,
-                        lowC.blueF()  * (1.0 - tt) + highC.blueF()  * tt);
-                } else {
-                    col = OpenSWMM::Contour::viridisAt(tt);
-                }
+                const int idx = std::min(bp.bandIndex, nBands - 1);
+                QColor col = bandStyle
+                    ? bandStyle->colorForBand(idx, nBands)
+                    : OpenSWMM::Contour::viridisAt((double(idx) + 0.5) / double(nBands));
                 const quint8 r = quint8(col.red());
                 const quint8 g = quint8(col.green());
                 const quint8 b = quint8(col.blue());
@@ -811,22 +808,43 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         // the label engine lands.
         const bool isoVisible = isoSub && isoSub->isVisible();
         if (hasElev && isoVisible) {
-            // Slice Z.6a — driven by isoSpec built at the top.
-            const int    nLevels = isoSpec.binner.binCount();
+            // Slice US.3 — interior levels from the isoline sublayer's
+            // ClassificationScheme over the elevation range (method-aware).
             const double widthPx = isoSpec.lineWidthPx;
             const float  cHW     = float(0.5 * widthPx) * invView;
-            const auto   levels  = OpenSWMM::Contour::evenlySpacedLevels(
-                                       zMin, zMax, nLevels);
+            std::vector<double> levels;
+            quint64 isoSchemeRev = 0;
+            if (isoStyle) {
+                QVector<double> zSamples;
+                const auto m = isoStyle->scheme().method();
+                if (m == OpenSWMM::Render::BinMethod::Quantile
+                    || m == OpenSWMM::Render::BinMethod::NaturalBreaks
+                    || m == OpenSWMM::Render::BinMethod::StdDev) {
+                    const auto &st = m_layer->m_sceneTris;
+                    zSamples.reserve(st.size() * 3);
+                    for (const auto &t : st) {
+                        zSamples.push_back(double(t.z0));
+                        zSamples.push_back(double(t.z1));
+                        zSamples.push_back(double(t.z2));
+                    }
+                }
+                const auto lv = isoStyle->levelsForRange(zMin, zMax, zSamples);
+                levels.assign(lv.cbegin(), lv.cend());
+                isoSchemeRev = isoStyle->scheme().revision();
+            } else {
+                levels = OpenSWMM::Contour::evenlySpacedLevels(zMin, zMax, 8);
+            }
+            const int nLevels = int(levels.size());
 
             // Contour cache — same memoisation pattern as Pass 4.
-            // Cache invalidated on geomRevision / zMin / zMax / nLevels.
             const quint64 geomRev = m_layer->geomRevision();
             const bool isoCacheHit =
                 !m_cachedSegs.empty()
                 && m_isolineCacheRev    == geomRev
                 && m_isolineCacheZMin   == zMin
                 && m_isolineCacheZMax   == zMax
-                && m_isolineCacheLevels == nLevels;
+                && m_isolineCacheLevels == nLevels
+                && m_isolineCacheScheme == isoSchemeRev;
 
             if (!isoCacheHit) {
                 // Triangle iterator: extractor pulls (a/b/c, z0/z1/z2) from
@@ -851,6 +869,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 m_isolineCacheZMin   = zMin;
                 m_isolineCacheZMax   = zMax;
                 m_isolineCacheLevels = nLevels;
+                m_isolineCacheScheme = isoSchemeRev;
             }
             const auto &segs = m_cachedSegs;
 

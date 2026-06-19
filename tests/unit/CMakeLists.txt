@@ -33,6 +33,11 @@ add_swmmvis_unit_test(test_unitsystem
     # ${PROJECT_SOURCE_DIR}/src/core/unitsystem.cpp   # uncomment when implemented
 )
 
+add_swmmvis_unit_test(test_numberformat
+    test_numberformat.cpp
+    ${PROJECT_SOURCE_DIR}/src/plot/numberformat.cpp
+)
+
 add_swmmvis_unit_test(test_projectserializer
     test_projectserializer.cpp
     # ${PROJECT_SOURCE_DIR}/src/project/projectserializer.cpp
@@ -192,6 +197,28 @@ add_swmmvis_unit_test(test_legendoverlaystyle
     ${PROJECT_SOURCE_DIR}/src/render/legendoverlaystyle.cpp
 )
 target_link_libraries(test_legendoverlaystyle PRIVATE Qt6::Gui)
+
+# Slice US.1 — shared classification scheme (UNIFIED_STYLING plan S1).
+# Needs Qt6::Gui for QColor; symbolstyle/symbollayer link in for the
+# legend-row swatch construction.
+add_swmmvis_unit_test(test_classificationscheme
+    test_classificationscheme.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/classificationscheme.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/colorramp.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/intervalbinner.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/symbolstyle.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/symbollayer.cpp
+)
+target_link_libraries(test_classificationscheme PRIVATE Qt6::Gui)
+
+# Slice US.B3 — shared label painter (UNIFIED_STYLING plan B3). Pure logic
+# (scale gating + placement); needs Qt6::Gui for QFont/QColor in LabelConfig.
+add_swmmvis_unit_test(test_labelpainter
+    test_labelpainter.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/labelpainter.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/labelconfig.cpp
+)
+target_link_libraries(test_labelpainter PRIVATE Qt6::Gui)
 
 # Slice BC, Stage 2 — chainage, HGL/EGL, and envelope computation.
 add_swmmvis_unit_test(test_profilebuilder

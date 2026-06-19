@@ -196,6 +196,40 @@ void AnimationController::driverSetStep(int step)
     }
 }
 
+QDateTime AnimationController::driverStartTime() const
+{
+    if (m_primaryLayer) return m_primaryLayer->startDateTime();
+    if (m_fallback2D && m_fallback2D->source())
+        return m_fallback2D->source()->simTimeAt(0);
+    return {};
+}
+
+QDateTime AnimationController::driverEndTime() const
+{
+    if (m_primaryLayer) return m_primaryLayer->endDateTime();
+    if (m_fallback2D && m_fallback2D->source()) {
+        const int n = m_fallback2D->source()->timeCount();
+        if (n > 0) return m_fallback2D->source()->simTimeAt(n - 1);
+    }
+    return {};
+}
+
+QDateTime AnimationController::currentDateTime() const
+{
+    if (m_primaryLayer) return m_primaryLayer->currentDateTime();
+    if (m_fallback2D && m_fallback2D->source())
+        return m_fallback2D->source()->simTimeAt(m_fallback2D->currentTimeIndex());
+    return {};
+}
+
+void AnimationController::setWindowMs(qint64 ms)
+{
+    if (ms < 0) ms = 0;
+    if (ms == m_windowMs) return;
+    m_windowMs = ms;
+    emit windowChanged(m_windowMs);
+}
+
 // ---------------------------------------------------------------------------
 // Secondary layers
 // ---------------------------------------------------------------------------
@@ -261,6 +295,12 @@ void AnimationController::updateTimerInterval()
         const double effectiveFps = activeSpec->frameRateFps * m_speed;
         ms = static_cast<int>(1000.0 / qMax(0.1, effectiveFps));
     }
+    // When the requested interval falls below the floor, keep the timer at the
+    // floor and advance several frames per tick so the effective playback rate
+    // still scales with speed (otherwise 8× and 4× both clamp to ~20 Hz).
+    m_stepsPerTick = (ms >= kMinIntervalMs || ms <= 0)
+                         ? 1
+                         : qMax(1, (kMinIntervalMs + ms / 2) / ms);
     m_timer->setInterval(qMax(kMinIntervalMs, ms));
 }
 
@@ -348,6 +388,16 @@ void AnimationController::seekToPeriod(int period)
     driverSetStep(std::clamp(period, rMin, rMax));
 }
 
+void AnimationController::seekToTime(const QDateTime &dt)
+{
+    if (!dt.isValid()) return;
+    if (m_primaryLayer) {
+        seekToPeriod(m_primaryLayer->periodIndexForDateTime(dt));
+    } else if (m_fallback2D) {
+        m_fallback2D->setCurrentSimTime(dt);   // nearest frame; re-emits via fallback slots
+    }
+}
+
 void AnimationController::effectiveStepRange(int &outMin, int &outMax) const
 {
     const int total = driverTotalSteps();
@@ -423,7 +473,7 @@ void AnimationController::onTimerTick()
     effectiveStepRange(rMin, rMax);
 
     const int cur = driverCurrentStep();
-    int next = cur + m_direction;
+    int next = cur + m_direction * m_stepsPerTick;
 
     if (pingPong) {
         if (next > rMax) {
@@ -474,12 +524,15 @@ void AnimationController::onPrimaryPeriodChanged(int step)
     if (m_primaryLayer) {
         now = m_primaryLayer->currentDateTime();
         if (now.isValid()) {
+            // Causal "as-of" sync: each non-driver output shows its latest
+            // frame at or before the cursor, so a coarser-stepped output never
+            // jumps ahead of the primary clock.
             for (auto &sec : m_secondaryLayers) {
                 if (sec && sec.data() != m_primaryLayer.data())
-                    sec->setCurrentTimeStep(sec->periodIndexForDateTime(now));
+                    sec->setCurrentTimeStep(sec->periodIndexForDateTimeAsOf(now));
             }
             if (m_fallback2D)
-                m_fallback2D->setCurrentSimTime(now);
+                m_fallback2D->setCurrentSimTimeAsOf(now);
         }
     }
 

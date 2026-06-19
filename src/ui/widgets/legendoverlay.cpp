@@ -45,7 +45,6 @@ namespace {
 
 constexpr int  kSwatchPadding = 6;
 constexpr int  kLayerSpacing  = 6;
-constexpr int  kMaxLabelWidth = 220;
 
 // Gap B1 — both helpers delegate to the canonical LegendContent copy so the
 // on-canvas legend, the dock tree and the per-class edit routing read the
@@ -86,6 +85,9 @@ LegendOverlay::LegendOverlay(MapCanvas *canvas)
     setAttribute(Qt::WA_StyledBackground, false);
     setAutoFillBackground(false);
     setCursor(Qt::OpenHandCursor);
+    // Slice US.B2 — track mouse moves without a button so the cursor reflects
+    // the resize grip the pointer is hovering over.
+    setMouseTracking(true);
     // Allow paint with transparency over the canvas's framebuffer + scene.
     setAttribute(Qt::WA_TranslucentBackground, true);
 
@@ -199,9 +201,13 @@ void LegendOverlay::recomputeLayout()
         return;
     }
 
+    // Slice US.B2 — a live resize owns the geometry; don't fight it.
+    if (m_resizing) return;
+
     const int padding    = m_style->padding();
     const int rowSpacing = m_style->rowSpacing();
     const int swatchSize = m_style->swatchSize();
+    const int maxLabelW  = m_style->maxLabelWidth();
 
     const QFontMetrics fm(m_style->itemFont());
     const QFontMetrics hfm(m_style->layerHeaderFont());
@@ -214,7 +220,7 @@ void LegendOverlay::recomputeLayout()
 
     if (m_style->showTitle() && !m_style->title().isEmpty()) {
         contentW = std::max(contentW,
-            std::min(tfm.horizontalAdvance(m_style->title()), kMaxLabelWidth));
+            std::min(tfm.horizontalAdvance(m_style->title()), maxLabelW));
         contentH += tfm.height();
         contentH += rowSpacing;
     }
@@ -231,14 +237,18 @@ void LegendOverlay::recomputeLayout()
 
         // Layer header
         contentW = std::max(contentW,
-            std::min(hfm.horizontalAdvance(layer->name()), kMaxLabelWidth));
+            std::min(hfm.horizontalAdvance(layer->name()), maxLabelW));
         contentH += hfm.height();
 
         for (const auto &row : rows) {
             if (!row.visible) continue;
             const int labelW = std::min(fm.horizontalAdvance(row.effectiveLabel()),
-                                        kMaxLabelWidth);
-            contentW = std::max(contentW, swatchSize + kSwatchPadding + labelW);
+                                        maxLabelW);
+            // Rows with no symbol are sub-headers (kind / section titles):
+            // text only, no swatch slot.
+            const bool hasSwatch = !row.symbol.layers.isEmpty();
+            contentW = std::max(contentW,
+                hasSwatch ? swatchSize + kSwatchPadding + labelW : labelW);
             contentH += rowH + rowSpacing;
         }
     }
@@ -249,10 +259,24 @@ void LegendOverlay::recomputeLayout()
         return;
     }
 
-    resize(contentW + 2 * padding, contentH);
+    // Slice US.B2 — explicit size overrides the auto-fit on each axis (0 =
+    // auto). The auto width still bounds the minimum so an explicit width can
+    // grow but the content box itself stays at least its natural width.
+    int boxW = contentW + 2 * padding;
+    int boxH = contentH;
+    if (m_style->explicitWidth()  > 0) boxW = m_style->explicitWidth();
+    if (m_style->explicitHeight() > 0) boxH = m_style->explicitHeight();
+    resize(boxW, boxH);
 
     if (!m_positioned) {
-        anchorToCanvas();
+        // Restore a persisted free position; otherwise anchor.
+        if (m_style->anchor() == Style::Anchor::Free
+            && !m_style->freePosition().isNull()) {
+            move(m_style->freePosition());
+            clampInsideCanvas();
+        } else {
+            anchorToCanvas();
+        }
         m_positioned = true;
     } else if (m_style->anchor() != Style::Anchor::Free) {
         anchorToCanvas();
@@ -385,17 +409,26 @@ void LegendOverlay::paintEvent(QPaintEvent * /*event*/)
         for (const auto &row : paintRows) {
             if (!row.visible) continue;
             const int itemTop = y;
-            const QColor c = firstSymbolColor(row.symbol);
-            const QRect swatchRect(padding,
-                                   y + (rowH - swatchSize) / 2,
-                                   swatchSize, swatchSize);
-            p.setBrush(c);
-            p.setPen(QPen(c.darker(140), 1.0));
-            p.drawRect(swatchRect);
+            // Rows with no symbol are sub-headers (kind / section titles).
+            // The old behaviour painted them with the gray fallback patch —
+            // exactly the "patch on the layer label" artefact. Headers are
+            // text-only; swatches appear only on rows that carry a symbol
+            // (graduated bins, categorized classes, or the single-symbol
+            // header that embeds the feature's colour).
+            const bool hasSwatch = !row.symbol.layers.isEmpty();
+            if (hasSwatch) {
+                const QColor c = firstSymbolColor(row.symbol);
+                const QRect swatchRect(padding,
+                                       y + (rowH - swatchSize) / 2,
+                                       swatchSize, swatchSize);
+                p.setBrush(c);
+                p.setPen(QPen(c.darker(140), 1.0));
+                p.drawRect(swatchRect);
+            }
 
-            const QRect textRect(padding + swatchSize + kSwatchPadding, y,
-                                 width() - padding - swatchSize - kSwatchPadding - padding,
-                                 rowH);
+            const int textX = hasSwatch ? padding + swatchSize + kSwatchPadding
+                                        : padding;
+            const QRect textRect(textX, y, width() - textX - padding, rowH);
             p.setPen(m_style->itemColor());
             p.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
                        fm.elidedText(row.effectiveLabel(), Qt::ElideRight,
@@ -437,12 +470,43 @@ QPair<OpenSWMMVisLayer *, QString> LegendOverlay::itemAtY(int y) const
     return { nullptr, {} };
 }
 
+int LegendOverlay::edgesAt(const QPoint &pos) const
+{
+    constexpr int kGrip = 6;   // px reach of an edge/corner grip
+    int edges = 0;
+    if (pos.x() <= kGrip)               edges |= 1; // Left
+    if (pos.x() >= width()  - kGrip)    edges |= 2; // Right
+    if (pos.y() <= kGrip)               edges |= 4; // Top
+    if (pos.y() >= height() - kGrip)    edges |= 8; // Bottom
+    return edges;
+}
+
+void LegendOverlay::updateCursor(int edges)
+{
+    switch (edges) {
+    case 1: case 2:           setCursor(Qt::SizeHorCursor);  break; // L / R
+    case 4: case 8:           setCursor(Qt::SizeVerCursor);  break; // T / B
+    case (1|4): case (2|8):   setCursor(Qt::SizeFDiagCursor); break; // TL / BR
+    case (2|4): case (1|8):   setCursor(Qt::SizeBDiagCursor); break; // TR / BL
+    default:                  setCursor(Qt::OpenHandCursor);  break; // interior
+    }
+}
+
 void LegendOverlay::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
-        m_dragging = true;
-        m_dragStartOffset = event->pos();
-        setCursor(Qt::ClosedHandCursor);
+        const int edges = edgesAt(event->pos());
+        if (edges != 0) {
+            // Slice US.B2 — begin an interactive resize from this edge/corner.
+            m_resizing         = true;
+            m_resizeEdges      = edges;
+            m_resizeStartGeom  = geometry();
+            m_resizeStartGlobal = event->globalPosition().toPoint();
+        } else {
+            m_dragging = true;
+            m_dragStartOffset = event->pos();
+            setCursor(Qt::ClosedHandCursor);
+        }
         event->accept();
     } else {
         QWidget::mousePressEvent(event);
@@ -451,6 +515,21 @@ void LegendOverlay::mousePressEvent(QMouseEvent *event)
 
 void LegendOverlay::mouseMoveEvent(QMouseEvent *event)
 {
+    if (m_resizing && (event->buttons() & Qt::LeftButton)) {
+        // Resize the dragged edge(s); the opposite edge stays pinned. The
+        // floors mirror LegendOverlayStyle's explicit-size clamps.
+        const QPoint d = event->globalPosition().toPoint() - m_resizeStartGlobal;
+        QRect g = m_resizeStartGeom;
+        if (m_resizeEdges & 1) g.setLeft(g.left() + d.x());
+        if (m_resizeEdges & 2) g.setRight(g.right() + d.x());
+        if (m_resizeEdges & 4) g.setTop(g.top() + d.y());
+        if (m_resizeEdges & 8) g.setBottom(g.bottom() + d.y());
+        if (g.width()  < 80) { if (m_resizeEdges & 1) g.setLeft(g.right() - 80); else g.setWidth(80); }
+        if (g.height() < 48) { if (m_resizeEdges & 4) g.setTop(g.bottom() - 48); else g.setHeight(48); }
+        setGeometry(g);
+        event->accept();
+        return;
+    }
     if (m_dragging && (event->buttons() & Qt::LeftButton)) {
         QPoint newPos = mapToParent(event->pos()) - m_dragStartOffset;
         if (m_canvas) {
@@ -462,20 +541,41 @@ void LegendOverlay::mouseMoveEvent(QMouseEvent *event)
         if (m_style && m_style->anchor() != Style::Anchor::Free)
             m_style->setAnchor(Style::Anchor::Free);
         event->accept();
-    } else {
-        QWidget::mouseMoveEvent(event);
+        return;
     }
+    // Hover: reflect the grip under the cursor.
+    updateCursor(edgesAt(event->pos()));
+    QWidget::mouseMoveEvent(event);
 }
 
 void LegendOverlay::mouseReleaseEvent(QMouseEvent *event)
 {
+    if (event->button() == Qt::LeftButton && m_resizing) {
+        m_resizing    = false;
+        m_resizeEdges = 0;
+        // Commit the size through the style so it persists + syncs the
+        // properties dialog. Switch to Free so the box stays put.
+        if (m_style) {
+            if (m_style->anchor() != Style::Anchor::Free)
+                m_style->setAnchor(Style::Anchor::Free);
+            m_style->setExplicitWidth(width());
+            m_style->setExplicitHeight(height());
+            m_style->setFreePosition(pos());
+        }
+        updateCursor(edgesAt(event->pos()));
+        event->accept();
+        return;
+    }
     if (event->button() == Qt::LeftButton && m_dragging) {
         m_dragging = false;
         setCursor(Qt::OpenHandCursor);
+        // Persist the free position so save/reopen restores it.
+        if (m_style && m_style->anchor() == Style::Anchor::Free)
+            m_style->setFreePosition(pos());
         event->accept();
-    } else {
-        QWidget::mouseReleaseEvent(event);
+        return;
     }
+    QWidget::mouseReleaseEvent(event);
 }
 
 void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
@@ -571,6 +671,12 @@ void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
     QAction *copyImg = menu.addAction(tr("Copy legend as image"));
     connect(copyImg, &QAction::triggered, this, &LegendOverlay::copyLegendImage);
 
+    // Slice US.B2 — drop any manual resize back to natural auto-fit.
+    QAction *autoSizeAct = menu.addAction(tr("Auto-size legend"));
+    autoSizeAct->setEnabled(m_style
+        && (m_style->explicitWidth() > 0 || m_style->explicitHeight() > 0));
+    connect(autoSizeAct, &QAction::triggered, this, &LegendOverlay::autoSize);
+
     QAction *resetLayoutAct = menu.addAction(tr("Reset layout"));
     connect(resetLayoutAct, &QAction::triggered, this, &LegendOverlay::resetLayout);
 
@@ -608,6 +714,17 @@ void LegendOverlay::resetLayout()
     if (!m_style) return;
     m_style->resetToDefaults();
     m_positioned = false;
+    recomputeLayout();
+    update();
+}
+
+void LegendOverlay::autoSize()
+{
+    // Slice US.B2 — clear explicit width/height; the next recomputeLayout
+    // fits the box to its content again. Position is left untouched.
+    if (!m_style) return;
+    m_style->setExplicitWidth(0);
+    m_style->setExplicitHeight(0);
     recomputeLayout();
     update();
 }

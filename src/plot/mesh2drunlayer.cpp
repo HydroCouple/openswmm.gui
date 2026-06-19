@@ -75,9 +75,11 @@ QString Mesh2DRunLayer::persistenceKey() const
 
 bool Mesh2DRunLayer::supportsAttribute(PlotAttribute attr) const
 {
-    // Edge flux needs the source's per-edge flux feed (newer engines only).
-    if (attr == PlotAttribute::Mesh2DEdgeFlux)
-        return m_layer && m_layer->source() && m_layer->hasVelocityData();
+    // Edge flow/flux need the source's per-edge flux feed (newer engines only).
+    // Gate on edge-flux availability, not hasVelocityData() — the latter tracks
+    // the currently-shown frame and is false on dry frames.
+    if (attr == PlotAttribute::Mesh2DEdgeFlux || attr == PlotAttribute::Mesh2DEdgeFlow)
+        return m_layer && m_layer->source() && m_layer->hasEdgeFluxData();
     if (!isMesh2DAttribute(attr)) return false;
     // Depth/HGL are also valid for a vertex ref (interpolated); the kind is
     // checked in getSeriesAt, so just allow the attribute here.
@@ -89,7 +91,7 @@ bool Mesh2DRunLayer::supportsAttribute(PlotAttribute attr) const
         attr == PlotAttribute::Mesh2DVelocityY)
     {
         if (!m_layer || !m_layer->source()) return false;
-        return m_layer->hasVelocityData();
+        return m_layer->hasEdgeFluxData();
     }
     return true;
 }
@@ -250,10 +252,12 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
         return;
     }
 
-    // ── Edge-flux series (Mesh2DEdge ref + Mesh2DEdgeFlux attr) ─────────────
+    // ── Edge series (Mesh2DEdge ref): volumetric flow Q (Mesh2DEdgeFlow) or
+    //    unit-width flux q = Q / edge length (Mesh2DEdgeFlux). Both come from the
+    //    engine's single Mesh2_edge_flux dataset (volumetric F_e, m³/s). ─────────
     if (ref.kind == ObjectRef::Kind::Mesh2DEdge) {
-        if (attr != PlotAttribute::Mesh2DEdgeFlux) {
-            out.errorMessage = QStringLiteral("Edge ref only supports edge flux");
+        if (attr != PlotAttribute::Mesh2DEdgeFlux && attr != PlotAttribute::Mesh2DEdgeFlow) {
+            out.errorMessage = QStringLiteral("Edge ref only supports edge flow / flux");
             return;
         }
         auto *esrc = m_layer->source();
@@ -265,6 +269,20 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
         }
         const int nTe = esrc->timeCount();
         if (nTe <= 0) { out.errorMessage = QStringLiteral("No time steps available yet"); return; }
+
+        // Unit-width flux divides the volumetric flux by the static edge length;
+        // read it once (the same reader the velocity reconstruction uses).
+        const bool wantUnitFlux = (attr == PlotAttribute::Mesh2DEdgeFlux);
+        double edgeLen = 0.0;
+        if (wantUnitFlux) {
+            std::vector<float> len, nx, ny;
+            if (!esrc->readEdgeGeometry(len, nx, ny) || flat >= static_cast<int>(len.size())) {
+                out.errorMessage = QStringLiteral("Edge geometry not available for unit flux");
+                return;
+            }
+            edgeLen = static_cast<double>(len[flat]);
+        }
+
         out.timesJulian.reserve(static_cast<std::size_t>(nTe));
         out.values.reserve(static_cast<std::size_t>(nTe));
         std::vector<float> fbuf;
@@ -272,14 +290,17 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
             const QDateTime dt = esrc->simTimeAt(t);
             if (!dt.isValid()) continue;
             double value = std::nan("");
-            if (esrc->readEdgeFluxAt(t, fbuf) && flat < static_cast<int>(fbuf.size()))
-                value = static_cast<double>(fbuf[flat]);
+            if (esrc->readEdgeFluxAt(t, fbuf) && flat < static_cast<int>(fbuf.size())) {
+                const double flux = static_cast<double>(fbuf[flat]);   // F_e, m³/s
+                value = wantUnitFlux ? (edgeLen > 1e-9 ? flux / edgeLen : std::nan(""))
+                                     : flux;
+            }
             out.timesJulian.push_back(dateTimeToSwmmJulian(dt));
             out.values.push_back(value);
         }
         out.ok = !out.timesJulian.empty();
         if (!out.ok)
-            out.errorMessage = QStringLiteral("No edge-flux samples (re-run with current engine?)");
+            out.errorMessage = QStringLiteral("No edge samples (re-run with current engine?)");
         return;
     }
 

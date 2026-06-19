@@ -26,6 +26,7 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QObject>
+#include <QPoint>
 #include <QString>
 #include <Qt>
 
@@ -74,6 +75,11 @@ public:
     Q_PROPERTY(int          padding          READ padding          WRITE setPadding          NOTIFY paddingChanged)
     Q_PROPERTY(Anchor       anchor           READ anchor           WRITE setAnchor           NOTIFY anchorChanged)
     Q_PROPERTY(qreal        opacity          READ opacity          WRITE setOpacity          NOTIFY opacityChanged)
+    // Slice US.B1 — explicit sizing (0 = auto-fit), free position (used when
+    // anchor == Free), and the per-row label wrap width.
+    Q_PROPERTY(int          explicitWidth    READ explicitWidth    WRITE setExplicitWidth    NOTIFY explicitWidthChanged)
+    Q_PROPERTY(int          explicitHeight   READ explicitHeight   WRITE setExplicitHeight   NOTIFY explicitHeightChanged)
+    Q_PROPERTY(int          maxLabelWidth    READ maxLabelWidth    WRITE setMaxLabelWidth    NOTIFY maxLabelWidthChanged)
 
     // ── Frame tab ───────────────────────────────────────────────────────
     Q_PROPERTY(bool         showFrame        READ showFrame        WRITE setShowFrame        NOTIFY showFrameChanged)
@@ -157,6 +163,14 @@ public:
     [[nodiscard]] Anchor       anchor()           const noexcept { return m_anchor; }
     [[nodiscard]] qreal        opacity()          const noexcept { return m_opacity; }
 
+    // ── Slice US.B1 — size / position ───────────────────────────────────
+    [[nodiscard]] int          explicitWidth()    const noexcept { return m_explicitWidth; }
+    [[nodiscard]] int          explicitHeight()   const noexcept { return m_explicitHeight; }
+    [[nodiscard]] int          maxLabelWidth()    const noexcept { return m_maxLabelWidth; }
+    /*! Top-left position in canvas pixels, honoured when anchor == Free.
+     *  Not exposed in the Q_PROPERTY grid — set by interactive drag. */
+    [[nodiscard]] QPoint       freePosition()     const noexcept { return m_freePosition; }
+
     // ── Frame getters ───────────────────────────────────────────────────
     [[nodiscard]] bool         showFrame()        const noexcept { return m_showFrame; }
     [[nodiscard]] QColor       frameColor()       const noexcept { return m_frameColor; }
@@ -183,6 +197,10 @@ public slots:
     void setPadding(int v);
     void setAnchor(Anchor a);
     void setOpacity(qreal v);
+    void setExplicitWidth(int px);
+    void setExplicitHeight(int px);
+    void setMaxLabelWidth(int px);
+    void setFreePosition(const QPoint &p);
 
     void setShowFrame(bool on);
     void setFrameColor(const QColor &c);
@@ -217,6 +235,10 @@ signals:
     void paddingChanged(int);
     void anchorChanged(Anchor);
     void opacityChanged(qreal);
+    void explicitWidthChanged(int);
+    void explicitHeightChanged(int);
+    void maxLabelWidthChanged(int);
+    void freePositionChanged(const QPoint &);
 
     void showFrameChanged(bool);
     void frameColorChanged(const QColor &);
@@ -243,6 +265,12 @@ private:
     int            m_padding          = 8;
     Anchor         m_anchor           = Anchor::BottomRight;
     qreal          m_opacity          = 1.0;
+
+    // Slice US.B1 — size / position. 0 = auto-fit on that axis.
+    int            m_explicitWidth    = 0;
+    int            m_explicitHeight   = 0;
+    int            m_maxLabelWidth    = 220;
+    QPoint         m_freePosition;
 
     // Frame
     bool           m_showFrame        = true;

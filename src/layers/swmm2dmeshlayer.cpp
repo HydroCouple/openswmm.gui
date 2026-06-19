@@ -43,6 +43,7 @@
 #include <QPainter>
 #include <QSet>
 #include <QStyleOptionGraphicsItem>
+#include <QtMath>
 
 #include <ogr_spatialref.h>
 
@@ -144,10 +145,21 @@ public:
             return c;
         };
 
-        // Hillshade light direction (NW at ~35° elevation — matches QSG renderer)
-        constexpr float kLx = -0.5774f, kLy = -0.5774f, kLz = 0.5774f;
-        constexpr float kVertExag = 3.0f;
-        constexpr float kLitMin   = 0.15f;
+        // ── Theming hook (Slice AC.4) ─────────────────────────────────────
+        // Hillshade light + relief now come from the layer's Q_PROPERTYs
+        // instead of hardcoded constants, so the properties-dialog controls
+        // (azimuth / altitude / Z-exaggeration / min-lit) actually drive the
+        // render. Same azimuth/altitude → direction formula as the QSG
+        // renderer (swmm2dmeshqsgrenderer.cpp), so both paths agree. The
+        // layer defaults (az=225°, alt=35.264°, zExag=3, minLit=0.15)
+        // reproduce the historic NW-35° constants exactly.
+        const double azRad      = qDegreesToRadians(m_layer->hillshadeAzimuth());
+        const double altRad     = qDegreesToRadians(m_layer->hillshadeAltitude());
+        const float  kLx        = float(std::sin(azRad) * std::cos(altRad));
+        const float  kLy        = float(std::cos(azRad) * std::cos(altRad));
+        const float  kLz        = float(std::sin(altRad));
+        const float  kVertExag  = float(m_layer->hillshadeZExag());
+        const float  kLitMin    = float(m_layer->hillshadeMinLit());
 
         p->save();
         p->setPen(Qt::NoPen);
@@ -324,36 +336,53 @@ public:
         // convex polygon per (triangle, band). Off by default.
         if (hasElev && bandsVisible) {
             const auto *bandStyle = bandSub->bandStyle();
-            const int   nBands   = bandStyle ? bandStyle->bandCount() : 8;
-            const bool  smooth   = bandStyle ? bandStyle->smoothBands() : true;
-            const QColor lowC    = bandStyle ? bandStyle->lowColor()  : QColor( 60, 100, 200);
-            const QColor highC   = bandStyle ? bandStyle->highColor() : QColor(200, 220, 255);
             const int   bandAlpha = qBound(0, int(bandSub->opacity() * 255.0 + 0.5), 255);
 
-            const auto levels = OpenSWMM::Contour::evenlySpacedLevelsInclusive(
-                zMin, zMax, nBands + 1);
+            // At far zoom run marching-triangles over the coarse overview so
+            // enabling bands on a multi-million-triangle mesh stays affordable.
+            const auto &contourTris = useLod ? overview : tris;
+
+            // Slice US.3 — class edges + colours from the band sublayer's
+            // ClassificationScheme (method-aware: equal interval matches the
+            // legacy even spacing; quantile / Jenks bin the vertex elevations).
+            std::vector<double> levels;
+            if (bandStyle) {
+                QVector<double> zSamples;
+                const auto m = bandStyle->scheme().method();
+                if (m == OpenSWMM::Render::BinMethod::Quantile
+                    || m == OpenSWMM::Render::BinMethod::NaturalBreaks
+                    || m == OpenSWMM::Render::BinMethod::StdDev) {
+                    zSamples.reserve(contourTris.size() * 3);
+                    for (const auto &t : contourTris) {
+                        zSamples.push_back(double(t.z0));
+                        zSamples.push_back(double(t.z1));
+                        zSamples.push_back(double(t.z2));
+                    }
+                }
+                const QVector<double> edges =
+                    bandStyle->scheme().levelEdges(zMin, zMax, zSamples);
+                levels.assign(edges.cbegin(), edges.cend());
+            } else {
+                levels = OpenSWMM::Contour::evenlySpacedLevelsInclusive(zMin, zMax, 9);
+            }
+            const int nBands = std::max(1, int(levels.size()) - 1);
+
             const auto extract = [](const SWMM2DMeshLayer::SceneTri &t,
                                     QPointF &p0, QPointF &p1, QPointF &p2,
                                     double  &v0, double  &v1, double  &v2) {
                 p0 = t.a; p1 = t.b; p2 = t.c;
                 v0 = t.z0; v1 = t.z1; v2 = t.z2;
             };
-            // At far zoom run marching-triangles over the coarse overview so
-            // enabling bands on a multi-million-triangle mesh stays affordable.
-            const auto &contourTris = useLod ? overview : tris;
             const auto bands = OpenSWMM::Contour::marchingTrianglesIsobands(
                 contourTris, levels, extract);
 
-            const double bandDenom = (nBands > 0) ? double(nBands) : 1.0;
             p->setPen(Qt::NoPen);
             for (const auto &bp : bands) {
                 if (bp.verts.size() < 3) continue;
-                const double tt = (double(bp.bandIndex) + 0.5) / bandDenom;
-                QColor col = smooth
-                    ? QColor::fromRgbF(lowC.redF()   * (1.0 - tt) + highC.redF()   * tt,
-                                       lowC.greenF() * (1.0 - tt) + highC.greenF() * tt,
-                                       lowC.blueF()  * (1.0 - tt) + highC.blueF()  * tt)
-                    : OpenSWMM::Contour::viridisAt(tt);
+                const int idx = std::min(bp.bandIndex, nBands - 1);
+                QColor col = bandStyle
+                    ? bandStyle->colorForBand(idx, nBands)
+                    : OpenSWMM::Contour::viridisAt((double(idx) + 0.5) / double(nBands));
                 col.setAlpha(bandAlpha);
                 p->setBrush(col);
                 QPolygonF poly;
@@ -392,19 +421,38 @@ public:
         // default; line colour / width / count come from IsolineStyle.
         if (hasElev && isoVisible) {
             const auto *isoStyle = isoSub->isolineStyle();
-            const int   nLevels  = isoStyle ? isoStyle->isoValueCount() : 8;
             const double widthPx = isoStyle ? isoStyle->lineWidthPx() : 1.0;
             const QColor lineCol = isoStyle ? isoStyle->color() : QColor(10, 10, 10, 220);
 
-            const auto levels = OpenSWMM::Contour::evenlySpacedLevels(
-                zMin, zMax, nLevels);
+            const auto &contourTris = useLod ? overview : tris;
+
+            // Slice US.3 — interior levels from the isoline ClassificationScheme.
+            std::vector<double> levels;
+            if (isoStyle) {
+                QVector<double> zSamples;
+                const auto m = isoStyle->scheme().method();
+                if (m == OpenSWMM::Render::BinMethod::Quantile
+                    || m == OpenSWMM::Render::BinMethod::NaturalBreaks
+                    || m == OpenSWMM::Render::BinMethod::StdDev) {
+                    zSamples.reserve(contourTris.size() * 3);
+                    for (const auto &t : contourTris) {
+                        zSamples.push_back(double(t.z0));
+                        zSamples.push_back(double(t.z1));
+                        zSamples.push_back(double(t.z2));
+                    }
+                }
+                const auto lv = isoStyle->levelsForRange(zMin, zMax, zSamples);
+                levels.assign(lv.cbegin(), lv.cend());
+            } else {
+                levels = OpenSWMM::Contour::evenlySpacedLevels(zMin, zMax, 8);
+            }
+
             const auto extract = [](const SWMM2DMeshLayer::SceneTri &t,
                                     QPointF &p0, QPointF &p1, QPointF &p2,
                                     double  &v0, double  &v1, double  &v2) {
                 p0 = t.a; p1 = t.b; p2 = t.c;
                 v0 = t.z0; v1 = t.z1; v2 = t.z2;
             };
-            const auto &contourTris = useLod ? overview : tris;
             const auto segs = OpenSWMM::Contour::marchingTriangles(
                 contourTris, levels, extract);
 
@@ -546,6 +594,14 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult     result,
         QStringLiteral("mesh.contourBands"), this);
     m_isolineSublayer     = new OpenSWMM::Render::IsolineSublayer(
         QStringLiteral("mesh.isolines"), this);
+
+    // Seed the fill style's hillshade strength so hillshadeZExag()
+    // (= strength × 10) defaults to 3.0 — the historic vertical-exaggeration
+    // constant the paint path used before it became theme-driven (Slice
+    // AC.4). Without this seed the sublayer default of 0.5 would render relief
+    // at zExag=5.0, diverging from the legacy appearance.
+    if (auto *fs = m_meshFillSublayer->fillStyle())
+        fs->setHillshadeStrength(0.3);
 
     // Bind contour/isoline attribute to elevation so the dialog shows a
     // meaningful default and the renderer pulls z values when iterating
@@ -1073,17 +1129,15 @@ int SWMM2DMeshLayer::pickEdgeAt(double sx, double sy,
 
 int SWMM2DMeshLayer::locateTriangleAt(double sx, double sy) const
 {
-    // Linear scan with bbox cull. Acceptable for the §V.VA cut; replace
-    // with a uniform grid index in §V.VG if hover lag (R-V2).
-    const int nt = m_sceneTris.size();
-    for (int t = 0; t < nt; ++t) {
+    // Bbox cull + barycentric point-in-triangle test for one triangle index.
+    auto hits = [&](int t) -> bool {
         const SceneTri &tri = m_sceneTris[t];
         const double minX = std::min({tri.a.x(), tri.b.x(), tri.c.x()});
         const double maxX = std::max({tri.a.x(), tri.b.x(), tri.c.x()});
-        if (sx < minX || sx > maxX) continue;
+        if (sx < minX || sx > maxX) return false;
         const double minY = std::min({tri.a.y(), tri.b.y(), tri.c.y()});
         const double maxY = std::max({tri.a.y(), tri.b.y(), tri.c.y()});
-        if (sy < minY || sy > maxY) continue;
+        if (sy < minY || sy > maxY) return false;
 
         // Barycentric in (sx,sy):
         const double v0x = tri.c.x() - tri.a.x(), v0y = tri.c.y() - tri.a.y();
@@ -1095,13 +1149,29 @@ int SWMM2DMeshLayer::locateTriangleAt(double sx, double sy) const
         const double d20 = v2x * v0x + v2y * v0y;
         const double d21 = v2x * v1x + v2y * v1y;
         const double denom = d00 * d11 - d01 * d01;
-        if (denom == 0.0) continue;
+        if (denom == 0.0) return false;
         const double u = (d11 * d20 - d01 * d21) / denom;
         const double v = (d00 * d21 - d01 * d20) / denom;
         const double w = 1.0 - u - v;
         // Tolerate tiny negative on the boundary.
-        if (u >= -1e-9 && v >= -1e-9 && w >= -1e-9) return t;
+        return (u >= -1e-9 && v >= -1e-9 && w >= -1e-9);
+    };
+
+    // Fast path: the spatial grid (already built for paint culling) narrows the
+    // search to the one cell containing the point — O(candidates) instead of a
+    // full O(n) scan. The containing triangle is guaranteed to be in that cell.
+    if (!m_triGrid.isEmpty()) {
+        const int *b = nullptr, *e = nullptr;
+        m_triGrid.candidatesAtPoint(sx, sy, b, e);
+        for (const int *p = b; p < e; ++p)
+            if (hits(*p)) return *p;
+        return -1;
     }
+
+    // Fallback: linear scan when the grid isn't built (e.g. degenerate mesh).
+    const int nt = m_sceneTris.size();
+    for (int t = 0; t < nt; ++t)
+        if (hits(t)) return t;
     return -1;
 }
 

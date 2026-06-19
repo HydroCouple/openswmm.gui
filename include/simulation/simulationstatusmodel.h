@@ -11,6 +11,7 @@
 #include <QDateTime>
 #include <QStringList>
 #include <QMap>
+#include <QtNumeric>
 
 class SWMMVisProjectWindow;  // Forward declaration
 
@@ -43,6 +44,7 @@ struct SimulationJobRecord {
     // pushed live during the run, not just at finish.
     double  runoffErrPct            = 0.0;
     double  routingErrPct           = 0.0;
+    double  twoDErrPct              = qQNaN(); ///< NaN = run has no 2D model
 
     int     errorCode               = 0;
     QString errorMessage;
@@ -77,8 +79,9 @@ struct SimulationJobRecord {
  *   3  Sim Time       decimal days (updated each step)
  *   4  Runoff Err     % (populated after finish)
  *   5  Routing Err    % (populated after finish)
- *   6  Duration       wall-clock seconds once finished
- *   7  Avg Timestep   running average engine step size (seconds)
+ *   6  2D Err         % ("—" when the run has no 2D model)
+ *   7  Duration       wall-clock seconds once finished
+ *   8  Avg Timestep   running average engine step size (seconds)
  *
  * Level-1 columns: Col 0 carries the warning text; others are empty.
  */
@@ -95,10 +98,11 @@ public:
     static constexpr int ColEndDate     = 5;
     static constexpr int ColRunoffErr   = 6;
     static constexpr int ColRoutingErr  = 7;
-    static constexpr int ColDuration     = 8;
-    static constexpr int ColAvgTimestep  = 9;
-    static constexpr int ColVersion      = 10;
-    static constexpr int NumColumns      = 11;
+    static constexpr int ColTwoDErr     = 8;
+    static constexpr int ColDuration     = 9;
+    static constexpr int ColAvgTimestep  = 10;
+    static constexpr int ColVersion      = 11;
+    static constexpr int NumColumns      = 12;
 
     explicit SimulationStatusModel(QObject *parent = nullptr);
 
@@ -122,12 +126,14 @@ public:
      * @brief Update progress for a running job.
      * @param runoffErrFrac   Live continuity error fraction (0.001 = 0.1 %).
      * @param routingErrFrac  Ditto for routing.
+     * @param twoDErrFrac     Ditto for the 2D surface; NaN = no 2D model.
      */
     void updateProgress(int jobId, double fraction,
                         const QDateTime &currentSimDate,
                         double runoffErrFrac = 0.0,
                         double routingErrFrac = 0.0,
-                        double avgTimestepSec = 0.0);
+                        double avgTimestepSec = 0.0,
+                        double twoDErrFrac = qQNaN());
 
     /** Set the engine-side simulation start / end dates for a job. */
     void setSimulationDates(int jobId,
@@ -141,9 +147,11 @@ public:
      * Mark a job finished.
      * @param runoffErrFrac   runoff continuity error fraction (e.g. 0.001 = 0.1 %)
      * @param routingErrFrac  routing continuity error fraction
+     * @param twoDErrFrac     2D surface continuity error fraction; NaN = no 2D model
      */
     void finishJob(int jobId, bool success, int errCode, const QString &errMsg,
-                   double runoffErrFrac, double routingErrFrac);
+                   double runoffErrFrac, double routingErrFrac,
+                   double twoDErrFrac = qQNaN());
 
     /** Return a copy of the record for the given job id, or nullptr if not found. */
     const SimulationJobRecord *jobRecord(int jobId) const;

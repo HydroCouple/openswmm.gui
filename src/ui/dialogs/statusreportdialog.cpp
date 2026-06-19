@@ -9,7 +9,9 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDebug>
 #include <QDialogButtonBox>
+#include <QFile>
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QHBoxLayout>
@@ -288,6 +290,27 @@ void StatusReportDialog::loadReport(int sourceIndex)
 
     QString err;
     const auto sections = openswmmvis::io::RptParser::parse(m_path, &err);
+
+    // Diagnostic for "report viewer truncates sections": pinpoint which layer
+    // drops content. Logs the on-disk file size/line count vs. the number of
+    // sections the parser produced. If file lines >> parsed coverage the parse
+    // dropped it; if the file itself is short the engine/run wrote a partial
+    // .rpt. populateText() logs the char count it hands the widget.
+    {
+        QFile f(m_path);
+        qint64 bytes = f.size();
+        int fileLines = 0;
+        if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            while (!f.atEnd()) { f.readLine(); ++fileLines; }
+            f.close();
+        }
+        qDebug().noquote()
+            << "[ReportViewer] load" << m_path
+            << "bytes=" << bytes << "fileLines=" << fileLines
+            << "sectionsParsed=" << sections.size()
+            << (err.isEmpty() ? QString() : QStringLiteral("parseErr=") + err);
+    }
+
     if (sections.isEmpty()) {
         QMessageBox::warning(this, tr("Couldn't parse .rpt"),
             tr("Could not read %1:\n%2").arg(m_path, err));
@@ -338,6 +361,12 @@ void StatusReportDialog::populateText(
     }
 
     m_viewer->setPlainText(full);
+
+    qDebug().noquote()
+        << "[ReportViewer] populated chars=" << full.length()
+        << "sections=" << sections.size()
+        << "viewerBlocks=" << m_viewer->document()->blockCount()
+        << "viewerChars=" << m_viewer->document()->characterCount();
 
     // Highlighter installed after text so the initial highlight applies.
     // Created once — it stays attached to the (persistent) document across

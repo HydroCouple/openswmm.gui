@@ -42,6 +42,11 @@
         <file alias="Style">images/style.svg</file>
         <file alias="Polygon">images/polygon.svg</file>
         <file alias="Profile">images/profile.svg</file>
+        <file alias="AddTimeSeries">images/add_timeseries.svg</file>
+        <file alias="AddCurve">images/add_curve.svg</file>
+        <file alias="AddPattern">images/add_pattern.svg</file>
+        <file alias="AddControlRule">images/add_control_rules.svg</file>
+        <file alias="AddTransect">images/add_transect.svg</file>
         <file alias="Node">images/node.svg</file>
         <file alias="Rainfall">images/rainfall.svg</file>
         <file alias="Sun">images/sun.svg</file>

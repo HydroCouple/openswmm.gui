@@ -199,7 +199,11 @@ void LegendLayerTreeModel::rebuildLayerCache()
             ItemRow ir;
             ir.classKey   = row.classKey;
             ir.label      = row.effectiveLabel();
-            ir.color      = firstSymbolColor(row.symbol);
+            // Rows with no symbol are sub-headers (kind / section titles) —
+            // leave the colour invalid so the delegate paints no chip
+            // instead of the gray fallback patch.
+            ir.color      = row.symbol.layers.isEmpty()
+                              ? QColor() : firstSymbolColor(row.symbol);
             ir.visible    = row.visible;
             ir.sublayerId = row.sublayerId;   // Slice S4 P5
             if (renderer && !row.classKey.isEmpty()) {

@@ -78,6 +78,13 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
     if (property == QLatin1String("outfallTidalCurve")) return tr("Tidal Curve");
     if (property == QLatin1String("outfallTimeseries")) return tr("Stage Time Series");
 
+    // Slice AG.4 — storage geometry rows.
+    if (property == QLatin1String("storageShape"))   return tr("Storage Shape");
+    if (property == QLatin1String("storageCurve"))   return tr("Storage Curve");
+    if (property == QLatin1String("storageCoeffA"))  return tr("Functional Coeff. (A)");
+    if (property == QLatin1String("storageExpB"))    return tr("Functional Exponent (B)");
+    if (property == QLatin1String("storageConstC"))  return tr("Functional Constant (C) (%1)").arg(L2);
+
     // Divider.
     if (property == QLatin1String("dividerType"))     return tr("Divider Type");
 
@@ -524,5 +531,139 @@ void SWMMNodePropertyAdapter::setOutfallTimeseriesRef(const DataObjectRef &r) {
     const int tsIdx = swmm_table_index(m_engine, r.currentName.toUtf8().constData());
     if (tsIdx < 0) return;
     if (swmm_node_set_outfall_timeseries(m_engine, idx, tsIdx) == SWMM_OK)
+        emit changed();
+}
+
+// ---------------------------------------------------------------------------
+// Slice AG.4 — storage-unit geometry accessors
+// ---------------------------------------------------------------------------
+//
+// The engine keeps the functional power-law coefficients (A, B, C) and the
+// tabular curve index in independent storage slots. A node is TABULAR when a
+// curve is assigned (storage_curve >= 0) and FUNCTIONAL otherwise — there is
+// no separate "shape" flag, so storageShape() derives it from the curve index.
+
+SWMMNodePropertyAdapter::StorageShape SWMMNodePropertyAdapter::storageShape() const {
+    const int idx = nodeIdx();
+    if (idx < 0) return Functional;
+    int curveIdx = -1;
+    if (swmm_node_get_storage_curve(m_engine, idx, &curveIdx) != SWMM_OK)
+        return Functional;
+    return (curveIdx >= 0) ? Tabular : Functional;
+}
+
+DataObjectRef SWMMNodePropertyAdapter::storageCurveRef() const {
+    DataObjectRef r;
+    r.engine = m_engine;
+    r.layer  = m_layer;
+    r.kind   = DataObjectRef::StorageCurve;
+    const int idx = nodeIdx();
+    if (idx >= 0) {
+        int curveIdx = -1;
+        if (swmm_node_get_storage_curve(m_engine, idx, &curveIdx) == SWMM_OK
+            && curveIdx >= 0) {
+            if (const char *id = swmm_table_id(m_engine, curveIdx))
+                r.currentName = QString::fromUtf8(id);
+        }
+    }
+    return r;
+}
+
+// Functional coefficients — the engine exposes them only as an atomic
+// (A, B, C) triple, so each getter reads the triple and returns one term.
+double SWMMNodePropertyAdapter::storageCoeffA() const {
+    const int idx = nodeIdx();
+    if (idx < 0) return 0.0;
+    double a = 0.0, b = 0.0, c = 0.0;
+    swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);
+    return a;
+}
+
+double SWMMNodePropertyAdapter::storageExpB() const {
+    const int idx = nodeIdx();
+    if (idx < 0) return 0.0;
+    double a = 0.0, b = 0.0, c = 0.0;
+    swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);
+    return b;
+}
+
+double SWMMNodePropertyAdapter::storageConstC() const {
+    const int idx = nodeIdx();
+    if (idx < 0) return 0.0;
+    double a = 0.0, b = 0.0, c = 0.0;
+    swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);
+    return c;
+}
+
+void SWMMNodePropertyAdapter::setStorageShape(StorageShape v) {
+    const int idx = nodeIdx();
+    if (idx < 0) return;
+    if (v == Functional) {
+        // Detach any tabular curve → engine treats curve_idx < 0 as functional.
+        if (swmm_node_set_storage_curve(m_engine, idx, -1) == SWMM_OK)
+            emit changed();
+        return;
+    }
+    // Tabular — keep the current curve if one is already assigned.
+    int curveIdx = -1;
+    swmm_node_get_storage_curve(m_engine, idx, &curveIdx);
+    if (curveIdx >= 0) { emit changed(); return; }
+    // Otherwise assign the first [STORAGE]-type curve (table type 1) in the
+    // model. If none exist the switch can't complete; re-read leaves the row
+    // FUNCTIONAL so the combobox snaps back — the user must create a curve
+    // first (via the "…" picker).
+    const int n = swmm_table_count(m_engine);
+    for (int i = 0; i < n; ++i) {
+        int t = -1;
+        if (swmm_table_get_type(m_engine, i, &t) == SWMM_OK && t == 1) {
+            if (swmm_node_set_storage_curve(m_engine, idx, i) == SWMM_OK)
+                emit changed();
+            return;
+        }
+    }
+    emit changed();
+}
+
+void SWMMNodePropertyAdapter::setStorageCurveRef(const DataObjectRef &r) {
+    const int idx = nodeIdx();
+    if (idx < 0) return;
+    if (r.currentName.isEmpty()) {
+        // Clearing the curve reverts the node to the functional form.
+        if (swmm_node_set_storage_curve(m_engine, idx, -1) == SWMM_OK)
+            emit changed();
+        return;
+    }
+    const int curveIdx = swmm_table_index(m_engine, r.currentName.toUtf8().constData());
+    if (curveIdx < 0) return;
+    if (swmm_node_set_storage_curve(m_engine, idx, curveIdx) == SWMM_OK)
+        emit changed();
+}
+
+// Coefficient setters — read-modify-write the atomic (A, B, C) triple so one
+// row edits a single term without clobbering the others.
+void SWMMNodePropertyAdapter::setStorageCoeffA(double v) {
+    const int idx = nodeIdx();
+    if (idx < 0) return;
+    double a = 0.0, b = 0.0, c = 0.0;
+    swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);
+    if (swmm_node_set_storage_functional(m_engine, idx, v, b, c) == SWMM_OK)
+        emit changed();
+}
+
+void SWMMNodePropertyAdapter::setStorageExpB(double v) {
+    const int idx = nodeIdx();
+    if (idx < 0) return;
+    double a = 0.0, b = 0.0, c = 0.0;
+    swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);
+    if (swmm_node_set_storage_functional(m_engine, idx, a, v, c) == SWMM_OK)
+        emit changed();
+}
+
+void SWMMNodePropertyAdapter::setStorageConstC(double v) {
+    const int idx = nodeIdx();
+    if (idx < 0) return;
+    double a = 0.0, b = 0.0, c = 0.0;
+    swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);
+    if (swmm_node_set_storage_functional(m_engine, idx, a, b, v) == SWMM_OK)
         emit changed();
 }

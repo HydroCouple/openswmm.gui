@@ -25,6 +25,7 @@
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "layers/swmm2dresultslayer.h"
+#include "layers/swmm2dmeshlayer.h"
 #include "ui/dialogs/swmm2dresultsstylepanel.h"
 #include "layers/wcslayer.h"
 #include "layers/wmslayer.h"
@@ -209,6 +210,45 @@ QWidget *buildSubjectEditor(QObject *propertyObject, QWidget *parent)
     for (const QString &g : names)
         innerTabs->addTab(makeGroupView(pm, groups.value(g), innerTabs), g);
     return innerTabs;
+}
+
+/*! Build a tabbed panel from a layer's styleSubjects(): each section-less
+ *  subject becomes a top-level tab; subjects sharing a non-empty section()
+ *  are grouped under one outer tab holding an inner QTabWidget. Tab tooltips
+ *  carry each subject's routingId() so focusInitialSubject() can navigate to
+ *  the right tab. Used for layers (e.g. SWMM2DMeshLayer) whose styling lives
+ *  on styleSubjects()/StyleEditorRegistry rather than a single renderer. */
+QWidget *buildSubjectsPanel(
+    const std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>> &subjects,
+    QWidget *parent)
+{
+    auto *tabs = new QTabWidget(parent);
+    QTabWidget *sectionTabs = nullptr;     // lazily created for the first section
+    QHash<QString, QTabWidget *> sections; // section name → inner tab widget
+
+    for (const auto &subj : subjects) {
+        if (!subj || !subj->propertyObject()) continue;
+        QWidget *editor = buildSubjectEditor(subj->propertyObject(), tabs);
+        const QString sect = subj->section();
+        if (sect.isEmpty()) {
+            const int idx = tabs->addTab(editor, subj->title());
+            tabs->setTabToolTip(idx, subj->routingId());
+        } else {
+            QTabWidget *&inner = sectionTabs;
+            auto it = sections.find(sect);
+            if (it == sections.end()) {
+                inner = new QTabWidget(tabs);
+                inner->setTabPosition(QTabWidget::West);
+                sections.insert(sect, inner);
+                tabs->addTab(inner, sect);
+            } else {
+                inner = it.value();
+            }
+            const int idx = inner->addTab(editor, subj->title());
+            inner->setTabToolTip(idx, subj->routingId());
+        }
+    }
+    return tabs;
 }
 
 const char *layerTypeLabel(int t)
@@ -542,6 +582,15 @@ void LayerStyleDialog::buildSymbologyTab()
         // colour/shape styling stays on the layer-tree sub-rows.
         auto *panel = new Swmm2DResultsStylePanel(r2d, page);
         root->addWidget(panel, 1);
+    } else if (qobject_cast<SWMM2DMeshLayer *>(m_layer.data())) {
+        // The 2D mesh layer's terrain styling (hillshade light + relief,
+        // bed-elevation contours, and per-sublayer fill/edge/node styles)
+        // lives on styleSubjects() + the StyleEditorRegistry
+        // (MeshHillshadeEditor), NOT on a single renderer — so the generic
+        // SymbologyTab below would show none of it. Build the subjects panel:
+        // a "Mesh / TIN" tab (hillshade + contour controls) plus a
+        // "Sublayers" group with each sublayer style.
+        root->addWidget(buildSubjectsPanel(m_subjects, page), 1);
     } else if (qobject_cast<GISVectorLayer *>(m_layer.data())) {
         // G-1/G-2 — GIS vector uses its purpose-built tabbed editor
         // (Marker / Line / Polygon / Labels). It writes the GISVectorSymbol

@@ -6,6 +6,7 @@
  */
 #include "ui/dialogs/curveeditordialog.h"
 
+#include "core/preferencesmanager.h"
 #include "curve/curveprovider.h"
 #include "curve/curveregistry.h"
 #include "ui/panels/curvepointtablemodel.h"
@@ -351,8 +352,9 @@ void CurveEditorDialog::buildUi_()
 
         m_xAxis = new QValueAxis(m_chart);
         m_yAxis = new QValueAxis(m_chart);
-        m_xAxis->setLabelFormat(QStringLiteral("%.3g"));
-        m_yAxis->setLabelFormat(QStringLiteral("%.3g"));
+        auto *prefs = PreferencesManager::instance();
+        m_xAxis->setLabelFormat(prefs->plotXAxisFormat().printfSpec());
+        m_yAxis->setLabelFormat(prefs->plotYAxisFormat().printfSpec());
         m_chart->addAxis(m_xAxis, Qt::AlignBottom);
         m_chart->addAxis(m_yAxis, Qt::AlignLeft);
         m_line->attachAxis(m_xAxis);    m_line->attachAxis(m_yAxis);

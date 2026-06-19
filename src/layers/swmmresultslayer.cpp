@@ -619,6 +619,22 @@ int SWMMResultsLayer::periodIndexForDateTime(const QDateTime &dt) const
     return period;
 }
 
+int SWMMResultsLayer::periodIndexForDateTimeAsOf(const QDateTime &dt) const
+{
+    // Causal floor: the latest report step at or before dt. A small epsilon
+    // absorbs sub-step rounding so an exact-grid time lands on its own step
+    // rather than the previous one.
+    if (m_totalSteps <= 0 || m_reportStepSec <= 0 || !m_startDateTime.isValid())
+        return 0;
+    const qint64 offsetMs = m_startDateTime.msecsTo(dt);
+    const double periodF  = static_cast<double>(offsetMs)
+                              / (static_cast<double>(m_reportStepSec) * 1000.0);
+    int period = static_cast<int>(std::floor(periodF + 1e-6));
+    if (period < 0)              period = 0;
+    if (period >= m_totalSteps)  period = m_totalSteps - 1;
+    return period;
+}
+
 SWMM_Output SWMMResultsLayer::outputHandle() const
 {
     return m_handle;
@@ -1322,23 +1338,21 @@ SWMMResultsLayer::sublayerLegendItems()
         }
 
         if (!rendererDrove) {
-            // Header row — labelled with the kind + attribute (or kind alone
-            // when the sublayer paints a single symbol).
-            LegendSymbolItem header;
-            header.label = useRamp && haveData
-                             ? QStringLiteral("%1 — %2").arg(sub->displayName(), attribute)
-                             : sub->displayName();
-            header.sublayerId = sublayerId;
-            out.append(header);
-
             if (useRamp && haveData) {
+                // Header row (text-only) + graduated swatch rows below.
+                LegendSymbolItem header;
+                header.label = QStringLiteral("%1 — %2")
+                                   .arg(sub->displayName(), attribute);
+                header.sublayerId = sublayerId;
+                out.append(header);
                 appendRampRows(sublayerId, attribute, range, swatchKind, swatchSize);
             } else {
-                // Single-symbol row for static / no-attribute sublayers.
+                // No graduated colours — ONE row: the kind label carrying
+                // the feature's own colour as its swatch (a separate
+                // colour-named row under a patch-less header read as
+                // noise; the patch belongs on the label here).
                 LegendSymbolItem item;
-                item.label      = singleCol.isValid()
-                                    ? singleCol.name(QColor::HexArgb)
-                                    : QStringLiteral("single symbol");
+                item.label      = sub->displayName();
                 item.sublayerId = sublayerId;
                 SymbolLayer sl;
                 sl.kind = swatchKind;
@@ -1647,6 +1661,15 @@ void SWMMResultsLayer::setKindRenderer(
     // override cache for that kind; rebuild immediately so the next
     // paint hits the new colors without an extra animation tick.
     rebuildKindFeatureOverrides(c);
+
+    // Keep the lazily-built Rule mirror in sync (two-way). The mirror is
+    // what the symbology dialog's kind editors read (ctx.rule path); a
+    // stale one-time clone meant selecting a kind showed the renderer
+    // state captured when the rule list was FIRST built, not the current
+    // style.
+    if (!m_ruleKindSyncGuard)
+        refreshRuleMirror(c);
+
     // Slice §Y.2 — renderer swap can flip size / shape / width / dash
     // overrides too (X.15 / X.20), which changes item geometry. Force
     // structural rebuild rather than restyle.
@@ -1706,8 +1729,14 @@ void SWMMResultsLayer::buildRuleListLazy() const
         // override caches (see plan §4.5).
         QObject::connect(rule, &OpenSWMM::Render::Rule::rendererReplaced,
                          self, [self, c, rule]() {
-            if (auto *r = rule->renderer())
+            if (auto *r = rule->renderer()) {
+                // Guard so setKindRenderer's mirror-refresh doesn't bounce
+                // straight back into this Rule (it already holds the new
+                // renderer — that's what fired this signal).
+                self->m_ruleKindSyncGuard = true;
                 self->setKindRenderer(c, r->clone());
+                self->m_ruleKindSyncGuard = false;
+            }
 
             // Slice SS.5 — back-propagate to the per-category
             // FeatureSublayerStyle. Marker / Line / Polygon archetypes
@@ -1929,6 +1958,26 @@ void SWMMResultsLayer::rebinDynamicRulesIfNeeded()
 void SWMMResultsLayer::resetKindRendererToDefaults(SWMMModelLayer::Category c)
 {
     setKindRenderer(c, makeDefaultKindRenderer(c));
+}
+
+void SWMMResultsLayer::refreshRuleMirror(SWMMModelLayer::Category c)
+{
+    // Re-clone the live kind renderer into the lazily-built Rule mirror so
+    // dialog editors (which read ctx.rule) see the CURRENT state — kind
+    // renderers are also mutated in place (setVariable retargeting,
+    // run-range re-classification, per-frame rebin), which the
+    // setKindRenderer hook alone cannot observe. Signals are blocked: the
+    // rule's content is being made equal to the source of truth, so no
+    // back-propagation must fire.
+    const int i = static_cast<int>(c);
+    if (!m_ruleList || i < 0
+        || i >= static_cast<int>(m_kindRenderers.size())
+        || !m_kindRenderers[static_cast<size_t>(i)])
+        return;
+    if (auto *rule = m_ruleList->at(i)) {
+        QSignalBlocker block(rule);
+        rule->setRenderer(m_kindRenderers[static_cast<size_t>(i)]->clone());
+    }
 }
 
 void SWMMResultsLayer::reclassifyKindsForResolvedRange(int scope, int outCode)
@@ -2376,10 +2425,28 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
             ? m_colorRamp.colorForValue(value)
             : QColor();
         m_kindFeatureColors[idx][row] = extractStyleColor(style, rampCol);
-        m_kindFeatureSizes [idx][row] = extractStyleSize(style);
-        m_kindFeatureWidths[idx][row] = extractStyleWidth(style);
-        m_kindFeatureShapes[idx][row] = extractStyleShape(style);
-        m_kindFeatureDashes[idx][row] = extractStyleDash(style);
+
+        // A Graduated renderer drives geometry ONLY through its explicit
+        // output axes. Its base symbol is an archetype skeleton (gap A1.3)
+        // whose size/width/shape/dash are placeholders, NOT user intent —
+        // caching them here would shadow the sublayer style's knobs
+        // (markerSizePx / lineWidthPx / shape / dashPattern), which is
+        // exactly the "changing conduit thickness does nothing" bug.
+        // SingleSymbol / Categorized symbols are user-authored, so their
+        // geometry props remain authoritative.
+        if (auto *gKr = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr)) {
+            m_kindFeatureSizes [idx][row] =
+                gKr->outputSizeEnabled()  ? extractStyleSize(style)  : -1.0;
+            m_kindFeatureWidths[idx][row] =
+                gKr->outputWidthEnabled() ? extractStyleWidth(style) : -1.0;
+            m_kindFeatureShapes[idx][row] = -1;
+            m_kindFeatureDashes[idx][row] = -1;
+        } else {
+            m_kindFeatureSizes [idx][row] = extractStyleSize(style);
+            m_kindFeatureWidths[idx][row] = extractStyleWidth(style);
+            m_kindFeatureShapes[idx][row] = extractStyleShape(style);
+            m_kindFeatureDashes[idx][row] = extractStyleDash(style);
+        }
     }
 
     m_kindUsesOverrides[idx] = true;

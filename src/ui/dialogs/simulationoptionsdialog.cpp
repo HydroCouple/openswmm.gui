@@ -110,6 +110,34 @@ SimulationOptionsDialog::SimulationOptionsDialog(SWMM_Engine engine,
 // Engine constraints
 // ---------------------------------------------------------------------------
 
+namespace {
+
+/*!
+ * \brief True when the .inp already carries 2D content.
+ *
+ * The engine activates the 2D solver from the presence of mesh sections,
+ * not from any module key — so a file with [2D_OPTIONS] / [2D_VERTICES] /
+ * [2D_TRIANGLES] / [2D_MESH_FILE] has the module enabled by construction.
+ * Used as the module-checkbox default when the per-project QSettings flag
+ * has never been written (pre-built demos, files authored outside this
+ * GUI's mesh-generation flow).
+ */
+bool inpCarries2DSections(const QString &inpPath)
+{
+    if (inpPath.isEmpty()) return false;
+    QFile f(inpPath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
+    const QString text = QString::fromUtf8(f.readAll());
+    for (const auto *sect : { "[2D_OPTIONS]", "[2D_VERTICES]",
+                              "[2D_TRIANGLES]", "[2D_MESH_FILE]" }) {
+        if (text.indexOf(QLatin1String(sect), 0, Qt::CaseInsensitive) >= 0)
+            return true;
+    }
+    return false;
+}
+
+} // namespace
+
 /*!
  * Disables widgets / tabs that the currently-selected engine does not support.
  *
@@ -1235,9 +1263,10 @@ void SimulationOptionsDialog::build2DTab(QTabWidget *tabs)
     solverForm->addRow(tr("Solver:"), m_linearSolverCombo);
 
     m_preconditionerCombo = new QComboBox(solverGroup);
-    m_preconditionerCombo->addItem(tr("None"),   QStringLiteral("NONE"));
-    m_preconditionerCombo->addItem(tr("Jacobi"), QStringLiteral("JACOBI"));
-    m_preconditionerCombo->addItem(tr("ILU"),    QStringLiteral("ILU"));
+    m_preconditionerCombo->addItem(tr("None"),            QStringLiteral("NONE"));
+    m_preconditionerCombo->addItem(tr("Jacobi"),          QStringLiteral("JACOBI"));
+    m_preconditionerCombo->addItem(tr("ILU"),             QStringLiteral("ILU"));
+    m_preconditionerCombo->addItem(tr("AMG (BoomerAMG)"), QStringLiteral("AMG"));
     solverForm->addRow(tr("Preconditioner:"), m_preconditionerCombo);
 
     m_maxKrylovDimSpin = new QSpinBox(solverGroup);
@@ -1280,7 +1309,7 @@ void SimulationOptionsDialog::read2DFromEngine()
         if (idx >= 0) c->setCurrentIndex(idx);
     };
     selectComboByData(m_linearSolverCombo,   getExt("LINEAR_SOLVER",   "GMRES"));
-    selectComboByData(m_preconditionerCombo, getExt("PRECONDITIONER",  "JACOBI"));
+    selectComboByData(m_preconditionerCombo, getExt("PRECONDITIONER",  "AMG"));
     m_maxKrylovDimSpin->setValue(getExt("MAX_KRYLOV_DIM", "30").toInt(&ok));
     m_report2DBox->setChecked(parseEngineBool(getExt("REPORT_2D", "NO")) == Qt::Checked);
 }
@@ -2057,14 +2086,18 @@ void SimulationOptionsDialog::readFromEngine()
     // ---- 2D module toggle (Tab 1 → Modules group) ----------------------
     // Persisted per-.inp under QSettings since the engine has no native
     // option for "module enabled" — module activation is implicit in the
-    // presence of [2D_VERTICES]/[2D_TRIANGLES] sections. Default OFF when
-    // there's no stored preference (matches a fresh project's blank .inp).
+    // presence of [2D_VERTICES]/[2D_TRIANGLES] sections. When there's no
+    // stored preference the default is inferred from the .inp itself: a
+    // file that already carries 2D sections (pre-built demos, externally
+    // authored models) shows the module ON; a fresh blank .inp shows OFF.
     if (m_module2DBox && m_layer)
     {
         QSettings s;
         const QString key = QStringLiteral("SWMMVis/Project/%1/Module2DEnabled")
                                 .arg(m_layer->modelFilePath());
-        const bool enabled = s.value(key, false).toBool();
+        const bool enabled = s.contains(key)
+            ? s.value(key).toBool()
+            : inpCarries2DSections(m_layer->modelFilePath());
         QSignalBlocker blk(m_module2DBox);  // avoid wiring through on2DModuleToggled twice
         m_module2DBox->setChecked(enabled);
         on2DModuleToggled(enabled);  // explicit: sync tab-enabled state.
