@@ -518,6 +518,12 @@ add_swmmvis_gui_test(test_featuresublayer
 # SymbolStyle dependency set as the 1D sublayer tests.
 add_swmmvis_gui_test(test_2d_sublayers
     test_2d_sublayers.cpp
+    # Sublayer styles classify scalar fields through ClassificationScheme,
+    # which serialises its bins via IntervalBinner.
+    ${CMAKE_SOURCE_DIR}/src/render/classificationscheme.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/classificationscheme.h
+    ${CMAKE_SOURCE_DIR}/src/render/intervalbinner.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/intervalbinner.h
     ${CMAKE_SOURCE_DIR}/src/render/symbollayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/symbolstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/render/legendsymbolitem.cpp
@@ -586,6 +592,11 @@ add_swmmvis_gui_test(test_comparisonplot_toolbar
     test_comparisonplot_toolbar.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/interactivechartview.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/widgets/interactivechartview.h
+    # InteractiveChartView formats axis labels via PreferencesManager + NumberFormat.
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_comparisonplot_toolbar PRIVATE Qt6::Charts)
 
@@ -603,6 +614,11 @@ add_swmmvis_gui_test(test_timeseries_edit_chart_view
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/timeserieseditchartview.cpp
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesprovider.cpp
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesundocommands.cpp
+    # Axis labels go through PreferencesManager + NumberFormat.
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_timeseries_edit_chart_view PRIVATE Qt6::Charts)
 
@@ -629,6 +645,14 @@ add_swmmvis_gui_test(test_timeseries_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesundocommands.cpp
     ${CMAKE_SOURCE_DIR}/src/io/timeseriesparse.cpp
+    # Axis labels: PreferencesManager + NumberFormat; geometry persistence:
+    # DialogLayoutPersistence (applyAlwaysOnTopPolicy / save+restoreDialogLayout).
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialoglayoutpersistence.h
 )
 target_link_libraries(test_timeseries_editor_dialog PRIVATE Qt6::Charts)
 
@@ -656,6 +680,13 @@ add_swmmvis_gui_test(test_objectbrowser_add_new_dispatch
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesundocommands.cpp
     ${CMAKE_SOURCE_DIR}/src/io/timeseriesparse.cpp
+    # Same TimeseriesEditorDialog transitive deps as test_timeseries_editor_dialog.
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialoglayoutpersistence.h
 )
 target_link_libraries(test_objectbrowser_add_new_dispatch PRIVATE Qt6::Charts)
 
@@ -674,6 +705,17 @@ add_swmmvis_gui_test(test_pattern_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/ui/panels/patternfactortablemodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/patterneditordialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/interactivechartview.cpp
+    # PatternEditorDialog hosts a PatternEditChartView (complete type needed for
+    # chartView()->grab() in the test, and its impl for linking; it pushes
+    # pattern undo commands and formats axes via PreferencesManager + NumberFormat).
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/patterneditchartview.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/patterneditchartview.h
+    ${CMAKE_SOURCE_DIR}/src/pattern/patternundocommands.cpp
+    ${CMAKE_SOURCE_DIR}/include/pattern/patternundocommands.h
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_pattern_editor_dialog PRIVATE Qt6::Charts Qt6::Svg)
 
@@ -691,6 +733,16 @@ add_swmmvis_gui_test(test_curve_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/ui/panels/curvepointtablemodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/curveeditordialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/interactivechartview.cpp
+    # CurveEditorDialog hosts a CurveEditChartView (which pushes curve undo
+    # commands); axis labels via PreferencesManager + NumberFormat.
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/curveeditchartview.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/curveeditchartview.h
+    ${CMAKE_SOURCE_DIR}/src/curve/curveundocommands.cpp
+    ${CMAKE_SOURCE_DIR}/include/curve/curveundocommands.h
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_curve_editor_dialog PRIVATE Qt6::Charts)
 
@@ -716,6 +768,11 @@ add_swmmvis_gui_test(test_transect_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/transectchartview.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/transectpropertybag.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/transecteditordialog.cpp
+    # Chart axis labels via PreferencesManager + NumberFormat.
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_transect_editor_dialog PRIVATE
     Qt6::Charts
@@ -801,6 +858,11 @@ add_swmmvis_gui_test(test_comparisonplot_chartproperties
     test_comparisonplot_chartproperties.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/chartproperties.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/chartproperties.h
+    # ChartProperties reads axis defaults from PreferencesManager + NumberFormat.
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_comparisonplot_chartproperties PRIVATE Qt6::Charts)
 
@@ -812,6 +874,9 @@ add_swmmvis_gui_test(test_seriesstyleobject
     ${CMAKE_SOURCE_DIR}/src/plot/seriesstyleobject.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/seriesstyle.h
     ${CMAKE_SOURCE_DIR}/include/plot/seriesstyleobject.h
+    # SeriesStyle label formatting uses NumberFormat::printfSpec().
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 target_link_libraries(test_seriesstyleobject PRIVATE Qt6::Charts)
 
@@ -973,6 +1038,15 @@ add_swmmvis_gui_test(test_subcatchpropertyadapter
     ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/properties/swmmsubcatchpropertyadapter.h
     ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
+    # The adapter's row builder references the USER_FLAGS surface
+    # (userFlagsSummaryFor + SWMMModelLayer::ensureUserFlagsModel). Pull in the
+    # two small real helpers; resolve the heavy layer method with a link stub
+    # rather than the ~5000-line swmmmodellayer.cpp (the tag test has no layer).
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/userflagseditref.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/userflagseditref.h
+    ${CMAKE_SOURCE_DIR}/src/ui/models/userflagsmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/models/userflagsmodel.h
+    swmmmodellayer_userflags_linkstub.cpp
 )
 
 # Slice BC, Phase 8.7.2 — pins the engine-ABI contract that
