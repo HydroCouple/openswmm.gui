@@ -344,6 +344,25 @@ void appendThickSegmentColored(std::vector<QSGGeometry::ColoredPoint2D> &out,
     out.push_back(v(ax+nx,ay+ny)); out.push_back(v(bx+nx,by+ny)); out.push_back(v(ax-nx,ay-ny));
     out.push_back(v(bx+nx,by+ny)); out.push_back(v(bx-nx,by-ny)); out.push_back(v(ax-nx,ay-ny));
 }
+// Emit a dashed line as a run of thick quads (QSG has no native dash on a
+// flat-colour material, so we tessellate). dash_on / dash_off are in the same
+// (scene) units as the endpoints — callers scale pixel sizes by invView. This
+// revives the subcatchment centroid→outlet connector that the CPU painter drew
+// with a cosmetic Qt::DashLine pen before subcatchments moved to the QSG path.
+void appendDashedThickLine(std::vector<QSGGeometry::Point2D> &out,
+                           float ax, float ay, float bx, float by,
+                           float hw, float dash_on, float dash_off)
+{
+    const float dx=bx-ax, dy=by-ay, len=std::sqrt(dx*dx+dy*dy);
+    if (len < 1e-9f) return;
+    const float ux=dx/len, uy=dy/len;
+    const float period = dash_on + dash_off;
+    if (period <= 1e-9f) { appendThickSegment(out,ax,ay,bx,by,hw); return; }
+    for (float s = 0.0f; s < len; s += period) {
+        const float e = std::min(s + dash_on, len);
+        appendThickSegment(out, ax+ux*s, ay+uy*s, ax+ux*e, ay+uy*e, hw);
+    }
+}
 
 // Round-join / round-cap disc emitted as a triangle-fan-as-list (the link
 // nodes are DrawTriangles). The thick-segment quads above have flat ends, so
@@ -683,6 +702,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
     auto *root = static_cast<QSGTransformNode *>(oldNode);
     QSGGeometryNode *catchFill=nullptr, *catchSelFill=nullptr;
     QSGGeometryNode *catchEdge=nullptr, *catchSelEdge=nullptr;
+    QSGGeometryNode *catchOutletLines=nullptr, *catchOutletLinesSel=nullptr;
     QSGGeometryNode *junctionsBase=nullptr, *outfallsBase=nullptr;
     QSGGeometryNode *storageBase=nullptr,  *dividersBase=nullptr;
     QSGGeometryNode *gagesBase=nullptr;
@@ -708,6 +728,11 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         catchSelFill  = makeFlatColorNode(QSGGeometry::DrawTriangles, selPolyFill);
         catchEdge     = makeFlatColorNode(QSGGeometry::DrawLines,     m_layer->subcatchmentSymbol().outlineColor, 1.0f);
         catchSelEdge  = makeFlatColorNode(QSGGeometry::DrawTriangles, selPoly);
+        // Subcatchment centroid→outlet connector lines (dashed, tessellated as
+        // thick quads). Base grey + a bolder orange highlight for the selected
+        // subcatchment, mirroring the old CPU painter pens.
+        catchOutletLines    = makeFlatColorNode(QSGGeometry::DrawTriangles, QColor(110,110,110,200));
+        catchOutletLinesSel = makeFlatColorNode(QSGGeometry::DrawTriangles, QColor(255,140,0,230));
         // §QSG-3 — vertex-coloured base node buckets. Per-vertex colour
         // lets each glyph carry its own colour: kind's fillColor for
         // unselected nodes, selection brush colour for selected nodes,
@@ -753,6 +778,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         // standard GIS Z-order bug. The order below matches QGIS /
         // ArcMap conventions for point-over-line.
         for (auto *n : {catchFill, catchSelFill, catchEdge, catchSelEdge,
+                        catchOutletLines, catchOutletLinesSel,
                         lines, linesSel,
                         junctionsBase, outfallsBase, storageBase, dividersBase,
                         gagesBase,
@@ -760,10 +786,12 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             root->appendChildNode(n);
     } else {
         auto *c = root->firstChild();
-        catchFill     = static_cast<QSGGeometryNode*>(c); c=c->nextSibling();
-        catchSelFill  = static_cast<QSGGeometryNode*>(c); c=c->nextSibling();
-        catchEdge     = static_cast<QSGGeometryNode*>(c); c=c->nextSibling();
-        catchSelEdge  = static_cast<QSGGeometryNode*>(c); c=c->nextSibling();
+        catchFill          = static_cast<QSGGeometryNode*>(c); c=c->nextSibling();
+        catchSelFill       = static_cast<QSGGeometryNode*>(c); c=c->nextSibling();
+        catchEdge          = static_cast<QSGGeometryNode*>(c); c=c->nextSibling();
+        catchSelEdge       = static_cast<QSGGeometryNode*>(c); c=c->nextSibling();
+        catchOutletLines   = static_cast<QSGGeometryNode*>(c); c=c->nextSibling();
+        catchOutletLinesSel= static_cast<QSGGeometryNode*>(c); c=c->nextSibling();
         lines         = static_cast<QSGGeometryNode*>(c); c=c->nextSibling();
         linesSel      = static_cast<QSGGeometryNode*>(c); c=c->nextSibling();
         junctionsBase = static_cast<QSGGeometryNode*>(c); c=c->nextSibling();
@@ -942,6 +970,35 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             uploadVerts(catchSelFill, fillSel);
             uploadVerts(catchEdge,    edgeBase);
             uploadVerts(catchSelEdge, edgeSelTris);
+
+            // Centroid→outlet connector lines (dashed). Built from the
+            // layer-maintained scene-space lines; selected subcatchments get a
+            // bolder orange dash so the user can trace where runoff drains.
+            std::vector<QSGGeometry::Point2D> olBase, olSel;
+            const float olDashOn  = 6.0f * invView;
+            const float olDashOff = 4.0f * invView;
+            const float olHwBase  = 0.75f * invView;
+            const float olHwSel   = 1.0f  * invView;
+            for (const auto &ol : m_layer->m_catchOutletLines) {
+                const int ci = ol.catchIdx;
+                if (size_t(ci) < cHid.size() && cHid[ci]) continue;
+                // Cull in raw scene coords (cullX0.. are scene-space, matching
+                // the polygon/glyph cull above); offset is subtracted only when
+                // the geometry vertices are emitted.
+                const double rx1=ol.line.p1().x(), ry1=ol.line.p1().y();
+                const double rx2=ol.line.p2().x(), ry2=ol.line.p2().y();
+                if (std::max(rx1,rx2)<cullX0 || std::min(rx1,rx2)>cullX1 ||
+                    std::max(ry1,ry2)<cullY0 || std::min(ry1,ry2)>cullY1) continue;
+                const float ax=float(rx1-ox), ay=float(ry1-oy);
+                const float bx=float(rx2-ox), by=float(ry2-oy);
+                const bool sel = size_t(ci)<cSel.size() && cSel[ci];
+                if (sel)
+                    appendDashedThickLine(olSel,  ax,ay,bx,by, olHwSel,  olDashOn, olDashOff);
+                else
+                    appendDashedThickLine(olBase, ax,ay,bx,by, olHwBase, olDashOn, olDashOff);
+            }
+            uploadVerts(catchOutletLines,    olBase);
+            uploadVerts(catchOutletLinesSel, olSel);
         } else {
             // Subcatchments not in QSG scope — clear so the CPU path
             // owns this kind without the GPU drawing on top of it.
@@ -949,6 +1006,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             uploadVerts(catchSelFill, {});
             uploadVerts(catchEdge,    {});
             uploadVerts(catchSelEdge, {});
+            uploadVerts(catchOutletLines,    {});
+            uploadVerts(catchOutletLinesSel, {});
         }
 
         // ---- Links ---------------------------------------------------------

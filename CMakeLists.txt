@@ -422,6 +422,7 @@ set(
         include/mesh/inpmeshreader.h
         include/mesh/inpmeshwriter.h
         include/mesh/meshbctype.h
+        include/mesh/meshenginesync.h
         include/mesh/meshedgebc.h
         include/mesh/meshgenerator.h
         include/mesh/meshhoverprobe.h
@@ -473,6 +474,9 @@ set(
         # ── Compound editor cell widget (Slice DB.2) ─────────────────────────
         include/ui/properties/nodecompoundeditref.h
         include/ui/properties/nodecompoundeditbutton.h
+        # Phase 3 — subcatchment compound editor (land use / GW / LID)
+        include/ui/properties/subcatchcompoundeditref.h
+        include/ui/properties/subcatchcompoundeditbutton.h
 
         # ── Link compound editor cell widget (Slice SC.1) ────────────────────
         include/ui/properties/linkcompoundeditref.h
@@ -547,6 +551,7 @@ set(
         include/ui/dialogs/aboutdialog.h
         include/ui/dialogs/meshgenerationdialog.h
         include/ui/dialogs/nodecompoundeditdialog.h
+        include/ui/dialogs/subcatchcompoundeditdialog.h
         include/ui/dialogs/linkcompoundeditdialog.h
         include/ui/dialogs/hydrographgroupeditor.h
         include/ui/dialogs/newprojectdialog.h
@@ -894,6 +899,7 @@ set(
         src/mesh/inpmeshreader.cpp
         src/mesh/inpmeshwriter.cpp
         src/mesh/meshbctype.cpp
+        src/mesh/meshenginesync.cpp
         src/mesh/meshgenerator.cpp
         src/mesh/meshhoverprobe.cpp
         src/mesh/meshobjectref.cpp
@@ -944,6 +950,9 @@ set(
         # Compound editor cell widget (Slice DB.2)
         src/ui/properties/nodecompoundeditref.cpp
         src/ui/properties/nodecompoundeditbutton.cpp
+        # Phase 3 — subcatchment compound editor (land use / GW / LID)
+        src/ui/properties/subcatchcompoundeditref.cpp
+        src/ui/properties/subcatchcompoundeditbutton.cpp
 
         # Link compound editor cell widget (Slice SC.1)
         src/ui/properties/linkcompoundeditref.cpp
@@ -989,6 +998,7 @@ set(
         src/ui/dialogs/aboutdialog.cpp
         src/ui/dialogs/meshgenerationdialog.cpp
         src/ui/dialogs/nodecompoundeditdialog.cpp
+        src/ui/dialogs/subcatchcompoundeditdialog.cpp
         src/ui/dialogs/linkcompoundeditdialog.cpp
         src/ui/dialogs/hydrographgroupeditor.cpp
         src/ui/dialogs/newprojectdialog.cpp
