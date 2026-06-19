@@ -79,6 +79,11 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
 {
     auto warn = [&](const QString &m) { if (warnings) warnings->append(m); };
 
+    // The GUI keeps the engine OPENED (not initialized), so make the parsed
+    // mesh editable: this lets the edit setters run and drains the authored
+    // BC / conveyance rows so per-edge edits are written on save.
+    swmm_2d_prepare_for_edit(engine);
+
     int nv = 0;
     if (swmm_2d_vertex_count(engine, &nv) != 0 || nv <= 0)
         return false;  // engine carries no 2D mesh — nothing to sync
