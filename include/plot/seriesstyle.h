@@ -72,6 +72,7 @@ struct SeriesStyle {
     QColor pointLabelColor;                  // invalid = derive from color
     int    pointLabelPrecision  = 2;         // decimals or sig figs (see mode)
     NumberFormatMode pointLabelFormatMode = NumberFormatMode::Decimals;
+    QString pointLabelFormat;                // optional printf override; empty = use mode+precision
 
     // ---- Area fill ------------------------------------------------------
     bool   showAreaFill = false;

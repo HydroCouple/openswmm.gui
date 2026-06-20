@@ -14,6 +14,7 @@
 #include "ui/dialogs/dialoglayoutpersistence.h"
 #include "ui/panels/timeseriestablemodel.h"
 #include "ui/widgets/interactivechartview.h"
+#include "ui/widgets/chartaxisformatcontroller.h"
 #include "ui/widgets/timeserieseditchartview.h"
 
 #include <QAction>
@@ -504,6 +505,10 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     // Chart (binds to providers[0])
     m_chartView = new TimeseriesEditChartView(providers.value(0, nullptr), m_splitter);
     m_chartView->setUndoStack(m_undoStack);
+    // Per-chart axis number format (decimals / sig figs / custom printf),
+    // reachable via the chart's right-click "Chart Properties…" entry.
+    m_axisFmt = new ChartAxisFormatController(m_chartView->chart(), this);
+    m_chartView->setAxisFormatController(m_axisFmt);
     connect(m_chartView, &TimeseriesEditChartView::editModeChanged,
             this, [this]() { onChartEditModeChanged_(); });
     // MVC chart<->table selection sync: clicking points / rubber-band on the

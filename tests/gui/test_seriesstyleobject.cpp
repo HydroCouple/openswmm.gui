@@ -157,6 +157,7 @@ void TestSeriesStyleObject::jsonRoundTripsAllFields()
     s.pointLabelFont    = QFont(QStringLiteral("Courier"), 14);
     s.pointLabelColor   = QColor(50, 50, 50);
     s.pointLabelPrecision = 4;
+    s.pointLabelFormat  = QStringLiteral("%.1f m");
     s.showAreaFill      = true;
     s.areaFillColor     = QColor(0, 128, 255, 60);
 
@@ -181,6 +182,7 @@ void TestSeriesStyleObject::jsonRoundTripsAllFields()
     QCOMPARE(back.pointLabelFont.toString(), s.pointLabelFont.toString());
     QCOMPARE(back.pointLabelColor.rgba(),   s.pointLabelColor.rgba());
     QCOMPARE(back.pointLabelPrecision,      s.pointLabelPrecision);
+    QCOMPARE(back.pointLabelFormat,         s.pointLabelFormat);
     QCOMPARE(back.showAreaFill,             s.showAreaFill);
     QCOMPARE(back.areaFillColor.rgba(),     s.areaFillColor.rgba());
 

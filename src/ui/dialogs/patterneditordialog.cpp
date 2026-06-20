@@ -10,6 +10,7 @@
 #include "pattern/patternprovider.h"
 #include "pattern/patternregistry.h"
 #include "ui/panels/patternfactortablemodel.h"
+#include "ui/widgets/chartaxisformatcontroller.h"
 #include "ui/widgets/interactivechartview.h"
 #include "ui/widgets/patterneditchartview.h"
 
@@ -332,6 +333,10 @@ void PatternEditorDialog::buildUi_()
         m_chart->addAxis(m_yAxis, Qt::AlignLeft);
         m_lineSeries->attachAxis(m_yAxis);
         m_scatterSeries->attachAxis(m_yAxis);
+
+        // Per-chart axis number format (decimals / sig figs / custom printf),
+        // editable via the plot context menu's "Chart Properties…" entry.
+        m_axisFmt = new ChartAxisFormatController(m_chart, this);
 
         // PatternEditChartView extends InteractiveChartView with vertex-drag
         // editing (vertical = factor edit; horizontal = adjacent-slot swap).
@@ -1034,12 +1039,16 @@ void PatternEditorDialog::onShowPlotStyleMenu_(const QPoint &globalPos)
     actMarkers->setCheckable(true);
     actMarkers->setChecked(m_markersOn);
 
+    menu.addSeparator();
+    QAction *actProps = menu.addAction(tr("Chart Properties…"));
+
     QAction *picked = menu.exec(globalPos);
     if (!picked) return;
 
     if      (picked == actStep)    setStepLinePreview(true);
     else if (picked == actSmooth)  setStepLinePreview(false);
     else if (picked == actMarkers) setPreviewMarkersVisible(actMarkers->isChecked());
+    else if (picked == actProps && m_axisFmt) m_axisFmt->openDialog(this);
 }
 
 void PatternEditorDialog::setStepLinePreview(bool stepLine)

@@ -8,6 +8,7 @@
 
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesundocommands.h"
+#include "ui/widgets/chartaxisformatcontroller.h"
 
 #include <QAction>
 #include <QChart>
@@ -442,7 +443,14 @@ void TimeseriesEditChartView::mouseReleaseEvent(QMouseEvent *e)
 void TimeseriesEditChartView::contextMenuEvent(QContextMenuEvent *e)
 {
     if (!isEditingAllowed_() || !m_provider) {
-        InteractiveChartView::contextMenuEvent(e);
+        // Read-only view: still offer per-chart axis number formatting.
+        if (m_axisFmt) {
+            QMenu menu(this);
+            QAction *propsAct = menu.addAction(tr("Chart Properties…"));
+            if (menu.exec(e->globalPos()) == propsAct) m_axisFmt->openDialog(window());
+        } else {
+            InteractiveChartView::contextMenuEvent(e);
+        }
         return;
     }
 
@@ -468,8 +476,19 @@ void TimeseriesEditChartView::contextMenuEvent(QContextMenuEvent *e)
     QAction *clearAct = menu.addAction(tr("Clear selection"));
     clearAct->setEnabled(!m_selection.isEmpty());
 
+    QAction *propsAct = nullptr;
+    if (m_axisFmt) {
+        menu.addSeparator();
+        propsAct = menu.addAction(tr("Chart Properties…"));
+    }
+
     QAction *chosen = menu.exec(e->globalPos());
     if (!chosen) return;
+
+    if (propsAct && chosen == propsAct) {
+        m_axisFmt->openDialog(window());
+        return;
+    }
 
     if (chosen == insertAct) {
         QDateTime t = tAtCursor;

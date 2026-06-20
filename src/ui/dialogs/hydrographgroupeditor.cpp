@@ -7,6 +7,7 @@
 
 #include "layers/swmmmodellayer.h"
 #include "layers/hydrographmodels.h"
+#include "ui/widgets/chartaxisformatcontroller.h"
 #include "ui/widgets/interactivechartview.h"
 
 #include <openswmm/engine/openswmm_gages.h>
@@ -441,10 +442,6 @@ QWidget *HydrographGroupEditor::buildRightPane()
 
     m_xAxis = new QValueAxis;
     m_xAxis->setTitleText(tr("Time (h)"));
-    // %g shows up to 6 significant digits, switching to scientific notation
-    // when the magnitude warrants it — much better than fixed-decimal when
-    // the time-to-peak spans seconds (0.05 h) through days (24+ h).
-    m_xAxis->setLabelFormat("%g");
     m_xAxis->setTickCount(7);
     m_xAxis->setMinorTickCount(1);
     m_xAxis->setRange(0.0, 1.0);
@@ -452,11 +449,15 @@ QWidget *HydrographGroupEditor::buildRightPane()
 
     m_yAxis = new QValueAxis;
     m_yAxis->setTitleText(tr("Unit flow"));
-    m_yAxis->setLabelFormat("%g");
     m_yAxis->setTickCount(7);
     m_yAxis->setMinorTickCount(1);
     m_yAxis->setRange(0.0, 1.0);
     m_chart->addAxis(m_yAxis, Qt::AlignLeft);
+
+    // Per-chart axis number format (decimals / sig figs / custom printf),
+    // editable via the chart's right-click "Chart Properties…" entry. Seeded
+    // from the global Preferences default (replaces the former hardcoded "%g").
+    m_axisFmt = new openswmmvis::ui::ChartAxisFormatController(m_chart, this);
 
     // Composite (summation) series — added FIRST so it draws behind the
     // triangles. Dashed grey line.
@@ -1192,6 +1193,12 @@ void HydrographGroupEditor::showPlotStyleMenu(const QPoint &globalPos)
     connect(extentAct, &QAction::triggered, this, [this]() {
         if (m_chartView) m_chartView->resetZoom();
         refreshPreview();
+    });
+
+    menu.addSeparator();
+    auto *propsAct = menu.addAction(tr("Chart Properties…"));
+    connect(propsAct, &QAction::triggered, this, [this]() {
+        if (m_axisFmt) m_axisFmt->openDialog(this);
     });
 
     menu.exec(globalPos);

@@ -33,13 +33,25 @@ struct NumberFormat {
     NumberFormatMode mode  = NumberFormatMode::Decimals;
     int              count = 2;   ///< Decimals (>=0) or sig figs (>=1).
 
+    /*! \brief Optional user-supplied printf spec (e.g. "%.2f", "%.1f m").
+     *  When it holds a single valid floating-point conversion (see
+     *  `hasValidCustom()`) it overrides `mode`/`count`; otherwise it is
+     *  ignored and `mode`/`count` apply. Empty by default. */
+    QString          custom;
+
     /*! \brief Effective, clamped digit count for the current mode. */
     int effectiveCount() const noexcept;
 
     /*! \brief 'f' for Decimals, 'g' for SignificantFigures. */
     char fmtChar() const noexcept;
 
-    /*! \brief printf spec for `QValueAxis::setLabelFormat` — e.g. "%.2f" / "%.3g". */
+    /*! \brief True when `custom` is a single, safe floating-point printf
+     *  conversion (specifier in eEfFgGaA, no '*' width/precision, no other
+     *  conversions). Only then is `custom` honoured. */
+    bool hasValidCustom() const;
+
+    /*! \brief printf spec for `QValueAxis::setLabelFormat` — `custom` when
+     *  valid, else e.g. "%.2f" / "%.3g". */
     QString printfSpec() const;
 
     /*! \brief Format \a v for hand-drawn ticks, labels, tooltips, stats. */
