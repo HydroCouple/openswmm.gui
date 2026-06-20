@@ -65,6 +65,7 @@ class SeriesStyleObject : public QObject
     Q_PROPERTY(QColor pointLabelColor     READ pointLabelColor     WRITE setPointLabelColor     NOTIFY pointLabelColorChanged)
     Q_PROPERTY(LabelFormatModeQ pointLabelFormatMode READ pointLabelFormatMode WRITE setPointLabelFormatMode NOTIFY pointLabelFormatModeChanged)
     Q_PROPERTY(int    pointLabelPrecision READ pointLabelPrecision WRITE setPointLabelPrecision NOTIFY pointLabelPrecisionChanged)
+    Q_PROPERTY(QString pointLabelFormat   READ pointLabelFormat    WRITE setPointLabelFormat    NOTIFY pointLabelFormatChanged)
 
     // ---- Area fill ---------------------------------------------------------
     Q_PROPERTY(bool   showAreaFill   READ showAreaFill   WRITE setShowAreaFill   NOTIFY showAreaFillChanged)
@@ -150,6 +151,7 @@ public:
     LabelFormatModeQ pointLabelFormatMode() const noexcept
     { return static_cast<LabelFormatModeQ>(m_style.pointLabelFormatMode); }
     int    pointLabelPrecision() const noexcept { return m_style.pointLabelPrecision; }
+    QString pointLabelFormat()   const          { return m_style.pointLabelFormat; }
 
     bool   showAreaFill()  const noexcept { return m_style.showAreaFill; }
     QColor areaFillColor() const noexcept { return m_style.areaFillColor; }
@@ -178,6 +180,7 @@ public slots:
     void setPointLabelColor(const QColor& c);
     void setPointLabelFormatMode(LabelFormatModeQ m);
     void setPointLabelPrecision(int n);
+    void setPointLabelFormat(const QString& spec);
 
     void setShowAreaFill(bool on);
     void setAreaFillColor(const QColor& c);
@@ -206,6 +209,7 @@ signals:
     void pointLabelColorChanged(const QColor&);
     void pointLabelFormatModeChanged(LabelFormatModeQ);
     void pointLabelPrecisionChanged(int);
+    void pointLabelFormatChanged(const QString&);
 
     void showAreaFillChanged(bool);
     void areaFillColorChanged(const QColor&);

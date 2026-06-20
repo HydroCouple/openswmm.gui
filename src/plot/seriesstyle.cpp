@@ -191,6 +191,8 @@ QJsonObject SeriesStyle::toJson() const
         o[QStringLiteral("pointLabelColor")] = colorToJsonString(pointLabelColor);
     o[QStringLiteral("pointLabelPrecision")] = pointLabelPrecision;
     o[QStringLiteral("pointLabelFormatMode")] = static_cast<int>(pointLabelFormatMode);
+    if (!pointLabelFormat.isEmpty())
+        o[QStringLiteral("pointLabelFormat")] = pointLabelFormat;
 
     // Area fill
     o[QStringLiteral("showAreaFill")] = showAreaFill;
@@ -249,6 +251,8 @@ SeriesStyle SeriesStyle::fromJson(const QJsonObject& obj)
     if (obj.contains(QStringLiteral("pointLabelFormatMode")))
         s.pointLabelFormatMode = static_cast<NumberFormatMode>(
             obj.value(QStringLiteral("pointLabelFormatMode")).toInt(0));
+    if (obj.contains(QStringLiteral("pointLabelFormat")))
+        s.pointLabelFormat = obj.value(QStringLiteral("pointLabelFormat")).toString();
 
     // Area fill
     if (obj.contains(QStringLiteral("showAreaFill")))
@@ -398,7 +402,8 @@ void applySeriesStyle(const SeriesStyle& style,
     if (style.showPointLabels) {
         series->setPointLabelsFont(style.pointLabelFont);
         series->setPointLabelsColor(style.effectivePointLabelColor());
-        const NumberFormat labelFmt{ style.pointLabelFormatMode, style.pointLabelPrecision };
+        const NumberFormat labelFmt{ style.pointLabelFormatMode, style.pointLabelPrecision,
+                                     style.pointLabelFormat };
         series->setPointLabelsFormat(labelFmt.printfSpec());
     }
 

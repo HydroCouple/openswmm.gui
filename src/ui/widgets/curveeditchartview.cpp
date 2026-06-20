@@ -8,6 +8,7 @@
 
 #include "curve/curveprovider.h"
 #include "curve/curveundocommands.h"
+#include "ui/widgets/chartaxisformatcontroller.h"
 
 #include <QAction>
 #include <QChart>
@@ -341,6 +342,12 @@ void CurveEditChartView::contextMenuEvent(QContextMenuEvent *e)
     QAction *clearAct = menu.addAction(tr("Clear selection"));
     clearAct->setEnabled(!m_selection.isEmpty());
 
+    QAction *propsAct = nullptr;
+    if (m_axisFmt) {
+        menu.addSeparator();
+        propsAct = menu.addAction(tr("Chart Properties…"));
+    }
+
     QAction *chosen = menu.exec(e->globalPos());
     if (!chosen) return;
 
@@ -353,6 +360,8 @@ void CurveEditChartView::contextMenuEvent(QContextMenuEvent *e)
         clearSelection();
     } else if (chosen == clearAct) {
         clearSelection();
+    } else if (propsAct && chosen == propsAct) {
+        m_axisFmt->openDialog(window());
     }
 }
 

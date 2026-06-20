@@ -58,8 +58,10 @@ QString ProfilePlotOptions::displayLabelFor(const QString &propertyName) const
         // Axis number format
         { QStringLiteral("xLabelFormatMode"), QObject::tr("X Axis — Number format") },
         { QStringLiteral("xLabelPrecision"),  QObject::tr("X Axis — Precision") },
+        { QStringLiteral("xLabelFormat"),     QObject::tr("X Axis — Custom format") },
         { QStringLiteral("yLabelFormatMode"), QObject::tr("Y Axis — Number format") },
         { QStringLiteral("yLabelPrecision"),  QObject::tr("Y Axis — Precision") },
+        { QStringLiteral("yLabelFormat"),     QObject::tr("Y Axis — Custom format") },
         // Ground
         { QStringLiteral("useTerrainGround"), QObject::tr("Use terrain DEM for ground") },
         // Flooding indicator
@@ -135,15 +137,17 @@ void ProfilePlotOptions::setLabelAngleDeg   (int deg)  {
     SET_PRIM(m_labelAngleDeg, deg);
 }
 void ProfilePlotOptions::setXLabelFormatMode(LabelFormatMode m) { SET_PRIM(m_xLabelMode, m); }
-void ProfilePlotOptions::setXLabelPrecision (DecimalPlaces count) {
-    const int c = std::clamp(static_cast<int>(count), 0, 10);
+void ProfilePlotOptions::setXLabelPrecision (int count) {
+    const int c = std::clamp(count, 0, 10);
     SET_PRIM(m_xLabelPrecision, c);
 }
+void ProfilePlotOptions::setXLabelFormat    (const QString &spec) { SET_OBJ(m_xLabelFormatStr, spec); }
 void ProfilePlotOptions::setYLabelFormatMode(LabelFormatMode m) { SET_PRIM(m_yLabelMode, m); }
-void ProfilePlotOptions::setYLabelPrecision (DecimalPlaces count) {
-    const int c = std::clamp(static_cast<int>(count), 0, 10);
+void ProfilePlotOptions::setYLabelPrecision (int count) {
+    const int c = std::clamp(count, 0, 10);
     SET_PRIM(m_yLabelPrecision, c);
 }
+void ProfilePlotOptions::setYLabelFormat    (const QString &spec) { SET_OBJ(m_yLabelFormatStr, spec); }
 void ProfilePlotOptions::setUseTerrainGround(bool v)   { SET_PRIM(m_useTerrainGround, v); }
 void ProfilePlotOptions::setFloodRadiusPx (double r) {
     r = std::clamp(r, 4.0, 60.0);

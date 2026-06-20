@@ -22,6 +22,8 @@ class SWMMResultsLayer;
 
 namespace openswmmvis::ui {
 
+class ChartAxisFormatController;
+
 class ScatterPlotDialog : public QDialog
 {
     Q_OBJECT
@@ -42,6 +44,7 @@ private:
     QComboBox  *m_xKind = nullptr, *m_xObj = nullptr, *m_xVar = nullptr;
     QComboBox  *m_yKind = nullptr, *m_yObj = nullptr, *m_yVar = nullptr;
     QChartView *m_chart = nullptr;
+    ChartAxisFormatController *m_axisFmt = nullptr;  ///< Per-chart axis number format.
 };
 
 } // namespace openswmmvis::ui

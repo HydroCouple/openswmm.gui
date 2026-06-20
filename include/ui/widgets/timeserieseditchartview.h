@@ -52,6 +52,8 @@ class TimeseriesProvider;
 
 namespace openswmmvis::ui {
 
+class ChartAxisFormatController;
+
 class TimeseriesEditChartView : public InteractiveChartView
 {
     Q_OBJECT
@@ -83,6 +85,10 @@ public:
     /*! \brief Bind the undo stack for committed edits. Null = apply directly. */
     void setUndoStack(QUndoStack *stack);
     QUndoStack *undoStack() const noexcept { return m_undoStack; }
+
+    /*! \brief Bind the per-chart axis number-format controller so the context
+     *  menu can offer "Chart Properties…". Not owned. */
+    void setAxisFormatController(ChartAxisFormatController *c) { m_axisFmt = c; }
 
     // ── Edit mode ───────────────────────────────────────────────────────────
 
@@ -161,6 +167,7 @@ private:
     QScatterSeries *m_selectedScatter  = nullptr;
     QDateTimeAxis  *m_xAxis            = nullptr;
     QValueAxis     *m_yAxis            = nullptr;
+    ChartAxisFormatController *m_axisFmt = nullptr;  ///< Not owned (dialog owns it).
 
     EditMode m_editMode = EditMode::None;
     bool     m_snap     = false;

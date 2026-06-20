@@ -67,6 +67,7 @@ namespace openswmmvis::ui {
 class TimeseriesEditChartView;
 class TimeseriesListModel;
 class TimeseriesTableModel;
+class ChartAxisFormatController;
 
 class TimeseriesEditorDialog : public QDialog
 {
@@ -245,6 +246,7 @@ private:
     QTableView              *m_table      = nullptr;
     TimeseriesTableModel    *m_tableModel = nullptr;
     TimeseriesEditChartView *m_chartView  = nullptr;
+    ChartAxisFormatController *m_axisFmt   = nullptr;  ///< Per-chart axis number format.
     QToolBar                *m_toolbar    = nullptr;
     QStatusBar              *m_status     = nullptr;
     QLabel                  *m_countLabel = nullptr;

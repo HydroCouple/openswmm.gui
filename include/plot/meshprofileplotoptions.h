@@ -36,13 +36,6 @@ public:
      *  openswmmvis::plot::NumberFormatMode (0=Decimals, 1=SignificantFigures). */
     enum LabelFormatMode { Decimals = 0, SignificantFigures = 1 };
     Q_ENUM(LabelFormatMode)
-    /*! \brief Axis label decimal places (0–10). Declared as a Q_ENUM so the
-     *  property grid renders it as a combobox dropdown rather than a spinbox;
-     *  the integer value equals the number of decimals. */
-    enum DecimalPlaces { Zero = 0, One = 1, Two = 2, Three = 3, Four = 4,
-                         Five = 5, Six = 6, Seven = 7, Eight = 8, Nine = 9,
-                         Ten = 10 };
-    Q_ENUM(DecimalPlaces)
     enum TimeLabelPosition { TimeTopRight = 0, TimeTopLeft = 1,
                              TimeBottomLeft = 2, TimeBottomRight = 3 };
     Q_ENUM(TimeLabelPosition)
@@ -68,12 +61,16 @@ public:
     // Preferences default; edits here override per-plot.
     Q_PROPERTY(MeshProfilePlotOptions::LabelFormatMode xLabelFormatMode
                READ xLabelFormatMode WRITE setXLabelFormatMode NOTIFY changed)
-    Q_PROPERTY(MeshProfilePlotOptions::DecimalPlaces xLabelPrecision
+    Q_PROPERTY(int xLabelPrecision
                READ xLabelPrecision  WRITE setXLabelPrecision  NOTIFY changed)
+    Q_PROPERTY(QString xLabelFormat
+               READ xLabelFormat     WRITE setXLabelFormat     NOTIFY changed)
     Q_PROPERTY(MeshProfilePlotOptions::LabelFormatMode yLabelFormatMode
                READ yLabelFormatMode WRITE setYLabelFormatMode NOTIFY changed)
-    Q_PROPERTY(MeshProfilePlotOptions::DecimalPlaces yLabelPrecision
+    Q_PROPERTY(int yLabelPrecision
                READ yLabelPrecision  WRITE setYLabelPrecision  NOTIFY changed)
+    Q_PROPERTY(QString yLabelFormat
+               READ yLabelFormat     WRITE setYLabelFormat     NOTIFY changed)
 
     // ── Legend ──────────────────────────────────────────────────────────
     Q_PROPERTY(bool legendVisible    READ legendVisible    WRITE setLegendVisible    NOTIFY changed)
@@ -112,14 +109,16 @@ public:
     QPen   maxEnvelopePen()      const { return m_maxEnvelopePen; }
     QBrush maxEnvelopeBrush()    const { return m_maxEnvelopeBrush; }
     LabelFormatMode xLabelFormatMode() const { return m_xLabelMode; }
-    DecimalPlaces xLabelPrecision()     const { return static_cast<DecimalPlaces>(m_xLabelPrecision); }
+    int           xLabelPrecision()     const { return m_xLabelPrecision; }
+    QString       xLabelFormat()        const { return m_xLabelFormatStr; }
     LabelFormatMode yLabelFormatMode() const { return m_yLabelMode; }
-    DecimalPlaces yLabelPrecision()     const { return static_cast<DecimalPlaces>(m_yLabelPrecision); }
+    int           yLabelPrecision()     const { return m_yLabelPrecision; }
+    QString       yLabelFormat()        const { return m_yLabelFormatStr; }
     /*! \brief Current X/Y axis label format as the shared value type. */
     openswmmvis::plot::NumberFormat xFormat() const
-    { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_xLabelMode), m_xLabelPrecision }; }
+    { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_xLabelMode), m_xLabelPrecision, m_xLabelFormatStr }; }
     openswmmvis::plot::NumberFormat yFormat() const
-    { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_yLabelMode), m_yLabelPrecision }; }
+    { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_yLabelMode), m_yLabelPrecision, m_yLabelFormatStr }; }
     bool   legendVisible()       const { return m_legendVisible; }
     LegendPosition legendPosition() const { return m_legendPosition; }
     QFont  legendFont()          const { return m_legendFont; }
@@ -146,9 +145,11 @@ public slots:
     void setMaxEnvelopePen(const QPen &p);
     void setMaxEnvelopeBrush(const QBrush &b);
     void setXLabelFormatMode(LabelFormatMode m);
-    void setXLabelPrecision(DecimalPlaces count);
+    void setXLabelPrecision(int count);
+    void setXLabelFormat(const QString &spec);
     void setYLabelFormatMode(LabelFormatMode m);
-    void setYLabelPrecision(DecimalPlaces count);
+    void setYLabelPrecision(int count);
+    void setYLabelFormat(const QString &spec);
     void setLegendVisible(bool v);
     void setLegendPosition(LegendPosition p);
     void setLegendFont(const QFont &f);
@@ -189,8 +190,10 @@ private:
     // constructor.
     LabelFormatMode m_xLabelMode      = Decimals;
     int             m_xLabelPrecision = 0;
+    QString         m_xLabelFormatStr;           // optional printf override; empty = use mode+precision
     LabelFormatMode m_yLabelMode      = Decimals;
     int             m_yLabelPrecision = 2;
+    QString         m_yLabelFormatStr;           // optional printf override; empty = use mode+precision
 
     bool           m_legendVisible  = true;
     LegendPosition m_legendPosition = TopRight;

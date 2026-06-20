@@ -12,6 +12,8 @@
 #include <QBrush>
 #include <QValueAxis>
 
+#include <algorithm>
+
 namespace openswmmvis::plot {
 
 namespace {
@@ -46,12 +48,12 @@ ChartProperties::ChartProperties(QChart *chart, QObject *parent)
 
 NumberFormat ChartProperties::xFormat() const noexcept
 {
-    return { static_cast<NumberFormatMode>(m_xLabelMode), m_xLabelPrecision };
+    return { static_cast<NumberFormatMode>(m_xLabelMode), m_xLabelPrecision, m_xLabelFormatStr };
 }
 
 NumberFormat ChartProperties::yFormat() const noexcept
 {
-    return { static_cast<NumberFormatMode>(m_yLabelMode), m_yLabelPrecision };
+    return { static_cast<NumberFormatMode>(m_yLabelMode), m_yLabelPrecision, m_yLabelFormatStr };
 }
 
 void ChartProperties::applyLabelFormats_()
@@ -85,8 +87,10 @@ QString ChartProperties::displayLabelFor(const QString &name) const
     if (name == QStringLiteral("chartTheme"))      return QStringLiteral("Theme");
     if (name == QStringLiteral("xLabelFormatMode")) return QStringLiteral("X Axis — Number format");
     if (name == QStringLiteral("xLabelPrecision"))  return QStringLiteral("X Axis — Precision");
+    if (name == QStringLiteral("xLabelFormat"))     return QStringLiteral("X Axis — Custom format");
     if (name == QStringLiteral("yLabelFormatMode")) return QStringLiteral("Y Axis — Number format");
     if (name == QStringLiteral("yLabelPrecision"))  return QStringLiteral("Y Axis — Precision");
+    if (name == QStringLiteral("yLabelFormat"))     return QStringLiteral("Y Axis — Custom format");
     return {};   // empty → fall back to default name
 }
 
@@ -275,13 +279,21 @@ void ChartProperties::setXLabelFormatMode(LabelFormatMode mode)
     emit xLabelFormatModeChanged(mode);
 }
 
-void ChartProperties::setXLabelPrecision(DecimalPlaces count)
+void ChartProperties::setXLabelPrecision(int count)
 {
-    const int c = static_cast<int>(count);
-    if (c < 0 || c > 10 || m_xLabelPrecision == c) return;
+    const int c = std::clamp(count, 0, 10);
+    if (m_xLabelPrecision == c) return;
     m_xLabelPrecision = c;
     applyLabelFormats_();
     emit xLabelPrecisionChanged(c);
+}
+
+void ChartProperties::setXLabelFormat(const QString &spec)
+{
+    if (m_xLabelFormatStr == spec) return;
+    m_xLabelFormatStr = spec;
+    applyLabelFormats_();
+    emit xLabelFormatChanged(spec);
 }
 
 void ChartProperties::setYLabelFormatMode(LabelFormatMode mode)
@@ -292,13 +304,21 @@ void ChartProperties::setYLabelFormatMode(LabelFormatMode mode)
     emit yLabelFormatModeChanged(mode);
 }
 
-void ChartProperties::setYLabelPrecision(DecimalPlaces count)
+void ChartProperties::setYLabelPrecision(int count)
 {
-    const int c = static_cast<int>(count);
-    if (c < 0 || c > 10 || m_yLabelPrecision == c) return;
+    const int c = std::clamp(count, 0, 10);
+    if (m_yLabelPrecision == c) return;
     m_yLabelPrecision = c;
     applyLabelFormats_();
     emit yLabelPrecisionChanged(c);
+}
+
+void ChartProperties::setYLabelFormat(const QString &spec)
+{
+    if (m_yLabelFormatStr == spec) return;
+    m_yLabelFormatStr = spec;
+    applyLabelFormats_();
+    emit yLabelFormatChanged(spec);
 }
 
 } // namespace openswmmvis::plot

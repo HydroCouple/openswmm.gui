@@ -61,7 +61,20 @@ class TransectChartView : public QChartView
     Q_PROPERTY(int    handleSize       READ handleSize       WRITE setHandleSize       NOTIFY handleSizeChanged)
     Q_PROPERTY(bool   handlesVisible   READ handlesVisible   WRITE setHandlesVisible   NOTIFY handlesVisibleChanged)
 
+    // Axis number format — same surface as plot::ChartProperties (mode is a
+    // dropdown enum; precision a spin box; custom an optional printf override).
+    Q_PROPERTY(TransectChartView::LabelFormatMode xLabelFormatMode READ xLabelFormatMode WRITE setXLabelFormatMode NOTIFY xLabelFormatModeChanged)
+    Q_PROPERTY(int     xLabelPrecision READ xLabelPrecision WRITE setXLabelPrecision NOTIFY xLabelPrecisionChanged)
+    Q_PROPERTY(QString xLabelFormat    READ xLabelFormat    WRITE setXLabelFormat    NOTIFY xLabelFormatChanged)
+    Q_PROPERTY(TransectChartView::LabelFormatMode yLabelFormatMode READ yLabelFormatMode WRITE setYLabelFormatMode NOTIFY yLabelFormatModeChanged)
+    Q_PROPERTY(int     yLabelPrecision READ yLabelPrecision WRITE setYLabelPrecision NOTIFY yLabelPrecisionChanged)
+    Q_PROPERTY(QString yLabelFormat    READ yLabelFormat    WRITE setYLabelFormat    NOTIFY yLabelFormatChanged)
+
 public:
+    /*! \brief Axis label number mode (mirrors plot::NumberFormatMode). */
+    enum LabelFormatMode { Decimals = 0, SignificantFigures = 1 };
+    Q_ENUM(LabelFormatMode)
+
     enum class Mode {
         Select = 0,    ///< Default — middle-button pan + wheel zoom only.
         Pan,           ///< Left-button drag pans.
@@ -99,6 +112,20 @@ public:
     void setHandleSize(int px);
     void setHandlesVisible(bool on);
 
+    // Axis number format accessors (driven via the QPropertyModel editor).
+    LabelFormatMode xLabelFormatMode() const noexcept { return m_xLabelMode; }
+    int             xLabelPrecision()  const noexcept { return m_xLabelPrecision; }
+    QString         xLabelFormat()     const          { return m_xLabelFormatStr; }
+    LabelFormatMode yLabelFormatMode() const noexcept { return m_yLabelMode; }
+    int             yLabelPrecision()  const noexcept { return m_yLabelPrecision; }
+    QString         yLabelFormat()     const          { return m_yLabelFormatStr; }
+    void setXLabelFormatMode(LabelFormatMode m);
+    void setXLabelPrecision(int n);
+    void setXLabelFormat(const QString &spec);
+    void setYLabelFormatMode(LabelFormatMode m);
+    void setYLabelPrecision(int n);
+    void setYLabelFormat(const QString &spec);
+
     /*! \brief Highlight the given station indices on the chart. Pass an
      *  empty vector to clear. Implemented as a second scatter overlay so
      *  the base handle series stays one-colour. */
@@ -124,6 +151,13 @@ signals:
     void groundFillColorChanged(const QColor &);
     void handleSizeChanged(int);
     void handlesVisibleChanged(bool);
+
+    void xLabelFormatModeChanged(TransectChartView::LabelFormatMode);
+    void xLabelPrecisionChanged(int);
+    void xLabelFormatChanged(const QString &);
+    void yLabelFormatModeChanged(TransectChartView::LabelFormatMode);
+    void yLabelPrecisionChanged(int);
+    void yLabelFormatChanged(const QString &);
 
     /*! \brief Emitted on left-button release after an EditPoints drag.
      *  Carries the original (pre-drag) and final (post-drag) station/
@@ -163,6 +197,8 @@ private slots:
 private:
     void rebuildSeriesFromProvider_();
     void rebuildBankOverlays_();
+    /*! \brief Push the cached X/Y label formats onto the value axes. */
+    void applyAxisLabelFormats_();
     /*! \brief Hit-test viewport-px against the handle scatter; returns the
      *  matching station index or -1. */
     int  hitTestHandle_(const QPoint &viewportPx) const;
@@ -226,6 +262,16 @@ private:
                                        // now always on (was 9 = drag handle).
     bool   m_handlesVisible  = true;  // points are visible by default;
                                        // edit-mode adds drag affordance only.
+
+    // Axis number format — seeded from the global Preferences default in the
+    // constructor; per-chart edits override (cached because a printf format
+    // string can't be reliably parsed back to mode+count).
+    LabelFormatMode m_xLabelMode      = Decimals;
+    int             m_xLabelPrecision = 0;
+    QString         m_xLabelFormatStr;
+    LabelFormatMode m_yLabelMode      = Decimals;
+    int             m_yLabelPrecision = 2;
+    QString         m_yLabelFormatStr;
 };
 
 } // namespace openswmmvis::ui
