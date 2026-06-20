@@ -48,8 +48,10 @@ QString MeshProfilePlotOptions::displayLabelFor(const QString &propertyName) con
         { QStringLiteral("maxEnvelopeBrush"),    QObject::tr("Max-depth band brush") },
         { QStringLiteral("xLabelFormatMode"),    QObject::tr("X Axis — Number format") },
         { QStringLiteral("xLabelPrecision"),     QObject::tr("X Axis — Precision") },
+        { QStringLiteral("xLabelFormat"),        QObject::tr("X Axis — Custom format") },
         { QStringLiteral("yLabelFormatMode"),    QObject::tr("Y Axis — Number format") },
         { QStringLiteral("yLabelPrecision"),     QObject::tr("Y Axis — Precision") },
+        { QStringLiteral("yLabelFormat"),        QObject::tr("Y Axis — Custom format") },
         { QStringLiteral("legendVisible"),       QObject::tr("Show legend") },
         { QStringLiteral("legendPosition"),      QObject::tr("Legend position") },
         { QStringLiteral("legendFont"),          QObject::tr("Legend font") },
@@ -80,15 +82,17 @@ void MeshProfilePlotOptions::setMaxEnvelopePen(const QPen &p)    { SET_OBJ(m_max
 void MeshProfilePlotOptions::setMaxEnvelopeBrush(const QBrush &b){ SET_OBJ(m_maxEnvelopeBrush, b); }
 
 void MeshProfilePlotOptions::setXLabelFormatMode(LabelFormatMode m) { SET_PRIM(m_xLabelMode, m); }
-void MeshProfilePlotOptions::setXLabelPrecision(DecimalPlaces count) {
-    const int c = std::clamp(static_cast<int>(count), 0, 10);
+void MeshProfilePlotOptions::setXLabelPrecision(int count) {
+    const int c = std::clamp(count, 0, 10);
     SET_PRIM(m_xLabelPrecision, c);
 }
+void MeshProfilePlotOptions::setXLabelFormat(const QString &spec) { SET_OBJ(m_xLabelFormatStr, spec); }
 void MeshProfilePlotOptions::setYLabelFormatMode(LabelFormatMode m) { SET_PRIM(m_yLabelMode, m); }
-void MeshProfilePlotOptions::setYLabelPrecision(DecimalPlaces count) {
-    const int c = std::clamp(static_cast<int>(count), 0, 10);
+void MeshProfilePlotOptions::setYLabelPrecision(int count) {
+    const int c = std::clamp(count, 0, 10);
     SET_PRIM(m_yLabelPrecision, c);
 }
+void MeshProfilePlotOptions::setYLabelFormat(const QString &spec) { SET_OBJ(m_yLabelFormatStr, spec); }
 
 void MeshProfilePlotOptions::setLegendVisible(bool v)           { SET_PRIM(m_legendVisible, v); }
 void MeshProfilePlotOptions::setLegendPosition(LegendPosition p){ SET_PRIM(m_legendPosition, p); }

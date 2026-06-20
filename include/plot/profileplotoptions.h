@@ -37,14 +37,6 @@ public:
     enum LabelFormatMode { Decimals = 0, SignificantFigures = 1 };
     Q_ENUM(LabelFormatMode)
 
-    /*! \brief Axis label decimal places (0–10). Declared as a Q_ENUM so the
-     *  property grid renders it as a combobox dropdown rather than a spinbox;
-     *  the integer value equals the number of decimals. */
-    enum DecimalPlaces { Zero = 0, One = 1, Two = 2, Three = 3, Four = 4,
-                         Five = 5, Six = 6, Seven = 7, Eight = 8, Nine = 9,
-                         Ten = 10 };
-    Q_ENUM(DecimalPlaces)
-
     enum LegendPosition   { TopRight = 0, TopLeft = 1,
                             BottomLeft = 2, BottomRight = 3 };
     Q_ENUM(LegendPosition)
@@ -79,12 +71,16 @@ public:
     // global Preferences default; edits here override per-plot.
     Q_PROPERTY(ProfilePlotOptions::LabelFormatMode xLabelFormatMode
                READ xLabelFormatMode WRITE setXLabelFormatMode NOTIFY changed)
-    Q_PROPERTY(ProfilePlotOptions::DecimalPlaces xLabelPrecision
+    Q_PROPERTY(int xLabelPrecision
                READ xLabelPrecision  WRITE setXLabelPrecision  NOTIFY changed)
+    Q_PROPERTY(QString xLabelFormat
+               READ xLabelFormat     WRITE setXLabelFormat     NOTIFY changed)
     Q_PROPERTY(ProfilePlotOptions::LabelFormatMode yLabelFormatMode
                READ yLabelFormatMode WRITE setYLabelFormatMode NOTIFY changed)
-    Q_PROPERTY(ProfilePlotOptions::DecimalPlaces yLabelPrecision
+    Q_PROPERTY(int yLabelPrecision
                READ yLabelPrecision  WRITE setYLabelPrecision  NOTIFY changed)
+    Q_PROPERTY(QString yLabelFormat
+               READ yLabelFormat     WRITE setYLabelFormat     NOTIFY changed)
 
     // ── Ground / terrain ────────────────────────────────────────────────
     Q_PROPERTY(bool useTerrainGround READ useTerrainGround WRITE setUseTerrainGround NOTIFY changed)
@@ -178,14 +174,16 @@ public:
     LabelOrientation labelOrientation() const { return m_labelOrientation; }
     int      labelAngleDeg()    const { return m_labelAngleDeg; }
     LabelFormatMode xLabelFormatMode() const { return m_xLabelMode; }
-    DecimalPlaces xLabelPrecision()  const { return static_cast<DecimalPlaces>(m_xLabelPrecision); }
+    int           xLabelPrecision()  const { return m_xLabelPrecision; }
+    QString       xLabelFormat()     const { return m_xLabelFormatStr; }
     LabelFormatMode yLabelFormatMode() const { return m_yLabelMode; }
-    DecimalPlaces yLabelPrecision()  const { return static_cast<DecimalPlaces>(m_yLabelPrecision); }
+    int           yLabelPrecision()  const { return m_yLabelPrecision; }
+    QString       yLabelFormat()     const { return m_yLabelFormatStr; }
     /*! \brief Current X/Y axis label format as the shared value type. */
     openswmmvis::plot::NumberFormat xFormat() const
-    { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_xLabelMode), m_xLabelPrecision }; }
+    { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_xLabelMode), m_xLabelPrecision, m_xLabelFormatStr }; }
     openswmmvis::plot::NumberFormat yFormat() const
-    { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_yLabelMode), m_yLabelPrecision }; }
+    { return { static_cast<openswmmvis::plot::NumberFormatMode>(m_yLabelMode), m_yLabelPrecision, m_yLabelFormatStr }; }
     bool     useTerrainGround() const { return m_useTerrainGround; }
 
     double   floodRadiusPx()    const { return m_floodRadiusPx; }
@@ -249,9 +247,11 @@ public slots:
     void setLabelOrientation(LabelOrientation o);
     void setLabelAngleDeg   (int deg);
     void setXLabelFormatMode(LabelFormatMode m);
-    void setXLabelPrecision (DecimalPlaces count);
+    void setXLabelPrecision (int count);
+    void setXLabelFormat    (const QString &spec);
     void setYLabelFormatMode(LabelFormatMode m);
-    void setYLabelPrecision (DecimalPlaces count);
+    void setYLabelPrecision (int count);
+    void setYLabelFormat    (const QString &spec);
     void setUseTerrainGround(bool v);
     void setFloodRadiusPx (double r);
     void setFloodSweepDeg (int deg);
@@ -319,8 +319,10 @@ private:
     // constructor (hence no in-class initializer values relied upon here).
     LabelFormatMode  m_xLabelMode       = Decimals;
     int              m_xLabelPrecision  = 0;
+    QString          m_xLabelFormatStr;           // optional printf override; empty = use mode+precision
     LabelFormatMode  m_yLabelMode       = Decimals;
     int              m_yLabelPrecision  = 2;
+    QString          m_yLabelFormatStr;           // optional printf override; empty = use mode+precision
     bool             m_useTerrainGround = false;
 
     // Flooding-glyph defaults: a 60° wedge with a 15 px radius reads at

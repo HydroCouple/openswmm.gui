@@ -77,6 +77,7 @@ namespace openswmmvis::ui {
 class InteractiveChartView;
 class PatternEditChartView;
 class PatternFactorTableModel;
+class ChartAxisFormatController;
 
 class PatternEditorDialog : public QDialog
 {
@@ -246,6 +247,7 @@ private:
 
     PatternEditChartView     *m_chartView  = nullptr;
     QChart                   *m_chart      = nullptr;
+    ChartAxisFormatController *m_axisFmt   = nullptr;  ///< Per-chart axis number format.
     QLineSeries              *m_lineSeries = nullptr;   ///< Step-line (or smooth) factor preview.
     QScatterSeries           *m_scatterSeries = nullptr; ///< Slot-centre markers.
     QCategoryAxis            *m_xAxis      = nullptr;   ///< Categorical labels (Jan, Sun, 00:00 …).

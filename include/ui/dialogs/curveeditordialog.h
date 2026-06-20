@@ -38,6 +38,7 @@ class QChartView;
 namespace openswmmvis::ui {
 class InteractiveChartView;
 class CurveEditChartView;
+class ChartAxisFormatController;
 }
 class QLineSeries;
 class QScatterSeries;
@@ -192,6 +193,7 @@ private:
     QAction                  *m_chartLockXAction   = nullptr;
     QAction                  *m_chartLockYAction   = nullptr;
     QChart                   *m_chart      = nullptr;
+    ChartAxisFormatController *m_axisFmt   = nullptr;  ///< Per-chart axis number format.
     QLineSeries              *m_line       = nullptr;
     QScatterSeries           *m_scatter    = nullptr;
     QValueAxis               *m_xAxis      = nullptr;

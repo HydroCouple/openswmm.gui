@@ -10,6 +10,7 @@
 #include "curve/curveprovider.h"
 #include "curve/curveregistry.h"
 #include "ui/panels/curvepointtablemodel.h"
+#include "ui/widgets/chartaxisformatcontroller.h"
 #include "ui/widgets/curveeditchartview.h"
 #include "ui/widgets/interactivechartview.h"
 
@@ -369,6 +370,10 @@ void CurveEditorDialog::buildUi_()
         m_chartView = new CurveEditChartView(m_chart, m_line, host);
         m_chartView->setRenderHint(QPainter::Antialiasing, true);
         m_chartView->setUndoStack(m_undoStack);
+        // Per-chart axis number format (decimals / sig figs / custom printf),
+        // reachable via the chart's right-click "Chart Properties…" entry.
+        m_axisFmt = new ChartAxisFormatController(m_chart, this);
+        m_chartView->setAxisFormatController(m_axisFmt);
         lay->addWidget(m_chartView, 1);
 
         // Build toolbar actions.

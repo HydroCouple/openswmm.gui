@@ -66,7 +66,7 @@ class QAreaSeries;
 class QLineSeries;
 class QValueAxis;
 class QLegendMarker;
-namespace openswmmvis::ui { class InteractiveChartView; }
+namespace openswmmvis::ui { class InteractiveChartView; class ChartAxisFormatController; }
 
 class HydrographGroupEditor : public QDialog
 {
@@ -165,6 +165,7 @@ private:
     // Right pane — UH preview plot.
     QChart                                *m_chart       = nullptr;
     openswmmvis::ui::InteractiveChartView *m_chartView   = nullptr;
+    openswmmvis::ui::ChartAxisFormatController *m_axisFmt = nullptr;  ///< Per-chart axis number format.
     QAreaSeries                           *m_areaSeries[3] = {nullptr, nullptr, nullptr};
     QLineSeries                           *m_areaUpper[3]  = {nullptr, nullptr, nullptr};
     QLineSeries                           *m_sumSeries  = nullptr;

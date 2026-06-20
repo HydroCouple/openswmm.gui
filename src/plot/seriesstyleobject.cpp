@@ -44,6 +44,7 @@ void SeriesStyleObject::setStyle(const SeriesStyle& s)
     setPointLabelColor(s.pointLabelColor);
     setPointLabelFormatMode(static_cast<LabelFormatModeQ>(s.pointLabelFormatMode));
     setPointLabelPrecision(s.pointLabelPrecision);
+    setPointLabelFormat(s.pointLabelFormat);
 
     setShowAreaFill(s.showAreaFill);
     setAreaFillColor(s.areaFillColor);
@@ -86,6 +87,7 @@ QString SeriesStyleObject::displayLabelFor(const QString &name) const
     if (name == QStringLiteral("pointLabelColor"))     return QStringLiteral("Labels — Colour");
     if (name == QStringLiteral("pointLabelFormatMode")) return QStringLiteral("Labels — Number format");
     if (name == QStringLiteral("pointLabelPrecision")) return QStringLiteral("Labels — Precision");
+    if (name == QStringLiteral("pointLabelFormat"))    return QStringLiteral("Labels — Custom format");
 
     // Area
     if (name == QStringLiteral("showAreaFill"))        return QStringLiteral("Area — Visible");
@@ -138,6 +140,7 @@ IMPL_SETTER(showPointLabels,    setShowPointLabels,   showPointLabelsChanged,   
 IMPL_SETTER(pointLabelFont,     setPointLabelFont,    pointLabelFontChanged,    const QFont&)
 IMPL_SETTER(pointLabelColor,    setPointLabelColor,   pointLabelColorChanged,   const QColor&)
 IMPL_SETTER(pointLabelPrecision,setPointLabelPrecision,pointLabelPrecisionChanged, int)
+IMPL_SETTER(pointLabelFormat,   setPointLabelFormat,  pointLabelFormatChanged,    const QString&)
 
 IMPL_SETTER(showAreaFill,       setShowAreaFill,      showAreaFillChanged,      bool)
 IMPL_SETTER(areaFillColor,      setAreaFillColor,     areaFillColorChanged,     const QColor&)

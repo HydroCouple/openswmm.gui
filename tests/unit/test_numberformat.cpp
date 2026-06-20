@@ -61,3 +61,31 @@ TEST(NumberFormat, FmtChar)
     EXPECT_EQ(decimals(2).fmtChar(), 'f');
     EXPECT_EQ(sigfigs(2).fmtChar(), 'g');
 }
+
+TEST(NumberFormat, CustomOverridesModeAndCount)
+{
+    // A valid custom spec wins over mode+count for both the printf spec and
+    // the formatted value.
+    NumberFormat f{ NumberFormatMode::Decimals, 0, QStringLiteral("%.2f") };
+    EXPECT_TRUE(f.hasValidCustom());
+    EXPECT_EQ(f.printfSpec().toStdString(), "%.2f");
+    EXPECT_EQ(f.format(3.14159).toStdString(), "3.14");
+
+    // Literal text and an escaped percent are allowed alongside one conversion.
+    NumberFormat g{ NumberFormatMode::Decimals, 0, QStringLiteral("%.1f m") };
+    EXPECT_EQ(g.format(3.14159).toStdString(), "3.1 m");
+    NumberFormat p{ NumberFormatMode::Decimals, 0, QStringLiteral("%.1f%%") };
+    EXPECT_EQ(p.format(42.0).toStdString(), "42.0%");
+}
+
+TEST(NumberFormat, InvalidCustomFallsBackToModeAndCount)
+{
+    // Empty, non-float conversions, '*' precision, or multiple conversions are
+    // all rejected, so mode+count apply unchanged.
+    for (const char *bad : { "", "plain", "%s", "%d", "%.*f", "%.2f and %.2f" }) {
+        NumberFormat f{ NumberFormatMode::Decimals, 2, QString::fromLatin1(bad) };
+        EXPECT_FALSE(f.hasValidCustom()) << "spec: " << bad;
+        EXPECT_EQ(f.printfSpec().toStdString(), "%.2f") << "spec: " << bad;
+        EXPECT_EQ(f.format(3.14159).toStdString(), "3.14") << "spec: " << bad;
+    }
+}

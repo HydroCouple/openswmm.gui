@@ -7,6 +7,7 @@
 #include "ui/widgets/transectchartview.h"
 
 #include "core/preferencesmanager.h"
+#include "plot/numberformat.h"
 #include "transect/transectprovider.h"
 
 #include <QAreaSeries>
@@ -50,10 +51,17 @@ TransectChartView::TransectChartView(QWidget *parent)
     m_xAxis->setTitleText(tr("Station"));
     m_yAxis->setTitleText(tr("Elevation"));
     auto *prefs = PreferencesManager::instance();
-    m_xAxis->setLabelFormat(prefs->plotXAxisFormat().printfSpec());
-    m_yAxis->setLabelFormat(prefs->plotYAxisFormat().printfSpec());
+    const auto xf = prefs->plotXAxisFormat();
+    const auto yf = prefs->plotYAxisFormat();
+    m_xLabelMode      = static_cast<LabelFormatMode>(xf.mode);
+    m_xLabelPrecision = xf.count;
+    m_xLabelFormatStr = xf.custom;
+    m_yLabelMode      = static_cast<LabelFormatMode>(yf.mode);
+    m_yLabelPrecision = yf.count;
+    m_yLabelFormatStr = yf.custom;
     m_chart->addAxis(m_xAxis, Qt::AlignBottom);
     m_chart->addAxis(m_yAxis, Qt::AlignLeft);
+    applyAxisLabelFormats_();
 
     // Earth fill — three zones (left overbank, channel, right overbank)
     // so the user can visually distinguish the bankfull region from the
@@ -305,6 +313,70 @@ void TransectChartView::setHandlesVisible(bool on)
     emit handlesVisibleChanged(on);
 }
 
+void TransectChartView::applyAxisLabelFormats_()
+{
+    using openswmmvis::plot::NumberFormat;
+    using openswmmvis::plot::NumberFormatMode;
+    if (m_xAxis)
+        m_xAxis->setLabelFormat(
+            NumberFormat{ static_cast<NumberFormatMode>(m_xLabelMode),
+                          m_xLabelPrecision, m_xLabelFormatStr }.printfSpec());
+    if (m_yAxis)
+        m_yAxis->setLabelFormat(
+            NumberFormat{ static_cast<NumberFormatMode>(m_yLabelMode),
+                          m_yLabelPrecision, m_yLabelFormatStr }.printfSpec());
+}
+
+void TransectChartView::setXLabelFormatMode(LabelFormatMode m)
+{
+    if (m_xLabelMode == m) return;
+    m_xLabelMode = m;
+    applyAxisLabelFormats_();
+    emit xLabelFormatModeChanged(m);
+}
+
+void TransectChartView::setXLabelPrecision(int n)
+{
+    n = std::clamp(n, 0, 10);
+    if (m_xLabelPrecision == n) return;
+    m_xLabelPrecision = n;
+    applyAxisLabelFormats_();
+    emit xLabelPrecisionChanged(n);
+}
+
+void TransectChartView::setXLabelFormat(const QString &spec)
+{
+    if (m_xLabelFormatStr == spec) return;
+    m_xLabelFormatStr = spec;
+    applyAxisLabelFormats_();
+    emit xLabelFormatChanged(spec);
+}
+
+void TransectChartView::setYLabelFormatMode(LabelFormatMode m)
+{
+    if (m_yLabelMode == m) return;
+    m_yLabelMode = m;
+    applyAxisLabelFormats_();
+    emit yLabelFormatModeChanged(m);
+}
+
+void TransectChartView::setYLabelPrecision(int n)
+{
+    n = std::clamp(n, 0, 10);
+    if (m_yLabelPrecision == n) return;
+    m_yLabelPrecision = n;
+    applyAxisLabelFormats_();
+    emit yLabelPrecisionChanged(n);
+}
+
+void TransectChartView::setYLabelFormat(const QString &spec)
+{
+    if (m_yLabelFormatStr == spec) return;
+    m_yLabelFormatStr = spec;
+    applyAxisLabelFormats_();
+    emit yLabelFormatChanged(spec);
+}
+
 QString TransectChartView::displayLabelFor(const QString &property) const
 {
     if (property == QLatin1String("overbankColor"))   return tr("Style — Overbank Colour");
@@ -312,6 +384,12 @@ QString TransectChartView::displayLabelFor(const QString &property) const
     if (property == QLatin1String("groundFillColor")) return tr("Style — Ground Fill Colour");
     if (property == QLatin1String("handleSize"))      return tr("Style — Handle Size (px)");
     if (property == QLatin1String("handlesVisible"))  return tr("Style — Show Handles");
+    if (property == QLatin1String("xLabelFormatMode")) return tr("X Axis — Number format");
+    if (property == QLatin1String("xLabelPrecision"))  return tr("X Axis — Precision");
+    if (property == QLatin1String("xLabelFormat"))     return tr("X Axis — Custom format");
+    if (property == QLatin1String("yLabelFormatMode")) return tr("Y Axis — Number format");
+    if (property == QLatin1String("yLabelPrecision"))  return tr("Y Axis — Precision");
+    if (property == QLatin1String("yLabelFormat"))     return tr("Y Axis — Custom format");
     return {};
 }
 

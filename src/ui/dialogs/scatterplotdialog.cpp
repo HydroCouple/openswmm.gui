@@ -8,9 +8,11 @@
 
 #include "core/preferencesmanager.h"
 #include "layers/swmmresultslayer.h"
+#include "ui/widgets/chartaxisformatcontroller.h"
 
 #include <openswmm/engine/openswmm_output.h>
 
+#include <QAction>
 #include <QChart>
 #include <QChartView>
 #include <QComboBox>
@@ -20,6 +22,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineSeries>
+#include <QMenu>
 #include <QScatterSeries>
 #include <QValueAxis>
 #include <QVBoxLayout>
@@ -127,6 +130,14 @@ void ScatterPlotDialog::buildUi()
 
     m_chart = new QChartView(this);
     m_chart->setRenderHint(QPainter::Antialiasing);
+    m_chart->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_chart, &QWidget::customContextMenuRequested, this,
+            [this](const QPoint &p) {
+                QMenu menu(this);
+                QAction *props = menu.addAction(tr("Chart Properties…"));
+                if (menu.exec(m_chart->mapToGlobal(p)) == props && m_axisFmt)
+                    m_axisFmt->openDialog(this);
+            });
     root->addWidget(m_chart, 1);
 
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Close, this);
@@ -281,6 +292,11 @@ void ScatterPlotDialog::replot()
     }
 
     m_chart->setChart(chart);
+
+    // Bind (or rebind, since replot creates a fresh chart) the persistent
+    // axis-format controller so per-chart precision survives replots.
+    if (!m_axisFmt) m_axisFmt = new ChartAxisFormatController(chart, this);
+    else            m_axisFmt->setChart(chart);
 }
 
 } // namespace openswmmvis::ui

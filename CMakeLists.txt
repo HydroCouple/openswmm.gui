@@ -535,6 +535,7 @@ set(
         include/ui/widgets/perattributethemingwidget.h
         include/ui/widgets/legendoverlay.h
         include/ui/widgets/interactivechartview.h
+        include/ui/widgets/chartaxisformatcontroller.h
         include/ui/widgets/timeserieseditchartview.h
         include/ui/widgets/curveeditchartview.h
         include/ui/widgets/patterneditchartview.h
@@ -1101,6 +1102,7 @@ set(
         src/ui/widgets/perattributethemingwidget.cpp
         src/ui/widgets/legendoverlay.cpp
         src/ui/widgets/interactivechartview.cpp
+        src/ui/widgets/chartaxisformatcontroller.cpp
         src/ui/widgets/timeserieseditchartview.cpp
         src/ui/widgets/curveeditchartview.cpp
         src/ui/widgets/patterneditchartview.cpp
