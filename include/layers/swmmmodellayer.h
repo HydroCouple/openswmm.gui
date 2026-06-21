@@ -34,6 +34,7 @@ struct SWMMKdTrees;
 #include <QMap>
 #include <QPen>
 #include <QBrush>
+#include <QPolygonF>
 #include <QSet>
 #include <QVariantMap>
 
@@ -890,6 +891,19 @@ public:
     [[nodiscard]] QStringList subcatchmentsInRect(double canvasMinX, double canvasMinY,
                                                   double canvasMaxX, double canvasMaxY) const;
 
+    // ----- Polygon (lasso) queries ----------------------------------------
+    // Same contract as the *InRect queries above, but the test region is an
+    // arbitrary polygon given in canvas CRS. Candidates are first gathered
+    // with the polygon's bounding box (reusing the accelerated *InRect path),
+    // then refined with an exact point-in-polygon test performed in layer CRS
+    // (nodes/gages at their coordinate; links/subcatchments at their bbox
+    // centre). Hidden objects are excluded. \p canvasPoly needs >= 3 vertices.
+
+    [[nodiscard]] QStringList nodesInPolygon(const QPolygonF &canvasPoly) const;
+    [[nodiscard]] QStringList gagesInPolygon(const QPolygonF &canvasPoly) const;
+    [[nodiscard]] QStringList linksInPolygon(const QPolygonF &canvasPoly) const;
+    [[nodiscard]] QStringList subcatchmentsInPolygon(const QPolygonF &canvasPoly) const;
+
     // ----- OpenSWMMVisLayer interface -----------------------------------------
 
     void populateScene(QGraphicsScene *scene,
@@ -926,6 +940,14 @@ public:
      */
     bool transformCanvasToLayer(double cx, double cy,
                                 double &lx, double &ly) const;
+
+    /*!
+     * \brief Transform every vertex of a canvas-CRS polygon into layer CRS.
+     * \details Helper for the *InPolygon queries so the point-in-polygon test
+     *          runs in the same coordinate frame as the cached feature
+     *          coordinates. Uses transformCanvasToLayer per vertex.
+     */
+    [[nodiscard]] QPolygonF polygonCanvasToLayer(const QPolygonF &poly) const;
 
     /*!
      * \brief Forward-transform a layer-CRS coordinate into the canvas CRS.

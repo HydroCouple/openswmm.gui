@@ -20,6 +20,7 @@
 #include "map/tools/maptoolpan.h"
 #include "map/tools/maptoolzoom.h"
 #include "map/tools/maptoolselect.h"
+#include "map/tools/maptoolselectpolygon.h"
 #include "map/tools/maptoolmeasure.h"
 #include "map/tools/maptoolselectprofile.h"
 #include "map/tools/maptooladdnode.h"
@@ -266,6 +267,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     mZoomOutTool    = new OpenSWMMVisMapToolZoom(mCanvas, this);
     mZoomOutTool->setZoomInMode(false);
     mSelectTool        = new OpenSWMMVisMapToolSelect(mCanvas, this);
+    mSelectPolygonTool = new OpenSWMMVisMapToolSelectPolygon(mCanvas, this);
     mMeasureTool       = new OpenSWMMVisMapToolMeasure(mCanvas, this);
     mSelectProfileTool = new OpenSWMMVisMapToolSelectProfile(mCanvas, this);
     // SWMM_NODE_JUNCTION=0, OUTFALL=1, STORAGE=2, DIVIDER=3
@@ -1035,6 +1037,7 @@ void SWMMVisProjectWindow::activatePanTool()         { mCanvas->setActiveTool(mP
 void SWMMVisProjectWindow::activateZoomInTool()      { mCanvas->setActiveTool(mZoomInTool); }
 void SWMMVisProjectWindow::activateZoomOutTool()     { mCanvas->setActiveTool(mZoomOutTool); }
 void SWMMVisProjectWindow::activateSelectTool()      { mCanvas->setActiveTool(mSelectTool); }
+void SWMMVisProjectWindow::activateSelectByPolygonTool() { mCanvas->setActiveTool(mSelectPolygonTool); }
 
 void SWMMVisProjectWindow::activatePick2DCellsTool()
 {
@@ -1169,6 +1172,7 @@ QHash<OpenSWMMVisMapTool *, QString> SWMMVisProjectWindow::toolActionKeys() cons
         { mZoomInTool,         QStringLiteral("actionZoomIn")         },
         { mZoomOutTool,        QStringLiteral("actionZoomOut")        },
         { mSelectTool,         QStringLiteral("actionSelect")         },
+        { mSelectPolygonTool,  QStringLiteral("actionSelectByPolygon")},
         { mMeasureTool,        QStringLiteral("actionMeasure")        },
         { mSelectProfileTool,  QStringLiteral("actionPlotProfile")    },
         { mAddJunctionTool,    QStringLiteral("actionAddJunction")    },

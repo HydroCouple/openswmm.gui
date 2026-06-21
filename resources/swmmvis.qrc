@@ -33,6 +33,7 @@
         <file alias="Extent">images/extent.svg</file>
         <file alias="SelectEdit">images/select_edit.svg</file>
         <file alias="Select">images/select.svg</file>
+        <file alias="SelectByPolygon">images/select_by_polygon.svg</file>
         <file alias="Search">images/search.svg</file>
         <file alias="SelectDownstream">images/select_downstream.svg</file>
         <file alias="SelectUpstream">images/select_upstream.svg</file>
