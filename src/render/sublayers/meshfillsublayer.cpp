@@ -9,6 +9,27 @@
 namespace OpenSWMM::Render
 {
 
+MeshFillStyle::MeshFillStyle(QObject *parent) : SublayerStyle(parent)
+{
+    // Default to a smooth (Continuous) elevation ramp so terrain fill keeps
+    // its historic graduated look. The default names the "Terrain" builtin —
+    // the same 5-stop palette the renderer used to hard-code — so the editor's
+    // ramp combo and the renderer agree on the default. The renderer still
+    // takes the byte-identical legacy path for this ramp; it switches to the
+    // scheme's colour only once the user picks a *different* ramp, inverts it,
+    // or chooses Classified mode (which bins the bed elevation).
+    m_scheme.setMode(ClassificationScheme::ClassMode::Continuous);
+    m_scheme.setRampName(QStringLiteral("Terrain"));
+    m_scheme.setClassCount(5);
+}
+
+void MeshFillStyle::setScheme(const ClassificationScheme &s)
+{
+    if (m_scheme == s) return;
+    m_scheme = s;
+    setDirty();
+}
+
 void MeshFillStyle::setFillColor(const QColor &v)
 {
     if (m_fillColor == v) return;
@@ -38,6 +59,7 @@ QJsonObject MeshFillStyle::toJson() const
     obj.insert(QStringLiteral("fillColor"),         m_fillColor.name(QColor::HexArgb));
     obj.insert(QStringLiteral("hillshadeStrength"), m_hillshadeStrength);
     obj.insert(QStringLiteral("useElevationRamp"),  m_useElevationRamp);
+    obj.insert(QStringLiteral("classification"),    m_scheme.toJson());
     return obj;
 }
 
@@ -52,6 +74,10 @@ void MeshFillStyle::fromJson(const QJsonObject &j)
     m_hillshadeStrength = h;
 
     m_useElevationRamp = j.value(QStringLiteral("useElevationRamp")).toBool(m_useElevationRamp);
+
+    if (j.contains(QStringLiteral("classification")))
+        m_scheme = ClassificationScheme::fromJson(j.value(QStringLiteral("classification")).toObject());
+
     setDirty();
 }
 

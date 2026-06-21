@@ -9,24 +9,23 @@
  * paint-replacement slice" promised in swmm2dresultslayer.h §S5.6).
  *
  * Rendering (node z-order, bottom → top):
- *   Pass 1 — depth fill, TRUE GOURAUD: QSGGeometry::ColoredPoint2D +
- *            QSGVertexColorMaterial. Per-vertex colour from the engine's
- *            pseudo-Laplacian vertex depths (SceneTri.dv0..dv2) through
- *            DepthColorRampStyle; per-vertex alpha = 0 below dryDepth so
- *            GPU interpolation cuts a smooth wet/dry front. Graduated
- *            class mode stays intentionally flat per cell.
  *   Pass 2 — filled contour bands (marching-triangles isobands or flat
- *            per-cell classification, per ContourBandStyle).
+ *            per-cell classification, per ContourBandStyle). This is now the
+ *            depth fill; dry cells stay transparent so the SWMM2DMeshLayer
+ *            terrain shows through.
  *   Pass 3 — isolines (thick-segment quads; separate node for index
  *            contours). Dash patterns are not supported on the GPU path —
  *            lines render solid.
  *   Pass 3b — isoline labels: rasterised textures placed along chained
  *            polylines every ~250 screen px, rotated to the line direction.
  *   Pass 4 — velocity-vector glyphs (per-glyph colour via
- *            VelocityVectorStyle::colorForSpeed).
- *   Pass 5 — flow-direction arrows (outline + per-glyph colour).
+ *            VelocityVectorStyle::colorForSpeed); also convey flow direction.
  *   Pass 6 — cell-highlight overlay (translucent cyan fill + gold edges,
  *            matching the CPU CF.3 pass).
+ *
+ * 2026-06-21 — the Pass 1 Gouraud depth-fill (depth color ramp) and the
+ * Pass 5 flow-direction arrows were removed (redundant with contour bands
+ * and velocity vectors, respectively).
  *
  * Hosted as the "results2d" item in resources/qml/swmmlayer.qml, BELOW the
  * 1D SWMMLayerQSGRenderer so the network draws above the flood map.

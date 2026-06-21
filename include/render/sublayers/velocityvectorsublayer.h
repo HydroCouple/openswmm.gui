@@ -7,6 +7,7 @@
 #ifndef OPENSWMM_RENDER_SUBLAYERS_VELOCITYVECTORSUBLAYER_H
 #define OPENSWMM_RENDER_SUBLAYERS_VELOCITYVECTORSUBLAYER_H
 
+#include "render/classificationscheme.h"
 #include "render/isublayer.h"
 #include "render/sublayerstyle.h"
 #include "render/colorramp.h"
@@ -64,7 +65,7 @@ private:
     Q_CLASSINFO("group:colorClassCount",          "Colour")
 
 public:
-    explicit VelocityVectorStyle(QObject *parent = nullptr) : SublayerStyle(parent) {}
+    explicit VelocityVectorStyle(QObject *parent = nullptr);
 
     [[nodiscard]] double glyphLengthScalePxPerMps() const { return m_glyphLengthScalePxPerMps; }
     [[nodiscard]] LengthScaling lengthScaling() const     { return m_lengthScaling; }
@@ -76,10 +77,18 @@ public:
     [[nodiscard]] QColor color() const                    { return m_color; }
     [[nodiscard]] double dryDepthCutoff() const           { return m_dryDepthCutoff; }
     [[nodiscard]] bool    colorByMagnitude() const         { return m_colorByMagnitude; }
-    [[nodiscard]] QString colorRampName() const            { return m_colorRampName; }
-    [[nodiscard]] double  speedMinMps() const              { return m_speedMinMps; }
-    [[nodiscard]] double  speedMaxMps() const              { return m_speedMaxMps; }
-    [[nodiscard]] int     colorClassCount() const          { return m_colorClassCount; }
+    // Slice US.2 — the ramp / speed range / class count knobs live in a shared
+    // ClassificationScheme. The legacy accessors are pure forwards so
+    // colorForSpeed(), the legend, the property grid, and JSON keep working.
+    [[nodiscard]] QString colorRampName() const            { return m_scheme.rampName(); }
+    [[nodiscard]] double  speedMinMps() const              { return m_scheme.rangeMin(); }
+    [[nodiscard]] double  speedMaxMps() const              { return m_scheme.rangeMax(); }
+    [[nodiscard]] int     colorClassCount() const
+    {
+        return m_scheme.mode() == ClassificationScheme::ClassMode::Classified
+                   ? m_scheme.classCount()
+                   : 0;
+    }
 
     void setGlyphLengthScalePxPerMps(double v);
     void setLengthScaling(LengthScaling v);
@@ -95,6 +104,11 @@ public:
     void setSpeedMinMps(double v);
     void setSpeedMaxMps(double v);
     void setColorClassCount(int v);
+
+    /*! Slice US.2 — the embedded classification scheme (display mode, ramp,
+     *  class count, speed range, per-class overrides). */
+    [[nodiscard]] const ClassificationScheme &scheme() const { return m_scheme; }
+    void setScheme(const ClassificationScheme &s);
 
     /*! VS.7 — colour for a given speed magnitude (m/s). When
      *  colorByMagnitude is off, returns the flat `color()`. Otherwise samples
@@ -124,10 +138,9 @@ private:
     // VS.7 — colour-by-magnitude. VS.8 — default ON: the legacy painter
     // always encoded |v| as colour, so a flat default would regress it.
     bool    m_colorByMagnitude = true;
-    QString m_colorRampName    = QStringLiteral("viridis");
-    double  m_speedMinMps      = 0.0;
-    double  m_speedMaxMps      = 2.0;
-    int     m_colorClassCount  = 0;
+    // Slice US.2 — ramp / speed range / class count consolidated here. The ctor
+    // seeds it to the legacy defaults (Continuous, viridis, [0,2], 5 classes).
+    ClassificationScheme m_scheme;
 };
 
 class VelocityVectorSublayer : public ISublayer

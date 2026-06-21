@@ -44,6 +44,10 @@ enum class EditorKind {
                 ///< Treatment) where the cell shows a summary + opens a
                 ///< dedicated dialog. The model returns a
                 ///< NodeCompoundEditRef QVariant for these columns.
+    Interval,   ///< IntervalDelegate (editable QComboBox of legacy H:MM
+                ///< presets). The cell stores/edits a clock string; the
+                ///< setter wrappers convert to/from engine seconds. First
+                ///< user: rain gage Recording Interval (DA.2 parity).
 };
 
 /*! Round-4 follow-up 2026-05-12 — semantic unit class.  Resolves to

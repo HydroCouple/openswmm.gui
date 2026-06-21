@@ -54,8 +54,6 @@ class RuleList;   // Slice B.5b — see ruleList() override below.
 #include "render/isublayerhost.h"
 #include "render/legendsymbolitem.h"
 #include "render/sublayers/contourbandsublayer.h"
-#include "render/sublayers/depthcolorrampsublayer.h"
-#include "render/sublayers/flowarrowsublayer.h"
 #include "render/sublayers/isolinesublayer.h"
 #include "render/sublayers/meshedgesublayer.h"
 #include "render/sublayers/meshfillsublayer.h"
@@ -726,11 +724,9 @@ private:
     OpenSWMM::Render::MeshFillSublayer        *m_meshFillSublayer       = nullptr;
     OpenSWMM::Render::MeshEdgeSublayer        *m_meshEdgeSublayer       = nullptr;
     OpenSWMM::Render::MeshNodeSublayer        *m_meshNodeSublayer       = nullptr;
-    OpenSWMM::Render::DepthColorRampSublayer  *m_depthRampSublayer      = nullptr;
     OpenSWMM::Render::ContourBandSublayer     *m_contourBandSublayer    = nullptr;
     OpenSWMM::Render::IsolineSublayer         *m_isolineSublayer        = nullptr;
     OpenSWMM::Render::VelocityVectorSublayer  *m_velocityVectorSublayer = nullptr;
-    OpenSWMM::Render::FlowArrowSublayer       *m_flowArrowSublayer      = nullptr;
 
     // User-customisable paint order (Slice GUI-2026-05-30 §2).  Lazy-seeded
     // from the default order in sublayers(); reordered via moveSublayer();
@@ -740,12 +736,13 @@ private:
 public:
     // ----- ISublayerHost interface (Slice S5.6) -----------------------------
     //
-    // Default sublayer mix per RENDERING_OUTPUT_SUBLAYERS_PLAN.md §3:
+    // Default sublayer mix (2026-06-21; depth color ramp + flow arrows removed):
     //   [0] MeshFillSublayer         (static — terrain hillshade base)
-    //   [1] DepthColorRampSublayer   (dynamic — graduated depth/WSE/vmag fill)
-    //   [2] ContourBandSublayer      (dynamic — filled marching-squares bands; default off)
+    //   [1] ContourBandSublayer      (dynamic — filled bands; the depth fill, default on)
+    //   [2] MeshEdgeSublayer         (static — wireframe over results)
     //   [3] IsolineSublayer          (dynamic — marching-squares isolines; default off)
-    //   [4] VelocityVectorSublayer   (dynamic — RT0 arrow glyphs; default off)
+    //   [4] MeshNodeSublayer         (static — coupled-vertex markers)
+    //   [5] VelocityVectorSublayer   (dynamic — RT0 arrow glyphs; also show direction)
     [[nodiscard]] QList<OpenSWMM::Render::ISublayer *> sublayers() const override;
 
     /*! Reorder sublayers in paint order (bottom-up).  Emits
@@ -767,16 +764,12 @@ public:
         meshEdgeSublayer() const { return m_meshEdgeSublayer; }
     [[nodiscard]] OpenSWMM::Render::MeshNodeSublayer *
         meshNodeSublayer() const { return m_meshNodeSublayer; }
-    [[nodiscard]] OpenSWMM::Render::DepthColorRampSublayer *
-        depthRampSublayer() const { return m_depthRampSublayer; }
     [[nodiscard]] OpenSWMM::Render::ContourBandSublayer *
         contourBandSublayer() const { return m_contourBandSublayer; }
     [[nodiscard]] OpenSWMM::Render::IsolineSublayer *
         isolineSublayer() const { return m_isolineSublayer; }
     [[nodiscard]] OpenSWMM::Render::VelocityVectorSublayer *
         velocityVectorSublayer() const { return m_velocityVectorSublayer; }
-    [[nodiscard]] OpenSWMM::Render::FlowArrowSublayer *
-        flowArrowSublayer() const { return m_flowArrowSublayer; }
 
     /*! Slice U-6 — surface the 5 sublayer style bags as styleable subjects
      *  for the unified LayerStyleDialog. */

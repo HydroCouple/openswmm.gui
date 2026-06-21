@@ -16,6 +16,7 @@
 // editor widgets the Property Browser registers for those metatypes.
 #include "ui/properties/dataobjectpickereditor.h"
 #include "ui/properties/dataobjectref.h"
+#include "ui/properties/rainintervalref.h"   // DA.2 parity — H:MM presets/helpers
 #include "ui/properties/userflagseditbutton.h"
 #include "ui/properties/subcatchcompoundeditbutton.h"
 #include "ui/properties/subcatchcompoundeditref.h"
@@ -150,6 +151,44 @@ void EnumDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
     auto *combo = qobject_cast<QComboBox *>(editor);
     if (!combo) return;
     model->setData(index, combo->currentData(), Qt::EditRole);
+}
+
+// ---------------------------------------------------------------------------
+// IntervalDelegate
+// ---------------------------------------------------------------------------
+
+IntervalDelegate::IntervalDelegate(QObject *parent)
+    : QStyledItemDelegate(parent)
+{
+}
+
+QWidget *IntervalDelegate::createEditor(QWidget *parent,
+                                        const QStyleOptionViewItem & /*opt*/,
+                                        const QModelIndex & /*index*/) const
+{
+    auto *combo = new QComboBox(parent);
+    combo->setEditable(true);                       // legacy esComboEdit
+    combo->setInsertPolicy(QComboBox::NoInsert);
+    combo->addItems(rain_interval::presetsHMM());
+    return combo;
+}
+
+void IntervalDelegate::setEditorData(QWidget *editor,
+                                     const QModelIndex &index) const
+{
+    auto *combo = qobject_cast<QComboBox *>(editor);
+    if (!combo) return;
+    combo->setCurrentText(index.data(Qt::EditRole).toString());
+}
+
+void IntervalDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
+                                    const QModelIndex &index) const
+{
+    auto *combo = qobject_cast<QComboBox *>(editor);
+    if (!combo) return;
+    // The model's setter (gageIntervalSet) parses the H:MM clock string and
+    // rejects malformed input, so we can hand it the raw text.
+    model->setData(index, combo->currentText(), Qt::EditRole);
 }
 
 // ---------------------------------------------------------------------------

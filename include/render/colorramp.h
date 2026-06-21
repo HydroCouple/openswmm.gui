@@ -105,6 +105,11 @@ struct RasterColorRamp
     [[nodiscard]] static RasterColorRamp brBG(double min = 0.0, double max = 1.0);
     [[nodiscard]] static RasterColorRamp legacySWMM5Interval(double min = 0.0, double max = 1.0);
     [[nodiscard]] static RasterColorRamp legacySWMMPollutant(double min = 0.0, double max = 1.0);
+    /*! The historic 5-stop 2D mesh terrain elevation palette (deep blue →
+     *  green → ochre → off-white). Registering it as a named builtin lets the
+     *  mesh-fill default agree between the editor's ramp combo and the
+     *  renderer (which used a hard-coded copy of these stops). */
+    [[nodiscard]] static RasterColorRamp terrain(double min = 0.0, double max = 1.0);
 
     // Slice BB-β (2026-05-25) — Plotly's continuous palettes from
     // plotly.colors.sequential / .diverging. Stops authored per Plotly's
@@ -124,7 +129,7 @@ struct RasterColorRamp
      *  `grayscale()` when the name is unknown so callers never get an
      *  invalid ramp. Recognised names: "grayscale", "viridis", "plasma",
      *  "magma", "inferno", "cividis", "turbo", "rdbu", "rdylgn",
-     *  "spectral", "brbg", "legacy-swmm-5interval", "legacy-swmm-pollutant",
+     *  "spectral", "brbg", "legacy-swmm-5interval", "legacy-swmm-pollutant", "terrain",
      *  plus Slice BB-β Plotly entries: "plotly3", "icefire", "blackbody",
      *  "electric", "hot", "jet", "picnic", "portland", "rainbow", "bluered". */
     [[nodiscard]] static RasterColorRamp builtin(const QString &name);

@@ -89,6 +89,8 @@ private slots:
     void onRangeModeChanged(int row);
     void onCustomRangeToggled(bool on);
     void onCustomRangeEdited();
+    void onLabelFormatChanged(int row);
+    void onLabelPrecisionChanged(int digits);
     void onAutoClassify();
     void onTableItemChanged(QStandardItem *item);
 
@@ -119,6 +121,9 @@ private:
     QCheckBox          *m_customRangeCheck = nullptr;
     QDoubleSpinBox     *m_rangeMinSpin = nullptr;
     QDoubleSpinBox     *m_rangeMaxSpin = nullptr;
+    QWidget            *m_labelFormatRow   = nullptr;
+    QComboBox          *m_labelFormatCombo = nullptr;
+    QSpinBox           *m_labelPrecisionSpin = nullptr;
     QToolButton        *m_autoBtn      = nullptr;
     QTableView         *m_table        = nullptr;
     QStandardItemModel *m_tableModel   = nullptr;

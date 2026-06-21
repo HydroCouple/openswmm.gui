@@ -117,6 +117,23 @@ private:
     QVariantList m_values;
 };
 
+/*! Editable interval editor — a QComboBox seeded with the legacy rain gage
+ *  H:MM presets (0:01 … 24:00) but editable, so the user can also type a
+ *  custom clock value (legacy esComboEdit). The cell value is the H:MM
+ *  string; the model's setter wrappers convert to/from engine seconds. */
+class IntervalDelegate : public QStyledItemDelegate
+{
+    Q_OBJECT
+public:
+    explicit IntervalDelegate(QObject *parent = nullptr);
+
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
+                          const QModelIndex &index) const override;
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override;
+    void setModelData(QWidget *editor, QAbstractItemModel *model,
+                      const QModelIndex &index) const override;
+};
+
 } // namespace openswmmvis
 
 #endif // ATTRIBUTEDELEGATES_H

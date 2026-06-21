@@ -10,8 +10,10 @@
 
 #include "render/isublayer.h"
 #include "render/sublayerstyle.h"
+#include "ui/widgets/stylepropertydelegate.h"
 
 #include <qpropertymodel.h>
+#include <qpropertyitemdelegate.h>
 
 #include <QDialogButtonBox>
 #include <QHeaderView>
@@ -124,6 +126,9 @@ QWidget *makeGroupTab(QPropertyModel *pm,
     proxy->setSourceModel(pm);
     proxy->setAllowedProperties(propNames);
     view->setModel(proxy);
+    // Enum Q_PROPERTYs render as named combos and ClassificationScheme rows
+    // get the popup editor — both via the project's QPropertyItemDelegate.
+    view->setItemDelegate(makeStyleDelegate(view));
 
     view->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     view->header()->setStretchLastSection(true);
@@ -173,6 +178,7 @@ SublayerStyleDialog::SublayerStyleDialog(ISublayer *sublayer, QWidget *parent)
         m_tree->setRootIsDecorated(false);
         m_tree->setItemsExpandable(false);
         m_tree->setModel(pm);
+        m_tree->setItemDelegate(makeStyleDelegate(m_tree));
         m_tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
         m_tree->header()->setStretchLastSection(true);
         m_tree->expandAll();

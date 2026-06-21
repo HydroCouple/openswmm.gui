@@ -762,6 +762,9 @@ void AttributeTablePanel::installColumnDelegates()
         case openswmmvis::EditorKind::Enum:
             del = new openswmmvis::EnumDelegate(this, spec.enumValues);
             break;
+        case openswmmvis::EditorKind::Interval:
+            del = new openswmmvis::IntervalDelegate(this);
+            break;
         case openswmmvis::EditorKind::Compound:
             del = new openswmmvis::CompoundEditDelegate(this);
             break;

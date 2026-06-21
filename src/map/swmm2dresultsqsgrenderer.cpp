@@ -15,8 +15,6 @@
 #include "contour/marchingtriangles.h"
 #include "layers/swmm2dresultslayer.h"
 #include "render/sublayers/contourbandsublayer.h"
-#include "render/sublayers/depthcolorrampsublayer.h"
-#include "render/sublayers/flowarrowsublayer.h"
 #include "render/sublayers/isolinesublayer.h"
 #include "render/sublayers/velocityvectorsublayer.h"
 
@@ -253,25 +251,22 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
     }
 
     // ---- Node tree, z-order bottom→top:
-    //        fillNode        (Pass 1: Gouraud depth fill)
-    //        bandNode        (Pass 2: filled contour bands)
+    //        bandNode        (Pass 2: filled contour bands — depth fill)
     //        isoNode         (Pass 3: isolines)
     //        isoIndexNode    (Pass 3: index contours)
     //        isoLabels       (Pass 3b: along-line labels)
     //        velNode         (Pass 4: velocity-vector glyphs)
-    //        flowOutlineNode (Pass 5: flow-arrow outlines)
-    //        flowNode        (Pass 5: flow-arrow shafts)
     //        hiFillNode      (Pass 6: highlight fill)
     //        hiEdgeNode      (Pass 6: highlight outlines)
+    // 2026-06-21 — the Gouraud depth-fill pass (depth color ramp) and the
+    // flow-arrow passes were removed: contour bands now carry the depth
+    // fill, and velocity vectors already convey flow direction.
     auto *root = static_cast<QSGTransformNode *>(oldNode);
-    QSGGeometryNode *fillNode        = nullptr;
     QSGGeometryNode *bandNode        = nullptr;
     QSGGeometryNode *isoNode         = nullptr;
     QSGGeometryNode *isoIndexNode    = nullptr;
     QSGNode         *isoLabels       = nullptr;
     QSGGeometryNode *velNode         = nullptr;
-    QSGGeometryNode *flowOutlineNode = nullptr;
-    QSGGeometryNode *flowNode        = nullptr;
     QSGGeometryNode *hiFillNode      = nullptr;
     QSGGeometryNode *hiEdgeNode      = nullptr;
 
@@ -284,36 +279,27 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         // deleted) — geometry must be rebuilt regardless of the dirty flag.
         m_contentDirty  = true;
         root            = new QSGTransformNode();
-        fillNode        = makeColoredNode();
         bandNode        = makeColoredNode();
         isoNode         = makeFlatNode(QColor(10, 10, 10, 220));
         isoIndexNode    = makeFlatNode(QColor(10, 10, 10, 220));
         isoLabels       = new QSGNode();
         velNode         = makeColoredNode();
-        flowOutlineNode = makeFlatNode(QColor(255, 255, 255, 200));
-        flowNode        = makeColoredNode();
         hiFillNode      = makeFlatNode(kHiFillColor);
         hiEdgeNode      = makeFlatNode(kHiEdgeColor);
-        root->appendChildNode(fillNode);
         root->appendChildNode(bandNode);
         root->appendChildNode(isoNode);
         root->appendChildNode(isoIndexNode);
         root->appendChildNode(isoLabels);
         root->appendChildNode(velNode);
-        root->appendChildNode(flowOutlineNode);
-        root->appendChildNode(flowNode);
         root->appendChildNode(hiFillNode);
         root->appendChildNode(hiEdgeNode);
     } else {
         auto *c = root->firstChild();
-        fillNode        = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
         bandNode        = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
         isoNode         = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
         isoIndexNode    = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
         isoLabels       = c;                                c = c->nextSibling();
         velNode         = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
-        flowOutlineNode = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
-        flowNode        = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
         hiFillNode      = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
         hiEdgeNode      = static_cast<QSGGeometryNode*>(c);
     }
@@ -341,7 +327,6 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
     auto clearAll = [&]() {
         const std::vector<QSGGeometry::ColoredPoint2D> empty_c;
         const std::vector<QSGGeometry::Point2D>        empty_p;
-        uploadColoredVerts(fillNode, empty_c);
         uploadColoredVerts(bandNode, empty_c);
         uploadFlatVerts(isoNode, empty_p);
         uploadFlatVerts(isoIndexNode, empty_p);
@@ -350,8 +335,6 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             delete c;
         }
         uploadColoredVerts(velNode, empty_c);
-        uploadFlatVerts(flowOutlineNode, empty_p);
-        uploadColoredVerts(flowNode, empty_c);
         uploadFlatVerts(hiFillNode, empty_p);
         uploadFlatVerts(hiEdgeNode, empty_p);
     };
@@ -398,126 +381,21 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         const double dryDepth = m_layer->dryDepth();
         const double maxDepth = std::max(m_layer->maxDepth(), dryDepth + 1e-9);
 
-        auto *depthSub = m_layer->depthRampSublayer();
         auto *bandSub  = m_layer->contourBandSublayer();
         auto *isoSub   = m_layer->isolineSublayer();
         auto *velSub   = m_layer->velocityVectorSublayer();
-        auto *flowSub  = m_layer->flowArrowSublayer();
 
-        const OpenSWMM::Render::DepthColorRampStyle *drs =
-            depthSub ? depthSub->rampStyle() : nullptr;
         const OpenSWMM::Render::ContourBandStyle *bs =
             bandSub ? bandSub->bandStyle() : nullptr;
         const OpenSWMM::Render::IsolineStyle *is =
             isoSub ? isoSub->isolineStyle() : nullptr;
         const OpenSWMM::Render::VelocityVectorStyle *vs =
             velSub ? velSub->vectorStyle() : nullptr;
-        const OpenSWMM::Render::FlowArrowStyle *fs =
-            flowSub ? flowSub->flowArrowStyle() : nullptr;
 
-        // ---- Pass 1: Gouraud depth fill --------------------------------
-        const bool fillVisible = !depthSub || depthSub->isVisible();
-        if (fillVisible && maxDepth > dryDepth) {
-            const bool graduated =
-                (m_layer->colorRampStyle()
-                 == SWMM2DResultsLayer::ColorRampStyle::Graduated);
-            const int nClasses = std::max(2, m_layer->colorClasses());
-            const bool logScale = drs && drs->useLogScale()
-                                  && dryDepth > 0.0;
-            const double invLin = 1.0 / (maxDepth - dryDepth);
-            const double logDry = logScale ? std::log(dryDepth) : 0.0;
-            const double invLog = logScale
-                ? 1.0 / (std::log(maxDepth) - logDry) : 0.0;
-            const float fillOp = depthSub
-                ? float(std::clamp<qreal>(depthSub->opacity(), 0.0, 1.0))
-                : 1.0f;
-
-            // 256-entry ramp LUT — colorAtF per corner of 100k triangles
-            // per tick would dominate the rebuild; the LUT makes the
-            // inner loop a table index. Sampled through the same style
-            // call the CPU pass uses, so named ramps / invert / custom
-            // two-colour gradients all match.
-            struct Rgba { quint8 r, g, b, a; };
-            std::array<Rgba, 256> lut{};
-            for (int i = 0; i < 256; ++i) {
-                QColor c;
-                if (drs) {
-                    c = drs->colorAtF(double(i) / 255.0);
-                } else {
-                    c = QColor(60, 100, 200, 200);
-                }
-                lut[i] = { quint8(c.red()), quint8(c.green()),
-                           quint8(c.blue()),
-                           quint8(qBound(0, int(c.alpha() * fillOp + 0.5f), 255)) };
-            }
-
-            auto fOf = [&](double depth) -> double {
-                if (depth <= dryDepth) return 0.0;
-                double f = logScale
-                    ? (std::log(depth) - logDry) * invLog
-                    : (depth - dryDepth) * invLin;
-                f = std::clamp(f, 0.0, 1.0);
-                if (graduated) {
-                    const int bin = std::min(nClasses - 1,
-                                             int(f * double(nClasses)));
-                    f = (double(bin) + 0.5) / double(nClasses);
-                }
-                return f;
-            };
-
-            std::vector<QSGGeometry::ColoredPoint2D> verts;
-            verts.reserve(size_t(nTri) * 3);
-            const float dryF = float(dryDepth);
-
-            for (int i = 0; i < nTri; ++i) {
-                const auto &t = tris[i];
-                const bool cellWet = t.depth >= dryF;
-                const bool anyVertWet =
-                    t.dv0 >= dryF || t.dv1 >= dryF || t.dv2 >= dryF;
-                if (!cellWet && !anyVertWet) continue;   // fully dry
-
-                // Viewport cull (bbox vs cull rect).
-                const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
-                const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
-                const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
-                const double maxY = std::max({t.a.y(), t.b.y(), t.c.y()});
-                if (maxX < cullX0 || minX > cullX1 ||
-                    maxY < cullY0 || minY > cullY1) continue;
-
-                if (graduated || (cellWet && !anyVertWet)) {
-                    // Flat cell colour: graduated classes are intentionally
-                    // stepped; an isolated wet cell whose (wet-masked)
-                    // vertices all read dry must not vanish.
-                    const Rgba c = lut[int(fOf(t.depth) * 255.0 + 0.5)];
-                    const quint8 a = cellWet ? c.a : 0;
-                    for (const QPointF *pt : {&t.a, &t.b, &t.c}) {
-                        QSGGeometry::ColoredPoint2D v;
-                        v.set(float(pt->x() - ox), float(pt->y() - oy),
-                              c.r, c.g, c.b, a);
-                        verts.push_back(v);
-                    }
-                } else {
-                    // Gouraud: per-vertex colour from the engine's vertex
-                    // depths; alpha 0 below the dry threshold so the GPU
-                    // interpolation cuts the wet/dry front smoothly inside
-                    // boundary triangles.
-                    const float dv[3]  = { t.dv0, t.dv1, t.dv2 };
-                    const QPointF *pts[3] = { &t.a, &t.b, &t.c };
-                    for (int k = 0; k < 3; ++k) {
-                        const Rgba c = lut[int(fOf(dv[k]) * 255.0 + 0.5)];
-                        const quint8 a = (dv[k] >= dryF) ? c.a : 0;
-                        QSGGeometry::ColoredPoint2D v;
-                        v.set(float(pts[k]->x() - ox), float(pts[k]->y() - oy),
-                              c.r, c.g, c.b, a);
-                        verts.push_back(v);
-                    }
-                }
-            }
-            uploadColoredVerts(fillNode, verts);
-        } else {
-            uploadColoredVerts(fillNode,
-                               std::vector<QSGGeometry::ColoredPoint2D>{});
-        }
+        // ---- Pass 1 (depth fill): removed (2026-06-21). The Gouraud depth
+        // color ramp is gone; contour bands (Pass 2 below) now provide the
+        // depth fill, and dry cells stay transparent so the terrain mesh
+        // layer shows through.
 
         // ---- Pass 2: filled contour bands -------------------------------
         const bool bandsVisible = bandSub && bandSub->isVisible();
@@ -978,114 +856,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                                std::vector<QSGGeometry::ColoredPoint2D>{});
         }
 
-        // ---- Pass 5: flow-direction arrows --------------------------------
-        const bool flowVisible = flowSub && flowSub->isVisible()
-                                 && m_layer->hasVelocityData() && fs;
-        if (flowVisible) {
-            const double dryCut  = std::max(fs->dryDepthCutoff(), dryDepth);
-            const double arrowPx = std::max(2.0, fs->arrowLengthPx());
-            const double headPx  = std::max(1.0, fs->headSizePx());
-            const double spacing = std::max(4.0, fs->arrowSpacingPx());
-            const double shaftPx = std::max(0.5, fs->shaftWidthPx());
-            const qreal  flowOp  = std::clamp<qreal>(flowSub->opacity(), 0.0, 1.0);
-
-            const double arrowLen = arrowPx * double(invView);
-            const double headLen  = headPx  * double(invView);
-            const float  shaftHW  = float(0.5 * shaftPx) * invView;
-            const float  outHW    = float(0.5 * (shaftPx + 1.6)) * invView;
-
-            QColor outCol = fs->outlineColor();
-            outCol.setAlpha(int(qBound(0.0, outCol.alpha() * flowOp, 255.0)));
-
-            std::vector<QSGGeometry::Point2D>        outlineVerts;
-            std::vector<QSGGeometry::ColoredPoint2D> shaftVerts;
-
-            auto emitArrow = [&](const SWMM2DResultsLayer::SceneTri &t) {
-                const double mag = double(t.vmag);
-                if (mag <= 0.0) return;
-                QColor col = fs->colorByMagnitude()
-                    ? fs->colorForSpeed(mag) : fs->color();
-                const quint8 r = quint8(col.red());
-                const quint8 g = quint8(col.green());
-                const quint8 b = quint8(col.blue());
-                const quint8 a = quint8(qBound(0,
-                    int(col.alpha() * flowOp + 0.5), 255));
-
-                const float ux = float(t.vx / mag);
-                const float uy = float(t.vy / mag);
-                const float cx = float(t.centroid.x() - ox);
-                const float cy = float(t.centroid.y() - oy);
-                const float tailX = cx - 0.5f * float(arrowLen) * ux;
-                const float tailY = cy - 0.5f * float(arrowLen) * uy;
-                const float headX = cx + 0.5f * float(arrowLen) * ux;
-                const float headY = cy + 0.5f * float(arrowLen) * uy;
-                const float cosA = std::cos(0.43f);
-                const float sinA = std::sin(0.43f);
-                const float lX = headX - float(headLen) * ( ux * cosA - uy * sinA);
-                const float lY = headY - float(headLen) * ( ux * sinA + uy * cosA);
-                const float rX = headX - float(headLen) * ( ux * cosA + uy * sinA);
-                const float rY = headY - float(headLen) * (-ux * sinA + uy * cosA);
-
-                appendThickSeg(outlineVerts, tailX, tailY, headX, headY, outHW);
-                appendThickSeg(outlineVerts, headX, headY, lX, lY, outHW);
-                appendThickSeg(outlineVerts, headX, headY, rX, rY, outHW);
-                appendThickSegColored(shaftVerts, tailX, tailY, headX, headY,
-                                      shaftHW, r, g, b, a);
-                appendThickSegColored(shaftVerts, headX, headY, lX, lY,
-                                      shaftHW, r, g, b, a);
-                appendThickSegColored(shaftVerts, headX, headY, rX, rY,
-                                      shaftHW, r, g, b, a);
-            };
-
-            if (fs->placeAtCellCenters()) {
-                for (int i = 0; i < nTri; ++i) {
-                    const auto &t = tris[i];
-                    if (t.depth < dryCut) continue;
-                    if (t.vmag <= 0.0)    continue;
-                    const double cxp = t.centroid.x();
-                    const double cyp = t.centroid.y();
-                    if (cxp < cullX0 || cxp > cullX1 ||
-                        cyp < cullY0 || cyp > cullY1) continue;
-                    emitArrow(t);
-                }
-            } else {
-                const QRectF area(QPointF(cullX0, cullY0),
-                                  QPointF(cullX1, cullY1));
-                const double gridStep = spacing * double(invView);
-                if (gridStep > 0.0 && area.isValid()) {
-                    const int nCols = std::max(1, int(area.width()  / gridStep));
-                    const int nRows = std::max(1, int(area.height() / gridStep));
-                    const double cellW = area.width()  / double(nCols);
-                    const double cellH = area.height() / double(nRows);
-                    QHash<qint64, int> bucket;
-                    bucket.reserve(nCols * nRows);
-                    for (int i = 0; i < nTri; ++i) {
-                        const auto &t = tris[i];
-                        if (t.depth < dryCut) continue;
-                        if (t.vmag <= 0.0)    continue;
-                        const double rx = t.centroid.x() - area.left();
-                        const double ry = t.centroid.y() - area.top();
-                        if (rx < 0 || ry < 0 ||
-                            rx > area.width() || ry > area.height()) continue;
-                        const int cx = std::min(nCols - 1, int(rx / cellW));
-                        const int cy = std::min(nRows - 1, int(ry / cellH));
-                        const qint64 key = qint64(cy) * nCols + cx;
-                        if (!bucket.contains(key)) bucket.insert(key, i);
-                    }
-                    for (auto it = bucket.constBegin();
-                         it != bucket.constEnd(); ++it)
-                        emitArrow(tris[it.value()]);
-                }
-            }
-            uploadFlatVerts(flowOutlineNode, outlineVerts);
-            setFlatColor(flowOutlineNode, outCol);
-            uploadColoredVerts(flowNode, shaftVerts);
-        } else {
-            uploadFlatVerts(flowOutlineNode,
-                            std::vector<QSGGeometry::Point2D>{});
-            uploadColoredVerts(flowNode,
-                               std::vector<QSGGeometry::ColoredPoint2D>{});
-        }
+        // ---- Pass 5 (flow-direction arrows): removed (2026-06-21,
+        // redundant with velocity vectors, which already convey direction).
 
         // ---- Pass 6: cell-highlight overlay (CF.3) ------------------------
         {

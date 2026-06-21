@@ -154,6 +154,29 @@ void ClassificationScheme::setRangeMode(RangeMode m)
     bump();
 }
 
+void ClassificationScheme::setLabelFormat(LabelFormat f)
+{
+    if (m_labelFormat == f) return;
+    m_labelFormat = f;
+    bump();
+}
+
+void ClassificationScheme::setLabelPrecision(int digits)
+{
+    const int d = std::clamp(digits, 0, 12);
+    if (m_labelPrecision == d) return;
+    m_labelPrecision = d;
+    bump();
+}
+
+QString ClassificationScheme::formatValue(double v) const
+{
+    if (m_labelFormat == LabelFormat::Decimals)
+        return QString::number(v, 'f', m_labelPrecision);
+    // Significant figures: 'g' needs precision >= 1.
+    return QString::number(v, 'g', std::max(1, m_labelPrecision));
+}
+
 QPair<double, double> ClassificationScheme::effectiveRange(double dataMin, double dataMax) const
 {
     if (m_useCustomRange && m_rangeMax > m_rangeMin)
@@ -333,7 +356,6 @@ QColor ClassificationScheme::colorForValue(double value, double dataMin, double 
 }
 
 QList<LegendSymbolItem> ClassificationScheme::legendItems(double dataMin, double dataMax,
-                                                          int decimals,
                                                           const QVector<double> &samples) const
 {
     QList<LegendSymbolItem> out;
@@ -342,16 +364,20 @@ QList<LegendSymbolItem> ClassificationScheme::legendItems(double dataMin, double
 
     for (int i = 0; i < n; ++i) {
         LegendSymbolItem item;
-        const QString override_ = m_labelOverrides.value(i);
-        if (!override_.isEmpty()) {
-            item.label = override_;
-        } else if (edges.size() >= 2) {
+        // Separate the numeric class range (item.range / item.label, formatted
+        // per labelFormat()/labelPrecision()) from any user-supplied label
+        // override (item.userLabel). The legend/editor render the range and
+        // the override label as distinct fields.
+        if (edges.size() >= 2) {
             item.label = QStringLiteral("%1 – %2")
-                             .arg(edges[i], 0, 'g', decimals)
-                             .arg(edges[i + 1], 0, 'g', decimals);
+                             .arg(formatValue(edges[i]))
+                             .arg(formatValue(edges[i + 1]));
         } else {
             item.label = QStringLiteral("Class %1").arg(i + 1);
         }
+        const QString override_ = m_labelOverrides.value(i);
+        if (!override_.isEmpty())
+            item.userLabel = override_;
         if (edges.size() >= 2)
             item.range = { edges[i], edges[i + 1] };
         item.classKey  = QString::number(i);
@@ -379,6 +405,8 @@ QJsonObject ClassificationScheme::toJson() const
     obj.insert(QStringLiteral("rangeMin"),   m_rangeMin);
     obj.insert(QStringLiteral("rangeMax"),   m_rangeMax);
     obj.insert(QStringLiteral("rangeMode"),  rangeModeToString(m_rangeMode));
+    obj.insert(QStringLiteral("labelFormat"),    int(m_labelFormat));
+    obj.insert(QStringLiteral("labelPrecision"), m_labelPrecision);
 
     if (!m_colorOverrides.isEmpty()) {
         QJsonObject co;
@@ -414,6 +442,12 @@ ClassificationScheme ClassificationScheme::fromJson(const QJsonObject &j)
     s.m_rangeMin       = j.value(QStringLiteral("rangeMin")).toDouble(s.m_rangeMin);
     s.m_rangeMax       = j.value(QStringLiteral("rangeMax")).toDouble(s.m_rangeMax);
     s.m_rangeMode      = rangeModeFromString(j.value(QStringLiteral("rangeMode")).toString());
+    s.m_labelFormat    = (j.value(QStringLiteral("labelFormat")).toInt(int(s.m_labelFormat))
+                          == int(LabelFormat::Decimals))
+                             ? LabelFormat::Decimals
+                             : LabelFormat::SignificantFigures;
+    s.m_labelPrecision = std::clamp(
+        j.value(QStringLiteral("labelPrecision")).toInt(s.m_labelPrecision), 0, 12);
 
     const QJsonObject co = j.value(QStringLiteral("colorOverrides")).toObject();
     for (auto it = co.constBegin(); it != co.constEnd(); ++it) {
@@ -449,6 +483,8 @@ bool ClassificationScheme::operator==(const ClassificationScheme &o) const
            && m_rangeMin == o.m_rangeMin
            && m_rangeMax == o.m_rangeMax
            && m_rangeMode == o.m_rangeMode
+           && m_labelFormat == o.m_labelFormat
+           && m_labelPrecision == o.m_labelPrecision
            && m_colorOverrides == o.m_colorOverrides
            && m_labelOverrides == o.m_labelOverrides;
 }
