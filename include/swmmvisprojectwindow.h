@@ -31,6 +31,7 @@ class OpenSWMMVisMapTool;
 class OpenSWMMVisMapToolPan;
 class OpenSWMMVisMapToolZoom;
 class OpenSWMMVisMapToolSelect;
+class OpenSWMMVisMapToolSelectPolygon;
 class OpenSWMMVisMapToolMeasure;
 class OpenSWMMVisMapToolAddNode;
 class OpenSWMMVisMapToolAddLink;
@@ -109,6 +110,7 @@ public:
     void activateZoomInTool();
     void activateZoomOutTool();
     void activateSelectTool();
+    void activateSelectByPolygonTool();
     void activateMeasureTool();
     void activateSelectProfileTool();
 
@@ -388,6 +390,7 @@ private:
     OpenSWMMVisMapToolZoom        *mZoomInTool        = nullptr;
     OpenSWMMVisMapToolZoom        *mZoomOutTool       = nullptr;
     OpenSWMMVisMapToolSelect      *mSelectTool        = nullptr;
+    OpenSWMMVisMapToolSelectPolygon *mSelectPolygonTool = nullptr;
     OpenSWMMVisMapToolMeasure     *mMeasureTool       = nullptr;
     class OpenSWMMVisMapToolSelectProfile *mSelectProfileTool = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddJunctionTool   = nullptr;

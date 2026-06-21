@@ -343,6 +343,7 @@ set(
         include/map/tools/maptoolzoom.h
         include/map/tools/maptoolmeasure.h
         include/map/tools/maptoolselect.h
+        include/map/tools/maptoolselectpolygon.h
         include/map/tools/maptoolplotpick.h
         include/map/tools/maptoolpick2dcells.h
         include/map/tools/maptoolmeshprofile.h
@@ -825,6 +826,7 @@ set(
         src/map/tools/maptoolzoom.cpp
         src/map/tools/maptoolmeasure.cpp
         src/map/tools/maptoolselect.cpp
+        src/map/tools/maptoolselectpolygon.cpp
         src/map/tools/maptoolplotpick.cpp
         src/map/tools/maptoolpick2dcells.cpp
         src/map/tools/maptoolmeshprofile.cpp
