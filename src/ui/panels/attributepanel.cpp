@@ -24,6 +24,9 @@
 // ATTRIBUTE_EDITOR_WIRING Phase 0 — culvert code inline combobox.
 #include "ui/properties/culvertcodecombobox.h"
 #include "ui/properties/culvertcoderef.h"
+// DA.2 parity — rain gage recording-interval H:MM combo.
+#include "ui/properties/rainintervalcombobox.h"
+#include "ui/properties/rainintervalref.h"
 // USER_FLAGS Phase 4 — per-object "User Flags" row ref + cell editor.
 #include "ui/properties/userflagseditbutton.h"
 #include "ui/properties/userflagseditref.h"
@@ -288,6 +291,15 @@ void AttributePanel::setupUi()
     delegate->registerCustomTypeEditorCreator(
         QMetaType::Type(qMetaTypeId<CulvertCodeRef>()),
         new QStandardItemEditorCreator<CulvertCodeComboBox>());
+
+    // DA.2 parity — rain gage recording interval edits as an H:MM clock
+    // combo. Converter renders the H:MM label in the read-only cell; the
+    // editor creator hands out an editable RainIntervalComboBox.
+    qRegisterMetaType<RainIntervalRef>("RainIntervalRef");
+    registerRainIntervalRefConverter();
+    delegate->registerCustomTypeEditorCreator(
+        QMetaType::Type(qMetaTypeId<RainIntervalRef>()),
+        new QStandardItemEditorCreator<RainIntervalComboBox>());
 
     // Slice DA.4.3 — same dance for `DataObjectRef`, used by the new
     // outfall stage-data picker rows (Tidal Curve, Stage Time Series).

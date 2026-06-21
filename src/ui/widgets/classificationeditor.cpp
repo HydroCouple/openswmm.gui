@@ -223,6 +223,27 @@ void ClassificationEditor::buildUi()
     }
     form->addRow(m_customRangeRow);
 
+    // Label number format (decimal places vs significant figures) — GIS-style
+    // control over how class-edge values are rendered in the table + legend.
+    m_labelFormatRow = new QWidget(box);
+    {
+        auto *l = new QHBoxLayout(m_labelFormatRow);
+        l->setContentsMargins(0, 0, 0, 0);
+        m_labelFormatCombo = new QComboBox(m_labelFormatRow);
+        m_labelFormatCombo->addItem(tr("Decimal places"),
+                                    int(ClassificationScheme::LabelFormat::Decimals));
+        m_labelFormatCombo->addItem(tr("Significant figures"),
+                                    int(ClassificationScheme::LabelFormat::SignificantFigures));
+        m_labelPrecisionSpin = new QSpinBox(m_labelFormatRow);
+        m_labelPrecisionSpin->setRange(0, 9);
+        m_labelPrecisionSpin->setValue(3);
+        l->addWidget(new QLabel(tr("Label format:"), m_labelFormatRow));
+        l->addWidget(m_labelFormatCombo, 1);
+        l->addWidget(new QLabel(tr("Digits:"), m_labelFormatRow));
+        l->addWidget(m_labelPrecisionSpin);
+    }
+    form->addRow(m_labelFormatRow);
+
     // Auto-classify.
     m_autoBtn = new QToolButton(box);
     m_autoBtn->setText(tr("Auto-classify from data"));
@@ -263,6 +284,10 @@ void ClassificationEditor::buildUi()
             this, &ClassificationEditor::onCustomRangeEdited);
     connect(m_rangeMaxSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
             this, &ClassificationEditor::onCustomRangeEdited);
+    connect(m_labelFormatCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &ClassificationEditor::onLabelFormatChanged);
+    connect(m_labelPrecisionSpin, qOverload<int>(&QSpinBox::valueChanged),
+            this, &ClassificationEditor::onLabelPrecisionChanged);
     connect(m_autoBtn, &QToolButton::clicked, this, &ClassificationEditor::onAutoClassify);
     connect(m_tableModel, &QStandardItemModel::itemChanged,
             this, &ClassificationEditor::onTableItemChanged);
@@ -342,6 +367,13 @@ void ClassificationEditor::refresh()
         m_rangeMinSpin->setValue(s.useCustomRange() ? s.rangeMin() : lo);
         m_rangeMaxSpin->setValue(s.useCustomRange() ? s.rangeMax() : hi);
     }
+    {
+        QSignalBlocker bf(m_labelFormatCombo);
+        QSignalBlocker bp(m_labelPrecisionSpin);
+        m_labelFormatCombo->setCurrentIndex(
+            m_labelFormatCombo->findData(int(s.labelFormat())));
+        m_labelPrecisionSpin->setValue(s.labelPrecision());
+    }
 
     applyVisibility();
     rebuildTable();
@@ -364,6 +396,8 @@ void ClassificationEditor::applyVisibility()
     m_countSpin->setVisible(classified);
     m_autoBtn->setVisible(classified);
     m_table->setVisible(classified);
+    // Label number format applies to the (classified) table + legend rows.
+    if (m_labelFormatRow) m_labelFormatRow->setVisible(classified);
 
     // Range idioms are mutually exclusive: range-mode combo wins.
     const bool rangeModes = m_binding->supportsRangeModes();
@@ -380,8 +414,11 @@ void ClassificationEditor::applyVisibility()
     } else if (customRange) {
         m_customRangeRow->setVisible(true);
         m_customRangeCheck->setVisible(true);
-        m_rangeMinSpin->setEnabled(s.useCustomRange());
-        m_rangeMaxSpin->setEnabled(s.useCustomRange());
+        // Min/Max are always directly editable; editing them engages the
+        // custom range (see onCustomRangeEdited). The checkbox reflects /
+        // toggles whether the custom range is in effect.
+        m_rangeMinSpin->setEnabled(true);
+        m_rangeMaxSpin->setEnabled(true);
     } else {
         m_customRangeRow->setVisible(false);
     }
@@ -413,9 +450,9 @@ void ClassificationEditor::rebuildTable()
         const double lower = edges.size() >= 2 ? edges[i]     : lo;
         const double upper = edges.size() >= 2 ? edges[i + 1] : hi;
 
-        auto *lowerItem = new QStandardItem(QString::number(lower, 'g', 6));
+        auto *lowerItem = new QStandardItem(s.formatValue(lower));
         lowerItem->setEditable(false);
-        auto *upperItem = new QStandardItem(QString::number(upper, 'g', 6));
+        auto *upperItem = new QStandardItem(s.formatValue(upper));
         upperItem->setEditable(i < n - 1); // last upper is the range max (fixed)
         auto *colorItem = new QStandardItem;
         colorItem->setData(s.colorForClass(i, n), Qt::BackgroundRole);
@@ -517,6 +554,18 @@ void ClassificationEditor::onCustomRangeEdited()
         else
             s.setUseCustomRange(true);
     });
+}
+
+void ClassificationEditor::onLabelFormatChanged(int row)
+{
+    const auto fmt = static_cast<ClassificationScheme::LabelFormat>(
+        m_labelFormatCombo->itemData(row).toInt());
+    mutateScheme([&](ClassificationScheme &s) { s.setLabelFormat(fmt); });
+}
+
+void ClassificationEditor::onLabelPrecisionChanged(int digits)
+{
+    mutateScheme([&](ClassificationScheme &s) { s.setLabelPrecision(digits); });
 }
 
 void ClassificationEditor::onAutoClassify()

@@ -10,6 +10,7 @@
 #include "ui/models/userflagsmodel.h"
 #include "ui/properties/culvertcodes.h"      // ATTRIBUTE_EDITOR_WIRING Phase 0
 #include "ui/properties/dataobjectref.h"     // pump-curve picker cell
+#include "ui/properties/rainintervalref.h"   // DA.2 parity — H:MM interval helpers
 #include "ui/properties/linkcompoundeditref.h"
 #include "ui/properties/nodecompoundeditref.h"
 #include "ui/properties/subcatchcompoundeditref.h"  // Phase 3 compound cells
@@ -677,6 +678,12 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         stationCol.label  = QStringLiteral("Station ID");
         stationCol.editor = EditorKind::Text;
         stationCol.setter = QStringLiteral("gage_station_id");
+        // Recording interval — legacy H:MM editable combo.
+        ColumnSpec intervalCol;
+        intervalCol.key    = QStringLiteral("Recording interval");
+        intervalCol.label  = QStringLiteral("Recording Interval");
+        intervalCol.editor = EditorKind::Interval;
+        intervalCol.setter = QStringLiteral("gage_interval");
         // DA.2 parity — full legacy [RAINGAGES] field set: rain format,
         // recording interval, snow-catch factor, data source, then the
         // source-specific rows (series picker vs. file path / station / units).
@@ -686,8 +693,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             ro("Y",    "Y Coordinate"),
             enumCol("Rain type",   "Rain Type",   "gage_rain_type",
                                                   gageRainTypeValues()),
-            num("Recording interval", "Recording Interval (s)", "gage_interval",
-                                                  0.0, 1e7, 0),
+            intervalCol,
             num("Snow catch factor",  "Snow Catch Factor",      "gage_snow_factor",
                                                   0.0, 1e3, 4),
             enumCol("Data source", "Data Source", "gage_data_source",
@@ -832,6 +838,26 @@ int gageFilePathSet(SWMM_Engine e, int idx, const char *path) {
     const char *id = swmm_gage_id(e, idx);
     if (!id) return SWMM_ERR_BADINDEX;
     return swmm_file_path_set(e, SWMM_FILE_RAINGAGE_DATA, id, path);
+}
+
+// DA.2 parity — recording interval as a legacy H:MM clock string. The engine
+// stores/returns seconds (swmm_gage_get/set_rain_interval); these string
+// wrappers let the column ride the SetterEntry string path so the cell shows
+// "0:15" (matching the Property Browser combo) instead of raw seconds.
+int gageIntervalGet(SWMM_Engine e, int idx, char *buf, int len) {
+    double secs = 0.0;
+    const int rc = swmm_gage_get_rain_interval(e, idx, &secs);
+    if (rc == SWMM_OK)
+        qstrncpy(buf,
+                 rain_interval::secondsToHMM(static_cast<int>(secs + 0.5))
+                     .toUtf8().constData(),
+                 len);
+    return rc;
+}
+int gageIntervalSet(SWMM_Engine e, int idx, const char *text) {
+    const int secs = rain_interval::hmmToSeconds(QString::fromUtf8(text));
+    if (secs < 0) return SWMM_ERR_BADPARAM;   // malformed — reject the edit
+    return swmm_gage_set_rain_interval(e, idx, static_cast<double>(secs));
 }
 
 // Slice AG.4 — storage-unit geometry. The engine stores the functional
@@ -1099,9 +1125,11 @@ SetterEntry setterFor(const QString &tag) {
         return e;
     }
     if (tag == QStringLiteral("gage_interval")) {
-        e.kind  = EntityKind::Gage;
-        e.setFn = &swmm_gage_set_rain_interval;
-        e.getFn = &swmm_gage_get_rain_interval;
+        // String path: cell displays/edits the legacy H:MM clock form via
+        // the wrappers above (engine stores seconds).
+        e.kind   = EntityKind::Gage;
+        e.setFnS = &gageIntervalSet;
+        e.getFnS = &gageIntervalGet;
         return e;
     }
     if (tag == QStringLiteral("gage_snow_factor")) {

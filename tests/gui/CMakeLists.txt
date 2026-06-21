@@ -528,7 +528,7 @@ add_swmmvis_gui_test(test_2d_sublayers
     ${CMAKE_SOURCE_DIR}/src/render/symbolstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/render/legendsymbolitem.cpp
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/meshfillsublayer.cpp
-    ${CMAKE_SOURCE_DIR}/src/render/sublayers/depthcolorrampsublayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/sublayers/meshedgesublayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/velocityvectorsublayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/isolinesublayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/contourbandsublayer.cpp
@@ -540,11 +540,15 @@ add_swmmvis_gui_test(test_2d_sublayers
     ${CMAKE_SOURCE_DIR}/include/render/sublayerstyle.h
     ${CMAKE_SOURCE_DIR}/include/render/isublayer.h
     ${CMAKE_SOURCE_DIR}/include/render/sublayers/meshfillsublayer.h
-    ${CMAKE_SOURCE_DIR}/include/render/sublayers/depthcolorrampsublayer.h
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/meshedgesublayer.h
     ${CMAKE_SOURCE_DIR}/include/render/sublayers/velocityvectorsublayer.h
     ${CMAKE_SOURCE_DIR}/include/render/sublayers/isolinesublayer.h
     ${CMAKE_SOURCE_DIR}/include/render/sublayers/contourbandsublayer.h
 )
+# D1-a — the property grid surfaces a ClassificationScheme Q_PROPERTY as an
+# editable leaf row through QPropertyModel; the test reflects on the model.
+target_link_libraries(test_2d_sublayers PRIVATE
+    $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>)
 
 # Slice U-0 — the old test_sublayer_persistence test relied on the
 # deleted NodeMarkerSublayer; FeatureSublayer JSON round-trip is now
@@ -595,6 +599,9 @@ add_swmmvis_gui_test(test_comparisonplot_toolbar
     # InteractiveChartView formats axis labels via PreferencesManager + NumberFormat.
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    # PreferencesManager custom color-ramp persistence references RasterColorRamp.
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
@@ -617,10 +624,23 @@ add_swmmvis_gui_test(test_timeseries_edit_chart_view
     # Axis labels go through PreferencesManager + NumberFormat.
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    # PreferencesManager custom color-ramp persistence references RasterColorRamp.
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+    # TimeseriesEditChartView's context menu opens ChartAxisFormatController.
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/chartaxisformatcontroller.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/chartaxisformatcontroller.h
+    # ChartAxisFormatController opens the shared ChartPropertiesDialog over a ChartProperties.
+    ${CMAKE_SOURCE_DIR}/src/plot/chartproperties.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/chartproperties.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
-target_link_libraries(test_timeseries_edit_chart_view PRIVATE Qt6::Charts)
+target_link_libraries(test_timeseries_edit_chart_view PRIVATE Qt6::Charts
+    # chartpropertiesdialog.cpp (pulled in via ChartAxisFormatController) uses QPropertyModel.
+    $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>)
 
 # Slice BQ Phase 6.7.3.3 — TimeseriesEditorDialog shell smoke tests
 # (dialog assembles grid + chart + toolbar; edits propagate both ways via
@@ -649,12 +669,25 @@ add_swmmvis_gui_test(test_timeseries_editor_dialog
     # DialogLayoutPersistence (applyAlwaysOnTopPolicy / save+restoreDialogLayout).
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    # PreferencesManager custom color-ramp persistence references RasterColorRamp.
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+    # TimeseriesEditorDialog/EditChartView open ChartAxisFormatController.
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/chartaxisformatcontroller.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/chartaxisformatcontroller.h
+    # ChartAxisFormatController opens the shared ChartPropertiesDialog over a ChartProperties.
+    ${CMAKE_SOURCE_DIR}/src/plot/chartproperties.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/chartproperties.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialoglayoutpersistence.h
 )
-target_link_libraries(test_timeseries_editor_dialog PRIVATE Qt6::Charts)
+target_link_libraries(test_timeseries_editor_dialog PRIVATE Qt6::Charts
+    # chartpropertiesdialog.cpp (pulled in via ChartAxisFormatController) uses QPropertyModel.
+    $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>)
 
 # Slice BM.0-Add-New (2026-05-24) — pins the createNew factory contract that
 # ObjectBrowserPanel's Add-New dispatch relies on after NewDataObjectDialog
@@ -683,12 +716,25 @@ add_swmmvis_gui_test(test_objectbrowser_add_new_dispatch
     # Same TimeseriesEditorDialog transitive deps as test_timeseries_editor_dialog.
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    # PreferencesManager custom color-ramp persistence references RasterColorRamp.
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+    # TimeseriesEditorDialog/EditChartView open ChartAxisFormatController.
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/chartaxisformatcontroller.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/chartaxisformatcontroller.h
+    # ChartAxisFormatController opens the shared ChartPropertiesDialog over a ChartProperties.
+    ${CMAKE_SOURCE_DIR}/src/plot/chartproperties.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/chartproperties.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialoglayoutpersistence.h
 )
-target_link_libraries(test_objectbrowser_add_new_dispatch PRIVATE Qt6::Charts)
+target_link_libraries(test_objectbrowser_add_new_dispatch PRIVATE Qt6::Charts
+    # chartpropertiesdialog.cpp (pulled in via ChartAxisFormatController) uses QPropertyModel.
+    $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>)
 
 # Slice BQ Phase 6.7.2 — PatternEditorDialog + PatternProvider + PatternRegistry
 # + PatternFactorTableModel coverage. Self-contained: pulls in only the
@@ -714,10 +760,23 @@ add_swmmvis_gui_test(test_pattern_editor_dialog
     ${CMAKE_SOURCE_DIR}/include/pattern/patternundocommands.h
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    # PreferencesManager custom color-ramp persistence references RasterColorRamp.
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+    # PatternEditorDialog opens ChartAxisFormatController for "Chart Properties...".
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/chartaxisformatcontroller.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/chartaxisformatcontroller.h
+    # ChartAxisFormatController opens the shared ChartPropertiesDialog over a ChartProperties.
+    ${CMAKE_SOURCE_DIR}/src/plot/chartproperties.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/chartproperties.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
-target_link_libraries(test_pattern_editor_dialog PRIVATE Qt6::Charts Qt6::Svg)
+target_link_libraries(test_pattern_editor_dialog PRIVATE Qt6::Charts Qt6::Svg
+    # chartpropertiesdialog.cpp (pulled in via ChartAxisFormatController) uses QPropertyModel.
+    $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>)
 
 # Slice BQ Phase 6.7.1 — CurveEditorDialog + CurveProvider + CurveRegistry
 # + CurvePointTableModel coverage. Self-contained.
@@ -741,10 +800,23 @@ add_swmmvis_gui_test(test_curve_editor_dialog
     ${CMAKE_SOURCE_DIR}/include/curve/curveundocommands.h
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    # PreferencesManager custom color-ramp persistence references RasterColorRamp.
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+    # CurveEditorDialog/EditChartView open ChartAxisFormatController.
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/chartaxisformatcontroller.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/chartaxisformatcontroller.h
+    # ChartAxisFormatController opens the shared ChartPropertiesDialog over a ChartProperties.
+    ${CMAKE_SOURCE_DIR}/src/plot/chartproperties.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/chartproperties.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
-target_link_libraries(test_curve_editor_dialog PRIVATE Qt6::Charts)
+target_link_libraries(test_curve_editor_dialog PRIVATE Qt6::Charts
+    # chartpropertiesdialog.cpp (pulled in via ChartAxisFormatController) uses QPropertyModel.
+    $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>)
 
 # Slice BQ Phase 6.7.4 — TransectEditorDialog + TransectProvider +
 # TransectRegistry + TransectListModel + TransectStationTableModel +
@@ -771,6 +843,9 @@ add_swmmvis_gui_test(test_transect_editor_dialog
     # Chart axis labels via PreferencesManager + NumberFormat.
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    # PreferencesManager custom color-ramp persistence references RasterColorRamp.
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
@@ -861,6 +936,9 @@ add_swmmvis_gui_test(test_comparisonplot_chartproperties
     # ChartProperties reads axis defaults from PreferencesManager + NumberFormat.
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    # PreferencesManager custom color-ramp persistence references RasterColorRamp.
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
@@ -896,6 +974,9 @@ add_swmmvis_gui_test(test_comparisonplot_scatter
     ${CMAKE_SOURCE_DIR}/src/plot/comparisonplotmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/seriesstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    # seriesstyle.cpp formats point labels via NumberFormat::printfSpec().
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
     ${CMAKE_SOURCE_DIR}/include/plot/seriespairing.h
     ${CMAKE_SOURCE_DIR}/include/plot/comparisonplotmodel.h
     ${CMAKE_SOURCE_DIR}/include/plot/irunlayer.h
@@ -911,6 +992,9 @@ add_swmmvis_gui_test(test_comparisonplot_pairs
     ${CMAKE_SOURCE_DIR}/src/plot/comparisonplotmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/seriesstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    # seriesstyle.cpp formats point labels via NumberFormat::printfSpec().
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
     ${CMAKE_SOURCE_DIR}/include/plot/comparisonplotmodel.h
     ${CMAKE_SOURCE_DIR}/include/plot/irunlayer.h
 )
@@ -924,6 +1008,9 @@ add_swmmvis_gui_test(test_comparisonplot_seriestree
     ${CMAKE_SOURCE_DIR}/src/plot/comparisonplotmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/seriesstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    # seriesstyle.cpp formats point labels via NumberFormat::printfSpec().
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
     ${CMAKE_SOURCE_DIR}/include/plot/comparisonplotmodel.h
     ${CMAKE_SOURCE_DIR}/include/plot/seriesstyle.h
     ${CMAKE_SOURCE_DIR}/include/plot/plotattribute.h

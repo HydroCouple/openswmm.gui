@@ -5,8 +5,8 @@
  * \license GPL-3.0-or-later
  * \brief  O2-1 / VS.8 — styling panel for a SWMM2DResultsLayer.
  *
- *         One tab per sub-layer visualization type (Depth fill, Contour
- *         bands, Isolines, Velocity vectors, Flow arrows), mirroring the
+ *         One tab per sub-layer visualization type (Contour bands,
+ *         Isolines, Velocity vectors), mirroring the
  *         QGIS mesh-layer styling idiom. Every control writes live into
  *         the owning sublayer / its style bag — the single source of
  *         truth the paint passes consult — so edits repaint immediately
@@ -29,11 +29,9 @@ public:
     explicit Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWidget *parent = nullptr);
 
 private:
-    [[nodiscard]] QWidget *buildDepthTab(QWidget *parent);
     [[nodiscard]] QWidget *buildContourBandTab(QWidget *parent);
     [[nodiscard]] QWidget *buildIsolineTab(QWidget *parent);
     [[nodiscard]] QWidget *buildVelocityTab(QWidget *parent);
-    [[nodiscard]] QWidget *buildFlowArrowTab(QWidget *parent);
 
     QPointer<SWMM2DResultsLayer> m_layer;
 };

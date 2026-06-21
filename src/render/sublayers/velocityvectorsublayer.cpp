@@ -14,10 +14,46 @@ namespace OpenSWMM::Render
 
 namespace { void clampNonNeg(double &v) { if (v < 0.0) v = 0.0; } }
 
+VelocityVectorStyle::VelocityVectorStyle(QObject *parent) : SublayerStyle(parent)
+{
+    // Slice US.2 — seed the embedded scheme to the legacy continuous default:
+    // smooth viridis gradient over [0, 2] m/s, 5 classes when classified.
+    m_scheme.setMode(ClassificationScheme::ClassMode::Continuous);
+    m_scheme.setRampName(QStringLiteral("viridis"));
+    m_scheme.setUseCustomRange(true);
+    m_scheme.setRangeMin(0.0);
+    m_scheme.setRangeMax(2.0);
+    m_scheme.setClassCount(5);
+}
+
+void VelocityVectorStyle::setScheme(const ClassificationScheme &s)
+{
+    if (m_scheme == s) return;
+    m_scheme = s;
+    setDirty();
+}
+
 void VelocityVectorStyle::setGlyphLengthScalePxPerMps(double v) { clampNonNeg(v); if (!qFuzzyCompare(m_glyphLengthScalePxPerMps+1.0, v+1.0)) { m_glyphLengthScalePxPerMps = v; setDirty(); } }
 void VelocityVectorStyle::setLengthScaling(LengthScaling v)     { if (m_lengthScaling != v) { m_lengthScaling = v; setDirty(); } }
 void VelocityVectorStyle::setShaftWidthPx(double v)             { if (v < 0.1) v = 0.1; if (!qFuzzyCompare(m_shaftWidthPx+1.0, v+1.0)) { m_shaftWidthPx = v; setDirty(); } }
-void VelocityVectorStyle::setColorClassCount(int v)             { if (v < 0) v = 0; if (v == 1) v = 2; if (m_colorClassCount != v) { m_colorClassCount = v; setDirty(); } }
+void VelocityVectorStyle::setColorClassCount(int v)
+{
+    // US.2 — 0 (or 1) keeps a continuous gradient; >= 2 switches the scheme to
+    // classified with that many bands.
+    if (v < 2) {
+        if (m_scheme.mode() != ClassificationScheme::ClassMode::Continuous) {
+            m_scheme.setMode(ClassificationScheme::ClassMode::Continuous);
+            setDirty();
+        }
+        return;
+    }
+    if (m_scheme.mode() != ClassificationScheme::ClassMode::Classified
+        || m_scheme.classCount() != v) {
+        m_scheme.setMode(ClassificationScheme::ClassMode::Classified);
+        m_scheme.setClassCount(v);
+        setDirty();
+    }
+}
 void VelocityVectorStyle::setGlyphLengthMinPx(double v)         { clampNonNeg(v); if (!qFuzzyCompare(m_glyphLengthMinPx+1.0,         v+1.0)) { m_glyphLengthMinPx         = v; setDirty(); } }
 void VelocityVectorStyle::setGlyphLengthMaxPx(double v)         { clampNonNeg(v); if (!qFuzzyCompare(m_glyphLengthMaxPx+1.0,         v+1.0)) { m_glyphLengthMaxPx         = v; setDirty(); } }
 void VelocityVectorStyle::setGlyphSpacingPx(double v)           { if (v < 1.0) v = 1.0; if (!qFuzzyCompare(m_glyphSpacingPx+1.0,    v+1.0)) { m_glyphSpacingPx           = v; setDirty(); } }
@@ -40,22 +76,24 @@ void VelocityVectorStyle::setColorByMagnitude(bool v)
 
 void VelocityVectorStyle::setColorRampName(const QString &v)
 {
-    if (m_colorRampName == v) return;
-    m_colorRampName = v;
+    if (m_scheme.rampName() == v) return;
+    m_scheme.setRampName(v);
     setDirty();
 }
 
 void VelocityVectorStyle::setSpeedMinMps(double v)
 {
-    if (qFuzzyCompare(m_speedMinMps + 1.0, v + 1.0)) return;
-    m_speedMinMps = v;
+    if (qFuzzyCompare(m_scheme.rangeMin() + 1.0, v + 1.0)) return;
+    m_scheme.setUseCustomRange(true);
+    m_scheme.setRangeMin(v);
     setDirty();
 }
 
 void VelocityVectorStyle::setSpeedMaxMps(double v)
 {
-    if (qFuzzyCompare(m_speedMaxMps + 1.0, v + 1.0)) return;
-    m_speedMaxMps = v;
+    if (qFuzzyCompare(m_scheme.rangeMax() + 1.0, v + 1.0)) return;
+    m_scheme.setUseCustomRange(true);
+    m_scheme.setRangeMax(v);
     setDirty();
 }
 
@@ -63,21 +101,17 @@ QColor VelocityVectorStyle::colorForSpeed(double speedMps) const
 {
     if (!m_colorByMagnitude)
         return m_color;
-    RasterColorRamp ramp = RasterColorRamp::builtin(m_colorRampName);
-    ramp.minValue = m_speedMinMps;
-    ramp.maxValue = (m_speedMaxMps > m_speedMinMps) ? m_speedMaxMps
-                                                    : m_speedMinMps + 1.0;
-    if (m_colorClassCount >= 2) {
-        // VS.8 — discrete colour bands: quantise the normalised position to
-        // the containing band's midpoint so every speed in a band shares one
-        // colour (matches the legend rows exactly).
-        double f = (speedMps - ramp.minValue) / (ramp.maxValue - ramp.minValue);
-        f = std::clamp(f, 0.0, 1.0);
-        const int n   = m_colorClassCount;
-        const int bin = std::min(n - 1, int(f * double(n)));
-        return ramp.colorAt((double(bin) + 0.5) / double(n));
+    // US.2 — the scheme owns ramp / range / method / invert / per-class
+    // overrides. Continuous samples the ramp over the speed range; Classified
+    // resolves the band the speed falls in and returns its class colour.
+    const double lo = m_scheme.rangeMin();
+    const double hi = (m_scheme.rangeMax() > lo) ? m_scheme.rangeMax() : lo + 1.0;
+    if (m_scheme.mode() == ClassificationScheme::ClassMode::Classified) {
+        const QVector<double> edges = m_scheme.levelEdges(lo, hi);
+        const int idx = ClassificationScheme::classIndexFor(speedMps, edges);
+        return m_scheme.colorForClass(idx, m_scheme.classCount());
     }
-    return ramp.colorForValue(speedMps);
+    return m_scheme.colorForValue(speedMps, lo, hi);
 }
 
 double VelocityVectorStyle::glyphLengthPxForSpeed(double speedMps) const
@@ -113,10 +147,13 @@ QJsonObject VelocityVectorStyle::toJson() const
     obj.insert(QStringLiteral("color"),                    m_color.name(QColor::HexArgb));
     obj.insert(QStringLiteral("dryDepthCutoff"),           m_dryDepthCutoff);
     obj.insert(QStringLiteral("colorByMagnitude"),         m_colorByMagnitude);
-    obj.insert(QStringLiteral("colorRampName"),            m_colorRampName);
-    obj.insert(QStringLiteral("speedMinMps"),              m_speedMinMps);
-    obj.insert(QStringLiteral("speedMaxMps"),              m_speedMaxMps);
-    obj.insert(QStringLiteral("colorClassCount"),          m_colorClassCount);
+    // US.2 — the scheme is the source of truth; the legacy colour keys are
+    // written too (via the forwarders) so older readers keep working.
+    obj.insert(QStringLiteral("colorRampName"),            colorRampName());
+    obj.insert(QStringLiteral("speedMinMps"),              speedMinMps());
+    obj.insert(QStringLiteral("speedMaxMps"),              speedMaxMps());
+    obj.insert(QStringLiteral("colorClassCount"),          colorClassCount());
+    obj.insert(QStringLiteral("classification"),           m_scheme.toJson());
     return obj;
 }
 
@@ -140,18 +177,24 @@ void VelocityVectorStyle::fromJson(const QJsonObject &j)
     if (!tok.isEmpty()) { const QColor c(tok); if (c.isValid()) m_color = c; }
 
     m_colorByMagnitude = j.value(QStringLiteral("colorByMagnitude")).toBool(m_colorByMagnitude);
-    m_colorRampName    = j.value(QStringLiteral("colorRampName")).toString(m_colorRampName);
-    m_speedMinMps      = j.value(QStringLiteral("speedMinMps")).toDouble(m_speedMinMps);
-    m_speedMaxMps      = j.value(QStringLiteral("speedMaxMps")).toDouble(m_speedMaxMps);
+
+    // US.2 — prefer the embedded scheme; fall back to the legacy ramp / speed /
+    // class-count keys (seeded through the forwarders) so old files still load.
+    if (j.contains(QStringLiteral("classification"))) {
+        m_scheme = ClassificationScheme::fromJson(
+            j.value(QStringLiteral("classification")).toObject());
+    } else {
+        setColorRampName(j.value(QStringLiteral("colorRampName")).toString(colorRampName()));
+        setSpeedMinMps(j.value(QStringLiteral("speedMinMps")).toDouble(speedMinMps()));
+        setSpeedMaxMps(j.value(QStringLiteral("speedMaxMps")).toDouble(speedMaxMps()));
+        setColorClassCount(j.value(QStringLiteral("colorClassCount")).toInt(colorClassCount()));
+    }
 
     const int scaling = j.value(QStringLiteral("lengthScaling")).toInt(int(m_lengthScaling));
     if (scaling >= int(LengthScaling::Linear) && scaling <= int(LengthScaling::Log))
         m_lengthScaling = LengthScaling(scaling);
     m_shaftWidthPx = j.value(QStringLiteral("shaftWidthPx")).toDouble(m_shaftWidthPx);
     if (m_shaftWidthPx < 0.1) m_shaftWidthPx = 0.1;
-    m_colorClassCount = j.value(QStringLiteral("colorClassCount")).toInt(m_colorClassCount);
-    if (m_colorClassCount < 0) m_colorClassCount = 0;
-    if (m_colorClassCount == 1) m_colorClassCount = 2;
     setDirty();
 }
 

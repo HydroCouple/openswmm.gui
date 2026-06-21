@@ -69,6 +69,16 @@ public:
         Classified = 1,
     };
 
+    /*! \enum LabelFormat
+     *  \brief How numeric class-edge values are rendered in legend / editor
+     *         labels — fixed decimal places (GIS "precision") or significant
+     *         figures. Mirrors standard GIS classification-label controls. */
+    enum class LabelFormat : int
+    {
+        Decimals          = 0,   //!< QString::number(v, 'f', labelPrecision)
+        SignificantFigures = 1,  //!< QString::number(v, 'g', labelPrecision)
+    };
+
     ClassificationScheme();
 
     // ── Mode ───────────────────────────────────────────────────────────
@@ -119,6 +129,17 @@ public:
 
     [[nodiscard]] RangeMode rangeMode() const { return m_rangeMode; }
     void setRangeMode(RangeMode m);
+
+    // ── Label number format (Decimals vs significant figures) ──────────
+    [[nodiscard]] LabelFormat labelFormat() const { return m_labelFormat; }
+    void setLabelFormat(LabelFormat f);
+    [[nodiscard]] int labelPrecision() const { return m_labelPrecision; }
+    void setLabelPrecision(int digits);
+
+    /*! Format a numeric value as a label per labelFormat()/labelPrecision().
+     *  'f' (fixed decimals) for Decimals, 'g' (significant figures) for
+     *  SignificantFigures. */
+    [[nodiscard]] QString formatValue(double v) const;
 
     /*! (lo, hi) the scheme classifies over: the custom range when enabled
      *  and non-degenerate, otherwise (dataMin, dataMax). */
@@ -182,7 +203,6 @@ public:
      *        returning rows from ISublayer::legendSymbolItems().
      */
     [[nodiscard]] QList<LegendSymbolItem> legendItems(double dataMin, double dataMax,
-                                                      int decimals = 3,
                                                       const QVector<double> &samples = {}) const;
 
     // ── Change tracking ────────────────────────────────────────────────
@@ -211,6 +231,9 @@ private:
     double           m_rangeMin = 0.0;
     double           m_rangeMax = 1.0;
     RangeMode        m_rangeMode = RangeMode::FixedOverRun;
+    // Default reproduces the historic legend formatting (`'g', 3`).
+    LabelFormat      m_labelFormat    = LabelFormat::SignificantFigures;
+    int              m_labelPrecision = 3;
     QHash<int, QColor>  m_colorOverrides;
     QHash<int, QString> m_labelOverrides;
     quint64          m_revision = 0;

@@ -219,9 +219,7 @@ set(
         include/render/sublayers/meshfillsublayer.h
         include/render/sublayers/meshedgesublayer.h
         include/render/sublayers/meshnodesublayer.h
-        include/render/sublayers/depthcolorrampsublayer.h
         include/render/sublayers/velocityvectorsublayer.h
-        include/render/sublayers/flowarrowsublayer.h
         include/render/sublayers/isolinesublayer.h
         include/render/sublayers/contourbandsublayer.h
         # Slice Z.1 — layer-scope Rule + RuleList (Q_OBJECT classes;
@@ -548,6 +546,10 @@ set(
         include/ui/widgets/colorrampcombobox.h
         # Slice US.1 — shared classification editor (UNIFIED_STYLING plan S1).
         include/ui/widgets/classificationeditor.h
+        # Slice D1-a — ClassificationScheme property-grid cell editor + the
+        # style-grid delegate factory (MESH_SUBLAYER_CLASSIFICATION_UI_PLAN).
+        include/ui/widgets/classificationschemecelleditor.h
+        include/ui/widgets/stylepropertydelegate.h
 
         # ── Dialogs ──────────────────────────────────────────────────────────
         # Shared confirm → convert → summary flow for node/link type changes.
@@ -750,9 +752,7 @@ set(
         src/render/sublayers/meshfillsublayer.cpp
         src/render/sublayers/meshedgesublayer.cpp
         src/render/sublayers/meshnodesublayer.cpp
-        src/render/sublayers/depthcolorrampsublayer.cpp
         src/render/sublayers/velocityvectorsublayer.cpp
-        src/render/sublayers/flowarrowsublayer.cpp
         src/render/sublayers/isolinesublayer.cpp
         src/render/sublayers/contourbandsublayer.cpp
 
@@ -1116,6 +1116,9 @@ set(
         src/ui/widgets/colorrampcombobox.cpp
         # Slice US.1 — shared classification editor impl (UNIFIED_STYLING plan S1).
         src/ui/widgets/classificationeditor.cpp
+        # Slice D1-a — ClassificationScheme cell editor + style-grid delegate impl.
+        src/ui/widgets/classificationschemecelleditor.cpp
+        src/ui/widgets/stylepropertydelegate.cpp
 
         # ── Forms ────────────────────────────────────────────────────────────
         forms/swmmvis.ui

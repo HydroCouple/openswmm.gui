@@ -25,6 +25,7 @@
 #ifndef OPENSWMM_RENDER_SUBLAYERS_MESHFILLSUBLAYER_H
 #define OPENSWMM_RENDER_SUBLAYERS_MESHFILLSUBLAYER_H
 
+#include "render/classificationscheme.h"
 #include "render/isublayer.h"
 #include "render/sublayerstyle.h"
 
@@ -41,13 +42,18 @@ class MeshFillStyle : public SublayerStyle
     Q_PROPERTY(QColor fillColor         READ fillColor         WRITE setFillColor         NOTIFY styleChanged)
     Q_PROPERTY(double hillshadeStrength READ hillshadeStrength WRITE setHillshadeStrength NOTIFY styleChanged)
     Q_PROPERTY(bool   useElevationRamp  READ useElevationRamp  WRITE setUseElevationRamp  NOTIFY styleChanged)
+    // Slice US (mesh) — terrain fill is classified by bed elevation through
+    // the shared ClassificationScheme (Continuous = smooth elevation ramp,
+    // Classified = discrete bands). useElevationRamp stays the on/off gate.
+    Q_PROPERTY(OpenSWMM::Render::ClassificationScheme classification READ scheme WRITE setScheme NOTIFY styleChanged)
 
     Q_CLASSINFO("group:fillColor",         "Fill")
     Q_CLASSINFO("group:hillshadeStrength", "Shading")
     Q_CLASSINFO("group:useElevationRamp",  "Fill")
+    Q_CLASSINFO("group:classification",    "Classification")
 
 public:
-    explicit MeshFillStyle(QObject *parent = nullptr) : SublayerStyle(parent) {}
+    explicit MeshFillStyle(QObject *parent = nullptr);
 
     [[nodiscard]] QColor fillColor() const         { return m_fillColor; }
     [[nodiscard]] double hillshadeStrength() const { return m_hillshadeStrength; }
@@ -57,6 +63,11 @@ public:
     void setHillshadeStrength(double v);
     void setUseElevationRamp(bool v);
 
+    /*! The embedded elevation classification scheme (mode, ramp, class
+     *  count, range). Consumed by the mesh QSG renderer's fill pass. */
+    [[nodiscard]] const ClassificationScheme &scheme() const { return m_scheme; }
+    void setScheme(const ClassificationScheme &s);
+
     [[nodiscard]] QJsonObject toJson() const override;
     void fromJson(const QJsonObject &j) override;
 
@@ -64,6 +75,7 @@ private:
     QColor m_fillColor          = QColor(190, 180, 150);
     double m_hillshadeStrength  = 0.5;
     bool   m_useElevationRamp   = true;
+    ClassificationScheme m_scheme;
 };
 
 class MeshFillSublayer : public ISublayer

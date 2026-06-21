@@ -154,6 +154,65 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    // DA.2 parity — recording interval, snow-catch factor, series-name picker,
+    // station id, rain units. Against a missing gage the getters return their
+    // documented defaults and the setters are safe no-ops (idx() == -1).
+    void rainGageAdvancedFieldsDefaults()
+    {
+        SWMM_Engine e = swmm_engine_new();
+        QVERIFY(e);
+        SWMMRainGagePropertyAdapter a(e, QStringLiteral("MissingGage"));
+
+        QCOMPARE(a.rainIntervalRef().seconds, 0);
+        QCOMPARE(a.snowFactor(),   1.0);   // SCF default
+        QCOMPARE(a.rainUnits(),    0);     // IN
+        QVERIFY(a.stationId().isEmpty());
+        // Series-name ref carries the TimeSeries kind even when unassigned.
+        QCOMPARE(a.seriesNameRef().kind, DataObjectRef::TimeSeries);
+        QVERIFY(a.seriesNameRef().currentName.isEmpty());
+
+        // No-op setters against the missing gage must not change the reads.
+        RainIntervalRef ivl = a.rainIntervalRef();
+        ivl.seconds = 900;
+        a.setRainIntervalRef(ivl);
+        a.setSnowFactor(1.5);
+        a.setRainUnits(1);
+        a.setStationId(QStringLiteral("STA"));
+        QCOMPARE(a.rainIntervalRef().seconds, 0);
+        QCOMPARE(a.snowFactor(),   1.0);
+        QCOMPARE(a.rainUnits(),    0);
+        QVERIFY(a.stationId().isEmpty());
+
+        swmm_engine_destroy(e);
+    }
+
+    // DA.2 parity — H:MM clock helpers shared by the interval combo + table
+    // delegate. Must round-trip and match the engine's parse_time_seconds
+    // (colon form is H:MM[:SS]; bare number is decimal hours).
+    void rainIntervalHmmHelpers()
+    {
+        using namespace rain_interval;
+        QCOMPARE(hmmToSeconds(QStringLiteral("0:15")), 900);
+        QCOMPARE(hmmToSeconds(QStringLiteral("1:00")), 3600);
+        QCOMPARE(hmmToSeconds(QStringLiteral("24:00")), 86400);
+        QCOMPARE(hmmToSeconds(QStringLiteral("0:00:30")), 30);
+        QCOMPARE(hmmToSeconds(QStringLiteral("2")), 7200);   // bare = decimal hours
+
+        QCOMPARE(secondsToHMM(900), QStringLiteral("0:15"));
+        QCOMPARE(secondsToHMM(3600), QStringLiteral("1:00"));
+        QCOMPARE(secondsToHMM(86400), QStringLiteral("24:00"));
+        QCOMPARE(secondsToHMM(90), QStringLiteral("0:01:30"));  // seconds shown
+
+        // Every preset round-trips through parse -> format unchanged.
+        for (const QString &p : presetsHMM())
+            QCOMPARE(secondsToHMM(hmmToSeconds(p)), p);
+
+        // Malformed input is rejected.
+        QCOMPARE(hmmToSeconds(QStringLiteral("abc")), -1);
+        QCOMPARE(hmmToSeconds(QStringLiteral("1:2:3:4")), -1);
+        QCOMPARE(hmmToSeconds(QString()), -1);
+    }
+
     // ====================================================================
     // Rename round-trip — shared base class behaviour
     // ====================================================================
@@ -305,6 +364,25 @@ private slots:
         swmm_engine_destroy(e);
     }
 };
+
+// ---------------------------------------------------------------------------
+// Link-time stubs for the user-flags surface that the RainGage (and sibling)
+// property adapters reference from userFlagsRef(). The rain-gage cases here
+// (rainGageAdvancedFieldsDefaults) never call userFlagsRef(), so these bodies
+// are never executed — they exist only to satisfy the linker without dragging
+// the full SWMMModelLayer chain (nanoflann / GDAL / the scene graph) into this
+// self-contained adapter test. Same pattern as test_typeconversionflow.cpp.
+// ---------------------------------------------------------------------------
+#include "layers/swmmmodellayer.h"
+#include "ui/properties/userflagseditref.h"
+
+openswmmvis::ui::UserFlagsModel *SWMMModelLayer::ensureUserFlagsModel() { return nullptr; }
+
+QString userFlagsSummaryFor(openswmmvis::ui::UserFlagsModel *, const QString &,
+                            const QString &)
+{
+    return QString();
+}
 
 QTEST_GUILESS_MAIN(TestNonSpatialAdapters)
 #include "test_nonspatial_adapters.moc"
