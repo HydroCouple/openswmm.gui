@@ -45,6 +45,7 @@
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QMetaType>
+#include <QPolygonF>
 #include <QRegularExpression>
 #include <QSet>
 #include <QtMath>
@@ -6183,6 +6184,112 @@ QStringList SWMMModelLayer::subcatchmentsInRect(double canvasMinX, double canvas
          || b.yMax() < lMinY || b.yMin() > lMaxY) continue;
         if (m_hiddenObjects.contains(m_catchments[i].name)) continue;
         result.append(m_catchments[i].name);
+    }
+    return result;
+}
+
+// ----- Polygon (lasso) queries ---------------------------------------------
+// Implementation note: the candidate set comes from the polygon's bounding
+// box via the existing *InRect queries (which already handle the canvas→layer
+// CRS transform, the KD-tree / bbox-cache acceleration, and hidden-object
+// filtering). The polygon itself is transformed to layer CRS once and the
+// candidates are refined with QPolygonF::containsPoint, so concave lassos
+// correctly exclude objects that fall in the bbox but outside the polygon.
+
+// Transform a canvas-CRS polygon into layer CRS, vertex by vertex, using the
+// layer's inverse transform. Mirrors the per-corner approach of
+// transformRectToLayer so the test geometry matches feature coordinates.
+QPolygonF SWMMModelLayer::polygonCanvasToLayer(const QPolygonF &poly) const
+{
+    QPolygonF out;
+    out.reserve(poly.size());
+    for (const QPointF &p : poly) {
+        double lx = p.x(), ly = p.y();
+        transformCanvasToLayer(p.x(), p.y(), lx, ly);
+        out << QPointF(lx, ly);
+    }
+    return out;
+}
+
+QStringList SWMMModelLayer::nodesInPolygon(const QPolygonF &canvasPoly) const
+{
+    if (canvasPoly.size() < 3) return {};
+    const QRectF bb = canvasPoly.boundingRect();
+    const QStringList cand = nodesInRect(bb.left(), bb.top(), bb.right(), bb.bottom());
+    if (cand.isEmpty()) return {};
+
+    const QSet<QString> candSet(cand.cbegin(), cand.cend());
+    const QPolygonF lp = polygonCanvasToLayer(canvasPoly);
+
+    QStringList result;
+    for (const auto &n : m_nodes) {
+        if (!candSet.contains(n.name)) continue;
+        if (lp.containsPoint(QPointF(n.x, n.y), Qt::OddEvenFill))
+            result.append(n.name);
+    }
+    return result;
+}
+
+QStringList SWMMModelLayer::gagesInPolygon(const QPolygonF &canvasPoly) const
+{
+    if (canvasPoly.size() < 3) return {};
+    const QRectF bb = canvasPoly.boundingRect();
+    const QStringList cand = gagesInRect(bb.left(), bb.top(), bb.right(), bb.bottom());
+    if (cand.isEmpty()) return {};
+
+    const QSet<QString> candSet(cand.cbegin(), cand.cend());
+    const QPolygonF lp = polygonCanvasToLayer(canvasPoly);
+
+    QStringList result;
+    for (const auto &g : m_gages) {
+        if (!candSet.contains(g.name)) continue;
+        if (lp.containsPoint(QPointF(g.x, g.y), Qt::OddEvenFill))
+            result.append(g.name);
+    }
+    return result;
+}
+
+QStringList SWMMModelLayer::linksInPolygon(const QPolygonF &canvasPoly) const
+{
+    if (canvasPoly.size() < 3) return {};
+    const QRectF bb = canvasPoly.boundingRect();
+    const QStringList cand = linksInRect(bb.left(), bb.top(), bb.right(), bb.bottom());
+    if (cand.isEmpty() || m_linkBboxes.size() != m_links.size()) return {};
+
+    const QSet<QString> candSet(cand.cbegin(), cand.cend());
+    const QPolygonF lp = polygonCanvasToLayer(canvasPoly);
+
+    QStringList result;
+    for (int i = 0; i < m_links.size(); ++i) {
+        if (!candSet.contains(m_links[i].name)) continue;
+        const MapExtent &b = m_linkBboxes[i];
+        if (!std::isfinite(b.xMin())) continue;
+        const QPointF c((b.xMin() + b.xMax()) * 0.5, (b.yMin() + b.yMax()) * 0.5);
+        if (lp.containsPoint(c, Qt::OddEvenFill))
+            result.append(m_links[i].name);
+    }
+    return result;
+}
+
+QStringList SWMMModelLayer::subcatchmentsInPolygon(const QPolygonF &canvasPoly) const
+{
+    if (canvasPoly.size() < 3) return {};
+    const QRectF bb = canvasPoly.boundingRect();
+    const QStringList cand =
+        subcatchmentsInRect(bb.left(), bb.top(), bb.right(), bb.bottom());
+    if (cand.isEmpty() || m_catchBboxes.size() != m_catchments.size()) return {};
+
+    const QSet<QString> candSet(cand.cbegin(), cand.cend());
+    const QPolygonF lp = polygonCanvasToLayer(canvasPoly);
+
+    QStringList result;
+    for (int i = 0; i < m_catchments.size(); ++i) {
+        if (!candSet.contains(m_catchments[i].name)) continue;
+        const MapExtent &b = m_catchBboxes[i];
+        if (!std::isfinite(b.xMin())) continue;
+        const QPointF c((b.xMin() + b.xMax()) * 0.5, (b.yMin() + b.yMax()) * 0.5);
+        if (lp.containsPoint(c, Qt::OddEvenFill))
+            result.append(m_catchments[i].name);
     }
     return result;
 }

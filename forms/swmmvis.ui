@@ -645,6 +645,7 @@
    <addaction name="actionPrint"/>
    <addaction name="separator"/>
    <addaction name="actionSelect"/>
+   <addaction name="actionSelectByPolygon"/>
    <addaction name="actionZoomIn"/>
    <addaction name="actionZoomOut"/>
    <addaction name="actionPan"/>
@@ -1927,6 +1928,24 @@
     </property>
     <property name="shortcut">
      <string>Select</string>
+    </property>
+   </action>
+   <action name="actionSelectByPolygon">
+    <property name="checkable">
+     <bool>true</bool>
+    </property>
+    <property name="icon">
+     <iconset resource="../resources/swmmvis.qrc">
+      <normaloff>:/swmmvis/SelectByPolygon</normaloff>:/swmmvis/SelectByPolygon</iconset>
+    </property>
+    <property name="text">
+     <string>Select by &amp;Polygon</string>
+    </property>
+    <property name="statusTip">
+     <string>Select objects by drawing a polygon</string>
+    </property>
+    <property name="whatsThis">
+     <string>Select objects by drawing a polygon</string>
     </property>
    </action>
    <action name="actionZoomIn">

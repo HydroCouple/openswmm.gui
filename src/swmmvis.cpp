@@ -1121,6 +1121,7 @@ void SWMMVis::initializeMapTools()
     const QStringList toolActionNames = {
         QStringLiteral("actionPan"),     QStringLiteral("actionZoomIn"),
         QStringLiteral("actionZoomOut"), QStringLiteral("actionSelect"),
+        QStringLiteral("actionSelectByPolygon"),
         QStringLiteral("actionMeasure"), QStringLiteral("actionPlotProfile"),
         QStringLiteral("actionAddJunction"), QStringLiteral("actionAddOutfall"),
         QStringLiteral("actionAddStorage"), QStringLiteral("actionAddFlowDivider"),
@@ -1159,6 +1160,9 @@ void SWMMVis::initializeMapTools()
 
     connect(ui->actionSelect, &QAction::triggered, this, [this]() {
         if (auto *w = activeProjectWindow()) w->activateSelectTool();
+    });
+    connect(ui->actionSelectByPolygon, &QAction::triggered, this, [this]() {
+        if (auto *w = activeProjectWindow()) w->activateSelectByPolygonTool();
     });
     connect(ui->actionMeasure,&QAction::triggered, this, [this]() {
         if (auto *w = activeProjectWindow()) w->activateMeasureTool();
