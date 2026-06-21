@@ -194,7 +194,11 @@ TEST(ClassificationScheme, LegendItemsCarryRangesKeysAndLabelOverrides)
     EXPECT_DOUBLE_EQ(items[0].range.first, 0.0);
     EXPECT_DOUBLE_EQ(items[0].range.second, 2.0);
     EXPECT_FALSE(items[0].label.isEmpty());
-    EXPECT_EQ(items[1].label, QStringLiteral("Deep"));
+    // 2026-06-21 — the numeric class range (label) is kept SEPARATE from the
+    // user-supplied override (userLabel); effectiveLabel() prefers the override.
+    EXPECT_FALSE(items[1].label.isEmpty());          // range string, not the override
+    EXPECT_EQ(items[1].userLabel, QStringLiteral("Deep"));
+    EXPECT_EQ(items[1].effectiveLabel(), QStringLiteral("Deep"));
 }
 
 // ── Revision stamping ───────────────────────────────────────────────────

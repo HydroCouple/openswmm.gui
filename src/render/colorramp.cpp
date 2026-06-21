@@ -388,6 +388,27 @@ RasterColorRamp RasterColorRamp::legacySWMMPollutant(double min, double max)
     return r;
 }
 
+RasterColorRamp RasterColorRamp::terrain(double min, double max)
+{
+    RasterColorRamp r;
+    r.minValue = min;
+    r.maxValue = max;
+    r.interp   = RampInterp::Rgb;
+    // The historic 2D mesh elevation palette (was hard-coded as
+    // legacyElevationRamp() in SWMM2DMeshQSGRenderer). Deep water-blue at the
+    // low bed, through marsh green and ochre, to off-white at the high bed.
+    // These bytes are identical to that copy so the default terrain fill is
+    // unchanged now that the renderer resolves the ramp by name.
+    r.stops    = {
+        {0.00, QColor(0x1a, 0x3d, 0x6b)},
+        {0.20, QColor(0x2e, 0x8b, 0x57)},
+        {0.50, QColor(0xc8, 0xd9, 0x4e)},
+        {0.75, QColor(0xc8, 0xa0, 0x00)},
+        {1.00, QColor(0xf0, 0xf0, 0xe8)},
+    };
+    return r;
+}
+
 // ─── Slice BB-β (2026-05-25) — Plotly continuous palettes ───────────────────
 //
 // Stops sourced from plotly.colors.sequential / .diverging. Each palette
@@ -573,9 +594,9 @@ struct BuiltinEntry
     RasterColorRamp (*factory)(double, double);
 };
 
-const std::array<BuiltinEntry, 23> &builtinTable()
+const std::array<BuiltinEntry, 24> &builtinTable()
 {
-    static const std::array<BuiltinEntry, 23> table = {{
+    static const std::array<BuiltinEntry, 24> table = {{
         {QStringLiteral("grayscale"),             QStringLiteral("Grayscale"),             &RasterColorRamp::grayscale},
         {QStringLiteral("viridis"),               QStringLiteral("Viridis"),               &RasterColorRamp::viridis},
         {QStringLiteral("plasma"),                QStringLiteral("Plasma"),                &RasterColorRamp::plasma},
@@ -589,6 +610,7 @@ const std::array<BuiltinEntry, 23> &builtinTable()
         {QStringLiteral("brbg"),                  QStringLiteral("BrBG"),                  &RasterColorRamp::brBG},
         {QStringLiteral("legacy-swmm-5interval"), QStringLiteral("Legacy SWMM (5-interval)"), &RasterColorRamp::legacySWMM5Interval},
         {QStringLiteral("legacy-swmm-pollutant"), QStringLiteral("Legacy SWMM (pollutant)"),  &RasterColorRamp::legacySWMMPollutant},
+        {QStringLiteral("terrain"),               QStringLiteral("Terrain"),               &RasterColorRamp::terrain},
         // Slice BB-β — Plotly continuous palettes
         {QStringLiteral("plotly3"),               QStringLiteral("Plotly3"),               &RasterColorRamp::plotly3},
         {QStringLiteral("icefire"),               QStringLiteral("IceFire"),               &RasterColorRamp::iceFire},

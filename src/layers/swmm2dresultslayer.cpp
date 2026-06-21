@@ -147,8 +147,6 @@ public:
         const QRectF exposed  = option->exposedRect;
         const double dryDepth = layer_->dryDepth();
         const double maxDepth = layer_->maxDepth();
-        const auto   rampStyle = layer_->colorRampStyle();
-        const int    nClasses  = std::max(2, layer_->colorClasses());
 
         // Phase 9 (2026-05-25) — sublayer.isVisible() is the authoritative
         // gate for each paint pass, replacing the legacy `filledContours()`
@@ -161,11 +159,9 @@ public:
         // (they default to true, except filledContours/isolines/velocity
         // which default to false — the same defaults the new sublayer
         // mix carries).
-        auto *depthSub   = layer_->depthRampSublayer();
         auto *bandSub    = layer_->contourBandSublayer();
         auto *isolineSub = layer_->isolineSublayer();
 
-        const bool paintHeatmap = (!depthSub   || depthSub->isVisible());
         const bool paintBands   = ( bandSub    && bandSub->isVisible());
         const bool paintIsolines= ( isolineSub && isolineSub->isVisible());
 
@@ -193,65 +189,10 @@ public:
             }
         }
 
-        // --- Pass 1: per-cell heatmap. P3 — when the DepthColorRampSublayer
-        // style is present, the cell colour is driven by its low/high ramp
-        // colours (+ log option) so the user's ramp edits actually render;
-        // otherwise we fall back to the legacy inundation ramp. Range still
-        // spans [dryDepth, maxDepth] (the layer's auto range); per-frame /
-        // user range modes are layered on in P4. Graduated mode quantises to
-        // colorClasses bins.
-        const OpenSWMM::Render::DepthColorRampStyle *drs =
-            depthSub ? depthSub->rampStyle() : nullptr;
-        const bool graduated =
-            (rampStyle == SWMM2DResultsLayer::ColorRampStyle::Graduated);
-
-        auto colorForDepth = [&](double depth) -> QColor {
-            if (depth < dryDepth || maxDepth <= dryDepth)
-                return QColor(0, 0, 0, 0);   // dry → transparent
-            double f = std::clamp((depth - dryDepth) / (maxDepth - dryDepth), 0.0, 1.0);
-            if (drs && drs->useLogScale() && dryDepth > 0.0 && depth > 0.0
-                && maxDepth > dryDepth) {
-                f = std::clamp((std::log(depth) - std::log(dryDepth)) /
-                               (std::log(maxDepth) - std::log(dryDepth)), 0.0, 1.0);
-            }
-            if (graduated) {
-                const int bin = std::min(nClasses - 1, int(f * double(nClasses)));
-                f = (double(bin) + 0.5) / double(nClasses);
-            }
-            // VS.8 — colorAtF samples the style's named ramp (inverted when
-            // requested) or falls back to the low→high two-colour gradient.
-            if (drs)
-                return drs->colorAtF(f);
-            int r, g, b, a;
-            const double d = dryDepth + f * (maxDepth - dryDepth);
-            inundationColorRgba(d, dryDepth, maxDepth, r, g, b, a);
-            return QColor(r, g, b, a);
-        };
-
-        if (paintHeatmap) {
-            // VS.8 — honour the depth sublayer's opacity slider.
-            p->save();
-            if (depthSub)
-                p->setOpacity(std::clamp<qreal>(depthSub->opacity(), 0.0, 1.0));
-            for (const auto& t : tris) {
-                // Bounding-box cull
-                const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
-                const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
-                const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
-                const double maxY = std::max({t.a.y(), t.b.y(), t.c.y()});
-                if (!exposed.isNull() &&
-                    (maxX < exposed.left()  || minX > exposed.right() ||
-                     maxY < exposed.top()   || minY > exposed.bottom())) continue;
-
-                const QColor c = colorForDepth(t.depth);
-                if (c.alpha() == 0) continue;  // dry → don't paint
-
-                p->setBrush(c);
-                const QPointF pts[3] = { t.a, t.b, t.c };
-                p->drawConvexPolygon(pts, 3);
-            }
-            p->restore();
-        }
+        // --- Pass 1 (depth fill): the depth color ramp heatmap was removed
+        // (2026-06-21, redundant with contour bands). Contour bands (Pass 2
+        // below) now provide the depth fill; dry cells stay unpainted so the
+        // SWMM2DMeshLayer terrain shows through.
 
         // --- Pass 2 (optional): filled isobands. Phase 9 — sublayer gate +
         // sublayer-style-driven band count. VS.8 — the ContourBandStyle bag
@@ -722,11 +663,10 @@ public:
         if (layer_->qsgOwnsRendering()) return;
         if (!layer_->hasVelocityData()) return;
         if (layer_->m_sceneTris.isEmpty()) return;
-        // Two independent passes, each gated on its own sublayer's
-        // visibility: velocity glyphs OFF must not suppress the
-        // direction-only flow arrows (and vice versa).
+        // Velocity glyphs convey both magnitude and flow direction. The
+        // separate direction-only flow-arrow pass was removed (2026-06-21,
+        // redundant with velocity vectors).
         paintVelocityGlyphs(p, option);
-        paintFlowArrows(p, option);
     }
 
 private:
@@ -867,140 +807,6 @@ private:
         }
 
         p->restore();
-    }
-
-    void paintFlowArrows(QPainter* p,
-                         const QStyleOptionGraphicsItem* option)
-    {
-        const auto& tris = layer_->m_sceneTris;
-        const QRectF exposed = option->exposedRect;
-
-        // ------------------------------------------------------------------
-        // Direction-only flow arrows (FlowArrowSublayer).
-        //
-        // Independent of the velocity-vector pass — these are fixed-length
-        // arrows that show flow direction at cell centroids regardless of
-        // magnitude. Useful when |v| varies by orders of magnitude and the
-        // log-scaled glyphs collapse to invisible at small values.
-        //
-        // Placement: cell centroids (placeAtCellCenters=true) OR a regular
-        // screen-pixel grid (placeAtCellCenters=false, default). Grid mode
-        // picks the cell whose centroid is closest to each grid sample so
-        // arrows snap onto real flow data without overdraw.
-        if (auto *farrSub = layer_->flowArrowSublayer();
-            farrSub && farrSub->isVisible() && layer_->hasVelocityData())
-        {
-            const auto *fs = farrSub->flowArrowStyle();
-            if (!fs) return;
-
-            const double dryCut  = std::max(fs->dryDepthCutoff(), layer_->dryDepth());
-            const double arrowPx = std::max(2.0, fs->arrowLengthPx());
-            const double headPx  = std::max(1.0, fs->headSizePx());
-            const double spacing = std::max(4.0, fs->arrowSpacingPx());
-            const QColor col     = fs->color();
-            const QColor outCol  = fs->outlineColor();
-            const double shaftPx = std::max(0.5, fs->shaftWidthPx());
-            // VS.7 — when enabled, each arrow's shaft colour is sampled from
-            // the ramp by its speed magnitude (computed per arrow below).
-            const bool   colorByMag = fs->colorByMagnitude();
-            const qreal  subOp   = std::clamp<qreal>(farrSub->opacity(), 0.0, 1.0);
-
-            const QTransform xf2  = p->worldTransform();
-            const double scale2   = std::max(std::abs(xf2.m11()), 1e-9);
-            const double pxToScene2 = 1.0 / scale2;
-            const double arrowLen   = arrowPx  * pxToScene2;
-            const double headLen    = headPx   * pxToScene2;
-            const double gridStep   = spacing  * pxToScene2;
-
-            p->save();
-            p->setOpacity(subOp);
-
-            // Light outline beneath the arrow so it reads on both bright
-            // and dark fills.
-            QPen outlinePen(outCol);
-            outlinePen.setCosmetic(true);
-            outlinePen.setWidthF(shaftPx + 1.6);
-            outlinePen.setCapStyle(Qt::RoundCap);
-
-            QPen pen(col);
-            pen.setCosmetic(true);
-            pen.setWidthF(shaftPx);
-            pen.setCapStyle(Qt::RoundCap);
-
-            auto drawArrow = [&](const QPointF &center,
-                                  double dx, double dy) {
-                const double mag = std::sqrt(dx*dx + dy*dy);
-                if (mag <= 0.0) return;
-                // VS.7 — per-arrow shaft colour by magnitude (m/s).
-                QPen shaftPen = pen;
-                if (colorByMag)
-                    shaftPen.setColor(fs->colorForSpeed(mag));
-                const double ux = dx / mag, uy = dy / mag;
-                const QPointF tail(center.x() - 0.5 * arrowLen * ux,
-                                   center.y() - 0.5 * arrowLen * uy);
-                const QPointF head(center.x() + 0.5 * arrowLen * ux,
-                                   center.y() + 0.5 * arrowLen * uy);
-                const double cosA = std::cos(0.43);
-                const double sinA = std::sin(0.43);
-                const QPointF left ( head.x() - headLen * ( ux * cosA - uy * sinA),
-                                      head.y() - headLen * ( ux * sinA + uy * cosA) );
-                const QPointF right( head.x() - headLen * ( ux * cosA + uy * sinA),
-                                      head.y() - headLen * (-ux * sinA + uy * cosA) );
-                if (outlinePen.widthF() > pen.widthF()) {
-                    p->setPen(outlinePen);
-                    p->drawLine(tail, head);
-                    p->drawLine(head, left);
-                    p->drawLine(head, right);
-                }
-                p->setPen(shaftPen);
-                p->drawLine(tail, head);
-                p->drawLine(head, left);
-                p->drawLine(head, right);
-            };
-
-            if (fs->placeAtCellCenters()) {
-                for (const auto &t : tris) {
-                    if (t.depth < dryCut) continue;
-                    if (t.vmag <= 0.0)    continue;
-                    if (!exposed.isNull() && !exposed.contains(t.centroid)) continue;
-                    drawArrow(t.centroid, double(t.vx), double(t.vy));
-                }
-            } else {
-                // Regular grid over the exposed rect (or full bbox when not
-                // given). For each grid cell, pick the closest tri centroid
-                // and use its velocity.
-                const QRectF area = exposed.isNull() ? layer_->m_sceneBBox : exposed;
-                if (gridStep > 0.0 && area.isValid() && !tris.isEmpty()) {
-                    const int   nCols = std::max(1, int(area.width()  / gridStep));
-                    const int   nRows = std::max(1, int(area.height() / gridStep));
-                    const double cellW = area.width()  / double(nCols);
-                    const double cellH = area.height() / double(nRows);
-                    // Cell-bucket index: each tri centroid drops into one
-                    // cell — first wet tri per cell wins. O(N tris) once
-                    // per paint.
-                    QHash<qint64, int> bucket;
-                    bucket.reserve(nCols * nRows);
-                    for (int i = 0; i < tris.size(); ++i) {
-                        const auto &t = tris[i];
-                        if (t.depth < dryCut) continue;
-                        if (t.vmag <= 0.0)    continue;
-                        const double rx = t.centroid.x() - area.left();
-                        const double ry = t.centroid.y() - area.top();
-                        if (rx < 0 || ry < 0 || rx > area.width() || ry > area.height())
-                            continue;
-                        const int cx = std::min(nCols - 1, int(rx / cellW));
-                        const int cy = std::min(nRows - 1, int(ry / cellH));
-                        const qint64 key = qint64(cy) * nCols + cx;
-                        if (!bucket.contains(key)) bucket.insert(key, i);
-                    }
-                    for (auto it = bucket.constBegin(); it != bucket.constEnd(); ++it) {
-                        const auto &t = tris[it.value()];
-                        drawArrow(t.centroid, double(t.vx), double(t.vy));
-                    }
-                }
-            }
-            p->restore();
-        }
     }
 
 private:
@@ -1289,16 +1095,16 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
         QStringLiteral("results2d.meshEdges"), this);
     m_meshNodeSublayer = new OpenSWMM::Render::MeshNodeSublayer(
         QStringLiteral("results2d.meshVertices"), this);
-    m_depthRampSublayer = new OpenSWMM::Render::DepthColorRampSublayer(
-        QStringLiteral("results2d.depthRamp"), this);
     m_contourBandSublayer = new OpenSWMM::Render::ContourBandSublayer(
         QStringLiteral("results2d.bands"), this);
+    // 2026-06-21 — the depth color ramp sublayer was removed (redundant with
+    // contour bands, which now serve as the default depth fill). Contour
+    // bands therefore start visible.
+    if (m_contourBandSublayer) m_contourBandSublayer->setVisible(true);
     m_isolineSublayer = new OpenSWMM::Render::IsolineSublayer(
         QStringLiteral("results2d.isolines"), this);
     m_velocityVectorSublayer = new OpenSWMM::Render::VelocityVectorSublayer(
         QStringLiteral("results2d.velocity"), this);
-    m_flowArrowSublayer = new OpenSWMM::Render::FlowArrowSublayer(
-        QStringLiteral("results2d.flowArrows"), this);
 
     // Phase 9 (2026-05-25) — sublayer.invalidated() routes to the existing
     // graphics-item update path. This is what makes the layer-tree
@@ -1331,11 +1137,9 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
     wireMeshRepaint(m_meshFillSublayer);
     wireMeshRepaint(m_meshEdgeSublayer);
     wireMeshRepaint(m_meshNodeSublayer);
-    wireMeshRepaint(m_depthRampSublayer);
     wireMeshRepaint(m_contourBandSublayer);
     wireMeshRepaint(m_isolineSublayer);
     wireArrowRepaint(m_velocityVectorSublayer);
-    wireArrowRepaint(m_flowArrowSublayer);
 }
 
 SWMM2DResultsLayer::~SWMM2DResultsLayer() = default;
@@ -1344,25 +1148,24 @@ QList<OpenSWMM::Render::ISublayer *> SWMM2DResultsLayer::sublayers() const
 {
     // Paint order = list order (bottom-up):
     //   mesh fill (static)      → terrain hillshade base
-    //   depth ramp (dynamic)    → graduated depth/WSE/vmag fill
-    //   contour bands (dynamic) → marching-squares filled bands
+    //   contour bands (dynamic) → marching-squares filled bands (depth fill)
     //   mesh edges (static)     → wireframe over results
     //   isolines (dynamic)      → contour lines + labels
     //   mesh vertices (static)  → coupled-vertex markers
-    //   velocity vectors        → magnitude-scaled glyphs
-    //   flow arrows (top)       → direction-only arrow field
+    //   velocity vectors (top)  → magnitude-scaled glyphs (also show direction)
+    // 2026-06-21 — the depth color ramp and direction-only flow arrows were
+    // removed: contour bands now serve as the depth fill, and velocity
+    // vectors already convey flow direction.
     // Slice GUI-2026-05-30 §2 — order is user-customisable and cached in
     // m_sublayerOrder; seeded once from the defaults above.
     if (m_sublayerOrder.isEmpty()) {
         OpenSWMM::Render::ISublayer *defaults[] = {
             m_meshFillSublayer,
-            m_depthRampSublayer,
             m_contourBandSublayer,
             m_meshEdgeSublayer,
             m_isolineSublayer,
             m_meshNodeSublayer,
             m_velocityVectorSublayer,
-            m_flowArrowSublayer,
         };
         for (auto *s : defaults)
             if (s) m_sublayerOrder.append(s);
@@ -1591,8 +1394,6 @@ void SWMM2DResultsLayer::setDryDepth(double d)
     // sublayer floor in place and keep clipping shallow vectors.
     if (m_velocityVectorSublayer && m_velocityVectorSublayer->vectorStyle())
         m_velocityVectorSublayer->vectorStyle()->setDryDepthCutoff(d);
-    if (m_flowArrowSublayer && m_flowArrowSublayer->flowArrowStyle())
-        m_flowArrowSublayer->flowArrowStyle()->setDryDepthCutoff(d);
     if (changed && graphics_item_) graphics_item_->geometryChanged();
 }
 
@@ -2495,63 +2296,15 @@ SWMM2DResultsLayer::sublayerLegendItems() const
     const double dry = dry_depth_;
     const double mx  = std::max(dry + 1e-6, max_depth_);
 
-    // Bin count comes from the styling tab; Smooth mode still gets a fixed
-    // 5 bin preview in the legend (matches what users see in the dialog).
-    const int bins = (color_ramp_style_ == ColorRampStyle::Graduated)
-                       ? std::clamp(color_classes_, 2, 32)
-                       : 5;
+    // 2026-06-21 — the depth color ramp legend section was removed along with
+    // the depth-ramp sublayer. Contour bands (below) now carry the depth
+    // legend rows.
 
-    // Section header for the depth ramp.
-    {
-        LegendSymbolItem header;
-        header.label      = tr("Depth (m)");
-        header.sublayerId = m_depthRampSublayer ? m_depthRampSublayer->id()
-                                                : QString();
-        out.append(header);
-    }
-
-    // VS.8 — legend rows mirror the style-driven paint passes: depth swatches
-    // sample the DepthColorRampStyle (named ramp / two-colour gradient),
-    // band swatches use ContourBandStyle::colorForBand, and the velocity
-    // rows delegate to the sublayer (flat row, or one row per colour band).
-    const OpenSWMM::Render::DepthColorRampStyle *drs =
-        m_depthRampSublayer ? m_depthRampSublayer->rampStyle() : nullptr;
-
-    for (int i = 0; i < bins; ++i) {
-        const double t  = (i + 0.5) / bins;
-        const double v  = dry + t * (mx - dry);
-        const double lo = dry + double(i)     / bins * (mx - dry);
-        const double hi = dry + double(i + 1) / bins * (mx - dry);
-
-        QColor c;
-        if (drs) {
-            c = drs->colorAtF(t);
-            c.setAlpha(std::max(c.alpha(), 200));
-        } else {
-            int r = 0, g = 0, b = 0, a = 0;
-            inundationColorRgba(v, dry, mx, r, g, b, a);
-            c = QColor(r, g, b, std::max(a, 200));
-        }
-
-        LegendSymbolItem item;
-        item.label      = QStringLiteral("%1 – %2")
-                            .arg(lo, 0, 'g', 3).arg(hi, 0, 'g', 3);
-        item.sublayerId = m_depthRampSublayer ? m_depthRampSublayer->id()
-                                              : QString();
-        item.range      = { lo, hi };
-        item.classKey   = QString::number(i);
-
-        SymbolLayer sl;
-        sl.kind = SymbolLayerKind::SimpleFill;
-        OpenSWMM::Render::SymbolProps::writeColor(sl.props, QStringLiteral("color"), c);
-        item.symbol.layers.append(sl);
-        out.append(item);
-    }
-
-    // Filled contour bands (only when enabled) — single header row + N bands.
+    // Filled contour bands — the depth fill (default on). Single header row
+    // + N band rows.
     if (filledContours()) {
         LegendSymbolItem header;
-        header.label = tr("Filled bands");
+        header.label = tr("Depth (m)");
         header.sublayerId = m_contourBandSublayer
                               ? m_contourBandSublayer->id() : QString();
         out.append(header);
@@ -2568,7 +2321,7 @@ SWMM2DResultsLayer::sublayerLegendItems() const
             // value labels follow the actual class edges (equal interval,
             // quantile, Jenks, …) and pick up per-class colour overrides. The
             // swatch colours match colorForBand the renderer paints with.
-            const auto items = bs->scheme().legendItems(dry, mx, 3);
+            const auto items = bs->scheme().legendItems(dry, mx);
             for (LegendSymbolItem item : items) {
                 item.sublayerId = bandSubId;
                 item.symbol.opacity = filledContoursOpacity();
@@ -2793,47 +2546,13 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
         return &single->symbol().layers.first();
     };
 
-    // ── Depth color ramp (RasterColorRampSpec) ──────────────────────────
-    // Slice AN.4 — extended to write all fields exposed by
-    // RasterColorRampSymbolStyleAdapter (attribute / belowMin / aboveMax /
-    // useLogScale) directly from the SymbolLayer props bag, falling back
-    // to the spec values where they overlap.
-    QObject::connect(ruleHandles[0], &Rule::rendererReplaced, self,
-        [self, ruleHandles, firstLayer]() {
-            const SymbolLayer *layer = firstLayer(ruleHandles[0]);
-            if (!layer || layer->kind != SymbolLayerKind::RasterColorRamp) return;
-            const auto spec = RasterColorRampSymbolLayerSpec::fromSymbolLayer(*layer);
-            if (auto *sub = self->m_depthRampSublayer) {
-                sub->setOpacity(spec.opacity);
-                if (auto *st = sub->rampStyle()) {
-                    const auto &p = layer->props;
-                    const QColor specLow = !spec.ramp.stops.isEmpty()
-                        ? spec.ramp.stops.first().second : QColor(0, 0, 255);
-                    const QColor specHigh = !spec.ramp.stops.isEmpty()
-                        ? spec.ramp.stops.last().second : QColor(255, 0, 0);
-                    st->setMinValue(p.contains(QStringLiteral("minValue"))
-                        ? p.value(QStringLiteral("minValue")).toDouble()
-                        : spec.clampMin);
-                    st->setMaxValue(p.contains(QStringLiteral("maxValue"))
-                        ? p.value(QStringLiteral("maxValue")).toDouble()
-                        : spec.clampMax);
-                    st->setLowColor(p.contains(QStringLiteral("lowColor"))
-                        ? p.value(QStringLiteral("lowColor")).value<QColor>()
-                        : specLow);
-                    st->setHighColor(p.contains(QStringLiteral("highColor"))
-                        ? p.value(QStringLiteral("highColor")).value<QColor>()
-                        : specHigh);
-                    if (p.contains(QStringLiteral("belowMinColor")))
-                        st->setBelowMinColor(p.value(QStringLiteral("belowMinColor")).value<QColor>());
-                    if (p.contains(QStringLiteral("aboveMaxColor")))
-                        st->setAboveMaxColor(p.value(QStringLiteral("aboveMaxColor")).value<QColor>());
-                    if (p.contains(QStringLiteral("useLogScale")))
-                        st->setUseLogScale(p.value(QStringLiteral("useLogScale")).toBool());
-                    if (p.contains(QStringLiteral("attribute")))
-                        st->setAttribute(p.value(QStringLiteral("attribute")).toString());
-                }
-            }
-        });
+    // ── Depth color ramp — REMOVED (2026-06-21) ─────────────────────────
+    // The depth-ramp sublayer was removed (redundant with contour bands,
+    // which now provide the depth fill). ruleHandles[0] ("Depth color ramp"
+    // seed) is left as an inert entry with no propagation handler so the
+    // handlers below keep their existing [1..6] indices (avoids a risky
+    // blind reindex). FOLLOW-UP: drop the seed entry and reindex
+    // ruleHandles[1..6] → [0..5] in a build-verified pass.
 
     // ── Hillshade (HillshadeSpec) — results layer doesn't paint hillshade
     //    in the QPainter path, but we still wire the strength multiplier
@@ -3021,11 +2740,9 @@ SWMM2DResultsLayer::styleSubjects()
     add(m_meshFillSublayer,        sect);
     add(m_meshEdgeSublayer,        sect);
     add(m_meshNodeSublayer,        sect);
-    add(m_depthRampSublayer,       sect);
     add(m_contourBandSublayer,     sect);
     add(m_isolineSublayer,         sect);
     add(m_velocityVectorSublayer,  sect);
-    add(m_flowArrowSublayer,       sect);
 
     return out;
 }

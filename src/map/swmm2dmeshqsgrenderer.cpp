@@ -56,18 +56,10 @@ namespace {
 
 RasterColorRamp legacyElevationRamp()
 {
-    RasterColorRamp ramp;
-    ramp.minValue = 0.0;
-    ramp.maxValue = 1.0;
-    ramp.interp   = RampInterp::Rgb;
-    ramp.stops = {
-        {0.00, QColor(0x1a, 0x3d, 0x6b)},
-        {0.20, QColor(0x2e, 0x8b, 0x57)},
-        {0.50, QColor(0xc8, 0xd9, 0x4e)},
-        {0.75, QColor(0xc8, 0xa0, 0x00)},
-        {1.00, QColor(0xf0, 0xf0, 0xe8)},
-    };
-    return ramp;
+    // Single source of truth: the historic 5-stop palette now lives in
+    // RasterColorRamp::terrain() (registered as the "Terrain" builtin) so the
+    // mesh-fill editor's ramp combo and this renderer agree on the default.
+    return RasterColorRamp::terrain();
 }
 
 /*! Sample a normalised position [0,1] from a RasterColorRamp and unpack
@@ -541,12 +533,46 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             if (hasElev && useRamp) {
                 const double invRange = 1.0 / (zMax - zMin);
 
+                // Slice US (mesh) — terrain fill is classified by bed
+                // elevation through the sublayer's ClassificationScheme.
+                // Legacy alignment: the default scheme is Continuous with an
+                // empty ramp name and no inversion, for which we keep the
+                // historic 5-stop legacyElevationRamp() look (rampSpec.ramp)
+                // untouched. Once the user picks a named ramp, inverts it, or
+                // switches to Classified mode, the per-triangle colour is
+                // sampled from the scheme instead.
+                const OpenSWMM::Render::ClassificationScheme scheme =
+                    fillStyle ? fillStyle->scheme() : OpenSWMM::Render::ClassificationScheme();
+                const bool schemeClassified =
+                    scheme.mode() == OpenSWMM::Render::ClassificationScheme::ClassMode::Classified;
+                // The default scheme names the "Terrain" ramp (== rampSpec.ramp ==
+                // legacyElevationRamp()); keep it on the byte-identical legacy
+                // colorFromRamp path below so the default terrain fill is
+                // unchanged. Any *other* named ramp, an inversion, or Classified
+                // mode routes the per-triangle colour through the scheme.
+                const QString rampName = scheme.rampName();
+                const bool isDefaultTerrainRamp =
+                    rampName.isEmpty()
+                    || rampName.compare(QLatin1String("terrain"), Qt::CaseInsensitive) == 0;
+                const bool schemeDrivesColor =
+                    schemeClassified || scheme.invertRamp() || !isDefaultTerrainRamp;
+                // NOTE: per-quad zSamples are not assembled here (the data-
+                // driven Quantile/Jenks/StdDev methods then degrade to equal
+                // spacing — acceptable for the static terrain default). The
+                // band pass above does sample when needed; mirror that if
+                // exact data-driven edges are ever required for the fill.
+                const QVector<double> classEdges =
+                    schemeClassified ? scheme.levelEdges(zMin, zMax, {}) : QVector<double>{};
+
                 // Per-triangle fill-colour cache — see header for the full
                 // story. Key compare runs every paint; structural compare
                 // is cheap (one quint64, seven doubles, plus the ramp).
                 // On miss, drop the cache and let the per-triangle loop
                 // below populate entries lazily for visible triangles.
-                const quint64 curRev = m_layer->geomRevision();
+                // The scheme revision is folded into the cache revision so a
+                // classification edit invalidates the per-triangle colours
+                // without needing a dedicated cache member.
+                const quint64 curRev = m_layer->geomRevision() ^ scheme.revision();
                 const bool fillCacheHit =
                     m_fillCacheValid
                     && m_fillCacheRev         == curRev
@@ -585,14 +611,27 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
 
                     quint32 packed = m_cachedFillRgb[size_t(idx)];
                     if (packed == 0u) {
-                        // Slice Z.6a — colour sampling now goes through the
-                        // RasterColorRamp spec. Default seed reproduces the
-                        // legacy 5-stop palette; Rule Model edits flow here
-                        // when MeshFillStyle is updated by the dialog.
+                        // Slice Z.6a / US (mesh) — colour sampling. When the
+                        // ClassificationScheme is at its default (Continuous,
+                        // unnamed ramp) we keep the legacy 5-stop palette;
+                        // otherwise the scheme supplies the colour (Continuous
+                        // ramp sample, or Classified band by elevation class).
                         quint8 cr, cg, cb;
-                        colorFromRamp(
-                            double(t.zAvg - float(zMin)) * invRange,
-                            rampSpec.ramp, cr, cg, cb);
+                        if (schemeDrivesColor) {
+                            const QColor sc = schemeClassified
+                                ? scheme.colorForClass(
+                                      OpenSWMM::Render::ClassificationScheme::classIndexFor(
+                                          double(t.zAvg), classEdges),
+                                      scheme.classCount())
+                                : scheme.colorForValue(double(t.zAvg), zMin, zMax);
+                            cr = quint8(sc.red());
+                            cg = quint8(sc.green());
+                            cb = quint8(sc.blue());
+                        } else {
+                            colorFromRamp(
+                                double(t.zAvg - float(zMin)) * invRange,
+                                rampSpec.ramp, cr, cg, cb);
+                        }
 
                         const float ax = float(t.b.x()-t.a.x()), ay = float(t.b.y()-t.a.y());
                         const float bx = float(t.c.x()-t.a.x()), by = float(t.c.y()-t.a.y());
@@ -768,6 +807,51 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             const int edgeCount = useEdgeIdx ? visibleEdges.size() : edges.size();
             const float invSlope = (maxSlope > 0.f) ? 1.0f / maxSlope : 0.0f;
 
+            // Slice US (mesh) — slope classification via the edge sublayer's
+            // ClassificationScheme. The renderer carries exactly two edge
+            // nodes (thin / wide), each a single flat colour, so this pass
+            // remains a two-tier split: low (thin) vs high (wide). The legacy
+            // seed (2-class, Manual break at slopeBreak, colours = color /
+            // wideColor) reproduces the historic look bit-for-bit. When the
+            // user customizes the scheme we take the split threshold from the
+            // first interior class edge and the thin/wide colours from the
+            // first / last class colours.
+            //
+            // NOTE: schemes with >2 classes cannot be rendered as distinct
+            // per-class colours here without a vertex-coloured edge node
+            // (would require a renderer-header change, out of this slice's
+            // scope). They degrade to the first-edge two-tier split above —
+            // documented limitation for the testing agent.
+            //
+            // Slope is normalised to [0,1] as (slope * invSlope) to match the
+            // legacy kSlopeBreak fraction-of-maxSlope contract; the scheme's
+            // levelEdges are computed over [0,1] to align with it.
+            // The loose legacy slopeBreak / color / wideColor remain the
+            // source of truth while the scheme is at its untouched 2-class
+            // Manual seed (so editing those grid properties still works and
+            // the historic look is bit-for-bit). Only once the user reshapes
+            // the scheme (different method, or > 2 classes) do we read split +
+            // colours from it.
+            float        kSplit     = kSlopeBreak;
+            QColor       thinColor  = kEdgeColorThin;
+            QColor       wideColor  = kEdgeColorWide;
+            if (edgeStyle) {
+                const auto &scheme = edgeStyle->scheme();
+                const bool schemeCustomized =
+                    scheme.mode() ==
+                        OpenSWMM::Render::ClassificationScheme::ClassMode::Classified
+                    && (scheme.classCount() != 2
+                        || scheme.method() != OpenSWMM::Render::BinMethod::Manual);
+                if (schemeCustomized && scheme.classCount() >= 2) {
+                    const QVector<double> edgesV = scheme.levelEdges(0.0, 1.0, {});
+                    if (edgesV.size() >= 3)
+                        kSplit = float(edgesV[1]);              // first interior break
+                    thinColor = scheme.colorForClass(0, scheme.classCount());
+                    wideColor = scheme.colorForClass(scheme.classCount() - 1,
+                                                     scheme.classCount());
+                }
+            }
+
             std::vector<QSGGeometry::Point2D> thinSegs, wideSegs;
             thinSegs.reserve(size_t(edgeCount) * 6);
             wideSegs.reserve(size_t(edgeCount) / 8 * 6);
@@ -778,7 +862,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 const float ax = float(e.line.x1()-ox), ay = float(e.line.y1()-oy);
                 const float bx = float(e.line.x2()-ox), by = float(e.line.y2()-oy);
 
-                if (useSlopeWidth && hasElev && (e.slope * invSlope > kSlopeBreak))
+                if (useSlopeWidth && hasElev && (e.slope * invSlope > kSplit))
                     appendThickSeg(wideSegs, ax, ay, bx, by, kWideHW);
                 else
                     appendThickSeg(thinSegs, ax, ay, bx, by, kThinHW);
@@ -793,8 +877,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 r.setAlpha(int(qBound(0.0, c.alpha() * edgeOp, 255.0)));
                 return r;
             };
-            setFlatColor(edgeThinNode, withOp(kEdgeColorThin));
-            setFlatColor(edgeWideNode, withOp(kEdgeColorWide));
+            setFlatColor(edgeThinNode, withOp(thinColor));
+            setFlatColor(edgeWideNode, withOp(wideColor));
         } else {
             const std::vector<QSGGeometry::Point2D> empty;
             uploadFlatVerts(edgeThinNode, empty);

@@ -9,6 +9,40 @@
 namespace OpenSWMM::Render
 {
 
+MeshEdgeStyle::MeshEdgeStyle(QObject *parent) : SublayerStyle(parent)
+{
+    seedSchemeFromLegacy();
+}
+
+void MeshEdgeStyle::seedSchemeFromLegacy()
+{
+    // Mirror the legacy two-tier slope split as a 2-class scheme over the
+    // normalised slope range [0,1] (slope / maxSlope). The single interior
+    // break sits at slopeBreak; low class = color, high class = wideColor.
+    // The renderer keeps its dedicated thin/wide path while the scheme stays
+    // at this default; once classCount > 2 (or the user edits it) the edge
+    // pass colours by slope class instead.
+    m_scheme.setMode(ClassificationScheme::ClassMode::Classified);
+    m_scheme.setRampName(QString());
+    m_scheme.setUseCustomRange(true);
+    m_scheme.setRangeMin(0.0);
+    m_scheme.setRangeMax(1.0);
+    m_scheme.setMethod(BinMethod::Manual);
+    m_scheme.setManualBreaks({ m_slopeBreak });
+    m_scheme.setClassCount(2);
+    m_scheme.setLowColor(m_color);
+    m_scheme.setHighColor(m_wideColor);
+    m_scheme.setColorOverride(0, m_color);
+    m_scheme.setColorOverride(1, m_wideColor);
+}
+
+void MeshEdgeStyle::setScheme(const ClassificationScheme &s)
+{
+    if (m_scheme == s) return;
+    m_scheme = s;
+    setDirty();
+}
+
 void MeshEdgeStyle::setLineWidthPx(double v)
 {
     v = qBound(0.1, v, 20.0);
@@ -43,6 +77,7 @@ QJsonObject MeshEdgeStyle::toJson() const
     j[QStringLiteral("slopeBreak")]          = m_slopeBreak;
     j[QStringLiteral("wideWidthPx")]         = m_wideWidthPx;
     j[QStringLiteral("wideColor")]           = m_wideColor.name(QColor::HexArgb);
+    j[QStringLiteral("classification")]      = m_scheme.toJson();
     return j;
 }
 
@@ -66,6 +101,12 @@ void MeshEdgeStyle::fromJson(const QJsonObject &j)
         const QColor c(j.value(QStringLiteral("wideColor")).toString());
         if (c.isValid()) m_wideColor = c;
     }
+
+    if (j.contains(QStringLiteral("classification")))
+        m_scheme = ClassificationScheme::fromJson(j.value(QStringLiteral("classification")).toObject());
+    else
+        seedSchemeFromLegacy();   // older file — reproduce the legacy 2-tier look
+
     setDirty();
 }
 

@@ -129,17 +129,40 @@ private slots:
     void builtin_names_lists_all_entries()
     {
         // Slice BB-α shipped 13 entries; Slice BB-β added 10 Plotly
-        // continuous palettes — total 23.
+        // continuous palettes; the mesh terrain palette adds one — total 24.
         const QStringList names = RasterColorRamp::builtinNames();
-        QCOMPARE(names.size(), 23);
+        QCOMPARE(names.size(), 24);
         QVERIFY(names.contains(QStringLiteral("Viridis")));
         QVERIFY(names.contains(QStringLiteral("Plasma")));
         QVERIFY(names.contains(QStringLiteral("RdBu")));
         QVERIFY(names.contains(QStringLiteral("Legacy SWMM (5-interval)")));
+        QVERIFY(names.contains(QStringLiteral("Terrain")));
         // Slice BB-β Plotly entries
         QVERIFY(names.contains(QStringLiteral("Plotly3")));
         QVERIFY(names.contains(QStringLiteral("Jet")));
         QVERIFY(names.contains(QStringLiteral("Bluered")));
+    }
+
+    void builtin_terrain_matches_legacy_elevation_palette()
+    {
+        // The "terrain" builtin must reproduce the historic 5-stop mesh
+        // elevation palette byte-for-byte (deep blue → green → ochre →
+        // off-white) so the mesh-fill default looks unchanged now that the
+        // renderer resolves the palette by name instead of a hard-coded copy.
+        const RasterColorRamp r = RasterColorRamp::builtin(QStringLiteral("Terrain"));
+        QCOMPARE(r.interp, RampInterp::Rgb);
+        const QList<QPair<double, QColor>> expected = {
+            {0.00, QColor(0x1a, 0x3d, 0x6b)},
+            {0.20, QColor(0x2e, 0x8b, 0x57)},
+            {0.50, QColor(0xc8, 0xd9, 0x4e)},
+            {0.75, QColor(0xc8, 0xa0, 0x00)},
+            {1.00, QColor(0xf0, 0xf0, 0xe8)},
+        };
+        QCOMPARE(r.stops.size(), expected.size());
+        for (int i = 0; i < expected.size(); ++i) {
+            QCOMPARE(r.stops[i].first,  expected[i].first);
+            QCOMPARE(r.stops[i].second, expected[i].second);
+        }
     }
 
     void builtin_plotly_lookup_returns_distinct_ramps()
