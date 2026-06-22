@@ -68,6 +68,9 @@ public:
      */
     void refresh();
 
+    /*! \brief Show + focus the search box and select its text (toolbar Search). */
+    void focusSearch();
+
 signals:
     /*! \brief Emitted when the user picks "Plot Time Series" from the
      *         right-click menu and exactly one results layer (.out) is
