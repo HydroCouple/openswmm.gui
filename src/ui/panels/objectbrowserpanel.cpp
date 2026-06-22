@@ -184,6 +184,13 @@ void ObjectBrowserPanel::setProject(SWMMModelLayer *layer,
     refresh();
 }
 
+void ObjectBrowserPanel::focusSearch()
+{
+    if (!m_searchEdit) return;
+    m_searchEdit->setFocus(Qt::ShortcutFocusReason);
+    m_searchEdit->selectAll();
+}
+
 void ObjectBrowserPanel::refresh()
 {
     // Block the tree's selection-change signal from propagating to the

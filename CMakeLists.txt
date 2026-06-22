@@ -70,10 +70,10 @@ unset(_qt_env_var)
 # ── Qt ──────────────────────────────────────────────────────────────────────
 find_package(QT NAMES Qt6 Qt5 REQUIRED
     COMPONENTS Widgets OpenGL OpenGLWidgets Network Concurrent LinguistTools Svg
-               Quick QuickWidgets Qml)
+               Quick QuickWidgets Qml PrintSupport)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED
     COMPONENTS Widgets OpenGL OpenGLWidgets Network Concurrent LinguistTools Svg Charts
-               Quick QuickWidgets Qml)
+               Quick QuickWidgets Qml PrintSupport)
 
 # ── GDAL (GIS/CRS) ──────────────────────────────────────────────────────────
 find_package(GDAL REQUIRED)
@@ -388,6 +388,9 @@ set(
         include/ui/models/rulelistmodel.h
         include/ui/widgets/rulecodeeditor.h
         include/ui/dialogs/ruleseditordialog.h
+
+        # ── Climatology ([TEMPERATURE]/[EVAPORATION]/[ADJUSTMENTS]) ───────────
+        include/ui/dialogs/climatologydialog.h
 
         # ── Transect (Slice BQ Phase 6.7.4) ──────────────────────────────────
         include/transect/transectprovider.h
@@ -875,6 +878,9 @@ set(
         src/ui/widgets/rulecodeeditor.cpp
         src/ui/dialogs/ruleseditordialog.cpp
 
+        # ── Climatology ([TEMPERATURE]/[EVAPORATION]/[ADJUSTMENTS]) ───────────
+        src/ui/dialogs/climatologydialog.cpp
+
         # ── Transect (Slice BQ Phase 6.7.4) ──────────────────────────────────
         src/transect/transectprovider.cpp
         src/transect/transectregistry.cpp
@@ -1174,6 +1180,7 @@ target_link_libraries(SWMMVis
         Qt${QT_VERSION_MAJOR}::Qml
         Qt${QT_VERSION_MAJOR}::Quick
         Qt${QT_VERSION_MAJOR}::QuickWidgets
+        Qt${QT_VERSION_MAJOR}::PrintSupport
         GDAL::GDAL
         OpenSSL::SSL
         OpenSSL::Crypto

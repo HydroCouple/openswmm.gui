@@ -240,6 +240,35 @@ private slots:
     /*! \brief Open the Simulation Options dialog for the active project. */
     void onSimulationOptions();
 
+    /*! \brief Open the Climatology dialog at the given tab (ClimatologyDialog::Tab). */
+    void onClimatology(int tab);
+
+    // ── Toolbar quick-wins (Phase 2) ────────────────────────────────────────
+    /*! \brief Show + focus the Object Browser search box. */
+    void onSearch();
+    /*! \brief Show + raise the Attribute Table dock. */
+    void onTabularView();
+    /*! \brief Import a delimited (CSV/TSV) data file as a map layer. */
+    void onAddDelimitedData();
+    /*! \brief Open the statistics dashboard for the active results layer. */
+    void onSummarizeResults();
+    /*! \brief Copy the active map view to the clipboard. */
+    void onCopyActiveView();
+    /*! \brief Print the active map view. */
+    void onPrintActiveView();
+    /*! \brief Invert the current map selection. */
+    void onInvertSelection();
+
+    // ── Network analysis (Phase 3) ──────────────────────────────────────────
+    /*! \brief Extend the selection to the upstream subnetwork. */
+    void onSelectUpstream();
+    /*! \brief Extend the selection to the downstream subnetwork. */
+    void onSelectDownstream();
+    /*! \brief Flow balance across the up/down-stream subnetwork boundary. */
+    void onFlowBalance(bool upstream);
+    /*! \brief Travel time over the up/down-stream subnetwork. */
+    void onTravelTime(bool upstream);
+
     /*! \brief Open the User Flags Manager for the active project
      *  (docs/USER_FLAGS_UI_PLAN_2026-06-03.md Phase 2). */
     void onUserFlags();
