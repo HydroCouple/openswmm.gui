@@ -1363,6 +1363,14 @@ add_swmmvis_gui_test(test_simulationoptionsdialog
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/simulationoptionshelpers.cpp
 )
 
+# Climatology dialog — instantiated against a synthetic BUILDING engine; the
+# dialog is dependency-light (Qt Widgets + the swmm_climate_* engine ABI only).
+add_swmmvis_gui_test(test_climatologydialog
+    test_climatologydialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/climatologydialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/climatologydialog.cpp
+)
+
 # Phase B.1 of docs/RENDERING_5M_PLAN.md — interactive spike that
 # verifies `QPainter::beginNativePainting()` works on the host's Qt /
 # GL build before we commit the canvas viewport swap. Not registered

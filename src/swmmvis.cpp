@@ -99,7 +99,26 @@
 // Slice Z.18 — Layer Styling dock.
 #include "ui/panels/layerstylingdock.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
+#include "ui/dialogs/climatologydialog.h"
+#include "ui/dialogs/statisticsdashboarddialog.h"
 #include "ui/dialogs/userflagsdialog.h"
+#include "layers/tabulardatalayer.h"
+#include "selection/selectionmanager.h"
+#include "plot/profilenetworkadapter.h"
+#include "plot/profilerouter.h"
+#include "layers/swmmresultslayer.h"
+
+#include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_output.h>
+
+#include <QClipboard>
+#include <QDockWidget>
+#include <QGuiApplication>
+#include <QPainter>
+#include <QPrintDialog>
+#include <QPrinter>
+
+#include <vector>
 #include "ui/dialogs/profileplotdialog.h"
 #include "ui/dialogs/meshprofileplotdialog.h"
 #include "ui/dialogs/comparisonplotdialog.h"
@@ -1251,12 +1270,8 @@ void SWMMVis::initializeMapTools()
         MapExtent zoom(xMin - padX, yMin - padY, xMax + padX, yMax + padY);
         if (zoom.isValid()) c->setExtent(zoom);
     });
-    connect(ui->actionSelectUpstream, &QAction::triggered, this, [this]() {
-        onLogMessage("Select Upstream: not yet implemented", OpenSWMMVisLogMessage::Information);
-    });
-    connect(ui->actionSelectDownstream, &QAction::triggered, this, [this]() {
-        onLogMessage("Select Downstream: not yet implemented", OpenSWMMVisLogMessage::Information);
-    });
+    connect(ui->actionSelectUpstream, &QAction::triggered, this, &SWMMVis::onSelectUpstream);
+    connect(ui->actionSelectDownstream, &QAction::triggered, this, &SWMMVis::onSelectDownstream);
 
     connect(ui->mdiAreaCentral, &QMdiArea::subWindowActivated,
             this, &SWMMVis::onActiveSubWindowChanged);
@@ -3139,6 +3154,67 @@ void SWMMVis::initializeMenus()
         connect(ui->actionAddText, &QAction::triggered, this, [this]() {
             if (auto *pw = activeProjectWindow()) pw->activateAddTextTool();
         });
+
+    // Climatology buttons → tabbed Climatology dialog (Temperature/Evaporation/
+    // Wind/Snow Melt/Areal Depletion/Adjustments). Solar Radiation has no SWMM
+    // input section; it opens the dialog on the Evaporation tab (solar feeds
+    // Hargreaves ET).
+    if (ui->actionTemperature)
+        connect(ui->actionTemperature, &QAction::triggered, this, [this]() {
+            onClimatology(ClimatologyDialog::TabTemperature);
+        });
+    if (ui->actionEvaporation)
+        connect(ui->actionEvaporation, &QAction::triggered, this, [this]() {
+            onClimatology(ClimatologyDialog::TabEvaporation);
+        });
+    if (ui->actionWind)
+        connect(ui->actionWind, &QAction::triggered, this, [this]() {
+            onClimatology(ClimatologyDialog::TabWind);
+        });
+    if (ui->actionSnow)
+        connect(ui->actionSnow, &QAction::triggered, this, [this]() {
+            onClimatology(ClimatologyDialog::TabSnowMelt);
+        });
+    if (ui->actionSolarRadiation)
+        connect(ui->actionSolarRadiation, &QAction::triggered, this, [this]() {
+            onClimatology(ClimatologyDialog::TabEvaporation);
+        });
+
+    // Toolbar quick-wins (Phase 2).
+    if (ui->actionSearch)
+        connect(ui->actionSearch, &QAction::triggered, this, &SWMMVis::onSearch);
+    if (ui->actionTabularView)
+        connect(ui->actionTabularView, &QAction::triggered, this, &SWMMVis::onTabularView);
+    if (ui->actionAddDelimeteredData)
+        connect(ui->actionAddDelimeteredData, &QAction::triggered, this,
+                &SWMMVis::onAddDelimitedData);
+    if (ui->actionSummarizeResults)
+        connect(ui->actionSummarizeResults, &QAction::triggered, this,
+                &SWMMVis::onSummarizeResults);
+    if (ui->actionCopy)
+        connect(ui->actionCopy, &QAction::triggered, this, &SWMMVis::onCopyActiveView);
+    if (ui->actionPrint)
+        connect(ui->actionPrint, &QAction::triggered, this, &SWMMVis::onPrintActiveView);
+    if (ui->actionInvertSelection)
+        connect(ui->actionInvertSelection, &QAction::triggered, this,
+                &SWMMVis::onInvertSelection);
+
+    // Network analysis (Phase 3). Mass balance lives in the status report
+    // (legacy parity); flow balance / travel time analyze the up/down subnet.
+    if (ui->actionShowMassBalance)
+        connect(ui->actionShowMassBalance, &QAction::triggered, this, &SWMMVis::onShowReport);
+    if (ui->actionFlowBalanceUpstream)
+        connect(ui->actionFlowBalanceUpstream, &QAction::triggered, this,
+                [this]() { onFlowBalance(/*upstream=*/true); });
+    if (ui->actionFlowBalanceDownstream)
+        connect(ui->actionFlowBalanceDownstream, &QAction::triggered, this,
+                [this]() { onFlowBalance(/*upstream=*/false); });
+    if (ui->actionTravelTimeUpstream)
+        connect(ui->actionTravelTimeUpstream, &QAction::triggered, this,
+                [this]() { onTravelTime(/*upstream=*/true); });
+    if (ui->actionTravelTimeDownstream)
+        connect(ui->actionTravelTimeDownstream, &QAction::triggered, this,
+                [this]() { onTravelTime(/*upstream=*/false); });
 
     // Slice AU.4 — Generate Mesh tool launches MeshGenerationDialog.
     if (ui->actionGenerateMesh)
@@ -5142,6 +5218,379 @@ void SWMMVis::onSimulationOptions()
         // status-bar widgets re-synced — re-run the activate handler.
         onActiveSubWindowChanged(pw);
     }
+}
+
+void SWMMVis::onClimatology(int tab)
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine())
+    {
+        onLogMessage(tr("Open a SWMM project first to edit climatology."),
+                     OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+
+    ClimatologyDialog dlg(pw->modelLayer()->engine(), pw->modelLayer(), this);
+    dlg.setCurrentTab(tab);
+    if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
+        pw->setHasChanges(true);
+}
+
+// ── Toolbar quick-wins (Phase 2) ────────────────────────────────────────────
+
+namespace {
+//! Show + raise the QDockWidget ancestor of \p w (if any).
+void raiseDockAncestor(QWidget *w)
+{
+    for (QWidget *p = w; p; p = p->parentWidget())
+        if (auto *d = qobject_cast<QDockWidget *>(p)) { d->show(); d->raise(); return; }
+}
+} // namespace
+
+void SWMMVis::onSearch()
+{
+    if (!mObjectBrowserPanel) return;
+    raiseDockAncestor(mObjectBrowserPanel);
+    mObjectBrowserPanel->focusSearch();
+}
+
+void SWMMVis::onTabularView()
+{
+    if (!mAttributeTablePanel) return;
+    raiseDockAncestor(mAttributeTablePanel);
+    mAttributeTablePanel->setFocus(Qt::ShortcutFocusReason);
+}
+
+void SWMMVis::onAddDelimitedData()
+{
+    MapCanvas *c = activeCanvas();
+    if (!c)
+    {
+        onLogMessage(tr("Open a project first to add delimited data."),
+                     OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Add Delimited Data"),
+        mRecentFiles.isEmpty() ? QDir::homePath()
+                               : QFileInfo(mRecentFiles.first()).absolutePath(),
+        tr("Delimited text (*.csv *.tsv *.txt);;All files (*)"));
+    if (path.isEmpty()) return;
+
+    auto *layer = new TabularDataLayer(QFileInfo(path).fileName());
+    QString err;
+    if (!layer->loadFromFile(path, &err))
+    {
+        delete layer;
+        QMessageBox::warning(this, tr("Add Delimited Data"),
+            tr("Could not load %1:\n%2").arg(QFileInfo(path).fileName(), err));
+        return;
+    }
+    c->addLayer(layer, true);
+    c->zoomToFullExtent();
+    onLogMessage(tr("Added delimited data: %1").arg(QFileInfo(path).fileName()));
+}
+
+void SWMMVis::onSummarizeResults()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw)
+    {
+        onLogMessage(tr("Summarize Results: open a project first."),
+                     OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+    auto *layer = pw->activeResultsLayer();
+    if (!layer)
+    {
+        QMessageBox::information(this, tr("No Results"),
+            tr("Run a simulation or load a results (.out) file first."));
+        return;
+    }
+    auto *dlg = new openswmmvis::ui::StatisticsDashboardDialog(layer, this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
+}
+
+void SWMMVis::onCopyActiveView()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->canvas())
+    {
+        onLogMessage(tr("Copy: no active map view."), OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+    QGuiApplication::clipboard()->setPixmap(pw->canvas()->grab());
+    onLogMessage(tr("Copied map view to clipboard."));
+}
+
+void SWMMVis::onPrintActiveView()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->canvas())
+    {
+        onLogMessage(tr("Print: no active map view."), OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+    QPrinter printer(QPrinter::HighResolution);
+    QPrintDialog dlg(&printer, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const QPixmap pm = pw->canvas()->grab();
+    QPainter painter(&printer);
+    const QRect vp = painter.viewport();
+    const QPixmap scaled = pm.scaled(vp.size(), Qt::KeepAspectRatio,
+                                     Qt::SmoothTransformation);
+    painter.drawPixmap(vp.topLeft(), scaled);
+    onLogMessage(tr("Printed map view."));
+}
+
+void SWMMVis::onInvertSelection()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine() || !pw->selectionManager())
+    {
+        onLogMessage(tr("Invert Selection: open a project first."),
+                     OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+    SWMM_Engine e = pw->modelLayer()->engine();
+
+    QSet<SWMMObjectRef> all;
+    const auto addAll = [&](int count,
+                            const char *(*idFn)(SWMM_Engine, int),
+                            SWMMObjectRef::ObjectType t) {
+        for (int i = 0; i < count; ++i)
+        {
+            const char *id = idFn(e, i);
+            if (id && *id) all.insert(SWMMObjectRef(t, QString::fromUtf8(id)));
+        }
+    };
+    addAll(swmm_node_count(e),     swmm_node_id,     SWMMObjectRef::Node);
+    addAll(swmm_link_count(e),     swmm_link_id,     SWMMObjectRef::Link);
+    addAll(swmm_subcatch_count(e), swmm_subcatch_id, SWMMObjectRef::Subcatchment);
+    addAll(swmm_gage_count(e),     swmm_gage_id,     SWMMObjectRef::RainGage);
+
+    const QSet<SWMMObjectRef> cur = pw->selectionManager()->selection();
+    QSet<SWMMObjectRef> inv;
+    inv.reserve(all.size());
+    for (const auto &r : all)
+        if (!cur.contains(r)) inv.insert(r);
+
+    pw->selectionManager()->select(inv, SelectionManager::Replace);
+    onLogMessage(tr("Inverted selection (%1 object(s) now selected).").arg(inv.size()));
+}
+
+// ── Network analysis (Phase 3) ──────────────────────────────────────────────
+
+namespace {
+
+//! Up/down-stream subnetwork of a set of seed nodes, found by BFS over the
+//! routing graph (forward edges for downstream, reversed for upstream).
+struct Subnetwork
+{
+    bool                       ok = false;
+    QSet<int>                  nodes;          // engine node indices reached
+    QVector<int>               interiorLinks;  // engine link idx, both ends inside
+    QVector<QPair<int, bool>>  boundaryLinks;  // (link idx, true=flow enters subnet)
+};
+
+Subnetwork buildSubnetwork(SWMMModelLayer *model, const QSet<int> &seeds, bool upstream)
+{
+    Subnetwork s;
+    if (!model || seeds.isEmpty()) return s;
+    const ProfileRouter::Graph g = ProfileNetworkAdapter::buildGraphFromModel(model);
+
+    QHash<int, QVector<int>> adj;   // traverse-from node -> outgoing edge indices
+    for (int i = 0; i < g.edges.size(); ++i)
+        adj[upstream ? g.edges[i].toNode : g.edges[i].fromNode].push_back(i);
+
+    QSet<int> visited = seeds;
+    QList<int> queue(seeds.begin(), seeds.end());
+    while (!queue.isEmpty())
+    {
+        const int n = queue.takeFirst();
+        for (int ei : adj.value(n))
+        {
+            const int next = upstream ? g.edges[ei].fromNode : g.edges[ei].toNode;
+            if (next >= 0 && !visited.contains(next)) { visited.insert(next); queue.push_back(next); }
+        }
+    }
+    s.nodes = visited;
+
+    for (const auto &e : g.edges)
+    {
+        const bool a = visited.contains(e.fromNode);
+        const bool b = visited.contains(e.toNode);
+        if (a && b)
+            s.interiorLinks.push_back(e.linkId);
+        else if (a != b)
+            // Positive flow (from→to) enters the subnet when the TO end is inside.
+            s.boundaryLinks.push_back({e.linkId, b});
+    }
+    s.ok = true;
+    return s;
+}
+
+//! Seed engine-node indices from the current selection (selected nodes, plus
+//! both endpoints of any selected links).
+QSet<int> seedNodes(SWMMModelLayer *model, const QSet<SWMMObjectRef> &sel)
+{
+    QSet<int> seeds;
+    SWMM_Engine e = model->engine();
+    for (const auto &r : sel)
+    {
+        if (r.objectType == SWMMObjectRef::Node)
+        {
+            const int idx = swmm_node_index(e, r.name.toUtf8().constData());
+            if (idx >= 0) seeds.insert(idx);
+        }
+        else if (r.objectType == SWMMObjectRef::Link)
+        {
+            const int li = swmm_link_index(e, r.name.toUtf8().constData());
+            if (li >= 0)
+            {
+                const int a = model->linkFromNodeIdx(li);
+                const int b = model->linkToNodeIdx(li);
+                if (a >= 0) seeds.insert(a);
+                if (b >= 0) seeds.insert(b);
+            }
+        }
+    }
+    return seeds;
+}
+
+QSet<SWMMObjectRef> subnetToRefs(SWMM_Engine e, const Subnetwork &sn)
+{
+    QSet<SWMMObjectRef> refs;
+    for (int n : sn.nodes)
+    {
+        const char *id = swmm_node_id(e, n);
+        if (id && *id) refs.insert(SWMMObjectRef(SWMMObjectRef::Node, QString::fromUtf8(id)));
+    }
+    for (int li : sn.interiorLinks)
+    {
+        const char *id = swmm_link_id(e, li);
+        if (id && *id) refs.insert(SWMMObjectRef(SWMMObjectRef::Link, QString::fromUtf8(id)));
+    }
+    return refs;
+}
+
+} // namespace
+
+void SWMMVis::onSelectUpstream()   { /* implemented via streamSelect below */
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine() || !pw->selectionManager())
+    { onLogMessage(tr("Select Upstream: open a project first."), OpenSWMMVisLogMessage::Warning); return; }
+    SWMMModelLayer *model = pw->modelLayer();
+    const QSet<int> seeds = seedNodes(model, pw->selectionManager()->selection());
+    if (seeds.isEmpty())
+    { onLogMessage(tr("Select Upstream: select a node or link first."), OpenSWMMVisLogMessage::Information); return; }
+    const Subnetwork sn = buildSubnetwork(model, seeds, /*upstream=*/true);
+    const QSet<SWMMObjectRef> refs = subnetToRefs(model->engine(), sn);
+    pw->selectionManager()->select(refs, SelectionManager::Add);
+    onLogMessage(tr("Selected upstream subnetwork: %1 node(s), %2 link(s).")
+                 .arg(sn.nodes.size()).arg(sn.interiorLinks.size()));
+}
+
+void SWMMVis::onSelectDownstream()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine() || !pw->selectionManager())
+    { onLogMessage(tr("Select Downstream: open a project first."), OpenSWMMVisLogMessage::Warning); return; }
+    SWMMModelLayer *model = pw->modelLayer();
+    const QSet<int> seeds = seedNodes(model, pw->selectionManager()->selection());
+    if (seeds.isEmpty())
+    { onLogMessage(tr("Select Downstream: select a node or link first."), OpenSWMMVisLogMessage::Information); return; }
+    const Subnetwork sn = buildSubnetwork(model, seeds, /*upstream=*/false);
+    const QSet<SWMMObjectRef> refs = subnetToRefs(model->engine(), sn);
+    pw->selectionManager()->select(refs, SelectionManager::Add);
+    onLogMessage(tr("Selected downstream subnetwork: %1 node(s), %2 link(s).")
+                 .arg(sn.nodes.size()).arg(sn.interiorLinks.size()));
+}
+
+void SWMMVis::onFlowBalance(bool upstream)
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine() || !pw->selectionManager())
+    { onLogMessage(tr("Flow Balance: open a project first."), OpenSWMMVisLogMessage::Warning); return; }
+    auto *results = pw->activeResultsLayer();
+    if (!results || !results->outputHandle())
+    { QMessageBox::information(this, tr("Flow Balance"),
+          tr("Run a simulation or load a results (.out) file first.")); return; }
+    SWMMModelLayer *model = pw->modelLayer();
+    SWMM_Engine e = model->engine();
+    const QSet<int> seeds = seedNodes(model, pw->selectionManager()->selection());
+    if (seeds.isEmpty())
+    { QMessageBox::information(this, tr("Flow Balance"),
+          tr("Select a node or link first.")); return; }
+
+    const Subnetwork sn = buildSubnetwork(model, seeds, upstream);
+    SWMM_Output out = results->outputHandle();
+    const int periods = swmm_output_get_period_count(out);
+    const int nLinks  = swmm_link_count(e);
+    if (periods <= 0 || nLinks <= 0)
+    { QMessageBox::information(this, tr("Flow Balance"), tr("No results to summarize.")); return; }
+
+    std::vector<float> flow(static_cast<std::size_t>(nLinks), 0.0f);
+    swmm_output_get_link_result(out, periods - 1, SWMM_OUT_LINK_FLOW, flow.data());
+    double inflow = 0.0, outflow = 0.0;
+    for (const auto &bl : sn.boundaryLinks)
+    {
+        if (bl.first < 0 || bl.first >= nLinks) continue;
+        const double into = bl.second ? flow[bl.first] : -flow[bl.first];
+        if (into >= 0.0) inflow += into; else outflow += -into;
+    }
+    QMessageBox::information(this,
+        tr("Flow Balance — %1").arg(upstream ? tr("Upstream") : tr("Downstream")),
+        tr("Subnetwork: %1 node(s), %2 boundary link(s)\n\n"
+           "Inflow:  %3\nOutflow: %4\nNet:     %5\n\n"
+           "(final time-step flows, in project flow units)")
+            .arg(sn.nodes.size()).arg(sn.boundaryLinks.size())
+            .arg(inflow, 0, 'f', 3).arg(outflow, 0, 'f', 3)
+            .arg(inflow - outflow, 0, 'f', 3));
+}
+
+void SWMMVis::onTravelTime(bool upstream)
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine() || !pw->selectionManager())
+    { onLogMessage(tr("Travel Time: open a project first."), OpenSWMMVisLogMessage::Warning); return; }
+    auto *results = pw->activeResultsLayer();
+    if (!results || !results->outputHandle())
+    { QMessageBox::information(this, tr("Travel Time"),
+          tr("Run a simulation or load a results (.out) file first.")); return; }
+    SWMMModelLayer *model = pw->modelLayer();
+    SWMM_Engine e = model->engine();
+    const QSet<int> seeds = seedNodes(model, pw->selectionManager()->selection());
+    if (seeds.isEmpty())
+    { QMessageBox::information(this, tr("Travel Time"), tr("Select a node or link first.")); return; }
+
+    const Subnetwork sn = buildSubnetwork(model, seeds, upstream);
+    SWMM_Output out = results->outputHandle();
+    const int periods = swmm_output_get_period_count(out);
+    const int nLinks  = swmm_link_count(e);
+    if (periods <= 0 || nLinks <= 0)
+    { QMessageBox::information(this, tr("Travel Time"), tr("No results to summarize.")); return; }
+
+    std::vector<float> vel(static_cast<std::size_t>(nLinks), 0.0f);
+    swmm_output_get_link_result(out, periods - 1, SWMM_OUT_LINK_VELOCITY, vel.data());
+    double totalSec = 0.0;
+    int counted = 0;
+    for (int li : sn.interiorLinks)
+    {
+        if (li < 0 || li >= nLinks) continue;
+        double length = 0.0;
+        if (swmm_link_get_length(e, li, &length) != SWMM_OK || length <= 0.0) continue;
+        const double v = vel[li];
+        if (v > 1e-6) { totalSec += length / v; ++counted; }
+    }
+    QMessageBox::information(this,
+        tr("Travel Time — %1").arg(upstream ? tr("Upstream") : tr("Downstream")),
+        tr("Subnetwork: %1 flowing conduit(s)\n\n"
+           "Total in-pipe travel time: %2 min\n\n"
+           "(sum of length / velocity at the final time-step)")
+            .arg(counted).arg(totalSec / 60.0, 0, 'f', 2));
 }
 
 void SWMMVis::onUserFlags()
