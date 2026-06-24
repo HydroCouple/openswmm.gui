@@ -21,11 +21,12 @@
         {
             "name": "Windows",
             "inherits": "default",
-            "description": "Windows build using Visual Studio generator",
+            "description": "Windows Release build (MSVC, Visual Studio 17 2022). Qt MSVC 2022 64-bit kit at C:\\Qt\\6.11.1\\msvc2022_64; override with -DCMAKE_PREFIX_PATH or QT_ROOT_DIR env var. Prebuilt engine expected at ../openswmm.engine/install/Windows.",
             "generator": "Visual Studio 17 2022",
             "binaryDir": "${sourceDir}/build/windows",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_PREFIX_PATH": "C:\\Qt\\6.11.1\\msvc2022_64",
                 "CMAKE_C_FLAGS": "/O2 /GL /fp:precise /W4",
                 "CMAKE_CXX_FLAGS": "/O2 /GL /fp:precise /W4",
                 "CMAKE_EXE_LINKER_FLAGS": "/LTCG /OPT:REF /OPT:ICF",
@@ -33,7 +34,7 @@
                 "CMAKE_C_FLAGS_RELEASE": "/O2 /GL /fp:precise /W4",
                 "CMAKE_CXX_FLAGS_RELEASE": "/O2 /GL /fp:precise /W4",
                 "CMAKE_C_FLAGS_DEBUG": "/Zi /Od /DDEBUG /W4 /fp:precise",
-                "CMAKE_CXX_FLAGS_DEBUG": "/Zi /Od /DDEBUG /W4 /fp:precise" 
+                "CMAKE_CXX_FLAGS_DEBUG": "/Zi /Od /DDEBUG /W4 /fp:precise"
             },
             "condition": {
                 "type": "equals",
@@ -44,11 +45,12 @@
         {
             "name": "Windows-debug",
             "inherits": "default-debug",
-            "description": "Windows build for debugging using Visual Studio generator",
+            "description": "Windows Debug build (MSVC, Visual Studio 17 2022). Qt MSVC 2022 64-bit kit at C:\\Qt\\6.11.1\\msvc2022_64; override with -DCMAKE_PREFIX_PATH or QT_ROOT_DIR env var.",
             "generator": "Visual Studio 17 2022",
             "binaryDir": "${sourceDir}/build/windows-debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_PREFIX_PATH": "C:\\Qt\\6.11.1\\msvc2022_64",
                 "CMAKE_C_FLAGS": "/Zi /Od /DDEBUG /W4 /fp:precise",
                 "CMAKE_CXX_FLAGS": "/Zi /Od /DDEBUG /W4 /fp:precise",
                 "CMAKE_EXE_LINKER_FLAGS": "/DEBUG",
