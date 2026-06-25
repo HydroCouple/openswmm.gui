@@ -138,6 +138,19 @@ public:
     [[nodiscard]] double seepRate()         const;   ///< swmm_link_get_seep_rate
     [[nodiscard]] int    barrels()          const;   ///< swmm_link_get_barrels
 
+    // Direct inline cross-section geometry — geom1..geom4 of the engine
+    // xsect tuple, exposed alongside the compound `xsection` editor so the
+    // user can tweak a single dimension without opening the dialog. The
+    // engine has no per-geom setter, so each setter read-modify-writes the
+    // whole tuple (mirrors the loss-coeff slots). `xsectShapeId` lets the
+    // Property Browser grey out geoms that don't apply to the current
+    // shape (see openswmmvis::xsectGeomApplies).
+    [[nodiscard]] int    xsectShapeId() const;       ///< current SWMM_XSECT_* id
+    [[nodiscard]] double xsectGeom1()   const;
+    [[nodiscard]] double xsectGeom2()   const;
+    [[nodiscard]] double xsectGeom3()   const;
+    [[nodiscard]] double xsectGeom4()   const;
+
     /*! Slice BM.0-Browse-Edit — `DataObjectRef`-typed accessor for the
      *  pump curve, used by the `Q_PROPERTY` on `SWMMPumpPropertyAdapter`.
      *  Constructs the ref with `kind=AnyCurve` (pump curves accept
@@ -196,6 +209,14 @@ public slots:
     void setLossAvg(double v);
     void setSeepRate(double v);
     void setBarrels(int v);
+    // Inline cross-section geom setters — read-modify-write the engine
+    // xsect tuple (shape + the other three geoms preserved). No-op when
+    // the geom doesn't apply to the current shape, so a stray write from
+    // a greyed cell can't corrupt the section.
+    void setXsectGeom1(double v);
+    void setXsectGeom2(double v);
+    void setXsectGeom3(double v);
+    void setXsectGeom4(double v);
     /*! Slice BM.0-Browse-Edit — writes the selected curve via
      *  `swmm_link_set_pump_curve`. Looks up the engine curve index from
      *  `ref.currentName`; no-op if empty or unknown. */
@@ -232,6 +253,9 @@ signals:
 
 protected:
     [[nodiscard]] int linkIdx() const;
+    //! Read-modify-write one geom (ordinal 1..4) of the xsect tuple; no-op
+    //! when the geom doesn't apply to the current shape. Emits changed().
+    void writeXsectGeom(int ordinal, double v);
     SWMM_Engine     m_engine;
     QString         m_name;
     SWMMModelLayer *m_layer = nullptr;  ///< Bound via setModelLayer.
@@ -265,6 +289,12 @@ class SWMMConduitPropertyAdapter : public SWMMLinkPropertyAdapter
     // Slice SC.1 — compound-attribute "Edit…" cells.
     Q_PROPERTY(LinkCompoundEditRef xsection
                READ xsectionRef    WRITE setXsectionRef    NOTIFY changed)
+    // Direct inline geom1..geom4 (generic labels; PropertiesPanel greys
+    // out the ones that don't apply to the current shape).
+    Q_PROPERTY(double geom1 READ xsectGeom1 WRITE setXsectGeom1 NOTIFY changed)
+    Q_PROPERTY(double geom2 READ xsectGeom2 WRITE setXsectGeom2 NOTIFY changed)
+    Q_PROPERTY(double geom3 READ xsectGeom3 WRITE setXsectGeom3 NOTIFY changed)
+    Q_PROPERTY(double geom4 READ xsectGeom4 WRITE setXsectGeom4 NOTIFY changed)
     Q_PROPERTY(CulvertCodeRef culvertCode
                READ culvertCodeRef WRITE setCulvertCodeRef NOTIFY changed)
     Q_PROPERTY(LinkCompoundEditRef inletUsage
@@ -325,6 +355,12 @@ class SWMMOrificePropertyAdapter : public SWMMLinkPropertyAdapter
                READ orificeOpenCloseRate WRITE setOrificeOpenCloseRate NOTIFY changed)
     Q_PROPERTY(LinkCompoundEditRef xsection
                READ xsectionRef WRITE setXsectionRef NOTIFY changed)
+    // Direct inline geom1..geom4 (orifices use CIRCULAR / RECT_CLOSED, so
+    // only geom1/geom2 ever apply; the rest grey out).
+    Q_PROPERTY(double geom1 READ xsectGeom1 WRITE setXsectGeom1 NOTIFY changed)
+    Q_PROPERTY(double geom2 READ xsectGeom2 WRITE setXsectGeom2 NOTIFY changed)
+    Q_PROPERTY(double geom3 READ xsectGeom3 WRITE setXsectGeom3 NOTIFY changed)
+    Q_PROPERTY(double geom4 READ xsectGeom4 WRITE setXsectGeom4 NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
@@ -355,6 +391,12 @@ class SWMMWeirPropertyAdapter : public SWMMLinkPropertyAdapter
                READ flapGate WRITE setFlapGate NOTIFY changed)
     Q_PROPERTY(LinkCompoundEditRef xsection
                READ xsectionRef WRITE setXsectionRef NOTIFY changed)
+    // Direct inline geom1..geom4 (weirs use RECT_OPEN / TRAPEZOIDAL /
+    // TRIANGULAR; inapplicable geoms grey out per shape).
+    Q_PROPERTY(double geom1 READ xsectGeom1 WRITE setXsectGeom1 NOTIFY changed)
+    Q_PROPERTY(double geom2 READ xsectGeom2 WRITE setXsectGeom2 NOTIFY changed)
+    Q_PROPERTY(double geom3 READ xsectGeom3 WRITE setXsectGeom3 NOTIFY changed)
+    Q_PROPERTY(double geom4 READ xsectGeom4 WRITE setXsectGeom4 NOTIFY changed)
     Q_PROPERTY(UserFlagsEditRef userFlags
                READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
 public:
