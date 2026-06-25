@@ -134,7 +134,7 @@ void MeshEdgeSublayer::setOpacity(qreal o)
 QList<LegendSymbolItem> MeshEdgeSublayer::legendSymbolItems() const
 {
     LegendSymbolItem item;
-    item.label      = tr("Mesh edges");
+    item.label      = tr("Mesh Edges");
     item.sublayerId = m_id;
 
     SymbolLayer line;

@@ -1,10 +1,10 @@
 /*!
- * \file   attributepanel.cpp
+ * \file   propertiespanel.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  */
 
-#include "ui/panels/attributepanel.h"
+#include "ui/panels/propertiespanel.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 #include "map/tools/maptoolidentify.h"   // IdentifyResult
@@ -43,6 +43,7 @@
 #include "timeseries/timeseriesregistry.h"
 #include "transect/transectregistry.h"
 #include "ui/properties/swmmlinkpropertyadapter.h"
+#include "ui/properties/xsectshapegeom.h"   // xsectGeomApplies (grey out N/A geoms)
 #include "ui/properties/swmmnodepropertyadapter.h"
 #include "ui/properties/swmmsubcatchpropertyadapter.h"
 // Slice DA.2 — non-spatial Data Object adapters.
@@ -171,19 +172,19 @@ void setRowEditable(QPropertyModel *pm, QObject *adapter,
 // Construction
 // ---------------------------------------------------------------------------
 
-AttributePanel::AttributePanel(QWidget *parent)
-    : QDockWidget(tr("Attributes"), parent)
+PropertiesPanel::PropertiesPanel(QWidget *parent)
+    : QDockWidget(tr("Properties"), parent)
 {
     setupUi();
 }
 
-AttributePanel::~AttributePanel() = default;
+PropertiesPanel::~PropertiesPanel() = default;
 
 // ---------------------------------------------------------------------------
 // UI setup
 // ---------------------------------------------------------------------------
 
-void AttributePanel::setupUi()
+void PropertiesPanel::setupUi()
 {
     auto *central = new QWidget(this);
     auto *vlay    = new QVBoxLayout(central);
@@ -212,7 +213,7 @@ void AttributePanel::setupUi()
     m_openEditorButton->hide();
     vlay->addWidget(m_openEditorButton);
     connect(m_openEditorButton, &QPushButton::clicked,
-            this,                &AttributePanel::onOpenInEditorClicked);
+            this,                &PropertiesPanel::onOpenInEditorClicked);
 
     // Slice QA.2 — Stats source row. Hidden by default; surfaces only
     // when the bound registry has at least one loaded output and the
@@ -335,19 +336,19 @@ void AttributePanel::setupUi()
     // a single "Edit…" for compound-attribute rows (NodeCompoundEditRef).
     m_treeView->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_treeView, &QWidget::customContextMenuRequested,
-            this, &AttributePanel::onTreeContextMenu);
+            this, &PropertiesPanel::onTreeContextMenu);
 
     connect(m_layerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &AttributePanel::onLayerComboIndexChanged);
+            this, &PropertiesPanel::onLayerComboIndexChanged);
 }
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-void AttributePanel::showObject(QObject *object, const QString &title)
+void PropertiesPanel::showObject(QObject *object, const QString &title)
 {
-    setWindowTitle(title.isEmpty() ? tr("Attributes") : title);
+    setWindowTitle(title.isEmpty() ? tr("Properties") : title);
     m_layerCombo->clear();
     m_lastResults.clear();
     // 2026-05-29 — leaving the data-object surface; drop the "Open in
@@ -370,7 +371,7 @@ void AttributePanel::showObject(QObject *object, const QString &title)
     m_treeView->expandAll();
 }
 
-void AttributePanel::showIdentifyResults(const QList<IdentifyResult> &results)
+void PropertiesPanel::showIdentifyResults(const QList<IdentifyResult> &results)
 {
     m_lastResults = results;
     m_layerCombo->clear();
@@ -392,12 +393,12 @@ void AttributePanel::showIdentifyResults(const QList<IdentifyResult> &results)
 #endif
 }
 
-void AttributePanel::showLayerProperties(OpenSWMMVisLayer *layer)
+void PropertiesPanel::showLayerProperties(OpenSWMMVisLayer *layer)
 {
     showObject(layer, tr("Layer Properties — %1").arg(layer ? layer->name() : QString()));
 }
 
-void AttributePanel::clear()
+void PropertiesPanel::clear()
 {
 #ifdef HAVE_QPROPERTYMODEL
     if (auto *pm = qobject_cast<QPropertyModel*>(m_model))
@@ -414,12 +415,12 @@ void AttributePanel::clear()
 // Slots
 // ---------------------------------------------------------------------------
 
-void AttributePanel::onIdentifyResult(const QList<IdentifyResult> &results)
+void PropertiesPanel::onIdentifyResult(const QList<IdentifyResult> &results)
 {
     showIdentifyResults(results);
 }
 
-void AttributePanel::onObjectEditedExternally(const QString &name)
+void PropertiesPanel::onObjectEditedExternally(const QString &name)
 {
     // Mirror an external attribute change into the Property Browser.
     // QPropertyModel doesn't subscribe to NOTIFY signals, so we cannot
@@ -474,14 +475,14 @@ void AttributePanel::onObjectEditedExternally(const QString &name)
     m_suppressEditForward = false;
 }
 
-void AttributePanel::setProject(SWMMModelLayer *layer)
+void PropertiesPanel::setProject(SWMMModelLayer *layer)
 {
     if (m_swmmLayer == layer) return;
 
     // Disconnect from the old layer before replacing it.
     if (m_swmmLayer)
         QObject::disconnect(m_swmmLayer, &SWMMModelLayer::attributeChanged,
-                            this, &AttributePanel::onObjectEditedExternally);
+                            this, &PropertiesPanel::onObjectEditedExternally);
 
     m_swmmLayer = layer;
 
@@ -497,11 +498,11 @@ void AttributePanel::setProject(SWMMModelLayer *layer)
     // Refresh the property browser whenever an attribute changes (e.g. conduit
     // length or subcatchment area recalculated from an edited geometry).
     connect(layer, &SWMMModelLayer::attributeChanged,
-            this,  &AttributePanel::onObjectEditedExternally,
+            this,  &PropertiesPanel::onObjectEditedExternally,
             Qt::UniqueConnection);
 }
 
-void AttributePanel::onLayerComboIndexChanged(int index)
+void PropertiesPanel::onLayerComboIndexChanged(int index)
 {
     if (index < 0 || index >= m_lastResults.size())
         return;
@@ -690,6 +691,29 @@ void AttributePanel::onLayerComboIndexChanged(int index)
             // construct refs with the right layer for the picker editor.
             m_linkAdapter->setModelLayer(m_swmmLayer);
             if (pm) pm->setData(QVariant::fromValue<QObject *>(m_linkAdapter));
+
+            // Inline cross-section geoms (Conduit / Orifice / Weir) — grey
+            // out the geom rows that don't apply to the link's current
+            // shape, mirroring the dialog's per-shape field visibility
+            // (openswmmvis::xsectGeomApplies). Re-run on every changed()
+            // so editing the shape via the compound dialog re-evaluates
+            // the greying. No-op on Pump / Outlet (no geom rows) and on
+            // shapes where geom1 is an index (IRREGULAR / STREET → all
+            // greyed; the transect/street is set via the dialog picker).
+            {
+                auto applyGeomRowFlags = [pm, this]() {
+                    if (!pm || !m_linkAdapter) return;
+                    const int shape = m_linkAdapter->xsectShapeId();
+                    for (int k = 1; k <= 4; ++k)
+                        setRowEditable(pm, m_linkAdapter,
+                                       QStringLiteral("geom%1").arg(k),
+                                       openswmmvis::xsectGeomApplies(shape, k));
+                };
+                connect(m_linkAdapter, &SWMMLinkPropertyAdapter::changed,
+                        pm, applyGeomRowFlags);
+                applyGeomRowFlags();
+            }
+
             connect(m_linkAdapter, &SWMMLinkPropertyAdapter::changed,
                     this, [this, name]() {
                         if (!m_suppressEditForward) emit objectEdited(name);
@@ -761,7 +785,7 @@ void AttributePanel::onLayerComboIndexChanged(int index)
 #endif
     m_treeView->expandAll();
 
-    setWindowTitle(tr("Attributes — %1 (%2 feature%3)")
+    setWindowTitle(tr("Properties — %1 (%2 feature%3)")
                    .arg(result.layerName)
                    .arg(result.features.size())
                    .arg(result.features.size() == 1 ? QString() : QStringLiteral("s")));
@@ -771,7 +795,7 @@ void AttributePanel::onLayerComboIndexChanged(int index)
 // Slice DA.2 — Non-spatial Data Object dispatch
 // ---------------------------------------------------------------------------
 
-void AttributePanel::showDataObject(SWMMModelLayer *layer, int objectKind,
+void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind,
                                       const QString &name)
 {
 #ifdef HAVE_QPROPERTYMODEL
@@ -965,7 +989,7 @@ void AttributePanel::showDataObject(SWMMModelLayer *layer, int objectKind,
     }
 
     m_treeView->expandAll();
-    setWindowTitle(tr("Attributes — %1").arg(name));
+    setWindowTitle(tr("Properties — %1").arg(name));
 
     // 2026-05-29 — surface the header "Open in <Editor>…" button when the
     // current data category has a shipped CRUD editor. The button text
@@ -1001,7 +1025,7 @@ void AttributePanel::showDataObject(SWMMModelLayer *layer, int objectKind,
 // statics in the helper guarantee a single editor instance is reused across
 // browser double-click, browser right-click "Edit…", and this button.
 
-void AttributePanel::onOpenInEditorClicked()
+void PropertiesPanel::onOpenInEditorClicked()
 {
     if (!m_swmmLayer || !m_dataAdapter
         || m_dataObjectCategory == SWMMModelLayer::NumDataCategories)
@@ -1045,7 +1069,7 @@ void AttributePanel::onOpenInEditorClicked()
 // edited by the user and we want to avoid clobber-on-revert. A shared
 // helper is a small follow-up once both surfaces stabilise.
 
-void AttributePanel::onTreeContextMenu(const QPoint &pos)
+void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
 {
     if (!m_treeView || !m_model) return;
     const QModelIndex idx = m_treeView->indexAt(pos);
@@ -1255,7 +1279,7 @@ void AttributePanel::onTreeContextMenu(const QPoint &pos)
 // Slice QA.2 — stats-source combo
 // ---------------------------------------------------------------------------
 
-void AttributePanel::setStatsRegistry(openswmmvis::OutputStatsRegistry *registry)
+void PropertiesPanel::setStatsRegistry(openswmmvis::OutputStatsRegistry *registry)
 {
     if (m_statsRegistry == registry) return;
 
@@ -1268,7 +1292,7 @@ void AttributePanel::setStatsRegistry(openswmmvis::OutputStatsRegistry *registry
     if (m_statsRegistry) {
         connect(m_statsRegistry,
                 &openswmmvis::OutputStatsRegistry::identitiesChanged,
-                this, &AttributePanel::refreshStatsSourceCombo);
+                this, &PropertiesPanel::refreshStatsSourceCombo);
     }
     refreshStatsSourceCombo();
 
@@ -1280,7 +1304,7 @@ void AttributePanel::setStatsRegistry(openswmmvis::OutputStatsRegistry *registry
     }
 }
 
-void AttributePanel::refreshStatsSourceCombo()
+void PropertiesPanel::refreshStatsSourceCombo()
 {
     if (!m_statsSourceCombo) return;
 
@@ -1331,7 +1355,7 @@ void AttributePanel::refreshStatsSourceCombo()
     applyStatsSourceToAdapter();
 }
 
-void AttributePanel::applyStatsSourceToAdapter()
+void PropertiesPanel::applyStatsSourceToAdapter()
 {
     if (!m_nodeAdapter || !m_statsSourceCombo) return;
     const QVariant payload = m_statsSourceCombo->currentData();

@@ -192,6 +192,13 @@ void AnimationController::driverSetStep(int step)
     if (m_primaryLayer) {
         m_primaryLayer->setCurrentTimeStep(step);
     } else if (m_fallback2D) {
+        // A driverSetStep on a live 2D source is always user/playback-initiated
+        // (play, seek, step). Stop auto-following the newest streamed frame so
+        // the requested frame stays put; re-arm follow only when the user lands
+        // on the latest available frame, so "seek to last" snaps back to live.
+        const int n = m_fallback2D->source() ? m_fallback2D->source()->timeCount()
+                                             : 0;
+        m_fallback2D->setFollowLive(n > 0 && step >= n - 1);
         m_fallback2D->setCurrentTimeIndex(step);
     }
 }

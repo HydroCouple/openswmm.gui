@@ -8,7 +8,7 @@
  *         Plan reference: RENDERING_OUTPUT_SUBLAYERS_PLAN.md §2 Decision 4
  *         and §4.2 (each ISublayer exposes a SublayerStyle subclass via
  *         style() returning a QObject*; the existing QPropertyModel
- *         framework — AttributePanel / LegendPropertiesDialog — drives the
+ *         framework — PropertiesPanel / LegendPropertiesDialog — drives the
  *         editor UI from the subclass's Q_PROPERTY declarations).
  *
  *         Style edits emit styleChanged() exactly once per property setter.

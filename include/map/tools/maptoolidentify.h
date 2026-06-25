@@ -31,7 +31,7 @@ struct IdentifyResult
  * \brief Tool that queries all visible layers at a clicked point and reports attributes.
  * \details On mouse press the tool calls identifyAt() on every active GIS and
  *          SWMM model layer, collects the attribute maps, and emits identifyResult().
- *          The AttributePanel widget listens to this signal to populate itself.
+ *          The PropertiesPanel widget listens to this signal to populate itself.
  *          A cross-hair overlay is painted at the queried point until the next
  *          identify action or until the tool is deactivated.
  */

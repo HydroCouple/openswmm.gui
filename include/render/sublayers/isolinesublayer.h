@@ -146,7 +146,7 @@ public:
 
     Kind    kind() const override        { return IsolineKind; }
     QString id() const override          { return m_id; }
-    QString displayName() const override { return tr("Isolines"); }
+    QString displayName() const override { return tr("Depth Isolines"); }
 
     bool  isVisible() const override     { return m_visible; }
     void  setVisible(bool v) override;

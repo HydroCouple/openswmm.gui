@@ -805,7 +805,7 @@ public:
     /*!
      * \brief Identify an object by name (instead of by map coordinates).
      * \details Used by panels that already know the object reference and just
-     *          need its attribute map (Object Browser → AttributePanel).
+     *          need its attribute map (Object Browser → PropertiesPanel).
      *          Returns an empty map if the name doesn't match any cached
      *          node / link / subcatchment / gage.
      */
@@ -1507,6 +1507,24 @@ public:
     /*! \brief Lazy accessor for the project-scoped StreetRegistry. */
     QObject *ensureStreetRegistry();
 
+    /*! \brief Lazy accessor for the project-scoped PollutantRegistry. */
+    QObject *ensurePollutantRegistry();
+
+    /*! \brief Lazy accessor for the project-scoped LandUseRegistry. */
+    QObject *ensureLandUseRegistry();
+
+    /*! \brief Lazy accessor for the project-scoped AquiferRegistry. */
+    QObject *ensureAquiferRegistry();
+
+    /*! \brief Lazy accessor for the project-scoped SnowpackRegistry. */
+    QObject *ensureSnowpackRegistry();
+
+    /*! \brief Lazy accessor for the project-scoped InletRegistry. */
+    QObject *ensureInletRegistry();
+
+    /*! \brief Lazy accessor for the project-scoped LidControlRegistry. */
+    QObject *ensureLidControlRegistry();
+
     // ===== User flags ([USER_FLAGS] / [USER_FLAG_VALUES]) ==================
     //
     // Phase 1 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md. Same lazy-init /
@@ -2017,6 +2035,30 @@ private:
     // Street registry mirror (parametric [STREETS] cross-sections).
     QObject                     *m_streetRegistry                   = nullptr;
     void                        *m_streetRegistryEngineHandle       = nullptr;
+
+    // Pollutant registry mirror ([POLLUTANTS]).
+    QObject                     *m_pollutantRegistry                = nullptr;
+    void                        *m_pollutantRegistryEngineHandle    = nullptr;
+
+    // Land-use registry mirror ([LANDUSES]).
+    QObject                     *m_landUseRegistry                  = nullptr;
+    void                        *m_landUseRegistryEngineHandle      = nullptr;
+
+    // Aquifer registry mirror ([AQUIFERS]).
+    QObject                     *m_aquiferRegistry                  = nullptr;
+    void                        *m_aquiferRegistryEngineHandle      = nullptr;
+
+    // Snowpack registry mirror ([SNOWPACKS]).
+    QObject                     *m_snowpackRegistry                 = nullptr;
+    void                        *m_snowpackRegistryEngineHandle     = nullptr;
+
+    // Inlet registry mirror ([INLETS]).
+    QObject                     *m_inletRegistry                    = nullptr;
+    void                        *m_inletRegistryEngineHandle        = nullptr;
+
+    // LID-control registry mirror ([LID_CONTROLS]).
+    QObject                     *m_lidControlRegistry               = nullptr;
+    void                        *m_lidControlRegistryEngineHandle   = nullptr;
 
     // User-flags store — see ensureUserFlagsModel().
     openswmmvis::ui::UserFlagsModel *m_userFlagsModel               = nullptr;

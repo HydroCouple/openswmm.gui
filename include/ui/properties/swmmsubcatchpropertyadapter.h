@@ -27,7 +27,7 @@ class SWMMSubcatchPropertyAdapter : public QObject
     Q_PROPERTY(QString name        READ name  WRITE setName)
     /*! Slice TA — free-form `[TAGS]` label. Direct engine read/write
      *  (mirror of node/link tag wiring); the existing `changed()`
-     *  signal + AttributePanel.objectEdited fan-out is sufficient for
+     *  signal + PropertiesPanel.objectEdited fan-out is sufficient for
      *  two-way sync with the Attribute Table since tag changes don't
      *  affect map symbology or attribute-table layout. */
     Q_PROPERTY(QString tag         READ tag         WRITE setTag         NOTIFY changed)
@@ -49,7 +49,7 @@ class SWMMSubcatchPropertyAdapter : public QObject
     /*! Infiltration model (Horton / Mod-Horton / Green-Ampt / Mod-GA / CN). */
     Q_PROPERTY(InfilModel infilModel  READ infilModel  WRITE setInfilModel  NOTIFY changed)
     // Per-model parameter rows. Editability is gated by the live model in
-    // AttributePanel (mirror of the storage Functional/Tabular greying).
+    // PropertiesPanel (mirror of the storage Functional/Tabular greying).
     Q_PROPERTY(double hortonF0      READ hortonF0      WRITE setHortonF0      NOTIFY changed)
     Q_PROPERTY(double hortonFmin    READ hortonFmin    WRITE setHortonFmin    NOTIFY changed)
     Q_PROPERTY(double hortonDecay   READ hortonDecay   WRITE setHortonDecay   NOTIFY changed)

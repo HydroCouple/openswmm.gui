@@ -95,7 +95,7 @@ public:
 
     Kind    kind() const override        { return MarkerKind; }
     QString id() const override          { return m_id; }
-    QString displayName() const override { return tr("Mesh vertices"); }
+    QString displayName() const override { return tr("Mesh Vertices"); }
 
     bool  isVisible() const override     { return m_visible; }
     void  setVisible(bool v) override;

@@ -12,7 +12,7 @@
  *
  * Concrete editor slices (BN/BO/BP/BQ/BR/BS/BT) call `registerFactory()`
  * once at startup — typically from a small `register_<slice>_editors()`
- * free function pulled in by `main.cpp`. `AttributePanel` consults the
+ * free function pulled in by `main.cpp`. `PropertiesPanel` consults the
  * registry on every selection change via `editorFor(ref, kind)`. A null
  * factory result means "no concrete editor today" and the legacy
  * property-tree path stays in charge — the registry never replaces
@@ -37,7 +37,7 @@
  *
  * Construction is private; callers go through `instance()`. The factory
  * signature returns `std::unique_ptr<IPropertyEditor>` so ownership is
- * explicit at the call site (AttributePanel holds the editor for the
+ * explicit at the call site (PropertiesPanel holds the editor for the
  * lifetime of the current selection).
  */
 class PropertyEditorRegistry

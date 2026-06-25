@@ -100,7 +100,7 @@ void SWMMSubcatchPropertyAdapter::setName(const QString &newName)
 // setTag (and SWMMLinkPropertyAdapter Slice SA) line-for-line: direct
 // engine read/write, no model-layer route. Tag changes don't affect map
 // symbology or attribute-table layout, so the existing `changed()` signal
-// + AttributePanel.objectEdited fan-out is sufficient for two-way sync
+// + PropertiesPanel.objectEdited fan-out is sufficient for two-way sync
 // with the Attribute Table.
 QString SWMMSubcatchPropertyAdapter::tag() const
 {

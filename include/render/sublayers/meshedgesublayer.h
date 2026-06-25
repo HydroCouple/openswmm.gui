@@ -107,7 +107,7 @@ public:
 
     Kind    kind() const override        { return LineKind; }
     QString id() const override          { return m_id; }
-    QString displayName() const override { return tr("Mesh edges"); }
+    QString displayName() const override { return tr("Mesh Edges"); }
 
     bool  isVisible() const override     { return m_visible; }
     void  setVisible(bool v) override;

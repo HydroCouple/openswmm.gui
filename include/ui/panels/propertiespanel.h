@@ -1,5 +1,5 @@
 /*!
- * \file   attributepanel.h
+ * \file   propertiespanel.h
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \version
  * \description
@@ -8,8 +8,8 @@
  * \date 2026
  */
 
-#ifndef ATTRIBUTEPANEL_H
-#define ATTRIBUTEPANEL_H
+#ifndef PROPERTIESPANEL_H
+#define PROPERTIESPANEL_H
 
 #include "layers/swmmmodellayer.h"
 
@@ -37,7 +37,7 @@ struct IdentifyResult;
 namespace openswmmvis { class OutputStatsRegistry; }    // Slice QA.2
 
 /*!
- * \class AttributePanel
+ * \class PropertiesPanel
  * \brief A dock widget that displays and edits object attributes using QPropertyModel.
  * \details The panel shows:
  *  - The attributes of identified (clicked) features or SWMM elements.
@@ -51,14 +51,14 @@ namespace openswmmvis { class OutputStatsRegistry; }    // Slice QA.2
  *  properties of any of the layers that returned results in the last
  *  identify operation.
  */
-class AttributePanel : public QDockWidget
+class PropertiesPanel : public QDockWidget
 {
     Q_OBJECT
 
 public:
 
-    explicit AttributePanel(QWidget *parent = nullptr);
-    ~AttributePanel() override;
+    explicit PropertiesPanel(QWidget *parent = nullptr);
+    ~PropertiesPanel() override;
 
     // ----- Content -------------------------------------------------------
 
@@ -218,4 +218,4 @@ private:
     openswmmvis::OutputStatsRegistry *m_statsRegistry = nullptr;
 };
 
-#endif // ATTRIBUTEPANEL_H
+#endif // PROPERTIESPANEL_H

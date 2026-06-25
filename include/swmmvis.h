@@ -56,7 +56,7 @@ class MapCanvas;
 class SWMMVisProjectWindow;
 class LayerTreePanel;
 class ObjectBrowserPanel;
-class AttributePanel;
+class PropertiesPanel;
 class AttributeTablePanel;
 class SimulationStatusModel;
 class ProfilePlotDialog;
@@ -125,7 +125,7 @@ private:
     void initializeDockWidgets();
     void initializeLayersDockWidget();
     void initializeObjectBrowserDockWidget();
-    void initializeAttributePanelDockWidget();
+    void initializePropertiesPanelDockWidget();
     void initializeSimulationStatusDockWidget();
     void initializeMessageLogDockWidget();
     void initializeLegendDockWidget();   // Slice BB Phase 8.6.11 / 8.6.16
@@ -454,7 +454,7 @@ private:
     QStandardItemModel *mLogMessagesModel   = nullptr;
     LayerTreePanel        *mLayerTreePanel        = nullptr;
     ObjectBrowserPanel    *mObjectBrowserPanel    = nullptr;
-    AttributePanel        *mAttributePanel        = nullptr;
+    PropertiesPanel        *mPropertiesPanel        = nullptr;
     AttributeTablePanel   *mAttributeTablePanel   = nullptr;
     SimulationStatusModel *mSimStatusModel        = nullptr;
     // Slice BB Phase 8.6.11 / 8.6.16 — dockable per-class legend / style editor.

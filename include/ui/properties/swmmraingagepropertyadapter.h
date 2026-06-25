@@ -24,7 +24,23 @@
 class SWMMRainGagePropertyAdapter : public SWMMDataObjectPropertyAdapter
 {
     Q_OBJECT
-    Q_PROPERTY(int    rainType    READ rainType    WRITE setRainType    NOTIFY changed)
+
+public:
+    /*! Type-safe enums declared with Q_ENUM so QPropertyModel renders the
+     *  key name (e.g. "INTENSITY", "FILE", "MM") instead of a raw integer.
+     *  Values mirror the engine codes and the Attribute Table value lists. */
+    // Mixed-case enumerators deliberately avoid the all-caps Windows SDK
+    // macros (IN/OUT) and the <cstdio> FILE typedef.
+    enum RainType   { Intensity = 0, Volume = 1, Cumulative = 2 };
+    enum DataSource { Timeseries = 0, File = 1 };
+    enum RainUnits  { Inches = 0, Millimeters = 1 };
+    Q_ENUM(RainType)
+    Q_ENUM(DataSource)
+    Q_ENUM(RainUnits)
+
+private:
+    Q_PROPERTY(SWMMRainGagePropertyAdapter::RainType rainType
+               READ rainType    WRITE setRainType    NOTIFY changed)
     /*! Recording interval. Legacy [RAINGAGES] token 2, edited as an H:MM
      *  clock combo (RainIntervalComboBox). The ref carries seconds; the
      *  engine stores GageData.interval_sec. */
@@ -33,7 +49,8 @@ class SWMMRainGagePropertyAdapter : public SWMMDataObjectPropertyAdapter
     /*! Snow-catch deficiency correction factor (legacy SCF, token 3).
      *  Distinct from the rainfall scale factor. */
     Q_PROPERTY(double snowFactor   READ snowFactor   WRITE setSnowFactor   NOTIFY changed)
-    Q_PROPERTY(int    dataSource  READ dataSource  WRITE setDataSource  NOTIFY changed)
+    Q_PROPERTY(SWMMRainGagePropertyAdapter::DataSource dataSource
+               READ dataSource  WRITE setDataSource  NOTIFY changed)
     /*! DA.2 parity — TIME SERIES source: the in-model series id. Renders
      *  as a TimeSeries-filtered picker (DataObjectPickerEditor). Only
      *  meaningful when dataSource == TIMESERIES (panel greys it otherwise). */
@@ -51,7 +68,8 @@ class SWMMRainGagePropertyAdapter : public SWMMDataObjectPropertyAdapter
      *  grammar `Fname Station Units`) and rain-depth units (0=IN, 1=MM).
      *  Only meaningful when dataSource == FILE. */
     Q_PROPERTY(QString stationId  READ stationId  WRITE setStationId  NOTIFY changed)
-    Q_PROPERTY(int     rainUnits  READ rainUnits  WRITE setRainUnits  NOTIFY changed)
+    Q_PROPERTY(SWMMRainGagePropertyAdapter::RainUnits rainUnits
+               READ rainUnits  WRITE setRainUnits  NOTIFY changed)
     /*! Phase 4 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — per-object
      *  user-flag assignments row (see SWMMNodePropertyAdapter). */
     Q_PROPERTY(UserFlagsEditRef userFlags
@@ -62,16 +80,16 @@ public:
 
     [[nodiscard]] UserFlagsEditRef userFlagsRef() const;
 
-    [[nodiscard]] int    rainType()         const;
+    [[nodiscard]] RainType rainType()       const;
     [[nodiscard]] RainIntervalRef rainIntervalRef() const;
     [[nodiscard]] double snowFactor()        const;
-    [[nodiscard]] int    dataSource()       const;
+    [[nodiscard]] DataSource dataSource()   const;
     [[nodiscard]] DataObjectRef seriesNameRef() const;
     [[nodiscard]] double currentRainfall()  const;
     [[nodiscard]] QString filePath()         const;  ///< .original token
     [[nodiscard]] QString resolvedFilePath() const;  ///< .absolute (post-resolve)
     [[nodiscard]] QString stationId()        const;
-    [[nodiscard]] int     rainUnits()        const;  ///< 0=IN, 1=MM
+    [[nodiscard]] RainUnits rainUnits()      const;  ///< 0=IN, 1=MM
 
     Q_INVOKABLE QString displayLabelFor(const QString &property) const;
 

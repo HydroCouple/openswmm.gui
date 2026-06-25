@@ -11,7 +11,7 @@
  *
  * Designed to mirror the contract of the spatial-side adapters
  * (`SWMMNodePropertyAdapter`, `SWMMLinkPropertyAdapter`,
- * `SWMMSubcatchPropertyAdapter`) so `AttributePanel::routeNonSpatialFeature`
+ * `SWMMSubcatchPropertyAdapter`) so `PropertiesPanel::routeNonSpatialFeature`
  * can dispatch uniformly across the spatial / non-spatial split.
  */
 
