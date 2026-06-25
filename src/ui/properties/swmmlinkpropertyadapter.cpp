@@ -8,6 +8,7 @@
 
 #include "core/unitsystem.h"
 #include "layers/swmmmodellayer.h"   // USER_FLAGS Phase 4 — ensureUserFlagsModel()
+#include "ui/properties/xsectshapegeom.h"  // xsectGeomApplies (inline geom edits)
 
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -74,6 +75,13 @@ QString SWMMLinkPropertyAdapter::displayLabelFor(const QString &property) const
     if (property == QLatin1String("lossAvg"))         return tr("Avg. Loss Coeff.");
     if (property == QLatin1String("seepRate"))        return tr("Seepage Rate (%1/hr)").arg(L);
     if (property == QLatin1String("barrels"))         return tr("Barrels");
+    // Generic inline cross-section geom labels. The shape-specific meaning
+    // (Diameter / Max Depth / …) is surfaced as a per-row tooltip by
+    // PropertiesPanel via openswmmvis::xsectGeomLabel().
+    if (property == QLatin1String("geom1"))           return tr("Geom 1 (%1)").arg(L);
+    if (property == QLatin1String("geom2"))           return tr("Geom 2 (%1)").arg(L);
+    if (property == QLatin1String("geom3"))           return tr("Geom 3 (%1)").arg(L);
+    if (property == QLatin1String("geom4"))           return tr("Geom 4 (%1)").arg(L);
     // Slice SC.1 — compound-edit row labels.
     if (property == QLatin1String("xsection"))        return tr("Cross Section");
     if (property == QLatin1String("culvertCode"))     return tr("Culvert Code");
@@ -177,6 +185,34 @@ int SWMMLinkPropertyAdapter::barrels() const {
     if (swmm_link_get_barrels(m_engine, idx, &n) != SWMM_OK) return 1;
     return n;
 }
+
+// Direct inline cross-section geometry. Each getter pulls the whole xsect
+// tuple and returns the requested slot (cheap O(1) engine call; same
+// no-cache contract as the loss-coeff getters). `xsectShapeId` is the
+// shape used by PropertiesPanel / the table to grey out inapplicable geoms.
+int SWMMLinkPropertyAdapter::xsectShapeId() const {
+    const int idx = linkIdx();
+    if (idx < 0) return 0;
+    int shape = 0;
+    double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
+    if (swmm_link_get_xsect(m_engine, idx, &shape, &g1, &g2, &g3, &g4) != SWMM_OK)
+        return 0;
+    return shape;
+}
+namespace {
+double xsectGeomSlot(SWMM_Engine e, int idx, int ordinal) {
+    if (idx < 0) return 0.0;
+    int shape = 0;
+    double g[4] = {0, 0, 0, 0};
+    if (swmm_link_get_xsect(e, idx, &shape, &g[0], &g[1], &g[2], &g[3]) != SWMM_OK)
+        return 0.0;
+    return (ordinal >= 1 && ordinal <= 4) ? g[ordinal - 1] : 0.0;
+}
+} // namespace
+double SWMMLinkPropertyAdapter::xsectGeom1() const { return xsectGeomSlot(m_engine, linkIdx(), 1); }
+double SWMMLinkPropertyAdapter::xsectGeom2() const { return xsectGeomSlot(m_engine, linkIdx(), 2); }
+double SWMMLinkPropertyAdapter::xsectGeom3() const { return xsectGeomSlot(m_engine, linkIdx(), 3); }
+double SWMMLinkPropertyAdapter::xsectGeom4() const { return xsectGeomSlot(m_engine, linkIdx(), 4); }
 
 SWMMLinkPropertyAdapter::FlapGate SWMMLinkPropertyAdapter::flapGate() const
 {
@@ -453,6 +489,29 @@ void SWMMLinkPropertyAdapter::setBarrels(int v) {
         emit changed();
 }
 
+// Inline geom setters — read-modify-write the xsect tuple so shape and the
+// other three geoms are preserved (the engine has no per-geom API). Mirror
+// of the loss-coeff slots. Reject the write when the geom doesn't apply to
+// the current shape (e.g. geom2 on a CIRCULAR conduit, or any geom on
+// IRREGULAR/STREET) — those slots are surfaced greyed in the UI, but a
+// scripted/stray write must not corrupt the section.
+void SWMMLinkPropertyAdapter::writeXsectGeom(int ordinal, double v) {
+    const int idx = linkIdx();
+    if (idx < 0) return;
+    int shape = 0;
+    double g[4] = {0, 0, 0, 0};
+    if (swmm_link_get_xsect(m_engine, idx, &shape, &g[0], &g[1], &g[2], &g[3]) != SWMM_OK)
+        return;
+    if (!openswmmvis::xsectGeomApplies(shape, ordinal)) return;
+    g[ordinal - 1] = v;
+    if (swmm_link_set_xsect(m_engine, idx, shape, g[0], g[1], g[2], g[3]) == SWMM_OK)
+        emit changed();
+}
+void SWMMLinkPropertyAdapter::setXsectGeom1(double v) { writeXsectGeom(1, v); }
+void SWMMLinkPropertyAdapter::setXsectGeom2(double v) { writeXsectGeom(2, v); }
+void SWMMLinkPropertyAdapter::setXsectGeom3(double v) { writeXsectGeom(3, v); }
+void SWMMLinkPropertyAdapter::setXsectGeom4(double v) { writeXsectGeom(4, v); }
+
 void SWMMLinkPropertyAdapter::setName(const QString &newName)
 {
     const QString trimmed = newName.trimmed();
@@ -463,7 +522,7 @@ void SWMMLinkPropertyAdapter::setName(const QString &newName)
 // Slice SA — `[TAGS]` accessor. Matches SWMMNodePropertyAdapter::tag /
 // setTag line-for-line: direct engine read/write, no model-layer route.
 // Tag changes don't affect map symbology or attribute-table layout, so
-// the existing `changed()` signal + AttributePanel.objectEdited fan-out
+// the existing `changed()` signal + PropertiesPanel.objectEdited fan-out
 // is sufficient for two-way sync with the Attribute Table.
 QString SWMMLinkPropertyAdapter::tag() const
 {

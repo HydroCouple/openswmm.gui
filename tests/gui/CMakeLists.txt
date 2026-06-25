@@ -1136,6 +1136,30 @@ add_swmmvis_gui_test(test_subcatchpropertyadapter
     swmmmodellayer_userflags_linkstub.cpp
 )
 
+# Inline cross-section geom1..geom4 — direct-edit fields surfaced next to
+# the compound XSection dialog (both Property Browser + Attribute Table).
+# Covers the shared shape/geom applicability helper and the link adapter's
+# read-modify-write geom getters/setters. Lean link chain, same shape as
+# test_subcatchpropertyadapter (the heavier test_linkpropertyadapter, which
+# also drives LinkCompoundEditDialog, stays disabled pending a transect
+# dependency split — see the commented block below).
+add_swmmvis_gui_test(test_xsectgeominline
+    test_xsectgeominline.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/swmmlinkpropertyadapter.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/swmmlinkpropertyadapter.h
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/xsectshapegeom.h
+    ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
+    # The adapter's userFlagsRef() row references userFlagsSummaryFor +
+    # SWMMModelLayer::ensureUserFlagsModel; pull in the two small helpers and
+    # resolve the layer method with the existing link stub (no layer here).
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/userflagseditref.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/userflagseditref.h
+    ${CMAKE_SOURCE_DIR}/src/ui/models/userflagsmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/models/userflagsmodel.h
+    swmmmodellayer_userflags_linkstub.cpp
+)
+
 # Slice BC, Phase 8.7.2 — pins the engine-ABI contract that
 # `swmm_link_get_offset_up/dn` always returns offsets as **depth above the
 # connecting node invert**, regardless of the source .inp's LINK_OFFSETS

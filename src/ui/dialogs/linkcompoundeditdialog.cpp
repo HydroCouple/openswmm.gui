@@ -13,6 +13,7 @@
 #include "street/streetprovider.h"
 #include "street/streetregistry.h"
 #include "ui/dialogs/streeteditordialog.h"
+#include "ui/properties/xsectshapegeom.h"   // shared shape/geom metadata
 #include "ui/widgets/labeledcontrols.h"
 
 #include <openswmm/engine/openswmm_engine.h>
@@ -38,48 +39,16 @@
 
 namespace {
 
-// SWMM_XSectShape labels (matches openswmm_links.h:47 enum). Order is
-// the engine's integer value; legacy SWMM-GUI Dxsect.pas uses the same
-// names. Slice BN Phase 6.4.4 swaps this for the rich icon palette.
-struct ShapeRow {
-    const char *name;
-    int         engineId;          // SWMM_XSECT_* numeric
-    const char *geom1Label;        // "Diameter", "Max Depth", etc.
-    const char *geom2Label;        // empty if not used
-    const char *geom3Label;
-    const char *geom4Label;
-};
+// SWMM_XSectShape labels + geom applicability now live in the shared
+// header ui/properties/xsectshapegeom.h (single source of truth, also
+// consumed by the Property Browser + Attribute Table). Thin local aliases
+// keep the existing dialog code below unchanged.
+using ShapeRow = openswmmvis::XsectShapeRow;
+constexpr const auto &kShapes = openswmmvis::kXsectShapes;
 
-static const ShapeRow kShapes[] = {
-    { "CIRCULAR",         0, "Diameter",  "",                "",               ""  },
-    { "FILLED_CIRCULAR",  1, "Diameter",  "Filled Depth",    "",               ""  },
-    { "RECT_CLOSED",      2, "Max Depth", "Width",           "",               ""  },
-    { "RECT_OPEN",        3, "Max Depth", "Width",           "",               ""  },
-    { "TRAPEZOIDAL",      4, "Max Depth", "Bottom Width",    "Left Slope",     "Right Slope" },
-    { "TRIANGULAR",       5, "Max Depth", "Top Width",       "",               ""  },
-    { "PARABOLIC",        6, "Max Depth", "Top Width",       "",               ""  },
-    { "POWER",            7, "Max Depth", "Top Width",       "Exponent",       ""  },
-    { "RECT_TRIANGULAR",  8, "Max Depth", "Top Width",       "Triangle Height","" },
-    { "RECT_ROUND",       9, "Max Depth", "Top Width",       "Bottom Radius",  ""  },
-    { "MOD_BASKETHANDLE",10, "Max Depth", "Bottom Width",    "Top Radius",     ""  },
-    { "HORIZ_ELLIPSE",   11, "Max Height","Max Width",       "",               ""  },
-    { "VERT_ELLIPSE",    12, "Max Height","Max Width",       "",               ""  },
-    { "ARCH",            13, "Max Height","Max Width",       "",               ""  },
-    { "EGGSHAPED",       14, "Max Depth", "",                "",               ""  },
-    { "HORSESHOE",       15, "Max Depth", "",                "",               ""  },
-    { "GOTHIC",          16, "Max Depth", "",                "",               ""  },
-    { "CATENARY",        17, "Max Depth", "",                "",               ""  },
-    { "SEMIELLIPTICAL",  18, "Max Depth", "",                "",               ""  },
-    { "IRREGULAR",       19, "Transect (index)", "",         "",               ""  },
-    { "STREET",          24, "Street (index)",   "",         "",               ""  },
-};
-
-const ShapeRow *findShapeRow(int engineId)
+inline const ShapeRow *findShapeRow(int engineId)
 {
-    for (const auto &r : kShapes) {
-        if (r.engineId == engineId) return &r;
-    }
-    return &kShapes[0];   // fall back to CIRCULAR for unknown
+    return openswmmvis::findXsectShapeRow(engineId);
 }
 
 // §S.SC.1.a (2026-05-25) — Cross-section thumbnail loader.

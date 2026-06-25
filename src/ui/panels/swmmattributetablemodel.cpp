@@ -15,6 +15,7 @@
 #include "ui/properties/nodecompoundeditref.h"
 #include "ui/properties/subcatchcompoundeditref.h"  // Phase 3 compound cells
 #include "ui/properties/userflagseditref.h"  // per-object User Flags cell
+#include "ui/properties/xsectshapegeom.h"    // inline xsect-geom applicability
 
 #include <QUndoCommand>
 #include <QUndoStack>
@@ -489,6 +490,13 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             // geoms (or a transect, via the new picker) from the
             // attribute table inline.
             compoundCol("XSection", "Cross Section", "link_xsect_ref"),
+            // Direct inline geom1..geom4 alongside the XSection editor.
+            // Generic labels (meaning varies per shape, surfaced as the
+            // cell tooltip); flags() greys the ones that don't apply.
+            num("Geom 1", "Geom 1", "link_xsect_geom1", 0.0, 1e9, 4, UnitKind::None),
+            num("Geom 2", "Geom 2", "link_xsect_geom2", 0.0, 1e9, 4, UnitKind::None),
+            num("Geom 3", "Geom 3", "link_xsect_geom3", 0.0, 1e9, 4, UnitKind::None),
+            num("Geom 4", "Geom 4", "link_xsect_geom4", 0.0, 1e9, 4, UnitKind::None),
             intCol("Barrels",       "Barrels",       "link_barrels", 1, 1000),
             enumCol("Flap gate",    "Flap Gate",     "link_flap_gate",     yesNoValues()),
             enumCol("Culvert code", "Culvert Code",  "link_culvert_code",  culvertCodeValues()),
@@ -552,6 +560,11 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             // the shape palette to the legal weir shapes
             // (RECT_OPEN / TRAPEZOIDAL / TRIANGULAR) automatically.
             compoundCol("XSection", "Cross Section", "link_xsect_ref"),
+            // Direct inline geom1..geom4 (flags() greys inapplicable geoms).
+            num("Geom 1", "Geom 1", "link_xsect_geom1", 0.0, 1e9, 4, UnitKind::None),
+            num("Geom 2", "Geom 2", "link_xsect_geom2", 0.0, 1e9, 4, UnitKind::None),
+            num("Geom 3", "Geom 3", "link_xsect_geom3", 0.0, 1e9, 4, UnitKind::None),
+            num("Geom 4", "Geom 4", "link_xsect_geom4", 0.0, 1e9, 4, UnitKind::None),
             enumCol("Flap gate", "Flap Gate",     "link_flap_gate", yesNoValues()),
         };
     case SWMMModelLayer::CatOrifices:
@@ -580,6 +593,12 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             // CIRCULAR / RECT_CLOSED for orifices per the dialog's
             // shape allow-list.
             compoundCol("XSection", "Cross Section", "link_xsect_ref"),
+            // Direct inline geom1..geom4 (orifices use CIRCULAR / RECT_CLOSED,
+            // so only Geom 1/2 ever apply; the rest grey out).
+            num("Geom 1", "Geom 1", "link_xsect_geom1", 0.0, 1e9, 4, UnitKind::None),
+            num("Geom 2", "Geom 2", "link_xsect_geom2", 0.0, 1e9, 4, UnitKind::None),
+            num("Geom 3", "Geom 3", "link_xsect_geom3", 0.0, 1e9, 4, UnitKind::None),
+            num("Geom 4", "Geom 4", "link_xsect_geom4", 0.0, 1e9, 4, UnitKind::None),
             enumCol("Flap gate", "Flap Gate",       "link_flap_gate", yesNoValues()),
             num("Open/close rate", "Open/Close Rate",
                                                   "link_orifice_open_close_rate",
@@ -749,6 +768,55 @@ int lossSetAvg(SWMM_Engine e, int idx, double v) {
     const int rc = swmm_link_get_loss_coeff(e, idx, &in, &out, &avg);
     if (rc != SWMM_OK) return rc;
     return swmm_link_set_loss_coeff(e, idx, in, out, v);
+}
+
+// Inline cross-section geometry — geom1..geom4 surfaced as four
+// independent Numeric columns alongside the XSection compound cell. The
+// engine writes the whole (shape, g1..g4) tuple, so each setter
+// read-modify-writes (mirrors lossSet*). A write to a geom that doesn't
+// apply to the current shape is rejected (the cell is also made
+// non-editable by flags()), so a stray write can't corrupt the section.
+int xsectGeomGet(SWMM_Engine e, int idx, int ordinal, double *v) {
+    int shape = 0; double g[4] = {0, 0, 0, 0};
+    const int rc = swmm_link_get_xsect(e, idx, &shape, &g[0], &g[1], &g[2], &g[3]);
+    *v = (rc == SWMM_OK && ordinal >= 1 && ordinal <= 4) ? g[ordinal - 1] : 0.0;
+    return rc;
+}
+int xsectGeomSet(SWMM_Engine e, int idx, int ordinal, double v) {
+    int shape = 0; double g[4] = {0, 0, 0, 0};
+    const int rc = swmm_link_get_xsect(e, idx, &shape, &g[0], &g[1], &g[2], &g[3]);
+    if (rc != SWMM_OK) return rc;
+    if (!openswmmvis::xsectGeomApplies(shape, ordinal)) return SWMM_ERR_BADINDEX;
+    g[ordinal - 1] = v;
+    return swmm_link_set_xsect(e, idx, shape, g[0], g[1], g[2], g[3]);
+}
+int xsectGeom1Get(SWMM_Engine e, int i, double *v) { return xsectGeomGet(e, i, 1, v); }
+int xsectGeom2Get(SWMM_Engine e, int i, double *v) { return xsectGeomGet(e, i, 2, v); }
+int xsectGeom3Get(SWMM_Engine e, int i, double *v) { return xsectGeomGet(e, i, 3, v); }
+int xsectGeom4Get(SWMM_Engine e, int i, double *v) { return xsectGeomGet(e, i, 4, v); }
+int xsectGeom1Set(SWMM_Engine e, int i, double v) { return xsectGeomSet(e, i, 1, v); }
+int xsectGeom2Set(SWMM_Engine e, int i, double v) { return xsectGeomSet(e, i, 2, v); }
+int xsectGeom3Set(SWMM_Engine e, int i, double v) { return xsectGeomSet(e, i, 3, v); }
+int xsectGeom4Set(SWMM_Engine e, int i, double v) { return xsectGeomSet(e, i, 4, v); }
+
+// geom ordinal (1..4) for an inline xsect-geom setter tag, else 0.
+int xsectGeomOrdinalForTag(const QString &tag) {
+    if (tag == QStringLiteral("link_xsect_geom1")) return 1;
+    if (tag == QStringLiteral("link_xsect_geom2")) return 2;
+    if (tag == QStringLiteral("link_xsect_geom3")) return 3;
+    if (tag == QStringLiteral("link_xsect_geom4")) return 4;
+    return 0;
+}
+// Current SWMM_XSECT_* shape id for the named link, or -1 on lookup
+// failure. Used by data()/flags() to grey out inapplicable geom cells.
+int linkShapeForName(SWMMModelLayer *layer, const QString &name) {
+    if (!layer || !layer->engine() || name.isEmpty()) return -1;
+    const int li = swmm_link_index(layer->engine(), name.toUtf8().constData());
+    if (li < 0) return -1;
+    int shape = 0; double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
+    if (swmm_link_get_xsect(layer->engine(), li, &shape, &g1, &g2, &g3, &g4) != SWMM_OK)
+        return -1;
+    return shape;
 }
 
 // Phase 3 — subcatchment infiltration. Model code via the int path; the
@@ -1036,6 +1104,17 @@ SetterEntry setterFor(const QString &tag) {
         return {EntityKind::Link, &lossSetAvg,    &lossGetAvg};
     if (tag == QStringLiteral("link_seep_rate"))
         return {EntityKind::Link, &swmm_link_set_seep_rate, &swmm_link_get_seep_rate};
+    // Inline cross-section geom1..geom4 (read-modify-write over the engine
+    // xsect tuple; see xsectGeomGet/Set). flags() greys the geoms that
+    // don't apply to a given row's shape.
+    if (tag == QStringLiteral("link_xsect_geom1"))
+        return {EntityKind::Link, &xsectGeom1Set, &xsectGeom1Get};
+    if (tag == QStringLiteral("link_xsect_geom2"))
+        return {EntityKind::Link, &xsectGeom2Set, &xsectGeom2Get};
+    if (tag == QStringLiteral("link_xsect_geom3"))
+        return {EntityKind::Link, &xsectGeom3Set, &xsectGeom3Get};
+    if (tag == QStringLiteral("link_xsect_geom4"))
+        return {EntityKind::Link, &xsectGeom4Set, &xsectGeom4Get};
     // Phase 1 — pump startup/shutoff (BN-LINK-05).
     if (tag == QStringLiteral("link_pump_startup_depth"))
         return {EntityKind::Link, &swmm_link_set_pump_startup_depth,
@@ -1592,6 +1671,15 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
     // for columns that carry one.  Read-only / unitless columns return
     // an empty variant so Qt suppresses the tooltip entirely.
     if (role == Qt::ToolTipRole) {
+        // Inline geom cells carry a shape-specific tooltip ("Diameter",
+        // "Max Depth", …) since the column header is the generic "Geom N".
+        if (const int ord = xsectGeomOrdinalForTag(spec.setter); ord > 0) {
+            const int shape = linkShapeForName(m_layer, objectNameAt(row));
+            if (shape < 0 || !openswmmvis::xsectGeomApplies(shape, ord))
+                return tr("Not used by this cross-section shape");
+            const QString meaning = openswmmvis::xsectGeomLabel(shape, ord);
+            return meaning.isEmpty() ? QVariant() : QVariant(meaning);
+        }
         const QString u = unitLabel(spec.unit);
         return u.isEmpty() ? QVariant() : QVariant(tr("Units: %1").arg(u));
     }
@@ -1897,6 +1985,14 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
     // getter so the value reflects post-commit state (the
     // identifyByName cache doesn't track per-attribute updates).
     if (spec.editor != EditorKind::ReadOnly && !spec.setter.isEmpty() && m_layer) {
+        // Inline geom cell that doesn't apply to this row's shape → blank
+        // (the cell is also non-editable via flags()), so a stale 0 isn't
+        // shown as if it were a real, editable dimension.
+        if (const int ord = xsectGeomOrdinalForTag(spec.setter); ord > 0) {
+            const int shape = linkShapeForName(m_layer, objectNameAt(row));
+            if (shape < 0 || !openswmmvis::xsectGeomApplies(shape, ord))
+                return {};
+        }
         const auto entry = setterFor(spec.setter);
         const QString name = objectNameAt(row);
         const int entIdx = indexForName(m_layer->engine(), entry.kind,
@@ -1972,6 +2068,14 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
             int state = 0;
             if (swmm_engine_get_state(m_layer->engine(), &state) == SWMM_OK
                 && state == SWMM_STATE_RUNNING)
+                return f;  // no ItemIsEditable
+        }
+        // Inline cross-section geom cells are editable only when the geom
+        // applies to this row's shape (e.g. Geom 2 on a CIRCULAR conduit,
+        // or any geom on IRREGULAR/STREET, is greyed — set via the dialog).
+        if (const int ord = xsectGeomOrdinalForTag(spec.setter); ord > 0) {
+            const int shape = linkShapeForName(m_layer, objectNameAt(index.row()));
+            if (shape < 0 || !openswmmvis::xsectGeomApplies(shape, ord))
                 return f;  // no ItemIsEditable
         }
         f |= Qt::ItemIsEditable;
