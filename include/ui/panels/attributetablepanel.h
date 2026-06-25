@@ -126,6 +126,19 @@ private:
     /*! All refs in the bound category — used by Invert. */
     QSet<SWMMObjectRef> allCategoryRefs() const;
 
+    /*! Bulk-edit helpers backing the right-click "Apply … to selected
+     *  rows" actions. `selectedSourceRows` returns the distinct source
+     *  (model) rows currently selected. `applyValueToSelectedRows` writes
+     *  `value` into `column` for each, wrapped in one undo macro, skipping
+     *  rows whose cell isn't editable (e.g. an inapplicable geom).
+     *  `promptBulkValue` pops the right input dialog for the column's
+     *  editor kind (double / int / enum / text). */
+    QList<int> selectedSourceRows() const;
+    void applyValueToSelectedRows(int column, const QList<int> &sourceRows,
+                                  const QVariant &value);
+    QVariant promptBulkValue(int column, const QVariant &current,
+                             bool *ok) const;
+
     QPointer<SWMMModelLayer>   m_layer;
     QPointer<SelectionManager> m_selMgr;
     QPointer<MapCanvas>        m_canvas;

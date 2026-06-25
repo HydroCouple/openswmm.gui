@@ -62,6 +62,7 @@
 #include <QSortFilterProxyModel>
 #include <QTableView>
 #include <QTextStream>
+#include <QUndoStack>
 #include <QToolBar>
 #include <QVBoxLayout>
 
@@ -993,7 +994,7 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
     // CRUD editors (CurveEditorDialog / PatternEditorDialog /
     // TimeseriesEditorDialog / HydrographGroupEditor /
     // NodeCompoundEditDialog / LinkCompoundEditDialog) directly from
-    // the Attribute Table. Mirrors AttributePanel's right-click menu so
+    // the Attribute Table. Mirrors PropertiesPanel's right-click menu so
     // the two surfaces have parity per [[feedback_mvc_synchronized_uis]].
     // The dispatched action is queued via QAction::triggered (not
     // executed inline) so the menu can keep its existing "Change Type"
@@ -1126,6 +1127,54 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
 
     if (addedEditAction) menu.addSeparator();
 
+    // Bulk "apply to selected" — when the clicked column is a simple
+    // editable attribute (Numeric / Integer / Enum / Text) and ≥2 rows
+    // are selected, offer to push one value into that column for every
+    // selected object. Two flavours: copy the clicked cell's value, or
+    // prompt for one. Per-row editability is respected (e.g. an
+    // inapplicable cross-section geom is skipped) and the whole batch
+    // collapses into a single undo step.
+    {
+        const int col = sourceIdx.isValid() ? sourceIdx.column() : -1;
+        const QList<openswmmvis::ColumnSpec> specs = m_model->columnSpecs();
+        const QList<int> selRows = selectedSourceRows();
+        // Require the clicked cell to be editable so there's a meaningful
+        // value to copy (also suppresses the option for a non-applicable
+        // geom cell or while a simulation is running).
+        const bool clickedEditable =
+            sourceIdx.isValid()
+            && (m_model->flags(sourceIdx) & Qt::ItemIsEditable);
+        if (clickedEditable && col >= 1 && col < specs.size()
+            && selRows.size() >= 2) {
+            using EditorKind = openswmmvis::EditorKind;
+            const openswmmvis::ColumnSpec &spec = specs[col];
+            const bool simpleEditable =
+                spec.editor == EditorKind::Numeric ||
+                spec.editor == EditorKind::Integer ||
+                spec.editor == EditorKind::Enum    ||
+                spec.editor == EditorKind::Text;
+            if (simpleEditable) {
+                QAction *copyAct = menu.addAction(
+                    tr("Apply this \"%1\" value to %2 selected rows")
+                        .arg(spec.label).arg(selRows.size()));
+                connect(copyAct, &QAction::triggered, this,
+                        [this, col, selRows, cellValue]() {
+                            applyValueToSelectedRows(col, selRows, cellValue);
+                        });
+                QAction *promptAct = menu.addAction(
+                    tr("Apply \"%1\" value to %2 selected rows…")
+                        .arg(spec.label).arg(selRows.size()));
+                connect(promptAct, &QAction::triggered, this,
+                        [this, col, selRows, cellValue]() {
+                            bool ok = false;
+                            const QVariant v = promptBulkValue(col, cellValue, &ok);
+                            if (ok) applyValueToSelectedRows(col, selRows, v);
+                        });
+                menu.addSeparator();
+            }
+        }
+    }
+
     auto *changeTypeAct = menu.addAction(tr("Change Type…"));
     connect(changeTypeAct, &QAction::triggered,
             this, &AttributeTablePanel::onChangeTypeTriggered);
@@ -1136,6 +1185,117 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             this, &AttributeTablePanel::onZoomToSelectedClicked);
 
     menu.exec(m_view->viewport()->mapToGlobal(pos));
+}
+
+// ---------------------------------------------------------------------------
+// Bulk "apply value to selected rows" helpers
+// ---------------------------------------------------------------------------
+
+QList<int> AttributeTablePanel::selectedSourceRows() const
+{
+    QList<int> rows;
+    if (!m_view || !m_view->selectionModel()) return rows;
+    QSet<int> seen;
+    const QModelIndexList sel = m_view->selectionModel()->selectedRows();
+    for (const QModelIndex &pi : sel) {
+        const QModelIndex si = m_proxy ? m_proxy->mapToSource(pi) : pi;
+        if (si.isValid() && !seen.contains(si.row())) {
+            seen.insert(si.row());
+            rows.append(si.row());
+        }
+    }
+    return rows;
+}
+
+void AttributeTablePanel::applyValueToSelectedRows(int column,
+                                                   const QList<int> &sourceRows,
+                                                   const QVariant &value)
+{
+    if (!m_model || column < 0 || sourceRows.isEmpty()) return;
+
+    // Collapse the whole batch into one undo step when a stack is attached
+    // (each setData pushes its own AttributeEditCommand inside the macro).
+    QUndoStack *undo = m_model->undoStack();
+    if (undo)
+        undo->beginMacro(tr("Apply value to %1 rows").arg(sourceRows.size()));
+    for (int row : sourceRows) {
+        const QModelIndex idx = m_model->index(row, column);
+        if (!idx.isValid()) continue;
+        // Skip rows whose cell isn't editable (running sim, or an
+        // inapplicable cross-section geom for that row's shape).
+        if (!(m_model->flags(idx) & Qt::ItemIsEditable)) continue;
+        m_model->setData(idx, value, Qt::EditRole);
+    }
+    if (undo) undo->endMacro();
+}
+
+QVariant AttributeTablePanel::promptBulkValue(int column,
+                                              const QVariant &current,
+                                              bool *ok) const
+{
+    if (ok) *ok = false;
+    if (!m_model) return {};
+    const QList<openswmmvis::ColumnSpec> specs = m_model->columnSpecs();
+    if (column < 0 || column >= specs.size()) return {};
+    using openswmmvis::EditorKind;
+    const openswmmvis::ColumnSpec &spec = specs[column];
+
+    auto *self = const_cast<AttributeTablePanel *>(this);
+    const QString title  = tr("Apply Value");
+    const QString prompt = tr("New value for \"%1\":").arg(spec.label);
+
+    switch (spec.editor) {
+    case EditorKind::Numeric: {
+        bool got = false;
+        const double dv = QInputDialog::getDouble(
+            self, title, prompt, current.toDouble(),
+            spec.minValue, spec.maxValue, spec.decimals, &got);
+        if (ok) *ok = got;
+        return got ? QVariant(dv) : QVariant();
+    }
+    case EditorKind::Integer: {
+        bool got = false;
+        const int iv = QInputDialog::getInt(
+            self, title, prompt, current.toInt(),
+            int(spec.minValue), int(spec.maxValue), 1, &got);
+        if (ok) *ok = got;
+        return got ? QVariant(iv) : QVariant();
+    }
+    case EditorKind::Enum: {
+        // Present the human labels; map the chosen one back to its
+        // enum data int (what setData/commitValueDirect expect).
+        QStringList labels;
+        int curIdx = 0;
+        for (const QVariant &pv : spec.enumValues) {
+            const QVariantList pair = pv.toList();
+            if (pair.size() != 2) continue;
+            labels << pair[0].toString();
+            if (pair[1].toInt() == current.toInt()) curIdx = labels.size() - 1;
+        }
+        if (labels.isEmpty()) return {};
+        bool got = false;
+        const QString chosen = QInputDialog::getItem(
+            self, title, prompt, labels, curIdx, /*editable=*/false, &got);
+        if (!got) return {};
+        for (const QVariant &pv : spec.enumValues) {
+            const QVariantList pair = pv.toList();
+            if (pair.size() == 2 && pair[0].toString() == chosen) {
+                if (ok) *ok = true;
+                return pair[1].toInt();
+            }
+        }
+        return {};
+    }
+    case EditorKind::Text: {
+        bool got = false;
+        const QString tv = QInputDialog::getText(
+            self, title, prompt, QLineEdit::Normal, current.toString(), &got);
+        if (ok) *ok = got;
+        return got ? QVariant(tv) : QVariant();
+    }
+    default:
+        return {};
+    }
 }
 
 // ---------------------------------------------------------------------------
