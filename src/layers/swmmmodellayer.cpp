@@ -13,6 +13,12 @@
 #include "curve/curveregistry.h"
 #include "controls/controlruleregistry.h"
 #include "transect/transectregistry.h"
+#include "aquifer/aquiferregistry.h"
+#include "inlet/inletregistry.h"
+#include "landuse/landuseregistry.h"
+#include "lid/lidcontrolregistry.h"
+#include "pollutant/pollutantregistry.h"
+#include "snowpack/snowpackregistry.h"
 #include "street/streetregistry.h"
 #include "ui/models/userflagsmodel.h"
 #include "transect/transectprovider.h"
@@ -4824,6 +4830,108 @@ QObject *SWMMModelLayer::ensureStreetRegistry()
         reg = new StreetRegistry(this);
         m_streetRegistry = reg;
         m_streetRegistryEngineHandle = eng;
+        reg->loadFromEngine(eng);
+    }
+    return reg;
+}
+
+QObject *SWMMModelLayer::ensurePollutantRegistry()
+{
+    using openswmmvis::pollutant::PollutantRegistry;
+    SWMM_Engine eng = engine();
+    if (!eng) return nullptr;
+
+    auto *reg = qobject_cast<PollutantRegistry *>(m_pollutantRegistry);
+    if (!reg || m_pollutantRegistryEngineHandle != eng) {
+        if (m_pollutantRegistry) m_pollutantRegistry->deleteLater();
+        reg = new PollutantRegistry(this);
+        m_pollutantRegistry = reg;
+        m_pollutantRegistryEngineHandle = eng;
+        reg->loadFromEngine(eng);
+    }
+    return reg;
+}
+
+QObject *SWMMModelLayer::ensureLandUseRegistry()
+{
+    using openswmmvis::landuse::LandUseRegistry;
+    SWMM_Engine eng = engine();
+    if (!eng) return nullptr;
+
+    auto *reg = qobject_cast<LandUseRegistry *>(m_landUseRegistry);
+    if (!reg || m_landUseRegistryEngineHandle != eng) {
+        if (m_landUseRegistry) m_landUseRegistry->deleteLater();
+        reg = new LandUseRegistry(this);
+        m_landUseRegistry = reg;
+        m_landUseRegistryEngineHandle = eng;
+        reg->loadFromEngine(eng);
+    }
+    return reg;
+}
+
+QObject *SWMMModelLayer::ensureAquiferRegistry()
+{
+    using openswmmvis::aquifer::AquiferRegistry;
+    SWMM_Engine eng = engine();
+    if (!eng) return nullptr;
+
+    auto *reg = qobject_cast<AquiferRegistry *>(m_aquiferRegistry);
+    if (!reg || m_aquiferRegistryEngineHandle != eng) {
+        if (m_aquiferRegistry) m_aquiferRegistry->deleteLater();
+        reg = new AquiferRegistry(this);
+        m_aquiferRegistry = reg;
+        m_aquiferRegistryEngineHandle = eng;
+        reg->loadFromEngine(eng);
+    }
+    return reg;
+}
+
+QObject *SWMMModelLayer::ensureSnowpackRegistry()
+{
+    using openswmmvis::snowpack::SnowpackRegistry;
+    SWMM_Engine eng = engine();
+    if (!eng) return nullptr;
+
+    auto *reg = qobject_cast<SnowpackRegistry *>(m_snowpackRegistry);
+    if (!reg || m_snowpackRegistryEngineHandle != eng) {
+        if (m_snowpackRegistry) m_snowpackRegistry->deleteLater();
+        reg = new SnowpackRegistry(this);
+        m_snowpackRegistry = reg;
+        m_snowpackRegistryEngineHandle = eng;
+        reg->loadFromEngine(eng);
+    }
+    return reg;
+}
+
+QObject *SWMMModelLayer::ensureInletRegistry()
+{
+    using openswmmvis::inlet::InletRegistry;
+    SWMM_Engine eng = engine();
+    if (!eng) return nullptr;
+
+    auto *reg = qobject_cast<InletRegistry *>(m_inletRegistry);
+    if (!reg || m_inletRegistryEngineHandle != eng) {
+        if (m_inletRegistry) m_inletRegistry->deleteLater();
+        reg = new InletRegistry(this);
+        m_inletRegistry = reg;
+        m_inletRegistryEngineHandle = eng;
+        reg->loadFromEngine(eng);
+    }
+    return reg;
+}
+
+QObject *SWMMModelLayer::ensureLidControlRegistry()
+{
+    using openswmmvis::lid::LidControlRegistry;
+    SWMM_Engine eng = engine();
+    if (!eng) return nullptr;
+
+    auto *reg = qobject_cast<LidControlRegistry *>(m_lidControlRegistry);
+    if (!reg || m_lidControlRegistryEngineHandle != eng) {
+        if (m_lidControlRegistry) m_lidControlRegistry->deleteLater();
+        reg = new LidControlRegistry(this);
+        m_lidControlRegistry = reg;
+        m_lidControlRegistryEngineHandle = eng;
         reg->loadFromEngine(eng);
     }
     return reg;

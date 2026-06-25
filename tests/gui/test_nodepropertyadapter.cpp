@@ -109,7 +109,7 @@ private slots:
         QCOMPARE(args.at(1).toDouble(), 20.0);  // Y preserved from cache.
 
         // The adapter intentionally does NOT touch the engine — the
-        // request is the contract; AttributePanel routes it through
+        // request is the contract; PropertiesPanel routes it through
         // applyNodeMove. Verify the engine state is still the original.
         const int idx = swmm_node_index(e, "J1");
         double x = 0, y = 0;

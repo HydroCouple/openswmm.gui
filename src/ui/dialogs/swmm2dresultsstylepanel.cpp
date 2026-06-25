@@ -196,9 +196,9 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
     // 2026-06-21 — the "Depth Fill" (depth color ramp) and "Flow Arrows" tabs
     // were removed: contour bands now provide the depth fill, and velocity
     // vectors already convey flow direction.
-    tabs->addTab(wrapScroll(buildContourBandTab(tabs)), tr("Contour Bands"));
-    tabs->addTab(wrapScroll(buildIsolineTab(tabs)),     tr("Isolines"));
-    tabs->addTab(wrapScroll(buildVelocityTab(tabs)),    tr("Velocity Vectors"));
+    tabs->addTab(wrapScroll(buildContourBandTab(tabs)), tr("Depth Contours"));
+    tabs->addTab(wrapScroll(buildIsolineTab(tabs)),     tr("Depth Isolines"));
+    tabs->addTab(wrapScroll(buildVelocityTab(tabs)),    tr("Flow Velocity"));
 }
 
 // ─── Contour bands ──────────────────────────────────────────────────────────

@@ -291,7 +291,7 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
         // For gap categories the action is disabled with the registry's
         // tooltip naming the future slice. "Properties…" stays as the
         // existing path that just routes the selection through the bus
-        // so the AttributePanel mirrors the click.
+        // so the PropertiesPanel mirrors the click.
         const auto &editorReg = ComprehensiveEditorRegistry::instance();
         const bool hasEditor  = editorReg.hasEditor(dc);
         QAction *actEdit = dmenu.addAction(QIcon(QStringLiteral(":/swmmvis/Layers")),

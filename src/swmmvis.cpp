@@ -129,7 +129,7 @@
 #include "ui/panels/layertreepanel.h"
 #include "ui/panels/legenddock.h"
 #include "ui/panels/objectbrowserpanel.h"
-#include "ui/panels/attributepanel.h"
+#include "ui/panels/propertiespanel.h"
 #include "ui/panels/attributetablepanel.h"
 #include "plugins/filefilterregistry.h"
 #include "selection/selectionmanager.h"
@@ -261,6 +261,12 @@ SWMMVis::SWMMVis(QWidget *parent)
     initializeMapTools();
     initializeSettings();
     initializeDefaultWorkspaceSession();
+
+    // Allow the window to shrink well below the size implied by the toolbars,
+    // dock widgets and central MDI area so it can be snapped/tiled to half the
+    // screen. A QMainWindow otherwise derives its minimum from its children;
+    // an explicit minimum overrides that layout-computed floor.
+    setMinimumSize(480, 360);
 }
 
 SWMMVis::~SWMMVis()
@@ -1439,7 +1445,7 @@ void SWMMVis::initializeDockWidgets()
 {
     initializeLayersDockWidget();
     initializeObjectBrowserDockWidget();
-    initializeAttributePanelDockWidget();
+    initializePropertiesPanelDockWidget();
     initializeSimulationStatusDockWidget();
     initializeMessageLogDockWidget();
     initializeLegendDockWidget();
@@ -2597,12 +2603,12 @@ void SWMMVis::openComparisonPlotOverlayForProfile(ProfilePlotDialog *profileDlg,
     dlg->activateWindow();
 }
 
-void SWMMVis::initializeAttributePanelDockWidget()
+void SWMMVis::initializePropertiesPanelDockWidget()
 {
     // Property browser (single-object detail view) — right dock.
-    mAttributePanel = new AttributePanel(this);
-    mAttributePanel->setObjectName(QStringLiteral("dockWidgetAttributePanel"));
-    addDockWidget(Qt::RightDockWidgetArea, mAttributePanel);
+    mPropertiesPanel = new PropertiesPanel(this);
+    mPropertiesPanel->setObjectName(QStringLiteral("dockWidgetPropertiesPanel"));
+    addDockWidget(Qt::RightDockWidgetArea, mPropertiesPanel);
 
     // Attribute table (all objects, tabular grid) — bottom dock.
     mAttributeTablePanel = new AttributeTablePanel(this);
@@ -2613,10 +2619,10 @@ void SWMMVis::initializeAttributePanelDockWidget()
 
     // Two-way sync between property browser and attribute table so an edit
     // in either view immediately reflects in the other without a full refresh.
-    connect(mAttributePanel, &AttributePanel::objectEdited,
+    connect(mPropertiesPanel, &PropertiesPanel::objectEdited,
             mAttributeTablePanel, &AttributeTablePanel::onObjectEditedExternally);
     connect(mAttributeTablePanel, &AttributeTablePanel::objectEdited,
-            mAttributePanel, &AttributePanel::onObjectEditedExternally);
+            mPropertiesPanel, &PropertiesPanel::onObjectEditedExternally);
 }
 
 void SWMMVis::initializeSimulationStatusDockWidget()
@@ -4454,7 +4460,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         if (mLayerTreePanel)        mLayerTreePanel->setCanvas(nullptr);
         if (mLegendDock)            mLegendDock->setCanvas(nullptr);
         if (mObjectBrowserPanel)    mObjectBrowserPanel->setProject(nullptr, nullptr, nullptr);
-        if (mAttributePanel)      { mAttributePanel->setProject(nullptr); mAttributePanel->clear(); }
+        if (mPropertiesPanel)      { mPropertiesPanel->setProject(nullptr); mPropertiesPanel->clear(); }
         if (mAttributeTablePanel)   mAttributeTablePanel->setProject(nullptr, nullptr, nullptr);
         if (mTerrainToolbar)        mTerrainToolbar->rebindCanvas(nullptr);
         if (mMeshEditingToolbar) {
@@ -4832,15 +4838,15 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
 
     // Bind the property browser to the engine layer so typed adapters
     // (SWMMJunctionPropertyAdapter, etc.) can be constructed on identify.
-    if (mAttributePanel)
-        mAttributePanel->setProject(pw->modelLayer());
+    if (mPropertiesPanel)
+        mPropertiesPanel->setProject(pw->modelLayer());
 
     // Rebind the Attribute Table to this project.
     if (mAttributeTablePanel)
         mAttributeTablePanel->setProject(pw->modelLayer(),
                                          pw->selectionManager(),
                                          pw->canvas());
-    if (mAttributePanel && pw->selectionManager())
+    if (mPropertiesPanel && pw->selectionManager())
     {
         // The attribute panel listens to selectionChanged via a per-tab
         // connection. Qt::UniqueConnection can't de-dupe lambdas, so
@@ -4854,10 +4860,10 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                 [this, pw](const QSet<SWMMObjectRef> &current,
                            const QSet<SWMMObjectRef> &,
                            const QSet<SWMMObjectRef> &) {
-                    if (!mAttributePanel || pw != mActiveProjectWindow) return;
+                    if (!mPropertiesPanel || pw != mActiveProjectWindow) return;
                     if (current.isEmpty())
                     {
-                        mAttributePanel->clear();
+                        mPropertiesPanel->clear();
                         return;
                     }
                     auto *layer = pw->modelLayer();
@@ -4877,7 +4883,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                     case K::Control:      case K::Transect:
                     case K::Hydrograph:   case K::Street:
                     case K::Inlet:        case K::RainGage:
-                        mAttributePanel->showDataObject(
+                        mPropertiesPanel->showDataObject(
                             layer, static_cast<int>(first.objectType),
                             first.name);
                         return;
@@ -4891,11 +4897,11 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                         IdentifyResult r;
                         r.layerName = layer->name();
                         r.features  = { attrs };
-                        mAttributePanel->showIdentifyResults({r});
+                        mPropertiesPanel->showIdentifyResults({r});
                     }
                     else
                     {
-                        mAttributePanel->clear();
+                        mPropertiesPanel->clear();
                     }
                 });
     }

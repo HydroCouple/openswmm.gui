@@ -20,10 +20,19 @@
 class SWMMPollutantPropertyAdapter : public SWMMDataObjectPropertyAdapter
 {
     Q_OBJECT
+
+public:
+    /*! Concentration units. Q_ENUM so the Property Browser shows the name
+     *  rather than a raw integer. Mixed-case to dodge macro collisions. */
+    enum Units { MgPerL = 0, UgPerL = 1, CountPerL = 2 };
+    Q_ENUM(Units)
+
+private:
     // Units are write-once at pollutant creation time (engine has no
     // `swmm_pollutant_set_units`); exposed as read-only here so the
     // Property Browser still surfaces the value.
-    Q_PROPERTY(int    units      READ units                          NOTIFY changed)
+    Q_PROPERTY(SWMMPollutantPropertyAdapter::Units units
+               READ units                          NOTIFY changed)
     Q_PROPERTY(double rainConc   READ rainConc   WRITE setRainConc   NOTIFY changed)
     Q_PROPERTY(double gwConc     READ gwConc     WRITE setGwConc     NOTIFY changed)
     Q_PROPERTY(double initConc   READ initConc   WRITE setInitConc   NOTIFY changed)
@@ -40,7 +49,7 @@ class SWMMPollutantPropertyAdapter : public SWMMDataObjectPropertyAdapter
 public:
     using SWMMDataObjectPropertyAdapter::SWMMDataObjectPropertyAdapter;
 
-    [[nodiscard]] int    units()    const;
+    [[nodiscard]] Units  units()    const;
     [[nodiscard]] double rainConc() const;
     [[nodiscard]] double gwConc()   const;
     [[nodiscard]] double initConc() const;

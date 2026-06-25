@@ -50,6 +50,19 @@ bool nearlyEqual(const QPointF &a, const QPointF &b, double eps = 1e-9)
     return nearlyEqual(a.x(), b.x(), eps) && nearlyEqual(a.y(), b.y(), eps);
 }
 
+// Unsigned polygon area via the shoelace formula (vertices in order).
+double polyArea(const std::vector<QPointF> &p)
+{
+    double a = 0.0;
+    const size_t n = p.size();
+    for (size_t i = 0; i < n; ++i) {
+        const QPointF &c = p[i];
+        const QPointF &d = p[(i + 1) % n];
+        a += c.x() * d.y() - d.x() * c.y();
+    }
+    return std::abs(a) * 0.5;
+}
+
 } // namespace
 
 class TestMarchingTriangles : public QObject
@@ -282,14 +295,61 @@ private slots:
             QVERIFY(bp.verts.size() >= 3);
     }
 
-    void isobands_degenerateTriangle_skipped()
+    void isobands_uniformTriangle_fullFill()
     {
+        // A uniform-value triangle (flat field, e.g. ponded water) must be
+        // filled ENTIRELY with the band containing that value — NOT skipped.
+        // (Skipping was the old gap bug; for filled bands it left a hole.)
         std::vector<Tri> tris {
             { {0,0}, {1,0}, {0,1}, 0.5, 0.5, 0.5 }
         };
-        const auto bands = marchingTrianglesIsobands(
-            tris, std::vector<double>{0.0, 1.0}, extract);
-        QCOMPARE(bands.size(), size_t(0));
+        const auto lv = evenlySpacedLevelsInclusive(0.0, 1.0, 4);  // 3 bands
+        const auto bands = marchingTrianglesIsobands(tris, lv, extract);
+        QCOMPARE(bands.size(), size_t(1));
+        QCOMPARE(bands[0].verts.size(), size_t(3));            // full triangle
+        QVERIFY(bands[0].bandLo <= 0.5 && 0.5 <= bands[0].bandHi);
+        // Filled area equals the whole triangle (no hole).
+        QVERIFY(nearlyEqual(polyArea(bands[0].verts), 0.5, 1e-9));
+    }
+
+    void isobands_uniformTriangle_clampsToEndBands()
+    {
+        // Uniform value at/below the first level → band 0; at/above the last
+        // level → the last band. levels {0,1,2} → bands 0 and 1.
+        std::vector<Tri> below { { {0,0}, {1,0}, {0,1}, 0.0, 0.0, 0.0 } };
+        std::vector<Tri> above { { {0,0}, {1,0}, {0,1}, 2.0, 2.0, 2.0 } };
+        const std::vector<double> lv{0.0, 1.0, 2.0};
+        const auto b0 = marchingTrianglesIsobands(below, lv, extract);
+        const auto b1 = marchingTrianglesIsobands(above, lv, extract);
+        QCOMPARE(b0.size(), size_t(1));
+        QCOMPARE(b0[0].bandIndex, 0);
+        QCOMPARE(b1.size(), size_t(1));
+        QCOMPARE(b1[0].bandIndex, 1);   // last band
+    }
+
+    void isobands_areaConserved_noGaps()
+    {
+        // Gap-freeness invariant: across a fan mixing uniform and graded
+        // triangles whose value range lies inside the level span, the summed
+        // area of all emitted band polygons equals the total triangle area.
+        std::vector<Tri> tris {
+            { {0,0}, {1,0}, {0,1}, 0.20, 0.80, 0.50 },  // graded, multi-band
+            { {1,0}, {1,1}, {0,1}, 0.40, 0.40, 0.40 },  // uniform (was a hole)
+            { {1,1}, {2,1}, {1,2}, 0.95, 0.95, 0.95 },  // uniform, top band
+        };
+        const auto lv = evenlySpacedLevelsInclusive(0.0, 1.0, 5);  // 4 bands
+        const auto bands = marchingTrianglesIsobands(tris, lv, extract);
+
+        double total = 0.0;
+        for (const auto &t : tris)
+            total += polyArea({t.p0, t.p1, t.p2});
+        double filled = 0.0;
+        for (const auto &bp : bands)
+            filled += polyArea(bp.verts);
+
+        QVERIFY2(nearlyEqual(filled, total, 1e-7),
+                 qPrintable(QStringLiteral("filled=%1 total=%2")
+                                .arg(filled).arg(total)));
     }
 
     void isobands_singleLevel_empty()

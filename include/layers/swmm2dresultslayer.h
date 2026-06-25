@@ -339,6 +339,17 @@ public:
     void refreshTimeRange();
 
     /*!
+     * \brief Follow-latest behavior for a LIVE (streaming) source. When on
+     * (the default), refreshTimeRange() advances the cursor to the newest frame
+     * as ticks arrive so the map animates the running simulation. Cleared when
+     * the user takes manual playback control (scrub / Play) so a chosen frame
+     * stays put; re-armed when they seek back to the latest frame. No effect on
+     * file sources, which already follow-latest while being appended.
+     */
+    void setFollowLive(bool on) noexcept { follow_live_ = on; }
+    [[nodiscard]] bool followLive() const noexcept { return follow_live_; }
+
+    /*!
      * \brief Release the active source — closes its underlying HDF5 handle
      * (when the source is an HDF5Mesh2DSource) so the engine can truncate /
      * overwrite the file on a subsequent run. Clears all per-frame caches
@@ -677,6 +688,7 @@ private:
     mutable int                    edge_flux_probe_  = 0;
 
     int                            current_time_idx_ = -1;
+    bool                           follow_live_      = true;  // live source: auto-advance to newest frame until the user scrubs
     double                         dry_depth_        = 1e-4;  // 0.1 mm — auto-tuned per project
     double                         max_depth_        = 0.01;  // 10 mm — auto-grows from data each tick
     bool                           max_depth_user_set_ = false;

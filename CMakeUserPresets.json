@@ -6,7 +6,7 @@
             "inherits": "Darwin-debug",
             "description": "Local macOS debug build — machine-specific paths (not committed)",
             "environment": {
-                "QT_ROOT_DIR": "/Users/calebbuahin/Qt/6.10.2/macos",
+                "QT_ROOT_DIR": "/Users/calebbuahin/Qt/6.11.1/macos",
                 "VCPKG_ROOT": "/Users/calebbuahin/Documents/Projects/vcpkg"
             }
         }

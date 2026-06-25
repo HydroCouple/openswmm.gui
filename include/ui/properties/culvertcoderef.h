@@ -14,7 +14,7 @@
  * metatype so QPropertyModel stores it in a QVariant, a QString
  * converter renders the descriptive label when the row isn't in edit
  * mode, and a custom editor creator (registered in
- * `attributepanel.cpp`) hands out the combobox in edit mode.
+ * `propertiespanel.cpp`) hands out the combobox in edit mode.
  */
 
 #ifndef CULVERTCODEREF_H

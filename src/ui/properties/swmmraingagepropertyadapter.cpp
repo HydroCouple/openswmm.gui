@@ -36,22 +36,22 @@ QString SWMMRainGagePropertyAdapter::displayLabelFor(const QString &property) co
     return {};
 }
 
-int SWMMRainGagePropertyAdapter::rainType() const
+SWMMRainGagePropertyAdapter::RainType SWMMRainGagePropertyAdapter::rainType() const
 {
     const int i = idx();
-    if (i < 0) return 0;
+    if (i < 0) return Intensity;
     int v = 0;
     swmm_gage_get_rain_type(m_engine, i, &v);
-    return v;
+    return static_cast<RainType>(v);
 }
 
-int SWMMRainGagePropertyAdapter::dataSource() const
+SWMMRainGagePropertyAdapter::DataSource SWMMRainGagePropertyAdapter::dataSource() const
 {
     const int i = idx();
-    if (i < 0) return 0;
+    if (i < 0) return Timeseries;
     int v = 0;
     swmm_gage_get_data_source(m_engine, i, &v);
-    return v;
+    return static_cast<DataSource>(v);
 }
 
 double SWMMRainGagePropertyAdapter::currentRainfall() const
@@ -163,13 +163,13 @@ void SWMMRainGagePropertyAdapter::setStationId(const QString &s)
         emit changed();
 }
 
-int SWMMRainGagePropertyAdapter::rainUnits() const
+SWMMRainGagePropertyAdapter::RainUnits SWMMRainGagePropertyAdapter::rainUnits() const
 {
     const int i = idx();
-    if (i < 0) return 0;
+    if (i < 0) return Inches;
     int v = 0;
     swmm_gage_get_rain_units(m_engine, i, &v);
-    return v;
+    return static_cast<RainUnits>(v);
 }
 
 void SWMMRainGagePropertyAdapter::setRainUnits(int v)

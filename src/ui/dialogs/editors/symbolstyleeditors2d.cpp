@@ -159,7 +159,7 @@ ContourBandSymbolStyleEditor::ContourBandSymbolStyleEditor(
 {
     auto *root = new QVBoxLayout(this); root->setContentsMargins(8, 8, 8, 8);
     QFormLayout *f = nullptr;
-    auto *box = group(this, tr("Filled contours"), f);
+    auto *box = group(this, tr("Depth Contours"), f);
     m_attr = new QLineEdit(box); f->addRow(tr("Attribute:"), m_attr);
     m_bands = new QSpinBox(box); m_bands->setRange(2, 64); f->addRow(tr("Bands:"), m_bands);
     m_low = colorBtn(box);  f->addRow(tr("Low colour:"),  m_low);
@@ -204,7 +204,7 @@ IsolineSymbolStyleEditor::IsolineSymbolStyleEditor(
 {
     auto *root = new QVBoxLayout(this); root->setContentsMargins(8, 8, 8, 8);
     QFormLayout *f = nullptr;
-    auto *box = group(this, tr("Contour lines"), f);
+    auto *box = group(this, tr("Depth Isolines"), f);
     m_attr = new QLineEdit(box); f->addRow(tr("Attribute:"), m_attr);
     m_count = new QSpinBox(box); m_count->setRange(1, 64); f->addRow(tr("Iso count:"), m_count);
     m_color = colorBtn(box); f->addRow(tr("Colour:"), m_color);
@@ -298,7 +298,7 @@ MeshNodeSymbolStyleEditor::MeshNodeSymbolStyleEditor(
 {
     auto *root = new QVBoxLayout(this); root->setContentsMargins(8, 8, 8, 8);
     QFormLayout *f = nullptr;
-    auto *box = group(this, tr("Mesh vertices"), f);
+    auto *box = group(this, tr("Mesh Vertices"), f);
     m_shape = new MarkerShapeCombo(box); m_shape->populateCanonical(); f->addRow(tr("Shape:"), m_shape);
     m_size = dspin(box, 0.5, 60.0, 1, 0.5, tr(" px")); f->addRow(tr("Size:"), m_size);
     m_color = colorBtn(box); f->addRow(tr("Fill:"), m_color);
@@ -353,7 +353,7 @@ VelocityVectorSymbolStyleEditor::VelocityVectorSymbolStyleEditor(
 {
     auto *root = new QVBoxLayout(this); root->setContentsMargins(8, 8, 8, 8);
     QFormLayout *f = nullptr;
-    auto *box = group(this, tr("Velocity glyphs"), f);
+    auto *box = group(this, tr("Flow Velocity"), f);
     m_color = colorBtn(box); f->addRow(tr("Colour:"), m_color);
     m_scale = dspin(box, 0.0, 500.0, 1, 1.0, tr(" px/(m/s)")); f->addRow(tr("Length scale:"), m_scale);
     m_minLen = dspin(box, 0.0, 200.0, 1, 1.0, tr(" px")); f->addRow(tr("Min length:"), m_minLen);
