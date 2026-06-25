@@ -23,7 +23,8 @@
 #include <QMessageBox>
 #include <QPaintEvent>
 #include <QPainter>
-#include <QPainterPath>
+#include <QList>
+#include <QPolygonF>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSplitter>
@@ -68,53 +69,89 @@ void StreetSectionPreview::paintEvent(QPaintEvent *)
         return;
     }
 
-    // Schematic geometry — not to scale, illustrative only. Drop from the
-    // crown (centre) toward the curb at the edge, then a vertical curb and a
-    // small depressed gutter, mirrored for a two-sided street.
-    const double crown   = qMax(0.001, m_provider->crownWidth());
-    const double curb    = qMax(0.0, m_provider->curbHeight());
-    const double slope   = qMax(0.0, m_provider->crossSlope()) / 100.0;
+    // Geometry mirrors the engine's transect_createStreetTransect (street.c →
+    // transect.c): the exact station/elevation points SWMM builds for a STREET
+    // cross-section. Points are drawn with independent X/Y scaling (vertical
+    // exaggeration) so the shallow profile stays legible while the topology and
+    // proportions match the engine.
+    const double w3 = qMax(0.0, m_provider->crownWidth());          // Tcrown
+    const double w2 = qMax(0.0, m_provider->gutterWidth());         // W (gutter)
+    const double w1 = qMax(0.0, m_provider->backingWidth());        // Tback
+    const double w4 = qMax(0.0, w3 - w2);
+    const double slope     = qMax(0.0, m_provider->crossSlope())   / 100.0; // Sx
+    const double backSlope = qMax(0.0, m_provider->backingSlope()) / 100.0;  // Sback
+    const double curb  = qMax(0.0, m_provider->curbHeight());       // Hcurb
+    const double dep   = qMax(0.0, m_provider->gutterDepression()); // a (depression)
     const bool   twoSide = (m_provider->sides() == 2);
 
-    const QRectF area = rect().adjusted(16, 16, -16, -16);
-    const double midX = area.center().x();
-    const double baseY = area.bottom() - 8.0;
-    const double halfW = area.width() / 2.0 - 8.0;
-    // Vertical drop across the road = crown * slope, scaled to fit.
-    const double dropFt = crown * slope;
-    const double maxFt  = qMax(dropFt + curb, 0.001);
-    const double vScale = (area.height() - 24.0) / maxFt;
+    const double y1 = curb + dep;                  // top of curb
+    const double y3 = dep + slope * w2;            // bottom of depressed gutter
+    const double y4 = y3 + slope * w4;             // crown-side top of gutter
+    double ymax = qMax(backSlope * w1 + y1, y4);   // top of backing / crown
+    if (ymax <= 0.0) ymax = qMax(curb, 0.001);
 
-    auto roadPath = [&](double sign) {
-        QPainterPath path;
-        const double crownX = midX;
-        const double crownY = baseY - (dropFt + curb) * vScale;       // high point
-        const double curbX  = midX + sign * halfW * 0.78;
-        const double curbTopY = baseY - curb * vScale;                // road meets curb
-        const double curbBotY = baseY;                                // gutter invert
-        const double edgeX  = midX + sign * halfW;
-        path.moveTo(crownX, crownY);
-        path.lineTo(curbX, curbTopY);   // sloped roadway
-        path.lineTo(curbX, curbBotY);   // curb face / gutter depth
-        path.lineTo(edgeX, curbBotY);   // gutter flat
-        return path;
+    // Station/elevation points, in engine order (P0..P4 left half; mirrored
+    // P5..P8 for a two-sided street, else P5 closes the crown centreline).
+    QList<QPointF> pts;
+    pts.reserve(9);
+    pts << QPointF(0.0,     ymax)   // P0 top of backing
+        << QPointF(w1,      y1)     // P1 top of curb
+        << QPointF(w1,      0.0)    // P2 bottom of curb (gutter invert)
+        << QPointF(w1 + w2, y3)     // P3 bottom of depressed gutter
+        << QPointF(w1 + w3, y4);    // P4 crown (high road point)
+    if (!twoSide) {
+        pts << QPointF(w1 + w3, ymax);          // P5 crown / centreline
+    } else {
+        const double s5 = w1 + w3 + w4;
+        pts << QPointF(s5,           y3)        // P5
+            << QPointF(s5 + w2,      0.0)       // P6 gutter invert
+            << QPointF(s5 + w2,      y1)        // P7 top of curb
+            << QPointF(s5 + w2 + w1, ymax);     // P8 top of backing
+    }
+
+    // Map section coordinates to the widget (flip Y so elevation increases up).
+    double xMax = pts.last().x();
+    if (xMax <= 0.0) xMax = 1.0;
+    double yTop = ymax;
+    if (yTop <= 0.0) yTop = 1.0;
+
+    const QRectF area = rect().adjusted(16, 22, -16, -16);
+    const double sx = area.width() / xMax;
+    const double sy = (area.height() - 4.0) / yTop;
+    auto toWidget = [&](const QPointF &p) {
+        return QPointF(area.left() + p.x() * sx, area.bottom() - p.y() * sy);
     };
 
+    QPolygonF poly;
+    for (const QPointF &p : pts) poly << toWidget(p);
+
+    // Light fill of the pavement section for legibility.
+    QPolygonF fill = poly;
+    fill << QPointF(poly.last().x(),  area.bottom())
+         << QPointF(poly.first().x(), area.bottom());
+    QColor fillCol = palette().highlight().color();
+    fillCol.setAlpha(40);
+    pr.setPen(Qt::NoPen);
+    pr.setBrush(fillCol);
+    pr.drawPolygon(fill);
+
+    // Profile line.
     QPen roadPen(palette().windowText().color());
     roadPen.setWidthF(2.0);
+    pr.setBrush(Qt::NoBrush);
     pr.setPen(roadPen);
-    pr.drawPath(roadPath(+1.0));
-    if (twoSide) pr.drawPath(roadPath(-1.0));
+    pr.drawPolyline(poly);
 
-    // Ground line.
+    // Ground reference line at elevation 0 (gutter invert).
     QPen groundPen(palette().mid().color());
     groundPen.setStyle(Qt::DashLine);
     pr.setPen(groundPen);
-    pr.drawLine(QPointF(area.left(), baseY), QPointF(area.right(), baseY));
+    pr.drawLine(QPointF(area.left(), area.bottom()),
+                QPointF(area.right(), area.bottom()));
 
     pr.setPen(palette().windowText().color());
     pr.drawText(rect().adjusted(6, 4, -6, -4), Qt::AlignTop | Qt::AlignHCenter,
-                m_provider->name());
+                tr("%1  (vertical exaggeration)").arg(m_provider->name()));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

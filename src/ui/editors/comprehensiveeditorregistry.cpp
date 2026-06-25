@@ -6,14 +6,28 @@
  */
 #include "ui/editors/comprehensiveeditorregistry.h"
 
+#include "aquifer/aquiferregistry.h"
 #include "curve/curveregistry.h"
+#include "inlet/inletregistry.h"
+#include "landuse/landuseregistry.h"
+#include "lid/lidcontrolregistry.h"
 #include "pattern/patternregistry.h"
+#include "pollutant/pollutantregistry.h"
+#include "snowpack/snowpackregistry.h"
+#include "street/streetregistry.h"
 #include "timeseries/timeseriesregistry.h"
 #include "transect/transectregistry.h"
+#include "ui/dialogs/aquifereditordialog.h"
 #include "ui/dialogs/curveeditordialog.h"
 #include "ui/dialogs/hydrographgroupeditor.h"
+#include "ui/dialogs/inleteditordialog.h"
+#include "ui/dialogs/landuseeditordialog.h"
+#include "ui/dialogs/lidcontroleditordialog.h"
 #include "ui/dialogs/patterneditordialog.h"
+#include "ui/dialogs/pollutanteditordialog.h"
 #include "ui/dialogs/ruleseditordialog.h"
+#include "ui/dialogs/snowpackeditordialog.h"
+#include "ui/dialogs/streeteditordialog.h"
 #include "ui/dialogs/timeserieseditordialog.h"
 #include "ui/dialogs/transecteditordialog.h"
 
@@ -23,13 +37,27 @@
 
 namespace {
 
+using openswmmvis::aquifer::AquiferRegistry;
 using openswmmvis::curve::CurveRegistry;
+using openswmmvis::inlet::InletRegistry;
+using openswmmvis::landuse::LandUseRegistry;
+using openswmmvis::lid::LidControlRegistry;
 using openswmmvis::pattern::PatternRegistry;
+using openswmmvis::pollutant::PollutantRegistry;
+using openswmmvis::snowpack::SnowpackRegistry;
+using openswmmvis::street::StreetRegistry;
 using openswmmvis::timeseries::TimeseriesRegistry;
 using openswmmvis::transect::TransectRegistry;
+using openswmmvis::ui::AquiferEditorDialog;
 using openswmmvis::ui::CurveEditorDialog;
+using openswmmvis::ui::InletEditorDialog;
+using openswmmvis::ui::LandUseEditorDialog;
+using openswmmvis::ui::LidControlEditorDialog;
 using openswmmvis::ui::PatternEditorDialog;
+using openswmmvis::ui::PollutantEditorDialog;
 using openswmmvis::ui::RulesEditorDialog;
+using openswmmvis::ui::SnowpackEditorDialog;
+using openswmmvis::ui::StreetEditorDialog;
 using openswmmvis::ui::TimeseriesEditorDialog;
 using openswmmvis::ui::TransectEditorDialog;
 
@@ -102,13 +130,132 @@ void openTransectsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *p
     dlg->show();
 }
 
+void openStreetsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<StreetRegistry *>(layer->ensureStreetRegistry());
+    if (!reg) return;
+    auto *dlg = StreetEditorDialog::createNew(reg, layer, parent);
+    if (!dlg) return;
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    // Auto-flush the registry to the engine when the dialog closes (mirrors
+    // the transect path; inline apply* helpers already mutate the engine, so
+    // this covers direct provider edits that bypass the layer).
+    QPointer<StreetRegistry> regPtr(reg);
+    QPointer<SWMMModelLayer>  layerPtr(layer);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
+        if (regPtr && layerPtr)
+            regPtr->saveToEngine(layerPtr->engine());
+    });
+    dlg->show();
+}
+
+void openPollutantsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<PollutantRegistry *>(layer->ensurePollutantRegistry());
+    if (!reg) return;
+    auto *dlg = PollutantEditorDialog::createNew(reg, layer, parent);
+    if (!dlg) return;
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    QPointer<PollutantRegistry> regPtr(reg);
+    QPointer<SWMMModelLayer>     layerPtr(layer);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
+        if (regPtr && layerPtr)
+            regPtr->saveToEngine(layerPtr->engine());
+    });
+    dlg->show();
+}
+
+void openAquifersCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<AquiferRegistry *>(layer->ensureAquiferRegistry());
+    if (!reg) return;
+    auto *dlg = AquiferEditorDialog::createNew(reg, layer, parent);
+    if (!dlg) return;
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    QPointer<AquiferRegistry> regPtr(reg);
+    QPointer<SWMMModelLayer>   layerPtr(layer);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
+        if (regPtr && layerPtr)
+            regPtr->saveToEngine(layerPtr->engine());
+    });
+    dlg->show();
+}
+
+void openLandUsesCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<LandUseRegistry *>(layer->ensureLandUseRegistry());
+    if (!reg) return;
+    auto *dlg = LandUseEditorDialog::createNew(reg, layer, parent);
+    if (!dlg) return;
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    QPointer<LandUseRegistry> regPtr(reg);
+    QPointer<SWMMModelLayer>   layerPtr(layer);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
+        if (regPtr && layerPtr)
+            regPtr->saveToEngine(layerPtr->engine());
+    });
+    dlg->show();
+}
+
+void openSnowpacksCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<SnowpackRegistry *>(layer->ensureSnowpackRegistry());
+    if (!reg) return;
+    auto *dlg = SnowpackEditorDialog::createNew(reg, layer, parent);
+    if (!dlg) return;
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    QPointer<SnowpackRegistry> regPtr(reg);
+    QPointer<SWMMModelLayer>    layerPtr(layer);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
+        if (regPtr && layerPtr) regPtr->saveToEngine(layerPtr->engine());
+    });
+    dlg->show();
+}
+
+void openInletsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<InletRegistry *>(layer->ensureInletRegistry());
+    if (!reg) return;
+    auto *dlg = InletEditorDialog::createNew(reg, layer, parent);
+    if (!dlg) return;
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    QPointer<InletRegistry>  regPtr(reg);
+    QPointer<SWMMModelLayer> layerPtr(layer);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
+        if (regPtr && layerPtr) regPtr->saveToEngine(layerPtr->engine());
+    });
+    dlg->show();
+}
+
+void openLidControlsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+{
+    if (!layer) return;
+    auto *reg = qobject_cast<LidControlRegistry *>(layer->ensureLidControlRegistry());
+    if (!reg) return;
+    auto *dlg = LidControlEditorDialog::createNew(reg, layer, parent);
+    if (!dlg) return;
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    QPointer<LidControlRegistry> regPtr(reg);
+    QPointer<SWMMModelLayer>     layerPtr(layer);
+    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
+        if (regPtr && layerPtr) regPtr->saveToEngine(layerPtr->engine());
+    });
+    dlg->show();
+}
+
 void openControlsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer) return;
     // Per-session singleton: once the dialog closes (WA_DeleteOnClose),
     // the QPointer auto-nullifies and the next Add-New click constructs
     // a fresh instance. Two simultaneous entry points (Object Browser
-    // Add-New, AttributePanel browse) raise the same window
+    // Add-New, PropertiesPanel browse) raise the same window
     // ([[feedback_mvc_synchronized_uis]]).
     static QPointer<RulesEditorDialog> editor;
     if (!editor) {
@@ -159,42 +306,41 @@ void populateOnce(ComprehensiveEditorRegistry &reg)
                                            "Rules Editor"),
               QString(), &openControlsCreateNew});
 
-    // Gap categories (nine). Each tooltip mirrors the legacy
-    // ObjectBrowserPanel::gapTooltipFor mapping (Slice BM.0-Add-New)
-    // verbatim so existing test assertions don't drift.
-    auto gap = [](const char *title, const char *tip) {
-        return Entry{QCoreApplication::translate("ComprehensiveEditorRegistry", title),
-                     QCoreApplication::translate("ComprehensiveEditorRegistry", tip),
-                     nullptr};
-    };
-
+    // Every non-spatial data category now ships a comprehensive editor — no
+    // gap placeholders remain. (gapTooltip()/gapSliceLabel stay in the API for
+    // any future category registered without an editor.)
     reg.registerEditor(DC::DataTransects,
         Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
                                            "Transect Editor"),
               QString(), &openTransectsCreateNew});
     reg.registerEditor(DC::DataLIDControls,
-        gap("LID Control Editor",
-            "Editor coming in Slice BO Phase 6.5.x (LIDControlEditor)."));
+        Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
+                                           "LID Control Editor"),
+              QString(), &openLidControlsCreateNew});
     reg.registerEditor(DC::DataPollutants,
-        gap("Pollutant Editor",
-            "Editor coming in Slice BP Phase 6.6.1 (PollutantEditor)."));
+        Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
+                                           "Pollutant Editor"),
+              QString(), &openPollutantsCreateNew});
     reg.registerEditor(DC::DataLandUses,
-        gap("Land Use Editor",
-            "Editor coming in Slice BP Phase 6.6.2 (LandUseEditor)."));
+        Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
+                                           "Land Use Editor"),
+              QString(), &openLandUsesCreateNew});
     reg.registerEditor(DC::DataAquifers,
-        gap("Aquifer Editor",
-            "Editor coming in Slice BP Phase 6.6.x (AquiferEditor)."));
+        Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
+                                           "Aquifer Editor"),
+              QString(), &openAquifersCreateNew});
     reg.registerEditor(DC::DataSnowpacks,
-        gap("Snowpack Editor",
-            "Editor coming in Slice BP Phase 6.6.x (SnowpackEditor)."));
+        Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
+                                           "Snowpack Editor"),
+              QString(), &openSnowpacksCreateNew});
     reg.registerEditor(DC::DataStreets,
-        gap("Street Editor",
-            "Editor coming in Slice BO Phase 6.5.x (StreetEditor; "
-            "engine gap BO-STREET-01)."));
+        Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
+                                           "Street Editor"),
+              QString(), &openStreetsCreateNew});
     reg.registerEditor(DC::DataInlets,
-        gap("Inlet Editor",
-            "Editor coming in Slice BO Phase 6.5.x (InletEditor; "
-            "engine gap BO-INLET-01)."));
+        Entry{QCoreApplication::translate("ComprehensiveEditorRegistry",
+                                           "Inlet Editor"),
+              QString(), &openInletsCreateNew});
 }
 
 } // anonymous namespace

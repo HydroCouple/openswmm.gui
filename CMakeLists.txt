@@ -16,7 +16,7 @@ project(
     DESCRIPTION "A SWMM model setup, analysis, and visualization tool"
 )
 
-set(PROJECT_VERSION_SUFFIX "-alpha.1")
+set(PROJECT_VERSION_SUFFIX "-alpha.2")
 
 configure_file(
     ${PROJECT_SOURCE_DIR}/include/version.h.in
@@ -408,6 +408,42 @@ set(
         include/ui/models/streetlistmodel.h
         include/ui/dialogs/streeteditordialog.h
 
+        # ── Pollutant ([POLLUTANTS]) ─────────────────────────────────────────
+        include/pollutant/pollutantprovider.h
+        include/pollutant/pollutantregistry.h
+        include/ui/models/pollutantlistmodel.h
+        include/ui/dialogs/pollutanteditordialog.h
+
+        # ── Land use ([LANDUSES]) ────────────────────────────────────────────
+        include/landuse/landuseprovider.h
+        include/landuse/landuseregistry.h
+        include/ui/models/landuselistmodel.h
+        include/ui/dialogs/landuseeditordialog.h
+
+        # ── Aquifer ([AQUIFERS]) ─────────────────────────────────────────────
+        include/aquifer/aquiferprovider.h
+        include/aquifer/aquiferregistry.h
+        include/ui/models/aquiferlistmodel.h
+        include/ui/dialogs/aquifereditordialog.h
+
+        # ── Snowpack ([SNOWPACKS]) ───────────────────────────────────────────
+        include/snowpack/snowpackprovider.h
+        include/snowpack/snowpackregistry.h
+        include/ui/models/snowpacklistmodel.h
+        include/ui/dialogs/snowpackeditordialog.h
+
+        # ── Inlet ([INLETS]) ─────────────────────────────────────────────────
+        include/inlet/inletprovider.h
+        include/inlet/inletregistry.h
+        include/ui/models/inletlistmodel.h
+        include/ui/dialogs/inleteditordialog.h
+
+        # ── LID control ([LID_CONTROLS]) ─────────────────────────────────────
+        include/lid/lidcontrolprovider.h
+        include/lid/lidcontrolregistry.h
+        include/ui/models/lidcontrollistmodel.h
+        include/ui/dialogs/lidcontroleditordialog.h
+
         # ── User flags ([USER_FLAGS] / [USER_FLAG_VALUES]) ───────────────────
         include/ui/models/userflagsmodel.h
         include/ui/dialogs/userflagsdialog.h
@@ -442,7 +478,7 @@ set(
 
         # ── UI panels ────────────────────────────────────────────────────────
         include/ui/panels/attributedelegates.h
-        include/ui/panels/attributepanel.h
+        include/ui/panels/propertiespanel.h
         include/ui/panels/attributetablepanel.h
         include/ui/panels/layertreepanel.h
         include/ui/panels/layertreecategories.h
@@ -467,6 +503,7 @@ set(
         include/ui/delegates/legendcolordelegate.h
 
         # ── UI property adapters (Slice Z.5.3 / AG.3) ────────────────────────
+        include/ui/properties/xsectshapegeom.h               # shared shape/geom metadata
         include/ui/properties/swmmlinkpropertyadapter.h
         include/ui/properties/swmmnodepropertyadapter.h
         include/ui/properties/swmmsubcatchpropertyadapter.h
@@ -897,6 +934,42 @@ set(
         src/ui/models/streetlistmodel.cpp
         src/ui/dialogs/streeteditordialog.cpp
 
+        # ── Pollutant ([POLLUTANTS]) ─────────────────────────────────────────
+        src/pollutant/pollutantprovider.cpp
+        src/pollutant/pollutantregistry.cpp
+        src/ui/models/pollutantlistmodel.cpp
+        src/ui/dialogs/pollutanteditordialog.cpp
+
+        # ── Land use ([LANDUSES]) ────────────────────────────────────────────
+        src/landuse/landuseprovider.cpp
+        src/landuse/landuseregistry.cpp
+        src/ui/models/landuselistmodel.cpp
+        src/ui/dialogs/landuseeditordialog.cpp
+
+        # ── Aquifer ([AQUIFERS]) ─────────────────────────────────────────────
+        src/aquifer/aquiferprovider.cpp
+        src/aquifer/aquiferregistry.cpp
+        src/ui/models/aquiferlistmodel.cpp
+        src/ui/dialogs/aquifereditordialog.cpp
+
+        # ── Snowpack ([SNOWPACKS]) ───────────────────────────────────────────
+        src/snowpack/snowpackprovider.cpp
+        src/snowpack/snowpackregistry.cpp
+        src/ui/models/snowpacklistmodel.cpp
+        src/ui/dialogs/snowpackeditordialog.cpp
+
+        # ── Inlet ([INLETS]) ─────────────────────────────────────────────────
+        src/inlet/inletprovider.cpp
+        src/inlet/inletregistry.cpp
+        src/ui/models/inletlistmodel.cpp
+        src/ui/dialogs/inleteditordialog.cpp
+
+        # ── LID control ([LID_CONTROLS]) ─────────────────────────────────────
+        src/lid/lidcontrolprovider.cpp
+        src/lid/lidcontrolregistry.cpp
+        src/ui/models/lidcontrollistmodel.cpp
+        src/ui/dialogs/lidcontroleditordialog.cpp
+
         # ── User flags ([USER_FLAGS] / [USER_FLAG_VALUES]) ───────────────────
         src/ui/models/userflagsmodel.cpp
         src/ui/dialogs/userflagsdialog.cpp
@@ -930,7 +1003,7 @@ set(
 
         # UI panels
         src/ui/panels/attributedelegates.cpp
-        src/ui/panels/attributepanel.cpp
+        src/ui/panels/propertiespanel.cpp
         src/ui/panels/attributetablepanel.cpp
         src/ui/panels/layertreepanel.cpp
         src/ui/panels/layertreecategories.cpp

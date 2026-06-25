@@ -202,22 +202,49 @@ rows; sim-time/derived ro rows like gage currentRainfall stay browser-only):
 - Junctions: already near-parity; confirm ponded area + surcharge depth in
   both views.
 
-## 5. Phase 3 — Subcatchment gaps
+## 5. Phase 3 — Subcatchment gaps (DONE 2026-06-18)
 
-All R1/R3 unless noted; these are the largest legacy-parity holes
-(`objprops.txt` Subcatchment rows):
+All R1/R3 unless noted; these were the largest legacy-parity holes
+(`objprops.txt` Subcatchment rows). All now wired in BOTH the Property
+Browser (`SWMMSubcatchPropertyAdapter`) and the Attribute Table
+(`schemaForCategory(CatSubcatchments)` + `setterFor` + `commitValueDirect`):
 
-- Rain gage assignment (R3 picker over gage names).
-- Outlet assignment (picker over node + subcatchment names — needs a
-  combined-kind `DataObjectRef` or small custom editor).
+- Rain gage assignment (R3 picker over gage names). [DONE — reuses
+  `DataObjectRef::RainGage`; adapter `rainGageRef`/`setRainGageRef`,
+  table tag `subcatch_rain_gage_ref`.]
+- Outlet assignment (combined node + subcatchment picker). [DONE — new
+  `DataObjectRef::SubcatchOutlet` kind listing nodes then subcatchments;
+  the WRITE slot resolves the name to `swmm_subcatch_set_outlet` (node) or
+  `set_outlet_subcatch` (cascade), node taking precedence. Read prefers the
+  cascade outlet (`get_outlet_subcatch >= 0`) then the node.]
 - Infiltration model (R2 enum: Horton/Mod-Horton/Green-Ampt/Mod-GA/CN) +
-  per-model parameter rows with conditional visibility (pattern: outlet
-  ratingType conditional rows).
-- Land-use coverage (structured — compound dialog tab on a
-  SubcatchCompoundEditRef, mirroring NodeCompoundEditRef).
-- Groundwater linkage (aquifer picker + parameter rows; compound tab).
-- LID usage (compound tab; pairs with Phase 5 LID editor).
-- Curb length / N-Perv pattern etc. as engine accessors permit.
+  per-model parameter rows with conditional greying (mirrors the storage
+  Functional/Tabular pattern in `AttributePanel`). [DONE — required a new
+  engine setter `swmm_subcatch_set_infil_model` (see engine note below). The
+  per-row param setters read-modify-write one term and restore the model code
+  so Mod-Horton/Mod-GA aren't demoted by the canonical `set_infil_*` calls.]
+- Land-use coverage, Groundwater linkage, LID usage — all three are tabs of
+  the new `SubcatchCompoundEditDialog` (R4), opened from a
+  `SubcatchCompoundEditRef` cell (mirror of `NodeCompoundEditRef`). [DONE —
+  apply-as-you-go pages: coverage via `swmm_subcatch_get/set_coverage`;
+  groundwater via the new aquifer/gw-node/gw-params engine API; LID via the
+  newly-implemented `swmm_lid_usage_add/count/get/remove`.]
+
+Engine-API gap closure (openswmm.engine, 2026-06-18) — these accessors did
+not exist and were added (declarations + impl + GoogleTest round-trips in
+`tests/unit/engine/test_subcatch_editor_api.cpp`):
+- `swmm_subcatch_set_infil_model` (model code was read-only).
+- `swmm_subcatch_set/get_aquifer`, `set/get_gw_node`, `set/get_gw_params`
+  (no subcatch→aquifer linkage or `[GROUNDWATER]` routing param API existed;
+  values stored raw to match `HydrologyHandler::handle_groundwater`).
+- `swmm_lid_usage_add` (was a stub) now stores rows; added
+  `swmm_lid_usage_count/get/remove` over the existing `LidUsageStore` SoA.
+
+Still deferred (engine accessors absent): LID-control layer getters
+(`set_surface/soil/storage/drain` have no readback), and the
+`subcatch_landuse_ref`/etc. table cells reuse the compound no-op write path
+(the dialog performs the engine writes). Curb length / N-Perv pattern remain
+as future rows.
 
 ## 6. Phase 4 — Rain gages + data objects
 

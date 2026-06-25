@@ -1343,12 +1343,15 @@ void SWMM2DResultsLayer::refreshTimeRange()
     emit timeRangeChanged(0, std::max(0, n - 1));
     if (n <= 0) return;
 
-    // Live (streaming) sources must NOT auto-advance to the newest frame — that
-    // makes the animation "play itself" as ticks arrive. Playback is the user's
-    // to drive (slider / Play). We only seed the very first frame so the map
-    // isn't blank, then leave the cursor where the user put it.
+    // Live (streaming) source: seed the first frame so the map isn't blank, then
+    // follow the newest frame as ticks arrive so the run animates in place. The
+    // moment the user drives playback (slider / Play), follow_live_ is cleared
+    // (AnimationController::driverSetStep) so their chosen frame stays put; it
+    // re-arms when they seek back to the latest frame.
     if (source_->isLive()) {
-        if (current_time_idx_ < 0) setCurrentTimeIndex(0);
+        if (current_time_idx_ < 0) { setCurrentTimeIndex(0); return; }
+        if (follow_live_ && current_time_idx_ < n - 1)
+            setCurrentTimeIndex(n - 1);
         return;
     }
     // Non-live (e.g. a file source still being appended) keeps follow-latest.
@@ -2364,10 +2367,10 @@ SWMM2DResultsLayer::sublayerLegendItems() const
         LegendSymbolItem item;
         if (is && is->levelMode() ==
                 OpenSWMM::Render::IsolineStyle::LevelMode::FixedInterval)
-            item.label = tr("Iso-depth lines (every %1 m)")
+            item.label = tr("Depth isolines (every %1 m)")
                              .arg(is->levelInterval(), 0, 'g', 3);
         else
-            item.label = tr("Iso-depth lines (%1 levels)").arg(isolinesLevels());
+            item.label = tr("Depth isolines (%1 levels)").arg(isolinesLevels());
         item.sublayerId = m_isolineSublayer ? m_isolineSublayer->id()
                                             : QString();
         SymbolLayer sl;

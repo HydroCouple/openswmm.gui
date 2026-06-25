@@ -89,7 +89,7 @@ private slots:
         QCOMPARE(a.tag(), QStringLiteral("downtown"));
 
         // Rename via engine directly; then re-point the adapter at the
-        // new name (mirrors what AttributePanel does after a successful
+        // new name (mirrors what PropertiesPanel does after a successful
         // rename round-trip).
         const int i = swmm_subcatch_index(e, "S1");
         QVERIFY(i >= 0);

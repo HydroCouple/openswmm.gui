@@ -98,7 +98,7 @@ void MeshNodeSublayer::setOpacity(qreal o)
 QList<LegendSymbolItem> MeshNodeSublayer::legendSymbolItems() const
 {
     LegendSymbolItem item;
-    item.label      = tr("Mesh vertices");
+    item.label      = tr("Mesh Vertices");
     item.sublayerId = m_id;
 
     SymbolLayer marker;

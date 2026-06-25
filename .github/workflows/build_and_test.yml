@@ -228,21 +228,71 @@ jobs:
         with:
           arch: x64
 
-      - name: Build and install openswmm.engine (with hypre/AMG)
+      - name: Build and install openswmm.engine (Kokkos plugin + hypre/AMG)
         working-directory: ${{ github.workspace }}/openswmm.engine
         shell: bash
         run: |
           # cmake_preset (Darwin/Linux/Windows) == CMAKE_HOST_SYSTEM_NAME, which
           # is the <System> dir the GUI's OPENSWMMENGINE_INSTALL_DIR resolves to.
+          #
+          # Kokkos + hypre/AMG are the engine's defaults, but request them
+          # EXPLICITLY here so the GUI never silently links a Kokkos-free /
+          # AMG-less engine if an upstream default ever flips:
+          #   - VCPKG_MANIFEST_FEATURES "2d;gpu;hypre" pulls Kokkos +
+          #     sundials[kokkos] + hypre regardless of vcpkg default-features.
+          #   - OPENSWMM_BUILD_GPU_PLUGIN=ON builds the Kokkos-OpenMP plugin
+          #     (find_package(Kokkos REQUIRED) → configure fails if Kokkos is
+          #     missing), OPENSWMM_GPU_BACKEND=omp selects the OpenMP backend.
+          #   - OPENSWMM_WITH_HYPRE=ON wires BoomerAMG
+          #     (find_package(HYPRE REQUIRED) → configure fails if hypre is
+          #     missing). The verify step below hard-fails if the plugin binary
+          #     is absent post-install.
           cmake --preset=${{ matrix.cmake_preset }} \
             -DCMAKE_INSTALL_PREFIX="$PWD/install/${{ matrix.cmake_preset }}" \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }} \
+            -DVCPKG_MANIFEST_FEATURES="2d;gpu;hypre" \
+            -DOPENSWMM_BUILD_GPU_PLUGIN=ON \
+            -DOPENSWMM_GPU_BACKEND=omp \
+            -DOPENSWMM_WITH_HYPRE=ON \
             -DOPENSWMM_BUILD_TESTS=OFF \
             -DOPENSWMM_BUILD_UNIT_TESTS=OFF \
             -DOPENSWMM_BUILD_REGRESSION_TESTS=OFF \
             -DOPENSWMM_BUILD_BENCHMARKS=OFF
           cmake --build   build/${{ matrix.build_subdir }} --config Release
           cmake --install build/${{ matrix.build_subdir }} --config Release
+
+      # Gate: fail the build if the Kokkos GPU plugin did not get built+installed
+      # (the silent stale/Kokkos-free-bundle class of regression). The plugin is
+      # what the GUI bundles for the `auto`/OpenMP 2D backend; a missing binary
+      # means Kokkos support regressed even though configure succeeded.
+      - name: Verify engine ships Kokkos plugin + hypre/AMG
+        working-directory: ${{ github.workspace }}/openswmm.engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          INST="install/${{ matrix.cmake_preset }}"
+          # Plugin lands in lib/ on macOS/Linux, bin/ on Windows.
+          PLUGIN=$(find "$INST/lib" "$INST/bin" \
+                     \( -name 'libopenswmm_gpu_omp.*' -o -name 'openswmm_gpu_omp.*' \) \
+                     2>/dev/null | head -1 || true)
+          if [ -z "$PLUGIN" ]; then
+            echo "::error::Kokkos GPU plugin (openswmm_gpu_omp) missing from $INST — Kokkos default regressed"
+            find "$INST" -maxdepth 2 -type f | sort
+            exit 1
+          fi
+          echo "Kokkos plugin installed: $PLUGIN"
+          # Best-effort linkage/symbol echo (hypre is statically linked; symbol
+          # visibility differs per platform, so this is informational only —
+          # the AMG gate is the REQUIRED find_package(HYPRE) at configure time).
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            otool -L "$PLUGIN" | grep -iE 'omp|accelerate' || true
+            ENGINE=$(find "$INST/lib" -name 'libopenswmm.engine.*.dylib' | head -1 || true)
+            [ -n "$ENGINE" ] && echo "hypre symbols in engine: $(nm "$ENGINE" 2>/dev/null | grep -ic hypre || echo 0)"
+          elif [ "${{ runner.os }}" = "Linux" ]; then
+            ldd "$PLUGIN" 2>/dev/null | grep -iE 'gomp|omp' || true
+            ENGINE=$(find "$INST/lib" -name 'libopenswmm.engine.so*' | head -1 || true)
+            [ -n "$ENGINE" ] && echo "hypre symbols in engine: $(nm -D "$ENGINE" 2>/dev/null | grep -ic hypre || echo 0)"
+          fi
 
       # ── Build ────────────────────────────────────────────────────────────────
       - name: Configure

@@ -471,7 +471,36 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                         m_bandCacheTris  = size_t(nTri);
                         m_bandCacheRev   = schemeRev;
                     }
-                    bandVerts.reserve(m_cachedBands.size() * 9);
+                    // Per-cell base fill UNDER the smooth bands: guarantees
+                    // every wet cell is filled even where the smooth (per-vertex)
+                    // pass clips a partially-wet cell short at the shoreline, or
+                    // would otherwise leave a hole. Same bucketing/palette as the
+                    // flat path below, so the backstop colour matches the band
+                    // exactly — seamless, never a transparent hole. Pushed first,
+                    // so it lands beneath the smooth polygons. Intentionally NOT
+                    // cached (m_cachedBands holds only the smooth geometry): this
+                    // pass tracks the live per-cell depth t.depth every frame.
+                    bandVerts.reserve(size_t(nTri) * 3 + m_cachedBands.size() * 9);
+                    for (int i = 0; i < nTri; ++i) {
+                        const auto &t = tris[i];
+                        if (t.depth < bandLo) continue;
+                        int idx = int(std::upper_bound(
+                                          levels.begin() + 1, levels.end() - 1,
+                                          double(t.depth))
+                                      - (levels.begin() + 1));
+                        idx = std::clamp(idx, 0, bandCount - 1);
+                        const QColor col = bandColor(idx);
+                        const quint8 r = quint8(col.red());
+                        const quint8 g = quint8(col.green());
+                        const quint8 b = quint8(col.blue());
+                        const quint8 a = quint8(col.alpha());
+                        for (const QPointF *pt : {&t.a, &t.b, &t.c}) {
+                            QSGGeometry::ColoredPoint2D v;
+                            v.set(float(pt->x() - ox), float(pt->y() - oy),
+                                  r, g, b, a);
+                            bandVerts.push_back(v);
+                        }
+                    }
                     for (const auto &bp : m_cachedBands) {
                         if (bp.verts.size() < 3) continue;
                         const QColor col = bandColor(

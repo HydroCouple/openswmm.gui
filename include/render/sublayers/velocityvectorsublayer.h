@@ -151,7 +151,7 @@ public:
 
     Kind    kind() const override        { return VectorGlyphKind; }
     QString id() const override          { return m_id; }
-    QString displayName() const override { return tr("Velocity vectors"); }
+    QString displayName() const override { return tr("Flow Velocity"); }
 
     bool  isVisible() const override     { return m_visible; }
     void  setVisible(bool v) override;

@@ -1,10 +1,10 @@
 {
     "canvas": {
         "extent": [
-            -40,
-            -235.97925564368518,
-            1040,
-            335.9792556436852
+            288.4115979639918,
+            -69.68066446795552,
+            864.3274965815024,
+            235.31933553204397
         ]
     },
     "schemaVersion": 4,
@@ -283,8 +283,8 @@
                 "explicitWidth": 0,
                 "frameColor": "#b4505050",
                 "frameWidth": 1,
-                "freeX": 897,
-                "freeY": 271,
+                "freeX": 13,
+                "freeY": 12,
                 "gradientEndColor": "#e1f0f0f0",
                 "gradientOrientation": "Vertical",
                 "itemColor": "#ff141414",

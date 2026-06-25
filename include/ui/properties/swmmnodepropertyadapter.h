@@ -152,7 +152,7 @@ public:
     // shared union `outfall_param` slot, so switching outfall type is
     // destructive of the prior-type's assignment — getters return 0 /
     // empty when the current outfall type doesn't match what the property
-    // means. AttributePanel greys out the inapplicable rows via
+    // means. PropertiesPanel greys out the inapplicable rows via
     // `setRowEditable` to reinforce this visually.
     [[nodiscard]] double         outfallStage()            const;
     [[nodiscard]] DataObjectRef  outfallTidalCurveRef()    const;
@@ -216,7 +216,7 @@ public slots:
     // type to the matching kind (FIXED / TIDAL / TIMESERIES) — that's a
     // deliberate engine invariant. So calling setOutfallStage()
     // implicitly switches the outfall to FIXED. The setRowEditable
-    // wiring in AttributePanel re-runs on every `changed()` and updates
+    // wiring in PropertiesPanel re-runs on every `changed()` and updates
     // which row is enabled accordingly.
     void setOutfallStage(double v);
     void setOutfallTidalCurveRef(const DataObjectRef &r);
@@ -243,7 +243,7 @@ public slots:
      *  engine, so values stay authoritative). */
     void refresh() { emit changed(); }
 
-    /*! Called by AttributePanel after applyRename() succeeds so the
+    /*! Called by PropertiesPanel after applyRename() succeeds so the
      *  adapter's stored name matches the engine's new name. */
     void updateStoredName(const QString &newName) { m_name = newName; }
 
@@ -260,7 +260,7 @@ public slots:
     //                   accessor (returns 0 until engine API QA-01 lands
     //                   — see swmmresultslayer.cpp QA.3 comment).
     //
-    // setStatsRegistry is called once by AttributePanel when the adapter
+    // setStatsRegistry is called once by PropertiesPanel when the adapter
     // is first wired up; setStatsSource is called from the combo's
     // currentIndexChanged slot every time the user picks a different
     // source. Either may be called with nullptr / null UUID to revert
@@ -348,7 +348,7 @@ class SWMMOutfallPropertyAdapter : public SWMMNodePropertyAdapter
     // Q_ENUM in every subclass.
     Q_PROPERTY(SWMMNodePropertyAdapter::OutfallType outfallType
                READ outfallType WRITE setOutfallType NOTIFY changed)
-    // Slice DA.4.3 — stage-data per-type rows. AttributePanel toggles
+    // Slice DA.4.3 — stage-data per-type rows. PropertiesPanel toggles
     // their `isEditable` flag based on the live `outfallType` so the
     // user can only edit the row that matches the current type.
     Q_PROPERTY(double         outfallStage
@@ -398,7 +398,7 @@ class SWMMStoragePropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double surchargeDepth  READ surchargeDepth  WRITE setSurchargeDepth  NOTIFY changed)
     Q_PROPERTY(double seepRate        READ seepRate        WRITE setSeepRate        NOTIFY changed)
     // Slice AG.4 — storage geometry. The Shape combobox switches between the
-    // functional power-law form and a tabular depth–area curve. AttributePanel
+    // functional power-law form and a tabular depth–area curve. PropertiesPanel
     // greys out the inapplicable rows (curve vs. coefficients) based on the
     // live shape, mirroring the outfall stage-data wiring.
     Q_PROPERTY(SWMMNodePropertyAdapter::StorageShape storageShape

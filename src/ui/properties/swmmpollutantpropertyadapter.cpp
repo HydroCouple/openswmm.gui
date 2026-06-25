@@ -38,7 +38,14 @@ ctype SWMMPollutantPropertyAdapter::method() const {   \
     engineGet(m_engine, i, &v);                        \
     return v;                                          \
 }
-G(units,    swmm_pollutant_get_units,     int,    0)
+SWMMPollutantPropertyAdapter::Units SWMMPollutantPropertyAdapter::units() const
+{
+    const int i = idx();
+    if (i < 0) return MgPerL;
+    int v = 0;
+    swmm_pollutant_get_units(m_engine, i, &v);
+    return static_cast<Units>(v);
+}
 G(rainConc, swmm_pollutant_get_rain_conc, double, 0.0)
 G(gwConc,   swmm_pollutant_get_gw_conc,   double, 0.0)
 G(initConc, swmm_pollutant_get_init_conc, double, 0.0)

@@ -323,7 +323,28 @@ marchingTrianglesIsobands(const TriRange         &tris,
 
         const double vMin = std::min({v0, v1, v2});
         const double vMax = std::max({v0, v1, v2});
-        if (!(vMax > vMin)) continue;   // degenerate triangle
+        if (!(vMax > vMin)) {
+            // Uniform-value triangle: fill it entirely with the band that
+            // contains that value. Skipping is correct for isolines (no line
+            // crosses a flat triangle) but WRONG for filled bands — it would
+            // leave a hole wherever the field is locally flat (e.g. ponded
+            // water reads one depth across the cell). Band selection mirrors
+            // the renderer's per-cell bucketing: upper_bound over the interior
+            // breaks, clamped so values at/below the first level land in band 0
+            // and values at/above the last level land in the last band.
+            const int nb = int(levels.size()) - 1;   // number of bands (>= 1)
+            int k = int(std::upper_bound(levels.begin() + 1, levels.end() - 1,
+                                         vMin)
+                        - (levels.begin() + 1));
+            k = std::clamp(k, 0, nb - 1);
+            IsoBandPolygon bp;
+            bp.verts     = {p0, p1, p2};
+            bp.bandLo    = levels[size_t(k)];
+            bp.bandHi    = levels[size_t(k) + 1];
+            bp.bandIndex = k;
+            out.push_back(std::move(bp));
+            continue;
+        }
 
         for (size_t k = 0; k + 1 < levels.size(); ++k) {
             const double L1 = levels[k];

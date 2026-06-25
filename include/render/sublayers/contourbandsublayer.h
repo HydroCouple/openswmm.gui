@@ -115,7 +115,7 @@ public:
 
     Kind    kind() const override        { return ContourBandKind; }
     QString id() const override          { return m_id; }
-    QString displayName() const override { return tr("Contour bands"); }
+    QString displayName() const override { return tr("Depth Contours"); }
 
     bool  isVisible() const override     { return m_visible; }
     void  setVisible(bool v) override;

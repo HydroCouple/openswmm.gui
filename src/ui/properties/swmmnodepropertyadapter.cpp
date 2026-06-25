@@ -303,7 +303,7 @@ void SWMMNodePropertyAdapter::setXCoord(double v) {
     double cx = 0.0, cy = 0.0;
     swmm_spatial_get_node_coord(m_engine, idx, &cx, &cy);
     if (v == cx) return;
-    // Defer the write to AttributePanel → SWMMModelLayer::applyNodeMove so
+    // Defer the write to PropertiesPanel → SWMMModelLayer::applyNodeMove so
     // the cached scene coords + attached-link bboxes refresh in lockstep
     // with the engine. A bare `swmm_spatial_set_node_coord` here would let
     // the canvas drift until the next full geometry rebuild.
@@ -463,7 +463,7 @@ UserFlagsEditRef SWMMNodePropertyAdapter::userFlagsRef() const {
 // single union slot (outfall_param) keyed by the current outfall_type.
 // Getters return 0 / empty when the live type doesn't match the property
 // they belong to, so the picker / spinbox naturally shows "unassigned"
-// for inapplicable rows. AttributePanel additionally greys those rows
+// for inapplicable rows. PropertiesPanel additionally greys those rows
 // out via setRowEditable so the user sees they don't apply.
 
 double SWMMNodePropertyAdapter::outfallStage() const {
