@@ -1430,6 +1430,40 @@ if(APPLE)
     if(DEFINED CODESIGN_IDENTITY AND NOT "${CODESIGN_IDENTITY}" STREQUAL "")
         set(_codesign_identity "${CODESIGN_IDENTITY}")
     endif()
+    # Bundle the legacy-engine worker executable (openswmm-legacy-worker). The
+    # GUI launches it as a subprocess for isolated legacy (EPA-SWMM) runs — see
+    # findLegacyWorker() in src/simulation/simulationrunner.cpp, which looks for
+    # it beside the app executable first. It is NOT a link-time dependency of
+    # SWMMVis, so no deploy tool copies it. Place it in Contents/MacOS next to
+    # SWMMVis. The worker links the legacy engine dylib (which in turn needs
+    # libomp) via @rpath; co-locate that dylib in Contents/Frameworks (where
+    # libomp already lands above) and add a matching @loader_path/../Frameworks
+    # rpath to the worker. copy (not copy_if_different) keeps the worker pristine
+    # each build so the add_rpath never duplicates an existing entry. The .6
+    # tracks the engine major version (SONAME libopenswmm.legacy.engine.6.dylib).
+    # The worker is code-signed here and again by the deep bundle sign below.
+    set(_swmmvis_macos "$<TARGET_BUNDLE_DIR:SWMMVis>/Contents/MacOS")
+    set(_legacy_worker "${OPENSWMMENGINE_INSTALL_DIR}/bin/openswmm-legacy-worker")
+    if(EXISTS "${_legacy_worker}")
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy
+                    "${_legacy_worker}" "${_swmmvis_macos}/"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${OPENSWMMENGINE_INSTALL_DIR}/lib/libopenswmm.legacy.engine.6.dylib"
+                    "${_swmmvis_frameworks}/"
+            COMMAND install_name_tool -add_rpath "@loader_path/../Frameworks"
+                    "${_swmmvis_macos}/openswmm-legacy-worker"
+            COMMAND codesign --force --sign "${_codesign_identity}"
+                    "${_swmmvis_macos}/openswmm-legacy-worker"
+            COMMENT "Bundle legacy-engine worker + legacy dylib into SWMMVis.app"
+            VERBATIM
+        )
+    else()
+        message(WARNING
+            "openswmm-legacy-worker not found at ${_legacy_worker} — the GUI's "
+            "legacy (EPA-SWMM) engine option will fail to start a worker process.")
+    endif()
+
     add_custom_command(TARGET SWMMVis POST_BUILD
         COMMAND codesign --force --sign "${_codesign_identity}" --deep
                 "$<TARGET_BUNDLE_DIR:SWMMVis>"
@@ -1542,6 +1576,31 @@ elseif(WIN32)
             "the engine falls back to the serial CVODE+AMG solver.")
     endif()
 
+    # Legacy-engine worker executable: launched as a subprocess by the GUI for
+    # isolated legacy (EPA-SWMM) runs. Not a link-time dep of SWMMVis, so copy it
+    # and the legacy engine DLL it loads next to the exe (libomp is deployed with
+    # the engine above) — where findLegacyWorker() and the Windows DLL loader
+    # both look first.
+    set(_legacy_worker "${OPENSWMMENGINE_INSTALL_DIR}/bin/openswmm-legacy-worker.exe")
+    if(EXISTS "${_legacy_worker}")
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_legacy_worker}"
+                    "$<TARGET_FILE:OpenSWMMEngine::openswmm_legacy_engine>"
+                    "$<TARGET_FILE_DIR:SWMMVis>/"
+            COMMENT "Bundle legacy-engine worker + legacy DLL alongside SWMMVis.exe"
+            VERBATIM
+        )
+        install(PROGRAMS "${_legacy_worker}"
+            DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime)
+        install(IMPORTED_RUNTIME_ARTIFACTS OpenSWMMEngine::openswmm_legacy_engine
+                RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    else()
+        message(WARNING
+            "openswmm-legacy-worker.exe not found at ${_legacy_worker} — the GUI's "
+            "legacy (EPA-SWMM) engine option will fail to start a worker process.")
+    endif()
+
     install(TARGETS SWMMVis     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     # openswmm_engine is now a prebuilt IMPORTED target (find_package), so it
     # cannot be install(TARGETS)'d — install its runtime artifact (the DLL).
@@ -1636,6 +1695,28 @@ else()
             "the engine falls back to the serial CVODE+AMG solver.")
     endif()
 
+    # Legacy-engine worker executable (subprocess for isolated legacy (EPA-SWMM)
+    # runs). Not a link-time dep of SWMMVis, so copy it and the legacy engine .so
+    # it loads next to the exe (libgomp is handled by linuxdeploy/AppImage, as for
+    # the GPU plugin). findLegacyWorker() looks beside the binary, and the
+    # worker's $ORIGIN RUNPATH resolves the co-located .so in the build tree
+    # ($ORIGIN/../lib → LIBDIR in the install tree).
+    set(_legacy_worker "${OPENSWMMENGINE_INSTALL_DIR}/bin/openswmm-legacy-worker")
+    if(EXISTS "${_legacy_worker}")
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_legacy_worker}"
+                    "$<TARGET_FILE:OpenSWMMEngine::openswmm_legacy_engine>"
+                    "$<TARGET_FILE_DIR:SWMMVis>/"
+            COMMENT "Bundle legacy-engine worker + legacy .so alongside SWMMVis"
+            VERBATIM
+        )
+    else()
+        message(WARNING
+            "openswmm-legacy-worker not found at ${_legacy_worker} — the GUI's "
+            "legacy (EPA-SWMM) engine option will fail to start a worker process.")
+    endif()
+
     set_target_properties(SWMMVis PROPERTIES
         BUILD_RPATH   "$ORIGIN"
         INSTALL_RPATH "$ORIGIN"
@@ -1693,6 +1774,14 @@ else()
     # cannot be install(TARGETS)'d — install its runtime artifact (the .so).
     install(IMPORTED_RUNTIME_ARTIFACTS OpenSWMMEngine::openswmm_engine
             LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    # Legacy worker → BINDIR (beside SWMMVis for findLegacyWorker); legacy .so →
+    # LIBDIR (beside the engine .so, resolved via the worker's $ORIGIN/../lib).
+    if(EXISTS "${_legacy_worker}")
+        install(PROGRAMS "${_legacy_worker}"
+                DESTINATION ${CMAKE_INSTALL_BINDIR})
+        install(IMPORTED_RUNTIME_ARTIFACTS OpenSWMMEngine::openswmm_legacy_engine
+                LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    endif()
 endif()
 
 if(QT_VERSION_MAJOR EQUAL 6)

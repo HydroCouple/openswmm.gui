@@ -281,6 +281,19 @@ jobs:
             exit 1
           fi
           echo "Kokkos plugin installed: $PLUGIN"
+          # The GUI launches the legacy (EPA-SWMM) engine via a subprocess worker
+          # (openswmm-legacy-worker) which the GUI's CMake bundles next to the app.
+          # Fail early if the engine didn't ship it, otherwise the legacy run
+          # option fails at runtime with "Failed to start legacy worker".
+          WORKER=$(find "$INST/bin" \
+                     \( -name 'openswmm-legacy-worker' -o -name 'openswmm-legacy-worker.exe' \) \
+                     2>/dev/null | head -1 || true)
+          if [ -z "$WORKER" ]; then
+            echo "::error::Legacy worker (openswmm-legacy-worker) missing from $INST/bin"
+            find "$INST" -maxdepth 2 -type f | sort
+            exit 1
+          fi
+          echo "Legacy worker installed: $WORKER"
           # Best-effort linkage/symbol echo (hypre is statically linked; symbol
           # visibility differs per platform, so this is informational only —
           # the AMG gate is the REQUIRED find_package(HYPRE) at configure time).
@@ -342,6 +355,33 @@ jobs:
       # dist/<subdir>/ — windeployqt / macdeployqt install(CODE) runs here too.
       - name: Install
         run: cmake --install build/${{ matrix.build_subdir }} --prefix ${{ github.workspace }}/dist/${{ matrix.build_subdir }}
+
+      # Gate: the GUI must ship the legacy-engine worker so the legacy (EPA-SWMM)
+      # run option works in the installed/packaged app. Fail if it is absent from
+      # the install tree (the "Failed to start legacy worker" runtime class).
+      - name: Verify GUI bundles the legacy worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIST="dist/${{ matrix.build_subdir }}"
+          WORKER=$(find "$DIST" \
+                     \( -name 'openswmm-legacy-worker' -o -name 'openswmm-legacy-worker.exe' \) \
+                     2>/dev/null | head -1 || true)
+          if [ -z "$WORKER" ]; then
+            echo "::error::Legacy worker not bundled into installed GUI tree ($DIST)"
+            find "$DIST" -maxdepth 3 -type f | sort
+            exit 1
+          fi
+          echo "Legacy worker bundled in GUI: $WORKER"
+          # macOS: the worker loads the legacy engine dylib from Contents/Frameworks.
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            LEG=$(find "$DIST" -name 'libopenswmm.legacy.engine.*.dylib' 2>/dev/null | head -1 || true)
+            if [ -z "$LEG" ]; then
+              echo "::error::legacy engine dylib missing from app bundle ($DIST)"
+              exit 1
+            fi
+            echo "Legacy dylib bundled: $LEG"
+          fi
 
       # ── Package (CPack) ───────────────────────────────────────────────────
       # CPack reads the install tree and produces a platform-appropriate archive
