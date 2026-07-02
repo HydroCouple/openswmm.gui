@@ -136,7 +136,9 @@ QString parseSection(const QString &sectionName,
 
     // [2D_VERTEX_NODE_MAP] — VERTEX NODE [CD AREA]. The engine's authoritative
     // 1D<->2D coupling, distinct from the [2D_VERTICES] TAG column. Lands on
-    // MeshVertex::coupledNode (the descriptive tag keeps its own field).
+    // MeshVertex::coupledNode (the descriptive tag keeps its own field); the
+    // optional CD / AREA columns land on couplingCd / couplingArea, keeping
+    // the engine defaults (0.65 / 1.0 m²) when omitted.
     if (sectionName.compare(QLatin1String(kSecVertexNodeMap),
                             Qt::CaseInsensitive) == 0)
     {
@@ -148,6 +150,16 @@ QString parseSection(const QString &sectionName,
             const int v = tok[0].toInt(&okv);
             if (!okv || v < 0 || v >= out.vertices.size()) continue;
             out.vertices[v].coupledNode = tok[1];
+            if (tok.size() >= 3) {
+                bool okc = false;
+                const double cd = tok[2].toDouble(&okc);
+                if (okc) out.vertices[v].couplingCd = cd;
+            }
+            if (tok.size() >= 4) {
+                bool oka = false;
+                const double a = tok[3].toDouble(&oka);
+                if (oka) out.vertices[v].couplingArea = a;
+            }
         }
         return {};
     }

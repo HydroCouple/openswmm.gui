@@ -256,8 +256,20 @@ public:
     bool applyMeshVertexTag(int vertexIdx, const QString &tag);
 
     /*! \brief Set the vertex's coupled SWMM node ([2D_VERTEX_NODE_MAP]).
-     *  Drives the coupled-vertex glyph. Emits attributeChanged. */
+     *  Drives the coupled-vertex glyph. Clearing the coupling resets the
+     *  coupling Cd/Area to the engine defaults (0.65 / 1.0 m²). Emits
+     *  attributeChanged. */
     bool applyMeshVertexCoupledNode(int vertexIdx, const QString &node);
+
+    /*! \brief Set the vertex's coupling discharge coefficient
+     *  ([2D_VERTEX_NODE_MAP] CD column). Rejects uncoupled vertices and
+     *  non-positive values. Emits attributeChanged. */
+    bool applyMeshVertexCouplingCd(int vertexIdx, double cd);
+
+    /*! \brief Set the vertex's coupling exchange area in m²
+     *  ([2D_VERTEX_NODE_MAP] AREA column). Rejects uncoupled vertices and
+     *  non-positive values. Emits attributeChanged. */
+    bool applyMeshVertexCouplingArea(int vertexIdx, double area);
 
     /*! \brief Set a triangle's Manning's roughness. Emits attributeChanged
      *  with the cell ref name. */

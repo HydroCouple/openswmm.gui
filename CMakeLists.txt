@@ -459,6 +459,7 @@ set(
         include/mesh/dtmthinner.h
         include/mesh/inpmeshreader.h
         include/mesh/inpmeshwriter.h
+        include/mesh/meshautocouple.h
         include/mesh/meshbctype.h
         include/mesh/meshenginesync.h
         include/mesh/meshedgebc.h
@@ -985,6 +986,7 @@ set(
         src/mesh/dtmthinner.cpp
         src/mesh/inpmeshreader.cpp
         src/mesh/inpmeshwriter.cpp
+        src/mesh/meshautocouple.cpp
         src/mesh/meshbctype.cpp
         src/mesh/meshenginesync.cpp
         src/mesh/meshgenerator.cpp

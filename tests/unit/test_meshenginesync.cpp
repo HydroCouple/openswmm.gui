@@ -68,9 +68,14 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
     ASSERT_GT(meshState.vertices.size(), 4);
     EXPECT_EQ(meshState.vertices[4].coupledNode, QStringLiteral("J1"))
         << "[2D_VERTEX_NODE_MAP] coupling not read onto coupledNode";
+    // The optional CD / AREA columns land on couplingCd / couplingArea.
+    EXPECT_DOUBLE_EQ(meshState.vertices[4].couplingCd,   0.65);
+    EXPECT_DOUBLE_EQ(meshState.vertices[4].couplingArea, 2.0);
 
     // ---- Open the engine on the same model -------------------------------
-    SWMM_Engine e = swmm_engine_new();
+    // swmm_engine_create, NOT swmm_engine_new: _new opens a programmatic
+    // model-BUILDING session, which swmm_engine_open rejects (lifecycle).
+    SWMM_Engine e = swmm_engine_create();
     ASSERT_NE(e, nullptr);
     ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(),
                                "mesh_sync_fixture.rpt", "mesh_sync_fixture.out",
@@ -92,6 +97,7 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
     ASSERT_GT(meshState.triangles.size(), 7);
     meshState.vertices[0].z           = kZ;
     meshState.vertices[0].coupledNode = QStringLiteral("J1");      // new coupling
+    meshState.vertices[4].couplingCd  = 0.9;                       // toolbar Cd edit
     meshState.vertices[1].tag         = QStringLiteral("VTAG1");   // descriptive tag
     meshState.triangles[0].mannings   = kN;                        // roughness edit
     meshState.triangles[0].tag        = QStringLiteral("REGION_X");// triangle tag
@@ -135,17 +141,29 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
         int end = text.indexOf(QStringLiteral("\n["), sec + 1);
         if (end < 0) end = text.size();
         const QString block = text.mid(sec, end - sec);
-        bool v0Coupled = false;
+        bool v0Coupled = false, v4CdArea = false, v0Defaults = false;
         for (const QString &line : block.split('\n')) {
             const QString t = line.trimmed();
             if (t.startsWith(QStringLiteral(";;")) || t.isEmpty()) continue;
             const QStringList tok = t.split(QRegularExpression(QStringLiteral("\\s+")),
                                             Qt::SkipEmptyParts);
             if (tok.size() >= 2 && tok[0] == QStringLiteral("0")
-                && tok[1] == QStringLiteral("J1"))
+                && tok[1] == QStringLiteral("J1")) {
                 v0Coupled = true;
+                // A freshly coupled vertex is pushed with the defaults.
+                if (tok.size() >= 4 && tok[2].toDouble() == 0.65
+                    && tok[3].toDouble() == 1.0)
+                    v0Defaults = true;
+            }
+            // The toolbar's Cd edit persisted; the fixture AREA survived.
+            if (tok.size() >= 4 && tok[0] == QStringLiteral("4")
+                && tok[1] == QStringLiteral("J1")
+                && tok[2].toDouble() == 0.9 && tok[3].toDouble() == 2.0)
+                v4CdArea = true;
         }
-        EXPECT_TRUE(v0Coupled) << "edited vertex coupling not persisted";
+        EXPECT_TRUE(v0Coupled)  << "edited vertex coupling not persisted";
+        EXPECT_TRUE(v0Defaults) << "fresh coupling did not carry default Cd/Area";
+        EXPECT_TRUE(v4CdArea)   << "edited coupling Cd (or fixture AREA) not persisted";
     }
 
     // ---- Assert no regression on data the GUI model does not carry -------
@@ -170,7 +188,9 @@ TEST(MeshEngineSync, EditsPersistInOpenedState)
     mesh::MeshResult         meshState = rr.mesh;
     QVector<mesh::MeshEdgeBC> bcs      = rr.edgeBCs;
 
-    SWMM_Engine e = swmm_engine_new();
+    // swmm_engine_create, NOT swmm_engine_new: _new opens a programmatic
+    // model-BUILDING session, which swmm_engine_open rejects (lifecycle).
+    SWMM_Engine e = swmm_engine_create();
     ASSERT_NE(e, nullptr);
     ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(),
                                "mesh_sync_opened.rpt", "mesh_sync_opened.out",

@@ -188,6 +188,14 @@ add_swmmvis_unit_test(test_meshinpbcroundtrip
     ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
 )
 
+# Coincident-node matching behind the mesh toolbar's Auto-couple action.
+# Pure functions over MeshResult — no layer / widget / engine deps.
+add_swmmvis_unit_test(test_meshautocouple
+    test_meshautocouple.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshautocouple.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshautocouple.cpp
+)
+
 # Mesh-edit persistence — layer edits pushed into the engine survive the
 # .inp write (vertex Z / conveyance / BC), with Manning's n + coupling kept.
 # Needs the real engine, so it is only built when the engine target exists.
