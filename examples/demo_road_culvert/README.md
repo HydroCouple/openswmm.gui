@@ -14,11 +14,11 @@ Open `road_culvert.oswp` in the GUI and animate `road_culvert.2d.h5`.
 |---|---|
 | Domain | 1000 m (X, along-channel) × 100 m (Y, cross) |
 | Terrain | **Flat**, z = 1.0 m everywhere (zero slope) |
-| Roadway | Transverse embankment 0.5 m high at X = 500, full width |
+| Roadway | Transverse embankment 0.5 m high at X = 500 ± 5 m (cell-wide plateau so the crest truly blocks to 1.5 m), full width |
 | Mesh | 5 m cells (201 × 21 vertices, 8000 triangles), **alternating diagonal** |
 | Culvert | 0.15 m circular, Y = 50, X = 250→750, **crown at grade** (invert one diameter below) |
 | Coupling | 4 nodes: ends J_P00 / J_P50 + road flanks J_P24 / J_P26 |
-| Rainfall | SCS Type II 24-h, 100 mm, broadcast uniformly to every 2D cell |
+| Rainfall | SCS Type II 24-h, 900 mm, broadcast uniformly to every 2D cell (sized to overtop the road) |
 | Outflow | NORMAL_FLOW on the X = 1000 edge (nonzero outlet slope so the flat basin drains) |
 
 The pipe **crown sits at the ground surface** (invert one diameter, 0.15 m, below
@@ -29,22 +29,29 @@ the barrel as soon as it reaches grade, and a surcharged pipe spills back onto t
 mesh.
 
 > **Why crown-at-grade, not invert-at-grade?** A literal invert-at-surface
-> (`PIPE_BURIAL = 0`) puts `z_top` a full diameter *above* grade; on this flat
-> terrain the ~0.1 m pond never reaches it and the culvert stays **inert** (0 flow).
-> Crown-at-grade drops the gate to the surface so the culvert engages. Set
-> `PIPE_BURIAL = 0` in `generate_model.py` to reproduce the inert case.
+> (`PIPE_BURIAL = 0`) puts `z_top` a full diameter *above* grade; at the
+> original 100 mm rainfall the ~0.1 m pond never reached it and the culvert
+> stayed **inert** (0 flow). Crown-at-grade drops the gate to the surface so
+> the culvert engages. Set `PIPE_BURIAL = 0` in `generate_model.py` to
+> reproduce the inert case.
 
 **Behavior on flat terrain.** Rain ponds **symmetrically across Y** (the
 alternating-mesh fix below — no north/south bias), water sheet-flows east to the
 NORMAL_FLOW outlet, and the culvert engages and fills once ponding reaches grade.
-Because the terrain is **truly flat (zero slope)**, both sides of the road pond
-equally, so there is **no driving head** across the road — the culvert
-*equilibrates* the two sides rather than carrying large net through-flow. The 2D
-mass balance closes tightly (≈ 0%); the 1D routing continuity reads a few-percent
-"error" that is a divide-by-near-zero artifact on the small pipe-fill volume (the
-pipe is a coupled dead end with no 1D outfall). **For visible net through-flow**
-add a gentle longitudinal slope (set `SLOPE = 0.001`) so water collects upstream
-and drives flow through the culvert, and/or a downstream 1D outfall.
+The upstream half is walled on three sides with only the tiny culvert as an
+outlet, so the pond tracks the accumulated rainfall almost directly. At the
+900 mm depth the upstream water surface reaches the **1.5 m road crest at the
+SCS Type II peak (hour ~12) and the road overtops for the rest of the run**,
+sheeting up to ~8 cm deep across the crest onto the lee side (the original
+100 mm event only ever ponded ~0.10 m and the road acted as a pure dam). The road must be a cell-wide plateau for this to work: a
+single raised vertex column leaves the flanking cell beds at ~1.17 m and the
+dam leaks numerically from that much lower effective crest, so it can never
+hold the nominal 0.5 m head. Before overtopping the culvert *equilibrates* the two
+sides rather than carrying large net through-flow — with zero terrain slope the
+early-storm driving head across the road is small. The 2D mass balance closes
+tightly (≈ 0%); the 1D routing continuity reads a few-percent "error" that is a
+divide-by-near-zero artifact on the small pipe-fill volume (the pipe is a
+coupled dead end with no 1D outfall).
 
 ## Why the legacy demo pooled water on the north edge
 
@@ -79,9 +86,15 @@ python3 _validate_mesh.py         # structural checks (counts, diagonal, BC edge
 <openswmm-cli> road_culvert.inp   # writes road_culvert.{out,rpt,2d.h5}
 ```
 
-The 5 m / full-domain run is multi-hour (≈4× the cells of the 10 m legacy demo).
-`generate_model.py` exposes `DX`/`DY` (raise for a faster, coarser run) and the
+The 5 m / full-domain run takes ~35 min (Apple Silicon, serial CVODE): the
+storm's flooded phase integrates at ~30 ms implicit steps, which dominates the
+wall time. `generate_model.py` exposes `DX`/`DY` (raise for a faster, coarser
+run — keep `ROAD_HALF_WIDTH >= DX` so the crest stays cell-wide) and the
 flat-terrain / alternating-diagonal / at-grade-culvert parameters at the top.
+`[2D_OPTIONS] COUPLING_WINDOW` and `MAX_CVODE_STEPS` matter: the window must be
+large enough to amortize CVODE restarts, and the step budget large enough that
+windows COMPLETE — a failed window freezes the 2D surface and drops that
+window's rainfall (a 60-step budget silently lost ~half this storm).
 
 ## Files
 
