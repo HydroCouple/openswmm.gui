@@ -27,6 +27,8 @@ struct MeshVertex
     int     marker  = 0;   ///< Triangle's input/output point marker (carries our tag id).
     QString tag;           ///< Descriptive label ([2D_VERTICES] TAG column); empty if none.
     QString coupledNode;   ///< Coupled SWMM node id ([2D_VERTEX_NODE_MAP]); empty if uncoupled.
+    double  couplingCd   = 0.65; ///< [2D_VERTEX_NODE_MAP] CD column (engine default).
+    double  couplingArea = 1.0;  ///< [2D_VERTEX_NODE_MAP] AREA column, m² (engine default).
 };
 
 /*! \brief A triangle in the generated mesh, indices into \ref MeshResult::vertices. */

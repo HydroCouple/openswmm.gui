@@ -78,6 +78,39 @@ private slots:
         QVERIFY(text.contains("0.0250") || text.contains("0.025"));
     }
 
+    void buildSectionText_vertexMapCarriesCdArea()
+    {
+        MeshResult m = sampleMesh();
+        m.vertices[1].couplingCd   = 0.7;
+        m.vertices[1].couplingArea = 2.0;
+        const QString text = InpMeshWriter::buildSectionText(m, sampleCoupling());
+
+        // Extract the vertex-node-map block.
+        const int sec = text.indexOf("[2D_VERTEX_NODE_MAP]");
+        QVERIFY(sec >= 0);
+        int end = text.indexOf("\n[", sec + 1);
+        if (end < 0) end = text.size();
+        const QString block = text.mid(sec, end - sec);
+
+        bool v1HasCdArea = false, v0HasDefaults = false;
+        const QStringList lines = block.split('\n');
+        for (const QString &line : lines) {
+            const QString t = line.trimmed();
+            if (t.isEmpty() || t.startsWith(";;") || t.startsWith('[')) continue;
+            const QStringList tok =
+                t.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+            if (tok.size() < 4) continue;
+            if (tok[1] == "J2" && tok[2].toDouble() == 0.7
+                && tok[3].toDouble() == 2.0)
+                v1HasCdArea = true;
+            if (tok[1] == "J1" && tok[2].toDouble() == 0.65
+                && tok[3].toDouble() == 1.0)
+                v0HasDefaults = true;
+        }
+        QVERIFY2(v1HasCdArea, qPrintable(block));
+        QVERIFY2(v0HasDefaults, qPrintable(block));
+    }
+
     void buildSectionText_emptyVertexMap_omitsSection()
     {
         CouplingMap c;  // no entries at all

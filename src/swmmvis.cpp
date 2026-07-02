@@ -140,6 +140,7 @@
 #include <openswmm/engine/openswmm_2d.h>
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_nodes.h>   // node id enumeration for coupled-node dropdown
+#include <openswmm/engine/openswmm_spatial.h> // node coordinates for Auto-couple
 #include "map/tools/maptoolidentify.h"   // IdentifyResult
 
 #include <QPointer>
@@ -725,6 +726,26 @@ void SWMMVis::initializeMeshEditingToolBar()
         ids.sort(Qt::CaseInsensitive);
         return ids;
     });
+    // Node ids + [COORDINATES] for the Auto-couple action. Raw map units —
+    // the same CRS the mesh vertices carry, so coincidence needs no
+    // conversion. Nodes without coordinates are skipped.
+    mMeshEditingToolbar->setNodeLocator(
+        [this]() -> QVector<QPair<QString, QPointF>> {
+            auto *pw = activeProjectWindow();
+            if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine()) return {};
+            SWMM_Engine e = pw->modelLayer()->engine();
+            QVector<QPair<QString, QPointF>> out;
+            const int nNodes = swmm_node_count(e);
+            out.reserve(nNodes);
+            for (int i = 0; i < nNodes; ++i) {
+                const char *id = swmm_node_id(e, i);
+                if (!id || id[0] == '\0') continue;
+                double x = 0.0, y = 0.0;
+                if (swmm_spatial_get_node_coord(e, i, &x, &y) != 0) continue;
+                out.append({ QString::fromUtf8(id), QPointF(x, y) });
+            }
+            return out;
+        });
     mMeshEditingToolbar->setCurveLister([this]() -> QStringList {
         auto *pw = activeProjectWindow();
         if (!pw || !pw->modelLayer()) return {};

@@ -281,6 +281,60 @@ TEST(MeshInpConveyanceRoundtrip, CoexistsWithBC)
     EXPECT_NEAR(back.conveyance, 0.8,   1e-9);
 }
 
+// =============================================================================
+// [2D_VERTEX_NODE_MAP] — optional CD / AREA columns
+// =============================================================================
+
+TEST(MeshInpCouplingRoundtrip, CdAreaSurvivesWriteRead)
+{
+    QTemporaryDir dir; ASSERT_TRUE(dir.isValid());
+    const QString inpPath = makeInpFile(dir);
+
+    auto m = makeUnitSquareMesh();
+    m.vertices[1].coupledNode  = QStringLiteral("J2");
+    m.vertices[1].couplingCd   = 0.8;
+    m.vertices[1].couplingArea = 2.5;
+    mesh::CouplingMap c;
+    c.vertexToNode.insert(1, QStringLiteral("J2"));
+
+    QString err;
+    ASSERT_TRUE(mesh::InpMeshWriter::writeInline(inpPath, m, c, 0.035, &err))
+        << err.toStdString();
+
+    const auto read = mesh::InpMeshReader::read(inpPath);
+    ASSERT_TRUE(read.hasMesh) << read.errorMsg.toStdString();
+    ASSERT_EQ(read.mesh.vertices.size(), 4);
+    EXPECT_EQ(read.mesh.vertices[1].coupledNode, QStringLiteral("J2"));
+    EXPECT_NEAR(read.mesh.vertices[1].couplingCd,   0.8, 1e-9);
+    EXPECT_NEAR(read.mesh.vertices[1].couplingArea, 2.5, 1e-9);
+    // Uncoupled vertices keep the engine defaults.
+    EXPECT_NEAR(read.mesh.vertices[0].couplingCd,   0.65, 1e-9);
+    EXPECT_NEAR(read.mesh.vertices[0].couplingArea, 1.0,  1e-9);
+}
+
+TEST(MeshInpCouplingRoundtrip, OmittedColumnsGetEngineDefaults)
+{
+    QTemporaryDir dir; ASSERT_TRUE(dir.isValid());
+    const QString inpPath = dir.filePath(QStringLiteral("map2tok.inp"));
+    QFile f(inpPath);
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    f.write(
+        "[TITLE]\nUnit test\n"
+        "[2D_VERTICES]\n"
+        "0 0 0\n1 0 0\n0 1 0\n1 1 0\n"
+        "[2D_TRIANGLES]\n"
+        "0 1 3 0.035\n0 3 2 0.035\n"
+        "[2D_VERTEX_NODE_MAP]\n"
+        "1 J2\n");
+    f.close();
+
+    const auto read = mesh::InpMeshReader::read(inpPath);
+    ASSERT_TRUE(read.hasMesh) << read.errorMsg.toStdString();
+    EXPECT_EQ(read.mesh.vertices[1].coupledNode, QStringLiteral("J2"));
+    EXPECT_NEAR(read.mesh.vertices[1].couplingCd,   0.65, 1e-9);
+    EXPECT_NEAR(read.mesh.vertices[1].couplingArea, 1.0,  1e-9);
+}
+
 TEST(MeshInpConveyanceRoundtrip, OutOfRangeIsRejected)
 {
     // Engine spec is strict [0, 1]; the reader rejects rows outside the
