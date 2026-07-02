@@ -10,6 +10,7 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmm2dresultslayer.h"
 #include "map/mapcanvas.h"
+#include "mesh/meshautocouple.h"
 #include "mesh/meshbctype.h"
 #include "mesh/meshhoverprobe.h"
 #include "mesh/meshobjectref.h"
@@ -24,6 +25,7 @@
 #include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QToolButton>
@@ -140,6 +142,65 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     if (m_vertexCoupledCombo->lineEdit())
         connect(m_vertexCoupledCombo->lineEdit(), &QLineEdit::editingFinished,
                 this, &MeshEditingToolbar::onVertexCoupledCommit);
+
+    // Auto-couple: couple vertices to the SWMM node sitting at the same map
+    // coordinate. Operates on the selection, or the whole mesh when nothing
+    // is selected, via the node locator SWMMVis installs.
+    m_actAutoCouple = new QAction(tr("Auto-couple"), this);
+    m_actAutoCouple->setToolTip(tr(
+        "Couple mesh vertices to coincident SWMM nodes.\n"
+        "Applies to the selected vertices, or scans the whole mesh when\n"
+        "nothing is selected. Already-coupled vertices are left unchanged."));
+    addAction(m_actAutoCouple);
+    connect(m_actAutoCouple, &QAction::triggered,
+            this, &MeshEditingToolbar::onAutoCoupleClicked);
+
+    // Coupling Cd / exchange-area editors — the optional CD / AREA columns of
+    // [2D_VERTEX_NODE_MAP]. Only meaningful on coupled vertices, so they are
+    // shown contextually (see updateEnabledState) and commit apply-as-you-go
+    // to every selected coupled vertex.
+    {
+        auto *page = new QWidget(this);
+        auto *lay  = new QHBoxLayout(page);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->addWidget(new QLabel(tr("Cd:"), page));
+        m_vertexCdSpin = new QDoubleSpinBox(page);
+        m_vertexCdSpin->setRange(0.001, 1.0);
+        m_vertexCdSpin->setDecimals(3);
+        m_vertexCdSpin->setSingleStep(0.05);
+        m_vertexCdSpin->setValue(0.65);
+        m_vertexCdSpin->setKeyboardTracking(false);
+        m_vertexCdSpin->setToolTip(tr(
+            "Coupling discharge coefficient ([2D_VERTEX_NODE_MAP] CD column).\n"
+            "Scales the orifice-equation exchange with the coupled node.\n"
+            "Default 0.65. Applies to every selected coupled vertex."));
+        lay->addWidget(m_vertexCdSpin);
+        m_actVertexCd = addWidget(page);
+    }
+    connect(m_vertexCdSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, &MeshEditingToolbar::onVertexCdCommit);
+
+    {
+        auto *page = new QWidget(this);
+        auto *lay  = new QHBoxLayout(page);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->addWidget(new QLabel(tr("Area:"), page));
+        m_vertexAreaSpin = new QDoubleSpinBox(page);
+        m_vertexAreaSpin->setRange(0.0001, 1.0e6);
+        m_vertexAreaSpin->setDecimals(3);
+        m_vertexAreaSpin->setSingleStep(0.1);
+        m_vertexAreaSpin->setValue(1.0);
+        m_vertexAreaSpin->setSuffix(tr(" m²"));
+        m_vertexAreaSpin->setKeyboardTracking(false);
+        m_vertexAreaSpin->setToolTip(tr(
+            "Coupling exchange area ([2D_VERTEX_NODE_MAP] AREA column), the\n"
+            "orifice-throat area of the 1D↔2D exchange in m².\n"
+            "Default 1.0 m². Applies to every selected coupled vertex."));
+        lay->addWidget(m_vertexAreaSpin);
+        m_actVertexArea = addWidget(page);
+    }
+    connect(m_vertexAreaSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, &MeshEditingToolbar::onVertexAreaCommit);
 
     addSeparator();
 
@@ -637,6 +698,11 @@ void MeshEditingToolbar::refreshVertexEditor()
     double sumZ = 0.0; int n = 0;
     QString commonTag, commonNode;
     bool first = true, tagSame = true, nodeSame = true;
+    // Coupling Cd/Area aggregate over COUPLED vertices only — uncoupled ones
+    // carry defaults that would mask a uniform edited value.
+    double commonCd = 0.65, commonArea = 1.0;
+    bool cdSame = true, areaSame = true, firstCoupled = true;
+    int nCoupled = 0;
     for (int vi : verts) {
         if (vi < 0 || vi >= vertices.size()) continue;
         const auto &v = vertices[vi];
@@ -645,6 +711,16 @@ void MeshEditingToolbar::refreshVertexEditor()
         else {
             if (v.tag != commonTag)          tagSame  = false;
             if (v.coupledNode != commonNode) nodeSame = false;
+        }
+        if (!v.coupledNode.isEmpty()) {
+            ++nCoupled;
+            if (firstCoupled) {
+                commonCd = v.couplingCd; commonArea = v.couplingArea;
+                firstCoupled = false;
+            } else {
+                if (v.couplingCd   != commonCd)   cdSame   = false;
+                if (v.couplingArea != commonArea) areaSame = false;
+            }
         }
     }
     if (n == 0) {
@@ -678,6 +754,16 @@ void MeshEditingToolbar::refreshVertexEditor()
     if (m_vertexCoupledCombo) {
         QSignalBlocker block(m_vertexCoupledCombo);
         m_vertexCoupledCombo->setCurrentText(nodeSame ? commonNode : QString());
+    }
+    // Seed Cd/Area from the coupled vertices; mixed values show the defaults
+    // (same convention as the Manning's spin).
+    if (m_vertexCdSpin) {
+        QSignalBlocker block(m_vertexCdSpin);
+        m_vertexCdSpin->setValue((nCoupled > 0 && cdSame) ? commonCd : 0.65);
+    }
+    if (m_vertexAreaSpin) {
+        QSignalBlocker block(m_vertexAreaSpin);
+        m_vertexAreaSpin->setValue((nCoupled > 0 && areaSame) ? commonArea : 1.0);
     }
 }
 
@@ -940,6 +1026,54 @@ void MeshEditingToolbar::onVertexCoupledCommit()
     for (int vIdx : verts) m_activeMesh->applyMeshVertexCoupledNode(vIdx, node);
 }
 
+void MeshEditingToolbar::onVertexCdCommit()
+{
+    if (!m_activeMesh || !m_vertexCdSpin) return;
+    const QList<int> verts = currentSelectedVertices();
+    if (verts.isEmpty()) return;
+    const double cd = m_vertexCdSpin->value();
+    // The layer rejects uncoupled vertices, so mixed selections are safe.
+    for (int vIdx : verts) m_activeMesh->applyMeshVertexCouplingCd(vIdx, cd);
+}
+
+void MeshEditingToolbar::onVertexAreaCommit()
+{
+    if (!m_activeMesh || !m_vertexAreaSpin) return;
+    const QList<int> verts = currentSelectedVertices();
+    if (verts.isEmpty()) return;
+    const double area = m_vertexAreaSpin->value();
+    for (int vIdx : verts) m_activeMesh->applyMeshVertexCouplingArea(vIdx, area);
+}
+
+void MeshEditingToolbar::onAutoCoupleClicked()
+{
+    if (!m_activeMesh) return;
+    const QVector<QPair<QString, QPointF>> nodes =
+        m_nodeLocator ? m_nodeLocator() : QVector<QPair<QString, QPointF>>{};
+    if (nodes.isEmpty()) {
+        QMessageBox::information(this, tr("Auto-couple"),
+            tr("No SWMM nodes with coordinates are available to couple against."));
+        return;
+    }
+    // Selection if any, else the whole mesh.
+    const QList<int> targets = currentSelectedVertices();
+    const auto result = mesh::findCoincidentNodes(m_activeMesh->mesh(), nodes, targets);
+
+    int coupled = 0;
+    for (auto it = result.matches.cbegin(); it != result.matches.cend(); ++it)
+        if (m_activeMesh->applyMeshVertexCoupledNode(it.key(), it.value())) ++coupled;
+
+    QString msg = tr("Coupled %1 vertex(es) to coincident SWMM nodes.").arg(coupled);
+    if (result.alreadyCoupled > 0)
+        msg += tr("\n%1 coincident vertex(es) were already coupled and left unchanged.")
+                   .arg(result.alreadyCoupled);
+    if (result.unmatchedNodes > 0)
+        msg += tr("\n%1 node(s) had no coincident %2vertex.")
+                   .arg(result.unmatchedNodes)
+                   .arg(targets.isEmpty() ? QString() : tr("selected "));
+    QMessageBox::information(this, tr("Auto-couple"), msg);
+}
+
 void MeshEditingToolbar::onManningsCommit()
 {
     if (!m_activeMesh || !m_manningsSpin) return;
@@ -976,6 +1110,30 @@ void MeshEditingToolbar::updateEnabledState()
     if (m_actVertexCoupled)   m_actVertexCoupled->setVisible(showVertexEdit);
     if (m_vertexTagEdit)      m_vertexTagEdit->setEnabled(showVertexEdit);
     if (m_vertexCoupledCombo) m_vertexCoupledCombo->setEnabled(showVertexEdit);
+
+    // Coupling Cd / Area: only meaningful on coupled vertices, so shown +
+    // editable when the selection carries at least one. They appear the
+    // moment a coupling is committed (attributeChanged → refresh chain).
+    bool anyCoupled = false;
+    if (showVertexEdit) {
+        const auto &vv = m_activeMesh->mesh().vertices;
+        for (int vi : currentSelectedVertices())
+            if (vi >= 0 && vi < vv.size() && !vv[vi].coupledNode.isEmpty()) {
+                anyCoupled = true; break;
+            }
+    }
+    const bool showCoupling = showVertexEdit && anyCoupled;
+    if (m_actVertexCd)     m_actVertexCd->setVisible(showCoupling);
+    if (m_actVertexArea)   m_actVertexArea->setVisible(showCoupling);
+    if (m_vertexCdSpin)    m_vertexCdSpin->setEnabled(showCoupling);
+    if (m_vertexAreaSpin)  m_vertexAreaSpin->setEnabled(showCoupling);
+
+    // Auto-couple works from a selection OR the whole mesh, so it only
+    // needs vertex mode (not a selection).
+    if (m_actAutoCouple) {
+        m_actAutoCouple->setVisible(vertexMode);
+        m_actAutoCouple->setEnabled(vertexMode);
+    }
 
     // Manning's n + cell-tag editors (2D-cell group): shown + editable when one
     // OR MORE cells are selected on an editable mesh; committing overwrites all.

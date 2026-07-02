@@ -1399,12 +1399,40 @@ bool SWMM2DMeshLayer::applyMeshVertexCoupledNode(int vertexIdx, const QString &n
     if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size()) return false;
     if (m_mesh.vertices[vertexIdx].coupledNode == node) return true;
     m_mesh.vertices[vertexIdx].coupledNode = node;
+    // Clearing the coupling resets Cd/Area so a re-coupled vertex starts
+    // from the documented engine defaults.
+    if (node.isEmpty()) {
+        m_mesh.vertices[vertexIdx].couplingCd   = 0.65;
+        m_mesh.vertices[vertexIdx].couplingArea = 1.0;
+    }
     // The scene node "tagged" flag tracks coupling — repaint so the
     // SWMM-coupled-vertex glyph reflects the change.
     if (vertexIdx < m_sceneNodes.size())
         m_sceneNodes[vertexIdx].tagged = !node.isEmpty();
     emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
     emit repaintRequested();
+    return true;
+}
+
+bool SWMM2DMeshLayer::applyMeshVertexCouplingCd(int vertexIdx, double cd)
+{
+    if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size()) return false;
+    if (m_mesh.vertices[vertexIdx].coupledNode.isEmpty()) return false;
+    if (!(cd > 0.0)) return false;
+    if (m_mesh.vertices[vertexIdx].couplingCd == cd) return true;
+    m_mesh.vertices[vertexIdx].couplingCd = cd;
+    emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
+    return true;
+}
+
+bool SWMM2DMeshLayer::applyMeshVertexCouplingArea(int vertexIdx, double area)
+{
+    if (vertexIdx < 0 || vertexIdx >= m_mesh.vertices.size()) return false;
+    if (m_mesh.vertices[vertexIdx].coupledNode.isEmpty()) return false;
+    if (!(area > 0.0)) return false;
+    if (m_mesh.vertices[vertexIdx].couplingArea == area) return true;
+    m_mesh.vertices[vertexIdx].couplingArea = area;
+    emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
     return true;
 }
 

@@ -89,7 +89,7 @@ QString formatVertexNodeMap(const MeshResult &mesh,
     QString out;
     QTextStream s(&out);
     s << kSecVertexNodeMap << "\n";
-    s << ";; VERTEX_INDEX_OR_TAG    SWMM_NODE_NAME\n";
+    s << ";; VERTEX_INDEX_OR_TAG    SWMM_NODE_NAME    CD    AREA\n";
     // Walk in vertex-index order so output is deterministic + matches
     // the [2D_VERTICES] order. Prefer the vertex's TAG over the index
     // when present — the engine accepts both, but tag form is more
@@ -100,12 +100,13 @@ QString formatVertexNodeMap(const MeshResult &mesh,
         const int   vIdx = it.key();
         const QString  &node = it.value();
         if (vIdx < 0 || vIdx >= mesh.vertices.size()) continue;
-        const QString &tag = mesh.vertices[vIdx].tag;
-        if (!tag.isEmpty())
-            s << tag;
+        const MeshVertex &mv = mesh.vertices[vIdx];
+        if (!mv.tag.isEmpty())
+            s << mv.tag;
         else
             s << vIdx;
-        s << "        " << node << "\n";
+        s << "        " << node
+          << "  " << mv.couplingCd << "  " << mv.couplingArea << "\n";
     }
     s << "\n";
     return out;

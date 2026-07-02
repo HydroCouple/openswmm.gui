@@ -110,6 +110,12 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
         swmm_2d_set_vertex_z(engine, i, mesh.vertices[i].z * factor);
         swmm_2d_set_vertex_coupled_node(
             engine, i, mesh.vertices[i].coupledNode.toUtf8().constData());
+        // Coupling Cd/Area ride along for coupled vertices only (the engine
+        // keeps them SI/as-authored — no length factor applies).
+        if (!mesh.vertices[i].coupledNode.isEmpty()) {
+            swmm_2d_set_vertex_coupling_cd(engine, i, mesh.vertices[i].couplingCd);
+            swmm_2d_set_vertex_coupling_area(engine, i, mesh.vertices[i].couplingArea);
+        }
         swmm_2d_set_vertex_tag(
             engine, i, mesh.vertices[i].tag.toUtf8().constData());
     }

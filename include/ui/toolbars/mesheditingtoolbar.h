@@ -23,8 +23,11 @@
 #ifndef OPENSWMMVIS_UI_TOOLBARS_MESHEDITINGTOOLBAR_H
 #define OPENSWMMVIS_UI_TOOLBARS_MESHEDITINGTOOLBAR_H
 
+#include <QPair>
+#include <QPointF>
 #include <QPointer>
 #include <QToolBar>
+#include <QVector>
 
 #include <functional>
 
@@ -87,6 +90,10 @@ public:
     void setCurveLister(ListerFn fn)      { m_curveLister = std::move(fn); }
     /*! \brief Lister of couplable SWMM node ids for the coupled-node dropdown. */
     void setNodeLister(ListerFn fn)       { m_nodeLister = std::move(fn); }
+    /*! \brief Locator of SWMM node ids + map coordinates ([COORDINATES],
+     *  same CRS as the mesh vertices) for the Auto-couple action. */
+    using NodeLocatorFn = std::function<QVector<QPair<QString, QPointF>>()>;
+    void setNodeLocator(NodeLocatorFn fn) { m_nodeLocator = std::move(fn); }
     void refreshBCNameLists();    // re-query listers + repopulate combos
     void refreshNodeList();       // re-query node lister + repopulate the combo
 
@@ -136,6 +143,9 @@ private slots:
     void onZSpinChanged(double z);
     void onVertexTagCommit();        // descriptive vertex tag → selected vertex
     void onVertexCoupledCommit();    // coupled SWMM node → selected vertex
+    void onVertexCdCommit();         // coupling Cd → selected coupled vertices
+    void onVertexAreaCommit();       // coupling area → selected coupled vertices
+    void onAutoCoupleClicked();      // couple vertices to coincident SWMM nodes
     void onManningsCommit();         // Manning's n → selected cell
     void onCellTagCommit();          // descriptive triangle tag → selected cell
     void onSelectionChanged();
@@ -181,6 +191,11 @@ private:
     QComboBox     *m_vertexCoupledCombo = nullptr;// coupled SWMM node (dropdown)
     QAction       *m_actVertexTag     = nullptr; // embedding actions for hide
     QAction       *m_actVertexCoupled = nullptr;
+    QDoubleSpinBox*m_vertexCdSpin   = nullptr;   // coupling Cd ([2D_VERTEX_NODE_MAP] CD)
+    QDoubleSpinBox*m_vertexAreaSpin = nullptr;   // coupling exchange area, m² (AREA)
+    QAction       *m_actVertexCd    = nullptr;   // embedding actions for hide
+    QAction       *m_actVertexArea  = nullptr;
+    QAction       *m_actAutoCouple  = nullptr;   // couple vertices to coincident nodes
 
     // BC controls (Slice §V.VC — fully wired for all 7 GUI BC types).
     QComboBox     *m_bcTypeCombo    = nullptr;
@@ -224,6 +239,7 @@ private:
     ListerFn       m_tsLister;
     ListerFn       m_curveLister;
     ListerFn       m_nodeLister;
+    NodeLocatorFn  m_nodeLocator;
 };
 
 #endif // OPENSWMMVIS_UI_TOOLBARS_MESHEDITINGTOOLBAR_H
