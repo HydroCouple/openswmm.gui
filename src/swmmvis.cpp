@@ -4390,7 +4390,16 @@ void SWMMVis::openProjectFile(const QString &oswpPath)
     {
         QString inpPath = v[QStringLiteral("path")].toString();
         if (!inpPath.isEmpty())
+        {
+            // .oswp stores layer paths relative to the project file. Resolve
+            // against the .oswp directory before opening: a relative path
+            // passed through makes the ENGINE resolve the model's own
+            // relative references (rain FILE gages, mesh sidecars, hotstart
+            // files) against the process working directory instead of the
+            // model directory — silently loading nothing.
+            inpPath = ProjectSerializer::resolveStoredPath(inpPath, oswpPath);
             openSingleINP(inpPath);
+        }
     }
 }
 
