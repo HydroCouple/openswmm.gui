@@ -58,6 +58,7 @@ class RuleList;   // Slice B.5b — see ruleList() override below.
 #include "render/sublayers/meshedgesublayer.h"
 #include "render/sublayers/meshfillsublayer.h"
 #include "render/sublayers/meshnodesublayer.h"
+#include "render/sublayers/scalarfillsublayer.h"
 #include "render/sublayers/velocityvectorsublayer.h"
 
 // ---------------------------------------------------------------------------
@@ -333,6 +334,16 @@ public:
     void setCurrentTimeIndex(int t);
 
     /*!
+     * \brief Re-read and re-apply the current frame without moving the cursor.
+     *
+     * Live 2D packets for a single simulation tick can arrive in phases
+     * (depths, then flux, then reconstructed vertex heads). Those late packets
+     * change velocity glyphs, smooth fills, contours, and profile samples even
+     * though the time index has not advanced.
+     */
+    void refreshCurrentFrame();
+
+    /*!
      * \brief Re-query `source()->timeCount()` and emit `timeRangeChanged` if
      * it grew. Used by the runner's per-tick refresh during live mode.
      */
@@ -350,6 +361,19 @@ public:
     [[nodiscard]] bool followLive() const noexcept { return follow_live_; }
 
     /*!
+     * \brief Master on/off gate for LIVE (streaming) rendering during a run.
+     * Distinct from \ref followLive (which only chooses WHICH frame is shown)
+     * and from base-layer visibility (a non-live static result keeps drawing).
+     * When off, refreshTimeRange() stops ingesting/advancing streamed frames
+     * and the QSG renderer stops drawing the live layer, so a running sim costs
+     * no extra GPU/CPU for the 2D view. Re-enabling resumes work; the caller is
+     * expected to re-arm follow-live so the view jumps to the newest frame.
+     * No effect on file/static sources.
+     */
+    void setLiveRenderEnabled(bool on);
+    [[nodiscard]] bool liveRenderEnabled() const noexcept { return live_render_enabled_; }
+
+    /*!
      * \brief Release the active source — closes its underlying HDF5 handle
      * (when the source is an HDF5Mesh2DSource) so the engine can truncate /
      * overwrite the file on a subsequent run. Clears all per-frame caches
@@ -364,6 +388,10 @@ public:
     /*! \brief Dry-cell depth threshold in metres. Cells below this draw with alpha 0. */
     double dryDepth() const noexcept { return dry_depth_; }
     void   setDryDepth(double d);
+
+    // ----- Self-description for the Layer Properties dialog ----------------
+    [[nodiscard]] QString sourceDescription() const override;
+    [[nodiscard]] QVector<QPair<QString, QString>> extendedMetadata() const override;
 
     // ----- VS.8 — QSG (GPU) rendering ownership ------------------------------
     //
@@ -542,6 +570,16 @@ public:
      *  \ref pickCellAt. */
     [[nodiscard]] float depthAtCellInterp(int triIdx, const QPointF& scenePt) const;
 
+    /*! \brief Barycentrically-interpolated scene-space velocity (m/s) at
+     *  \p scenePt, from the per-vertex velocity field reconstructed in
+     *  applyCurrentFlux_ (V1, Issue 5). Writes \p outVx,\p outVy and returns
+     *  true when \p scenePt lies in a wet cell; returns false (and zeros)
+     *  off-mesh or where the containing cell is dry. Used by the grid-sampled
+     *  glyph placement so arrows are evenly spaced (independent of mesh
+     *  density) and their direction varies smoothly across cell boundaries. */
+    [[nodiscard]] bool velocityAtScene(const QPointF& scenePt,
+                                       float& outVx, float& outVy) const;
+
     /*! \brief Per-cell maximum water depth (m) over the whole loaded time
      *  range. Iterates `source()->readDepthsAt` for every frame in
      *  `[0, timeCount())` and reduces to a per-triangle max. Size equals
@@ -616,6 +654,19 @@ public:
      *  rebuildSceneGeometry_; accelerates pickCellAt from O(n) to O(cell). */
     MeshSpatialGrid    m_triGrid;
 
+    /*! Deduplicated mesh edges in scene space (Issue 3). Each undirected edge is
+     *  stored exactly once — mirrors SWMM2DMeshLayer's pushEdge — so the
+     *  wireframe overlay no longer strokes shared edges twice. Double-stroking
+     *  the translucent edge colour composited it to a dark wash ("dark
+     *  artifact"). `slope` (|Δz|/length of the edge's bed) lets the renderer
+     *  honour MeshEdgeStyle's slope-driven thin/wide width. Built in
+     *  rebuildSceneGeometry_. */
+    struct SceneEdge {
+        QPointF a, b;
+        float   slope = 0.0f;
+    };
+    QVector<SceneEdge> m_sceneEdges;
+
 signals:
     /*! Emitted when `source()->timeCount()` changes (either via setSource or refreshTimeRange). */
     void timeRangeChanged(int lo, int hi);
@@ -641,6 +692,7 @@ signals:
     void rendererChanged();
 
 private:
+    bool loadFrame_(int t);          ///< Re-read frame \p t and emit frame/repaint signals.
     void rebuildSceneGeometry_();   ///< Recompute scene-space triangle vertices + centroids; refresh cached edge geometry.
     void applyCurrentDepths_();     ///< Copy `current_depths_` into the SceneTri buffer.
     void applyCurrentFlux_();       ///< Run RT0 reconstruction → write vx/vy/vmag into SceneTri.
@@ -672,9 +724,16 @@ private:
     // rebuildSceneGeometry_); the eta_* vectors are per-frame scratch reused by
     // applyCurrentDepths_ to avoid per-frame allocation.
     std::vector<float>             cellZc_;       ///< per-cell centroid bed elev, parallel to tris_
-    std::vector<float>             eta_cell_;     ///< scratch — per-cell free surface η
     std::vector<float>             eta_vsum_;     ///< scratch — per-vertex Σ(weight·η)
     std::vector<float>             eta_wsum_;     ///< scratch — per-vertex Σ(weight) (depth weight)
+    std::vector<float>             vdepth_;       ///< scratch — per-vertex SIGNED depth (η_v − z_v), current frame
+
+    // V1 (Issue 5) — per-vertex velocity field, reconstructed each frame in
+    // applyCurrentFlux_ as the depth-weighted average of incident cell vectors.
+    // A continuous (C0) field so glyphs sampled across cell boundaries vary
+    // smoothly instead of stepping at each cell; the peer of vdepth_ for flow.
+    std::vector<float>             vvx_;          ///< per-vertex velocity x (scene units)
+    std::vector<float>             vvy_;          ///< per-vertex velocity y (scene units)
 
     // CF.2 — per-tick flux + time-invariant edge geometry pulled once from the source.
     std::vector<float>             current_flux_;     ///< [tri*3 + localEdge], m^2/s.
@@ -689,6 +748,7 @@ private:
 
     int                            current_time_idx_ = -1;
     bool                           follow_live_      = true;  // live source: auto-advance to newest frame until the user scrubs
+    bool                           live_render_enabled_ = true; // live source: master gate for streaming/render work (Issue 2 toggle)
     double                         dry_depth_        = 1e-4;  // 0.1 mm — auto-tuned per project
     double                         max_depth_        = 0.01;  // 10 mm — auto-grows from data each tick
     bool                           max_depth_user_set_ = false;
@@ -737,6 +797,8 @@ private:
     OpenSWMM::Render::MeshEdgeSublayer        *m_meshEdgeSublayer       = nullptr;
     OpenSWMM::Render::MeshNodeSublayer        *m_meshNodeSublayer       = nullptr;
     OpenSWMM::Render::ContourBandSublayer     *m_contourBandSublayer    = nullptr;
+    OpenSWMM::Render::CellDepthFillSublayer   *m_cellDepthFillSublayer  = nullptr;
+    OpenSWMM::Render::SmoothDepthFillSublayer *m_smoothDepthFillSublayer = nullptr;
     OpenSWMM::Render::IsolineSublayer         *m_isolineSublayer        = nullptr;
     OpenSWMM::Render::VelocityVectorSublayer  *m_velocityVectorSublayer = nullptr;
 
@@ -778,6 +840,10 @@ public:
         meshNodeSublayer() const { return m_meshNodeSublayer; }
     [[nodiscard]] OpenSWMM::Render::ContourBandSublayer *
         contourBandSublayer() const { return m_contourBandSublayer; }
+    [[nodiscard]] OpenSWMM::Render::CellDepthFillSublayer *
+        cellDepthFillSublayer() const { return m_cellDepthFillSublayer; }
+    [[nodiscard]] OpenSWMM::Render::SmoothDepthFillSublayer *
+        smoothDepthFillSublayer() const { return m_smoothDepthFillSublayer; }
     [[nodiscard]] OpenSWMM::Render::IsolineSublayer *
         isolineSublayer() const { return m_isolineSublayer; }
     [[nodiscard]] OpenSWMM::Render::VelocityVectorSublayer *
