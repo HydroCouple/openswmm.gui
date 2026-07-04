@@ -6138,13 +6138,15 @@ void SWMMVis::onRunSimulation()
                 auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
                 if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
                     return;
+                SWMM2DResultsLayer *layer = it.value();
                 auto *engineSrc =
-                    dynamic_cast<EngineMesh2DSource *>(it.value()->source());
+                    dynamic_cast<EngineMesh2DSource *>(layer->source());
                 if (!engineSrc) return;
                 engineSrc->setEdgeGeometry(
                     std::vector<float>(length.begin(), length.end()),
                     std::vector<float>(nx.begin(),     nx.end()),
                     std::vector<float>(ny.begin(),     ny.end()));
+                layer->refreshCurrentFrame();
             });
 
     // CF.2.4 — per-tick edge flux: paired with the matching depth tick on
@@ -6165,12 +6167,14 @@ void SWMMVis::onRunSimulation()
                     std::vector<float>(flux.begin(), flux.end()),
                     simTime, elapsedSec);
                 layer->refreshTimeRange();
+                layer->refreshCurrentFrame();
             });
 
     // Per-tick reconstructed vertex heads — feeds the smooth (Gouraud) depth
     // fill + contour interpolation. Paired with the matching depth tick by
-    // elapsedSec, like flux. No refreshTimeRange() here: only the depths
-    // push advances the frame counter, heads alone must not add a frame.
+    // elapsedSec, like flux. Heads do not advance the frame counter, but they
+    // can change the current frame's interpolation basis after the depth packet
+    // already painted, so re-apply the same frame.
     connect(runner, &SimulationRunner::twoDVertexHeadsAvailable, this,
             [self](int twoDJobId, QVector<double> heads,
                    QDateTime simTime, double elapsedSec) {
@@ -6178,12 +6182,14 @@ void SWMMVis::onRunSimulation()
                 auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
                 if (it == self->mActive2DResultsLayers.constEnd() || !it.value())
                     return;
+                SWMM2DResultsLayer *layer = it.value();
                 auto *engineSrc =
-                    dynamic_cast<EngineMesh2DSource *>(it.value()->source());
+                    dynamic_cast<EngineMesh2DSource *>(layer->source());
                 if (!engineSrc) return;
                 engineSrc->pushVertexHeads(
                     std::vector<double>(heads.begin(), heads.end()),
                     simTime, elapsedSec);
+                layer->refreshCurrentFrame();
             });
 
     // On finished (success path), swap the layer's source from the live

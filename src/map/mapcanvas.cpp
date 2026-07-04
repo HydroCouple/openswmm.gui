@@ -1446,27 +1446,34 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
             }
         }
 
-        // VS.8 — first visible 2D results layer. The GPU path owns its
-        // rendering whenever the renderer item exists and no mask clip is
-        // active (the QPainter mask path has no cheap QSG equivalent, so a
-        // masked layer falls back to the CPU passes wholesale).
-        SWMM2DResultsLayer *first2D = nullptr;
-        for (OpenSWMMVisLayer *layer : std::as_const(m_layers)) {
-            if (!layer->isVisible()) continue;
+        // VS.8 — a single SWMM2DResultsQSGRenderer can own one 2D results
+        // layer. Choose the topmost visible 2D layer so the QSG framebuffer
+        // composes in the same stack order as the QGraphicsScene. If that
+        // top layer needs CPU-only masking, keep every 2D results layer on the
+        // CPU path; drawing a lower QSG layer above a masked top layer would
+        // invert their visual order.
+        SWMM2DResultsLayer *top2D = nullptr;
+        for (int i = int(m_layers.size()) - 1; i >= 0; --i) {
+            OpenSWMMVisLayer *layer = m_layers.at(i);
+            if (!layer || !layer->isVisible()) continue;
             if (auto *rl = qobject_cast<SWMM2DResultsLayer *>(layer)) {
-                first2D = rl;
+                top2D = rl;
                 break;
             }
         }
-        const bool own2D = first2D && m_qsg2DRenderer
-                           && !first2D->maskSpec().enabled;
+        SWMM2DResultsLayer *want2D =
+            (top2D && m_qsg2DRenderer && !top2D->maskSpec().enabled)
+                ? top2D : nullptr;
+        const bool own2D = want2D != nullptr;
 
         // Ownership handoff — the setters no-op when unchanged, and their
         // repaintRequested emissions only schedule (not re-enter) a paint.
-        if (m_qsgCached2DLayer && m_qsgCached2DLayer != first2D)
+        for (OpenSWMMVisLayer *layer : std::as_const(m_layers)) {
+            if (auto *rl = qobject_cast<SWMM2DResultsLayer *>(layer))
+                rl->setQsgOwnsRendering(rl == want2D);
+        }
+        if (m_qsgCached2DLayer && m_qsgCached2DLayer != want2D)
             m_qsgCached2DLayer->setQsgOwnsRendering(false);
-        if (first2D)
-            first2D->setQsgOwnsRendering(own2D);
 
         // While the flood map renders in the QSG frame, the 1D network must
         // render there too (above it) — a CPU-painted network in the scene
@@ -1510,10 +1517,21 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
             // grabFramebuffer() is the most expensive single call in
             // paintEvent on large models; this path mirrors the basemap
             // m_mapBuffer treatment a few lines above.
-            SWMM2DResultsLayer *want2D = own2D ? first2D : nullptr;
             const bool layerChanged   = (firstSwmm != m_qsgCachedLayer)
                                         || (want2D != m_qsgCached2DLayer);
             const bool sizeChanged    = (size()    != m_qsgCachedSize);
+            // Scrub-diagnosis probe — pairs with the [2D-qsg] sync logs to
+            // show whether a slider tick reached the regrab at all.
+            static const bool kQsgDebug =
+                qEnvironmentVariableIsSet("OPENSWMM_2D_RENDER_DEBUG");
+            if (kQsgDebug)
+                qDebug("[2D-canvas] paint: regrab=%d (dirty=%d layerChg=%d "
+                       "sizeChg=%d cacheNull=%d) own2D=%d 2Dt=%d",
+                       int(m_qsgFrameDirty || layerChanged || sizeChanged
+                           || m_qsgFrameCache.isNull()),
+                       int(m_qsgFrameDirty), int(layerChanged),
+                       int(sizeChanged), int(m_qsgFrameCache.isNull()),
+                       int(own2D), want2D ? want2D->currentTimeIndex() : -999);
             if (m_qsgFrameDirty || layerChanged
                 || sizeChanged || m_qsgFrameCache.isNull()) {
                 if (m_qsgRenderer) {
@@ -2254,5 +2272,4 @@ void MapCanvas::renderCoordinates(QPainter &painter, double mapX, double mapY) c
     painter.setPen(Qt::black);
     painter.drawText(x, y, text);
 }
-
 

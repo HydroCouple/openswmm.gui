@@ -1,6 +1,6 @@
 /*!
  * \file   test_2d_sublayers.cpp
- * \brief  Combined verification for the five 2D sublayer classes added in
+ * \brief  Combined verification for the 2D sublayer classes added in
  *         Slice S5 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md §3 default mix for
  *         SWMM2DResultsLayer).
  *
@@ -20,6 +20,7 @@
 #include "render/sublayers/isolinesublayer.h"
 #include "render/sublayers/meshedgesublayer.h"
 #include "render/sublayers/meshfillsublayer.h"
+#include "render/sublayers/scalarfillsublayer.h"
 #include "render/sublayers/velocityvectorsublayer.h"
 
 using namespace OpenSWMM::Render;
@@ -76,6 +77,11 @@ private slots:
     void contourBand_identity_dynamic();
     void contourBand_count_floor();
     void contourBand_json_roundTrip();
+
+    // Direct scalar fills (dynamic)
+    void cellDepthFill_identity_dynamic();
+    void smoothDepthFill_identity_dynamic();
+    void scalarFill_json_roundTrip();
 
     // Shared
     void all_sublayers_emit_invalidated_on_style_change();
@@ -338,10 +344,57 @@ void Test2DSublayers::contourBand_json_roundTrip()
     QCOMPARE(b.smoothBands(),  false);
 }
 
+// ── Direct Scalar Fills ─────────────────────────────────────────────────
+void Test2DSublayers::cellDepthFill_identity_dynamic()
+{
+    CellDepthFillSublayer s(QStringLiteral("cell"));
+    QCOMPARE(s.kind(),      ISublayer::FillKind);
+    QCOMPARE(s.isDynamic(), true);
+    QCOMPARE(s.isVisible(), false);
+    QCOMPARE(s.opacity(),   qreal(1.0));
+    QVERIFY(s.fillStyle());
+    QCOMPARE(s.displayName(), QStringLiteral("Cell Depth Fill"));
+}
+
+void Test2DSublayers::smoothDepthFill_identity_dynamic()
+{
+    SmoothDepthFillSublayer s(QStringLiteral("smooth"));
+    QCOMPARE(s.kind(),      ISublayer::ColorRampFillKind);
+    QCOMPARE(s.isDynamic(), true);
+    QCOMPARE(s.isVisible(), false);
+    QCOMPARE(s.opacity(),   qreal(0.85));
+    QVERIFY(s.fillStyle());
+    QCOMPARE(s.displayName(), QStringLiteral("Smooth Depth Fill"));
+}
+
+void Test2DSublayers::scalarFill_json_roundTrip()
+{
+    ScalarFillStyle a;
+    a.setAttribute(QStringLiteral("velocity_magnitude"));
+    a.setClassified(true);
+    a.setBandCount(7);
+    a.setColorRampName(QStringLiteral("magma"));
+    a.setInvertRamp(true);
+    a.setUseCustomRange(true);
+    a.setRangeMin(0.2);
+    a.setRangeMax(4.5);
+
+    ScalarFillStyle b;
+    b.fromJson(a.toJson());
+    QCOMPARE(b.attribute(),      QStringLiteral("velocity_magnitude"));
+    QCOMPARE(b.classified(),     true);
+    QCOMPARE(b.bandCount(),      7);
+    QCOMPARE(b.colorRampName(),  QStringLiteral("magma"));
+    QCOMPARE(b.invertRamp(),     true);
+    QCOMPARE(b.useCustomRange(), true);
+    QCOMPARE(b.rangeMin(),       0.2);
+    QCOMPARE(b.rangeMax(),       4.5);
+}
+
 // ── Shared contract ─────────────────────────────────────────────────────
 void Test2DSublayers::all_sublayers_emit_invalidated_on_style_change()
 {
-    // The style → invalidated re-emit pattern is identical across all 5
+    // The style → invalidated re-emit pattern is identical across these
     // sublayers; exercise it once per class to catch any constructor
     // wiring regression.
     MeshFillSublayer mf(QStringLiteral("m"));
@@ -363,6 +416,16 @@ void Test2DSublayers::all_sublayers_emit_invalidated_on_style_change()
     QSignalSpy bSpy(&b, &ISublayer::invalidated);
     b.bandStyle()->setBandCount(10);
     QCOMPARE(bSpy.count(), 1);
+
+    CellDepthFillSublayer c(QStringLiteral("c"));
+    QSignalSpy cSpy(&c, &ISublayer::invalidated);
+    c.fillStyle()->setBandCount(4);
+    QCOMPARE(cSpy.count(), 1);
+
+    SmoothDepthFillSublayer s(QStringLiteral("s"));
+    QSignalSpy sSpy(&s, &ISublayer::invalidated);
+    s.fillStyle()->setColorRampName(QStringLiteral("plasma"));
+    QCOMPARE(sSpy.count(), 1);
 }
 
 QTEST_MAIN(Test2DSublayers)

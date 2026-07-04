@@ -222,6 +222,7 @@ set(
         include/render/sublayers/velocityvectorsublayer.h
         include/render/sublayers/isolinesublayer.h
         include/render/sublayers/contourbandsublayer.h
+        include/render/sublayers/scalarfillsublayer.h
         # Slice Z.1 — layer-scope Rule + RuleList (Q_OBJECT classes;
         # AUTOMOC needs the headers in this list).
         include/render/rule.h
@@ -796,6 +797,7 @@ set(
         src/render/sublayers/velocityvectorsublayer.cpp
         src/render/sublayers/isolinesublayer.cpp
         src/render/sublayers/contourbandsublayer.cpp
+        src/render/sublayers/scalarfillsublayer.cpp
 
         # Plot
         src/plot/profilerouter.cpp
