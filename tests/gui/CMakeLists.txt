@@ -512,10 +512,10 @@ add_swmmvis_gui_test(test_featuresublayer
     ${CMAKE_SOURCE_DIR}/include/render/sublayers/feature/featuresublayerstyle.h
 )
 
-# Slice S5 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md) — five 2D sublayer classes
-# bundled into one self-contained test TU. Same lean leaf-test dependency
-# pattern; the five .cpp impls link against the same LegendSymbolItem +
-# SymbolStyle dependency set as the 1D sublayer tests.
+# Slice S5 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md) — 2D sublayer classes bundled
+# into one self-contained test TU. Same lean leaf-test dependency pattern; the
+# .cpp impls link against the same LegendSymbolItem + SymbolStyle dependency
+# set as the 1D sublayer tests.
 add_swmmvis_gui_test(test_2d_sublayers
     test_2d_sublayers.cpp
     # Sublayer styles classify scalar fields through ClassificationScheme,
@@ -532,6 +532,7 @@ add_swmmvis_gui_test(test_2d_sublayers
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/velocityvectorsublayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/isolinesublayer.cpp
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/contourbandsublayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/sublayers/scalarfillsublayer.cpp
     # VelocityVectorStyle::colorForSpeed samples a named RasterColorRamp.
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
     ${CMAKE_SOURCE_DIR}/include/render/symbollayer.h
@@ -544,6 +545,7 @@ add_swmmvis_gui_test(test_2d_sublayers
     ${CMAKE_SOURCE_DIR}/include/render/sublayers/velocityvectorsublayer.h
     ${CMAKE_SOURCE_DIR}/include/render/sublayers/isolinesublayer.h
     ${CMAKE_SOURCE_DIR}/include/render/sublayers/contourbandsublayer.h
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/scalarfillsublayer.h
 )
 # D1-a — the property grid surfaces a ClassificationScheme Q_PROPERTY as an
 # editable leaf row through QPropertyModel; the test reflects on the model.
