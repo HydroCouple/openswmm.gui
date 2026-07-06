@@ -21,6 +21,7 @@
 #include "core/unitsystem.h"
 #include "plot/plotattribute.h"
 #include "ui/dialogs/profileoptionsdialog.h"
+#include "ui/dialogs/profileresultsources.h"
 #include "ui/widgets/attributepickermenu.h"
 #include "ui/widgets/profilelayerpanel.h"
 #include "selection/selectionmanager.h"
@@ -121,6 +122,17 @@ ProfilePlotDialog::ProfilePlotDialog(SWMMModelLayer              *model,
         if (auto *primary = m_anim->primaryLayer())
             onAnimationTimeChanged(primary->currentDateTime());
     }
+    if (m_canvas) {
+        auto refreshForResultLayerChange = [this](OpenSWMMVisLayer *layer) {
+            if (!qobject_cast<SWMMResultsLayer *>(layer)) return;
+            populateSourcesPanel();
+            rebindSources();
+        };
+        connect(m_canvas, &MapCanvas::layerAdded,
+                this, refreshForResultLayerChange);
+        connect(m_canvas, &MapCanvas::layerRemoved,
+                this, refreshForResultLayerChange);
+    }
 
     // Lifetime: this dialog is a top-level window parented to nullptr (so
     // it gets its own dock icon on macOS), but it holds raw pointers to
@@ -149,6 +161,7 @@ ProfilePlotDialog::~ProfilePlotDialog()
     // late delivery is a no-op against this object.
     if (m_anim)          disconnect(m_anim.data(),          nullptr, this, nullptr);
     if (m_model)         disconnect(m_model.data(),         nullptr, this, nullptr);
+    if (m_canvas)        disconnect(m_canvas.data(),        nullptr, this, nullptr);
     if (m_projectWindow) disconnect(m_projectWindow.data(), nullptr, this, nullptr);
     for (auto *pw : std::as_const(m_observedProjects)) {
         if (pw && pw != m_projectWindow.data())
@@ -667,10 +680,11 @@ void ProfilePlotDialog::populateSourcesPanel()
     if (!m_sourceMenu) return;
     m_sourceMenu->clear();
     m_actionLayer.clear();
-    if (!m_anim) {
-        m_sourceButton->setText(tr("Sources"));
-        return;
-    }
+
+    const QList<SWMMResultsLayer *> layers =
+        openswmmvis::ui::profileResultSources(m_anim.data(),
+                                              m_projectWindow.data(),
+                                              m_canvas.data());
 
     // Read persisted per-layer visibility / colour / name / style from
     // QSettings.  Same key scheme the ProfileOptionsDialog Sources tab
@@ -682,12 +696,9 @@ void ProfilePlotDialog::populateSourcesPanel()
     // file → layer map first and apply style in-stream.  Visibility is
     // stashed in a parallel map and read out at action-creation time.
     QHash<QString, SWMMResultsLayer *> layerByFile;
-    {
-        const auto allLayers = m_anim->allLayers();
-        for (SWMMResultsLayer *layer : allLayers) {
-            if (!layer) continue;
-            layerByFile.insert(layer->resultsFilePath(), layer);
-        }
+    for (SWMMResultsLayer *layer : layers) {
+        if (!layer) continue;
+        layerByFile.insert(layer->resultsFilePath(), layer);
     }
     QHash<QString, bool> visibilityByFile;
     {
@@ -723,8 +734,8 @@ void ProfilePlotDialog::populateSourcesPanel()
         settings.endGroup();
     }
 
-    const QList<SWMMResultsLayer *> layers = m_anim->allLayers();
     int total = 0;
+    int checked = 0;
     for (SWMMResultsLayer *layer : layers) {
         if (!layer) continue;
         // Visibility default = checked.
@@ -737,6 +748,7 @@ void ProfilePlotDialog::populateSourcesPanel()
                                             label);
         act->setCheckable(true);
         act->setChecked(visibleInit);
+        if (visibleInit) ++checked;
         act->setToolTip(layer->resultsFilePath());
         m_actionLayer.insert(act, layer);
         connect(act, &QAction::toggled,
@@ -772,7 +784,7 @@ void ProfilePlotDialog::populateSourcesPanel()
         });
         ++total;
     }
-    m_sourceButton->setText(tr("Sources (%1/%1)").arg(total));
+    m_sourceButton->setText(tr("Sources (%1/%2)").arg(checked).arg(total));
 }
 
 void ProfilePlotDialog::subscribeProjectClose(SWMMVisProjectWindow *pw)
