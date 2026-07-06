@@ -306,3 +306,50 @@ add_swmmvis_unit_test(test_timeseries_table_model
     ${PROJECT_SOURCE_DIR}/src/ui/panels/timeseriestablemodel.cpp
 )
 target_link_libraries(test_timeseries_table_model PRIVATE Qt6::Widgets)
+
+# ---- QSG 2D 1M-cell rendering helpers (QSG_2D_1M_RENDERING plan) ----
+# All pure Qt-Core helpers extracted from the 2D mesh/results QSG renderers
+# so rendering decisions are unit-testable without Qt Quick.
+
+# Phase 1 — per-sync render stats / OPENSWMM_RENDER_PERF logger.
+add_swmmvis_unit_test(test_qsg2d_renderstats
+    test_qsg2d_renderstats.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/qsg2drenderstats.cpp
+)
+
+# Phase 2 — dirty-domain separation (header-only) + Phase 7 stale-result
+# guard (header-only).
+add_swmmvis_unit_test(test_qsg2d_dirtystate
+    test_qsg2d_dirtystate.cpp
+)
+
+# Phase 3 — deterministic LOD policy.
+add_swmmvis_unit_test(test_qsg2d_lodpolicy
+    test_qsg2d_lodpolicy.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/qsg2dlodpolicy.cpp
+)
+
+# Phase 4 — render chunk index (batch culling, separate from MeshSpatialGrid).
+add_swmmvis_unit_test(test_meshrenderchunkindex
+    test_meshrenderchunkindex.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/meshrenderchunkindex.cpp
+)
+
+# Phase 5 — persistent static geometry buffers (header-only).
+add_swmmvis_unit_test(test_meshstaticgeometrybuffers
+    test_meshstaticgeometrybuffers.cpp
+)
+
+# Phase 7 — async contour worker (pure snapshot function).
+# marchingtriangles.h uses QColor (viridis helper) → needs Qt6::Gui, but no
+# widgets, so it still runs headlessly.
+add_swmmvis_unit_test(test_contourjob
+    test_contourjob.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/contourjob.cpp
+)
+target_link_libraries(test_contourjob PRIVATE Qt6::Gui)
+
+# Phase 8 — scalar→ramp normalization/clamp contract (header-only).
+add_swmmvis_unit_test(test_scalarramplut
+    test_scalarramplut.cpp
+)
