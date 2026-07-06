@@ -303,7 +303,8 @@ template <typename TriRange, typename Extract>
 std::vector<IsoBandPolygon>
 marchingTrianglesIsobands(const TriRange         &tris,
                           const std::vector<double> &levels,
-                          Extract                  extract)
+                          Extract                  extract,
+                          bool                     clampUniformOutsideRange = true)
 {
     std::vector<IsoBandPolygon> out;
     if (levels.size() < 2) return out;
@@ -332,6 +333,13 @@ marchingTrianglesIsobands(const TriRange         &tris,
             // the renderer's per-cell bucketing: upper_bound over the interior
             // breaks, clamped so values at/below the first level land in band 0
             // and values at/above the last level land in the last band.
+            //
+            // Depth renderers pass clampUniformOutsideRange=false so a flat dry
+            // cell below the first break (the dry threshold) remains
+            // transparent instead of being painted as the first wet band.
+            if (!clampUniformOutsideRange
+                && (vMin < levels.front() || vMin > levels.back()))
+                continue;
             const int nb = int(levels.size()) - 1;   // number of bands (>= 1)
             int k = int(std::upper_bound(levels.begin() + 1, levels.end() - 1,
                                          vMin)

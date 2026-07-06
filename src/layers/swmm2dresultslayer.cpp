@@ -111,6 +111,41 @@ void velocityColorRgb(double vmag, double max_v, int& r, int& g, int& b)
     b = int(std::lround(lo.b + f * (hi.b - lo.b)));
 }
 
+int normalizeOneBasedConnectivity(std::vector<std::array<int, 3>>& tris,
+                                  int nVerts)
+{
+    if (tris.empty() || nVerts <= 0) return 0;
+
+    int minIdx = std::numeric_limits<int>::max();
+    int maxIdx = std::numeric_limits<int>::lowest();
+    for (const auto& tri : tris) {
+        minIdx = std::min({minIdx, tri[0], tri[1], tri[2]});
+        maxIdx = std::max({maxIdx, tri[0], tri[1], tri[2]});
+    }
+
+    if (minIdx != 1 || maxIdx != nVerts)
+        return 0;
+
+    for (auto& tri : tris)
+        for (int& v : tri)
+            --v;
+    return 1;
+}
+
+bool triIndicesInRange(const std::array<int, 3>& tri, int nVerts)
+{
+    return tri[0] >= 0 && tri[0] < nVerts
+        && tri[1] >= 0 && tri[1] < nVerts
+        && tri[2] >= 0 && tri[2] < nVerts
+        && tri[0] != tri[1] && tri[1] != tri[2] && tri[2] != tri[0];
+}
+
+double twiceSignedArea(const QPointF& a, const QPointF& b, const QPointF& c)
+{
+    return (b.x() - a.x()) * (c.y() - a.y())
+         - (b.y() - a.y()) * (c.x() - a.x());
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -238,7 +273,9 @@ public:
                         v1 = double(t.dv1);
                         v2 = double(t.dv2);
                     };
-                    const auto bands = marchingTrianglesIsobands(tris, levels, extract);
+                    const auto bands = marchingTrianglesIsobands(
+                        tris, levels, extract,
+                        /*clampUniformOutsideRange=*/false);
                     for (const auto &bp : bands) {
                         if (bp.verts.size() < 3) continue;
                         p->setBrush(bandColor(bp.bandIndex));
@@ -1874,6 +1911,14 @@ inline bool pointInTriangle(const QPointF& p,
                             const QPointF& b,
                             const QPointF& c)
 {
+    if (!std::isfinite(p.x()) || !std::isfinite(p.y()) ||
+        !std::isfinite(a.x()) || !std::isfinite(a.y()) ||
+        !std::isfinite(b.x()) || !std::isfinite(b.y()) ||
+        !std::isfinite(c.x()) || !std::isfinite(c.y()))
+        return false;
+    if (!(std::abs(twiceSignedArea(a, b, c)) > 1e-18))
+        return false;
+
     const double d1 = (p.x() - b.x()) * (a.y() - b.y()) -
                       (a.x() - b.x()) * (p.y() - b.y());
     const double d2 = (p.x() - c.x()) * (b.y() - c.y()) -
@@ -2245,7 +2290,13 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     vvx_.clear();
     vvy_.clear();
     m_sceneEdges.clear();
+    m_sceneVerts.clear();
     m_sceneBBox = QRectF();
+
+    // QSG-2D-1M — every scene-geometry rebuild is a new geometry revision,
+    // including the early-return "now empty" outcomes below: the renderer
+    // must notice the geometry went away too.
+    ++m_geomRevision;
 
     if (!source_) return;
 
@@ -2253,41 +2304,110 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
         return;
     }
     if (tris_.empty()) return;
+    if (vx_.empty() || vy_.size() != vx_.size() || vz_.size() != vx_.size()) {
+        qWarning("[2D-render] invalid mesh geometry vector sizes "
+                 "(x=%llu y=%llu z=%llu)",
+                 static_cast<unsigned long long>(vx_.size()),
+                 static_cast<unsigned long long>(vy_.size()),
+                 static_cast<unsigned long long>(vz_.size()));
+        vx_.clear();
+        vy_.clear();
+        vz_.clear();
+        tris_.clear();
+        return;
+    }
 
     // Scene-space points: identity transform + Y-flip (scene grows downward,
     // matching the mesh layer's convention). CRS transforms come later via
     // onCanvasCRSChanged when the layer SRS framework is wired.
     const int nVerts = static_cast<int>(vx_.size());
+    const int normalizedStartIndex = normalizeOneBasedConnectivity(tris_, nVerts);
+    if (normalizedStartIndex != 0) {
+        qWarning("[2D-render] normalized 1-based 2D triangle connectivity "
+                 "to zero-based vertex ids");
+    }
+
     QVector<QPointF> scenePts;
     scenePts.reserve(nVerts);
+    std::vector<char> validVerts(static_cast<size_t>(nVerts), 1);
     double minX = std::numeric_limits<double>::max();
     double maxX = std::numeric_limits<double>::lowest();
     double minY = std::numeric_limits<double>::max();
     double maxY = std::numeric_limits<double>::lowest();
+    int badVerts = 0;
+    bool haveValidVertex = false;
     for (int i = 0; i < nVerts; ++i) {
-        const double sx =  vx_[i];
-        const double sy = -vy_[i];
+        double sx = vx_[i];
+        double sy = -vy_[i];
+        if (!std::isfinite(vx_[i]) || !std::isfinite(vy_[i])
+            || !std::isfinite(vz_[i])) {
+            validVerts[size_t(i)] = 0;
+            sx = sy = 0.0;
+            ++badVerts;
+        }
         scenePts.append(QPointF(sx, sy));
+        if (!validVerts[size_t(i)]) continue;
+        haveValidVertex = true;
         if (sx < minX) minX = sx;
         if (sx > maxX) maxX = sx;
         if (sy < minY) minY = sy;
         if (sy > maxY) maxY = sy;
     }
-    if (nVerts > 0) {
-        m_sceneBBox = QRectF(QPointF(minX, minY), QPointF(maxX, maxY));
-        setExtent(MapExtent(minX, -maxY, maxX, -minY));  // un-flip Y for layer extent
+    if (!haveValidVertex) {
+        qWarning("[2D-render] 2D mesh has no finite vertices; results layer "
+                 "geometry was not built");
+        vx_.clear();
+        vy_.clear();
+        vz_.clear();
+        tris_.clear();
+        return;
     }
+    if (badVerts > 0) {
+        qWarning("[2D-render] ignored %d non-finite 2D mesh vertex/vertices",
+                 badVerts);
+    }
+    m_sceneBBox = QRectF(QPointF(minX, minY), QPointF(maxX, maxY));
+    setExtent(MapExtent(minX, -maxY, maxX, -minY));  // un-flip Y for layer extent
+    // QSG-2D-1M — shared-vertex cache for the renderer. If any source
+    // vertex was non-finite, leave this empty so indexed fill/unique-marker
+    // paths fall back to the validated per-triangle buffers below.
+    m_sceneVerts = (badVerts == 0) ? scenePts : QVector<QPointF>();
 
     m_sceneTris.resize(static_cast<int>(tris_.size()));
+    int badTris = 0;
     for (int i = 0; i < static_cast<int>(tris_.size()); ++i) {
         SceneTri& st = m_sceneTris[i];
-        st.a = scenePts[tris_[i][0]];
-        st.b = scenePts[tris_[i][1]];
-        st.c = scenePts[tris_[i][2]];
-        st.centroid = QPointF((st.a.x() + st.b.x() + st.c.x()) / 3.0,
-                               (st.a.y() + st.b.y() + st.c.y()) / 3.0);
         st.depth = 0.0f;
         st.vx = st.vy = st.vmag = 0.0f;
+
+        const auto& tri = tris_[i];
+        const bool indicesOk = triIndicesInRange(tri, nVerts)
+            && validVerts[size_t(tri[0])]
+            && validVerts[size_t(tri[1])]
+            && validVerts[size_t(tri[2])];
+        if (!indicesOk) {
+            tris_[i] = {-1, -1, -1};
+            st.a = st.b = st.c = st.centroid = QPointF();
+            ++badTris;
+            continue;
+        }
+
+        st.a = scenePts[tri[0]];
+        st.b = scenePts[tri[1]];
+        st.c = scenePts[tri[2]];
+        if (!(std::abs(twiceSignedArea(st.a, st.b, st.c)) > 1e-18)) {
+            tris_[i] = {-1, -1, -1};
+            st.a = st.b = st.c = st.centroid = QPointF();
+            ++badTris;
+            continue;
+        }
+
+        st.centroid = QPointF((st.a.x() + st.b.x() + st.c.x()) / 3.0,
+                               (st.a.y() + st.b.y() + st.c.y()) / 3.0);
+    }
+    if (badTris > 0) {
+        qWarning("[2D-render] collapsed %d invalid 2D mesh triangle(s); "
+                 "depth contours will skip them", badTris);
     }
 
     // Issue 3 — deduplicated wireframe edge set (each undirected edge stored
@@ -2326,6 +2446,11 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     QVector<QRectF> triBBoxes(m_sceneTris.size());
     for (int i = 0; i < m_sceneTris.size(); ++i) {
         const SceneTri& t = m_sceneTris[i];
+        if (!triIndicesInRange(tris_[size_t(i)], nVerts)
+            || !(std::abs(twiceSignedArea(t.a, t.b, t.c)) > 1e-18)) {
+            triBBoxes[i] = QRectF();
+            continue;
+        }
         const double bMinX = std::min({t.a.x(), t.b.x(), t.c.x()});
         const double bMaxX = std::max({t.a.x(), t.b.x(), t.c.x()});
         const double bMinY = std::min({t.a.y(), t.b.y(), t.c.y()});
@@ -2339,15 +2464,19 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     // geometry the per-frame reconstruction needs. Stored as float parallel to
     // tris_; the per-frame eta_* scratch is sized here too so
     // applyCurrentDepths_ never allocates.
-    const int nVert = static_cast<int>(vx_.size());
     cellZc_.resize(m_sceneTris.size());
     for (int i = 0; i < m_sceneTris.size(); ++i) {
         const auto& tri = tris_[i];
-        cellZc_[i] = float((vz_[tri[0]] + vz_[tri[1]] + vz_[tri[2]]) / 3.0);
+        if (!triIndicesInRange(tri, nVerts)) {
+            cellZc_[i] = 0.0f;
+            continue;
+        }
+        const double zc = (vz_[tri[0]] + vz_[tri[1]] + vz_[tri[2]]) / 3.0;
+        cellZc_[i] = std::isfinite(zc) ? float(zc) : 0.0f;
     }
-    eta_vsum_.assign(nVert, 0.0f);
-    eta_wsum_.assign(nVert, 0.0f);
-    vdepth_.assign(nVert, 0.0f);
+    eta_vsum_.assign(nVerts, 0.0f);
+    eta_wsum_.assign(nVerts, 0.0f);
+    vdepth_.assign(nVerts, 0.0f);
 
     // Pull time-invariant edge geometry once per source swap. When the source
     // can't provide it (older engine without the bulk API, .h5 file without

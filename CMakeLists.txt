@@ -74,6 +74,10 @@ find_package(QT NAMES Qt6 Qt5 REQUIRED
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED
     COMPONENTS Widgets OpenGL OpenGLWidgets Network Concurrent LinguistTools Svg Charts
                Quick QuickWidgets Qml PrintSupport)
+# QSG-2D-1M Phase 8 — qsb compilation for the scalar-fill material shaders.
+if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
+    find_package(Qt6 REQUIRED COMPONENTS ShaderTools)
+endif()
 
 # ── GDAL (GIS/CRS) ──────────────────────────────────────────────────────────
 find_package(GDAL REQUIRED)
@@ -269,6 +273,19 @@ set(
         include/render/joinspec.h
         # Slice Z.12-data — DiagramSpec for the Diagrams tab.
         include/render/diagramspec.h
+        # QSG-2D-1M — pure rendering-decision helpers for the 2D mesh /
+        # results QSG renderers (perf stats, dirty domains, LOD policy,
+        # chunked render culling, static geometry buffers, async guard).
+        include/render/qsg2drenderstats.h
+        include/render/qsg2ddirtystate.h
+        include/render/qsg2dlodpolicy.h
+        include/render/meshrenderchunkindex.h
+        include/render/meshstaticgeometrybuffers.h
+        include/render/qsg2dasyncresult.h
+        # QSG-2D-1M Phase 7/8 — async contour worker + GPU ramp LUT math.
+        include/render/contourjob.h
+        include/render/scalarramplut.h
+        include/map/scalarfillmaterial.h
 
         # ── Plot ─────────────────────────────────────────────────────────────
         include/plot/profilerouter.h
@@ -779,6 +796,14 @@ set(
         src/render/temporalspec.cpp
         # Slice Z.14-data — MaskSpec impl.
         src/render/maskspec.cpp
+        # QSG-2D-1M — render stats / LOD policy / chunk index impls.
+        src/render/qsg2drenderstats.cpp
+        src/render/qsg2dlodpolicy.cpp
+        src/render/meshrenderchunkindex.cpp
+        # QSG-2D-1M Phase 7 — thread-safe async contour worker.
+        src/render/contourjob.cpp
+        # QSG-2D-1M Phase 8 — GPU scalar-fill material (ramp LUT texture).
+        src/map/scalarfillmaterial.cpp
         # Slice Z.14-paint — runtime clip-path resolver impl.
         src/render/maskclipresolver.cpp
         # Slice Z.15-data — AuxiliaryStorageSpec impl.
@@ -1220,6 +1245,14 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         ${PROJECT_SOURCES}
         resources/swmmvis.qrc
         resources/about.qrc
+    )
+    # QSG-2D-1M Phase 8 — compile the scalar-fill material shaders to .qsb
+    # (resource paths :/resources/shaders/scalarfill.{vert,frag}.qsb).
+    qt_add_shaders(SWMMVis "swmmvis_scalarfill_shaders"
+        PREFIX "/"
+        FILES
+            resources/shaders/scalarfill.vert
+            resources/shaders/scalarfill.frag
     )
     qt_create_translation(QM_FILES ${CMAKE_SOURCE_DIR} ${TS_FILES})
 else()

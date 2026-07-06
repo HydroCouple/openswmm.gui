@@ -23,7 +23,9 @@
 #include "map/swmmlayerqsgrenderer.h"
 #include "map/swmm2dresultsqsgrenderer.h"
 #include "layers/swmm2dresultslayer.h"
+#include "render/qsg2drenderstats.h"
 
+#include <QElapsedTimer>
 #include <QQmlError>
 #include <QQuickItem>
 #include <QQuickWidget>
@@ -199,6 +201,16 @@ MapCanvas::MapCanvas(QWidget *parent)
     if (!m_qsg2DRenderer)
         qWarning() << "[MapCanvas] failed to obtain SWMM2DResultsQSGRenderer "
                       "from the QML scene";
+    if (m_qsg2DRenderer) {
+        // QSG-2D-1M Phase 7 — an async contour job finished: the offscreen
+        // QSG widget now holds fresher bands/isolines than the cached
+        // framebuffer, so force a regrab on the next paint.
+        connect(m_qsg2DRenderer, &SWMM2DResultsQSGRenderer::contentReady,
+                this, [this]() {
+                    m_qsgFrameDirty = true;
+                    update();
+                });
+    }
     m_qsgWidget->show();
 
     // Scale bar appearance settings — child QObject so it's cleaned up with the canvas.
@@ -1563,8 +1575,25 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
 
                 // Synchronous render: updatePaintNode() executes here so the
                 // selection overlay reflects the latest flag arrays.
+                // QSG-2D-1M Phase 1 — with OPENSWMM_RENDER_PERF=1, time the
+                // two expensive halves of the QSG round trip (sync/render vs
+                // GPU readback) so per-frame cost can be attributed.
+                const bool kPerfOn =
+                    OpenSWMM::Render::Qsg2DRenderStats::loggingEnabled();
+                QElapsedTimer perfTimer;
+                if (kPerfOn) perfTimer.start();
                 m_qsgWidget->repaint();
+                const double repaintMs =
+                    kPerfOn ? perfTimer.nsecsElapsed() / 1e6 : -1.0;
+                if (kPerfOn) perfTimer.restart();
                 m_qsgFrameCache    = m_qsgWidget->grabFramebuffer();
+                if (kPerfOn) {
+                    OpenSWMM::Render::Qsg2DRenderStats canvasStats;
+                    canvasStats.rendererName = QStringLiteral("canvas");
+                    canvasStats.repaintMs    = repaintMs;
+                    canvasStats.grabMs       = perfTimer.nsecsElapsed() / 1e6;
+                    canvasStats.logIfEnabled();
+                }
                 m_qsgFrameCache.setDevicePixelRatio(qsgDpr);
                 m_qsgFrameDirty    = false;
                 m_qsgCachedLayer   = firstSwmm;
