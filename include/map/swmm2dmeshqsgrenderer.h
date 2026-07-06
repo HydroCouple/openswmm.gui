@@ -16,10 +16,18 @@
  *             (DrawTriangles) so line widths are consistent across RHI
  *             backends (Metal/Vulkan/D3D11).
  *
- * Optimisation flags:
- *   m_contentDirty — set on layer change, zoom, or mesh geometry change.
- *   Pure pan costs only a QMatrix4x4 write (same Stage-3 approach as
- *   SWMMLayerQSGRenderer).
+ * QSG-2D-1M (2026-07-05) — re-architected for ~1M-cell meshes:
+ *   - Dirty domains (Qsg2DDirtyState) replace the single m_contentDirty:
+ *     pan is matrix-only, zoom rebuilds only across LOD-key changes, and a
+ *     selection change rebuilds only the §V overlay nodes.
+ *   - A deterministic LOD policy (Qsg2DLodPolicy) gates dense passes: at
+ *     Far zoom the fill switches to the layer's coarse overview
+ *     (m_overviewTris — the same aggregate the CPU painter uses), and the
+ *     wireframe / vertex markers / contour labels are suppressed.
+ *   - Content is culled to a coverage rect larger than the viewport; pans
+ *     inside it stay matrix-only, leaving it triggers one LOD rebuild.
+ *   - OPENSWMM_RENDER_PERF=1 logs per-sync dirty reasons and per-pass
+ *     built-vertex / uploaded-byte counters (Qsg2DRenderStats).
  */
 #ifndef SWMM2DMESHQSGRENDERER_H
 #define SWMM2DMESHQSGRENDERER_H
@@ -27,12 +35,17 @@
 #include "contour/marchingtriangles.h"
 #include "map/mapextent.h"
 #include "render/colorramp.h"
+#include "render/qsg2ddirtystate.h"
+#include "render/qsg2dlodpolicy.h"
 
 #include <QHash>
 #include <QPointer>
 #include <QQuickItem>
+#include <QRectF>
+#include <QSet>
 #include <QString>
 
+#include <limits>
 #include <vector>
 
 class QSGTexture;
@@ -57,13 +70,27 @@ private:
     MapExtent                 m_extent;
 
     // Fixed scene-space anchor (bbox centre) — keeps float vertex coords
-    // small even in UTM coordinates; stable across pans.
+    // small even in UTM coordinates; stable across pans. Recomputed only
+    // when the geometry domain is dirty.
     double m_anchorX = 0.0;
     double m_anchorY = 0.0;
 
-    // Set on geometry, symbology, or zoom change; cleared after full rebuild.
-    // Pure pan does NOT set this — only the transform matrix is updated.
-    bool m_contentDirty = true;
+    // ── QSG-2D-1M dirty/LOD state ──────────────────────────────────────
+    OpenSWMM::Render::Qsg2DDirtyState m_dirty;
+
+    /*! LOD content key + coverage rect of the last content build. Zoom
+     *  within the same key and pans inside the coverage are matrix-only. */
+    quint64 m_builtLodKey  = ~quint64(0);
+    QRectF  m_builtCoverage;
+    int     m_lastBucket   = -1;
+    int     m_lastZoomStep = std::numeric_limits<int>::min();
+
+    /*! Snapshots for classifying the layer's catch-all repaintRequested
+     *  into Geometry / Selection / Style domains. */
+    quint64   m_lastGeomRev = ~quint64(0);
+    QSet<int> m_lastSelVerts;
+    QSet<int> m_lastSelEdges;
+    QSet<int> m_lastSelTris;
 
     // ── Isoline-label texture cache ────────────────────────────────────
     // Keyed by the rendered label string ("12.4", "20.0", …). QSGTexture
