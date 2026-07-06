@@ -667,6 +667,25 @@ public:
     };
     QVector<SceneEdge> m_sceneEdges;
 
+    /*! QSG-2D-1M — shared scene-space vertex positions (parallel to the
+     *  source vertex arrays). Built in rebuildSceneGeometry_; lets the QSG
+     *  renderer draw one marker per UNIQUE mesh vertex (the per-corner
+     *  emission repeated shared vertices ~6×) and feed the static indexed
+     *  geometry buffers without expanding corners. */
+    QVector<QPointF>   m_sceneVerts;
+
+    /*! QSG-2D-1M — triangle → vertex-id triples backing m_sceneTris
+     *  (indices into m_sceneVerts). Read-only view for the renderer's
+     *  static indexed-geometry path. */
+    [[nodiscard]] const std::vector<std::array<int, 3>> &triVertexIndices() const noexcept
+    { return tris_; }
+
+    /*! QSG-2D-1M — bumped every rebuildSceneGeometry_. Lets the QSG
+     *  renderer classify an ambiguous repaint into "geometry changed"
+     *  vs "style changed" and key its static buffers / chunk index.
+     *  Mirrors SWMM2DMeshLayer::geomRevision(). */
+    [[nodiscard]] quint64 geomRevision() const noexcept { return m_geomRevision; }
+
 signals:
     /*! Emitted when `source()->timeCount()` changes (either via setSource or refreshTimeRange). */
     void timeRangeChanged(int lo, int hi);
@@ -709,6 +728,9 @@ private:
     [[nodiscard]] float clampToDrivingHead_(int idx, double depthBlend,
                                             double w, double v, double u,
                                             double sd0, double sd1, double sd2) const;
+
+    /*! QSG-2D-1M — see geomRevision(). */
+    quint64 m_geomRevision = 0;
 
     std::unique_ptr<IMesh2DSource> source_;
     std::vector<double>            vx_, vy_, vz_;
