@@ -952,13 +952,17 @@ add_swmmvis_gui_test(test_seriesstyleobject
     test_seriesstyleobject.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/seriesstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/seriesstyleobject.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/seriesstyleeditor.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/seriesstyle.h
     ${CMAKE_SOURCE_DIR}/include/plot/seriesstyleobject.h
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/seriesstyleeditor.h
     # SeriesStyle label formatting uses NumberFormat::printfSpec().
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
-target_link_libraries(test_seriesstyleobject PRIVATE Qt6::Charts)
+target_link_libraries(test_seriesstyleobject PRIVATE
+    Qt6::Charts
+    $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>)
 
 # Slice AT.3 — pins computeStatistics() pure-function behaviour.
 add_swmmvis_gui_test(test_comparisonplot_statstab
