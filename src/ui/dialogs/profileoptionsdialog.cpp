@@ -11,6 +11,7 @@
 #include "layers/swmmresultslayer.h"
 #include "plot/profileplotoptions.h"
 #include "swmmvisprojectwindow.h"
+#include "ui/dialogs/profileresultsources.h"
 #include "ui/dialogs/profilesourcestyleadapter.h"
 
 #ifdef HAVE_QPROPERTYMODEL
@@ -85,6 +86,17 @@ ProfileOptionsDialog::ProfileOptionsDialog(ProfilePlotOptions   *options,
 
     buildDisplayTab();
     buildSourcesTab();
+
+    if (m_projectWindow && m_projectWindow->canvas()) {
+        auto refreshForResultLayerChange = [this](OpenSWMMVisLayer *layer) {
+            if (!qobject_cast<SWMMResultsLayer *>(layer)) return;
+            refreshSources();
+        };
+        connect(m_projectWindow->canvas(), &MapCanvas::layerAdded,
+                this, refreshForResultLayerChange);
+        connect(m_projectWindow->canvas(), &MapCanvas::layerRemoved,
+                this, refreshForResultLayerChange);
+    }
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::close);
@@ -318,9 +330,10 @@ void ProfileOptionsDialog::refreshSourcesModel()
     if (!m_sourcesModel) return;
     QSignalBlocker block(m_sourcesModel);
     m_sourcesModel->removeRows(0, m_sourcesModel->rowCount());
-    if (!m_anim) return;
 
-    const auto layers = m_anim->allLayers();
+    const auto layers =
+        openswmmvis::ui::profileResultSources(m_anim.data(),
+                                              m_projectWindow.data());
     for (auto *layer : layers) {
         if (!layer) continue;
         auto *visible = new QStandardItem();
@@ -406,7 +419,7 @@ void ProfileOptionsDialog::persistSourcesState() const
 
 void ProfileOptionsDialog::restoreSourcesState()
 {
-    if (!m_sourcesModel || !m_anim) return;
+    if (!m_sourcesModel) return;
     QSignalBlocker block(m_sourcesModel);
 
     // Build a file-path → (layer, row, model-items) lookup once so we can

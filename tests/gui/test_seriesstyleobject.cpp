@@ -17,6 +17,10 @@
  */
 #include "plot/seriesstyle.h"
 #include "plot/seriesstyleobject.h"
+#include "ui/widgets/seriesstyleeditor.h"
+
+#include <qpropertyitemdelegate.h>
+#include <qpropertymodel.h>
 
 #include <QBrush>
 #include <QColor>
@@ -27,6 +31,7 @@
 #include <QPen>
 #include <QSignalSpy>
 #include <QTest>
+#include <QTreeView>
 
 using openswmmvis::plot::MarkerShape;
 using openswmmvis::plot::SeriesStyle;
@@ -45,6 +50,7 @@ private slots:
     void displayLabelsAreGroupPrefixed();
     void shapeEnumMirrorsMarkerShape();
     void legendOverrideIsSpecLevelNotStyle();
+    void editorUsesQPropertyModelDelegate();
 };
 
 // ---------------------------------------------------------------------------
@@ -329,6 +335,17 @@ void TestSeriesStyleObject::legendOverrideIsSpecLevelNotStyle()
     // Display label is grouped under Identity.
     QVERIFY(obj.displayLabelFor(QStringLiteral("legendOverride"))
                 .startsWith(QStringLiteral("Identity")));
+}
+
+// ---------------------------------------------------------------------------
+void TestSeriesStyleObject::editorUsesQPropertyModelDelegate()
+{
+    openswmmvis::ui::SeriesStyleEditor editor;
+
+    auto *tree = editor.findChild<QTreeView *>();
+    QVERIFY(tree);
+    QVERIFY(qobject_cast<QPropertyModel *>(tree->model()));
+    QVERIFY(qobject_cast<QPropertyItemDelegate *>(tree->itemDelegate()));
 }
 
 QTEST_MAIN(TestSeriesStyleObject)

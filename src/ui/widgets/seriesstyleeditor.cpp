@@ -8,6 +8,7 @@
 
 #include "plot/seriesstyleobject.h"
 
+#include <qpropertyitemdelegate.h>
 #include <qpropertymodel.h>
 
 #include <QHeaderView>
@@ -51,6 +52,7 @@ void SeriesStyleEditor::buildUi()
 
     m_model = new QPropertyModel(m_obj, this);
     m_tree->setModel(m_model);
+    m_tree->setItemDelegate(new QPropertyItemDelegate(m_tree));
     m_tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_tree->header()->setStretchLastSection(true);
     m_tree->expandAll();
