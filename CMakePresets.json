@@ -21,12 +21,12 @@
         {
             "name": "Windows",
             "inherits": "default",
-            "description": "Windows Release build (MSVC, Visual Studio 17 2022). Qt MSVC 2022 64-bit kit at C:\\Qt\\6.11.1\\msvc2022_64; override with -DCMAKE_PREFIX_PATH or QT_ROOT_DIR env var. Prebuilt engine expected at ../openswmm.engine/install/Windows.",
-            "generator": "Visual Studio 17 2022",
+            "description": "Windows Release build (MSVC, Ninja — requires cl.exe/link.exe on PATH via the MSVC dev environment). Qt located via the QT_ROOT_DIR env var (e.g. an MSVC 64-bit kit); override with -DCMAKE_PREFIX_PATH. Prebuilt engine expected at ../openswmm.engine/install/Windows.",
+            "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/windows",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "CMAKE_PREFIX_PATH": "C:\\Qt\\6.11.1\\msvc2022_64",
+                "CMAKE_PREFIX_PATH": "$env{QT_ROOT_DIR}",
                 "CMAKE_C_FLAGS": "/O2 /GL /fp:precise /W4",
                 "CMAKE_CXX_FLAGS": "/O2 /GL /fp:precise /W4",
                 "CMAKE_EXE_LINKER_FLAGS": "/LTCG /OPT:REF /OPT:ICF",
@@ -45,12 +45,12 @@
         {
             "name": "Windows-debug",
             "inherits": "default-debug",
-            "description": "Windows Debug build (MSVC, Visual Studio 17 2022). Qt MSVC 2022 64-bit kit at C:\\Qt\\6.11.1\\msvc2022_64; override with -DCMAKE_PREFIX_PATH or QT_ROOT_DIR env var.",
-            "generator": "Visual Studio 17 2022",
+            "description": "Windows Debug build (MSVC, Ninja — requires cl.exe/link.exe on PATH via the MSVC dev environment). Qt located via the QT_ROOT_DIR env var (e.g. an MSVC 64-bit kit); override with -DCMAKE_PREFIX_PATH.",
+            "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/windows-debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "CMAKE_PREFIX_PATH": "C:\\Qt\\6.11.1\\msvc2022_64",
+                "CMAKE_PREFIX_PATH": "$env{QT_ROOT_DIR}",
                 "CMAKE_C_FLAGS": "/Zi /Od /DDEBUG /W4 /fp:precise",
                 "CMAKE_CXX_FLAGS": "/Zi /Od /DDEBUG /W4 /fp:precise",
                 "CMAKE_EXE_LINKER_FLAGS": "/DEBUG",
