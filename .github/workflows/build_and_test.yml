@@ -203,7 +203,13 @@ jobs:
         with:
           version: '6.7.*'
           arch: ${{ matrix.qt_arch }}
-          modules: 'qtcharts'
+          # qtcharts: Qt6::Charts (plot widgets). qtshadertools: Qt6::ShaderTools,
+          # required unconditionally by CMakeLists.txt (find_package ShaderTools)
+          # for qsb compilation of the QSG scalar-fill shaders. aqt does not ship
+          # ShaderTools with the base kit, so it must be requested explicitly on
+          # every platform, else Configure fails "Failed to find required Qt
+          # component ShaderTools".
+          modules: 'qtcharts qtshadertools'
           cache: true
 
       # ── openswmm.engine (prebuilt, hypre/AMG-enabled) ───────────────────────
