@@ -28,6 +28,8 @@
 
 #include <QDialog>
 
+#include <memory>
+
 class QTabWidget;
 class QComboBox;
 class QLineEdit;
@@ -43,6 +45,8 @@ class QNetworkAccessManager;
 class QNetworkReply;
 class BasemapHttpHeadersWidget;
 class OpenSWMMVisLayer;
+struct WMSServiceInfo;
+struct WMTSServiceInfo;
 
 // ---------------------------------------------------------------------------
 
@@ -230,8 +234,8 @@ private:
 
     // WMS runtime
     bool                      m_isWMTS       = false;
-    struct WMSServiceInfo    *m_wmsInfo      = nullptr;
-    struct WMTSServiceInfo   *m_wmtsInfo     = nullptr;
+    std::unique_ptr<WMSServiceInfo>  m_wmsInfo;
+    std::unique_ptr<WMTSServiceInfo> m_wmtsInfo;
 
     // WCS runtime
     struct WCSServiceInfo    *m_wcsInfo      = nullptr;
