@@ -6,6 +6,7 @@
 
 #include "core/editgeometry.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -52,6 +53,22 @@ QVector<QPointF> cleanPolygonRing(const QVector<QPointF> &v, double tol)
         out.removeLast();
 
     return out;
+}
+
+QVector<QPointF> orientInteriorToEndpoints(QVector<QPointF> interior,
+                                            const QPointF &from, const QPointF &to)
+{
+    // A single bend (or none) has no ordering ambiguity.
+    if (interior.size() < 2)
+        return interior;
+
+    // Aligned: first bend near `from`, last bend near `to`.
+    // Reversed: first bend near `to`,   last bend near `from`.
+    const double aligned  = dist2(interior.first(), from) + dist2(interior.last(),  to);
+    const double reversed = dist2(interior.first(), to)   + dist2(interior.last(),  from);
+    if (reversed < aligned)
+        std::reverse(interior.begin(), interior.end());
+    return interior;
 }
 
 double polylineLength(const QVector<QPointF> &vertices)

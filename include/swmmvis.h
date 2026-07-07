@@ -45,6 +45,10 @@ class QDoubleSpinBox;
 class QDateTimeEdit;
 class QProgressBar;
 class QStandardItemModel;
+class QDragEnterEvent;
+class QDragMoveEvent;
+class QDropEvent;
+class QMimeData;
 class OpenSWMMVisLayer;   // Slice BI-MK.LT — onLayerKindStyleRequested signature
 class QMdiSubWindow;
 class QAction;
@@ -61,7 +65,7 @@ class AttributeTablePanel;
 class SimulationStatusModel;
 class ProfilePlotDialog;
 
-namespace openswmmvis::ui { class RangeSliderWidget; }
+namespace openswmmvis::ui { class CursorWindowSlider; }
 namespace openswmmvis::ui { class PerAttributeThemingWidget; }
 namespace openswmmvis::ui { class LegendDock; }
 namespace openswmmvis::ui { class LayerStylingDock; }
@@ -136,6 +140,10 @@ private:
     void initializeDefaultWorkspaceSession();
     void applyEditSessionToActions(bool active);
     void applyProjectOpenToActions(bool open);
+
+    /*! Bold the active side of the "Offset Mode: Elevation [ ] Depth" status-bar
+     *  toggle so the current LINK_OFFSETS convention is legible at a glance. */
+    void updateOffsetModeLabels(bool elevation);
 
 private slots:
     /*! \brief Slice BI-MK.LT — apply a kind-renderer change from the
@@ -405,6 +413,17 @@ protected:
     void closeEvent(QCloseEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
 
+    // Feature A — drag-and-drop of .inp / .oswp files onto the main window.
+    // Accepted local paths are routed through onOpenProject().
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
+
+    /*! Local file paths from a drag payload that we know how to open
+     *  (currently *.inp and *.oswp), in drop order. Empty when the payload
+     *  carries nothing droppable. */
+    [[nodiscard]] QStringList acceptableDropPaths(const QMimeData *mime) const;
+
     /*! Return the QMdiSubWindow currently wrapping welcomeWidget, or nullptr
      *  if it has been removed (closed). */
     QMdiSubWindow *welcomeSubWindow() const;
@@ -422,6 +441,8 @@ private:
 
     // Status bar widgets
     QCheckBox    *mCheckBoxLevelOffsetMode             = nullptr;
+    QLabel       *mLabelOffsetElevation                = nullptr;
+    QLabel       *mLabelOffsetDepth                    = nullptr;
     QCheckBox    *mCheckBoxAutoLength                  = nullptr;
     QToolButton  *mToolButtonCoordinateReferenceSystem = nullptr;
     QLineEdit    *mLineEditCoordinates                 = nullptr;
@@ -435,7 +456,10 @@ private:
     // Causal "as-of within timespan" sync controls (look-back window).
     QLabel        *mLabelAnimationWindow              = nullptr;
     QDoubleSpinBox *mSpinAnimationWindow              = nullptr;
-    openswmmvis::ui::RangeSliderWidget *mRangeSliderAnimation = nullptr;
+    // Issue 1 — single-thumb scrubber (cursor) + painted look-back window band.
+    // Replaces the laggy two-thumb RangeSliderWidget; the window is driven by
+    // mSpinAnimationWindow, not by a second thumb.
+    openswmmvis::ui::CursorWindowSlider *mAnimationSlider = nullptr;
     // Active analysis-layer selectors on the Analysis toolbar. The user picks
     // which 1D / 2D results layer every analysis tool targets; "— none —"
     // returns to model editing. Populated from the active project window's
@@ -445,6 +469,7 @@ private:
     QComboBox     *mComboActiveResults1D              = nullptr;
     QLabel        *mLabelActiveResults2D              = nullptr;
     QComboBox     *mComboActiveResults2D              = nullptr;
+    QCheckBox     *mCheckBoxLive2D                    = nullptr;  // live 2D render on/off (Issue 2)
     class AnimationController *mAnimationController  = nullptr;
     class TerrainToolbar      *mTerrainToolbar       = nullptr;
     class MeshEditingToolbar  *mMeshEditingToolbar   = nullptr;   // Slice §V.VB

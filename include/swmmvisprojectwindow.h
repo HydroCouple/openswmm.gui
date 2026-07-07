@@ -73,6 +73,12 @@ public:
     bool isElevationOffsetMode() const { return mElevationOffsetMode; }
     void setElevationOffsetMode(bool elevation);
 
+    /*! Convert all link offsets between Depth and Elevation conventions
+     *  (legacy UpdateOffsets → ComputeDepth/ElevationOffsets parity) and mark
+     *  the project dirty. \param toElevation true → to Elevation, false → to
+     *  Depth. */
+    void convertLinkOffsets(bool toElevation);
+
     /*! Re-read LINK_OFFSETS from the engine into the cached
      *  mElevationOffsetMode flag. Used by the main-window listener for
      *  SWMMModelLayer::optionsChanged so the status-bar checkbox

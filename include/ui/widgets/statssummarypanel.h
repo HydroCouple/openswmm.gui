@@ -23,6 +23,8 @@
 #ifndef OPENSWMMVIS_UI_WIDGETS_STATSSUMMARYPANEL_H
 #define OPENSWMMVIS_UI_WIDGETS_STATSSUMMARYPANEL_H
 
+#include "plot/numberformat.h"
+
 #include <QDateTime>
 #include <QHash>
 #include <QPointer>
@@ -48,6 +50,13 @@ public:
      *  doesn't have to call refresh() after add/remove. */
     void setModel(openswmmvis::plot::ComparisonPlotModel *model);
 
+    /*! \brief Current number format used for all statistic value cells. */
+    [[nodiscard]] openswmmvis::plot::NumberFormat statisticNumberFormat() const
+    { return m_valueFormat; }
+
+    /*! \brief Set the number format used for statistic value cells. */
+    void setStatisticNumberFormat(const openswmmvis::plot::NumberFormat &format);
+
 public slots:
     /*! \brief Narrow the stats to samples whose timestamp falls in
      *  `[lo, hi]`. Pass invalid datetimes to clear the selection. */
@@ -71,11 +80,15 @@ private:
     void loadColumnVisibility();
     /*! \brief Persist column-visibility map to QSettings. */
     void saveColumnVisibility();
+    void loadNumberFormat();
+    void saveNumberFormat() const;
+    [[nodiscard]] QString formatValue(double value) const;
 
     QTabWidget *m_tabs = nullptr;
     QPointer<openswmmvis::plot::ComparisonPlotModel> m_model;
     QDateTime   m_selLo;          ///< Invalid → use full series.
     QDateTime   m_selHi;
+    openswmmvis::plot::NumberFormat m_valueFormat;
 
     /*! \brief Column-name → visible? Map keyed by column header text
      *  ("count", "mean", "NSE", …). The "Series" column is always

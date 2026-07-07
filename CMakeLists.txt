@@ -387,6 +387,7 @@ set(
         include/io/mesh2dh5reader.h
         include/io/rptparser.h
         include/io/timeseriesparse.h
+        include/io/gdaldrivers.h
 
         # ── Curve (Slice BQ Phase 6.7.1) ─────────────────────────────────────
         include/curve/curveprovider.h
@@ -593,6 +594,7 @@ set(
         include/ui/widgets/perattributethemingwidget.h
         include/ui/widgets/legendoverlay.h
         include/ui/widgets/interactivechartview.h
+        include/ui/widgets/cursorwindowslider.h
         include/ui/widgets/chartaxisformatcontroller.h
         include/ui/widgets/timeserieseditchartview.h
         include/ui/widgets/curveeditchartview.h
@@ -651,6 +653,7 @@ set(
         include/ui/dialogs/stylemanagerdialog.h
         include/ui/dialogs/kindtreesymbologypanel.h
         include/ui/dialogs/layerstyledialog.h
+        include/ui/dialogs/sublayerselectiondialog.h
         # Slice Z.2 — Rule-as-ILayerStyleSubject adapter
         # (RENDERING_RULE_MODEL_PLAN.md).
         include/ui/dialogs/rulestylesubject.h
@@ -923,6 +926,7 @@ set(
         src/io/mesh2dh5reader.cpp
         src/io/rptparser.cpp
         src/io/timeseriesparse.cpp
+        src/io/gdaldrivers.cpp
 
         # ── Curve (Slice BQ Phase 6.7.1) ─────────────────────────────────────
         src/curve/curveprovider.cpp
@@ -1147,6 +1151,7 @@ set(
         src/ui/dialogs/stylemanagerdialog.cpp
         src/ui/dialogs/kindtreesymbologypanel.cpp
         src/ui/dialogs/layerstyledialog.cpp
+        src/ui/dialogs/sublayerselectiondialog.cpp
         # Slice Z.2 — Rule-as-ILayerStyleSubject adapter impl.
         src/ui/dialogs/rulestylesubject.cpp
         # Slice Z.3 — Rule-driven Symbology tab widget impl.
@@ -1212,6 +1217,7 @@ set(
         src/ui/widgets/perattributethemingwidget.cpp
         src/ui/widgets/legendoverlay.cpp
         src/ui/widgets/interactivechartview.cpp
+        src/ui/widgets/cursorwindowslider.cpp
         src/ui/widgets/chartaxisformatcontroller.cpp
         src/ui/widgets/timeserieseditchartview.cpp
         src/ui/widgets/curveeditchartview.cpp
@@ -1254,14 +1260,14 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
             resources/shaders/scalarfill.vert
             resources/shaders/scalarfill.frag
     )
-    qt_create_translation(QM_FILES ${CMAKE_SOURCE_DIR} ${TS_FILES})
+    qt_add_translation(QM_FILES ${TS_FILES})
 else()
     if(ANDROID)
         add_library(SWMMVis SHARED ${PROJECT_SOURCES})
     else()
         add_executable(SWMMVis ${PROJECT_SOURCES})
     endif()
-    qt5_create_translation(QM_FILES ${CMAKE_SOURCE_DIR} ${TS_FILES})
+    qt5_add_translation(QM_FILES ${TS_FILES})
 endif()
 
 target_include_directories(SWMMVis
@@ -1312,7 +1318,17 @@ target_compile_definitions(SWMMVis
         $<$<TARGET_EXISTS:QPropertyModel>:HAVE_QPROPERTYMODEL>
 )
 
+# ── macOS native window helper ──────────────────────────────────────────────
+# On macOS, floating dialogs are attached as NSWindow child windows of the main
+# window (see attachAsChildWindow) so they stay above the app's own windows
+# without floating above OTHER applications. Objective-C++ + AppKit.
+if(APPLE)
+    target_sources(SWMMVis PRIVATE src/platform/macoswindowutils.mm)
+    target_link_libraries(SWMMVis PRIVATE "-framework AppKit")
+endif()
+
 set_target_properties(SWMMVis PROPERTIES
+    QT_QML_MODULE_NO_IMPORT_SCAN TRUE
     MACOSX_BUNDLE_GUI_IDENTIFIER org.openswmm.swmmvis
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
@@ -1368,6 +1384,36 @@ if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
             )
         endif()
     endif()
+endif()
+
+# ── Bundled example projects (Welcome page) ─────────────────────────────────
+# Exactly two bare .inp models surface as one-click buttons on the Welcome page.
+# The launcher scans only the TOP LEVEL of the examples dir for *.inp
+# (non-recursive — swmmvis.cpp ~L585), so stage these FLAT, not in subdirs.
+set(_SWMMVIS_EXAMPLE_INPS
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/demo_road_culvert/road_culvert.inp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/site_drainage/site_drainage_model.inp"
+)
+if(APPLE)
+    # POST_BUILD into Contents/Resources/examples; install(TARGETS ... BUNDLE) ships it,
+    # same as the GDAL/PROJ Resources above. Wipe the dest first so the dir reflects
+    # exactly the curated list (no stale .inp from a previously-bundled example lingers).
+    set(_SWMMVIS_EXAMPLES_DEST "$<TARGET_BUNDLE_CONTENT_DIR:SWMMVis>/Resources/examples")
+    add_custom_command(TARGET SWMMVis POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${_SWMMVIS_EXAMPLES_DEST}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${_SWMMVIS_EXAMPLES_DEST}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${_SWMMVIS_EXAMPLE_INPS} "${_SWMMVIS_EXAMPLES_DEST}/"
+        COMMENT "Copy bundled example .inp files into SWMMVis.app/Contents/Resources/examples"
+        VERBATIM
+    )
+else()
+    # Linux + Windows: install(FILES) into the share tree CPack packages.
+    # CMAKE_INSTALL_DATAROOTDIR = "share" on all platforms, matching search path #1.
+    install(FILES ${_SWMMVIS_EXAMPLE_INPS}
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/openswmmgui/examples
+        COMPONENT Runtime
+    )
 endif()
 
 # ── Qt and GDAL runtime deployment ─────────────────────────────────────────

@@ -28,6 +28,7 @@
 #include "swmmvissplashscreen.h"
 #include "core/gisdatapaths.h"
 #include "ui/dialogs/licenseagreementdialog.h"
+#include "platform/macoswindowutils.h"
 
 
 /*! \class SWMMVisCoreApplication
@@ -168,6 +169,14 @@ bool SWMMVisApplication::eventFilter(QObject *watched, QEvent *event)
                 QTimer::singleShot(0, dlg, [dlg]() {
                     dlg->raise();
                     dlg->activateWindow();
+#ifdef Q_OS_MACOS
+                    // Keep modeless dialogs above the app's own windows without
+                    // floating above other applications by making them NSWindow
+                    // child windows of their parent. Modal dialogs are left
+                    // alone (app-modal and short-lived).
+                    if (dlg->windowModality() == Qt::NonModal)
+                        openswmmvis::platform::attachAsChildWindow(dlg);
+#endif
                 });
             }
         }

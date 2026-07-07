@@ -26,6 +26,7 @@
 #ifndef MESH_PROFILE_PLOT_WIDGET_H
 #define MESH_PROFILE_PLOT_WIDGET_H
 
+#include "plot/meshprofileplotoptions.h"
 #include "plot/meshprofilesampler.h"
 
 #include <QDateTime>
@@ -34,7 +35,6 @@
 #include <QVector>
 #include <QWidget>
 
-class MeshProfilePlotOptions;
 class QRubberBand;
 
 class MeshProfilePlotWidget : public QWidget
@@ -70,8 +70,20 @@ public:
 
     // ── Zoom / pan (driven by the dialog toolbar) ───────────────────────
     enum class Mode { Identify = 0, Pan, ZoomIn, ZoomOut };
+    enum class AxisEdge {
+        None = 0,
+        XMinimum,
+        XMaximum,
+        YMinimum,
+        YMaximum,
+    };
+    Q_ENUM(AxisEdge)
+
     void setMode(Mode m);
     [[nodiscard]] Mode mode() const { return m_mode; }
+    [[nodiscard]] AxisEdge axisEdgeAt(const QPoint &widgetPos) const;
+    bool setAxisEdgeValue(AxisEdge edge, double value);
+    [[nodiscard]] QRectF visibleDataRange() const;
     void zoomBy(double factor);
     void fitToExtent();
 
@@ -97,6 +109,7 @@ private:
      *  \p chain from the samples. Returns false off-mesh / no samples. */
     [[nodiscard]] bool sampleAtChainage(double chain, double &ground, double &wse) const;
     void recomputeBounds();
+    bool editAxisEdge(AxisEdge edge);
 
     void paintBackgroundAndAxes(QPainter &p) const;
     void paintSoilFill(QPainter &p) const;
@@ -123,6 +136,7 @@ private:
     Mode   m_mode        = Mode::Identify;
     bool   m_panActive   = false;
     bool   m_zoomActive  = false;
+    AxisEdge m_pressedAxisEdge = AxisEdge::None;
     QPoint m_lastMousePos;
     QPoint m_zoomAnchor;
     QRubberBand *m_rubberBand = nullptr;

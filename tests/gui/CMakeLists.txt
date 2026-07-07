@@ -246,6 +246,42 @@ add_swmmvis_gui_test(test_binsampler
     ${CMAKE_SOURCE_DIR}/include/render/binsampler.h
 )
 
+# Issue 4 — 2D profile water-surface bridging. Header-only helper, no .cpp.
+add_swmmvis_gui_test(test_meshprofileinterp
+    test_meshprofileinterp.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileinterp.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofilesampler.h
+)
+
+# Profile plots — endpoint label hit-testing and min/max range-edge edits.
+add_swmmvis_gui_test(test_profileplot_axis_edges
+    test_profileplot_axis_edges.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/profileplotwidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profileplotwidget.h
+    ${CMAKE_SOURCE_DIR}/src/plot/profilebuilder.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profilebuilder.h
+    ${CMAKE_SOURCE_DIR}/src/plot/profileplotoptions.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profileplotoptions.h
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileplotwidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileplotwidget.h
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileplotoptions.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileplotoptions.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileinterp.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofilesampler.h
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
+)
+
+# Layer-metadata plan — mesh edge-count identity (2·E = 3·T + B). Value types.
+add_swmmvis_gui_test(test_meshedgecount
+    test_meshedgecount.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
+)
+
 # Slice Z.17-files — RuleList .swmm-rule.json I/O tests.
 add_swmmvis_gui_test(test_rulelistio
     test_rulelistio.cpp
@@ -551,6 +587,17 @@ add_swmmvis_gui_test(test_2d_sublayers
 # editable leaf row through QPropertyModel; the test reflects on the model.
 target_link_libraries(test_2d_sublayers PRIVATE
     $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>)
+
+# NOTE — test_2dresults_vizfixes.cpp (2D viz refinement, PLAN_2D_VIZ_REFINEMENT.md)
+# is intentionally NOT registered. It drives the real SWMM2DResultsLayer, whose
+# link closure transitively pulls the QObject base (OpenSWMMVisLayer →
+# OpenSWMMVisWorkspace → SWMMModelLayer), the mask-clip resolver → GISVectorLayer
+# → GDAL/OGR, the HDF5 mesh reader, and the full symbol/renderer/sublayer graph —
+# i.e. a large fraction of the app, disproportionate for a leaf test. The four
+# behaviours it would pin are already covered by registered tests:
+#   Issue 1 → test_cursorwindowslider ; Issue 3 → test_meshedgecount ;
+#   Issue 4 → test_meshprofileinterp.  Re-enabling it cleanly needs an extracted
+# SWMMVis object library to link against (see PLAN_2D_VIZ_REFINEMENT §3).
 
 # Slice U-0 — the old test_sublayer_persistence test relied on the
 # deleted NodeMarkerSublayer; FeatureSublayer JSON round-trip is now
@@ -930,11 +977,21 @@ add_swmmvis_gui_test(test_comparisonplot_rangeslider
     ${CMAKE_SOURCE_DIR}/include/ui/widgets/rangeslider.h
 )
 
+# Issue 1 — pins CursorWindowSlider invariants (single-thumb animation scrubber
+# with a non-interactive look-back window band; replaced the two-thumb slider).
+add_swmmvis_gui_test(test_cursorwindowslider
+    test_cursorwindowslider.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/cursorwindowslider.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/cursorwindowslider.h
+)
+
 # Slice AT.3 — pins ChartProperties wrapper semantics.
 add_swmmvis_gui_test(test_comparisonplot_chartproperties
     test_comparisonplot_chartproperties.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/chartproperties.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/chartpropertiesdialog.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/chartproperties.h
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/chartpropertiesdialog.h
     # ChartProperties reads axis defaults from PreferencesManager + NumberFormat.
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
@@ -944,7 +1001,9 @@ add_swmmvis_gui_test(test_comparisonplot_chartproperties
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
-target_link_libraries(test_comparisonplot_chartproperties PRIVATE Qt6::Charts)
+target_link_libraries(test_comparisonplot_chartproperties PRIVATE
+    Qt6::Charts
+    $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>)
 
 # Pins the QObject wrapper for SeriesStyle (Q_PROPERTY surface, signal
 # semantics, JSON round-trip, applySeriesStyle effects on a QLineSeries).
@@ -968,7 +1027,9 @@ target_link_libraries(test_seriesstyleobject PRIVATE
 add_swmmvis_gui_test(test_comparisonplot_statstab
     test_comparisonplot_statstab.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/seriesstatistics.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/seriesstatistics.h
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
 
 # COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 2 — pins the 1v1 scatter pairing

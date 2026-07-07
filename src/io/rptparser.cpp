@@ -48,6 +48,27 @@ QVector<RptSection> RptParser::parse(const QString &path, QString *errorOut)
         return true;
     };
 
+    auto titleText = [](const QString &line, int indent, int len) -> QString {
+        const QString raw = line.mid(indent).trimmed();
+        if (raw.isEmpty()) return {};
+
+        // Continuity headers append unit columns to the right of the title:
+        //   2D Surface Routing Continuity  cubic meters      10^6 ltr
+        // Older code sliced the title to the star-rule width, which clipped
+        // long titles when the rule was shorter than the section name. Strip
+        // only a column gap near the rule width so multi-line note headers
+        // with incidental spacing remain intact.
+        static const QRegularExpression columnGap(QStringLiteral("\\s{2,}"));
+        auto it = columnGap.globalMatch(raw);
+        while (it.hasNext()) {
+            const auto m = it.next();
+            if (int(m.capturedEnd()) >= len)
+                return raw.left(int(m.capturedStart())).trimmed();
+        }
+
+        return raw;
+    };
+
     // Headers may span several lines between the star rules (the NOTE block
     // at the top of every report does); cap the scan so a stray star line
     // deep in a body can't swallow the rest of the file.
@@ -70,7 +91,7 @@ QVector<RptSection> RptParser::parse(const QString &path, QString *errorOut)
             QStringList titleLines;
             while (j < lines.size() && (j - i) <= kMaxTitleLines &&
                    !starSpan(lines.at(j), nullptr, nullptr)) {
-                titleLines << lines.at(j).mid(indent, len).trimmed();
+                titleLines << titleText(lines.at(j), indent, len);
                 ++j;
             }
             const QString title = titleLines.join(QLatin1Char(' ')).simplified();

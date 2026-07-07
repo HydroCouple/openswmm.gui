@@ -13,7 +13,9 @@
 #include <QObject>
 #include <QPaintDevice>
 #include <QPainter>
+#include <QPair>
 #include <QRectF>
+#include <QString>
 #include <QVector>
 #include <QUuid>
 
@@ -236,6 +238,30 @@ public:
      * \brief Sets the layer spatial extent (in the layer's CRS).
      */
     void setExtent(const MapExtent &extent);
+
+    // ----- Self-description for the Layer Properties dialog ----------------
+    // MVC: the layer (model) describes its own source + type-specific
+    // metadata; LayerStyleDialog (view) merely renders these. New layer types
+    // add metadata by overriding these — no dialog edit required.
+
+    /*!
+     * \brief Human-readable source of this layer: a file path, a service URL,
+     *        or a description for in-memory / derived layers.
+     * \details Default empty — the dialog shows "(none)". Concrete layers
+     *          override to return their real origin (e.g. modelFilePath(),
+     *          resultsFilePath(), serviceUrl(), or "(generated mesh)").
+     */
+    [[nodiscard]] virtual QString sourceDescription() const { return {}; }
+
+    /*!
+     * \brief Ordered key→value pairs of TYPE-SPECIFIC metadata, rendered by
+     *        the Metadata tab below the common block the dialog builds itself.
+     * \details Default empty. Subclasses add only what is unique to them
+     *          (e.g. a mesh: vertices / cells / edges / elevation range).
+     *          QVector<QPair> preserves insertion order without a new type.
+     */
+    [[nodiscard]] virtual QVector<QPair<QString, QString>>
+        extendedMetadata() const { return {}; }
 
     // ----- Raster layer identification ------------------------------------
 

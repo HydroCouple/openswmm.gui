@@ -1340,6 +1340,26 @@ void ComparisonPlotDialog::rebuildCharts()
                                && m_rowWidgets[r].chart) {
                         auto *cp = new openswmmvis::plot::ChartProperties(
                             m_rowWidgets[r].chart);
+                        if (m_statsPanel)
+                            cp->setStatisticsNumberFormat(
+                                m_statsPanel->statisticNumberFormat());
+                        auto applyStatisticsFormat = [this, cp]() {
+                            if (m_statsPanel)
+                                m_statsPanel->setStatisticNumberFormat(
+                                    cp->statisticsNumberFormat());
+                        };
+                        connect(cp,
+                                &openswmmvis::plot::ChartProperties::statisticsFormatModeChanged,
+                                this,
+                                applyStatisticsFormat);
+                        connect(cp,
+                                &openswmmvis::plot::ChartProperties::statisticsPrecisionChanged,
+                                this,
+                                applyStatisticsFormat);
+                        connect(cp,
+                                &openswmmvis::plot::ChartProperties::statisticsFormatChanged,
+                                this,
+                                applyStatisticsFormat);
                         auto *dlg = new ChartPropertiesDialog(cp, this);
                         dlg->show();
                     }

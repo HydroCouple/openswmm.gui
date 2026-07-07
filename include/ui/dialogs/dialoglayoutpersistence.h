@@ -25,6 +25,9 @@
 #ifndef OPENSWMMVIS_UI_DIALOGS_DIALOGLAYOUTPERSISTENCE_H
 #define OPENSWMMVIS_UI_DIALOGS_DIALOGLAYOUTPERSISTENCE_H
 
+#include <QtGlobal>            // Q_OS_MACOS
+#include <QtCore/qnamespace.h> // Qt::WindowFlags, Qt::Tool, Qt::WindowStaysOnTopHint
+
 class QDialog;
 class QWidget;
 
@@ -52,8 +55,42 @@ bool restoreDialogLayout(QWidget *root);
 
 /*! \brief Step H — pin the dialog above the main window so a map click
  *  doesn't hide it. Idempotent. Harmless on modal dialogs and on dialogs
- *  that already have the flag set. */
+ *  that already have the flag set. On macOS this is a no-op (the always-on-top
+ *  hint would also float above other applications; Qt::Tool already keeps the
+ *  dialog above the main window). */
 void applyAlwaysOnTopPolicy(QDialog *d);
+
+/*! \brief Window flags for a modeless "floating panel" dialog that must stay
+ *  above the application's OWN windows but never above other applications.
+ *   macOS: a plain Qt::Dialog window (no Qt::Tool — that would hide the dialog
+ *          when the app is deactivated; no WindowStaysOnTopHint — that floats
+ *          above every app system-wide). The "stay above the main window"
+ *          behaviour is instead provided by attaching the dialog as an NSWindow
+ *          child window (see openswmmvis::platform::attachAsChildWindow, driven
+ *          from the app-wide show event filter).
+ *   Windows/X11: Qt::Tool + WindowStaysOnTopHint keeps the dialog above the
+ *          main window (it does not leak across applications there). */
+inline Qt::WindowFlags floatingPanelFlags()
+{
+#ifdef Q_OS_MACOS
+    return Qt::Dialog;
+#else
+    return Qt::Tool | Qt::WindowStaysOnTopHint;
+#endif
+}
+
+/*! \brief Just the "keep above the app's other windows" hint, for full
+ *  top-level (Qt::Window) dialogs that should NOT be turned into Tool panels.
+ *  Empty on macOS — those dialogs are kept above the main window by the
+ *  NSWindow child-window attachment instead; WindowStaysOnTopHint elsewhere. */
+inline Qt::WindowFlags stayAboveAppFlags()
+{
+#ifdef Q_OS_MACOS
+    return Qt::WindowFlags();
+#else
+    return Qt::WindowStaysOnTopHint;
+#endif
+}
 
 } // namespace openswmmvis::ui
 

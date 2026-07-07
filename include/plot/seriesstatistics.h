@@ -15,6 +15,10 @@
 #ifndef OPENSWMMVIS_PLOT_SERIESSTATISTICS_H
 #define OPENSWMMVIS_PLOT_SERIESSTATISTICS_H
 
+#include "plot/numberformat.h"
+
+#include <QString>
+
 #include <vector>
 
 namespace openswmmvis::plot {
@@ -37,6 +41,10 @@ struct SeriesStatistics {
 /*! \brief Compute summary statistics over `values`. NaN / Inf samples
  *  are skipped. Empty input yields count=0 and all-NaN fields. */
 SeriesStatistics computeStatistics(const std::vector<double> &values);
+
+/*! \brief Format one statistics value using the supplied numeric format.
+ *  Non-finite values render as an em dash. */
+QString formatStatisticValue(double value, const NumberFormat &format);
 
 } // namespace openswmmvis::plot
 

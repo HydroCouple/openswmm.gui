@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/ruleseditordialog.h"
+#include "ui/dialogs/dialoglayoutpersistence.h"
 
 #include "controls/controlruleprovider.h"
 #include "controls/controlruleregistry.h"
@@ -57,7 +58,7 @@ QString defaultRuleSkeleton(const QString &name)
 RulesEditorDialog::RulesEditorDialog(SWMMModelLayer *layer,
                                       QUndoStack *undoStack,
                                       QWidget *parent)
-    : QDialog(parent, Qt::Tool | Qt::WindowStaysOnTopHint),
+    : QDialog(parent, openswmmvis::ui::floatingPanelFlags()),
       m_layer(layer),
       m_undoStack(undoStack)
 {

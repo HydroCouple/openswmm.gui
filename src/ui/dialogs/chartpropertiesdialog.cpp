@@ -8,6 +8,7 @@
 
 #include "plot/chartproperties.h"
 
+#include <qpropertyitemdelegate.h>
 #include <qpropertymodel.h>
 
 #include <QDialogButtonBox>
@@ -41,6 +42,7 @@ ChartPropertiesDialog::ChartPropertiesDialog(ChartProperties *props,
 
     auto *pm = new QPropertyModel(m_props.data(), this);
     m_tree->setModel(pm);
+    m_tree->setItemDelegate(new QPropertyItemDelegate(m_tree));
     m_tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_tree->header()->setStretchLastSection(true);
     m_tree->expandAll();

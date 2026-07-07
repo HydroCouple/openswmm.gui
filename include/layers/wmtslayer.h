@@ -126,6 +126,9 @@ public:
     [[nodiscard]] WMTSServiceInfo  serviceInfo()      const;
     [[nodiscard]] bool             capabilitiesReady() const;
 
+    [[nodiscard]] QString sourceDescription() const override
+    { return serviceUrl().toString(); }
+
     /*!
      * \brief Asynchronously fetches and parses the GetCapabilities document.
      */

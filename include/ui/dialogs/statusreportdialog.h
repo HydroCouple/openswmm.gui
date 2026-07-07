@@ -66,7 +66,8 @@ private slots:
 private:
     void buildUi();
     void loadReport(int sourceIndex);
-    void populateText(const QVector<openswmmvis::io::RptSection> &sections);
+    void populateText(const QVector<openswmmvis::io::RptSection> &sections,
+                      const QString &reportText);
     void runFind(bool backwards);
     void updateMatchCounter();
 

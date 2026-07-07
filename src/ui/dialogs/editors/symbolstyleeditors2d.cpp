@@ -159,7 +159,12 @@ ContourBandSymbolStyleEditor::ContourBandSymbolStyleEditor(
 {
     auto *root = new QVBoxLayout(this); root->setContentsMargins(8, 8, 8, 8);
     QFormLayout *f = nullptr;
-    auto *box = group(this, tr("Depth Contours"), f);
+    // Title tracks the classified attribute (terrain = bed elevation,
+    // results = water depth) so the terrain editor isn't mislabelled "Depth".
+    const bool elev = m_a && m_a->attribute().compare(
+        QLatin1String("elevation"), Qt::CaseInsensitive) == 0;
+    auto *box = group(this, elev ? tr("Elevation Contours")
+                                 : tr("Depth Contours"), f);
     m_attr = new QLineEdit(box); f->addRow(tr("Attribute:"), m_attr);
     m_bands = new QSpinBox(box); m_bands->setRange(2, 64); f->addRow(tr("Bands:"), m_bands);
     m_low = colorBtn(box);  f->addRow(tr("Low colour:"),  m_low);
@@ -204,7 +209,10 @@ IsolineSymbolStyleEditor::IsolineSymbolStyleEditor(
 {
     auto *root = new QVBoxLayout(this); root->setContentsMargins(8, 8, 8, 8);
     QFormLayout *f = nullptr;
-    auto *box = group(this, tr("Depth Isolines"), f);
+    const bool elev = m_a && m_a->attribute().compare(
+        QLatin1String("elevation"), Qt::CaseInsensitive) == 0;
+    auto *box = group(this, elev ? tr("Elevation Isolines")
+                                 : tr("Depth Isolines"), f);
     m_attr = new QLineEdit(box); f->addRow(tr("Attribute:"), m_attr);
     m_count = new QSpinBox(box); m_count->setRange(1, 64); f->addRow(tr("Iso count:"), m_count);
     m_color = colorBtn(box); f->addRow(tr("Colour:"), m_color);

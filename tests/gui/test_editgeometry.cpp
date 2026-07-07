@@ -41,6 +41,54 @@ private slots:
         QCOMPARE(EditGeometry::polylineLength(v), 3.0);
     }
 
+    // orientInteriorToEndpoints ------------------------------------------
+    void orient_fewerThanTwoIsNoOp()
+    {
+        const QPointF from(0, 0), to(10, 0);
+        QCOMPARE(EditGeometry::orientInteriorToEndpoints({}, from, to),
+                 QVector<QPointF>{});
+        const QVector<QPointF> one{{5, 5}};
+        QCOMPARE(EditGeometry::orientInteriorToEndpoints(one, from, to), one);
+    }
+
+    void orient_alreadyAlignedUnchanged()
+    {
+        // Interior runs from→to (first near from, last near to): keep as-is.
+        const QPointF from(0, 0), to(10, 0);
+        const QVector<QPointF> interior{{2, 1}, {8, 1}};
+        QCOMPARE(EditGeometry::orientInteriorToEndpoints(interior, from, to),
+                 interior);
+    }
+
+    void orient_reversedGetsFlipped()
+    {
+        // Interior stored to→from (first near to, last near from): flip so the
+        // assembled [from, interior, to] polyline no longer doubles back.
+        const QPointF from(0, 0), to(10, 0);
+        const QVector<QPointF> stored{{8, 1}, {2, 1}};   // to→from order
+        const QVector<QPointF> want {{2, 1}, {8, 1}};    // from→to order
+        QCOMPARE(EditGeometry::orientInteriorToEndpoints(stored, from, to),
+                 want);
+    }
+
+    void orient_fixesSelfCrossingLoop()
+    {
+        // Reproduce the reported artifact: a reversed interior makes the full
+        // polyline self-cross; orienting removes the crossing.
+        const QPointF from(0, 0), to(10, 0);
+        const QVector<QPointF> reversedInterior{{9, 2}, {5, 2}, {1, 2}};
+        const auto oriented =
+            EditGeometry::orientInteriorToEndpoints(reversedInterior, from, to);
+        // Oriented interior must progress monotonically in x toward `to`.
+        QCOMPARE(oriented, (QVector<QPointF>{{1, 2}, {5, 2}, {9, 2}}));
+        // Full assembled path is x-monotonic (no backtracking → no loop).
+        QVector<QPointF> full{from};
+        full += oriented;
+        full += to;
+        for (int i = 1; i < full.size(); ++i)
+            QVERIFY(full[i].x() >= full[i - 1].x());
+    }
+
     // replacedAt ---------------------------------------------------------
     void replacedAt_firstVertex()
     {

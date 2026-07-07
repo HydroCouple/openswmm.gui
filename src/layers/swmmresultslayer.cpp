@@ -471,6 +471,34 @@ QString SWMMResultsLayer::reportFilePath() const
                : QFileInfo(m_reportFilePath).absoluteFilePath();
 }
 
+QString SWMMResultsLayer::sourceDescription() const
+{
+    const QString p = resultsFilePath();
+    return p.isEmpty() ? tr("(no results file)") : p;
+}
+
+QVector<QPair<QString, QString>> SWMMResultsLayer::extendedMetadata() const
+{
+    QVector<QPair<QString, QString>> md;
+
+    const QString rpt = reportFilePath();
+    if (!rpt.isEmpty())
+        md.append({ tr("Report file"), rpt });
+
+    const QDateTime start = startDateTime();
+    const QDateTime end   = endDateTime();
+    if (start.isValid() && end.isValid())
+        md.append({ tr("Time range"),
+                    QStringLiteral("%1 → %2")
+                        .arg(start.toString(Qt::ISODate), end.toString(Qt::ISODate)) });
+
+    const int step = reportStepSeconds();
+    if (step > 0)
+        md.append({ tr("Report step"), QStringLiteral("%1 s").arg(step) });
+
+    return md;
+}
+
 void SWMMResultsLayer::setReportFilePath(const QString &path)
 {
     m_reportFilePath = path;

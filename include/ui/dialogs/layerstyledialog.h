@@ -44,6 +44,7 @@ class QGroupBox;
 class QSlider;
 class QSpinBox;
 class QPlainTextEdit;
+class QTableWidget;
 class QTabWidget;
 
 class OpenSWMMVisLayer;
@@ -120,6 +121,10 @@ private:
     void buildRenderingTab();
     void buildMetadataTab();
     void readFromLayer();
+    // Rebuild the Metadata tab's key/value table from the common block plus
+    // the active layer's extendedMetadata(). Also used by the Refresh button
+    // so a live results layer's growing counts can be re-read on demand.
+    void populateMetadata();
     void writeGeneralRenderingToLayer();
     void snapshotSubjects();
     void restoreSubjectsFromSnapshot();
@@ -151,6 +156,7 @@ private:
     QPlainTextEdit *m_infoText = nullptr;
 
     // Source tab widgets.
+    QLabel      *m_sourceLabel = nullptr;   // populated in readFromLayer()
     QLabel      *m_crsLabel  = nullptr;
     QToolButton *m_crsButton = nullptr;
     QString      m_pendingCRSAuthority;
@@ -168,8 +174,9 @@ private:
     QSlider        *m_saturationSlider  = nullptr;
     QComboBox      *m_resamplingCombo   = nullptr;
 
-    // Metadata tab.
-    QPlainTextEdit *m_metadataText = nullptr;
+    // Metadata tab — read-only Name/Value table (common block + the layer's
+    // type-specific extendedMetadata()).
+    QTableWidget *m_metadataTable = nullptr;
 
     // General / Rendering snapshot for Cancel rollback.
     QString m_snapshotName;
