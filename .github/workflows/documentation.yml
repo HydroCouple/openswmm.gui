@@ -2,7 +2,7 @@ name: Documentation
 
 on:
   push:
-    branches: ["main", "dev"]
+    branches: ["main", "master", "dev"]
 
 # Required for GitHub Pages deployment
 permissions:
@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Doxygen and Graphviz
-        run: sudo apt-get install -y doxygen graphviz
+        run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
 
       - name: Generate API documentation
         run: doxygen docs/Doxyfile
