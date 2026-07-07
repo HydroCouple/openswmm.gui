@@ -139,7 +139,12 @@ jobs:
       # ── System dependencies ──────────────────────────────────────────────────
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
+        # libcups2-dev supplies CUPS_INCLUDE_DIR/CUPS_LIBRARIES, which Qt6
+        # PrintSupport requires on Linux (its config runs find_package(Cups)).
+        # Without it the GUI Configure fails: "Failed to find required Qt
+        # component PrintSupport" (PrintSupport is a required component and is
+        # linked in CMakeLists.txt).
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libcups2-dev
 
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
@@ -216,6 +221,18 @@ jobs:
           ref: ${{ env.OPENSWMM_ENGINE_REF }}
           path: openswmm.engine
           fetch-depth: 0
+
+      # AppleClang ships no libomp, and the engine's Kokkos-OpenMP host backend
+      # links OpenMP::OpenMP_CXX, which cmake/FindOpenMP.cmake resolves from the
+      # Homebrew opt prefix (/opt/homebrew/opt/libomp, /usr/local/opt/libomp on
+      # Intel). Build libomp from source at MACOSX_DEPLOYMENT_TARGET (11.0) into
+      # that prefix instead of `brew install libomp` (whose bottle is min-target
+      # 15.0) so the bundled runtime loads on macOS 11+. Mirrors the engine
+      # repo's deployment.yml; must run before the engine build below.
+      - name: Build libomp for the macOS target (11.0)
+        if: runner.os == 'macOS'
+        working-directory: ${{ github.workspace }}/openswmm.engine
+        run: bash scripts/build_macos_libomp.sh
 
       # The engine's Windows preset uses the Ninja Multi-Config generator (the
       # GUI's own preset uses the Visual Studio generator, which supplies the
