@@ -101,6 +101,9 @@ public:
     [[nodiscard]] WMSServiceInfo   serviceInfo()     const;
     [[nodiscard]] bool             capabilitiesReady() const;
 
+    [[nodiscard]] QString sourceDescription() const override
+    { return serviceUrl().toString(); }
+
     /*!
      * \brief Asynchronously fetches the GetCapabilities document.
      * \details Emits capabilitiesFetched() on success or capabilitiesError() on failure.

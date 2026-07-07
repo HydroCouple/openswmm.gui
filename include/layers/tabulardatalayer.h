@@ -37,6 +37,9 @@ public:
      *  Properties window shows the full on-disk location. */
     [[nodiscard]] QString sourcePath() const;
 
+    [[nodiscard]] QString sourceDescription() const override
+    { const QString p = sourcePath(); return p.isEmpty() ? tr("(in-memory)") : p; }
+
     /*! Column names in insertion order (== first-row headers). */
     [[nodiscard]] QStringList columnHeaders() const { return m_headers; }
 

@@ -23,6 +23,10 @@
 #include <QDialog>
 #include <QPointer>
 
+class QLabel;
+class QLineEdit;
+class QPushButton;
+class QSortFilterProxyModel;
 class QTabWidget;
 class QTableView;
 class QStandardItemModel;
@@ -39,9 +43,14 @@ public:
                                         QWidget *parent = nullptr);
     ~StatisticsDashboardDialog() override;
 
+    void setResultsLayer(SWMMResultsLayer *layer);
+
 private slots:
     void onTableSelectionChanged();
     void onExportClicked();
+    void onQueryApplyClicked();
+    void onQueryClearClicked();
+    void onCurrentTabChanged(int index);
 
 private:
     void buildUi();
@@ -49,16 +58,27 @@ private:
     void populateLinkStats();
     void populateSubcatchStats();
     void rebuildHistogramFor(int column);
+    bool applyQueryToAllTables();
+    void updateQueryStatus();
+    QTableView *currentTable() const;
+    QSortFilterProxyModel *currentProxy() const;
 
     QPointer<SWMMResultsLayer> m_layer;
 
     QTabWidget          *m_tabs = nullptr;
+    QLineEdit           *m_queryEdit = nullptr;
+    QPushButton         *m_queryApply = nullptr;
+    QPushButton         *m_queryClear = nullptr;
+    QLabel              *m_queryStatus = nullptr;
     QTableView          *m_nodeTable = nullptr;
     QTableView          *m_linkTable = nullptr;
     QTableView          *m_subTable  = nullptr;
     QStandardItemModel  *m_nodeModel = nullptr;
     QStandardItemModel  *m_linkModel = nullptr;
     QStandardItemModel  *m_subModel  = nullptr;
+    QSortFilterProxyModel *m_nodeProxy = nullptr;
+    QSortFilterProxyModel *m_linkProxy = nullptr;
+    QSortFilterProxyModel *m_subProxy  = nullptr;
     QChartView          *m_histView  = nullptr;
 };
 

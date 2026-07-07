@@ -24,6 +24,7 @@
 #include "mesh/naturalnbinterpolator.h"
 
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_model.h>
 
 #include <gdal_priv.h>
 #include <ogr_feature.h>
@@ -2293,6 +2294,21 @@ void MeshGenerationDialog::onMeshFinished()
                 /*ownsSRS=*/true);
 
         canvas->addLayer(meshLayer, /*pushUndo=*/true);
+    }
+
+    // Mirror the mesh linkage into the engine's in-memory model so the next
+    // save emits (or drops) [2D_MESH_FILE] correctly. External mode points the
+    // reference at the freshly-written .2dm; inline mode clears it. Without
+    // this the engine re-serialises the .inp on save with mesh_file empty and
+    // the just-written linkage is lost — the model silently runs 1D-only.
+    if (m_pw->modelLayer() && m_pw->modelLayer()->engine())
+    {
+        SWMM_Engine eng = m_pw->modelLayer()->engine();
+        if (result.outputMode == mesh::MeshOutputMode::External)
+            swmm_options_set_ext(eng, "MESH_FILE",
+                                 result.meshPath.toUtf8().constData());
+        else
+            swmm_options_set_ext(eng, "MESH_FILE", "");
     }
 
     m_pw->setHasChanges(true);

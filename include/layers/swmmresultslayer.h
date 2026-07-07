@@ -150,6 +150,10 @@ public:
     [[nodiscard]] QString reportFilePath() const;
     void setReportFilePath(const QString &path);
 
+    // ----- Self-description for the Layer Properties dialog ----------------
+    [[nodiscard]] QString sourceDescription() const override;
+    [[nodiscard]] QVector<QPair<QString, QString>> extendedMetadata() const override;
+
     /*!
      * \brief User-visible name for this run/scenario (editable, persisted in .oswp).
      * \details Defaults to "Run — HH:MM:SS" at construction time.

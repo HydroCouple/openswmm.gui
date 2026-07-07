@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/patterneditordialog.h"
+#include "ui/dialogs/dialoglayoutpersistence.h"
 
 #include "core/preferencesmanager.h"
 #include "pattern/patternprovider.h"
@@ -85,7 +86,7 @@ QString typeLabel(PatternType t)
 PatternEditorDialog::PatternEditorDialog(PatternRegistry *registry,
                                           QUndoStack *undoStack,
                                           QWidget *parent)
-    : QDialog(parent, Qt::Tool | Qt::WindowStaysOnTopHint)
+    : QDialog(parent, openswmmvis::ui::floatingPanelFlags())
     , m_registry(registry)
     , m_undoStack(undoStack)
 {

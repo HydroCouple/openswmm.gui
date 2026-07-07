@@ -9,6 +9,10 @@
 #include "plot/profileplotoptions.h"
 
 #include <QFontMetricsF>
+#include <QInputDialog>
+#include <QLineEdit>
+#include <QLocale>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -50,6 +54,8 @@ constexpr qreal  kEnvelopeAlpha     = 0.35;
 // in sync; this file-scope copy is the one the per-link HGL renderer
 // consumes.
 constexpr qreal  kHglPipeEdgeInsetPx = 3.5;
+constexpr qreal  kAxisEdgeAlongPx    = 28.0;
+constexpr qreal  kAxisLabelBandPx    = 48.0;
 
 const QColor kSoilFillColor   (0xC6, 0xA9, 0x7A, 130);
 const QColor kBeddingFillColor(0x9C, 0x82, 0x5A, 110);
@@ -112,6 +118,33 @@ QColor outlineForLinkKind(ProfileBuilder::LinkKind k)
 
 // Returns true when v is finite (i.e. not the initial +/-inf min/max sentinel).
 inline bool isFinite(double v) { return std::isfinite(v); }
+
+bool isMinEdge(ProfilePlotWidget::AxisEdge edge) noexcept
+{
+    return edge == ProfilePlotWidget::AxisEdge::XMinimum
+        || edge == ProfilePlotWidget::AxisEdge::YMinimum;
+}
+
+QString labelForEdge(ProfilePlotWidget::AxisEdge edge)
+{
+    switch (edge) {
+    case ProfilePlotWidget::AxisEdge::XMinimum: return QObject::tr("X minimum");
+    case ProfilePlotWidget::AxisEdge::XMaximum: return QObject::tr("X maximum");
+    case ProfilePlotWidget::AxisEdge::YMinimum: return QObject::tr("Y minimum");
+    case ProfilePlotWidget::AxisEdge::YMaximum: return QObject::tr("Y maximum");
+    case ProfilePlotWidget::AxisEdge::None: break;
+    }
+    return {};
+}
+
+bool parseDoubleLocaleAware(const QString &text, double &value)
+{
+    bool ok = false;
+    value = QLocale().toDouble(text.trimmed(), &ok);
+    if (!ok)
+        value = text.trimmed().toDouble(&ok);
+    return ok && std::isfinite(value);
+}
 
 // Flat-bottom structural links — render with the ground line dropping to
 // the inlet invert across the link.  Conduits AND orifices are excluded
@@ -751,7 +784,104 @@ void ProfilePlotWidget::setMode(Mode m)
     // Tear down any in-progress drag / rubberband when the mode changes.
     m_panActive  = false;
     m_zoomActive = false;
+    m_pressedAxisEdge = AxisEdge::None;
     if (m_rubberBand) m_rubberBand->hide();
+}
+
+ProfilePlotWidget::AxisEdge
+ProfilePlotWidget::axisEdgeAt(const QPoint &widgetPos) const
+{
+    const QRectF r = plotRect();
+    const QPointF p = widgetPos;
+
+    const bool nearLeft  = std::abs(p.x() - r.left()) <= kAxisEdgeAlongPx;
+    const bool nearRight = std::abs(p.x() - r.right()) <= kAxisEdgeAlongPx;
+    const bool nearTop   = std::abs(p.y() - r.top()) <= kAxisEdgeAlongPx;
+    const bool nearBot   = std::abs(p.y() - r.bottom()) <= kAxisEdgeAlongPx;
+
+    const bool inBottomBand =
+        p.y() >= r.bottom() && p.y() <= r.bottom() + kAxisLabelBandPx;
+    if (inBottomBand) {
+        if (nearLeft) return AxisEdge::XMinimum;
+        if (nearRight) return AxisEdge::XMaximum;
+    }
+
+    const bool inLeftBand =
+        p.x() <= r.left() && p.x() >= r.left() - kAxisLabelBandPx;
+    if (inLeftBand) {
+        if (nearBot) return AxisEdge::YMinimum;
+        if (nearTop) return AxisEdge::YMaximum;
+    }
+
+    return AxisEdge::None;
+}
+
+bool ProfilePlotWidget::setAxisEdgeValue(AxisEdge edge, double value)
+{
+    if (!std::isfinite(value)) return false;
+
+    switch (edge) {
+    case AxisEdge::XMinimum:
+        if (value >= m_dataXMax) return false;
+        m_dataXMin = value;
+        break;
+    case AxisEdge::XMaximum:
+        if (value <= m_dataXMin) return false;
+        m_dataXMax = value;
+        break;
+    case AxisEdge::YMinimum:
+        if (value >= m_dataYMax) return false;
+        m_dataYMin = value;
+        break;
+    case AxisEdge::YMaximum:
+        if (value <= m_dataYMin) return false;
+        m_dataYMax = value;
+        break;
+    case AxisEdge::None:
+        return false;
+    }
+
+    m_fitMode = false;
+    update();
+    return true;
+}
+
+QRectF ProfilePlotWidget::visibleDataRange() const
+{
+    return QRectF(QPointF(m_dataXMin, m_dataYMin),
+                  QPointF(m_dataXMax, m_dataYMax)).normalized();
+}
+
+bool ProfilePlotWidget::editAxisEdge(AxisEdge edge)
+{
+    if (edge == AxisEdge::None) return false;
+    const double current =
+        edge == AxisEdge::XMinimum ? m_dataXMin :
+        edge == AxisEdge::XMaximum ? m_dataXMax :
+        edge == AxisEdge::YMinimum ? m_dataYMin :
+                                     m_dataYMax;
+    bool accepted = false;
+    const QString text = QInputDialog::getText(
+        this,
+        tr("Edit Axis Range"),
+        tr("%1:").arg(labelForEdge(edge)),
+        QLineEdit::Normal,
+        QLocale().toString(current, 'g', 15),
+        &accepted);
+    if (!accepted) return false;
+
+    double value = 0.0;
+    if (!parseDoubleLocaleAware(text, value)
+        || !setAxisEdgeValue(edge, value)) {
+        QMessageBox::warning(
+            this,
+            tr("Invalid Axis Range"),
+            isMinEdge(edge)
+                ? tr("The minimum must be a finite value less than the current maximum.")
+                : tr("The maximum must be a finite value greater than the current minimum."));
+        return false;
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1047,6 +1177,7 @@ void ProfilePlotWidget::paintEvent(QPaintEvent *)
         }
     }
 
+    paintSelectionHighlights(p);
     paintLegend(p);
     paintTimeLabel(p);
 }
@@ -1101,6 +1232,14 @@ void ProfilePlotWidget::mousePressEvent(QMouseEvent *event)
         return;
     }
     if (event->button() == Qt::LeftButton) {
+        const AxisEdge edge = axisEdgeAt(event->pos());
+        if (edge != AxisEdge::None) {
+            m_pressedAxisEdge = edge;
+            m_lastMousePos = event->pos();
+            event->accept();
+            return;
+        }
+
         if (m_mode == Mode::Pan) {
             m_panActive    = true;
             m_lastMousePos = event->pos();
@@ -1129,6 +1268,11 @@ void ProfilePlotWidget::mousePressEvent(QMouseEvent *event)
 
 void ProfilePlotWidget::mouseMoveEvent(QMouseEvent *event)
 {
+    if (m_pressedAxisEdge != AxisEdge::None) {
+        event->accept();
+        return;
+    }
+
     if (m_overlayDrag != OverlayDrag::None && m_options) {
         const QPoint dPx = event->pos() - m_overlayDragLastPos;
         m_overlayDragLastPos = event->pos();
@@ -1180,6 +1324,17 @@ void ProfilePlotWidget::mouseReleaseEvent(QMouseEvent *event)
                   m_mode == Mode::ZoomIn   ? Qt::CrossCursor    :
                   m_mode == Mode::ZoomOut  ? Qt::CrossCursor    :
                                              Qt::ArrowCursor);
+        return;
+    }
+    if (m_pressedAxisEdge != AxisEdge::None
+        && event->button() == Qt::LeftButton) {
+        const AxisEdge edge = m_pressedAxisEdge;
+        m_pressedAxisEdge = AxisEdge::None;
+        const bool click = std::abs(event->pos().x() - m_lastMousePos.x()) < 5
+            && std::abs(event->pos().y() - m_lastMousePos.y()) < 5;
+        if (click && axisEdgeAt(event->pos()) == edge)
+            editAxisEdge(edge);
+        event->accept();
         return;
     }
     if (m_panActive &&
@@ -1975,6 +2130,158 @@ void ProfilePlotWidget::paintNodes(QPainter &p) const
                        Qt::AlignCenter, n.name);
         }
     }
+    p.restore();
+}
+
+void ProfilePlotWidget::paintSelectionHighlights(QPainter &p) const
+{
+    if (m_selectedNames.isEmpty()) return;
+
+    p.save();
+    p.setClipRect(plotRect());
+    p.setBrush(Qt::NoBrush);
+
+    const QColor highlight(0xFF, 0x66, 0x00);
+    constexpr double kShaftHalfWidthPx = 3.5;
+
+    // Selected links first, then nodes, so endpoint halos win at shared
+    // boundaries.  This pass intentionally runs after all result series.
+    for (int i = 0; i < m_path.links.size(); ++i) {
+        const auto &l = m_path.links[i];
+        if (!m_selectedNames.contains(l.name)) continue;
+
+        const double xU = virtualX(i);
+        const double xD = virtualX(i + 1);
+        double zUinv = 0.0;
+        double zDinv = 0.0;
+        if (l.kind == ProfileBuilder::LinkKind::Orifice) {
+            const int inletIdx = l.reversed ? (i + 1) : i;
+            const double sill = m_path.nodes[inletIdx].invertElev + l.offset1;
+            zUinv = sill;
+            zDinv = sill;
+        } else if (l.kind == ProfileBuilder::LinkKind::Pump) {
+            const int inletIdx = l.reversed ? (i + 1) : i;
+            const double inletInv = m_path.nodes[inletIdx].invertElev;
+            zUinv = inletInv;
+            zDinv = inletInv;
+        } else {
+            zUinv = m_path.nodes[i].invertElev + l.offset1;
+            zDinv = m_path.nodes[i + 1].invertElev + l.offset2;
+        }
+
+        QPen pen(highlight);
+        pen.setWidthF(std::max(3.0, themeLinkOutlinePen(l.kind).widthF() * 2.0));
+        pen.setJoinStyle(Qt::RoundJoin);
+        pen.setCapStyle(Qt::RoundCap);
+        p.setPen(pen);
+
+        if (linkKindRendersAsConduit(l.kind)) {
+            const double zUcr = zUinv + l.maxDepth;
+            const double zDcr = zDinv + l.maxDepth;
+            const QPointF pUinv = dataToPixel(xU, zUinv);
+            const QPointF pDinv = dataToPixel(xD, zDinv);
+            const QPointF pUcr  = dataToPixel(xU, zUcr);
+            const QPointF pDcr  = dataToPixel(xD, zDcr);
+
+            const double spanPx = pDinv.x() - pUinv.x();
+            const double shiftPx = (spanPx > 4.0 * kShaftHalfWidthPx)
+                                       ? kShaftHalfWidthPx
+                                       : 0.0;
+            const double tFrac = (spanPx > 0.0) ? shiftPx / spanPx : 0.0;
+            auto shifted = [tFrac](const QPointF &up, const QPointF &dn,
+                                   bool isUpstream) -> QPointF {
+                const QPointF dir = dn - up;
+                return isUpstream ? up + dir * tFrac : dn - dir * tFrac;
+            };
+
+            QPainterPath body;
+            body.moveTo(shifted(pUcr, pDcr, true));
+            body.lineTo(shifted(pUcr, pDcr, false));
+            body.lineTo(shifted(pUinv, pDinv, false));
+            body.lineTo(shifted(pUinv, pDinv, true));
+            body.closeSubpath();
+            p.drawPath(body);
+        } else if (l.kind == ProfileBuilder::LinkKind::Weir) {
+            const int inletIdx = l.reversed ? (i + 1) : i;
+            const double zInletInv = m_path.nodes[inletIdx].invertElev;
+            const double zSill = zInletInv + l.crestHeight;
+            const double xUpPx = dataToPixel(xU, 0.0).x();
+            const double xDnPx = dataToPixel(xD, 0.0).x();
+            const double rawSpanPx = xDnPx - xUpPx;
+            const double trim = (rawSpanPx > 4.0 * kShaftHalfWidthPx)
+                                    ? kShaftHalfWidthPx
+                                    : 0.0;
+            p.drawRect(QRectF(QPointF(xUpPx + trim, dataToPixel(0.0, zSill).y()),
+                              QPointF(xDnPx - trim, dataToPixel(0.0, zInletInv).y())));
+        } else {
+            const QPointF u = dataToPixel(xU, zUinv);
+            const QPointF d = dataToPixel(xD, zDinv);
+            const QPointF mid((u.x() + d.x()) / 2.0, (u.y() + d.y()) / 2.0);
+            const double gapPx = std::max(8.0, std::abs(d.x() - u.x()));
+            const double glyphW = std::max(12.0, gapPx * 0.85);
+            const double glyphH = 16.0;
+            p.drawRoundedRect(QRectF(mid.x() - glyphW / 2.0,
+                                     mid.y() - glyphH / 2.0,
+                                     glyphW, glyphH),
+                              3.5, 3.5);
+        }
+    }
+
+    QPen nodePen(highlight);
+    nodePen.setWidthF(kNodeBarWidth + 2.5);
+    nodePen.setCapStyle(Qt::FlatCap);
+    nodePen.setJoinStyle(Qt::MiterJoin);
+    p.setPen(nodePen);
+
+    for (int i = 0; i < m_path.nodes.size(); ++i) {
+        const auto &n = m_path.nodes[i];
+        if (!m_selectedNames.contains(n.name)) continue;
+
+        const bool incomingExc =
+            (i > 0) && linkKindIsExcavated(m_path.links[i - 1].kind);
+        const bool outgoingExc =
+            (i + 1 < m_path.nodes.size())
+            && linkKindIsExcavated(m_path.links[i].kind);
+        if (incomingExc && outgoingExc) continue;
+
+        const double chain = virtualX(i);
+        const QPointF rim = dataToPixel(chain, ProfileBuilder::groundElev(n));
+        const QPointF inv = dataToPixel(chain, n.invertElev);
+
+        p.drawRect(QRectF(QPointF(rim.x() - kShaftHalfWidthPx, rim.y()),
+                          QPointF(rim.x() + kShaftHalfWidthPx, inv.y())));
+
+        constexpr double kHalf = 6.0;
+        QPainterPath sym;
+        switch (n.kind) {
+        case ProfileBuilder::NodeKind::Junction:
+            sym.addRect(QRectF(rim.x() - kHalf, rim.y() - 2.0,
+                               kHalf * 2.0, 4.0));
+            break;
+        case ProfileBuilder::NodeKind::Outfall:
+            sym.moveTo(rim + QPointF(-kHalf, -kHalf));
+            sym.lineTo(rim + QPointF( kHalf, 0.0));
+            sym.lineTo(rim + QPointF(-kHalf,  kHalf));
+            sym.closeSubpath();
+            break;
+        case ProfileBuilder::NodeKind::Storage:
+            sym.moveTo(rim + QPointF(-kHalf - 2.0,  kHalf / 2.0));
+            sym.lineTo(rim + QPointF( kHalf + 2.0,  kHalf / 2.0));
+            sym.lineTo(rim + QPointF( kHalf - 2.0, -kHalf));
+            sym.lineTo(rim + QPointF(-kHalf + 2.0, -kHalf));
+            sym.closeSubpath();
+            break;
+        case ProfileBuilder::NodeKind::Divider:
+            sym.moveTo(rim + QPointF(0.0, -kHalf));
+            sym.lineTo(rim + QPointF( kHalf, 0.0));
+            sym.lineTo(rim + QPointF(0.0,  kHalf));
+            sym.lineTo(rim + QPointF(-kHalf, 0.0));
+            sym.closeSubpath();
+            break;
+        }
+        p.drawPath(sym);
+    }
+
     p.restore();
 }
 

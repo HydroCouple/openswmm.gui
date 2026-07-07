@@ -117,6 +117,33 @@ public:
 
     ~GISVectorLayer() override;
 
+    // ----- Multi-layer enumeration (sublayer picker) ----------------------
+
+    /*!
+     * \brief Lightweight description of one OGR layer inside a datasource,
+     *        produced by \ref enumerateSublayers() without fully loading it.
+     */
+    struct OgrSublayerInfo
+    {
+        QString   name;               ///< OGR layer name (GetName()).
+        QString   geometryType;       ///< Human label, e.g. "Polygon", "3D Line String".
+        long long featureCount = -1;  ///< GetFeatureCount(); -1 if unknown.
+        QString   crsDescription;     ///< From GetSpatialRef(); empty if none.
+        int       index = -1;         ///< GetLayer(i) ordinal.
+    };
+
+    /*!
+     * \brief Enumerate the layers in a vector datasource without fully loading
+     *        any of them. Opens read-only, reads each OGR layer's name /
+     *        geometry / feature-count / CRS, then closes.
+     * \param filePath  Datasource path (GeoPackage, File GDB, GML, …).
+     * \param errorOut  Optional; set to a human-readable message on failure.
+     * \return One entry per layer; empty on failure or when the path is not a
+     *         readable vector datasource.
+     */
+    [[nodiscard]] static QList<OgrSublayerInfo>
+        enumerateSublayers(const QString &filePath, QString *errorOut = nullptr);
+
     // ----- Dataset info ---------------------------------------------------
 
     /*!
@@ -163,6 +190,10 @@ public:
      * \brief Returns the list of field (attribute column) names.
      */
     [[nodiscard]] QStringList fieldNames() const;
+
+    // ----- Self-description for the Layer Properties dialog ----------------
+    [[nodiscard]] QString sourceDescription() const override;
+    [[nodiscard]] QVector<QPair<QString, QString>> extendedMetadata() const override;
 
     // ----- IAttributeProvider (Slice DM.3) --------------------------------
     //

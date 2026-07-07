@@ -12,12 +12,22 @@
 #include <QChart>
 #include <QContextMenuEvent>
 #include <QDateTimeAxis>
+#include <QDateTimeEdit>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QInputDialog>
 #include <QKeyEvent>
 #include <QLineSeries>
+#include <QLineEdit>
+#include <QLocale>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QRubberBand>
 #include <QToolTip>
+#include <QValueAxis>
+#include <QVariant>
 #include <QWheelEvent>
 
 #include <algorithm>
@@ -30,6 +40,47 @@ namespace {
 constexpr int  kClickThresholdPx = 5;
 constexpr qreal kWheelZoomBase   = 0.85;   ///< per notch (1 notch = 120 delta)
 constexpr qreal kClickZoomFactor = 2.0;    ///< Click-zoom multiplier in ZoomIn mode.
+constexpr qreal kAxisEdgeAlongPx = 28.0;
+constexpr qreal kAxisLabelBandPx = 48.0;
+
+bool isMinEdge(InteractiveChartView::AxisEdge edge) noexcept
+{
+    return edge == InteractiveChartView::AxisEdge::XMinimum
+        || edge == InteractiveChartView::AxisEdge::YMinimum;
+}
+
+bool isHorizontalEdge(InteractiveChartView::AxisEdge edge) noexcept
+{
+    return edge == InteractiveChartView::AxisEdge::XMinimum
+        || edge == InteractiveChartView::AxisEdge::XMaximum;
+}
+
+bool supportsEditableRange(QAbstractAxis *axis) noexcept
+{
+    return qobject_cast<QValueAxis *>(axis)
+        || qobject_cast<QDateTimeAxis *>(axis);
+}
+
+QString labelForEdge(InteractiveChartView::AxisEdge edge)
+{
+    switch (edge) {
+    case InteractiveChartView::AxisEdge::XMinimum: return QObject::tr("X minimum");
+    case InteractiveChartView::AxisEdge::XMaximum: return QObject::tr("X maximum");
+    case InteractiveChartView::AxisEdge::YMinimum: return QObject::tr("Y minimum");
+    case InteractiveChartView::AxisEdge::YMaximum: return QObject::tr("Y maximum");
+    case InteractiveChartView::AxisEdge::None: break;
+    }
+    return {};
+}
+
+bool parseDoubleLocaleAware(const QString &text, double &value)
+{
+    bool ok = false;
+    value = QLocale().toDouble(text.trimmed(), &ok);
+    if (!ok)
+        value = text.trimmed().toDouble(&ok);
+    return ok && std::isfinite(value);
+}
 }
 
 InteractiveChartView::InteractiveChartView(QChart *chart, QWidget *parent)
@@ -60,6 +111,7 @@ void InteractiveChartView::setMode(Mode m)
     // Drop any in-flight drag.
     if (m_rubberBand) m_rubberBand->hide();
     m_pressed = false;
+    m_pressedAxisEdge = AxisEdge::None;
     applyModeCursor();
     emit modeChanged(m_mode);
 }
@@ -112,6 +164,180 @@ void InteractiveChartView::zoomAroundViewportPoint(const QPointF &viewportPx, qr
     c->zoomIn(target);
 }
 
+InteractiveChartView::AxisEdge
+InteractiveChartView::axisEdgeAt(const QPoint &viewportPx) const
+{
+    if (!chart()) return AxisEdge::None;
+
+    const QRectF plotChart = chart()->plotArea();
+    if (plotChart.isEmpty()) return AxisEdge::None;
+
+    const QPointF tl = mapFromScene(chart()->mapToScene(plotChart.topLeft()));
+    const QPointF br = mapFromScene(chart()->mapToScene(plotChart.bottomRight()));
+    const QRectF plotView(tl, br);
+    const QPointF p = viewportPx;
+
+    auto hasAxis = [this](Qt::Orientation orientation, Qt::AlignmentFlag align) {
+        if (!chart()) return false;
+        const auto axes = chart()->axes(orientation);
+        for (auto *axis : axes) {
+            if (axis && axis->alignment().testFlag(align)
+                && supportsEditableRange(axis)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    const bool nearLeft  = std::abs(p.x() - plotView.left()) <= kAxisEdgeAlongPx;
+    const bool nearRight = std::abs(p.x() - plotView.right()) <= kAxisEdgeAlongPx;
+    const bool nearTop   = std::abs(p.y() - plotView.top()) <= kAxisEdgeAlongPx;
+    const bool nearBot   = std::abs(p.y() - plotView.bottom()) <= kAxisEdgeAlongPx;
+
+    const bool inBottomBand =
+        p.y() >= plotView.bottom() && p.y() <= plotView.bottom() + kAxisLabelBandPx;
+    if (hasAxis(Qt::Horizontal, Qt::AlignBottom) && inBottomBand) {
+        if (nearLeft) return AxisEdge::XMinimum;
+        if (nearRight) return AxisEdge::XMaximum;
+    }
+
+    const bool inTopBand =
+        p.y() <= plotView.top() && p.y() >= plotView.top() - kAxisLabelBandPx;
+    if (hasAxis(Qt::Horizontal, Qt::AlignTop) && inTopBand) {
+        if (nearLeft) return AxisEdge::XMinimum;
+        if (nearRight) return AxisEdge::XMaximum;
+    }
+
+    const bool inLeftBand =
+        p.x() <= plotView.left() && p.x() >= plotView.left() - kAxisLabelBandPx;
+    if (hasAxis(Qt::Vertical, Qt::AlignLeft) && inLeftBand) {
+        if (nearBot) return AxisEdge::YMinimum;
+        if (nearTop) return AxisEdge::YMaximum;
+    }
+
+    const bool inRightBand =
+        p.x() >= plotView.right() && p.x() <= plotView.right() + kAxisLabelBandPx;
+    if (hasAxis(Qt::Vertical, Qt::AlignRight) && inRightBand) {
+        if (nearBot) return AxisEdge::YMinimum;
+        if (nearTop) return AxisEdge::YMaximum;
+    }
+
+    return AxisEdge::None;
+}
+
+QAbstractAxis *InteractiveChartView::axisForEdge(AxisEdge edge) const
+{
+    if (!chart() || edge == AxisEdge::None) return nullptr;
+    const Qt::Orientation orientation =
+        isHorizontalEdge(edge) ? Qt::Horizontal : Qt::Vertical;
+    const auto axes = chart()->axes(orientation);
+    for (auto *axis : axes) {
+        if (supportsEditableRange(axis))
+            return axis;
+    }
+    return nullptr;
+}
+
+bool InteractiveChartView::setAxisEdgeValue(AxisEdge edge, const QVariant &value)
+{
+    auto *axis = axisForEdge(edge);
+    if (!axis) return false;
+
+    if (auto *valueAxis = qobject_cast<QValueAxis *>(axis)) {
+        bool ok = false;
+        const double v = value.toDouble(&ok);
+        if (!ok || !std::isfinite(v)) return false;
+
+        if (isMinEdge(edge)) {
+            if (v >= valueAxis->max()) return false;
+            valueAxis->setMin(v);
+        } else {
+            if (v <= valueAxis->min()) return false;
+            valueAxis->setMax(v);
+        }
+        return true;
+    }
+
+    if (auto *dateAxis = qobject_cast<QDateTimeAxis *>(axis)) {
+        const QDateTime dt = value.toDateTime();
+        if (!dt.isValid()) return false;
+
+        if (isMinEdge(edge)) {
+            if (dt >= dateAxis->max()) return false;
+            dateAxis->setMin(dt);
+        } else {
+            if (dt <= dateAxis->min()) return false;
+            dateAxis->setMax(dt);
+        }
+        return true;
+    }
+
+    return false;
+}
+
+bool InteractiveChartView::editAxisEdge(AxisEdge edge)
+{
+    auto *axis = axisForEdge(edge);
+    if (!axis) return false;
+
+    const QString label = labelForEdge(edge);
+    if (auto *valueAxis = qobject_cast<QValueAxis *>(axis)) {
+        const double current = isMinEdge(edge) ? valueAxis->min() : valueAxis->max();
+        bool accepted = false;
+        const QString text = QInputDialog::getText(
+            this,
+            tr("Edit Axis Range"),
+            tr("%1:").arg(label),
+            QLineEdit::Normal,
+            QLocale().toString(current, 'g', 15),
+            &accepted);
+        if (!accepted) return false;
+
+        double value = 0.0;
+        if (!parseDoubleLocaleAware(text, value)
+            || !setAxisEdgeValue(edge, value)) {
+            QMessageBox::warning(
+                this,
+                tr("Invalid Axis Range"),
+                isMinEdge(edge)
+                    ? tr("The minimum must be a finite value less than the current maximum.")
+                    : tr("The maximum must be a finite value greater than the current minimum."));
+            return false;
+        }
+        return true;
+    }
+
+    if (auto *dateAxis = qobject_cast<QDateTimeAxis *>(axis)) {
+        QDialog dlg(this);
+        dlg.setWindowTitle(tr("Edit Axis Range"));
+        auto *layout = new QFormLayout(&dlg);
+        auto *edit = new QDateTimeEdit(&dlg);
+        edit->setCalendarPopup(true);
+        edit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+        edit->setDateTime(isMinEdge(edge) ? dateAxis->min() : dateAxis->max());
+        layout->addRow(tr("%1:").arg(label), edit);
+        auto *buttons = new QDialogButtonBox(
+            QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+        layout->addWidget(buttons);
+        if (dlg.exec() != QDialog::Accepted) return false;
+
+        if (!setAxisEdgeValue(edge, edit->dateTime())) {
+            QMessageBox::warning(
+                this,
+                tr("Invalid Axis Range"),
+                isMinEdge(edge)
+                    ? tr("The minimum must be earlier than the current maximum.")
+                    : tr("The maximum must be later than the current minimum."));
+            return false;
+        }
+        return true;
+    }
+
+    return false;
+}
+
 void InteractiveChartView::mousePressEvent(QMouseEvent *e)
 {
     if (e->button() == Qt::RightButton) {
@@ -135,6 +361,15 @@ void InteractiveChartView::mousePressEvent(QMouseEvent *e)
         QChartView::mousePressEvent(e);
         return;
     }
+
+    const AxisEdge edge = axisEdgeAt(e->pos());
+    if (edge != AxisEdge::None) {
+        m_pressedAxisEdge = edge;
+        m_pressPos = e->pos();
+        e->accept();
+        return;
+    }
+
     m_pressed  = true;
     m_pressPos = e->pos();
     m_lastPos  = e->pos();
@@ -177,6 +412,11 @@ void InteractiveChartView::mousePressEvent(QMouseEvent *e)
 
 void InteractiveChartView::mouseMoveEvent(QMouseEvent *e)
 {
+    if (m_pressedAxisEdge != AxisEdge::None) {
+        e->accept();
+        return;
+    }
+
     // Slice AT.3 — middle-button pan, in flight.
     if (m_middlePanning) {
         const QPoint p = e->pos();
@@ -244,6 +484,15 @@ void InteractiveChartView::mouseReleaseEvent(QMouseEvent *e)
 
     if (e->button() != Qt::LeftButton) {
         QChartView::mouseReleaseEvent(e);
+        return;
+    }
+
+    if (m_pressedAxisEdge != AxisEdge::None) {
+        const AxisEdge edge = m_pressedAxisEdge;
+        m_pressedAxisEdge = AxisEdge::None;
+        if (isClick(m_pressPos, e->pos()) && axisEdgeAt(e->pos()) == edge)
+            editAxisEdge(edge);
+        e->accept();
         return;
     }
 
@@ -349,6 +598,7 @@ void InteractiveChartView::keyPressEvent(QKeyEvent *e)
             m_pressed       = false;
             m_middlePanning = false;
             m_xSelecting    = false;
+            m_pressedAxisEdge = AxisEdge::None;
             if (m_rubberBand) m_rubberBand->hide();
             applyModeCursor();
             e->accept();

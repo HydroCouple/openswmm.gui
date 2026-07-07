@@ -5,6 +5,7 @@
  */
 
 #include "map/tools/maptoolselectprofile.h"
+#include "ui/dialogs/dialoglayoutpersistence.h"
 
 #include "core/preferencesmanager.h"
 #include "layers/openswmmvislayer.h"
@@ -54,15 +55,16 @@ OpenSWMMVisMapToolSelectProfile::OpenSWMMVisMapToolSelectProfile(
 
 OpenSWMMVisMapToolSelectProfile::~OpenSWMMVisMapToolSelectProfile()
 {
-    // m_overlay is a QGraphicsItem owned by the scene we added it to.
-    // During project-window teardown, child destruction order is not
-    // guaranteed; the QGraphicsScene (a member of MapCanvas, itself a
-    // sibling QObject child) may have already destructed and freed the
-    // overlay before we reach this destructor.  Touch the overlay only
-    // when its tracked scene is still alive — otherwise the storage is
-    // gone and `m_overlay->scene()` is a use-after-free.
-    if (m_overlay && m_overlayScene) {
-        m_overlayScene->removeItem(m_overlay);
+    // The profile overlay is painted by MapCanvas' final top-overlay pass
+    // but kept as a QGraphicsItem-compatible state object for the existing
+    // path/halo machinery.  During project-window teardown, child
+    // destruction order is not guaranteed; use the tracked scene only as a
+    // liveness guard before touching the canvas or legacy scene membership.
+    if (m_overlay && m_overlayScene && canvas())
+        canvas()->setProfilePathOverlay(nullptr);
+    if (m_overlay) {
+        if (m_overlayScene && m_overlay->scene() == m_overlayScene)
+            m_overlayScene->removeItem(m_overlay);
         delete m_overlay;
     }
     m_overlay = nullptr;
@@ -105,8 +107,8 @@ void OpenSWMMVisMapToolSelectProfile::activate()
         if (m_overlay) return;
         m_overlay = new ProfilePathOverlay(model);
         if (canvas() && canvas()->mapScene()) {
-            canvas()->mapScene()->addItem(m_overlay);
             m_overlayScene = canvas()->mapScene();
+            canvas()->setProfilePathOverlay(m_overlay);
         }
     };
 
@@ -239,8 +241,8 @@ void OpenSWMMVisMapToolSelectProfile::mousePressEvent(QMouseEvent *event)
         if (!m_overlay) {
             m_overlay = new ProfilePathOverlay(model);
             if (canvas() && canvas()->mapScene()) {
-                canvas()->mapScene()->addItem(m_overlay);
                 m_overlayScene = canvas()->mapScene();
+                canvas()->setProfilePathOverlay(m_overlay);
             }
         }
         m_overlay->setPaths({});
@@ -588,7 +590,7 @@ void OpenSWMMVisMapToolSelectProfile::onRoutingComplete(
                                             /*parent=*/parentTop);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->setModal(false);
-    dlg->setWindowFlags(Qt::Tool | Qt::WindowStaysOnTopHint
+    dlg->setWindowFlags(openswmmvis::ui::floatingPanelFlags()
                         | Qt::CustomizeWindowHint
                         | Qt::WindowTitleHint
                         | Qt::WindowCloseButtonHint);
@@ -655,14 +657,11 @@ void OpenSWMMVisMapToolSelectProfile::resetState()
     clearInProgress();
     m_acceptedPath = ProfileRouter::Path{};
     if (m_overlay) {
-        // Same liveness rule as the destructor — only touch the
-        // overlay when its scene is still alive.  If the scene was
-        // destroyed first (project teardown), the QGraphicsItem
-        // storage is freed and reading scene() would crash.
-        if (m_overlayScene)
+        if (m_overlayScene && canvas())
+            canvas()->setProfilePathOverlay(nullptr);
+        if (m_overlayScene && m_overlay->scene() == m_overlayScene)
             m_overlayScene->removeItem(m_overlay);
-        if (m_overlayScene)
-            delete m_overlay;
+        delete m_overlay;
         m_overlay      = nullptr;
         m_overlayScene = nullptr;
     }

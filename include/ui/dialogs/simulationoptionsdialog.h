@@ -440,11 +440,14 @@ private:
     QSpinBox       *m_cvodeMaxStepsSpin = nullptr;
     QDoubleSpinBox *m_dryDepthSpin      = nullptr;
     QDoubleSpinBox *m_limiterEpsSpin    = nullptr;
+    QDoubleSpinBox *m_fluxDhEpsSpin     = nullptr;
     QDoubleSpinBox *m_couplingCdSpin    = nullptr;
-    QDoubleSpinBox *m_couplingIntervalSpin = nullptr;
+    QComboBox      *m_couplingIntervalCombo = nullptr;
+    int             m_couplingIntervalRaw   = 0;  ///< Value last read from the model (0/1 both == every step)
     QComboBox      *m_linearSolverCombo = nullptr;
     QComboBox      *m_preconditionerCombo = nullptr;
     QSpinBox       *m_maxKrylovDimSpin  = nullptr;
+    QComboBox      *m_rainfall2DModeCombo = nullptr;
     QCheckBox      *m_report2DBox       = nullptr;
 #endif
 };

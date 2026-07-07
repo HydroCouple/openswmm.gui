@@ -209,6 +209,23 @@ QString GISVectorLayer::filePath()     const
 }
 QString GISVectorLayer::ogrLayerName() const { return m_ogrLayerName; }
 
+QString GISVectorLayer::sourceDescription() const
+{
+    const QString p = filePath();
+    return p.isEmpty() ? tr("(in-memory)") : p;
+}
+
+QVector<QPair<QString, QString>> GISVectorLayer::extendedMetadata() const
+{
+    QVector<QPair<QString, QString>> md;
+    md.append({ tr("Features"), QString::number(featureCount()) });
+    const QStringList fields = fieldNames();
+    md.append({ tr("Fields"), QString::number(fields.size()) });
+    if (!fields.isEmpty())
+        md.append({ tr("Field names"), fields.join(QStringLiteral(", ")) });
+    return md;
+}
+
 int GISVectorLayer::featureCount() const
 {
     if (!m_ogrLayer)
@@ -906,6 +923,64 @@ void GISVectorLayer::refreshScene(QGraphicsScene *scene,
     depopulateScene(scene);
     populateScene(scene, canvasExtent, canvasSRS);
     m_needsRebuild = false;
+}
+
+// ---------------------------------------------------------------------------
+// Multi-layer enumeration (static — no instance, no full load)
+// ---------------------------------------------------------------------------
+
+QList<GISVectorLayer::OgrSublayerInfo>
+GISVectorLayer::enumerateSublayers(const QString &filePath, QString *errorOut)
+{
+    QList<OgrSublayerInfo> out;
+
+    GDALAllRegister();  // idempotent
+
+    auto *ds = static_cast<GDALDataset *>(
+        GDALOpenEx(filePath.toUtf8().constData(),
+                   GDAL_OF_VECTOR | GDAL_OF_READONLY,
+                   nullptr, nullptr, nullptr));
+    if (!ds)
+    {
+        if (errorOut)
+            *errorOut = QStringLiteral("Not a readable vector datasource: %1").arg(filePath);
+        return out;
+    }
+
+    const int layerCount = ds->GetLayerCount();
+    out.reserve(layerCount);
+    for (int i = 0; i < layerCount; ++i)
+    {
+        OGRLayer *lyr = ds->GetLayer(i);
+        if (!lyr)
+            continue;
+
+        OgrSublayerInfo info;
+        info.index        = i;
+        info.name         = QString::fromUtf8(lyr->GetName());
+        info.geometryType = QString::fromUtf8(OGRGeometryTypeToName(lyr->GetGeomType()));
+        info.featureCount = static_cast<long long>(lyr->GetFeatureCount(/*bForce=*/true));
+
+        if (const OGRSpatialReference *srs = lyr->GetSpatialRef())
+        {
+            if (const char *name = srs->GetName(); name && *name)
+                info.crsDescription = QString::fromUtf8(name);
+            else
+            {
+                const char *auth = srs->GetAuthorityName(nullptr);
+                const char *code = srs->GetAuthorityCode(nullptr);
+                if (auth && code)
+                    info.crsDescription = QStringLiteral("%1:%2")
+                                              .arg(QString::fromUtf8(auth),
+                                                   QString::fromUtf8(code));
+            }
+        }
+
+        out.append(info);
+    }
+
+    GDALClose(ds);
+    return out;
 }
 
 // ---------------------------------------------------------------------------

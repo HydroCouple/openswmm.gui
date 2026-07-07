@@ -6,12 +6,13 @@
  * \brief  Transient map-canvas overlay used by Slice BC to highlight
  *         candidate profile paths while the path-picker is open.
  *
- *         The overlay is a `QGraphicsItemGroup` attached directly to the
- *         map scene (`MapCanvas::mapScene()`).  Its lifecycle is decoupled
- *         from the active map tool — the picker dialog can stay open while
- *         the user clicks elsewhere on the canvas without losing the
- *         highlight.  Coordinates follow the standard layer-CRS → scene
- *         convention used by SWMMLayerItem (`QPointF(mx, -my)`).
+ *         The overlay stores the same path state as the legacy
+ *         QGraphicsScene item, but MapCanvas can also paint it in the final
+ *         widget overlay pass after the QSG 1D/2D result frame.  That keeps
+ *         candidate and accepted paths visible above flood maps and result
+ *         layers that are composited later than the scene buffer.
+ *         Coordinates follow the standard layer-CRS → scene convention used
+ *         by SWMMLayerItem (`QPointF(mx, -my)`).
  */
 
 #ifndef PROFILE_PATH_OVERLAY_H
@@ -23,8 +24,10 @@
 #include <QGraphicsItemGroup>
 #include <QPointF>
 #include <QVector>
+#include <functional>
 
 class SWMMModelLayer;
+class QPainter;
 
 /*!
  * \class ProfilePathOverlay
@@ -81,6 +84,14 @@ public:
      *        Useful for the picker dialog to render a matching color chip.
      */
     [[nodiscard]] QColor colorForPath(int index) const;
+
+    /*! \brief Map scene point → device pixel, supplied by the canvas. */
+    using SceneToPixel = std::function<QPointF(const QPointF &)>;
+
+    /*! \brief Draw paths + endpoint halos in widget/pixel space. Called by
+     *  MapCanvas after the QSG frame so the profile overlay sits above 1D/2D
+     *  results, regardless of scene z-order. */
+    void paintOverlay(QPainter &p, const SceneToPixel &toPixel) const;
 
 private:
     void rebuild();

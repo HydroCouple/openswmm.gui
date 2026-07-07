@@ -16,6 +16,7 @@
 
 #include <gtest/gtest.h>
 
+#include <QFile>
 #include <QString>
 #include <QStringList>
 
@@ -28,12 +29,35 @@ namespace {
 
 // CTest runs with WORKING_DIRECTORY tests/unit/data.
 const QString kFixture = QStringLiteral("weir_culvert.rpt");
+const QString kTwoDFixture =
+    QStringLiteral("../../gui/data/output_simstatus2derr/mini_2d.rpt");
 
 QStringList titlesOf(const QVector<RptSection> &sections)
 {
     QStringList t;
     for (const auto &s : sections) t << s.title;
     return t;
+}
+
+QString joinedBodies(const QVector<RptSection> &sections)
+{
+    QString text;
+    for (const auto &s : sections) text += s.body;
+    return text;
+}
+
+QString normalizedReportText(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return {};
+
+    QString text = QString::fromUtf8(f.readAll());
+    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+    if (!text.endsWith(QLatin1Char('\n')))
+        text += QLatin1Char('\n');
+    return text;
 }
 
 } // namespace
@@ -53,8 +77,8 @@ TEST(RptParser, ParsesRealReportIntoSections)
     EXPECT_TRUE(titles.contains(QStringLiteral("Link Flow Summary")));
 
     // Headers whose star / title lines carry trailing column headings
-    // ("Volume / Depth", "acre-feet / inches") — the title must be cut
-    // to the star-rule columns.
+    // ("Volume / Depth", "acre-feet / inches") should expose the section
+    // title without the unit columns.
     EXPECT_TRUE(titles.contains(QStringLiteral("Runoff Quantity Continuity")));
     EXPECT_TRUE(titles.contains(QStringLiteral("Flow Routing Continuity")));
 }
@@ -81,6 +105,75 @@ TEST(RptParser, BodyKeepsColumnHeadingsFromHeaderBlock)
         }
     }
     FAIL() << "Runoff Quantity Continuity section not found";
+}
+
+TEST(RptParser, Long2DContinuityTitleIsNotColumnTruncated)
+{
+    const auto sections = RptParser::parse(kTwoDFixture, nullptr);
+    ASSERT_FALSE(sections.isEmpty());
+    const QStringList titles = titlesOf(sections);
+
+    EXPECT_TRUE(titles.contains(QStringLiteral("2D Surface Routing Continuity")));
+    EXPECT_FALSE(titles.contains(QStringLiteral("2D Surface Routing Continui")));
+}
+
+TEST(RptParser, Long2DContinuitySectionKeepsFullBody)
+{
+    const auto sections = RptParser::parse(kTwoDFixture, nullptr);
+    ASSERT_FALSE(sections.isEmpty());
+    for (const auto &s : sections) {
+        if (s.title == QStringLiteral("2D Surface Routing Continuity")) {
+            EXPECT_TRUE(s.body.contains(QStringLiteral("Boundary Inflow")));
+            EXPECT_TRUE(s.body.contains(QStringLiteral("Boundary Outflow")));
+            EXPECT_TRUE(s.body.contains(QStringLiteral("Continuity Error (%)")));
+            return;
+        }
+    }
+    FAIL() << "2D Surface Routing Continuity section not found";
+}
+
+TEST(RptParser, ParsedBodiesPreserveComplete2DReportText)
+{
+    const auto sections = RptParser::parse(kTwoDFixture, nullptr);
+    ASSERT_FALSE(sections.isEmpty());
+
+    const QString expected = normalizedReportText(kTwoDFixture);
+    ASSERT_FALSE(expected.isEmpty());
+
+    EXPECT_EQ(joinedBodies(sections), expected);
+}
+
+TEST(RptParser, ParsedBodiesPreserveCompleteReportText)
+{
+    const auto sections = RptParser::parse(kFixture, nullptr);
+    ASSERT_FALSE(sections.isEmpty());
+
+    const QString expected = normalizedReportText(kFixture);
+    ASSERT_FALSE(expected.isEmpty());
+
+    EXPECT_EQ(joinedBodies(sections), expected);
+}
+
+TEST(RptParser, LinkAndConduitSummariesKeepDetails)
+{
+    const auto sections = RptParser::parse(kFixture, nullptr);
+    ASSERT_FALSE(sections.isEmpty());
+
+    bool sawLinkFlow = false;
+    bool sawConduitSurcharge = false;
+    for (const auto &s : sections) {
+        if (s.title == QStringLiteral("Link Flow Summary")) {
+            sawLinkFlow = true;
+            EXPECT_TRUE(s.body.contains(QStringLiteral("C_PIPE_OUT")));
+            EXPECT_TRUE(s.body.contains(QStringLiteral("Maximum  Time of Max")));
+        } else if (s.title == QStringLiteral("Conduit Surcharge Summary")) {
+            sawConduitSurcharge = true;
+            EXPECT_TRUE(s.body.contains(QStringLiteral("No conduits were surcharged.")));
+        }
+    }
+
+    EXPECT_TRUE(sawLinkFlow);
+    EXPECT_TRUE(sawConduitSurcharge);
 }
 
 TEST(RptParser, ContinuityErrorScanStillWorks)

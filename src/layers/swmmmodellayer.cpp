@@ -543,6 +543,52 @@ QString SWMMModelLayer::modelFilePath() const
                : QFileInfo(m_modelFilePath).absoluteFilePath();
 }
 
+QString SWMMModelLayer::sourceDescription() const
+{
+    const QString p = modelFilePath();
+    return p.isEmpty() ? tr("(no model file)") : p;
+}
+
+QVector<QPair<QString, QString>> SWMMModelLayer::extendedMetadata() const
+{
+    QVector<QPair<QString, QString>> md;
+
+    // Network element counts — list only non-empty categories.
+    const struct { const char *label; Category cat; } elems[] = {
+        { QT_TR_NOOP("Junctions"),     CatJunctions },
+        { QT_TR_NOOP("Outfalls"),      CatOutfalls },
+        { QT_TR_NOOP("Storage units"), CatStorage },
+        { QT_TR_NOOP("Dividers"),      CatDividers },
+        { QT_TR_NOOP("Conduits"),      CatConduits },
+        { QT_TR_NOOP("Pumps"),         CatPumps },
+        { QT_TR_NOOP("Orifices"),      CatOrifices },
+        { QT_TR_NOOP("Weirs"),         CatWeirs },
+        { QT_TR_NOOP("Outlets"),       CatOutlets },
+        { QT_TR_NOOP("Subcatchments"), CatSubcatchments },
+        { QT_TR_NOOP("Rain gages"),    CatRainGages },
+    };
+    for (const auto &e : elems) {
+        const int n = categoryCount(e.cat);
+        if (n > 0) md.append({ tr(e.label), QString::number(n) });
+    }
+
+    // Data-object counts — list only non-empty categories.
+    const struct { const char *label; DataCategory cat; } objs[] = {
+        { QT_TR_NOOP("Curves"),      DataCurves },
+        { QT_TR_NOOP("Time series"), DataTimeSeries },
+        { QT_TR_NOOP("Patterns"),    DataPatterns },
+        { QT_TR_NOOP("Pollutants"),  DataPollutants },
+        { QT_TR_NOOP("Transects"),   DataTransects },
+        { QT_TR_NOOP("Controls"),    DataControls },
+    };
+    for (const auto &o : objs) {
+        const int n = dataObjectCount(o.cat);
+        if (n > 0) md.append({ tr(o.label), QString::number(n) });
+    }
+
+    return md;
+}
+
 void SWMMModelLayer::setModelFilePath(const QString &path)
 {
     if (m_modelFilePath != path)
@@ -739,7 +785,22 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
                 full[v] = QPointF(vx[v], vy[v]); // [0]=from-node, [last]=to-node
             full = EditGeometry::cleanPolyline(full);
             if (full.size() > 2)
-                g.vertices = full.mid(1, full.size() - 2);
+            {
+                QVector<QPointF> interior = full.mid(1, full.size() - 2);
+                // GIS-imported models often digitize a link opposite to its
+                // from/to-node assignment, leaving [VERTICES] running to→from;
+                // the assembled [from, interior, to] polyline then doubles back
+                // and renders as self-crossing loops. Orient the interior to the
+                // link's from→to direction (no-op for correctly-ordered data).
+                const bool fromOk = (fromIdx >= 0 && fromIdx < m_nodes.size());
+                const bool toOk   = (toIdx   >= 0 && toIdx   < m_nodes.size());
+                if (fromOk && toOk)
+                    interior = EditGeometry::orientInteriorToEndpoints(
+                        interior,
+                        QPointF(m_nodes[fromIdx].x, m_nodes[fromIdx].y),
+                        QPointF(m_nodes[toIdx].x,   m_nodes[toIdx].y));
+                g.vertices = interior;
+            }
         }
 
         m_links.append(g);
@@ -3688,6 +3749,66 @@ bool SWMMModelLayer::applyNodeMove(int idx, double newX, double newY)
     m_needsRebuild = true;
     emit repaintRequested();
     return true;
+}
+
+namespace {
+// Convert a single stored offset value between conventions, matching the
+// legacy GetOffsetElevation / GetOffsetDepth (Uupdate.pas):
+//   Depth  -> Elevation:  elev  = depth + invert  (depth 0 yields the invert).
+//   Elevation -> Depth:   depth = max(0, elev - invert)  (clamp inverts below).
+double convertedOffset(double value, double invert, bool toElevation)
+{
+    if (toElevation)
+        return value + invert;
+    const double depth = value - invert;
+    return depth > 0.0 ? depth : 0.0;
+}
+} // namespace
+
+void SWMMModelLayer::convertLinkOffsets(bool toElevation)
+{
+    if (!m_engine)
+        return;
+
+    const int n = swmm_link_count(m_engine);
+    for (int i = 0; i < n; ++i)
+    {
+        int type = 0;
+        if (swmm_link_get_type(m_engine, i, &type) != SWMM_OK)
+            continue;
+        if (type == SWMM_LINK_PUMP)   // pumps carry no offset — legacy skips them
+            continue;
+
+        // Upstream offset (from-node invert) applies to conduits, orifices,
+        // weirs and outlets.
+        int fromIdx = -1;
+        double fromInvert = 0.0;
+        swmm_link_get_from_node(m_engine, i, &fromIdx);
+        if (fromIdx >= 0)
+            swmm_node_get_invert_elev(m_engine, fromIdx, &fromInvert);
+
+        double up = 0.0;
+        if (swmm_link_get_offset_up(m_engine, i, &up) == SWMM_OK)
+            swmm_link_set_offset_up(m_engine, i,
+                                    convertedOffset(up, fromInvert, toElevation));
+
+        // Downstream offset (to-node invert) is conduit-only.
+        if (type == SWMM_LINK_CONDUIT)
+        {
+            int toIdx = -1;
+            double toInvert = 0.0;
+            swmm_link_get_to_node(m_engine, i, &toIdx);
+            if (toIdx >= 0)
+                swmm_node_get_invert_elev(m_engine, toIdx, &toInvert);
+
+            double dn = 0.0;
+            if (swmm_link_get_offset_dn(m_engine, i, &dn) == SWMM_OK)
+                swmm_link_set_offset_dn(m_engine, i,
+                                        convertedOffset(dn, toInvert, toElevation));
+        }
+    }
+
+    emit geometryChanged();
 }
 
 bool SWMMModelLayer::applyLinkLength(int linkIdx, double length)

@@ -28,6 +28,7 @@
 #include <QDateEdit>
 #include <QDateTimeEdit>
 #include <QDoubleValidator>
+#include <QIntValidator>
 #include <QTimeEdit>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -111,6 +112,13 @@ SimulationOptionsDialog::SimulationOptionsDialog(SWMM_Engine engine,
 // ---------------------------------------------------------------------------
 
 namespace {
+
+// Mesh-list item classification (stored under Qt::UserRole). The inline row
+// is synthetic — it has no .2dm file on disk — so the Set Active / Remove
+// handlers must branch on it.
+constexpr int kMeshKindRole = Qt::UserRole;
+constexpr int kMeshExternal = 0;   ///< sibling *.2dm file
+constexpr int kMeshInline   = 1;   ///< mesh embedded in the project .inp
 
 /*!
  * \brief True when the .inp already carries 2D content.
@@ -972,10 +980,11 @@ void SimulationOptionsDialog::buildMeshTab(QTabWidget *tabs)
     auto *vlay = new QVBoxLayout(page);
 
     auto *header = new QLabel(tr(
-        "Pick which 2D mesh configuration (.2dm) the engine reads via "
-        "[2D_MESH_FILE]. New meshes are generated from the editing "
-        "toolbar's Generate Mesh tool — this tab is purely a selector "
-        "for existing configurations."), page);
+        "Pick which 2D mesh configuration the engine reads: an external "
+        "mesh file (.2dm, referenced via [2D_MESH_FILE]) or the inline mesh "
+        "embedded in the project .inp. New meshes are generated from the "
+        "editing toolbar's Generate Mesh tool — this tab is purely a "
+        "selector for existing configurations."), page);
     header->setWordWrap(true);
     vlay->addWidget(header);
 
@@ -1033,56 +1042,104 @@ void SimulationOptionsDialog::refreshMeshList()
         ? tr("Search directory: <none — save the project first>")
         : tr("Search directory: %1").arg(dir.absolutePath()));
 
+    // Read the .inp once: needed both to discover an inline mesh (embedded
+    // [2D_*] sections, no sibling .2dm) and to read the current
+    // [2D_MESH_FILE] reference.
+    QString inpText;
+    if (!modelPath.isEmpty())
+    {
+        QFile f(modelPath);
+        if (f.open(QIODevice::ReadOnly | QIODevice::Text))
+            inpText = QString::fromUtf8(f.readAll());
+    }
+
+    // External configurations: one row per sibling *.2dm file.
     if (!modelPath.isEmpty())
     {
         const QStringList meshes = dir.entryList(
             QStringList{QStringLiteral("*.2dm")},
             QDir::Files | QDir::Readable, QDir::Name);
         for (const QString &name : meshes)
-            m_meshList->addItem(name);
+        {
+            auto *item = new QListWidgetItem(name);
+            item->setData(kMeshKindRole, kMeshExternal);
+            m_meshList->addItem(item);
+        }
     }
 
-    // Probe the .inp for a current [2D_MESH_FILE] reference. Keep this
-    // tolerant — the section may be absent (engine reads inline mesh).
-    QString active;
-    if (!modelPath.isEmpty())
+    // Inline configuration: the engine reads mesh geometry straight from the
+    // .inp when [2D_VERTICES] + [2D_TRIANGLES] are present. Surface it as a
+    // selectable row (pinned to the top) so a freshly-generated inline mesh
+    // appears here and the user can switch back to it from an external file.
+    const bool hasInline =
+        inpText.indexOf(QStringLiteral("[2D_VERTICES]"),  0, Qt::CaseInsensitive) >= 0 &&
+        inpText.indexOf(QStringLiteral("[2D_TRIANGLES]"), 0, Qt::CaseInsensitive) >= 0;
+    if (hasInline)
     {
-        QFile f(modelPath);
-        if (f.open(QIODevice::ReadOnly | QIODevice::Text))
+        auto *item = new QListWidgetItem(
+            tr("(Inline mesh — embedded in project .inp)"));
+        item->setData(kMeshKindRole, kMeshInline);
+        m_meshList->insertItem(0, item);
+    }
+
+    // Probe the .inp for a current [2D_MESH_FILE] reference. Tolerant — the
+    // section may be absent (engine reads the inline mesh, if any).
+    QString active;
+    {
+        const int sectIdx = inpText.indexOf(QStringLiteral("[2D_MESH_FILE]"),
+                                             0, Qt::CaseInsensitive);
+        if (sectIdx >= 0)
         {
-            const QString text = QString::fromUtf8(f.readAll());
-            const int sectIdx = text.indexOf(QStringLiteral("[2D_MESH_FILE]"),
-                                              0, Qt::CaseInsensitive);
-            if (sectIdx >= 0)
+            // Walk forward to the first non-comment, non-blank line and pull
+            // the FILE token.
+            int p = inpText.indexOf(QChar('\n'), sectIdx);
+            while (p > 0 && p < inpText.size())
             {
-                // Walk forward to the first non-comment, non-blank line
-                // and pull the FILE token.
-                int p = text.indexOf(QChar('\n'), sectIdx);
-                while (p > 0 && p < text.size())
+                const int nl = inpText.indexOf(QChar('\n'), p + 1);
+                const QString line = inpText.mid(p + 1, (nl < 0 ? inpText.size() : nl) - p - 1).trimmed();
+                if (!line.isEmpty() && !line.startsWith(QStringLiteral(";"))
+                    && !line.startsWith(QChar('[')))
                 {
-                    const int nl = text.indexOf(QChar('\n'), p + 1);
-                    const QString line = text.mid(p + 1, (nl < 0 ? text.size() : nl) - p - 1).trimmed();
-                    if (!line.isEmpty() && !line.startsWith(QStringLiteral(";"))
-                        && !line.startsWith(QChar('[')))
-                    {
-                        // Format: "FILE  <path>".
-                        const auto parts = line.split(QRegularExpression(QStringLiteral("\\s+")),
-                                                      Qt::SkipEmptyParts);
-                        if (parts.size() >= 2 && parts.first().compare(
-                                QStringLiteral("FILE"), Qt::CaseInsensitive) == 0)
-                            active = parts.mid(1).join(QChar(' '));
-                        break;
-                    }
-                    if (line.startsWith(QChar('['))) break;  // next section
-                    if (nl < 0) break;
-                    p = nl;
+                    // Format: "FILE  <path>".
+                    const auto parts = line.split(QRegularExpression(QStringLiteral("\\s+")),
+                                                  Qt::SkipEmptyParts);
+                    if (parts.size() >= 2 && parts.first().compare(
+                            QStringLiteral("FILE"), Qt::CaseInsensitive) == 0)
+                        active = parts.mid(1).join(QChar(' '));
+                    break;
                 }
+                if (line.startsWith(QChar('['))) break;  // next section
+                if (nl < 0) break;
+                p = nl;
             }
         }
     }
-    m_meshActiveLabel->setText(active.isEmpty()
-        ? tr("Active mesh reference: <none — engine reads inline mesh, if any>")
-        : tr("Active mesh reference: %1").arg(active));
+
+    // The active configuration is the external file when [2D_MESH_FILE] is
+    // present, otherwise the inline mesh (if any). Reflect that in the label
+    // and pre-select the matching row.
+    if (!active.isEmpty())
+    {
+        m_meshActiveLabel->setText(tr("Active mesh reference: %1").arg(active));
+        const QString activeName = QFileInfo(active).fileName();
+        for (int i = 0; i < m_meshList->count(); ++i)
+            if (m_meshList->item(i)->data(kMeshKindRole).toInt() == kMeshExternal
+                && m_meshList->item(i)->text() == activeName)
+                m_meshList->setCurrentRow(i);
+    }
+    else if (hasInline)
+    {
+        m_meshActiveLabel->setText(
+            tr("Active mesh: inline mesh embedded in project .inp"));
+        for (int i = 0; i < m_meshList->count(); ++i)
+            if (m_meshList->item(i)->data(kMeshKindRole).toInt() == kMeshInline)
+                m_meshList->setCurrentRow(i);
+    }
+    else
+    {
+        m_meshActiveLabel->setText(
+            tr("Active mesh reference: <none — generate a 2D mesh first>"));
+    }
 }
 
 void SimulationOptionsDialog::onMeshSetActive()
@@ -1104,14 +1161,37 @@ void SimulationOptionsDialog::onMeshSetActive()
         return;
     }
 
-    const QString meshPath =
-        QFileInfo(modelPath).absoluteDir().absoluteFilePath(item->text());
-
     QString err;
-    if (!mesh::InpMeshWriter::writeMeshFileRef(modelPath, meshPath, &err)) {
-        QMessageBox::critical(this, tr("Set Active Mesh"),
-            tr("Could not update [2D_MESH_FILE]:\n%1").arg(err));
-        return;
+    if (item->data(kMeshKindRole).toInt() == kMeshInline)
+    {
+        // Inline mesh: drop any [2D_MESH_FILE] reference so the engine reads
+        // the mesh sections embedded directly in the .inp.
+        if (!mesh::InpMeshWriter::clearMeshFileRef(modelPath, &err)) {
+            QMessageBox::critical(this, tr("Set Active Mesh"),
+                tr("Could not switch to the inline mesh:\n%1").arg(err));
+            return;
+        }
+        // Mirror into the engine's in-memory model so a save doesn't re-add a
+        // stale reference. Empty clears it (engine reverts to inline mesh).
+        if (m_engine)
+            swmm_options_set_ext(m_engine, "MESH_FILE", "");
+    }
+    else
+    {
+        // External mesh: point [2D_MESH_FILE] at the selected .2dm.
+        const QString meshPath =
+            QFileInfo(modelPath).absoluteDir().absoluteFilePath(item->text());
+        if (!mesh::InpMeshWriter::writeMeshFileRef(modelPath, meshPath, &err)) {
+            QMessageBox::critical(this, tr("Set Active Mesh"),
+                tr("Could not update [2D_MESH_FILE]:\n%1").arg(err));
+            return;
+        }
+        // Mirror the reference into the engine's in-memory model. Without this
+        // the engine re-serialises the .inp on the next save with mesh_file
+        // empty and drops [2D_MESH_FILE] — the model silently reverts to 1D.
+        if (m_engine)
+            swmm_options_set_ext(m_engine, "MESH_FILE",
+                                 item->text().toUtf8().constData());
     }
 
     // Selecting an active mesh implies the user wants 2D on. Flip the
@@ -1130,6 +1210,14 @@ void SimulationOptionsDialog::onMeshRemove()
     if (!item) {
         QMessageBox::information(this, tr("Remove Mesh"),
             tr("Select a mesh (.2dm) from the list first."));
+        return;
+    }
+
+    if (item->data(kMeshKindRole).toInt() == kMeshInline) {
+        QMessageBox::information(this, tr("Remove Mesh"),
+            tr("The inline mesh is embedded in the project .inp — it can't be "
+               "deleted from here. Re-generate the mesh, or set an external "
+               ".2dm active, to replace it."));
         return;
     }
 
@@ -1234,6 +1322,16 @@ void SimulationOptionsDialog::build2DTab(QTabWidget *tabs)
     m_limiterEpsSpin->setDecimals(9);
     meshForm->addRow(tr("Limiter epsilon:"), m_limiterEpsSpin);
 
+    m_fluxDhEpsSpin = new QDoubleSpinBox(meshGroup);
+    m_fluxDhEpsSpin->setRange(0.0, 1.0);
+    m_fluxDhEpsSpin->setDecimals(6);
+    m_fluxDhEpsSpin->setSuffix(QStringLiteral(" m"));
+    m_fluxDhEpsSpin->setToolTip(
+        tr("Head-difference regularization for the 2D diffusive-wave flux. "
+           "0.004 m is the current recommended default from the road/weir "
+           "performance trials."));
+    meshForm->addRow(tr("Flux head epsilon:"), m_fluxDhEpsSpin);
+
     vlay->addWidget(meshGroup);
 
     auto *coupGroup = new QGroupBox(tr("1D ↔ 2D coupling"), page);
@@ -1244,12 +1342,25 @@ void SimulationOptionsDialog::build2DTab(QTabWidget *tabs)
     m_couplingCdSpin->setDecimals(4);
     coupForm->addRow(tr("Coupling Cd:"), m_couplingCdSpin);
 
-    m_couplingIntervalSpin = new QDoubleSpinBox(coupGroup);
-    m_couplingIntervalSpin->setRange(0.0, 3600.0);
-    m_couplingIntervalSpin->setDecimals(2);
-    m_couplingIntervalSpin->setSuffix(QStringLiteral(" s"));
-    m_couplingIntervalSpin->setSpecialValueText(tr("every step"));
-    coupForm->addRow(tr("Coupling interval:"), m_couplingIntervalSpin);
+    // COUPLING_INTERVAL is an integer count of routing steps, not a time.
+    // 0 and 1 both mean "advance the 2D solver every routing step"; values >= 2
+    // defer the advance into an N-step macro-window (experimental). Editable so
+    // an arbitrary N can still be typed while 0/1 read as plain text.
+    m_couplingIntervalCombo = new QComboBox(coupGroup);
+    m_couplingIntervalCombo->setEditable(true);
+    m_couplingIntervalCombo->setInsertPolicy(QComboBox::NoInsert);
+    m_couplingIntervalCombo->addItem(tr("Every routing step"),          0);
+    m_couplingIntervalCombo->addItem(tr("Every 2 steps (macro-window)"), 2);
+    m_couplingIntervalCombo->addItem(tr("Every 5 steps (macro-window)"), 5);
+    m_couplingIntervalCombo->addItem(tr("Every 10 steps (macro-window)"), 10);
+    if (auto *le = m_couplingIntervalCombo->lineEdit())
+        le->setValidator(new QIntValidator(0, 3600, m_couplingIntervalCombo));
+    m_couplingIntervalCombo->setToolTip(
+        tr("How often the 2D surface solver is advanced, in 1D routing steps. "
+           "0 or 1 = every step (recommended). Values ≥ 2 defer the advance "
+           "into an N-step macro-window for speed; this is experimental and "
+           "CFL-limited — verify the 2D continuity error in the report."));
+    coupForm->addRow(tr("Coupling interval:"), m_couplingIntervalCombo);
 
     vlay->addWidget(coupGroup);
 
@@ -1274,6 +1385,23 @@ void SimulationOptionsDialog::build2DTab(QTabWidget *tabs)
     solverForm->addRow(tr("Max Krylov dim:"), m_maxKrylovDimSpin);
 
     vlay->addWidget(solverGroup);
+
+    auto *rainfallGroup = new QGroupBox(tr("Rainfall"), page);
+    auto *rainfallForm  = new QFormLayout(rainfallGroup);
+
+    m_rainfall2DModeCombo = new QComboBox(rainfallGroup);
+    m_rainfall2DModeCombo->addItem(tr("Natural neighbour (all gages)"),
+                                   QStringLiteral("NATURAL_NEIGHBOUR"));
+    m_rainfall2DModeCombo->addItem(tr("System (uniform gage mean)"),
+                                   QStringLiteral("SYSTEM"));
+    m_rainfall2DModeCombo->setToolTip(
+        tr("How raingage rainfall drives the 2D mesh. Natural neighbour spatially "
+           "interpolates all located gages onto each cell (inverse-distance "
+           "outside the gage hull); System applies one uniform value — the mean "
+           "of all gages."));
+    rainfallForm->addRow(tr("Rainfall mode:"), m_rainfall2DModeCombo);
+
+    vlay->addWidget(rainfallGroup);
 
     m_report2DBox = new QCheckBox(tr("Write 2D results to output (REPORT_2D)"), page);
     vlay->addWidget(m_report2DBox);
@@ -1301,8 +1429,17 @@ void SimulationOptionsDialog::read2DFromEngine()
     m_cvodeMaxStepsSpin->setValue(getExt("MAX_CVODE_STEPS",   "500").toInt(&ok));
     m_dryDepthSpin     ->setValue(getExt("DRY_DEPTH",         "0.001").toDouble(&ok));
     m_limiterEpsSpin   ->setValue(getExt("LIMITER_EPSILON",   "1e-6").toDouble(&ok));
+    m_fluxDhEpsSpin    ->setValue(getExt("FLUX_DH_EPS",       "0.004").toDouble(&ok));
     m_couplingCdSpin   ->setValue(getExt("COUPLING_CD",       "0.65").toDouble(&ok));
-    m_couplingIntervalSpin->setValue(getExt("COUPLING_INTERVAL", "0").toDouble(&ok));
+    m_couplingIntervalRaw = getExt("COUPLING_INTERVAL", "0").toInt(&ok);
+    if (!ok || m_couplingIntervalRaw < 0) m_couplingIntervalRaw = 0;
+    if (m_couplingIntervalRaw <= 1) {
+        m_couplingIntervalCombo->setCurrentIndex(0);            // "Every routing step"
+    } else if (int idx = m_couplingIntervalCombo->findData(m_couplingIntervalRaw); idx >= 0) {
+        m_couplingIntervalCombo->setCurrentIndex(idx);          // matched a preset
+    } else {
+        m_couplingIntervalCombo->setEditText(QString::number(m_couplingIntervalRaw));
+    }
 
     auto selectComboByData = [](QComboBox *c, const QString &data) {
         const int idx = c->findData(data, Qt::UserRole, Qt::MatchFixedString);
@@ -1311,6 +1448,7 @@ void SimulationOptionsDialog::read2DFromEngine()
     selectComboByData(m_linearSolverCombo,   getExt("LINEAR_SOLVER",   "GMRES"));
     selectComboByData(m_preconditionerCombo, getExt("PRECONDITIONER",  "AMG"));
     m_maxKrylovDimSpin->setValue(getExt("MAX_KRYLOV_DIM", "30").toInt(&ok));
+    selectComboByData(m_rainfall2DModeCombo, getExt("RAINFALL_MODE", "NATURAL_NEIGHBOUR"));
     m_report2DBox->setChecked(parseEngineBool(getExt("REPORT_2D", "NO")) == Qt::Checked);
 }
 
@@ -1346,16 +1484,37 @@ int SimulationOptionsDialog::write2DToEngine(int &n)
                    QString::number(m_dryDepthSpin->value(), 'g', 8));
     writeIfChanged("LIMITER_EPSILON",   getExt("LIMITER_EPSILON"),
                    QString::number(m_limiterEpsSpin->value(), 'g', 8));
+    writeIfChanged("FLUX_DH_EPS",       getExt("FLUX_DH_EPS"),
+                   QString::number(m_fluxDhEpsSpin->value(), 'g', 8));
     writeIfChanged("COUPLING_CD",       getExt("COUPLING_CD"),
                    QString::number(m_couplingCdSpin->value(), 'f', 4));
+    // Resolve the combo (preset or typed) back to an integer step count.
+    int couplingInterval = 0;
+    {
+        const QString text = m_couplingIntervalCombo->currentText().trimmed();
+        const int found = m_couplingIntervalCombo->findText(text);
+        if (found >= 0) {
+            couplingInterval = m_couplingIntervalCombo->itemData(found).toInt();
+        } else {
+            bool intOk = false;
+            couplingInterval = text.toInt(&intOk);
+            if (!intOk || couplingInterval < 0) couplingInterval = 0;
+        }
+        // 0 and 1 are behaviourally identical; keep whichever the model had so an
+        // unchanged dialog doesn't rewrite "1" -> "0".
+        if (couplingInterval <= 1 && (m_couplingIntervalRaw == 0 || m_couplingIntervalRaw == 1))
+            couplingInterval = m_couplingIntervalRaw;
+    }
     writeIfChanged("COUPLING_INTERVAL", getExt("COUPLING_INTERVAL"),
-                   QString::number(m_couplingIntervalSpin->value(), 'f', 2));
+                   QString::number(couplingInterval));
     writeIfChanged("LINEAR_SOLVER",     getExt("LINEAR_SOLVER"),
                    m_linearSolverCombo->currentData().toString());
     writeIfChanged("PRECONDITIONER",    getExt("PRECONDITIONER"),
                    m_preconditionerCombo->currentData().toString());
     writeIfChanged("MAX_KRYLOV_DIM",    getExt("MAX_KRYLOV_DIM"),
                    QString::number(m_maxKrylovDimSpin->value()));
+    writeIfChanged("RAINFALL_MODE",     getExt("RAINFALL_MODE"),
+                   m_rainfall2DModeCombo->currentData().toString());
     writeIfChanged("REPORT_2D",         getExt("REPORT_2D"),
                    engineBoolString(m_report2DBox->isChecked()));
     return n;

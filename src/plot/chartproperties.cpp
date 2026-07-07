@@ -43,6 +43,8 @@ ChartProperties::ChartProperties(QChart *chart, QObject *parent)
     m_xLabelPrecision = prefs->plotXAxisPrecision();
     m_yLabelMode      = static_cast<LabelFormatMode>(prefs->plotYAxisFormatMode());
     m_yLabelPrecision = prefs->plotYAxisPrecision();
+    m_statisticsMode      = m_yLabelMode;
+    m_statisticsPrecision = m_yLabelPrecision;
     applyLabelFormats_();
 }
 
@@ -54,6 +56,15 @@ NumberFormat ChartProperties::xFormat() const noexcept
 NumberFormat ChartProperties::yFormat() const noexcept
 {
     return { static_cast<NumberFormatMode>(m_yLabelMode), m_yLabelPrecision, m_yLabelFormatStr };
+}
+
+NumberFormat ChartProperties::statisticsNumberFormat() const noexcept
+{
+    return {
+        static_cast<NumberFormatMode>(m_statisticsMode),
+        m_statisticsPrecision,
+        m_statisticsFormatStr
+    };
 }
 
 void ChartProperties::applyLabelFormats_()
@@ -91,6 +102,9 @@ QString ChartProperties::displayLabelFor(const QString &name) const
     if (name == QStringLiteral("yLabelFormatMode")) return QStringLiteral("Y Axis — Number format");
     if (name == QStringLiteral("yLabelPrecision"))  return QStringLiteral("Y Axis — Precision");
     if (name == QStringLiteral("yLabelFormat"))     return QStringLiteral("Y Axis — Custom format");
+    if (name == QStringLiteral("statisticsFormatMode")) return QStringLiteral("Statistics — Number format");
+    if (name == QStringLiteral("statisticsPrecision"))  return QStringLiteral("Statistics — Precision");
+    if (name == QStringLiteral("statisticsFormat"))     return QStringLiteral("Statistics — Custom format");
     return {};   // empty → fall back to default name
 }
 
@@ -319,6 +333,48 @@ void ChartProperties::setYLabelFormat(const QString &spec)
     m_yLabelFormatStr = spec;
     applyLabelFormats_();
     emit yLabelFormatChanged(spec);
+}
+
+void ChartProperties::setStatisticsFormatMode(LabelFormatMode mode)
+{
+    if (m_statisticsMode == mode) return;
+    m_statisticsMode = mode;
+    emit statisticsFormatModeChanged(mode);
+}
+
+void ChartProperties::setStatisticsPrecision(int count)
+{
+    const int c = std::clamp(count, 0, 10);
+    if (m_statisticsPrecision == c) return;
+    m_statisticsPrecision = c;
+    emit statisticsPrecisionChanged(c);
+}
+
+void ChartProperties::setStatisticsFormat(const QString &spec)
+{
+    if (m_statisticsFormatStr == spec) return;
+    m_statisticsFormatStr = spec;
+    emit statisticsFormatChanged(spec);
+}
+
+void ChartProperties::setStatisticsNumberFormat(const NumberFormat &format)
+{
+    const auto mode = format.mode == NumberFormatMode::SignificantFigures
+        ? SignificantFigures
+        : Decimals;
+    const int precision = std::clamp(format.count, 0, 10);
+
+    const bool modeChanged = m_statisticsMode != mode;
+    const bool precisionChanged = m_statisticsPrecision != precision;
+    const bool formatChanged = m_statisticsFormatStr != format.custom;
+
+    m_statisticsMode = mode;
+    m_statisticsPrecision = precision;
+    m_statisticsFormatStr = format.custom;
+
+    if (modeChanged) emit statisticsFormatModeChanged(mode);
+    if (precisionChanged) emit statisticsPrecisionChanged(precision);
+    if (formatChanged) emit statisticsFormatChanged(format.custom);
 }
 
 } // namespace openswmmvis::plot

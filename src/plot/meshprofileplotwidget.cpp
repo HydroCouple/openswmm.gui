@@ -5,9 +5,14 @@
  */
 #include "plot/meshprofileplotwidget.h"
 
+#include "plot/meshprofileinterp.h"
 #include "plot/meshprofileplotoptions.h"
 
 #include <QFontMetricsF>
+#include <QInputDialog>
+#include <QLineEdit>
+#include <QLocale>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -30,6 +35,8 @@ constexpr int    kMarginBottom = 40;
 constexpr double kPadFracY     = 0.06;
 constexpr double kPadFracX     = 0.02;
 constexpr double kDry          = 1e-4;   // 0.1 mm — matches layer dryDepth default
+constexpr qreal  kAxisEdgeAlongPx = 28.0;
+constexpr qreal  kAxisLabelBandPx = 48.0;
 
 const QColor kAxisColor (0x55, 0x55, 0x55);
 const QColor kGridColor (0xE0, 0xE0, 0xE0);
@@ -38,6 +45,33 @@ const QColor kBackground(0xFA, 0xFA, 0xFA);
 inline bool finiteGround(const MeshProfileSampler::Sample &s)
 {
     return std::isfinite(s.ground);
+}
+
+bool isMinEdge(MeshProfilePlotWidget::AxisEdge edge) noexcept
+{
+    return edge == MeshProfilePlotWidget::AxisEdge::XMinimum
+        || edge == MeshProfilePlotWidget::AxisEdge::YMinimum;
+}
+
+QString labelForEdge(MeshProfilePlotWidget::AxisEdge edge)
+{
+    switch (edge) {
+    case MeshProfilePlotWidget::AxisEdge::XMinimum: return QObject::tr("X minimum");
+    case MeshProfilePlotWidget::AxisEdge::XMaximum: return QObject::tr("X maximum");
+    case MeshProfilePlotWidget::AxisEdge::YMinimum: return QObject::tr("Y minimum");
+    case MeshProfilePlotWidget::AxisEdge::YMaximum: return QObject::tr("Y maximum");
+    case MeshProfilePlotWidget::AxisEdge::None: break;
+    }
+    return {};
+}
+
+bool parseDoubleLocaleAware(const QString &text, double &value)
+{
+    bool ok = false;
+    value = QLocale().toDouble(text.trimmed(), &ok);
+    if (!ok)
+        value = text.trimmed().toDouble(&ok);
+    return ok && std::isfinite(value);
 }
 
 } // namespace
@@ -186,7 +220,104 @@ void MeshProfilePlotWidget::setMode(Mode m)
     }
     m_panActive = false;
     m_zoomActive = false;
+    m_pressedAxisEdge = AxisEdge::None;
     if (m_rubberBand) m_rubberBand->hide();
+}
+
+MeshProfilePlotWidget::AxisEdge
+MeshProfilePlotWidget::axisEdgeAt(const QPoint &widgetPos) const
+{
+    const QRectF r = plotRect();
+    const QPointF p = widgetPos;
+
+    const bool nearLeft  = std::abs(p.x() - r.left()) <= kAxisEdgeAlongPx;
+    const bool nearRight = std::abs(p.x() - r.right()) <= kAxisEdgeAlongPx;
+    const bool nearTop   = std::abs(p.y() - r.top()) <= kAxisEdgeAlongPx;
+    const bool nearBot   = std::abs(p.y() - r.bottom()) <= kAxisEdgeAlongPx;
+
+    const bool inBottomBand =
+        p.y() >= r.bottom() && p.y() <= r.bottom() + kAxisLabelBandPx;
+    if (inBottomBand) {
+        if (nearLeft) return AxisEdge::XMinimum;
+        if (nearRight) return AxisEdge::XMaximum;
+    }
+
+    const bool inLeftBand =
+        p.x() <= r.left() && p.x() >= r.left() - kAxisLabelBandPx;
+    if (inLeftBand) {
+        if (nearBot) return AxisEdge::YMinimum;
+        if (nearTop) return AxisEdge::YMaximum;
+    }
+
+    return AxisEdge::None;
+}
+
+bool MeshProfilePlotWidget::setAxisEdgeValue(AxisEdge edge, double value)
+{
+    if (!std::isfinite(value)) return false;
+
+    switch (edge) {
+    case AxisEdge::XMinimum:
+        if (value >= m_dataXMax) return false;
+        m_dataXMin = value;
+        break;
+    case AxisEdge::XMaximum:
+        if (value <= m_dataXMin) return false;
+        m_dataXMax = value;
+        break;
+    case AxisEdge::YMinimum:
+        if (value >= m_dataYMax) return false;
+        m_dataYMin = value;
+        break;
+    case AxisEdge::YMaximum:
+        if (value <= m_dataYMin) return false;
+        m_dataYMax = value;
+        break;
+    case AxisEdge::None:
+        return false;
+    }
+
+    m_fitMode = false;
+    update();
+    return true;
+}
+
+QRectF MeshProfilePlotWidget::visibleDataRange() const
+{
+    return QRectF(QPointF(m_dataXMin, m_dataYMin),
+                  QPointF(m_dataXMax, m_dataYMax)).normalized();
+}
+
+bool MeshProfilePlotWidget::editAxisEdge(AxisEdge edge)
+{
+    if (edge == AxisEdge::None) return false;
+    const double current =
+        edge == AxisEdge::XMinimum ? m_dataXMin :
+        edge == AxisEdge::XMaximum ? m_dataXMax :
+        edge == AxisEdge::YMinimum ? m_dataYMin :
+                                     m_dataYMax;
+    bool accepted = false;
+    const QString text = QInputDialog::getText(
+        this,
+        tr("Edit Axis Range"),
+        tr("%1:").arg(labelForEdge(edge)),
+        QLineEdit::Normal,
+        QLocale().toString(current, 'g', 15),
+        &accepted);
+    if (!accepted) return false;
+
+    double value = 0.0;
+    if (!parseDoubleLocaleAware(text, value)
+        || !setAxisEdgeValue(edge, value)) {
+        QMessageBox::warning(
+            this,
+            tr("Invalid Axis Range"),
+            isMinEdge(edge)
+                ? tr("The minimum must be a finite value less than the current maximum.")
+                : tr("The maximum must be a finite value greater than the current minimum."));
+        return false;
+    }
+    return true;
 }
 
 // ── Coordinate transforms ─────────────────────────────────────────────────
@@ -289,6 +420,14 @@ void MeshProfilePlotWidget::mousePressEvent(QMouseEvent *event)
         return;
     }
     if (event->button() == Qt::LeftButton) {
+        const AxisEdge edge = axisEdgeAt(event->pos());
+        if (edge != AxisEdge::None) {
+            m_pressedAxisEdge = edge;
+            m_lastMousePos = event->pos();
+            event->accept();
+            return;
+        }
+
         if (m_mode == Mode::Pan) {
             m_panActive = true;
             m_lastMousePos = event->pos();
@@ -322,6 +461,11 @@ void MeshProfilePlotWidget::mousePressEvent(QMouseEvent *event)
 
 void MeshProfilePlotWidget::mouseMoveEvent(QMouseEvent *event)
 {
+    if (m_pressedAxisEdge != AxisEdge::None) {
+        event->accept();
+        return;
+    }
+
     if (m_overlayDrag != OverlayDrag::None && m_options) {
         const QPoint dPx = event->pos() - m_overlayDragLastPos;
         m_overlayDragLastPos = event->pos();
@@ -374,6 +518,17 @@ void MeshProfilePlotWidget::mouseReleaseEvent(QMouseEvent *event)
     if (m_overlayDrag != OverlayDrag::None && event->button() == Qt::LeftButton) {
         m_overlayDrag = OverlayDrag::None;
         restoreCursor();
+        return;
+    }
+    if (m_pressedAxisEdge != AxisEdge::None
+        && event->button() == Qt::LeftButton) {
+        const AxisEdge edge = m_pressedAxisEdge;
+        m_pressedAxisEdge = AxisEdge::None;
+        const bool click = std::abs(event->pos().x() - m_lastMousePos.x()) < 5
+            && std::abs(event->pos().y() - m_lastMousePos.y()) < 5;
+        if (click && axisEdgeAt(event->pos()) == edge)
+            editAxisEdge(edge);
+        event->accept();
         return;
     }
     if (m_cursorDragging && event->button() == Qt::LeftButton) {
@@ -548,9 +703,11 @@ void MeshProfilePlotWidget::paintSoilFill(QPainter &p) const
 }
 
 namespace {
-// Generic wet-band painter: for each contiguous run of finite-ground samples
-// where top(i) > ground + dry, fills the band ground→top and (optionally)
-// strokes the top polyline.
+// Generic wet-band painter: fills the band ground→top and (optionally) strokes
+// the top polyline, over each contiguous run of the bridged "paint top" series.
+// MeshProfileInterp::bridgedTops renders shallow films and bridges dry gaps
+// between wet runs with a no-upstream-flow-constrained surface (see header), so
+// partially-wet saddle cells no longer chop the water surface into fragments.
 template <typename TopFn>
 void paintWetBand(QPainter &p,
                   const QVector<MeshProfileSampler::Sample> &s,
@@ -559,19 +716,20 @@ void paintWetBand(QPainter &p,
                   const QPen &linePen,    bool doLine,
                   const std::function<QPointF(double, double)> &toPx)
 {
+    const QVector<double> top = MeshProfileInterp::bridgedTops(
+        s, [&](const MeshProfileSampler::Sample &x) { return topElev(x); });
     int i = 0;
     while (i < s.size()) {
-        const bool wet = finiteGround(s[i]) && (topElev(s[i]) > s[i].ground + kDry);
-        if (!wet) { ++i; continue; }
+        if (std::isnan(top[i])) { ++i; continue; }
         int j = i;
-        QPolygonF top;
-        while (j < s.size() && finiteGround(s[j]) && (topElev(s[j]) > s[j].ground + kDry)) {
-            top << toPx(s[j].chainage, topElev(s[j]));
+        QPolygonF topPoly;
+        while (j < s.size() && !std::isnan(top[j])) {
+            topPoly << toPx(s[j].chainage, top[j]);
             ++j;
         }
         const int last = j - 1;
-        if (doFill && top.size() >= 2) {
-            QPolygonF poly = top;
+        if (doFill && topPoly.size() >= 2) {
+            QPolygonF poly = topPoly;
             for (int k = last; k >= i; --k)
                 poly << toPx(s[k].chainage, s[k].ground);
             p.save();
@@ -580,11 +738,11 @@ void paintWetBand(QPainter &p,
             p.drawPolygon(poly);
             p.restore();
         }
-        if (doLine && top.size() >= 2) {
+        if (doLine && topPoly.size() >= 2) {
             p.save();
             p.setPen(linePen);
             p.setBrush(Qt::NoBrush);
-            p.drawPolyline(top);
+            p.drawPolyline(topPoly);
             p.restore();
         }
         i = j;

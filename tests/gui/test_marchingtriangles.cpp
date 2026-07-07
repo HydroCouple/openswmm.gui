@@ -327,6 +327,22 @@ private slots:
         QCOMPARE(b1[0].bandIndex, 1);   // last band
     }
 
+    void isobands_uniformOutsideRange_canSkip()
+    {
+        // Depth-result contour bands use the first level as the dry cutoff:
+        // a flat cell below it should remain transparent, not clamp into the
+        // first visible wet band.
+        std::vector<Tri> tris {
+            { {0,0}, {1,0}, {0,1}, 0.0, 0.0, 0.0 }
+        };
+        const std::vector<double> lv{0.1, 0.5, 1.0};
+        const auto clamped = marchingTrianglesIsobands(tris, lv, extract);
+        const auto clipped = marchingTrianglesIsobands(
+            tris, lv, extract, /*clampUniformOutsideRange=*/false);
+        QCOMPARE(clamped.size(), size_t(1));
+        QCOMPARE(clipped.size(), size_t(0));
+    }
+
     void isobands_areaConserved_noGaps()
     {
         // Gap-freeness invariant: across a fan mixing uniform and graded

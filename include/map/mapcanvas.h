@@ -30,6 +30,7 @@ class OpenSWMMVisMapTool;
 class MapUndoStack;
 class MapRenderJob;
 class MeshProfileOverlay;
+class ProfilePathOverlay;
 class QGestureEvent;
 
 /*!
@@ -179,6 +180,11 @@ public:
      *  QGraphicsScene item can't sit above. Pass null to detach. The overlay
      *  is owned by MeshProfilePlotDialog, not the canvas. */
     void setMeshProfileOverlay(MeshProfileOverlay *overlay);
+
+    /*! \brief Bind the 1D profile-path candidate/accepted overlay. Painted
+     *  above the QSG result frame so profile paths are not obscured by 1D/2D
+     *  result layers. The profile selection tool owns the object. */
+    void setProfilePathOverlay(ProfilePathOverlay *overlay);
 
     // ----- Undo ----------------------------------------------------------
 
@@ -363,6 +369,10 @@ private:
     // (setMeshProfileOverlay(nullptr)) before deleting it.
     MeshProfileOverlay         *m_meshProfileOverlay = nullptr;
 
+    // Not owned: MapToolSelectProfile creates it and clears this pointer
+    // (setProfilePathOverlay(nullptr)) before deleting it.
+    ProfilePathOverlay         *m_profilePathOverlay = nullptr;
+
     // ----- Decorations ----------------------------------------------------
     bool                    m_showScaleBar   = true;
     bool                    m_showCoords     = false;
@@ -454,4 +464,3 @@ private:
 Q_DECLARE_OPERATORS_FOR_FLAGS(MapCanvas::DirtyChannels)
 
 #endif // MAPCANVAS_H
-

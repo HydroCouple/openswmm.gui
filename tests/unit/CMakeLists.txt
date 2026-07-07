@@ -307,6 +307,26 @@ add_swmmvis_unit_test(test_timeseries_table_model
 )
 target_link_libraries(test_timeseries_table_model PRIVATE Qt6::Widgets)
 
+# ---- GDAL runtime driver probe (honest-filter work; HANDOFF §3.1) ----
+# Links only src/io/gdaldrivers.cpp + GDAL — no widget deps.
+add_swmmvis_unit_test(test_gdaldrivers
+    test_gdaldrivers.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/gdaldrivers.cpp
+)
+find_package(GDAL CONFIG REQUIRED)
+target_link_libraries(test_gdaldrivers PRIVATE GDAL::GDAL)
+
+# ---- Sublayer-picker fixtures + enumeration contract (HANDOFF §5 / §3.2) ----
+# GDAL-only: provisions tests/output/{multi.gpkg,single_points.shp} and checks
+# the exact GDAL enumeration sequence enumerateSublayers() relies on, without
+# linking gisvectorlayer.cpp's render closure. Outputs go to a reviewable path.
+add_swmmvis_unit_test(test_sublayer_fixtures
+    test_sublayer_fixtures.cpp
+)
+target_link_libraries(test_sublayer_fixtures PRIVATE GDAL::GDAL)
+target_compile_definitions(test_sublayer_fixtures
+    PRIVATE FIXTURE_OUT_DIR="${PROJECT_SOURCE_DIR}/tests/output")
+
 # ---- QSG 2D 1M-cell rendering helpers (QSG_2D_1M_RENDERING plan) ----
 # All pure Qt-Core helpers extracted from the 2D mesh/results QSG renderers
 # so rendering decisions are unit-testable without Qt Quick.

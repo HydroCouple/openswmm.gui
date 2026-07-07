@@ -32,6 +32,8 @@ private:
     [[nodiscard]] QWidget *buildContourBandTab(QWidget *parent);
     [[nodiscard]] QWidget *buildIsolineTab(QWidget *parent);
     [[nodiscard]] QWidget *buildVelocityTab(QWidget *parent);
+    [[nodiscard]] QWidget *buildMeshEdgeTab(QWidget *parent);   // Issue 6
+    [[nodiscard]] QWidget *buildMeshNodeTab(QWidget *parent);   // Issue 6
 
     QPointer<SWMM2DResultsLayer> m_layer;
 };

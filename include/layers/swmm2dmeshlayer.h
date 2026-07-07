@@ -126,6 +126,25 @@ public:
      *  the Properties window. */
     [[nodiscard]] int vertexCount()   const { return int(m_mesh.vertices.size()); }
 
+    /*! Number of boundary edges (domain outline + holes). */
+    [[nodiscard]] int boundaryEdgeCount() const { return int(m_mesh.boundaryEdges.size()); }
+
+    /*! Total number of unique mesh edges. m_sceneEdges is the deduplicated
+     *  edge set (exact, conformance-independent) built by
+     *  rebuildSceneGeometry(); before that runs, fall back to the conforming-
+     *  triangulation identity total = (3·T + B)/2. */
+    [[nodiscard]] int edgeCount() const {
+        if (!m_sceneEdges.isEmpty()) return int(m_sceneEdges.size());
+        return (3 * triangleCount() + boundaryEdgeCount()) / 2;
+    }
+
+    /*! Steepest edge slope in the mesh (rise/run), cached during scene build. */
+    [[nodiscard]] double maxSlope() const { return double(m_maxSlope); }
+
+    // ----- Self-description for the Layer Properties dialog ----------------
+    [[nodiscard]] QString sourceDescription() const override;
+    [[nodiscard]] QVector<QPair<QString, QString>> extendedMetadata() const override;
+
     [[nodiscard]] bool isActiveMesh() const { return m_active; }
     void setActiveMesh(bool active);
 
