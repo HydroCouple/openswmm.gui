@@ -42,7 +42,15 @@ jobs:
             appimage_arch: x86_64
             cmake_osx_arch: ""
 
-          - os: macos-latest
+          # Apple-Silicon build. Pinned to macos-15 (NOT macos-latest): the
+          # macos-latest image has rolled to macOS 26 (Tahoe), whose SDK
+          # dropped the legacy AGL framework that Qt 6.7.x's Gui/OpenGL modules
+          # still reference. That makes the QPropertyModel link fail with
+          # `ld: framework 'AGL' not found`. macOS 15's SDK still ships AGL
+          # (confirmed by the macos-15-intel leg linking cleanly). Durable fix
+          # when ready: bump Qt to a patched release (6.8.4+ LTS / 6.9.2+),
+          # which removed the AGL dependency, then macos-latest can return.
+          - os: macos-15
             cmake_preset: Darwin
             build_subdir: darwin
             vcpkg_triplet: arm64-osx

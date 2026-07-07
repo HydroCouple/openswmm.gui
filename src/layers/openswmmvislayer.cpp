@@ -15,6 +15,7 @@
 #include "project/openswmmvisworkspace.h"
 #include "layers/openswmmvislayer.h"
 #include "map/spatialreferencesystem.h"
+#include "render/ifeaturerenderer.h"   // complete type for the setRenderer() default
 #include "ui/dialogs/ilayerstylesubject.h"
 
 #include <QGraphicsScene>
@@ -356,3 +357,8 @@ void OpenSWMMVisLayer::fetchCache(const MapExtent & /*extent*/,
 double OpenSWMMVisLayer::layerZValue() const { return m_layerZValue; }
 
 void OpenSWMMVisLayer::setLayerZValue(double z) { m_layerZValue = z; }
+
+// Default no-op renderer sink. Defined out-of-line (not inline in the header)
+// because destroying the by-value unique_ptr parameter requires the complete
+// IFeatureRenderer type; ifeaturerenderer.h is included above.
+void OpenSWMMVisLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>) {}

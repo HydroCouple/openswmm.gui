@@ -432,7 +432,12 @@ public:
     // SWMM2DMeshLayer) override these. stylefileio.cpp consults the
     // virtual surface so it stays layer-agnostic.
     [[nodiscard]] virtual OpenSWMM::Render::IFeatureRenderer *renderer() const { return nullptr; }
-    virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>) {}
+    // NOTE: body is out-of-line in openswmmvislayer.cpp. Destroying the
+    // by-value unique_ptr param requires IFeatureRenderer to be a complete
+    // type; MSVC instantiates that deleter in the callee, so an inline body
+    // here would fail with C2027 ("use of undefined type") wherever this
+    // header is included without ifeaturerenderer.h.
+    virtual void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer>);
 
     // ----- Rule Model (Phase B seam, Slice B.1) ---------------------------
     //
