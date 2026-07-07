@@ -2,9 +2,9 @@ name: Build and Package
 
 on:
   push:
-    branches: ["main", "dev", "swmm6_gui"]
+    branches: ["main", "master", "dev", "swmm6_gui"]
   pull_request:
-    branches: ["main", "dev", "swmm6_gui"]
+    branches: ["main", "master", "dev", "swmm6_gui"]
 
 env:
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
