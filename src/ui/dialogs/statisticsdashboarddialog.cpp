@@ -50,9 +50,8 @@ public:
 
     void setQueryPredicate(const openswmmvis::QueryPredicate &predicate)
     {
-        beginFilterChange();
         m_predicate = predicate;
-        endFilterChange(QSortFilterProxyModel::Direction::Rows);
+        invalidateRowsFilter();
     }
 
 protected:
