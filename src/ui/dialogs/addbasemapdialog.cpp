@@ -104,8 +104,7 @@ void AddBasemapDialog::setInitialTab(int index)
 
 AddBasemapDialog::~AddBasemapDialog()
 {
-    delete m_wmsInfo;
-    delete m_wmtsInfo;
+    // m_wmsInfo / m_wmtsInfo are unique_ptr — released automatically.
     delete m_wcsInfo;
 }
 
@@ -710,14 +709,14 @@ void AddBasemapDialog::onWMSConnect()
                 &AddBasemapDialog::onWMSCapabilitiesFetched);
         connect(layer, &WMTSLayer::capabilitiesError, this,
                 &AddBasemapDialog::onWMSCapabilitiesError);
-        // Store pointer via lambda capture (self-destructs after signal)
-        connect(layer, &WMTSLayer::capabilitiesFetched, layer, &QObject::deleteLater);
+        // On error the temporary layer self-destructs; on success it is torn
+        // down inside the handler below, only after its serviceInfo() is read.
         connect(layer, &WMTSLayer::capabilitiesError,   layer, &QObject::deleteLater);
-        delete m_wmtsInfo; m_wmtsInfo = nullptr;
+        m_wmtsInfo.reset();
         connect(layer, &WMTSLayer::capabilitiesFetched, this, [this, layer]() {
-            delete m_wmtsInfo;
-            m_wmtsInfo = new WMTSServiceInfo(layer->serviceInfo());
+            m_wmtsInfo = std::make_unique<WMTSServiceInfo>(layer->serviceInfo());
             populateWMTSTree(*m_wmtsInfo);
+            layer->deleteLater();   // done reading from layer; schedule teardown
         });
         layer->fetchCapabilities();
     } else {
@@ -726,13 +725,14 @@ void AddBasemapDialog::onWMSConnect()
                 &AddBasemapDialog::onWMSCapabilitiesFetched);
         connect(layer, &WMSLayer::capabilitiesError,  this,
                 &AddBasemapDialog::onWMSCapabilitiesError);
-        connect(layer, &WMSLayer::capabilitiesFetched, layer, &QObject::deleteLater);
+        // On error the temporary layer self-destructs; on success it is torn
+        // down inside the handler below, only after its serviceInfo() is read.
         connect(layer, &WMSLayer::capabilitiesError,   layer, &QObject::deleteLater);
-        delete m_wmsInfo; m_wmsInfo = nullptr;
+        m_wmsInfo.reset();
         connect(layer, &WMSLayer::capabilitiesFetched, this, [this, layer]() {
-            delete m_wmsInfo;
-            m_wmsInfo = new WMSServiceInfo(layer->serviceInfo());
+            m_wmsInfo = std::make_unique<WMSServiceInfo>(layer->serviceInfo());
             populateWMSTree(*m_wmsInfo);
+            layer->deleteLater();   // done reading from layer; schedule teardown
         });
         layer->fetchCapabilities();
     }
