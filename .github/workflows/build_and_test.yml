@@ -499,6 +499,7 @@ jobs:
               --executable AppDir/usr/bin/SWMMVis \
               --desktop-file packaging/linux/org.openswmm.swmmvis.desktop \
               --icon-file resources/swmmvis.png \
+              --icon-filename org.openswmm.swmmvis \
               --plugin qt \
               --output appimage
 
