@@ -366,12 +366,13 @@ void appendDashedThickLine(std::vector<QSGGeometry::Point2D> &out,
 
 // Round-join / round-cap disc emitted as a triangle-fan-as-list (the link
 // nodes are DrawTriangles). The thick-segment quads above have flat ends, so
-// at an interior polyline vertex two quads leave a wedge gap on the outer side
-// of the bend — the "broken corners". Stamping a disc of radius = half-width
-// at the shared vertex fills that wedge and rounds the corner. For opaque
-// links it blends seamlessly (same colour); under per-kind opacity < 1 the
-// disc overlaps the two quads, so bends read very slightly darker — an
-// acceptable trade for smooth corners on the batched GPU path.
+// at an endpoint or interior polyline vertex the flat segment ends leave a
+// square cap or a wedge gap on the outer side of the bend. Stamping a disc of
+// radius = half-width at every source vertex mirrors the CPU painter's
+// RoundCap/RoundJoin link rendering. For opaque links it blends seamlessly
+// (same colour); under per-kind opacity < 1 the disc overlaps the two quads, so
+// bends read very slightly darker — an acceptable trade for smooth corners on
+// the batched GPU path.
 constexpr int kJoinDiscSegs = 12;
 
 void appendDiscColored(std::vector<QSGGeometry::ColoredPoint2D> &out,
@@ -1096,6 +1097,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             std::vector<QSGGeometry::ColoredPoint2D> baseTri;
             std::vector<QSGGeometry::Point2D>        selTri;
             size_t baseSegs=0, selSegs=0;
+            size_t baseVerts=0, selVerts=0;
             for (size_t i = 0; i < counts.size(); ++i) {
                 if (counts[i]<2) continue;
                 if (i<lHid.size()&&lHid[i]) continue;
@@ -1105,9 +1107,14 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                        bb.bottom()<cullY0||bb.top()>cullY1) continue;
                 }
                 baseSegs += counts[i]-1;
-                if (i<lSel.size()&&lSel[i]) selSegs += counts[i]-1;
+                baseVerts += counts[i];
+                if (i<lSel.size()&&lSel[i]) {
+                    selSegs += counts[i]-1;
+                    selVerts += counts[i];
+                }
             }
-            baseTri.reserve(baseSegs*6); selTri.reserve(selSegs*6);
+            baseTri.reserve(baseSegs*6 + baseVerts*kJoinDiscSegs*3);
+            selTri.reserve(selSegs*6 + selVerts*kJoinDiscSegs*3);
 
             for (size_t i = 0; i < counts.size(); ++i) {
                 const uint32_t cnt=counts[i];
@@ -1139,11 +1146,9 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     appendThickSegmentColored(baseTri,ax,ay,bx,by,hw,lR,lG,lB,lA);
                     if (sel) appendThickSegment(selTri,ax,ay,bx,by,selHW);
                 }
-                // Round joins at interior vertices so polyline bends are smooth
-                // instead of leaving the flat-cap wedge gap ("broken corners").
-                // Straight 2-point links (cnt==2) have no interior vertex, so
-                // they emit nothing here and are unaffected.
-                for (uint32_t j=1; j+1<cnt; ++j) {
+                // Round caps/joins at every source vertex so endpoints and
+                // simple 2-point links match the CPU RoundCap rendering too.
+                for (uint32_t j=0; j<cnt; ++j) {
                     const float vx=float(p[j*2]-ox), vy=float(p[j*2+1]-oy);
                     appendDiscColored(baseTri,vx,vy,hw,lR,lG,lB,lA);
                     if (sel) appendDisc(selTri,vx,vy,selHW);
@@ -1409,8 +1414,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     const float bx=float(p[j*2]-ox),     by=float(p[j*2+1]-oy);
                     appendThickSegment(selTri,ax,ay,bx,by,selHW);
                 }
-                // Round joins at interior vertices — smooth bends on the halo.
-                for (uint32_t j=1; j+1<cnt; ++j) {
+                // Round caps/joins on the selected-link halo.
+                for (uint32_t j=0; j<cnt; ++j) {
                     const float vx=float(p[j*2]-ox), vy=float(p[j*2+1]-oy);
                     appendDisc(selTri,vx,vy,selHW);
                 }

@@ -91,6 +91,10 @@ public:
      */
     [[nodiscard]] bool hasNoDataValue() const;
 
+    // ----- Self-description for the Layer Properties dialog ----------------
+    [[nodiscard]] QString sourceDescription() const override;
+    [[nodiscard]] QVector<QPair<QString, QString>> extendedMetadata() const override;
+
     // ----- Colour ramp ---------------------------------------------------
 
     [[nodiscard]] RasterColorRamp colorRamp() const;

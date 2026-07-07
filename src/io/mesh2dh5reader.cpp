@@ -8,7 +8,9 @@
 
 #include <hdf5.h>
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace openswmmvis::io {
 
@@ -25,6 +27,61 @@ struct DataSetGuard {
     explicit DataSetGuard(hid_t i) : id(i) {}
     ~DataSetGuard() { if (id >= 0) H5Dclose(id); }
 };
+struct AttributeGuard {
+    hid_t id;
+    explicit AttributeGuard(hid_t i) : id(i) {}
+    ~AttributeGuard() { if (id >= 0) H5Aclose(id); }
+};
+struct DataTypeGuard {
+    hid_t id;
+    explicit DataTypeGuard(hid_t i) : id(i) {}
+    ~DataTypeGuard() { if (id >= 0) H5Tclose(id); }
+};
+
+bool readStartIndexAttr(hid_t dataset, int& out)
+{
+    hid_t attr = -1;
+    H5E_BEGIN_TRY {
+        attr = H5Aopen(dataset, "start_index", H5P_DEFAULT);
+    } H5E_END_TRY;
+    if (attr < 0) return false;
+    AttributeGuard attrGuard(attr);
+
+    const hid_t type = H5Aget_type(attr);
+    if (type < 0) return false;
+    DataTypeGuard typeGuard(type);
+
+    const H5T_class_t cls = H5Tget_class(type);
+    if (cls == H5T_INTEGER) {
+        int value = 0;
+        if (H5Aread(attr, H5T_NATIVE_INT, &value) >= 0) {
+            out = value;
+            return true;
+        }
+        return false;
+    }
+
+    if (cls != H5T_STRING) return false;
+
+    bool ok = false;
+    QString text;
+    if (H5Tis_variable_str(type) > 0) {
+        char *raw = nullptr;
+        if (H5Aread(attr, type, &raw) >= 0 && raw) {
+            text = QString::fromLatin1(raw).trimmed();
+            H5free_memory(raw);
+        }
+    } else {
+        const size_t n = H5Tget_size(type);
+        std::vector<char> buf(n + 1, '\0');
+        if (H5Aread(attr, type, buf.data()) >= 0)
+            text = QString::fromLatin1(buf.data()).trimmed();
+    }
+    const int value = text.toInt(&ok);
+    if (!ok) return false;
+    out = value;
+    return true;
+}
 
 } // namespace
 
@@ -128,7 +185,7 @@ bool Mesh2DH5Reader::readMeshGeometry(std::vector<double>& vx,
     vy.assign(n, 0.0);
     vz.assign(n, 0.0);
 
-    auto readVec = [this, n](const char* name, double* out) -> bool {
+    auto readVec = [this](const char* name, double* out) -> bool {
         hid_t ds = H5Dopen2(static_cast<hid_t>(file_id_), name, H5P_DEFAULT);
         if (ds < 0)
             return setError_(QStringLiteral("H5Dopen2 failed: %1").arg(name));
@@ -152,6 +209,9 @@ bool Mesh2DH5Reader::readTriangles(std::vector<std::array<int, 3>>& tris) const
     const int n = triangleCount();
     if (n <= 0)
         return setError_(QStringLiteral("No triangles"));
+    const int n_vert = vertexCount();
+    if (n_vert <= 0)
+        return setError_(QStringLiteral("No vertices"));
 
     // /Mesh2_face_nodes is [n, 3] of native int, row-major
     tris.assign(n, {0, 0, 0});
@@ -168,6 +228,39 @@ bool Mesh2DH5Reader::readTriangles(std::vector<std::array<int, 3>>& tris) const
                        H5P_DEFAULT, tris.data());
     if (r < 0)
         return setError_(QStringLiteral("H5Dread failed: Mesh2_face_nodes"));
+
+    int startIndex = 0;
+    const bool hasStartIndex = readStartIndexAttr(ds, startIndex);
+    if (!hasStartIndex) {
+        int minIdx = std::numeric_limits<int>::max();
+        int maxIdx = std::numeric_limits<int>::lowest();
+        for (const auto& tri : tris) {
+            minIdx = std::min({minIdx, tri[0], tri[1], tri[2]});
+            maxIdx = std::max({maxIdx, tri[0], tri[1], tri[2]});
+        }
+        // Be liberal for third-party UGRID files that omit start_index but
+        // clearly use the common 1-based convention.
+        if (minIdx == 1 && maxIdx == n_vert)
+            startIndex = 1;
+    }
+    if (startIndex != 0) {
+        for (auto& tri : tris)
+            for (int& v : tri)
+                v -= startIndex;
+    }
+
+    int minIdx = std::numeric_limits<int>::max();
+    int maxIdx = std::numeric_limits<int>::lowest();
+    for (const auto& tri : tris) {
+        minIdx = std::min({minIdx, tri[0], tri[1], tri[2]});
+        maxIdx = std::max({maxIdx, tri[0], tri[1], tri[2]});
+    }
+    if (minIdx < 0 || maxIdx >= n_vert) {
+        return setError_(QStringLiteral(
+            "Mesh2_face_nodes vertex index out of range after start_index normalization "
+            "(min=%1 max=%2 vertices=%3)")
+            .arg(minIdx).arg(maxIdx).arg(n_vert));
+    }
     return true;
 }
 

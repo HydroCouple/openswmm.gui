@@ -8,6 +8,7 @@
 #include <QCommandLinkButton>
 #include <QHBoxLayout>
 #include <QCheckBox>
+#include <QFont>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -22,7 +23,7 @@
 #include <QDoubleSpinBox>
 #include <QDateTimeEdit>
 
-#include "ui/widgets/rangeslider.h"
+#include "ui/widgets/cursorwindowslider.h"
 #include <QProgressBar>
 #include <QStandardItemModel>
 #include <QMessageBox>
@@ -30,6 +31,11 @@
 #include <QMetaEnum>
 #include <QFileInfo>
 #include <QCloseEvent>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QUrl>
 #include <QGraphicsItem>
 #include <QFileDialog>
 #include <QDir>
@@ -58,6 +64,9 @@
 #include <cmath>
 
 #include "swmmvis.h"
+#include "io/gdaldrivers.h"
+#include "ui/dialogs/sublayerselectiondialog.h"
+#include "ui/dialogs/dialoglayoutpersistence.h"
 #include "ui_swmmvis.h"
 #include "version.h"
 #include "legacy_version.h"
@@ -254,6 +263,9 @@ SWMMVis::SWMMVis(QWidget *parent)
 {
     ui->setupUi(this);
 
+    // Feature A — accept drops of .inp / .oswp files anywhere on the window.
+    setAcceptDrops(true);
+
     initializeToolBars();
     initializeStatusBar();
     initializeWelcomeScreen();
@@ -273,6 +285,59 @@ SWMMVis::SWMMVis(QWidget *parent)
 SWMMVis::~SWMMVis()
 {
     delete ui;
+}
+
+// ── Drag-and-drop of project / model files (Feature A) ──────────────────────
+
+QStringList SWMMVis::acceptableDropPaths(const QMimeData *mime) const
+{
+    QStringList paths;
+    if (!mime || !mime->hasUrls())
+        return paths;
+
+    for (const QUrl &url : mime->urls())
+    {
+        if (!url.isLocalFile())
+            continue;
+        const QString path = url.toLocalFile();
+        if (!QFileInfo(path).isFile())
+            continue;
+        if (path.endsWith(QStringLiteral(".inp"), Qt::CaseInsensitive) ||
+            path.endsWith(QStringLiteral(".oswp"), Qt::CaseInsensitive))
+            paths << path;
+    }
+    return paths;
+}
+
+void SWMMVis::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (!acceptableDropPaths(event->mimeData()).isEmpty())
+        event->acceptProposedAction();
+    else
+        event->ignore();
+}
+
+void SWMMVis::dragMoveEvent(QDragMoveEvent *event)
+{
+    if (!acceptableDropPaths(event->mimeData()).isEmpty())
+        event->acceptProposedAction();
+    else
+        event->ignore();
+}
+
+void SWMMVis::dropEvent(QDropEvent *event)
+{
+    const QStringList paths = acceptableDropPaths(event->mimeData());
+    if (paths.isEmpty())
+    {
+        event->ignore();
+        return;
+    }
+    event->acceptProposedAction();
+
+    // onOpenProject() routes .oswp vs .inp and de-dups already-open windows.
+    for (const QString &path : paths)
+        onOpenProject(path);
 }
 
 // ── Logging ───────────────────────────────────────────────────────────────
@@ -853,6 +918,21 @@ void SWMMVis::initializeAnalysisLayerCombos()
         "mesh editing."));
     ui->toolBarAnalysis->insertWidget(anchor, mLabelActiveResults2D);
     ui->toolBarAnalysis->insertWidget(anchor, mComboActiveResults2D);
+
+    // Live-render toggle, immediately right of the 2D dropdown. Off stops 2D
+    // rendering AND frame streaming for the active live layer during a run, to
+    // save GPU/CPU; on resumes and jumps to the newest frame. Only meaningful
+    // for a live/streaming source, so it is disabled otherwise (see
+    // refreshActiveResultsCombos()). Default checked.
+    mCheckBoxLive2D = new QCheckBox(tr("Live render"), this);
+    mCheckBoxLive2D->setChecked(true);
+    mCheckBoxLive2D->setContentsMargins(8, 0, 4, 0);
+    mCheckBoxLive2D->setToolTip(tr(
+        "Render the active 2D results layer live while a simulation runs. "
+        "Uncheck to stop 2D rendering and frame streaming during the run to "
+        "save GPU/CPU; re-check to resume at the newest frame. Only applies to "
+        "a live (streaming) results layer."));
+    ui->toolBarAnalysis->insertWidget(anchor, mCheckBoxLive2D);
     ui->toolBarAnalysis->insertSeparator(anchor);
 
     // User picks → set the active layer on the current project window. The
@@ -872,6 +952,14 @@ void SWMMVis::initializeAnalysisLayerCombos()
         auto *layer = reinterpret_cast<SWMM2DResultsLayer *>(
             mComboActiveResults2D->itemData(idx).value<quintptr>());
         pw->setActive2DResultsLayer(layer);
+    });
+
+    // Live-render toggle: gate the active 2D layer's streaming/render work.
+    connect(mCheckBoxLive2D, &QCheckBox::toggled, this, [this](bool checked) {
+        auto *pw = activeProjectWindow();
+        if (!pw) return;
+        if (auto *layer = pw->active2DResultsLayer())
+            layer->setLiveRenderEnabled(checked);
     });
 
     refreshActiveResultsCombos();
@@ -934,27 +1022,39 @@ void SWMMVis::refreshActiveResultsCombos()
     }
     mComboActiveResults2D->setCurrentIndex(sel2D);
     mComboActiveResults2D->setEnabled(mComboActiveResults2D->count() > 1);
+
+    // Live-render toggle reflects the active 2D layer's gate, and is only
+    // meaningful for a live/streaming source (greyed out otherwise).
+    if (mCheckBoxLive2D) {
+        SWMM2DResultsLayer *active2D = pw->active2DResultsLayer();
+        const bool live = active2D && active2D->source()
+                          && active2D->source()->isLive();
+        QSignalBlocker bLive(mCheckBoxLive2D);
+        mCheckBoxLive2D->setEnabled(live);
+        mCheckBoxLive2D->setChecked(active2D ? active2D->liveRenderEnabled()
+                                             : true);
+    }
 }
 
 void SWMMVis::initializeAnimationToolBar()
 {
     mAnimationController = new AnimationController(this);
 
-    // Animation scrubber + look-back window in one control: a two-handle range
-    // slider replaces the plain time slider. The RIGHT handle is the current
-    // time (cursor); the gap back to the LEFT handle is the look-back window,
-    // so coupled outputs with non-aligned timesteps each show their latest
-    // frame at or before the cursor. The "Window" box mirrors the gap, and the
-    // two stay in sync bidirectionally.
-    mRangeSliderAnimation = new openswmmvis::ui::RangeSliderWidget(this);
-    mRangeSliderAnimation->setMinimumWidth(240);
+    // Issue 1 — single-thumb scrubber. The thumb is the current time (cursor);
+    // the look-back window is a non-interactive band painted ending at the
+    // cursor, its width driven solely by the "Window:" spin box below. Dragging
+    // the thumb moves only the cursor (no second handle), so there is no
+    // two-handle feedback round-trip — the source of the old lag.
+    mAnimationSlider = new openswmmvis::ui::CursorWindowSlider(this);
+    mAnimationSlider->setMinimumWidth(240);
     // Stretch to fill the toolbar's free width (the cursor + window band read
     // more precisely on a wide track).
-    mRangeSliderAnimation->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    mRangeSliderAnimation->setToolTip(
-        tr("Animation time (right handle) and look-back window (gap). Drag the "
-           "band to scrub; drag a handle to resize the window."));
-    mRangeSliderAnimation->setStatusTip(tr("Animation Time"));
+    mAnimationSlider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    mAnimationSlider->setToolTip(
+        tr("Animation time (thumb). The shaded band is the look-back window — "
+           "set its width with the Window box. Drag the thumb or click the "
+           "track to scrub."));
+    mAnimationSlider->setStatusTip(tr("Animation Time"));
 
     mLabelAnimationWindow = new QLabel(tr("Window:"), this);
     mLabelAnimationWindow->setContentsMargins(6, 0, 4, 0);
@@ -973,7 +1073,7 @@ void SWMMVis::initializeAnimationToolBar()
     mDateTimeEditAnimationTime->setToolTip(tr("Animation Time"));
     mDateTimeEditAnimationTime->setStatusTip(tr("Animation Time"));
 
-    ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mRangeSliderAnimation);
+    ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mAnimationSlider);
     ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mLabelAnimationWindow);
     ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mSpinAnimationWindow);
     ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mDateTimeEditAnimationTime);
@@ -1094,38 +1194,33 @@ void SWMMVis::initializeAnimationToolBar()
         if (span <= 0 || !s.isValid()) return s;
         return s.addMSecs(static_cast<qint64>(std::clamp(v, 0.0, 1.0) * double(span)));
     };
-    // Push the controller's cursor + window into the range slider (no echo).
-    // The band keeps a FIXED width (the window) and the two handles translate
-    // together as the cursor advances. Clamp the pair as a unit at the timeline
-    // edges so the span never grows/shrinks (which is what happens if lo and hi
-    // are clamped independently near t = start/end).
-    auto syncRangeFromState = [this, driverSpanMs, normTime]() {
-        if (!mRangeSliderAnimation) return;
+    // Push the controller's cursor + window into the single slider (no echo):
+    // the thumb goes to the cursor, the band width = window / span. The band is
+    // a decoration; only the thumb is interactive.
+    auto syncCursorFromState = [this, driverSpanMs, normTime]() {
+        if (!mAnimationSlider) return;
         const qint64 spanMs = driverSpanMs();
         if (spanMs <= 0) return;
         const QDateTime t = mAnimationController->currentDateTime();
         if (!t.isValid()) return;
-        const qreal wN  = std::clamp(double(mAnimationController->windowMs())
-                                         / double(spanMs), 0.0, 1.0);
-        qreal hiN = normTime(t);          // cursor (already clamped to [0,1])
-        qreal loN = hiN - wN;
-        if (loN < 0.0) { loN = 0.0; hiN = wN; }   // slide the pair right, keep width
-        QSignalBlocker b(mRangeSliderAnimation);
-        mRangeSliderAnimation->setRange(loN, hiN);
+        const qreal wN = std::clamp(double(mAnimationController->windowMs())
+                                        / double(spanMs), 0.0, 1.0);
+        QSignalBlocker b(mAnimationSlider);
+        mAnimationSlider->setWindowNorm(wN);
+        mAnimationSlider->setCursorNorm(normTime(t));   // clamped to [0,1] inside
     };
 
-    // Range slider (user) → controller: right handle = cursor, gap = window.
-    connect(mRangeSliderAnimation, &openswmmvis::ui::RangeSliderWidget::rangeChanged,
-            this, [this, denormTime](qreal lo, qreal hi) {
-        const QDateTime tLo = denormTime(lo);
-        const QDateTime tHi = denormTime(hi);
-        if (!tHi.isValid()) return;
-        const qint64 winMs = tLo.isValid() ? std::max<qint64>(0, tLo.msecsTo(tHi)) : 0;
-        // Block the range slider while the controller fans the change back out
-        // through windowChanged / currentTimeChanged (which re-set its range).
-        QSignalBlocker b(mRangeSliderAnimation);
-        mAnimationController->setWindowMs(winMs);
-        mAnimationController->seekToTime(tHi);
+    // Slider (user) → controller: the thumb is the cursor, so a scrub only
+    // seeks. The window is owned by the Window spin box; scrubbing never
+    // changes it, so there is no two-handle round-trip (Issue 1).
+    connect(mAnimationSlider, &openswmmvis::ui::CursorWindowSlider::cursorChanged,
+            this, [this, denormTime](qreal cursor) {
+        const QDateTime t = denormTime(cursor);
+        if (!t.isValid()) return;
+        // Block the slider while the controller fans the seek back out through
+        // currentTimeChanged (which re-sets the thumb).
+        QSignalBlocker b(mAnimationSlider);
+        mAnimationController->seekToTime(t);
     });
 
     // Span box (user) → controller window.
@@ -1134,29 +1229,29 @@ void SWMMVis::initializeAnimationToolBar()
         mAnimationController->setWindowSec(minutes * 60.0);
     });
 
-    // Controller window → span box + range slider (no echo).
+    // Controller window → span box + slider band (no echo).
     connect(mAnimationController, &AnimationController::windowChanged,
-            this, [this, syncRangeFromState](qint64 ms) {
+            this, [this, syncCursorFromState](qint64 ms) {
         QSignalBlocker b(mSpinAnimationWindow);
         mSpinAnimationWindow->setValue(double(ms) / 60000.0);
-        syncRangeFromState();
+        syncCursorFromState();
     });
 
-    // Controller cursor time → range slider (left handle follows the window).
+    // Controller cursor time → slider thumb.
     connect(mAnimationController, &AnimationController::currentTimeChanged,
-            this, [syncRangeFromState](const QDateTime &) { syncRangeFromState(); });
+            this, [syncCursorFromState](const QDateTime &) { syncCursorFromState(); });
 
     // Run loaded / range changed → refresh span-box max (run duration) + slider.
     connect(mAnimationController, &AnimationController::totalPeriodsChanged,
-            this, [this, driverSpanMs, syncRangeFromState](int) {
+            this, [this, driverSpanMs, syncCursorFromState](int) {
         const qint64 span = driverSpanMs();
         QSignalBlocker b(mSpinAnimationWindow);
         mSpinAnimationWindow->setMaximum(span > 0 ? double(span) / 60000.0 : 1.0e6);
-        syncRangeFromState();
+        syncCursorFromState();
     });
 
     // Default look-back window: 10 minutes. Set after the controls are wired so
-    // windowChanged fans the value out to the span box + range slider.
+    // windowChanged fans the value out to the span box + slider band.
     mAnimationController->setWindowSec(600.0);
 }
 
@@ -1372,19 +1467,57 @@ void SWMMVis::initializeStatusBar()
 
     // Offset mode (LINK_OFFSETS option). Disabled until a project is active;
     // toggling rebinds via activeProjectWindow().
+    // Layout: "Offset Mode: Elevation [toggle] Depth". The toggle is checked
+    // for ELEVATION (matching isElevationOffsetMode); the flanking labels are
+    // static and the active side is bolded via updateOffsetModeLabels().
     ui->statusBar->addPermanentWidget(new QLabel("Offset Mode:", ui->statusBar));
-    mCheckBoxLevelOffsetMode = new QCheckBox("Elevation", ui->statusBar);
+    mLabelOffsetElevation = new QLabel("Elevation", ui->statusBar);
+    ui->statusBar->addPermanentWidget(mLabelOffsetElevation);
+    mCheckBoxLevelOffsetMode = new QCheckBox(ui->statusBar);
     mCheckBoxLevelOffsetMode->setStyleSheet(
         "QCheckBox::indicator:checked   {image: url(:/swmmvis/ToggleOn);}"
         "QCheckBox::indicator:unchecked {image: url(:/swmmvis/ToggleOff);}");
     mCheckBoxLevelOffsetMode->setEnabled(false);
     connect(mCheckBoxLevelOffsetMode, &QCheckBox::toggled, this, [this](bool on) {
-        if (auto *pw = activeProjectWindow())
-            pw->setElevationOffsetMode(on);
-        mCheckBoxLevelOffsetMode->setText(on ? QStringLiteral("Elevation")
-                                             : QStringLiteral("Depth"));
+        auto *pw = activeProjectWindow();
+        if (!pw) {
+            updateOffsetModeLabels(on);
+            return;
+        }
+
+        // Flip the LINK_OFFSETS option first — the switch happens regardless of
+        // the convert choice below (legacy UpdateOffsets parity).
+        pw->setElevationOffsetMode(on);
+        updateOffsetModeLabels(on);
+
+        // Offer to convert existing link offsets, but only when the model has
+        // links to convert (matches EPA SWMM-GUI, which skips the prompt for an
+        // empty network).
+        auto *layer = pw->modelLayer();
+        const int nLinks =
+            (layer && layer->engine()) ? swmm_link_count(layer->engine()) : 0;
+        if (nLinks <= 0)
+            return;
+
+        const QString msg =
+            on ? tr("You have switched from using Depth offsets to Elevation "
+                    "offsets.\nShould all link offsets be converted to "
+                    "elevations now?")
+               : tr("You have switched from using Elevation offsets to Depth "
+                    "offsets.\nShould all link offsets be converted to depths "
+                    "now?");
+
+        const auto choice = QMessageBox::question(
+            this, tr("Convert Link Offsets"), msg,
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+
+        if (choice == QMessageBox::Yes)
+            pw->convertLinkOffsets(on);   // on == true → convert to Elevation
+        // No → leave the stored offset values untouched (switch without changes).
     });
     ui->statusBar->addPermanentWidget(mCheckBoxLevelOffsetMode);
+    mLabelOffsetDepth = new QLabel("Depth", ui->statusBar);
+    ui->statusBar->addPermanentWidget(mLabelOffsetDepth);
     addSep();
 
     // Auto-length toggle (Phase 2). Conduit length recalculates from the
@@ -1460,6 +1593,20 @@ void SWMMVis::initializeStatusBar()
     mThemingWidget = new openswmmvis::ui::PerAttributeThemingWidget(ui->statusBar);
     mThemingWidget->setAnimationController(mAnimationController);
     ui->statusBar->addPermanentWidget(mThemingWidget);
+}
+
+void SWMMVis::updateOffsetModeLabels(bool elevation)
+{
+    if (mLabelOffsetElevation) {
+        QFont f = mLabelOffsetElevation->font();
+        f.setBold(elevation);
+        mLabelOffsetElevation->setFont(f);
+    }
+    if (mLabelOffsetDepth) {
+        QFont f = mLabelOffsetDepth->font();
+        f.setBold(!elevation);
+        mLabelOffsetDepth->setFont(f);
+    }
 }
 
 void SWMMVis::initializeDockWidgets()
@@ -2570,12 +2717,11 @@ void SWMMVis::openComparisonPlotOverlayForProfile(ProfilePlotDialog *profileDlg,
         // with WindowStaysOnTopHint because the profile dialog itself sets
         // that flag, so a plain Tool child can otherwise sink behind it on
         // some platforms.
-        dlg->setWindowFlags(Qt::Tool
+        dlg->setWindowFlags(openswmmvis::ui::floatingPanelFlags()
                             | Qt::WindowTitleHint
                             | Qt::WindowSystemMenuHint
                             | Qt::WindowMinMaxButtonsHint
-                            | Qt::WindowCloseButtonHint
-                            | Qt::WindowStaysOnTopHint);
+                            | Qt::WindowCloseButtonHint);
         connect(dlg, &openswmmvis::ui::ComparisonPlotDialog::addFromMapToggled,
                 this, &SWMMVis::onAddFromMapToggled);
         if (mAnimationController) {
@@ -4693,8 +4839,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         QSignalBlocker b(mCheckBoxLevelOffsetMode);
         const bool elev = pw->isElevationOffsetMode();
         mCheckBoxLevelOffsetMode->setChecked(elev);
-        mCheckBoxLevelOffsetMode->setText(elev ? QStringLiteral("Elevation")
-                                               : QStringLiteral("Depth"));
+        updateOffsetModeLabels(elev);
         mCheckBoxLevelOffsetMode->setEnabled(true);
     }
 
@@ -4844,9 +4989,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                         QSignalBlocker b(mCheckBoxLevelOffsetMode);
                         const bool elev = pw->isElevationOffsetMode();
                         mCheckBoxLevelOffsetMode->setChecked(elev);
-                        mCheckBoxLevelOffsetMode->setText(
-                            elev ? QStringLiteral("Elevation")
-                                 : QStringLiteral("Depth"));
+                        updateOffsetModeLabels(elev);
                     }
                 });
     }
@@ -5343,6 +5486,7 @@ void SWMMVis::onSummarizeResults()
             tr("Run a simulation or load a results (.out) file first."));
         return;
     }
+
     auto *dlg = new openswmmvis::ui::StatisticsDashboardDialog(layer, this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
@@ -5646,6 +5790,55 @@ void SWMMVis::onUserFlags()
         pw->setHasChanges(true);
 }
 
+namespace {
+
+// True when the engine will actually activate the 2D solver for this .inp:
+// either an inline mesh ([2D_VERTICES] + [2D_TRIANGLES]) is embedded, or a
+// [2D_MESH_FILE] reference resolves to an existing file. Mirrors the engine's
+// activation rule (mesh presence, not a module flag).
+bool twoDMeshResolves(const QString &inpPath)
+{
+    QFile f(inpPath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
+    const QString text = QString::fromUtf8(f.readAll());
+
+    const bool hasInline =
+        text.indexOf(QStringLiteral("[2D_VERTICES]"),  0, Qt::CaseInsensitive) >= 0 &&
+        text.indexOf(QStringLiteral("[2D_TRIANGLES]"), 0, Qt::CaseInsensitive) >= 0;
+    if (hasInline) return true;
+
+    const int sectIdx = text.indexOf(QStringLiteral("[2D_MESH_FILE]"),
+                                     0, Qt::CaseInsensitive);
+    if (sectIdx < 0) return false;
+
+    // Pull the FILE token and resolve it relative to the .inp directory.
+    int p = text.indexOf(QChar('\n'), sectIdx);
+    while (p > 0 && p < text.size()) {
+        const int nl = text.indexOf(QChar('\n'), p + 1);
+        const QString line = text.mid(p + 1, (nl < 0 ? text.size() : nl) - p - 1).trimmed();
+        if (!line.isEmpty() && !line.startsWith(QStringLiteral(";"))
+            && !line.startsWith(QChar('['))) {
+            const auto parts = line.simplified().split(QChar(' '), Qt::SkipEmptyParts);
+            if (parts.size() >= 2 && parts.first().compare(
+                    QStringLiteral("FILE"), Qt::CaseInsensitive) == 0) {
+                const QString ref = parts.mid(1).join(QChar(' '));
+                QFileInfo refFi(ref);
+                if (refFi.isRelative())
+                    refFi = QFileInfo(QFileInfo(inpPath).absoluteDir()
+                                          .absoluteFilePath(ref));
+                return refFi.exists();
+            }
+            break;
+        }
+        if (line.startsWith(QChar('['))) break;
+        if (nl < 0) break;
+        p = nl;
+    }
+    return false;
+}
+
+} // namespace
+
 void SWMMVis::onRunSimulation()
 {
     auto *pw = activeProjectWindow();
@@ -5675,6 +5868,34 @@ void SWMMVis::onRunSimulation()
             return;
         }
         onLogMessage(tr("Auto-saved before running."));
+    }
+
+    // Pre-flight: if the user enabled 2D Surface Routing for this model but no
+    // mesh resolves (no inline [2D_*] sections and no valid [2D_MESH_FILE]),
+    // the engine silently runs 1D-only. Warn and let the user decide rather
+    // than producing 1D-only results without explanation.
+    {
+        const QString key = QStringLiteral("SWMMVis/Project/%1/Module2DEnabled")
+                                .arg(inpPath);
+        const bool twoDEnabled = QSettings().value(key, false).toBool();
+        if (twoDEnabled && !twoDMeshResolves(inpPath)) {
+            const auto reply = QMessageBox::warning(this,
+                tr("2D mesh not found"),
+                tr("2D Surface Routing is enabled for this model, but no 2D "
+                   "mesh was found — there is no inline mesh in the .inp and no "
+                   "valid [2D_MESH_FILE] reference.\n\nThe simulation will run "
+                   "as 1D-only. Generate a mesh (or set one active in "
+                   "Simulation Options → Mesh) to run the 2D solver.\n\n"
+                   "Continue with a 1D-only run?"),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+            if (reply != QMessageBox::Yes) {
+                onLogMessage(tr("Run cancelled — 2D enabled but no mesh found."),
+                             OpenSWMMVisLogMessage::Information);
+                return;
+            }
+            onLogMessage(tr("2D enabled but no mesh found — running 1D-only."),
+                         OpenSWMMVisLogMessage::Warning);
+        }
     }
 
     // Slice QB.3 — honour the Simulation Options → Output tab override
@@ -6250,8 +6471,18 @@ void SWMMVis::onRunSimulation()
                             // shallow runs still produce visible cells.
                             if (peakDepth > 0.0f) {
                                 layer->setMaxDepth(peakDepth);
-                                layer->setDryDepth(
-                                    std::max(1e-5, 0.05 * double(peakDepth)));
+                                // Refine-only: the 5%-of-peak heuristic may
+                                // LOWER the wet/dry cutoff (keeps very shallow
+                                // runs visible) but must never RAISE it above
+                                // the model DRY_DEPTH applied at run init —
+                                // raising it culled every cell shallower than
+                                // 5% of peak from the post-run scrub view
+                                // (0.59 m peak → 3 cm cutoff wiped the
+                                // shallow flooding the live view had shown).
+                                const double autoDry =
+                                    std::max(1e-5, 0.05 * double(peakDepth));
+                                if (autoDry < layer->dryDepth())
+                                    layer->setDryDepth(autoDry);
                                 layer->setCurrentTimeIndex(peakFrame);
                             }
 
@@ -6274,9 +6505,17 @@ void SWMMVis::onRunSimulation()
                     // runs when this layer is the active 2D driver (no 1D
                     // primary), mirroring the registration guard at run start.
                     self->refreshActiveResultsCombos();
+                    // Arm the animation slider against the finished layer
+                    // whenever no 1D primary is driving — not only when this
+                    // layer was already the registered fallback. The run-start
+                    // registration is skipped when a (possibly stale) primary
+                    // existed at that moment, which left the controller with
+                    // NO driver after the run: seekToTime() bailed, the slider
+                    // was dead, and the 2D view froze on the peak frame until
+                    // an extent change forced a re-render.
                     if (auto *ac = self->mAnimationController;
-                        ac && ac->fallback2DLayer() == layer) {
-                        ac->setFallback2DLayer(nullptr);
+                        ac && !ac->primaryLayer()) {
+                        ac->setFallback2DLayer(nullptr);   // force clean re-sync
                         ac->setFallback2DLayer(layer);
                     }
                 }
@@ -6661,16 +6900,51 @@ void SWMMVis::onAddVectorLayer()
         this, tr("Add Vector Layer"),
         mRecentFiles.isEmpty() ? QDir::homePath()
                                : QFileInfo(mRecentFiles.first()).absolutePath(),
-        tr("Vector files (*.shp *.geojson *.gpkg *.kml *.gml *.json);;All files (*)"));
+        openswmmvis::io::gdalcaps::vectorOpenFilter());
     if (path.isEmpty()) return;
 
-    auto *layer = new GISVectorLayer(path);
-    c->addLayer(layer, true);
+    // Multi-layer datasources (GeoPackage, Esri File GDB, multi-layer GML/KML)
+    // get a sublayer picker; single-layer sources load straight through.
+    const QList<GISVectorLayer::OgrSublayerInfo> subs =
+        GISVectorLayer::enumerateSublayers(path);
+
+    QStringList layerNames;   // empty ⇒ open the default (first) layer
+    if (subs.size() > 1)
+    {
+        SublayerSelectionDialog dlg(path, subs, this);
+        if (dlg.exec() != QDialog::Accepted)
+            return;
+        layerNames = dlg.selectedLayerNames();
+        if (layerNames.isEmpty())
+        {
+            onLogMessage(tr("No layers selected — nothing added."),
+                         OpenSWMMVisLogMessage::Warning);
+            return;
+        }
+    }
+
+    int added = 0;
+    if (layerNames.isEmpty())
+    {
+        c->addLayer(new GISVectorLayer(path), true);
+        ++added;
+    }
+    else
+    {
+        for (const QString &name : layerNames)
+        {
+            c->addLayer(new GISVectorLayer(path, name), true);
+            ++added;
+        }
+    }
+
     // Auto-fit so the user sees what they just loaded — the layer may sit
     // far from the SWMM model in coordinate space and the canvas otherwise
     // keeps its prior viewport.
     c->zoomToFullExtent();
-    onLogMessage(tr("Added vector layer: %1").arg(QFileInfo(path).fileName()));
+    onLogMessage(tr("Added %1 vector layer(s) from %2")
+                     .arg(added)
+                     .arg(QFileInfo(path).fileName()));
 }
 
 void SWMMVis::onAddRasterLayer()
@@ -6687,7 +6961,7 @@ void SWMMVis::onAddRasterLayer()
         this, tr("Add Raster Layer"),
         mRecentFiles.isEmpty() ? QDir::homePath()
                                : QFileInfo(mRecentFiles.first()).absolutePath(),
-        tr("Raster files (*.tif *.tiff *.img *.asc *.nc *.hdf *.h5);;All files (*)"));
+        openswmmvis::io::gdalcaps::rasterOpenFilter());
     if (path.isEmpty()) return;
 
     auto *layer = new GISRasterLayer(path);

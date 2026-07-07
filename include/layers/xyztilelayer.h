@@ -90,6 +90,8 @@ public:
     [[nodiscard]] int            tilePixelRatio() const { return m_tilePixelRatio; }
     [[nodiscard]] TileAxisOrder  axisOrder()      const { return m_axisOrder; }
 
+    [[nodiscard]] QString sourceDescription() const override { return m_urlTemplate; }
+
     /*! Slice X.22 — basemap render adjustments (brightness / contrast
      *  / saturation / resampling).  Applied to the composed tile mosaic
      *  just before drawImage. */

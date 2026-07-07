@@ -109,7 +109,12 @@ bool restoreDialogLayout(QWidget *root)
 void applyAlwaysOnTopPolicy(QDialog *d)
 {
     if (!d) return;
+#ifndef Q_OS_MACOS
+    // On macOS this hint also floats the dialog above other applications, so
+    // it is skipped there; Qt::Tool already keeps such dialogs above the main
+    // window (see floatingPanelFlags()).
     d->setWindowFlag(Qt::WindowStaysOnTopHint, true);
+#endif
 }
 
 } // namespace openswmmvis::ui

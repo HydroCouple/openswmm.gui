@@ -146,7 +146,14 @@ public:
 
     Kind    kind() const override        { return IsolineKind; }
     QString id() const override          { return m_id; }
-    QString displayName() const override { return tr("Depth Isolines"); }
+    // Terrain isolines trace bed ELEVATION; results isolines trace water DEPTH.
+    QString displayName() const override
+    {
+        const QString a = m_style ? m_style->attribute() : QString();
+        if (a.compare(QLatin1String("elevation"), Qt::CaseInsensitive) == 0)
+            return tr("Elevation Isolines");
+        return tr("Depth Isolines");
+    }
 
     bool  isVisible() const override     { return m_visible; }
     void  setVisible(bool v) override;

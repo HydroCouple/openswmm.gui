@@ -21,6 +21,9 @@
 #include <limits>
 
 using openswmmvis::plot::computeStatistics;
+using openswmmvis::plot::formatStatisticValue;
+using openswmmvis::plot::NumberFormat;
+using openswmmvis::plot::NumberFormatMode;
 
 class TestComparisonPlotStatsTab : public QObject
 {
@@ -31,6 +34,7 @@ private slots:
     void nanInfSamplesAreSkipped();
     void percentilesAreLinearlyInterpolated();
     void stddevMatchesSampleFormula();
+    void statisticFormatterHonoursNumberFormat();
 };
 
 void TestComparisonPlotStatsTab::emptyInputReturnsZeroCountAllNan()
@@ -90,6 +94,23 @@ void TestComparisonPlotStatsTab::stddevMatchesSampleFormula()
     QCOMPARE(s.mean, 5.0);
     // Sample stddev (N-1 denominator) = sqrt(32/7) ≈ 2.13809
     QVERIFY(std::abs(s.stddev - std::sqrt(32.0 / 7.0)) < 1e-9);
+}
+
+void TestComparisonPlotStatsTab::statisticFormatterHonoursNumberFormat()
+{
+    QCOMPARE(formatStatisticValue(
+                 1234.567, NumberFormat{NumberFormatMode::Decimals, 2, {}}),
+             QStringLiteral("1234.57"));
+    QCOMPARE(formatStatisticValue(
+                 1234.567, NumberFormat{NumberFormatMode::SignificantFigures, 4, {}}),
+             QStringLiteral("1235"));
+    QCOMPARE(formatStatisticValue(
+                 12.345, NumberFormat{NumberFormatMode::Decimals, 2, QStringLiteral("%.1f ft")}),
+             QStringLiteral("12.3 ft"));
+    QCOMPARE(formatStatisticValue(
+                 std::numeric_limits<double>::quiet_NaN(),
+                 NumberFormat{NumberFormatMode::Decimals, 2, {}}),
+             QStringLiteral("—"));
 }
 
 QTEST_MAIN(TestComparisonPlotStatsTab)

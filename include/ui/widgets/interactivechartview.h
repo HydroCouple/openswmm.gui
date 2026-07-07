@@ -32,8 +32,10 @@
 #include <QRect>
 #include <QTimer>
 
+class QAbstractAxis;
 class QChart;
 class QRubberBand;
+class QVariant;
 
 namespace openswmmvis::ui {
 
@@ -49,11 +51,28 @@ public:
     };
     Q_ENUM(Mode)
 
+    enum class AxisEdge {
+        None = 0,
+        XMinimum,
+        XMaximum,
+        YMinimum,
+        YMaximum,
+    };
+    Q_ENUM(AxisEdge)
+
     explicit InteractiveChartView(QChart *chart, QWidget *parent = nullptr);
     ~InteractiveChartView() override;
 
     Mode mode() const noexcept { return m_mode; }
     void setMode(Mode m);
+
+    /*! \brief Returns the editable min/max axis label under \p viewportPx,
+     *  or AxisEdge::None when the point is not in an endpoint-label gutter. */
+    [[nodiscard]] AxisEdge axisEdgeAt(const QPoint &viewportPx) const;
+
+    /*! \brief Programmatically set one visible axis edge. Numeric axes
+     *  accept a numeric QVariant; date-time axes accept QDateTime. */
+    bool setAxisEdgeValue(AxisEdge edge, const QVariant &value);
 
     /*! \brief Reset zoom to whatever the chart's initial zoom level was.
      *  Equivalent to `chart()->zoomReset()` plus a notify so parents that
@@ -88,6 +107,8 @@ private:
     static bool isClick(const QPoint &press, const QPoint &release) noexcept;
     /*! \brief Zoom about a viewport-pixel point by a scalar factor (>1 zoom in). */
     void zoomAroundViewportPoint(const QPointF &viewportPx, qreal factor);
+    QAbstractAxis *axisForEdge(AxisEdge edge) const;
+    bool editAxisEdge(AxisEdge edge);
     /*! \brief Slice AT.3 — Update the hover tooltip for the cursor at
      *  \p viewportPx. Finds the nearest sample across visible line
      *  series and shows `<name>\n<date>: <value>`. Cleared when the
@@ -98,6 +119,7 @@ private:
     bool   m_pressed    = false;
     bool   m_middlePanning = false;   ///< Middle-button drag pan in progress (AT.3).
     bool   m_xSelecting    = false;   ///< Shift-drag X-range selection in progress (AT.3).
+    AxisEdge m_pressedAxisEdge = AxisEdge::None;
     QPoint m_pressPos;          ///< viewport-pixel position on press
     QPoint m_lastPos;           ///< last cursor position for incremental pan
     QRubberBand *m_rubberBand = nullptr;

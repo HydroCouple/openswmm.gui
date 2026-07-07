@@ -5,6 +5,7 @@
  */
 
 #include "ui/dialogs/profileplotdialog.h"
+#include "ui/dialogs/dialoglayoutpersistence.h"
 
 #include "animation/animationcontroller.h"
 #include "layers/gisrasterlayer.h"
@@ -100,7 +101,7 @@ ProfilePlotDialog::ProfilePlotDialog(SWMMModelLayer              *model,
                    | Qt::WindowTitleHint
                    | Qt::WindowMinMaxButtonsHint
                    | Qt::WindowCloseButtonHint
-                   | Qt::WindowStaysOnTopHint);
+                   | openswmmvis::ui::stayAboveAppFlags());
     resize(960, 560);
 
     // Materialize static path geometry from the model.  Terrain sampling
@@ -385,8 +386,7 @@ void ProfilePlotDialog::buildLayout()
                                              this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->setWindowFlags(dlg->windowFlags()
-                            | Qt::Tool
-                            | Qt::WindowStaysOnTopHint);
+                            | openswmmvis::ui::floatingPanelFlags());
         connect(dlg, &ProfileOptionsDialog::sourcesChanged,
                 this, [this]() {
             populateSourcesPanel();

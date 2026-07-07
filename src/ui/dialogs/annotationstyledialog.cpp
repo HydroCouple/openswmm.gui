@@ -73,6 +73,7 @@ void AnnotationStyleDialog::buildUi()
         m_tree->setItemDelegate(new QPropertyItemDelegate(this));
         m_tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
         m_tree->header()->setStretchLastSection(true);
+        m_tree->header()->setMinimumSectionSize(90);  // stop columns collapsing on a narrow dialog
         m_tree->expandAll();
     }
     root->addWidget(m_tree, 1);

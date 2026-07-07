@@ -115,7 +115,16 @@ public:
 
     Kind    kind() const override        { return ContourBandKind; }
     QString id() const override          { return m_id; }
-    QString displayName() const override { return tr("Depth Contours"); }
+    // Label tracks the classified attribute: the terrain mesh classifies bed
+    // ELEVATION, the results layer classifies water DEPTH. Hardcoding "Depth"
+    // mislabelled the terrain sublayer.
+    QString displayName() const override
+    {
+        const QString a = m_style ? m_style->attribute() : QString();
+        if (a.compare(QLatin1String("elevation"), Qt::CaseInsensitive) == 0)
+            return tr("Elevation Contours");
+        return tr("Depth Contours");
+    }
 
     bool  isVisible() const override     { return m_visible; }
     void  setVisible(bool v) override;

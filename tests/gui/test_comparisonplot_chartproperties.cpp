@@ -14,6 +14,10 @@
  * Self-contained: links chartproperties.cpp + Qt6 Charts.
  */
 #include "plot/chartproperties.h"
+#include "ui/dialogs/chartpropertiesdialog.h"
+
+#include <qpropertyitemdelegate.h>
+#include <qpropertymodel.h>
 
 #include <QChart>
 #include <QFont>
@@ -21,9 +25,12 @@
 #include <QObject>
 #include <QSignalSpy>
 #include <QTest>
+#include <QTreeView>
 #include <QValueAxis>
 
 using openswmmvis::plot::ChartProperties;
+using openswmmvis::plot::NumberFormat;
+using openswmmvis::plot::NumberFormatMode;
 
 class TestComparisonPlotChartProperties : public QObject
 {
@@ -34,6 +41,8 @@ private slots:
     void titleTextRoundTrips();
     void chartThemeEnumRoundTrips();
     void setterAreNoOpsAfterChartDeleted();
+    void dialogUsesQPropertyModelDelegate();
+    void statisticsNumberFormatRoundTripsThroughPropertySurface();
 
 private:
     QChart *makeChart()
@@ -133,6 +142,51 @@ void TestComparisonPlotChartProperties::setterAreNoOpsAfterChartDeleted()
     props.setYMax(101.0);
     props.setTitleText(QStringLiteral("x"));
     QCOMPARE(props.chart(), nullptr);
+}
+
+void TestComparisonPlotChartProperties::dialogUsesQPropertyModelDelegate()
+{
+    auto *chart = makeChart();
+    openswmmvis::ui::ChartPropertiesDialog dlg(new ChartProperties(chart));
+
+    auto *tree = dlg.findChild<QTreeView *>();
+    QVERIFY(tree);
+    QVERIFY(qobject_cast<QPropertyModel *>(tree->model()));
+    QVERIFY(qobject_cast<QPropertyItemDelegate *>(tree->itemDelegate()));
+
+    delete chart;
+}
+
+void TestComparisonPlotChartProperties::statisticsNumberFormatRoundTripsThroughPropertySurface()
+{
+    auto *chart = makeChart();
+    ChartProperties props(chart);
+
+    QVERIFY(props.metaObject()->indexOfProperty("statisticsFormatMode") >= 0);
+    QVERIFY(props.metaObject()->indexOfProperty("statisticsPrecision") >= 0);
+    QVERIFY(props.metaObject()->indexOfProperty("statisticsFormat") >= 0);
+    QCOMPARE(props.displayLabelFor(QStringLiteral("statisticsPrecision")),
+             QStringLiteral("Statistics — Precision"));
+
+    props.setStatisticsFormatMode(ChartProperties::SignificantFigures);
+    props.setStatisticsPrecision(4);
+    props.setStatisticsFormat(QStringLiteral("%.3g ft"));
+
+    auto format = props.statisticsNumberFormat();
+    QCOMPARE(static_cast<int>(format.mode),
+             static_cast<int>(NumberFormatMode::SignificantFigures));
+    QCOMPARE(format.count, 4);
+    QCOMPARE(format.custom, QStringLiteral("%.3g ft"));
+
+    props.setStatisticsNumberFormat(
+        NumberFormat{NumberFormatMode::Decimals, 2, QStringLiteral("%.2f")});
+    format = props.statisticsNumberFormat();
+    QCOMPARE(static_cast<int>(format.mode),
+             static_cast<int>(NumberFormatMode::Decimals));
+    QCOMPARE(format.count, 2);
+    QCOMPARE(format.custom, QStringLiteral("%.2f"));
+
+    delete chart;
 }
 
 QTEST_MAIN(TestComparisonPlotChartProperties)

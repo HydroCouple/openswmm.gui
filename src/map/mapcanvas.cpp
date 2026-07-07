@@ -14,6 +14,7 @@
 #include "map/mapundostack.h"
 #include "map/maprenderjob.h"
 #include "map/meshprofileoverlay.h"
+#include "map/profilepathoverlay.h"
 #include "map/tools/maptool.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
@@ -789,6 +790,14 @@ void MapCanvas::setMeshProfileOverlay(MeshProfileOverlay *overlay)
         return;
     m_meshProfileOverlay = overlay;
     invalidate(Overlay, QStringLiteral("mesh-profile-overlay-bind"));
+}
+
+void MapCanvas::setProfilePathOverlay(ProfilePathOverlay *overlay)
+{
+    if (m_profilePathOverlay == overlay)
+        return;
+    m_profilePathOverlay = overlay;
+    invalidate(Overlay, QStringLiteral("profile-path-overlay-bind"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1642,15 +1651,23 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
         } // close `} else {` for qsgActive path
     }
 
-    // ---- Layer 2c: mesh-profile overlay (above the QSG flood-map mesh) -----
-    // Drawn here — after the QSG frame is composited — so the traced profile
-    // line and its position marker are never hidden by the 2D mesh. A
-    // QGraphicsScene item can't achieve this: the whole scene buffer composites
-    // UNDER the QSG frame above. Scene coords (sx = mapX, sy = -mapY) map to
-    // device pixels through the same m_extent the basemap/scene/QSG all use, so
-    // it stays aligned with the mesh at every zoom.
+    // ---- Layer 2c: profile overlays (above the QSG flood-map mesh) --------
+    // Drawn here — after the QSG frame is composited — so traced profile
+    // lines, accepted 1D profile paths, alternative candidates, and markers
+    // are never hidden by the 2D mesh. A QGraphicsScene item can't achieve
+    // this: the whole scene buffer composites UNDER the QSG frame above.
+    // Scene coords (sx = mapX, sy = -mapY) map to device pixels through the
+    // same m_extent the basemap/scene/QSG all use, so overlays stay aligned
+    // with the mesh at every zoom.
     if (m_meshProfileOverlay) {
         m_meshProfileOverlay->paint(p, [this](const QPointF &sp) {
+            int px = 0, py = 0;
+            toPixelCoords(sp.x(), -sp.y(), px, py);
+            return QPointF(px, py);
+        });
+    }
+    if (m_profilePathOverlay) {
+        m_profilePathOverlay->paintOverlay(p, [this](const QPointF &sp) {
             int px = 0, py = 0;
             toPixelCoords(sp.x(), -sp.y(), px, py);
             return QPointF(px, py);
@@ -2301,4 +2318,3 @@ void MapCanvas::renderCoordinates(QPainter &painter, double mapX, double mapY) c
     painter.setPen(Qt::black);
     painter.drawText(x, y, text);
 }
-

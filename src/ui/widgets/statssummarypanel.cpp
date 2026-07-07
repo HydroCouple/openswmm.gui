@@ -15,9 +15,7 @@
 
 #include <QAction>
 #include <QDateTime>
-#include <QHBoxLayout>
 #include <QHeaderView>
-#include <QLabel>
 #include <QMenu>
 #include <QSettings>
 #include <QTabWidget>
@@ -54,25 +52,58 @@ const QStringList kFitColumns = {
     QStringLiteral("RMSE"),
     QStringLiteral("PBIAS%"),
 };
-
-QString fmt(double v)
-{
-    if (!std::isfinite(v)) return QStringLiteral("—");
-    // Stats values are data-value readouts → honour the global Y precision.
-    return PreferencesManager::instance()->plotYAxisFormat().format(v);
-}
 } // namespace
 
 StatsSummaryPanel::StatsSummaryPanel(QWidget *parent)
     : QWidget(parent)
 {
+    m_valueFormat = PreferencesManager::instance()->plotYAxisFormat();
+    loadNumberFormat();
+
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
+
     m_tabs = new QTabWidget(this);
     m_tabs->setDocumentMode(true);
     root->addWidget(m_tabs);
 
     loadColumnVisibility();
+}
+
+void StatsSummaryPanel::loadNumberFormat()
+{
+    QSettings s;
+    s.beginGroup(QStringLiteral("ComparisonPlotDialog/StatsFormat"));
+    const int defaultMode = static_cast<int>(m_valueFormat.mode);
+    const int mode = s.value(QStringLiteral("mode"), defaultMode).toInt();
+    m_valueFormat.mode = mode == static_cast<int>(NumberFormatMode::SignificantFigures)
+                             ? NumberFormatMode::SignificantFigures
+                             : NumberFormatMode::Decimals;
+    m_valueFormat.count = s.value(QStringLiteral("precision"), m_valueFormat.count).toInt();
+    m_valueFormat.custom = s.value(QStringLiteral("custom"), m_valueFormat.custom).toString();
+    s.endGroup();
+}
+
+void StatsSummaryPanel::saveNumberFormat() const
+{
+    QSettings s;
+    s.beginGroup(QStringLiteral("ComparisonPlotDialog/StatsFormat"));
+    s.setValue(QStringLiteral("mode"), static_cast<int>(m_valueFormat.mode));
+    s.setValue(QStringLiteral("precision"), m_valueFormat.count);
+    s.setValue(QStringLiteral("custom"), m_valueFormat.custom);
+    s.endGroup();
+}
+
+void StatsSummaryPanel::setStatisticNumberFormat(const NumberFormat &format)
+{
+    m_valueFormat = format;
+    saveNumberFormat();
+    refresh();
+}
+
+QString StatsSummaryPanel::formatValue(double value) const
+{
+    return formatStatisticValue(value, m_valueFormat);
 }
 
 void StatsSummaryPanel::loadColumnVisibility()
@@ -283,17 +314,17 @@ void StatsSummaryPanel::populateTab(QTableWidget *table, int rowIndex)
         int col = 0;
         table->setItem(outRow, col++, new QTableWidgetItem(legendName));
         table->setItem(outRow, col++, new QTableWidgetItem(QString::number(stats.count)));
-        table->setItem(outRow, col++, new QTableWidgetItem(fmt(stats.mean)));
-        table->setItem(outRow, col++, new QTableWidgetItem(fmt(stats.median)));
-        table->setItem(outRow, col++, new QTableWidgetItem(fmt(stats.stddev)));
-        table->setItem(outRow, col++, new QTableWidgetItem(fmt(stats.min)));
-        table->setItem(outRow, col++, new QTableWidgetItem(fmt(stats.max)));
-        table->setItem(outRow, col++, new QTableWidgetItem(fmt(stats.p05)));
-        table->setItem(outRow, col++, new QTableWidgetItem(fmt(stats.p25)));
-        table->setItem(outRow, col++, new QTableWidgetItem(fmt(stats.p50)));
-        table->setItem(outRow, col++, new QTableWidgetItem(fmt(stats.p75)));
-        table->setItem(outRow, col++, new QTableWidgetItem(fmt(stats.p95)));
-        table->setItem(outRow, col++, new QTableWidgetItem(fmt(stats.sum)));
+        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.mean)));
+        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.median)));
+        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.stddev)));
+        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.min)));
+        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.max)));
+        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.p05)));
+        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.p25)));
+        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.p50)));
+        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.p75)));
+        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.p95)));
+        table->setItem(outRow, col++, new QTableWidgetItem(formatValue(stats.sum)));
 
         if (haveBaseline) {
             // Pair against baseline samples by timestamp (within ½-step).
@@ -330,13 +361,13 @@ void StatsSummaryPanel::populateTab(QTableWidget *table, int rowIndex)
                 }
             }
             table->setItem(outRow, col++,
-                new QTableWidgetItem(haveFit ? fmt(fit.nse)   : QStringLiteral("—")));
+                new QTableWidgetItem(haveFit ? formatValue(fit.nse)   : QStringLiteral("—")));
             table->setItem(outRow, col++,
-                new QTableWidgetItem(haveFit ? fmt(fit.r2)    : QStringLiteral("—")));
+                new QTableWidgetItem(haveFit ? formatValue(fit.r2)    : QStringLiteral("—")));
             table->setItem(outRow, col++,
-                new QTableWidgetItem(haveFit ? fmt(fit.rmse)  : QStringLiteral("—")));
+                new QTableWidgetItem(haveFit ? formatValue(fit.rmse)  : QStringLiteral("—")));
             table->setItem(outRow, col++,
-                new QTableWidgetItem(haveFit ? fmt(fit.pbias) : QStringLiteral("—")));
+                new QTableWidgetItem(haveFit ? formatValue(fit.pbias) : QStringLiteral("—")));
         }
         ++outRow;
     }

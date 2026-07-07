@@ -115,6 +115,9 @@ public:
     [[nodiscard]] WCSServiceInfo serviceInfo()   const { return m_serviceInfo; }
     [[nodiscard]] bool           capabilitiesReady() const { return m_capsReady; }
 
+    [[nodiscard]] QString sourceDescription() const override
+    { return m_serviceUrl.toString(); }
+
     /*!
      * \brief Asynchronously fetches GetCapabilities; emits capabilitiesFetched()
      *        or capabilitiesError() when done.

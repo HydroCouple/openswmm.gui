@@ -202,8 +202,21 @@ public:
      *  (clicks select / right-click context-menu). */
     enum class Mode { Identify = 0, Pan, ZoomIn, ZoomOut };
 
+    enum class AxisEdge {
+        None = 0,
+        XMinimum,
+        XMaximum,
+        YMinimum,
+        YMaximum,
+    };
+    Q_ENUM(AxisEdge)
+
     void setMode(Mode m);
     [[nodiscard]] Mode mode() const { return m_mode; }
+
+    [[nodiscard]] AxisEdge axisEdgeAt(const QPoint &widgetPos) const;
+    bool setAxisEdgeValue(AxisEdge edge, double value);
+    [[nodiscard]] QRectF visibleDataRange() const;
 
     /*! Zoom the view rect by \p factor around its centre.  `< 1` zooms in. */
     void zoomBy(double factor);
@@ -312,6 +325,7 @@ private:
 
     // Recomputes data-space bounds (m_dataXMin, etc.) from m_path + m_series.
     void recomputeBounds();
+    bool editAxisEdge(AxisEdge edge);
 
     // Per-layer painters (broken out so the paint pipeline reads top-down).
     void paintBackgroundAndAxes  (QPainter &p) const;
@@ -319,6 +333,7 @@ private:
     void paintSoilFill           (QPainter &p) const;
     void paintConduits           (QPainter &p) const;
     void paintNodes              (QPainter &p) const;
+    void paintSelectionHighlights(QPainter &p) const;
     [[nodiscard]] QColor themeNodeFill   (ProfileBuilder::NodeKind k) const;
     [[nodiscard]] QColor themeNodeOutline(ProfileBuilder::NodeKind k) const;
     [[nodiscard]] QColor themeLinkFill   (ProfileBuilder::LinkKind k) const;
@@ -422,6 +437,7 @@ private:
     Mode                         m_mode       = Mode::Identify;
     bool                         m_panActive  = false;     // pan-drag in progress
     bool                         m_zoomActive = false;     // zoom-rubberband in progress
+    AxisEdge                     m_pressedAxisEdge = AxisEdge::None;
     QPoint                       m_lastMousePos;
     QPoint                       m_zoomAnchor;             // start of rubberband
     class QRubberBand           *m_rubberBand = nullptr;

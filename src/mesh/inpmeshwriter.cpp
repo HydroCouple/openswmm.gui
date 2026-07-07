@@ -396,6 +396,41 @@ bool InpMeshWriter::writeMeshFileRef(const QString &inpPath,
     return atomicWrite(inpPath, patched, errorOut);
 }
 
+bool InpMeshWriter::clearMeshFileRef(const QString &inpPath, QString *errorOut)
+{
+    auto fail = [&](const QString &msg) -> bool {
+        if (errorOut) *errorOut = msg;
+        return false;
+    };
+
+    const ReadResult r = readInp(inpPath);
+    if (!r.ok) return fail(r.err);
+
+    // Strip ONLY the [2D_MESH_FILE] block — inline [2D_*] mesh data is
+    // deliberately preserved so the engine reads the embedded mesh.
+    const QStringList lines = r.text.split(QChar('\n'), Qt::KeepEmptyParts);
+    QString patched;
+    patched.reserve(r.text.size());
+    bool inStripped = false;
+    for (const QString &raw : lines)
+    {
+        const QString trimmed = raw.trimmed();
+        if (trimmed.startsWith(QChar('[')) && trimmed.endsWith(QChar(']')))
+        {
+            inStripped = (trimmed.compare(QStringLiteral("[2D_MESH_FILE]"),
+                                          Qt::CaseInsensitive) == 0);
+            if (inStripped) continue;
+        }
+        if (inStripped) continue;
+        patched.append(raw);
+        patched.append(QChar('\n'));
+    }
+    while (patched.endsWith(QStringLiteral("\n\n")))
+        patched.chop(1);
+
+    return atomicWrite(inpPath, patched, errorOut);
+}
+
 bool InpMeshWriter::write(MeshOutputMode mode,
                           const QString &inpPath,
                           const QString &meshFilePath,

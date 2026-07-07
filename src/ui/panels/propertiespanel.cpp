@@ -329,6 +329,10 @@ void PropertiesPanel::setupUi()
     if (m_delegate)
         m_treeView->setItemDelegate(m_delegate);
     m_treeView->header()->setDefaultSectionSize(150);
+    // The tree already scrolls vertically; the only squish on a narrow dock is
+    // horizontal column collapse. A minimum section size keeps the name/value
+    // columns readable and lets the tree's own horizontal scrollbar take over.
+    m_treeView->header()->setMinimumSectionSize(90);
 
     // Slice BM.0-Browse-Edit (2026-05-25) — right-click on a complex-typed
     // property row offers an "Edit in <editor>…" shortcut to the

@@ -39,6 +39,8 @@ namespace {
 using OpenSWMM::Render::ContourBandStyle;
 using OpenSWMM::Render::ISublayer;
 using OpenSWMM::Render::IsolineStyle;
+using OpenSWMM::Render::MeshEdgeStyle;
+using OpenSWMM::Render::MeshNodeStyle;
 using OpenSWMM::Render::VelocityVectorStyle;
 
 // Minimum field widths — keeps the QFormLayouts from compressing the
@@ -199,6 +201,13 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
     tabs->addTab(wrapScroll(buildContourBandTab(tabs)), tr("Depth Contours"));
     tabs->addTab(wrapScroll(buildIsolineTab(tabs)),     tr("Depth Isolines"));
     tabs->addTab(wrapScroll(buildVelocityTab(tabs)),    tr("Flow Velocity"));
+    // Issue 6 — Edges/Vertices were previously only editable via the generic
+    // property grid; give them dedicated tabs so the edge colour/width (the
+    // knobs behind the dark-edge artifact) and the vertex markers are tunable
+    // here. The slope-emphasis and tagged-vertex groups are omitted because the
+    // results renderer does not honour them (no dead knobs).
+    tabs->addTab(wrapScroll(buildMeshEdgeTab(tabs)),     tr("Mesh Edges"));
+    tabs->addTab(wrapScroll(buildMeshNodeTab(tabs)),     tr("Mesh Vertices"));
 }
 
 // ─── Contour bands ──────────────────────────────────────────────────────────
@@ -511,6 +520,108 @@ QWidget *Swmm2DResultsStylePanel::buildVelocityTab(QWidget *parent)
                 [st](double v) { st->setGlyphSpacingPx(v); });
         connect(dryCut, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
                 [st](double v) { st->setDryDepthCutoff(v); });
+    }
+    lay->addStretch();
+    return page;
+}
+
+// ─── Mesh edges (Issue 6) ────────────────────────────────────────────────────
+
+QWidget *Swmm2DResultsStylePanel::buildMeshEdgeTab(QWidget *parent)
+{
+    auto *page = new QWidget(parent);
+    auto *lay  = new QVBoxLayout(page);
+
+    auto *sub = m_layer->meshEdgeSublayer();
+    MeshEdgeStyle *st = sub ? sub->edgeStyle() : nullptr;
+
+    lay->addWidget(makeSublayerHeader(page, sub, tr("Show mesh edges")));
+
+    if (st) {
+        // Symbology only — the slope-emphasis (thin/wide) group is intentionally
+        // omitted: the 2D results edge pass uses a single uniform width + flat
+        // colour (the wide-colour split needs per-edge colour the flat edge node
+        // can't carry), so surfacing those knobs would be misleading.
+        auto *symBox  = new QGroupBox(tr("Symbology"), page);
+        auto *symForm = new QFormLayout(symBox);
+
+        auto *color = new ColorButton(symBox);
+        color->setShowAlpha(true);
+        color->setColor(st->color());
+        color->setToolTip(tr("Edge colour. The wireframe is now drawn once per "
+                             "unique edge, so a translucent colour no longer "
+                             "darkens where cells meet."));
+        symForm->addRow(tr("Colour:"), color);
+
+        auto *width = makeDSpin(symBox, 0.1, 10.0, 0.05, 2,
+                                st->lineWidthPx(), tr(" px"));
+        symForm->addRow(tr("Width:"), width);
+
+        auto *dash = new DashStyleCombo(symBox);
+        dash->setPenStyle(st->dashPattern());
+        dash->setMinimumWidth(kComboMinWidthPx);
+        symForm->addRow(tr("Stroke style:"), dash);
+
+        lay->addWidget(symBox);
+
+        connect(color, &ColorButton::colorChanged, this,
+                [st](const QColor &c) { st->setColor(c); });
+        connect(width, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setLineWidthPx(v); });
+        connect(dash, &DashStyleCombo::penStyleChanged, this,
+                [st](Qt::PenStyle s) { st->setDashPattern(s); });
+    }
+    lay->addStretch();
+    return page;
+}
+
+// ─── Mesh vertices (Issue 6) ─────────────────────────────────────────────────
+
+QWidget *Swmm2DResultsStylePanel::buildMeshNodeTab(QWidget *parent)
+{
+    auto *page = new QWidget(parent);
+    auto *lay  = new QVBoxLayout(page);
+
+    auto *sub = m_layer->meshNodeSublayer();
+    MeshNodeStyle *st = sub ? sub->nodeStyle() : nullptr;
+
+    lay->addWidget(makeSublayerHeader(page, sub, tr("Show mesh vertices")));
+
+    if (st) {
+        // Symbology + outline only — the shape and tagged-vertex groups are
+        // omitted: the results renderer draws a fixed marker and carries no
+        // tagged-vertex data, so those knobs would be no-ops here.
+        auto *symBox  = new QGroupBox(tr("Symbology"), page);
+        auto *symForm = new QFormLayout(symBox);
+
+        auto *color = new ColorButton(symBox);
+        color->setShowAlpha(true);
+        color->setColor(st->color());
+        symForm->addRow(tr("Colour:"), color);
+
+        auto *size = makeDSpin(symBox, 0.5, 20.0, 0.5, 1,
+                               st->markerSizePx(), tr(" px"));
+        symForm->addRow(tr("Marker size:"), size);
+
+        auto *outlineColor = new ColorButton(symBox);
+        outlineColor->setShowAlpha(true);
+        outlineColor->setColor(st->outlineColor());
+        symForm->addRow(tr("Outline colour:"), outlineColor);
+
+        auto *outlineWidth = makeDSpin(symBox, 0.0, 5.0, 0.25, 2,
+                                       st->outlineWidthPx(), tr(" px"));
+        symForm->addRow(tr("Outline width:"), outlineWidth);
+
+        lay->addWidget(symBox);
+
+        connect(color, &ColorButton::colorChanged, this,
+                [st](const QColor &c) { st->setColor(c); });
+        connect(size, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setMarkerSizePx(v); });
+        connect(outlineColor, &ColorButton::colorChanged, this,
+                [st](const QColor &c) { st->setOutlineColor(c); });
+        connect(outlineWidth, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [st](double v) { st->setOutlineWidthPx(v); });
     }
     lay->addStretch();
     return page;
