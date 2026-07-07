@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/transecteditordialog.h"
+#include "ui/dialogs/dialoglayoutpersistence.h"
 
 #include "layers/swmmmodellayer.h"     // complete type required by QPointer<SWMMModelLayer>
 #include "transect/transectprovider.h"
@@ -57,7 +58,7 @@ TransectEditorDialog::TransectEditorDialog(TransectRegistry *registry,
                                              SWMMModelLayer *layer,
                                              QUndoStack *undoStack,
                                              QWidget *parent)
-    : QDialog(parent, Qt::Tool | Qt::WindowStaysOnTopHint)
+    : QDialog(parent, openswmmvis::ui::floatingPanelFlags())
     , m_registry(registry)
     , m_layer(layer)
     , m_undoStack(undoStack)

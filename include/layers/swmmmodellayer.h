@@ -201,6 +201,10 @@ public:
     [[nodiscard]] QString modelFilePath() const;
     void setModelFilePath(const QString &path);
 
+    // ----- Self-description for the Layer Properties dialog ----------------
+    [[nodiscard]] QString sourceDescription() const override;
+    [[nodiscard]] QVector<QPair<QString, QString>> extendedMetadata() const override;
+
     /** Raw engine handle — valid only after a successful loadModel(). */
     [[nodiscard]] SWMM_Engine engine() const;
 
@@ -1180,6 +1184,21 @@ public:
      *        not a conduit.
      */
     bool applyLinkLength(int linkIdx, double length);
+
+    /*!
+     * \brief Convert every link's offsets between Depth and Elevation
+     *        conventions, mirroring the legacy SWMM-GUI ComputeDepthOffsets /
+     *        ComputeElevationOffsets (Uupdate.pas). Conduits convert both the
+     *        upstream (from-node) and downstream (to-node) offsets; orifices,
+     *        weirs and outlets convert only the upstream offset; pumps carry no
+     *        offset and are skipped. Setting the LINK_OFFSETS option only flips
+     *        a flag in the engine — the stored offset values must be recomputed
+     *        here. Emits `geometryChanged()` once so the Attribute Table and
+     *        Object Browser refresh in a single tick.
+     * \param toElevation  true  → Depth offsets become Elevation offsets;
+     *                      false → Elevation offsets become Depth offsets.
+     */
+    void convertLinkOffsets(bool toElevation);
 
     /*!
      * \brief Slice SC.1 — Write a cross-section to a link via

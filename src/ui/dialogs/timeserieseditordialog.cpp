@@ -85,7 +85,7 @@ TimeseriesEditorDialog::TimeseriesEditorDialog(TimeseriesRegistry *registry,
                                                 QUndoStack *undoStack,
                                                 TimeseriesProvider *initialSelection,
                                                 QWidget *parent)
-    : QDialog(parent, Qt::Tool | Qt::WindowStaysOnTopHint)
+    : QDialog(parent, openswmmvis::ui::floatingPanelFlags())
     , m_undoStack(undoStack)
     , m_registry(registry)
 {

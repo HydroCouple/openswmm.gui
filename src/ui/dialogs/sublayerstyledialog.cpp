@@ -132,6 +132,7 @@ QWidget *makeGroupTab(QPropertyModel *pm,
 
     view->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     view->header()->setStretchLastSection(true);
+    view->header()->setMinimumSectionSize(90);  // stop columns collapsing on a narrow dialog
     view->expandAll();
     return view;
 }
@@ -181,6 +182,7 @@ SublayerStyleDialog::SublayerStyleDialog(ISublayer *sublayer, QWidget *parent)
         m_tree->setItemDelegate(makeStyleDelegate(m_tree));
         m_tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
         m_tree->header()->setStretchLastSection(true);
+        m_tree->header()->setMinimumSectionSize(90);  // stop columns collapsing on a narrow dialog
         m_tree->expandAll();
         root->addWidget(m_tree, 1);
     } else {

@@ -121,6 +121,30 @@ private:
     QTextCharFormat m_errorFmt;
 };
 
+QString readReportText(const QString &path, QString *errorOut = nullptr)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        if (errorOut) *errorOut = f.errorString();
+        return {};
+    }
+
+    QString text = QString::fromUtf8(f.readAll());
+    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+    if (!text.isEmpty() && !text.endsWith(QLatin1Char('\n')))
+        text += QLatin1Char('\n');
+    return text;
+}
+
+QString joinedSectionBodies(const QVector<openswmmvis::io::RptSection> &sections)
+{
+    QString text;
+    for (const auto &s : sections)
+        text += s.body;
+    return text;
+}
+
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------
@@ -290,6 +314,10 @@ void StatusReportDialog::loadReport(int sourceIndex)
 
     QString err;
     const auto sections = openswmmvis::io::RptParser::parse(m_path, &err);
+    QString rawErr;
+    QString reportText = readReportText(m_path, &rawErr);
+    if (reportText.isEmpty() && !sections.isEmpty())
+        reportText = joinedSectionBodies(sections);
 
     // Diagnostic for "report viewer truncates sections": pinpoint which layer
     // drops content. Logs the on-disk file size/line count vs. the number of
@@ -307,13 +335,16 @@ void StatusReportDialog::loadReport(int sourceIndex)
         qDebug().noquote()
             << "[ReportViewer] load" << m_path
             << "bytes=" << bytes << "fileLines=" << fileLines
+            << "rawChars=" << reportText.length()
             << "sectionsParsed=" << sections.size()
-            << (err.isEmpty() ? QString() : QStringLiteral("parseErr=") + err);
+            << (err.isEmpty() ? QString() : QStringLiteral("parseErr=") + err)
+            << (rawErr.isEmpty() ? QString() : QStringLiteral("rawErr=") + rawErr);
     }
 
-    if (sections.isEmpty()) {
+    if (sections.isEmpty() && reportText.isEmpty()) {
         QMessageBox::warning(this, tr("Couldn't parse .rpt"),
-            tr("Could not read %1:\n%2").arg(m_path, err));
+            tr("Could not read %1:\n%2").arg(
+                m_path, err.isEmpty() ? rawErr : err));
     }
 
     if (openswmmvis::io::RptParser::hasHighContinuityError(sections)) {
@@ -326,33 +357,25 @@ void StatusReportDialog::loadReport(int sourceIndex)
         m_continuityBanner->hide();
     }
 
-    populateText(sections);
+    populateText(sections, reportText);
 }
 
 void StatusReportDialog::populateText(
-    const QVector<openswmmvis::io::RptSection> &sections)
+    const QVector<openswmmvis::io::RptSection> &sections,
+    const QString &reportText)
 {
     m_sectionsModel->removeRows(0, m_sectionsModel->rowCount());
 
-    QString full;
     m_sectionAnchors.clear();
     m_sectionAnchors.reserve(sections.size());
 
+    int anchor = 0;
     for (const auto &s : sections) {
-        const int anchor = full.length();
-        m_sectionAnchors.push_back(anchor);
-
         const QString title = s.title.isEmpty()
                                  ? QStringLiteral("(untitled)")
                                  : s.title;
-        full += title;
-        full += QLatin1Char('\n');
-        if (!s.body.isEmpty()) {
-            full += s.body;
-            if (!s.body.endsWith(QLatin1Char('\n')))
-                full += QLatin1Char('\n');
-        }
-        full += QLatin1Char('\n');
+        m_sectionAnchors.push_back(qBound(0, anchor, reportText.length()));
+        anchor += s.body.length();
 
         auto *item = new QStandardItem(title);
         item->setEditable(false);
@@ -360,10 +383,17 @@ void StatusReportDialog::populateText(
         m_sectionsModel->appendRow(item);
     }
 
-    m_viewer->setPlainText(full);
+    if (sections.isEmpty() && !reportText.isEmpty()) {
+        m_sectionAnchors.push_back(0);
+        auto *item = new QStandardItem(tr("(full report)"));
+        item->setEditable(false);
+        m_sectionsModel->appendRow(item);
+    }
+
+    m_viewer->setPlainText(reportText);
 
     qDebug().noquote()
-        << "[ReportViewer] populated chars=" << full.length()
+        << "[ReportViewer] populated chars=" << reportText.length()
         << "sections=" << sections.size()
         << "viewerBlocks=" << m_viewer->document()->blockCount()
         << "viewerChars=" << m_viewer->document()->characterCount();
@@ -382,8 +412,26 @@ void StatusReportDialog::populateText(
 
 void StatusReportDialog::onSectionFilterChanged(const QString &text)
 {
-    if (m_sectionsProxy)
-        m_sectionsProxy->setFilterFixedString(text);
+    if (!m_sectionsProxy)
+        return;
+
+    const QStringList tokens =
+        text.split(QRegularExpression(QStringLiteral("[\\s\\-]+")),
+                   Qt::SkipEmptyParts);
+    if (tokens.isEmpty()) {
+        m_sectionsProxy->setFilterRegularExpression(QRegularExpression());
+        return;
+    }
+
+    QString pattern;
+    for (const QString &token : tokens) {
+        pattern += QStringLiteral("(?=.*");
+        pattern += QRegularExpression::escape(token);
+        pattern += QLatin1Char(')');
+    }
+    pattern += QStringLiteral(".*");
+    m_sectionsProxy->setFilterRegularExpression(
+        QRegularExpression(pattern, QRegularExpression::CaseInsensitiveOption));
 }
 
 void StatusReportDialog::onSectionActivated(const QModelIndex &proxyIdx)

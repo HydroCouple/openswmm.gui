@@ -219,6 +219,21 @@ public:
                                                const QString &meshFilePath,
                                                QString *errorOut = nullptr);
 
+    /*! \brief Strip any `[2D_MESH_FILE]` reference from the `.inp` so the
+     *         engine falls back to the inline `[2D_*]` mesh sections.
+     *
+     *  The inverse of \ref writeMeshFileRef: removes only the
+     *  `[2D_MESH_FILE]` block and leaves every other section (including the
+     *  inline mesh data) untouched. Used when the user selects the inline
+     *  mesh as the active 2D configuration. No-op-safe when the section is
+     *  absent. Atomic via `QSaveFile`.
+     *
+     *  \param inpPath  SWMM input file to patch.
+     *  \param errorOut Set on failure.
+     *  \returns true on success. */
+    [[nodiscard]] static bool clearMeshFileRef(const QString &inpPath,
+                                               QString *errorOut = nullptr);
+
     /*! \brief Convenience dispatch on \ref MeshOutputMode. */
     [[nodiscard]] static bool write(MeshOutputMode mode,
                                      const QString &inpPath,

@@ -13,8 +13,11 @@
 #include <QBrush>
 #include <QGraphicsEllipseItem>
 #include <QGraphicsPathItem>
+#include <QPainter>
 #include <QPainterPath>
 #include <QPen>
+
+#include <algorithm>
 
 namespace
 {
@@ -139,6 +142,104 @@ QColor ProfilePathOverlay::colorForPath(int index) const
 {
     if (index < 0 || index >= m_paths.size()) return Qt::gray;
     return CategoricalPalette::at(index);
+}
+
+void ProfilePathOverlay::paintOverlay(QPainter &p, const SceneToPixel &toPixel) const
+{
+    if (!m_model) return;
+
+    auto pixelPathFor = [this, &toPixel](const ProfileRouter::Path &rp) {
+        QPainterPath painterPath;
+        bool first = true;
+        for (int edgeIdx = 0; edgeIdx < rp.linkIds.size(); ++edgeIdx) {
+            QVector<QPointF> poly = sceneCoordsForLink(rp.linkIds[edgeIdx]);
+            if (poly.isEmpty()) continue;
+
+            if (edgeIdx + 1 < rp.nodes.size()) {
+                const QPointF upstreamScene = sceneCoordForNode(rp.nodes[edgeIdx]);
+                const QPointF d0 = poly.first() - upstreamScene;
+                const QPointF dN = poly.last()  - upstreamScene;
+                if (QPointF::dotProduct(d0, d0) > QPointF::dotProduct(dN, dN))
+                    std::reverse(poly.begin(), poly.end());
+            }
+
+            if (first) {
+                painterPath.moveTo(toPixel(poly.first()));
+                first = false;
+            } else {
+                painterPath.lineTo(toPixel(poly.first()));
+            }
+            for (int v = 1; v < poly.size(); ++v)
+                painterPath.lineTo(toPixel(poly[v]));
+        }
+        return painterPath;
+    };
+
+    auto drawPath = [&p, this, &pixelPathFor](int idx) {
+        if (idx < 0 || idx >= m_paths.size()) return;
+        qreal alpha = kEqualAlpha;
+        qreal width = kBaseStrokePx;
+        if (m_highlighted >= 0) {
+            if (idx == m_highlighted) {
+                alpha = kPromotedAlpha;
+                width = kBaseStrokePx + 1.5;
+            } else {
+                alpha = kDimAlpha;
+            }
+        }
+
+        const QPainterPath path = pixelPathFor(m_paths[idx]);
+        if (path.isEmpty()) return;
+
+        QColor casing(0xFF, 0xFF, 0xFF);
+        casing.setAlphaF(std::min<qreal>(1.0, alpha + 0.20));
+        QPen casingPen(casing);
+        casingPen.setWidthF(width + 3.0);
+        casingPen.setJoinStyle(Qt::RoundJoin);
+        casingPen.setCapStyle(Qt::RoundCap);
+
+        QColor c = CategoricalPalette::at(idx);
+        c.setAlphaF(alpha);
+        QPen colorPen(c);
+        colorPen.setWidthF(width);
+        colorPen.setJoinStyle(Qt::RoundJoin);
+        colorPen.setCapStyle(Qt::RoundCap);
+
+        p.setBrush(Qt::NoBrush);
+        p.setPen(casingPen);
+        p.drawPath(path);
+        p.setPen(colorPen);
+        p.drawPath(path);
+    };
+
+    p.save();
+    p.setRenderHint(QPainter::Antialiasing, true);
+
+    for (int i = 0; i < m_paths.size(); ++i) {
+        if (i == m_highlighted) continue;
+        drawPath(i);
+    }
+    if (m_highlighted >= 0)
+        drawPath(m_highlighted);
+
+    auto drawHalo = [this, &p, &toPixel](int engNodeIdx, const QPen &pen) {
+        if (engNodeIdx < 0) return;
+        const QPointF centre = toPixel(sceneCoordForNode(engNodeIdx));
+        auto *prefs = PreferencesManager::instance();
+        const qreal r = prefs ? prefs->profileEndpointHaloRadiusPx() : 11.0;
+        QPen haloPen = pen;
+        haloPen.setCosmetic(false);
+        p.setBrush(Qt::NoBrush);
+        p.setPen(haloPen);
+        p.drawEllipse(centre, r, r);
+    };
+
+    if (auto *prefs = PreferencesManager::instance()) {
+        drawHalo(m_startEngineNodeIdx, prefs->profileStartEndpointPen());
+        drawHalo(m_endEngineNodeIdx,   prefs->profileEndEndpointPen());
+    }
+
+    p.restore();
 }
 
 // ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@
 #include <QChart>
 #include <QChartView>
 #include <QContextMenuEvent>
+#include <QDateTimeAxis>
 #include <QLineSeries>
 #include <QObject>
 #include <QSignalSpy>
@@ -38,9 +39,12 @@ private slots:
     void rightClickEmitsContextMenuRequest();
     void resetZoomRestoresInitialRanges();
     void cursorReflectsMode();
+    void axisEndpointHitTestAndSetValueAxisEdges();
+    void dateTimeAxisEdgesAcceptDateTimes();
 
 private:
     QChart *makeChart();
+    QChart *makeDateChart(QDateTime &start, QDateTime &end);
 };
 
 void TestComparisonPlotToolbar::initTestCase()
@@ -58,6 +62,25 @@ QChart *TestComparisonPlotToolbar::makeChart()
     chart->addSeries(series);
     auto *xAxis = new QValueAxis;  xAxis->setRange(0.0, 2.0);
     auto *yAxis = new QValueAxis;  yAxis->setRange(0.0, 30.0);
+    chart->addAxis(xAxis, Qt::AlignBottom);
+    chart->addAxis(yAxis, Qt::AlignLeft);
+    series->attachAxis(xAxis);
+    series->attachAxis(yAxis);
+    return chart;
+}
+
+QChart *TestComparisonPlotToolbar::makeDateChart(QDateTime &start, QDateTime &end)
+{
+    start = QDateTime::fromMSecsSinceEpoch(1'767'225'600'000LL);
+    end = start.addSecs(6 * 3600);
+
+    auto *chart = new QChart;
+    auto *series = new QLineSeries;
+    series->append(start.toMSecsSinceEpoch(), 10.0);
+    series->append(end.toMSecsSinceEpoch(), 20.0);
+    chart->addSeries(series);
+    auto *xAxis = new QDateTimeAxis; xAxis->setRange(start, end);
+    auto *yAxis = new QValueAxis;    yAxis->setRange(0.0, 30.0);
     chart->addAxis(xAxis, Qt::AlignBottom);
     chart->addAxis(yAxis, Qt::AlignLeft);
     series->attachAxis(xAxis);
@@ -164,6 +187,72 @@ void TestComparisonPlotToolbar::cursorReflectsMode()
 
     view.setMode(Mode::Select);
     QCOMPARE(view.viewport()->cursor().shape(), Qt::ArrowCursor);
+}
+
+void TestComparisonPlotToolbar::axisEndpointHitTestAndSetValueAxisEdges()
+{
+    auto *chart = makeChart();
+    InteractiveChartView view(chart);
+    view.resize(500, 320);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view, 1000));
+
+    const QRectF plot = chart->plotArea();
+    QVERIFY(!plot.isEmpty());
+    auto toViewport = [&view, chart](const QPointF &chartPoint) {
+        return view.mapFromScene(chart->mapToScene(chartPoint));
+    };
+
+    QCOMPARE(view.axisEdgeAt(
+                 toViewport(QPointF(plot.left(), plot.bottom())) + QPoint(0, 12)),
+             InteractiveChartView::AxisEdge::XMinimum);
+    QCOMPARE(view.axisEdgeAt(
+                 toViewport(QPointF(plot.right(), plot.bottom())) + QPoint(0, 12)),
+             InteractiveChartView::AxisEdge::XMaximum);
+    QCOMPARE(view.axisEdgeAt(
+                 toViewport(QPointF(plot.left(), plot.bottom())) + QPoint(-12, -10)),
+             InteractiveChartView::AxisEdge::YMinimum);
+    QCOMPARE(view.axisEdgeAt(
+                 toViewport(QPointF(plot.left(), plot.top())) + QPoint(-12, 10)),
+             InteractiveChartView::AxisEdge::YMaximum);
+
+    auto *xAxis = qobject_cast<QValueAxis *>(chart->axes(Qt::Horizontal).first());
+    auto *yAxis = qobject_cast<QValueAxis *>(chart->axes(Qt::Vertical).first());
+    QVERIFY(xAxis);
+    QVERIFY(yAxis);
+
+    QVERIFY(view.setAxisEdgeValue(InteractiveChartView::AxisEdge::XMinimum, -1.5));
+    QCOMPARE(xAxis->min(), -1.5);
+    QVERIFY(view.setAxisEdgeValue(InteractiveChartView::AxisEdge::XMaximum, 4.0));
+    QCOMPARE(xAxis->max(), 4.0);
+    QVERIFY(view.setAxisEdgeValue(InteractiveChartView::AxisEdge::YMinimum, -2.0));
+    QCOMPARE(yAxis->min(), -2.0);
+    QVERIFY(view.setAxisEdgeValue(InteractiveChartView::AxisEdge::YMaximum, 50.0));
+    QCOMPARE(yAxis->max(), 50.0);
+
+    QVERIFY(!view.setAxisEdgeValue(InteractiveChartView::AxisEdge::XMinimum, 4.0));
+    QVERIFY(!view.setAxisEdgeValue(InteractiveChartView::AxisEdge::YMaximum, -2.0));
+}
+
+void TestComparisonPlotToolbar::dateTimeAxisEdgesAcceptDateTimes()
+{
+    QDateTime start;
+    QDateTime end;
+    auto *chart = makeDateChart(start, end);
+    InteractiveChartView view(chart);
+
+    auto *xAxis = qobject_cast<QDateTimeAxis *>(chart->axes(Qt::Horizontal).first());
+    QVERIFY(xAxis);
+
+    const QDateTime nextStart = start.addSecs(3600);
+    QVERIFY(view.setAxisEdgeValue(InteractiveChartView::AxisEdge::XMinimum, nextStart));
+    QCOMPARE(xAxis->min(), nextStart);
+
+    const QDateTime nextEnd = end.addSecs(3600);
+    QVERIFY(view.setAxisEdgeValue(InteractiveChartView::AxisEdge::XMaximum, nextEnd));
+    QCOMPARE(xAxis->max(), nextEnd);
+
+    QVERIFY(!view.setAxisEdgeValue(InteractiveChartView::AxisEdge::XMaximum, start));
 }
 
 QTEST_MAIN(TestComparisonPlotToolbar)

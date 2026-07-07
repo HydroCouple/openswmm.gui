@@ -4,6 +4,7 @@
  * \date   2026
  */
 #include "ui/dialogs/meshprofileplotdialog.h"
+#include "ui/dialogs/dialoglayoutpersistence.h"
 
 #include "animation/animationcontroller.h"
 #include "layers/swmm2dmeshlayer.h"
@@ -53,7 +54,7 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
                    | Qt::WindowTitleHint
                    | Qt::WindowMinMaxButtonsHint
                    | Qt::WindowCloseButtonHint
-                   | Qt::WindowStaysOnTopHint);
+                   | openswmmvis::ui::stayAboveAppFlags());
     resize(900, 520);
 
     buildLayout();
@@ -267,7 +268,7 @@ void MeshProfilePlotDialog::openDisplayOptions()
     auto *dlg = new QDialog(this);
     dlg->setWindowTitle(tr("Profile Display Options"));
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    dlg->setWindowFlags(dlg->windowFlags() | Qt::WindowStaysOnTopHint);
+    dlg->setWindowFlags(dlg->windowFlags() | openswmmvis::ui::stayAboveAppFlags());
     auto *lay = new QVBoxLayout(dlg);
     auto *tree = new QTreeView(dlg);
     tree->setAlternatingRowColors(true);

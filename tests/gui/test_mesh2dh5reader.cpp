@@ -20,6 +20,8 @@
 
 #include "io/mesh2dh5reader.h"
 
+#include <cstring>
+
 using openswmmvis::io::Mesh2DH5Reader;
 
 namespace {
@@ -32,7 +34,21 @@ constexpr double kNodeHeads[3 * 4] = {
     10.20, 10.25, 11.10, 11.30,   // t=2 (peak)
 };
 
-QString writeFixture(bool withNodeHead = false)
+void writeStringAttr(hid_t obj, const char* name, const char* value)
+{
+    hid_t type = H5Tcopy(H5T_C_S1);
+    H5Tset_size(type, std::strlen(value) + 1);
+    H5Tset_strpad(type, H5T_STR_NULLTERM);
+    hid_t space = H5Screate(H5S_SCALAR);
+    hid_t attr = H5Acreate2(obj, name, type, space,
+                            H5P_DEFAULT, H5P_DEFAULT);
+    H5Awrite(attr, type, value);
+    H5Aclose(attr);
+    H5Sclose(space);
+    H5Tclose(type);
+}
+
+QString writeFixture(bool withNodeHead = false, int startIndex = 0)
 {
     QString path;
     if (withNodeHead) {
@@ -81,14 +97,16 @@ QString writeFixture(bool withNodeHead = false)
     // Mesh2_face_nodes [n_face, 3]
     {
         const int conn[n_face * 3] = {
-            0, 1, 3,   // T0
-            0, 3, 2,   // T1
+            0 + startIndex, 1 + startIndex, 3 + startIndex,   // T0
+            0 + startIndex, 3 + startIndex, 2 + startIndex,   // T1
         };
         hsize_t dims[2] = { n_face, 3 };
         hid_t sp = H5Screate_simple(2, dims, nullptr);
         hid_t ds = H5Dcreate2(fid, "Mesh2_face_nodes", H5T_NATIVE_INT, sp,
                                H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         H5Dwrite(ds, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, conn);
+        const QByteArray start = QByteArray::number(startIndex);
+        writeStringAttr(ds, "start_index", start.constData());
         H5Dclose(ds);
         H5Sclose(sp);
     }
@@ -188,6 +206,23 @@ private slots:
         QCOMPARE(int(tris.size()), 2);
         QCOMPARE(tris[0][0], 0); QCOMPARE(tris[0][1], 1); QCOMPARE(tris[0][2], 3);
         QCOMPARE(tris[1][0], 0); QCOMPARE(tris[1][1], 3); QCOMPARE(tris[1][2], 2);
+    }
+
+    void normalizesOneBasedFaceNodes()
+    {
+        const QString path = writeFixture(/*withNodeHead=*/false,
+                                          /*startIndex=*/1);
+        QVERIFY(!path.isEmpty());
+
+        Mesh2DH5Reader r;
+        QVERIFY2(r.open(path), qPrintable(r.lastError()));
+        std::vector<std::array<int, 3>> tris;
+        QVERIFY2(r.readTriangles(tris), qPrintable(r.lastError()));
+        QCOMPARE(int(tris.size()), 2);
+        QCOMPARE(tris[0][0], 0); QCOMPARE(tris[0][1], 1); QCOMPARE(tris[0][2], 3);
+        QCOMPARE(tris[1][0], 0); QCOMPARE(tris[1][1], 3); QCOMPARE(tris[1][2], 2);
+
+        QFile::remove(path);
     }
 
     void readsTimes()

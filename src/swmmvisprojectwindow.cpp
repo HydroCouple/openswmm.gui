@@ -513,6 +513,14 @@ void SWMMVisProjectWindow::setElevationOffsetMode(bool elevation)
     emit offsetModeChanged(elevation);
 }
 
+void SWMMVisProjectWindow::convertLinkOffsets(bool toElevation)
+{
+    if (!mModelLayer)
+        return;
+    mModelLayer->convertLinkOffsets(toElevation);
+    setHasChanges(true);
+}
+
 bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &errors)
 {
     const bool ok = mModelLayer->loadModel(warnings, errors);
@@ -550,8 +558,18 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
                     *busy = true;
                     QStringList names;
                     names.reserve(current.size());
-                    for (const SWMMObjectRef &r : current)
+                    for (const SWMMObjectRef &r : current) {
+                        switch (r.objectType) {
+                        case SWMMObjectRef::Node:
+                        case SWMMObjectRef::Link:
+                        case SWMMObjectRef::Subcatchment:
+                        case SWMMObjectRef::RainGage:
+                            break;
+                        default:
+                            continue;
+                        }
                         names.append(r.name);
+                    }
                     mModelLayer->setSelectedElementNames(names);
                     *busy = false;
                 });

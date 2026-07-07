@@ -71,4 +71,10 @@ SeriesStatistics computeStatistics(const std::vector<double> &values)
     return s;
 }
 
+QString formatStatisticValue(double value, const NumberFormat &format)
+{
+    if (!std::isfinite(value)) return QStringLiteral("—");
+    return format.format(value);
+}
+
 } // namespace openswmmvis::plot

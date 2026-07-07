@@ -13,6 +13,7 @@
 #include "ui/dialogs/labelstab.h"
 // VS.5 — Temporal / Mask / AuxStorage / Joins / Diagrams tabs removed.
 #include "ui/dialogs/symbologytab.h"
+#include "ui/uiscrollhelpers.h"
 // Slice B.2 — Rule Model entry point. RuleList ownership lives on the
 // layer; LayerStyleDialog detects it via OpenSWMMVisLayer::ruleList().
 #include "render/rulelist.h"
@@ -62,6 +63,7 @@
 #include <QSortFilterProxyModel>
 #include <QSpinBox>
 #include <QStyle>
+#include <QTableWidget>
 #include <QTabWidget>
 #include <QToolButton>
 #include <QTreeView>
@@ -174,6 +176,7 @@ QWidget *makeGroupView(QPropertyModel *pm, const QStringList &propNames, QWidget
     view->setModel(proxy);
     view->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     view->header()->setStretchLastSection(true);
+    view->header()->setMinimumSectionSize(90);  // stop columns collapsing (Issue 1)
     view->expandAll();
     return view;
 }
@@ -185,7 +188,10 @@ QWidget *buildSubjectEditor(QObject *propertyObject, QWidget *parent)
 {
     if (auto *custom = StyleEditorRegistry::instance().createEditorFor(
             propertyObject, parent)) {
-        return custom;
+        // Form-based editors (point/line/polygon + 2D symbol editors, feature
+        // editors) pack dense forms; wrap so a narrow/short dialog scrolls
+        // instead of compressing their combos / spin boxes (Issue 1).
+        return OpenSWMM::Ui::wrapInScrollArea(custom, parent);
     }
     auto *pm = new QPropertyModel(propertyObject, parent);
     const auto groups = groupPropertiesByClassInfo(propertyObject);
@@ -198,6 +204,7 @@ QWidget *buildSubjectEditor(QObject *propertyObject, QWidget *parent)
         view->setModel(pm);
         view->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
         view->header()->setStretchLastSection(true);
+        view->header()->setMinimumSectionSize(90);  // stop columns collapsing (Issue 1)
         view->expandAll();
         return view;
     }
@@ -496,18 +503,14 @@ void LayerStyleDialog::buildSourceTab()
     auto *origBox  = new QGroupBox(tr("Layer Source"), page);
     auto *origForm = new QFormLayout(origBox);
 
-    auto *pathLabel = new QLabel(origBox);
-    pathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    pathLabel->setWordWrap(true);
-    QString sourcePath = tr("(none)");
-    if (m_layer) {
-        // Try the Q_PROPERTY chain — most layer kinds expose a filePath.
-        const QVariant v = m_layer->property("filePath");
-        if (v.isValid() && !v.toString().isEmpty())
-            sourcePath = v.toString();
-    }
-    pathLabel->setText(sourcePath);
-    origForm->addRow(tr("File:"), pathLabel);
+    // Populated in readFromLayer() from the layer's polymorphic
+    // sourceDescription(), so it can be corrected/refreshed after build —
+    // unlike the old one-shot property("filePath") read, which only worked
+    // for the two GIS layer types.
+    m_sourceLabel = new QLabel(origBox);
+    m_sourceLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_sourceLabel->setWordWrap(true);
+    origForm->addRow(tr("Source:"), m_sourceLabel);
 
     root->addWidget(origBox);
 
@@ -800,13 +803,80 @@ void LayerStyleDialog::buildMetadataTab()
 {
     auto *page = new QWidget(m_tabs);
     auto *vlay = new QVBoxLayout(page);
-    m_metadataText = new QPlainTextEdit(page);
-    m_metadataText->setReadOnly(true);
-    m_metadataText->setLineWrapMode(QPlainTextEdit::NoWrap);
-    vlay->addWidget(m_metadataText, 1);
+    vlay->setContentsMargins(8, 8, 8, 8);
+
+    // Read-only Property/Value table. The table scrolls internally; a
+    // minimum section size keeps both columns readable on a narrow dialog
+    // (PLAN_2D_GUI_FIXES Issue 1 convention) rather than squishing.
+    m_metadataTable = new QTableWidget(0, 2, page);
+    m_metadataTable->setHorizontalHeaderLabels({ tr("Property"), tr("Value") });
+    m_metadataTable->verticalHeader()->setVisible(false);
+    m_metadataTable->setAlternatingRowColors(true);
+    m_metadataTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_metadataTable->setSelectionMode(QAbstractItemView::NoSelection);
+    m_metadataTable->setWordWrap(true);
+    m_metadataTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_metadataTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_metadataTable->horizontalHeader()->setMinimumSectionSize(90);
+    vlay->addWidget(m_metadataTable, 1);
+
+    // D5 — a live 2D results layer's counts (time steps) grow during a run, so
+    // metadata captured at dialog-open goes stale. A manual Refresh re-reads
+    // extendedMetadata() on demand; no live subscription/timer (over-kill for
+    // a properties dialog).
+    auto *refreshRow = new QHBoxLayout();
+    refreshRow->addStretch();
+    auto *refreshBtn = new QToolButton(page);
+    refreshBtn->setText(tr("Refresh"));
+    refreshBtn->setToolTip(tr("Re-read metadata (e.g. the time-step count of a "
+                              "running 2D results layer)."));
+    connect(refreshBtn, &QToolButton::clicked,
+            this, &LayerStyleDialog::populateMetadata);
+    refreshRow->addWidget(refreshBtn);
+    vlay->addLayout(refreshRow);
+
     m_tabs->addTab(page,
                    style()->standardIcon(QStyle::SP_FileIcon),
                    tr("Metadata"));
+}
+
+void LayerStyleDialog::populateMetadata()
+{
+    if (!m_metadataTable || !m_layer) return;
+
+    // Common block (kept in the dialog — every layer has these), then the
+    // layer's own type-specific rows.
+    QVector<QPair<QString, QString>> rows;
+    rows.append({ tr("ID"),      m_layer->layerId() });
+    rows.append({ tr("Type"),    QString::fromLatin1(layerTypeLabel(m_layer->layerType())) });
+    rows.append({ tr("Visible"), m_layer->isVisible() ? tr("yes") : tr("no") });
+    rows.append({ tr("Opacity"), QStringLiteral("%1 %").arg(qRound(m_layer->opacity() * 100)) });
+    if (auto *srs = m_layer->srs()) {
+        const QString auth = srs->toAuthority();
+        rows.append({ tr("CRS"), auth.isEmpty() ? tr("(local)") : auth });
+    } else {
+        rows.append({ tr("CRS"), tr("(none)") });
+    }
+    const MapExtent ext = m_layer->extent();
+    if (ext.isValid())
+        rows.append({ tr("Extent"),
+                      QStringLiteral("[%1, %2] → [%3, %4]")
+                          .arg(ext.xMin(), 0, 'g', 8).arg(ext.yMin(), 0, 'g', 8)
+                          .arg(ext.xMax(), 0, 'g', 8).arg(ext.yMax(), 0, 'g', 8) });
+    if (!m_layer->children().isEmpty())
+        rows.append({ tr("Children"), QString::number(m_layer->children().size()) });
+
+    rows.append(m_layer->extendedMetadata());   // type-specific
+
+    m_metadataTable->clearContents();
+    m_metadataTable->setRowCount(rows.size());
+    for (int r = 0; r < rows.size(); ++r) {
+        m_metadataTable->setItem(r, 0, new QTableWidgetItem(rows[r].first));
+        auto *valItem = new QTableWidgetItem(rows[r].second);
+        valItem->setToolTip(rows[r].second);   // full value on hover if elided
+        m_metadataTable->setItem(r, 1, valItem);
+    }
+    m_metadataTable->resizeRowsToContents();
 }
 
 // ---------------------------------------------------------------------------
@@ -826,6 +896,10 @@ void LayerStyleDialog::readFromLayer()
         m_typeLabel->setText(QString::fromLatin1(layerTypeLabel(m_layer->layerType())));
 
     // Source tab.
+    if (m_sourceLabel) {
+        const QString src = m_layer->sourceDescription();
+        m_sourceLabel->setText(src.isEmpty() ? tr("(none)") : src);
+    }
     if (m_crsLabel) {
         QString crsText = tr("(none)");
         if (auto *srs = m_layer->srs()) {
@@ -865,8 +939,11 @@ void LayerStyleDialog::readFromLayer()
     if (!m_layer->children().isEmpty())
         lines << QStringLiteral("Children:  %1").arg(m_layer->children().size());
     const QString summary = lines.join('\n');
-    if (m_infoText)     m_infoText    ->setPlainText(summary);
-    if (m_metadataText) m_metadataText->setPlainText(summary);
+    if (m_infoText) m_infoText->setPlainText(summary);
+
+    // Metadata tab renders the structured key/value table (common block +
+    // the layer's type-specific extendedMetadata()), not a copy of summary.
+    populateMetadata();
 
     // Cancel-rollback snapshot.
     m_snapshotName    = m_layer->name();

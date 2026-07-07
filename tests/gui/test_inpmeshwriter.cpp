@@ -247,6 +247,58 @@ private slots:
         QVERIFY(!QFile::exists(meshPath));
     }
 
+    /*! clearMeshFileRef strips an external [2D_MESH_FILE] reference while
+     *  preserving inline [2D_*] mesh data — the "switch to inline" path. */
+    void clearMeshFileRef_dropsRefKeepsInline()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString inpPath = dir.filePath("project.inp");
+        QFile inp(inpPath);
+        QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Text));
+        // Inline mesh data AND an external reference both present.
+        inp.write(QStringLiteral(
+            "[TITLE]\nDemo\n\n[OPTIONS]\nFLOW_UNITS CFS\n\n"
+            "[2D_VERTICES]\n0 0 1.0\n\n"
+            "[2D_TRIANGLES]\n0 1 2 0.03\n\n"
+            "[2D_MESH_FILE]\nFILE other.2dm\n\n").toUtf8());
+        inp.close();
+
+        QString err;
+        QVERIFY2(InpMeshWriter::clearMeshFileRef(inpPath, &err), qPrintable(err));
+
+        QFile in2(inpPath);
+        QVERIFY(in2.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString inpText = QString::fromUtf8(in2.readAll());
+        // Reference gone; inline mesh + other sections preserved.
+        QVERIFY(!inpText.contains("[2D_MESH_FILE]"));
+        QVERIFY(!inpText.contains("other.2dm"));
+        QVERIFY(inpText.contains("[2D_VERTICES]"));
+        QVERIFY(inpText.contains("[2D_TRIANGLES]"));
+        QVERIFY(inpText.contains("[OPTIONS]"));
+    }
+
+    /*! clearMeshFileRef is a no-op-safe when no [2D_MESH_FILE] is present. */
+    void clearMeshFileRef_noRef_isHarmless()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString inpPath = dir.filePath("project.inp");
+        QFile inp(inpPath);
+        QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Text));
+        inp.write(sampleInpText().toUtf8());
+        inp.close();
+
+        QString err;
+        QVERIFY2(InpMeshWriter::clearMeshFileRef(inpPath, &err), qPrintable(err));
+
+        QFile in2(inpPath);
+        QVERIFY(in2.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString inpText = QString::fromUtf8(in2.readAll());
+        QVERIFY(inpText.contains("[OPTIONS]"));
+        QVERIFY(!inpText.contains("[2D_MESH_FILE]"));
+    }
+
     /*! Empty mesh → fail gracefully with errorOut set, .inp untouched. */
     void emptyMesh_fails()
     {

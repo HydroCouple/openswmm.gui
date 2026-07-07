@@ -66,6 +66,10 @@ public:
 
     // ----- OpenSWMMVisLayer overrides -------------------------------------
 
+    [[nodiscard]] QString sourceDescription() const override { return tr("(in-memory)"); }
+    [[nodiscard]] QVector<QPair<QString, QString>> extendedMetadata() const override
+    { return {{ tr("Annotations"), QString::number(m_items.size()) }}; }
+
     void populateScene(QGraphicsScene *scene,
                        const MapExtent &canvasExtent,
                        const SpatialReferenceSystem *canvasSRS) override;

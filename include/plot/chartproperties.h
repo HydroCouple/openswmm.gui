@@ -67,6 +67,9 @@ public:
     Q_PROPERTY(ChartProperties::LabelFormatMode yLabelFormatMode READ yLabelFormatMode WRITE setYLabelFormatMode NOTIFY yLabelFormatModeChanged)
     Q_PROPERTY(int     yLabelPrecision READ yLabelPrecision WRITE setYLabelPrecision NOTIFY yLabelPrecisionChanged)
     Q_PROPERTY(QString yLabelFormat    READ yLabelFormat    WRITE setYLabelFormat    NOTIFY yLabelFormatChanged)
+    Q_PROPERTY(ChartProperties::LabelFormatMode statisticsFormatMode READ statisticsFormatMode WRITE setStatisticsFormatMode NOTIFY statisticsFormatModeChanged)
+    Q_PROPERTY(int     statisticsPrecision READ statisticsPrecision WRITE setStatisticsPrecision NOTIFY statisticsPrecisionChanged)
+    Q_PROPERTY(QString statisticsFormat READ statisticsFormat WRITE setStatisticsFormat NOTIFY statisticsFormatChanged)
 
 public:
     explicit ChartProperties(QChart *chart, QObject *parent = nullptr);
@@ -103,10 +106,14 @@ public:
     LabelFormatMode yLabelFormatMode() const noexcept { return m_yLabelMode; }
     int             yLabelPrecision()  const noexcept { return m_yLabelPrecision; }
     QString         yLabelFormat()     const          { return m_yLabelFormatStr; }
+    LabelFormatMode statisticsFormatMode() const noexcept { return m_statisticsMode; }
+    int             statisticsPrecision() const noexcept { return m_statisticsPrecision; }
+    QString         statisticsFormat() const { return m_statisticsFormatStr; }
 
-    /*! \brief Current X/Y label format as the shared value type. */
+    /*! \brief Current X/Y/statistics number format as the shared value type. */
     NumberFormat xFormat() const noexcept;
     NumberFormat yFormat() const noexcept;
+    NumberFormat statisticsNumberFormat() const noexcept;
 
 public slots:
     void setTitleText(const QString &text);
@@ -129,6 +136,10 @@ public slots:
     void setYLabelFormatMode(ChartProperties::LabelFormatMode mode);
     void setYLabelPrecision(int count);
     void setYLabelFormat(const QString &spec);
+    void setStatisticsFormatMode(ChartProperties::LabelFormatMode mode);
+    void setStatisticsPrecision(int count);
+    void setStatisticsFormat(const QString &spec);
+    void setStatisticsNumberFormat(const NumberFormat &format);
 
 signals:
     void titleTextChanged(const QString &);
@@ -151,6 +162,9 @@ signals:
     void yLabelFormatModeChanged(ChartProperties::LabelFormatMode);
     void yLabelPrecisionChanged(int);
     void yLabelFormatChanged(const QString &);
+    void statisticsFormatModeChanged(ChartProperties::LabelFormatMode);
+    void statisticsPrecisionChanged(int);
+    void statisticsFormatChanged(const QString &);
 
 private:
     // Push the cached X/Y label formats onto the chart's value axes
@@ -173,6 +187,12 @@ private:
     LabelFormatMode m_yLabelMode      = Decimals;
     int             m_yLabelPrecision = 2;
     QString         m_yLabelFormatStr;            // optional printf override; empty = use mode+precision
+
+    // Statistics summary value format. Exposed through the same properties
+    // dialog so the stats panel does not need its own formatting controls.
+    LabelFormatMode m_statisticsMode      = Decimals;
+    int             m_statisticsPrecision = 2;
+    QString         m_statisticsFormatStr;
 };
 
 } // namespace openswmmvis::plot

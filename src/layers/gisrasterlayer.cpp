@@ -201,6 +201,22 @@ int     GISRasterLayer::renderBand()  const { return m_renderBand; }
 double  GISRasterLayer::noDataValue() const { return m_noDataValue; }
 bool    GISRasterLayer::hasNoDataValue() const { return m_hasNoData; }
 
+QString GISRasterLayer::sourceDescription() const
+{
+    const QString p = filePath();
+    return p.isEmpty() ? tr("(in-memory)") : p;
+}
+
+QVector<QPair<QString, QString>> GISRasterLayer::extendedMetadata() const
+{
+    QVector<QPair<QString, QString>> md;
+    md.append({ tr("Bands"), QString::number(bandCount()) });
+    md.append({ tr("No-data value"),
+                hasNoDataValue() ? QString::number(noDataValue()) : tr("(none)") });
+    md.append({ tr("Vertical unit"), detectVerticalUnit() });
+    return md;
+}
+
 QString GISRasterLayer::detectVerticalUnit() const
 {
     if (!m_dataset)

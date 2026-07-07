@@ -58,6 +58,26 @@ constexpr double kCoincidenceTol = 1e-6;
                                                 double tol = kCoincidenceTol);
 
 /*!
+ * \brief Orient a link's interior bend points to run from \p from toward
+ *        \p to.
+ * \details GIS-imported SWMM models frequently digitize a link in the
+ *          opposite sense to its from/to-node assignment, so the `[VERTICES]`
+ *          are stored running to→from. The assembled polyline
+ *          `[from, interior…, to]` then doubles back on itself and renders as
+ *          self-crossing "loop" artifacts. This reverses \p interior when its
+ *          endpoints sit closer to the opposite nodes (i.e. the first bend is
+ *          nearer \p to and the last bend nearer \p from). Correctly-ordered
+ *          interiors are returned unchanged, as are inputs with fewer than two
+ *          points (no ordering ambiguity).
+ * \param interior Interior bend points only (no node endpoints).
+ * \param from     From-node coordinate (polyline start).
+ * \param to       To-node coordinate (polyline end).
+ * \returns        \p interior, reversed iff it was stored to→from.
+ */
+[[nodiscard]] QVector<QPointF> orientInteriorToEndpoints(
+    QVector<QPointF> interior, const QPointF &from, const QPointF &to);
+
+/*!
  * \brief Compute the total length of a polyline.
  * \param vertices Ordered polyline vertices (any coordinate frame — the
  *                 caller is responsible for passing points in the frame

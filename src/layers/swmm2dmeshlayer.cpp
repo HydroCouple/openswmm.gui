@@ -41,6 +41,7 @@
 #include <QGraphicsScene>
 #include <QGraphicsItem>
 #include <QHash>
+#include <QLocale>
 #include <QPainter>
 #include <QSet>
 #include <QStyleOptionGraphicsItem>
@@ -660,6 +661,59 @@ QString SWMM2DMeshLayer::sourcePath() const
     return m_sourcePath.isEmpty()
                ? m_sourcePath
                : QFileInfo(m_sourcePath).absoluteFilePath();
+}
+
+QString SWMM2DMeshLayer::sourceDescription() const
+{
+    const QString path = sourcePath();
+    return path.isEmpty() ? tr("(generated mesh)") : path;
+}
+
+QVector<QPair<QString, QString>> SWMM2DMeshLayer::extendedMetadata() const
+{
+    QVector<QPair<QString, QString>> md;
+    const QLocale loc;
+
+    md.append({ tr("Vertices"),          loc.toString(vertexCount()) });
+    md.append({ tr("Cells (triangles)"), loc.toString(triangleCount()) });
+    md.append({ tr("Edges (total)"),     loc.toString(edgeCount()) });
+    md.append({ tr("Boundary edges"),    loc.toString(boundaryEdgeCount()) });
+
+    md.append({ tr("Bed elevation (min / max)"),
+                QStringLiteral("%1 / %2")
+                    .arg(zMin(), 0, 'f', 3).arg(zMax(), 0, 'f', 3) });
+
+    md.append({ tr("Max edge slope"), QString::number(maxSlope(), 'f', 4) });
+
+    // Manning's n range — per-triangle, skipping NaN/unset cells.
+    double nMin = std::numeric_limits<double>::infinity();
+    double nMax = -std::numeric_limits<double>::infinity();
+    int    nWith = 0;
+    for (const auto &t : m_mesh.triangles) {
+        if (std::isnan(t.mannings)) continue;
+        nMin = std::min(nMin, t.mannings);
+        nMax = std::max(nMax, t.mannings);
+        ++nWith;
+    }
+    if (nWith > 0)
+        md.append({ tr("Manning's n (min / max)"),
+                    QStringLiteral("%1 / %2")
+                        .arg(nMin, 0, 'g', 4).arg(nMax, 0, 'g', 4) });
+
+    // Vertices coupled to a 1D SWMM node.
+    int coupled = 0;
+    for (const auto &v : m_mesh.vertices)
+        if (!v.coupledNode.isEmpty()) ++coupled;
+    md.append({ tr("Coupled vertices"), loc.toString(coupled) });
+
+    const MapExtent e = extent();
+    if (e.isValid())
+        md.append({ tr("Extent (xmin, ymin → xmax, ymax)"),
+                    QStringLiteral("%1, %2 → %3, %4")
+                        .arg(e.xMin(), 0, 'f', 2).arg(e.yMin(), 0, 'f', 2)
+                        .arg(e.xMax(), 0, 'f', 2).arg(e.yMax(), 0, 'f', 2) });
+
+    return md;
 }
 
 // ---------------------------------------------------------------------------
