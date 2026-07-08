@@ -2094,6 +2094,25 @@ void SimulationOptionsDialog::readFromEngine()
     m_ignoreQualityBox->setChecked(    parseEngineBool(getOption("IGNORE_QUALITY",     ynStr(sim.ignoreQuality)))     != Qt::Checked);
     m_ignoreRoutingBox->setChecked(    parseEngineBool(getOption("IGNORE_ROUTING",     ynStr(sim.ignoreRouting)))     != Qt::Checked);
 
+    // Context-sensitive availability (mirrors the legacy Delphi Analysis Options
+    // form, Doptions.pas:314-332): a process toggle is disabled when the model
+    // has no objects of the class it controls. The box still shows its stored
+    // value; it just cannot be edited. Counts come from the engine C API.
+    if (m_engine) {
+        const int nGages     = swmm_gage_count(m_engine);
+        const int nSnowpacks = swmm_snowpack_count(m_engine);
+        const int nAquifers  = swmm_aquifer_count(m_engine);
+        const int nLinks     = swmm_link_count(m_engine);
+        const int nPolluts   = swmm_pollutant_count(m_engine);
+        const int nHydros    = swmm_hydrograph_count(m_engine);
+        m_ignoreRainfallBox   ->setEnabled(nGages > 0);
+        m_ignoreSnowmeltBox   ->setEnabled(nSnowpacks > 0);
+        m_ignoreGroundwaterBox->setEnabled(nAquifers > 0);
+        m_ignoreRDIIBox       ->setEnabled(nGages > 0 && nHydros > 0);
+        m_ignoreQualityBox    ->setEnabled(nPolluts > 0);
+        m_ignoreRoutingBox    ->setEnabled(nLinks > 0);
+    }
+
     // ---- Tab 2 ---------------------------------------------------------
     // Block signals on Start/Report-start during seeding so the clamp
     // connection doesn't bump report-start prematurely between the two
