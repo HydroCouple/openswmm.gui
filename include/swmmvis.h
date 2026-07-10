@@ -168,8 +168,20 @@ private slots:
      *         it bypasses the file dialog. */
     void onOpenProject(const QString &path = QString());
 
-    /*! \brief Load a single `.inp` file directly (no `.oswp` sidecar). */
+    /*! \brief Load a single `.inp` file directly (no `.oswp` sidecar).
+     *         Non-blocking: kicks off SWMMVisProjectWindow::loadModelAsync()
+     *         and completes in finalizeSingleINPOpen(). */
     void openSingleINP(const QString &filePath);
+
+    /*! \brief Completion handler for openSingleINP()'s async load: logs
+     *         diagnostics, then (on success) registers recent files, applies
+     *         the .oswp sidecar, auto-loads sibling results and 2D mesh/HDF5
+     *         layers, and activates the window; on failure closes it. */
+    void finalizeSingleINPOpen(SWMMVisProjectWindow *window,
+                               const QString &filePath,
+                               bool ok,
+                               const QList<QString> &warnings,
+                               const QList<QString> &errors);
 
     /*! \brief Load a `.oswp` project sidecar file and its associated sessions. */
     void openProjectFile(const QString &oswpPath);
