@@ -654,37 +654,42 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
 {
     closeEngine();
 
-    if (m_modelFilePath.isEmpty())
+    QString detail;
+    qint64 openMs = 0;
+    SWMM_Engine eng = openEngineForPath(m_modelFilePath, &detail, &openMs);
+    if (!eng)
     {
-        errors.append(QStringLiteral("No model file path specified."));
+        errors.append(detail);
         return false;
     }
+    return adoptOpenEngine(eng, warnings, errors, openMs);
+}
 
-    QFileInfo fi(m_modelFilePath);
-    if (!fi.exists())
-    {
-        errors.append(QStringLiteral("Model file not found: %1").arg(m_modelFilePath));
-        return false;
-    }
+SWMM_Engine SWMMModelLayer::openEngineForPath(const QString &path,
+                                              QString *errorDetail,
+                                              qint64 *openMs)
+{
+    auto fail = [errorDetail](const QString &msg) -> SWMM_Engine {
+        if (errorDetail) *errorDetail = msg;
+        return nullptr;
+    };
 
-    // Load-time phase profiling. Surfaces a per-phase breakdown so a slow
-    // open can be attributed (engine parse vs. SoA copy vs. CRS/PROJ init vs.
-    // geometry cache) instead of guessed at. Emitted to stderr + warnings.
-    QElapsedTimer loadTimer;
-    loadTimer.start();
-    qint64 msOpen = 0, msParse = 0, msCrs = 0, msGeom = 0;
+    if (path.isEmpty())
+        return fail(QStringLiteral("No model file path specified."));
+
+    if (!QFileInfo::exists(path))
+        return fail(QStringLiteral("Model file not found: %1").arg(path));
+
+    QElapsedTimer timer;
+    timer.start();
 
     // Open model (read-only: pass empty strings for rpt/out)
-    m_tablePartitionDirty = true;
-    m_engine = swmm_engine_create();
-    if (!m_engine)
-    {
-        errors.append(QStringLiteral("Failed to create SWMM engine."));
-        return false;
-    }
+    SWMM_Engine eng = swmm_engine_create();
+    if (!eng)
+        return fail(QStringLiteral("Failed to create SWMM engine."));
 
-    QByteArray inpPath = m_modelFilePath.toUtf8();
-    const int openRc = swmm_engine_open(m_engine, inpPath.constData(), "", "", nullptr);
+    QByteArray inpPath = path.toUtf8();
+    const int openRc = swmm_engine_open(eng, inpPath.constData(), "", "", nullptr);
     if (openRc != 0)
     {
         // Surface the engine's real diagnostic (e.g. the offending section
@@ -698,18 +703,42 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
         // section parse failures return code 1, which swmm_error_message maps
         // to "Out of memory" — turning a parse error into a bogus OOM report.
         // Grab the detail BEFORE swmm_engine_destroy() frees the engine.
-        QString detail = QString::fromUtf8(swmm_get_last_error_msg(m_engine)).trimmed();
+        QString detail = QString::fromUtf8(swmm_get_last_error_msg(eng)).trimmed();
         if (detail.isEmpty())
             detail = QString::fromUtf8(swmm_error_message(openRc)).trimmed();
-        errors.append(detail.isEmpty()
+        swmm_engine_destroy(eng);
+        return fail(detail.isEmpty()
             ? QStringLiteral("Failed to open model (error %1): %2")
-                  .arg(openRc).arg(m_modelFilePath)
+                  .arg(openRc).arg(path)
             : QStringLiteral("Failed to open model: %1\n%2")
-                  .arg(m_modelFilePath, detail));
-        swmm_engine_destroy(m_engine);
-        m_engine = nullptr;
-        return false;
+                  .arg(path, detail));
     }
+
+    if (openMs) *openMs = timer.elapsed();
+    return eng;
+}
+
+bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
+                                     QList<QString> &warnings,
+                                     QList<QString> &errors,
+                                     qint64 openMs)
+{
+    Q_UNUSED(errors);
+    if (m_engine && m_engine != engine)
+        closeEngine();
+
+    QFileInfo fi(m_modelFilePath);
+
+    // Load-time phase profiling. Surfaces a per-phase breakdown so a slow
+    // open can be attributed (engine parse vs. SoA copy vs. CRS/PROJ init vs.
+    // geometry cache) instead of guessed at. Emitted to stderr + warnings.
+    QElapsedTimer loadTimer;
+    loadTimer.start();
+    const qint64 msOpen = (openMs >= 0) ? openMs : 0;
+    qint64 msParse = 0, msCrs = 0, msGeom = 0;
+
+    m_tablePartitionDirty = true;
+    m_engine = engine;
 
     // Leave the engine in OPENED state at load time so that property
     // setters (CHECK_GEOMETRY only allows BUILDING/OPENED) succeed on
@@ -724,8 +753,6 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
     // Table appeared to commit edits (cells flashed the new value) but
     // the engine getter then returned the unchanged SoA value, so
     // cells reverted (caleb 2026-05-12).
-
-    msOpen = loadTimer.elapsed();  // engine parse + initial state
 
     // Sync flow units from loaded model
     UnitSystem::instance()->syncFromEngine(m_engine);
@@ -885,7 +912,7 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
         }
     }
 
-    msParse = loadTimer.elapsed() - msOpen;  // node/link/catch/gage SoA copy
+    msParse = loadTimer.elapsed();  // node/link/catch/gage SoA copy
 
     // ---- CRS ----
     // Resolution order:
@@ -919,10 +946,10 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
         setSRS(layerSRS, true);
     }
 
-    msCrs = loadTimer.elapsed() - msOpen - msParse;  // CRS resolve + PROJ init
+    msCrs = loadTimer.elapsed() - msParse;  // CRS resolve + PROJ init
 
     buildGeometryCache();
-    msGeom = loadTimer.elapsed() - msOpen - msParse - msCrs;  // geometry cache
+    msGeom = loadTimer.elapsed() - msParse - msCrs;  // geometry cache
     m_needsRebuild = true;
     emit repaintRequested();  // ensure canvas redraws after geometry is ready
 
@@ -945,7 +972,7 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
         "crs_init=%4 geometry_cache=%5 total=%6")
         .arg(fi.fileName())
         .arg(msOpen).arg(msParse).arg(msCrs).arg(msGeom)
-        .arg(loadTimer.elapsed());
+        .arg(msOpen + loadTimer.elapsed());
     qDebug().noquote() << timing;
     warnings.append(timing);
 
