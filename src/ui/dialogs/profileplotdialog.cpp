@@ -458,15 +458,17 @@ void ProfilePlotDialog::buildLayout()
             this,   [this](int pathNodeIdx) {
         if (!m_model) return;
         if (pathNodeIdx < 0 || pathNodeIdx >= m_pathStatic.nodes.size()) return;
-        m_model->setSelectedElementNames(
-            QStringList{ m_pathStatic.nodes[pathNodeIdx].name });
+        m_model->setSelectedElements(
+            { { m_pathStatic.nodes[pathNodeIdx].name,
+                SWMMModelLayer::kKindNode } });
     });
     connect(m_plot, &ProfilePlotWidget::linkClicked,
             this,   [this](int pathLinkIdx) {
         if (!m_model) return;
         if (pathLinkIdx < 0 || pathLinkIdx >= m_pathStatic.links.size()) return;
-        m_model->setSelectedElementNames(
-            QStringList{ m_pathStatic.links[pathLinkIdx].name });
+        m_model->setSelectedElements(
+            { { m_pathStatic.links[pathLinkIdx].name,
+                SWMMModelLayer::kKindLink } });
     });
     // Blank-area click in the plot clears the selection on the bound model
     // layer, mirroring the deselect behaviour of an empty-area map click.
@@ -559,14 +561,14 @@ void ProfilePlotDialog::buildLayout()
     auto selectNode = [this](int idx) {
         if (!m_model) return;
         if (idx < 0 || idx >= m_pathStatic.nodes.size()) return;
-        m_model->setSelectedElementNames(
-            QStringList{ m_pathStatic.nodes[idx].name });
+        m_model->setSelectedElements(
+            { { m_pathStatic.nodes[idx].name, SWMMModelLayer::kKindNode } });
     };
     auto selectLink = [this](int idx) {
         if (!m_model) return;
         if (idx < 0 || idx >= m_pathStatic.links.size()) return;
-        m_model->setSelectedElementNames(
-            QStringList{ m_pathStatic.links[idx].name });
+        m_model->setSelectedElements(
+            { { m_pathStatic.links[idx].name, SWMMModelLayer::kKindLink } });
     };
     // Resolve the project's current flow-units enum into the
     // `openswmmvis::plot::UnitSystem` value the picker menu uses so the

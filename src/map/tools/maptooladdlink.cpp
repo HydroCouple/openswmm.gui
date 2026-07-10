@@ -343,7 +343,7 @@ void OpenSWMMVisMapToolAddLink::commit(SWMMModelLayer *layer,
     else
         delete cmd;
 
-    layer->setSelectedElementNames({name});
+    layer->setSelectedElements({{name, SWMMModelLayer::kKindLink}});
     emit linkAdded(name, m_linkType, m_fromNode, toNodeName);
 
     // Chain into a new link starting at the just-committed end node so the
