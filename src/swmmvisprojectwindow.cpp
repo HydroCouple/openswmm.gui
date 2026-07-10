@@ -52,6 +52,9 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFrame>
+#include <QFutureWatcher>
+#include <QPointer>
+#include <QtConcurrent/QtConcurrentRun>
 #include <QGraphicsScene>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -523,8 +526,66 @@ void SWMMVisProjectWindow::convertLinkOffsets(bool toElevation)
 
 bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &errors)
 {
-    const bool ok = mModelLayer->loadModel(warnings, errors);
-    if (ok)
+    if (!mModelLayer->loadModel(warnings, errors))
+        return false;
+    return finishModelLoad(warnings, errors);
+}
+
+void SWMMVisProjectWindow::loadModelAsync()
+{
+    // Engine create+open (the dominant load cost — full .inp parse) runs in a
+    // worker thread so the GUI stays responsive and the status-bar busy
+    // indicator actually animates. Everything that touches Qt state — SoA
+    // adoption, CRS resolution (may open a dialog), canvas zoom — happens
+    // back on the GUI thread in the watcher's finished handler.
+    struct AsyncOpenOutcome {
+        SWMM_Engine engine = nullptr;
+        QString     errorDetail;
+        qint64      openMs = 0;
+    };
+
+    const QString path = mModelLayer->modelFilePath();
+
+    // QPointer guards window teardown during the open: if this window is
+    // closed before the worker finishes, the handler destroys the orphaned
+    // engine instead of touching dead widgets.
+    QPointer<SWMMVisProjectWindow> self(this);
+    auto *watcher = new QFutureWatcher<AsyncOpenOutcome>();
+    QObject::connect(watcher, &QFutureWatcherBase::finished, watcher,
+                     [watcher, self]() {
+        const AsyncOpenOutcome outcome = watcher->result();
+        watcher->deleteLater();
+
+        if (!self) {
+            if (outcome.engine)
+                swmm_engine_destroy(outcome.engine);
+            return;
+        }
+
+        QList<QString> warnings, errors;
+        bool ok = false;
+        if (!outcome.engine) {
+            errors.append(outcome.errorDetail);
+        } else {
+            ok = self->mModelLayer->adoptOpenEngine(outcome.engine,
+                                                    warnings, errors,
+                                                    outcome.openMs)
+                 && self->finishModelLoad(warnings, errors);
+        }
+        emit self->modelLoadFinished(ok, warnings, errors);
+    });
+
+    watcher->setFuture(QtConcurrent::run([path]() {
+        AsyncOpenOutcome outcome;
+        outcome.engine = SWMMModelLayer::openEngineForPath(
+            path, &outcome.errorDetail, &outcome.openMs);
+        return outcome;
+    }));
+}
+
+bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QString> &errors)
+{
+    Q_UNUSED(warnings);
     {
         mHasChanges = false;
         updateWindowTitle();
@@ -751,7 +812,7 @@ bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &e
         });
         attempt->start();
     }
-    return ok;
+    return true;
 }
 
 // ---------------------------------------------------------------------------

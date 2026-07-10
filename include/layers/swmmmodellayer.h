@@ -214,6 +214,32 @@ public:
      */
     bool loadModel(QList<QString> &warnings, QList<QString> &errors);
 
+    /*!
+     * \brief Create + open an engine for \a path (worker-thread safe).
+     *
+     * Pure engine C-API calls — no QObject mutation, no signals — so it may
+     * run in a QtConcurrent worker while the GUI thread stays responsive.
+     * On failure returns nullptr and fills \a errorDetail with the engine's
+     * detailed diagnostic (section/line for parse errors).
+     *
+     * \param openMs  Optional out: elapsed open time in ms (for the load
+     *                timing log adoptOpenEngine() emits).
+     */
+    static SWMM_Engine openEngineForPath(const QString &path,
+                                         QString *errorDetail,
+                                         qint64 *openMs = nullptr);
+
+    /*!
+     * \brief Adopt an engine already opened by openEngineForPath() and rebuild
+     *        all geometry caches. GUI-thread only (mutates layer state and
+     *        emits signals).
+     * \param openMs  Engine-open elapsed ms as reported by openEngineForPath()
+     *                (-1 = unknown), folded into the timing log line.
+     */
+    bool adoptOpenEngine(SWMM_Engine engine,
+                         QList<QString> &warnings, QList<QString> &errors,
+                         qint64 openMs = -1);
+
     /** Close and destroy the engine, clearing all geometry caches. */
     void closeEngine();
 
