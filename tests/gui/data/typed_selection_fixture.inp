@@ -1,0 +1,94 @@
+[TITLE]
+Typed-selection fixture — commit a35798e (fix(selection): typed per-kind
+selection and visibility) + commit 82fc82b (feat(load): async model load).
+Covers the name-collision cases: a rain gage AND a subcatchment both named
+S1, and a junction AND a conduit both named X1. Coordinates are spread far
+apart so identifyAt() can unambiguously hit-test the gage point vs. the
+subcatchment polygon vs. the network elements.
+
+[OPTIONS]
+FLOW_UNITS       CFS
+INFILTRATION     HORTON
+FLOW_ROUTING     DYNWAVE
+LINK_OFFSETS     DEPTH
+MIN_SLOPE        0
+START_DATE       01/01/2026
+START_TIME       00:00:00
+REPORT_START_DATE 01/01/2026
+REPORT_START_TIME 00:00:00
+END_DATE         01/01/2026
+END_TIME         02:00:00
+REPORT_STEP      00:01:00
+ROUTING_STEP     00:00:30
+
+[MAP]
+DIMENSIONS -3000.000 -3000.000 3000.000 3000.000
+Units      Feet
+
+[RAINGAGES]
+;;Name           Format    Interval SCF      Source
+;;-------------- --------- -------- -------- ----------------
+S1               INTENSITY 1:00     1.0      TIMESERIES TS1
+
+[TIMESERIES]
+;;Name           Date       Time       Value
+;;-------------- ---------- ---------- ----------
+TS1                         0:00       0.0
+TS1                         1:00       0.0
+
+[JUNCTIONS]
+;;Name    Elev    MaxDepth    InitDepth    SurDepth    Aponded
+J1        100.0   10.0        0            0           0
+X1        95.0    10.0        0            0           0
+
+[OUTFALLS]
+;;Name    Elev    Type    StageData    Gated
+O1        90.0    FREE                 NO
+
+[SUBCATCHMENTS]
+;;Name           Rain Gage        Outlet           Area     %Imperv  Width    %Slope   CurbLen  SnowPack
+;;-------------- ---------------- ---------------- -------- -------- -------- -------- -------- ----------------
+S1               S1               J1               5.0      50       500      1        0
+
+[SUBAREAS]
+;;Subcatchment   N-Imperv   N-Perv     S-Imperv   S-Perv     PctZero    RouteTo    PctRouted
+;;-------------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+S1               0.015      0.24       0.06       0.3        25         OUTLET
+
+[INFILTRATION]
+;;Subcatchment   Param1     Param2     Param3     Param4     Param5
+;;-------------- ---------- ---------- ---------- ---------- ----------
+S1               4.5        0.2        6.5        7          0
+
+[CONDUITS]
+;;Name    From    To    Length    Roughness    InOffset    OutOffset    InitFlow    MaxFlow
+C1        J1      X1    1000.0    0.013        0           0            0           0
+X1        X1      O1    1000.0    0.013        0           0            0           0
+
+[XSECTIONS]
+;;Link    Shape       Geom1    Geom2    Geom3    Geom4    Barrels
+C1        CIRCULAR    1.0      0        0        0        1
+X1        CIRCULAR    1.0      0        0        0        1
+
+[COORDINATES]
+;;Node    X-Coord    Y-Coord
+J1        0.0        0.0
+X1        1000.0     0.0
+O1        2000.0     0.0
+
+[VERTICES]
+;;Link    X-Coord    Y-Coord
+C1        500.0      50.0
+
+[Polygons]
+;;Subcatchment   X-Coord            Y-Coord
+;;-------------- ------------------ ------------------
+S1               -2100.0            1900.0
+S1               -1900.0            1900.0
+S1               -1900.0            2100.0
+S1               -2100.0            2100.0
+
+[SYMBOLS]
+;;Gage           X-Coord            Y-Coord
+;;-------------- ------------------ ------------------
+S1               -2000.0            -2000.0
