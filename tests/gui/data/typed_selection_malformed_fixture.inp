@@ -1,0 +1,27 @@
+[TITLE]
+Malformed fixture — commit 82fc82b (feat(load): async model load) coverage.
+
+An unrecognized section header or a garbled numeric field is NOT fatal in
+this engine (unknown sections are skipped with a warning; unparsable
+numeric tokens fall back to a default) — neither reliably reaches
+swmm_engine_open()'s error path. [DWF] naming a node that is never defined
+anywhere else in the model DOES fail reliably: it parses fine at the raw
+section level, then fails during cross-reference resolution with a real
+ERR_NAME diagnostic ("undefined object GHOST."), exercising the
+swmm_get_last_error_msg() path SWMMModelLayer::openEngineForPath() prefers
+over the generic swmm_error_message(rc) fallback (which for this same
+return code previously read "Out of memory" — the regression the code
+comment there documents).
+
+[OPTIONS]
+FLOW_UNITS       CFS
+INFILTRATION     HORTON
+FLOW_ROUTING     DYNWAVE
+START_DATE       01/01/2026
+START_TIME       00:00:00
+END_DATE         01/01/2026
+END_TIME         01:00:00
+
+[DWF]
+;;Node           Constituent      Baseline
+GHOST            FLOW             1.0
