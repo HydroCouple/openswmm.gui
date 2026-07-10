@@ -615,6 +615,7 @@ void SWMMModelLayer::closeEngine()
     // Drop any per-object hides so opening a different model doesn't
     // accidentally hide a similarly-named object from the new project.
     m_hiddenObjects.clear();
+    m_hiddenKindMask.clear();
     // Per-category caches (populated in buildGeometryCache).
     for (auto &b : m_nodesByType) b.clear();
     for (auto &b : m_linksByType) b.clear();
@@ -1050,6 +1051,24 @@ bool SWMMModelLayer::isObjectVisible(const QString &name) const
     return !m_hiddenObjects.contains(name);
 }
 
+quint8 SWMMModelLayer::kindBitForCategory(Category c) noexcept
+{
+    const int i = int(c);
+    if (i >= int(CatJunctions) && i < int(CatJunctions) + 4) return kKindNode;
+    if (i >= int(CatConduits)  && i < int(CatConduits) + 5)  return kKindLink;
+    if (c == CatSubcatchments) return kKindCatch;
+    if (c == CatRainGages)     return kKindGage;
+    return 0;
+}
+
+bool SWMMModelLayer::isObjectVisible(const QString &name, Category c) const
+{
+    const auto it = m_hiddenKindMask.constFind(name);
+    if (it != m_hiddenKindMask.constEnd())
+        return !(it.value() & kindBitForCategory(c));
+    return !m_hiddenObjects.contains(name);
+}
+
 void SWMMModelLayer::setObjectVisible(const QString &name, bool visible)
 {
     // Single-object visibility toggle routed through the same per-category
@@ -1066,6 +1085,7 @@ void SWMMModelLayer::setObjectVisible(const QString &name, bool visible)
     {
         if (m_hiddenObjects.remove(name) > 0)
         {
+            m_hiddenKindMask.remove(name);
             if (knownCat && m_hiddenCountByCategory[cat] > 0)
                 --m_hiddenCountByCategory[cat];
             changed = true;
@@ -1073,7 +1093,10 @@ void SWMMModelLayer::setObjectVisible(const QString &name, bool visible)
     }
     else if (!m_hiddenObjects.contains(name))
     {
+        // Name-only entry point carries no type info — hide every kind
+        // bearing the name (legacy semantics).
         m_hiddenObjects.insert(name);
+        m_hiddenKindMask.insert(name, kKindAll);
         if (knownCat)
             ++m_hiddenCountByCategory[cat];
         changed = true;
@@ -1095,6 +1118,7 @@ void SWMMModelLayer::setObjectsVisible(const QList<QString> &names, bool visible
         {
             if (m_hiddenObjects.remove(n) > 0)
             {
+                m_hiddenKindMask.remove(n);
                 const auto it = m_objectLocation.constFind(n);
                 if (it != m_objectLocation.constEnd()
                     && m_hiddenCountByCategory[it->first] > 0)
@@ -1110,6 +1134,7 @@ void SWMMModelLayer::setObjectsVisible(const QList<QString> &names, bool visible
             if (!m_hiddenObjects.contains(n))
             {
                 m_hiddenObjects.insert(n);
+                m_hiddenKindMask.insert(n, kKindAll);
                 const auto it = m_objectLocation.constFind(n);
                 if (it != m_objectLocation.constEnd())
                     ++m_hiddenCountByCategory[it->first];
@@ -1630,17 +1655,34 @@ void SWMMModelLayer::setObjectVisibleAt(Category c, int row, bool visible)
     const QString name = objectNameAt(c, row);
     if (name.isEmpty()) return;
 
+    // Typed toggle: only this category's kind bit moves, so hiding a rain
+    // gage leaves a same-named subcatchment (separate SWMM namespace)
+    // visible, and vice versa.
+    const quint8 bit = kindBitForCategory(c);
+
     bool changed = false;
     if (visible)
     {
-        if (m_hiddenObjects.remove(name) > 0)
+        auto it = m_hiddenKindMask.find(name);
+        // Defensive: membership without a mask entry (state predating the
+        // mask, or an unmigrated path) means "all kinds hidden".
+        if (it == m_hiddenKindMask.end() && m_hiddenObjects.contains(name))
+            it = m_hiddenKindMask.insert(name, kKindAll);
+        if (it != m_hiddenKindMask.end() && (it.value() & bit))
         {
+            it.value() &= ~bit;
+            if (it.value() == 0)
+            {
+                m_hiddenKindMask.erase(it);
+                m_hiddenObjects.remove(name);
+            }
             if (m_hiddenCountByCategory[c] > 0) --m_hiddenCountByCategory[c];
             changed = true;
         }
     }
-    else if (!m_hiddenObjects.contains(name))
+    else if (!(m_hiddenKindMask.value(name, 0) & bit))
     {
+        m_hiddenKindMask[name] |= bit;
         m_hiddenObjects.insert(name);
         ++m_hiddenCountByCategory[c];
         changed = true;
@@ -1658,6 +1700,8 @@ void SWMMModelLayer::setCategoryVisible(Category c, bool visible)
     const int total = categoryCount(c);
     if (total <= 0) return;
 
+    const quint8 bit = kindBitForCategory(c);
+
     bool changed = false;
     for (int r = 0; r < total; ++r)
     {
@@ -1665,10 +1709,23 @@ void SWMMModelLayer::setCategoryVisible(Category c, bool visible)
         if (name.isEmpty()) continue;
         if (visible)
         {
-            if (m_hiddenObjects.remove(name) > 0) changed = true;
+            auto it = m_hiddenKindMask.find(name);
+            if (it == m_hiddenKindMask.end() && m_hiddenObjects.contains(name))
+                it = m_hiddenKindMask.insert(name, kKindAll);
+            if (it != m_hiddenKindMask.end() && (it.value() & bit))
+            {
+                it.value() &= ~bit;
+                if (it.value() == 0)
+                {
+                    m_hiddenKindMask.erase(it);
+                    m_hiddenObjects.remove(name);
+                }
+                changed = true;
+            }
         }
-        else if (!m_hiddenObjects.contains(name))
+        else if (!(m_hiddenKindMask.value(name, 0) & bit))
         {
+            m_hiddenKindMask[name] |= bit;
             m_hiddenObjects.insert(name);
             changed = true;
         }
@@ -2761,12 +2818,24 @@ void SWMMModelLayer::resetKindRendererToDefaults(Category c)
 
 QStringList SWMMModelLayer::selectedElementNames() const { return m_selectedNames; }
 
-void SWMMModelLayer::setSelectedElementNames(const QStringList &names)
+void SWMMModelLayer::setSelectedElements(const QVector<SelectedElement> &sel)
 {
-    if (names == m_selectedNames)
+    if (sel == m_selectedElements)
         return;
     QElapsedTimer t; t.start();
-    m_selectedNames = names;
+    m_selectedElements = sel;
+    // Derived mirrors: ordered names for legacy readers + the signal
+    // payload, per-name kind mask for the O(1) flag rebuild.
+    m_selectedNames.clear();
+    m_selectedNames.reserve(sel.size());
+    m_selectedKindMask.clear();
+    m_selectedKindMask.reserve(sel.size());
+    for (const SelectedElement &e : sel) {
+        quint8 &m = m_selectedKindMask[e.name];
+        if (m == 0)
+            m_selectedNames.append(e.name);   // first occurrence keeps order
+        m |= e.kinds;
+    }
     rebuildFlagArrays();
     const qint64 t_flags = t.elapsed();
     // Selection does not change geometry — SWMMLayerItem::paint() reads
@@ -2774,13 +2843,24 @@ void SWMMModelLayer::setSelectedElementNames(const QStringList &names)
     // Flipping m_needsRebuild here would force depopulate/populate of the
     // batched layer item on every rubber-band tick (see refreshScene()),
     // which is the dominant cost on large models (100k+ links).
-    emit selectionChanged(names);
+    emit selectionChanged(m_selectedNames);
     const qint64 t_emit = t.elapsed() - t_flags;
     emit repaintRequested();
-    qDebug().noquote() << "[setSelectedElementNames] count=" << names.size()
+    qDebug().noquote() << "[setSelectedElements] count=" << sel.size()
                        << " flags_ms=" << t_flags
                        << " emit_ms=" << t_emit
                        << " total_ms=" << t.elapsed();
+}
+
+void SWMMModelLayer::setSelectedElementNames(const QStringList &names)
+{
+    // Legacy name-only form — no kind information, so each name selects
+    // every kind bearing it.
+    QVector<SelectedElement> sel;
+    sel.reserve(names.size());
+    for (const QString &n : names)
+        sel.append({n, kKindAll});
+    setSelectedElements(sel);
 }
 
 void SWMMModelLayer::clearSelection()
@@ -3076,6 +3156,15 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
     const double linkTolerLayer = tolerLayer / 3.0;
     QVariantMap best;
 
+    // Typed hidden test — hit-testing must skip only the KIND that is
+    // hidden. The old name-based check made a same-named gage
+    // unselectable whenever its subcatchment was hidden (and vice versa).
+    const auto hiddenKind = [this](const QString &n, quint8 bit) -> bool {
+        const auto it = m_hiddenKindMask.constFind(n);
+        if (it != m_hiddenKindMask.constEnd()) return (it.value() & bit) != 0;
+        return m_hiddenObjects.contains(n);
+    };
+
     // --- Tier 1: nodes + gages (KD-tree O(log N + k)) -------------------
     {
         ensureKdTrees();
@@ -3084,7 +3173,7 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
 
         auto searchTree = [&](const Kd2 *tree,
                               const QVector<NodeGeom> &src,
-                              const char *elemType)
+                              const char *elemType, quint8 kindBit)
         {
             if (!tree || src.isEmpty()) return;
             std::vector<nanoflann::ResultItem<uint32_t, double>> matches;
@@ -3094,7 +3183,7 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
             {
                 if (hit.second >= bestDist2) continue;
                 const int i = static_cast<int>(hit.first);
-                if (m_hiddenObjects.contains(src[i].name)) continue;
+                if (hiddenKind(src[i].name, kindBit)) continue;
                 bestDist2 = hit.second;
                 best.clear();
                 best[QStringLiteral("elementType")] = QString::fromLatin1(elemType);
@@ -3106,16 +3195,17 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
 
         const Kd2 *nodeTree = m_kdTrees ? m_kdTrees->nodeTree.get() : nullptr;
         const Kd2 *gageTree = m_kdTrees ? m_kdTrees->gageTree.get() : nullptr;
-        searchTree(nodeTree, m_nodes, "Node");
-        searchTree(gageTree, m_gages, "RainGage");
+        searchTree(nodeTree, m_nodes, "Node",     kKindNode);
+        searchTree(gageTree, m_gages, "RainGage", kKindGage);
 
         // Safety net: if the KD-tree yielded nothing, linear-scan so a stale
         // or empty index can never make point-feature selection silently
         // fail. Only runs on a miss, so the fast path is unaffected.
         if (best.isEmpty()) {
-            auto scan = [&](const QVector<NodeGeom> &src, const char *elemType) {
+            auto scan = [&](const QVector<NodeGeom> &src, const char *elemType,
+                            quint8 kindBit) {
                 for (int i = 0; i < src.size(); ++i) {
-                    if (m_hiddenObjects.contains(src[i].name)) continue;
+                    if (hiddenKind(src[i].name, kindBit)) continue;
                     const double dx = src[i].x - clickLX;
                     const double dy = src[i].y - clickLY;
                     const double d2 = dx * dx + dy * dy;
@@ -3129,8 +3219,8 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
                     }
                 }
             };
-            scan(m_nodes, "Node");
-            scan(m_gages, "RainGage");
+            scan(m_nodes, "Node",     kKindNode);
+            scan(m_gages, "RainGage", kKindGage);
         }
 
         if (!best.isEmpty()) return best;
@@ -3156,9 +3246,9 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
                 lastLinkName    = l.name;
                 lastLinkFromIdx = l.fromNodeIdx;
                 lastLinkToIdx   = l.toNodeIdx;
-                lastLinkHidden  = m_hiddenObjects.contains(l.name);
+                lastLinkHidden  = hiddenKind(l.name, kKindLink);
             }
-            if (m_hiddenObjects.contains(l.name)) continue;
+            if (hiddenKind(l.name, kKindLink)) continue;
             const QVector<QPointF> verts = cachedLinkPolyline(li);
             if (li == lastLi) lastLinkSegCount = std::max(0, int(verts.size()) - 1);
             for (int i = 1; i < verts.size(); ++i)
@@ -3203,7 +3293,7 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
     // --- Tier 3: subcatchments (point-in-polygon) ----------------------
     for (const CatchGeom &c : m_catchments)
     {
-        if (m_hiddenObjects.contains(c.name)) continue;
+        if (hiddenKind(c.name, kKindCatch)) continue;
         const auto &v = c.vertices;
         if (v.size() < 3) continue;
         bool inside = false;
@@ -4322,9 +4412,21 @@ bool SWMMModelLayer::applyRename(const QString &oldName, const QString &newName)
         if (catchIdx < m_catchments.size()) m_catchments[catchIdx].name = newName;
     }
 
-    // Update selection set if the renamed element was selected.
+    // Update selection stores if the renamed element was selected. All
+    // three (ordered typed vector, names mirror, kind mask) must move
+    // together or the flag rebuild diverges from the visible selection.
     if (m_selectedNames.removeOne(oldName))
         m_selectedNames.append(newName);
+    for (SelectedElement &e : m_selectedElements)
+        if (e.name == oldName) e.name = newName;
+    {
+        const auto it = m_selectedKindMask.constFind(oldName);
+        if (it != m_selectedKindMask.constEnd()) {
+            const quint8 v = it.value();
+            m_selectedKindMask.remove(oldName);
+            m_selectedKindMask[newName] |= v;
+        }
+    }
 
     // Geometry is unchanged — only name-keyed indices need patching.
     // O(1) hash swap rather than full buildGeometryCache (which would
@@ -5579,32 +5681,52 @@ void SWMMModelLayer::rebuildFlagArrays()
     m_catchHiddenFlag  .assign(m_catchments.size(),0);
     m_gageHiddenFlag   .assign(m_gages.size(),     0);
 
-    auto setFlag = [this](const QString &name, bool selectedNotHidden) {
-        const auto it = m_nameToSoa.constFind(name);
-        if (it == m_nameToSoa.constEnd()) return;
-        const int idx = it.value().soaIdx;
-        switch (it.value().kind) {
-        case SoaKind::Node:
-            if (size_t(idx) < (selectedNotHidden ? m_nodeSelectedFlag : m_nodeHiddenFlag).size())
-                (selectedNotHidden ? m_nodeSelectedFlag : m_nodeHiddenFlag)[idx] = 1;
-            break;
-        case SoaKind::Link:
-            if (size_t(idx) < (selectedNotHidden ? m_linkSelectedFlag : m_linkHiddenFlag).size())
-                (selectedNotHidden ? m_linkSelectedFlag : m_linkHiddenFlag)[idx] = 1;
-            break;
-        case SoaKind::Catch:
-            if (size_t(idx) < (selectedNotHidden ? m_catchSelectedFlag : m_catchHiddenFlag).size())
-                (selectedNotHidden ? m_catchSelectedFlag : m_catchHiddenFlag)[idx] = 1;
-            break;
-        case SoaKind::Gage:
-            if (size_t(idx) < (selectedNotHidden ? m_gageSelectedFlag : m_gageHiddenFlag).size())
-                (selectedNotHidden ? m_gageSelectedFlag : m_gageHiddenFlag)[idx] = 1;
-            break;
-        }
+    if (m_selectedNames.isEmpty() && m_hiddenObjects.isEmpty())
+        return;
+
+    // SWMM object names are per-type namespaces — a node, link, subcatchment
+    // and rain gage may legally share one name (and generated models often
+    // pair every subcatchment with a same-named gage). Resolving through the
+    // single-keyed m_nameToSoa flagged only the hash winner: gages shadowed
+    // same-named subcatchments (inserted later) and nodes shadow same-named
+    // links (explicit preference), so selecting a subcatchment highlighted
+    // its gage glyph at the centroid instead of the polygon. Resolve against
+    // EVERY kind instead; the zeroing assign()s above already make this
+    // function O(N), and the per-element set lookup keeps that bound.
+    // Both selection and hidden state are typed: a name's mask says WHICH
+    // kinds the state applies to, so selecting or hiding rain gage "S1"
+    // doesn't touch subcatchment "S1". Hidden membership without a mask
+    // entry is legacy state — treat as all kinds hidden.
+    const auto selBits = [this](const QString &n) -> quint8 {
+        return m_selectedKindMask.value(n, 0);
+    };
+    const auto hiddenBits = [this](const QString &n) -> quint8 {
+        const auto it = m_hiddenKindMask.constFind(n);
+        if (it != m_hiddenKindMask.constEnd()) return it.value();
+        return m_hiddenObjects.contains(n) ? kKindAll : quint8(0);
     };
 
-    for (const QString &n : m_selectedNames)  setFlag(n, true);
-    for (const QString &n : m_hiddenObjects)  setFlag(n, false);
+    for (int i = 0; i < m_nodes.size(); ++i) {
+        const QString &n = m_nodes[i].name;
+        if (selBits(n) & kKindNode)      m_nodeSelectedFlag[i] = 1;
+        if (hiddenBits(n) & kKindNode)   m_nodeHiddenFlag[i]   = 1;
+    }
+    for (int i = 0; i < m_links.size(); ++i) {
+        const QString &n = m_links[i].name;
+        if (selBits(n) & kKindLink)      m_linkSelectedFlag[i] = 1;
+        if (hiddenBits(n) & kKindLink)   m_linkHiddenFlag[i]   = 1;
+    }
+    for (int i = 0; i < m_catchments.size(); ++i) {
+        const QString &n = m_catchments[i].name;
+        if (selBits(n) & kKindCatch)     m_catchSelectedFlag[i] = 1;
+        if (hiddenBits(n) & kKindCatch)  m_catchHiddenFlag[i]   = 1;
+    }
+    for (int i = 0; i < m_gages.size(); ++i) {
+        const QString &n = m_gages[i].name;
+        if (selBits(n) & kKindGage)      m_gageSelectedFlag[i] = 1;
+        if (hiddenBits(n) & kKindGage)   m_gageHiddenFlag[i]   = 1;
+    }
+
 }
 
 void SWMMModelLayer::rebuildSceneCoords()
@@ -5926,6 +6048,12 @@ void SWMMModelLayer::renameInIndices(const QString &oldName,
     }
     if (m_hiddenObjects.remove(oldName))
         m_hiddenObjects.insert(newName);
+    const auto mask = m_hiddenKindMask.constFind(oldName);
+    if (mask != m_hiddenKindMask.constEnd()) {
+        const quint8 v = mask.value();
+        m_hiddenKindMask.remove(oldName);
+        m_hiddenKindMask.insert(newName, v);
+    }
 }
 
 void SWMMModelLayer::recomputeExtentFromCaches()

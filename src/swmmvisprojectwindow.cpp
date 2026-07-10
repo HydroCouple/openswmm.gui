@@ -617,34 +617,51 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
                              const QSet<SWMMObjectRef> &, const QSet<SWMMObjectRef> &) {
                     if (*busy) return;
                     *busy = true;
-                    QStringList names;
-                    names.reserve(current.size());
+                    // Typed hand-off: SWMM names are per-type namespaces, so
+                    // each ref carries its kind into the layer — selecting a
+                    // subcatchment in the Object Browser must not light up a
+                    // same-named rain gage on the map.
+                    QVector<SWMMModelLayer::SelectedElement> sel;
+                    sel.reserve(current.size());
                     for (const SWMMObjectRef &r : current) {
+                        quint8 kind = 0;
                         switch (r.objectType) {
                         case SWMMObjectRef::Node:
+                            kind = SWMMModelLayer::kKindNode;  break;
                         case SWMMObjectRef::Link:
+                            kind = SWMMModelLayer::kKindLink;  break;
                         case SWMMObjectRef::Subcatchment:
+                            kind = SWMMModelLayer::kKindCatch; break;
                         case SWMMObjectRef::RainGage:
-                            break;
+                            kind = SWMMModelLayer::kKindGage;  break;
                         default:
                             continue;
                         }
-                        names.append(r.name);
+                        sel.append({r.name, kind});
                     }
-                    mModelLayer->setSelectedElementNames(names);
+                    mModelLayer->setSelectedElements(sel);
                     *busy = false;
                 });
         connect(mModelLayer, &SWMMModelLayer::selectionChanged, this,
-                [this, busy](const QStringList &names) {
+                [this, busy](const QStringList &) {
                     if (*busy) return;
                     *busy = true;
+                    // Read the layer's TYPED selection rather than deriving a
+                    // kind per name (objectTypeFor is a single-keyed hash that
+                    // picks an arbitrary winner for names shared across kinds).
                     QSet<SWMMObjectRef> refs;
-                    refs.reserve(names.size());
-                    for (const QString &n : names)
+                    const auto &sel = mModelLayer->selectedElements();
+                    refs.reserve(sel.size());
+                    for (const auto &e : sel)
                     {
-                        const int t = mModelLayer->objectTypeFor(n);
-                        if (t == 0) continue;
-                        refs.insert({static_cast<SWMMObjectRef::ObjectType>(t), n});
+                        if (e.kinds & SWMMModelLayer::kKindNode)
+                            refs.insert({SWMMObjectRef::Node, e.name});
+                        if (e.kinds & SWMMModelLayer::kKindLink)
+                            refs.insert({SWMMObjectRef::Link, e.name});
+                        if (e.kinds & SWMMModelLayer::kKindCatch)
+                            refs.insert({SWMMObjectRef::Subcatchment, e.name});
+                        if (e.kinds & SWMMModelLayer::kKindGage)
+                            refs.insert({SWMMObjectRef::RainGage, e.name});
                     }
                     mSelectionManager->select(refs, SelectionManager::Replace);
                     *busy = false;
