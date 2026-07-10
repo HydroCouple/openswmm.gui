@@ -4223,10 +4223,31 @@ void SWMMVis::openSingleINP(const QString &filePath)
 
     ui->mdiAreaCentral->addSubWindow(window);
 
-    QList<QString> warnings, errors;
+    // Non-blocking load: the engine open (full .inp parse — the dominant
+    // cost) runs in a worker thread while the event loop keeps the UI
+    // responsive and the indeterminate status-bar progress bar animating.
+    // Everything that used to follow the synchronous loadModel() call lives
+    // in finalizeSingleINPOpen(), invoked exactly once on completion.
     onSetProgressBarBusy(true);
-    const bool ok = window->loadModel(warnings, errors);
+    statusBar()->showMessage(
+        tr("Loading %1…").arg(QFileInfo(filePath).fileName()));
+    connect(window, &SWMMVisProjectWindow::modelLoadFinished, this,
+            [this, window, filePath](bool ok, const QList<QString> &warnings,
+                                     const QList<QString> &errors) {
+                finalizeSingleINPOpen(window, filePath, ok, warnings, errors);
+            },
+            static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+    window->loadModelAsync();
+}
+
+void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
+                                    const QString &filePath,
+                                    bool ok,
+                                    const QList<QString> &warnings,
+                                    const QList<QString> &errors)
+{
     onSetProgressBarBusy(false);
+    statusBar()->clearMessage();
 
     for (const QString &w : warnings)
         onLogMessage(w, OpenSWMMVisLogMessage::LogMessageType::Warning);

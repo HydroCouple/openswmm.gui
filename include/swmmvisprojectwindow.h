@@ -87,6 +87,17 @@ public:
 
     bool loadModel(QList<QString> &warnings, QList<QString> &errors);
 
+    /*!
+     * \brief Non-blocking variant of loadModel().
+     *
+     * Runs the engine create+open (the dominant cost — full .inp parse) in a
+     * QtConcurrent worker so the GUI event loop stays responsive; completes
+     * the load (SoA adoption, CRS resolution, canvas zoom) on the GUI thread
+     * and then emits modelLoadFinished(). Safe against the window being
+     * closed mid-load.
+     */
+    void loadModelAsync();
+
     /**
      * @brief Save the model to its current path or to a new path.
      * @return true on success.
@@ -311,6 +322,13 @@ public:
 signals:
     void modelLoaded();
     void modelLoadError(const QString &msg);
+
+    /*! Completion signal for loadModelAsync(): fired exactly once per call,
+     *  on the GUI thread, after the model is fully adopted (success) or the
+     *  open failed. Warnings/errors carry the same diagnostics the sync
+     *  loadModel() returns via out-params. */
+    void modelLoadFinished(bool ok, const QList<QString> &warnings,
+                           const QList<QString> &errors);
     void hasChangesChanged(bool dirty);
     void editSessionChanged(bool active);
     void offsetModeChanged(bool elevation);
@@ -372,6 +390,11 @@ private:
     void updateWindowTitle();
     void repositionMeasurePanel();
     void updateMeasureUnitCombo();
+
+    /*! Post-open completion shared by loadModel() and loadModelAsync():
+     *  engine option sync, selection bridge, CRS adoption (may prompt),
+     *  zoom-to-extent. GUI thread only. */
+    bool finishModelLoad(QList<QString> &warnings, QList<QString> &errors);
 
     /*! Mirror the current MeshCell selection onto the active 2D results layer
      *  (and clear it off all other 2D results layers). Driven by selection
