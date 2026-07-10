@@ -132,7 +132,7 @@ void OpenSWMMVisMapToolAddNode::mousePressEvent(QMouseEvent *event)
     else
         delete cmd;
 
-    layer->setSelectedElementNames({name});
+    layer->setSelectedElements({{name, SWMMModelLayer::kKindNode}});
     emit nodeAdded(name, m_nodeType, px, py);
 
     m_snap = {};

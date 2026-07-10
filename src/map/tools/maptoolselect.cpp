@@ -21,6 +21,7 @@
 
 #include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_gages.h>
 
 #include <QAction>
 #include <QDebug>
@@ -39,6 +40,33 @@
 #include <openswmm/engine/openswmm_engine.h>
 
 #include <algorithm>
+
+namespace {
+// identifyAt "elementType" string → SWMMModelLayer kind bit. SWMM names
+// are per-type namespaces, so selection carries the kind of the object
+// that was actually hit. Unknown strings fall back to all kinds (legacy
+// name-wide behaviour) rather than silently selecting nothing.
+quint8 kindBitForElementType(const QString &t)
+{
+    if (t == QLatin1String("Node"))         return SWMMModelLayer::kKindNode;
+    if (t == QLatin1String("Link"))         return SWMMModelLayer::kKindLink;
+    if (t == QLatin1String("Subcatchment")) return SWMMModelLayer::kKindCatch;
+    if (t == QLatin1String("RainGage"))     return SWMMModelLayer::kKindGage;
+    return SWMMModelLayer::kKindAll;
+}
+
+// SWMMObjectRef::ObjectType → kind bit (context-menu paths hold typed refs).
+quint8 kindBitForObjectType(int objectType)
+{
+    switch (objectType) {
+    case SWMMObjectRef::Node:         return SWMMModelLayer::kKindNode;
+    case SWMMObjectRef::Link:         return SWMMModelLayer::kKindLink;
+    case SWMMObjectRef::Subcatchment: return SWMMModelLayer::kKindCatch;
+    case SWMMObjectRef::RainGage:     return SWMMModelLayer::kKindGage;
+    default:                          return SWMMModelLayer::kKindAll;
+    }
+}
+} // namespace
 
 OpenSWMMVisMapToolSelect::OpenSWMMVisMapToolSelect(MapCanvas *canvas, QObject *parent)
     : OpenSWMMVisMapTool(QStringLiteral("Select"), canvas, parent)
@@ -617,74 +645,55 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
     }
     if (!sl) return;
 
-    const QStringList selected = sl->selectedElementNames();
+    const QVector<SWMMModelLayer::SelectedElement> selected = sl->selectedElements();
     if (selected.isEmpty()) return;
 
-    // Classify each selected object.
+    // Classify each selected object from its TYPED kind bits — SWMM names
+    // are per-type namespaces, so classifying by name (findObjectLocation,
+    // a single-keyed hash) could delete a same-named object of the wrong
+    // kind. Each kind bit is validated against the engine/SoA so stale or
+    // legacy all-kind entries never enqueue phantom deletes.
     struct ObjInfo { QString name; DeleteObjectCommand::TargetKind kind; };
     QList<ObjInfo> toDelete;
-    QSet<QString> nodeNames;   // names of selected nodes
+    QSet<QString> nodeNames;   // names of selected (existing) nodes
     QSet<QString> skipLinks;   // link names that will cascade-delete
 
-    // First pass: identify nodes and their cascade links.
-    for (const QString &name : selected) {
-        SWMMModelLayer::Category cat;
-        int soaIdx = -1;
-        if (!sl->findObjectLocation(name, &cat, &soaIdx)) continue;
+    SWMM_Engine eng = sl->engine();
 
-        if (cat == SWMMModelLayer::CatJunctions  ||
-            cat == SWMMModelLayer::CatOutfalls    ||
-            cat == SWMMModelLayer::CatStorage     ||
-            cat == SWMMModelLayer::CatDividers)
-        {
-            nodeNames.insert(name);
-            // Find cascade links.
-            SWMM_Engine eng = sl->engine();
-            const int ni = sl->nodeIndex(name);
-            if (ni >= 0) {
-                const int nLinks = swmm_link_count(eng);
-                for (int li = 0; li < nLinks; ++li) {
-                    int n1 = -1, n2 = -1;
-                    swmm_link_get_from_node(eng, li, &n1);
-                    swmm_link_get_to_node(eng, li, &n2);
-                    if (n1 == ni || n2 == ni) {
-                        const char *lid = swmm_link_id(eng, li);
-                        if (lid) skipLinks.insert(QString::fromUtf8(lid));
-                    }
-                }
+    // First pass: identify nodes and their cascade links.
+    for (const auto &e : selected) {
+        if (!(e.kinds & SWMMModelLayer::kKindNode)) continue;
+        const int ni = sl->nodeIndex(e.name);
+        if (ni < 0) continue;
+        nodeNames.insert(e.name);
+        // Find cascade links.
+        const int nLinks = swmm_link_count(eng);
+        for (int li = 0; li < nLinks; ++li) {
+            int n1 = -1, n2 = -1;
+            swmm_link_get_from_node(eng, li, &n1);
+            swmm_link_get_to_node(eng, li, &n2);
+            if (n1 == ni || n2 == ni) {
+                const char *lid = swmm_link_id(eng, li);
+                if (lid) skipLinks.insert(QString::fromUtf8(lid));
             }
         }
     }
 
     // Second pass: build the delete list, excluding cascade-handled links.
-    for (const QString &name : selected) {
-        SWMMModelLayer::Category cat;
-        int soaIdx = -1;
-        if (!sl->findObjectLocation(name, &cat, &soaIdx)) continue;
-
-        DeleteObjectCommand::TargetKind kind;
-        if (cat == SWMMModelLayer::CatJunctions  ||
-            cat == SWMMModelLayer::CatOutfalls    ||
-            cat == SWMMModelLayer::CatStorage     ||
-            cat == SWMMModelLayer::CatDividers)
-        {
-            kind = DeleteObjectCommand::DeleteNode;
-        } else if (cat == SWMMModelLayer::CatConduits ||
-                   cat == SWMMModelLayer::CatPumps    ||
-                   cat == SWMMModelLayer::CatOrifices ||
-                   cat == SWMMModelLayer::CatWeirs    ||
-                   cat == SWMMModelLayer::CatOutlets)
-        {
-            if (skipLinks.contains(name)) continue; // handled by node cascade
-            kind = DeleteObjectCommand::DeleteLink;
-        } else if (cat == SWMMModelLayer::CatRainGages) {
-            kind = DeleteObjectCommand::DeleteGage;
-        } else if (cat == SWMMModelLayer::CatSubcatchments) {
-            kind = DeleteObjectCommand::DeleteSubcatch;
-        } else {
-            continue;
-        }
-        toDelete.append({name, kind});
+    for (const auto &e : selected) {
+        const QByteArray id = e.name.toUtf8();
+        if ((e.kinds & SWMMModelLayer::kKindNode) && nodeNames.contains(e.name))
+            toDelete.append({e.name, DeleteObjectCommand::DeleteNode});
+        if ((e.kinds & SWMMModelLayer::kKindLink)
+            && !skipLinks.contains(e.name)
+            && sl->linkIndex(e.name) >= 0)
+            toDelete.append({e.name, DeleteObjectCommand::DeleteLink});
+        if ((e.kinds & SWMMModelLayer::kKindGage)
+            && eng && swmm_gage_index(eng, id.constData()) >= 0)
+            toDelete.append({e.name, DeleteObjectCommand::DeleteGage});
+        if ((e.kinds & SWMMModelLayer::kKindCatch)
+            && eng && swmm_subcatch_index(eng, id.constData()) >= 0)
+            toDelete.append({e.name, DeleteObjectCommand::DeleteSubcatch});
     }
 
     if (toDelete.isEmpty()) return;
@@ -921,17 +930,29 @@ void OpenSWMMVisMapToolSelect::selectAtPoint(const QPoint &pixel,
             const QVariantMap hit = sl->identifyAt(mapX, mapY, nullptr, tol);
             const QString name = hit.value(QStringLiteral("elementName")).toString();
             if (name.isEmpty()) continue;
+            // Typed pick: the hit knows WHICH kind was clicked, and SWMM
+            // names are per-type namespaces (a gage and a subcatchment may
+            // share a name) — carrying the kind keeps a subcatchment click
+            // from also selecting its same-named gage.
+            const quint8 kind = kindBitForElementType(
+                hit.value(QStringLiteral("elementType")).toString());
 
-            QStringList names = sl->selectedElementNames();
+            QVector<SWMMModelLayer::SelectedElement> sel = sl->selectedElements();
             if (mods & Qt::ShiftModifier) {
-                if (!names.contains(name)) names << name;
+                bool merged = false;
+                for (auto &e : sel)
+                    if (e.name == name) { e.kinds |= kind; merged = true; break; }
+                if (!merged) sel.append({name, kind});
             } else if (mods & Qt::ControlModifier) {
-                names.removeAll(name);
+                for (int i = sel.size() - 1; i >= 0; --i) {
+                    if (sel[i].name != name) continue;
+                    sel[i].kinds &= ~kind;
+                    if (sel[i].kinds == 0) sel.remove(i);
+                }
             } else {
-                names.clear();
-                names << name;
+                sel = { {name, kind} };
             }
-            sl->setSelectedElementNames(names);
+            sl->setSelectedElements(sel);
             emit selectionChanged(sl);
             return;   // one click selects one object across all layers
         }
@@ -1011,44 +1032,19 @@ void OpenSWMMVisMapToolSelect::selectInRect(const QRect &pixelRect,
 
         if (auto *sl = qobject_cast<SWMMModelLayer *>(l))
         {
-            // SWMM rubber-band select: walk the SoA, accept anything
-            // whose representative point/bbox falls in the rect. This
-            // is the naive O(N) path; the Slice R spatial-index follow-up
-            // will route it through queryInRect for millions-of-points
-            // scaling.
-            QSet<QString> hits;
-            for (const auto &n : sl->selectedElementNames()) hits.insert(n);
-
-            // Reset in replace-mode; otherwise fold into the existing set.
-            if (!(mods & (Qt::ShiftModifier | Qt::ControlModifier)))
-                hits.clear();
-
-            // Walk each category row-wise; O(N) across all kinds, which
-            // is the naive path until the Slice R spatial-index
-            // follow-up lands a queryInRect on the layer. `isHit` is
-            // the per-feature predicate (point-in-rect for nodes/gages,
-            // bbox-overlap for links/subcatchments).
-            auto sweepCategory = [&](SWMMModelLayer::Category c,
-                                     auto isHit) {
-                const int rows = sl->categoryCount(c);
-                for (int r = 0; r < rows; ++r) {
-                    const QString name = sl->objectNameAt(c, r);
-                    if (name.isEmpty()) continue;
-                    if (isHit(name))
-                        hits.insert(name);
-                }
-            };
-
-            // All four kinds use accelerated layer-side rect queries so
-            // a big-model rubber-band stays interactive:
+            // SWMM rubber-band select. All four kinds use accelerated
+            // layer-side rect queries so a big-model rubber-band stays
+            // interactive:
             //   - Nodes / Gages: nanoflann KD-tree → O(log N + k).
             //   - Links / Subcatchments: cached per-feature bboxes →
-            //     O(N) with constant work per item, replacing the
-            //     previous O(N²) name → linkIndex linear-scan + per-
-            //     iteration vertex bbox compute.
+            //     O(N) with constant work per item.
             //   The layer methods also apply the inverse CRS transform
             //   internally so canvas-CRS click coords match against
             //   layer-CRS feature positions correctly.
+            // The queries are per-kind, and the selection stays typed —
+            // SWMM names are per-type namespaces, so a rect over a
+            // subcatchment must not also select its same-named gage
+            // unless the gage point itself is inside the rect.
             QElapsedTimer t; t.start();
             const auto nh = sl->nodesInRect(minX, minY, maxX, maxY);
             const qint64 t_n = t.elapsed();
@@ -1058,26 +1054,47 @@ void OpenSWMMVisMapToolSelect::selectInRect(const QRect &pixelRect,
             const qint64 t_l = t.elapsed() - t_n - t_g;
             const auto sh = sl->subcatchmentsInRect(minX, minY, maxX, maxY);
             const qint64 t_s = t.elapsed() - t_n - t_g - t_l;
-            for (const QString &name : nh) hits.insert(name);
-            for (const QString &name : gh) hits.insert(name);
-            for (const QString &name : lh) hits.insert(name);
-            for (const QString &name : sh) hits.insert(name);
             qDebug().noquote() << "[selectInRect] nodes=" << nh.size() << "(" << t_n << "ms)"
                                << " gages=" << gh.size() << "(" << t_g << "ms)"
                                << " links=" << lh.size() << "(" << t_l << "ms)"
-                               << " subc="  << sh.size() << "(" << t_s << "ms)"
-                               << " hits_total=" << hits.size();
-            Q_UNUSED(sweepCategory);   // retained above for any future per-category fallback
+                               << " subc="  << sh.size() << "(" << t_s << "ms)";
 
-            // Ctrl-rubber-band removes hits from the existing selection.
-            QStringList result;
+            QVector<SWMMModelLayer::SelectedElement> sel;
             if (mods & Qt::ControlModifier) {
-                for (const auto &n : sl->selectedElementNames())
-                    if (!hits.contains(n)) result << n;
+                // Ctrl-rubber-band removes hit kinds from the existing
+                // selection (entries emptied of every kind drop out).
+                QHash<QString, quint8> hitBits;
+                const auto collect = [&hitBits](const QStringList &names, quint8 kind) {
+                    for (const QString &n : names) hitBits[n] |= kind;
+                };
+                collect(nh, SWMMModelLayer::kKindNode);
+                collect(gh, SWMMModelLayer::kKindGage);
+                collect(lh, SWMMModelLayer::kKindLink);
+                collect(sh, SWMMModelLayer::kKindCatch);
+                for (const auto &e : sl->selectedElements()) {
+                    const quint8 kinds = e.kinds & ~hitBits.value(e.name, 0);
+                    if (kinds) sel.append({e.name, kinds});
+                }
             } else {
-                result = QStringList(hits.cbegin(), hits.cend());
+                if (mods & Qt::ShiftModifier)
+                    sel = sl->selectedElements();
+                QHash<QString, int> at;   // name → index in sel
+                at.reserve(sel.size());
+                for (int i = 0; i < sel.size(); ++i) at.insert(sel[i].name, i);
+                const auto merge = [&sel, &at](const QStringList &names, quint8 kind) {
+                    for (const QString &n : names) {
+                        const auto it = at.constFind(n);
+                        if (it != at.constEnd()) { sel[it.value()].kinds |= kind; continue; }
+                        at.insert(n, sel.size());
+                        sel.append({n, kind});
+                    }
+                };
+                merge(nh, SWMMModelLayer::kKindNode);
+                merge(gh, SWMMModelLayer::kKindGage);
+                merge(lh, SWMMModelLayer::kKindLink);
+                merge(sh, SWMMModelLayer::kKindCatch);
             }
-            sl->setSelectedElementNames(result);
+            sl->setSelectedElements(sel);
             emit selectionChanged(sl);
             continue;
         }
@@ -1325,7 +1342,8 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     {
         // Select only the right-clicked object then delegate to the
         // shared delete handler (which confirms and builds the command).
-        hitLayer->setSelectedElementNames({ref.name});
+        hitLayer->setSelectedElements(
+            { {ref.name, kindBitForObjectType(ref.objectType)} });
         emit selectionChanged(hitLayer);
         deleteSelectedObjects();
     }

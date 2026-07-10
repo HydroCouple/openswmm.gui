@@ -189,39 +189,55 @@ void OpenSWMMVisMapToolSelectPolygon::finalizeSelection(Qt::KeyboardModifiers mo
         if (!sl)
             continue;
 
-        QSet<QString> queryHits;
-        const auto add = [&queryHits](const QStringList &names) {
-            for (const QString &n : names)
-                queryHits.insert(n);
-        };
-        add(sl->nodesInPolygon(mapPoly));
-        add(sl->gagesInPolygon(mapPoly));
-        add(sl->linksInPolygon(mapPoly));
-        add(sl->subcatchmentsInPolygon(mapPoly));
+        // The polygon queries are per-kind, and the selection stays typed —
+        // SWMM names are per-type namespaces, so lassoing a subcatchment
+        // must not also select its same-named rain gage unless the gage
+        // point itself is enclosed.
+        const QStringList nh = sl->nodesInPolygon(mapPoly);
+        const QStringList gh = sl->gagesInPolygon(mapPoly);
+        const QStringList lh = sl->linksInPolygon(mapPoly);
+        const QStringList sh = sl->subcatchmentsInPolygon(mapPoly);
 
-        QStringList result;
+        QVector<SWMMModelLayer::SelectedElement> sel;
         if (mods & Qt::ControlModifier)
         {
-            // Subtract: keep existing names that weren't enclosed.
-            for (const QString &n : sl->selectedElementNames())
-                if (!queryHits.contains(n))
-                    result << n;
-        }
-        else if (mods & Qt::ShiftModifier)
-        {
-            // Add: union of existing selection and enclosed objects.
-            QSet<QString> merged(queryHits);
-            for (const QString &n : sl->selectedElementNames())
-                merged.insert(n);
-            result = QStringList(merged.cbegin(), merged.cend());
+            // Subtract: strip enclosed kinds from the existing selection.
+            QHash<QString, quint8> hitBits;
+            const auto collect = [&hitBits](const QStringList &names, quint8 kind) {
+                for (const QString &n : names) hitBits[n] |= kind;
+            };
+            collect(nh, SWMMModelLayer::kKindNode);
+            collect(gh, SWMMModelLayer::kKindGage);
+            collect(lh, SWMMModelLayer::kKindLink);
+            collect(sh, SWMMModelLayer::kKindCatch);
+            for (const auto &e : sl->selectedElements()) {
+                const quint8 kinds = e.kinds & ~hitBits.value(e.name, 0);
+                if (kinds) sel.append({e.name, kinds});
+            }
         }
         else
         {
-            // Replace.
-            result = QStringList(queryHits.cbegin(), queryHits.cend());
+            // Replace, or Shift = union with the existing selection.
+            if (mods & Qt::ShiftModifier)
+                sel = sl->selectedElements();
+            QHash<QString, int> at;   // name → index in sel
+            at.reserve(sel.size());
+            for (int i = 0; i < sel.size(); ++i) at.insert(sel[i].name, i);
+            const auto merge = [&sel, &at](const QStringList &names, quint8 kind) {
+                for (const QString &n : names) {
+                    const auto it = at.constFind(n);
+                    if (it != at.constEnd()) { sel[it.value()].kinds |= kind; continue; }
+                    at.insert(n, sel.size());
+                    sel.append({n, kind});
+                }
+            };
+            merge(nh, SWMMModelLayer::kKindNode);
+            merge(gh, SWMMModelLayer::kKindGage);
+            merge(lh, SWMMModelLayer::kKindLink);
+            merge(sh, SWMMModelLayer::kKindCatch);
         }
 
-        sl->setSelectedElementNames(result);
+        sl->setSelectedElements(sel);
         emit selectionChanged(sl);
     }
 

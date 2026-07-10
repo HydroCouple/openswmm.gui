@@ -210,7 +210,7 @@ void OpenSWMMVisMapToolAddSubcatchment::commit()
     else
         delete cmd;
 
-    layer->setSelectedElementNames({name});
+    layer->setSelectedElements({{name, SWMMModelLayer::kKindCatch}});
     emit subcatchmentAdded(name);
     cancel();
 }

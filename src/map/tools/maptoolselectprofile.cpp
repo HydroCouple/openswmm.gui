@@ -81,21 +81,16 @@ void OpenSWMMVisMapToolSelectProfile::activate()
     // Seed endpoints from the active SWMMModelLayer's current selection so
     // the user can pre-select two nodes with the Select tool and then click
     // the profile button to route immediately.  Selection order is the
-    // QStringList order returned by selectedElementNames(), which mirrors
-    // shift-click order (first click first).
+    // typed-selection order, which mirrors shift-click order (first click
+    // first). The kind bit filters to node entries exactly — a link or
+    // subcatchment sharing a node's name can't slip through.
     SWMMModelLayer *model = activeModel();
     QVector<int> seededNodes;
     if (model) {
-        const QStringList names = model->selectedElementNames();
-        for (const QString &n : names) {
-            SWMMModelLayer::Category cat;
-            int row = -1;
-            if (!model->findObjectLocation(n, &cat, &row)) continue;
-            if (cat != SWMMModelLayer::CatJunctions
-             && cat != SWMMModelLayer::CatOutfalls
-             && cat != SWMMModelLayer::CatStorage
-             && cat != SWMMModelLayer::CatDividers) continue;
-            const int engIdx = ProfileNetworkAdapter::findNodeIndex(model, n);
+        const auto &sel = model->selectedElements();
+        for (const auto &e : sel) {
+            if (!(e.kinds & SWMMModelLayer::kKindNode)) continue;
+            const int engIdx = ProfileNetworkAdapter::findNodeIndex(model, e.name);
             if (engIdx < 0) continue;
             if (seededNodes.contains(engIdx)) continue;  // dedupe
             seededNodes.push_back(engIdx);
