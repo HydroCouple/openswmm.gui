@@ -1374,11 +1374,18 @@ if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
             )
             # install(): mirror the same share data into the install tree so
             # CPack picks them up. Place beside the executable (BINDIR).
-            install(DIRECTORY "${_SWMMVIS_GDAL_SHARE}"
+            # Trailing slash on the source is REQUIRED: without it,
+            # install(DIRECTORY) copies the directory ITSELF into DESTINATION,
+            # yielding bin/gdal/gdal + bin/proj/proj — one level deeper than
+            # setupBundledGisDataPaths() probes (<exedir>/gdal, <exedir>/proj),
+            # so the packaged app finds no proj.db and CRS operations fail.
+            # With the slash the CONTENTS are copied, matching the POST_BUILD
+            # copy_directory layout the build tree uses.
+            install(DIRECTORY "${_SWMMVIS_GDAL_SHARE}/"
                 DESTINATION ${CMAKE_INSTALL_BINDIR}/gdal
                 COMPONENT Runtime
             )
-            install(DIRECTORY "${_SWMMVIS_PROJ_SHARE}"
+            install(DIRECTORY "${_SWMMVIS_PROJ_SHARE}/"
                 DESTINATION ${CMAKE_INSTALL_BINDIR}/proj
                 COMPONENT Runtime
             )
@@ -1634,12 +1641,20 @@ elseif(WIN32)
     # OpenMP runtime; MSVC's vcomp140 is a system DLL and needs no bundling).
     # Absent the plugin, large meshes (>20k cells) fall back to the serial CVODE
     # solver — still hypre/BoomerAMG, just not OpenMP-parallel.
+    # Any backend (omp / cuda / hip / sycl) — the engine ships whichever it was
+    # built with; bundle whatever is present rather than hardcoding omp.
     file(GLOB _swmmvis_gpu_plugin
-        "${OPENSWMMENGINE_INSTALL_DIR}/bin/*openswmm_gpu_omp*.dll"
-        "${OPENSWMMENGINE_INSTALL_DIR}/lib/*openswmm_gpu_omp*.dll")
+        "${OPENSWMMENGINE_INSTALL_DIR}/bin/*openswmm_gpu_*.dll"
+        "${OPENSWMMENGINE_INSTALL_DIR}/lib/*openswmm_gpu_*.dll")
+    # libomp (OpenMP backend) plus the SUNDIALS runtime the engine/plugin link
+    # against — SUNDIALS comes from the ENGINE's vcpkg tree (this project's
+    # manifest does not build it), so it must be bundled from the engine
+    # package or the deployed engine/plugin fails to load.
     file(GLOB _swmmvis_engine_omp
         "${OPENSWMMENGINE_INSTALL_DIR}/bin/libomp*.dll"
-        "${OPENSWMMENGINE_INSTALL_DIR}/lib/libomp*.dll")
+        "${OPENSWMMENGINE_INSTALL_DIR}/lib/libomp*.dll"
+        "${OPENSWMMENGINE_INSTALL_DIR}/bin/sundials_*.dll"
+        "${OPENSWMMENGINE_INSTALL_DIR}/lib/sundials_*.dll")
     if(_swmmvis_gpu_plugin)
         add_custom_command(TARGET SWMMVis POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -1889,8 +1904,14 @@ if(DOXYGEN_FOUND)
 endif()
 
 # ── Packaging (CPack) ────────────────────────────────────────────────────────
+# Monolithic: stage every component into ONE prefix. The install rules span
+# two components (Runtime + Unspecified, e.g. install(TARGETS SWMMVis) carries
+# no COMPONENT), and per-component staging breaks the install-time windeployqt
+# step — it runs in the Runtime prefix where SWMMVis.exe (Unspecified) does
+# not exist, so the package ships without Qt DLLs.
+set(CPACK_MONOLITHIC_INSTALL ON)
 set(CPACK_PACKAGE_NAME              "SWMMVis")
-set(CPACK_PACKAGE_VENDOR            "Caleb Buahin")
+set(CPACK_PACKAGE_VENDOR            "hydrocouple.org")
 set(CPACK_PACKAGE_VERSION           "${PROJECT_VERSION}${PROJECT_VERSION_SUFFIX}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
 set(CPACK_RESOURCE_FILE_LICENSE     "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
