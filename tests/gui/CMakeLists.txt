@@ -1514,3 +1514,113 @@ target_link_libraries(test_simstatus_2derr PRIVATE Qt6::Concurrent)
 # in isolation pulls in Qt6Network + GIS layer + WMS dialog code — too much to
 # manually mirror in a leaf test. Tracked under "Known follow-ups" in
 # docs/GUI_IMPLEMENTATION_PLAN.md.
+
+# ─────────────────────────────────────────────────────────────────────────
+# test_typedselection / test_asyncload — coverage for two Windows-adaptation
+# commits: a35798e (fix(selection): typed per-kind selection/visibility) and
+# 82fc82b (feat(load): async model load).
+#
+# Both drive the real SWMMModelLayer (Q_OBJECT, ~6750-line .cpp), which has
+# never been linked into a tests/gui/ binary before: AUTOMOC-generating its
+# header pulls the whole swmmmodellayer.cpp translation unit in (every
+# symbol it transitively touches — the render/rule/sublayer stack, ~10
+# data-object registries, GDAL/OGR — must resolve at link time), and there
+# is no narrow seam to cherry-pick around that (see the three still-disabled
+# tests further up this file for prior attempts at exactly that).
+#
+# Root CMakeLists.txt assembles PROJECT_SOURCES — essentially every .cpp/.h
+# the shipping SWMMVis app compiles — BEFORE add_subdirectory(tests) runs,
+# so it is visible here via ordinary CMake variable scoping. Building our
+# own executable from that same list (minus src/main.cpp) compiles exactly
+# what the app already compiles successfully, sidestepping the missing-
+# symbol whack-a-mole entirely.
+# PROJECT_SOURCES entries are written relative to the ROOT source dir (the
+# scope it was assembled in) — e.g. "include/swmmvis.h". Reused as-is here,
+# CMake would resolve them relative to THIS directory (tests/gui/) instead
+# and fail to find them, so every relative entry is re-rooted at
+# CMAKE_SOURCE_DIR; entries that are already absolute (icon/resource paths
+# set via CMAKE_CURRENT_SOURCE_DIR at root scope) pass through unchanged.
+set(SWMMVIS_TEST_SOURCES "")
+foreach(_swmmvis_src ${PROJECT_SOURCES})
+    if(IS_ABSOLUTE "${_swmmvis_src}")
+        list(APPEND SWMMVIS_TEST_SOURCES "${_swmmvis_src}")
+    else()
+        list(APPEND SWMMVIS_TEST_SOURCES "${CMAKE_SOURCE_DIR}/${_swmmvis_src}")
+    endif()
+endforeach()
+list(REMOVE_ITEM SWMMVIS_TEST_SOURCES "${CMAKE_SOURCE_DIR}/src/main.cpp")
+# forms/swmmvis.ui is listed as a direct SOURCE (not merely found via
+# CMAKE_AUTOUIC_SEARCH_PATHS) in PROJECT_SOURCES. AUTOUIC's generated-header
+# rule for a directly-listed .ui source is keyed by its path relative to
+# CMAKE_CURRENT_BINARY_DIR, not per-target — fine for the single SWMMVis
+# target, but our TWO new targets share this directory's binary dir, so
+# both would emit a "generate tests/gui/forms/ui_swmmvis.h" ninja rule and
+# collide. Drop it from the source list; CMAKE_AUTOUIC_SEARCH_PATHS=forms
+# (set at root scope, inherited here) still lets AUTOUIC find and generate
+# it on demand — into each target's own <target>_autogen dir — for
+# whichever .cpp does `#include "ui_swmmvis.h"`.
+list(REMOVE_ITEM SWMMVIS_TEST_SOURCES "${CMAKE_SOURCE_DIR}/forms/swmmvis.ui")
+
+# On Apple, SWMMVis adds this Objective-C++ source via target_sources()
+# rather than through PROJECT_SOURCES, and links AppKit. It's needed here
+# too: src/swmmvisapplication.cpp (part of PROJECT_SOURCES) calls
+# openswmmvis::platform::attachAsChildWindow() under an Apple-only #ifdef,
+# and that symbol is defined in this .mm file.
+set(SWMMVIS_TEST_EXTRA_SOURCES "")
+if(APPLE)
+    list(APPEND SWMMVIS_TEST_EXTRA_SOURCES ${CMAKE_SOURCE_DIR}/src/platform/macoswindowutils.mm)
+endif()
+
+# Mirrors target_link_libraries(SWMMVis ...) at the top of the root
+# CMakeLists.txt — every one of these libraries is transitively required by
+# some file in PROJECT_SOURCES.
+find_package(Qt6 REQUIRED COMPONENTS OpenGL OpenGLWidgets Network Concurrent
+    Svg Charts Qml Quick QuickWidgets PrintSupport)
+find_package(HDF5 REQUIRED COMPONENTS C)
+
+function(swmmvis_link_full_app_deps TEST_NAME)
+    # CMAKE_AUTOUIC_SEARCH_PATHS is set to the RELATIVE path "forms" at root
+    # scope, resolved against each target's own CMAKE_CURRENT_SOURCE_DIR —
+    # "forms" under the root source dir for SWMMVis, but under tests/gui/
+    # (nonexistent) for targets defined here. src/swmmvis.cpp's
+    # `#include "ui_swmmvis.h"` needs forms/swmmvis.ui found via an absolute
+    # search path instead.
+    set_target_properties(${TEST_NAME} PROPERTIES
+        AUTOUIC_SEARCH_PATHS "${CMAKE_SOURCE_DIR}/forms")
+    target_include_directories(${TEST_NAME} PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/forms
+        ${GDAL_INCLUDE_DIRS}
+        ${HDF5_INCLUDE_DIRS}
+    )
+    target_link_libraries(${TEST_NAME} PRIVATE
+        Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets Qt6::Network Qt6::Concurrent
+        Qt6::Svg Qt6::Charts Qt6::Qml Qt6::Quick Qt6::QuickWidgets Qt6::PrintSupport
+        GDAL::GDAL OpenSSL::SSL OpenSSL::Crypto nanoflann::nanoflann
+        $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>
+        openswmm_engine triangle_lib ${HDF5_C_LIBRARIES}
+    )
+    if(APPLE)
+        target_link_libraries(${TEST_NAME} PRIVATE "-framework AppKit")
+    endif()
+endfunction()
+
+# a35798e — typed per-kind selection/visibility on SWMMModelLayer.
+add_swmmvis_gui_test(test_typedselection
+    test_typedselection.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_typedselection)
+
+# 82fc82b — async model load (SWMMModelLayer::openEngineForPath/
+# adoptOpenEngine, SWMMVisProjectWindow::loadModelAsync). Also constructs a
+# real SWMMVisProjectWindow (a QWidget), so the .cpp uses QTEST_MAIN (full
+# QApplication) rather than QTEST_APPLESS_MAIN, even though it still runs
+# under the offscreen QPA like every other gui test.
+add_swmmvis_gui_test(test_asyncload
+    test_asyncload.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_asyncload)
