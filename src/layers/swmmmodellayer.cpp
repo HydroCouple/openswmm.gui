@@ -616,6 +616,16 @@ void SWMMModelLayer::closeEngine()
     // accidentally hide a similarly-named object from the new project.
     m_hiddenObjects.clear();
     m_hiddenKindMask.clear();
+    // Likewise drop the prior model's selection — a similarly-named
+    // object in a different project has no business inheriting a
+    // selection state from the model that used to be open. Cleared
+    // directly (not via clearSelection()/setSelectedElements()) to match
+    // the hidden-state clearing just above: no signal emission here, the
+    // caller (loadModel()/adoptOpenEngine()) drives repaint/selection
+    // notifications once the new model is actually in place.
+    m_selectedElements.clear();
+    m_selectedNames.clear();
+    m_selectedKindMask.clear();
     // Per-category caches (populated in buildGeometryCache).
     for (auto &b : m_nodesByType) b.clear();
     for (auto &b : m_linksByType) b.clear();
@@ -4373,7 +4383,8 @@ bool SWMMModelLayer::rollbackTailSubcatchAdd(const QString &name)
 // Rename
 // ---------------------------------------------------------------------------
 
-bool SWMMModelLayer::applyRename(const QString &oldName, const QString &newName)
+bool SWMMModelLayer::applyRename(const QString &oldName, const QString &newName,
+                                 quint8 kindHint)
 {
     if (oldName.isEmpty() || newName.isEmpty() || oldName == newName) return false;
     if (!m_engine) return false;
@@ -4383,55 +4394,79 @@ bool SWMMModelLayer::applyRename(const QString &oldName, const QString &newName)
     const char *oldId = oldUtf8.constData();
     const char *newId = newUtf8.constData();
 
-    // Find which category this element belongs to and rename in the engine.
-    int rc = SWMM_ERR_BADPARAM;
-    bool isNode  = false, isLink = false, isCatch = false, isGage = false;
+    // Resolve which kind to rename. A hint naming exactly one kind (the
+    // normal case — every UI call site knows the kind it's renaming)
+    // looks up ONLY that kind, so a same-named object of a different
+    // kind can never be renamed by mistake. kKindAll (no hint) falls
+    // back to the pre-existing best-effort scan: node, then link, then
+    // gage, then catchment — first match wins.
+    const bool hinted = kindHint == kKindNode || kindHint == kKindLink ||
+                        kindHint == kKindGage || kindHint == kKindCatch;
 
-    const int nodeIdx  = swmm_node_index(m_engine, oldId);
-    const int linkIdx  = nodeIdx < 0 ? swmm_link_index(m_engine, oldId) : -1;
-    const int gageIdx  = (nodeIdx < 0 && linkIdx < 0)
+    const int nodeIdx  = (!hinted || kindHint == kKindNode)
+                             ? swmm_node_index(m_engine, oldId) : -1;
+    const int linkIdx  = (hinted ? kindHint == kKindLink : nodeIdx < 0)
+                             ? swmm_link_index(m_engine, oldId) : -1;
+    const int gageIdx  = (hinted ? kindHint == kKindGage
+                                  : (nodeIdx < 0 && linkIdx < 0))
                              ? swmm_gage_index(m_engine, oldId) : -1;
-    const int catchIdx = (nodeIdx < 0 && linkIdx < 0 && gageIdx < 0)
+    const int catchIdx = (hinted ? kindHint == kKindCatch
+                                  : (nodeIdx < 0 && linkIdx < 0 && gageIdx < 0))
                              ? swmm_subcatch_index(m_engine, oldId) : -1;
 
-    if      (nodeIdx  >= 0) { rc = swmm_node_rename(m_engine, nodeIdx, newId);  isNode  = true; }
-    else if (linkIdx  >= 0) { rc = swmm_link_rename(m_engine, linkIdx, newId);  isLink  = true; }
-    else if (gageIdx  >= 0) { rc = swmm_gage_rename(m_engine, gageIdx, newId);  isGage  = true; }
-    else if (catchIdx >= 0) { rc = swmm_subcatch_rename(m_engine, catchIdx, newId); isCatch = true; }
+    int rc = SWMM_ERR_BADPARAM;
+    quint8 renamedKind = 0;
+    if      (nodeIdx  >= 0) { rc = swmm_node_rename(m_engine, nodeIdx, newId);  renamedKind = kKindNode; }
+    else if (linkIdx  >= 0) { rc = swmm_link_rename(m_engine, linkIdx, newId);  renamedKind = kKindLink; }
+    else if (gageIdx  >= 0) { rc = swmm_gage_rename(m_engine, gageIdx, newId);  renamedKind = kKindGage; }
+    else if (catchIdx >= 0) { rc = swmm_subcatch_rename(m_engine, catchIdx, newId); renamedKind = kKindCatch; }
 
     if (rc != SWMM_OK) return false;
 
     // Update GUI geometry caches.
-    if (isNode) {
+    if (renamedKind == kKindNode) {
         if (nodeIdx < m_nodes.size()) m_nodes[nodeIdx].name = newName;
-    } else if (isLink) {
+    } else if (renamedKind == kKindLink) {
         if (linkIdx < m_links.size()) m_links[linkIdx].name = newName;
-    } else if (isGage) {
+    } else if (renamedKind == kKindGage) {
         if (gageIdx < m_gages.size()) m_gages[gageIdx].name = newName;
-    } else if (isCatch) {
+    } else if (renamedKind == kKindCatch) {
         if (catchIdx < m_catchments.size()) m_catchments[catchIdx].name = newName;
     }
 
-    // Update selection stores if the renamed element was selected. All
-    // three (ordered typed vector, names mirror, kind mask) must move
-    // together or the flag rebuild diverges from the visible selection.
-    if (m_selectedNames.removeOne(oldName))
-        m_selectedNames.append(newName);
-    for (SelectedElement &e : m_selectedElements)
-        if (e.name == oldName) e.name = newName;
-    {
-        const auto it = m_selectedKindMask.constFind(oldName);
-        if (it != m_selectedKindMask.constEnd()) {
-            const quint8 v = it.value();
-            m_selectedKindMask.remove(oldName);
-            m_selectedKindMask[newName] |= v;
+    // Update selection stores — but ONLY for the kind bit that was
+    // actually renamed (renamedKind, exactly one bit). A same-named
+    // selection entry for a DIFFERENT kind was not touched by the engine
+    // call above and must keep pointing at oldName. An entry selecting
+    // more than one kind under this name (e.g. a legacy kKindAll
+    // selection) splits: the renamed bit moves to newName, the rest
+    // stays under oldName.
+    for (int i = 0, n = m_selectedElements.size(); i < n; ++i) {
+        SelectedElement &e = m_selectedElements[i];
+        if (e.name != oldName || !(e.kinds & renamedKind)) continue;
+        const quint8 remaining = e.kinds & ~renamedKind;
+        if (remaining == 0) {
+            e.name = newName;
+        } else {
+            e.kinds = remaining;
+            m_selectedElements.append(SelectedElement{ newName, renamedKind });
         }
+    }
+    // Rebuild the name-list / kind-mask mirrors from the canonical typed
+    // vector rather than hand-patching them in lockstep — cheap (selection
+    // sets are small) and rules out the mirrors drifting from the vector.
+    m_selectedNames.clear();
+    m_selectedKindMask.clear();
+    for (const SelectedElement &e : m_selectedElements) {
+        quint8 &mask = m_selectedKindMask[e.name];
+        if (mask == 0) m_selectedNames.append(e.name);
+        mask |= e.kinds;
     }
 
     // Geometry is unchanged — only name-keyed indices need patching.
     // O(1) hash swap rather than full buildGeometryCache (which would
     // re-OGR-transform every node/link/catchment vertex in the model).
-    renameInIndices(oldName, newName);
+    renameInIndices(oldName, newName, renamedKind);
     m_needsRebuild = true;
     emit repaintRequested();
     emit geometryChanged();
@@ -6028,31 +6063,72 @@ static MapExtent _polylineBBox(const QVector<QPointF> &pts)
 }
 
 void SWMMModelLayer::renameInIndices(const QString &oldName,
-                                     const QString &newName)
+                                     const QString &newName,
+                                     quint8 renamedKind)
 {
     // Geometry is unchanged. Only name-keyed maps need a swap; SoA
     // indices stay valid for everything else (kd-tree, scene-coord
     // arrays, spatial grid, m_objectOrderOverrides).
     if (oldName.isEmpty() || newName.isEmpty() || oldName == newName) return;
+
+    // m_objectLocation / m_nameToSoa are keyed by name alone (not kind),
+    // so they cannot represent "oldName still resolves to a DIFFERENT,
+    // un-renamed object of another kind" — a pre-existing limitation of
+    // the name-collision namespace this method does not attempt to fix.
+    // Renaming is the one caller that actually needs that distinction (a
+    // typed rename must not clobber another kind's location entry), so
+    // guard the swap: only move the entry if it still points at the kind
+    // that was actually renamed.
     auto loc = m_objectLocation.constFind(oldName);
-    if (loc != m_objectLocation.constEnd()) {
+    if (loc != m_objectLocation.constEnd()
+        && kindBitForCategory(loc.value().first) == renamedKind) {
         QPair<Category, int> v = loc.value();
         m_objectLocation.remove(oldName);
         m_objectLocation.insert(newName, v);
     }
     auto soa = m_nameToSoa.constFind(oldName);
     if (soa != m_nameToSoa.constEnd()) {
-        SoaLocation v = soa.value();
-        m_nameToSoa.remove(oldName);
-        m_nameToSoa.insert(newName, v);
+        const SoaKind soaKind = soa.value().kind;
+        const bool sameKind =
+            (soaKind == SoaKind::Node  && renamedKind == kKindNode) ||
+            (soaKind == SoaKind::Link  && renamedKind == kKindLink) ||
+            (soaKind == SoaKind::Gage  && renamedKind == kKindGage) ||
+            (soaKind == SoaKind::Catch && renamedKind == kKindCatch);
+        if (sameKind) {
+            SoaLocation v = soa.value();
+            m_nameToSoa.remove(oldName);
+            m_nameToSoa.insert(newName, v);
+        }
     }
-    if (m_hiddenObjects.remove(oldName))
+
+    // Hidden state — kind-scoped. Only the bit for the kind that was
+    // actually renamed moves to newName; hidden state for any OTHER kind
+    // still bearing oldName (a same-named object that was NOT renamed)
+    // stays under oldName exactly as it was.
+    quint8 oldMask = 0;
+    const auto maskIt = m_hiddenKindMask.constFind(oldName);
+    if (maskIt != m_hiddenKindMask.constEnd())
+        oldMask = maskIt.value();
+    else if (m_hiddenObjects.contains(oldName))
+        // Defensive: membership without a mask entry (state predating the
+        // mask, or an unmigrated path) means "all kinds hidden" — same
+        // convention setObjectVisibleAt() uses.
+        oldMask = kKindAll;
+
+    const quint8 movedBits = oldMask & renamedKind;
+    if (movedBits) {
+        m_hiddenKindMask[newName] |= movedBits;
         m_hiddenObjects.insert(newName);
-    const auto mask = m_hiddenKindMask.constFind(oldName);
-    if (mask != m_hiddenKindMask.constEnd()) {
-        const quint8 v = mask.value();
-        m_hiddenKindMask.remove(oldName);
-        m_hiddenKindMask.insert(newName, v);
+
+        const quint8 stayBits = oldMask & ~renamedKind;
+        if (stayBits) {
+            m_hiddenKindMask.insert(oldName, stayBits);
+            // oldName stays in m_hiddenObjects — other kinds are still
+            // hidden under it.
+        } else {
+            m_hiddenKindMask.remove(oldName);
+            m_hiddenObjects.remove(oldName);
+        }
     }
 }
 

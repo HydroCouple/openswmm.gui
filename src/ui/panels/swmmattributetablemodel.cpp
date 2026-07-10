@@ -2122,7 +2122,8 @@ public:
 private:
     void apply(const QString &from, const QString &to) {
         if (!m_model || !m_model->layer()) return;
-        m_model->layer()->applyRename(from, to);
+        m_model->layer()->applyRename(
+            from, to, SWMMModelLayer::kindBitForCategory(m_model->category()));
         // Refresh the model row so the Name cell re-reads from the engine.
         if (m_row >= 0 && m_row < m_model->rowCount()) {
             const QModelIndex nameIdx = m_model->index(m_row, 0);
@@ -2153,7 +2154,9 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
         const QString oldName = objectNameAt(row);
         const QString newName = value.toString().trimmed();
         if (newName.isEmpty() || newName == oldName) return false;
-        if (!m_layer->applyRename(oldName, newName)) return false;
+        if (!m_layer->applyRename(oldName, newName,
+                                  SWMMModelLayer::kindBitForCategory(m_category)))
+            return false;
         if (row >= 0 && row < m_rowCacheValid.size())
             m_rowCacheValid[row] = false;
         emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
