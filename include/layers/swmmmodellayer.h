@@ -820,6 +820,12 @@ public:
     static constexpr quint8 kKindGage  = 0x08;
     static constexpr quint8 kKindAll   = 0x0F;
 
+    /*! Category → kind bit (kKindNode/Link/Gage/Catch) mapping. Public so
+     *  callers that only know a Category (e.g. SWMMAttributeTableModel,
+     *  which is scoped to one category per table) can pass the right
+     *  kindHint to applyRename() without re-deriving the same mapping. */
+    [[nodiscard]] static quint8 kindBitForCategory(Category c) noexcept;
+
     /*!
      * \brief One selected element: its name plus a bitmask of the kinds
      *        (kKind*) the selection applies to. SWMM names are per-type
@@ -1403,11 +1409,23 @@ public:
      *          map), and emits repaintRequested() + geometryChanged().
      * \param oldName  Current name of the element.
      * \param newName  Desired new name (must not already exist).
-     * \returns        true on success; false if oldName is not found, newName
-     *                 is empty, newName is already in use, or the engine
-     *                 rejects the rename.
+     * \param kindHint SWMM names are per-type namespaces, so \p oldName may
+     *                 match more than one kind at once (e.g. a rain gage and
+     *                 a subcatchment both named "S1"). Pass exactly one of
+     *                 kKindNode/kKindLink/kKindGage/kKindCatch when the
+     *                 caller knows which kind it means — every UI call site
+     *                 does, since a rename is always initiated from a
+     *                 kind-specific editor/row. The default, kKindAll, means
+     *                 "caller doesn't know" and falls back to a best-effort
+     *                 guess (node, then link, then gage, then catchment —
+     *                 first match wins), matching this method's pre-existing
+     *                 behaviour for any not-yet-migrated caller.
+     * \returns        true on success; false if oldName is not found (under
+     *                 \p kindHint, when given), newName is empty, newName is
+     *                 already in use, or the engine rejects the rename.
      */
-    bool applyRename(const QString &oldName, const QString &newName);
+    bool applyRename(const QString &oldName, const QString &newName,
+                     quint8 kindHint = kKindAll);
 
     /*!
      * \brief Delete a node, cascade-deleting all attached links.
@@ -1776,10 +1794,19 @@ private:
     void compactGageSceneEntry(int gageIdx);
 
     /*! Update name-keyed indices (m_objectLocation, m_nameToSoa,
-     *  m_hiddenObjects) when a single element is renamed. Geometry
-     *  is unchanged, so this is the only work needed — caller must
-     *  NOT also call rebuildCategoryIndex() or buildGeometryCache(). */
-    void renameInIndices(const QString &oldName, const QString &newName);
+     *  m_hiddenObjects/m_hiddenKindMask) when a single element is renamed.
+     *  Geometry is unchanged, so this is the only work needed — caller
+     *  must NOT also call rebuildCategoryIndex() or buildGeometryCache().
+     *  \param renamedKind Exactly one kKind* bit — the kind that was
+     *         actually renamed in the engine. Only that bit of the hidden
+     *         state migrates to \p newName; hidden state for any OTHER
+     *         kind still bearing \p oldName (a same-named object that was
+     *         NOT renamed) stays under \p oldName. m_objectLocation /
+     *         m_nameToSoa remain name-only keyed (pre-existing limitation,
+     *         unrelated to this parameter — see class comment on name
+     *         collisions). */
+    void renameInIndices(const QString &oldName, const QString &newName,
+                         quint8 renamedKind);
 
     /*! Recompute m_extent from current SoA + bbox caches without
      *  doing any OGR transform. Used by incremental delete paths. */
@@ -1870,10 +1897,6 @@ private:
     // that type information; this set stays the name-keyed canonical
     // membership for the legacy API and .oswp persistence.
     QSet<QString>                m_hiddenObjects;
-
-    // Category → kind bit (kKind*) mapping shared by the hidden and
-    // selection masks.
-    static quint8 kindBitForCategory(Category c) noexcept;
 
     // Per-name bitmask of hidden kinds. Invariant: a name is in
     // m_hiddenObjects iff its mask entry exists and is non-zero. Names
