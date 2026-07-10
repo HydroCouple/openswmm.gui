@@ -64,7 +64,7 @@ void OpenSWMMVisMapToolAddGage::mousePressEvent(QMouseEvent *event)
     else
         delete cmd;
 
-    layer->setSelectedElementNames({name});
+    layer->setSelectedElements({{name, SWMMModelLayer::kKindGage}});
     emit gageAdded(name, px, py);
     m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
                           QStringLiteral("addgage-commit"));

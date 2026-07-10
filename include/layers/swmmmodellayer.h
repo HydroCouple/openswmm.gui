@@ -327,6 +327,15 @@ public:
      *        don't back-propagate to the header.
      */
     [[nodiscard]] bool isObjectVisible(const QString &name) const;
+
+    /*!
+     * \brief Typed variant — visibility of the object of category \p c
+     *        named \p name. SWMM names are per-type namespaces (a rain
+     *        gage and a subcatchment may legally share a name), so the
+     *        Object Browser uses this to read leaf check states without
+     *        one kind's toggle bleeding into a same-named other kind.
+     */
+    [[nodiscard]] bool isObjectVisible(const QString &name, Category c) const;
     void setObjectVisible(const QString &name, bool visible);
 
     /*!
@@ -800,12 +809,55 @@ public:
     // ----- Selection ------------------------------------------------------
 
     /*!
+     * Kind bits — one per SWMM object namespace. Names are NOT unique
+     * across kinds (generated models routinely pair every subcatchment
+     * with a same-named rain gage), so typed selection and hidden state
+     * carry a per-name bitmask of the kinds they apply to.
+     */
+    static constexpr quint8 kKindNode  = 0x01;
+    static constexpr quint8 kKindLink  = 0x02;
+    static constexpr quint8 kKindCatch = 0x04;
+    static constexpr quint8 kKindGage  = 0x08;
+    static constexpr quint8 kKindAll   = 0x0F;
+
+    /*!
+     * \brief One selected element: its name plus a bitmask of the kinds
+     *        (kKind*) the selection applies to. SWMM names are per-type
+     *        namespaces — a rain gage and a subcatchment may legally share
+     *        a name — so selection must carry the kind or a click on one
+     *        lights up both. Order is preserved (the profile tool seeds
+     *        its start/end nodes from shift-click order).
+     */
+    struct SelectedElement {
+        QString name;
+        quint8  kinds = 0;
+        bool operator==(const SelectedElement &o) const
+            { return kinds == o.kinds && name == o.name; }
+    };
+
+    /*!
      * \brief Returns the names of currently selected network elements.
      */
     [[nodiscard]] QStringList selectedElementNames() const;
 
     /*!
+     * \brief Typed selection — canonical form. Each entry names WHICH kind
+     *        is selected, so same-named objects of other kinds stay
+     *        unselected.
+     */
+    [[nodiscard]] const QVector<SelectedElement> &selectedElements() const
+        { return m_selectedElements; }
+
+    /*!
+     * \brief Replaces the selection with typed entries (kind-exact).
+     */
+    void setSelectedElements(const QVector<SelectedElement> &sel);
+
+    /*!
      * \brief Selects network elements by name (replaces prior selection).
+     *        Legacy name-only form: each name selects EVERY kind bearing
+     *        it. Prefer setSelectedElements() when the caller knows the
+     *        kind.
      */
     void setSelectedElementNames(const QStringList &names);
 
@@ -1811,10 +1863,27 @@ private:
     QsgKinds                     m_qsgKinds = QsgNone;
 
     // Slice O — per-object hidden set. Names listed here are skipped by
-    // populateScene. Object names are unique across a SWMM model, so a
-    // flat QSet<QString> covers nodes / links / subcatchments / gages
-    // uniformly.
+    // populateScene. NOTE: SWMM names are per-type namespaces — real
+    // models routinely pair every subcatchment with a same-named rain
+    // gage, and links may share names with nodes — so membership alone
+    // cannot say WHICH kind the user hid. m_hiddenKindMask below carries
+    // that type information; this set stays the name-keyed canonical
+    // membership for the legacy API and .oswp persistence.
     QSet<QString>                m_hiddenObjects;
+
+    // Category → kind bit (kKind*) mapping shared by the hidden and
+    // selection masks.
+    static quint8 kindBitForCategory(Category c) noexcept;
+
+    // Per-name bitmask of hidden kinds. Invariant: a name is in
+    // m_hiddenObjects iff its mask entry exists and is non-zero. Names
+    // hidden through the legacy name-only API carry kKindAll.
+    QHash<QString, quint8>       m_hiddenKindMask;
+
+    // Per-name bitmask of SELECTED kinds — canonical typed selection.
+    // m_selectedNames mirrors the keys for legacy name-based readers.
+    // Names selected through the legacy name-only API carry kKindAll.
+    QHash<QString, quint8>       m_selectedKindMask;
 
     QVector<NodeGeom>            m_nodes;
     QVector<LinkGeom>            m_links;
@@ -2004,6 +2073,10 @@ private:
     bool             m_kindUsesOverrides[NumCategories] = {};
 
     QStringList                  m_selectedNames;
+    // Canonical typed selection (ordered). m_selectedNames and
+    // m_selectedKindMask are derived mirrors, rebuilt atomically in
+    // setSelectedElements().
+    QVector<SelectedElement>     m_selectedElements;
 
     // Engine-table partition cache (curves vs. timeseries). The engine
     // stores both in the same unified table list keyed by type; without

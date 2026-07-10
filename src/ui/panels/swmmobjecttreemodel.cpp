@@ -423,7 +423,9 @@ QVariant SWMMObjectTreeModel::data(const QModelIndex &index, int role) const
         case Qt::DecorationRole:
             return iconForObjectType(refTypeForCategory(cat));
         case Qt::CheckStateRole:
-            return QVariant::fromValue(int(m_layer->isObjectVisible(name)
+            // Typed query — a rain gage and subcatchment may share a name;
+            // this leaf's check state must reflect only its own kind.
+            return QVariant::fromValue(int(m_layer->isObjectVisible(name, cat)
                                                 ? Qt::Checked : Qt::Unchecked));
         case RoleSection:  return int(SectionNetwork);
         case RoleCategory: return int(cat);
