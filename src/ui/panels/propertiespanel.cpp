@@ -637,7 +637,8 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                     });
             connect(m_nodeAdapter, &SWMMNodePropertyAdapter::renameRequested,
                     this, [this](const QString &oldN, const QString &newN) {
-                        if (m_swmmLayer && m_swmmLayer->applyRename(oldN, newN)) {
+                        if (m_swmmLayer && m_swmmLayer->applyRename(
+                                oldN, newN, SWMMModelLayer::kKindNode)) {
                             if (m_nodeAdapter) m_nodeAdapter->updateStoredName(newN);
                             emit objectEdited(newN);
                         }
@@ -724,7 +725,8 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                     });
             connect(m_linkAdapter, &SWMMLinkPropertyAdapter::renameRequested,
                     this, [this](const QString &oldN, const QString &newN) {
-                        if (m_swmmLayer && m_swmmLayer->applyRename(oldN, newN)) {
+                        if (m_swmmLayer && m_swmmLayer->applyRename(
+                                oldN, newN, SWMMModelLayer::kKindLink)) {
                             if (m_linkAdapter) m_linkAdapter->updateStoredName(newN);
                             emit objectEdited(newN);
                         }
@@ -744,7 +746,8 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                     });
             connect(m_subcatchAdapter, &SWMMSubcatchPropertyAdapter::renameRequested,
                     this, [this](const QString &oldN, const QString &newN) {
-                        if (m_swmmLayer && m_swmmLayer->applyRename(oldN, newN)) {
+                        if (m_swmmLayer && m_swmmLayer->applyRename(
+                                oldN, newN, SWMMModelLayer::kKindCatch)) {
                             if (m_subcatchAdapter) m_subcatchAdapter->updateStoredName(newN);
                             emit objectEdited(newN);
                         }
@@ -961,9 +964,17 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind,
             this, [this, name]() {
                 if (!m_suppressEditForward) emit objectEdited(name);
             });
+    // Of the DataCategory kinds handled by this switch, only RainGage
+    // shares applyRename()'s node/link/gage/catchment namespace — hint it
+    // explicitly so a rain-gage rename can't collide with a same-named
+    // subcatchment. The other kinds (curves, patterns, pollutants, ...)
+    // aren't network elements, so kKindAll (applyRename()'s legacy
+    // best-effort scan) is unaffected either way.
+    const quint8 renameKindHint = (static_cast<K>(objectKind) == K::RainGage)
+        ? SWMMModelLayer::kKindGage : SWMMModelLayer::kKindAll;
     connect(m_dataAdapter, &SWMMDataObjectPropertyAdapter::renameRequested,
-            this, [this, layer](const QString &oldN, const QString &newN) {
-                if (layer && layer->applyRename(oldN, newN)) {
+            this, [this, layer, renameKindHint](const QString &oldN, const QString &newN) {
+                if (layer && layer->applyRename(oldN, newN, renameKindHint)) {
                     if (m_dataAdapter) m_dataAdapter->updateStoredName(newN);
                     emit objectEdited(newN);
                 }
