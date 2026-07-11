@@ -6,7 +6,7 @@
  */
 #include "plot/mesh2drunlayer.h"
 
-#include "plot/swmmjuliandatetime.h"
+#include "core/swmmdatetime.h"
 #include "layers/swmm2dresultslayer.h"
 
 #include <QDateTime>
@@ -43,7 +43,7 @@ double Mesh2DRunLayer::startDateJulian() const
     const QDateTime t0 = m_layer->source()->simTimeAt(0);
     if (!t0.isValid())
         return std::nan("");
-    return dateTimeToSwmmJulian(t0);
+    return core::qDateTimeToSwmmDateTime(t0);
 }
 
 int Mesh2DRunLayer::periodCount() const
@@ -243,7 +243,7 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
                     value = (attr == PlotAttribute::Mesh2DDepth) ? d : d + zVtx;
                 }
             }
-            out.timesJulian.push_back(dateTimeToSwmmJulian(dt));
+            out.timesJulian.push_back(core::qDateTimeToSwmmDateTime(dt));
             out.values.push_back(value);
         }
         out.ok = !out.timesJulian.empty();
@@ -295,7 +295,7 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
                 value = wantUnitFlux ? (edgeLen > 1e-9 ? flux / edgeLen : std::nan(""))
                                      : flux;
             }
-            out.timesJulian.push_back(dateTimeToSwmmJulian(dt));
+            out.timesJulian.push_back(core::qDateTimeToSwmmDateTime(dt));
             out.values.push_back(value);
         }
         out.ok = !out.timesJulian.empty();
@@ -383,7 +383,7 @@ void Mesh2DRunLayer::getSeriesAt(const ObjectRef& ref,
             // dry cells leave value as NaN — rendered as a gap in the chart.
         }
 
-        out.timesJulian.push_back(dateTimeToSwmmJulian(dt));
+        out.timesJulian.push_back(core::qDateTimeToSwmmDateTime(dt));
         out.values.push_back(value);
     }
 

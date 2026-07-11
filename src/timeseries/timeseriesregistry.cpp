@@ -8,7 +8,7 @@
 
 #include "timeseries/timeseriesprovider.h"
 
-#include "plot/swmmjuliandatetime.h"
+#include "core/swmmdatetime.h"
 
 #include <openswmm/engine/openswmm_tables.h>
 #include <openswmm/engine/openswmm_engine.h>
@@ -108,7 +108,7 @@ int TimeseriesRegistry::loadFromEngine(void *engineHandle)
         for (int j = 0; j < nPts; ++j) {
             double x = 0.0, y = 0.0;
             if (swmm_table_get_point(eng, i, j, &x, &y) != SWMM_OK) continue;
-            pts.push_back({openswmmvis::plot::swmmJulianToDateTime(x), y});
+            pts.push_back({openswmmvis::core::swmmDateTimeToQDateTime(x), y});
         }
         // setAllPoints validates strict-monotone; if engine somehow returns
         // a non-monotone series the rejection surfaces via mutationRejected
@@ -150,7 +150,7 @@ int TimeseriesRegistry::saveToEngine(void *engineHandle)
 
         bool allOk = true;
         for (const TimeseriesPoint& pt : p->points()) {
-            const double x = openswmmvis::plot::dateTimeToSwmmJulian(pt.time);
+            const double x = openswmmvis::core::qDateTimeToSwmmDateTime(pt.time);
             if (swmm_table_add_point(eng, idx, x, pt.value) != SWMM_OK) {
                 allOk = false;
                 break;
