@@ -4,8 +4,8 @@
  */
 #include <gtest/gtest.h>
 
+#include "core/swmmdatetime.h"
 #include "io/timeseriesparse.h"
-#include "plot/swmmjuliandatetime.h"
 
 #include <QDateTime>
 
@@ -39,7 +39,7 @@ TEST(TimeseriesParse, TryParseTimestamp_SwmmSlashFormat)
 TEST(TimeseriesParse, TryParseTimestamp_HoursSinceStartFallback)
 {
     const QDateTime base = QDateTime(QDate(2026, 1, 1), QTime(0, 0), Qt::UTC);
-    const double baseJ = openswmmvis::plot::dateTimeToSwmmJulian(base);
+    const double baseJ = openswmmvis::core::qDateTimeToSwmmDateTime(base);
 
     double j = std::nan("");
     ASSERT_TRUE(ts::tryParseTimestamp(QStringLiteral("6.5"), j, baseJ));

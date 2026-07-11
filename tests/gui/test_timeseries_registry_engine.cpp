@@ -6,7 +6,7 @@
  * \brief  Slice BQ Phase 6.7.3.8 — TimeseriesRegistry::loadFromEngine
  *         round-trips a BUILDING-state engine with two Tseries.
  */
-#include "plot/swmmjuliandatetime.h"
+#include "core/swmmdatetime.h"
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesregistry.h"
 
@@ -18,7 +18,7 @@
 #include <QObject>
 #include <QTest>
 
-using openswmmvis::plot::dateTimeToSwmmJulian;
+using openswmmvis::core::qDateTimeToSwmmDateTime;
 using openswmmvis::timeseries::TimeseriesProvider;
 using openswmmvis::timeseries::TimeseriesRegistry;
 
@@ -35,7 +35,7 @@ void addSeries(SWMM_Engine eng, const char *id,
     const int idx = swmm_table_index(eng, id);
     QVERIFY(idx >= 0);
     for (const auto &p : pts) {
-        const double j = dateTimeToSwmmJulian(p.first);
+        const double j = qDateTimeToSwmmDateTime(p.first);
         QVERIFY(swmm_table_add_point(eng, idx, j, p.second) == SWMM_OK);
     }
 }
