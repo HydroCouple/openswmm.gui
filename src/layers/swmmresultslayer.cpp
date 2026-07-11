@@ -5,6 +5,7 @@
  */
 
 #include "layers/swmmresultslayer.h"
+#include "core/swmmdatetime.h"
 #include "layers/swmmmodellayer.h"
 #include "map/graphicsitems.h"
 #include "map/spatialreferencesystem.h"
@@ -44,7 +45,6 @@
 #include <openswmm/engine/openswmm_output.h>
 
 #include <QDateTime>
-#include <QTimeZone>
 #include <QGraphicsScene>
 #include <QGraphicsEllipseItem>
 #include <QGraphicsLineItem>
@@ -79,18 +79,6 @@ makeDefaultKindRenderer(SWMMModelLayer::Category c);
 
 // Scene-space Y-flip — matches SWMMLayerItem convention.
 inline QPointF toScene(double mx, double my) { return QPointF(mx, -my); }
-
-// Julian-day (fractional days since 30 Dec 1899) to QDateTime.
-// SWMM uses Excel-epoch Julian dates.
-QDateTime julianToDateTime(double julian)
-{
-    // Excel epoch: day 1 = 1 Jan 1900 (with Lotus 1-2-3 leap-year bug, day 0 = 30 Dec 1899)
-    // QDateTime epoch: 1 Jan 1970 00:00:00 UTC
-    // Days from 30 Dec 1899 to 1 Jan 1970 = 25569
-    const double unixDays = julian - 25569.0;
-    const qint64 unixMs   = static_cast<qint64>(unixDays * 86400.0 * 1000.0);
-    return QDateTime::fromMSecsSinceEpoch(unixMs, QTimeZone::utc());
-}
 
 // Map SWMMResultVariable to the SWMM_OutNodeVar / LinkVar / SubcatchVar enum.
 int nodeVar(SWMMResultVariable v)
@@ -723,12 +711,12 @@ bool SWMMResultsLayer::openResults(QList<QString> &warnings, QList<QString> &err
     // Determine simulation start datetime from period 0.
     double startJulian = 0.0;
     swmm_output_get_start_date(m_handle, &startJulian);
-    m_startDateTime = julianToDateTime(startJulian);
+    m_startDateTime = openswmmvis::core::swmmDateTimeToQDateTime(startJulian);
 
     // End datetime from last period time.
     double endJulian = 0.0;
     swmm_output_get_period_time(m_handle, m_totalSteps - 1, &endJulian);
-    m_endDateTime = julianToDateTime(endJulian);
+    m_endDateTime = openswmmvis::core::swmmDateTimeToQDateTime(endJulian);
 
     // Build name → output-index maps for fast lookup during rendering.
     buildOutputIdMaps();
@@ -1437,7 +1425,7 @@ QDateTime SWMMResultsLayer::currentDateTime() const
 
     double t = 0.0;
     swmm_output_get_period_time(m_handle, m_currentStep, &t);
-    return julianToDateTime(t);
+    return openswmmvis::core::swmmDateTimeToQDateTime(t);
 }
 
 int  SWMMResultsLayer::totalTimeSteps()   const { return m_totalSteps;   }
