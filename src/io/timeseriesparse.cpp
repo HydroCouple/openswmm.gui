@@ -6,7 +6,7 @@
  */
 #include "io/timeseriesparse.h"
 
-#include "plot/swmmjuliandatetime.h"
+#include "core/swmmdatetime.h"
 
 #include <QDateTime>
 #include <QRegularExpression>
@@ -44,8 +44,11 @@ bool tryParseTimestamp(const QString& s, double& jOut, double fallbackBase)
     for (const QString& fmt : kFormats) {
         QDateTime dt = QDateTime::fromString(trimmed, fmt);
         if (!dt.isValid()) continue;
-        if (dt.timeSpec() == Qt::LocalTime) dt.setTimeSpec(Qt::UTC);
-        jOut = openswmmvis::plot::dateTimeToSwmmJulian(dt);
+        // qDateTimeToSwmmDateTime() reads calendar components directly and
+        // never converts via toUTC()/toLocalTime(), so fromString()'s default
+        // Qt::LocalTime label (there's no timezone in these formats) doesn't
+        // need correcting here (GH #2 review — see swmmdatetime.h).
+        jOut = openswmmvis::core::qDateTimeToSwmmDateTime(dt);
         return std::isfinite(jOut);
     }
 
@@ -154,7 +157,7 @@ bool tryParseDateOnly_(const QString& s, double& jOut)
     const QDate d(yr, mon, day);
     if (!d.isValid()) return false;
     const QDateTime dt(d, QTime(0, 0), Qt::UTC);
-    jOut = openswmmvis::plot::dateTimeToSwmmJulian(dt);
+    jOut = openswmmvis::core::qDateTimeToSwmmDateTime(dt);
     return std::isfinite(jOut);
 }
 

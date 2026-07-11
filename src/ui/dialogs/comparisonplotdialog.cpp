@@ -7,7 +7,7 @@
 #include "ui/dialogs/comparisonplotdialog.h"
 
 #include "core/preferencesmanager.h"
-#include "plot/swmmjuliandatetime.h"
+#include "core/swmmdatetime.h"
 #include "plot/swmmoutrunlayer.h"
 #include "plot/mesh2drunlayer.h"
 #include "plot/observedcsvrunlayer.h"
@@ -441,7 +441,7 @@ void ComparisonPlotDialog::onFitClicked()
             m_model->resolveSeries(sIdx, data);
             if (!data.ok) continue;
             for (std::size_t i = 0; i < data.values.size(); ++i) {
-                const QDateTime t = plot::swmmJulianToDateTime(data.timesJulian[i]);
+                const QDateTime t = core::swmmDateTimeToQDateTime(data.timesJulian[i]);
                 if (t < m_xSelLo || t > m_xSelHi) continue;
                 const double v = data.values[i];
                 if (!std::isfinite(v)) continue;
@@ -1266,7 +1266,7 @@ void ComparisonPlotDialog::rebuildCharts()
             m_model->resolveSeries(sIdx, data);
             if (data.ok) {
                 for (std::size_t i = 0; i < data.timesJulian.size(); ++i) {
-                    const QDateTime dt = openswmmvis::plot::swmmJulianToDateTime(data.timesJulian[i]);
+                    const QDateTime dt = openswmmvis::core::swmmDateTimeToQDateTime(data.timesJulian[i]);
                     const double v = data.values[i];
                     if (!dt.isValid() || !std::isfinite(v)) continue;
                     const qint64 ms = dt.toMSecsSinceEpoch();

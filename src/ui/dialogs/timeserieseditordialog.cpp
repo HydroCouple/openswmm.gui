@@ -6,8 +6,8 @@
  */
 #include "ui/dialogs/timeserieseditordialog.h"
 
+#include "core/swmmdatetime.h"
 #include "io/timeseriesparse.h"
-#include "plot/swmmjuliandatetime.h"
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesregistry.h"
 #include "timeseries/timeseriesundocommands.h"
@@ -941,7 +941,7 @@ void TimeseriesEditorDialog::onPasteRowsTriggered_()
             ++rejected;
             continue;
         }
-        const QDateTime t = openswmmvis::plot::swmmJulianToDateTime(tJulian);
+        const QDateTime t = openswmmvis::core::swmmDateTimeToQDateTime(tJulian);
         if (!t.isValid()) { ++rejected; continue; }
 
         // Distribute pasted value cells across sibling providers (column-wise).
@@ -1369,7 +1369,7 @@ int TimeseriesEditorDialog::loadExternalFileIntoProvider_(
         // uses the simulation start date, but the GUI has no equivalent
         // here. 2000-01-01 keeps the points in a reasonable, non-1899 range
         // so the chart's date axis renders intelligibly.
-        state.lastDateJulian = openswmmvis::plot::dateTimeToSwmmJulian(
+        state.lastDateJulian = openswmmvis::core::qDateTimeToSwmmDateTime(
             QDateTime(QDate(2000, 1, 1), QTime(0, 0), Qt::UTC));
 
         QVector<TimeseriesPoint> pts;
@@ -1381,7 +1381,7 @@ int TimeseriesEditorDialog::loadExternalFileIntoProvider_(
             ++linesRead;
             double tJ = 0.0, v = 0.0;
             if (openswmmvis::io::parseSwmmDatLine(line, state, tJ, v)) {
-                pts.push_back({openswmmvis::plot::swmmJulianToDateTime(tJ), v});
+                pts.push_back({openswmmvis::core::swmmDateTimeToQDateTime(tJ), v});
                 ++linesAccepted;
             }
             // Heartbeat every ~1s so we can see *where* a hang occurs.
@@ -1455,7 +1455,7 @@ int TimeseriesEditorDialog::loadExternalFileIntoProvider_(
 
     QVector<TimeseriesPoint> pts;
     if (headerLooksLikeData && activeColIdx < static_cast<int>(probeVals.size())) {
-        pts.push_back({openswmmvis::plot::swmmJulianToDateTime(probeT),
+        pts.push_back({openswmmvis::core::swmmDateTimeToQDateTime(probeT),
                        probeVals[static_cast<std::size_t>(activeColIdx)]});
     }
 
@@ -1470,7 +1470,7 @@ int TimeseriesEditorDialog::loadExternalFileIntoProvider_(
                                        std::numeric_limits<double>::quiet_NaN()))
             continue;
         if (activeColIdx >= static_cast<int>(vals.size())) continue;
-        pts.push_back({openswmmvis::plot::swmmJulianToDateTime(tJ),
+        pts.push_back({openswmmvis::core::swmmDateTimeToQDateTime(tJ),
                        vals[static_cast<std::size_t>(activeColIdx)]});
     }
 
