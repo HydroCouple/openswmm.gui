@@ -7,11 +7,11 @@
 #include "ui/widgets/statssummarypanel.h"
 
 #include "core/preferencesmanager.h"
+#include "core/swmmdatetime.h"
 #include "plot/comparisonplotmodel.h"
 #include "plot/fitmetrics.h"
 #include "plot/irunlayer.h"
 #include "plot/seriesstatistics.h"
-#include "plot/swmmjuliandatetime.h"
 
 #include <QAction>
 #include <QDateTime>
@@ -293,7 +293,7 @@ void StatsSummaryPanel::populateTab(QTableWidget *table, int rowIndex)
         std::vector<double> filtered;
         filtered.reserve(data.values.size());
         for (std::size_t i = 0; i < data.values.size(); ++i) {
-            const QDateTime t = swmmJulianToDateTime(data.timesJulian[i]);
+            const QDateTime t = core::swmmDateTimeToQDateTime(data.timesJulian[i]);
             if (m_selLo.isValid() && t < m_selLo) continue;
             if (m_selHi.isValid() && t > m_selHi) continue;
             filtered.push_back(data.values[i]);
@@ -341,7 +341,7 @@ void StatsSummaryPanel::populateTab(QTableWidget *table, int rowIndex)
                 while (i < btimes.size() && j < data.timesJulian.size()) {
                     const double tb = btimes[i];
                     const double tc = data.timesJulian[j];
-                    const QDateTime tbDt = swmmJulianToDateTime(tb);
+                    const QDateTime tbDt = core::swmmDateTimeToQDateTime(tb);
                     const bool inWin =
                         (!m_selLo.isValid() || tbDt >= m_selLo) &&
                         (!m_selHi.isValid() || tbDt <= m_selHi);

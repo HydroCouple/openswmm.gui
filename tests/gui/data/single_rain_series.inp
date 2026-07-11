@@ -1,0 +1,117 @@
+[TITLE]
+;;Project Title/Notes
+
+[OPTIONS]
+;;Option            	Value
+FLOW_UNITS          	CFS
+INFILTRATION        	HORTON
+FLOW_ROUTING        	DYNWAVE
+LINK_OFFSETS        	DEPTH
+MIN_SLOPE           	0
+ALLOW_PONDING       	NO
+SKIP_STEADY_STATE   	NO
+
+START_DATE          	01/18/1990
+START_TIME          	00:00:00
+REPORT_START_DATE   	01/18/1990
+REPORT_START_TIME   	00:00:00
+END_DATE            	01/19/1990
+END_TIME            	00:00:00
+SWEEP_START         	01/01
+SWEEP_END           	12/31
+DRY_DAYS            	0
+REPORT_STEP         	00:15:00
+WET_STEP            	00:05:00
+DRY_STEP            	01:00:00
+ROUTING_STEP        	0:00:20 
+RULE_STEP           	00:00:00
+
+INERTIAL_DAMPING    	PARTIAL
+NORMAL_FLOW_LIMITED 	BOTH
+FORCE_MAIN_EQUATION 	H-W
+VARIABLE_STEP       	0.75
+LENGTHENING_STEP    	0
+MIN_SURFAREA        	12.566
+MAX_TRIALS          	8
+HEAD_TOLERANCE      	0.005
+SYS_FLOW_TOL        	5
+LAT_FLOW_TOL        	5
+MINIMUM_STEP        	0.5
+THREADS             	1
+
+[EVAPORATION]
+;;Data Source   	Parameters
+;;--------------	----------------
+CONSTANT        	0.0
+DRY_ONLY        	NO
+
+[RAINGAGES]
+;;Name          	Format   	Interval	SCF     	Source    
+;;--------------	---------	------	------	----------
+GAGE1           	INTENSITY	0:15    	1.0     	TIMESERIES	TSERIES1        
+
+[SUBCATCHMENTS]
+;;Name          	Rain Gage       	Outlet          	Area    	%Imperv 	Width   	%Slope  	CurbLen 	SnowPack        
+;;--------------	----------------	----------------	--------	--------	--------	--------	--------	----------------
+SUB1            	GAGE1           	OUTFALL1        	5       	25      	500     	0.5     	0       	                
+
+[SUBAREAS]
+;;Subcatchment  	N-Imperv  	N-Perv    	S-Imperv  	S-Perv    	PctZero   	RouteTo   	PctRouted 
+;;--------------	----------	----------	----------	----------	----------	----------	----------
+SUB1            	0.01      	0.1       	0.05      	0.05      	25        	OUTLET    
+
+[INFILTRATION]
+;;Subcatchment  	Param1    	Param2    	Param3    	Param4    	Param5    
+;;--------------	----------	----------	----------	----------	----------
+SUB1            	3.0       	0.5       	4         	7         	0         
+
+[OUTFALLS]
+;;Name          	Elevation 	Type      	Stage Data      	Gated   	Route To        
+;;--------------	----------	----------	----------------	--------	----------------
+OUTFALL1        	0         	FREE      	                	NO      	                
+
+[TIMESERIES]
+;;Name          	Date      	Time      	Value     
+;;--------------	----------	----------	----------
+TSERIES1        	01/18/1990	00:00     	0.0       
+TSERIES1        	          	00:15     	0.1       
+TSERIES1        	          	00:30     	0.2       
+TSERIES1        	          	00:45     	0.3       
+TSERIES1        	          	01:00     	0.4       
+TSERIES1        	01/18/1990	01:15     	0.5       
+TSERIES1        	          	01:30     	0.6       
+TSERIES1        	          	01:45     	0.7       
+TSERIES1        	          	02:00     	0.8       
+TSERIES1        	          	02:15     	0.9       
+
+[REPORT]
+;;Reporting Options
+SUBCATCHMENTS	ALL
+NODES	ALL
+LINKS	ALL
+
+[TAGS]
+
+[MAP]
+DIMENSIONS	0.000	0.000	10000.000	10000.000
+Units     	None
+
+[COORDINATES]
+;;Node          	X-Coord           	Y-Coord           
+;;--------------	------------------	------------------
+OUTFALL1        	7974.181          	6802.383          
+
+[VERTICES]
+;;Link          	X-Coord           	Y-Coord           
+;;--------------	------------------	------------------
+
+[Polygons]
+;;Subcatchment  	X-Coord           	Y-Coord           
+;;--------------	------------------	------------------
+SUB1            	7408.143          	7318.769          
+
+[SYMBOLS]
+;;Gage          	X-Coord           	Y-Coord           
+;;--------------	------------------	------------------
+GAGE1           	8272.095          	7547.170          
+

@@ -84,10 +84,12 @@ struct ObjectRef {
     bool operator!=(const ObjectRef& other) const noexcept { return !(*this == other); }
 };
 
-/*! \brief Result of one series resolution. Times are SWMM Julian days;
- *         values are in the unit system the source advertises. */
+/*! \brief Result of one series resolution. Times are SWMM DateTime doubles
+ *         (OLE-Automation epoch, not astronomical Julian — see
+ *         core/swmmdatetime.h); values are in the unit system the source
+ *         advertises. */
 struct SeriesData {
-    std::vector<double> timesJulian;   ///< SWMM Julian; convert via swmmJulianToDateTime.
+    std::vector<double> timesJulian;   ///< SWMM DateTime; convert via openswmmvis::core::swmmDateTimeToQDateTime.
     std::vector<double> values;        ///< Same length as timesJulian.
     bool                ok = false;    ///< False if the source couldn't fulfil the request.
     QString             errorMessage;  ///< Populated when ok == false.
