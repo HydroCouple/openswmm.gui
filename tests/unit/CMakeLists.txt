@@ -268,6 +268,23 @@ add_swmmvis_unit_test(test_timeseries_parse
     test_timeseries_parse.cpp
     ${PROJECT_SOURCE_DIR}/src/io/timeseriesparse.cpp
 )
+# timeseriesparse.cpp -> plot/swmmjuliandatetime.h -> core/swmmdatetime.h now
+# delegates to the engine's datetime C API (GH #1/#2 consolidation); link the
+# engine so swmm_datetime_* resolve and its include dir is on the path.
+if(TARGET openswmm_engine)
+    target_link_libraries(test_timeseries_parse PRIVATE openswmm_engine)
+endif()
+
+# ── SWMM DateTime consolidation (GH #1, #2) ─────────────────────────────────
+# Canonical QDateTime<->SWMM converter (include/core/swmmdatetime.h) parity
+# against the engine's native encode/decode. Header-only under test; links the
+# engine for the swmm_datetime_* symbols + include path.
+add_swmmvis_unit_test(test_swmm_datetime
+    test_swmm_datetime.cpp
+)
+if(TARGET openswmm_engine)
+    target_link_libraries(test_swmm_datetime PRIVATE openswmm_engine)
+endif()
 
 add_swmmvis_unit_test(test_timeseries_provider
     test_timeseries_provider.cpp
