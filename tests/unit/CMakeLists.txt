@@ -268,8 +268,8 @@ add_swmmvis_unit_test(test_timeseries_parse
     test_timeseries_parse.cpp
     ${PROJECT_SOURCE_DIR}/src/io/timeseriesparse.cpp
 )
-# timeseriesparse.cpp -> plot/swmmjuliandatetime.h -> core/swmmdatetime.h now
-# delegates to the engine's datetime C API (GH #1/#2 consolidation); link the
+# timeseriesparse.cpp includes core/swmmdatetime.h directly (GH #1/#2
+# consolidation), which delegates to the engine's datetime C API; link the
 # engine so swmm_datetime_* resolve and its include dir is on the path.
 if(TARGET openswmm_engine)
     target_link_libraries(test_timeseries_parse PRIVATE openswmm_engine)
