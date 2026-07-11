@@ -72,10 +72,11 @@ bool parseRow(const QString& line,
  */
 struct SwmmDatState
 {
-    /*! \brief SWMM Julian date used as the anchor for 2-token lines (the
+    /*! \brief SWMM DateTime used as the anchor for 2-token lines (the
      *  whole-day part). Initialise to a sensible base before parsing the
-     *  first line — e.g. `dateTimeToSwmmJulian(QDateTime(QDate(2000,1,1),
-     *  QTime(0,0), Qt::UTC))`. Updated when a 3-token line is read. */
+     *  first line — e.g. `openswmmvis::core::qDateTimeToSwmmDateTime(
+     *  QDateTime(QDate(2000,1,1), QTime(0,0), Qt::UTC))`. Updated when a
+     *  3-token line is read. */
     double lastDateJulian = 0.0;
 
     /*! \brief Set to true once a 3-token line has been parsed. Lets the

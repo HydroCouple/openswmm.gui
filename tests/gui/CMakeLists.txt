@@ -917,6 +917,19 @@ add_swmmvis_gui_test(test_timeseries_registry_engine
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesregistry.cpp
 )
 
+# SWMM DateTime Consolidation Phase 1 (workplans/
+# SWMM_DATETIME_CONSOLIDATION_PLAN_2026-07-10.md) — golden round-trip for
+# the time-series minute-truncation fix (GH #1) against a real fixture
+# opened through the engine. Same link set as test_timeseries_registry_engine
+# above, since it drives the same TimeseriesRegistry/TimeseriesProvider code.
+add_swmmvis_gui_test(test_timeseries_datetime_roundtrip
+    test_timeseries_datetime_roundtrip.cpp
+    ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesprovider.h
+    ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesregistry.h
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesregistry.cpp
+)
+
 # Phase 1 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — UserFlagsModel
 # define/undefine/value round-trips against a real engine handle, signal
 # emission, and [USER_FLAGS]/[USER_FLAG_VALUES] INP persistence (the
