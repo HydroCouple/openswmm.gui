@@ -19,11 +19,26 @@
 
 #include <QDir>
 #include <QFile>
+#include <QLoggingCategory>
 #include <QObject>
 #include <QSignalSpy>
 #include <QTest>
 
 namespace {
+
+// Capture openswmm.load.* telemetry emitted during a scoped block so the
+// timing regression guard can assert on the category channel (load timing
+// now goes to openswmm.load.model, not the layer's `warnings` list).
+QStringList     g_loadLog;
+QtMessageHandler g_prevHandler = nullptr;
+void loadLogHandler(QtMsgType type, const QMessageLogContext &ctx, const QString &msg)
+{
+    if (ctx.category
+        && QString::fromLatin1(ctx.category).startsWith(QStringLiteral("openswmm.load")))
+        g_loadLog << msg;
+    if (g_prevHandler)
+        g_prevHandler(type, ctx, msg);
+}
 
 QString dataDir()
 {
@@ -117,9 +132,10 @@ private slots:
         QVERIFY2(detail.contains(QStringLiteral("GHOST")), qPrintable(detail));
     }
 
-    // 3. openEngineForPath() + adoptOpenEngine() on a fresh layer must
-    //    yield the same node/link/subcatchment/gage counts as a plain
-    //    loadModel() on another layer for the same fixture.
+    // 3. openEngineForPath() + buildFromEngine() + adoptOpenEngine() on a
+    //    fresh layer (the async open sequence) must yield the same
+    //    node/link/subcatchment/gage counts as a plain loadModel() on another
+    //    layer for the same fixture.
     void openAndAdoptEqualsSyncLoad()
     {
         QString detail;
@@ -130,7 +146,12 @@ private slots:
 
         SWMMModelLayer asyncLayer(fixturePath(), nullptr);
         QList<QString> warningsA, errorsA;
-        QVERIFY(asyncLayer.adoptOpenEngine(eng, warningsA, errorsA, openMs));
+        // buildFromEngine() is the worker half in the real async path; run it
+        // here before adoption exactly as SWMMVisProjectWindow::loadModelAsync
+        // does.
+        qint64 soaMs = 0, geomMs = 0;
+        asyncLayer.buildFromEngine(eng, &soaMs, &geomMs);
+        QVERIFY(asyncLayer.adoptOpenEngine(eng, warningsA, errorsA, openMs, soaMs, geomMs));
 
         SWMMModelLayer syncLayer(fixturePath(), nullptr);
         QList<QString> warningsB, errorsB;
@@ -145,19 +166,33 @@ private slots:
     }
 
     // 4. Plain loadModel() still succeeds (sync-path regression guard) and
-    //    reports the load-timing line in `warnings`.
+    //    emits the load-timing line to the openswmm.load.model category.
+    //    (Timing moved out of `warnings` — which is now real-warnings-only —
+    //    into opt-in telemetry; the GUI shows one clean success summary.)
     void loadModelRegression()
     {
+        QLoggingCategory::setFilterRules(QStringLiteral("openswmm.load.*=true"));
+        g_loadLog.clear();
+        g_prevHandler = qInstallMessageHandler(loadLogHandler);
+
         SWMMModelLayer layer(fixturePath(), nullptr);
         QList<QString> warnings, errors;
-        QVERIFY(layer.loadModel(warnings, errors));
+        const bool ok = layer.loadModel(warnings, errors);
+
+        qInstallMessageHandler(g_prevHandler);
+        g_prevHandler = nullptr;
+        QLoggingCategory::setFilterRules(QString());
+
+        QVERIFY(ok);
         QVERIFY(errors.isEmpty());
 
         bool foundTiming = false;
-        for (const QString &w : warnings)
-            if (w.contains(QStringLiteral("load timing (ms)")))
+        for (const QString &m : g_loadLog)
+            if (m.contains(QStringLiteral("load timing (ms)")))
                 foundTiming = true;
-        QVERIFY2(foundTiming, "expected a '... load timing (ms): ...' line in warnings");
+        QVERIFY2(foundTiming,
+                 "expected a '... load timing (ms): ...' line in the "
+                 "openswmm.load.model category");
     }
 
     // 5. Async completion: SWMMVisProjectWindow::loadModelAsync() must emit
@@ -208,6 +243,39 @@ private slots:
         }
 
         delete workspace;
+    }
+
+    // 6. Optional profiling harness (Phase 0 of the file-open plan). Loads an
+    //    arbitrary model named by SWMM_PROFILE_INP and dumps the GUI-thread
+    //    load breakdown (engine_open vs SoA copy vs CRS vs geometry cache,
+    //    plus sub-splits) captured from the openswmm.load.model category.
+    //    Skips when the env var is unset, so it is a no-op in CI.
+    void profileExternalModel()
+    {
+        const QString inp = qEnvironmentVariable("SWMM_PROFILE_INP");
+        if (inp.isEmpty())
+            QSKIP("set SWMM_PROFILE_INP=<path.inp> to run the load profiler");
+        QVERIFY2(QFile::exists(inp), qPrintable("SWMM_PROFILE_INP not found: " + inp));
+
+        QLoggingCategory::setFilterRules(QStringLiteral("openswmm.load.*=true"));
+        g_loadLog.clear();
+        g_prevHandler = qInstallMessageHandler(loadLogHandler);
+
+        SWMMModelLayer layer(inp, nullptr);
+        QList<QString> warnings, errors;
+        const bool ok = layer.loadModel(warnings, errors);
+
+        qInstallMessageHandler(g_prevHandler);
+        g_prevHandler = nullptr;
+        QLoggingCategory::setFilterRules(QString());
+
+        QVERIFY2(ok, qPrintable(errors.join(QStringLiteral("; "))));
+        qInfo().noquote() << "=== PROFILE" << inp
+                          << QStringLiteral("(nodes=%1 links=%2 subcatch=%3 gages=%4) ===")
+                                 .arg(layer.cachedNodeCount()).arg(layer.cachedLinkCount())
+                                 .arg(layer.cachedSubcatchCount()).arg(layer.cachedGageCount());
+        for (const QString &m : g_loadLog)
+            qInfo().noquote() << "  " << m;
     }
 };
 

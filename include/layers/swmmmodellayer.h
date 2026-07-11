@@ -230,15 +230,32 @@ public:
                                          qint64 *openMs = nullptr);
 
     /*!
-     * \brief Adopt an engine already opened by openEngineForPath() and rebuild
-     *        all geometry caches. GUI-thread only (mutates layer state and
-     *        emits signals).
-     * \param openMs  Engine-open elapsed ms as reported by openEngineForPath()
-     *                (-1 = unknown), folded into the timing log line.
+     * \brief Populate the SoA arrays + geometry caches from \a engine.
+     *
+     * The heavy half of a model open — per-object SoA copy + buildGeometryCache
+     * (KD-trees, bboxes, scene coords). Pure data work: reads the engine C-API
+     * and writes plain member arrays, with **no** QObject creation, signals, or
+     * singleton access, so it is safe to run in a QtConcurrent worker. Does NOT
+     * assign m_engine (ownership stays with the caller until adoptOpenEngine).
+     *
+     * The layer MUST NOT be painted while this runs (its scene arrays are being
+     * resized/filled) — callers keep it non-visible until adoptOpenEngine.
+     *
+     * \param soaMsOut/geomMsOut Optional out: SoA-copy / geometry-cache ms.
+     */
+    void buildFromEngine(SWMM_Engine engine,
+                         qint64 *soaMsOut = nullptr, qint64 *geomMsOut = nullptr);
+
+    /*!
+     * \brief Adopt an engine whose geometry was already built by
+     *        buildFromEngine(). GUI-thread only: assigns the engine, syncs
+     *        units, resolves the CRS, and emits the load signals.
+     * \param openMs/soaMs/geomMs  Phase timings folded into the load telemetry
+     *        (openMs = engine open; soaMs/geomMs = the worker-side build).
      */
     bool adoptOpenEngine(SWMM_Engine engine,
                          QList<QString> &warnings, QList<QString> &errors,
-                         qint64 openMs = -1);
+                         qint64 openMs = -1, qint64 soaMs = 0, qint64 geomMs = 0);
 
     /** Close and destroy the engine, clearing all geometry caches. */
     void closeEngine();
@@ -1123,6 +1140,12 @@ public:
      *        \ref cachedSubcatchVertices for direct iteration.
      */
     [[nodiscard]] int cachedSubcatchCount() const;
+
+    /*! \brief Cached top-level object counts (all node/link kinds summed).
+     *         Convenience for load-summary logging. */
+    [[nodiscard]] int cachedNodeCount() const;
+    [[nodiscard]] int cachedLinkCount() const;
+    [[nodiscard]] int cachedGageCount() const;
 
     /*! Monotonically increasing counter, bumped at the end of every
      *  rebuildSceneCoords() call.  Renderers can compare against a cached

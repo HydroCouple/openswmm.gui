@@ -50,6 +50,7 @@
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QFileInfo>
+#include <QLoggingCategory>
 #include <QMetaType>
 #include <QPolygonF>
 #include <QRegularExpression>
@@ -83,6 +84,13 @@
 #include <openswmm/engine/openswmm_inflows.h>
 
 #include <nanoflann.hpp>
+
+// Load-phase profiling (opt-in). Enable with:
+//   QT_LOGGING_RULES="openswmm.load.*=true"
+// Surfaces per-sub-phase timings for the .inp adopt path (SoA copy split by
+// object kind + geometry-cache split by sub-step) so a slow open can be
+// attributed precisely. Off by default — no cost on the normal open path.
+Q_LOGGING_CATEGORY(lcLoadModel, "openswmm.load.model")
 
 // ---------------------------------------------------------------------------
 // nanoflann adaptor + KD-tree types (private to this translation unit)
@@ -673,7 +681,11 @@ bool SWMMModelLayer::loadModel(QList<QString> &warnings, QList<QString> &errors)
         errors.append(detail);
         return false;
     }
-    return adoptOpenEngine(eng, warnings, errors, openMs);
+    // Same two-step the async path uses (buildFromEngine + adoptOpenEngine),
+    // run inline here so the synchronous result is identical.
+    qint64 soaMs = 0, geomMs = 0;
+    buildFromEngine(eng, &soaMs, &geomMs);
+    return adoptOpenEngine(eng, warnings, errors, openMs, soaMs, geomMs);
 }
 
 SWMM_Engine SWMMModelLayer::openEngineForPath(const QString &path,
@@ -729,77 +741,53 @@ SWMM_Engine SWMMModelLayer::openEngineForPath(const QString &path,
     return eng;
 }
 
-bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
-                                     QList<QString> &warnings,
-                                     QList<QString> &errors,
-                                     qint64 openMs)
+void SWMMModelLayer::buildFromEngine(SWMM_Engine engine,
+                                     qint64 *soaMsOut, qint64 *geomMsOut)
 {
-    Q_UNUSED(errors);
-    if (m_engine && m_engine != engine)
-        closeEngine();
-
-    QFileInfo fi(m_modelFilePath);
-
-    // Load-time phase profiling. Surfaces a per-phase breakdown so a slow
-    // open can be attributed (engine parse vs. SoA copy vs. CRS/PROJ init vs.
-    // geometry cache) instead of guessed at. Emitted to stderr + warnings.
+    // Worker-thread half of a model open — pure data (see header). Reads
+    // `engine` directly (NOT m_engine, which adoptOpenEngine assigns) and
+    // writes plain member arrays; no signals / QObject creation / singletons.
     QElapsedTimer loadTimer;
     loadTimer.start();
-    const qint64 msOpen = (openMs >= 0) ? openMs : 0;
-    qint64 msParse = 0, msCrs = 0, msGeom = 0;
+    // Phase-0 sub-splits: cumulative loadTimer readings after each SoA section.
+    qint64 soaNodes = 0, soaLinks = 0, soaCatch = 0;
 
     m_tablePartitionDirty = true;
-    m_engine = engine;
-
-    // Leave the engine in OPENED state at load time so that property
-    // setters (CHECK_GEOMETRY only allows BUILDING/OPENED) succeed on
-    // user edits in the Attribute Table + Property Browser.  The
-    // simulation runner calls swmm_engine_initialize itself before
-    // running — see src/simulation/simulationrunner.cpp:198 — so
-    // skipping it here doesn't affect run behaviour.
-    //
-    // Previously the GUI called swmm_engine_initialize here, which
-    // advanced state to INITIALIZED and silently rejected every
-    // subsequent property edit with SWMM_ERR_LIFECYCLE.  The Attribute
-    // Table appeared to commit edits (cells flashed the new value) but
-    // the engine getter then returned the unchanged SoA value, so
-    // cells reverted (caleb 2026-05-12).
-
-    // Sync flow units from loaded model
-    UnitSystem::instance()->syncFromEngine(m_engine);
 
     // ---- Nodes ----
-    int nodeCount = swmm_node_count(m_engine);
+    int nodeCount = swmm_node_count(engine);
     m_nodes.reserve(nodeCount);
     for (int i = 0; i < nodeCount; ++i)
     {
         NodeGeom g;
-        g.name = QString::fromUtf8(swmm_node_id(m_engine, i));
-        swmm_node_get_type(m_engine, i, &g.nodeType);
+        g.name = QString::fromUtf8(swmm_node_id(engine, i));
+        swmm_node_get_type(engine, i, &g.nodeType);
         g.objectType = 0;
         double x = 0, y = 0;
-        swmm_spatial_get_node_coord(m_engine, i, &x, &y);
+        swmm_spatial_get_node_coord(engine, i, &x, &y);
         g.x = x;
         g.y = y;
         m_nodes.append(g);
     }
+
+    soaNodes = loadTimer.elapsed();
 
     // ---- Links ----
     // m_links[i].vertices holds ONLY interior (bend) points.
     // The from/to node endpoint positions are looked up dynamically from
     // m_nodes[] via fromNodeIdx / toNodeIdx so that moving a node
     // automatically affects all attached links without patching vertex arrays.
-    int linkCount = swmm_link_count(m_engine);
+    int linkCount = swmm_link_count(engine);
     m_links.reserve(linkCount);
     for (int i = 0; i < linkCount; ++i)
     {
         LinkGeom g;
-        g.name = QString::fromUtf8(swmm_link_id(m_engine, i));
-        swmm_link_get_type(m_engine, i, &g.linkType);
+        g.name = QString::fromUtf8(swmm_link_id(engine, i));
+        swmm_link_get_type(engine, i, &g.linkType);
 
         int fromIdx = -1, toIdx = -1;
-        swmm_link_get_from_node(m_engine, i, &fromIdx);
-        swmm_link_get_to_node(m_engine, i, &toIdx);
+        swmm_link_get_from_node(engine, i, &fromIdx);
+        swmm_link_get_to_node(engine, i, &toIdx);
         g.fromNodeIdx = fromIdx;
         g.toNodeIdx   = toIdx;
 
@@ -808,11 +796,11 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
         // m_links[].vertices holds interior bend points only; cachedLinkPolyline
         // re-prepends / re-appends the node positions dynamically.
         int vertCount = 0;
-        swmm_spatial_get_link_vertex_count(m_engine, i, &vertCount);
+        swmm_spatial_get_link_vertex_count(engine, i, &vertCount);
         if (vertCount > 0)
         {
             QVector<double> vx(vertCount), vy(vertCount);
-            swmm_spatial_get_link_vertices(m_engine, i, vx.data(), vy.data(), vertCount);
+            swmm_spatial_get_link_vertices(engine, i, vx.data(), vy.data(), vertCount);
 
             // Clean the FULL polyline [from-node, interior..., to-node] so a
             // bend point coincident with a node endpoint (or a neighbour) is
@@ -844,20 +832,22 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
         m_links.append(g);
     }
 
+    soaLinks = loadTimer.elapsed();
+
     // ---- Subcatchments ----
-    int catchCount = swmm_subcatch_count(m_engine);
+    int catchCount = swmm_subcatch_count(engine);
     m_catchments.reserve(catchCount);
     for (int i = 0; i < catchCount; ++i)
     {
         CatchGeom g;
-        g.name = QString::fromUtf8(swmm_subcatch_id(m_engine, i));
+        g.name = QString::fromUtf8(swmm_subcatch_id(engine, i));
 
         int polyCount = 0;
-        swmm_spatial_get_subcatch_polygon_count(m_engine, i, &polyCount);
+        swmm_spatial_get_subcatch_polygon_count(engine, i, &polyCount);
         if (polyCount > 0)
         {
             QVector<double> px(polyCount), py(polyCount);
-            swmm_spatial_get_subcatch_polygon(m_engine, i, px.data(), py.data(), polyCount);
+            swmm_spatial_get_subcatch_polygon(engine, i, px.data(), py.data(), polyCount);
             QVector<QPointF> ring(polyCount);
             for (int v = 0; v < polyCount; ++v)
                 ring[v] = QPointF(px[v], py[v]);
@@ -867,17 +857,19 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
         m_catchments.append(g);
     }
 
+    soaCatch = loadTimer.elapsed();
+
     // ---- Rain gages ----
-    int gageCount = swmm_gage_count(m_engine);
+    int gageCount = swmm_gage_count(engine);
     m_gages.reserve(gageCount);
     for (int i = 0; i < gageCount; ++i)
     {
         NodeGeom g;
-        g.name = QString::fromUtf8(swmm_gage_id(m_engine, i));
+        g.name = QString::fromUtf8(swmm_gage_id(engine, i));
         g.nodeType = 0;
         g.objectType = 1;
         double x = 0, y = 0;
-        swmm_spatial_get_gage_coord(m_engine, i, &x, &y);
+        swmm_spatial_get_gage_coord(engine, i, &x, &y);
         g.x = x;
         g.y = y;
         m_gages.append(g);
@@ -923,7 +915,55 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
         }
     }
 
-    msParse = loadTimer.elapsed();  // node/link/catch/gage SoA copy
+    const qint64 msParse = loadTimer.elapsed();  // node/link/catch/gage SoA copy
+    if (soaMsOut) *soaMsOut = msParse;
+    qCInfo(lcLoadModel).noquote()
+        << QStringLiteral("SoA copy (ms): nodes=%1 links=%2 subcatch=%3 gages=%4 "
+                          "| counts n=%5 l=%6 s=%7 g=%8")
+               .arg(soaNodes)
+               .arg(soaLinks - soaNodes)
+               .arg(soaCatch - soaLinks)
+               .arg(msParse - soaCatch)
+               .arg(m_nodes.size()).arg(m_links.size())
+               .arg(m_catchments.size()).arg(m_gages.size());
+
+    buildGeometryCache();
+    if (geomMsOut) *geomMsOut = loadTimer.elapsed() - msParse;  // geometry cache
+    m_needsRebuild = true;
+}
+
+bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
+                                     QList<QString> &warnings,
+                                     QList<QString> &errors,
+                                     qint64 openMs, qint64 soaMs, qint64 geomMs)
+{
+    Q_UNUSED(errors);
+    Q_UNUSED(warnings);
+    if (m_engine && m_engine != engine)
+        closeEngine();
+
+    QFileInfo fi(m_modelFilePath);
+    const qint64 msOpen = (openMs >= 0) ? openMs : 0;
+
+    m_engine = engine;
+
+    // Leave the engine in OPENED state at load time so that property
+    // setters (CHECK_GEOMETRY only allows BUILDING/OPENED) succeed on
+    // user edits in the Attribute Table + Property Browser.  The
+    // simulation runner calls swmm_engine_initialize itself before
+    // running — see src/simulation/simulationrunner.cpp:198 — so
+    // skipping it here doesn't affect run behaviour.
+
+    QElapsedTimer crsTimer;
+    crsTimer.start();
+
+    // Sync flow units from loaded model
+    UnitSystem::instance()->syncFromEngine(m_engine);
+
+    // The SoA arrays + geometry caches were populated by buildFromEngine()
+    // (on the worker thread for the async open path). Here we do only the
+    // GUI-affine finalization: engine adoption, unit sync, CRS resolution
+    // (creates SpatialReferenceSystem QObjects), and the load signals.
 
     // ---- CRS ----
     // Resolution order:
@@ -957,17 +997,17 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
         setSRS(layerSRS, true);
     }
 
-    msCrs = loadTimer.elapsed() - msParse;  // CRS resolve + PROJ init
+    const qint64 msCrs = crsTimer.elapsed();  // CRS resolve + PROJ init
 
-    buildGeometryCache();
-    msGeom = loadTimer.elapsed() - msParse - msCrs;  // geometry cache
     m_needsRebuild = true;
     emit repaintRequested();  // ensure canvas redraws after geometry is ready
 
-    // Surface object counts so the user can see at a glance whether the
-    // engine actually returned any geometry. Goes into both stderr (qDebug)
-    // and the warnings list which the project window pipes into the
-    // Message Log dock.
+    // Surface object counts + per-phase timing through the opt-in load
+    // category (openswmm.load.model). The user-facing "Opened <path> …"
+    // summary is emitted once by the GUI orchestration layer
+    // (SWMMVis::finalizeSingleINPOpen); keeping these here as developer
+    // telemetry avoids duplicating them as mis-typed "Warning" rows in the
+    // Message Log.
     const QString counts = QStringLiteral(
         "[SWMMModelLayer] %1: nodes=%2 links=%3 subcatchments=%4 gages=%5 "
         "extent valid=%6")
@@ -975,17 +1015,15 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
         .arg(m_nodes.size()).arg(m_links.size())
         .arg(m_catchments.size()).arg(m_gages.size())
         .arg(extent().isValid() ? "yes" : "no");
-    qDebug().noquote() << counts;
-    warnings.append(counts);
+    qCInfo(lcLoadModel).noquote() << counts;
 
     const QString timing = QStringLiteral(
         "[SWMMModelLayer] %1 load timing (ms): engine_open=%2 soa_copy=%3 "
         "crs_init=%4 geometry_cache=%5 total=%6")
         .arg(fi.fileName())
-        .arg(msOpen).arg(msParse).arg(msCrs).arg(msGeom)
-        .arg(msOpen + loadTimer.elapsed());
-    qDebug().noquote() << timing;
-    warnings.append(timing);
+        .arg(msOpen).arg(soaMs).arg(msCrs).arg(geomMs)
+        .arg(msOpen + soaMs + msCrs + geomMs);
+    qCInfo(lcLoadModel).noquote() << timing;
 
     setName(fi.baseName());
     emit modelFilePathChanged(m_modelFilePath);
@@ -3556,6 +3594,10 @@ int SWMMModelLayer::cachedSubcatchCount() const
     return m_catchments.size();
 }
 
+int SWMMModelLayer::cachedNodeCount() const { return m_nodes.size(); }
+int SWMMModelLayer::cachedLinkCount() const { return m_links.size(); }
+int SWMMModelLayer::cachedGageCount() const { return m_gages.size(); }
+
 SWMMModelLayer::PickResult
 SWMMModelLayer::pickAt(double sceneX, double sceneY, double tolerance) const
 {
@@ -5527,11 +5569,16 @@ bool SWMMModelLayer::applySubcatchVertices(int idx, const QVector<QPointF> &vert
 
 void SWMMModelLayer::buildGeometryCache()
 {
+    // Phase-0 sub-phase profiling (opt-in via openswmm.load.model).
+    QElapsedTimer geomTimer;
+    geomTimer.start();
+
     // Also refresh the per-category index buckets used by the virtualised
     // Object Browser tree model. These are cheap (O(N) once, indexing into
     // already-cached SoA) and must stay coherent with m_nodes / m_links /
     // m_catchments / m_gages any time those are repopulated.
     rebuildCategoryIndex();
+    const qint64 gCat = geomTimer.elapsed();
 
     // Per-feature bbox caches for linksInRect / subcatchmentsInRect.
     // Computed once here so the rubber-band tool can iterate the
@@ -5600,9 +5647,23 @@ void SWMMModelLayer::buildGeometryCache()
     if (xMin <= xMax && yMin <= yMax)
         setExtent(MapExtent(xMin, yMin, xMax, yMax));
 
+    const qint64 gBbox = geomTimer.elapsed();  // bboxes + extent sweep
     rebuildKdTrees();
+    const qint64 gKd = geomTimer.elapsed();
     rebuildSceneCoords();
+    const qint64 gScene = geomTimer.elapsed();
     rebuildFlagArrays();  // After SoAs + m_nameToSoa are stable.
+    const qint64 gFlags = geomTimer.elapsed();
+
+    qCInfo(lcLoadModel).noquote()
+        << QStringLiteral("geometry_cache (ms): category_index=%1 bboxes+extent=%2 "
+                          "kdtrees=%3 scene_coords=%4 flag_arrays=%5 total=%6")
+               .arg(gCat)
+               .arg(gBbox - gCat)
+               .arg(gKd - gBbox)
+               .arg(gScene - gKd)
+               .arg(gFlags - gScene)
+               .arg(gFlags);
 }
 
 // ---------------------------------------------------------------------------

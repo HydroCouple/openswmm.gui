@@ -29,6 +29,10 @@
 #include <QMessageBox>
 #include <QHeaderView>
 #include <QMetaEnum>
+#include <QElapsedTimer>
+#include <QLoggingCategory>
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrentRun>
 #include <QFileInfo>
 #include <QCloseEvent>
 #include <QDragEnterEvent>
@@ -62,6 +66,8 @@
 #include <QThread>
 
 #include <cmath>
+
+#include <cpl_conv.h>   // CPLGetLastErrorMsg — GDAL open-failure detail
 
 #include "swmmvis.h"
 #include "io/gdaldrivers.h"
@@ -192,6 +198,13 @@
 #include <QSignalBlocker>
 #include <QValidator>
 #include <QRegularExpression>
+
+// Load-phase profiling (opt-in). Enable with:
+//   QT_LOGGING_RULES="openswmm.load.*=true"
+// Orchestration-level timings: .oswp JSON parse/dispatch and the sidecar
+// apply. Per-layer categories (openswmm.load.model / .results / .raster /
+// .vector) carry the fine-grained breakdown. Off by default.
+Q_LOGGING_CATEGORY(lcLoadProject, "openswmm.load.project")
 
 namespace {
 
@@ -356,6 +369,36 @@ void SWMMVis::onLogMessage(const QString &message,
         << new QStandardItem(message));
 
     ui->treeViewMessageLogs->scrollToBottom();
+}
+
+void SWMMVis::beginFileOpen(const QString &path)
+{
+    const QString name = QFileInfo(path).fileName();
+    onLogMessage(tr("Opening %1 …").arg(name),
+                 OpenSWMMVisLogMessage::LogMessageType::Information);
+    statusBar()->showMessage(tr("Opening %1…").arg(name));
+    onSetProgressBarBusy(true);
+}
+
+void SWMMVis::endFileOpen(const QString &path, bool ok,
+                          const QString &summary, qint64 elapsedMs,
+                          const QString &errorDetail)
+{
+    onSetProgressBarBusy(false);
+    statusBar()->clearMessage();
+
+    const QString name = QFileInfo(path).fileName();
+    if (ok) {
+        const QString msg = summary.isEmpty()
+            ? tr("Opened %1 (%2 ms)").arg(name).arg(elapsedMs)
+            : tr("Opened %1 (%2, %3 ms)").arg(name, summary).arg(elapsedMs);
+        onLogMessage(msg, OpenSWMMVisLogMessage::LogMessageType::Information);
+    } else {
+        const QString msg = errorDetail.isEmpty()
+            ? tr("Failed to open %1").arg(name)
+            : tr("Failed to open %1: %2").arg(name, errorDetail);
+        onLogMessage(msg, OpenSWMMVisLogMessage::LogMessageType::Error);
+    }
 }
 
 // ── Initialization ────────────────────────────────────────────────────────
@@ -4229,13 +4272,14 @@ void SWMMVis::openSingleINP(const QString &filePath)
     // responsive and the indeterminate status-bar progress bar animating.
     // Everything that used to follow the synchronous loadModel() call lives
     // in finalizeSingleINPOpen(), invoked exactly once on completion.
-    onSetProgressBarBusy(true);
-    statusBar()->showMessage(
-        tr("Loading %1…").arg(QFileInfo(filePath).fileName()));
+    beginFileOpen(filePath);
+    QElapsedTimer openTimer;
+    openTimer.start();
     connect(window, &SWMMVisProjectWindow::modelLoadFinished, this,
-            [this, window, filePath](bool ok, const QList<QString> &warnings,
+            [this, window, filePath, openTimer](bool ok, const QList<QString> &warnings,
                                      const QList<QString> &errors) {
-                finalizeSingleINPOpen(window, filePath, ok, warnings, errors);
+                finalizeSingleINPOpen(window, filePath, ok, warnings, errors,
+                                      openTimer.elapsed());
             },
             static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
     window->loadModelAsync();
@@ -4245,15 +4289,24 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
                                     const QString &filePath,
                                     bool ok,
                                     const QList<QString> &warnings,
-                                    const QList<QString> &errors)
+                                    const QList<QString> &errors,
+                                    qint64 elapsedMs)
 {
-    onSetProgressBarBusy(false);
-    statusBar()->clearMessage();
-
+    // Real warnings first (Phase-0 counts/timing no longer land here — they
+    // go to the openswmm.load.model category), then the single success/error
+    // summary via endFileOpen (also clears the spinner + status bar).
     for (const QString &w : warnings)
         onLogMessage(w, OpenSWMMVisLogMessage::LogMessageType::Warning);
-    for (const QString &e : errors)
-        onLogMessage(e, OpenSWMMVisLogMessage::LogMessageType::Error);
+
+    QString summary;
+    if (ok && window && window->modelLayer()) {
+        SWMMModelLayer *ml = window->modelLayer();
+        summary = tr("nodes=%1 links=%2 subcatch=%3 gages=%4")
+                      .arg(ml->cachedNodeCount()).arg(ml->cachedLinkCount())
+                      .arg(ml->cachedSubcatchCount()).arg(ml->cachedGageCount());
+    }
+    const QString errDetail = errors.isEmpty() ? QString() : errors.join(QStringLiteral("; "));
+    endFileOpen(filePath, ok, summary, elapsedMs, errDetail);
 
     if (ok)
     {
@@ -4268,8 +4321,16 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
         // round-trip through the .inp itself. Missing sidecar is not an error.
         const QString oswp = ProjectSerializer::sidecarPathFor(filePath);
         if (!oswp.isEmpty() && QFile::exists(oswp)) {
+            QElapsedTimer sidecarTimer;
+            sidecarTimer.start();
             QString sidecarErr;
-            if (!ProjectSerializer::applyFromFile(oswp, window, &sidecarErr)) {
+            const bool sidecarOk = ProjectSerializer::applyFromFile(oswp, window, &sidecarErr);
+            qCInfo(lcLoadProject).noquote()
+                << QStringLiteral("sidecar apply %1: %2 in %3 ms")
+                       .arg(QFileInfo(oswp).fileName(),
+                            sidecarOk ? QStringLiteral("ok") : QStringLiteral("FAILED"))
+                       .arg(sidecarTimer.elapsed());
+            if (!sidecarOk) {
                 onLogMessage(tr("Sidecar load failed: %1").arg(sidecarErr),
                              OpenSWMMVisLogMessage::LogMessageType::Warning);
             }
@@ -4554,6 +4615,14 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
 
 void SWMMVis::openProjectFile(const QString &oswpPath)
 {
+    // The project dispatches one async .inp open per layer; each reports its
+    // own start / success / failure + busy indicator via openSingleINP. Here
+    // we only announce the project itself and time the JSON parse.
+    QElapsedTimer parseTimer;
+    parseTimer.start();
+    onLogMessage(tr("Opening project %1 …").arg(QFileInfo(oswpPath).fileName()),
+                 OpenSWMMVisLogMessage::LogMessageType::Information);
+
     QFile f(oswpPath);
     if (!f.open(QIODevice::ReadOnly))
     {
@@ -4577,6 +4646,11 @@ void SWMMVis::openProjectFile(const QString &oswpPath)
     saveSettings();
 
     const QJsonArray layers = doc[QStringLiteral("layers")].toArray();
+    qCInfo(lcLoadProject).noquote()
+        << QStringLiteral("%1: parsed %2 layer entrie(s) in %3 ms")
+               .arg(QFileInfo(oswpPath).fileName())
+               .arg(layers.size())
+               .arg(parseTimer.elapsed());
     for (const QJsonValue &v : layers)
     {
         QString inpPath = v[QStringLiteral("path")].toString();
@@ -5160,9 +5234,9 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
 void SWMMVis::onModelLoaded()
 {
     auto *pw = qobject_cast<SWMMVisProjectWindow *>(sender()->parent());
-    const QString path = pw ? pw->modelLayer()->modelFilePath() : QString();
-    onLogMessage(path.isEmpty() ? QStringLiteral("Model loaded successfully.")
-                                : QStringLiteral("Model loaded: %1").arg(path));
+    // The user-facing "Opened <path> (…)" summary is emitted once by
+    // finalizeSingleINPOpen (the async completion point); this slot only
+    // wires up the Object Browser now that the engine has objects.
 
     // If this is the active project, populate the Object Browser now that
     // the engine has objects to enumerate. (setProject was called earlier
@@ -5480,10 +5554,14 @@ void SWMMVis::onAddDelimitedData()
         tr("Delimited text (*.csv *.tsv *.txt);;All files (*)"));
     if (path.isEmpty()) return;
 
+    beginFileOpen(path);
+    QElapsedTimer t;
+    t.start();
     auto *layer = new TabularDataLayer(QFileInfo(path).fileName());
     QString err;
     if (!layer->loadFromFile(path, &err))
     {
+        endFileOpen(path, false, QString(), t.elapsed(), err);
         delete layer;
         QMessageBox::warning(this, tr("Add Delimited Data"),
             tr("Could not load %1:\n%2").arg(QFileInfo(path).fileName(), err));
@@ -5491,7 +5569,7 @@ void SWMMVis::onAddDelimitedData()
     }
     c->addLayer(layer, true);
     c->zoomToFullExtent();
-    onLogMessage(tr("Added delimited data: %1").arg(QFileInfo(path).fileName()));
+    endFileOpen(path, true, tr("%1 rows").arg(layer->rowCount()), t.elapsed());
 }
 
 void SWMMVis::onSummarizeResults()
@@ -6927,48 +7005,74 @@ void SWMMVis::onAddVectorLayer()
         openswmmvis::io::gdalcaps::vectorOpenFilter());
     if (path.isEmpty()) return;
 
-    // Multi-layer datasources (GeoPackage, Esri File GDB, multi-layer GML/KML)
-    // get a sublayer picker; single-layer sources load straight through.
-    const QList<GISVectorLayer::OgrSublayerInfo> subs =
-        GISVectorLayer::enumerateSublayers(path);
+    beginFileOpen(path);
+    QElapsedTimer t;
+    t.start();
 
-    QStringList layerNames;   // empty ⇒ open the default (first) layer
-    if (subs.size() > 1)
-    {
-        SublayerSelectionDialog dlg(path, subs, this);
-        if (dlg.exec() != QDialog::Accepted)
-            return;
-        layerNames = dlg.selectedLayerNames();
-        if (layerNames.isEmpty())
-        {
-            onLogMessage(tr("No layers selected — nothing added."),
-                         OpenSWMMVisLogMessage::Warning);
-            return;
+    // Stage 1 — enumerate sublayers on a worker (GetFeatureCount forces a full
+    // scan on some drivers). Stage 2 (picker) + Stage 3 (per-layer open) run
+    // from the finished handler on the GUI thread. Receiver is `this` (the
+    // app-lifetime main window); the canvas is QPointer-guarded so closing the
+    // project mid-load can't touch a dead canvas.
+    QPointer<MapCanvas> canvas(c);
+    auto *enumWatcher =
+        new QFutureWatcher<QList<GISVectorLayer::OgrSublayerInfo>>();
+    connect(enumWatcher, &QFutureWatcherBase::finished, this,
+            [this, enumWatcher, path, t, canvas]() {
+        const QList<GISVectorLayer::OgrSublayerInfo> subs = enumWatcher->result();
+        enumWatcher->deleteLater();
+
+        auto clearBusy = [this]() {
+            onSetProgressBarBusy(false);
+            statusBar()->clearMessage();
+        };
+
+        if (!canvas) { clearBusy(); return; }   // project closed mid-enumeration
+
+        // Stage 2 — sublayer picker (GUI thread). Multi-layer datasources
+        // (GeoPackage, File GDB, multi-layer GML/KML) prompt; single-layer
+        // sources load their default (first) layer straight through.
+        QStringList layerNames;   // empty ⇒ default layer
+        if (subs.size() > 1) {
+            SublayerSelectionDialog dlg(path, subs, this);
+            if (dlg.exec() != QDialog::Accepted) { clearBusy(); return; }
+            layerNames = dlg.selectedLayerNames();
+            if (layerNames.isEmpty()) {
+                clearBusy();
+                onLogMessage(tr("No layers selected — nothing added."),
+                             OpenSWMMVisLogMessage::Warning);
+                return;
+            }
         }
-    }
 
-    int added = 0;
-    if (layerNames.isEmpty())
-    {
-        c->addLayer(new GISVectorLayer(path), true);
-        ++added;
-    }
-    else
-    {
-        for (const QString &name : layerNames)
-        {
-            c->addLayer(new GISVectorLayer(path, name), true);
-            ++added;
+        // Stage 3 — open each selected layer on a worker; add on completion.
+        // A shared counter fires endFileOpen once, after the last finishes.
+        const QStringList toOpen =
+            layerNames.isEmpty() ? QStringList{QString()} : layerNames;
+        auto *remaining = new int(toOpen.size());
+        auto *added     = new int(0);
+        for (const QString &name : toOpen) {
+            auto *vl = new GISVectorLayer(QString());
+            connect(vl, &GISVectorLayer::openFinished, this,
+                    [this, vl, path, t, canvas, remaining, added](bool ok) {
+                        if (ok && canvas) { canvas->addLayer(vl, true); ++(*added); }
+                        else              { delete vl; }
+                        if (--(*remaining) == 0) {
+                            if (canvas && *added > 0)
+                                canvas->zoomToFullExtent();  // fit what loaded
+                            endFileOpen(path, *added > 0,
+                                        tr("%1 layer(s)").arg(*added), t.elapsed());
+                            delete remaining;
+                            delete added;
+                        }
+                    },
+                    static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+            vl->openAsync(path, name);
         }
-    }
-
-    // Auto-fit so the user sees what they just loaded — the layer may sit
-    // far from the SWMM model in coordinate space and the canvas otherwise
-    // keeps its prior viewport.
-    c->zoomToFullExtent();
-    onLogMessage(tr("Added %1 vector layer(s) from %2")
-                     .arg(added)
-                     .arg(QFileInfo(path).fileName()));
+    });
+    enumWatcher->setFuture(QtConcurrent::run([path]() {
+        return GISVectorLayer::enumerateSublayers(path);
+    }));
 }
 
 void SWMMVis::onAddRasterLayer()
@@ -6988,10 +7092,29 @@ void SWMMVis::onAddRasterLayer()
         openswmmvis::io::gdalcaps::rasterOpenFilter());
     if (path.isEmpty()) return;
 
-    auto *layer = new GISRasterLayer(path);
-    c->addLayer(layer, true);
-    c->zoomToFullExtent();
-    onLogMessage(tr("Added raster layer: %1").arg(QFileInfo(path).fileName()));
+    beginFileOpen(path);
+    QElapsedTimer t;
+    t.start();
+    // Cheap ctor (empty path ⇒ no open); the GDAL open + ComputeStatistics run
+    // on a worker and the layer joins the canvas on completion.
+    auto *layer = new GISRasterLayer(QString());
+    QPointer<MapCanvas> canvas(c);
+    connect(layer, &GISRasterLayer::openFinished, this,
+            [this, layer, path, t, canvas](bool ok) {
+                if (ok && canvas) {
+                    canvas->addLayer(layer, true);
+                    canvas->zoomToFullExtent();
+                    endFileOpen(path, true,
+                                tr("%1 band(s)").arg(layer->bandCount()), t.elapsed());
+                } else {
+                    endFileOpen(path, false, QString(), t.elapsed(),
+                                ok ? tr("map view closed")
+                                   : QString::fromUtf8(CPLGetLastErrorMsg()));
+                    delete layer;   // never added to the canvas
+                }
+            },
+            static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+    layer->openAsync(path);
 }
 
 void SWMMVis::onAddSWMMResultsLayer()
@@ -7012,6 +7135,10 @@ void SWMMVis::onAddSWMMResultsLayer()
         kFilters->filterFor(openswmmvis::FilterKind::ResultsRead));
     if (path.isEmpty()) return;
 
+    beginFileOpen(path);
+    QElapsedTimer t;
+    t.start();
+
     // Dedup — every output file is only loaded once per project canvas.
     // If a layer already points at this path, focus it as the primary
     // and reload its handle rather than appending a duplicate.
@@ -7020,8 +7147,7 @@ void SWMMVis::onAddSWMMResultsLayer()
     for (OpenSWMMVisLayer *l : pw->canvas()->layers()) {
         if (auto *existing = qobject_cast<SWMMResultsLayer *>(l)) {
             if (QFileInfo(existing->resultsFilePath()).absoluteFilePath() == canon) {
-                layer = existing;
-                layer->closeResults();   // reopen below so re-loads pick up new data
+                layer = existing;  // openResultsAsync() re-closes before reopening
                 break;
             }
         }
@@ -7032,18 +7158,29 @@ void SWMMVis::onAddSWMMResultsLayer()
         pw->canvas()->addLayer(layer, true);
     }
 
-    QList<QString> warnings, errors;
-    if (layer->openResults(warnings, errors))
-    {
-        layer->autoStretchColorRamp();
-        // Explicitly-added results layer → make it the active 1D analysis layer.
-        pw->setActiveResultsLayer(layer);
-        mAnimationController->setPrimaryLayer(layer);
-        onLogMessage(tr("Added results layer: %1").arg(QFileInfo(path).fileName()));
-    }
-    else
-    {
-        for (const QString &e : errors)
-            onLogMessage(e, OpenSWMMVisLogMessage::Error);
-    }
+    // swmm_output_open runs on a worker; adoption + first fetch complete on the
+    // GUI thread. Capture the error text (resultsError isn't otherwise logged)
+    // so a failed open still names the reason.
+    auto lastErr = std::make_shared<QString>();
+    connect(layer, &SWMMResultsLayer::resultsError, this,
+            [lastErr](const QString &m) { *lastErr = m; },
+            static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+    QPointer<SWMMVisProjectWindow> pwGuard(pw);
+    connect(layer, &SWMMResultsLayer::resultsOpenFinished, this,
+            [this, layer, path, t, pwGuard, lastErr](bool ok) {
+        if (ok) {
+            layer->autoStretchColorRamp();
+            if (pwGuard) {
+                // Explicitly-added results layer → active 1D analysis layer.
+                pwGuard->setActiveResultsLayer(layer);
+                if (mAnimationController)
+                    mAnimationController->setPrimaryLayer(layer);
+            }
+            endFileOpen(path, true,
+                        tr("%1 periods").arg(layer->totalTimeSteps()), t.elapsed());
+        } else {
+            endFileOpen(path, false, QString(), t.elapsed(), *lastErr);
+        }
+    }, static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+    layer->openResultsAsync();
 }

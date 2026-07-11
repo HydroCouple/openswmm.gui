@@ -34,6 +34,9 @@
 
 #include <QAtomicInteger>
 #include <QCoreApplication>
+#include <QElapsedTimer>
+#include <QFutureWatcher>
+#include <QLoggingCategory>
 #include <QPointer>
 #include <QSet>
 #include <QSettings>
@@ -66,6 +69,13 @@
 
 // GDAL
 #include <ogr_spatialref.h>
+
+// Load-phase profiling (opt-in). Enable with:
+//   QT_LOGGING_RULES="openswmm.load.*=true"
+// Splits swmm_output_open / metadata read from the id-map build and the
+// period-0 pre-fetch. The per-attribute stats sweep is already background
+// (QtConcurrent). Off by default.
+Q_LOGGING_CATEGORY(lcLoadResults, "openswmm.load.results")
 
 namespace {
 
@@ -678,7 +688,11 @@ int SWMMResultsLayer::flowUnits() const
 
 bool SWMMResultsLayer::openResults(QList<QString> &warnings, QList<QString> &errors)
 {
-    Q_UNUSED(warnings)
+    // Synchronous open — the shared post-open work lives in finishOpen() so the
+    // async path (openResultsAsync) can run swmm_output_open on a worker and
+    // reuse the exact same adoption logic here.
+    QElapsedTimer openTimer;
+    openTimer.start();
 
     closeResults();
 
@@ -696,6 +710,20 @@ bool SWMMResultsLayer::openResults(QList<QString> &warnings, QList<QString> &err
         emit resultsError(errors.last());
         return false;
     }
+
+    return finishOpen(openTimer.elapsed(), warnings, errors);
+}
+
+bool SWMMResultsLayer::finishOpen(qint64 msOpen,
+                                  QList<QString> &warnings, QList<QString> &errors)
+{
+    Q_UNUSED(warnings)
+
+    // Everything after swmm_output_open — runs on the GUI thread (touches
+    // renderers + emits repaints/signals). m_handle is already the newly-opened
+    // handle. Own timer covers the header read + id-map build + period-0 fetch.
+    QElapsedTimer loadTimer;
+    loadTimer.start();
 
     m_totalSteps    = swmm_output_get_period_count(m_handle);
     m_reportStepSec = swmm_output_get_report_step(m_handle);
@@ -718,8 +746,11 @@ bool SWMMResultsLayer::openResults(QList<QString> &warnings, QList<QString> &err
     swmm_output_get_period_time(m_handle, m_totalSteps - 1, &endJulian);
     m_endDateTime = openswmmvis::core::swmmDateTimeToQDateTime(endJulian);
 
+    const qint64 msMeta = loadTimer.elapsed();  // header scalars read
+
     // Build name → output-index maps for fast lookup during rendering.
     buildOutputIdMaps();
+    const qint64 msMaps = loadTimer.elapsed() - msMeta;
 
     // Gap A2.1 — eager per-kind renderers. Install an archetype-seeded
     // Graduated default for every result-bearing kind that doesn't already
@@ -741,6 +772,7 @@ bool SWMMResultsLayer::openResults(QList<QString> &warnings, QList<QString> &err
     // the trailing rebuildAllActiveKindFeatureOverrides sees real data.)
     m_currentStep = 0;
     fetchResultsForStep(0);
+    const qint64 msFetch = loadTimer.elapsed() - msMeta - msMaps;
 
     // Slice §Y.2 — new results file: every cached item from any previous
     // file is stale. Force structural rebuild on the next refreshScene.
@@ -751,7 +783,65 @@ bool SWMMResultsLayer::openResults(QList<QString> &warnings, QList<QString> &err
     emit currentDateTimeChanged(currentDateTime());
     emit resultsOpened();
 
+    qCInfo(lcLoadResults).noquote()
+        << QStringLiteral("%1: %2 periods — open (ms): output_open=%3 header=%4 "
+                          "id_maps=%5 prefetch_step0=%6 total=%7")
+               .arg(QFileInfo(m_resultsFilePath).fileName())
+               .arg(m_totalSteps)
+               .arg(msOpen).arg(msMeta).arg(msMaps).arg(msFetch)
+               .arg(msOpen + loadTimer.elapsed());
+
     return true;
+}
+
+void SWMMResultsLayer::openResultsAsync()
+{
+    // Moves the blocking swmm_output_open (file + header/index parse — the
+    // part that scales with .out size) onto a worker; the renderer install +
+    // period-0 fetch + emits stay on the GUI thread in finishOpen(). Fires
+    // resultsOpenFinished(bool) when done. If the layer dies mid-open the
+    // finished handler closes the orphaned handle.
+    if (!QFile::exists(m_resultsFilePath))
+    {
+        emit resultsError(QStringLiteral("Results file not found: ") + m_resultsFilePath);
+        emit resultsOpenFinished(false);
+        return;
+    }
+
+    closeResults();   // drop any prior handle before opening the new one
+
+    struct HandleOpen { SWMM_Output handle = nullptr; qint64 msOpen = 0; };
+    const QString path = m_resultsFilePath;
+    QPointer<SWMMResultsLayer> self(this);
+    auto *watcher = new QFutureWatcher<HandleOpen>();
+    QObject::connect(watcher, &QFutureWatcherBase::finished, watcher,
+                     [watcher, self, path]() {
+        HandleOpen r = watcher->result();
+        watcher->deleteLater();
+        if (!self) {
+            if (r.handle) swmm_output_close(r.handle);
+            return;
+        }
+        if (!r.handle) {
+            self->m_handle = nullptr;
+            emit self->resultsError(
+                QStringLiteral("Failed to open results file: ") + path);
+            emit self->resultsOpenFinished(false);
+            return;
+        }
+        self->m_handle = r.handle;
+        QList<QString> w, e;
+        const bool ok = self->finishOpen(r.msOpen, w, e);
+        emit self->resultsOpenFinished(ok);
+    });
+    watcher->setFuture(QtConcurrent::run([path]() {
+        HandleOpen r;
+        QElapsedTimer t;
+        t.start();
+        r.handle = swmm_output_open(path.toUtf8().constData());
+        r.msOpen = t.elapsed();
+        return r;
+    }));
 }
 
 void SWMMResultsLayer::closeResults()
