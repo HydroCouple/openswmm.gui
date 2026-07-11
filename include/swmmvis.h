@@ -181,7 +181,20 @@ private slots:
                                const QString &filePath,
                                bool ok,
                                const QList<QString> &warnings,
-                               const QList<QString> &errors);
+                               const QList<QString> &errors,
+                               qint64 elapsedMs);
+
+    /*! \brief Announce the start of a file open: Message-Log line, status-bar
+     *         message, and busy spinner. Pair with \ref endFileOpen. */
+    void beginFileOpen(const QString &path);
+
+    /*! \brief Announce the end of a file open: clears the spinner + status bar
+     *         and logs one Information (\p ok) or Error line. \p summary is a
+     *         short content descriptor (e.g. "3 layers"); \p elapsedMs is the
+     *         total wall-clock; \p errorDetail is appended on failure. */
+    void endFileOpen(const QString &path, bool ok,
+                     const QString &summary, qint64 elapsedMs,
+                     const QString &errorDetail = QString());
 
     /*! \brief Load a `.oswp` project sidecar file and its associated sessions. */
     void openProjectFile(const QString &oswpPath);

@@ -542,9 +542,21 @@ void SWMMVisProjectWindow::loadModelAsync()
         SWMM_Engine engine = nullptr;
         QString     errorDetail;
         qint64      openMs = 0;
+        qint64      soaMs  = 0;
+        qint64      geomMs = 0;
     };
 
     const QString path = mModelLayer->modelFilePath();
+    SWMMModelLayer *layer = mModelLayer;
+
+    // The worker now also runs buildFromEngine() — the SoA copy + geometry
+    // cache — directly on the layer's arrays. A visible layer would be painted
+    // from the GUI thread mid-fill (data race), so hide it for the duration;
+    // adoptOpenEngine + finishModelLoad restore visibility on completion. The
+    // layer is workspace-owned and outlives window close, so the worker's
+    // access stays valid even if this window is torn down first.
+    const bool wasVisible = mModelLayer->isVisible();
+    mModelLayer->setVisible(false);
 
     // QPointer guards window teardown during the open: if this window is
     // closed before the worker finishes, the handler destroys the orphaned
@@ -552,13 +564,17 @@ void SWMMVisProjectWindow::loadModelAsync()
     QPointer<SWMMVisProjectWindow> self(this);
     auto *watcher = new QFutureWatcher<AsyncOpenOutcome>();
     QObject::connect(watcher, &QFutureWatcherBase::finished, watcher,
-                     [watcher, self]() {
+                     [watcher, self, layer, wasVisible]() {
         const AsyncOpenOutcome outcome = watcher->result();
         watcher->deleteLater();
 
         if (!self) {
+            // Window gone: the layer survives (workspace-owned) but was never
+            // adopted — drop the orphan engine and restore its visibility flag.
             if (outcome.engine)
                 swmm_engine_destroy(outcome.engine);
+            if (layer)
+                layer->setVisible(wasVisible);
             return;
         }
 
@@ -566,19 +582,26 @@ void SWMMVisProjectWindow::loadModelAsync()
         bool ok = false;
         if (!outcome.engine) {
             errors.append(outcome.errorDetail);
+            self->mModelLayer->setVisible(wasVisible);
         } else {
             ok = self->mModelLayer->adoptOpenEngine(outcome.engine,
                                                     warnings, errors,
-                                                    outcome.openMs)
-                 && self->finishModelLoad(warnings, errors);
+                                                    outcome.openMs, outcome.soaMs,
+                                                    outcome.geomMs)
+                 && self->finishModelLoad(warnings, errors);  // sets visible(true)
         }
         emit self->modelLoadFinished(ok, warnings, errors);
     });
 
-    watcher->setFuture(QtConcurrent::run([path]() {
+    watcher->setFuture(QtConcurrent::run([path, layer]() {
         AsyncOpenOutcome outcome;
         outcome.engine = SWMMModelLayer::openEngineForPath(
             path, &outcome.errorDetail, &outcome.openMs);
+        // SoA copy + buildGeometryCache on the worker (the old GUI-thread
+        // freeze). No m_engine assignment / signals here — adoptOpenEngine
+        // finalizes on the GUI thread.
+        if (outcome.engine)
+            layer->buildFromEngine(outcome.engine, &outcome.soaMs, &outcome.geomMs);
         return outcome;
     }));
 }

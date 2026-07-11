@@ -117,6 +117,16 @@ public:
 
     ~GISVectorLayer() override;
 
+    /*!
+     * \brief Asynchronously open \p filePath / \p layerName. GDALOpenEx +
+     *        GetExtent (which forces a scan on some drivers) run on a worker
+     *        thread; the layer is populated on the GUI thread and
+     *        \ref openFinished(bool) fires on completion. Construct with an
+     *        empty path first; the synchronous \ref openDataset path (tests /
+     *        project restore) is unchanged.
+     */
+    void openAsync(const QString &filePath, const QString &layerName = {});
+
     // ----- Multi-layer enumeration (sublayer picker) ----------------------
 
     /*!
@@ -340,7 +350,18 @@ signals:
     /*! \brief Emitted when setRenderer() swaps the renderer pointer. */
     void rendererChanged();
 
+    /*! \brief Emitted on the GUI thread when \ref openAsync() completes. */
+    void openFinished(bool ok);
+
 private:
+    // Worker-thread payload for openAsync(): GDALOpenEx + GetLayer + extent +
+    // CRS produce this POD (no QObject state), folded into the layer on the
+    // GUI thread by applyOpenResult(). Defined in the .cpp.
+    struct OpenResult;
+    [[nodiscard]] static OpenResult doOpenWork(const QString &filePath,
+                                               const QString &layerName);
+    void applyOpenResult(const OpenResult &r);
+
     void openDataset(const QString &filePath, const QString &layerName);
     void closeDataset();
     void rebuildTransform(const SpatialReferenceSystem *canvasSRS);
