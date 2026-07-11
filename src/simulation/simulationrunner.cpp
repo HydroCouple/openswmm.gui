@@ -13,8 +13,8 @@
 #include <openswmm/engine/openswmm_2d.h>
 
 #include "core/preferencesmanager.h"
+#include "core/swmmdatetime.h"
 
-#include <QDate>
 #include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
@@ -23,7 +23,6 @@
 #include <QMetaObject>
 #include <QRegularExpression>
 #include <QThread>
-#include <QTime>
 #include <QVector>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFutureWatcher>
@@ -47,15 +46,14 @@ QDateTime oaDateToQDateTime(double oaDate)
     if (!(oaDate > 0.0) || !std::isfinite(oaDate)) return QDateTime();
     // UTC, NOT LocalTime: this anchors the 2D results time axis (HDF5 sim_start_
     // and the live per-tick curQDT). The 1D results clock is built in UTC
-    // (SWMMResultsLayer::julianToDateTime). The animation controller's causal
-    // sync compares 2D frame times against the 1D cursor as absolute instants
-    // (setCurrentSimTimeAsOf: ti <= cursor), so a LocalTime epoch here offset
-    // every 2D frame by the local UTC offset and froze 2D playback (the cursor
-    // never reached the shifted frames). SWMM dates are nominal/zone-less, so
-    // UTC reproduces the model date verbatim and keeps both axes on one basis.
-    static const QDateTime kSwmmEpoch(QDate(1899, 12, 30),
-                                      QTime(0, 0), QTimeZone::utc());
-    return kSwmmEpoch.addMSecs(static_cast<qint64>(oaDate * 86400.0 * 1000.0));
+    // (openswmmvis::core::swmmDateTimeToQDateTime). The animation controller's
+    // causal sync compares 2D frame times against the 1D cursor as absolute
+    // instants (setCurrentSimTimeAsOf: ti <= cursor), so a LocalTime epoch here
+    // offset every 2D frame by the local UTC offset and froze 2D playback (the
+    // cursor never reached the shifted frames). SWMM dates are nominal/zone-
+    // less, so UTC reproduces the model date verbatim and keeps both axes on
+    // one basis.
+    return openswmmvis::core::swmmDateTimeToQDateTime(oaDate);
 }
 
 /**
