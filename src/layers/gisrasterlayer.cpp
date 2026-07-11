@@ -17,7 +17,12 @@
 #include <QPainter>
 #include <QSize>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QFileInfo>
+#include <QFutureWatcher>
+#include <QLoggingCategory>
+#include <QPointer>
+#include <QtConcurrent/QtConcurrentRun>
 #include <QtMath>
 
 #include <gdal_priv.h>
@@ -33,6 +38,12 @@
 
 // RasterColorRamp method bodies relocated to src/render/colorramp.cpp
 // (Slice BB-α, 2026-05-24).
+
+// Load-phase profiling (opt-in). Enable with:
+//   QT_LOGGING_RULES="openswmm.load.*=true"
+// Splits GDALOpenEx / metadata read from the ComputeStatistics band scan so a
+// slow raster open can be attributed. Off by default.
+Q_LOGGING_CATEGORY(lcLoadRaster, "openswmm.load.raster")
 
 namespace {
 
@@ -558,64 +569,161 @@ void GISRasterLayer::onCanvasCRSChanged(const SpatialReferenceSystem *)
 // Private helpers
 // ---------------------------------------------------------------------------
 
-void GISRasterLayer::openDataset(const QString &filePath)
+// Worker-thread payload — see gisrasterlayer.h. Plain values plus the owned
+// GDALDataset handle (single-owner, handed to the GUI thread on completion);
+// no QObject state is touched off-thread.
+struct GISRasterLayer::OpenResult
 {
-    closeDataset();
+    GDALDataset *dataset = nullptr;
+    QString      filePath;
+    bool         hasExtent = false;
+    MapExtent    extent;
+    QString      wkt;
+    bool         hasNoData = false;
+    double       noDataValue = 0.0;
+    bool         hasStats = false;
+    double       statMin = 0.0;
+    double       statMax = 0.0;
+    int          xSize = 0, ySize = 0, bands = 0;
+    qint64       msOpen = 0, msMeta = 0, msStats = 0, msTotal = 0;
+};
 
-    m_dataset = static_cast<GDALDataset *>(
+GISRasterLayer::OpenResult GISRasterLayer::doOpenWork(const QString &filePath)
+{
+    QElapsedTimer loadTimer;
+    loadTimer.start();
+
+    OpenResult r;
+    r.filePath = filePath;
+
+    r.dataset = static_cast<GDALDataset *>(
         GDALOpenEx(filePath.toUtf8().constData(),
                    GDAL_OF_RASTER | GDAL_OF_READONLY,
                    nullptr, nullptr, nullptr));
-
-    if (!m_dataset)
+    if (!r.dataset)
     {
         qWarning() << "GISRasterLayer: failed to open" << filePath;
-        return;
+        return r;
     }
+    r.msOpen = loadTimer.elapsed();  // GDALOpenEx + driver probe
 
-    m_filePath = filePath;
+    r.xSize = r.dataset->GetRasterXSize();
+    r.ySize = r.dataset->GetRasterYSize();
+    r.bands = r.dataset->GetRasterCount();
 
     // Spatial extent from geotransform
     double gt[6] = {};
-    if (m_dataset->GetGeoTransform(gt) == CE_None)
+    if (r.dataset->GetGeoTransform(gt) == CE_None)
     {
-        int w = m_dataset->GetRasterXSize();
-        int h = m_dataset->GetRasterYSize();
-        double xMin = gt[0];
-        double yMax = gt[3];
-        double xMax = xMin + w * gt[1];
-        double yMin = yMax + h * gt[5]; // gt[5] is negative
-        setExtent(MapExtent(xMin, qMin(yMin, yMax), xMax, qMax(yMin, yMax)));
+        const double xMin = gt[0];
+        const double yMax = gt[3];
+        const double xMax = xMin + r.xSize * gt[1];
+        const double yMin = yMax + r.ySize * gt[5]; // gt[5] is negative
+        r.extent = MapExtent(xMin, qMin(yMin, yMax), xMax, qMax(yMin, yMax));
+        r.hasExtent = true;
     }
 
-    // CRS
-    const char *wkt = m_dataset->GetProjectionRef();
-    if (wkt && *wkt != '\0')
-    {
-        setSRS(SpatialReferenceSystem::fromWktOrProj(QString::fromUtf8(wkt)),
-               /*ownsSRS=*/true);
-    }
+    // CRS — copied to a QString here; the SpatialReferenceSystem QObject is
+    // built on the GUI thread in applyOpenResult (QObject affinity).
+    if (const char *wkt = r.dataset->GetProjectionRef(); wkt && *wkt != '\0')
+        r.wkt = QString::fromUtf8(wkt);
 
     // No-data value
-    if (m_dataset->GetRasterCount() > 0)
+    if (r.bands > 0)
     {
         int hasND = 0;
-        double nd = m_dataset->GetRasterBand(1)->GetNoDataValue(&hasND);
-        if (hasND)
+        const double nd = r.dataset->GetRasterBand(1)->GetNoDataValue(&hasND);
+        if (hasND) { r.hasNoData = true; r.noDataValue = nd; }
+    }
+    r.msMeta = loadTimer.elapsed() - r.msOpen;  // extent/CRS/no-data
+
+    // Band-1 statistics for the linear colour ramp — the expensive scan we
+    // most want off the GUI thread. Mirrors autoStretchColorRamp() (band 1 is
+    // the default render band at open time). Multi-band RGB no-ops harmlessly
+    // downstream; warpToCanvas takes the RGB path.
+    if (r.bands > 0)
+    {
+        double minV = 0.0, maxV = 0.0, mean, stddev;
+        if (r.dataset->GetRasterBand(1)->ComputeStatistics(
+                /*bApproxOK=*/TRUE, &minV, &maxV, &mean, &stddev,
+                nullptr, nullptr) == CE_None)
         {
-            m_hasNoData   = true;
-            m_noDataValue = nd;
+            r.hasStats = true;
+            r.statMin  = minV;
+            r.statMax  = maxV;
         }
     }
+    r.msStats = loadTimer.elapsed() - r.msOpen - r.msMeta;
+    r.msTotal = loadTimer.elapsed();
+    return r;
+}
 
-    setName(QFileInfo(filePath).baseName());
-    emit filePathChanged(filePath);
+void GISRasterLayer::applyOpenResult(const OpenResult &r)
+{
+    closeDataset();          // drop any previously-open dataset (re-open case)
 
-    // Compute band stats so the linear color ramp covers the actual value
-    // range (default ramp was [0, 1] which clamps any DTM with elevations
-    // > 1 to fully saturated — entire screen black/white). For multi-band
-    // RGB rasters this no-ops harmlessly; warpToCanvas takes the RGB path.
-    autoStretchColorRamp();
+    m_dataset = r.dataset;
+    if (!m_dataset)
+        return;              // doOpenWork already logged the failure
+
+    m_filePath = r.filePath;
+
+    if (r.hasExtent)
+        setExtent(r.extent);
+
+    if (!r.wkt.isEmpty())
+        setSRS(SpatialReferenceSystem::fromWktOrProj(r.wkt), /*ownsSRS=*/true);
+
+    if (r.hasNoData) { m_hasNoData = true; m_noDataValue = r.noDataValue; }
+
+    setName(QFileInfo(r.filePath).baseName());
+    emit filePathChanged(r.filePath);
+
+    if (r.hasStats)
+    {
+        if (auto *sb = dynamic_cast<SingleBandPseudoColorRenderer *>(
+                m_rasterRenderer.get()))
+            sb->setRange(r.statMin, r.statMax);
+        invalidateCache();
+        emit colorRampChanged(colorRamp());
+        emit repaintRequested();
+    }
+
+    qCInfo(lcLoadRaster).noquote()
+        << QStringLiteral("%1: %2x%3 px, %4 band(s) — open (ms): gdal_open=%5 "
+                          "metadata=%6 compute_stats=%7 total=%8")
+               .arg(QFileInfo(r.filePath).fileName())
+               .arg(r.xSize).arg(r.ySize).arg(r.bands)
+               .arg(r.msOpen).arg(r.msMeta).arg(r.msStats)
+               .arg(r.msTotal);
+}
+
+void GISRasterLayer::openDataset(const QString &filePath)
+{
+    applyOpenResult(doOpenWork(filePath));
+}
+
+void GISRasterLayer::openAsync(const QString &filePath)
+{
+    // Same shape as SWMMVisProjectWindow::loadModelAsync: heavy GDAL work on a
+    // worker, adoption on the GUI thread. If the layer is destroyed mid-load
+    // the finished handler closes the orphaned dataset instead of touching
+    // dead state.
+    QPointer<GISRasterLayer> self(this);
+    auto *watcher = new QFutureWatcher<OpenResult>();
+    QObject::connect(watcher, &QFutureWatcherBase::finished, watcher,
+                     [watcher, self]() {
+        OpenResult r = watcher->result();
+        watcher->deleteLater();
+        if (!self) {
+            if (r.dataset) GDALClose(r.dataset);
+            return;
+        }
+        self->applyOpenResult(r);
+        emit self->openFinished(r.dataset != nullptr);
+    });
+    const QString path = filePath;
+    watcher->setFuture(QtConcurrent::run([path]() { return doOpenWork(path); }));
 }
 
 void GISRasterLayer::closeDataset()
