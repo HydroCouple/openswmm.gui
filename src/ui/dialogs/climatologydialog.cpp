@@ -9,6 +9,8 @@
  */
 #include "ui/dialogs/climatologydialog.h"
 
+#include "core/swmmdatetime.h"
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateEdit>
@@ -493,7 +495,7 @@ void ClimatologyDialog::readFromEngine()
     }
     if (swmm_climate_get_temp_file_start(m_engine, &d) == SWMM_OK && d > 0.0) {
         m_tempStartCheck->setChecked(true);
-        m_tempStartDate->setDate(QDate(1899, 12, 30).addDays(static_cast<qint64>(d)));
+        m_tempStartDate->setDate(openswmmvis::core::swmmDateTimeToQDateTime(d).date());
     }
     if (swmm_climate_get_temp_units(m_engine, &i) == SWMM_OK) {
         const int idx = m_tempUnits->findData(i);
@@ -584,7 +586,8 @@ void ClimatologyDialog::writeToEngine()
                            m_tempFile->text().trimmed().toUtf8().constData());
     if (m_tempStartCheck->isChecked())
         swmm_climate_set_temp_file_start(m_engine,
-            static_cast<double>(QDate(1899, 12, 30).daysTo(m_tempStartDate->date())));
+            openswmmvis::core::qDateTimeToSwmmDateTime(
+                QDateTime(m_tempStartDate->date(), QTime(0, 0))));
     else
         swmm_climate_set_temp_file_start(m_engine, 0.0);
     swmm_climate_set_temp_units(m_engine, m_tempUnits->currentData().toInt());
