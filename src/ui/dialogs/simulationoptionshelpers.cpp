@@ -11,12 +11,12 @@
  */
 #include "ui/dialogs/simulationoptionsdialog.h"
 
+#include "core/swmmdatetime.h"
+
 #include <QDate>
 #include <QDateTime>
 #include <QString>
 #include <QTime>
-
-#include <cmath>
 
 int SimulationOptionsDialog::parseEngineBool(const QString &s)
 {
@@ -56,35 +56,32 @@ QDateTime SimulationOptionsDialog::parseEngineDateTime(const QString &date,
 // Excel / OLE Automation, minus the 1900-leap-year bug — irrelevant for any
 // real-world SWMM model dated past 1900-03-01).  See engine
 // src/engine/core/DateTime.hpp.  Slice CW (2026-05-21).
+//
+// Delegate the actual conversion arithmetic to the canonical
+// openswmmvis::core converter (Phase 3 of the datetime consolidation) so
+// this file no longer hand-rolls the epoch/rounding math. The canonical
+// converter always returns a Qt::UTC-labelled QDateTime; every OTHER
+// QDateTime in this dialog (m_startEdit/m_endEdit via parseEngineDateTime(),
+// the [EVENTS] table via this function) is built with the DEFAULT
+// (Qt::LocalTime) spec, and validateEvents()/writeEventsToEngine() compare
+// them directly. Re-labelling here to match keeps every comparison in this
+// file on one consistent basis — using the canonical converter's UTC label
+// as-is would silently shift those comparisons by the local UTC offset on
+// any machine not in the UTC zone. Only the LABEL changes here, not the
+// calendar values, so this is not the "no timezone conversion" contract
+// core/swmmdatetime.h documents — it's this file's pre-existing convention
+// preserved on top of the fixed arithmetic.
 // ---------------------------------------------------------------------------
-
-namespace {
-constexpr int kOaMSecsPerDay = 86'400'000;
-const QDate &oaEpoch() {
-    static const QDate kEpoch(1899, 12, 30);
-    return kEpoch;
-}
-} // namespace
 
 double SimulationOptionsDialog::oaDateFromQDateTime(const QDateTime &dt)
 {
     if (!dt.isValid()) return 0.0;
-    const qint64 days = oaEpoch().daysTo(dt.date());
-    const qint64 ms   = dt.time().msecsSinceStartOfDay();
-    return static_cast<double>(days) + static_cast<double>(ms) /
-                                       static_cast<double>(kOaMSecsPerDay);
+    return openswmmvis::core::qDateTimeToSwmmDateTime(dt);
 }
 
 QDateTime SimulationOptionsDialog::qDateTimeFromOaDate(double oa)
 {
-    // floor() so negative offsets round toward -infinity and the fractional
-    // part stays in [0, 1).  In practice SWMM dates are post-1899 so the
-    // floor() vs trunc() distinction is academic.
-    const double whole = std::floor(oa);
-    const double frac  = oa - whole;
-    const qint64 days  = static_cast<qint64>(whole);
-    const int    ms    = static_cast<int>(std::llround(
-                            frac * static_cast<double>(kOaMSecsPerDay)));
-    return QDateTime(oaEpoch().addDays(days),
-                     QTime::fromMSecsSinceStartOfDay(ms));
+    const QDateTime utc = openswmmvis::core::swmmDateTimeToQDateTime(oa);
+    if (!utc.isValid()) return {};
+    return QDateTime(utc.date(), utc.time());   // re-label: see file-header note
 }

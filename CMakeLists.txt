@@ -156,6 +156,7 @@ set(
         include/core/crsreproject.h
         include/core/editgeometry.h
         include/core/gisdatapaths.h
+        include/core/swmmdatetime.h
         include/selection/selectionmanager.h
 
         # ── Animation ────────────────────────────────────────────────────────
@@ -301,7 +302,6 @@ set(
         include/plot/numberformat.h
         include/plot/chartproperties.h
         include/plot/seriesstatistics.h
-        include/plot/swmmjuliandatetime.h
         include/plot/seriesstyle.h
         include/plot/seriesstyleobject.h
         include/plot/fitmetrics.h

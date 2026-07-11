@@ -74,6 +74,7 @@
 #include "core/unitsystem.h"
 #include "ui/widgets/attributepickermenu.h"  // Slice PT.1 — picker for plotTimeSeries
 #include "core/preferencesmanager.h"
+#include "core/swmmdatetime.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"   // #36 — MapUndoStack* → QUndoStack* upcast at dialog calls
 #include "map/spatialreferencesystem.h"
@@ -4416,12 +4417,14 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
                                                     &startOA) == SWMM_OK &&
                                 startOA > 0.0)
                             {
-                                static const QDateTime kSwmmEpoch(
-                                    QDate(1899, 12, 30),
-                                    QTime(0, 0), QTimeZone::LocalTime);
+                                // UTC, NOT LocalTime — matches every other SWMM
+                                // DateTime conversion in this codebase (see
+                                // core/swmmdatetime.h). A LocalTime epoch here
+                                // was inconsistent with simulationrunner.cpp's
+                                // oaDateToQDateTime() and HDF5Mesh2DSource::
+                                // simTimeAt(), both UTC.
                                 const QDateTime simStart =
-                                    kSwmmEpoch.addMSecs(static_cast<qint64>(
-                                        startOA * 86400.0 * 1000.0));
+                                    openswmmvis::core::swmmDateTimeToQDateTime(startOA);
                                 if (simStart.isValid()) {
                                     h5Src->setSimulationStart(simStart);
                                     onLogMessage(tr("2D layer time anchor: %1")
