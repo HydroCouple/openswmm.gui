@@ -229,6 +229,14 @@ public:
      */
     bool openResults(QList<QString> &warnings, QList<QString> &errors);
 
+    /*!
+     * \brief Asynchronous counterpart to \ref openResults. Runs the blocking
+     *        swmm_output_open (file + header/index parse) on a worker thread;
+     *        the renderer install + period-0 fetch + emits run on the GUI
+     *        thread, and \ref resultsOpenFinished(bool) fires on completion.
+     */
+    void openResultsAsync();
+
     void closeResults();
 
     // ----- Per-output node summary statistics (Slice QA.3 + QA-01) -------
@@ -553,6 +561,8 @@ signals:
     void showLegendChanged(bool show);
     void resultsOpened();
     void resultsError(const QString &message);
+    /*! \brief Emitted on the GUI thread when \ref openResultsAsync() completes. */
+    void resultsOpenFinished(bool ok);
     /*! \brief Emitted when setRenderer() swaps the renderer pointer. */
     void rendererChanged();
 
@@ -570,6 +580,13 @@ public:
                       const SpatialReferenceSystem *canvasSRS) override;
 
 private:
+    /*! \brief Shared post-open adoption used by both openResults() (sync) and
+     *         openResultsAsync(): reads the header, builds id maps, installs
+     *         eager renderers, pre-fetches period 0, and emits. \p msOpen is
+     *         the swmm_output_open time (for the load telemetry). Assumes
+     *         m_handle is the freshly-opened handle. */
+    bool finishOpen(qint64 msOpen, QList<QString> &warnings, QList<QString> &errors);
+
     void fetchResultsForStep(int step);
     void buildOutputIdMaps();
 

@@ -65,6 +65,16 @@ public:
 
     ~GISRasterLayer() override;
 
+    /*!
+     * \brief Asynchronously open \p filePath. GDALOpenEx + metadata read +
+     *        ComputeStatistics run on a worker thread; the layer is populated
+     *        on the GUI thread and \ref openFinished(bool) fires on completion
+     *        (\c ok==false ⇒ open failed). Construct the layer with an empty
+     *        path first, then call this; the synchronous \ref openDataset path
+     *        (used by tests / project restore) is unchanged.
+     */
+    void openAsync(const QString &filePath);
+
     // ----- Dataset info ---------------------------------------------------
 
     [[nodiscard]] QString filePath()    const;
@@ -196,7 +206,18 @@ signals:
     /*! \brief Emitted when setRasterRenderer() swaps the renderer pointer. */
     void rasterRendererChanged();
 
+    /*! \brief Emitted on the GUI thread when \ref openAsync() completes. */
+    void openFinished(bool ok);
+
 private:
+    // Worker-thread payload for openAsync(): the GDAL open + metadata read +
+    // band-stats scan produce this POD (no QObject state), which
+    // applyOpenResult() then folds into the layer on the GUI thread. Defined
+    // in the .cpp.
+    struct OpenResult;
+    [[nodiscard]] static OpenResult doOpenWork(const QString &filePath);
+    void applyOpenResult(const OpenResult &r);
+
     void openDataset(const QString &filePath);
     void closeDataset();
     void invalidateCache();

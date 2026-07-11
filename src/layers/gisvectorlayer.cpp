@@ -22,12 +22,23 @@
 
 #include <QGraphicsScene>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QFileInfo>
+#include <QFutureWatcher>
+#include <QLoggingCategory>
+#include <QPointer>
+#include <QtConcurrent/QtConcurrentRun>
 
 #include <gdal_priv.h>
 #include <ogrsf_frmts.h>
 #include <ogr_spatialref.h>
 #include <ogr_geometry.h>
+
+// Load-phase profiling (opt-in). Enable with:
+//   QT_LOGGING_RULES="openswmm.load.*=true"
+// Times sublayer enumeration (GetFeatureCount forces a full scan on some
+// drivers) and the open path (GDALOpenEx vs. GetExtent). Off by default.
+Q_LOGGING_CATEGORY(lcLoadVector, "openswmm.load.vector")
 
 // ---------------------------------------------------------------------------
 // Rule ↔ GISVectorSymbol bridge
@@ -934,6 +945,9 @@ GISVectorLayer::enumerateSublayers(const QString &filePath, QString *errorOut)
 {
     QList<OgrSublayerInfo> out;
 
+    QElapsedTimer enumTimer;
+    enumTimer.start();
+
     GDALAllRegister();  // idempotent
 
     auto *ds = static_cast<GDALDataset *>(
@@ -980,6 +994,12 @@ GISVectorLayer::enumerateSublayers(const QString &filePath, QString *errorOut)
     }
 
     GDALClose(ds);
+    qCInfo(lcLoadVector).noquote()
+        << QStringLiteral("%1: enumerated %2 sublayer(s) in %3 ms "
+                          "(GetFeatureCount forces a scan on some drivers)")
+               .arg(QFileInfo(filePath).fileName())
+               .arg(out.size())
+               .arg(enumTimer.elapsed());
     return out;
 }
 
@@ -987,59 +1007,134 @@ GISVectorLayer::enumerateSublayers(const QString &filePath, QString *errorOut)
 // Private helpers
 // ---------------------------------------------------------------------------
 
-void GISVectorLayer::openDataset(const QString &filePath, const QString &layerName)
+// Worker-thread payload — see gisvectorlayer.h. Plain values plus the owned
+// GDALDataset handle and a non-owning OGRLayer pointer into it (single-owner,
+// handed to the GUI thread on completion); no QObject state is touched
+// off-thread.
+struct GISVectorLayer::OpenResult
 {
-    closeDataset();
+    GDALDataset *dataset = nullptr;
+    OGRLayer    *ogrLayer = nullptr;
+    QString      filePath;
+    QString      layerName;
+    bool         hasExtent = false;
+    MapExtent    extent;
+    QString      wkt;
+    qint64       msOpen = 0, msTotal = 0;
+};
 
-    m_dataset = static_cast<GDALDataset *>(
+GISVectorLayer::OpenResult GISVectorLayer::doOpenWork(const QString &filePath,
+                                                     const QString &layerName)
+{
+    QElapsedTimer loadTimer;
+    loadTimer.start();
+
+    OpenResult r;
+    r.filePath = filePath;
+
+    r.dataset = static_cast<GDALDataset *>(
         GDALOpenEx(filePath.toUtf8().constData(),
                    GDAL_OF_VECTOR | GDAL_OF_READONLY,
                    nullptr, nullptr, nullptr));
-
-    if (!m_dataset)
+    if (!r.dataset)
     {
         qWarning() << "GISVectorLayer: failed to open" << filePath;
-        return;
+        return r;
     }
 
-    if (layerName.isEmpty())
-        m_ogrLayer = m_dataset->GetLayer(0);
-    else
-        m_ogrLayer = m_dataset->GetLayerByName(layerName.toUtf8().constData());
-
-    if (!m_ogrLayer)
+    r.ogrLayer = layerName.isEmpty()
+                     ? r.dataset->GetLayer(0)
+                     : r.dataset->GetLayerByName(layerName.toUtf8().constData());
+    if (!r.ogrLayer)
     {
         qWarning() << "GISVectorLayer: layer not found in" << filePath;
-        return;
+        GDALClose(r.dataset);   // otherwise the dataset would leak
+        r.dataset = nullptr;
+        return r;
+    }
+    r.msOpen     = loadTimer.elapsed();  // GDALOpenEx + GetLayer
+    r.layerName  = QString::fromUtf8(r.ogrLayer->GetName());
+
+    // Layer extent (forces a full scan on some drivers — the point of the
+    // worker thread).
+    OGREnvelope env;
+    if (r.ogrLayer->GetExtent(&env) == OGRERR_NONE)
+    {
+        r.extent    = MapExtent(env.MinX, env.MinY, env.MaxX, env.MaxY);
+        r.hasExtent = true;
     }
 
-    m_filePath     = filePath;
-    m_ogrLayerName = QString::fromUtf8(m_ogrLayer->GetName());
-
-    // Compute layer extent
-    OGREnvelope env;
-    if (m_ogrLayer->GetExtent(&env) == OGRERR_NONE)
-        setExtent(MapExtent(env.MinX, env.MinY, env.MaxX, env.MaxY));
-
-    // Set layer CRS from the OGR layer spatial ref
-    const OGRSpatialReference *layerSRS = m_ogrLayer->GetSpatialRef();
-    if (layerSRS)
+    // CRS WKT copied to a QString; the SpatialReferenceSystem QObject is built
+    // on the GUI thread in applyOpenResult (QObject affinity).
+    if (const OGRSpatialReference *srs = r.ogrLayer->GetSpatialRef())
     {
         char *wkt = nullptr;
-        layerSRS->exportToWkt(&wkt);
-        if (wkt)
-        {
-            setSRS(SpatialReferenceSystem::fromWktOrProj(QString::fromUtf8(wkt)),
-                   /*ownsSRS=*/true);
-            CPLFree(wkt);
-        }
+        srs->exportToWkt(&wkt);
+        if (wkt) { r.wkt = QString::fromUtf8(wkt); CPLFree(wkt); }
     }
+    r.msTotal = loadTimer.elapsed();
+    return r;
+}
+
+void GISVectorLayer::applyOpenResult(const OpenResult &r)
+{
+    closeDataset();          // drop any previously-open dataset (re-open case)
+
+    m_dataset  = r.dataset;
+    m_ogrLayer = r.ogrLayer;
+    if (!m_dataset || !m_ogrLayer)
+        return;              // doOpenWork already logged + cleaned up
+
+    m_filePath     = r.filePath;
+    m_ogrLayerName = r.layerName;
+
+    if (r.hasExtent)
+        setExtent(r.extent);
+
+    if (!r.wkt.isEmpty())
+        setSRS(SpatialReferenceSystem::fromWktOrProj(r.wkt), /*ownsSRS=*/true);
 
     setName(m_ogrLayerName);
 
-    emit filePathChanged(filePath);
+    emit filePathChanged(r.filePath);
     emit layerNameChanged(m_ogrLayerName);
     emit featureCountChanged(featureCount());
+
+    qCInfo(lcLoadVector).noquote()
+        << QStringLiteral("%1 [%2]: open (ms): gdal_open=%3 extent+crs=%4 total=%5")
+               .arg(QFileInfo(r.filePath).fileName(), m_ogrLayerName)
+               .arg(r.msOpen)
+               .arg(r.msTotal - r.msOpen)
+               .arg(r.msTotal);
+}
+
+void GISVectorLayer::openDataset(const QString &filePath, const QString &layerName)
+{
+    applyOpenResult(doOpenWork(filePath, layerName));
+}
+
+void GISVectorLayer::openAsync(const QString &filePath, const QString &layerName)
+{
+    // Same shape as loadModelAsync: GDALOpenEx + GetExtent on a worker,
+    // adoption on the GUI thread. If the layer dies mid-load the finished
+    // handler closes the orphaned dataset.
+    QPointer<GISVectorLayer> self(this);
+    auto *watcher = new QFutureWatcher<OpenResult>();
+    QObject::connect(watcher, &QFutureWatcherBase::finished, watcher,
+                     [watcher, self]() {
+        OpenResult r = watcher->result();
+        watcher->deleteLater();
+        if (!self) {
+            if (r.dataset) GDALClose(r.dataset);
+            return;
+        }
+        self->applyOpenResult(r);
+        emit self->openFinished(r.dataset != nullptr && r.ogrLayer != nullptr);
+    });
+    const QString path = filePath, layer = layerName;
+    watcher->setFuture(QtConcurrent::run([path, layer]() {
+        return doOpenWork(path, layer);
+    }));
 }
 
 void GISVectorLayer::closeDataset()
