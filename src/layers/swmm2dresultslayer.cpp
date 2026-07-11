@@ -13,6 +13,7 @@
 
 #include "contour/contourchain.h"
 #include "contour/marchingtriangles.h"
+#include "core/swmmdatetime.h"
 #include "io/mesh2dh5reader.h"
 #include "map/mapextent.h"
 
@@ -34,7 +35,6 @@
 #include <QGraphicsItem>
 #include <QGraphicsScene>
 #include <QMultiHash>
-#include <QTimeZone>
 #include <QPainter>
 #include <QPainterPath>
 #include <QStyleOptionGraphicsItem>
@@ -1100,16 +1100,15 @@ QDateTime HDF5Mesh2DSource::simTimeAt(int timeIdx) const
     // adding sim_start_ double-counted the epoch and shifted every 2D frame
     // ~126 years into the future (2152 vs 2026), so the animation controller's
     // causal compare (ti <= cursor) was always false and 2D playback froze on
-    // frame 0. Convert as an absolute OADate so the 2D axis shares the 1D
-    // results clock's basis (SWMMResultsLayer::julianToDateTime — UTC, epoch
-    // 1899-12-30). Re-read each call so live-tail growth is reflected; O(1)
-    // once HDF5 has parsed the file metadata.
+    // frame 0. Convert as an absolute SWMM DateTime via the canonical
+    // engine-native converter so the 2D axis shares the 1D results clock's
+    // basis (SWMMResultsLayer uses the same openswmmvis::core converter).
+    // Re-read each call so live-tail growth is reflected; O(1) once HDF5 has
+    // parsed the file metadata.
     std::vector<double> times;
     if (!reader_->readTimes(times)) return {};
     if (timeIdx < 0 || timeIdx >= static_cast<int>(times.size())) return {};
-    static const QDateTime kSwmmEpoch(QDate(1899, 12, 30), QTime(0, 0),
-                                      QTimeZone::utc());
-    return kSwmmEpoch.addMSecs(static_cast<qint64>(times[timeIdx] * 86400.0 * 1000.0));
+    return openswmmvis::core::swmmDateTimeToQDateTime(times[timeIdx]);
 }
 
 // ===========================================================================
