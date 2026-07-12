@@ -148,6 +148,10 @@
 #include "ui/panels/objectbrowserpanel.h"
 #include "ui/panels/propertiespanel.h"
 #include "ui/panels/attributetablepanel.h"
+
+#include "selection/selectionops.h"
+
+#include <QApplication>   // focusWidget() — Ctrl+C dispatch in onCopyActiveView
 #include "plugins/filefilterregistry.h"
 #include "selection/selectionmanager.h"
 #include "simulation/simulationrunner.h"
@@ -5660,6 +5664,20 @@ void SWMMVis::onSummarizeResults()
 
 void SWMMVis::onCopyActiveView()
 {
+    // Focus-aware: Ctrl+C over the Attribute Table copies the selected rows as
+    // TSV; anywhere else it copies the map view as an image. The table cannot
+    // register its own Ctrl+C — a second registration alongside this
+    // window-context action makes Qt's shortcut map alternate between the two
+    // handlers (ambiguous activation).
+    for (QWidget *w = QApplication::focusWidget(); w; w = w->parentWidget())
+    {
+        if (auto *panel = qobject_cast<AttributeTablePanel *>(w))
+        {
+            panel->copySelectionToClipboard();
+            return;
+        }
+    }
+
     auto *pw = activeProjectWindow();
     if (!pw || !pw->canvas())
     {
@@ -5700,28 +5718,9 @@ void SWMMVis::onInvertSelection()
                      OpenSWMMVisLogMessage::Warning);
         return;
     }
-    SWMM_Engine e = pw->modelLayer()->engine();
 
-    QSet<SWMMObjectRef> all;
-    const auto addAll = [&](int count,
-                            const char *(*idFn)(SWMM_Engine, int),
-                            SWMMObjectRef::ObjectType t) {
-        for (int i = 0; i < count; ++i)
-        {
-            const char *id = idFn(e, i);
-            if (id && *id) all.insert(SWMMObjectRef(t, QString::fromUtf8(id)));
-        }
-    };
-    addAll(swmm_node_count(e),     swmm_node_id,     SWMMObjectRef::Node);
-    addAll(swmm_link_count(e),     swmm_link_id,     SWMMObjectRef::Link);
-    addAll(swmm_subcatch_count(e), swmm_subcatch_id, SWMMObjectRef::Subcatchment);
-    addAll(swmm_gage_count(e),     swmm_gage_id,     SWMMObjectRef::RainGage);
-
-    const QSet<SWMMObjectRef> cur = pw->selectionManager()->selection();
-    QSet<SWMMObjectRef> inv;
-    inv.reserve(all.size());
-    for (const auto &r : all)
-        if (!cur.contains(r)) inv.insert(r);
+    const QSet<SWMMObjectRef> inv =
+        SelectionOps::invert(pw->modelLayer(), pw->selectionManager()->selection());
 
     pw->selectionManager()->select(inv, SelectionManager::Replace);
     onLogMessage(tr("Inverted selection (%1 object(s) now selected).").arg(inv.size()));
@@ -5806,54 +5805,37 @@ QSet<int> seedNodes(SWMMModelLayer *model, const QSet<SWMMObjectRef> &sel)
     return seeds;
 }
 
-QSet<SWMMObjectRef> subnetToRefs(SWMM_Engine e, const Subnetwork &sn)
-{
-    QSet<SWMMObjectRef> refs;
-    for (int n : sn.nodes)
-    {
-        const char *id = swmm_node_id(e, n);
-        if (id && *id) refs.insert(SWMMObjectRef(SWMMObjectRef::Node, QString::fromUtf8(id)));
-    }
-    for (int li : sn.interiorLinks)
-    {
-        const char *id = swmm_link_id(e, li);
-        if (id && *id) refs.insert(SWMMObjectRef(SWMMObjectRef::Link, QString::fromUtf8(id)));
-    }
-    return refs;
-}
-
 } // namespace
 
-void SWMMVis::onSelectUpstream()   { /* implemented via streamSelect below */
+// Select Upstream / Downstream trace the connected subnetwork from whatever is
+// selected — including subcatchments, which drain into it. The math lives in
+// `SelectionOps` (headless-testable); these slots only apply + report.
+// `buildSubnetwork` above is kept for onFlowBalance / onTravelTime, which need
+// its boundaryLinks.
+void SWMMVis::onStreamSelect(bool upstream)
+{
+    const QString label = upstream ? tr("Select Upstream") : tr("Select Downstream");
+
     auto *pw = activeProjectWindow();
     if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine() || !pw->selectionManager())
-    { onLogMessage(tr("Select Upstream: open a project first."), OpenSWMMVisLogMessage::Warning); return; }
-    SWMMModelLayer *model = pw->modelLayer();
-    const QSet<int> seeds = seedNodes(model, pw->selectionManager()->selection());
-    if (seeds.isEmpty())
-    { onLogMessage(tr("Select Upstream: select a node or link first."), OpenSWMMVisLogMessage::Information); return; }
-    const Subnetwork sn = buildSubnetwork(model, seeds, /*upstream=*/true);
-    const QSet<SWMMObjectRef> refs = subnetToRefs(model->engine(), sn);
-    pw->selectionManager()->select(refs, SelectionManager::Add);
-    onLogMessage(tr("Selected upstream subnetwork: %1 node(s), %2 link(s).")
-                 .arg(sn.nodes.size()).arg(sn.interiorLinks.size()));
+    { onLogMessage(tr("%1: open a project first.").arg(label), OpenSWMMVisLogMessage::Warning); return; }
+
+    const SelectionOps::TraceResult tr_ =
+        SelectionOps::trace(pw->modelLayer(), pw->selectionManager()->selection(), upstream);
+    if (tr_.noSeeds)
+    { onLogMessage(tr("%1: select a node, link or subcatchment first.").arg(label),
+                   OpenSWMMVisLogMessage::Information); return; }
+
+    pw->selectionManager()->select(tr_.refs, SelectionManager::Replace);
+    onLogMessage(upstream
+        ? tr("Selected upstream subnetwork: %1 node(s), %2 link(s), %3 subcatchment(s).")
+              .arg(tr_.nodeCount).arg(tr_.linkCount).arg(tr_.subcatchCount)
+        : tr("Selected downstream subnetwork: %1 node(s), %2 link(s), %3 subcatchment(s).")
+              .arg(tr_.nodeCount).arg(tr_.linkCount).arg(tr_.subcatchCount));
 }
 
-void SWMMVis::onSelectDownstream()
-{
-    auto *pw = activeProjectWindow();
-    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine() || !pw->selectionManager())
-    { onLogMessage(tr("Select Downstream: open a project first."), OpenSWMMVisLogMessage::Warning); return; }
-    SWMMModelLayer *model = pw->modelLayer();
-    const QSet<int> seeds = seedNodes(model, pw->selectionManager()->selection());
-    if (seeds.isEmpty())
-    { onLogMessage(tr("Select Downstream: select a node or link first."), OpenSWMMVisLogMessage::Information); return; }
-    const Subnetwork sn = buildSubnetwork(model, seeds, /*upstream=*/false);
-    const QSet<SWMMObjectRef> refs = subnetToRefs(model->engine(), sn);
-    pw->selectionManager()->select(refs, SelectionManager::Add);
-    onLogMessage(tr("Selected downstream subnetwork: %1 node(s), %2 link(s).")
-                 .arg(sn.nodes.size()).arg(sn.interiorLinks.size()));
-}
+void SWMMVis::onSelectUpstream()   { onStreamSelect(/*upstream=*/true);  }
+void SWMMVis::onSelectDownstream() { onStreamSelect(/*upstream=*/false); }
 
 void SWMMVis::onFlowBalance(bool upstream)
 {

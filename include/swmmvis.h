@@ -285,7 +285,11 @@ private slots:
     void onAddDelimitedData();
     /*! \brief Open the statistics dashboard for the active results layer. */
     void onSummarizeResults();
-    /*! \brief Copy the active map view to the clipboard. */
+    /*! \brief Ctrl+C dispatcher: copies the focused Attribute Table's selected
+     *         rows as TSV when focus is inside one, otherwise the active map
+     *         view as an image. One shortcut registration, routed by focus —
+     *         registering Ctrl+C a second time on the table would make Qt's
+     *         shortcut map treat it as ambiguous. */
     void onCopyActiveView();
     /*! \brief Print the active map view. */
     void onPrintActiveView();
@@ -293,10 +297,13 @@ private slots:
     void onInvertSelection();
 
     // ── Network analysis (Phase 3) ──────────────────────────────────────────
-    /*! \brief Extend the selection to the upstream subnetwork. */
+    /*! \brief Select the upstream subnetwork (nodes, links, subcatchments). */
     void onSelectUpstream();
-    /*! \brief Extend the selection to the downstream subnetwork. */
+    /*! \brief Select the downstream subnetwork (nodes, links, subcatchments). */
     void onSelectDownstream();
+    /*! \brief Shared body of onSelectUpstream / onSelectDownstream. Replaces
+     *         the current selection with the traced subnetwork. */
+    void onStreamSelect(bool upstream);
     /*! \brief Flow balance across the up/down-stream subnetwork boundary. */
     void onFlowBalance(bool upstream);
     /*! \brief Travel time over the up/down-stream subnetwork. */
