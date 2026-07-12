@@ -19,8 +19,11 @@
 #include <QLineEdit>
 #include <QListView>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QScrollBar>
 #include <QSignalBlocker>
 #include <QSortFilterProxyModel>
 #include <QSplitter>
@@ -144,6 +147,93 @@ QString joinedSectionBodies(const QVector<openswmmvis::io::RptSection> &sections
         text += s.body;
     return text;
 }
+
+// ---------------------------------------------------------------------------
+// RptViewer — QPlainTextEdit with a line-number gutter (the canonical Qt
+// "Code Editor" margin). The report renders wholesale with NoWrap, so one
+// text block == one file line and the gutter is a 1:1 line map of the .rpt:
+// the last gutter number equals the file's line count, which makes "is
+// anything truncated?" answerable at a glance against any external editor.
+// ---------------------------------------------------------------------------
+class RptViewer : public QPlainTextEdit
+{
+public:
+    explicit RptViewer(QWidget *parent = nullptr) : QPlainTextEdit(parent)
+    {
+        m_gutter = new Gutter(this);
+        connect(this, &QPlainTextEdit::blockCountChanged,
+                this, [this](int) { applyGutterWidth(); });
+        connect(this, &QPlainTextEdit::updateRequest,
+                this, [this](const QRect &r, int dy) {
+                    if (dy != 0)
+                        m_gutter->scroll(0, dy);
+                    else
+                        m_gutter->update(0, r.y(), m_gutter->width(), r.height());
+                    if (r.contains(viewport()->rect()))
+                        applyGutterWidth();
+                });
+        applyGutterWidth();
+    }
+
+    [[nodiscard]] int gutterWidth() const
+    {
+        int digits = 1;
+        for (int m = qMax(1, blockCount()); m >= 10; m /= 10)
+            ++digits;
+        return 12 + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
+    }
+
+protected:
+    void resizeEvent(QResizeEvent *e) override
+    {
+        QPlainTextEdit::resizeEvent(e);
+        const QRect cr = contentsRect();
+        m_gutter->setGeometry(QRect(cr.left(), cr.top(), gutterWidth(), cr.height()));
+    }
+
+private:
+    class Gutter : public QWidget
+    {
+    public:
+        explicit Gutter(RptViewer *v) : QWidget(v), m_v(v) {}
+        [[nodiscard]] QSize sizeHint() const override
+        { return QSize(m_v->gutterWidth(), 0); }
+    protected:
+        void paintEvent(QPaintEvent *e) override { m_v->paintGutter(e); }
+    private:
+        RptViewer *m_v;
+    };
+
+    void applyGutterWidth() { setViewportMargins(gutterWidth(), 0, 0, 0); }
+
+    void paintGutter(QPaintEvent *e)
+    {
+        QPainter p(m_gutter);
+        p.fillRect(e->rect(), palette().color(QPalette::Window));
+        p.setPen(palette().color(QPalette::PlaceholderText));
+
+        QTextBlock block = firstVisibleBlock();
+        int num    = block.blockNumber() + 1;
+        int top    = qRound(blockBoundingGeometry(block)
+                                .translated(contentOffset()).top());
+        int bottom = top + qRound(blockBoundingRect(block).height());
+        const int w = m_gutter->width() - 6;
+
+        while (block.isValid() && top <= e->rect().bottom())
+        {
+            if (block.isVisible() && bottom >= e->rect().top())
+                p.drawText(0, top, w, fontMetrics().height(),
+                           Qt::AlignRight, QString::number(num));
+            block  = block.next();
+            top    = bottom;
+            bottom = top + qRound(blockBoundingRect(block).height());
+            ++num;
+        }
+    }
+
+    Gutter *m_gutter = nullptr;
+    friend class Gutter;
+};
 
 } // anonymous namespace
 
@@ -269,9 +359,9 @@ void StatusReportDialog::buildUi()
 
     rightLay->addLayout(searchRow);
 
-    m_viewer = new QTextEdit(rightWrap);
+    m_viewer = new RptViewer(rightWrap);
     m_viewer->setReadOnly(true);
-    m_viewer->setLineWrapMode(QTextEdit::NoWrap);
+    m_viewer->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_viewer->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     m_viewer->setUndoRedoEnabled(false);
     rightLay->addWidget(m_viewer, 1);
@@ -367,28 +457,58 @@ void StatusReportDialog::populateText(
     m_sectionsModel->removeRows(0, m_sectionsModel->rowCount());
 
     m_sectionAnchors.clear();
-    m_sectionAnchors.reserve(sections.size());
+    m_sectionAnchors.reserve(sections.size() + 1);
+
+    // Bookmarks are navigation only — the viewer always holds the whole file.
+    auto addBookmark = [this, &reportText](const QString &label, int pos) {
+        m_sectionAnchors.push_back(qBound(0, pos, reportText.length()));
+        auto *item = new QStandardItem(label);
+        item->setEditable(false);
+        item->setToolTip(label);
+        m_sectionsModel->appendRow(item);
+    };
 
     int anchor = 0;
-    for (const auto &s : sections) {
-        const QString title = s.title.isEmpty()
-                                 ? QStringLiteral("(untitled)")
-                                 : s.title;
-        m_sectionAnchors.push_back(qBound(0, anchor, reportText.length()));
+    for (int i = 0; i < sections.size(); ++i) {
+        const openswmmvis::io::RptSection &s = sections.at(i);
+        const int start = anchor;
         anchor += s.body.length();
 
-        auto *item = new QStandardItem(title);
-        item->setEditable(false);
-        item->setToolTip(s.title);
-        m_sectionsModel->appendRow(item);
+        if (!s.title.isEmpty()) {
+            addBookmark(s.title, start);
+            continue;
+        }
+
+        // The block above the first '****' rule — engine banner, project
+        // title/notes, then the WARNING/ERROR list — carries no star-delimited
+        // title, so the parser hands it back untitled.  On a real report that
+        // is ~15 % of the file, and labelling it "(untitled)" made it look as
+        // though the report began at the first summary table.  Name it, and
+        // add a second bookmark straight to the first warning.
+        if (i != 0) {
+            addBookmark(tr("(untitled)"), start);
+            continue;
+        }
+        addBookmark(tr("Report Header & Notes"), start);
+
+        // [ \t]*, not \s* — Qt's \s matches '\n', which would let a match start
+        // on a blank line several lines above the warning it anchors on.
+        static const QRegularExpression noticeRx(
+            QStringLiteral("^[ \\t]*(?:WARNING|ERROR)\\b"),
+            QRegularExpression::MultilineOption);
+        int first = -1, count = 0;
+        auto it = noticeRx.globalMatch(s.body);
+        while (it.hasNext()) {
+            const QRegularExpressionMatch m = it.next();
+            if (first < 0) first = int(m.capturedStart());
+            ++count;
+        }
+        if (first >= 0)
+            addBookmark(tr("Warnings & Errors (%1)").arg(count), start + first);
     }
 
-    if (sections.isEmpty() && !reportText.isEmpty()) {
-        m_sectionAnchors.push_back(0);
-        auto *item = new QStandardItem(tr("(full report)"));
-        item->setEditable(false);
-        m_sectionsModel->appendRow(item);
-    }
+    if (sections.isEmpty() && !reportText.isEmpty())
+        addBookmark(tr("(full report)"), 0);
 
     m_viewer->setPlainText(reportText);
 
@@ -444,8 +564,17 @@ void StatusReportDialog::onSectionActivated(const QModelIndex &proxyIdx)
     QTextCursor c = m_viewer->textCursor();
     c.setPosition(pos);
     m_viewer->setTextCursor(c);
-    // Center the section title in the viewport.
-    m_viewer->ensureCursorVisible();
+    // Bookmark semantics: put the section title at the TOP of the viewport.
+    // ensureCursorVisible() alone scrolls minimally, so a downward jump lands
+    // the title on the BOTTOM edge — the section body sits below the fold,
+    // which reads as "the section has headers but no content".
+    //
+    // QPlainTextEdit's vertical scrollbar is LINE-based (value == first
+    // visible block), so scroll by setting it to the anchor's block number —
+    // pixel math (cursorRect().top()) would overshoot by a pixel:line factor.
+    // Clamped by the scrollbar near EOF, deterministic on the first click.
+    if (QScrollBar *vs = m_viewer->verticalScrollBar())
+        vs->setValue(m_viewer->document()->findBlock(pos).blockNumber());
 }
 
 void StatusReportDialog::onSearchChanged()
