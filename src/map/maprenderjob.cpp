@@ -7,8 +7,10 @@
 
 #include "map/maprenderjob.h"
 #include "layers/openswmmvislayer.h"
+#include "render/renderperf.h"
 
 #include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QPainter>
 #include <QPointer>
 #include <QtConcurrent/QtConcurrentRun>
@@ -73,6 +75,14 @@ void MapRenderJob::start()
         img.setDevicePixelRatio(dpr);
         img.fill(bgColor);
 
+        // Opt-in profiling (openswmm.render.perf) — isDebugEnabled() is a
+        // relaxed atomic load, so the disabled path stays free.
+        const bool perfOn = lcRenderPerf().isDebugEnabled();
+        QElapsedTimer jobTimer;
+        if (perfOn)
+            jobTimer.start();
+        int layersRendered = 0;
+
         {
             QPainter p(&img);
             p.setRenderHints(QPainter::Antialiasing
@@ -87,12 +97,32 @@ void MapRenderJob::start()
                 if (!layer || !layer->isVisible() || !layer->isRasterLayer())
                     continue;
 
+                QElapsedTimer layerTimer;
+                if (perfOn)
+                    layerTimer.start();
                 p.save();
                 p.setOpacity(layer->opacity());
                 layer->render(&p, extent, imageSize, srs);
                 p.restore();
+                ++layersRendered;
+                if (perfOn)
+                    qCDebug(lcRenderPerf).noquote()
+                        << QStringLiteral("[job.layer] %1 (%2) %3 ms")
+                               .arg(layer->name(),
+                                    QString::fromLatin1(
+                                        layer->metaObject()->className()))
+                               .arg(layerTimer.elapsed());
             }
         } // QPainter destroyed — img is finalised
+
+        if (perfOn)
+            qCDebug(lcRenderPerf).noquote()
+                << QStringLiteral("[job.total] %1 ms layers=%2 devSize=%3x%4 "
+                                  "cancelled=%5")
+                       .arg(jobTimer.elapsed())
+                       .arg(layersRendered)
+                       .arg(devSize.width()).arg(devSize.height())
+                       .arg(cancelFlag->load() ? 1 : 0);
 
         // Cancellation check before posting back: if the canvas already
         // discarded this job (and started a newer one), don't bother

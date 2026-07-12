@@ -331,6 +331,7 @@ private slots:
     void onRenderJobFinished(QImage result);
     void fireRasterChannel();
     void fireSceneChannel();
+    void onDragRenderTick();
     void syncScaleBarFromPreferences();
     void syncQsgRenderKindsFromPreferences();
 
@@ -434,6 +435,10 @@ private:
     bool                    m_isPanning      = false;
     bool                    m_isZooming      = false;
     MapExtent               m_panStartExtent;
+    // P3 — repeating ~200 ms timer active only while m_isPanning: warms the
+    // raster tile caches at the current drag extent and starts a render job,
+    // so blank margins fill DURING the drag instead of only after mouse-up.
+    QTimer                 *m_dragRenderTimer = nullptr;
     double                  m_lastMouseMapX  = 0.0;
     double                  m_lastMouseMapY  = 0.0;
     int                     m_lastMousePxX   = 0;
