@@ -255,8 +255,12 @@ void MeshProfilePlotDialog::removeOverlay()
         // Restore the canvas tool if we left the marker tool active.
         if (m_markerTool && canvas->activeTool() == m_markerTool)
             canvas->setActiveTool(m_prevTool ? m_prevTool.data() : nullptr);
-        // Detach from the canvas (which repaints) before the overlay is freed.
-        canvas->setMeshProfileOverlay(nullptr);
+        // Detach from the canvas (which repaints) before the overlay is freed —
+        // but only when the binding is still ours. The canvas holds one overlay
+        // slot, so a later trace (another profile dialog) may already have
+        // displaced us; clearing then would erase ITS line off the map.
+        if (canvas->meshProfileOverlay() == m_overlay)
+            canvas->setMeshProfileOverlay(nullptr);
     }
     if (m_markerTool) m_markerTool->setOverlay(nullptr);
     delete m_overlay;        // not a QObject — manual delete after detaching

@@ -1236,6 +1236,24 @@ void SWMMVisProjectWindow::activateAnalysisMeshProfileTool()
     mCanvas->setActiveTool(mAnalysisMeshProfileTool);
 }
 
+void SWMMVisProjectWindow::activateTerrainProfileTool()
+{
+    // Terrain-toolbar DEM profile. MapToolMeshProfile only captures geometry
+    // (it emits a scene polyline and never touches a layer), so it is reused
+    // verbatim here; a third instance keeps this tool's checked state on
+    // actionTerrainProfile, independent of the two mesh profile actions.
+    if (mTerrainProfileTool && mCanvas->activeTool() == mTerrainProfileTool) {
+        mCanvas->setActiveTool(mSelectTool);
+        return;
+    }
+    if (!mTerrainProfileTool) {
+        mTerrainProfileTool = new MapToolMeshProfile(mCanvas, this);
+        QObject::connect(mTerrainProfileTool, &MapToolMeshProfile::profilePathTraced,
+                         this, &SWMMVisProjectWindow::terrainProfileTraced);
+    }
+    mCanvas->setActiveTool(mTerrainProfileTool);
+}
+
 bool SWMMVisProjectWindow::hasModelLayer() const
 {
     if (!mCanvas) return false;
@@ -1315,6 +1333,9 @@ QHash<OpenSWMMVisMapTool *, QString> SWMMVisProjectWindow::toolActionKeys() cons
         // checked state with the network select-profile tool (two tools per
         // key is safe in the checked-state sync).
         { mAnalysisMeshProfileTool, QStringLiteral("actionPlotProfile")   },
+        // Terrain-toolbar DEM profile-trace — its own action, so picking Select
+        // (or any other canvas tool) unchecks it like the mesh variants.
+        { mTerrainProfileTool,   QStringLiteral("actionTerrainProfile")   },
         // Step G — mesh-toolbar vertex/edge selectors join the canvas-level
         // active-tool radio so the general-purpose Select / 2D-cells picks
         // visually uncheck them (and vice versa). objectNames come from

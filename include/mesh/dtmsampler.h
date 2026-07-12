@@ -44,6 +44,11 @@ public:
     /*! \brief Sample many points; result.size() == pts.size(). */
     [[nodiscard]] QVector<double> sampleBulk(const QVector<QPointF> &pts) const;
 
+    /*! \brief Mean absolute pixel size in raster-CRS units (0 when closed).
+     *  Callers resampling along a path use this to pick a step that follows the
+     *  DEM without oversampling it. */
+    [[nodiscard]] double pixelSize() const;
+
     /*! \brief Native CRS WKT of the raster (empty if the file had none). */
     [[nodiscard]] QString crsWkt() const;
 

@@ -178,8 +178,16 @@ public:
     /*! \brief Bind the 2D-mesh profile overlay (line + position marker) drawn
      *  ON TOP of every map layer — including the QSG flood-map mesh, which a
      *  QGraphicsScene item can't sit above. Pass null to detach. The overlay
-     *  is owned by MeshProfilePlotDialog, not the canvas. */
+     *  is owned by MeshProfilePlotDialog / RasterProfilePlotDialog, not the
+     *  canvas. Only one is bound at a time: a newer trace displaces an older
+     *  one, so a dialog must check it still owns the binding (see
+     *  \ref meshProfileOverlay) before detaching on close. */
     void setMeshProfileOverlay(MeshProfileOverlay *overlay);
+
+    /*! \brief The currently bound profile overlay, or null. Lets a closing
+     *  profile dialog detach only when the binding is still its own. */
+    [[nodiscard]] MeshProfileOverlay *meshProfileOverlay() const
+    { return m_meshProfileOverlay; }
 
     /*! \brief Bind the 1D profile-path candidate/accepted overlay. Painted
      *  above the QSG result frame so profile paths are not obscured by 1D/2D
@@ -415,6 +423,12 @@ private:
     // paints the full mesh — on every gesture frame.
     QImage                  m_sceneBuffer;
     MapExtent               m_sceneBufferExtent;
+    // P2 — true ⇒ m_sceneBuffer must be re-rendered before the next
+    // non-gesture blit. Set by QGraphicsScene::changed, scene-affecting
+    // refreshes, and non-raster repaintRequested; cleared by
+    // renderSceneBuffer(). Lets tile arrivals and decoration repaints skip
+    // the full scene rasterisation.
+    bool                    m_sceneDirty     = true;
 
     // ----- Pan / zoom state -----------------------------------------------
     bool                    m_isPanning      = false;
