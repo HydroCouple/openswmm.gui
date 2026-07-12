@@ -31,7 +31,7 @@ class QListView;
 class QSortFilterProxyModel;
 class QStandardItemModel;
 class QSplitter;
-class QTextEdit;
+class QPlainTextEdit;
 class QSyntaxHighlighter;
 
 namespace openswmmvis::ui {
@@ -83,7 +83,7 @@ private:
     QStandardItemModel    *m_sectionsModel    = nullptr;
     QSortFilterProxyModel *m_sectionsProxy    = nullptr;
 
-    QTextEdit             *m_viewer           = nullptr;
+    QPlainTextEdit        *m_viewer           = nullptr;
     QSyntaxHighlighter    *m_highlighter      = nullptr;
 
     QLineEdit             *m_searchEdit       = nullptr;
