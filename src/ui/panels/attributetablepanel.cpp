@@ -38,12 +38,14 @@
 
 #include <QAction>
 #include <QButtonGroup>
+#include <QClipboard>
 #include <QComboBox>
 #include <QCryptographicHash>
 #include <QDebug>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -65,6 +67,8 @@
 #include <QUndoStack>
 #include <QToolBar>
 #include <QVBoxLayout>
+
+#include <algorithm>   // std::sort / std::unique — selectionAsTsv row ordering
 
 Q_LOGGING_CATEGORY(lcAttrTbl, "openswmm.attr-table")
 
@@ -237,6 +241,12 @@ void AttributeTablePanel::buildUi()
     auto *actShow   = m_toolbar->addAction(tr("Show selected only"));
     actShow->setCheckable(true);
     auto *actZoom   = m_toolbar->addAction(tr("Zoom to selected"));
+    // Copy carries no shortcut of its own — Ctrl+C is owned by the main
+    // window's actionCopy, which routes to the focused panel.  The hint in
+    // the label is there so the binding is still discoverable.
+    m_copyAct       = m_toolbar->addAction(tr("Copy (Ctrl+C)"));
+    m_copyAct->setToolTip(tr("Copy the selected rows to the clipboard as "
+                             "tab-separated text"));
     auto *actExport = m_toolbar->addAction(tr("Export CSV…"));
     topRow->addWidget(m_toolbar);
 
@@ -410,6 +420,8 @@ void AttributeTablePanel::buildUi()
             this, &AttributeTablePanel::onShowSelectedOnlyToggled);
     connect(actZoom, &QAction::triggered,
             this, &AttributeTablePanel::onZoomToSelectedClicked);
+    connect(m_copyAct, &QAction::triggered,
+            this, &AttributeTablePanel::copySelectionToClipboard);
     connect(actExport, &QAction::triggered,
             this, &AttributeTablePanel::onExportCsvClicked);
 }
@@ -922,6 +934,76 @@ void AttributeTablePanel::onZoomToSelectedClicked()
         m_canvas->setExtent(zoom);
 }
 
+// ---------------------------------------------------------------------------
+// Copy — selected rows to the clipboard as TSV
+//
+// Everything is read through the proxy, so the copy honours the query filter,
+// "show selected only", the user's sort, and any hidden columns — what you see
+// is what you paste.  TSV (not CSV) because that is what Excel / Sheets accept
+// straight out of the clipboard.  Consistent with onExportCsvClicked()'s .tsv
+// branch, embedded tabs/newlines are flattened to spaces rather than quoted:
+// TSV has no quoting convention.
+// ---------------------------------------------------------------------------
+
+QString AttributeTablePanel::selectionAsTsv() const
+{
+    if (!m_view || !m_proxy || m_proxy->rowCount() == 0) return {};
+
+    QList<int> cols;
+    const int nCol = m_proxy->columnCount();
+    for (int c = 0; c < nCol; ++c)
+        if (!m_view->isColumnHidden(c)) cols << c;
+    if (cols.isEmpty()) return {};
+
+    // Selected rows, in the order they appear on screen.  Nothing selected →
+    // copy the whole visible table (matching Export CSV's behaviour).
+    QList<int> rows;
+    if (auto *sm = m_view->selectionModel(); sm && sm->hasSelection()) {
+        const QModelIndexList sel = sm->selectedRows();
+        for (const QModelIndex &pi : sel) rows << pi.row();
+        std::sort(rows.begin(), rows.end());
+        rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
+    } else {
+        const int nRow = m_proxy->rowCount();
+        rows.reserve(nRow);
+        for (int r = 0; r < nRow; ++r) rows << r;
+    }
+    if (rows.isEmpty()) return {};
+
+    const auto flatten = [](QString s) {
+        s.replace(QLatin1Char('\t'), QLatin1Char(' '));
+        s.replace(QLatin1Char('\n'), QLatin1Char(' '));
+        s.replace(QLatin1Char('\r'), QLatin1Char(' '));
+        return s;
+    };
+
+    QStringList lines;
+    lines.reserve(rows.size() + 1);
+
+    QStringList header;
+    header.reserve(cols.size());
+    for (int c : std::as_const(cols))
+        header << flatten(m_proxy->headerData(c, Qt::Horizontal).toString());
+    lines << header.join(QLatin1Char('\t'));
+
+    for (int r : std::as_const(rows)) {
+        QStringList cells;
+        cells.reserve(cols.size());
+        for (int c : std::as_const(cols))
+            cells << flatten(m_proxy->data(m_proxy->index(r, c)).toString());
+        lines << cells.join(QLatin1Char('\t'));
+    }
+
+    return lines.join(QLatin1Char('\n'));
+}
+
+void AttributeTablePanel::copySelectionToClipboard()
+{
+    const QString tsv = selectionAsTsv();
+    if (tsv.isEmpty()) return;
+    QGuiApplication::clipboard()->setText(tsv);
+}
+
 void AttributeTablePanel::onExportCsvClicked()
 {
     if (!m_model || m_model->rowCount() == 0) return;
@@ -989,6 +1071,11 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
     if (!proxyIdx.isValid()) return;
 
     QMenu menu(this);
+
+    QAction *copyAct = menu.addAction(tr("Copy (Ctrl+C)"));
+    connect(copyAct, &QAction::triggered,
+            this, &AttributeTablePanel::copySelectionToClipboard);
+    menu.addSeparator();
 
     // §S.SC.1.c — Cell-type-aware "Edit in …" actions surfacing the
     // CRUD editors (CurveEditorDialog / PatternEditorDialog /

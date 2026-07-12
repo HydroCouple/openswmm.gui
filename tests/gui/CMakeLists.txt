@@ -1679,3 +1679,15 @@ add_swmmvis_gui_test(test_asyncload
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_asyncload)
+
+# Toolbar selection ops — SelectionOps::invert (category-scoped Invert
+# Selection), SelectionOps::trace (Select Upstream / Downstream with
+# subcatchment outlet chaining), and AttributeTablePanel::selectionAsTsv
+# (Copy). Constructs a real AttributeTablePanel (a QWidget), so QTEST_MAIN
+# under the offscreen QPA — same shape as test_asyncload above.
+add_swmmvis_gui_test(test_selectionops
+    test_selectionops.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_selectionops)
