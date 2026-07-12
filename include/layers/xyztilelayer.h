@@ -15,7 +15,11 @@
 #include <QImage>
 #include <QMutex>
 #include <QSet>
+#include <QSize>
 #include <QString>
+
+#include <atomic>
+#include <limits>
 
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -81,7 +85,7 @@ public:
     // ----- Configuration ---------------------------------------------------
 
     int  tileCacheMaxSize()             const { return m_tileCache.maxCost(); }
-    void setTileCacheMaxSize(int count)       { m_tileCache.setMaxCost(count); }
+    void setTileCacheMaxSize(int count);   // locks the cache; can evict → bumps epoch
 
     void setTilePixelRatio(int ratio)         { m_tilePixelRatio = ratio; }
     void setAxisOrder(TileAxisOrder order)    { m_axisOrder = order; }
@@ -124,6 +128,22 @@ private:
     QNetworkAccessManager    *m_nam        = nullptr;
     QCache<QString, QImage>   m_tileCache;          // key "z/x/y"
     QSet<QString>             m_inflight;            // keys being fetched
+
+    // P1 — m_tileCache/m_inflight are written on the GUI thread while the
+    // MapRenderJob worker reads them in render() (QCache eviction deletes a
+    // QImage the worker may be mid-sampling), so every touch point locks
+    // m_tileCacheMutex. m_tileEpoch counts content changes; render() memoizes
+    // its final output keyed on (extent, devSize, zoom, epoch) so repeat
+    // renders at an unchanged view (selection repaints, other layers' tile
+    // arrivals) skip the reprojection entirely. Memo fields are only touched
+    // inside render()/under m_transformMutex (held for its whole body).
+    mutable QMutex            m_tileCacheMutex;
+    std::atomic<quint64>      m_tileEpoch {0};
+    QImage                    m_renderMemo;
+    MapExtent                 m_memoExtent;
+    QSize                     m_memoDevSize;
+    int                       m_memoZoom  = -1;
+    quint64                   m_memoEpoch = std::numeric_limits<quint64>::max();
     int                       m_subdomainIdx  = 0;   // rotates a/b/c
     int                       m_tileSizePx    = 256; // 256 standard, 512 for @2x
     int                       m_tilePixelRatio = 0;  // 0=undefined,1=standard,2=HiDPI
@@ -136,6 +156,7 @@ private:
     // the canvas CRS changes. Without this, the worker can dereference a
     // freed OGRCoordinateTransformation* and crash.
     OGRSpatialReference          *m_wgs84  = nullptr;
+    OGRSpatialReference          *m_merc3857 = nullptr;   // P1 — same-CRS fast path
     OGRCoordinateTransformation  *m_toWGS84   = nullptr;  // canvas → WGS84
     OGRCoordinateTransformation  *m_fromWGS84 = nullptr;  // WGS84 → canvas
     mutable QMutex                m_transformMutex;

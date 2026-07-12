@@ -7,9 +7,13 @@
  * QSG-2D-1M Phase 1 — see qsg2drenderstats.h.
  */
 #include "render/qsg2drenderstats.h"
+#include "render/renderperf.h"
 
 #include <QDebug>
 #include <QStringList>
+
+// Canvas render-pipeline profiling (opt-in) — see renderperf.h.
+Q_LOGGING_CATEGORY(lcRenderPerf, "openswmm.render.perf")
 
 namespace OpenSWMM::Render
 {
