@@ -364,6 +364,46 @@ void appendDashedThickLine(std::vector<QSGGeometry::Point2D> &out,
     }
 }
 
+// Dashed ring OUTLINE (not a disc) emitted as a run of thick chords. The GPU
+// mirror of the CPU painter's `drawEllipse(p2, r, r)` with a dashed cosmetic
+// pen and NoBrush (swmmlayeritem.cpp) — the highlight that marks where a
+// selected subcatchment drains to: the receiving node, or the representative
+// centroid of the runon subcatchment. Both cases are already the connector's
+// p2, so one ring covers them.
+//
+// Chords, not arcs: QSG has no curve primitive, so the circle is walked in
+// fixed arc-length steps and each step inside an "on" dash becomes one thick
+// quad. r / hw / dash_on / dash_off are all in scene units — callers scale
+// pixel sizes by invView, so the ring holds its on-screen size at any zoom.
+constexpr int kRingSegs = 48;   // 48 chords reads as smooth at a ~12 px radius
+
+void appendDashedRing(std::vector<QSGGeometry::Point2D> &out,
+                      float cx, float cy, float r, float hw,
+                      float dash_on, float dash_off)
+{
+    if (r <= 0.f || hw <= 0.f) return;
+    const float circ   = 6.28318531f * r;
+    const float period = dash_on + dash_off;
+    const float step   = circ / float(kRingSegs);
+    if (step <= 1e-9f) return;
+
+    for (int i = 0; i < kRingSegs; ++i) {
+        const float s0 = step * float(i);
+        const float s1 = s0 + step;
+        // Solid when the caller asked for no gap; otherwise keep this chord
+        // only when its midpoint falls in the "on" half of the dash period.
+        if (period > 1e-9f) {
+            const float phase = std::fmod(0.5f * (s0 + s1), period);
+            if (phase >= dash_on) continue;
+        }
+        const float a0 = s0 / r, a1 = s1 / r;   // arc length → angle
+        appendThickSegment(out,
+                           cx + r * std::cos(a0), cy + r * std::sin(a0),
+                           cx + r * std::cos(a1), cy + r * std::sin(a1),
+                           hw);
+    }
+}
+
 // Round-join / round-cap disc emitted as a triangle-fan-as-list (the link
 // nodes are DrawTriangles). The thick-segment quads above have flat ends, so
 // at an endpoint or interior polyline vertex the flat segment ends leave a
@@ -980,6 +1020,9 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             const float olDashOff = 4.0f * invView;
             const float olHwBase  = 0.75f * invView;
             const float olHwSel   = 1.0f  * invView;
+            // Outlet ring radius — 12 px, matching the CPU painter's
+            // `12.0 * invViewScale` so both paths draw the same highlight.
+            const float olRingR   = 12.0f * invView;
             for (const auto &ol : m_layer->m_catchOutletLines) {
                 const int ci = ol.catchIdx;
                 if (size_t(ci) < cHid.size() && cHid[ci]) continue;
@@ -993,10 +1036,19 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 const float ax=float(rx1-ox), ay=float(ry1-oy);
                 const float bx=float(rx2-ox), by=float(ry2-oy);
                 const bool sel = size_t(ci)<cSel.size() && cSel[ci];
-                if (sel)
+                if (sel) {
                     appendDashedThickLine(olSel,  ax,ay,bx,by, olHwSel,  olDashOn, olDashOff);
-                else
+                    // Ring the far end so the receiving outlet is called out,
+                    // not just the path to it. p2 is the outlet NODE's scene
+                    // point, or — when the subcatchment drains to another
+                    // subcatchment (runon) — that subcatchment's centroid;
+                    // SWMMModelLayer resolves both to this one point, so a
+                    // single ring serves both cases.
+                    appendDashedRing(olSel, bx, by, olRingR, olHwSel,
+                                     olDashOn, olDashOff);
+                } else {
                     appendDashedThickLine(olBase, ax,ay,bx,by, olHwBase, olDashOn, olDashOff);
+                }
             }
             uploadVerts(catchOutletLines,    olBase);
             uploadVerts(catchOutletLinesSel, olSel);
