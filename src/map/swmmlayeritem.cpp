@@ -15,6 +15,7 @@
 #include "render/markershape.h"
 #include "render/polylineoffset.h"
 #include "render/renderers/singlesymbolrenderer.h"
+#include "render/renderperf.h"
 #include "render/symbollayer.h"
 #include "render/symbolstyle.h"
 
@@ -1052,7 +1053,10 @@ void SWMMLayerItem::paint(QPainter *painter,
         }
     }
 
-    qDebug().noquote() << "[SWMMLayerItem::paint] setup_ms=" << t_setup
+    // Opt-in (openswmm.render.perf) — this used to log unconditionally on
+    // every scene paint, which itself cost formatting time per frame.
+    qCDebug(lcRenderPerf).noquote()
+                       << "[SWMMLayerItem::paint] setup_ms=" << t_setup
                        << " total_ms=" << t_total.elapsed()
                        << " links=" << m_layer->m_links.size()
                        << " grid=" << (m_layer->m_linkGrid.isEmpty() ? "n/a"

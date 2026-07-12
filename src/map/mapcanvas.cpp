@@ -25,6 +25,7 @@
 #include "map/swmm2dresultsqsgrenderer.h"
 #include "layers/swmm2dresultslayer.h"
 #include "render/qsg2drenderstats.h"
+#include "render/renderperf.h"
 
 #include <QElapsedTimer>
 #include <QQmlError>
@@ -74,6 +75,15 @@ MapCanvas::MapCanvas(QWidget *parent)
 
     // Scene has no background — the MapCanvas raster buffer paints behind it.
     m_scene->setBackgroundBrush(Qt::NoBrush);
+
+    // P2 — catch-all scene-dirty tracking: any item add/remove/move/visual
+    // update marks the cached m_sceneBuffer stale so the next non-gesture
+    // paint re-renders it. update() guarantees a repaint is scheduled even
+    // when the change produced no other paint trigger.
+    connect(m_scene, &QGraphicsScene::changed, this,
+            [this](const QList<QRectF> &) { m_sceneDirty = true; update(); });
+    connect(m_scene, &QGraphicsScene::selectionChanged, this,
+            [this]() { m_sceneDirty = true; update(); });
 
     // ---- Overlay view: hidden child used for transform math + scene rendering ----
     // Kept hidden to suppress its own spontaneous paint events (we call render()
@@ -272,6 +282,7 @@ void MapCanvas::applyCRSInternal(SpatialReferenceSystem *srs, bool ownsSRS)
     // while the new render job is fetching tiles for the new CRS.
     cancelRenderJob();
     m_mapBuffer = QImage();
+    m_sceneDirty = true;   // P2 — scene geometry is CRS-dependent
 
     for (OpenSWMMVisLayer *layer : std::as_const(m_layers))
         layer->onCanvasCRSChanged(m_canvasSRS);
@@ -1119,6 +1130,7 @@ void MapCanvas::fireSceneChannel()
         }
         layer->refreshScene(m_scene, m_extent, m_canvasSRS);
     }
+    m_sceneDirty = true;   // P2 — the sweep may have mutated scene items
     update();
     // No extra m_qsgWidget->update() needed: paintEvent() now drives the QSG
     // render synchronously via repaint() + grabFramebuffer(), so any dirty
@@ -1162,6 +1174,7 @@ void MapCanvas::renderSceneBuffer()
     sp.end();
 
     m_sceneBufferExtent = m_extent;
+    m_sceneDirty = false;   // cache is current for this extent (see paintEvent)
 }
 
 // ---------------------------------------------------------------------------
@@ -1224,6 +1237,7 @@ void MapCanvas::refreshLayerItems()
 
     // Vector items were updated — trigger an immediate repaint so they appear
     // even before the async raster render job completes.
+    m_sceneDirty = true;   // P2 — the sweep may have mutated scene items
     update();
 
     // Start a background render job to composite raster layers into m_mapBuffer
@@ -1318,6 +1332,12 @@ void MapCanvas::onRenderJobFinished(QImage result)
 
 void MapCanvas::paintEvent(QPaintEvent * /*event*/)
 {
+    // Opt-in profiling (openswmm.render.perf).
+    const bool perfOn = lcRenderPerf().isDebugEnabled();
+    QElapsedTimer paintTimer;
+    if (perfOn)
+        paintTimer.start();
+
     // Composite all layers into m_frameBuffer first, then blit in one call.
     // This eliminates any intermediate visual state that causes flickering.
     //
@@ -1433,8 +1453,31 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
         }
         else
         {
-            // Live render (also refreshes the cache for the next gesture).
-            renderSceneBuffer();
+            // P2 — reuse the cached scene buffer when nothing scene-affecting
+            // changed since it was rendered at this exact extent/size. Tile
+            // arrivals and decoration-only repaints then skip the full
+            // QGraphicsScene rasterisation (the dominant GUI-thread cost on
+            // large models). Any doubt → re-render.
+            const QSize wantDev(qRound(width() * dpr), qRound(height() * dpr));
+            const bool sceneCacheValid =
+                !m_sceneDirty
+                && !m_sceneBuffer.isNull()
+                && m_sceneBufferExtent.isValid()
+                && m_sceneBufferExtent == m_extent
+                && m_sceneBuffer.size() == wantDev
+                && qFuzzyCompare(m_sceneBuffer.devicePixelRatio(), dpr);
+            if (!sceneCacheValid)
+            {
+                QElapsedTimer sceneTimer;
+                if (perfOn)
+                    sceneTimer.start();
+                // Live render (also refreshes the cache for the next gesture).
+                renderSceneBuffer();
+                if (perfOn)
+                    qCDebug(lcRenderPerf).noquote()
+                        << QStringLiteral("[paint.sceneRender] %1 ms")
+                               .arg(sceneTimer.elapsed());
+            }
             if (!m_sceneBuffer.isNull())
                 p.drawImage(0, 0, m_sceneBuffer);
         }
@@ -1689,6 +1732,12 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
         renderTerrainLabel(p);
 
     p.end(); // finalise m_frameBuffer before blitting
+
+    if (perfOn)
+        qCDebug(lcRenderPerf).noquote()
+            << QStringLiteral("[paint.total] %1 ms gesture=%2")
+                   .arg(paintTimer.elapsed())
+                   .arg((m_isPanning || m_isZooming) ? 1 : 0);
 
     // ---- Blit the completed frame to the screen in one atomic operation ----
     QPainter screen(this);
@@ -2021,6 +2070,12 @@ void MapCanvas::onLayerRepaintRequested()
     if (qobject_cast<SWMMModelLayer *>(sender())
         || qobject_cast<SWMM2DResultsLayer *>(sender()))
         m_qsgFrameDirty = true;
+    // P2 — non-raster layers paint through the QGraphicsScene, so their
+    // repaint requests invalidate the cached scene buffer. Raster senders
+    // (basemap/DEM tile arrivals) leave it valid — that skip is the win.
+    auto *senderLayer = qobject_cast<OpenSWMMVisLayer *>(sender());
+    if (!senderLayer || !senderLayer->isRasterLayer())
+        m_sceneDirty = true;
     // Schedule a canvas repaint; paintEvent() will drive the QSG render
     // synchronously via repaint() + grabFramebuffer() when needed so the
     // selection highlight is always current when the frame is composed.
@@ -2035,16 +2090,54 @@ void MapCanvas::beginPan()
 {
     m_isPanning = true;
     m_panStartExtent = m_extent;
+
+    // P3 — fill blank margins DURING the drag: a repeating tick warms the
+    // raster tile caches at the live drag extent and starts a render job
+    // (cancel-and-replace, worker thread). Lazily created like m_rasterTimer.
+    if (!m_dragRenderTimer)
+    {
+        m_dragRenderTimer = new QTimer(this);
+        m_dragRenderTimer->setInterval(200);
+        connect(m_dragRenderTimer, &QTimer::timeout,
+                this, &MapCanvas::onDragRenderTick);
+    }
+    m_dragRenderTimer->start();
 }
 
 void MapCanvas::endPan()
 {
+    if (m_dragRenderTimer)
+        m_dragRenderTimer->stop();
     m_isPanning = false;
     m_isZooming = false;
     syncExtentFromView();
     emit extentChanged(m_extent);
     emit scaleChanged(scale());
     refresh();
+}
+
+void MapCanvas::onDragRenderTick()
+{
+    if (!m_isPanning || width() <= 0 || height() <= 0)
+    {
+        if (m_dragRenderTimer)
+            m_dragRenderTimer->stop();
+        return;
+    }
+    // Raster-only mid-drag refresh at the CURRENT drag extent. Deliberately
+    // bypasses refreshLayerItems() (it bails while panning by design — the
+    // scene overlay keeps its stale-buffer blit); mirrors fireRasterChannel's
+    // shape. fetchCache is non-blocking on every raster layer (network gets /
+    // worker-queue fills), and startRenderJob() is cancel-and-replace.
+    const QSize vpSize(width(), height());
+    for (OpenSWMMVisLayer *layer : std::as_const(m_layers))
+    {
+        if (!layer->isRasterLayer() || !layer->isVisible())
+            continue;
+        layer->setViewportSize(vpSize.width(), vpSize.height());
+        layer->fetchCache(m_extent, vpSize, m_canvasSRS);
+    }
+    startRenderJob();
 }
 
 bool MapCanvas::isPanning() const
