@@ -37,6 +37,10 @@
 #include <algorithm>
 #include <memory>
 
+#include "plot/profilenetworkadapter.h"
+#include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_nodes.h>
+
 namespace {
 
 QString dataDir()
@@ -99,11 +103,15 @@ private slots:
     void traceUpstreamFromLinkSeedsBothEnds();
     void traceDownstreamFromSubcatchFollowsOutletChain();
     void traceDownstreamFromNodeTakesNoSubcatchments();
+    void traceTraversesEveryNodeAndLinkKind();
     void traceWithoutSeedsReportsNoSeeds();
 
     // ── Attribute-table copy ───────────────────────────────────────────────
     void tsvCopiesSelectedRowsWithHeader();
     void tsvFallsBackToAllVisibleRows();
+
+    // ── External-model probe (env-gated; skips in CI) ──────────────────────
+    void probeExternalModelTrace();
 };
 
 // ---------------------------------------------------------------------------
@@ -258,6 +266,34 @@ void TestSelectionOps::traceDownstreamFromNodeTakesNoSubcatchments()
              (QStringList{"L:C1", "L:C2", "L:C3", "N:J1", "N:J2", "N:J3", "N:O1"}));
 }
 
+void TestSelectionOps::traceTraversesEveryNodeAndLinkKind()
+{
+    // selection_trace_alltypes_fixture.inp chains every node kind (junction,
+    // storage, divider, outfall) through every link kind (conduit, orifice,
+    // weir, outlet, pump):
+    //   J1 -C1-> J2 -OR1-> ST1 -W1-> DV1 -{OT1,C2}-> J3 -P1-> O1
+    // with S1->J1, S2->ST1, S3->S2, S4->DV1. A trace must not stop at any of
+    // them — the user-visible requirement is "select every link and node
+    // object type in the graph, subcatchments included".
+    auto layer = openLayer(QStringLiteral("selection_trace_alltypes_fixture.inp"));
+    QVERIFY(layer);
+
+    const auto up = SelectionOps::trace(layer.get(), {node("O1")}, /*upstream=*/true);
+    QVERIFY(!up.noSeeds);
+    QCOMPARE(spell(up.refs),
+             (QStringList{"L:C1", "L:C2", "L:OR1", "L:OT1", "L:P1", "L:W1",
+                          "N:DV1", "N:J1", "N:J2", "N:J3", "N:O1", "N:ST1",
+                          "S:S1", "S:S2", "S:S3", "S:S4"}));
+
+    // And the mirror image: downstream from the head junction crosses the
+    // orifice, storage, weir, divider, outlet, pump chain to the outfall.
+    const auto down = SelectionOps::trace(layer.get(), {node("J1")}, /*upstream=*/false);
+    QVERIFY(!down.noSeeds);
+    QCOMPARE(spell(down.refs),
+             (QStringList{"L:C1", "L:C2", "L:OR1", "L:OT1", "L:P1", "L:W1",
+                          "N:DV1", "N:J1", "N:J2", "N:J3", "N:O1", "N:ST1"}));
+}
+
 void TestSelectionOps::traceWithoutSeedsReportsNoSeeds()
 {
     auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
@@ -323,6 +359,152 @@ void TestSelectionOps::tsvFallsBackToAllVisibleRows()
     const QStringList lines = panel.selectionAsTsv().split(QLatin1Char('\n'));
     QCOMPARE(lines.size(), 5);
     QVERIFY(lines.at(0).startsWith(QStringLiteral("Name\t")));
+}
+
+// Diagnostic probe against a real model, mirroring test_asyncload's
+// profileExternalModel: gated on SWMM_TRACE_PROBE_INP so it skips in CI.
+// Seeds every outfall and traces upstream — on a fully-connected drainage
+// network that should visit (nearly) everything, so the per-category
+// coverage report pinpoints which object types a trace fails to cross.
+//
+//   QT_QPA_PLATFORM=offscreen SWMM_TRACE_PROBE_INP="/path/model.inp" \
+//     ./build/tests/gui/test_selectionops probeExternalModelTrace
+void TestSelectionOps::probeExternalModelTrace()
+{
+    const QString path = qEnvironmentVariable("SWMM_TRACE_PROBE_INP");
+    if (path.isEmpty())
+        QSKIP("Set SWMM_TRACE_PROBE_INP=<model.inp> to run the external trace probe.");
+
+    auto layer = std::make_unique<SWMMModelLayer>(path, nullptr);
+    QList<QString> warnings, errors;
+    QVERIFY2(layer->loadModel(warnings, errors),
+             qPrintable(QStringLiteral("loadModel failed: %1")
+                            .arg(errors.join(QStringLiteral(" | ")))));
+
+    QSet<SWMMObjectRef> seeds;
+    const int outfalls = layer->categoryCount(SWMMModelLayer::CatOutfalls);
+    for (int i = 0; i < outfalls; ++i)
+        seeds.insert(SWMMObjectRef(SWMMObjectRef::Node,
+                                   layer->objectNameAt(SWMMModelLayer::CatOutfalls, i)));
+    QVERIFY(!seeds.isEmpty());
+
+    const auto res = SelectionOps::trace(layer.get(), seeds, /*upstream=*/true);
+    QVERIFY(!res.noSeeds);
+    qWarning().noquote() << QStringLiteral(
+        "[trace-probe] upstream from %1 outfall(s): nodes=%2 links=%3 subcatch=%4")
+        .arg(outfalls).arg(res.nodeCount).arg(res.linkCount).arg(res.subcatchCount);
+
+    // Graph diagnostics — which engine links never made it into the BFS
+    // graph, can a trace cross a pump, and how connected is the network
+    // ignoring direction? Separates "trace drops a TYPE" (a bug) from
+    // "the model's directed flow paths end elsewhere" (correct semantics).
+    {
+        SWMM_Engine eng = layer->engine();
+        const int linkCount = swmm_link_count(eng);
+        const int nodeCount = swmm_node_count(eng);
+        const auto g = ProfileNetworkAdapter::buildGraphFromModel(layer.get());
+        QSet<int> inGraph;
+        for (const auto &e2 : g.edges) inGraph.insert(e2.linkId);
+        int shown = 0;
+        QHash<int,int> missByType, totByType;
+        for (int i = 0; i < linkCount; ++i) {
+            int type = -9; swmm_link_get_type(eng, i, &type);
+            ++totByType[type];
+            if (inGraph.contains(i)) continue;
+            ++missByType[type];
+            if (shown < 12) {
+                int from = -1, to = -1;
+                const int rcF = swmm_link_get_from_node(eng, i, &from);
+                const int rcT = swmm_link_get_to_node(eng, i, &to);
+                qWarning().noquote() << QStringLiteral(
+                    "[trace-probe]   DROPPED link %1 '%2' type=%3 from=%4(rc %5) to=%6(rc %7) nodeCount=%8")
+                    .arg(i).arg(QString::fromUtf8(swmm_link_id(eng, i)))
+                    .arg(type).arg(from).arg(rcF).arg(to).arg(rcT).arg(nodeCount);
+                ++shown;
+            }
+        }
+        for (auto it = totByType.cbegin(); it != totByType.cend(); ++it)
+            qWarning().noquote() << QStringLiteral(
+                "[trace-probe]   graph coverage type %1: %2/%3 in graph")
+                .arg(it.key()).arg(it.value() - missByType.value(it.key())).arg(it.value());
+
+        // Can a trace CROSS a pump at all? Trace upstream from each pump's
+        // to-node and check the pump + its from-node land in the result.
+        int pumpsChecked = 0;
+        for (int i = 0; i < linkCount && pumpsChecked < 3; ++i) {
+            int type = -9; swmm_link_get_type(eng, i, &type);
+            if (type != 1) continue;   // pumps
+            ++pumpsChecked;
+            int from = -1, to = -1;
+            swmm_link_get_from_node(eng, i, &from);
+            swmm_link_get_to_node(eng, i, &to);
+            const QString pumpName = QString::fromUtf8(swmm_link_id(eng, i));
+            const QString fromName = QString::fromUtf8(swmm_node_id(eng, from));
+            const QString toName   = QString::fromUtf8(swmm_node_id(eng, to));
+            const auto up = SelectionOps::trace(
+                layer.get(), {SWMMObjectRef(SWMMObjectRef::Node, toName)}, true);
+            qWarning().noquote() << QStringLiteral(
+                "[trace-probe]   pump %1 (%2 -> %3): upstream-from-toNode crosses it? link=%4 fromNode=%5")
+                .arg(pumpName, fromName, toName)
+                .arg(up.refs.contains(SWMMObjectRef(SWMMObjectRef::Link, pumpName)))
+                .arg(up.refs.contains(SWMMObjectRef(SWMMObjectRef::Node, fromName)));
+        }
+
+        // Undirected reachability from the outfall seeds — how much of the
+        // node universe is even CONNECTED to an outfall by 1D links?
+        QHash<int, QVector<int>> undirected;
+        for (const auto &e2 : g.edges) {
+            undirected[e2.fromNode].push_back(e2.toNode);
+            undirected[e2.toNode].push_back(e2.fromNode);
+        }
+        QSet<int> reach;
+        QList<int> q;
+        for (const SWMMObjectRef &s : seeds) {
+            const int idx = swmm_node_index(eng, s.name.toUtf8().constData());
+            if (idx >= 0) { reach.insert(idx); q.push_back(idx); }
+        }
+        while (!q.isEmpty()) {
+            const int n = q.takeFirst();
+            for (int nx : undirected.value(n))
+                if (!reach.contains(nx)) { reach.insert(nx); q.push_back(nx); }
+        }
+        qWarning().noquote() << QStringLiteral(
+            "[trace-probe]   undirected reachability from outfalls: %1/%2 nodes")
+            .arg(reach.size()).arg(nodeCount);
+    }
+
+    struct CatSpec { SWMMModelLayer::Category cat; SWMMObjectRef::ObjectType type;
+                     const char *name; };
+    const CatSpec cats[] = {
+        { SWMMModelLayer::CatJunctions,     SWMMObjectRef::Node,         "junctions" },
+        { SWMMModelLayer::CatOutfalls,      SWMMObjectRef::Node,         "outfalls" },
+        { SWMMModelLayer::CatStorage,       SWMMObjectRef::Node,         "storage" },
+        { SWMMModelLayer::CatDividers,      SWMMObjectRef::Node,         "dividers" },
+        { SWMMModelLayer::CatConduits,      SWMMObjectRef::Link,         "conduits" },
+        { SWMMModelLayer::CatPumps,         SWMMObjectRef::Link,         "pumps" },
+        { SWMMModelLayer::CatOrifices,      SWMMObjectRef::Link,         "orifices" },
+        { SWMMModelLayer::CatWeirs,         SWMMObjectRef::Link,         "weirs" },
+        { SWMMModelLayer::CatOutlets,       SWMMObjectRef::Link,         "outlets" },
+        { SWMMModelLayer::CatSubcatchments, SWMMObjectRef::Subcatchment, "subcatchments" },
+    };
+    for (const CatSpec &c : cats) {
+        const int total = layer->categoryCount(c.cat);
+        if (total == 0) continue;
+        int hit = 0;
+        QStringList missed;
+        for (int i = 0; i < total; ++i) {
+            const QString name = layer->objectNameAt(c.cat, i);
+            if (res.refs.contains(SWMMObjectRef(c.type, name)))
+                ++hit;
+            else if (missed.size() < 8)
+                missed << name;
+        }
+        qWarning().noquote() << QStringLiteral("[trace-probe]   %1: %2/%3%4")
+            .arg(QLatin1String(c.name)).arg(hit).arg(total)
+            .arg(hit == total ? QString()
+                              : QStringLiteral("  missed e.g. %1")
+                                    .arg(missed.join(QStringLiteral(", "))));
+    }
 }
 
 QTEST_MAIN(TestSelectionOps)
