@@ -24,6 +24,7 @@
 #include <QSet>
 #include <QWidget>
 
+class QAction;
 class QButtonGroup;
 class QComboBox;
 class QLabel;
@@ -55,7 +56,30 @@ public:
      *  on `modelLoaded`. */
     void refresh();
 
+    /*! The current selection rendered as TSV: a header line plus one
+     *  line per selected row, in the view's current sort and column
+     *  order, hidden columns skipped.  Falls back to every *visible*
+     *  row (i.e. what the query / show-selected-only filters leave)
+     *  when no row is selected.  Empty string when there is nothing
+     *  to copy.
+     *
+     *  Kept separate from `copySelectionToClipboard()` so the format
+     *  can be unit-tested without a platform clipboard.  Reads through
+     *  the proxy, so it works for both the SWMM model source and the
+     *  Z.4 tabular-file source. */
+    [[nodiscard]] QString selectionAsTsv() const;
+
+    /*! The Copy action — surfaced on the panel toolbar and in the
+     *  right-click menu.  It carries no shortcut of its own: Ctrl+C is
+     *  registered once, on the main window's `actionCopy`, which routes
+     *  to the focused panel (a second registration here would make Qt's
+     *  shortcut map treat Ctrl+C as ambiguous). */
+    [[nodiscard]] QAction *copyAction() const { return m_copyAct; }
+
 public slots:
+    /*! Put `selectionAsTsv()` on the clipboard.  No-op when empty. */
+    void copySelectionToClipboard();
+
     /*! Round-4 follow-up 2026-05-12 — refresh the row for \p name in
      *  response to an external edit (e.g. via the Property Browser).
      *  No-op if the named object isn't in the current category. */
@@ -146,6 +170,7 @@ private:
     QComboBox               *m_categoryCombo = nullptr;
     QTableView              *m_view          = nullptr;
     QToolBar                *m_toolbar       = nullptr;
+    QAction                 *m_copyAct       = nullptr;
     SWMMAttributeTableModel *m_model         = nullptr;
     TabularDataTableModel   *m_tabularModel  = nullptr;  ///< Z.4.3 — alt source
     QSortFilterProxyModel   *m_proxy         = nullptr;
