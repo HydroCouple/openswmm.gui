@@ -6,6 +6,11 @@
  * \brief  Canvas map tool that traces a free-form polyline across the 2D mesh
  *         to define a longitudinal profile cross-section.
  *
+ * Purely geometric — it captures a scene polyline and emits it; it never
+ * touches a layer. So it is also the capture tool for the terrain-toolbar DEM
+ * profile (SWMMVisProjectWindow::activateTerrainProfileTool), which routes the
+ * same polyline to RasterProfileSampler instead of MeshProfileSampler.
+ *
  * Behaviour (mirrors MapToolPick2DCells's lasso idiom):
  *   - Left-click adds a polyline vertex.
  *   - Mouse-move shows a live rubber segment from the last vertex to the cursor.

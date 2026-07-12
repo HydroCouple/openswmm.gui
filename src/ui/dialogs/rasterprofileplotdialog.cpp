@@ -1,22 +1,20 @@
 /*!
- * \file   meshprofileplotdialog.cpp
+ * \file   rasterprofileplotdialog.cpp
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  */
-#include "ui/dialogs/meshprofileplotdialog.h"
+#include "ui/dialogs/rasterprofileplotdialog.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
-#include "animation/animationcontroller.h"
-#include "layers/swmm2dmeshlayer.h"
-#include "layers/swmm2dresultslayer.h"
+#include "core/unitsystem.h"
+#include "layers/gisrasterlayer.h"
 #include "map/mapcanvas.h"
 #include "map/meshprofileoverlay.h"
 #include "map/tools/maptoolprofilemarker.h"
 #include "plot/meshprofileplotoptions.h"
 #include "plot/meshprofileplotwidget.h"
-#include "plot/meshprofilesampler.h"
+#include "plot/rasterprofilesampler.h"
 #include "swmmvisprojectwindow.h"
-#include "core/unitsystem.h"
 
 #ifdef HAVE_QPROPERTYMODEL
 #include <qpropertymodel.h>
@@ -33,22 +31,29 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 
-MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
-                                             SWMM2DResultsLayer     *results,
-                                             AnimationController    *anim,
-                                             const QVector<QPointF> &scenePolyline,
-                                             SWMMVisProjectWindow   *projectWindow,
-                                             QWidget                *parent)
+RasterProfilePlotDialog::RasterProfilePlotDialog(GISRasterLayer         *raster,
+                                                 double                  vertFactor,
+                                                 const QVector<QPointF> &scenePolyline,
+                                                 SWMMVisProjectWindow   *projectWindow,
+                                                 QWidget                *parent)
     : QDialog(parent),
-      m_mesh(mesh),
-      m_results(results),
-      m_anim(anim),
+      m_raster(raster),
       m_projectWindow(projectWindow),
-      m_scenePolyline(scenePolyline)
+      m_scenePolyline(scenePolyline),
+      m_vertFactor(vertFactor)
 {
-    setWindowTitle(tr("2D Mesh Profile"));
+    setWindowTitle(tr("Terrain Profile"));
     setModal(false);
     m_options = new MeshProfilePlotOptions(this);
+    // A DEM section has no water and no mesh cells. The chart's water passes
+    // are already gated on hasResults (false here), so nothing would render
+    // either way — turning the toggles off keeps them from showing up as dead
+    // switches in this dialog's Display Options tree.
+    m_options->setShowDepthFill(false);
+    m_options->setShowWseLine(false);
+    m_options->setShowMaxEnvelopeFill(false);
+    m_options->setShowMaxEnvelopeLine(false);
+    m_options->setShowCellBoundaries(false);
     setWindowFlags(Qt::Window
                    | Qt::WindowSystemMenuHint
                    | Qt::WindowTitleHint
@@ -61,58 +66,29 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
     rebuildProfile();
     setupMapOverlay();
 
-    // Animate the depth column off the 2D results layer's frame changes —
-    // the global AnimationController advances the layer (for visible layers),
-    // which emits currentTimeChanged / currentDateTimeChanged.
-    if (m_results) {
-        connect(m_results, &SWMM2DResultsLayer::currentTimeChanged,
-                this, [this](int) { refreshCurrentDepths(); });
-        connect(m_results, &SWMM2DResultsLayer::currentDateTimeChanged,
-                this, [this](const QDateTime &dt) { m_plot->setCurrentDateTime(dt); });
-        // Recompute the max-depth envelope when more frames stream in (live).
-        connect(m_results, &SWMM2DResultsLayer::timeRangeChanged,
-                this, [this](int, int) { rebuildProfile(); });
-
-        // Drive our own layer from the global animation clock so the profile
-        // animates even when the layer is hidden. The canvas only advances
-        // VISIBLE 2D layers per frame (swmmvis.cpp), so a profile on a hidden
-        // layer would otherwise freeze. setCurrentSimTime snaps to the nearest
-        // frame and re-emits currentTimeChanged (consumed above); it's a no-op
-        // when the layer is already on that frame, so this can't double-work.
-        if (m_anim) {
-            connect(m_anim, &AnimationController::currentTimeChanged,
-                    this, [this](const QDateTime &dt) {
-                if (m_results) m_results->setCurrentSimTimeAsOf(dt);
-            });
-        }
-
-        // Initial timestamp + depths for the frame already showing.
-        if (auto *src = m_results->source()) {
-            const int t = m_results->currentTimeIndex();
-            if (t >= 0) m_plot->setCurrentDateTime(src->simTimeAt(t));
-        }
-    }
-
     // Lifetime: drop external references before any project teardown begins.
     if (m_projectWindow) {
         connect(m_projectWindow, &SWMMVisProjectWindow::aboutToClose,
                 this, [this] {
-            if (m_anim)    disconnect(m_anim.data(),    nullptr, this, nullptr);
-            if (m_results) disconnect(m_results.data(), nullptr, this, nullptr);
             removeOverlay();   // detach from the scene before it's torn down
             close();
         });
     }
 }
 
-MeshProfilePlotDialog::~MeshProfilePlotDialog()
+RasterProfilePlotDialog::~RasterProfilePlotDialog()
 {
     removeOverlay();
-    if (m_results) disconnect(m_results.data(), nullptr, this, nullptr);
-    if (m_anim)    disconnect(m_anim.data(),    nullptr, this, nullptr);
 }
 
-void MeshProfilePlotDialog::buildLayout()
+void RasterProfilePlotDialog::setVerticalFactor(double vertFactor)
+{
+    if (qFuzzyCompare(m_vertFactor, vertFactor)) return;
+    m_vertFactor = vertFactor;
+    rebuildProfile();
+}
+
+void RasterProfilePlotDialog::buildLayout()
 {
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(8, 8, 8, 8);
@@ -138,18 +114,11 @@ void MeshProfilePlotDialog::buildLayout()
     modeGroup->addAction(actZoomOut);
     modeGroup->addAction(actPan);
     toolbar->addSeparator();
-    auto *actCells = toolbar->addAction(tr("Cell boundaries"));
-    actCells->setCheckable(true);
-    actCells->setChecked(m_options->showCellBoundaries());
-    actCells->setToolTip(tr("Show mesh-cell edge crossings as dots on the ground line"));
     auto *actMapMarker = toolbar->addAction(tr("Move marker on map"));
     actMapMarker->setCheckable(true);
     actMapMarker->setToolTip(tr("Drag the position arrow along the profile on the map"));
-    // Text-only on just these buttons so the existing icon-only actions are
-    // left untouched.
-    for (QAction *a : { actCells, actMapMarker })
-        if (auto *btn = qobject_cast<QToolButton *>(toolbar->widgetForAction(a)))
-            btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    if (auto *btn = qobject_cast<QToolButton *>(toolbar->widgetForAction(actMapMarker)))
+        btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     toolbar->addSeparator();
     auto *actOptions = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Settings")),
                                           tr("Display Options…"));
@@ -159,7 +128,8 @@ void MeshProfilePlotDialog::buildLayout()
     m_plot->setOptions(m_options);
     root->addWidget(m_plot, /*stretch=*/1);
 
-    // Axis labels from the project unit system.
+    // Axis labels from the project unit system — the sampler already converted
+    // raw DEM Z into model vertical units via the terrain factor.
     auto *us = m_projectWindow ? m_projectWindow->unitSystem() : UnitSystem::instance();
     const QString unit = us ? us->lengthLabel() : QString();
     m_plot->setAxisLabels(unit.isEmpty() ? tr("Distance")  : tr("Distance (%1)").arg(unit),
@@ -170,42 +140,37 @@ void MeshProfilePlotDialog::buildLayout()
     connect(actZoomOut, &QAction::triggered, this, [this] { m_plot->setMode(MeshProfilePlotWidget::Mode::ZoomOut); });
     connect(actPan,     &QAction::triggered, this, [this] { m_plot->setMode(MeshProfilePlotWidget::Mode::Pan); });
     connect(actFit,     &QAction::triggered, this, [this] { m_plot->fitToExtent(); });
-    connect(actCells,   &QAction::toggled,   this, [this](bool on) { m_options->setShowCellBoundaries(on); });
     connect(actMapMarker, &QAction::toggled, this, [this](bool on) { setMarkerToolActive(on); });
-    connect(actOptions, &QAction::triggered, this, &MeshProfilePlotDialog::openDisplayOptions);
+    connect(actOptions, &QAction::triggered, this, &RasterProfilePlotDialog::openDisplayOptions);
 }
 
-void MeshProfilePlotDialog::rebuildProfile()
+void RasterProfilePlotDialog::rebuildProfile()
 {
-    if (!m_mesh) return;
-    m_profile = MeshProfileSampler::buildMeshProfile(
-        m_mesh.data(), m_results.data(), m_scenePolyline);
+    if (!m_raster) {
+        // The DEM was removed from the canvas — blank the chart rather than
+        // leave a stale ground line that no longer has a source.
+        m_profile = {};
+        m_plot->setProfile(m_profile);
+        return;
+    }
+    const SpatialReferenceSystem *canvasSRS =
+        (m_projectWindow && m_projectWindow->canvas())
+            ? m_projectWindow->canvas()->canvasSRS()
+            : nullptr;
+
+    m_profile = RasterProfileSampler::buildRasterProfile(
+        m_raster->filePath(), m_raster->renderBand(), canvasSRS,
+        m_scenePolyline, m_vertFactor);
     m_plot->setProfile(m_profile);
 }
 
-void MeshProfilePlotDialog::refreshCurrentDepths()
-{
-    if (!m_results || m_profile.samples.isEmpty()) return;
-    // Re-sample only the depth column at the layer's now-current frame using
-    // the cached sample scene points — avoids recomputing the (expensive)
-    // max-depth envelope on every animation tick.
-    QVector<double> depths;
-    depths.reserve(m_profile.samples.size());
-    // Reuse each sample's cached containing cell (triIdx, captured by
-    // buildMeshProfile) so per-frame animation skips the cell search entirely.
-    for (const auto &s : m_profile.samples)
-        depths.push_back(m_results->depthAtCellInterp(s.triIdx, s.scenePt));
-    m_plot->setCurrentDepths(depths);
-}
-
-void MeshProfilePlotDialog::setupMapOverlay()
+void RasterProfilePlotDialog::setupMapOverlay()
 {
     if (!m_projectWindow || m_scenePolyline.size() < 2) return;
     MapCanvas *canvas = m_projectWindow->canvas();
     if (!canvas) return;
 
     // Persistent profile line on the map (cleared when this dialog closes).
-    // Bound to the canvas, which paints it ABOVE the QSG flood-map mesh.
     m_overlay = new MeshProfileOverlay();
     m_overlay->setPolyline(m_scenePolyline);
     canvas->setMeshProfileOverlay(m_overlay);
@@ -234,7 +199,7 @@ void MeshProfilePlotDialog::setupMapOverlay()
     canvas->invalidate(MapCanvas::Overlay, QStringLiteral("mesh-profile-overlay"));
 }
 
-void MeshProfilePlotDialog::setMarkerToolActive(bool on)
+void RasterProfilePlotDialog::setMarkerToolActive(bool on)
 {
     if (!m_projectWindow || !m_markerTool) return;
     MapCanvas *canvas = m_projectWindow->canvas();
@@ -248,7 +213,7 @@ void MeshProfilePlotDialog::setMarkerToolActive(bool on)
     }
 }
 
-void MeshProfilePlotDialog::removeOverlay()
+void RasterProfilePlotDialog::removeOverlay()
 {
     if (m_projectWindow && m_projectWindow->canvas()) {
         MapCanvas *canvas = m_projectWindow->canvas();
@@ -257,7 +222,7 @@ void MeshProfilePlotDialog::removeOverlay()
             canvas->setActiveTool(m_prevTool ? m_prevTool.data() : nullptr);
         // Detach from the canvas (which repaints) before the overlay is freed —
         // but only when the binding is still ours. The canvas holds one overlay
-        // slot, so a later trace (another profile dialog) may already have
+        // slot, so a later trace (a mesh profile, say) may already have
         // displaced us; clearing then would erase ITS line off the map.
         if (canvas->meshProfileOverlay() == m_overlay)
             canvas->setMeshProfileOverlay(nullptr);
@@ -267,7 +232,7 @@ void MeshProfilePlotDialog::removeOverlay()
     m_overlay = nullptr;
 }
 
-void MeshProfilePlotDialog::openDisplayOptions()
+void RasterProfilePlotDialog::openDisplayOptions()
 {
     auto *dlg = new QDialog(this);
     dlg->setWindowTitle(tr("Profile Display Options"));

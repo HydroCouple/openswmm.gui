@@ -152,6 +152,13 @@ public:
      *  while the mesh-toolbar tool tracks actionMeshProfile independently. */
     void activateAnalysisMeshProfileTool();
 
+    /*! The TERRAIN-TOOLBAR profile tool: traces the same polyline but plots a
+     *  ground profile sampled from the active DEM raster rather than the 2D
+     *  mesh (emits terrainProfileTraced). A third MapToolMeshProfile instance —
+     *  the tool is purely geometric — so its checked state tracks
+     *  actionTerrainProfile independently of the two mesh profile actions. */
+    void activateTerrainProfileTool();
+
     /*! Slice US.A2 — availability probes for the context-sensitive Plot Profile
      *  dispatcher: is there a 1D SWMM model / a 2D mesh on the canvas? */
     [[nodiscard]] bool hasModelLayer() const;
@@ -355,6 +362,10 @@ signals:
     void meshProfileTraced(const QVector<QPointF> &scenePolyline);
     void analysisMeshProfileTraced(const QVector<QPointF> &scenePolyline);
 
+    /*! The TERRAIN-TOOLBAR channel — same polyline payload, but the main window
+     *  routes it to a RasterProfilePlotDialog sampling the active DEM raster. */
+    void terrainProfileTraced(const QVector<QPointF> &scenePolyline);
+
     /*! Forwards MapToolMeshSelectEdge::plotEdgeFluxRequested up to the main
      *  window so it can open the comparison plot with the edge's flow OR flux
      *  series (carried by `attr`). */
@@ -438,6 +449,7 @@ private:
     class MapToolPick2DCells          *mPick2DCellsTool = nullptr;  ///< CF.3 — lazy
     class MapToolMeshProfile          *mMeshProfileTool = nullptr;  ///< mesh-toolbar (bed-only) profile-trace — lazy
     class MapToolMeshProfile          *mAnalysisMeshProfileTool = nullptr; ///< US.A1 — analysis (ground+depth) profile-trace — lazy
+    class MapToolMeshProfile          *mTerrainProfileTool = nullptr; ///< terrain-toolbar (DEM raster) profile-trace — lazy
     class MapToolMeshSelectVertex     *mMeshSelectVertexTool = nullptr; ///< §V.VB — lazy
     class MapToolMeshSelectEdge       *mMeshSelectEdgeTool   = nullptr; ///< §V.VB — lazy
 
