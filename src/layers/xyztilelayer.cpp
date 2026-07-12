@@ -12,12 +12,17 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QFutureSynchronizer>
 #include <QMutexLocker>
 #include <QPainter>
 #include <QPainterPath>
+#include <QThread>
+#include <QThreadPool>
+#include <QtConcurrent/QtConcurrentRun>
 #include <QtMath>
 
 #include <cmath>
+#include <vector>
 
 #include <ogr_spatialref.h>
 #include <ogr_api.h>
@@ -25,6 +30,25 @@
 static constexpr double PI            = M_PI;
 static constexpr double DEG_TO_RAD    = PI / 180.0;
 static constexpr double RAD_TO_DEG    = 180.0 / PI;
+
+namespace {
+// P1 — private pool for the reverse-projection row bands. render() itself
+// already runs on the GLOBAL QThreadPool (MapRenderJob's QtConcurrent::run);
+// fanning the bands out on that same pool could starve/deadlock when it is
+// saturated (raster tile warps, async file opens). A dedicated pool's
+// threads never wait on the global pool, so the outer thread blocking on
+// the bands cannot form a cycle.
+QThreadPool *reprojectPool()
+{
+    static QThreadPool pool;
+    static const bool initialised = []() {
+        pool.setMaxThreadCount(std::max(1, QThread::idealThreadCount() - 1));
+        return true;
+    }();
+    Q_UNUSED(initialised)
+    return &pool;
+}
+} // namespace
 
 // ---------------------------------------------------------------------------
 
@@ -48,6 +72,13 @@ XYZTileLayer::XYZTileLayer(const QString &urlTemplate,
     m_wgs84->importFromEPSG(4326);
     m_wgs84->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
+    // P1 — Web Mercator reference: when the canvas CRS IsSame(3857) the
+    // tile mosaic is already in the canvas CRS and render() takes a single
+    // affine drawImage instead of the per-pixel reverse projection.
+    m_merc3857 = new OGRSpatialReference();
+    m_merc3857->importFromEPSG(3857);
+    m_merc3857->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+
     // XYZ tile services always use Web Mercator (EPSG:3857) as their native CRS.
     // Expose this so the layer-properties dialog shows the CRS rather than "(none)".
     auto *srs = SpatialReferenceSystem::fromAuthCode(QStringLiteral("EPSG"), 3857);
@@ -67,6 +98,7 @@ XYZTileLayer::~XYZTileLayer()
     OGRCoordinateTransformation::DestroyCT(m_toWGS84);
     OGRCoordinateTransformation::DestroyCT(m_fromWGS84);
     delete m_wgs84;
+    delete m_merc3857;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,8 +108,14 @@ XYZTileLayer::~XYZTileLayer()
 void XYZTileLayer::onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS)
 {
     rebuildTransforms(newCanvasSRS);
-    m_tileCache.clear();
-    m_inflight.clear();
+    {
+        // Disjoint from m_transformMutex (rebuildTransforms above) — never
+        // hold both locks at once.
+        QMutexLocker lock(&m_tileCacheMutex);
+        m_tileCache.clear();
+        m_inflight.clear();
+    }
+    ++m_tileEpoch;
 }
 
 void XYZTileLayer::rebuildTransforms(const SpatialReferenceSystem *canvasSRS)
@@ -305,10 +343,12 @@ void XYZTileLayer::fetchTile(int z, int x, int y)
 {
     const QString key = QStringLiteral("%1/%2/%3").arg(z).arg(x).arg(y);
 
-    if (m_tileCache.contains(key) || m_inflight.contains(key))
-        return;
-
-    m_inflight.insert(key);
+    {
+        QMutexLocker lock(&m_tileCacheMutex);
+        if (m_tileCache.contains(key) || m_inflight.contains(key))
+            return;
+        m_inflight.insert(key);
+    }
     ++m_subdomainIdx;
 
     QNetworkRequest req(QUrl(buildUrl(z, x, y)));
@@ -337,7 +377,10 @@ void XYZTileLayer::fetchTile(int z, int x, int y)
 void XYZTileLayer::onTileReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
-    m_inflight.remove(key);
+    {
+        QMutexLocker lock(&m_tileCacheMutex);
+        m_inflight.remove(key);
+    }
 
     if (reply->error() != QNetworkReply::NoError)
     {
@@ -351,8 +394,15 @@ void XYZTileLayer::onTileReply(QNetworkReply *reply, const QString &key)
     auto *img = new QImage();
     if (img->loadFromData(data))
     {
-        m_tileCache.insert(key, img);
-        qDebug() << "[XYZ] tile cached key=" << key << "size=" << img->size();
+        const QSize sz = img->size();
+        {
+            // QCache::insert may also EVICT — the lock keeps a mid-render
+            // worker from sampling a deleted QImage (pre-existing race).
+            QMutexLocker lock(&m_tileCacheMutex);
+            m_tileCache.insert(key, img);
+        }
+        ++m_tileEpoch;   // cache content changed → render memo is stale
+        qDebug() << "[XYZ] tile cached key=" << key << "size=" << sz;
         emit repaintRequested();
     }
     else
@@ -479,6 +529,26 @@ void XYZTileLayer::render(QPainter *painter,
     if (needsReproject && !m_toWGS84)
         return;
 
+    // P1 — memo: the previous render is still exact when the view and the
+    // tile-cache contents are unchanged (selection repaints, other layers'
+    // tiles arriving). Skip the mosaic + reprojection entirely.
+    const quint64 epochAtStart = m_tileEpoch.load();
+    if (!m_renderMemo.isNull()
+        && extent == m_memoExtent
+        && QSize(devW, devH) == m_memoDevSize
+        && z == m_memoZoom
+        && epochAtStart == m_memoEpoch)
+    {
+        painter->save();
+        painter->setOpacity(opacity());
+        painter->setRenderHint(QPainter::SmoothPixmapTransform,
+            m_renderParams.resampling
+                != OpenSWMM::Render::BasemapRenderParams::Nearest);
+        painter->drawImage(0, 0, m_renderMemo);
+        painter->restore();
+        return;
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // QGIS-style reverse-mapping render.
     //
@@ -534,6 +604,11 @@ void XYZTileLayer::render(QPainter *painter,
     QImage srcBuf(srcW, srcH, QImage::Format_ARGB32_Premultiplied);
     srcBuf.fill(Qt::transparent);
     {
+        // The GUI thread inserts (and QCache evicts) concurrently — hold the
+        // cache lock for the whole composite so no sampled QImage is freed
+        // mid-draw. epochAtStart (snapshotted above) keys the memo: a tile
+        // landing after this point bumps the epoch and the next job re-renders.
+        QMutexLocker cacheLock(&m_tileCacheMutex);
         QPainter sp(&srcBuf);
         for (int tx = txMin; tx <= txMax; ++tx) {
             for (int ty = tyMin; ty <= tyMax; ++ty) {
@@ -578,39 +653,6 @@ void XYZTileLayer::render(QPainter *painter,
         return QPointF(x, y);
     };
 
-    // Build sparse anchor grid: for every 32-px block on the OUTPUT canvas
-    // image (in **device pixels**), compute the corresponding SOURCE BUFFER
-    // pixel by canvas-px → canvas-CRS → WGS84 → Mercator → source-px.
-    constexpr int kBlock = 32;                       // device-pixel block size
-    const int gridW = (devW + kBlock - 1) / kBlock + 1;
-    const int gridH = (devH + kBlock - 1) / kBlock + 1;
-
-    // Pre-allocate; rows-then-columns. (-1, -1) marks "invalid sample".
-    QVector<QPointF> anchors(gridW * gridH, QPointF(-1, -1));
-    for (int gy = 0; gy < gridH; ++gy) {
-        for (int gx = 0; gx < gridW; ++gx) {
-            const double cpx = std::min(gx * kBlock, devW);
-            const double cpy = std::min(gy * kBlock, devH);
-            // canvas pixel → canvas CRS coord
-            const double cx = extent.xMin() + cpx / pxPerCanvasX;
-            const double cy = extent.yMax() - cpy / pxPerCanvasY;
-            // canvas CRS → WGS84
-            double wx = cx, wy = cy;
-            if (m_toWGS84 && !m_toWGS84->Transform(1, &wx, &wy))
-                continue;
-            if (!std::isfinite(wx) || !std::isfinite(wy))
-                continue;
-            if (wx < -360.0 || wx > 360.0 || wy < -90.0 || wy > 90.0)
-                continue;
-            // WGS84 → Web Mercator → source buffer pixel
-            const QPointF mp = wgs84ToMerc(wx, wy);
-            const QPointF sp = mercToSrcPx(mp.x(), mp.y());
-            if (!std::isfinite(sp.x()) || !std::isfinite(sp.y()))
-                continue;
-            anchors[gy * gridW + gx] = sp;
-        }
-    }
-
     // Allocate the destination image at device-pixel resolution so the
     // bilinear sampler writes one pixel per device pixel — no later
     // upscale by Qt's blitter. The setDevicePixelRatio tag lets the
@@ -620,112 +662,214 @@ void XYZTileLayer::render(QPainter *painter,
     dst.setDevicePixelRatio(dpr);
     dst.fill(Qt::transparent);
 
-    // Bilinear sampler over the source buffer. Returning transparent on
-    // out-of-bounds produces a visible 1-px frame at the composited-buffer
-    // boundary that "shifts" as the view pans; clamp to the inside-by-epsilon
-    // range so edge samples always return an opaque colour from the last
-    // valid pixel.
-    auto sampleSrc = [&](double sx, double sy) -> QRgb {
-        if (!std::isfinite(sx) || !std::isfinite(sy)) return 0;
-        sx = std::clamp(sx, 0.0, double(srcW - 1) - 1e-9);
-        sy = std::clamp(sy, 0.0, double(srcH - 1) - 1e-9);
-        const int    x0 = static_cast<int>(sx);
-        const int    y0 = static_cast<int>(sy);
-        const double dx = sx - x0;
-        const double dy = sy - y0;
-        const QRgb p00 = srcBuf.pixel(x0,     y0);
-        const QRgb p10 = srcBuf.pixel(x0 + 1, y0);
-        const QRgb p01 = srcBuf.pixel(x0,     y0 + 1);
-        const QRgb p11 = srcBuf.pixel(x0 + 1, y0 + 1);
-        const double w00 = (1.0 - dx) * (1.0 - dy);
-        const double w10 =        dx  * (1.0 - dy);
-        const double w01 = (1.0 - dx) *        dy;
-        const double w11 =        dx  *        dy;
-        const int r = static_cast<int>(std::round(
-            qRed(p00)   * w00 + qRed(p10)   * w10 + qRed(p01)   * w01 + qRed(p11)   * w11));
-        const int g = static_cast<int>(std::round(
-            qGreen(p00) * w00 + qGreen(p10) * w10 + qGreen(p01) * w01 + qGreen(p11) * w11));
-        const int b = static_cast<int>(std::round(
-            qBlue(p00)  * w00 + qBlue(p10)  * w10 + qBlue(p01)  * w01 + qBlue(p11)  * w11));
-        const int a = static_cast<int>(std::round(
-            qAlpha(p00) * w00 + qAlpha(p10) * w10 + qAlpha(p01) * w01 + qAlpha(p11) * w11));
-        return qRgba(r, g, b, a);
-    };
+    if (canvasOGR && m_merc3857 && canvasOGR->IsSame(m_merc3857))
+    {
+        // P1 — same-CRS fast path. The mosaic is already in Web Mercator ==
+        // the canvas CRS, so canvas-px → mosaic-px is exactly affine: one
+        // SIMD drawImage replaces the ~devW×devH scalar reverse projection.
+        // (The mosaic covers the extent ±1 tile, so a partially-out-of-range
+        // source rect only clips at the world boundary.)
+        const QRectF srcRectF(
+            (extent.xMin() - srcBoundsMerc.left()) / mercPerPxX,
+            (srcBoundsMerc.top() + srcBoundsMerc.height() - extent.yMax())
+                / mercPerPxY,
+            extent.width()  / mercPerPxX,
+            extent.height() / mercPerPxY);
+        QPainter dp(&dst);   // logical coords: dst is DPR-tagged
+        dp.setRenderHint(QPainter::SmoothPixmapTransform, true);
+        dp.drawImage(QRectF(0, 0, imageSize.width(), imageSize.height()),
+                     srcBuf, srcRectF);
+    }
+    else
+    {
+        // Build sparse anchor grid: for every 32-px block on the OUTPUT canvas
+        // image (in **device pixels**), compute the corresponding SOURCE BUFFER
+        // pixel by canvas-px → canvas-CRS → WGS84 → Mercator → source-px.
+        constexpr int kBlock = 32;                       // device-pixel block size
+        const int gridW = (devW + kBlock - 1) / kBlock + 1;
+        const int gridH = (devH + kBlock - 1) / kBlock + 1;
 
-    // Per-pixel direct projection — used as a fallback when any of the 4
-    // surrounding anchors is invalid. Avoids dropping whole 32×32 cells to
-    // transparent at the edges of the projection's valid range (which
-    // otherwise shows up as jagged "shifting" gaps along the basemap as
-    // the view pans).
-    auto projectPixel = [&](double cpx, double cpy) -> QPointF {
-        const double cx = extent.xMin() + cpx / pxPerCanvasX;
-        const double cy = extent.yMax() - cpy / pxPerCanvasY;
-        double wx = cx, wy = cy;
-        if (m_toWGS84 && !m_toWGS84->Transform(1, &wx, &wy))
-            return QPointF(-1, -1);
-        if (!std::isfinite(wx) || !std::isfinite(wy)) return QPointF(-1, -1);
-        if (wx < -360.0 || wx > 360.0 || wy < -90.0 || wy > 90.0)
-            return QPointF(-1, -1);
-        const QPointF mp = wgs84ToMerc(wx, wy);
-        return mercToSrcPx(mp.x(), mp.y());
-    };
-
-    // Walk every output device pixel, bilinearly interpolate between the
-    // 4 surrounding anchors to get its source-buffer position, sample.
-    for (int py = 0; py < devH; ++py) {
-        const int gy0 = py / kBlock;
-        const int gy1 = std::min(gy0 + 1, gridH - 1);
-        const double fy = (py - gy0 * kBlock) / static_cast<double>(kBlock);
-
-        QRgb *line = reinterpret_cast<QRgb *>(dst.scanLine(py));
-        for (int px = 0; px < devW; ++px) {
-            const int gx0 = px / kBlock;
-            const int gx1 = std::min(gx0 + 1, gridW - 1);
-            const double fx = (px - gx0 * kBlock) / static_cast<double>(kBlock);
-
-            const QPointF a00 = anchors[gy0 * gridW + gx0];
-            const QPointF a10 = anchors[gy0 * gridW + gx1];
-            const QPointF a01 = anchors[gy1 * gridW + gx0];
-            const QPointF a11 = anchors[gy1 * gridW + gx1];
-
-            // If any anchor is invalid, fall back to a direct per-pixel
-            // projection instead of dropping the whole cell to transparent.
-            // Only pixels whose own projection is genuinely outside the
-            // valid range are left transparent.
-            if (a00.x() < 0 || a10.x() < 0 || a01.x() < 0 || a11.x() < 0) {
-                const QPointF sp = projectPixel(px, py);
-                if (sp.x() < 0) continue;
-                line[px] = sampleSrc(sp.x(), sp.y());
-                continue;
+        // Pre-allocate; rows-then-columns. (-1, -1) marks "invalid sample".
+        QVector<QPointF> anchors(gridW * gridH, QPointF(-1, -1));
+        for (int gy = 0; gy < gridH; ++gy) {
+            for (int gx = 0; gx < gridW; ++gx) {
+                const double cpx = std::min(gx * kBlock, devW);
+                const double cpy = std::min(gy * kBlock, devH);
+                // canvas pixel → canvas CRS coord
+                const double cx = extent.xMin() + cpx / pxPerCanvasX;
+                const double cy = extent.yMax() - cpy / pxPerCanvasY;
+                // canvas CRS → WGS84
+                double wx = cx, wy = cy;
+                if (m_toWGS84 && !m_toWGS84->Transform(1, &wx, &wy))
+                    continue;
+                if (!std::isfinite(wx) || !std::isfinite(wy))
+                    continue;
+                if (wx < -360.0 || wx > 360.0 || wy < -90.0 || wy > 90.0)
+                    continue;
+                // WGS84 → Web Mercator → source buffer pixel
+                const QPointF mp = wgs84ToMerc(wx, wy);
+                const QPointF sp = mercToSrcPx(mp.x(), mp.y());
+                if (!std::isfinite(sp.x()) || !std::isfinite(sp.y()))
+                    continue;
+                anchors[gy * gridW + gx] = sp;
             }
+        }
 
-            // Antimeridian detection: if the 4 anchors span more than half
-            // the source buffer in x (or y), the cell straddles the ±180°
-            // discontinuity. Bilinear-interpolating across that wrap smears
-            // half the globe across the cell — visible as a corrupt vertical
-            // band along the dateline (the "Russia → New Zealand line").
-            // Fall back to per-pixel direct projection for the whole cell.
-            const double ax0 = std::min({a00.x(), a10.x(), a01.x(), a11.x()});
-            const double ax1 = std::max({a00.x(), a10.x(), a01.x(), a11.x()});
-            const double ay0 = std::min({a00.y(), a10.y(), a01.y(), a11.y()});
-            const double ay1 = std::max({a00.y(), a10.y(), a01.y(), a11.y()});
-            if (ax1 - ax0 > srcW * 0.5 || ay1 - ay0 > srcH * 0.5) {
-                const QPointF sp = projectPixel(px, py);
-                if (sp.x() < 0) continue;
-                line[px] = sampleSrc(sp.x(), sp.y());
-                continue;
+        // Bilinear sampler over the source buffer. Returning transparent on
+        // out-of-bounds produces a visible 1-px frame at the composited-buffer
+        // boundary that "shifts" as the view pans; clamp to the inside-by-epsilon
+        // range so edge samples always return an opaque colour from the last
+        // valid pixel.
+        auto sampleSrc = [&](double sx, double sy) -> QRgb {
+            if (!std::isfinite(sx) || !std::isfinite(sy)) return 0;
+            sx = std::clamp(sx, 0.0, double(srcW - 1) - 1e-9);
+            sy = std::clamp(sy, 0.0, double(srcH - 1) - 1e-9);
+            const int    x0 = static_cast<int>(sx);
+            const int    y0 = static_cast<int>(sy);
+            const double dx = sx - x0;
+            const double dy = sy - y0;
+            const QRgb p00 = srcBuf.pixel(x0,     y0);
+            const QRgb p10 = srcBuf.pixel(x0 + 1, y0);
+            const QRgb p01 = srcBuf.pixel(x0,     y0 + 1);
+            const QRgb p11 = srcBuf.pixel(x0 + 1, y0 + 1);
+            const double w00 = (1.0 - dx) * (1.0 - dy);
+            const double w10 =        dx  * (1.0 - dy);
+            const double w01 = (1.0 - dx) *        dy;
+            const double w11 =        dx  *        dy;
+            const int r = static_cast<int>(std::round(
+                qRed(p00)   * w00 + qRed(p10)   * w10 + qRed(p01)   * w01 + qRed(p11)   * w11));
+            const int g = static_cast<int>(std::round(
+                qGreen(p00) * w00 + qGreen(p10) * w10 + qGreen(p01) * w01 + qGreen(p11) * w11));
+            const int b = static_cast<int>(std::round(
+                qBlue(p00)  * w00 + qBlue(p10)  * w10 + qBlue(p01)  * w01 + qBlue(p11)  * w11));
+            const int a = static_cast<int>(std::round(
+                qAlpha(p00) * w00 + qAlpha(p10) * w10 + qAlpha(p01) * w01 + qAlpha(p11) * w11));
+            return qRgba(r, g, b, a);
+        };
+
+        // Per-pixel direct projection — used as a fallback when any of the 4
+        // surrounding anchors is invalid. Avoids dropping whole 32×32 cells to
+        // transparent at the edges of the projection's valid range (which
+        // otherwise shows up as jagged "shifting" gaps along the basemap as
+        // the view pans). Takes the coordinate transform as a parameter —
+        // OGRCoordinateTransformation is NOT thread-safe, so each parallel
+        // band below runs with its own Clone().
+        auto projectPixel = [&](double cpx, double cpy,
+                                OGRCoordinateTransformation *ct) -> QPointF {
+            const double cx = extent.xMin() + cpx / pxPerCanvasX;
+            const double cy = extent.yMax() - cpy / pxPerCanvasY;
+            double wx = cx, wy = cy;
+            if (ct && !ct->Transform(1, &wx, &wy))
+                return QPointF(-1, -1);
+            if (!std::isfinite(wx) || !std::isfinite(wy)) return QPointF(-1, -1);
+            if (wx < -360.0 || wx > 360.0 || wy < -90.0 || wy > 90.0)
+                return QPointF(-1, -1);
+            const QPointF mp = wgs84ToMerc(wx, wy);
+            return mercToSrcPx(mp.x(), mp.y());
+        };
+
+        // Walk every output device pixel, bilinearly interpolate between the
+        // 4 surrounding anchors to get its source-buffer position, sample.
+        // Row-range worker so the walk can fan out across bands (rows are
+        // independent; each band writes disjoint scanlines of dst).
+        uchar *const dstBits = dst.bits();   // force the alloc pre-fanout
+        const qsizetype dstBpl = dst.bytesPerLine();
+        auto renderRows = [&](int py0, int py1,
+                              OGRCoordinateTransformation *ct) {
+            for (int py = py0; py < py1; ++py) {
+                const int gy0 = py / kBlock;
+                const int gy1 = std::min(gy0 + 1, gridH - 1);
+                const double fy = (py - gy0 * kBlock) / static_cast<double>(kBlock);
+
+                QRgb *line = reinterpret_cast<QRgb *>(dstBits + py * dstBpl);
+                for (int px = 0; px < devW; ++px) {
+                    const int gx0 = px / kBlock;
+                    const int gx1 = std::min(gx0 + 1, gridW - 1);
+                    const double fx = (px - gx0 * kBlock) / static_cast<double>(kBlock);
+
+                    const QPointF a00 = anchors[gy0 * gridW + gx0];
+                    const QPointF a10 = anchors[gy0 * gridW + gx1];
+                    const QPointF a01 = anchors[gy1 * gridW + gx0];
+                    const QPointF a11 = anchors[gy1 * gridW + gx1];
+
+                    // If any anchor is invalid, fall back to a direct per-pixel
+                    // projection instead of dropping the whole cell to transparent.
+                    // Only pixels whose own projection is genuinely outside the
+                    // valid range are left transparent.
+                    if (a00.x() < 0 || a10.x() < 0 || a01.x() < 0 || a11.x() < 0) {
+                        const QPointF sp = projectPixel(px, py, ct);
+                        if (sp.x() < 0) continue;
+                        line[px] = sampleSrc(sp.x(), sp.y());
+                        continue;
+                    }
+
+                    // Antimeridian detection: if the 4 anchors span more than half
+                    // the source buffer in x (or y), the cell straddles the ±180°
+                    // discontinuity. Bilinear-interpolating across that wrap smears
+                    // half the globe across the cell — visible as a corrupt vertical
+                    // band along the dateline (the "Russia → New Zealand line").
+                    // Fall back to per-pixel direct projection for the whole cell.
+                    const double ax0 = std::min({a00.x(), a10.x(), a01.x(), a11.x()});
+                    const double ax1 = std::max({a00.x(), a10.x(), a01.x(), a11.x()});
+                    const double ay0 = std::min({a00.y(), a10.y(), a01.y(), a11.y()});
+                    const double ay1 = std::max({a00.y(), a10.y(), a01.y(), a11.y()});
+                    if (ax1 - ax0 > srcW * 0.5 || ay1 - ay0 > srcH * 0.5) {
+                        const QPointF sp = projectPixel(px, py, ct);
+                        if (sp.x() < 0) continue;
+                        line[px] = sampleSrc(sp.x(), sp.y());
+                        continue;
+                    }
+
+                    const double sx = (1 - fx) * (1 - fy) * a00.x()
+                                    +      fx  * (1 - fy) * a10.x()
+                                    + (1 - fx) *      fy  * a01.x()
+                                    +      fx  *      fy  * a11.x();
+                    const double sy = (1 - fx) * (1 - fy) * a00.y()
+                                    +      fx  * (1 - fy) * a10.y()
+                                    + (1 - fx) *      fy  * a01.y()
+                                    +      fx  *      fy  * a11.y();
+
+                    line[px] = sampleSrc(sx, sy);
+                }
             }
+        };
 
-            const double sx = (1 - fx) * (1 - fy) * a00.x()
-                            +      fx  * (1 - fy) * a10.x()
-                            + (1 - fx) *      fy  * a01.x()
-                            +      fx  *      fy  * a11.x();
-            const double sy = (1 - fx) * (1 - fy) * a00.y()
-                            +      fx  * (1 - fy) * a10.y()
-                            + (1 - fx) *      fy  * a01.y()
-                            +      fx  *      fy  * a11.y();
-
-            line[px] = sampleSrc(sx, sy);
+        // P1(a) — fan the rows out across the private reproject pool. Band 0
+        // runs inline on this (global-pool) thread; the others get their own
+        // OGRCoordinateTransformation clones. Any clone failure ⇒ serial.
+        int bands = std::clamp(devH / 64, 1, reprojectPool()->maxThreadCount() + 1);
+        std::vector<OGRCoordinateTransformation *> bandCTs;
+        if (bands > 1 && m_toWGS84) {
+            for (int i = 0; i < bands - 1; ++i) {
+                OGRCoordinateTransformation *c = m_toWGS84->Clone();
+                if (!c) break;
+                bandCTs.push_back(c);
+            }
+            if (static_cast<int>(bandCTs.size()) != bands - 1) {
+                for (auto *c : bandCTs)
+                    OGRCoordinateTransformation::DestroyCT(c);
+                bandCTs.clear();
+                bands = 1;
+            }
+        }
+        if (bands > 1) {
+            const int rowsPer = (devH + bands - 1) / bands;
+            QFutureSynchronizer<void> sync;
+            for (int b = 1; b < bands; ++b) {
+                const int py0 = b * rowsPer;
+                const int py1 = std::min(devH, py0 + rowsPer);
+                if (py0 >= py1) continue;
+                OGRCoordinateTransformation *ct =
+                    m_toWGS84 ? bandCTs[static_cast<size_t>(b - 1)] : nullptr;
+                sync.addFuture(QtConcurrent::run(reprojectPool(),
+                    [&renderRows, py0, py1, ct]() { renderRows(py0, py1, ct); }));
+            }
+            renderRows(0, std::min(devH, rowsPer), m_toWGS84);
+            sync.waitForFinished();
+            for (auto *c : bandCTs)
+                OGRCoordinateTransformation::DestroyCT(c);
+        } else {
+            renderRows(0, devH, m_toWGS84);
         }
     }
 
@@ -733,6 +877,14 @@ void XYZTileLayer::render(QPainter *painter,
     // contrast / saturation) to the composed mosaic before paint.
     // Resampling is honoured separately via the painter render hint.
     m_renderParams.applyTo(dst);
+
+    // P1 — memoize the composed output. epochAtStart (not the live counter)
+    // so a tile that landed mid-render forces the next job to re-render.
+    m_renderMemo  = dst;
+    m_memoExtent  = extent;
+    m_memoDevSize = QSize(devW, devH);
+    m_memoZoom    = z;
+    m_memoEpoch   = epochAtStart;
 
     painter->save();
     painter->setOpacity(opacity());
@@ -749,6 +901,14 @@ void XYZTileLayer::setBasemapRenderParams(
 {
     if (m_renderParams == p) return;
     m_renderParams = p;
+    ++m_tileEpoch;   // params are baked into the memoized output (applyTo)
     emit basemapRenderParamsChanged();
     emit repaintRequested();
+}
+
+void XYZTileLayer::setTileCacheMaxSize(int count)
+{
+    QMutexLocker lock(&m_tileCacheMutex);
+    m_tileCache.setMaxCost(count);   // may evict
+    ++m_tileEpoch;
 }
