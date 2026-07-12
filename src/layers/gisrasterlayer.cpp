@@ -9,6 +9,7 @@
 #include "map/graphicsitems.h"
 #include "map/spatialreferencesystem.h"
 #include "map/mapextent.h"
+#include "core/preferencesmanager.h"
 
 #include "render/irasterrenderer.h"
 #include "render/renderers/singlebandpseudocolorrenderer.h"
@@ -21,7 +22,9 @@
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QLoggingCategory>
+#include <QMutex>
 #include <QPointer>
+#include <QThread>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QtMath>
 
@@ -153,7 +156,7 @@ void applyHillshadeInPlace(QImage &img, const std::vector<double> &raw,
 // ---------------------------------------------------------------------------
 
 GISRasterLayer::GISRasterLayer(const QString &filePath, OpenSWMMVisWorkspace *parent)
-    : OpenSWMMVisLayer(parent)
+    : TilePyramidLayer(parent)
 {
     setLayerType(SWMMRasterLayer);
 
@@ -166,6 +169,9 @@ GISRasterLayer::GISRasterLayer(const QString &filePath, OpenSWMMVisWorkspace *pa
     rampToRenderer(sb.get(), RasterColorRamp::grayscale());
     m_rasterRenderer = std::move(sb);
 
+    m_maxConcurrentTiles = std::min(4, std::max(1, QThread::idealThreadCount()));
+    m_tilePool.setMaxThreadCount(m_maxConcurrentTiles);
+
     GDALAllRegister();
 
     if (!filePath.isEmpty())
@@ -174,6 +180,12 @@ GISRasterLayer::GISRasterLayer(const QString &filePath, OpenSWMMVisWorkspace *pa
 
 GISRasterLayer::~GISRasterLayer()
 {
+    // Block until every in-flight tile warp finishes so no worker thread holds
+    // a pooled handle (or touches this layer) after teardown begins, then
+    // close the pool before the primary dataset.
+    drainTileSlots();
+    closeHandlePool();
+    delete m_currentSRS;
     closeDataset();
 }
 
@@ -192,7 +204,13 @@ void GISRasterLayer::setRasterRenderer(std::unique_ptr<OpenSWMM::Render::IRaster
         return;
     if (r.get() == m_rasterRenderer.get())
         return;
-    m_rasterRenderer = std::move(r);
+    {
+        // Tile warps colourise through a clone() snapshot, so the swap only
+        // needs to be atomic w.r.t. other GUI-thread readers; the lock is
+        // kept for consistency with autoStretchColorRamp().
+        QMutexLocker lock(&m_datasetMutex);
+        m_rasterRenderer = std::move(r);
+    }
     emit rasterRendererChanged();
 }
 
@@ -305,18 +323,25 @@ void GISRasterLayer::setColorRamp(const RasterColorRamp &ramp)
     // Editing the ramp implies single-band pseudocolor mode. Reuse the live
     // renderer when it already is one; otherwise install a fresh pseudocolor
     // renderer carrying the ramp (the renderer is the source of truth).
-    if (auto *sb = dynamic_cast<SingleBandPseudoColorRenderer *>(
-            m_rasterRenderer.get()))
+    bool rendererSwapped = false;
     {
-        rampToRenderer(sb, ramp);
+        // Serialise against a worker warp colourising through m_rasterRenderer.
+        QMutexLocker lock(&m_datasetMutex);
+        if (auto *sb = dynamic_cast<SingleBandPseudoColorRenderer *>(
+                m_rasterRenderer.get()))
+        {
+            rampToRenderer(sb, ramp);
+        }
+        else
+        {
+            auto fresh = std::make_unique<SingleBandPseudoColorRenderer>();
+            rampToRenderer(fresh.get(), ramp);
+            m_rasterRenderer = std::move(fresh);
+            rendererSwapped = true;
+        }
     }
-    else
-    {
-        auto fresh = std::make_unique<SingleBandPseudoColorRenderer>();
-        rampToRenderer(fresh.get(), ramp);
-        m_rasterRenderer = std::move(fresh);
+    if (rendererSwapped)
         emit rasterRendererChanged();
-    }
     invalidateCache();
     emit colorRampChanged(ramp);
     emit repaintRequested();
@@ -337,27 +362,33 @@ GISRasterLayer::styleSubjects()
 
 void GISRasterLayer::autoStretchColorRamp()
 {
-    if (!m_dataset || m_renderBand < 1 || m_renderBand > bandCount())
-        return;
-
-    GDALRasterBand *band = m_dataset->GetRasterBand(m_renderBand);
-    if (!band)
-        return;
-
-    double minV = 0.0, maxV = 0.0;
-    double pdfMean, pdfStdDev;
-    CPLErr err = band->ComputeStatistics(
-        /*bApproxOK=*/TRUE, &minV, &maxV, &pdfMean, &pdfStdDev,
-        nullptr, nullptr);
-
-    if (err == CE_None)
+    // The GDAL read (ComputeStatistics) + renderer range update race a worker
+    // warp, so do them under the lock; then emit outside it (a connected slot
+    // could otherwise re-enter a locked method and deadlock).
+    bool changed = false;
     {
-        // Update only the range on the live renderer (stops/interp/clamp
-        // are preserved). Falls back to installing a pseudocolor renderer
-        // if a non-pseudocolor one is somehow active.
-        if (auto *sb = dynamic_cast<SingleBandPseudoColorRenderer *>(
-                m_rasterRenderer.get()))
-            sb->setRange(minV, maxV);
+        QMutexLocker lock(&m_datasetMutex);
+        if (!m_dataset || m_renderBand < 1 || m_renderBand > bandCount())
+            return;
+        GDALRasterBand *band = m_dataset->GetRasterBand(m_renderBand);
+        if (!band)
+            return;
+
+        double minV = 0.0, maxV = 0.0;
+        double pdfMean, pdfStdDev;
+        if (band->ComputeStatistics(/*bApproxOK=*/TRUE, &minV, &maxV,
+                                    &pdfMean, &pdfStdDev, nullptr, nullptr) == CE_None)
+        {
+            // Update only the range on the live renderer (stops/interp/clamp
+            // preserved). No-op cast if a non-pseudocolor renderer is active.
+            if (auto *sb = dynamic_cast<SingleBandPseudoColorRenderer *>(
+                    m_rasterRenderer.get()))
+                sb->setRange(minV, maxV);
+            changed = true;
+        }
+    }
+    if (changed)
+    {
         invalidateCache();
         emit colorRampChanged(colorRamp());
         emit repaintRequested();
@@ -374,35 +405,18 @@ double GISRasterLayer::valueAt(double mapX, double mapY,
 {
     if (ok) *ok = false;
 
+    // Reads m_dataset (single-pixel RasterIO); serialise against the
+    // post-.ovr-build reload that reopens it.
+    QMutexLocker lock(&m_datasetMutex);
+
     if (!m_dataset)
         return std::numeric_limits<double>::quiet_NaN();
 
-    // ---- Path 1: warped float64 cache (canvas CRS) -------------------------
-    // warpToCanvas() populates m_rawValueCache whenever the tile is rendered
-    // for a single-band raster.  This cache is already in canvas CRS so it
-    // works correctly regardless of any CRS mismatch between the raster and
-    // the canvas (including the GDAL-intractable Local→EPSG case).
-    if (!m_rawValueCache.isEmpty() && m_cacheExtent.isValid()
-            && m_rawCacheWidth > 0 && m_rawCacheHeight > 0) {
-        const double relX = (mapX - m_cacheExtent.xMin()) / m_cacheExtent.width();
-        const double relY = (m_cacheExtent.yMax() - mapY) / m_cacheExtent.height();
-        const int px = static_cast<int>(relX * m_rawCacheWidth);
-        const int py = static_cast<int>(relY * m_rawCacheHeight);
-        if (px >= 0 && px < m_rawCacheWidth && py >= 0 && py < m_rawCacheHeight) {
-            const double val = m_rawValueCache[py * m_rawCacheWidth + px];
-            if (!std::isnan(val) && !(m_hasNoData && val == m_noDataValue)) {
-                if (ok) *ok = true;
-                return val;
-            }
-            return std::numeric_limits<double>::quiet_NaN();
-        }
-        // Cursor is outside the cached tile extent — report no value.
-        return std::numeric_limits<double>::quiet_NaN();
-    }
-
-    // ---- Path 2: native geotransform (same-CRS fallback) -------------------
-    // Used when the cache hasn't been populated yet (raster not yet rendered
-    // to the canvas).  Assumes mapX/mapY are already in the raster's native CRS.
+    // Full-resolution probe straight from the source band via the native
+    // geotransform. (With the Phase-3 tile pyramid there is no single warped
+    // value cache; probing the dataset keeps the readout at full resolution.)
+    // Assumes mapX/mapY are in the raster's native CRS — true for the common
+    // same-CRS case; a reprojected raster's readout may be slightly offset.
     if (!extent().isValid())
         return std::numeric_limits<double>::quiet_NaN();
 
@@ -438,6 +452,24 @@ double GISRasterLayer::valueAt(double mapX, double mapY,
 // OpenSWMMVisLayer interface
 // ---------------------------------------------------------------------------
 
+int GISRasterLayer::levelForResolution(double mapUnitsPerPixel)
+{
+    if (!(mapUnitsPerPixel > 0.0) || !std::isfinite(mapUnitsPerPixel))
+        return 0;
+    return int(std::lround(std::log2(mapUnitsPerPixel)));
+}
+
+MapExtent GISRasterLayer::tileExtent(int level, int col, int row)
+{
+    const double span = kTilePx * std::ldexp(1.0, level);  // 256 · 2^level
+    return MapExtent(col * span, row * span, (col + 1) * span, (row + 1) * span);
+}
+
+QString GISRasterLayer::tileKey(int level, int col, int row)
+{
+    return QStringLiteral("%1/%2/%3").arg(level).arg(col).arg(row);
+}
+
 void GISRasterLayer::fetchCache(const MapExtent &canvasExtent,
                                 const QSize &viewportSize,
                                 const SpatialReferenceSystem *canvasSRS)
@@ -445,21 +477,267 @@ void GISRasterLayer::fetchCache(const MapExtent &canvasExtent,
     if (!m_dataset || !isVisible())
         return;
 
-    int pixelWidth  = viewportSize.width()  > 0 ? viewportSize.width()  : 1024;
-    int pixelHeight = viewportSize.height() > 0 ? viewportSize.height() : 1024;
-
-    bool cacheHit = (m_cachedTile.width()  == pixelWidth
-                     && m_cachedTile.height() == pixelHeight
-                     && m_cacheExtent == canvasExtent
-                     && !m_cachedTile.isNull());
-
-    if (!cacheHit)
+    // Phase 1 — a background .ovr build finished: reopen the handles so the
+    // new overviews are enumerated. Drain the in-flight tile warps first (they
+    // hold pooled handles), rebuild the pool, then drop every tile so they
+    // rebuild against the pyramid. Rare — once per background build.
+    if (m_datasetReloadPending.exchange(false) && !m_filePath.isEmpty())
     {
-        m_cachedTile  = warpToCanvas(canvasExtent, canvasSRS, pixelWidth, pixelHeight);
-        m_cacheExtent = canvasExtent;
-        m_cacheWidth  = pixelWidth;
-        m_cacheHeight = pixelHeight;
+        drainTileSlots();
+        {
+            QMutexLocker lock(&m_datasetMutex);
+            GDALClose(m_dataset);
+            m_dataset = static_cast<GDALDataset *>(
+                GDALOpenEx(m_filePath.toUtf8().constData(),
+                           GDAL_OF_RASTER | GDAL_OF_READONLY,
+                           nullptr, nullptr, nullptr));
+        }
+        closeHandlePool();
+        if (!m_dataset)
+            return;
+        openHandlePool();
+        invalidateCache();
     }
+
+    requestTiles(canvasExtent, viewportSize, canvasSRS);
+    startNextTiles();
+}
+
+void GISRasterLayer::requestTiles(const MapExtent &canvasExtent,
+                                  const QSize &viewportSize,
+                                  const SpatialReferenceSystem *canvasSRS)
+{
+    const int vpW = viewportSize.width() > 0 ? viewportSize.width() : 1024;
+    if (canvasExtent.width() <= 0.0 || vpW <= 0)
+        return;
+
+    const int level   = levelForResolution(canvasExtent.width() / vpW);
+    const double span = kTilePx * std::ldexp(1.0, level);  // tile size, canvas units
+
+    // Snapshot the canvas CRS used to warp tiles (per-tile clones come from it).
+    if (canvasSRS)
+    {
+        delete m_currentSRS;
+        m_currentSRS = new SpatialReferenceSystem(*canvasSRS);
+    }
+
+    const int colMin = int(std::floor(canvasExtent.xMin() / span));
+    const int colMax = int(std::floor(canvasExtent.xMax() / span));
+    const int rowMin = int(std::floor(canvasExtent.yMin() / span));
+    const int rowMax = int(std::floor(canvasExtent.yMax() / span));
+    if (qint64(colMax - colMin + 1) * (rowMax - rowMin + 1) > 4096)
+        return;  // pathological (huge extent at a fine level) — skip
+
+    // Cold-start backstop first (front of the queue) so the fallback always
+    // has a coarse stand-in to cut from.
+    enqueueSeedTiles();
+
+    QList<TileReq> want;
+    for (int row = rowMin; row <= rowMax; ++row)
+        for (int col = colMin; col <= colMax; ++col)
+        {
+            const QString key = tileKey(level, col, row);
+            if (m_queuedKeys.contains(key) || isTileCached(key))
+                continue;
+            want.push_back({level, col, row});
+        }
+    // Center-out so the middle of the view fills first.
+    const double cc = (colMin + colMax) * 0.5, cr = (rowMin + rowMax) * 0.5;
+    std::sort(want.begin(), want.end(), [cc, cr](const TileReq &a, const TileReq &b) {
+        return (a.col-cc)*(a.col-cc) + (a.row-cr)*(a.row-cr)
+             < (b.col-cc)*(b.col-cc) + (b.row-cr)*(b.row-cr);
+    });
+    for (const TileReq &t : want)
+    {
+        m_queuedKeys.insert(tileKey(t.level, t.col, t.row));
+        m_tileQueue.push_back(t);
+    }
+}
+
+void GISRasterLayer::enqueueSeedTiles()
+{
+    // Once per cache generation. Seeds that get evicted later simply leave
+    // the fallback blank until the next invalidation — they're a backstop,
+    // not a guarantee (and QCache promotion protects actively-used ones).
+    if (m_seedGeneration == m_cacheGeneration || !m_dataset || !extent().isValid())
+        return;
+
+    // Layer extent in canvas CRS (4-corner sample when the CRSs differ).
+    double xMin = extent().xMin(), yMin = extent().yMin();
+    double xMax = extent().xMax(), yMax = extent().yMax();
+    if (srs() && m_currentSRS && srs()->ogrSpatialReference()
+        && m_currentSRS->ogrSpatialReference()
+        && !srs()->ogrSpatialReference()->IsSame(m_currentSRS->ogrSpatialReference()))
+    {
+        if (OGRCoordinateTransformation *ct = OGRCreateCoordinateTransformation(
+                srs()->ogrSpatialReference(), m_currentSRS->ogrSpatialReference()))
+        {
+            double xs[4] = { xMin, xMax, xMax, xMin };
+            double ys[4] = { yMin, yMin, yMax, yMax };
+            if (ct->Transform(4, xs, ys))
+            {
+                xMin = std::min({ xs[0], xs[1], xs[2], xs[3] });
+                xMax = std::max({ xs[0], xs[1], xs[2], xs[3] });
+                yMin = std::min({ ys[0], ys[1], ys[2], ys[3] });
+                yMax = std::max({ ys[0], ys[1], ys[2], ys[3] });
+            }
+            OGRCoordinateTransformation::DestroyCT(ct);
+        }
+    }
+    if (!(xMax - xMin > 0.0) || !(yMax - yMin > 0.0))
+        return;
+
+    // Coarsest level whose grid covers the raster in a handful of tiles
+    // (≤ 4×4) — a shallow seed, not a full pyramid.
+    int level = levelForResolution(std::max(xMax - xMin, yMax - yMin)
+                                   / (4.0 * kTilePx));
+    QList<TileReq> seeds;
+    for (;; ++level)
+    {
+        const double span = kTilePx * std::ldexp(1.0, level);
+        const int colMin = int(std::floor(xMin / span));
+        const int colMax = int(std::floor(xMax / span));
+        const int rowMin = int(std::floor(yMin / span));
+        const int rowMax = int(std::floor(yMax / span));
+        if (qint64(colMax - colMin + 1) * (rowMax - rowMin + 1) > 16)
+            continue;
+        for (int row = rowMin; row <= rowMax; ++row)
+            for (int col = colMin; col <= colMax; ++col)
+                seeds.push_back({level, col, row});
+        break;
+    }
+    for (const TileReq &t : seeds)
+    {
+        const QString key = tileKey(t.level, t.col, t.row);
+        if (m_queuedKeys.contains(key) || isTileCached(key))
+            continue;
+        m_queuedKeys.insert(key);
+        m_tileQueue.push_front(t);
+    }
+    m_seedGeneration = m_cacheGeneration;
+}
+
+GISRasterLayer::WarpParams GISRasterLayer::snapshotWarpParams() const
+{
+    WarpParams p;
+    p.renderBand           = m_renderBand;
+    p.hasNoData            = m_hasNoData;
+    p.noDataValue          = m_noDataValue;
+    p.hillshadeEnabled     = m_hillshadeEnabled;
+    p.hillshadeAzimuthDeg  = m_hillshadeAzimuthDeg;
+    p.hillshadeAltitudeDeg = m_hillshadeAltitudeDeg;
+    p.hillshadeZFactor     = m_hillshadeZFactor;
+    p.hillshadeStrength    = m_hillshadeStrength;
+    if (m_rasterRenderer)
+        p.renderer = std::shared_ptr<const OpenSWMM::Render::IRasterRenderer>(
+            m_rasterRenderer->clone());
+    return p;
+}
+
+void GISRasterLayer::openHandlePool()
+{
+    closeHandlePool();
+    if (m_filePath.isEmpty())
+        return;
+    for (int i = 0; i < m_maxConcurrentTiles; ++i)
+    {
+        GDALDataset *h = static_cast<GDALDataset *>(
+            GDALOpenEx(m_filePath.toUtf8().constData(),
+                       GDAL_OF_RASTER | GDAL_OF_READONLY,
+                       nullptr, nullptr, nullptr));
+        if (!h)
+            break;  // fewer handles ⇒ lower effective concurrency
+        m_poolHandles.push_back(h);
+        m_freeHandles.push_back(h);
+    }
+    m_slots.resize(m_poolHandles.size());
+    for (int i = 0; i < static_cast<int>(m_slots.size()); ++i)
+    {
+        m_slots[i].watcher = std::make_unique<QFutureWatcher<TileResult>>();
+        connect(m_slots[i].watcher.get(), &QFutureWatcherBase::finished,
+                this, [this, i]() { onSlotFinished(i); });
+    }
+}
+
+void GISRasterLayer::closeHandlePool()
+{
+    // Destroying the watchers drops any queued (stale) finished signals.
+    // Precondition: no busy slot (drainTileSlots ran, or nothing launched).
+    m_slots.clear();
+    m_freeHandles.clear();
+    for (GDALDataset *h : m_poolHandles)
+        GDALClose(h);
+    m_poolHandles.clear();
+}
+
+void GISRasterLayer::drainTileSlots()
+{
+    for (auto &s : m_slots)
+    {
+        if (!s.busy)
+            continue;
+        s.watcher->waitForFinished();
+        finishSlot(s);
+    }
+}
+
+void GISRasterLayer::startNextTiles()
+{
+    if (!m_dataset)
+        return;
+    for (auto &s : m_slots)
+    {
+        if (s.busy)
+            continue;
+        if (m_tileQueue.isEmpty() || m_freeHandles.isEmpty())
+            return;
+        const TileReq req = m_tileQueue.takeFirst();
+        const QString key = tileKey(req.level, req.col, req.row);
+        s.busy   = true;
+        s.handle = m_freeHandles.takeLast();
+        s.srs    = m_currentSRS ? new SpatialReferenceSystem(*m_currentSRS) : nullptr;
+
+        const MapExtent  ext = tileExtent(req.level, req.col, req.row);
+        const WarpParams wp  = snapshotWarpParams();
+        const quint64    gen = m_cacheGeneration;
+        const int        level = req.level;
+        GDALDataset *h = s.handle;
+        SpatialReferenceSystem *srs = s.srs;
+        s.watcher->setFuture(QtConcurrent::run(&m_tilePool,
+            [this, h, ext, srs, wp, key, gen, level]() -> TileResult {
+                return { key, warpToCanvas(h, ext, srs, kTilePx, kTilePx, wp),
+                         ext, level, gen };
+            }));
+    }
+}
+
+void GISRasterLayer::onSlotFinished(int slotIndex)
+{
+    if (slotIndex < 0 || slotIndex >= static_cast<int>(m_slots.size()))
+        return;
+    TileSlot &s = m_slots[slotIndex];
+    if (!s.busy)
+        return;  // already folded in synchronously by drainTileSlots()
+    finishSlot(s);
+    emit repaintRequested();
+    startNextTiles();  // refill idle slots
+}
+
+void GISRasterLayer::finishSlot(TileSlot &s)
+{
+    const TileResult r = s.watcher->result();
+    // Drop results launched before an invalidateCache() — the warp isn't
+    // cancellable, but its stale output must not pollute the fresh cache.
+    if (r.gen == m_cacheGeneration)
+        cacheTile(r.key, r.img, r.extent, r.level);
+    // Cached now (or failed/stale) — drop from the "queued/in-flight" set so
+    // a later eviction can re-request it.
+    m_queuedKeys.remove(r.key);
+    delete s.srs;
+    s.srs = nullptr;
+    m_freeHandles.push_back(s.handle);
+    s.handle = nullptr;
+    s.busy = false;
 }
 
 void GISRasterLayer::populateScene(QGraphicsScene *scene,
@@ -479,72 +757,60 @@ void GISRasterLayer::render(QPainter *painter,
                             const QSize &imageSize,
                             const SpatialReferenceSystem *srs)
 {
-    if (!m_dataset || m_cachedTile.isNull() || !m_cacheExtent.isValid() || !extent.isValid())
+    Q_UNUSED(srs);
+    // Runs on the MapRenderJob worker thread. Composite the cached tiles that
+    // cover the view at the view's pyramid level; a tile still in production
+    // paints as a blurry sub-rect of the nearest cached coarser tile (the
+    // TilePyramidLayer fallback) instead of a blank hole, and sharpens on the
+    // repaint its own warp completes.
+    if (!extent.isValid() || extent.width() <= 0.0 || imageSize.width() <= 0)
         return;
 
-    // Map-to-pixel scale factors for the target image
-    double sx = imageSize.width()  / extent.width();
-    double sy = imageSize.height() / extent.height();
+    const double sx = imageSize.width()  / extent.width();
+    const double sy = imageSize.height() / extent.height();
+    const int level   = levelForResolution(extent.width() / imageSize.width());
+    const double span = kTilePx * std::ldexp(1.0, level);
 
-    // Pixel position of the cached tile's top-left corner within the target image
-    const double pxLeft   = (m_cacheExtent.xMin() - extent.xMin()) * sx;
-    const double pyTop    = (extent.yMax() - m_cacheExtent.yMax()) * sy;
-    const double pxRight  = (m_cacheExtent.xMax() - extent.xMin()) * sx;
-    const double pyBottom = (extent.yMax() - m_cacheExtent.yMin()) * sy;
+    const int colMin = int(std::floor(extent.xMin() / span));
+    const int colMax = int(std::floor(extent.xMax() / span));
+    const int rowMin = int(std::floor(extent.yMin() / span));
+    const int rowMax = int(std::floor(extent.yMax() / span));
+    if (qint64(colMax - colMin + 1) * (rowMax - rowMin + 1) > 4096)
+        return;
 
-    const QRectF dst = snapTileRectToDevicePx(
-        pxLeft, pyTop, pxRight, pyBottom,
-        painterDevicePixelRatio(painter));
+    const qreal dpr = painterDevicePixelRatio(painter);
 
-    painter->drawImage(dst, m_cachedTile);
+    // Resolve each cell to its exact tile or coarser stand-in (QImage copy =
+    // cheap refcount bump under the base's lock), then draw without the lock.
+    struct Draw { QImage img; QRectF dst; QRectF src; };
+    QVector<Draw> draws;
+    for (int row = rowMin; row <= rowMax; ++row)
+        for (int col = colMin; col <= colMax; ++col)
+        {
+            const MapExtent te = tileExtent(level, col, row);
+            TileDraw td;
+            if (!resolveTileForDraw(tileKey(level, col, row), te,
+                                    kMaxAncestorSpanRatio, td))
+                continue;
+            const QRectF dst = snapTileRectToDevicePx(
+                (te.xMin() - extent.xMin()) * sx,
+                (extent.yMax() - te.yMax()) * sy,
+                (te.xMax() - extent.xMin()) * sx,
+                (extent.yMax() - te.yMin()) * sy, dpr);
+            draws.push_back({ td.img, dst, td.src });
+        }
+    for (const Draw &d : draws)
+        painter->drawImage(d.dst, d.img, d.src);
 }
 
-void GISRasterLayer::refreshScene(QGraphicsScene *scene,
-                                   const MapExtent &canvasExtent,
-                                   const SpatialReferenceSystem *canvasSRS)
+void GISRasterLayer::refreshScene(QGraphicsScene * /*scene*/,
+                                   const MapExtent & /*canvasExtent*/,
+                                   const SpatialReferenceSystem * /*canvasSRS*/)
 {
-    if (!m_dataset || !isVisible())
-        return;
-
-    // Use a reasonable pixel size for the warped tile
-    const int pixelWidth  = 1024;
-    const int pixelHeight = 1024;
-
-    // Return cached tile if extent hasn't changed
-    bool cacheHit = (m_cachedTile.width()  == pixelWidth  &&
-                     m_cachedTile.height() == pixelHeight &&
-                     m_cacheExtent == canvasExtent       &&
-                     !m_cachedTile.isNull());
-
-    if (!cacheHit)
-    {
-        m_cachedTile   = warpToCanvas(canvasExtent, canvasSRS, pixelWidth, pixelHeight);
-        m_cacheExtent  = canvasExtent;
-        m_cacheWidth   = pixelWidth;
-        m_cacheHeight  = pixelHeight;
-    }
-
-    if (!m_cachedTile.isNull())
-    {
-        QPixmap pix = QPixmap::fromImage(m_cachedTile);
-        QRectF sceneRect(m_cacheExtent.xMin(), -m_cacheExtent.yMax(),
-                         m_cacheExtent.width(), m_cacheExtent.height());
-
-        if (m_sceneItem && m_sceneItem->scene() == scene)
-        {
-            m_sceneItem->updateTile(pix, sceneRect);
-            m_sceneItem->setZValue(layerZValue());
-            m_sceneItem->setOpacity(opacity());
-        }
-        else
-        {
-            m_sceneItem = new RasterTileItem(pix, sceneRect);
-            m_sceneItem->setOwnerLayer(this);
-            m_sceneItem->setZValue(layerZValue());
-            m_sceneItem->setOpacity(opacity());
-            scene->addItem(m_sceneItem);
-        }
-    }
+    // No-op: rasters render through the QPainter buffer path (render() +
+    // the tile pyramid). MapCanvas gates refreshScene()/populateScene() on
+    // !isRasterLayer(), so this is never called for a raster layer — kept only
+    // to satisfy the virtual override.
 }
 
 void GISRasterLayer::depopulateScene(QGraphicsScene *scene)
@@ -660,6 +926,10 @@ GISRasterLayer::OpenResult GISRasterLayer::doOpenWork(const QString &filePath)
 
 void GISRasterLayer::applyOpenResult(const OpenResult &r)
 {
+    // Re-open case: no in-flight warp may hold a pooled handle to the old
+    // file while we tear the pool down.
+    drainTileSlots();
+    closeHandlePool();
     closeDataset();          // drop any previously-open dataset (re-open case)
 
     m_dataset = r.dataset;
@@ -667,6 +937,7 @@ void GISRasterLayer::applyOpenResult(const OpenResult &r)
         return;              // doOpenWork already logged the failure
 
     m_filePath = r.filePath;
+    openHandlePool();
 
     if (r.hasExtent)
         setExtent(r.extent);
@@ -696,6 +967,95 @@ void GISRasterLayer::applyOpenResult(const OpenResult &r)
                .arg(r.xSize).arg(r.ySize).arg(r.bands)
                .arg(r.msOpen).arg(r.msMeta).arg(r.msStats)
                .arg(r.msTotal);
+
+    // Phase 1 — build overview pyramids in the background if this raster is
+    // large and lacks them (so Phase 2's windowed reads have levels to pick).
+    maybeBuildOverviews();
+}
+
+// ── Overview (pyramid) preprocessing — Phase 1 ───────────────────────────────
+
+namespace {
+// Only large rasters benefit from a pyramid; a viewport is ~1–2 M px, so gate
+// well above that. The USGS 1/3-arc-sec DEM (~10800²≈117 M) clears this easily;
+// a 2048² basemap tile (~4 M) does not.
+constexpr qint64 kOverviewBuildMinPixels = 8'000'000;
+}  // namespace
+
+void GISRasterLayer::maybeBuildOverviews()
+{
+    if (!m_dataset || m_overviewBuildInFlight)
+        return;
+    GDALRasterBand *band = m_dataset->GetRasterBand(1);
+    if (!band || band->GetOverviewCount() > 0)
+        return;  // already has internal or sidecar overviews
+    if (!PreferencesManager::instance()->autoBuildRasterOverviews())
+        return;
+    const qint64 npx = qint64(m_dataset->GetRasterXSize())
+                     * m_dataset->GetRasterYSize();
+    if (npx < kOverviewBuildMinPixels)
+        return;
+    buildOverviewsAsync();
+}
+
+void GISRasterLayer::buildOverviewsAsync()
+{
+    const QString path = m_filePath;
+    const int w = m_dataset->GetRasterXSize();
+    const int h = m_dataset->GetRasterYSize();
+    // NEAREST preserves categorical / paletted class values; AVERAGE is the
+    // right resampler for continuous data (DEMs, imagery).
+    const bool categorical =
+        m_dataset->GetRasterBand(1)->GetColorInterpretation() == GCI_PaletteIndex;
+    const QByteArray resamp = categorical ? QByteArrayLiteral("NEAREST")
+                                          : QByteArrayLiteral("AVERAGE");
+
+    m_overviewBuildInFlight = true;
+    emit overviewBuildStarted(QFileInfo(path).fileName());
+
+    QPointer<GISRasterLayer> self(this);
+    auto *watcher = new QFutureWatcher<bool>();
+    QObject::connect(watcher, &QFutureWatcherBase::finished, watcher,
+                     [watcher, self]() {
+        const bool ok = watcher->result();
+        watcher->deleteLater();
+        if (!self)
+            return;
+        self->m_overviewBuildInFlight = false;
+        if (ok) {
+            // Defer the reopen to the render thread (under m_datasetMutex) so
+            // the GUI thread never blocks on an in-flight warp.
+            self->m_datasetReloadPending.store(true);
+            self->invalidateCache();
+            emit self->repaintRequested();
+        }
+        emit self->overviewBuildFinished(ok);
+    });
+
+    watcher->setFuture(QtConcurrent::run([path, resamp, w, h]() -> bool {
+        // Decimation levels 2,4,8,… until the coarsest overview is ≤ 256 px.
+        std::vector<int> levels;
+        int factor = 2;
+        while (std::max(w, h) / factor > 256) {
+            levels.push_back(factor);
+            factor *= 2;
+        }
+        levels.push_back(factor);  // one more so the top is ≤ 256 px
+
+        // Separate READ-ONLY handle ⇒ GDALBuildOverviews writes an external
+        // "<file>.ovr" sidecar and never touches the source file.
+        GDALDataset *ds = static_cast<GDALDataset *>(
+            GDALOpenEx(path.toUtf8().constData(),
+                       GDAL_OF_RASTER | GDAL_OF_READONLY,
+                       nullptr, nullptr, nullptr));
+        if (!ds)
+            return false;
+        const CPLErr err = ds->BuildOverviews(
+            resamp.constData(), static_cast<int>(levels.size()), levels.data(),
+            0, nullptr, GDALDummyProgress, nullptr);
+        GDALClose(ds);
+        return err == CE_None;
+    }));
 }
 
 void GISRasterLayer::openDataset(const QString &filePath)
@@ -728,7 +1088,9 @@ void GISRasterLayer::openAsync(const QString &filePath)
 
 void GISRasterLayer::closeDataset()
 {
-    m_cachedTile = QImage{};
+    // Serialise against valueAt() probing m_dataset (tile warps read through
+    // their own pooled handles and never touch this one).
+    QMutexLocker lock(&m_datasetMutex);
 
     if (m_dataset)
     {
@@ -739,11 +1101,15 @@ void GISRasterLayer::closeDataset()
 
 void GISRasterLayer::invalidateCache()
 {
-    m_cachedTile    = QImage{};
-    m_cacheExtent   = MapExtent{};
-    m_rawValueCache.clear();
-    m_rawCacheWidth  = 0;
-    m_rawCacheHeight = 0;
+    // Drop every cached/queued tile so the pyramid rebuilds (band/ramp/
+    // hillshade/CRS change, or a fresh overview set). Bumping the generation
+    // makes any still-in-flight warp's result land dead on arrival. Clearing
+    // m_queuedKeys while a warp is in flight can let the same tile be queued
+    // twice — a harmless duplicate warp, deduped by the cache insert.
+    clearTiles();
+    m_tileQueue.clear();
+    m_queuedKeys.clear();
+    ++m_cacheGeneration;
 }
 
 void GISRasterLayer::setHillshadeEnabled(bool on)
@@ -768,12 +1134,143 @@ void GISRasterLayer::setHillshadeParams(double azimuthDeg, double altitudeDeg,
     }
 }
 
-QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
+GDALDataset *GISRasterLayer::buildWindowedSource(
+    GDALDataset *src,
+    const MapExtent &canvasExtent, const SpatialReferenceSystem *canvasSRS,
+    int pixelWidth, int pixelHeight, int outBands, bool isRGB,
+    const WarpParams &params) const
+{
+    if (!src || pixelWidth <= 0 || pixelHeight <= 0)
+        return nullptr;
+
+    double srcGT[6];
+    if (src->GetGeoTransform(srcGT) != CE_None)
+        return nullptr;
+    if (srcGT[2] != 0.0 || srcGT[4] != 0.0 || srcGT[1] == 0.0 || srcGT[5] == 0.0)
+        return nullptr;  // rotated/sheared source — fall back to full warp
+
+    const int rasterW = src->GetRasterXSize();
+    const int rasterH = src->GetRasterYSize();
+
+    // Canvas extent → source-CRS bbox (4-corner sampling covers reprojection
+    // curvature). Identity when the CRSs match or either is unknown.
+    double sxMin = canvasExtent.xMin(), syMin = canvasExtent.yMin();
+    double sxMax = canvasExtent.xMax(), syMax = canvasExtent.yMax();
+    const OGRSpatialReference *srcSRS = src->GetSpatialRef();
+    if (srcSRS && canvasSRS && canvasSRS->ogrSpatialReference()
+        && !srcSRS->IsSame(canvasSRS->ogrSpatialReference()))
+    {
+        if (OGRCoordinateTransformation *ct = OGRCreateCoordinateTransformation(
+                canvasSRS->ogrSpatialReference(), srcSRS))
+        {
+            double xs[4] = { canvasExtent.xMin(), canvasExtent.xMax(),
+                             canvasExtent.xMax(), canvasExtent.xMin() };
+            double ys[4] = { canvasExtent.yMax(), canvasExtent.yMax(),
+                             canvasExtent.yMin(), canvasExtent.yMin() };
+            if (ct->Transform(4, xs, ys))
+            {
+                sxMin = std::min({ xs[0], xs[1], xs[2], xs[3] });
+                sxMax = std::max({ xs[0], xs[1], xs[2], xs[3] });
+                syMin = std::min({ ys[0], ys[1], ys[2], ys[3] });
+                syMax = std::max({ ys[0], ys[1], ys[2], ys[3] });
+            }
+            OGRCoordinateTransformation::DestroyCT(ct);
+        }
+    }
+
+    // Source-CRS bbox → integer source-pixel window, clipped to the raster.
+    const double pxA = (sxMin - srcGT[0]) / srcGT[1];
+    const double pxB = (sxMax - srcGT[0]) / srcGT[1];
+    const double pyA = (syMax - srcGT[3]) / srcGT[5];  // srcGT[5] < 0
+    const double pyB = (syMin - srcGT[3]) / srcGT[5];
+    int winX0 = std::clamp(int(std::floor(std::min(pxA, pxB))), 0, rasterW);
+    int winX1 = std::clamp(int(std::ceil (std::max(pxA, pxB))), 0, rasterW);
+    int winY0 = std::clamp(int(std::floor(std::min(pyA, pyB))), 0, rasterH);
+    int winY1 = std::clamp(int(std::ceil (std::max(pyA, pyB))), 0, rasterH);
+    const int winPixW = winX1 - winX0;
+    const int winPixH = winY1 - winY0;
+    if (winPixW <= 0 || winPixH <= 0)
+        return nullptr;  // canvas doesn't overlap the raster
+
+    // Decimated read size: ~1 buffer pixel per output pixel over the window's
+    // share of the viewport. bufW ≤ winPixW ⇒ RasterIO reads from the nearest
+    // overview instead of full resolution. srcSpan is the canvas extent
+    // measured in source units, so winMap/srcSpan is the window's fraction.
+    const double winMapW = double(winPixW) * std::abs(srcGT[1]);
+    const double winMapH = double(winPixH) * std::abs(srcGT[5]);
+    const double srcSpanX = std::max(sxMax - sxMin, 1e-12);
+    const double srcSpanY = std::max(syMax - syMin, 1e-12);
+    const int bufW = std::clamp(
+        int(std::ceil(pixelWidth  * winMapW / srcSpanX)), 1, winPixW);
+    const int bufH = std::clamp(
+        int(std::ceil(pixelHeight * winMapH / srcSpanY)), 1, winPixH);
+
+    QElapsedTimer readTimer;
+    readTimer.start();
+
+    GDALDriver *memDriver = GetGDALDriverManager()->GetDriverByName("MEM");
+    if (!memDriver)
+        return nullptr;
+    const GDALDataType nt = src->GetRasterBand(1)->GetRasterDataType();
+    GDALDataset *win = memDriver->Create("", bufW, bufH, outBands, nt, nullptr);
+    if (!win)
+        return nullptr;
+
+    double gt[6] = {
+        srcGT[0] + winX0 * srcGT[1],
+        srcGT[1] * double(winPixW) / bufW,
+        0.0,
+        srcGT[3] + winY0 * srcGT[5],
+        0.0,
+        srcGT[5] * double(winPixH) / bufH
+    };
+    win->SetGeoTransform(gt);
+    if (const char *wkt = src->GetProjectionRef(); wkt && *wkt)
+        win->SetProjection(wkt);
+
+    // Overview-aware decimating read of each needed band into the window.
+    GDALRasterIOExtraArg extra;
+    INIT_RASTERIO_EXTRA_ARG(extra);
+    extra.eResampleAlg = GRIORA_Bilinear;
+    const int typeSize = GDALGetDataTypeSizeBytes(nt);
+    std::vector<GByte> buf(size_t(bufW) * bufH * typeSize);
+    for (int i = 0; i < outBands; ++i)
+    {
+        const int srcBandIdx = isRGB ? (i + 1) : params.renderBand;
+        GDALRasterBand *sb = src->GetRasterBand(srcBandIdx);
+        if (!sb
+            || sb->RasterIO(GF_Read, winX0, winY0, winPixW, winPixH,
+                            buf.data(), bufW, bufH, nt, 0, 0, &extra) != CE_None
+            || win->GetRasterBand(i + 1)->RasterIO(
+                   GF_Write, 0, 0, bufW, bufH, buf.data(), bufW, bufH, nt,
+                   0, 0, nullptr) != CE_None)
+        {
+            GDALClose(win);
+            return nullptr;
+        }
+        if (params.hasNoData)
+            win->GetRasterBand(i + 1)->SetNoDataValue(params.noDataValue);
+    }
+    qCInfo(lcLoadRaster).noquote()
+        << QStringLiteral("  windowed source: win %1x%2 px → buf %3x%4 "
+                          "(decim %5x) read %6 ms")
+               .arg(winPixW).arg(winPixH).arg(bufW).arg(bufH)
+               .arg(winPixW / std::max(bufW, 1))
+               .arg(readTimer.elapsed());
+    return win;
+}
+
+QImage GISRasterLayer::warpToCanvas(GDALDataset *src,
+                                     const MapExtent &canvasExtent,
                                      const SpatialReferenceSystem *canvasSRS,
                                      int pixelWidth,
-                                     int pixelHeight) const
+                                     int pixelHeight,
+                                     const WarpParams &params) const
 {
-    if (!m_dataset || pixelWidth <= 0 || pixelHeight <= 0)
+    // Runs on a worker thread (Phase 3). Reads only the borrowed \p src
+    // handle and the \p params snapshot — no live layer state, no locks —
+    // so N tile warps run concurrently, one pooled handle each.
+    if (!src || pixelWidth <= 0 || pixelHeight <= 0)
         return {};
 
     // Build destination geotransform
@@ -787,9 +1284,20 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
     };
 
     // Determine number of output bands
-    int nBands     = m_dataset->GetRasterCount();
+    int nBands     = src->GetRasterCount();
     bool isRGB     = (nBands >= 3);
     int outBands   = isRGB ? nBands : 1;
+
+    // Phase 2 — warp only the viewport window read from the nearest overview,
+    // not the full-resolution raster. On success `srcDS` is a small MEM source
+    // (bands already selected: 1..outBands); on failure we fall back to the
+    // full-resolution warp of \p src (correct, just slower).
+    GDALDataset *srcDS = buildWindowedSource(src, canvasExtent, canvasSRS,
+                                             pixelWidth, pixelHeight,
+                                             outBands, isRGB, params);
+    const bool ownSrc = (srcDS != nullptr);
+    if (!srcDS)
+        srcDS = src;
 
     // Create in-memory destination dataset.
     // RGB stays GDT_Byte (3×8-bit colour). Single-band stays Float64 so
@@ -822,7 +1330,7 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
 
     // Set up warp options
     GDALWarpOptions *warpOpts = GDALCreateWarpOptions();
-    warpOpts->hSrcDS          = m_dataset;
+    warpOpts->hSrcDS          = srcDS;
     warpOpts->hDstDS          = dstDS;
     warpOpts->nBandCount      = outBands;
     warpOpts->panSrcBands     = static_cast<int *>(CPLMalloc(sizeof(int) * outBands));
@@ -830,11 +1338,14 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
 
     for (int i = 0; i < outBands; ++i)
     {
-        warpOpts->panSrcBands[i] = isRGB ? (i + 1) : m_renderBand;
+        // The windowed source already holds the selected bands as 1..outBands;
+        // the full-dataset fallback still indexes the real render/RGB bands.
+        warpOpts->panSrcBands[i] = ownSrc ? (i + 1)
+                                          : (isRGB ? (i + 1) : params.renderBand);
         warpOpts->panDstBands[i] = i + 1;
     }
 
-    if (m_hasNoData)
+    if (params.hasNoData)
     {
         // Mark NoData on both source and destination so the warper writes
         // the destination's NoData sentinel into pixels that have no
@@ -851,7 +1362,7 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
                                       : std::numeric_limits<double>::quiet_NaN();
         for (int i = 0; i < outBands; ++i)
         {
-            warpOpts->padfSrcNoDataReal[i] = m_noDataValue;
+            warpOpts->padfSrcNoDataReal[i] = params.noDataValue;
             warpOpts->padfDstNoDataReal[i] = sentinel;
             if (!isRGB)
                 dstDS->GetRasterBand(i + 1)->SetNoDataValue(sentinel);
@@ -873,13 +1384,12 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
             warpOpts->papszWarpOptions, "INIT_DEST", "NO_DATA");
     }
 
-    warpOpts->pfnTransformer  = GDALGenImgProjTransform;
-    warpOpts->pTransformerArg = GDALCreateGenImgProjTransformer(
-        m_dataset, m_dataset->GetProjectionRef(),
+    void *baseXform = GDALCreateGenImgProjTransformer(
+        srcDS, srcDS->GetProjectionRef(),
         dstDS, dstDS->GetProjectionRef(),
         FALSE, 0, 1);
 
-    if (!warpOpts->pTransformerArg)
+    if (!baseXform)
     {
         // First attempt failed — common cause: source has no embedded CRS
         // (e.g. a plain GeoTIFF without a .prj) but the GDAL pipeline still
@@ -890,19 +1400,39 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
         // is the typical case for local DTM data loaded without CRS metadata.
         qWarning() << "GISRasterLayer: GDALCreateGenImgProjTransformer failed "
                       "with explicit SRS strings — retrying without SRS (passthrough).";
-        warpOpts->pTransformerArg = GDALCreateGenImgProjTransformer(
-            m_dataset, nullptr,
-            dstDS,     nullptr,
-            FALSE,     0, 1);
+        baseXform = GDALCreateGenImgProjTransformer(
+            srcDS, nullptr,
+            dstDS, nullptr,
+            FALSE, 0, 1);
     }
 
-    if (!warpOpts->pTransformerArg)
+    if (!baseXform)
     {
         qWarning() << "GISRasterLayer: warpToCanvas — could not create GDAL "
                       "coordinate transformer; skipping render.";
         GDALDestroyWarpOptions(warpOpts);
         GDALClose(dstDS);
+        if (ownSrc) GDALClose(srcDS);
         return {};
+    }
+
+    // Wrap the exact reprojection in an APPROXIMATE transformer (gdalwarp's
+    // default, 0.125 dst-px error): the expensive PROJ transform is evaluated
+    // only on a sparse grid and interpolated between, instead of once per
+    // output pixel. Without this a full-viewport reproject warps every one of
+    // ~900k destination pixels through PROJ — the constant ~630 ms/warp seen in
+    // profiling, independent of source size.
+    if (void *approx = GDALCreateApproxTransformer(
+            GDALGenImgProjTransform, baseXform, 0.125))
+    {
+        GDALApproxTransformerOwnsSubtransformer(approx, TRUE);
+        warpOpts->pfnTransformer  = GDALApproxTransform;
+        warpOpts->pTransformerArg = approx;
+    }
+    else
+    {
+        warpOpts->pfnTransformer  = GDALGenImgProjTransform;
+        warpOpts->pTransformerArg = baseXform;
     }
 
     GDALWarpOperationH warpOp = GDALCreateWarpOperation(warpOpts);
@@ -912,8 +1442,11 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
         GDALDestroyWarpOperation(warpOp);
     }
 
-    GDALDestroyGenImgProjTransformer(warpOpts->pTransformerArg);
+    // Generic destructor — frees the approx wrapper (and its owned sub) or the
+    // bare gen-img-proj transformer, whichever ended up installed.
+    GDALDestroyTransformer(warpOpts->pTransformerArg);
     GDALDestroyWarpOptions(warpOpts);
+    if (ownSrc) GDALClose(srcDS);  // release the windowed MEM source
 
     // Convert to QImage
     QImage result(pixelWidth, pixelHeight, QImage::Format_ARGB32);
@@ -958,13 +1491,6 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
             GF_Read, 0, 0, pixelWidth, pixelHeight, raw.data(),
             pixelWidth, pixelHeight, GDT_Float64, 0, 0);
 
-        // Cache the raw float64 values in canvas CRS so valueAt() can sample
-        // them regardless of CRS mismatch between the raster and canvas.
-        m_rawValueCache.resize(pixelWidth * pixelHeight);
-        m_rawCacheWidth  = pixelWidth;
-        m_rawCacheHeight = pixelHeight;
-        std::copy(raw.begin(), raw.end(), m_rawValueCache.begin());
-
         for (int y = 0; y < pixelHeight; ++y)
         {
             QRgb *row = reinterpret_cast<QRgb *>(result.scanLine(y));
@@ -972,11 +1498,14 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
             {
                 const double val = raw[y * pixelWidth + x];
                 const bool isNoData = std::isnan(val) ||
-                                      (m_hasNoData && val == m_noDataValue);
-                // P5/R-1 — colourise through the raster renderer (single
-                // source of truth). The renderer returns transparent for
-                // the no-data case, matching the previous behaviour.
-                row[x] = m_rasterRenderer->colorForValue(val, isNoData).rgba();
+                                      (params.hasNoData && val == params.noDataValue);
+                // P5/R-1 — colourise through the raster renderer snapshot
+                // (a clone of the single source of truth). The renderer
+                // returns transparent for the no-data case, matching the
+                // previous behaviour.
+                row[x] = params.renderer
+                             ? params.renderer->colorForValue(val, isNoData).rgba()
+                             : 0;
             }
         }
 
@@ -986,13 +1515,15 @@ QImage GISRasterLayer::warpToCanvas(const MapExtent &canvasExtent,
         // units per pixel). NOTE for finishing pass: verify the azimuth
         // orientation against a known DEM — image-row Y runs opposite to
         // world-north, which the dz/dy sign below accounts for.
-        if (m_hillshadeEnabled)
+        if (params.hillshadeEnabled)
         {
             applyHillshadeInPlace(result, raw, pixelWidth, pixelHeight,
                                   dstGT[1], std::abs(dstGT[5]),
-                                  m_hillshadeAzimuthDeg, m_hillshadeAltitudeDeg,
-                                  m_hillshadeZFactor, m_hillshadeStrength,
-                                  m_hasNoData, m_noDataValue);
+                                  params.hillshadeAzimuthDeg,
+                                  params.hillshadeAltitudeDeg,
+                                  params.hillshadeZFactor,
+                                  params.hillshadeStrength,
+                                  params.hasNoData, params.noDataValue);
         }
     }
 

@@ -20,8 +20,24 @@
 #include <QDebug>
 #include <QtMath>
 
+#include <cmath>
+
 // OGC WMTS standard pixel size: 1 pixel = 0.00028 m
 static constexpr double kOgcPixelSize = 0.00028;
+
+// Coarser-tile stand-ins may be at most 64× the missing tile's span (a ~4 px
+// sub-rect of a 256² ancestor) — matches GISRasterLayer's cap.
+static constexpr double kMaxAncestorSpanRatio = 64.0;
+
+// Pyramid-level tag stored with each cached tile. The TilePyramidLayer
+// fallback search is extent-based, so this is metadata only; log2 of the OGC
+// scale denominator gives a stable per-matrix integer.
+static int matrixLevelTag(const WMTSTileMatrix &m)
+{
+    return m.scaleDenominator > 0.0
+               ? static_cast<int>(std::lround(std::log2(m.scaleDenominator)))
+               : 0;
+}
 
 // Strip all occurrences of any of `keys` from `url`'s query, case-insensitively.
 // Preserves any other query params (e.g. API keys) from the base service URL.
@@ -44,13 +60,13 @@ static QUrlQuery stripOgcParams(const QUrl &url, const QStringList &keys)
 // ---------------------------------------------------------------------------
 
 WMTSLayer::WMTSLayer(const QUrl &serviceUrl, OpenSWMMVisWorkspace *parent)
-    : OpenSWMMVisLayer(parent),
+    : TilePyramidLayer(parent),
       m_serviceUrl(serviceUrl),
-      m_nam(new QNetworkAccessManager(this)),
-      m_tileCache(200)  // default: hold up to 200 tiles in memory
+      m_nam(new QNetworkAccessManager(this))
 {
     setLayerType(SWMMWMTSLayer);
     setName(serviceUrl.host());
+    setTileCacheCapacity(200);  // default: hold up to 200 tiles in memory
 }
 
 WMTSLayer::~WMTSLayer()
@@ -110,7 +126,7 @@ void WMTSLayer::setActiveLayerId(const QString &id)
     if (m_activeLayerId != id)
     {
         m_activeLayerId = id;
-        m_tileCache.clear();
+        clearTiles();
         // Refresh extent from the newly-active layer's bounding box.
         if (m_capsReady) {
             for (const WMTSLayerInfo &li : m_serviceInfo.layers) {
@@ -132,7 +148,7 @@ void WMTSLayer::setActiveTileMatrixSet(const QString &id)
     if (m_activeTileMatrixSet != id)
     {
         m_activeTileMatrixSet = id;
-        m_tileCache.clear();
+        clearTiles();
         applyCRSFromTileMatrixSet(id);
         emit activeTileMatrixSetChanged(id);
         emit repaintRequested();
@@ -146,7 +162,7 @@ void WMTSLayer::setActiveStyle(const QString &style)
     if (m_activeStyle != style)
     {
         m_activeStyle = style;
-        m_tileCache.clear();
+        clearTiles();
         emit activeStyleChanged(style);
         emit repaintRequested();
     }
@@ -159,7 +175,7 @@ void WMTSLayer::setImageFormat(const QString &fmt)
     if (m_imageFormat != fmt)
     {
         m_imageFormat = fmt;
-        m_tileCache.clear();
+        clearTiles();
         emit imageFormatChanged(fmt);
     }
 }
@@ -168,11 +184,11 @@ void WMTSLayer::setImageFormat(const QString &fmt)
 // Tile cache size
 // ---------------------------------------------------------------------------
 
-int WMTSLayer::tileCacheMaxSize() const { return m_tileCache.maxCost(); }
+int WMTSLayer::tileCacheMaxSize() const { return tileCacheCapacity(); }
 
 void WMTSLayer::setTileCacheMaxSize(int maxTiles)
 {
-    m_tileCache.setMaxCost(maxTiles);
+    setTileCacheCapacity(maxTiles);
     emit tileCacheMaxSizeChanged(maxTiles);
 }
 
@@ -263,10 +279,17 @@ void WMTSLayer::fetchCache(const MapExtent &canvasExtent,
                                    m_activeTileMatrixSet, matrix->identifier)
                               .arg(col).arg(row);
 
-            if (!m_tileCache.object(key))
+            if (!isTileCached(key))
+            {
+                const double tileLeft = matrix->topLeftX + col * tileMapW;
+                const double tileTop  = matrix->topLeftY - row * tileMapH;
                 fetchTileIfNeeded(key, buildTileUrl(m_activeLayerId, m_activeStyle,
                                                      m_activeTileMatrixSet, *matrix,
-                                                     col, row));
+                                                     col, row),
+                                  MapExtent(tileLeft, tileTop - tileMapH,
+                                            tileLeft + tileMapW, tileTop),
+                                  matrixLevelTag(*matrix));
+            }
         }
     }
 }
@@ -342,8 +365,7 @@ void WMTSLayer::render(QPainter *painter,
     int rowMax = qBound(0, static_cast<int>(std::floor((matrix->topLeftY - tileExtent.yMin()) / tileMapH)), matrix->matrixHeight - 1);
 
     qDebug() << "[WMTS] render: matrix=" << matrix->identifier
-             << "tiles=[" << colMin << "-" << colMax << "] x [" << rowMin << "-" << rowMax << "]"
-             << "cacheSize=" << m_tileCache.size();
+             << "tiles=[" << colMin << "-" << colMax << "] x [" << rowMin << "-" << rowMax << "]";
 
     // Map-to-pixel scale factors for the canvas image
     double sx = imageSize.width()  / extent.width();
@@ -358,15 +380,21 @@ void WMTSLayer::render(QPainter *painter,
                                    m_activeTileMatrixSet, matrix->identifier)
                               .arg(col).arg(row);
 
-            QImage *cached = m_tileCache.object(key);
-            if (!cached)
-                continue;
-
             // Tile bounds in tile CRS
             const double tileLeft   = matrix->topLeftX + col * tileMapW;
             const double tileTop    = matrix->topLeftY - row * tileMapH;
             const double tileRight  = tileLeft + tileMapW;
             const double tileBottom = tileTop  - tileMapH;
+
+            // Exact tile, or a sub-rect of the nearest cached coarser tile
+            // while this one is still in flight (never a blank hole).
+            TileDraw td;
+            if (!resolveTileForDraw(key,
+                                    MapExtent(tileLeft, tileBottom,
+                                              tileRight, tileTop),
+                                    kMaxAncestorSpanRatio, td))
+                continue;
+            const QImage *cached = &td.img;
 
             if (m_tileToCanvas)
             {
@@ -393,11 +421,15 @@ void WMTSLayer::render(QPainter *painter,
                     QPointF((xs[3] - extent.xMin()) * sx,
                             (extent.yMax() - ys[3]) * sy),
                 });
+                // Source quad = the resolved sub-rect (full image for an
+                // exact tile; the extent-derived cut of a coarser stand-in
+                // otherwise). Image row 0 is the tile's north edge, so the
+                // sub-rect's corners line up with the dst corners as-is.
                 const QPolygonF srcQuad({
-                    QPointF(0,                 0),
-                    QPointF(cached->width(),   0),
-                    QPointF(cached->width(),   cached->height()),
-                    QPointF(0,                 cached->height()),
+                    td.src.topLeft(),
+                    td.src.topRight(),
+                    td.src.bottomRight(),
+                    td.src.bottomLeft(),
                 });
 
                 QTransform xform;
@@ -421,7 +453,9 @@ void WMTSLayer::render(QPainter *painter,
                 painter->setTransform(xform, /*combine=*/true);
                 if (m_renderParams.resampling == OpenSWMM::Render::BasemapRenderParams::Nearest)
                     painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
-                painter->drawImage(0, 0, *src);
+                // Painter coords are source-image px under xform; draw ONLY
+                // the sub-rect so a stand-in never spills past its tile quad.
+                painter->drawImage(td.src, *src, td.src);
                 painter->restore();
             }
             else
@@ -446,7 +480,7 @@ void WMTSLayer::render(QPainter *painter,
                 painter->save();
                 if (m_renderParams.resampling == OpenSWMM::Render::BasemapRenderParams::Nearest)
                     painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
-                painter->drawImage(dst, *src);
+                painter->drawImage(dst, *src, td.src);
                 painter->restore();
             }
         }
@@ -559,6 +593,7 @@ void WMTSLayer::refreshScene(QGraphicsScene *scene,
             double tileTop    = matrix->topLeftY - row * tileMapH;
             double tileRight  = tileLeft + tileMapW;
             double tileBottom = tileTop  - tileMapH;
+            const MapExtent tileCrsExtent(tileLeft, tileBottom, tileRight, tileTop);
 
             // Reproject tile corners to canvas CRS for scene placement.
             if (m_tileToCanvas)
@@ -575,10 +610,10 @@ void WMTSLayer::refreshScene(QGraphicsScene *scene,
 
             QRectF sceneRect(tileLeft, -tileTop, tileRight - tileLeft, tileTop - tileBottom);
 
-            QImage *cached = m_tileCache.object(key);
-            if (cached)
+            const QImage cached = cachedTileImage(key);
+            if (!cached.isNull())
             {
-                auto *item = new RasterTileItem(QPixmap::fromImage(*cached), sceneRect);
+                auto *item = new RasterTileItem(QPixmap::fromImage(cached), sceneRect);
                 item->setOwnerLayer(this);
                 item->setZValue(baseZ);
                 item->setOpacity(opacity());
@@ -589,7 +624,8 @@ void WMTSLayer::refreshScene(QGraphicsScene *scene,
             {
                 // Start a network fetch; the tile will be added on the next refresh.
                 fetchTileIfNeeded(key, buildTileUrl(m_activeLayerId, m_activeStyle,
-                                                    m_activeTileMatrixSet, *matrix, col, row));
+                                                    m_activeTileMatrixSet, *matrix, col, row),
+                                  tileCrsExtent, matrixLevelTag(*matrix));
             }
         }
     }
@@ -611,7 +647,7 @@ void WMTSLayer::depopulateScene(QGraphicsScene *scene)
 
 void WMTSLayer::onCanvasCRSChanged(const SpatialReferenceSystem *canvasSRS)
 {
-    m_tileCache.clear();
+    clearTiles();
     m_inFlightKeys.clear();
 
     // Rebuild CRS transforms between canvas and tile matrix CRS.
@@ -647,7 +683,7 @@ void WMTSLayer::onCapabilitiesReply(QNetworkReply *reply)
 
 void WMTSLayer::onTileReply(QNetworkReply *reply,
                               const QString &cacheKey,
-                              bool & /*pendingDecrement*/)
+                              const MapExtent &tileExtent, int level)
 {
     reply->deleteLater();
     m_inFlightKeys.remove(cacheKey);
@@ -665,11 +701,11 @@ void WMTSLayer::onTileReply(QNetworkReply *reply,
     qDebug() << "[WMTS] tile reply key=" << cacheKey << "bytes=" << data.size()
              << "contentType=" << reply->header(QNetworkRequest::ContentTypeHeader).toString();
 
-    auto *img = new QImage();
-    if (img->loadFromData(data))
+    QImage img;
+    if (img.loadFromData(data))
     {
-        qDebug() << "[WMTS] tile decoded size=" << img->width() << "x" << img->height();
-        m_tileCache.insert(cacheKey, img);
+        qDebug() << "[WMTS] tile decoded size=" << img.width() << "x" << img.height();
+        cacheTile(cacheKey, img, tileExtent, level);
         emit tilesUpdated();
         emit repaintRequested();
     }
@@ -677,7 +713,6 @@ void WMTSLayer::onTileReply(QNetworkReply *reply,
     {
         qWarning() << "[WMTS] tile image decode failed key=" << cacheKey
                    << "first64=" << data.left(64).toHex();
-        delete img;
     }
 }
 
@@ -1086,10 +1121,11 @@ QUrl WMTSLayer::buildTileUrl(const QString &layerId,
     return url;
 }
 
-void WMTSLayer::fetchTile(const QString &cacheKey, const QUrl &tileUrl)
+void WMTSLayer::fetchTile(const QString &cacheKey, const QUrl &tileUrl,
+                          const MapExtent &tileExtent, int level)
 {
     // Avoid duplicate in-flight requests for the same tile
-    if (m_tileCache.contains(cacheKey) || m_inFlightKeys.contains(cacheKey))
+    if (isTileCached(cacheKey) || m_inFlightKeys.contains(cacheKey))
         return;
 
     qDebug() << "[WMTS] fetchTile key=" << cacheKey << "url=" << tileUrl.toString();
@@ -1107,15 +1143,16 @@ void WMTSLayer::fetchTile(const QString &cacheKey, const QUrl &tileUrl)
 
     QNetworkReply *reply = m_nam->get(req);
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, cacheKey]() mutable {
-        bool dummy = false;
-        onTileReply(reply, cacheKey, dummy);
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, cacheKey, tileExtent, level]() {
+        onTileReply(reply, cacheKey, tileExtent, level);
     });
 }
 
-void WMTSLayer::fetchTileIfNeeded(const QString &cacheKey, const QUrl &tileUrl)
+void WMTSLayer::fetchTileIfNeeded(const QString &cacheKey, const QUrl &tileUrl,
+                                  const MapExtent &tileExtent, int level)
 {
-    fetchTile(cacheKey, tileUrl);
+    fetchTile(cacheKey, tileUrl, tileExtent, level);
 }
 
 QUrl WMTSLayer::buildTileUrlPublic(const QString &layerId,
@@ -1132,11 +1169,6 @@ const WMTSTileMatrix *WMTSLayer::selectTileMatrixPublic(const WMTSTileMatrixSet 
                                                          int pixelWidth) const
 {
     return selectTileMatrix(tms, canvasExtent, pixelWidth);
-}
-
-QCache<QString, QImage> *WMTSLayer::tileCache()
-{
-    return &m_tileCache;
 }
 
 void WMTSLayer::setBasemapRenderParams(

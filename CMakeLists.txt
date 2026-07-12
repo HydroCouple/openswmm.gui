@@ -315,6 +315,7 @@ set(
 
         # ── Layers ───────────────────────────────────────────────────────────
         include/layers/openswmmvislayer.h
+        include/layers/tilepyramidlayer.h
         include/layers/gisvectorlayer.h
         include/layers/gisvectorsymboladapter.h
         include/layers/gisrasterlayer.h
@@ -858,6 +859,7 @@ set(
 
         # Layers
         src/layers/openswmmvislayer.cpp
+        src/layers/tilepyramidlayer.cpp
         src/layers/gisvectorlayer.cpp
         src/layers/gisrasterlayer.cpp
         src/layers/wcslayer.cpp

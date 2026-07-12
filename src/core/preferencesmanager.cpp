@@ -31,6 +31,7 @@ constexpr int     kDefaultClickTolerancePx      = 16;
 // without making intentional rubber-band selects feel sluggish.
 constexpr int     kDefaultDragThresholdPx       = 15;
 constexpr bool    kDefaultClearSelectionOnMiss  = true;
+constexpr bool    kDefaultAutoBuildRasterOverviews = true;
 
 constexpr const char *kDefaultTool              = "Select";
 constexpr const char *kDefaultCrsAuthority      = "EPSG";
@@ -276,6 +277,22 @@ void PreferencesManager::setClearSelectionOnMiss(bool on)
                             .arg(kGroupRoot), on);
     emit preferenceChanged(QStringLiteral("Selection"),
                            QStringLiteral("ClearOnMiss"));
+}
+
+bool PreferencesManager::autoBuildRasterOverviews() const
+{
+    return m_settings.value(QStringLiteral("%1/Raster/AutoBuildOverviews")
+                                .arg(kGroupRoot),
+                            kDefaultAutoBuildRasterOverviews).toBool();
+}
+
+void PreferencesManager::setAutoBuildRasterOverviews(bool enabled)
+{
+    if (enabled == autoBuildRasterOverviews()) return;
+    m_settings.setValue(QStringLiteral("%1/Raster/AutoBuildOverviews")
+                            .arg(kGroupRoot), enabled);
+    emit preferenceChanged(QStringLiteral("Raster"),
+                           QStringLiteral("AutoBuildOverviews"));
 }
 
 namespace {
