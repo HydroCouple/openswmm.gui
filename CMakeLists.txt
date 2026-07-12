@@ -158,6 +158,7 @@ set(
         include/core/gisdatapaths.h
         include/core/swmmdatetime.h
         include/selection/selectionmanager.h
+        include/selection/selectionops.h
 
         # ── Animation ────────────────────────────────────────────────────────
         include/animation/animationcontroller.h
@@ -733,6 +734,7 @@ set(
 
         # Selection
         src/selection/selectionmanager.cpp
+        src/selection/selectionops.cpp
 
         # Animation
         src/animation/animationcontroller.cpp
