@@ -1317,6 +1317,23 @@ add_swmmvis_gui_test(test_dtmsampler
 target_include_directories(test_dtmsampler PRIVATE ${GDAL_INCLUDE_DIRS})
 target_link_libraries(test_dtmsampler PRIVATE GDAL::GDAL)
 
+# DEM-raster longitudinal profile sampler — the terrain peer of
+# MeshProfileSampler. Pure logic over DTMSampler (bilinear) +
+# SpatialReferenceSystem (canvas → raster CRS), so it links GDAL directly and
+# pulls in no layer / widget graph.
+add_swmmvis_gui_test(test_rasterprofilesampler
+    test_rasterprofilesampler.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/rasterprofilesampler.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/rasterprofilesampler.h
+    ${CMAKE_SOURCE_DIR}/include/plot/profilesection.h
+    ${CMAKE_SOURCE_DIR}/src/mesh/dtmsampler.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/dtmsampler.h
+    ${CMAKE_SOURCE_DIR}/src/map/spatialreferencesystem.cpp
+    ${CMAKE_SOURCE_DIR}/include/map/spatialreferencesystem.h
+)
+target_include_directories(test_rasterprofilesampler PRIVATE ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_rasterprofilesampler PRIVATE GDAL::GDAL)
+
 add_swmmvis_gui_test(test_inpmeshwriter
     test_inpmeshwriter.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp

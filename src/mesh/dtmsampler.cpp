@@ -104,6 +104,12 @@ bool DTMSampler::open(const QString &path, int band)
     return true;
 }
 
+double DTMSampler::pixelSize() const
+{
+    if (!m_ds) return 0.0;
+    return 0.5 * (std::abs(m_geo[1]) + std::abs(m_geo[5]));
+}
+
 QString DTMSampler::crsWkt() const
 {
     if (!m_ds) return {};
@@ -114,6 +120,11 @@ QString DTMSampler::crsWkt() const
 double DTMSampler::sample(double x, double y) const
 {
     if (!m_ds)
+        return std::numeric_limits<double>::quiet_NaN();
+
+    // A non-finite input (e.g. a failed coordinate transform upstream) would
+    // reach the static_cast<int>(std::floor(NaN)) below — that's UB. Reject it.
+    if (!std::isfinite(x) || !std::isfinite(y))
         return std::numeric_limits<double>::quiet_NaN();
 
     // World → pixel/line (real-valued).

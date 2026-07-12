@@ -22,6 +22,8 @@
 #ifndef MESH_PROFILE_SAMPLER_H
 #define MESH_PROFILE_SAMPLER_H
 
+#include "plot/profilesection.h"
+
 #include <QPointF>
 #include <QVector>
 
@@ -31,48 +33,16 @@ class SWMM2DResultsLayer;
 namespace MeshProfileSampler
 {
 
+// The cross-section value type is shared with the DEM-raster sampler
+// (RasterProfileSampler) so both feed the same MeshProfilePlotWidget chart.
+// These aliases keep every existing MeshProfileSampler::* call site valid.
+using Sample       = ProfileSection::Sample;
+using CellCrossing = ProfileSection::CellCrossing;
+using MeshProfile  = ProfileSection::Section;
+
 /*! Hard cap on sample count so a very long polyline can't blow up the
  *  per-frame resample / per-cell envelope work. */
-inline constexpr int kMaxSamples = 2000;
-
-/*!
- * \struct Sample
- * \brief One point along the traced cross-section.
- */
-struct Sample
-{
-    double chainage = 0.0;   /*!< cumulative scene-unit distance from start (== map units). */
-    double ground   = 0.0;   /*!< terrain Z; NaN when the sample falls off the mesh. */
-    double depthNow = 0.0;   /*!< current-frame water depth (m); 0 dry / off-mesh. */
-    double maxDepth = 0.0;   /*!< max water depth over the loaded run (m); 0 dry / off-mesh. */
-    int    triIdx   = -1;    /*!< containing results-layer triangle, -1 off-mesh. */
-    QPointF scenePt;         /*!< scene-space sample location (for per-frame re-sampling). */
-};
-
-/*!
- * \struct CellCrossing
- * \brief A point where the traced line crosses a mesh-cell (triangle) edge.
- *        Plotted as a dot on the ground line so the per-cell interpolation
- *        basis (constant-per-cell depth → stepped WSE) is visible: each dot
- *        marks a cell boundary; the span between two dots is one cell.
- */
-struct CellCrossing
-{
-    double  chainage = 0.0;  /*!< cumulative scene-unit distance from start. */
-    double  ground   = 0.0;  /*!< terrain Z at the crossing (barycentric). */
-    QPointF scenePt;         /*!< scene-space crossing location (for the map dot). */
-};
-
-/*!
- * \struct MeshProfile
- * \brief The assembled cross-section: ordered samples + a results flag.
- */
-struct MeshProfile
-{
-    QVector<Sample> samples;
-    QVector<CellCrossing> crossings;  /*!< cell-edge crossings along the path. */
-    bool hasResults = false;   /*!< true when a results layer with ≥1 frame backed the sampling. */
-};
+inline constexpr int kMaxSamples = ProfileSection::kMaxSamples;
 
 /*!
  * \brief Resample \p scenePolyline at fixed arc length and sample ground /
