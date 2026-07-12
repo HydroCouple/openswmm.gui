@@ -7163,6 +7163,25 @@ void SWMMVis::onAddRasterLayer()
     // on a worker and the layer joins the canvas on completion.
     auto *layer = new GISRasterLayer(QString());
     QPointer<MapCanvas> canvas(c);
+    // Phase 1 — surface background overview (.ovr pyramid) building. The raster
+    // renders on the slow full-res path until the pyramids land, then repaints.
+    connect(layer, &GISRasterLayer::overviewBuildStarted, this,
+            [this](const QString &name) {
+                onLogMessage(tr("Building raster pyramids for %1 …").arg(name),
+                             OpenSWMMVisLogMessage::LogMessageType::Information);
+                statusBar()->showMessage(tr("Building raster pyramids for %1 …").arg(name));
+                onSetProgressBarBusy(true);
+            });
+    connect(layer, &GISRasterLayer::overviewBuildFinished, this,
+            [this, path](bool ok) {
+                onSetProgressBarBusy(false);
+                statusBar()->clearMessage();
+                const QString name = QFileInfo(path).fileName();
+                onLogMessage(ok ? tr("Raster pyramids ready: %1").arg(name)
+                                : tr("Raster pyramid build failed: %1").arg(name),
+                             ok ? OpenSWMMVisLogMessage::LogMessageType::Information
+                                : OpenSWMMVisLogMessage::LogMessageType::Warning);
+            });
     connect(layer, &GISRasterLayer::openFinished, this,
             [this, layer, path, t, canvas](bool ok) {
                 if (ok && canvas) {

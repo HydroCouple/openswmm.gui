@@ -120,6 +120,14 @@ public:
     [[nodiscard]] bool qsgRenderEnabled()  const;
     void setQsgRenderEnabled(bool enabled);
 
+    /*! Whether a large raster opened without internal overviews gets an
+     *  external `.ovr` pyramid built automatically in the background (once
+     *  per file, never modifying the source). Off ⇒ big rasters stay on the
+     *  slow full-resolution warp until the user builds pyramids manually.
+     *  Default true. */
+    [[nodiscard]] bool autoBuildRasterOverviews() const;
+    void setAutoBuildRasterOverviews(bool enabled);
+
     // ── Snapping ─────────────────────────────────────────────────────────
     /*! Whether vertex snapping is active for all drawing tools. Default true. */
     [[nodiscard]] bool snapEnabled()     const;

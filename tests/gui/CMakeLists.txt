@@ -1461,6 +1461,31 @@ target_link_libraries(test_arcgisrestrendering PRIVATE
 )
 target_include_directories(test_arcgisrestrendering PRIVATE ${GDAL_INCLUDE_DIRS})
 
+# TilePyramidLayer — the shared tile cache + extent-based coarser-tile
+# fallback behind GISRasterLayer/WMTSLayer. Self-contained: only the base
+# class and the layer/value-type sources it drags in (same closure as
+# test_arcgisrestrendering, minus the XYZ layer).
+add_swmmvis_gui_test(test_tilepyramidfallback
+    test_tilepyramidfallback.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/tilepyramidlayer.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/tilepyramidlayer.h
+    ${CMAKE_SOURCE_DIR}/src/layers/openswmmvislayer.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/openswmmvislayer.h
+    ${CMAKE_SOURCE_DIR}/src/map/mapextent.cpp
+    ${CMAKE_SOURCE_DIR}/include/map/mapextent.h
+    ${CMAKE_SOURCE_DIR}/src/map/spatialreferencesystem.cpp
+    ${CMAKE_SOURCE_DIR}/include/map/spatialreferencesystem.h
+    ${CMAKE_SOURCE_DIR}/src/render/temporalspec.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/maskspec.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/auxiliarystoragespec.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/joinspec.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/diagramspec.cpp
+)
+target_link_libraries(test_tilepyramidfallback PRIVATE
+    GDAL::GDAL
+)
+target_include_directories(test_tilepyramidfallback PRIVATE ${GDAL_INCLUDE_DIRS})
+
 # test_simulationoptionsdialog — re-enabled 2026-05-21 (Slice CW follow-up).
 #
 # The previous parking comment said this had to wait for the `swmmvis_core`
