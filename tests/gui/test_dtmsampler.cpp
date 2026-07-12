@@ -18,6 +18,7 @@
 #include <gdal_priv.h>
 
 #include <cmath>
+#include <limits>
 #include <vector>
 
 class TestDTMSampler : public QObject
@@ -123,6 +124,25 @@ private slots:
 
         QVERIFY(std::isnan(s.sample(-100, 0)));
         QVERIFY(std::isnan(s.sample(0,  100)));
+    }
+
+    /*! A non-finite coordinate (e.g. from a failed upstream CRS transform)
+     *  returns NaN rather than reaching static_cast<int>(floor(NaN)), which
+     *  is UB. */
+    void nonFiniteCoords_returnNaN()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = buildRamp(dir);
+        mesh::DTMSampler s;
+        QVERIFY(s.open(path));
+
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        const double inf = std::numeric_limits<double>::infinity();
+        QVERIFY(std::isnan(s.sample(nan, 4.5)));
+        QVERIFY(std::isnan(s.sample(4.5, nan)));
+        QVERIFY(std::isnan(s.sample(inf, 4.5)));
+        QVERIFY(std::isnan(s.sample(-inf, -inf)));
     }
 
     /*! Bulk sampling matches per-point loop. */

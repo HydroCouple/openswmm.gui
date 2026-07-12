@@ -137,6 +137,7 @@
 #include <vector>
 #include "ui/dialogs/profileplotdialog.h"
 #include "ui/dialogs/meshprofileplotdialog.h"
+#include "ui/dialogs/rasterprofileplotdialog.h"
 #include "ui/dialogs/comparisonplotdialog.h"
 #include "plot/comparisonplotmodel.h"
 #include "ui/dialogs/addbasemapdialog.h"
@@ -754,6 +755,63 @@ void SWMMVis::initializeTerrainToolBar()
 {
     mTerrainToolbar = new TerrainToolbar(tr("Terrain"), this);
     addToolBar(Qt::TopToolBarArea, mTerrainToolbar);
+
+    // Trace Profile Path over the active DEM — the raster peer of the mesh
+    // toolbar's actionMeshProfile. Icon-only (the QAction text is left empty),
+    // checkable, and its objectName matches SWMMVisProjectWindow::toolActionKeys()
+    // so the canvas active-tool sync keeps it checked/unchecked in step.
+    mTerrainToolbar->addSeparator();
+    auto *actTerrainProfile = new QAction(QIcon(QStringLiteral(":/swmmvis/Profile")),
+                                          QString(), mTerrainToolbar);
+    actTerrainProfile->setObjectName(QStringLiteral("actionTerrainProfile"));
+    actTerrainProfile->setCheckable(true);
+    actTerrainProfile->setToolTip(tr(
+        "Draw a polyline over the active terrain raster to plot its ground "
+        "elevation profile. Click to add vertices, double-click or Enter to "
+        "finish, right-click to undo, Esc to cancel."));
+    connect(actTerrainProfile, &QAction::toggled, this,
+            [this, actTerrainProfile](bool checked) {
+        auto *pw = activeProjectWindow();
+        if (!pw) { actTerrainProfile->setChecked(false); return; }
+        if (checked) pw->activateTerrainProfileTool();
+        else         pw->activateSelectTool();
+    });
+    mTerrainToolbar->addAction(actTerrainProfile);
+}
+
+void SWMMVis::openTerrainProfilePlotFor(const QVector<QPointF> &scenePolyline)
+{
+    auto *pw = activeProjectWindow();
+    if (!pw) return;
+    if (scenePolyline.size() < 2) return;
+
+    GISRasterLayer *raster = mTerrainToolbar ? mTerrainToolbar->activeTerrain()
+                                             : nullptr;
+    if (!raster) {
+        QMessageBox::information(this, tr("No terrain raster"),
+            tr("Pick a DEM in the Terrain toolbar's \"Terrain\" selector before "
+               "tracing a ground profile."));
+        return;
+    }
+
+    const double vertFactor = mTerrainToolbar->verticalToModelFactor();
+    auto *dlg = new RasterProfilePlotDialog(raster, vertFactor, scenePolyline,
+                                            pw, /*parent=*/pw);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+
+    // Keep the ground line in model vertical units when the user corrects the
+    // DEM unit / conversion factor after the dialog is already open. Guarded on
+    // the toolbar still pointing at THIS dialog's raster — the factor is a
+    // property of that DEM, so once the user switches terrain it no longer
+    // describes the profile this window is showing. (The traced profile stays
+    // bound to the raster it was traced against; trace again for the new one.)
+    connect(mTerrainToolbar, &TerrainToolbar::verticalUnitChanged, dlg,
+            [this, dlg, raster](const QString &) {
+        if (!mTerrainToolbar || mTerrainToolbar->activeTerrain() != raster) return;
+        dlg->setVerticalFactor(mTerrainToolbar->verticalToModelFactor());
+    });
+
+    dlg->show();
 }
 
 // Slice §V.VB — Mesh Editing toolbar peer of TerrainToolbar.  Docked in
@@ -5045,6 +5103,12 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
             Qt::UniqueConnection);
     connect(pw, &SWMMVisProjectWindow::analysisMeshProfileTraced,
             this, &SWMMVis::openMeshProfilePlotFor,
+            Qt::UniqueConnection);
+
+    // Terrain-toolbar Trace Profile: same polyline, sampled off the active DEM
+    // raster instead of the mesh.
+    connect(pw, &SWMMVisProjectWindow::terrainProfileTraced,
+            this, &SWMMVis::openTerrainProfilePlotFor,
             Qt::UniqueConnection);
 
     // Mesh edge-select tool: right-click → plot the edge's flux time series.

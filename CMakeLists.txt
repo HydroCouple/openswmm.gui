@@ -294,7 +294,9 @@ set(
         include/plot/profilenetworkadapter.h
         include/plot/profileplotwidget.h
         include/plot/profileplotoptions.h
+        include/plot/profilesection.h
         include/plot/meshprofilesampler.h
+        include/plot/rasterprofilesampler.h
         include/plot/meshprofileplotwidget.h
         include/plot/meshprofileplotoptions.h
         include/plot/profilesourcefetcher.h
@@ -696,6 +698,7 @@ set(
         include/ui/dialogs/profileplotdialog.h
         include/ui/dialogs/profileoptionsdialog.h
         include/ui/dialogs/meshprofileplotdialog.h
+        include/ui/dialogs/rasterprofileplotdialog.h
         include/ui/dialogs/profilesourcestyleadapter.h
         include/ui/dialogs/wmsconnectiondialog.h
         include/ui/dialogs/wmtsconnectiondialog.h
@@ -835,6 +838,7 @@ set(
         src/plot/profileplotwidget.cpp
         src/plot/profileplotoptions.cpp
         src/plot/meshprofilesampler.cpp
+        src/plot/rasterprofilesampler.cpp
         src/plot/meshprofileplotwidget.cpp
         src/plot/meshprofileplotoptions.cpp
         src/plot/profilesourcefetcher.cpp
@@ -1200,6 +1204,7 @@ set(
         src/ui/dialogs/profileplotdialog.cpp
         src/ui/dialogs/profileoptionsdialog.cpp
         src/ui/dialogs/meshprofileplotdialog.cpp
+        src/ui/dialogs/rasterprofileplotdialog.cpp
         src/ui/dialogs/profilesourcestyleadapter.cpp
         src/ui/dialogs/wmsconnectiondialog.cpp
         src/ui/dialogs/wmtsconnectiondialog.cpp

@@ -404,6 +404,12 @@ private slots:
     void openMeshProfilePlotFor(const QVector<QPointF> &scenePolyline);
     void openMeshBedProfilePlotFor(const QVector<QPointF> &scenePolyline);
 
+    /*! Open the DEM-raster longitudinal profile dialog for the polyline the
+     *  terrain-toolbar trace tool just emitted (scene coords). The raster peer
+     *  of openMeshBedProfilePlotFor: ground only, sampled off
+     *  TerrainToolbar::activeTerrain() with its vertical conversion factor. */
+    void openTerrainProfilePlotFor(const QVector<QPointF> &scenePolyline);
+
     /*! Slice US.A2 — context-sensitive Analysis "Plot Profile": dispatch to a
      *  network (pipe HGL) profile or a 2D-surface profile based on selection +
      *  what's loaded. \p forceMode: 0 = auto, 1 = network, 2 = mesh surface. */
