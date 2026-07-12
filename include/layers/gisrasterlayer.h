@@ -10,13 +10,20 @@
 #ifndef GISRASTERLAYER_H
 #define GISRASTERLAYER_H
 
-#include "layers/openswmmvislayer.h"
+#include "layers/tilepyramidlayer.h"
 #include "render/colorramp.h"
 
 #include <QImage>
+#include <QFutureWatcher>
+#include <QList>
+#include <QMutex>
+#include <QSet>
 #include <QString>
+#include <QThreadPool>
 
+#include <atomic>
 #include <memory>
+#include <vector>
 
 // Forward-declare GDAL types
 class GDALDataset;
@@ -42,7 +49,7 @@ namespace OpenSWMM::Render { class IRasterRenderer; }
  *          Single-band datasets are rendered via a colour ramp. Three-band (RGB)
  *          or four-band (RGBA) datasets bypass the ramp and render as-is.
  */
-class GISRasterLayer : public OpenSWMMVisLayer
+class GISRasterLayer : public TilePyramidLayer
 {
     Q_OBJECT
     Q_PROPERTY(QString  filePath    READ filePath    NOTIFY filePathChanged)
@@ -209,6 +216,13 @@ signals:
     /*! \brief Emitted on the GUI thread when \ref openAsync() completes. */
     void openFinished(bool ok);
 
+    /*! \brief A background overview (`.ovr` pyramid) build has started for
+     *         this raster. \p name is the display file name. */
+    void overviewBuildStarted(const QString &name);
+    /*! \brief The background overview build finished (ok ⇒ pyramids ready and
+     *         the render will pick them up on the next repaint). */
+    void overviewBuildFinished(bool ok);
+
 private:
     // Worker-thread payload for openAsync(): the GDAL open + metadata read +
     // band-stats scan produce this POD (no QObject state), which
@@ -222,14 +236,131 @@ private:
     void closeDataset();
     void invalidateCache();
 
+    // ── Overview (pyramid) preprocessing — Phase 1 ────────────────────────
+    /*! \brief If this raster is large, lacks internal overviews, and the
+     *         auto-build preference is on, kick off a background `.ovr` build.
+     *         Called on the GUI thread after a successful open. */
+    void maybeBuildOverviews();
+    /*! \brief Launch the background GDALBuildOverviews on a worker (separate
+     *         read-only handle ⇒ external `.ovr` sidecar; source untouched).
+     *         On completion flags a dataset reload so the render thread reopens
+     *         m_dataset and sees the new pyramids. */
+    void buildOverviewsAsync();
+
+    // Snapshot of everything a worker-thread tile warp reads, taken on the
+    // GUI thread at launch so the worker never dereferences live layer state
+    // (the renderer is a clone() — zero locking in the colourise loop).
+    struct WarpParams
+    {
+        int    renderBand  = 1;
+        bool   hasNoData   = false;
+        double noDataValue = 0.0;
+        bool   hillshadeEnabled     = false;
+        double hillshadeAzimuthDeg  = 315.0;
+        double hillshadeAltitudeDeg = 45.0;
+        double hillshadeZFactor     = 1.0;
+        double hillshadeStrength    = 0.5;
+        std::shared_ptr<const OpenSWMM::Render::IRasterRenderer> renderer;
+    };
+    [[nodiscard]] WarpParams snapshotWarpParams() const;
+
     /*!
-     * \brief Warps the dataset to match \p canvasSRS and the requested extent/size.
+     * \brief Warps \p src to match \p canvasSRS and the requested extent/size.
+     * \details Pure w.r.t. the borrowed \p src handle + \p params snapshot —
+     *          safe to run on N workers concurrently (one GDAL handle each).
      * \returns A QImage in ARGB32 format ready to be painted.
      */
-    [[nodiscard]] QImage warpToCanvas(const MapExtent &canvasExtent,
+    [[nodiscard]] QImage warpToCanvas(GDALDataset *src,
+                                      const MapExtent &canvasExtent,
                                       const SpatialReferenceSystem *canvasSRS,
                                       int pixelWidth,
-                                      int pixelHeight) const;
+                                      int pixelHeight,
+                                      const WarpParams &params) const;
+
+    /*! \brief Phase 2 — build a small in-memory source holding ONLY the
+     *         canvas-extent window of \p src, read at (roughly) the view's
+     *         resolution so GDAL serves it from the nearest overview instead of
+     *         traversing the full-resolution image. warpToCanvas() then warps
+     *         this small source. Bands: single-band ⇒ [render band] as band 1;
+     *         RGB ⇒ [1,2,3]. In the source CRS with the window's geotransform.
+     *         Returns nullptr on no-overlap / non-northup / failure, so the
+     *         caller falls back to the full-resolution warp. */
+    [[nodiscard]] GDALDataset *buildWindowedSource(
+        GDALDataset *src,
+        const MapExtent &canvasExtent, const SpatialReferenceSystem *canvasSRS,
+        int pixelWidth, int pixelHeight, int outBands, bool isRGB,
+        const WarpParams &params) const;
+
+    // ── Phase 3 — fixed-grid tile pyramid (off-thread, cached) ───────────
+    // Tiles are 256² images in CANVAS CRS on a fixed power-of-2 grid, so a pan
+    // reuses the tiles it already has and only the new edge tiles are produced.
+    // Each tile is one warpToCanvas() of its canvas-CRS extent (overview-aware),
+    // produced on up to N concurrent workers (one pooled GDAL handle each),
+    // cached in the TilePyramidLayer base, and composited by render() with a
+    // coarser-tile fallback for tiles still in production.
+    static constexpr int kTilePx = 256;
+    // Fallback stand-ins may be at most 2^6 = 64× coarser than the view level
+    // (a 4-px sub-rect of a 256² ancestor).
+    static constexpr double kMaxAncestorSpanRatio = 64.0;
+    struct TileReq { int level; int col; int row; };
+    // Worker → GUI payload for one produced tile. `gen` is the cache
+    // generation captured at launch; results from before an invalidateCache()
+    // are dropped instead of polluting the fresh cache.
+    struct TileResult
+    {
+        QString   key;
+        QImage    img;
+        MapExtent extent;
+        int       level = 0;
+        quint64   gen   = 0;
+    };
+    /*! \brief Discrete pyramid level for a canvas resolution (map units/pixel):
+     *         level = round(log2(mupp)); tile resolution = 2^level. */
+    [[nodiscard]] static int levelForResolution(double mapUnitsPerPixel);
+    /*! \brief Canvas-CRS extent of tile (level,col,row) on the fixed grid. */
+    [[nodiscard]] static MapExtent tileExtent(int level, int col, int row);
+    [[nodiscard]] static QString   tileKey(int level, int col, int row);
+    /*! \brief Ensure the tiles covering \p extent at the view's level are
+     *         cached or queued for production. */
+    void requestTiles(const MapExtent &extent, const QSize &viewportSize,
+                      const SpatialReferenceSystem *canvasSRS);
+    /*! \brief Cold-start backstop: once per cache generation, front-queue the
+     *         coarsest-level tiles covering the whole raster (≤ ~4×4) so the
+     *         render fallback always has a stand-in to cut from. */
+    void enqueueSeedTiles();
+    /*! \brief Pump: launch queued tiles into idle slots until all N slots are
+     *         busy (or the queue / handle pool is exhausted). */
+    void startNextTiles();
+    /*! \brief GUI-thread completion of slot \p slotIndex: cache the tile,
+     *         return the handle, repaint, re-pump. */
+    void onSlotFinished(int slotIndex);
+
+    // ── Parallel tile production — N-slot GDAL handle pool ───────────────
+    // N read-only handles to the same file; a slot borrows one for the warp
+    // duration. Acquire (startNextTiles) and release (onSlotFinished) both run
+    // on the GUI thread, so the free-list needs no mutex; workers only *use*
+    // their borrowed handle.
+    struct TileSlot
+    {
+        std::unique_ptr<QFutureWatcher<TileResult>> watcher;
+        bool                    busy   = false;
+        GDALDataset            *handle = nullptr;  // borrowed from m_freeHandles
+        SpatialReferenceSystem *srs    = nullptr;  // per-tile clone; freed on finish
+    };
+    /*! \brief Open the N pooled read-only handles + create the slots/watchers.
+     *         Closes any previous pool first (requires no busy slot). */
+    void openHandlePool();
+    /*! \brief Destroy the slots (dropping any queued stale completions) and
+     *         GDALClose all pooled handles. Requires no busy slot. */
+    void closeHandlePool();
+    /*! \brief Synchronously wait out every in-flight tile warp and fold in its
+     *         completion. Callers must recreate or destroy the slots (via
+     *         openHandlePool/closeHandlePool) before returning to the event
+     *         loop, so the watchers' now-stale queued signals never fire. */
+    void drainTileSlots();
+    /*! \brief Fold one finished slot's result into the cache and free the
+     *         slot's per-tile resources. */
+    void finishSlot(TileSlot &slot);
 
     QString          m_filePath;
     int              m_renderBand = 1;
@@ -246,20 +377,35 @@ private:
     double           m_hillshadeZFactor    = 1.0;
     double           m_hillshadeStrength   = 0.5;
 
-    // Float64 warped value cache — same spatial extent as m_cachedTile / m_cacheExtent
-    // but stores raw elevation values (not color-rendered).  Populated by warpToCanvas
-    // for single-band rasters (mutable because warpToCanvas is const).
-    mutable QVector<double>  m_rawValueCache;
-    mutable int              m_rawCacheWidth  = 0;
-    mutable int              m_rawCacheHeight = 0;
-
     GDALDataset     *m_dataset    = nullptr;  /*!< Owned GDAL dataset. */
 
-    // Tile cache
-    QImage           m_cachedTile;
-    MapExtent        m_cacheExtent;
-    int              m_cacheWidth  = 0;
-    int              m_cacheHeight = 0;
+    // Guards m_dataset for the paths that still share the primary handle:
+    // valueAt() (single-pixel probe), closeDataset(), and the post-.ovr-build
+    // reload/reopen. Tile warps no longer take it — each worker reads through
+    // its own pooled handle with a WarpParams snapshot.
+    mutable QMutex   m_datasetMutex;
+    // Set after a background .ovr build; consumed by the next fetchCache()
+    // (GUI thread), which reopens m_dataset so the new overviews become visible.
+    std::atomic<bool> m_datasetReloadPending{false};
+    bool              m_overviewBuildInFlight = false;
+
+    // Tile pyramid state. The tile cache itself lives in the TilePyramidLayer
+    // base (mutex-guarded: render() reads from the MapRenderJob worker while
+    // the GUI thread inserts). Everything below is GUI-thread only.
+    QList<TileReq>          m_tileQueue;         // FIFO of tiles still to produce
+    QSet<QString>           m_queuedKeys;        // de-dup: queued ∪ in-flight
+    quint64                 m_cacheGeneration = 0; // bumped by invalidateCache()
+    quint64                 m_seedGeneration  = ~0ULL; // last gen seeds were queued
+    SpatialReferenceSystem *m_currentSRS   = nullptr;  // latest canvas-CRS snapshot (template)
+
+    // Parallel production (see TileSlot above). m_tilePool bounds tile warps
+    // to N threads and keeps them off the global pool used by openAsync /
+    // overview builds.
+    int                        m_maxConcurrentTiles = 1;
+    QThreadPool                m_tilePool;
+    std::vector<GDALDataset *> m_poolHandles;  // owns the N pooled handles
+    QList<GDALDataset *>       m_freeHandles;  // GUI-thread free-list
+    std::vector<TileSlot>      m_slots;
 
     // Persistent scene item (kept visible as placeholder until new warp completes)
     RasterTileItem  *m_sceneItem  = nullptr;

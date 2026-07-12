@@ -10,10 +10,9 @@
 #ifndef WMTSLAYER_H
 #define WMTSLAYER_H
 
-#include "layers/openswmmvislayer.h"
+#include "layers/tilepyramidlayer.h"
 #include "render/basemaprenderparams.h"
 
-#include <QCache>
 #include <ogr_spatialref.h>
 #include <QHash>
 #include <QSet>
@@ -89,14 +88,16 @@ struct WMTSServiceInfo
  * \details Implements the OGC Web Map Tile Service protocol using Qt's
  *          QNetworkAccessManager — no QGIS dependency.
  *
- *          Tiles are fetched in parallel, cached in a QCache<QString, QImage>
- *          keyed by "layerId/style/tileMatrixSet/zoom/col/row", and painted
- *          synchronously in render().  Stale cache entries are automatically
- *          evicted when the cache exceeds its maximum size.
+ *          Tiles are fetched in parallel, cached in the TilePyramidLayer base
+ *          (keyed by "layerId/style/tileMatrixSet/zoom/col/row", each with its
+ *          tile-CRS extent), and painted synchronously in render(); a tile
+ *          still in flight paints as a sub-rect of the nearest cached coarser
+ *          tile instead of a blank hole.  Stale cache entries are
+ *          automatically evicted when the cache exceeds its maximum size.
  *
  *          Supports both RESTful (KVP) and template URL tile addressing.
  */
-class WMTSLayer : public OpenSWMMVisLayer
+class WMTSLayer : public TilePyramidLayer
 {
     Q_OBJECT
 
@@ -210,13 +211,18 @@ signals:
 
 private slots:
     void onCapabilitiesReply(QNetworkReply *reply);
-    void onTileReply(QNetworkReply *reply, const QString &cacheKey, bool &pendingDecrement);
+    void onTileReply(QNetworkReply *reply, const QString &cacheKey,
+                     const MapExtent &tileExtent, int level);
 
     // ----- Public accessors used by the file-level populateTiles helper ---
 public:
     // These thin wrappers expose private helpers to the static helper function
     // in wmtslayer.cpp without changing the virtual interface.
-    void fetchTileIfNeeded(const QString &cacheKey, const QUrl &tileUrl);
+    // \p tileExtent is the tile's bounds in the tile matrix CRS and \p level
+    // its pyramid-level tag — both stored with the decoded tile so the
+    // TilePyramidLayer coarser-tile fallback can resolve it.
+    void fetchTileIfNeeded(const QString &cacheKey, const QUrl &tileUrl,
+                           const MapExtent &tileExtent, int level);
     [[nodiscard]] QUrl buildTileUrlPublic(const QString &layerId,
                                           const QString &style,
                                           const QString &tileMatrixSet,
@@ -226,7 +232,6 @@ public:
         const WMTSTileMatrixSet &tms,
         const MapExtent &canvasExtent,
         int pixelWidth) const;
-    [[nodiscard]] QCache<QString, QImage> *tileCache();
 
     /*! Slice X.22 — shared basemap render adjustments. */
     [[nodiscard]] const OpenSWMM::Render::BasemapRenderParams &basemapRenderParams() const { return m_renderParams; }
@@ -247,7 +252,8 @@ private:
                                     const WMTSTileMatrix &matrix,
                                     int col, int row) const;
 
-    void fetchTile(const QString &cacheKey, const QUrl &tileUrl);
+    void fetchTile(const QString &cacheKey, const QUrl &tileUrl,
+                   const MapExtent &tileExtent, int level);
 
     QUrl                              m_serviceUrl;
     QString                           m_activeLayerId;
@@ -259,7 +265,6 @@ private:
     OpenSWMM::Render::BasemapRenderParams m_renderParams;  /*!< X.22 */
 
     QNetworkAccessManager            *m_nam          = nullptr;
-    QCache<QString, QImage>           m_tileCache;    /*!< Keyed by canonical tile ID. */
     QSet<QString>                     m_inFlightKeys; /*!< Tiles currently being fetched. */
     int                               m_pendingTiles = 0;
     QHash<QString, RasterTileItem *>  m_activeSceneItems; /*!< Tile items currently in the scene. */
