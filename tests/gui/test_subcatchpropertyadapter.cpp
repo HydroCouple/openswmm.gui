@@ -157,6 +157,89 @@ private slots:
 
         swmm_engine_destroy(e);
     }
+
+    // ====================================================================
+    // Precipitation scale factors — rain/snow scale round-trip
+    // ====================================================================
+
+    void scaleFactorsRoundTrip()
+    {
+        SWMM_Engine e = buildTwoSubcatchFixture();
+        QVERIFY(e);
+
+        SWMMSubcatchPropertyAdapter a(e, QStringLiteral("S1"));
+        // Hand-written getters fall back to 1.0 (not the destructive 0.0 that
+        // the G() macro would give) — see the adapter's rainScaleFactor().
+        QCOMPARE(a.rainScaleFactor(), 1.0);
+        QCOMPARE(a.snowScaleFactor(), 1.0);
+
+        QSignalSpy spy(&a, &SWMMSubcatchPropertyAdapter::changed);
+        a.setRainScaleFactor(0.5);
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(a.rainScaleFactor(), 0.5);
+
+        a.setSnowScaleFactor(1.3);
+        QCOMPARE(a.snowScaleFactor(), 1.3);
+        // The two factors are independent.
+        QCOMPARE(a.rainScaleFactor(), 0.5);
+
+        swmm_engine_destroy(e);
+    }
+
+    // The Property Browser hands out an unbounded spin box, so the adapter
+    // write slot guards v > 0. A non-positive value must be rejected without
+    // mutating the stored value or emitting changed().
+    void scaleFactorRejectsNonPositive()
+    {
+        SWMM_Engine e = buildTwoSubcatchFixture();
+        QVERIFY(e);
+
+        SWMMSubcatchPropertyAdapter a(e, QStringLiteral("S1"));
+        a.setRainScaleFactor(0.8);
+        QCOMPARE(a.rainScaleFactor(), 0.8);
+
+        QSignalSpy spy(&a, &SWMMSubcatchPropertyAdapter::changed);
+        a.setRainScaleFactor(0.0);
+        a.setRainScaleFactor(-2.0);
+        QCOMPARE(spy.count(), 0);
+        QVERIFY2(qFuzzyCompare(a.rainScaleFactor(), 0.8),
+                 "rejected value must not mutate storage");
+
+        swmm_engine_destroy(e);
+    }
+
+    // Setting a scale factor on S1 must not bleed into S2.
+    void scaleFactorMultiSubcatchIsolation()
+    {
+        SWMM_Engine e = buildTwoSubcatchFixture();
+        QVERIFY(e);
+
+        SWMMSubcatchPropertyAdapter a1(e, QStringLiteral("S1"));
+        SWMMSubcatchPropertyAdapter a2(e, QStringLiteral("S2"));
+
+        a1.setRainScaleFactor(2.0);
+        QCOMPARE(a1.rainScaleFactor(), 2.0);
+        QVERIFY2(qFuzzyCompare(a2.rainScaleFactor(), 1.0), "S2 must keep its default");
+
+        swmm_engine_destroy(e);
+    }
+
+    void scaleFactorsAdvertisedAsWritable()
+    {
+        SWMM_Engine e = buildTwoSubcatchFixture();
+        QVERIFY(e);
+
+        SWMMSubcatchPropertyAdapter a(e, QStringLiteral("S1"));
+        const auto *mo = a.metaObject();
+        for (const char *prop : {"rainScaleFactor", "snowScaleFactor"}) {
+            const int idx = mo->indexOfProperty(prop);
+            QVERIFY2(idx >= 0, prop);
+            QVERIFY2(mo->property(idx).isWritable(), prop);
+            QVERIFY(!a.displayLabelFor(QString::fromLatin1(prop)).isEmpty());
+        }
+
+        swmm_engine_destroy(e);
+    }
 };
 
 QTEST_MAIN(TestSubcatchPropertyAdapter)

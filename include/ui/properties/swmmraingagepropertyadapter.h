@@ -49,6 +49,11 @@ private:
     /*! Snow-catch deficiency correction factor (legacy SCF, token 3).
      *  Distinct from the rainfall scale factor. */
     Q_PROPERTY(double snowFactor   READ snowFactor   WRITE setSnowFactor   NOTIFY changed)
+    /*! Rainfall scale factor — the optional trailing token of [RAINGAGES]
+     *  (token 6 for TIMESERIES, token 9 for FILE). Multiplies all rainfall from
+     *  this gage. Distinct from snowFactor above: this scales rainfall, SCF
+     *  corrects snow catch. Must be > 0; default 1.0. */
+    Q_PROPERTY(double scaleFactor  READ scaleFactor  WRITE setScaleFactor  NOTIFY changed)
     Q_PROPERTY(SWMMRainGagePropertyAdapter::DataSource dataSource
                READ dataSource  WRITE setDataSource  NOTIFY changed)
     /*! DA.2 parity — TIME SERIES source: the in-model series id. Renders
@@ -83,6 +88,7 @@ public:
     [[nodiscard]] RainType rainType()       const;
     [[nodiscard]] RainIntervalRef rainIntervalRef() const;
     [[nodiscard]] double snowFactor()        const;
+    [[nodiscard]] double scaleFactor()       const;
     [[nodiscard]] DataSource dataSource()   const;
     [[nodiscard]] DataObjectRef seriesNameRef() const;
     [[nodiscard]] double currentRainfall()  const;
@@ -97,6 +103,7 @@ public slots:
     void setRainType(int v);
     void setRainIntervalRef(const RainIntervalRef &r);
     void setSnowFactor(double v);
+    void setScaleFactor(double v);
     void setDataSource(int v);
     void setSeriesNameRef(const DataObjectRef &r);
     void setFilePath(const QString &p);

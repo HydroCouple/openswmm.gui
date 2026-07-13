@@ -45,6 +45,10 @@ QString SWMMSubcatchPropertyAdapter::displayLabelFor(const QString &property) co
     if (property == QLatin1String("nPerv"))     return tr("N-Perv");
     if (property == QLatin1String("dsImperv"))  return tr("Dstore-Imperv (%1)").arg(D);
     if (property == QLatin1String("dsPerv"))    return tr("Dstore-Perv (%1)").arg(D);
+    // Precipitation scaling — multiply the gage-derived precip for this
+    // subcatchment only. Compose with the gage's own factors.
+    if (property == QLatin1String("rainScaleFactor")) return tr("Rainfall Scale Factor");
+    if (property == QLatin1String("snowScaleFactor")) return tr("Snow Scale Factor");
     // Phase 3 — gage / outlet / infiltration.
     if (property == QLatin1String("rainGage"))   return tr("Rain Gage");
     if (property == QLatin1String("outlet"))     return tr("Outlet");
@@ -144,6 +148,52 @@ S(setNImperv,   swmm_subcatch_set_n_imperv)
 S(setNPerv,     swmm_subcatch_set_n_perv)
 S(setDsImperv,  swmm_subcatch_set_ds_imperv)
 S(setDsPerv,    swmm_subcatch_set_ds_perv)
+
+// ---------------------------------------------------------------------------
+// Precipitation scale factors.
+//
+// Hand-written rather than using G()/S() above: the G() macro falls back to 0.0
+// when the engine read fails, but the neutral value for a multiplicative factor
+// is 1.0 — a 0.0 fallback would silently show (and on a subsequent write, apply)
+// "no precipitation". The setters also guard v > 0 because the Property Browser
+// hands out an unbounded spin box; the engine would reject the value anyway, but
+// silently, leaving the user with no feedback.
+// ---------------------------------------------------------------------------
+double SWMMSubcatchPropertyAdapter::rainScaleFactor() const
+{
+    const int i = idx();
+    if (i < 0) return 1.0;
+    double v = 1.0;
+    swmm_subcatch_get_rain_scale_factor(m_engine, i, &v);
+    return v;
+}
+
+void SWMMSubcatchPropertyAdapter::setRainScaleFactor(double v)
+{
+    if (v <= 0.0) return;
+    const int i = idx();
+    if (i < 0) return;
+    if (swmm_subcatch_set_rain_scale_factor(m_engine, i, v) == SWMM_OK)
+        emit changed();
+}
+
+double SWMMSubcatchPropertyAdapter::snowScaleFactor() const
+{
+    const int i = idx();
+    if (i < 0) return 1.0;
+    double v = 1.0;
+    swmm_subcatch_get_snow_scale_factor(m_engine, i, &v);
+    return v;
+}
+
+void SWMMSubcatchPropertyAdapter::setSnowScaleFactor(double v)
+{
+    if (v <= 0.0) return;
+    const int i = idx();
+    if (i < 0) return;
+    if (swmm_subcatch_set_snow_scale_factor(m_engine, i, v) == SWMM_OK)
+        emit changed();
+}
 
 // ===========================================================================
 // Phase 3 — rain gage, outlet, infiltration model + params.

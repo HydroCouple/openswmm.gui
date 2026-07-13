@@ -186,6 +186,40 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    // P1 (ATTRIBUTE_EDITOR_WIRING_PLAN §Phase 4) — the gage rainfall scale
+    // factor. Round-trips through the engine and is independent of the snow
+    // catch factor (the pair the code comment warns is easiest to cross-wire).
+    void rainGageScaleFactorRoundTrip()
+    {
+        SWMM_Engine e = swmm_engine_new();
+        QVERIFY(e);
+        QCOMPARE(swmm_gage_add(e, "RG1"), SWMM_OK);
+
+        SWMMRainGagePropertyAdapter a(e, QStringLiteral("RG1"));
+        QCOMPARE(a.scaleFactor(), 1.0);   // default
+        QCOMPARE(a.snowFactor(),  1.0);
+
+        QSignalSpy spy(&a, &SWMMRainGagePropertyAdapter::changed);
+        a.setScaleFactor(0.5);
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(a.scaleFactor(), 0.5);
+
+        // Scale factor and snow factor are distinct fields — setting one must
+        // not disturb the other.
+        a.setSnowFactor(1.5);
+        QCOMPARE(a.snowFactor(),  1.5);
+        QCOMPARE(a.scaleFactor(), 0.5);
+
+        // Metaobject contract + label.
+        const auto *mo = a.metaObject();
+        const int idx = mo->indexOfProperty("scaleFactor");
+        QVERIFY2(idx >= 0, "raingage adapter missing scaleFactor property");
+        QVERIFY(mo->property(idx).isWritable());
+        QVERIFY(!a.displayLabelFor(QStringLiteral("scaleFactor")).isEmpty());
+
+        swmm_engine_destroy(e);
+    }
+
     // DA.2 parity — H:MM clock helpers shared by the interval combo + table
     // delegate. Must round-trip and match the engine's parse_time_seconds
     // (colon form is H:MM[:SS]; bare number is decimal hours).
