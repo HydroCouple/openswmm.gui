@@ -760,12 +760,32 @@ jobs:
 
       # ── Artifacts ────────────────────────────────────────────────────────
       # packages/ contains: .exe (Windows), .dmg (macOS), .tar.gz + .AppImage (Linux)
+      # compression-level: 0 is the important part. Everything CPack emits here is
+      # ALREADY a compressed container — .dmg, .zip, .tar.gz, .AppImage, and the
+      # NSIS .exe. The default (level 6) re-deflates incompressible data: it burns
+      # a lot of CPU for ~0 size reduction. That was the whole cost of this step —
+      # 8.5 min on macos-15 and 41.8 min on macos-15-intel, where it had become
+      # more expensive than the compile it was packaging. Level 0 stores them.
+      #
+      # Explicit globs rather than the whole packages/ dir: CPack also drops
+      # _CPack_Packages/ staging trees (the fully-expanded, UNcompressed .app
+      # bundle) next to the real artifact. Uploading the directory wholesale risks
+      # shipping that staging tree too — gigabytes of files we already have inside
+      # the .dmg. Name the deliverables instead.
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: swmmvis-${{ matrix.vcpkg_triplet }}
-          path: packages/
+          compression-level: 0
+          if-no-files-found: warn
+          path: |
+            packages/*.dmg
+            packages/*.zip
+            packages/*.exe
+            packages/*.tar.gz
+            packages/*.AppImage
+            packages/*.asc
 
       # ── vcpkg binary cache: SAVE ────────────────────────────────────────────
       # Counterpart to "Restore vcpkg binary cache" above. The `if: always()` is
