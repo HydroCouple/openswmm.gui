@@ -2,7 +2,7 @@
   {
     "category": "Engine",
     "name": "OpenSWMMCore",
-    "version": "6.0.0-alpha.1",
+    "version": "6.0.0-alpha.3",
     "role": "Hydrology, hydraulics, water-quality, and 2D surface routing engine.",
     "homepage": "https://github.com/cbuahin/OpenSWMMCore",
     "source":   "https://github.com/cbuahin/OpenSWMMCore",
