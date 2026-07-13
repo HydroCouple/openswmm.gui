@@ -671,6 +671,16 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             num("Ds-Perv",   "Depression Storage (Perv.)",
                                                       "subcatch_ds_perv",
                                                        0.0, 1e3, 4, UnitKind::Depression),
+            // Precipitation scaling — multiplies the gage-derived precip for
+            // this subcatchment only. Min is just above zero, not zero: the
+            // engine rejects a factor <= 0, so allowing 0 in the spin box would
+            // produce an edit that silently fails to commit.
+            num("Rainfall scale", "Rainfall Scale Factor",
+                                                      "subcatch_rain_scale_factor",
+                                                       1e-6, 1e3, 4),
+            num("Snow scale",     "Snow Scale Factor",
+                                                      "subcatch_snow_scale_factor",
+                                                       1e-6, 1e3, 4),
             // Phase 3 — Rain gage + outlet pickers (DataObjectRef cells),
             // infiltration model enum, and the per-model parameter columns.
             // Parameter columns are always present (no per-row greying in the
@@ -726,8 +736,13 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             enumCol("Rain type",   "Rain Type",   "gage_rain_type",
                                                   gageRainTypeValues()),
             intervalCol,
-            num("Snow catch factor",  "Snow Catch Factor",      "gage_snow_factor",
+            num("Snow catch factor",  "Snow Catch Factor (SCF)", "gage_snow_factor",
                                                   0.0, 1e3, 4),
+            // Rainfall scale factor — the optional trailing token of
+            // [RAINGAGES]. Distinct from the SCF above: this scales rainfall,
+            // SCF corrects snow catch. Engine rejects <= 0, so min is 1e-6.
+            num("Rainfall scale factor", "Rainfall Scale Factor", "gage_scale_factor",
+                                                  1e-6, 1e3, 4),
             enumCol("Data source", "Data Source", "gage_data_source",
                                                   gageDataSourceValues()),
             compoundCol("Series name", "Series Name", "gage_series_ref"),
@@ -1314,6 +1329,14 @@ SetterEntry setterFor(const QString &tag) {
         e.getFn = &swmm_gage_get_snow_factor;
         return e;
     }
+    // ATTRIBUTE_EDITOR_WIRING Phase 4 — rain gage scale factor (engine setters
+    // shipped with SWMM 5.3; the GUI had never surfaced them).
+    if (tag == QStringLiteral("gage_scale_factor")) {
+        e.kind  = EntityKind::Gage;
+        e.setFn = &swmm_gage_set_scale_factor;
+        e.getFn = &swmm_gage_get_scale_factor;
+        return e;
+    }
     if (tag == QStringLiteral("gage_station_id")) {
         e.kind   = EntityKind::Gage;
         e.setFnS = &swmm_gage_set_station_id;
@@ -1344,6 +1367,14 @@ SetterEntry setterFor(const QString &tag) {
         return {EntityKind::Subcatch, &swmm_subcatch_set_ds_imperv,  &swmm_subcatch_get_ds_imperv};
     if (tag == QStringLiteral("subcatch_ds_perv"))
         return {EntityKind::Subcatch, &swmm_subcatch_set_ds_perv,    &swmm_subcatch_get_ds_perv};
+
+    // Precipitation scale factors (optional [SUBCATCHMENTS] tokens 9 and 10).
+    if (tag == QStringLiteral("subcatch_rain_scale_factor"))
+        return {EntityKind::Subcatch, &swmm_subcatch_set_rain_scale_factor,
+                                      &swmm_subcatch_get_rain_scale_factor};
+    if (tag == QStringLiteral("subcatch_snow_scale_factor"))
+        return {EntityKind::Subcatch, &swmm_subcatch_set_snow_scale_factor,
+                                      &swmm_subcatch_get_snow_scale_factor};
 
     // Phase 3 — infiltration model (int path) + per-model parameters (double).
     if (tag == QStringLiteral("subcatch_infil_model")) {
