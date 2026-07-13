@@ -15,6 +15,7 @@
 #include "ui/properties/nodecompoundeditref.h"
 #include "ui/properties/subcatchcompoundeditref.h"  // Phase 3 compound cells
 #include "ui/properties/userflagseditref.h"  // per-object User Flags cell
+#include "ui/properties/storageshapegeom.h"  // storage-shape dimension applicability
 #include "ui/properties/xsectshapegeom.h"    // inline xsect-geom applicability
 
 #include <QUndoCommand>
@@ -399,10 +400,14 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                                           0.0, 1e6, 4, UnitKind::Rate),
         };
         // Slice AG.4 — storage geometry, Property Browser parity: shape
-        // selector, tabular depth–area curve picker, and the three
-        // functional power-law coefficients (Area = A·Depth^B + C).
-        // Picking a curve switches the node to TABULAR; clearing it (or
-        // setting Shape=FUNCTIONAL) reverts to the coefficient form.
+        // selector, tabular depth–area curve picker, the three functional
+        // power-law coefficients (Area = A·Depth^B + C), and the three raw
+        // dimensions used by the geometric shapes (CYLINDRICAL / CONICAL /
+        // PARABOLIC / PYRAMIDAL).
+        // Picking a curve switches the node to TABULAR; clearing it (or setting
+        // Shape=FUNCTIONAL) reverts to the coefficient form; setting a geometric
+        // shape switches to the dimension form. Cells that don't apply to the
+        // live shape are blanked + made read-only in data()/flags().
         cols.append(enumCol("Storage shape", "Storage Shape",
                              "node_storage_shape", storageShapeValues()));
         cols.append(compoundCol("Storage curve", "Storage Curve",
@@ -413,6 +418,14 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                         "node_storage_exp_b",   0.0, 1e9, 4, UnitKind::None));
         cols.append(num("Func const C", "Functional Constant (C)",
                         "node_storage_const_c", 0.0, 1e9, 4, UnitKind::Area));
+        // Generic headers — the meaning is shape-dependent, so the per-shape name
+        // ("Base Length", "Side Slope", …) is supplied as the cell tooltip.
+        cols.append(num("Shape param 1", "Shape Parameter 1",
+                        "node_storage_param1", 0.0, 1e9, 4, UnitKind::Length));
+        cols.append(num("Shape param 2", "Shape Parameter 2",
+                        "node_storage_param2", 0.0, 1e9, 4, UnitKind::Length));
+        cols.append(num("Shape param 3", "Shape Parameter 3",
+                        "node_storage_param3", 0.0, 1e9, 4, UnitKind::None));
         cols.append(nodeStatBlock());
         // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — browser
         // shows the four compound cells on every node kind.
@@ -819,6 +832,27 @@ int linkShapeForName(SWMMModelLayer *layer, const QString &name) {
     return shape;
 }
 
+// Storage-shape counterparts of the two helpers above. The three dimension columns
+// carry a generic header ("Shape param N") because their meaning is shape-dependent,
+// so data()/flags() use these to supply the per-shape tooltip and to blank + lock the
+// cells that the live shape doesn't use (a cylinder has no side slope).
+int storageParamOrdinalForTag(const QString &tag) {
+    if (tag == QStringLiteral("node_storage_param1")) return 1;
+    if (tag == QStringLiteral("node_storage_param2")) return 2;
+    if (tag == QStringLiteral("node_storage_param3")) return 3;
+    return 0;
+}
+// Current SWMM_StorageShape for the named node, or -1 on lookup failure.
+int storageShapeForName(SWMMModelLayer *layer, const QString &name) {
+    if (!layer || !layer->engine() || name.isEmpty()) return -1;
+    const int ni = swmm_node_index(layer->engine(), name.toUtf8().constData());
+    if (ni < 0) return -1;
+    int shape = 0;
+    if (swmm_node_get_storage_shape(layer->engine(), ni, &shape) != SWMM_OK)
+        return -1;
+    return shape;
+}
+
 // Phase 3 — subcatchment infiltration. Model code via the int path; the
 // per-model parameter columns read/write the engine's shared infil_p1..p4
 // store through the typed getters/setters. The double setters preserve the
@@ -928,31 +962,85 @@ int gageIntervalSet(SWMM_Engine e, int idx, const char *text) {
     return swmm_gage_set_rain_interval(e, idx, static_cast<double>(secs));
 }
 
-// Slice AG.4 — storage-unit geometry. The engine stores the functional
-// power-law coefficients (A, B, C) as an atomic triple and the tabular
-// curve index in a separate slot. A node is TABULAR when a curve is
-// assigned (storage_curve >= 0), FUNCTIONAL otherwise. These wrappers
-// adapt that to the (engine, idx, scalar) dispatch shape the table uses,
-// mirroring SWMMNodePropertyAdapter's storage accessors so both views agree.
+// Slice AG.4 — storage-unit geometry. The engine keeps the shape, the tabular curve
+// index, the functional power-law coefficients (A, B, C) and the raw geometric
+// dimensions (p1, p2, p3) in independent slots. These wrappers adapt that to the
+// (engine, idx, scalar) dispatch shape the table uses, mirroring
+// SWMMNodePropertyAdapter's storage accessors so both views agree.
 int storageShapeGetI(SWMM_Engine e, int idx, int *v) {
-    int curveIdx = -1;
-    const int rc = swmm_node_get_storage_curve(e, idx, &curveIdx);
-    if (rc != SWMM_OK) return rc;
-    *v = (curveIdx >= 0) ? 1 /*TABULAR*/ : 0 /*FUNCTIONAL*/;
-    return SWMM_OK;
+    return swmm_node_get_storage_shape(e, idx, v);
 }
 int storageShapeSetI(SWMM_Engine e, int idx, int v) {
-    if (v == 0) return swmm_node_set_storage_curve(e, idx, -1);  // functional
-    int curveIdx = -1;
-    swmm_node_get_storage_curve(e, idx, &curveIdx);
-    if (curveIdx >= 0) return SWMM_OK;                            // already tabular
-    const int n = swmm_table_count(e);
-    for (int i = 0; i < n; ++i) {
-        int t = -1;
-        if (swmm_table_get_type(e, i, &t) == SWMM_OK && t == 1 /*CURVE_STORAGE*/)
-            return swmm_node_set_storage_curve(e, idx, i);
+    if (v == openswmmvis::kStorageTabularId) {
+        // Tabular needs a curve; keep the one already attached, else bind the first
+        // [STORAGE]-type curve in the model. With none available the switch can't
+        // complete and the cell snaps back on re-read.
+        int curveIdx = -1;
+        swmm_node_get_storage_curve(e, idx, &curveIdx);
+        if (curveIdx >= 0) return SWMM_OK;
+        const int n = swmm_table_count(e);
+        for (int i = 0; i < n; ++i) {
+            int t = -1;
+            if (swmm_table_get_type(e, i, &t) == SWMM_OK && t == 1 /*CURVE_STORAGE*/)
+                return swmm_node_set_storage_curve(e, idx, i);
+        }
+        return SWMM_OK;
     }
-    return SWMM_OK;  // no storage curve exists; stays functional
+    // Functional / geometric — the engine detaches any curve and re-derives the area
+    // coefficients from the node's current dimensions.
+    const int rc = swmm_node_set_storage_shape(e, idx, v);
+    // A geometric shape needs valid L/W/Z, validated atomically by the engine. A
+    // node freshly switched to one carries zeroed dims, so a single-cell dimension
+    // edit would be rejected and the switch would never "take" (same reasoning as
+    // SWMMNodePropertyAdapter::setStorageShape). Seed a valid unit default when the
+    // current dims don't validate; keep them when they do so the round-trip is
+    // lossless. Both views share this so the panel and the table stay in sync.
+    if (rc == SWMM_OK && openswmmvis::storageShapeIsGeometric(v)) {
+        double p1 = 0.0, p2 = 0.0, p3 = 0.0;
+        swmm_node_get_storage_geometry(e, idx, &p1, &p2, &p3);
+        if (swmm_node_set_storage_geometry(e, idx, p1, p2, p3) != SWMM_OK)
+            swmm_node_set_storage_geometry(e, idx, 1.0, 1.0, 1.0);
+    }
+    return rc;
+}
+// Raw dimensions. Read-modify-write the engine's atomic (p1,p2,p3) triple, exactly as
+// the coefficient wrappers below do for (A,B,C). The engine rejects invalid dimensions
+// outright, so a bad cell edit leaves the node on its previous geometry.
+int storageParam1Get(SWMM_Engine e, int idx, double *v) {
+    double p1 = 0, p2 = 0, p3 = 0;
+    const int rc = swmm_node_get_storage_geometry(e, idx, &p1, &p2, &p3);
+    if (rc == SWMM_OK) *v = p1;
+    return rc;
+}
+int storageParam1Set(SWMM_Engine e, int idx, double v) {
+    double p1 = 0, p2 = 0, p3 = 0;
+    const int rc = swmm_node_get_storage_geometry(e, idx, &p1, &p2, &p3);
+    if (rc != SWMM_OK) return rc;
+    return swmm_node_set_storage_geometry(e, idx, v, p2, p3);
+}
+int storageParam2Get(SWMM_Engine e, int idx, double *v) {
+    double p1 = 0, p2 = 0, p3 = 0;
+    const int rc = swmm_node_get_storage_geometry(e, idx, &p1, &p2, &p3);
+    if (rc == SWMM_OK) *v = p2;
+    return rc;
+}
+int storageParam2Set(SWMM_Engine e, int idx, double v) {
+    double p1 = 0, p2 = 0, p3 = 0;
+    const int rc = swmm_node_get_storage_geometry(e, idx, &p1, &p2, &p3);
+    if (rc != SWMM_OK) return rc;
+    return swmm_node_set_storage_geometry(e, idx, p1, v, p3);
+}
+int storageParam3Get(SWMM_Engine e, int idx, double *v) {
+    double p1 = 0, p2 = 0, p3 = 0;
+    const int rc = swmm_node_get_storage_geometry(e, idx, &p1, &p2, &p3);
+    if (rc == SWMM_OK) *v = p3;
+    return rc;
+}
+int storageParam3Set(SWMM_Engine e, int idx, double v) {
+    double p1 = 0, p2 = 0, p3 = 0;
+    const int rc = swmm_node_get_storage_geometry(e, idx, &p1, &p2, &p3);
+    if (rc != SWMM_OK) return rc;
+    return swmm_node_set_storage_geometry(e, idx, p1, p2, v);
 }
 int storageCoeffAGet(SWMM_Engine e, int idx, double *v) {
     double a = 0, b = 0, c = 0;
@@ -1034,6 +1122,14 @@ SetterEntry setterFor(const QString &tag) {
         return {EntityKind::Node, &storageExpBSet,   &storageExpBGet};
     if (tag == QStringLiteral("node_storage_const_c"))
         return {EntityKind::Node, &storageConstCSet, &storageConstCGet};
+    // Storage geometric dimensions (read-modify-write over the engine's atomic
+    // (p1,p2,p3) triple). Meaning is per-shape — see storageshapegeom.h.
+    if (tag == QStringLiteral("node_storage_param1"))
+        return {EntityKind::Node, &storageParam1Set, &storageParam1Get};
+    if (tag == QStringLiteral("node_storage_param2"))
+        return {EntityKind::Node, &storageParam2Set, &storageParam2Get};
+    if (tag == QStringLiteral("node_storage_param3"))
+        return {EntityKind::Node, &storageParam3Set, &storageParam3Get};
     // ATTRIBUTE_EDITOR_WIRING parity pass — outfall fixed stage. The
     // setter also flips the outfall type to FIXED (engine invariant).
     if (tag == QStringLiteral("node_outfall_stage"))
@@ -1058,8 +1154,9 @@ SetterEntry setterFor(const QString &tag) {
         e.getFnI = &swmm_node_get_divider_type;
         return e;
     }
-    // Slice AG.4 — storage shape (FUNCTIONAL/TABULAR). The setter assigns
-    // or detaches a storage curve to flip the form (see storageShapeSetI).
+    // Slice AG.4 — storage shape (TABULAR / FUNCTIONAL / the four geometric
+    // shapes). The setter attaches or detaches a storage curve for TABULAR and
+    // otherwise writes the engine's shape field (see storageShapeSetI).
     if (tag == QStringLiteral("node_storage_shape")) {
         e.kind = EntityKind::Node;
         e.setFnI = &storageShapeSetI;
@@ -1312,11 +1409,19 @@ QVariantList dividerTypeValues() {
     };
 }
 // Slice AG.4 — storage geometry shape. Mirrors
-// SWMMNodePropertyAdapter::StorageShape (0=Functional, 1=Tabular).
+// SWMMNodePropertyAdapter::StorageShape, whose ordinals in turn match the engine's
+// SWMM_StorageShape / the legacy solver's enum StorageType.
+//
+// NOTE: Tabular is 0 and Functional is 1 — they were 0/1 the OTHER way round before
+// the geometric shapes landed. The numbers are the engine's now, not the GUI's.
 QVariantList storageShapeValues() {
     return {
-        makePair("FUNCTIONAL", 0),
-        makePair("TABULAR",    1),
+        makePair("TABULAR",     0),
+        makePair("FUNCTIONAL",  1),
+        makePair("CYLINDRICAL", 2),
+        makePair("CONICAL",     3),
+        makePair("PARABOLIC",   4),
+        makePair("PYRAMIDAL",   5),
     };
 }
 // Phase 3 — infiltration model. Mirrors SWMMSubcatchPropertyAdapter::InfilModel
@@ -1680,6 +1785,16 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             const QString meaning = openswmmvis::xsectGeomLabel(shape, ord);
             return meaning.isEmpty() ? QVariant() : QVariant(meaning);
         }
+        // Storage dimension cells do the same — the header is the generic
+        // "Shape param N", so the tooltip is where "Base Length" / "Side Slope
+        // (run/rise)" actually reaches the user.
+        if (const int ord = storageParamOrdinalForTag(spec.setter); ord > 0) {
+            const int shape = storageShapeForName(m_layer, objectNameAt(row));
+            if (shape < 0 || !openswmmvis::storageGeomApplies(shape, ord))
+                return tr("Not used by this storage shape");
+            const QString meaning = openswmmvis::storageGeomLabel(shape, ord);
+            return meaning.isEmpty() ? QVariant() : QVariant(meaning);
+        }
         const QString u = unitLabel(spec.unit);
         return u.isEmpty() ? QVariant() : QVariant(tr("Units: %1").arg(u));
     }
@@ -1993,6 +2108,14 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             if (shape < 0 || !openswmmvis::xsectGeomApplies(shape, ord))
                 return {};
         }
+        // Same for a storage dimension the live shape doesn't use — a paraboloid
+        // still carries whatever side slope a previous shape left in p3, and showing
+        // that stale number as an editable value is worse than showing nothing.
+        if (const int ord = storageParamOrdinalForTag(spec.setter); ord > 0) {
+            const int shape = storageShapeForName(m_layer, objectNameAt(row));
+            if (shape < 0 || !openswmmvis::storageGeomApplies(shape, ord))
+                return {};
+        }
         const auto entry = setterFor(spec.setter);
         const QString name = objectNameAt(row);
         const int entIdx = indexForName(m_layer->engine(), entry.kind,
@@ -2076,6 +2199,15 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
         if (const int ord = xsectGeomOrdinalForTag(spec.setter); ord > 0) {
             const int shape = linkShapeForName(m_layer, objectNameAt(index.row()));
             if (shape < 0 || !openswmmvis::xsectGeomApplies(shape, ord))
+                return f;  // no ItemIsEditable
+        }
+        // Storage dimension cells: editable only for the shapes that use them.
+        // Also keeps the curve / functional-coefficient cells from being edited on a
+        // node whose shape doesn't use them — the engine would reject or silently
+        // reinterpret the write, and the panel already greys the same rows.
+        if (const int ord = storageParamOrdinalForTag(spec.setter); ord > 0) {
+            const int shape = storageShapeForName(m_layer, objectNameAt(index.row()));
+            if (shape < 0 || !openswmmvis::storageGeomApplies(shape, ord))
                 return f;  // no ItemIsEditable
         }
         f |= Qt::ItemIsEditable;

@@ -59,11 +59,25 @@ public:
     enum OutfallType { FREE = 0, NORMAL = 1, FIXED = 2, TIDAL = 3, TIMESERIES = 4 };
     enum DividerType { CUTOFF = 0, OVERFLOW_ = 1, TABULAR = 2, WEIR = 3 };
     enum FlapGate    { NO = 0, YES = 1 };
-    /*! Storage geometry form. FUNCTIONAL = power-law Area = A·Depth^B + C
-     *  (engine `swmm_node_set_storage_functional`); TABULAR = depth–area
-     *  curve referenced by id (engine `swmm_node_set_storage_curve`). The
-     *  engine distinguishes them by whether `storage_curve >= 0`. */
-    enum StorageShape { Functional = 0, Tabular = 1 };
+    /*! Storage geometry form — ordinals match the engine's `SWMM_StorageShape`
+     *  (and the legacy solver's `enum StorageType`), so the int round-trips
+     *  through `swmm_node_get/set_storage_shape` unchanged.
+     *
+     *  - Tabular:    depth–area curve by id (`swmm_node_set_storage_curve`).
+     *  - Functional: power law Area = A·Depth^B + C
+     *                (`swmm_node_set_storage_functional`).
+     *  - The four geometric shapes: three raw dimensions L/W/Z
+     *    (`swmm_node_set_storage_geometry`), from which the engine derives its
+     *    internal area coefficients. See storageshapegeom.h for what L/W/Z mean
+     *    per shape — they differ, which is why the row labels are generic. */
+    enum StorageShape {
+        Tabular     = 0,
+        Functional  = 1,
+        Cylindrical = 2,
+        Conical     = 3,
+        Paraboloid  = 4,
+        Pyramidal   = 5
+    };
     Q_ENUM(NodeKind)
     Q_ENUM(OutfallType)
     Q_ENUM(DividerType)
@@ -161,15 +175,26 @@ public:
     // Slice AG.4 — storage-unit geometry accessors. Live on the base class
     // (like the outfall stage-data accessors above) so the cpp can reuse the
     // shared `nodeIdx() / m_engine` helpers; only SWMMStoragePropertyAdapter
-    // declares them as Q_PROPERTY. The engine stores the functional
-    // coefficients (A, B, C) and the tabular curve index in independent
-    // slots; `storageShape()` reports TABULAR when a curve is assigned
-    // (curve_idx >= 0) and FUNCTIONAL otherwise.
+    // declares them as Q_PROPERTY.
+    //
+    // `storageShape()` now reads the engine's real shape field
+    // (`swmm_node_get_storage_shape`) rather than inferring TABULAR from
+    // `curve_idx >= 0` — that inference could not represent the four geometric
+    // shapes, which are curve-less but are not power-law functional either.
+    //
+    // Which of the parameter accessors is meaningful depends on the shape:
+    //   Tabular            → storageCurveRef()
+    //   Functional         → storageCoeffA/ExpB/ConstC()   (A·d^B + C)
+    //   geometric shapes   → storageParam1/2/3()           (raw L/W/Z)
+    // The panel greys the inapplicable rows; see storageshapegeom.h.
     [[nodiscard]] StorageShape   storageShape()      const;
     [[nodiscard]] DataObjectRef  storageCurveRef()   const;
     [[nodiscard]] double         storageCoeffA()     const;
     [[nodiscard]] double         storageExpB()       const;
     [[nodiscard]] double         storageConstC()     const;
+    [[nodiscard]] double         storageParam1()     const;
+    [[nodiscard]] double         storageParam2()     const;
+    [[nodiscard]] double         storageParam3()     const;
 
     /*! Maps a Q_PROPERTY identifier (e.g. \c "maxDepth") to a
      *  human-readable column-0 label (e.g. \c "Max Depth (ft)") with
@@ -230,11 +255,21 @@ public slots:
     //     exist it is a no-op (the row stays FUNCTIONAL after re-read).
     //   The coefficient setters read-modify-write the engine's atomic (A,B,C)
     //     triple so each row edits one term without clobbering the others.
+    //   setStorageShape(<geometric>) detaches any curve (engine-side) and
+    //     re-derives the area coefficients from the node's current L/W/Z.
+    //   The param setters read-modify-write the engine's atomic (p1,p2,p3)
+    //     triple, same as the coefficient setters do for (A,B,C). The engine
+    //     rejects invalid dimensions (L<=0, W<=0, Z<0, or Z==0 on a paraboloid)
+    //     and leaves the node on its previous geometry, so a bad keystroke
+    //     cannot wedge the model.
     void setStorageShape(StorageShape v);
     void setStorageCurveRef(const DataObjectRef &r);
     void setStorageCoeffA(double v);
     void setStorageExpB(double v);
     void setStorageConstC(double v);
+    void setStorageParam1(double v);
+    void setStorageParam2(double v);
+    void setStorageParam3(double v);
 
     /*! Round-4 follow-up 2026-05-12 — force the Property Browser
      *  to re-query.  Used when the table view edits the same object
@@ -397,10 +432,16 @@ class SWMMStoragePropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double initialDepth    READ initialDepth    WRITE setInitialDepth    NOTIFY changed)
     Q_PROPERTY(double surchargeDepth  READ surchargeDepth  WRITE setSurchargeDepth  NOTIFY changed)
     Q_PROPERTY(double seepRate        READ seepRate        WRITE setSeepRate        NOTIFY changed)
-    // Slice AG.4 — storage geometry. The Shape combobox switches between the
-    // functional power-law form and a tabular depth–area curve. PropertiesPanel
-    // greys out the inapplicable rows (curve vs. coefficients) based on the
-    // live shape, mirroring the outfall stage-data wiring.
+    // Slice AG.4 — storage geometry. The Shape combobox switches between a tabular
+    // depth–area curve, the functional power-law form, and the four geometric shapes.
+    // PropertiesPanel greys out the rows that don't apply to the live shape (curve vs.
+    // coefficients vs. dimensions), mirroring the outfall stage-data wiring.
+    //
+    // The three dimension rows keep GENERIC names (Param 1/2/3) because QPropertyModel
+    // reflects rows from metaObject() and cannot rename or hide them at runtime; the
+    // shape-specific meaning ("Major Axis Length", "Side Slope", …) is supplied as the
+    // row label + tooltip via storageshapegeom.h. This is the same compromise the link
+    // xsect editor already makes for geom1..geom4.
     Q_PROPERTY(SWMMNodePropertyAdapter::StorageShape storageShape
                READ storageShape    WRITE setStorageShape    NOTIFY changed)
     Q_PROPERTY(DataObjectRef storageCurve
@@ -408,6 +449,9 @@ class SWMMStoragePropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double storageCoeffA   READ storageCoeffA   WRITE setStorageCoeffA   NOTIFY changed)
     Q_PROPERTY(double storageExpB     READ storageExpB     WRITE setStorageExpB     NOTIFY changed)
     Q_PROPERTY(double storageConstC   READ storageConstC   WRITE setStorageConstC   NOTIFY changed)
+    Q_PROPERTY(double storageParam1   READ storageParam1   WRITE setStorageParam1   NOTIFY changed)
+    Q_PROPERTY(double storageParam2   READ storageParam2   WRITE setStorageParam2   NOTIFY changed)
+    Q_PROPERTY(double storageParam3   READ storageParam3   WRITE setStorageParam3   NOTIFY changed)
     // Slice DB — same read-only summary block; full volume is especially
     // useful at storage nodes because it's the integrated curve volume.
     Q_PROPERTY(double crownElev       READ crownElev       NOTIFY changed)
