@@ -38,10 +38,23 @@ QString dataDir()
 
 SWMM_Engine openModel(const QString &path)
 {
-    SWMM_Engine eng = swmm_engine_new();
+    // MUST be swmm_engine_create(), not swmm_engine_new(). The two differ by the
+    // lifecycle state they leave the engine in:
+    //   swmm_engine_create() -> CREATED   (the state swmm_engine_open() requires)
+    //   swmm_engine_new()    -> BUILDING  (for programmatic model construction)
+    // SWMMEngine::open() hard-rejects anything but CREATED/CLOSED, so
+    // new() + open() can NEVER succeed — it always returns SWMM_ERR_WRONG_STATE.
+    SWMM_Engine eng = swmm_engine_create();
     if (!eng) return nullptr;
     if (swmm_engine_open(eng, path.toUtf8().constData(), nullptr, nullptr,
                          nullptr) != SWMM_OK) {
+        // Surface the engine's own diagnosis. Without this the failure surfaces
+        // as a bare "eng != nullptr returned FALSE", which says nothing about
+        // why — exactly what made this bug expensive to find in CI.
+        qWarning("swmm_engine_open(%s) failed: rc=%d msg=%s",
+                 qPrintable(path),
+                 swmm_get_last_error(eng),
+                 swmm_get_last_error_msg(eng));
         swmm_engine_destroy(eng);
         return nullptr;
     }
