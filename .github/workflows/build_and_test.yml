@@ -350,26 +350,36 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$COMPILER_CACHE_DIR"
-          # ── Size cap: why 300M and not more ───────────────────────────────
+          # ── Size cap: measured, not guessed ───────────────────────────────
           # The compiler-cache key contains github.sha, so it NEVER hits exactly
-          # and a NEW cache entry is written on every commit (the restore-keys
-          # prefix is what actually warm-starts it). That is the standard pattern
-          # for compiler caches -- they must stay fresh -- but it does mean each
-          # commit adds (cap x 4 legs) to the repo's 10 GB Actions budget.
+          # and a NEW entry is written every commit (the restore-keys prefix is
+          # what warm-starts it). So each commit adds (cap x 4 legs) to the repo's
+          # 10 GB Actions budget.
           #
-          # At 300M that is 1.2 GB/commit. The always-restored caches (Qt ~2.9 GB,
-          # vcpkg archives ~1.6 GB, engine trees ~64 MB) count as "recently used"
-          # every run and so survive LRU eviction; superseded compiler caches are
-          # never restored again and are therefore the first thing evicted. That
-          # ordering is what keeps this safe -- but the margin is not large, so
-          # raising this cap is not free. If Qt or vcpkg caches ever start missing,
-          # this number is the first suspect.
+          # Started at 300M. The first real run showed that was too small: ccache
+          # on Linux ended at 99.89% FULL with only a 57% hit rate — i.e. it was
+          # evicting objects mid-build and re-compiling them. Raised to 500M
+          # (2 GB/commit across 4 legs).
+          #
+          # This is now the tightest number in the file. The always-restored caches
+          # (Qt ~2.9 GB measured, vcpkg archives, engine trees ~64 MB) count as
+          # "recently used" every run and survive LRU; superseded compiler caches
+          # are never restored again and are evicted first. That ordering is what
+          # keeps this safe. If Qt or vcpkg caches ever start MISSING on a warm
+          # run, this number is the first suspect — drop it back to 300M.
+          # Re-tune from the "Compiler cache stats" step, not from guesswork.
           if [ "${{ runner.os }}" = "Windows" ]; then
             echo "SCCACHE_DIR=$COMPILER_CACHE_DIR"   >> "$GITHUB_ENV"
-            echo "SCCACHE_CACHE_SIZE=300M"           >> "$GITHUB_ENV"
+            echo "SCCACHE_CACHE_SIZE=500M"           >> "$GITHUB_ENV"
+            # sccache keeps stats in the SERVER PROCESS's memory, not on disk, and
+            # the server idles out (default 600s). On the first real run the stats
+            # step ran ~146 min after the build and reported "Compile requests: 0"
+            # — the server had died and reset, so the number was meaningless. Keep
+            # it alive so the stats we print are actually about this build.
+            echo "SCCACHE_IDLE_TIMEOUT=0"            >> "$GITHUB_ENV"
           else
             echo "CCACHE_DIR=$COMPILER_CACHE_DIR"    >> "$GITHUB_ENV"
-            echo "CCACHE_MAXSIZE=300M"               >> "$GITHUB_ENV"
+            echo "CCACHE_MAXSIZE=500M"               >> "$GITHUB_ENV"
             # The engine and the GUI compile in different absolute build trees.
             # Without BASEDIR, __FILE__/-I paths differ and otherwise-identical
             # TUs miss.
@@ -534,8 +544,40 @@ jobs:
         run: cmake --build --preset=${{ matrix.cmake_preset }}
 
       # ── Test ─────────────────────────────────────────────────────────────────
+      # --timeout is NOT optional here. test_meshenginesync hangs on Windows; with
+      # no per-test cap, ctest sat on it for 64.9 MINUTES before the job was
+      # cancelled, which is most of why that leg reported 208 min (at 2x billing).
+      # A hung test must cost ~3 min and be reported as a timeout, not silently
+      # eat the runner. 180s is ~300x the slowest passing test (0.6s), so it will
+      # only ever fire on a genuine hang.
       - name: Test
-        run: ctest --test-dir build/${{ matrix.build_subdir }} -C Release --output-on-failure
+        run: >
+          ctest --test-dir build/${{ matrix.build_subdir }} -C Release
+          --output-on-failure --timeout 180
+
+      # test_meshenginesync runs in 0.01 s (Linux) / 0.05 s (macOS) but HANGS on
+      # Windows — almost certainly a block inside swmm_engine_open/initialize
+      # (Kokkos/OpenMP 2D solver bring-up), not in the test body, which is only
+      # file I/O and string parsing.
+      #
+      # Why this step exists: ctest BUFFERS each test's stdout and flushes it only
+      # when the test completes. A hung test therefore produces ZERO output — the
+      # last run showed nothing but "Start 22: test_meshenginesync" before dying.
+      # We could not see which gtest case blocked. Invoking the binary directly
+      # sends stdout straight to the job log, so gtest's "[ RUN ]" lines survive:
+      # the LAST one printed is the blocking case.
+      #
+      # Diagnostic only — continue-on-error, and it never gates the job.
+      - name: Localise Windows test hang (diagnostic)
+        if: failure() && runner.os == 'Windows'
+        continue-on-error: true
+        shell: bash
+        run: |
+          BIN=$(find build/windows -iname 'test_meshenginesync*.exe' | head -1)
+          if [ -z "$BIN" ]; then echo "test_meshenginesync binary not found"; exit 0; fi
+          echo "Running $BIN directly, 120 s cap, unbuffered to the log:"
+          timeout --signal=KILL 120 "$BIN" 2>&1 || \
+            echo "::warning::test_meshenginesync did not complete — the LAST [ RUN ] line above is the case that blocks"
 
       # ── Install (staging tree) ────────────────────────────────────────────
       # cmake --install copies the built binary + all install() rules into
