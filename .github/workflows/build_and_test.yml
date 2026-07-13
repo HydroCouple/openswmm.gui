@@ -6,8 +6,34 @@ on:
   pull_request:
     branches: ["main", "master", "dev", "swmm6_gui"]
 
+# A full run is 4 legs x (engine build + vcpkg + compile). Without this, rapid
+# pushes stack complete 4-leg runs on top of each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  # ── vcpkg binary caching ────────────────────────────────────────────────
+  # The previous value here was "clear;x-gha,readwrite", which was worse than
+  # useless. vcpkg REMOVED the `x-gha` backend in 2025.10.17 (the pinned ref
+  # below), so every run logged:
+  #     warning: The 'x-gha' binary caching backend has been removed.
+  # That made `x-gha` a silent no-op, AND the leading `clear` *also* disabled
+  # vcpkg's default local `files` cache. Net result: zero binary caching, so
+  # every port (gdal, proj, openssl, hdf5, kokkos, hypre, ...) was compiled from
+  # source on every run — the 16-50 min "Configure" step on each leg.
+  #
+  # Replacement: the `files` provider writes compressed, content-addressed
+  # archives into VCPKG_DEFAULT_BINARY_CACHE, persisted across runs by the
+  # Restore/Save steps below. Two properties matter:
+  #   - Archives are ~250-400 MB/triplet vs ~1.5-2 GB for an uncompressed
+  #     vcpkg_installed tree, which is what keeps us under the 10 GB per-repo
+  #     Actions cache budget (Qt already eats ~2.9 GB across the 4 legs).
+  #   - Entries are keyed by ABI hash, so a stale or partially-corrupt tree
+  #     cannot be silently reused. This is why the old cache-key "-vN" manual
+  #     bumping workaround is gone.
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-bincache
+  VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite"
   VCPKG_ROOT: ${{ github.workspace }}/vcpkg
   OMP_NUM_THREADS: 1
   # openswmm.engine is consumed as a PREBUILT installed package via
@@ -102,42 +128,20 @@ jobs:
           ./bootstrap-vcpkg${{ matrix.shell_ext }}
           chmod +x vcpkg
 
-      - name: Export GitHub Actions cache variables
-        uses: actions/github-script@v8
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-
-      - name: Cache vcpkg downloads (source tarballs)
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.VCPKG_ROOT }}/downloads
-          key: vcpkg-downloads-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-${{ hashFiles('vcpkg.json') }}
-          restore-keys: |
-            vcpkg-downloads-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-
-            vcpkg-downloads-${{ runner.os }}-
-
-      # Cache the *compiled* vcpkg manifest install tree. On a hit the Configure
-      # step skips rebuilding GDAL/PROJ/TIFF/etc., which is the bulk of CI time.
-      # Key components:
-      #   - runner.os + triplet → ABI-correct per platform
-      #   - vcpkg ref literal   → bump in lockstep with `ref:` in checkout above
-      #   - hashFiles(vcpkg.json) → re-resolve when dependency set changes
-      # Partial fallbacks under restore-keys let unrelated vcpkg.json edits still
-      # benefit from the most recent cache for the same ref.
-      - name: Cache vcpkg_installed (compiled deps)
-        uses: actions/cache@v4
-        with:
-          path: build/${{ matrix.build_subdir }}/vcpkg_installed
-          # Bump the trailing -vN suffix to force a fresh install when the
-          # cache contents may be partially corrupt (e.g. after an x-gha
-          # binary-cache hiccup that left share/<port>/Config.cmake missing).
-          key: vcpkg-installed-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-2025.10.17-v2-${{ hashFiles('vcpkg.json') }}
-          # Only fall back within the same baseline + cache-version; refuse to
-          # restore older trees that could have incompatible ABI hashes.
-          restore-keys: |
-            vcpkg-installed-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-2025.10.17-v2-
+      # NOTE: the old "Export GitHub Actions cache variables" step (which exported
+      # ACTIONS_CACHE_URL / ACTIONS_RUNTIME_TOKEN) existed solely to feed vcpkg's
+      # `x-gha` backend. That backend no longer exists, so the step was dead code
+      # and has been removed.
+      #
+      # The old "Cache vcpkg downloads" and "Cache vcpkg_installed" steps are also
+      # gone, replaced by the single binary-archive cache below. Rationale:
+      #   - They are subsumed: a binary-cache hit needs no source tarball and no
+      #     pre-populated install tree.
+      #   - Keeping them alongside the binary cache would blow the 10 GB per-repo
+      #     Actions cache budget (uncompressed vcpkg_installed trees are
+      #     ~1.5-2 GB *per leg*), which triggers LRU eviction and is very likely
+      #     why those keys never hit in the first place.
+      # See the VCPKG_BINARY_SOURCES comment at the top of this file.
 
       # QPropertyModel is fetched automatically via FetchQPropertyModel.cmake at
       # configure time. openswmm.engine, however, is now consumed as a PREBUILT
@@ -236,6 +240,37 @@ jobs:
           path: openswmm.engine
           fetch-depth: 0
 
+      # ── vcpkg binary cache: RESTORE ─────────────────────────────────────────
+      # Sits here (not with the other setup steps) for one reason: the cache key
+      # hashes BOTH manifests, and openswmm.engine/vcpkg.json does not exist
+      # until the checkout above runs. This job performs two separate vcpkg
+      # installs — one for the engine, one for the GUI — and they share this
+      # single archive directory. Nothing before this point invokes vcpkg.
+      #
+      # Restore-only, deliberately. The matching Save step is at the very END of
+      # the job with `if: always()`. This split is load-bearing:
+      # actions/cache@v4 declares `post-if: success()`, so on a FAILING job it
+      # silently skips the save. Combined with a red build, that was a trap:
+      # red build -> no cache saved -> next run cold -> slow and still red. It is
+      # why every leg logged "Cache not found for input keys: ..." and why no
+      # cache-save step appeared in any post-job section. With the split, even a
+      # red build leaves the next run warm.
+      - name: Restore vcpkg binary cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-bin-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-${{ hashFiles('vcpkg.json', 'openswmm.engine/vcpkg.json', 'openswmm.engine/vcpkg-configuration.json') }}
+          # Fall back to the newest archive set for this OS+triplet. Safe even on
+          # a stale hit: vcpkg keys entries by ABI hash, so ports whose ABI moved
+          # simply miss and rebuild, and the rest are reused.
+          restore-keys: |
+            vcpkg-bin-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-
+
+      # vcpkg's `files` provider requires the directory to already exist.
+      - name: Ensure vcpkg binary cache dir exists
+        shell: bash
+        run: mkdir -p "${{ env.VCPKG_DEFAULT_BINARY_CACHE }}"
+
       # AppleClang ships no libomp, and the engine's Kokkos-OpenMP host backend
       # links OpenMP::OpenMP_CXX, which cmake/FindOpenMP.cmake resolves from the
       # Homebrew opt prefix (/opt/homebrew/opt/libomp, /usr/local/opt/libomp on
@@ -248,18 +283,134 @@ jobs:
         working-directory: ${{ github.workspace }}/openswmm.engine
         run: bash scripts/build_macos_libomp.sh
 
-      # The engine's Windows preset uses the Ninja Multi-Config generator (the
-      # GUI's own preset uses the Visual Studio generator, which supplies the
-      # toolchain implicitly). Ninja needs cl.exe/link.exe on PATH, so set up the
-      # MSVC dev environment before the engine build (mirrors the engine repo's
-      # unit_testing.yml). Harmless for the GUI's later VS-generator Configure.
+      # Both the engine's and the GUI's Windows presets use Ninja generators
+      # (CMakePresets.json: generator "Ninja" on every platform), and Ninja needs
+      # cl.exe/link.exe on PATH — unlike the Visual Studio generator, it does not
+      # locate the toolchain itself. So set up the MSVC dev environment before the
+      # engine build (mirrors the engine repo's unit_testing.yml); it is required
+      # for the GUI's later Configure/Build too.
       - name: Set up MSVC environment (Windows)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
+      # ── Compiler cache (ccache / sccache) ───────────────────────────────────
+      # Covers the two C++ compile steps that dominate the job: the engine build
+      # (4-15 min) and the GUI build (19-55 min). vcpkg's own port compiles are
+      # NOT routed through this — they are already covered by the vcpkg binary
+      # cache above, and double-caching them would just burn budget.
+      #
+      # ccache does not support MSVC properly, so Windows uses sccache. Both are
+      # wired the same way, via CMAKE_<LANG>_COMPILER_LAUNCHER (honored natively
+      # by CMake with the Ninja generators both repos use; neither repo sets a
+      # launcher of its own, so there is no conflict).
+      #
+      # sccache + MSVC only caches when debug info is not written to a shared PDB
+      # (/Zi). Both presets are Release with no /Zi, which is the cacheable case.
+      # If a preset ever gains RelWithDebInfo, set
+      # CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded (/Z7) or hit rates go to 0.
+      - name: Install ccache (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then brew install ccache
+          else sudo apt-get install -y ccache; fi
+          echo "CMAKE_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+          echo "COMPILER_CACHE_DIR=${{ github.workspace }}/.ccache" >> "$GITHUB_ENV"
+
+      - name: Install sccache (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          choco install sccache --no-progress -y
+          echo "CMAKE_COMPILER_LAUNCHER=sccache" >> "$GITHUB_ENV"
+          echo "COMPILER_CACHE_DIR=${{ github.workspace }}/.sccache" >> "$GITHUB_ENV"
+
+      # Same restore/save split + `if: always()` as the vcpkg cache, and for the
+      # same reason: objects compiled during a RED run are exactly what makes the
+      # next attempt fast, and actions/cache@v4's `post-if: success()` would throw
+      # them away. Deliberately NOT using a third-party ccache action here — the
+      # whole class of bug this workflow just got out of was an action silently
+      # declining to save on failure, and one consistent, visible pattern is worth
+      # more than the few lines it saves.
+      - name: Restore compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.COMPILER_CACHE_DIR }}
+          # github.sha changes every commit, so this key never hits exactly; the
+          # restore-keys prefix is what does the work, pulling the most recent
+          # cache for this leg. That is intentional -- a compiler cache is meant
+          # to be warm-started and then topped up, not matched exactly.
+          key: compiler-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-${{ github.sha }}
+          restore-keys: |
+            compiler-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-
+
+      - name: Configure compiler cache
+        shell: bash
+        run: |
+          mkdir -p "$COMPILER_CACHE_DIR"
+          # ── Size cap: why 300M and not more ───────────────────────────────
+          # The compiler-cache key contains github.sha, so it NEVER hits exactly
+          # and a NEW cache entry is written on every commit (the restore-keys
+          # prefix is what actually warm-starts it). That is the standard pattern
+          # for compiler caches -- they must stay fresh -- but it does mean each
+          # commit adds (cap x 4 legs) to the repo's 10 GB Actions budget.
+          #
+          # At 300M that is 1.2 GB/commit. The always-restored caches (Qt ~2.9 GB,
+          # vcpkg archives ~1.6 GB, engine trees ~64 MB) count as "recently used"
+          # every run and so survive LRU eviction; superseded compiler caches are
+          # never restored again and are therefore the first thing evicted. That
+          # ordering is what keeps this safe -- but the margin is not large, so
+          # raising this cap is not free. If Qt or vcpkg caches ever start missing,
+          # this number is the first suspect.
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            echo "SCCACHE_DIR=$COMPILER_CACHE_DIR"   >> "$GITHUB_ENV"
+            echo "SCCACHE_CACHE_SIZE=300M"           >> "$GITHUB_ENV"
+          else
+            echo "CCACHE_DIR=$COMPILER_CACHE_DIR"    >> "$GITHUB_ENV"
+            echo "CCACHE_MAXSIZE=300M"               >> "$GITHUB_ENV"
+            # The engine and the GUI compile in different absolute build trees.
+            # Without BASEDIR, __FILE__/-I paths differ and otherwise-identical
+            # TUs miss.
+            echo "CCACHE_BASEDIR=${{ github.workspace }}" >> "$GITHUB_ENV"
+            echo "CCACHE_COMPILERCHECK=content"      >> "$GITHUB_ENV"
+          fi
+
+      # ── Engine install tree cache ───────────────────────────────────────────
+      # The engine is rebuilt from scratch on every run (4-15 min/leg) even when
+      # OPENSWMM_ENGINE_REF has not moved. The install tree is only ~16 MB, so
+      # caching it is essentially free and is the best remaining time/byte trade
+      # in this workflow.
+      #
+      # Keyed on the resolved engine COMMIT, not the branch name: OPENSWMM_ENGINE_REF
+      # is a moving branch (`swmm6_rel`), so keying on the ref would happily serve
+      # a stale tree after the engine advances. The key also folds in the build
+      # flags, since the same commit built with different features (2d/gpu/hypre,
+      # OSX arch) is a different artifact.
+      - name: Resolve engine commit
+        id: engine_rev
+        shell: bash
+        run: echo "sha=$(git -C openswmm.engine rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore engine install tree
+        id: engine_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: openswmm.engine/install/${{ matrix.cmake_preset }}
+          # No restore-keys: a partial/stale engine tree is worse than no tree —
+          # it would be silently linked into the GUI. Exact match or rebuild.
+          key: engine-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-${{ matrix.cmake_osx_arch }}-${{ steps.engine_rev.outputs.sha }}-2d.gpu.hypre
+
+      # Skipped entirely on an engine-cache hit (see "Restore engine install tree").
+      # NOTE what is deliberately NOT guarded by this condition:
+      #   - the libomp build above (macOS): the engine dylib links libomp from the
+      #     Homebrew opt prefix, so the GUI still needs it present at link/bundle
+      #     time even when the engine itself was restored rather than built.
+      #   - the Kokkos/hypre verify gate below: it is precisely the check that
+      #     catches a bad or stale restored tree, so it must run on every path.
       - name: Build and install openswmm.engine (Kokkos plugin + hypre/AMG)
+        if: steps.engine_cache.outputs.cache-hit != 'true'
         working-directory: ${{ github.workspace }}/openswmm.engine
         shell: bash
         run: |
@@ -281,6 +432,8 @@ jobs:
           cmake --preset=${{ matrix.cmake_preset }} \
             -DCMAKE_INSTALL_PREFIX="$PWD/install/${{ matrix.cmake_preset }}" \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }} \
+            -DCMAKE_C_COMPILER_LAUNCHER=$CMAKE_COMPILER_LAUNCHER \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=$CMAKE_COMPILER_LAUNCHER \
             -DVCPKG_MANIFEST_FEATURES="2d;gpu;hypre" \
             -DOPENSWMM_BUILD_GPU_PLUGIN=ON \
             -DOPENSWMM_GPU_BACKEND=omp \
@@ -297,6 +450,7 @@ jobs:
       # what the GUI bundles for the `auto`/OpenMP 2D backend; a missing binary
       # means Kokkos support regressed even though configure succeeded.
       - name: Verify engine ships Kokkos plugin + hypre/AMG
+        id: engine_verify
         working-directory: ${{ github.workspace }}/openswmm.engine
         shell: bash
         run: |
@@ -352,6 +506,8 @@ jobs:
             -DSWMMVIS_BUILD_TESTS=ON \
             -DOPENSWMMENGINE_INSTALL_DIR="${{ github.workspace }}/openswmm.engine/install/${{ matrix.cmake_preset }}" \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }} \
+            -DCMAKE_C_COMPILER_LAUNCHER=$CMAKE_COMPILER_LAUNCHER \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=$CMAKE_COMPILER_LAUNCHER \
             $EXTRA
         shell: bash
 
@@ -528,4 +684,55 @@ jobs:
         with:
           name: swmmvis-${{ matrix.vcpkg_triplet }}
           path: packages/
+
+      # ── vcpkg binary cache: SAVE ────────────────────────────────────────────
+      # Counterpart to "Restore vcpkg binary cache" above. The `if: always()` is
+      # the entire point of splitting restore/save rather than using the combined
+      # actions/cache@v4 (which is `post-if: success()` and therefore never saves
+      # on a red build). Ports compiled during a FAILING run are still worth
+      # keeping — they are what makes the next attempt fast.
+      #
+      # A "Cache already exists" warning here is expected and harmless when the
+      # key is unchanged (nothing new was built); it does not fail the job.
+      - name: Save vcpkg binary cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-bin-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-${{ hashFiles('vcpkg.json', 'openswmm.engine/vcpkg.json', 'openswmm.engine/vcpkg-configuration.json') }}
+
+      # Compiler-cache stats. Cheap, and the only way to notice a silent hit-rate
+      # collapse (e.g. a preset gaining /Zi on MSVC, or CCACHE_BASEDIR breaking)
+      # before it shows up as a mysteriously slow build weeks later.
+      - name: Compiler cache stats
+        if: always()
+        shell: bash
+        run: ${{ env.CMAKE_COMPILER_LAUNCHER }} --show-stats || true
+
+      # Two conditions, both load-bearing:
+      #
+      #   cache-hit != 'true'  — we actually built it. On a hit the tree is
+      #                          byte-identical to what we restored; re-saving is churn.
+      #
+      #   engine_verify == 'success' — the Kokkos/hypre gate passed. This one is a
+      #       POISONING guard, and it is why this save is NOT plain `if: always()`
+      #       like the other two. A failed engine build leaves a partial install
+      #       tree; the engine key is an exact SHA match with no restore-keys, so
+      #       saving that partial tree would hit on every subsequent run of the
+      #       same commit and silently link a broken engine into the GUI. Forever.
+      #       The vcpkg and compiler caches don't need this guard because both are
+      #       content-addressed and only record artifacts that compiled cleanly.
+      - name: Save engine install tree
+        if: always() && steps.engine_cache.outputs.cache-hit != 'true' && steps.engine_verify.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: openswmm.engine/install/${{ matrix.cmake_preset }}
+          key: engine-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-${{ matrix.cmake_osx_arch }}-${{ steps.engine_rev.outputs.sha }}-2d.gpu.hypre
+
+      - name: Save compiler cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.COMPILER_CACHE_DIR }}
+          key: compiler-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-${{ github.sha }}
 

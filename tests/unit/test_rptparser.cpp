@@ -28,9 +28,17 @@ using openswmmvis::io::RptSection;
 namespace {
 
 // CTest runs with WORKING_DIRECTORY tests/unit/data.
-const QString kFixture = QStringLiteral("weir_culvert.rpt");
-const QString kTwoDFixture =
-    QStringLiteral("../../gui/data/output_simstatus2derr/mini_2d.rpt");
+// Both fixtures are bare filenames resolved against this test's
+// WORKING_DIRECTORY (tests/unit/data — see tests/unit/CMakeLists.txt).
+//
+// kTwoDFixture previously read "../../gui/data/output_simstatus2derr/mini_2d.rpt",
+// climbing out of this test's own data dir into the *gui* test tree. That
+// directory is a scratch/debug dir and was never committed, so the file existed
+// only on machines that had run the model locally: the test passed for devs and
+// failed on every fresh clone (i.e. always, in CI). Fixture now lives next to
+// weir_culvert.rpt, tracked in git, addressed the same way.
+const QString kFixture     = QStringLiteral("weir_culvert.rpt");
+const QString kTwoDFixture = QStringLiteral("mini_2d.rpt");
 
 QStringList titlesOf(const QVector<RptSection> &sections)
 {

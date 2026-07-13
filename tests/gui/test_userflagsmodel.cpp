@@ -180,10 +180,18 @@ private slots:
         QVERIFY(QFile::exists(inpPath));
 
         // Reload into a fresh engine and confirm full fidelity.
-        SWMM_Engine eng2 = swmm_engine_new();
+        //
+        // swmm_engine_create() (-> CREATED), NOT swmm_engine_new() (-> BUILDING).
+        // swmm_engine_open() hard-rejects any state but CREATED/CLOSED, so
+        // new() + open() always fails with SWMM_ERR_WRONG_STATE. The engine built
+        // *above* correctly uses swmm_engine_new(), because it is constructed
+        // programmatically via swmm_node_add() rather than opened from a file —
+        // that is precisely what new() is for.
+        SWMM_Engine eng2 = swmm_engine_create();
         QVERIFY(eng2 != nullptr);
-        QVERIFY(swmm_engine_open(eng2, inpUtf8.constData(), nullptr, nullptr,
-                                 nullptr) == SWMM_OK);
+        QVERIFY2(swmm_engine_open(eng2, inpUtf8.constData(), nullptr, nullptr,
+                                  nullptr) == SWMM_OK,
+                 swmm_get_last_error_msg(eng2));
         {
             UserFlagsModel model(eng2);
             const auto &defs = model.defs();

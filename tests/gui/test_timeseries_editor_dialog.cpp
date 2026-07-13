@@ -399,6 +399,11 @@ private slots:
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        // Required before asserting isVisible() below: a child of a top-level
+        // widget that was never shown is not visible under ANY QPA, offscreen
+        // included. Matches dialogOpens_BothViewsBound() above, which shows the
+        // dialog for the same reason.
+        dlg.show();
 
         // Switch to External mode (provider has no file yet).
         QRadioButton *rExt = nullptr;
