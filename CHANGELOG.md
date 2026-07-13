@@ -5,25 +5,23 @@ All notable changes to the OpenSWMM GUI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The `6.0.0-alpha.2` section below is **unreleased / pending** — only one
+The `6.0.0-alpha.3` section below is **unreleased / pending** — only one
 git tag exists in this repository (`v5.2.4`, the imported legacy Delphi
-GUI baseline). `6.0.0-alpha.2` is the version already set in
-`CMakeLists.txt`'s `PROJECT_VERSION_SUFFIX` for the new Qt/SWMMVis GUI
-described below; `vcpkg.json` still reads `6.0.0-alpha.1` (a known,
-not-yet-reconciled mismatch — see the equivalent note in
-`openswmm.engine/CHANGELOG.md`). It is used here instead of a generic
+GUI baseline). `6.0.0-alpha.3` is the version set in `CMakeLists.txt`'s
+`PROJECT_VERSION_SUFFIX` and in `vcpkg.json` for the new Qt/SWMMVis GUI
+described below. It is used here instead of a generic
 "Unreleased" heading. Generated with support from
 [`git-cliff`](https://git-cliff.org) (config: `cliff.toml`) run against
 the full commit history — the only tagged boundary is `v5.2.4`.
 
-## [6.0.0-alpha.2] — SWMMVis: ground-up Qt6/C++ rewrite
+## [6.0.0-alpha.3] — SWMMVis: ground-up Qt6/C++ rewrite
 
 The legacy Delphi `epaswmm5.exe` GUI (last shipped as `v5.2.4`, see
 below) is being replaced by **SWMMVis**, a new Qt6/C++ application built
 directly on `openswmm.engine`. Work started 2025-04-03 as a bare project
 skeleton; substantive features begin with commit `9df607d` (2026-04-28).
 An informal "Alpha 1" milestone was reached 2026-05-22 (commit
-`55098b6`); everything below through the current `alpha.2` version
+`55098b6`); everything below through the current `alpha.3` version
 string has landed since.
 
 ### Added

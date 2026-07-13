@@ -16,7 +16,7 @@ project(
     DESCRIPTION "A SWMM model setup, analysis, and visualization tool"
 )
 
-set(PROJECT_VERSION_SUFFIX "-alpha.2")
+set(PROJECT_VERSION_SUFFIX "-alpha.3")
 
 configure_file(
     ${PROJECT_SOURCE_DIR}/include/version.h.in
