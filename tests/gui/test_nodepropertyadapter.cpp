@@ -419,6 +419,146 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    // The four geometric shapes (CYLINDRICAL / CONICAL / PARABOLIC / PYRAMIDAL).
+    // These are curve-less but NOT power-law functional, which is precisely what the
+    // old "shape = (curve >= 0) ? Tabular : Functional" inference could not express —
+    // the adapter now reads the engine's real shape field.
+    void storageGeometricShapeRoundTrip()
+    {
+        SWMM_Engine e = buildStorageFixture();
+        QVERIFY(e);
+        SWMMStoragePropertyAdapter a(e, QStringLiteral("S1"));
+        const int idx = swmm_node_index(e, "S1");
+
+        struct Case { SWMMNodePropertyAdapter::StorageShape shape; double p1, p2, p3; };
+        const QVector<Case> cases = {
+            { SWMMNodePropertyAdapter::Cylindrical, 30.0, 20.0, 0.0 },
+            { SWMMNodePropertyAdapter::Conical,     30.0, 20.0, 2.5 },
+            { SWMMNodePropertyAdapter::Paraboloid,  30.0, 20.0, 8.0 },
+            { SWMMNodePropertyAdapter::Pyramidal,   30.0, 20.0, 2.5 },
+        };
+
+        for (const Case &c : cases) {
+            a.setStorageShape(c.shape);
+            QCOMPARE(a.storageShape(), c.shape);
+
+            a.setStorageParam1(c.p1);
+            a.setStorageParam2(c.p2);
+            a.setStorageParam3(c.p3);
+            QCOMPARE(a.storageParam1(), c.p1);
+            QCOMPARE(a.storageParam2(), c.p2);
+            QCOMPARE(a.storageParam3(), c.p3);
+
+            // The engine must have derived its area coefficients from the dimensions —
+            // if it hadn't, the node would route as a zero-area storage.
+            double av = 0, bv = 0, cv = 0;
+            QCOMPARE(swmm_node_get_storage_functional(e, idx, &av, &bv, &cv), SWMM_OK);
+            QVERIFY2(av != 0.0 || bv != 0.0 || cv != 0.0,
+                     "shape dimensions did not produce area coefficients");
+
+            // A geometric shape is never tabulated.
+            int curveIdx = 0;
+            QCOMPARE(swmm_node_get_storage_curve(e, idx, &curveIdx), SWMM_OK);
+            QCOMPARE(curveIdx, -1);
+        }
+
+        // Pyramidal: L=30, W=20, Z=2.5 → a=2(L+W)Z=250, b=4Z²=25, c=L·W=600.
+        a.setStorageShape(SWMMNodePropertyAdapter::Pyramidal);
+        a.setStorageParam1(30.0);
+        a.setStorageParam2(20.0);
+        a.setStorageParam3(2.5);
+        double av = 0, bv = 0, cv = 0;
+        swmm_node_get_storage_functional(e, idx, &av, &bv, &cv);
+        QCOMPARE(av, 250.0);
+        QCOMPARE(bv, 25.0);
+        QCOMPARE(cv, 600.0);
+
+        swmm_engine_destroy(e);
+    }
+
+    // A rejected dimension must leave the node on its last valid geometry rather
+    // than half-writing it (the engine validates before it mutates).
+    void storageGeometryRejectsInvalidDimensions()
+    {
+        SWMM_Engine e = buildStorageFixture();
+        QVERIFY(e);
+        SWMMStoragePropertyAdapter a(e, QStringLiteral("S1"));
+
+        a.setStorageShape(SWMMNodePropertyAdapter::Pyramidal);
+        a.setStorageParam1(30.0);
+        a.setStorageParam2(20.0);
+        a.setStorageParam3(2.5);
+
+        a.setStorageParam1(0.0);          // L must be > 0 → rejected
+        QCOMPARE(a.storageParam1(), 30.0);
+
+        a.setStorageShape(SWMMNodePropertyAdapter::Paraboloid);
+        a.setStorageParam3(0.0);          // height divides → rejected
+        QCOMPARE(a.storageParam3(), 2.5);
+
+        swmm_engine_destroy(e);
+    }
+
+    // Switching away from a geometric shape and back must not leave the node
+    // wedged as "shape says PYRAMIDAL but a curve is attached".
+    void storageShapeSwitchesAreCoherent()
+    {
+        SWMM_Engine e = buildStorageFixture();
+        QVERIFY(e);
+        SWMMStoragePropertyAdapter a(e, QStringLiteral("S1"));
+        const int idx = swmm_node_index(e, "S1");
+
+        a.setStorageShape(SWMMNodePropertyAdapter::Conical);
+        a.setStorageParam1(30.0);
+        a.setStorageParam2(20.0);
+        a.setStorageParam3(2.5);
+
+        // → Tabular: binds the fixture's storage curve.
+        a.setStorageShape(SWMMNodePropertyAdapter::Tabular);
+        QCOMPARE(a.storageShape(), SWMMNodePropertyAdapter::Tabular);
+        int curveIdx = -1;
+        swmm_node_get_storage_curve(e, idx, &curveIdx);
+        QVERIFY(curveIdx >= 0);
+
+        // → Functional: detaches the curve.
+        a.setStorageShape(SWMMNodePropertyAdapter::Functional);
+        QCOMPARE(a.storageShape(), SWMMNodePropertyAdapter::Functional);
+        swmm_node_get_storage_curve(e, idx, &curveIdx);
+        QCOMPARE(curveIdx, -1);
+
+        // → back to Conical: the dimensions survived the round trip, and the engine
+        //   re-derived the coefficients from them.
+        a.setStorageShape(SWMMNodePropertyAdapter::Conical);
+        QCOMPARE(a.storageParam1(), 30.0);
+        QCOMPARE(a.storageParam3(), 2.5);
+        double av = 0, bv = 0, cv = 0;
+        swmm_node_get_storage_functional(e, idx, &av, &bv, &cv);
+        QVERIFY(cv > 0.0);   // π·A·B
+
+        swmm_engine_destroy(e);
+    }
+
+    // Writing functional coefficients on a node that was geometric must snap it back
+    // to FUNCTIONAL — otherwise the solver would read the power-law A/B/C as a cone's
+    // quadratic coefficients.
+    void storageFunctionalWriteClearsGeometricShape()
+    {
+        SWMM_Engine e = buildStorageFixture();
+        QVERIFY(e);
+        SWMMStoragePropertyAdapter a(e, QStringLiteral("S1"));
+
+        a.setStorageShape(SWMMNodePropertyAdapter::Pyramidal);
+        a.setStorageParam1(30.0);
+        a.setStorageParam2(20.0);
+        a.setStorageParam3(2.5);
+        QCOMPARE(a.storageShape(), SWMMNodePropertyAdapter::Pyramidal);
+
+        a.setStorageCoeffA(1500.0);
+        QCOMPARE(a.storageShape(), SWMMNodePropertyAdapter::Functional);
+
+        swmm_engine_destroy(e);
+    }
+
     void storageGeometryPropsWritableViaMetaObject()
     {
         SWMM_Engine e = buildStorageFixture();
@@ -430,6 +570,8 @@ private slots:
             QStringLiteral("storageShape"),  QStringLiteral("storageCurve"),
             QStringLiteral("storageCoeffA"), QStringLiteral("storageExpB"),
             QStringLiteral("storageConstC"),
+            QStringLiteral("storageParam1"), QStringLiteral("storageParam2"),
+            QStringLiteral("storageParam3"),
         };
         for (const QString &name : writableProps) {
             const int idx = mo->indexOfProperty(name.toUtf8().constData());

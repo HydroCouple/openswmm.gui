@@ -1165,14 +1165,22 @@ add_swmmvis_gui_test(test_nonspatial_adapters
     ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
 )
 
-# TODO(Slice Z follow-up) — disabled. swmmnodepropertyadapter.cpp now
-# references SWMMResultsLayer::nodeStat* (new node-summary methods from
-# the Rule Model refactor) + OutputStatsRegistry::identityFor; linking
-# them in pulls SWMMResultsLayer's full transitive chain. Best move is
-# to extract a small stats interface so the adapter doesn't depend on
-# the full results-layer surface — tracked as a follow-up.
-#
-# add_swmmvis_gui_test(test_nodepropertyadapter test_nodepropertyadapter.cpp …)
+# swmmnodepropertyadapter.cpp references SWMMResultsLayer::nodeStat* +
+# OutputStatsRegistry::identityFor + SWMMModelLayer::ensureUserFlagsModel;
+# linking the real definitions pulls SWMMResultsLayer's full transitive chain.
+# The unit test never sets a stats source or a layer, so those paths are
+# unreachable — test_nodepropertyadapter_stubs.cpp supplies trivial link-only
+# definitions instead, the same technique test_typeconversionflow uses for the
+# SWMMModelLayer::apply*Convert methods. (Extracting a proper stats interface so
+# the adapter no longer depends on that surface remains a Slice Z follow-up.)
+add_swmmvis_gui_test(test_nodepropertyadapter
+    test_nodepropertyadapter.cpp
+    test_nodepropertyadapter_stubs.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/properties/swmmnodepropertyadapter.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/swmmnodepropertyadapter.h
+    ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
+)
 
 # TODO(Slice Z follow-up) — disabled. linkcompoundeditdialog.cpp now
 # pulls TransectEditorDialog + TransectRegistry + LabeledPickerCombo +

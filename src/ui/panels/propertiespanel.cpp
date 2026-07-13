@@ -43,6 +43,7 @@
 #include "timeseries/timeseriesregistry.h"
 #include "transect/transectregistry.h"
 #include "ui/properties/swmmlinkpropertyadapter.h"
+#include "ui/properties/storageshapegeom.h" // storageGeomApplies (grey out N/A dims)
 #include "ui/properties/xsectshapegeom.h"   // xsectGeomApplies (grey out N/A geoms)
 #include "ui/properties/swmmnodepropertyadapter.h"
 #include "ui/properties/swmmsubcatchpropertyadapter.h"
@@ -606,25 +607,43 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
             }
 
             // Slice AG.4 — storage units: drive editability of the geometry
-            // rows from the live Storage Shape. FUNCTIONAL enables the three
-            // coefficient rows and greys the curve picker; TABULAR does the
-            // reverse. Same trigger/contract as the outfall block above.
+            // rows from the live Storage Shape. Three mutually exclusive groups:
+            //   TABULAR     → the curve picker
+            //   FUNCTIONAL  → the three A/B/C coefficient rows
+            //   CYLINDRICAL / CONICAL / PARABOLIC / PYRAMIDAL
+            //               → the raw dimension rows that apply to that shape
+            //                 (a cylinder has no side slope, so Param 3 stays grey)
+            // Same trigger/contract as the outfall block above. The dimension rows keep
+            // generic labels ("Shape Param 1"): QPropertyModel builds its rows from
+            // metaObject() at setData() time and setRowEditable finds a row by matching
+            // that label, so a label that changed with the shape would break its own
+            // lookup the moment the user switched shapes. The shape-specific name
+            // ("Base Length", …) is surfaced in the attribute table's tooltips — the
+            // same split the link xsect geom1..geom4 rows already use.
             if (auto *storageAdapter =
                     qobject_cast<SWMMStoragePropertyAdapter*>(m_nodeAdapter))
             {
                 auto applyStorageRowFlags = [pm, storageAdapter]() {
                     if (!pm) return;
+                    const int shape = static_cast<int>(storageAdapter->storageShape());
+                    const bool tabular =
+                        shape == static_cast<int>(SWMMNodePropertyAdapter::Tabular);
                     const bool functional =
-                        storageAdapter->storageShape()
-                            == SWMMNodePropertyAdapter::Functional;
+                        shape == static_cast<int>(SWMMNodePropertyAdapter::Functional);
+
                     setRowEditable(pm, storageAdapter,
-                                   QStringLiteral("storageCurve"),  !functional);
+                                   QStringLiteral("storageCurve"),   tabular);
                     setRowEditable(pm, storageAdapter,
                                    QStringLiteral("storageCoeffA"),  functional);
                     setRowEditable(pm, storageAdapter,
                                    QStringLiteral("storageExpB"),    functional);
                     setRowEditable(pm, storageAdapter,
                                    QStringLiteral("storageConstC"),  functional);
+                    for (int k = 1; k <= 3; ++k) {
+                        setRowEditable(pm, storageAdapter,
+                                       QStringLiteral("storageParam%1").arg(k),
+                                       openswmmvis::storageGeomApplies(shape, k));
+                    }
                 };
                 connect(storageAdapter, &SWMMNodePropertyAdapter::changed,
                         pm, applyStorageRowFlags);
