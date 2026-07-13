@@ -102,7 +102,14 @@ SaveAsPathResult normalizeSaveAsPath(const QString &dialogPath,
             stem = stem.left(dotIdx);
             r.wasNormalized = true;
         }
-        const QString dir = fi.absolutePath();
+        // path(), NOT absolutePath(). absolutePath() resolves against the process
+        // CWD, which (a) makes a pure string normalizer depend on ambient state,
+        // and (b) breaks on Windows: a drive-less rooted path like "/p/m.inp.oswp"
+        // is relative to the *current drive*, so absolutePath() returned
+        // "D:/p" and produced "D:/p/m.inp" instead of "/p/m.inp".
+        // The non-project branch below already returns `working` verbatim, so
+        // preserving the caller's directory as given is the consistent behaviour.
+        const QString dir = fi.path();
         r.inpPath = dir + QLatin1Char('/') + stem + QStringLiteral(".inp");
     } else {
         r.inpPath = working;
