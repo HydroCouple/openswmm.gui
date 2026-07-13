@@ -39,6 +39,16 @@ class SWMMSubcatchPropertyAdapter : public QObject
     Q_PROPERTY(double  nPerv       READ nPerv       WRITE setNPerv       NOTIFY changed)
     Q_PROPERTY(double  dsImperv    READ dsImperv    WRITE setDsImperv    NOTIFY changed)
     Q_PROPERTY(double  dsPerv      READ dsPerv      WRITE setDsPerv      NOTIFY changed)
+    /*! Subcatchment rainfall scale factor — optional token 9 of [SUBCATCHMENTS].
+     *  Multiplies gage-derived rainfall for this subcatchment only, composing
+     *  multiplicatively with the gage's own scale factor. Must be > 0;
+     *  default 1.0 (no scaling). */
+    Q_PROPERTY(double  rainScaleFactor READ rainScaleFactor WRITE setRainScaleFactor NOTIFY changed)
+    /*! Subcatchment snowfall scale factor — optional token 10 of
+     *  [SUBCATCHMENTS]. Composes with the gage snow catch factor (SCF): SCF
+     *  corrects the physical gage's snow-catch deficiency, this represents
+     *  spatial variation across the catchment. Must be > 0; default 1.0. */
+    Q_PROPERTY(double  snowScaleFactor READ snowScaleFactor WRITE setSnowScaleFactor NOTIFY changed)
 
     // Phase 3 — Subcatchment gaps (docs/ATTRIBUTE_EDITOR_WIRING_PLAN_2026-06-04.md).
     /*! Rain gage assignment (R3 picker over gage names). */
@@ -99,6 +109,8 @@ public:
     [[nodiscard]] double nPerv()     const;
     [[nodiscard]] double dsImperv()  const;
     [[nodiscard]] double dsPerv()    const;
+    [[nodiscard]] double rainScaleFactor() const;
+    [[nodiscard]] double snowScaleFactor() const;
 
     // Phase 3 — picker / enum / infiltration param accessors.
     [[nodiscard]] DataObjectRef rainGageRef() const;
@@ -130,6 +142,8 @@ public slots:
     void setNPerv(double v);
     void setDsImperv(double v);
     void setDsPerv(double v);
+    void setRainScaleFactor(double v);
+    void setSnowScaleFactor(double v);
 
     // Phase 3 — picker / enum / infiltration param write slots.
     void setRainGageRef(const DataObjectRef &r);

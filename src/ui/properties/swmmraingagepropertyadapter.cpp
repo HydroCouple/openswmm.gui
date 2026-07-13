@@ -23,7 +23,8 @@ QString SWMMRainGagePropertyAdapter::displayLabelFor(const QString &property) co
     if (property == QLatin1String("name"))             return tr("Name");
     if (property == QLatin1String("rainType"))         return tr("Rain Type");
     if (property == QLatin1String("rainInterval"))     return tr("Recording Interval (s)");
-    if (property == QLatin1String("snowFactor"))       return tr("Snow Catch Factor");
+    if (property == QLatin1String("snowFactor"))       return tr("Snow Catch Factor (SCF)");
+    if (property == QLatin1String("scaleFactor"))      return tr("Rainfall Scale Factor");
     if (property == QLatin1String("dataSource"))       return tr("Data Source");
     if (property == QLatin1String("seriesName"))       return tr("Series Name");
     if (property == QLatin1String("currentRainfall"))  return tr("Current Rainfall");
@@ -121,6 +122,27 @@ void SWMMRainGagePropertyAdapter::setSnowFactor(double v)
     const int i = idx();
     if (i < 0) return;
     if (swmm_gage_set_snow_factor(m_engine, i, v) == SWMM_OK) emit changed();
+}
+
+double SWMMRainGagePropertyAdapter::scaleFactor() const
+{
+    const int i = idx();
+    if (i < 0) return 1.0;
+    double v = 1.0;
+    swmm_gage_get_scale_factor(m_engine, i, &v);
+    return v;
+}
+
+void SWMMRainGagePropertyAdapter::setScaleFactor(double v)
+{
+    // The engine rejects values <= 0. Guard here as well: the Property Browser
+    // supplies a plain spin box with no min/max (unlike the attribute table,
+    // whose ColumnSpec carries a range), so without this an out-of-range entry
+    // would be silently discarded by the engine with no feedback.
+    if (v <= 0.0) return;
+    const int i = idx();
+    if (i < 0) return;
+    if (swmm_gage_set_scale_factor(m_engine, i, v) == SWMM_OK) emit changed();
 }
 
 DataObjectRef SWMMRainGagePropertyAdapter::seriesNameRef() const
