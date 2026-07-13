@@ -84,6 +84,17 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
     if (property == QLatin1String("storageCoeffA"))  return tr("Functional Coeff. (A)");
     if (property == QLatin1String("storageExpB"))    return tr("Functional Exponent (B)");
     if (property == QLatin1String("storageConstC"))  return tr("Functional Constant (C) (%1)").arg(L2);
+    // The three raw dimensions mean different things per shape ("Major Axis Length"
+    // for a cone, "Base Length" for a pyramid, …), but these labels must stay STABLE:
+    // PropertiesPanel::setRowEditable finds a row by matching this string against the
+    // tree's DisplayRole, and the tree is only rebuilt on setData(). A label that
+    // changed with the shape would leave the lookup unable to find its own row the
+    // moment the user switched shapes. The shape-specific name is surfaced as the
+    // tooltip instead (openswmmvis::storageGeomLabel) — same compromise the link
+    // xsect rows make for geom1..geom4.
+    if (property == QLatin1String("storageParam1")) return tr("Shape Param 1 (%1)").arg(L);
+    if (property == QLatin1String("storageParam2")) return tr("Shape Param 2 (%1)").arg(L);
+    if (property == QLatin1String("storageParam3")) return tr("Shape Param 3");
 
     // Divider.
     if (property == QLatin1String("dividerType"))     return tr("Divider Type");
@@ -538,18 +549,25 @@ void SWMMNodePropertyAdapter::setOutfallTimeseriesRef(const DataObjectRef &r) {
 // Slice AG.4 — storage-unit geometry accessors
 // ---------------------------------------------------------------------------
 //
-// The engine keeps the functional power-law coefficients (A, B, C) and the
-// tabular curve index in independent storage slots. A node is TABULAR when a
-// curve is assigned (storage_curve >= 0) and FUNCTIONAL otherwise — there is
-// no separate "shape" flag, so storageShape() derives it from the curve index.
+// The engine keeps four independent storage slots: the tabular curve index, the
+// functional power-law coefficients (A, B, C), the raw geometric dimensions
+// (p1, p2, p3), and the shape that says which of them is authoritative.
+//
+// storageShape() used to DERIVE the shape from the curve index (curve >= 0 =>
+// Tabular, else Functional). That could not express the four geometric shapes —
+// they are curve-less but are not power-law functional either — so it now reads
+// the engine's real shape field. Our enum's ordinals match SWMM_StorageShape, so
+// the int passes straight through.
 
 SWMMNodePropertyAdapter::StorageShape SWMMNodePropertyAdapter::storageShape() const {
     const int idx = nodeIdx();
     if (idx < 0) return Functional;
-    int curveIdx = -1;
-    if (swmm_node_get_storage_curve(m_engine, idx, &curveIdx) != SWMM_OK)
+    int shape = static_cast<int>(Functional);
+    if (swmm_node_get_storage_shape(m_engine, idx, &shape) != SWMM_OK)
         return Functional;
-    return (curveIdx >= 0) ? Tabular : Functional;
+    if (shape < Tabular || shape > Pyramidal)
+        return Functional;
+    return static_cast<StorageShape>(shape);
 }
 
 DataObjectRef SWMMNodePropertyAdapter::storageCurveRef() const {
@@ -598,30 +616,105 @@ double SWMMNodePropertyAdapter::storageConstC() const {
 void SWMMNodePropertyAdapter::setStorageShape(StorageShape v) {
     const int idx = nodeIdx();
     if (idx < 0) return;
-    if (v == Functional) {
-        // Detach any tabular curve → engine treats curve_idx < 0 as functional.
-        if (swmm_node_set_storage_curve(m_engine, idx, -1) == SWMM_OK)
-            emit changed();
+
+    if (v == Tabular) {
+        // Tabular — keep the current curve if one is already assigned.
+        int curveIdx = -1;
+        swmm_node_get_storage_curve(m_engine, idx, &curveIdx);
+        if (curveIdx >= 0) { emit changed(); return; }
+        // Otherwise assign the first [STORAGE]-type curve (table type 1) in the
+        // model. If none exist the switch can't complete; re-read leaves the row
+        // on its previous shape so the combobox snaps back — the user must create
+        // a curve first (via the "…" picker).
+        const int n = swmm_table_count(m_engine);
+        for (int i = 0; i < n; ++i) {
+            int t = -1;
+            if (swmm_table_get_type(m_engine, i, &t) == SWMM_OK && t == 1) {
+                if (swmm_node_set_storage_curve(m_engine, idx, i) == SWMM_OK)
+                    emit changed();   // engine sets shape = TABULAR alongside the curve
+                return;
+            }
+        }
+        emit changed();
         return;
     }
-    // Tabular — keep the current curve if one is already assigned.
-    int curveIdx = -1;
-    swmm_node_get_storage_curve(m_engine, idx, &curveIdx);
-    if (curveIdx >= 0) { emit changed(); return; }
-    // Otherwise assign the first [STORAGE]-type curve (table type 1) in the
-    // model. If none exist the switch can't complete; re-read leaves the row
-    // FUNCTIONAL so the combobox snaps back — the user must create a curve
-    // first (via the "…" picker).
-    const int n = swmm_table_count(m_engine);
-    for (int i = 0; i < n; ++i) {
-        int t = -1;
-        if (swmm_table_get_type(m_engine, i, &t) == SWMM_OK && t == 1) {
-            if (swmm_node_set_storage_curve(m_engine, idx, i) == SWMM_OK)
-                emit changed();
-            return;
-        }
+
+    // Functional or one of the four geometric shapes. The engine detaches any
+    // curve itself and, for a geometric shape, re-derives its area coefficients
+    // from the dimensions the node already carries.
+    if (swmm_node_set_storage_shape(m_engine, idx, static_cast<int>(v)) != SWMM_OK)
+        return;
+
+    // A geometric shape needs valid L/W/Z (p1>0, p2>0, p3>=0, and p3!=0 for a
+    // paraboloid), and the engine validates all three atomically. A node freshly
+    // switched to a geometric shape carries zeroed dimensions, so the Property
+    // Browser's one-cell-at-a-time edit of a single dimension (e.g. L=30 while W is
+    // still 0) would be rejected and the switch would never "take". Seed a valid
+    // unit default when the current dims don't validate; keep them when they do, so
+    // switching a shape away and back preserves whatever the user already entered.
+    if (v == Cylindrical || v == Conical || v == Paraboloid || v == Pyramidal) {
+        double p1 = 0.0, p2 = 0.0, p3 = 0.0;
+        swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
+        if (swmm_node_set_storage_geometry(m_engine, idx, p1, p2, p3) != SWMM_OK)
+            swmm_node_set_storage_geometry(m_engine, idx, 1.0, 1.0, 1.0);
     }
     emit changed();
+}
+
+// --- Raw geometric dimensions (L/W/Z). Meaning is shape-dependent — see
+//     storageshapegeom.h. The engine validates (L>0, W>0, Z>=0, Z!=0 on a
+//     paraboloid) and rejects the whole write atomically, so a half-typed value
+//     leaves the node on its last valid geometry instead of corrupting it.
+
+double SWMMNodePropertyAdapter::storageParam1() const {
+    const int idx = nodeIdx();
+    if (idx < 0) return 0.0;
+    double p1 = 0.0, p2 = 0.0, p3 = 0.0;
+    swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
+    return p1;
+}
+
+double SWMMNodePropertyAdapter::storageParam2() const {
+    const int idx = nodeIdx();
+    if (idx < 0) return 0.0;
+    double p1 = 0.0, p2 = 0.0, p3 = 0.0;
+    swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
+    return p2;
+}
+
+double SWMMNodePropertyAdapter::storageParam3() const {
+    const int idx = nodeIdx();
+    if (idx < 0) return 0.0;
+    double p1 = 0.0, p2 = 0.0, p3 = 0.0;
+    swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
+    return p3;
+}
+
+void SWMMNodePropertyAdapter::setStorageParam1(double v) {
+    const int idx = nodeIdx();
+    if (idx < 0) return;
+    double p1 = 0.0, p2 = 0.0, p3 = 0.0;
+    swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
+    if (swmm_node_set_storage_geometry(m_engine, idx, v, p2, p3) == SWMM_OK)
+        emit changed();
+}
+
+void SWMMNodePropertyAdapter::setStorageParam2(double v) {
+    const int idx = nodeIdx();
+    if (idx < 0) return;
+    double p1 = 0.0, p2 = 0.0, p3 = 0.0;
+    swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
+    if (swmm_node_set_storage_geometry(m_engine, idx, p1, v, p3) == SWMM_OK)
+        emit changed();
+}
+
+void SWMMNodePropertyAdapter::setStorageParam3(double v) {
+    const int idx = nodeIdx();
+    if (idx < 0) return;
+    double p1 = 0.0, p2 = 0.0, p3 = 0.0;
+    swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
+    if (swmm_node_set_storage_geometry(m_engine, idx, p1, p2, v) == SWMM_OK)
+        emit changed();
 }
 
 void SWMMNodePropertyAdapter::setStorageCurveRef(const DataObjectRef &r) {
