@@ -256,6 +256,7 @@ jobs:
       # cache-save step appeared in any post-job section. With the split, even a
       # red build leaves the next run warm.
       - name: Restore vcpkg binary cache
+        id: vcpkg_cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
@@ -544,40 +545,79 @@ jobs:
         run: cmake --build --preset=${{ matrix.cmake_preset }}
 
       # ── Test ─────────────────────────────────────────────────────────────────
-      # --timeout is NOT optional here. test_meshenginesync hangs on Windows; with
-      # no per-test cap, ctest sat on it for 64.9 MINUTES before the job was
-      # cancelled, which is most of why that leg reported 208 min (at 2x billing).
-      # A hung test must cost ~3 min and be reported as a timeout, not silently
-      # eat the runner. 180s is ~300x the slowest passing test (0.6s), so it will
-      # only ever fire on a genuine hang.
+      # --timeout is NOT optional here: 19 of 132 tests currently hang on Windows.
+      # Sizing it matters. At 180 s those 19 hangs cost 19 x 180 s = 57 MINUTES of
+      # a 2x-billed runner doing nothing (that was the whole 58.3 min ctest step).
+      # At 60 s the same 19 hangs cost 19 min.
+      #
+      # 60 s is still a 34x margin over the slowest legitimate test observed on ANY
+      # platform (1.77 s, macos-15-intel), so it can only ever fire on a real hang.
+      # Deliberately NOT using -j to shrink this further: several tests write output
+      # files into a shared data dir, and parallelising them while we are chasing a
+      # hang would add a confounding variable.
       - name: Test
         run: >
           ctest --test-dir build/${{ matrix.build_subdir }} -C Release
-          --output-on-failure --timeout 180
+          --output-on-failure --timeout 60
 
-      # test_meshenginesync runs in 0.01 s (Linux) / 0.05 s (macOS) but HANGS on
-      # Windows — almost certainly a block inside swmm_engine_open/initialize
-      # (Kokkos/OpenMP 2D solver bring-up), not in the test body, which is only
-      # file I/O and string parsing.
+      # ── Windows hang diagnostic ─────────────────────────────────────────────
+      # 19 of 132 tests time out on Windows and pass in <2 s on Linux/macOS.
+      # They are NOT all GUI tests: test_swmm_datetime, test_timeseries_parse and
+      # test_meshenginesync construct no QApplication at all, so the offscreen QPA
+      # is not the culprit. What the 19 share is that they reference ENGINE symbols,
+      # so openswmm.engine.dll enters their import table and is loaded by the
+      # Windows loader BEFORE main() runs. Prime suspect: a load-time deadlock in
+      # the engine DLL (static init / DllMain touching the Kokkos-OpenMP runtime —
+      # OpenMP under the loader lock is a well-known Windows deadlock).
       #
-      # Why this step exists: ctest BUFFERS each test's stdout and flushes it only
-      # when the test completes. A hung test therefore produces ZERO output — the
-      # last run showed nothing but "Start 22: test_meshenginesync" before dying.
-      # We could not see which gtest case blocked. Invoking the binary directly
-      # sends stdout straight to the job log, so gtest's "[ RUN ]" lines survive:
-      # the LAST one printed is the blocking case.
+      # ctest BUFFERS each test's stdout and flushes only on completion, so a hung
+      # test emits NOTHING and we cannot see where it blocks. Running the binaries
+      # directly sends stdout straight to the job log.
       #
-      # Diagnostic only — continue-on-error, and it never gates the job.
-      - name: Localise Windows test hang (diagnostic)
-        if: failure() && runner.os == 'Windows'
+      # THE DECISIVE SIGNAL is test_swmm_datetime (plain gtest, zero Qt):
+      #   * no output at all, not even gtest's "Running N tests" banner
+      #        -> it hangs BEFORE main() => DLL load / static-init deadlock.
+      #   * "[ RUN ]" lines appear, then it stops
+      #        -> it hangs inside a specific call, named by the last line.
+      #
+      # `always()` (not `failure()`): the previous run was CANCELLED, not failed,
+      # and cancellation does not satisfy failure() — so this step never executed.
+      - name: Diagnose Windows test hang
+        if: always() && runner.os == 'Windows'
         continue-on-error: true
         shell: bash
         run: |
-          BIN=$(find build/windows -iname 'test_meshenginesync*.exe' | head -1)
-          if [ -z "$BIN" ]; then echo "test_meshenginesync binary not found"; exit 0; fi
-          echo "Running $BIN directly, 120 s cap, unbuffered to the log:"
-          timeout --signal=KILL 120 "$BIN" 2>&1 || \
-            echo "::warning::test_meshenginesync did not complete — the LAST [ RUN ] line above is the case that blocks"
+          set +e
+          echo "==========================================================="
+          echo "PART 1 — does each test exe IMPORT openswmm.engine.dll?"
+          echo "==========================================================="
+          echo "The import table is ground truth: a DLL in it is mapped by the"
+          echo "Windows loader BEFORE main() runs. Cross-reference this list with"
+          echo "the ***Timeout list above. If every hung test imports the engine and"
+          echo "no passing test does, the hang is at DLL load, not in test code."
+          printf '%-44s %s\n' "TEST" "IMPORTS-ENGINE"
+          for exe in $(find build/windows -iname 'test_*.exe' -type f | sort); do
+            if dumpbin //DEPENDENTS "$exe" 2>/dev/null | grep -qi 'openswmm.engine.dll'; then
+              printf '%-44s %s\n' "$(basename "$exe" .exe)" "YES"
+            else
+              printf '%-44s %s\n' "$(basename "$exe" .exe)" "no"
+            fi
+          done
+
+          echo
+          echo "==========================================================="
+          echo "PART 2 — run 3 probes directly (unbuffered; ctest hides this)"
+          echo "==========================================================="
+          probe() {
+            bin=$(find build/windows -iname "$1.exe" -type f | head -1)
+            echo "─────────────── [$1] $2"
+            [ -z "$bin" ] && { echo "  binary not found"; return 0; }
+            timeout --signal=KILL 45 "$bin" 2>&1 | head -25
+            echo "  ^ if NOTHING printed above, it never reached main()"
+          }
+          probe test_swmm_datetime       "HANGS. plain gtest, zero Qt, uses engine"
+          probe test_timeseries_parse    "HANGS. control: appears NOT to use the engine"
+          probe test_comparisonplot_toolbar "PASSES. negative control"
 
       # ── Install (staging tree) ────────────────────────────────────────────
       # cmake --install copies the built binary + all install() rules into
@@ -734,10 +774,16 @@ jobs:
       # on a red build). Ports compiled during a FAILING run are still worth
       # keeping — they are what makes the next attempt fast.
       #
-      # A "Cache already exists" warning here is expected and harmless when the
-      # key is unchanged (nothing new was built); it does not fail the job.
+      # Skipped on an EXACT key hit. GitHub caches are immutable, so re-saving a
+      # key that was just restored is rejected with
+      #   "Failed to save: Unable to reserve cache with key vcpkg-bin-..."
+      #   ##[warning]Cache save failed.
+      # which is harmless but was appearing on every green run. On an exact hit the
+      # archive set is already complete (the key hashes both vcpkg manifests), so
+      # there is nothing new to store. A PARTIAL hit via restore-keys leaves
+      # cache-hit == 'false', so a changed dependency set still saves correctly.
       - name: Save vcpkg binary cache
-        if: always()
+        if: always() && steps.vcpkg_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
