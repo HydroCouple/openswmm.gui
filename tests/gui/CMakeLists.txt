@@ -36,6 +36,15 @@ function(add_swmmvis_gui_test TEST_NAME)
     set_tests_properties(${TEST_NAME} PROPERTIES
         LABELS "gui"
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR}")
+
+    # Windows: without this the loader cannot find openswmm.engine.dll / the vcpkg
+    # DLLs and the test HANGS at load time (see tests/CMakeLists.txt). Note this is
+    # a separate property from ENVIRONMENT above — ENVIRONMENT_MODIFICATION is
+    # applied after it, so the two compose rather than clobber each other.
+    if(WIN32 AND SWMMVIS_TEST_DLL_DIRS)
+        set_tests_properties(${TEST_NAME} PROPERTIES
+            ENVIRONMENT_MODIFICATION "${SWMMVIS_TEST_DLL_DIRS}")
+    endif()
 endfunction()
 
 # ── Self-contained tests (no app linkage required) ──────────────────────────

@@ -1585,16 +1585,52 @@ if(APPLE)
     endif()
 
     # Re-sign after install-time macdeployqt. macdeployqt embeds new dylibs (Qt
-    # frameworks, GDAL, PROJ and all transitive deps) which invalidates the bundle's
-    # code directory. --options runtime enables the Hardened Runtime required for
-    # notarization; --timestamp adds a secure timestamp so the signature survives
-    # certificate expiry. Use the same identity that was set at configure time via
-    # -DCODESIGN_IDENTITY (defaults to "-" for ad-hoc local builds).
+    # frameworks, GDAL, PROJ and all transitive deps) and rewrites their load
+    # commands with install_name_tool, which invalidates every code directory it
+    # touches.
+    #
+    # This rule used to be `codesign --force --sign "-" --options runtime --timestamp`
+    # and it produced the DMG that macOS rejects with
+    #     "SWMMVis.app is damaged and can't be opened."
+    # Three bugs, each of which alone is enough to break the bundle:
+    #
+    #   1. NO --deep.  codesign then signs only the outer bundle and leaves the
+    #      nested Qt plugins unsigned, so it ABORTS with:
+    #          SWMMVis.app: code object is not signed at all
+    #          In subcomponent: .../SWMMVis.app/Contents/PlugIns/...
+    #      (The POST_BUILD rule above already passes --deep — this one forgot.)
+    #
+    #   2. --timestamp on an AD-HOC identity.  A secure timestamp requires a real
+    #      Developer ID; ad-hoc signatures cannot carry one. Likewise --options
+    #      runtime (Hardened Runtime) is only meaningful for notarised builds.
+    #      Both belong exclusively to the real-identity path.
+    #
+    #   3. No COMMAND_ERROR_IS_FATAL.  So when codesign failed for (1), CMake
+    #      ignored it and CPack wrapped an unsigned bundle into a .dmg. The build
+    #      went green and shipped a broken app. Signing failures must be FATAL —
+    #      on Apple Silicon an invalid signature means the binary will not load
+    #      at all, which is exactly what "damaged" means.
+    # NOTE: a plain space-separated STRING, not a list. install(CODE) does textual
+    # substitution into a generated CMake script, and a list would expand as
+    # "--options;runtime;--timestamp" — one mangled argument, not three.
+    set(_codesign_notarize_opts "")
+    if(NOT _codesign_identity STREQUAL "-")
+        # Real Developer ID: enable Hardened Runtime + secure timestamp so the
+        # bundle can be notarised.
+        set(_codesign_notarize_opts "--options runtime --timestamp")
+    endif()
+
     install(CODE
         "execute_process(COMMAND
-            codesign --force --sign \"${_codesign_identity}\"
-            --options runtime --timestamp
-            \"\${CMAKE_INSTALL_PREFIX}/SWMMVis.app\")"
+            codesign --force --deep --sign \"${_codesign_identity}\"
+            ${_codesign_notarize_opts}
+            \"\${CMAKE_INSTALL_PREFIX}/SWMMVis.app\"
+            COMMAND_ERROR_IS_FATAL ANY)
+         execute_process(COMMAND
+            codesign --verify --deep --strict
+            \"\${CMAKE_INSTALL_PREFIX}/SWMMVis.app\"
+            COMMAND_ERROR_IS_FATAL ANY)
+         message(STATUS \"codesign: bundle signed and verified (identity=${_codesign_identity})\")"
         COMPONENT Runtime
     )
 

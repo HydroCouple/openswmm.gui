@@ -23,6 +23,15 @@ function(add_swmmvis_unit_test TEST_NAME)
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/data
     )
     set_tests_properties(${TEST_NAME} PROPERTIES LABELS "unit")
+
+    # Windows: without this the loader cannot find openswmm.engine.dll / the vcpkg
+    # DLLs and the test HANGS at load time (see tests/CMakeLists.txt for the full
+    # explanation). test_meshenginesync / test_swmm_datetime / test_timeseries_parse
+    # were three of the 27 casualties.
+    if(WIN32 AND SWMMVIS_TEST_DLL_DIRS)
+        set_tests_properties(${TEST_NAME} PROPERTIES
+            ENVIRONMENT_MODIFICATION "${SWMMVIS_TEST_DLL_DIRS}")
+    endif()
 endfunction()
 
 # ---- Test targets ----

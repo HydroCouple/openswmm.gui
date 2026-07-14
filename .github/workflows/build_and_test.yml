@@ -36,6 +36,28 @@ env:
   VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite"
   VCPKG_ROOT: ${{ github.workspace }}/vcpkg
   OMP_NUM_THREADS: 1
+
+  # ┌──────────────────────────────────────────────────────────────────────────┐
+  # │ TEMPORARY DIAGNOSTIC — set back to "0" once the question is answered.    │
+  # └──────────────────────────────────────────────────────────────────────────┘
+  # test_mesh2dh5reader passed in 0.01 s one run and SIGBUS'd the next, with its
+  # source UNCHANGED. Between those runs two things moved:
+  #   1. the compiler cache warmed up (ccache hits 77% -> 88%)
+  #   2. the engine ref advanced (805a3b85 -> 87b01609)
+  #
+  # (1) is a change WE introduced, so it gets ruled out first — a compiler cache
+  # serving a stale object is exactly the kind of thing that produces a crash in
+  # code that did not change. "1" makes ccache a pass-through: it reads nothing
+  # and writes nothing, forcing a full honest recompile.
+  #
+  #   still SIGBUS with bypass on  -> ccache is INNOCENT; it's a real bug
+  #                                   (next suspect: the engine bump, and the
+  #                                    duplicate HDF5 1.14.4.3 / 1.14.6 ABI skew)
+  #   green with bypass on         -> ccache was serving a stale object; fix the
+  #                                   cache keying, do NOT go chasing the engine
+  #
+  # Cost: one slow Linux build (~25 min). vcpkg + engine caches still apply.
+  COMPILER_CACHE_BYPASS: "1"
   # openswmm.engine is consumed as a PREBUILT installed package via
   # find_package(OpenSWMMEngine) (cmake/FetchOpenSWMMEngine.cmake). CI checks it
   # out and builds+installs it before configuring the GUI. Bump in lockstep with
@@ -167,6 +189,48 @@ jobs:
       - name: Install NSIS (Windows)
         if: runner.os == 'Windows'
         run: choco install nsis --no-progress -y
+
+      # MSVC is I/O-bound on a huge number of small files (2347 TUs, each reading
+      # hundreds of Qt headers and writing an .obj). Defender real-time scanning
+      # inspects every one of those reads and writes. The build is ALREADY running
+      # at ~3.8x parallelism on a 4-vCPU runner (2347 compiles x 7.99 s avg = 312
+      # CPU-min in 82.8 min wall), so it is not thread-starved — it is starved on
+      # per-file I/O. Excluding the workspace and the toolchain processes is the
+      # cheapest remaining win.
+      #
+      # Best-effort: if Defender is absent or the policy blocks it, carry on.
+      - name: Exclude build dirs from Windows Defender
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Add-MpPreference -ExclusionPath  "${{ github.workspace }}"
+          Add-MpPreference -ExclusionPath  "$env:TEMP"
+          foreach ($p in 'cl.exe','link.exe','ninja.exe','sccache.exe','lib.exe','mt.exe','rc.exe') {
+            Add-MpPreference -ExclusionProcess $p
+          }
+          Write-Host "Defender exclusions applied."
+
+      # Make a failed process DIE instead of BLOCKING.
+      #
+      # 27 tests "hung" for 180 s each on Windows. They were not deadlocked: they
+      # could not resolve openswmm.engine.dll, so the loader failed with
+      # STATUS_DLL_NOT_FOUND before main(), and Windows Error Reporting put up a
+      # modal dialog. On a headless runner nobody dismisses it, so the process sat
+      # there until ctest killed it — turning an instant, obvious "missing DLL"
+      # into an inscrutable timeout that cost ~1 hour of runner time per run.
+      #
+      # DontShowUI makes WER report and exit immediately. The DLL problem itself is
+      # fixed in tests/CMakeLists.txt; this makes sure that if ANY future crash or
+      # missing-dependency occurs, we get a fast, readable failure instead of a hang.
+      - name: Make Windows crashes fail fast (no WER dialog)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting" /v DontShowUI /t REG_DWORD /d 1 /f
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting" /v Disabled  /t REG_DWORD /d 1 /f
+          Write-Host "WER UI disabled — crashes now exit instead of blocking on a dialog."
 
       # Extract version string for AppImage naming (uses $VERSION env var).
       # Anchors on leading whitespace to skip cmake_minimum_required(VERSION ...).
@@ -351,6 +415,20 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$COMPILER_CACHE_DIR"
+
+          # See COMPILER_CACHE_BYPASS at the top of this file. When set, the
+          # launcher stays wired (so the build graph is byte-identical) but the
+          # cache is inert: no reads, no writes, every TU genuinely recompiled.
+          if [ "${COMPILER_CACHE_BYPASS:-0}" = "1" ]; then
+            echo "::warning::COMPILER_CACHE_BYPASS=1 — compiler cache is a PASS-THROUGH this run (diagnostic). Build will be slow. Revert to 0 once resolved."
+            if [ "${{ runner.os }}" = "Windows" ]; then
+              # sccache has no hard disable; RECACHE forces a miss + fresh store,
+              # so no stale object can be served.
+              echo "SCCACHE_RECACHE=1" >> "$GITHUB_ENV"
+            else
+              echo "CCACHE_DISABLE=1"  >> "$GITHUB_ENV"
+            fi
+          fi
           # ── Size cap: measured, not guessed ───────────────────────────────
           # The compiler-cache key contains github.sha, so it NEVER hits exactly
           # and a NEW entry is written every commit (the restore-keys prefix is
@@ -608,16 +686,24 @@ jobs:
           echo "==========================================================="
           echo "PART 2 — run 3 probes directly (unbuffered; ctest hides this)"
           echo "==========================================================="
+          # The DLL dirs MUST be on PATH. The first version of this probe omitted
+          # them and every probe — including the passing control — printed nothing,
+          # because the binaries could not start. That was the bug, not a null result.
+          ENGINE_BIN=$(dirname "$(find openswmm.engine/install -iname 'openswmm.engine.dll' | head -1)" 2>/dev/null || true)
+          VCPKG_BIN="build/windows/vcpkg_installed/x64-windows/bin"
+          export PATH="$ENGINE_BIN:$VCPKG_BIN:$PATH"
+          echo "engine dll dir : ${ENGINE_BIN:-<NOT FOUND>}"
+          echo "vcpkg dll dir  : $VCPKG_BIN"
+
           probe() {
             bin=$(find build/windows -iname "$1.exe" -type f | head -1)
             echo "─────────────── [$1] $2"
             [ -z "$bin" ] && { echo "  binary not found"; return 0; }
             timeout --signal=KILL 45 "$bin" 2>&1 | head -25
-            echo "  ^ if NOTHING printed above, it never reached main()"
+            echo "  ^ exit=$? — if NOTHING printed, it never reached main()"
           }
-          probe test_swmm_datetime       "HANGS. plain gtest, zero Qt, uses engine"
-          probe test_timeseries_parse    "HANGS. control: appears NOT to use the engine"
-          probe test_comparisonplot_toolbar "PASSES. negative control"
+          probe test_swmm_datetime          "was hanging: plain gtest, zero Qt, links the engine"
+          probe test_comparisonplot_toolbar "always passed: negative control"
 
       # ── Install (staging tree) ────────────────────────────────────────────
       # cmake --install copies the built binary + all install() rules into
@@ -837,8 +923,11 @@ jobs:
           path: openswmm.engine/install/${{ matrix.cmake_preset }}
           key: engine-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-${{ matrix.cmake_osx_arch }}-${{ steps.engine_rev.outputs.sha }}-2d.gpu.hypre
 
+      # Skipped while COMPILER_CACHE_BYPASS is on: with ccache inert, the dir holds
+      # nothing new, and saving it would write a near-empty cache under a fresh key
+      # that later runs would then restore — poisoning the very thing we are testing.
       - name: Save compiler cache
-        if: always()
+        if: always() && env.COMPILER_CACHE_BYPASS != '1'
         uses: actions/cache/save@v4
         with:
           path: ${{ env.COMPILER_CACHE_DIR }}
