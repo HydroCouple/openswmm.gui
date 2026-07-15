@@ -42,33 +42,60 @@ set(TEST_DATA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/unit/data)
 #     imports openswmm.engine.dll -> HUNG   27 / 27   (100%)
 #     does not import it          -> PASSED 95 / 95   (100%)
 #
-# So: prepend those directories to PATH for every test. SWMMVIS_TEST_DLL_DIRS is
-# consumed by the add_swmmvis_*_test helpers in unit/ and gui/.
-if(WIN32)
-    # ENVIRONMENT_MODIFICATION requires CMake >= 3.22. An UNKNOWN test property is
-    # silently ignored, so on 3.21 this fix would quietly do nothing and the tests
-    # would go back to hanging with no clue why. Fail loudly instead.
-    if(CMAKE_VERSION VERSION_LESS 3.22)
-        message(FATAL_ERROR
-            "Building the Windows test suite needs CMake >= 3.22 "
-            "(ENVIRONMENT_MODIFICATION); found ${CMAKE_VERSION}. Without it the "
-            "test binaries cannot locate openswmm.engine.dll / the vcpkg DLLs and "
-            "every engine-linked test hangs at load time.")
-    endif()
+# So: prepend those directories to PATH for every test. SWMMVIS_TEST_ENV is
+# consumed by the add_swmmvis_*_test helpers in unit/ and gui/ and passed to each
+# test's ENVIRONMENT_MODIFICATION property.
+#
+# ENVIRONMENT_MODIFICATION requires CMake >= 3.22. An UNKNOWN test property is
+# silently ignored, so on 3.21 these fixes would quietly do nothing and the tests
+# would go back to failing with no clue why. Fail loudly instead.
+if(CMAKE_VERSION VERSION_LESS 3.22)
+    message(FATAL_ERROR
+        "Building the test suite needs CMake >= 3.22 (ENVIRONMENT_MODIFICATION); "
+        "found ${CMAKE_VERSION}. Without it the test binaries cannot locate their "
+        "runtime DLLs (Windows) or the PROJ/GDAL data directory (all platforms).")
+endif()
 
-    set(SWMMVIS_TEST_DLL_DIRS "")
+set(SWMMVIS_TEST_ENV "")
+
+# ── (1) Windows DLL search path ─────────────────────────────────────────────
+# Windows only: no RPATH, so prepend the engine + vcpkg bin dirs to PATH.
+if(WIN32)
     if(TARGET openswmm_engine)
         # Imported target -> ask CMake where the DLL actually is, rather than
         # guessing bin/ vs lib/.
-        list(APPEND SWMMVIS_TEST_DLL_DIRS
+        list(APPEND SWMMVIS_TEST_ENV
              "PATH=path_list_prepend:$<TARGET_FILE_DIR:openswmm_engine>")
     endif()
     if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
-        list(APPEND SWMMVIS_TEST_DLL_DIRS
+        list(APPEND SWMMVIS_TEST_ENV
              "PATH=path_list_prepend:${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin")
     endif()
-    message(STATUS "Windows test DLL search dirs: ${SWMMVIS_TEST_DLL_DIRS}")
 endif()
+
+# ── (2) PROJ / GDAL data directories (ALL platforms) ────────────────────────
+# GDAL/PROJ resolve their data files (proj.db, gdal data) at runtime. The app
+# calls setupBundledGisDataPaths() (src/core/gisdatapaths.cpp), which looks for
+# proj/ and gdal/ NEXT TO THE EXECUTABLE — populated by the POST_BUILD copy that
+# targets SWMMVis.exe only. The test binaries live elsewhere and never get that
+# copy, so on Windows every CRS operation failed with
+#     ERROR 1: PROJ: proj_create_from_database: Cannot find proj.db
+# which cascaded into failed CRS imports, missing GeoPackages, and one crash in
+# test_meshgenerator. (Linux/macOS happened to resolve it via the vcpkg build
+# layout, but that is luck, not design — so set it everywhere.)
+#
+# Point the vars straight at the vcpkg share dirs. `set` (not prepend): these are
+# single directories, and this is unconditionally the correct location for THIS
+# build's data, so overriding any stale exe-relative guess is intended.
+if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
+    set(_vcpkg_share "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share")
+    list(APPEND SWMMVIS_TEST_ENV
+         "PROJ_DATA=set:${_vcpkg_share}/proj"
+         "PROJ_LIB=set:${_vcpkg_share}/proj"      # older PROJ still consults PROJ_LIB
+         "GDAL_DATA=set:${_vcpkg_share}/gdal")
+endif()
+
+message(STATUS "Test runtime env modifications: ${SWMMVIS_TEST_ENV}")
 
 add_subdirectory(unit)
 add_subdirectory(gui)
