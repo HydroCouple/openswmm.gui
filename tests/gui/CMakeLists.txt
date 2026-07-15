@@ -33,17 +33,23 @@ function(add_swmmvis_gui_test TEST_NAME)
         target_link_libraries(${TEST_NAME} PRIVATE openswmm_engine)
     endif()
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
+    # QTEST_FUNCTION_TIMEOUT: if a single test FUNCTION blocks longer than this,
+    # QtTest aborts and prints WHICH function hung — turning an opaque 60 s ctest
+    # timeout ("test_pattern_editor_dialog ***Timeout") into a named failure
+    # ("Test function timed out: someDialog_opens()"). 30 s is 50x the slowest
+    # gui test (0.6 s), so it only fires on a genuine hang. Diagnostic for the
+    # ~12 chart/widget tests still hanging on Windows for reasons not yet pinned.
     set_tests_properties(${TEST_NAME} PROPERTIES
         LABELS "gui"
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR}")
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR};QTEST_FUNCTION_TIMEOUT=30000")
 
-    # Windows: without this the loader cannot find openswmm.engine.dll / the vcpkg
-    # DLLs and the test HANGS at load time (see tests/CMakeLists.txt). Note this is
-    # a separate property from ENVIRONMENT above — ENVIRONMENT_MODIFICATION is
-    # applied after it, so the two compose rather than clobber each other.
-    if(WIN32 AND SWMMVIS_TEST_DLL_DIRS)
+    # Runtime env: Windows DLL search path + PROJ/GDAL data dirs (see
+    # tests/CMakeLists.txt). This is a SEPARATE property from ENVIRONMENT above —
+    # ENVIRONMENT_MODIFICATION is applied after it, so the two compose rather than
+    # clobber each other (offscreen QPA + data-dir vars both take effect).
+    if(SWMMVIS_TEST_ENV)
         set_tests_properties(${TEST_NAME} PROPERTIES
-            ENVIRONMENT_MODIFICATION "${SWMMVIS_TEST_DLL_DIRS}")
+            ENVIRONMENT_MODIFICATION "${SWMMVIS_TEST_ENV}")
     endif()
 endfunction()
 
