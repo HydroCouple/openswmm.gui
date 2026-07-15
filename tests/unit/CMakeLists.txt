@@ -24,13 +24,13 @@ function(add_swmmvis_unit_test TEST_NAME)
     )
     set_tests_properties(${TEST_NAME} PROPERTIES LABELS "unit")
 
-    # Windows: without this the loader cannot find openswmm.engine.dll / the vcpkg
-    # DLLs and the test HANGS at load time (see tests/CMakeLists.txt for the full
-    # explanation). test_meshenginesync / test_swmm_datetime / test_timeseries_parse
-    # were three of the 27 casualties.
-    if(WIN32 AND SWMMVIS_TEST_DLL_DIRS)
+    # Runtime env: Windows DLL search path + PROJ/GDAL data dirs. Without the DLL
+    # path the loader cannot find openswmm.engine.dll and the test HANGS at load;
+    # without PROJ_DATA/GDAL_DATA every CRS operation fails with "Cannot find
+    # proj.db". See tests/CMakeLists.txt for the full explanation.
+    if(SWMMVIS_TEST_ENV)
         set_tests_properties(${TEST_NAME} PROPERTIES
-            ENVIRONMENT_MODIFICATION "${SWMMVIS_TEST_DLL_DIRS}")
+            ENVIRONMENT_MODIFICATION "${SWMMVIS_TEST_ENV}")
     endif()
 endfunction()
 
