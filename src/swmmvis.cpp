@@ -210,6 +210,9 @@
 // apply. Per-layer categories (openswmm.load.model / .results / .raster /
 // .vector) carry the fine-grained breakdown. Off by default.
 Q_LOGGING_CATEGORY(lcLoadProject, "openswmm.load.project")
+// 2D mesh auto-load breakdown (INP/.2dm parse vs scene-geometry build) —
+// Mesh Tiled LOD plan Phase 0/1.
+Q_LOGGING_CATEGORY(lcLoadMesh, "openswmm.load.mesh")
 
 namespace {
 

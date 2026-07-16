@@ -78,3 +78,8 @@ docs/test_output/
 examples/
 .idea/
 .DS_Store
+
+# Generated mesh perf fixtures (Mesh Tiled LOD plan Phase 0) — regenerate via
+# the mesh_perf_generator tool; see tests/perf-data/mesh/README.md
+tests/perf-data/mesh/*.2dm
+tests/perf-data/mesh/*.inp

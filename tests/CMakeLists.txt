@@ -99,3 +99,4 @@ message(STATUS "Test runtime env modifications: ${SWMMVIS_TEST_ENV}")
 
 add_subdirectory(unit)
 add_subdirectory(gui)
+add_subdirectory(tools)
