@@ -14,7 +14,6 @@
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_tables.h>
 
-#include <iterator>   // std::size — Slice SC.1 shape-table bounds check
 
 SWMMLinkPropertyAdapter::SWMMLinkPropertyAdapter(SWMM_Engine engine,
                                                    QString name,
@@ -349,18 +348,6 @@ void SWMMLinkPropertyAdapter::setPumpCurveRef(const DataObjectRef &ref)
 // Slice SC.1 — compound-edit ref builders. Each constructs a fresh ref
 // every call (no caching) so the summary reflects whatever the engine
 // holds today; the cell delegate uses this to render the in-row text.
-namespace {
-// Shape names matching the SWMM_XSectShape enum order (0..19) — kept
-// in sync with kShapes[] in linkcompoundeditdialog.cpp.
-constexpr const char *kXsectShapeNames[] = {
-    "CIRCULAR", "FILLED_CIRCULAR", "RECT_CLOSED", "RECT_OPEN",
-    "TRAPEZOIDAL", "TRIANGULAR", "PARABOLIC", "POWER",
-    "RECT_TRIANGULAR", "RECT_ROUND", "MOD_BASKETHANDLE",
-    "HORIZ_ELLIPSE", "VERT_ELLIPSE", "ARCH", "EGGSHAPED",
-    "HORSESHOE", "GOTHIC", "CATENARY", "SEMIELLIPTICAL", "IRREGULAR",
-};
-}
-
 LinkCompoundEditRef SWMMLinkPropertyAdapter::xsectionRef() const
 {
     LinkCompoundEditRef r;
@@ -374,15 +361,15 @@ LinkCompoundEditRef SWMMLinkPropertyAdapter::xsectionRef() const
         int shape = 0;
         double g1 = 0, g2 = 0, g3 = 0, g4 = 0;
         if (swmm_link_get_xsect(m_engine, idx, &shape, &g1, &g2, &g3, &g4) == SWMM_OK) {
-            const char *name = (shape >= 0 && shape < int(std::size(kXsectShapeNames)))
-                                   ? kXsectShapeNames[shape] : "UNKNOWN";
+            QString name = openswmmvis::xsectShapeName(shape);
+            if (name.isEmpty()) name = QStringLiteral("UNKNOWN");
             if (g2 > 0.0)
                 r.summary = QStringLiteral("%1 (%2 × %3)")
-                                .arg(QString::fromLatin1(name))
+                                .arg(name)
                                 .arg(g1, 0, 'g', 4).arg(g2, 0, 'g', 4);
             else
                 r.summary = QStringLiteral("%1 (%2)")
-                                .arg(QString::fromLatin1(name))
+                                .arg(name)
                                 .arg(g1, 0, 'g', 4);
         }
     }
