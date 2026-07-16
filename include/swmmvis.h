@@ -184,6 +184,17 @@ private slots:
                                const QList<QString> &errors,
                                qint64 elapsedMs);
 
+    /*! \brief Mesh Tiled LOD P1.2 — async half of the 2D mesh + prior-run
+     *         HDF5 auto-load that finalizeSingleINPOpen() kicks off. The
+     *         worker parses the `[2D_*]` sections / linked `.2dm` and builds
+     *         the SWMM2DMeshLayer's scene geometry off the GUI thread (the
+     *         two dominant costs — 36 s combined on a 5M-triangle mesh); the
+     *         layer is adopted onto the canvas here on completion
+     *         (hidden-until-adopted: nothing is added on failure or if the
+     *         window closed mid-load). Timing lands in openswmm.load.mesh. */
+    void attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
+                                 const QString &filePath);
+
     /*! \brief Announce the start of a file open: Message-Log line, status-bar
      *         message, and busy spinner. Pair with \ref endFileOpen. */
     void beginFileOpen(const QString &path);
