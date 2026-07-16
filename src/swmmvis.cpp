@@ -4470,191 +4470,12 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
         }
 
         // ── 2D mesh + previous-run HDF5 results auto-load ─────────────────────
-        // Pull the static mesh geometry out of the .inp (or the linked .2dm)
-        // so the user sees the surface routing domain immediately after open,
-        // without having to start a simulation. Then check [2D_OPTIONS]
-        // OUTPUT_FILE — if the engine has already written an HDF5 from a prior
-        // run, attach a scrub-ready SWMM2DResultsLayer over the mesh.
-        if (window->canvas() && window->modelLayer())
-        {
-            const mesh::InpMeshReadResult meshRead = mesh::InpMeshReader::read(filePath);
-            if (!meshRead.errorMsg.isEmpty()) {
-                onLogMessage(meshRead.errorMsg,
-                             OpenSWMMVisLogMessage::LogMessageType::Warning);
-            }
-            if (!meshRead.warning.isEmpty()) {
-                onLogMessage(meshRead.warning,
-                             OpenSWMMVisLogMessage::LogMessageType::Warning);
-            }
-            if (meshRead.hasMesh) {
-                // Mesh XY are in project-CRS units (no conversion needed):
-                // the engine multiplies by 0.3048 itself in
-                // SurfaceRouter2D::initialize when SWMM FLOW_UNITS is US.
-                auto *meshLayer = new SWMM2DMeshLayer(meshRead.mesh, meshRead.sourcePath);
-                meshLayer->setActiveMesh(meshRead.isExternal);
-                // Slice §V.VD.1 — preload any parsed [2D_BOUNDARY_CONDITIONS]
-                // into the layer's BC SoA so the toolbar / Property Browser
-                // see persisted edits on reload.
-                if (!meshRead.edgeBCs.isEmpty()) {
-                    auto &bcs = meshLayer->edgeBCsMutable();
-                    if (bcs.size() == meshRead.edgeBCs.size())
-                        bcs = meshRead.edgeBCs;
-                }
-                meshLayer->setName(meshRead.sourcePath.isEmpty()
-                                       ? QStringLiteral("Mesh (inline)")
-                                       : QFileInfo(meshRead.sourcePath).fileName());
-                // Mesh coordinates are in the model CRS; the layer reprojects
-                // to canvas CRS when populating the scene.
-                if (window->modelLayer()->srs())
-                    meshLayer->setSRS(
-                        new SpatialReferenceSystem(*window->modelLayer()->srs(), meshLayer),
-                        /*ownsSRS=*/true);
-                window->canvas()->addLayer(meshLayer, /*pushUndo=*/false);
-                onLogMessage(tr("Loaded 2D mesh: %1 vertices, %2 triangles (%3)")
-                                 .arg(meshRead.mesh.vertices.size())
-                                 .arg(meshRead.mesh.triangles.size())
-                                 .arg(meshRead.isExternal
-                                          ? QFileInfo(meshRead.sourcePath).fileName()
-                                          : tr("inline")));
-
-                // Surface previous-run HDF5 depth results so the user can
-                // scrub without re-running. Skip when there's no [2D_OPTIONS]
-                // OUTPUT_FILE entry or when the referenced file is missing.
-                const QString h5Path = SimulationRunner::parseTwoDOutputFile(filePath);
-                if (h5Path.isEmpty()) {
-                    onLogMessage(tr("2D results auto-load skipped: no [2D_OPTIONS] "
-                                     "OUTPUT_FILE in %1").arg(QFileInfo(filePath).fileName()));
-                } else if (!QFileInfo::exists(h5Path)) {
-                    onLogMessage(tr("2D results auto-load skipped: file does not "
-                                     "exist (resolved: %1)").arg(h5Path));
-                } else {
-                    auto h5Src = std::make_unique<HDF5Mesh2DSource>();
-                    if (h5Src->open(h5Path))
-                    {
-                        // Anchor the HDF5 source's time axis to the engine's
-                        // simulation start so the global animation slider's
-                        // QDateTime ticks map to 2D frame indices. Without
-                        // this, source->simTimeAt() returns invalid for every
-                        // frame and SWMM2DResultsLayer::setCurrentSimTime
-                        // silently no-ops on every slider scrub.
-                        if (window->modelLayer() && window->modelLayer()->engine()) {
-                            double startOA = 0.0;
-                            if (swmm_get_start_time(window->modelLayer()->engine(),
-                                                    &startOA) == SWMM_OK &&
-                                startOA > 0.0)
-                            {
-                                // UTC, NOT LocalTime — matches every other SWMM
-                                // DateTime conversion in this codebase (see
-                                // core/swmmdatetime.h). A LocalTime epoch here
-                                // was inconsistent with simulationrunner.cpp's
-                                // oaDateToQDateTime() and HDF5Mesh2DSource::
-                                // simTimeAt(), both UTC.
-                                const QDateTime simStart =
-                                    openswmmvis::core::swmmDateTimeToQDateTime(startOA);
-                                if (simStart.isValid()) {
-                                    h5Src->setSimulationStart(simStart);
-                                    onLogMessage(tr("2D layer time anchor: %1")
-                                                     .arg(simStart.toString(
-                                                         Qt::ISODate)));
-                                }
-                            }
-                        }
-
-                        // Cache the bare source pointer for the post-set
-                        // peak-frame scan (setSource swallows ownership).
-                        IMesh2DSource* srcRaw = h5Src.get();
-                        auto *resLayer = new SWMM2DResultsLayer(
-                            QStringLiteral("2D Results"), nullptr);
-                        resLayer->setSource(std::move(h5Src));
-                        // Outputs inherit the model's CRS so the
-                        // Properties window shows a real CRS and any
-                        // reprojection logic matches the input.
-                        if (window->modelLayer() && window->modelLayer()->srs())
-                            resLayer->setSRS(
-                                new SpatialReferenceSystem(*window->modelLayer()->srs(),
-                                                           resLayer),
-                                /*ownsSRS=*/true);
-                        window->canvas()->addLayer(resLayer, /*pushUndo=*/false);
-
-                        // Scan all frames to find (a) the peak-inundation
-                        // frame to seek to and (b) the actual depth range so
-                        // we can auto-tune the ramp + dry-cell threshold.
-                        // setSource() defaults to the LAST frame, which for
-                        // many runs is fully drained.
-                        const int nFrames = srcRaw->timeCount();
-                        int   peakFrame = 0;
-                        float peakDepth = 0.0f;
-                        std::vector<float> probe;
-                        for (int t = 0; t < nFrames; ++t) {
-                            if (!srcRaw->readDepthsAt(t, probe)) continue;
-                            if (probe.empty()) continue;
-                            const float m = *std::max_element(probe.begin(),
-                                                                probe.end());
-                            if (m > peakDepth) { peakDepth = m; peakFrame = t; }
-                        }
-
-                        // Honour the model's DRY_DEPTH so the GUI render
-                        // threshold (cells AND velocity/flow vectors) matches
-                        // what the solver considers wet — without this, the GUI
-                        // default clips shallow runs invisibly. Prefer the live
-                        // engine handle; when none is attached (opened a model
-                        // without running), read [2D_OPTIONS] DRY_DEPTH straight
-                        // from the .inp. Last resort: a small data-derived floor.
-                        double engineDry = 0.0;
-                        const double inpDry =
-                            SimulationRunner::parseTwoDOption(
-                                filePath, QStringLiteral("DRY_DEPTH")).toDouble();
-                        if (window->modelLayer() && window->modelLayer()->engine() &&
-                            swmm_2d_get_dry_depth(window->modelLayer()->engine(),
-                                                   &engineDry) == SWMM_OK &&
-                            engineDry > 0.0)
-                        {
-                            resLayer->setDryDepth(engineDry);
-                        } else if (inpDry > 0.0) {
-                            resLayer->setDryDepth(inpDry);
-                        } else if (peakDepth > 0.0f) {
-                            resLayer->setDryDepth(std::max(1e-5, 0.05 * peakDepth));
-                        }
-
-                        // Tune the inundation colour ramp's upper bound to the
-                        // actual data peak; default (0.5 m) is way too loose
-                        // for typical overland-flow demos.
-                        if (peakDepth > 0.0f) {
-                            resLayer->setMaxDepth(peakDepth);
-                            resLayer->setCurrentTimeIndex(peakFrame);
-                        }
-
-                        // Make this the tab's active 2D results layer
-                        // (default-only) so the 2D analysis combo + cell-pick
-                        // tool + mesh profile target it.
-                        if (!window->active2DResultsLayer())
-                            window->setActive2DResultsLayer(resLayer);
-
-                        // CF.MVP-fix.1 — register the 2D layer as the
-                        // animation controller's fallback driver so the
-                        // play/pause/slider toolbar ticks 2D frames even
-                        // when no 1D .out results are loaded.
-                        if (mAnimationController && !mAnimationController->primaryLayer()) {
-                            mAnimationController->setFallback2DLayer(resLayer);
-                        }
-
-                        onLogMessage(tr("Loaded 2D results: %1 (%2 frames, "
-                                         "peak depth %3 mm at frame %4, "
-                                         "peak velocity %5 mm/s)")
-                                         .arg(QFileInfo(h5Path).fileName())
-                                         .arg(nFrames)
-                                         .arg(double(peakDepth) * 1000.0, 0, 'f', 2)
-                                         .arg(peakFrame)
-                                         .arg(resLayer->maxVelocity() * 1000.0,
-                                              0, 'f', 3));
-                    } else {
-                        onLogMessage(tr("Found 2D output file but failed to open: %1")
-                                         .arg(h5Path),
-                                     OpenSWMMVisLogMessage::LogMessageType::Warning);
-                    }
-                }
-            }
-        }
+        // Mesh Tiled LOD P1.2 — the .inp/[2D_MESH_FILE] parse and the
+        // scene-geometry build (36 s combined on a 5M-triangle mesh) now run
+        // on a worker thread; the mesh layer and any prior-run HDF5 results
+        // join the canvas when attachMesh2DLayersAsync's completion handler
+        // fires. Nothing below this call depends on the mesh being present.
+        attachMesh2DLayersAsync(window, filePath);
 
         setWindowTitle(QStringLiteral("OpenSWMM — %1").arg(QFileInfo(filePath).baseName()));
         window->show();
@@ -4676,6 +4497,268 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
     {
         window->close();
     }
+}
+
+void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
+                                      const QString &filePath)
+{
+    if (!window || !window->canvas() || !window->modelLayer())
+        return;
+
+    // Worker → GUI handoff record. The layer is fully built (scene geometry,
+    // BCs, name) on the worker and moved to the GUI thread before adoption.
+    struct MeshOpenOutcome {
+        SWMM2DMeshLayer *layer = nullptr;   // null ⇒ no mesh (or parse error)
+        QString sourcePath;
+        QString errorMsg;
+        QString warning;
+        bool    isExternal = false;
+        int     nVerts = 0;
+        int     nTris  = 0;
+        qint64  readMs  = 0;
+        qint64  buildMs = 0;
+    };
+
+    statusBar()->showMessage(tr("Loading 2D mesh from %1 …")
+                                 .arg(QFileInfo(filePath).fileName()));
+    onSetProgressBarBusy(true);
+    QElapsedTimer meshTimer;
+    meshTimer.start();
+
+    QPointer<SWMMVisProjectWindow> win(window);
+    auto *watcher = new QFutureWatcher<MeshOpenOutcome>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this,
+            [this, watcher, win, filePath, meshTimer]() {
+        const MeshOpenOutcome out = watcher->result();
+        watcher->deleteLater();
+
+        if (!out.warning.isEmpty())
+            onLogMessage(out.warning,
+                         OpenSWMMVisLogMessage::LogMessageType::Warning);
+
+        if (!out.layer) {
+            // No mesh in this model (silent) or a malformed/broken reference
+            // (warning — same severity the synchronous path used).
+            onSetProgressBarBusy(false);
+            statusBar()->clearMessage();
+            if (!out.errorMsg.isEmpty())
+                onLogMessage(out.errorMsg,
+                             OpenSWMMVisLogMessage::LogMessageType::Warning);
+            return;
+        }
+
+        // Hidden-until-adopted: the window may have closed mid-load.
+        if (!win || !win->canvas() || !win->modelLayer()) {
+            onSetProgressBarBusy(false);
+            statusBar()->clearMessage();
+            delete out.layer;
+            return;
+        }
+        SWMMVisProjectWindow *window = win.data();
+
+        SWMM2DMeshLayer *meshLayer = out.layer;
+        // Mesh coordinates are in the model CRS; the layer reprojects to
+        // canvas CRS when populating the scene. SRS assignment stays on the
+        // GUI thread — a QObject child cannot be created cross-thread.
+        if (window->modelLayer()->srs())
+            meshLayer->setSRS(
+                new SpatialReferenceSystem(*window->modelLayer()->srs(), meshLayer),
+                /*ownsSRS=*/true);
+        window->canvas()->addLayer(meshLayer, /*pushUndo=*/false);
+        qCInfo(lcLoadMesh).noquote()
+            << QStringLiteral("mesh load timing (ms): read=%1 sceneBuild=%2 "
+                              "(verts=%3 tris=%4 source=%5)")
+                   .arg(out.readMs).arg(out.buildMs)
+                   .arg(out.nVerts).arg(out.nTris)
+                   .arg(out.sourcePath.isEmpty() ? QStringLiteral("inline")
+                                                 : out.sourcePath);
+        endFileOpen(out.sourcePath.isEmpty() ? filePath : out.sourcePath,
+                    true,
+                    tr("2D mesh: %1 vertices, %2 triangles, %3")
+                        .arg(out.nVerts).arg(out.nTris)
+                        .arg(out.isExternal
+                                 ? QFileInfo(out.sourcePath).fileName()
+                                 : tr("inline")),
+                    meshTimer.elapsed());
+
+        // Surface previous-run HDF5 depth results so the user can
+        // scrub without re-running. Skip when there's no [2D_OPTIONS]
+        // OUTPUT_FILE entry or when the referenced file is missing.
+        const QString h5Path = SimulationRunner::parseTwoDOutputFile(filePath);
+        if (h5Path.isEmpty()) {
+            onLogMessage(tr("2D results auto-load skipped: no [2D_OPTIONS] "
+                             "OUTPUT_FILE in %1").arg(QFileInfo(filePath).fileName()));
+        } else if (!QFileInfo::exists(h5Path)) {
+            onLogMessage(tr("2D results auto-load skipped: file does not "
+                             "exist (resolved: %1)").arg(h5Path));
+        } else {
+            auto h5Src = std::make_unique<HDF5Mesh2DSource>();
+            if (h5Src->open(h5Path))
+            {
+                // Anchor the HDF5 source's time axis to the engine's
+                // simulation start so the global animation slider's
+                // QDateTime ticks map to 2D frame indices. Without
+                // this, source->simTimeAt() returns invalid for every
+                // frame and SWMM2DResultsLayer::setCurrentSimTime
+                // silently no-ops on every slider scrub.
+                if (window->modelLayer() && window->modelLayer()->engine()) {
+                    double startOA = 0.0;
+                    if (swmm_get_start_time(window->modelLayer()->engine(),
+                                            &startOA) == SWMM_OK &&
+                        startOA > 0.0)
+                    {
+                        // UTC, NOT LocalTime — matches every other SWMM
+                        // DateTime conversion in this codebase (see
+                        // core/swmmdatetime.h). A LocalTime epoch here
+                        // was inconsistent with simulationrunner.cpp's
+                        // oaDateToQDateTime() and HDF5Mesh2DSource::
+                        // simTimeAt(), both UTC.
+                        const QDateTime simStart =
+                            openswmmvis::core::swmmDateTimeToQDateTime(startOA);
+                        if (simStart.isValid()) {
+                            h5Src->setSimulationStart(simStart);
+                            onLogMessage(tr("2D layer time anchor: %1")
+                                             .arg(simStart.toString(
+                                                 Qt::ISODate)));
+                        }
+                    }
+                }
+
+                // Cache the bare source pointer for the post-set
+                // peak-frame scan (setSource swallows ownership).
+                IMesh2DSource* srcRaw = h5Src.get();
+                auto *resLayer = new SWMM2DResultsLayer(
+                    QStringLiteral("2D Results"), nullptr);
+                resLayer->setSource(std::move(h5Src));
+                // Outputs inherit the model's CRS so the
+                // Properties window shows a real CRS and any
+                // reprojection logic matches the input.
+                if (window->modelLayer() && window->modelLayer()->srs())
+                    resLayer->setSRS(
+                        new SpatialReferenceSystem(*window->modelLayer()->srs(),
+                                                   resLayer),
+                        /*ownsSRS=*/true);
+                window->canvas()->addLayer(resLayer, /*pushUndo=*/false);
+
+                // Scan all frames to find (a) the peak-inundation
+                // frame to seek to and (b) the actual depth range so
+                // we can auto-tune the ramp + dry-cell threshold.
+                // setSource() defaults to the LAST frame, which for
+                // many runs is fully drained.
+                const int nFrames = srcRaw->timeCount();
+                int   peakFrame = 0;
+                float peakDepth = 0.0f;
+                std::vector<float> probe;
+                for (int t = 0; t < nFrames; ++t) {
+                    if (!srcRaw->readDepthsAt(t, probe)) continue;
+                    if (probe.empty()) continue;
+                    const float m = *std::max_element(probe.begin(),
+                                                        probe.end());
+                    if (m > peakDepth) { peakDepth = m; peakFrame = t; }
+                }
+
+                // Honour the model's DRY_DEPTH so the GUI render
+                // threshold (cells AND velocity/flow vectors) matches
+                // what the solver considers wet — without this, the GUI
+                // default clips shallow runs invisibly. Prefer the live
+                // engine handle; when none is attached (opened a model
+                // without running), read [2D_OPTIONS] DRY_DEPTH straight
+                // from the .inp. Last resort: a small data-derived floor.
+                double engineDry = 0.0;
+                const double inpDry =
+                    SimulationRunner::parseTwoDOption(
+                        filePath, QStringLiteral("DRY_DEPTH")).toDouble();
+                if (window->modelLayer() && window->modelLayer()->engine() &&
+                    swmm_2d_get_dry_depth(window->modelLayer()->engine(),
+                                           &engineDry) == SWMM_OK &&
+                    engineDry > 0.0)
+                {
+                    resLayer->setDryDepth(engineDry);
+                } else if (inpDry > 0.0) {
+                    resLayer->setDryDepth(inpDry);
+                } else if (peakDepth > 0.0f) {
+                    resLayer->setDryDepth(std::max(1e-5, 0.05 * peakDepth));
+                }
+
+                // Tune the inundation colour ramp's upper bound to the
+                // actual data peak; default (0.5 m) is way too loose
+                // for typical overland-flow demos.
+                if (peakDepth > 0.0f) {
+                    resLayer->setMaxDepth(peakDepth);
+                    resLayer->setCurrentTimeIndex(peakFrame);
+                }
+
+                // Make this the tab's active 2D results layer
+                // (default-only) so the 2D analysis combo + cell-pick
+                // tool + mesh profile target it.
+                if (!window->active2DResultsLayer())
+                    window->setActive2DResultsLayer(resLayer);
+
+                // CF.MVP-fix.1 — register the 2D layer as the
+                // animation controller's fallback driver so the
+                // play/pause/slider toolbar ticks 2D frames even
+                // when no 1D .out results are loaded.
+                if (mAnimationController && !mAnimationController->primaryLayer()) {
+                    mAnimationController->setFallback2DLayer(resLayer);
+                }
+
+                onLogMessage(tr("Loaded 2D results: %1 (%2 frames, "
+                                 "peak depth %3 mm at frame %4, "
+                                 "peak velocity %5 mm/s)")
+                                 .arg(QFileInfo(h5Path).fileName())
+                                 .arg(nFrames)
+                                 .arg(double(peakDepth) * 1000.0, 0, 'f', 2)
+                                 .arg(peakFrame)
+                                 .arg(resLayer->maxVelocity() * 1000.0,
+                                      0, 'f', 3));
+            } else {
+                onLogMessage(tr("Found 2D output file but failed to open: %1")
+                                 .arg(h5Path),
+                             OpenSWMMVisLogMessage::LogMessageType::Warning);
+            }
+        }
+    });
+    watcher->setFuture(QtConcurrent::run([filePath]() -> MeshOpenOutcome {
+        MeshOpenOutcome out;
+        QElapsedTimer t;
+        t.start();
+        mesh::InpMeshReadResult meshRead = mesh::InpMeshReader::read(filePath);
+        out.readMs   = t.elapsed();
+        out.errorMsg = meshRead.errorMsg;
+        out.warning  = meshRead.warning;
+        if (!meshRead.hasMesh)
+            return out;
+
+        out.sourcePath = meshRead.sourcePath;
+        out.isExternal = meshRead.isExternal;
+
+        // Mesh XY are in project-CRS units (no conversion needed): the
+        // engine multiplies by 0.3048 itself in SurfaceRouter2D::initialize
+        // when SWMM FLOW_UNITS is US.
+        t.restart();
+        auto *meshLayer = new SWMM2DMeshLayer(std::move(meshRead.mesh),
+                                              meshRead.sourcePath);
+        out.buildMs = t.elapsed();
+        meshLayer->setActiveMesh(meshRead.isExternal);
+        // Slice §V.VD.1 — preload any parsed [2D_BOUNDARY_CONDITIONS] into
+        // the layer's BC SoA so the toolbar / Property Browser see persisted
+        // edits on reload.
+        if (!meshRead.edgeBCs.isEmpty()) {
+            auto &bcs = meshLayer->edgeBCsMutable();
+            if (bcs.size() == meshRead.edgeBCs.size())
+                bcs = meshRead.edgeBCs;
+        }
+        meshLayer->setName(meshRead.sourcePath.isEmpty()
+                               ? QStringLiteral("Mesh (inline)")
+                               : QFileInfo(meshRead.sourcePath).fileName());
+        out.nVerts = meshLayer->vertexCount();
+        out.nTris  = meshLayer->triangleCount();
+        // Hand the fully-built QObject to the GUI thread; only the owning
+        // (worker) thread may push it (Qt moveToThread contract).
+        meshLayer->moveToThread(qApp->thread());
+        out.layer = meshLayer;
+        return out;
+    }));
 }
 
 void SWMMVis::openProjectFile(const QString &oswpPath)

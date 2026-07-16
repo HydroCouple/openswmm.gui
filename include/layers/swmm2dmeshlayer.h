@@ -148,6 +148,14 @@ public:
     [[nodiscard]] bool isActiveMesh() const { return m_active; }
     void setActiveMesh(bool active);
 
+    // ----- QSG ownership (Mesh Tiled LOD plan P1.1) -------------------------
+    /*! True while SWMM2DMeshQSGRenderer draws this layer inside MapCanvas's
+     *  QSG frame; the CPU SWMM2DMeshGraphicsItem::paint() early-returns so
+     *  the two pipelines never double-paint. Mirrors
+     *  SWMM2DResultsLayer::qsgOwnsRendering. */
+    [[nodiscard]] bool qsgOwnsRendering() const noexcept { return m_qsgOwnsRendering; }
+    void setQsgOwnsRendering(bool own);
+
     // ----- Display toggles ------------------------------------------------
     // These remain on the layer so existing UI, JSON, and serialization
     // round-trip the way they always have, but they are now thin shims
@@ -511,6 +519,9 @@ private:
     mesh::MeshResult             m_mesh;
     QString                      m_sourcePath;
     bool                         m_active        = false;
+
+    // Mesh Tiled LOD plan P1.1 — see qsgOwnsRendering().
+    bool                         m_qsgOwnsRendering = false;
 
     // Hillshade state lives on the mesh-fill sublayer style; we keep a
     // pair of simple knobs the renderer reads from the layer (azimuth,

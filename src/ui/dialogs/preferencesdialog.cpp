@@ -489,6 +489,16 @@ QWidget *PreferencesDialog::buildRenderingPage()
         "Turn this off only if you hit GPU-driver-specific rendering "
         "issues — the legacy QPainter path remains the fallback."));
     xv->addWidget(m_qsgNodesBox);
+    m_qsgMeshBox = new QCheckBox(
+        tr("Use GPU rendering for 2D terrain mesh layers (recommended)"), gpuGroup);
+    m_qsgMeshBox->setToolTip(tr(
+        "When enabled, the 2D terrain mesh (elevation fill, wireframe, "
+        "contours) is drawn by the GPU scene-graph overlay instead of the "
+        "CPU painter — required for smooth pan/zoom on large meshes.\n\n"
+        "Turn this off only if you hit GPU-driver-specific rendering "
+        "issues — the legacy QPainter path remains the fallback. "
+        "(App-wide kill-switch: OPENSWMM_QSG_MESH=0.)"));
+    xv->addWidget(m_qsgMeshBox);
     outer->addWidget(gpuGroup);
 
     outer->addStretch(0);
@@ -1109,6 +1119,7 @@ void PreferencesDialog::readFromManager()
 
     m_labelLodSpin->setValue(p->labelLodM11Min());
     m_qsgNodesBox->setChecked(p->qsgRenderEnabled());
+    m_qsgMeshBox->setChecked(p->qsgMeshRenderEnabled());
     // Link pens reflect live through LinkRenderingPrefs's getters, so
     // refresh the QPropertyModel rather than re-populating widgets.
     if (m_linkPenModel) m_linkPenModel->refreshValues();
@@ -1266,6 +1277,7 @@ void PreferencesDialog::writeToManager()
 
     p->setLabelLodM11Min(m_labelLodSpin->value());
     p->setQsgRenderEnabled(m_qsgNodesBox->isChecked());
+    p->setQsgMeshRenderEnabled(m_qsgMeshBox->isChecked());
     // Link pens already wrote through LinkRenderingPrefs's Q_PROPERTY
     // setters at edit time — nothing to flush here.
 
@@ -1440,6 +1452,7 @@ void PreferencesDialog::onResetToDefaults()
 
     m_labelLodSpin->setValue(0.5);
     m_qsgNodesBox->setChecked(true);  // default ON
+    m_qsgMeshBox->setChecked(true);   // default ON
 
     // Link pens — re-seed each type with its compile-time default
     // (see kConduitPenDefault / kPumpPenDefault / … in

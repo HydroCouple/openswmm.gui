@@ -120,6 +120,15 @@ public:
     [[nodiscard]] bool qsgRenderEnabled()  const;
     void setQsgRenderEnabled(bool enabled);
 
+    /*! Mesh Tiled LOD plan P1.1 — GPU scene-graph rendering for 2D terrain
+     *  mesh layers. When enabled, MapCanvas hands the topmost visible
+     *  SWMM2DMeshLayer to SWMM2DMeshQSGRenderer and the CPU
+     *  SWMM2DMeshGraphicsItem paint is skipped (qsgOwnsRendering gate).
+     *  QPainter path remains the fallback. App-wide env kill-switch:
+     *  OPENSWMM_QSG_MESH=0. Default true. */
+    [[nodiscard]] bool qsgMeshRenderEnabled() const;
+    void setQsgMeshRenderEnabled(bool enabled);
+
     /*! Whether a large raster opened without internal overviews gets an
      *  external `.ovr` pyramid built automatically in the background (once
      *  per file, never modifying the source). Off ⇒ big rasters stay on the

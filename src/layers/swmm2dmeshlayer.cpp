@@ -105,6 +105,10 @@ public:
 
     void paint(QPainter *p, const QStyleOptionGraphicsItem *option, QWidget *) override
     {
+        // Mesh Tiled LOD plan P1.1 — while SWMM2DMeshQSGRenderer owns this
+        // layer, the CPU path must not double-paint (mirrors
+        // SWMM2DResultsLayer's gate).
+        if (m_layer->qsgOwnsRendering()) return;
         if (!m_layer->isVisible()) return;
 
         const auto &tris  = m_layer->m_sceneTris;
@@ -120,8 +124,9 @@ public:
         const bool active    = m_layer->isActiveMesh();
         const int  fillAlpha = active ? 160 : 110;
 
-        // Per-sublayer visibility + opacity. This is the active render path
-        // (the QSG renderer is inactive), so the layer-tree checkboxes and
+        // Per-sublayer visibility + opacity. This is the fallback render
+        // path (active when the QSG renderer does not own the layer — see
+        // the qsgOwnsRendering gate above), so the layer-tree checkboxes and
         // opacity edits flow through these sublayer flags into the passes
         // below. fill + edges default on; nodes / bands / isolines default
         // off (see SWMM2DMeshLayer ctor). A null sublayer falls back to the
@@ -1024,6 +1029,16 @@ void SWMM2DMeshLayer::setActiveMesh(bool active)
     if (m_active == active) return;
     m_active = active;
     emit activeMeshChanged(m_active);
+    emit repaintRequested();
+}
+
+void SWMM2DMeshLayer::setQsgOwnsRendering(bool own)
+{
+    if (m_qsgOwnsRendering == own) return;
+    m_qsgOwnsRendering = own;
+    // Both pipelines need a repaint: the CPU item must clear (or redraw)
+    // and the canvas must regrab the QSG frame.
+    if (m_graphicsItem) m_graphicsItem->geometryChanged();
     emit repaintRequested();
 }
 
