@@ -76,10 +76,10 @@ private slots:
         QVERIFY(!xsectGeomApplies(2, 3));
         // TRAPEZOIDAL (4): all four (depth, bottom width, two slopes).
         for (int k = 1; k <= 4; ++k) QVERIFY(xsectGeomApplies(4, k));
-        // IRREGULAR (19) / STREET (24): geom1 is an index — none editable inline.
+        // IRREGULAR / STREET: geom1 is an index — none editable inline.
         for (int k = 1; k <= 4; ++k) {
-            QVERIFY(!xsectGeomApplies(19, k));
-            QVERIFY(!xsectGeomApplies(24, k));
+            QVERIFY(!xsectGeomApplies(SWMM_XSECT_IRREGULAR, k));
+            QVERIFY(!xsectGeomApplies(SWMM_XSECT_STREET, k));
         }
         // Shape-specific labels back the per-row/cell tooltips.
         QCOMPARE(xsectGeomLabel(0, 1), QStringLiteral("Diameter"));
@@ -157,9 +157,10 @@ private slots:
         SWMM_Engine e = buildLinkFixture("C1", /*Conduit=*/0);
         QVERIFY(e);
         const int idx = swmm_link_index(e, "C1");
-        // IRREGULAR (19): geom1 is a transect index — inline geoms are all
+        // IRREGULAR: geom1 is a transect index — inline geoms are all
         // dialog-managed, so even geom1 must reject an inline numeric write.
-        QCOMPARE(swmm_link_set_xsect(e, idx, /*IRREGULAR=*/19, 0, 0, 0, 0), SWMM_OK);
+        QCOMPARE(swmm_link_set_xsect(e, idx, SWMM_XSECT_IRREGULAR, 0, 0, 0, 0),
+                 SWMM_OK);
 
         SWMMConduitPropertyAdapter a(e, QStringLiteral("C1"));
         QSignalSpy spy(&a, &SWMMLinkPropertyAdapter::changed);

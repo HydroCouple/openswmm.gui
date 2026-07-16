@@ -241,20 +241,13 @@ QString xsectSummaryFor(SWMM_Engine eng, int linkIdx)
     if (swmm_link_get_xsect(eng, linkIdx, &shape, &g1, &g2, &g3, &g4) != SWMM_OK)
         return QString();
 
-    static const char *shapeNames[] = {
-        "CIRCULAR", "FILLED_CIRCULAR", "RECT_CLOSED", "RECT_OPEN",
-        "TRAPEZOIDAL", "TRIANGULAR", "PARABOLIC", "POWER",
-        "RECT_TRIANGULAR", "RECT_ROUND", "MOD_BASKETHANDLE",
-        "HORIZ_ELLIPSE", "VERT_ELLIPSE", "ARCH", "EGGSHAPED",
-        "HORSESHOE", "GOTHIC", "CATENARY", "SEMIELLIPTICAL", "IRREGULAR",
-    };
-    const QString shapeStr = (shape >= 0 && shape < 20)
-        ? QString::fromLatin1(shapeNames[shape])
-        : QStringLiteral("UNKNOWN");
+    const QString shapeName = openswmmvis::xsectShapeName(shape);
+    const QString shapeStr =
+        shapeName.isEmpty() ? QStringLiteral("UNKNOWN") : shapeName;
 
     // IRREGULAR: geom1 is the transect index — resolve to name so the
     // cell isn't cryptic.
-    if (shape == /*IRREGULAR*/ 19) {
+    if (shape == openswmmvis::kXsectIrregularId) {
         const int tIdx = static_cast<int>(std::lround(g1));
         QString txName;
         if (tIdx >= 0 && tIdx < swmm_transect_count(eng)) {
