@@ -23,7 +23,9 @@
 #include "map/crsmanager.h"
 #include "map/swmmlayerqsgrenderer.h"
 #include "map/swmm2dresultsqsgrenderer.h"
+#include "map/swmm2dmeshqsgrenderer.h"
 #include "layers/swmm2dresultslayer.h"
+#include "layers/swmm2dmeshlayer.h"
 #include "render/qsg2drenderstats.h"
 #include "render/renderperf.h"
 
@@ -197,20 +199,25 @@ MapCanvas::MapCanvas(QWidget *parent)
         for (const QQmlError &err : m_qsgWidget->errors())
             qWarning() << "[MapCanvas]  QML error:" << err.toString();
     }
-    // VS.8 — the QML root is now a plain Item stacking the 2D-results
-    // renderer (below) and the 1D network renderer (above); locate both by
-    // objectName.
+    // VS.8 + Mesh Tiled LOD P1.1 — the QML root is a plain Item stacking the
+    // terrain-mesh renderer (bottom), the 2D-results renderer (middle) and
+    // the 1D network renderer (top); locate all three by objectName.
     if (QQuickItem *qmlRoot = m_qsgWidget->rootObject()) {
         m_qsgRenderer = qmlRoot->findChild<SWMMLayerQSGRenderer *>(
             QStringLiteral("swmmRenderer"));
         m_qsg2DRenderer = qmlRoot->findChild<SWMM2DResultsQSGRenderer *>(
             QStringLiteral("results2dRenderer"));
+        m_qsgMeshRenderer = qmlRoot->findChild<SWMM2DMeshQSGRenderer *>(
+            QStringLiteral("mesh2dRenderer"));
     }
     if (!m_qsgRenderer)
         qWarning() << "[MapCanvas] failed to obtain SWMMLayerQSGRenderer "
                       "from the QML scene — got" << m_qsgWidget->rootObject();
     if (!m_qsg2DRenderer)
         qWarning() << "[MapCanvas] failed to obtain SWMM2DResultsQSGRenderer "
+                      "from the QML scene";
+    if (!m_qsgMeshRenderer)
+        qWarning() << "[MapCanvas] failed to obtain SWMM2DMeshQSGRenderer "
                       "from the QML scene";
     if (m_qsg2DRenderer) {
         // QSG-2D-1M Phase 7 — an async contour job finished: the offscreen
@@ -237,6 +244,15 @@ MapCanvas::MapCanvas(QWidget *parent)
                 else if (group == QLatin1String("Rendering")
                          && key == QLatin1String("QsgEnabled"))
                     syncQsgRenderKindsFromPreferences();
+                else if (group == QLatin1String("Rendering")
+                         && key == QLatin1String("QsgMeshEnabled")) {
+                    // Mesh Tiled LOD P1.1 — which pipeline owns the mesh is
+                    // recomputed per paint; invalidate the cached frame and
+                    // repaint so the toggle takes effect immediately.
+                    m_qsgFrameDirty = true;
+                    m_qsgFrameCache = QImage();
+                    update();
+                }
             });
 
 }
@@ -580,6 +596,17 @@ OpenSWMMVisLayer *MapCanvas::takeLayer(int index, bool pushUndo)
         }
         if (m_qsg2DRenderer)
             m_qsg2DRenderer->setLayer(nullptr);
+    }
+
+    // Mesh Tiled LOD P1.1 — same fallback for a removed terrain mesh layer.
+    if (auto *m2d = qobject_cast<SWMM2DMeshLayer *>(layer)) {
+        m2d->setQsgOwnsRendering(false);
+        if (m_qsgCachedMeshLayer == m2d) {
+            m_qsgCachedMeshLayer = nullptr;
+            m_qsgFrameDirty      = true;
+        }
+        if (m_qsgMeshRenderer)
+            m_qsgMeshRenderer->setLayer(nullptr);
     }
 
     if (!layer->isRasterLayer())
@@ -1500,7 +1527,7 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
     //   3. grabFramebuffer() reads the FBO → QImage.
     //   4. drawImage() into m_frameBuffer AFTER basemap / DTM / mesh so
     //      the stacking order is deterministic and all layers are visible.
-    if ((m_qsgRenderer || m_qsg2DRenderer) && m_qsgWidget) {
+    if ((m_qsgRenderer || m_qsg2DRenderer || m_qsgMeshRenderer) && m_qsgWidget) {
         SWMMModelLayer *firstSwmm = nullptr;
         for (OpenSWMMVisLayer *layer : std::as_const(m_layers)) {
             if (!layer->isVisible()) continue;
@@ -1530,20 +1557,52 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                 ? top2D : nullptr;
         const bool own2D = want2D != nullptr;
 
+        // Mesh Tiled LOD P1.1 — same single-owner rule for the terrain mesh:
+        // topmost visible SWMM2DMeshLayer, gated by the Rendering/
+        // QsgMeshEnabled preference and the OPENSWMM_QSG_MESH=0 env
+        // kill-switch. A masked mesh layer stays on the CPU path (the QSG
+        // renderer has no mask support). And when a visible 2D results layer
+        // must render on the CPU (want2D == nullptr while top2D exists), the
+        // mesh stays CPU too — a QSG mesh would composite ABOVE the
+        // CPU-painted flood map and invert their visual order.
+        static const bool kQsgMeshEnvOff =
+            qEnvironmentVariable("OPENSWMM_QSG_MESH") == QLatin1String("0");
+        SWMM2DMeshLayer *topMesh = nullptr;
+        for (int i = int(m_layers.size()) - 1; i >= 0; --i) {
+            OpenSWMMVisLayer *layer = m_layers.at(i);
+            if (!layer || !layer->isVisible()) continue;
+            if (auto *ml = qobject_cast<SWMM2DMeshLayer *>(layer)) {
+                topMesh = ml;
+                break;
+            }
+        }
+        SWMM2DMeshLayer *wantMesh =
+            (topMesh && m_qsgMeshRenderer && !kQsgMeshEnvOff
+             && PreferencesManager::instance()->qsgMeshRenderEnabled()
+             && !topMesh->maskSpec().enabled
+             && (own2D || !top2D))
+                ? topMesh : nullptr;
+        const bool ownMesh = wantMesh != nullptr;
+
         // Ownership handoff — the setters no-op when unchanged, and their
         // repaintRequested emissions only schedule (not re-enter) a paint.
         for (OpenSWMMVisLayer *layer : std::as_const(m_layers)) {
             if (auto *rl = qobject_cast<SWMM2DResultsLayer *>(layer))
                 rl->setQsgOwnsRendering(rl == want2D);
+            else if (auto *ml = qobject_cast<SWMM2DMeshLayer *>(layer))
+                ml->setQsgOwnsRendering(ml == wantMesh);
         }
         if (m_qsgCached2DLayer && m_qsgCached2DLayer != want2D)
             m_qsgCached2DLayer->setQsgOwnsRendering(false);
+        if (m_qsgCachedMeshLayer && m_qsgCachedMeshLayer != wantMesh)
+            m_qsgCachedMeshLayer->setQsgOwnsRendering(false);
 
-        // While the flood map renders in the QSG frame, the 1D network must
-        // render there too (above it) — a CPU-painted network in the scene
-        // buffer would composite UNDER the flood map. Force the kinds on and
-        // restore the preference-derived mask when the 2D layer goes away.
-        if (own2D && firstSwmm
+        // While the flood map (or, since Mesh Tiled LOD P1.1, the terrain
+        // mesh) renders in the QSG frame, the 1D network must render there
+        // too (above it) — a CPU-painted network in the scene buffer would
+        // composite UNDER them. Force the kinds on and restore the
+        // preference-derived mask when the QSG-owned 2D layers go away.
+        if ((own2D || ownMesh) && firstSwmm
             && firstSwmm->qsgRenderKinds() == SWMMModelLayer::QsgNone) {
             firstSwmm->setQsgRenderKinds(
                 SWMMModelLayer::QsgKinds(SWMMModelLayer::QsgNodes
@@ -1551,7 +1610,7 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                                        | SWMMModelLayer::QsgCatch
                                        | SWMMModelLayer::QsgGages));
             m_qsg1DForced = true;
-        } else if (!own2D && m_qsg1DForced) {
+        } else if (!own2D && !ownMesh && m_qsg1DForced) {
             m_qsg1DForced = false;
             syncQsgRenderKindsFromPreferences();
         }
@@ -1565,7 +1624,7 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
         const bool qsgActive =
             (firstSwmm
              && firstSwmm->qsgRenderKinds() != SWMMModelLayer::QsgNone)
-            || own2D;
+            || own2D || ownMesh;
         if (!qsgActive) {
             // Skip the QSG render entirely; CPU layeritem owns every kind.
         } else {
@@ -1582,7 +1641,8 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
             // paintEvent on large models; this path mirrors the basemap
             // m_mapBuffer treatment a few lines above.
             const bool layerChanged   = (firstSwmm != m_qsgCachedLayer)
-                                        || (want2D != m_qsgCached2DLayer);
+                                        || (want2D != m_qsgCached2DLayer)
+                                        || (wantMesh != m_qsgCachedMeshLayer);
             const bool sizeChanged    = (size()    != m_qsgCachedSize);
             // Scrub-diagnosis probe — pairs with the [2D-qsg] sync logs to
             // show whether a slider tick reached the regrab at all.
@@ -1605,6 +1665,10 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                 if (m_qsg2DRenderer) {
                     m_qsg2DRenderer->setLayer(want2D);
                     m_qsg2DRenderer->setMapExtent(m_extent);
+                }
+                if (m_qsgMeshRenderer) {
+                    m_qsgMeshRenderer->setLayer(wantMesh);
+                    m_qsgMeshRenderer->setMapExtent(m_extent);
                 }
 
                 // Render at DEVICE-pixel resolution so MSAA samples are
@@ -1647,11 +1711,12 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                     canvasStats.logIfEnabled();
                 }
                 m_qsgFrameCache.setDevicePixelRatio(qsgDpr);
-                m_qsgFrameDirty    = false;
-                m_qsgCachedLayer   = firstSwmm;
-                m_qsgCached2DLayer = want2D;
-                m_qsgCachedExtent  = m_extent;
-                m_qsgCachedSize    = size();
+                m_qsgFrameDirty      = false;
+                m_qsgCachedLayer     = firstSwmm;
+                m_qsgCached2DLayer   = want2D;
+                m_qsgCachedMeshLayer = wantMesh;
+                m_qsgCachedExtent    = m_extent;
+                m_qsgCachedSize      = size();
             }
 
             // Composite the cached QSG frame into m_frameBuffer on top of

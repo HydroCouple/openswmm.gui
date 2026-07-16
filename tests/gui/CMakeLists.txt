@@ -1718,6 +1718,16 @@ set_tests_properties(test_meshperf_baseline PROPERTIES
     TIMEOUT 3600
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR};SWMMVIS_MESH_PERF_DIR=${CMAKE_SOURCE_DIR}/tests/perf-data/mesh;QTEST_FUNCTION_TIMEOUT=1800000")
 
+# Mesh Tiled LOD plan Phase 1 — QsgMeshEnabled preference, the mesh layer's
+# qsgOwnsRendering CPU-paint gate, async worker-build equivalence, and
+# QPainter-vs-QSG parity screenshots (written to tests/output/mesh_qsg_parity).
+add_swmmvis_gui_test(test_meshasyncload
+    test_meshasyncload.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshasyncload)
+
 # Toolbar selection ops — SelectionOps::invert (category-scoped Invert
 # Selection), SelectionOps::trace (Select Upstream / Downstream with
 # subcatchment outlet chaining), and AttributeTablePanel::selectionAsTsv

@@ -120,6 +120,7 @@ private:
     NodeRenderingPrefs *m_nodePrefs       = nullptr;
     QPropertyModel     *m_nodeStyleModel  = nullptr;
     QCheckBox          *m_qsgNodesBox     = nullptr;
+    QCheckBox          *m_qsgMeshBox      = nullptr;
 
     // Simulation
     QSpinBox   *m_progressTickMsSpin    = nullptr;
