@@ -1703,6 +1703,21 @@ add_swmmvis_gui_test(test_asyncload
 )
 swmmvis_link_full_app_deps(test_asyncload)
 
+# Mesh Tiled LOD plan Phase 0 — rendering-perf baseline harness. Self-skips
+# when tests/perf-data/mesh/ has no generated fixtures (they are gitignored;
+# see the README there), so it is a fast no-op on CI. The 5M-triangle rows
+# legitimately take minutes when the fixtures ARE present, hence the raised
+# per-function and ctest timeouts.
+add_swmmvis_gui_test(test_meshperf_baseline
+    test_meshperf_baseline.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshperf_baseline)
+set_tests_properties(test_meshperf_baseline PROPERTIES
+    TIMEOUT 3600
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SWMMVIS_GUI_TEST_DATA=${GUI_TEST_DATA_DIR};SWMMVIS_MESH_PERF_DIR=${CMAKE_SOURCE_DIR}/tests/perf-data/mesh;QTEST_FUNCTION_TIMEOUT=1800000")
+
 # Toolbar selection ops — SelectionOps::invert (category-scoped Invert
 # Selection), SelectionOps::trace (Select Upstream / Downstream with
 # subcatchment outlet chaining), and AttributeTablePanel::selectionAsTsv
