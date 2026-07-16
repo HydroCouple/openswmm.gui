@@ -528,6 +528,18 @@ void PreferencesManager::setQsgRenderEnabled(bool enabled)
     emit preferenceChanged(QStringLiteral("Rendering"), QStringLiteral("QsgEnabled"));
 }
 
+bool PreferencesManager::qsgMeshRenderEnabled() const
+{
+    return m_settings.value(QStringLiteral("%1/Rendering/QsgMeshEnabled").arg(kGroupRoot),
+                            true).toBool();
+}
+void PreferencesManager::setQsgMeshRenderEnabled(bool enabled)
+{
+    if (enabled == qsgMeshRenderEnabled()) return;
+    m_settings.setValue(QStringLiteral("%1/Rendering/QsgMeshEnabled").arg(kGroupRoot), enabled);
+    emit preferenceChanged(QStringLiteral("Rendering"), QStringLiteral("QsgMeshEnabled"));
+}
+
 bool PreferencesManager::snapEnabled() const
 {
     return m_settings.value(QStringLiteral("%1/Snapping/Enabled").arg(kGroupRoot),

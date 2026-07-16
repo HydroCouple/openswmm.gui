@@ -449,16 +449,20 @@ private:
     QPoint                  m_middlePanStart;
 
     // ----- Phase B.RHI — QQuickWidget host for the QSG renderers ----------
-    // A transparent child widget overlaying the canvas, hosting (VS.8) a
-    // root Item with two stacked renderers: SWMM2DResultsQSGRenderer
-    // (flood map: Gouraud depth fill / bands / isolines / arrows) BELOW
-    // SWMMLayerQSGRenderer (SWMM network: nodes/links/subcatchments).
-    // The 2D TERRAIN mesh layer renders via QGraphicsScene (QPainter path).
+    // A transparent child widget overlaying the canvas, hosting (VS.8 +
+    // Mesh Tiled LOD P1.1) a root Item with three stacked renderers:
+    // SWMM2DMeshQSGRenderer (terrain mesh: elevation fill / wireframe /
+    // contours) at the BOTTOM, SWMM2DResultsQSGRenderer (flood map: Gouraud
+    // depth fill / bands / isolines / arrows) above it, and
+    // SWMMLayerQSGRenderer (SWMM network: nodes/links/subcatchments) on top.
+    // The QPainter SWMM2DMeshGraphicsItem path remains the mesh fallback
+    // (preference Rendering/QsgMeshEnabled, env OPENSWMM_QSG_MESH=0).
     // Native Metal on macOS, Vulkan on Linux, D3D11 on Windows.
     // See docs/RENDERING_5M_PLAN.md (Phase B.RHI).
-    class QQuickWidget               *m_qsgWidget     = nullptr;
-    class SWMMLayerQSGRenderer       *m_qsgRenderer   = nullptr;
-    class SWMM2DResultsQSGRenderer   *m_qsg2DRenderer = nullptr;
+    class QQuickWidget               *m_qsgWidget       = nullptr;
+    class SWMMLayerQSGRenderer       *m_qsgRenderer     = nullptr;
+    class SWMM2DResultsQSGRenderer   *m_qsg2DRenderer   = nullptr;
+    class SWMM2DMeshQSGRenderer      *m_qsgMeshRenderer = nullptr;
 
     // Cached QSG framebuffer (re-grabbed only when something the QSG
     // renderer cares about actually changed — extent, layer, widget
@@ -471,6 +475,7 @@ private:
     MapExtent                    m_qsgCachedExtent;
     class SWMMModelLayer        *m_qsgCachedLayer = nullptr;
     class SWMM2DResultsLayer    *m_qsgCached2DLayer = nullptr;
+    class SWMM2DMeshLayer       *m_qsgCachedMeshLayer = nullptr;
     QSize                        m_qsgCachedSize;
 
     // VS.8 — true while the canvas force-enabled the 1D QSG kinds because a
