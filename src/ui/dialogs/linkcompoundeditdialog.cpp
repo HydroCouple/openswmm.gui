@@ -61,32 +61,34 @@ inline const ShapeRow *findShapeRow(int engineId)
 // *something* to draw.
 //
 // The shape-id→basename table is the single source of truth — adding a
-// shape (e.g. BASKETHANDLE / CUSTOM / DUMMY / FORCE_MAIN / STREET when
-// Slice BN.6.4.4 surfaces them in kShapes) is one new switch case.
+// shape (e.g. BASKETHANDLE / CUSTOM / DUMMY / FORCE_MAIN when Slice
+// BN.6.4.4 surfaces them in kShapes) is one new switch case. Label every
+// case with the SWMM_XSECT_* constant, never a bare integer — see the
+// drift warning on XsectShapeRow in xsectshapegeom.h.
 const char *xsectSvgBasenameFor(int engineId)
 {
     switch (engineId) {
-    case  0: return "circular_xsect.svg";                 // CIRCULAR
-    case  1: return "filled_circular_xsect.svg";          // FILLED_CIRCULAR
-    case  2: return "rectangular_xsect.svg";              // RECT_CLOSED
-    case  3: return "open_rectangular_xsect.svg";         // RECT_OPEN
-    case  4: return "trapezoidal_xsect.svg";              // TRAPEZOIDAL
-    case  5: return "triangular_xsect.svg";               // TRIANGULAR
-    case  6: return "parabolic_xsect.svg";                // PARABOLIC
-    case  7: return "power_xsect.svg";                    // POWER
-    case  8: return "rectangular_triangular_xsect.svg";   // RECT_TRIANGULAR
-    case  9: return "rectangular_round_xsect.svg";        // RECT_ROUND
-    case 10: return "modified_baskethandle_xsect.svg";    // MOD_BASKETHANDLE
-    case 11: return "horizontal_ellipse_xsect.svg";       // HORIZ_ELLIPSE
-    case 12: return "vertical_ellipse_xsect.svg";         // VERT_ELLIPSE
-    case 13: return "arch_xsect.svg";                     // ARCH
-    case 14: return "egg_xsect.svg";                      // EGGSHAPED
-    case 15: return "horseshoe_xsect.svg";                // HORSESHOE
-    case 16: return "gothic_xsect.svg";                   // GOTHIC
-    case 17: return "catenary_xsect.svg";                 // CATENARY
-    case 18: return "semi-elliptical_xsect.svg";          // SEMIELLIPTICAL
-    case 19: return "irregular_xsect.svg";                // IRREGULAR
-    case 24: return "street_xsect.svg";                   // STREET (SWMM_XSECT_STREET)
+    case SWMM_XSECT_CIRCULAR:        return "circular_xsect.svg";
+    case SWMM_XSECT_FILLED_CIRCULAR: return "filled_circular_xsect.svg";
+    case SWMM_XSECT_RECT_CLOSED:     return "rectangular_xsect.svg";
+    case SWMM_XSECT_RECT_OPEN:       return "open_rectangular_xsect.svg";
+    case SWMM_XSECT_TRAPEZOIDAL:     return "trapezoidal_xsect.svg";
+    case SWMM_XSECT_TRIANGULAR:      return "triangular_xsect.svg";
+    case SWMM_XSECT_PARABOLIC:       return "parabolic_xsect.svg";
+    case SWMM_XSECT_POWER:           return "power_xsect.svg";
+    case SWMM_XSECT_RECT_TRIANG:     return "rectangular_triangular_xsect.svg";
+    case SWMM_XSECT_RECT_ROUND:      return "rectangular_round_xsect.svg";
+    case SWMM_XSECT_MOD_BASKET:      return "modified_baskethandle_xsect.svg";
+    case SWMM_XSECT_HORIZ_ELLIPSE:   return "horizontal_ellipse_xsect.svg";
+    case SWMM_XSECT_VERT_ELLIPSE:    return "vertical_ellipse_xsect.svg";
+    case SWMM_XSECT_ARCH:            return "arch_xsect.svg";
+    case SWMM_XSECT_EGGSHAPED:       return "egg_xsect.svg";
+    case SWMM_XSECT_HORSESHOE:       return "horseshoe_xsect.svg";
+    case SWMM_XSECT_GOTHIC:          return "gothic_xsect.svg";
+    case SWMM_XSECT_CATENARY:        return "catenary_xsect.svg";
+    case SWMM_XSECT_SEMIELLIPTICAL:  return "semi-elliptical_xsect.svg";
+    case SWMM_XSECT_IRREGULAR:       return "irregular_xsect.svg";
+    case SWMM_XSECT_STREET:          return "street_xsect.svg";
     // BN.6.4.4 will extend kShapes with BASKETHANDLE / CUSTOM / DUMMY /
     // FORCE_MAIN; the matching SVGs are already registered in
     // resources/swmmvis.qrc (baskethandle_xsect.svg etc.).

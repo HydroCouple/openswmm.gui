@@ -20,12 +20,22 @@
 
 #include <QString>
 
+#include <openswmm/engine/openswmm_links.h>
+
 namespace openswmmvis {
 
-//! One SWMM_XSectShape row (matches openswmm_links.h SWMM_XSECT_* enum).
-//! Order is the engine's integer value; legacy SWMM-GUI Dxsect.pas uses
-//! the same names. A geomNLabel is the empty string when that geom is
-//! unused for the shape.
+//! One SWMM_XSectShape row.
+//!
+//! `engineId` MUST be spelled as the engine's own SWMM_XSECT_* constant, never
+//! as a bare integer: this table is fed straight to swmm_link_set_xsect(), so a
+//! literal that drifts from the engine's numbering silently writes the WRONG
+//! cross-section into the model. (Before 6.0 exactly that happened — the table
+//! carried the pre-renumbering literals, so picking e.g. EGGSHAPED stored a
+//! baskethandle and IRREGULAR stored a vertical ellipse.)
+//!
+//! Row order is the legacy SWMM-GUI (Dxsect.pas) presentation order, which the
+//! shape picker shows verbatim; it is deliberately NOT the engine's numeric
+//! order. A geomNLabel is the empty string when that geom is unused.
 struct XsectShapeRow {
     const char *name;        //!< "CIRCULAR", "RECT_CLOSED", …
     int         engineId;    //!< SWMM_XSECT_* numeric.
@@ -38,31 +48,31 @@ struct XsectShapeRow {
 //! IRREGULAR / STREET engine ids — for these, geom1 is an index into the
 //! transect / street list (not a length-like dimension), so it is managed
 //! only by the complex dialog's name picker, never as a raw inline number.
-inline constexpr int kXsectIrregularId = 19;
-inline constexpr int kXsectStreetId    = 24;
+inline constexpr int kXsectIrregularId = SWMM_XSECT_IRREGULAR;
+inline constexpr int kXsectStreetId    = SWMM_XSECT_STREET;
 
 inline constexpr XsectShapeRow kXsectShapes[] = {
-    { "CIRCULAR",         0, "Diameter",  "",                "",               ""  },
-    { "FILLED_CIRCULAR",  1, "Diameter",  "Filled Depth",    "",               ""  },
-    { "RECT_CLOSED",      2, "Max Depth", "Width",           "",               ""  },
-    { "RECT_OPEN",        3, "Max Depth", "Width",           "",               ""  },
-    { "TRAPEZOIDAL",      4, "Max Depth", "Bottom Width",    "Left Slope",     "Right Slope" },
-    { "TRIANGULAR",       5, "Max Depth", "Top Width",       "",               ""  },
-    { "PARABOLIC",        6, "Max Depth", "Top Width",       "",               ""  },
-    { "POWER",            7, "Max Depth", "Top Width",       "Exponent",       ""  },
-    { "RECT_TRIANGULAR",  8, "Max Depth", "Top Width",       "Triangle Height","" },
-    { "RECT_ROUND",       9, "Max Depth", "Top Width",       "Bottom Radius",  ""  },
-    { "MOD_BASKETHANDLE",10, "Max Depth", "Bottom Width",    "Top Radius",     ""  },
-    { "HORIZ_ELLIPSE",   11, "Max Height","Max Width",       "",               ""  },
-    { "VERT_ELLIPSE",    12, "Max Height","Max Width",       "",               ""  },
-    { "ARCH",            13, "Max Height","Max Width",       "",               ""  },
-    { "EGGSHAPED",       14, "Max Depth", "",                "",               ""  },
-    { "HORSESHOE",       15, "Max Depth", "",                "",               ""  },
-    { "GOTHIC",          16, "Max Depth", "",                "",               ""  },
-    { "CATENARY",        17, "Max Depth", "",                "",               ""  },
-    { "SEMIELLIPTICAL",  18, "Max Depth", "",                "",               ""  },
-    { "IRREGULAR",       19, "Transect (index)", "",         "",               ""  },
-    { "STREET",          24, "Street (index)",   "",         "",               ""  },
+    { "CIRCULAR",        SWMM_XSECT_CIRCULAR,       "Diameter",  "",             "",               ""  },
+    { "FILLED_CIRCULAR", SWMM_XSECT_FILLED_CIRCULAR,"Diameter",  "Filled Depth", "",               ""  },
+    { "RECT_CLOSED",     SWMM_XSECT_RECT_CLOSED,    "Max Depth", "Width",        "",               ""  },
+    { "RECT_OPEN",       SWMM_XSECT_RECT_OPEN,      "Max Depth", "Width",        "",               ""  },
+    { "TRAPEZOIDAL",     SWMM_XSECT_TRAPEZOIDAL,    "Max Depth", "Bottom Width", "Left Slope",     "Right Slope" },
+    { "TRIANGULAR",      SWMM_XSECT_TRIANGULAR,     "Max Depth", "Top Width",    "",               ""  },
+    { "PARABOLIC",       SWMM_XSECT_PARABOLIC,      "Max Depth", "Top Width",    "",               ""  },
+    { "POWER",           SWMM_XSECT_POWER,          "Max Depth", "Top Width",    "Exponent",       ""  },
+    { "RECT_TRIANGULAR", SWMM_XSECT_RECT_TRIANG,    "Max Depth", "Top Width",    "Triangle Height","" },
+    { "RECT_ROUND",      SWMM_XSECT_RECT_ROUND,     "Max Depth", "Top Width",    "Bottom Radius",  ""  },
+    { "MOD_BASKETHANDLE",SWMM_XSECT_MOD_BASKET,     "Max Depth", "Bottom Width", "Top Radius",     ""  },
+    { "HORIZ_ELLIPSE",   SWMM_XSECT_HORIZ_ELLIPSE,  "Max Height","Max Width",    "",               ""  },
+    { "VERT_ELLIPSE",    SWMM_XSECT_VERT_ELLIPSE,   "Max Height","Max Width",    "",               ""  },
+    { "ARCH",            SWMM_XSECT_ARCH,           "Max Height","Max Width",    "",               ""  },
+    { "EGGSHAPED",       SWMM_XSECT_EGGSHAPED,      "Max Depth", "",             "",               ""  },
+    { "HORSESHOE",       SWMM_XSECT_HORSESHOE,      "Max Depth", "",             "",               ""  },
+    { "GOTHIC",          SWMM_XSECT_GOTHIC,         "Max Depth", "",             "",               ""  },
+    { "CATENARY",        SWMM_XSECT_CATENARY,       "Max Depth", "",             "",               ""  },
+    { "SEMIELLIPTICAL",  SWMM_XSECT_SEMIELLIPTICAL, "Max Depth", "",             "",               ""  },
+    { "IRREGULAR",       SWMM_XSECT_IRREGULAR,      "Transect (index)", "",      "",               ""  },
+    { "STREET",          SWMM_XSECT_STREET,         "Street (index)",   "",      "",               ""  },
 };
 
 //! Look up a shape row by engine id; falls back to the first row
@@ -73,6 +83,19 @@ inline const XsectShapeRow *findXsectShapeRow(int engineId)
         if (r.engineId == engineId) return &r;
     }
     return &kXsectShapes[0];
+}
+
+//! Shape name for `engineId` ("CIRCULAR", …), or an empty QString when the id
+//! is not one the GUI surfaces (BASKETHANDLE / CUSTOM / FORCE_MAIN / DUMMY,
+//! pending Slice BN.6.4.4). Unlike findXsectShapeRow() this does NOT fall back
+//! to CIRCULAR — display paths must be able to render "UNKNOWN" instead of
+//! confidently naming the wrong shape.
+inline QString xsectShapeName(int engineId)
+{
+    for (const auto &r : kXsectShapes) {
+        if (r.engineId == engineId) return QString::fromLatin1(r.name);
+    }
+    return {};
 }
 
 //! Shape-specific label for geom `ordinal` (1..4), e.g. "Diameter".
