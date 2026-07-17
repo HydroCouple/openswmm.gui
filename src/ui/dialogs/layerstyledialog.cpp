@@ -826,6 +826,28 @@ void LayerStyleDialog::buildMetadataTab()
     // a properties dialog).
     auto *refreshRow = new QHBoxLayout();
     refreshRow->addStretch();
+
+    // Mesh Tiled LOD — per-layer pyramid (far-zoom overview) rebuild for 2D
+    // terrain meshes. Runs in the background (rebuildOverviewAsync); the
+    // main window drives the busy bar off the layer's
+    // overviewBuildStarted/Finished signals.
+    if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(m_layer)) {
+        auto *pyramidBtn = new QToolButton(page);
+        pyramidBtn->setText(tr("Rebuild pyramid"));
+        pyramidBtn->setToolTip(tr(
+            "Rebuild this mesh's far-zoom LOD pyramid (overview) in the "
+            "background. Use after bulk elevation edits if the zoomed-out "
+            "view looks stale."));
+        pyramidBtn->setEnabled(!mesh->overviewBuildRunning());
+        connect(pyramidBtn, &QToolButton::clicked, this, [mesh, pyramidBtn]() {
+            pyramidBtn->setEnabled(false);
+            mesh->rebuildOverviewAsync();
+        });
+        connect(mesh, &SWMM2DMeshLayer::overviewBuildFinished, pyramidBtn,
+                [pyramidBtn](bool) { pyramidBtn->setEnabled(true); });
+        refreshRow->addWidget(pyramidBtn);
+    }
+
     auto *refreshBtn = new QToolButton(page);
     refreshBtn->setText(tr("Refresh"));
     refreshBtn->setToolTip(tr("Re-read metadata (e.g. the time-step count of a "
