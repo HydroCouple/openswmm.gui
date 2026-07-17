@@ -4350,6 +4350,9 @@ void SWMMVis::openSingleINP(const QString &filePath)
     // Everything that used to follow the synchronous loadModel() call lives
     // in finalizeSingleINPOpen(), invoked exactly once on completion.
     beginFileOpen(filePath);
+    onLogMessage(tr("Loading SWMM model (1D network) from %1 on a background "
+                    "thread …").arg(QFileInfo(filePath).fileName()),
+                 OpenSWMMVisLogMessage::LogMessageType::Information);
     QElapsedTimer openTimer;
     openTimer.start();
     connect(window, &SWMMVisProjectWindow::modelLoadFinished, this,
@@ -4410,6 +4413,11 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
             if (!sidecarOk) {
                 onLogMessage(tr("Sidecar load failed: %1").arg(sidecarErr),
                              OpenSWMMVisLogMessage::LogMessageType::Warning);
+            } else {
+                onLogMessage(tr("Applied project settings from %1 (%2 ms).")
+                                 .arg(QFileInfo(oswp).fileName())
+                                 .arg(sidecarTimer.elapsed()),
+                             OpenSWMMVisLogMessage::LogMessageType::Information);
             }
         }
         // Slice RB.4 — when no sibling .oswp exists, optionally create
@@ -4534,8 +4542,23 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
     statusBar()->showMessage(tr("Loading 2D mesh from %1 …")
                                  .arg(QFileInfo(filePath).fileName()));
     onSetProgressBarBusy(true);
+    onLogMessage(tr("Scanning %1 for a 2D mesh …")
+                     .arg(QFileInfo(filePath).fileName()),
+                 OpenSWMMVisLogMessage::LogMessageType::Information);
     QElapsedTimer meshTimer;
     meshTimer.start();
+
+    // Progress notes from the worker thread — Message Log + status bar so the
+    // long parse/build stages of a large mesh visibly advance. onLogMessage
+    // appends to a GUI-thread model, hence the queued invoke. `this` is the
+    // app-lifetime main window, so the capture cannot dangle.
+    auto note = [this](const QString &msg) {
+        qCInfo(lcLoadMesh).noquote() << msg;   // mirror to opt-in telemetry
+        QMetaObject::invokeMethod(this, [this, msg]() {
+            onLogMessage(msg, OpenSWMMVisLogMessage::LogMessageType::Information);
+            statusBar()->showMessage(msg);
+        }, Qt::QueuedConnection);
+    };
 
     QPointer<SWMMVisProjectWindow> win(window);
     auto *watcher = new QFutureWatcher<MeshOpenOutcome>(this);
@@ -4625,10 +4648,11 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
         const QString snapPath =
             qEnvironmentVariable("SWMMVIS_STARTUP_SNAPSHOT");
         if (!snapPath.isEmpty()) {
-            MapCanvas *canvas = window->canvas();
-            canvas->zoomToFullExtent();
-            QTimer::singleShot(2000, canvas, [canvas, snapPath]() {
-                canvas->grab().save(snapPath);
+            window->canvas()->zoomToFullExtent();
+            // Grab the whole main window (canvas + Message Log dock) so the
+            // snapshot also evidences the load-progress notes.
+            QTimer::singleShot(2000, this, [this, snapPath]() {
+                grab().save(snapPath);
                 qCInfo(lcLoadMesh).noquote()
                     << QStringLiteral("startup snapshot saved to %1")
                            .arg(snapPath);
@@ -4772,7 +4796,7 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
             }
         }
     });
-    watcher->setFuture(QtConcurrent::run([filePath]() -> MeshOpenOutcome {
+    watcher->setFuture(QtConcurrent::run([filePath, note]() -> MeshOpenOutcome {
         MeshOpenOutcome out;
         QElapsedTimer t;
         t.start();
@@ -4780,8 +4804,20 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
         out.readMs   = t.elapsed();
         out.errorMsg = meshRead.errorMsg;
         out.warning  = meshRead.warning;
-        if (!meshRead.hasMesh)
+        if (!meshRead.hasMesh) {
+            if (out.errorMsg.isEmpty())
+                note(QCoreApplication::translate(
+                    "SWMMVis", "No 2D mesh sections in this model."));
             return out;
+        }
+
+        note(QCoreApplication::translate(
+                 "SWMMVis",
+                 "2D mesh parsed: %L1 vertices, %L2 triangles (%3 s) — "
+                 "building scene geometry, spatial index and LOD pyramid …")
+                 .arg(meshRead.mesh.vertices.size())
+                 .arg(meshRead.mesh.triangles.size())
+                 .arg(out.readMs / 1000.0, 0, 'f', 1));
 
         out.sourcePath = meshRead.sourcePath;
         out.isExternal = meshRead.isExternal;
@@ -4793,6 +4829,11 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
         auto *meshLayer = new SWMM2DMeshLayer(std::move(meshRead.mesh),
                                               meshRead.sourcePath);
         out.buildMs = t.elapsed();
+        note(QCoreApplication::translate(
+                 "SWMMVis",
+                 "2D mesh scene geometry ready (%1 s) — adding layer to the "
+                 "map …")
+                 .arg(out.buildMs / 1000.0, 0, 'f', 1));
         meshLayer->setActiveMesh(meshRead.isExternal);
         // Slice §V.VD.1 — preload any parsed [2D_BOUNDARY_CONDITIONS] into
         // the layer's BC SoA so the toolbar / Property Browser see persisted
