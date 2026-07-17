@@ -71,6 +71,11 @@ jobs:
             # For Qt 6.7.x on aqt, addon modules are reliably available on the MSVC2019 kit.
             qt_arch: win64_msvc2019_64
             cmake_osx_arch: ""
+            # Per-leg upload glob: Windows CPack uses the NSIS generator -> .exe
+            # installer. Only this pattern is uploaded on this leg, so the old
+            # cross-platform list no longer put an irrelevant `packages/*.dmg`
+            # entry on the Windows run.
+            artifact_glob: "packages/*.exe"
 
           - os: ubuntu-latest
             cmake_preset: Linux
@@ -80,6 +85,10 @@ jobs:
             qt_arch: linux_gcc_64
             appimage_arch: x86_64
             cmake_osx_arch: ""
+            # Linux: CPack TGZ (.tar.gz) + the linuxdeploy AppImage.
+            artifact_glob: |
+              packages/*.tar.gz
+              packages/*.AppImage
 
           # Apple-Silicon build. Pinned to macos-15 (NOT macos-latest): the
           # macos-latest image has rolled to macOS 26 (Tahoe), whose SDK
@@ -96,6 +105,8 @@ jobs:
             shell_ext: .sh
             qt_arch: clang_64
             cmake_osx_arch: arm64
+            # macOS: CPack DragNDrop (.dmg).
+            artifact_glob: "packages/*.dmg"
 
           # Intel-Mac build — mirrors openswmm.engine's deployment.yml matrix.
           # `macos-15-intel` is GitHub's only hosted x86_64 macOS runner. Pair
@@ -111,6 +122,8 @@ jobs:
             shell_ext: .sh
             qt_arch: clang_64
             cmake_osx_arch: x86_64
+            # macOS: CPack DragNDrop (.dmg).
+            artifact_glob: "packages/*.dmg"
 
     runs-on: ${{ matrix.os }}
 
@@ -778,6 +791,12 @@ jobs:
             fi
             sleep 15
           done
+          # Show exactly what CPack produced at the TOP level of packages/ (not
+          # the _CPack_Packages/ staging tree). This is the ground truth for what
+          # the upload glob must match — if the installer is missing here, the
+          # problem is packaging, not upload.
+          echo "=== packages/ contents ==="
+          find "${{ github.workspace }}/packages" -maxdepth 1 -type f -print
 
       # ── Windows Authenticode signing (commented out — configure secrets to enable) ──
       # To enable: set the following repository secrets:
@@ -888,25 +907,29 @@ jobs:
       # 8.5 min on macos-15 and 41.8 min on macos-15-intel, where it had become
       # more expensive than the compile it was packaging. Level 0 stores them.
       #
-      # Explicit globs rather than the whole packages/ dir: CPack also drops
-      # _CPack_Packages/ staging trees (the fully-expanded, UNcompressed .app
-      # bundle) next to the real artifact. Uploading the directory wholesale risks
-      # shipping that staging tree too — gigabytes of files we already have inside
-      # the .dmg. Name the deliverables instead.
+      # Per-leg glob (matrix.artifact_glob), NOT a shared cross-platform list.
+      # Previously every leg listed packages/*.dmg, *.exe, *.tar.gz, ... which
+      # (a) put an irrelevant "packages/*.dmg" pattern on the Windows run and
+      # (b) made "which file are we actually shipping?" unclear. Now Windows
+      # uploads only packages/*.exe (NSIS installer), Linux the TGZ + AppImage,
+      # macOS the .dmg.
+      #
+      # Named globs, not the whole packages/ dir: CPack also drops a
+      # _CPack_Packages/ staging tree (the fully-expanded, UNcompressed bundle)
+      # next to the real artifact; uploading the directory wholesale would ship
+      # that too.
+      #
+      # if-no-files-found: error — if the installer/package is missing, FAIL the
+      # job loudly rather than silently upload nothing (which is how the "builds
+      # but nothing is packaged" symptom slipped through before).
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: swmmvis-${{ matrix.vcpkg_triplet }}
           compression-level: 0
-          if-no-files-found: warn
-          path: |
-            packages/*.dmg
-            packages/*.zip
-            packages/*.exe
-            packages/*.tar.gz
-            packages/*.AppImage
-            packages/*.asc
+          if-no-files-found: error
+          path: ${{ matrix.artifact_glob }}
 
       # ── vcpkg binary cache: SAVE ────────────────────────────────────────────
       # Counterpart to "Restore vcpkg binary cache" above. The `if: always()` is
