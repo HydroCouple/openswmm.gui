@@ -10,6 +10,7 @@
 
 #include "render/isublayer.h"
 #include "render/sublayerstyle.h"
+#include "layers/swmm2dmeshlayer.h"
 #include "ui/widgets/stylepropertydelegate.h"
 
 #include <qpropertymodel.h>
@@ -167,7 +168,13 @@ SublayerStyleDialog::SublayerStyleDialog(ISublayer *sublayer, QWidget *parent)
     // editor never silently hides a property the user might want.
     auto *pm = new QPropertyModel(style, this);
 
-    const QHash<QString, QStringList> groups = groupPropertiesByClassInfo(style);
+    QHash<QString, QStringList> groups = groupPropertiesByClassInfo(style);
+    // Terrain meshes always classify by bed elevation — the generic
+    // 'attribute' field (a real choice on 2D results layers) is inert for
+    // mesh sublayers, so don't offer it.
+    if (m_sublayer && qobject_cast<::SWMM2DMeshLayer *>(m_sublayer->parent()))
+        for (auto it = groups.begin(); it != groups.end(); ++it)
+            it.value().removeAll(QStringLiteral("attribute"));
     if (groups.size() <= 1) {
         // Degenerate case (one group total): show a single flat view —
         // tabs would just add chrome with no signal. Re-use the original

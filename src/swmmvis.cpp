@@ -142,7 +142,6 @@
 #include "plot/comparisonplotmodel.h"
 #include "ui/dialogs/addbasemapdialog.h"
 #include "ui/widgets/legendoverlay.h"
-#include "ui/widgets/perattributethemingwidget.h"
 #include "ui/panels/layertreepanel.h"
 #include "ui/panels/legenddock.h"
 #include "ui/panels/objectbrowserpanel.h"
@@ -1706,14 +1705,6 @@ void SWMMVis::initializeStatusBar()
     connect(mToolButtonCoordinateReferenceSystem, &QToolButton::clicked,
             this, &SWMMVis::onCRSButtonClicked);
     ui->statusBar->addPermanentWidget(mToolButtonCoordinateReferenceSystem);
-
-    // Per-attribute theming combos (Node / Link / Subcatchment). Subscribes
-    // to AnimationController::primaryLayerChanged so the combos always
-    // reflect the active SWMMResultsLayer's current variable.
-    addSep();
-    mThemingWidget = new openswmmvis::ui::PerAttributeThemingWidget(ui->statusBar);
-    mThemingWidget->setAnimationController(mAnimationController);
-    ui->statusBar->addPermanentWidget(mThemingWidget);
 }
 
 void SWMMVis::updateOffsetModeLabels(bool elevation)
@@ -4639,6 +4630,36 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
                                  : tr("inline")),
                     meshTimer.elapsed());
 
+        // Progressive load Phase B — the coarse pyramid is on screen; finish
+        // the wireframe, spatial index and editing structures on a worker.
+        // Busy bar + notes bracket the background stage so the user sees the
+        // load is still progressing.
+        statusBar()->showMessage(
+            tr("2D mesh visible (coarse) — finishing wireframe and spatial "
+               "index in the background …"));
+        onSetProgressBarBusy(true);
+        onLogMessage(tr("2D mesh visible (coarse) — finishing wireframe and "
+                        "spatial index in the background …"),
+                     OpenSWMMVisLogMessage::LogMessageType::Information);
+        QElapsedTimer finishTimer;
+        finishTimer.start();
+        connect(meshLayer, &SWMM2DMeshLayer::sceneGeometryReady, this,
+                [this, finishTimer, ml = QPointer<SWMM2DMeshLayer>(meshLayer)]() {
+                    onSetProgressBarBusy(false);
+                    statusBar()->clearMessage();
+                    onLogMessage(tr("2D mesh fully ready: wireframe, spatial "
+                                    "index and editing structures built "
+                                    "(%1 s).")
+                                     .arg(finishTimer.elapsed() / 1000.0, 0,
+                                          'f', 1),
+                                 OpenSWMMVisLogMessage::LogMessageType::Information);
+                    qCInfo(lcLoadMesh).noquote()
+                        << QStringLiteral("deferred geometry ready in %1 ms (%2)")
+                               .arg(finishTimer.elapsed())
+                               .arg(ml ? ml->name() : QStringLiteral("mesh"));
+                });
+        meshLayer->finishSceneGeometryAsync();
+
         // Dev/testing hook (pairs with SWMMVIS_OPEN_ON_STARTUP) — zoom to the
         // full extent once the mesh lands and save an in-process canvas grab.
         // QWidget::grab() runs the real paint pipeline (QSG render +
@@ -4826,23 +4847,26 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
         // engine multiplies by 0.3048 itself in SurfaceRouter2D::initialize
         // when SWMM FLOW_UNITS is US.
         t.restart();
+        // Progressive load: Phase A only — triangles + LOD pyramid, so the
+        // layer can join the canvas and render its coarse levels right away;
+        // finishSceneGeometryAsync() (kicked after adoption below) builds
+        // the wireframe/spatial-index/editing structures in the background.
         auto *meshLayer = new SWMM2DMeshLayer(std::move(meshRead.mesh),
-                                              meshRead.sourcePath);
+                                              meshRead.sourcePath,
+                                              /*parent=*/nullptr,
+                                              /*deferHeavyGeometry=*/true);
         out.buildMs = t.elapsed();
         note(QCoreApplication::translate(
                  "SWMMVis",
-                 "2D mesh scene geometry ready (%1 s) — adding layer to the "
-                 "map …")
+                 "2D mesh display geometry + LOD pyramid ready (%1 s) — "
+                 "adding layer to the map …")
                  .arg(out.buildMs / 1000.0, 0, 'f', 1));
         meshLayer->setActiveMesh(meshRead.isExternal);
         // Slice §V.VD.1 — preload any parsed [2D_BOUNDARY_CONDITIONS] into
-        // the layer's BC SoA so the toolbar / Property Browser see persisted
-        // edits on reload.
-        if (!meshRead.edgeBCs.isEmpty()) {
-            auto &bcs = meshLayer->edgeBCsMutable();
-            if (bcs.size() == meshRead.edgeBCs.size())
-                bcs = meshRead.edgeBCs;
-        }
+        // the layer's BC SoA. With the deferred build the BC slots don't
+        // exist yet, so size against the triangle count directly.
+        if (meshRead.edgeBCs.size() == meshLayer->triangleCount() * 3)
+            meshLayer->edgeBCsMutable() = meshRead.edgeBCs;
         meshLayer->setName(meshRead.sourcePath.isEmpty()
                                ? QStringLiteral("Mesh (inline)")
                                : QFileInfo(meshRead.sourcePath).fileName());

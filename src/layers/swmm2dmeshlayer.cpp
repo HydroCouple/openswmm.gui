@@ -226,8 +226,12 @@ public:
         // views keep the exact legacy per-triangle path below.
         const double pxPerScene = p->worldTransform().m11();   // scene units → device px
         constexpr double kLodTriPx = 2.0;
+        // Progressive load: with the spatial grid still pending, an exact
+        // paint would walk every triangle — stay on the overview until the
+        // deferred build lands.
         const bool useLod = m_layer->hasOverview()
-                         && (m_layer->m_nativeTriSpan * pxPerScene) < kLodTriPx;
+                         && ((m_layer->m_nativeTriSpan * pxPerScene) < kLodTriPx
+                             || m_layer->m_triGrid.isEmpty());
         const auto &overview = m_layer->m_overviewTris;
 
         // Shared helpers for the LOD passes.
@@ -240,10 +244,47 @@ public:
             return (maxX < exposed.left() || minX > exposed.right() ||
                     maxY < exposed.top()  || minY > exposed.bottom());
         };
+        // Style-driven fill colour — parity with the QSG fill's
+        // schemeDrivesColor branch: the default "Terrain" ramp keeps the
+        // byte-identical legacy path; a user-picked ramp, inversion or
+        // Classified mode routes colour through the fill sublayer's
+        // ClassificationScheme. (Previously this path hardcoded the legacy
+        // ramp, so ramp edits only changed the GPU pipeline.)
+        const auto *fillStyleQ = fillSub ? fillSub->fillStyle() : nullptr;
+        const bool useRampFill = fillStyleQ ? fillStyleQ->useElevationRamp() : true;
+        const QColor flatFill  = fillStyleQ ? fillStyleQ->fillColor()
+                                            : QColor(70, 130, 180);
+        const OpenSWMM::Render::ClassificationScheme fillScheme =
+            fillStyleQ ? fillStyleQ->scheme()
+                       : OpenSWMM::Render::ClassificationScheme();
+        const bool fillClassified =
+            fillScheme.mode()
+            == OpenSWMM::Render::ClassificationScheme::ClassMode::Classified;
+        const QString fillRampName = fillScheme.rampName();
+        const bool fillDefaultRamp =
+            fillRampName.isEmpty()
+            || fillRampName.compare(QLatin1String("terrain"),
+                                    Qt::CaseInsensitive) == 0;
+        const bool fillSchemeDrives =
+            fillClassified || fillScheme.invertRamp() || !fillDefaultRamp;
+        const QVector<double> fillClassEdges =
+            fillClassified ? fillScheme.levelEdges(zMin, zMax, {})
+                           : QVector<double>{};
+
         auto fillColor = [&](const SWMM2DMeshLayer::SceneTri &t,
                              int &cr, int &cg, int &cb) {
-            if (hasElev) {
-                elevationColorRgb((t.zAvg - zMin) / zRange, cr, cg, cb);
+            if (hasElev && useRampFill) {
+                if (fillSchemeDrives) {
+                    const QColor sc = fillClassified
+                        ? fillScheme.colorForClass(
+                              OpenSWMM::Render::ClassificationScheme::classIndexFor(
+                                  double(t.zAvg), fillClassEdges),
+                              fillScheme.classCount())
+                        : fillScheme.colorForValue(double(t.zAvg), zMin, zMax);
+                    cr = sc.red(); cg = sc.green(); cb = sc.blue();
+                } else {
+                    elevationColorRgb((t.zAvg - zMin) / zRange, cr, cg, cb);
+                }
                 const float ax = float(t.b.x()-t.a.x()), ay = float(t.b.y()-t.a.y());
                 const float bx = float(t.c.x()-t.a.x()), by = float(t.c.y()-t.a.y());
                 const float az = (t.z1 - t.z0) * kVertExag;
@@ -259,7 +300,7 @@ public:
                 cg = qBound(0, int(float(cg)*lit), 255);
                 cb = qBound(0, int(float(cb)*lit), 255);
             } else {
-                cr = 70; cg = 130; cb = 180;   // flat steel blue
+                cr = flatFill.red(); cg = flatFill.green(); cb = flatFill.blue();
             }
         };
 
@@ -310,28 +351,7 @@ public:
                     useTriIdx ? tris[visibleTris[i]] : tris[i];
 
                 int cr, cg, cb;
-                if (hasElev) {
-                    elevationColorRgb((t.zAvg - zMin) / zRange, cr, cg, cb);
-
-                    // Hillshade: face normal from edge vectors
-                    const float ax = float(t.b.x()-t.a.x()), ay = float(t.b.y()-t.a.y());
-                    const float bx = float(t.c.x()-t.a.x()), by = float(t.c.y()-t.a.y());
-                    const float az = (t.z1 - t.z0) * kVertExag;
-                    const float bz = (t.z2 - t.z0) * kVertExag;
-                    float nx = ay*bz - az*by;
-                    float ny = az*bx - ax*bz;
-                    float nz = ax*by - ay*bx;
-                    if (nz < 0.f) { nx=-nx; ny=-ny; nz=-nz; }
-                    const float nlen = std::sqrt(nx*nx+ny*ny+nz*nz);
-                    if (nlen > 1e-12f) { nx/=nlen; ny/=nlen; nz/=nlen; }
-                    const float lit = qBound(kLitMin, nx*kLx + ny*kLy + nz*kLz, 1.0f);
-
-                    cr = qBound(0, int(float(cr)*lit), 255);
-                    cg = qBound(0, int(float(cg)*lit), 255);
-                    cb = qBound(0, int(float(cb)*lit), 255);
-                } else {
-                    cr = 70; cg = 130; cb = 180; // flat steel blue
-                }
+                fillColor(t, cr, cg, cb);   // style-driven; same math as LOD pass
 
                 p->setBrush(QColor(cr, cg, cb, fa));
                 const QPointF pts[3] = {t.a, t.b, t.c};
@@ -576,7 +596,8 @@ private:
 
 SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult     result,
                                   const QString       &sourcePath,
-                                  OpenSWMMVisWorkspace *parent)
+                                  OpenSWMMVisWorkspace *parent,
+                                  bool                  deferHeavyGeometry)
     : OpenSWMMVisLayer(parent),
       m_mesh(std::move(result)),
       m_sourcePath(sourcePath)
@@ -651,9 +672,16 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult     result,
         }
         setExtent(MapExtent(minX, minY, maxX, maxY));
     }
-    rebuildSceneGeometry();
-    resizeBCsToMesh();
-    rebuildVertexAdjacency();
+    if (deferHeavyGeometry) {
+        // Progressive load (Mesh Tiled LOD P1.2): build only what the fill
+        // needs to draw — the renderers fall back to the LOD pyramid until
+        // finishSceneGeometryAsync() delivers edges/grids/adjacency/BCs.
+        rebuildSceneGeometryLight();
+    } else {
+        rebuildSceneGeometry();
+        resizeBCsToMesh();
+        rebuildVertexAdjacency();
+    }
 }
 
 SWMM2DMeshLayer::~SWMM2DMeshLayer()
@@ -743,6 +771,190 @@ void SWMM2DMeshLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRend
 }
 
 // ---------------------------------------------------------------------------
+// Scene-geometry helpers — pure functions of their inputs so the same code
+// serves the synchronous full rebuild and the deferred background build
+// (progressive load, Mesh Tiled LOD P1.2).
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/*! The heavy scene-side products: deduplicated wireframe edges + bbox
+ *  arrays + spatial culling grids. Dominates the build time on multi-
+ *  million-triangle meshes (a hash probe per triangle edge). */
+struct MeshHeavyGeom
+{
+    QVector<SWMM2DMeshLayer::SceneEdge> sceneEdges;
+    QVector<QRectF>                     triBBoxes;
+    QVector<QRectF>                     edgeBBoxes;
+    MeshSpatialGrid                     triGrid;
+    MeshSpatialGrid                     edgeGrid;
+    float                               maxSlope = 0.0f;
+};
+
+/*! Append one SceneTri per valid mesh triangle (shared by the light and
+ *  full builds; skips degenerate vertex indices exactly as before). */
+void appendSceneTris(const mesh::MeshResult &meshData,
+                     const QVector<QPointF> &scenePts,
+                     QVector<SWMM2DMeshLayer::SceneTri> &out)
+{
+    const int nVerts = meshData.vertices.size();
+    out.reserve(meshData.triangles.size());
+    for (const auto &t : meshData.triangles)
+    {
+        if (t.v0 < 0 || t.v0 >= nVerts) continue;
+        if (t.v1 < 0 || t.v1 >= nVerts) continue;
+        if (t.v2 < 0 || t.v2 >= nVerts) continue;
+        SWMM2DMeshLayer::SceneTri st;
+        st.a    = scenePts[t.v0];
+        st.b    = scenePts[t.v1];
+        st.c    = scenePts[t.v2];
+        st.z0   = static_cast<float>(meshData.vertices[t.v0].z);
+        st.z1   = static_cast<float>(meshData.vertices[t.v1].z);
+        st.z2   = static_cast<float>(meshData.vertices[t.v2].z);
+        st.zAvg = (st.z0 + st.z1 + st.z2) / 3.0f;
+        out.append(st);
+    }
+}
+
+MeshHeavyGeom buildMeshHeavyGeom(const mesh::MeshResult &meshData,
+                                 const QVector<QPointF> &scenePts,
+                                 const QVector<SWMM2DMeshLayer::SceneTri> &sceneTris)
+{
+    using SceneEdge = SWMM2DMeshLayer::SceneEdge;
+    MeshHeavyGeom out;
+    const int nVerts = meshData.vertices.size();
+
+    QSet<QPair<int,int>> seen;
+    seen.reserve(meshData.triangles.size() * 3);
+    out.sceneEdges.reserve(meshData.triangles.size() * 3);
+
+    auto pushEdge = [&](int a, int b) {
+        if (a == b) return;
+        const QPair<int,int> key = (a < b) ? qMakePair(a,b) : qMakePair(b,a);
+        if (seen.contains(key)) return;
+        seen.insert(key);
+
+        const double za = meshData.vertices[a].z;
+        const double zb = meshData.vertices[b].z;
+        const double dx = meshData.vertices[a].xy.x() - meshData.vertices[b].xy.x();
+        const double dy = meshData.vertices[a].xy.y() - meshData.vertices[b].xy.y();
+        const double dist = std::sqrt(dx*dx + dy*dy);
+        const float  slope = (dist > 1e-9) ? static_cast<float>(std::abs(za-zb) / dist) : 0.0f;
+        if (slope > out.maxSlope) out.maxSlope = slope;
+
+        SceneEdge e;
+        e.line  = QLineF(scenePts[a], scenePts[b]);
+        e.zAvg  = static_cast<float>((za + zb) * 0.5);
+        e.slope = slope;
+        out.sceneEdges.append(e);
+    };
+
+    for (const auto &t : meshData.triangles)
+    {
+        if (t.v0 < 0 || t.v0 >= nVerts) continue;
+        if (t.v1 < 0 || t.v1 >= nVerts) continue;
+        if (t.v2 < 0 || t.v2 >= nVerts) continue;
+        pushEdge(t.v0, t.v1);
+        pushEdge(t.v1, t.v2);
+        pushEdge(t.v2, t.v0);
+    }
+
+    // Spatial grids over the bbox sets — O(visible) paint-time culling.
+    out.triBBoxes.resize(sceneTris.size());
+    for (int i = 0; i < sceneTris.size(); ++i) {
+        const auto &t = sceneTris[i];
+        const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
+        const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
+        const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
+        const double maxY = std::max({t.a.y(), t.b.y(), t.c.y()});
+        out.triBBoxes[i] = QRectF(QPointF(minX, minY), QPointF(maxX, maxY));
+    }
+    out.edgeBBoxes.resize(out.sceneEdges.size());
+    for (int i = 0; i < out.sceneEdges.size(); ++i) {
+        const QLineF &ln = out.sceneEdges[i].line;
+        const double x0 = qMin(ln.x1(), ln.x2()), x1 = qMax(ln.x1(), ln.x2());
+        const double y0 = qMin(ln.y1(), ln.y2()), y1 = qMax(ln.y1(), ln.y2());
+        out.edgeBBoxes[i] = QRectF(QPointF(x0, y0), QPointF(x1, y1));
+    }
+    out.triGrid.rebuild(out.triBBoxes);
+    out.edgeGrid.rebuild(out.edgeBBoxes);
+    return out;
+}
+
+/*! CSR vertex→triangle adjacency (verbatim logic of the former member-only
+ *  implementation; the member now delegates here). */
+void buildVertexAdjacency(const mesh::MeshResult &meshData,
+                          QVector<int> &ptr, QVector<int> &idx)
+{
+    const int nv = meshData.vertices.size();
+    const int nt = meshData.triangles.size();
+
+    QVector<int> counts(nv, 0);
+    for (const auto &tri : meshData.triangles) {
+        if (tri.v0 >= 0 && tri.v0 < nv) ++counts[tri.v0];
+        if (tri.v1 >= 0 && tri.v1 < nv) ++counts[tri.v1];
+        if (tri.v2 >= 0 && tri.v2 < nv) ++counts[tri.v2];
+    }
+
+    ptr.resize(nv + 1);
+    ptr[0] = 0;
+    for (int v = 0; v < nv; ++v)
+        ptr[v + 1] = ptr[v] + counts[v];
+
+    idx.resize(ptr[nv]);
+    QVector<int> cursor = ptr;
+    for (int t = 0; t < nt; ++t) {
+        const auto &tri = meshData.triangles[t];
+        if (tri.v0 >= 0 && tri.v0 < nv) idx[cursor[tri.v0]++] = t;
+        if (tri.v1 >= 0 && tri.v1 < nv) idx[cursor[tri.v1]++] = t;
+        if (tri.v2 >= 0 && tri.v2 < nv) idx[cursor[tri.v2]++] = t;
+    }
+}
+
+/*! Per-(tri,edgeLocal) boundary flags from triangle adjacency (verbatim
+ *  logic of resizeBCsToMesh's second half; the member delegates here). */
+QVector<bool> buildBoundaryFlags(const mesh::MeshResult &meshData)
+{
+    const int nt = meshData.triangles.size();
+    QHash<QPair<int,int>, int> edgeUseCount;
+    edgeUseCount.reserve(nt * 3);
+    for (int t = 0; t < nt; ++t) {
+        const auto &tri = meshData.triangles[t];
+        const int va[3] = {tri.v1, tri.v2, tri.v0};
+        const int vb[3] = {tri.v2, tri.v0, tri.v1};
+        for (int e = 0; e < 3; ++e) {
+            const QPair<int,int> key = (va[e] < vb[e]) ? qMakePair(va[e], vb[e])
+                                                       : qMakePair(vb[e], va[e]);
+            ++edgeUseCount[key];
+        }
+    }
+
+    QSet<QPair<int,int>> markerBoundary;
+    for (const auto &e : meshData.boundaryEdges) {
+        const QPair<int,int> key = (e.v0 < e.v1) ? qMakePair(e.v0, e.v1)
+                                                 : qMakePair(e.v1, e.v0);
+        markerBoundary.insert(key);
+    }
+
+    QVector<bool> flags(nt * 3, false);
+    for (int t = 0; t < nt; ++t) {
+        const auto &tri = meshData.triangles[t];
+        const int va[3] = {tri.v1, tri.v2, tri.v0};
+        const int vb[3] = {tri.v2, tri.v0, tri.v1};
+        for (int e = 0; e < 3; ++e) {
+            const QPair<int,int> key = (va[e] < vb[e]) ? qMakePair(va[e], vb[e])
+                                                       : qMakePair(vb[e], va[e]);
+            const int uses = edgeUseCount.value(key, 0);
+            if (uses <= 1 || markerBoundary.contains(key))
+                flags[t * 3 + e] = true;
+        }
+    }
+    return flags;
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
 // rebuildSceneGeometry — populates all scene caches from m_mesh
 // ---------------------------------------------------------------------------
 
@@ -807,75 +1019,18 @@ void SWMM2DMeshLayer::rebuildSceneGeometry()
         }
     }
 
-    // ── Edges + triangles ───────────────────────────────────────────────────
-    QSet<QPair<int,int>> seen;
-    seen.reserve(m_mesh.triangles.size() * 3);
-    m_sceneEdges.reserve(m_mesh.triangles.size() * 3);
-    m_sceneTris.reserve(m_mesh.triangles.size());
+    // ── Triangles ───────────────────────────────────────────────────────────
+    appendSceneTris(m_mesh, scenePts, m_sceneTris);
 
-    auto pushEdge = [&](int a, int b) {
-        if (a == b) return;
-        const QPair<int,int> key = (a < b) ? qMakePair(a,b) : qMakePair(b,a);
-        if (seen.contains(key)) return;
-        seen.insert(key);
-
-        const double za = m_mesh.vertices[a].z;
-        const double zb = m_mesh.vertices[b].z;
-        const double dx = m_mesh.vertices[a].xy.x() - m_mesh.vertices[b].xy.x();
-        const double dy = m_mesh.vertices[a].xy.y() - m_mesh.vertices[b].xy.y();
-        const double dist = std::sqrt(dx*dx + dy*dy);
-        const float  slope = (dist > 1e-9) ? static_cast<float>(std::abs(za-zb) / dist) : 0.0f;
-        if (slope > m_maxSlope) m_maxSlope = slope;
-
-        SceneEdge e;
-        e.line  = QLineF(scenePts[a], scenePts[b]);
-        e.zAvg  = static_cast<float>((za + zb) * 0.5);
-        e.slope = slope;
-        m_sceneEdges.append(e);
-    };
-
-    for (const auto &t : m_mesh.triangles)
-    {
-        if (t.v0 < 0 || t.v0 >= nVerts) continue;
-        if (t.v1 < 0 || t.v1 >= nVerts) continue;
-        if (t.v2 < 0 || t.v2 >= nVerts) continue;
-        pushEdge(t.v0, t.v1);
-        pushEdge(t.v1, t.v2);
-        pushEdge(t.v2, t.v0);
-
-        SceneTri st;
-        st.a    = scenePts[t.v0];
-        st.b    = scenePts[t.v1];
-        st.c    = scenePts[t.v2];
-        st.z0   = static_cast<float>(m_mesh.vertices[t.v0].z);
-        st.z1   = static_cast<float>(m_mesh.vertices[t.v1].z);
-        st.z2   = static_cast<float>(m_mesh.vertices[t.v2].z);
-        st.zAvg = (st.z0 + st.z1 + st.z2) / 3.0f;
-        m_sceneTris.append(st);
-    }
-
-    // ── Spatial-grid build for paint-time culling ───────────────────────────
-    // Without this every paint loops over all triangles/edges and runs the
-    // bbox check inline — on a 100K-triangle mesh that's millions of float
-    // ops per frame even when only a handful of triangles are visible.
-    m_triBBoxes.resize(m_sceneTris.size());
-    for (int i = 0; i < m_sceneTris.size(); ++i) {
-        const SceneTri &t = m_sceneTris[i];
-        const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
-        const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
-        const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
-        const double maxY = std::max({t.a.y(), t.b.y(), t.c.y()});
-        m_triBBoxes[i] = QRectF(QPointF(minX, minY), QPointF(maxX, maxY));
-    }
-    m_edgeBBoxes.resize(m_sceneEdges.size());
-    for (int i = 0; i < m_sceneEdges.size(); ++i) {
-        const QLineF &ln = m_sceneEdges[i].line;
-        const double x0 = qMin(ln.x1(), ln.x2()), x1 = qMax(ln.x1(), ln.x2());
-        const double y0 = qMin(ln.y1(), ln.y2()), y1 = qMax(ln.y1(), ln.y2());
-        m_edgeBBoxes[i] = QRectF(QPointF(x0, y0), QPointF(x1, y1));
-    }
-    m_triGrid.rebuild(m_triBBoxes);
-    m_edgeGrid.rebuild(m_edgeBBoxes);
+    // ── Edges + spatial grids (the heavy tail — shared with the deferred
+    //    background build; see buildMeshHeavyGeom below) ─────────────────────
+    MeshHeavyGeom heavy = buildMeshHeavyGeom(m_mesh, scenePts, m_sceneTris);
+    m_sceneEdges  = std::move(heavy.sceneEdges);
+    m_triBBoxes   = std::move(heavy.triBBoxes);
+    m_edgeBBoxes  = std::move(heavy.edgeBBoxes);
+    m_triGrid     = std::move(heavy.triGrid);
+    m_edgeGrid    = std::move(heavy.edgeGrid);
+    m_maxSlope    = heavy.maxSlope;
 
     // ── LOD overview for far-zoom rendering ──────────────────────────────────
     rebuildOverview();
@@ -885,6 +1040,162 @@ void SWMM2DMeshLayer::rebuildSceneGeometry()
     // Notify the graphics item (if any) that its geometry changed.
     if (m_graphicsItem)
         m_graphicsItem->geometryChanged();
+}
+
+// ---------------------------------------------------------------------------
+// Progressive load (Mesh Tiled LOD P1.2)
+// ---------------------------------------------------------------------------
+
+void SWMM2DMeshLayer::rebuildSceneGeometryLight()
+{
+    const int nVerts = m_mesh.vertices.size();
+
+    m_sceneTris.clear();
+    m_sceneEdges.clear();
+    m_sceneNodes.clear();
+    m_triBBoxes.clear();
+    m_edgeBBoxes.clear();
+    m_triGrid.clear();
+    m_edgeGrid.clear();
+    m_sceneBBox = QRectF();
+    m_zMin = std::numeric_limits<double>::max();
+    m_zMax = std::numeric_limits<double>::lowest();
+    m_maxSlope = 0.0f;
+    m_sceneGeomComplete = false;
+
+    if (nVerts == 0 || m_mesh.triangles.isEmpty()) {
+        m_sceneGeomComplete = true;
+        ++m_geomRevision;
+        return;
+    }
+
+    bool hasElevation = false;
+    for (const auto &v : m_mesh.vertices)
+        if (v.z != 0.0) { hasElevation = true; break; }
+
+    QVector<QPointF> scenePts;
+    scenePts.reserve(nVerts);
+    for (const auto &v : m_mesh.vertices)
+    {
+        double x = v.xy.x(), y = v.xy.y();
+        if (m_transform) m_transform->Transform(1, &x, &y);
+        scenePts.append(QPointF(x, -y));
+        if (hasElevation)
+        {
+            if (v.z < m_zMin) m_zMin = v.z;
+            if (v.z > m_zMax) m_zMax = v.z;
+        }
+    }
+    if (!hasElevation) { m_zMin = 0.0; m_zMax = 0.0; }
+
+    m_sceneNodes.reserve(nVerts);
+    bool first = true;
+    for (int i = 0; i < nVerts; ++i)
+    {
+        SceneNode n;
+        n.pt     = scenePts[i];
+        n.z      = static_cast<float>(m_mesh.vertices[i].z);
+        n.tagged = !m_mesh.vertices[i].coupledNode.isEmpty();
+        m_sceneNodes.append(n);
+
+        if (first) { m_sceneBBox = QRectF(n.pt, QSizeF(0,0)); first = false; }
+        else {
+            if (n.pt.x() < m_sceneBBox.left())   m_sceneBBox.setLeft(n.pt.x());
+            if (n.pt.x() > m_sceneBBox.right())  m_sceneBBox.setRight(n.pt.x());
+            if (n.pt.y() < m_sceneBBox.top())    m_sceneBBox.setTop(n.pt.y());
+            if (n.pt.y() > m_sceneBBox.bottom()) m_sceneBBox.setBottom(n.pt.y());
+        }
+    }
+
+    appendSceneTris(m_mesh, scenePts, m_sceneTris);
+
+    // Keep the (implicitly shared) scene points so the background heavy
+    // build doesn't have to re-project; freed on adoption.
+    m_pendingScenePts = scenePts;
+
+    // The LOD pyramid IS the progressive-first render — build it now so the
+    // layer draws the coarse levels the moment it joins the canvas.
+    rebuildOverview();
+
+    ++m_geomRevision;
+    if (m_graphicsItem)
+        m_graphicsItem->geometryChanged();
+}
+
+void SWMM2DMeshLayer::finishSceneGeometryAsync()
+{
+    if (m_sceneGeomComplete || m_heavyBuildRunning) return;
+    m_heavyBuildRunning = true;
+
+    // Snapshots are implicitly shared; a concurrent GUI edit detaches the
+    // layer's copy, so the worker always sees a consistent state.
+    const mesh::MeshResult   meshSnap = m_mesh;
+    QVector<QPointF>         ptsSnap  = m_pendingScenePts;
+    const QVector<SceneTri>  trisSnap = m_sceneTris;
+    const quint64            revAtLaunch = m_geomRevision;
+
+    if (ptsSnap.isEmpty()) {
+        // Rare re-run path (e.g. a CRS change forced a full synchronous
+        // rebuild mid-defer): re-project here so the worker matches the
+        // current transform.
+        ptsSnap.reserve(meshSnap.vertices.size());
+        for (const auto &v : meshSnap.vertices) {
+            double x = v.xy.x(), y = v.xy.y();
+            if (m_transform) m_transform->Transform(1, &x, &y);
+            ptsSnap.append(QPointF(x, -y));
+        }
+    }
+
+    struct DeferredGeom {
+        MeshHeavyGeom             heavy;
+        QVector<int>              vertTriPtr;
+        QVector<int>              vertTriIdx;
+        QVector<bool>             isBoundary;
+        QVector<mesh::MeshEdgeBC> bcDefaults;
+    };
+
+    auto *watcher = new QFutureWatcher<QSharedPointer<DeferredGeom>>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this,
+            [this, watcher, revAtLaunch]() {
+        QSharedPointer<DeferredGeom> d = watcher->result();
+        watcher->deleteLater();
+        m_heavyBuildRunning = false;
+
+        // Stale result (geometry re-projected mid-build) — rebuild again.
+        if (revAtLaunch != m_geomRevision) {
+            if (!m_sceneGeomComplete) finishSceneGeometryAsync();
+            return;
+        }
+
+        m_sceneEdges  = std::move(d->heavy.sceneEdges);
+        m_triBBoxes   = std::move(d->heavy.triBBoxes);
+        m_edgeBBoxes  = std::move(d->heavy.edgeBBoxes);
+        m_triGrid     = std::move(d->heavy.triGrid);
+        m_edgeGrid    = std::move(d->heavy.edgeGrid);
+        m_maxSlope    = d->heavy.maxSlope;
+        m_vertTriPtr  = std::move(d->vertTriPtr);
+        m_vertTriIdx  = std::move(d->vertTriIdx);
+        m_isBoundary  = std::move(d->isBoundary);
+        // BCs loaded from the file (already correctly sized) win; otherwise
+        // adopt the default-Wall slots built on the worker.
+        if (m_bc.size() != d->bcDefaults.size())
+            m_bc = std::move(d->bcDefaults);
+        m_pendingScenePts = QVector<QPointF>();
+        m_sceneGeomComplete = true;
+
+        emit sceneGeometryReady();
+        if (m_graphicsItem) m_graphicsItem->geometryChanged();
+        emit repaintRequested();
+    });
+    watcher->setFuture(QtConcurrent::run(
+        [meshSnap, ptsSnap, trisSnap]() -> QSharedPointer<DeferredGeom> {
+            auto d = QSharedPointer<DeferredGeom>::create();
+            d->heavy = buildMeshHeavyGeom(meshSnap, ptsSnap, trisSnap);
+            buildVertexAdjacency(meshSnap, d->vertTriPtr, d->vertTriIdx);
+            d->isBoundary = buildBoundaryFlags(meshSnap);
+            d->bcDefaults.resize(meshSnap.triangles.size() * 3);
+            return d;
+        }));
 }
 
 // ---------------------------------------------------------------------------
@@ -1120,77 +1431,16 @@ void SWMM2DMeshLayer::resizeBCsToMesh()
         // Default-constructed MeshEdgeBC == Wall + zero params + empty group.
     }
 
-    // Precompute boundary status from triangle adjacency: walk every
-    // triangle's three edges, count how many triangles share each
-    // sorted-vertex-pair edge. count == 1 → boundary (no neighbour
-    // across that edge); count >= 2 → interior. Engine-loaded meshes
-    // often arrive with m_mesh.boundaryEdges empty (only meshes the GUI
-    // generates fill that vector), so deriving from topology is the
-    // robust path.
-    QHash<QPair<int,int>, int> edgeUseCount;
-    edgeUseCount.reserve(nt * 3);
-    for (int t = 0; t < nt; ++t) {
-        const auto &tri = m_mesh.triangles[t];
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const QPair<int,int> key = (va[e] < vb[e]) ? qMakePair(va[e], vb[e])
-                                                       : qMakePair(vb[e], va[e]);
-            ++edgeUseCount[key];
-        }
-    }
-
-    // Any edge explicitly listed in m_mesh.boundaryEdges is also a
-    // boundary — defensive for degenerate meshes where the topology
-    // pass might miss something (e.g. a single triangle on its own).
-    QSet<QPair<int,int>> markerBoundary;
-    for (const auto &e : m_mesh.boundaryEdges) {
-        const QPair<int,int> key = (e.v0 < e.v1) ? qMakePair(e.v0, e.v1)
-                                                 : qMakePair(e.v1, e.v0);
-        markerBoundary.insert(key);
-    }
-
-    m_isBoundary.resize(nslots);
-    std::fill(m_isBoundary.begin(), m_isBoundary.end(), false);
-    for (int t = 0; t < nt; ++t) {
-        const auto &tri = m_mesh.triangles[t];
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const QPair<int,int> key = (va[e] < vb[e]) ? qMakePair(va[e], vb[e])
-                                                       : qMakePair(vb[e], va[e]);
-            const int uses = edgeUseCount.value(key, 0);
-            if (uses <= 1 || markerBoundary.contains(key))
-                m_isBoundary[t * 3 + e] = true;
-        }
-    }
+    // Precompute boundary status from triangle adjacency — logic lives in
+    // buildBoundaryFlags so the deferred background build shares it.
+    m_isBoundary = buildBoundaryFlags(m_mesh);
 }
 
 void SWMM2DMeshLayer::rebuildVertexAdjacency()
 {
-    const int nv = m_mesh.vertices.size();
-    const int nt = m_mesh.triangles.size();
-
-    QVector<int> counts(nv, 0);
-    for (const auto &tri : m_mesh.triangles) {
-        if (tri.v0 >= 0 && tri.v0 < nv) ++counts[tri.v0];
-        if (tri.v1 >= 0 && tri.v1 < nv) ++counts[tri.v1];
-        if (tri.v2 >= 0 && tri.v2 < nv) ++counts[tri.v2];
-    }
-
-    m_vertTriPtr.resize(nv + 1);
-    m_vertTriPtr[0] = 0;
-    for (int v = 0; v < nv; ++v)
-        m_vertTriPtr[v + 1] = m_vertTriPtr[v] + counts[v];
-
-    m_vertTriIdx.resize(m_vertTriPtr[nv]);
-    QVector<int> cursor = m_vertTriPtr;  // copy; advance per-vertex insert cursor
-    for (int t = 0; t < nt; ++t) {
-        const auto &tri = m_mesh.triangles[t];
-        if (tri.v0 >= 0 && tri.v0 < nv) m_vertTriIdx[cursor[tri.v0]++] = t;
-        if (tri.v1 >= 0 && tri.v1 < nv) m_vertTriIdx[cursor[tri.v1]++] = t;
-        if (tri.v2 >= 0 && tri.v2 < nv) m_vertTriIdx[cursor[tri.v2]++] = t;
-    }
+    // Logic lives in buildVertexAdjacency so the deferred background build
+    // (finishSceneGeometryAsync) shares it.
+    buildVertexAdjacency(m_mesh, m_vertTriPtr, m_vertTriIdx);
 }
 
 int SWMM2DMeshLayer::pickVertexAt(double sx, double sy,
@@ -1415,6 +1665,11 @@ bool SWMM2DMeshLayer::applyMeshVertexZ(int vertexIdx, double z)
         // next full rebuild (both are secondary to the fill/hillshade update).
         if (z < m_zMin) m_zMin = z;
         if (z > m_zMax) m_zMax = z;
+    } else if (!m_sceneGeomComplete) {
+        // Progressive load still finishing (no adjacency yet) — refresh the
+        // light caches only; the background build delivers the rest.
+        rebuildSceneGeometryLight();
+        finishSceneGeometryAsync();
     } else {
         rebuildSceneGeometry();
     }
@@ -1441,6 +1696,8 @@ QPair<int,int> SWMM2DMeshLayer::findEdgeNeighbour(int triIdx, int edgeLocal) con
 {
     if (triIdx < 0 || edgeLocal < 0 || edgeLocal > 2) return {-1, -1};
     if (triIdx >= m_mesh.triangles.size())             return {-1, -1};
+    // Progressive load — adjacency not built yet (deferred heavy geometry).
+    if (m_vertTriPtr.size() != m_mesh.vertices.size() + 1) return {-1, -1};
     const auto &tri = m_mesh.triangles[triIdx];
     // Local edge convention matches resizeBCsToMesh's edge-use scan:
     //   edge 0 = (v1, v2),  edge 1 = (v2, v0),  edge 2 = (v0, v1).
@@ -1644,8 +1901,6 @@ void SWMM2DMeshLayer::setHillshadeAltitude(double degrees)
 // hillshadeStrength (0..1 := zExag/10) and keeping minLit in a local
 // shadow field that the renderer reads back from the layer. The shim
 // keeps the existing dialog editable while we phase in a richer style.
-namespace { thread_local double g_meshHillshadeMinLit = 0.15; }
-
 double SWMM2DMeshLayer::hillshadeZExag() const
 {
     if (m_meshFillSublayer && m_meshFillSublayer->fillStyle())
@@ -1655,7 +1910,7 @@ double SWMM2DMeshLayer::hillshadeZExag() const
 
 double SWMM2DMeshLayer::hillshadeMinLit() const
 {
-    return g_meshHillshadeMinLit;
+    return m_hillshadeMinLit;
 }
 
 void SWMM2DMeshLayer::setHillshadeZExag(double factor)
@@ -1670,8 +1925,12 @@ void SWMM2DMeshLayer::setHillshadeZExag(double factor)
 void SWMM2DMeshLayer::setHillshadeMinLit(double minLit)
 {
     minLit = qBound(0.0, minLit, 1.0);
-    if (qFuzzyCompare(g_meshHillshadeMinLit, minLit)) return;
-    g_meshHillshadeMinLit = minLit;
+    if (qFuzzyCompare(m_hillshadeMinLit, minLit)) return;
+    // Plain per-layer member. This was a `thread_local` namespace global:
+    // the GUI thread's edits were invisible to the scene-graph render
+    // thread, so the Shadow-floor control silently never reached the live
+    // QSG terrain fill (and all mesh layers shared one value).
+    m_hillshadeMinLit = minLit;
     emit repaintRequested();
 }
 

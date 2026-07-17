@@ -110,10 +110,31 @@ class SWMM2DMeshLayer : public OpenSWMMVisLayer,
     Q_CLASSINFO("group:filledContoursOpacity", "Contours")
 
 public:
+    /*! \param deferHeavyGeometry Progressive-load mode (Mesh Tiled LOD P1.2):
+     *  the constructor builds only what the fill needs to draw — scene
+     *  triangles, bbox, elevation range, vertex dots and the LOD pyramid —
+     *  so a large mesh can join the canvas and render its coarse levels
+     *  immediately. The heavy structures (deduplicated wireframe edges,
+     *  spatial grids, vertex adjacency, BC slots) arrive later via
+     *  finishSceneGeometryAsync(). */
     explicit SWMM2DMeshLayer(mesh::MeshResult result,
                               const QString &sourcePath = {},
-                              OpenSWMMVisWorkspace *parent = nullptr);
+                              OpenSWMMVisWorkspace *parent = nullptr,
+                              bool deferHeavyGeometry = false);
     ~SWMM2DMeshLayer() override;
+
+    /*! \brief Build the deferred heavy geometry (wireframe edges, spatial
+     *  grids, vertex adjacency, BC slots) on a background thread and adopt
+     *  it on the GUI thread. Emits sceneGeometryReady() then
+     *  repaintRequested() when done. No-op when already complete or a build
+     *  is in flight. If the scene geometry was re-projected mid-build (CRS
+     *  change), the stale result is discarded and the build re-runs. */
+    void finishSceneGeometryAsync();
+
+    /*! \brief False while the heavy structures from a deferred load are
+     *  still being built — the renderers fall back to the LOD pyramid and
+     *  editing/picking is limited until this flips true. */
+    [[nodiscard]] bool sceneGeometryComplete() const { return m_sceneGeomComplete; }
 
     [[nodiscard]] QString sourcePath() const;
     void setSourcePath(const QString &path)  { m_sourcePath = path; }
@@ -340,6 +361,11 @@ signals:
      *  the busy bar + status message during the build. */
     void overviewBuildStarted(const QString &layerName);
     void overviewBuildFinished(bool ok);
+
+    /*! \brief The deferred heavy geometry from a progressive load
+     *  (finishSceneGeometryAsync) has been adopted — wireframe, spatial
+     *  culling and editing structures are now available. */
+    void sceneGeometryReady();
 public:
 
     // ----- Renderer (Slice BI Phase 8.13.6.6) -----------------------------
@@ -543,6 +569,16 @@ private:
     // True while rebuildOverviewAsync() has a worker in flight.
     bool                         m_overviewBuildRunning = false;
 
+    // Progressive load (deferHeavyGeometry ctor mode) — see
+    // sceneGeometryComplete() / finishSceneGeometryAsync().
+    bool                         m_sceneGeomComplete   = true;
+    bool                         m_heavyBuildRunning   = false;
+    QVector<QPointF>             m_pendingScenePts;   ///< transient; freed on adopt
+
+    /*! Phase-A-only scene build for the progressive load: triangles, bbox,
+     *  z-range, vertex dots and the LOD pyramid — no edges/grids. */
+    void rebuildSceneGeometryLight();
+
     // Hillshade state lives on the mesh-fill sublayer style; we keep a
     // pair of simple knobs the renderer reads from the layer (azimuth,
     // altitude) so the visual exactly reproduces the historic values
@@ -550,6 +586,7 @@ private:
     // forward through the sublayer styles where applicable.
     double                       m_hillshadeAz     = 225.0;   // compass deg
     double                       m_hillshadeAlt    =  35.264; // deg above horizon (asin(1/√3))
+    double                       m_hillshadeMinLit =   0.15;  // shadow floor (0..1)
 
     quint64                      m_geomRevision  = 0;
     OGRCoordinateTransformation *m_transform     = nullptr;
