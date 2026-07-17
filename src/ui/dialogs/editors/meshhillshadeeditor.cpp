@@ -9,6 +9,7 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/isolinesublayer.h"
+#include "render/sublayers/meshfillsublayer.h"
 #include "ui/widgets/colorbutton.h"
 #include "ui/widgets/colorrampcombobox.h"
 
@@ -39,6 +40,11 @@ OpenSWMM::Render::IsolineStyle *isoStyleOf(SWMM2DMeshLayer *layer)
 {
     auto *sub = layer ? layer->isolineSublayer() : nullptr;
     return sub ? sub->isolineStyle() : nullptr;
+}
+OpenSWMM::Render::MeshFillStyle *fillStyleOf(SWMM2DMeshLayer *layer)
+{
+    auto *sub = layer ? layer->meshFillSublayer() : nullptr;
+    return sub ? sub->fillStyle() : nullptr;
 }
 
 } // namespace
@@ -127,6 +133,21 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     dispLay->addWidget(m_showEdges);
     dispLay->addWidget(m_showNodes);
     root->addWidget(dispBox);
+
+    // ── Terrain fill group ─────────────────────────────────────────────
+    // The colour scale of the shaded-relief terrain fill itself. Terrain
+    // meshes always classify by bed elevation (no attribute picker — unlike
+    // 2D results layers there is nothing else to colour by).
+    auto *tBox  = new QGroupBox(tr("Terrain fill (bed elevation)"), this);
+    auto *tForm = new QFormLayout(tBox);
+    m_terrainRamp = new ColorRampComboBox(this);
+    m_terrainRamp->setToolTip(tr(
+        "Colour scale for the shaded-relief terrain fill. Elevation is "
+        "always the classified value for a terrain mesh."));
+    tForm->addRow(tr("Colour ramp:"), m_terrainRamp);
+    m_terrainInvert = new QCheckBox(tr("Invert ramp"), tBox);
+    tForm->addRow(QString(), m_terrainInvert);
+    root->addWidget(tBox);
 
     // ── Hillshade group ────────────────────────────────────────────────
     auto *hsBox = new QGroupBox(tr("Hillshade (sun lighting)"), this);
@@ -241,6 +262,25 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     root->addStretch();
 
     // ── Bindings ───────────────────────────────────────────────────────
+    // Terrain fill ramp — writes the FILL sublayer's classification scheme
+    // (distinct from the contour-band scale below). Both renderers consume
+    // it through the schemeDrivesColor branch each repaint.
+    connect(m_terrainRamp, &ColorRampComboBox::rampChanged, this,
+            [this](const RasterColorRamp &) {
+                if (auto *fill = fillStyleOf(m_layer)) {
+                    auto s = fill->scheme();
+                    s.setRampName(m_terrainRamp->currentText());
+                    fill->setScheme(s);
+                }
+            });
+    connect(m_terrainInvert, &QCheckBox::toggled, this, [this](bool v) {
+        if (auto *fill = fillStyleOf(m_layer)) {
+            auto s = fill->scheme();
+            s.setInvertRamp(v);
+            fill->setScheme(s);
+        }
+    });
+
     connect(m_showEdges, &QCheckBox::toggled, this, [this](bool v) { m_layer->setShowEdges(v); });
     connect(m_showNodes, &QCheckBox::toggled, this, [this](bool v) { m_layer->setShowMeshNodes(v); });
 
@@ -321,7 +361,15 @@ void MeshHillshadeEditor::refreshFromModel()
         b10(m_showContours), b11(m_intervals),
         b12(m_contourColor), b13(m_contourWidth),
         b14(m_filledContours), b15(m_filledOpacity),
-        b16(m_contourMethod), b17(m_contourRamp);
+        b16(m_contourMethod), b17(m_contourRamp),
+        b18(m_terrainRamp), b19(m_terrainInvert);
+
+    if (auto *fill = fillStyleOf(m_layer)) {
+        const QString ramp = fill->scheme().rampName();
+        if (!ramp.isEmpty())
+            m_terrainRamp->setCurrentRampByName(ramp);
+        m_terrainInvert->setChecked(fill->scheme().invertRamp());
+    }
 
     m_showEdges->setChecked(m_layer->showEdges());
     m_showNodes->setChecked(m_layer->showMeshNodes());
