@@ -20,6 +20,7 @@
  */
 #include "layers/swmm2dmeshlayer.h"
 #include "render/sublayers/meshfillsublayer.h"
+#include "render/sublayers/meshnodesublayer.h"
 #include "map/mapextent.h"
 #include "map/swmm2dmeshqsgrenderer.h"
 #include "map/swmm2dresultsqsgrenderer.h"
@@ -73,6 +74,21 @@ int nonWhitePixels(const QImage &img)
         const QRgb *row = reinterpret_cast<const QRgb *>(img.constScanLine(y));
         for (int x = 0; x < img.width(); ++x)
             if (row[x] != qRgb(255, 255, 255)) ++n;
+    }
+    return n;
+}
+
+// Count near-black pixels — the wireframe edges and vertex dots are drawn in
+// dark ink over the pale terrain fill, so this signals whether the
+// edge/vertex passes engaged (the elevation ramp never produces near-black).
+int darkInkPixels(const QImage &img)
+{
+    int n = 0;
+    for (int y = 0; y < img.height(); ++y) {
+        const QRgb *row = reinterpret_cast<const QRgb *>(img.constScanLine(y));
+        for (int x = 0; x < img.width(); ++x)
+            if (qRed(row[x]) < 60 && qGreen(row[x]) < 60 && qBlue(row[x]) < 60)
+                ++n;
     }
     return n;
 }
@@ -275,6 +291,80 @@ private slots:
         fill->setScheme(scheme);
         const QImage inv2 = paintQPainterPath(&layer, layer.m_sceneBBox, view);
         QVERIFY(inv2 != inv1);
+    }
+
+    // Zoom-gated wireframe + vertices — edges/vertex dots stay hidden at far
+    // zoom (sub-pixel cells = noise) and appear automatically once zoomed in
+    // far enough that cells project large on screen. Uses a dense grid so the
+    // full-extent view genuinely has sub-pixel cells (below the 200k-tri
+    // overview threshold, so the wireframe pass — not the quad bake — governs).
+    void edgesAndVerticesAppearWhenZoomedIn()
+    {
+        mesh::MeshResult m;
+        const int n = 200;   // 201×201 verts, 80k tris (< 200k → no overview)
+        m.vertices.reserve((n + 1) * (n + 1));
+        for (int r = 0; r <= n; ++r)
+            for (int c = 0; c <= n; ++c) {
+                mesh::MeshVertex v;
+                v.xy = QPointF(c, r);       // 1 unit spacing → 200×200 domain
+                v.z  = 0.02 * c + 0.3 * std::sin(r * 0.2);
+                m.vertices.append(v);
+            }
+        m.triangles.reserve(n * n * 2);
+        for (int r = 0; r < n; ++r)
+            for (int c = 0; c < n; ++c) {
+                const int v00 = r * (n + 1) + c, v10 = v00 + 1;
+                const int v01 = v00 + n + 1,     v11 = v01 + 1;
+                mesh::MeshTriangle t1; t1.v0 = v00; t1.v1 = v10; t1.v2 = v11;
+                mesh::MeshTriangle t2; t2.v0 = v00; t2.v1 = v11; t2.v2 = v01;
+                m.triangles.append(t1);
+                m.triangles.append(t2);
+            }
+        m.ok = true;
+        SWMM2DMeshLayer layer(std::move(m), QString());
+        QVERIFY(!layer.hasOverview());   // dense-but-small → wireframe governs
+
+        const QSize view(800, 600);
+        const QRectF bbox = layer.m_sceneBBox;
+
+        // Full extent: 200 cells across 800 px → ~4 px/cell (16 px²), below
+        // both thresholds → wireframe + vertices gated OFF.
+        const int farDark = darkInkPixels(paintQPainterPath(&layer, bbox, view));
+
+        // Zoom into a ~10-cell window (1/20 of each side) → ~80 px/cell →
+        // 6400 px² → both gates open.
+        const double f = 1.0 / 20.0;
+        const QRectF nearRect(bbox.center().x() - bbox.width()  * f / 2.0,
+                              bbox.center().y() - bbox.height() * f / 2.0,
+                              bbox.width() * f, bbox.height() * f);
+        const int nearDark = darkInkPixels(paintQPainterPath(&layer, nearRect, view));
+
+        // Far view is essentially free of wireframe ink; the zoomed-in view
+        // has a clear wireframe (thin anti-aliased edges → dozens of
+        // fully-dark px, vs ~none at far zoom).
+        QVERIFY2(farDark < 20 && nearDark > 50,
+                 qPrintable(QStringLiteral("expected wireframe/vertices only "
+                            "when zoomed in: farDark=%1 nearDark=%2")
+                            .arg(farDark).arg(nearDark)));
+
+        // The vertex sublayer defaults visible now (the LOD gate, not a
+        // hidden flag, keeps far-zoom clean).
+        QVERIFY(layer.meshNodeSublayer()->isVisible());
+
+        // Configurable thresholds: raising the threshold above the near-zoom
+        // cell size suppresses the detail even when zoomed in; 0 forces it on.
+        layer.setEdgeZoomMinCellPx(400.0);
+        layer.setVertexZoomMinCellPx(400.0);
+        const int nearHiThresh =
+            darkInkPixels(paintQPainterPath(&layer, nearRect, view));
+        QVERIFY2(nearHiThresh < 20,
+                 "raising the zoom threshold should suppress edges/vertices");
+
+        layer.setEdgeZoomMinCellPx(0.0);   // always on
+        const int farNoThresh =
+            darkInkPixels(paintQPainterPath(&layer, bbox, view));
+        QVERIFY2(farNoThresh > 50,
+                 "a 0 edge threshold should force the wireframe on at any zoom");
     }
 
     // Pyramid rebuild — rebuildOverviewAsync() builds the far-zoom overview
