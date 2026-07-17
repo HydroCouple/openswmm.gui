@@ -630,7 +630,6 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
 
             const bool   useRamp = fillStyle ? fillStyle->useElevationRamp() : true;
             const QColor flat    = fillStyle ? fillStyle->fillColor() : QColor(70, 130, 180);
-            const float  shade   = float(hillSpec.strength);
             const float  fillOp  = fillSub  ? float(fillSub->opacity())  : 1.0f;
             const quint8 alpha   = quint8(qBound(0, int(kFillAlpha * fillOp + 0.5f), 255));
 
@@ -689,12 +688,12 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                     }
                 }
 
-                for (int ii = 0; ii < triCount; ++ii) {
-                    const int   idx = useIdx ? visibleTris[ii] : ii;
-                    const auto &t   = tris[idx];
-
-                    quint32 packed = useOverview ? 0u
-                                                 : m_cachedFillRgb[size_t(idx)];
+                // Shared per-triangle colour + emit. \p cacheSlot is null for
+                // overview quads and far-zoom top-up cells (both outside the
+                // native fill-RGB cache's index space).
+                auto emitShadedTri = [&](const SWMM2DMeshLayer::SceneTri &t,
+                                         quint32 *cacheSlot) {
+                    quint32 packed = cacheSlot ? *cacheSlot : 0u;
                     if (packed == 0u) {
                         quint8 cr, cg, cb;
                         if (schemeDrivesColor) {
@@ -723,10 +722,12 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                         if (nz < 0.f) { nx=-nx; ny=-ny; nz=-nz; }
                         const float nlen = std::sqrt(nx*nx+ny*ny+nz*nz);
                         if (nlen > 1e-12f) { nx/=nlen; ny/=nlen; nz/=nlen; }
-                        const float litRaw = qBound(kLitMin, nx*kLx + ny*kLy + nz*kLz, 1.0f);
-                        // Blend between 'no shading' (1.0) and 'full historic
-                        // shading' (litRaw) by hillshadeStrength.
-                        const float lit = 1.0f - shade * (1.0f - litRaw);
+                        // Exact historic shading — colour × lit, identical to
+                        // SWMM2DMeshGraphicsItem::paint(). (An earlier blend by
+                        // hillshadeStrength double-counted the strength — it
+                        // already feeds the formula through zExaggeration — and
+                        // washed the relief out to ~30%.)
+                        const float lit = qBound(kLitMin, nx*kLx + ny*kLy + nz*kLz, 1.0f);
 
                         const quint8 r = quint8(qBound(0, int(float(cr)*lit), 255));
                         const quint8 g = quint8(qBound(0, int(float(cg)*lit), 255));
@@ -736,8 +737,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                                | (quint32(r) << 16)
                                | (quint32(g) << 8)
                                |  quint32(b);
-                        if (!useOverview)
-                            m_cachedFillRgb[size_t(idx)] = packed;
+                        if (cacheSlot)
+                            *cacheSlot = packed;
                     }
 
                     const quint8 r = quint8((packed >> 16) & 0xFFu);
@@ -750,6 +751,47 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                               r, g, b, alpha);
                         verts.push_back(v);
                     }
+                };
+
+                for (int ii = 0; ii < triCount; ++ii) {
+                    const int idx = useIdx ? visibleTris[ii] : ii;
+                    emitShadedTri(tris[idx],
+                                  useOverview ? nullptr
+                                              : &m_cachedFillRgb[size_t(idx)]);
+                }
+
+                // Far-zoom hybrid — parity with the CPU painter's LOD pass:
+                // the overview quads are only a gap-free floor; real cells
+                // still large enough on screen (≥ ~16 px², same threshold as
+                // SWMM2DMeshGraphicsItem::paint) draw on top with their true
+                // geometry, largest first via the size-sorted index, stopping
+                // as soon as cells drop below the threshold. Without this the
+                // far view is quad-bake only — blocky, cell-quantised
+                // boundary ("truncated" cells) and no large-cell detail.
+                if (useOverview) {
+                    const double pxArea = double(sx_r) * double(sx_r);
+                    constexpr double kLodKeepPx2 = 16.0;
+                    const double minAreaScene =
+                        (pxArea > 0.0) ? kLodKeepPx2 / pxArea : 0.0;
+                    const auto &native = m_layer->m_sceneTris;
+                    int kept = 0;
+                    for (int idx : m_layer->m_trisBySizeDesc) {
+                        const auto &t = native[idx];
+                        const double ux = t.b.x()-t.a.x(), uy = t.b.y()-t.a.y();
+                        const double vx = t.c.x()-t.a.x(), vy = t.c.y()-t.a.y();
+                        if (0.5 * std::abs(ux*vy - uy*vx) < minAreaScene)
+                            break;   // sorted desc → the rest are smaller
+                        const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
+                        const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
+                        const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
+                        const double maxY = std::max({t.a.y(), t.b.y(), t.c.y()});
+                        if (maxX < cullX0 || minX > cullX1 ||
+                            maxY < cullY0 || minY > cullY1)
+                            continue;
+                        emitShadedTri(t, nullptr);
+                        ++kept;
+                    }
+                    if (statsOn) stats.visibleCells += kept;
                 }
             } else {
                 // Flat fill — either the elevation ramp is off in the
