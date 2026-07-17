@@ -334,6 +334,12 @@ signals:
 
     /*! \brief Emitted when isActiveMesh() changes. */
     void activeMeshChanged(bool isActive);
+
+    /*! \brief Background pyramid (overview) rebuild lifecycle — mirrors
+     *  GISRasterLayer::overviewBuildStarted/Finished so the app can drive
+     *  the busy bar + status message during the build. */
+    void overviewBuildStarted(const QString &layerName);
+    void overviewBuildFinished(bool ok);
 public:
 
     // ----- Renderer (Slice BI Phase 8.13.6.6) -----------------------------
@@ -476,6 +482,17 @@ public:
     /*! \brief True when an LOD overview has been built and is worth using. */
     [[nodiscard]] bool hasOverview() const { return !m_overviewTris.isEmpty(); }
 
+    /*! \brief Rebuild the far-zoom LOD pyramid (overview) on a background
+     *  thread. Emits overviewBuildStarted() immediately and
+     *  overviewBuildFinished() from the GUI thread when the fresh pyramid
+     *  has been adopted (followed by repaintRequested()). No-op while a
+     *  build is already running. Surfaced by the "Rebuild pyramid" button
+     *  in the layer-properties (LayerStyleDialog) Metadata tab. */
+    void rebuildOverviewAsync();
+
+    /*! \brief True while rebuildOverviewAsync() has a build in flight. */
+    [[nodiscard]] bool overviewBuildRunning() const { return m_overviewBuildRunning; }
+
     // Uniform spatial grid over scene-space triangle / edge bboxes.
     // The full type lives in layers/meshspatialgrid.h (extracted so it
     // can be unit-tested without linking the rest of the layer); see
@@ -522,6 +539,9 @@ private:
 
     // Mesh Tiled LOD plan P1.1 — see qsgOwnsRendering().
     bool                         m_qsgOwnsRendering = false;
+
+    // True while rebuildOverviewAsync() has a worker in flight.
+    bool                         m_overviewBuildRunning = false;
 
     // Hillshade state lives on the mesh-fill sublayer style; we keep a
     // pair of simple knobs the renderer reads from the layer (azimuth,

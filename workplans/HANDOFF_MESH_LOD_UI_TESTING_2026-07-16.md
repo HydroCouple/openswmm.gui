@@ -50,6 +50,35 @@ interactively.
   `tests/gui/data/mesh_async_fixture.inp`. QPainter screenshots land in
   `tests/output/mesh_qsg_parity/`.
 
+## 2026-07-16 evening — first manual evaluation feedback ADDRESSED
+
+Reported: zoom-to-extent truncates cells; shaded relief missing; jagged
+rendering with artifacts; want busy bar during pyramid build; want a
+rebuild-pyramid control in the layer properties dialog. Root causes + fixes:
+
+1. **Relief washed out (QSG only)** — the QSG fill blended shading by
+   `hillshadeStrength` (0.3) on top of a formula that already consumes
+   strength via zExaggeration, so the GPU path drew ~30 % of the QPainter
+   relief. Fixed: exact `colour × lit` parity with
+   `SWMM2DMeshGraphicsItem::paint()`.
+2. **Truncated/jagged far zoom (QSG only)** — at Far LOD the QSG drew ONLY
+   the coarse quad-bake overview (cell-quantised boundary = "truncated"
+   cells, blocky fill); the CPU painter additionally overlays real cells
+   ≥ ~16 px². Fixed: same hybrid top-up in the QSG fill pass.
+3. **Overview too coarse** — bake raised 15k → 60k cells (~5 px blocks at
+   full-screen zoom-to-extent instead of ~10 px).
+4. **Busy bar during pyramid build** — new
+   `SWMM2DMeshLayer::rebuildOverviewAsync()` +
+   `overviewBuildStarted/Finished` signals drive the busy bar + status
+   message + Message Log lines (wired at mesh adoption).
+5. **Rebuild control** — "Rebuild pyramid" button on the layer-properties
+   (LayerStyleDialog) Metadata tab for mesh layers; disabled while a build
+   runs.
+
+All 134 tests pass (92 gui + 42 unit) incl. new `pyramidRebuildAsync`
+coverage. QSG pixel readback is impossible headless (QQuickWidget
+grabFramebuffer also blank offscreen), so re-check items 1–3 visually.
+
 ## How to test the UI (the part only you can do)
 
 Build/run as usual, then:
