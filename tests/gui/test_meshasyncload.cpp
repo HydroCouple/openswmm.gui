@@ -324,11 +324,21 @@ private slots:
         SWMM2DMeshLayer layer(std::move(m), QString());
         QVERIFY(!layer.hasOverview());   // dense-but-small → wireframe governs
 
+        // Defaults are moderate — detail comes in at a sensible zoom, not
+        // only at extreme close-up (a few px per cell, not >10).
+        QVERIFY(layer.edgeZoomMinCellPx()   > 0.0 && layer.edgeZoomMinCellPx()   <= 5.0);
+        QVERIFY(layer.vertexZoomMinCellPx() > 0.0 && layer.vertexZoomMinCellPx() <= 8.0);
+
+        // Explicit thresholds so the test is independent of the default
+        // values: edges/vertices appear once cells project ≥ 10 px across.
+        layer.setEdgeZoomMinCellPx(10.0);
+        layer.setVertexZoomMinCellPx(10.0);
+
         const QSize view(800, 600);
         const QRectF bbox = layer.m_sceneBBox;
 
         // Full extent: 200 cells across 800 px → ~4 px/cell (16 px²), below
-        // both thresholds → wireframe + vertices gated OFF.
+        // the 100 px² threshold → wireframe + vertices gated OFF.
         const int farDark = darkInkPixels(paintQPainterPath(&layer, bbox, view));
 
         // Zoom into a ~10-cell window (1/20 of each side) → ~80 px/cell →
