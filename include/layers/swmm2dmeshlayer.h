@@ -615,9 +615,10 @@ private:
     double                       m_hillshadeMinLit =   0.15;  // shadow floor (0..1)
 
     // Zoom thresholds (min on-screen cell size, px) for edge / vertex passes.
-    // Defaults = √ of the historic Qsg2DLodPolicy area thresholds.
-    double                       m_edgeMinCellPx   =   5.65685; // √32
-    double                       m_vertexMinCellPx =  14.14214; // √200
+    // Moderate defaults so the wireframe/vertices come in at a sensible zoom
+    // (roughly a few px per cell) rather than only at extreme close-up.
+    double                       m_edgeMinCellPx   =   3.0;
+    double                       m_vertexMinCellPx =   6.0;
 
     quint64                      m_geomRevision  = 0;
     OGRCoordinateTransformation *m_transform     = nullptr;

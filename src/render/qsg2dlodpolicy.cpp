@@ -129,7 +129,14 @@ Qsg2DLodDecision Qsg2DLodPolicy::decide(const Qsg2DLodInputs &in)
         d.useAggregateFill     = false;
         d.drawEdges            = in.wantEdges
                                  && d.avgCellAreaPx >= in.edgeMinCellAreaPx;
-        d.drawVertexMarkers    = false;
+        // Vertex markers were pinned to the Near bucket, so a marker
+        // threshold below Near's floor (kNearMinCellAreaPx) did nothing.
+        // Gate on the (configurable) threshold here too so the "show
+        // vertices at" control is honoured across the whole zoom range.
+        // Results renderers keep the default 200 px² (> Mid's 160 ceiling),
+        // so this is a no-op for them.
+        d.drawVertexMarkers    = in.wantVertexMarkers
+                                 && d.avgCellAreaPx >= in.markerMinCellAreaPx;
         d.drawContours         = in.wantContours;
         d.drawContourLabels    = in.wantContourLabels;
         d.exactContourBands    = true;

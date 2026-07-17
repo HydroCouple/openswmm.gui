@@ -138,9 +138,9 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     // decide how close is "close enough".
     auto *zoomForm = new QFormLayout;
     m_edgeZoomPx = new QDoubleSpinBox(dispBox);
-    m_edgeZoomPx->setRange(0.0, 500.0);
+    m_edgeZoomPx->setRange(0.0, 40.0);
     m_edgeZoomPx->setDecimals(1);
-    m_edgeZoomPx->setSingleStep(1.0);
+    m_edgeZoomPx->setSingleStep(0.5);
     m_edgeZoomPx->setSuffix(tr(" px/cell"));
     m_edgeZoomPx->setToolTip(tr(
         "Show the wireframe once mesh cells project at least this many "
@@ -148,9 +148,9 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     zoomForm->addRow(tr("Show edges at:"), m_edgeZoomPx);
 
     m_vertexZoomPx = new QDoubleSpinBox(dispBox);
-    m_vertexZoomPx->setRange(0.0, 500.0);
+    m_vertexZoomPx->setRange(0.0, 40.0);
     m_vertexZoomPx->setDecimals(1);
-    m_vertexZoomPx->setSingleStep(1.0);
+    m_vertexZoomPx->setSingleStep(0.5);
     m_vertexZoomPx->setSuffix(tr(" px/cell"));
     m_vertexZoomPx->setToolTip(tr(
         "Show vertex dots once mesh cells project at least this many pixels "
