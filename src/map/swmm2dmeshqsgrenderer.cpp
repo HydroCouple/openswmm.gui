@@ -78,6 +78,18 @@ void colorFromRamp(double t,
     b = quint8(c.blue());
 }
 
+/*! Premultiply one straight-alpha colour channel for QSGVertexColorMaterial,
+ *  which samples vertex colours as PREMULTIPLIED alpha (Qt scene-graph
+ *  contract). Feeding straight-alpha colours makes the compositor
+ *  un-premultiply them on blend, clamping every semi-transparent fill toward
+ *  saturation — ochre → pure yellow, hillshaded tan → salmon pink, and the
+ *  off-white high-terrain stops → background white, which reads as the mesh
+ *  being "truncated" at far zoom. */
+inline quint8 premul(quint8 c, quint8 a)
+{
+    return quint8((uint(c) * uint(a) + 127u) / 255u);
+}
+
 /*! Structural equality on RasterColorRamp.
  *  Used by the Pass 1 fill-colour cache to detect when the ramp has been
  *  edited via the style dialog. RasterColorRamp has no operator== of its
@@ -453,6 +465,11 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                         || !m_layer->highlightedTriangles().isEmpty();
     li.previousBucket    = m_lastBucket;
     li.previousZoomStep  = m_lastZoomStep;
+    // Match the QPainter fallback's LOD switch (nativeTriSpan × px < 2 px ⇒
+    // area < 4 px²) so both pipelines change to the overview at the same
+    // zoom — with the default 8 px² the QSG stayed blocky through a zoom
+    // band where the CPU path already drew native cells.
+    li.farMaxCellAreaPx  = 4.0;
 
     const Qsg2DLodDecision lod = Qsg2DLodPolicy::decide(li);
     m_lastBucket   = lod.bucket;
@@ -741,9 +758,11 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                             *cacheSlot = packed;
                     }
 
-                    const quint8 r = quint8((packed >> 16) & 0xFFu);
-                    const quint8 g = quint8((packed >> 8)  & 0xFFu);
-                    const quint8 b = quint8( packed        & 0xFFu);
+                    // Cache holds straight-alpha RGB; premultiply at vertex
+                    // write so opacity edits don't invalidate the cache.
+                    const quint8 r = premul(quint8((packed >> 16) & 0xFFu), alpha);
+                    const quint8 g = premul(quint8((packed >> 8)  & 0xFFu), alpha);
+                    const quint8 b = premul(quint8( packed        & 0xFFu), alpha);
 
                     for (const QPointF *pt : {&t.a, &t.b, &t.c}) {
                         QSGGeometry::ColoredPoint2D v;
@@ -796,9 +815,9 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             } else {
                 // Flat fill — either the elevation ramp is off in the
                 // style or the mesh has no elevation range to remap.
-                const quint8 fr = quint8(flat.red());
-                const quint8 fg = quint8(flat.green());
-                const quint8 fb = quint8(flat.blue());
+                const quint8 fr = premul(quint8(flat.red()),   alpha);
+                const quint8 fg = premul(quint8(flat.green()), alpha);
+                const quint8 fb = premul(quint8(flat.blue()),  alpha);
                 for (int ii = 0; ii < triCount; ++ii) {
                     const auto &t = useIdx ? tris[visibleTris[ii]] : tris[ii];
                     for (const QPointF *pt : {&t.a, &t.b, &t.c}) {
@@ -913,9 +932,9 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 QColor col = bandStyle
                     ? bandStyle->colorForBand(idx, nBands)
                     : OpenSWMM::Contour::viridisAt((double(idx) + 0.5) / double(nBands));
-                const quint8 r = quint8(col.red());
-                const quint8 g = quint8(col.green());
-                const quint8 b = quint8(col.blue());
+                const quint8 r = premul(quint8(col.red()),   alpha);
+                const quint8 g = premul(quint8(col.green()), alpha);
+                const quint8 b = premul(quint8(col.blue()),  alpha);
                 for (size_t i = 1; i + 1 < bp.verts.size(); ++i) {
                     auto push = [&](const QPointF &p) {
                         QSGGeometry::ColoredPoint2D v;
@@ -1198,10 +1217,10 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             nodeVerts.reserve(size_t(nodes.size()) * 6);
 
             auto emitCenteredQuad = [&](float cx, float cy, float r, const QColor &c) {
-                const quint8 cr = quint8(c.red());
-                const quint8 cg = quint8(c.green());
-                const quint8 cb = quint8(c.blue());
                 const quint8 ca = quint8(c.alpha());
+                const quint8 cr = premul(quint8(c.red()),   ca);
+                const quint8 cg = premul(quint8(c.green()), ca);
+                const quint8 cb = premul(quint8(c.blue()),  ca);
                 auto V = [&](float x, float y) {
                     QSGGeometry::ColoredPoint2D v;
                     v.set(x, y, cr, cg, cb, ca);

@@ -17,9 +17,9 @@ namespace OpenSWMM::Render
 namespace {
 
 /*! Raw (hysteresis-free) bucket from mean projected cell area. */
-Qsg2DLodDecision::Bucket rawBucket(double avgCellAreaPx)
+Qsg2DLodDecision::Bucket rawBucket(double avgCellAreaPx, double farMaxCellAreaPx)
 {
-    if (avgCellAreaPx < Qsg2DLodPolicy::kFarMaxCellAreaPx)
+    if (avgCellAreaPx < farMaxCellAreaPx)
         return Qsg2DLodDecision::Far;
     if (avgCellAreaPx >= Qsg2DLodPolicy::kNearMinCellAreaPx)
         return Qsg2DLodDecision::Near;
@@ -28,9 +28,10 @@ Qsg2DLodDecision::Bucket rawBucket(double avgCellAreaPx)
 
 /*! Bucket with hysteresis: keep the previous bucket while the metric sits
  *  within ±kBucketHysteresis of the threshold it would have to cross. */
-Qsg2DLodDecision::Bucket stableBucket(double avgCellAreaPx, int previous)
+Qsg2DLodDecision::Bucket stableBucket(double avgCellAreaPx, int previous,
+                                      double farMaxCellAreaPx)
 {
-    const auto raw = rawBucket(avgCellAreaPx);
+    const auto raw = rawBucket(avgCellAreaPx, farMaxCellAreaPx);
     if (previous < Qsg2DLodDecision::Far || previous > Qsg2DLodDecision::Near
         || previous == int(raw))
         return raw;
@@ -47,7 +48,7 @@ Qsg2DLodDecision::Bucket stableBucket(double avgCellAreaPx, int previous)
     const int cur  = int(raw);
     if (std::abs(cur - prev) == 1) {
         const double threshold = (std::min(cur, prev) == Qsg2DLodDecision::Far)
-                                     ? Qsg2DLodPolicy::kFarMaxCellAreaPx
+                                     ? farMaxCellAreaPx
                                      : Qsg2DLodPolicy::kNearMinCellAreaPx;
         if (withinBand(threshold))
             return Qsg2DLodDecision::Bucket(prev);
@@ -96,7 +97,8 @@ Qsg2DLodDecision Qsg2DLodPolicy::decide(const Qsg2DLodInputs &in)
     // A mesh with unknown density (no cells / no bbox yet) renders Near —
     // there is nothing dense to protect against.
     d.bucket = (cellAreaScene > 0.0)
-                   ? stableBucket(d.avgCellAreaPx, in.previousBucket)
+                   ? stableBucket(d.avgCellAreaPx, in.previousBucket,
+                                  in.farMaxCellAreaPx)
                    : Qsg2DLodDecision::Near;
     d.zoomStep = stableZoomStep(pxPerUnit, in.previousZoomStep);
 
