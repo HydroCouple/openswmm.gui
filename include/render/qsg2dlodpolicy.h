@@ -67,6 +67,13 @@ struct Qsg2DLodInputs
     // ── Hysteresis anchors (previous decision; defaults = none) ─────────
     int previousBucket   = -1;
     int previousZoomStep = std::numeric_limits<int>::min();
+
+    /*! Far-bucket threshold on mean projected cell area (px²). The default
+     *  keeps the historic results-renderer behaviour; the terrain-mesh
+     *  renderer lowers it to 4.0 so the switch to the aggregate/overview
+     *  fill happens at the same zoom as the QPainter fallback's
+     *  `nativeTriSpan × pxPerScene < 2 px` test (span² = area). */
+    double farMaxCellAreaPx = 8.0;   // = Qsg2DLodPolicy::kFarMaxCellAreaPx
 };
 
 struct Qsg2DLodDecision
