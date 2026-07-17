@@ -140,8 +140,21 @@ public:
         const auto *isoSub  = m_layer->isolineSublayer();
 
         const bool  fillVisible  = !fillSub || fillSub->isVisible();
-        const bool  edgesVisible = !edgeSub || edgeSub->isVisible();
-        const bool  nodesVisible = nodeSub && nodeSub->isVisible();
+        // Zoom gates matching the QSG LOD policy (kEdgeMinCellAreaPx /
+        // kMarkerMinCellAreaPx): wireframe and vertex dots appear
+        // automatically once cells project large enough on screen, and stay
+        // out of the way (sub-pixel noise / a dark wash) below that.
+        const double kPaintPx  = p->worldTransform().m11();
+        const double kCellAreaPx =
+            (!m_layer->m_sceneTris.isEmpty() && !m_layer->m_sceneBBox.isNull())
+                ? (m_layer->m_sceneBBox.width() * m_layer->m_sceneBBox.height()
+                   / double(m_layer->m_sceneTris.size()))
+                      * kPaintPx * kPaintPx
+                : 0.0;
+        const bool  edgesVisible = (!edgeSub || edgeSub->isVisible())
+                                   && kCellAreaPx >= m_layer->edgeMinCellAreaPx();
+        const bool  nodesVisible = nodeSub && nodeSub->isVisible()
+                                   && kCellAreaPx >= m_layer->vertexMinCellAreaPx();
         const bool  bandsVisible = bandSub && bandSub->isVisible();
         const bool  isoVisible   = isoSub  && isoSub->isVisible();
 
@@ -624,6 +637,13 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult     result,
         QStringLiteral("mesh.contourBands"), this);
     m_isolineSublayer     = new OpenSWMM::Render::IsolineSublayer(
         QStringLiteral("mesh.isolines"), this);
+
+    // Mesh vertices default ON: the renderers' LOD gates
+    // (kMarkerMinCellAreaPx — cells ≥ ~14 px across) mean the dots only
+    // materialise once the user zooms in close enough to work with
+    // individual vertices, so the historic "off to avoid noise" default is
+    // superseded by the zoom gate.
+    m_meshNodeSublayer->setVisible(true);
 
     // Seed the fill style's hillshade strength so hillshadeZExag()
     // (= strength × 10) defaults to 3.0 — the historic vertical-exaggeration
@@ -1872,6 +1892,22 @@ bool SWMM2DMeshLayer::showEdges() const
 void SWMM2DMeshLayer::setShowEdges(bool show)
 {
     if (m_meshEdgeSublayer) m_meshEdgeSublayer->setVisible(show);
+}
+
+void SWMM2DMeshLayer::setEdgeZoomMinCellPx(double px)
+{
+    px = qBound(0.0, px, 500.0);
+    if (qFuzzyCompare(m_edgeMinCellPx + 1.0, px + 1.0)) return;
+    m_edgeMinCellPx = px;
+    emit repaintRequested();
+}
+
+void SWMM2DMeshLayer::setVertexZoomMinCellPx(double px)
+{
+    px = qBound(0.0, px, 500.0);
+    if (qFuzzyCompare(m_vertexMinCellPx + 1.0, px + 1.0)) return;
+    m_vertexMinCellPx = px;
+    emit repaintRequested();
 }
 
 void SWMM2DMeshLayer::setHillshadeAzimuth(double degrees)

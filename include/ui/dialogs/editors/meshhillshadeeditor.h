@@ -92,6 +92,8 @@ private:
     ColorRampComboBox *m_contourRamp    = nullptr;   // Slice US.3 — band colour scale
     ColorRampComboBox *m_terrainRamp    = nullptr;   // terrain-fill colour scale
     QCheckBox         *m_terrainInvert  = nullptr;   // terrain-fill ramp inversion
+    QDoubleSpinBox    *m_edgeZoomPx     = nullptr;   // wireframe auto-show threshold
+    QDoubleSpinBox    *m_vertexZoomPx   = nullptr;   // vertex auto-show threshold
     QDoubleSpinBox *m_filledOpacity     = nullptr;
 };
 
