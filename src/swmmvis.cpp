@@ -302,6 +302,18 @@ SWMMVis::SWMMVis(QWidget *parent)
     // screen. A QMainWindow otherwise derives its minimum from its children;
     // an explicit minimum overrides that layout-computed floor.
     setMinimumSize(480, 360);
+
+    // Dev/testing hook — open a model on startup without touching the UI.
+    // Drives screenshot-based rendering verification (the offscreen QPA
+    // cannot read back scene-graph pixels, so live-app captures are the only
+    // pixel-true evidence on the app's forced OpenGL RHI backend); see
+    // workplans/HANDOFF_MESH_LOD_UI_TESTING_2026-07-16.md. No-op unless the
+    // env var names an existing file.
+    const QString startupInp = qEnvironmentVariable("SWMMVIS_OPEN_ON_STARTUP");
+    if (!startupInp.isEmpty() && QFile::exists(startupInp))
+        QTimer::singleShot(0, this, [this, startupInp]() {
+            openSingleINP(startupInp);
+        });
 }
 
 SWMMVis::~SWMMVis()
@@ -4603,6 +4615,25 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
                                  ? QFileInfo(out.sourcePath).fileName()
                                  : tr("inline")),
                     meshTimer.elapsed());
+
+        // Dev/testing hook (pairs with SWMMVIS_OPEN_ON_STARTUP) — zoom to the
+        // full extent once the mesh lands and save an in-process canvas grab.
+        // QWidget::grab() runs the real paint pipeline (QSG render +
+        // framebuffer composite) without needing macOS screen-recording
+        // permission, giving pixel-true evidence of what the app draws on its
+        // forced OpenGL backend. No-op unless the env var is set.
+        const QString snapPath =
+            qEnvironmentVariable("SWMMVIS_STARTUP_SNAPSHOT");
+        if (!snapPath.isEmpty()) {
+            MapCanvas *canvas = window->canvas();
+            canvas->zoomToFullExtent();
+            QTimer::singleShot(2000, canvas, [canvas, snapPath]() {
+                canvas->grab().save(snapPath);
+                qCInfo(lcLoadMesh).noquote()
+                    << QStringLiteral("startup snapshot saved to %1")
+                           .arg(snapPath);
+            });
+        }
 
         // Surface previous-run HDF5 depth results so the user can
         // scrub without re-running. Skip when there's no [2D_OPTIONS]

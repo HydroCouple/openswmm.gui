@@ -34,6 +34,7 @@
 #include <QPainter>
 #include <QQuickItem>
 #include <QQuickWidget>
+#include <QSurfaceFormat>
 #include <QSignalSpy>
 #include <QTest>
 #include <QtConcurrent/QtConcurrentRun>
@@ -300,6 +301,14 @@ private slots:
         qsgWidget.setAttribute(Qt::WA_QuitOnClose, false);
         qsgWidget.setClearColor(Qt::transparent);
         qsgWidget.setResizeMode(QQuickWidget::SizeRootObjectToView);
+        // MapCanvas forces MSAA onto the QQuickWidget FBO before setSource —
+        // mirror it so the harness renders the same target the app does.
+        {
+            QSurfaceFormat fmt = qsgWidget.format();
+            if (fmt.samples() < 4)
+                fmt.setSamples(4);
+            qsgWidget.setFormat(fmt);
+        }
         // The app loads this from qrc; the test binary does not compile the
         // resource bundle, so read the same file from the source tree.
         QDir qmlDir(dataDir());          // tests/gui/data
@@ -384,5 +393,23 @@ private slots:
     }
 };
 
-QTEST_MAIN(TestMeshAsyncLoad)
+// Expanded QTEST_MAIN so the harness can mirror src/main.cpp's scene-graph
+// environment on demand (SWMMVIS_MESH_PARITY_APPENV=1): OpenGL RHI backend +
+// threaded render loop + 6x MSAA default format — the exact configuration
+// the shipping app forces on macOS. Must happen before QApplication exists.
+int main(int argc, char *argv[])
+{
+    if (qEnvironmentVariable("SWMMVIS_MESH_PARITY_APPENV")
+        == QLatin1String("1")) {
+        qputenv("QSG_RHI_BACKEND", "opengl");
+        qputenv("QSG_RENDER_LOOP", "threaded");
+        QSurfaceFormat fmt = QSurfaceFormat::defaultFormat();
+        fmt.setSamples(6);
+        QSurfaceFormat::setDefaultFormat(fmt);
+    }
+    QApplication app(argc, argv);
+    TestMeshAsyncLoad tc;
+    QTEST_SET_MAIN_SOURCE_PATH
+    return QTest::qExec(&tc, argc, argv);
+}
 #include "test_meshasyncload.moc"

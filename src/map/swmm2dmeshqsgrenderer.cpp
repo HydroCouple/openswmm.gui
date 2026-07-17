@@ -152,34 +152,90 @@ QSGGeometryNode *makeFlatNode(QColor color)
     return node;
 }
 
+// Per-geometry-node vertex cap. Qt's scene-graph batch renderer addresses
+// batched vertices with 16-bit indices; on the OpenGL RHI (which the app
+// forces on macOS — see main.cpp §QSG-3) a single node holding more than
+// ~65k vertices gets silently truncated: only the first ~21k triangles draw,
+// which on a row-ordered mesh reads as "a sliver of the top end". Metal
+// tolerates giant nodes, which is why the offscreen harness never showed it.
+// Overflow therefore spills into CHILD geometry nodes of the pass node, each
+// under the cap. 65532 is the largest multiple of 3 below 2^16 - 1.
+constexpr int kMaxVertsPerNode = 65532;
+
+/*! Upload one chunk of \p total vertices into \p geo. */
+template <typename V>
+void uploadChunk(QSGGeometry *geo, const V *data, int n, size_t stride)
+{
+    if (geo->vertexCount() != n) geo->allocate(n);
+    if (n > 0)
+        std::memcpy(geo->vertexData(), data, size_t(n) * stride);
+}
+
+/*! Chunked upload: the first kMaxVertsPerNode vertices land in \p node
+ *  itself; the rest spill into child geometry nodes (created on demand via
+ *  \p makeNode, excess children pruned). Works for both vertex layouts. */
+template <typename V, typename MakeNode>
+void uploadVertsChunked(QSGGeometryNode *node, const std::vector<V> &verts,
+                        MakeNode makeNode)
+{
+    const int total  = int(verts.size());
+    const int inRoot = std::min(total, kMaxVertsPerNode);
+    uploadChunk(node->geometry(), verts.data(), inRoot, sizeof(V));
+    node->markDirty(QSGNode::DirtyGeometry);
+
+    int offset = inRoot;
+    QSGNode *child = node->firstChild();
+    while (offset < total) {
+        QSGGeometryNode *cg;
+        if (child) {
+            cg    = static_cast<QSGGeometryNode *>(child);
+            child = child->nextSibling();
+        } else {
+            cg = makeNode();
+            node->appendChildNode(cg);
+        }
+        const int n = std::min(kMaxVertsPerNode, total - offset);
+        uploadChunk(cg->geometry(), verts.data() + offset, n, sizeof(V));
+        cg->markDirty(QSGNode::DirtyGeometry);
+        offset += n;
+    }
+    while (child) {   // shrink: drop no-longer-needed overflow nodes
+        QSGNode *next = child->nextSibling();
+        node->removeChildNode(child);
+        delete child;
+        child = next;
+    }
+}
+
 void uploadColoredVerts(QSGGeometryNode *node,
                         const std::vector<QSGGeometry::ColoredPoint2D> &verts)
 {
-    auto *geo = node->geometry();
-    const int n = int(verts.size());
-    if (geo->vertexCount() != n) geo->allocate(n);
-    if (n > 0)
-        std::memcpy(geo->vertexDataAsColoredPoint2D(), verts.data(),
-                    n * sizeof(QSGGeometry::ColoredPoint2D));
-    node->markDirty(QSGNode::DirtyGeometry);
+    uploadVertsChunked(node, verts, []() { return makeColoredNode(); });
 }
 
 void uploadFlatVerts(QSGGeometryNode *node,
                      const std::vector<QSGGeometry::Point2D> &verts)
 {
-    auto *geo = node->geometry();
-    const int n = int(verts.size());
-    if (geo->vertexCount() != n) geo->allocate(n);
-    if (n > 0)
-        std::memcpy(geo->vertexData(), verts.data(),
-                    n * sizeof(QSGGeometry::Point2D));
-    node->markDirty(QSGNode::DirtyGeometry);
+    // Overflow children clone the pass node's current flat colour; a later
+    // colour change reaches them through setFlatColor below.
+    auto *mat = static_cast<QSGFlatColorMaterial *>(node->material());
+    const QColor c = mat->color();
+    uploadVertsChunked(node, verts, [c]() { return makeFlatNode(c); });
 }
 
 void setFlatColor(QSGGeometryNode *node, QColor c)
 {
     auto *mat = static_cast<QSGFlatColorMaterial*>(node->material());
     if (mat->color() != c) { mat->setColor(c); node->markDirty(QSGNode::DirtyMaterial); }
+    // Keep overflow chunks (see uploadVertsChunked) in the same colour.
+    for (QSGNode *ch = node->firstChild(); ch; ch = ch->nextSibling()) {
+        auto *cg  = static_cast<QSGGeometryNode *>(ch);
+        auto *cm  = static_cast<QSGFlatColorMaterial *>(cg->material());
+        if (cm->color() != c) {
+            cm->setColor(c);
+            cg->markDirty(QSGNode::DirtyMaterial);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
