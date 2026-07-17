@@ -93,11 +93,20 @@ class SWMM2DMeshLayer : public OpenSWMMVisLayer,
     Q_PROPERTY(double filledContoursOpacity READ filledContoursOpacity WRITE setFilledContoursOpacity
                NOTIFY repaintRequested)
 
+    // Zoom at which the wireframe / vertex dots auto-appear, as the minimum
+    // on-screen cell size (pixels across). Larger ⇒ must zoom in closer.
+    Q_PROPERTY(double edgeZoomMinCellPx    READ edgeZoomMinCellPx    WRITE setEdgeZoomMinCellPx
+               NOTIFY repaintRequested)
+    Q_PROPERTY(double vertexZoomMinCellPx  READ vertexZoomMinCellPx  WRITE setVertexZoomMinCellPx
+               NOTIFY repaintRequested)
+
     Q_CLASSINFO("group:sourcePath",           "Source")
     Q_CLASSINFO("group:triangleCount",        "Mesh")
     Q_CLASSINFO("group:vertexCount",          "Mesh")
     Q_CLASSINFO("group:showMeshNodes",        "Display")
     Q_CLASSINFO("group:showEdges",            "Display")
+    Q_CLASSINFO("group:edgeZoomMinCellPx",    "Display")
+    Q_CLASSINFO("group:vertexZoomMinCellPx",  "Display")
     Q_CLASSINFO("group:hillshadeAzimuth",     "Hillshade")
     Q_CLASSINFO("group:hillshadeAltitude",    "Hillshade")
     Q_CLASSINFO("group:hillshadeZExag",       "Hillshade")
@@ -186,6 +195,23 @@ public:
 
     [[nodiscard]] bool showEdges() const;
     void setShowEdges(bool show);
+
+    // ----- Zoom thresholds for edge / vertex auto-display -----------------
+    // Both renderers suppress the wireframe / vertex-dot passes until the
+    // mean on-screen cell size reaches these values (pixels across), so the
+    // detail appears automatically as the user zooms in and never clutters
+    // the far view. Configurable per layer; defaults reproduce the historic
+    // LOD gates (√kEdgeMinCellAreaPx ≈ 5.66 px, √kMarkerMinCellAreaPx ≈
+    // 14.14 px). 0 ⇒ always draw (when the sublayer is visible).
+    [[nodiscard]] double edgeZoomMinCellPx()   const { return m_edgeMinCellPx; }
+    void setEdgeZoomMinCellPx(double px);
+    [[nodiscard]] double vertexZoomMinCellPx() const { return m_vertexMinCellPx; }
+    void setVertexZoomMinCellPx(double px);
+
+    /*! Area forms (px²) the renderers actually gate on — square of the
+     *  configured cell-size thresholds. */
+    [[nodiscard]] double edgeMinCellAreaPx()   const { return m_edgeMinCellPx * m_edgeMinCellPx; }
+    [[nodiscard]] double vertexMinCellAreaPx() const { return m_vertexMinCellPx * m_vertexMinCellPx; }
 
     // ----- Hillshade ------------------------------------------------------
     // azimuth/altitude stay on the layer because they describe the light
@@ -587,6 +613,11 @@ private:
     double                       m_hillshadeAz     = 225.0;   // compass deg
     double                       m_hillshadeAlt    =  35.264; // deg above horizon (asin(1/√3))
     double                       m_hillshadeMinLit =   0.15;  // shadow floor (0..1)
+
+    // Zoom thresholds (min on-screen cell size, px) for edge / vertex passes.
+    // Defaults = √ of the historic Qsg2DLodPolicy area thresholds.
+    double                       m_edgeMinCellPx   =   5.65685; // √32
+    double                       m_vertexMinCellPx =  14.14214; // √200
 
     quint64                      m_geomRevision  = 0;
     OGRCoordinateTransformation *m_transform     = nullptr;

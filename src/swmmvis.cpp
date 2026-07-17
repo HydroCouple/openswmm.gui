@@ -4669,7 +4669,22 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
         const QString snapPath =
             qEnvironmentVariable("SWMMVIS_STARTUP_SNAPSHOT");
         if (!snapPath.isEmpty()) {
-            window->canvas()->zoomToFullExtent();
+            MapCanvas *canvas = window->canvas();
+            canvas->zoomToFullExtent();
+            // Optional SWMMVIS_STARTUP_SNAPSHOT_ZOOM=<factor> zooms into the
+            // mesh centre by that linear fraction before grabbing — lets the
+            // harness evidence zoom-gated detail (wireframe/vertices) that is
+            // hidden at full extent.
+            const double zf =
+                qEnvironmentVariable("SWMMVIS_STARTUP_SNAPSHOT_ZOOM").toDouble();
+            if (zf > 0.0 && zf < 1.0) {
+                const MapExtent e = canvas->extent();
+                const double w = e.width() * zf, h = e.height() * zf;
+                canvas->setExtent(MapExtent(e.centerX() - w / 2.0,
+                                            e.centerY() - h / 2.0,
+                                            e.centerX() + w / 2.0,
+                                            e.centerY() + h / 2.0));
+            }
             // Grab the whole main window (canvas + Message Log dock) so the
             // snapshot also evidences the load-progress notes.
             QTimer::singleShot(2000, this, [this, snapPath]() {

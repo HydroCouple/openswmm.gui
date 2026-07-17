@@ -129,9 +129,35 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     auto *dispBox = new QGroupBox(tr("Display"), this);
     auto *dispLay = new QVBoxLayout(dispBox);
     m_showEdges = new QCheckBox(tr("Show mesh edges (wireframe)"), dispBox);
-    m_showNodes = new QCheckBox(tr("Show mesh nodes"), dispBox);
+    m_showNodes = new QCheckBox(tr("Show mesh vertices"), dispBox);
     dispLay->addWidget(m_showEdges);
     dispLay->addWidget(m_showNodes);
+
+    // Zoom thresholds — edges / vertices auto-appear once cells project at
+    // least this many pixels across. Keeps the far view clean; lets the user
+    // decide how close is "close enough".
+    auto *zoomForm = new QFormLayout;
+    m_edgeZoomPx = new QDoubleSpinBox(dispBox);
+    m_edgeZoomPx->setRange(0.0, 500.0);
+    m_edgeZoomPx->setDecimals(1);
+    m_edgeZoomPx->setSingleStep(1.0);
+    m_edgeZoomPx->setSuffix(tr(" px/cell"));
+    m_edgeZoomPx->setToolTip(tr(
+        "Show the wireframe once mesh cells project at least this many "
+        "pixels across. 0 = always show when enabled."));
+    zoomForm->addRow(tr("Show edges at:"), m_edgeZoomPx);
+
+    m_vertexZoomPx = new QDoubleSpinBox(dispBox);
+    m_vertexZoomPx->setRange(0.0, 500.0);
+    m_vertexZoomPx->setDecimals(1);
+    m_vertexZoomPx->setSingleStep(1.0);
+    m_vertexZoomPx->setSuffix(tr(" px/cell"));
+    m_vertexZoomPx->setToolTip(tr(
+        "Show vertex dots once mesh cells project at least this many pixels "
+        "across. 0 = always show when enabled."));
+    zoomForm->addRow(tr("Show vertices at:"), m_vertexZoomPx);
+    dispLay->addLayout(zoomForm);
+
     root->addWidget(dispBox);
 
     // ── Terrain fill group ─────────────────────────────────────────────
@@ -283,6 +309,10 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
 
     connect(m_showEdges, &QCheckBox::toggled, this, [this](bool v) { m_layer->setShowEdges(v); });
     connect(m_showNodes, &QCheckBox::toggled, this, [this](bool v) { m_layer->setShowMeshNodes(v); });
+    connect(m_edgeZoomPx, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double v) { m_layer->setEdgeZoomMinCellPx(v); });
+    connect(m_vertexZoomPx, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double v) { m_layer->setVertexZoomMinCellPx(v); });
 
     auto pushAz = [this](double v) {
         m_layer->setHillshadeAzimuth(v);
@@ -362,7 +392,11 @@ void MeshHillshadeEditor::refreshFromModel()
         b12(m_contourColor), b13(m_contourWidth),
         b14(m_filledContours), b15(m_filledOpacity),
         b16(m_contourMethod), b17(m_contourRamp),
-        b18(m_terrainRamp), b19(m_terrainInvert);
+        b18(m_terrainRamp), b19(m_terrainInvert),
+        b20(m_edgeZoomPx), b21(m_vertexZoomPx);
+
+    m_edgeZoomPx->setValue(m_layer->edgeZoomMinCellPx());
+    m_vertexZoomPx->setValue(m_layer->vertexZoomMinCellPx());
 
     if (auto *fill = fillStyleOf(m_layer)) {
         const QString ramp = fill->scheme().rampName();
