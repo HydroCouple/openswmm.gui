@@ -128,7 +128,7 @@ Qsg2DLodDecision Qsg2DLodPolicy::decide(const Qsg2DLodInputs &in)
         d.drawFill             = in.wantFill;
         d.useAggregateFill     = false;
         d.drawEdges            = in.wantEdges
-                                 && d.avgCellAreaPx >= kEdgeMinCellAreaPx;
+                                 && d.avgCellAreaPx >= in.edgeMinCellAreaPx;
         d.drawVertexMarkers    = false;
         d.drawContours         = in.wantContours;
         d.drawContourLabels    = in.wantContourLabels;
@@ -142,9 +142,10 @@ Qsg2DLodDecision Qsg2DLodPolicy::decide(const Qsg2DLodInputs &in)
     case Qsg2DLodDecision::Near:
         d.drawFill             = in.wantFill;
         d.useAggregateFill     = false;
-        d.drawEdges            = in.wantEdges;
+        d.drawEdges            = in.wantEdges
+                                 && d.avgCellAreaPx >= in.edgeMinCellAreaPx;
         d.drawVertexMarkers    = in.wantVertexMarkers
-                                 && d.avgCellAreaPx >= kMarkerMinCellAreaPx;
+                                 && d.avgCellAreaPx >= in.markerMinCellAreaPx;
         d.drawContours         = in.wantContours;
         d.drawContourLabels    = in.wantContourLabels;
         d.exactContourBands    = true;

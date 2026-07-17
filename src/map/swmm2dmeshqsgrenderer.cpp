@@ -526,6 +526,10 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
     // zoom — with the default 8 px² the QSG stayed blocky through a zoom
     // band where the CPU path already drew native cells.
     li.farMaxCellAreaPx  = 4.0;
+    // Per-layer, user-configurable "show edges / vertices when zoomed to"
+    // thresholds (mesh style dialog). Defaults reproduce the historic gates.
+    li.edgeMinCellAreaPx   = m_layer->edgeMinCellAreaPx();
+    li.markerMinCellAreaPx = m_layer->vertexMinCellAreaPx();
 
     const Qsg2DLodDecision lod = Qsg2DLodPolicy::decide(li);
     m_lastBucket   = lod.bucket;

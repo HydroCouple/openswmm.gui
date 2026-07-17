@@ -74,6 +74,15 @@ struct Qsg2DLodInputs
      *  fill happens at the same zoom as the QPainter fallback's
      *  `nativeTriSpan × pxPerScene < 2 px` test (span² = area). */
     double farMaxCellAreaPx = 8.0;   // = Qsg2DLodPolicy::kFarMaxCellAreaPx
+
+    /*! Minimum projected cell area (px²) for the wireframe / vertex-marker
+     *  passes. Below these the passes are suppressed (edges become a dark
+     *  wash, markers become sub-pixel noise). Overridable so the terrain
+     *  mesh can expose them as per-layer "show edges / vertices when zoomed
+     *  to" preferences; defaults keep the historic thresholds. A value of 0
+     *  means "always draw when the sublayer is visible". */
+    double edgeMinCellAreaPx   = 32.0;   // = Qsg2DLodPolicy::kEdgeMinCellAreaPx
+    double markerMinCellAreaPx = 200.0;  // = Qsg2DLodPolicy::kMarkerMinCellAreaPx
 };
 
 struct Qsg2DLodDecision
