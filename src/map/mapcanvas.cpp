@@ -2133,7 +2133,8 @@ void MapCanvas::onLayerRepaintRequested()
     // VS.8 — 2D results layers live in the overlay too (animation ticks
     // and style edits arrive through this same channel).
     if (qobject_cast<SWMMModelLayer *>(sender())
-        || qobject_cast<SWMM2DResultsLayer *>(sender()))
+        || qobject_cast<SWMM2DResultsLayer *>(sender())
+        || qobject_cast<SWMM2DMeshLayer *>(sender()))   // Mesh Tiled LOD P1.1
         m_qsgFrameDirty = true;
     // P2 — non-raster layers paint through the QGraphicsScene, so their
     // repaint requests invalidate the cached scene buffer. Raster senders

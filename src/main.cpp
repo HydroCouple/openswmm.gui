@@ -52,6 +52,23 @@ int main(int argc, char *argv[])
 
     QCoreApplication *applicationInstance = nullptr;
 
+    // Register the QML types used by MapCanvas's QQuickWidget overlay BEFORE
+    // the application object exists. SWMMVisApplication's constructor builds
+    // the main window and pumps events for the splash screen, so anything
+    // queued during construction (e.g. the SWMMVIS_OPEN_ON_STARTUP hook) can
+    // create a MapCanvas — and its swmmlayer.qml `import OpenSWMM 1.0` fails
+    // with "module is not installed" if these registrations haven't run yet,
+    // silently dropping every GPU renderer for the whole session.
+    // (Phase B.RHI of docs/RENDERING_5M_PLAN.md.)
+    qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0,
+                                           "SWMMLayerQSGRenderer");
+    qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0,
+                                            "SWMM2DMeshQSGRenderer");
+    // VS.8 — GPU renderer for the 2D results layer (Gouraud depth fill,
+    // contour bands, isolines, velocity arrows).
+    qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0,
+                                               "SWMM2DResultsQSGRenderer");
+
     QCommandLineParser parser;
     parser.setApplicationDescription(QCoreApplication::translate("main", "SWMMVis"));
     QCommandLineOption helpOption = parser.addHelpOption();
@@ -93,17 +110,6 @@ int main(int argc, char *argv[])
         QSurfaceFormat::setDefaultFormat(fmt);
     }
     
-    // Register the QML types used by MapCanvas's QQuickWidget overlay
-    // (Phase B.RHI of docs/RENDERING_5M_PLAN.md).
-    qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0,
-                                           "SWMMLayerQSGRenderer");
-    qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0,
-                                            "SWMM2DMeshQSGRenderer");
-    // VS.8 — GPU renderer for the 2D results layer (Gouraud depth fill,
-    // contour bands, isolines, velocity arrows).
-    qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0,
-                                               "SWMM2DResultsQSGRenderer");
-       
     QScopedPointer<QCoreApplication> application(applicationInstance);
 
     QTranslator translator;
