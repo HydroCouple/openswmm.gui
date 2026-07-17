@@ -690,7 +690,12 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         // build into a few tens of thousands. The overview has no grid
         // index and no per-tri colour cache; it is small enough to colour
         // directly every rebuild.
-        const bool useOverview = lod.useAggregateFill && m_layer->hasOverview();
+        // Progressive load: until the deferred spatial grids exist, an exact
+        // fill would full-scan every triangle per rebuild — draw the pyramid
+        // (coarse levels) instead; the exact fill takes over automatically
+        // when sceneGeometryReady lands and repaints.
+        const bool useOverview = (lod.useAggregateFill || !useTriIdx)
+                                 && m_layer->hasOverview();
         const bool fillVisible = lod.drawFill && (!fillSub || fillSub->isVisible());
         if (fillVisible) {
             const auto &tris = useOverview ? m_layer->m_overviewTris

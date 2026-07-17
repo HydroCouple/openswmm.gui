@@ -19,6 +19,7 @@
  *         Uses QTEST_MAIN under the offscreen QPA like test_asyncload.
  */
 #include "layers/swmm2dmeshlayer.h"
+#include "render/sublayers/meshfillsublayer.h"
 #include "map/mapextent.h"
 #include "map/swmm2dmeshqsgrenderer.h"
 #include "map/swmm2dresultsqsgrenderer.h"
@@ -201,6 +202,79 @@ private slots:
         QVERIFY(nonWhitePixels(img) > 1000);
 
         delete asyncLayer;
+    }
+
+    // Progressive load — a deferHeavyGeometry layer renders (fill) right
+    // away, then finishSceneGeometryAsync() delivers wireframe/grids/
+    // adjacency/BCs identical to a synchronously-built layer.
+    void progressiveLoadEqualsSyncBuild()
+    {
+        mesh::InpMeshReadResult syncRead = mesh::InpMeshReader::read(fixturePath());
+        QVERIFY(syncRead.hasMesh);
+        SWMM2DMeshLayer syncLayer(std::move(syncRead.mesh), syncRead.sourcePath);
+
+        mesh::InpMeshReadResult defRead = mesh::InpMeshReader::read(fixturePath());
+        QVERIFY(defRead.hasMesh);
+        SWMM2DMeshLayer defLayer(std::move(defRead.mesh), defRead.sourcePath,
+                                 nullptr, /*deferHeavyGeometry=*/true);
+
+        // Phase A: drawable immediately (fill), but heavy structures absent.
+        QVERIFY(!defLayer.sceneGeometryComplete());
+        QCOMPARE(defLayer.m_sceneTris.size(), syncLayer.m_sceneTris.size());
+        QVERIFY(defLayer.m_sceneEdges.isEmpty());
+        QVERIFY(defLayer.m_triGrid.isEmpty());
+        const QImage phaseA = paintQPainterPath(&defLayer, defLayer.m_sceneBBox,
+                                                QSize(400, 300));
+        QVERIFY2(nonWhitePixels(phaseA) > 1000,
+                 "Phase-A layer painted nothing");
+
+        // Phase B: background build converges to the sync layer's state.
+        QSignalSpy ready(&defLayer, &SWMM2DMeshLayer::sceneGeometryReady);
+        defLayer.finishSceneGeometryAsync();
+        QVERIFY2(ready.wait(20000), "deferred geometry did not finish in 20s");
+        QVERIFY(defLayer.sceneGeometryComplete());
+        QCOMPARE(defLayer.m_sceneEdges.size(), syncLayer.m_sceneEdges.size());
+        QCOMPARE(defLayer.edgeCount(),         syncLayer.edgeCount());
+        QCOMPARE(defLayer.maxSlope(),          syncLayer.maxSlope());
+        QVERIFY(!defLayer.m_triGrid.isEmpty());
+        QVERIFY(!defLayer.m_edgeGrid.isEmpty());
+        QCOMPARE(defLayer.edgeBCs().size(),    syncLayer.edgeBCs().size());
+        QCOMPARE(defLayer.pickCellAt(defLayer.m_sceneBBox.center()),
+                 syncLayer.pickCellAt(syncLayer.m_sceneBBox.center()));
+    }
+
+    // Style plumbing — changing the FILL sublayer's colour ramp restyles the
+    // shaded-relief terrain fill (the QPainter path shares the QSG
+    // schemeDrivesColor decision, so a pixel diff here proves the chain
+    // dialog → MeshFillStyle::setScheme → renderer).
+    void terrainRampDrivesFill()
+    {
+        mesh::InpMeshReadResult read = mesh::InpMeshReader::read(fixturePath());
+        QVERIFY(read.hasMesh);
+        SWMM2DMeshLayer layer(std::move(read.mesh), read.sourcePath);
+
+        const QSize view(400, 300);
+        const QImage before = paintQPainterPath(&layer, layer.m_sceneBBox, view);
+
+        auto *fill = layer.meshFillSublayer()->fillStyle();
+        QSignalSpy repaint(&layer, &OpenSWMMVisLayer::repaintRequested);
+        auto scheme = fill->scheme();
+        scheme.setRampName(QStringLiteral("viridis"));
+        fill->setScheme(scheme);
+        QVERIFY2(repaint.count() >= 1,
+                 "scheme edit did not reach the layer's repaintRequested");
+
+        const QImage after = paintQPainterPath(&layer, layer.m_sceneBBox, view);
+        QVERIFY2(after != before,
+                 "changing the terrain colour ramp did not change the fill");
+
+        // Invert flag also drives colour.
+        const QImage inv1 = after;
+        scheme = fill->scheme();
+        scheme.setInvertRamp(true);
+        fill->setScheme(scheme);
+        const QImage inv2 = paintQPainterPath(&layer, layer.m_sceneBBox, view);
+        QVERIFY(inv2 != inv1);
     }
 
     // Pyramid rebuild — rebuildOverviewAsync() builds the far-zoom overview
