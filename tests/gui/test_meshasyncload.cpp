@@ -261,10 +261,15 @@ private slots:
 
     // P1.1 verify — QPainter vs QSG screenshots at three zooms for human
     // parity review; asserts both paths actually drew mesh pixels.
+    // Optional: point SWMMVIS_MESH_PARITY_INP at any .inp/.2dm to run the
+    // comparison on a real mesh (run WITHOUT the offscreen QPA to get real
+    // scene-graph pixels — offscreen readback comes back blank).
     void parityScreenshots()
     {
-        mesh::InpMeshReadResult read = mesh::InpMeshReader::read(fixturePath());
-        QVERIFY(read.hasMesh);
+        const QString src = qEnvironmentVariable("SWMMVIS_MESH_PARITY_INP",
+                                                 fixturePath());
+        mesh::InpMeshReadResult read = mesh::InpMeshReader::read(src);
+        QVERIFY2(read.hasMesh, qPrintable(read.errorMsg));
         SWMM2DMeshLayer layer(std::move(read.mesh), read.sourcePath);
 
         const QSize view(800, 600);
@@ -313,19 +318,34 @@ private slots:
         QVERIFY2(renderer, "swmmlayer.qml did not provide mesh2dRenderer");
         renderer->setLayer(&layer);
 
-        const MapExtent full = layer.extent();
+        // Expand each zoom window to the view's aspect ratio (what MapCanvas
+        // does via adjustExtentToAspect) so the QPainter render and the QSG
+        // extent describe the SAME region with no letterbox/stretch and the
+        // two images are pixel-comparable.
+        const double viewAspect = double(view.width()) / double(view.height());
+        auto aspectRect = [viewAspect](QRectF r) {
+            double w = r.width(), h = r.height();
+            if (w / h < viewAspect) w = h * viewAspect;
+            else                    h = w / viewAspect;
+            return QRectF(r.center().x() - w / 2.0, r.center().y() - h / 2.0,
+                          w, h);
+        };
+
         bool qsgAvailable = true;
         for (const auto &z : zooms) {
             const QRectF bbox = layer.m_sceneBBox;
-            const QRectF src(bbox.center().x() - bbox.width()  * z.factor / 2.0,
-                             bbox.center().y() - bbox.height() * z.factor / 2.0,
-                             bbox.width() * z.factor, bbox.height() * z.factor);
+            const QRectF src  = aspectRect(QRectF(
+                bbox.center().x() - bbox.width()  * z.factor / 2.0,
+                bbox.center().y() - bbox.height() * z.factor / 2.0,
+                bbox.width() * z.factor, bbox.height() * z.factor));
             const QImage cpu = paintQPainterPath(&layer, src, view);
             QVERIFY(nonWhitePixels(cpu) > 1000);
             QVERIFY(cpu.save(QStringLiteral("%1/qpainter_%2.png")
                                  .arg(outDir, QLatin1String(z.name))));
 
-            renderer->setMapExtent(full.scaled(z.factor));
+            // Scene y = -canvas y: convert the scene rect to a canvas extent.
+            renderer->setMapExtent(MapExtent(src.left(), -src.bottom(),
+                                             src.right(), -src.top()));
             qsgWidget.repaint();                      // sync render, as MapCanvas does
             QImage qsg = qsgWidget.grabFramebuffer();
             // Transparent clear colour → count non-transparent instead of
