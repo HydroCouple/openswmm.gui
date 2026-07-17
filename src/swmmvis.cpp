@@ -4565,6 +4565,29 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
                 new SpatialReferenceSystem(*window->modelLayer()->srs(), meshLayer),
                 /*ownsSRS=*/true);
         window->canvas()->addLayer(meshLayer, /*pushUndo=*/false);
+
+        // Background pyramid (overview) rebuilds — mirror the raster
+        // overview-build UX: busy bar + status message + a log line each way.
+        // Triggered from the layer-properties "Rebuild pyramid" button.
+        connect(meshLayer, &SWMM2DMeshLayer::overviewBuildStarted, this,
+                [this](const QString &name) {
+                    onLogMessage(tr("Building mesh pyramid for %1 …").arg(name),
+                                 OpenSWMMVisLogMessage::LogMessageType::Information);
+                    statusBar()->showMessage(
+                        tr("Building mesh pyramid for %1 …").arg(name));
+                    onSetProgressBarBusy(true);
+                });
+        connect(meshLayer, &SWMM2DMeshLayer::overviewBuildFinished, this,
+                [this, ml = QPointer<SWMM2DMeshLayer>(meshLayer)](bool ok) {
+                    onSetProgressBarBusy(false);
+                    statusBar()->clearMessage();
+                    const QString name = ml ? ml->name() : tr("mesh");
+                    onLogMessage(ok ? tr("Mesh pyramid ready: %1").arg(name)
+                                    : tr("Mesh pyramid rebuild failed: %1").arg(name),
+                                 ok ? OpenSWMMVisLogMessage::LogMessageType::Information
+                                    : OpenSWMMVisLogMessage::LogMessageType::Warning);
+                });
+
         qCInfo(lcLoadMesh).noquote()
             << QStringLiteral("mesh load timing (ms): read=%1 sceneBuild=%2 "
                               "(verts=%3 tris=%4 source=%5)")

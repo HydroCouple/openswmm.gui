@@ -38,6 +38,7 @@
 #include "render/sublayers/meshnodesublayer.h"
 
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QGraphicsScene>
 #include <QGraphicsItem>
 #include <QHash>
@@ -45,6 +46,7 @@
 #include <QPainter>
 #include <QSet>
 #include <QStyleOptionGraphicsItem>
+#include <QtConcurrent/QtConcurrentRun>
 #include <QtMath>
 
 #include <ogr_spatialref.h>
@@ -895,42 +897,61 @@ void SWMM2DMeshLayer::rebuildSceneGeometry()
 // existing hillshade face-normal still produces relief on the coarse mesh.
 // Empty cells (holes in the source mesh) emit nothing, so the overview keeps
 // the mesh's outline. Cost is one O(triangles) binning pass at load time.
-void SWMM2DMeshLayer::rebuildOverview()
+namespace {
+
+/*! One overview ("pyramid") bake. Extracted from rebuildOverview() so
+ *  the same code serves the synchronous load-time build and the
+ *  background rebuild (SWMM2DMeshLayer::rebuildOverviewAsync). Pure
+ *  function of its inputs — safe to run on a worker thread against
+ *  detached (implicitly-shared) snapshots of the scene caches. */
+struct MeshOverviewData
 {
-    m_overviewTris.clear();
-    m_trisBySizeDesc.clear();
-    m_nativeTriSpan = 0.0;
+    QVector<SWMM2DMeshLayer::SceneTri> overviewTris;
+    QVector<int>                       trisBySizeDesc;
+    double                             nativeTriSpan = 0.0;
+};
 
-    const int nTri = m_sceneTris.size();
-    if (nTri == 0 || m_sceneBBox.isNull()) return;
+MeshOverviewData buildMeshOverviewData(
+    const QVector<SWMM2DMeshLayer::SceneTri> &sceneTris,
+    const QRectF &sceneBBox)
+{
+    using SceneTri = SWMM2DMeshLayer::SceneTri;
+    MeshOverviewData out;
 
-    const double bw = m_sceneBBox.width();
-    const double bh = m_sceneBBox.height();
+    const int nTri = sceneTris.size();
+    if (nTri == 0 || sceneBBox.isNull()) return out;
+
+    const double bw = sceneBBox.width();
+    const double bh = sceneBBox.height();
     const double area = bw * bh;
-    if (area <= 0.0) return;
+    if (area <= 0.0) return out;
 
     // Representative native triangle edge length (scene units). sqrt(area /
     // triCount) is the side of an equal-area square per triangle — close
     // enough for the painter's pixel-size LOD test.
-    m_nativeTriSpan = std::sqrt(area / double(nTri));
+    out.nativeTriSpan = std::sqrt(area / double(nTri));
 
     // Small meshes draw full-res fast enough that an overview would only add
     // zoom popping; skip it for them.
     constexpr int kOverviewMinTris = 200000;
-    if (nTri < kOverviewMinTris) return;
+    if (nTri < kOverviewMinTris) return out;
 
-    // Aim for ~15k cells (~30k overview triangles) regardless of source size,
-    // so far-zoom fill stays a few-tens-of-thousands of polygons.
-    constexpr int kTargetCells = 15000;
+    // Aim for ~60k cells (~120k overview triangles) regardless of source
+    // size. Still trivially cheap on the QSG path (a few MB of vertices) and
+    // acceptable on the QPainter fallback, while quartering the on-screen
+    // block size vs the original 15k bake (~5 px instead of ~10 px cells on a
+    // full-screen zoom-to-extent) — the coarse bake read as "jagged /
+    // truncated" at full extent.
+    constexpr int kTargetCells = 60000;
     const double aspect = (bh > 0.0) ? (bw / bh) : 1.0;
     const int cols = qMax(1, int(std::round(std::sqrt(double(kTargetCells) * aspect))));
     const int rows = qMax(1, int(std::round(double(kTargetCells) / double(cols))));
 
     const double cw = bw / double(cols);
     const double ch = bh / double(rows);
-    const double ox = m_sceneBBox.left();
-    const double oy = m_sceneBBox.top();
-    if (cw <= 0.0 || ch <= 0.0) return;
+    const double ox = sceneBBox.left();
+    const double oy = sceneBBox.top();
+    if (cw <= 0.0 || ch <= 0.0) return out;
 
     // Accumulate by *bbox coverage*, not centroid: a cell receives every
     // triangle whose bounding box overlaps it. A large triangle therefore
@@ -938,7 +959,7 @@ void SWMM2DMeshLayer::rebuildOverview()
     // one and leave holes under the rest), so the overview is a gap-free floor.
     QVector<double> zsum(cols * rows, 0.0);
     QVector<int>    cnt (cols * rows, 0);
-    for (const SceneTri &t : m_sceneTris) {
+    for (const SceneTri &t : sceneTris) {
         const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
         const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
         const double minY = std::min({t.a.y(), t.b.y(), t.c.y()});
@@ -971,7 +992,7 @@ void SWMM2DMeshLayer::rebuildOverview()
         return n ? float(s / n) : 0.0f;
     };
 
-    m_overviewTris.reserve(cols * rows * 2);
+    out.overviewTris.reserve(cols * rows * 2);
     for (int j = 0; j < rows; ++j) {
         for (int i = 0; i < cols; ++i) {
             if (cnt[j * cols + i] == 0) continue;   // hole — emit no fill
@@ -986,13 +1007,13 @@ void SWMM2DMeshLayer::rebuildOverview()
             t1.a = QPointF(x0, y0); t1.b = QPointF(x1, y0); t1.c = QPointF(x1, y1);
             t1.z0 = z00; t1.z1 = z10; t1.z2 = z11;
             t1.zAvg = (z00 + z10 + z11) / 3.0f;
-            m_overviewTris.append(t1);
+            out.overviewTris.append(t1);
 
             SceneTri t2;
             t2.a = QPointF(x0, y0); t2.b = QPointF(x1, y1); t2.c = QPointF(x0, y1);
             t2.z0 = z00; t2.z1 = z11; t2.z2 = z01;
             t2.zAvg = (z00 + z11 + z01) / 3.0f;
-            m_overviewTris.append(t2);
+            out.overviewTris.append(t2);
         }
     }
 
@@ -1003,17 +1024,60 @@ void SWMM2DMeshLayer::rebuildOverview()
     {
         QVector<float> areaTmp(nTri);
         for (int i = 0; i < nTri; ++i) {
-            const SceneTri &t = m_sceneTris[i];
+            const SceneTri &t = sceneTris[i];
             const double ux = t.b.x() - t.a.x(), uy = t.b.y() - t.a.y();
             const double vx = t.c.x() - t.a.x(), vy = t.c.y() - t.a.y();
             areaTmp[i] = float(0.5 * std::abs(ux * vy - uy * vx));
         }
-        m_trisBySizeDesc.resize(nTri);
-        for (int i = 0; i < nTri; ++i) m_trisBySizeDesc[i] = i;
-        std::sort(m_trisBySizeDesc.begin(), m_trisBySizeDesc.end(),
+        out.trisBySizeDesc.resize(nTri);
+        for (int i = 0; i < nTri; ++i) out.trisBySizeDesc[i] = i;
+        std::sort(out.trisBySizeDesc.begin(), out.trisBySizeDesc.end(),
                   [&areaTmp](int p, int q) { return areaTmp[p] > areaTmp[q]; });
     }
+    return out;
 }
+
+} // namespace
+
+void SWMM2DMeshLayer::rebuildOverview()
+{
+    MeshOverviewData d = buildMeshOverviewData(m_sceneTris, m_sceneBBox);
+    m_overviewTris   = std::move(d.overviewTris);
+    m_trisBySizeDesc = std::move(d.trisBySizeDesc);
+    m_nativeTriSpan  = d.nativeTriSpan;
+}
+
+void SWMM2DMeshLayer::rebuildOverviewAsync()
+{
+    if (m_overviewBuildRunning) return;
+    m_overviewBuildRunning = true;
+    emit overviewBuildStarted(name());
+
+    // Snapshot the inputs. QVector is implicitly shared: the worker only
+    // reads its own reference, and any concurrent GUI-thread edit (e.g.
+    // applyMeshVertexZ) detaches the layer's copy first, so the worker sees
+    // a consistent snapshot.
+    const QVector<SceneTri> tris = m_sceneTris;
+    const QRectF            bbox = m_sceneBBox;
+
+    auto *watcher = new QFutureWatcher<MeshOverviewData>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
+        MeshOverviewData d = watcher->result();
+        watcher->deleteLater();
+        m_overviewTris   = std::move(d.overviewTris);
+        m_trisBySizeDesc = std::move(d.trisBySizeDesc);
+        m_nativeTriSpan  = d.nativeTriSpan;
+        m_overviewBuildRunning = false;
+        emit overviewBuildFinished(true);
+        // Both pipelines redraw with the fresh pyramid.
+        if (m_graphicsItem) m_graphicsItem->geometryChanged();
+        emit repaintRequested();
+    });
+    watcher->setFuture(QtConcurrent::run([tris, bbox]() {
+        return buildMeshOverviewData(tris, bbox);
+    }));
+}
+
 
 // MeshSpatialGrid — definitions live in src/layers/meshspatialgrid.cpp so
 // the spatial-index logic can be unit-tested without linking the whole

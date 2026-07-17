@@ -21,18 +21,25 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "map/mapextent.h"
 #include "map/swmm2dmeshqsgrenderer.h"
+#include "map/swmm2dresultsqsgrenderer.h"
+#include "map/swmmlayerqsgrenderer.h"
 #include "mesh/inpmeshreader.h"
 #include "core/preferencesmanager.h"
+
+#include <QtQml/qqml.h>
 
 #include <QDir>
 #include <QGraphicsScene>
 #include <QImage>
 #include <QPainter>
-#include <QQuickWindow>
+#include <QQuickItem>
+#include <QQuickWidget>
 #include <QSignalSpy>
 #include <QTest>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFutureWatcher>
+
+#include <cmath>
 
 namespace {
 
@@ -195,6 +202,63 @@ private slots:
         delete asyncLayer;
     }
 
+    // Pyramid rebuild — rebuildOverviewAsync() builds the far-zoom overview
+    // on a worker, emits started/finished, adopts on the GUI thread, and
+    // matches the synchronous load-time bake.
+    void pyramidRebuildAsync()
+    {
+        // Programmatic mesh above the 200k-tri overview threshold: a
+        // 320x320 quad grid = 204,800 triangles with a sloped surface.
+        mesh::MeshResult m;
+        const int n = 320;
+        m.vertices.reserve((n + 1) * (n + 1));
+        for (int r = 0; r <= n; ++r)
+            for (int c = 0; c <= n; ++c) {
+                mesh::MeshVertex v;
+                v.xy = QPointF(c * 2.0, r * 2.0);
+                v.z  = 0.01 * c + 0.5 * std::sin(r * 0.1);
+                m.vertices.append(v);
+            }
+        m.triangles.reserve(n * n * 2);
+        for (int r = 0; r < n; ++r)
+            for (int c = 0; c < n; ++c) {
+                const int v00 = r * (n + 1) + c, v10 = v00 + 1;
+                const int v01 = v00 + n + 1,     v11 = v01 + 1;
+                mesh::MeshTriangle t1; t1.v0 = v00; t1.v1 = v10; t1.v2 = v11;
+                mesh::MeshTriangle t2; t2.v0 = v00; t2.v1 = v11; t2.v2 = v01;
+                m.triangles.append(t1);
+                m.triangles.append(t2);
+            }
+        m.ok = true;
+
+        SWMM2DMeshLayer layer(std::move(m), QString());
+        QVERIFY(layer.hasOverview());   // load-time bake ran (>= 200k tris)
+        const int bakedCount = layer.m_overviewTris.size();
+        const double bakedSpan = layer.m_nativeTriSpan;
+
+        QSignalSpy started (&layer, &SWMM2DMeshLayer::overviewBuildStarted);
+        QSignalSpy finished(&layer, &SWMM2DMeshLayer::overviewBuildFinished);
+        QSignalSpy repaint (&layer, &OpenSWMMVisLayer::repaintRequested);
+
+        layer.rebuildOverviewAsync();
+        QVERIFY(layer.overviewBuildRunning());
+        QCOMPARE(started.count(), 1);
+        layer.rebuildOverviewAsync();          // no-op while running
+        QCOMPARE(started.count(), 1);
+
+        QVERIFY2(finished.wait(20000), "pyramid rebuild did not finish in 20s");
+        QCOMPARE(finished.count(), 1);
+        QVERIFY(finished.takeFirst().at(0).toBool());
+        QVERIFY(!layer.overviewBuildRunning());
+        QVERIFY(repaint.count() >= 1);
+
+        // The background rebuild reproduces the load-time bake exactly
+        // (same inputs, same code path).
+        QCOMPARE(layer.m_overviewTris.size(), bakedCount);
+        QCOMPARE(layer.m_nativeTriSpan, bakedSpan);
+        QVERIFY(layer.hasOverview());
+    }
+
     // P1.1 verify — QPainter vs QSG screenshots at three zooms for human
     // parity review; asserts both paths actually drew mesh pixels.
     void parityScreenshots()
@@ -208,10 +272,45 @@ private slots:
             {"full", 1.0}, {"mid", 0.5}, {"near", 0.25}};
         const QString outDir = outputDir();
 
-        QQuickWindow win;
-        win.resize(view);
-        auto *renderer = new SWMM2DMeshQSGRenderer(win.contentItem());
-        renderer->setSize(QSizeF(view));
+        // Production pipeline: the same offscreen QQuickWidget +
+        // qrc:/openswmm/qml/swmmlayer.qml + grabFramebuffer() round trip
+        // MapCanvas::paintEvent uses (the QML instantiates the mesh renderer
+        // as "mesh2dRenderer" — P1.1), rather than a bare QQuickWindow whose
+        // grabWindow() readback is unavailable under the offscreen QPA.
+        // main.cpp registers these for the app; QTEST_MAIN does not run it,
+        // so register here or swmmlayer.qml fails to load.
+        static bool typesRegistered = false;
+        if (!typesRegistered) {
+            qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0,
+                                                  "SWMMLayerQSGRenderer");
+            qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0,
+                                                   "SWMM2DMeshQSGRenderer");
+            qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0,
+                                                      "SWMM2DResultsQSGRenderer");
+            typesRegistered = true;
+        }
+
+        QQuickWidget qsgWidget;
+        qsgWidget.setAttribute(Qt::WA_DontShowOnScreen);
+        qsgWidget.setAttribute(Qt::WA_QuitOnClose, false);
+        qsgWidget.setClearColor(Qt::transparent);
+        qsgWidget.setResizeMode(QQuickWidget::SizeRootObjectToView);
+        // The app loads this from qrc; the test binary does not compile the
+        // resource bundle, so read the same file from the source tree.
+        QDir qmlDir(dataDir());          // tests/gui/data
+        qmlDir.cdUp(); qmlDir.cdUp(); qmlDir.cdUp();   // repo root
+        const QString qmlPath =
+            qmlDir.filePath(QStringLiteral("resources/qml/swmmlayer.qml"));
+        QVERIFY2(QFile::exists(qmlPath), qPrintable(qmlPath));
+        qsgWidget.setSource(QUrl::fromLocalFile(qmlPath));
+        qsgWidget.resize(view);
+        qsgWidget.show();
+        SWMM2DMeshQSGRenderer *renderer =
+            qsgWidget.rootObject()
+                ? qsgWidget.rootObject()->findChild<SWMM2DMeshQSGRenderer *>(
+                      QStringLiteral("mesh2dRenderer"))
+                : nullptr;
+        QVERIFY2(renderer, "swmmlayer.qml did not provide mesh2dRenderer");
         renderer->setLayer(&layer);
 
         const MapExtent full = layer.extent();
@@ -227,21 +326,31 @@ private slots:
                                  .arg(outDir, QLatin1String(z.name))));
 
             renderer->setMapExtent(full.scaled(z.factor));
-            const QImage qsg = win.grabWindow();
-            // Known env limitation: the offscreen QPA runs the scene-graph
-            // sync (updatePaintNode builds + uploads — the timings in the
-            // Phase 0 baseline scale with mesh size) but pixel readback can
-            // come back null or blank (same class as the pre-existing
-            // offscreen-GL gui-test failures). Save whatever we got as
-            // evidence and skip the pixel assertions; live QSG-vs-QPainter
-            // parity is verified interactively in the real app.
-            if (qsg.isNull() || nonWhitePixels(qsg) == 0) {
+            qsgWidget.repaint();                      // sync render, as MapCanvas does
+            QImage qsg = qsgWidget.grabFramebuffer();
+            // Transparent clear colour → count non-transparent instead of
+            // non-white.
+            int drawn = 0;
+            if (!qsg.isNull()) {
+                const QImage a = qsg.convertToFormat(QImage::Format_ARGB32);
+                for (int y = 0; y < a.height(); ++y) {
+                    const QRgb *row =
+                        reinterpret_cast<const QRgb *>(a.constScanLine(y));
+                    for (int x = 0; x < a.width(); ++x)
+                        if (qAlpha(row[x]) != 0) ++drawn;
+                }
+            }
+            if (qsg.isNull() || drawn == 0) {
+                // Same fallback as before: readback unavailable under this
+                // QPA/driver — evidence saved, pixel assertions skipped, and
+                // live parity is verified interactively in the real app.
                 if (!qsg.isNull())
                     qsg.save(QStringLiteral("%1/qsg_%2_blank.png")
                                  .arg(outDir, QLatin1String(z.name)));
                 qsgAvailable = false;
                 break;
             }
+            QVERIFY2(drawn > 1000, "QSG mesh renderer drew almost nothing");
             QVERIFY(qsg.save(QStringLiteral("%1/qsg_%2.png")
                                  .arg(outDir, QLatin1String(z.name))));
         }
