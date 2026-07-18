@@ -709,6 +709,7 @@
    <addaction name="actionSolarRadiation"/>
    <addaction name="separator"/>
    <addaction name="actionGenerateMesh"/>
+   <addaction name="actionImportFeatureLayer"/>
   </widget>
   <widget class="QToolBar" name="toolBarAnimation">
    <property name="windowTitle">
@@ -1708,6 +1709,24 @@
    </property>
    <property name="statusTip">
     <string>Open the 2D mesh generator (Tools → Generate 2D Mesh…)</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionImportFeatureLayer">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/ImportGIS</normaloff>:/swmmvis/ImportGIS</iconset>
+   </property>
+   <property name="text">
+    <string>Import Feature &amp;Layer…</string>
+   </property>
+   <property name="toolTip">
+    <string>Convert features from a GIS vector layer into SWMM objects — points to nodes or rain gages, polylines to conduits, pumps, orifices, weirs, or outlets — with attribute-column mapping and update/skip handling of existing objects.</string>
+   </property>
+   <property name="statusTip">
+    <string>Import a feature layer as SWMM objects (Tools → Import Feature Layer…)</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>

@@ -106,6 +106,7 @@
 #include "ui/dialogs/crschangedialog.h"
 #include "ui/dialogs/aboutdialog.h"
 #include "ui/dialogs/layerstyledialog.h"
+#include "ui/dialogs/import/importfeaturelayerdialog.h"
 #include "ui/dialogs/meshgenerationdialog.h"
 #include "ui/dialogs/newprojectdialog.h"
 #include "ui/dialogs/pluginsdialog.h"
@@ -3529,6 +3530,23 @@ void SWMMVis::initializeMenus()
                     s.setValue(key, true);
                 }
             }
+        });
+
+    // FEATURE_LAYER_TO_SWMM_IMPORT — Tools → Import Feature Layer…
+    // launches the feature-layer → SWMM objects import dialog.
+    if (ui->actionImportFeatureLayer)
+        connect(ui->actionImportFeatureLayer, &QAction::triggered, this,
+                [this]() {
+            auto *pw = activeProjectWindow();
+            if (!pw || !pw->modelLayer())
+            {
+                onLogMessage(tr("Import Feature Layer: open a SWMM project "
+                                "first."),
+                             OpenSWMMVisLogMessage::LogMessageType::Warning);
+                return;
+            }
+            openswmmvis::import::ImportFeatureLayerDialog dlg(pw, this);
+            dlg.exec();
         });
 
     // ---- Window menu (programmatic — .ui has no menuWindow) ----
