@@ -4614,6 +4614,29 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
                 /*ownsSRS=*/true);
         window->canvas()->addLayer(meshLayer, /*pushUndo=*/false);
 
+        // Dev/testing hook — SWMMVIS_SNAPSHOT_MESHSTYLE=<png> opens the mesh
+        // layer's style dialog (Symbology tab shows the MeshHillshadeEditor
+        // with the terrain + band classification editors) and grabs it
+        // in-process. Verifies the styling UI without a human navigating menus.
+        const QString mStyleSnap =
+            qEnvironmentVariable("SWMMVIS_SNAPSHOT_MESHSTYLE");
+        if (!mStyleSnap.isEmpty()) {
+            QTimer::singleShot(1500, this,
+                [this, mStyleSnap, ml = QPointer<SWMM2DMeshLayer>(meshLayer)]() {
+                    if (!ml) return;
+                    auto *dlg = new openswmmvis::ui::LayerStyleDialog(
+                        ml.data(), QStringLiteral("mesh.fill"), this);
+                    dlg->setAttribute(Qt::WA_DontShowOnScreen);
+                    dlg->resize(560, 1380);
+                    dlg->show();
+                    QTimer::singleShot(700, dlg, [dlg, mStyleSnap]() {
+                        dlg->grab().save(mStyleSnap);
+                        dlg->close();
+                        dlg->deleteLater();
+                    });
+                });
+        }
+
         // Background pyramid (overview) rebuilds — mirror the raster
         // overview-build UX: busy bar + status message + a log line each way.
         // Triggered from the layer-properties "Rebuild pyramid" button.

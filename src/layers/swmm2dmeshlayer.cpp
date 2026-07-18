@@ -1614,6 +1614,24 @@ QVector<int> SWMM2DMeshLayer::pickCellsInPolygon(const QPolygonF &scenePoly) con
     return hits;
 }
 
+QVector<double> SWMM2DMeshLayer::elevationSamples(int maxSamples) const
+{
+    const int nv = m_mesh.vertices.size();
+    QVector<double> out;
+    if (nv == 0) return out;
+
+    // Stride so very large meshes stay responsive under a "resample" click;
+    // step 1 (every vertex) for small meshes.
+    const int cap  = std::max(1, maxSamples);
+    const int step = (nv > cap) ? (nv + cap - 1) / cap : 1;
+    out.reserve((nv + step - 1) / step);
+    for (int i = 0; i < nv; i += step) {
+        const double z = m_mesh.vertices[i].z;
+        if (std::isfinite(z)) out.push_back(z);
+    }
+    return out;
+}
+
 double SWMM2DMeshLayer::sampleZAt(double sx, double sy) const
 {
     const int t = locateTriangleAt(sx, sy);
