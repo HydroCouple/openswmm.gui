@@ -111,6 +111,36 @@ TEST(Qsg2DLodPolicyTest, SelectedOverlayStaysEnabledAtFar)
     EXPECT_FALSE(Qsg2DLodPolicy::decide(in).drawSelectedOverlays);
 }
 
+TEST(Qsg2DLodPolicyTest, ZeroThresholdForcesEdgesAndVerticesEvenAtFar)
+{
+    // "Show edges/vertices at 0 px/cell" means always show when the sublayer
+    // is visible. This must hold at Far too — the Far bucket previously
+    // hard-vetoed both passes and ignored the threshold entirely.
+    Qsg2DLodInputs in = millionCellFullExtent();
+    in.edgeMinCellAreaPx   = 0.0;   // always draw edges when enabled
+    in.markerMinCellAreaPx = 0.0;   // always draw vertex markers when enabled
+
+    const auto d = Qsg2DLodPolicy::decide(in);
+    EXPECT_EQ(d.bucket, Qsg2DLodDecision::Far);   // still Far by density
+    EXPECT_TRUE(d.useAggregateFill);              // fill still uses overview
+    EXPECT_TRUE(d.drawEdges);                     // ...but edges draw through
+    EXPECT_TRUE(d.drawVertexMarkers);             // ...and so do vertices
+}
+
+TEST(Qsg2DLodPolicyTest, DefaultThresholdsStillSuppressDensePassesAtFar)
+{
+    // Regression guard: with a non-zero threshold above the Far ceiling the
+    // dense passes stay suppressed at Far (default performance behaviour).
+    Qsg2DLodInputs in = millionCellFullExtent();
+    in.edgeMinCellAreaPx   = 32.0;
+    in.markerMinCellAreaPx = 200.0;
+
+    const auto d = Qsg2DLodPolicy::decide(in);
+    EXPECT_EQ(d.bucket, Qsg2DLodDecision::Far);
+    EXPECT_FALSE(d.drawEdges);
+    EXPECT_FALSE(d.drawVertexMarkers);
+}
+
 // ── Stability / hysteresis ─────────────────────────────────────────────
 
 TEST(Qsg2DLodPolicyTest, BucketStableUnderTinyZoomJitter)
