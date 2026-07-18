@@ -29,6 +29,8 @@ class QSpinBox;
 class QTableView;
 class QTableWidget;
 class QTabWidget;
+class QListWidget;
+class QStackedWidget;
 class QTextEdit;
 class QTimeEdit;
 class QToolButton;
@@ -137,14 +139,20 @@ private:
     void applyEngineConstraints();
 
     void buildUi();
-    void buildTitleNotesTab(QTabWidget *tabs);
-    void buildModelsTab(QTabWidget *tabs);
-    void buildDatesTab(QTabWidget *tabs);
-    void buildHydraulicsTab(QTabWidget *tabs);
-    void buildPerformanceTab(QTabWidget *tabs);
-    void buildSpatialTab(QTabWidget *tabs);
-    void buildMeshTab(QTabWidget *tabs);
-    void buildFilesTab(QTabWidget *tabs);   ///< Slice AA-3.5 — [PLUGINS] + [FILES] editor
+    /*! Register a sidebar row + stacked page (page wrapped in a scroll area). */
+    void addCategory(const QString &title, QWidget *page);
+    /*! Enable/disable the 2D Surface Routing sidebar row (QStackedWidget has
+     *  no per-page enabled state, so gate at the list row). */
+    void set2DRowEnabled(bool enabled);
+    // Each build*Tab returns its page widget; buildUi adds it via addCategory.
+    QWidget *buildTitleNotesTab();
+    QWidget *buildModelsTab();
+    QWidget *buildDatesTab();
+    QWidget *buildHydraulicsTab();
+    QWidget *buildPerformanceTab();
+    QWidget *buildSpatialTab();
+    QWidget *buildMeshTab();
+    QWidget *buildFilesTab();   ///< Slice AA-3.5 — [PLUGINS] + [FILES] editor
     void readOutputPathsFromSettings();      ///< Slice AA-4 — per-project rpt/out paths
     void writeOutputPathsToSettings();       ///< Slice AA-4 — per-project rpt/out paths
     void refreshMeshList();                  ///< rescan project dir for *.2dm files
@@ -158,7 +166,7 @@ private:
     void onSingleContainerToggled(bool on);  ///< force Output+Report combos to match input
 
 #ifdef OPENSWMM_HAS_2D
-    void build2DTab(QTabWidget *tabs);
+    QWidget *build2DTab();
     void read2DFromEngine();
     int  write2DToEngine(int &n);
 #endif
@@ -291,9 +299,10 @@ private:
     // Tab 1 — Modules group (2D toggle)
     QCheckBox      *m_module1DBox       = nullptr;   ///< Always-on, disabled (1D core).
     QCheckBox      *m_module2DBox       = nullptr;   ///< Toggle 2D surface routing.
-    int             m_2DTabIndex        = -1;        ///< -1 if 2D tab not built.
-    int             m_meshTabIndex      = -1;        ///< Mesh-configurations tab.
-    QTabWidget     *m_tabs              = nullptr;   ///< Captured for runtime tab-enable.
+    int             m_2DRow             = -1;        ///< 2D page sidebar row (-1 if not built).
+    int             m_meshRow           = -1;        ///< Mesh-configurations sidebar row.
+    QListWidget    *m_categoryList      = nullptr;   ///< Left sidebar (page selector).
+    QStackedWidget *m_pages             = nullptr;   ///< Right page stack.
 
     // Mesh configurations tab — Slice AU module toggle.
     class QListWidget *m_meshList         = nullptr; ///< *.2dm files in project dir.

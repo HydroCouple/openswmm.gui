@@ -5,6 +5,8 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/simulationoptionsdialog.h"
+
+#include "ui/uiscrollhelpers.h"
 #include "ui/dialogs/crsselectiondialog.h"
 #include "ui/dialogs/hotstartsavesmodel.h"
 #include "ui/widgets/relativepathpicker.h"
@@ -43,6 +45,8 @@
 #include <QIcon>
 #include <QLabel>
 #include <QListWidget>
+#include <QListWidgetItem>
+#include <QStackedWidget>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>
@@ -229,35 +233,53 @@ void SimulationOptionsDialog::applyEngineConstraints()
 void SimulationOptionsDialog::buildUi()
 {
     auto *root = new QVBoxLayout(this);
-    auto *tabs = new QTabWidget(this);
-    m_tabs = tabs;  // captured so the 2D-module toggle can flip the tab.
-    root->addWidget(tabs, 1);
 
-    buildTitleNotesTab(tabs);
-    buildModelsTab(tabs);
-    buildDatesTab(tabs);
-    buildHydraulicsTab(tabs);
-    buildPerformanceTab(tabs);
-    buildSpatialTab(tabs);
+    // Settings-style navigation — a category list on the left switching a
+    // stacked page on the right (mirrors PreferencesDialog), replacing the
+    // former wide tab bar. Each build*Tab() returns its page; addCategory
+    // wraps it in a scroll area (so tall pages don't force the dialog tall)
+    // and registers the sidebar row.
+    auto *split = new QHBoxLayout();
+    split->setSpacing(8);
+    root->addLayout(split, 1);
+
+    m_categoryList = new QListWidget(this);
+    m_categoryList->setFixedWidth(190);
+    split->addWidget(m_categoryList);
+
+    m_pages = new QStackedWidget(this);
+    split->addWidget(m_pages, 1);
+
+    connect(m_categoryList, &QListWidget::currentRowChanged,
+            m_pages, &QStackedWidget::setCurrentIndex);
+
+    addCategory(tr("Title / Notes"),          buildTitleNotesTab());
+    addCategory(tr("Models / Processes"),     buildModelsTab());
+    addCategory(tr("Dates & Times"),          buildDatesTab());
+    addCategory(tr("Routing & Hydraulics"),   buildHydraulicsTab());
+    addCategory(tr("System / Performance"),   buildPerformanceTab());
+    addCategory(tr("Spatial & CRS"),          buildSpatialTab());
 
     // Mesh configurations — file-management UI, lives outside any
     // OPENSWMM_HAS_2D guard because picking a *.2dm reference is a pure
     // GUI concern (the engine 2D solver isn't required to organise mesh
     // candidates). Always editable: creating/selecting a mesh is what
     // turns on the 2D module, not the other way around.
-    buildMeshTab(tabs);
-    m_meshTabIndex = tabs->count() - 1;
+    addCategory(tr("Mesh"), buildMeshTab());
+    m_meshRow = m_categoryList->count() - 1;
 
 #ifdef OPENSWMM_HAS_2D
-    build2DTab(tabs);
-    m_2DTabIndex = tabs->count() - 1;  // index of the just-added 2D tab.
+    addCategory(tr("2D Surface Routing"), build2DTab());
+    m_2DRow = m_categoryList->count() - 1;  // sidebar row for the 2D page.
     if (m_module2DBox)
-        tabs->setTabEnabled(m_2DTabIndex, m_module2DBox->isChecked());
+        set2DRowEnabled(m_module2DBox->isChecked());
 #endif
 
-    // Slice AA-3.5 — Files / Plugins tab.  Lives at the end of the tab
-    // bar so existing tab numbering is preserved.
-    buildFilesTab(tabs);
+    // Slice AA-3.5 — Files / Plugins page (its own inner sub-tabs). Lives at
+    // the end so existing ordering is preserved.
+    addCategory(tr("Files / Output / Plugins"), buildFilesTab());
+
+    m_categoryList->setCurrentRow(0);
 
     auto *bb = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Apply, this);
@@ -268,9 +290,30 @@ void SimulationOptionsDialog::buildUi()
             this, &SimulationOptionsDialog::onApply);
 }
 
-void SimulationOptionsDialog::buildTitleNotesTab(QTabWidget *tabs)
+void SimulationOptionsDialog::addCategory(const QString &title, QWidget *page)
 {
-    auto *page = new QWidget(tabs);
+    m_categoryList->addItem(title);
+    m_pages->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_pages));
+}
+
+void SimulationOptionsDialog::set2DRowEnabled(bool enabled)
+{
+    if (m_2DRow < 0) return;
+    QListWidgetItem *item = m_categoryList->item(m_2DRow);
+    if (!item) return;
+    // A QStackedWidget has no per-page "enabled tab", so gate at the sidebar
+    // row instead: keep it visible but non-selectable when 2D is off.
+    item->setFlags(enabled
+                       ? (Qt::ItemIsSelectable | Qt::ItemIsEnabled)
+                       : Qt::ItemFlags(Qt::NoItemFlags));
+    // If the disabled row was current, move focus off it.
+    if (!enabled && m_categoryList->currentRow() == m_2DRow)
+        m_categoryList->setCurrentRow(0);
+}
+
+QWidget *SimulationOptionsDialog::buildTitleNotesTab()
+{
+    auto *page = new QWidget(this);
     auto *vlay = new QVBoxLayout(page);
 
     auto *toolbar = new QToolBar(page);
@@ -343,12 +386,12 @@ void SimulationOptionsDialog::buildTitleNotesTab(QTabWidget *tabs)
                     m_titleUnderlineAction->setChecked(fmt.fontUnderline());
             });
 
-    tabs->addTab(page, tr("Title / Notes"));
+    return page;
 }
 
-void SimulationOptionsDialog::buildModelsTab(QTabWidget *tabs)
+QWidget *SimulationOptionsDialog::buildModelsTab()
 {
-    auto *page = new QWidget(tabs);
+    auto *page = new QWidget(this);
     auto *vlay = new QVBoxLayout(page);
 
     auto *procGroup = new QGroupBox(tr("Process models"), page);
@@ -452,12 +495,12 @@ void SimulationOptionsDialog::buildModelsTab(QTabWidget *tabs)
 
     vlay->addStretch();
 
-    tabs->addTab(page, tr("Models / Processes"));
+    return page;
 }
 
-void SimulationOptionsDialog::buildDatesTab(QTabWidget *tabs)
+QWidget *SimulationOptionsDialog::buildDatesTab()
 {
-    auto *page = new QWidget(tabs);
+    auto *page = new QWidget(this);
     auto *vlay = new QVBoxLayout(page);
 
     // ── Simulation window ──────────────────────────────────────────────
@@ -638,12 +681,12 @@ void SimulationOptionsDialog::buildDatesTab(QTabWidget *tabs)
     vlay->addWidget(evGroup);
     vlay->addStretch();
 
-    tabs->addTab(page, tr("Dates & Times"));
+    return page;
 }
 
-void SimulationOptionsDialog::buildHydraulicsTab(QTabWidget *tabs)
+QWidget *SimulationOptionsDialog::buildHydraulicsTab()
 {
-    auto *page = new QWidget(tabs);
+    auto *page = new QWidget(this);
     auto *vlay = new QVBoxLayout(page);
 
     // ── Surcharge group ────────────────────────────────────────────────
@@ -769,12 +812,12 @@ void SimulationOptionsDialog::buildHydraulicsTab(QTabWidget *tabs)
     vlay->addWidget(condGroup);
     vlay->addStretch();
 
-    tabs->addTab(page, tr("Routing & Hydraulics"));
+    return page;
 }
 
-void SimulationOptionsDialog::buildPerformanceTab(QTabWidget *tabs)
+QWidget *SimulationOptionsDialog::buildPerformanceTab()
 {
-    auto *page = new QWidget(tabs);
+    auto *page = new QWidget(this);
     auto *vlay = new QVBoxLayout(page);
 
     auto *threadsGroup = new QGroupBox(tr("Parallelisation"), page);
@@ -799,7 +842,7 @@ void SimulationOptionsDialog::buildPerformanceTab(QTabWidget *tabs)
     vlay->addWidget(threadsGroup);
     vlay->addStretch();
 
-    tabs->addTab(page, tr("System / Performance"));
+    return page;
 }
 
 void SimulationOptionsDialog::updateSurchargeFieldsEnabled()
@@ -836,9 +879,9 @@ void SimulationOptionsDialog::updateDurationLabel()
 // Tab 5 — Spatial & CRS
 // ---------------------------------------------------------------------------
 
-void SimulationOptionsDialog::buildSpatialTab(QTabWidget *tabs)
+QWidget *SimulationOptionsDialog::buildSpatialTab()
 {
-    auto *page = new QWidget(tabs);
+    auto *page = new QWidget(this);
     auto *vlay = new QVBoxLayout(page);
 
     auto *crsGroup = new QGroupBox(tr("Coordinate reference system"), page);
@@ -878,7 +921,7 @@ void SimulationOptionsDialog::buildSpatialTab(QTabWidget *tabs)
     vlay->addWidget(crsGroup);
     vlay->addStretch();
 
-    tabs->addTab(page, tr("Spatial & CRS"));
+    return page;
 
     connect(m_crsChangeButton, &QToolButton::clicked,
             this, &SimulationOptionsDialog::onSpatialPickCRS);
@@ -974,9 +1017,9 @@ void SimulationOptionsDialog::onSpatialDetectCRS()
 // Mesh tab — Slice AU file-management for 2D mesh configurations
 // ---------------------------------------------------------------------------
 
-void SimulationOptionsDialog::buildMeshTab(QTabWidget *tabs)
+QWidget *SimulationOptionsDialog::buildMeshTab()
 {
-    auto *page = new QWidget(tabs);
+    auto *page = new QWidget(this);
     auto *vlay = new QVBoxLayout(page);
 
     auto *header = new QLabel(tr(
@@ -1022,7 +1065,7 @@ void SimulationOptionsDialog::buildMeshTab(QTabWidget *tabs)
             &SimulationOptionsDialog::onMeshRemove);
 
     refreshMeshList();
-    tabs->addTab(page, tr("Mesh"));
+    return page;
 }
 
 void SimulationOptionsDialog::refreshMeshList()
@@ -1255,12 +1298,11 @@ void SimulationOptionsDialog::onMeshRemove()
 
 void SimulationOptionsDialog::on2DModuleToggled(bool enabled)
 {
-    // Only the 2D Surface Routing solver-parameter tab follows the module
-    // toggle. The Mesh tab is always interactive — mesh creation is what
+    // Only the 2D Surface Routing solver-parameter page follows the module
+    // toggle. The Mesh page is always interactive — mesh creation is what
     // flips the module on, so gating it here would be circular.
 #ifdef OPENSWMM_HAS_2D
-    if (m_tabs && m_2DTabIndex >= 0)
-        m_tabs->setTabEnabled(m_2DTabIndex, enabled);
+    set2DRowEnabled(enabled);
 #else
     Q_UNUSED(enabled);
 #endif
@@ -1272,9 +1314,9 @@ void SimulationOptionsDialog::on2DModuleToggled(bool enabled)
 // Tab 6 — 2D Surface Routing  (only present when the engine ships the 2D module)
 // ---------------------------------------------------------------------------
 
-void SimulationOptionsDialog::build2DTab(QTabWidget *tabs)
+QWidget *SimulationOptionsDialog::build2DTab()
 {
-    auto *page = new QWidget(tabs);
+    auto *page = new QWidget(this);
     auto *vlay = new QVBoxLayout(page);
 
     auto *cvodeGroup = new QGroupBox(tr("CVODE solver"), page);
@@ -1408,7 +1450,7 @@ void SimulationOptionsDialog::build2DTab(QTabWidget *tabs)
 
     vlay->addStretch();
 
-    tabs->addTab(page, tr("2D Surface Routing"));
+    return page;
 }
 
 void SimulationOptionsDialog::read2DFromEngine()
@@ -2298,7 +2340,7 @@ void SimulationOptionsDialog::readFromEngine()
 // Tab 7 — Files / Plugins (Slice AA-3.5)
 // ---------------------------------------------------------------------------
 
-void SimulationOptionsDialog::buildFilesTab(QTabWidget *tabs)
+QWidget *SimulationOptionsDialog::buildFilesTab()
 {
     // Phase 3.10 (2026-05-22) — the legacy single "Files" page is split
     // into three sub-tabs (Files / Output / Plugins) via a nested
@@ -2307,7 +2349,7 @@ void SimulationOptionsDialog::buildFilesTab(QTabWidget *tabs)
     //   • Files   — [FILES] secondary refs + scheduled hot-start saves
     //   • Output  — writer combos + [REPORT] flags + .rpt / .out paths
     //   • Plugins — [PLUGINS] table editor (Phase 3.10.3)
-    auto *page = new QWidget(tabs);
+    auto *page = new QWidget(this);
     auto *outerLay = new QVBoxLayout(page);
     outerLay->setContentsMargins(0, 0, 0, 0);
 
@@ -2795,7 +2837,7 @@ void SimulationOptionsDialog::buildFilesTab(QTabWidget *tabs)
 
     subTabs->addTab(pluginsPage, tr("Plugins"));
 
-    tabs->addTab(page, tr("Files / Output / Plugins"));
+    return page;
 }
 
 void SimulationOptionsDialog::readPluginsFromEngine()

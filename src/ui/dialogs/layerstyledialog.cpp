@@ -634,7 +634,11 @@ void LayerStyleDialog::buildLabelsTab()
     // SWMMModelLayer and GISVectorLayer drive the same tab; the host
     // layer's setLabelConfig() emits labelConfigChanged so the canvas
     // + legend stay in sync via the standard MVC channel.
-    m_tabs->addTab(new openswmmvis::ui::LabelsTab(m_layer, m_tabs),
+    // Wrap in a scroll area (matching buildSubjectEditor's Symbology path) so
+    // the stacked group boxes keep their sizes and the page scrolls instead of
+    // squeezing the controls when the dialog is small.
+    m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(
+                       new openswmmvis::ui::LabelsTab(m_layer, m_tabs), m_tabs),
                    style()->standardIcon(QStyle::SP_FileDialogDetailedView),
                    tr("Labels"));
 }
