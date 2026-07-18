@@ -9,6 +9,7 @@
 #include "layers/gisvectorlayer.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
+#include "ui/uiscrollhelpers.h"
 #include "ui/widgets/colorbutton.h"
 
 #include <QCheckBox>
@@ -51,6 +52,12 @@ void writeLabelConfig(OpenSWMMVisLayer *layer, const LabelConfig &cfg)
 LabelsTab::LabelsTab(OpenSWMMVisLayer *layer, QWidget *parent)
     : QWidget(parent), m_layer(layer)
 {
+    // Readable floor: when hosted in a scroll area (LayerStyleDialog wraps this
+    // tab), a narrower dialog scrolls rather than collapsing the form's combos
+    // and spin boxes. The label column + a min-width control column need
+    // roughly this much to stay legible.
+    setMinimumWidth(OpenSWMM::Ui::kComboMinWidthPx + 240);
+
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(8, 8, 8, 8);
     outer->setSpacing(8);

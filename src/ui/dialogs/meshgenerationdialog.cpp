@@ -6,6 +6,8 @@
  */
 #include "ui/dialogs/meshgenerationdialog.h"
 
+#include "ui/uiscrollhelpers.h"
+
 #include "core/unitsystem.h"
 #include "swmmvisprojectwindow.h"
 #include "map/mapcanvas.h"
@@ -828,7 +830,10 @@ MeshGenerationDialog::MeshGenerationDialog(SWMMVisProjectWindow *pw,
       m_pw(pw)
 {
     setWindowTitle(tr("Generate 2D Mesh"));
-    resize(520, 510);
+    // Compact default — the tab pages scroll (see buildUi), so the window no
+    // longer has to be tall enough to show the tallest page in full.
+    resize(540, 560);
+    setMinimumHeight(420);
     buildUi();
     seedDefaults();
 
@@ -1085,7 +1090,8 @@ void MeshGenerationDialog::buildUi()
     }
 
     sourcesVBox->addStretch();
-    tabs->addTab(sourcesPage, tr("Sources"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(sourcesPage, tabs),
+                 tr("Sources"));
 
     // ================================================================
     // Tab 2 — Quality
@@ -1245,7 +1251,8 @@ void MeshGenerationDialog::buildUi()
     syncThinning();
 
     qualityVBox->addStretch();
-    tabs->addTab(qualityPage, tr("Quality"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(qualityPage, tabs),
+                 tr("Quality"));
 
     // ================================================================
     // Tab 3 — Hydraulics
@@ -1291,7 +1298,8 @@ void MeshGenerationDialog::buildUi()
     }
 
     hydraulicsVBox->addStretch();
-    tabs->addTab(hydraulicsPage, tr("Hydraulics"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(hydraulicsPage, tabs),
+                 tr("Hydraulics"));
 
     outer->addWidget(tabs, 1);
 
@@ -1426,9 +1434,9 @@ void MeshGenerationDialog::seedDefaults()
     m_simplifyEpsSpin->setValue(0.1  * toUnit);
     m_snapEpsSpin->setValue(    0.01 * toUnit);
     m_nodeFlattenSpin->setValue(5.0  * toUnit);   // 5 m default flatten radius
-    m_thinningBox->setChecked(false);
-    m_thinningToleranceSpin->setValue(0.70); // default normal dot threshold
-    m_thinningIterationsSpin->setValue(0);
+    m_thinningBox->setChecked(true);         // thinning on by default
+    m_thinningToleranceSpin->setValue(1.0);  // default normal dot threshold
+    m_thinningIterationsSpin->setValue(3);   // default thinning passes
     m_thinningMaxPointsSpin->setValue(0);
     m_minSpacingBox->setChecked(false);
     m_minSpacingSpin->setValue(0.0);
