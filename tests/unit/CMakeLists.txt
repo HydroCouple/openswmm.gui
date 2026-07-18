@@ -399,3 +399,14 @@ target_link_libraries(test_contourjob PRIVATE Qt6::Gui)
 add_swmmvis_unit_test(test_scalarramplut
     test_scalarramplut.cpp
 )
+
+# FEATURE_LAYER_TO_SWMM_IMPORT — pure planning core (registry schema,
+# mapping JSON round-trip, coercion, endpoint/conflict matrix). Qt-Core
+# only by design: SourceFeature/ModelSnapshot PODs stand in for OGR
+# features and the engine (see importplanning.h).
+add_swmmvis_unit_test(test_importplanning
+    test_importplanning.cpp
+    ${PROJECT_SOURCE_DIR}/src/ui/dialogs/import/importtargetregistry.cpp
+    ${PROJECT_SOURCE_DIR}/src/ui/dialogs/import/importmapping.cpp
+    ${PROJECT_SOURCE_DIR}/src/ui/dialogs/import/importplanning.cpp
+)

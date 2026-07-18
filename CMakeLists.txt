@@ -340,6 +340,8 @@ set(
         include/map/mapcanvas.h
         include/map/maprenderjob.h
         include/map/mapundostack.h
+        # FEATURE_LAYER_TO_SWMM_IMPORT — import-specific undo commands.
+        include/map/importcommands.h
         # Slice BB Phase 8.6.16 — QUndoCommand for per-class renderer edits.
         include/map/legendclasseditcommands.h
         # Gap B1 — canonical legend-content helpers shared by both legend views.
@@ -658,6 +660,17 @@ set(
         include/ui/dialogs/kindtreesymbologypanel.h
         include/ui/dialogs/layerstyledialog.h
         include/ui/dialogs/sublayerselectiondialog.h
+        # FEATURE_LAYER_TO_SWMM_IMPORT — feature layer → SWMM objects
+        # import dialog (workplans/FEATURE_LAYER_TO_SWMM_IMPORT_DIALOG_
+        # PLAN_2026-07-18.md).
+        include/ui/dialogs/import/importtargetregistry.h
+        include/ui/dialogs/import/importmapping.h
+        include/ui/dialogs/import/importplan.h
+        include/ui/dialogs/import/importplanning.h
+        include/ui/dialogs/import/featurelayerimporter.h
+        include/ui/dialogs/import/importmappingmodel.h
+        include/ui/dialogs/import/importpreviewmodel.h
+        include/ui/dialogs/import/importfeaturelayerdialog.h
         # Slice Z.2 — Rule-as-ILayerStyleSubject adapter
         # (RENDERING_RULE_MODEL_PLAN.md).
         include/ui/dialogs/rulestylesubject.h
@@ -882,6 +895,8 @@ set(
         src/map/mapcanvas.cpp
         src/map/maprenderjob.cpp
         src/map/mapundostack.cpp
+        # FEATURE_LAYER_TO_SWMM_IMPORT — import-specific undo commands.
+        src/map/importcommands.cpp
         # Slice BB Phase 8.6.16 — QUndoCommand for per-class renderer edits.
         src/map/legendclasseditcommands.cpp
         # Gap B1 — canonical legend-content helpers shared by both legend views.
@@ -1160,6 +1175,14 @@ set(
         src/ui/dialogs/kindtreesymbologypanel.cpp
         src/ui/dialogs/layerstyledialog.cpp
         src/ui/dialogs/sublayerselectiondialog.cpp
+        # FEATURE_LAYER_TO_SWMM_IMPORT — feature layer → SWMM objects import.
+        src/ui/dialogs/import/importtargetregistry.cpp
+        src/ui/dialogs/import/importmapping.cpp
+        src/ui/dialogs/import/importplanning.cpp
+        src/ui/dialogs/import/featurelayerimporter.cpp
+        src/ui/dialogs/import/importmappingmodel.cpp
+        src/ui/dialogs/import/importpreviewmodel.cpp
+        src/ui/dialogs/import/importfeaturelayerdialog.cpp
         # Slice Z.2 — Rule-as-ILayerStyleSubject adapter impl.
         src/ui/dialogs/rulestylesubject.cpp
         # Slice Z.3 — Rule-driven Symbology tab widget impl.
