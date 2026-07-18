@@ -2410,22 +2410,17 @@ SWMM2DMeshLayer::styleSubjects()
     };
 
     const int n = m_ruleList->count();
-    Rule *rFill = n > 0 ? m_ruleList->at(0) : nullptr;  // Mesh fill (RasterColorRamp)
-    Rule *rBand = n > 2 ? m_ruleList->at(2) : nullptr;  // Contour bands (Filled)
-    Rule *rLine = n > 3 ? m_ruleList->at(3) : nullptr;  // Contour lines (Lines)
     Rule *rEdge = n > 4 ? m_ruleList->at(4) : nullptr;  // Mesh edges
     Rule *rNode = n > 5 ? m_ruleList->at(5) : nullptr;  // Mesh nodes
 
-    // Mesh fill — flat fill colour + opacity ride the ramp spec's
-    // noDataColor/opacity (the only fields the fill back-prop consumes; other
-    // ramp fields are inert for the flat terrain fill).
-    if (rFill && m_meshFillSublayer && m_meshFillSublayer->fillStyle()) {
-        RasterColorRampSymbolLayerSpec spec;
-        spec.opacity     = m_meshFillSublayer->opacity();
-        spec.noDataColor = m_meshFillSublayer->fillStyle()->fillColor();
-        setRuleLayer(rFill, spec.toSymbolLayer());
-        addAdapter(rFill, m_meshFillSublayer->displayName(), m_meshFillSublayer->id());
-    }
+    // The fill, contour-band and contour-line sublayers are intentionally NOT
+    // exposed here: their colour band / classification / sampling is edited
+    // solely by the "Mesh / TIN" tab's ClassificationEditors (MeshFillStyle /
+    // ContourBandStyle scheme + IsolineStyle). The SymbolStyleAdapter path can
+    // only carry a flat low/high gradient, which cannot represent the scheme
+    // and previously duplicated (and, for bands, fought) the Mesh/TIN editors.
+    // Only edges and vertex markers — whose colour/width/dash/marker styling
+    // lives nowhere else — remain in the Sublayers section.
 
     // Mesh edges.
     if (rEdge && m_meshEdgeSublayer && m_meshEdgeSublayer->edgeStyle()) {
@@ -2453,31 +2448,6 @@ SWMM2DMeshLayer::styleSubjects()
         spec.marker.shape        = static_cast<MarkerShape>(static_cast<int>(st->shape()));
         setRuleLayer(rNode, spec.toSymbolLayer());
         addAdapter(rNode, m_meshNodeSublayer->displayName(), m_meshNodeSublayer->id());
-    }
-
-    // Contour bands (filled isobands).
-    if (rBand && m_contourBandSublayer && m_contourBandSublayer->bandStyle()) {
-        auto *st = m_contourBandSublayer->bandStyle();
-        ContourSymbolLayerSpec spec;
-        spec.mode        = ContourMode::Filled;
-        spec.smoothBands = st->smoothBands();
-        spec.binner.setBinCount(st->bandCount());
-        spec.ramp.stops  = QGradientStops{ {0.0, st->lowColor()}, {1.0, st->highColor()} };
-        setRuleLayer(rBand, spec.toSymbolLayer());
-        addAdapter(rBand, m_contourBandSublayer->displayName(), m_contourBandSublayer->id());
-    }
-
-    // Contour lines (isolines).
-    if (rLine && m_isolineSublayer && m_isolineSublayer->isolineStyle()) {
-        auto *st = m_isolineSublayer->isolineStyle();
-        ContourSymbolLayerSpec spec;
-        spec.mode        = ContourMode::Lines;
-        spec.lineColor   = st->color();
-        spec.lineWidthPx = st->lineWidthPx();
-        spec.labelEveryN = st->labels() ? 1 : 0;
-        spec.binner.setBinCount(st->isoValueCount());
-        setRuleLayer(rLine, spec.toSymbolLayer());
-        addAdapter(rLine, m_isolineSublayer->displayName(), m_isolineSublayer->id());
     }
 
     return out;
