@@ -202,6 +202,14 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
         },
         /*continuous=*/true, tBox);
     tLay->addWidget(m_terrainClassEditor);
+
+    auto *tOpRow = new QFormLayout;
+    m_fillOpacity = new QDoubleSpinBox(this);
+    m_fillOpacity->setRange(0.0, 1.0);
+    m_fillOpacity->setSingleStep(0.05);
+    m_fillOpacity->setDecimals(2);
+    tOpRow->addRow(tr("Fill opacity:"), m_fillOpacity);
+    tLay->addLayout(tOpRow);
     root->addWidget(tBox);
 
     // ── Hillshade group ────────────────────────────────────────────────
@@ -286,6 +294,9 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     m_contourWidth->setSingleStep(0.25);
     m_contourWidth->setSuffix(tr(" px"));
     cForm->addRow(tr("Line width:"), m_contourWidth);
+
+    m_showLabels = new QCheckBox(tr("Show elevation labels"), cBox);
+    cForm->addRow(QString(), m_showLabels);
     root->addWidget(cBox);
 
     // ── Filled elevation bands (own classification) ─────────────────────
@@ -296,6 +307,12 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
 
     m_filledContours = new QCheckBox(tr("Show filled elevation bands"), bBox);
     bLay->addWidget(m_filledContours);
+
+    m_smoothBands = new QCheckBox(tr("Smooth band boundaries"), bBox);
+    m_smoothBands->setToolTip(tr(
+        "On: class boundaries are interpolated through cells (marching "
+        "triangles). Off: each cell is filled flat with its band colour."));
+    bLay->addWidget(m_smoothBands);
 
     auto *opRow = new QFormLayout;
     m_filledOpacity = new QDoubleSpinBox(this);
@@ -374,8 +391,17 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
             });
     connect(m_contourColor, &ColorButton::colorChanged, this, [this](const QColor &c) { m_layer->setContourColor(c); });
     connect(m_contourWidth, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) { m_layer->setContourLineWidth(v); });
+    connect(m_showLabels, &QCheckBox::toggled, this, [this](bool v) {
+        if (auto *iso = isoStyleOf(m_layer)) iso->setLabels(v);
+    });
     connect(m_filledContours, &QCheckBox::toggled, this, [this](bool v) { m_layer->setFilledContours(v); });
     connect(m_filledOpacity, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) { m_layer->setFilledContoursOpacity(v); });
+    connect(m_smoothBands, &QCheckBox::toggled, this, [this](bool v) {
+        if (auto *b = bandStyleOf(m_layer)) b->setSmoothBands(v);
+    });
+    connect(m_fillOpacity, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+        if (auto *fs = m_layer->meshFillSublayer()) fs->setOpacity(v);
+    });
 
     refreshFromModel();
 }
@@ -391,6 +417,7 @@ void MeshHillshadeEditor::refreshFromModel()
         b10(m_showContours), b11(m_intervals),
         b12(m_contourColor), b13(m_contourWidth),
         b14(m_filledContours), b15(m_filledOpacity),
+        b16(m_showLabels), b17(m_smoothBands), b18(m_fillOpacity),
         b20(m_edgeZoomPx), b21(m_vertexZoomPx);
 
     m_edgeZoomPx->setValue(m_layer->edgeZoomMinCellPx());
@@ -421,12 +448,18 @@ void MeshHillshadeEditor::refreshFromModel()
     m_sunThumb->setAltitude(alt);
 
     m_showContours->setChecked(m_layer->showContours());
-    if (auto *iso = isoStyleOf(m_layer))
+    if (auto *iso = isoStyleOf(m_layer)) {
         m_intervals->setValue(iso->isoValueCount());
+        m_showLabels->setChecked(iso->labels());
+    }
     m_contourColor->setColor(m_layer->contourColor());
     m_contourWidth->setValue(m_layer->contourLineWidth());
     m_filledContours->setChecked(m_layer->filledContours());
     m_filledOpacity->setValue(m_layer->filledContoursOpacity());
+    if (auto *b = bandStyleOf(m_layer))
+        m_smoothBands->setChecked(b->smoothBands());
+    if (auto *fs = m_layer->meshFillSublayer())
+        m_fillOpacity->setValue(fs->opacity());
 }
 
 // Registry — MeshHillshadeEditor displaces the QPropertyModel fallback for

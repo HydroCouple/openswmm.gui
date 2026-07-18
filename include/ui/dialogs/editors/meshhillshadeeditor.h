@@ -85,16 +85,19 @@ private:
 
     // Terrain-fill classification (colour band + method + resample + bins).
     ClassificationEditor *m_terrainClassEditor = nullptr;
+    QDoubleSpinBox       *m_fillOpacity        = nullptr;   // fill sublayer opacity
 
     // Contour lines (isolines — single colour)
     QCheckBox      *m_showContours      = nullptr;
     QSpinBox       *m_intervals         = nullptr;   // isoline count
     ColorButton    *m_contourColor      = nullptr;
     QDoubleSpinBox *m_contourWidth      = nullptr;
+    QCheckBox      *m_showLabels        = nullptr;   // isoline elevation labels
 
     // Filled elevation bands (own classification editor)
     QCheckBox      *m_filledContours    = nullptr;
     QDoubleSpinBox *m_filledOpacity     = nullptr;
+    QCheckBox      *m_smoothBands       = nullptr;   // marching vs flat band fill
     ClassificationEditor *m_bandClassEditor = nullptr;
 
     QDoubleSpinBox    *m_edgeZoomPx     = nullptr;   // wireframe auto-show threshold
