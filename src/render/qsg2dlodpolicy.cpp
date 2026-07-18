@@ -110,8 +110,18 @@ Qsg2DLodDecision Qsg2DLodPolicy::decide(const Qsg2DLodInputs &in)
     case Qsg2DLodDecision::Far:
         d.drawFill             = in.wantFill;
         d.useAggregateFill     = true;
-        d.drawEdges            = false;
-        d.drawVertexMarkers    = false;
+        // Honour the configurable per-pass thresholds even at Far so the
+        // "show edges/vertices at N px/cell" control — where 0 means
+        // "always show when the sublayer is visible" — is respected across
+        // the entire zoom range, not just Mid/Near. With the default
+        // thresholds (edges 9 px², markers 36 px², both above the Far
+        // ceiling farMaxCellAreaPx) this stays false, so dense million-scale
+        // wireframe/markers remain suppressed by default; only an explicit
+        // low/zero threshold draws through here.
+        d.drawEdges            = in.wantEdges
+                                 && d.avgCellAreaPx >= in.edgeMinCellAreaPx;
+        d.drawVertexMarkers    = in.wantVertexMarkers
+                                 && d.avgCellAreaPx >= in.markerMinCellAreaPx;
         d.drawContours         = false;
         d.drawContourLabels    = false;
         d.exactContourBands    = false;
