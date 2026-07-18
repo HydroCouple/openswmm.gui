@@ -36,6 +36,7 @@ class QToolButton;
 namespace openswmmvis::ui {
 
 class ColorButton;
+class ClassificationEditor;
 
 /*! Compact thumbnail rendering the sun's azimuth + altitude on a compass
  *  dial. Pure repaint; no user interaction. */
@@ -82,19 +83,22 @@ private:
     QSlider        *m_minLitSlider = nullptr;
     SunPositionThumb *m_sunThumb = nullptr;
 
-    // Contours
+    // Terrain-fill classification (colour band + method + resample + bins).
+    ClassificationEditor *m_terrainClassEditor = nullptr;
+
+    // Contour lines (isolines — single colour)
     QCheckBox      *m_showContours      = nullptr;
-    QSpinBox       *m_intervals         = nullptr;
-    QComboBox      *m_contourMethod     = nullptr;   // Slice US.3 — band classification method
+    QSpinBox       *m_intervals         = nullptr;   // isoline count
     ColorButton    *m_contourColor      = nullptr;
     QDoubleSpinBox *m_contourWidth      = nullptr;
+
+    // Filled elevation bands (own classification editor)
     QCheckBox      *m_filledContours    = nullptr;
-    ColorRampComboBox *m_contourRamp    = nullptr;   // Slice US.3 — band colour scale
-    ColorRampComboBox *m_terrainRamp    = nullptr;   // terrain-fill colour scale
-    QCheckBox         *m_terrainInvert  = nullptr;   // terrain-fill ramp inversion
+    QDoubleSpinBox *m_filledOpacity     = nullptr;
+    ClassificationEditor *m_bandClassEditor = nullptr;
+
     QDoubleSpinBox    *m_edgeZoomPx     = nullptr;   // wireframe auto-show threshold
     QDoubleSpinBox    *m_vertexZoomPx   = nullptr;   // vertex auto-show threshold
-    QDoubleSpinBox *m_filledOpacity     = nullptr;
 };
 
 } // namespace openswmmvis::ui
