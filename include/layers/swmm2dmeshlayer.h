@@ -440,6 +440,12 @@ public:
     [[nodiscard]] double zMin() const { return m_zMin; }
     [[nodiscard]] double zMax() const { return m_zMax; }
 
+    /*! \brief Per-vertex bed-elevation samples, for data-driven classification
+     *  (quantile / natural-breaks / std-dev). Strided down to at most
+     *  \p maxSamples so a "resample" on a multi-million-vertex mesh stays
+     *  responsive; the resulting distribution is representative for binning. */
+    [[nodiscard]] QVector<double> elevationSamples(int maxSamples = 200000) const;
+
     // ----- OpenSWMMVisLayer interface ----------------------------------------
 
     void populateScene(QGraphicsScene *scene,
