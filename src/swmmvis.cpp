@@ -4503,6 +4503,28 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
         // Required by §M.1 trigger 1 (project open) — see Slice CX.
         mActiveProjectWindow = nullptr;
         onActiveSubWindowChanged(window);
+
+        // Dev/testing hook — SWMMVIS_SNAPSHOT_SIMOPTS=<png> builds the
+        // Simulation Options dialog non-modally, grabs it in-process (no
+        // screen-recording permission needed), saves, and closes. Lets the
+        // list/stack layout be verified without a human opening the menu.
+        const QString soSnap =
+            qEnvironmentVariable("SWMMVIS_SNAPSHOT_SIMOPTS");
+        if (!soSnap.isEmpty() && window->modelLayer()
+            && window->modelLayer()->engine()) {
+            QTimer::singleShot(2500, this, [this, window, soSnap]() {
+                auto *dlg = new SimulationOptionsDialog(
+                    window->modelLayer()->engine(), window->modelLayer(),
+                    window->engineVersion(), window, this);
+                dlg->setAttribute(Qt::WA_DontShowOnScreen);
+                dlg->show();
+                QTimer::singleShot(600, dlg, [dlg, soSnap]() {
+                    dlg->grab().save(soSnap);
+                    dlg->close();
+                    dlg->deleteLater();
+                });
+            });
+        }
     }
     else
     {
