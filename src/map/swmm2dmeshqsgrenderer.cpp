@@ -1094,8 +1094,12 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         }
 
         // ---- Pass 3: bed-elevation contour lines (IsolineSublayer) -------
-        // Phase 3 LOD: suppressed at Far (subpixel cells → visual noise).
-        const bool isoVisible = isoSub && isoSub->isVisible() && lod.drawContours;
+        // Elevation contours render at ALL zoom levels when the user enables
+        // them: the marching-triangles output is zoom-invariant and cached
+        // (see below), and culled to the coverage rect, so drawing it at Far
+        // is cheap. Only the showContours toggle (isoSub visibility) gates it
+        // — matching the QPainter fallback path, which never LOD-gated it.
+        const bool isoVisible = isoSub && isoSub->isVisible();
         if (hasElev && isoVisible) {
             // Slice US.3 — interior levels from the isoline sublayer's
             // ClassificationScheme over the elevation range (method-aware).
