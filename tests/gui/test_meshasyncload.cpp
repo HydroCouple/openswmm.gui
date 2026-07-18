@@ -447,6 +447,16 @@ private slots:
         QVERIFY2(read.hasMesh, qPrintable(read.errorMsg));
         SWMM2DMeshLayer layer(std::move(read.mesh), read.sourcePath);
 
+        // Optional SWMMVIS_MESH_PARITY_CONTOURS=1 turns bed-elevation contours
+        // on (off by default) so the QSG far-zoom frame can be inspected for
+        // contour lines — verifying they render at ALL zoom levels, not just
+        // Mid/Near. Edges off to isolate the contour ink.
+        if (qEnvironmentVariable("SWMMVIS_MESH_PARITY_CONTOURS")
+            == QLatin1String("1")) {
+            layer.setShowContours(true);
+            layer.setShowEdges(false);
+        }
+
         const QSize view(800, 600);
         const struct { const char *name; double factor; } zooms[] = {
             {"full", 1.0}, {"mid", 0.5}, {"near", 0.25}};
