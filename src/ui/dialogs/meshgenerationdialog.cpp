@@ -151,6 +151,63 @@ QVector<QPointF> simplifyRing(const QVector<QPointF> &ring, double epsilon)
     return simplified;
 }
 
+// 2026-07-19 — boundary-aware terrain filter helpers.
+//
+// Squared distance from p to the CLOSED segment ab (projection parameter
+// clamped to [0,1]). rdpStep's math above is point-to-infinite-line (fine
+// for simplification), so a clamped variant is needed for proximity tests
+// against constrained PSLG segments.
+double distSqToSegment(const QPointF &p, const QPointF &a, const QPointF &b)
+{
+    const double abx = b.x() - a.x();
+    const double aby = b.y() - a.y();
+    const double len2 = abx * abx + aby * aby;
+    if (len2 < 1e-20)
+    {
+        const double dx = p.x() - a.x(), dy = p.y() - a.y();
+        return dx * dx + dy * dy;      // degenerate segment → point distance
+    }
+    double t = ((p.x() - a.x()) * abx + (p.y() - a.y()) * aby) / len2;
+    t = std::clamp(t, 0.0, 1.0);
+    const double dx = p.x() - (a.x() + t * abx);
+    const double dy = p.y() - (a.y() + t * aby);
+    return dx * dx + dy * dy;
+}
+
+// 2026-07-19 — optional boundary densification ("Max boundary edge length").
+// Split every ring edge longer than maxLen into ceil(len/maxLen) equal parts.
+// Pure vertex INSERTION on the existing edges — the ring's geometry is
+// unchanged, so downstream point-in-polygon tests (inDomain,
+// clipIntermediateToDomain) and the domain bbox stay consistent. Returns the
+// input unchanged when maxLen <= 0 or the ring is degenerate. Works on open
+// or closed (first == last) rings; the closing edge of a closed ring is
+// densified like any other because it appears as a consecutive pair.
+QVector<QPointF> densifyRing(const QVector<QPointF> &ring, double maxLen)
+{
+    if (maxLen <= 0.0 || ring.size() < 2) return ring;
+    QVector<QPointF> out;
+    out.reserve(ring.size());
+    out.append(ring.first());
+    for (int i = 1; i < ring.size(); ++i)
+    {
+        const QPointF &a = ring[i - 1];
+        const QPointF &b = ring[i];
+        const double len = std::hypot(b.x() - a.x(), b.y() - a.y());
+        if (len > maxLen)
+        {
+            const int parts = static_cast<int>(std::ceil(len / maxLen));
+            for (int k = 1; k < parts; ++k)
+            {
+                const double t = static_cast<double>(k) / parts;
+                out.append(QPointF(a.x() + t * (b.x() - a.x()),
+                                   a.y() + t * (b.y() - a.y())));
+            }
+        }
+        out.append(b);
+    }
+    return out;
+}
+
 // Snap near-coincident Steiner points across all sources to the same grid
 // cell (quantized at 1/snapEps) and de-duplicate.  Only untagged points
 // (marker == 0) are candidates for merging — tagged points (SWMM nodes)
@@ -454,6 +511,15 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
         qDebug() << "[Mesh] gStep:" << gStep << "| doThinning:" << in.doThinning;
 
+        // 2026-07-19 — effective terrain point spacing, hoisted from the
+        // Poisson-disk block below (identical auto rule) so the
+        // boundary-buffer auto formula and the Poisson filter share one
+        // definition of "how far apart terrain points end up".
+        const double effSpacing = in.thinnerOpts.useMinSpacing
+            ? ((in.thinnerOpts.minSpacing > 0.0) ? in.thinnerOpts.minSpacing
+                                                 : gStep * 2.0)
+            : gStep;
+
         // Probe the DTM at the centre of the domain to verify sampleAt works.
         {
             const double cx = (dx0 + dx1) * 0.5, cy = (dy0 + dy1) * 0.5;
@@ -509,9 +575,9 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         // cell size = minSpacing for O(N) average complexity.
         if (in.thinnerOpts.useMinSpacing)
         {
-            const double spacing = (in.thinnerOpts.minSpacing > 0.0)
-                                   ? in.thinnerOpts.minSpacing
-                                   : gStep * 2.0;
+            // 2026-07-19 — `spacing` hoisted to effSpacing above (shared
+            // with the boundary-buffer auto formula); value is identical.
+            const double spacing   = effSpacing;
             const double spacing2  = spacing * spacing;
             const double invCell   = 1.0 / spacing;
 
@@ -565,13 +631,143 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             candidateZ     = std::move(filtZ);
         }
 
-        // Add all surviving terrain candidates as PSLG Steiner vertices.
+        // ── 2026-07-19 — boundary-aware terrain filter ──────────────────────
+        // Terrain candidates were sampled over the domain BOUNDING BOX with
+        // no awareness of the PSLG: a pixel centre landing millimetres from
+        // a constrained boundary/hole/conduit segment (or a mandatory SWMM
+        // node vertex) forces a sliver triangle, which the -q quality pass
+        // then splits into clusters of tiny cells hugging the boundary.
+        // Reject candidates that are (a) outside the domain rings, (b)
+        // inside a hole ring (unmeshed interior), (c) closer than bufferDist
+        // to any constrained segment, or (d) closer than bufferDist to any
+        // mandatory Steiner vertex. Triangle fills the resulting buffer band
+        // with properly-sized boundary triangles on its own.
+        const double bufferDist = (in.terrainBoundaryBuffer > 0.0)
+                                  ? in.terrainBoundaryBuffer
+                                  : 0.5 * effSpacing;
+        // Auto = 0.5 × effective terrain spacing: keeps terrain points
+        // outside the diametral circles of comparable-length boundary
+        // segments and never closer to the boundary than to their nearest
+        // terrain neighbour, so boundary-adjacent triangles land in the same
+        // size class as interior ones. maxArea is deliberately not factored
+        // in — when it implies smaller edges than the terrain spacing the
+        // refinement is globally fine-grained anyway, and a max() would
+        // carve an oversized terrain-free band on coarse-area runs.
+        const double bufferDist2 = bufferDist * bufferDist;
+        const double invBufCell  = 1.0 / bufferDist;
+        using CellKey = QPair<qint32, qint32>;
+
+        // Inside-domain test (mirrors collectInputs' inDomain): bbox reject,
+        // then any-domain containment, then not-inside-any-hole.
+        QVector<QPolygonF> holePolys;
+        holePolys.reserve(in.holeRings.size());
+        for (const auto &hr : std::as_const(in.holeRings))
+            if (hr.size() >= 3) holePolys.append(QPolygonF(hr));
+        auto insideDomain = [&](const QPointF &p) -> bool {
+            if (p.x() < bx0 || p.x() > bx1 || p.y() < by0 || p.y() > by1)
+                return false;
+            bool inAny = false;
+            for (const auto &dom : std::as_const(in.domains))
+                if (dom.containsPoint(p, Qt::OddEvenFill)) { inAny = true; break; }
+            if (!inAny) return false;
+            for (const auto &hp : std::as_const(holePolys))
+                if (hp.containsPoint(p, Qt::OddEvenFill)) return false;
+            return true;
+        };
+
+        // Constrained-segment spatial hash (same idiom as the Poisson grid
+        // above / flatGrid in Step 1): every edge of every domain ring, hole
+        // ring, and constraint-segment path, binned into every cell its
+        // bufferDist-inflated bbox overlaps.
+        QVector<QPair<QPointF, QPointF>> csegs;
+        QHash<CellKey, QVector<int>>     segGrid;
+        auto addSegPath = [&](const QVector<QPointF> &path, bool closeRing) {
+            const int n = path.size();
+            if (n < 2) return;
+            const bool alreadyClosed = (path.first() == path.last());
+            const int  segCount = (closeRing && !alreadyClosed) ? n : n - 1;
+            for (int i = 0; i < segCount; ++i)
+            {
+                const QPointF &a = path[i];
+                const QPointF &b = path[(i + 1) % n];
+                if (a == b) continue;
+                const int segIdx = csegs.size();
+                csegs.append(qMakePair(a, b));
+                const qint32 cx0 = qint32(std::floor((std::min(a.x(), b.x()) - bufferDist) * invBufCell));
+                const qint32 cx1 = qint32(std::floor((std::max(a.x(), b.x()) + bufferDist) * invBufCell));
+                const qint32 cy0 = qint32(std::floor((std::min(a.y(), b.y()) - bufferDist) * invBufCell));
+                const qint32 cy1 = qint32(std::floor((std::max(a.y(), b.y()) + bufferDist) * invBufCell));
+                for (qint32 gy = cy0; gy <= cy1; ++gy)
+                    for (qint32 gx = cx0; gx <= cx1; ++gx)
+                        segGrid[qMakePair(gx, gy)].append(segIdx);
+            }
+        };
+        for (const auto &dom : std::as_const(in.domains))
+            addSegPath(dom, /*closeRing=*/true);
+        for (const auto &hr : std::as_const(in.holeRings))
+            addSegPath(hr, /*closeRing=*/true);
+        for (const auto &cs : std::as_const(in.constraintSegs))
+            addSegPath(cs.path, /*closeRing=*/false);
+
+        auto nearConstraint = [&](double px, double py) -> bool {
+            const QPointF p(px, py);
+            const qint32 cx = qint32(std::floor(px * invBufCell));
+            const qint32 cy = qint32(std::floor(py * invBufCell));
+            for (qint32 dy = -1; dy <= 1; ++dy)
+                for (qint32 dx = -1; dx <= 1; ++dx)
+                {
+                    auto it = segGrid.constFind(qMakePair(cx + dx, cy + dy));
+                    if (it == segGrid.constEnd()) continue;
+                    for (const int si : *it)
+                        if (distSqToSegment(p, csegs[si].first, csegs[si].second)
+                                < bufferDist2)
+                            return true;
+                }
+            return false;
+        };
+
+        // Mandatory-vertex hash: ALL Step-1 Steiner points (SWMM nodes, 3D
+        // feature vertices, …) are vertices Triangle must keep — a terrain
+        // point centimetres from a junction makes the same sliver at exactly
+        // the coupling locations. Rim-flatten only conditions z, not xy.
+        QHash<CellKey, QVector<QPointF>> vertGrid;
+        for (const auto &sp0 : std::as_const(in.steinerPoints))
+        {
+            const qint32 gx = qint32(std::floor(sp0.xy.x() * invBufCell));
+            const qint32 gy = qint32(std::floor(sp0.xy.y() * invBufCell));
+            vertGrid[qMakePair(gx, gy)].append(sp0.xy);
+        }
+        auto nearMandatoryVertex = [&](double px, double py) -> bool {
+            const qint32 cx = qint32(std::floor(px * invBufCell));
+            const qint32 cy = qint32(std::floor(py * invBufCell));
+            for (qint32 dy = -1; dy <= 1; ++dy)
+                for (qint32 dx = -1; dx <= 1; ++dx)
+                {
+                    auto it = vertGrid.constFind(qMakePair(cx + dx, cy + dy));
+                    if (it == vertGrid.constEnd()) continue;
+                    for (const QPointF &v : *it)
+                    {
+                        const double ddx = v.x() - px, ddy = v.y() - py;
+                        if (ddx * ddx + ddy * ddy < bufferDist2) return true;
+                    }
+                }
+            return false;
+        };
+
+        // Add surviving terrain candidates as PSLG Steiner vertices.
         // Candidates within a rim node's flatten radius are forced to that
         // node's rim z (model units); the rest keep their raster-unit DTM z.
+        int nOutside = 0, nNearSeg = 0, nNearNode = 0, nAdded = 0;
         elevCache.reserve(elevCache.size() + candidatesMesh.size());
         for (int ci = 0; ci < candidatesMesh.size(); ++ci)
         {
             const double cx = candidatesMesh[ci].x(), cy = candidatesMesh[ci].y();
+
+            // 2026-07-19 — boundary-aware rejection (see block comment above).
+            if (!insideDomain(QPointF(cx, cy))) { ++nOutside;  continue; }
+            if (nearConstraint(cx, cy))         { ++nNearSeg;  continue; }
+            if (nearMandatoryVertex(cx, cy))    { ++nNearNode; continue; }
+
             double z = candidateZ[ci];
             const double fz = flattenZ(cx, cy);
             const bool flattened = std::isfinite(fz);
@@ -582,14 +778,23 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             sp.z    = z;
             sp.hasZ = true;
             g.addSteinerPoint(sp);
+            ++nAdded;
 
             const auto k = keyOf(cx, cy);
             elevCache.insert(k, z);
             if (flattened) modelUnitKeys.insert(k);
         }
 
-        progress(38, QObject::tr("%1 DTM Steiner points added to PSLG")
-                     .arg(candidatesMesh.size()));
+        qDebug() << "[Mesh] boundary filter:" << candidatesMesh.size()
+                 << "->" << nAdded
+                 << "(outside" << nOutside
+                 << "| near-segment" << nNearSeg
+                 << "| near-node" << nNearNode
+                 << "| buffer" << bufferDist << ")";
+        progress(38, QObject::tr("%1 DTM Steiner points added to PSLG "
+                                 "(%2 dropped by boundary filter)")
+                     .arg(nAdded)
+                     .arg(candidatesMesh.size() - nAdded));
     }
     else if (useDTM)
     {
@@ -1149,7 +1354,10 @@ void MeshGenerationDialog::buildUi()
             "polyline path before it enters Triangle.\n\n"
             "Points that deviate less than this distance from a straight line "
             "between their neighbours are removed.  0 = disabled.\n"
-            "Typical: 0.1 m (tight) – 1.0 m (coarse)."));
+            "Typical: 0.1 m (tight) – 1.0 m (coarse).\n\n"
+            "Increase ε when the boundary's vertices are much denser than the "
+            "terrain point spacing — short constrained boundary segments seed "
+            "small cells along the perimeter."));
         f->addRow(tr("Geometry simplification ε:"), m_simplifyEpsSpin);
 
         m_snapEpsSpin = new QDoubleSpinBox(g);
@@ -1163,6 +1371,28 @@ void MeshGenerationDialog::buildUi()
             "merged into one.  SWMM-tagged points are never merged.\n"
             "0 = disabled.  Typical: 0.01–0.5 m."));
         f->addRow(tr("Steiner snap radius:"), m_snapEpsSpin);
+
+        // 2026-07-19 — optional boundary densification. Splits domain/hole
+        // ring edges longer than this into equal parts AFTER RDP
+        // simplification (pure vertex insertion, geometry unchanged) so the
+        // perimeter cell size can match the interior terrain spacing instead
+        // of Triangle spanning long constrained edges with oversized fans.
+        m_maxBoundaryEdgeBox = new QCheckBox(tr("Max boundary edge length:"), g);
+        m_maxBoundaryEdgeBox->setToolTip(tr(
+            "When checked, boundary and hole ring edges longer than this are "
+            "split into equal parts after RDP simplification.\n\n"
+            "Pure vertex insertion — the boundary geometry is unchanged.  "
+            "Use to make perimeter cell size follow the interior target "
+            "spacing on coarse boundaries."));
+        m_maxBoundaryEdgeSpin = new QDoubleSpinBox(g);
+        m_maxBoundaryEdgeSpin->setRange(0.0, 1e9);
+        m_maxBoundaryEdgeSpin->setDecimals(2);
+        m_maxBoundaryEdgeSpin->setSingleStep(5.0);
+        // suffix set by updateUnitDisplay()
+        m_maxBoundaryEdgeSpin->setSpecialValueText(tr("(off)"));
+        f->addRow(m_maxBoundaryEdgeBox, m_maxBoundaryEdgeSpin);
+        connect(m_maxBoundaryEdgeBox, &QCheckBox::toggled,
+                m_maxBoundaryEdgeSpin, &QWidget::setEnabled);
 
         qualityVBox->addWidget(g);
     }
@@ -1234,6 +1464,24 @@ void MeshGenerationDialog::buildUi()
         m_minSpacingSpin->setSpecialValueText(tr("(auto)"));
         f->addRow(m_minSpacingBox, m_minSpacingSpin);
 
+        // 2026-07-19 — boundary buffer for the boundary-aware terrain
+        // filter. Applies to BOTH the thinned and full-grid DTM paths (both
+        // feed the same Steiner add loop), so it is deliberately NOT gated
+        // by syncThinning below.
+        m_boundaryBufferSpin = new QDoubleSpinBox(g);
+        m_boundaryBufferSpin->setRange(0.0, 1e6);
+        m_boundaryBufferSpin->setDecimals(3);
+        m_boundaryBufferSpin->setSingleStep(0.5);
+        // suffix set by updateUnitDisplay()
+        m_boundaryBufferSpin->setSpecialValueText(tr("(auto)"));
+        m_boundaryBufferSpin->setToolTip(tr(
+            "DTM terrain points closer than this to the domain boundary, a "
+            "hole ring, a constraint segment (conduits), or a mandatory "
+            "vertex (SWMM nodes) are dropped, as are points outside the "
+            "domain.  Prevents slivers and clusters of tiny cells along the "
+            "boundary.\n\n"
+            "(auto) = half the effective terrain point spacing."));
+        f->addRow(tr("Boundary buffer:"), m_boundaryBufferSpin);
 
         qualityVBox->addWidget(g);
     }
@@ -1409,6 +1657,9 @@ void MeshGenerationDialog::updateUnitDisplay()
     if (m_snapEpsSpin)     m_snapEpsSpin->setSuffix(suf);
     if (m_minSpacingSpin)  m_minSpacingSpin->setSuffix(suf);
     if (m_nodeFlattenSpin) m_nodeFlattenSpin->setSuffix(suf);
+    // 2026-07-19 — boundary-aware terrain filter + boundary densification.
+    if (m_boundaryBufferSpin)  m_boundaryBufferSpin->setSuffix(suf);
+    if (m_maxBoundaryEdgeSpin) m_maxBoundaryEdgeSpin->setSuffix(suf);
 
     if (m_maxAreaSpin)
         m_maxAreaSpin->setToolTip(
@@ -1440,6 +1691,14 @@ void MeshGenerationDialog::seedDefaults()
     m_thinningMaxPointsSpin->setValue(0);
     m_minSpacingBox->setChecked(false);
     m_minSpacingSpin->setValue(0.0);
+    // 2026-07-19 — boundary filter on by default at (auto) = half the
+    // effective terrain spacing; edge-length densification off by default
+    // but seeded with a sensible value (SI canonical 20 m) so enabling it
+    // is one click.
+    m_boundaryBufferSpin->setValue(0.0);          // (auto)
+    m_maxBoundaryEdgeBox->setChecked(false);
+    m_maxBoundaryEdgeSpin->setValue(20.0 * toUnit);
+    m_maxBoundaryEdgeSpin->setEnabled(false);     // follows the unchecked box
     m_manningsConstant->setChecked(true);
     m_manningsValueSpin->setValue(0.035);
     m_outputExternal->setChecked(true);
@@ -1591,6 +1850,12 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // ── PSLG optimisation parameters ─────────────────────────────────
     out->pslgSimplifyEps = m_simplifyEpsSpin->value();
     out->pslgSnapEps     = m_snapEpsSpin->value();
+    // 2026-07-19 — must be set BEFORE the domain polygons are collected
+    // below: pushOgrPolygon reads maxBoundaryEdgeLen when densifying rings.
+    out->maxBoundaryEdgeLen =
+        (m_maxBoundaryEdgeBox->isChecked() && m_maxBoundaryEdgeSpin->value() > 0.0)
+            ? m_maxBoundaryEdgeSpin->value()
+            : 0.0;
 
     // ── Mesh CRS — initialised first so every source can reproject to it ──
     // All PSLG inputs (domain polygons, hole rings, constraint segments,
@@ -1686,7 +1951,13 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         }
         // Simplify exterior ring with RDP before feeding to Triangle.
         // Reduces boundary segment count for dense GIS/survey boundaries.
-        out->domains.append(QPolygonF(simplifyRing(extPts, out->pslgSimplifyEps)));
+        // 2026-07-19 — then optionally densify: split edges longer than the
+        // "Max boundary edge length" so perimeter cell size can match the
+        // interior target (pure vertex insertion — geometry unchanged, so
+        // inDomain / clipIntermediateToDomain below stay consistent).
+        out->domains.append(QPolygonF(
+            densifyRing(simplifyRing(extPts, out->pslgSimplifyEps),
+                        out->maxBoundaryEdgeLen)));
 
         for (int h = 0; h < poly->getNumInteriorRings(); ++h)
         {
@@ -1700,7 +1971,10 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
                 xformPt(activeCT, x, y);
                 ring << QPointF(x, y);
             }
-            out->holeRings.append(simplifyRing(ring, out->pslgSimplifyEps));
+            // 2026-07-19 — same simplify → densify pipeline as the exterior.
+            out->holeRings.append(
+                densifyRing(simplifyRing(ring, out->pslgSimplifyEps),
+                            out->maxBoundaryEdgeLen));
         }
     };
 
@@ -2180,6 +2454,11 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     out->thinnerOpts.gridSpacing         = 0.0;
     out->thinnerOpts.useMinSpacing       = m_minSpacingBox->isChecked();
     out->thinnerOpts.minSpacing          = m_minSpacingSpin->value();
+    // 2026-07-19 — boundary-aware terrain filter buffer; <= 0 → auto
+    // (0.5 × effective terrain spacing, resolved in the worker).
+    out->terrainBoundaryBuffer           = (m_boundaryBufferSpin->value() > 0.0)
+                                               ? m_boundaryBufferSpin->value()
+                                               : -1.0;
 
     // ── Output ───────────────────────────────────────────────────────
     out->outputMode    = m_outputExternal->isChecked()
