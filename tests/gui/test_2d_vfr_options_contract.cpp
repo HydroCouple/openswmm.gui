@@ -52,16 +52,17 @@ class Test2DVfrOptionsContract : public QObject
 {
     Q_OBJECT
 private slots:
-    void defaultsReadVfr();
+    void defaultsReadFlatMean();
     void setExtThenSaveReopenRoundTrips();
     void faceReconIndependentOfCellClosure();
     void vfrMinWetFracRejectsOutOfRange();
 };
 
 // read2DFromEngine() hydrates the combos from these — an opened model with no
-// explicit keys must report the VFR/VFR_FACE defaults (Phase-5 rollout, 2026-07;
-// the closure that removes the water-climbs-uphill artifact is now the default).
-void Test2DVfrOptionsContract::defaultsReadVfr()
+// explicit keys must report the FLAT/MEAN legacy defaults (VFR is opt-in: it is
+// ~3–8× slower, so the default stays FLAT and VFR is selected only when the
+// shoreline-artifact fix is wanted).
+void Test2DVfrOptionsContract::defaultsReadFlatMean()
 {
     const QString inp = dataDir() + "/mini_2d.inp";
     QVERIFY2(QFile::exists(inp), qPrintable(inp));
@@ -72,8 +73,8 @@ void Test2DVfrOptionsContract::defaultsReadVfr()
     QCOMPARE(swmm_engine_open(e, inp.toUtf8().constData(),
                              rpt.toUtf8().constData(), nullptr, nullptr), 0);
 
-    QCOMPARE(getExt(e, "CELL_CLOSURE"),        QStringLiteral("VFR"));
-    QCOMPARE(getExt(e, "FACE_RECONSTRUCTION"), QStringLiteral("VFR_FACE"));
+    QCOMPARE(getExt(e, "CELL_CLOSURE"),        QStringLiteral("FLAT"));
+    QCOMPARE(getExt(e, "FACE_RECONSTRUCTION"), QStringLiteral("MEAN"));
     // Default floor is 0.01; format uses %g.
     QCOMPARE(getExt(e, "VFR_MIN_WET_FRAC").toDouble(), 0.01);
 
