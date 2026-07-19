@@ -205,7 +205,12 @@ void AnimationController::driverSetStep(int step)
 
 QDateTime AnimationController::driverStartTime() const
 {
-    if (m_primaryLayer) return m_primaryLayer->startDateTime();
+    // 2026-07-19 — use the REPORTED start (period 0's time), not the
+    // simulation start. endDateTime() is the last frame's time, so the
+    // span must open at the first frame's time too; anchoring on
+    // START_DATE left a dead zone at the left of the global slider
+    // whenever REPORT_START != START_DATE (frame 0 normalised to > 0).
+    if (m_primaryLayer) return m_primaryLayer->reportedStartDateTime();
     if (m_fallback2D && m_fallback2D->source())
         return m_fallback2D->source()->simTimeAt(0);
     return {};

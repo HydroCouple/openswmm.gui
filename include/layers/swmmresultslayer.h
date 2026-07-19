@@ -271,6 +271,15 @@ public:
     [[nodiscard]] int       totalTimeSteps()   const;
     [[nodiscard]] QDateTime startDateTime()    const;
     [[nodiscard]] QDateTime endDateTime()      const;
+    // 2026-07-19 — reported data origin (slider range fix). startDateTime()
+    // is the SIMULATION start (`swmm_output_get_start_date`), but the first
+    // data frame lives at period 0's report time = reportStart + reportStep.
+    // Anchoring the animation range / period grid on the simulation start
+    // produced a dead zone at the left of the global slider whenever
+    // REPORT_START != START_DATE (and an off-by-one in
+    // periodIndexForDateTime). Falls back to startDateTime() when period 0's
+    // time is unavailable.
+    [[nodiscard]] QDateTime reportedStartDateTime() const;
     [[nodiscard]] int       reportStepSeconds() const;
 
     /*!
@@ -508,10 +517,22 @@ public:
     //   [10] RainGages            (MarkerKind,  point archetype,   static)
     //
     // The sublayer instances are owned by this layer via QObject parent-
-    // child. dispatchAnimationTick() inherits the default base-class
-    // implementation, which invalidates only the dynamic sublayers per
-    // Decision 3 (see ISublayerHost).
+    // child.
     [[nodiscard]] QList<OpenSWMM::Render::ISublayer *> sublayers() const override;
+
+    // 2026-07-19 — animation-tick fast path (slider scrub perf). The base
+    // ISublayerHost::dispatchAnimationTick() invalidates every dynamic
+    // sublayer; in this layer each ISublayer::invalidated fires the
+    // wireRefresh lambda, which re-runs fetchResultsForStep() PER SUBLAYER
+    // and escalates SceneDirty::Structural — turning the intended cheap
+    // Values-only restyle into ~8 redundant .out fetches plus a full
+    // populateScene rebuild on every tick. Animation ticks change only
+    // per-feature values, never the item set, so this override routes
+    // through setCurrentTimeStep()'s Values path and never touches the
+    // sublayer-invalidation (Structural) machinery. wireRefresh keeps its
+    // Structural escalation for its real purpose: visibility / style /
+    // attribute edits.
+    void dispatchAnimationTick(int period) override;
 
     /*! Reorder sublayers in paint order (bottom-up).  Emits
      *  repaintRequested() on success.  Returns false on out-of-range indices. */
@@ -647,6 +668,8 @@ private:
     int                  m_totalSteps     = 0;
     QDateTime            m_startDateTime;
     QDateTime            m_endDateTime;
+    // 2026-07-19 — period 0's report time; see reportedStartDateTime().
+    QDateTime            m_reportedStartDateTime;
 
     // Variable & colour mapping -------------------------------------------
     SWMMResultVariable   m_variable       = SWMMResultVariable::NodeDepth;
