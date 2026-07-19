@@ -657,28 +657,79 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         const double invBufCell  = 1.0 / bufferDist;
         using CellKey = QPair<qint32, qint32>;
 
-        // Inside-domain test (mirrors collectInputs' inDomain): bbox reject,
-        // then any-domain containment, then not-inside-any-hole.
-        QVector<QPolygonF> holePolys;
-        holePolys.reserve(in.holeRings.size());
+        // Inside-domain test — semantics identical to collectInputs'
+        // inDomain: inside any domain ring AND not inside any hole ring.
+        //
+        // 2026-07-19b — STALL FIX (part 2): the first cut looped
+        // QPolygonF::containsPoint over every ring per candidate, i.e.
+        // O(total ring vertices) × O(candidates) — a second slow path on
+        // dense dissolved subcatchment boundaries. Replaced with one
+        // odd-even crossing count over ALL rings (domains + holes share
+        // the parity, so "in domain minus holes" falls out directly for
+        // the disjoint rings UnaryUnion produces), with edges bucketed by
+        // y-band so each query only visits edges near its scanline.
+        QVector<QPair<QPointF, QPointF>> pipEdges;
+        const int nBands = 1024;
+        const double bandH   = (by1 - by0) / nBands;   // > 0: bbox validated above
+        QVector<QVector<int>> bandEdges(nBands);
+        auto addPipRing = [&](const QVector<QPointF> &ring) {
+            const int rn = ring.size();
+            if (rn < 3) return;
+            const bool closedDup = (ring.first() == ring.last());
+            const int  en = closedDup ? rn - 1 : rn;
+            for (int i = 0; i < en; ++i)
+            {
+                const QPointF &a = ring[i];
+                const QPointF &b = ring[(i + 1) % en];
+                if (a.y() == b.y()) continue;          // horizontal: never crossed
+                const int ei = pipEdges.size();
+                pipEdges.append(qMakePair(a, b));
+                int b0 = static_cast<int>(std::floor((std::min(a.y(), b.y()) - by0) / bandH));
+                int b1 = static_cast<int>(std::floor((std::max(a.y(), b.y()) - by0) / bandH));
+                b0 = std::clamp(b0, 0, nBands - 1);
+                b1 = std::clamp(b1, 0, nBands - 1);
+                for (int bi = b0; bi <= b1; ++bi)
+                    bandEdges[bi].append(ei);
+            }
+        };
+        for (const auto &dom : std::as_const(in.domains))
+            addPipRing(dom);
         for (const auto &hr : std::as_const(in.holeRings))
-            if (hr.size() >= 3) holePolys.append(QPolygonF(hr));
+            addPipRing(hr);
         auto insideDomain = [&](const QPointF &p) -> bool {
             if (p.x() < bx0 || p.x() > bx1 || p.y() < by0 || p.y() > by1)
                 return false;
-            bool inAny = false;
-            for (const auto &dom : std::as_const(in.domains))
-                if (dom.containsPoint(p, Qt::OddEvenFill)) { inAny = true; break; }
-            if (!inAny) return false;
-            for (const auto &hp : std::as_const(holePolys))
-                if (hp.containsPoint(p, Qt::OddEvenFill)) return false;
-            return true;
+            const int bi = std::clamp(
+                static_cast<int>(std::floor((p.y() - by0) / bandH)),
+                0, nBands - 1);
+            bool inside = false;
+            for (const int ei : std::as_const(bandEdges[bi]))
+            {
+                const QPointF &a = pipEdges[ei].first;
+                const QPointF &b = pipEdges[ei].second;
+                if ((a.y() > p.y()) == (b.y() > p.y())) continue;
+                const double xInt = a.x() + (p.y() - a.y()) / (b.y() - a.y())
+                                              * (b.x() - a.x());
+                if (p.x() < xInt) inside = !inside;
+            }
+            return inside;
         };
 
         // Constrained-segment spatial hash (same idiom as the Poisson grid
         // above / flatGrid in Step 1): every edge of every domain ring, hole
         // ring, and constraint-segment path, binned into every cell its
         // bufferDist-inflated bbox overlaps.
+        //
+        // 2026-07-19b — STALL FIX: segments are chunked to <= bufferDist
+        // length BEFORE binning. Binning a whole segment rasterised its
+        // inflated bounding box at cell size = bufferDist, which is
+        // O((len/buffer)²) cells for a diagonal segment — a few hundred
+        // metres of subcatchment boundary against a half-pixel buffer
+        // exploded into millions of hash insertions per segment and the
+        // generation appeared to hang at ~37%. The union of chunks equals
+        // the segment (min distance over chunks == distance to segment),
+        // each chunk touches a handful of cells, and the total insertion
+        // count becomes O(len/buffer). The 3×3 query below is unchanged.
         QVector<QPair<QPointF, QPointF>> csegs;
         QHash<CellKey, QVector<int>>     segGrid;
         auto addSegPath = [&](const QVector<QPointF> &path, bool closeRing) {
@@ -691,15 +742,28 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 const QPointF &a = path[i];
                 const QPointF &b = path[(i + 1) % n];
                 if (a == b) continue;
-                const int segIdx = csegs.size();
-                csegs.append(qMakePair(a, b));
-                const qint32 cx0 = qint32(std::floor((std::min(a.x(), b.x()) - bufferDist) * invBufCell));
-                const qint32 cx1 = qint32(std::floor((std::max(a.x(), b.x()) + bufferDist) * invBufCell));
-                const qint32 cy0 = qint32(std::floor((std::min(a.y(), b.y()) - bufferDist) * invBufCell));
-                const qint32 cy1 = qint32(std::floor((std::max(a.y(), b.y()) + bufferDist) * invBufCell));
-                for (qint32 gy = cy0; gy <= cy1; ++gy)
-                    for (qint32 gx = cx0; gx <= cx1; ++gx)
-                        segGrid[qMakePair(gx, gy)].append(segIdx);
+                const double segLen = std::hypot(b.x() - a.x(), b.y() - a.y());
+                if (!std::isfinite(segLen)) continue;   // garbage coords guard
+                const int nChunks =
+                    std::max(1, static_cast<int>(std::ceil(segLen / bufferDist)));
+                for (int c = 0; c < nChunks; ++c)
+                {
+                    const double t0 = static_cast<double>(c)     / nChunks;
+                    const double t1 = static_cast<double>(c + 1) / nChunks;
+                    const QPointF ca(a.x() + t0 * (b.x() - a.x()),
+                                     a.y() + t0 * (b.y() - a.y()));
+                    const QPointF cb(a.x() + t1 * (b.x() - a.x()),
+                                     a.y() + t1 * (b.y() - a.y()));
+                    const int segIdx = csegs.size();
+                    csegs.append(qMakePair(ca, cb));
+                    const qint32 cx0 = qint32(std::floor((std::min(ca.x(), cb.x()) - bufferDist) * invBufCell));
+                    const qint32 cx1 = qint32(std::floor((std::max(ca.x(), cb.x()) + bufferDist) * invBufCell));
+                    const qint32 cy0 = qint32(std::floor((std::min(ca.y(), cb.y()) - bufferDist) * invBufCell));
+                    const qint32 cy1 = qint32(std::floor((std::max(ca.y(), cb.y()) + bufferDist) * invBufCell));
+                    for (qint32 gy = cy0; gy <= cy1; ++gy)
+                        for (qint32 gx = cx0; gx <= cx1; ++gx)
+                            segGrid[qMakePair(gx, gy)].append(segIdx);
+                }
             }
         };
         for (const auto &dom : std::as_const(in.domains))
@@ -1686,7 +1750,7 @@ void MeshGenerationDialog::seedDefaults()
     m_snapEpsSpin->setValue(    0.01 * toUnit);
     m_nodeFlattenSpin->setValue(5.0  * toUnit);   // 5 m default flatten radius
     m_thinningBox->setChecked(true);         // thinning on by default
-    m_thinningToleranceSpin->setValue(1.0);  // default normal dot threshold
+    m_thinningToleranceSpin->setValue(0.6);  // default normal dot threshold
     m_thinningIterationsSpin->setValue(3);   // default thinning passes
     m_thinningMaxPointsSpin->setValue(0);
     m_minSpacingBox->setChecked(false);
