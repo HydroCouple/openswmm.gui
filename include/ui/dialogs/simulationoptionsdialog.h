@@ -450,6 +450,9 @@ private:
     QDoubleSpinBox *m_dryDepthSpin      = nullptr;
     QDoubleSpinBox *m_limiterEpsSpin    = nullptr;
     QDoubleSpinBox *m_fluxDhEpsSpin     = nullptr;
+    QComboBox      *m_cellClosureCombo  = nullptr;
+    QComboBox      *m_faceReconCombo    = nullptr;
+    QDoubleSpinBox *m_vfrMinWetFracSpin = nullptr;
     QDoubleSpinBox *m_couplingCdSpin    = nullptr;
     QComboBox      *m_couplingIntervalCombo = nullptr;
     int             m_couplingIntervalRaw   = 0;  ///< Value last read from the model (0/1 both == every step)

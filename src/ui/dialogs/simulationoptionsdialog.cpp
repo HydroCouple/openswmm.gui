@@ -1376,6 +1376,47 @@ QWidget *SimulationOptionsDialog::build2DTab()
 
     vlay->addWidget(meshGroup);
 
+    auto *closureGroup = new QGroupBox(tr("Cell closure (wetting / drying)"), page);
+    auto *closureForm  = new QFormLayout(closureGroup);
+
+    m_cellClosureCombo = new QComboBox(closureGroup);
+    m_cellClosureCombo->addItem(tr("Flat (η = z̄ + V/A, legacy)"), QStringLiteral("FLAT"));
+    m_cellClosureCombo->addItem(tr("VFR (planar-bed volume/free-surface)"),
+                                QStringLiteral("VFR"));
+    m_cellClosureCombo->setToolTip(
+        tr("How the free-surface elevation of a partially wet cell is reconstructed "
+           "from its stored volume. Flat overstates the surface on slope/step cells "
+           "(water can climb uphill and strand on slopes); VFR (Begnudelli & Sanders) "
+           "uses the exact planar-bed relation so a lake at rest stays at rest. "
+           "CPU solvers only — the GPU backend falls back to Flat."));
+    closureForm->addRow(tr("Cell closure:"), m_cellClosureCombo);
+
+    m_faceReconCombo = new QComboBox(closureGroup);
+    m_faceReconCombo->addItem(tr("Mean (upwind cell depth, legacy)"),
+                              QStringLiteral("MEAN"));
+    m_faceReconCombo->addItem(tr("VFR face (edge depth + wetting gate)"),
+                              QStringLiteral("VFR_FACE"));
+    m_faceReconCombo->setToolTip(
+        tr("Effective conveyance depth at a shared edge. Mean uses the upwind cell's "
+           "mean depth; VFR face reconstructs the depth at the edge from the upwind "
+           "surface and the edge's bed elevations, blocking flow across an edge whose "
+           "bed is above the water (kills uphill creep and slope stranding). "
+           "Best paired with the VFR cell closure."));
+    closureForm->addRow(tr("Face reconstruction:"), m_faceReconCombo);
+
+    m_vfrMinWetFracSpin = new QDoubleSpinBox(closureGroup);
+    m_vfrMinWetFracSpin->setRange(0.0001, 0.5);
+    m_vfrMinWetFracSpin->setDecimals(4);
+    m_vfrMinWetFracSpin->setSingleStep(0.01);
+    m_vfrMinWetFracSpin->setToolTip(
+        tr("Wetted-area-fraction floor ε that regularizes the VFR closure for the "
+           "implicit solver as a cell dries (bounds dη/dV). Only used when Cell "
+           "closure = VFR. Default 0.01; raise (0.02–0.05) if the 2D solver reports "
+           "convergence failures on strongly wetting/drying models."));
+    closureForm->addRow(tr("VFR min wet fraction:"), m_vfrMinWetFracSpin);
+
+    vlay->addWidget(closureGroup);
+
     auto *coupGroup = new QGroupBox(tr("1D ↔ 2D coupling"), page);
     auto *coupForm  = new QFormLayout(coupGroup);
 
@@ -1472,6 +1513,7 @@ void SimulationOptionsDialog::read2DFromEngine()
     m_dryDepthSpin     ->setValue(getExt("DRY_DEPTH",         "0.001").toDouble(&ok));
     m_limiterEpsSpin   ->setValue(getExt("LIMITER_EPSILON",   "1e-6").toDouble(&ok));
     m_fluxDhEpsSpin    ->setValue(getExt("FLUX_DH_EPS",       "0.004").toDouble(&ok));
+    m_vfrMinWetFracSpin->setValue(getExt("VFR_MIN_WET_FRAC",  "0.01").toDouble(&ok));
     m_couplingCdSpin   ->setValue(getExt("COUPLING_CD",       "0.65").toDouble(&ok));
     m_couplingIntervalRaw = getExt("COUPLING_INTERVAL", "0").toInt(&ok);
     if (!ok || m_couplingIntervalRaw < 0) m_couplingIntervalRaw = 0;
@@ -1487,6 +1529,8 @@ void SimulationOptionsDialog::read2DFromEngine()
         const int idx = c->findData(data, Qt::UserRole, Qt::MatchFixedString);
         if (idx >= 0) c->setCurrentIndex(idx);
     };
+    selectComboByData(m_cellClosureCombo,    getExt("CELL_CLOSURE",        "FLAT"));
+    selectComboByData(m_faceReconCombo,      getExt("FACE_RECONSTRUCTION", "MEAN"));
     selectComboByData(m_linearSolverCombo,   getExt("LINEAR_SOLVER",   "GMRES"));
     selectComboByData(m_preconditionerCombo, getExt("PRECONDITIONER",  "AMG"));
     m_maxKrylovDimSpin->setValue(getExt("MAX_KRYLOV_DIM", "30").toInt(&ok));
@@ -1528,6 +1572,12 @@ int SimulationOptionsDialog::write2DToEngine(int &n)
                    QString::number(m_limiterEpsSpin->value(), 'g', 8));
     writeIfChanged("FLUX_DH_EPS",       getExt("FLUX_DH_EPS"),
                    QString::number(m_fluxDhEpsSpin->value(), 'g', 8));
+    writeIfChanged("CELL_CLOSURE",        getExt("CELL_CLOSURE"),
+                   m_cellClosureCombo->currentData().toString());
+    writeIfChanged("FACE_RECONSTRUCTION", getExt("FACE_RECONSTRUCTION"),
+                   m_faceReconCombo->currentData().toString());
+    writeIfChanged("VFR_MIN_WET_FRAC",  getExt("VFR_MIN_WET_FRAC"),
+                   QString::number(m_vfrMinWetFracSpin->value(), 'g', 6));
     writeIfChanged("COUPLING_CD",       getExt("COUPLING_CD"),
                    QString::number(m_couplingCdSpin->value(), 'f', 4));
     // Resolve the combo (preset or typed) back to an integer step count.
