@@ -165,13 +165,14 @@ signals:
     void twoDFluxAvailable(int jobId, QVector<float> flux,
                             QDateTime simTime, double elapsedSec);
 
-    // Per-tick reconstructed vertex heads from swmm_2d_vertex_get_heads_bulk
-    // (the engine's pseudo-Laplacian reconstruction). Same cadence/pairing as
-    // twoDFluxAvailable; pushed into EngineMesh2DSource::pushVertexHeads.
-    // Heads ship as double — they carry the elevation datum, and the GUI's
-    // head − z subtraction must not happen in float.
-    void twoDVertexHeadsAvailable(int jobId, QVector<double> heads,
-                                   QDateTime simTime, double elapsedSec);
+    // Per-tick SIGNED vertex render depths from
+    // swmm_2d_vertex_get_render_depths_bulk (the engine's wet-masked,
+    // depth-weighted η_v − z_v reconstruction — dry-cell bed elevations never
+    // contribute). Same cadence/pairing as twoDFluxAvailable; pushed into
+    // EngineMesh2DSource::pushVertexSignedDepths. Negative values carry the
+    // sub-cell shoreline intercept and must not be clamped.
+    void twoDVertexDepthsAvailable(int jobId, QVector<double> vdepths,
+                                    QDateTime simTime, double elapsedSec);
 
 private:
     // Warning callback — fires on the worker thread during engine

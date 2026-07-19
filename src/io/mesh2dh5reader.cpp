@@ -100,6 +100,7 @@ bool Mesh2DH5Reader::open(const QString& path)
     cached_n_vert_ = -1;
     cached_n_face_ = -1;
     cached_has_node_head_ = -1;
+    cached_has_node_depth_ = -1;
     last_error_.clear();
 
     const QByteArray utf8 = path.toUtf8();
@@ -399,6 +400,65 @@ bool Mesh2DH5Reader::readVertexHeadsAt(int timeIdx,
     herr_t r = H5Dread(ds, H5T_NATIVE_DOUBLE, msp, fsp, H5P_DEFAULT,
                        heads.data());
     return r >= 0 || setError_(QStringLiteral("H5Dread node_head slice failed"));
+}
+
+bool Mesh2DH5Reader::readVertexSignedDepthsAt(int timeIdx,
+                                               std::vector<float>& depths) const
+{
+    if (file_id_ < 0)
+        return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
+    if (timeIdx < 0)
+        return setError_(QStringLiteral("Negative timeIdx"));
+
+    // Probe-once presence cache, same pattern as /Mesh2_node_head: files
+    // written before the engine's wet-masked render reconstruction lack
+    // /Mesh2_node_depth.
+    if (cached_has_node_depth_ < 0) {
+        const htri_t ex = H5Lexists(static_cast<hid_t>(file_id_),
+                                    "Mesh2_node_depth", H5P_DEFAULT);
+        cached_has_node_depth_ = (ex > 0) ? 1 : 0;
+    }
+    if (cached_has_node_depth_ == 0)
+        return setError_(QStringLiteral("Mesh2_node_depth not in file"));
+
+    const int n_vert = vertexCount();
+    const int n_time = timeCount();
+    if (timeIdx >= n_time)
+        return setError_(QStringLiteral("timeIdx %1 >= n_time %2")
+                          .arg(timeIdx).arg(n_time));
+
+    depths.assign(n_vert, 0.0f);
+    if (n_vert == 0) return true;
+
+    hid_t ds = H5Dopen2(static_cast<hid_t>(file_id_),
+                         "Mesh2_node_depth", H5P_DEFAULT);
+    if (ds < 0)
+        return setError_(QStringLiteral("H5Dopen2 failed: Mesh2_node_depth"));
+    DataSetGuard g(ds);
+
+    hid_t fsp = H5Dget_space(ds);
+    if (fsp < 0)
+        return setError_(QStringLiteral("H5Dget_space failed: Mesh2_node_depth"));
+    DataSpaceGuard fg(fsp);
+
+    // Hyperslab: { offset=[timeIdx, 0], count=[1, n_vert] }
+    const hsize_t offset[2] = { static_cast<hsize_t>(timeIdx), 0 };
+    const hsize_t count[2]  = { 1, static_cast<hsize_t>(n_vert) };
+    if (H5Sselect_hyperslab(fsp, H5S_SELECT_SET, offset, nullptr,
+                              count, nullptr) < 0)
+        return setError_(QStringLiteral("H5Sselect_hyperslab failed: Mesh2_node_depth"));
+
+    const hsize_t mdims[1] = { static_cast<hsize_t>(n_vert) };
+    hid_t msp = H5Screate_simple(1, mdims, nullptr);
+    if (msp < 0)
+        return setError_(QStringLiteral("H5Screate_simple failed"));
+    DataSpaceGuard mg(msp);
+
+    // Signed DEPTHS (not heads) may be read as float: the datum is already
+    // subtracted engine-side in double, so float precision is ample.
+    herr_t r = H5Dread(ds, H5T_NATIVE_FLOAT, msp, fsp, H5P_DEFAULT,
+                       depths.data());
+    return r >= 0 || setError_(QStringLiteral("H5Dread node_depth slice failed"));
 }
 
 bool Mesh2DH5Reader::readEdgeFluxAt(int timeIdx, std::vector<float>& flux) const

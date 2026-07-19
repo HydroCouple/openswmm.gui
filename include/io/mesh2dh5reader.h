@@ -17,7 +17,10 @@
  *   /time           [nTime]           seconds since simulation start
  *   /Mesh2_face_depth [nTime, nFace]  overland flow depth (m)
  *   /Mesh2_node_head  [nTime, nNode]  reconstructed vertex head (m; engine
- *                                     pseudo-Laplacian, VertexReconstruction)
+ *                                     pseudo-Laplacian, VertexReconstruction —
+ *                                     SOLVER field, no longer rendered)
+ *   /Mesh2_node_depth [nTime, nNode]  SIGNED vertex depth η_v − z_v (m; engine
+ *                                     wet-masked render reconstruction)
  *   /Mesh2_edge_flux  [nTime, nFace, 3] signed normal flux per edge (m^2 s^-1)
  *   /Mesh2_edge_length [nFace, 3]     edge length (m, CF.2 / new in engine 6.0+)
  *   /Mesh2_edge_nx    [nFace, 3]      edge outward unit normal x (CF.2)
@@ -126,6 +129,20 @@ public:
     bool readVertexHeadsAt(int timeIdx, std::vector<double>& heads) const;
 
     /*!
+     * \brief Read one time slice of \c /Mesh2_node_depth — the engine's
+     *        wet-masked, depth-weighted SIGNED vertex depth (η_v − z_v; the
+     *        render field: dry-cell bed elevations never contribute, negative
+     *        over the dry side of partially wet cells).
+     * \param timeIdx 0-based time index (must be < timeCount()).
+     * \param depths  Output, resized to vertexCount(). Metres; float is ample
+     *                because the datum is subtracted engine-side in double.
+     * \returns true on success; false (presence probed once via H5Lexists and
+     *          cached) when the file predates the dataset — callers then fall
+     *          back to the GUI-side wet-only reconstruction.
+     */
+    bool readVertexSignedDepthsAt(int timeIdx, std::vector<float>& depths) const;
+
+    /*!
      * \brief Read one time slice of \c /Mesh2_edge_flux.
      * \param timeIdx 0-based time index (must be < timeCount()).
      * \param flux    Output, resized to \c triangleCount()*3, indexed
@@ -162,6 +179,7 @@ private:
     mutable int   cached_n_vert_ = -1;
     mutable int   cached_n_face_ = -1;
     mutable int   cached_has_node_head_ = -1;  ///< -1 unknown, 0 absent, 1 present
+    mutable int   cached_has_node_depth_ = -1; ///< -1 unknown, 0 absent, 1 present
     mutable QString last_error_;
 
     bool readDim_(const char* dataset, int axis, int& out) const;

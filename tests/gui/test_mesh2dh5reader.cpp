@@ -34,6 +34,14 @@ constexpr double kNodeHeads[3 * 4] = {
     10.20, 10.25, 11.10, 11.30,   // t=2 (peak)
 };
 
+// SIGNED render depths (η_v − z_v) matching kNodeHeads, with v2 carrying the
+// sub-cell-shoreline NEGATIVE at t=1/t=2 that the reader must NOT clamp.
+constexpr double kNodeSignedDepths[3 * 4] = {
+     0.00,  0.00,  0.00,  0.00,   // t=0 — all dry
+     0.05,  0.05, -0.40,  0.02,   // t=1
+     0.20,  0.25, -0.10,  0.30,   // t=2 (peak)
+};
+
 void writeStringAttr(hid_t obj, const char* name, const char* value)
 {
     hid_t type = H5Tcopy(H5T_C_S1);
@@ -139,8 +147,9 @@ QString writeFixture(bool withNodeHead = false, int startIndex = 0)
         H5Sclose(sp);
     }
 
-    // /Mesh2_node_head [n_time, n_vert] — only on the "new engine" fixture;
-    // the plain fixture doubles as the older-file probe case.
+    // /Mesh2_node_head + /Mesh2_node_depth [n_time, n_vert] — only on the
+    // "new engine" fixture; the plain fixture doubles as the older-file
+    // probe case for both datasets.
     if (withNodeHead) {
         hsize_t dims[2] = { n_time, n_vert };
         hid_t sp = H5Screate_simple(2, dims, nullptr);
@@ -149,6 +158,11 @@ QString writeFixture(bool withNodeHead = false, int startIndex = 0)
         H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT,
                  kNodeHeads);
         H5Dclose(ds);
+        hid_t ds2 = H5Dcreate2(fid, "Mesh2_node_depth", H5T_NATIVE_DOUBLE, sp,
+                                H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(ds2, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                 kNodeSignedDepths);
+        H5Dclose(ds2);
         H5Sclose(sp);
     }
 
@@ -305,6 +319,46 @@ private slots:
         QVERIFY(r.open(fixtureWithHeadsPath_));
         std::vector<double> h;
         QVERIFY(!r.readVertexHeadsAt(99, h));
+    }
+
+    // ── Wet-masked render field — /Mesh2_node_depth ─────────────────────
+
+    void readsVertexSignedDepthsUnclamped()
+    {
+        Mesh2DH5Reader r;
+        QVERIFY2(r.open(fixtureWithHeadsPath_), qPrintable(r.lastError()));
+        std::vector<float> d;
+        QVERIFY2(r.readVertexSignedDepthsAt(1, d), qPrintable(r.lastError()));
+        QCOMPARE(int(d.size()), 4);
+        QCOMPARE(d[0], float(kNodeSignedDepths[4 + 0]));
+        // The NEGATIVE sub-cell-shoreline value must survive (no clamping).
+        QCOMPARE(d[2], float(kNodeSignedDepths[4 + 2]));
+        QVERIFY(d[2] < 0.0f);
+
+        QVERIFY(r.readVertexSignedDepthsAt(2, d));
+        QCOMPARE(d[3], float(kNodeSignedDepths[8 + 3]));
+    }
+
+    void vertexSignedDepthsAbsentReturnsFalse()
+    {
+        // Older file (no Mesh2_node_depth): false both times — the second
+        // call exercises the probe-once cache path.
+        Mesh2DH5Reader r;
+        QVERIFY(r.open(fixturePath_));
+        std::vector<float> d;
+        QVERIFY(!r.readVertexSignedDepthsAt(0, d));
+        QVERIFY(!r.readVertexSignedDepthsAt(1, d));
+        // Other readers keep working after the failed probe.
+        std::vector<float> cd;
+        QVERIFY(r.readDepthsAt(1, cd));
+    }
+
+    void vertexSignedDepthsRejectOutOfRange()
+    {
+        Mesh2DH5Reader r;
+        QVERIFY(r.open(fixtureWithHeadsPath_));
+        std::vector<float> d;
+        QVERIFY(!r.readVertexSignedDepthsAt(99, d));
     }
 
 private:
