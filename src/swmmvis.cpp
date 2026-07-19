@@ -6822,13 +6822,13 @@ void SWMMVis::onRunSimulation()
                 layer->refreshCurrentFrame();
             });
 
-    // Per-tick reconstructed vertex heads — feeds the smooth (Gouraud) depth
+    // Per-tick SIGNED vertex render depths — feeds the smooth (Gouraud) depth
     // fill + contour interpolation. Paired with the matching depth tick by
-    // elapsedSec, like flux. Heads do not advance the frame counter, but they
-    // can change the current frame's interpolation basis after the depth packet
-    // already painted, so re-apply the same frame.
-    connect(runner, &SimulationRunner::twoDVertexHeadsAvailable, this,
-            [self](int twoDJobId, QVector<double> heads,
+    // elapsedSec, like flux. Vertex packets do not advance the frame counter,
+    // but they can change the current frame's interpolation basis after the
+    // depth packet already painted, so re-apply the same frame.
+    connect(runner, &SimulationRunner::twoDVertexDepthsAvailable, this,
+            [self](int twoDJobId, QVector<double> vdepths,
                    QDateTime simTime, double elapsedSec) {
                 if (!self) return;
                 auto it = self->mActive2DResultsLayers.constFind(twoDJobId);
@@ -6838,8 +6838,8 @@ void SWMMVis::onRunSimulation()
                 auto *engineSrc =
                     dynamic_cast<EngineMesh2DSource *>(layer->source());
                 if (!engineSrc) return;
-                engineSrc->pushVertexHeads(
-                    std::vector<double>(heads.begin(), heads.end()),
+                engineSrc->pushVertexSignedDepths(
+                    std::vector<double>(vdepths.begin(), vdepths.end()),
                     simTime, elapsedSec);
                 layer->refreshCurrentFrame();
             });

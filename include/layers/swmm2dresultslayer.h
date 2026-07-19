@@ -131,14 +131,19 @@ public:
     }
 
     /*!
-     * \brief Fetch per-vertex water depth (m) at \p timeIdx — the engine's
-     * pseudo-Laplacian vertex-head reconstruction minus vertex elevation,
-     * clamped ≥ 0 (the head − z subtraction is done in double precision by
-     * the source). Resized to \c vertexCount().
+     * \brief Fetch per-vertex SIGNED water depth (m) at \p timeIdx — the
+     * engine's wet-masked, depth-weighted render reconstruction η_v − z_v
+     * (\c Mesh2_node_depth / \c swmm_2d_vertex_get_render_depths_bulk).
+     * NOT clamped: negative values over the dry side of partially wet cells
+     * carry the sub-cell shoreline intercept; exactly 0 where no incident
+     * cell is wet. Dry-cell bed elevations never contribute (unlike the
+     * legacy \c Mesh2_node_head solver field, which is deliberately NOT
+     * consumed here — blending dry-cell beds lifted the rendered surface up
+     * adverse slopes/steps). Resized to \c vertexCount().
      * \returns true on success. Default returns false so callers can probe
-     *          whether the source carries vertex data (older engines / older
-     *          HDF5 files without \c Mesh2_node_head) and fall back to a
-     *          GUI-side interpolation.
+     *          whether the source carries the signed field (older engines /
+     *          older HDF5 files) and fall back to the GUI-side wet-only
+     *          reconstruction.
      */
     virtual bool readVertexDepthsAt(int timeIdx, std::vector<float>& vdepths)
     {
@@ -192,15 +197,16 @@ public:
                   double elapsedSec);
 
     /*!
-     * \brief Append one tick's worth of reconstructed per-vertex heads
-     * (\c swmm_2d_vertex_get_heads_bulk). Mirrors \ref pushFlux — pairs with
-     * the tick whose elapsed time matches. Heads arrive as double and are
-     * converted immediately to depths (\c max(0, head − vz)) so history
-     * stores compact floats without losing the dry-threshold signal.
+     * \brief Append one tick's worth of SIGNED per-vertex render depths
+     * (\c swmm_2d_vertex_get_render_depths_bulk — the engine's wet-masked
+     * η_v − z_v; datum already subtracted engine-side in double). Mirrors
+     * \ref pushFlux — pairs with the tick whose elapsed time matches. Values
+     * are stored as floats WITHOUT clamping: negatives carry the sub-cell
+     * shoreline intercept.
      */
-    void pushVertexHeads(std::vector<double> heads,
-                         QDateTime simTime,
-                         double elapsedSec);
+    void pushVertexSignedDepths(std::vector<double> depths,
+                                QDateTime simTime,
+                                double elapsedSec);
 
     /*!
      * \brief Install time-invariant edge geometry queried via
@@ -288,8 +294,7 @@ private:
     QString                                            path_;
     std::unique_ptr<openswmmvis::io::Mesh2DH5Reader>   reader_;
     QDateTime                                          sim_start_;
-    std::vector<double>                                node_z_cache_;  ///< lazy, for head→depth conversion
-    std::vector<double>                                head_buf_;      ///< per-frame scratch
+    std::vector<float>                                 depth_buf_;     ///< per-frame scratch (signed vertex depths)
 };
 
 // ---------------------------------------------------------------------------

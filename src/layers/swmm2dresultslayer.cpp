@@ -912,18 +912,18 @@ void EngineMesh2DSource::pushFlux(std::vector<float> flux,
     history_.emplace_back(std::move(t));
 }
 
-void EngineMesh2DSource::pushVertexHeads(std::vector<double> heads,
-                                          QDateTime simTime,
-                                          double elapsedSec)
+void EngineMesh2DSource::pushVertexSignedDepths(std::vector<double> depths,
+                                                 QDateTime simTime,
+                                                 double elapsedSec)
 {
-    // Convert head → depth immediately, in double, against the stored vertex
-    // elevations. History then carries compact floats (a depth never exceeds
-    // tens of metres, so float is exact enough; a HEAD in float would lose
-    // the dry-threshold signal at high elevation datums).
-    std::vector<float> vdepths(heads.size(), 0.0f);
-    const size_t n = std::min(heads.size(), vz_.size());
-    for (size_t v = 0; v < n; ++v)
-        vdepths[v] = float(std::max(0.0, heads[v] - vz_[v]));
+    // SIGNED render depths (η_v − z_v) from the engine's wet-masked
+    // reconstruction — the datum subtraction already happened engine-side in
+    // double, so compact floats lose nothing. NO clamping: negatives over the
+    // dry side of partially wet cells are the sub-cell shoreline signal the
+    // barycentric blend needs.
+    std::vector<float> vdepths(depths.size(), 0.0f);
+    for (size_t v = 0; v < depths.size(); ++v)
+        vdepths[v] = float(depths[v]);
 
     // Pair with the tick whose elapsed time matches (same convention as
     // pushFlux); otherwise open a new tick with empty depths so a late
@@ -1070,22 +1070,15 @@ bool HDF5Mesh2DSource::readEdgeGeometry(std::vector<float>& length,
 bool HDF5Mesh2DSource::readVertexDepthsAt(int timeIdx,
                                            std::vector<float>& vdepths)
 {
-    if (!reader_->readVertexHeadsAt(timeIdx, head_buf_))
+    // Only the SIGNED wet-masked render field (/Mesh2_node_depth) is consumed.
+    // The legacy /Mesh2_node_head solver field is deliberately ignored: its
+    // stencil blends DRY-cell bed elevations into shoreline vertices, which
+    // rendered water climbing adverse slopes/bed steps with no driving head.
+    // Files that predate the new dataset fall back (return false) to the
+    // GUI-side wet-only reconstruction, which is free of that artifact.
+    if (!reader_->readVertexSignedDepthsAt(timeIdx, depth_buf_))
         return false;
-
-    // Lazily cache vertex elevations for the head → depth conversion.
-    if (node_z_cache_.size() != head_buf_.size()) {
-        std::vector<double> vx, vy;
-        if (!reader_->readMeshGeometry(vx, vy, node_z_cache_))
-            return false;
-        if (node_z_cache_.size() != head_buf_.size())
-            return false;
-    }
-
-    const size_t n = head_buf_.size();
-    vdepths.resize(n);
-    for (size_t v = 0; v < n; ++v)
-        vdepths[v] = float(std::max(0.0, head_buf_[v] - node_z_cache_[v]));
+    vdepths = depth_buf_;
     return true;
 }
 
@@ -2113,6 +2106,50 @@ namespace {
 // maxDepthPerVertex loop never allocates. \p outVertexDepth is resized to
 // vz.size(); a vertex with no wetted incident cell yields 0. After the call
 // \p wsum[v] > 0 iff vertex v had a wetted incident cell this frame.
+
+// Free-surface elevation η of one cell from its mean depth h̄ — inverts the
+// planar-bed stage–storage relation through the cell's three vertex
+// elevations (mirror of the engine's cellFreeSurfaceElevation,
+// VertexReconstruction.cpp). For a PARTIALLY wet cell (η < highest vertex)
+// this pools the water over the wetted fraction instead of the flat closure
+// z̄ + h̄, which overstates η on cells spanning a bed step — the other half of
+// the "water climbs the step" artifact. Fully wet reduces exactly to z̄ + h̄.
+inline double cellEtaFromMeanDepth(double h, double za, double zb, double zc)
+{
+    double z1 = za, z2 = zb, z3 = zc;
+    if (z1 > z2) std::swap(z1, z2);
+    if (z2 > z3) std::swap(z2, z3);
+    if (z1 > z2) std::swap(z1, z2);
+
+    if (!(h > 0.0)) return z1;
+
+    const double zbar   = (z1 + z2 + z3) / 3.0;
+    const double relief = z3 - z1;
+    if (relief < 1.0e-9 || h >= z3 - zbar)
+        return zbar + h;                              // flat / fully wet
+
+    const double h_at_z2 = (z2 - z1) * (z2 - z1) / (3.0 * relief);
+    if (h <= h_at_z2)                                 // waterline below z2
+        return z1 + std::cbrt(3.0 * h * (z2 - z1) * relief);
+
+    // Waterline between z2 and z3: safeguarded Newton on the bracket.
+    const double denom = 3.0 * relief * (z3 - z2);
+    double lo = z2, hi = z3;
+    double eta = zbar + h;
+    if (eta <= lo || eta >= hi) eta = 0.5 * (lo + hi);
+    for (int it = 0; it < 64; ++it) {
+        const double dz3 = z3 - eta;
+        const double f  = (eta - zbar) + dz3 * dz3 * dz3 / denom - h;
+        if (f > 0.0) hi = eta; else lo = eta;
+        const double df = 1.0 - dz3 * dz3 / (relief * (z3 - z2));
+        double next = (df > 1.0e-12) ? eta - f / df : 0.5 * (lo + hi);
+        if (next <= lo || next >= hi) next = 0.5 * (lo + hi);
+        if (std::abs(next - eta) < 1.0e-12 * (1.0 + relief)) return next;
+        eta = next;
+    }
+    return eta;
+}
+
 void reconstructVertexSignedDepths(
     const std::vector<std::array<int, 3>>& tris,
     const std::vector<float>&  cellDepths,
@@ -2134,9 +2171,23 @@ void reconstructVertexSignedDepths(
         // depth would NOT be skipped and would poison vsum/wsum at all three
         // vertices (→ streaked triangle fans in the Gouraud fill).
         if (!(h >= dryF)) continue;                // only wetted cells contribute
-        const float we = h * (cellZc[i] + h);      // depth-weighted η contribution
-        if (!std::isfinite(we)) continue;          // non-finite z_c must not spread
         const auto& tri = tris[i];
+        // Cell free surface via the planar-bed stage–storage inversion when
+        // the three vertex elevations are usable; flat closure z_c + h as the
+        // fallback (out-of-range index / nodata z).
+        double eta;
+        if (tri[0] >= 0 && tri[0] < nVert &&
+            tri[1] >= 0 && tri[1] < nVert &&
+            tri[2] >= 0 && tri[2] < nVert &&
+            std::isfinite(vz[tri[0]]) && std::isfinite(vz[tri[1]]) &&
+            std::isfinite(vz[tri[2]])) {
+            eta = cellEtaFromMeanDepth(double(h), vz[tri[0]], vz[tri[1]],
+                                       vz[tri[2]]);
+        } else {
+            eta = double(cellZc[i]) + double(h);
+        }
+        const float we = h * float(eta);           // depth-weighted η contribution
+        if (!std::isfinite(we)) continue;          // non-finite z_c must not spread
         for (int k = 0; k < 3; ++k) {
             const int vi = tri[k];
             if (vi < 0 || vi >= nVert) continue;
@@ -2506,9 +2557,9 @@ void SWMM2DResultsLayer::applyCurrentDepths_()
     const int nVert = static_cast<int>(vx_.size());
     if (static_cast<int>(cellZc_.size()) != nTri) return;   // geometry not built yet
 
-    // Prefer the engine/HDF5 reconstructed vertex-head field when available.
-    // Live heads arrive after the cell-depth packet for the same elapsed time,
-    // so refreshCurrentFrame() re-enters here and upgrades smooth fills,
+    // Prefer the engine/HDF5 reconstructed vertex field when available.
+    // Live packets arrive after the cell-depth packet for the same elapsed
+    // time, so refreshCurrentFrame() re-enters here and upgrades smooth fills,
     // marching-triangle contours, and profile samples without advancing time.
     bool haveSourceVertexDepths = false;
     if (source_ && current_time_idx_ >= 0) {
@@ -2517,8 +2568,12 @@ void SWMM2DResultsLayer::applyCurrentDepths_()
             && static_cast<int>(srcVertexDepths.size()) == nVert)
         {
             vdepth_ = std::move(srcVertexDepths);
+            // The source field is SIGNED (η_v − z_v): negatives over the dry
+            // side of partially wet cells drive the sub-cell shoreline
+            // intercept, so they MUST survive. Only non-finite values are
+            // sanitised (nodata z / poisoned frames must not spread).
             for (float &d : vdepth_)
-                if (!std::isfinite(d) || d < 0.0f) d = 0.0f;
+                if (!std::isfinite(d)) d = 0.0f;
             haveSourceVertexDepths = true;
         }
     }
