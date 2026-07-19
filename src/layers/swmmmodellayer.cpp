@@ -712,6 +712,15 @@ SWMM_Engine SWMMModelLayer::openEngineForPath(const QString &path,
         return fail(QStringLiteral("Failed to create SWMM engine."));
 
     QByteArray inpPath = path.toUtf8();
+    // Load as much of the model as feasible for editing: permissive open keeps
+    // all parsed objects and leaves the engine OPENED even when there are
+    // post-parse validation errors (undefined objects, missing curves, ...),
+    // instead of discarding everything. The errors are still recorded and are
+    // surfaced as diagnostics after the read-back (see adoptOpenEngine). A hard
+    // reader failure (unreadable/corrupt file) still returns non-zero and aborts.
+    // Running a model uses a fresh, strict open (SimulationRunner), so this does
+    // not weaken run-time validation.
+    swmm_engine_set_lenient_open(eng, 1);
     const int openRc = swmm_engine_open(eng, inpPath.constData(), "", "", nullptr);
     if (openRc != 0)
     {
@@ -938,7 +947,19 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
                                      qint64 openMs, qint64 soaMs, qint64 geomMs)
 {
     Q_UNUSED(errors);
-    Q_UNUSED(warnings);
+    // Surface any diagnostics the engine accumulated during a permissive open
+    // (undefined objects, missing curves, step-clamp/geometry warnings) so the
+    // user sees what is wrong with the model even though it loaded. These are
+    // routed as warnings (non-blocking) — the model is still usable for editing
+    // and the messages appear in the log panel. Fixing them and re-running does
+    // a fresh strict open that re-validates.
+    const int nErr = swmm_get_error_count(engine);
+    for (int i = 0; i < nErr; ++i)
+        warnings.append(QString::fromUtf8(swmm_get_error_at(engine, i)).trimmed());
+    const int nWarn = swmm_get_warning_count(engine);
+    for (int i = 0; i < nWarn; ++i)
+        warnings.append(QString::fromUtf8(swmm_get_warning_at(engine, i)).trimmed());
+
     if (m_engine && m_engine != engine)
         closeEngine();
 
@@ -4751,12 +4772,14 @@ bool SWMMModelLayer::applyHydrographClearMonths(const QString &name)
 
 bool SWMMModelLayer::applyRdiiDecaySet(const QString &name, int response,
                                         double k_dep, double k_0, double k_T,
-                                        double T_ref, double theta_rec, double T_freeze)
+                                        double T_ref, double theta_rec, double T_freeze,
+                                        bool snowOn, double snow_T, double snow_ddf)
 {
     if (!m_engine || name.isEmpty()) return false;
     const QByteArray uh = name.toUtf8();
     if (swmm_rdii_decay_set(m_engine, uh.constData(), response,
-                            k_dep, k_0, k_T, T_ref, theta_rec, T_freeze) != SWMM_OK)
+                            k_dep, k_0, k_T, T_ref, theta_rec, T_freeze,
+                            snowOn ? 1 : 0, snow_T, snow_ddf) != SWMM_OK)
         return false;
     emit hydrographChanged(name);
     return true;

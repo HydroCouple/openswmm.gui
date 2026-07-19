@@ -147,11 +147,14 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// Exponential IA decay table model — 3 rows × 8 cols. Season-agnostic, so
+// Exponential IA decay table model — 3 rows × 11 cols. Season-agnostic, so
 // setContext() takes only a group name. Active is a Qt::CheckStateRole on
 // column 1; existence of a [RDII_DECAY] row IS the "active" flag in the
 // engine model. Unchecking Active calls applyRdiiDecayRemove(); checking
 // a blank row calls applyRdiiDecaySet() with sane defaults (T_ref=10).
+// Snow (column 8) is a second checkbox enabling the row's degree-day snow
+// model; its two numeric columns (snow_T, snow_ddf) grey out until both
+// Active and Snow are checked.
 // ---------------------------------------------------------------------------
 
 class HydrographDecayTableModel : public QAbstractTableModel
@@ -167,7 +170,10 @@ public:
         ColTref     = 5,
         ColTheta    = 6,
         ColTfreeze  = 7,
-        ColCount    = 8
+        ColSnow     = 8,
+        ColSnowT    = 9,
+        ColSnowDdf  = 10,
+        ColCount    = 11
     };
 
     explicit HydrographDecayTableModel(SWMMModelLayer *layer);
