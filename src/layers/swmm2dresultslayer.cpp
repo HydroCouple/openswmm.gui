@@ -1825,16 +1825,28 @@ void SWMM2DResultsLayer::setCurrentSimTime(QDateTime t)
     const int n = source_->timeCount();
     if (n == 0) return;
 
-    // Linear scan for nearest time — adequate for the demo case's ~60-240
-    // frame count. Replace with binary search if frame counts ever grow
-    // large enough to matter on a presentation laptop.
-    int best   = 0;
-    qint64 bestDelta = std::numeric_limits<qint64>::max();
-    for (int i = 0; i < n; ++i) {
-        const QDateTime ti = source_->simTimeAt(i);
-        if (!ti.isValid()) continue;
-        const qint64 d = std::abs(t.msecsTo(ti));
-        if (d < bestDelta) { bestDelta = d; best = i; }
+    // 2026-07-19 — binary search for the nearest frame (slider scrub perf;
+    // replaces the O(n) linear scan). The H5 /time dataset is monotonically
+    // increasing, so bisect index space for the first frame >= t, then pick
+    // the nearer of that frame and its predecessor. simTimeAt() is O(1), so
+    // no need to materialise the times.
+    int lo = 0, hi = n - 1;
+    while (lo < hi) {
+        const int mid = lo + (hi - lo) / 2;
+        const QDateTime tm = source_->simTimeAt(mid);
+        if (tm.isValid() && tm < t)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    int best = lo;
+    if (lo > 0) {
+        const QDateTime tPrev = source_->simTimeAt(lo - 1);
+        const QDateTime tCurr = source_->simTimeAt(lo);
+        if (tPrev.isValid() &&
+            (!tCurr.isValid() ||
+             std::abs(t.msecsTo(tPrev)) <= std::abs(t.msecsTo(tCurr))))
+            best = lo - 1;
     }
     // Issue 2 — this setter is only ever reached from a user scrub (the slider)
     // or animation sync, never from the live-ingest path (refreshTimeRange calls
@@ -1855,11 +1867,20 @@ void SWMM2DResultsLayer::setCurrentSimTimeAsOf(QDateTime cursor)
 
     // Largest index whose frame time is at or before the cursor (causal floor).
     // Clamp to 0 (hold the first frame) when the cursor precedes every frame.
-    int best = 0;
-    for (int i = 0; i < n; ++i) {
-        const QDateTime ti = source_->simTimeAt(i);
-        if (ti.isValid() && ti <= cursor) best = i;
+    //
+    // 2026-07-19 — binary search (slider scrub perf; replaces the O(n)
+    // linear scan). /time is monotonic: bisect for the first frame >
+    // cursor; the causal floor is the frame before it.
+    int lo = 0, hi = n;                    // half-open [lo, hi)
+    while (lo < hi) {
+        const int mid = lo + (hi - lo) / 2;
+        const QDateTime tm = source_->simTimeAt(mid);
+        if (tm.isValid() && tm <= cursor)
+            lo = mid + 1;
+        else
+            hi = mid;
     }
+    const int best = std::max(0, lo - 1);
     // Issue 2 — same manual-control handoff as setCurrentSimTime: a causal sync
     // from the slider/animation must not leave a LIVE source free to snap back
     // to the newest frame. Re-arm only at the latest frame.

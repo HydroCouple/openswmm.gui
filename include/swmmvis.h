@@ -20,6 +20,7 @@
 #ifndef SWMMVIS_H
 #define SWMMVIS_H
 
+#include <QDateTime>   // 2026-07-19 — mPendingSeekTime (scrub coalescing)
 #include <QHash>
 #include <QMainWindow>
 #include <QPointer>
@@ -44,6 +45,7 @@ class QSlider;
 class QDoubleSpinBox;
 class QDateTimeEdit;
 class QProgressBar;
+class QTimer;          // 2026-07-19 — mScrubCoalesceTimer (scrub coalescing)
 class QStandardItemModel;
 class QDragEnterEvent;
 class QDragMoveEvent;
@@ -66,7 +68,6 @@ class SimulationStatusModel;
 class ProfilePlotDialog;
 
 namespace openswmmvis::ui { class CursorWindowSlider; }
-namespace openswmmvis::ui { class PerAttributeThemingWidget; }
 namespace openswmmvis::ui { class LegendDock; }
 namespace openswmmvis::ui { class LayerStylingDock; }
 
@@ -509,6 +510,14 @@ private:
     // Replaces the laggy two-thumb RangeSliderWidget; the window is driven by
     // mSpinAnimationWindow, not by a second thumb.
     openswmmvis::ui::CursorWindowSlider *mAnimationSlider = nullptr;
+    // 2026-07-19 — scrub-seek coalescing (slider lag fix). cursorChanged
+    // fires per drag pixel; each seek used to run the full synchronous
+    // layer fetch + 2D frame load. Drag now stores the pending time and
+    // restarts this ~40 ms single-shot timer (trailing edge, same idiom as
+    // MapCanvas::m_refreshTimer); cursorReleased seeks immediately so the
+    // final frame matches the thumb exactly.
+    QTimer        *mScrubCoalesceTimer                = nullptr;
+    QDateTime      mPendingSeekTime;
     // Active analysis-layer selectors on the Analysis toolbar. The user picks
     // which 1D / 2D results layer every analysis tool targets; "— none —"
     // returns to model editing. Populated from the active project window's
@@ -522,7 +531,6 @@ private:
     class AnimationController *mAnimationController  = nullptr;
     class TerrainToolbar      *mTerrainToolbar       = nullptr;
     class MeshEditingToolbar  *mMeshEditingToolbar   = nullptr;   // Slice §V.VB
-    openswmmvis::ui::PerAttributeThemingWidget *mThemingWidget = nullptr;
 
     QSettings          mSettings;
     QStandardItemModel *mLogMessagesModel   = nullptr;
