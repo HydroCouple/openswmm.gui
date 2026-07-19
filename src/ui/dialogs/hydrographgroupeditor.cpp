@@ -394,7 +394,13 @@ QWidget *HydrographGroupEditor::buildMiddlePane()
             "rate at T_ref (1/hr, ET-driven). T_ref — reference temperature "
             "(°C). theta_rec — temperature sensitivity of the thermal term "
             "(1/°C). T_freeze — recovery is suppressed when air temperature "
-            "≤ T_freeze (°C)."), expGroup);
+            "≤ T_freeze (°C).\n"
+            "Tick \"Snow\" to add a degree-day snow store to the response: "
+            "precipitation at or below snow_T (°C) accumulates as snow-water "
+            "equivalent instead of reaching the soil store, and melts above "
+            "snow_T at snow_ddf (depth/°C/day, project rain-depth units); "
+            "melt is added to rainfall (rain-on-snow). Requires a climate "
+            "temperature source."), expGroup);
         expHint->setWordWrap(true);
         expHint->setForegroundRole(QPalette::PlaceholderText);
         expV->addWidget(expHint);
@@ -983,11 +989,12 @@ void HydrographGroupEditor::updateGroupSummary()
             if (std::strcmp(buf, uh.constData()) == 0) ++rows;
         }
         const int dn = swmm_rdii_decay_count(m_layer->engine());
-        char dbuf[64]; int rr;
-        double a, b, c, d, e, f;
+        char dbuf[64]; int rr; int snowOn;
+        double a, b, c, d, e, f, sT, sDdf;
         for (int i = 0; i < dn; ++i) {
             if (swmm_rdii_decay_get(m_layer->engine(), i, dbuf, sizeof(dbuf),
-                                    &rr, &a, &b, &c, &d, &e, &f) != SWMM_OK)
+                                    &rr, &a, &b, &c, &d, &e, &f,
+                                    &snowOn, &sT, &sDdf) != SWMM_OK)
                 continue;
             if (std::strcmp(dbuf, uh.constData()) == 0) ++decayRows;
         }

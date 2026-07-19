@@ -1518,10 +1518,14 @@ public:
      *  per-season to ALL. */
     bool applyHydrographClearMonths(const QString &name);
 
-    /*! Upsert one [RDII_DECAY] row for a (group, response) pair. */
+    /*! Upsert one [RDII_DECAY] row for a (group, response) pair. The last
+     *  three arguments configure the optional degree-day snow model
+     *  (snowOn=false leaves the row snow-free). */
     bool applyRdiiDecaySet(const QString &name, int response,
                             double k_dep, double k_0, double k_T,
-                            double T_ref, double theta_rec, double T_freeze);
+                            double T_ref, double theta_rec, double T_freeze,
+                            bool snowOn = false, double snow_T = 1.0,
+                            double snow_ddf = 0.0);
 
     /*! Remove the [RDII_DECAY] row for a (group, response) pair. Idempotent.
      *  In the GUI's MVC layer this is the "untick Active" path. */
