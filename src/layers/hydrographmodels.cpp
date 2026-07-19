@@ -54,15 +54,36 @@ int findEntryIndex(SWMM_Engine eng, const QByteArray &uh,
 
 int findDecayIndex(SWMM_Engine eng, const QByteArray &uh, int response) {
     const int n = swmm_rdii_decay_count(eng);
-    char buf[64]; int r = -2;
-    double k_dep, k_0, k_T, T_ref, theta, T_freeze;
+    char buf[64]; int r = -2; int snowOn = 0;
+    double k_dep, k_0, k_T, T_ref, theta, T_freeze, snow_T, snow_ddf;
     for (int i = 0; i < n; ++i) {
         if (swmm_rdii_decay_get(eng, i, buf, sizeof(buf), &r,
-                                &k_dep, &k_0, &k_T, &T_ref, &theta, &T_freeze) != SWMM_OK)
+                                &k_dep, &k_0, &k_T, &T_ref, &theta, &T_freeze,
+                                &snowOn, &snow_T, &snow_ddf) != SWMM_OK)
             continue;
         if (std::strcmp(buf, uh.constData()) == 0 && r == response) return i;
     }
     return -1;
+}
+
+// Snapshot of one [RDII_DECAY] row (defaults when no row exists yet —
+// matches the engine struct defaults at InflowData.hpp).
+struct DecayRowValues {
+    double k_dep = 0.0, k_0 = 0.0, k_T = 0.0;
+    double T_ref = 10.0, theta = 0.0, T_freeze = 0.0;
+    bool   snowOn = false;
+    double snow_T = 1.0, snow_ddf = 0.0;
+};
+
+bool readDecayRow(SWMM_Engine eng, int idx, DecayRowValues &v) {
+    char buf[64]; int r = -2; int snowOn = 0;
+    if (swmm_rdii_decay_get(eng, idx, buf, sizeof(buf), &r,
+                            &v.k_dep, &v.k_0, &v.k_T,
+                            &v.T_ref, &v.theta, &v.T_freeze,
+                            &snowOn, &v.snow_T, &v.snow_ddf) != SWMM_OK)
+        return false;
+    v.snowOn = (snowOn != 0);
+    return true;
 }
 
 }  // namespace
@@ -409,22 +430,27 @@ QVariant HydrographDecayTableModel::data(const QModelIndex &index, int role) con
         return {};
     }
 
-    if (role != Qt::DisplayRole && role != Qt::EditRole) return {};
-    if (!active) return {};  // numeric cells blank when the row is inactive.
+    DecayRowValues v;
+    const bool haveRow = active && readDecayRow(m_layer->engine(), idx, v);
 
-    char buf[64]; int r;
-    double k_dep, k_0, k_T, T_ref, theta, T_freeze;
-    if (swmm_rdii_decay_get(m_layer->engine(), idx, buf, sizeof(buf), &r,
-                            &k_dep, &k_0, &k_T, &T_ref, &theta, &T_freeze) != SWMM_OK)
+    if (col == ColSnow) {
+        if (role == Qt::CheckStateRole && active)
+            return (haveRow && v.snowOn) ? Qt::Checked : Qt::Unchecked;
         return {};
+    }
+
+    if (role != Qt::DisplayRole && role != Qt::EditRole) return {};
+    if (!haveRow) return {};  // numeric cells blank when the row is inactive.
 
     switch (col) {
-        case ColKdep:    return k_dep;
-        case ColK0:      return k_0;
-        case ColKT:      return k_T;
-        case ColTref:    return T_ref;
-        case ColTheta:   return theta;
-        case ColTfreeze: return T_freeze;
+        case ColKdep:    return v.k_dep;
+        case ColK0:      return v.k_0;
+        case ColKT:      return v.k_T;
+        case ColTref:    return v.T_ref;
+        case ColTheta:   return v.theta;
+        case ColTfreeze: return v.T_freeze;
+        case ColSnowT:   return v.snowOn ? QVariant(v.snow_T)   : QVariant();
+        case ColSnowDdf: return v.snowOn ? QVariant(v.snow_ddf) : QVariant();
     }
     return {};
 }
@@ -436,12 +462,18 @@ bool HydrographDecayTableModel::setData(const QModelIndex &index,
     const int col = index.column();
     if (row < 0 || row > 2 || col <= ColResponse || col >= ColCount) return false;
 
+    // Read the current row (defaults when no row exists yet — T_ref = 10,
+    // snow off; matches the engine struct defaults at InflowData.hpp).
+    DecayRowValues cur;
+    const int idx = findDecayIndex(m_layer->engine(), m_name.toUtf8(), row);
+    if (idx >= 0) readDecayRow(m_layer->engine(), idx, cur);
+
     if (col == ColActive) {
         if (role != Qt::CheckStateRole) return false;
         const bool checked = (value.toInt() == Qt::Checked);
         if (checked) {
             // Seed defaults: T_ref = 10 deg C, others zero (matches the
-            // engine struct defaults at InflowData.hpp:174 and the editor
+            // engine struct defaults at InflowData.hpp and the editor
             // contract documented in GUI_IMPLEMENTATION_PLAN.md).
             return m_layer->applyRdiiDecaySet(m_name, row,
                                                0.0, 0.0, 0.0, 10.0, 0.0, 0.0);
@@ -449,33 +481,34 @@ bool HydrographDecayTableModel::setData(const QModelIndex &index,
         return m_layer->applyRdiiDecayRemove(m_name, row);
     }
 
+    if (col == ColSnow) {
+        if (role != Qt::CheckStateRole || idx < 0) return false;
+        const bool checked = (value.toInt() == Qt::Checked);
+        return m_layer->applyRdiiDecaySet(m_name, row,
+                                           cur.k_dep, cur.k_0, cur.k_T,
+                                           cur.T_ref, cur.theta, cur.T_freeze,
+                                           checked, cur.snow_T, cur.snow_ddf);
+    }
+
     if (role != Qt::EditRole) return false;
     bool ok = false;
     const double v = value.toDouble(&ok);
     if (!ok) return false;
 
-    // Read current values; if no row exists yet, treat as defaults (T_ref=10).
-    auto readCell = [this, row](int c, double fallback) -> double {
-        const QVariant v = data(this->index(row, c), Qt::DisplayRole);
-        return v.isValid() ? v.toDouble() : fallback;
-    };
-    double k_dep    = readCell(ColKdep,    0.0);
-    double k_0      = readCell(ColK0,      0.0);
-    double k_T      = readCell(ColKT,      0.0);
-    double T_ref    = readCell(ColTref,    10.0);
-    double theta    = readCell(ColTheta,   0.0);
-    double T_freeze = readCell(ColTfreeze, 0.0);
-
     switch (col) {
-        case ColKdep:    k_dep    = v; break;
-        case ColK0:      k_0      = v; break;
-        case ColKT:      k_T      = v; break;
-        case ColTref:    T_ref    = v; break;
-        case ColTheta:   theta    = v; break;
-        case ColTfreeze: T_freeze = v; break;
+        case ColKdep:    cur.k_dep    = v; break;
+        case ColK0:      cur.k_0      = v; break;
+        case ColKT:      cur.k_T      = v; break;
+        case ColTref:    cur.T_ref    = v; break;
+        case ColTheta:   cur.theta    = v; break;
+        case ColTfreeze: cur.T_freeze = v; break;
+        case ColSnowT:   cur.snow_T   = v; break;
+        case ColSnowDdf: cur.snow_ddf = v; break;
     }
     return m_layer->applyRdiiDecaySet(m_name, row,
-                                       k_dep, k_0, k_T, T_ref, theta, T_freeze);
+                                       cur.k_dep, cur.k_0, cur.k_T,
+                                       cur.T_ref, cur.theta, cur.T_freeze,
+                                       cur.snowOn, cur.snow_T, cur.snow_ddf);
 }
 
 Qt::ItemFlags HydrographDecayTableModel::flags(const QModelIndex &index) const {
@@ -488,11 +521,22 @@ Qt::ItemFlags HydrographDecayTableModel::flags(const QModelIndex &index) const {
 
     // Numeric columns are editable only when this row's [RDII_DECAY] entry
     // exists (Active is checked) — grey them out otherwise. Existence of
-    // the engine row IS the active flag.
+    // the engine row IS the active flag. The snow numeric columns further
+    // require the row's Snow checkbox to be on.
     if (m_layer && m_layer->engine() && !m_name.isEmpty()) {
         const int idx = findDecayIndex(m_layer->engine(),
                                         m_name.toUtf8(), index.row());
         if (idx < 0) return Qt::ItemIsSelectable;
+        if (col == ColSnow)
+            return Qt::ItemIsEnabled | Qt::ItemIsSelectable |
+                   Qt::ItemIsUserCheckable;
+        if (col == ColSnowT || col == ColSnowDdf) {
+            DecayRowValues v;
+            if (!readDecayRow(m_layer->engine(), idx, v) || !v.snowOn)
+                return Qt::ItemIsSelectable;
+        }
+    } else if (col == ColSnow) {
+        return Qt::ItemIsSelectable;
     }
     return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable;
 }
@@ -510,6 +554,9 @@ QVariant HydrographDecayTableModel::headerData(int section, Qt::Orientation orie
             case ColTref:     return QObject::tr("T_ref");
             case ColTheta:    return QObject::tr("theta_rec");
             case ColTfreeze:  return QObject::tr("T_freeze");
+            case ColSnow:     return QObject::tr("Snow");
+            case ColSnowT:    return QObject::tr("snow_T");
+            case ColSnowDdf:  return QObject::tr("snow_ddf");
         }
     }
     return {};
