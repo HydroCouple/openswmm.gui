@@ -500,21 +500,24 @@ void SimulationRunner::start()
                             Qt::QueuedConnection);
                     }
 
-                    // Per-tick reconstructed vertex heads — drives the smooth
-                    // (Gouraud) depth fill + contour interpolation. Same
-                    // SWMM_OK gating as the flux call: an engine without the
-                    // API simply never emits, and the GUI falls back to its
-                    // incident-cell vertex average.
+                    // Per-tick SIGNED vertex render depths (wet-masked
+                    // η_v − z_v) — drives the smooth (Gouraud) depth fill +
+                    // contour interpolation. Replaces the solver vertex-head
+                    // field, whose stencil blends DRY-cell bed elevations into
+                    // shoreline vertices (water rendered climbing adverse
+                    // slopes/steps). Same SWMM_OK gating as the flux call: an
+                    // engine without the API simply never emits, and the GUI
+                    // falls back to its wet-only incident-cell reconstruction.
                     if (twoD_n_vert > 0) {
-                        QVector<double> heads(twoD_n_vert);
-                        if (swmm_2d_vertex_get_heads_bulk(eng, heads.data())
-                            == SWMM_OK)
+                        QVector<double> vdepths(twoD_n_vert);
+                        if (swmm_2d_vertex_get_render_depths_bulk(
+                                eng, vdepths.data()) == SWMM_OK)
                         {
                             QMetaObject::invokeMethod(rawSelf,
-                                [rawSelf, jobId, heads = std::move(heads),
+                                [rawSelf, jobId, vdepths = std::move(vdepths),
                                  curQDT, totalElapsedSec]() mutable {
-                                    emit rawSelf->twoDVertexHeadsAvailable(
-                                        jobId, heads, curQDT, totalElapsedSec);
+                                    emit rawSelf->twoDVertexDepthsAvailable(
+                                        jobId, vdepths, curQDT, totalElapsedSec);
                                 },
                                 Qt::QueuedConnection);
                         }
