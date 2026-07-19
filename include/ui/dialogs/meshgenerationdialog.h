@@ -102,6 +102,19 @@ public:
         // sources are merged to one.  0 = disabled.
         double pslgSnapEps = 0.0;
 
+        // 2026-07-19 — boundary-aware terrain filter (worker Step 2). DTM
+        // terrain Steiner candidates outside the domain, inside a hole
+        // ring, or closer than this to any constrained segment (boundary /
+        // hole / constraint paths) or mandatory Steiner vertex are dropped
+        // so they cannot force slivers along the boundary. <= 0 = auto
+        // (0.5 × effective terrain point spacing).
+        double terrainBoundaryBuffer = -1.0;
+
+        // 2026-07-19 — optional boundary densification: split domain/hole
+        // ring edges longer than this into equal parts after RDP
+        // simplification (pure vertex insertion). <= 0 = off.
+        double maxBoundaryEdgeLen = 0.0;
+
         // Mesh-quality knobs
         mesh::GenerationOptions genOpts;
 
@@ -239,6 +252,9 @@ private:
     QDoubleSpinBox *m_simplifyEpsSpin  = nullptr; ///< RDP tolerance (map units; 0 = off)
     QDoubleSpinBox *m_snapEpsSpin      = nullptr; ///< Steiner snap radius (map units; 0 = off)
     QCheckBox      *m_allowSteiner   = nullptr;
+    // 2026-07-19 — optional boundary densification (edge split after RDP).
+    QCheckBox      *m_maxBoundaryEdgeBox  = nullptr;
+    QDoubleSpinBox *m_maxBoundaryEdgeSpin = nullptr; ///< split length (map units; (off) at 0)
 
     // ── Thinning (terrain-adaptive Steiner points from DTM) ─────────
     QCheckBox      *m_thinningBox            = nullptr;
@@ -247,6 +263,8 @@ private:
     QSpinBox       *m_thinningMaxPointsSpin  = nullptr;
     QCheckBox      *m_minSpacingBox  = nullptr;
     QDoubleSpinBox *m_minSpacingSpin = nullptr;
+    // 2026-07-19 — boundary-aware terrain filter buffer ((auto) at 0).
+    QDoubleSpinBox *m_boundaryBufferSpin = nullptr;
 
     // ── Roughness / Manning's ───────────────────────────────────────
     QRadioButton  *m_manningsConstant    = nullptr;
