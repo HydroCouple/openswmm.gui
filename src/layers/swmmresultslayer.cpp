@@ -634,9 +634,16 @@ int SWMMResultsLayer::periodIndexForDateTime(const QDateTime &dt) const
     // [0, totalSteps - 1] so the result is always a valid index even when
     // `dt` lies outside the simulated range — secondary layers fed a
     // primary-layer time will then render their nearest-available period.
-    if (m_totalSteps <= 0 || m_reportStepSec <= 0 || !m_startDateTime.isValid())
+    //
+    // 2026-07-19 — grid origin is the REPORTED start (period 0's time),
+    // not the simulation start: period_time(k) = reportedStart +
+    // k * reportStep. Anchoring on the simulation start mapped period 0's
+    // exact time to index 1 (off-by-one) whenever the first frame sits a
+    // report step (or a whole REPORT_START offset) after START_DATE.
+    const QDateTime origin = reportedStartDateTime();
+    if (m_totalSteps <= 0 || m_reportStepSec <= 0 || !origin.isValid())
         return 0;
-    const qint64 offsetMs = m_startDateTime.msecsTo(dt);
+    const qint64 offsetMs = origin.msecsTo(dt);
     const double periodF  = static_cast<double>(offsetMs)
                               / (static_cast<double>(m_reportStepSec) * 1000.0);
     int period = static_cast<int>(std::lround(periodF));
@@ -650,9 +657,13 @@ int SWMMResultsLayer::periodIndexForDateTimeAsOf(const QDateTime &dt) const
     // Causal floor: the latest report step at or before dt. A small epsilon
     // absorbs sub-step rounding so an exact-grid time lands on its own step
     // rather than the previous one.
-    if (m_totalSteps <= 0 || m_reportStepSec <= 0 || !m_startDateTime.isValid())
+    //
+    // 2026-07-19 — same reported-start origin as periodIndexForDateTime();
+    // see the comment there.
+    const QDateTime origin = reportedStartDateTime();
+    if (m_totalSteps <= 0 || m_reportStepSec <= 0 || !origin.isValid())
         return 0;
-    const qint64 offsetMs = m_startDateTime.msecsTo(dt);
+    const qint64 offsetMs = origin.msecsTo(dt);
     const double periodF  = static_cast<double>(offsetMs)
                               / (static_cast<double>(m_reportStepSec) * 1000.0);
     int period = static_cast<int>(std::floor(periodF + 1e-6));
@@ -736,10 +747,22 @@ bool SWMMResultsLayer::finishOpen(qint64 msOpen,
         return false;
     }
 
-    // Determine simulation start datetime from period 0.
+    // Simulation start datetime from the .out header (START_DATE — NOT
+    // period 0's report time; the old comment here was misleading).
     double startJulian = 0.0;
     swmm_output_get_start_date(m_handle, &startJulian);
     m_startDateTime = openswmmvis::core::swmmDateTimeToQDateTime(startJulian);
+
+    // 2026-07-19 — reported data origin: period 0's report time. This is
+    // where the data frames actually begin (reportStart + reportStep),
+    // possibly well after START_DATE when the model sets REPORT_START.
+    // Feeds reportedStartDateTime(), which anchors the animation slider
+    // span and the period-index grid so the slider's left edge is frame 0
+    // instead of a dead zone.
+    double reportedStartJulian = 0.0;
+    swmm_output_get_period_time(m_handle, 0, &reportedStartJulian);
+    m_reportedStartDateTime =
+        openswmmvis::core::swmmDateTimeToQDateTime(reportedStartJulian);
 
     // End datetime from last period time.
     double endJulian = 0.0;
@@ -1523,6 +1546,15 @@ QDateTime SWMMResultsLayer::startDateTime() const { return m_startDateTime; }
 QDateTime SWMMResultsLayer::endDateTime()   const { return m_endDateTime;   }
 int  SWMMResultsLayer::reportStepSeconds()  const { return m_reportStepSec; }
 
+// 2026-07-19 — reported data origin (slider range fix); see header. Falls
+// back to the simulation start so callers degrade to the old behaviour when
+// period 0's time was unavailable at load.
+QDateTime SWMMResultsLayer::reportedStartDateTime() const
+{
+    return m_reportedStartDateTime.isValid() ? m_reportedStartDateTime
+                                             : m_startDateTime;
+}
+
 void SWMMResultsLayer::setCurrentTimeStep(int step)
 {
     if (m_totalSteps <= 0)
@@ -1543,6 +1575,28 @@ void SWMMResultsLayer::setCurrentTimeStep(int step)
     emit currentTimeStepChanged(m_currentStep);
     emit currentDateTimeChanged(currentDateTime());
     emit repaintRequested();
+}
+
+// 2026-07-19 — animation-tick fast path (slider scrub perf); see header.
+// The base implementation invalidated every dynamic sublayer, and each
+// invalidation re-ran fetchResultsForStep() and escalated Structural via
+// the wireRefresh lambda — ~8 redundant .out fetches plus a full
+// populateScene rebuild per tick. A tick only moves the time cursor: the
+// item set is unchanged, so the Values restyle path is sufficient. On the
+// primary-driver path the controller dispatches AFTER setCurrentTimeStep()
+// has already fetched this step, so the else-branch is a cheap re-assert
+// (repaints are coalesced by MapCanvas::m_refreshTimer).
+void SWMMResultsLayer::dispatchAnimationTick(int period)
+{
+    if (m_totalSteps <= 0)
+        return;
+
+    if (period != m_currentStep) {
+        setCurrentTimeStep(period);   // cheap Values fetch + restyle
+    } else {
+        escalateSceneDirty(SceneDirty::Values);
+        emit repaintRequested();
+    }
 }
 
 void SWMMResultsLayer::escalateSceneDirty(SceneDirty next)
