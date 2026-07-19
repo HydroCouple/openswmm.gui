@@ -1286,6 +1286,15 @@ void SWMMVis::initializeAnimationToolBar()
             if (auto *canvas = pw->canvas()) {
                 for (OpenSWMMVisLayer *l : canvas->layers()) {
                     auto *r2d = qobject_cast<SWMM2DResultsLayer *>(l);
+                    // 2026-07-19 — skip the controller's own fallback layer:
+                    // onPrimaryPeriodChanged already advanced it causally
+                    // (setCurrentSimTimeAsOf) before emitting
+                    // currentTimeChanged, so advancing it here again doubled
+                    // the nearest-frame scan + loadFrame_ work on every
+                    // scrub/playback tick. Any ADDITIONAL 2D layers are not
+                    // controller-managed and still advance via this loop.
+                    if (r2d && r2d == mAnimationController->fallback2DLayer())
+                        continue;
                     if (r2d && r2d->isVisible())
                         r2d->setCurrentSimTimeAsOf(dt);   // causal: never ahead of cursor
                 }
@@ -1334,14 +1343,42 @@ void SWMMVis::initializeAnimationToolBar()
     // Slider (user) → controller: the thumb is the cursor, so a scrub only
     // seeks. The window is owned by the Window spin box; scrubbing never
     // changes it, so there is no two-handle round-trip (Issue 1).
+    //
+    // 2026-07-19 — coalesce scrub seeks (slider lag fix). cursorChanged
+    // fires on every drag pixel, and each seekToTime() used to run the
+    // full synchronous data path (1D fetch + 2D nearest-frame scan +
+    // loadFrame_) on the GUI thread — the drag stuttered because seeks
+    // outran the frame cost. Drags now just record the pending time and
+    // restart a ~40 ms single-shot timer (trailing edge — same idiom as
+    // MapCanvas::m_refreshTimer); the seek runs when the hand pauses or
+    // the timer lapses. cursorReleased seeks immediately so the final
+    // frame always lands exactly where the thumb was dropped.
+    mScrubCoalesceTimer = new QTimer(this);
+    mScrubCoalesceTimer->setSingleShot(true);
+    mScrubCoalesceTimer->setInterval(40);
+
+    auto seekPending = [this]() {
+        if (!mPendingSeekTime.isValid()) return;
+        // Block the slider while the controller fans the seek back out
+        // through currentTimeChanged (which re-sets the thumb).
+        QSignalBlocker b(mAnimationSlider);
+        mAnimationController->seekToTime(mPendingSeekTime);
+        mPendingSeekTime = QDateTime();
+    };
+    connect(mScrubCoalesceTimer, &QTimer::timeout, this, seekPending);
+
     connect(mAnimationSlider, &openswmmvis::ui::CursorWindowSlider::cursorChanged,
             this, [this, denormTime](qreal cursor) {
         const QDateTime t = denormTime(cursor);
         if (!t.isValid()) return;
-        // Block the slider while the controller fans the seek back out through
-        // currentTimeChanged (which re-sets the thumb).
-        QSignalBlocker b(mAnimationSlider);
-        mAnimationController->seekToTime(t);
+        mPendingSeekTime = t;
+        mScrubCoalesceTimer->start();   // restart → trailing-edge coalesce
+    });
+
+    connect(mAnimationSlider, &openswmmvis::ui::CursorWindowSlider::cursorReleased,
+            this, [this, seekPending](qreal) {
+        mScrubCoalesceTimer->stop();
+        seekPending();                  // land exactly on the drop position
     });
 
     // Span box (user) → controller window.

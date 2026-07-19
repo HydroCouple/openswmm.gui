@@ -56,6 +56,13 @@ signals:
     /*! \brief Emitted when the cursor moves (user drag / track click, or a
      *  programmatic setCursorNorm that actually changed the value). */
     void cursorChanged(qreal cursorNorm);
+    /*! \brief 2026-07-19 — emitted once when a scrub gesture ends (mouse
+     *  release after a drag / click, or a keyboard nudge). Lets the host
+     *  coalesce the per-pixel cursorChanged stream during the gesture and
+     *  still land exactly on the final position: the toolbar restarts a
+     *  short single-shot timer on every cursorChanged and seeks
+     *  immediately (timer stopped) on cursorReleased. */
+    void cursorReleased(qreal cursorNorm);
     /*! \brief Emitted when the window band width changes. */
     void windowNormChanged(qreal windowNorm);
 

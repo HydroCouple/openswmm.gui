@@ -130,6 +130,10 @@ void CursorWindowSlider::mouseReleaseEvent(QMouseEvent *e)
     if (m_dragging) {
         m_dragging = false;
         setCursor(Qt::ArrowCursor);
+        // 2026-07-19 — end-of-gesture marker so the host can coalesce the
+        // per-pixel cursorChanged stream but still seek exactly to where
+        // the thumb was dropped.
+        emit cursorReleased(m_cursor);
         e->accept();
         return;
     }
@@ -148,6 +152,10 @@ void CursorWindowSlider::keyPressEvent(QKeyEvent *e)
     case Qt::Key_End:   setCursorNorm(1.0);             break;
     default: QWidget::keyPressEvent(e); return;
     }
+    // 2026-07-19 — a keyboard nudge is a complete gesture: mark it ended so
+    // the host's coalescing seek fires immediately instead of after the
+    // trailing-edge timer.
+    emit cursorReleased(m_cursor);
     e->accept();
 }
 
