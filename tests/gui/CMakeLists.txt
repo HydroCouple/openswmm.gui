@@ -1127,6 +1127,13 @@ add_swmmvis_gui_test(test_options_hydration_contract
     ${CMAKE_SOURCE_DIR}/include/ui/swmmvis_hydration_audit.h
 )
 
+# Pins the [2D_OPTIONS] VFR-closure ABI (CELL_CLOSURE / FACE_RECONSTRUCTION /
+# VFR_MIN_WET_FRAC) that SimulationOptionsDialog's new closure controls persist
+# through swmm_options_*_ext + swmm_model_write. Engine-ABI only (no dialog).
+add_swmmvis_gui_test(test_2d_vfr_options_contract
+    test_2d_vfr_options_contract.cpp
+)
+
 # Slice DA.1 — pins the engine ABI surface that
 # `SWMMModelLayer::dataObjectCount` / `dataObjectNameAt` rely on for the
 # Control Rules and Unit Hydrographs Object Browser sections. Validates
