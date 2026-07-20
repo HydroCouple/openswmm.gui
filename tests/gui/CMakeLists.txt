@@ -1339,6 +1339,13 @@ add_swmmvis_gui_test(test_meshgenerator
 )
 target_link_libraries(test_meshgenerator PRIVATE triangle_lib)
 
+add_swmmvis_gui_test(test_nninterpdegenerate
+    test_nninterpdegenerate.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/naturalnbinterpolator.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/naturalnbinterpolator.h
+)
+target_link_libraries(test_nninterpdegenerate PRIVATE triangle_lib)
+
 add_swmmvis_gui_test(test_dtmsampler
     test_dtmsampler.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/dtmsampler.cpp
