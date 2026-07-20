@@ -130,8 +130,14 @@ bool NaturalNeighbourInterpolator::build(const QVector<QPointF> &pts,
         in.pointlist[2 * i + 1] = (uy[i] - m_oy) / m_scale;
     }
 
-    // z = zero-based, n = neighbour list, Q = quiet, N = no node markers.
-    char sw[] = "znQN";
+    // z = zero-based, n = neighbour list, Q = quiet.
+    //
+    // NOT 'N': that switch suppresses Triangle's node output, which (per
+    // triangle.h) leaves out.pointlist uninitialised — the copy loop below
+    // then dereferenced NULL and crashed the mesh pipeline on every valid
+    // seed set.  It was here on a misreading of 'N' as "no node markers"
+    // (that is 'B', for boundary markers, which this code never reads).
+    char sw[] = "znQ";
     const int triErr = triangulate_safe(sw, &in, &out, nullptr);
     if (triErr != 0 || out.numberoftriangles <= 0 || out.numberofcorners != 3)
     {
