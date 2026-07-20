@@ -45,6 +45,7 @@
 #include <QProgressBar>
 #include <QDir>
 #include <QDoubleSpinBox>
+#include <QElapsedTimer>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -260,6 +261,20 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
     auto progress = [&](int pct, const QString &msg) {
         promise.setProgressValueAndText(pct, msg);
+    };
+
+    // 2026-07-19c — sub-stage timing. The 36 %→38 % band (reprojection,
+    // Poisson filter, boundary filter) reported no intermediate progress,
+    // so a slow stage there was indistinguishable from a hang. stageMark()
+    // logs the wall time of the stage that just ended plus the running
+    // total; every heavy loop in that band now calls it.
+    QElapsedTimer stageClock, totalClock;
+    stageClock.start();
+    totalClock.start();
+    auto stageMark = [&](const char *what) {
+        qDebug().nospace() << "[Mesh][t] " << what << ": "
+                           << stageClock.restart() << " ms (total "
+                           << totalClock.elapsed() << " ms)";
     };
 
     // ── Domain + holes ──────────────────────────────────────────────
@@ -511,14 +526,40 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
         qDebug() << "[Mesh] gStep:" << gStep << "| doThinning:" << in.doThinning;
 
-        // 2026-07-19 — effective terrain point spacing, hoisted from the
-        // Poisson-disk block below (identical auto rule) so the
-        // boundary-buffer auto formula and the Poisson filter share one
-        // definition of "how far apart terrain points end up".
+        // 2026-07-19c — gStep is a DTM-CRS quantity (degrees for a geographic
+        // raster), but every consumer below — the Poisson filter and the
+        // boundary buffer — measures distances in MESH CRS units (metres for
+        // a projected mesh). Using gStep directly made bufferDist 0.14 mm for
+        // a 1-arc-second DTM, so the segment chunker below tried to cut the
+        // ~205 km of subcatchment boundary into ~1.5e9 chunks and generation
+        // hung. Convert one grid step at the domain centre into mesh units.
+        const double gStepMesh = [&]() -> double {
+            if (!dtmToMesh) return gStep;      // same CRS: already mesh units
+            const double cx = (dx0 + dx1) * 0.5, cy = (dy0 + dy1) * 0.5;
+            double xs[3] = {cx, cx + gStep, cx};
+            double ys[3] = {cy, cy,         cy + gStep};
+            if (!dtmToMesh->Transform(3, xs, ys)) return gStep;
+            const double ex = std::hypot(xs[1] - xs[0], ys[1] - ys[0]);
+            const double ey = std::hypot(xs[2] - xs[0], ys[2] - ys[0]);
+            // Mean of the two axis steps: a geographic pixel is anisotropic
+            // once projected (17.6 m E-W vs 30.9 m N-S at Bellinge's
+            // latitude), and the consumers want one scalar "spacing".
+            const double s = 0.5 * (ex + ey);
+            return (std::isfinite(s) && s > 0.0) ? s : gStep;
+        }();
+
+        // Effective terrain point spacing IN MESH CRS UNITS, shared by the
+        // boundary-buffer auto formula and the Poisson filter so both agree
+        // on "how far apart terrain points end up". minSpacing comes from the
+        // UI already in model units, so it is used as-is.
         const double effSpacing = in.thinnerOpts.useMinSpacing
             ? ((in.thinnerOpts.minSpacing > 0.0) ? in.thinnerOpts.minSpacing
-                                                 : gStep * 2.0)
-            : gStep;
+                                                 : gStepMesh * 2.0)
+            : gStepMesh;
+
+        qDebug() << "[Mesh] gStep (DTM CRS):" << gStep
+                 << "-> gStepMesh (mesh CRS):" << gStepMesh
+                 << "| effSpacing:" << effSpacing;
 
         // Probe the DTM at the centre of the domain to verify sampleAt works.
         {
@@ -538,7 +579,9 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
 
             const MapExtent dtmBbox(dx0, dy0, dx1, dy1);
+            stageClock.restart();
             candidates = thinner.generatePoints(dtmBbox, in.thinnerOpts, &candidateZ);
+            stageMark("thinning (generatePoints)");
             qDebug() << "[Mesh] thinning retained" << candidates.size() << "points";
             progress(36, QObject::tr("Thinning retained %1 terrain points…")
                          .arg(candidates.size()));
@@ -552,7 +595,9 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
 
             const MapExtent dtmBbox(dx0, dy0, dx1, dy1);
+            stageClock.restart();
             thinner.readPixels(dtmBbox, candidates, candidateZ);
+            stageMark("bulk readPixels");
 
             qDebug() << "[Mesh] bulk readPixels returned" << candidates.size() << "points";
             progress(36, QObject::tr("Sampled %1 DTM grid points…")
@@ -560,6 +605,10 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         }
 
         // Reproject all candidates from DTM CRS → mesh CRS.
+        progress(36, QObject::tr("Reprojecting %1 terrain points…")
+                     .arg(candidates.size()));
+        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+        stageClock.restart();
         QVector<QPointF> candidatesMesh;
         candidatesMesh.reserve(candidates.size());
         for (int ci = 0; ci < candidates.size(); ++ci)
@@ -568,6 +617,7 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             if (dtmToMesh) dtmToMesh->Transform(1, &cx, &cy);
             candidatesMesh.append(QPointF(cx, cy));
         }
+        stageMark("reproject candidates DTM->mesh CRS");
 
         // ── Option A: Poisson-disk minimum spacing filter (mesh CRS) ────────
         // Iterates candidates in order; accepts a point only if no already-
@@ -580,6 +630,11 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             const double spacing   = effSpacing;
             const double spacing2  = spacing * spacing;
             const double invCell   = 1.0 / spacing;
+
+            progress(36, QObject::tr("Poisson-disk filter over %1 points…")
+                         .arg(candidatesMesh.size()));
+            if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+            stageClock.restart();
 
             using CellKey = QPair<qint32, qint32>;
             QHash<CellKey, QVector<int>> cellMap;
@@ -622,8 +677,10 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             for (int ci = 0; ci < candidatesMesh.size(); ++ci)
                 if (kept[ci]) { filtMesh.append(candidatesMesh[ci]); filtZ.append(candidateZ[ci]); }
 
+            stageMark("Poisson-disk filter");
             qDebug() << "[Mesh] Poisson-disk:" << candidatesMesh.size()
-                     << "->" << filtMesh.size() << "points (spacing" << spacing << ")";
+                     << "->" << filtMesh.size() << "points (spacing" << spacing
+                     << "| cells" << cellMap.size() << ")";
             progress(37, QObject::tr("Poisson-disk filter: %1 → %2 points…")
                          .arg(candidatesMesh.size()).arg(filtMesh.size()));
 
@@ -668,6 +725,10 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         // the parity, so "in domain minus holes" falls out directly for
         // the disjoint rings UnaryUnion produces), with edges bucketed by
         // y-band so each query only visits edges near its scanline.
+        progress(37, QObject::tr("Boundary filter: indexing domain rings…"));
+        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+        stageClock.restart();
+
         QVector<QPair<QPointF, QPointF>> pipEdges;
         const int nBands = 1024;
         const double bandH   = (by1 - by0) / nBands;   // > 0: bbox validated above
@@ -696,6 +757,9 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             addPipRing(dom);
         for (const auto &hr : std::as_const(in.holeRings))
             addPipRing(hr);
+        stageMark("boundary filter: point-in-polygon band index");
+        qDebug() << "[Mesh] PIP index:" << pipEdges.size() << "edges over"
+                 << nBands << "y-bands";
         auto insideDomain = [&](const QPointF &p) -> bool {
             if (p.x() < bx0 || p.x() > bx1 || p.y() < by0 || p.y() > by1)
                 return false;
@@ -730,9 +794,24 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         // the segment (min distance over chunks == distance to segment),
         // each chunk touches a handful of cells, and the total insertion
         // count becomes O(len/buffer). The 3×3 query below is unchanged.
+        progress(37, QObject::tr("Boundary filter: indexing constraint segments…"));
+        if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+        stageClock.restart();
+
+        // 2026-07-19c — hard ceiling on total chunks. The chunk count is
+        // O(totalBoundaryLength / bufferDist), so any future unit slip in
+        // bufferDist (see the gStepMesh conversion above — a DTM-CRS value
+        // leaking in made this 1.5e9) silently turns into an unbounded loop.
+        // Bail loudly instead of hanging: the filter is a quality refinement,
+        // and skipping it costs sliver triangles, not a wrong mesh.
+        constexpr qint64 kMaxSegChunks = 20'000'000;
+        qint64 nChunkTotal = 0;
+        bool   chunkOverflow = false;
+
         QVector<QPair<QPointF, QPointF>> csegs;
         QHash<CellKey, QVector<int>>     segGrid;
         auto addSegPath = [&](const QVector<QPointF> &path, bool closeRing) {
+            if (chunkOverflow) return;
             const int n = path.size();
             if (n < 2) return;
             const bool alreadyClosed = (path.first() == path.last());
@@ -744,8 +823,19 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 if (a == b) continue;
                 const double segLen = std::hypot(b.x() - a.x(), b.y() - a.y());
                 if (!std::isfinite(segLen)) continue;   // garbage coords guard
-                const int nChunks =
-                    std::max(1, static_cast<int>(std::ceil(segLen / bufferDist)));
+
+                // Count in double/qint64: segLen/bufferDist overflows int
+                // outright once bufferDist is wrong by a few orders.
+                const double chunkReal = std::ceil(segLen / bufferDist);
+                if (!std::isfinite(chunkReal)
+                    || nChunkTotal + qint64(std::min(chunkReal, 1e18))
+                           > kMaxSegChunks)
+                {
+                    chunkOverflow = true;
+                    return;
+                }
+                const int nChunks = std::max(1, static_cast<int>(chunkReal));
+                nChunkTotal += nChunks;
                 for (int c = 0; c < nChunks; ++c)
                 {
                     const double t0 = static_cast<double>(c)     / nChunks;
@@ -772,6 +862,30 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             addSegPath(hr, /*closeRing=*/true);
         for (const auto &cs : std::as_const(in.constraintSegs))
             addSegPath(cs.path, /*closeRing=*/false);
+        stageMark("boundary filter: constraint-segment hash");
+        if (chunkOverflow)
+        {
+            // Abandon the segment index rather than grind: keep the cheap
+            // inside-domain and mandatory-vertex rejections, drop only the
+            // near-segment one.
+            csegs.clear();
+            segGrid.clear();
+            qWarning() << "[Mesh] boundary filter: segment index exceeded"
+                       << kMaxSegChunks
+                       << "chunks at bufferDist" << bufferDist
+                       << "— skipping the near-segment rejection. Set an "
+                          "explicit Boundary buffer if slivers appear.";
+        }
+        {
+            qint64 nIns = 0;
+            for (auto it = segGrid.constBegin(); it != segGrid.constEnd(); ++it)
+                nIns += it.value().size();
+            qDebug() << "[Mesh] seg hash: bufferDist" << bufferDist
+                     << "| chunks" << csegs.size()
+                     << "| cells" << segGrid.size()
+                     << "| insertions" << nIns
+                     << "| overflow" << chunkOverflow;
+        }
 
         auto nearConstraint = [&](double px, double py) -> bool {
             const QPointF p(px, py);
@@ -795,6 +909,7 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         // point centimetres from a junction makes the same sliver at exactly
         // the coupling locations. Rim-flatten only conditions z, not xy.
         QHash<CellKey, QVector<QPointF>> vertGrid;
+        stageClock.restart();
         for (const auto &sp0 : std::as_const(in.steinerPoints))
         {
             const qint32 gx = qint32(std::floor(sp0.xy.x() * invBufCell));
@@ -821,10 +936,20 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         // Add surviving terrain candidates as PSLG Steiner vertices.
         // Candidates within a rim node's flatten radius are forced to that
         // node's rim z (model units); the rest keep their raster-unit DTM z.
+        stageMark("boundary filter: mandatory-vertex hash");
+
         int nOutside = 0, nNearSeg = 0, nNearNode = 0, nAdded = 0;
+        progress(37, QObject::tr("Boundary filter: testing %1 terrain points…")
+                     .arg(candidatesMesh.size()));
+        stageClock.restart();
         elevCache.reserve(elevCache.size() + candidatesMesh.size());
         for (int ci = 0; ci < candidatesMesh.size(); ++ci)
         {
+            // Cancel check every 64k candidates: this loop is the longest
+            // uninterruptible stretch in the band and "Stop" was dead here.
+            if ((ci & 0xFFFF) == 0 && promise.isCanceled())
+            { fail(QObject::tr("Cancelled.")); return; }
+
             const double cx = candidatesMesh[ci].x(), cy = candidatesMesh[ci].y();
 
             // 2026-07-19 — boundary-aware rejection (see block comment above).
@@ -849,6 +974,7 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             if (flattened) modelUnitKeys.insert(k);
         }
 
+        stageMark("boundary filter: candidate rejection loop");
         qDebug() << "[Mesh] boundary filter:" << candidatesMesh.size()
                  << "->" << nAdded
                  << "(outside" << nOutside
@@ -869,7 +995,9 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     progress(40, QObject::tr("Running Triangle…"));
     if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
 
+    stageClock.restart();
     mesh::MeshResult result = g.generate();
+    stageMark("Triangle generate()");
     if (!result.ok)
     {
         if (meshToDTM) OGRCoordinateTransformation::DestroyCT(meshToDTM);
