@@ -59,6 +59,12 @@ env:
 jobs:
   build:
     name: Build and Package (${{ matrix.os }})
+    # Hard ceiling for the whole leg. Without this, GitHub's default is 360 min
+    # (6h) — a hung Install/Package step once ran ~4h before it was killed by
+    # hand. Set ABOVE the sum of the per-step caps (110+25+15+20 = 170) so those
+    # granular timeouts fire FIRST and name the offending step, rather than the
+    # job ceiling killing the run anonymously. Still 3h instead of 6h.
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -623,7 +629,10 @@ jobs:
           ls -la "$PREFIX/lib/cmake" 2>&1 || true
         shell: bash
 
+      # timeout-minutes: a cold (cache-miss) Windows compile is ~80 min; 110 caps
+      # a wedged compiler/linker without cutting off a legitimate cold build.
       - name: Build and Package
+        timeout-minutes: 110
         run: cmake --build --preset=${{ matrix.cmake_preset }}
 
       # ── Test ─────────────────────────────────────────────────────────────────
@@ -640,7 +649,10 @@ jobs:
       # --timeout 60 stays as a backstop: 60 s is a 34x margin over the slowest
       # legitimate test on any platform (1.77 s), so it only fires on a genuine
       # hang (e.g. a newly-introduced one not in the exclude list).
+      # timeout-minutes: with per-test --timeout 60 and the quarantine, the whole
+      # suite runs in a few minutes; 25 is a safe cap if something new wedges.
       - name: Test
+        timeout-minutes: 25
         shell: bash
         run: |
           # Quarantined on Windows (hidden, NOT fixed — each tracked to re-enable):
@@ -728,7 +740,12 @@ jobs:
       # ── Install (staging tree) ────────────────────────────────────────────
       # cmake --install copies the built binary + all install() rules into
       # dist/<subdir>/ — windeployqt / macdeployqt install(CODE) runs here too.
+      # timeout-minutes: windeployqt is a prime hang suspect on Windows (it can
+      # block scanning dependencies). The quarantine made the Windows leg reach
+      # this step for the first time; if it hangs, this cap surfaces it as an
+      # "Install timed out" in ~15 min instead of running for hours.
       - name: Install
+        timeout-minutes: 15
         run: cmake --install build/${{ matrix.build_subdir }} --prefix ${{ github.workspace }}/dist/${{ matrix.build_subdir }}
 
       # Gate: the GUI must ship the legacy-engine worker so the legacy (EPA-SWMM)
@@ -768,7 +785,13 @@ jobs:
       # a runner flake, not a packaging bug, so retry a few times with a short
       # wait and detach any leftover mounts between attempts. Non-macOS runs the
       # command once (the loop just succeeds on the first pass).
+      # timeout-minutes: the other prime hang suspect. On Windows CPack runs NSIS
+      # (makensis), which the leg reaches only now that tests are quarantined. If
+      # makensis blocks, this cap surfaces "Package timed out" in ~20 min. The
+      # inner `until` retry loop handles cpack *failing* (hdiutil flake); the step
+      # cap handles cpack *hanging* (the loop itself has no timeout).
       - name: Package
+        timeout-minutes: 20
         shell: bash
         run: |
           attempt() {

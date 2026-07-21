@@ -1470,11 +1470,13 @@ void LayerTreePanel::setupUi()
     m_proxy->setFilterCaseSensitivity(Qt::CaseInsensitive);
     m_proxy->setFilterKeyColumn(0);
     m_treeView->setModel(m_proxy);
-    // User-resizable columns: don't let the last section auto-stretch (which
-    // otherwise pins the Opacity column width and blocks manual resize).
+    // Full-width fill: the Name column (0) stretches so the tree always
+    // occupies the entire width of the dock panel, tracking dock resizes.
+    // The Opacity column (1) stays Interactive at a fixed default width so
+    // it never gets pinned by the stretch (stretchLastSection stays off).
     m_treeView->header()->setSectionResizeMode(QHeaderView::Interactive);
+    m_treeView->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_treeView->header()->setStretchLastSection(false);
-    m_treeView->setColumnWidth(0, 220);
     m_treeView->setColumnWidth(1, 60);
     m_treeView->expandAll();
 

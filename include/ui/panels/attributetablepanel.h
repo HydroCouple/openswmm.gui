@@ -69,6 +69,25 @@ public:
      *  Z.4 tabular-file source. */
     [[nodiscard]] QString selectionAsTsv() const;
 
+    /*! Delete the named objects of the current category from the model.
+     *
+     *  The non-interactive core behind the Delete key / right-click "Delete"
+     *  (which add a confirmation dialog on top). When a map canvas + undo stack
+     *  are present the deletes go through DeleteObjectCommand so they are
+     *  undoable and cascade node→link exactly like the map; otherwise they fall
+     *  back to the layer's applyXDelete helpers — the SAME mutation the undo
+     *  command performs, minus the undo record. Names not present, or a
+     *  non-deletable category (a read-only data-object list), are skipped.
+     *  Returns the number actually deleted. Kept public and dialog-free so the
+     *  delete path is unit-testable without a modal, mirroring
+     *  `selectionAsTsv()`. */
+    int deleteObjects(const QStringList &names);
+
+    /*! True when the bound category maps to a deletable object kind
+     *  (junction/outfall/storage/divider/conduit/pump/orifice/weir/outlet/
+     *  subcatchment/rain gage); false for data-object categories. */
+    [[nodiscard]] bool categoryIsDeletable() const;
+
     /*! The Copy action — surfaced on the panel toolbar and in the
      *  right-click menu.  It carries no shortcut of its own: Ctrl+C is
      *  registered once, on the main window's `actionCopy`, which routes
@@ -103,6 +122,13 @@ private slots:
     void onExportCsvClicked();
     void onContextMenuRequested(const QPoint &pos);
     void onChangeTypeTriggered();
+
+    /*! Delete the objects of the currently selected rows. Triggered by the
+     *  Delete/Backspace key or the right-click "Delete" action. Prompts for
+     *  confirmation, then routes through the shared map undo stack (so Ctrl+Z
+     *  works and every other view stays in sync) — see deleteObjects(). No-op
+     *  for non-deletable categories (e.g. read-only data-object lists). */
+    void deleteSelectedRows();
 
     /*! Slice Z.2 — Apply the WHERE-clause text to the proxy filter. */
     void onQueryApplyClicked();

@@ -1,10 +1,10 @@
 {
     "canvas": {
         "extent": [
-            34.854625550660856,
-            -323.78854625550747,
-            1114.8546255506628,
-            387.9647577092515
+            342.3214338839877,
+            12.274075295651798,
+            662.3214338839878,
+            140.01895001091378
         ]
     },
     "schemaVersion": 4,
@@ -279,12 +279,12 @@
                 "backgroundColor": "#e1ffffff",
                 "backgroundMode": "Solid",
                 "cornerRadius": 6,
-                "explicitHeight": 0,
-                "explicitWidth": 0,
+                "explicitHeight": 414,
+                "explicitWidth": 228,
                 "frameColor": "#b4505050",
                 "frameWidth": 1,
-                "freeX": 13,
-                "freeY": 12,
+                "freeX": 6,
+                "freeY": 5,
                 "gradientEndColor": "#e1f0f0f0",
                 "gradientOrientation": "Vertical",
                 "itemColor": "#ff141414",
@@ -341,7 +341,7 @@
                         "zExag": 3
                     },
                     "showEdges": true,
-                    "showMeshNodes": false,
+                    "showMeshNodes": true,
                     "sourcePath": "road_culvert.inp"
                 }
             ],
