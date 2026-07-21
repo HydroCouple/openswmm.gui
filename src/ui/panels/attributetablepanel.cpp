@@ -61,6 +61,7 @@
 #include <QRadioButton>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QShortcut>
 #include <QSortFilterProxyModel>
 #include <QTableView>
 #include <QTextStream>
@@ -409,6 +410,17 @@ void AttributeTablePanel::buildUi()
     m_view->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_view, &QTableView::customContextMenuRequested,
             this, &AttributeTablePanel::onContextMenuRequested);
+
+    // Delete / Backspace on the table deletes the selected rows' objects.
+    // Scoped to the view (WidgetWithChildrenShortcut) so it only fires while
+    // the table has focus, never while the query line-edit or combo does.
+    for (QKeySequence seq : {QKeySequence(QKeySequence::Delete),
+                             QKeySequence(Qt::Key_Backspace)}) {
+        auto *sc = new QShortcut(seq, m_view);
+        sc->setContext(Qt::WidgetWithChildrenShortcut);
+        connect(sc, &QShortcut::activated,
+                this, &AttributeTablePanel::deleteSelectedRows);
+    }
 
     connect(m_categoryCombo,
             QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -1266,6 +1278,23 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
     connect(changeTypeAct, &QAction::triggered,
             this, &AttributeTablePanel::onChangeTypeTriggered);
 
+    // Delete — only for spatial categories that have an engine delete path.
+    // Mirrors the map's right-click delete, and routes through the same undo
+    // stack, so a deletion here is undoable and every other view refreshes.
+    if (categoryIsDeletable()) {
+        const int nSel = selectedSourceRows().size();
+        // Hint the key in the label (matching "Copy (Ctrl+C)" above) rather
+        // than via setShortcut(), which would fight the QShortcut on the view.
+        auto *deleteAct = menu.addAction(
+            nSel <= 1 ? tr("Delete (Del)")
+                      : tr("Delete %1 selected (Del)").arg(nSel));
+        deleteAct->setEnabled(nSel >= 1);
+        connect(deleteAct, &QAction::triggered,
+                this, &AttributeTablePanel::deleteSelectedRows);
+    }
+
+    menu.addSeparator();
+
     auto *zoomAct = menu.addAction(tr("Zoom to selected"));
     zoomAct->setEnabled(m_canvas && m_selMgr && !m_selMgr->isEmpty());
     connect(zoomAct, &QAction::triggered,
@@ -1576,6 +1605,97 @@ void AttributeTablePanel::onObjectEditedExternally(const QString &name)
     }
 
     m_suppressEditForward = false;
+}
+
+// ---------------------------------------------------------------------------
+// Delete selected objects
+// ---------------------------------------------------------------------------
+
+bool AttributeTablePanel::categoryIsDeletable() const
+{
+    if (!m_model) return false;
+    switch (objectTypeForCategory(m_model->category())) {
+    case SWMMObjectRef::Node:
+    case SWMMObjectRef::Link:
+    case SWMMObjectRef::Subcatchment:
+    case SWMMObjectRef::RainGage:
+        return true;
+    default:
+        return false;   // data-object categories have no spatial delete path
+    }
+}
+
+int AttributeTablePanel::deleteObjects(const QStringList &names)
+{
+    if (!m_layer || !m_model || names.isEmpty() || !categoryIsDeletable())
+        return 0;
+
+    DeleteObjectCommand::TargetKind kind;
+    switch (objectTypeForCategory(m_model->category())) {
+    case SWMMObjectRef::Node:         kind = DeleteObjectCommand::DeleteNode;     break;
+    case SWMMObjectRef::Link:         kind = DeleteObjectCommand::DeleteLink;     break;
+    case SWMMObjectRef::Subcatchment: kind = DeleteObjectCommand::DeleteSubcatch; break;
+    case SWMMObjectRef::RainGage:     kind = DeleteObjectCommand::DeleteGage;     break;
+    default:                          return 0;
+    }
+
+    // Drop the current selection first so the post-delete refresh() (driven by
+    // the layer's geometryChanged) doesn't try to reselect names that are gone.
+    if (auto *sm = m_view ? m_view->selectionModel() : nullptr)
+        sm->clearSelection();
+
+    MapUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr;
+    int deleted = 0;
+
+    if (stack) {
+        // Undoable path — one macro so Ctrl+Z reverses the whole batch. A
+        // deleted node cascades its links inside DeleteObjectCommand, exactly
+        // as the map's right-click delete does.
+        auto *macro = new QUndoCommand(
+            names.size() == 1 ? tr("Delete \"%1\"").arg(names.first())
+                              : tr("Delete %1 objects").arg(names.size()));
+        for (const QString &name : names)
+            new DeleteObjectCommand(m_layer, name, kind, m_canvas, macro);
+        stack->push(macro);
+        deleted = names.size();
+    } else {
+        // No canvas/undo stack (headless / tests): perform the SAME mutation
+        // DeleteObjectCommand::redo() performs, minus the undo record.
+        for (const QString &name : names) {
+            bool ok = false;
+            switch (kind) {
+            case DeleteObjectCommand::DeleteNode:     ok = m_layer->applyNodeDelete(name);     break;
+            case DeleteObjectCommand::DeleteLink:     ok = m_layer->applyLinkDelete(name);     break;
+            case DeleteObjectCommand::DeleteGage:     ok = m_layer->applyGageDelete(name);     break;
+            case DeleteObjectCommand::DeleteSubcatch: ok = m_layer->applySubcatchDelete(name); break;
+            }
+            if (ok) ++deleted;
+        }
+    }
+    return deleted;
+}
+
+void AttributeTablePanel::deleteSelectedRows()
+{
+    if (!m_layer || !m_model || !categoryIsDeletable()) return;
+
+    // Resolve selected rows → object names (source-model rows, de-duplicated).
+    QStringList names;
+    for (int row : selectedSourceRows()) {
+        const QString name = m_model->objectNameAt(row);
+        if (!name.isEmpty()) names << name;
+    }
+    if (names.isEmpty()) return;
+
+    const QString msg = names.size() == 1
+        ? tr("Delete \"%1\"?").arg(names.first())
+        : tr("Delete %1 selected objects?").arg(names.size());
+    const auto btn = QMessageBox::question(
+        this, tr("Confirm Delete"), msg,
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (btn != QMessageBox::Yes) return;
+
+    deleteObjects(names);
 }
 
 void AttributeTablePanel::onChangeTypeTriggered()
