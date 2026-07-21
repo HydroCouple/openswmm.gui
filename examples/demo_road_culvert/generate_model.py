@@ -78,8 +78,10 @@ from pathlib import Path
 # the cells of the 10 m legacy demo.
 LX = 1000.0
 LY = 100.0
-DX = 5.0
-DY = 5.0
+# 10 m cells (2000 triangles): the demo-speed resolution. 5 m (8000 tris)
+# resolves the crest sheet flow more finely but costs ~4x the 2D wall time.
+DX = 10.0
+DY = 10.0
 SLOPE = 0.0          # flat terrain
 Z0 = 1.0
 
@@ -91,11 +93,12 @@ ALTERNATE_DIAGONAL = True
 
 # Roadway embankment (the transverse dam the culvert passes under).
 # ROAD_HALF_WIDTH = DX makes the crest one full cell wide (vertex columns
-# at 495/500/505), so the cells between them sit entirely at crest
-# elevation and the dam holds the nominal 0.5 m of head before overtopping.
+# at ROAD_X - DX / ROAD_X / ROAD_X + DX), so the cells between them sit
+# entirely at crest elevation and the dam holds the nominal 0.5 m of head
+# before overtopping. Keep ROAD_HALF_WIDTH >= DX.
 ROAD_X = 500.0
 ROAD_HEIGHT = 0.5
-ROAD_HALF_WIDTH = 5.0
+ROAD_HALF_WIDTH = 10.0
 
 # Culvert. The pipe CROWN sits at the ground surface (invert one diameter
 # below grade) -> a pipe at grade passing under the road embankment. With
@@ -105,10 +108,17 @@ ROAD_HALF_WIDTH = 5.0
 # (A literal invert-AT-surface, PIPE_BURIAL = 0, puts z_top a full diameter
 # ABOVE grade; the flat-terrain ~0.1 m pond never reaches it and the culvert
 # stays inert -- see README. Set PIPE_BURIAL = 0 to reproduce that.)
+# Barrel sizing: the culvert must actually CONVEY what the coupling can
+# capture, or the coupled junctions just fill and spill back every window
+# (the old 500 m x Ø0.15 m layout carried ~0.003 m3/s -- a straw -- so 99%
+# of the drained water flooded straight back onto the mesh and no
+# downstream jet ever appeared). Ø0.6 m over a short 60 m run under the
+# road conveys ~0.5 m3/s at the ponded heads here, matching the orifice
+# inlet capacity, so the upstream pond genuinely drains to the lee side.
 PIPE_Y = 50.0
-PIPE_X_START = 250.0
-PIPE_X_END = 750.0
-PIPE_DIAMETER = 0.15
+PIPE_X_START = 470.0
+PIPE_X_END = 530.0
+PIPE_DIAMETER = 0.6
 PIPE_BURIAL = PIPE_DIAMETER   # crown at grade
 PIPE_ROUGHNESS = 0.013
 
@@ -120,7 +130,10 @@ PIPE_ROUGHNESS = 0.013
 # conduits collapse the dynamic-wave Courant step (10 m segments pinned it at
 # the ~0.15 s floor for the whole run). Drop MAX_PIPE_SEGMENT only if you
 # need finer 1D resolution and accept the slowdown.
-ROAD_FLANK = 10.0
+# ROAD_FLANK must clear the crest plateau (> ROAD_HALF_WIDTH): a flank
+# coupling vertex ON a raised crest column would sit 0.5 m above the plain
+# and only ever exchange when the crest itself is under water.
+ROAD_FLANK = 20.0
 MAX_PIPE_SEGMENT = 250.0
 
 # Outlet energy slope for the X = LX NORMAL_FLOW boundary. Decoupled from
@@ -133,9 +146,13 @@ OUTLET_SLOPE = 0.001
 # rest); 900 mm clears the crest with margin.
 RAIN_DEPTH_MM = 900.0
 
-# Coupling
+# Coupling. The exchange AREA is matched to the barrel cross-section so the
+# orifice cannot inject more than the pipe can convey (a mismatched large
+# area -- the old 0.4 m2 against a 0.018 m2 barrel -- guarantees the node
+# fills within a coupling window and spills back: spiky lateral inflows,
+# large node continuity "errors", and a churn the 2D solver grinds on).
 COUPLING_CD = 0.65
-COUPLING_AREA_PIPE = 0.4
+COUPLING_AREA_PIPE = math.pi * PIPE_DIAMETER ** 2 / 4.0
 
 # Simulation window. SCS Type II peaks at hour ~12; the road overtops
 # ~12.0-14.1 h, so 15 h covers the ascending limb, the peak, the whole
@@ -283,7 +300,7 @@ def build_inp():
         "100 m (Y) x 1000 m (X) FLAT plain (zero slope). Transverse roadway",
         f"embankment {ROAD_HEIGHT:.1f} m high at X = {ROAD_X:.0f}, spanning the full width.",
         f"A {PIPE_X_END - PIPE_X_START:.0f} m circular culvert ({len(pipe_xs) - 1} conduit(s)) runs along Y = 50 with",
-        "its invert AT the ground surface, passing under the road like a pipe",
+        "its crown AT the ground surface, passing under the road like a pipe",
         f"at grade. {len(couple_names)} pipe junctions are 2D-coupled: the ends "
         f"{couple_names[0]} / {couple_names[-1]}",
         f"and the two road-flanking nodes {couple_names[1]} / {couple_names[2]}, so ponded water enters",
@@ -335,7 +352,9 @@ def build_inp():
         "VARIABLE_STEP        0.75",
         "LENGTHENING_STEP     0",
         "MIN_SURFAREA         0",
-        "NUMBER_OF_THREADS    0",
+        # THREADS is the key the engine parses (options.num_threads); it also
+        # drives the 2D solver's OpenMP loops and CVODE vector ops.
+        "THREADS              4",
         "MAX_TRIALS           8",
         "HEAD_TOLERANCE       0.0015",
         "SYS_FLOW_TOL         5",
@@ -372,13 +391,28 @@ def build_inp():
     # the node to the pipe, so the coupling spill threshold
     # z_top = invert + MaxDepth + SurDepth (NodeCoupling) lands on the
     # surface: 2D water enters the barrel as soon as it reaches grade.
-    # Uncoupled junctions reuse the same geometry.
-    for k, x in enumerate(pipe_xs):
+    # Uncoupled junctions reuse the same geometry. The LAST pipe node is a
+    # FREE outfall (emitted below), not a junction: outfall coupling releases
+    # the barrel's discharge onto the mesh with no crown gate, so the culvert
+    # keeps draining the upstream pond even when the pipe is not surcharged
+    # (a coupled dead-end junction only spills above the crown).
+    for k, x in enumerate(pipe_xs[:-1]):
         z_surf = base_elev(x)
         z_invert = z_surf - PIPE_BURIAL
         L.append(f"{('J_P%02d' % k):<16} {z_invert:<8.3f} "
                  f"{PIPE_DIAMETER:<10.3f} 0          0          0")
     L.append("")
+
+    # ------- [OUTFALLS]  (downstream culvert end, 2D-coupled free outfall)
+    k_out = len(pipe_xs) - 1
+    z_out_invert = base_elev(pipe_xs[k_out]) - PIPE_BURIAL
+    L += [
+        "[OUTFALLS]",
+        ";;Name           Elev     Type       Stage Data       Gated",
+        ";;-------------- -------- ---------- ---------------- --------",
+        f"{('J_P%02d' % k_out):<16} {z_out_invert:<8.3f} FREE                        NO",
+        "",
+    ]
 
     # ------- [CONDUITS]
     L += [
@@ -458,7 +492,9 @@ def build_inp():
     L += [
         "[2D_OPTIONS]",
         ";;  Solver and timestepping for the 2D surface-routing module.",
-        "MAX_TIMESTEP              5.0",
+        # >= COUPLING_WINDOW so a single CVODE internal step can span a quiet
+        # window instead of being chopped at 5 s.
+        "MAX_TIMESTEP              10.0",
         "MIN_TIMESTEP              0.001",
         "REL_TOLERANCE             1.0e-3",
         "ABS_TOLERANCE             1.0e-5",
@@ -478,6 +514,12 @@ def build_inp():
         # windows are faster but the held-flux coupling leaks mass in the
         # thin-film overtopping regime (30 s cost ~-10% 2D continuity here).
         "COUPLING_WINDOW           10",
+        # Head-difference floor for the diffusive-flux sqrt regularization.
+        # The flooded phase of this storm is exactly the deep, near-level
+        # ponding regime where the default 4 mm still lets the flux Jacobian
+        # stiffen and CVODE grind at ~30 ms internal steps; 10 mm bounds the
+        # transmissivity harder at millimetre gradients (bulk flow unchanged).
+        "FLUX_DH_EPS               0.01",
         f"COUPLING_CD               {COUPLING_CD:.3f}",
         "LINEAR_SOLVER             GMRES",
         "PRECONDITIONER            AMG",
@@ -491,8 +533,8 @@ def build_inp():
         "[2D_VERTICES]",
         ";;  X            Y            Z",
         f";;  {nxv} x {nyv} grid ({nxv * nyv} vertices) over a {LX:.0f} x {LY:.0f} m FLAT plain.",
-        f";;  Base surface z = {Z0:.3f} (no slope).  Roadway crest is the single",
-        f";;  vertex column at X = {ROAD_X:.0f}, raised {ROAD_HEIGHT:.2f} m above base.",
+        f";;  Base surface z = {Z0:.3f} (no slope).  Roadway crest is the vertex",
+        f";;  columns at X = {ROAD_X:.0f} +/- {ROAD_HALF_WIDTH:.0f}, raised {ROAD_HEIGHT:.2f} m above base.",
     ]
     for iy in range(nyv):
         y = iy * DY
@@ -533,7 +575,7 @@ def build_inp():
     L += [
         "[2D_VERTEX_NODE_MAP]",
         ";;  VERTEX  NODE       CD     AREA",
-        ";;  Culvert coupling points: pipe endpoints J_P00/J_P50 plus the",
+        ";;  Culvert coupling points: the pipe endpoints plus the",
         ";;  two junctions flanking the road crest. Bidirectional - 2D water",
         ";;  above the culvert crown drains into the pipe, surcharged pipe",
         ";;  water spills back out onto the mesh.",

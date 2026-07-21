@@ -60,9 +60,9 @@ DRY_ONLY     NO
 J1                     0.0000       0.0000       0.0000       0.0000       0.0000
 
 [OUTFALLS]
-;;Name             Elev         Type         Gated   
-;;---------------- ------------ ------------ --------
-O1                     0.0000 FREE         NO
+;;Name             Elev         Type         Stage Data       Gated    Route To        
+;;---------------- ------------ ------------ ---------------- -------- ----------------
+O1                     0.0000 FREE         NO      
 
 [XSECTIONS]
 ;;Link             Shape            Geom1        Geom2        Geom3        Geom4        Barrels 

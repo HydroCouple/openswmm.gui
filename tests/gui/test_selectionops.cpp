@@ -27,6 +27,7 @@
 #include "selection/selectionops.h"
 #include "ui/panels/attributetablepanel.h"
 
+#include <QComboBox>
 #include <QDir>
 #include <QObject>
 #include <QSet>
@@ -109,6 +110,12 @@ private slots:
     // ── Attribute-table copy ───────────────────────────────────────────────
     void tsvCopiesSelectedRowsWithHeader();
     void tsvFallsBackToAllVisibleRows();
+
+    // ---- 4. AttributeTablePanel::deleteObjects -----------------------
+    void deleteLeafNodeCascadesItsOneLink();
+    void deleteNodeCascadesConnectedLinks();
+    void deleteConduitLeavesNodesIntact();
+    void deleteSkipsUnknownNamesAndNonDeletableCategory();
 
     // ── External-model probe (env-gated; skips in CI) ──────────────────────
     void probeExternalModelTrace();
@@ -359,6 +366,118 @@ void TestSelectionOps::tsvFallsBackToAllVisibleRows()
     const QStringList lines = panel.selectionAsTsv().split(QLatin1Char('\n'));
     QCOMPARE(lines.size(), 5);
     QVERIFY(lines.at(0).startsWith(QStringLiteral("Name\t")));
+}
+
+// ---------------------------------------------------------------------------
+// 4. AttributeTablePanel::deleteObjects
+//
+// The panel is given a null canvas (as the tsv tests do), so deleteObjects
+// exercises its no-undo-stack fallback — the same applyXDelete mutation the
+// DeleteObjectCommand redo() performs. Topology (selection_trace_fixture.inp):
+//   Nodes J1..J4 + outfall O1;  C1 J1→J2, C2 J2→J3, C3 J3→O1, P1 J4→J3.
+//   J1 is a leaf (only C1); J2 joins C1+C2; O1 terminates C3.
+// ---------------------------------------------------------------------------
+
+void TestSelectionOps::deleteLeafNodeCascadesItsOneLink()
+{
+    auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
+    QVERIFY(layer);
+    SWMM_Engine e = layer->engine();
+
+    SelectionManager selMgr;
+    AttributeTablePanel panel;
+    panel.setProject(layer.get(), &selMgr, nullptr);   // Junctions category
+
+    const int nodes0 = swmm_node_count(e);
+    const int links0 = swmm_link_count(e);
+    QVERIFY(swmm_node_index(e, "J1") >= 0);
+    QVERIFY(swmm_link_index(e, "C1") >= 0);
+
+    QCOMPARE(panel.deleteObjects({QStringLiteral("J1")}), 1);
+
+    QCOMPARE(swmm_node_count(e), nodes0 - 1);
+    QCOMPARE(swmm_node_index(e, "J1"), -1);            // gone
+    QCOMPARE(swmm_link_count(e), links0 - 1);          // its one conduit cascades
+    QCOMPARE(swmm_link_index(e, "C1"), -1);
+    QVERIFY(swmm_link_index(e, "C2") >= 0);            // unrelated links survive
+}
+
+void TestSelectionOps::deleteNodeCascadesConnectedLinks()
+{
+    auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
+    QVERIFY(layer);
+    SWMM_Engine e = layer->engine();
+
+    SelectionManager selMgr;
+    AttributeTablePanel panel;
+    panel.setProject(layer.get(), &selMgr, nullptr);
+
+    const int nodes0 = swmm_node_count(e);
+    const int links0 = swmm_link_count(e);
+    // J2 is the junction between C1 (J1→J2) and C2 (J2→J3).
+    QVERIFY(swmm_link_index(e, "C1") >= 0);
+    QVERIFY(swmm_link_index(e, "C2") >= 0);
+
+    QCOMPARE(panel.deleteObjects({QStringLiteral("J2")}), 1);
+
+    QCOMPARE(swmm_node_count(e), nodes0 - 1);
+    QCOMPARE(swmm_node_index(e, "J2"), -1);
+    // Both incident conduits cascade away; C3 (J3→O1) survives.
+    QCOMPARE(swmm_link_count(e), links0 - 2);
+    QCOMPARE(swmm_link_index(e, "C1"), -1);
+    QCOMPARE(swmm_link_index(e, "C2"), -1);
+    QVERIFY(swmm_link_index(e, "C3") >= 0);
+}
+
+void TestSelectionOps::deleteConduitLeavesNodesIntact()
+{
+    auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
+    QVERIFY(layer);
+    SWMM_Engine e = layer->engine();
+
+    SelectionManager selMgr;
+    AttributeTablePanel panel;
+    panel.setProject(layer.get(), &selMgr, nullptr);
+
+    // Switch the panel to the Conduits category via its combo, so
+    // deleteObjects resolves the Link kind (drives the real UI path).
+    auto *combo = panel.findChild<QComboBox *>();
+    QVERIFY(combo);
+    const int idx = combo->findText(QStringLiteral("Conduits"),
+                                    Qt::MatchStartsWith);
+    QVERIFY2(idx >= 0, "Conduits category should be present");
+    combo->setCurrentIndex(idx);
+    QVERIFY(panel.categoryIsDeletable());
+
+    const int nodes0 = swmm_node_count(e);
+    const int links0 = swmm_link_count(e);
+
+    QCOMPARE(panel.deleteObjects({QStringLiteral("C3")}), 1);
+
+    QCOMPARE(swmm_link_count(e), links0 - 1);
+    QCOMPARE(swmm_link_index(e, "C3"), -1);
+    QCOMPARE(swmm_node_count(e), nodes0);              // nodes untouched
+}
+
+void TestSelectionOps::deleteSkipsUnknownNamesAndNonDeletableCategory()
+{
+    auto layer = openLayer(QStringLiteral("selection_trace_fixture.inp"));
+    QVERIFY(layer);
+    SWMM_Engine e = layer->engine();
+
+    SelectionManager selMgr;
+    AttributeTablePanel panel;
+    panel.setProject(layer.get(), &selMgr, nullptr);   // Junctions (deletable)
+
+    const int nodes0 = swmm_node_count(e);
+
+    // Unknown name → nothing deleted, model unchanged.
+    QCOMPARE(panel.deleteObjects({QStringLiteral("NOPE")}), 0);
+    QCOMPARE(swmm_node_count(e), nodes0);
+
+    // Empty list → no-op.
+    QCOMPARE(panel.deleteObjects({}), 0);
+    QCOMPARE(swmm_node_count(e), nodes0);
 }
 
 // Diagnostic probe against a real model, mirroring test_asyncload's

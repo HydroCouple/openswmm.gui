@@ -61,13 +61,24 @@ For multi-step tasks, state a brief plan:
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
 ---
-## 4.01 Alignment With Legacy Codebases
 
-While I am looking to vectorize the code as much as possible for improved performance. 
-Ultimately, I want alignment with the legacy as the primal objective so when in double review the legacy.
-
-## 4. Transparent File IO
+## 4.1 Transparent File IO
 
 I want all files used in the testing to be written to locations where a user is able to review and not in temporary files and folders.
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+
+## 5.0 Preconfigured Work Plans
+
+I want to always follow preconfigured work plans when they exist and are saved in markdown documents based on previous conversations and not implement whole new strategies that have not been vetted.
+
+
+## 5.1. UI Implementation Guide
+
+Generally I want to utilize model view controller architecture model as the same data may
+be edited via different ui but must remain synchronized. Generally, use modern UI configurations.
+
+## 5.2 CHANGELOG.md
+
+Update change log with critical commits upon releases.
