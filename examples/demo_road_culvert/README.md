@@ -14,12 +14,24 @@ Open `road_culvert.oswp` in the GUI and animate `road_culvert.2d.h5`.
 |---|---|
 | Domain | 1000 m (X, along-channel) × 100 m (Y, cross) |
 | Terrain | **Flat**, z = 1.0 m everywhere (zero slope) |
-| Roadway | Transverse embankment 0.5 m high at X = 500 ± 5 m (cell-wide plateau so the crest truly blocks to 1.5 m), full width |
-| Mesh | 5 m cells (201 × 21 vertices, 8000 triangles), **alternating diagonal** |
-| Culvert | 0.15 m circular, Y = 50, X = 250→750, **crown at grade** (invert one diameter below) |
-| Coupling | 4 nodes: ends J_P00 / J_P50 + road flanks J_P24 / J_P26 |
+| Roadway | Transverse embankment 0.5 m high at X = 500 ± 10 m (cell-wide plateau so the crest truly blocks to 1.5 m), full width |
+| Mesh | 10 m cells (101 × 11 vertices, 2000 triangles), **alternating diagonal** |
+| Culvert | 0.6 m circular, Y = 50, X = 470→530 (60 m — just the road crossing), **crown at grade** (invert one diameter below) |
+| Coupling | 4 nodes: ends J_P00 / J_P03 (J_P03 a FREE outfall) + road flanks J_P01 / J_P02; exchange AREA = barrel area (0.283 m²) |
 | Rainfall | SCS Type II 24-h, 900 mm, broadcast uniformly to every 2D cell (sized to overtop the road) |
 | Outflow | NORMAL_FLOW on the X = 1000 edge (nonzero outlet slope so the flat basin drains) |
+
+> **2026-07-18 adjustments (conveyance + performance).** The original layout
+> (Ø0.15 m × 500 m at zero slope, coupling AREA 0.4 m²) could only convey
+> ~0.003 m³/s — a straw. ~17 ML drained into the coupled junctions, could not
+> pass, and flooded straight back onto the mesh (no downstream discharge ever
+> appeared, and the drain/spill churn dominated the run time). The culvert is
+> now Ø0.6 m over just the 60 m road crossing, the exchange AREA is matched to
+> the barrel cross-section, the downstream end is a free outfall, and the model
+> runs with THREADS 4, a 10 m mesh, FLUX_DH_EPS 0.01 and MAX_TIMESTEP 10.
+> Together with the engine's smoothed coupling-volume delivery (spread over the
+> COUPLING_WINDOW instead of a single-routing-step pulse), the upstream pond
+> genuinely drains through the barrel and discharges visibly on the lee side.
 
 The pipe **crown sits at the ground surface** (invert one diameter, 0.15 m, below
 grade), so the buried pipe reads as lying at grade under the road fill. `MaxDepth`
