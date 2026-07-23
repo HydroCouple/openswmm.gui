@@ -39,6 +39,7 @@
 #include <QItemSelectionModel>
 #include <QLineEdit>
 #include <QMenu>
+#include <QMessageBox>
 #include <QSortFilterProxyModel>
 #include <QTimer>
 #include <QTreeView>
@@ -302,6 +303,28 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
             dmenu.setToolTipsVisible(true);
         }
         QAction *actProps = dmenu.addAction(tr("Properties…"));
+
+        // Delete… — data objects with a registry-backed delete path
+        // (curves, time series, transects) route through the undoable
+        // DeleteDataObjectCommand. Types whose engine delete API doesn't
+        // exist yet (patterns, pollutants, aquifers, …) show a disabled
+        // action so the menu is honest about the gap. See
+        // workplans/GUI_DELETE_ALL_OBJECTS_PLAN_2026-07-22.md.
+        const SWMMObjectRef leafRef = refForProxyIndex(proxyIdx);
+        const bool canDelete =
+            DeleteDataObjectCommand::supports(leafRef.objectType) && m_layer;
+        QAction *actDelete = nullptr;
+        if (leafRef.objectType != SWMMObjectRef::Unknown) {
+            dmenu.addSeparator();
+            actDelete = dmenu.addAction(tr("Delete…"));
+            actDelete->setEnabled(canDelete);
+            if (!canDelete) {
+                actDelete->setToolTip(
+                    tr("Delete is not yet available for this object type."));
+                dmenu.setToolTipsVisible(true);
+            }
+        }
+
         QAction *picked = dmenu.exec(m_view->viewport()->mapToGlobal(pos));
         if (picked == actEdit && hasEditor) {
             openComprehensiveEditorFor(
@@ -315,6 +338,26 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
             const SWMMObjectRef ref = refForProxyIndex(proxyIdx);
             if (m_selMgr && ref.objectType != SWMMObjectRef::Unknown)
                 m_selMgr->select(ref, SelectionManager::Replace);
+        } else if (picked && picked == actDelete && canDelete) {
+            const QString msg = tr("Delete \"%1\"?").arg(leafRef.name);
+            if (QMessageBox::question(
+                    this, tr("Confirm Delete"), msg,
+                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
+                != QMessageBox::Yes)
+                return;
+
+            if (auto *sm = m_view->selectionModel())
+                sm->clearSelection();
+
+            if (m_canvas && m_canvas->undoStack()) {
+                m_canvas->undoStack()->push(
+                    new DeleteDataObjectCommand(m_layer, leafRef, m_canvas));
+            } else {
+                // No undo stack (headless / tests): perform the same
+                // mutation DeleteDataObjectCommand::redo() would.
+                DeleteDataObjectCommand cmd(m_layer, leafRef, nullptr);
+                cmd.redo();
+            }
         }
         return;
     }
@@ -418,6 +461,28 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
     QAction *actSort  = menu.addAction(tr("Sort Category A→Z"));
     QAction *actReset = menu.addAction(tr("Reset Category to Default Order"));
 
+    // Delete… — spatial objects only for now (node/link/subcatchment/gage),
+    // routed through the same undoable DeleteObjectCommand path the map's
+    // right-click delete and the attribute table use, so behaviour is
+    // identical regardless of where the delete starts. Data-object leaves
+    // (curves, patterns, …) get no Delete yet — pending the generic
+    // DeleteDataObjectCommand + engine delete APIs (see
+    // workplans/GUI_DELETE_ALL_OBJECTS_PLAN_2026-07-22.md).
+    DeleteObjectCommand::TargetKind delKind = DeleteObjectCommand::DeleteNode;
+    bool deletable = false;
+    switch (ref.objectType) {
+    case SWMMObjectRef::Node:         delKind = DeleteObjectCommand::DeleteNode;     deletable = true; break;
+    case SWMMObjectRef::Link:         delKind = DeleteObjectCommand::DeleteLink;     deletable = true; break;
+    case SWMMObjectRef::Subcatchment: delKind = DeleteObjectCommand::DeleteSubcatch; deletable = true; break;
+    case SWMMObjectRef::RainGage:     delKind = DeleteObjectCommand::DeleteGage;     deletable = true; break;
+    default: break;
+    }
+    QAction *actDelete = nullptr;
+    if (deletable && m_layer) {
+        menu.addSeparator();
+        actDelete = menu.addAction(tr("Delete…"));
+    }
+
     QAction *picked = menu.exec(m_view->viewport()->mapToGlobal(pos));
     if (!picked) return;
 
@@ -438,6 +503,37 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
             m_canvas->undoStack()->push(
                 new ReorderObjectsCommand(m_layer, cat, old, {}));
         m_layer->clearObjectOrder(cat);
+    }
+    else if (picked == actDelete && actDelete) {
+        const QString msg = tr("Delete \"%1\"?").arg(ref.name);
+        if (QMessageBox::question(
+                this, tr("Confirm Delete"), msg,
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
+            != QMessageBox::Yes)
+            return;
+
+        // Drop the tree's own selection so the post-delete model refresh
+        // (driven by the layer's geometryChanged) doesn't try to hold a row
+        // that no longer exists.
+        if (auto *sm = m_view->selectionModel())
+            sm->clearSelection();
+
+        if (m_canvas && m_canvas->undoStack()) {
+            // Undoable path — a deleted node cascades its links inside
+            // DeleteObjectCommand, exactly as the map / attribute-table
+            // deletes do.
+            m_canvas->undoStack()->push(
+                new DeleteObjectCommand(m_layer, ref.name, delKind, m_canvas));
+        } else if (m_layer) {
+            // No canvas/undo stack (headless / tests): perform the same
+            // mutation DeleteObjectCommand::redo() would, minus the record.
+            switch (delKind) {
+            case DeleteObjectCommand::DeleteNode:     m_layer->applyNodeDelete(ref.name);     break;
+            case DeleteObjectCommand::DeleteLink:     m_layer->applyLinkDelete(ref.name);     break;
+            case DeleteObjectCommand::DeleteGage:     m_layer->applyGageDelete(ref.name);     break;
+            case DeleteObjectCommand::DeleteSubcatch: m_layer->applySubcatchDelete(ref.name); break;
+            }
+        }
     }
 }
 
