@@ -141,6 +141,89 @@ constexpr double kCoincidenceTol = 1e-6;
  */
 [[nodiscard]] double polygonArea(const QVector<QPointF> &polygon);
 
+// ===========================================================================
+// Multi-ring polygons (polygons with holes)
+// ===========================================================================
+//
+// A shared value type for a polygon that owns one exterior ring plus zero or
+// more interior rings (holes). Rings are stored OPEN (no repeated closing
+// vertex), matching cleanPolygonRing() and the SWMM [POLYGONS] convention.
+// This is the single geometry representation consumed by rendering, meshing,
+// editing, and I/O so there is no parallel hole encoding.
+
+/*!
+ * \brief A polygon: exactly one exterior ring + zero-or-more interior rings.
+ * \details Orientation convention after normalizeRingPolygon(): exterior is
+ *          counter-clockwise (positive signed area), interiors clockwise
+ *          (negative signed area). Consumers that care about ring winding
+ *          (e.g. Shapefile export) may rely on that post-normalize.
+ */
+struct RingPolygon
+{
+    QVector<QPointF>          exterior;   ///< Outer boundary (open ring, >= 3 pts).
+    QVector<QVector<QPointF>> interiors;  ///< Holes; each an open ring (>= 3 pts).
+
+    [[nodiscard]] bool isEmpty()   const { return exterior.size() < 3; }
+    [[nodiscard]] int  holeCount() const { return static_cast<int>(interiors.size()); }
+};
+
+/*!
+ * \brief Signed area of a ring via the shoelace formula.
+ * \returns Positive for counter-clockwise winding, negative for clockwise,
+ *          0 for fewer than 3 vertices. Handles open or explicitly-closed rings.
+ */
+[[nodiscard]] double signedRingArea(const QVector<QPointF> &ring);
+
+/*!
+ * \brief Even-odd point-in-ring test (boundary result is unspecified but
+ *        stable). Returns false for rings with fewer than 3 vertices.
+ */
+[[nodiscard]] bool pointInRing(const QVector<QPointF> &ring, const QPointF &pt);
+
+/*!
+ * \brief Clean every ring (dedupe + de-close), drop degenerate interior rings,
+ *        and orient exterior CCW / interiors CW.
+ */
+[[nodiscard]] RingPolygon normalizeRingPolygon(RingPolygon p,
+                                               double tol = kCoincidenceTol);
+
+/*!
+ * \brief Net area = |exterior| − Σ|holes|, clamped to >= 0.
+ */
+[[nodiscard]] double netArea(const RingPolygon &p);
+
+/*!
+ * \brief True when \p pt is inside the exterior and outside every hole.
+ */
+[[nodiscard]] bool containsPoint(const RingPolygon &p, const QPointF &pt);
+
+/*!
+ * \brief A point guaranteed strictly interior to a simple ring — robust for
+ *        non-convex rings — suitable as a Triangle hole/region seed.
+ * \details Scans a horizontal line through the ring's vertical midpoint and
+ *          returns the midpoint of the widest interior span (even-odd rule).
+ *          Falls back to the vertex centroid only for degenerate input.
+ *          This replaces the naive vertex-centroid seed, which can fall
+ *          outside a non-convex ring.
+ */
+[[nodiscard]] QPointF interiorPoint(const QVector<QPointF> &ring);
+
+/*! \brief Validity classes for a RingPolygon (in-house checks, no GEOS). */
+enum class RingValidity
+{
+    Ok,
+    TooFewVertices,      ///< Exterior or a hole has < 3 vertices.
+    SelfIntersecting,    ///< Exterior or a hole crosses itself.
+    HoleOutsideExterior, ///< A hole escapes / crosses the exterior.
+    HolesOverlap         ///< Two holes overlap or nest.
+};
+
+/*!
+ * \brief Validate a RingPolygon with in-house geometry checks (O(n^2) edge
+ *        tests; intended for hand-digitized / GIS-sourced rings).
+ */
+[[nodiscard]] RingValidity validateRingPolygon(const RingPolygon &p);
+
 } // namespace EditGeometry
 
 #endif // EDITGEOMETRY_H

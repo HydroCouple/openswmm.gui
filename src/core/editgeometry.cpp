@@ -192,4 +192,247 @@ double polygonArea(const QVector<QPointF> &polygon)
     return std::abs(area) * 0.5;
 }
 
+// ===========================================================================
+// Multi-ring polygons (polygons with holes)
+// ===========================================================================
+
+namespace
+{
+// Orientation of (o->a) vs (o->b): >0 left turn, <0 right turn, 0 collinear.
+inline double crossZ(const QPointF &o, const QPointF &a, const QPointF &b)
+{
+    return (a.x() - o.x()) * (b.y() - o.y()) - (a.y() - o.y()) * (b.x() - o.x());
+}
+
+// Proper segment intersection (interiors cross). Collinear/endpoint-touch is
+// treated as NON-crossing so that adjacent ring edges (which share a vertex)
+// don't register as self-intersections.
+bool segmentsProperlyIntersect(const QPointF &p1, const QPointF &p2,
+                               const QPointF &p3, const QPointF &p4)
+{
+    const double d1 = crossZ(p3, p4, p1);
+    const double d2 = crossZ(p3, p4, p2);
+    const double d3 = crossZ(p1, p2, p3);
+    const double d4 = crossZ(p1, p2, p4);
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0))
+        && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+bool ringSelfIntersects(const QVector<QPointF> &ring)
+{
+    const int n = static_cast<int>(ring.size());
+    if (n < 4)
+        return false;
+    for (int i = 0; i < n; ++i)
+    {
+        const QPointF &a1 = ring[i];
+        const QPointF &a2 = ring[(i + 1) % n];
+        for (int j = i + 1; j < n; ++j)
+        {
+            // Skip edges adjacent to edge i (they legitimately share a vertex).
+            if ((i + 1) % n == j || (j + 1) % n == i)
+                continue;
+            const QPointF &b1 = ring[j];
+            const QPointF &b2 = ring[(j + 1) % n];
+            if (segmentsProperlyIntersect(a1, a2, b1, b2))
+                return true;
+        }
+    }
+    return false;
+}
+
+bool ringsCross(const QVector<QPointF> &r1, const QVector<QPointF> &r2)
+{
+    const int n1 = static_cast<int>(r1.size());
+    const int n2 = static_cast<int>(r2.size());
+    if (n1 < 3 || n2 < 3)
+        return false;
+    for (int i = 0; i < n1; ++i)
+    {
+        const QPointF &a1 = r1[i];
+        const QPointF &a2 = r1[(i + 1) % n1];
+        for (int j = 0; j < n2; ++j)
+        {
+            const QPointF &b1 = r2[j];
+            const QPointF &b2 = r2[(j + 1) % n2];
+            if (segmentsProperlyIntersect(a1, a2, b1, b2))
+                return true;
+        }
+    }
+    return false;
+}
+} // namespace
+
+double signedRingArea(const QVector<QPointF> &ring)
+{
+    const int n = static_cast<int>(ring.size());
+    if (n < 3)
+        return 0.0;
+    double area = 0.0;
+    for (int i = 0; i < n; ++i)
+    {
+        const QPointF &a = ring[i];
+        const QPointF &b = ring[(i + 1) % n];
+        area += a.x() * b.y() - b.x() * a.y();
+    }
+    return area * 0.5;
+}
+
+bool pointInRing(const QVector<QPointF> &ring, const QPointF &pt)
+{
+    const int n = static_cast<int>(ring.size());
+    if (n < 3)
+        return false;
+    bool inside = false;
+    for (int i = 0, j = n - 1; i < n; j = i++)
+    {
+        const QPointF &a = ring[i];
+        const QPointF &b = ring[j];
+        const bool straddles = (a.y() > pt.y()) != (b.y() > pt.y());
+        if (straddles)
+        {
+            const double xInt =
+                (b.x() - a.x()) * (pt.y() - a.y()) / (b.y() - a.y()) + a.x();
+            if (pt.x() < xInt)
+                inside = !inside;
+        }
+    }
+    return inside;
+}
+
+RingPolygon normalizeRingPolygon(RingPolygon p, double tol)
+{
+    RingPolygon out;
+    out.exterior = cleanPolygonRing(p.exterior, tol);
+    if (out.exterior.size() >= 3 && signedRingArea(out.exterior) < 0.0)
+        std::reverse(out.exterior.begin(), out.exterior.end());  // exterior CCW
+
+    for (const QVector<QPointF> &hIn : p.interiors)
+    {
+        QVector<QPointF> ring = cleanPolygonRing(hIn, tol);
+        if (ring.size() < 3)
+            continue;  // drop degenerate holes
+        if (signedRingArea(ring) > 0.0)
+            std::reverse(ring.begin(), ring.end());  // interior CW
+        out.interiors.append(ring);
+    }
+    return out;
+}
+
+double netArea(const RingPolygon &p)
+{
+    double a = std::abs(signedRingArea(p.exterior));
+    for (const QVector<QPointF> &h : p.interiors)
+        a -= std::abs(signedRingArea(h));
+    return a < 0.0 ? 0.0 : a;
+}
+
+bool containsPoint(const RingPolygon &p, const QPointF &pt)
+{
+    if (!pointInRing(p.exterior, pt))
+        return false;
+    for (const QVector<QPointF> &h : p.interiors)
+        if (pointInRing(h, pt))
+            return false;
+    return true;
+}
+
+QPointF interiorPoint(const QVector<QPointF> &ringIn)
+{
+    const QVector<QPointF> ring = cleanPolygonRing(ringIn);
+    const int n = static_cast<int>(ring.size());
+
+    auto vertexCentroid = [&ring]() -> QPointF {
+        QPointF c(0.0, 0.0);
+        if (ring.isEmpty())
+            return c;
+        for (const QPointF &p : ring)
+            c += p;
+        return c / static_cast<double>(ring.size());
+    };
+
+    if (n < 3)
+        return vertexCentroid();
+
+    double ymin = ring[0].y(), ymax = ring[0].y();
+    for (const QPointF &p : ring)
+    {
+        ymin = std::min(ymin, p.y());
+        ymax = std::max(ymax, p.y());
+    }
+    const double yc = 0.5 * (ymin + ymax);
+
+    // X-crossings of the horizontal line y = yc with each edge. Half-open rule
+    // (y0 <= yc < y1 or y1 <= yc < y0) counts a vertex exactly on the line once.
+    QVector<double> xs;
+    xs.reserve(n);
+    for (int i = 0; i < n; ++i)
+    {
+        const QPointF &a = ring[i];
+        const QPointF &b = ring[(i + 1) % n];
+        const double y0 = a.y(), y1 = b.y();
+        const bool up   = (y0 <= yc) && (y1 > yc);
+        const bool down = (y1 <= yc) && (y0 > yc);
+        if (up || down)
+        {
+            const double t = (yc - y0) / (y1 - y0);
+            xs.append(a.x() + t * (b.x() - a.x()));
+        }
+    }
+    std::sort(xs.begin(), xs.end());
+
+    // Interior spans are consecutive pairs (0,1),(2,3),...; midpoint of the
+    // widest span is guaranteed strictly inside a simple polygon.
+    double bestMid = 0.0, bestW = -1.0;
+    for (qsizetype i = 0; i + 1 < xs.size(); i += 2)
+    {
+        const double w = xs[i + 1] - xs[i];
+        if (w > bestW)
+        {
+            bestW  = w;
+            bestMid = 0.5 * (xs[i] + xs[i + 1]);
+        }
+    }
+    if (bestW > 0.0)
+        return QPointF(bestMid, yc);
+
+    return vertexCentroid();  // extremely degenerate fallback
+}
+
+RingValidity validateRingPolygon(const RingPolygon &p)
+{
+    if (p.exterior.size() < 3)
+        return RingValidity::TooFewVertices;
+    for (const QVector<QPointF> &h : p.interiors)
+        if (h.size() < 3)
+            return RingValidity::TooFewVertices;
+
+    if (ringSelfIntersects(p.exterior))
+        return RingValidity::SelfIntersecting;
+    for (const QVector<QPointF> &h : p.interiors)
+        if (ringSelfIntersects(h))
+            return RingValidity::SelfIntersecting;
+
+    for (const QVector<QPointF> &h : p.interiors)
+    {
+        if (!pointInRing(p.exterior, interiorPoint(h)))
+            return RingValidity::HoleOutsideExterior;
+        if (ringsCross(p.exterior, h))
+            return RingValidity::HoleOutsideExterior;
+    }
+
+    const int hn = static_cast<int>(p.interiors.size());
+    for (int i = 0; i < hn; ++i)
+        for (int j = i + 1; j < hn; ++j)
+        {
+            if (ringsCross(p.interiors[i], p.interiors[j]))
+                return RingValidity::HolesOverlap;
+            if (pointInRing(p.interiors[i], interiorPoint(p.interiors[j]))
+                || pointInRing(p.interiors[j], interiorPoint(p.interiors[i])))
+                return RingValidity::HolesOverlap;
+        }
+
+    return RingValidity::Ok;
+}
+
 } // namespace EditGeometry
