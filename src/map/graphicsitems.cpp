@@ -323,6 +323,53 @@ void VectorPolygonItem::setHighlighted(bool on)
 }
 
 // ============================================================================
+// VectorPolygonPathItem
+// ============================================================================
+
+namespace
+{
+QPainterPath buildRingPolygonPath(const QVector<QPointF> &exterior,
+                                  const QVector<QVector<QPointF>> &interiors)
+{
+    QPainterPath path;
+    path.setFillRule(Qt::OddEvenFill);
+
+    auto addRing = [&path](const QVector<QPointF> &ring) {
+        if (ring.size() < 3)
+            return;
+        path.moveTo(ring.first());
+        for (qsizetype i = 1; i < ring.size(); ++i)
+            path.lineTo(ring[i]);
+        path.closeSubpath();
+    };
+
+    addRing(exterior);
+    for (const QVector<QPointF> &hole : interiors)
+        addRing(hole);
+    return path;
+}
+} // namespace
+
+VectorPolygonPathItem::VectorPolygonPathItem(qint64 fid,
+                                             const QVector<QPointF> &exterior,
+                                             const QVector<QVector<QPointF>> &interiors,
+                                             QGraphicsItem *parent)
+    : QGraphicsPathItem(buildRingPolygonPath(exterior, interiors), parent),
+      m_fid(fid)
+{
+    setFlag(QGraphicsItem::ItemIsSelectable);
+    setAcceptHoverEvents(true);
+}
+
+void VectorPolygonPathItem::setHighlighted(bool on)
+{
+    m_highlighted = on;
+    if (on)
+        setBrush(QBrush(QColor(255, 255, 0, 80)));
+    update();
+}
+
+// ============================================================================
 // RasterTileItem
 // ============================================================================
 
