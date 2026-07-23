@@ -4208,6 +4208,11 @@ bool SWMMModelLayer::applyNodeAdd(const QString &name, int nodeType,
 
     m_kdDirty = true;
     m_needsRebuild = true;
+    // Realign the batched item's cached bounds + the scene's BSP index to the
+    // new geometry NOW (see the m_batchedItem contract in the header). Without
+    // this, a node added beyond the prior extent is culled from paint() by the
+    // stale exposedRect until a view change reindexes the scene.
+    if (m_batchedItem) m_batchedItem->refreshBoundingRect();
     emit repaintRequested();
     emit geometryChanged();
     return true;
@@ -4299,6 +4304,7 @@ bool SWMMModelLayer::applyLinkAdd(const QString &name, int linkType,
     // coordinates untouched.
     appendLinkSceneEntry();
     m_needsRebuild = true;
+    if (m_batchedItem) m_batchedItem->refreshBoundingRect();  // realign bounds/BSP now
     emit repaintRequested();
     emit geometryChanged();
     return true;
@@ -4354,6 +4360,7 @@ bool SWMMModelLayer::applyGageAdd(const QString &name, double x, double y,
 
     appendGageSceneEntry();
     m_needsRebuild = true;
+    if (m_batchedItem) m_batchedItem->refreshBoundingRect();  // realign bounds/BSP now
     emit repaintRequested();
     emit geometryChanged();
     return true;
@@ -4420,6 +4427,7 @@ bool SWMMModelLayer::applySubcatchAdd(const QString &name,
 
     appendCatchSceneEntry();
     m_needsRebuild = true;
+    if (m_batchedItem) m_batchedItem->refreshBoundingRect();  // realign bounds/BSP now
     emit repaintRequested();
     emit geometryChanged();
     return true;
