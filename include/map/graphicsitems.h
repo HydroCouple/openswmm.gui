@@ -15,7 +15,9 @@
 #include <QGraphicsRectItem>
 #include <QGraphicsSimpleTextItem>
 #include <QPainterPath>
+#include <QPointF>
 #include <QVariantMap>
+#include <QVector>
 
 #include "map/scalebarsettings.h"
 
@@ -38,6 +40,7 @@ enum OpenSWMMVisItemType
     IdentifyCrossItemType   = QGraphicsItem::UserType + 10,
     ScaleBarItemType        = QGraphicsItem::UserType + 11,
     CoordDisplayItemType    = QGraphicsItem::UserType + 12,
+    VectorPolygonPathItemType = QGraphicsItem::UserType + 13,
 };
 
 // ============================================================================
@@ -237,6 +240,41 @@ public:
                                QGraphicsItem *parent = nullptr);
 
     int type() const override { return VectorPolygonItemType; }
+
+    [[nodiscard]] qint64 featureId() const { return m_fid; }
+
+    void setAttributes(const QVariantMap &attrs) { m_attrs = attrs; }
+    [[nodiscard]] QVariantMap attributes() const { return m_attrs; }
+
+    void setHighlighted(bool on);
+
+    void setOwnerLayer(OpenSWMMVisLayer *layer) { m_ownerLayer = layer; }
+    [[nodiscard]] OpenSWMMVisLayer *ownerLayer() const { return m_ownerLayer; }
+
+private:
+    qint64        m_fid;
+    QVariantMap   m_attrs;
+    bool          m_highlighted = false;
+    OpenSWMMVisLayer *m_ownerLayer  = nullptr;
+};
+
+// ============================================================================
+// VectorPolygonPathItem — OGR polygon feature WITH interior rings (holes)
+// ============================================================================
+// Path-based sibling of VectorPolygonItem: builds a QPainterPath from the
+// exterior ring plus every interior ring using the odd-even fill rule, so the
+// fill correctly excludes the holes and hit-testing misses points in a hole.
+// Takes rings as plain point vectors (scene coords) to avoid a header
+// dependency on core/editgeometry.h.
+class VectorPolygonPathItem : public QGraphicsPathItem
+{
+public:
+    explicit VectorPolygonPathItem(qint64 fid,
+                                   const QVector<QPointF> &exterior,
+                                   const QVector<QVector<QPointF>> &interiors = {},
+                                   QGraphicsItem *parent = nullptr);
+
+    int type() const override { return VectorPolygonPathItemType; }
 
     [[nodiscard]] qint64 featureId() const { return m_fid; }
 

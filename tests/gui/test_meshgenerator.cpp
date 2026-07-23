@@ -12,11 +12,32 @@
  */
 #include <QtTest>
 #include <QPolygonF>
+#include <QVector>
 
 #include "mesh/meshgenerator.h"
 #include "mesh/meshresult.h"
 
 using namespace mesh;
+
+// Self-contained even-odd point-in-ring test, so this target needs no extra
+// link dependency. The robust interiorPoint() seed itself is covered in
+// test_editgeometry.cpp.
+static bool pointInRingLocal(const QVector<QPointF> &ring, const QPointF &pt)
+{
+    const int n = static_cast<int>(ring.size());
+    if (n < 3) return false;
+    bool inside = false;
+    for (int i = 0, j = n - 1; i < n; j = i++) {
+        const QPointF &a = ring[i];
+        const QPointF &b = ring[j];
+        if ((a.y() > pt.y()) != (b.y() > pt.y())) {
+            const double xInt =
+                (b.x() - a.x()) * (pt.y() - a.y()) / (b.y() - a.y()) + a.x();
+            if (pt.x() < xInt) inside = !inside;
+        }
+    }
+    return inside;
+}
 
 class TestMeshGenerator : public QObject
 {
@@ -144,6 +165,58 @@ private slots:
         for (const MeshVertex &v : r.vertices)
             if (v.tag == QStringLiteral("corner")) { sawTag = true; break; }
         QVERIFY2(sawTag, "Coincident Steiner+corner lost its tag.");
+    }
+
+    /*! A non-convex (L-shaped) hole is carved out: the hole boundary is added
+     *  as a constraint and a seed strictly INSIDE the ring tells Triangle to
+     *  leave the region unmeshed. No output triangle centroid may fall in the
+     *  hole. Guards the old vertex-centroid-seed bug: for this ring the vertex
+     *  centroid lies OUTSIDE the hole, so the old code could carve the wrong
+     *  region or nothing at all. */
+    void nonConvexHole_isCarvedOut()
+    {
+        MeshGenerator g;
+        QPolygonF dom;
+        dom << QPointF(0,0) << QPointF(20,0) << QPointF(20,20) << QPointF(0,20);
+        g.setDomain(dom);
+
+        // L-shaped hole. Its vertex centroid is OUTSIDE the ring (documented
+        // below); a robust interior seed of (3,3) is strictly inside.
+        QVector<QPointF> hole;
+        hole << QPointF(2,2)  << QPointF(14,2) << QPointF(14,5)
+             << QPointF(5,5)  << QPointF(5,14) << QPointF(2,14);
+
+        // Document the bug the robust seed fixes: vertex centroid is outside.
+        QPointF centroid(0,0);
+        for (const QPointF &v : hole) centroid += v;
+        centroid /= double(hole.size());
+        QVERIFY2(!pointInRingLocal(hole, centroid),
+                 "Test premise: L-hole vertex centroid should be outside the ring.");
+
+        // Close the ring. Production hole rings come from OGR interior rings,
+        // which are already closed (first vertex repeated at the end), and
+        // MeshGenerator does NOT auto-close a constraint path — an open path
+        // leaves a gap the hole seed leaks through, carving the whole domain.
+        ConstraintSegment cs;
+        cs.path = hole;
+        cs.path << hole.first();
+        cs.marker = 0;
+        g.addConstraintSegment(cs);
+        g.addHole(QPointF(3, 3));   // strictly inside the L (both arms)
+
+        g.setOptions({.maxArea = 20.0, .minAngle = 28.0});
+        const MeshResult r = g.generate();
+        QVERIFY2(r.ok, qPrintable(r.errorMsg));
+        QVERIFY(!r.triangles.isEmpty());
+
+        int inHole = 0;
+        for (const MeshTriangle &t : r.triangles) {
+            const QPointF c = (r.vertices[t.v0].xy
+                             + r.vertices[t.v1].xy
+                             + r.vertices[t.v2].xy) / 3.0;
+            if (pointInRingLocal(hole, c)) ++inHole;
+        }
+        QCOMPARE(inHole, 0);
     }
 };
 

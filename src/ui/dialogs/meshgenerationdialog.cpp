@@ -9,6 +9,7 @@
 #include "ui/uiscrollhelpers.h"
 
 #include "core/unitsystem.h"
+#include "core/editgeometry.h"
 #include "swmmvisprojectwindow.h"
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
@@ -289,16 +290,33 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     for (const QVector<QPointF> &ring : std::as_const(in.holeRings))
     {
         if (ring.size() < 3) continue;
+
+        // Reject rings that would break the PSLG (self-intersecting or
+        // degenerate) before they reach Triangle, so a bad hole produces a
+        // logged skip rather than a generic Triangle abort that fails the
+        // whole mesh. Treat the hole ring as the exterior of a temp polygon.
+        EditGeometry::RingPolygon holeCheck;
+        holeCheck.exterior = ring;
+        if (EditGeometry::validateRingPolygon(holeCheck)
+            != EditGeometry::RingValidity::Ok)
+        {
+            qWarning() << "[Mesh] Skipping invalid hole ring ("
+                       << ring.size()
+                       << "pts) — self-intersecting or degenerate.";
+            continue;
+        }
+
+        // Boundary edges of the hole must exist in the PSLG…
         mesh::ConstraintSegment cs;
         cs.path   = ring;
         cs.marker = 0;
         g.addConstraintSegment(cs);
 
-        const int n = ring.size() - (ring.first() == ring.last() ? 1 : 0);
-        if (n <= 0) continue;
-        double cx = 0.0, cy = 0.0;
-        for (int i = 0; i < n; ++i) { cx += ring[i].x(); cy += ring[i].y(); }
-        g.addHole(QPointF(cx / n, cy / n));
+        // …plus a seed point strictly inside the ring so Triangle carves it.
+        // interiorPoint() is robust for non-convex rings; the previous
+        // vertex-centroid could fall outside the ring (or in another region),
+        // silently leaving the hole unmeshed or removing the wrong area.
+        g.addHole(EditGeometry::interiorPoint(ring));
     }
 
     for (const auto &cs : std::as_const(in.constraintSegs))
