@@ -35,6 +35,7 @@
 class SWMMVisProjectWindow;
 class SWMMVisProject;
 class OpenSWMMVisLayer;
+class MapCanvas;
 
 class ProjectSerializer
 {
@@ -112,6 +113,16 @@ private:
     static QJsonObject serializeBasemapLayer(OpenSWMMVisLayer *layer);
     static OpenSWMMVisLayer *deserializeBasemapLayer(const QJsonObject &obj,
                                                      QObject *parent);
+
+    // GIS data layers (schema v4+) — loaded rasters (GDAL) and vector
+    // datasets (OGR shapefiles, GeoPackage, …). Persisted by source path so
+    // they reopen on project load. deserializeGisLayer opens asynchronously
+    // and adds the layer to \p canvas on completion.
+    static QJsonObject serializeGisLayer(OpenSWMMVisLayer *layer,
+                                         const QString &oswpPath);
+    static void        deserializeGisLayer(const QJsonObject &obj,
+                                           MapCanvas *canvas,
+                                           const QString &oswpPath);
 };
 
 // ---------------------------------------------------------------------------
