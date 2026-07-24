@@ -14,6 +14,7 @@
 #include "layers/swmmresultslayer.h"        // Slice QA.2 — registry hookup
 #include "layers/swmm2dresultslayer.h"      // active 2D analysis layer
 #include "mesh/meshenginesync.h"            // push mesh-layer edits into the engine before save
+#include "mesh/inpmeshwriter.h"             // retarget [2D_MESH_FILE] after save
 #include "output/outputstatsregistry.h"     // Slice QA.2 — owns the registry
 #include "project/openswmmvisworkspace.h"
 #include "project/projectserializer.h"      // Slice RB.1 — sidecar auto-create
@@ -960,6 +961,34 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         }
     }
 
+    // Snapshot a freshly generated/edited external 2D mesh BEFORE the engine
+    // writes the model. The engine serialises its in-memory 2D mesh (still the
+    // mesh loaded at open - there is no engine mesh-replace API), so on save it
+    // can rewrite the external .2dm from the OLD mesh and/or emit stale inline
+    // [2D_*] into the .inp, making the old mesh reappear on reopen. We restore
+    // this snapshot and re-point the .inp after the write (below).
+    QString    extMeshPath;
+    QByteArray extMeshSnapshot;
+    if (canvas() && pluginId.isEmpty()
+        && QFileInfo(newPath).suffix().compare(QStringLiteral("inp"),
+                                               Qt::CaseInsensitive) == 0)
+    {
+        for (OpenSWMMVisLayer *l : canvas()->layers())
+        {
+            auto *ml = qobject_cast<SWMM2DMeshLayer *>(l);
+            if (!ml) continue;
+            const QString p = ml->sourcePath();
+            if (p.isEmpty() || !QFileInfo::exists(p)) continue;
+            QFile mf(p);
+            if (mf.open(QIODevice::ReadOnly))
+            {
+                extMeshSnapshot = mf.readAll();
+                extMeshPath     = p;
+            }
+            break;
+        }
+    }
+
     QByteArray utf8 = newPath.toUtf8();
     QByteArray idUtf8 = pluginId.toUtf8();
     int rc = swmm_model_write_with_plugin(
@@ -975,6 +1004,24 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                     .arg(pluginId).arg(rc);
         return false;
     }
+    // Restore the external .2dm from the pre-write snapshot (undo any engine
+    // clobber with the OLD mesh), then re-point the just-written .inp at it,
+    // stripping any stale inline [2D_*] the engine emitted. This is what keeps
+    // a freshly generated external mesh alive across save -> reopen.
+    if (!extMeshPath.isEmpty())
+    {
+        if (!extMeshSnapshot.isEmpty())
+        {
+            QFile mf(extMeshPath);
+            if (mf.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                mf.write(extMeshSnapshot);
+        }
+        QString meshErr;
+        if (!mesh::InpMeshWriter::writeMeshFileRef(newPath, extMeshPath, &meshErr))
+            qWarning().noquote()
+                << "Post-save 2D mesh retarget failed:" << meshErr;
+    }
+
     // If saved to a new path, point the layer at it so subsequent Save targets the new file.
     if (newPath != mModelLayer->modelFilePath())
         mModelLayer->setModelFilePath(newPath);

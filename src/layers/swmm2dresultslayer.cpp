@@ -1133,22 +1133,25 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
         QStringLiteral("results2d.meshVertices"), this);
     m_contourBandSublayer = new OpenSWMM::Render::ContourBandSublayer(
         QStringLiteral("results2d.bands"), this);
-    // 2026-06-21 — the depth color ramp sublayer was removed (redundant with
-    // contour bands, which now serve as the default depth fill). Contour
-    // bands therefore start visible.
-    if (m_contourBandSublayer) m_contourBandSublayer->setVisible(true);
     m_isolineSublayer = new OpenSWMM::Render::IsolineSublayer(
         QStringLiteral("results2d.isolines"), this);
     m_velocityVectorSublayer = new OpenSWMM::Render::VelocityVectorSublayer(
         QStringLiteral("results2d.velocity"), this);
     // Direct mesh-fill depth visualisations (alternatives to the
     // marching-squares contour bands): flat per-cell colour, and per-vertex
-    // Gouraud (smooth seam-free gradient). Off by default — the user enables
-    // one from the layer tree. Continuous color mapping by default.
+    // Gouraud (smooth seam-free gradient). Continuous color mapping by default.
     m_cellDepthFillSublayer = new OpenSWMM::Render::CellDepthFillSublayer(
         QStringLiteral("results2d.cellDepthFill"), this);
     m_smoothDepthFillSublayer = new OpenSWMM::Render::SmoothDepthFillSublayer(
         QStringLiteral("results2d.smoothDepthFill"), this);
+
+    // 2026-07-24 — default the depth fill to the per-vertex Gouraud SMOOTH
+    // fill rather than contour bands. The marching-squares bands read as
+    // discrete steps and leave thin seam/gap artifacts between band polygons;
+    // the smooth fill is a seam-free continuous gradient over the mesh. Users
+    // can still switch to bands / flat cell fill from the layer tree.
+    if (m_smoothDepthFillSublayer) m_smoothDepthFillSublayer->setVisible(true);
+    if (m_contourBandSublayer)     m_contourBandSublayer->setVisible(false);
 
     // Phase 9 (2026-05-25) — sublayer.invalidated() routes to the existing
     // graphics-item update path. This is what makes the layer-tree
@@ -1326,6 +1329,30 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
             max_velocity_ = scanned_max;
             have_velocity_ = true;
         }
+    }
+
+    // Auto-seed max_depth_ from a global scan over every frame so the depth
+    // colour ramp is anchored to the run's true peak depth from the first
+    // frame shown — mirroring the velocity seed above. Without this,
+    // loadFrame_() only auto-GROWS max_depth_ as frames are visited, so the
+    // peak depth (which usually occurs mid-run, not on the last frame that
+    // setCurrentTimeIndex shows first) is not mapped to the top of the ramp
+    // until the user happens to scrub onto that exact frame — i.e. the max
+    // depth doesn't reach the max colour. Skipped when the user pinned the
+    // range explicitly. Cheap: n frames × cell count, one linear pass.
+    if (source_ && n > 0 && !tris_.empty() && !max_depth_user_set_)
+    {
+        float scanned_max_depth = 0.0f;
+        std::vector<float> depthBuf;
+        for (int t = 0; t < n; ++t) {
+            source_->readDepthsAt(t, depthBuf);
+            if (depthBuf.size() != tris_.size()) continue;
+            for (float d : depthBuf)
+                if (std::isfinite(d) && d > scanned_max_depth)
+                    scanned_max_depth = d;
+        }
+        if (scanned_max_depth > 0.0f)
+            max_depth_ = scanned_max_depth;
     }
 
     // Show a frame immediately if any are available. A live source shows its

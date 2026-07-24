@@ -797,11 +797,13 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
         m_sceneItems.append(item);
     };
 
-    auto addPolygon = [&](const QVector<QPointF> &scenePts, qint64 fid, bool selected) {
-        if (scenePts.size() < 3)
+    auto addPolygonWithHoles = [&](const QVector<QPointF> &exterior,
+                                   const QVector<QVector<QPointF>> &interiors,
+                                   qint64 fid, bool selected) {
+        if (exterior.size() < 3)
             return;
-        QPolygonF poly(scenePts);
-        auto *item = new VectorPolygonItem(fid, poly);
+        // Path-based item so interior rings render as holes (odd-even fill).
+        auto *item = new VectorPolygonPathItem(fid, exterior, interiors);
         QBrush brush = selected ? QBrush(QColor(255, 255, 0, 100)) : m_symbol.polygonFill;
         item->setBrush(brush);
         QPen polyPen = m_symbol.polygonOutline;
@@ -847,12 +849,27 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
             else if (gt == wkbPolygon)
             {
                 auto *poly = geom->toPolygon();
-                OGRLinearRing *ring = poly->getExteriorRing();
+                const OGRLinearRing *ring = poly->getExteriorRing();
                 QVector<QPointF> pts;
-                pts.reserve(ring->getNumPoints());
-                for (int i = 0; i < ring->getNumPoints(); ++i)
-                    pts.append(toScene(ring->getX(i), ring->getY(i)));
-                addPolygon(pts, fid, selected);
+                if (ring)
+                {
+                    pts.reserve(ring->getNumPoints());
+                    for (int i = 0; i < ring->getNumPoints(); ++i)
+                        pts.append(toScene(ring->getX(i), ring->getY(i)));
+                }
+                QVector<QVector<QPointF>> holes;
+                for (int h = 0; h < poly->getNumInteriorRings(); ++h)
+                {
+                    const OGRLinearRing *hr = poly->getInteriorRing(h);
+                    if (!hr || hr->getNumPoints() < 3)
+                        continue;
+                    QVector<QPointF> hp;
+                    hp.reserve(hr->getNumPoints());
+                    for (int i = 0; i < hr->getNumPoints(); ++i)
+                        hp.append(toScene(hr->getX(i), hr->getY(i)));
+                    holes.append(hp);
+                }
+                addPolygonWithHoles(pts, holes, fid, selected);
             }
             else if (gt == wkbMultiPoint)
             {
@@ -882,10 +899,25 @@ void GISVectorLayer::populateScene(QGraphicsScene *scene,
                 {
                     const auto *poly = mpoly->getGeometryRef(j)->toPolygon();
                     const OGRLinearRing *ring = poly->getExteriorRing();
+                    if (!ring)
+                        continue;
                     QVector<QPointF> pts;
+                    pts.reserve(ring->getNumPoints());
                     for (int k = 0; k < ring->getNumPoints(); ++k)
                         pts.append(toScene(ring->getX(k), ring->getY(k)));
-                    addPolygon(pts, fid, selected);
+                    QVector<QVector<QPointF>> holes;
+                    for (int h = 0; h < poly->getNumInteriorRings(); ++h)
+                    {
+                        const OGRLinearRing *hr = poly->getInteriorRing(h);
+                        if (!hr || hr->getNumPoints() < 3)
+                            continue;
+                        QVector<QPointF> hp;
+                        hp.reserve(hr->getNumPoints());
+                        for (int k = 0; k < hr->getNumPoints(); ++k)
+                            hp.append(toScene(hr->getX(k), hr->getY(k)));
+                        holes.append(hp);
+                    }
+                    addPolygonWithHoles(pts, holes, fid, selected);
                 }
             }
         }

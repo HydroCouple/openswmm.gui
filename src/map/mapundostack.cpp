@@ -16,6 +16,13 @@
 #include "layers/annotationlayer.h"
 #include "layers/annotationtextitem.h"
 
+#include "curve/curveregistry.h"
+#include "curve/curveprovider.h"
+#include "timeseries/timeseriesregistry.h"
+#include "timeseries/timeseriesprovider.h"
+#include "transect/transectregistry.h"
+#include "transect/transectprovider.h"
+
 #include <QSettings>
 
 #include <openswmm/engine/openswmm_engine.h>
@@ -928,4 +935,217 @@ void AddAnnotationCommand::undo()
         if (m_canvas)
             m_canvas->invalidate(MapCanvas::Scene, QStringLiteral("addtext-undo"));
     }
+}
+
+// ===========================================================================
+// DeleteDataObjectCommand  (Slice — GUI delete for data objects, 2026-07-22)
+// ---------------------------------------------------------------------------
+// Curve / TimeSeries / Transect deletion routed through the owning registry.
+// See workplans/GUI_DELETE_ALL_OBJECTS_PLAN_2026-07-22.md for the roadmap that
+// extends supports()/redo()/undo() to the remaining data types once the engine
+// ships their swmm_*_delete APIs.
+// ===========================================================================
+
+namespace {
+
+openswmmvis::curve::CurveRegistry *dd_curveReg(SWMMModelLayer *l)
+{
+    return l ? qobject_cast<openswmmvis::curve::CurveRegistry *>(l->ensureCurveRegistry())
+             : nullptr;
+}
+openswmmvis::timeseries::TimeseriesRegistry *dd_tsReg(SWMMModelLayer *l)
+{
+    return l ? qobject_cast<openswmmvis::timeseries::TimeseriesRegistry *>(l->ensureTimeseriesRegistry())
+             : nullptr;
+}
+openswmmvis::transect::TransectRegistry *dd_txReg(SWMMModelLayer *l)
+{
+    return l ? qobject_cast<openswmmvis::transect::TransectRegistry *>(l->ensureTransectRegistry())
+             : nullptr;
+}
+
+} // namespace
+
+bool DeleteDataObjectCommand::supports(SWMMObjectRef::ObjectType t)
+{
+    return t == SWMMObjectRef::Curve
+        || t == SWMMObjectRef::TimeSeries
+        || t == SWMMObjectRef::Transect;
+}
+
+DeleteDataObjectCommand::DeleteDataObjectCommand(SWMMModelLayer      *layer,
+                                                 const SWMMObjectRef &ref,
+                                                 MapCanvas           *canvas,
+                                                 QUndoCommand        *parent)
+    : MapCommand(QObject::tr("Delete \"%1\"").arg(ref.name), canvas, parent)
+    , m_layer(layer)
+    , m_ref(ref)
+{
+    // Snapshot BEFORE redo() removes anything so undo() can rebuild the object.
+    switch (m_ref.objectType) {
+    case SWMMObjectRef::Curve:      snapshotCurve();      break;
+    case SWMMObjectRef::TimeSeries: snapshotTimeSeries(); break;
+    case SWMMObjectRef::Transect:   snapshotTransect();   break;
+    default: break;
+    }
+}
+
+void DeleteDataObjectCommand::redo()
+{
+    if (!m_layer) return;
+    switch (m_ref.objectType) {
+    case SWMMObjectRef::Curve: {
+        auto *reg = dd_curveReg(m_layer);
+        if (!reg) return;
+        if (auto *p = reg->findByName(m_ref.name)) {
+            reg->remove(p);                      // deletes the provider
+            reg->saveToEngine(m_layer->engine());
+        }
+        break;
+    }
+    case SWMMObjectRef::TimeSeries: {
+        auto *reg = dd_tsReg(m_layer);
+        if (!reg) return;
+        if (auto *p = reg->findByName(m_ref.name)) {
+            reg->remove(p);
+            reg->saveToEngine(m_layer->engine());
+        }
+        break;
+    }
+    case SWMMObjectRef::Transect: {
+        auto *reg = dd_txReg(m_layer);
+        if (!reg) return;
+        if (auto *p = reg->findByName(m_ref.name)) {
+            reg->remove(p);
+            reg->saveToEngine(m_layer->engine());
+        }
+        break;
+    }
+    default: break;
+    }
+}
+
+void DeleteDataObjectCommand::undo()
+{
+    if (!m_layer || !m_captured) return;
+    switch (m_ref.objectType) {
+    case SWMMObjectRef::Curve:      restoreCurve();      break;
+    case SWMMObjectRef::TimeSeries: restoreTimeSeries(); break;
+    case SWMMObjectRef::Transect:   restoreTransect();   break;
+    default: break;
+    }
+}
+
+// --- Curve ------------------------------------------------------------------
+
+void DeleteDataObjectCommand::snapshotCurve()
+{
+    auto *reg = dd_curveReg(m_layer);
+    if (!reg) return;
+    auto *p = reg->findByName(m_ref.name);
+    if (!p) return;
+    m_curveType = static_cast<int>(p->type());
+    m_curvePoints.clear();
+    for (const auto &pt : p->points())
+        m_curvePoints.append(QPointF(pt.x, pt.y));
+    m_captured = true;
+}
+
+void DeleteDataObjectCommand::restoreCurve()
+{
+    auto *reg = dd_curveReg(m_layer);
+    if (!reg || m_curveType < 0 || reg->hasName(m_ref.name)) return;
+    auto *p = reg->create(m_ref.name,
+                          static_cast<openswmmvis::curve::CurveType>(m_curveType));
+    if (!p) return;
+    QVector<openswmmvis::curve::CurvePoint> pts;
+    pts.reserve(m_curvePoints.size());
+    for (const auto &q : m_curvePoints)
+        pts.append({q.x(), q.y()});
+    p->setAllPoints(pts);
+    reg->saveToEngine(m_layer->engine());
+}
+
+// --- Time series ------------------------------------------------------------
+
+void DeleteDataObjectCommand::snapshotTimeSeries()
+{
+    auto *reg = dd_tsReg(m_layer);
+    if (!reg) return;
+    auto *p = reg->findByName(m_ref.name);
+    if (!p) return;
+    m_tsUnits          = p->unitsLabel();
+    m_tsDescription    = p->description();
+    m_tsSourceMode     = static_cast<int>(p->sourceMode());
+    m_tsFilePath       = p->filePath();
+    m_tsColumnSelector = p->columnSelector();
+    m_tsFileMTime      = p->fileMTime();
+    m_tsPoints.clear();
+    for (const auto &pt : p->points())
+        m_tsPoints.append(qMakePair(pt.time, pt.value));
+    m_captured = true;
+}
+
+void DeleteDataObjectCommand::restoreTimeSeries()
+{
+    auto *reg = dd_tsReg(m_layer);
+    if (!reg || reg->hasName(m_ref.name)) return;
+    auto *p = reg->create(m_ref.name);
+    if (!p) return;
+    using SM = openswmmvis::timeseries::TimeseriesProvider::SourceMode;
+    p->setUnitsLabel(m_tsUnits);
+    p->setDescription(m_tsDescription);
+    p->setSourceMode(static_cast<SM>(m_tsSourceMode));
+    if (!m_tsFilePath.isEmpty())
+        p->setFileSource(m_tsFilePath, m_tsColumnSelector, m_tsFileMTime);
+    QVector<openswmmvis::timeseries::TimeseriesPoint> pts;
+    pts.reserve(m_tsPoints.size());
+    for (const auto &q : m_tsPoints)
+        pts.append({q.first, q.second});
+    p->setAllPoints(pts);
+    reg->saveToEngine(m_layer->engine());
+}
+
+// --- Transect ---------------------------------------------------------------
+
+void DeleteDataObjectCommand::snapshotTransect()
+{
+    auto *reg = dd_txReg(m_layer);
+    if (!reg) return;
+    auto *p = reg->findByName(m_ref.name);
+    if (!p) return;
+    m_txComments       = p->comments();
+    m_txNLeft          = p->nLeftBank();
+    m_txNRight         = p->nRightBank();
+    m_txNChannel       = p->nChannel();
+    m_txXLeftBank      = p->xLeftBank();
+    m_txXRightBank     = p->xRightBank();
+    m_txXLeftEncroach  = p->xLeftEncroachment();
+    m_txXRightEncroach = p->xRightEncroachment();
+    m_txXFactor        = p->stationMultiplier();
+    m_txYFactor        = p->elevationOffset();
+    m_txLengthFactor   = p->meanderFactor();
+    m_txPoints.clear();
+    for (const auto &pt : p->points())
+        m_txPoints.append(qMakePair(pt.station, pt.elevation));
+    m_captured = true;
+}
+
+void DeleteDataObjectCommand::restoreTransect()
+{
+    auto *reg = dd_txReg(m_layer);
+    if (!reg || reg->hasName(m_ref.name)) return;
+    auto *p = reg->create(m_ref.name);
+    if (!p) return;
+    p->setComments(m_txComments);
+    p->setRoughness(m_txNLeft, m_txNRight, m_txNChannel);
+    p->setBankStations(m_txXLeftBank, m_txXRightBank);
+    p->setEncroachmentStations(m_txXLeftEncroach, m_txXRightEncroach);
+    p->setModifiers(m_txXFactor, m_txYFactor, m_txLengthFactor);
+    QVector<openswmmvis::transect::TransectPoint> pts;
+    pts.reserve(m_txPoints.size());
+    for (const auto &q : m_txPoints)
+        pts.append({q.first, q.second});
+    p->setAllPoints(pts);
+    reg->saveToEngine(m_layer->engine());
 }
