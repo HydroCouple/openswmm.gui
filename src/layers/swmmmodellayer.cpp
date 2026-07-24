@@ -3937,6 +3937,7 @@ bool SWMMModelLayer::applyNodeMove(int idx, double newX, double newY)
 
     m_kdDirty = true;
     m_needsRebuild = true;
+    recomputeExtentFromCaches();   // keep cached model extent in sync (mesh/zoom gates read it)
     emit repaintRequested();
     return true;
 }
@@ -4208,6 +4209,7 @@ bool SWMMModelLayer::applyNodeAdd(const QString &name, int nodeType,
 
     m_kdDirty = true;
     m_needsRebuild = true;
+    recomputeExtentFromCaches();   // keep cached model extent in sync (mesh/zoom gates read it)
     // Realign the batched item's cached bounds + the scene's BSP index to the
     // new geometry NOW (see the m_batchedItem contract in the header). Without
     // this, a node added beyond the prior extent is culled from paint() by the
@@ -4304,6 +4306,7 @@ bool SWMMModelLayer::applyLinkAdd(const QString &name, int linkType,
     // coordinates untouched.
     appendLinkSceneEntry();
     m_needsRebuild = true;
+    recomputeExtentFromCaches();   // keep cached model extent in sync (mesh/zoom gates read it)
     if (m_batchedItem) m_batchedItem->refreshBoundingRect();  // realign bounds/BSP now
     emit repaintRequested();
     emit geometryChanged();
@@ -4360,6 +4363,7 @@ bool SWMMModelLayer::applyGageAdd(const QString &name, double x, double y,
 
     appendGageSceneEntry();
     m_needsRebuild = true;
+    recomputeExtentFromCaches();   // keep cached model extent in sync (mesh/zoom gates read it)
     if (m_batchedItem) m_batchedItem->refreshBoundingRect();  // realign bounds/BSP now
     emit repaintRequested();
     emit geometryChanged();
@@ -4427,6 +4431,7 @@ bool SWMMModelLayer::applySubcatchAdd(const QString &name,
 
     appendCatchSceneEntry();
     m_needsRebuild = true;
+    recomputeExtentFromCaches();   // keep cached model extent in sync (mesh/zoom gates read it)
     if (m_batchedItem) m_batchedItem->refreshBoundingRect();  // realign bounds/BSP now
     emit repaintRequested();
     emit geometryChanged();
@@ -5590,6 +5595,7 @@ bool SWMMModelLayer::applySubcatchVertices(int idx, const QVector<QPointF> &vert
     refreshSceneCoordsForSubcatch(idx);
 
     m_needsRebuild = true;
+    recomputeExtentFromCaches();   // keep cached model extent in sync (mesh/zoom gates read it)
     emit repaintRequested();
     return true;
 }
