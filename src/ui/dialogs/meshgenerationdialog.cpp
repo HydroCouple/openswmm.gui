@@ -2704,6 +2704,22 @@ void MeshGenerationDialog::onAccept()
         return;
     }
 
+    // Warn before overwriting an existing mesh at the same output path so a
+    // regeneration replaces the old mesh rather than silently clobbering it.
+    if (inputs.outputMode == mesh::MeshOutputMode::External
+        && !inputs.meshOutputPath.isEmpty()
+        && QFileInfo::exists(inputs.meshOutputPath))
+    {
+        const auto ovBtn = QMessageBox::warning(
+            this, tr("Overwrite existing mesh?"),
+            tr("A mesh file already exists at:\n\n%1\n\nGenerating will "
+               "overwrite it and replace the existing mesh. Continue?")
+                .arg(QDir::toNativeSeparators(inputs.meshOutputPath)),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (ovBtn != QMessageBox::Yes)
+            return;
+    }
+
     // Show embedded progress bar and switch Generate→disabled, Cancel→"Stop".
     m_progressBar->setValue(0);
     m_progressLabel->setText(tr("Starting…"));
