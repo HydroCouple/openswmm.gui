@@ -672,6 +672,27 @@ void SWMMLayerQSGRenderer::setLayer(SWMMModelLayer *layer)
                     m_contentDirty = true;
                     update();
                 });
+        // Geometry mutations (add / move / delete a node, link, subcatchment or
+        // gage) must ALWAYS force a full content rebuild. They cannot ride the
+        // repaintRequested handler above: its selection-absorb optimisation
+        // (m_selectionPending, set when a selection change is coalesced with the
+        // repaint that follows it) can swallow the repaint a just-added object
+        // emits, leaving the new object out of the QSG geometry until an
+        // unrelated rebuild — the "have to toggle the layer off/on to see a
+        // newly added junction" bug. geometryChanged fires on every add/move/
+        // delete and is exempt from that absorb, so wire it straight to a
+        // rebuild and clear any pending-absorb state.
+        connect(m_layer, &SWMMModelLayer::geometryChanged,
+                this, [this]() {
+                    m_contentDirty     = true;
+                    m_selectionPending = false;
+                    // Subcatchment fills are triangulated behind a
+                    // geomRevision-keyed cache; force it stale so a moved/added
+                    // polygon re-triangulates on the next rebuild.
+                    m_catchTriCache.revision =
+                        std::numeric_limits<quint64>::max();
+                    update();
+                });
     }
     m_catchTriCache.revision = std::numeric_limits<quint64>::max();
     m_selDirty        = false;
