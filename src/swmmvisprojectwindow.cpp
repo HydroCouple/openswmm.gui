@@ -14,6 +14,7 @@
 #include "layers/swmmresultslayer.h"        // Slice QA.2 — registry hookup
 #include "layers/swmm2dresultslayer.h"      // active 2D analysis layer
 #include "mesh/meshenginesync.h"            // push mesh-layer edits into the engine before save
+#include "mesh/inpmeshwriter.h"             // retarget [2D_MESH_FILE] after save
 #include "output/outputstatsregistry.h"     // Slice QA.2 — owns the registry
 #include "project/openswmmvisworkspace.h"
 #include "project/projectserializer.h"      // Slice RB.1 — sidecar auto-create
@@ -975,6 +976,32 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                     .arg(pluginId).arg(rc);
         return false;
     }
+    // The engine's writer serialises its in-memory 2D mesh (the mesh loaded
+    // at open - there is no engine mesh-replace API), so a freshly GENERATED
+    // external mesh would otherwise be lost on save and the OLD mesh would
+    // reappear on reopen. Re-point the just-written .inp at the external .2dm
+    // (which generation already wrote with the NEW mesh) via the retarget-only
+    // writer, stripping any stale inline [2D_*] the engine emitted. Built-in
+    // .inp writer + an external mesh layer (non-empty .2dm sourcePath) only.
+    if (pluginId.isEmpty() && canvas()
+        && QFileInfo(newPath).suffix().compare(QStringLiteral("inp"),
+                                               Qt::CaseInsensitive) == 0)
+    {
+        for (OpenSWMMVisLayer *l : canvas()->layers())
+        {
+            auto *meshLayer = qobject_cast<SWMM2DMeshLayer *>(l);
+            if (!meshLayer) continue;
+            const QString meshPath = meshLayer->sourcePath();
+            if (meshPath.isEmpty() || !QFileInfo::exists(meshPath))
+                continue;   // inline mesh or missing file - leave the .inp as written
+            QString meshErr;
+            if (!mesh::InpMeshWriter::writeMeshFileRef(newPath, meshPath, &meshErr))
+                qWarning().noquote()
+                    << "Post-save 2D mesh retarget failed:" << meshErr;
+            break;          // a single external mesh is retargeted
+        }
+    }
+
     // If saved to a new path, point the layer at it so subsequent Save targets the new file.
     if (newPath != mModelLayer->modelFilePath())
         mModelLayer->setModelFilePath(newPath);
