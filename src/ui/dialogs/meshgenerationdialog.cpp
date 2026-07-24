@@ -9,6 +9,7 @@
 #include "ui/uiscrollhelpers.h"
 
 #include "core/unitsystem.h"
+#include "core/editgeometry.h"
 #include "swmmvisprojectwindow.h"
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
@@ -289,16 +290,33 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     for (const QVector<QPointF> &ring : std::as_const(in.holeRings))
     {
         if (ring.size() < 3) continue;
+
+        // Reject rings that would break the PSLG (self-intersecting or
+        // degenerate) before they reach Triangle, so a bad hole produces a
+        // logged skip rather than a generic Triangle abort that fails the
+        // whole mesh. Treat the hole ring as the exterior of a temp polygon.
+        EditGeometry::RingPolygon holeCheck;
+        holeCheck.exterior = ring;
+        if (EditGeometry::validateRingPolygon(holeCheck)
+            != EditGeometry::RingValidity::Ok)
+        {
+            qWarning() << "[Mesh] Skipping invalid hole ring ("
+                       << ring.size()
+                       << "pts) — self-intersecting or degenerate.";
+            continue;
+        }
+
+        // Boundary edges of the hole must exist in the PSLG…
         mesh::ConstraintSegment cs;
         cs.path   = ring;
         cs.marker = 0;
         g.addConstraintSegment(cs);
 
-        const int n = ring.size() - (ring.first() == ring.last() ? 1 : 0);
-        if (n <= 0) continue;
-        double cx = 0.0, cy = 0.0;
-        for (int i = 0; i < n; ++i) { cx += ring[i].x(); cy += ring[i].y(); }
-        g.addHole(QPointF(cx / n, cy / n));
+        // …plus a seed point strictly inside the ring so Triangle carves it.
+        // interiorPoint() is robust for non-convex rings; the previous
+        // vertex-centroid could fall outside the ring (or in another region),
+        // silently leaving the hole unmeshed or removing the wrong area.
+        g.addHole(EditGeometry::interiorPoint(ring));
     }
 
     for (const auto &cs : std::as_const(in.constraintSegs))
@@ -2686,6 +2704,22 @@ void MeshGenerationDialog::onAccept()
         return;
     }
 
+    // Warn before overwriting an existing mesh at the same output path so a
+    // regeneration replaces the old mesh rather than silently clobbering it.
+    if (inputs.outputMode == mesh::MeshOutputMode::External
+        && !inputs.meshOutputPath.isEmpty()
+        && QFileInfo::exists(inputs.meshOutputPath))
+    {
+        const auto ovBtn = QMessageBox::warning(
+            this, tr("Overwrite existing mesh?"),
+            tr("A mesh file already exists at:\n\n%1\n\nGenerating will "
+               "overwrite it and replace the existing mesh. Continue?")
+                .arg(QDir::toNativeSeparators(inputs.meshOutputPath)),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (ovBtn != QMessageBox::Yes)
+            return;
+    }
+
     // Show embedded progress bar and switch Generate→disabled, Cancel→"Stop".
     m_progressBar->setValue(0);
     m_progressLabel->setText(tr("Starting…"));
@@ -2742,9 +2776,34 @@ void MeshGenerationDialog::onMeshFinished()
     // Add the generated mesh layer to the canvas (main thread — safe).
     if (auto *canvas = m_pw->canvas())
     {
-        for (auto *L : canvas->layers())
-            if (auto *m = qobject_cast<SWMM2DMeshLayer *>(L))
-                m->setActiveMesh(false);
+        // Deactivate any existing meshes, and REMOVE any mesh layer that
+        // already references the same output path — regenerating a mesh at an
+        // existing path must REPLACE it, not stack a second (stale) layer on
+        // the canvas. A lingering duplicate is not just visually wrong: on save
+        // the write path (SWMMVisProjectWindow) pushes *every* mesh layer into
+        // the engine, so the old mesh can win and reappear on reopen.
+        const QString newMeshCanonical =
+            result.meshPath.isEmpty()
+                ? QString()
+                : QFileInfo(result.meshPath).absoluteFilePath();
+        QList<SWMM2DMeshLayer *> staleMeshes;
+        for (auto *L : canvas->layers()) {
+            auto *m = qobject_cast<SWMM2DMeshLayer *>(L);
+            if (!m) continue;
+            m->setActiveMesh(false);
+            if (!newMeshCanonical.isEmpty()
+                && !m->sourcePath().isEmpty()
+                && QFileInfo(m->sourcePath()).absoluteFilePath() == newMeshCanonical)
+                staleMeshes.append(m);
+        }
+        for (SWMM2DMeshLayer *stale : staleMeshes) {
+            const int idx = canvas->layers().indexOf(stale);
+            if (idx >= 0) {
+                if (OpenSWMMVisLayer *taken =
+                        canvas->takeLayer(idx, /*pushUndo=*/false))
+                    taken->deleteLater();
+            }
+        }
 
         // Carry the generated 1D<->2D coupling onto the mesh vertices'
         // coupledNode field so the layer (and any later engine-sync save)

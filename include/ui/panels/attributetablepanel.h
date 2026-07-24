@@ -37,6 +37,8 @@ class QToolBar;
 class SWMMAttributeTableModel;
 class TabularDataLayer;
 class TabularDataTableModel;
+class GISVectorLayer;
+class GISVectorAttributeTableModel;   // read-only OGR-feature source (defined in the .cpp)
 class MapCanvas;
 
 class AttributeTablePanel : public QWidget
@@ -199,6 +201,7 @@ private:
     QAction                 *m_copyAct       = nullptr;
     SWMMAttributeTableModel *m_model         = nullptr;
     TabularDataTableModel   *m_tabularModel  = nullptr;  ///< Z.4.3 — alt source
+    GISVectorAttributeTableModel *m_gisModel = nullptr;  ///< external OGR feature-layer source
     QSortFilterProxyModel   *m_proxy         = nullptr;
 
     // Slice Z.2 — Query bar

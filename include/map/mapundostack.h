@@ -11,13 +11,16 @@
 #ifndef MAPUNDOSTACK_H
 #define MAPUNDOSTACK_H
 
+#include <QDateTime>
 #include <QObject>
+#include <QPair>
 #include <QPointF>
 #include <QString>
 #include <QUndoStack>
 #include <QVector>
 #include "map/mapextent.h"
 #include "layers/swmmmodellayer.h"   // SWMMModelLayer::Category used by ReorderCategoriesCommand below
+#include "selection/selectionmanager.h"   // SWMMObjectRef used by DeleteDataObjectCommand below
 
 // ---------------------------------------------------------------------------
 // Plain-data snapshots used by delete / undo
@@ -577,6 +580,69 @@ private:
     LinkSnapshot         m_link;
     GageSnapshot         m_gage;
     SubcatchSnapshot     m_subcatch;
+};
+
+/*!
+ * \class DeleteDataObjectCommand
+ * \brief Undoable deletion of a non-spatial data object (curve, time series,
+ *        or transect) held in a SWMMModelLayer registry.
+ * \details Data objects are owned by registries (CurveRegistry,
+ *          TimeseriesRegistry, TransectRegistry) rather than the engine's
+ *          spatial stores, so this command snapshots the provider's full
+ *          state, calls registry->remove() on redo(), and re-creates +
+ *          repopulates the provider on undo(). The registry is flushed to the
+ *          engine (clear + re-add) after each mutation.
+ *
+ *          Only Curve, TimeSeries, and Transect are supported today — they
+ *          have registry-backed CRUD plus engine table/transect delete.
+ *          Patterns, pollutants, aquifers, snowpacks, LID controls, streets,
+ *          inlets, land uses, hydrograph groups, and control rules need new
+ *          engine delete APIs first (see
+ *          workplans/GUI_DELETE_ALL_OBJECTS_PLAN_2026-07-22.md); supports()
+ *          returns false for those so callers can grey the menu action.
+ */
+class DeleteDataObjectCommand : public MapCommand
+{
+public:
+    DeleteDataObjectCommand(SWMMModelLayer *layer,
+                            const SWMMObjectRef &ref,
+                            MapCanvas *canvas,
+                            QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 17; }
+
+    /*! True when \p type currently has a registry-backed delete path. */
+    static bool supports(SWMMObjectRef::ObjectType type);
+
+private:
+    void snapshotCurve();       void restoreCurve();
+    void snapshotTimeSeries();  void restoreTimeSeries();
+    void snapshotTransect();    void restoreTransect();
+
+    SWMMModelLayer *m_layer = nullptr;
+    SWMMObjectRef   m_ref;
+    bool            m_captured = false;   // snapshot succeeded
+
+    // --- Curve snapshot ---
+    int              m_curveType = -1;    // openswmmvis::curve::CurveType as int
+    QVector<QPointF> m_curvePoints;       // (x, y)
+
+    // --- Time series snapshot ---
+    QString   m_tsUnits, m_tsDescription;
+    int       m_tsSourceMode = 0;         // TimeseriesProvider::SourceMode as int
+    QString   m_tsFilePath, m_tsColumnSelector;
+    QDateTime m_tsFileMTime;
+    QVector<QPair<QDateTime, double>> m_tsPoints;   // (time, value)
+
+    // --- Transect snapshot ---
+    QString m_txComments;
+    double  m_txNLeft = 0, m_txNRight = 0, m_txNChannel = 0;
+    double  m_txXLeftBank = 0, m_txXRightBank = 0;
+    double  m_txXLeftEncroach = 0, m_txXRightEncroach = 0;
+    double  m_txXFactor = 1, m_txYFactor = 1, m_txLengthFactor = 1;
+    QVector<QPair<double, double>> m_txPoints;      // (station, elevation)
 };
 
 /*!

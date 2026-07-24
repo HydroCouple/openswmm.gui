@@ -8,6 +8,8 @@
 
 #include "connections/basemapconnection.h"
 #include "layers/annotationlayer.h"
+#include "layers/gisrasterlayer.h"
+#include "layers/gisvectorlayer.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmmmodellayer.h"
@@ -221,6 +223,16 @@ const QString kBmFormat      = QStringLiteral("imageFormat");
 const QString kBmCrs         = QStringLiteral("crs");
 const QString kBmTms         = QStringLiteral("tileMatrixSet");
 const QString kBmDpiMode     = QStringLiteral("dpiMode");
+
+// GIS data-layer keys (schema v4+) — loaded raster (GDAL) and vector (OGR)
+// layers persisted by source path so they reopen on project load.
+const QString kGisLayers     = QStringLiteral("gisLayers");
+const QString kGisType       = QStringLiteral("type");        // "raster" | "vector"
+const QString kGisPath       = QStringLiteral("path");        // relative to the .oswp
+const QString kGisName       = QStringLiteral("name");
+const QString kGisVisible    = QStringLiteral("visible");
+const QString kGisOpacity    = QStringLiteral("opacity");
+const QString kGisLayerName  = QStringLiteral("layerName");   // vector sublayer (OGR layer)
 
 QJsonArray toJsonInts(const QVector<int> &v)
 {
@@ -956,6 +968,19 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
         }
         if (!basemapsArr.isEmpty())
             root[kBasemaps] = basemapsArr;
+
+        // GIS data layers (schema v4+) — loaded rasters/shapefiles persisted
+        // by source path so they reopen on project load. Basemaps are handled
+        // above; these are the non-basemap GDAL/OGR data layers.
+        QJsonArray gisArr;
+        for (OpenSWMMVisLayer *l : canvas->layers()) {
+            if (l->isBasemapLayer()) continue;
+            const QJsonObject g = serializeGisLayer(l, oswpPath);
+            if (!g.isEmpty())
+                gisArr.append(g);
+        }
+        if (!gisArr.isEmpty())
+            root[kGisLayers] = gisArr;
     }
 
     QFile f(oswpPath);
@@ -1088,6 +1113,16 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
         }
     }
 
+    // --- GIS data layers (schema v4+) --------------------------------------
+    // Rasters/shapefiles open asynchronously (GDAL/OGR on a worker thread);
+    // each layer adds itself to the canvas on openFinished — see
+    // deserializeGisLayer. Read whenever present for forward compatibility.
+    if (canvas) {
+        const QJsonArray gisArr = root.value(kGisLayers).toArray();
+        for (const QJsonValue &v : gisArr)
+            deserializeGisLayer(v.toObject(), canvas, oswpPath);
+    }
+
     return true;
 }
 
@@ -1183,4 +1218,82 @@ OpenSWMMVisLayer *ProjectSerializer::deserializeBasemapLayer(const QJsonObject &
         return layer;
     }
     return nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// GIS data-layer helpers (schema v4+) — reopen loaded rasters/shapefiles.
+// Persist the source path (relative to the .oswp) plus name/visibility/
+// opacity; reconstruct via the same async GDAL/OGR open the File ▸ Add
+// Layer path uses. See workplans/GIS_LAYER_PERSISTENCE_HANDOFF_2026-07-24.md.
+// ---------------------------------------------------------------------------
+
+QJsonObject ProjectSerializer::serializeGisLayer(OpenSWMMVisLayer *layer,
+                                                 const QString &oswpPath)
+{
+    QJsonObject obj;
+    if (!layer) return obj;
+
+    if (auto *r = qobject_cast<GISRasterLayer *>(layer)) {
+        if (r->filePath().isEmpty()) return obj;   // nothing to reopen from
+        obj[kGisType]    = QStringLiteral("raster");
+        obj[kGisPath]    = toRelativePath(r->filePath(), oswpPath);
+        obj[kGisName]    = r->name();
+        obj[kGisVisible] = r->isVisible();
+        obj[kGisOpacity] = r->opacity();
+    } else if (auto *v = qobject_cast<GISVectorLayer *>(layer)) {
+        if (v->filePath().isEmpty()) return obj;
+        obj[kGisType]      = QStringLiteral("vector");
+        obj[kGisPath]      = toRelativePath(v->filePath(), oswpPath);
+        obj[kGisName]      = v->name();
+        obj[kGisVisible]   = v->isVisible();
+        obj[kGisOpacity]   = v->opacity();
+        obj[kGisLayerName] = v->ogrLayerName();   // OGR sublayer (may be empty)
+    }
+    return obj;
+}
+
+void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj,
+                                            MapCanvas *canvas,
+                                            const QString &oswpPath)
+{
+    if (!canvas) return;
+    const QString type = obj.value(kGisType).toString();
+    const QString rel  = obj.value(kGisPath).toString();
+    if (rel.isEmpty()) return;
+    const QString path = resolveStoredPath(rel, oswpPath);
+
+    const QString name    = obj.value(kGisName).toString();
+    const bool    visible = obj.value(kGisVisible).toBool(true);
+    const double  opacity = obj.value(kGisOpacity).toDouble(1.0);
+
+    // Restore name/visibility/opacity as soon as the async open finishes, then
+    // add the layer to the canvas — mirroring the File ▸ Add Layer flow.
+    auto applyCommon = [name, visible, opacity](OpenSWMMVisLayer *l) {
+        if (!name.isEmpty()) l->setName(name);
+        l->setVisible(visible);
+        l->setOpacity(opacity);
+    };
+
+    if (type == QStringLiteral("raster")) {
+        auto *layer = new GISRasterLayer(QString());
+        QObject::connect(
+            layer, &GISRasterLayer::openFinished, canvas,
+            [canvas, layer, applyCommon](bool ok) {
+                if (ok) { applyCommon(layer); canvas->addLayer(layer, /*pushUndo=*/false); }
+                else    { layer->deleteLater(); }
+            },
+            static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+        layer->openAsync(path);
+    } else if (type == QStringLiteral("vector")) {
+        const QString layerName = obj.value(kGisLayerName).toString();
+        auto *layer = new GISVectorLayer(QString());
+        QObject::connect(
+            layer, &GISVectorLayer::openFinished, canvas,
+            [canvas, layer, applyCommon](bool ok) {
+                if (ok) { applyCommon(layer); canvas->addLayer(layer, /*pushUndo=*/false); }
+                else    { layer->deleteLater(); }
+            },
+            static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+        layer->openAsync(path, layerName);
+    }
 }
