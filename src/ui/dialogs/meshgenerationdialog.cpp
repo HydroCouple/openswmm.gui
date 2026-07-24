@@ -2760,9 +2760,34 @@ void MeshGenerationDialog::onMeshFinished()
     // Add the generated mesh layer to the canvas (main thread — safe).
     if (auto *canvas = m_pw->canvas())
     {
-        for (auto *L : canvas->layers())
-            if (auto *m = qobject_cast<SWMM2DMeshLayer *>(L))
-                m->setActiveMesh(false);
+        // Deactivate any existing meshes, and REMOVE any mesh layer that
+        // already references the same output path — regenerating a mesh at an
+        // existing path must REPLACE it, not stack a second (stale) layer on
+        // the canvas. A lingering duplicate is not just visually wrong: on save
+        // the write path (SWMMVisProjectWindow) pushes *every* mesh layer into
+        // the engine, so the old mesh can win and reappear on reopen.
+        const QString newMeshCanonical =
+            result.meshPath.isEmpty()
+                ? QString()
+                : QFileInfo(result.meshPath).absoluteFilePath();
+        QList<SWMM2DMeshLayer *> staleMeshes;
+        for (auto *L : canvas->layers()) {
+            auto *m = qobject_cast<SWMM2DMeshLayer *>(L);
+            if (!m) continue;
+            m->setActiveMesh(false);
+            if (!newMeshCanonical.isEmpty()
+                && !m->sourcePath().isEmpty()
+                && QFileInfo(m->sourcePath()).absoluteFilePath() == newMeshCanonical)
+                staleMeshes.append(m);
+        }
+        for (SWMM2DMeshLayer *stale : staleMeshes) {
+            const int idx = canvas->layers().indexOf(stale);
+            if (idx >= 0) {
+                if (OpenSWMMVisLayer *taken =
+                        canvas->takeLayer(idx, /*pushUndo=*/false))
+                    taken->deleteLater();
+            }
+        }
 
         // Carry the generated 1D<->2D coupling onto the mesh vertices'
         // coupledNode field so the layer (and any later engine-sync save)
