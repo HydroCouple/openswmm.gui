@@ -12,6 +12,9 @@
 
 #include "core/editgeometry.h"
 
+#include <algorithm>
+#include <cmath>
+
 class TestEditGeometry : public QObject
 {
     Q_OBJECT
@@ -280,6 +283,134 @@ private slots:
         const auto after = EditGeometry::replacedAt(before, 0, {0, 3});
         const double len = EditGeometry::polylineLength(after);
         QVERIFY(qAbs(len - (std::sqrt(34.0) + 5.0)) < 1e-9);
+    }
+
+    // signedRingArea -----------------------------------------------------
+    void signedRingArea_ccwPositive_cwNegative()
+    {
+        const QVector<QPointF> ccw{{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+        QVERIFY(EditGeometry::signedRingArea(ccw) > 0.0);
+        QCOMPARE(EditGeometry::signedRingArea(ccw), 100.0);
+        QVector<QPointF> cw = ccw;
+        std::reverse(cw.begin(), cw.end());
+        QVERIFY(EditGeometry::signedRingArea(cw) < 0.0);
+    }
+
+    void signedRingArea_degenerate_isZero()
+    {
+        QCOMPARE(EditGeometry::signedRingArea({{0, 0}, {1, 1}}), 0.0);
+    }
+
+    // pointInRing --------------------------------------------------------
+    void pointInRing_insideAndOutside()
+    {
+        const QVector<QPointF> sq{{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+        QVERIFY(EditGeometry::pointInRing(sq, {5, 5}));
+        QVERIFY(!EditGeometry::pointInRing(sq, {15, 5}));
+        QVERIFY(!EditGeometry::pointInRing(sq, {-1, 5}));
+    }
+
+    // interiorPoint — the robust hole seed --------------------------------
+    void interiorPoint_convexSquare_isInside()
+    {
+        const QVector<QPointF> sq{{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+        const QPointF p = EditGeometry::interiorPoint(sq);
+        QVERIFY(EditGeometry::pointInRing(sq, p));
+    }
+
+    void interiorPoint_lShape_isInside_whereCentroidIsNot()
+    {
+        // L-shape whose VERTEX CENTROID (~1.67,1.67) lies OUTSIDE the ring —
+        // the exact case the old mesh centroid-seed got wrong.
+        const QVector<QPointF> l{{0, 0}, {4, 0}, {4, 1}, {1, 1}, {1, 4}, {0, 4}};
+        // Demonstrate the centroid is outside.
+        QPointF c(0, 0);
+        for (const QPointF &v : l) c += v;
+        c /= double(l.size());
+        QVERIFY(!EditGeometry::pointInRing(l, c));
+        // interiorPoint must nevertheless be strictly inside.
+        const QPointF p = EditGeometry::interiorPoint(l);
+        QVERIFY(EditGeometry::pointInRing(l, p));
+    }
+
+    void interiorPoint_cShape_isInside()
+    {
+        const QVector<QPointF> cs{{0, 0}, {3, 0}, {3, 1}, {1, 1},
+                                  {1, 2}, {3, 2}, {3, 3}, {0, 3}};
+        const QPointF p = EditGeometry::interiorPoint(cs);
+        QVERIFY(EditGeometry::pointInRing(cs, p));
+    }
+
+    // netArea / containsPoint (donut) ------------------------------------
+    void ringPolygon_donut_areaAndContainment()
+    {
+        EditGeometry::RingPolygon rp;
+        rp.exterior = {{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+        rp.interiors.append(QVector<QPointF>{{3, 3}, {7, 3}, {7, 7}, {3, 7}});
+
+        QCOMPARE(EditGeometry::netArea(rp), 100.0 - 16.0);
+        QVERIFY(EditGeometry::containsPoint(rp, {1, 1}));   // in the ring body
+        QVERIFY(!EditGeometry::containsPoint(rp, {5, 5}));  // in the hole
+        QVERIFY(!EditGeometry::containsPoint(rp, {15, 5})); // outside exterior
+    }
+
+    // validateRingPolygon ------------------------------------------------
+    void validate_ok_donut()
+    {
+        EditGeometry::RingPolygon rp;
+        rp.exterior = {{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+        rp.interiors.append(QVector<QPointF>{{3, 3}, {7, 3}, {7, 7}, {3, 7}});
+        QCOMPARE(EditGeometry::validateRingPolygon(rp),
+                 EditGeometry::RingValidity::Ok);
+    }
+
+    void validate_selfIntersectingExterior()
+    {
+        EditGeometry::RingPolygon rp;
+        rp.exterior = {{0, 0}, {2, 2}, {2, 0}, {0, 2}};  // bow-tie
+        QCOMPARE(EditGeometry::validateRingPolygon(rp),
+                 EditGeometry::RingValidity::SelfIntersecting);
+    }
+
+    void validate_holeOutsideExterior()
+    {
+        EditGeometry::RingPolygon rp;
+        rp.exterior = {{0, 0}, {2, 0}, {2, 2}, {0, 2}};
+        rp.interiors.append(QVector<QPointF>{{5, 5}, {6, 5}, {6, 6}, {5, 6}});
+        QCOMPARE(EditGeometry::validateRingPolygon(rp),
+                 EditGeometry::RingValidity::HoleOutsideExterior);
+    }
+
+    void validate_holesOverlap()
+    {
+        EditGeometry::RingPolygon rp;
+        rp.exterior = {{0, 0}, {20, 0}, {20, 20}, {0, 20}};
+        rp.interiors.append(QVector<QPointF>{{2, 2}, {8, 2}, {8, 8}, {2, 8}});
+        rp.interiors.append(QVector<QPointF>{{5, 5}, {11, 5}, {11, 11}, {5, 11}});
+        QCOMPARE(EditGeometry::validateRingPolygon(rp),
+                 EditGeometry::RingValidity::HolesOverlap);
+    }
+
+    // normalizeRingPolygon -----------------------------------------------
+    void normalize_orientsExteriorCcwAndHolesCw()
+    {
+        EditGeometry::RingPolygon rp;
+        rp.exterior = {{0, 0}, {0, 10}, {10, 10}, {10, 0}};        // CW input
+        rp.interiors.append(QVector<QPointF>{{3, 3}, {7, 3}, {7, 7}, {3, 7}}); // CCW
+
+        const EditGeometry::RingPolygon n = EditGeometry::normalizeRingPolygon(rp);
+        QVERIFY(EditGeometry::signedRingArea(n.exterior) > 0.0);   // CCW
+        QCOMPARE(n.interiors.size(), qsizetype(1));
+        QVERIFY(EditGeometry::signedRingArea(n.interiors[0]) < 0.0); // CW
+    }
+
+    void normalize_dropsDegenerateHoles()
+    {
+        EditGeometry::RingPolygon rp;
+        rp.exterior = {{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+        rp.interiors.append(QVector<QPointF>{{3, 3}, {3, 3}, {3, 3}});  // collapses
+        const EditGeometry::RingPolygon n = EditGeometry::normalizeRingPolygon(rp);
+        QCOMPARE(n.interiors.size(), qsizetype(0));
     }
 };
 

@@ -32,6 +32,7 @@
 #include "ui/dialogs/typeconversionflow.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/tabulardatalayer.h"
+#include "layers/gisvectorlayer.h"
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
 #include "map/mapundostack.h"
@@ -68,10 +69,131 @@
 #include <QUndoStack>
 #include <QToolBar>
 #include <QVBoxLayout>
+#include <QAbstractTableModel>
+#include <QVector>
+
+#include <ogrsf_frmts.h>
+#include <ogr_feature.h>
+#include <ogr_geometry.h>
 
 #include <algorithm>   // std::sort / std::unique — selectionAsTsv row ordering
+#include <utility>     // std::move — GIS attribute-row caching
 
 Q_LOGGING_CATEGORY(lcAttrTbl, "openswmm.attr-table")
+
+// ---------------------------------------------------------------------------
+// GISVectorAttributeTableModel — read-only QAbstractTableModel over an
+// externally loaded OGR feature layer (Shapefile / GeoPackage / GeoJSON …),
+// so the Attribute Table view can display feature attributes the same way it
+// shows SWMM categories and tabular (CSV/TSV) layers. Mirrors
+// TabularDataTableModel: attributes are cached in memory on setLayer() and
+// served read-only. Selection ops + cross-view selection are no-ops when this
+// source is active (the layer has no SWMM object refs) — the panel already
+// guards those on `sourceModel() == m_model`. No Q_OBJECT: it declares no new
+// signals/slots, so no moc/CMake change is required.
+// ---------------------------------------------------------------------------
+class GISVectorAttributeTableModel : public QAbstractTableModel
+{
+public:
+    explicit GISVectorAttributeTableModel(QObject *parent = nullptr)
+        : QAbstractTableModel(parent) {}
+
+    /*! Bind to a feature layer (nullptr clears). Reads columns + rows now. */
+    void setLayer(GISVectorLayer *layer)
+    {
+        m_layer = layer;
+        reload();
+    }
+    [[nodiscard]] GISVectorLayer *layer() const { return m_layer.data(); }
+
+    /*! Re-read the field schema and every feature from the bound OGR layer. */
+    void reload()
+    {
+        beginResetModel();
+        m_headers.clear();
+        m_rows.clear();
+
+        OGRLayer *ol = m_layer ? m_layer->ogrLayer() : nullptr;
+        OGRFeatureDefn *defn = ol ? ol->GetLayerDefn() : nullptr;
+        if (ol && defn) {
+            const int nFields = defn->GetFieldCount();
+            m_headers.reserve(nFields);
+            for (int i = 0; i < nFields; ++i)
+                m_headers << QString::fromUtf8(defn->GetFieldDefn(i)->GetNameRef());
+
+            // The canvas sets a spatial filter on this OGRLayer while rendering.
+            // Clear it so the table lists every feature, then restore it so we
+            // don't disturb the map. (Clone first: SetSpatialFilter(nullptr)
+            // deletes the layer's internal filter, dangling GetSpatialFilter's
+            // return.) The attribute filter is left in place so the table
+            // matches the map's filtered feature set.
+            OGRGeometry *savedFilter = ol->GetSpatialFilter();
+            OGRGeometry *savedClone  = savedFilter ? savedFilter->clone() : nullptr;
+            ol->SetSpatialFilter(nullptr);
+            ol->ResetReading();
+
+            OGRFeature *f = nullptr;
+            while ((f = ol->GetNextFeature()) != nullptr) {
+                QVector<QVariant> row;
+                row.reserve(nFields);
+                for (int i = 0; i < nFields; ++i) {
+                    if (!f->IsFieldSetAndNotNull(i)) { row.push_back(QVariant()); continue; }
+                    switch (defn->GetFieldDefn(i)->GetType()) {
+                    case OFTInteger:
+                        row.push_back(f->GetFieldAsInteger(i)); break;
+                    case OFTInteger64:
+                        row.push_back(static_cast<qlonglong>(f->GetFieldAsInteger64(i))); break;
+                    case OFTReal:
+                        row.push_back(f->GetFieldAsDouble(i)); break;
+                    default:
+                        row.push_back(QString::fromUtf8(f->GetFieldAsString(i))); break;
+                    }
+                }
+                m_rows.push_back(std::move(row));
+                OGRFeature::DestroyFeature(f);
+            }
+
+            ol->SetSpatialFilter(savedClone);   // layer clones internally
+            if (savedClone) OGRGeometryFactory::destroyGeometry(savedClone);
+            ol->ResetReading();
+        }
+        endResetModel();
+    }
+
+    [[nodiscard]] QStringList columnHeaders() const { return m_headers; }
+
+    int rowCount(const QModelIndex &parent = {}) const override
+    { return parent.isValid() ? 0 : static_cast<int>(m_rows.size()); }
+
+    int columnCount(const QModelIndex &parent = {}) const override
+    { return parent.isValid() ? 0 : static_cast<int>(m_headers.size()); }
+
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override
+    {
+        if (!index.isValid()) return {};
+        if (role != Qt::DisplayRole && role != Qt::EditRole && role != Qt::ToolTipRole)
+            return {};
+        const int r = index.row(), c = index.column();
+        if (r < 0 || r >= m_rows.size() || c < 0 || c >= m_headers.size()) return {};
+        return m_rows[r].value(c);
+    }
+
+    QVariant headerData(int section, Qt::Orientation orientation,
+                        int role = Qt::DisplayRole) const override
+    {
+        if (role != Qt::DisplayRole) return {};
+        if (orientation == Qt::Horizontal
+            && section >= 0 && section < m_headers.size())
+            return m_headers[section];
+        if (orientation == Qt::Vertical) return section + 1;
+        return {};
+    }
+
+private:
+    QPointer<GISVectorLayer>   m_layer;
+    QStringList                m_headers;
+    QVector<QVector<QVariant>> m_rows;
+};
 
 namespace {
 
@@ -352,6 +474,7 @@ void AttributeTablePanel::buildUi()
 
     m_model        = new SWMMAttributeTableModel(this);
     m_tabularModel = new TabularDataTableModel(this);
+    m_gisModel     = new GISVectorAttributeTableModel(this);
     m_proxy        = new FilteringProxy(this);
     m_proxy->setSourceModel(m_model);
 
@@ -570,6 +693,27 @@ void AttributeTablePanel::refresh()
                 QStringLiteral("tab:%1").arg(tab->layerId()));
         }
     }
+    // List externally loaded GIS feature layers (Shapefile / GeoPackage /
+    // GeoJSON …). Data convention: combo data is "gis:<layerId>".
+    if (m_canvas) {
+        bool addedSeparator = false;
+        for (OpenSWMMVisLayer *l : m_canvas->layers()) {
+            auto *gis = qobject_cast<GISVectorLayer *>(l);
+            if (!gis) continue;
+            if (!addedSeparator && m_categoryCombo->count() > 0) {
+                m_categoryCombo->insertSeparator(m_categoryCombo->count());
+                addedSeparator = true;
+            }
+            m_categoryCombo->addItem(
+                QStringLiteral("◆ Features: %1 (%2)")
+                    .arg(gis->name()).arg(gis->featureCount()),
+                QStringLiteral("gis:%1").arg(gis->layerId()));
+            // GIS layers open asynchronously; refresh the combo + active source
+            // once the dataset is ready so the row/feature counts populate.
+            connect(gis, &GISVectorLayer::openFinished,
+                    this, &AttributeTablePanel::refresh, Qt::UniqueConnection);
+        }
+    }
     int idx = m_categoryCombo->findText(currentText);
     if (idx < 0) idx = 0;
     m_categoryCombo->setCurrentIndex(idx);
@@ -607,6 +751,22 @@ void AttributeTablePanel::refresh()
             m_tabularModel->setLayer(tab);
             m_proxy->setSourceModel(m_tabularModel);
             // Tabular layer: no SWMM delegates / no per-category widths.
+            for (int c = 0; c < m_proxy->columnCount(); ++c)
+                m_view->setItemDelegateForColumn(c, nullptr);
+        } else if (data.toString().startsWith(QStringLiteral("gis:"))) {
+            const QString layerId = data.toString().mid(4);
+            GISVectorLayer *gis = nullptr;
+            if (m_canvas) {
+                for (OpenSWMMVisLayer *l : m_canvas->layers()) {
+                    if (l->layerId() == layerId) {
+                        gis = qobject_cast<GISVectorLayer *>(l);
+                        break;
+                    }
+                }
+            }
+            m_gisModel->setLayer(gis);
+            m_proxy->setSourceModel(m_gisModel);
+            // Feature layer: no SWMM delegates / no per-category widths.
             for (int c = 0; c < m_proxy->columnCount(); ++c)
                 m_view->setItemDelegateForColumn(c, nullptr);
         }
@@ -660,6 +820,22 @@ void AttributeTablePanel::onCategoryChanged(int /*comboIdx*/)
         }
         m_tabularModel->setLayer(tab);
         m_proxy->setSourceModel(m_tabularModel);
+        for (int c = 0; c < m_proxy->columnCount(); ++c)
+            m_view->setItemDelegateForColumn(c, nullptr);
+    } else if (data.toString().startsWith(QStringLiteral("gis:"))) {
+        // External OGR feature-layer source.
+        const QString layerId = data.toString().mid(4);
+        GISVectorLayer *gis = nullptr;
+        if (m_canvas) {
+            for (OpenSWMMVisLayer *l : m_canvas->layers()) {
+                if (l->layerId() == layerId) {
+                    gis = qobject_cast<GISVectorLayer *>(l);
+                    break;
+                }
+            }
+        }
+        m_gisModel->setLayer(gis);
+        m_proxy->setSourceModel(m_gisModel);
         for (int c = 0; c < m_proxy->columnCount(); ++c)
             m_view->setItemDelegateForColumn(c, nullptr);
     }
@@ -1677,6 +1853,11 @@ int AttributeTablePanel::deleteObjects(const QStringList &names)
 
 void AttributeTablePanel::deleteSelectedRows()
 {
+    // Only the SWMM model source has a spatial delete path. When a feature
+    // (GIS) or tabular layer is the active source, Delete must be a no-op —
+    // otherwise a row index would be mis-resolved against the SWMM model and
+    // delete an unrelated object.
+    if (!m_proxy || m_proxy->sourceModel() != m_model) return;
     if (!m_layer || !m_model || !categoryIsDeletable()) return;
 
     // Resolve selected rows → object names (source-model rows, de-duplicated).

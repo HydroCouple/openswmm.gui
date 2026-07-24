@@ -196,7 +196,6 @@
 #include <QDockWidget>
 #include <QFile>
 #include <QStandardPaths>
-#include <QUuid>
 #include <QUrl>
 #include <QCommandLinkButton>
 #include <QScrollArea>
@@ -3969,13 +3968,34 @@ void SWMMVis::onNewProject()
     if (defaultEngine.isEmpty()) defaultEngine = QLatin1String(SWMM_VERSION);
     const bool forNewEngine = (defaultEngine == QLatin1String(SWMM_VERSION));
 
-    // Write a synthetic .inp into the system temp dir with a unique name.
-    // The path is owned by the resulting project window and deleted on
-    // first Save As (engine no longer needs it) or on close-without-save.
+    // Write a synthetic .inp into the system temp dir. Its base name becomes
+    // the instance's display name (SWMMModelLayer::loadModel derives the layer
+    // name from the file base name), so we use a clean, human-friendly default
+    // "untitled_swmm_instance" instead of a GUID. A numeric "_N" qualifier is
+    // appended only when that name is already taken by an open instance or a
+    // lingering temp .inp — so the common case is just "untitled_swmm_instance"
+    // and additional new projects become "_1", "_2", ….
     const QString tempDir = QStandardPaths::writableLocation(
         QStandardPaths::TempLocation);
-    const QString tempPath = QStringLiteral("%1/swmmvis-untitled-%2.inp")
-        .arg(tempDir, QUuid::createUuid().toString(QUuid::WithoutBraces));
+    const QString baseName = QStringLiteral("untitled_swmm_instance");
+    auto instanceNameTaken = [this](const QString &nm) -> bool {
+        const auto subs = ui->mdiAreaCentral->subWindowList();
+        for (QMdiSubWindow *sub : subs) {
+            auto *w = qobject_cast<SWMMVisProjectWindow *>(sub);
+            if (w && w->modelLayer() && w->modelLayer()->name() == nm)
+                return true;
+        }
+        return false;
+    };
+    QString instanceName = baseName;
+    QString tempPath;
+    for (int n = 0; ; ++n) {
+        instanceName = (n == 0) ? baseName
+                                : QStringLiteral("%1_%2").arg(baseName).arg(n);
+        tempPath = QStringLiteral("%1/%2.inp").arg(tempDir, instanceName);
+        if (!instanceNameTaken(instanceName) && !QFileInfo::exists(tempPath))
+            break;
+    }
 
     {
         QFile f(tempPath);
