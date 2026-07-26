@@ -22,6 +22,7 @@ private slots:
     void parseEngineBoolKnownValues();
     void parseEngineBoolUnknownIsPartial();
     void engineBoolStringRoundTrip();
+    void fastPresetHasBalancedRecipe();
     void formatEngineDateTimeMatchesInpFormat();
     void parseEngineDateTimeRoundTrips();
     void parseEngineDateTimeRejectsMalformed();
@@ -66,6 +67,21 @@ void TestSimulationOptionsDialog::engineBoolStringRoundTrip()
                  SimulationOptionsDialog::engineBoolString(true)),  int(Qt::Checked));
     QCOMPARE(SimulationOptionsDialog::parseEngineBool(
                  SimulationOptionsDialog::engineBoolString(false)), int(Qt::Unchecked));
+}
+
+void TestSimulationOptionsDialog::fastPresetHasBalancedRecipe()
+{
+    // Locks the benchmarked "conservative fast" recipe (FAST_RUN_RECIPE.md) so a
+    // future edit can't silently drift it. THREADS=8 uses the M-series P-cores;
+    // MINIMUM_STEP=1.0 s floors the 1D step the 2D coupling would collapse, while
+    // keeping mass balance as good as or better than the as-shipped default.
+    int    threads = -1;
+    double minStep = -1.0;
+    SimulationOptionsDialog::fastPresetValues(threads, minStep);
+    QCOMPARE(threads, 8);
+    QCOMPARE(minStep, 1.0);
+    // Must sit inside the per-project spin range [0.01, 60.0] s.
+    QVERIFY(minStep >= 0.01 && minStep <= 60.0);
 }
 
 void TestSimulationOptionsDialog::formatEngineDateTimeMatchesInpFormat()
