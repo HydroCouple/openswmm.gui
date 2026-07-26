@@ -28,6 +28,17 @@ int SimulationOptionsDialog::parseEngineBool(const QString &s)
     return Qt::PartiallyChecked;
 }
 
+void SimulationOptionsDialog::fastPresetValues(int &out_threads,
+                                               double &out_min_step_sec)
+{
+    // Conservative fast recipe (see FAST_RUN_RECIPE.md): all 8 P-cores + a 1.0 s
+    // step floor so the 2D coupling can't collapse the 1D adaptive step.
+    // ~2.6x on the Bellinge 1D/2D benchmark with BETTER mass balance than the
+    // as-shipped run (+2.8% vs -3.4% flow-routing continuity at 24h).
+    out_threads      = 8;
+    out_min_step_sec = 1.0;
+}
+
 QString SimulationOptionsDialog::engineBoolString(bool on)
 {
     return on ? QStringLiteral("YES") : QStringLiteral("NO");
