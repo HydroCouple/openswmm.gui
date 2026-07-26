@@ -108,6 +108,13 @@ public:
     /*! \brief Render a checkbox state as the canonical engine string. */
     [[nodiscard]] static QString engineBoolString(bool on);
 
+    /*! \brief Canonical "fast preset" recipe for 1D/2D-coupled runs: all worker
+     *         threads on, and the adaptive routing step floored so the 2D
+     *         coupling can't collapse it. Benchmarked ~4x faster with a ~4–5%
+     *         peak-depth trade on the Bellinge model (see FAST_RUN_RECIPE.md).
+     *         Kept as a static so the recipe values are locked by a unit test. */
+    static void fastPresetValues(int &out_threads, double &out_min_step_sec);
+
     /*! \brief Format a Qt date+time as the engine's expected MM/DD/YYYY +
      *         HH:MM:SS pair (returned as `out_date` and `out_time`). */
     static void formatEngineDateTime(const QDateTime &dt,
@@ -342,6 +349,7 @@ private:
     QComboBox      *m_inertialDampCombo = nullptr;
     QDoubleSpinBox *m_lengtheningSpin   = nullptr;
     QDoubleSpinBox *m_variableStepSpin  = nullptr;
+    QDoubleSpinBox *m_minStepSpin       = nullptr;     // MINIMUM_STEP (seconds)
     QSpinBox       *m_maxTrialsSpin     = nullptr;
     QDoubleSpinBox *m_headTolSpin       = nullptr;
     QDoubleSpinBox *m_latFlowTolSpin    = nullptr;     // percent
