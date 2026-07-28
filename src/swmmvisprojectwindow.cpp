@@ -977,6 +977,11 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         {
             auto *ml = qobject_cast<SWMM2DMeshLayer *>(l);
             if (!ml) continue;
+            // Inline meshes have no external file to protect — their
+            // sourcePath() is the .inp itself, so snapshotting and re-pointing
+            // it would overwrite the model the engine just wrote and strip the
+            // inline [2D_*] sections. The engine already serialises them.
+            if (!ml->isExternalMesh()) continue;
             const QString p = ml->sourcePath();
             if (p.isEmpty() || !QFileInfo::exists(p)) continue;
             QFile mf(p);
