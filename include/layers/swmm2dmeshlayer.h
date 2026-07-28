@@ -148,6 +148,13 @@ public:
     [[nodiscard]] QString sourcePath() const;
     void setSourcePath(const QString &path)  { m_sourcePath = path; }
 
+    /*! \brief True when the mesh came from an external file referenced by
+     *  `[2D_MESH_FILE] FILE <path>`. False for an inline mesh, whose
+     *  sourcePath() is the .inp itself. Save must not re-point the .inp at
+     *  an inline mesh's "source" — that would overwrite the model. */
+    [[nodiscard]] bool isExternalMesh() const { return m_isExternal; }
+    void setExternalMesh(bool external)      { m_isExternal = external; }
+
     /*! Number of triangles in the loaded mesh — exposed as metadata in
      *  the Properties window. */
     [[nodiscard]] int triangleCount() const { return int(m_mesh.triangles.size()); }
@@ -593,6 +600,7 @@ private:
 
     mesh::MeshResult             m_mesh;
     QString                      m_sourcePath;
+    bool                         m_isExternal    = false;
     bool                         m_active        = false;
 
     // Mesh Tiled LOD plan P1.1 — see qsgOwnsRendering().

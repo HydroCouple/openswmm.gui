@@ -2817,6 +2817,7 @@ void MeshGenerationDialog::onMeshFinished()
 
         const bool isExt = (result.outputMode == mesh::MeshOutputMode::External);
         auto *meshLayer  = new SWMM2DMeshLayer(result.meshResult, result.meshPath);
+        meshLayer->setExternalMesh(isExt);
         meshLayer->setActiveMesh(isExt);
         meshLayer->setName(result.meshPath.isEmpty()
                                ? QStringLiteral("Mesh (inline)")

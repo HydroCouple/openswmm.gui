@@ -4996,6 +4996,7 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
                  "2D mesh display geometry + LOD pyramid ready (%1 s) — "
                  "adding layer to the map …")
                  .arg(out.buildMs / 1000.0, 0, 'f', 1));
+        meshLayer->setExternalMesh(meshRead.isExternal);
         meshLayer->setActiveMesh(meshRead.isExternal);
         // Slice §V.VD.1 — preload any parsed [2D_BOUNDARY_CONDITIONS] into
         // the layer's BC SoA. With the deferred build the BC slots don't
