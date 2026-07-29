@@ -1014,9 +1014,29 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     progress(40, QObject::tr("Running Triangle…"));
     if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
 
+    // Triangle's refinement pass is otherwise uninterruptible — the Stop button
+    // is dead for its entire duration, which on a large PSLG can be minutes.
+    // The `-u` user-test hook is the only place Triangle calls back into us
+    // during refinement, so cancellation and progress both ride on it.
+    {
+        mesh::RefineHook hook;
+        hook.isCancelled = [&promise] { return promise.isCanceled(); };
+        hook.onProgress  = [&progress](qint64 tests) {
+            progress(45, QObject::tr("Refining mesh… (%1 M triangle tests)")
+                             .arg(tests / 1000000));
+        };
+        g.setRefineHook(hook);
+    }
+
     stageClock.restart();
     mesh::MeshResult result = g.generate();
     stageMark("Triangle generate()");
+    if (promise.isCanceled())
+    {
+        if (meshToDTM) OGRCoordinateTransformation::DestroyCT(meshToDTM);
+        if (dtmToMesh) OGRCoordinateTransformation::DestroyCT(dtmToMesh);
+        fail(QObject::tr("Cancelled.")); return;
+    }
     if (!result.ok)
     {
         if (meshToDTM) OGRCoordinateTransformation::DestroyCT(meshToDTM);
@@ -1945,7 +1965,12 @@ void MeshGenerationDialog::seedDefaults()
     m_nnVariantCombo->setCurrentIndex(0);   // Sibson
     m_idwPowerSpin->setValue(2.0);          // Shepard power-2
     m_maxAreaSpin->setValue(0.0);
-    m_minAngleSpin->setValue(33.0);
+    // 2026-07-29 — was 33.0, the very top of Triangle's reliable range and just
+    // under the non-termination cliff. Refinement cost climbs steeply over ~28°:
+    // 33° routinely produces 2-4x the vertices of 26° with no practical gain in
+    // element quality for 2D routing. 26° keeps meshes an order of magnitude
+    // smaller on large domains.
+    m_minAngleSpin->setValue(26.0);
     m_maxSteinerSpin->setValue(-1);
     m_allowSteiner->setChecked(true);
     // Scale distance defaults to the project's length unit.
