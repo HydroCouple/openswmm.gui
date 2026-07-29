@@ -104,6 +104,13 @@ target_compile_definitions(triangle_lib PRIVATE
     TRILIBRARY              # exclude main(), CLI, file I/O — library mode only.
     ANSI_DECLARATORS        # K&R → ANSI prototypes for clean C99 compile.
     NO_TIMER                # drop getrusage()/gettimeofday() dep.
+    EXTERNAL_TEST           # triunsuitable() supplied by src/mesh/trirefinehook.cpp
+                            # instead of triangle.c's own stub. Upstream-sanctioned
+                            # extension point (triangle.c:1363-1390) — this is what
+                            # lets us cancel, report progress, and grade element size
+                            # during refinement WITHOUT patching the vendored source.
+                            # The symbol is left undefined in this static library and
+                            # resolved at the final link of SWMMVis.
 )
 # Triangle pre-dates C99 strictness; quiet the legitimate-but-noisy warnings
 # that come with it (Shewchuk's predicates use clever tricks the compiler
@@ -492,6 +499,7 @@ set(
         include/mesh/meshhoverprobe.h
         include/mesh/meshobjectref.h
         include/mesh/meshresult.h
+        include/mesh/trirefinehook.h
         include/plugins/filefilterregistry.h
 
         # ── Output (Slice QA) ────────────────────────────────────────────────
@@ -1045,6 +1053,7 @@ set(
         src/mesh/meshcellstats.cpp
         src/mesh/meshenginesync.cpp
         src/mesh/meshgenerator.cpp
+        src/mesh/trirefinehook.cpp
         src/mesh/meshhoverprobe.cpp
         src/mesh/meshnodemapper.cpp
         src/mesh/meshobjectref.cpp
