@@ -25,7 +25,20 @@
  *   spanning across the gaps via the closing triangle.
  *   Only neighbours of removed vertices need rescoring (dirty-set optimisation).
  *
- * Boundary pixels are never removed.
+ * Boundary pixels are NOT special-cased: the sampling grid is offset by half a
+ * step from the domain edge so every point is strictly interior, and the domain
+ * outline is carried by the PSLG segments instead.  All grid points are
+ * therefore treated uniformly by the thinning algorithm.
+ *
+ * Scaling notes (2026-07-29):
+ *   • The DEM is read in horizontal BANDS sized to a fixed byte budget, so peak
+ *     raster-buffer memory is independent of DEM and domain size.  Interpolation
+ *     is bit-identical to a single whole-bbox read.
+ *   • Grid points outside the DEM footprint yield NaN and become inactive — they
+ *     are never edge-clamped into a fabricated elevation.
+ *   • The grid stage is bounded by a working-set ceiling (~46 bytes per grid
+ *     point).  Exceeding it fails with a message in errorMsg() rather than
+ *     attempting a multi-GB allocation.
  *
  * Threshold guide (dot product = cos θ):
  *   0.99 → keep bends > ~8°   (fine detail)
@@ -53,12 +66,17 @@ struct DTMThinnerOptions
                                        ///< score = min (or avg) dot(vertex_normal, face_normal).
                                        ///< [0, 1].  0.95 ≈ 18°; 0.0 = remove everything flat.
     bool   useAverageDot      = false; ///< true = use average dot product; false = minimum.
-    int    maxPoints          = 0;     ///< Hard cap on returned points.  0 = unlimited.
+    int    maxPoints          = 0;     ///< Stop thinning once the active count falls to
+                                       ///< this or below.  Checked BETWEEN passes, so the
+                                       ///< result may undershoot; it is not a hard cap.
+                                       ///< 0 = unlimited.
     int    maxIterations      = 0;     ///< Number of thinning passes.  0 = unlimited (convergence).
 
     // ── Poisson-disk minimum spacing (post-thinning reduction only) ──────────
-    // Applied after normal-deviation thinning.  Only ever removes surviving
-    // points — never adds new ones.
+    // NOTE: these two fields are NOT consumed by DTMThinner.  They are read by
+    // the mesh-generation pipeline, which applies the Poisson-disk filter in
+    // the MESH CRS after generatePoints()/readPixels() has returned and the
+    // candidates have been reprojected.  Only ever removes surviving points.
     bool   useMinSpacing  = false; ///< Enable Poisson-disk minimum-spacing filter.
     double minSpacing     = 0.0;   ///< Min inter-point distance, map units.  0 = auto (2×pixelSize).
 };
