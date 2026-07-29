@@ -52,6 +52,7 @@ void MeshGenerator::addSteinerPoint(const SteinerPoint &p)    { m_steiners.appen
 void MeshGenerator::addHole(const QPointF &xy)                { m_holes.append(xy); }
 void MeshGenerator::addRegion(const RegionMarker &r)          { m_regions.append(r); }
 void MeshGenerator::setOptions(const GenerationOptions &o)    { m_opts = o; }
+void MeshGenerator::setRefineHook(const RefineHook &h)        { m_refineHook = h; }
 
 QString MeshGenerator::tagForVertexMarker(int marker) const
 {
@@ -346,15 +347,33 @@ MeshResult MeshGenerator::generate() const
     }
     else
     {
-        // p = read PSLG; z = zero-based; e = output edge list (we want
-        // segments → boundaryEdges); A = regional attributes per triangle.
-        sw = QStringLiteral("pzeA");
+        // p = read PSLG; z = zero-based; A = regional attributes per triangle.
+        //
+        // 'e' (output edge list) was here on the assumption that it produced
+        // boundaryEdges. It does not — boundaryEdges is built from
+        // out.segmentlist below, which comes from 'p'. Requesting 'e' made
+        // Triangle allocate m.edges*2 ints (~3 edges per vertex) and traverse
+        // the whole mesh in writeedges(), at the exact moment its memory pools
+        // are still live, for an array nothing ever read.
+        sw = QStringLiteral("pzA");
         if (m_opts.minAngle > 0.0)
             sw += QStringLiteral("q%1").arg(m_opts.minAngle, 0, 'f', 2);
-        if (m_opts.maxArea > 0.0)
+
+        // A size function supersedes the uniform cap: 'u' routes every
+        // refinement decision through the hook, so emitting 'a<area>' as well
+        // would apply both constraints and defeat the grading.
+        const bool useSizeFn = static_cast<bool>(m_refineHook.targetAreaAt);
+        if (m_opts.maxArea > 0.0 && !useSizeFn)
             sw += QStringLiteral("a%1").arg(m_opts.maxArea, 0, 'f', 4);
         else if (!m_regions.isEmpty())
             sw += QStringLiteral("a");  // per-region area only.
+
+        // 'u' enables the triunsuitable() hook (cancellation, progress, graded
+        // sizing). It also sets Triangle's `quality` flag, so the refinement
+        // pass — and therefore the hook — runs even when minAngle and maxArea
+        // are both zero. That is what makes cancellation available at all.
+        if (useSizeFn || m_refineHook.isCancelled || m_refineHook.onProgress)
+            sw += QStringLiteral("u");
         if (!m_opts.allowSteiner)         sw += QStringLiteral("YY");
         if (m_opts.conformingDelaunay)    sw += QStringLiteral("D");
         if (m_opts.maxSteinerPoints > 0)
@@ -368,7 +387,16 @@ MeshResult MeshGenerator::generate() const
     // error inside Triangle (degenerate PSLG, out-of-memory, intersecting
     // segments) is caught via longjmp rather than calling exit(), which
     // would kill the entire process from the worker thread.
-    const int triErr = triangulate_safe(swBa.data(), &in, &out, nullptr);
+    int triErr = 0;
+    bool cancelled = false;
+    {
+        // Scoped so the hook is uninstalled before we touch the results, and so
+        // a nested/concurrent generate() on another thread is unaffected.
+        const RefineHookGuard hookGuard(&m_refineHook);
+        triErr    = triangulate_safe(swBa.data(), &in, &out, nullptr);
+        cancelled = refineHookWasCancelled();
+    }
+
     if (triErr != 0)
     {
         freeOutput(out);
@@ -380,6 +408,20 @@ MeshResult MeshGenerator::generate() const
             "Triangle fatal error — check PSLG for degenerate geometry "
             "(duplicate/coincident vertices, crossing or zero-length "
             "constraint segments, boundary not forming a closed ring).");
+        return result;
+    }
+
+    if (cancelled)
+    {
+        // Refinement was abandoned partway, so the mesh satisfies neither the
+        // angle nor the area constraints. Triangle still returned normally (the
+        // hook drains rather than aborts), so its pools are already freed — we
+        // just discard the output instead of handing back a half-refined mesh.
+        freeOutput(out);
+        std::free(in.pointlist);      std::free(in.pointmarkerlist);
+        std::free(in.segmentlist);    std::free(in.segmentmarkerlist);
+        std::free(in.holelist);       std::free(in.regionlist);
+        result.errorMsg = QStringLiteral("Cancelled during Triangle refinement.");
         return result;
     }
 
