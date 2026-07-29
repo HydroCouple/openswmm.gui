@@ -175,6 +175,73 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
         << "vertex->node coupling lost (regression)";
 }
 
+// Node→cell couplings (Plan Part C) — the full GUI persistence chain for the
+// rows the Remap 1D↔2D action authors: reader → layer state → engine push →
+// swmm_model_write → reader again. Several nodes may share one cell, so the
+// written section must carry a repeated triangle index.
+TEST(MeshEngineSync, CellCouplingRowsPersistThroughEngine)
+{
+    const QString inPath  = QStringLiteral("mesh_sync_fixture.inp");
+    const QString outPath = QStringLiteral("mesh_sync_cellcoupling_out.inp");
+
+    const mesh::InpMeshReadResult rr = mesh::InpMeshReader::read(inPath);
+    ASSERT_TRUE(rr.hasMesh) << rr.errorMsg.toStdString();
+
+    // The fixture authors one row in TAG form ("vault" → ST1) — the reader
+    // must resolve it to a triangle index.
+    ASSERT_EQ(rr.mesh.cellCouplings.size(), 1);
+    const int vaultTri = rr.mesh.cellCouplings[0].tri;
+    EXPECT_GE(vaultTri, 0);
+    EXPECT_EQ(rr.mesh.cellCouplings[0].nodeId, QStringLiteral("ST1"));
+    EXPECT_DOUBLE_EQ(rr.mesh.cellCouplings[0].cd,   0.60);
+    EXPECT_DOUBLE_EQ(rr.mesh.cellCouplings[0].area, 10.0);
+
+    mesh::MeshResult          meshState = rr.mesh;
+    QVector<mesh::MeshEdgeBC> bcs       = rr.edgeBCs;
+
+    // Two more nodes mapped into ONE cell — what Remap produces for a pair
+    // of 1D nodes that fall inside the same triangle.
+    const int sharedTri = (vaultTri == 0) ? 1 : 0;
+    meshState.cellCouplings.append({ sharedTri, QStringLiteral("J1"),   0.65, 2.0 });
+    meshState.cellCouplings.append({ sharedTri, QStringLiteral("OUT1"), 0.65, 2.0 });
+
+    // OPENED, not INITIALIZED — the state the GUI saves from.
+    SWMM_Engine e = swmm_engine_create();
+    ASSERT_NE(e, nullptr);
+    ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(),
+                               "mesh_sync_cellcoupling.rpt",
+                               "mesh_sync_cellcoupling.out", nullptr), 0);
+
+    QStringList warnings;
+    ASSERT_TRUE(mesh::pushMeshEditsToEngine(e, meshState, bcs, &warnings));
+    EXPECT_TRUE(warnings.isEmpty()) << warnings.join("; ").toStdString();
+
+    int engineRows = -1;
+    ASSERT_EQ(swmm_2d_triangle_coupling_rows(e, &engineRows), 0);
+    EXPECT_EQ(engineRows, 3) << "push must re-author every row, not just the last";
+
+    ASSERT_EQ(swmm_model_write(e, outPath.toUtf8().constData()), 0);
+    swmm_engine_destroy(e);
+
+    // Reader sees all three rows back, including the repeated triangle.
+    const mesh::InpMeshReadResult back = mesh::InpMeshReader::read(outPath);
+    ASSERT_TRUE(back.hasMesh) << back.errorMsg.toStdString();
+    ASSERT_EQ(back.mesh.cellCouplings.size(), 3);
+
+    int sharedCount = 0;
+    bool vaultBack = false;
+    for (const mesh::CellCoupling &cc : back.mesh.cellCouplings) {
+        if (cc.tri == sharedTri) ++sharedCount;
+        if (cc.nodeId == QStringLiteral("ST1")) {
+            vaultBack = (cc.tri == vaultTri);
+            EXPECT_NEAR(cc.cd,   0.60, 1e-9);
+            EXPECT_NEAR(cc.area, 10.0, 1e-9);
+        }
+    }
+    EXPECT_EQ(sharedCount, 2) << "both nodes sharing one cell must survive";
+    EXPECT_TRUE(vaultBack)    << "pre-existing tag-form coupling lost or moved";
+}
+
 // The GUI keeps the engine OPENED (never INITIALIZED) so 1D property edits stay
 // legal. Mesh edits must still persist in that state — this is the scenario the
 // inline-mesh save bug came from. Same edits as above, but no initialize().

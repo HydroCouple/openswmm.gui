@@ -12,6 +12,7 @@
 #include "map/mapcanvas.h"
 #include "mesh/meshautocouple.h"
 #include "mesh/meshbctype.h"
+#include "mesh/meshnodemapper.h"
 #include "mesh/meshhoverprobe.h"
 #include "mesh/meshobjectref.h"
 #include "selection/selectionmanager.h"
@@ -26,6 +27,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QToolButton>
@@ -154,6 +156,21 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     addAction(m_actAutoCouple);
     connect(m_actAutoCouple, &QAction::triggered,
             this, &MeshEditingToolbar::onAutoCoupleClicked);
+
+    // Remap 1D↔2D (Plan Part C.4): the superset of Auto-couple. Coincident
+    // nodes → vertex coupling; non-coincident nodes inside the mesh → cell
+    // coupling (several nodes may share one cell); outside → reported.
+    // Decouples 1D↔2D mapping from mesh generation — re-runnable anytime.
+    m_actRemap = new QAction(tr("Remap 1D↔2D"), this);
+    m_actRemap->setToolTip(tr(
+        "Map SWMM model nodes onto the active mesh.\n"
+        "Nodes coincident with a mesh vertex use vertex coupling; other\n"
+        "nodes inside the mesh couple to their containing cell (several\n"
+        "nodes may share one cell). Existing couplings are preserved unless\n"
+        "you choose a full re-map."));
+    addAction(m_actRemap);
+    connect(m_actRemap, &QAction::triggered,
+            this, &MeshEditingToolbar::onRemapClicked);
 
     // Coupling Cd / exchange-area editors — the optional CD / AREA columns of
     // [2D_VERTEX_NODE_MAP]. Only meaningful on coupled vertices, so they are
@@ -1072,6 +1089,73 @@ void MeshEditingToolbar::onAutoCoupleClicked()
                    .arg(result.unmatchedNodes)
                    .arg(targets.isEmpty() ? QString() : tr("selected "));
     QMessageBox::information(this, tr("Auto-couple"), msg);
+}
+
+void MeshEditingToolbar::onRemapClicked()
+{
+    if (!m_activeMesh) return;
+    const QVector<QPair<QString, QPointF>> nodes =
+        m_nodeLocator ? m_nodeLocator() : QVector<QPair<QString, QPointF>>{};
+    if (nodes.isEmpty()) {
+        QMessageBox::information(this, tr("Remap 1D↔2D"),
+            tr("No SWMM nodes with coordinates are available to map."));
+        return;
+    }
+
+    // Preserve existing couplings by default; offer the full re-map.
+    bool preserve = true;
+    {
+        QMessageBox box(this);
+        box.setWindowTitle(tr("Remap 1D↔2D"));
+        box.setText(tr("Map %1 SWMM node(s) onto the active mesh?").arg(nodes.size()));
+        box.setInformativeText(tr(
+            "\"Add missing\" keeps every existing coupling and maps only\n"
+            "nodes that are not yet coupled. \"Re-map all\" clears the cell\n"
+            "couplings and re-maps every node (manually edited vertex\n"
+            "couplings are kept)."));
+        QPushButton *addBtn   = box.addButton(tr("Add missing"), QMessageBox::AcceptRole);
+        QPushButton *remapBtn = box.addButton(tr("Re-map all"),  QMessageBox::DestructiveRole);
+        box.addButton(QMessageBox::Cancel);
+        box.setDefaultButton(addBtn);
+        box.exec();
+        if (box.clickedButton() == remapBtn)      preserve = false;
+        else if (box.clickedButton() != addBtn)   return;   // cancelled
+    }
+
+    mesh::MeshResult working = m_activeMesh->mesh();
+    if (!preserve)
+        working.cellCouplings.clear();
+
+    const auto r = mesh::mapNodesToMesh(working, nodes, -1.0, preserve);
+
+    // Apply — vertex couplings through the existing per-vertex mutator,
+    // cell rows wholesale (previous set returned for a future undo command).
+    int vApplied = 0;
+    for (auto it = r.vertexMatches.cbegin(); it != r.vertexMatches.cend(); ++it)
+        if (m_activeMesh->applyMeshVertexCoupledNode(it.key(), it.value())) ++vApplied;
+
+    QVector<mesh::CellCoupling> rows =
+        preserve ? m_activeMesh->cellCouplings() : QVector<mesh::CellCoupling>{};
+    rows += r.cellMatches;
+    m_activeMesh->applyCellCouplings(rows);
+
+    QString msg = tr("Vertex-coupled %1 node(s); cell-coupled %2 node(s).")
+                      .arg(vApplied).arg(r.cellMatches.size());
+    if (r.sharedCells > 0)
+        msg += tr("\n%1 cell(s) received more than one node (e.g. weir/orifice "
+                  "endpoints).").arg(r.sharedCells);
+    if (!r.skippedExisting.isEmpty())
+        msg += tr("\n%1 node(s) already coupled were left unchanged.")
+                   .arg(r.skippedExisting.size());
+    if (!r.unmatched.isEmpty()) {
+        QStringList head = r.unmatched.mid(0, 8);
+        msg += tr("\n%1 node(s) fall outside the mesh: %2%3")
+                   .arg(r.unmatched.size())
+                   .arg(head.join(QStringLiteral(", ")))
+                   .arg(r.unmatched.size() > head.size()
+                            ? QStringLiteral(", …") : QString());
+    }
+    QMessageBox::information(this, tr("Remap 1D↔2D"), msg);
 }
 
 void MeshEditingToolbar::onManningsCommit()

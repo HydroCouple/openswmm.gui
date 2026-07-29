@@ -352,6 +352,17 @@ public:
      *  non-positive values. Emits attributeChanged. */
     bool applyMeshVertexCouplingArea(int vertexIdx, double area);
 
+    /*! \brief Replace the node→cell coupling row set wholesale
+     *  ([2D_TRIANGLE_NODE_MAP] repeated-row form, Plan Part C). Rows with
+     *  out-of-range triangles or empty node ids are dropped. Returns the
+     *  previous row set so callers (undo commands) can restore it. */
+    QVector<mesh::CellCoupling> applyCellCouplings(
+        const QVector<mesh::CellCoupling> &rows);
+
+    /*! \brief Read-only view of the node→cell coupling rows. */
+    [[nodiscard]] const QVector<mesh::CellCoupling> &cellCouplings() const
+    { return m_mesh.cellCouplings; }
+
     /*! \brief Set a triangle's Manning's roughness. Emits attributeChanged
      *  with the cell ref name. */
     bool applyMeshTriangleMannings(int triIdx, double mannings);

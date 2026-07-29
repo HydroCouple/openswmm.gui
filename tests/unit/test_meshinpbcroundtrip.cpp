@@ -335,6 +335,119 @@ TEST(MeshInpCouplingRoundtrip, OmittedColumnsGetEngineDefaults)
     EXPECT_NEAR(read.mesh.vertices[1].couplingArea, 1.0,  1e-9);
 }
 
+TEST(MeshInpCouplingRoundtrip, VertexTagFormResolvesOnRead)
+{
+    // Regression (Plan Part C.3): the writer PREFERS the tag form for the
+    // first column, but the reader only accepted integer indices — so a
+    // GUI-written vertex map never round-tripped through InpMeshReader.
+    QTemporaryDir dir; ASSERT_TRUE(dir.isValid());
+    const QString inpPath = makeInpFile(dir);
+
+    auto m = makeUnitSquareMesh();
+    m.vertices[2].tag          = QStringLiteral("J5");   // writer emits "J5"
+    m.vertices[2].coupledNode  = QStringLiteral("J5");
+    m.vertices[2].couplingCd   = 0.7;
+    m.vertices[2].couplingArea = 3.0;
+    mesh::CouplingMap c;
+    c.vertexToNode.insert(2, QStringLiteral("J5"));
+
+    QString err;
+    ASSERT_TRUE(mesh::InpMeshWriter::writeInline(inpPath, m, c, 0.035, &err))
+        << err.toStdString();
+
+    // The section really is in tag form — otherwise this test would pass
+    // for the wrong reason (index form always worked).
+    QFile f(inpPath);
+    ASSERT_TRUE(f.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString text = QString::fromUtf8(f.readAll());
+    f.close();
+    EXPECT_TRUE(text.contains(QStringLiteral("J5        J5")))
+        << "expected tag-form row in:\n" << text.toStdString();
+
+    const auto read = mesh::InpMeshReader::read(inpPath);
+    ASSERT_TRUE(read.hasMesh) << read.errorMsg.toStdString();
+    ASSERT_EQ(read.mesh.vertices.size(), 4);
+    EXPECT_EQ(read.mesh.vertices[2].coupledNode, QStringLiteral("J5"));
+    EXPECT_NEAR(read.mesh.vertices[2].couplingCd,   0.7, 1e-9);
+    EXPECT_NEAR(read.mesh.vertices[2].couplingArea, 3.0, 1e-9);
+    // No other vertex picked up the coupling.
+    EXPECT_TRUE(read.mesh.vertices[0].coupledNode.isEmpty());
+    EXPECT_TRUE(read.mesh.vertices[1].coupledNode.isEmpty());
+}
+
+// =============================================================================
+// [2D_TRIANGLE_NODE_MAP] — repeated-row node→cell couplings (Plan Part C)
+// =============================================================================
+
+TEST(MeshInpCellCouplingRoundtrip, SharedTriangleRowsSurviveWriteRead)
+{
+    QTemporaryDir dir; ASSERT_TRUE(dir.isValid());
+    const QString inpPath = makeInpFile(dir);
+
+    auto m = makeUnitSquareMesh();
+    // Two nodes in ONE cell — the weir/orifice-endpoint case the plan
+    // exists for. Last-line-wins would drop the first row.
+    m.cellCouplings = {
+        { 0, QStringLiteral("W_UP"), 0.65, 2.0 },
+        { 0, QStringLiteral("W_DN"), 0.65, 2.0 },
+        { 1, QStringLiteral("J9"),   0.8,  4.5 },
+    };
+
+    QString err;
+    ASSERT_TRUE(mesh::InpMeshWriter::writeInline(inpPath, m, {}, 0.035, &err))
+        << err.toStdString();
+
+    const auto read = mesh::InpMeshReader::read(inpPath);
+    ASSERT_TRUE(read.hasMesh) << read.errorMsg.toStdString();
+    ASSERT_EQ(read.mesh.cellCouplings.size(), 3);
+
+    EXPECT_EQ(read.mesh.cellCouplings[0].tri,    0);
+    EXPECT_EQ(read.mesh.cellCouplings[0].nodeId, QStringLiteral("W_UP"));
+    EXPECT_NEAR(read.mesh.cellCouplings[0].cd,   0.65, 1e-9);
+    EXPECT_NEAR(read.mesh.cellCouplings[0].area, 2.0,  1e-9);
+
+    EXPECT_EQ(read.mesh.cellCouplings[1].tri,    0);
+    EXPECT_EQ(read.mesh.cellCouplings[1].nodeId, QStringLiteral("W_DN"));
+
+    EXPECT_EQ(read.mesh.cellCouplings[2].tri,    1);
+    EXPECT_EQ(read.mesh.cellCouplings[2].nodeId, QStringLiteral("J9"));
+    EXPECT_NEAR(read.mesh.cellCouplings[2].cd,   0.8, 1e-9);
+    EXPECT_NEAR(read.mesh.cellCouplings[2].area, 4.5, 1e-9);
+}
+
+TEST(MeshInpCellCouplingRoundtrip, NoRowsEmitsNoSection)
+{
+    auto m = makeUnitSquareMesh();
+    const QString text = mesh::InpMeshWriter::buildSectionText(m, {});
+    EXPECT_FALSE(text.contains(QStringLiteral("[2D_TRIANGLE_NODE_MAP]")))
+        << text.toStdString();
+}
+
+TEST(MeshInpCellCouplingRoundtrip, OmittedColumnsGetMapperDefaults)
+{
+    QTemporaryDir dir; ASSERT_TRUE(dir.isValid());
+    const QString inpPath = dir.filePath(QStringLiteral("tri2tok.inp"));
+    QFile f(inpPath);
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    f.write(
+        "[TITLE]\nUnit test\n"
+        "[2D_VERTICES]\n"
+        "0 0 0\n1 0 0\n0 1 0\n1 1 0\n"
+        "[2D_TRIANGLES]\n"
+        "0 1 3 0.035\n0 3 2 0.035\n"
+        "[2D_TRIANGLE_NODE_MAP]\n"
+        "1 J2\n");
+    f.close();
+
+    const auto read = mesh::InpMeshReader::read(inpPath);
+    ASSERT_TRUE(read.hasMesh) << read.errorMsg.toStdString();
+    ASSERT_EQ(read.mesh.cellCouplings.size(), 1);
+    EXPECT_EQ(read.mesh.cellCouplings[0].tri,    1);
+    EXPECT_EQ(read.mesh.cellCouplings[0].nodeId, QStringLiteral("J2"));
+    EXPECT_NEAR(read.mesh.cellCouplings[0].cd,   0.65, 1e-9);
+    EXPECT_NEAR(read.mesh.cellCouplings[0].area, 2.0,  1e-9);
+}
+
 TEST(MeshInpConveyanceRoundtrip, OutOfRangeIsRejected)
 {
     // Engine spec is strict [0, 1]; the reader rejects rows outside the

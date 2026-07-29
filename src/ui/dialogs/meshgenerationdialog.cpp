@@ -21,6 +21,7 @@
 #include "layers/gisvectorlayer.h"
 
 #include "mesh/meshgenerator.h"
+#include "mesh/meshnodemapper.h"
 #include "mesh/meshresult.h"
 #include "mesh/dtmthinner.h"
 #include "mesh/inpmeshwriter.h"
@@ -1194,17 +1195,44 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     // `;; UNITS: SI (m)`, a future producer could opt into SI on disk.
 
     // ── CouplingMap ──────────────────────────────────────────────────
+    // Marker lookup covers the junctions-as-Steiner path (exact coincidence
+    // by construction). The decoupled path (Plan Part B) runs the node
+    // mapper below instead/in addition.
     mesh::CouplingMap coupling;
     for (int i = 0; i < result.vertices.size(); ++i)
     {
         const QString tag = in.nodeMarkerToTag.value(result.vertices[i].marker);
-        if (!tag.isEmpty()) coupling.vertexToNode.insert(i, tag);
+        if (!tag.isEmpty())
+        {
+            coupling.vertexToNode.insert(i, tag);
+            // Mirror onto the vertex now so the mapper's preserve-existing
+            // check sees marker-coupled vertices.
+            result.vertices[i].coupledNode = tag;
+        }
     }
     for (int i = 0; i < result.triangles.size(); ++i)
     {
         const QString &tag = result.triangles[i].tag;
         if (!tag.isEmpty() && tag.startsWith(QStringLiteral("subcatch_")))
             coupling.triangleToNode.insert(i, tag.mid(int(qstrlen("subcatch_"))));
+    }
+
+    // ── Node→mesh mapping (Plan Part B/C) ────────────────────────────
+    // Coincident nodes → vertex coupling; interior nodes → containing cell
+    // (several nodes may share one cell); outside nodes are skipped here —
+    // the toolbar's Remap action reports them interactively.
+    if (in.mapNodesAfterGen && !in.couplingNodes.isEmpty())
+    {
+        progress(82, QObject::tr("Mapping 1D nodes to the mesh…"));
+        const mesh::NodeMapResult nm = mesh::mapNodesToMesh(
+            result, in.couplingNodes, -1.0, /*preserveExisting=*/true);
+        for (auto it = nm.vertexMatches.cbegin();
+             it != nm.vertexMatches.cend(); ++it)
+        {
+            coupling.vertexToNode.insert(it.key(), it.value());
+            result.vertices[it.key()].coupledNode = it.value();
+        }
+        result.cellCouplings += nm.cellMatches;
     }
 
     // ── Write ────────────────────────────────────────────────────────
@@ -1393,12 +1421,21 @@ void MeshGenerationDialog::buildUi()
         sourcesVBox->addWidget(g);
     }
 
-    // 1D–2D coupling group
+    // 1D geometry-influence group (Plan Part B — decoupled from coupling:
+    // these checkboxes only shape the PSLG; the 1D↔2D coupling itself is
+    // authored by the post-generation mapper / the toolbar's Remap action).
     {
-        auto *g   = new QGroupBox(tr("1D – 2D Coupling (SWMM objects)"), sourcesPage);
+        auto *g   = new QGroupBox(tr("1D geometry influence (optional)"), sourcesPage);
         auto *lay = new QVBoxLayout(g);
 
         m_includeJunctions = new QCheckBox(tr("Junctions / outfalls / storage  →  Steiner vertices  (tag = node id)"), g);
+        m_includeJunctions->setToolTip(tr(
+            "Force a mesh vertex at every node location. Node clusters that\n"
+            "are close only for non-physical reasons (weir / orifice / pump\n"
+            "endpoints) then force very small cells around them.\n\n"
+            "Leave unchecked (default) to let mesh quality drive the cell\n"
+            "sizes; nodes are coupled to the mesh afterwards (coincident →\n"
+            "vertex, otherwise → containing cell)."));
         m_includeConduits  = new QCheckBox(tr("Conduits  →  constraint segments  (marker = conduit id)"), g);
         m_includeSubcatch  = new QCheckBox(tr("Subcatchments  →  triangle regions  (tag = subcatchment id)"), g);
 
@@ -1452,6 +1489,24 @@ void MeshGenerationDialog::buildUi()
         connect(m_nodesUseRim,      &QCheckBox::toggled, this, syncCoupling);
         syncCoupling();
 
+        sourcesVBox->addWidget(g);
+    }
+
+    // 1D↔2D coupling group (Plan Part B) — the mapping itself, decoupled
+    // from generation. Re-runnable anytime via the mesh toolbar.
+    {
+        auto *g   = new QGroupBox(tr("1D ↔ 2D coupling"), sourcesPage);
+        auto *lay = new QVBoxLayout(g);
+        m_mapNodesAfterGen = new QCheckBox(
+            tr("Map model nodes to the mesh after generation "
+               "(re-runnable from the Mesh toolbar)"), g);
+        m_mapNodesAfterGen->setToolTip(tr(
+            "After the mesh is built, couple every SWMM node to it:\n"
+            "nodes coincident with a mesh vertex use vertex coupling;\n"
+            "other nodes inside the mesh couple to their containing cell\n"
+            "(several nodes may share one cell — e.g. weir endpoints).\n"
+            "Nodes outside the mesh are reported."));
+        lay->addWidget(m_mapNodesAfterGen);
         sourcesVBox->addWidget(g);
     }
 
@@ -1878,9 +1933,13 @@ void MeshGenerationDialog::updateUnitDisplay()
 
 void MeshGenerationDialog::seedDefaults()
 {
-    m_includeJunctions->setChecked(true);
+    // Junctions default OFF (Plan Part B, decision 2026-07-28): forcing a
+    // vertex at every node distorts the mesh around close node clusters
+    // (weir/orifice endpoints). Coupling is authored post-generation instead.
+    m_includeJunctions->setChecked(false);
     m_includeConduits->setChecked(true);
     m_includeSubcatch->setChecked(true);
+    m_mapNodesAfterGen->setChecked(true);
     m_nodesUseRim->setChecked(false);   // interpolate nodes to terrain by default
     m_elevMethodCombo->setCurrentIndex(0);  // IDW
     m_nnVariantCombo->setCurrentIndex(0);   // Sibson
@@ -2399,6 +2458,29 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     }
     out->nodesUseRim       = useRim;
     out->nodeFlattenRadius = useRim ? m_nodeFlattenSpin->value() : 0.0;
+
+    // ── Coupling node list (Plan Part B) ─────────────────────────────
+    // Every node with coordinates, independent of the junctions-as-Steiner
+    // checkbox — the post-generation mapper decides vertex vs cell coupling.
+    // No inDomain filter: the mapper classifies outside nodes itself.
+    out->mapNodesAfterGen = m_mapNodesAfterGen->isChecked();
+    if (out->mapNodesAfterGen)
+    {
+        for (int c = SWMMModelLayer::CatJunctions; c <= SWMMModelLayer::CatDividers; ++c)
+        {
+            const auto cat = static_cast<SWMMModelLayer::Category>(c);
+            for (int row = 0; row < layer->categoryCount(cat); ++row)
+            {
+                const QString name = layer->objectNameAt(cat, row);
+                if (name.isEmpty()) continue;
+                const int idx = layer->nodeIndex(name);
+                if (idx < 0) continue;
+                double x = 0, y = 0;
+                if (!layer->cachedNodeCoord(idx, &x, &y)) continue;
+                out->couplingNodes.append({ name, QPointF(x, y) });
+            }
+        }
+    }
 
     // ── Constraint segments (SWMM links — already in mesh CRS) ───────
     // Deduplicate consecutive duplicate vertices (digitising artefacts
