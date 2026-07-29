@@ -660,12 +660,29 @@ jobs:
           #     — cause not yet pinned (DLL + PROJ data-path causes already fixed).
           #   FAILS (1): test_ioportabilitynormalizer — Windows path-handling bug on
           #     POSIX-style absolute paths (same class as saveaspathnormalizer).
-          #   SEGFAULT (1): test_meshgenerator — genuine native crash inside the
-          #     vendored triangle.c during a VALID triangulation. This is a real
-          #     end-user crash risk on Windows, not merely a test bug; prioritise it.
+          #
+          # test_meshgenerator is UN-QUARANTINED as of this commit. It was assumed to
+          # be a crash inside vendored triangle.c, but that was ruled out: the wrapper
+          # (src/mesh/meshgenerator.cpp) plus the unmodified triangle.c run all 7 test
+          # cases — and 4000 randomised PSLGs — clean under ASan/UBSan, at a 512 KB
+          # stack, with zero out-of-range output indices and zero triexit()/longjmp
+          # hits. Repro harness: test_artifacts/meshgen_repro/.
+          #
+          # The actual defect was in CMakePresets.json: the Windows presets set
+          # CMAKE_CXX_FLAGS as a preset cache variable, which OVERWRITES CMake's MSVC
+          # initialiser (/DWIN32 /D_WINDOWS /GR /EHsc) rather than adding to it. The
+          # whole Windows leg was therefore built with RTTI off (/GR absent) and no
+          # unwind semantics (/EHsc absent), while Qt6 and GDAL ship built with both —
+          # an ABI mismatch across the link, which is a known source of exactly this
+          # signature (Windows-only, scattered across GUI tests, segfault or hang with
+          # no Linux/macOS equivalent). Confirmable from any prior Windows build log by
+          # the flood of MSVC warning C4530 that /EHsc-absent produces.
+          #
+          # If this run goes green, the same root cause very likely covers the 12 hangs
+          # and 1 failure still listed above — re-enable them next, in one batch.
           EXCLUDE=""
           if [ "${{ runner.os }}" = "Windows" ]; then
-            EXCLUDE='--exclude-regex ^(test_2d_sublayers|test_timeseries_edit_chart_view|test_timeseries_editor_dialog|test_objectbrowser_add_new_dispatch|test_pattern_editor_dialog|test_curve_editor_dialog|test_transect_editor_dialog|test_comparisonplot_chartproperties|test_seriesstyleobject|test_typedselection|test_asyncload|test_selectionops|test_ioportabilitynormalizer|test_meshgenerator)$'
+            EXCLUDE='--exclude-regex ^(test_2d_sublayers|test_timeseries_edit_chart_view|test_timeseries_editor_dialog|test_objectbrowser_add_new_dispatch|test_pattern_editor_dialog|test_curve_editor_dialog|test_transect_editor_dialog|test_comparisonplot_chartproperties|test_seriesstyleobject|test_typedselection|test_asyncload|test_selectionops|test_ioportabilitynormalizer)$'
           fi
           ctest --test-dir build/${{ matrix.build_subdir }} -C Release \
                 --output-on-failure --timeout 60 $EXCLUDE
