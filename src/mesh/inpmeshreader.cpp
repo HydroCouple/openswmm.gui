@@ -25,6 +25,7 @@ constexpr const char *kSecVertices       = "[2D_VERTICES]";
 constexpr const char *kSecTriangles      = "[2D_TRIANGLES]";
 constexpr const char *kSecMeshFile       = "[2D_MESH_FILE]";
 constexpr const char *kSecVertexNodeMap  = "[2D_VERTEX_NODE_MAP]";      // 1D<->2D coupling
+constexpr const char *kSecTriangleNodeMap = "[2D_TRIANGLE_NODE_MAP]";   // node→cell coupling (Part C)
 constexpr const char *kSecBC             = "[2D_BOUNDARY_CONDITIONS]";  // §V.VD.1
 constexpr const char *kSecConveyance     = "[2D_EDGE_CONVEYANCE]";       // Engine §11A
 
@@ -146,9 +147,23 @@ QString parseSection(const QString &sectionName,
         {
             const QStringList tok = tokenize(raw);
             if (tok.size() < 2) continue;
+            // VERTEX_INDEX_OR_TAG: numeric index first; anything else — or a
+            // number out of range — is resolved against the vertex TAG column.
+            // The writer PREFERS the tag form (robust to renumbering), and
+            // generated junction vertices always carry tag == node id, so
+            // without this fallback a GUI-written map never round-tripped
+            // through this reader (it only survived via the engine).
             bool okv = false;
-            const int v = tok[0].toInt(&okv);
-            if (!okv || v < 0 || v >= out.vertices.size()) continue;
+            int v = tok[0].toInt(&okv);
+            if (okv && (v < 0 || v >= out.vertices.size()))
+                okv = false;   // numeric but not a valid index — try as tag
+            if (!okv)
+            {
+                v = -1;
+                for (int i = 0; i < out.vertices.size(); ++i)
+                    if (out.vertices[i].tag == tok[0]) { v = i; break; }
+                if (v < 0) continue;
+            }
             out.vertices[v].coupledNode = tok[1];
             if (tok.size() >= 3) {
                 bool okc = false;
@@ -164,7 +179,49 @@ QString parseSection(const QString &sectionName,
         return {};
     }
 
-    // Other sections (triangle node map, options) carry no rendering data.
+    // [2D_TRIANGLE_NODE_MAP] — TRIANGLE NODE [CD AREA], repeated-row form
+    // (Plan Part C): several nodes may couple to one triangle, one row each.
+    // Rows land on MeshResult::cellCouplings so the layer / toolbar can show
+    // and edit them. Tag-form triangle references (subcatchment tags) are
+    // resolved to the FIRST triangle carrying the tag — same rule as the
+    // engine parser. Legacy single-node rows parse identically.
+    if (sectionName.compare(QLatin1String(kSecTriangleNodeMap),
+                            Qt::CaseInsensitive) == 0)
+    {
+        for (const QString &raw : bodyLines)
+        {
+            const QStringList tok = tokenize(raw);
+            if (tok.size() < 2) continue;
+            bool okt = false;
+            int t = tok[0].toInt(&okt);
+            if (okt && (t < 0 || t >= out.triangles.size()))
+                okt = false;
+            if (!okt)
+            {
+                t = -1;
+                for (int i = 0; i < out.triangles.size(); ++i)
+                    if (out.triangles[i].tag == tok[0]) { t = i; break; }
+                if (t < 0) continue;
+            }
+            CellCoupling cc;
+            cc.tri    = t;
+            cc.nodeId = tok[1];
+            if (tok.size() >= 3) {
+                bool okc = false;
+                const double cd = tok[2].toDouble(&okc);
+                if (okc) cc.cd = cd;
+            }
+            if (tok.size() >= 4) {
+                bool oka = false;
+                const double a = tok[3].toDouble(&oka);
+                if (oka) cc.area = a;
+            }
+            out.cellCouplings.append(cc);
+        }
+        return {};
+    }
+
+    // Other sections (options) carry no rendering data.
     return {};
 }
 

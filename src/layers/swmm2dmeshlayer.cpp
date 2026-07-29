@@ -12,6 +12,7 @@
  */
 #include "layers/swmm2dmeshlayer.h"
 
+#include "mesh/meshcellstats.h"
 #include "mesh/meshobjectref.h"
 
 #include "map/mapextent.h"
@@ -734,6 +735,16 @@ QVector<QPair<QString, QString>> SWMM2DMeshLayer::extendedMetadata() const
     md.append({ tr("Edges (total)"),     loc.toString(edgeCount()) });
     md.append({ tr("Boundary edges"),    loc.toString(boundaryEdgeCount()) });
 
+    // Cell-area statistics (Part A, MESH_DECOUPLED_1D2D_REMAP_PLAN).
+    const mesh::CellAreaStats as = mesh::computeCellAreaStats(m_mesh);
+    if (as.count > 0)
+    {
+        md.append({ tr("Cell area (min)"),    QString::number(as.min,    'g', 4) });
+        md.append({ tr("Cell area (max)"),    QString::number(as.max,    'g', 4) });
+        md.append({ tr("Cell area (mean)"),   QString::number(as.mean,   'g', 4) });
+        md.append({ tr("Cell area (median)"), QString::number(as.median, 'g', 4) });
+    }
+
     md.append({ tr("Bed elevation (min / max)"),
                 QStringLiteral("%1 / %2")
                     .arg(zMin(), 0, 'f', 3).arg(zMax(), 0, 'f', 3) });
@@ -760,6 +771,9 @@ QVector<QPair<QString, QString>> SWMM2DMeshLayer::extendedMetadata() const
     for (const auto &v : m_mesh.vertices)
         if (!v.coupledNode.isEmpty()) ++coupled;
     md.append({ tr("Coupled vertices"), loc.toString(coupled) });
+    if (!m_mesh.cellCouplings.isEmpty())
+        md.append({ tr("Coupled cells (rows)"),
+                    loc.toString(m_mesh.cellCouplings.size()) });
 
     const MapExtent e = extent();
     if (e.isValid())
@@ -1840,6 +1854,23 @@ bool SWMM2DMeshLayer::applyMeshVertexCoupledNode(int vertexIdx, const QString &n
     emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
     emit repaintRequested();
     return true;
+}
+
+QVector<mesh::CellCoupling> SWMM2DMeshLayer::applyCellCouplings(
+    const QVector<mesh::CellCoupling> &rows)
+{
+    QVector<mesh::CellCoupling> previous = m_mesh.cellCouplings;
+    QVector<mesh::CellCoupling> cleaned;
+    cleaned.reserve(rows.size());
+    for (const mesh::CellCoupling &cc : rows)
+    {
+        if (cc.tri < 0 || cc.tri >= m_mesh.triangles.size()) continue;
+        if (cc.nodeId.isEmpty()) continue;
+        cleaned.append(cc);
+    }
+    m_mesh.cellCouplings = cleaned;
+    emit repaintRequested();
+    return previous;
 }
 
 bool SWMM2DMeshLayer::applyMeshVertexCouplingCd(int vertexIdx, double cd)

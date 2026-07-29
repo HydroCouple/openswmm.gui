@@ -1042,9 +1042,11 @@ set(
         src/mesh/inpmeshwriter.cpp
         src/mesh/meshautocouple.cpp
         src/mesh/meshbctype.cpp
+        src/mesh/meshcellstats.cpp
         src/mesh/meshenginesync.cpp
         src/mesh/meshgenerator.cpp
         src/mesh/meshhoverprobe.cpp
+        src/mesh/meshnodemapper.cpp
         src/mesh/meshobjectref.cpp
         src/mesh/naturalnbinterpolator.cpp
         src/plugins/filefilterregistry.cpp

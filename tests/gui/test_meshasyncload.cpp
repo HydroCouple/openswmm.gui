@@ -143,6 +143,66 @@ private slots:
         QCOMPARE(p->qsgMeshRenderEnabled(), original);
     }
 
+    // MESH_DECOUPLED_1D2D_REMAP_PLAN Part A — the Metadata tab gains four
+    // cell-area rows, and Part C adds the cell-coupling row count. Checked
+    // on the layer (not the free stats function) because the layer is what
+    // the Properties dialog reads.
+    void metadataCarriesCellAreaStatsAndCouplingRows()
+    {
+        mesh::InpMeshReadResult read = mesh::InpMeshReader::read(fixturePath());
+        QVERIFY2(read.hasMesh, qPrintable(read.errorMsg));
+        SWMM2DMeshLayer layer(std::move(read.mesh), read.sourcePath);
+        QVERIFY(layer.triangleCount() > 0);
+
+        auto rowValue = [](const QVector<QPair<QString, QString>> &md,
+                           const QString &key) -> QString {
+            for (const auto &kv : md)
+                if (kv.first == key) return kv.second;
+            return {};
+        };
+
+        const auto md = layer.extendedMetadata();
+        const QString mn  = rowValue(md, QStringLiteral("Cell area (min)"));
+        const QString mx  = rowValue(md, QStringLiteral("Cell area (max)"));
+        const QString avg = rowValue(md, QStringLiteral("Cell area (mean)"));
+        const QString med = rowValue(md, QStringLiteral("Cell area (median)"));
+        QVERIFY2(!mn.isEmpty() && !mx.isEmpty() && !avg.isEmpty() && !med.isEmpty(),
+                 "cell-area rows missing from mesh metadata");
+
+        bool ok = false;
+        const double dmn = mn.toDouble(&ok);  QVERIFY(ok);
+        const double dmx = mx.toDouble(&ok);  QVERIFY(ok);
+        const double dav = avg.toDouble(&ok); QVERIFY(ok);
+        const double dmd = med.toDouble(&ok); QVERIFY(ok);
+        QVERIFY(dmn > 0.0);
+        QVERIFY(dmn <= dmd && dmd <= dmx);
+        QVERIFY(dmn <= dav && dav <= dmx);
+
+        // No cell couplings on the fixture — the row stays hidden.
+        QVERIFY(rowValue(md, QStringLiteral("Coupled cells (rows)")).isEmpty());
+
+        // Author rows through the mutator the Remap action uses. Invalid
+        // rows are dropped; the previous set comes back for undo.
+        QVector<mesh::CellCoupling> rows = {
+            { 0, QStringLiteral("W_UP"), 0.65, 2.0 },
+            { 0, QStringLiteral("W_DN"), 0.65, 2.0 },
+            { layer.triangleCount(), QStringLiteral("OOR"), 0.65, 2.0 },  // dropped
+            { 1, QString(),            0.65, 2.0 },                       // dropped
+        };
+        const QVector<mesh::CellCoupling> before = layer.applyCellCouplings(rows);
+        QVERIFY(before.isEmpty());
+        QCOMPARE(layer.cellCouplings().size(), 2);
+        QCOMPARE(rowValue(layer.extendedMetadata(),
+                          QStringLiteral("Coupled cells (rows)")),
+                 QStringLiteral("2"));
+
+        // Undo contract — the mutator hands back what it replaced.
+        const QVector<mesh::CellCoupling> prior =
+            layer.applyCellCouplings(QVector<mesh::CellCoupling>{});
+        QCOMPARE(prior.size(), 2);
+        QVERIFY(layer.cellCouplings().isEmpty());
+    }
+
     // P1.1 gate — QSG ownership suppresses the CPU paint; picks unaffected.
     void qsgOwnershipGatesCpuPaintNotPicks()
     {
