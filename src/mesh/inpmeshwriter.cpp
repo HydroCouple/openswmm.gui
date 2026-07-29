@@ -115,12 +115,13 @@ QString formatVertexNodeMap(const MeshResult &mesh,
 QString formatTriangleNodeMap(const MeshResult &mesh,
                               const CouplingMap &coupling)
 {
-    if (coupling.triangleToNode.isEmpty()) return {};
+    if (coupling.triangleToNode.isEmpty() && mesh.cellCouplings.isEmpty())
+        return {};
 
     QString out;
     QTextStream s(&out);
     s << kSecTriangleNodeMap << "\n";
-    s << ";; TRIANGLE_INDEX_OR_TAG  SWMM_NODE_NAME\n";
+    s << ";; TRIANGLE_INDEX_OR_TAG  SWMM_NODE_NAME    CD    AREA\n";
     for (auto it = coupling.triangleToNode.cbegin();
          it != coupling.triangleToNode.cend(); ++it)
     {
@@ -133,6 +134,17 @@ QString formatTriangleNodeMap(const MeshResult &mesh,
         else
             s << tIdx;
         s << "      " << node << "\n";
+    }
+    // Node→cell coupling rows (Plan Part C) — repeated-row form: several
+    // nodes may couple to one triangle, one row each, CD + AREA explicit.
+    // Written by INDEX (not tag): coupling triangles usually carry a
+    // subcatchment tag that is not unique per triangle.
+    for (const CellCoupling &cc : mesh.cellCouplings)
+    {
+        if (cc.tri < 0 || cc.tri >= mesh.triangles.size()) continue;
+        if (cc.nodeId.isEmpty()) continue;
+        s << cc.tri << "      " << cc.nodeId
+          << "  " << cc.cd << "  " << cc.area << "\n";
     }
     s << "\n";
     return out;

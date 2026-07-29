@@ -50,12 +50,29 @@ struct MeshEdge
     QString tag;          ///< Resolved tag (e.g. conduit ID, "domain", "outflow").
 };
 
+/*! \brief A 1D node coupled to a mesh cell (centroid coupling).
+ *
+ * MESH_DECOUPLED_1D2D_REMAP_PLAN Part C — a triangle may carry several of
+ * these (multiple nodes landing in one cell), so they are stored as rows
+ * on the MeshResult rather than as fields on MeshTriangle. Written as
+ * repeated [2D_TRIANGLE_NODE_MAP] rows; the engine builds one coupling
+ * point per row (orifice exchange law).
+ */
+struct CellCoupling
+{
+    int     tri = -1;      ///< Triangle index into MeshResult::triangles.
+    QString nodeId;        ///< SWMM node id.
+    double  cd   = 0.65;   ///< Discharge coefficient (engine default).
+    double  area = 2.0;    ///< Effective exchange area, m² (mapper default).
+};
+
 /*! \brief Result of \ref MeshGenerator::generate. */
 struct MeshResult
 {
     QVector<MeshVertex>   vertices;
     QVector<MeshTriangle> triangles;
     QVector<MeshEdge>     boundaryEdges;
+    QVector<CellCoupling> cellCouplings; ///< Node→cell couplings (Part C).
     bool    ok = false;
     QString errorMsg;
 };

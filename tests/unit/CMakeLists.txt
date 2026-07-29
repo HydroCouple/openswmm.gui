@@ -205,6 +205,25 @@ add_swmmvis_unit_test(test_meshautocouple
     ${PROJECT_SOURCE_DIR}/src/mesh/meshautocouple.cpp
 )
 
+# Cell-area statistics for the mesh Metadata tab (Plan Part A).
+add_swmmvis_unit_test(test_meshcellstats
+    test_meshcellstats.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshcellstats.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshcellstats.cpp
+)
+
+# Node→mesh remapping (Plan Part C.1): coincident → vertex coupling,
+# interior → cell coupling, multiple nodes per cell, outside → unmatched.
+add_swmmvis_unit_test(test_meshnodemapper
+    test_meshnodemapper.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshnodemapper.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshnodemapper.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshautocouple.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshautocouple.cpp
+    ${PROJECT_SOURCE_DIR}/include/layers/meshspatialgrid.h
+    ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
+)
+
 # Mesh-edit persistence — layer edits pushed into the engine survive the
 # .inp write (vertex Z / conveyance / BC), with Manning's n + coupling kept.
 # Needs the real engine, so it is only built when the engine target exists.
