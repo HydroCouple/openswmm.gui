@@ -88,6 +88,12 @@ public:
         QHash<int, QString> nodeMarkerToTag;
         QHash<int, QString> edgeMarkerToTag;
 
+        // Plan Part B — decoupled 1D↔2D mapping: every model node with
+        // coordinates (id, xy), fed to mesh::mapNodesToMesh after Triangle
+        // runs. Independent of the junctions-as-Steiner checkbox.
+        QVector<QPair<QString, QPointF>> couplingNodes;
+        bool mapNodesAfterGen = true;
+
         // WKT of the mesh (model) CRS — passed to the worker so it can build
         // a mesh→DTM coordinate transform when the raster CRS differs.
         QString meshCRSWkt;
@@ -235,6 +241,7 @@ private:
     QCheckBox     *m_includeJunctions = nullptr;
     QCheckBox     *m_includeConduits  = nullptr;
     QCheckBox     *m_includeSubcatch  = nullptr;
+    QCheckBox     *m_mapNodesAfterGen = nullptr;  // Plan Part B: post-gen mapper
     QCheckBox      *m_nodesUseRim     = nullptr;  // rim elevation instead of terrain
     QDoubleSpinBox *m_nodeFlattenSpin = nullptr;  // flatten terrain within radius of nodes
 

@@ -139,6 +139,26 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
                  .arg(nt).arg(mesh.triangles.size()));
     }
 
+    // ---- Node→cell couplings (Plan Part C) ----------------------------------
+    // The row set is re-authored wholesale: clear, then append one row per
+    // layer-side CellCoupling. Skipped entirely when the layer has no rows
+    // AND the engine has none either — so models that never used cell
+    // coupling see zero API traffic. Area is authored in m² on both sides;
+    // no length factor applies (same rule as vertex coupling Cd/Area).
+    if (nt == mesh.triangles.size()) {
+        int engineRows = 0;
+        swmm_2d_triangle_coupling_rows(engine, &engineRows);
+        if (!mesh.cellCouplings.isEmpty() || engineRows > 0) {
+            swmm_2d_clear_triangle_couplings(engine);
+            for (const auto &cc : mesh.cellCouplings) {
+                if (cc.tri < 0 || cc.tri >= nt || cc.nodeId.isEmpty()) continue;
+                swmm_2d_add_triangle_coupling(
+                    engine, cc.tri, cc.nodeId.toUtf8().constData(),
+                    cc.cd, cc.area);
+            }
+        }
+    }
+
     // ---- Per-edge conveyance + boundary conditions -------------------------
     if (bcs.isEmpty())
         return true;  // no BC/conveyance state authored on the layer

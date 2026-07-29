@@ -146,6 +146,7 @@ private slots:
     void onVertexCdCommit();         // coupling Cd → selected coupled vertices
     void onVertexAreaCommit();       // coupling area → selected coupled vertices
     void onAutoCoupleClicked();      // couple vertices to coincident SWMM nodes
+    void onRemapClicked();           // Remap 1D↔2D: vertex + cell coupling (Plan C.4)
     void onManningsCommit();         // Manning's n → selected cell
     void onCellTagCommit();          // descriptive triangle tag → selected cell
     void onSelectionChanged();
@@ -196,6 +197,7 @@ private:
     QAction       *m_actVertexCd    = nullptr;   // embedding actions for hide
     QAction       *m_actVertexArea  = nullptr;
     QAction       *m_actAutoCouple  = nullptr;   // couple vertices to coincident nodes
+    QAction       *m_actRemap       = nullptr;   // Remap 1D↔2D (Plan C.4)
 
     // BC controls (Slice §V.VC — fully wired for all 7 GUI BC types).
     QComboBox     *m_bcTypeCombo    = nullptr;
