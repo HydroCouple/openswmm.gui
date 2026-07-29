@@ -18,6 +18,7 @@
 #define OPENSWMMVIS_MESH_MESHGENERATOR_H
 
 #include "meshresult.h"
+#include "trirefinehook.h"
 
 #include <QHash>
 #include <QPointF>
@@ -61,7 +62,12 @@ struct RegionMarker
 struct GenerationOptions
 {
     double maxArea     = 0.0;     ///< 0 = no global cap; else upper bound on triangle area.
-    double minAngle    = 28.0;    ///< 0..34 reliable; >34 may not terminate.
+                                  ///< Ignored when a refinement size function is
+                                  ///< installed (see MeshGenerator::setRefineHook).
+    double minAngle    = 26.0;    ///< 0..33 reliable; above that Triangle may not
+                                  ///< terminate. Cost rises steeply near the top of
+                                  ///< the range — 33° commonly yields 2-4x the
+                                  ///< vertices of 26° for no practical benefit.
     bool   allowSteiner = true;   ///< false = -YY (no Steiner points on boundary).
     bool   conformingDelaunay = false; ///< -D switch.
     int    maxSteinerPoints   = -1; ///< -SN cap; -1 = unlimited.
@@ -105,6 +111,19 @@ public:
     void addRegion(const RegionMarker &region);
     void setOptions(const GenerationOptions &opts);
 
+    /*! \brief Install cancellation / progress / graded-sizing callbacks.
+     *
+     * Passing a hook with any member set makes generate() add Triangle's `-u`
+     * switch, which routes refinement decisions through the hook.  A hook whose
+     * members are all empty changes nothing.  See trirefinehook.h.
+     *
+     * When \c hook.targetAreaAt is set it supersedes GenerationOptions::maxArea
+     * and the global `-a<area>` switch is omitted.
+     *
+     * If the hook reports cancellation, generate() returns ok=false with
+     * errorMsg set rather than a partially refined mesh. */
+    void setRefineHook(const RefineHook &hook);
+
     /*! \brief Run Triangle. Returns a result with ok=false + errorMsg on failure. */
     [[nodiscard]] MeshResult generate() const;
 
@@ -122,6 +141,7 @@ private:
     QVector<QPointF>           m_holes;
     QVector<RegionMarker>      m_regions;
     GenerationOptions          m_opts;
+    RefineHook                 m_refineHook;
 
     // Filled in during generate(); exposed so callers don't have to maintain
     // a parallel marker→tag map. mutable: generate() is logically const for
