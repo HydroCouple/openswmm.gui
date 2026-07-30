@@ -63,10 +63,14 @@ public:
      *  current build doesn't understand (forward-compat). Returns
      *  true if the file was parsed successfully. An absent file is
      *  not an error — callers Just-Load the `.inp` and call this
-     *  opportunistically.  Single-instance overload reads sessions[0]. */
+     *  opportunistically.  Single-instance overload reads sessions[0].
+     *  Referenced files that no longer exist (results .out, GIS
+     *  rasters/vectors) are skipped and reported via \p warningsOut
+     *  so the caller can surface them — the load itself proceeds. */
     static bool applyFromFile(const QString &oswpPath,
                               SWMMVisProjectWindow *pw,
-                              QString *errorOut = nullptr);
+                              QString *errorOut = nullptr,
+                              QStringList *warningsOut = nullptr);
 
     /*! Canonical sidecar path: same directory + basename as the
      *  given `.inp`, with the extension swapped to `.oswp`. Empty
@@ -104,7 +108,8 @@ private:
                                         const QString &oswpFile);
     static bool        applySession(const QJsonObject &sessionObj,
                                     SWMMVisProjectWindow *pw,
-                                    const QString &oswpFile);
+                                    const QString &oswpFile,
+                                    QStringList *warningsOut = nullptr);
 
     static bool        writeRootJson(const QString &oswpPath,
                                      const QVector<SWMMVisProjectWindow *> &windows,
@@ -122,7 +127,8 @@ private:
                                          const QString &oswpPath);
     static void        deserializeGisLayer(const QJsonObject &obj,
                                            MapCanvas *canvas,
-                                           const QString &oswpPath);
+                                           const QString &oswpPath,
+                                           QStringList *warningsOut = nullptr);
 };
 
 // ---------------------------------------------------------------------------
