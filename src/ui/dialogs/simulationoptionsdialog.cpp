@@ -1308,14 +1308,12 @@ void SimulationOptionsDialog::onMeshRemove()
     const QString meshPath =
         QFileInfo(modelPath).absoluteDir().absoluteFilePath(name);
 
-    // Warn (but allow) when deleting the file the .inp currently references —
-    // the [2D_MESH_FILE] block survives and would dangle until retargeted.
     const bool isActive = m_meshActiveLabel &&
         m_meshActiveLabel->text().contains(name);
     const QString question = isActive
         ? tr("\"%1\" is the active [2D_MESH_FILE] reference. Deleting it will "
-             "leave the .inp pointing at a missing file until you set a new "
-             "active mesh.\n\nDelete it anyway?").arg(name)
+             "clear the active mesh and disable 2D Surface Routing for this "
+             "model.\n\nDelete it anyway?").arg(name)
         : tr("Delete \"%1\" from disk? This cannot be undone.").arg(name);
 
     if (QMessageBox::question(this, tr("Remove Mesh"), question,
@@ -1328,6 +1326,17 @@ void SimulationOptionsDialog::onMeshRemove()
         QMessageBox::critical(this, tr("Remove Mesh"),
             tr("Could not delete %1:\n%2").arg(meshPath, f.errorString()));
         return;
+    }
+
+    // Removing the ACTIVE mesh must not leave the model half-2D: null the
+    // [2D_MESH_FILE] reference in the live engine and switch the 2D module
+    // off (unchecking writes IGNORE_2D YES on OK, so the next run — which
+    // auto-saves and re-opens the .inp — genuinely runs 1D-only).
+    if (isActive) {
+        if (m_engine)
+            swmm_options_set_ext(m_engine, "MESH_FILE", "");
+        if (m_module2DBox && m_module2DBox->isChecked())
+            m_module2DBox->setChecked(false);
     }
 
     refreshMeshList();
@@ -2391,9 +2400,16 @@ void SimulationOptionsDialog::readFromEngine()
         QSettings s;
         const QString key = QStringLiteral("SWMMVis/Project/%1/Module2DEnabled")
                                 .arg(m_layer->modelFilePath());
-        const bool enabled = s.contains(key)
-            ? s.value(key).toBool()
-            : inpCarries2DSections(m_layer->modelFilePath());
+        // The engine's IGNORE_2D flag is authoritative when set — it is what
+        // actually keeps the 2D solver from running. QSettings/.inp sections
+        // only seed the intent when the model has never been toggled.
+        const bool ignored2d =
+            parseEngineBool(getOption("IGNORE_2D", QStringLiteral("NO")))
+                == Qt::Checked;
+        const bool enabled = !ignored2d &&
+            (s.contains(key)
+                 ? s.value(key).toBool()
+                 : inpCarries2DSections(m_layer->modelFilePath()));
         QSignalBlocker blk(m_module2DBox);  // avoid wiring through on2DModuleToggled twice
         m_module2DBox->setChecked(enabled);
         on2DModuleToggled(enabled);  // explicit: sync tab-enabled state.
@@ -3571,7 +3587,12 @@ int SimulationOptionsDialog::writeToEngine()
     writeIfChanged("THREADS",             getOption("THREADS"),
                    QString::number(m_threadsSpin->value()));
 
-    // 2D module toggle — QSettings persistence (engine has no native key)
+    // 2D module toggle — IGNORE_2D is the engine-honored gate (unchecked ⇒
+    // IGNORE_2D YES ⇒ the solver never activates, mesh or no mesh); QSettings
+    // keeps the per-project UI intent for models without the key.
+    if (m_module2DBox)
+        writeIfChanged("IGNORE_2D", getOption("IGNORE_2D"),
+                       engineBoolString(!m_module2DBox->isChecked()));
     if (m_module2DBox && m_layer)
     {
         QSettings s;
