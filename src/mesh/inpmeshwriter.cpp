@@ -150,26 +150,9 @@ QString formatTriangleNodeMap(const MeshResult &mesh,
     return out;
 }
 
-/*! Strip every `[2D_*]` mesh-data section we own from \p originalText.
- *  When \p alsoMeshFileRef is true the `[2D_MESH_FILE]` block is also
- *  stripped — used for the inline-mode write where we want to remove a
- *  stale external reference. The external-mode write keeps `[2D_MESH_FILE]`
- *  alive (and updates its FILE token if needed). `[2D_OPTIONS]` is always
- *  preserved (user-edited in the simulation-options dialog). */
-QString stripExistingMeshSections(const QString &originalText,
-                                  bool alsoMeshFileRef)
+/*! Strip every section named in \p ours from \p originalText. */
+QString stripSections(const QString &originalText, const QStringList &ours)
 {
-    QStringList ours = {
-        QStringLiteral("[2D_VERTICES]"),
-        QStringLiteral("[2D_TRIANGLES]"),
-        QStringLiteral("[2D_VERTEX_NODE_MAP]"),
-        QStringLiteral("[2D_TRIANGLE_NODE_MAP]"),
-        QStringLiteral("[2D_BOUNDARY_CONDITIONS]"),    // §V.VD.1
-        QStringLiteral("[2D_EDGE_CONVEYANCE]"),        // Engine §11A
-    };
-    if (alsoMeshFileRef)
-        ours.append(QStringLiteral("[2D_MESH_FILE]"));
-
     const QStringList lines = originalText.split(QChar('\n'), Qt::KeepEmptyParts);
     QString out;
     out.reserve(originalText.size());
@@ -193,6 +176,28 @@ QString stripExistingMeshSections(const QString &originalText,
     while (out.endsWith(QStringLiteral("\n\n")))
         out.chop(1);
     return out;
+}
+
+/*! Strip every `[2D_*]` mesh-data section we own from \p originalText.
+ *  When \p alsoMeshFileRef is true the `[2D_MESH_FILE]` block is also
+ *  stripped — used for the inline-mode write where we want to remove a
+ *  stale external reference. The external-mode write keeps `[2D_MESH_FILE]`
+ *  alive (and updates its FILE token if needed). `[2D_OPTIONS]` is always
+ *  preserved (user-edited in the simulation-options dialog). */
+QString stripExistingMeshSections(const QString &originalText,
+                                  bool alsoMeshFileRef)
+{
+    QStringList ours = {
+        QStringLiteral("[2D_VERTICES]"),
+        QStringLiteral("[2D_TRIANGLES]"),
+        QStringLiteral("[2D_VERTEX_NODE_MAP]"),
+        QStringLiteral("[2D_TRIANGLE_NODE_MAP]"),
+        QStringLiteral("[2D_BOUNDARY_CONDITIONS]"),    // §V.VD.1
+        QStringLiteral("[2D_EDGE_CONVEYANCE]"),        // Engine §11A
+    };
+    if (alsoMeshFileRef)
+        ours.append(QStringLiteral("[2D_MESH_FILE]"));
+    return stripSections(originalText, ours);
 }
 
 } // namespace
@@ -640,6 +645,27 @@ bool InpMeshWriter::writeInline(const QString &inpPath,
     patched.append(bcText);
     patched.append(convText);
     return atomicWrite(inpPath, patched, errorOut);
+}
+
+bool InpMeshWriter::patchBCSections(const QString &filePath,
+                                    const MeshResult &mesh,
+                                    const QVector<MeshEdgeBC> &bcs,
+                                    QString *errorOut)
+{
+    const ReadResult r = readInp(filePath);
+    if (!r.ok) {
+        if (errorOut) *errorOut = r.err;
+        return false;
+    }
+
+    QString patched = stripSections(
+        r.text, {QStringLiteral("[2D_BOUNDARY_CONDITIONS]"),
+                 QStringLiteral("[2D_EDGE_CONVEYANCE]")});
+    if (!patched.endsWith(QChar('\n')))
+        patched.append(QChar('\n'));
+    patched.append(buildBCSectionText(bcs));
+    patched.append(buildConveyanceSectionText(mesh, bcs));
+    return atomicWrite(filePath, patched, errorOut);
 }
 
 } // namespace mesh
