@@ -46,7 +46,7 @@ DRY_DAYS             0
 REPORT_STEP          0:15:00
 WET_STEP             0:00:30
 DRY_STEP             0:05:00
-ROUTING_STEP         0:00:02
+ROUTING_STEP         0:00:01
 RULE_STEP            0:00:00
 
 INERTIAL_DAMPING     PARTIAL
