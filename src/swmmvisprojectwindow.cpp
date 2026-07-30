@@ -967,8 +967,9 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // can rewrite the external .2dm from the OLD mesh and/or emit stale inline
     // [2D_*] into the .inp, making the old mesh reappear on reopen. We restore
     // this snapshot and re-point the .inp after the write (below).
-    QString    extMeshPath;
-    QByteArray extMeshSnapshot;
+    QString          extMeshPath;
+    QByteArray       extMeshSnapshot;
+    SWMM2DMeshLayer *extMeshLayer = nullptr;
     if (canvas() && pluginId.isEmpty()
         && QFileInfo(newPath).suffix().compare(QStringLiteral("inp"),
                                                Qt::CaseInsensitive) == 0)
@@ -989,6 +990,7 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             {
                 extMeshSnapshot = mf.readAll();
                 extMeshPath     = p;
+                extMeshLayer    = ml;
             }
             break;
         }
@@ -1020,6 +1022,21 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             QFile mf(extMeshPath);
             if (mf.open(QIODevice::WriteOnly | QIODevice::Truncate))
                 mf.write(extMeshSnapshot);
+        }
+        // The snapshot predates the engine's write of the current
+        // BC/conveyance edits into the sidecar, so the restore above just
+        // discarded them — re-emit the layer's per-edge state into the
+        // restored .2dm.
+        if (extMeshLayer
+            && extMeshLayer->edgeBCs().size()
+                   == extMeshLayer->mesh().triangles.size() * 3)
+        {
+            QString bcErr;
+            if (!mesh::InpMeshWriter::patchBCSections(
+                    extMeshPath, extMeshLayer->mesh(),
+                    extMeshLayer->edgeBCs(), &bcErr))
+                qWarning().noquote()
+                    << "Post-save 2D BC re-emit failed:" << bcErr;
         }
         QString meshErr;
         if (!mesh::InpMeshWriter::writeMeshFileRef(newPath, extMeshPath, &meshErr))

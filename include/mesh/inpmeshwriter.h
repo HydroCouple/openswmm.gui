@@ -219,6 +219,28 @@ public:
                                                const QString &meshFilePath,
                                                QString *errorOut = nullptr);
 
+    /*! \brief Replace the `[2D_BOUNDARY_CONDITIONS]` and
+     *         `[2D_EDGE_CONVEYANCE]` sections of \p filePath (a `.inp` or
+     *         external `.2dm`) with sections built from \p bcs, leaving
+     *         every other section untouched.
+     *
+     *  Used by the post-save external-mesh restore: the pre-write `.2dm`
+     *  snapshot predates the engine's write of the current BC/conveyance
+     *  edits, so restoring it would silently discard them — this re-emits
+     *  the layer's per-edge state into the restored file. All-default \p bcs
+     *  strips the sections without appending (reset-to-Wall round-trips).
+     *  Atomic via `QSaveFile`.
+     *
+     *  \param filePath  File whose BC/conveyance sections are replaced.
+     *  \param mesh      Mesh the flat-indexed \p bcs parallels.
+     *  \param bcs       Per-edge BC state (`tri * 3 + edge`).
+     *  \param errorOut  Set on failure.
+     *  \returns true on success. */
+    [[nodiscard]] static bool patchBCSections(const QString &filePath,
+                                              const MeshResult &mesh,
+                                              const QVector<MeshEdgeBC> &bcs,
+                                              QString *errorOut = nullptr);
+
     /*! \brief Strip any `[2D_MESH_FILE]` reference from the `.inp` so the
      *         engine falls back to the inline `[2D_*]` mesh sections.
      *

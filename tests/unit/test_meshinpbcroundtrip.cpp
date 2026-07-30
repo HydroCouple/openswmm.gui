@@ -448,6 +448,87 @@ TEST(MeshInpCellCouplingRoundtrip, OmittedColumnsGetMapperDefaults)
     EXPECT_NEAR(read.mesh.cellCouplings[0].area, 2.0,  1e-9);
 }
 
+// =============================================================================
+// patchBCSections — the post-save external-mesh BC re-emit
+// =============================================================================
+//
+// Regression: the external-mesh save path restores a pre-write .2dm snapshot
+// (protecting a freshly generated mesh from the engine's stale in-memory
+// copy), which used to discard the BC/conveyance rows the engine had just
+// written. patchBCSections re-emits the layer's per-edge state into the
+// restored file, replacing any stale rows.
+
+TEST(MeshInpBCPatch, ReplacesStaleRowsKeepsOtherSections)
+{
+    QTemporaryDir dir; ASSERT_TRUE(dir.isValid());
+    const QString meshPath = dir.filePath(QStringLiteral("mesh.2dm"));
+    QFile f(meshPath);
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    f.write(
+        "[2D_VERTICES]\n"
+        "0 0 0\n1 0 0\n0 1 0\n1 1 0\n"
+        "[2D_TRIANGLES]\n"
+        "0 1 3 0.035\n0 3 2 0.035\n"
+        "[2D_BOUNDARY_CONDITIONS]\n"
+        "0 0 NORMAL_FLOW 0.9 * *\n"        // stale row — must be replaced
+        "[2D_EDGE_CONVEYANCE]\n"
+        "1 3 0.1\n");                       // stale row — must be replaced
+    f.close();
+
+    auto m = makeUnitSquareMesh();
+    QVector<mesh::MeshEdgeBC> bcs(6);
+    bcs[1 * 3 + 0].type = MeshBCTypes::Type::SpecifiedStageConst;
+    bcs[1 * 3 + 0].head = 12.5;
+    bcs[0 * 3 + 0].conveyance = 0.75;
+
+    QString err;
+    ASSERT_TRUE(mesh::InpMeshWriter::patchBCSections(meshPath, m, bcs, &err))
+        << err.toStdString();
+
+    const auto read = mesh::InpMeshReader::read(meshPath);
+    ASSERT_TRUE(read.hasMesh) << read.errorMsg.toStdString();
+    ASSERT_EQ(read.edgeBCs.size(), 6);
+    // Geometry untouched.
+    EXPECT_EQ(read.mesh.vertices.size(), 4);
+    EXPECT_EQ(read.mesh.triangles.size(), 2);
+    // Fresh rows applied; stale rows gone.
+    EXPECT_EQ(read.edgeBCs[1 * 3 + 0].type, MeshBCTypes::Type::SpecifiedStageConst);
+    EXPECT_NEAR(read.edgeBCs[1 * 3 + 0].head, 12.5, 1e-9);
+    EXPECT_EQ(read.edgeBCs[0 * 3 + 0].type, MeshBCTypes::Type::Wall);
+    EXPECT_NEAR(read.edgeBCs[0 * 3 + 0].conveyance, 0.75, 1e-9);
+}
+
+TEST(MeshInpBCPatch, AllDefaultStripsSections)
+{
+    QTemporaryDir dir; ASSERT_TRUE(dir.isValid());
+    const QString meshPath = dir.filePath(QStringLiteral("mesh.2dm"));
+    QFile f(meshPath);
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    f.write(
+        "[2D_VERTICES]\n"
+        "0 0 0\n1 0 0\n0 1 0\n1 1 0\n"
+        "[2D_TRIANGLES]\n"
+        "0 1 3 0.035\n0 3 2 0.035\n"
+        "[2D_BOUNDARY_CONDITIONS]\n"
+        "0 0 NORMAL_FLOW 0.9 * *\n");
+    f.close();
+
+    auto m = makeUnitSquareMesh();
+    QVector<mesh::MeshEdgeBC> bcs(6);  // all default Wall — reset case
+
+    QString err;
+    ASSERT_TRUE(mesh::InpMeshWriter::patchBCSections(meshPath, m, bcs, &err))
+        << err.toStdString();
+
+    QFile rf(meshPath);
+    ASSERT_TRUE(rf.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString text = QString::fromUtf8(rf.readAll());
+    rf.close();
+    EXPECT_FALSE(text.contains(QStringLiteral("[2D_BOUNDARY_CONDITIONS]")))
+        << text.toStdString();
+    EXPECT_TRUE(text.contains(QStringLiteral("[2D_VERTICES]")));
+}
+
 TEST(MeshInpConveyanceRoundtrip, OutOfRangeIsRejected)
 {
     // Engine spec is strict [0, 1]; the reader rejects rows outside the
