@@ -259,8 +259,8 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     m_bcTypeCombo->setToolTip(tr(
         "Boundary condition type for the selected edge(s).\n"
         "Changes apply immediately to every selected edge.\n"
-        "NB: the engine's solver does not yet honour non-Wall BCs at\n"
-        "flux time — see V-E-FLUX engine slice."));
+        "NB: NORMAL_FLOW needs a non-zero bed slope — with slope 0\n"
+        "the edge behaves as a Wall."));
     using mesh::MeshBCTypes;
     for (auto t : {MeshBCTypes::Type::Wall,
                    MeshBCTypes::Type::NormalFlow,
