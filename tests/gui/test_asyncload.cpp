@@ -116,20 +116,27 @@ private slots:
     // 2. Parse-error diagnostics preserved: a malformed fixture (see
     //    typed_selection_malformed_fixture.inp for why a [DWF] line naming
     //    an undefined node is the reliable failure — unknown section
-    //    headers and garbled numeric fields are NOT fatal in this engine)
-    //    must surface the engine's real diagnostic, not the generic
-    //    "Out of memory" string documented as a regression in
-    //    SWMMModelLayer::openEngineForPath()'s comments.
+    //    headers and garbled numeric fields are NOT fatal in this engine).
+    //    openEngineForPath opens leniently, so a post-parse validation
+    //    error no longer aborts the open — the model stays loadable for
+    //    editing and the engine's real diagnostic (naming the offending
+    //    node, not a generic "Out of memory") is queryable on the handle
+    //    for adoptOpenEngine to surface as a warning.
     void parseErrorDiagnosticsPreserved()
     {
         QString detail;
         SWMM_Engine eng = SWMMModelLayer::openEngineForPath(malformedFixturePath(), &detail);
-        QVERIFY(eng == nullptr);
-        QVERIFY(!detail.isEmpty());
-        QVERIFY2(!detail.contains(QStringLiteral("Out of memory")), qPrintable(detail));
-        // The real cross-reference-resolution diagnostic names the
-        // offending node.
-        QVERIFY2(detail.contains(QStringLiteral("GHOST")), qPrintable(detail));
+        QVERIFY2(eng != nullptr, qPrintable(detail));
+        const int n = swmm_get_error_count(eng);
+        QVERIFY2(n >= 1, "the undefined-node diagnostic must be recorded");
+        bool namesGhost = false;
+        for (int i = 0; i < n; ++i) {
+            const QString msg = QString::fromUtf8(swmm_get_error_at(eng, i));
+            QVERIFY2(!msg.contains(QStringLiteral("Out of memory")), qPrintable(msg));
+            if (msg.contains(QStringLiteral("GHOST"))) namesGhost = true;
+        }
+        QVERIFY(namesGhost);
+        swmm_engine_destroy(eng);
     }
 
     // 3. openEngineForPath() + buildFromEngine() + adoptOpenEngine() on a
