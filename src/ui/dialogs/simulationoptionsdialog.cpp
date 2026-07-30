@@ -30,7 +30,6 @@
 #include <QDateEdit>
 #include <QDateTimeEdit>
 #include <QDoubleValidator>
-#include <QIntValidator>
 #include <QTimeEdit>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -434,7 +433,7 @@ QWidget *SimulationOptionsDialog::buildModelsTab()
         tr("The 1D pipe-network solver is the SWMM core and cannot be disabled."));
     modulesLay->addWidget(m_module1DBox);
 
-    m_module2DBox = new QCheckBox(tr("2D Surface Routing (CVODE)"), modulesGroup);
+    m_module2DBox = new QCheckBox(tr("2D Surface Routing"), modulesGroup);
     // Module toggle is a project-level flag (QSettings-backed) — always
     // editable so the user can prepare meshes / configurations even when
     // the engine 2D solver isn't compiled in. The engine-side gate at
@@ -1357,36 +1356,76 @@ QWidget *SimulationOptionsDialog::build2DTab()
     auto *page = new QWidget(this);
     auto *vlay = new QVBoxLayout(page);
 
-    auto *cvodeGroup = new QGroupBox(tr("CVODE solver"), page);
-    auto *cvodeForm  = new QFormLayout(cvodeGroup);
+    // The explicit local-inertial marcher is the only 2D integrator (D2
+    // retirement of the CVODE/ARKODE stack, 2026-07-29) — no selector, and
+    // the marcher settings are always live.
+    auto *stepGroup = new QGroupBox(tr("Time stepping"), page);
+    auto *stepForm  = new QFormLayout(stepGroup);
 
-    m_cvodeMaxStepSpin = new QDoubleSpinBox(cvodeGroup);
-    m_cvodeMaxStepSpin->setRange(0.001, 3600.0);
-    m_cvodeMaxStepSpin->setDecimals(4);
-    m_cvodeMaxStepSpin->setSuffix(QStringLiteral(" s"));
-    cvodeForm->addRow(tr("Max timestep:"), m_cvodeMaxStepSpin);
+    m_maxTimestepSpin = new QDoubleSpinBox(stepGroup);
+    m_maxTimestepSpin->setRange(0.001, 3600.0);
+    m_maxTimestepSpin->setDecimals(4);
+    m_maxTimestepSpin->setSuffix(QStringLiteral(" s"));
+    m_maxTimestepSpin->setToolTip(
+        tr("Upper bound on the marcher's CFL substeps and on the 1D↔2D "
+           "co-advance sync batch (default 10 s)."));
+    stepForm->addRow(tr("Max timestep:"), m_maxTimestepSpin);
 
-    m_cvodeMinStepSpin = new QDoubleSpinBox(cvodeGroup);
-    m_cvodeMinStepSpin->setRange(1e-9, 60.0);
-    m_cvodeMinStepSpin->setDecimals(9);
-    m_cvodeMinStepSpin->setSuffix(QStringLiteral(" s"));
-    cvodeForm->addRow(tr("Min timestep:"), m_cvodeMinStepSpin);
+    vlay->addWidget(stepGroup);
 
-    m_cvodeRelTolSpin = new QDoubleSpinBox(cvodeGroup);
-    m_cvodeRelTolSpin->setRange(1e-12, 1.0);
-    m_cvodeRelTolSpin->setDecimals(12);
-    cvodeForm->addRow(tr("Relative tolerance:"), m_cvodeRelTolSpin);
+    m_marcherGroup = new QGroupBox(tr("Explicit marcher"), page);
+    auto *marchForm = new QFormLayout(m_marcherGroup);
 
-    m_cvodeAbsTolSpin = new QDoubleSpinBox(cvodeGroup);
-    m_cvodeAbsTolSpin->setRange(1e-12, 1.0);
-    m_cvodeAbsTolSpin->setDecimals(12);
-    cvodeForm->addRow(tr("Absolute tolerance:"), m_cvodeAbsTolSpin);
+    m_thetaSpin = new QDoubleSpinBox(m_marcherGroup);
+    m_thetaSpin->setRange(0.05, 1.0);
+    m_thetaSpin->setDecimals(2);
+    m_thetaSpin->setSingleStep(0.05);
+    m_thetaSpin->setToolTip(
+        tr("θ-weighting of the face discharge in the momentum update. 1.0 is "
+           "the classic Bates (2010) scheme; values below 1 blend in the "
+           "neighbour discharges, damping thin-film checkerboarding on steep "
+           "faces (default 0.8)."));
+    marchForm->addRow(tr("Momentum θ:"), m_thetaSpin);
 
-    m_cvodeMaxStepsSpin = new QSpinBox(cvodeGroup);
-    m_cvodeMaxStepsSpin->setRange(1, 100000);
-    cvodeForm->addRow(tr("Max CVODE steps:"), m_cvodeMaxStepsSpin);
+    m_cflNumberSpin = new QDoubleSpinBox(m_marcherGroup);
+    m_cflNumberSpin->setRange(0.05, 1.0);
+    m_cflNumberSpin->setDecimals(2);
+    m_cflNumberSpin->setSingleStep(0.05);
+    m_cflNumberSpin->setToolTip(
+        tr("Courant safety factor α on each cell's stable step "
+           "dt = α·L/√(g·h) (default 0.7)."));
+    marchForm->addRow(tr("CFL number:"), m_cflNumberSpin);
 
-    vlay->addWidget(cvodeGroup);
+    m_ltsTiersSpin = new QSpinBox(m_marcherGroup);
+    m_ltsTiersSpin->setRange(1, 8);
+    m_ltsTiersSpin->setToolTip(
+        tr("Local-timestepping tiers K: cells march at power-of-two multiples "
+           "of the finest step (tier k fires every 2^k substeps). 1 = global "
+           "timestep (debug/equivalence mode); raise toward 7–8 for meshes "
+           "with extreme cell-size disparity (default 4)."));
+    marchForm->addRow(tr("LTS tiers:"), m_ltsTiersSpin);
+
+    m_hMoveSpin = new QDoubleSpinBox(m_marcherGroup);
+    m_hMoveSpin->setRange(0.0, 1.0);
+    m_hMoveSpin->setDecimals(4);
+    m_hMoveSpin->setSuffix(QStringLiteral(" m"));
+    m_hMoveSpin->setToolTip(
+        tr("Movement threshold: cells shallower than this stay in the lazy "
+           "(source-only) set — rain over thin films costs nothing until "
+           "water must move. Raising it shrinks the active set and speeds "
+           "up drainage tails (default 0.003 m)."));
+    marchForm->addRow(tr("Movement threshold:"), m_hMoveSpin);
+
+    m_froudeMaxSpin = new QDoubleSpinBox(m_marcherGroup);
+    m_froudeMaxSpin->setRange(0.1, 5.0);
+    m_froudeMaxSpin->setDecimals(2);
+    m_froudeMaxSpin->setSingleStep(0.1);
+    m_froudeMaxSpin->setToolTip(
+        tr("Froude-number cap on face discharge — the supercritical guard for "
+           "the local-inertial scheme (default 1.5)."));
+    marchForm->addRow(tr("Max Froude number:"), m_froudeMaxSpin);
+
+    vlay->addWidget(m_marcherGroup);
 
     auto *meshGroup = new QGroupBox(tr("Mesh"), page);
     auto *meshForm  = new QFormLayout(meshGroup);
@@ -1426,7 +1465,7 @@ QWidget *SimulationOptionsDialog::build2DTab()
            "from its stored volume. Flat overstates the surface on slope/step cells "
            "(water can climb uphill and strand on slopes); VFR (Begnudelli & Sanders) "
            "uses the exact planar-bed relation so a lake at rest stays at rest. "
-           "CPU solvers only — the GPU backend falls back to Flat."));
+           "Supported on every backend (serial and Kokkos)."));
     closureForm->addRow(tr("Cell closure:"), m_cellClosureCombo);
 
     m_faceReconCombo = new QComboBox(closureGroup);
@@ -1447,10 +1486,9 @@ QWidget *SimulationOptionsDialog::build2DTab()
     m_vfrMinWetFracSpin->setDecimals(4);
     m_vfrMinWetFracSpin->setSingleStep(0.01);
     m_vfrMinWetFracSpin->setToolTip(
-        tr("Wetted-area-fraction floor ε that regularizes the VFR closure for the "
-           "implicit solver as a cell dries (bounds dη/dV). Only used when Cell "
-           "closure = VFR. Default 0.01; raise (0.02–0.05) if the 2D solver reports "
-           "convergence failures on strongly wetting/drying models."));
+        tr("Wetted-area-fraction floor ε that regularizes the VFR closure as a "
+           "cell dries (bounds dη/dV). Only used when Cell closure = VFR "
+           "(default 0.01)."));
     closureForm->addRow(tr("VFR min wet fraction:"), m_vfrMinWetFracSpin);
 
     vlay->addWidget(closureGroup);
@@ -1463,49 +1501,18 @@ QWidget *SimulationOptionsDialog::build2DTab()
     m_couplingCdSpin->setDecimals(4);
     coupForm->addRow(tr("Coupling Cd:"), m_couplingCdSpin);
 
-    // COUPLING_INTERVAL is an integer count of routing steps, not a time.
-    // 0 and 1 both mean "advance the 2D solver every routing step"; values >= 2
-    // defer the advance into an N-step macro-window (experimental). Editable so
-    // an arbitrary N can still be typed while 0/1 read as plain text.
-    m_couplingIntervalCombo = new QComboBox(coupGroup);
-    m_couplingIntervalCombo->setEditable(true);
-    m_couplingIntervalCombo->setInsertPolicy(QComboBox::NoInsert);
-    m_couplingIntervalCombo->addItem(tr("Every routing step"),          0);
-    m_couplingIntervalCombo->addItem(tr("Every 2 steps (macro-window)"), 2);
-    m_couplingIntervalCombo->addItem(tr("Every 5 steps (macro-window)"), 5);
-    m_couplingIntervalCombo->addItem(tr("Every 10 steps (macro-window)"), 10);
-    if (auto *le = m_couplingIntervalCombo->lineEdit())
-        le->setValidator(new QIntValidator(0, 3600, m_couplingIntervalCombo));
-    m_couplingIntervalCombo->setToolTip(
-        tr("How often the 2D surface solver is advanced, in 1D routing steps. "
-           "0 or 1 = every step (recommended). Values ≥ 2 defer the advance "
-           "into an N-step macro-window for speed; this is experimental and "
-           "CFL-limited — verify the 2D continuity error in the report."));
-    coupForm->addRow(tr("Coupling interval:"), m_couplingIntervalCombo);
+    m_couplingAreaAutoBox = new QCheckBox(
+        tr("Derive exchange areas automatically (COUPLING_AREA AUTO)"),
+        coupGroup);
+    m_couplingAreaAutoBox->setToolTip(
+        tr("Override every coupling point's exchange area with "
+           "1.25 × the largest connected conduit area (clamped 0.05–2 m²). "
+           "Recommended when the mesh authored default areas much larger than "
+           "the pipes they feed — oversized areas drive fill-and-spill churn. "
+           "Explicit AREA values in the input are replaced while this is on."));
+    coupForm->addRow(QString(), m_couplingAreaAutoBox);
 
     vlay->addWidget(coupGroup);
-
-    auto *solverGroup = new QGroupBox(tr("Linear solver"), page);
-    auto *solverForm  = new QFormLayout(solverGroup);
-
-    m_linearSolverCombo = new QComboBox(solverGroup);
-    m_linearSolverCombo->addItem(tr("GMRES"),    QStringLiteral("GMRES"));
-    m_linearSolverCombo->addItem(tr("BICGSTAB"), QStringLiteral("BICGSTAB"));
-    m_linearSolverCombo->addItem(tr("TFQMR"),    QStringLiteral("TFQMR"));
-    solverForm->addRow(tr("Solver:"), m_linearSolverCombo);
-
-    m_preconditionerCombo = new QComboBox(solverGroup);
-    m_preconditionerCombo->addItem(tr("None"),            QStringLiteral("NONE"));
-    m_preconditionerCombo->addItem(tr("Jacobi"),          QStringLiteral("JACOBI"));
-    m_preconditionerCombo->addItem(tr("ILU"),             QStringLiteral("ILU"));
-    m_preconditionerCombo->addItem(tr("AMG (BoomerAMG)"), QStringLiteral("AMG"));
-    solverForm->addRow(tr("Preconditioner:"), m_preconditionerCombo);
-
-    m_maxKrylovDimSpin = new QSpinBox(solverGroup);
-    m_maxKrylovDimSpin->setRange(1, 1000);
-    solverForm->addRow(tr("Max Krylov dim:"), m_maxKrylovDimSpin);
-
-    vlay->addWidget(solverGroup);
 
     auto *rainfallGroup = new QGroupBox(tr("Rainfall"), page);
     auto *rainfallForm  = new QFormLayout(rainfallGroup);
@@ -1543,25 +1550,12 @@ void SimulationOptionsDialog::read2DFromEngine()
         return fallback;
     };
 
-    m_cvodeMaxStepSpin ->setValue(getExt("MAX_TIMESTEP",      "10").toDouble(&ok));
-    m_cvodeMinStepSpin ->setValue(getExt("MIN_TIMESTEP",      "0.001").toDouble(&ok));
-    m_cvodeRelTolSpin  ->setValue(getExt("REL_TOLERANCE",     "1e-4").toDouble(&ok));
-    m_cvodeAbsTolSpin  ->setValue(getExt("ABS_TOLERANCE",     "1e-6").toDouble(&ok));
-    m_cvodeMaxStepsSpin->setValue(getExt("MAX_CVODE_STEPS",   "500").toInt(&ok));
+    m_maxTimestepSpin  ->setValue(getExt("MAX_TIMESTEP",      "10").toDouble(&ok));
     m_dryDepthSpin     ->setValue(getExt("DRY_DEPTH",         "0.001").toDouble(&ok));
     m_limiterEpsSpin   ->setValue(getExt("LIMITER_EPSILON",   "1e-6").toDouble(&ok));
     m_fluxDhEpsSpin    ->setValue(getExt("FLUX_DH_EPS",       "0.004").toDouble(&ok));
     m_vfrMinWetFracSpin->setValue(getExt("VFR_MIN_WET_FRAC",  "0.01").toDouble(&ok));
     m_couplingCdSpin   ->setValue(getExt("COUPLING_CD",       "0.65").toDouble(&ok));
-    m_couplingIntervalRaw = getExt("COUPLING_INTERVAL", "0").toInt(&ok);
-    if (!ok || m_couplingIntervalRaw < 0) m_couplingIntervalRaw = 0;
-    if (m_couplingIntervalRaw <= 1) {
-        m_couplingIntervalCombo->setCurrentIndex(0);            // "Every routing step"
-    } else if (int idx = m_couplingIntervalCombo->findData(m_couplingIntervalRaw); idx >= 0) {
-        m_couplingIntervalCombo->setCurrentIndex(idx);          // matched a preset
-    } else {
-        m_couplingIntervalCombo->setEditText(QString::number(m_couplingIntervalRaw));
-    }
 
     auto selectComboByData = [](QComboBox *c, const QString &data) {
         const int idx = c->findData(data, Qt::UserRole, Qt::MatchFixedString);
@@ -1569,11 +1563,19 @@ void SimulationOptionsDialog::read2DFromEngine()
     };
     selectComboByData(m_cellClosureCombo,    getExt("CELL_CLOSURE",        "FLAT"));
     selectComboByData(m_faceReconCombo,      getExt("FACE_RECONSTRUCTION", "MEAN"));
-    selectComboByData(m_linearSolverCombo,   getExt("LINEAR_SOLVER",   "GMRES"));
-    selectComboByData(m_preconditionerCombo, getExt("PRECONDITIONER",  "AMG"));
-    m_maxKrylovDimSpin->setValue(getExt("MAX_KRYLOV_DIM", "30").toInt(&ok));
     selectComboByData(m_rainfall2DModeCombo, getExt("RAINFALL_MODE", "NATURAL_NEIGHBOUR"));
     m_report2DBox->setChecked(parseEngineBool(getExt("REPORT_2D", "NO")) == Qt::Checked);
+
+    // Explicit-marcher configuration (the only 2D integrator; no INTEGRATOR
+    // read/write — the engine default is EXPLICIT).
+    m_thetaSpin    ->setValue(getExt("THETA",      "0.8").toDouble(&ok));
+    m_cflNumberSpin->setValue(getExt("CFL_NUMBER", "0.7").toDouble(&ok));
+    m_ltsTiersSpin ->setValue(getExt("LTS_TIERS",  "4").toInt(&ok));
+    m_hMoveSpin    ->setValue(getExt("H_MOVE",     "0.003").toDouble(&ok));
+    m_froudeMaxSpin->setValue(getExt("FROUDE_MAX", "1.5").toDouble(&ok));
+    m_couplingAreaAutoBox->setChecked(
+        getExt("COUPLING_AREA", "DEFAULT").compare(QStringLiteral("AUTO"),
+                                                   Qt::CaseInsensitive) == 0);
 }
 
 int SimulationOptionsDialog::write2DToEngine(int &n)
@@ -1595,15 +1597,7 @@ int SimulationOptionsDialog::write2DToEngine(int &n)
     };
 
     writeIfChanged("MAX_TIMESTEP",      getExt("MAX_TIMESTEP"),
-                   QString::number(m_cvodeMaxStepSpin->value(), 'g', 8));
-    writeIfChanged("MIN_TIMESTEP",      getExt("MIN_TIMESTEP"),
-                   QString::number(m_cvodeMinStepSpin->value(), 'g', 8));
-    writeIfChanged("REL_TOLERANCE",     getExt("REL_TOLERANCE"),
-                   QString::number(m_cvodeRelTolSpin->value(), 'g', 8));
-    writeIfChanged("ABS_TOLERANCE",     getExt("ABS_TOLERANCE"),
-                   QString::number(m_cvodeAbsTolSpin->value(), 'g', 8));
-    writeIfChanged("MAX_CVODE_STEPS",   getExt("MAX_CVODE_STEPS"),
-                   QString::number(m_cvodeMaxStepsSpin->value()));
+                   QString::number(m_maxTimestepSpin->value(), 'g', 8));
     writeIfChanged("DRY_DEPTH",         getExt("DRY_DEPTH"),
                    QString::number(m_dryDepthSpin->value(), 'g', 8));
     writeIfChanged("LIMITER_EPSILON",   getExt("LIMITER_EPSILON"),
@@ -1618,35 +1612,26 @@ int SimulationOptionsDialog::write2DToEngine(int &n)
                    QString::number(m_vfrMinWetFracSpin->value(), 'g', 6));
     writeIfChanged("COUPLING_CD",       getExt("COUPLING_CD"),
                    QString::number(m_couplingCdSpin->value(), 'f', 4));
-    // Resolve the combo (preset or typed) back to an integer step count.
-    int couplingInterval = 0;
-    {
-        const QString text = m_couplingIntervalCombo->currentText().trimmed();
-        const int found = m_couplingIntervalCombo->findText(text);
-        if (found >= 0) {
-            couplingInterval = m_couplingIntervalCombo->itemData(found).toInt();
-        } else {
-            bool intOk = false;
-            couplingInterval = text.toInt(&intOk);
-            if (!intOk || couplingInterval < 0) couplingInterval = 0;
-        }
-        // 0 and 1 are behaviourally identical; keep whichever the model had so an
-        // unchanged dialog doesn't rewrite "1" -> "0".
-        if (couplingInterval <= 1 && (m_couplingIntervalRaw == 0 || m_couplingIntervalRaw == 1))
-            couplingInterval = m_couplingIntervalRaw;
-    }
-    writeIfChanged("COUPLING_INTERVAL", getExt("COUPLING_INTERVAL"),
-                   QString::number(couplingInterval));
-    writeIfChanged("LINEAR_SOLVER",     getExt("LINEAR_SOLVER"),
-                   m_linearSolverCombo->currentData().toString());
-    writeIfChanged("PRECONDITIONER",    getExt("PRECONDITIONER"),
-                   m_preconditionerCombo->currentData().toString());
-    writeIfChanged("MAX_KRYLOV_DIM",    getExt("MAX_KRYLOV_DIM"),
-                   QString::number(m_maxKrylovDimSpin->value()));
     writeIfChanged("RAINFALL_MODE",     getExt("RAINFALL_MODE"),
                    m_rainfall2DModeCombo->currentData().toString());
     writeIfChanged("REPORT_2D",         getExt("REPORT_2D"),
                    engineBoolString(m_report2DBox->isChecked()));
+
+    // Explicit-marcher configuration (the only 2D integrator).
+    writeIfChanged("THETA",         getExt("THETA"),
+                   QString::number(m_thetaSpin->value(), 'g', 6));
+    writeIfChanged("CFL_NUMBER",    getExt("CFL_NUMBER"),
+                   QString::number(m_cflNumberSpin->value(), 'g', 6));
+    writeIfChanged("LTS_TIERS",     getExt("LTS_TIERS"),
+                   QString::number(m_ltsTiersSpin->value()));
+    writeIfChanged("H_MOVE",        getExt("H_MOVE"),
+                   QString::number(m_hMoveSpin->value(), 'g', 6));
+    writeIfChanged("FROUDE_MAX",    getExt("FROUDE_MAX"),
+                   QString::number(m_froudeMaxSpin->value(), 'g', 6));
+    writeIfChanged("COUPLING_AREA", getExt("COUPLING_AREA"),
+                   m_couplingAreaAutoBox->isChecked()
+                       ? QStringLiteral("AUTO")
+                       : QStringLiteral("DEFAULT"));
     return n;
 }
 

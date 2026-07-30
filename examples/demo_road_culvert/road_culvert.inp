@@ -233,20 +233,9 @@ GAGE1            0.0000             0.0000
 [2D_OPTIONS]
 ;;Parameter            Value
 MAX_TIMESTEP           10
-MIN_TIMESTEP           0.001
-REL_TOLERANCE          0.001
-ABS_TOLERANCE          1e-05
 DRY_DEPTH              0.001
 LIMITER_EPSILON        1e-06
 COUPLING_CD            0.65
-MAX_KRYLOV_DIM         30
-COUPLING_INTERVAL      0
-COUPLING_WINDOW        10
-ACTIVE_SET             NO
-ACTIVE_SET_HALO        2
-MAX_CVODE_STEPS        2000
-LINEAR_SOLVER          GMRES
-PRECONDITIONER         AMG
 RAINFALL_MODE          NATURAL_NEIGHBOUR
 REPORT_2D              YES
 CELL_CLOSURE           FLAT
