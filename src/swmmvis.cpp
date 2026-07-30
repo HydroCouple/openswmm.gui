@@ -4863,6 +4863,11 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
                 IMesh2DSource* srcRaw = h5Src.get();
                 auto *resLayer = new SWMM2DResultsLayer(
                     QStringLiteral("2D Results"), nullptr);
+                // Tag with the backing .h5 so a later live run REUSES this
+                // layer instead of stacking a duplicate (one results layer
+                // per file — see the twoDInitialized handler).
+                resLayer->setProperty("snoopy_h5_path",
+                                      QFileInfo(h5Path).absoluteFilePath());
                 resLayer->setSource(std::move(h5Src));
                 // Outputs inherit the model's CRS so the
                 // Properties window shows a real CRS and any
@@ -6770,8 +6775,30 @@ void SWMMVis::onRunSimulation()
                     std::vector<double>(vz.begin(), vz.end()),
                     std::move(tris));
 
-                auto *layer = new SWMM2DResultsLayer(
-                    QStringLiteral("2D Results (live)"), nullptr);
+                // One results layer per file: a rerun OVERWRITES the .h5, so
+                // reuse any existing 2D results layer already pointing at it
+                // (auto-loaded at project open, or left by the previous run)
+                // instead of stacking a duplicate — mirrors the 1D .out
+                // reuse in the finished handler.
+                const QString h5Canon = h5Path.isEmpty()
+                    ? QString()
+                    : QFileInfo(h5Path).absoluteFilePath();
+                SWMM2DResultsLayer *layer = nullptr;
+                for (OpenSWMMVisLayer *l : pwGuard->canvas()->layers()) {
+                    auto *r2d = qobject_cast<SWMM2DResultsLayer *>(l);
+                    if (!r2d) continue;
+                    const QString lp =
+                        r2d->property("snoopy_h5_path").toString();
+                    const QString lpCanon = lp.isEmpty()
+                        ? QString() : QFileInfo(lp).absoluteFilePath();
+                    if (lpCanon == h5Canon) { layer = r2d; break; }
+                }
+                const bool freshlyCreated = (layer == nullptr);
+                if (freshlyCreated)
+                    layer = new SWMM2DResultsLayer(
+                        QStringLiteral("2D Results (live)"), nullptr);
+                else
+                    layer->setName(QStringLiteral("2D Results (live)"));
                 layer->setSource(std::move(source));
                 // Outputs inherit the model's CRS so the Properties
                 // window shows a real CRS for the live results layer.
@@ -6781,7 +6808,7 @@ void SWMMVis::onRunSimulation()
                         /*ownsSRS=*/true);
                 // Stash h5 path on object property so the finished handler
                 // can pick it up without an extra connect-time capture.
-                layer->setProperty("snoopy_h5_path", h5Path);
+                layer->setProperty("snoopy_h5_path", h5Canon);
 
                 // Honour the engine's [2D_OPTIONS] DRY_DEPTH so the GUI
                 // threshold matches what the solver considers wet — without
@@ -6798,7 +6825,8 @@ void SWMMVis::onRunSimulation()
                     }
                 }
 
-                pwGuard->canvas()->addLayer(layer, false);
+                if (freshlyCreated)
+                    pwGuard->canvas()->addLayer(layer, false);
                 self->mActive2DResultsLayers.insert(twoDJobId, layer);
 
                 // The live 2D run is an explicit user action — make it the
