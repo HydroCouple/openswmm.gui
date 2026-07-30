@@ -19,6 +19,7 @@
 
 class QCheckBox;
 class QComboBox;
+class QGroupBox;
 class QDateEdit;
 class QDateTimeEdit;
 class QDoubleSpinBox;
@@ -449,12 +450,17 @@ private:
     QPushButton    *m_hotstartSavesDownBtn   = nullptr;
 
 #ifdef OPENSWMM_HAS_2D
-    // Tab 6 — 2D Surface Routing (CVODE / mesh / coupling / linear solver)
-    QDoubleSpinBox *m_cvodeMaxStepSpin  = nullptr;
-    QDoubleSpinBox *m_cvodeMinStepSpin  = nullptr;
-    QDoubleSpinBox *m_cvodeRelTolSpin   = nullptr;
-    QDoubleSpinBox *m_cvodeAbsTolSpin   = nullptr;
-    QSpinBox       *m_cvodeMaxStepsSpin = nullptr;
+    // Tab 6 — 2D Surface Routing (time stepping / marcher / mesh / closure /
+    // coupling / rainfall). The explicit local-inertial marcher is the only
+    // 2D integrator (D2 retirement of the CVODE/ARKODE stack, 2026-07-29).
+    QDoubleSpinBox *m_maxTimestepSpin   = nullptr;
+    QGroupBox      *m_marcherGroup      = nullptr;
+    QDoubleSpinBox *m_thetaSpin         = nullptr;
+    QDoubleSpinBox *m_cflNumberSpin     = nullptr;
+    QSpinBox       *m_ltsTiersSpin      = nullptr;
+    QDoubleSpinBox *m_hMoveSpin         = nullptr;
+    QDoubleSpinBox *m_froudeMaxSpin     = nullptr;
+    QCheckBox      *m_couplingAreaAutoBox = nullptr;
     QDoubleSpinBox *m_dryDepthSpin      = nullptr;
     QDoubleSpinBox *m_limiterEpsSpin    = nullptr;
     QDoubleSpinBox *m_fluxDhEpsSpin     = nullptr;
@@ -462,11 +468,6 @@ private:
     QComboBox      *m_faceReconCombo    = nullptr;
     QDoubleSpinBox *m_vfrMinWetFracSpin = nullptr;
     QDoubleSpinBox *m_couplingCdSpin    = nullptr;
-    QComboBox      *m_couplingIntervalCombo = nullptr;
-    int             m_couplingIntervalRaw   = 0;  ///< Value last read from the model (0/1 both == every step)
-    QComboBox      *m_linearSolverCombo = nullptr;
-    QComboBox      *m_preconditionerCombo = nullptr;
-    QSpinBox       *m_maxKrylovDimSpin  = nullptr;
     QComboBox      *m_rainfall2DModeCombo = nullptr;
     QCheckBox      *m_report2DBox       = nullptr;
 #endif
