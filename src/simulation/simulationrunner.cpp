@@ -547,8 +547,11 @@ void SimulationRunner::start()
                 QString::fromUtf8(swmm_get_last_error_msg(eng)).trimmed();
             const bool cancelled = rawSelf->m_cancel.load();
 
-            // Report + close
-            swmm_engine_report(eng);
+            // Report + close. Skip the report tables for a cancelled run —
+            // on large 2D models swmm_engine_report is seconds of work the
+            // user just asked to abandon, and it made Cancel feel dead.
+            if (!cancelled)
+                swmm_engine_report(eng);
             swmm_engine_close (eng);
             swmm_engine_destroy(eng);
 
