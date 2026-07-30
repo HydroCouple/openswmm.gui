@@ -786,6 +786,28 @@ void AttributeTablePanel::refresh()
         onSelectionManagerChanged(m_selMgr->selection(), {}, {});
 }
 
+void AttributeTablePanel::showLayerSource(OpenSWMMVisLayer *layer)
+{
+    if (!layer) return;
+
+    QString key;
+    if (qobject_cast<GISVectorLayer *>(layer))
+        key = QStringLiteral("gis:%1").arg(layer->layerId());
+    else if (qobject_cast<TabularDataLayer *>(layer))
+        key = QStringLiteral("tab:%1").arg(layer->layerId());
+    if (key.isEmpty())
+        return;   // model / results layer — keep the current SWMM category
+
+    int idx = m_categoryCombo->findData(key);
+    if (idx < 0) {
+        // Layer added since the combo was last rebuilt.
+        refresh();
+        idx = m_categoryCombo->findData(key);
+    }
+    if (idx >= 0)
+        m_categoryCombo->setCurrentIndex(idx);   // fires onCategoryChanged
+}
+
 void AttributeTablePanel::onCategoryChanged(int /*comboIdx*/)
 {
     if (m_categoryCombo->currentIndex() < 0) return;

@@ -58,6 +58,12 @@ public:
      *  on `modelLoaded`. */
     void refresh();
 
+    /*! Switch the source combo to \p layer's entry (a GIS feature layer
+     *  or tabular layer). Model / results layers keep the current SWMM
+     *  category selection — the panel is already bound to the model.
+     *  Called from the layer tree's "Open Attribute Table" action. */
+    void showLayerSource(OpenSWMMVisLayer *layer);
+
     /*! The current selection rendered as TSV: a header line plus one
      *  line per selected row, in the view's current sort and column
      *  order, hidden columns skipped.  Falls back to every *visible*
