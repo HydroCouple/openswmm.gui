@@ -12,6 +12,7 @@
 #include "layers/swmmmodellayer.h"   // Slice BI-MK.LT — kind sub-rows
 #include "layers/swmmresultslayer.h" // Slice OUT.3 — output-layer kind sub-rows
 #include "layers/swmm2dresultslayer.h" // active 2D analysis layer (context menu)
+#include "layers/gisvectorlayer.h"     // zoom retry once async open finishes
 #include "render/attributecandidates.h" // Slice CTX.3 — grey out empty Style items
 #include "render/ifeaturerenderer.h" // Slice CTX.2 — checkmark active style
 // Slice S3 — sublayer-row pattern under ISublayerHost layers without kind rows.
@@ -28,6 +29,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <cmath>
 #include <QByteArray>
 #include <QDataStream>
 #include <QDebug>
@@ -1524,14 +1526,41 @@ void LayerTreePanel::onRemoveSelectedLayer()
 
 void LayerTreePanel::onZoomToSelectedLayer()
 {
-    if (!m_canvas) return;
-    OpenSWMMVisLayer *sel = selectedLayer();
-    if (!sel)
+    zoomToLayer(selectedLayer());
+}
+
+void LayerTreePanel::zoomToLayer(OpenSWMMVisLayer *layer)
+{
+    if (!m_canvas || !layer)
         return;
 
-    const MapExtent ext = m_canvas->layerExtentInCanvasCRS(sel);
-    if (ext.isValid())
+    const MapExtent ext = m_canvas->layerExtentInCanvasCRS(layer);
+    if (ext.isValid()) {
         m_canvas->setExtent(ext);
+        return;
+    }
+
+    // Degenerate-but-real extent (single point, or a purely vertical /
+    // horizontal feature set → zero width or height): pad it so the zoom
+    // still lands on the data instead of silently doing nothing.
+    if (!ext.isNull() &&
+        std::isfinite(ext.xMin()) && std::isfinite(ext.yMin()) &&
+        std::isfinite(ext.xMax()) && std::isfinite(ext.yMax()) &&
+        ext.xMin() <= ext.xMax() && ext.yMin() <= ext.yMax()) {
+        const double span = std::max(ext.width(), ext.height());
+        const double buf  = (span > 0.0) ? span * 0.05 : 25.0;
+        m_canvas->setExtent(MapExtent(ext.xMin() - buf, ext.yMin() - buf,
+                                      ext.xMax() + buf, ext.yMax() + buf));
+        return;
+    }
+
+    // Feature layers open asynchronously — the extent isn't known until the
+    // dataset finishes loading. Retry once when it does.
+    if (auto *gis = qobject_cast<GISVectorLayer *>(layer)) {
+        connect(gis, &GISVectorLayer::openFinished, this,
+                [this, gis](bool ok) { if (ok) zoomToLayer(gis); },
+                static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+    }
 }
 
 void LayerTreePanel::onMoveLayerUp()
@@ -1868,6 +1897,7 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     const bool  isResults   = (qobject_cast<SWMMResultsLayer *>(layer) != nullptr);
     const bool  hasAttrTable = isVector
                             || ltype == OpenSWMMVisLayer::SWMMModelLayer
+                            || ltype == OpenSWMMVisLayer::SWMMTabularDataLayer
                             || isResults;
 
     // Group 1 — navigation
@@ -1879,8 +1909,7 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
 
     // Group 2 — data inspection
     QAction *actAttrTable = menu.addAction(tr("Open Attribute Table"));
-    actAttrTable->setEnabled(false);                // pending feature
-    Q_UNUSED(hasAttrTable);
+    actAttrTable->setEnabled(hasAttrTable);
     QAction *actFeatureCount = menu.addAction(tr("Show Feature Count"));
     actFeatureCount->setEnabled(false);             // pending feature
     auto *results2D = qobject_cast<SWMM2DResultsLayer *>(layer);
@@ -1960,7 +1989,8 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
 
     QAction *picked = menu.exec(m_treeView->viewport()->mapToGlobal(pos));
     if (!picked) return;
-    if      (picked == actZoom)        onZoomToSelectedLayer();
+    if      (picked == actZoom)        zoomToLayer(layer);
+    else if (picked == actAttrTable)   emit attributeTableRequested(layer);
     else if (picked == actProps)       emit layerPropertiesRequested(layer);
     else if (picked == actEditSymbology) emit layerPropertiesRequested(layer);   // same dialog, Symbology tab focused
     else if (actPlotTS && picked == actPlotTS)

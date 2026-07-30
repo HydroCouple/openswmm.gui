@@ -275,6 +275,13 @@ signals:
     void layerPropertiesRequested(OpenSWMMVisLayer *layer);
 
     /*!
+     * \brief Emitted when the user picks "Open Attribute Table" on a layer's
+     *        context menu. SWMMVis raises the Attribute Table dock and
+     *        switches its source to \p layer.
+     */
+    void attributeTableRequested(OpenSWMMVisLayer *layer);
+
+    /*!
      * \brief Emitted when the user picks "Set Style…" on a layer's context
      *        menu. SWMMVis listens and opens the SymbologyDialog — same
      *        path as the animation-toolbar's Set Style action.
@@ -346,6 +353,7 @@ private slots:
 
 private:
     void setupUi();
+    void zoomToLayer(OpenSWMMVisLayer *layer);
     QModelIndex toSourceIndex(const QModelIndex &proxyIdx) const;
 
     MapCanvas             *m_canvas      = nullptr;

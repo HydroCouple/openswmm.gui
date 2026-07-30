@@ -591,7 +591,8 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
 
 bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
                                       SWMMVisProjectWindow *pw,
-                                      const QString &oswpFile)
+                                      const QString &oswpFile,
+                                      QStringList *warningsOut)
 {
     if (!pw) return false;
 
@@ -773,7 +774,12 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
             const QString relPath = v.toString();
             if (relPath.isEmpty()) continue;
             const QString absPath = resolveStoredPath(relPath, oswpFile);
-            if (!QFile::exists(absPath)) continue;
+            if (!QFile::exists(absPath)) {
+                if (warningsOut)
+                    *warningsOut << QObject::tr(
+                        "Results file not found — layer skipped: %1").arg(absPath);
+                continue;
+            }
             auto *rl = new SWMMResultsLayer(absPath, pw->modelLayer());
             rl->setName(QFileInfo(absPath).fileName());
 
@@ -1027,7 +1033,8 @@ bool ProjectSerializer::saveToFile(const QString &oswpPath,
 
 bool ProjectSerializer::applyFromFile(const QString &oswpPath,
                                        SWMMVisProjectWindow *pw,
-                                       QString *errorOut)
+                                       QString *errorOut,
+                                       QStringList *warningsOut)
 {
     auto setErr = [&](const QString &m) { if (errorOut) *errorOut = m; };
     if (oswpPath.isEmpty()) { setErr(QObject::tr("Empty .oswp path")); return false; }
@@ -1078,7 +1085,7 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
     auto *canvas = pw->canvas();
 
     if (layer) {
-        applySession(sessionObj, pw, oswpPath);
+        applySession(sessionObj, pw, oswpPath, warningsOut);
     } else if (sessionObj.contains(kEngineVersion)) {
         // No layer yet but engineVersion still useful.
         pw->setEngineVersion(sessionObj.value(kEngineVersion).toString("6.0.0"));
@@ -1120,7 +1127,7 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
     if (canvas) {
         const QJsonArray gisArr = root.value(kGisLayers).toArray();
         for (const QJsonValue &v : gisArr)
-            deserializeGisLayer(v.toObject(), canvas, oswpPath);
+            deserializeGisLayer(v.toObject(), canvas, oswpPath, warningsOut);
     }
 
     return true;
@@ -1254,13 +1261,23 @@ QJsonObject ProjectSerializer::serializeGisLayer(OpenSWMMVisLayer *layer,
 
 void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj,
                                             MapCanvas *canvas,
-                                            const QString &oswpPath)
+                                            const QString &oswpPath,
+                                            QStringList *warningsOut)
 {
     if (!canvas) return;
     const QString type = obj.value(kGisType).toString();
     const QString rel  = obj.value(kGisPath).toString();
     if (rel.isEmpty()) return;
     const QString path = resolveStoredPath(rel, oswpPath);
+    if (!QFile::exists(path)) {
+        if (warningsOut)
+            *warningsOut << QObject::tr(
+                "%1 layer file not found — layer skipped: %2")
+                   .arg(type == QStringLiteral("raster")
+                            ? QObject::tr("Raster") : QObject::tr("Vector"),
+                        path);
+        return;
+    }
 
     const QString name    = obj.value(kGisName).toString();
     const bool    visible = obj.value(kGisVisible).toBool(true);
