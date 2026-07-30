@@ -1820,6 +1820,15 @@ void SWMMVis::initializeLayersDockWidget()
                                   QStringLiteral("layer-style-apply"));
             });
 
+    // Right-click "Open Attribute Table" on a layer row → raise the
+    // Attribute Table dock and switch its source to that layer.
+    connect(mLayerTreePanel, &LayerTreePanel::attributeTableRequested,
+            this, [this](OpenSWMMVisLayer *layer) {
+                if (!mAttributeTablePanel) return;
+                onTabularView();   // show + raise the dock, focus the table
+                mAttributeTablePanel->showLayerSource(layer);
+            });
+
     // Slice S1 — Layer-row "Set Style…" now routes to the unified
     // LayerStyleDialog instead of the legacy SymbologyDialog. Same dialog
     // every other "Properties…" entry point opens.
@@ -4470,7 +4479,11 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
             QElapsedTimer sidecarTimer;
             sidecarTimer.start();
             QString sidecarErr;
-            const bool sidecarOk = ProjectSerializer::applyFromFile(oswp, window, &sidecarErr);
+            QStringList sidecarWarnings;
+            const bool sidecarOk = ProjectSerializer::applyFromFile(
+                oswp, window, &sidecarErr, &sidecarWarnings);
+            for (const QString &w : std::as_const(sidecarWarnings))
+                onLogMessage(w, OpenSWMMVisLogMessage::LogMessageType::Warning);
             qCInfo(lcLoadProject).noquote()
                 << QStringLiteral("sidecar apply %1: %2 in %3 ms")
                        .arg(QFileInfo(oswp).fileName(),
