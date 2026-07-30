@@ -142,18 +142,10 @@ LINKS      ALL
 
 [2D_OPTIONS]
 ;;Parameter             Value      ;; Notes
-MAX_TIMESTEP            10.0       ;; Max CVODE internal step (s)
-MIN_TIMESTEP            0.001      ;; Min CVODE internal step (s)
-REL_TOLERANCE           1.0e-4     ;; CVODE relative tolerance
-ABS_TOLERANCE           1.0e-6     ;; CVODE absolute tolerance (m of depth)
+MAX_TIMESTEP            10.0       ;; Max explicit-marcher step (s)
 DRY_DEPTH               0.001      ;; Wet/dry threshold (m)
 LIMITER_EPSILON         1.0e-6     ;; Jawahar-Kamath slope-limiter ε
 COUPLING_CD             0.65       ;; Default discharge coefficient (overridden per-row below)
-LINEAR_SOLVER           GMRES      ;; GMRES (wired); BICGSTAB / TFQMR reserved
-PRECONDITIONER          JACOBI     ;; NONE | JACOBI (wired); ILU reserved
-MAX_KRYLOV_DIM          30         ;; Max Krylov subspace dim
-MAX_CVODE_STEPS         500        ;; Max CVODE steps per advance call
-COUPLING_INTERVAL       0          ;; 0 = couple every SWMM routing step
 REPORT_2D               YES        ;; Toggle 2D reporting
 OUTPUT_FILE             2d_complete_example.h5   ;; HDF5 output (relative to this .inp)
 
