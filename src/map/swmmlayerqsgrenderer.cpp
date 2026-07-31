@@ -14,6 +14,7 @@
 #include "core/preferencesmanager.h"
 #include "layers/swmmmodellayer.h"
 #include "render/markershape.h"
+#include "render/qsgpremultiply.h"
 
 #include <QDebug>
 #include <QElapsedTimer>
@@ -33,6 +34,8 @@
 // Lightweight frame-time sampler — active only when SWMMVIS_RENDER_PERF is set.
 // ---------------------------------------------------------------------------
 namespace {
+
+using OpenSWMM::Render::premul;
 
 constexpr int kReportInterval = 60;
 
@@ -998,9 +1001,10 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 const QColor fc = m_layer->featureColor(SWMMModelLayer::CatSubcatchments, i);
                 const QColor cc = fc.isValid() ? fc : catchDef;
                 const qreal ckop = m_layer->categoryOpacity(SWMMModelLayer::CatSubcatchments);
-                const uchar fR=uchar(cc.red()), fG=uchar(cc.green()),
-                            fB=uchar(cc.blue()),
-                            fA=uchar(ckop < 1.0 ? cc.alpha() * ckop : cc.alpha());
+                const uchar fA=uchar(ckop < 1.0 ? cc.alpha() * ckop : cc.alpha());
+                const uchar fR=premul(uchar(cc.red()), fA),
+                            fG=premul(uchar(cc.green()), fA),
+                            fB=premul(uchar(cc.blue()), fA);
                 for (int idx : tris) {
                     QSGGeometry::ColoredPoint2D p;
                     p.x=float(poly[idx].x()-ox); p.y=float(poly[idx].y()-oy);
@@ -1152,10 +1156,12 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     const qreal kop = m_layer->categoryOpacity(cat);
                     if (kop < 1.0 && c.isValid())
                         c.setAlphaF(c.alphaF() * kop);
+                    const uchar aa = uchar(c.alpha());
                     return ArrowStyle{ s.showArrows, s.arrowOnlyWhenFlowPos,
                                        float(s.arrowSize * invView),
-                                       uchar(c.red()), uchar(c.green()),
-                                       uchar(c.blue()), uchar(c.alpha()) };
+                                       premul(uchar(c.red()), aa),
+                                       premul(uchar(c.green()), aa),
+                                       premul(uchar(c.blue()), aa), aa };
                 };
                 astyle[0]=buildA(m_layer->conduitSymbol(), kLinkCat[0]);
                 astyle[1]=buildA(m_layer->pumpSymbol(),    kLinkCat[1]);
@@ -1208,9 +1214,10 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 const QColor lc = fc.isValid() ? fc : lstyle[lt].color;
                 const float  hw = lstyle[lt].hw;   // per-type line half-width
                 const qreal lkop = m_layer->categoryOpacity(kLinkCat[lt]);  // per-kind opacity
-                const uchar lR=uchar(lc.red()), lG=uchar(lc.green()),
-                            lB=uchar(lc.blue()),
-                            lA=uchar(lkop < 1.0 ? lc.alpha() * lkop : lc.alpha());
+                const uchar lA=uchar(lkop < 1.0 ? lc.alpha() * lkop : lc.alpha());
+                const uchar lR=premul(uchar(lc.red()), lA),
+                            lG=premul(uchar(lc.green()), lA),
+                            lB=premul(uchar(lc.blue()), lA);
                 const double *p=flat.data()+size_t(offsets[i])*2;
                 const bool sel=i<lSel.size()&&lSel[i];
                 for (uint32_t j=1; j<cnt; ++j) {
@@ -1332,7 +1339,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if (size_t(i)<nSel.size()&&nSel[i]) {
                     cR=selR; cG=selG; cB=selB; cA=selA;
                 }
-                appendNodeGlyphTrianglesColored(*bucket,fx,fy,r,shape,cR,cG,cB,cA);
+                appendNodeGlyphTrianglesColored(*bucket,fx,fy,r,shape,
+                    premul(cR,cA),premul(cG,cA),premul(cB,cA),cA);
             }
             uploadColoredVerts(junctionsBase,junc);
             uploadColoredVerts(outfallsBase, outf);
@@ -1387,9 +1395,13 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     if (!c.isValid()) c = gFill;
                     if (gKop < 1.0) c.setAlphaF(c.alphaF() * gKop);
                     const float fx=float(p.x()-ox), fy=float(p.y()-oy);
-                    appendNodeGlyphTrianglesColored(base,fx,fy,r,gShape,
-                        uchar(c.red()),uchar(c.green()),
-                        uchar(c.blue()),uchar(c.alpha()));
+                    {
+                        const uchar ga = uchar(c.alpha());
+                        appendNodeGlyphTrianglesColored(base,fx,fy,r,gShape,
+                            premul(uchar(c.red()),ga),
+                            premul(uchar(c.green()),ga),
+                            premul(uchar(c.blue()),ga),ga);
+                    }
                     if (size_t(i)<gSel.size()&&gSel[i])
                         appendGageTriangles(sel,fx,fy,r,gShape);  // §QSG-3 — same size as base
                 }
@@ -1525,7 +1537,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if (pxR < 1.0f) continue;
                 appendNodeGlyphTrianglesColored(sel,
                     float(p.x()-ox),float(p.y()-oy),pxR*invView,shape,
-                    selR,selG,selB,selA);
+                    premul(selR,selA),premul(selG,selA),premul(selB,selA),selA);
             }
             uploadColoredVerts(nodesSel, sel);
         }

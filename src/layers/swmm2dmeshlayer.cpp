@@ -285,8 +285,11 @@ public:
             fillClassified ? fillScheme.levelEdges(zMin, zMax, {})
                            : QVector<double>{};
 
+        // \p ca — the class colour's own alpha (255 for continuous ramps and
+        // the flat fill): a fully transparent classified class must vanish.
         auto fillColor = [&](const SWMM2DMeshLayer::SceneTri &t,
-                             int &cr, int &cg, int &cb) {
+                             int &cr, int &cg, int &cb, int &ca) {
+            ca = 255;
             if (hasElev && useRampFill) {
                 if (fillSchemeDrives) {
                     const QColor sc = fillClassified
@@ -296,6 +299,7 @@ public:
                               fillScheme.classCount())
                         : fillScheme.colorForValue(double(t.zAvg), zMin, zMax);
                     cr = sc.red(); cg = sc.green(); cb = sc.blue();
+                    if (fillClassified) ca = sc.alpha();
                 } else {
                     elevationColorRgb((t.zAvg - zMin) / zRange, cr, cg, cb);
                 }
@@ -320,9 +324,10 @@ public:
 
         // ---- Pass 1: filled triangles (MeshFillSublayer) ---------------------
         if (fillVisible && useLod) {
-            const int fa = qBound(0, int(fillAlpha * fillOpacity + 0.5), 255);
             auto drawTri = [&](const SWMM2DMeshLayer::SceneTri &t) {
-                int cr, cg, cb; fillColor(t, cr, cg, cb);
+                int cr, cg, cb, ca; fillColor(t, cr, cg, cb, ca);
+                const int fa = qBound(0,
+                    int(fillAlpha * fillOpacity * (ca / 255.0) + 0.5), 255);
                 p->setBrush(QColor(cr, cg, cb, fa));
                 const QPointF pts[3] = {t.a, t.b, t.c};
                 p->drawConvexPolygon(pts, 3);
@@ -359,13 +364,14 @@ public:
             }
         }
         else if (fillVisible) {
-            const int fa = qBound(0, int(fillAlpha * fillOpacity + 0.5), 255);
             for (int i = 0; i < triCount; ++i) {
                 const SWMM2DMeshLayer::SceneTri &t =
                     useTriIdx ? tris[visibleTris[i]] : tris[i];
 
-                int cr, cg, cb;
-                fillColor(t, cr, cg, cb);   // style-driven; same math as LOD pass
+                int cr, cg, cb, ca;
+                fillColor(t, cr, cg, cb, ca);   // style-driven; same math as LOD pass
+                const int fa = qBound(0,
+                    int(fillAlpha * fillOpacity * (ca / 255.0) + 0.5), 255);
 
                 p->setBrush(QColor(cr, cg, cb, fa));
                 const QPointF pts[3] = {t.a, t.b, t.c};
@@ -379,7 +385,7 @@ public:
         // convex polygon per (triangle, band). Off by default.
         if (hasElev && bandsVisible) {
             const auto *bandStyle = bandSub->bandStyle();
-            const int   bandAlpha = qBound(0, int(bandSub->opacity() * 255.0 + 0.5), 255);
+            const qreal bandOp    = qBound(0.0, bandSub->opacity(), 1.0);
 
             // At far zoom run marching-triangles over the coarse overview so
             // enabling bands on a multi-million-triangle mesh stays affordable.
@@ -426,7 +432,10 @@ public:
                 QColor col = bandStyle
                     ? bandStyle->colorForBand(idx, nBands)
                     : OpenSWMM::Contour::viridisAt((double(idx) + 0.5) / double(nBands));
-                col.setAlpha(bandAlpha);
+                // Multiply, don't overwrite: the band colour's own alpha (a
+                // fully transparent class must vanish) composes with the
+                // sublayer opacity slider.
+                col.setAlphaF(col.alphaF() * bandOp);
                 p->setBrush(col);
                 QPolygonF poly;
                 poly.reserve(int(bp.verts.size()));

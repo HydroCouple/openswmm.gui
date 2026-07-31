@@ -62,6 +62,19 @@ public:
             p->fillRect(opt.rect, opt.palette.highlight());
         QRect inner = opt.rect.adjusted(4, 4, -4, -4);
         if (c.isValid()) {
+            // Checkered background so users can see transparency (same
+            // pattern as ColorButton::paintEvent).
+            if (c.alpha() < 255) {
+                p->fillRect(inner, QColor(220, 220, 220));
+                const int cell = 4;
+                for (int y = inner.top(); y < inner.bottom(); y += cell) {
+                    for (int x = inner.left(); x < inner.right(); x += cell) {
+                        if (((x / cell) + (y / cell)) & 1)
+                            p->fillRect(QRect(x, y, cell, cell),
+                                        QColor(255, 255, 255));
+                    }
+                }
+            }
             p->setBrush(c);
             p->setPen(QPen(QColor(60, 60, 60), 0.8));
             p->drawRoundedRect(inner, 3, 3);
