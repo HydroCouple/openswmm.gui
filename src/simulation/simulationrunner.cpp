@@ -547,16 +547,22 @@ void SimulationRunner::start()
                 QString::fromUtf8(swmm_get_last_error_msg(eng)).trimmed();
             const bool cancelled = rawSelf->m_cancel.load();
 
-            // Report + close. Skip the report tables for a cancelled run —
-            // on large 2D models swmm_engine_report is seconds of work the
-            // user just asked to abandon, and it made Cancel feel dead.
-            if (!cancelled)
-                swmm_engine_report(eng);
+            // Report + close. A cancelled run still writes the report —
+            // swmm_engine_end has finalized the stats up to the stop point,
+            // so the summary tables cover the simulated span, and closing
+            // the report properly suppresses the plugin's "[Report
+            // interrupted]" footer. (Skipping it made Cancel feel snappier
+            // on big 2D models but threw away everything the run had
+            // computed.)
+            swmm_engine_report(eng);
             swmm_engine_close (eng);
             swmm_engine_destroy(eng);
 
             if (cancelled)
-                return {false, 0, QStringLiteral("Cancelled"), runoffErr, routingErr, twoDErr};
+                return {false, 0,
+                        QStringLiteral("Cancelled — report written up to the "
+                                       "stop point"),
+                        runoffErr, routingErr, twoDErr};
 
             if (lastErr != SWMM_OK) {
                 const QString msg = !lastErrMsg.isEmpty()
