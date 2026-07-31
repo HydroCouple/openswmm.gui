@@ -147,6 +147,16 @@ MeshResult MeshGenerator::generate() const
     // SWMM-side tag (junction id, conduit id) is more specific than the
     // generic "boundary" label.
     constexpr int kBoundaryMarker = 1;
+    {
+        // Upper bound on unique input points: every domain vertex, Steiner
+        // point, and constraint-path vertex (dedupe only shrinks it).
+        qsizetype estPts = m_steiners.size();
+        for (const QPolygonF &dom : m_domains) estPts += dom.size();
+        for (const ConstraintSegment &cs : m_segments) estPts += cs.path.size();
+        points.reserve(estPts);
+        pointMarkers.reserve(estPts);
+        pointIndex.reserve(estPts);
+    }
     auto pushPoint = [&](const QPointF &xy, int marker) {
         const qint64 qx = qRound64(xy.x() * 1e7);
         const qint64 qy = qRound64(xy.y() * 1e7);
@@ -174,6 +184,11 @@ MeshResult MeshGenerator::generate() const
     //    independent boundary; the unmeshed exterior between rings is
     //    automatically excluded by the PSLG topology.
     QVector<QPair<int, int>> domSegments;  // (v0, v1) pairs to add to segmentlist
+    {
+        qsizetype estDomSegs = 0;
+        for (const QPolygonF &dom : m_domains) estDomSegs += dom.size();
+        domSegments.reserve(estDomSegs);
+    }
     for (const QPolygonF &dom : m_domains)
     {
         const int domN = dom.size();
@@ -222,6 +237,12 @@ MeshResult MeshGenerator::generate() const
     // 3) Constraint segments — push every polyline vertex; record segments.
     QVector<QPair<int, int>> userSegments;
     QVector<int>             userSegmentMarkers;
+    {
+        qsizetype estUserSegs = 0;
+        for (const ConstraintSegment &cs : m_segments) estUserSegs += cs.path.size();
+        userSegments.reserve(estUserSegs);
+        userSegmentMarkers.reserve(estUserSegs);
+    }
     for (const ConstraintSegment &cs : m_segments)
     {
         if (cs.path.size() < 2) continue;
@@ -248,12 +269,17 @@ MeshResult MeshGenerator::generate() const
     {
         auto stripZeroLen = [](QVector<QPair<int,int>> &segs,
                                QVector<int>             &markers) {
-            for (int i = segs.size() - 1; i >= 0; --i)
-                if (segs[i].first == segs[i].second)
-                {
-                    segs.removeAt(i);
-                    if (i < markers.size()) markers.removeAt(i);
-                }
+            // Single-pass compaction; segs and markers stay in lockstep.
+            int w = 0;
+            for (int i = 0; i < segs.size(); ++i)
+            {
+                if (segs[i].first == segs[i].second) continue;
+                segs[w]    = segs[i];
+                markers[w] = markers[i];
+                ++w;
+            }
+            segs.resize(w);
+            markers.resize(w);
         };
         QVector<int> domMarkers(domSegments.size(), kBoundaryMarker);
         stripZeroLen(domSegments, domMarkers);

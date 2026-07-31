@@ -496,6 +496,9 @@ set(
         include/mesh/meshenginesync.h
         include/mesh/meshedgebc.h
         include/mesh/meshgenerator.h
+        include/mesh/meshreorder.h
+        include/mesh/meshstagecache.h
+        include/mesh/pslgprep.h
         include/mesh/meshhoverprobe.h
         include/mesh/meshobjectref.h
         include/mesh/meshresult.h
@@ -1053,6 +1056,9 @@ set(
         src/mesh/meshcellstats.cpp
         src/mesh/meshenginesync.cpp
         src/mesh/meshgenerator.cpp
+        src/mesh/meshreorder.cpp
+        src/mesh/meshstagecache.cpp
+        src/mesh/pslgprep.cpp
         src/mesh/trirefinehook.cpp
         src/mesh/meshhoverprobe.cpp
         src/mesh/meshnodemapper.cpp
