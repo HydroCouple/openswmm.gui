@@ -28,6 +28,23 @@ namespace openswmmvis::platform {
  *  Only defined on macOS — callers must guard the call with Q_OS_MACOS. */
 void attachAsChildWindow(QWidget *dialog);
 
+/*! \brief Detach \p dialog from its parent NSWindow (inverse of
+ *  attachAsChildWindow).
+ *
+ *  AppKit requires a child window to be removed from its parent *before* it
+ *  is ordered out or closed — Qt's cocoa backend knows nothing about the
+ *  attachment and calls orderOut:/close directly, which leaves the parent
+ *  window with a stale child registration (phantom click-eating regions,
+ *  broken key-window routing). Call this when the dialog is about to hide or
+ *  close. If the dialog is already hidden (detach arrived after Qt's
+ *  orderOut:), the window is ordered out again after detaching so it can't
+ *  linger on screen glued to the parent.
+ *
+ *  Idempotent. No-op when \p dialog is not a window, has no realised native
+ *  window, or is not currently attached. Only defined on macOS — callers
+ *  must guard the call with Q_OS_MACOS. */
+void detachFromParentWindow(QWidget *dialog);
+
 } // namespace openswmmvis::platform
 
 #endif // OPENSWMMVIS_PLATFORM_MACOSWINDOWUTILS_H
