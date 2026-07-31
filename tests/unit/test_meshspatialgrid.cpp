@@ -184,10 +184,11 @@ TEST(MeshSpatialGrid, BboxSpanningManyCellsDedupedToOnce)
 TEST(MeshSpatialGrid, InvalidBboxesAreIgnoredButPreserveIndexing)
 {
     QVector<QRectF> bboxes;
-    bboxes.append(QRectF(QPointF(0, 0), QSizeF(1, 1)));     // 0 — valid
-    bboxes.append(QRectF());                                 // 1 — null
-    bboxes.append(QRectF(QPointF(2, 0), QSizeF(-1, -1)));    // 2 — invalid
-    bboxes.append(QRectF(QPointF(3, 0), QSizeF(1, 1)));     // 3 — valid
+    bboxes.append(QRectF(QPointF(0, 0), QSizeF(1, 1)));      // 0 — valid
+    bboxes.append(QRectF(QPointF(1, 0), QSizeF(-1, -1)));    // 1 — negative size
+    bboxes.append(QRectF(QPointF(2, 0),                       // 2 — non-finite
+                         QSizeF(std::nan(""), 1)));
+    bboxes.append(QRectF(QPointF(3, 0), QSizeF(1, 1)));      // 3 — valid
 
     MeshSpatialGrid g;
     g.rebuild(bboxes);
@@ -195,12 +196,38 @@ TEST(MeshSpatialGrid, InvalidBboxesAreIgnoredButPreserveIndexing)
     QVector<int> hits = g.query(QRectF(-1, -1, 6, 4));
     std::sort(hits.begin(), hits.end());
     EXPECT_EQ(hits, (QVector<int>{0, 3}));
+}
 
-    // Invalid indices must not appear in any query.
-    for (int idx : hits) {
-        EXPECT_TRUE(bboxes[idx].isValid())
-            << "Invalid bbox index " << idx << " leaked into result";
-    }
+// ---------------------------------------------------------------------------
+// 5b. Degenerate (zero-area) bboxes are legitimate members: an axis-aligned
+//     mesh edge — the common case along the outer boundary of a generated
+//     rectangular mesh — has a zero-width or zero-height bbox. Dropping
+//     them made the outermost boundary edges unrenderable and unpickable.
+// ---------------------------------------------------------------------------
+TEST(MeshSpatialGrid, DegenerateAxisAlignedBboxesAreIndexed)
+{
+    QVector<QRectF> bboxes;
+    bboxes.append(QRectF(QPointF(0, 0), QPointF(4, 0)));   // 0 — horizontal edge
+    bboxes.append(QRectF(QPointF(0, 0), QPointF(0, 4)));   // 1 — vertical edge
+    bboxes.append(QRectF(QPointF(1, 1), QSizeF(1, 1)));    // 2 — interior box
+
+    MeshSpatialGrid g;
+    g.rebuild(bboxes);
+
+    QVector<int> all = g.query(QRectF(-1, -1, 6, 6));
+    std::sort(all.begin(), all.end());
+    EXPECT_EQ(all, (QVector<int>{0, 1, 2}));
+
+    // A query hugging just the horizontal boundary edge still finds it
+    // (the result is a cell-level candidate superset, so other members
+    // sharing the cell may legitimately appear too).
+    QVector<int> h = g.query(QRectF(2.0, -0.1, 1.0, 0.2));
+    EXPECT_TRUE(h.contains(0));
+
+    // A degenerate (zero-area) QUERY along the vertical edge finds it too —
+    // point/segment picks must not be discarded by QRectF::isEmpty().
+    QVector<int> v = g.query(QRectF(QPointF(0, 1), QPointF(0, 2)));
+    EXPECT_TRUE(v.contains(1));
 }
 
 // ---------------------------------------------------------------------------
@@ -255,17 +282,20 @@ TEST(MeshSpatialGrid, RepeatedQueriesDoNotLeakSeenState)
 }
 
 // ---------------------------------------------------------------------------
-// 8. Empty / invalid query rect — query() must return an empty vector
-//    without touching the seen buffer.
+// 8. Invalid query rect — query() must return an empty vector for
+//    negative-size and non-finite rects. Zero-size (point) queries are
+//    legitimate picks and DO hit — see DegenerateAxisAlignedBboxesAreIndexed.
 // ---------------------------------------------------------------------------
 TEST(MeshSpatialGrid, InvalidQueryReturnsEmpty)
 {
     MeshSpatialGrid g;
     g.rebuild(makeGridOfSmallBoxes(4));
 
-    EXPECT_TRUE(g.query(QRectF()).isEmpty());             // null rect
-    EXPECT_TRUE(g.query(QRectF(0, 0, 0, 0)).isEmpty());   // zero-size
     EXPECT_TRUE(g.query(QRectF(0, 0, -1, -1)).isEmpty()); // negative-size
+    EXPECT_TRUE(g.query(QRectF(QPointF(0, 0),
+                               QSizeF(std::nan(""), 1))).isEmpty());
+    // A point query inside an indexed box hits it.
+    EXPECT_FALSE(g.query(QRectF(0.5, 0.5, 0, 0)).isEmpty());
 }
 
 // ---------------------------------------------------------------------------
