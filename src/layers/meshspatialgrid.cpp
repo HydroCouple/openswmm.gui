@@ -11,6 +11,20 @@
 #include <algorithm>
 #include <cmath>
 
+namespace {
+
+// A rect the grid can index: finite, non-negative extents. Deliberately
+// accepts zero-area rects (axis-aligned edges, point queries) that
+// QRectF::isValid()/isEmpty() would reject.
+inline bool usable(const QRectF &b)
+{
+    return b.width() >= 0.0 && b.height() >= 0.0
+        && std::isfinite(b.left()) && std::isfinite(b.top())
+        && std::isfinite(b.right()) && std::isfinite(b.bottom());
+}
+
+} // namespace
+
 // ---------------------------------------------------------------------------
 // rebuild — sizes the grid from the bbox set's united extent, then walks
 // the bbox list twice to build the CSR occupancy table.
@@ -32,17 +46,34 @@ void MeshSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
     // still giving the index meaningful resolution. Pathologically skewed
     // bbox distributions (one giant box + many tiny ones) get clamped
     // later by the (cols * rows) cap.
+    //
+    // Degenerate (zero-width or zero-height) bboxes are LEGITIMATE members:
+    // an axis-aligned mesh edge — the common case on the outer boundary of
+    // a generated rectangular mesh — has a zero-area bbox. QRectF::isValid()
+    // rejects those, and QRectF::united() ignores empty rects, so this
+    // function must not use either: doing so silently dropped every
+    // axis-aligned edge from the index (unrenderable and unpickable).
     bool seeded = false;
+    double minX = 0.0, minY = 0.0, maxX = 0.0, maxY = 0.0;
     QVector<double> diagonals;
     diagonals.reserve(bboxes.size());
     for (const QRectF &b : bboxes) {
-        if (!b.isValid()) continue;
-        if (!seeded) { extent = b; seeded = true; }
-        else         { extent = extent.united(b); }
+        if (!usable(b)) continue;
+        if (!seeded) {
+            minX = b.left();  maxX = b.right();
+            minY = b.top();   maxY = b.bottom();
+            seeded = true;
+        } else {
+            minX = std::min(minX, b.left());
+            maxX = std::max(maxX, b.right());
+            minY = std::min(minY, b.top());
+            maxY = std::max(maxY, b.bottom());
+        }
         const double diag = std::hypot(b.width(), b.height());
         if (diag > 0.0) diagonals.append(diag);
     }
     if (!seeded || diagonals.isEmpty()) return;
+    extent = QRectF(QPointF(minX, minY), QPointF(maxX, maxY));
 
     std::nth_element(diagonals.begin(),
                      diagonals.begin() + diagonals.size() / 2,
@@ -81,7 +112,7 @@ void MeshSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
     };
 
     for (const QRectF &b : bboxes) {
-        if (!b.isValid()) continue;
+        if (!usable(b)) continue;
         int cx0, cx1, cy0, cy1;
         cellRange(b, cx0, cx1, cy0, cy1);
         for (int cy = cy0; cy <= cy1; ++cy)
@@ -105,7 +136,7 @@ void MeshSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
 
     for (int i = 0; i < bboxes.size(); ++i) {
         const QRectF &b = bboxes[i];
-        if (!b.isValid()) continue;
+        if (!usable(b)) continue;
         int cx0, cx1, cy0, cy1;
         cellRange(b, cx0, cx1, cy0, cy1);
         for (int cy = cy0; cy <= cy1; ++cy)
@@ -139,16 +170,21 @@ void MeshSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
 QVector<int> MeshSpatialGrid::query(const QRectF &rect) const
 {
     QVector<int> out;
-    if (cellOffsets.isEmpty() || !rect.isValid() || rect.isEmpty())
+    if (cellOffsets.isEmpty() || !usable(rect))
         return out;
 
-    const QRectF q = rect.intersected(extent);
-    if (q.isEmpty()) return out;
+    // Degenerate (zero-area) query rects are legitimate — a point pick or a
+    // query along an axis-aligned edge. QRectF::intersected()/isEmpty()
+    // discard them, so reject fully-disjoint rects manually and let the
+    // clamps below bound the cell walk.
+    if (rect.right()  < extent.left() || rect.left() > extent.right()
+        || rect.bottom() < extent.top() || rect.top() > extent.bottom())
+        return out;
 
-    const int cx0 = std::clamp(int(std::floor((q.left()   - extent.left()) / cellW)), 0, cols - 1);
-    const int cx1 = std::clamp(int(std::floor((q.right()  - extent.left()) / cellW)), 0, cols - 1);
-    const int cy0 = std::clamp(int(std::floor((q.top()    - extent.top())  / cellH)), 0, rows - 1);
-    const int cy1 = std::clamp(int(std::floor((q.bottom() - extent.top())  / cellH)), 0, rows - 1);
+    const int cx0 = std::clamp(int(std::floor((rect.left()   - extent.left()) / cellW)), 0, cols - 1);
+    const int cx1 = std::clamp(int(std::floor((rect.right()  - extent.left()) / cellW)), 0, cols - 1);
+    const int cy0 = std::clamp(int(std::floor((rect.top()    - extent.top())  / cellH)), 0, rows - 1);
+    const int cy1 = std::clamp(int(std::floor((rect.bottom() - extent.top())  / cellH)), 0, rows - 1);
 
     // Bump the epoch — any entry in `seen` not equal to the new value is
     // "not yet visited by this query". O(1) reset. On wrap (every ~4B
