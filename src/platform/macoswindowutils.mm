@@ -49,4 +49,31 @@ void attachAsChildWindow(QWidget *dialog)
     [parentWindow addChildWindow:childWindow ordered:NSWindowAbove];
 }
 
+void detachFromParentWindow(QWidget *dialog)
+{
+    if (!dialog || !dialog->isWindow())
+        return;
+
+    // internalWinId() (unlike winId()) does not force native-window creation —
+    // a dialog that never realised a platform window was never attached.
+    if (!dialog->internalWinId())
+        return;
+
+    NSView *childView = reinterpret_cast<NSView *>(dialog->winId());
+    if (!childView)
+        return;
+
+    NSWindow *childWindow = childView.window;
+    if (!childWindow || !childWindow.parentWindow)
+        return;
+
+    [childWindow.parentWindow removeChildWindow:childWindow];
+
+    // orderOut: on an attached child window is unreliable — if Qt already
+    // hid the widget before this detach ran, re-order-out now that the
+    // window stands alone so it can't stay glued on screen over the parent.
+    if (!dialog->isVisible() && childWindow.visible)
+        [childWindow orderOut:nil];
+}
+
 } // namespace openswmmvis::platform
