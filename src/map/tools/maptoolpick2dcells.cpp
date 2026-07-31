@@ -66,6 +66,7 @@ void MapToolPick2DCells::deactivate()
 {
     m_dragging = false;
     m_drawing  = false;
+    m_pendingRightPlot = false;
     m_lassoMapPts.clear();
     if (m_canvas)
         m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("pick2dcells-deactivate"));
@@ -206,8 +207,9 @@ void MapToolPick2DCells::mousePressEvent(QMouseEvent *event)
                 return;
             }
             // Otherwise right-click plots the current selection (or the cell
-            // under the cursor when nothing is highlighted).
-            requestPlotAt_(event->pos());
+            // under the cursor when nothing is highlighted). Armed here,
+            // fired on release — see m_pendingRightPlot in the header.
+            m_pendingRightPlot = true;
         }
         return;
     }
@@ -251,6 +253,13 @@ void MapToolPick2DCells::mouseMoveEvent(QMouseEvent *event)
 void MapToolPick2DCells::mouseReleaseEvent(QMouseEvent *event)
 {
     if (!m_canvas) return;
+    if (event->button() == Qt::RightButton) {
+        if (m_pendingRightPlot) {
+            m_pendingRightPlot = false;
+            requestPlotAt_(event->pos());
+        }
+        return;
+    }
     if (m_mode != Mode::Box) return;
     if (event->button() != Qt::LeftButton) return;
 
