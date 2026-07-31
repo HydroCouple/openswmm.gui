@@ -11,6 +11,7 @@
 #define SWMMVISPROJECTWINDOW_H
 
 #include <QHash>
+#include <QJsonArray>
 #include <QMdiSubWindow>
 #include <QList>
 #include <QPointF>
@@ -229,6 +230,16 @@ public:
     /*! Set the active 2D results layer. Same contract as the 1D setter. */
     void setActive2DResultsLayer(SWMM2DResultsLayer *layer);
 
+    /*! 2D results restore entries stashed by ProjectSerializer::applySession
+     *  (the .h5 open is asynchronous and runs after the sidecar applies).
+     *  Consumed once by the 2D auto-load; entries carry absolute .h5 paths
+     *  plus the persisted layer settings and sublayer styles. */
+    void setPending2DResultsRestore(const QJsonArray &entries)
+    { mPending2DResultsRestore = entries; }
+    [[nodiscard]] QJsonArray pending2DResultsRestore() const
+    { return mPending2DResultsRestore; }
+    void clearPending2DResultsRestore() { mPending2DResultsRestore = {}; }
+
     /*! Maps each tool pointer to a stable action-object-name key so the
      *  main window can sync toolbar checked states via activeToolChanged. */
     QHash<class OpenSWMMVisMapTool *, QString> toolActionKeys() const;
@@ -425,6 +436,7 @@ private:
     QString              mTempInpPath;                  // owned temp .inp (untitled only)
     QString              mEngineVersion       = "6.0.0";  // Default to newest version
     QString              mNotesHtml;                      // [TITLE] notes (rich HTML)
+    QJsonArray           mPending2DResultsRestore;        // .oswp 2D results entries
 
     OpenSWMMVisMapToolPan         *mPanTool           = nullptr;
     OpenSWMMVisMapToolZoom        *mZoomInTool        = nullptr;
