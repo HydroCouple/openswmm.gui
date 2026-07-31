@@ -128,6 +128,14 @@ private:
     QVector<QPointF>                m_lassoMapPts;     // map coords
     QPoint                          m_cursorPixel;
 
+    // Right-click plot is armed on press but fired on RELEASE: the plot
+    // handler opens a modal popover, and starting a modal session while the
+    // physical button is still down makes AppKit discard the pending
+    // mouse-up for the (now modally blocked) canvas window — Qt's per-view
+    // button state then latches RightButton forever and its implicit grab
+    // redirects every later click app-wide (whole-UI input freeze).
+    bool                            m_pendingRightPlot = false;
+
     QPointer<SWMM2DResultsLayer>    m_targetLayer;
     QPointer<SWMM2DMeshLayer>       m_meshLayer;
     QPointer<SelectionManager>      m_selection;
