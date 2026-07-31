@@ -1546,6 +1546,18 @@ if(APPLE)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${OPENSWMMENGINE_INSTALL_DIR}/bin/libomp.dylib"
                 "${_swmmvis_frameworks}/"
+        # The plugin links Homebrew's libomp by ABSOLUTE path. Left as-is the
+        # process loads TWO libomp runtimes (bundle copy via the engine +
+        # Homebrew copy via the plugin) and libomp aborts the app on its
+        # duplicate-runtime check the moment a big-mesh run loads the plugin.
+        # Rewrite the bundled copy to the bundled libomp; each -change is a
+        # no-op when that source path isn't present (Apple Silicon vs Intel).
+        COMMAND install_name_tool
+                -change /opt/homebrew/opt/libomp/lib/libomp.dylib
+                        @executable_path/../Frameworks/libomp.dylib
+                -change /usr/local/opt/libomp/lib/libomp.dylib
+                        @executable_path/../Frameworks/libomp.dylib
+                "${_swmmvis_frameworks}/libopenswmm_gpu_omp.dylib"
         COMMENT "Bundle GPU plugin (openswmm_gpu_omp) + libomp into SWMMVis.app/Contents/Frameworks"
         VERBATIM
     )
