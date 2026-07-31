@@ -1510,6 +1510,22 @@ QWidget *SimulationOptionsDialog::build2DTab()
     m_couplingCdSpin->setDecimals(4);
     coupForm->addRow(tr("Coupling Cd:"), m_couplingCdSpin);
 
+    m_couplingSyncSpin = new QDoubleSpinBox(coupGroup);
+    m_couplingSyncSpin->setRange(0.0, 60.0);
+    m_couplingSyncSpin->setDecimals(1);
+    m_couplingSyncSpin->setSingleStep(5.0);
+    m_couplingSyncSpin->setSuffix(QStringLiteral(" s"));
+    m_couplingSyncSpin->setSpecialValueText(tr("Every routing step"));
+    m_couplingSyncSpin->setToolTip(
+        tr("How often 1D↔2D exchange volumes are settled (COUPLING_SYNC). "
+           "0 (default) couples every routing step — tightest feedback, "
+           "needed for fast fill-and-spill ponds behind weirs/culverts. "
+           "A batching interval (clamped to [routing step, 60 s]) advances "
+           "the 2D in longer spans and delivers exchange to the 1D spread "
+           "over the following span — much faster on large meshes, but the "
+           "one-span feedback delay can ring on rapidly filling ponds."));
+    coupForm->addRow(tr("Exchange interval:"), m_couplingSyncSpin);
+
     m_couplingAreaAutoBox = new QCheckBox(
         tr("Derive exchange areas automatically (COUPLING_AREA AUTO)"),
         coupGroup);
@@ -1565,6 +1581,7 @@ void SimulationOptionsDialog::read2DFromEngine()
     m_fluxDhEpsSpin    ->setValue(getExt("FLUX_DH_EPS",       "0.004").toDouble(&ok));
     m_vfrMinWetFracSpin->setValue(getExt("VFR_MIN_WET_FRAC",  "0.01").toDouble(&ok));
     m_couplingCdSpin   ->setValue(getExt("COUPLING_CD",       "0.65").toDouble(&ok));
+    m_couplingSyncSpin ->setValue(getExt("COUPLING_SYNC",     "0").toDouble(&ok));
 
     auto selectComboByData = [](QComboBox *c, const QString &data) {
         const int idx = c->findData(data, Qt::UserRole, Qt::MatchFixedString);
@@ -1621,6 +1638,8 @@ int SimulationOptionsDialog::write2DToEngine(int &n)
                    QString::number(m_vfrMinWetFracSpin->value(), 'g', 6));
     writeIfChanged("COUPLING_CD",       getExt("COUPLING_CD"),
                    QString::number(m_couplingCdSpin->value(), 'f', 4));
+    writeIfChanged("COUPLING_SYNC",     getExt("COUPLING_SYNC"),
+                   QString::number(m_couplingSyncSpin->value(), 'g', 6));
     writeIfChanged("RAINFALL_MODE",     getExt("RAINFALL_MODE"),
                    m_rainfall2DModeCombo->currentData().toString());
     writeIfChanged("REPORT_2D",         getExt("REPORT_2D"),
