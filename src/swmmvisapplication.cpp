@@ -154,6 +154,22 @@ SWMMVisApplication::~SWMMVisApplication()
 
 bool SWMMVisApplication::eventFilter(QObject *watched, QEvent *event)
 {
+#ifdef Q_OS_MACOS
+    // Balance attachAsChildWindow: AppKit requires removeChildWindow before a
+    // child window is ordered out or closed, and Qt's cocoa backend doesn't
+    // know about the attachment. Close fires before the platform hide (clean
+    // detach); Hide is the fallback for dialogs hidden without a Close event
+    // (QDialog::done() paths) — detachFromParentWindow re-orders-out in that
+    // case so the window can't linger glued above the main window.
+    if (event->type() == QEvent::Close || event->type() == QEvent::Hide)
+    {
+        if (auto *dlg = qobject_cast<QDialog *>(watched))
+        {
+            if (dlg->isWindow())
+                openswmmvis::platform::detachFromParentWindow(dlg);
+        }
+    }
+#endif
     if (event->type() == QEvent::Show)
     {
         if (auto *dlg = qobject_cast<QDialog *>(watched))
@@ -169,14 +185,15 @@ bool SWMMVisApplication::eventFilter(QObject *watched, QEvent *event)
                 QTimer::singleShot(0, dlg, [dlg]() {
                     dlg->raise();
                     dlg->activateWindow();
-#ifdef Q_OS_MACOS
-                    // Keep modeless dialogs above the app's own windows without
-                    // floating above other applications by making them NSWindow
-                    // child windows of their parent. Modal dialogs are left
-                    // alone (app-modal and short-lived).
-                    if (dlg->windowModality() == Qt::NonModal)
-                        openswmmvis::platform::attachAsChildWindow(dlg);
-#endif
+                    // NOTE: this used to also attach non-modal dialogs as
+                    // native NSWindow child windows of the main window
+                    // (attachAsChildWindow) to keep them stacked above it.
+                    // Qt's cocoa backend knows nothing about AppKit child-
+                    // window links, and the attachment wedged key-window
+                    // routing: after the first non-modal dialog opened, the
+                    // whole app stopped receiving mouse events while the
+                    // event loop sat idle. Plain raise-on-show only; dialogs
+                    // now stack like ordinary macOS windows.
                 });
             }
         }

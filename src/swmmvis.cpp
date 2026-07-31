@@ -5528,10 +5528,15 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
 
     // Slice CF.3 — Pick 2D Cells tool: project window forwards cellsPicked
     // here, and we open / focus the Comparison Plot Dialog seeded with the
-    // selected cells.
+    // selected cells. Queued: the signal is emitted from inside the canvas
+    // tool's mousePressEvent, and openComparisonPlotForCells spins a modal
+    // attribute popover — exec()ing a dialog while the press is still being
+    // delivered swallows the matching release and can wedge Qt's implicit
+    // mouse grab. The hop lets the press/release pair finish first.
     connect(pw, &SWMMVisProjectWindow::pick2DCellsPicked,
             this, &SWMMVis::openComparisonPlotForCells,
-            Qt::UniqueConnection);
+            static_cast<Qt::ConnectionType>(Qt::QueuedConnection |
+                                            Qt::UniqueConnection));
 
     // Trace Profile Path tool: project window forwards the finished polyline.
     // US.A1 — the mesh-toolbar tool draws a BED-ONLY profile; the analysis
