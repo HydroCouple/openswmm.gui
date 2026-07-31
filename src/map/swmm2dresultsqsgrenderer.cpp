@@ -21,6 +21,7 @@
 #include "layers/swmm2dresultslayer.h"
 #include "map/scalarfillmaterial.h"
 #include "render/qsg2drenderstats.h"
+#include "render/qsgpremultiply.h"
 #include "render/scalarramplut.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/isolinesublayer.h"
@@ -64,6 +65,7 @@ using OpenSWMM::Render::Qsg2DLodPolicy;
 using OpenSWMM::Render::Qsg2DRenderStats;
 using OpenSWMM::Render::ScalarRampLut;
 using OpenSWMM::Render::computeContourJob;
+using OpenSWMM::Render::premul;
 
 namespace {
 
@@ -1043,10 +1045,10 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                                       - (levels.begin() + 1));
                         idx = std::clamp(idx, 0, bandCount - 1);
                         const QColor col = bandColor(idx);
-                        const quint8 r = quint8(col.red());
-                        const quint8 g = quint8(col.green());
-                        const quint8 b = quint8(col.blue());
                         const quint8 a = quint8(col.alpha());
+                        const quint8 r = premul(quint8(col.red()), a);
+                        const quint8 g = premul(quint8(col.green()), a);
+                        const quint8 b = premul(quint8(col.blue()), a);
                         for (const QPointF *pt : {&t.a, &t.b, &t.c}) {
                             QSGGeometry::ColoredPoint2D v;
                             v.set(float(pt->x() - ox), float(pt->y() - oy),
@@ -1144,10 +1146,10 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                             continue;
                         const QColor col = bandColor(
                             std::min(bp.bandIndex, bandCount - 1));
-                        const quint8 r = quint8(col.red());
-                        const quint8 g = quint8(col.green());
-                        const quint8 b = quint8(col.blue());
                         const quint8 a = quint8(col.alpha());
+                        const quint8 r = premul(quint8(col.red()), a);
+                        const quint8 g = premul(quint8(col.green()), a);
+                        const quint8 b = premul(quint8(col.blue()), a);
                         for (size_t i = 1; i + 1 < bp.verts.size(); ++i) {
                             auto push = [&](const QPointF &p) {
                                 QSGGeometry::ColoredPoint2D v;
@@ -1228,9 +1230,11 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             out.reserve(visibleCells.size() * 3);
             auto pushV = [&](const QPointF &p, const QColor &c) {
                 QSGGeometry::ColoredPoint2D v;
+                const quint8 a = quint8(c.alpha());
                 v.set(float(p.x() - ox), float(p.y() - oy),
-                      quint8(c.red()), quint8(c.green()),
-                      quint8(c.blue()), quint8(c.alpha()));
+                      premul(quint8(c.red()), a),
+                      premul(quint8(c.green()), a),
+                      premul(quint8(c.blue()), a), a);
                 out.push_back(v);
             };
             for (int i : visibleCells) {
@@ -1344,10 +1348,11 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 const QColor c = colorAt(scalar);
                 auto &v = vd[vid];
                 // ColoredPoint2D keeps x/y — rewrite only the color bytes.
-                v.r = uchar(c.red());
-                v.g = uchar(c.green());
-                v.b = uchar(c.blue());
-                v.a = uchar(c.alpha());
+                const uchar a = uchar(c.alpha());
+                v.r = premul(uchar(c.red()), a);
+                v.g = premul(uchar(c.green()), a);
+                v.b = premul(uchar(c.blue()), a);
+                v.a = a;
             };
             for (int i : visibleCells) {
                 const auto &t = tris[i];
@@ -1886,11 +1891,11 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
 
                 QColor col = vs ? vs->colorForSpeed(gvmag)
                                 : QColor(20, 20, 20, 220);
-                const quint8 r = quint8(col.red());
-                const quint8 g = quint8(col.green());
-                const quint8 b = quint8(col.blue());
                 const quint8 a = quint8(qBound(0,
                     int(col.alpha() * velOp + 0.5), 255));
+                const quint8 r = premul(quint8(col.red()), a);
+                const quint8 g = premul(quint8(col.green()), a);
+                const quint8 b = premul(quint8(col.blue()), a);
 
                 const double inv_vmag = 1.0 / double(gvmag);
                 const float ux = float(gvx * inv_vmag);
