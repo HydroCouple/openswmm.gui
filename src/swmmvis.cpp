@@ -1193,13 +1193,15 @@ void SWMMVis::initializeAnimationToolBar()
     mDateTimeEditAnimationTime->setToolTip(tr("Animation Time"));
     mDateTimeEditAnimationTime->setStatusTip(tr("Animation Time"));
 
-    ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mAnimationSlider);
-    ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mLabelAnimationWindow);
-    ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mSpinAnimationWindow);
-    ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mDateTimeEditAnimationTime);
+    // The transport cluster (skip back/forward, play, pause, stop) comes from
+    // the .ui file; the slider/window/speed widgets are anchored before the
+    // Show Legend action so they sit after that cluster.
+    ui->toolBarAnimation->insertWidget(ui->actionShowLegend, mAnimationSlider);
+    ui->toolBarAnimation->insertWidget(ui->actionShowLegend, mLabelAnimationWindow);
+    ui->toolBarAnimation->insertWidget(ui->actionShowLegend, mSpinAnimationWindow);
+    ui->toolBarAnimation->insertWidget(ui->actionShowLegend, mDateTimeEditAnimationTime);
 
-    // Speed selector — sits after Stop, before SkipForward (separator already
-    // ends the play/pause/stop transport group via the .ui file).
+    // Speed selector — sits after the animation time cursor.
     mLabelAnimationSpeed = new QLabel(tr("Speed:"), this);
     mLabelAnimationSpeed->setContentsMargins(6, 0, 4, 0);
     mComboAnimationSpeed = new QComboBox(this);
@@ -1213,9 +1215,9 @@ void SWMMVis::initializeAnimationToolBar()
     for (const auto &e : kSpeeds)
         mComboAnimationSpeed->addItem(tr(e.label), e.value);
 
-    ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mLabelAnimationSpeed);
-    ui->toolBarAnimation->insertWidget(ui->actionSkipForward, mComboAnimationSpeed);
-    ui->toolBarAnimation->insertSeparator(ui->actionSkipForward);
+    ui->toolBarAnimation->insertWidget(ui->actionShowLegend, mLabelAnimationSpeed);
+    ui->toolBarAnimation->insertWidget(ui->actionShowLegend, mComboAnimationSpeed);
+    ui->toolBarAnimation->insertSeparator(ui->actionShowLegend);
 
     // Restore cross-launch default speed from PreferencesManager and push it
     // into the controller before the first play().
