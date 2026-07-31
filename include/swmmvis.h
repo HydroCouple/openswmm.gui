@@ -196,6 +196,16 @@ private slots:
     void attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
                                  const QString &filePath);
 
+    /*! \brief Reopen a previous run's HDF5 2D results for \p filePath (the
+     *         .inp). The .h5 comes from `[2D_OPTIONS] OUTPUT_FILE`, falling
+     *         back to the project sidecar's persisted entry; saved layer
+     *         settings and sublayer styles stashed on the window by
+     *         ProjectSerializer::applySession are applied after the source
+     *         opens. Runs whether or not a mesh layer was built — the HDF5
+     *         source carries its own geometry. */
+    void maybeLoad2DResults(SWMMVisProjectWindow *window,
+                            const QString &filePath);
+
     /*! \brief Announce the start of a file open: Message-Log line, status-bar
      *         message, and busy spinner. Pair with \ref endFileOpen. */
     void beginFileOpen(const QString &path);

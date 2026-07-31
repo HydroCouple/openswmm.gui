@@ -12,6 +12,7 @@
 #include "layers/gisvectorlayer.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmm2dmeshlayer.h"
+#include "layers/swmm2dresultslayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "layers/wmslayer.h"
@@ -141,6 +142,21 @@ const QString kMeshContFilledAlpha  = QStringLiteral("filledOpacity");// BJ.2-fi
 // "single", "graduated", "categorized", "rule" or "multikind". Empty /
 // missing → keep the layer's compiled default renderer.
 const QString kRenderer             = QStringLiteral("renderer");
+
+// 2D results layers (schema additive). Each entry reopens a previous
+// run's HDF5 2D output on project load with its saved styling. The
+// layer itself is created by the async 2D auto-load in SWMMVis
+// (maybeLoad2DResults) — applySession only stashes these entries on the
+// project window; the auto-load consumes them once the .h5 is open.
+const QString kResults2D          = QStringLiteral("results2DLayers");
+const QString kResults2DPath      = QStringLiteral("path");
+const QString kResults2DName      = QStringLiteral("name");
+const QString kResults2DVisible   = QStringLiteral("visible");
+const QString kResults2DOpacity   = QStringLiteral("opacity");
+const QString kResults2DDryDepth  = QStringLiteral("dryDepth");
+const QString kResults2DMaxDepth  = QStringLiteral("maxDepth");
+const QString kResults2DMaxVel    = QStringLiteral("maxVelocity");
+const QString kResults2DSublayers = QStringLiteral("sublayers");
 
 // Slice X.14 — per-kind IFeatureRenderer JSON for SWMMModelLayer /
 // SWMMResultsLayer.  Mapped object keyed by the kind name returned by
@@ -556,6 +572,40 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
             obj[kMeshLayers] = meshArr;
     }
 
+    // 2D results layers — persist the backing .h5 (relative), the layer's
+    // display settings, and the full sublayer styling so a previous run's
+    // 2D results reopen on project load looking exactly as they were left.
+    if (auto *canvas = pw->canvas()) {
+        QJsonArray r2dArr;
+        for (OpenSWMMVisLayer *l : canvas->layers()) {
+            auto *rl = qobject_cast<SWMM2DResultsLayer *>(l);
+            if (!rl) continue;
+            // Both creation paths (post-run swap and model-open auto-load)
+            // tag the layer with its backing .h5; a layer without the tag
+            // has nothing on disk to reopen.
+            const QString h5Abs =
+                rl->property("snoopy_h5_path").toString();
+            if (h5Abs.isEmpty() || !QFileInfo::exists(h5Abs)) continue;
+            const QString rel = toRelativePath(h5Abs, oswpFile);
+            if (rel.isEmpty()) continue;
+
+            QJsonObject r;
+            r[kResults2DPath]     = rel;
+            r[kResults2DName]     = rl->name();
+            r[kResults2DVisible]  = rl->isVisible();
+            r[kResults2DOpacity]  = rl->opacity();
+            r[kResults2DDryDepth] = rl->dryDepth();
+            r[kResults2DMaxDepth] = rl->maxDepth();
+            r[kResults2DMaxVel]   = rl->maxVelocity();
+            if (auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(rl))
+                r[kResults2DSublayers] =
+                    OpenSWMM::Render::ISublayerHost::saveSublayersToJson(*host);
+            r2dArr.append(r);
+        }
+        if (!r2dArr.isEmpty())
+            obj[kResults2D] = r2dArr;
+    }
+
     // Slice BB Phase 8.6.16 — on-canvas legend overlay chrome. Persisted
     // per-session so each project window restores its own legend look.
     // Read off the canvas's currently-installed overlay (lazily created
@@ -880,6 +930,24 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
             if (c.contains(kMeshContFilledAlpha))
                 ml->setFilledContoursOpacity(c.value(kMeshContFilledAlpha).toDouble());
         }
+    }
+
+    // 2D results layers — the .h5 open is asynchronous (it rides the same
+    // watcher as the mesh auto-load, which runs AFTER applySession), so
+    // creating/styling the layer here would race it. Stash the entries —
+    // with paths resolved absolute — on the project window; SWMMVis's 2D
+    // auto-load consumes them once the source is open.
+    if (sessionObj.contains(kResults2D)) {
+        QJsonArray stash;
+        for (const QJsonValue &v : sessionObj.value(kResults2D).toArray()) {
+            QJsonObject r = v.toObject();
+            const QString rel = r.value(kResults2DPath).toString();
+            if (rel.isEmpty()) continue;
+            r[kResults2DPath] = resolveStoredPath(rel, oswpFile);
+            stash.append(r);
+        }
+        if (!stash.isEmpty())
+            pw->setPending2DResultsRestore(stash);
     }
 
     // Slice BB Phase 8.6.16 — restore on-canvas legend overlay chrome.

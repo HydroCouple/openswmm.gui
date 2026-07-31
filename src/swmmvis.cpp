@@ -96,6 +96,7 @@
 // Slice BI-MK.LT — renderer classes used by onLayerKindStyleRequested.
 #include "render/colorramp.h"
 #include "render/ifeaturerenderer.h"
+#include "render/isublayerhost.h"
 #include "render/intervalbinner.h"
 #include "render/renderers/categorizedrenderer.h"
 #include "render/renderers/graduatedrenderer.h"
@@ -4682,6 +4683,11 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
             if (!out.errorMsg.isEmpty())
                 onLogMessage(out.errorMsg,
                              OpenSWMMVisLogMessage::LogMessageType::Warning);
+            // A previous run's .h5 is still worth reopening: the HDF5
+            // source carries its own geometry, so 2D results don't need
+            // the mesh layer to have built.
+            if (win && win->canvas())
+                maybeLoad2DResults(win.data(), filePath);
             return;
         }
 
@@ -4831,16 +4837,95 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
         }
 
         // Surface previous-run HDF5 depth results so the user can
-        // scrub without re-running. Skip when there's no [2D_OPTIONS]
-        // OUTPUT_FILE entry or when the referenced file is missing.
-        const QString h5Path = SimulationRunner::parseTwoDOutputFile(filePath);
-        if (h5Path.isEmpty()) {
-            onLogMessage(tr("2D results auto-load skipped: no [2D_OPTIONS] "
-                             "OUTPUT_FILE in %1").arg(QFileInfo(filePath).fileName()));
-        } else if (!QFileInfo::exists(h5Path)) {
-            onLogMessage(tr("2D results auto-load skipped: file does not "
-                             "exist (resolved: %1)").arg(h5Path));
-        } else {
+        // scrub without re-running.
+        maybeLoad2DResults(window, filePath);
+    });
+    watcher->setFuture(QtConcurrent::run([filePath, note]() -> MeshOpenOutcome {
+        MeshOpenOutcome out;
+        QElapsedTimer t;
+        t.start();
+        mesh::InpMeshReadResult meshRead = mesh::InpMeshReader::read(filePath);
+        out.readMs   = t.elapsed();
+        out.errorMsg = meshRead.errorMsg;
+        out.warning  = meshRead.warning;
+        if (!meshRead.hasMesh) {
+            if (out.errorMsg.isEmpty())
+                note(QCoreApplication::translate(
+                    "SWMMVis", "No 2D mesh sections in this model."));
+            return out;
+        }
+
+        note(QCoreApplication::translate(
+                 "SWMMVis",
+                 "2D mesh parsed: %L1 vertices, %L2 triangles (%3 s) — "
+                 "building scene geometry, spatial index and LOD pyramid …")
+                 .arg(meshRead.mesh.vertices.size())
+                 .arg(meshRead.mesh.triangles.size())
+                 .arg(out.readMs / 1000.0, 0, 'f', 1));
+
+        out.sourcePath = meshRead.sourcePath;
+        out.isExternal = meshRead.isExternal;
+
+        // Mesh XY are in project-CRS units (no conversion needed): the
+        // engine multiplies by 0.3048 itself in SurfaceRouter2D::initialize
+        // when SWMM FLOW_UNITS is US.
+        t.restart();
+        // Progressive load: Phase A only — triangles + LOD pyramid, so the
+        // layer can join the canvas and render its coarse levels right away;
+        // finishSceneGeometryAsync() (kicked after adoption below) builds
+        // the wireframe/spatial-index/editing structures in the background.
+        auto *meshLayer = new SWMM2DMeshLayer(std::move(meshRead.mesh),
+                                              meshRead.sourcePath,
+                                              /*parent=*/nullptr,
+                                              /*deferHeavyGeometry=*/true);
+        out.buildMs = t.elapsed();
+        note(QCoreApplication::translate(
+                 "SWMMVis",
+                 "2D mesh display geometry + LOD pyramid ready (%1 s) — "
+                 "adding layer to the map …")
+                 .arg(out.buildMs / 1000.0, 0, 'f', 1));
+        meshLayer->setExternalMesh(meshRead.isExternal);
+        meshLayer->setActiveMesh(meshRead.isExternal);
+        // Slice §V.VD.1 — preload any parsed [2D_BOUNDARY_CONDITIONS] into
+        // the layer's BC SoA. With the deferred build the BC slots don't
+        // exist yet, so size against the triangle count directly.
+        if (meshRead.edgeBCs.size() == meshLayer->triangleCount() * 3)
+            meshLayer->edgeBCsMutable() = meshRead.edgeBCs;
+        meshLayer->setName(meshRead.sourcePath.isEmpty()
+                               ? QStringLiteral("Mesh (inline)")
+                               : QFileInfo(meshRead.sourcePath).fileName());
+        out.nVerts = meshLayer->vertexCount();
+        out.nTris  = meshLayer->triangleCount();
+        // Hand the fully-built QObject to the GUI thread; only the owning
+        // (worker) thread may push it (Qt moveToThread contract).
+        meshLayer->moveToThread(qApp->thread());
+        out.layer = meshLayer;
+        return out;
+    }));
+}
+
+void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
+                                 const QString &filePath)
+{
+    // The .h5 comes from [2D_OPTIONS] OUTPUT_FILE; when that is absent or
+    // stale, fall back to the entry the project sidecar persisted (stashed
+    // on the window by ProjectSerializer::applySession).
+    const QJsonArray pending = window->pending2DResultsRestore();
+    QString h5Path = SimulationRunner::parseTwoDOutputFile(filePath);
+    if (h5Path.isEmpty() || !QFileInfo::exists(h5Path)) {
+        for (const QJsonValue &v : pending) {
+            const QString p =
+                v.toObject().value(QStringLiteral("path")).toString();
+            if (!p.isEmpty() && QFileInfo::exists(p)) { h5Path = p; break; }
+        }
+    }
+    if (h5Path.isEmpty()) {
+        onLogMessage(tr("2D results auto-load skipped: no [2D_OPTIONS] "
+                         "OUTPUT_FILE in %1").arg(QFileInfo(filePath).fileName()));
+    } else if (!QFileInfo::exists(h5Path)) {
+        onLogMessage(tr("2D results auto-load skipped: file does not "
+                         "exist (resolved: %1)").arg(h5Path));
+    } else {
             auto h5Src = std::make_unique<HDF5Mesh2DSource>();
             if (h5Src->open(h5Path))
             {
@@ -4942,6 +5027,46 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
                     resLayer->setCurrentTimeIndex(peakFrame);
                 }
 
+                // Apply the project sidecar's persisted settings and
+                // sublayer styles (stashed by ProjectSerializer::
+                // applySession) AFTER the auto-tune so the saved values
+                // win and the layer reopens looking as it was left.
+                const QString h5Canon = QFileInfo(h5Path).absoluteFilePath();
+                for (const QJsonValue &pv : pending) {
+                    const QJsonObject r = pv.toObject();
+                    const QString rp =
+                        r.value(QStringLiteral("path")).toString();
+                    if (rp.isEmpty()
+                        || QFileInfo(rp).absoluteFilePath() != h5Canon)
+                        continue;
+                    if (r.contains(QStringLiteral("name")))
+                        resLayer->setName(
+                            r.value(QStringLiteral("name")).toString());
+                    if (r.contains(QStringLiteral("visible")))
+                        resLayer->setVisible(
+                            r.value(QStringLiteral("visible")).toBool());
+                    if (r.contains(QStringLiteral("opacity")))
+                        resLayer->setOpacity(
+                            r.value(QStringLiteral("opacity")).toDouble());
+                    if (r.value(QStringLiteral("dryDepth")).toDouble() > 0.0)
+                        resLayer->setDryDepth(
+                            r.value(QStringLiteral("dryDepth")).toDouble());
+                    if (r.value(QStringLiteral("maxDepth")).toDouble() > 0.0)
+                        resLayer->setMaxDepth(
+                            r.value(QStringLiteral("maxDepth")).toDouble());
+                    if (r.value(QStringLiteral("maxVelocity")).toDouble() > 0.0)
+                        resLayer->setMaxVelocity(
+                            r.value(QStringLiteral("maxVelocity")).toDouble());
+                    const QJsonObject subs =
+                        r.value(QStringLiteral("sublayers")).toObject();
+                    if (!subs.isEmpty())
+                        OpenSWMM::Render::ISublayerHost::loadSublayersFromJson(
+                            *resLayer, subs);
+                    onLogMessage(tr("2D results style restored from project."));
+                    break;
+                }
+                window->clearPending2DResultsRestore();
+
                 // Make this the tab's active 2D results layer
                 // (default-only) so the 2D analysis combo + cell-pick
                 // tool + mesh profile target it.
@@ -4971,69 +5096,6 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
                              OpenSWMMVisLogMessage::LogMessageType::Warning);
             }
         }
-    });
-    watcher->setFuture(QtConcurrent::run([filePath, note]() -> MeshOpenOutcome {
-        MeshOpenOutcome out;
-        QElapsedTimer t;
-        t.start();
-        mesh::InpMeshReadResult meshRead = mesh::InpMeshReader::read(filePath);
-        out.readMs   = t.elapsed();
-        out.errorMsg = meshRead.errorMsg;
-        out.warning  = meshRead.warning;
-        if (!meshRead.hasMesh) {
-            if (out.errorMsg.isEmpty())
-                note(QCoreApplication::translate(
-                    "SWMMVis", "No 2D mesh sections in this model."));
-            return out;
-        }
-
-        note(QCoreApplication::translate(
-                 "SWMMVis",
-                 "2D mesh parsed: %L1 vertices, %L2 triangles (%3 s) — "
-                 "building scene geometry, spatial index and LOD pyramid …")
-                 .arg(meshRead.mesh.vertices.size())
-                 .arg(meshRead.mesh.triangles.size())
-                 .arg(out.readMs / 1000.0, 0, 'f', 1));
-
-        out.sourcePath = meshRead.sourcePath;
-        out.isExternal = meshRead.isExternal;
-
-        // Mesh XY are in project-CRS units (no conversion needed): the
-        // engine multiplies by 0.3048 itself in SurfaceRouter2D::initialize
-        // when SWMM FLOW_UNITS is US.
-        t.restart();
-        // Progressive load: Phase A only — triangles + LOD pyramid, so the
-        // layer can join the canvas and render its coarse levels right away;
-        // finishSceneGeometryAsync() (kicked after adoption below) builds
-        // the wireframe/spatial-index/editing structures in the background.
-        auto *meshLayer = new SWMM2DMeshLayer(std::move(meshRead.mesh),
-                                              meshRead.sourcePath,
-                                              /*parent=*/nullptr,
-                                              /*deferHeavyGeometry=*/true);
-        out.buildMs = t.elapsed();
-        note(QCoreApplication::translate(
-                 "SWMMVis",
-                 "2D mesh display geometry + LOD pyramid ready (%1 s) — "
-                 "adding layer to the map …")
-                 .arg(out.buildMs / 1000.0, 0, 'f', 1));
-        meshLayer->setExternalMesh(meshRead.isExternal);
-        meshLayer->setActiveMesh(meshRead.isExternal);
-        // Slice §V.VD.1 — preload any parsed [2D_BOUNDARY_CONDITIONS] into
-        // the layer's BC SoA. With the deferred build the BC slots don't
-        // exist yet, so size against the triangle count directly.
-        if (meshRead.edgeBCs.size() == meshLayer->triangleCount() * 3)
-            meshLayer->edgeBCsMutable() = meshRead.edgeBCs;
-        meshLayer->setName(meshRead.sourcePath.isEmpty()
-                               ? QStringLiteral("Mesh (inline)")
-                               : QFileInfo(meshRead.sourcePath).fileName());
-        out.nVerts = meshLayer->vertexCount();
-        out.nTris  = meshLayer->triangleCount();
-        // Hand the fully-built QObject to the GUI thread; only the owning
-        // (worker) thread may push it (Qt moveToThread contract).
-        meshLayer->moveToThread(qApp->thread());
-        out.layer = meshLayer;
-        return out;
-    }));
 }
 
 void SWMMVis::openProjectFile(const QString &oswpPath)
@@ -5068,26 +5130,37 @@ void SWMMVis::openProjectFile(const QString &oswpPath)
     onRecentFilesSizeChanged();
     saveSettings();
 
-    const QJsonArray layers = doc[QStringLiteral("layers")].toArray();
+    // Collect the .inp paths to open. Schema v4+ stores one entry per
+    // session under sessions[].inpPath; the original v0 layout stored
+    // layers[].path at the root. The writer has emitted sessions[] for a
+    // long time, so without this branch a directly-opened .oswp parsed
+    // zero entries and silently opened nothing.
+    QStringList inpPaths;
+    for (const QJsonValue &v : doc[QStringLiteral("sessions")].toArray())
+    {
+        const QString p = v[QStringLiteral("inpPath")].toString();
+        if (!p.isEmpty()) inpPaths << p;
+    }
+    for (const QJsonValue &v : doc[QStringLiteral("layers")].toArray())
+    {
+        const QString p = v[QStringLiteral("path")].toString();
+        if (!p.isEmpty()) inpPaths << p;
+    }
     qCInfo(lcLoadProject).noquote()
         << QStringLiteral("%1: parsed %2 layer entrie(s) in %3 ms")
                .arg(QFileInfo(oswpPath).fileName())
-               .arg(layers.size())
+               .arg(inpPaths.size())
                .arg(parseTimer.elapsed());
-    for (const QJsonValue &v : layers)
+    for (QString inpPath : inpPaths)
     {
-        QString inpPath = v[QStringLiteral("path")].toString();
-        if (!inpPath.isEmpty())
-        {
-            // .oswp stores layer paths relative to the project file. Resolve
-            // against the .oswp directory before opening: a relative path
-            // passed through makes the ENGINE resolve the model's own
-            // relative references (rain FILE gages, mesh sidecars, hotstart
-            // files) against the process working directory instead of the
-            // model directory — silently loading nothing.
-            inpPath = ProjectSerializer::resolveStoredPath(inpPath, oswpPath);
-            openSingleINP(inpPath);
-        }
+        // .oswp stores layer paths relative to the project file. Resolve
+        // against the .oswp directory before opening: a relative path
+        // passed through makes the ENGINE resolve the model's own
+        // relative references (rain FILE gages, mesh sidecars, hotstart
+        // files) against the process working directory instead of the
+        // model directory — silently loading nothing.
+        inpPath = ProjectSerializer::resolveStoredPath(inpPath, oswpPath);
+        openSingleINP(inpPath);
     }
 }
 
@@ -6407,6 +6480,38 @@ void SWMMVis::onRunSimulation()
         }
     }
 
+    // Every 2D run should leave scrubbable results on disk: when 2D is
+    // enabled and a mesh resolves but [2D_OPTIONS] has no OUTPUT_FILE, the
+    // engine writes no .h5 at all — the live view works but nothing can be
+    // reopened after the session. Default the key to <stem>.2d.h5 (relative;
+    // the engine resolves it against the .inp directory) and save so the run
+    // engine, which opens the .inp from disk, sees it.
+    {
+        const QString key = QStringLiteral("SWMMVis/Project/%1/Module2DEnabled")
+                                .arg(inpPath);
+        const bool twoDEnabled = QSettings().value(key, false).toBool();
+        if (twoDEnabled && twoDMeshResolves(inpPath)
+            && SimulationRunner::parseTwoDOutputFile(inpPath).isEmpty()) {
+            const QString h5Default = QFileInfo(inpPath).completeBaseName()
+                                      + QStringLiteral(".2d.h5");
+            if (swmm_options_set_ext(pw->modelLayer()->engine(),
+                                     "OUTPUT_FILE",
+                                     h5Default.toUtf8().constData()) == SWMM_OK) {
+                QString err;
+                if (pw->save(&err)) {
+                    onLogMessage(tr("2D results file defaulted to %1 — set "
+                                    "[2D_OPTIONS] OUTPUT_FILE to change it.")
+                                     .arg(h5Default));
+                } else {
+                    onLogMessage(tr("Could not save the 2D OUTPUT_FILE default "
+                                    "(%1) — 2D results will not persist for "
+                                    "this run.").arg(err),
+                                 OpenSWMMVisLogMessage::Warning);
+                }
+            }
+        }
+    }
+
     // Slice QB.3 — honour the Simulation Options → Output tab override
     // (Slice AA-4 QSettings round-trip) when present, falling back to
     // the sibling `<inpStem>.{rpt,out}` default so unchanged projects
@@ -6949,19 +7054,27 @@ void SWMMVis::onRunSimulation()
     // EngineMesh2DSource to an HDF5Mesh2DSource so the user can scrub back.
     // The .h5 path was stashed on the layer in the twoDInitialized handler.
     connect(runner, &SimulationRunner::finished, this,
-            [self](int finishedJobId, bool success, int /*errCode*/,
+            [self](int finishedJobId, bool success, int errCode,
                    QString /*errMsg*/, double /*runoff*/, double /*routing*/) {
                 if (!self) return;
                 auto it = self->mActive2DResultsLayers.find(finishedJobId);
                 if (it == self->mActive2DResultsLayers.end()) return;
-                if (success && it.value()) {
+                // A cancelled run (success=false, errCode=0) is adopted like
+                // a finished one: the engine wrote and closed the .h5 up to
+                // the stop point, so the partial results are scrubbable and
+                // persist across save/reopen. Genuine failures (errCode!=0)
+                // keep the old skip.
+                const bool cancelled = !success && errCode == 0;
+                if ((success || cancelled) && it.value()) {
                     SWMM2DResultsLayer *layer = it.value();
                     // Run finished — drop the "(live)" qualifier so results read
                     // as final and fully available for visualization. The
                     // file-backed source is installed below when the .h5 is
                     // present; otherwise the in-memory history from the live run
                     // is retained (still a complete, scrubbable source).
-                    layer->setName(QStringLiteral("2D Results"));
+                    layer->setName(cancelled
+                                       ? QStringLiteral("2D Results (partial)")
+                                       : QStringLiteral("2D Results"));
                     const QString h5Path =
                         layer->property("snoopy_h5_path").toString();
                     if (!h5Path.isEmpty() && QFileInfo::exists(h5Path)) {
