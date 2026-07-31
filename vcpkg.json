@@ -17,7 +17,7 @@
         {
             "name": "gdal",
             "default-features": false,
-            "features": ["jpeg", "png", "sqlite3"]
+            "features": ["geos", "jpeg", "png", "sqlite3"]
         },
         {
             "name": "gtest",
