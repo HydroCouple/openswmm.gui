@@ -725,10 +725,10 @@
     <bool>true</bool>
    </attribute>
    <addaction name="actionSkipBack"/>
+   <addaction name="actionSkipForward"/>
    <addaction name="actionPlay"/>
    <addaction name="actionPause"/>
    <addaction name="actionStop"/>
-   <addaction name="actionSkipForward"/>
    <addaction name="separator"/>
    <addaction name="actionShowLegend"/>
    <addaction name="actionSetStyle"/>
