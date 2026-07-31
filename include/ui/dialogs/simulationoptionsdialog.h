@@ -468,6 +468,7 @@ private:
     QComboBox      *m_faceReconCombo    = nullptr;
     QDoubleSpinBox *m_vfrMinWetFracSpin = nullptr;
     QDoubleSpinBox *m_couplingCdSpin    = nullptr;
+    QDoubleSpinBox *m_couplingSyncSpin  = nullptr;
     QComboBox      *m_rainfall2DModeCombo = nullptr;
     QCheckBox      *m_report2DBox       = nullptr;
 #endif
