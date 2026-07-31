@@ -20,6 +20,7 @@
 // Slice Z.6a — paint reads from typed Symbol Layer specs.
 #include "render/colorramp.h"
 #include "render/qsg2drenderstats.h"
+#include "render/qsgpremultiply.h"
 #include "render/rastersymbollayers.h"
 
 #include <QFont>
@@ -78,17 +79,9 @@ void colorFromRamp(double t,
     b = quint8(c.blue());
 }
 
-/*! Premultiply one straight-alpha colour channel for QSGVertexColorMaterial,
- *  which samples vertex colours as PREMULTIPLIED alpha (Qt scene-graph
- *  contract). Feeding straight-alpha colours makes the compositor
- *  un-premultiply them on blend, clamping every semi-transparent fill toward
- *  saturation — ochre → pure yellow, hillshaded tan → salmon pink, and the
- *  off-white high-terrain stops → background white, which reads as the mesh
- *  being "truncated" at far zoom. */
-inline quint8 premul(quint8 c, quint8 a)
-{
-    return quint8((uint(c) * uint(a) + 127u) / 255u);
-}
+// premul() — premultiplied-alpha helper for QSGVertexColorMaterial — now
+// shared by all three QSG map renderers via render/qsgpremultiply.h.
+using OpenSWMM::Render::premul;
 
 /*! Structural equality on RasterColorRamp.
  *  Used by the Pass 1 fill-colour cache to detect when the ramp has been
@@ -736,6 +729,24 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 const QVector<double> classEdges =
                     schemeClassified ? scheme.levelEdges(zMin, zMax, {}) : QVector<double>{};
 
+                // Per-class alpha (classified schemes only): a class colour's
+                // own alpha scales the fill alpha so a fully transparent
+                // class vanishes. Continuous ramps keep the flat fill alpha —
+                // the RGB cache below has no alpha bits, and re-evaluating a
+                // QColor per triangle on cache hits is exactly what the cache
+                // exists to avoid.
+                std::vector<quint8> classAlphas;
+                bool anyClassAlpha = false;
+                if (schemeClassified) {
+                    const int nc = std::max(1, scheme.classCount());
+                    classAlphas.resize(size_t(nc), 255);
+                    for (int ci = 0; ci < nc; ++ci) {
+                        classAlphas[size_t(ci)] =
+                            quint8(scheme.colorForClass(ci, nc).alpha());
+                        if (classAlphas[size_t(ci)] != 255) anyClassAlpha = true;
+                    }
+                }
+
                 // Per-triangle fill-colour cache — see header. Only for the
                 // exact (non-overview) fill: the overview is tiny and its
                 // indices are a different space.
@@ -823,16 +834,28 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                             *cacheSlot = packed;
                     }
 
+                    // Per-triangle alpha: class alpha × fill alpha when any
+                    // classified class is non-opaque (cheap re-bin on cache
+                    // hits; the RGB cache stays alpha-free).
+                    quint8 triA = alpha;
+                    if (anyClassAlpha) {
+                        const int ci =
+                            OpenSWMM::Render::ClassificationScheme::classIndexFor(
+                                double(t.zAvg), classEdges);
+                        if (ci >= 0 && size_t(ci) < classAlphas.size())
+                            triA = premul(classAlphas[size_t(ci)], alpha);
+                    }
+
                     // Cache holds straight-alpha RGB; premultiply at vertex
                     // write so opacity edits don't invalidate the cache.
-                    const quint8 r = premul(quint8((packed >> 16) & 0xFFu), alpha);
-                    const quint8 g = premul(quint8((packed >> 8)  & 0xFFu), alpha);
-                    const quint8 b = premul(quint8( packed        & 0xFFu), alpha);
+                    const quint8 r = premul(quint8((packed >> 16) & 0xFFu), triA);
+                    const quint8 g = premul(quint8((packed >> 8)  & 0xFFu), triA);
+                    const quint8 b = premul(quint8( packed        & 0xFFu), triA);
 
                     for (const QPointF *pt : {&t.a, &t.b, &t.c}) {
                         QSGGeometry::ColoredPoint2D v;
                         v.set(float(pt->x() - ox), float(pt->y() - oy),
-                              r, g, b, alpha);
+                              r, g, b, triA);
                         verts.push_back(v);
                     }
                 };
@@ -935,8 +958,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             } else {
                 levels = OpenSWMM::Contour::evenlySpacedLevelsInclusive(zMin, zMax, 9);
             }
-            const int    nBands = std::max(1, int(levels.size()) - 1);
-            const quint8 alpha  = quint8(qBound(0, int(bandSub->opacity() * 255.0 + 0.5), 255));
+            const int   nBands = std::max(1, int(levels.size()) - 1);
+            const qreal bandOp = qBound(0.0, bandSub->opacity(), 1.0);
 
             // Contour cache — marching-triangles output is invariant to
             // pan/zoom. Recompute only when (geomRevision, zMin, zMax,
@@ -997,13 +1020,17 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 QColor col = bandStyle
                     ? bandStyle->colorForBand(idx, nBands)
                     : OpenSWMM::Contour::viridisAt((double(idx) + 0.5) / double(nBands));
-                const quint8 r = premul(quint8(col.red()),   alpha);
-                const quint8 g = premul(quint8(col.green()), alpha);
-                const quint8 b = premul(quint8(col.blue()),  alpha);
+                // Band colour's own alpha × sublayer opacity (multiply, don't
+                // overwrite — a fully transparent class must vanish).
+                const quint8 a = quint8(qBound(0,
+                    int(col.alphaF() * bandOp * 255.0 + 0.5), 255));
+                const quint8 r = premul(quint8(col.red()),   a);
+                const quint8 g = premul(quint8(col.green()), a);
+                const quint8 b = premul(quint8(col.blue()),  a);
                 for (size_t i = 1; i + 1 < bp.verts.size(); ++i) {
                     auto push = [&](const QPointF &p) {
                         QSGGeometry::ColoredPoint2D v;
-                        v.set(float(p.x()), float(p.y()), r, g, b, alpha);
+                        v.set(float(p.x()), float(p.y()), r, g, b, a);
                         bandVerts.push_back(v);
                     };
                     push(bp.verts[0]);

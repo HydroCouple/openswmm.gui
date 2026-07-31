@@ -388,6 +388,11 @@ add_swmmvis_unit_test(test_qsg2d_dirtystate
     test_qsg2d_dirtystate.cpp
 )
 
+# Shared premultiplied-alpha helper for the QSG renderers (header-only).
+add_swmmvis_unit_test(test_qsgpremultiply
+    test_qsgpremultiply.cpp
+)
+
 # Phase 3 — deterministic LOD policy.
 add_swmmvis_unit_test(test_qsg2d_lodpolicy
     test_qsg2d_lodpolicy.cpp

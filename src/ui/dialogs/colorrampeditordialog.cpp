@@ -290,7 +290,8 @@ void ColorRampEditorDialog::onSwatchClicked()
     if (n <= 0) return;
     const double p = (n > 1) ? double(idx) / (n - 1) : 0.0;
     const QColor cur = m_ramp.colorAt(p);
-    const QColor c = QColorDialog::getColor(cur, this, tr("Interval colour"));
+    const QColor c = QColorDialog::getColor(cur, this, tr("Interval colour"),
+                                            QColorDialog::ShowAlphaChannel);
     if (!c.isValid()) return;
 
     // Insert / replace a stop at p with the picked colour. The ramp's
