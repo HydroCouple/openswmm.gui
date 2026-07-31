@@ -133,6 +133,24 @@ public:
      *  Returns NaN when out-of-bounds or NoData. */
     [[nodiscard]] double sampleAt(double x, double y) const;
 
+    /*! Raster scratch-buffer ceiling shared by the banded readers. */
+    static constexpr qint64 kMaxReadBufBytesDefault = qint64(256) * 1024 * 1024;
+
+    /*!
+     * \brief Batch bilinear sampling at many DTM-CRS coordinates.
+     *
+     * \p outZ is resized to \p xy.size(); each entry equals what sampleAt()
+     * would return for that point (NaN when out-of-range, NoData in the 2×2
+     * window, or on read failure).  Queries are binned into raster row-strips
+     * sized to \p maxBufBytes and each strip is read with ONE RasterIO call
+     * (with a 1-row overlap so bilinear windows spanning a strip boundary
+     * resolve), instead of one RasterIO per point.  Results are bit-identical
+     * to per-point sampleAt().  \p maxBufBytes is exposed for tests.
+     */
+    void sampleMany(const QVector<QPointF> &xy,
+                    QVector<double>        *outZ,
+                    qint64                  maxBufBytes = kMaxReadBufBytesDefault) const;
+
     /*!
      * \brief Read every valid raster pixel whose centre falls within \p bbox.
      *

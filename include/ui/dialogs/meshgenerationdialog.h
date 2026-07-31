@@ -79,6 +79,39 @@ public:
         // inside runMeshPipeline and passed to MeshGenerator::addHole().
         QVector<QVector<QPointF>>        holeRings;
 
+        // ── Boundary source identity ─────────────────────────────────────
+        // collectInputs records only WHICH boundary to use; the worker
+        // re-opens vector sources by path (fresh GDAL handle — handles must
+        // not cross threads) and runs the UnaryUnion dissolve + ring prep
+        // itself, so the GUI thread never blocks on 65k-hole boundaries.
+        // domains/holeRings above are left empty by collectInputs and are
+        // filled by the worker in its own copy of this struct.
+        enum class BoundaryKind { AutoBBox, Subcatchments, VectorFile };
+        BoundaryKind boundaryKind = BoundaryKind::AutoBBox;
+        QString boundaryPath;        ///< VectorFile: datasource path
+        QString boundaryLayerName;   ///< VectorFile: OGR layer name ("" = first)
+        QString boundaryCRSWkt;      ///< VectorFile: source SRS WKT ("" = mesh CRS)
+        QVector<QVector<QPointF>> subcatchPolys;  ///< Subcatchments: raw rings (mesh CRS)
+        MapExtent modelExtent;       ///< AutoBBox fallback frame
+
+        // ── Unfiltered feature candidates ────────────────────────────────
+        // Collected without the in-domain test (domains are unknown on the
+        // GUI thread now).  The worker filters them against the finished
+        // domains and assigns PSLG markers in the original collectInputs
+        // order — junctions → conduits → aux points → aux lines → region
+        // markers — so marker numbering is unchanged.
+        struct CandidateNode { QString name; QPointF xy; double rimZ = 0.0; bool hasRim = false; };
+        QVector<CandidateNode> candidateNodes;
+        QVector<QPair<QString, QVector<QPointF>>> candidateLinks;
+        struct AuxPoint { QPointF xy; double z = 0.0; bool hasZ = false; };
+        QVector<AuxPoint> auxPoints;
+        struct AuxLine { QVector<QPointF> path; QVector<double> z; bool hasZ = false; };
+        QVector<AuxLine> auxLines;
+        QVector<QPair<QString, QPointF>> subcatchSeeds;
+        bool includeJunctions = false;
+        bool includeConduits  = false;
+        bool includeSubcatch  = false;
+
         // PSLG: pre-extracted from the SWMM model and aux layers
         QVector<mesh::SteinerPoint>      steinerPoints;
         QVector<mesh::ConstraintSegment> constraintSegs;
@@ -160,6 +193,12 @@ public:
         QVector<double>  nodeRimZ;
         double           nodeFlattenRadius = 0.0;  // mesh units; 0 = off
         bool             nodesUseRim       = false;
+
+        // Minimum node separation (mesh units; <= 0 = off): a node candidate
+        // within this distance of an already-kept node is not pinned as a
+        // Steiner vertex — it stays in couplingNodes and the post-generation
+        // mapper couples it to its containing cell instead.
+        double           nodeMinSeparation = 0.0;
 
         // Elevation interpolation for the no-DTM fallback.  IDW (configurable
         // Shepard power) or natural neighbour (Sibson / Laplace); NN falls back
@@ -244,6 +283,8 @@ private:
     QCheckBox     *m_mapNodesAfterGen = nullptr;  // Plan Part B: post-gen mapper
     QCheckBox      *m_nodesUseRim     = nullptr;  // rim elevation instead of terrain
     QDoubleSpinBox *m_nodeFlattenSpin = nullptr;  // flatten terrain within radius of nodes
+    QCheckBox      *m_nodeMinSepBox   = nullptr;  // enforce minimum node separation
+    QDoubleSpinBox *m_nodeMinSepSpin  = nullptr;  // separation distance (map units)
 
     // ── Elevation interpolation (no-DTM fallback) ───────────────────
     QGroupBox      *m_elevInterpGroup = nullptr;  // whole group (disabled when DTM set)

@@ -1356,6 +1356,46 @@ add_swmmvis_gui_test(test_dtmsampler
 target_include_directories(test_dtmsampler PRIVATE ${GDAL_INCLUDE_DIRS})
 target_link_libraries(test_dtmsampler PRIVATE GDAL::GDAL)
 
+# PSLG preparation: hole-ring simplify/validate/densify/seed (serial and
+# parallel), the y-banded point-in-rings index, and snapAndDedupe.
+find_package(Qt6 REQUIRED COMPONENTS Concurrent)
+add_swmmvis_gui_test(test_pslgprep
+    test_pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/pslgprep.h
+)
+target_link_libraries(test_pslgprep PRIVATE Qt6::Concurrent)
+
+# Hilbert renumbering: permutation validity, locality gain, idempotence.
+add_swmmvis_gui_test(test_meshreorder
+    test_meshreorder.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshreorder.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshreorder.h
+)
+
+# Mesh stage cache: payload round-trips, key sensitivity, pruning.
+add_swmmvis_gui_test(test_meshstagecache
+    test_meshstagecache.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshstagecache.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/dtmthinner.cpp
+    ${CMAKE_SOURCE_DIR}/src/map/mapextent.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshstagecache.h
+)
+target_include_directories(test_meshstagecache PRIVATE ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_meshstagecache PRIVATE GDAL::GDAL)
+
+# Batch sampler parity: sampleMany must be bit-identical to per-point
+# sampleAt across NoData, edge clamps, and strip-boundary windows.
+add_swmmvis_gui_test(test_dtmthinner_samplemany
+    test_dtmthinner_samplemany.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/dtmthinner.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/dtmthinner.h
+    ${CMAKE_SOURCE_DIR}/src/map/mapextent.cpp
+)
+target_include_directories(test_dtmthinner_samplemany PRIVATE ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_dtmthinner_samplemany PRIVATE GDAL::GDAL)
+
 # DEM-raster longitudinal profile sampler — the terrain peer of
 # MeshProfileSampler. Pure logic over DTMSampler (bilinear) +
 # SpatialReferenceSystem (canvas → raster CRS), so it links GDAL directly and
