@@ -6097,6 +6097,7 @@ void SWMMVis::onSummarizeResults()
     }
 
     auto *dlg = new openswmmvis::ui::StatisticsDashboardDialog(layer, this);
+    dlg->setProject(pw->modelLayer(), pw->selectionManager(), pw->canvas());
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
 }

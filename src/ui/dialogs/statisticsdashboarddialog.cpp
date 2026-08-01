@@ -5,14 +5,18 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/statisticsdashboarddialog.h"
+#include "ui/theme/themehelpers.h"
 
 #include "core/queryparser.h"
+#include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
+#include "map/mapcanvas.h"
 
 #include <openswmm/engine/openswmm_output.h>
 
 #include <QAbstractItemModel>
 #include <QAbstractItemView>
+#include <QAction>
 #include <QBarSeries>
 #include <QBarSet>
 #include <QChart>
@@ -23,6 +27,7 @@
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QPushButton>
 #include <QSortFilterProxyModel>
 #include <QStandardItemModel>
@@ -33,6 +38,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <vector>
 
@@ -231,13 +237,47 @@ void StatisticsDashboardDialog::buildUi()
     connect(m_tabs, &QTabWidget::currentChanged,
             this, &StatisticsDashboardDialog::onCurrentTabChanged);
 
-    // Selection → histogram
-    connect(m_nodeTable->selectionModel(), &QItemSelectionModel::selectionChanged,
-            this, &StatisticsDashboardDialog::onTableSelectionChanged);
-    connect(m_linkTable->selectionModel(), &QItemSelectionModel::selectionChanged,
-            this, &StatisticsDashboardDialog::onTableSelectionChanged);
-    connect(m_subTable->selectionModel(), &QItemSelectionModel::selectionChanged,
-            this, &StatisticsDashboardDialog::onTableSelectionChanged);
+    // The dashboard reports simulation results; the tables are a read-only
+    // view of the .out file, so no cell may be edited.  Selection → histogram,
+    // selection → cross-view selection bus, and right-click → zoom to extents.
+    for (QTableView *table : {m_nodeTable, m_linkTable, m_subTable}) {
+        table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        table->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(table, &QWidget::customContextMenuRequested,
+                this, &StatisticsDashboardDialog::onTableContextMenuRequested);
+        connect(table->selectionModel(), &QItemSelectionModel::selectionChanged,
+                this, &StatisticsDashboardDialog::onTableSelectionChanged);
+    }
+}
+
+void StatisticsDashboardDialog::setProject(SWMMModelLayer *layer,
+                                            SelectionManager *selMgr,
+                                            MapCanvas *canvas)
+{
+    if (m_selMgr)
+        disconnect(m_selMgr, nullptr, this, nullptr);
+
+    m_modelLayer = layer;
+    m_selMgr     = selMgr;
+    m_canvas     = canvas;
+
+    if (m_selMgr) {
+        connect(m_selMgr, &SelectionManager::selectionChanged,
+                this, &StatisticsDashboardDialog::onSelectionManagerChanged);
+        onSelectionManagerChanged(m_selMgr->selection(), {}, {});
+    }
+}
+
+SWMMObjectRef::ObjectType StatisticsDashboardDialog::currentObjectType() const
+{
+    if (!m_tabs)
+        return SWMMObjectRef::Unknown;
+    switch (m_tabs->currentIndex()) {
+    case 0:  return SWMMObjectRef::Node;
+    case 1:  return SWMMObjectRef::Link;
+    case 2:  return SWMMObjectRef::Subcatchment;
+    default: return SWMMObjectRef::Unknown;
+    }
 }
 
 void StatisticsDashboardDialog::populateNodeStats()
@@ -352,7 +392,7 @@ void StatisticsDashboardDialog::populateSubcatchStats()
     }
 }
 
-void StatisticsDashboardDialog::onTableSelectionChanged()
+void StatisticsDashboardDialog::refreshHistogramForSelection()
 {
     auto *table = currentTable();
     if (!table || !table->selectionModel()) return;
@@ -361,6 +401,127 @@ void StatisticsDashboardDialog::onTableSelectionChanged()
     const int col = sel.first().column();
     if (col == 0) return;   // ID column — no histogram
     rebuildHistogramFor(col);
+}
+
+void StatisticsDashboardDialog::onTableSelectionChanged()
+{
+    refreshHistogramForSelection();
+
+    // Push the gesture onto the cross-view selection bus so the map highlights
+    // the same features.  Guarded against the echo of our own bus update.
+    if (m_applyingFromBus || !m_selMgr) return;
+    auto *table = currentTable();
+    if (!table || !table->selectionModel()) return;
+    if (table->selectionModel() != sender()) return;   // background tab
+
+    const auto type = currentObjectType();
+    if (type == SWMMObjectRef::Unknown) return;
+
+    QSet<SWMMObjectRef> refs;
+    for (const QModelIndex &idx : table->selectionModel()->selectedRows()) {
+        const QString name = idx.data(Qt::DisplayRole).toString();
+        if (!name.isEmpty())
+            refs.insert(SWMMObjectRef(type, name));
+    }
+    m_selMgr->select(refs, SelectionManager::Replace);
+}
+
+void StatisticsDashboardDialog::onSelectionManagerChanged(
+    const QSet<SWMMObjectRef> &current,
+    const QSet<SWMMObjectRef> & /*added*/,
+    const QSet<SWMMObjectRef> & /*removed*/)
+{
+    // Mirror the bus into all three tables so switching tabs shows the right
+    // rows already highlighted.  The guard stops the resulting
+    // selectionChanged signals from bouncing straight back to the bus.
+    m_applyingFromBus = true;
+
+    struct { QTableView *table; SWMMObjectRef::ObjectType type; } tabs[] = {
+        {m_nodeTable, SWMMObjectRef::Node},
+        {m_linkTable, SWMMObjectRef::Link},
+        {m_subTable,  SWMMObjectRef::Subcatchment},
+    };
+
+    for (const auto &t : tabs) {
+        if (!t.table || !t.table->model() || !t.table->selectionModel()) continue;
+        auto *model = t.table->model();
+        auto *sel   = t.table->selectionModel();
+        sel->clearSelection();
+
+        QSet<QString> names;
+        for (const auto &ref : current) {
+            if (ref.objectType == t.type)
+                names.insert(ref.name);
+        }
+        if (names.isEmpty()) continue;
+
+        // Row order is the proxy's (sorted / filtered), so resolve by name.
+        for (int r = 0, n = model->rowCount(); r < n; ++r) {
+            const QModelIndex idx = model->index(r, 0);
+            if (names.contains(idx.data(Qt::DisplayRole).toString()))
+                sel->select(idx, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+        }
+    }
+
+    m_applyingFromBus = false;
+}
+
+void StatisticsDashboardDialog::onTableContextMenuRequested(const QPoint &pos)
+{
+    auto *table = qobject_cast<QTableView *>(sender());
+    if (!table) return;
+
+    QMenu menu(this);
+    QAction *zoom = menu.addAction(tr("Zoom to Selected"));
+    zoom->setEnabled(m_canvas && m_modelLayer && table->selectionModel()
+                     && !table->selectionModel()->selectedRows().isEmpty());
+    connect(zoom, &QAction::triggered, this, &StatisticsDashboardDialog::onZoomToSelected);
+    menu.exec(table->viewport()->mapToGlobal(pos));
+}
+
+void StatisticsDashboardDialog::onZoomToSelected()
+{
+    if (!m_canvas || !m_modelLayer) return;
+    auto *table = currentTable();
+    if (!table || !table->selectionModel()) return;
+
+    // Union the layer-CRS bboxes of the selected rows, skipping names the
+    // model layer can't resolve (results may name objects the .inp doesn't).
+    MapExtent acc;
+    bool any = false;
+    for (const QModelIndex &idx : table->selectionModel()->selectedRows()) {
+        const QString name = idx.data(Qt::DisplayRole).toString();
+        if (name.isEmpty()) continue;
+        const MapExtent e = m_modelLayer->objectExtent(name);
+        if (!std::isfinite(e.xMin()) || !std::isfinite(e.xMax())) continue;
+        if (!any) { acc = e; any = true; }
+        else      { acc = acc.united(e); }
+    }
+    if (!any) return;
+
+    // Same padding heuristic as AttributeTablePanel::onZoomToSelectedClicked():
+    // 10 % pad for extents with area, an absolute buffer for point selections.
+    MapExtent obj = m_canvas->extentInCanvasCRS(m_modelLayer, acc);
+    if (!std::isfinite(obj.xMin()) || !std::isfinite(obj.xMax())) return;
+
+    double x0 = obj.xMin(), y0 = obj.yMin();
+    double x1 = obj.xMax(), y1 = obj.yMax();
+    if (obj.width() == 0.0 && obj.height() == 0.0) {
+        double buf = 100.0;
+        if (const MapExtent le = m_canvas->layerExtentInCanvasCRS(m_modelLayer);
+            le.isValid()) {
+            buf = std::max(25.0, 0.005 * std::max(le.xMax() - le.xMin(),
+                                                  le.yMax() - le.yMin()));
+        }
+        x0 -= buf; y0 -= buf; x1 += buf; y1 += buf;
+    } else {
+        const double padX = std::max(1e-6, obj.width()  * 0.10);
+        const double padY = std::max(1e-6, obj.height() * 0.10);
+        x0 -= padX; y0 -= padY; x1 += padX; y1 += padY;
+    }
+    const MapExtent zoom(x0, y0, x1, y1);
+    if (zoom.isValid())
+        m_canvas->setExtent(zoom);
 }
 
 void StatisticsDashboardDialog::rebuildHistogramFor(int column)
@@ -473,7 +634,7 @@ void StatisticsDashboardDialog::onQueryClearClicked()
 void StatisticsDashboardDialog::onCurrentTabChanged(int /*index*/)
 {
     updateQueryStatus();
-    onTableSelectionChanged();
+    refreshHistogramForSelection();
 }
 
 bool StatisticsDashboardDialog::applyQueryToAllTables()
@@ -484,7 +645,7 @@ bool StatisticsDashboardDialog::applyQueryToAllTables()
     const QString text = m_queryEdit->text().trimmed();
     const auto pred = openswmmvis::parseQuery(text);
     if (!text.isEmpty() && !pred.isValid()) {
-        m_queryEdit->setStyleSheet(QStringLiteral("background-color: #FFD6D6;"));
+        m_queryEdit->setStyleSheet(openswmmvis::ui::theme::bannerStyle(openswmmvis::ui::theme::Banner::Error));
         if (m_queryStatus) {
             m_queryStatus->setText(
                 tr("Error col %1: %2").arg(pred.errorPos).arg(pred.error));
