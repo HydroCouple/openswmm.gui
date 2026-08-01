@@ -20,17 +20,23 @@
 #ifndef OPENSWMMVIS_UI_DIALOGS_STATISTICSDASHBOARDDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_STATISTICSDASHBOARDDIALOG_H
 
+#include "selection/selectionmanager.h"
+
 #include <QDialog>
 #include <QPointer>
+#include <QSet>
 
 class QLabel;
 class QLineEdit;
+class QPoint;
 class QPushButton;
 class QSortFilterProxyModel;
 class QTabWidget;
 class QTableView;
 class QStandardItemModel;
 class QChartView;
+class MapCanvas;
+class SWMMModelLayer;
 class SWMMResultsLayer;
 
 namespace openswmmvis::ui {
@@ -45,8 +51,20 @@ public:
 
     void setResultsLayer(SWMMResultsLayer *layer);
 
+    /*! \brief Bind the dialog to the project's cross-view selection bus so
+     *         table rows highlight on the map, and to the canvas + model layer
+     *         so the context menu can zoom to the selected features. */
+    void setProject(SWMMModelLayer *layer,
+                    SelectionManager *selMgr,
+                    MapCanvas *canvas);
+
 private slots:
     void onTableSelectionChanged();
+    void onSelectionManagerChanged(const QSet<SWMMObjectRef> &current,
+                                   const QSet<SWMMObjectRef> &added,
+                                   const QSet<SWMMObjectRef> &removed);
+    void onTableContextMenuRequested(const QPoint &pos);
+    void onZoomToSelected();
     void onExportClicked();
     void onQueryApplyClicked();
     void onQueryClearClicked();
@@ -54,16 +72,23 @@ private slots:
 
 private:
     void buildUi();
+    /*! \brief Object type carried by the rows of the active tab. */
+    SWMMObjectRef::ObjectType currentObjectType() const;
     void populateNodeStats();
     void populateLinkStats();
     void populateSubcatchStats();
     void rebuildHistogramFor(int column);
+    void refreshHistogramForSelection();
     bool applyQueryToAllTables();
     void updateQueryStatus();
     QTableView *currentTable() const;
     QSortFilterProxyModel *currentProxy() const;
 
     QPointer<SWMMResultsLayer> m_layer;
+    QPointer<SWMMModelLayer>   m_modelLayer;
+    QPointer<SelectionManager> m_selMgr;
+    QPointer<MapCanvas>        m_canvas;
+    bool m_applyingFromBus = false;   ///< Reentrancy guard, mirrors AttributeTablePanel.
 
     QTabWidget          *m_tabs = nullptr;
     QLineEdit           *m_queryEdit = nullptr;
