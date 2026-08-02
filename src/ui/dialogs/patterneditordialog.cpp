@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/patterneditordialog.h"
+#include "ui/theme/iconfactory.h"
 #include "ui/theme/themehelpers.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
@@ -239,10 +240,10 @@ void PatternEditorDialog::buildUi_()
 
         // CRUD buttons row.
         auto *crudRow = new QHBoxLayout();
-        m_newBtn       = new QPushButton(tr("+ New"), leftHost);
-        m_duplicateBtn = new QPushButton(tr("Duplicate"), leftHost);
-        m_renameBtn    = new QPushButton(tr("Rename"), leftHost);
-        m_deleteBtn    = new QPushButton(tr("Delete"), leftHost);
+        m_newBtn       = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")), tr("New"), leftHost);
+        m_duplicateBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Duplicate")), tr("Duplicate"), leftHost);
+        m_renameBtn    = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Rename")), tr("Rename"), leftHost);
+        m_deleteBtn    = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")), tr("Delete"), leftHost);
         m_newBtn->setToolTip(tr("Create a new time pattern."));
         m_duplicateBtn->setToolTip(tr("Clone the selected pattern under a new name."));
         m_renameBtn->setToolTip(tr("Rename the selected pattern."));
@@ -361,27 +362,29 @@ void PatternEditorDialog::buildUi_()
         plotTools->setContentsMargins(2, 2, 2, 0);
         plotTools->setSpacing(2);
 
-        auto makePlotBtn = [rightHost](const QString &iconPath, const QString &tip) {
+        auto makePlotBtn = [rightHost](const QString &iconAlias, const QString &tip) {
             auto *b = new QToolButton(rightHost);
-            b->setIcon(QIcon(iconPath));
+            // IconFactory (not a raw resource path) so the glyph recolors
+            // with the theme like every other dialog toolbar.
+            b->setIcon(openswmmvis::ui::IconFactory::icon(iconAlias));
             b->setToolTip(tip);
             b->setAccessibleName(tip);
             b->setToolButtonStyle(Qt::ToolButtonIconOnly);
             b->setAutoRaise(true);
-            b->setIconSize({18, 18});
+            b->setIconSize({20, 20});
             return b;
         };
-        auto *selectBtn = makePlotBtn(QStringLiteral(":/swmmvis/Select"),
+        auto *selectBtn = makePlotBtn(QStringLiteral("Select"),
                                        tr("Select / hover mode"));
         selectBtn->setCheckable(true);
         selectBtn->setChecked(true);
-        auto *panBtn    = makePlotBtn(QStringLiteral(":/swmmvis/Move"),
+        auto *panBtn    = makePlotBtn(QStringLiteral("Move"),
                                        tr("Pan mode (drag the chart)"));
         panBtn->setCheckable(true);
-        auto *zoomInBtn = makePlotBtn(QStringLiteral(":/swmmvis/ZoomIn"),
+        auto *zoomInBtn = makePlotBtn(QStringLiteral("ZoomIn"),
                                        tr("Zoom in (also: scroll wheel up)"));
         zoomInBtn->setCheckable(true);
-        auto *zoomOutBtn = makePlotBtn(QStringLiteral(":/swmmvis/ZoomOut"),
+        auto *zoomOutBtn = makePlotBtn(QStringLiteral("ZoomOut"),
                                         tr("Zoom out (also: scroll wheel down)"));
         zoomOutBtn->setCheckable(true);
 
@@ -393,13 +396,13 @@ void PatternEditorDialog::buildUi_()
         modeGroup->addButton(zoomInBtn);
         modeGroup->addButton(zoomOutBtn);
 
-        auto *extentBtn = makePlotBtn(QStringLiteral(":/swmmvis/Extent"),
+        auto *extentBtn = makePlotBtn(QStringLiteral("Extent"),
                                        tr("Zoom to extent — reset to full range"));
-        auto *copyBtn   = makePlotBtn(QStringLiteral(":/swmmvis/Copy"),
+        auto *copyBtn   = makePlotBtn(QStringLiteral("Copy"),
                                        tr("Copy chart to clipboard (PNG)"));
-        auto *exportBtn = makePlotBtn(QStringLiteral(":/swmmvis/SaveAs"),
+        auto *exportBtn = makePlotBtn(QStringLiteral("ExportImage"),
                                        tr("Export chart… (PNG or SVG)"));
-        auto *styleBtn  = makePlotBtn(QStringLiteral(":/swmmvis/Style"),
+        auto *styleBtn  = makePlotBtn(QStringLiteral("PlotStyle"),
                                        tr("Plot style — markers and step/smooth toggle"));
 
         using Mode = InteractiveChartView::Mode;
@@ -445,7 +448,7 @@ void PatternEditorDialog::buildUi_()
 
         // Edit-points toggle — vertical drag edits the factor; horizontal
         // drag swaps adjacent slots. Mutually exclusive with Pan/Zoom modes.
-        auto *editBtn = makePlotBtn(QStringLiteral(":/swmmvis/Edit"),
+        auto *editBtn = makePlotBtn(QStringLiteral("SelectEdit"),
                                      tr("Edit vertices — vertical drag = factor; horizontal drag = swap slots"));
         editBtn->setCheckable(true);
         connect(editBtn, &QToolButton::toggled, this,

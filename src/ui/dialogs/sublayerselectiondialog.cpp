@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/sublayerselectiondialog.h"
+#include "ui/theme/iconfactory.h"
 
 #include <QAbstractItemView>
 #include <QDialogButtonBox>
@@ -84,9 +85,12 @@ void SublayerSelectionDialog::buildUi(const QString &sourcePath)
 
     // ── Select all / none / invert ───────────────────────────────────────────
     auto *btnRow  = new QHBoxLayout;
-    auto *allBtn  = new QPushButton(tr("Select all"), this);
-    auto *noneBtn = new QPushButton(tr("Select none"), this);
-    auto *invBtn  = new QPushButton(tr("Invert"), this);
+    auto *allBtn  = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("SelectAll")),
+                                    tr("Select all"), this);
+    auto *noneBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("SelectNone")),
+                                    tr("Select none"), this);
+    auto *invBtn  = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("InvertSelection")),
+                                    tr("Invert"), this);
     connect(allBtn,  &QPushButton::clicked, this, [this] { setAllChecked(true); });
     connect(noneBtn, &QPushButton::clicked, this, [this] { setAllChecked(false); });
     connect(invBtn,  &QPushButton::clicked, this, [this] { invertChecked(); });

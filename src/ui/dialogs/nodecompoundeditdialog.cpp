@@ -14,6 +14,7 @@
 #include "layers/swmmmodellayer.h"
 #include "pattern/patternregistry.h"
 #include "timeseries/timeseriesregistry.h"
+#include "ui/uiscrollhelpers.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -389,7 +390,7 @@ void NodeCompoundEditDialog::buildInflowsPage()
     });
 
     vlay->addWidget(grp);
-    m_stack->addWidget(page);
+    m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
 }
 
 // ============================================================================
@@ -536,7 +537,7 @@ void NodeCompoundEditDialog::buildDwfPage()
     });
 
     vlay->addWidget(grp);
-    m_stack->addWidget(page);
+    m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
 }
 
 // ============================================================================
@@ -641,7 +642,7 @@ void NodeCompoundEditDialog::buildRdiiPage()
     });
 
     vlay->addWidget(grp);
-    m_stack->addWidget(page);
+    m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
 }
 
 // ============================================================================
@@ -714,7 +715,7 @@ void NodeCompoundEditDialog::buildTreatmentPage()
         refreshActivePage();
     });
 
-    m_stack->addWidget(page);
+    m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
 }
 
 // ============================================================================

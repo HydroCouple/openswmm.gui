@@ -488,7 +488,7 @@ void LayerStyleDialog::buildInformationTab()
     propLay->addWidget(m_infoText);
     root->addWidget(propBox, 1);
 
-    m_tabs->addTab(page,
+    m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, m_tabs),
                    style()->standardIcon(QStyle::SP_FileDialogInfoView),
                    tr("I&nformation"));
 }
@@ -538,7 +538,7 @@ void LayerStyleDialog::buildSourceTab()
     connect(m_crsButton, &QToolButton::clicked,
             this, &LayerStyleDialog::onPickCRS);
 
-    m_tabs->addTab(page,
+    m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, m_tabs),
                    style()->standardIcon(QStyle::SP_DriveHDIcon),
                    tr("S&ource"));
 }
@@ -783,7 +783,7 @@ void LayerStyleDialog::buildRenderingTab()
     connect(m_opacitySpin, qOverload<int>(&QSpinBox::valueChanged),
             this, &LayerStyleDialog::onOpacitySpinChanged);
 
-    m_tabs->addTab(page,
+    m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, m_tabs),
                    style()->standardIcon(QStyle::SP_ComputerIcon),
                    tr("&Rendering"));
 }
@@ -865,7 +865,7 @@ void LayerStyleDialog::buildMetadataTab()
     refreshRow->addWidget(refreshBtn);
     vlay->addLayout(refreshRow);
 
-    m_tabs->addTab(page,
+    m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, m_tabs),
                    style()->standardIcon(QStyle::SP_FileIcon),
                    tr("&Metadata"));
 }

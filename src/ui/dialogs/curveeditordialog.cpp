@@ -248,9 +248,9 @@ void CurveEditorDialog::buildUi_()
                 this, &CurveEditorDialog::onListItemRenamed_);
 
         auto *crudRow = new QHBoxLayout();
-        m_newBtn    = new QPushButton(tr("+ New"), host);
-        m_renameBtn = new QPushButton(tr("Rename"), host);
-        m_deleteBtn = new QPushButton(tr("Delete"), host);
+        m_newBtn    = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")), tr("New"), host);
+        m_renameBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Rename")), tr("Rename"), host);
+        m_deleteBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")), tr("Delete"), host);
         m_newBtn->setToolTip(tr("Create a new curve."));
         m_renameBtn->setToolTip(tr("Rename the selected curve."));
         m_deleteBtn->setToolTip(tr("Delete the selected curve."));
@@ -303,8 +303,8 @@ void CurveEditorDialog::buildUi_()
 
         auto *rowBtns = new QHBoxLayout();
         rowBtns->addStretch(1);
-        m_addRowBtn = new QPushButton(tr("+ Add Row"), host);
-        m_delRowBtn = new QPushButton(tr("− Delete Row(s)"), host);
+        m_addRowBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("AddRow")), tr("Add Row"), host);
+        m_delRowBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("DeleteRow")), tr("Delete Row(s)"), host);
         connect(m_addRowBtn, &QPushButton::clicked,
                 this, &CurveEditorDialog::onAddRowClicked_);
         connect(m_delRowBtn, &QPushButton::clicked,
@@ -454,7 +454,7 @@ void CurveEditorDialog::buildUi_()
         // ── Edit / axis-lock toolbar (mirrors transect/timeseries editors) ──
         m_chartToolBar->addSeparator();
 
-        auto *aEdit = m_chartToolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Edit")),
+        auto *aEdit = m_chartToolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("SelectEdit")),
                                                  tr("Edit points"));
         aEdit->setCheckable(true);
         aEdit->setToolTip(tr("Drag vertices to edit (E)"));
@@ -485,7 +485,8 @@ void CurveEditorDialog::buildUi_()
         });
         m_chartEditAction = aEdit;
 
-        auto *aLockX = m_chartToolBar->addAction(tr("Lock X"));
+        auto *aLockX = m_chartToolBar->addAction(
+            openswmmvis::ui::IconFactory::icon(QStringLiteral("LockX")), tr("Lock X"));
         aLockX->setCheckable(true);
         aLockX->setToolTip(tr("Constrain vertex drag to Y only"));
         aLockX->setEnabled(false);
@@ -494,7 +495,8 @@ void CurveEditorDialog::buildUi_()
         });
         m_chartLockXAction = aLockX;
 
-        auto *aLockY = m_chartToolBar->addAction(tr("Lock Y"));
+        auto *aLockY = m_chartToolBar->addAction(
+            openswmmvis::ui::IconFactory::icon(QStringLiteral("LockY")), tr("Lock Y"));
         aLockY->setCheckable(true);
         aLockY->setToolTip(tr("Constrain vertex drag to X only"));
         aLockY->setEnabled(false);

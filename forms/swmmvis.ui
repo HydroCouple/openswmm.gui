@@ -1307,7 +1307,7 @@
      <normaloff>:/swmmvis/Chart</normaloff>:/swmmvis/Chart</iconset>
    </property>
    <property name="text">
-    <string>&amp;Plot Timeseries</string>
+    <string>&amp;Plot Time Series</string>
    </property>
    <property name="statusTip">
     <string>Plot Timeseries</string>
@@ -1346,7 +1346,7 @@
      <normaloff>:/swmmvis/Snow</normaloff>:/swmmvis/Snow</iconset>
    </property>
    <property name="text">
-    <string>actionSnow</string>
+    <string>Snow</string>
    </property>
    <property name="toolTip">
     <string>Snow Options</string>
@@ -1361,7 +1361,7 @@
      <normaloff>:/swmmvis/Thermometer</normaloff>:/swmmvis/Thermometer</iconset>
    </property>
    <property name="text">
-    <string>actionTemperature</string>
+    <string>Temperature</string>
    </property>
    <property name="toolTip">
     <string>Air Temperature Options</string>
@@ -1376,7 +1376,7 @@
      <normaloff>:/swmmvis/Evaporation</normaloff>:/swmmvis/Evaporation</iconset>
    </property>
    <property name="text">
-    <string>actionEvaporation</string>
+    <string>Evaporation</string>
    </property>
    <property name="toolTip">
     <string>Evaporation Options</string>
@@ -1415,7 +1415,7 @@
      <normaloff>:/swmmvis/Junction</normaloff>:/swmmvis/Junction</iconset>
    </property>
    <property name="text">
-    <string>AddJunction</string>
+    <string>Add Junction</string>
    </property>
    <property name="toolTip">
     <string>Add Junction</string>
@@ -1430,7 +1430,7 @@
      <normaloff>:/swmmvis/Polyline</normaloff>:/swmmvis/Polyline</iconset>
    </property>
    <property name="text">
-    <string>AddPipe</string>
+    <string>Add Pipe</string>
    </property>
    <property name="toolTip">
     <string>Add Pipe</string>
@@ -1445,7 +1445,7 @@
      <normaloff>:/swmmvis/Storage</normaloff>:/swmmvis/Storage</iconset>
    </property>
    <property name="text">
-    <string>AddStorage</string>
+    <string>Add Storage</string>
    </property>
    <property name="toolTip">
     <string>Add Storage</string>
@@ -1460,7 +1460,7 @@
      <normaloff>:/swmmvis/Outfall</normaloff>:/swmmvis/Outfall</iconset>
    </property>
    <property name="text">
-    <string>AddOutfall</string>
+    <string>Add Outfall</string>
    </property>
    <property name="toolTip">
     <string>Add Outfall</string>
@@ -1475,7 +1475,7 @@
      <normaloff>:/swmmvis/Divider</normaloff>:/swmmvis/Divider</iconset>
    </property>
    <property name="text">
-    <string>AddFlowDivider</string>
+    <string>Add Flow Divider</string>
    </property>
    <property name="toolTip">
     <string>Add Flow Divider</string>
@@ -1490,7 +1490,7 @@
      <normaloff>:/swmmvis/Pump</normaloff>:/swmmvis/Pump</iconset>
    </property>
    <property name="text">
-    <string>AddPump</string>
+    <string>Add Pump</string>
    </property>
    <property name="toolTip">
     <string>Add Pump</string>
@@ -1505,7 +1505,7 @@
      <normaloff>:/swmmvis/Subcatchment</normaloff>:/swmmvis/Subcatchment</iconset>
    </property>
    <property name="text">
-    <string>AddSubcatchment</string>
+    <string>Add Subcatchment</string>
    </property>
    <property name="toolTip">
     <string>Add Subcatchment</string>
@@ -1520,7 +1520,7 @@
      <normaloff>:/swmmvis/Orifice</normaloff>:/swmmvis/Orifice</iconset>
    </property>
    <property name="text">
-    <string>AddOrifice</string>
+    <string>Add Orifice</string>
    </property>
    <property name="toolTip">
     <string>Add Orifice</string>
@@ -1535,7 +1535,7 @@
      <normaloff>:/swmmvis/Weir</normaloff>:/swmmvis/Weir</iconset>
    </property>
    <property name="text">
-    <string>AddWeir</string>
+    <string>Add Weir</string>
    </property>
    <property name="toolTip">
     <string>Add Weir</string>
@@ -1550,7 +1550,7 @@
      <normaloff>:/swmmvis/Outlet</normaloff>:/swmmvis/Outlet</iconset>
    </property>
    <property name="text">
-    <string>AddOutlet</string>
+    <string>Add Outlet</string>
    </property>
    <property name="toolTip">
     <string>Add Outlet</string>
@@ -1580,7 +1580,7 @@
      <normaloff>:/swmmvis/Summarize</normaloff>:/swmmvis/Summarize</iconset>
    </property>
    <property name="text">
-    <string>SummarizeResults</string>
+    <string>Summarize Results</string>
    </property>
    <property name="toolTip">
     <string>Summarize Model Results</string>
@@ -1610,7 +1610,7 @@
      <normaloff>:/swmmvis/FlowBalanceDownstream</normaloff>:/swmmvis/FlowBalanceDownstream</iconset>
    </property>
    <property name="text">
-    <string>FlowBalanceDownstream</string>
+    <string>Flow Balance Downstream</string>
    </property>
    <property name="toolTip">
     <string>Flow Balance Downstream</string>
@@ -1625,7 +1625,7 @@
      <normaloff>:/swmmvis/FlowBalanceUpstream</normaloff>:/swmmvis/FlowBalanceUpstream</iconset>
    </property>
    <property name="text">
-    <string>FlowBalanceUpstream</string>
+    <string>Flow Balance Upstream</string>
    </property>
    <property name="toolTip">
     <string>Flow Balance Upstream</string>
@@ -1640,7 +1640,7 @@
      <normaloff>:/swmmvis/TravelTimeDownstream</normaloff>:/swmmvis/TravelTimeDownstream</iconset>
    </property>
    <property name="text">
-    <string>TravelTimeDownstream</string>
+    <string>Travel Time Downstream</string>
    </property>
    <property name="toolTip">
     <string>Travel Time Downstream</string>
@@ -1655,7 +1655,7 @@
      <normaloff>:/swmmvis/TraveTimeUpstream</normaloff>:/swmmvis/TraveTimeUpstream</iconset>
    </property>
    <property name="text">
-    <string>TravelTimeUpstream</string>
+    <string>Travel Time Upstream</string>
    </property>
    <property name="toolTip">
     <string>Travel Time Upstream</string>
@@ -1670,7 +1670,7 @@
      <normaloff>:/swmmvis/Sun</normaloff>:/swmmvis/Sun</iconset>
    </property>
    <property name="text">
-    <string>SolarRadiation</string>
+    <string>Solar Radiation</string>
    </property>
    <property name="toolTip">
     <string>Solar Radiation Options</string>
@@ -1721,7 +1721,7 @@
      <normaloff>:/swmmvis/Legend</normaloff>:/swmmvis/Legend</iconset>
    </property>
    <property name="text">
-    <string>ShowLegend</string>
+    <string>Show Legend</string>
    </property>
    <property name="toolTip">
     <string>Show Legend</string>
@@ -1753,7 +1753,7 @@
      <normaloff>:/swmmvis/AddDelimetered</normaloff>:/swmmvis/AddDelimetered</iconset>
    </property>
    <property name="text">
-    <string>Add Delimetered Data</string>
+    <string>Add Delimited Data</string>
    </property>
    <property name="toolTip">
     <string>Add Delimitered Data</string>
@@ -1783,7 +1783,7 @@
      <normaloff>:/swmmvis/AddVector</normaloff>:/swmmvis/AddVector</iconset>
    </property>
    <property name="text">
-    <string>Add Vector Data </string>
+    <string>Add Vector Data</string>
    </property>
    <property name="toolTip">
     <string>Add Vector Data</string>

@@ -395,12 +395,12 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     m_actEdit->setCheckable(true);
     m_actEdit->setToolTip(tr("Y-drag to change values; Shift-drag to multi-select"));
 
-    m_actRotate = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Ruler")),
+    m_actRotate = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Rotate")),
                                          tr("Rotate"));
     m_actRotate->setCheckable(true);
     m_actRotate->setToolTip(tr("Rotate the current selection around a pivot (numeric panel)"));
 
-    m_actScale = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Style")),
+    m_actScale = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Scale")),
                                         tr("Scale"));
     m_actScale->setCheckable(true);
     m_actScale->setToolTip(tr("Scale the current selection around an anchor (numeric panel)"));
@@ -413,7 +413,7 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     editModeGroup->addAction(m_actRotate);
     editModeGroup->addAction(m_actScale);
 
-    m_actSnap = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ToggleOn")),
+    m_actSnap = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Snap")),
                                        tr("Snap"));
     m_actSnap->setCheckable(true);
     m_actSnap->setToolTip(tr("Snap inserted/dragged times to the reporting step"));
@@ -422,7 +422,9 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
 
     if (m_undoStack) {
         m_actUndo = m_undoStack->createUndoAction(this, tr("Undo"));
+        m_actUndo->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Undo")));
         m_actRedo = m_undoStack->createRedoAction(this, tr("Redo"));
+        m_actRedo->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Redo")));
         m_toolbar->addAction(m_actUndo);
         m_toolbar->addAction(m_actRedo);
     }
@@ -434,13 +436,13 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     // Copy serialises selected rows to TSV; Paste parses via TimeseriesParse
     // (shared with file import) so Excel- and CSV-derived clipboard text
     // round-trips with the same time-format handling.
-    m_actAddRow = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("New")),
+    m_actAddRow = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("AddRow")),
                                          tr("Add Row"));
     m_actAddRow->setShortcut(QKeySequence(Qt::Key_Insert));
     m_actAddRow->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_actAddRow->setToolTip(tr("Insert a new point (Insert key)"));
 
-    m_actDeleteRow = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Clear")),
+    m_actDeleteRow = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("DeleteRow")),
                                             tr("Delete Rows"));
     m_actDeleteRow->setShortcut(QKeySequence::Delete);
     m_actDeleteRow->setShortcutContext(Qt::WidgetWithChildrenShortcut);
@@ -452,7 +454,7 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     m_actCopy->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_actCopy->setToolTip(tr("Copy selected row(s) as TSV (Ctrl/Cmd+C)"));
 
-    m_actPaste = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("AddDelimetered")),
+    m_actPaste = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Paste")),
                                         tr("Paste"));
     m_actPaste->setShortcut(QKeySequence::Paste);
     m_actPaste->setShortcutContext(Qt::WidgetWithChildrenShortcut);
@@ -1780,20 +1782,22 @@ void TimeseriesEditorDialog::buildListPane_()
     btnRow->setContentsMargins(0, 0, 0, 0);
     btnRow->setSpacing(2);
 
-    auto makeBtn = [this](const QString &text, const QString &tip) {
+    auto makeBtn = [this](const QString &iconAlias, const QString &text,
+                          const QString &tip) {
         auto *b = new QToolButton(m_listPane);
+        b->setIcon(openswmmvis::ui::IconFactory::icon(iconAlias));
         b->setText(text);
         b->setToolTip(tip);
         b->setAccessibleName(tip);
-        b->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         b->setAutoRaise(true);
         return b;
     };
-    m_listNewBtn    = makeBtn(QStringLiteral("+ New"),
+    m_listNewBtn    = makeBtn(QStringLiteral("Add"), tr("New"),
                                 tr("Create a new time series"));
-    m_listDeleteBtn = makeBtn(QStringLiteral("− Delete"),
+    m_listDeleteBtn = makeBtn(QStringLiteral("Delete"), tr("Delete"),
                                 tr("Delete the selected time series"));
-    m_listRenameBtn = makeBtn(QStringLiteral("Rename"),
+    m_listRenameBtn = makeBtn(QStringLiteral("Rename"), tr("Rename"),
                                 tr("Rename the selected time series"));
     btnRow->addWidget(m_listNewBtn);
     btnRow->addWidget(m_listDeleteBtn);

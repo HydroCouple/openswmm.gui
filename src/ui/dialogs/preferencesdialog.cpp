@@ -12,6 +12,7 @@
 #include "core/selectionrenderingprefs.h"
 #include "ui/dialogs/licenseagreementdialog.h"
 #include "ui/theme/thememanager.h"
+#include "ui/uiscrollhelpers.h"
 #include "ui/widgets/shortcuteditorwidget.h"
 #include "version.h"
 #include "legacy_version.h"
@@ -44,7 +45,9 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("Preferences"));
-    setMinimumSize(560, 420);
+    // Small floor — below the pages' natural size the content scrolls
+    // (wrapInScrollArea) instead of squeezing the controls illegible.
+    setMinimumSize(480, 320);
     buildUi();
     readFromManager();
 }
@@ -62,19 +65,6 @@ void PreferencesDialog::buildUi()
 
     m_categoryList = new QListWidget(this);
     m_categoryList->setMinimumWidth(180);
-    m_categoryList->addItem(tr("General"));
-    m_categoryList->addItem(tr("Selection"));
-    m_categoryList->addItem(tr("Canvas && CRS"));
-    m_categoryList->addItem(tr("Rendering"));
-    m_categoryList->addItem(tr("Simulation"));
-    m_categoryList->addItem(tr("Simulation Defaults"));
-    m_categoryList->addItem(tr("Dynamic Wave Defaults"));
-    m_categoryList->addItem(tr("Map Display"));
-    m_categoryList->addItem(tr("Measure Tool"));
-    m_categoryList->addItem(tr("Plots"));
-    m_categoryList->addItem(tr("Naming"));
-    m_categoryList->addItem(tr("Appearance"));
-    m_categoryList->addItem(tr("Keyboard"));
     split->addWidget(m_categoryList);
 
     m_pages = new QStackedWidget(this);
@@ -85,19 +75,25 @@ void PreferencesDialog::buildUi()
     m_pages->setObjectName(QStringLiteral("pages"));
     connect(m_pages, &QStackedWidget::currentChanged,
             m_categoryList, qOverload<int>(&QListWidget::setCurrentRow));
-    m_pages->addWidget(buildGeneralPage());
-    m_pages->addWidget(buildSelectionPage());
-    m_pages->addWidget(buildCanvasPage());
-    m_pages->addWidget(buildRenderingPage());
-    m_pages->addWidget(buildSimulationPage());
-    m_pages->addWidget(buildSimulationDefaultsPage());
-    m_pages->addWidget(buildDynamicWaveDefaultsPage());
-    m_pages->addWidget(buildMapDisplayPage());
-    m_pages->addWidget(buildMeasureToolPage());
-    m_pages->addWidget(buildPlotsPage());
-    m_pages->addWidget(buildNamingPage());
-    m_pages->addWidget(buildAppearancePage());
-    m_pages->addWidget(buildKeyboardPage());
+    // Iteration 3 — pages scroll instead of squeezing when the dialog
+    // shrinks (same funnel as SimulationOptionsDialog::addCategory).
+    const auto addCategory = [this](const QString &title, QWidget *page) {
+        m_categoryList->addItem(title);
+        m_pages->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_pages));
+    };
+    addCategory(tr("General"),               buildGeneralPage());
+    addCategory(tr("Selection"),             buildSelectionPage());
+    addCategory(tr("Canvas && CRS"),         buildCanvasPage());
+    addCategory(tr("Rendering"),             buildRenderingPage());
+    addCategory(tr("Simulation"),            buildSimulationPage());
+    addCategory(tr("Simulation Defaults"),   buildSimulationDefaultsPage());
+    addCategory(tr("Dynamic Wave Defaults"), buildDynamicWaveDefaultsPage());
+    addCategory(tr("Map Display"),           buildMapDisplayPage());
+    addCategory(tr("Measure Tool"),          buildMeasureToolPage());
+    addCategory(tr("Plots"),                 buildPlotsPage());
+    addCategory(tr("Naming"),                buildNamingPage());
+    addCategory(tr("Appearance"),            buildAppearancePage());
+    addCategory(tr("Keyboard"),              buildKeyboardPage());
     split->addWidget(m_pages, 1);
 
     connect(m_categoryList, &QListWidget::currentRowChanged,

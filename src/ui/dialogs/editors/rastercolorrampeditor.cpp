@@ -8,6 +8,7 @@
 
 #include "layers/gisrasterlayer.h"
 #include "ui/widgets/colorrampcombobox.h"
+#include "ui/theme/iconfactory.h"
 
 #include <QCheckBox>
 #include <QDoubleSpinBox>
@@ -65,6 +66,7 @@ RasterColorRampEditor::RasterColorRampEditor(GISRasterLayer *layer, QWidget *par
 
     m_autoBtn = new QToolButton(this);
     m_autoBtn->setText(tr("Auto-stretch from data"));
+    m_autoBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("AutoStretch")));
     m_autoBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     rampForm->addRow(QString(), m_autoBtn);
 

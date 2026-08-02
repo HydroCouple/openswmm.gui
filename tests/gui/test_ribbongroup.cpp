@@ -75,6 +75,12 @@ private slots:
     void groupWidthsShrinkAcrossModes();
     void groupWidgetHostIsRigid();
 
+    // iteration 3 — honest widths + left-packing + single-tool faces
+    void widthForModeRespectsChildMinimumWidth();
+    void groupSizePolicyFixedUntilStretchWidget();
+    void singleActionGroupNeverCollapses();
+    void wrappedLabelFitsRow();
+
     // split button
     void splitRestoresLastUsedFromSettings();
     void splitUnknownNameFallsBackToFirst();
@@ -83,6 +89,7 @@ private slots:
 
     // compactor (R5)
     void compactorStepsTrailingGroupWithWidth();
+    void compactorLeftPacksWithTrailingSpacer();
 
 private:
     void wipeRibbonSettings();
@@ -290,6 +297,92 @@ void TestRibbonGroup::groupWidgetHostIsRigid()
     QVERIFY(group.mode() != RibbonMode::Collapsed);
 }
 
+void TestRibbonGroup::widthForModeRespectsChildMinimumWidth()
+{
+    // An explicit setMinimumWidth is invisible to a raw sizeHint but the
+    // inner layout clamps the widget back up to it — the group must
+    // advertise at least that much or its children overlap when starved
+    // (the analysis 1D/2D combos regression).
+    RibbonGroup group(QStringLiteral("Results"));
+    auto *combo = new QComboBox(&group);
+    combo->setMinimumWidth(200);
+    group.addWidget(combo);
+
+    const int full = group.widthForMode(RibbonMode::Full);
+    QVERIFY2(full >= 200,
+             qPrintable(QStringLiteral("group width %1 ignores the 200 px "
+                                       "child minimum").arg(full)));
+}
+
+void TestRibbonGroup::groupSizePolicyFixedUntilStretchWidget()
+{
+    // Fixed by default so the host toolbar can't inflate groups with
+    // leftover width; a stretch>0 member widget (the timeline slider)
+    // flips the group to Expanding so IT absorbs the slack instead.
+    RibbonGroup group(QStringLiteral("Playback"));
+    QCOMPARE(group.sizePolicy().horizontalPolicy(), QSizePolicy::Fixed);
+
+    group.addWidget(new QComboBox(&group), 0);
+    QCOMPARE(group.sizePolicy().horizontalPolicy(), QSizePolicy::Fixed);
+
+    group.addWidget(new QComboBox(&group), 1);
+    QCOMPARE(group.sizePolicy().horizontalPolicy(), QSizePolicy::Expanding);
+}
+
+void TestRibbonGroup::singleActionGroupNeverCollapses()
+{
+    // One lone tool must never turn into a caption-titled dropdown —
+    // icon-only Compact is its floor.
+    RibbonGroup one(QStringLiteral("Edit"));
+    one.addAction(makeAction(&one, QStringLiteral("Edit Existing"),
+                             QStringLiteral("actTestEditOne")));
+    QVERIFY(!one.groupWidths().collapsible);
+    one.setMode(RibbonMode::Collapsed);
+    QCOMPARE(one.mode(), RibbonMode::Compact);
+
+    RibbonGroup two(QStringLiteral("Zoom"));
+    two.addAction(makeAction(&two, QStringLiteral("In"),
+                             QStringLiteral("actTestZoomIn")));
+    two.addAction(makeAction(&two, QStringLiteral("Out"),
+                             QStringLiteral("actTestZoomOut")));
+    QVERIFY(two.groupWidths().collapsible);
+    two.setMode(RibbonMode::Collapsed);
+    QCOMPARE(two.mode(), RibbonMode::Collapsed);
+}
+
+void TestRibbonGroup::wrappedLabelFitsRow()
+{
+    // ArcGIS-style two-line faces: an iconText with '\n' renders as two
+    // centered lines — narrower than the one-line face, taller, and
+    // still inside the fixed row (icon + two lines + caption budget).
+    RibbonGroup group(QStringLiteral("Analysis"));
+    QAction *flat = makeAction(&group,
+                               QStringLiteral("Flow Balance Downstream"),
+                               QStringLiteral("actTestFlat"));
+    QAction *wrapped = makeAction(&group,
+                                  QStringLiteral("Flow Balance Downstream"),
+                                  QStringLiteral("actTestWrapped"));
+    wrapped->setIconText(QStringLiteral("Flow Balance\nDownstream"));
+    QToolButton *flatButton = group.addAction(flat);
+    QToolButton *wrappedButton = group.addAction(wrapped);
+
+    QVERIFY2(wrappedButton->sizeHint().width() < flatButton->sizeHint().width(),
+             "wrapping did not narrow the face");
+    QVERIFY(wrappedButton->sizeHint().height() > flatButton->sizeHint().height());
+
+    // Two label lines + the 0.85x caption line must fit the fixed row.
+    QFont captionFont = group.font();
+    captionFont.setPointSizeF(captionFont.pointSizeF() * 0.85);
+    const int captionH = QFontMetrics(captionFont).height();
+    QVERIFY2(wrappedButton->sizeHint().height() + captionH + 6
+                 <= kRibbonRowHeight,
+             qPrintable(QStringLiteral("button %1 + caption %2 overflow the "
+                                       "%3 px row")
+                            .arg(wrappedButton->sizeHint().height())
+                            .arg(captionH).arg(kRibbonRowHeight)));
+    QCOMPARE(group.sizeHint().height(), kRibbonRowHeight);
+}
+
 void TestRibbonGroup::splitRestoresLastUsedFromSettings()
 {
     QWidget host;
@@ -447,6 +540,60 @@ void TestRibbonGroup::compactorStepsTrailingGroupWithWidth()
     // 32 px dead band) and the row returns to Full.
     window.resize(f1 + f2 + f3 + 120, 220);
     QTRY_COMPARE(g3->mode(), RibbonMode::Full);
+    QCOMPARE(g1->mode(), RibbonMode::Full);
+}
+
+void TestRibbonGroup::compactorLeftPacksWithTrailingSpacer()
+{
+    using openswmmvis::ui::RibbonCompactor;
+
+    // The app appends an Expanding zero-min spacer to each bar so the
+    // Fixed-width groups pack left and leftover width pools at the end.
+    // The spacer must neither inflate the groups nor trip the solver
+    // (its one extra inter-item spacing is discounted by objectName).
+    QMainWindow window;
+    auto *bar = new QToolBar(&window);
+    window.addToolBar(bar);
+    auto makeGroup = [bar](const QString &caption, const QString &prefix) {
+        auto *group = new RibbonGroup(caption, bar);
+        for (int i = 0; i < 3; ++i)
+            group->addAction(makeAction(group,
+                                        QStringLiteral("%1 Command %2")
+                                            .arg(prefix).arg(i),
+                                        prefix + QString::number(i)));
+        bar->addWidget(group);
+        return group;
+    };
+    RibbonGroup *g1 = makeGroup(QStringLiteral("A"), QStringLiteral("a"));
+    RibbonGroup *g2 = makeGroup(QStringLiteral("B"), QStringLiteral("b"));
+    auto *spacer = new QWidget(bar);
+    spacer->setObjectName(QStringLiteral("ribbonBarSpacer"));
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    spacer->setMinimumSize(0, 0);
+    bar->addWidget(spacer);
+
+    const int f1 = g1->widthForMode(RibbonMode::Full);
+    const int f2 = g2->widthForMode(RibbonMode::Full);
+
+    new RibbonCompactor(bar, {g1, g2});
+
+    // Plenty of slack: both Full, and NOT inflated by the leftover —
+    // each group's on-screen width equals its measured Full width while
+    // the spacer soaks up the rest.
+    window.resize(f1 + f2 + 300, 220);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QTRY_COMPARE(g1->mode(), RibbonMode::Full);
+    QTRY_COMPARE(g2->mode(), RibbonMode::Full);
+    QTRY_COMPARE(g1->width(), f1);
+    QTRY_COMPARE(g2->width(), f2);
+    QVERIFY2(spacer->width() > 100,
+             qPrintable(QStringLiteral("spacer %1 px did not absorb the "
+                                       "leftover").arg(spacer->width())));
+
+    // Starved: demotion still engages with the spacer present.
+    window.resize(f1 + f2 - 40, 220);
+    QTRY_COMPARE(g2->mode(), RibbonMode::Compact);
     QCOMPARE(g1->mode(), RibbonMode::Full);
 }
 

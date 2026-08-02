@@ -30,6 +30,7 @@
 // Slice B.6e — Rule-aware path.
 #include "render/rule.h"
 #include "render/symbolstyle.h"
+#include "ui/theme/iconfactory.h"
 
 #include <QColor>
 #include <QColorDialog>
@@ -164,10 +165,18 @@ public:
 
         auto *btnRow = new QHBoxLayout;
         m_addBtn    = new QToolButton(box); m_addBtn   ->setText(tr("Add"));
+        m_addBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")));
         m_removeBtn = new QToolButton(box); m_removeBtn->setText(tr("Remove"));
+        m_removeBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")));
         m_upBtn     = new QToolButton(box); m_upBtn    ->setText(tr("Move up"));
+        m_upBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("MoveUp")));
         m_downBtn   = new QToolButton(box); m_downBtn  ->setText(tr("Move down"));
+        m_downBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("MoveDown")));
         m_clearBtn  = new QToolButton(box); m_clearBtn ->setText(tr("Clear"));
+        m_clearBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Clear")));
+        for (QToolButton *b : { m_addBtn, m_removeBtn, m_upBtn, m_downBtn,
+                                m_clearBtn })
+            b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         btnRow->addWidget(m_addBtn);
         btnRow->addWidget(m_removeBtn);
         btnRow->addWidget(m_upBtn);

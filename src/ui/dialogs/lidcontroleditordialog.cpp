@@ -10,6 +10,8 @@
 #include "lid/lidcontrolprovider.h"
 #include "lid/lidcontrolregistry.h"
 #include "ui/models/lidcontrollistmodel.h"
+#include "ui/uiscrollhelpers.h"
+#include "ui/theme/iconfactory.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -93,8 +95,10 @@ void LidControlEditorDialog::buildUi_()
     leftLay->addWidget(m_listView, 1);
 
     auto *btnRow = new QHBoxLayout;
-    m_addBtn = new QPushButton(tr("+ New"), leftPane);
-    m_delBtn = new QPushButton(tr("− Delete"), leftPane);
+    m_addBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")),
+                               tr("New"), leftPane);
+    m_delBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")),
+                               tr("Delete"), leftPane);
     btnRow->addWidget(m_addBtn);
     btnRow->addWidget(m_delBtn);
     leftLay->addLayout(btnRow);
@@ -126,7 +130,7 @@ void LidControlEditorDialog::buildUi_()
     surfForm->addRow(tr("Sto&rage Depth"),   m_surfStorage);
     surfForm->addRow(tr("Ro&ughness (n)"),   m_surfRough);
     surfForm->addRow(tr("Slope (%)"),       m_surfSlope);
-    tabs->addTab(surf, tr("&Surface"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(surf, tabs), tr("&Surface"));
 
     // Soil tab.
     auto *soil = new QWidget;  auto *soilForm = new QFormLayout(soil);
@@ -142,7 +146,7 @@ void LidControlEditorDialog::buildUi_()
     soilForm->addRow(tr("&Wilting Point"),    m_soilWp);
     soilForm->addRow(tr("&Conductivity"),     m_soilKsat);
     soilForm->addRow(tr("Conduct&ivity Slope"), m_soilKslope);
-    tabs->addTab(soil, tr("S&oil"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(soil, tabs), tr("S&oil"));
 
     // Storage tab.
     auto *stor = new QWidget;  auto *storForm = new QFormLayout(stor);
@@ -152,7 +156,7 @@ void LidControlEditorDialog::buildUi_()
     storForm->addRow(tr("Thic&kness"),     m_storThick);
     storForm->addRow(tr("&Void Fraction"), m_storVoid);
     storForm->addRow(tr("S&eepage Rate"),  m_storKsat);
-    tabs->addTab(stor, tr("S&torage"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(stor, tabs), tr("S&torage"));
 
     // Drain tab.
     auto *drain = new QWidget;  auto *drainForm = new QFormLayout(drain);
@@ -162,7 +166,7 @@ void LidControlEditorDialog::buildUi_()
     drainForm->addRow(tr("Coefficient"), m_drainCoeff);
     drainForm->addRow(tr("E&xponent"),    m_drainExpon);
     drainForm->addRow(tr("Offset"),      m_drainOffset);
-    tabs->addTab(drain, tr("&Drain"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(drain, tabs), tr("&Drain"));
 
     rightLay->addWidget(tabs, 1);
 

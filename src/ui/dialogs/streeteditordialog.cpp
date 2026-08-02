@@ -10,6 +10,7 @@
 #include "ui/models/streetlistmodel.h"
 #include "street/streetprovider.h"
 #include "street/streetregistry.h"
+#include "ui/theme/iconfactory.h"
 
 #include <QButtonGroup>
 #include <QDialogButtonBox>
@@ -211,8 +212,10 @@ void StreetEditorDialog::buildUi_()
     leftLay->addWidget(m_listView, 1);
 
     auto *btnRow = new QHBoxLayout;
-    m_addBtn = new QPushButton(tr("+ New"), leftPane);
-    m_delBtn = new QPushButton(tr("− Delete"), leftPane);
+    m_addBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")),
+                               tr("New"), leftPane);
+    m_delBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")),
+                               tr("Delete"), leftPane);
     btnRow->addWidget(m_addBtn);
     btnRow->addWidget(m_delBtn);
     leftLay->addLayout(btnRow);

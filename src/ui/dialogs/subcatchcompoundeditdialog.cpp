@@ -5,6 +5,7 @@
  */
 
 #include "ui/dialogs/subcatchcompoundeditdialog.h"
+#include "ui/uiscrollhelpers.h"
 
 #include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_quality.h>        // land uses
@@ -123,7 +124,7 @@ void SubcatchCompoundEditDialog::buildLandUsePage()
     });
 
     vlay->addWidget(grp);
-    m_stack->addWidget(page);
+    m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +190,7 @@ void SubcatchCompoundEditDialog::buildGroundwaterPage()
     });
 
     vlay->addWidget(grp);
-    m_stack->addWidget(page);
+    m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
 }
 
 // ---------------------------------------------------------------------------
@@ -276,7 +277,7 @@ void SubcatchCompoundEditDialog::buildLidUsagePage()
     });
 
     vlay->addWidget(grp);
-    m_stack->addWidget(page);
+    m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
 }
 
 // ---------------------------------------------------------------------------
