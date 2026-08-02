@@ -809,7 +809,7 @@ private:
     ColorRampStyle color_ramp_style_         = ColorRampStyle::Smooth;
     int            color_classes_            = 5;
     bool           filled_contours_          = false;
-    double         filled_contours_opacity_  = 0.55;
+    double         filled_contours_opacity_  = 0.60;
     int            filled_contours_levels_   = 8;
     bool           isolines_                 = false;
     int            isolines_levels_          = 5;

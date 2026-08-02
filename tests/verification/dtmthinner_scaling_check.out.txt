@@ -45,5 +45,25 @@ DTMThinner scalability verification
     absurd @ 1 mm        1000000000000 x 1000000000000 -> rejected   (pre-rework: int overflow / UB)
   [PASS] guard accepts sane grids and rejects oversized ones
 
+[6] Banded thinning (halo = passes) == monolithic, core-exact
+  [PASS] all-active, 1 pass: cores {2,3,5,8,17,all} all agree
+  [PASS] all-active, 2 passes: cores {2,3,5,8,17,all} all agree
+  [PASS] all-active, 3 passes: cores {2,3,5,8,17,all} all agree
+  [PASS] all-active, 5 passes: cores {2,3,5,8,17,all} all agree
+  [PASS] with holes, 1 pass: cores {2,3,5,8,17,all} all agree
+  [PASS] with holes, 2 passes: cores {2,3,5,8,17,all} all agree
+  [PASS] with holes, 3 passes: cores {2,3,5,8,17,all} all agree
+  [PASS] with holes, 5 passes: cores {2,3,5,8,17,all} all agree
+
+[7] Multi-band pass cap (64) vs monolithic convergence
+  [PASS] monolithic convergence needs <= 64 passes here
+  [PASS] capped banded run is deterministic
+  [PASS] capped banded run matches monolithic convergence
+
+[8] Adaptive per-band maxPoints quota arithmetic
+  [PASS] denominator >= 1 and quota >= 0 for every band
+  [PASS] row bookkeeping sums to zero
+  [PASS] total retained lands within the soft-cap envelope
+
 ===================================
 ALL CHECKS PASSED (0 failures)

@@ -49,6 +49,10 @@ void MeshGenerator::addDomain(const QPolygonF &p)
 }
 void MeshGenerator::addConstraintSegment(const ConstraintSegment &s) { m_segments.append(s); }
 void MeshGenerator::addSteinerPoint(const SteinerPoint &p)    { m_steiners.append(p); }
+void MeshGenerator::reserveSteinerPoints(qsizetype additional)
+{
+    m_steiners.reserve(m_steiners.size() + additional);
+}
 void MeshGenerator::addHole(const QPointF &xy)                { m_holes.append(xy); }
 void MeshGenerator::addRegion(const RegionMarker &r)          { m_regions.append(r); }
 void MeshGenerator::setOptions(const GenerationOptions &o)    { m_opts = o; }

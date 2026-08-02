@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/meshgenerationdialog.h"
+#include "ui/theme/themehelpers.h"
 
 #include "ui/uiscrollhelpers.h"
 
@@ -97,8 +98,8 @@ using mesh::pslg::snapAndDedupe;
 // ---------------------------------------------------------------------------
 
 static void
-runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
-                MeshGenerationDialog::PipelineInputs            in)
+runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
+                    MeshGenerationDialog::PipelineInputs            in)
 {
     using PResult = MeshGenerationDialog::PipelineResult;
 
@@ -982,8 +983,34 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
 
             const MapExtent dtmBbox(dx0, dy0, dx1, dy1);
             stageClock.restart();
-            candidates = thinner.generatePoints(dtmBbox, in.thinnerOpts, &candidateZ);
+            // Banded thinning streams huge DEMs; the callback maps its
+            // fraction into the 30→36% progress window and doubles as the
+            // cancellation poll (Stop was dead for the whole stage before).
+            candidates = thinner.generatePoints(
+                dtmBbox, in.thinnerOpts, &candidateZ,
+                [&promise](double f) -> bool {
+                    promise.setProgressValueAndText(
+                        30 + qBound(0, int(f * 6.0), 6),
+                        QObject::tr("Terrain-adaptive thinning… %1%")
+                            .arg(int(f * 100.0)));
+                    return !promise.isCanceled();
+                });
             stageMark("thinning (generatePoints)");
+            // Cancel check FIRST: a cancelled run also lands here with an
+            // empty result + "cancelled" errorMsg, and should read as
+            // "Cancelled.", not as a thinning failure.
+            if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+            // The thinner's safety guards (per-band working-set ceiling,
+            // retained-points ceiling, RasterIO failures) return an EMPTY
+            // result with the reason in errorMsg().  Silently meshing on with
+            // zero terrain points buries that message — fail loudly instead
+            // so the user can fix spacing/extent.
+            if (candidates.isEmpty() && !thinner.errorMsg().isEmpty())
+            {
+                fail(QObject::tr("Terrain thinning failed: %1")
+                         .arg(thinner.errorMsg()));
+                return;
+            }
             qCDebug(lcMeshPerf) << "[Mesh] thinning retained" << candidates.size() << "points";
             progress(36, QObject::tr("Thinning retained %1 terrain points…")
                          .arg(candidates.size()));
@@ -1000,6 +1027,15 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             stageClock.restart();
             thinner.readPixels(dtmBbox, candidates, candidateZ);
             stageMark("bulk readPixels");
+            // readPixels refuses pathologically large outputs (see its budget
+            // guard) and reports why via errorMsg() — surface it instead of
+            // meshing on with zero terrain points.
+            if (candidates.isEmpty() && !thinner.errorMsg().isEmpty())
+            {
+                fail(QObject::tr("DTM sampling failed: %1")
+                         .arg(thinner.errorMsg()));
+                return;
+            }
 
             qCDebug(lcMeshPerf) << "[Mesh] bulk readPixels returned" << candidates.size() << "points";
             progress(36, QObject::tr("Sampled %1 DTM grid points…")
@@ -1035,11 +1071,11 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
         stageClock.restart();
         QVector<QPointF> candidatesMesh;
-        candidatesMesh.reserve(candidates.size());
         if (dtmToMesh && !candidates.isEmpty())
         {
             // One batched PROJ call; per-point results are identical to
             // Transform(1,…) in a loop, without the per-call overhead.
+            candidatesMesh.reserve(candidates.size());
             QVector<double> txs(candidates.size()), tys(candidates.size());
             for (qsizetype ci = 0; ci < candidates.size(); ++ci)
             {
@@ -1053,9 +1089,16 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         }
         else
         {
-            for (int ci = 0; ci < candidates.size(); ++ci)
-                candidatesMesh.append(candidates[ci]);
+            // Same CRS — implicit-sharing assignment, no per-point copy and
+            // no second 16 B/point buffer (matters at tens of millions of
+            // candidates from a large DEM).
+            candidatesMesh = candidates;
         }
+        // The DTM-CRS array is not read past this point. Release it now: the
+        // reprojected path drops its duplicate immediately, and the shared
+        // same-CRS copy returns to refcount 1 so the non-const operator[]
+        // reads below never trigger a detach deep-copy.
+        candidates = QVector<QPointF>();
         stageMark("reproject candidates DTM->mesh CRS");
 
         // ── Option A: Poisson-disk minimum spacing filter (mesh CRS) ────────
@@ -1075,11 +1118,21 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
             stageClock.restart();
 
+            // Flat chained-index grid: cellHead maps a cell to its most
+            // recently accepted candidate, nextInCell links the rest of that
+            // cell's accepted candidates intrusively.  Replaces the previous
+            // QHash<CellKey, QVector<int>> (one heap-allocated QVector per
+            // occupied cell, ~50–100 B/point) with one flat 4 B/point array
+            // plus an int-valued hash — an order of magnitude less overhead
+            // at tens of millions of candidates.  Accept/reject decisions are
+            // identical: chain order differs from append order, but tooClose
+            // is an OR over the same neighbour set.
             using CellKey = QPair<qint32, qint32>;
-            QHash<CellKey, QVector<int>> cellMap;
-            cellMap.reserve(candidatesMesh.size());
+            QHash<CellKey, int> cellHead;
+            QVector<qint32> nextInCell(candidatesMesh.size(), -1);
 
             QVector<bool> kept(candidatesMesh.size(), false);
+            qsizetype nKept = 0;
             for (int ci = 0; ci < candidatesMesh.size(); ++ci)
             {
                 const double px = candidatesMesh[ci].x();
@@ -1091,9 +1144,9 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 for (qint32 dy = -1; dy <= 1 && !tooClose; ++dy)
                     for (qint32 dx = -1; dx <= 1 && !tooClose; ++dx)
                     {
-                        auto it = cellMap.constFind(qMakePair(cx+dx, cy+dy));
-                        if (it == cellMap.constEnd()) continue;
-                        for (const int j : *it)
+                        auto it = cellHead.constFind(qMakePair(cx+dx, cy+dy));
+                        if (it == cellHead.constEnd()) continue;
+                        for (int j = it.value(); j != -1; j = nextInCell[j])
                         {
                             const double ddx = candidatesMesh[j].x() - px;
                             const double ddy = candidatesMesh[j].y() - py;
@@ -1104,22 +1157,28 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 if (!tooClose)
                 {
                     kept[ci] = true;
-                    cellMap[qMakePair(cx, cy)].append(ci);
+                    ++nKept;
+                    auto it = cellHead.find(qMakePair(cx, cy));
+                    if (it == cellHead.end())
+                        cellHead.insert(qMakePair(cx, cy), ci);
+                    else { nextInCell[ci] = it.value(); it.value() = ci; }
                 }
             }
 
-            // Compact: remove rejected candidates.
+            // Compact: remove rejected candidates.  Reserve the exact
+            // survivor count — a full-N reserve here doubled the peak for
+            // no benefit when the filter rejects most points.
             QVector<QPointF> filtMesh;
             QVector<double>  filtZ;
-            filtMesh.reserve(candidatesMesh.size());
-            filtZ.reserve(candidatesMesh.size());
+            filtMesh.reserve(nKept);
+            filtZ.reserve(nKept);
             for (int ci = 0; ci < candidatesMesh.size(); ++ci)
                 if (kept[ci]) { filtMesh.append(candidatesMesh[ci]); filtZ.append(candidateZ[ci]); }
 
             stageMark("Poisson-disk filter");
             qCDebug(lcMeshPerf) << "[Mesh] Poisson-disk:" << candidatesMesh.size()
                      << "->" << filtMesh.size() << "points (spacing" << spacing
-                     << "| cells" << cellMap.size() << ")";
+                     << "| cells" << cellHead.size() << ")";
             progress(37, QObject::tr("Poisson-disk filter: %1 → %2 points…")
                          .arg(candidatesMesh.size()).arg(filtMesh.size()));
 
@@ -1338,7 +1397,15 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         progress(37, QObject::tr("Boundary filter: testing %1 terrain points…")
                      .arg(candidatesMesh.size()));
         stageClock.restart();
-        elevCache.reserve(elevCache.size() + candidatesMesh.size());
+        // No up-front hash reserve: sizing elevCache for every PRE-filter
+        // candidate commits multi-GB before a single point survives the
+        // boundary filter.  Geometric growth tracks the actual survivor count
+        // instead.  The Steiner VECTOR gets a capped reserve — a plain array,
+        // bounded to ~192 MB, most candidates survive the filter — which
+        // avoids the transient ~2x growth peak without the unbounded-commit
+        // hazard the hash reserve had.
+        g.reserveSteinerPoints(std::min<qsizetype>(candidatesMesh.size(),
+                                                   qsizetype(4) * 1024 * 1024));
         for (int ci = 0; ci < candidatesMesh.size(); ++ci)
         {
             // Cancel check every 64k candidates: this loop is the longest
@@ -1717,6 +1784,39 @@ runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     promise.addResult(std::move(out));
 }
 
+// QtConcurrent stores an exception thrown by the worker into the future and
+// rethrows it on the GUI thread at result() — uncaught, that terminates the
+// application with no message. On Windows a large DEM can drive an allocation
+// past the COMMIT limit (physical memory still ~50%), so std::bad_alloc here
+// was killing the app "without warning" mid-thinning. Convert every exception
+// into an ordinary failed PipelineResult; the dialog's progress label still
+// names the stage that was running.
+static void
+runMeshPipeline(QPromise<MeshGenerationDialog::PipelineResult> &promise,
+                MeshGenerationDialog::PipelineInputs            in)
+{
+    using PResult = MeshGenerationDialog::PipelineResult;
+    auto failWith = [&](const QString &msg) {
+        PResult r; r.ok = false; r.errorMsg = msg;
+        promise.addResult(r);
+    };
+    try {
+        runMeshPipelineImpl(promise, std::move(in));
+    } catch (const std::bad_alloc &) {
+        failWith(QObject::tr(
+            "Out of memory: the mesh pipeline exceeded available memory "
+            "(on Windows this is the commit limit, which can trip while "
+            "physical memory still shows headroom). Increase the grid "
+            "spacing, enable terrain thinning, or reduce the domain "
+            "extent, then try again."));
+    } catch (const std::exception &e) {
+        failWith(QObject::tr("Mesh pipeline failed: %1")
+                     .arg(QString::fromUtf8(e.what())));
+    } catch (...) {
+        failWith(QObject::tr("Mesh pipeline failed with an unknown error."));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Construction
 // ---------------------------------------------------------------------------
@@ -1727,6 +1827,8 @@ MeshGenerationDialog::MeshGenerationDialog(SWMMVisProjectWindow *pw,
       m_pw(pw)
 {
     setWindowTitle(tr("Generate 2D Mesh"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("MeshGenerationDialog"));
     // Compact default — the tab pages scroll (see buildUi), so the window no
     // longer has to be tall enough to show the tallest page in full.
     resize(540, 560);
@@ -1784,7 +1886,7 @@ void MeshGenerationDialog::buildUi()
 
         // Auto-detected DTM vertical unit (informational)
         m_dtmVertUnitLabel = new QLabel(tr("—"), g);
-        m_dtmVertUnitLabel->setStyleSheet(QStringLiteral("color: gray;"));
+        m_dtmVertUnitLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
         m_dtmVertUnitLabel->setToolTip(tr("Vertical unit detected from the DTM raster's embedded CRS metadata."));
         f->addRow(tr("DTM vertical unit:"), m_dtmVertUnitLabel);
 
@@ -1836,7 +1938,7 @@ void MeshGenerationDialog::buildUi()
                 this, [this](int) { updateZFactor(); });
 
         m_domainLabel = new QLabel(g);
-        m_domainLabel->setStyleSheet(QStringLiteral("color: gray;"));
+        m_domainLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
         f->addRow(tr("Domain:"), m_domainLabel);
 
         sourcesVBox->addWidget(g);
@@ -2046,7 +2148,7 @@ void MeshGenerationDialog::buildUi()
 
     sourcesVBox->addStretch();
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(sourcesPage, tabs),
-                 tr("Sources"));
+                 tr("S&ources"));
 
     // ================================================================
     // Tab 2 — Quality
@@ -2067,7 +2169,7 @@ void MeshGenerationDialog::buildUi()
         m_maxAreaSpin->setDecimals(2);
         m_maxAreaSpin->setSpecialValueText(tr("(no cap)"));
         // tooltip updated by updateUnitDisplay()
-        f->addRow(tr("Max triangle area:"), m_maxAreaSpin);
+        f->addRow(tr("Max trian&gle area:"), m_maxAreaSpin);
 
         m_minAngleSpin = new QDoubleSpinBox(g);
         m_minAngleSpin->setRange(0.0, 33.0);
@@ -2108,7 +2210,7 @@ void MeshGenerationDialog::buildUi()
             "Increase ε when the boundary's vertices are much denser than the "
             "terrain point spacing — short constrained boundary segments seed "
             "small cells along the perimeter."));
-        f->addRow(tr("Geometry simplification ε:"), m_simplifyEpsSpin);
+        f->addRow(tr("Geometry simplification &ε:"), m_simplifyEpsSpin);
 
         m_snapEpsSpin = new QDoubleSpinBox(g);
         m_snapEpsSpin->setRange(0.0, 100.0);
@@ -2163,7 +2265,9 @@ void MeshGenerationDialog::buildUi()
             "grid spacing becomes a Steiner vertex (no filtering).\n\n"
             "Either way, the selected DTM points are always added to the PSLG "
             "when a DTM raster is configured.  Each point carries its exact DEM "
-            "elevation and is not re-sampled after triangulation."));
+            "elevation and is not re-sampled after triangulation.\n\n"
+            "Very large DEMs are processed in memory-bounded row bands, so any "
+            "raster size works at any spacing."));
         f->addRow(QString(), m_thinningBox);
 
         m_thinningToleranceSpin = new QDoubleSpinBox(g);
@@ -2188,7 +2292,10 @@ void MeshGenerationDialog::buildUi()
         m_thinningIterationsSpin->setSpecialValueText(tr("(unlimited)"));
         m_thinningIterationsSpin->setToolTip(tr(
             "Number of normal-deviation thinning passes.  "
-            "0 (unlimited) runs until no further vertices qualify for removal."));
+            "0 (unlimited) runs until no further vertices qualify for removal.\n\n"
+            "Very large DEMs are processed in memory-bounded bands; results are "
+            "identical to a whole-grid run for pass counts up to 64.  "
+            "\"(unlimited)\" is capped at 64 passes per band in that mode."));
         f->addRow(tr("Thinning passes:"), m_thinningIterationsSpin);
 
         m_thinningMaxPointsSpin = new QSpinBox(g);
@@ -3165,7 +3272,21 @@ void MeshGenerationDialog::onMeshFinished()
         return;
     }
 
-    PipelineResult result = m_watcher->result();
+    // result() rethrows any exception captured from the worker thread.
+    // The worker wrapper already converts exceptions into failed results,
+    // but keep a belt-and-braces catch so a throw from the future machinery
+    // itself can never terminate the app.
+    PipelineResult result;
+    try {
+        result = m_watcher->result();
+    } catch (const std::exception &e) {
+        result.ok = false;
+        result.errorMsg = tr("Mesh pipeline failed: %1")
+                              .arg(QString::fromUtf8(e.what()));
+    } catch (...) {
+        result.ok = false;
+        result.errorMsg = tr("Mesh pipeline failed with an unknown error.");
+    }
     m_watcher->deleteLater();
     m_watcher = nullptr;
 
