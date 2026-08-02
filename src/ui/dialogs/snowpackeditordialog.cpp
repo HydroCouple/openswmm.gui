@@ -61,6 +61,9 @@ void SnowpackEditorDialog::buildUi_()
 {
     auto *outer = new QVBoxLayout(this);
     m_splitter = new QSplitter(Qt::Horizontal, this);
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("SnowpackEditorDialog"));
+    m_splitter->setObjectName(QStringLiteral("main"));
     m_splitter->setChildrenCollapsible(false);
     m_splitter->setHandleWidth(6);
 
@@ -84,7 +87,7 @@ void SnowpackEditorDialog::buildUi_()
     auto *formPane = new QWidget(m_splitter);
     auto *form     = new QFormLayout(formPane);
     m_nameEdit = new QLineEdit(formPane);
-    form->addRow(tr("Name"), m_nameEdit);
+    form->addRow(tr("N&ame"), m_nameEdit);
 
     auto *note = new QLabel(
         tr("Snow-pack melt parameters are not yet editable through the engine "

@@ -98,7 +98,6 @@ public slots:
                               QWidget *parent = nullptr);
 
 protected:
-    void closeEvent(QCloseEvent *e) override;
     void showEvent(QShowEvent  *e) override;
 
 private slots:
@@ -129,8 +128,6 @@ private:
     void    commitOpenEditors();
     QString currentGroupName() const;
     int     currentMonth() const;       ///< -1 for "All", 0..11 for months
-    void    saveState();
-    void    restoreState();
 
     SWMMModelLayer            *m_layer = nullptr;
 

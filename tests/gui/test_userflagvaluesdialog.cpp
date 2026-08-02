@@ -21,6 +21,8 @@
 #include <QTableWidget>
 #include <QTest>
 
+#include "dialog_a11y_checks.h"
+
 using openswmmvis::ui::UserFlagsModel;
 using FlagType = UserFlagsModel::FlagType;
 
@@ -88,6 +90,8 @@ private slots:
                                QStringLiteral("PRIORITY"), QStringLiteral("2")));
 
         UserFlagValuesDialog dlg(makeRef(&model, QStringLiteral("J1")));
+
+        swmmvis_test::assertDialogA11y(&dlg);
         dlg.setConfirmationsEnabled(false);
         QCOMPARE(dlg.table()->rowCount(), 2);
         // Existing value pre-loaded; unset boolean shows the (unset) combo.

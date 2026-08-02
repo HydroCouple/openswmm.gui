@@ -289,6 +289,8 @@ add_swmmvis_gui_test(test_profileplot_axis_edges
     ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
 )
 
 # Layer-metadata plan — mesh edge-count identity (2·E = 3·T + B). Value types.
@@ -721,6 +723,8 @@ add_swmmvis_gui_test(test_timeseries_editor_dialog
     ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesundocommands.h
     ${CMAKE_SOURCE_DIR}/include/io/timeseriesparse.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/timeserieseditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/panels/timeseriestablemodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/panels/timeserieslistmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/interactivechartview.cpp
@@ -748,8 +752,10 @@ add_swmmvis_gui_test(test_timeseries_editor_dialog
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialoglayoutpersistence.h
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
 )
-target_link_libraries(test_timeseries_editor_dialog PRIVATE Qt6::Charts
+target_link_libraries(test_timeseries_editor_dialog PRIVATE Qt6::Charts Qt6::Svg
     # chartpropertiesdialog.cpp (pulled in via ChartAxisFormatController) uses QPropertyModel.
     $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>)
 
@@ -769,6 +775,8 @@ add_swmmvis_gui_test(test_objectbrowser_add_new_dispatch
     ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesundocommands.h
     ${CMAKE_SOURCE_DIR}/include/io/timeseriesparse.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/timeserieseditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/panels/timeseriestablemodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/panels/timeserieslistmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/interactivechartview.cpp
@@ -795,8 +803,10 @@ add_swmmvis_gui_test(test_objectbrowser_add_new_dispatch
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialoglayoutpersistence.h
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
 )
-target_link_libraries(test_objectbrowser_add_new_dispatch PRIVATE Qt6::Charts
+target_link_libraries(test_objectbrowser_add_new_dispatch PRIVATE Qt6::Charts Qt6::Svg
     # chartpropertiesdialog.cpp (pulled in via ChartAxisFormatController) uses QPropertyModel.
     $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>)
 
@@ -814,6 +824,8 @@ add_swmmvis_gui_test(test_pattern_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/pattern/patternregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/panels/patternfactortablemodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/patterneditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/interactivechartview.cpp
     # PatternEditorDialog hosts a PatternEditChartView (complete type needed for
     # chartView()->grab() in the test, and its impl for linking; it pushes
@@ -855,6 +867,10 @@ add_swmmvis_gui_test(test_curve_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/curve/curveregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/panels/curvepointtablemodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/curveeditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/interactivechartview.cpp
     # CurveEditorDialog hosts a CurveEditChartView (which pushes curve undo
     # commands); axis labels via PreferencesManager + NumberFormat.
@@ -878,7 +894,7 @@ add_swmmvis_gui_test(test_curve_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
-target_link_libraries(test_curve_editor_dialog PRIVATE Qt6::Charts
+target_link_libraries(test_curve_editor_dialog PRIVATE Qt6::Charts Qt6::Svg
     # chartpropertiesdialog.cpp (pulled in via ChartAxisFormatController) uses QPropertyModel.
     $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>)
 
@@ -904,6 +920,10 @@ add_swmmvis_gui_test(test_transect_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/transectchartview.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/transectpropertybag.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/transecteditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
     # Chart axis labels via PreferencesManager + NumberFormat.
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
@@ -913,7 +933,7 @@ add_swmmvis_gui_test(test_transect_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
     ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
 )
-target_link_libraries(test_transect_editor_dialog PRIVATE
+target_link_libraries(test_transect_editor_dialog PRIVATE Qt6::Svg
     Qt6::Charts
     # transecteditordialog.cpp uses QPropertyModel for the chart-properties
     # dialog and the middle-pane property tree (see lines 17, 359, 650).
@@ -1285,6 +1305,8 @@ add_swmmvis_gui_test(test_crschangedialog
     test_crschangedialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/crschangedialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/crschangedialog.h
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
 )
 
 add_swmmvis_gui_test(test_aboutdialog
@@ -1586,6 +1608,8 @@ target_include_directories(test_tilepyramidfallback PRIVATE ${GDAL_INCLUDE_DIRS}
 add_swmmvis_gui_test(test_simulationoptionsdialog
     test_simulationoptionsdialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/simulationoptionshelpers.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
 )
 
 # Climatology dialog — instantiated against a synthetic BUILDING engine; the
@@ -1795,3 +1819,147 @@ add_swmmvis_gui_test(test_selectionops
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_selectionops)
+
+# UI redesign P0 — standalone audit of forms/swmmvis.ui. The form declares
+# MapCanvas as a customwidget but never instantiates one, so Ui::SWMMVis
+# sets up on a bare QMainWindow with no app linkage (Qt-only, fast).
+# Guards: no bare-word/media-key shortcuts, no duplicate shortcuts, every
+# action has text, repaired-shortcut regression anchors.
+# The .ui is deliberately NOT a direct source (see the collision note above
+# SWMMVIS_TEST_SOURCES) — AUTOUIC finds it via the absolute search path when
+# the .cpp does `#include "ui_swmmvis.h"`.
+add_swmmvis_gui_test(test_ui_form_audit
+    test_ui_form_audit.cpp
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+set_target_properties(test_ui_form_audit PROPERTIES
+    AUTOUIC ON
+    AUTOUIC_SEARCH_PATHS "${CMAKE_SOURCE_DIR}/forms")
+
+# UI redesign P1 — action catalog integrity (unique ids/objectNames,
+# default shortcuts parse + no duplicates, tab ids known) and
+# ActionRegistry behavior (adopt-in-place identity, QSettings override
+# persistence, tag enable/disable, conflict lookup, keyClick firing).
+# Both link only actionregistry.cpp — no app object graph.
+add_swmmvis_gui_test(test_action_catalog
+    test_action_catalog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/actionregistry.h
+    ${CMAKE_SOURCE_DIR}/src/ui/actionregistry.cpp
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+add_swmmvis_gui_test(test_action_registry
+    test_action_registry.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/actionregistry.h
+    ${CMAKE_SOURCE_DIR}/src/ui/actionregistry.cpp
+)
+
+# UI redesign P2 — ThemeManager behavior (mode switching, palette
+# application, themeChanged discipline, offscreen System→Light fallback)
+# and the WCAG AA contrast gate over the design tokens (pure math, both
+# schemes; fails any token edit that regresses text contrast).
+add_swmmvis_gui_test(test_theme_manager
+    test_theme_manager.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+)
+add_swmmvis_gui_test(test_theme_contrast
+    test_theme_contrast.cpp
+)
+
+# UI redesign P3 — IconFactory / ThemedIconEngine: catalog aliases render,
+# light/dark/disabled renders differ, pixmap cache stable, unknown alias
+# null. Links the real qrc + theme sources; QSvgRenderer needs Qt6::Svg.
+add_swmmvis_gui_test(test_icon_factory
+    test_icon_factory.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+)
+target_link_libraries(test_icon_factory PRIVATE Qt6::Svg)
+
+# UI redesign P4 — chrome-color lint: fails on new hex/named-color
+# stylesheets or QColor-literal palette writes in chrome code paths
+# (src/ui, src/plot, main-window TUs) outside the reviewed allowlist.
+add_test(NAME lint_chrome_colors
+    COMMAND bash ${CMAKE_SOURCE_DIR}/scripts/lint_chrome_colors.sh)
+set_tests_properties(lint_chrome_colors PROPERTIES LABELS "gui")
+
+# UI redesign P6 — CompactToolbarController: tab switching swaps row
+# visibility, contextual tab reveal/fallback, last-tab persistence, and
+# catalog tab-id vocabulary. Standalone QMainWindow, no app linkage.
+add_swmmvis_gui_test(test_compact_toolbar
+    test_compact_toolbar.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/toolbars/compacttoolbarcontroller.h
+    ${CMAKE_SOURCE_DIR}/src/ui/toolbars/compacttoolbarcontroller.cpp
+)
+
+# UI redesign P7 — command palette: fuzzy ranking, model filtering over
+# the registry, keyClicks type-filter-Enter end-to-end, Esc dismissal,
+# disabled-action refusal.
+add_swmmvis_gui_test(test_command_palette
+    test_command_palette.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/actionregistry.h
+    ${CMAKE_SOURCE_DIR}/src/ui/actionregistry.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/commandpalette.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/commandpalette.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/commandpalettemodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/commandpalettemodel.cpp
+)
+
+# UI redesign P8 — shortcut editor: assign persists + applies live,
+# duplicate binding hard-blocked naming the holder, reserved-key warning,
+# reset one/all restores catalog defaults.
+add_swmmvis_gui_test(test_shortcut_editor
+    test_shortcut_editor.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/actionregistry.h
+    ${CMAKE_SOURCE_DIR}/src/ui/actionregistry.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/shortcuteditorwidget.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/shortcuteditorwidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+)
+
+# UI redesign iteration 2 (D1) — dialog layout persistence: extended
+# helper vocabulary (geometry/splitter/header/tab/page/toggle, opt-in by
+# objectName, bounds-checked, qt_* ignored) + the app-wide
+# DialogLayoutWatcher (restore on first Show, save on Hide/Close,
+# noLayoutPersistence opt-out). QSettings isolated to a QTemporaryDir.
+add_swmmvis_gui_test(test_dialog_layout_persistence
+    test_dialog_layout_persistence.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutpersistence.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialoglayoutwatcher.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutwatcher.cpp
+)
+
+# UI redesign iteration 2 (D4) — dialog accessibility audit over the
+# cheaply-constructible dialogs, guarding the sweep invariants (mnemonic
+# uniqueness, icon-only button naming, persistence naming) via the shared
+# dialog_a11y_checks.h assertions.
+add_swmmvis_gui_test(test_dialog_a11y_standalone
+    test_dialog_a11y_standalone.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/aboutdialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/aboutdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/pluginsdialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/pluginsdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/plugins/filefilterregistry.h
+    ${CMAKE_SOURCE_DIR}/src/plugins/filefilterregistry.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/licenseagreementdialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/licenseagreementdialog.cpp
+)
+
+# UI redesign iteration 2 (R2) — ribbon framework: pure solver demotion
+# order + hysteresis dead band, captioned-group defaultAction mirroring
+# and mode switching at constant height, measured width shrinkage,
+# widget-host rigidity, and split-button last-used restore + promotion
+# on trigger and on programmatic toggled(true). Standalone, no app
+# linkage (ribbonlayoutsolver.h is header-only).
+add_swmmvis_gui_test(test_ribbongroup
+    test_ribbongroup.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/toolbars/ribbongroup.h
+    ${CMAKE_SOURCE_DIR}/src/ui/toolbars/ribbongroup.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/toolbars/ribbonsplitbutton.h
+    ${CMAKE_SOURCE_DIR}/src/ui/toolbars/ribbonsplitbutton.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/toolbars/ribboncompactor.h
+    ${CMAKE_SOURCE_DIR}/src/ui/toolbars/ribboncompactor.cpp
+)

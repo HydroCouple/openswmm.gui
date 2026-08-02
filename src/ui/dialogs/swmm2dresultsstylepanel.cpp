@@ -198,16 +198,16 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
     // 2026-06-21 — the "Depth Fill" (depth color ramp) and "Flow Arrows" tabs
     // were removed: contour bands now provide the depth fill, and velocity
     // vectors already convey flow direction.
-    tabs->addTab(wrapScroll(buildContourBandTab(tabs)), tr("Depth Contours"));
-    tabs->addTab(wrapScroll(buildIsolineTab(tabs)),     tr("Depth Isolines"));
-    tabs->addTab(wrapScroll(buildVelocityTab(tabs)),    tr("Flow Velocity"));
+    tabs->addTab(wrapScroll(buildContourBandTab(tabs)), tr("D&epth Contours"));
+    tabs->addTab(wrapScroll(buildIsolineTab(tabs)),     tr("De&pth Isolines"));
+    tabs->addTab(wrapScroll(buildVelocityTab(tabs)),    tr("&Flow Velocity"));
     // Issue 6 — Edges/Vertices were previously only editable via the generic
     // property grid; give them dedicated tabs so the edge colour/width (the
     // knobs behind the dark-edge artifact) and the vertex markers are tunable
     // here. The slope-emphasis and tagged-vertex groups are omitted because the
     // results renderer does not honour them (no dead knobs).
-    tabs->addTab(wrapScroll(buildMeshEdgeTab(tabs)),     tr("Mesh Edges"));
-    tabs->addTab(wrapScroll(buildMeshNodeTab(tabs)),     tr("Mesh Vertices"));
+    tabs->addTab(wrapScroll(buildMeshEdgeTab(tabs)),     tr("&Mesh Edges"));
+    tabs->addTab(wrapScroll(buildMeshNodeTab(tabs)),     tr("Mes&h Vertices"));
 }
 
 // ─── Contour bands ──────────────────────────────────────────────────────────
@@ -276,9 +276,9 @@ QWidget *Swmm2DResultsStylePanel::buildIsolineTab(QWidget *parent)
         mode->addItem(tr("Fixed interval + base"),   int(LM::FixedInterval));
         mode->setCurrentIndex(mode->findData(int(st->levelMode())));
         mode->setMinimumWidth(kComboMinWidthPx);
-        levelForm->addRow(tr("Mode:"), mode);
+        levelForm->addRow(tr("M&ode:"), mode);
         auto *count = makeSpin(levelBox, 1, 64, st->isoValueCount());
-        levelForm->addRow(tr("Count:"), count);
+        levelForm->addRow(tr("Co&unt:"), count);
         // Slice US.2 — classification method for the Count idiom (equal
         // interval reproduces the legacy even spacing; quantile / Jenks /
         // std-dev bin the wet-cell depths). FixedInterval ignores it.
@@ -292,14 +292,14 @@ QWidget *Swmm2DResultsStylePanel::buildIsolineTab(QWidget *parent)
         method->addItem(tr("Exponential"),            int(BM::Exponential));
         method->setCurrentIndex(method->findData(int(st->scheme().method())));
         method->setMinimumWidth(kComboMinWidthPx);
-        levelForm->addRow(tr("Method:"), method);
+        levelForm->addRow(tr("Me&thod:"), method);
         auto *interval = makeDSpin(levelBox, 1e-6, 1e6, 0.1, 3,
                                    st->levelInterval(), tr(" m"));
-        levelForm->addRow(tr("Interval:"), interval);
+        levelForm->addRow(tr("&Interval:"), interval);
         auto *base = makeDSpin(levelBox, -1e6, 1e6, 0.1, 3,
                                st->baseLevel(), tr(" m"));
         base->setToolTip(tr("Contours fall at base + k × interval"));
-        levelForm->addRow(tr("Base level:"), base);
+        levelForm->addRow(tr("B&ase level:"), base);
         lay->addWidget(levelBox);
 
         auto applyMode = [count, method, interval, base](LM m) {
@@ -315,23 +315,23 @@ QWidget *Swmm2DResultsStylePanel::buildIsolineTab(QWidget *parent)
         auto *color = new ColorButton(symBox);
         color->setShowAlpha(true);
         color->setColor(st->color());
-        symForm->addRow(tr("Colour:"), color);
+        symForm->addRow(tr("Co&lour:"), color);
         auto *width = makeDSpin(symBox, 0.25, 20.0, 0.25, 2,
                                 st->lineWidthPx(), tr(" px"));
-        symForm->addRow(tr("Width:"), width);
+        symForm->addRow(tr("&Width:"), width);
         auto *dash = new DashStyleCombo(symBox);
         dash->setPenStyle(st->dashPattern());
         dash->setMinimumWidth(kComboMinWidthPx);
-        symForm->addRow(tr("Stroke style:"), dash);
+        symForm->addRow(tr("St&roke style:"), dash);
         auto *idxEvery = makeSpin(symBox, 0, 50, st->indexEvery());
         idxEvery->setSpecialValueText(tr("Off"));
         idxEvery->setToolTip(tr("Emphasise every Nth contour (topographic "
                                 "index contours); 0 disables"));
-        symForm->addRow(tr("Index contour every:"), idxEvery);
+        symForm->addRow(tr("I&ndex contour every:"), idxEvery);
         auto *idxWidth = makeDSpin(symBox, 0.25, 20.0, 0.25, 2,
                                    st->indexWidthPx(), tr(" px"));
         idxWidth->setEnabled(st->indexEvery() >= 2);
-        symForm->addRow(tr("Index width:"), idxWidth);
+        symForm->addRow(tr("Inde&x width:"), idxWidth);
         lay->addWidget(symBox);
 
         auto *labelBox  = new QGroupBox(tr("Labels"), page);
@@ -346,7 +346,7 @@ QWidget *Swmm2DResultsStylePanel::buildIsolineTab(QWidget *parent)
         auto *fontPt = makeDSpin(labelBox, 4.0, 72.0, 0.5, 1,
                                  st->labelFontPt(), tr(" pt"));
         fontPt->setEnabled(st->labels());
-        labelForm->addRow(tr("Font size:"), fontPt);
+        labelForm->addRow(tr("Font si&ze:"), fontPt);
         auto *halo = new QCheckBox(tr("White halo"), labelBox);
         halo->setChecked(st->labelHalo());
         halo->setEnabled(st->labels());
@@ -428,7 +428,7 @@ QWidget *Swmm2DResultsStylePanel::buildVelocityTab(QWidget *parent)
         scaling->setToolTip(tr("How |v| maps to arrow length before the "
                                "min/max clamps"));
         scaling->setMinimumWidth(kComboMinWidthPx);
-        sizeForm->addRow(tr("Length scaling:"), scaling);
+        sizeForm->addRow(tr("Len&gth scaling:"), scaling);
         auto *scale = makeDSpin(sizeBox, 0.1, 500.0, 1.0, 1,
                                 st->glyphLengthScalePxPerMps(),
                                 tr(" px per m/s"));
@@ -490,7 +490,7 @@ QWidget *Swmm2DResultsStylePanel::buildVelocityTab(QWidget *parent)
         auto *dryCut = makeDSpin(placeBox, 0.0, 1000.0, 0.01, 3,
                                  st->dryDepthCutoff(), tr(" m"));
         dryCut->setToolTip(tr("Suppress arrows where depth is below this"));
-        placeForm->addRow(tr("Dry depth cutoff:"), dryCut);
+        placeForm->addRow(tr("Dr&y depth cutoff:"), dryCut);
         lay->addWidget(placeBox);
 
         connect(scaling, qOverload<int>(&QComboBox::currentIndexChanged), this,
@@ -560,7 +560,7 @@ QWidget *Swmm2DResultsStylePanel::buildMeshEdgeTab(QWidget *parent)
         auto *dash = new DashStyleCombo(symBox);
         dash->setPenStyle(st->dashPattern());
         dash->setMinimumWidth(kComboMinWidthPx);
-        symForm->addRow(tr("Stroke style:"), dash);
+        symForm->addRow(tr("Stro&ke style:"), dash);
 
         lay->addWidget(symBox);
 

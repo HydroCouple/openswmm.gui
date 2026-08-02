@@ -34,6 +34,7 @@ LabeledLineEdit::LabeledLineEdit(const QString &labelText, QWidget *parent)
     auto *lay = makeRowLayout(this);
     m_label = new QLabel(labelText, this);
     m_edit  = new QLineEdit(this);
+    m_label->setBuddy(m_edit);   // label mnemonics + AT reach the control
     lay->addWidget(m_label);
     lay->addWidget(m_edit, /*stretch=*/1);
     connect(m_edit, &QLineEdit::textChanged,
@@ -55,6 +56,7 @@ LabeledDoubleSpin::LabeledDoubleSpin(const QString &labelText,
     auto *lay = makeRowLayout(this);
     m_label = new QLabel(labelText, this);
     m_spin  = new QDoubleSpinBox(this);
+    m_label->setBuddy(m_spin);   // label mnemonics + AT reach the control
     m_spin->setRange(minimum, maximum);
     m_spin->setDecimals(decimals);
     lay->addWidget(m_label);
@@ -77,6 +79,7 @@ LabeledIntSpin::LabeledIntSpin(const QString &labelText,
     auto *lay = makeRowLayout(this);
     m_label = new QLabel(labelText, this);
     m_spin  = new QSpinBox(this);
+    m_label->setBuddy(m_spin);   // label mnemonics + AT reach the control
     m_spin->setRange(minimum, maximum);
     lay->addWidget(m_label);
     lay->addWidget(m_spin, /*stretch=*/1);
@@ -95,6 +98,7 @@ LabeledCombo::LabeledCombo(const QString &labelText, QWidget *parent)
     auto *lay = makeRowLayout(this);
     m_label = new QLabel(labelText, this);
     m_combo = new QComboBox(this);
+    m_label->setBuddy(m_combo);  // label mnemonics + AT reach the control
     lay->addWidget(m_label);
     lay->addWidget(m_combo, /*stretch=*/1);
     connect(m_combo, qOverload<int>(&QComboBox::currentIndexChanged),
@@ -129,6 +133,8 @@ LabeledPickerCombo::LabeledPickerCombo(const QString &labelText, QWidget *parent
         lay->addWidget(m_label);
     }
     m_combo = new QComboBox(this);
+    if (m_label)
+        m_label->setBuddy(m_combo);  // label mnemonics + AT reach the control
     m_combo->setEditable(false);
     m_combo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     lay->addWidget(m_combo, /*stretch=*/1);
@@ -136,6 +142,7 @@ LabeledPickerCombo::LabeledPickerCombo(const QString &labelText, QWidget *parent
     m_btn = new QToolButton(this);
     m_btn->setText(QStringLiteral("…"));
     m_btn->setToolTip(tr("Create a new data object"));
+    m_btn->setAccessibleName(tr("Create a new data object"));
     m_btn->setAutoRaise(false);
     lay->addWidget(m_btn);
 

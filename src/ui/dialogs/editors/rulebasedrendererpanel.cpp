@@ -181,7 +181,7 @@ public:
         auto *fbLay = new QHBoxLayout(fbBox);
         fbLay->addWidget(new QLabel(tr("Colour:"), fbBox));
         m_fallbackSwatch = new QLabel(fbBox);
-        m_fallbackSwatch->setFixedSize(QSize(48, 18));
+        m_fallbackSwatch->setMinimumSize(QSize(48, 18));
         m_fallbackSwatch->setFrameShape(QFrame::Panel);
         m_fallbackSwatch->setFrameShadow(QFrame::Sunken);
         m_fallbackSwatch->setAutoFillBackground(true);

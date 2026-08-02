@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/crschangedialog.h"
+#include "ui/theme/themehelpers.h"
 
 #include <QDialogButtonBox>
 #include <QGroupBox>
@@ -21,6 +22,8 @@ CRSChangeDialog::CRSChangeDialog(const QString &oldAuth,
     : QDialog(parent)
 {
     setWindowTitle(tr("Change Coordinate Reference System"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("CRSChangeDialog"));
     setModal(true);
 
     auto *layout = new QVBoxLayout(this);
@@ -46,7 +49,7 @@ CRSChangeDialog::CRSChangeDialog(const QString &oldAuth,
 
     auto *reprojDesc = new QLabel(
         tr("    Use when the new CRS is the correct one for the data."), group);
-    reprojDesc->setStyleSheet("color: gray;");
+    reprojDesc->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     gl->addWidget(reprojDesc);
 
     m_radioRenderOnly = new QRadioButton(
@@ -59,7 +62,7 @@ CRSChangeDialog::CRSChangeDialog(const QString &oldAuth,
 
     auto *renderDesc = new QLabel(
         tr("    Use when the source CRS is correct."), group);
-    renderDesc->setStyleSheet("color: gray;");
+    renderDesc->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     gl->addWidget(renderDesc);
 
     if (sourceIsLocal)

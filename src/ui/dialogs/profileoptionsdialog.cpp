@@ -73,6 +73,8 @@ ProfileOptionsDialog::ProfileOptionsDialog(ProfilePlotOptions   *options,
       m_projectWindow(projectWindow)
 {
     setWindowTitle(tr("Profile Display Options"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("ProfileOptionsDialog"));
     setModal(false);
     setWindowFlags(Qt::Window | Qt::WindowSystemMenuHint
                    | Qt::WindowTitleHint | Qt::WindowCloseButtonHint);
@@ -137,7 +139,7 @@ void ProfileOptionsDialog::buildDisplayTab()
     Q_UNUSED(m_delegate);
 #endif
 
-    m_tabs->addTab(page, tr("Display"));
+    m_tabs->addTab(page, tr("&Display"));
 }
 
 void ProfileOptionsDialog::buildSourcesTab()
@@ -157,6 +159,7 @@ void ProfileOptionsDialog::buildSourcesTab()
     // on the right.  The splitter is the source of truth for the tab's
     // resize behaviour — both sides shrink/grow freely.
     auto *splitter = new QSplitter(Qt::Horizontal, page);
+    splitter->setObjectName(QStringLiteral("main"));
     splitter->setChildrenCollapsible(false);
     vbox->addWidget(splitter, /*stretch=*/1);
 
@@ -316,7 +319,7 @@ void ProfileOptionsDialog::buildSourcesTab()
 
     refreshSourcesModel();
 
-    m_tabs->addTab(page, tr("Sources"));
+    m_tabs->addTab(page, tr("&Sources"));
 }
 
 void ProfileOptionsDialog::refreshSources()

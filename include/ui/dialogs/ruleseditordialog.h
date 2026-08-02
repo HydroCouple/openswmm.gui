@@ -125,8 +125,6 @@ private:
     void buildCreateCard_();
     void bindProvider_(openswmmvis::controls::ControlRuleProvider *p);
     void updateValidationBanner_();
-    void saveDialogSettings_() const;
-    void restoreDialogSettings_();
     openswmmvis::controls::ControlRuleRegistry *registry_() const;
 
     QPointer<SWMMModelLayer>                              m_layer;

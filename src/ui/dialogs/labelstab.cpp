@@ -78,11 +78,11 @@ LabelsTab::LabelsTab(OpenSWMMVisLayer *layer, QWidget *parent)
         m_fieldCombo->addItem(tr("(feature ID)"), QString());
         for (const QString &name : vec->ogrFieldNames())
             m_fieldCombo->addItem(name, name);
-        masterLay->addRow(tr("Field:"), m_fieldCombo);
+        masterLay->addRow(tr("&Field:"), m_fieldCombo);
     } else {
         m_fieldEdit = new QLineEdit(masterBox);
         m_fieldEdit->setPlaceholderText(tr("Leave blank to use element name"));
-        masterLay->addRow(tr("Field:"), m_fieldEdit);
+        masterLay->addRow(tr("F&ield:"), m_fieldEdit);
     }
     outer->addWidget(masterBox);
 
@@ -91,7 +91,7 @@ LabelsTab::LabelsTab(OpenSWMMVisLayer *layer, QWidget *parent)
     auto *fontLay = new QFormLayout(fontBox);
 
     m_fontCombo = new QFontComboBox(fontBox);
-    fontLay->addRow(tr("Family:"), m_fontCombo);
+    fontLay->addRow(tr("F&amily:"), m_fontCombo);
 
     auto *sizeRow = new QHBoxLayout;
     m_fontSizeSpin = new QDoubleSpinBox(fontBox);
@@ -117,11 +117,11 @@ LabelsTab::LabelsTab(OpenSWMMVisLayer *layer, QWidget *parent)
     m_italicBtn->setToolTip(tr("Italic"));
     sizeRow->addWidget(m_italicBtn);
     sizeRow->addStretch();
-    fontLay->addRow(tr("Size:"), sizeRow);
+    fontLay->addRow(tr("&Size:"), sizeRow);
 
     m_colorBtn = new ColorButton(fontBox);
     m_colorBtn->setColor(QColor(20, 20, 20));
-    fontLay->addRow(tr("Colour:"), m_colorBtn);
+    fontLay->addRow(tr("Colo&ur:"), m_colorBtn);
 
     outer->addWidget(fontBox);
 
@@ -134,7 +134,7 @@ LabelsTab::LabelsTab(OpenSWMMVisLayer *layer, QWidget *parent)
 
     m_haloColorBtn = new ColorButton(haloBox);
     m_haloColorBtn->setColor(Qt::white);
-    haloLay->addRow(tr("Colour:"), m_haloColorBtn);
+    haloLay->addRow(tr("Colou&r:"), m_haloColorBtn);
 
     m_haloRadiusSpin = new QDoubleSpinBox(haloBox);
     m_haloRadiusSpin->setRange(0.5, 8.0);
@@ -142,7 +142,7 @@ LabelsTab::LabelsTab(OpenSWMMVisLayer *layer, QWidget *parent)
     m_haloRadiusSpin->setDecimals(2);
     m_haloRadiusSpin->setSuffix(QStringLiteral(" px"));
     m_haloRadiusSpin->setValue(1.5);
-    haloLay->addRow(tr("Radius:"), m_haloRadiusSpin);
+    haloLay->addRow(tr("Ra&dius:"), m_haloRadiusSpin);
 
     outer->addWidget(haloBox);
 
@@ -156,7 +156,7 @@ LabelsTab::LabelsTab(OpenSWMMVisLayer *layer, QWidget *parent)
     m_placementCombo->addItem(tr("Left"),   int(LabelConfig::Left));
     m_placementCombo->addItem(tr("Right"),  int(LabelConfig::Right));
     m_placementCombo->addItem(tr("Centre"), int(LabelConfig::Centre));
-    placeLay->addRow(tr("Position:"), m_placementCombo);
+    placeLay->addRow(tr("&Position:"), m_placementCombo);
     outer->addWidget(placeBox);
 
     // ── Scale window ───────────────────────────────────────────────────
@@ -168,7 +168,7 @@ LabelsTab::LabelsTab(OpenSWMMVisLayer *layer, QWidget *parent)
     m_minScaleSpin->setSingleStep(1000.0);
     m_minScaleSpin->setSpecialValueText(tr("none"));
     m_minScaleSpin->setToolTip(tr("Hide labels when zoomed OUT past this scale denominator (0 = no limit)."));
-    scaleLay->addRow(tr("Hide when 1: ≥"), m_minScaleSpin);
+    scaleLay->addRow(tr("&Hide when 1: ≥"), m_minScaleSpin);
 
     m_maxScaleSpin = new QDoubleSpinBox(scaleBox);
     m_maxScaleSpin->setRange(0.0, 1e9);
@@ -176,7 +176,7 @@ LabelsTab::LabelsTab(OpenSWMMVisLayer *layer, QWidget *parent)
     m_maxScaleSpin->setSingleStep(1000.0);
     m_maxScaleSpin->setSpecialValueText(tr("none"));
     m_maxScaleSpin->setToolTip(tr("Hide labels when zoomed IN past this scale denominator (0 = no limit)."));
-    scaleLay->addRow(tr("Hide when 1: ≤"), m_maxScaleSpin);
+    scaleLay->addRow(tr("Hid&e when 1: ≤"), m_maxScaleSpin);
     outer->addWidget(scaleBox);
 
     // ── Background frame (Slice X.24) ──────────────────────────────────
@@ -192,7 +192,7 @@ LabelsTab::LabelsTab(OpenSWMMVisLayer *layer, QWidget *parent)
     m_bgPaddingSpin->setDecimals(1);
     m_bgPaddingSpin->setSuffix(QStringLiteral(" px"));
     m_bgPaddingSpin->setValue(2.0);
-    bgLay->addRow(tr("Padding:"), m_bgPaddingSpin);
+    bgLay->addRow(tr("Paddin&g:"), m_bgPaddingSpin);
     m_bgRadiusSpin = new QDoubleSpinBox(bgBox);
     m_bgRadiusSpin->setRange(0.0, 16.0);
     m_bgRadiusSpin->setDecimals(1);

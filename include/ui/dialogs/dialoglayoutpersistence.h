@@ -3,21 +3,27 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  * \license GPL-3.0-or-later
- * \brief  Step E.1 + Step H — free helpers for dialog geometry / splitter
- *         persistence via QSettings and a uniform always-on-top policy.
+ * \brief  Step E.1 + Step H — free helpers for dialog layout persistence
+ *         via QSettings and a uniform always-on-top policy.
  *
- * Usage (per-dialog, in the ctor after the UI is built):
+ * Iteration 2 (D1): persistence is applied automatically by the app-wide
+ * DialogLayoutWatcher (restore on first Show — AFTER the ctor, so hard-
+ * coded ctor resize()/defaults become the first-run values; save on
+ * Hide/Close, which covers QDialog::done()/exec paths). Wiring a dialog
+ * is therefore just NAMING it and the state worth keeping:
  *
- *   setObjectName(QStringLiteral("MyDialog"));
- *   m_splitter->setObjectName(QStringLiteral("main"));     // any splitter
- *   if (!openswmmvis::ui::restoreDialogLayout(this)) {
- *       // first-open: apply hard-coded default sizes here
- *   }
- *   openswmmvis::ui::applyAlwaysOnTopPolicy(this);
+ *   setObjectName(QStringLiteral("MyDialog"));           // enables persistence
+ *   m_splitter->setObjectName(QStringLiteral("main"));   // + splitter sizes
+ *   m_table->setObjectName(QStringLiteral("grid"));      // + header state
+ *   m_tabs->setObjectName(QStringLiteral("tabs"));       // + current tab
+ *   m_pages->setObjectName(QStringLiteral("pages"));     // + nav page (user nav
+ *                                                        //   ONLY — never stacks
+ *                                                        //   that follow data)
+ *   viewAction->setObjectName(QStringLiteral("showX"));  // + checkable view toggle
  *
- * And in a closeEvent override:
- *
- *   openswmmvis::ui::saveDialogLayout(this);
+ * Set the "noLayoutPersistence" dynamic property to opt a dialog out.
+ * Children named "qt_*" (Qt-internal) are ignored. Multi-instance dialogs
+ * share their class key — last close wins.
  *
  * QSettings keys live under `Dialogs/<objectName>/...` so they're isolated
  * from main-window state and from one another.

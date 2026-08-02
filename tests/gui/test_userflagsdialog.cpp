@@ -22,6 +22,8 @@
 #include <QTableWidget>
 #include <QTest>
 
+#include "dialog_a11y_checks.h"
+
 using openswmmvis::ui::UserFlagsModel;
 using FlagType = UserFlagsModel::FlagType;
 
@@ -56,6 +58,7 @@ private slots:
                              QStringLiteral("Field inspected?")));
 
         UserFlagsDialog dlg(&model);
+        swmmvis_test::assertDialogA11y(&dlg);
         dlg.setConfirmationsEnabled(false);
         QCOMPARE(dlg.table()->rowCount(), 1);
         QCOMPARE(dlg.table()->item(0, ColName)->text(),

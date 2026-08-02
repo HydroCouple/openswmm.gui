@@ -36,6 +36,9 @@ QT_BEGIN_NAMESPACE
 namespace Ui { class SWMMVis; }
 QT_END_NAMESPACE
 
+namespace openswmmvis::ui { class CompactToolbarController; }
+namespace openswmmvis::ui { class RibbonGroup; }
+
 class QCheckBox;
 class QLabel;
 class QToolButton;
@@ -136,6 +139,32 @@ private:
     void initializeLegendDockWidget();   // Slice BB Phase 8.6.11 / 8.6.16
     void initializeMenus();
     void initializeSettings();
+
+    /*! UI redesign P1 — creates the app-level Undo/Redo actions and adopts
+     *  every catalog-listed QAction into the ActionRegistry (which then
+     *  owns shortcut application). Defined in src/swmmvisactions.cpp;
+     *  called at the end of the constructor once all menus, toolbars and
+     *  docks exist. */
+    void registerActions();
+
+    /*! Rebind the app-level Undo/Redo actions' enabled-state to \a pw's
+     *  canvas undo stack (nullptr disables both). Defined in
+     *  src/swmmvisactions.cpp; called from onActiveSubWindowChanged. */
+    void rebindUndoRedoActions(SWMMVisProjectWindow *pw);
+    QMetaObject::Connection mUndoEnableConn;
+    QMetaObject::Connection mRedoEnableConn;
+
+    /*! UI redesign P6 — assemble the tabbed compact toolbar (Home/Model/
+     *  Mesh 2D/Analysis/Results/View) from the registered actions and the
+     *  four adopted widget-heavy toolbars. Defined in swmmvisactions.cpp;
+     *  called from registerActions() once actions and menus exist. */
+    void initializeCompactToolbar();
+
+    /*! Show/hide the contextual Mesh 2D tab based on whether the active
+     *  project's canvas carries a 2D mesh layer; rewires the canvas
+     *  layerAdded/layerRemoved connections on project switch. */
+    void updateMesh2DTabVisibility();
+
     void saveSettings();
     void clearPreviousWelcomeScreenElements();
     void initializeDefaultWorkspaceSession();
@@ -473,6 +502,11 @@ protected:
     void closeEvent(QCloseEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
 
+    /*! UI redesign P6 — the toolbar-area context menu offers only the
+     *  dock toggles: the compact-toolbar rows are managed by the tab
+     *  strip and must not be individually hideable. */
+    QMenu *createPopupMenu() override;
+
     // Feature A — drag-and-drop of .inp / .oswp files onto the main window.
     // Accepted local paths are routed through onOpenProject().
     void dragEnterEvent(QDragEnterEvent *event) override;
@@ -541,6 +575,25 @@ private:
     class AnimationController *mAnimationController  = nullptr;
     class TerrainToolbar      *mTerrainToolbar       = nullptr;
     class MeshEditingToolbar  *mMeshEditingToolbar   = nullptr;   // Slice §V.VB
+
+    // UI redesign P6 — tabbed compact toolbar (strip + per-tab rows).
+    openswmmvis::ui::CompactToolbarController *mCompactToolbar = nullptr;
+    class QToolBar            *mToolBarHome          = nullptr;
+    class QToolBar            *mToolBarModel         = nullptr;
+    class QToolBar            *mToolBarMesh2D        = nullptr;
+    class QToolBar            *mToolBarView          = nullptr;
+    // Iteration 2 (R3) — the two formerly .ui-authored bars, rebuilt in
+    // code with the SAME objectNames so saved window state keeps working.
+    class QToolBar            *mToolBarAnimation     = nullptr;
+    class QToolBar            *mToolBarAnalysis      = nullptr;
+    // Ribbon groups later phases re-anchor into: the analysis layer
+    // combos, the animation timeline widgets, and the Plots group whose
+    // Plot-Profile button carries the override dropdown.
+    openswmmvis::ui::RibbonGroup *mGroupResultsLayers = nullptr;
+    openswmmvis::ui::RibbonGroup *mGroupTimeline      = nullptr;
+    openswmmvis::ui::RibbonGroup *mGroupPlots         = nullptr;
+    QMetaObject::Connection    mMeshTabConnAdd;
+    QMetaObject::Connection    mMeshTabConnRemove;
 
     QSettings          mSettings;
     QStandardItemModel *mLogMessagesModel   = nullptr;

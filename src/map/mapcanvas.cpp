@@ -67,6 +67,13 @@ MapCanvas::MapCanvas(QWidget *parent)
     // ---- Widget setup ----
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
+    // A11y (UI redesign P9): the canvas is GPU-composited pixels; name it
+    // and point assistive tech at the accessible per-feature routes.
+    setAccessibleName(tr("Map canvas"));
+    setAccessibleDescription(tr(
+        "Interactive map of the model. Arrow keys pan, plus and minus "
+        "zoom. Use the Attribute Table or Object Browser panels to reach "
+        "individual features with the keyboard or a screen reader."));
     setAttribute(Qt::WA_OpaquePaintEvent, true);
 
     // Pinch-to-zoom (touchscreen + macOS / Windows Precision touchpad).
@@ -1944,6 +1951,24 @@ void MapCanvas::wheelEvent(QWheelEvent *event)
 
 void MapCanvas::keyPressEvent(QKeyEvent *event)
 {
+    // A11y (UI redesign P9): keyboard map navigation. Arrows/+/- are
+    // claimed by no map tool (they use Escape/Enter/Delete and letters),
+    // so handling them first steals nothing from the active tool.
+    const double step =
+        (event->modifiers() & Qt::ShiftModifier) ? 0.02 : 0.10;
+    const double panX = m_extent.width() * step;
+    const double panY = m_extent.height() * step;
+    switch (event->key()) {
+    case Qt::Key_Left:  pan(-panX, 0.0); event->accept(); return;
+    case Qt::Key_Right: pan(+panX, 0.0); event->accept(); return;
+    case Qt::Key_Up:    pan(0.0, +panY); event->accept(); return;
+    case Qt::Key_Down:  pan(0.0, -panY); event->accept(); return;
+    case Qt::Key_Plus:
+    case Qt::Key_Equal: zoomIn();  event->accept(); return;
+    case Qt::Key_Minus: zoomOut(); event->accept(); return;
+    default:
+        break;
+    }
     if (m_activeTool)
         m_activeTool->keyPressEvent(event);
 }
@@ -1978,8 +2003,14 @@ QString buildTooltip(SWMMModelLayer *sl, const QString &name)
 
     const QString kind = a.value(QStringLiteral("Type")).toString();
     QString html;
-    html += QStringLiteral("<b>%1</b><br/><span style='color:#444'>%2</span>")
-                .arg(name.toHtmlEscaped(), kind.toHtmlEscaped());
+    // Secondary text rides the palette hint color so tooltip HTML stays
+    // legible on both themes (was a hardcoded #444).
+    html += QStringLiteral("<b>%1</b><br/><span style='color:%2'>%3</span>")
+                .arg(name.toHtmlEscaped(),
+                     QGuiApplication::palette()
+                         .color(QPalette::PlaceholderText)
+                         .name(QColor::HexRgb),
+                     kind.toHtmlEscaped());
 
     auto addRow = [&](const QString &label, const QString &value) {
         if (value.isEmpty()) return;

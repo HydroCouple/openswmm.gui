@@ -34,6 +34,8 @@ SubcatchCompoundEditDialog::SubcatchCompoundEditDialog(SubcatchCompoundEditRef r
     : QDialog(parent), m_ref(std::move(ref))
 {
     const char *titles[] = { "Land Use Coverage", "Groundwater", "LID Usage" };
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("SubcatchCompoundEditDialog"));
     setWindowTitle(tr("%1 — %2")
                        .arg(QString::fromLatin1(titles[m_ref.kind]), m_ref.subName));
     resize(560, 420);
@@ -88,7 +90,7 @@ void SubcatchCompoundEditDialog::buildLandUsePage()
     m_luCovSpin = new QDoubleSpinBox(grp);
     m_luCovSpin->setRange(0.0, 100.0);
     m_luCovSpin->setDecimals(2);
-    form->addRow(tr("Land Use"),     m_luCombo);
+    form->addRow(tr("Lan&d Use"),     m_luCombo);
     form->addRow(tr("Coverage (%)"), m_luCovSpin);
 
     auto *applyBtn = new QPushButton(tr("Set / Update"), grp);
@@ -153,13 +155,13 @@ void SubcatchCompoundEditDialog::buildGroundwaterPage()
     m_gwA3 = mkSpin();
     m_gwTw = mkSpin(); m_gwHstar = mkSpin();
 
-    form->addRow(tr("Aquifer"),          m_gwAquifer);
-    form->addRow(tr("Receiving Node"),   m_gwNode);
-    form->addRow(tr("Surface Elev."),    m_gwSurfEl);
-    form->addRow(tr("A1 (GW coeff.)"),   m_gwA1);
-    form->addRow(tr("B1 (GW expon.)"),   m_gwB1);
-    form->addRow(tr("A2 (Surf. coeff.)"),m_gwA2);
-    form->addRow(tr("B2 (Surf. expon.)"),m_gwB2);
+    form->addRow(tr("Aq&uifer"),          m_gwAquifer);
+    form->addRow(tr("&Receiving Node"),   m_gwNode);
+    form->addRow(tr("Surfa&ce Elev."),    m_gwSurfEl);
+    form->addRow(tr("A1 (&GW coeff.)"),   m_gwA1);
+    form->addRow(tr("B1 (GW &expon.)"),   m_gwB1);
+    form->addRow(tr("A2 (Surf. c&oeff.)"),m_gwA2);
+    form->addRow(tr("B2 (Surf. e&xpon.)"),m_gwB2);
     form->addRow(tr("A3 (interaction)"), m_gwA3);
     form->addRow(tr("Threshold Twgr"),   m_gwTw);
     form->addRow(tr("Hstar"),            m_gwHstar);
@@ -244,8 +246,8 @@ void SubcatchCompoundEditDialog::buildLidUsagePage()
     m_lidInitSat = new QDoubleSpinBox(grp); m_lidInitSat->setRange(0.0, 100.0);m_lidInitSat->setDecimals(2);
     m_lidFromImp = new QDoubleSpinBox(grp); m_lidFromImp->setRange(0.0, 100.0);m_lidFromImp->setDecimals(2);
     form->addRow(tr("LID Control"),      m_lidCombo);
-    form->addRow(tr("Number of Units"),  m_lidNumber);
-    form->addRow(tr("Area (per unit)"),  m_lidArea);
+    form->addRow(tr("Nu&mber of Units"),  m_lidNumber);
+    form->addRow(tr("Area (&per unit)"),  m_lidArea);
     form->addRow(tr("Top Width"),        m_lidWidth);
     form->addRow(tr("Init. Saturation"), m_lidInitSat);
     form->addRow(tr("% From Impervious"),m_lidFromImp);

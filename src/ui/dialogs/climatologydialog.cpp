@@ -89,6 +89,8 @@ ClimatologyDialog::ClimatologyDialog(SWMM_Engine engine, SWMMModelLayer *layer,
     : QDialog(parent), m_engine(engine), m_layer(layer)
 {
     setWindowTitle(tr("Climatology"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("ClimatologyDialog"));
     int us = 0;
     if (m_engine) swmm_get_unit_system(m_engine, &us);
     m_unitSystem = us;
@@ -139,12 +141,12 @@ void ClimatologyDialog::buildTemperatureTab(QTabWidget *tabs)
     m_tempSource->addItem(tr("No Data"));            // 0
     m_tempSource->addItem(tr("Time Series"));        // 1
     m_tempSource->addItem(tr("External Climate File")); // 2
-    form->addRow(tr("Source of Temperature Data:"), m_tempSource);
+    form->addRow(tr("S&ource of Temperature Data:"), m_tempSource);
 
     m_tempTs = new QComboBox;
     m_tempTs->setEditable(true);
     populateTimeseriesCombo(m_tempTs);
-    form->addRow(tr("Time Series:"), m_tempTs);
+    form->addRow(tr("Ti&me Series:"), m_tempTs);
 
     auto *fileRow = new QWidget;
     auto *fileLay = new QHBoxLayout(fileRow);
@@ -153,7 +155,7 @@ void ClimatologyDialog::buildTemperatureTab(QTabWidget *tabs)
     auto *browse = new QPushButton(tr("Browse…"));
     fileLay->addWidget(m_tempFile);
     fileLay->addWidget(browse);
-    form->addRow(tr("Climate File:"), fileRow);
+    form->addRow(tr("C&limate File:"), fileRow);
     connect(browse, &QPushButton::clicked, this, &ClimatologyDialog::onBrowseTempFile);
 
     m_tempStartCheck = new QCheckBox(tr("Start reading file at"));
@@ -174,12 +176,12 @@ void ClimatologyDialog::buildTemperatureTab(QTabWidget *tabs)
     m_tempUnits->addItem(tr("Tenths of degrees Celsius (C10)"), 0);
     m_tempUnits->addItem(tr("Degrees Celsius (C)"), 1);
     m_tempUnits->addItem(tr("Degrees Fahrenheit (F)"), 2);
-    form->addRow(tr("Climate-file units:"), m_tempUnits);
+    form->addRow(tr("Climate-&file units:"), m_tempUnits);
 
     connect(m_tempSource, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &ClimatologyDialog::onTempSourceChanged);
 
-    tabs->addTab(page, tr("Temperature"));
+    tabs->addTab(page, tr("&Temperature"));
 }
 
 void ClimatologyDialog::onTempSourceChanged()
@@ -217,7 +219,7 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
     m_evapType->addItem(tr("Time Series"), 2);             // TIMESERIES
     m_evapType->addItem(tr("Temperatures (Hargreaves)"), 3); // TEMPERATURE
     m_evapType->addItem(tr("Climate File (pan)"), 4);      // FILE/PAN
-    form->addRow(tr("Source of Evaporation Rates:"), m_evapType);
+    form->addRow(tr("Sou&rce of Evaporation Rates:"), m_evapType);
 
     // Stacked controls — page index == engine evap_type enum.
     m_evapStack = new QStackedWidget;
@@ -271,7 +273,7 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
     m_recovery = new QComboBox; m_recovery->setEditable(true);
     m_recovery->addItem(QString());  // empty = none
     populatePatternCombo(m_recovery);
-    form->addRow(tr("Soil Recovery Pattern (optional):"), m_recovery);
+    form->addRow(tr("Soil Reco&very Pattern (optional):"), m_recovery);
 
     m_dryOnly = new QCheckBox(tr("Evaporate only during dry periods"));
     form->addRow(QString(), m_dryOnly);
@@ -279,7 +281,7 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
     connect(m_evapType, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &ClimatologyDialog::onEvapTypeChanged);
 
-    tabs->addTab(page, tr("Evaporation"));
+    tabs->addTab(page, tr("&Evaporation"));
 }
 
 void ClimatologyDialog::onEvapTypeChanged()
@@ -303,7 +305,7 @@ void ClimatologyDialog::buildWindTab(QTabWidget *tabs)
     m_windType->addItem(tr("Monthly Averages"), 0);
     m_windType->addItem(tr("Use Climate File (see Temperature page)"), 1);
     auto *form = new QFormLayout;
-    form->addRow(tr("Source of Wind Speed:"), m_windType);
+    form->addRow(tr("Source of Wind S&peed:"), m_windType);
     lay->addLayout(form);
 
     const QString unit = isSI() ? tr("km/hr") : tr("mph");
@@ -314,7 +316,7 @@ void ClimatologyDialog::buildWindTab(QTabWidget *tabs)
     connect(m_windType, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &ClimatologyDialog::onWindTypeChanged);
 
-    tabs->addTab(page, tr("Wind Speed"));
+    tabs->addTab(page, tr("&Wind Speed"));
 }
 
 void ClimatologyDialog::onWindTypeChanged()
@@ -342,7 +344,7 @@ void ClimatologyDialog::buildSnowTab(QTabWidget *tabs)
 
     m_atiWeight = new QDoubleSpinBox;
     m_atiWeight->setRange(0.0, 1.0); m_atiWeight->setDecimals(2); m_atiWeight->setSingleStep(0.05);
-    form->addRow(tr("ATI Weight (fraction):"), m_atiWeight);
+    form->addRow(tr("ATI Wei&ght (fraction):"), m_atiWeight);
 
     m_negMelt = new QDoubleSpinBox;
     m_negMelt->setRange(0.0, 1.0); m_negMelt->setDecimals(2); m_negMelt->setSingleStep(0.05);
@@ -361,7 +363,7 @@ void ClimatologyDialog::buildSnowTab(QTabWidget *tabs)
     m_longitude->setRange(-1440.0, 1440.0); m_longitude->setDecimals(1);
     form->addRow(tr("Longitude Correction (+/- minutes):"), m_longitude);
 
-    tabs->addTab(page, tr("Snow Melt"));
+    tabs->addTab(page, tr("S&now Melt"));
 }
 
 // ---------------------------------------------------------------------------
@@ -398,7 +400,7 @@ void ClimatologyDialog::buildAdcTab(QTabWidget *tabs)
     connect(pNo,  &QPushButton::clicked, this, [this]{ onAdcPreset(1, false); });
     connect(pNat, &QPushButton::clicked, this, [this]{ onAdcPreset(1, true); });
 
-    tabs->addTab(page, tr("Areal Depletion"));
+    tabs->addTab(page, tr("&Areal Depletion"));
 }
 
 void ClimatologyDialog::onAdcPreset(int column, bool natural)
@@ -435,7 +437,7 @@ void ClimatologyDialog::buildAdjustmentsTab(QTabWidget *tabs)
     lay->addWidget(clear, 0, Qt::AlignLeft);
     connect(clear, &QPushButton::clicked, this, &ClimatologyDialog::onClearAdjustments);
 
-    tabs->addTab(page, tr("Adjustments"));
+    tabs->addTab(page, tr("Ad&justments"));
 }
 
 void ClimatologyDialog::onClearAdjustments()

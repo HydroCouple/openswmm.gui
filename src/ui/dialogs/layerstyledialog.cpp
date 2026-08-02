@@ -382,6 +382,10 @@ LayerStyleDialog::LayerStyleDialog(OpenSWMMVisLayer *layer,
     root->setSizeConstraint(QLayout::SetNoConstraint);
     setMinimumSize(0, 0);
     m_tabs = new QTabWidget(this);
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence;
+    // the per-layer-kind inner tab widgets stay unnamed (data-driven).
+    setObjectName(QStringLiteral("LayerStyleDialog"));
+    m_tabs->setObjectName(QStringLiteral("tabs"));
     m_tabs->setTabPosition(QTabWidget::North);    // Slice X.17 — horizontal tabs.
     m_tabs->setDocumentMode(true);
     root->addWidget(m_tabs, 1);
@@ -469,10 +473,10 @@ void LayerStyleDialog::buildInformationTab()
     auto *idBox  = new QGroupBox(tr("Identification"), page);
     auto *idForm = new QFormLayout(idBox);
     m_nameEdit = new QLineEdit(idBox);
-    idForm->addRow(tr("Name:"), m_nameEdit);
+    idForm->addRow(tr("Nam&e:"), m_nameEdit);
     m_typeLabel = new QLabel(idBox);
     m_typeLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    idForm->addRow(tr("Type:"), m_typeLabel);
+    idForm->addRow(tr("&Type:"), m_typeLabel);
     root->addWidget(idBox);
 
     auto *propBox  = new QGroupBox(tr("Properties"), page);
@@ -486,7 +490,7 @@ void LayerStyleDialog::buildInformationTab()
 
     m_tabs->addTab(page,
                    style()->standardIcon(QStyle::SP_FileDialogInfoView),
-                   tr("Information"));
+                   tr("I&nformation"));
 }
 
 void LayerStyleDialog::buildSourceTab()
@@ -510,7 +514,7 @@ void LayerStyleDialog::buildSourceTab()
     m_sourceLabel = new QLabel(origBox);
     m_sourceLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_sourceLabel->setWordWrap(true);
-    origForm->addRow(tr("Source:"), m_sourceLabel);
+    origForm->addRow(tr("Sour&ce:"), m_sourceLabel);
 
     root->addWidget(origBox);
 
@@ -526,7 +530,7 @@ void LayerStyleDialog::buildSourceTab()
     m_crsButton->setText(tr("Change…"));
     crsLay->addWidget(m_crsLabel, 1);
     crsLay->addWidget(m_crsButton);
-    crsForm->addRow(tr("Authority:"), crsRow);
+    crsForm->addRow(tr("Aut&hority:"), crsRow);
 
     root->addWidget(crsBox);
     root->addStretch();
@@ -536,7 +540,7 @@ void LayerStyleDialog::buildSourceTab()
 
     m_tabs->addTab(page,
                    style()->standardIcon(QStyle::SP_DriveHDIcon),
-                   tr("Source"));
+                   tr("S&ource"));
 }
 
 void LayerStyleDialog::buildSymbologyTab()
@@ -624,7 +628,7 @@ void LayerStyleDialog::buildSymbologyTab()
 
     m_tabs->addTab(page,
                    style()->standardIcon(QStyle::SP_FileDialogContentsView),
-                   tr("Symbology"));
+                   tr("S&ymbology"));
 }
 
 void LayerStyleDialog::buildLabelsTab()
@@ -640,7 +644,7 @@ void LayerStyleDialog::buildLabelsTab()
     m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(
                        new openswmmvis::ui::LabelsTab(m_layer, m_tabs), m_tabs),
                    style()->standardIcon(QStyle::SP_FileDialogDetailedView),
-                   tr("Labels"));
+                   tr("L&abels"));
 }
 
 void LayerStyleDialog::buildRenderingTab()
@@ -702,7 +706,7 @@ void LayerStyleDialog::buildRenderingTab()
         m_brightnessSlider = makeBipolarSlider(m_basemapAdjustBox);
         m_brightnessSlider->setValue(int(std::round(cur->brightness * 100.0)));
         m_brightnessSlider->setToolTip(tr("Brightness — additive offset (-100 = black, +100 = max bright)."));
-        form->addRow(tr("Brightness:"), m_brightnessSlider);
+        form->addRow(tr("&Brightness:"), m_brightnessSlider);
 
         m_contrastSlider = makeBipolarSlider(m_basemapAdjustBox);
         m_contrastSlider->setValue(int(std::round((cur->contrast - 1.0) * 100.0)));
@@ -781,7 +785,7 @@ void LayerStyleDialog::buildRenderingTab()
 
     m_tabs->addTab(page,
                    style()->standardIcon(QStyle::SP_ComputerIcon),
-                   tr("Rendering"));
+                   tr("&Rendering"));
 }
 
 void LayerStyleDialog::onBasemapRenderParamsChanged()
@@ -863,7 +867,7 @@ void LayerStyleDialog::buildMetadataTab()
 
     m_tabs->addTab(page,
                    style()->standardIcon(QStyle::SP_FileIcon),
-                   tr("Metadata"));
+                   tr("&Metadata"));
 }
 
 void LayerStyleDialog::populateMetadata()

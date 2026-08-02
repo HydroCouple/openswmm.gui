@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/editors/featurestyleeditor.h"
+#include "ui/theme/themehelpers.h"
 
 #include "layers/openswmmvislayer.h"
 #include "render/iattributeprovider.h"   // L-1 — available label fields
@@ -50,11 +51,11 @@ FeatureStyleEditorBase::FeatureStyleEditorBase(FeatureSublayerStyle *style, QWid
 
     m_attributeEdit = new QLineEdit(this);
     m_attributeEdit->setPlaceholderText(tr("e.g. depth, flow, velocity"));
-    m_form->addRow(tr("Attribute:"), m_attributeEdit);
+    m_form->addRow(tr("&Attribute:"), m_attributeEdit);
 
     m_singleColorBtn = new ColorButton(this);
     m_singleColorBtn->setMinimumWidth(100);
-    m_form->addRow(tr("Single colour:"), m_singleColorBtn);
+    m_form->addRow(tr("&Single colour:"), m_singleColorBtn);
 
     m_useRampBox = new QCheckBox(tr("Use colour ramp (per-attribute)"), this);
     m_form->addRow(QString(), m_useRampBox);
@@ -90,15 +91,15 @@ void FeatureStyleEditorBase::buildCommonRows()
     m_labelExpr->setPlaceholderText(tr("e.g. {name}: {depth} m"));
     m_labelExpr->setToolTip(tr("Template — {token} placeholders are replaced "
                                "with the feature's values; literal text is kept."));
-    labelForm->addRow(tr("Expression:"), m_labelExpr);
+    labelForm->addRow(tr("&Expression:"), m_labelExpr);
 
     m_labelColorBtn = new ColorButton(this);
-    labelForm->addRow(tr("Colour:"), m_labelColorBtn);
+    labelForm->addRow(tr("C&olour:"), m_labelColorBtn);
 
     m_labelFieldsHint = new QLabel(this);
     m_labelFieldsHint->setWordWrap(true);
-    m_labelFieldsHint->setStyleSheet(QStringLiteral("color: palette(mid);"));
-    labelForm->addRow(tr("Fields:"), m_labelFieldsHint);
+    m_labelFieldsHint->setStyleSheet(openswmmvis::ui::theme::hintStyle());
+    labelForm->addRow(tr("F&ields:"), m_labelFieldsHint);
 
     // Populate the available-field hint from the host layer's attribute
     // provider for this sublayer's category (plus the always-available name).
@@ -184,11 +185,11 @@ PointFeatureStyleEditor::PointFeatureStyleEditor(PointFeatureSublayerStyle *styl
     m_sizeSpin->setDecimals(1);
     m_sizeSpin->setSingleStep(0.5);
     m_sizeSpin->setSuffix(tr(" px"));
-    form->addRow(tr("Size:"), m_sizeSpin);
+    form->addRow(tr("Si&ze:"), m_sizeSpin);
 
     m_shapeCombo = new MarkerShapeCombo(this);
     m_shapeCombo->populateDefault(false);  // No Cross — matches the 5-shape enum.
-    form->addRow(tr("Shape:"), m_shapeCombo);
+    form->addRow(tr("S&hape:"), m_shapeCombo);
 
     layout()->addWidget(symbolBox);
     buildCommonRows();
@@ -240,10 +241,10 @@ LineFeatureStyleEditor::LineFeatureStyleEditor(LineFeatureSublayerStyle *style,
     m_widthSpin->setDecimals(2);
     m_widthSpin->setSingleStep(0.25);
     m_widthSpin->setSuffix(tr(" px"));
-    lineForm->addRow(tr("Width:"), m_widthSpin);
+    lineForm->addRow(tr("&Width:"), m_widthSpin);
 
     m_dashCombo = new DashStyleCombo(this);
-    lineForm->addRow(tr("Style:"), m_dashCombo);
+    lineForm->addRow(tr("S&tyle:"), m_dashCombo);
 
     m_renderAsLineBox = new QCheckBox(tr("Render as polyline (else midpoint glyph)"), this);
     lineForm->addRow(QString(), m_renderAsLineBox);
@@ -260,7 +261,7 @@ LineFeatureStyleEditor::LineFeatureStyleEditor(LineFeatureSublayerStyle *style,
     m_arrowLenSpin->setDecimals(1);
     m_arrowLenSpin->setSingleStep(1.0);
     m_arrowLenSpin->setSuffix(tr(" px"));
-    arrowForm->addRow(tr("Length:"), m_arrowLenSpin);
+    arrowForm->addRow(tr("Le&ngth:"), m_arrowLenSpin);
 
     m_arrowWidSpin = new QDoubleSpinBox(this);
     m_arrowWidSpin->setRange(1.0, 40.0);
@@ -270,7 +271,7 @@ LineFeatureStyleEditor::LineFeatureStyleEditor(LineFeatureSublayerStyle *style,
     arrowForm->addRow(tr("Half-width:"), m_arrowWidSpin);
 
     m_arrowColorBtn = new ColorButton(this);
-    arrowForm->addRow(tr("Colour:"), m_arrowColorBtn);
+    arrowForm->addRow(tr("Colo&ur:"), m_arrowColorBtn);
 
     layout()->addWidget(arrowBox);
     buildCommonRows();
@@ -336,7 +337,7 @@ PolygonFeatureStyleEditor::PolygonFeatureStyleEditor(PolygonFeatureSublayerStyle
     auto *form = new QFormLayout(polyBox);
 
     m_outlineColorBtn = new ColorButton(this);
-    form->addRow(tr("Outline colour:"), m_outlineColorBtn);
+    form->addRow(tr("Outline colou&r:"), m_outlineColorBtn);
 
     m_outlineWidthSpin = new QDoubleSpinBox(this);
     m_outlineWidthSpin->setRange(0.0, 20.0);
@@ -349,7 +350,7 @@ PolygonFeatureStyleEditor::PolygonFeatureStyleEditor(PolygonFeatureSublayerStyle
     m_fillOpacitySpin->setRange(0.0, 1.0);
     m_fillOpacitySpin->setDecimals(2);
     m_fillOpacitySpin->setSingleStep(0.05);
-    form->addRow(tr("Fill opacity:"), m_fillOpacitySpin);
+    form->addRow(tr("Fill o&pacity:"), m_fillOpacitySpin);
 
     layout()->addWidget(polyBox);
     buildCommonRows();

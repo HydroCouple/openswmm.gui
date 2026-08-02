@@ -23,6 +23,8 @@ PluginsDialog::PluginsDialog(QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("Plugins"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("PluginsDialog"));
     resize(640, 480);
     buildUi();
     populate();

@@ -34,6 +34,8 @@ LicenseAgreementDialog::LicenseAgreementDialog(QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("License Agreement"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("LicenseAgreementDialog"));
     setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
     setModal(true);
     buildUi();

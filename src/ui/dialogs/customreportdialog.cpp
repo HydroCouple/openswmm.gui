@@ -75,6 +75,8 @@ CustomReportDialog::CustomReportDialog(SWMMResultsLayer *layer, QWidget *parent)
     : QDialog(parent), m_layer(layer)
 {
     setWindowTitle(tr("Custom Report Builder"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("CustomReportDialog"));
     resize(1000, 720);
     buildUi();
 }
@@ -86,6 +88,7 @@ void CustomReportDialog::buildUi()
     auto *root = new QVBoxLayout(this);
 
     auto *split = new QSplitter(Qt::Vertical, this);
+    split->setObjectName(QStringLiteral("main"));
 
     // ----- Clause table -----------------------------------------------------
     auto *top = new QWidget(split);

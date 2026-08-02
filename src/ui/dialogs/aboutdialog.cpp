@@ -74,6 +74,8 @@ AboutDialog::AboutDialog(QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("About SWMMVis"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("AboutDialog"));
     resize(880, 600);
 
     buildUi();
@@ -110,6 +112,7 @@ void AboutDialog::buildUi()
 
     // ── Master / detail splitter ────────────────────────────────────────
     auto *splitter = new QSplitter(Qt::Horizontal, this);
+    splitter->setObjectName(QStringLiteral("main"));
 
     // Left: search + tree
     auto *leftBox  = new QWidget(splitter);

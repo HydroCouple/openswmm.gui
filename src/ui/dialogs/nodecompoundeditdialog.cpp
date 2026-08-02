@@ -5,6 +5,7 @@
  */
 
 #include "ui/dialogs/nodecompoundeditdialog.h"
+#include "ui/theme/themehelpers.h"
 #include "ui/panels/objectbrowserpanel.h"
 #include "ui/dialogs/hydrographgroupeditor.h"
 #include "ui/dialogs/patterneditordialog.h"
@@ -45,6 +46,8 @@ NodeCompoundEditDialog::NodeCompoundEditDialog(NodeCompoundEditRef ref,
     const char *titles[] = {
         "External Inflows", "Dry Weather Flow", "RDII", "Pollutant Treatment",
     };
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("NodeCompoundEditDialog"));
     setWindowTitle(tr("%1 — %2")
                        .arg(QString::fromLatin1(titles[m_ref.kind]),
                             m_ref.nodeName));
@@ -306,13 +309,13 @@ void NodeCompoundEditDialog::buildInflowsPage()
     m_inflowsSFactSpin->setDecimals(4);
     m_inflowsSFactSpin->setValue(1.0);
 
-    form->addRow(tr("Constituent"),     m_inflowsConstCombo);
-    form->addRow(tr("Type"),            m_inflowsTypeCombo);
-    form->addRow(tr("Time Series"),     m_inflowsTsPicker);
-    form->addRow(tr("Baseline"),        m_inflowsBaseSpin);
-    form->addRow(tr("Multiplier (M)"),  m_inflowsMFactSpin);
-    form->addRow(tr("Scale Factor (S)"),m_inflowsSFactSpin);
-    form->addRow(tr("Pattern"),         m_inflowsPatPicker);
+    form->addRow(tr("C&onstituent"),     m_inflowsConstCombo);
+    form->addRow(tr("T&ype"),            m_inflowsTypeCombo);
+    form->addRow(tr("T&ime Series"),     m_inflowsTsPicker);
+    form->addRow(tr("Bas&eline"),        m_inflowsBaseSpin);
+    form->addRow(tr("M&ultiplier (M)"),  m_inflowsMFactSpin);
+    form->addRow(tr("Scale &Factor (S)"),m_inflowsSFactSpin);
+    form->addRow(tr("&Pattern"),         m_inflowsPatPicker);
 
     auto *addBtn = new QPushButton(tr("Add / Update"), grp);
     form->addRow(QString(), addBtn);
@@ -461,11 +464,11 @@ void NodeCompoundEditDialog::buildDwfPage()
     }
 
     form->addRow(tr("Constituent"),        m_dwfConstCombo);
-    form->addRow(tr("Average Value"),      m_dwfAvgSpin);
-    form->addRow(tr("Monthly Pattern"),    m_dwfPat1Picker);
-    form->addRow(tr("Daily Pattern"),      m_dwfPat2Picker);
-    form->addRow(tr("Hourly Pattern"),     m_dwfPat3Picker);
-    form->addRow(tr("Weekend Pattern"),    m_dwfPat4Picker);
+    form->addRow(tr("A&verage Value"),      m_dwfAvgSpin);
+    form->addRow(tr("Mont&hly Pattern"),    m_dwfPat1Picker);
+    form->addRow(tr("&Daily Pattern"),      m_dwfPat2Picker);
+    form->addRow(tr("Hou&rly Pattern"),     m_dwfPat3Picker);
+    form->addRow(tr("&Weekend Pattern"),    m_dwfPat4Picker);
 
     auto *addBtn = new QPushButton(tr("Add / Update"), grp);
     form->addRow(QString(), addBtn);
@@ -598,7 +601,7 @@ void NodeCompoundEditDialog::buildRdiiPage()
     m_rdiiAreaSpin->setRange(0.0, 1e9);
     m_rdiiAreaSpin->setDecimals(4);
 
-    form->addRow(tr("UH Group Name"), m_rdiiUhPicker);
+    form->addRow(tr("UH &Group Name"), m_rdiiUhPicker);
     form->addRow(tr("Sewer Area"),    m_rdiiAreaSpin);
 
     auto *addBtn = new QPushButton(tr("Add"), grp);
@@ -672,7 +675,7 @@ void NodeCompoundEditDialog::buildTreatmentPage()
            "<tt>V</tt> (volume).</i>"),
         page);
     hint->setWordWrap(true);
-    hint->setStyleSheet(QStringLiteral("color: gray;"));
+    hint->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     vlay->addWidget(hint);
 
     m_treatmentTable = new QTableWidget(0, 2, page);
