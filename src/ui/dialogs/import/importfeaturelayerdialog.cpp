@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/import/importfeaturelayerdialog.h"
+#include "ui/theme/themehelpers.h"
 
 #include "layers/gisvectorlayer.h"
 #include "layers/swmmmodellayer.h"
@@ -70,8 +71,9 @@ ImportFeatureLayerDialog::ImportFeatureLayerDialog(
 
     onKindChanged();   // populates source combo + mapping rows + presets
 
-    if (!openswmmvis::ui::restoreDialogLayout(this))
-        resize(860, 720);
+    // Iteration 2 (D2) — first-run default; the app-wide
+    // DialogLayoutWatcher restores the saved layout on first Show.
+    resize(860, 720);
     openswmmvis::ui::applyAlwaysOnTopPolicy(this);
 }
 
@@ -79,12 +81,6 @@ ImportFeatureLayerDialog::~ImportFeatureLayerDialog()
 {
     if (m_previewRunning)
         m_previewWatcher.waitForFinished();
-}
-
-void ImportFeatureLayerDialog::closeEvent(QCloseEvent *event)
-{
-    openswmmvis::ui::saveDialogLayout(this);
-    QDialog::closeEvent(event);
 }
 
 // ===========================================================================
@@ -167,7 +163,7 @@ void ImportFeatureLayerDialog::buildUi()
 
     m_validation = new QLabel(this);
     m_validation->setWordWrap(true);
-    m_validation->setStyleSheet(QStringLiteral("color: #c62828;"));
+    m_validation->setStyleSheet(openswmmvis::ui::theme::errorTextStyle());
     mapLay->addWidget(m_validation);
     config->addWidget(mapGroup, 1);
 

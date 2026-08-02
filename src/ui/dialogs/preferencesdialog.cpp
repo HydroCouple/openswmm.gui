@@ -11,6 +11,8 @@
 #include "core/preferencesmanager.h"
 #include "core/selectionrenderingprefs.h"
 #include "ui/dialogs/licenseagreementdialog.h"
+#include "ui/theme/thememanager.h"
+#include "ui/widgets/shortcuteditorwidget.h"
 #include "version.h"
 #include "legacy_version.h"
 
@@ -59,7 +61,7 @@ void PreferencesDialog::buildUi()
     root->addLayout(split, 1);
 
     m_categoryList = new QListWidget(this);
-    m_categoryList->setFixedWidth(180);
+    m_categoryList->setMinimumWidth(180);
     m_categoryList->addItem(tr("General"));
     m_categoryList->addItem(tr("Selection"));
     m_categoryList->addItem(tr("Canvas && CRS"));
@@ -71,9 +73,18 @@ void PreferencesDialog::buildUi()
     m_categoryList->addItem(tr("Measure Tool"));
     m_categoryList->addItem(tr("Plots"));
     m_categoryList->addItem(tr("Naming"));
+    m_categoryList->addItem(tr("Appearance"));
+    m_categoryList->addItem(tr("Keyboard"));
     split->addWidget(m_categoryList);
 
     m_pages = new QStackedWidget(this);
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence;
+    // restoring the page needs the category highlight kept in sync
+    // (same-row set is a no-op, so no signal loop).
+    setObjectName(QStringLiteral("PreferencesDialog"));
+    m_pages->setObjectName(QStringLiteral("pages"));
+    connect(m_pages, &QStackedWidget::currentChanged,
+            m_categoryList, qOverload<int>(&QListWidget::setCurrentRow));
     m_pages->addWidget(buildGeneralPage());
     m_pages->addWidget(buildSelectionPage());
     m_pages->addWidget(buildCanvasPage());
@@ -85,6 +96,8 @@ void PreferencesDialog::buildUi()
     m_pages->addWidget(buildMeasureToolPage());
     m_pages->addWidget(buildPlotsPage());
     m_pages->addWidget(buildNamingPage());
+    m_pages->addWidget(buildAppearancePage());
+    m_pages->addWidget(buildKeyboardPage());
     split->addWidget(m_pages, 1);
 
     connect(m_categoryList, &QListWidget::currentRowChanged,
@@ -141,7 +154,7 @@ QWidget *PreferencesDialog::buildGeneralPage()
     m_defaultEngineCombo->setToolTip(tr(
         "Engine version selected by default when a new project opens. "
         "The status-bar engine picker remains available for per-project overrides."));
-    f->addRow(tr("Default engine mode"), m_defaultEngineCombo);
+    f->addRow(tr("D&efault engine mode"), m_defaultEngineCombo);
 
     m_profileMaxPathsSpin = new QSpinBox(page);
     m_profileMaxPathsSpin->setRange(1, 1000000);
@@ -153,7 +166,7 @@ QWidget *PreferencesDialog::buildGeneralPage()
         "detours through additional loops in the network. Exhaustive "
         "enumeration is worst-case exponential — very high values may "
         "freeze the UI briefly on heavily-meshed networks."));
-    f->addRow(tr("Max profile candidate paths"), m_profileMaxPathsSpin);
+    f->addRow(tr("M&ax profile candidate paths"), m_profileMaxPathsSpin);
 
     m_profileHaloRadiusSpin = new QSpinBox(page);
     m_profileHaloRadiusSpin->setRange(1, 200);
@@ -163,7 +176,7 @@ QWidget *PreferencesDialog::buildGeneralPage()
         "profile is being picked. Halo size is in screen pixels and stays "
         "constant regardless of map zoom. Defaults to 10 px, which sits "
         "slightly outside the default 8 px junction marker."));
-    f->addRow(tr("Profile endpoint halo radius"), m_profileHaloRadiusSpin);
+    f->addRow(tr("P&rofile endpoint halo radius"), m_profileHaloRadiusSpin);
 
     // Helper that paints a color-swatch onto a QPushButton and updates the
     // associated "pending" QColor when the user picks a new colour via
@@ -184,7 +197,7 @@ QWidget *PreferencesDialog::buildGeneralPage()
             pending = c;
             const QString css = QStringLiteral(
                 "QPushButton { background-color: %1; color: %2; "
-                "border: 1px solid #777; padding: 3px 8px; }")
+                "border: 1px solid palette(mid); padding: 3px 8px; }")
                 .arg(c.name(QColor::HexRgb),
                      c.lightness() > 128 ? QStringLiteral("black")
                                          : QStringLiteral("white"));
@@ -197,27 +210,27 @@ QWidget *PreferencesDialog::buildGeneralPage()
     wireColorButton(m_profileStartColorBtn,
                     m_pendingProfileStartColor,
                     tr("Profile start endpoint colour"));
-    f->addRow(tr("Profile start halo colour"), m_profileStartColorBtn);
+    f->addRow(tr("Pro&file start halo colour"), m_profileStartColorBtn);
 
     m_profileStartWidthSpin = new QDoubleSpinBox(page);
     m_profileStartWidthSpin->setRange(0.5, 20.0);
     m_profileStartWidthSpin->setSingleStep(0.5);
     m_profileStartWidthSpin->setDecimals(1);
     m_profileStartWidthSpin->setSuffix(tr(" px"));
-    f->addRow(tr("Profile start halo width"), m_profileStartWidthSpin);
+    f->addRow(tr("Prof&ile start halo width"), m_profileStartWidthSpin);
 
     m_profileEndColorBtn = new QPushButton(page);
     wireColorButton(m_profileEndColorBtn,
                     m_pendingProfileEndColor,
                     tr("Profile end endpoint colour"));
-    f->addRow(tr("Profile end halo colour"), m_profileEndColorBtn);
+    f->addRow(tr("Profile e&nd halo colour"), m_profileEndColorBtn);
 
     m_profileEndWidthSpin = new QDoubleSpinBox(page);
     m_profileEndWidthSpin->setRange(0.5, 20.0);
     m_profileEndWidthSpin->setSingleStep(0.5);
     m_profileEndWidthSpin->setDecimals(1);
     m_profileEndWidthSpin->setSuffix(tr(" px"));
-    f->addRow(tr("Profile end halo width"), m_profileEndWidthSpin);
+    f->addRow(tr("Profile end halo &width"), m_profileEndWidthSpin);
 
     return page;
 }
@@ -243,7 +256,7 @@ QWidget *PreferencesDialog::buildSelectionPage()
     m_dragThresholdPxSpin->setToolTip(tr(
         "Cursor distance required before a click turns into a rubber-band "
         "select. Higher values forgive trackpad jitter on single clicks."));
-    f->addRow(tr("Drag threshold"),             m_dragThresholdPxSpin);
+    f->addRow(tr("Dra&g threshold"),             m_dragThresholdPxSpin);
 
     m_clearOnMissBox = new QCheckBox(tr("Clear selection when clicking "
                                          "empty space"), page);
@@ -301,7 +314,7 @@ QWidget *PreferencesDialog::buildCanvasPage()
     m_defaultToolCombo->addItem(tr("Zoom"),   QStringLiteral("Zoom"));
     m_defaultToolCombo->setToolTip(tr(
         "Tool automatically activated when a project window opens."));
-    f->addRow(tr("Default tool on project open"), m_defaultToolCombo);
+    f->addRow(tr("Defa&ult tool on project open"), m_defaultToolCombo);
 
     // CRS mode — auto-local (default) or custom EPSG code.
     auto *crsGroup = new QGroupBox(tr("Default CRS (when .inp has no CRS)"), page);
@@ -322,7 +335,7 @@ QWidget *PreferencesDialog::buildCanvasPage()
     auto *crsCustomRow = new QHBoxLayout();
     m_crsAuthorityEdit = new QLineEdit(crsGroup);
     m_crsAuthorityEdit->setToolTip(tr("CRS authority, e.g. \"EPSG\"."));
-    m_crsAuthorityEdit->setFixedWidth(80);
+    m_crsAuthorityEdit->setMinimumWidth(80);
     m_crsCodeSpin = new QSpinBox(crsGroup);
     m_crsCodeSpin->setRange(1, 999999);
     m_crsCodeSpin->setToolTip(tr("CRS code, e.g. 4326 for WGS 84."));
@@ -402,7 +415,7 @@ QWidget *PreferencesDialog::buildRenderingPage()
         "Minimum view-transform scale (m11) at which labels are drawn. "
         "Higher values hide labels sooner when zooming out; lower "
         "values draw labels even at coarse zoom (at a performance cost)."));
-    f->addRow(tr("Label zoom-out threshold (m11)"), m_labelLodSpin);
+    f->addRow(tr("La&bel zoom-out threshold (m11)"), m_labelLodSpin);
 
     auto *lodGroup = new QGroupBox(tr("Label Rendering"), page);
     lodGroup->setLayout(f);
@@ -560,7 +573,7 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simFlowRoutingCombo->addItem(tr("Steady"),         QStringLiteral("STEADY"));
     m_simFlowRoutingCombo->addItem(tr("Kinematic Wave"), QStringLiteral("KINWAVE"));
     m_simFlowRoutingCombo->addItem(tr("Dynamic Wave"),   QStringLiteral("DYNWAVE"));
-    procForm->addRow(tr("Hydraulic routing method (FLOW_ROUTING)"), m_simFlowRoutingCombo);
+    procForm->addRow(tr("H&ydraulic routing method (FLOW_ROUTING)"), m_simFlowRoutingCombo);
 
     outer->addWidget(procGroup);
 
@@ -679,7 +692,7 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
 
     m_simMaxTrialsSpin = new QSpinBox(tolGroup);
     m_simMaxTrialsSpin->setRange(1, 100);
-    tolForm->addRow(tr("Max trials (MAX_TRIALS)"), m_simMaxTrialsSpin);
+    tolForm->addRow(tr("Ma&x trials (MAX_TRIALS)"), m_simMaxTrialsSpin);
 
     outer->addWidget(tolGroup);
 
@@ -835,7 +848,7 @@ QWidget *PreferencesDialog::buildMapDisplayPage()
         m_pendingScaleBarColor = c;
         const QString css = QStringLiteral(
             "QPushButton { background-color: %1; color: %2; "
-            "border: 1px solid #777; padding: 3px 8px; }")
+            "border: 1px solid palette(mid); padding: 3px 8px; }")
             .arg(c.name(QColor::HexRgb),
                  c.lightness() > 128 ? QStringLiteral("black")
                                      : QStringLiteral("white"));
@@ -929,7 +942,7 @@ QWidget *PreferencesDialog::buildMeasureToolPage()
     auto applyColorBtn = [](QPushButton *btn, const QColor &c) {
         const QString css = QStringLiteral(
             "QPushButton { background-color: %1; color: %2; "
-            "border: 1px solid #777; padding: 3px 8px; }")
+            "border: 1px solid palette(mid); padding: 3px 8px; }")
             .arg(c.name(QColor::HexRgb),
                  c.lightness() > 128 ? QStringLiteral("black")
                                      : QStringLiteral("white"));
@@ -1050,9 +1063,63 @@ QWidget *PreferencesDialog::buildPlotsPage()
 // I/O
 // ---------------------------------------------------------------------------
 
+QWidget *PreferencesDialog::buildAppearancePage()
+{
+    auto *page = new QWidget(this);
+    auto *f    = new QFormLayout(page);
+
+    auto *hint = new QLabel(tr(
+        "Choose how the application chrome is themed. \"System\" follows "
+        "the operating system's light/dark appearance automatically."), page);
+    hint->setWordWrap(true);
+    f->addRow(hint);
+
+    m_appearanceSystemRadio = new QRadioButton(tr("&System (follow OS appearance)"), page);
+    m_appearanceLightRadio  = new QRadioButton(tr("&Light"), page);
+    m_appearanceDarkRadio   = new QRadioButton(tr("&Dark"), page);
+    f->addRow(m_appearanceSystemRadio);
+    f->addRow(m_appearanceLightRadio);
+    f->addRow(m_appearanceDarkRadio);
+
+    return page;
+}
+
+QWidget *PreferencesDialog::buildKeyboardPage()
+{
+    // Hosts the self-contained shortcut editor; edits write straight
+    // through ActionRegistry (live-applied + persisted), so there is
+    // nothing for readFromManager()/writeToManager() to do here — same
+    // pattern as the QPropertyModel-backed rendering pages.
+    auto *page = new QWidget(this);
+    auto *layout = new QVBoxLayout(page);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(new openswmmvis::ui::ShortcutEditorWidget(page));
+    return page;
+}
+
+void PreferencesDialog::openAtCategory(const QString &label)
+{
+    if (!m_categoryList)
+        return;
+    for (int row = 0; row < m_categoryList->count(); ++row) {
+        if (m_categoryList->item(row)->text() == label) {
+            m_categoryList->setCurrentRow(row);
+            return;
+        }
+    }
+}
+
 void PreferencesDialog::readFromManager()
 {
     auto *p = PreferencesManager::instance();
+
+    {
+        using openswmmvis::ui::ThemeManager;
+        const auto mode = ThemeManager::modeFromString(p->appearanceMode());
+        m_appearanceSystemRadio->setChecked(mode == ThemeManager::Mode::System);
+        m_appearanceLightRadio->setChecked(mode == ThemeManager::Mode::Light);
+        m_appearanceDarkRadio->setChecked(mode == ThemeManager::Mode::Dark);
+    }
 
     m_showLicenseOnStartupBox->setChecked(LicenseAgreementDialog::shouldShowOnStartup());
     m_autoLengthBox->setChecked(p->autoLengthEnabled());
@@ -1069,7 +1136,7 @@ void PreferencesDialog::readFromManager()
             held = c;
             const QString css = QStringLiteral(
                 "QPushButton { background-color: %1; color: %2; "
-                "border: 1px solid #777; padding: 3px 8px; }")
+                "border: 1px solid palette(mid); padding: 3px 8px; }")
                 .arg(c.name(QColor::HexRgb),
                      c.lightness() > 128 ? QStringLiteral("black")
                                          : QStringLiteral("white"));
@@ -1093,7 +1160,7 @@ void PreferencesDialog::readFromManager()
         held = c;
         QString css = QStringLiteral(
             "QPushButton { background-color: %1; color: %2; "
-            "border: 1px solid #777; padding: 3px 8px; }")
+            "border: 1px solid palette(mid); padding: 3px 8px; }")
             .arg(c.name(QColor::HexRgb),
                  c.lightness() > 128 ? QStringLiteral("black")
                                      : QStringLiteral("white"));
@@ -1237,6 +1304,17 @@ void PreferencesDialog::readFromManager()
 void PreferencesDialog::writeToManager()
 {
     auto *p = PreferencesManager::instance();
+
+    {
+        using openswmmvis::ui::ThemeManager;
+        auto mode = ThemeManager::Mode::System;
+        if (m_appearanceLightRadio->isChecked())
+            mode = ThemeManager::Mode::Light;
+        else if (m_appearanceDarkRadio->isChecked())
+            mode = ThemeManager::Mode::Dark;
+        p->setAppearanceMode(ThemeManager::modeToString(mode));
+        ThemeManager::instance()->setMode(mode);   // applies live on Apply/OK
+    }
 
     LicenseAgreementDialog::setShowOnStartup(m_showLicenseOnStartupBox->isChecked());
     p->setAutoLengthEnabled(m_autoLengthBox->isChecked());
@@ -1408,7 +1486,7 @@ void PreferencesDialog::onResetToDefaults()
             held = c;
             const QString css = QStringLiteral(
                 "QPushButton { background-color: %1; color: %2; "
-                "border: 1px solid #777; padding: 3px 8px; }")
+                "border: 1px solid palette(mid); padding: 3px 8px; }")
                 .arg(c.name(QColor::HexRgb),
                      c.lightness() > 128 ? QStringLiteral("black")
                                          : QStringLiteral("white"));
@@ -1488,7 +1566,7 @@ void PreferencesDialog::onResetToDefaults()
         held = c;
         const QString css = QStringLiteral(
             "QPushButton { background-color: %1; color: %2; "
-            "border: 1px solid #777; padding: 3px 8px; }")
+            "border: 1px solid palette(mid); padding: 3px 8px; }")
             .arg(c.name(QColor::HexRgb),
                  c.lightness() > 128 ? QStringLiteral("black")
                                      : QStringLiteral("white"));
@@ -1558,7 +1636,7 @@ void PreferencesDialog::onResetToDefaults()
         const QColor black = Qt::black;
         const QString css = QStringLiteral(
             "QPushButton { background-color: %1; color: white; "
-            "border: 1px solid #777; padding: 3px 8px; }")
+            "border: 1px solid palette(mid); padding: 3px 8px; }")
             .arg(black.name(QColor::HexRgb));
         m_scaleBarColorBtn->setStyleSheet(css);
         m_scaleBarColorBtn->setText(black.name(QColor::HexRgb).toUpper());
@@ -1638,7 +1716,7 @@ QWidget *PreferencesDialog::buildNamingPage()
     m_prefixRaingage     = mkEdit(QStringLiteral("RG"));
     m_prefixSubcatchment = mkEdit(QStringLiteral("Sub"));
 
-    f->addRow(tr("Junction:"),      m_prefixJunction);
+    f->addRow(tr("&Junction:"),      m_prefixJunction);
     f->addRow(tr("Outfall:"),       m_prefixOutfall);
     f->addRow(tr("Storage:"),       m_prefixStorage);
     f->addRow(tr("Divider:"),       m_prefixDivider);

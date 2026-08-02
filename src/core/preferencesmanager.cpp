@@ -465,6 +465,19 @@ void PreferencesManager::setDefaultTool(const QString &tool)
                            QStringLiteral("DefaultTool"));
 }
 
+QString PreferencesManager::appearanceMode() const
+{
+    return m_settings.value(QStringLiteral("%1/Appearance/Mode").arg(kGroupRoot),
+                            QStringLiteral("System")).toString();
+}
+
+void PreferencesManager::setAppearanceMode(const QString &mode)
+{
+    if (mode == appearanceMode()) return;
+    m_settings.setValue(QStringLiteral("%1/Appearance/Mode").arg(kGroupRoot), mode);
+    emit preferenceChanged(QStringLiteral("Appearance"), QStringLiteral("Mode"));
+}
+
 QString PreferencesManager::defaultCrsMode() const
 {
     return m_settings.value(QStringLiteral("%1/Canvas/DefaultCrsMode").arg(kGroupRoot),

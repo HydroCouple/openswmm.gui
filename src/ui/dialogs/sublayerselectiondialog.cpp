@@ -26,6 +26,8 @@ SublayerSelectionDialog::SublayerSelectionDialog(
     , m_sublayers(sublayers)
 {
     setWindowTitle(tr("Select Layers to Add"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("SublayerSelectionDialog"));
     resize(640, 440);
     buildUi(sourcePath);
 }

@@ -77,15 +77,15 @@ RasterColorRampSymbolStyleEditor::RasterColorRampSymbolStyleEditor(
 
     m_attr = new QLineEdit(box);
     m_attr->setPlaceholderText(tr("e.g. depth, head, velocity"));
-    f->addRow(tr("Attribute:"), m_attr);
-    m_min = dspin(box, -1e9, 1e9, 3, 0.1); f->addRow(tr("Min value:"), m_min);
-    m_max = dspin(box, -1e9, 1e9, 3, 0.1); f->addRow(tr("Max value:"), m_max);
+    f->addRow(tr("&Attribute:"), m_attr);
+    m_min = dspin(box, -1e9, 1e9, 3, 0.1); f->addRow(tr("Mi&n value:"), m_min);
+    m_max = dspin(box, -1e9, 1e9, 3, 0.1); f->addRow(tr("Ma&x value:"), m_max);
     m_log = new QCheckBox(tr("Logarithmic scale"), box); f->addRow(QString(), m_log);
-    m_low = colorBtn(box);  f->addRow(tr("Low colour:"),  m_low);
-    m_high = colorBtn(box); f->addRow(tr("High colour:"), m_high);
-    m_below = colorBtn(box); f->addRow(tr("Below min:"),  m_below);
-    m_above = colorBtn(box); f->addRow(tr("Above max:"),  m_above);
-    m_opacity = opacitySpin(box); f->addRow(tr("Opacity:"), m_opacity);
+    m_low = colorBtn(box);  f->addRow(tr("&Low colour:"),  m_low);
+    m_high = colorBtn(box); f->addRow(tr("Hi&gh colour:"), m_high);
+    m_below = colorBtn(box); f->addRow(tr("&Below min:"),  m_below);
+    m_above = colorBtn(box); f->addRow(tr("Ab&ove max:"),  m_above);
+    m_opacity = opacitySpin(box); f->addRow(tr("O&pacity:"), m_opacity);
     root->addWidget(box); root->addStretch();
 
     connect(m_attr, &QLineEdit::editingFinished, this,
@@ -128,8 +128,8 @@ HillshadeSymbolStyleEditor::HillshadeSymbolStyleEditor(
     auto *box = group(this, tr("Relief"), f);
     m_useRamp = new QCheckBox(tr("Colour by elevation ramp"), box); f->addRow(QString(), m_useRamp);
     m_fill = colorBtn(box); f->addRow(tr("Flat fill:"), m_fill);
-    m_strength = dspin(box, 0.0, 1.0, 2, 0.05); f->addRow(tr("Hillshade strength:"), m_strength);
-    m_opacity = opacitySpin(box); f->addRow(tr("Opacity:"), m_opacity);
+    m_strength = dspin(box, 0.0, 1.0, 2, 0.05); f->addRow(tr("Hillshad&e strength:"), m_strength);
+    m_opacity = opacitySpin(box); f->addRow(tr("Opacit&y:"), m_opacity);
     root->addWidget(box); root->addStretch();
 
     connect(m_useRamp, &QCheckBox::toggled, this, [this](bool v) { if (m_a) m_a->setUseElevationRamp(v); });
@@ -165,9 +165,9 @@ ContourBandSymbolStyleEditor::ContourBandSymbolStyleEditor(
         QLatin1String("elevation"), Qt::CaseInsensitive) == 0;
     auto *box = group(this, elev ? tr("Elevation Contours")
                                  : tr("Depth Contours"), f);
-    m_attr = new QLineEdit(box); f->addRow(tr("Attribute:"), m_attr);
+    m_attr = new QLineEdit(box); f->addRow(tr("Attrib&ute:"), m_attr);
     m_bands = new QSpinBox(box); m_bands->setRange(2, 64); f->addRow(tr("Bands:"), m_bands);
-    m_low = colorBtn(box);  f->addRow(tr("Low colour:"),  m_low);
+    m_low = colorBtn(box);  f->addRow(tr("Lo&w colour:"),  m_low);
     m_high = colorBtn(box); f->addRow(tr("High colour:"), m_high);
     m_below = colorBtn(box); f->addRow(tr("Below min:"),  m_below);
     m_above = colorBtn(box); f->addRow(tr("Above max:"),  m_above);
@@ -265,7 +265,7 @@ MeshEdgeSymbolStyleEditor::MeshEdgeSymbolStyleEditor(
     QFormLayout *sf = nullptr;
     auto *slope = group(this, tr("Slope emphasis"), sf);
     m_slopeDriven = new QCheckBox(tr("Widen steep edges"), slope); sf->addRow(QString(), m_slopeDriven);
-    m_slopeBreak = dspin(slope, 0.0, 10.0, 3, 0.01); sf->addRow(tr("Slope break:"), m_slopeBreak);
+    m_slopeBreak = dspin(slope, 0.0, 10.0, 3, 0.01); sf->addRow(tr("Slope brea&k:"), m_slopeBreak);
     m_wideWidth = dspin(slope, 0.1, 20.0, 2, 0.1, tr(" px")); sf->addRow(tr("Wide width:"), m_wideWidth);
     m_wideColor = colorBtn(slope); sf->addRow(tr("Wide colour:"), m_wideColor);
     root->addWidget(slope); root->addStretch();
@@ -308,7 +308,7 @@ MeshNodeSymbolStyleEditor::MeshNodeSymbolStyleEditor(
     QFormLayout *f = nullptr;
     auto *box = group(this, tr("Mesh Vertices"), f);
     m_shape = new MarkerShapeCombo(box); m_shape->populateCanonical(); f->addRow(tr("Shape:"), m_shape);
-    m_size = dspin(box, 0.5, 60.0, 1, 0.5, tr(" px")); f->addRow(tr("Size:"), m_size);
+    m_size = dspin(box, 0.5, 60.0, 1, 0.5, tr(" px")); f->addRow(tr("Si&ze:"), m_size);
     m_color = colorBtn(box); f->addRow(tr("Fill:"), m_color);
     m_outline = colorBtn(box); f->addRow(tr("Outline:"), m_outline);
     m_outlineW = dspin(box, 0.0, 20.0, 2, 0.25, tr(" px")); f->addRow(tr("Outline width:"), m_outlineW);

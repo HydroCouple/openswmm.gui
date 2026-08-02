@@ -42,6 +42,10 @@ public:
     explicit PreferencesDialog(QWidget *parent = nullptr);
     ~PreferencesDialog() override = default;
 
+    /*! Select the category page whose list label matches \a label
+     *  (e.g. "Appearance"). No-op when no category matches. */
+    void openAtCategory(const QString &label);
+
 private slots:
     void onApply();
     void onAccept();
@@ -63,9 +67,16 @@ private:
     QWidget *buildMeasureToolPage();
     QWidget *buildPlotsPage();
     QWidget *buildNamingPage();
+    QWidget *buildAppearancePage();
+    QWidget *buildKeyboardPage();
 
     QListWidget    *m_categoryList = nullptr;
     QStackedWidget *m_pages        = nullptr;
+
+    // Appearance
+    QRadioButton *m_appearanceSystemRadio = nullptr;
+    QRadioButton *m_appearanceLightRadio  = nullptr;
+    QRadioButton *m_appearanceDarkRadio   = nullptr;
 
     // General
     QCheckBox  *m_showLicenseOnStartupBox = nullptr;

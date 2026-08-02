@@ -47,6 +47,8 @@ UserFlagsDialog::UserFlagsDialog(UserFlagsModel *model, QWidget *parent)
     , m_model(model)
 {
     setWindowTitle(tr("User Flags"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("UserFlagsDialog"));
     resize(560, 380);
 
     auto *intro = new QLabel(

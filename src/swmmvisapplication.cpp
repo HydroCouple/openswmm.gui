@@ -27,7 +27,10 @@
 #include "swmmvis.h"
 #include "swmmvissplashscreen.h"
 #include "core/gisdatapaths.h"
+#include "core/preferencesmanager.h"
 #include "ui/dialogs/licenseagreementdialog.h"
+#include "ui/dialogs/dialoglayoutwatcher.h"
+#include "ui/theme/thememanager.h"
 #include "platform/macoswindowutils.h"
 
 
@@ -82,10 +85,26 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
 
     this->setStyle(QStyleFactory::create("Fusion"));
 
+    // UI redesign P2 — install the token-driven chrome theme on top of
+    // Fusion. Mode comes from the persisted appearance preference;
+    // "System" follows the OS light/dark appearance live.
+    {
+        auto *theme = openswmmvis::ui::ThemeManager::instance();
+        theme->setMode(openswmmvis::ui::ThemeManager::modeFromString(
+            PreferencesManager::instance()->appearanceMode()));
+        theme->apply();
+    }
+
     // Keep every QDialog stacked above the main window. The filter reparents
     // orphaned dialogs to the main window and raises them on show so a click
     // on the main window cannot bury them.
     installEventFilter(this);
+
+    // Iteration 2 (D1) — automatic dialog layout persistence: restore on
+    // first Show / save on Hide-Close for every NAMED top-level QDialog
+    // (see dialoglayoutwatcher.h). A separate filter so the macOS
+    // stacking logic above stays untangled from persistence.
+    installEventFilter(new openswmmvis::ui::DialogLayoutWatcher(this));
 
     //set up splash screen
     QPixmap pixmap(":/swmmvis/splashscreen");
@@ -185,15 +204,19 @@ bool SWMMVisApplication::eventFilter(QObject *watched, QEvent *event)
                 QTimer::singleShot(0, dlg, [dlg]() {
                     dlg->raise();
                     dlg->activateWindow();
-                    // NOTE: this used to also attach non-modal dialogs as
-                    // native NSWindow child windows of the main window
-                    // (attachAsChildWindow) to keep them stacked above it.
-                    // Qt's cocoa backend knows nothing about AppKit child-
-                    // window links, and the attachment wedged key-window
-                    // routing: after the first non-modal dialog opened, the
-                    // whole app stopped receiving mouse events while the
-                    // event loop sat idle. Plain raise-on-show only; dialogs
-                    // now stack like ordinary macOS windows.
+#ifdef Q_OS_MACOS
+                    // Keep non-modal dialogs stacked above the main window in
+                    // open order by attaching them as native NSWindow child
+                    // windows (idempotent; balanced by the detach on Close/Hide
+                    // above). The attachment was once removed (5d43e28) blaming
+                    // an app-wide input freeze, but the actual freeze was the
+                    // modal-exec-during-mousepress QNSView button latch, fixed
+                    // separately by firing pickers on mouse RELEASE (ddca63d).
+                    // If a freeze reappears, first look for a dialog shown from
+                    // inside a mousePressEvent before suspecting this.
+                    if (dlg->windowModality() == Qt::NonModal)
+                        openswmmvis::platform::attachAsChildWindow(dlg);
+#endif
                 });
             }
         }

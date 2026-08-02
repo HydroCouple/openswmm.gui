@@ -4,6 +4,7 @@
  * \date   2026
  */
 #include "ui/dialogs/rasterprofileplotdialog.h"
+#include "ui/theme/iconfactory.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
 #include "core/unitsystem.h"
@@ -43,6 +44,8 @@ RasterProfilePlotDialog::RasterProfilePlotDialog(GISRasterLayer         *raster,
       m_vertFactor(vertFactor)
 {
     setWindowTitle(tr("Terrain Profile"));
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("RasterProfilePlotDialog"));
     setModal(false);
     m_options = new MeshProfilePlotOptions(this);
     // A DEM section has no water and no mesh cells. The chart's water passes
@@ -96,12 +99,12 @@ void RasterProfilePlotDialog::buildLayout()
 
     auto *toolbar = new QToolBar(this);
     toolbar->setIconSize(QSize(18, 18));
-    auto *actSelect  = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Select")),  tr("Select"));
-    auto *actZoomIn  = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/ZoomIn")),  tr("Zoom In"));
-    auto *actZoomOut = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/ZoomOut")), tr("Zoom Out"));
-    auto *actFit     = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),  tr("Fit"));
+    auto *actSelect  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Select")),  tr("Select"));
+    auto *actZoomIn  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomIn")),  tr("Zoom In"));
+    auto *actZoomOut = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomOut")), tr("Zoom Out"));
+    auto *actFit     = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Extent")),  tr("Fit"));
     toolbar->addSeparator();
-    auto *actPan     = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Move")),    tr("Pan"));
+    auto *actPan     = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Move")),    tr("Pan"));
     actSelect->setCheckable(true);  actSelect->setChecked(true);
     actZoomIn->setCheckable(true);
     actZoomOut->setCheckable(true);
@@ -116,11 +119,12 @@ void RasterProfilePlotDialog::buildLayout()
     toolbar->addSeparator();
     auto *actMapMarker = toolbar->addAction(tr("Move marker on map"));
     actMapMarker->setCheckable(true);
+    actMapMarker->setObjectName(QStringLiteral("showMapMarker"));
     actMapMarker->setToolTip(tr("Drag the position arrow along the profile on the map"));
     if (auto *btn = qobject_cast<QToolButton *>(toolbar->widgetForAction(actMapMarker)))
         btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     toolbar->addSeparator();
-    auto *actOptions = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Settings")),
+    auto *actOptions = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Settings")),
                                           tr("Display Options…"));
     root->addWidget(toolbar);
 

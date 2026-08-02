@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/panels/layerstylingdock.h"
+#include "ui/theme/themehelpers.h"
 
 #include "layers/openswmmvislayer.h"
 #include "render/rulelist.h"
@@ -71,7 +72,7 @@ void LayerStylingDock::buildUi()
            "Edits apply live to the canvas — no Apply button needed."),
         m_placeholder);
     plLabel->setWordWrap(true);
-    plLabel->setStyleSheet(QStringLiteral("color: palette(mid);"));
+    plLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     plLabel->setAlignment(Qt::AlignTop | Qt::AlignLeft);
     plvbox->addWidget(plLabel);
     plvbox->addStretch();

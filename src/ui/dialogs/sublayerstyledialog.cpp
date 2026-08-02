@@ -145,6 +145,8 @@ SublayerStyleDialog::SublayerStyleDialog(ISublayer *sublayer, QWidget *parent)
 {
     setWindowFlags(windowFlags() | Qt::Tool);
     setAttribute(Qt::WA_DeleteOnClose);
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("SublayerStyleDialog"));
     resize(480, 520);
 
     SublayerStyle *style = m_sublayer ? m_sublayer->style() : nullptr;

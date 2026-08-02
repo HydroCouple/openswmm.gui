@@ -5,6 +5,8 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/timeserieseditordialog.h"
+#include "ui/theme/iconfactory.h"
+#include "ui/theme/themehelpers.h"
 
 #include "core/swmmdatetime.h"
 #include "io/timeseriesparse.h"
@@ -127,21 +129,15 @@ TimeseriesEditorDialog::TimeseriesEditorDialog(TimeseriesRegistry *registry,
     if (initialSelection && m_chartView && initialSelection->pointCount() > 0)
         m_chartView->zoomToExtent();
 
-    // Step E.2 — restore persisted geometry + splitter state after the UI is
-    // built. The hard-coded defaults above (resize + setSizes in
-    // buildListPane_) only apply on first open; subsequent opens load the
-    // user's last-used layout.
-    openswmmvis::ui::restoreDialogLayout(this);
+    // Iteration 2 (D2) — geometry + splitter persistence now runs through
+    // the app-wide DialogLayoutWatcher (restore on first Show, save on
+    // Hide/Close); the hard-coded defaults above are the first-run values.
 }
 
 TimeseriesEditorDialog::~TimeseriesEditorDialog() = default;
 
 void TimeseriesEditorDialog::closeEvent(QCloseEvent *e)
 {
-    // Step E.2 — persist dialog geometry + splitter sizes BEFORE the
-    // close happens so we capture the user's last-used layout.
-    openswmmvis::ui::saveDialogLayout(this);
-
     // Step F — dispose the currently-bound provider's cache if it's
     // ExternalFile-backed. The provider survives in the registry; only its
     // (re-readable) point vector is freed.
@@ -243,7 +239,7 @@ void TimeseriesEditorDialog::buildCreateCard_()
     cardLayout->addLayout(row1);
 
     m_nameValidationLabel = new QLabel(m_createCard);
-    m_nameValidationLabel->setStyleSheet(QStringLiteral("color: #c0392b;"));
+    m_nameValidationLabel->setStyleSheet(openswmmvis::ui::theme::errorTextStyle());
     m_nameValidationLabel->hide();
     cardLayout->addWidget(m_nameValidationLabel);
 
@@ -290,7 +286,7 @@ void TimeseriesEditorDialog::onCreateNewNameChanged_(const QString &text)
         m_createBtn->setEnabled(false);
         m_nameValidationLabel->setText(tr("A time series named “%1” already exists.").arg(trimmed));
         m_nameValidationLabel->show();
-        m_nameEdit->setStyleSheet(QStringLiteral("border: 1px solid #c0392b;"));
+        m_nameEdit->setStyleSheet(openswmmvis::ui::theme::errorBorderStyle());
     } else {
         m_createBtn->setEnabled(true);
         m_nameValidationLabel->hide();
@@ -372,13 +368,13 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     auto *baseGroup = new QActionGroup(this);
     baseGroup->setExclusive(true);
 
-    m_actSelect  = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Select")),
+    m_actSelect  = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Select")),
                                           tr("Select"));
-    m_actPan     = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Move")),
+    m_actPan     = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Move")),
                                           tr("Pan"));
-    m_actZoomIn  = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/ZoomIn")),
+    m_actZoomIn  = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomIn")),
                                           tr("Zoom In"));
-    m_actZoomOut = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/ZoomOut")),
+    m_actZoomOut = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomOut")),
                                           tr("Zoom Out"));
     for (QAction *a : {m_actSelect, m_actPan, m_actZoomIn, m_actZoomOut}) {
         a->setCheckable(true);
@@ -388,23 +384,23 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
 
     // Zoom to Extent — non-checkable, one-shot fit-all. Not part of the
     // exclusive mode group; clicking refits axes without changing mode.
-    m_actZoomExt = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
+    m_actZoomExt = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Extent")),
                                           tr("Zoom to Extent"));
     m_actZoomExt->setToolTip(tr("Fit X and Y axes to all loaded points"));
 
     m_toolbar->addSeparator();
 
-    m_actEdit = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/SelectEdit")),
+    m_actEdit = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("SelectEdit")),
                                        tr("Edit Points"));
     m_actEdit->setCheckable(true);
     m_actEdit->setToolTip(tr("Y-drag to change values; Shift-drag to multi-select"));
 
-    m_actRotate = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Ruler")),
+    m_actRotate = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Ruler")),
                                          tr("Rotate"));
     m_actRotate->setCheckable(true);
     m_actRotate->setToolTip(tr("Rotate the current selection around a pivot (numeric panel)"));
 
-    m_actScale = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Style")),
+    m_actScale = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Style")),
                                         tr("Scale"));
     m_actScale->setCheckable(true);
     m_actScale->setToolTip(tr("Scale the current selection around an anchor (numeric panel)"));
@@ -417,7 +413,7 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     editModeGroup->addAction(m_actRotate);
     editModeGroup->addAction(m_actScale);
 
-    m_actSnap = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/ToggleOn")),
+    m_actSnap = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ToggleOn")),
                                        tr("Snap"));
     m_actSnap->setCheckable(true);
     m_actSnap->setToolTip(tr("Snap inserted/dragged times to the reporting step"));
@@ -438,25 +434,25 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     // Copy serialises selected rows to TSV; Paste parses via TimeseriesParse
     // (shared with file import) so Excel- and CSV-derived clipboard text
     // round-trips with the same time-format handling.
-    m_actAddRow = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/New")),
+    m_actAddRow = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("New")),
                                          tr("Add Row"));
     m_actAddRow->setShortcut(QKeySequence(Qt::Key_Insert));
     m_actAddRow->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_actAddRow->setToolTip(tr("Insert a new point (Insert key)"));
 
-    m_actDeleteRow = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Clear")),
+    m_actDeleteRow = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Clear")),
                                             tr("Delete Rows"));
     m_actDeleteRow->setShortcut(QKeySequence::Delete);
     m_actDeleteRow->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_actDeleteRow->setToolTip(tr("Delete selected row(s) (Delete key)"));
 
-    m_actCopy = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Copy")),
+    m_actCopy = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Copy")),
                                        tr("Copy"));
     m_actCopy->setShortcut(QKeySequence::Copy);
     m_actCopy->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_actCopy->setToolTip(tr("Copy selected row(s) as TSV (Ctrl/Cmd+C)"));
 
-    m_actPaste = m_toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/AddDelimetered")),
+    m_actPaste = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("AddDelimetered")),
                                         tr("Paste"));
     m_actPaste->setShortcut(QKeySequence::Paste);
     m_actPaste->setShortcutContext(Qt::WidgetWithChildrenShortcut);
@@ -1039,7 +1035,7 @@ void TimeseriesEditorDialog::buildSourceModeCard_()
     m_gpkgPlaceholderLbl = new QLabel(
         tr("(GeoPackage observed series — follow-up sub-phase)"),
         m_sourceCard);
-    m_gpkgPlaceholderLbl->setStyleSheet(QStringLiteral("color: gray; font-style: italic;"));
+    m_gpkgPlaceholderLbl->setStyleSheet(openswmmvis::ui::theme::hintItalicStyle());
     m_gpkgPlaceholderLbl->hide();
     row1->addWidget(m_gpkgPlaceholderLbl);
 
@@ -1073,7 +1069,7 @@ void TimeseriesEditorDialog::buildSourceModeCard_()
     row2->addWidget(m_extDetachBtn);
 
     m_extStatusLabel = new QLabel(m_sourceCard);
-    m_extStatusLabel->setStyleSheet(QStringLiteral("color: gray;"));
+    m_extStatusLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     row2->addWidget(m_extStatusLabel, /*stretch=*/1);
 
     // Wrap row 2 in a holder QWidget so we can show/hide the whole row at once.
@@ -1166,21 +1162,21 @@ void TimeseriesEditorDialog::refreshSourceModeCardForProvider_()
         // Status: file mtime + staleness.
         if (!hasFile) {
             m_extStatusLabel->setText(tr("Pick a file with Browse… — grid + chart are read-only in this mode"));
-            m_extStatusLabel->setStyleSheet(QStringLiteral("color: gray;"));
+            m_extStatusLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
         } else {
             QFileInfo fi(p->filePath());
             if (!fi.exists()) {
                 m_extStatusLabel->setText(tr("⚠ File not found"));
-                m_extStatusLabel->setStyleSheet(QStringLiteral("color: #c0392b;"));
+                m_extStatusLabel->setStyleSheet(openswmmvis::ui::theme::errorTextStyle());
             } else {
                 const QDateTime onDisk = fi.lastModified();
                 const QDateTime cached = p->fileMTime();
                 if (cached.isValid() && onDisk > cached) {
                     m_extStatusLabel->setText(tr("⚠ File changed on disk — Reload to pick up"));
-                    m_extStatusLabel->setStyleSheet(QStringLiteral("color: #c0392b;"));
+                    m_extStatusLabel->setStyleSheet(openswmmvis::ui::theme::errorTextStyle());
                 } else {
                     m_extStatusLabel->setText(tr("Loaded at %1 (read-only — Detach to edit)").arg(onDisk.toString(Qt::ISODate)));
-                    m_extStatusLabel->setStyleSheet(QStringLiteral("color: gray;"));
+                    m_extStatusLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
                 }
             }
         }
@@ -1788,6 +1784,7 @@ void TimeseriesEditorDialog::buildListPane_()
         auto *b = new QToolButton(m_listPane);
         b->setText(text);
         b->setToolTip(tip);
+        b->setAccessibleName(tip);
         b->setToolButtonStyle(Qt::ToolButtonTextOnly);
         b->setAutoRaise(true);
         return b;

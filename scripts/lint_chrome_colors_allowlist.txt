@@ -1,0 +1,8 @@
+# Reviewed exceptions to the chrome-color lint (path:substring fragments).
+# Every entry is deliberate debt or a deliberate design decision — remove
+# the entry when the site is tokenized.
+
+# Attribute table selection matches the canvas warm-yellow selection
+# convention on purpose (readable in both schemes); tokenizing it is tied
+# to the deferred QSG canvasSelectionHighlight wiring.
+src/ui/panels/attributetablepanel.cpp

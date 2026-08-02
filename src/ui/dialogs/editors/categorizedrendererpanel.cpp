@@ -227,14 +227,14 @@ public:
             m_shape->populateCanonical();   // category symbols use canonical MarkerShape
             const int initShape = readSymbolShape(initial, MarkerShapeCombo::Circle);
             m_shape->setShapeValue(initShape);
-            form->addRow(tr("Shape:"), m_shape);
+            form->addRow(tr("S&hape:"), m_shape);
 
             m_size = new QDoubleSpinBox(this);
             m_size->setRange(1.0, 96.0);
             m_size->setDecimals(1);
             m_size->setSuffix(QStringLiteral(" px"));
             m_size->setValue(readSymbolSize(initial, 6.0));
-            form->addRow(tr("Size:"), m_size);
+            form->addRow(tr("Si&ze:"), m_size);
         }
         if (arch == Arch::Line || arch == Arch::Polygon) {
             m_width = new QDoubleSpinBox(this);
@@ -247,7 +247,7 @@ public:
 
             m_dash = new DashStyleCombo(this);
             m_dash->setCurrentIndex(m_dash->findData(readSymbolDash(initial, int(Qt::SolidLine))));
-            form->addRow(tr("Dash:"), m_dash);
+            form->addRow(tr("&Dash:"), m_dash);
         }
 
         auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
@@ -298,7 +298,7 @@ public:
         auto *form = new QFormLayout;
         m_attrCombo = new QComboBox(box);
         m_attrCombo->setEditable(true);     // user can type a custom key
-        form->addRow(tr("Attribute:"), m_attrCombo);
+        form->addRow(tr("A&ttribute:"), m_attrCombo);
         vlay->addLayout(form);
 
         m_model = new QStandardItemModel(0, 3, box);

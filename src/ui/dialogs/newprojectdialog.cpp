@@ -25,6 +25,8 @@ NewProjectDialog::NewProjectDialog(QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("New SWMM Project"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("NewProjectDialog"));
     resize(420, 360);
     buildUi();
     seedDefaults();
