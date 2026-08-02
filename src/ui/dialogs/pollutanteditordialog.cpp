@@ -10,6 +10,7 @@
 #include "pollutant/pollutantprovider.h"
 #include "pollutant/pollutantregistry.h"
 #include "ui/models/pollutantlistmodel.h"
+#include "ui/theme/iconfactory.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -81,8 +82,10 @@ void PollutantEditorDialog::buildUi_()
     leftLay->addWidget(m_listView, 1);
 
     auto *btnRow = new QHBoxLayout;
-    m_addBtn = new QPushButton(tr("+ New"), leftPane);
-    m_delBtn = new QPushButton(tr("− Delete"), leftPane);
+    m_addBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")),
+                               tr("New"), leftPane);
+    m_delBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")),
+                               tr("Delete"), leftPane);
     btnRow->addWidget(m_addBtn);
     btnRow->addWidget(m_delBtn);
     leftLay->addLayout(btnRow);

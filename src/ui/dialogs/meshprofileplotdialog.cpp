@@ -122,7 +122,7 @@ void MeshProfilePlotDialog::buildLayout()
     root->setSpacing(6);
 
     auto *toolbar = new QToolBar(this);
-    toolbar->setIconSize(QSize(18, 18));
+    toolbar->setIconSize(QSize(20, 20));
     auto *actSelect  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Select")),  tr("Select"));
     auto *actZoomIn  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomIn")),  tr("Zoom In"));
     auto *actZoomOut = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomOut")), tr("Zoom Out"));
@@ -141,22 +141,19 @@ void MeshProfilePlotDialog::buildLayout()
     modeGroup->addAction(actZoomOut);
     modeGroup->addAction(actPan);
     toolbar->addSeparator();
-    auto *actCells = toolbar->addAction(tr("Cell boundaries"));
+    auto *actCells = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("CellBoundaries")), tr("Cell boundaries"));
     actCells->setCheckable(true);
     actCells->setObjectName(QStringLiteral("showCells"));
     actCells->setChecked(m_options->showCellBoundaries());
     actCells->setToolTip(tr("Show mesh-cell edge crossings as dots on the ground line"));
-    auto *actMapMarker = toolbar->addAction(tr("Move marker on map"));
+    auto *actMapMarker = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("ProfileMarker")), tr("Move marker on map"));
     actMapMarker->setCheckable(true);
     actMapMarker->setObjectName(QStringLiteral("showMapMarker"));
     actMapMarker->setToolTip(tr("Drag the position arrow along the profile on the map"));
-    // Text-only on just these buttons so the existing icon-only actions are
-    // left untouched.
-    for (QAction *a : { actCells, actMapMarker })
-        if (auto *btn = qobject_cast<QToolButton *>(toolbar->widgetForAction(a)))
-            btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     toolbar->addSeparator();
-    auto *actOptions = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Settings")),
+    auto *actOptions = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ChartProperties")),
                                           tr("Display Options…"));
     root->addWidget(toolbar);
 

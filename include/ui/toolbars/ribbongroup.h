@@ -38,8 +38,10 @@ namespace openswmmvis::ui {
 
 class RibbonSplitButton;
 
-/// Fixed height of the ribbon content + caption row (ArcGIS scale).
-inline constexpr int kRibbonRowHeight   = 86;
+/// Fixed height of the ribbon content + caption row (ArcGIS scale;
+/// sized for a 32 px icon over TWO wrapped label lines plus the group
+/// caption — see the kShortLabels '\n' wrapping in swmmvisactions.cpp).
+inline constexpr int kRibbonRowHeight   = 100;
 /// Icon edge in Full mode.
 inline constexpr int kRibbonIconFull    = 32;
 /// Icon edge in Compact mode.
@@ -83,6 +85,15 @@ public:
 
     /*! All three widths + collapsibility, ready for the solver. */
     RibbonGroupWidths groupWidths() const;
+
+    /*! Drop the cached widths and announce the new hint — call after a
+     *  hosted widget's contents change size contextually (e.g. the mesh
+     *  editing clusters showing/hiding with the selection). */
+    void refreshWidth()
+    {
+        invalidateWidthCache();
+        updateGeometry();
+    }
 
     bool isCollapsible() const { return mCollapsible; }
 

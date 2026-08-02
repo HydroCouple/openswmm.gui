@@ -245,7 +245,7 @@ void TestRuleSymbologyTab::addButton_appendsNewRule()
     auto buttons = tab.findChildren<QPushButton *>();
     QPushButton *add = nullptr;
     for (auto *b : buttons)
-        if (b->text() == QStringLiteral("+")) { add = b; break; }
+        if (b->toolTip() == QStringLiteral("Add rule")) { add = b; break; }
     QVERIFY(add);
 
     add->click();
@@ -298,7 +298,7 @@ void TestRuleSymbologyTab::moveUpButton_movesActiveRule()
     auto buttons = tab.findChildren<QPushButton *>();
     QPushButton *up = nullptr;
     for (auto *b : buttons)
-        if (b->text() == QStringLiteral("↑")) { up = b; break; }
+        if (b->toolTip() == QStringLiteral("Move rule up")) { up = b; break; }
     QVERIFY(up);
 
     up->click();
@@ -316,7 +316,7 @@ void TestRuleSymbologyTab::moveDownButton_movesActiveRule()
     auto buttons = tab.findChildren<QPushButton *>();
     QPushButton *down = nullptr;
     for (auto *b : buttons)
-        if (b->text() == QStringLiteral("↓")) { down = b; break; }
+        if (b->toolTip() == QStringLiteral("Move rule down")) { down = b; break; }
     QVERIFY(down);
 
     down->click();

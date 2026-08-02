@@ -1,5 +1,6 @@
 #include "ui/toolbars/compacttoolbarcontroller.h"
 
+#include <QLayout>
 #include <QMainWindow>
 #include <QSettings>
 #include <QTabBar>
@@ -65,24 +66,43 @@ void CompactToolbarController::addTab(const QString &id, const QString &title,
     mTabBar->setTabData(index, id);
 }
 
+void CompactToolbarController::setOwnRow(QToolBar *bar)
+{
+    Q_ASSERT(!mFinalized);
+    if (bar && !mOwnRowBars.contains(bar))
+        mOwnRowBars.append(bar);
+}
+
 void CompactToolbarController::finalize()
 {
     if (mFinalized || !mWindow)
         return;
 
-    // Row 1: the strip; row 2: every tab's toolbars after one break.
+    // Row 1: the strip; row 2: every tab's shared toolbars after one
+    // break; row 3 (after a second break): the own-row bars. TWO passes,
+    // not one loop — addToolBarBreak appends positionally, so a mid-loop
+    // break would push every later tab's bars onto the wrong row. A row
+    // whose bars are all hidden costs no height, so row 3 only exists
+    // while a tab with an own-row bar is current.
     // Re-adding an already-added toolbar (the .ui-authored and subclass
     // bars) moves it into place; setMovable(false) locks the layout.
     mWindow->addToolBar(Qt::TopToolBarArea, mStrip);
     mWindow->addToolBarBreak(Qt::TopToolBarArea);
-    for (const Tab &tab : mTabs) {
-        for (QToolBar *bar : tab.bars) {
-            if (!bar)
-                continue;
-            mWindow->removeToolBar(bar);
-            mWindow->addToolBar(Qt::TopToolBarArea, bar);
-            bar->setMovable(false);
-        }
+    const auto mount = [this](QToolBar *bar) {
+        mWindow->removeToolBar(bar);
+        mWindow->addToolBar(Qt::TopToolBarArea, bar);
+        bar->setMovable(false);
+    };
+    for (const Tab &tab : mTabs)
+        for (QToolBar *bar : tab.bars)
+            if (bar && !mOwnRowBars.contains(bar))
+                mount(bar);
+    if (!mOwnRowBars.isEmpty()) {
+        mWindow->addToolBarBreak(Qt::TopToolBarArea);
+        for (const Tab &tab : mTabs)
+            for (QToolBar *bar : tab.bars)
+                if (bar && mOwnRowBars.contains(bar))
+                    mount(bar);
     }
 
     for (int i = 0; i < mTabs.size(); ++i) {
@@ -109,6 +129,7 @@ void CompactToolbarController::finalize()
     } else {
         applyVisibility();
     }
+    relayoutStrip();
 }
 
 void CompactToolbarController::setTabVisible(const QString &id, bool visible)
@@ -123,6 +144,21 @@ void CompactToolbarController::setTabVisible(const QString &id, bool visible)
     // explicit apply below covers the non-current case.
     mTabBar->setTabVisible(index, visible);
     applyVisibility();
+    relayoutStrip();
+}
+
+void CompactToolbarController::relayoutStrip()
+{
+    // A visibility flip grows/shrinks the tab bar's size hint, but the
+    // host QToolBar's layout doesn't re-run on its own — the bar would
+    // keep its stale width and QTabBar falls back to scroll arrows even
+    // with plenty of row space (same lazy-layout trap as the ribbon
+    // chevron; activate() short-circuits, so drive setGeometry).
+    if (!mStrip || !mStrip->layout())
+        return;
+    mTabBar->updateGeometry();
+    mStrip->layout()->invalidate();
+    mStrip->layout()->setGeometry(mStrip->contentsRect());
 }
 
 void CompactToolbarController::setCurrentTab(const QString &id)

@@ -13,6 +13,7 @@
 #include "swmmvisprojectwindow.h"
 #include "ui/dialogs/profileresultsources.h"
 #include "ui/dialogs/profilesourcestyleadapter.h"
+#include "ui/uiscrollhelpers.h"
 
 #ifdef HAVE_QPROPERTYMODEL
 #include <qpropertymodel.h>
@@ -139,7 +140,7 @@ void ProfileOptionsDialog::buildDisplayTab()
     Q_UNUSED(m_delegate);
 #endif
 
-    m_tabs->addTab(page, tr("&Display"));
+    m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, m_tabs), tr("&Display"));
 }
 
 void ProfileOptionsDialog::buildSourcesTab()
@@ -319,7 +320,7 @@ void ProfileOptionsDialog::buildSourcesTab()
 
     refreshSourcesModel();
 
-    m_tabs->addTab(page, tr("&Sources"));
+    m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, m_tabs), tr("&Sources"));
 }
 
 void ProfileOptionsDialog::refreshSources()

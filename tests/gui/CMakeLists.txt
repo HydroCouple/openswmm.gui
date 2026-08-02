@@ -484,10 +484,16 @@ add_swmmvis_gui_test(test_rulesymbologytab
     ${CMAKE_SOURCE_DIR}/src/render/rulelist.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/irendererpanel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/rulesymbologytab.cpp
+    # Iteration 3 — rulesymbologytab buttons render through IconFactory.
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
     ${CMAKE_SOURCE_DIR}/include/render/rule.h
     ${CMAKE_SOURCE_DIR}/include/render/rulelist.h
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/rulesymbologytab.h
 )
+target_link_libraries(test_rulesymbologytab PRIVATE Qt6::Svg)
 
 # Slice BI Phase 8.13.6.7 — IRasterRenderer interface + the
 # SingleBandPseudoColorRenderer stub. Self-contained: pulls in only the
@@ -826,6 +832,8 @@ add_swmmvis_gui_test(test_pattern_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/patterneditordialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
     ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/interactivechartview.cpp
     # PatternEditorDialog hosts a PatternEditChartView (complete type needed for
     # chartView()->grab() in the test, and its impl for linking; it pushes

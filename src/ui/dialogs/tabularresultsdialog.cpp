@@ -7,6 +7,7 @@
 #include "ui/dialogs/tabularresultsdialog.h"
 
 #include "layers/swmmresultslayer.h"
+#include "ui/theme/iconfactory.h"
 
 #include <openswmm/engine/openswmm_output.h>
 
@@ -79,8 +80,10 @@ void TabularResultsDialog::buildUi()
 
     // Buttons.
     auto *btnRow = new QHBoxLayout;
-    auto *csvBtn = new QPushButton(tr("Export CSV…"), this);
-    auto *tsvBtn = new QPushButton(tr("Export TSV…"), this);
+    auto *csvBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportCsv")),
+                                   tr("Export CSV…"), this);
+    auto *tsvBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportCsv")),
+                                   tr("Export TSV…"), this);
     auto *closeBtn = new QPushButton(tr("Close"), this);
     btnRow->addWidget(csvBtn);
     btnRow->addWidget(tsvBtn);

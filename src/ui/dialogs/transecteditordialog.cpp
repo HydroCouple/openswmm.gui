@@ -194,8 +194,8 @@ void TransectEditorDialog::buildUi_()
                 });
 
         auto *btnRow = new QHBoxLayout();
-        m_addBtn = new QPushButton(tr("+ Add"), host);
-        m_delBtn = new QPushButton(tr("− Delete"), host);
+        m_addBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")), tr("Add"), host);
+        m_delBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")), tr("Delete"), host);
         m_addBtn->setToolTip(tr("Create a new transect"));
         m_delBtn->setToolTip(tr("Delete the selected transect"));
         connect(m_addBtn, &QPushButton::clicked,
@@ -279,8 +279,8 @@ void TransectEditorDialog::buildUi_()
 
         auto *rowBtns = new QHBoxLayout();
         rowBtns->addStretch(1);
-        m_addRowBtn = new QPushButton(tr("+ Add Row"), host);
-        m_delRowBtn = new QPushButton(tr("− Delete Row(s)"), host);
+        m_addRowBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("AddRow")), tr("Add Row"), host);
+        m_delRowBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("DeleteRow")), tr("Delete Row(s)"), host);
         connect(m_addRowBtn, &QPushButton::clicked,
                 this, &TransectEditorDialog::onAddRowClicked_);
         connect(m_delRowBtn, &QPushButton::clicked,
@@ -385,14 +385,14 @@ void TransectEditorDialog::buildToolbar_()
     // Insert / Delete vertex actions arm one-shot tool modes on the chart.
     // They live next to Edit Points because they're only meaningful while
     // the user is editing geometry.
-    auto *aInsert = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("New")),
+    auto *aInsert = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("InsertVertex")),
                                             tr("Insert Vertex"));
     aInsert->setCheckable(true);
     aInsert->setToolTip(tr("Insert vertex on click (also: Shift+click in Edit Points mode)"));
     connect(aInsert, &QAction::toggled, this, &TransectEditorDialog::onInsertVertexToggled_);
     m_insertVertexAction = aInsert;
 
-    auto *aDeleteV = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Clear")),
+    auto *aDeleteV = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("DeleteVertex")),
                                             tr("Delete Vertex"));
     aDeleteV->setCheckable(true);
     aDeleteV->setToolTip(tr("Delete vertex on click (also: select handle + Delete key)"));
@@ -409,12 +409,12 @@ void TransectEditorDialog::buildToolbar_()
     aCopy->setToolTip(tr("Copy station–elevation data to clipboard"));
     connect(aCopy, &QAction::triggered, this, &TransectEditorDialog::onCopyDataClicked_);
 
-    auto *aProps = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Settings")),
+    auto *aProps = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ChartProperties")),
                                           tr("Properties"));
     aProps->setToolTip(tr("Edit chart display properties"));
     connect(aProps, &QAction::triggered, this, &TransectEditorDialog::onChartPropertiesClicked_);
 
-    auto *aExport = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("SaveAs")),
+    auto *aExport = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportImage")),
                                            tr("Export"));
     aExport->setToolTip(tr("Export chart as PNG"));
     connect(aExport, &QAction::triggered, this, &TransectEditorDialog::onExportChartClicked_);

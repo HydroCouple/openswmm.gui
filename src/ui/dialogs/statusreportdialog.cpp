@@ -7,6 +7,7 @@
  */
 #include "ui/dialogs/statusreportdialog.h"
 #include "ui/theme/themehelpers.h"
+#include "ui/theme/iconfactory.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -345,8 +346,10 @@ void StatusReportDialog::buildUi()
     m_searchEdit->setPlaceholderText(tr("type to search …  Enter = next, Shift+Enter = prev"));
     searchRow->addWidget(m_searchEdit, 1);
 
-    auto *btnPrev = new QPushButton(QStringLiteral("◀"), rightWrap);
-    auto *btnNext = new QPushButton(QStringLiteral("▶"), rightWrap);
+    auto *btnPrev = new QPushButton(rightWrap);
+    btnPrev->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("FindPrev")));
+    auto *btnNext = new QPushButton(rightWrap);
+    btnNext->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("FindNext")));
     btnPrev->setMinimumWidth(28);
     btnNext->setMinimumWidth(28);
     btnPrev->setToolTip(tr("Previous match (Shift+Enter)"));

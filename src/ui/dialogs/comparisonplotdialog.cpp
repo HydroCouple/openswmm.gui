@@ -295,7 +295,7 @@ void ComparisonPlotDialog::buildToolBar()
             this, &ComparisonPlotDialog::onFitClicked);
     m_toolBar->addAction(m_actFit);
 
-    m_actExport = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("SaveAs")),
+    m_actExport = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportImage")),
                                tr("Export PNG…"), this);
     m_actExport->setStatusTip(tr("Save the chart pane as a PNG image"));
     m_actExport->setToolTip(m_actExport->statusTip());
@@ -305,7 +305,7 @@ void ComparisonPlotDialog::buildToolBar()
 
     m_toolBar->addSeparator();
 
-    m_actAnimCursor = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Divider")),
+    m_actAnimCursor = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("TimeCursor")),
                                     tr("Show Animation Cursor"), this);
     m_actAnimCursor->setObjectName(QStringLiteral("showAnimCursor"));
     m_actAnimCursor->setCheckable(true);
@@ -317,7 +317,7 @@ void ComparisonPlotDialog::buildToolBar()
             this, &ComparisonPlotDialog::onAnimationCursorToggled);
     m_toolBar->addAction(m_actAnimCursor);
 
-    m_actAddSystem = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Globe")),
+    m_actAddSystem = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("SystemSeries")),
                                    tr("Add System Series…"), this);
     m_actAddSystem->setStatusTip(tr("Plot a system-wide variable (rainfall, runoff, flooding, …)"));
     m_actAddSystem->setToolTip(m_actAddSystem->statusTip());
@@ -325,7 +325,7 @@ void ComparisonPlotDialog::buildToolBar()
             this, &ComparisonPlotDialog::onAddSystemSeriesClicked);
     m_toolBar->addAction(m_actAddSystem);
 
-    m_actAddFromMap = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Node")),
+    m_actAddFromMap = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("PickFromMap")),
                                     tr("Add from Map…"), this);
     m_actAddFromMap->setObjectName(QStringLiteral("addFromMap"));
     m_actAddFromMap->setCheckable(true);
@@ -343,7 +343,8 @@ void ComparisonPlotDialog::buildToolBar()
     // and now I can't grab the handle" trap.
     m_toolBar->addSeparator();
 
-    m_actShowSeries = new QAction(tr("Series Panel"), this);
+    m_actShowSeries = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("PanelLeft")),
+                                tr("Series Panel"), this);
     m_actShowSeries->setObjectName(QStringLiteral("showSeriesPanel"));
     m_actShowSeries->setCheckable(true);
     m_actShowSeries->setChecked(true);
@@ -353,7 +354,8 @@ void ComparisonPlotDialog::buildToolBar()
             this, &ComparisonPlotDialog::onShowSeriesToggled);
     m_toolBar->addAction(m_actShowSeries);
 
-    m_actShowSlider = new QAction(tr("Range Slider"), this);
+    m_actShowSlider = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("PanelBottomSlider")),
+                                tr("Range Slider"), this);
     m_actShowSlider->setObjectName(QStringLiteral("showRangeSlider"));
     m_actShowSlider->setCheckable(true);
     m_actShowSlider->setChecked(true);
@@ -363,7 +365,8 @@ void ComparisonPlotDialog::buildToolBar()
             this, &ComparisonPlotDialog::onShowSliderToggled);
     m_toolBar->addAction(m_actShowSlider);
 
-    m_actShowStats = new QAction(tr("Stats Panel"), this);
+    m_actShowStats = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("PanelStats")),
+                               tr("Stats Panel"), this);
     m_actShowStats->setObjectName(QStringLiteral("showStatsPanel"));
     m_actShowStats->setCheckable(true);
     m_actShowStats->setChecked(true);
@@ -374,7 +377,8 @@ void ComparisonPlotDialog::buildToolBar()
     m_toolBar->addAction(m_actShowStats);
 
     // COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 4 — optional 1v1 column.
-    m_actShow1v1 = new QAction(tr("1v1 Plots"), this);
+    m_actShow1v1 = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Plot1v1")),
+                             tr("1v1 Plots"), this);
     m_actShow1v1->setObjectName(QStringLiteral("show1v1Plots"));
     m_actShow1v1->setCheckable(true);
     m_actShow1v1->setChecked(true);
@@ -385,7 +389,8 @@ void ComparisonPlotDialog::buildToolBar()
     m_toolBar->addAction(m_actShow1v1);
 
     // COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 5 — configure the pairs.
-    m_actConfig1v1 = new QAction(tr("Configure 1v1…"), this);
+    m_actConfig1v1 = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Configure1v1")),
+                               tr("Configure 1v1…"), this);
     m_actConfig1v1->setStatusTip(tr("Choose which series pair up in the 1v1 "
                                     "comparison plots"));
     m_actConfig1v1->setToolTip(m_actConfig1v1->statusTip());
@@ -393,7 +398,8 @@ void ComparisonPlotDialog::buildToolBar()
             this, &ComparisonPlotDialog::onConfigure1v1Clicked);
     m_toolBar->addAction(m_actConfig1v1);
 
-    m_actChartsOnly = new QAction(tr("Charts Only"), this);
+    m_actChartsOnly = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ChartsOnly")),
+                                tr("Charts Only"), this);
     m_actChartsOnly->setObjectName(QStringLiteral("chartsOnly"));
     m_actChartsOnly->setCheckable(true);
     m_actChartsOnly->setStatusTip(tr("Hide series, slider, and stats panels to show only the charts"));

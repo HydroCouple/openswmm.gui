@@ -31,6 +31,8 @@
 
 #include <functional>
 
+namespace openswmmvis::ui { class RibbonGroup; }
+
 class MapCanvas;
 class OpenSWMMVisLayer;
 class SWMM2DMeshLayer;
@@ -133,6 +135,12 @@ signals:
     /*! \brief Emitted when the user toggles the Edit Edge action. */
     void editEdgeToggled(bool active);
 
+    /*! \brief Mirrors the mesh hover-Z probe outward (\a finite false =
+     *  cursor off-mesh). SWMMVis feeds this into the status-bar
+     *  coordinate readout so the elevation survives the toolbar's
+     *  tab-scoped visibility. */
+    void hoverElevationChanged(double z, bool finite);
+
 private slots:
     void onActiveMeshComboChanged(int index);
     void onLayerAdded(OpenSWMMVisLayer *layer);
@@ -160,6 +168,8 @@ private slots:
 
 private:
     void rebuildMeshCombo();
+    void refreshGroupWidths();   // re-measure the ribbon groups after
+                                 // contextual clusters show/hide
     void connectMeshLayer(SWMM2DMeshLayer *layer);
     void disconnectMeshLayer(SWMM2DMeshLayer *layer);
     void refreshVertexEditor();
@@ -169,6 +179,15 @@ private:
     QList<int> currentSelectedVertices() const;          // all selected vertex indices
     QList<QPair<int,int>> currentSelectedEdges() const;  // (tri, eLocal) pairs
     QList<int> currentSelectedCells() const;             // all selected triangle indices
+
+    // Iteration 3 — captioned ribbon groups, each hosting a mini
+    // toolbar so the action-based show/hide machinery keeps working.
+    QList<openswmmvis::ui::RibbonGroup *> m_groups;
+    QToolBar *m_barMesh     = nullptr;
+    QToolBar *m_barVertices = nullptr;
+    QToolBar *m_barEdges    = nullptr;
+    QToolBar *m_barCoupling = nullptr;
+    QToolBar *m_barResults  = nullptr;   // Pick cells / profile (SWMMVis inserts)
 
     QPointer<MapCanvas>           m_canvas;
     QPointer<SelectionManager>    m_selection;
