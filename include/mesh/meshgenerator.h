@@ -107,6 +107,10 @@ public:
 
     void addConstraintSegment(const ConstraintSegment &seg);
     void addSteinerPoint(const SteinerPoint &pt);
+    /*! \brief Pre-reserve capacity for \p additional upcoming addSteinerPoint
+     *  calls.  Avoids the transient ~2x peak of geometric growth when bulk-
+     *  adding terrain points; callers should cap the request. */
+    void reserveSteinerPoints(qsizetype additional);
     void addHole(const QPointF &interiorPointInsideHole);
     void addRegion(const RegionMarker &region);
     void setOptions(const GenerationOptions &opts);

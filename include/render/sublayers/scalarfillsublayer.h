@@ -169,7 +169,7 @@ public:
 private:
     QString          m_id;
     bool             m_visible = false;
-    qreal            m_opacity = 0.85;
+    qreal            m_opacity = 0.60;  // basemap stays visible under the fill
     ScalarFillStyle *m_style;
 };
 
