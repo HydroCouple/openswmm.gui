@@ -26,6 +26,19 @@
  *      is reproduced verbatim and shown to terminate after exactly one pass
  *      for any input; the reworked version runs to convergence.
  *   5. Grid sizing arithmetic does not overflow int for extreme extents.
+ *   6. Banded thinning with halo == passes reproduces the monolithic result
+ *      exactly in every core row — band cores {2,3,5,8,17,all} x passes
+ *      {1,2,3,5}, with and without inactive (NoData) holes.
+ *   7. The multi-band "(unlimited)" pass cap (64) matches monolithic
+ *      convergence when convergence needs <= 64 passes, and is deterministic.
+ *   8. The adaptive per-band maxPoints quota arithmetic is division-safe for
+ *      zero-active bands and never yields a negative quota.
+ *
+ * NOTE (2026-07-31): production now processes oversized grids in row BANDS
+ * (dtmthinner.cpp computeBandLayout) instead of erroring.  The [5] sizing
+ * check survives as overflow-safety verification — "rejected" there marks
+ * where production switches to multi-band mode, not a hard error (the only
+ * remaining hard error is a grid too WIDE to band at the minimum height).
  */
 
 #include <algorithm>
@@ -594,6 +607,212 @@ void test5_gridSizingDoesNotOverflow()
     check(allOk, "guard accepts sane grids and rejects oversized ones");
 }
 
+// ---------------------------------------------------------------------------
+// Banded thinning parity — transcription of the production band loop
+// (dtmthinner.cpp generatePoints / computeBandLayout / thinBandInPlace).
+// ---------------------------------------------------------------------------
+
+// thin() variant that returns the FINAL ACTIVE MASK (reworked semantics:
+// inScore retired each pass).  Pred sees band-LOCAL (c, r) and the mask.
+template <class Pred>
+std::vector<uint8_t> thinMask(int cols, int rows, std::vector<uint8_t> active,
+                              Pred removeIf, int maxIter)
+{
+    const int N = cols * rows;
+    std::vector<uint8_t> inScore(N, 0);
+    std::vector<int> scoreVec;
+    for (int i = 0; i < N; ++i)
+        if (active[i] == 1) { inScore[i] = 1; scoreVec.push_back(i); }
+
+    for (int iter = 0; iter < maxIter && !scoreVec.empty(); ++iter) {
+        std::vector<int> toRemove;
+        for (const int idx : scoreVec) {
+            if (active[idx] != 1) continue;
+            if (removeIf(idx % cols, idx / cols, active)) toRemove.push_back(idx);
+        }
+        if (toRemove.empty()) break;
+
+        std::vector<int> nextScore;
+        for (const int idx : scoreVec) inScore[idx] = 0;
+        for (const int idx : toRemove) active[idx] = 0;
+        for (const int idx : toRemove) {
+            const int c = idx % cols, r = idx / cols;
+            for (int dr = -1; dr <= 1; ++dr)
+                for (int dc = -1; dc <= 1; ++dc) {
+                    if (!dc && !dr) continue;
+                    const int nc = c + dc, nr = r + dr;
+                    if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+                    const int ni = nr * cols + nc;
+                    if (active[ni] == 1 && !inScore[ni]) { inScore[ni] = 1; nextScore.push_back(ni); }
+                }
+        }
+        scoreVec = std::move(nextScore);
+    }
+    return active;
+}
+
+// Radius-1, mask-dependent removal rule keyed on the GLOBAL row so band
+// decomposition cannot hide an origin shift.  Multi-pass by construction:
+// each removal lowers neighbours' active counts, enabling later removals.
+bool removeRule(int c, int rGlobal, const std::vector<uint8_t> &act,
+                int cols, int maskRows, int rLocal)
+{
+    int n = 0;
+    for (int dr = -1; dr <= 1; ++dr)
+        for (int dc = -1; dc <= 1; ++dc) {
+            if (!dc && !dr) continue;
+            const int nc = c + dc, nr = rLocal + dr;
+            if (nr < 0 || nr >= maskRows || nc < 0 || nc >= cols) continue;
+            if (act[std::size_t(nr) * cols + nc]) ++n;
+        }
+    return n >= 6 && ((c * 7 + rGlobal * 13) % 5 != 0);
+}
+
+// Band loop mirroring production: clip halo at grid edges, thin the band
+// with halo == passes, emit CORE rows only.
+std::vector<uint8_t> thinBandedRef(int cols, long long rows,
+                                   const std::vector<uint8_t> &initial,
+                                   int passes, long long coreRows, int halo)
+{
+    std::vector<uint8_t> out(initial.size(), 0);
+    const long long numBands = (rows + coreRows - 1) / coreRows;
+    for (long long b = 0; b < numBands; ++b) {
+        const long long coreBeg = b * coreRows;
+        const long long coreEnd = std::min(rows, coreBeg + coreRows);
+        const long long haloBeg = std::max(0ll, coreBeg - halo);
+        const long long haloEnd = std::min(rows, coreEnd + halo);
+        const int bandRows = int(haloEnd - haloBeg);
+
+        std::vector<uint8_t> band(std::size_t(bandRows) * cols);
+        for (int r = 0; r < bandRows; ++r)
+            for (int c = 0; c < cols; ++c)
+                band[std::size_t(r) * cols + c] =
+                    initial[std::size_t(haloBeg + r) * cols + c];
+
+        auto mask = thinMask(cols, bandRows, std::move(band),
+            [&](int c, int r, const std::vector<uint8_t> &act) {
+                return removeRule(c, int(haloBeg) + r, act, cols, bandRows, r);
+            }, passes);
+
+        for (long long r = coreBeg; r < coreEnd; ++r)
+            for (int c = 0; c < cols; ++c)
+                out[std::size_t(r) * cols + c] =
+                    mask[std::size_t(r - haloBeg) * cols + c];
+    }
+    return out;
+}
+
+void test6_bandedThinningParity()
+{
+    std::printf("\n[6] Banded thinning (halo = passes) == monolithic, core-exact\n");
+
+    const int cols = 61;
+    const long long rows = 53;
+
+    for (int ndCase = 0; ndCase < 2; ++ndCase) {
+        std::vector<uint8_t> init(std::size_t(rows) * cols, 1);
+        if (ndCase)   // NoData-ish holes
+            for (long long r = 0; r < rows; ++r)
+                for (int c = 0; c < cols; ++c)
+                    if (((c / 5 + r / 3) % 11) == 0)
+                        init[std::size_t(r) * cols + c] = 0;
+
+        for (const int passes : {1, 2, 3, 5}) {
+            const auto mono = thinMask(cols, int(rows), init,
+                [&](int c, int r, const std::vector<uint8_t> &act) {
+                    return removeRule(c, r, act, cols, int(rows), r);
+                }, passes);
+
+            bool allOk = true;
+            for (const long long coreRows : {2ll, 3ll, 5ll, 8ll, 17ll, rows}) {
+                const auto banded =
+                    thinBandedRef(cols, rows, init, passes, coreRows, passes);
+                if (banded != mono) allOk = false;
+            }
+            char label[96];
+            std::snprintf(label, sizeof label,
+                          "%s, %d pass%s: cores {2,3,5,8,17,all} all agree",
+                          ndCase ? "with holes" : "all-active",
+                          passes, passes == 1 ? "" : "es");
+            check(allOk, label);
+        }
+    }
+}
+
+void test7_convergenceCap()
+{
+    std::printf("\n[7] Multi-band pass cap (64) vs monolithic convergence\n");
+
+    const int cols = 61;
+    const long long rows = 53;
+    std::vector<uint8_t> init(std::size_t(rows) * cols, 1);
+
+    const auto monoPred = [&](int c, int r, const std::vector<uint8_t> &act) {
+        return removeRule(c, r, act, cols, int(rows), r);
+    };
+    const auto converged = thinMask(cols, int(rows), init, monoPred, 1 << 20);
+    const auto at64      = thinMask(cols, int(rows), init, monoPred, 64);
+    check(converged == at64, "monolithic convergence needs <= 64 passes here");
+
+    const auto bandedA = thinBandedRef(cols, rows, init, 64, 5, 64);
+    const auto bandedB = thinBandedRef(cols, rows, init, 64, 5, 64);
+    check(bandedA == bandedB, "capped banded run is deterministic");
+    check(bandedA == converged,
+          "capped banded run matches monolithic convergence");
+}
+
+void test8_quotaArithmetic()
+{
+    std::printf("\n[8] Adaptive per-band maxPoints quota arithmetic\n");
+
+    // Transcription of the production quota formula (generatePoints), driven
+    // through a synthetic band sequence that includes zero-active bands.
+    const long long maxPoints = 1000;
+    struct Band { long long coreRows; long long activeCore; };
+    const Band bands[] = { {40, 0}, {40, 5000}, {40, 0}, {40, 3000},
+                           {40, 800}, {13, 0} };
+
+    long long rowsRemaining = 0;
+    for (const Band &b : bands) rowsRemaining += b.coreRows;
+
+    double measuredActive = 0.0, measuredRows = 0.0;
+    long long retained = 0;
+    bool sane = true;
+
+    for (const Band &b : bands) {
+        if (b.activeCore > 0) {
+            const double avgActivePerRow = (measuredRows > 0.0)
+                ? measuredActive / measuredRows
+                : double(b.activeCore) / double(std::max(1ll, b.coreRows));
+            const double estRemaining =
+                avgActivePerRow * double(rowsRemaining - b.coreRows);
+            const double denom = std::max(
+                1.0, double(b.activeCore) + std::max(0.0, estRemaining));
+            const long long budget = std::max(0ll, maxPoints - retained);
+            const long long quota = (long long)std::ceil(
+                double(budget) * double(b.activeCore) / denom);
+
+            if (!(denom >= 1.0) || quota < 0) sane = false;
+            // Emulate the soft cap.  quota > 0: the band stops removing once
+            // it is down to the quota.  quota == 0 (budget exhausted): the
+            // early exit is DISABLED, so the band thins maximally — model
+            // unconstrained thinning as retaining 10% of its actives.
+            const long long unconstrained = b.activeCore / 10;
+            retained += (quota > 0)
+                ? std::min(b.activeCore, std::max(quota, unconstrained))
+                : unconstrained;
+        }
+        measuredActive += double(b.activeCore);
+        measuredRows   += double(b.coreRows);
+        rowsRemaining  -= b.coreRows;
+    }
+
+    check(sane, "denominator >= 1 and quota >= 0 for every band");
+    check(rowsRemaining == 0, "row bookkeeping sums to zero");
+    check(retained > 0 && retained <= 3 * maxPoints,
+          "total retained lands within the soft-cap envelope");
+}
+
 } // namespace
 
 int main()
@@ -606,6 +825,9 @@ int main()
     test3_outsideFootprintIsNaN();
     test4_thinningActuallyIterates();
     test5_gridSizingDoesNotOverflow();
+    test6_bandedThinningParity();
+    test7_convergenceCap();
+    test8_quotaArithmetic();
 
     std::printf("\n===================================\n");
     std::printf("%s (%d failure%s)\n", gFailures ? "FAILED" : "ALL CHECKS PASSED",
