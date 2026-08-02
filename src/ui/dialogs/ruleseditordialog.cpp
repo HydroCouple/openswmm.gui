@@ -14,6 +14,7 @@
 #include "layers/swmmmodellayer.h"
 #include "ui/models/rulelistmodel.h"
 #include "ui/widgets/rulecodeeditor.h"
+#include "ui/theme/iconfactory.h"
 
 #include <QCloseEvent>
 #include <QFrame>
@@ -180,9 +181,14 @@ void RulesEditorDialog::buildUi_()
     m_addBtn    = new QToolButton(paneL);
     m_delBtn    = new QToolButton(paneL);
     m_renameBtn = new QToolButton(paneL);
-    m_addBtn   ->setText(tr("+ Add"));
-    m_delBtn   ->setText(tr("− Delete"));
+    m_addBtn   ->setText(tr("Add"));
+    m_addBtn   ->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")));
+    m_delBtn   ->setText(tr("Delete"));
+    m_delBtn   ->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")));
     m_renameBtn->setText(tr("Rename…"));
+    m_renameBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Rename")));
+    for (QToolButton *b : { m_addBtn, m_delBtn, m_renameBtn })
+        b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     m_addBtn   ->setToolTip(tr("Create a new control rule"));
     m_delBtn   ->setToolTip(tr("Delete the selected rule"));
     m_renameBtn->setToolTip(tr("Rename the selected rule"));

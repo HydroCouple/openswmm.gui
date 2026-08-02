@@ -10,6 +10,7 @@
 #include "ui/dialogs/climatologydialog.h"
 
 #include "core/swmmdatetime.h"
+#include "ui/uiscrollhelpers.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -181,7 +182,7 @@ void ClimatologyDialog::buildTemperatureTab(QTabWidget *tabs)
     connect(m_tempSource, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &ClimatologyDialog::onTempSourceChanged);
 
-    tabs->addTab(page, tr("&Temperature"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("&Temperature"));
 }
 
 void ClimatologyDialog::onTempSourceChanged()
@@ -281,7 +282,7 @@ void ClimatologyDialog::buildEvaporationTab(QTabWidget *tabs)
     connect(m_evapType, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &ClimatologyDialog::onEvapTypeChanged);
 
-    tabs->addTab(page, tr("&Evaporation"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("&Evaporation"));
 }
 
 void ClimatologyDialog::onEvapTypeChanged()
@@ -316,7 +317,7 @@ void ClimatologyDialog::buildWindTab(QTabWidget *tabs)
     connect(m_windType, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &ClimatologyDialog::onWindTypeChanged);
 
-    tabs->addTab(page, tr("&Wind Speed"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("&Wind Speed"));
 }
 
 void ClimatologyDialog::onWindTypeChanged()
@@ -363,7 +364,7 @@ void ClimatologyDialog::buildSnowTab(QTabWidget *tabs)
     m_longitude->setRange(-1440.0, 1440.0); m_longitude->setDecimals(1);
     form->addRow(tr("Longitude Correction (+/- minutes):"), m_longitude);
 
-    tabs->addTab(page, tr("S&now Melt"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("S&now Melt"));
 }
 
 // ---------------------------------------------------------------------------
@@ -400,7 +401,7 @@ void ClimatologyDialog::buildAdcTab(QTabWidget *tabs)
     connect(pNo,  &QPushButton::clicked, this, [this]{ onAdcPreset(1, false); });
     connect(pNat, &QPushButton::clicked, this, [this]{ onAdcPreset(1, true); });
 
-    tabs->addTab(page, tr("&Areal Depletion"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("&Areal Depletion"));
 }
 
 void ClimatologyDialog::onAdcPreset(int column, bool natural)
@@ -437,7 +438,7 @@ void ClimatologyDialog::buildAdjustmentsTab(QTabWidget *tabs)
     lay->addWidget(clear, 0, Qt::AlignLeft);
     connect(clear, &QPushButton::clicked, this, &ClimatologyDialog::onClearAdjustments);
 
-    tabs->addTab(page, tr("Ad&justments"));
+    tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, tabs), tr("Ad&justments"));
 }
 
 void ClimatologyDialog::onClearAdjustments()

@@ -39,6 +39,13 @@ public:
     void addTab(const QString &id, const QString &title,
                 const QList<QToolBar *> &toolbars, bool contextual = false);
 
+    /*! Mark \a bar (already registered via addTab) to occupy its own
+     *  full row BELOW the shared group row while its tab is current —
+     *  for the widget-heavy Terrain / Mesh Editing bars, which would
+     *  otherwise starve the ribbon groups sharing their row. Call before
+     *  finalize(). A row whose bars are all hidden costs no height. */
+    void setOwnRow(QToolBar *bar);
+
     /*! Mount the strip + rows on the main window's top toolbar area and
      *  activate the persisted (or first visible) tab. */
     void finalize();
@@ -59,6 +66,7 @@ signals:
 private:
     int indexOf(const QString &id) const;
     void applyVisibility();
+    void relayoutStrip();
 
     struct Tab {
         QString id;
@@ -67,11 +75,12 @@ private:
         bool contextual = false;
     };
 
-    QMainWindow *mWindow = nullptr;
-    QToolBar    *mStrip  = nullptr;
-    QTabBar     *mTabBar = nullptr;
-    QList<Tab>   mTabs;
-    bool         mFinalized = false;
+    QMainWindow      *mWindow = nullptr;
+    QToolBar         *mStrip  = nullptr;
+    QTabBar          *mTabBar = nullptr;
+    QList<Tab>        mTabs;
+    QList<QToolBar *> mOwnRowBars;
+    bool              mFinalized = false;
 };
 
 }   // namespace openswmmvis::ui

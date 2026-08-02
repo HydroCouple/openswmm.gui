@@ -11,6 +11,7 @@
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "map/mapcanvas.h"
+#include "ui/theme/iconfactory.h"
 
 #include <openswmm/engine/openswmm_output.h>
 
@@ -226,7 +227,8 @@ void StatisticsDashboardDialog::buildUi()
 
     // Buttons ---------------------------------------------------------------
     auto *btnRow = new QHBoxLayout;
-    auto *exportBtn = new QPushButton(tr("Export CSV…"), this);
+    auto *exportBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportCsv")),
+                                      tr("Export CSV…"), this);
     btnRow->addWidget(exportBtn);
     btnRow->addStretch(1);
     auto *closeBtn = new QPushButton(tr("Close"), this);

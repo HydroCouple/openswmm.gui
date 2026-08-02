@@ -13,6 +13,7 @@
 #include "render/rulelistio.h"
 // Slice Z.17b — QGIS .qml interop.
 #include "render/qmlrulelistio.h"
+#include "ui/theme/iconfactory.h"
 
 #include <QDesktopServices>
 #include <QDialogButtonBox>
@@ -127,7 +128,8 @@ StyleManagerDialog::StyleManagerDialog(OpenSWMMVisLayer *activeLayer,
     m_libDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     leftLay->addWidget(m_libDirLabel);
 
-    m_openDirBtn = new QPushButton(tr("Open folder…"), leftBox);
+    m_openDirBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Browse")),
+                                   tr("Open folder…"), leftBox);
     leftLay->addWidget(m_openDirBtn);
 
     m_list = new QListWidget(leftBox);
@@ -146,11 +148,16 @@ StyleManagerDialog::StyleManagerDialog(OpenSWMMVisLayer *activeLayer,
     rightLay->addWidget(m_preview, 1);
 
     auto *actionRow = new QHBoxLayout;
-    m_applyBtn  = new QPushButton(tr("Apply to layer"), rightBox);
-    m_saveBtn   = new QPushButton(tr("Save current…"), rightBox);
-    m_importBtn = new QPushButton(tr("Import…"),       rightBox);
-    m_exportBtn = new QPushButton(tr("Export…"),       rightBox);
-    m_deleteBtn = new QPushButton(tr("Delete"),        rightBox);
+    m_applyBtn  = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("LayerStyling")),
+                                  tr("Apply to layer"), rightBox);
+    m_saveBtn   = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Save")),
+                                  tr("Save current…"), rightBox);
+    m_importBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Open")),
+                                  tr("Import…"), rightBox);
+    m_exportBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportCsv")),
+                                  tr("Export…"), rightBox);
+    m_deleteBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")),
+                                  tr("Delete"), rightBox);
     actionRow->addWidget(m_applyBtn);
     actionRow->addWidget(m_saveBtn);
     actionRow->addWidget(m_importBtn);

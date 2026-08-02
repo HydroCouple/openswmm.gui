@@ -12,6 +12,7 @@
 #include "layers/wmslayer.h"
 #include "layers/wmtslayer.h"
 #include "layers/xyztilelayer.h"
+#include "ui/uiscrollhelpers.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -79,10 +80,10 @@ AddBasemapDialog::AddBasemapDialog(QWidget *parent)
     setupUiWCS(wcsPage);
     setupUiArcGIS(arcPage);
 
-    m_tabs->addTab(xyzPage,    tr("&XYZ Tiles"));
-    m_tabs->addTab(wmsPage,    tr("W&MS / WMTS"));
-    m_tabs->addTab(wcsPage,    tr("WCS"));
-    m_tabs->addTab(arcPage,    tr("A&rcGIS REST"));
+    m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(xyzPage, m_tabs), tr("&XYZ Tiles"));
+    m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(wmsPage, m_tabs), tr("W&MS / WMTS"));
+    m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(wcsPage, m_tabs), tr("WCS"));
+    m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(arcPage, m_tabs), tr("A&rcGIS REST"));
 
     root->addWidget(m_tabs);
 

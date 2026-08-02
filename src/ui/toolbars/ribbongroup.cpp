@@ -26,6 +26,14 @@ RibbonGroup::RibbonGroup(const QString &caption, QWidget *parent)
     , mCaption(caption)
 {
     setFixedHeight(kRibbonRowHeight);
+    // Fixed horizontal policy: the host QToolBar's layout hands leftover
+    // row width equally to every item that can grow, which inflated all
+    // groups to a uniform pitch and drifted the icons apart. A group is
+    // exactly as wide as its measured mode width — leftover space
+    // collects in the bar's trailing spacer instead. addWidget() flips
+    // this to Expanding when a stretch child (the timeline slider)
+    // should absorb the slack.
+    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 
     auto *outer = new QHBoxLayout(this);
     outer->setContentsMargins(4, 2, 0, 2);
@@ -125,6 +133,8 @@ void RibbonGroup::addWidget(QWidget *widget, int stretch)
 {
     mContentLayout->addWidget(widget, stretch);
     mCollapsible = false;
+    if (stretch > 0)
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     invalidateWidthCache();
 }
 
@@ -143,8 +153,10 @@ QToolButton *RibbonGroup::buttonForAction(const QAction *action) const
 
 void RibbonGroup::setMode(RibbonMode mode)
 {
-    if (!mCollapsible && mode == RibbonMode::Collapsed)
-        mode = RibbonMode::Compact;   // widget hosts never collapse
+    if ((!mCollapsible || mActions.size() <= 1)
+        && mode == RibbonMode::Collapsed)
+        mode = RibbonMode::Compact;   // widget hosts and single tools
+                                      // never become a caption dropdown
     if (mMode == mode)
         return;
     mMode = mode;
@@ -190,6 +202,8 @@ int RibbonGroup::widthForMode(RibbonMode m) const
 {
     if (!mCollapsible)
         m = RibbonMode::Full;   // rigid: one width for every mode
+    else if (mActions.size() <= 1 && m == RibbonMode::Collapsed)
+        m = RibbonMode::Compact;   // single tool: no dropdown face
 
     const int key = static_cast<int>(m);
     const auto it = mWidthCache.constFind(key);
@@ -213,7 +227,11 @@ int RibbonGroup::widthForMode(RibbonMode m) const
         int items = 0;
         for (int i = 0; i < mContentLayout->count(); ++i) {
             if (QWidget *w = mContentLayout->itemAt(i)->widget()) {
-                row += w->sizeHint().width();
+                // A raw sizeHint ignores an explicit setMinimumWidth
+                // (combos, the timeline slider), while the inner layout
+                // clamps the widget back up to it — under-reporting here
+                // once made the analysis combos overlap when starved.
+                row += qMax(w->sizeHint().width(), w->minimumWidth());
                 ++items;
             }
         }
@@ -249,7 +267,10 @@ RibbonGroupWidths RibbonGroup::groupWidths() const
     widths.full        = widthForMode(RibbonMode::Full);
     widths.compact     = widthForMode(RibbonMode::Compact);
     widths.collapsed   = widthForMode(RibbonMode::Collapsed);
-    widths.collapsible = mCollapsible;
+    // A single-action group reports non-collapsible so the solver never
+    // demotes one lone tool into a caption-titled dropdown; its Compact
+    // (icon-only) mode is the floor.
+    widths.collapsible = mCollapsible && mActions.size() > 1;
     return widths;
 }
 

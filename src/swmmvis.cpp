@@ -847,14 +847,18 @@ void SWMMVis::openTerrainProfilePlotFor(const QVector<QPointF> &scenePolyline)
 }
 
 // Slice §V.VB — Mesh Editing toolbar peer of TerrainToolbar.  Docked in
-// the top toolbar area immediately after Terrain, with insertToolBarBreak
-// so it gets its own row (avoids horizontal cramming).  Per Q-V8 user
-// recommendation.
+// the top toolbar area; the compact-toolbar controller re-homes it onto
+// its own tab-scoped row (setOwnRow) during finalize(), which also keeps
+// it from cramming the ribbon groups horizontally.
 void SWMMVis::initializeMeshEditingToolBar()
 {
     mMeshEditingToolbar = new MeshEditingToolbar(tr("Mesh Editing"), this);
     addToolBar(Qt::TopToolBarArea, mMeshEditingToolbar);
-    insertToolBarBreak(mMeshEditingToolbar);
+
+    // Iteration 3: mirror the mesh hover-Z into the status-bar readout
+    // so the elevation is visible whatever ribbon tab is current.
+    connect(mMeshEditingToolbar, &MeshEditingToolbar::hoverElevationChanged,
+            this, &SWMMVis::onMeshHoverElevation);
 
     connect(mMeshEditingToolbar, &MeshEditingToolbar::editVertexToggled,
             this, [this](bool on) {
@@ -1054,20 +1058,9 @@ void SWMMVis::initializeAnalysisLayerCombos()
     mGroupResultsLayers->addWidget(mLabelActiveResults2D);
     mGroupResultsLayers->addWidget(mComboActiveResults2D);
 
-    // Live-render toggle, immediately right of the 2D dropdown. Off stops 2D
-    // rendering AND frame streaming for the active live layer during a run, to
-    // save GPU/CPU; on resumes and jumps to the newest frame. Only meaningful
-    // for a live/streaming source, so it is disabled otherwise (see
-    // refreshActiveResultsCombos()). Default checked.
-    mCheckBoxLive2D = new QCheckBox(tr("Live render"), this);
-    mCheckBoxLive2D->setChecked(true);
-    mCheckBoxLive2D->setContentsMargins(8, 0, 4, 0);
-    mCheckBoxLive2D->setToolTip(tr(
-        "Render the active 2D results layer live while a simulation runs. "
-        "Uncheck to stop 2D rendering and frame streaming during the run to "
-        "save GPU/CPU; re-check to resume at the newest frame. Only applies to "
-        "a live (streaming) results layer."));
-    mGroupResultsLayers->addWidget(mCheckBoxLive2D);
+    // (Iteration 3: the live-render toggle moved to the Results tab's
+    // Display group — see initializeAnimationToolBar — where the other
+    // during-run display controls live.)
     mToolBarAnalysis->addWidget(mGroupResultsLayers);
 
     // User picks → set the active layer on the current project window. The
@@ -1087,14 +1080,6 @@ void SWMMVis::initializeAnalysisLayerCombos()
         auto *layer = reinterpret_cast<SWMM2DResultsLayer *>(
             mComboActiveResults2D->itemData(idx).value<quintptr>());
         pw->setActive2DResultsLayer(layer);
-    });
-
-    // Live-render toggle: gate the active 2D layer's streaming/render work.
-    connect(mCheckBoxLive2D, &QCheckBox::toggled, this, [this](bool checked) {
-        auto *pw = activeProjectWindow();
-        if (!pw) return;
-        if (auto *layer = pw->active2DResultsLayer())
-            layer->setLiveRenderEnabled(checked);
     });
 
     refreshActiveResultsCombos();
@@ -1181,10 +1166,12 @@ void SWMMVis::initializeAnimationToolBar()
     // the thumb moves only the cursor (no second handle), so there is no
     // two-handle feedback round-trip — the source of the old lag.
     mAnimationSlider = new openswmmvis::ui::CursorWindowSlider(this);
-    mAnimationSlider->setMinimumWidth(240);
+    mAnimationSlider->setMinimumWidth(320);
     // Stretch to fill the toolbar's free width (the cursor + window band read
-    // more precisely on a wide track).
-    mAnimationSlider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    // more precisely on a wide track); vertically FIXED at the widget's
+    // minimum height — Preferred let the tall ribbon row stretch the
+    // slider (and its height-proportional thumb) into a slab.
+    mAnimationSlider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     mAnimationSlider->setToolTip(
         tr("Animation time (thumb). The shaded band is the look-back window — "
            "set its width with the Window box. Drag the thumb or click the "
@@ -1247,6 +1234,27 @@ void SWMMVis::initializeAnimationToolBar()
         new openswmmvis::ui::RibbonGroup(tr("Display"), this);
     groupDisplay->addAction(ui->actionShowLegend);
     groupDisplay->addAction(ui->actionSetStyle);
+    // Live-render toggle (moved here from the Analysis Results-Layers
+    // group, iteration 3). Off stops 2D rendering AND frame streaming for
+    // the active live layer during a run, to save GPU/CPU; on resumes and
+    // jumps to the newest frame. Only meaningful for a live/streaming
+    // source, so it is disabled otherwise (see refreshActiveResultsCombos,
+    // which manages the enabled/checked state via the member pointer).
+    mCheckBoxLive2D = new QCheckBox(tr("Live render"), this);
+    mCheckBoxLive2D->setChecked(true);
+    mCheckBoxLive2D->setContentsMargins(8, 0, 4, 0);
+    mCheckBoxLive2D->setToolTip(tr(
+        "Render the active 2D results layer live while a simulation runs. "
+        "Uncheck to stop 2D rendering and frame streaming during the run to "
+        "save GPU/CPU; re-check to resume at the newest frame. Only applies to "
+        "a live (streaming) results layer."));
+    connect(mCheckBoxLive2D, &QCheckBox::toggled, this, [this](bool checked) {
+        auto *pw = activeProjectWindow();
+        if (!pw) return;
+        if (auto *layer = pw->active2DResultsLayer())
+            layer->setLiveRenderEnabled(checked);
+    });
+    groupDisplay->addWidget(mCheckBoxLive2D);
     mToolBarAnimation->addWidget(groupDisplay);
 
     // Restore cross-launch default speed from PreferencesManager and push it
@@ -1721,12 +1729,14 @@ void SWMMVis::initializeStatusBar()
     ui->statusBar->addPermanentWidget(mCheckBoxAutoLength);
     addSep();
 
-    // Coordinates — wide enough for "X: 12345678.123456, Y: 3456789.654321  Z: 1234.567"
+    // Coordinates — wide enough for "12345678.1234, 3456789.6543  Z: 1234.567 ft"
+    // even when the other permanent widgets squeeze the bar (120 px used
+    // to clip the Z suffix entirely).
     ui->statusBar->addPermanentWidget(new QLabel("Coordinates:", ui->statusBar));
     mLineEditCoordinates = new QLineEdit("0,0", ui->statusBar);
     mLineEditCoordinates->setAccessibleName(tr("Cursor coordinates"));
     mLineEditCoordinates->setReadOnly(true);
-    mLineEditCoordinates->setMinimumWidth(120);
+    mLineEditCoordinates->setMinimumWidth(220);
     mLineEditCoordinates->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     ui->statusBar->addPermanentWidget(mLineEditCoordinates);
     addSep();
@@ -5348,7 +5358,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         applyEditSessionToActions(false);
         applyProjectOpenToActions(false);
         rebindUndoRedoActions(nullptr);
-        updateMesh2DTabVisibility();
+        updateContextualTabs();
         mActiveProjectWindow = nullptr;
         return;
     }
@@ -5359,7 +5369,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         return;
     mActiveProjectWindow = pw;
     rebindUndoRedoActions(pw);
-    updateMesh2DTabVisibility();
+    updateContextualTabs();
 
     // Animation toolbar + analysis tools follow the active project tab. Each
     // tab keeps its own ACTIVE 1D / 2D results layer (the user's choice from
@@ -5439,6 +5449,10 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     if (pw->canvas()) {
         // Lambdas can't use Qt::UniqueConnection — drop prior handlers first so
         // repeated activation of the same tab doesn't stack duplicates.
+        // CAUTION: this wipes EVERY (canvas, layerAdded, this) connection —
+        // any other layerAdded listener in this class must use a different
+        // receiver context (see updateMesh2DTabVisibility, which anchors on
+        // mCompactToolbar for exactly that reason).
         QObject::disconnect(pw->canvas(), &MapCanvas::layerAdded, this, nullptr);
         QObject::disconnect(pw->canvas(), &MapCanvas::layerRemoved, this, nullptr);
         connect(pw->canvas(), &MapCanvas::layerAdded, this,
@@ -7466,6 +7480,27 @@ void SWMMVis::onShowReport()
 
 void SWMMVis::onCursorPositionChanged(double mapX, double mapY)
 {
+    mLastCursorMapX = mapX;
+    mLastCursorMapY = mapY;
+    mHasCursorPos = true;
+    updateCoordinateReadout();
+}
+
+void SWMMVis::onMeshHoverElevation(double z, bool finite)
+{
+    const std::optional<double> next =
+        finite ? std::optional<double>(z) : std::nullopt;
+    if (next == mMeshHoverZ)
+        return;
+    mMeshHoverZ = next;
+    if (mHasCursorPos)
+        updateCoordinateReadout();
+}
+
+void SWMMVis::updateCoordinateReadout()
+{
+    const double mapX = mLastCursorMapX;
+    const double mapY = mLastCursorMapY;
     // mapX/mapY arrive in canvas CRS. When the active model layer's native
     // CRS differs (e.g. geographic data displayed via Web Mercator on-the-fly
     // reprojection), reverse-transform so the read-out shows the cursor
@@ -7489,8 +7524,13 @@ void SWMMVis::onCursorPositionChanged(double mapX, double mapY)
                        .arg(dispX, 0, 'f', decimals)
                        .arg(dispY, 0, 'f', decimals);
 
-    // Append terrain Z with the unit assigned to the canvas by the project window.
-    if (MapCanvas *c = activeCanvas()) {
+    // Append Z — the mesh probe wins while the cursor is on the mesh
+    // (it survives the Mesh Editing toolbar's tab-scoped visibility);
+    // otherwise the terrain Z with the unit assigned to the canvas by
+    // the project window.
+    if (mMeshHoverZ.has_value()) {
+        text += tr("  Z: %1 (mesh)").arg(*mMeshHoverZ, 0, 'f', 3);
+    } else if (MapCanvas *c = activeCanvas()) {
         const auto z = c->terrainZ();
         if (z.has_value()) {
             const QString unit = c->terrainUnit();

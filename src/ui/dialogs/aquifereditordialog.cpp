@@ -10,6 +10,7 @@
 #include "aquifer/aquiferregistry.h"
 #include "layers/swmmmodellayer.h"   // complete type for QPointer<SWMMModelLayer>
 #include "ui/models/aquiferlistmodel.h"
+#include "ui/theme/iconfactory.h"
 
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -99,8 +100,10 @@ void AquiferEditorDialog::buildUi_()
     leftLay->addWidget(m_listView, 1);
 
     auto *btnRow = new QHBoxLayout;
-    m_addBtn = new QPushButton(tr("+ New"), leftPane);
-    m_delBtn = new QPushButton(tr("− Delete"), leftPane);
+    m_addBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")),
+                               tr("New"), leftPane);
+    m_delBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")),
+                               tr("Delete"), leftPane);
     btnRow->addWidget(m_addBtn);
     btnRow->addWidget(m_delBtn);
     leftLay->addLayout(btnRow);
