@@ -31,6 +31,8 @@ TabularResultsDialog::TabularResultsDialog(SWMMResultsLayer *layer, QWidget *par
     : QDialog(parent), m_layer(layer)
 {
     setWindowTitle(tr("Tabular Results"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("TabularResultsDialog"));
     resize(1080, 640);
     buildUi();
     onModeChanged();

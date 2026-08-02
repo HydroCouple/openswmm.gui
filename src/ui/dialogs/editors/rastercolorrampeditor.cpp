@@ -34,11 +34,11 @@ RasterColorRampEditor::RasterColorRampEditor(GISRasterLayer *layer, QWidget *par
 
     m_bandSpin = new QSpinBox(this);
     m_bandSpin->setRange(1, std::max(1, m_layer ? m_layer->bandCount() : 1));
-    srcForm->addRow(tr("Render band:"), m_bandSpin);
+    srcForm->addRow(tr("R&ender band:"), m_bandSpin);
 
     m_nodataLabel = new QLabel(this);
     m_nodataLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    srcForm->addRow(tr("NoData value:"), m_nodataLabel);
+    srcForm->addRow(tr("&NoData value:"), m_nodataLabel);
 
     root->addWidget(srcBox);
 
@@ -47,7 +47,7 @@ RasterColorRampEditor::RasterColorRampEditor(GISRasterLayer *layer, QWidget *par
     auto *rampForm = new QFormLayout(rampBox);
 
     m_rampCombo = new ColorRampComboBox(this);
-    rampForm->addRow(tr("Ramp:"), m_rampCombo);
+    rampForm->addRow(tr("R&amp:"), m_rampCombo);
 
     auto *rangeRow = new QWidget(this);
     auto *rangeLay = new QHBoxLayout(rangeRow);
@@ -79,21 +79,21 @@ RasterColorRampEditor::RasterColorRampEditor(GISRasterLayer *layer, QWidget *par
 
     m_hsAzimuth = new QDoubleSpinBox(this);
     m_hsAzimuth->setRange(0.0, 360.0); m_hsAzimuth->setSuffix(tr("°"));
-    hsForm->addRow(tr("Azimuth:"), m_hsAzimuth);
+    hsForm->addRow(tr("A&zimuth:"), m_hsAzimuth);
 
     m_hsAltitude = new QDoubleSpinBox(this);
     m_hsAltitude->setRange(0.0, 90.0); m_hsAltitude->setSuffix(tr("°"));
-    hsForm->addRow(tr("Altitude:"), m_hsAltitude);
+    hsForm->addRow(tr("A&ltitude:"), m_hsAltitude);
 
     m_hsZFactor = new QDoubleSpinBox(this);
     m_hsZFactor->setRange(0.0, 100.0); m_hsZFactor->setDecimals(2);
     m_hsZFactor->setSingleStep(0.1);
-    hsForm->addRow(tr("Z factor:"), m_hsZFactor);
+    hsForm->addRow(tr("Z &factor:"), m_hsZFactor);
 
     m_hsStrength = new QDoubleSpinBox(this);
     m_hsStrength->setRange(0.0, 1.0); m_hsStrength->setDecimals(2);
     m_hsStrength->setSingleStep(0.05);
-    hsForm->addRow(tr("Strength:"), m_hsStrength);
+    hsForm->addRow(tr("&Strength:"), m_hsStrength);
 
     root->addWidget(hsBox);
     root->addStretch();

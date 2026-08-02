@@ -4,6 +4,8 @@
  * \date   2026
  */
 #include "plot/meshprofileplotwidget.h"
+#include "ui/theme/thememanager.h"
+#include "ui/theme/themetokens.h"
 
 #include "plot/meshprofileinterp.h"
 #include "plot/meshprofileplotoptions.h"
@@ -38,9 +40,14 @@ constexpr double kDry          = 1e-4;   // 0.1 mm — matches layer dryDepth de
 constexpr qreal  kAxisEdgeAlongPx = 28.0;
 constexpr qreal  kAxisLabelBandPx = 48.0;
 
-const QColor kAxisColor (0x55, 0x55, 0x55);
-const QColor kGridColor (0xE0, 0xE0, 0xE0);
-const QColor kBackground(0xFA, 0xFA, 0xFA);
+
+// UI redesign P4 — plot chrome colors come from the theme tokens so the
+// plot flips with the light/dark scheme (data fills stay hardcoded).
+inline const openswmmvis::ui::ThemeColors &plotTheme()
+{
+    return openswmmvis::ui::ThemeManager::instance()->colors();
+}
+
 
 inline bool finiteGround(const MeshProfileSampler::Sample &s)
 {
@@ -80,9 +87,16 @@ MeshProfilePlotWidget::MeshProfilePlotWidget(QWidget *parent)
     : QWidget(parent)
 {
     setAutoFillBackground(true);
-    QPalette pal = palette();
-    pal.setColor(QPalette::Window, kBackground);
-    setPalette(pal);
+    const auto applyPlotBackground = [this] {
+        QPalette pal = palette();
+        pal.setColor(QPalette::Window, plotTheme().plotBackground);
+        setPalette(pal);
+        update();
+    };
+    applyPlotBackground();
+    connect(openswmmvis::ui::ThemeManager::instance(),
+            &openswmmvis::ui::ThemeManager::themeChanged,
+            this, applyPlotBackground);
     setMinimumSize(360, 240);
     setMouseTracking(true);
 }
@@ -620,7 +634,7 @@ void MeshProfilePlotWidget::paintBackgroundAndAxes(QPainter &p) const
     const QRectF r = plotRect();
     p.fillRect(r, Qt::white);
 
-    QPen gridPen(kGridColor);
+    QPen gridPen(plotTheme().plotGrid);
     gridPen.setWidthF(1.0);
     p.setPen(gridPen);
     for (int i = 1; i < 5; ++i) {
@@ -628,7 +642,7 @@ void MeshProfilePlotWidget::paintBackgroundAndAxes(QPainter &p) const
         p.drawLine(QPointF(r.left(), y), QPointF(r.right(), y));
     }
 
-    QPen axisPen(kAxisColor);
+    QPen axisPen(plotTheme().plotAxis);
     axisPen.setWidthF(1.2);
     p.setPen(axisPen);
     p.drawRect(r);
@@ -643,7 +657,7 @@ void MeshProfilePlotWidget::paintBackgroundAndAxes(QPainter &p) const
     const NumberFormat xFmt = m_options ? m_options->xFormat()
                                         : NumberFormat{NumberFormatMode::Decimals, 0};
     QFontMetricsF fm(p.font());
-    p.setPen(kAxisColor);
+    p.setPen(plotTheme().plotAxis);
     for (int i = 0; i <= 5; ++i) {
         const double frac = i / 5.0;
         const double y = r.bottom() - r.height() * frac;

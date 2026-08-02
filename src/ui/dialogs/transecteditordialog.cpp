@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/transecteditordialog.h"
+#include "ui/theme/iconfactory.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
 #include "layers/swmmmodellayer.h"     // complete type required by QPointer<SWMMModelLayer>
@@ -35,7 +36,6 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
-#include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTableView>
@@ -88,21 +88,14 @@ TransectEditorDialog::TransectEditorDialog(TransectRegistry *registry,
     else
         bindProvider_(nullptr);
 
-    // Restore splitter geometry.
-    QSettings settings;
-    const QByteArray state = settings.value(QStringLiteral("transect/dialog/splitter")).toByteArray();
-    if (!state.isEmpty() && m_splitter) m_splitter->restoreState(state);
-    const QByteArray geom = settings.value(QStringLiteral("transect/dialog/geometry")).toByteArray();
-    if (!geom.isEmpty()) restoreGeometry(geom);
+    // Iteration 2 (D2) — geometry/splitter persistence via the app-wide
+    // DialogLayoutWatcher (save on Hide/Close instead of the old
+    // destructor-time write): naming is the wiring.
+    setObjectName(QStringLiteral("TransectEditorDialog"));
+    if (m_splitter) m_splitter->setObjectName(QStringLiteral("main"));
 }
 
-TransectEditorDialog::~TransectEditorDialog()
-{
-    QSettings settings;
-    if (m_splitter) settings.setValue(QStringLiteral("transect/dialog/splitter"),
-                                        m_splitter->saveState());
-    settings.setValue(QStringLiteral("transect/dialog/geometry"), saveGeometry());
-}
+TransectEditorDialog::~TransectEditorDialog() = default;
 
 TransectEditorDialog *TransectEditorDialog::createNew(TransectRegistry *registry,
                                                        SWMMModelLayer *layer,
@@ -357,19 +350,19 @@ void TransectEditorDialog::buildToolbar_()
     m_toolBar->setIconSize(QSize(20, 20));
     m_toolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
 
-    auto *aFit  = m_toolBar->addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
+    auto *aFit  = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Extent")),
                                          tr("Fit"));
     aFit->setToolTip(tr("Zoom to extent (F)"));
     aFit->setShortcut(QKeySequence(Qt::Key_F));
     connect(aFit, &QAction::triggered, this, &TransectEditorDialog::onZoomToExtentClicked_);
 
-    auto *aIn = m_toolBar->addAction(QIcon(QStringLiteral(":/swmmvis/ZoomIn")),
+    auto *aIn = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomIn")),
                                        tr("Zoom in"));
     aIn->setToolTip(tr("Zoom in (Ctrl++)"));
     aIn->setShortcut(QKeySequence::ZoomIn);
     connect(aIn, &QAction::triggered, this, &TransectEditorDialog::onZoomInClicked_);
 
-    auto *aOut = m_toolBar->addAction(QIcon(QStringLiteral(":/swmmvis/ZoomOut")),
+    auto *aOut = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomOut")),
                                         tr("Zoom out"));
     aOut->setToolTip(tr("Zoom out (Ctrl+-)"));
     aOut->setShortcut(QKeySequence::ZoomOut);
@@ -377,13 +370,13 @@ void TransectEditorDialog::buildToolbar_()
 
     m_toolBar->addSeparator();
 
-    auto *aPan = m_toolBar->addAction(QIcon(QStringLiteral(":/swmmvis/Move")),
+    auto *aPan = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Move")),
                                         tr("Pan"));
     aPan->setCheckable(true);
     aPan->setToolTip(tr("Toggle pan mode (left-button drag)"));
     connect(aPan, &QAction::toggled, this, &TransectEditorDialog::onPanToggled_);
 
-    auto *aEdit = m_toolBar->addAction(QIcon(QStringLiteral(":/swmmvis/SelectEdit")),
+    auto *aEdit = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("SelectEdit")),
                                          tr("Edit Points"));
     aEdit->setCheckable(true);
     aEdit->setToolTip(tr("Toggle interactive point editing — drag handles, Shift+click to insert, Delete to remove"));
@@ -392,14 +385,14 @@ void TransectEditorDialog::buildToolbar_()
     // Insert / Delete vertex actions arm one-shot tool modes on the chart.
     // They live next to Edit Points because they're only meaningful while
     // the user is editing geometry.
-    auto *aInsert = m_toolBar->addAction(QIcon(QStringLiteral(":/swmmvis/New")),
+    auto *aInsert = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("New")),
                                             tr("Insert Vertex"));
     aInsert->setCheckable(true);
     aInsert->setToolTip(tr("Insert vertex on click (also: Shift+click in Edit Points mode)"));
     connect(aInsert, &QAction::toggled, this, &TransectEditorDialog::onInsertVertexToggled_);
     m_insertVertexAction = aInsert;
 
-    auto *aDeleteV = m_toolBar->addAction(QIcon(QStringLiteral(":/swmmvis/Clear")),
+    auto *aDeleteV = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Clear")),
                                             tr("Delete Vertex"));
     aDeleteV->setCheckable(true);
     aDeleteV->setToolTip(tr("Delete vertex on click (also: select handle + Delete key)"));
@@ -411,17 +404,17 @@ void TransectEditorDialog::buildToolbar_()
 
     m_toolBar->addSeparator();
 
-    auto *aCopy = m_toolBar->addAction(QIcon(QStringLiteral(":/swmmvis/Copy")),
+    auto *aCopy = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Copy")),
                                          tr("Copy"));
     aCopy->setToolTip(tr("Copy station–elevation data to clipboard"));
     connect(aCopy, &QAction::triggered, this, &TransectEditorDialog::onCopyDataClicked_);
 
-    auto *aProps = m_toolBar->addAction(QIcon(QStringLiteral(":/swmmvis/Settings")),
+    auto *aProps = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Settings")),
                                           tr("Properties"));
     aProps->setToolTip(tr("Edit chart display properties"));
     connect(aProps, &QAction::triggered, this, &TransectEditorDialog::onChartPropertiesClicked_);
 
-    auto *aExport = m_toolBar->addAction(QIcon(QStringLiteral(":/swmmvis/SaveAs")),
+    auto *aExport = m_toolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("SaveAs")),
                                            tr("Export"));
     aExport->setToolTip(tr("Export chart as PNG"));
     connect(aExport, &QAction::triggered, this, &TransectEditorDialog::onExportChartClicked_);

@@ -54,32 +54,32 @@ PointSymbolStyleEditor::PointSymbolStyleEditor(PointSymbolStyleAdapter *adapter,
 
     m_shape = new MarkerShapeCombo(box);
     m_shape->populateCanonical();     // all 19 canonical MarkerShapes
-    form->addRow(tr("Shape:"), m_shape);
+    form->addRow(tr("&Shape:"), m_shape);
 
     m_size = new QDoubleSpinBox(box);
     m_size->setRange(0.5, 60.0);
     m_size->setDecimals(1);
     m_size->setSingleStep(0.5);
     m_size->setSuffix(tr(" px"));
-    form->addRow(tr("Size:"), m_size);
+    form->addRow(tr("S&ize:"), m_size);
 
     m_fill = new ColorButton(box);
     m_fill->setShowAlpha(true);
-    form->addRow(tr("Fill:"), m_fill);
+    form->addRow(tr("&Fill:"), m_fill);
 
     m_outline = new ColorButton(box);
     m_outline->setShowAlpha(true);
-    form->addRow(tr("Outline:"), m_outline);
+    form->addRow(tr("&Outline:"), m_outline);
 
     m_outlineW = new QDoubleSpinBox(box);
     m_outlineW->setRange(0.0, 20.0);
     m_outlineW->setDecimals(2);
     m_outlineW->setSingleStep(0.25);
     m_outlineW->setSuffix(tr(" px"));
-    form->addRow(tr("Outline width:"), m_outlineW);
+    form->addRow(tr("O&utline width:"), m_outlineW);
 
     m_opacity = makeOpacitySpin(box);
-    form->addRow(tr("Opacity:"), m_opacity);
+    form->addRow(tr("Op&acity:"), m_opacity);
 
     root->addWidget(box);
     root->addStretch();
@@ -132,20 +132,20 @@ LineSymbolStyleEditor::LineSymbolStyleEditor(LineSymbolStyleAdapter *adapter,
 
     m_color = new ColorButton(box);
     m_color->setShowAlpha(true);
-    form->addRow(tr("Colour:"), m_color);
+    form->addRow(tr("Colou&r:"), m_color);
 
     m_width = new QDoubleSpinBox(box);
     m_width->setRange(0.25, 30.0);
     m_width->setDecimals(2);
     m_width->setSingleStep(0.25);
     m_width->setSuffix(tr(" px"));
-    form->addRow(tr("Width:"), m_width);
+    form->addRow(tr("&Width:"), m_width);
 
     m_dash = new DashStyleCombo(box);
-    form->addRow(tr("Style:"), m_dash);
+    form->addRow(tr("S&tyle:"), m_dash);
 
     m_opacity = makeOpacitySpin(box);
-    form->addRow(tr("Opacity:"), m_opacity);
+    form->addRow(tr("Opacit&y:"), m_opacity);
 
     root->addWidget(box);
     root->addStretch();
@@ -195,14 +195,14 @@ PolygonSymbolStyleEditor::PolygonSymbolStyleEditor(PolygonSymbolStyleAdapter *ad
 
     m_outline = new ColorButton(box);
     m_outline->setShowAlpha(true);
-    form->addRow(tr("Outline:"), m_outline);
+    form->addRow(tr("Outli&ne:"), m_outline);
 
     m_outlineW = new QDoubleSpinBox(box);
     m_outlineW->setRange(0.0, 20.0);
     m_outlineW->setDecimals(2);
     m_outlineW->setSingleStep(0.25);
     m_outlineW->setSuffix(tr(" px"));
-    form->addRow(tr("Outline width:"), m_outlineW);
+    form->addRow(tr("Outlin&e width:"), m_outlineW);
 
     m_opacity = makeOpacitySpin(box);
     form->addRow(tr("Opacity:"), m_opacity);

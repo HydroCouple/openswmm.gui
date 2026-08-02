@@ -6,20 +6,33 @@
  */
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
+#include <QAction>
 #include <QByteArray>
 #include <QDialog>
 #include <QGuiApplication>
+#include <QHeaderView>
 #include <QList>
 #include <QRect>
 #include <QScreen>
 #include <QSettings>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QString>
+#include <QTabWidget>
+#include <QTableView>
+#include <QTreeView>
 #include <QWidget>
 
 namespace openswmmvis::ui {
 
 namespace {
+
+/// Deliberate opt-in: only children the dialog author explicitly named
+/// persist; Qt-internal names ("qt_tabwidget_stackedwidget", …) never do.
+bool userNamed_(const QString &name)
+{
+    return !name.isEmpty() && !name.startsWith(QLatin1String("qt_"));
+}
 
 QString rootGroupName_(QWidget *root)
 {
@@ -63,10 +76,50 @@ void saveDialogLayout(QWidget *root)
     const QList<QSplitter *> splitters = root->findChildren<QSplitter *>();
     for (QSplitter *sp : splitters) {
         const QString spName = sp ? sp->objectName() : QString();
-        if (spName.isEmpty()) continue;       // opt-in via objectName only
+        if (!userNamed_(spName)) continue;    // opt-in via objectName only
         s.setValue(spName, sp->saveState());
     }
     s.endGroup();   // splitter
+
+    // Iteration 2 (D1) — the richer view/layout state, same naming rule.
+    s.beginGroup(QStringLiteral("header"));
+    const QList<QTableView *> tables = root->findChildren<QTableView *>();
+    for (QTableView *v : tables) {
+        if (!userNamed_(v->objectName())) continue;
+        if (QHeaderView *h = v->horizontalHeader())
+            s.setValue(v->objectName(), h->saveState());
+    }
+    const QList<QTreeView *> trees = root->findChildren<QTreeView *>();
+    for (QTreeView *v : trees) {
+        if (!userNamed_(v->objectName())) continue;
+        if (QHeaderView *h = v->header())
+            s.setValue(v->objectName(), h->saveState());
+    }
+    s.endGroup();   // header
+
+    s.beginGroup(QStringLiteral("tab"));
+    const QList<QTabWidget *> tabs = root->findChildren<QTabWidget *>();
+    for (QTabWidget *t : tabs) {
+        if (!userNamed_(t->objectName())) continue;
+        s.setValue(t->objectName(), t->currentIndex());
+    }
+    s.endGroup();   // tab
+
+    s.beginGroup(QStringLiteral("page"));
+    const QList<QStackedWidget *> stacks = root->findChildren<QStackedWidget *>();
+    for (QStackedWidget *st : stacks) {
+        if (!userNamed_(st->objectName())) continue;
+        s.setValue(st->objectName(), st->currentIndex());
+    }
+    s.endGroup();   // page
+
+    s.beginGroup(QStringLiteral("toggle"));
+    const QList<QAction *> actions = root->findChildren<QAction *>();
+    for (QAction *a : actions) {
+        if (!a->isCheckable() || !userNamed_(a->objectName())) continue;
+        s.setValue(a->objectName(), a->isChecked());
+    }
+    s.endGroup();   // toggle
     s.endGroup();   // <name>
     s.endGroup();   // Dialogs
 }
@@ -94,12 +147,70 @@ bool restoreDialogLayout(QWidget *root)
     const QList<QSplitter *> splitters = root->findChildren<QSplitter *>();
     for (QSplitter *sp : splitters) {
         const QString spName = sp ? sp->objectName() : QString();
-        if (spName.isEmpty()) continue;
+        if (!userNamed_(spName)) continue;
         const QByteArray state = s.value(spName).toByteArray();
         if (!state.isEmpty() && sp->restoreState(state))
             restored = true;
     }
     s.endGroup();   // splitter
+
+    // Iteration 2 (D1) — richer state, restored after geometry/splitters.
+    // QHeaderView::restoreState rejects blobs from a different column
+    // model; the int indices are bounds-checked, so stale settings from a
+    // reworked dialog degrade to first-run defaults instead of misfiring.
+    s.beginGroup(QStringLiteral("header"));
+    const QList<QTableView *> tables = root->findChildren<QTableView *>();
+    for (QTableView *v : tables) {
+        if (!userNamed_(v->objectName())) continue;
+        const QByteArray state = s.value(v->objectName()).toByteArray();
+        QHeaderView *h = v->horizontalHeader();
+        if (h && !state.isEmpty() && h->restoreState(state))
+            restored = true;
+    }
+    const QList<QTreeView *> trees = root->findChildren<QTreeView *>();
+    for (QTreeView *v : trees) {
+        if (!userNamed_(v->objectName())) continue;
+        const QByteArray state = s.value(v->objectName()).toByteArray();
+        QHeaderView *h = v->header();
+        if (h && !state.isEmpty() && h->restoreState(state))
+            restored = true;
+    }
+    s.endGroup();   // header
+
+    s.beginGroup(QStringLiteral("tab"));
+    const QList<QTabWidget *> tabs = root->findChildren<QTabWidget *>();
+    for (QTabWidget *t : tabs) {
+        if (!userNamed_(t->objectName())) continue;
+        const int idx = s.value(t->objectName(), -1).toInt();
+        if (idx >= 0 && idx < t->count()) {
+            t->setCurrentIndex(idx);
+            restored = true;
+        }
+    }
+    s.endGroup();   // tab
+
+    s.beginGroup(QStringLiteral("page"));
+    const QList<QStackedWidget *> stacks = root->findChildren<QStackedWidget *>();
+    for (QStackedWidget *st : stacks) {
+        if (!userNamed_(st->objectName())) continue;
+        const int idx = s.value(st->objectName(), -1).toInt();
+        if (idx >= 0 && idx < st->count()) {
+            st->setCurrentIndex(idx);
+            restored = true;
+        }
+    }
+    s.endGroup();   // page
+
+    s.beginGroup(QStringLiteral("toggle"));
+    const QList<QAction *> actions = root->findChildren<QAction *>();
+    for (QAction *a : actions) {
+        if (!a->isCheckable() || !userNamed_(a->objectName())) continue;
+        if (!s.contains(a->objectName())) continue;
+        // setChecked fires toggled() so dependent views update themselves.
+        a->setChecked(s.value(a->objectName()).toBool());
+        restored = true;
+    }
+    s.endGroup();   // toggle
     s.endGroup();   // <name>
     s.endGroup();   // Dialogs
 

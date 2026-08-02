@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/kindtreesymbologypanel.h"
+#include "ui/theme/themehelpers.h"
 
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
@@ -77,7 +78,7 @@ QWidget *makeSublayerLabelBox(OpenSWMM::Render::FeatureSublayerStyle *style,
 
     auto *hint = new QLabel(box);
     hint->setWordWrap(true);
-    hint->setStyleSheet(QStringLiteral("color: palette(mid);"));
+    hint->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     form->addRow(QObject::tr("Fields:"), hint);
 
     const LabelConfig &lc = style->labelConfig();

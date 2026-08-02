@@ -62,6 +62,9 @@ void LandUseEditorDialog::buildUi_()
 {
     auto *outer = new QVBoxLayout(this);
     m_splitter = new QSplitter(Qt::Horizontal, this);
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("LandUseEditorDialog"));
+    m_splitter->setObjectName(QStringLiteral("main"));
     m_splitter->setChildrenCollapsible(false);
     m_splitter->setHandleWidth(6);
 
@@ -88,19 +91,19 @@ void LandUseEditorDialog::buildUi_()
     auto *form     = new QFormLayout(formPane);
 
     m_nameEdit = new QLineEdit(formPane);
-    form->addRow(tr("Name"), m_nameEdit);
+    form->addRow(tr("N&ame"), m_nameEdit);
 
     m_intervalSpin = new QDoubleSpinBox(formPane);
     m_intervalSpin->setRange(0.0, 1.0e6);
     m_intervalSpin->setDecimals(3);
     m_intervalSpin->setSingleStep(1.0);
-    form->addRow(tr("Sweep Interval (days)"), m_intervalSpin);
+    form->addRow(tr("&Sweep Interval (days)"), m_intervalSpin);
 
     m_removalSpin = new QDoubleSpinBox(formPane);
     m_removalSpin->setRange(0.0, 1.0);
     m_removalSpin->setDecimals(3);
     m_removalSpin->setSingleStep(0.05);
-    form->addRow(tr("Sweep Removal (fraction)"), m_removalSpin);
+    form->addRow(tr("S&weep Removal (fraction)"), m_removalSpin);
 
     auto *note = new QLabel(
         tr("Buildup and washoff functions are edited per pollutant elsewhere."),

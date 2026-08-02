@@ -26,6 +26,8 @@ CalibrationDataDialog::CalibrationDataDialog(SWMMVisProjectWindow *projectWindow
     : QDialog(parent), m_projectWindow(projectWindow)
 {
     setWindowTitle(tr("Calibration Data"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("CalibrationDataDialog"));
     resize(820, 480);
     buildUi();
     loadFromProject();

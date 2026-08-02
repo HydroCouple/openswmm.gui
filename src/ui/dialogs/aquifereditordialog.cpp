@@ -81,6 +81,9 @@ void AquiferEditorDialog::buildUi_()
 {
     auto *outer = new QVBoxLayout(this);
     m_splitter = new QSplitter(Qt::Horizontal, this);
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("AquiferEditorDialog"));
+    m_splitter->setObjectName(QStringLiteral("main"));
     m_splitter->setChildrenCollapsible(false);
     m_splitter->setHandleWidth(6);
 
@@ -107,7 +110,7 @@ void AquiferEditorDialog::buildUi_()
     auto *form     = new QFormLayout(formPane);
 
     m_nameEdit = new QLineEdit(formPane);
-    form->addRow(tr("Name"), m_nameEdit);
+    form->addRow(tr("Na&me"), m_nameEdit);
 
     m_spins.reserve(AquiferProvider::ParamCount);
     for (int k = 0; k < AquiferProvider::ParamCount; ++k) {

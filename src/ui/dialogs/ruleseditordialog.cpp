@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/ruleseditordialog.h"
+#include "ui/theme/themehelpers.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
 #include "controls/controlruleprovider.h"
@@ -24,7 +25,6 @@
 #include <QListView>
 #include <QMessageBox>
 #include <QPushButton>
-#include <QSettings>
 #include <QSortFilterProxyModel>
 #include <QSplitter>
 #include <QToolButton>
@@ -39,8 +39,6 @@ using openswmmvis::controls::ValidationState;
 
 namespace {
 
-constexpr const char *kSettingsGeometry  = "RulesEditorDialog/geometry";
-constexpr const char *kSettingsSplitter  = "RulesEditorDialog/splitter";
 
 // Default skeleton for the "+ Add" path. Matches DA.3's "Empty" skeleton.
 QString defaultRuleSkeleton(const QString &name)
@@ -83,7 +81,10 @@ RulesEditorDialog::RulesEditorDialog(SWMMModelLayer *layer,
     else
         bindProvider_(nullptr);
 
-    restoreDialogSettings_();
+    // Iteration 2 (D2) — persistence via the app-wide DialogLayoutWatcher:
+    // naming is the wiring.
+    setObjectName(QStringLiteral("RulesEditorDialog"));
+    if (m_splitter) m_splitter->setObjectName(QStringLiteral("main"));
 }
 
 RulesEditorDialog::~RulesEditorDialog() = default;
@@ -203,7 +204,7 @@ void RulesEditorDialog::buildUi_()
     auto *nameRow = new QHBoxLayout();
     nameRow->setContentsMargins(0, 0, 0, 0);
     auto *nameTitle = new QLabel(tr("Name:"), paneR);
-    nameTitle->setStyleSheet(QStringLiteral("font-weight: bold;"));
+    nameTitle->setStyleSheet(openswmmvis::ui::theme::sectionHeadingStyle());
     m_nameLabel = new QLabel(QStringLiteral("—"), paneR);
     m_nameLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_renameBodyBtn = new QToolButton(paneR);
@@ -283,7 +284,7 @@ void RulesEditorDialog::buildCreateCard_()
     m_createNameEdit->setPlaceholderText(tr("e.g. PumpOnHigh"));
     lay->addWidget(m_createNameEdit, /*stretch=*/1);
     m_createValidationLbl = new QLabel(m_createCard);
-    m_createValidationLbl->setStyleSheet(QStringLiteral("color: #C62828;"));
+    m_createValidationLbl->setStyleSheet(openswmmvis::ui::theme::errorTextStyle());
     lay->addWidget(m_createValidationLbl);
     m_createBtn = new QPushButton(tr("Create"), m_createCard);
     m_createBtn->setDefault(true);
@@ -369,7 +370,7 @@ void RulesEditorDialog::updateValidationBanner_()
     switch (m_current->validationState()) {
     case ValidationState::Valid:
         m_validationLabel->setText(tr("● Valid"));
-        m_validationBanner->setStyleSheet(QStringLiteral("background: #E8F5E9;"));
+        m_validationBanner->setStyleSheet(openswmmvis::ui::theme::bannerStyle(openswmmvis::ui::theme::Banner::Success));
         break;
     case ValidationState::Invalid: {
         const int line = m_current->lastErrorLine();
@@ -377,13 +378,13 @@ void RulesEditorDialog::updateValidationBanner_()
             m_validationLabel->setText(tr("⚠ Line %1: %2").arg(line).arg(m_current->lastError()));
         else
             m_validationLabel->setText(tr("⚠ %1").arg(m_current->lastError()));
-        m_validationBanner->setStyleSheet(QStringLiteral("background: #FFEBEE;"));
+        m_validationBanner->setStyleSheet(openswmmvis::ui::theme::bannerStyle(openswmmvis::ui::theme::Banner::Error));
         break;
     }
     case ValidationState::Pending:
     default:
         m_validationLabel->setText(tr("Validating…"));
-        m_validationBanner->setStyleSheet(QStringLiteral("background: #F5F5F5;"));
+        m_validationBanner->setStyleSheet(QStringLiteral("background: palette(window);"));
         break;
     }
 }
@@ -582,30 +583,7 @@ void RulesEditorDialog::openForRule(const QString &name)
 void RulesEditorDialog::closeEvent(QCloseEvent *e)
 {
     flushPendingEdit();
-    saveDialogSettings_();
     QDialog::closeEvent(e);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// QSettings persistence
-// ─────────────────────────────────────────────────────────────────────────────
-
-void RulesEditorDialog::saveDialogSettings_() const
-{
-    QSettings s;
-    s.setValue(QLatin1String(kSettingsGeometry), saveGeometry());
-    if (m_splitter) s.setValue(QLatin1String(kSettingsSplitter), m_splitter->saveState());
-}
-
-void RulesEditorDialog::restoreDialogSettings_()
-{
-    QSettings s;
-    const QByteArray g  = s.value(QLatin1String(kSettingsGeometry)).toByteArray();
-    if (!g.isEmpty()) restoreGeometry(g);
-    if (m_splitter) {
-        const QByteArray sp = s.value(QLatin1String(kSettingsSplitter)).toByteArray();
-        if (!sp.isEmpty()) m_splitter->restoreState(sp);
-    }
 }
 
 } // namespace openswmmvis::ui

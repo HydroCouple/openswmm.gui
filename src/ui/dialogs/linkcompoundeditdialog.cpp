@@ -5,6 +5,7 @@
  */
 
 #include "ui/dialogs/linkcompoundeditdialog.h"
+#include "ui/theme/themehelpers.h"
 
 #include "layers/swmmmodellayer.h"
 #include "transect/transectprovider.h"
@@ -138,6 +139,8 @@ LinkCompoundEditDialog::LinkCompoundEditDialog(LinkCompoundEditRef ref,
                                                    QWidget *parent)
     : QDialog(parent), m_ref(std::move(ref))
 {
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("LinkCompoundEditDialog"));
     setWindowTitle(tr("Edit Link Attribute — %1").arg(m_ref.linkName));
 
     m_stack = new QStackedWidget(this);
@@ -284,10 +287,10 @@ void LinkCompoundEditDialog::buildXSectionPage()
     m_xsStreetPicker = new LabeledPickerCombo(QString(), paramsPane);
     form->addRow(m_xsStreetLabel, m_xsStreetPicker);
 
-    form->addRow(tr("Barrels"),   m_xsBarrelsSpin);
+    form->addRow(tr("B&arrels"),   m_xsBarrelsSpin);
 
     m_xsSummaryLabel = new QLabel(paramsPane);
-    m_xsSummaryLabel->setStyleSheet("QLabel { color: gray; }");
+    m_xsSummaryLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     form->addRow(QString{}, m_xsSummaryLabel);
 
     m_xsSplitter->addWidget(m_xsShapeList);

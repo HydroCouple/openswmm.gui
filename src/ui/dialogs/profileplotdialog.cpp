@@ -5,6 +5,7 @@
  */
 
 #include "ui/dialogs/profileplotdialog.h"
+#include "ui/theme/iconfactory.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
 #include "animation/animationcontroller.h"
@@ -85,6 +86,8 @@ ProfilePlotDialog::ProfilePlotDialog(SWMMModelLayer              *model,
       m_routerPath(path)
 {
     setWindowTitle(tr("Profile Plot"));
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("ProfilePlotDialog"));
     setModal(false);
     // Single options object — shared by the layer panel (visibility
     // checkboxes), the plot widget (theming + legend), and the property-
@@ -197,16 +200,16 @@ void ProfilePlotDialog::buildLayout()
     // Explicit Select (Identify) toggle: the default plot mode, but
     // implicit "no button checked = identify" was confusing for users.
     // Listed first so it reads as the home / resting state.
-    auto *actSelect  = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Select")),
+    auto *actSelect  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Select")),
                                           tr("Select"));
-    auto *actZoomIn  = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/ZoomIn")),
+    auto *actZoomIn  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomIn")),
                                           tr("Zoom In"));
-    auto *actZoomOut = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/ZoomOut")),
+    auto *actZoomOut = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomOut")),
                                           tr("Zoom Out"));
-    auto *actFit     = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
+    auto *actFit     = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Extent")),
                                           tr("Fit to Path"));
     toolbar->addSeparator();
-    auto *actPan     = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Move")),
+    auto *actPan     = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Move")),
                                           tr("Pan"));
     actSelect ->setCheckable(true);
     actSelect ->setChecked(true);       // default mode
@@ -233,17 +236,17 @@ void ProfilePlotDialog::buildLayout()
     // summary, updated whenever the popup is dismissed.
     m_sourceButton = new QToolButton(toolbar);
     m_sourceButton->setText(tr("Sources"));
-    m_sourceButton->setIcon(QIcon(QStringLiteral(":/swmmvis/Chartpie")));
+    m_sourceButton->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Chartpie")));
     m_sourceButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     m_sourceButton->setPopupMode(QToolButton::InstantPopup);
     m_sourceMenu = new QMenu(m_sourceButton);
     m_sourceButton->setMenu(m_sourceMenu);
     toolbar->addWidget(m_sourceButton);
     toolbar->addSeparator();
-    auto *actExport  = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/SaveAs")),
+    auto *actExport  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("SaveAs")),
                                           tr("Export PNG…"));
     toolbar->addSeparator();
-    auto *actOptions = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Settings")),
+    auto *actOptions = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Settings")),
                                           tr("Display Options…"));
     root->addWidget(toolbar);
 
@@ -597,7 +600,7 @@ void ProfilePlotDialog::buildLayout()
             resolvePlotUnitSystem(), &menu);
         if (plotSubmenu) {
             plotSubmenu->setTitle(tr("Plot Time Series…"));
-            plotSubmenu->setIcon(QIcon(QStringLiteral(":/swmmvis/Chart")));
+            plotSubmenu->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Chart")));
             menu.addMenu(plotSubmenu);
         }
         QAction *propAct = menu.addAction(tr("Properties…"));
@@ -625,7 +628,7 @@ void ProfilePlotDialog::buildLayout()
             resolvePlotUnitSystem(), &menu);
         if (plotSubmenu) {
             plotSubmenu->setTitle(tr("Plot Time Series…"));
-            plotSubmenu->setIcon(QIcon(QStringLiteral(":/swmmvis/Chart")));
+            plotSubmenu->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Chart")));
             menu.addMenu(plotSubmenu);
         }
         QAction *propAct = menu.addAction(tr("Properties…"));

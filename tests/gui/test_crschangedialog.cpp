@@ -15,10 +15,13 @@
 #include <QRadioButton>
 #include <QTest>
 
+#include "dialog_a11y_checks.h"
+
 class TestCRSChangeDialog : public QObject
 {
     Q_OBJECT
 private slots:
+    void a11yInvariantsHold();
     void defaultIsCancelBeforeShown();
     void clickingApplyWithReprojectChosen();
     void clickingApplyWithRenderOnlyChosen();
@@ -115,6 +118,13 @@ void TestCRSChangeDialog::summaryStringsAppearInLabel()
         }
     }
     QVERIFY(found);
+}
+
+void TestCRSChangeDialog::a11yInvariantsHold()
+{
+    CRSChangeDialog dlg(QStringLiteral("EPSG:4326"),
+                        QStringLiteral("EPSG:3857"));
+    swmmvis_test::assertDialogA11y(&dlg);
 }
 
 QTEST_MAIN(TestCRSChangeDialog)

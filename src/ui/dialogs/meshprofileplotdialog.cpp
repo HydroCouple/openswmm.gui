@@ -4,6 +4,7 @@
  * \date   2026
  */
 #include "ui/dialogs/meshprofileplotdialog.h"
+#include "ui/theme/iconfactory.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
 #include "animation/animationcontroller.h"
@@ -47,6 +48,8 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer        *mesh,
       m_scenePolyline(scenePolyline)
 {
     setWindowTitle(tr("2D Mesh Profile"));
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("MeshProfilePlotDialog"));
     setModal(false);
     m_options = new MeshProfilePlotOptions(this);
     setWindowFlags(Qt::Window
@@ -120,12 +123,12 @@ void MeshProfilePlotDialog::buildLayout()
 
     auto *toolbar = new QToolBar(this);
     toolbar->setIconSize(QSize(18, 18));
-    auto *actSelect  = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Select")),  tr("Select"));
-    auto *actZoomIn  = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/ZoomIn")),  tr("Zoom In"));
-    auto *actZoomOut = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/ZoomOut")), tr("Zoom Out"));
-    auto *actFit     = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),  tr("Fit"));
+    auto *actSelect  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Select")),  tr("Select"));
+    auto *actZoomIn  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomIn")),  tr("Zoom In"));
+    auto *actZoomOut = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomOut")), tr("Zoom Out"));
+    auto *actFit     = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Extent")),  tr("Fit"));
     toolbar->addSeparator();
-    auto *actPan     = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Move")),    tr("Pan"));
+    auto *actPan     = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Move")),    tr("Pan"));
     actSelect->setCheckable(true);  actSelect->setChecked(true);
     actZoomIn->setCheckable(true);
     actZoomOut->setCheckable(true);
@@ -140,10 +143,12 @@ void MeshProfilePlotDialog::buildLayout()
     toolbar->addSeparator();
     auto *actCells = toolbar->addAction(tr("Cell boundaries"));
     actCells->setCheckable(true);
+    actCells->setObjectName(QStringLiteral("showCells"));
     actCells->setChecked(m_options->showCellBoundaries());
     actCells->setToolTip(tr("Show mesh-cell edge crossings as dots on the ground line"));
     auto *actMapMarker = toolbar->addAction(tr("Move marker on map"));
     actMapMarker->setCheckable(true);
+    actMapMarker->setObjectName(QStringLiteral("showMapMarker"));
     actMapMarker->setToolTip(tr("Drag the position arrow along the profile on the map"));
     // Text-only on just these buttons so the existing icon-only actions are
     // left untouched.
@@ -151,7 +156,7 @@ void MeshProfilePlotDialog::buildLayout()
         if (auto *btn = qobject_cast<QToolButton *>(toolbar->widgetForAction(a)))
             btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     toolbar->addSeparator();
-    auto *actOptions = toolbar->addAction(QIcon(QStringLiteral(":/swmmvis/Settings")),
+    auto *actOptions = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Settings")),
                                           tr("Display Options…"));
     root->addWidget(toolbar);
 

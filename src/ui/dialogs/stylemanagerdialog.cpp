@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/stylemanagerdialog.h"
+#include "ui/theme/themehelpers.h"
 
 #include "layers/openswmmvislayer.h"
 #include "render/rule.h"
@@ -105,6 +106,8 @@ StyleManagerDialog::StyleManagerDialog(OpenSWMMVisLayer *activeLayer,
     : QDialog(parent), m_layer(activeLayer)
 {
     setWindowTitle(tr("Style Manager"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("StyleManagerDialog"));
     resize(720, 480);
 
     m_libraryDir = resolveLibraryDir();
@@ -120,7 +123,7 @@ StyleManagerDialog::StyleManagerDialog(OpenSWMMVisLayer *activeLayer,
     m_libDirLabel = new QLabel(leftBox);
     m_libDirLabel->setText(m_libraryDir);
     m_libDirLabel->setWordWrap(true);
-    m_libDirLabel->setStyleSheet(QStringLiteral("color: palette(mid);"));
+    m_libDirLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     m_libDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     leftLay->addWidget(m_libDirLabel);
 

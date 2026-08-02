@@ -600,11 +600,29 @@ set(
         include/connections/basemapconnection.h
         include/connections/basemapconnectionstore.h
 
+        # ── UI action registry (UI redesign P1) ──────────────────────────────
+        include/ui/actioncatalog.h
+        include/ui/actionregistry.h
+
+        # ── UI theme (UI redesign P2/P3) ─────────────────────────────────────
+        include/ui/theme/themetokens.h
+        include/ui/theme/thememanager.h
+        include/ui/theme/themehelpers.h
+        include/ui/theme/iconfactory.h
+
         # ── UI toolbars ──────────────────────────────────────────────────────
+        include/ui/toolbars/compacttoolbarcontroller.h
         include/ui/toolbars/mesheditingtoolbar.h
+        include/ui/toolbars/ribboncompactor.h
+        include/ui/toolbars/ribbongroup.h
+        include/ui/toolbars/ribbonlayoutsolver.h
+        include/ui/toolbars/ribbonsplitbutton.h
         include/ui/toolbars/terraintoolbar.h
 
         # ── UI widgets ───────────────────────────────────────────────────────
+        include/ui/widgets/commandpalette.h
+        include/ui/widgets/commandpalettemodel.h
+        include/ui/widgets/shortcuteditorwidget.h
         include/ui/widgets/basemaphttpheaderswidget.h
         include/ui/widgets/profilelayerpanel.h
         include/ui/widgets/seriesstyleeditor.h
@@ -709,6 +727,7 @@ set(
         include/ui/widgets/stylepreviewswatch.h
         include/ui/widgets/relativepathpicker.h
         include/ui/dialogs/dialoglayoutpersistence.h
+        include/ui/dialogs/dialoglayoutwatcher.h
         include/ui/dialogs/curveeditordialog.h
         include/ui/dialogs/patterneditordialog.h
         include/ui/dialogs/timeserieseditordialog.h
@@ -735,6 +754,7 @@ set(
 
         # App
         src/swmmvis.cpp
+        src/swmmvisactions.cpp
         src/swmmvisapplication.cpp
         src/swmmvisprojectwindow.cpp
         src/swmmvissplashscreen.cpp
@@ -978,6 +998,9 @@ set(
         src/controls/rulesyntaxhighlighter.cpp
         src/controls/rulevalidator.cpp
         src/ui/models/rulelistmodel.cpp
+        src/ui/widgets/commandpalette.cpp
+        src/ui/widgets/commandpalettemodel.cpp
+        src/ui/widgets/shortcuteditorwidget.cpp
         src/ui/widgets/rulecodeeditor.cpp
         src/ui/dialogs/ruleseditordialog.cpp
 
@@ -1233,6 +1256,7 @@ set(
         src/ui/widgets/markershapecombo.cpp
         src/ui/widgets/stylepreviewswatch.cpp
         src/ui/dialogs/dialoglayoutpersistence.cpp
+        src/ui/dialogs/dialoglayoutwatcher.cpp
         src/ui/dialogs/curveeditordialog.cpp
         src/ui/dialogs/patterneditordialog.cpp
         src/ui/dialogs/timeserieseditordialog.cpp
@@ -1256,7 +1280,14 @@ set(
         src/ui/dialogs/licenseagreementdialog.cpp
 
         # Toolbars
+        src/ui/actionregistry.cpp
+        src/ui/theme/thememanager.cpp
+        src/ui/theme/iconfactory.cpp
+        src/ui/toolbars/compacttoolbarcontroller.cpp
         src/ui/toolbars/mesheditingtoolbar.cpp
+        src/ui/toolbars/ribboncompactor.cpp
+        src/ui/toolbars/ribbongroup.cpp
+        src/ui/toolbars/ribbonsplitbutton.cpp
         src/ui/toolbars/terraintoolbar.cpp
 
         # Widgets

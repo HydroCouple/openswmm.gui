@@ -27,6 +27,8 @@ ColorRampEditorDialog::ColorRampEditorDialog(SWMMResultsLayer *layer, QWidget *p
     : QDialog(parent), m_layer(layer)
 {
     setWindowTitle(tr("Color Ramp Editor"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("ColorRampEditorDialog"));
     resize(520, 480);
     if (layer) m_ramp = layer->colorRamp();
     buildUi();
@@ -38,6 +40,8 @@ ColorRampEditorDialog::ColorRampEditorDialog(const RasterColorRamp &initial, QWi
     : QDialog(parent), m_layer(nullptr)
 {
     setWindowTitle(tr("Color Ramp Editor"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("ColorRampEditorDialog"));
     resize(520, 480);
     m_ramp = initial;
     buildUi();
@@ -50,7 +54,7 @@ ColorRampEditorDialog::~ColorRampEditorDialog() = default;
 QString ColorRampEditorDialog::swatchStyleSheet(const QColor &c) const
 {
     return QStringLiteral(
-        "QPushButton { background-color: %1; border: 1px solid #555; min-width: 36px; min-height: 24px; }")
+        "QPushButton { background-color: %1; border: 1px solid palette(mid); min-width: 36px; min-height: 24px; }")
         .arg(c.name());
 }
 

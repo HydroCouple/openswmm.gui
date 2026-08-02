@@ -61,6 +61,8 @@ AddBasemapDialog::AddBasemapDialog(QWidget *parent)
     , m_wcsInfo(nullptr)
 {
     setWindowTitle(tr("Add Basemap"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("AddBasemapDialog"));
     resize(740, 580);
 
     auto *root = new QVBoxLayout(this);
@@ -77,10 +79,10 @@ AddBasemapDialog::AddBasemapDialog(QWidget *parent)
     setupUiWCS(wcsPage);
     setupUiArcGIS(arcPage);
 
-    m_tabs->addTab(xyzPage,    tr("XYZ Tiles"));
-    m_tabs->addTab(wmsPage,    tr("WMS / WMTS"));
+    m_tabs->addTab(xyzPage,    tr("&XYZ Tiles"));
+    m_tabs->addTab(wmsPage,    tr("W&MS / WMTS"));
     m_tabs->addTab(wcsPage,    tr("WCS"));
-    m_tabs->addTab(arcPage,    tr("ArcGIS REST"));
+    m_tabs->addTab(arcPage,    tr("A&rcGIS REST"));
 
     root->addWidget(m_tabs);
 
@@ -148,7 +150,7 @@ void AddBasemapDialog::buildAuthGroup(QWidget *parent, QGroupBox *&box,
     passRow->addWidget(pass);
     passRow->addWidget(eyeBtn);
     gl->addRow(tr("Username:"), user);
-    gl->addRow(tr("Password:"), passRow);
+    gl->addRow(tr("Passw&ord:"), passRow);
     qobject_cast<QVBoxLayout *>(parent->layout())->addWidget(box);
 }
 
@@ -194,7 +196,7 @@ void AddBasemapDialog::setupUiXYZ(QWidget *page)
 
     form->addRow(tr("Name:"),             m_xyzName);
     form->addRow(tr("URL template:"),     m_xyzUrl);
-    form->addRow(tr("Zoom range:"),       zoomRow);
+    form->addRow(tr("&Zoom range:"),       zoomRow);
     form->addRow(tr("Tile pixel ratio:"), m_xyzPixRatio);
     form->addRow(tr("Axis order:"),       m_xyzAxis);
     vlay->addLayout(form);
@@ -253,6 +255,7 @@ void AddBasemapDialog::setupUiWMS(QWidget *page)
 
     // Layer tree + options
     auto *splitter = new QSplitter(Qt::Horizontal, page);
+    splitter->setObjectName(QStringLiteral("main"));
     m_wmsTree = new QTreeWidget(splitter);
     m_wmsTree->setHeaderLabel(tr("Available Layers"));
 
@@ -263,7 +266,7 @@ void AddBasemapDialog::setupUiWMS(QWidget *page)
     m_wmsCrs     = new QComboBox(optWidget);
     m_wmsTmsLabel = new QLabel(tr("Tile matrix set:"), optWidget);
     m_wmsTms      = new QComboBox(optWidget);
-    optForm->addRow(tr("Style:"),          m_wmsStyle);
+    optForm->addRow(tr("St&yle:"),          m_wmsStyle);
     optForm->addRow(tr("Format:"),         m_wmsFmt);
     optForm->addRow(tr("CRS:"),            m_wmsCrs);
     optForm->addRow(m_wmsTmsLabel,         m_wmsTms);
@@ -366,6 +369,7 @@ void AddBasemapDialog::setupUiWCS(QWidget *page)
 
     // Coverage tree + options panel
     auto *splitter = new QSplitter(Qt::Horizontal, page);
+    splitter->setObjectName(QStringLiteral("secondary"));
     m_wcsCovTree = new QTreeWidget(splitter);
     m_wcsCovTree->setHeaderLabel(tr("Available Coverages"));
 
@@ -381,7 +385,7 @@ void AddBasemapDialog::setupUiWCS(QWidget *page)
 
     optForm->addRow(tr("Format:"),        m_wcsFmt);
     optForm->addRow(tr("Output CRS:"),    m_wcsCrs);
-    optForm->addRow(tr("Range subset:"),  m_wcsRange);
+    optForm->addRow(tr("Ran&ge subset:"),  m_wcsRange);
     optForm->addRow(tr("Interpolation:"), m_wcsInterp);
 
     splitter->addWidget(m_wcsCovTree);

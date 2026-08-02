@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/simulationoptionsdialog.h"
+#include "ui/theme/themehelpers.h"
 
 #include "ui/uiscrollhelpers.h"
 #include "ui/dialogs/crsselectiondialog.h"
@@ -243,10 +244,17 @@ void SimulationOptionsDialog::buildUi()
     root->addLayout(split, 1);
 
     m_categoryList = new QListWidget(this);
-    m_categoryList->setFixedWidth(190);
+    m_categoryList->setMinimumWidth(190);
     split->addWidget(m_categoryList);
 
     m_pages = new QStackedWidget(this);
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence;
+    // restoring the page needs the category highlight kept in sync
+    // (same-row set is a no-op, so no signal loop).
+    setObjectName(QStringLiteral("SimulationOptionsDialog"));
+    m_pages->setObjectName(QStringLiteral("pages"));
+    connect(m_pages, &QStackedWidget::currentChanged,
+            m_categoryList, qOverload<int>(&QListWidget::setCurrentRow));
     split->addWidget(m_pages, 1);
 
     connect(m_categoryList, &QListWidget::currentRowChanged,
@@ -404,7 +412,7 @@ QWidget *SimulationOptionsDialog::buildModelsTab()
     m_infiltrationCombo->addItem(tr("Curve Number"),                  QStringLiteral("CURVE_NUMBER"));
     m_infiltrationCombo->setToolTip(
         tr("Infiltration model used on every subcatchment (option INFILTRATION)."));
-    procForm->addRow(tr("Infiltration model:"), m_infiltrationCombo);
+    procForm->addRow(tr("Infiltr&ation model:"), m_infiltrationCombo);
 
     m_routingCombo = new QComboBox(procGroup);
     m_routingCombo->addItem(tr("Steady"),            QStringLiteral("STEADY"));
@@ -548,11 +556,11 @@ QWidget *SimulationOptionsDialog::buildDatesTab()
 
     m_dryStepEdit = new QCustomTimespanEdit(stepGroup);
     m_dryStepEdit->setToolTip(tr("Runoff dry-weather step (DRY_STEP)."));
-    stepForm->addRow(tr("Dry-weather step:"), m_dryStepEdit);
+    stepForm->addRow(tr("Dr&y-weather step:"), m_dryStepEdit);
 
     m_wetStepEdit = new QCustomTimespanEdit(stepGroup);
     m_wetStepEdit->setToolTip(tr("Runoff wet-weather step (WET_STEP)."));
-    stepForm->addRow(tr("Wet-weather step:"), m_wetStepEdit);
+    stepForm->addRow(tr("Wet-weat&her step:"), m_wetStepEdit);
 
     m_ruleStepEdit = new QTimeEdit(stepGroup);
     m_ruleStepEdit->setDisplayFormat(QStringLiteral("HH:mm:ss"));
@@ -744,7 +752,7 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
     m_maxTrialsSpin = new QSpinBox(solGroup);
     m_maxTrialsSpin->setRange(1, 100);
     m_maxTrialsSpin->setToolTip(tr("Max iterations per routing step (MAX_TRIALS)."));
-    solForm->addRow(tr("Max trials:"), m_maxTrialsSpin);
+    solForm->addRow(tr("Ma&x trials:"), m_maxTrialsSpin);
 
     m_headTolSpin = new QDoubleSpinBox(solGroup);
     m_headTolSpin->setRange(0.000001, 1.0);
@@ -765,7 +773,7 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
     m_variableStepSpin->setDecimals(3);
     m_variableStepSpin->setToolTip(
         tr("Variable timestep Courant safety fraction (VARIABLE_STEP, 0 disables)."));
-    solForm->addRow(tr("Variable step factor:"), m_variableStepSpin);
+    solForm->addRow(tr("Varia&ble step factor:"), m_variableStepSpin);
 
     m_minStepSpin = new QDoubleSpinBox(solGroup);
     m_minStepSpin->setRange(0.01, 60.0);
@@ -841,7 +849,7 @@ QWidget *SimulationOptionsDialog::buildPerformanceTab()
         "Number of OpenMP worker threads for hydraulics + 2D solvers.\n"
         "0 = auto (engine picks based on conduit count).\n"
         "1 = serial. Higher values cap the OMP team."));
-    threadsForm->addRow(tr("Worker threads:"), m_threadsSpin);
+    threadsForm->addRow(tr("Wor&ker threads:"), m_threadsSpin);
 
     // ── Fast preset ────────────────────────────────────────────────────
     // One-click speed recipe for 1D/2D-coupled runs: use all worker threads
@@ -1070,7 +1078,7 @@ QWidget *SimulationOptionsDialog::buildMeshTab()
 
     m_meshDirLabel = new QLabel(page);
     m_meshDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_meshDirLabel->setStyleSheet(QStringLiteral("color: gray;"));
+    m_meshDirLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     vlay->addWidget(m_meshDirLabel);
 
     m_meshList = new QListWidget(page);
@@ -1394,7 +1402,7 @@ QWidget *SimulationOptionsDialog::build2DTab()
            "the classic Bates (2010) scheme; values below 1 blend in the "
            "neighbour discharges, damping thin-film checkerboarding on steep "
            "faces (default 0.8)."));
-    marchForm->addRow(tr("Momentum θ:"), m_thetaSpin);
+    marchForm->addRow(tr("Momentum &θ:"), m_thetaSpin);
 
     m_cflNumberSpin = new QDoubleSpinBox(m_marcherGroup);
     m_cflNumberSpin->setRange(0.05, 1.0);
@@ -1779,8 +1787,10 @@ bool SimulationOptionsDialog::validateEvents(QString *warn)
     QList<QPair<QDateTime, QDateTime>> rows;
     const int n = m_eventsTable->rowCount();
     rows.reserve(n);
-    const QString badStyle =
-        QStringLiteral("QDateTimeEdit { background-color: #ffc8c8; }");
+    // Tokenized error fill (D5) — the old hardcoded #ffc8c8 was
+    // illegible on the dark theme.
+    const QString badStyle = QStringLiteral("QDateTimeEdit { %1 }")
+                                 .arg(openswmmvis::ui::theme::errorFillStyle());
     for (int r = 0; r < n; ++r) {
         auto *startEdit = qobject_cast<QDateTimeEdit *>(
             m_eventsTable->cellWidget(r, 0));
@@ -2814,7 +2824,7 @@ QWidget *SimulationOptionsDialog::buildFilesTab()
     outVlay->addWidget(outGroup);
 
     outVlay->addStretch(1);
-    subTabs->addTab(outputPage, tr("Output"));
+    subTabs->addTab(outputPage, tr("O&utput"));
 
     // =====================================================================
     // Sub-tab "Plugins" — [PLUGINS] table (Phase 3.10.3, 2026-05-22)
@@ -2946,7 +2956,7 @@ QWidget *SimulationOptionsDialog::buildFilesTab()
               : QString());
     });
 
-    subTabs->addTab(pluginsPage, tr("Plugins"));
+    subTabs->addTab(pluginsPage, tr("Plu&gins"));
 
     return page;
 }

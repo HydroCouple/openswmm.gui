@@ -26,6 +26,8 @@ AnnotationStyleDialog::AnnotationStyleDialog(AnnotationTextItem *item,
     , m_item(item)
 {
     setWindowTitle(tr("Add Text Annotation"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("AnnotationStyleDialog"));
     resize(420, 540);
     buildUi();
 }

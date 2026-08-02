@@ -52,7 +52,6 @@ public:
     void setSourceLayer(GISVectorLayer *layer);
 
 protected:
-    void closeEvent(QCloseEvent *event) override;
 
 private slots:
     void onKindChanged();

@@ -7,9 +7,11 @@
 #include "simulation/simulationstatusmodel.h"
 #include "swmmvisprojectwindow.h"
 
-#include <QColor>
+#include <QApplication>
 #include <QBrush>
+#include <QColor>
 #include <QFont>
+#include <QStyle>
 
 // ---------------------------------------------------------------------------
 // Construction
@@ -296,6 +298,12 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
             return rec.warnings.at(index.row());
         if (role == Qt::ForegroundRole)
             return QBrush(QColor(0xD0, 0x6F, 0x00));  // amber for warnings
+        // Not-color-alone (UI redesign P9): a warning glyph carries the
+        // severity for color-blind users and assistive tech.
+        if (role == Qt::DecorationRole && index.column() == 0) {
+            if (auto *style = QApplication::style())
+                return style->standardIcon(QStyle::SP_MessageBoxWarning);
+        }
         return {};
     }
 

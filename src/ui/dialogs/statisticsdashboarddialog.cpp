@@ -160,6 +160,9 @@ void StatisticsDashboardDialog::buildUi()
     root->addLayout(queryRow);
 
     m_tabs = new QTabWidget(this);
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("StatisticsDashboardDialog"));
+    m_tabs->setObjectName(QStringLiteral("tabs"));
 
     // Node table -------------------------------------------------------------
     m_nodeModel = new QStandardItemModel(this);
@@ -171,11 +174,12 @@ void StatisticsDashboardDialog::buildUi()
     m_nodeTable = new QTableView(this);
     m_nodeTable->setModel(m_nodeProxy);
     m_nodeTable->setSortingEnabled(true);
+    m_nodeTable->setObjectName(QStringLiteral("nodeTable"));
     m_nodeTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_nodeTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_nodeTable->setAlternatingRowColors(true);
     m_nodeTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_tabs->addTab(m_nodeTable, tr("Nodes"));
+    m_tabs->addTab(m_nodeTable, tr("&Nodes"));
 
     // Link table -------------------------------------------------------------
     m_linkModel = new QStandardItemModel(this);
@@ -187,11 +191,12 @@ void StatisticsDashboardDialog::buildUi()
     m_linkTable = new QTableView(this);
     m_linkTable->setModel(m_linkProxy);
     m_linkTable->setSortingEnabled(true);
+    m_linkTable->setObjectName(QStringLiteral("linkTable"));
     m_linkTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_linkTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_linkTable->setAlternatingRowColors(true);
     m_linkTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_tabs->addTab(m_linkTable, tr("Links"));
+    m_tabs->addTab(m_linkTable, tr("&Links"));
 
     // Subcatchment table -----------------------------------------------------
     m_subModel = new QStandardItemModel(this);
@@ -204,11 +209,12 @@ void StatisticsDashboardDialog::buildUi()
     m_subTable = new QTableView(this);
     m_subTable->setModel(m_subProxy);
     m_subTable->setSortingEnabled(true);
+    m_subTable->setObjectName(QStringLiteral("subTable"));
     m_subTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_subTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_subTable->setAlternatingRowColors(true);
     m_subTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_tabs->addTab(m_subTable, tr("Subcatchments"));
+    m_tabs->addTab(m_subTable, tr("S&ubcatchments"));
 
     // Histogram view is kept as an off-layout helper so selecting a numeric
     // column can still update the chart object without taking vertical space

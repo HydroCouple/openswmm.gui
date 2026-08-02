@@ -31,6 +31,8 @@ ComparisonPairsDialog::ComparisonPairsDialog(ComparisonPlotModel *model,
     , m_model(model)
 {
     setWindowTitle(tr("Configure 1v1 Comparisons"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("ComparisonPairsDialog"));
     buildUi();
     refreshPairList();
 }
