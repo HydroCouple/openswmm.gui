@@ -5,6 +5,8 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/comparisonplotdialog.h"
+#include "ui/theme/iconfactory.h"
+#include "ui/theme/themehelpers.h"
 
 #include "core/preferencesmanager.h"
 #include "core/swmmdatetime.h"
@@ -76,6 +78,9 @@ ComparisonPlotDialog::ComparisonPlotDialog(QWidget *parent)
       m_model(std::make_unique<ComparisonPlotModel>())
 {
     setWindowTitle(tr("Comparison Plot"));
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence
+    // (geometry, the three splitters, the checkable view toggles).
+    setObjectName(QStringLiteral("ComparisonPlotDialog"));
     resize(1100, 720);
     buildUi();
 
@@ -110,6 +115,7 @@ void ComparisonPlotDialog::buildUi()
     root->addWidget(m_toolBar);
 
     m_splitter = new QSplitter(Qt::Horizontal, this);
+    m_splitter->setObjectName(QStringLiteral("main"));
 
     // ----- Left pane: series tree + add/remove ------------------------------
     m_leftHost = new QWidget(this);
@@ -151,6 +157,7 @@ void ComparisonPlotDialog::buildUi()
     // Slice AT.3: wrap the chart splitter in an outer vertical splitter
     // that also hosts the RangeSliderWidget and StatsSummaryPanel.
     m_chartsOuter = new QSplitter(Qt::Vertical, this);
+    m_chartsOuter->setObjectName(QStringLiteral("chartsOuter"));
     m_chartsOuter->setChildrenCollapsible(true);
     m_chartsOuter->setHandleWidth(4);
 
@@ -158,6 +165,7 @@ void ComparisonPlotDialog::buildUi()
     m_chartsScroll->setWidgetResizable(true);
 
     m_chartsSplitter = new QSplitter(Qt::Vertical, m_chartsScroll);
+    m_chartsSplitter->setObjectName(QStringLiteral("charts"));
     m_chartsSplitter->setChildrenCollapsible(false);
     m_chartsSplitter->setHandleWidth(6);
     m_chartsScroll->setWidget(m_chartsSplitter);
@@ -169,13 +177,13 @@ void ComparisonPlotDialog::buildUi()
     sliderRow->setContentsMargins(2, 0, 2, 0);
     sliderRow->setSpacing(8);
     m_rangeSlider = new RangeSliderWidget(m_sliderHost);
-    m_rangeSlider->setFixedHeight(20);
+    m_rangeSlider->setMinimumHeight(20);
     m_rangeLabel  = new QLabel(m_sliderHost);
     m_rangeLabel->setMinimumWidth(220);
-    m_rangeLabel->setStyleSheet(QStringLiteral("color: gray;"));
+    m_rangeLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     sliderRow->addWidget(m_rangeSlider, 1);
     sliderRow->addWidget(m_rangeLabel,  0);
-    m_sliderHost->setFixedHeight(24);
+    m_sliderHost->setMinimumHeight(24);
     m_chartsOuter->addWidget(m_sliderHost);
 
     // Slice AT.3 — Statistics Summary panel (per-attribute tabs).
@@ -271,15 +279,15 @@ void ComparisonPlotDialog::buildToolBar()
     m_actZoomIn  = makeModeAction(tr("Zoom In"),  tr("Click or drag a rectangle to zoom in"));
     m_actZoomOut = makeModeAction(tr("Zoom Out"), tr("Click or drag a rectangle to zoom out"));
     // Slice AT.3 — SVG icons sourced from the existing :/swmmvis/ resource set.
-    m_actSelect ->setIcon(QIcon(QStringLiteral(":/swmmvis/Select")));
-    m_actPan    ->setIcon(QIcon(QStringLiteral(":/swmmvis/Move")));
-    m_actZoomIn ->setIcon(QIcon(QStringLiteral(":/swmmvis/ZoomIn")));
-    m_actZoomOut->setIcon(QIcon(QStringLiteral(":/swmmvis/ZoomOut")));
+    m_actSelect ->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Select")));
+    m_actPan    ->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Move")));
+    m_actZoomIn ->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomIn")));
+    m_actZoomOut->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomOut")));
     m_actSelect->setChecked(true);
 
     m_toolBar->addSeparator();
 
-    m_actFit = new QAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
+    m_actFit = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Extent")),
                             tr("Fit"), this);
     m_actFit->setStatusTip(tr("Reset axes to data extents on all chart rows"));
     m_actFit->setToolTip(m_actFit->statusTip());
@@ -287,7 +295,7 @@ void ComparisonPlotDialog::buildToolBar()
             this, &ComparisonPlotDialog::onFitClicked);
     m_toolBar->addAction(m_actFit);
 
-    m_actExport = new QAction(QIcon(QStringLiteral(":/swmmvis/SaveAs")),
+    m_actExport = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("SaveAs")),
                                tr("Export PNG…"), this);
     m_actExport->setStatusTip(tr("Save the chart pane as a PNG image"));
     m_actExport->setToolTip(m_actExport->statusTip());
@@ -297,8 +305,9 @@ void ComparisonPlotDialog::buildToolBar()
 
     m_toolBar->addSeparator();
 
-    m_actAnimCursor = new QAction(QIcon(QStringLiteral(":/swmmvis/Divider")),
+    m_actAnimCursor = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Divider")),
                                     tr("Show Animation Cursor"), this);
+    m_actAnimCursor->setObjectName(QStringLiteral("showAnimCursor"));
     m_actAnimCursor->setCheckable(true);
     m_actAnimCursor->setChecked(true);
     m_actAnimCursor->setShortcut(QKeySequence(tr("Ctrl+Shift+C")));
@@ -308,7 +317,7 @@ void ComparisonPlotDialog::buildToolBar()
             this, &ComparisonPlotDialog::onAnimationCursorToggled);
     m_toolBar->addAction(m_actAnimCursor);
 
-    m_actAddSystem = new QAction(QIcon(QStringLiteral(":/swmmvis/Globe")),
+    m_actAddSystem = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Globe")),
                                    tr("Add System Series…"), this);
     m_actAddSystem->setStatusTip(tr("Plot a system-wide variable (rainfall, runoff, flooding, …)"));
     m_actAddSystem->setToolTip(m_actAddSystem->statusTip());
@@ -316,8 +325,9 @@ void ComparisonPlotDialog::buildToolBar()
             this, &ComparisonPlotDialog::onAddSystemSeriesClicked);
     m_toolBar->addAction(m_actAddSystem);
 
-    m_actAddFromMap = new QAction(QIcon(QStringLiteral(":/swmmvis/Node")),
+    m_actAddFromMap = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Node")),
                                     tr("Add from Map…"), this);
+    m_actAddFromMap->setObjectName(QStringLiteral("addFromMap"));
     m_actAddFromMap->setCheckable(true);
     m_actAddFromMap->setStatusTip(tr("Click objects on the map to add them as series"));
     m_actAddFromMap->setToolTip(m_actAddFromMap->statusTip());
@@ -334,6 +344,7 @@ void ComparisonPlotDialog::buildToolBar()
     m_toolBar->addSeparator();
 
     m_actShowSeries = new QAction(tr("Series Panel"), this);
+    m_actShowSeries->setObjectName(QStringLiteral("showSeriesPanel"));
     m_actShowSeries->setCheckable(true);
     m_actShowSeries->setChecked(true);
     m_actShowSeries->setStatusTip(tr("Show/hide the series tree on the left"));
@@ -343,6 +354,7 @@ void ComparisonPlotDialog::buildToolBar()
     m_toolBar->addAction(m_actShowSeries);
 
     m_actShowSlider = new QAction(tr("Range Slider"), this);
+    m_actShowSlider->setObjectName(QStringLiteral("showRangeSlider"));
     m_actShowSlider->setCheckable(true);
     m_actShowSlider->setChecked(true);
     m_actShowSlider->setStatusTip(tr("Show/hide the X-range slider under the charts"));
@@ -352,6 +364,7 @@ void ComparisonPlotDialog::buildToolBar()
     m_toolBar->addAction(m_actShowSlider);
 
     m_actShowStats = new QAction(tr("Stats Panel"), this);
+    m_actShowStats->setObjectName(QStringLiteral("showStatsPanel"));
     m_actShowStats->setCheckable(true);
     m_actShowStats->setChecked(true);
     m_actShowStats->setStatusTip(tr("Show/hide the statistics summary at the bottom"));
@@ -362,6 +375,7 @@ void ComparisonPlotDialog::buildToolBar()
 
     // COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 4 — optional 1v1 column.
     m_actShow1v1 = new QAction(tr("1v1 Plots"), this);
+    m_actShow1v1->setObjectName(QStringLiteral("show1v1Plots"));
     m_actShow1v1->setCheckable(true);
     m_actShow1v1->setChecked(true);
     m_actShow1v1->setStatusTip(tr("Show/hide the 1v1 comparison scatter column"));
@@ -380,6 +394,7 @@ void ComparisonPlotDialog::buildToolBar()
     m_toolBar->addAction(m_actConfig1v1);
 
     m_actChartsOnly = new QAction(tr("Charts Only"), this);
+    m_actChartsOnly->setObjectName(QStringLiteral("chartsOnly"));
     m_actChartsOnly->setCheckable(true);
     m_actChartsOnly->setStatusTip(tr("Hide series, slider, and stats panels to show only the charts"));
     m_actChartsOnly->setToolTip(m_actChartsOnly->statusTip());

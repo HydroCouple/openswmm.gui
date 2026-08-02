@@ -75,6 +75,9 @@ void LidControlEditorDialog::buildUi_()
 {
     auto *outer = new QVBoxLayout(this);
     m_splitter = new QSplitter(Qt::Horizontal, this);
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("LidControlEditorDialog"));
+    m_splitter->setObjectName(QStringLiteral("main"));
     m_splitter->setChildrenCollapsible(false);
     m_splitter->setHandleWidth(6);
 
@@ -103,14 +106,14 @@ void LidControlEditorDialog::buildUi_()
 
     auto *headForm = new QFormLayout;
     m_nameEdit = new QLineEdit(rightPane);
-    headForm->addRow(tr("Name"), m_nameEdit);
+    headForm->addRow(tr("N&ame"), m_nameEdit);
     m_typeCombo = new QComboBox(rightPane);
     for (const char *t : { "Bio-Retention Cell", "Rain Garden", "Green Roof",
                             "Infiltration Trench", "Permeable Pavement",
                             "Rain Barrel", "Rooftop Disconnection",
                             "Vegetative Swale" })
         m_typeCombo->addItem(QString::fromLatin1(t));
-    headForm->addRow(tr("Type"), m_typeCombo);
+    headForm->addRow(tr("T&ype"), m_typeCombo);
     rightLay->addLayout(headForm);
 
     auto *tabs = new QTabWidget(rightPane);
@@ -120,10 +123,10 @@ void LidControlEditorDialog::buildUi_()
     m_surfStorage = makeSpin(surf, 0.0, 1.0e6, 0.1);
     m_surfRough   = makeSpin(surf, 0.0, 1.0,   0.01);
     m_surfSlope   = makeSpin(surf, 0.0, 100.0, 0.1);
-    surfForm->addRow(tr("Storage Depth"),   m_surfStorage);
-    surfForm->addRow(tr("Roughness (n)"),   m_surfRough);
+    surfForm->addRow(tr("Sto&rage Depth"),   m_surfStorage);
+    surfForm->addRow(tr("Ro&ughness (n)"),   m_surfRough);
     surfForm->addRow(tr("Slope (%)"),       m_surfSlope);
-    tabs->addTab(surf, tr("Surface"));
+    tabs->addTab(surf, tr("&Surface"));
 
     // Soil tab.
     auto *soil = new QWidget;  auto *soilForm = new QFormLayout(soil);
@@ -133,23 +136,23 @@ void LidControlEditorDialog::buildUi_()
     m_soilWp     = makeSpin(soil, 0.0, 1.0,   0.01);
     m_soilKsat   = makeSpin(soil, 0.0, 1.0e6, 0.1);
     m_soilKslope = makeSpin(soil, 0.0, 1.0e6, 1.0);
-    soilForm->addRow(tr("Thickness"),        m_soilThick);
-    soilForm->addRow(tr("Porosity"),         m_soilPoro);
-    soilForm->addRow(tr("Field Capacity"),   m_soilFc);
-    soilForm->addRow(tr("Wilting Point"),    m_soilWp);
-    soilForm->addRow(tr("Conductivity"),     m_soilKsat);
-    soilForm->addRow(tr("Conductivity Slope"), m_soilKslope);
-    tabs->addTab(soil, tr("Soil"));
+    soilForm->addRow(tr("T&hickness"),        m_soilThick);
+    soilForm->addRow(tr("&Porosity"),         m_soilPoro);
+    soilForm->addRow(tr("&Field Capacity"),   m_soilFc);
+    soilForm->addRow(tr("&Wilting Point"),    m_soilWp);
+    soilForm->addRow(tr("&Conductivity"),     m_soilKsat);
+    soilForm->addRow(tr("Conduct&ivity Slope"), m_soilKslope);
+    tabs->addTab(soil, tr("S&oil"));
 
     // Storage tab.
     auto *stor = new QWidget;  auto *storForm = new QFormLayout(stor);
     m_storThick = makeSpin(stor, 0.0, 1.0e6, 0.1);
     m_storVoid  = makeSpin(stor, 0.0, 1.0,   0.01);
     m_storKsat  = makeSpin(stor, 0.0, 1.0e6, 0.1);
-    storForm->addRow(tr("Thickness"),     m_storThick);
-    storForm->addRow(tr("Void Fraction"), m_storVoid);
-    storForm->addRow(tr("Seepage Rate"),  m_storKsat);
-    tabs->addTab(stor, tr("Storage"));
+    storForm->addRow(tr("Thic&kness"),     m_storThick);
+    storForm->addRow(tr("&Void Fraction"), m_storVoid);
+    storForm->addRow(tr("S&eepage Rate"),  m_storKsat);
+    tabs->addTab(stor, tr("S&torage"));
 
     // Drain tab.
     auto *drain = new QWidget;  auto *drainForm = new QFormLayout(drain);
@@ -157,9 +160,9 @@ void LidControlEditorDialog::buildUi_()
     m_drainExpon  = makeSpin(drain, 0.0, 100.0, 0.1);
     m_drainOffset = makeSpin(drain, 0.0, 1.0e6, 0.1);
     drainForm->addRow(tr("Coefficient"), m_drainCoeff);
-    drainForm->addRow(tr("Exponent"),    m_drainExpon);
+    drainForm->addRow(tr("E&xponent"),    m_drainExpon);
     drainForm->addRow(tr("Offset"),      m_drainOffset);
-    tabs->addTab(drain, tr("Drain"));
+    tabs->addTab(drain, tr("&Drain"));
 
     rightLay->addWidget(tabs, 1);
 

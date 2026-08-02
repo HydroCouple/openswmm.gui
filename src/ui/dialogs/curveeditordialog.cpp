@@ -5,6 +5,8 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/curveeditordialog.h"
+#include "ui/theme/iconfactory.h"
+#include "ui/theme/themehelpers.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
 #include "core/preferencesmanager.h"
@@ -83,6 +85,8 @@ CurveEditorDialog::CurveEditorDialog(CurveRegistry *registry,
     , m_undoStack(undoStack)
 {
     setWindowTitle(tr("Curve Editor"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("CurveEditorDialog"));
     resize(960, 560);
 
     buildUi_();
@@ -190,6 +194,7 @@ void CurveEditorDialog::buildUi_()
     outer->setSpacing(0);
 
     m_splitter = new QSplitter(Qt::Horizontal, this);
+    m_splitter->setObjectName(QStringLiteral("main"));
     m_splitter->setChildrenCollapsible(false);
     m_splitter->setHandleWidth(6);
     outer->addWidget(m_splitter, 1);
@@ -280,7 +285,7 @@ void CurveEditorDialog::buildUi_()
         lay->addLayout(typeRow);
 
         m_typeHint = new QLabel(host);
-        m_typeHint->setStyleSheet(QStringLiteral("color: #555;"));
+        m_typeHint->setStyleSheet(openswmmvis::ui::theme::hintStyle());
         m_typeHint->setWordWrap(true);
         lay->addWidget(m_typeHint);
 
@@ -378,14 +383,15 @@ void CurveEditorDialog::buildUi_()
         lay->addWidget(m_chartView, 1);
 
         // Build toolbar actions.
-        auto *aFit = m_chartToolBar->addAction(QIcon(QStringLiteral(":/swmmvis/Extent")),
+        auto *aFit = m_chartToolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Extent")),
                                                  tr("Fit"));
         aFit->setToolTip(tr("Zoom to extent (F)"));
         aFit->setShortcut(QKeySequence(Qt::Key_F));
+        aFit->setShortcutContext(Qt::WidgetWithChildrenShortcut);
         connect(aFit, &QAction::triggered, this,
                 [this]() { if (m_chartView) m_chartView->resetZoom(); });
 
-        auto *aZIn = m_chartToolBar->addAction(QIcon(QStringLiteral(":/swmmvis/ZoomIn")),
+        auto *aZIn = m_chartToolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomIn")),
                                                  tr("Zoom in"));
         aZIn->setCheckable(true);
         aZIn->setToolTip(tr("Click-zoom in (Ctrl++)"));
@@ -405,7 +411,7 @@ void CurveEditorDialog::buildUi_()
         });
         m_chartZoomInAction = aZIn;
 
-        auto *aZOut = m_chartToolBar->addAction(QIcon(QStringLiteral(":/swmmvis/ZoomOut")),
+        auto *aZOut = m_chartToolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomOut")),
                                                   tr("Zoom out"));
         aZOut->setCheckable(true);
         aZOut->setToolTip(tr("Click-zoom out (Ctrl+-)"));
@@ -426,7 +432,7 @@ void CurveEditorDialog::buildUi_()
 
         m_chartToolBar->addSeparator();
 
-        auto *aPan = m_chartToolBar->addAction(QIcon(QStringLiteral(":/swmmvis/Move")),
+        auto *aPan = m_chartToolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Move")),
                                                  tr("Pan"));
         aPan->setCheckable(true);
         aPan->setToolTip(tr("Left-drag pans the chart"));
@@ -448,11 +454,12 @@ void CurveEditorDialog::buildUi_()
         // ── Edit / axis-lock toolbar (mirrors transect/timeseries editors) ──
         m_chartToolBar->addSeparator();
 
-        auto *aEdit = m_chartToolBar->addAction(QIcon(QStringLiteral(":/swmmvis/Edit")),
+        auto *aEdit = m_chartToolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Edit")),
                                                  tr("Edit points"));
         aEdit->setCheckable(true);
         aEdit->setToolTip(tr("Drag vertices to edit (E)"));
         aEdit->setShortcut(QKeySequence(Qt::Key_E));
+        aEdit->setShortcutContext(Qt::WidgetWithChildrenShortcut);
         connect(aEdit, &QAction::toggled, this, [this](bool on) {
             if (!m_chartView) return;
             m_chartView->setEditMode(on ? CurveEditChartView::EditMode::EditPoints
@@ -571,7 +578,7 @@ void CurveEditorDialog::buildCreateCard_()
     cardLay->addLayout(r1);
 
     m_nameValidationLabel = new QLabel(m_createCard);
-    m_nameValidationLabel->setStyleSheet(QStringLiteral("color: #c0392b;"));
+    m_nameValidationLabel->setStyleSheet(openswmmvis::ui::theme::errorTextStyle());
     m_nameValidationLabel->hide();
     cardLay->addWidget(m_nameValidationLabel);
 
@@ -1201,7 +1208,7 @@ void CurveEditorDialog::onCreateNewNameChanged_(const QString &text)
         m_nameValidationLabel->setText(
             tr("A curve named “%1” already exists.").arg(trimmed));
         m_nameValidationLabel->show();
-        m_nameEdit->setStyleSheet(QStringLiteral("border: 1px solid #c0392b;"));
+        m_nameEdit->setStyleSheet(openswmmvis::ui::theme::errorBorderStyle());
     } else {
         m_createBtn->setEnabled(true);
         m_nameValidationLabel->hide();

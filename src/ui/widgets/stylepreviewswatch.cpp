@@ -20,9 +20,8 @@ StylePreviewSwatch::StylePreviewSwatch(QWidget *parent)
     : QWidget(parent)
 {
     setAutoFillBackground(true);
-    QPalette p = palette();
-    p.setColor(QPalette::Window, QColor(245, 245, 245));
-    setPalette(p);
+    // Theme-live well background (was a hardcoded light gray).
+    setBackgroundRole(QPalette::AlternateBase);
 }
 
 void StylePreviewSwatch::setKind(Kind k)       { m_kind = k;       update(); }

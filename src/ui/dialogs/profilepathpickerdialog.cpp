@@ -49,6 +49,8 @@ ProfilePathPickerDialog::ProfilePathPickerDialog(
       m_paths(paths)
 {
     setWindowTitle(tr("Select Profile Path"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("ProfilePathPickerDialog"));
     // Non-modal by default — the host (MapToolSelectProfile) reconfigures
     // window flags / modality at show time so the dialog floats above the
     // main window while leaving the map interactive (pan / zoom / hover

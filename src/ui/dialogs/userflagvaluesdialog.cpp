@@ -41,6 +41,8 @@ UserFlagValuesDialog::UserFlagValuesDialog(UserFlagsEditRef ref, QWidget *parent
     , m_ref(std::move(ref))
 {
     setWindowTitle(tr("User Flags — %1").arg(m_ref.objectName));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("UserFlagValuesDialog"));
     resize(480, 320);
 
     auto *intro = new QLabel(

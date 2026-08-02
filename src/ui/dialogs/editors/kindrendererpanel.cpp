@@ -110,7 +110,7 @@ void KindRendererPanel::buildUi()
     m_modeCombo->addItem(tr("None (single symbol)"), kModeNone);
     m_modeCombo->addItem(tr("Graduated (numeric ramp)"), kModeGraduated);
     m_modeCombo->addItem(tr("Categorized (coming soon)"), kModeCategorized);
-    modeForm->addRow(tr("Mode:"), m_modeCombo);
+    modeForm->addRow(tr("&Mode:"), m_modeCombo);
 
     // Slice DM.2 — attribute picker. Hidden when the host layer (or the Rule's
     // containing layer) does not implement IAttributeProvider.

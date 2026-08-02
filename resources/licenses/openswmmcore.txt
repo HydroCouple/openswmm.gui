@@ -1,4 +1,4 @@
-OpenSWMMCore
+Open Source SWMM (SWMM2D)
 Copyright (c) Caleb Buahin
 
 Licensed under the MIT License. The canonical text is shipped in the
@@ -6,7 +6,7 @@ OpenSWMMCore source tree (LICENSE file at the repository root). A copy
 should be inserted here at packaging time by the build system. Until
 then, please consult:
 
-    https://github.com/cbuahin/OpenSWMMCore/blob/main/LICENSE
+https://github.com/hydrocouple/openswmm.engine/blob/main/LICENSE
 
-This project links against OpenSWMMCore as a shared library built from
+This project links against openswmm.engine as a shared library built from
 sibling source via CMake `add_subdirectory`.

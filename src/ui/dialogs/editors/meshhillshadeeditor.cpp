@@ -166,7 +166,7 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     m_edgeZoomPx->setToolTip(tr(
         "Show the wireframe once mesh cells project at least this many "
         "pixels across. 0 = always show when enabled."));
-    zoomForm->addRow(tr("Show edges at:"), m_edgeZoomPx);
+    zoomForm->addRow(tr("S&how edges at:"), m_edgeZoomPx);
 
     m_vertexZoomPx = new QDoubleSpinBox(dispBox);
     m_vertexZoomPx->setRange(0.0, 40.0);
@@ -176,7 +176,7 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     m_vertexZoomPx->setToolTip(tr(
         "Show vertex dots once mesh cells project at least this many pixels "
         "across. 0 = always show when enabled."));
-    zoomForm->addRow(tr("Show vertices at:"), m_vertexZoomPx);
+    zoomForm->addRow(tr("Sh&ow vertices at:"), m_vertexZoomPx);
     dispLay->addLayout(zoomForm);
 
     root->addWidget(dispBox);
@@ -208,7 +208,7 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     m_fillOpacity->setRange(0.0, 1.0);
     m_fillOpacity->setSingleStep(0.05);
     m_fillOpacity->setDecimals(2);
-    tOpRow->addRow(tr("Fill opacity:"), m_fillOpacity);
+    tOpRow->addRow(tr("&Fill opacity:"), m_fillOpacity);
     tLay->addLayout(tOpRow);
     root->addWidget(tBox);
 
@@ -231,7 +231,7 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     m_azSlider->setRange(0, 360);
     azLay->addWidget(m_azSlider, 1);
     azLay->addWidget(m_azimuth);
-    hsForm->addRow(tr("Azimuth (light from):"), azRow);
+    hsForm->addRow(tr("&Azimuth (light from):"), azRow);
 
     auto *altRow = new QWidget(this);
     auto *altLay = new QHBoxLayout(altRow);
@@ -244,14 +244,14 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     m_altSlider->setRange(0, 90);
     altLay->addWidget(m_altSlider, 1);
     altLay->addWidget(m_altitude);
-    hsForm->addRow(tr("Altitude (sun angle):"), altRow);
+    hsForm->addRow(tr("A&ltitude (sun angle):"), altRow);
 
     m_zExag = new QDoubleSpinBox(this);
     m_zExag->setRange(0.1, 100.0);
     m_zExag->setSingleStep(0.5);
     m_zExag->setDecimals(2);
     m_zExag->setSuffix(tr(" ×"));
-    hsForm->addRow(tr("Vertical exaggeration:"), m_zExag);
+    hsForm->addRow(tr("&Vertical exaggeration:"), m_zExag);
 
     auto *minLitRow = new QWidget(this);
     auto *minLitLay = new QHBoxLayout(minLitRow);
@@ -264,7 +264,7 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     m_minLitSlider->setRange(0, 100);
     minLitLay->addWidget(m_minLitSlider, 1);
     minLitLay->addWidget(m_minLit);
-    hsForm->addRow(tr("Shadow floor:"), minLitRow);
+    hsForm->addRow(tr("Sha&dow floor:"), minLitRow);
 
     hsLay->addLayout(hsForm, 2);
 
@@ -283,17 +283,17 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     m_intervals = new QSpinBox(this);
     m_intervals->setRange(1, 200);
     m_intervals->setSingleStep(1);
-    cForm->addRow(tr("Line count:"), m_intervals);
+    cForm->addRow(tr("L&ine count:"), m_intervals);
 
     m_contourColor = new ColorButton(this);
-    cForm->addRow(tr("Line colour:"), m_contourColor);
+    cForm->addRow(tr("Li&ne colour:"), m_contourColor);
 
     m_contourWidth = new QDoubleSpinBox(this);
     m_contourWidth->setRange(0.25, 10.0);
     m_contourWidth->setDecimals(2);
     m_contourWidth->setSingleStep(0.25);
     m_contourWidth->setSuffix(tr(" px"));
-    cForm->addRow(tr("Line width:"), m_contourWidth);
+    cForm->addRow(tr("Lin&e width:"), m_contourWidth);
 
     m_showLabels = new QCheckBox(tr("Show elevation labels"), cBox);
     cForm->addRow(QString(), m_showLabels);
@@ -319,7 +319,7 @@ MeshHillshadeEditor::MeshHillshadeEditor(SWMM2DMeshLayer *layer, QWidget *parent
     m_filledOpacity->setRange(0.0, 1.0);
     m_filledOpacity->setSingleStep(0.05);
     m_filledOpacity->setDecimals(2);
-    opRow->addRow(tr("Fill opacity:"), m_filledOpacity);
+    opRow->addRow(tr("Fill opacit&y:"), m_filledOpacity);
     bLay->addLayout(opRow);
 
     m_bandClassEditor = makeMeshClassEditor(

@@ -193,6 +193,9 @@ void StreetEditorDialog::buildUi_()
 {
     auto *outer = new QVBoxLayout(this);
     m_splitter = new QSplitter(Qt::Horizontal, this);
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("StreetEditorDialog"));
+    m_splitter->setObjectName(QStringLiteral("main"));
     m_splitter->setChildrenCollapsible(false);
     m_splitter->setHandleWidth(6);
 
@@ -219,7 +222,7 @@ void StreetEditorDialog::buildUi_()
     auto *form    = new QFormLayout(midPane);
 
     m_nameEdit = new QLineEdit(midPane);
-    form->addRow(tr("Name"), m_nameEdit);
+    form->addRow(tr("N&ame"), m_nameEdit);
 
     auto makeSpin = [midPane](double maxV, int decimals, double step) {
         auto *s = new QDoubleSpinBox(midPane);
@@ -238,12 +241,12 @@ void StreetEditorDialog::buildUi_()
     m_backSlopeSpin  = makeSpin(1.0e3, 4, 0.5);
     m_backRoughSpin  = makeSpin(1.0,   4, 0.001);
 
-    form->addRow(tr("Road Width"),         m_crownWidthSpin);
-    form->addRow(tr("Curb Height"),        m_curbHeightSpin);
+    form->addRow(tr("&Road Width"),         m_crownWidthSpin);
+    form->addRow(tr("&Curb Height"),        m_curbHeightSpin);
     form->addRow(tr("Cross Slope (%)"),    m_crossSlopeSpin);
-    form->addRow(tr("Road Roughness (n)"), m_roadRoughSpin);
-    form->addRow(tr("Gutter Depression"),  m_gutterDepSpin);
-    form->addRow(tr("Gutter Width"),       m_gutterWidthSpin);
+    form->addRow(tr("R&oad Roughness (n)"), m_roadRoughSpin);
+    form->addRow(tr("&Gutter Depression"),  m_gutterDepSpin);
+    form->addRow(tr("G&utter Width"),       m_gutterWidthSpin);
 
     m_oneSidedRadio = new QRadioButton(tr("One Sided"), midPane);
     m_twoSidedRadio = new QRadioButton(tr("Two Sided"), midPane);
@@ -257,11 +260,11 @@ void StreetEditorDialog::buildUi_()
     sidesRow->addStretch(1);
     auto *sidesWidget = new QWidget(midPane);
     sidesWidget->setLayout(sidesRow);
-    form->addRow(tr("Sides"), sidesWidget);
+    form->addRow(tr("Si&des"), sidesWidget);
 
-    form->addRow(tr("Backing Width"),      m_backWidthSpin);
+    form->addRow(tr("&Backing Width"),      m_backWidthSpin);
     form->addRow(tr("Backing Slope (%)"),  m_backSlopeSpin);
-    form->addRow(tr("Backing Roughness (n)"), m_backRoughSpin);
+    form->addRow(tr("Bac&king Roughness (n)"), m_backRoughSpin);
 
     // ── Right pane: section preview ─────────────────────────────────────────
     m_preview = new StreetSectionPreview(m_splitter);

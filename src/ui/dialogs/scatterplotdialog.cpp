@@ -83,6 +83,8 @@ ScatterPlotDialog::ScatterPlotDialog(SWMMResultsLayer *layer, QWidget *parent)
     : QDialog(parent), m_layer(layer)
 {
     setWindowTitle(tr("Variable Correlation Scatter"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("ScatterPlotDialog"));
     resize(820, 640);
     buildUi();
     populateObjectCombos(m_xKind, m_xObj, m_xVar);
@@ -107,9 +109,9 @@ void ScatterPlotDialog::buildUi()
     m_xKind->addItem(tr("Subcatchments"), 2);
     m_xObj  = new QComboBox(xGrp);
     m_xVar  = new QComboBox(xGrp);
-    xForm->addRow(tr("Kind:"),     m_xKind);
-    xForm->addRow(tr("Object:"),   m_xObj);
-    xForm->addRow(tr("Variable:"), m_xVar);
+    xForm->addRow(tr("&Kind:"),     m_xKind);
+    xForm->addRow(tr("O&bject:"),   m_xObj);
+    xForm->addRow(tr("&Variable:"), m_xVar);
     picksRow->addWidget(xGrp);
 
     // Y picker
@@ -121,9 +123,9 @@ void ScatterPlotDialog::buildUi()
     m_yKind->addItem(tr("Subcatchments"), 2);
     m_yObj = new QComboBox(yGrp);
     m_yVar = new QComboBox(yGrp);
-    yForm->addRow(tr("Kind:"),     m_yKind);
-    yForm->addRow(tr("Object:"),   m_yObj);
-    yForm->addRow(tr("Variable:"), m_yVar);
+    yForm->addRow(tr("K&ind:"),     m_yKind);
+    yForm->addRow(tr("Ob&ject:"),   m_yObj);
+    yForm->addRow(tr("V&ariable:"), m_yVar);
     picksRow->addWidget(yGrp);
 
     root->addLayout(picksRow);

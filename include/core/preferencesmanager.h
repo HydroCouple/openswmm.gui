@@ -90,6 +90,12 @@ public:
      *  for both keys. Used by Preferences dialog's "Reset to defaults". */
     void resetSelectionStyleToDefault(const QString &className);
 
+    // ── Appearance ───────────────────────────────────────────────────────
+    /*! Chrome theme mode. One of "System" (follow the OS appearance,
+     *  default) / "Light" / "Dark". Consumed by ThemeManager. */
+    [[nodiscard]] QString appearanceMode() const;
+    void setAppearanceMode(const QString &mode);
+
     // ── Canvas / Default tool ────────────────────────────────────────────
     /*! Default tool active when a project opens. One of
      *  "Select" / "Pan" / "Zoom". Default "Select". */

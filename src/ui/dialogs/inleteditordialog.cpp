@@ -63,6 +63,9 @@ void InletEditorDialog::buildUi_()
 {
     auto *outer = new QVBoxLayout(this);
     m_splitter = new QSplitter(Qt::Horizontal, this);
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("InletEditorDialog"));
+    m_splitter->setObjectName(QStringLiteral("main"));
     m_splitter->setChildrenCollapsible(false);
     m_splitter->setHandleWidth(6);
 
@@ -87,12 +90,12 @@ void InletEditorDialog::buildUi_()
     auto *form     = new QFormLayout(formPane);
 
     m_nameEdit = new QLineEdit(formPane);
-    form->addRow(tr("Name"), m_nameEdit);
+    form->addRow(tr("N&ame"), m_nameEdit);
 
     m_typeCombo = new QComboBox(formPane);
     for (const char *t : { "GRATE", "CURB", "SLOTTED", "CUSTOM" })
         m_typeCombo->addItem(QString::fromLatin1(t), QString::fromLatin1(t));
-    form->addRow(tr("Inlet Type"), m_typeCombo);
+    form->addRow(tr("In&let Type"), m_typeCombo);
 
     auto makeSpin = [formPane](double minV, double maxV, int decimals, double step) {
         auto *s = new QDoubleSpinBox(formPane);
@@ -107,11 +110,11 @@ void InletEditorDialog::buildUi_()
     m_openAreaSpin = makeSpin(0.0, 1.0,   4, 0.05);
     m_splashSpin   = makeSpin(0.0, 1.0e6, 4, 0.1);
 
-    form->addRow(tr("Length"),                m_lengthSpin);
-    form->addRow(tr("Width"),                 m_widthSpin);
-    form->addRow(tr("Grate Type"),            m_grateEdit);
-    form->addRow(tr("Open Area (fraction)"),  m_openAreaSpin);
-    form->addRow(tr("Splash-over Velocity"),  m_splashSpin);
+    form->addRow(tr("L&ength"),                m_lengthSpin);
+    form->addRow(tr("&Width"),                 m_widthSpin);
+    form->addRow(tr("&Grate Type"),            m_grateEdit);
+    form->addRow(tr("&Open Area (fraction)"),  m_openAreaSpin);
+    form->addRow(tr("&Splash-over Velocity"),  m_splashSpin);
 
     auto *note = new QLabel(
         tr("The engine cannot read back existing inlet values; loaded inlets "

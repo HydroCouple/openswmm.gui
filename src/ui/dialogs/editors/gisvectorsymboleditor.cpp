@@ -42,27 +42,27 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
 
         m_shapeCombo = new MarkerShapeCombo(page);
         m_shapeCombo->populateCanonical();   // G-1 — full canonical 19-shape set
-        form->addRow(tr("Shape:"), m_shapeCombo);
+        form->addRow(tr("&Shape:"), m_shapeCombo);
 
         m_markerSize = new QDoubleSpinBox(page);
         m_markerSize->setRange(0.5, 60.0);
         m_markerSize->setSuffix(tr(" px"));
         m_markerSize->setSingleStep(0.5);
-        form->addRow(tr("Size:"), m_markerSize);
+        form->addRow(tr("S&ize:"), m_markerSize);
 
         m_markerFill = new ColorButton(page);
         m_markerFill->setShowAlpha(true);   // allow per-colour transparency
         form->addRow(tr("Fill:"), m_markerFill);
 
         m_markerStroke = new ColorButton(page);
-        form->addRow(tr("Stroke:"), m_markerStroke);
+        form->addRow(tr("S&troke:"), m_markerStroke);
 
         m_markerStrokeW = new QDoubleSpinBox(page);
         m_markerStrokeW->setRange(0.0, 20.0);
         m_markerStrokeW->setDecimals(2);
         m_markerStrokeW->setSuffix(tr(" px"));
         m_markerStrokeW->setSingleStep(0.25);
-        form->addRow(tr("Stroke width:"), m_markerStrokeW);
+        form->addRow(tr("St&roke width:"), m_markerStrokeW);
         vlay->addLayout(form);
 
         auto *previewBox = new QGroupBox(tr("Preview"), page);
@@ -72,7 +72,7 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
         previewLay->addWidget(m_pointPreview);
         vlay->addWidget(previewBox);
         vlay->addStretch();
-        tabs->addTab(page, tr("Marker (points)"));
+        tabs->addTab(page, tr("M&arker (points)"));
     }
 
     // ── Line tab ───────────────────────────────────────────────────────
@@ -82,17 +82,17 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
         auto *form = new QFormLayout;
 
         m_lineColor = new ColorButton(page);
-        form->addRow(tr("Colour:"), m_lineColor);
+        form->addRow(tr("C&olour:"), m_lineColor);
 
         m_lineWidth = new QDoubleSpinBox(page);
         m_lineWidth->setRange(0.25, 30.0);
         m_lineWidth->setDecimals(2);
         m_lineWidth->setSingleStep(0.25);
         m_lineWidth->setSuffix(tr(" px"));
-        form->addRow(tr("Width:"), m_lineWidth);
+        form->addRow(tr("&Width:"), m_lineWidth);
 
         m_lineDash = new DashStyleCombo(page);
-        form->addRow(tr("Style:"), m_lineDash);
+        form->addRow(tr("St&yle:"), m_lineDash);
         vlay->addLayout(form);
 
         auto *previewBox = new QGroupBox(tr("Preview"), page);
@@ -102,7 +102,7 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
         previewLay->addWidget(m_linePreview);
         vlay->addWidget(previewBox);
         vlay->addStretch();
-        tabs->addTab(page, tr("Line"));
+        tabs->addTab(page, tr("&Line"));
     }
 
     // ── Polygon tab ────────────────────────────────────────────────────
@@ -113,17 +113,17 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
 
         m_polyFill = new ColorButton(page);
         m_polyFill->setShowAlpha(true);   // polygon fill transparency
-        form->addRow(tr("Fill colour:"), m_polyFill);
+        form->addRow(tr("Fill colo&ur:"), m_polyFill);
 
         m_polyOutline = new ColorButton(page);
-        form->addRow(tr("Outline colour:"), m_polyOutline);
+        form->addRow(tr("Outli&ne colour:"), m_polyOutline);
 
         m_polyOutlineW = new QDoubleSpinBox(page);
         m_polyOutlineW->setRange(0.0, 20.0);
         m_polyOutlineW->setDecimals(2);
         m_polyOutlineW->setSuffix(tr(" px"));
         m_polyOutlineW->setSingleStep(0.25);
-        form->addRow(tr("Outline width:"), m_polyOutlineW);
+        form->addRow(tr("Outlin&e width:"), m_polyOutlineW);
         vlay->addLayout(form);
 
         auto *previewBox = new QGroupBox(tr("Preview"), page);
@@ -133,7 +133,7 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
         previewLay->addWidget(m_polygonPreview);
         vlay->addWidget(previewBox);
         vlay->addStretch();
-        tabs->addTab(page, tr("Polygon"));
+        tabs->addTab(page, tr("&Polygon"));
     }
 
     // ── Labels tab ─────────────────────────────────────────────────────
@@ -156,7 +156,7 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
         form->addRow(tr("Colour:"), m_labelColor);
         vlay->addLayout(form);
         vlay->addStretch();
-        tabs->addTab(page, tr("Labels"));
+        tabs->addTab(page, tr("La&bels"));
     }
 
     // ── Bindings ───────────────────────────────────────────────────────

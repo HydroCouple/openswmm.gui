@@ -30,6 +30,8 @@ WMTSConnectionDialog::WMTSConnectionDialog(QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("Add WMTS Layer"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("WMTSConnectionDialog"));
     resize(720, 500);
     setupUi();
     loadRecentUrls();
@@ -114,6 +116,7 @@ void WMTSConnectionDialog::setupUi()
 
     // Splitter: layer list | options
     auto *splitter = new QSplitter(Qt::Horizontal, this);
+    splitter->setObjectName(QStringLiteral("main"));
 
     m_layerList = new QTreeWidget(this);
     m_layerList->setHeaderLabel(tr("Available Layers"));

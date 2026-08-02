@@ -5,6 +5,8 @@
  */
 
 #include "plot/profileplotwidget.h"
+#include "ui/theme/thememanager.h"
+#include "ui/theme/themetokens.h"
 
 #include "plot/profileplotoptions.h"
 
@@ -59,14 +61,14 @@ constexpr qreal  kAxisLabelBandPx    = 48.0;
 
 const QColor kSoilFillColor   (0xC6, 0xA9, 0x7A, 130);
 const QColor kBeddingFillColor(0x9C, 0x82, 0x5A, 110);
-const QColor kConduitLineColor(0x33, 0x33, 0x33);
-const QColor kInvertLineColor (0x55, 0x55, 0x55);
-const QColor kCrownLineColor  (0x55, 0x55, 0x55);
-const QColor kNodeBarColor    (0x22, 0x22, 0x22);
-const QColor kNodeLabelColor  (0x10, 0x10, 0x10);
-const QColor kAxisColor       (0x55, 0x55, 0x55);
-const QColor kGridColor       (0xE0, 0xE0, 0xE0);
-const QColor kBackgroundColor (0xFA, 0xFA, 0xFA);
+
+// UI redesign P4 — plot chrome colors come from the theme tokens so the
+// plot flips with the light/dark scheme (data fills stay hardcoded).
+inline const openswmmvis::ui::ThemeColors &plotTheme()
+{
+    return openswmmvis::ui::ThemeManager::instance()->colors();
+}
+
 
 // Per-type fills (interior of the glyph / tube).  Picked from a friendly
 // palette that stays distinguishable on the soil-coloured background.
@@ -345,9 +347,16 @@ ProfilePlotWidget::ProfilePlotWidget(QWidget *parent)
     : QWidget(parent)
 {
     setAutoFillBackground(true);
-    QPalette pal = palette();
-    pal.setColor(QPalette::Window, kBackgroundColor);
-    setPalette(pal);
+    const auto applyPlotBackground = [this] {
+        QPalette pal = palette();
+        pal.setColor(QPalette::Window, plotTheme().plotBackground);
+        setPalette(pal);
+        update();
+    };
+    applyPlotBackground();
+    connect(openswmmvis::ui::ThemeManager::instance(),
+            &openswmmvis::ui::ThemeManager::themeChanged,
+            this, applyPlotBackground);
     setMinimumSize(360, 240);
     setMouseTracking(true);
 }
@@ -1453,7 +1462,7 @@ void ProfilePlotWidget::paintBackgroundAndAxes(QPainter &p) const
     p.fillRect(r, Qt::white);
 
     // Light horizontal grid lines (5 divisions).
-    QPen gridPen(kGridColor);
+    QPen gridPen(plotTheme().plotGrid);
     gridPen.setWidthF(1.0);
     p.setPen(gridPen);
     for (int i = 1; i < 5; ++i) {
@@ -1462,7 +1471,7 @@ void ProfilePlotWidget::paintBackgroundAndAxes(QPainter &p) const
     }
 
     // Frame.
-    QPen axisPen(kAxisColor);
+    QPen axisPen(plotTheme().plotAxis);
     axisPen.setWidthF(1.2);
     p.setPen(axisPen);
     p.drawRect(r);
@@ -1478,7 +1487,7 @@ void ProfilePlotWidget::paintBackgroundAndAxes(QPainter &p) const
     const NumberFormat xFmt = m_options ? m_options->xFormat()
                                         : NumberFormat{NumberFormatMode::Decimals, 0};
     QFontMetricsF fm(p.font());
-    p.setPen(kAxisColor);
+    p.setPen(plotTheme().plotAxis);
     for (int i = 0; i <= 5; ++i) {
         const double frac = i / 5.0;
         const double y = r.bottom() - r.height() * frac;
@@ -1955,7 +1964,7 @@ void ProfilePlotWidget::paintConduits(QPainter &p) const
 
             // Single-letter label centred just above the crest.
             const double midPx = (leftPx + rightPx) / 2.0;
-            p.setPen(kNodeLabelColor);
+            p.setPen(plotTheme().plotNodeLabel);
             p.drawText(QRectF(midPx - 8, topPy - 18, 16, 14),
                        Qt::AlignCenter, QString(QChar('W')));
         } else {
@@ -1981,13 +1990,13 @@ void ProfilePlotWidget::paintConduits(QPainter &p) const
                 (l.kind == ProfileBuilder::LinkKind::Pump)   ? QChar('P') :
                 (l.kind == ProfileBuilder::LinkKind::Outlet) ? QChar('U') :
                                                                QChar('?');
-            p.setPen(kNodeLabelColor);
+            p.setPen(plotTheme().plotNodeLabel);
             p.drawText(glyphRect, Qt::AlignCenter, QString(c));
 
             // Connect endpoints with a thin dashed line so the path still reads
             // as continuous.
-            QPen dashed = makeLinePen(kConduitLineColor, 1.0, /*dashed=*/true);
-            dashed.setColor(withAlphaF(kConduitLineColor, 0.5));
+            QPen dashed = makeLinePen(plotTheme().plotConduit, 1.0, /*dashed=*/true);
+            dashed.setColor(withAlphaF(plotTheme().plotConduit, 0.5));
             p.setPen(dashed);
             p.drawLine(u, QPointF(glyphRect.left(),  mid.y()));
             p.drawLine(QPointF(glyphRect.right(), mid.y()), d);
@@ -2125,7 +2134,7 @@ void ProfilePlotWidget::paintNodes(QPainter &p) const
         // Inline node label above the rim — opt-in, since label-axis row
         // already gives users the same info without crowding the plot.
         if (m_toggles.inlineNodeLabels) {
-            p.setPen(kNodeLabelColor);
+            p.setPen(plotTheme().plotNodeLabel);
             p.drawText(QRectF(rim.x() - 40, rim.y() - 18, 80, 14),
                        Qt::AlignCenter, n.name);
         }

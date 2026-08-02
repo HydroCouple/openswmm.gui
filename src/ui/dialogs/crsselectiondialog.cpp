@@ -76,6 +76,9 @@ void CRSSelectionDialog::setupUi()
 
     // --- Splitter: tree | WKT preview --------------------------------------
     auto *splitter = new QSplitter(Qt::Vertical, this);
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("CRSSelectionDialog"));
+    splitter->setObjectName(QStringLiteral("main"));
 
     m_treeModel = new QStandardItemModel(this);
     m_treeModel->setHorizontalHeaderLabels({tr("Name"), tr("Authority:Code")});

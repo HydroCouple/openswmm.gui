@@ -31,6 +31,8 @@ WMSConnectionDialog::WMSConnectionDialog(QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("Add WMS Layer"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("WMSConnectionDialog"));
     resize(720, 520);
     setupUi();
     loadRecentUrls();
@@ -112,6 +114,7 @@ void WMSConnectionDialog::setupUi()
 
     // Splitter: layer tree | options
     auto *splitter = new QSplitter(Qt::Horizontal, this);
+    splitter->setObjectName(QStringLiteral("main"));
 
     m_layerTree = new QTreeWidget(this);
     m_layerTree->setHeaderLabel(tr("Available Layers"));

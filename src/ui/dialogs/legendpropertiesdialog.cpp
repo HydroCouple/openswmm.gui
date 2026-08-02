@@ -24,6 +24,8 @@ LegendPropertiesDialog::LegendPropertiesDialog(LegendOverlayStyle *style, QWidge
     : QDialog(parent), m_style(style)
 {
     setWindowTitle(tr("Legend Properties"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("LegendPropertiesDialog"));
     setWindowFlags(windowFlags() | Qt::Tool);
     setAttribute(Qt::WA_DeleteOnClose);
     resize(420, 520);

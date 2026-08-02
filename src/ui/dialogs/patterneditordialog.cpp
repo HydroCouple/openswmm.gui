@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/patterneditordialog.h"
+#include "ui/theme/themehelpers.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
 #include "core/preferencesmanager.h"
@@ -117,6 +118,11 @@ PatternEditorDialog::PatternEditorDialog(PatternRegistry *registry,
         bindProvider_(nullptr);
     }
 
+    // Iteration 2 (D2) — geometry/splitter persistence moved to the
+    // app-wide DialogLayoutWatcher (naming below); restoreDialogSettings_
+    // still restores the plot-style toggles.
+    setObjectName(QStringLiteral("PatternEditorDialog"));
+    if (m_splitter) m_splitter->setObjectName(QStringLiteral("main"));
     restoreDialogSettings_();
 }
 
@@ -266,7 +272,7 @@ void PatternEditorDialog::buildUi_()
         centerLay->setContentsMargins(8, 8, 8, 8);
 
         m_typeLabel = new QLabel(centerHost);
-        m_typeLabel->setStyleSheet(QStringLiteral("color: #555;"));
+        m_typeLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
         centerLay->addWidget(m_typeLabel);
 
         m_table = new QTableView(centerHost);
@@ -359,6 +365,7 @@ void PatternEditorDialog::buildUi_()
             auto *b = new QToolButton(rightHost);
             b->setIcon(QIcon(iconPath));
             b->setToolTip(tip);
+            b->setAccessibleName(tip);
             b->setToolButtonStyle(Qt::ToolButtonIconOnly);
             b->setAutoRaise(true);
             b->setIconSize({18, 18});
@@ -548,7 +555,7 @@ void PatternEditorDialog::buildCreateCard_()
     cardLay->addLayout(row1);
 
     m_nameValidationLabel = new QLabel(m_createCard);
-    m_nameValidationLabel->setStyleSheet(QStringLiteral("color: #c0392b;"));
+    m_nameValidationLabel->setStyleSheet(openswmmvis::ui::theme::errorTextStyle());
     m_nameValidationLabel->hide();
     cardLay->addWidget(m_nameValidationLabel);
 
@@ -1104,7 +1111,7 @@ void PatternEditorDialog::onCreateNewNameChanged_(const QString &text)
         m_nameValidationLabel->setText(
             tr("A pattern named “%1” already exists.").arg(trimmed));
         m_nameValidationLabel->show();
-        m_nameEdit->setStyleSheet(QStringLiteral("border: 1px solid #c0392b;"));
+        m_nameEdit->setStyleSheet(openswmmvis::ui::theme::errorBorderStyle());
     } else {
         m_createBtn->setEnabled(true);
         m_nameValidationLabel->hide();
@@ -1143,11 +1150,10 @@ void PatternEditorDialog::closeEvent(QCloseEvent *e)
 
 void PatternEditorDialog::saveDialogSettings_() const
 {
+    // Iteration 2 (D2) — geometry/splitter now persist through the
+    // app-wide DialogLayoutWatcher; only the plot-style toggles remain.
     QSettings s;
     s.beginGroup(QStringLiteral("dialogs/patternEditor"));
-    s.setValue(QStringLiteral("geometry"), saveGeometry());
-    if (m_splitter)
-        s.setValue(QStringLiteral("splitterState"), m_splitter->saveState());
     s.setValue(QStringLiteral("plotStyle/smoothLine"), m_smoothPreview);
     s.setValue(QStringLiteral("plotStyle/markers"),    m_markersOn);
     s.endGroup();
@@ -1157,14 +1163,6 @@ void PatternEditorDialog::restoreDialogSettings_()
 {
     QSettings s;
     s.beginGroup(QStringLiteral("dialogs/patternEditor"));
-    const QByteArray geom = s.value(QStringLiteral("geometry")).toByteArray();
-    if (!geom.isEmpty()) restoreGeometry(geom);
-
-    if (m_splitter) {
-        const QByteArray ss = s.value(QStringLiteral("splitterState")).toByteArray();
-        if (!ss.isEmpty()) m_splitter->restoreState(ss);
-    }
-
     m_smoothPreview = s.value(QStringLiteral("plotStyle/smoothLine"),
                                 m_smoothPreview).toBool();
     m_markersOn     = s.value(QStringLiteral("plotStyle/markers"),

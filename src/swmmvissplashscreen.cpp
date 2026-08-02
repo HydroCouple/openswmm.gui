@@ -14,6 +14,7 @@
 
 #include "swmmvissplashscreen.h"
 
+#include <QFontDatabase>
 #include <QPainter>
 
 SWMMVisSplashScreen::SWMMVisSplashScreen(const QPixmap & pixmap, Qt::WindowFlags f)
@@ -22,7 +23,12 @@ SWMMVisSplashScreen::SWMMVisSplashScreen(const QPixmap & pixmap, Qt::WindowFlags
    mColor = QColor(255,255,255);
    mAlignment = Qt::AlignCenter | Qt::AlignBottom  ;
    //setMinimumSize(QSize(600,400));
-   setFont(QFont("Segoe UI Semibold", 20, 2));
+   // System UI font instead of a hardcoded Windows-only family ("Segoe UI
+   // Semibold" silently fell back on macOS/Linux).
+   QFont splashFont = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
+   splashFont.setPointSize(20);
+   splashFont.setWeight(QFont::DemiBold);
+   setFont(splashFont);
    //connect(this, SIGNAL(messageChanged(const QString&)), this, SLOT(onShowMessage(const QString&)));
 }
 

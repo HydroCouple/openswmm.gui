@@ -70,6 +70,7 @@
 #include <cpl_conv.h>   // CPLGetLastErrorMsg — GDAL open-failure detail
 
 #include "swmmvis.h"
+#include "ui/theme/themehelpers.h"
 #include "io/gdaldrivers.h"
 #include "ui/dialogs/sublayerselectiondialog.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
@@ -181,6 +182,7 @@
 #include "animation/animationcontroller.h"
 #include "ui/toolbars/terraintoolbar.h"
 #include "ui/toolbars/mesheditingtoolbar.h"
+#include "ui/toolbars/ribbongroup.h"
 
 #include "ui/dialogs/timeserieseditordialog.h"
 #include "ui/dialogs/curveeditordialog.h"
@@ -295,6 +297,7 @@ SWMMVis::SWMMVis(QWidget *parent)
     initializeMenus();
     initializeMapTools();
     initializeSettings();
+    registerActions();
     initializeDefaultWorkspaceSession();
 
     // Allow the window to shrink well below the size implied by the toolbars,
@@ -707,7 +710,7 @@ void SWMMVis::initializeWelcomeScreen()
         if (examplesDir.isEmpty())
         {
             auto *label = new QLabel(tr("(No bundled examples found.)"), frame);
-            label->setStyleSheet("color: gray;");
+            label->setStyleSheet(openswmmvis::ui::theme::hintStyle());
             layout->addWidget(label);
         }
         else
@@ -729,6 +732,16 @@ void SWMMVis::initializeWelcomeScreen()
 
 void SWMMVis::initializeToolBars()
 {
+    // Iteration 2 (R3) — the Animation and Analysis bars moved out of the
+    // .ui and are rebuilt here with the SAME objectNames, so saved window
+    // state (saveState version 2) keeps restoring. Created before the
+    // init functions below fill their ribbon groups; the compact-toolbar
+    // controller mounts them onto the window in registerActions().
+    mToolBarAnimation = new QToolBar(tr("Animation"), this);
+    mToolBarAnimation->setObjectName(QStringLiteral("toolBarAnimation"));
+    mToolBarAnalysis = new QToolBar(tr("Analysis"), this);
+    mToolBarAnalysis->setObjectName(QStringLiteral("toolBarAnalysis"));
+
     initializeAnimationToolBar();
     initializeTerrainToolBar();
     initializeMeshEditingToolBar();
@@ -1011,12 +1024,13 @@ void SWMMVis::initializeAnalysisLayerCombos()
     // by-result, animation, 2D cell picking). "— none —" returns to model
     // editing. This replaces the old "first results layer found" guess.
     //
-    // The combos lead the toolbar (inserted before the .ui-defined actions)
-    // so the run selection reads left-to-right ahead of the analysis tools
-    // that act on it.
-    QAction *anchor = ui->toolBarAnalysis->actions().isEmpty()
-                          ? nullptr
-                          : ui->toolBarAnalysis->actions().first();
+    // The combos lead the toolbar so the run selection reads
+    // left-to-right ahead of the analysis tools that act on it —
+    // iteration 2 (R3): they live in the leading "Results Layers" ribbon
+    // group; the Report/Plots/Network groups are appended by
+    // initializeCompactToolbar() once every action exists.
+    mGroupResultsLayers =
+        new openswmmvis::ui::RibbonGroup(tr("Results Layers"), this);
 
     mLabelActiveResults1D = new QLabel(tr("1D results:"), this);
     mLabelActiveResults1D->setContentsMargins(6, 0, 4, 0);
@@ -1026,8 +1040,8 @@ void SWMMVis::initializeAnalysisLayerCombos()
         "Active 1D results layer for analysis (plots, tables, color-by-result, "
         "animation). Pick a run to analyze its elements; choose \"— none —\" to "
         "return to model editing."));
-    ui->toolBarAnalysis->insertWidget(anchor, mLabelActiveResults1D);
-    ui->toolBarAnalysis->insertWidget(anchor, mComboActiveResults1D);
+    mGroupResultsLayers->addWidget(mLabelActiveResults1D);
+    mGroupResultsLayers->addWidget(mComboActiveResults1D);
 
     mLabelActiveResults2D = new QLabel(tr("2D results:"), this);
     mLabelActiveResults2D->setContentsMargins(10, 0, 4, 0);
@@ -1037,8 +1051,8 @@ void SWMMVis::initializeAnalysisLayerCombos()
         "Active 2D results layer for analysis (mesh-cell depth / velocity plots, "
         "mesh profiles, animation). Pick a run, or \"— none —\" to return to "
         "mesh editing."));
-    ui->toolBarAnalysis->insertWidget(anchor, mLabelActiveResults2D);
-    ui->toolBarAnalysis->insertWidget(anchor, mComboActiveResults2D);
+    mGroupResultsLayers->addWidget(mLabelActiveResults2D);
+    mGroupResultsLayers->addWidget(mComboActiveResults2D);
 
     // Live-render toggle, immediately right of the 2D dropdown. Off stops 2D
     // rendering AND frame streaming for the active live layer during a run, to
@@ -1053,8 +1067,8 @@ void SWMMVis::initializeAnalysisLayerCombos()
         "Uncheck to stop 2D rendering and frame streaming during the run to "
         "save GPU/CPU; re-check to resume at the newest frame. Only applies to "
         "a live (streaming) results layer."));
-    ui->toolBarAnalysis->insertWidget(anchor, mCheckBoxLive2D);
-    ui->toolBarAnalysis->insertSeparator(anchor);
+    mGroupResultsLayers->addWidget(mCheckBoxLive2D);
+    mToolBarAnalysis->addWidget(mGroupResultsLayers);
 
     // User picks → set the active layer on the current project window. The
     // stored item data is the layer pointer (quintptr) or 0 for "— none —".
@@ -1189,18 +1203,27 @@ void SWMMVis::initializeAnimationToolBar()
            "span at or before the cursor (0 = latest at-or-before)."));
 
     mDateTimeEditAnimationTime = new QDateTimeEdit(this);
+    mDateTimeEditAnimationTime->setAccessibleName(tr("Animation time"));
     mDateTimeEditAnimationTime->setDisplayFormat(QStringLiteral("MM/dd/yyyy hh:mm"));
     mDateTimeEditAnimationTime->setCalendarPopup(true);
     mDateTimeEditAnimationTime->setToolTip(tr("Animation Time"));
     mDateTimeEditAnimationTime->setStatusTip(tr("Animation Time"));
 
-    // The transport cluster (skip back/forward, play, pause, stop) comes from
-    // the .ui file; the slider/window/speed widgets are anchored before the
-    // Show Legend action so they sit after that cluster.
-    ui->toolBarAnimation->insertWidget(ui->actionShowLegend, mAnimationSlider);
-    ui->toolBarAnimation->insertWidget(ui->actionShowLegend, mLabelAnimationWindow);
-    ui->toolBarAnimation->insertWidget(ui->actionShowLegend, mSpinAnimationWindow);
-    ui->toolBarAnimation->insertWidget(ui->actionShowLegend, mDateTimeEditAnimationTime);
+    // Iteration 2 (R3) — captioned ribbon groups, in bar order: Playback
+    // (transport actions) · Timeline (scrubber / window / time / speed
+    // member widgets, non-collapsible) · Display.
+    auto *groupPlayback =
+        new openswmmvis::ui::RibbonGroup(tr("Playback"), this);
+    for (QAction *act : {ui->actionSkipBack, ui->actionSkipForward,
+                         ui->actionPlay, ui->actionPause, ui->actionStop})
+        groupPlayback->addAction(act);
+    mToolBarAnimation->addWidget(groupPlayback);
+
+    mGroupTimeline = new openswmmvis::ui::RibbonGroup(tr("Timeline"), this);
+    mGroupTimeline->addWidget(mAnimationSlider, 1);
+    mGroupTimeline->addWidget(mLabelAnimationWindow);
+    mGroupTimeline->addWidget(mSpinAnimationWindow);
+    mGroupTimeline->addWidget(mDateTimeEditAnimationTime);
 
     // Speed selector — sits after the animation time cursor.
     mLabelAnimationSpeed = new QLabel(tr("Speed:"), this);
@@ -1216,9 +1239,15 @@ void SWMMVis::initializeAnimationToolBar()
     for (const auto &e : kSpeeds)
         mComboAnimationSpeed->addItem(tr(e.label), e.value);
 
-    ui->toolBarAnimation->insertWidget(ui->actionShowLegend, mLabelAnimationSpeed);
-    ui->toolBarAnimation->insertWidget(ui->actionShowLegend, mComboAnimationSpeed);
-    ui->toolBarAnimation->insertSeparator(ui->actionShowLegend);
+    mGroupTimeline->addWidget(mLabelAnimationSpeed);
+    mGroupTimeline->addWidget(mComboAnimationSpeed);
+    mToolBarAnimation->addWidget(mGroupTimeline);
+
+    auto *groupDisplay =
+        new openswmmvis::ui::RibbonGroup(tr("Display"), this);
+    groupDisplay->addAction(ui->actionShowLegend);
+    groupDisplay->addAction(ui->actionSetStyle);
+    mToolBarAnimation->addWidget(groupDisplay);
 
     // Restore cross-launch default speed from PreferencesManager and push it
     // into the controller before the first play().
@@ -1471,20 +1500,9 @@ void SWMMVis::initializeMapTools()
     connect(ui->actionPlotProfile, &QAction::triggered, this, [this]() {
         onPlotProfileTriggered(/*forceMode=*/0);
     });
-    // US.A2 — explicit override dropdown on the Plot Profile button: lets the
-    // user force a Network or 2D-Surface profile even when both are loaded.
-    {
-        auto *menu = new QMenu(this);
-        QAction *net  = menu->addAction(tr("Network Profile…"));
-        QAction *surf = menu->addAction(tr("Surface (2D mesh) Profile…"));
-        connect(net,  &QAction::triggered, this, [this]() { onPlotProfileTriggered(1); });
-        connect(surf, &QAction::triggered, this, [this]() { onPlotProfileTriggered(2); });
-        if (auto *btn = qobject_cast<QToolButton *>(
-                ui->toolBarAnalysis->widgetForAction(ui->actionPlotProfile))) {
-            btn->setMenu(menu);
-            btn->setPopupMode(QToolButton::MenuButtonPopup);
-        }
-    }
+    // US.A2 — the explicit override dropdown on the Plot Profile button
+    // moved to initializeCompactToolbar() (iteration 2, R3): the ribbon
+    // Plots group and its button don't exist yet when this runs.
     // Slice GUI-2026-05-30 §6 — Analysis toolbar Report action opens the
     // two-panel Report Viewer over the active project's .rpt sibling.
     connect(ui->actionReport, &QAction::triggered, this, &SWMMVis::onShowReport);
@@ -1574,6 +1592,7 @@ void SWMMVis::initializeStatusBar()
     // Engine version — first permanent widget so it appears leftmost on the right side.
     ui->statusBar->addPermanentWidget(new QLabel("Engine:", ui->statusBar));
     mComboBoxEngineVersion = new QComboBox(ui->statusBar);
+    mComboBoxEngineVersion->setAccessibleName(tr("Engine version"));
     mComboBoxEngineVersion->addItem(
         tr("OpenSWMM %1").arg(QLatin1String(SWMM_VERSION_FULL)),
         QLatin1String(SWMM_VERSION));
@@ -1593,6 +1612,7 @@ void SWMMVis::initializeStatusBar()
     // Flow units
     ui->statusBar->addPermanentWidget(new QLabel("Flow Units:", ui->statusBar));
     mComboBoxFlowUnits = new QComboBox(ui->statusBar);
+    mComboBoxFlowUnits->setAccessibleName(tr("Flow units"));
     mComboBoxFlowUnits->addItem("CFS", static_cast<int>(swmm_CFS));
     mComboBoxFlowUnits->addItem("GPM", static_cast<int>(swmm_GPM));
     mComboBoxFlowUnits->addItem("MGD", static_cast<int>(swmm_MGD));
@@ -1617,6 +1637,7 @@ void SWMMVis::initializeStatusBar()
 
     // Progress bar
     mProgressBar = new QProgressBar(ui->statusBar);
+    mProgressBar->setAccessibleName(tr("Busy indicator"));
     mProgressBar->setRange(0, 0);
     mProgressBar->setValue(0);
     mProgressBar->setToolTip("Progress");
@@ -1634,6 +1655,7 @@ void SWMMVis::initializeStatusBar()
     mLabelOffsetElevation = new QLabel("Elevation", ui->statusBar);
     ui->statusBar->addPermanentWidget(mLabelOffsetElevation);
     mCheckBoxLevelOffsetMode = new QCheckBox(ui->statusBar);
+    mCheckBoxLevelOffsetMode->setAccessibleName(tr("Link offset mode"));
     mCheckBoxLevelOffsetMode->setStyleSheet(
         "QCheckBox::indicator:checked   {image: url(:/swmmvis/ToggleOn);}"
         "QCheckBox::indicator:unchecked {image: url(:/swmmvis/ToggleOff);}");
@@ -1685,6 +1707,7 @@ void SWMMVis::initializeStatusBar()
     // until a project is active; rebinds in onActiveSubWindowChanged.
     ui->statusBar->addPermanentWidget(new QLabel("Auto-Length:", ui->statusBar));
     mCheckBoxAutoLength = new QCheckBox("Off", ui->statusBar);
+    mCheckBoxAutoLength->setAccessibleName(tr("Auto-length conduits"));
     mCheckBoxAutoLength->setStyleSheet(
         "QCheckBox::indicator:checked   {image: url(:/swmmvis/ToggleOn);}"
         "QCheckBox::indicator:unchecked {image: url(:/swmmvis/ToggleOff);}");
@@ -1701,6 +1724,7 @@ void SWMMVis::initializeStatusBar()
     // Coordinates — wide enough for "X: 12345678.123456, Y: 3456789.654321  Z: 1234.567"
     ui->statusBar->addPermanentWidget(new QLabel("Coordinates:", ui->statusBar));
     mLineEditCoordinates = new QLineEdit("0,0", ui->statusBar);
+    mLineEditCoordinates->setAccessibleName(tr("Cursor coordinates"));
     mLineEditCoordinates->setReadOnly(true);
     mLineEditCoordinates->setMinimumWidth(120);
     mLineEditCoordinates->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -1713,6 +1737,7 @@ void SWMMVis::initializeStatusBar()
     // canvas's scaleChanged() signal repopulates the edit text.
     ui->statusBar->addPermanentWidget(new QLabel("Map Scale:", ui->statusBar));
     mComboBoxMapScale = new QComboBox(ui->statusBar);
+    mComboBoxMapScale->setAccessibleName(tr("Map scale"));
     mComboBoxMapScale->setEditable(true);
     mComboBoxMapScale->setInsertPolicy(QComboBox::NoInsert);
     mComboBoxMapScale->setMinimumWidth(150);
@@ -3028,9 +3053,13 @@ void SWMMVis::initializeMessageLogDockWidget()
         return cells.join(QLatin1Char('\t'));
     };
 
+    // No own Ctrl+C — a second registration alongside the window-context
+    // actionCopy makes Qt's shortcut map ambiguous (same trap documented in
+    // onCopyActiveView for the Attribute Table). The focus-aware dispatch in
+    // onCopyActiveView routes Ctrl+C here when the log view has focus; the
+    // objectName is its lookup key.
     auto *copySelected = new QAction(tr("Copy"), view);
-    copySelected->setShortcut(QKeySequence::Copy);
-    copySelected->setShortcutContext(Qt::WidgetShortcut);
+    copySelected->setObjectName(QStringLiteral("actionCopyLogRows"));
     connect(copySelected, &QAction::triggered, this, [view, rowText]() {
         if (!view->selectionModel()) return;
         QModelIndexList rows = view->selectionModel()->selectedRows();
@@ -3234,10 +3263,11 @@ void SWMMVis::initializeMenus()
                           QStringLiteral("layer-style-apply"));
     });
 
-    // Tools → Set Project CRS… (added programmatically).
-    if (ui->menuTools)
+    // Model → Set Project CRS… (added programmatically; menu IA P5 moved
+    // it from Tools next to the other model-scoped entries).
+    if (ui->menuModel)
     {
-        auto *actSetCRS = ui->menuTools->addAction(
+        auto *actSetCRS = ui->menuModel->addAction(
             QIcon(QStringLiteral(":/swmmvis/Globe")),
             tr("Set Project CRS…"));
         actSetCRS->setToolTip(tr("Choose or change the project's coordinate reference system"));
@@ -3246,6 +3276,24 @@ void SWMMVis::initializeMenus()
         // Pick 2D Cells (and the new Trace Profile Path tool) now live on the
         // Mesh Editing toolbar — see initializeMeshEditingToolBar(). They are
         // no longer added to the Tools menu / Analysis toolbar.
+
+        // Model → Mesh ▸ (tool actions created by the Mesh Editing toolbar)
+        // and the Terrain Profile trace — menu mirrors for toolbar-born
+        // actions so every capability stays menu-reachable.
+        auto *meshMenu = new QMenu(tr("M&esh"), this);
+        meshMenu->setObjectName(QStringLiteral("menuModelMesh"));
+        for (const char *name : {"actionMeshSelectVertex", "actionMeshSelectEdge"}) {
+            if (auto *act = findChild<QAction *>(QLatin1String(name)))
+                meshMenu->addAction(act);
+        }
+        if (!meshMenu->isEmpty())
+            ui->menuModel->addMenu(meshMenu);
+        if (auto *terrain = findChild<QAction *>(QStringLiteral("actionTerrainProfile"))) {
+            // Toolbar shows icon-only (empty text); the menu needs a label.
+            if (terrain->text().isEmpty())
+                terrain->setText(tr("&Terrain Profile"));
+            ui->menuModel->addAction(terrain);
+        }
     }
 
     // ── Slice BM.0 / DA.3 — Data menu + Add-New shortcut wiring ─────────────
@@ -3270,12 +3318,13 @@ void SWMMVis::initializeMenus()
             if (mObjectBrowserPanel) mObjectBrowserPanel->launchAddNewEditor(dc);
         };
 
-        auto *menuData = new QMenu(tr("&Data"), this);
+        auto *menuData = new QMenu(tr("Add &Data Object"), this);
         menuData->setObjectName(QStringLiteral("menuData"));
 
         struct DataEntry {
             SWMMModelLayer::DataCategory dc;
             const char                  *menuLabel;
+            const char                  *objectName;   // ActionRegistry adoption key
             bool                         separatorAfter;
         };
         // DA.3 / BM.0.3 ordering: tables first, then quality, then
@@ -3283,23 +3332,24 @@ void SWMMVis::initializeMenus()
         // and finally streets/inlets. nullptr label means "separator
         // here, no menu item".
         static const DataEntry kEntries[] = {
-            {SWMMModelLayer::DataTimeSeries,  QT_TR_NOOP("New Time &Series…"),  false},
-            {SWMMModelLayer::DataCurves,      QT_TR_NOOP("New &Curve…"),        false},
-            {SWMMModelLayer::DataPatterns,    QT_TR_NOOP("New Time &Pattern…"), true},
-            {SWMMModelLayer::DataLIDControls, QT_TR_NOOP("New &LID Control…"),  false},
-            {SWMMModelLayer::DataPollutants,  QT_TR_NOOP("New Po&llutant…"),    false},
-            {SWMMModelLayer::DataLandUses,    QT_TR_NOOP("New L&and Use…"),     true},
-            {SWMMModelLayer::DataAquifers,    QT_TR_NOOP("New A&quifer…"),      false},
-            {SWMMModelLayer::DataSnowpacks,   QT_TR_NOOP("New S&nowpack…"),     true},
+            {SWMMModelLayer::DataTimeSeries,  QT_TR_NOOP("New Time &Series…"),  "actionNewTimeSeries",     false},
+            {SWMMModelLayer::DataCurves,      QT_TR_NOOP("New &Curve…"),        "actionNewCurve",          false},
+            {SWMMModelLayer::DataPatterns,    QT_TR_NOOP("New Time &Pattern…"), "actionNewPattern",        true},
+            {SWMMModelLayer::DataLIDControls, QT_TR_NOOP("New &LID Control…"),  "actionNewLidControl",     false},
+            {SWMMModelLayer::DataPollutants,  QT_TR_NOOP("New Po&llutant…"),    "actionNewPollutant",      false},
+            {SWMMModelLayer::DataLandUses,    QT_TR_NOOP("New L&and Use…"),     "actionNewLandUse",        true},
+            {SWMMModelLayer::DataAquifers,    QT_TR_NOOP("New A&quifer…"),      "actionNewAquifer",        false},
+            {SWMMModelLayer::DataSnowpacks,   QT_TR_NOOP("New S&nowpack…"),     "actionNewSnowpack",       true},
             // DA.3 — Control Rules + Unit Hydrographs land in the menu.
-            {SWMMModelLayer::DataControls,    QT_TR_NOOP("New Control &Rule…"), false},
-            {SWMMModelLayer::DataTransects,   QT_TR_NOOP("New &Transect…"),     false},
-            {SWMMModelLayer::DataHydrographs, QT_TR_NOOP("New Unit &Hydrograph…"), true},
-            {SWMMModelLayer::DataStreets,     QT_TR_NOOP("New St&reet…"),       false},
-            {SWMMModelLayer::DataInlets,      QT_TR_NOOP("New &Inlet…"),        false},
+            {SWMMModelLayer::DataControls,    QT_TR_NOOP("New Control &Rule…"), "actionNewControlRule",    false},
+            {SWMMModelLayer::DataTransects,   QT_TR_NOOP("New &Transect…"),     "actionNewTransect",       false},
+            {SWMMModelLayer::DataHydrographs, QT_TR_NOOP("New Unit &Hydrograph…"), "actionNewUnitHydrograph", true},
+            {SWMMModelLayer::DataStreets,     QT_TR_NOOP("New St&reet…"),       "actionNewStreet",         false},
+            {SWMMModelLayer::DataInlets,      QT_TR_NOOP("New &Inlet…"),        "actionNewInlet",          false},
         };
         for (const auto &e : kEntries) {
             auto *act = menuData->addAction(tr(e.menuLabel));
+            act->setObjectName(QString::fromLatin1(e.objectName));
             // Slice BM.0-Add-New — disable gap categories with a tooltip
             // naming the future editor slice (mirrors the Object Browser
             // context-menu behaviour).
@@ -3314,52 +3364,19 @@ void SWMMVis::initializeMenus()
             if (e.separatorAfter) menuData->addSeparator();
         }
 
-        // Insert before "Tools" so the menu order reads File / Edit /
-        // View / Data / Tools / Help.
-        if (ui->menuTools) {
-            menuBar()->insertMenu(ui->menuTools->menuAction(), menuData);
+        // Menu IA (UI redesign P5): the former top-level "Data" menu is a
+        // "Model → Add Data Object" submenu, placed with the other model
+        // authoring entries (before Import Feature Layer).
+        if (ui->menuModel) {
+            ui->menuModel->insertMenu(ui->actionImportFeatureLayer, menuData);
         } else {
             menuBar()->addMenu(menuData);
         }
 
-        // ── BM.0.4 — Data toolbar strip on the Edit toolbar ─────────────
-        QToolBar *editBar = ui->toolBarEdit ? ui->toolBarEdit : ui->toolBarMain;
-        if (editBar) {
-            editBar->addSeparator();
-            struct ToolEntry {
-                SWMMModelLayer::DataCategory dc;
-                const char                  *tooltip;
-                const char                  *icon;
-            };
-            static const ToolEntry kToolEntries[] = {
-                {SWMMModelLayer::DataTimeSeries,  QT_TR_NOOP("New Time Series…"),  ":/swmmvis/AddTimeSeries"},
-                {SWMMModelLayer::DataCurves,      QT_TR_NOOP("New Curve…"),        ":/swmmvis/AddCurve"},
-                {SWMMModelLayer::DataPatterns,    QT_TR_NOOP("New Time Pattern…"), ":/swmmvis/AddPattern"},
-                {SWMMModelLayer::DataControls,    QT_TR_NOOP("New Control Rule…"), ":/swmmvis/AddControlRule"},
-                {SWMMModelLayer::DataTransects,   QT_TR_NOOP("New Transect…"),     ":/swmmvis/AddTransect"},
-                {SWMMModelLayer::DataLIDControls, QT_TR_NOOP("New LID Control…"),  ":/swmmvis/Layers"},
-                {SWMMModelLayer::DataPollutants,  QT_TR_NOOP("New Pollutant…"),    ":/swmmvis/Layers"},
-            };
-            for (const auto &e : kToolEntries) {
-                auto *act = editBar->addAction(
-                    QIcon(QString::fromLatin1(e.icon)),
-                    tr(e.tooltip));
-                // Slice BM.0-Add-New — gap categories greyed out with a
-                // tooltip naming the future editor slice. Today only Time
-                // Series is live among the 5 toolbar entries; the other 4
-                // (Curve / Pattern / LID / Pollutant) wait on BO/BP/BQ.
-                if (!ObjectBrowserPanel::hasComplexEditor(e.dc)) {
-                    act->setEnabled(false);
-                    act->setToolTip(ObjectBrowserPanel::gapTooltipFor(e.dc));
-                } else {
-                    act->setToolTip(tr(e.tooltip));
-                }
-                connect(act, &QAction::triggered, this,
-                        [launchAddNew, dc = e.dc] {
-                    launchAddNew(dc);
-                });
-            }
-        }
+        // The former BM.0.4 data strip (seven duplicate QActions appended
+        // to the Edit toolbar) is gone — the compact toolbar's Model tab
+        // places the Data-menu actions themselves (same objects, one
+        // registration) via initializeCompactToolbar().
     }
 
     // Tools → Preferences… (Slice V). The .ui defines `actionSettings`
@@ -3433,7 +3450,91 @@ void SWMMVis::initializeMenus()
         }
     }
 
+    // View → Panels — a toggle action for every dock so a closed panel
+    // stays reachable from the menu/keyboard. The Layer Styling dock keeps
+    // its dedicated action above (it carries extra set-layer behavior on
+    // open), so it is not repeated here.
+    {
+        auto *panelsMenu = new QMenu(tr("&Panels"), this);
+        panelsMenu->setObjectName(QStringLiteral("menuViewPanels"));
+        // objectNames key the toggle actions into the ActionRegistry
+        // (catalog ids view.dock.*), which binds their shortcuts.
+        struct PanelEntry {
+            QDockWidget *dock;
+            const char  *toggleName;
+        };
+        const PanelEntry panelDocks[] = {
+            {ui->dockWidgetSWMMLayers,          "actionToggleDockLayers"},
+            {findChild<QDockWidget *>(QStringLiteral("dockWidgetObjectBrowser")),
+                                                "actionToggleDockObjectBrowser"},
+            {mPropertiesPanel,                  "actionToggleDockProperties"},
+            {findChild<QDockWidget *>(QStringLiteral("dockWidgetAttributeTable")),
+                                                "actionToggleDockAttributeTable"},
+            {mLegendDock,                       "actionToggleDockLegend"},
+            {ui->dockWidgetSimulationStatus,    "actionToggleDockSimulationStatus"},
+            {ui->dockWidgetLogs,                "actionToggleDockMessageLogs"},
+        };
+        for (const PanelEntry &e : panelDocks) {
+            if (!e.dock)
+                continue;
+            QAction *toggle = e.dock->toggleViewAction();
+            toggle->setObjectName(QString::fromLatin1(e.toggleName));
+            panelsMenu->addAction(toggle);
+        }
+        ui->menuView->insertMenu(ui->actionLayerStylingDock, panelsMenu);
+        ui->menuView->insertSeparator(ui->actionLayerStylingDock);
+    }
 
+    // View → Appearance ▸ — System / Light / Dark radio group mirroring the
+    // Preferences Appearance page (both write the same preference and drive
+    // ThemeManager; preferenceChanged keeps the checkmarks honest when the
+    // mode is changed from the dialog).
+    {
+        using openswmmvis::ui::ThemeManager;
+        auto *appearanceMenu = new QMenu(tr("A&ppearance"), this);
+        appearanceMenu->setObjectName(QStringLiteral("menuViewAppearance"));
+        auto *group = new QActionGroup(appearanceMenu);
+        group->setExclusive(true);
+
+        struct ModeEntry { ThemeManager::Mode mode; const char *label; };
+        const ModeEntry entries[] = {
+            {ThemeManager::Mode::System, QT_TR_NOOP("&System")},
+            {ThemeManager::Mode::Light,  QT_TR_NOOP("&Light")},
+            {ThemeManager::Mode::Dark,   QT_TR_NOOP("&Dark")},
+        };
+        const auto current = ThemeManager::modeFromString(
+            PreferencesManager::instance()->appearanceMode());
+        for (const auto &e : entries) {
+            QAction *act = appearanceMenu->addAction(tr(e.label));
+            act->setCheckable(true);
+            act->setChecked(e.mode == current);
+            group->addAction(act);
+            connect(act, &QAction::triggered, this, [mode = e.mode]() {
+                PreferencesManager::instance()->setAppearanceMode(
+                    ThemeManager::modeToString(mode));
+                ThemeManager::instance()->setMode(mode);
+            });
+        }
+        connect(PreferencesManager::instance(), &PreferencesManager::preferenceChanged,
+                appearanceMenu,
+                [appearanceMenu](const QString &pGroup, const QString &key) {
+                    if (pGroup != QStringLiteral("Appearance")
+                        || key != QStringLiteral("Mode"))
+                        return;
+                    const auto mode = ThemeManager::modeFromString(
+                        PreferencesManager::instance()->appearanceMode());
+                    const auto acts = appearanceMenu->actions();
+                    const ThemeManager::Mode order[] = {ThemeManager::Mode::System,
+                                                        ThemeManager::Mode::Light,
+                                                        ThemeManager::Mode::Dark};
+                    for (int i = 0; i < acts.size() && i < 3; ++i) {
+                        QSignalBlocker b(acts[i]);
+                        acts[i]->setChecked(order[i] == mode);
+                    }
+                });
+        ui->menuView->addSeparator();
+        ui->menuView->addMenu(appearanceMenu);
+    }
 
     // Node add tools.
     if (ui->actionAddJunction)
@@ -3604,6 +3705,7 @@ void SWMMVis::initializeMenus()
     mMenuWindow = new QMenu(tr("&Window"), this);
 
     mActionWindowMinimize = mMenuWindow->addAction(tr("&Minimize"));
+    mActionWindowMinimize->setObjectName(QStringLiteral("actionWindowMinimize"));
     mActionWindowMinimize->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_M));
     // Minimize always targets the main window — MDI sub-windows (Welcome
     // + project documents) are deliberately not minimizable.
@@ -3612,6 +3714,7 @@ void SWMMVis::initializeMenus()
     });
 
     mActionWindowZoom = mMenuWindow->addAction(tr("&Zoom"));
+    mActionWindowZoom->setObjectName(QStringLiteral("actionWindowZoom"));
     // Zoom targets the main window too — MDI sub-windows don't have a
     // maximize affordance in this app (their sizing is tabbed-view
     // driven, not user-resizable).
@@ -3647,7 +3750,10 @@ void SWMMVis::initializeSettings()
     onSetProgressBarBusy(true);
 
     mSettings.beginGroup("SWMMVis::MainWindow");
-    restoreState(mSettings.value("SWMMVis::WindowState",    saveState()).toByteArray());
+    // Version 2 (UI redesign P6): the stacked toolBarMain/toolBarEdit rows
+    // gave way to the compact-toolbar layout — v1 blobs no longer apply and
+    // fail gracefully into the default layout.
+    restoreState(mSettings.value("SWMMVis::WindowState",    saveState(2)).toByteArray(), 2);
     setWindowState(static_cast<Qt::WindowState>(
         mSettings.value("SWMMVis::WindowStateEnum", static_cast<int>(windowState())).toInt()));
     setGeometry(mSettings.value("SWMMVis::Geometry", geometry()).toRect());
@@ -3661,7 +3767,7 @@ void SWMMVis::initializeSettings()
 void SWMMVis::saveSettings()
 {
     mSettings.beginGroup("SWMMVis::MainWindow");
-    mSettings.setValue("SWMMVis::WindowState",     saveState());
+    mSettings.setValue("SWMMVis::WindowState",     saveState(2));
     mSettings.setValue("SWMMVis::WindowStateEnum", static_cast<int>(windowState()));
     mSettings.setValue("SWMMVis::Geometry",        geometry());
     mSettings.setValue("SWMMVis::RecentFiles",     mRecentFiles);
@@ -5241,6 +5347,8 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         ui->actionEditExisting->setEnabled(false);
         applyEditSessionToActions(false);
         applyProjectOpenToActions(false);
+        rebindUndoRedoActions(nullptr);
+        updateMesh2DTabVisibility();
         mActiveProjectWindow = nullptr;
         return;
     }
@@ -5250,6 +5358,8 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     if (pw == mActiveProjectWindow)
         return;
     mActiveProjectWindow = pw;
+    rebindUndoRedoActions(pw);
+    updateMesh2DTabVisibility();
 
     // Animation toolbar + analysis tools follow the active project tab. Each
     // tab keeps its own ACTIVE 1D / 2D results layer (the user's choice from
@@ -6115,6 +6225,22 @@ void SWMMVis::onCopyActiveView()
         {
             panel->copySelectionToClipboard();
             return;
+        }
+    }
+
+    // Message-log rows follow the same focus-aware route (the log view's
+    // Copy action deliberately has no shortcut of its own — see its
+    // creation in initializeMessageLogDockWidget).
+    if (auto *logCopy = findChild<QAction *>(QStringLiteral("actionCopyLogRows")))
+    {
+        auto *logView = qobject_cast<QWidget *>(logCopy->parent());
+        for (QWidget *w = QApplication::focusWidget(); logView && w; w = w->parentWidget())
+        {
+            if (w == logView)
+            {
+                logCopy->trigger();
+                return;
+            }
         }
     }
 

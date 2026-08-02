@@ -6,6 +6,7 @@
  * \brief  Slice GUI-2026-05-30 §6 — two-panel Report Viewer implementation.
  */
 #include "ui/dialogs/statusreportdialog.h"
+#include "ui/theme/themehelpers.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -251,6 +252,9 @@ StatusReportDialog::StatusReportDialog(const QVector<ReportSource> &sources,
                                        int initialIndex, QWidget *parent)
     : QDialog(parent), m_sources(sources)
 {
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence
+    // (the delegating rptPath ctor funnels through here too).
+    setObjectName(QStringLiteral("StatusReportDialog"));
     resize(1100, 760);
     buildUi();
     if (!m_sources.isEmpty()) {
@@ -292,14 +296,15 @@ void StatusReportDialog::buildUi()
     // Continuity-error banner (text + visibility set per report in loadReport).
     m_continuityBanner = new QLabel(this);
     m_continuityBanner->setStyleSheet(
-        QStringLiteral("QLabel { background-color: #ffe7e3; color: #8a1f00; "
-                       "padding: 6px; border-radius: 3px; font-weight: bold; }"));
+        openswmmvis::ui::theme::bannerStyle(openswmmvis::ui::theme::Banner::Error)
+        + QStringLiteral(" padding: 6px; border-radius: 3px; font-weight: bold;"));
     m_continuityBanner->setWordWrap(true);
     m_continuityBanner->hide();
     root->addWidget(m_continuityBanner);
 
     // ── Splitter ───────────────────────────────────────────────────────
     m_splitter = new QSplitter(Qt::Horizontal, this);
+    m_splitter->setObjectName(QStringLiteral("main"));
     m_splitter->setChildrenCollapsible(false);
 
     // Left pane: filter + section list.
@@ -342,8 +347,8 @@ void StatusReportDialog::buildUi()
 
     auto *btnPrev = new QPushButton(QStringLiteral("◀"), rightWrap);
     auto *btnNext = new QPushButton(QStringLiteral("▶"), rightWrap);
-    btnPrev->setFixedWidth(28);
-    btnNext->setFixedWidth(28);
+    btnPrev->setMinimumWidth(28);
+    btnNext->setMinimumWidth(28);
     btnPrev->setToolTip(tr("Previous match (Shift+Enter)"));
     btnNext->setToolTip(tr("Next match (Enter)"));
     searchRow->addWidget(btnPrev);
@@ -354,7 +359,7 @@ void StatusReportDialog::buildUi()
 
     m_searchStatus = new QLabel(rightWrap);
     m_searchStatus->setMinimumWidth(80);
-    m_searchStatus->setStyleSheet(QStringLiteral("QLabel { color: #555; }"));
+    m_searchStatus->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     searchRow->addWidget(m_searchStatus);
 
     rightLay->addLayout(searchRow);
@@ -608,7 +613,8 @@ void StatusReportDialog::runFind(bool backwards)
         QRegularExpression rx(needle, QRegularExpression::CaseInsensitiveOption);
         if (!rx.isValid()) {
             m_searchStatus->setText(
-                QStringLiteral("<span style='color:#b01c00;'>%1</span>")
+                QStringLiteral("<span style='color:%1;'>%2</span>")
+                    .arg(ThemeManager::instance()->colors().error.name(QColor::HexRgb))
                     .arg(tr("invalid regex")));
             return;
         }
@@ -649,7 +655,8 @@ void StatusReportDialog::updateMatchCounter()
         QRegularExpression rx(needle, QRegularExpression::CaseInsensitiveOption);
         if (!rx.isValid()) {
             m_searchStatus->setText(
-                QStringLiteral("<span style='color:#b01c00;'>%1</span>")
+                QStringLiteral("<span style='color:%1;'>%2</span>")
+                    .arg(ThemeManager::instance()->colors().error.name(QColor::HexRgb))
                     .arg(tr("invalid regex")));
             return;
         }

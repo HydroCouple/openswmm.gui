@@ -25,6 +25,8 @@ ChartPropertiesDialog::ChartPropertiesDialog(ChartProperties *props,
     : QDialog(parent), m_props(props)
 {
     setWindowTitle(tr("Chart Properties"));
+    // Iteration 2 (D3) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("ChartPropertiesDialog"));
     setWindowFlags(windowFlags() | Qt::Tool);
     setAttribute(Qt::WA_DeleteOnClose);
     resize(360, 460);

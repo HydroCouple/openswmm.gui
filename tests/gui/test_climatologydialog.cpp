@@ -20,6 +20,8 @@
 #include <QPushButton>
 #include <QTest>
 
+#include "dialog_a11y_checks.h"
+
 namespace {
 
 SWMM_Engine makeClimateEngine()
@@ -38,6 +40,7 @@ class TestClimatologyDialog : public QObject
 {
     Q_OBJECT
 private slots:
+    void a11yInvariantsHold();
     void constructsWithNullEngine();
     void hydratesFromEngine();
     void writesEditsBackOnOk();
@@ -111,6 +114,12 @@ void TestClimatologyDialog::setCurrentTabClamps()
     dlg.setCurrentTab(999);                                // out of range: no crash
     dlg.setCurrentTab(ClimatologyDialog::TabTemperature);
     swmm_engine_destroy(e);
+}
+
+void TestClimatologyDialog::a11yInvariantsHold()
+{
+    ClimatologyDialog dlg(nullptr, nullptr);
+    swmmvis_test::assertDialogA11y(&dlg);
 }
 
 QTEST_MAIN(TestClimatologyDialog)

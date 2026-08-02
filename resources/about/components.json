@@ -1,11 +1,11 @@
 [
   {
     "category": "Engine",
-    "name": "OpenSWMMCore",
+    "name": "Open-Source SWMM Engine",
     "version": "6.0.0-alpha.3",
     "role": "Hydrology, hydraulics, water-quality, and 2D surface routing engine.",
-    "homepage": "https://github.com/cbuahin/OpenSWMMCore",
-    "source":   "https://github.com/cbuahin/OpenSWMMCore",
+    "homepage": "https://hydrocouple.org/openswmm.engine",
+    "source":   "https://github.com/hydrocouple/openswmm.engine",
     "spdx": "MIT",
     "provenance": "in-tree (add_subdirectory)",
     "licenseFile": ":/licenses/openswmmcore.txt"

@@ -33,24 +33,24 @@ SwmmElementSymbolEditor::SwmmElementSymbolEditor(SwmmElementSymbolAdapter *adapt
     auto *symForm = new QFormLayout(symBox);
 
     m_fillBtn = new ColorButton(this);
-    symForm->addRow(tr("Fill colour:"), m_fillBtn);
+    symForm->addRow(tr("F&ill colour:"), m_fillBtn);
 
     m_outlineBtn = new ColorButton(this);
-    symForm->addRow(tr("Outline colour:"), m_outlineBtn);
+    symForm->addRow(tr("&Outline colour:"), m_outlineBtn);
 
     m_outlineWSpin = new QDoubleSpinBox(this);
     m_outlineWSpin->setRange(0.0, 20.0);
     m_outlineWSpin->setDecimals(2);
     m_outlineWSpin->setSingleStep(0.25);
     m_outlineWSpin->setSuffix(tr(" px"));
-    symForm->addRow(tr("Outline width:"), m_outlineWSpin);
+    symForm->addRow(tr("O&utline width:"), m_outlineWSpin);
 
     m_sizeSpin = new QDoubleSpinBox(this);
     m_sizeSpin->setRange(0.5, 60.0);
     m_sizeSpin->setDecimals(1);
     m_sizeSpin->setSingleStep(0.5);
     m_sizeSpin->setSuffix(tr(" px"));
-    symForm->addRow(tr("Size / line width:"), m_sizeSpin);
+    symForm->addRow(tr("Si&ze / line width:"), m_sizeSpin);
 
     root->addWidget(symBox);
 
@@ -62,10 +62,10 @@ SwmmElementSymbolEditor::SwmmElementSymbolEditor(SwmmElementSymbolAdapter *adapt
     labelForm->addRow(QString(), m_showLabelBox);
 
     m_labelFontCombo = new QFontComboBox(this);
-    labelForm->addRow(tr("Font:"), m_labelFontCombo);
+    labelForm->addRow(tr("Fo&nt:"), m_labelFontCombo);
 
     m_labelColorBtn = new ColorButton(this);
-    labelForm->addRow(tr("Colour:"), m_labelColorBtn);
+    labelForm->addRow(tr("Co&lour:"), m_labelColorBtn);
 
     root->addWidget(labelBox);
 
@@ -83,10 +83,10 @@ SwmmElementSymbolEditor::SwmmElementSymbolEditor(SwmmElementSymbolAdapter *adapt
     m_arrowSizeSpin->setDecimals(1);
     m_arrowSizeSpin->setSingleStep(0.5);
     m_arrowSizeSpin->setSuffix(tr(" px"));
-    arrowForm->addRow(tr("Size:"), m_arrowSizeSpin);
+    arrowForm->addRow(tr("Siz&e:"), m_arrowSizeSpin);
 
     m_arrowColorBtn = new ColorButton(this);
-    arrowForm->addRow(tr("Colour:"), m_arrowColorBtn);
+    arrowForm->addRow(tr("Colou&r:"), m_arrowColorBtn);
 
     m_arrowsFlowPosBox = new QCheckBox(tr("Only when flow > 0"), this);
     arrowForm->addRow(QString(), m_arrowsFlowPosBox);

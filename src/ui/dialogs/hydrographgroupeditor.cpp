@@ -4,6 +4,7 @@
  */
 
 #include "ui/dialogs/hydrographgroupeditor.h"
+#include "ui/theme/themehelpers.h"
 
 #include "layers/swmmmodellayer.h"
 #include "layers/hydrographmodels.h"
@@ -34,7 +35,6 @@
 #include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
-#include <QSettings>
 #include <QShowEvent>
 #include <QSortFilterProxyModel>
 #include <QSplitter>
@@ -53,9 +53,6 @@
 namespace {
 
 constexpr int kPlotSamples = 200;
-
-constexpr const char *kSettingsKey       = "HydrographGroupEditor/geometry";
-constexpr const char *kSettingsSplitter  = "HydrographGroupEditor/splitter";
 
 // Slice AT.3 palette colours (matches the comparison-plot conventions). For
 // a non-aggressive editor we lower the alpha so triangle interiors don't
@@ -103,7 +100,13 @@ HydrographGroupEditor::HydrographGroupEditor(SWMMModelLayer *layer, QWidget *par
                 this, &HydrographGroupEditor::onHydrographChanged);
     }
 
-    restoreState();
+    // Iteration 2 (D2) — persistence via the app-wide DialogLayoutWatcher:
+    // naming is the wiring; the setSizes below is the first-run default.
+    setObjectName(QStringLiteral("HydrographGroupEditor"));
+    if (m_splitter) {
+        m_splitter->setObjectName(QStringLiteral("main"));
+        m_splitter->setSizes({220, 540, 520});
+    }
 
     // Select the first group (if any) so the middle / right panes are
     // populated rather than blank on open.
@@ -121,12 +124,6 @@ HydrographGroupEditor::~HydrographGroupEditor() = default;
 // =========================================================================
 // Window/event plumbing
 // =========================================================================
-
-void HydrographGroupEditor::closeEvent(QCloseEvent *e)
-{
-    saveState();
-    QDialog::closeEvent(e);
-}
 
 void HydrographGroupEditor::showEvent(QShowEvent *e)
 {
@@ -162,25 +159,6 @@ QString HydrographGroupEditor::pickGroup(SWMMModelLayer *layer,
     // exit paths (Apply, OK, Close). All edits are already persisted
     // through the MVC layer regardless of which button was used.
     return editor.currentGroupName();
-}
-
-void HydrographGroupEditor::saveState()
-{
-    QSettings s;
-    s.setValue(kSettingsKey,      saveGeometry());
-    if (m_splitter) s.setValue(kSettingsSplitter, m_splitter->saveState());
-}
-
-void HydrographGroupEditor::restoreState()
-{
-    QSettings s;
-    const auto geo = s.value(kSettingsKey).toByteArray();
-    if (!geo.isEmpty()) restoreGeometry(geo);
-    if (m_splitter) {
-        const auto st = s.value(kSettingsSplitter).toByteArray();
-        if (!st.isEmpty()) m_splitter->restoreState(st);
-        else m_splitter->setSizes({220, 540, 520});
-    }
 }
 
 // =========================================================================
@@ -262,6 +240,7 @@ QWidget *HydrographGroupEditor::buildLeftPane()
         auto *b = new QToolButton(host);
         b->setIcon(QIcon(iconPath));
         b->setToolTip(tip);
+        b->setAccessibleName(tip);
         b->setToolButtonStyle(Qt::ToolButtonIconOnly);
         b->setAutoRaise(true);
         b->setIconSize({18, 18});
@@ -413,7 +392,7 @@ QWidget *HydrographGroupEditor::buildMiddlePane()
         expV->addWidget(m_decayView);
         pv->addWidget(expGroup);
 
-        m_tabs->addTab(page, tr("Initial Abstraction"));
+        m_tabs->addTab(page, tr("Initia&l Abstraction"));
     }
 
     return host;
@@ -434,8 +413,9 @@ QWidget *HydrographGroupEditor::buildRightPane()
     // overlay the chart cleanly without being clipped.
     m_hoverLabel = new QLabel(host);
     m_hoverLabel->setStyleSheet(QStringLiteral(
-        "QLabel { background-color: rgba(40,40,40,200); color: white; "
-        "padding: 2px 6px; border-radius: 3px; font-size: 11px; }"));
+        "QLabel { background-color: palette(tooltip-base); "
+        "color: palette(tooltip-text); "
+        "padding: 2px 6px; border-radius: 3px; }"));
     m_hoverLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
     m_hoverLabel->hide();
 
@@ -530,6 +510,7 @@ QWidget *HydrographGroupEditor::buildRightPane()
         auto *b = new QToolButton(host);
         b->setIcon(QIcon(iconPath));
         b->setToolTip(tip);
+        b->setAccessibleName(tip);
         b->setToolButtonStyle(Qt::ToolButtonIconOnly);
         b->setAutoRaise(true);
         b->setIconSize({18, 18});

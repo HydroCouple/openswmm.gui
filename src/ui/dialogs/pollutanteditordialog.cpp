@@ -63,6 +63,9 @@ void PollutantEditorDialog::buildUi_()
 {
     auto *outer = new QVBoxLayout(this);
     m_splitter = new QSplitter(Qt::Horizontal, this);
+    // Iteration 2 (D2) — naming wires the app-wide layout persistence.
+    setObjectName(QStringLiteral("PollutantEditorDialog"));
+    m_splitter->setObjectName(QStringLiteral("main"));
     m_splitter->setChildrenCollapsible(false);
     m_splitter->setHandleWidth(6);
 
@@ -89,13 +92,13 @@ void PollutantEditorDialog::buildUi_()
     auto *form     = new QFormLayout(formPane);
 
     m_nameEdit = new QLineEdit(formPane);
-    form->addRow(tr("Name"), m_nameEdit);
+    form->addRow(tr("N&ame"), m_nameEdit);
 
     m_unitsCombo = new QComboBox(formPane);
     m_unitsCombo->addItem(QStringLiteral("MG/L"), 0);
     m_unitsCombo->addItem(QStringLiteral("UG/L"), 1);
     m_unitsCombo->addItem(QStringLiteral("#/L"),  2);
-    form->addRow(tr("Concentration Units"), m_unitsCombo);
+    form->addRow(tr("&Concentration Units"), m_unitsCombo);
 
     auto makeSpin = [formPane](double maxV, int decimals, double step) {
         auto *s = new QDoubleSpinBox(formPane);
@@ -112,19 +115,19 @@ void PollutantEditorDialog::buildUi_()
     m_mwtSpin   = makeSpin(1.0e6, 4, 1.0);
     m_coFracSpin = makeSpin(100.0, 4, 0.1);
 
-    form->addRow(tr("Rain Concentration"),    m_rainSpin);
-    form->addRow(tr("GW Concentration"),      m_gwSpin);
-    form->addRow(tr("I&I Concentration"),     m_rdiiSpin);
-    form->addRow(tr("Initial Concentration"), m_initSpin);
-    form->addRow(tr("Decay Coefficient (1/days)"), m_decaySpin);
-    form->addRow(tr("Molecular Weight"),      m_mwtSpin);
+    form->addRow(tr("&Rain Concentration"),    m_rainSpin);
+    form->addRow(tr("&GW Concentration"),      m_gwSpin);
+    form->addRow(tr("I&&I Concentration"),    m_rdiiSpin);
+    form->addRow(tr("Ini&tial Concentration"), m_initSpin);
+    form->addRow(tr("&Decay Coefficient (1/days)"), m_decaySpin);
+    form->addRow(tr("&Molecular Weight"),      m_mwtSpin);
 
     m_snowOnlyCheck = new QCheckBox(tr("Buildup occurs only in snow"), formPane);
-    form->addRow(tr("Snow Only"), m_snowOnlyCheck);
+    form->addRow(tr("&Snow Only"), m_snowOnlyCheck);
 
     m_coPollCombo = new QComboBox(formPane);
-    form->addRow(tr("Co-Pollutant"), m_coPollCombo);
-    form->addRow(tr("Co-Fraction"),  m_coFracSpin);
+    form->addRow(tr("C&o-Pollutant"), m_coPollCombo);
+    form->addRow(tr("Co-&Fraction"),  m_coFracSpin);
 
     m_splitter->addWidget(leftPane);
     m_splitter->addWidget(formPane);
