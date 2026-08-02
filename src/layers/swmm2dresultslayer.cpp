@@ -1145,13 +1145,14 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString& name,
     m_smoothDepthFillSublayer = new OpenSWMM::Render::SmoothDepthFillSublayer(
         QStringLiteral("results2d.smoothDepthFill"), this);
 
-    // 2026-07-24 — default the depth fill to the per-vertex Gouraud SMOOTH
-    // fill rather than contour bands. The marching-squares bands read as
-    // discrete steps and leave thin seam/gap artifacts between band polygons;
-    // the smooth fill is a seam-free continuous gradient over the mesh. Users
-    // can still switch to bands / flat cell fill from the layer tree.
-    if (m_smoothDepthFillSublayer) m_smoothDepthFillSublayer->setVisible(true);
-    if (m_contourBandSublayer)     m_contourBandSublayer->setVisible(false);
+    // 2026-07-31 — default the depth fill to CONTOUR BANDS rather than the
+    // per-vertex Gouraud smooth fill (user decision; reverses 2026-07-24,
+    // whose band seam/transparency artifacts were since fixed by the
+    // gray-wash fix). Discrete depth classes read better over a basemap,
+    // and both fills now default to 60 % opacity so inundated areas show
+    // the basemap underneath. Users can still switch from the layer tree.
+    if (m_smoothDepthFillSublayer) m_smoothDepthFillSublayer->setVisible(false);
+    if (m_contourBandSublayer)     m_contourBandSublayer->setVisible(true);
 
     // Phase 9 (2026-05-25) — sublayer.invalidated() routes to the existing
     // graphics-item update path. This is what makes the layer-tree

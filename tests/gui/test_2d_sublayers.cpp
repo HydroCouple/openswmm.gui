@@ -362,7 +362,7 @@ void Test2DSublayers::smoothDepthFill_identity_dynamic()
     QCOMPARE(s.kind(),      ISublayer::ColorRampFillKind);
     QCOMPARE(s.isDynamic(), true);
     QCOMPARE(s.isVisible(), false);
-    QCOMPARE(s.opacity(),   qreal(0.85));
+    QCOMPARE(s.opacity(),   qreal(0.60));
     QVERIFY(s.fillStyle());
     QCOMPARE(s.displayName(), QStringLiteral("Smooth Depth Fill"));
 }

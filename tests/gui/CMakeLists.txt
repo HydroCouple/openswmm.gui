@@ -1418,6 +1418,18 @@ add_swmmvis_gui_test(test_dtmthinner_samplemany
 target_include_directories(test_dtmthinner_samplemany PRIVATE ${GDAL_INCLUDE_DIRS})
 target_link_libraries(test_dtmthinner_samplemany PRIVATE GDAL::GDAL)
 
+# Banded (tiled) thinning: forced tiny per-band budgets must be bit-identical
+# to the untiled run (halo/ghost-zone exactness, global lattice, NoData across
+# seams, row-major ordering), plus progress/cancel and guard-rail coverage.
+add_swmmvis_gui_test(test_dtmthinner_banded
+    test_dtmthinner_banded.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/dtmthinner.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/dtmthinner.h
+    ${CMAKE_SOURCE_DIR}/src/map/mapextent.cpp
+)
+target_include_directories(test_dtmthinner_banded PRIVATE ${GDAL_INCLUDE_DIRS})
+target_link_libraries(test_dtmthinner_banded PRIVATE GDAL::GDAL)
+
 # DEM-raster longitudinal profile sampler — the terrain peer of
 # MeshProfileSampler. Pure logic over DTMSampler (bilinear) +
 # SpatialReferenceSystem (canvas → raster CRS), so it links GDAL directly and

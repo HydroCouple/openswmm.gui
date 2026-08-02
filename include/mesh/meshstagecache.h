@@ -107,6 +107,12 @@ public:
 
 private:
     static constexpr quint32 kMagic         = 0x4D435348;  // "MCSH"
+    // Salted into every cache key AND written into every payload header —
+    // bumping it invalidates all entries at once.  MUST be bumped when
+    // DTMThinner's banded-thinning geometry constants change
+    // (kBytesPerGridPoint, kMaxGridBytesDefault, kMaxThinningHalo in
+    // dtmthinner.{h,cpp}): they determine multi-band tiling and therefore
+    // the terrain-point OUTPUT for banded configurations.
     static constexpr quint16 kFormatVersion = 1;
 
     [[nodiscard]] QString entryPath(char stage, const QByteArray &key) const;
