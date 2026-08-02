@@ -93,8 +93,12 @@ void CursorWindowSlider::paintEvent(QPaintEvent * /*e*/)
     p.setBrush(pal.color(QPalette::Highlight));
     p.drawRoundedRect(bandRect, 3, 3);
 
-    // Single cursor thumb.
-    QRect t(xCur - kThumbHalfW, 1, 2 * kThumbHalfW, height() - 2);
+    // Single cursor thumb — a short fixed-height pill centered on the
+    // track, not a height-proportional slab (a tall host row would
+    // otherwise stretch it).
+    const int thumbH = std::min(height() - 2, 18);
+    QRect t(xCur - kThumbHalfW, (height() - thumbH) / 2,
+            2 * kThumbHalfW, thumbH);
     p.setBrush(pal.color(QPalette::Button));
     p.setPen(QPen(pal.color(QPalette::Dark), 1));
     p.drawRoundedRect(t, 3, 3);

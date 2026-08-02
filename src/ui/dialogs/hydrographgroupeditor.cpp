@@ -4,6 +4,7 @@
  */
 
 #include "ui/dialogs/hydrographgroupeditor.h"
+#include "ui/theme/iconfactory.h"
 #include "ui/theme/themehelpers.h"
 
 #include "layers/swmmmodellayer.h"
@@ -236,22 +237,24 @@ QWidget *HydrographGroupEditor::buildLeftPane()
     btnRow->setContentsMargins(0, 0, 0, 0);
     btnRow->setSpacing(2);
 
-    auto makeIconBtn = [host](const QString &iconPath, const QString &tip) {
+    auto makeIconBtn = [host](const QString &iconAlias, const QString &tip) {
         auto *b = new QToolButton(host);
-        b->setIcon(QIcon(iconPath));
+        // IconFactory (not a raw resource path) so the glyph recolors
+        // with the theme like every other dialog toolbar.
+        b->setIcon(openswmmvis::ui::IconFactory::icon(iconAlias));
         b->setToolTip(tip);
         b->setAccessibleName(tip);
         b->setToolButtonStyle(Qt::ToolButtonIconOnly);
         b->setAutoRaise(true);
-        b->setIconSize({18, 18});
+        b->setIconSize({20, 20});
         return b;
     };
 
-    m_addBtn    = makeIconBtn(QStringLiteral(":/swmmvis/New"),
+    m_addBtn    = makeIconBtn(QStringLiteral("Add"),
                                 tr("Create a new unit hydrograph"));
-    m_removeBtn = makeIconBtn(QStringLiteral(":/swmmvis/Clear"),
+    m_removeBtn = makeIconBtn(QStringLiteral("Delete"),
                                 tr("Delete the selected unit hydrograph"));
-    m_renameBtn = makeIconBtn(QStringLiteral(":/swmmvis/SelectEdit"),
+    m_renameBtn = makeIconBtn(QStringLiteral("Rename"),
                                 tr("Rename the selected unit hydrograph"));
     connect(m_addBtn,    &QToolButton::clicked, this, &HydrographGroupEditor::onNewGroup);
     connect(m_removeBtn, &QToolButton::clicked, this, &HydrographGroupEditor::onDeleteGroup);
@@ -506,26 +509,28 @@ QWidget *HydrographGroupEditor::buildRightPane()
     toolRow->setContentsMargins(0, 0, 0, 0);
     toolRow->setSpacing(2);
 
-    auto makeIconBtn = [host](const QString &iconPath, const QString &tip) {
+    auto makeIconBtn = [host](const QString &iconAlias, const QString &tip) {
         auto *b = new QToolButton(host);
-        b->setIcon(QIcon(iconPath));
+        // IconFactory (not a raw resource path) so the glyph recolors
+        // with the theme like every other dialog toolbar.
+        b->setIcon(openswmmvis::ui::IconFactory::icon(iconAlias));
         b->setToolTip(tip);
         b->setAccessibleName(tip);
         b->setToolButtonStyle(Qt::ToolButtonIconOnly);
         b->setAutoRaise(true);
-        b->setIconSize({18, 18});
+        b->setIconSize({20, 20});
         return b;
     };
-    auto *zoomInBtn   = makeIconBtn(QStringLiteral(":/swmmvis/ZoomIn"),
+    auto *zoomInBtn   = makeIconBtn(QStringLiteral("ZoomIn"),
                                       tr("Zoom in (also: scroll wheel up)"));
-    auto *zoomOutBtn  = makeIconBtn(QStringLiteral(":/swmmvis/ZoomOut"),
+    auto *zoomOutBtn  = makeIconBtn(QStringLiteral("ZoomOut"),
                                       tr("Zoom out (also: scroll wheel down)"));
-    auto *panBtn      = makeIconBtn(QStringLiteral(":/swmmvis/Move"),
+    auto *panBtn      = makeIconBtn(QStringLiteral("Move"),
                                       tr("Pan mode (drag the chart)"));
     panBtn->setCheckable(true);
-    auto *extentBtn   = makeIconBtn(QStringLiteral(":/swmmvis/Extent"),
+    auto *extentBtn   = makeIconBtn(QStringLiteral("Extent"),
                                       tr("Zoom to extent — reset to full UH range"));
-    auto *styleBtn    = makeIconBtn(QStringLiteral(":/swmmvis/Style"),
+    auto *styleBtn    = makeIconBtn(QStringLiteral("PlotStyle"),
                                       tr("Plot style — same options as right-clicking the chart"));
 
     using Mode = openswmmvis::ui::InteractiveChartView::Mode;

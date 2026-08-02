@@ -11,6 +11,7 @@
 #include "layers/swmmmodellayer.h"
 #include "ui/uiscrollhelpers.h"
 #include "ui/widgets/colorbutton.h"
+#include "ui/theme/iconfactory.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -102,19 +103,17 @@ LabelsTab::LabelsTab(OpenSWMMVisLayer *layer, QWidget *parent)
     sizeRow->addWidget(m_fontSizeSpin);
 
     m_boldBtn = new QToolButton(fontBox);
-    m_boldBtn->setText(tr("B"));
+    m_boldBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Bold")));
     m_boldBtn->setCheckable(true);
-    QFont bf; bf.setBold(true);
-    m_boldBtn->setFont(bf);
     m_boldBtn->setToolTip(tr("Bold"));
+    m_boldBtn->setAccessibleName(tr("Bold"));
     sizeRow->addWidget(m_boldBtn);
 
     m_italicBtn = new QToolButton(fontBox);
-    m_italicBtn->setText(tr("I"));
+    m_italicBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Italic")));
     m_italicBtn->setCheckable(true);
-    QFont itf; itf.setItalic(true);
-    m_italicBtn->setFont(itf);
     m_italicBtn->setToolTip(tr("Italic"));
+    m_italicBtn->setAccessibleName(tr("Italic"));
     sizeRow->addWidget(m_italicBtn);
     sizeRow->addStretch();
     fontLay->addRow(tr("&Size:"), sizeRow);

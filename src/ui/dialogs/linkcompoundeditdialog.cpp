@@ -16,6 +16,7 @@
 #include "ui/dialogs/streeteditordialog.h"
 #include "ui/properties/xsectshapegeom.h"   // shared shape/geom metadata
 #include "ui/widgets/labeledcontrols.h"
+#include "ui/uiscrollhelpers.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
@@ -405,7 +406,7 @@ void LinkCompoundEditDialog::buildXSectionPage()
             this, &LinkCompoundEditDialog::onStreetPickerClicked);
 
     m_xsSummaryLabel->setText(computeXsectSummary());
-    m_stack->addWidget(page);
+    m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
 }
 
 // §S.SC.1.b — Refresh the picker's items from the layer's registry. We
@@ -641,5 +642,5 @@ void LinkCompoundEditDialog::buildInletUsagePage()
     info->setWordWrap(true);
     lay->addWidget(info);
     lay->addStretch(1);
-    m_stack->addWidget(page);
+    m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
 }

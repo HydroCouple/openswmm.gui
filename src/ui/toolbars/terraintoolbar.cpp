@@ -9,10 +9,12 @@
 #include "layers/gisrasterlayer.h"
 #include "layers/openswmmvislayer.h"
 #include "map/mapcanvas.h"
+#include "ui/toolbars/ribbongroup.h"
 
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QLabel>
+#include <QSizePolicy>
 
 static const int kNoneIndex = 0;
 
@@ -22,19 +24,25 @@ TerrainToolbar::TerrainToolbar(const QString &title, QWidget *parent)
     setObjectName(QStringLiteral("toolBarTerrain"));
     setMovable(true);
 
+    // Iteration 3 — the terrain controls live inside captioned ribbon
+    // groups (its own contextual "Terrain" tab), not a flat toolbar
+    // sliver: Active Terrain | Vertical Units | Invert Offsets, with a
+    // trailing spacer left-packing the Fixed-width groups.
+    using openswmmvis::ui::RibbonGroup;
+    auto *groupTerrain = new RibbonGroup(tr("Active Terrain"), this);
+    auto *groupUnits   = new RibbonGroup(tr("Vertical Units"), this);
+    auto *groupOffsets = new RibbonGroup(tr("Invert Offsets"), this);
+
     // ── DEM selector ──────────────────────────────────────────────────────────
-    addWidget(new QLabel(tr("Terrain:"), this));
     m_terrainCombo = new QComboBox(this);
     m_terrainCombo->setToolTip(tr("Active terrain raster used for Z sampling and invert elevation estimation."));
     m_terrainCombo->setMinimumWidth(160);
     m_terrainCombo->setEnabled(false);
     m_terrainCombo->addItem(tr("(none)"), QVariant::fromValue<quintptr>(0));
-    addWidget(m_terrainCombo);
-
-    addSeparator();
+    groupTerrain->addWidget(m_terrainCombo);
 
     // ── Vertical unit transformation chain: DEM unit → [factor] → model unit ──
-    addWidget(new QLabel(tr("DEM:"), this));
+    groupUnits->addWidget(new QLabel(tr("DEM:"), this));
     m_verticalUnitCombo = new QComboBox(this);
     m_verticalUnitCombo->setToolTip(
         tr("Vertical unit of the DEM elevation values.\n"
@@ -44,15 +52,15 @@ TerrainToolbar::TerrainToolbar(const QString &title, QWidget *parent)
     m_verticalUnitCombo->addItem(tr("m (metres)"), QStringLiteral("m"));
     m_verticalUnitCombo->addItem(tr("ft (feet)"),  QStringLiteral("ft"));
     m_verticalUnitCombo->setEnabled(false);
-    addWidget(m_verticalUnitCombo);
+    groupUnits->addWidget(m_verticalUnitCombo);
 
     // Conversion arrow: shows "m → ft" or "→ ft" etc.
     m_conversionLabel = new QLabel(this);
     m_conversionLabel->setMinimumWidth(60);
-    addWidget(m_conversionLabel);
+    groupUnits->addWidget(m_conversionLabel);
 
     // User-editable conversion factor (auto-populated from unit combos).
-    addWidget(new QLabel(tr("\xc3\x97"), this));   // × symbol
+    groupUnits->addWidget(new QLabel(tr("\xc3\x97"), this));   // × symbol
     m_factorSpin = new QDoubleSpinBox(this);
     m_factorSpin->setRange(0.0001, 10000.0);
     m_factorSpin->setDecimals(6);
@@ -66,12 +74,10 @@ TerrainToolbar::TerrainToolbar(const QString &title, QWidget *parent)
            "override here when the auto-detected value is incorrect.\n"
            "ModelZ = DEM_Z \xc3\x97 factor"));
     m_factorSpin->setEnabled(false);
-    addWidget(m_factorSpin);
-
-    addSeparator();
+    groupUnits->addWidget(m_factorSpin);
 
     // ── Signed offsets in model vertical units ────────────────────────────────
-    addWidget(new QLabel(tr("Node Δ:"), this));   // Δ (delta)
+    groupOffsets->addWidget(new QLabel(tr("Node Δ:"), this));   // Δ (delta)
     m_nodeOffsetSpin = new QDoubleSpinBox(this);
     m_nodeOffsetSpin->setRange(-1e6, 1e6);
     m_nodeOffsetSpin->setDecimals(3);
@@ -83,14 +89,12 @@ TerrainToolbar::TerrainToolbar(const QString &title, QWidget *parent)
            "InvertElev = DEM_Z \xc3\x97 factor + Δ\n"
            "Use a negative value to place the invert below the ground surface."));
     m_nodeOffsetSpin->setEnabled(false);
-    addWidget(m_nodeOffsetSpin);
+    groupOffsets->addWidget(m_nodeOffsetSpin);
     m_nodeUnitLabel = new QLabel(this);
     m_nodeUnitLabel->setMinimumWidth(20);
-    addWidget(m_nodeUnitLabel);
+    groupOffsets->addWidget(m_nodeUnitLabel);
 
-    addSeparator();
-
-    addWidget(new QLabel(tr("Link Δ:"), this));   // Δ (delta)
+    groupOffsets->addWidget(new QLabel(tr("Link Δ:"), this));   // Δ (delta)
     m_linkOffsetSpin = new QDoubleSpinBox(this);
     m_linkOffsetSpin->setRange(-1e6, 1e6);
     m_linkOffsetSpin->setDecimals(3);
@@ -102,10 +106,22 @@ TerrainToolbar::TerrainToolbar(const QString &title, QWidget *parent)
            "elevations and derive the conduit slope (model vertical units).\n"
            "InvertElev = DEM_Z \xc3\x97 factor + Δ"));
     m_linkOffsetSpin->setEnabled(false);
-    addWidget(m_linkOffsetSpin);
+    groupOffsets->addWidget(m_linkOffsetSpin);
     m_linkUnitLabel = new QLabel(this);
     m_linkUnitLabel->setMinimumWidth(20);
-    addWidget(m_linkUnitLabel);
+    groupOffsets->addWidget(m_linkUnitLabel);
+
+    // Mount the groups; leftover row width pools behind them.
+    addWidget(groupTerrain);
+    addWidget(groupUnits);
+    addWidget(groupOffsets);
+    {
+        auto *spacer = new QWidget(this);
+        spacer->setObjectName(QStringLiteral("ribbonBarSpacer"));
+        spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        spacer->setMinimumSize(0, 0);
+        addWidget(spacer);
+    }
 
     // Initialise unit labels and keep them in sync with the active project.
     updateUnitLabels();

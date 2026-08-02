@@ -32,6 +32,7 @@
 #include "render/symbolstyle.h"
 #include "ui/widgets/dashstylecombo.h"
 #include "ui/widgets/markershapecombo.h"
+#include "ui/theme/iconfactory.h"
 
 #include <QColor>
 #include <QColorDialog>
@@ -322,6 +323,8 @@ public:
         auto *btnRow = new QHBoxLayout;
         m_sampleBtn = new QToolButton(box);
         m_sampleBtn->setText(tr("Sample unique values"));
+        m_sampleBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Search")));
+        m_sampleBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         m_sampleBtn->setToolTip(tr(
             "Scan the layer for distinct values of the selected attribute "
             "and seed one category per value."));
@@ -329,18 +332,26 @@ public:
 
         m_addBtn = new QToolButton(box);
         m_addBtn->setText(tr("Add"));
+        m_addBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")));
+        m_addBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         btnRow->addWidget(m_addBtn);
 
         m_removeBtn = new QToolButton(box);
         m_removeBtn->setText(tr("Remove"));
+        m_removeBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")));
+        m_removeBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         btnRow->addWidget(m_removeBtn);
 
         m_clearBtn = new QToolButton(box);
         m_clearBtn->setText(tr("Clear"));
+        m_clearBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Clear")));
+        m_clearBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         btnRow->addWidget(m_clearBtn);
 
         m_editSymBtn = new QToolButton(box);
         m_editSymBtn->setText(tr("Edit symbol…"));
+        m_editSymBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("SelectEdit")));
+        m_editSymBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         m_editSymBtn->setToolTip(tr(
             "Edit the shape / size / line width / dash for the selected "
             "category.  Colour is editable inline."));

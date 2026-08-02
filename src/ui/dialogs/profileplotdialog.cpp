@@ -196,7 +196,7 @@ void ProfilePlotDialog::buildLayout()
     // Re-use the main app's SVG icons (defined in resources/swmmvis.qrc) so
     // the dialog matches the look of the map toolbar.
     auto *toolbar = new QToolBar(this);
-    toolbar->setIconSize(QSize(18, 18));
+    toolbar->setIconSize(QSize(20, 20));
     // Explicit Select (Identify) toggle: the default plot mode, but
     // implicit "no button checked = identify" was confusing for users.
     // Listed first so it reads as the home / resting state.
@@ -236,17 +236,17 @@ void ProfilePlotDialog::buildLayout()
     // summary, updated whenever the popup is dismissed.
     m_sourceButton = new QToolButton(toolbar);
     m_sourceButton->setText(tr("Sources"));
-    m_sourceButton->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Chartpie")));
+    m_sourceButton->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("ResultSources")));
     m_sourceButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     m_sourceButton->setPopupMode(QToolButton::InstantPopup);
     m_sourceMenu = new QMenu(m_sourceButton);
     m_sourceButton->setMenu(m_sourceMenu);
     toolbar->addWidget(m_sourceButton);
     toolbar->addSeparator();
-    auto *actExport  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("SaveAs")),
+    auto *actExport  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportImage")),
                                           tr("Export PNG…"));
     toolbar->addSeparator();
-    auto *actOptions = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Settings")),
+    auto *actOptions = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ChartProperties")),
                                           tr("Display Options…"));
     root->addWidget(toolbar);
 

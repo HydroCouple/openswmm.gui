@@ -16,6 +16,7 @@
 #include "mesh/meshhoverprobe.h"
 #include "mesh/meshobjectref.h"
 #include "selection/selectionmanager.h"
+#include "ui/toolbars/ribbongroup.h"
 
 #include <QAction>
 #include <QActionGroup>
@@ -25,6 +26,7 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QLayout>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
@@ -35,6 +37,7 @@
 #include <QWidget>
 
 #include <cmath>
+#include <utility>
 
 namespace {
 constexpr int kNoneIndex = 0;
@@ -49,14 +52,33 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     // forced icon-only by leaving their QAction text empty (only tooltip).
     setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
 
-    // Per user layout 2026-05-26:
-    //   [Mesh: combo]  [Z: hoverLabel]  |  [SelectVertex icon]
-    //   [vertex label (tag)]  [Z spin]  |  [SelectEdge icon]
-    //   [edge label (tag)]  [BC type combo]  [BC param widget]
-    //   [Browse …]  [stretch]
+    // Iteration 3 — the controls live inside captioned ribbon groups
+    // (Mesh | Vertices | Edges | Coupling | 2D Results) on the Mesh 2D
+    // tab. Each group hosts a mini QToolBar so the long-standing
+    // QAction-based show/hide machinery (updateEnabledState) keeps
+    // working unchanged; refreshGroupWidths() re-measures the groups
+    // when contextual clusters appear/disappear.
+    using openswmmvis::ui::RibbonGroup;
+    const auto makeGroupBar = [this](const QString &caption) {
+        auto *group = new RibbonGroup(caption, this);
+        auto *bar = new QToolBar(group);
+        bar->setMovable(false);
+        bar->setFloatable(false);
+        bar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        bar->setIconSize(QSize(20, 20));
+        group->addWidget(bar);
+        m_groups.append(group);
+        addWidget(group);
+        return bar;
+    };
+    m_barMesh     = makeGroupBar(tr("Mesh"));
+    m_barVertices = makeGroupBar(tr("Vertices"));
+    m_barEdges    = makeGroupBar(tr("Edges"));
+    m_barCoupling = makeGroupBar(tr("Coupling"));
+    m_barResults  = makeGroupBar(tr("2D Results"));
 
     // ── Active-mesh combo ──────────────────────────────────────────────
-    addWidget(new QLabel(tr("Mesh:"), this));
+    m_barMesh->addWidget(new QLabel(tr("Mesh:"), this));
     m_meshCombo = new QComboBox(this);
     m_meshCombo->setMinimumWidth(180);
     m_meshCombo->setToolTip(tr(
@@ -64,20 +86,18 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         "editing and (where applicable) result coupling."));
     m_meshCombo->addItem(tr("(none)"), QVariant::fromValue<quintptr>(0));
     m_meshCombo->setEnabled(false);
-    addWidget(m_meshCombo);
+    m_barMesh->addWidget(m_meshCombo);
     connect(m_meshCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &MeshEditingToolbar::onActiveMeshComboChanged);
 
     // ── Hover elevation readout ────────────────────────────────────────
-    addWidget(new QLabel(tr("Z:"), this));
+    m_barMesh->addWidget(new QLabel(tr("Z:"), this));
     m_hoverLabel = new QLabel(QStringLiteral("—"), this);
     m_hoverLabel->setMinimumWidth(80);
     m_hoverLabel->setToolTip(tr(
         "Elevation under the cursor, interpolated linearly across the\n"
         "triangle the cursor is inside (NaN outside the mesh)."));
-    addWidget(m_hoverLabel);
-
-    addSeparator();
+    m_barMesh->addWidget(m_hoverLabel);
 
     // ── Vertex group: [icon-only toggle] [info label] [Z spin] ─────────
     // Icon-only: pass empty QString for the action text so the toolbar
@@ -93,12 +113,12 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     m_actEditVertex->setToolTip(tr(
         "Select Vertex — click a mesh vertex to select it, then edit\n"
         "its elevation in the Z spinbox to the right. Esc clears."));
-    addAction(m_actEditVertex);
+    m_barVertices->addAction(m_actEditVertex);
 
     m_vertexInfoLbl = new QLabel(tr("Vertex: (none)"), this);
     m_vertexInfoLbl->setMinimumWidth(160);
     m_vertexInfoLbl->setToolTip(tr("Selected vertex index and tag (coupled SWMM node id)."));
-    addWidget(m_vertexInfoLbl);
+    m_barVertices->addWidget(m_vertexInfoLbl);
 
     m_zSpin = new QDoubleSpinBox(this);
     m_zSpin->setRange(-1.0e6, 1.0e6);
@@ -113,7 +133,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         "Elevation of the selected vertex in project vertical units.\n"
         "Edits propagate via the layer's attributeChanged signal."));
     m_zSpin->setEnabled(false);
-    addWidget(m_zSpin);
+    m_barVertices->addWidget(m_zSpin);
     connect(m_zSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
             this, &MeshEditingToolbar::onZSpinChanged);
 
@@ -125,7 +145,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     m_vertexTagEdit->setPlaceholderText(tr("tag"));
     m_vertexTagEdit->setToolTip(tr("Descriptive vertex tag ([2D_VERTICES] TAG column)."));
     m_vertexTagEdit->setEnabled(false);
-    m_actVertexTag = addWidget(m_vertexTagEdit);
+    m_actVertexTag = m_barVertices->addWidget(m_vertexTagEdit);
     connect(m_vertexTagEdit, &QLineEdit::editingFinished,
             this, &MeshEditingToolbar::onVertexTagCommit);
 
@@ -138,7 +158,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     m_vertexCoupledCombo->setMinimumWidth(120);
     m_vertexCoupledCombo->setToolTip(tr("Coupled SWMM node ([2D_VERTEX_NODE_MAP]); blank = uncoupled."));
     m_vertexCoupledCombo->setEnabled(false);
-    m_actVertexCoupled = addWidget(m_vertexCoupledCombo);
+    m_actVertexCoupled = m_barVertices->addWidget(m_vertexCoupledCombo);
     connect(m_vertexCoupledCombo, &QComboBox::activated,
             this, &MeshEditingToolbar::onVertexCoupledCommit);
     if (m_vertexCoupledCombo->lineEdit())
@@ -153,7 +173,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         "Couple mesh vertices to coincident SWMM nodes.\n"
         "Applies to the selected vertices, or scans the whole mesh when\n"
         "nothing is selected. Already-coupled vertices are left unchanged."));
-    addAction(m_actAutoCouple);
+    m_barCoupling->addAction(m_actAutoCouple);
     connect(m_actAutoCouple, &QAction::triggered,
             this, &MeshEditingToolbar::onAutoCoupleClicked);
 
@@ -168,7 +188,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         "nodes inside the mesh couple to their containing cell (several\n"
         "nodes may share one cell). Existing couplings are preserved unless\n"
         "you choose a full re-map."));
-    addAction(m_actRemap);
+    m_barCoupling->addAction(m_actRemap);
     connect(m_actRemap, &QAction::triggered,
             this, &MeshEditingToolbar::onRemapClicked);
 
@@ -192,7 +212,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
             "Scales the orifice-equation exchange with the coupled node.\n"
             "Default 0.65. Applies to every selected coupled vertex."));
         lay->addWidget(m_vertexCdSpin);
-        m_actVertexCd = addWidget(page);
+        m_actVertexCd = m_barVertices->addWidget(page);
     }
     connect(m_vertexCdSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
             this, &MeshEditingToolbar::onVertexCdCommit);
@@ -214,12 +234,10 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
             "orifice-throat area of the 1D↔2D exchange in m².\n"
             "Default 1.0 m². Applies to every selected coupled vertex."));
         lay->addWidget(m_vertexAreaSpin);
-        m_actVertexArea = addWidget(page);
+        m_actVertexArea = m_barVertices->addWidget(page);
     }
     connect(m_vertexAreaSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
             this, &MeshEditingToolbar::onVertexAreaCommit);
-
-    addSeparator();
 
     // ── Edge group: [icon-only toggle] [info label] [BC combo] [param] [browse] ──
     m_actEditEdge = new QAction(
@@ -232,7 +250,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     m_actEditEdge->setToolTip(tr(
         "Select Edge — click a boundary edge or drag a box to select\n"
         "multiple, then assign a boundary condition. Esc clears."));
-    addAction(m_actEditEdge);
+    m_barEdges->addAction(m_actEditEdge);
 
     m_editGroup = new QActionGroup(this);
     m_editGroup->setExclusive(true);
@@ -251,7 +269,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     m_edgeInfoLbl = new QLabel(tr("Edge: (none)"), this);
     m_edgeInfoLbl->setMinimumWidth(160);
     m_edgeInfoLbl->setToolTip(tr("Selected edge index and tag (if any)."));
-    addWidget(m_edgeInfoLbl);
+    m_barEdges->addWidget(m_edgeInfoLbl);
 
     // BC type combo.
     m_bcTypeCombo = new QComboBox(this);
@@ -272,7 +290,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         m_bcTypeCombo->addItem(MeshBCTypes::label(t), static_cast<int>(t));
     }
     m_bcTypeCombo->setEnabled(false);
-    m_actBCTypeCombo = addWidget(m_bcTypeCombo);
+    m_actBCTypeCombo = m_barEdges->addWidget(m_bcTypeCombo);
     connect(m_bcTypeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &MeshEditingToolbar::onBCTypeChanged);
 
@@ -335,7 +353,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     // 6 RatingCurve — curve combo.
     makeNamePage(&m_curveCombo, tr("Curve:"));
 
-    m_actBCParamStack = addWidget(m_bcParamStack);
+    m_actBCParamStack = m_barEdges->addWidget(m_bcParamStack);
 
     // Shared Browse button — only relevant for the TS / Curve types.
     // Dispatches to the matching picker based on the current BC type;
@@ -347,7 +365,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         "by the selected BC. Only shown when the BC type is a TS or\n"
         "Rating Curve."));
     m_actBrowseObj->setEnabled(false);
-    addAction(m_actBrowseObj);
+    m_barEdges->addAction(m_actBrowseObj);
     connect(m_actBrowseObj, &QAction::triggered, this,
             &MeshEditingToolbar::onBrowseBCObject);
 
@@ -371,7 +389,7 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
             "Applies to every selected edge — interior or boundary —\n"
             "and mirrors automatically across interior-edge halves."));
         lay->addWidget(m_conveySpin);
-        m_actConveySpin = addWidget(page);
+        m_actConveySpin = m_barEdges->addWidget(page);
     }
     connect(m_conveySpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
             this, &MeshEditingToolbar::commitConveyance);
@@ -452,31 +470,21 @@ MeshEditingToolbar::~MeshEditingToolbar() = default;
 
 void MeshEditingToolbar::addToolAction(QAction *action)
 {
-    if (!action) return;
-    // Insert before the expanding spacer so the button sits at the right end
-    // of the left-aligned control group (after the BC controls), not after
-    // the stretch where it would be flung to the far right edge.
-    // Successive inserts before the same anchor preserve call order.
-    if (m_spacerAction)
-        insertAction(m_spacerAction, action);
-    else
-        addAction(action);
+    // Trailing tool actions live in the "2D Results" ribbon group.
+    if (action && m_barResults)
+        m_barResults->addAction(action);
 }
 
 void MeshEditingToolbar::addToolSeparator()
 {
-    if (m_spacerAction)
-        insertSeparator(m_spacerAction);
-    else
-        addSeparator();
+    // The captioned group boundary already delimits the trailing tools —
+    // kept as a no-op for API compatibility.
 }
 
 QAction *MeshEditingToolbar::addToolWidget(QWidget *widget)
 {
-    if (!widget) return nullptr;
-    if (m_spacerAction)
-        return insertWidget(m_spacerAction, widget);
-    return addWidget(widget);
+    if (!widget || !m_barResults) return nullptr;
+    return m_barResults->addWidget(widget);
 }
 
 // ---------------------------------------------------------------------
@@ -1008,6 +1016,7 @@ void MeshEditingToolbar::onAttributeChanged(const QString &refName)
 
 void MeshEditingToolbar::onHoverElevation(double z, bool finite)
 {
+    emit hoverElevationChanged(z, finite);
     if (!finite) {
         m_hoverLabel->setText(QStringLiteral("—"));
         return;
@@ -1158,6 +1167,19 @@ void MeshEditingToolbar::onRemapClicked()
     QMessageBox::information(this, tr("Remap 1D↔2D"), msg);
 }
 
+void MeshEditingToolbar::refreshGroupWidths()
+{
+    // Contextual clusters just showed/hid inside the mini bars — drop the
+    // groups' cached widths and re-run the host bar's layout (QToolBar
+    // layouts never refresh themselves on child hint changes).
+    for (auto *group : std::as_const(m_groups))
+        group->refreshWidth();
+    if (layout()) {
+        layout()->invalidate();
+        layout()->setGeometry(contentsRect());
+    }
+}
+
 void MeshEditingToolbar::onManningsCommit()
 {
     if (!m_activeMesh || !m_manningsSpin) return;
@@ -1268,6 +1290,8 @@ void MeshEditingToolbar::updateEnabledState()
     const bool showPsi     = edgeMode && haveAnyEdge;
     if (m_actConveySpin) m_actConveySpin->setVisible(showPsi);
     if (m_conveySpin)    m_conveySpin->setEnabled(showPsi);
+
+    refreshGroupWidths();
 }
 
 // ---------------------------------------------------------------------

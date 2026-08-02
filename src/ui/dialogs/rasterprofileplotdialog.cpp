@@ -98,7 +98,7 @@ void RasterProfilePlotDialog::buildLayout()
     root->setSpacing(6);
 
     auto *toolbar = new QToolBar(this);
-    toolbar->setIconSize(QSize(18, 18));
+    toolbar->setIconSize(QSize(20, 20));
     auto *actSelect  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Select")),  tr("Select"));
     auto *actZoomIn  = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomIn")),  tr("Zoom In"));
     auto *actZoomOut = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomOut")), tr("Zoom Out"));
@@ -117,14 +117,13 @@ void RasterProfilePlotDialog::buildLayout()
     modeGroup->addAction(actZoomOut);
     modeGroup->addAction(actPan);
     toolbar->addSeparator();
-    auto *actMapMarker = toolbar->addAction(tr("Move marker on map"));
+    auto *actMapMarker = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("ProfileMarker")), tr("Move marker on map"));
     actMapMarker->setCheckable(true);
     actMapMarker->setObjectName(QStringLiteral("showMapMarker"));
     actMapMarker->setToolTip(tr("Drag the position arrow along the profile on the map"));
-    if (auto *btn = qobject_cast<QToolButton *>(toolbar->widgetForAction(actMapMarker)))
-        btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     toolbar->addSeparator();
-    auto *actOptions = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Settings")),
+    auto *actOptions = toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ChartProperties")),
                                           tr("Display Options…"));
     root->addWidget(toolbar);
 

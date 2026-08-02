@@ -7,6 +7,7 @@
 #include "ui/dialogs/customreportdialog.h"
 
 #include "layers/swmmresultslayer.h"
+#include "ui/theme/iconfactory.h"
 
 #include <openswmm/engine/openswmm_output.h>
 
@@ -133,7 +134,8 @@ void CustomReportDialog::buildUi()
     botLayout->addWidget(m_resultTable);
 
     auto *botBtns = new QHBoxLayout;
-    auto *exportBtn = new QPushButton(tr("Export CSV…"), bot);
+    auto *exportBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportCsv")),
+                                      tr("Export CSV…"), bot);
     auto *closeBtn  = new QPushButton(tr("Close"),       bot);
     botBtns->addWidget(exportBtn);
     botBtns->addStretch(1);

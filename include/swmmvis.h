@@ -26,6 +26,7 @@
 #include <QPointer>
 #include <QSettings>
 #include <functional>
+#include <optional>
 
 #include "core/openswmmvislogmessage.h"
 #include "selection/selectionmanager.h"   // SWMMObjectRef
@@ -130,6 +131,10 @@ private:
     void refreshActiveResultsCombos();
     void initializeMapTools();
     void initializeStatusBar();
+
+    /*! \brief Rebuild the status-bar coordinate text from the cached
+     *  cursor position, mesh hover-Z and terrain Z. */
+    void updateCoordinateReadout();
     void initializeDockWidgets();
     void initializeLayersDockWidget();
     void initializeObjectBrowserDockWidget();
@@ -163,7 +168,7 @@ private:
     /*! Show/hide the contextual Mesh 2D tab based on whether the active
      *  project's canvas carries a 2D mesh layer; rewires the canvas
      *  layerAdded/layerRemoved connections on project switch. */
-    void updateMesh2DTabVisibility();
+    void updateContextualTabs();
 
     void saveSettings();
     void clearPreviousWelcomeScreenElements();
@@ -291,6 +296,11 @@ private slots:
 
     /*! \brief Update the coordinate display in the status bar. */
     void onCursorPositionChanged(double mapX, double mapY);
+
+    /*! \brief Mesh hover-Z from the Mesh Editing toolbar's probe —
+     *  folded into the status-bar coordinate readout (takes precedence
+     *  over terrain Z while the cursor is on the mesh). */
+    void onMeshHoverElevation(double z, bool finite);
 
     /*! \brief Update the CRS button label in the status bar. */
     void onCanvasSRSChanged(SpatialReferenceSystem *srs);
@@ -540,6 +550,13 @@ private:
     QCheckBox    *mCheckBoxAutoLength                  = nullptr;
     QToolButton  *mToolButtonCoordinateReferenceSystem = nullptr;
     QLineEdit    *mLineEditCoordinates                 = nullptr;
+    // Coordinate-readout state: last cursor position (canvas CRS) + the
+    // mesh hover-Z mirrored from the Mesh Editing toolbar's probe, so
+    // either input can rebuild the readout.
+    double        mLastCursorMapX                      = 0.0;
+    double        mLastCursorMapY                      = 0.0;
+    bool          mHasCursorPos                        = false;
+    std::optional<double> mMeshHoverZ;
     QComboBox    *mComboBoxMapScale                    = nullptr;
     QComboBox    *mComboBoxFlowUnits                   = nullptr;
     QComboBox    *mComboBoxEngineVersion               = nullptr;

@@ -7,6 +7,7 @@
 #include "ui/dialogs/colorrampeditordialog.h"
 
 #include "layers/swmmresultslayer.h"
+#include "ui/theme/iconfactory.h"
 
 #include <QCheckBox>
 #include <QColorDialog>
@@ -78,7 +79,8 @@ void ColorRampEditorDialog::buildUi()
     m_maxSpin->setValue(m_ramp.maxValue);
     rangeRow->addWidget(m_maxSpin);
 
-    m_autoBtn = new QPushButton(tr("Auto-stretch from data"), this);
+    m_autoBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("AutoStretch")),
+                                tr("Auto-stretch from data"), this);
     rangeRow->addWidget(m_autoBtn);
     rangeRow->addStretch(1);
     root->addLayout(rangeRow);

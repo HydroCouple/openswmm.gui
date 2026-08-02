@@ -17,6 +17,7 @@
 #include "render/rulelist.h"
 // Slice B.6b — mount registered renderer panels in the body.
 #include "ui/dialogs/irendererpanel.h"
+#include "ui/theme/iconfactory.h"
 
 #include <QComboBox>
 #include <QFormLayout>
@@ -100,11 +101,19 @@ RuleSymbologyTab::RuleSymbologyTab(RuleList *ruleList, QWidget *parent)
     m_activeCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
     topLay->addWidget(m_activeCombo, 1);
 
-    m_btnAdd       = new QPushButton(tr("+"),         topRow);
-    m_btnDuplicate = new QPushButton(tr("Duplicate"), topRow);
-    m_btnDelete    = new QPushButton(tr("Delete"),    topRow);
-    m_btnUp        = new QPushButton(tr("↑"),         topRow);
-    m_btnDown      = new QPushButton(tr("↓"),         topRow);
+    m_btnAdd       = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")),
+                                     QString(), topRow);
+    m_btnAdd->setToolTip(tr("Add rule"));
+    m_btnDuplicate = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Duplicate")),
+                                     tr("Duplicate"), topRow);
+    m_btnDelete    = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")),
+                                     tr("Delete"), topRow);
+    m_btnUp        = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("MoveUp")),
+                                     QString(), topRow);
+    m_btnUp->setToolTip(tr("Move rule up"));
+    m_btnDown      = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("MoveDown")),
+                                     QString(), topRow);
+    m_btnDown->setToolTip(tr("Move rule down"));
     for (QPushButton *b : { m_btnAdd, m_btnDuplicate, m_btnDelete,
                             m_btnUp, m_btnDown }) {
         b->setAutoDefault(false);

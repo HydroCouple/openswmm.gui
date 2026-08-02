@@ -74,7 +74,13 @@ void RibbonCompactor::relayoutNow()
         const QMargins m = layout->contentsMargins();
         margins = m.left() + m.right();
     }
-    const int available = mBar->contentsRect().width() - margins;
+    int available = mBar->contentsRect().width() - margins;
+    // The trailing left-pack spacer (see initializeCompactToolbar) is
+    // zero-width at minimum but still costs one inter-item spacing the
+    // solver doesn't know about.
+    if (mBar->findChild<QWidget *>(QStringLiteral("ribbonBarSpacer"),
+                                   Qt::FindDirectChildrenOnly))
+        available -= spacing;
 
     const QVector<RibbonMode> modes =
         applyRibbonHysteresis(mModes, available, widths, spacing);
