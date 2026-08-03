@@ -15,6 +15,8 @@
 #include "contour/marchingtriangles.h"
 #include "core/swmmdatetime.h"
 #include "io/mesh2dh5reader.h"
+#include "layers/cellsurfaceinterp.h"
+#include "layers/vertexdepthreconstruct.h"
 #include "map/mapextent.h"
 
 #include "render/ifeaturerenderer.h"
@@ -2009,88 +2011,45 @@ float SWMM2DResultsLayer::depthAtSceneInterp(const QPointF& scenePt) const
     return depthAtCellInterp(pickCellAt(scenePt), scenePt);
 }
 
-float SWMM2DResultsLayer::clampToDrivingHead_(int idx, double depthBlend,
-                                              double w, double v, double u,
-                                              double sd0, double sd1, double sd2) const
-{
-    if (idx < 0 || idx >= static_cast<int>(tris_.size()))
-        return std::max(0.0f, float(depthBlend));
-    const auto& tri = tris_[idx];
-    const int nVert = static_cast<int>(vz_.size());
-    auto z = [&](int k) -> double {
-        const int vi = tri[k];
-        return (vi >= 0 && vi < nVert) ? vz_[vi] : 0.0;
-    };
-    const double z0 = z(0), z1 = z(1), z2 = z(2);
-    // Driving HGL = the highest free surface η_v = z_v + sd_v among the WET
-    // vertices only (sd_v > 0 — water actually stands above their bed). A dry
-    // vertex carries sd_v = 0 (its η collapses to its own ground), so a high-
-    // and-dry ridge vertex must NOT count toward the cap — otherwise the blend
-    // would march water up the adverse slope to the crest with no head to drive
-    // it. With no wet vertex there is no driving head at all → depth 0.
-    bool   wet    = false;
-    double maxEta = 0.0;
-    auto consider = [&](double zk, double sdk) {
-        if (sdk > 0.0) {
-            const double e = zk + sdk;
-            if (!wet || e > maxEta) { maxEta = e; wet = true; }
-        }
-    };
-    consider(z0, sd0); consider(z1, sd1); consider(z2, sd2);
-    if (!wet) return 0.0f;
-    // Ground at the sample under the SAME weights (ground + depth = η blended
-    // linearly). capDepth is the depth that puts the water surface exactly at
-    // the driving HGL; clamp the blend to it so WSE never exceeds the head.
-    const double groundInterp = w * z0 + v * z1 + u * z2;
-    const double capDepth      = maxEta - groundInterp;
-    return std::max(0.0f, float(std::min(depthBlend, capDepth)));
-}
-
 float SWMM2DResultsLayer::depthAtCellInterp(int idx, const QPointF& scenePt) const
 {
     // Interpolate depth at a point whose containing cell is already known
     // (e.g. the cached Sample::triIdx during animation), skipping the cell
     // search entirely. Bounds-checks idx so a stale cached index can't crash —
     // worst case it returns 0 until the profile rebuilds.
-    if (idx < 0 || idx >= m_sceneTris.size()) return 0.0f;
-    // Dry-cell mask: a cell the solver marks dry this frame (cell-mean depth
-    // below DRY_DEPTH) carries no water, even if its vertices borrowed a free
-    // surface from a still-wet neighbour. Without this gate the barycentric
-    // blend paints water into a cell the engine considers dry — water with no
-    // driving head in its own cell. Mirrors the per-cell max mask the envelope
-    // path uses, so the current-frame line and the max envelope treat dry cells
-    // identically.
-    if (idx < static_cast<int>(current_depths_.size()) &&
-        current_depths_[idx] < float(dry_depth_))
+    if (idx < 0 || idx >= m_sceneTris.size() ||
+        idx >= static_cast<int>(tris_.size()))
         return 0.0f;
     const auto& t = m_sceneTris[idx];
-    // No whole-cell wet/dry gate: dv0/dv1/dv2 are now the SIGNED VFR depth
-    // (η_vertex − z_vertex) from applyCurrentDepths_, so their barycentric blend
-    // is η_interp − ground_interp at the sample, going negative over the dry
-    // part of a partially-wet cell. Clamping the result at 0 (below) lets the
-    // profile water line meet ground at the sub-cell intercept instead of
-    // stepping at the cell boundary.
-    // Barycentric weights against (a,b,c) — identical construction to
-    // SWMM2DMeshLayer::sampleZAt so ground and depth share one interpolation
-    // basis (ground_bary + depth_bary is linear = interpolating per-vertex WSE).
-    const double v0x = t.c.x() - t.a.x(), v0y = t.c.y() - t.a.y();
-    const double v1x = t.b.x() - t.a.x(), v1y = t.b.y() - t.a.y();
-    const double v2x = scenePt.x() - t.a.x(), v2y = scenePt.y() - t.a.y();
-    const double d00 = v0x * v0x + v0y * v0y;
-    const double d01 = v0x * v1x + v0y * v1y;
-    const double d11 = v1x * v1x + v1y * v1y;
-    const double d20 = v2x * v0x + v2y * v0y;
-    const double d21 = v2x * v1x + v2y * v1y;
-    const double denom = d00 * d11 - d01 * d01;
-    if (denom == 0.0) return t.depth;            // degenerate — cell value
-    const double u = (d11 * d20 - d01 * d21) / denom;   // weight for c
-    const double v = (d00 * d21 - d01 * d20) / denom;   // weight for b
-    const double w = 1.0 - u - v;                       // weight for a
-    const double blend = w * double(t.dv0) + v * double(t.dv1) + u * double(t.dv2);
-    // Clamp the implied water surface to the cell's driving HGL so an edge
-    // sample with extrapolating weights can't push water above the head the
-    // wet vertices supply (then floor at 0 for the sub-cell dry side).
-    return clampToDrivingHead_(idx, blend, w, v, u, t.dv0, t.dv1, t.dv2);
+    // dv0/dv1/dv2 are the SIGNED VFR depth (η_vertex − z_vertex) from
+    // applyCurrentDepths_, with exactly 0 as the NO-DATA sentinel (no wet
+    // incident cell). CellSurfaceInterp::depthAt blends them in η space,
+    // extending the surface into no-data corners with zero gradient toward the
+    // dry side, so the bed never stands in for η (the "water climbs walls"
+    // artifact) and the waterline lands at the sub-cell bed intercept.
+    // Dryness is vertex-scoped there (no valid η at any corner → 0) — this
+    // replaced the old cell-mean dry gate, so a solver-dry cell whose corners
+    // carry a valid η paints its shoreline sliver instead of truncating at the
+    // cell edge.
+    const auto& tri = tris_[idx];
+    const int nVert = static_cast<int>(vz_.size());
+    auto z = [&](int k) -> double {
+        const int vi = tri[k];
+        return (vi >= 0 && vi < nVert) ? vz_[vi] : 0.0;
+    };
+    bool degenerate = false;
+    const double d = CellSurfaceInterp::depthAt(
+        scenePt, t.a, t.b, t.c, z(0), z(1), z(2),
+        double(t.dv0), double(t.dv1), double(t.dv2), &degenerate);
+    if (degenerate) return t.depth;              // degenerate — cell value
+    return float(d);
+}
+
+bool SWMM2DResultsLayer::cellHasSurface(int idx) const
+{
+    if (idx < 0 || idx >= m_sceneTris.size()) return false;
+    const auto& t = m_sceneTris[idx];
+    return t.dv0 != 0.0f || t.dv1 != 0.0f || t.dv2 != 0.0f;
 }
 
 bool SWMM2DResultsLayer::velocityAtScene(const QPointF& scenePt,
@@ -2138,141 +2097,15 @@ bool SWMM2DResultsLayer::velocityAtScene(const QPointF& scenePt,
     return true;
 }
 
-namespace {
-// Issue 4 — single source of truth for the depth-weighted free-surface
-// reconstruction that turns per-cell mean depths into per-vertex SIGNED depths
-// (η_v − z_v). Shared by the per-frame animated fill (applyCurrentDepths_) and
-// the historical max-depth envelope (maxDepthPerVertex) so the two cannot drift
-// (CLAUDE.md §4.01): the envelope is then provably the per-vertex temporal max
-// of the EXACT field the animation displays, so the max-depth surface and the
-// animated surface agree at every mesh vertex at that vertex's peak frame.
-//
-// Weighting η by the cell depth h lets deep, fully-wet cells (whose flat-cell
-// η equals the true horizontal water level) dominate shoreline vertices instead
-// of thin, transiently-wet cells up a slope dragging the surface up the wall.
-//
-// \p vsum,\p wsum are caller-owned scratch (resized here) so the per-frame
-// maxDepthPerVertex loop never allocates. \p outVertexDepth is resized to
-// vz.size(); a vertex with no wetted incident cell yields 0. After the call
-// \p wsum[v] > 0 iff vertex v had a wetted incident cell this frame.
-
-// Free-surface elevation η of one cell from its mean depth h̄ — inverts the
-// planar-bed stage–storage relation through the cell's three vertex
-// elevations (mirror of the engine's cellFreeSurfaceElevation,
-// VertexReconstruction.cpp). For a PARTIALLY wet cell (η < highest vertex)
-// this pools the water over the wetted fraction instead of the flat closure
-// z̄ + h̄, which overstates η on cells spanning a bed step — the other half of
-// the "water climbs the step" artifact. Fully wet reduces exactly to z̄ + h̄.
-inline double cellEtaFromMeanDepth(double h, double za, double zb, double zc)
-{
-    double z1 = za, z2 = zb, z3 = zc;
-    if (z1 > z2) std::swap(z1, z2);
-    if (z2 > z3) std::swap(z2, z3);
-    if (z1 > z2) std::swap(z1, z2);
-
-    if (!(h > 0.0)) return z1;
-
-    const double zbar   = (z1 + z2 + z3) / 3.0;
-    const double relief = z3 - z1;
-    if (relief < 1.0e-9 || h >= z3 - zbar)
-        return zbar + h;                              // flat / fully wet
-
-    const double h_at_z2 = (z2 - z1) * (z2 - z1) / (3.0 * relief);
-    if (h <= h_at_z2)                                 // waterline below z2
-        return z1 + std::cbrt(3.0 * h * (z2 - z1) * relief);
-
-    // Waterline between z2 and z3: safeguarded Newton on the bracket.
-    const double denom = 3.0 * relief * (z3 - z2);
-    double lo = z2, hi = z3;
-    double eta = zbar + h;
-    if (eta <= lo || eta >= hi) eta = 0.5 * (lo + hi);
-    for (int it = 0; it < 64; ++it) {
-        const double dz3 = z3 - eta;
-        const double f  = (eta - zbar) + dz3 * dz3 * dz3 / denom - h;
-        if (f > 0.0) hi = eta; else lo = eta;
-        const double df = 1.0 - dz3 * dz3 / (relief * (z3 - z2));
-        double next = (df > 1.0e-12) ? eta - f / df : 0.5 * (lo + hi);
-        if (next <= lo || next >= hi) next = 0.5 * (lo + hi);
-        if (std::abs(next - eta) < 1.0e-12 * (1.0 + relief)) return next;
-        eta = next;
-    }
-    return eta;
-}
-
-void reconstructVertexSignedDepths(
-    const std::vector<std::array<int, 3>>& tris,
-    const std::vector<float>&  cellDepths,
-    const std::vector<float>&  cellZc,
-    const std::vector<double>& vz,
-    float dryF,
-    std::vector<float>& vsum,
-    std::vector<float>& wsum,
-    std::vector<float>& outVertexDepth)
-{
-    const int nTri  = static_cast<int>(tris.size());
-    const int nVert = static_cast<int>(vz.size());
-    vsum.assign(static_cast<size_t>(nVert), 0.0f);
-    wsum.assign(static_cast<size_t>(nVert), 0.0f);
-    const int nCell = std::min<int>(nTri, static_cast<int>(cellDepths.size()));
-    for (int i = 0; i < nCell; ++i) {
-        const float h = cellDepths[i];
-        // NaN-robust dry skip: `h < dryF` is false for NaN, so a non-finite
-        // depth would NOT be skipped and would poison vsum/wsum at all three
-        // vertices (→ streaked triangle fans in the Gouraud fill).
-        if (!(h >= dryF)) continue;                // only wetted cells contribute
-        const auto& tri = tris[i];
-        // Cell free surface via the planar-bed stage–storage inversion when
-        // the three vertex elevations are usable; flat closure z_c + h as the
-        // fallback (out-of-range index / nodata z).
-        double eta;
-        if (tri[0] >= 0 && tri[0] < nVert &&
-            tri[1] >= 0 && tri[1] < nVert &&
-            tri[2] >= 0 && tri[2] < nVert &&
-            std::isfinite(vz[tri[0]]) && std::isfinite(vz[tri[1]]) &&
-            std::isfinite(vz[tri[2]])) {
-            eta = cellEtaFromMeanDepth(double(h), vz[tri[0]], vz[tri[1]],
-                                       vz[tri[2]]);
-        } else {
-            eta = double(cellZc[i]) + double(h);
-        }
-        const float we = h * float(eta);           // depth-weighted η contribution
-        if (!std::isfinite(we)) continue;          // non-finite z_c must not spread
-        for (int k = 0; k < 3; ++k) {
-            const int vi = tri[k];
-            if (vi < 0 || vi >= nVert) continue;
-            vsum[vi] += we;
-            wsum[vi] += h;
-        }
-    }
-    outVertexDepth.assign(static_cast<size_t>(nVert), 0.0f);
-    for (int v = 0; v < nVert; ++v)
-        if (wsum[v] > 0.0f) {
-            const double d = double(vsum[v]) / double(wsum[v]) - vz[v];
-            // Non-finite vertex elevation (e.g. DTM nodata) must yield a dry
-            // vertex, not a NaN that the colour ramp turns into garbage.
-            outVertexDepth[v] = std::isfinite(d) ? float(d) : 0.0f;
-        }
-}
-} // namespace
-
-QVector<float> SWMM2DResultsLayer::maxDepthPerCell() const
-{
-    QVector<float> out;
-    if (!source_) return out;
-    const int nTri = source_->triangleCount();
-    const int nT   = source_->timeCount();
-    if (nTri <= 0 || nT <= 0) return out;
-
-    out = QVector<float>(nTri, 0.0f);
-    std::vector<float> buf;
-    for (int t = 0; t < nT; ++t) {
-        if (!source_->readDepthsAt(t, buf)) continue;
-        const int n = std::min<int>(nTri, static_cast<int>(buf.size()));
-        for (int i = 0; i < n; ++i)
-            if (buf[i] > out[i]) out[i] = buf[i];
-    }
-    return out;
-}
+// Issue 4 — the depth-weighted free-surface reconstruction lives in
+// vertexdepthreconstruct.h (header-only, shared with the leaf unit test —
+// same extraction pattern as cellsurfaceinterp.h). Shared by the per-frame
+// animated fill (applyCurrentDepths_) and the historical max-depth envelope
+// (maxDepthPerVertex) so the two cannot drift (CLAUDE.md §4.01): the envelope
+// is then provably the per-vertex temporal max of the EXACT field the
+// animation displays. Since the wetted-contact gate, values are positive or
+// the 0 no-data sentinel (see the header doc).
+using VertexDepthReconstruct::reconstructVertexSignedDepths;
 
 QVector<float> SWMM2DResultsLayer::maxDepthPerVertex() const
 {
@@ -2328,26 +2161,22 @@ float SWMM2DResultsLayer::maxDepthAtSceneInterp(const QPointF& scenePt,
         const int vi = tri[k];
         return (vi >= 0 && vi < vertMax.size()) ? double(vertMax[vi]) : 0.0;
     };
-    // Same barycentric construction as depthAtSceneInterp (a→w, b→v, c→u).
-    const double v0x = t.c.x() - t.a.x(), v0y = t.c.y() - t.a.y();
-    const double v1x = t.b.x() - t.a.x(), v1y = t.b.y() - t.a.y();
-    const double v2x = scenePt.x() - t.a.x(), v2y = scenePt.y() - t.a.y();
-    const double d00 = v0x * v0x + v0y * v0y;
-    const double d01 = v0x * v1x + v0y * v1y;
-    const double d11 = v1x * v1x + v1y * v1y;
-    const double d20 = v2x * v0x + v2y * v0y;
-    const double d21 = v2x * v1x + v2y * v1y;
-    const double denom = d00 * d11 - d01 * d01;
-    if (denom == 0.0) return vertMax.isEmpty() ? 0.0f : std::max(0.0f, float(vm(0)));
-    const double u = (d11 * d20 - d01 * d21) / denom;   // weight for c
-    const double v = (d00 * d21 - d01 * d20) / denom;   // weight for b
-    const double w = 1.0 - u - v;                       // weight for a
-    // vertMax is the SIGNED per-vertex max depth (η_max − z). Clamp the blend to
-    // the cell's driving HGL (max η_v) so extrapolating edge weights can't lift
-    // the envelope above the head the wet vertices reached, then floor at 0 so
-    // the envelope tapers to dry inside partially-wet cells.
-    const double blend = w * vm(0) + v * vm(1) + u * vm(2);
-    return clampToDrivingHead_(idx, blend, w, v, u, vm(0), vm(1), vm(2));
+    const int nVert = static_cast<int>(vz_.size());
+    auto z = [&](int k) -> double {
+        const int vi = tri[k];
+        return (vi >= 0 && vi < nVert) ? vz_[vi] : 0.0;
+    };
+    // vertMax is the SIGNED per-vertex max depth (η_max − z), with 0 as the
+    // never-wet NO-DATA sentinel — the exact peer of dv0/dv1/dv2 for the
+    // historical maximum, so the envelope goes through the same η-space
+    // extrapolation + driving-head cap as the animated surface
+    // (CellSurfaceInterp::depthAt) and tapers to its own shoreline intercept.
+    bool degenerate = false;
+    const double d = CellSurfaceInterp::depthAt(
+        scenePt, t.a, t.b, t.c, z(0), z(1), z(2),
+        vm(0), vm(1), vm(2), &degenerate);
+    if (degenerate) return vertMax.isEmpty() ? 0.0f : std::max(0.0f, float(vm(0)));
+    return float(d);
 }
 
 void SWMM2DResultsLayer::highlightCells(const QSet<int>& triIdxSet)
@@ -2617,10 +2446,12 @@ void SWMM2DResultsLayer::applyCurrentDepths_()
             && static_cast<int>(srcVertexDepths.size()) == nVert)
         {
             vdepth_ = std::move(srcVertexDepths);
-            // The source field is SIGNED (η_v − z_v): negatives over the dry
-            // side of partially wet cells drive the sub-cell shoreline
-            // intercept, so they MUST survive. Only non-finite values are
-            // sanitised (nodata z / poisoned frames must not spread).
+            // The source field is SIGNED (η_v − z_v). Current engines emit
+            // positive-or-0-sentinel (wetted-contact gate); files from older
+            // engines also carry negatives (dry side of partially wet cells)
+            // and those MUST survive — the profile sampler treats sd ≤ 0 as
+            // non-supplying either way. Only non-finite values are sanitised
+            // (nodata z / poisoned frames must not spread).
             for (float &d : vdepth_)
                 if (!std::isfinite(d)) d = 0.0f;
             haveSourceVertexDepths = true;

@@ -192,12 +192,19 @@ void MeshProfilePlotDialog::refreshCurrentDepths()
     // the cached sample scene points — avoids recomputing the (expensive)
     // max-depth envelope on every animation tick.
     QVector<double> depths;
+    QVector<bool>   hasSurface;
     depths.reserve(m_profile.samples.size());
+    hasSurface.reserve(m_profile.samples.size());
     // Reuse each sample's cached containing cell (triIdx, captured by
     // buildMeshProfile) so per-frame animation skips the cell search entirely.
-    for (const auto &s : m_profile.samples)
+    // cellHasSurface is frame-dependent (it reads the per-vertex signed-depth
+    // field), so it must travel with the depth column — it gates which dry
+    // gaps the painter may bridge.
+    for (const auto &s : m_profile.samples) {
         depths.push_back(m_results->depthAtCellInterp(s.triIdx, s.scenePt));
-    m_plot->setCurrentDepths(depths);
+        hasSurface.push_back(m_results->cellHasSurface(s.triIdx));
+    }
+    m_plot->setCurrentDepths(depths, hasSurface);
 }
 
 void MeshProfilePlotDialog::setupMapOverlay()

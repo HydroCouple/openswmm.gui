@@ -110,11 +110,16 @@ void MeshProfilePlotWidget::setProfile(const MeshProfileSampler::MeshProfile &pr
     update();
 }
 
-void MeshProfilePlotWidget::setCurrentDepths(const QVector<double> &depthNow)
+void MeshProfilePlotWidget::setCurrentDepths(const QVector<double> &depthNow,
+                                             const QVector<bool> &cellHasSurface)
 {
     if (depthNow.size() != m_profile.samples.size()) return;
-    for (int i = 0; i < depthNow.size(); ++i)
+    const bool withFlags = cellHasSurface.size() == depthNow.size();
+    for (int i = 0; i < depthNow.size(); ++i) {
         m_profile.samples[i].depthNow = depthNow[i];
+        if (withFlags)
+            m_profile.samples[i].cellHasSurface = cellHasSurface[i];
+    }
     update();
 }
 
