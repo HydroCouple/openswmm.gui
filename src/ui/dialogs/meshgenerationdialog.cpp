@@ -1705,6 +1705,155 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         }
     }
 
+    // ── Fill vertices with no DEM coverage ───────────────────────────────
+    // Triangle-inserted refinement vertices are re-sampled from the raster in
+    // Pass 2 above, and sampleMany() returns NaN by contract for NoData, for
+    // points outside the DEM footprint, and on a RasterIO failure. That NaN
+    // used to be written straight into MeshVertex::z, from where it reached
+    // the INP writer (a literal `nan` in [MESH_VERTICES]) and
+    // swmm_2d_set_vertex_z(). A NaN bed elevation does not stay local: the
+    // engine's h = eta - z turns every dependent cell NaN too.
+    //
+    // Fill from the vertices that DID resolve, propagating over the mesh's
+    // own edges — each unresolved vertex takes the mean of its resolved
+    // neighbours, sweeping until the front stops advancing. Same intent as
+    // the no-DTM branch's interpolation, without its cost: seeding
+    // NaturalNeighbourInterpolator with the covered set would trigger a
+    // second Delaunay triangulation of up to millions of points, and IDW
+    // would be O(uncovered x covered). The connectivity is already in hand,
+    // so a sweep is O(triangles).
+    //
+    // Runs AFTER the vertical unit conversion so every z is in output units;
+    // averaging earlier would mix raster-unit and model-unit values.
+    {
+        const int nv = result.vertices.size();
+        QVector<int> pending;
+        for (int i = 0; i < nv; ++i)
+            if (!std::isfinite(result.vertices[i].z)) pending.append(i);
+
+        if (!pending.isEmpty())
+        {
+            const qsizetype nUncovered = pending.size();
+            progress(80, QObject::tr("Filling vertices with no DEM coverage…"));
+
+            // CSR adjacency from the triangle list. Duplicates are left in
+            // (a vertex shared by k triangles appears k times), which weights
+            // each neighbour by the number of triangles it shares with the
+            // centre — an umbrella weighting, and cheaper than deduping.
+            QVector<int> off(nv + 1, 0);
+            for (const mesh::MeshTriangle &t : result.triangles)
+            {
+                off[t.v0 + 1] += 2; off[t.v1 + 1] += 2; off[t.v2 + 1] += 2;
+            }
+            for (int i = 0; i < nv; ++i) off[i + 1] += off[i];
+            QVector<int> adj(off[nv]);
+            QVector<int> cur = off;
+            for (const mesh::MeshTriangle &t : result.triangles)
+            {
+                adj[cur[t.v0]++] = t.v1; adj[cur[t.v0]++] = t.v2;
+                adj[cur[t.v1]++] = t.v0; adj[cur[t.v1]++] = t.v2;
+                adj[cur[t.v2]++] = t.v0; adj[cur[t.v2]++] = t.v1;
+            }
+
+            // Pass A — seed. Jacobi sweeps: collect every fill first, then
+            // apply, so the result does not depend on vertex order. One sweep
+            // advances the front by one edge, so the sweep count is the hole
+            // radius in edges.
+            QVector<int> allFilled;
+            allFilled.reserve(pending.size());
+            int sweeps = 0;
+            while (!pending.isEmpty())
+            {
+                if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
+                QVector<int>    filledIdx, stillPending;
+                QVector<double> filledZ;
+                filledIdx.reserve(pending.size());
+                filledZ.reserve(pending.size());
+                for (const int i : pending)
+                {
+                    double sum = 0.0;
+                    int    n   = 0;
+                    for (int k = off[i]; k < off[i + 1]; ++k)
+                    {
+                        const double zn = result.vertices[adj[k]].z;
+                        if (std::isfinite(zn)) { sum += zn; ++n; }
+                    }
+                    if (n > 0) { filledIdx.append(i); filledZ.append(sum / n); }
+                    else         stillPending.append(i);
+                }
+                if (filledIdx.isEmpty()) break;   // front cannot advance
+                for (int k = 0; k < filledIdx.size(); ++k)
+                    result.vertices[filledIdx[k]].z = filledZ[k];
+                allFilled += filledIdx;
+                pending = stillPending;
+                ++sweeps;
+            }
+
+            // Pass B — relax. Pass A propagates inward from the hole boundary
+            // and writes each vertex once, so a wide hole comes out flattened
+            // toward its centre (measured on a synthetic plane: 5.70 elevation
+            // units of error across a 13x13 hole). Relaxing the filled set
+            // with the covered vertices held fixed converges to the discrete
+            // harmonic interpolant, which carries a linear terrain gradient
+            // across the hole instead of collapsing it to the boundary mean
+            // (same case: 0.0013). Cost is bounded by the hole size, not the
+            // mesh — only previously-unresolved vertices are touched.
+            constexpr int    kMaxRelax = 512;
+            constexpr double kRelaxTol = 1e-4;   // elevation units
+            int relax = 0;
+            if (!allFilled.isEmpty())
+            {
+                QVector<double> next(allFilled.size());
+                for (; relax < kMaxRelax; ++relax)
+                {
+                    if ((relax & 0x3F) == 0 && promise.isCanceled())
+                    { fail(QObject::tr("Cancelled.")); return; }
+                    for (int k = 0; k < allFilled.size(); ++k)
+                    {
+                        const int i = allFilled[k];
+                        double sum = 0.0;
+                        int    n   = 0;
+                        for (int e = off[i]; e < off[i + 1]; ++e)
+                        {
+                            const double zn = result.vertices[adj[e]].z;
+                            if (std::isfinite(zn)) { sum += zn; ++n; }
+                        }
+                        next[k] = (n > 0) ? sum / n : result.vertices[i].z;
+                    }
+                    double maxDelta = 0.0;
+                    for (int k = 0; k < allFilled.size(); ++k)
+                    {
+                        double &zi = result.vertices[allFilled[k]].z;
+                        maxDelta = std::max(maxDelta, std::fabs(next[k] - zi));
+                        zi = next[k];
+                    }
+                    if (maxDelta < kRelaxTol) break;
+                }
+            }
+
+            if (!pending.isEmpty())
+            {
+                // A whole connected component sampled no finite elevation —
+                // there is nothing to interpolate from, so fabricating a
+                // value here would be inventing terrain.
+                fail(QObject::tr(
+                    "%1 mesh vertices lie outside the DEM footprint (or on "
+                    "NoData) with no elevation-bearing neighbour to "
+                    "interpolate from — an entire region of the mesh has no "
+                    "terrain coverage.\n"
+                    "Extend the DEM to cover the meshing domain, or shrink "
+                    "the domain to the DEM extent.").arg(pending.size()));
+                return;
+            }
+
+            qCInfo(lcMeshPerf) << "[Mesh] DEM coverage fill:" << nUncovered
+                               << "vertices with no DEM sample interpolated"
+                               << "from neighbours —" << sweeps
+                               << "seed sweep(s)," << relax
+                               << "relaxation iteration(s)";
+        }
+    }
+
     // Note: XY are written in project-CRS units (no GUI-side conversion).
     // The engine multiplies by 0.3048 in SurfaceRouter2D::initialize when
     // SWMM FLOW_UNITS is US.  When the engine has been updated to honour
