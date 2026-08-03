@@ -241,6 +241,33 @@ public:
                                               const QVector<MeshEdgeBC> &bcs,
                                               QString *errorOut = nullptr);
 
+    /*! \brief Replace the `[2D_VERTICES]`, `[2D_TRIANGLES]`,
+     *         `[2D_VERTEX_NODE_MAP]` and `[2D_TRIANGLE_NODE_MAP]` sections of
+     *         \p filePath with sections rebuilt from the layer's editable
+     *         mesh state, leaving every other section untouched.
+     *
+     *  The BC-patch's sibling for mesh *attributes*: the post-save
+     *  external-mesh restore rolls the sidecar back to its pre-write
+     *  snapshot, which predates the engine's write of the current vertex
+     *  elevation / tag / coupling and triangle Manning / tag edits — without
+     *  this re-emit those edits silently vanish from the saved model (and
+     *  the next run reads the old elevations). The layer is authoritative
+     *  for exactly the fields pushMeshEditsToEngine() pushes; a triangle
+     *  whose Manning is unset (NaN) keeps the file's existing token so a
+     *  generation-time default survives the rewrite.
+     *
+     *  Fails without touching the file when the section row counts don't
+     *  match \p mesh — rows map to mesh entries by position, so a mismatch
+     *  means the file holds a different mesh. Atomic via `QSaveFile`.
+     *
+     *  \param filePath  External mesh file (or `.inp`) to patch.
+     *  \param mesh      The layer's current mesh state.
+     *  \param errorOut  Set on failure.
+     *  \returns true on success. */
+    [[nodiscard]] static bool patchAttributeSections(const QString &filePath,
+                                                     const MeshResult &mesh,
+                                                     QString *errorOut = nullptr);
+
     /*! \brief Strip any `[2D_MESH_FILE]` reference from the `.inp` so the
      *         engine falls back to the inline `[2D_*]` mesh sections.
      *
