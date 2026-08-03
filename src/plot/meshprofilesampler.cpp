@@ -71,16 +71,15 @@ MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
     if (totalLen / step > kMaxSamples)
         step = totalLen / kMaxSamples;
 
-    // Max-depth envelope — barycentric per-vertex (smooth across wet cells),
-    // but masked to the per-cell max so it doesn't bleed onto cells that were
-    // never wet (the same dry-hump artifact the water line avoids).
-    QVector<float> vertMax, perCellMax;
-    double dry = 0.0;
-    if (out.hasResults) {
-        vertMax    = results->maxDepthPerVertex();
-        perCellMax = results->maxDepthPerCell();
-        dry        = results->dryDepth();
-    }
+    // Max-depth envelope — barycentric per-vertex (smooth across wet cells).
+    // No per-cell max mask any more: vertMax carries 0 as the never-wet
+    // NO-DATA sentinel, so maxDepthAtSceneInterp's vertex-scoped dryness
+    // (CellSurfaceInterp) already paints nothing where no corner was ever wet,
+    // and a once-wet shoreline cell tapers to its sub-cell intercept instead
+    // of truncating at the cell edge (WSE-extrapolation plan, Defect 2).
+    QVector<float> vertMax;
+    if (out.hasResults)
+        vertMax = results->maxDepthPerVertex();
 
     // Mesh-triangle index per emitted sample, parallel to out.samples. Drives
     // the cell-boundary crossing pass below (where the line leaves one mesh
@@ -103,11 +102,9 @@ MeshProfile buildMeshProfile(SWMM2DMeshLayer    *mesh,
                 // Barycentric (smooth) depth + envelope — same interpolation
                 // basis as the ground line, so WSE = ground + depth no longer
                 // steps at cell boundaries (matches the contour map).
-                // depthAtSceneInterp clamps dry cells internally; mask the
-                // envelope the same way via the per-cell max.
                 s.depthNow = results->depthAtSceneInterp(sp);
-                if (tri < perCellMax.size() && perCellMax[tri] >= dry)
-                    s.maxDepth = results->maxDepthAtSceneInterp(sp, vertMax);
+                s.maxDepth = results->maxDepthAtSceneInterp(sp, vertMax);
+                s.cellHasSurface = results->cellHasSurface(tri);
             }
         }
         return s;
