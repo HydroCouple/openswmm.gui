@@ -38,11 +38,13 @@
 #include "map/mapundostack.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QButtonGroup>
 #include <QClipboard>
 #include <QComboBox>
 #include <QCryptographicHash>
 #include <QDebug>
+#include <QEvent>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -51,6 +53,7 @@
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QItemSelectionModel>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QLoggingCategory>
@@ -66,6 +69,7 @@
 #include <QSortFilterProxyModel>
 #include <QTableView>
 #include <QTextStream>
+#include <QTimer>
 #include <QUndoStack>
 #include <QToolBar>
 #include <QVBoxLayout>
@@ -304,6 +308,8 @@ const char *categoryLabel(SWMMModelLayer::Category cat)
 AttributeTablePanel::AttributeTablePanel(QWidget *parent)
     : QWidget(parent)
 {
+    qApp->installEventFilter(this);
+
     // Register the compound-attribute metatype + QString converter so
     // the Compound delegate's displayText() can render the summary
     // string when a cell isn't in edit mode. Idempotent — the property
@@ -335,10 +341,46 @@ AttributeTablePanel::AttributeTablePanel(QWidget *parent)
 
 AttributeTablePanel::~AttributeTablePanel()
 {
+    qApp->removeEventFilter(this);
+
     // Persist the column widths of the currently-active category one
     // last time so the next session opens with the same layout.
     if (m_model)
         saveColumnWidths(m_model->category());
+}
+
+bool AttributeTablePanel::eventFilter(QObject *watched, QEvent *event)
+{
+    auto *watchedWidget = qobject_cast<QWidget *>(watched);
+    if (!m_view || !watchedWidget)
+        return QWidget::eventFilter(watched, event);
+
+    const bool isViewOrDescendant =
+        (watchedWidget == m_view) || m_view->isAncestorOf(watchedWidget);
+    if (!isViewOrDescendant)
+        return QWidget::eventFilter(watched, event);
+
+    if (event->type() == QEvent::ShortcutOverride) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) {
+            // Keep Enter local to table editing; do not leak to global shortcuts.
+            event->accept();
+            return true;
+        }
+    }
+
+    if (event->type() == QEvent::KeyPress) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) {
+            // Let delegates commit, then keep focus anchored in the table.
+            QTimer::singleShot(0, m_view, [view = m_view]() {
+                if (view)
+                    view->setFocus(Qt::OtherFocusReason);
+            });
+        }
+    }
+
+    return QWidget::eventFilter(watched, event);
 }
 
 void AttributeTablePanel::buildUi()
