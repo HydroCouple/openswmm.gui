@@ -106,6 +106,11 @@ public:
     void addToolAction(QAction *action);
     void addToolSeparator();
 
+    /*! \brief Add the mesh profile-plot action to its standalone "Profile"
+     *  ribbon group (iteration 4 — kept apart from the cell-selection
+     *  cluster whose width changes contextually). */
+    void addProfileAction(QAction *action);
+
     /*! \brief Add a trailing widget (e.g. the cell-selection info label) to
      *  the left of the expanding spacer, mirroring addToolAction. Returns the
      *  QAction handle for the embedded widget. */
@@ -187,7 +192,8 @@ private:
     QToolBar *m_barVertices = nullptr;
     QToolBar *m_barEdges    = nullptr;
     QToolBar *m_barCoupling = nullptr;
-    QToolBar *m_barResults  = nullptr;   // Pick cells / profile (SWMMVis inserts)
+    QToolBar *m_barResults  = nullptr;   // Pick cells cluster (SWMMVis inserts)
+    QToolBar *m_barProfile  = nullptr;   // standalone profile plotter
 
     QPointer<MapCanvas>           m_canvas;
     QPointer<SelectionManager>    m_selection;

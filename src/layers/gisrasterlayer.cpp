@@ -186,6 +186,8 @@ GISRasterLayer::~GISRasterLayer()
     drainTileSlots();
     closeHandlePool();
     delete m_currentSRS;
+    if (m_probeCT)
+        OGRCoordinateTransformation::DestroyCT(m_probeCT);
     closeDataset();
 }
 
@@ -400,7 +402,7 @@ void GISRasterLayer::autoStretchColorRamp()
 // ---------------------------------------------------------------------------
 
 double GISRasterLayer::valueAt(double mapX, double mapY,
-                                const SpatialReferenceSystem * /*canvasSRS*/,
+                                const SpatialReferenceSystem *canvasSRS,
                                 int /*band*/, bool *ok) const
 {
     if (ok) *ok = false;
@@ -415,8 +417,6 @@ double GISRasterLayer::valueAt(double mapX, double mapY,
     // Full-resolution probe straight from the source band via the native
     // geotransform. (With the Phase-3 tile pyramid there is no single warped
     // value cache; probing the dataset keeps the readout at full resolution.)
-    // Assumes mapX/mapY are in the raster's native CRS — true for the common
-    // same-CRS case; a reprojected raster's readout may be slightly offset.
     if (!extent().isValid())
         return std::numeric_limits<double>::quiet_NaN();
 
@@ -424,8 +424,32 @@ double GISRasterLayer::valueAt(double mapX, double mapY,
     if (m_dataset->GetGeoTransform(gt) != CE_None)
         return std::numeric_limits<double>::quiet_NaN();
 
-    const double pixX = (mapX - gt[0]) / gt[1];
-    const double pixY = (mapY - gt[3]) / gt[5];
+    // Iteration 4 — the probe coordinates arrive in the canvas CRS; with
+    // on-the-fly reprojection the raster's native CRS differs and the pixel
+    // math below would sample out of bounds. Transform canvas → raster,
+    // caching the (canvas SRS, raster SRS) transform across calls so
+    // mouse-move-rate sampling never rebuilds it.
+    double qx = mapX, qy = mapY;
+    OGRSpatialReference *src = canvasSRS ? canvasSRS->ogrSpatialReference()
+                                         : nullptr;
+    OGRSpatialReference *dst = srs() ? srs()->ogrSpatialReference() : nullptr;
+    if (src && dst) {
+        if (src != m_probeCTCanvasKey || dst != m_probeCTRasterKey) {
+            if (m_probeCT) {
+                OGRCoordinateTransformation::DestroyCT(m_probeCT);
+                m_probeCT = nullptr;
+            }
+            if (!src->IsSame(dst))
+                m_probeCT = OGRCreateCoordinateTransformation(src, dst);
+            m_probeCTCanvasKey = src;
+            m_probeCTRasterKey = dst;
+        }
+        if (m_probeCT && !m_probeCT->Transform(1, &qx, &qy))
+            return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    const double pixX = (qx - gt[0]) / gt[1];
+    const double pixY = (qy - gt[3]) / gt[5];
     const int rasterW = m_dataset->GetRasterXSize();
     const int rasterH = m_dataset->GetRasterYSize();
     const int px = static_cast<int>(pixX);

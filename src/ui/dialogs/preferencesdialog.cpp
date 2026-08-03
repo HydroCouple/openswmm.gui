@@ -88,6 +88,7 @@ void PreferencesDialog::buildUi()
     addCategory(tr("Simulation"),            buildSimulationPage());
     addCategory(tr("Simulation Defaults"),   buildSimulationDefaultsPage());
     addCategory(tr("Dynamic Wave Defaults"), buildDynamicWaveDefaultsPage());
+    addCategory(tr("2D Defaults"),           buildTwoDDefaultsPage());
     addCategory(tr("Map Display"),           buildMapDisplayPage());
     addCategory(tr("Measure Tool"),          buildMeasureToolPage());
     addCategory(tr("Plots"),                 buildPlotsPage());
@@ -820,6 +821,233 @@ QWidget *PreferencesDialog::buildDynamicWaveDefaultsPage()
     return page;
 }
 
+QWidget *PreferencesDialog::buildTwoDDefaultsPage()
+{
+    auto *page  = new QWidget(this);
+    auto *outer = new QVBoxLayout(page);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->setSpacing(12);
+
+    auto *intro = new QLabel(
+        tr("Defaults for the 2D overland-flow model: the [2D_OPTIONS] keys "
+           "written into new projects (when the 2D module default on the "
+           "Simulation Defaults page is enabled) and used whenever a project "
+           "has no value for a key, plus the seed values the Generate Mesh "
+           "dialog starts from. Distances are metres; the mesh dialog "
+           "converts to the project's unit system."), page);
+    intro->setWordWrap(true);
+    outer->addWidget(intro);
+
+    // ── 2D solver ────────────────────────────────────────────────────────
+    auto *solvGroup = new QGroupBox(tr("2D solver ([2D_OPTIONS])"), page);
+    auto *solvForm  = new QFormLayout(solvGroup);
+
+    m_twoDMaxTimestepSpin = new QDoubleSpinBox(solvGroup);
+    m_twoDMaxTimestepSpin->setRange(0.001, 3600.0);
+    m_twoDMaxTimestepSpin->setDecimals(3);
+    m_twoDMaxTimestepSpin->setSuffix(QStringLiteral(" s"));
+    solvForm->addRow(tr("Maximum timestep (MAX_TIMESTEP)"), m_twoDMaxTimestepSpin);
+
+    m_twoDThetaSpin = new QDoubleSpinBox(solvGroup);
+    m_twoDThetaSpin->setRange(0.0, 1.0);
+    m_twoDThetaSpin->setDecimals(3);
+    m_twoDThetaSpin->setSingleStep(0.05);
+    solvForm->addRow(tr("Implicitness (THETA)"), m_twoDThetaSpin);
+
+    m_twoDCflSpin = new QDoubleSpinBox(solvGroup);
+    m_twoDCflSpin->setRange(0.01, 1.0);
+    m_twoDCflSpin->setDecimals(3);
+    m_twoDCflSpin->setSingleStep(0.05);
+    solvForm->addRow(tr("Courant number (CFL_NUMBER)"), m_twoDCflSpin);
+
+    m_twoDLtsTiersSpin = new QSpinBox(solvGroup);
+    m_twoDLtsTiersSpin->setRange(0, 16);
+    m_twoDLtsTiersSpin->setToolTip(tr("Local-timestepping tiers; 0 disables."));
+    solvForm->addRow(tr("Local timestep tiers (LTS_TIERS)"), m_twoDLtsTiersSpin);
+
+    m_twoDHMoveSpin = new QDoubleSpinBox(solvGroup);
+    m_twoDHMoveSpin->setRange(0.0, 1.0);
+    m_twoDHMoveSpin->setDecimals(6);
+    m_twoDHMoveSpin->setSuffix(QStringLiteral(" m"));
+    solvForm->addRow(tr("Movement threshold (H_MOVE)"), m_twoDHMoveSpin);
+
+    m_twoDFroudeMaxSpin = new QDoubleSpinBox(solvGroup);
+    m_twoDFroudeMaxSpin->setRange(0.1, 10.0);
+    m_twoDFroudeMaxSpin->setDecimals(2);
+    solvForm->addRow(tr("Froude limiter (FROUDE_MAX)"), m_twoDFroudeMaxSpin);
+
+    outer->addWidget(solvGroup);
+
+    // ── Wet/dry & VFR ────────────────────────────────────────────────────
+    auto *wetGroup = new QGroupBox(tr("Wet/dry && VFR"), page);
+    auto *wetForm  = new QFormLayout(wetGroup);
+
+    m_twoDDryDepthSpin = new QDoubleSpinBox(wetGroup);
+    m_twoDDryDepthSpin->setRange(0.0, 1.0);
+    m_twoDDryDepthSpin->setDecimals(6);
+    m_twoDDryDepthSpin->setSuffix(QStringLiteral(" m"));
+    wetForm->addRow(tr("Dry depth (DRY_DEPTH)"), m_twoDDryDepthSpin);
+
+    m_twoDLimiterEpsSpin = new QDoubleSpinBox(wetGroup);
+    m_twoDLimiterEpsSpin->setRange(0.0, 1.0);
+    m_twoDLimiterEpsSpin->setDecimals(9);
+    wetForm->addRow(tr("Limiter epsilon (LIMITER_EPSILON)"), m_twoDLimiterEpsSpin);
+
+    m_twoDFluxDhEpsSpin = new QDoubleSpinBox(wetGroup);
+    m_twoDFluxDhEpsSpin->setRange(0.0, 1.0);
+    m_twoDFluxDhEpsSpin->setDecimals(6);
+    m_twoDFluxDhEpsSpin->setSuffix(QStringLiteral(" m"));
+    wetForm->addRow(tr("Flux head epsilon (FLUX_DH_EPS)"), m_twoDFluxDhEpsSpin);
+
+    m_twoDCellClosureCombo = new QComboBox(wetGroup);
+    m_twoDCellClosureCombo->addItem(tr("Flat bed"), QStringLiteral("FLAT"));
+    m_twoDCellClosureCombo->addItem(tr("Volume-free-surface (VFR)"), QStringLiteral("VFR"));
+    wetForm->addRow(tr("Cell closure (CELL_CLOSURE)"), m_twoDCellClosureCombo);
+
+    m_twoDFaceReconCombo = new QComboBox(wetGroup);
+    m_twoDFaceReconCombo->addItem(tr("Mean"), QStringLiteral("MEAN"));
+    m_twoDFaceReconCombo->addItem(tr("VFR face"), QStringLiteral("VFR_FACE"));
+    wetForm->addRow(tr("Face reconstruction (FACE_RECONSTRUCTION)"), m_twoDFaceReconCombo);
+
+    m_twoDVfrMinWetFracSpin = new QDoubleSpinBox(wetGroup);
+    m_twoDVfrMinWetFracSpin->setRange(0.0, 1.0);
+    m_twoDVfrMinWetFracSpin->setDecimals(4);
+    wetForm->addRow(tr("VFR minimum wet fraction (VFR_MIN_WET_FRAC)"),
+                    m_twoDVfrMinWetFracSpin);
+
+    outer->addWidget(wetGroup);
+
+    // ── Coupling ─────────────────────────────────────────────────────────
+    auto *cplGroup = new QGroupBox(tr("1D↔2D coupling"), page);
+    auto *cplForm  = new QFormLayout(cplGroup);
+
+    m_twoDCouplingCdSpin = new QDoubleSpinBox(cplGroup);
+    m_twoDCouplingCdSpin->setRange(0.0, 10.0);
+    m_twoDCouplingCdSpin->setDecimals(4);
+    cplForm->addRow(tr("Discharge coefficient (COUPLING_CD)"), m_twoDCouplingCdSpin);
+
+    m_twoDCouplingSyncSpin = new QDoubleSpinBox(cplGroup);
+    m_twoDCouplingSyncSpin->setRange(0.0, 3600.0);
+    m_twoDCouplingSyncSpin->setDecimals(3);
+    m_twoDCouplingSyncSpin->setSuffix(QStringLiteral(" s"));
+    m_twoDCouplingSyncSpin->setSpecialValueText(tr("every routing step"));
+    cplForm->addRow(tr("Exchange interval (COUPLING_SYNC)"), m_twoDCouplingSyncSpin);
+
+    m_twoDCouplingAreaAutoBox = new QCheckBox(
+        tr("Auto exchange area (COUPLING_AREA AUTO)"), cplGroup);
+    cplForm->addRow(QString(), m_twoDCouplingAreaAutoBox);
+
+    outer->addWidget(cplGroup);
+
+    // ── Rainfall & reporting ─────────────────────────────────────────────
+    auto *rainGroup = new QGroupBox(tr("Rainfall && reporting"), page);
+    auto *rainForm  = new QFormLayout(rainGroup);
+
+    m_twoDRainfallModeCombo = new QComboBox(rainGroup);
+    m_twoDRainfallModeCombo->addItem(tr("Natural neighbour"),
+                                     QStringLiteral("NATURAL_NEIGHBOUR"));
+    m_twoDRainfallModeCombo->addItem(tr("System mean"), QStringLiteral("SYSTEM"));
+    m_twoDRainfallModeCombo->addItem(tr("None"), QStringLiteral("NONE"));
+    rainForm->addRow(tr("Direct 2D rainfall (RAINFALL_MODE)"), m_twoDRainfallModeCombo);
+
+    m_twoDReport2DBox = new QCheckBox(tr("Report 2D results (REPORT_2D)"), rainGroup);
+    rainForm->addRow(QString(), m_twoDReport2DBox);
+
+    outer->addWidget(rainGroup);
+
+    // ── Mesh generation seeds ────────────────────────────────────────────
+    auto *meshGroup = new QGroupBox(tr("Mesh generation defaults"), page);
+    auto *meshForm  = new QFormLayout(meshGroup);
+
+    m_twoDMeshMinAngleSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshMinAngleSpin->setRange(0.0, 34.0);
+    m_twoDMeshMinAngleSpin->setDecimals(1);
+    m_twoDMeshMinAngleSpin->setSuffix(QStringLiteral("°"));
+    meshForm->addRow(tr("Minimum triangle angle"), m_twoDMeshMinAngleSpin);
+
+    m_twoDMeshMaxAreaSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshMaxAreaSpin->setRange(0.0, 1e9);
+    m_twoDMeshMaxAreaSpin->setDecimals(2);
+    m_twoDMeshMaxAreaSpin->setSpecialValueText(tr("unconstrained"));
+    meshForm->addRow(tr("Maximum triangle area (m²)"), m_twoDMeshMaxAreaSpin);
+
+    m_twoDMeshMaxSteinerSpin = new QSpinBox(meshGroup);
+    m_twoDMeshMaxSteinerSpin->setRange(-1, 100000000);
+    m_twoDMeshMaxSteinerSpin->setSpecialValueText(tr("unlimited"));
+    meshForm->addRow(tr("Maximum Steiner points"), m_twoDMeshMaxSteinerSpin);
+
+    m_twoDMeshIdwPowerSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshIdwPowerSpin->setRange(0.1, 10.0);
+    m_twoDMeshIdwPowerSpin->setDecimals(1);
+    meshForm->addRow(tr("IDW power"), m_twoDMeshIdwPowerSpin);
+
+    m_twoDMeshSimplifyEpsSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshSimplifyEpsSpin->setRange(0.0, 1000.0);
+    m_twoDMeshSimplifyEpsSpin->setDecimals(3);
+    m_twoDMeshSimplifyEpsSpin->setSuffix(QStringLiteral(" m"));
+    meshForm->addRow(tr("Simplify tolerance"), m_twoDMeshSimplifyEpsSpin);
+
+    m_twoDMeshSnapEpsSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshSnapEpsSpin->setRange(0.0, 1000.0);
+    m_twoDMeshSnapEpsSpin->setDecimals(3);
+    m_twoDMeshSnapEpsSpin->setSuffix(QStringLiteral(" m"));
+    meshForm->addRow(tr("Snap tolerance"), m_twoDMeshSnapEpsSpin);
+
+    m_twoDMeshFlattenRadSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshFlattenRadSpin->setRange(0.0, 1000.0);
+    m_twoDMeshFlattenRadSpin->setDecimals(2);
+    m_twoDMeshFlattenRadSpin->setSuffix(QStringLiteral(" m"));
+    meshForm->addRow(tr("Node flatten radius"), m_twoDMeshFlattenRadSpin);
+
+    m_twoDMeshMinSepBox = new QCheckBox(tr("Enforce minimum node separation"),
+                                        meshGroup);
+    meshForm->addRow(QString(), m_twoDMeshMinSepBox);
+    m_twoDMeshMinSepSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshMinSepSpin->setRange(0.0, 1000.0);
+    m_twoDMeshMinSepSpin->setDecimals(2);
+    m_twoDMeshMinSepSpin->setSuffix(QStringLiteral(" m"));
+    meshForm->addRow(tr("Minimum node separation"), m_twoDMeshMinSepSpin);
+
+    m_twoDMeshThinningBox = new QCheckBox(tr("Thin DTM points"), meshGroup);
+    meshForm->addRow(QString(), m_twoDMeshThinningBox);
+    m_twoDMeshThinningTolSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshThinningTolSpin->setRange(0.0, 1.0);
+    m_twoDMeshThinningTolSpin->setDecimals(2);
+    meshForm->addRow(tr("Thinning tolerance (normal dot)"), m_twoDMeshThinningTolSpin);
+    m_twoDMeshThinningPassesSpin = new QSpinBox(meshGroup);
+    m_twoDMeshThinningPassesSpin->setRange(1, 64);
+    meshForm->addRow(tr("Thinning passes"), m_twoDMeshThinningPassesSpin);
+
+    m_twoDMeshBoundaryBufSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshBoundaryBufSpin->setRange(0.0, 1000.0);
+    m_twoDMeshBoundaryBufSpin->setDecimals(2);
+    m_twoDMeshBoundaryBufSpin->setSuffix(QStringLiteral(" m"));
+    m_twoDMeshBoundaryBufSpin->setSpecialValueText(tr("auto"));
+    meshForm->addRow(tr("Boundary point filter buffer"), m_twoDMeshBoundaryBufSpin);
+
+    m_twoDMeshMaxEdgeBox = new QCheckBox(tr("Densify long boundary edges"),
+                                         meshGroup);
+    meshForm->addRow(QString(), m_twoDMeshMaxEdgeBox);
+    m_twoDMeshMaxEdgeSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshMaxEdgeSpin->setRange(0.1, 10000.0);
+    m_twoDMeshMaxEdgeSpin->setDecimals(2);
+    m_twoDMeshMaxEdgeSpin->setSuffix(QStringLiteral(" m"));
+    meshForm->addRow(tr("Maximum boundary edge length"), m_twoDMeshMaxEdgeSpin);
+
+    m_twoDMeshManningsSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshManningsSpin->setRange(0.001, 1.0);
+    m_twoDMeshManningsSpin->setDecimals(4);
+    meshForm->addRow(tr("Constant Manning's n"), m_twoDMeshManningsSpin);
+
+    m_twoDMeshOutputExternalBox = new QCheckBox(
+        tr("Write mesh to external file ([2D_MESH_FILE])"), meshGroup);
+    meshForm->addRow(QString(), m_twoDMeshOutputExternalBox);
+
+    outer->addWidget(meshGroup);
+    outer->addStretch(1);
+    return page;
+}
+
 QWidget *PreferencesDialog::buildMapDisplayPage()
 {
     auto *page  = new QWidget(this);
@@ -1244,6 +1472,9 @@ void PreferencesDialog::readFromManager()
         m_simThreadsSpin         ->setValue(d.threads);
     }
 
+    // 2D Defaults (shared widget-apply helper — also used by Reset)
+    applyTwoDDefaultsToWidgets(p->twoDDefaults());
+
     // Scale Bar
     applyColor(m_scaleBarColorBtn, m_pendingScaleBarColor, p->scaleBarPenColor());
     m_scaleBarPenWidthSpin->setValue(p->scaleBarPenWidth());
@@ -1295,6 +1526,50 @@ void PreferencesDialog::readFromManager()
     m_prefixOutlet      ->setText(p->elementNamePrefix(QStringLiteral("outlet")));
     m_prefixRaingage    ->setText(p->elementNamePrefix(QStringLiteral("raingage")));
     m_prefixSubcatchment->setText(p->elementNamePrefix(QStringLiteral("subcatchment")));
+}
+
+void PreferencesDialog::applyTwoDDefaultsToWidgets(
+    const PreferencesManager::TwoDDefaults &d)
+{
+    auto selData = [](QComboBox *c, const QString &v) {
+        const int i = c->findData(v, Qt::UserRole, Qt::MatchFixedString);
+        c->setCurrentIndex(i >= 0 ? i : 0);
+    };
+    m_twoDMaxTimestepSpin    ->setValue(d.maxTimestepSec);
+    m_twoDThetaSpin          ->setValue(d.theta);
+    m_twoDCflSpin            ->setValue(d.cflNumber);
+    m_twoDLtsTiersSpin       ->setValue(d.ltsTiers);
+    m_twoDHMoveSpin          ->setValue(d.hMove);
+    m_twoDFroudeMaxSpin      ->setValue(d.froudeMax);
+    m_twoDDryDepthSpin       ->setValue(d.dryDepth);
+    m_twoDLimiterEpsSpin     ->setValue(d.limiterEpsilon);
+    m_twoDFluxDhEpsSpin      ->setValue(d.fluxDhEps);
+    selData(m_twoDCellClosureCombo, d.cellClosure);
+    selData(m_twoDFaceReconCombo,   d.faceReconstruction);
+    m_twoDVfrMinWetFracSpin  ->setValue(d.vfrMinWetFrac);
+    m_twoDCouplingCdSpin     ->setValue(d.couplingCd);
+    m_twoDCouplingSyncSpin   ->setValue(d.couplingSync);
+    m_twoDCouplingAreaAutoBox->setChecked(d.couplingAreaAuto);
+    selData(m_twoDRainfallModeCombo, d.rainfallMode);
+    m_twoDReport2DBox        ->setChecked(d.report2D);
+
+    m_twoDMeshMinAngleSpin      ->setValue(d.meshMinAngleDeg);
+    m_twoDMeshMaxAreaSpin       ->setValue(d.meshMaxArea);
+    m_twoDMeshMaxSteinerSpin    ->setValue(d.meshMaxSteiner);
+    m_twoDMeshIdwPowerSpin      ->setValue(d.meshIdwPower);
+    m_twoDMeshSimplifyEpsSpin   ->setValue(d.meshSimplifyEpsM);
+    m_twoDMeshSnapEpsSpin       ->setValue(d.meshSnapEpsM);
+    m_twoDMeshFlattenRadSpin    ->setValue(d.meshNodeFlattenRadM);
+    m_twoDMeshMinSepBox         ->setChecked(d.meshMinNodeSepOn);
+    m_twoDMeshMinSepSpin        ->setValue(d.meshMinNodeSepM);
+    m_twoDMeshThinningBox       ->setChecked(d.meshThinningOn);
+    m_twoDMeshThinningTolSpin   ->setValue(d.meshThinningTol);
+    m_twoDMeshThinningPassesSpin->setValue(d.meshThinningPasses);
+    m_twoDMeshBoundaryBufSpin   ->setValue(d.meshBoundaryBufferM);
+    m_twoDMeshMaxEdgeBox        ->setChecked(d.meshMaxBoundaryEdgeOn);
+    m_twoDMeshMaxEdgeSpin       ->setValue(d.meshMaxBoundaryEdgeM);
+    m_twoDMeshManningsSpin      ->setValue(d.meshManningsN);
+    m_twoDMeshOutputExternalBox ->setChecked(d.meshOutputExternal);
 }
 
 void PreferencesDialog::writeToManager()
@@ -1403,6 +1678,48 @@ void PreferencesDialog::writeToManager()
         d.threads            =  m_simThreadsSpin         ->value();
 
         p->setSimulationDefaults(d);
+    }
+
+    // 2D Defaults — package the page state and persist via one setter.
+    {
+        PreferencesManager::TwoDDefaults d;
+        d.maxTimestepSec     = m_twoDMaxTimestepSpin    ->value();
+        d.theta              = m_twoDThetaSpin          ->value();
+        d.cflNumber          = m_twoDCflSpin            ->value();
+        d.ltsTiers           = m_twoDLtsTiersSpin       ->value();
+        d.hMove              = m_twoDHMoveSpin          ->value();
+        d.froudeMax          = m_twoDFroudeMaxSpin      ->value();
+        d.dryDepth           = m_twoDDryDepthSpin       ->value();
+        d.limiterEpsilon     = m_twoDLimiterEpsSpin     ->value();
+        d.fluxDhEps          = m_twoDFluxDhEpsSpin      ->value();
+        d.cellClosure        = m_twoDCellClosureCombo   ->currentData().toString();
+        d.faceReconstruction = m_twoDFaceReconCombo     ->currentData().toString();
+        d.vfrMinWetFrac      = m_twoDVfrMinWetFracSpin  ->value();
+        d.couplingCd         = m_twoDCouplingCdSpin     ->value();
+        d.couplingSync       = m_twoDCouplingSyncSpin   ->value();
+        d.couplingAreaAuto   = m_twoDCouplingAreaAutoBox->isChecked();
+        d.rainfallMode       = m_twoDRainfallModeCombo  ->currentData().toString();
+        d.report2D           = m_twoDReport2DBox        ->isChecked();
+
+        d.meshMinAngleDeg       = m_twoDMeshMinAngleSpin      ->value();
+        d.meshMaxArea           = m_twoDMeshMaxAreaSpin       ->value();
+        d.meshMaxSteiner        = m_twoDMeshMaxSteinerSpin    ->value();
+        d.meshIdwPower          = m_twoDMeshIdwPowerSpin      ->value();
+        d.meshSimplifyEpsM      = m_twoDMeshSimplifyEpsSpin   ->value();
+        d.meshSnapEpsM          = m_twoDMeshSnapEpsSpin       ->value();
+        d.meshNodeFlattenRadM   = m_twoDMeshFlattenRadSpin    ->value();
+        d.meshMinNodeSepOn      = m_twoDMeshMinSepBox         ->isChecked();
+        d.meshMinNodeSepM       = m_twoDMeshMinSepSpin        ->value();
+        d.meshThinningOn        = m_twoDMeshThinningBox       ->isChecked();
+        d.meshThinningTol       = m_twoDMeshThinningTolSpin   ->value();
+        d.meshThinningPasses    = m_twoDMeshThinningPassesSpin->value();
+        d.meshBoundaryBufferM   = m_twoDMeshBoundaryBufSpin   ->value();
+        d.meshMaxBoundaryEdgeOn = m_twoDMeshMaxEdgeBox        ->isChecked();
+        d.meshMaxBoundaryEdgeM  = m_twoDMeshMaxEdgeSpin       ->value();
+        d.meshManningsN         = m_twoDMeshManningsSpin      ->value();
+        d.meshOutputExternal    = m_twoDMeshOutputExternalBox ->isChecked();
+
+        p->setTwoDDefaults(d);
     }
 
     // Scale Bar
@@ -1626,6 +1943,9 @@ void PreferencesDialog::onResetToDefaults()
         const int hwThreads = QThread::idealThreadCount();
         m_simThreadsSpin         ->setValue(hwThreads > 0 ? hwThreads : 0);
     }
+
+    // 2D defaults — compile-time struct defaults straight to the widgets.
+    applyTwoDDefaultsToWidgets(PreferencesManager::TwoDDefaults{});
 
     // Scale bar defaults
     {

@@ -19,6 +19,8 @@
 #include <QColor>
 #include <QFont>
 
+#include "core/preferencesmanager.h"
+
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
@@ -55,6 +57,8 @@ private:
     void buildUi();
     void readFromManager();
     void writeToManager();
+    void applyTwoDDefaultsToWidgets(
+        const PreferencesManager::TwoDDefaults &d);
 
     QWidget *buildGeneralPage();
     QWidget *buildSelectionPage();
@@ -63,6 +67,7 @@ private:
     QWidget *buildSimulationPage();
     QWidget *buildSimulationDefaultsPage();
     QWidget *buildDynamicWaveDefaultsPage();
+    QWidget *buildTwoDDefaultsPage();
     QWidget *buildMapDisplayPage();
     QWidget *buildMeasureToolPage();
     QWidget *buildPlotsPage();
@@ -173,6 +178,42 @@ private:
     QComboBox      *m_simNodeContinuityCombo  = nullptr;
     QCheckBox      *m_simAndersonAccelBox     = nullptr;
     QSpinBox       *m_simThreadsSpin          = nullptr;
+
+    // 2D Defaults — [2D_OPTIONS] solver keys + mesh-generation seeds.
+    QDoubleSpinBox *m_twoDMaxTimestepSpin     = nullptr;   // seconds
+    QDoubleSpinBox *m_twoDThetaSpin           = nullptr;
+    QDoubleSpinBox *m_twoDCflSpin             = nullptr;
+    QSpinBox       *m_twoDLtsTiersSpin        = nullptr;
+    QDoubleSpinBox *m_twoDHMoveSpin           = nullptr;
+    QDoubleSpinBox *m_twoDFroudeMaxSpin       = nullptr;
+    QDoubleSpinBox *m_twoDDryDepthSpin        = nullptr;
+    QDoubleSpinBox *m_twoDLimiterEpsSpin      = nullptr;
+    QDoubleSpinBox *m_twoDFluxDhEpsSpin       = nullptr;
+    QComboBox      *m_twoDCellClosureCombo    = nullptr;
+    QComboBox      *m_twoDFaceReconCombo      = nullptr;
+    QDoubleSpinBox *m_twoDVfrMinWetFracSpin   = nullptr;
+    QDoubleSpinBox *m_twoDCouplingCdSpin      = nullptr;
+    QDoubleSpinBox *m_twoDCouplingSyncSpin    = nullptr;
+    QCheckBox      *m_twoDCouplingAreaAutoBox = nullptr;
+    QComboBox      *m_twoDRainfallModeCombo   = nullptr;
+    QCheckBox      *m_twoDReport2DBox         = nullptr;
+    QDoubleSpinBox *m_twoDMeshMinAngleSpin    = nullptr;
+    QDoubleSpinBox *m_twoDMeshMaxAreaSpin     = nullptr;
+    QSpinBox       *m_twoDMeshMaxSteinerSpin  = nullptr;
+    QDoubleSpinBox *m_twoDMeshIdwPowerSpin    = nullptr;
+    QDoubleSpinBox *m_twoDMeshSimplifyEpsSpin = nullptr;
+    QDoubleSpinBox *m_twoDMeshSnapEpsSpin     = nullptr;
+    QDoubleSpinBox *m_twoDMeshFlattenRadSpin  = nullptr;
+    QCheckBox      *m_twoDMeshMinSepBox       = nullptr;
+    QDoubleSpinBox *m_twoDMeshMinSepSpin      = nullptr;
+    QCheckBox      *m_twoDMeshThinningBox     = nullptr;
+    QDoubleSpinBox *m_twoDMeshThinningTolSpin = nullptr;
+    QSpinBox       *m_twoDMeshThinningPassesSpin = nullptr;
+    QDoubleSpinBox *m_twoDMeshBoundaryBufSpin = nullptr;
+    QCheckBox      *m_twoDMeshMaxEdgeBox      = nullptr;
+    QDoubleSpinBox *m_twoDMeshMaxEdgeSpin     = nullptr;
+    QDoubleSpinBox *m_twoDMeshManningsSpin    = nullptr;
+    QCheckBox      *m_twoDMeshOutputExternalBox = nullptr;
 
     // Map Display / Scale Bar
     QPushButton   *m_scaleBarColorBtn         = nullptr;
