@@ -394,7 +394,7 @@ void SWMM2DResultsQSGRenderer::setLayer(SWMM2DResultsLayer *layer)
         connect(m_layer, &OpenSWMMVisLayer::repaintRequested, this,
                 [this]() {
                     m_dirty.noteExternalChanged();
-                    update();
+                    noteContentChanged();
                 });
         // Animation ticks land via currentTimeChanged (setCurrentTimeIndex
         // does not emit repaintRequested) — a pure Data-domain event.
@@ -405,13 +405,13 @@ void SWMM2DResultsQSGRenderer::setLayer(SWMM2DResultsLayer *layer)
                     m_bandCacheTime = -1;
                     m_isoCacheTime  = -1;
                     m_dirty.noteDataChanged();
-                    update();
+                    noteContentChanged();
                 });
         // Selection-domain event: rebuilds ONLY the highlight overlay.
         connect(m_layer, &SWMM2DResultsLayer::highlightedCellsChanged,
                 this, [this]() {
                     m_dirty.noteSelectionChanged();
-                    update();
+                    noteContentChanged();
                 });
     }
     // Per-layer derived state is invalid for the new layer.

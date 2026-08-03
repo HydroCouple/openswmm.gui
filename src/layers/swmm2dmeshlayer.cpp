@@ -1735,6 +1735,16 @@ bool SWMM2DMeshLayer::applyMeshVertexZ(int vertexIdx, double z)
         rebuildSceneGeometry();
     }
 
+    // The renderer caches shaded per-triangle RGB, isobands and isolines behind
+    // a geomRevision-keyed check (SWMM2DMeshQSGRenderer). The incremental
+    // branch above changes z0/z1/z2/zAvg — the exact inputs to the hillshade —
+    // without going through rebuildSceneGeometry(), which is where the bump
+    // normally lives. Without this the caches report a hit and re-upload the
+    // pre-edit colours: repaintRequested fires, the frame redraws, and the
+    // shading does not change. Unconditional (the rebuild branches bump too);
+    // a redundant increment costs nothing but a cache miss.
+    ++m_geomRevision;
+
     emit attributeChanged(mesh::MeshObjectRef::vertex(m_sourcePath, vertexIdx).name);
     emit repaintRequested();
     return true;
