@@ -127,6 +127,7 @@ private:
     // user commits the Expression cell.
     QLabel         *m_treatmentSummary = nullptr;
     QTableWidget   *m_treatmentTable   = nullptr;
+    QLabel         *m_treatmentBanner  = nullptr;   // live validator verdict
     // Re-entrancy guard: applying engine state to the table fires
     // QTableWidget::itemChanged for every cell, which would otherwise
     // bounce right back into the commit handler. Set to true while

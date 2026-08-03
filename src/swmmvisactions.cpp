@@ -199,6 +199,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionNewTransect",           QT_TR_NOOP("Transect")},
         {"actionNewLidControl",         QT_TR_NOOP("LID\nControl")},
         {"actionNewPollutant",          QT_TR_NOOP("Pollutant")},
+        {"actionNewLandUse",            QT_TR_NOOP("Land\nUse")},
         {"actionOptions",               QT_TR_NOOP("Simulation\nOptions")},
         {"actionUserFlags",             QT_TR_NOOP("User\nFlags")},
         {"actionImportFeatureLayer",    QT_TR_NOOP("Import\nFeature Layer")},
@@ -291,7 +292,8 @@ void SWMMVis::initializeCompactToolbar()
     addGroup(mToolBarModel, tr("Data Objects"),
              {"actionNewTimeSeries", "actionNewCurve", "actionNewPattern",
               "actionNewControlRule", "actionNewTransect",
-              "actionNewLidControl", "actionNewPollutant"});
+              "actionNewLidControl", "actionNewPollutant",
+              "actionNewLandUse"});
     addGroup(mToolBarModel, tr("Setup"),
              {"actionOptions", "actionUserFlags", "actionImportFeatureLayer"});
     addGroup(mToolBarModel, tr("Mesh 2D"), {"actionGenerateMesh"});

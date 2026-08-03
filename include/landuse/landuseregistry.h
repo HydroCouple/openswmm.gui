@@ -38,6 +38,12 @@ public:
     void remove(LandUseProvider *p);
     bool rename(LandUseProvider *p, const QString &newName);
 
+    /*! Human-readable summary of what deleting \a p would cascade or
+     *  nullify ("2 buildup rows, 1 subcatchment coverage"), from the
+     *  engine's swmm_landuse_analyze_impact. Empty when unknown to the
+     *  engine or no references exist. */
+    QString impactSummary(LandUseProvider *p) const;
+
     int loadFromEngine(void *engineHandle);
     int saveToEngine(void *engineHandle);
     int saveToEngine();

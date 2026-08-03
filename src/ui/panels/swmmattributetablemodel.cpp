@@ -695,6 +695,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             compoundCol("Land uses",   "Land Use Coverage", "subcatch_landuse_ref"),
             compoundCol("Groundwater", "Groundwater",       "subcatch_groundwater_ref"),
             compoundCol("LID usage",   "LID Usage",         "subcatch_lid_ref"),
+            compoundCol("Loadings",    "Initial Loadings",  "subcatch_loadings_ref"),
         };
     case SWMMModelLayer::CatRainGages: {
         // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — rain
@@ -2005,7 +2006,8 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         // the cell only carries the coordinate + a live summary.
         if (spec.setter == QStringLiteral("subcatch_landuse_ref")
             || spec.setter == QStringLiteral("subcatch_groundwater_ref")
-            || spec.setter == QStringLiteral("subcatch_lid_ref")) {
+            || spec.setter == QStringLiteral("subcatch_lid_ref")
+            || spec.setter == QStringLiteral("subcatch_loadings_ref")) {
             const int sIdx = swmm_subcatch_index(eng, name.toUtf8().constData());
             if (sIdx < 0) return {};
             SubcatchCompoundEditRef sref;
@@ -2027,6 +2029,19 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                 int aq = -1;
                 swmm_subcatch_get_aquifer(eng, sIdx, &aq);
                 sref.summary = aq >= 0 ? tr("aquifer set") : tr("(none)");
+            } else if (spec.setter == QStringLiteral("subcatch_loadings_ref")) {
+                // [LOADINGS] initial buildup (iteration 4).
+                sref.kind = SubcatchCompoundEditRef::Loadings;
+                int assigned = 0;
+                const int nP = swmm_pollutant_count(eng);
+                for (int p = 0; p < nP; ++p) {
+                    double w = 0.0;
+                    if (swmm_subcatch_get_initial_loading(eng, sIdx, p, &w)
+                            == SWMM_OK && w > 0.0)
+                        ++assigned;
+                }
+                sref.summary = assigned > 0 ? tr("%1 pollutant(s)").arg(assigned)
+                                            : tr("(none)");
             } else {
                 sref.kind = SubcatchCompoundEditRef::LidUsage;
                 int mine = 0;

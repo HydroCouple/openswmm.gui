@@ -25,9 +25,10 @@ class SWMMModelLayer;
 struct SubcatchCompoundEditRef
 {
     enum Kind {
-        LandUse     = 0,  ///< [COVERAGES] per-landuse coverage fractions
+        LandUse     = 0,  ///< [COVERAGES] per-landuse coverage percents
         Groundwater = 1,  ///< [GROUNDWATER] aquifer + flow routing params
         LidUsage    = 2,  ///< [LID_USAGE] LID controls assigned to the subcatch
+        Loadings    = 3,  ///< [LOADINGS] initial pollutant buildup (iter. 4)
     };
 
     SWMM_Engine     engine   = nullptr;  ///< Engine handle (borrow, not owned)
