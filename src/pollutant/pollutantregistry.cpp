@@ -59,11 +59,23 @@ void PollutantRegistry::remove(PollutantProvider *p)
 bool PollutantRegistry::rename(PollutantProvider *p, const QString &newName)
 {
     if (!p || newName.isEmpty()) return false;
-    if (p->name().compare(newName, Qt::CaseInsensitive) == 0) {
-        p->setName(newName);
-        return true;
+    const bool caseOnly =
+        p->name().compare(newName, Qt::CaseInsensitive) == 0;
+    if (!caseOnly && hasName(newName)) return false;
+
+    // Iteration 4 — rename in the engine too (name-stored [INFLOWS]/[DWF]
+    // constituent references follow). Without this, saveToEngine saw an
+    // unknown name and ADDED a duplicate pollutant.
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx =
+            swmm_pollutant_index(eng, p->name().toUtf8().constData());
+        if (idx >= 0 &&
+            swmm_pollutant_rename(eng, idx, newName.toUtf8().constData())
+                != SWMM_OK)
+            return false;
     }
-    if (hasName(newName)) return false;
+
     p->setName(newName);
     return true;
 }

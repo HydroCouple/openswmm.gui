@@ -39,17 +39,23 @@ private:
     void buildLandUsePage();
     void buildGroundwaterPage();
     void buildLidUsagePage();
+    void buildLoadingsPage();
     void refreshActivePage();
 
     [[nodiscard]] int subIdx() const;   // swmm_subcatch_index, or -1
 
     SubcatchCompoundEditRef m_ref;
 
-    // Land-use page
+    // Land-use page — iteration 4: editable full matrix (one row per
+    // defined land use, editable percent column, live sum footer).
     QLabel       *m_luSummary  = nullptr;
     QTableWidget *m_luTable    = nullptr;
-    QComboBox    *m_luCombo    = nullptr;
-    QDoubleSpinBox *m_luCovSpin = nullptr;
+    bool          m_luRefreshing = false;
+
+    // Loadings page (iteration 4) — [LOADINGS] initial buildup per pollutant.
+    QLabel       *m_loadSummary = nullptr;
+    QTableWidget *m_loadTable   = nullptr;
+    bool          m_loadRefreshing = false;
 
     // Groundwater page
     QLabel         *m_gwSummary = nullptr;
