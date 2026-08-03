@@ -235,12 +235,21 @@ GAGE1            0.0000             0.0000
 MAX_TIMESTEP           10
 DRY_DEPTH              0.001
 LIMITER_EPSILON        1e-06
+FLUX_DH_EPS            0.004
 COUPLING_CD            0.65
+COUPLING_SYNC          0
 RAINFALL_MODE          NATURAL_NEIGHBOUR
 REPORT_2D              YES
-CELL_CLOSURE           FLAT
-FACE_RECONSTRUCTION    MEAN
-VFR_MIN_WET_FRAC       0.01
+CELL_CLOSURE           VFR
+FACE_RECONSTRUCTION    VFR_FACE
+VFR_MIN_WET_FRAC       0.001
+INTEGRATOR             EXPLICIT
+THETA                  0.8
+CFL_NUMBER             0.7
+H_MOVE                 0.003
+LTS_TIERS              4
+FROUDE_MAX             1.5
+COUPLING_AREA          DEFAULT
 OUTPUT_FILE            road_culvert.2d.h5
 
 [2D_VERTICES]
