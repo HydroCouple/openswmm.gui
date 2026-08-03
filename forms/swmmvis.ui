@@ -1189,7 +1189,7 @@
      <normaloff>:/swmmvis/SkipBack</normaloff>:/swmmvis/SkipBack</iconset>
    </property>
    <property name="text">
-    <string>&amp;Skip Backward</string>
+    <string>&amp;Backward</string>
    </property>
    <property name="statusTip">
     <string>Skip Backward</string>
@@ -1210,7 +1210,7 @@
      <normaloff>:/swmmvis/SkipForward</normaloff>:/swmmvis/SkipForward</iconset>
    </property>
    <property name="text">
-    <string>&amp;Skip Forward</string>
+    <string>&amp;Forward</string>
    </property>
    <property name="statusTip">
     <string>Skip Forward</string>

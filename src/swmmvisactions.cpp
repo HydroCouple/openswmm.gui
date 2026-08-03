@@ -172,7 +172,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionAddSWMMOutput",         QT_TR_NOOP("SWMM\nOutput")},
         {"actionAddVectorData",         QT_TR_NOOP("Vector\nData")},
         {"actionAddRasterData",         QT_TR_NOOP("Raster\nData")},
-        {"actionAddWMSData",            QT_TR_NOOP("WMS Data")},
+        {"actionAddWMSData",            QT_TR_NOOP("Web\nLayers")},
         {"actionAddDelimeteredData",    QT_TR_NOOP("Delimited")},
         {"actionAddBasemap",            QT_TR_NOOP("Basemap")},
         {"actionPauseExecution",        QT_TR_NOOP("Pause")},
