@@ -166,6 +166,8 @@
         <file alias="SelectTriNode">images/select_tri_node.svg</file>
         <file alias="SelectTriEdge">images/select_tri_edge.svg</file>
         <file alias="SelectCell">images/select_cell.svg</file>
+        <!-- Iteration 4 — Coupling group: Remap 1D↔2D. -->
+        <file alias="Remap1D2D">images/remap_1d2d.svg</file>
     </qresource>
     <!-- Slice S.SC.1.a (2026-05-25) — Cross-section thumbnails for the
          LinkCompoundEditDialog XSection page's QListWidget shape palette.

@@ -1502,3 +1502,108 @@ void PreferencesManager::setSimulationDefaults(const SimulationDefaults &d)
     emit preferenceChanged(QStringLiteral("Defaults"),
                            QStringLiteral("SimulationDefaults"));
 }
+
+// ---------------------------------------------------------------------------
+// 2D defaults — [2D_OPTIONS] solver keys + mesh-generation seeds.
+// ---------------------------------------------------------------------------
+
+namespace {
+constexpr const char *kTwoDDefaultsGroup = "SWMMVis/Preferences/TwoDDefaults";
+
+template<typename T>
+T readTwoDSetting(QSettings &s, const QString &key, const T &fallback) {
+    const QVariant v = s.value(QStringLiteral("%1/%2")
+                                   .arg(QLatin1String(kTwoDDefaultsGroup), key));
+    return v.isValid() ? v.value<T>() : fallback;
+}
+} // anonymous
+
+PreferencesManager::TwoDDefaults PreferencesManager::twoDDefaults() const
+{
+    TwoDDefaults d;   // compiled-in defaults seed the struct
+
+    auto &s = const_cast<QSettings &>(m_settings);
+    d.maxTimestepSec     = readTwoDSetting<double>(s, QStringLiteral("MaxTimestepSec"),     d.maxTimestepSec);
+    d.theta              = readTwoDSetting<double>(s, QStringLiteral("Theta"),              d.theta);
+    d.cflNumber          = readTwoDSetting<double>(s, QStringLiteral("CflNumber"),          d.cflNumber);
+    d.ltsTiers           = readTwoDSetting<int>(s,    QStringLiteral("LtsTiers"),           d.ltsTiers);
+    d.hMove              = readTwoDSetting<double>(s, QStringLiteral("HMove"),              d.hMove);
+    d.froudeMax          = readTwoDSetting<double>(s, QStringLiteral("FroudeMax"),          d.froudeMax);
+    d.dryDepth           = readTwoDSetting<double>(s, QStringLiteral("DryDepth"),           d.dryDepth);
+    d.limiterEpsilon     = readTwoDSetting<double>(s, QStringLiteral("LimiterEpsilon"),     d.limiterEpsilon);
+    d.fluxDhEps          = readTwoDSetting<double>(s, QStringLiteral("FluxDhEps"),          d.fluxDhEps);
+    d.cellClosure        = readTwoDSetting<QString>(s, QStringLiteral("CellClosure"),        d.cellClosure);
+    d.faceReconstruction = readTwoDSetting<QString>(s, QStringLiteral("FaceReconstruction"), d.faceReconstruction);
+    d.vfrMinWetFrac      = readTwoDSetting<double>(s, QStringLiteral("VfrMinWetFrac"),      d.vfrMinWetFrac);
+    d.couplingCd         = readTwoDSetting<double>(s, QStringLiteral("CouplingCd"),         d.couplingCd);
+    d.couplingSync       = readTwoDSetting<double>(s, QStringLiteral("CouplingSync"),       d.couplingSync);
+    d.couplingAreaAuto   = readTwoDSetting<bool>(s,   QStringLiteral("CouplingAreaAuto"),   d.couplingAreaAuto);
+    d.rainfallMode       = readTwoDSetting<QString>(s, QStringLiteral("RainfallMode"),       d.rainfallMode);
+    d.report2D           = readTwoDSetting<bool>(s,   QStringLiteral("Report2D"),           d.report2D);
+
+    d.meshMinAngleDeg       = readTwoDSetting<double>(s, QStringLiteral("MeshMinAngleDeg"),       d.meshMinAngleDeg);
+    d.meshMaxArea           = readTwoDSetting<double>(s, QStringLiteral("MeshMaxArea"),           d.meshMaxArea);
+    d.meshMaxSteiner        = readTwoDSetting<int>(s,    QStringLiteral("MeshMaxSteiner"),        d.meshMaxSteiner);
+    d.meshIdwPower          = readTwoDSetting<double>(s, QStringLiteral("MeshIdwPower"),          d.meshIdwPower);
+    d.meshSimplifyEpsM      = readTwoDSetting<double>(s, QStringLiteral("MeshSimplifyEpsM"),      d.meshSimplifyEpsM);
+    d.meshSnapEpsM          = readTwoDSetting<double>(s, QStringLiteral("MeshSnapEpsM"),          d.meshSnapEpsM);
+    d.meshNodeFlattenRadM   = readTwoDSetting<double>(s, QStringLiteral("MeshNodeFlattenRadM"),   d.meshNodeFlattenRadM);
+    d.meshMinNodeSepOn      = readTwoDSetting<bool>(s,   QStringLiteral("MeshMinNodeSepOn"),      d.meshMinNodeSepOn);
+    d.meshMinNodeSepM       = readTwoDSetting<double>(s, QStringLiteral("MeshMinNodeSepM"),       d.meshMinNodeSepM);
+    d.meshThinningOn        = readTwoDSetting<bool>(s,   QStringLiteral("MeshThinningOn"),        d.meshThinningOn);
+    d.meshThinningTol       = readTwoDSetting<double>(s, QStringLiteral("MeshThinningTol"),       d.meshThinningTol);
+    d.meshThinningPasses    = readTwoDSetting<int>(s,    QStringLiteral("MeshThinningPasses"),    d.meshThinningPasses);
+    d.meshBoundaryBufferM   = readTwoDSetting<double>(s, QStringLiteral("MeshBoundaryBufferM"),   d.meshBoundaryBufferM);
+    d.meshMaxBoundaryEdgeOn = readTwoDSetting<bool>(s,   QStringLiteral("MeshMaxBoundaryEdgeOn"), d.meshMaxBoundaryEdgeOn);
+    d.meshMaxBoundaryEdgeM  = readTwoDSetting<double>(s, QStringLiteral("MeshMaxBoundaryEdgeM"),  d.meshMaxBoundaryEdgeM);
+    d.meshManningsN         = readTwoDSetting<double>(s, QStringLiteral("MeshManningsN"),         d.meshManningsN);
+    d.meshOutputExternal    = readTwoDSetting<bool>(s,   QStringLiteral("MeshOutputExternal"),    d.meshOutputExternal);
+
+    return d;
+}
+
+void PreferencesManager::setTwoDDefaults(const TwoDDefaults &d)
+{
+    auto put = [this](const QString &key, const QVariant &v) {
+        m_settings.setValue(
+            QStringLiteral("%1/%2").arg(QLatin1String(kTwoDDefaultsGroup), key), v);
+    };
+    put(QStringLiteral("MaxTimestepSec"),     d.maxTimestepSec);
+    put(QStringLiteral("Theta"),              d.theta);
+    put(QStringLiteral("CflNumber"),          d.cflNumber);
+    put(QStringLiteral("LtsTiers"),           d.ltsTiers);
+    put(QStringLiteral("HMove"),              d.hMove);
+    put(QStringLiteral("FroudeMax"),          d.froudeMax);
+    put(QStringLiteral("DryDepth"),           d.dryDepth);
+    put(QStringLiteral("LimiterEpsilon"),     d.limiterEpsilon);
+    put(QStringLiteral("FluxDhEps"),          d.fluxDhEps);
+    put(QStringLiteral("CellClosure"),        d.cellClosure);
+    put(QStringLiteral("FaceReconstruction"), d.faceReconstruction);
+    put(QStringLiteral("VfrMinWetFrac"),      d.vfrMinWetFrac);
+    put(QStringLiteral("CouplingCd"),         d.couplingCd);
+    put(QStringLiteral("CouplingSync"),       d.couplingSync);
+    put(QStringLiteral("CouplingAreaAuto"),   d.couplingAreaAuto);
+    put(QStringLiteral("RainfallMode"),       d.rainfallMode);
+    put(QStringLiteral("Report2D"),           d.report2D);
+
+    put(QStringLiteral("MeshMinAngleDeg"),       d.meshMinAngleDeg);
+    put(QStringLiteral("MeshMaxArea"),           d.meshMaxArea);
+    put(QStringLiteral("MeshMaxSteiner"),        d.meshMaxSteiner);
+    put(QStringLiteral("MeshIdwPower"),          d.meshIdwPower);
+    put(QStringLiteral("MeshSimplifyEpsM"),      d.meshSimplifyEpsM);
+    put(QStringLiteral("MeshSnapEpsM"),          d.meshSnapEpsM);
+    put(QStringLiteral("MeshNodeFlattenRadM"),   d.meshNodeFlattenRadM);
+    put(QStringLiteral("MeshMinNodeSepOn"),      d.meshMinNodeSepOn);
+    put(QStringLiteral("MeshMinNodeSepM"),       d.meshMinNodeSepM);
+    put(QStringLiteral("MeshThinningOn"),        d.meshThinningOn);
+    put(QStringLiteral("MeshThinningTol"),       d.meshThinningTol);
+    put(QStringLiteral("MeshThinningPasses"),    d.meshThinningPasses);
+    put(QStringLiteral("MeshBoundaryBufferM"),   d.meshBoundaryBufferM);
+    put(QStringLiteral("MeshMaxBoundaryEdgeOn"), d.meshMaxBoundaryEdgeOn);
+    put(QStringLiteral("MeshMaxBoundaryEdgeM"),  d.meshMaxBoundaryEdgeM);
+    put(QStringLiteral("MeshManningsN"),         d.meshManningsN);
+    put(QStringLiteral("MeshOutputExternal"),    d.meshOutputExternal);
+
+    emit preferenceChanged(QStringLiteral("Defaults"),
+                           QStringLiteral("TwoDDefaults"));
+}
