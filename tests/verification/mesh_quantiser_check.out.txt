@@ -1,0 +1,64 @@
+MeshGenerator quantiser verification
+====================================
+
+[1] Absolute quantiser loses injectivity at large |x|
+    x=7.4e+05   sep=1.00e-07  key step=1      (want 1)  exact-integer product: yes
+  [PASS] distinct vertices keep distinct keys
+    x=2.9e+06   sep=1.00e-07  key step=1      (want 1)  exact-integer product: yes
+  [PASS] distinct vertices keep distinct keys
+    x=9.0e+08   sep=4.77e-07  key step=5      (want 5)  exact-integer product: yes
+  [PASS] distinct vertices keep distinct keys
+    x=1.0e+09   sep=4.77e-07  key step=4      (want 5)  exact-integer product: NO
+  [PASS] past 2^53 the key step no longer tracks the separation
+    x=1.0e+12   product=1.00e+19  >= 2^63: the qint64 conversion is UNDEFINED
+  [PASS] absolute quantiser is not even well-defined here
+
+[2] Origin-relative quantiser is injective at every magnitude
+    origin=0.0e+00   span=1000  sep=1.00e-07  key step=1 (want 1)
+  [PASS] every separation the input doubles can express survives
+    origin=7.4e+05   span=1000  sep=1.00e-07  key step=1 (want 1)
+  [PASS] every separation the input doubles can express survives
+    origin=2.9e+06   span=1000  sep=1.00e-07  key step=1 (want 1)
+  [PASS] every separation the input doubles can express survives
+    origin=1.0e+09   span=1000  sep=4.77e-07  key step=5 (want 5)
+  [PASS] every separation the input doubles can express survives
+    origin=1.0e+12   span=1000  sep=4.88e-04  key step=4883 (want 4883)
+  [PASS] every separation the input doubles can express survives
+    NOTE: at origin 1e12 the smallest expressible separation
+    is 4.9e-04, not 1e-7 — that resolution is lost in the input
+    coordinates themselves and no quantiser can recover it.
+    exact-key span budget: 9.007e+08 units (1e-7 resolution)
+  [PASS] budget covers any real domain by a wide margin
+
+[3] Triangle is insensitive to projected-CRS magnitude
+    maxArea=5000     origin        err=0 tris=314 nonFinite=0
+  [PASS] meshes cleanly with finite coordinates
+  [PASS] triangle count within 5% of the origin frame
+    maxArea=5000     state plane   err=0 tris=314 nonFinite=0
+  [PASS] meshes cleanly with finite coordinates
+  [PASS] triangle count within 5% of the origin frame
+    maxArea=5000     utm-scale     err=0 tris=314 nonFinite=0
+  [PASS] meshes cleanly with finite coordinates
+  [PASS] triangle count within 5% of the origin frame
+    maxArea=500      origin        err=0 tris=3148 nonFinite=0
+  [PASS] meshes cleanly with finite coordinates
+  [PASS] triangle count within 5% of the origin frame
+    maxArea=500      state plane   err=0 tris=3104 nonFinite=0
+  [PASS] meshes cleanly with finite coordinates
+  [PASS] triangle count within 5% of the origin frame
+    maxArea=500      utm-scale     err=0 tris=3072 nonFinite=0
+  [PASS] meshes cleanly with finite coordinates
+  [PASS] triangle count within 5% of the origin frame
+    maxArea=50       origin        err=0 tris=30838 nonFinite=0
+  [PASS] meshes cleanly with finite coordinates
+  [PASS] triangle count within 5% of the origin frame
+    maxArea=50       state plane   err=0 tris=30760 nonFinite=0
+  [PASS] meshes cleanly with finite coordinates
+  [PASS] triangle count within 5% of the origin frame
+    maxArea=50       utm-scale     err=0 tris=30815 nonFinite=0
+  [PASS] meshes cleanly with finite coordinates
+  [PASS] triangle count within 5% of the origin frame
+
+[4] skipped (pass --stress; runs for minutes)
+
+ALL CHECKS PASSED — 0 failure(s)

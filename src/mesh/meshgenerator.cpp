@@ -161,9 +161,21 @@ MeshResult MeshGenerator::generate() const
         pointMarkers.reserve(estPts);
         pointIndex.reserve(estPts);
     }
+    // Quantise the OFFSET from a reference vertex, not the absolute coordinate.
+    // The key is built by scaling by 1e7, so the product has to stay inside the
+    // range a double represents as an exact integer (2^53). Absolute projected
+    // coordinates blow that budget: at |x| = 1e9 the key gains a step of 2, so
+    // distinct points start sharing one; past |x| ~ 9.2e11 the qint64 conversion
+    // overflows outright. Measured: two points 1e-7 apart at x = 1e12 produce an
+    // IDENTICAL key and are silently merged, which then drops the segments
+    // between them as zero-length. Quantising (xy - quantOrigin) bounds the
+    // product by the domain SPAN instead, so the key stays exact for any CRS
+    // (1e-7 resolution holds out to a 9e8-unit span). The reference is the first
+    // domain vertex: O(1), and every input point lies within one span of it.
+    const QPointF quantOrigin = m_domains.constFirst().constFirst();
     auto pushPoint = [&](const QPointF &xy, int marker) {
-        const qint64 qx = qRound64(xy.x() * 1e7);
-        const qint64 qy = qRound64(xy.y() * 1e7);
+        const qint64 qx = qRound64((xy.x() - quantOrigin.x()) * 1e7);
+        const qint64 qy = qRound64((xy.y() - quantOrigin.y()) * 1e7);
         const PointKey key(qx, qy);
         auto it = pointIndex.find(key);
         if (it != pointIndex.end())
@@ -174,7 +186,8 @@ MeshResult MeshGenerator::generate() const
             return it.value();
         }
         const int idx = points.size();
-        points.append(QPointF(qx / 1e7, qy / 1e7));
+        points.append(QPointF(quantOrigin.x() + qx / 1e7,
+                              quantOrigin.y() + qy / 1e7));
         pointMarkers.append(marker);
         pointIndex.insert(key, idx);
         return idx;
