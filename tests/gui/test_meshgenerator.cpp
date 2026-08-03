@@ -69,6 +69,53 @@ private slots:
         QVERIFY(r.vertices.size() >= 4);
     }
 
+    /*! Projected-CRS magnitudes round-trip. The snap-and-dedupe quantiser
+     *  scales coordinates by 1e7 to build its hash key, so it has to work on
+     *  the offset from a reference vertex rather than the absolute coordinate
+     *  — otherwise the product leaves the exactly-representable integer range
+     *  and distinct vertices start sharing a key. Guards the common path:
+     *  a small domain sitting at State Plane / UTM coordinates must mesh, and
+     *  its output vertices must come back at the coordinates we put in.
+     *  (The quantiser arithmetic itself is covered exhaustively by
+     *  tests/verification/mesh_quantiser_check.cpp.) */
+    void projectedCrsCoordinates_roundTrip()
+    {
+        // Deliberately awkward: a 100 x 100 m domain 3 million metres from
+        // the projection origin.
+        const double ox = 740000.0, oy = 2900000.0;
+        MeshGenerator g;
+        QPolygonF dom;
+        dom << QPointF(ox, oy)
+            << QPointF(ox + 100, oy)
+            << QPointF(ox + 100, oy + 100)
+            << QPointF(ox, oy + 100);
+        g.setDomain(dom);
+        g.setOptions({.maxArea = 500.0, .minAngle = 28.0});
+        const MeshResult r = g.generate();
+
+        QVERIFY2(r.ok, qPrintable(r.errorMsg));
+        QVERIFY(r.triangles.size() >= 2);
+
+        // Every output vertex lands inside the domain (a collapsed or
+        // mis-shifted key would scatter them).
+        for (const MeshVertex &v : r.vertices) {
+            QVERIFY(v.xy.x() >= ox - 1e-6 && v.xy.x() <= ox + 100 + 1e-6);
+            QVERIFY(v.xy.y() >= oy - 1e-6 && v.xy.y() <= oy + 100 + 1e-6);
+        }
+
+        // All four corners survive as distinct vertices.
+        const QVector<QPointF> corners = {
+            {ox, oy}, {ox + 100, oy}, {ox + 100, oy + 100}, {ox, oy + 100}};
+        for (const QPointF &c : corners) {
+            int hits = 0;
+            for (const MeshVertex &v : r.vertices)
+                if (qAbs(v.xy.x() - c.x()) < 1e-6
+                    && qAbs(v.xy.y() - c.y()) < 1e-6)
+                    ++hits;
+            QCOMPARE(hits, 1);
+        }
+    }
+
     /*! Steiner point with marker → vertex with that marker survives in output. */
     void steinerMarker_propagatesToOutputVertex()
     {
