@@ -23,7 +23,7 @@ struct MeshEdgeBC
 {
     MeshBCTypes::Type type      = MeshBCTypes::Type::Wall;
     double            head      = 0.0;    ///< Stage for SpecifiedStageConst (project vert. units)
-    double            slope     = 0.0;    ///< Bed slope for NormalFlow (dimensionless; 0 = auto)
+    double            slope     = 0.0;    ///< Bed slope for NormalFlow (dimensionless; must be > 0 — the engine treats 0 as a wall)
     double            flow      = 0.0;    ///< Discharge per metre for SpecifiedFlowConst (flow units / m)
     QString           tseries;            ///< TS name for *TS variants
     QString           curve;              ///< Curve name for RatingCurve
