@@ -15,6 +15,7 @@
 #include <QString>
 #include <QTemporaryDir>
 
+#include "mesh/inpmeshreader.h"
 #include "mesh/inpmeshwriter.h"
 #include "mesh/meshresult.h"
 
@@ -321,6 +322,120 @@ private slots:
         QVERIFY(in2.open(QIODevice::ReadOnly | QIODevice::Text));
         const QString inpText = QString::fromUtf8(in2.readAll());
         QCOMPARE(inpText, sampleInpText());
+    }
+
+    /*! Save-path regression: the post-save external-mesh restore rolls the
+     *  sidecar back to its pre-edit snapshot, then patchAttributeSections
+     *  re-emits the layer's attribute state. Vertex Z / tag / coupling and
+     *  triangle Manning / tag / cell couplings must all survive; a triangle
+     *  whose layer Manning is unset (NaN) must keep the generation-time
+     *  token from the file. */
+    void patchAttributeSections_reemitsEditedState()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString inpPath  = dir.filePath("project.inp");
+        const QString meshPath = dir.filePath("project.2dm");
+        {
+            QFile inp(inpPath);
+            QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Text));
+            // CMS keeps every unit factor at 1 so values round-trip verbatim.
+            inp.write("[TITLE]\nDemo\n\n[OPTIONS]\nFLOW_UNITS  CMS\n\n");
+            inp.close();
+        }
+
+        // Generation-time write — triangle 0 has an explicit Manning
+        // (0.025), triangle 1 gets the writer default (0.035).
+        QVERIFY(InpMeshWriter::writeExternal(inpPath, meshPath, sampleMesh(),
+                                             sampleCoupling(), 0.035));
+
+        // The layer's editable state after the user edits: Z + vertex tag +
+        // vertex coupling + triangle tag + one cell coupling. Triangle
+        // Mannings stay NaN (the layer only fills them on an explicit edit).
+        // The layer's coupledNode fields carry the generation-time coupling —
+        // both real flows fold it in (meshgenerationdialog folds the
+        // CouplingMap; InpMeshReader parses [2D_VERTEX_NODE_MAP]).
+        MeshResult edited = sampleMesh();
+        edited.vertices[0].coupledNode = QStringLiteral("J1");
+        edited.vertices[1].coupledNode = QStringLiteral("J2");
+        edited.vertices[1].z   = 9.75;
+        edited.vertices[2].tag = QStringLiteral("VTAG");
+        edited.vertices[3].coupledNode  = QStringLiteral("J9");
+        edited.vertices[3].couplingCd   = 0.5;
+        edited.vertices[3].couplingArea = 2.5;
+        edited.triangles[1].tag = QStringLiteral("subcatch_S2");
+        CellCoupling cc;
+        cc.tri = 1; cc.nodeId = QStringLiteral("J7"); cc.cd = 0.6; cc.area = 3.0;
+        edited.cellCouplings.append(cc);
+
+        QString err;
+        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited, &err),
+                 qPrintable(err));
+
+        const InpMeshReadResult r = InpMeshReader::read(inpPath);
+        QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+        QVERIFY(r.hasMesh);
+        QCOMPARE(r.mesh.vertices.size(), 4);
+        QCOMPARE(r.mesh.triangles.size(), 2);
+        QCOMPARE(r.mesh.vertices[1].z, 9.75);
+        QCOMPARE(r.mesh.vertices[2].tag, QStringLiteral("VTAG"));
+        QCOMPARE(r.mesh.vertices[3].coupledNode, QStringLiteral("J9"));
+        QCOMPARE(r.mesh.vertices[3].couplingCd, 0.5);
+        QCOMPARE(r.mesh.vertices[3].couplingArea, 2.5);
+        // Untouched fields survive the rewrite.
+        QCOMPARE(r.mesh.vertices[0].z, 1.0);
+        QCOMPARE(r.mesh.vertices[0].tag, QStringLiteral("J1"));
+        QCOMPARE(r.mesh.vertices[0].coupledNode, QStringLiteral("J1"));
+        // Layer NaN Mannings keep the file's generation-time tokens.
+        QCOMPARE(r.mesh.triangles[0].mannings, 0.025);
+        QCOMPARE(r.mesh.triangles[1].mannings, 0.035);
+        QCOMPARE(r.mesh.triangles[0].tag, QStringLiteral("subcatch_S1"));
+        QCOMPARE(r.mesh.triangles[1].tag, QStringLiteral("subcatch_S2"));
+        QCOMPARE(r.mesh.cellCouplings.size(), 1);
+        QCOMPARE(r.mesh.cellCouplings[0].tri, 1);
+        QCOMPARE(r.mesh.cellCouplings[0].nodeId, QStringLiteral("J7"));
+
+        // An explicit layer-side Manning edit wins over the file token.
+        MeshResult edited2 = r.mesh;
+        edited2.triangles[1].mannings = 0.077;
+        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited2, &err),
+                 qPrintable(err));
+        const InpMeshReadResult r2 = InpMeshReader::read(inpPath);
+        QVERIFY(r2.hasMesh);
+        QCOMPARE(r2.mesh.triangles[1].mannings, 0.077);
+        QCOMPARE(r2.mesh.triangles[1].tag, QStringLiteral("subcatch_S2"));
+    }
+
+    /*! Topology guard: a row-count mismatch means the file holds a
+     *  different mesh — the patch must fail and leave the file untouched. */
+    void patchAttributeSections_countMismatchFailsUntouched()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString inpPath  = dir.filePath("project.inp");
+        const QString meshPath = dir.filePath("project.2dm");
+        {
+            QFile inp(inpPath);
+            QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Text));
+            inp.write("[TITLE]\nDemo\n\n[OPTIONS]\nFLOW_UNITS  CMS\n\n");
+            inp.close();
+        }
+        QVERIFY(InpMeshWriter::writeExternal(inpPath, meshPath, sampleMesh(),
+                                             sampleCoupling(), 0.035));
+        QFile before(meshPath);
+        QVERIFY(before.open(QIODevice::ReadOnly));
+        const QByteArray snapshot = before.readAll();
+        before.close();
+
+        MeshResult bigger = sampleMesh();
+        bigger.vertices.append({QPointF(50, 50), 3.0, 0, ""});
+        QString err;
+        QVERIFY(!InpMeshWriter::patchAttributeSections(meshPath, bigger, &err));
+        QVERIFY(!err.isEmpty());
+
+        QFile after(meshPath);
+        QVERIFY(after.open(QIODevice::ReadOnly));
+        QCOMPARE(after.readAll(), snapshot);
     }
 };
 

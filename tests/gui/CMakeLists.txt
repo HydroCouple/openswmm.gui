@@ -1526,9 +1526,12 @@ target_link_libraries(test_rasterprofilesampler PRIVATE GDAL::GDAL)
 add_swmmvis_gui_test(test_inpmeshwriter
     test_inpmeshwriter.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
+    # patchAttributeSections coverage round-trips through the reader.
+    ${CMAKE_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
     # inpmeshwriter.cpp now uses mesh::MeshBCTypes::inpToken for the BC
     # section serialiser.
     ${CMAKE_SOURCE_DIR}/src/mesh/meshbctype.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/inpmeshreader.h
     ${CMAKE_SOURCE_DIR}/include/mesh/inpmeshwriter.h
     ${CMAKE_SOURCE_DIR}/include/mesh/meshbctype.h
     ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h

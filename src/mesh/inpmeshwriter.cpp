@@ -20,6 +20,8 @@
 
 #include <QtCore/QChar>
 
+#include <cmath>
+
 namespace mesh {
 
 // Out-of-line default ctor (declared in the header) — see UnitInfo's comment.
@@ -198,6 +200,73 @@ QString stripExistingMeshSections(const QString &originalText,
     if (alsoMeshFileRef)
         ours.append(QStringLiteral("[2D_MESH_FILE]"));
     return stripSections(originalText, ours);
+}
+
+/*! Collect the data rows (non-empty, non-comment, inline comments stripped)
+ *  of section \p secName from \p text, in file order. */
+QStringList sectionDataRows(const QString &text, const char *secName)
+{
+    QStringList rows;
+    bool inSec = false;
+    const QStringList lines = text.split(QChar('\n'));
+    for (const QString &raw : lines)
+    {
+        QString trimmed = raw.trimmed();
+        if (trimmed.startsWith(QChar('[')) && trimmed.endsWith(QChar(']')))
+        {
+            inSec = (trimmed.compare(QLatin1String(secName),
+                                     Qt::CaseInsensitive) == 0);
+            continue;
+        }
+        if (!inSec) continue;
+        const int semi = trimmed.indexOf(QChar(';'));
+        if (semi >= 0) trimmed = trimmed.left(semi).trimmed();
+        if (trimmed.isEmpty()) continue;
+        rows.append(trimmed);
+    }
+    return rows;
+}
+
+/*! `[2D_TRIANGLES]` rebuild for patchAttributeSections: connectivity and TAG
+ *  come from \p mesh; MANNINGS_N comes from the mesh triangle when set, else
+ *  from the same row of \p origRows so a value authored at generation time
+ *  (or by hand) survives the rewrite (MeshTriangle::mannings stays NaN until
+ *  the user edits it). TAG parses positionally (column 5), so it can only be
+ *  carried when a MANNINGS_N token exists. */
+QString formatTrianglesPreserving(const MeshResult &mesh,
+                                  const QStringList &origRows)
+{
+    QString out;
+    QTextStream s(&out);
+    s.setRealNumberNotation(QTextStream::FixedNotation);
+    s.setRealNumberPrecision(4);
+
+    s << kSecTriangles << "\n";
+    s << ";; V1   V2   V3   MANNINGS_N   TAG\n";
+    for (int i = 0; i < mesh.triangles.size(); ++i)
+    {
+        const MeshTriangle &t = mesh.triangles[i];
+        s << t.v0 << "  " << t.v1 << "  " << t.v2;
+        bool haveMannings = false;
+        if (std::isfinite(t.mannings) && t.mannings > 0.0)
+        {
+            s << "  " << t.mannings;
+            haveMannings = true;
+        }
+        else if (i < origRows.size())
+        {
+            const QStringList tok =
+                origRows[i].simplified().split(QChar(' '), Qt::SkipEmptyParts);
+            bool okn = false;
+            if (tok.size() >= 4) tok[3].toDouble(&okn);
+            if (okn) { s << "  " << tok[3]; haveMannings = true; }
+        }
+        if (haveMannings && !t.tag.isEmpty())
+            s << "  " << t.tag;
+        s << "\n";
+    }
+    s << "\n";
+    return out;
 }
 
 } // namespace
@@ -665,6 +734,54 @@ bool InpMeshWriter::patchBCSections(const QString &filePath,
         patched.append(QChar('\n'));
     patched.append(buildBCSectionText(bcs));
     patched.append(buildConveyanceSectionText(mesh, bcs));
+    return atomicWrite(filePath, patched, errorOut);
+}
+
+bool InpMeshWriter::patchAttributeSections(const QString &filePath,
+                                           const MeshResult &mesh,
+                                           QString *errorOut)
+{
+    const ReadResult r = readInp(filePath);
+    if (!r.ok) {
+        if (errorOut) *errorOut = r.err;
+        return false;
+    }
+
+    // Rows map to mesh entries by position — a count mismatch means the file
+    // holds a different mesh (e.g. regenerated with other parameters), and
+    // patching would scramble it. Leave the file untouched.
+    const QStringList vRows = sectionDataRows(r.text, kSecVertices);
+    const QStringList tRows = sectionDataRows(r.text, kSecTriangles);
+    if (vRows.size() != mesh.vertices.size()
+        || tRows.size() != mesh.triangles.size()) {
+        if (errorOut)
+            *errorOut = QStringLiteral(
+                "mesh file has %1 vertices / %2 triangles; layer has %3 / %4")
+                .arg(vRows.size()).arg(tRows.size())
+                .arg(mesh.vertices.size()).arg(mesh.triangles.size());
+        return false;
+    }
+
+    // The layer's per-vertex coupledNode fields are the authoritative
+    // 1D↔2D vertex coupling (pushMeshEditsToEngine pushes exactly these);
+    // rebuild the writer's map form from them. Triangle couplings ride on
+    // MeshResult::cellCouplings, which formatTriangleNodeMap reads directly.
+    CouplingMap cm;
+    for (int i = 0; i < mesh.vertices.size(); ++i)
+        if (!mesh.vertices[i].coupledNode.isEmpty())
+            cm.vertexToNode.insert(i, mesh.vertices[i].coupledNode);
+
+    QString patched = stripSections(
+        r.text, {QLatin1String(kSecVertices),
+                 QLatin1String(kSecTriangles),
+                 QLatin1String(kSecVertexNodeMap),
+                 QLatin1String(kSecTriangleNodeMap)});
+    if (!patched.endsWith(QChar('\n')))
+        patched.append(QChar('\n'));
+    patched.append(formatVertices(mesh));
+    patched.append(formatTrianglesPreserving(mesh, tRows));
+    patched.append(formatVertexNodeMap(mesh, cm));
+    patched.append(formatTriangleNodeMap(mesh, cm));
     return atomicWrite(filePath, patched, errorOut);
 }
 
