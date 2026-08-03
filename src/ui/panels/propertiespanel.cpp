@@ -81,16 +81,20 @@
 #include "ui/panels/objectbrowserpanel.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QComboBox>
 #include <QDialog>
+#include <QEvent>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
 #include <QStandardItemModel>
+#include <QTimer>
 #include <QTreeView>
 #include <QVBoxLayout>
 #include <QVariant>
@@ -176,10 +180,48 @@ void setRowEditable(QPropertyModel *pm, QObject *adapter,
 PropertiesPanel::PropertiesPanel(QWidget *parent)
     : QDockWidget(tr("Properties"), parent)
 {
+    qApp->installEventFilter(this);
     setupUi();
 }
 
-PropertiesPanel::~PropertiesPanel() = default;
+PropertiesPanel::~PropertiesPanel()
+{
+    qApp->removeEventFilter(this);
+}
+
+bool PropertiesPanel::eventFilter(QObject *watched, QEvent *event)
+{
+    auto *watchedWidget = qobject_cast<QWidget *>(watched);
+    if (!m_treeView || !watchedWidget)
+        return QDockWidget::eventFilter(watched, event);
+
+    const bool isTreeOrDescendant =
+        (watchedWidget == m_treeView) || m_treeView->isAncestorOf(watchedWidget);
+    if (!isTreeOrDescendant)
+        return QDockWidget::eventFilter(watched, event);
+
+    if (event->type() == QEvent::ShortcutOverride) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) {
+            // Keep Enter local to property editing; don't let global shortcuts react.
+            event->accept();
+            return true;
+        }
+    }
+
+    if (event->type() == QEvent::KeyPress) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) {
+            // Let delegates commit first, then restore focus to the tree.
+            QTimer::singleShot(0, m_treeView, [tree = m_treeView]() {
+                if (tree)
+                    tree->setFocus(Qt::OtherFocusReason);
+            });
+        }
+    }
+
+    return QDockWidget::eventFilter(watched, event);
+}
 
 // ---------------------------------------------------------------------------
 // UI setup
