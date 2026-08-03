@@ -63,12 +63,29 @@ public:
      *  consumed m_contentDirty against empty (un-owned) geometry. */
     void forceRebuild();
 
+    /*! Monotonic counter bumped every time an external change marks this
+     *  renderer's content dirty. MapCanvas caches the grabbed QSG framebuffer
+     *  and must regrab whenever the overlay's content has moved on; comparing
+     *  this revision against the one recorded at grab time closes the window
+     *  where a renderer learns of a change after the canvas has already
+     *  consumed (and cleared) its own dirty flag. Extent and layer-pointer
+     *  changes are keyed separately by the canvas and deliberately do NOT
+     *  bump this — bumping there would force a regrab on the paint that
+     *  pushed them, one frame late, every frame. */
+    [[nodiscard]] quint64 contentRevision() const noexcept
+    { return m_contentRev; }
+
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode,
                              UpdatePaintNodeData *) override;
 
 private:
+    /*! Mark content dirty from an external signal: bump the revision the
+     *  canvas polls, then schedule the QQuickItem update. */
+    void noteContentChanged() { ++m_contentRev; update(); }
+
     QPointer<SWMMModelLayer> m_layer;
+    quint64                  m_contentRev = 0;
     MapExtent                m_extent;
     // Extent at the last full content rebuild. Used by setMapExtent()
     // to decide pan-only (transform refresh) vs. full rebuild based on

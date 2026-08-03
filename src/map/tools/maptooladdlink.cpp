@@ -358,6 +358,11 @@ void OpenSWMMVisMapToolAddLink::commit(SWMMModelLayer *layer,
     m_vertexSnap = {};
     m_state      = State::Drawing;
     if (m_canvas)
-        m_canvas->invalidate(MapCanvas::Overlay,
+        // Scene, not Overlay alone: a link was just added to the model, so
+        // layer content changed. Overlay only repaints the widget from the
+        // cached scene/QSG buffers, which is why the new link stayed invisible
+        // until a zoom changed the extent and forced both caches to miss.
+        // Matches OpenSWMMVisMapToolAddNode's channel choice.
+        m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
                              QStringLiteral("addlink-chain"));
 }

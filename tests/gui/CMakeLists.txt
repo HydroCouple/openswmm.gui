@@ -1896,6 +1896,16 @@ add_swmmvis_gui_test(test_meshasyncload
 )
 swmmvis_link_full_app_deps(test_meshasyncload)
 
+# Stale-render invalidation — vertex-Z edits must invalidate the renderer's
+# geomRevision-keyed shading caches, and layer changes must advance the
+# renderer content revision MapCanvas polls to regrab its framebuffer.
+add_swmmvis_gui_test(test_render_invalidation
+    test_render_invalidation.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_render_invalidation)
+
 # Toolbar selection ops — SelectionOps::invert (category-scoped Invert
 # Selection), SelectionOps::trace (Select Upstream / Downstream with
 # subcatchment outlet chaining), and AttributeTablePanel::selectionAsTsv

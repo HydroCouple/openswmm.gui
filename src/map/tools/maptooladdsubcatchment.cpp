@@ -213,4 +213,12 @@ void OpenSWMMVisMapToolAddSubcatchment::commit()
     layer->setSelectedElements({{name, SWMMModelLayer::kKindCatch}});
     emit subcatchmentAdded(name);
     cancel();
+    // cancel() only clears the rubber band, so it asks for Overlay. A commit
+    // also changed layer content and needs the Scene channel — without it the
+    // new polygon stayed invisible until a zoom changed the extent and forced
+    // the cached scene/QSG buffers to miss. Matches
+    // OpenSWMMVisMapToolAddNode's channel choice.
+    if (m_canvas)
+        m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
+                             QStringLiteral("addsubcatch-commit"));
 }

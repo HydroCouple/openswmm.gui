@@ -62,11 +62,25 @@ public:
     void setLayer(SWMM2DMeshLayer *layer);
     void setMapExtent(const MapExtent &extent);
 
+    /*! Monotonic counter bumped every time an external change marks this
+     *  renderer's content dirty. MapCanvas compares it against the value
+     *  recorded when it last grabbed the QSG framebuffer, so a change that
+     *  arrives after the canvas cleared its own dirty flag still forces a
+     *  regrab instead of compositing a stale frame. Extent and layer-pointer
+     *  changes are keyed separately by the canvas and do not bump this. */
+    [[nodiscard]] quint64 contentRevision() const noexcept
+    { return m_contentRev; }
+
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
 
 private:
+    /*! Mark content dirty from an external signal: bump the revision the
+     *  canvas polls, then schedule the QQuickItem update. */
+    void noteContentChanged() { ++m_contentRev; update(); }
+
     QPointer<SWMM2DMeshLayer> m_layer;
+    quint64                   m_contentRev = 0;
     MapExtent                 m_extent;
 
     // Fixed scene-space anchor (bbox centre) — keeps float vertex coords

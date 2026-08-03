@@ -320,7 +320,7 @@ void SWMM2DMeshQSGRenderer::setLayer(SWMM2DMeshLayer *layer)
         connect(m_layer, &SWMM2DMeshLayer::repaintRequested,
                 this, [this]() {
                     m_dirty.noteExternalChanged();
-                    update();
+                    noteContentChanged();
                 });
     }
     clearLabelTextureCache();

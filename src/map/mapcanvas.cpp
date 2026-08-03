@@ -892,6 +892,18 @@ void MapCanvas::syncScaleBarFromPreferences()
     m_scaleBarSettings->setCompactNotation(p->scaleBarCompactNotation());
 }
 
+quint64 MapCanvas::qsgContentRevision() const
+{
+    // Plain sum: each counter is monotonic, so the sum is monotonic and any
+    // single renderer's bump changes it. Exact attribution is not needed —
+    // the canvas grabs all three into one framebuffer.
+    quint64 rev = 0;
+    if (m_qsgRenderer)     rev += m_qsgRenderer->contentRevision();
+    if (m_qsg2DRenderer)   rev += m_qsg2DRenderer->contentRevision();
+    if (m_qsgMeshRenderer) rev += m_qsgMeshRenderer->contentRevision();
+    return rev;
+}
+
 void MapCanvas::syncQsgRenderKindsFromPreferences()
 {
     // §QSG-4 — translate the single Preferences toggle into a full
@@ -1146,12 +1158,21 @@ void MapCanvas::fireRasterChannel()
 void MapCanvas::fireSceneChannel()
 {
     if (!(m_pendingChannels & Scene)) return;
-    m_pendingChannels &= ~Scene;
     if (redrawLogEnabled())
         qDebug().noquote() << QStringLiteral("[redraw:fire] Scene  reason=%1")
                                   .arg(m_pendingReason);
+    // Gesture in progress — keep the pending bit and re-arm, so the request
+    // survives to be served when the gesture ends. Clearing it before this
+    // guard (as this function used to) dropped the invalidation outright:
+    // nothing re-set the bit, and the only recovery was the extent-keyed
+    // cache miss a pan/zoom happens to produce.
     if (m_isPanning || m_isZooming)
-        return;     // gesture in progress — wait for endPan() to retrigger
+    {
+        if (m_sceneTimer && !m_sceneTimer->isActive())
+            m_sceneTimer->start();
+        return;
+    }
+    m_pendingChannels &= ~Scene;
     int vpW = width(), vpH = height();
     for (OpenSWMMVisLayer *layer : std::as_const(m_layers))
     {
@@ -1165,6 +1186,16 @@ void MapCanvas::fireSceneChannel()
         layer->refreshScene(m_scene, m_extent, m_canvasSRS);
     }
     m_sceneDirty = true;   // P2 — the sweep may have mutated scene items
+    // The Scene channel means "layer content changed". When the QSG overlay
+    // owns some of that content — which it always does in a 2D project, where
+    // paintEvent force-promotes the 1D network onto the GPU path so it
+    // composites above the mesh — the cached framebuffer is part of the scene
+    // and must be regrabbed too. Without this, invalidate(Scene) refreshed the
+    // CPU scene buffer while the QSG frame kept compositing stale content
+    // until an extent change happened to trip the cache: the "have to zoom in
+    // and out before it appears" bug. Costs nothing when no QSG kind is owned
+    // — paintEvent's qsgActive guard skips the grab entirely in that case.
+    m_qsgFrameDirty = true;
     update();
     // No extra m_qsgWidget->update() needed: paintEvent() now drives the QSG
     // render synchronously via repaint() + grabFramebuffer(), so any dirty
@@ -1651,20 +1682,31 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                                         || (want2D != m_qsgCached2DLayer)
                                         || (wantMesh != m_qsgCachedMeshLayer);
             const bool sizeChanged    = (size()    != m_qsgCachedSize);
+            // Content-revision guard. m_qsgFrameDirty is cleared by the grab
+            // below, so a renderer that learns of a change *after* the canvas
+            // consumed the flag would otherwise never be regrabbed — its
+            // freshly rebuilt scene graph would sit in the offscreen widget
+            // while the canvas kept compositing the stale cached image. The
+            // renderers bump contentRevision() at the moment they are marked
+            // dirty, which makes the cache content-keyed as well as
+            // extent/layer/size-keyed.
+            const bool contentChanged =
+                (qsgContentRevision() != m_qsgCachedContentRev);
             // Scrub-diagnosis probe — pairs with the [2D-qsg] sync logs to
             // show whether a slider tick reached the regrab at all.
             static const bool kQsgDebug =
                 qEnvironmentVariableIsSet("OPENSWMM_2D_RENDER_DEBUG");
             if (kQsgDebug)
                 qDebug("[2D-canvas] paint: regrab=%d (dirty=%d layerChg=%d "
-                       "sizeChg=%d cacheNull=%d) own2D=%d 2Dt=%d",
+                       "sizeChg=%d contentChg=%d cacheNull=%d) own2D=%d 2Dt=%d",
                        int(m_qsgFrameDirty || layerChanged || sizeChanged
-                           || m_qsgFrameCache.isNull()),
+                           || contentChanged || m_qsgFrameCache.isNull()),
                        int(m_qsgFrameDirty), int(layerChanged),
-                       int(sizeChanged), int(m_qsgFrameCache.isNull()),
+                       int(sizeChanged), int(contentChanged),
+                       int(m_qsgFrameCache.isNull()),
                        int(own2D), want2D ? want2D->currentTimeIndex() : -999);
-            if (m_qsgFrameDirty || layerChanged
-                || sizeChanged || m_qsgFrameCache.isNull()) {
+            if (m_qsgFrameDirty || layerChanged || sizeChanged
+                || contentChanged || m_qsgFrameCache.isNull()) {
                 if (m_qsgRenderer) {
                     m_qsgRenderer->setLayer(firstSwmm);
                     m_qsgRenderer->setMapExtent(m_extent);
@@ -1719,6 +1761,10 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
                 }
                 m_qsgFrameCache.setDevicePixelRatio(qsgDpr);
                 m_qsgFrameDirty      = false;
+                // Read AFTER the setters and the synchronous repaint above:
+                // setLayer() bumps the revision, so sampling it earlier would
+                // leave a permanent mismatch and regrab on every paint.
+                m_qsgCachedContentRev = qsgContentRevision();
                 m_qsgCachedLayer     = firstSwmm;
                 m_qsgCached2DLayer   = want2D;
                 m_qsgCachedMeshLayer = wantMesh;
