@@ -197,7 +197,9 @@ void MapToolMeshSelectEdge::mouseReleaseEvent(QMouseEvent *event)
         }
     }
     m_dragging = false;
-    m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("mesh-edge-select-done"));
+    // Scene, not Overlay alone — see MapToolMeshSelectVertex for why.
+    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
+                         QStringLiteral("mesh-edge-select-done"));
 }
 
 void MapToolMeshSelectEdge::keyPressEvent(QKeyEvent *event)

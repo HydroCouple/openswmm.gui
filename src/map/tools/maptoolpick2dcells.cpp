@@ -278,15 +278,23 @@ void MapToolPick2DCells::mouseReleaseEvent(QMouseEvent *event)
     }
 
     m_dragging = false;
-    m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("pick2dcells-box-end"));
 
     // Selection only highlights — right-click plots. A no-modifier single
     // click that missed every cell clears the selection.
     if (hits.isEmpty() && event->modifiers() == Qt::NoModifier) {
         if (m_selection) m_selection->clear();
+        m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
+                             QStringLiteral("pick2dcells-box-clear"));
         return;
     }
     applySelection_(hits, event->modifiers());
+    // Invalidate AFTER the selection is applied — the repaint must be
+    // scheduled against the new highlight set, not the one it replaces. Scene
+    // (not Overlay alone) because the highlight lives in layer content: the
+    // mesh renders through the QSG framebuffer, which only the Scene channel
+    // marks dirty.
+    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
+                         QStringLiteral("pick2dcells-box-end"));
 }
 
 void MapToolPick2DCells::mouseDoubleClickEvent(QMouseEvent *event)
@@ -315,10 +323,13 @@ void MapToolPick2DCells::mouseDoubleClickEvent(QMouseEvent *event)
 
     m_drawing = false;
     m_lassoMapPts.clear();
-    m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("pick2dcells-lasso-commit"));
 
     // Selection only highlights — right-click plots.
     applySelection_(hits, event->modifiers());
+    // After applySelection_, and on the Scene channel — see the box-select
+    // path above for why.
+    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
+                         QStringLiteral("pick2dcells-lasso-commit"));
 }
 
 void MapToolPick2DCells::keyPressEvent(QKeyEvent *event)

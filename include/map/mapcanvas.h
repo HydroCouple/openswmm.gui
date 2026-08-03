@@ -478,6 +478,17 @@ private:
     class SWMM2DMeshLayer       *m_qsgCachedMeshLayer = nullptr;
     QSize                        m_qsgCachedSize;
 
+    // Sum of the three QSG renderers' contentRevision() counters as of the
+    // last successful grab. The renderers bump their counter the moment an
+    // external change marks them dirty, so comparing against this catches a
+    // change that landed after the canvas already consumed (and cleared)
+    // m_qsgFrameDirty — otherwise that grab would have captured a frame the
+    // renderer had not yet rebuilt, and nothing would ever regrab it.
+    quint64                      m_qsgCachedContentRev = 0;
+
+    /*! Current sum of the QSG renderers' content revisions. */
+    [[nodiscard]] quint64 qsgContentRevision() const;
+
     // VS.8 — true while the canvas force-enabled the 1D QSG kinds because a
     // 2D results layer is QSG-owned (the network must composite above the
     // flood map inside the same QSG frame). Restored from Preferences when

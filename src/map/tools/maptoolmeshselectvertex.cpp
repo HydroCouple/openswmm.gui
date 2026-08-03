@@ -194,7 +194,12 @@ void MapToolMeshSelectVertex::mouseReleaseEvent(QMouseEvent *event)
         }
     }
     m_dragging = false;
-    m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("mesh-vertex-select-done"));
+    // Scene, not Overlay alone: the highlight is layer content, and the mesh
+    // renders through the cached QSG framebuffer, which only the Scene channel
+    // marks dirty. Overlay alone just repaints the widget from stale caches —
+    // the selection then appeared only after a zoom changed the extent.
+    m_canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay,
+                         QStringLiteral("mesh-vertex-select-done"));
 }
 
 void MapToolMeshSelectVertex::keyPressEvent(QKeyEvent *event)

@@ -663,7 +663,7 @@ void SWMMLayerQSGRenderer::setLayer(SWMMModelLayer *layer)
                     m_contentDirty     = true;
                     m_selDirty         = true;
                     m_selectionPending = true;
-                    update();
+                    noteContentChanged();
                 });
         // All other model changes (geometry, symbology, visibility): full rebuild.
         connect(m_layer, &SWMMModelLayer::repaintRequested,
@@ -673,7 +673,7 @@ void SWMMLayerQSGRenderer::setLayer(SWMMModelLayer *layer)
                         return;
                     }
                     m_contentDirty = true;
-                    update();
+                    noteContentChanged();
                 });
         // Geometry mutations (add / move / delete a node, link, subcatchment or
         // gage) must ALWAYS force a full content rebuild. They cannot ride the
@@ -694,7 +694,7 @@ void SWMMLayerQSGRenderer::setLayer(SWMMModelLayer *layer)
                     // polygon re-triangulates on the next rebuild.
                     m_catchTriCache.revision =
                         std::numeric_limits<quint64>::max();
-                    update();
+                    noteContentChanged();
                 });
     }
     m_catchTriCache.revision = std::numeric_limits<quint64>::max();
@@ -710,7 +710,7 @@ void SWMMLayerQSGRenderer::forceRebuild()
     m_contentDirty     = true;
     m_selDirty         = true;
     m_selectionPending = false;
-    update();
+    noteContentChanged();
 }
 
 void SWMMLayerQSGRenderer::setMapExtent(const MapExtent &extent)
