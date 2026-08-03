@@ -38,17 +38,29 @@
  *   4. What Triangle IS sensitive to is PSLG degeneracy — dense, closely
  *      spaced holes. Reproduced at the origin, with no refinement at all
  *      ("pzQ"), so it is unambiguously not a magnitude effect.
+ *   5. A non-finite (NaN/inf) coordinate breaks the INITIAL Delaunay pass on
+ *      a plain point set with NO PSLG at all: a both-NaN vertex SIGSEGVs in
+ *      mergehulls()/counterclockwise(), and a single-NaN vertex is silently
+ *      dropped from the output with no diagnostic. Run in a forked child so
+ *      the crash does not take the harness with it. This is the fault
+ *      MeshGenerator::generate() now screens for before calling Triangle.
  *
  * Check [4] is opt-in (pass --stress) because the failing configuration is
  * slow: the CDT alone runs superlinearly in hole count and exceeds 30 s
  * somewhere between 6.4k and 14.4k holes on a 2026 laptop.
  */
 #include <cmath>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
+
+#ifndef _WIN32
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 extern "C" {
 #define TRILIBRARY
@@ -310,6 +322,111 @@ void test4_denseHolesAreTheRealDegeneracy()
                 "     leading along a boundary segment.)\n");
 }
 
+// A plain point set (no PSLG at all) with `mode` applied to one vertex.
+// Runs in the CALLING process — see test5 for why it is forked.
+int triangulatePointSet(const char *mode)
+{
+    const int N = 60;                       // 60x60 DTM-like regular grid
+    std::vector<double> P;
+    for (int i = 0; i < N; ++i)
+        for (int j = 0; j < N; ++j)
+        {
+            P.push_back(i * 10.0);
+            P.push_back(j * 10.0);
+        }
+    for (int k = 0; k < 5; ++k)             // off-grid "junction" Steiners
+    {
+        P.push_back(37.0 + k * 91.0);
+        P.push_back(53.0 + k * 77.0);
+    }
+
+    const std::size_t victim = 2 * (N * N / 2);
+    if (!std::strcmp(mode, "nan_x"))        P[victim]     = std::nan("");
+    else if (!std::strcmp(mode, "inf_x"))   P[victim]     = HUGE_VAL;
+    else if (!std::strcmp(mode, "nan_xy")) {P[victim]     = std::nan("");
+                                            P[victim + 1] = std::nan("");}
+
+    triangulateio in{}, out{};
+    std::memset(&in, 0, sizeof(in));
+    std::memset(&out, 0, sizeof(out));
+    in.numberofpoints = static_cast<int>(P.size() / 2);
+    in.pointlist = static_cast<REAL *>(std::malloc(sizeof(REAL) * P.size()));
+    for (std::size_t i = 0; i < P.size(); ++i) in.pointlist[i] = P[i];
+
+    std::string sw("zQ");                   // plain Delaunay: no p, no q, no a
+    const int err = triangulate_safe(const_cast<char *>(sw.c_str()), &in, &out,
+                                     nullptr);
+    const int tris = (err == 0) ? out.numberoftriangles : -1;
+    if (err == 0)
+    {
+        if (out.pointlist)       trifree(out.pointlist);
+        if (out.pointmarkerlist) trifree(out.pointmarkerlist);
+        if (out.trianglelist)    trifree(out.trianglelist);
+    }
+    std::free(in.pointlist);
+    return tris;
+}
+
+#ifndef _WIN32
+// Run triangulatePointSet(mode) in a forked child so a SIGSEGV does not take
+// the harness with it. Returns the child's triangle count, or -SIGNUM if it
+// died on a signal.
+int forkedPointSet(const char *mode)
+{
+    int fds[2];
+    if (pipe(fds) != 0) return -1;
+    const pid_t pid = fork();
+    if (pid == 0)
+    {
+        close(fds[0]);
+        const int tris = triangulatePointSet(mode);
+        ssize_t ignored = write(fds[1], &tris, sizeof(tris));
+        (void) ignored;
+        close(fds[1]);
+        _exit(0);
+    }
+    close(fds[1]);
+    int tris = -1;
+    const ssize_t got = read(fds[0], &tris, sizeof(tris));
+    close(fds[0]);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    if (WIFSIGNALED(status)) return -WTERMSIG(status);
+    return (got == sizeof(tris)) ? tris : -1;
+}
+
+void test5_nonFiniteCoordinateCrashesDelaunay()
+{
+    std::printf("\n[5] A non-finite coordinate breaks the INITIAL Delaunay "
+                "pass (no PSLG involved)\n");
+
+    const int clean = forkedPointSet("clean");
+    std::printf("    clean                 tris=%d\n", clean);
+    check(clean > 0, "baseline point set meshes");
+
+    const int nanX = forkedPointSet("nan_x");
+    std::printf("    one NaN component     tris=%d\n", nanX);
+    check(nanX > 0 && nanX < clean,
+          "single NaN silently DROPS a vertex — no error, wrong mesh");
+
+    const int infX = forkedPointSet("inf_x");
+    std::printf("    one inf component     tris=%d\n", infX);
+    check(infX != 0, "infinity is absorbed without any diagnostic");
+
+    const int nanXY = forkedPointSet("nan_xy");
+    if (nanXY < 0)
+        std::printf("    both components NaN   killed by signal %d\n", -nanXY);
+    else
+        std::printf("    both components NaN   tris=%d\n", nanXY);
+    check(nanXY == -SIGSEGV,
+          "both-NaN vertex SIGSEGVs in mergehulls()/counterclockwise() — "
+          "a hardware fault setjmp cannot catch");
+
+    std::printf("    => MeshGenerator::generate() screens all inputs for\n"
+                "       finiteness before Triangle is called.\n");
+}
+#endif // !_WIN32
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -324,6 +441,9 @@ int main(int argc, char **argv)
     test1_absoluteQuantiserCollapses();
     test2_relativeQuantiserIsInjective();
     test3_triangleIsMagnitudeInsensitive();
+#ifndef _WIN32
+    test5_nonFiniteCoordinateCrashesDelaunay();
+#endif
     if (stress) test4_denseHolesAreTheRealDegeneracy();
     else std::printf("\n[4] skipped (pass --stress; runs for minutes)\n");
 

@@ -59,6 +59,18 @@ MeshGenerator quantiser verification
   [PASS] meshes cleanly with finite coordinates
   [PASS] triangle count within 5% of the origin frame
 
+[5] A non-finite coordinate breaks the INITIAL Delaunay pass (no PSLG involved)
+    clean                 tris=6972
+  [PASS] baseline point set meshes
+    one NaN component     tris=6955
+  [PASS] single NaN silently DROPS a vertex — no error, wrong mesh
+    one inf component     tris=6972
+  [PASS] infinity is absorbed without any diagnostic
+    both components NaN   killed by signal 11
+  [PASS] both-NaN vertex SIGSEGVs in mergehulls()/counterclockwise() — a hardware fault setjmp cannot catch
+    => MeshGenerator::generate() screens all inputs for
+       finiteness before Triangle is called.
+
 [4] skipped (pass --stress; runs for minutes)
 
 ALL CHECKS PASSED — 0 failure(s)
