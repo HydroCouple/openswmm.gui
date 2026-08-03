@@ -345,7 +345,8 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     m_bcParamStack->addWidget(new QWidget(m_bcParamStack));
     // 1 NormalFlow — slope spin.
     makeSpinPage(&m_slopeSpin, tr("Slope:"), 0.0, 1.0, 5, 0.001,
-                 tr("Bed slope (dimensionless). 0 = auto-compute from geometry."));
+                 tr("Bed slope (dimensionless). Must be > 0 — the engine "
+                    "treats a zero slope as a wall (no auto-compute)."));
     // 2 SpecifiedStageConst — stage spin.
     makeSpinPage(&m_stageSpin, tr("Stage:"), -1.0e6, 1.0e6, 3, 0.1,
                  tr("Prescribed water-surface elevation (project vertical units)."));
