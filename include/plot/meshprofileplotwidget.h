@@ -47,8 +47,11 @@ public:
     void setProfile(const MeshProfileSampler::MeshProfile &profile);
 
     /*! \brief Cheap per-frame update of the animated depth column. Size must
-     *  match the current sample count; mismatched sizes are ignored. */
-    void setCurrentDepths(const QVector<double> &depthNow);
+     *  match the current sample count; mismatched sizes are ignored.
+     *  \p cellHasSurface (optional, same size) refreshes the frame-dependent
+     *  Sample::cellHasSurface flag that gates dry-gap bridging. */
+    void setCurrentDepths(const QVector<double> &depthNow,
+                          const QVector<bool> &cellHasSurface = {});
 
     /*! \brief Binds the styling object (connects changed() → repaint). */
     void setOptions(MeshProfilePlotOptions *options);

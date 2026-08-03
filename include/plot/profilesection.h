@@ -40,6 +40,10 @@ struct Sample
     double depthNow = 0.0;   /*!< current-frame water depth (m); 0 dry / off-surface / raster. */
     double maxDepth = 0.0;   /*!< max water depth over the loaded run (m); 0 dry / raster. */
     int    triIdx   = -1;    /*!< containing results-layer triangle; -1 off-mesh / raster. */
+    bool   cellHasSurface = false; /*!< a corner of triIdx carries a valid free-surface η
+                                        this frame (signed depth ≠ 0). false = NO DATA
+                                        (never-wet cell / off-mesh / raster) — the only
+                                        dry gaps MeshProfileInterp may bridge across. */
     QPointF scenePt;         /*!< scene-space sample location (for per-frame re-sampling). */
 };
 

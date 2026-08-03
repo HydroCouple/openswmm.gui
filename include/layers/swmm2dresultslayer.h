@@ -575,6 +575,13 @@ public:
      *  \ref pickCellAt. */
     [[nodiscard]] float depthAtCellInterp(int triIdx, const QPointF& scenePt) const;
 
+    /*! \brief True when any corner of cell \p triIdx carries a valid free
+     *  surface η this frame (signed per-vertex depth ≠ 0 — the exact-0 value
+     *  is the no-wet-incident-cell NO-DATA sentinel). False out of range.
+     *  Feeds Sample::cellHasSurface so the profile painter bridges only true
+     *  no-data gaps, not genuinely dry ground (see meshprofileinterp.h). */
+    [[nodiscard]] bool cellHasSurface(int triIdx) const;
+
     /*! \brief Barycentrically-interpolated scene-space velocity (m/s) at
      *  \p scenePt, from the per-vertex velocity field reconstructed in
      *  applyCurrentFlux_ (V1, Issue 5). Writes \p outVx,\p outVy and returns
@@ -585,15 +592,8 @@ public:
     [[nodiscard]] bool velocityAtScene(const QPointF& scenePt,
                                        float& outVx, float& outVy) const;
 
-    /*! \brief Per-cell maximum water depth (m) over the whole loaded time
-     *  range. Iterates `source()->readDepthsAt` for every frame in
-     *  `[0, timeCount())` and reduces to a per-triangle max. Size equals
-     *  `source()->triangleCount()`, or empty when no source / no frames.
-     *  Used to draw the static max-depth envelope on the mesh profile. */
-    [[nodiscard]] QVector<float> maxDepthPerCell() const;
-
-    /*! \brief Per-**vertex** maximum water depth (m), reduced from
-     *  \ref maxDepthPerCell as the max over each vertex's incident cells.
+    /*! \brief Per-**vertex** maximum water depth (m), the temporal max of the
+     *  per-frame signed vertex reconstruction over each vertex's incident cells.
      *  Sized to `vertexCount()`, or empty when no source / no frames. Feeds
      *  the smooth (barycentric) max-depth envelope on the mesh profile — the
      *  peer of `dv0/dv1/dv2` for the historical maximum. Build once and pass
@@ -720,19 +720,6 @@ private:
     void rebuildSceneGeometry_();   ///< Recompute scene-space triangle vertices + centroids; refresh cached edge geometry.
     void applyCurrentDepths_();     ///< Copy `current_depths_` into the SceneTri buffer.
     void applyCurrentFlux_();       ///< Run RT0 reconstruction → write vx/vy/vmag into SceneTri.
-
-    /*! \brief Clamp a barycentric depth blend to the driving HGL of cell \p idx.
-     *  The implied water surface (ground + depth) must not exceed the highest
-     *  per-vertex free surface η_v = z_v + sd_v of the cell — the head the wet
-     *  cells actually supply. Barycentric weights leave [0,1] for a sample on or
-     *  just past a cell edge and extrapolate the blend above every vertex, which
-     *  would march water up an adverse slope with no head to drive it. \p sd0..2
-     *  are the per-vertex SIGNED depths (η_v − z_v); \p w,\p v,\p u the weights
-     *  for tri vertices 0,1,2. Returns the blend capped at the cell's max η and
-     *  floored at 0. */
-    [[nodiscard]] float clampToDrivingHead_(int idx, double depthBlend,
-                                            double w, double v, double u,
-                                            double sd0, double sd1, double sd2) const;
 
     /*! QSG-2D-1M — see geomRevision(). */
     quint64 m_geomRevision = 0;
