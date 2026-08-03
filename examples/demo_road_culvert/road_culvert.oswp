@@ -2,9 +2,9 @@
     "canvas": {
         "extent": [
             -40,
-            -270.0319488817891,
+            -346.4365671641791,
             1040,
-            370.0319488817891
+            446.4365671641791
         ]
     },
     "schemaVersion": 4,
@@ -329,7 +329,7 @@
                     "contours": {
                         "color": "#c81a1a1a",
                         "filled": false,
-                        "filledOpacity": 0.85,
+                        "filledOpacity": 0.6,
                         "intervals": 8,
                         "show": false,
                         "width": 1
@@ -345,9 +345,6 @@
                     "sourcePath": "road_culvert.inp"
                 }
             ],
-            "resultLayerReports": {
-                "road_culvert.out": "road_culvert.rpt"
-            },
             "resultLayerSublayers": {
                 "road_culvert.out": {
                     "sublayers": [
@@ -515,6 +512,266 @@
             },
             "resultLayers": [
                 "road_culvert.out"
+            ],
+            "results2DLayers": [
+                {
+                    "dryDepth": 0.001,
+                    "maxDepth": 0.5608725547790527,
+                    "maxVelocity": 0.10583211481571198,
+                    "name": "2D Results",
+                    "opacity": 1,
+                    "path": "road_culvert.2d.h5",
+                    "sublayers": {
+                        "sublayers": [
+                            {
+                                "id": "results2d.mesh",
+                                "opacity": 1,
+                                "style": {
+                                    "classification": {
+                                        "binner": {
+                                            "manualBreaks": [
+                                            ],
+                                            "method": 0,
+                                            "nBins": 5
+                                        },
+                                        "highColor": "#ff000000",
+                                        "invertRamp": false,
+                                        "labelFormat": 1,
+                                        "labelPrecision": 3,
+                                        "lowColor": "#ffffffff",
+                                        "mode": "continuous",
+                                        "rampName": "Terrain",
+                                        "rangeMax": 1,
+                                        "rangeMin": 0,
+                                        "rangeMode": "fixedOverRun",
+                                        "useCustomRange": false
+                                    },
+                                    "fillColor": "#ffbeb496",
+                                    "hillshadeStrength": 0.5,
+                                    "useElevationRamp": true
+                                },
+                                "visible": true
+                            },
+                            {
+                                "id": "results2d.cellDepthFill",
+                                "opacity": 1,
+                                "style": {
+                                    "attribute": "depth",
+                                    "classification": {
+                                        "binner": {
+                                            "manualBreaks": [
+                                            ],
+                                            "method": 0,
+                                            "nBins": 8
+                                        },
+                                        "highColor": "#ffc8dcff",
+                                        "invertRamp": false,
+                                        "labelFormat": 1,
+                                        "labelPrecision": 3,
+                                        "lowColor": "#ff3c64c8",
+                                        "mode": "continuous",
+                                        "rampName": "viridis",
+                                        "rangeMax": 1,
+                                        "rangeMin": 0,
+                                        "rangeMode": "fixedOverRun",
+                                        "useCustomRange": false
+                                    }
+                                },
+                                "visible": false
+                            },
+                            {
+                                "id": "results2d.smoothDepthFill",
+                                "opacity": 0.6,
+                                "style": {
+                                    "attribute": "depth",
+                                    "classification": {
+                                        "binner": {
+                                            "manualBreaks": [
+                                            ],
+                                            "method": 0,
+                                            "nBins": 8
+                                        },
+                                        "highColor": "#ffc8dcff",
+                                        "invertRamp": false,
+                                        "labelFormat": 1,
+                                        "labelPrecision": 3,
+                                        "lowColor": "#ff3c64c8",
+                                        "mode": "continuous",
+                                        "rampName": "viridis",
+                                        "rangeMax": 1,
+                                        "rangeMin": 0,
+                                        "rangeMode": "fixedOverRun",
+                                        "useCustomRange": false
+                                    }
+                                },
+                                "visible": false
+                            },
+                            {
+                                "id": "results2d.bands",
+                                "opacity": 0.6,
+                                "style": {
+                                    "aboveMaxColor": "#c8ffffff",
+                                    "attribute": "depth",
+                                    "belowMinColor": "#00000000",
+                                    "classification": {
+                                        "binner": {
+                                            "manualBreaks": [
+                                            ],
+                                            "method": 0,
+                                            "nBins": 8
+                                        },
+                                        "highColor": "#c8c8dcff",
+                                        "invertRamp": false,
+                                        "labelFormat": 1,
+                                        "labelPrecision": 3,
+                                        "lowColor": "#c83c64c8",
+                                        "mode": "classified",
+                                        "rampName": "viridis",
+                                        "rangeMax": 1,
+                                        "rangeMin": 0,
+                                        "rangeMode": "fixedOverRun",
+                                        "useCustomRange": false
+                                    },
+                                    "smoothBands": true
+                                },
+                                "visible": true
+                            },
+                            {
+                                "id": "results2d.meshEdges",
+                                "opacity": 1,
+                                "style": {
+                                    "classification": {
+                                        "binner": {
+                                            "manualBreaks": [
+                                                0.35
+                                            ],
+                                            "method": 2,
+                                            "nBins": 2
+                                        },
+                                        "colorOverrides": {
+                                            "0": "#82000000",
+                                            "1": "#d2000000"
+                                        },
+                                        "highColor": "#d2000000",
+                                        "invertRamp": false,
+                                        "labelFormat": 1,
+                                        "labelPrecision": 3,
+                                        "lowColor": "#82000000",
+                                        "mode": "classified",
+                                        "rampName": "",
+                                        "rangeMax": 1,
+                                        "rangeMin": 0,
+                                        "rangeMode": "fixedOverRun",
+                                        "useCustomRange": true
+                                    },
+                                    "color": "#82000000",
+                                    "dashPattern": 1,
+                                    "lineWidthPx": 0.35,
+                                    "slopeBreak": 0.35,
+                                    "useSlopeDrivenWidth": true,
+                                    "wideColor": "#d2000000",
+                                    "wideWidthPx": 0.9
+                                },
+                                "visible": true
+                            },
+                            {
+                                "id": "results2d.isolines",
+                                "opacity": 1,
+                                "style": {
+                                    "attribute": "depth",
+                                    "baseLevel": 0,
+                                    "classification": {
+                                        "binner": {
+                                            "manualBreaks": [
+                                            ],
+                                            "method": 0,
+                                            "nBins": 8
+                                        },
+                                        "highColor": "#ff000000",
+                                        "invertRamp": false,
+                                        "labelFormat": 1,
+                                        "labelPrecision": 3,
+                                        "lowColor": "#ffffffff",
+                                        "mode": "classified",
+                                        "rampName": "viridis",
+                                        "rangeMax": 1,
+                                        "rangeMin": 0,
+                                        "rangeMode": "fixedOverRun",
+                                        "useCustomRange": false
+                                    },
+                                    "color": "#dc0a0a0a",
+                                    "dashPattern": "SolidLine",
+                                    "indexEvery": 0,
+                                    "indexWidthPx": 2,
+                                    "labelDecimals": 2,
+                                    "labelFontPt": 9,
+                                    "labelHalo": true,
+                                    "labels": false,
+                                    "levelInterval": 0.5,
+                                    "levelMode": 0,
+                                    "lineWidthPx": 1
+                                },
+                                "visible": false
+                            },
+                            {
+                                "id": "results2d.meshVertices",
+                                "opacity": 1,
+                                "style": {
+                                    "color": "#dc282828",
+                                    "highlightTagged": true,
+                                    "markerSizePx": 3,
+                                    "outlineColor": "#dcffffff",
+                                    "outlineWidthPx": 0.5,
+                                    "shape": 0,
+                                    "taggedColor": "#ebff8c00",
+                                    "taggedSizePx": 5
+                                },
+                                "visible": false
+                            },
+                            {
+                                "id": "results2d.velocity",
+                                "opacity": 1,
+                                "style": {
+                                    "classification": {
+                                        "binner": {
+                                            "manualBreaks": [
+                                            ],
+                                            "method": 0,
+                                            "nBins": 5
+                                        },
+                                        "highColor": "#ff000000",
+                                        "invertRamp": false,
+                                        "labelFormat": 1,
+                                        "labelPrecision": 3,
+                                        "lowColor": "#ffffffff",
+                                        "mode": "continuous",
+                                        "rampName": "viridis",
+                                        "rangeMax": 2,
+                                        "rangeMin": 0,
+                                        "rangeMode": "fixedOverRun",
+                                        "useCustomRange": true
+                                    },
+                                    "color": "#dc141414",
+                                    "colorByMagnitude": true,
+                                    "colorClassCount": 0,
+                                    "colorRampName": "viridis",
+                                    "dryDepthCutoff": 0.001,
+                                    "glyphLengthMaxPx": 44,
+                                    "glyphLengthMinPx": 20,
+                                    "glyphLengthScalePxPerMps": 20,
+                                    "glyphSpacingPx": 30,
+                                    "headSizePx": 8,
+                                    "lengthScaling": 2,
+                                    "shaftWidthPx": 2.5,
+                                    "speedMaxMps": 2,
+                                    "speedMinMps": 0
+                                },
+                                "visible": false
+                            }
+                        ]
+                    },
+                    "visible": true
+                }
             ],
             "terrain": {
                 "verticalUnit": "m"
