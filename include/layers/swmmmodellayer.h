@@ -1358,6 +1358,55 @@ public:
                           QStringList *outWarnings = nullptr,
                           QString *outError = nullptr);
 
+    // ===== Virtual junctions ==============================================
+    // Engine-side split/fuse semantics (swmm_conduit_split /
+    // swmm_virtual_junction_fuse / swmm_node_set_virtual) so CLI, Python,
+    // MCP and GUI share one implementation. See
+    // workplans/VIRTUAL_JUNCTION_GUI_PLAN_2026-08-01.md.
+
+    /*! \brief True when cached node \p soaIdx is a virtual junction. */
+    bool nodeIsVirtual(int soaIdx) const {
+        return soaIdx >= 0 && soaIdx < m_nodes.size() &&
+               m_nodes[soaIdx].isVirtual != 0;
+    }
+
+    /*!
+     * \brief Set or clear a node's virtual-junction flag via
+     *        `swmm_node_set_virtual` (full engine validation). On a violated
+     *        usage rule \p outError receives the actionable message from
+     *        virtualJunctionRuleText().
+     */
+    bool applySetVirtual(const QString &name, bool makeVirtual,
+                         QString *outError = nullptr);
+
+    /*!
+     * \brief Split conduit \p linkName at normalized polyline position \p t,
+     *        inserting a virtual junction, via `swmm_conduit_split`. The
+     *        original conduit keeps its name/upstream end; the new conduit
+     *        \p newLinkName carries the remainder. Caches for the node, both
+     *        conduits and the scene arrays are synchronized incrementally.
+     * \param[out] outNodeIdx  Engine/cache index of the inserted node.
+     * \param[out] outLinkIdx  Engine/cache index of the new conduit.
+     */
+    bool applyInsertVirtualJunction(const QString &linkName, double t,
+                                    const QString &newNodeName,
+                                    const QString &newLinkName,
+                                    int *outNodeIdx = nullptr,
+                                    int *outLinkIdx = nullptr,
+                                    QString *outError = nullptr);
+
+    /*!
+     * \brief Re-fuse the two conduits of virtual junction \p nodeName into
+     *        one via `swmm_virtual_junction_fuse` (upstream conduit's name
+     *        survives; the node coordinate becomes an interior vertex unless
+     *        collinear; the downstream conduit and node are deleted).
+     */
+    bool applyFuseVirtualJunction(const QString &nodeName,
+                                  QString *outError = nullptr);
+
+    /*! \brief Actionable text for a virtual-junction rule code (609..621). */
+    static QString virtualJunctionRuleText(int engineErrorCode);
+
     /*!
      * \brief Apply interior vertices to a link: engine + cache, rebuilding
      *        the cached polyline from the node endpoints + new interior.
@@ -1769,7 +1818,8 @@ private:
     bool decodeLegendClassKey(const QString &key, Category *catOut,
                               QString *innerOut) const;
 
-    struct NodeGeom    { double x, y; int objectType; int nodeType; QString name; };
+    struct NodeGeom    { double x, y; int objectType; int nodeType;
+                         int isVirtual = 0; QString name; };
     struct LinkGeom {
         QVector<QPointF> vertices;   // interior bend points only (no node endpoints)
         int              linkType    = -1;
@@ -2064,6 +2114,9 @@ private:
     void rebuildFlagArrays();
 
     SWMMElementSymbol            m_junctionSym;
+    /*! Marker override for virtual junctions — same CatJunctions bucket
+     *  (decision D-G1: no 5th persisted category), distinct glyph. */
+    SWMMElementSymbol            m_virtualJunctionSym;
     SWMMElementSymbol            m_outfallSym;
     SWMMElementSymbol            m_storageSym;
     SWMMElementSymbol            m_dividerSym;

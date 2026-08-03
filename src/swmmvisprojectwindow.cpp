@@ -25,6 +25,7 @@
 #include "map/tools/maptoolmeasure.h"
 #include "map/tools/maptoolselectprofile.h"
 #include "map/tools/maptooladdnode.h"
+#include "map/tools/maptooladdvirtualnode.h"
 #include "map/tools/maptooladdlink.h"
 #include "map/tools/maptooladdgage.h"
 #include "map/tools/maptooladdsubcatchment.h"
@@ -277,6 +278,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // SWMM_NODE_JUNCTION=0, OUTFALL=1, STORAGE=2, DIVIDER=3
     // Pass element-kind keys so tools read the configurable prefix from PreferencesManager.
     mAddJunctionTool  = new OpenSWMMVisMapToolAddNode(mCanvas, 0, QStringLiteral("junction"),     this);
+    mAddVirtualJunctionTool = new OpenSWMMVisMapToolAddVirtualNode(mCanvas, this);
     mAddOutfallTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 1, QStringLiteral("outfall"),      this);
     mAddStorageTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 2, QStringLiteral("storage"),      this);
     mAddDividerTool   = new OpenSWMMVisMapToolAddNode(mCanvas, 3, QStringLiteral("divider"),      this);
@@ -1353,6 +1355,7 @@ bool SWMMVisProjectWindow::hasMeshLayer() const
     return false;
 }
 void SWMMVisProjectWindow::activateAddJunctionTool()    { mCanvas->setActiveTool(mAddJunctionTool); }
+void SWMMVisProjectWindow::activateAddVirtualJunctionTool() { mCanvas->setActiveTool(mAddVirtualJunctionTool); }
 void SWMMVisProjectWindow::activateAddOutfallTool()     { mCanvas->setActiveTool(mAddOutfallTool); }
 void SWMMVisProjectWindow::activateAddStorageTool()     { mCanvas->setActiveTool(mAddStorageTool); }
 void SWMMVisProjectWindow::activateAddDividerTool()     { mCanvas->setActiveTool(mAddDividerTool); }
@@ -1396,6 +1399,7 @@ QHash<OpenSWMMVisMapTool *, QString> SWMMVisProjectWindow::toolActionKeys() cons
         { mMeasureTool,        QStringLiteral("actionMeasure")        },
         { mSelectProfileTool,  QStringLiteral("actionPlotProfile")    },
         { mAddJunctionTool,    QStringLiteral("actionAddJunction")    },
+        { mAddVirtualJunctionTool, QStringLiteral("actionAddVirtualJunction") },
         { mAddOutfallTool,     QStringLiteral("actionAddOutfall")     },
         { mAddStorageTool,     QStringLiteral("actionAddStorage")     },
         { mAddDividerTool,     QStringLiteral("actionAddFlowDivider") },

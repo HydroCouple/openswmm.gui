@@ -777,11 +777,14 @@ void SWMMLayerItem::paint(QPainter *painter,
             QVector<QPointF>                 selPts;
             QVector<int>                     selIndices;
         };
-        Bucket buckets[4] = {
+        // Bucket 4: virtual junctions — same CatJunctions category (D-G1:
+        // no persisted 5th category) with a distinct marker override.
+        Bucket buckets[5] = {
             {&m_layer->m_junctionSym, 0, SWMMModelLayer::CatJunctions, {}, {}, {}, {}},
             {&m_layer->m_outfallSym,  1, SWMMModelLayer::CatOutfalls,  {}, {}, {}, {}},
             {&m_layer->m_storageSym,  2, SWMMModelLayer::CatStorage,   {}, {}, {}, {}},
             {&m_layer->m_dividerSym,  3, SWMMModelLayer::CatDividers,  {}, {}, {}, {}},
+            {&m_layer->m_virtualJunctionSym, 0, SWMMModelLayer::CatJunctions, {}, {}, {}, {}},
         };
 
         // Expand the cull window by the largest marker radius (in scene
@@ -800,7 +803,8 @@ void SWMMLayerItem::paint(QPainter *painter,
                                              haloScene,  haloScene);
                 if (!e.contains(sp)) continue;
             }
-            const int t = (n.nodeType >= 0 && n.nodeType < 4) ? n.nodeType : 0;
+            int t = (n.nodeType >= 0 && n.nodeType < 4) ? n.nodeType : 0;
+            if (t == 0 && n.isVirtual) t = 4;   // virtual-junction marker override
             auto &b = buckets[t];
             const bool sel = size_t(i) < nodeSel.size() && nodeSel[i];
             if (sel) { b.selPts.append(sp);   b.selIndices.append(i); }

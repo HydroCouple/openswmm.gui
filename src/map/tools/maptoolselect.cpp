@@ -30,6 +30,7 @@
 #include <QKeyEvent>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -697,6 +698,112 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
     }
 
     if (toDelete.isEmpty()) return;
+
+    // Virtual junction: the default delete RE-FUSES the two conduits back
+    // into one (the node only exists as a split); cascade delete of node +
+    // both conduits remains available as the explicit alternative.
+    if (toDelete.size() == 1
+        && toDelete.first().kind == DeleteObjectCommand::DeleteNode) {
+        const int ni = sl->nodeIndex(toDelete.first().name);
+        if (ni >= 0 && sl->nodeIsVirtual(ni)) {
+            auto *widget = qobject_cast<QWidget *>(m_canvas);
+            QMessageBox box(widget);
+            box.setWindowTitle(QObject::tr("Delete Virtual Junction"));
+            box.setText(QObject::tr("\"%1\" is a virtual junction.")
+                            .arg(toDelete.first().name));
+            box.setInformativeText(QObject::tr(
+                "Re-fuse merges its two conduits back into one (the upstream "
+                "conduit's name survives). Delete removes the node and both "
+                "conduits."));
+            auto *fuseBtn = box.addButton(QObject::tr("Re-fuse Conduits"),
+                                          QMessageBox::AcceptRole);
+            auto *delBtn  = box.addButton(QObject::tr("Delete Node && Conduits"),
+                                          QMessageBox::DestructiveRole);
+            box.addButton(QMessageBox::Cancel);
+            box.setDefaultButton(fuseBtn);
+            box.exec();
+
+            if (box.clickedButton() == fuseBtn) {
+                sl->setSelectedElementNames({});
+                emit selectionChanged(sl);
+                auto *cmd = new FuseVirtualJunctionCommand(
+                    sl, toDelete.first().name, m_canvas);
+                if (!cmd->valid()) { delete cmd; return; }
+                if (m_canvas->undoStack())
+                    m_canvas->undoStack()->push(cmd);
+                else
+                    delete cmd;
+                return;
+            }
+            if (box.clickedButton() != delBtn)
+                return;   // cancelled
+            // Explicit cascade delete chosen — skip the generic confirm.
+            sl->setSelectedElementNames({});
+            emit selectionChanged(sl);
+            auto *macro = new QUndoCommand(QObject::tr("Delete Objects"));
+            new DeleteObjectCommand(sl, toDelete.first().name,
+                                    DeleteObjectCommand::DeleteNode,
+                                    m_canvas, macro);
+            if (m_canvas->undoStack())
+                m_canvas->undoStack()->push(macro);
+            else
+                delete macro;
+            return;
+        }
+    }
+
+    // Deleting one conduit of a virtual-junction pair breaks the pair rule.
+    // Offer re-fusing instead, or demote the node to a regular junction and
+    // proceed with the deletion.
+    if (toDelete.size() == 1
+        && toDelete.first().kind == DeleteObjectCommand::DeleteLink && eng) {
+        const int li = sl->linkIndex(toDelete.first().name);
+        int vjNode = -1;
+        if (li >= 0) {
+            int n1 = -1, n2 = -1;
+            swmm_link_get_from_node(eng, li, &n1);
+            swmm_link_get_to_node(eng, li, &n2);
+            if (n1 >= 0 && sl->nodeIsVirtual(n1)) vjNode = n1;
+            if (n2 >= 0 && sl->nodeIsVirtual(n2)) vjNode = n2;
+        }
+        if (vjNode >= 0) {
+            const QString vjName = QString::fromUtf8(swmm_node_id(eng, vjNode));
+            auto *widget = qobject_cast<QWidget *>(m_canvas);
+            QMessageBox box(widget);
+            box.setWindowTitle(QObject::tr("Conduit Belongs to a Virtual Junction"));
+            box.setText(QObject::tr("\"%1\" is one of the two conduits of "
+                                    "virtual junction \"%2\".")
+                            .arg(toDelete.first().name, vjName));
+            box.setInformativeText(QObject::tr(
+                "Re-fuse merges the pair back into one conduit. Delete removes "
+                "this conduit and demotes \"%1\" to a regular junction.")
+                    .arg(vjName));
+            auto *fuseBtn = box.addButton(QObject::tr("Re-fuse Conduits"),
+                                          QMessageBox::AcceptRole);
+            auto *delBtn  = box.addButton(QObject::tr("Delete Conduit"),
+                                          QMessageBox::DestructiveRole);
+            box.addButton(QMessageBox::Cancel);
+            box.setDefaultButton(fuseBtn);
+            box.exec();
+
+            if (box.clickedButton() == fuseBtn) {
+                sl->setSelectedElementNames({});
+                emit selectionChanged(sl);
+                auto *cmd = new FuseVirtualJunctionCommand(sl, vjName, m_canvas);
+                if (!cmd->valid()) { delete cmd; return; }
+                if (m_canvas->undoStack())
+                    m_canvas->undoStack()->push(cmd);
+                else
+                    delete cmd;
+                return;
+            }
+            if (box.clickedButton() != delBtn)
+                return;   // cancelled
+            // Demote the node so the model stays valid, then fall through to
+            // the standard confirm + delete path.
+            sl->applySetVirtual(vjName, false);
+        }
+    }
 
     // Confirm.
     const int n = toDelete.size();

@@ -1149,3 +1149,109 @@ void DeleteDataObjectCommand::restoreTransect()
     p->setAllPoints(pts);
     reg->saveToEngine(m_layer->engine());
 }
+
+// ===========================================================================
+// InsertVirtualJunctionCommand
+// ===========================================================================
+
+InsertVirtualJunctionCommand::InsertVirtualJunctionCommand(
+        SWMMModelLayer *layer, QString linkName, double t,
+        QString nodeName, QString newLinkName,
+        MapCanvas *canvas, QUndoCommand *parent)
+    : MapCommand(QObject::tr("Insert Virtual Junction \"%1\"").arg(nodeName),
+                 canvas, parent),
+      m_layer(layer),
+      m_linkName(std::move(linkName)),
+      m_t(t),
+      m_nodeName(std::move(nodeName)),
+      m_newLinkName(std::move(newLinkName))
+{
+}
+
+void InsertVirtualJunctionCommand::redo()
+{
+    if (!m_layer || m_present) return;
+    if (m_layer->applyInsertVirtualJunction(m_linkName, m_t,
+                                            m_nodeName, m_newLinkName))
+        m_present = true;
+}
+
+void InsertVirtualJunctionCommand::undo()
+{
+    if (!m_layer || !m_present) return;
+    // Fusing the inserted virtual junction is the exact engine-side inverse
+    // of the split (verified byte-identical round-trip in the engine tests).
+    if (m_layer->applyFuseVirtualJunction(m_nodeName))
+        m_present = false;
+}
+
+// ===========================================================================
+// FuseVirtualJunctionCommand
+// ===========================================================================
+
+FuseVirtualJunctionCommand::FuseVirtualJunctionCommand(
+        SWMMModelLayer *layer, QString nodeName,
+        MapCanvas *canvas, QUndoCommand *parent)
+    : MapCommand(QObject::tr("Fuse Virtual Junction \"%1\"").arg(nodeName),
+                 canvas, parent),
+      m_layer(layer),
+      m_nodeName(std::move(nodeName))
+{
+    // Snapshot everything a re-split cannot derive: conduit names, the
+    // length-ratio split position, the grade-break invert and the map
+    // coordinate.
+    if (!m_layer) return;
+    SWMM_Engine eng = m_layer->engine();
+    if (!eng) return;
+    const int ni = swmm_node_index(eng, m_nodeName.toUtf8().constData());
+    if (ni < 0) return;
+
+    int up = -1, dn = -1;
+    const int nLinks = swmm_link_count(eng);
+    for (int i = 0; i < nLinks; ++i) {
+        int n1 = -1, n2 = -1;
+        swmm_link_get_from_node(eng, i, &n1);
+        swmm_link_get_to_node(eng, i, &n2);
+        if (n2 == ni) up = i;
+        if (n1 == ni) dn = i;
+    }
+    if (up < 0 || dn < 0 || up == dn) return;
+
+    double lu = 0.0, ld = 0.0;
+    swmm_link_get_length(eng, up, &lu);
+    swmm_link_get_length(eng, dn, &ld);
+    if (lu + ld <= 0.0) return;
+
+    m_upLinkName = QString::fromUtf8(swmm_link_id(eng, up));
+    m_dnLinkName = QString::fromUtf8(swmm_link_id(eng, dn));
+    m_t = lu / (lu + ld);
+    swmm_node_get_invert_elev(eng, ni, &m_invert);
+    swmm_spatial_get_node_coord(eng, ni, &m_x, &m_y);
+    m_valid = true;
+}
+
+void FuseVirtualJunctionCommand::redo()
+{
+    if (!m_layer || !m_valid || m_present) return;
+    if (m_layer->applyFuseVirtualJunction(m_nodeName))
+        m_present = true;
+}
+
+void FuseVirtualJunctionCommand::undo()
+{
+    if (!m_layer || !m_present) return;
+    if (!m_layer->applyInsertVirtualJunction(m_upLinkName, m_t,
+                                             m_nodeName, m_dnLinkName))
+        return;
+    m_present = false;
+
+    // Restore the exact grade-break invert and map coordinate — the split
+    // interpolates both along the (now single-gradient) merged conduit, so
+    // an original slope-break node needs the snapshot values back.
+    SWMM_Engine eng = m_layer->engine();
+    if (!eng) return;
+    const int ni = swmm_node_index(eng, m_nodeName.toUtf8().constData());
+    if (ni < 0) return;
+    swmm_node_set_invert_elev(eng, ni, m_invert);
+    m_layer->applyNodeMove(ni, m_x, m_y);
+}

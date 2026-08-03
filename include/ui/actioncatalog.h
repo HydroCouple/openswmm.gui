@@ -96,6 +96,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
 
     // ── Model authoring (enabled while a project is open) ───────────────
     {"model.addJunction",     "actionAddJunction",      "Model", "",  "Junction", "model", "Model/Add Node", RequiresProject},
+    {"model.addVirtualJunction", "actionAddVirtualJunction", "Model", "",  "VirtualJunction", "model", "Model/Add Node", RequiresProject},
     {"model.addOutfall",      "actionAddOutfall",       "Model", "",  "Outfall", "model", "Model/Add Node", RequiresProject},
     {"model.addFlowDivider",  "actionAddFlowDivider",   "Model", "",  "Divider", "model", "Model/Add Node", RequiresProject},
     {"model.addStorage",      "actionAddStorage",       "Model", "",  "Storage", "model", "Model/Add Node", RequiresProject},
