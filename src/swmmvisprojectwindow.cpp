@@ -1023,6 +1023,20 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
             if (mf.open(QIODevice::WriteOnly | QIODevice::Truncate))
                 mf.write(extMeshSnapshot);
         }
+        // Same for the mesh *attribute* edits: the snapshot predates the
+        // engine's write of the current vertex elevation / tag / coupling and
+        // triangle Manning / tag state, so the restore above just discarded
+        // them — without this re-emit a vertex-Z edit survives in the session
+        // but silently reverts in the saved sidecar, and the next run reads
+        // the old elevations.
+        if (extMeshLayer)
+        {
+            QString attrErr;
+            if (!mesh::InpMeshWriter::patchAttributeSections(
+                    extMeshPath, extMeshLayer->mesh(), &attrErr))
+                qWarning().noquote()
+                    << "Post-save 2D mesh attribute re-emit failed:" << attrErr;
+        }
         // The snapshot predates the engine's write of the current
         // BC/conveyance edits into the sidecar, so the restore above just
         // discarded them — re-emit the layer's per-edge state into the
