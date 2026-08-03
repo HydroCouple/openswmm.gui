@@ -792,7 +792,6 @@ void SWMMVis::initializeTerrainToolBar()
     // toolbar's actionMeshProfile. Icon-only (the QAction text is left empty),
     // checkable, and its objectName matches SWMMVisProjectWindow::toolActionKeys()
     // so the canvas active-tool sync keeps it checked/unchecked in step.
-    mTerrainToolbar->addSeparator();
     auto *actTerrainProfile = new QAction(QIcon(QStringLiteral(":/swmmvis/Profile")),
                                           QString(), mTerrainToolbar);
     actTerrainProfile->setObjectName(QStringLiteral("actionTerrainProfile"));
@@ -808,7 +807,9 @@ void SWMMVis::initializeTerrainToolBar()
         if (checked) pw->activateTerrainProfileTool();
         else         pw->activateSelectTool();
     });
-    mTerrainToolbar->addAction(actTerrainProfile);
+    // Iteration 4 — lives in the toolbar's captioned "Profile" group ahead
+    // of the trailing spacer (a raw addAction would float it far right).
+    mTerrainToolbar->addProfileAction(actTerrainProfile);
 }
 
 void SWMMVis::openTerrainProfilePlotFor(const QVector<QPointF> &scenePolyline)
@@ -1017,7 +1018,9 @@ void SWMMVis::initializeMeshEditingToolBar()
         if (checked) pw->activateMeshProfileTool();
         else         pw->activateSelectTool();
     });
-    mMeshEditingToolbar->addToolAction(actMeshProfile);
+    // Iteration 4 — the profile plotter stands in its own "Profile" group,
+    // apart from the contextually-resizing cell-selection cluster.
+    mMeshEditingToolbar->addProfileAction(actMeshProfile);
 }
 
 void SWMMVis::initializeAnalysisLayerCombos()
@@ -1036,27 +1039,37 @@ void SWMMVis::initializeAnalysisLayerCombos()
     mGroupResultsLayers =
         new openswmmvis::ui::RibbonGroup(tr("Results Layers"), this);
 
-    mLabelActiveResults1D = new QLabel(tr("1D results:"), this);
-    mLabelActiveResults1D->setContentsMargins(6, 0, 4, 0);
-    mComboActiveResults1D = new QComboBox(this);
-    mComboActiveResults1D->setMinimumWidth(160);
+    // Iteration 4: the 1D and 2D selector rows stack vertically inside one
+    // wrapper widget so each combo gets the full group width instead of
+    // sharing one row — long run names stay readable.
+    auto *stack = new QWidget(this);
+    auto *grid = new QGridLayout(stack);
+    grid->setContentsMargins(6, 0, 4, 0);
+    grid->setHorizontalSpacing(4);
+    grid->setVerticalSpacing(2);
+
+    mLabelActiveResults1D = new QLabel(tr("1D results:"), stack);
+    mComboActiveResults1D = new QComboBox(stack);
+    mComboActiveResults1D->setMinimumWidth(260);
     mComboActiveResults1D->setToolTip(tr(
         "Active 1D results layer for analysis (plots, tables, color-by-result, "
         "animation). Pick a run to analyze its elements; choose \"— none —\" to "
         "return to model editing."));
-    mGroupResultsLayers->addWidget(mLabelActiveResults1D);
-    mGroupResultsLayers->addWidget(mComboActiveResults1D);
+    grid->addWidget(mLabelActiveResults1D, 0, 0);
+    grid->addWidget(mComboActiveResults1D, 0, 1);
 
-    mLabelActiveResults2D = new QLabel(tr("2D results:"), this);
-    mLabelActiveResults2D->setContentsMargins(10, 0, 4, 0);
-    mComboActiveResults2D = new QComboBox(this);
-    mComboActiveResults2D->setMinimumWidth(160);
+    mLabelActiveResults2D = new QLabel(tr("2D results:"), stack);
+    mComboActiveResults2D = new QComboBox(stack);
+    mComboActiveResults2D->setMinimumWidth(260);
     mComboActiveResults2D->setToolTip(tr(
         "Active 2D results layer for analysis (mesh-cell depth / velocity plots, "
         "mesh profiles, animation). Pick a run, or \"— none —\" to return to "
         "mesh editing."));
-    mGroupResultsLayers->addWidget(mLabelActiveResults2D);
-    mGroupResultsLayers->addWidget(mComboActiveResults2D);
+    grid->addWidget(mLabelActiveResults2D, 1, 0);
+    grid->addWidget(mComboActiveResults2D, 1, 1);
+
+    stack->setMinimumWidth(stack->sizeHint().width());
+    mGroupResultsLayers->addWidget(stack);
 
     // (Iteration 3: the live-render toggle moved to the Results tab's
     // Display group — see initializeAnimationToolBar — where the other
@@ -1736,7 +1749,7 @@ void SWMMVis::initializeStatusBar()
     mLineEditCoordinates = new QLineEdit("0,0", ui->statusBar);
     mLineEditCoordinates->setAccessibleName(tr("Cursor coordinates"));
     mLineEditCoordinates->setReadOnly(true);
-    mLineEditCoordinates->setMinimumWidth(220);
+    mLineEditCoordinates->setMinimumWidth(320);
     mLineEditCoordinates->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     ui->statusBar->addPermanentWidget(mLineEditCoordinates);
     addSep();
@@ -4041,6 +4054,33 @@ QString synthesizeBlankInp(const NewProjectDialog::Result &r,
     if (forNewEngine) {
         kv("NODE_CONTINUITY", d.nodeContinuity);
         kv("ANDERSON_ACCEL",  yn(d.andersonAccel));
+    }
+
+    // Iteration 4 — the "Enable 2D module" simulation default now has a
+    // consumer: seed [2D_OPTIONS] from the 2D Defaults preferences page so
+    // a fresh project starts with the user's preferred solver setup
+    // (refactored engine only; legacy SWMM has no 2D module).
+    if (forNewEngine && d.module2DEnabled) {
+        const auto t = PreferencesManager::instance()->twoDDefaults();
+        out += QStringLiteral("\n[2D_OPTIONS]\n");
+        kv("MAX_TIMESTEP",        QString::number(t.maxTimestepSec, 'g', 8));
+        kv("THETA",               QString::number(t.theta, 'g', 6));
+        kv("CFL_NUMBER",          QString::number(t.cflNumber, 'g', 6));
+        kv("LTS_TIERS",           QString::number(t.ltsTiers));
+        kv("H_MOVE",              QString::number(t.hMove, 'g', 6));
+        kv("FROUDE_MAX",          QString::number(t.froudeMax, 'g', 6));
+        kv("DRY_DEPTH",           QString::number(t.dryDepth, 'g', 8));
+        kv("LIMITER_EPSILON",     QString::number(t.limiterEpsilon, 'g', 8));
+        kv("FLUX_DH_EPS",         QString::number(t.fluxDhEps, 'g', 8));
+        kv("CELL_CLOSURE",        t.cellClosure);
+        kv("FACE_RECONSTRUCTION", t.faceReconstruction);
+        kv("VFR_MIN_WET_FRAC",    QString::number(t.vfrMinWetFrac, 'g', 6));
+        kv("COUPLING_CD",         QString::number(t.couplingCd, 'f', 4));
+        kv("COUPLING_SYNC",       QString::number(t.couplingSync, 'g', 6));
+        kv("COUPLING_AREA",       t.couplingAreaAuto ? QStringLiteral("AUTO")
+                                                     : QStringLiteral("DEFAULT"));
+        kv("RAINFALL_MODE",       t.rainfallMode);
+        kv("REPORT_2D",           yn(t.report2D));
     }
 
     out += QStringLiteral("\n[REPORT]\n"
@@ -7524,21 +7564,21 @@ void SWMMVis::updateCoordinateReadout()
                        .arg(dispX, 0, 'f', decimals)
                        .arg(dispY, 0, 'f', decimals);
 
-    // Append Z — the mesh probe wins while the cursor is on the mesh
-    // (it survives the Mesh Editing toolbar's tab-scoped visibility);
-    // otherwise the terrain Z with the unit assigned to the canvas by
-    // the project window.
-    if (mMeshHoverZ.has_value()) {
-        text += tr("  Z: %1 (mesh)").arg(*mMeshHoverZ, 0, 'f', 3);
-    } else if (MapCanvas *c = activeCanvas()) {
+    // Append Z — iteration 4: terrain and mesh elevations show side by
+    // side whenever each is available (the mesh probe survives the Mesh
+    // Editing toolbar's tab-scoped visibility; the terrain Z carries the
+    // unit assigned to the canvas by the project window).
+    if (MapCanvas *c = activeCanvas()) {
         const auto z = c->terrainZ();
         if (z.has_value()) {
             const QString unit = c->terrainUnit();
             text += unit.isEmpty()
-                ? QStringLiteral("  Z: %1").arg(*z, 0, 'f', 3)
-                : QStringLiteral("  Z: %1 %2").arg(*z, 0, 'f', 3).arg(unit);
+                ? tr("  Z: %1 (terrain)").arg(*z, 0, 'f', 3)
+                : tr("  Z: %1 %2 (terrain)").arg(*z, 0, 'f', 3).arg(unit);
         }
     }
+    if (mMeshHoverZ.has_value())
+        text += tr("  Z: %1 (mesh)").arg(*mMeshHoverZ, 0, 'f', 3);
 
     mLineEditCoordinates->setText(text);
 }

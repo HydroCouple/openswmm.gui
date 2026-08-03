@@ -9,6 +9,7 @@
 
 #include "ui/uiscrollhelpers.h"
 
+#include "core/preferencesmanager.h"
 #include "core/unitsystem.h"
 #include "core/editgeometry.h"
 #include "swmmvisprojectwindow.h"
@@ -2536,43 +2537,37 @@ void MeshGenerationDialog::seedDefaults()
     m_nodesUseRim->setChecked(false);   // interpolate nodes to terrain by default
     m_elevMethodCombo->setCurrentIndex(0);  // IDW
     m_nnVariantCombo->setCurrentIndex(0);   // Sibson
-    m_idwPowerSpin->setValue(2.0);          // Shepard power-2
-    m_maxAreaSpin->setValue(0.0);
-    // 2026-07-31 — back to 33.0 (user decision; was lowered to 26° on
-    // 2026-07-29 for mesh size). 33° is the top of Triangle's reliable range
-    // and costs 2-4x the vertices of 26°, but gives the best element quality
-    // for the explicit 2D marcher; the minimum-node-separation control now
-    // prevents the worst refinement blowups around close node clusters.
-    m_minAngleSpin->setValue(33.0);
-    m_maxSteinerSpin->setValue(-1);
+    // Iteration 4 — seed values come from the user-editable 2D Defaults
+    // preference page (Preferences → 2D Defaults). The compiled-in struct
+    // defaults preserve the historical seeds (33° min angle per the
+    // 2026-07-31 decision, SI-canonical distances, thinning on 0.6/3, …).
+    const auto t = PreferencesManager::instance()->twoDDefaults();
+    m_idwPowerSpin->setValue(t.meshIdwPower);
+    m_maxAreaSpin->setValue(t.meshMaxArea);
+    m_minAngleSpin->setValue(t.meshMinAngleDeg);
+    m_maxSteinerSpin->setValue(t.meshMaxSteiner);
     m_allowSteiner->setChecked(true);
-    // Scale distance defaults to the project's length unit.
-    // SI canonical values: simplifyEps = 0.1 m, snapEps = 0.01 m.
+    // Scale distance defaults (stored SI-canonical) to the project's
+    // length unit.
     const double toUnit = UnitSystem::instance()->isSI() ? 1.0 : 1.0 / 0.3048;
-    m_simplifyEpsSpin->setValue(0.1  * toUnit);
-    m_snapEpsSpin->setValue(    0.01 * toUnit);
-    m_nodeFlattenSpin->setValue(5.0  * toUnit);   // 5 m default flatten radius
-    // Minimum node separation ON by default at 2 m: catches genuinely
-    // coincident/adjacent manholes without demoting normally spaced nodes.
-    m_nodeMinSepBox->setChecked(true);
-    m_nodeMinSepSpin->setValue(2.0 * toUnit);
-    m_thinningBox->setChecked(true);         // thinning on by default
-    m_thinningToleranceSpin->setValue(0.6);  // default normal dot threshold
-    m_thinningIterationsSpin->setValue(3);   // default thinning passes
+    m_simplifyEpsSpin->setValue(t.meshSimplifyEpsM * toUnit);
+    m_snapEpsSpin->setValue(    t.meshSnapEpsM     * toUnit);
+    m_nodeFlattenSpin->setValue(t.meshNodeFlattenRadM * toUnit);
+    m_nodeMinSepBox->setChecked(t.meshMinNodeSepOn);
+    m_nodeMinSepSpin->setValue(t.meshMinNodeSepM * toUnit);
+    m_thinningBox->setChecked(t.meshThinningOn);
+    m_thinningToleranceSpin->setValue(t.meshThinningTol);
+    m_thinningIterationsSpin->setValue(t.meshThinningPasses);
     m_thinningMaxPointsSpin->setValue(0);
     m_minSpacingBox->setChecked(false);
     m_minSpacingSpin->setValue(0.0);
-    // 2026-07-19 — boundary filter on by default at (auto) = half the
-    // effective terrain spacing; edge-length densification off by default
-    // but seeded with a sensible value (SI canonical 20 m) so enabling it
-    // is one click.
-    m_boundaryBufferSpin->setValue(0.0);          // (auto)
-    m_maxBoundaryEdgeBox->setChecked(false);
-    m_maxBoundaryEdgeSpin->setValue(20.0 * toUnit);
-    m_maxBoundaryEdgeSpin->setEnabled(false);     // follows the unchecked box
+    m_boundaryBufferSpin->setValue(t.meshBoundaryBufferM * toUnit); // 0 = (auto)
+    m_maxBoundaryEdgeBox->setChecked(t.meshMaxBoundaryEdgeOn);
+    m_maxBoundaryEdgeSpin->setValue(t.meshMaxBoundaryEdgeM * toUnit);
+    m_maxBoundaryEdgeSpin->setEnabled(t.meshMaxBoundaryEdgeOn);
     m_manningsConstant->setChecked(true);
-    m_manningsValueSpin->setValue(0.035);
-    m_outputExternal->setChecked(true);
+    m_manningsValueSpin->setValue(t.meshManningsN);
+    m_outputExternal->setChecked(t.meshOutputExternal);
     updateUnitDisplay();   // set suffixes and tooltip after values are seeded
     populateLayerCombos();
     updateZFactor();       // seed factor from current DTM + mesh vertical unit

@@ -28,6 +28,7 @@
 // Forward-declare GDAL types
 class GDALDataset;
 class OGRCoordinateTransformation;
+class OGRSpatialReference;
 class SpatialReferenceSystem;
 class OpenSWMMVisWorkspace;
 class RasterTileItem;
@@ -384,6 +385,13 @@ private:
     // reload/reopen. Tile warps no longer take it — each worker reads through
     // its own pooled handle with a WarpParams snapshot.
     mutable QMutex   m_datasetMutex;
+
+    // valueAt()'s cached canvas→raster probe transform (guarded by
+    // m_datasetMutex). Keyed on the two OGRSpatialReference identities;
+    // nullptr CT with matching keys means the CRSs are the same.
+    mutable OGRCoordinateTransformation *m_probeCT = nullptr;
+    mutable const OGRSpatialReference   *m_probeCTCanvasKey = nullptr;
+    mutable const OGRSpatialReference   *m_probeCTRasterKey = nullptr;
     // Set after a background .ovr build; consumed by the next fetchCache()
     // (GUI thread), which reopens m_dataset so the new overviews become visible.
     std::atomic<bool> m_datasetReloadPending{false};

@@ -111,10 +111,23 @@ TerrainToolbar::TerrainToolbar(const QString &title, QWidget *parent)
     m_linkUnitLabel->setMinimumWidth(20);
     groupOffsets->addWidget(m_linkUnitLabel);
 
+    // ── Profile group (iteration 4) — hosts the terrain profile-plot
+    // action SWMMVis hands over via addProfileAction(). A mini QToolBar
+    // inside the captioned group renders the checkable action as a
+    // proper ribbon button (same idiom as MeshEditingToolbar's groups).
+    auto *groupProfile = new RibbonGroup(tr("Profile"), this);
+    m_profileBar = new QToolBar(groupProfile);
+    m_profileBar->setMovable(false);
+    m_profileBar->setFloatable(false);
+    m_profileBar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_profileBar->setIconSize(QSize(20, 20));
+    groupProfile->addWidget(m_profileBar);
+
     // Mount the groups; leftover row width pools behind them.
     addWidget(groupTerrain);
     addWidget(groupUnits);
     addWidget(groupOffsets);
+    addWidget(groupProfile);
     {
         auto *spacer = new QWidget(this);
         spacer->setObjectName(QStringLiteral("ribbonBarSpacer"));
@@ -316,7 +329,9 @@ void TerrainToolbar::onLayerRemoved(OpenSWMMVisLayer *layer)
 
 void TerrainToolbar::onComboIndexChanged(int index)
 {
-    Q_UNUSED(index)
+    // Remember a deliberate "(none)" pick so rebuildCombo never overrides
+    // it with the auto-selection below.
+    m_userChoseNone = (index == kNoneIndex);
     autoDetectVerticalUnit(); // update unit combo to match new terrain
     updateUnitLabels();
     emit activeTerrainChanged(activeTerrain());
@@ -343,10 +358,28 @@ void TerrainToolbar::rebuildCombo()
             restoreIndex = m_terrainCombo->count() - 1;
     }
 
+    // Iteration 4 — auto-select the first DEM when nothing is chosen yet,
+    // so hover-Z sampling works the moment a raster is added. A deliberate
+    // "(none)" pick (m_userChoseNone) is respected.
+    if (restoreIndex == kNoneIndex && !m_userChoseNone
+        && m_terrainCombo->count() > 1)
+        restoreIndex = kNoneIndex + 1;
+
     m_terrainCombo->setCurrentIndex(restoreIndex);
 
-    // Emit only if the active layer actually changed.
+    // Emit only if the active layer actually changed. The combo signal is
+    // blocked, so mirror onComboIndexChanged's unit refresh here.
     GISRasterLayer *current = activeTerrain();
-    if (current != previous)
+    if (current != previous) {
+        autoDetectVerticalUnit();
+        updateUnitLabels();
         emit activeTerrainChanged(current);
+        emit verticalUnitChanged(verticalUnit());
+    }
+}
+
+void TerrainToolbar::addProfileAction(QAction *action)
+{
+    if (action && m_profileBar)
+        m_profileBar->addAction(action);
 }
