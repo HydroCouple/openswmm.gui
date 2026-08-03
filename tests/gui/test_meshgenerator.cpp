@@ -14,6 +14,8 @@
 #include <QPolygonF>
 #include <QVector>
 
+#include <limits>
+
 #include "mesh/meshgenerator.h"
 #include "mesh/meshresult.h"
 
@@ -67,6 +69,72 @@ private slots:
         QVERIFY2(r.ok, qPrintable(r.errorMsg));
         QVERIFY(r.triangles.size() >= 2);
         QVERIFY(r.vertices.size() >= 4);
+    }
+
+    /*! A non-finite input coordinate must be rejected before Triangle runs.
+     *  NaN compares false against everything, so it survives duplicate and
+     *  degeneracy screening untouched; a vertex with both coordinates NaN
+     *  then SIGSEGVs inside Triangle's initial Delaunay merge (mergehulls →
+     *  counterclockwise), which setjmp cannot catch. DTM NoData and failed
+     *  reprojections are the realistic sources. */
+    void nonFiniteCoordinates_failCleanly()
+    {
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        const double inf = std::numeric_limits<double>::infinity();
+
+        // (a) NaN on a Steiner point — the DTM/junction path.
+        {
+            MeshGenerator g;
+            QPolygonF dom;
+            dom << QPointF(0,0) << QPointF(100,0)
+                << QPointF(100,100) << QPointF(0,100);
+            g.setDomain(dom);
+            g.addSteinerPoint({QPointF(nan, nan), 7, "J1"});
+            const MeshResult r = g.generate();
+            QVERIFY(!r.ok);
+            QVERIFY(r.triangles.isEmpty());
+            QVERIFY(r.errorMsg.contains("finite"));
+        }
+
+        // (b) Infinity on a domain vertex.
+        {
+            MeshGenerator g;
+            QPolygonF dom;
+            dom << QPointF(0,0) << QPointF(inf,0)
+                << QPointF(100,100) << QPointF(0,100);
+            g.setDomain(dom);
+            const MeshResult r = g.generate();
+            QVERIFY(!r.ok);
+            QVERIFY(r.errorMsg.contains("finite"));
+        }
+
+        // (c) A single NaN component still counts — it silently drops the
+        //     vertex inside Triangle rather than crashing, which is worse.
+        {
+            MeshGenerator g;
+            QPolygonF dom;
+            dom << QPointF(0,0) << QPointF(100,0)
+                << QPointF(100,100) << QPointF(0,100);
+            g.setDomain(dom);
+            g.addSteinerPoint({QPointF(nan, 50.0), 8, "J2"});
+            const MeshResult r = g.generate();
+            QVERIFY(!r.ok);
+            QVERIFY(r.errorMsg.contains("finite"));
+        }
+
+        // (d) Control: the same domain with finite Steiner points still meshes.
+        {
+            MeshGenerator g;
+            QPolygonF dom;
+            dom << QPointF(0,0) << QPointF(100,0)
+                << QPointF(100,100) << QPointF(0,100);
+            g.setDomain(dom);
+            g.addSteinerPoint({QPointF(50.0, 50.0), 9, "J3"});
+            g.setOptions({.maxArea = 500.0, .minAngle = 28.0});
+            const MeshResult r = g.generate();
+            QVERIFY2(r.ok, qPrintable(r.errorMsg));
+            QVERIFY(!r.triangles.isEmpty());
+        }
     }
 
     /*! Projected-CRS magnitudes round-trip. The snap-and-dedupe quantiser

@@ -15,6 +15,7 @@
 #include <QHash>
 #include <QtMath>
 
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 
@@ -132,6 +133,56 @@ MeshResult MeshGenerator::generate() const
     {
         result.errorMsg = QStringLiteral("MeshGenerator: domain is empty.");
         return result;
+    }
+
+    // ── Reject non-finite input coordinates ───────────────────────────────
+    // A NaN coordinate is invisible to duplicate/degeneracy screening: NaN
+    // compares false against everything, so it is neither equal to nor
+    // orderable against any other vertex, and qRound64(NaN * 1e7) is
+    // undefined. It therefore reaches Triangle intact, and a vertex with BOTH
+    // coordinates NaN kills the INITIAL DELAUNAY pass — before any segment or
+    // hole processing. Measured on a plain point set with no PSLG at all
+    // (switches "zQ"):
+    //
+    //   triangulate -> delaunay -> divconqdelaunay -> divconqrecurse
+    //     -> mergehulls -> counterclockwise -> SIGSEGV
+    //
+    // Every orientation test against NaN returns false, so the hull-merge
+    // walk never finds its stopping edge, runs off the end of the
+    // triangulation and dereferences garbage. That is a hardware fault, so
+    // triangulate_safe()'s setjmp cannot catch it and the process dies. A
+    // single NaN coordinate is milder but still silently wrong: the vertex is
+    // dropped from the output (measured: 6955 triangles where a clean run
+    // gives 6972), which is arguably worse because nothing reports it.
+    //
+    // NaN reaches us legitimately — dtmthinner.cpp yields NaN for NoData and
+    // for grid points outside the DEM footprint — and infinities arrive from
+    // failed reprojections. Screen every input before Triangle sees any of it.
+    {
+        const auto isFinitePt = [](const QPointF &p) {
+            return std::isfinite(p.x()) && std::isfinite(p.y());
+        };
+        qsizetype nBad = 0;
+        for (const QPolygonF &dom : m_domains)
+            for (const QPointF &p : dom)      if (!isFinitePt(p))     ++nBad;
+        for (const SteinerPoint &sp : m_steiners)
+            if (!isFinitePt(sp.xy)) ++nBad;
+        for (const ConstraintSegment &cs : m_segments)
+            for (const QPointF &p : cs.path)  if (!isFinitePt(p))     ++nBad;
+        for (const QPointF &h : m_holes)      if (!isFinitePt(h))     ++nBad;
+        for (const RegionMarker &rm : m_regions)
+            if (!isFinitePt(rm.xy)) ++nBad;
+
+        if (nBad > 0)
+        {
+            result.errorMsg = QStringLiteral(
+                "MeshGenerator: %1 input coordinate(s) are not finite (NaN or "
+                "infinite), so meshing was not attempted. A non-finite vertex "
+                "crashes Triangle's Delaunay pass outright. The usual sources "
+                "are DTM NoData or out-of-footprint samples reaching the point "
+                "set, and failed coordinate reprojection.").arg(nBad);
+            return result;
+        }
     }
 
     // ── Collect unique input points ───────────────────────────────────────
@@ -307,6 +358,33 @@ MeshResult MeshGenerator::generate() const
         result.errorMsg = QStringLiteral(
             "MeshGenerator: all domain boundary segments were degenerate "
             "(zero-length after vertex deduplication).");
+        return result;
+    }
+
+    // ── Bound the point count against Triangle's int pool arithmetic ──────
+    // initializevertexpool() sizes the first vertex block via poolinit() as
+    //   trimalloc(pool->itemsfirstblock * pool->itembytes + ...)
+    // where itemsfirstblock is the input vertex count and BOTH operands are
+    // int, so the product is evaluated in int arithmetic and overflows
+    // silently. itembytes is 32 for our configuration (2D, no point
+    // attributes, -p/-q always set), putting the limit at (INT_MAX - 16) / 32.
+    // Past it trimalloc() receives a wrapped size; a small positive wrap
+    // yields an undersized first block that Triangle then writes every vertex
+    // into — heap corruption, not a clean allocation failure.
+    //
+    // NOTE: unlike the non-finite screen above, this bound is derived by
+    // reading triangle.c (poolinit / initializevertexpool), NOT reproduced —
+    // provoking it needs ~2 GB of vertex pool. It is cheap insurance on a
+    // path that otherwise corrupts the heap silently.
+    constexpr qsizetype kMaxTrianglePoints = (2147483647 - 16) / 32;  // 67108863
+    if (points.size() > kMaxTrianglePoints)
+    {
+        result.errorMsg = QStringLiteral(
+            "MeshGenerator: %1 mesh points exceeds the %2 that Triangle can "
+            "address (its vertex pool sizes the first block with int "
+            "arithmetic, which overflows past that count). Reduce the terrain "
+            "point density or mesh a smaller extent.")
+            .arg(points.size()).arg(kMaxTrianglePoints);
         return result;
     }
 
