@@ -95,6 +95,64 @@ using mesh::pslg::distSqToSegment;
 using mesh::pslg::snapAndDedupe;
 
 // ---------------------------------------------------------------------------
+// Checked coordinate transform
+// ---------------------------------------------------------------------------
+
+/*! \brief Reproject \p n points in place, marking any PROJ could not convert
+ *         as NaN, and return how many failed.
+ *
+ * The return value of OGRCoordinateTransformation::Transform() is not on its
+ * own a reliable failure signal — GDAL's own documentation (ogr_spatialref.h,
+ * the 4D overload) warns that "prior to GDAL 3.11, TRUE could be returned if a
+ * transformation could be found but not all points may have necessarily
+ * succeed to transform". The per-point \c pabSuccess array is authoritative,
+ * so this always passes one and ignores the scalar result.
+ *
+ * OGR leaves HUGE_VAL in a slot it could not transform. Canonicalising to NaN
+ * matters for two reasons:
+ *
+ *  - NaN is already the pipeline's "no value" sentinel (DTMSampler,
+ *    DTMThinner, NaturalNeighbourInterpolator all use it), so downstream
+ *    finiteness checks catch it uniformly.
+ *  - HUGE_VAL passes as an ordinary large coordinate. It survives a bbox
+ *    comparison, gets averaged into a centroid, and reaches Triangle intact.
+ *
+ * Failures are real: PROJ rejects points outside a projection's domain of
+ * validity (a UTM zone transform far from its meridian), points needing a
+ * datum grid that is not installed, and inverse projections that do not
+ * converge — all of which occur on the edges of regional datasets.
+ */
+static qsizetype transformChecked(OGRCoordinateTransformation *ct,
+                                  qsizetype n, double *x, double *y)
+{
+    if (!ct || n <= 0) return 0;
+
+    QVector<int> ok(static_cast<int>(n), 0);
+    ct->Transform(static_cast<size_t>(n), x, y, nullptr, ok.data());
+
+    constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
+    qsizetype nBad = 0;
+    for (qsizetype i = 0; i < n; ++i)
+    {
+        if (ok[static_cast<int>(i)] && std::isfinite(x[i]) && std::isfinite(y[i]))
+            continue;
+        x[i] = kNaN;
+        y[i] = kNaN;
+        ++nBad;
+    }
+    return nBad;
+}
+
+/*! \brief Single-point form of transformChecked(). Returns false (and leaves
+ *         \p x / \p y NaN) when the point could not be reprojected. A null
+ *         \p ct means "same CRS" and succeeds unchanged. */
+static bool transformCheckedPt(OGRCoordinateTransformation *ct,
+                               double &x, double &y)
+{
+    return transformChecked(ct, 1, &x, &y) == 0;
+}
+
+// ---------------------------------------------------------------------------
 // Worker function — runs on QtConcurrent thread, NO widget access allowed.
 // ---------------------------------------------------------------------------
 
@@ -215,6 +273,11 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             }
         }
 
+        // Boundary vertices PROJ could not reproject. These define the meshing
+        // domain, so a dropped or fabricated one silently deforms it — count
+        // them and refuse the run below rather than meshing a wrong outline.
+        qsizetype nBoundaryXformFailed = 0;
+
         auto ringToMesh = [&](const OGRLinearRing *r) {
             const int n = r->getNumPoints();
             QVector<QPointF> pts;
@@ -223,8 +286,16 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             {
                 QVector<double> xs(n), ys(n);
                 for (int i = 0; i < n; ++i) { xs[i] = r->getX(i); ys[i] = r->getY(i); }
-                boundaryCT->Transform(n, xs.data(), ys.data());
-                for (int i = 0; i < n; ++i) pts.append(QPointF(xs[i], ys[i]));
+                nBoundaryXformFailed += transformChecked(boundaryCT, n,
+                                                         xs.data(), ys.data());
+                for (int i = 0; i < n; ++i)
+                {
+                    // Skip the failures so the ring stays well-formed for the
+                    // simplify/densify passes; the count above is what decides
+                    // whether the run proceeds.
+                    if (std::isfinite(xs[i]) && std::isfinite(ys[i]))
+                        pts.append(QPointF(xs[i], ys[i]));
+                }
             }
             else
             {
@@ -372,6 +443,22 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         if (boundaryCT) OGRCoordinateTransformation::DestroyCT(boundaryCT);
         if (cancelled || promise.isCanceled())
         { fail(QObject::tr("Cancelled.")); return; }
+
+        if (nBoundaryXformFailed > 0)
+        {
+            // Those vertices were skipped above, so continuing would mesh a
+            // domain whose outline differs from the layer the user picked —
+            // silently, and in a way nothing downstream could detect.
+            fail(QObject::tr(
+                "%1 boundary vertices could not be reprojected from the "
+                "boundary layer's CRS to the mesh CRS.\n"
+                "The meshing domain would not match the boundary layer, so "
+                "generation was stopped. This usually means the two CRSs do "
+                "not overlap, the boundary extends outside the projection's "
+                "domain of validity, or a required datum grid is not "
+                "installed.").arg(nBoundaryXformFailed));
+            return;
+        }
 
         if (in.domains.isEmpty())
         {
@@ -809,9 +896,18 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             }
         if (!fxs.isEmpty())
         {
-            if (meshToDTM)
-                meshToDTM->Transform(static_cast<int>(fxs.size()),
-                                     fxs.data(), fys.data());
+            // A point PROJ cannot convert becomes NaN, which sampleMany()
+            // rejects (dtmthinner.cpp:450) and answers with a NaN z. That is
+            // already handled: the consumer below only accepts a finite z.
+            // Log the count so a systematically bad CRS pairing is visible
+            // rather than looking like a DEM with no coverage.
+            const qsizetype nFail = transformChecked(meshToDTM, fxs.size(),
+                                                     fxs.data(), fys.data());
+            if (nFail > 0)
+                qCWarning(lcMeshPerf)
+                    << "[Mesh]" << nFail << "of" << fxs.size()
+                    << "feature points failed mesh->DTM reprojection;"
+                    << "they get no DTM elevation";
             QVector<QPointF> q;
             q.reserve(fxs.size());
             for (qsizetype k = 0; k < fxs.size(); ++k)
@@ -871,7 +967,21 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
         {
             double xs[4] = {bx0, bx1, bx0, bx1};
             double ys[4] = {by0, by0, by1, by1};
-            meshToDTM->Transform(4, xs, ys);
+            if (transformChecked(meshToDTM, 4, xs, ys) > 0)
+            {
+                // Every DTM read below is windowed by this box. A corner left
+                // as HUGE_VAL used to widen it to the whole planet (or, with
+                // min/max over a NaN, leave it garbage), so the banded reader
+                // would scan far outside the raster.
+                OGRCoordinateTransformation::DestroyCT(meshToDTM);
+                if (dtmToMesh) OGRCoordinateTransformation::DestroyCT(dtmToMesh);
+                fail(QObject::tr(
+                    "The meshing extent could not be reprojected into the "
+                    "DTM's CRS, so the area to sample cannot be determined.\n"
+                    "Check that the DTM and the model share an overlapping "
+                    "coordinate system."));
+                return;
+            }
             dx0 = *std::min_element(xs, xs+4); dx1 = *std::max_element(xs, xs+4);
             dy0 = *std::min_element(ys, ys+4); dy1 = *std::max_element(ys, ys+4);
         }
@@ -1083,10 +1193,40 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 txs[ci] = candidates[ci].x();
                 tys[ci] = candidates[ci].y();
             }
-            dtmToMesh->Transform(static_cast<int>(txs.size()),
-                                 txs.data(), tys.data());
-            for (qsizetype ci = 0; ci < candidates.size(); ++ci)
-                candidatesMesh.append(QPointF(txs[ci], tys[ci]));
+            // This is the path that used to leak non-finite coordinates into
+            // the PSLG: a failed point kept OGR's HUGE_VAL, passed the
+            // in-domain bbox test by accident, and became a Steiner vertex.
+            // Terrain candidates are optional refinement points, so drop the
+            // failures — but keep candidateZ in step, since the two arrays are
+            // paired positionally by index further down.
+            const qsizetype nFail = transformChecked(dtmToMesh, txs.size(),
+                                                     txs.data(), tys.data());
+            if (nFail == 0)
+            {
+                for (qsizetype ci = 0; ci < candidates.size(); ++ci)
+                    candidatesMesh.append(QPointF(txs[ci], tys[ci]));
+            }
+            else
+            {
+                // candidateZ is indexed by the candidatesMesh position from
+                // here on (the Poisson filter and the Steiner loop both do
+                // candidateZ[ci]), so it has to shrink in lockstep.
+                const bool zPaired = (candidateZ.size() == candidates.size());
+                QVector<double> keptZ;
+                keptZ.reserve(candidateZ.size());
+                for (qsizetype ci = 0; ci < candidates.size(); ++ci)
+                {
+                    if (!std::isfinite(txs[ci]) || !std::isfinite(tys[ci]))
+                        continue;
+                    candidatesMesh.append(QPointF(txs[ci], tys[ci]));
+                    if (zPaired) keptZ.append(candidateZ[ci]);
+                }
+                if (zPaired) candidateZ = std::move(keptZ);
+                qCWarning(lcMeshPerf)
+                    << "[Mesh]" << nFail << "of" << candidates.size()
+                    << "terrain points failed DTM->mesh reprojection and were"
+                    << "dropped;" << candidatesMesh.size() << "retained";
+            }
         }
         else
         {
@@ -1560,9 +1700,19 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 fail(QObject::tr("Cancelled.")); return;
             }
             const qsizetype cn = std::min(kElevChunk, missIdx.size() - base);
-            if (meshToDTM)
-                meshToDTM->Transform(static_cast<int>(cn),
-                                     missX.data() + base, missY.data() + base);
+            // A vertex PROJ cannot convert becomes NaN, sampleMany() answers
+            // NaN, and the DEM-coverage fill below interpolates it from its
+            // neighbours — same treatment as a NoData hole, which is the right
+            // outcome. Logged so a wholesale CRS failure is distinguishable
+            // from genuine DEM gaps.
+            const qsizetype nFail = transformChecked(meshToDTM, cn,
+                                                     missX.data() + base,
+                                                     missY.data() + base);
+            if (nFail > 0)
+                qCWarning(lcMeshPerf)
+                    << "[Mesh]" << nFail << "of" << cn
+                    << "mesh vertices failed mesh->DTM reprojection;"
+                    << "their elevations come from the coverage fill";
             QVector<QPointF> q;
             q.reserve(cn);
             for (qsizetype k = 0; k < cn; ++k)
@@ -2862,6 +3012,12 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
     // feature Z) are collected here and reported as a hard-block error below.
     QStringList blockedLayers;
 
+    // Aux geometry PROJ could not reproject into the mesh CRS. Dropped rather
+    // than carried as OGR's HUGE_VAL; counted so the user is told instead of
+    // silently getting fewer constraints than the layer contains.
+    qsizetype nAuxPointsUnprojectable    = 0;
+    qsizetype nAuxLineVertsUnprojectable = 0;
+
     // ── PSLG optimisation parameters ─────────────────────────────────
     out->pslgSimplifyEps = m_simplifyEpsSpin->value();
     out->pslgSnapEps     = m_snapEpsSpin->value();
@@ -2939,9 +3095,11 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         return OGRCreateCoordinateTransformation(layerOGRSRS, &meshOGRSRS);
     };
 
-    // Transform a mutable (x,y) pair using ct (if non-null).
+    // Transform a mutable (x,y) pair using ct (if non-null). Returns false and
+    // leaves x/y NaN when PROJ could not convert the point, so callers can
+    // drop it instead of forwarding OGR's HUGE_VAL as a real coordinate.
     auto xformPt = [](OGRCoordinateTransformation *ct, double &x, double &y) {
-        if (ct) ct->Transform(1, &x, &y);
+        return transformCheckedPt(ct, x, y);
     };
 
     // ── Boundary source identity ─────────────────────────────────────
@@ -3003,15 +3161,22 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         {
             double xs[4] = {be.xMin(), be.xMax(), be.xMin(), be.xMax()};
             double ys[4] = {be.yMin(), be.yMin(), be.yMax(), be.yMax()};
+            bool bboxOk = true;
             if (OGRCoordinateTransformation *ct = makeTransform(bLayer))
             {
-                ct->Transform(4, xs, ys);
+                bboxOk = (transformChecked(ct, 4, xs, ys) == 0);
                 OGRCoordinateTransformation::DestroyCT(ct);
             }
-            auxBBox = QRectF(QPointF(*std::min_element(xs, xs + 4),
-                                     *std::min_element(ys, ys + 4)),
-                             QPointF(*std::max_element(xs, xs + 4),
-                                     *std::max_element(ys, ys + 4)));
+            // This rect is only a read prefilter. A corner OGR left at
+            // HUGE_VAL used to widen it to the whole planet; a NaN corner
+            // would collapse it via min/max and quietly exclude every
+            // feature. Leaving it unset reads the layer unfiltered, which is
+            // slower but cannot lose data.
+            if (bboxOk)
+                auxBBox = QRectF(QPointF(*std::min_element(xs, xs + 4),
+                                         *std::min_element(ys, ys + 4)),
+                                 QPointF(*std::max_element(xs, xs + 4),
+                                         *std::max_element(ys, ys + 4)));
         }
     }
     // else: AutoBBox (default) — the worker builds the 5 %-margin box.
@@ -3148,7 +3313,11 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
         auto pushPoint = [&](const OGRPoint *p) {
             if (!p) return;
             double x = p->getX(), y = p->getY();
-            xformPt(ct, x, y);  // Z is vertical — not reprojected by a 2D transform
+            // Z is vertical — not reprojected by a 2D transform.
+            // Drop the point outright if PROJ could not place it: an aux point
+            // is an optional refinement seed, and forwarding a non-finite one
+            // would abort the whole run at the generator's finiteness screen.
+            if (!xformPt(ct, x, y)) { ++nAuxPointsUnprojectable; return; }
             double z = 0.0;
             const bool fz = useFZ && p->Is3D() && std::isfinite(z = p->getZ());
             if (fz)
@@ -3237,10 +3406,15 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
                 for (int j = 0; j < ls->getNumPoints(); ++j)
                 {
                     double x = ls->getX(j), y = ls->getY(j);
-                    xformPt(ct, x, y);  // Z vertical — not reprojected
+                    // Z vertical — not reprojected. A vertex PROJ cannot place
+                    // is dropped rather than carried as HUGE_VAL; the path is
+                    // a constraint polyline, so a missing interior vertex just
+                    // straightens that span.
+                    if (!xformPt(ct, x, y)) { ++nAuxLineVertsUnprojectable; continue; }
                     al.path.append(QPointF(x, y));
                     if (fz) al.z.append(ls->getZ(j));
                 }
+                if (al.path.size() < 2) return;   // nothing usable survived
                 out->auxLines.append(std::move(al));
             };
             if (auto *gg = f->GetGeometryRef())
@@ -3273,6 +3447,16 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
             "Select a DTM raster, enable \"use Z\" on a 3D layer, or uncheck "
             "the layer.")
             .arg(blockedLayers.join(QStringLiteral("\n  • "))));
+    }
+
+    if (nAuxPointsUnprojectable > 0 || nAuxLineVertsUnprojectable > 0)
+    {
+        // Not fatal — these are optional constraints, and the mesh is valid
+        // without them. But dropping input silently is not acceptable either.
+        qCWarning(lcMeshPerf)
+            << "[Mesh] aux geometry dropped, could not reproject to the mesh"
+            << "CRS:" << nAuxPointsUnprojectable << "point(s),"
+            << nAuxLineVertsUnprojectable << "line vertex/vertices";
     }
 
     // ── Region marker seeds (subcatchments) ──────────────────────────
