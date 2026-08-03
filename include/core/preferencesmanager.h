@@ -439,6 +439,58 @@ public:
     [[nodiscard]] SimulationDefaults simulationDefaults() const;
     void setSimulationDefaults(const SimulationDefaults &d);
 
+    // ── 2D model defaults for new projects ───────────────────────────────
+    /*! Bundled 2D defaults: the [2D_OPTIONS] solver keys emitted into the
+     *  synthesized .inp on File→New (when the 2D module default is on) and
+     *  used as the missing-key fallbacks in Simulation Options' 2D tab,
+     *  plus the mesh-generation seeds MeshGenerationDialog starts from.
+     *  Distances are stored in SI (metres); consumers unit-scale exactly
+     *  as the mesh dialog's seedDefaults always has. Persisted under
+     *  SWMMVis/Preferences/TwoDDefaults. */
+    struct TwoDDefaults
+    {
+        // [2D_OPTIONS] solver keys (defaults mirror the engine's).
+        double  maxTimestepSec     = 10.0;    ///< MAX_TIMESTEP (s)
+        double  theta              = 0.8;     ///< THETA
+        double  cflNumber          = 0.7;     ///< CFL_NUMBER
+        int     ltsTiers           = 4;       ///< LTS_TIERS
+        double  hMove              = 0.003;   ///< H_MOVE (m)
+        double  froudeMax          = 1.5;     ///< FROUDE_MAX
+        double  dryDepth           = 0.001;   ///< DRY_DEPTH (m)
+        double  limiterEpsilon     = 1e-6;    ///< LIMITER_EPSILON
+        double  fluxDhEps          = 0.004;   ///< FLUX_DH_EPS (m)
+        QString cellClosure        = QStringLiteral("FLAT");  ///< CELL_CLOSURE
+        QString faceReconstruction = QStringLiteral("MEAN");  ///< FACE_RECONSTRUCTION
+        double  vfrMinWetFrac      = 0.01;    ///< VFR_MIN_WET_FRAC
+        double  couplingCd         = 0.65;    ///< COUPLING_CD
+        double  couplingSync       = 0.0;     ///< COUPLING_SYNC (0 = every routing step)
+        bool    couplingAreaAuto   = false;   ///< COUPLING_AREA AUTO vs DEFAULT
+        QString rainfallMode       = QStringLiteral("NATURAL_NEIGHBOUR"); ///< RAINFALL_MODE
+        bool    report2D           = false;   ///< REPORT_2D
+
+        // Mesh-generation seeds (SI canonical; the dialog unit-scales).
+        double  meshMinAngleDeg      = 33.0;
+        double  meshMaxArea          = 0.0;   ///< 0 = unconstrained
+        int     meshMaxSteiner       = -1;    ///< -1 = unlimited
+        double  meshIdwPower         = 2.0;
+        double  meshSimplifyEpsM     = 0.1;
+        double  meshSnapEpsM         = 0.01;
+        double  meshNodeFlattenRadM  = 5.0;
+        bool    meshMinNodeSepOn     = true;
+        double  meshMinNodeSepM      = 2.0;
+        bool    meshThinningOn       = true;
+        double  meshThinningTol      = 0.6;   ///< normal-dot threshold
+        int     meshThinningPasses   = 3;
+        double  meshBoundaryBufferM  = 0.0;   ///< 0 = (auto)
+        bool    meshMaxBoundaryEdgeOn = false;
+        double  meshMaxBoundaryEdgeM = 20.0;
+        double  meshManningsN        = 0.035;
+        bool    meshOutputExternal   = true;
+    };
+
+    [[nodiscard]] TwoDDefaults twoDDefaults() const;
+    void setTwoDDefaults(const TwoDDefaults &d);
+
 signals:
     /*! Emitted after any successful set*. `group` is one of
      *  "Selection" / "Canvas" / "Rendering" / "Simulation" /

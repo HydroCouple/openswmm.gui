@@ -660,6 +660,17 @@ add_swmmvis_gui_test(test_comparisonplot_system_attrs
     ${CMAKE_SOURCE_DIR}/include/plot/swmmoutrunlayer.h
 )
 
+# Iteration 4 — pins PreferencesManager::TwoDDefaults (2D Defaults page):
+# compiled-in defaults contract + QSettings round-trip + change signal.
+add_swmmvis_gui_test(test_twod_defaults_prefs
+    test_twod_defaults_prefs.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    # PreferencesManager custom color-ramp persistence references RasterColorRamp.
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+)
+
 # Slice AT.2 — pins InteractiveChartView's public API (mode round-trip,
 # modeChanged signal, resetZoom, right-click context-menu signal, cursor
 # reflection). Self-contained: only links the widget .cpp; needs Qt6::Charts

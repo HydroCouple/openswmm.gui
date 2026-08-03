@@ -8,6 +8,7 @@
 
 #include <QAction>
 #include <QComboBox>
+#include <QGridLayout>
 #include <QLabel>
 #include <QMenu>
 #include <QPixmap>
@@ -80,6 +81,9 @@ private slots:
     void groupSizePolicyFixedUntilStretchWidget();
     void singleActionGroupNeverCollapses();
     void wrappedLabelFitsRow();
+
+    // iteration 4 — vertically stacked label+combo rows in one group
+    void stackedComboWrapperFitsRow();
 
     // split button
     void splitRestoresLastUsedFromSettings();
@@ -381,6 +385,43 @@ void TestRibbonGroup::wrappedLabelFitsRow()
                             .arg(wrappedButton->sizeHint().height())
                             .arg(captionH).arg(kRibbonRowHeight)));
     QCOMPARE(group.sizeHint().height(), kRibbonRowHeight);
+}
+
+void TestRibbonGroup::stackedComboWrapperFitsRow()
+{
+    // Iteration 4 — the Analysis "Results Layers" group stacks two
+    // label+combo rows in a 2x2 grid wrapper so each combo gets the full
+    // group width. The wrapper must fit the fixed row height and the
+    // group must report at least the wrapper's minimum width (the combos'
+    // 260 px minimum flows through the grid layout).
+    RibbonGroup group(QStringLiteral("Results Layers"));
+
+    auto *stack = new QWidget(&group);
+    auto *grid = new QGridLayout(stack);
+    grid->setContentsMargins(6, 0, 4, 0);
+    grid->setHorizontalSpacing(4);
+    grid->setVerticalSpacing(2);
+    grid->addWidget(new QLabel(QStringLiteral("1D results:"), stack), 0, 0);
+    auto *combo1D = new QComboBox(stack);
+    combo1D->setMinimumWidth(260);
+    grid->addWidget(combo1D, 0, 1);
+    grid->addWidget(new QLabel(QStringLiteral("2D results:"), stack), 1, 0);
+    auto *combo2D = new QComboBox(stack);
+    combo2D->setMinimumWidth(260);
+    grid->addWidget(combo2D, 1, 1);
+    stack->setMinimumWidth(stack->sizeHint().width());
+    group.addWidget(stack);
+
+    QCOMPARE(group.sizeHint().height(), kRibbonRowHeight);
+    QVERIFY2(stack->sizeHint().height()
+                 <= kRibbonRowHeight - 22,   // caption + margins budget
+             qPrintable(QStringLiteral("stacked rows %1 px overflow the "
+                                       "content budget of the %2 px row")
+                            .arg(stack->sizeHint().height())
+                            .arg(kRibbonRowHeight)));
+    QVERIFY2(group.widthForMode(RibbonMode::Full) >= 260,
+             "group under-reports the stacked combos' minimum width");
+    QVERIFY(!group.isCollapsible());   // widget host stays rigid
 }
 
 void TestRibbonGroup::splitRestoresLastUsedFromSettings()

@@ -52,12 +52,15 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     // forced icon-only by leaving their QAction text empty (only tooltip).
     setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
 
-    // Iteration 3 — the controls live inside captioned ribbon groups
-    // (Mesh | Vertices | Edges | Coupling | 2D Results) on the Mesh 2D
-    // tab. Each group hosts a mini QToolBar so the long-standing
-    // QAction-based show/hide machinery (updateEnabledState) keeps
-    // working unchanged; refreshGroupWidths() re-measures the groups
-    // when contextual clusters appear/disappear.
+    // Iteration 3 — the controls live inside captioned ribbon groups on
+    // the Mesh 2D tab. Each group hosts a mini QToolBar so the
+    // long-standing QAction-based show/hide machinery
+    // (updateEnabledState) keeps working unchanged; refreshGroupWidths()
+    // re-measures the groups when contextual clusters appear/disappear.
+    // Iteration 4 — group order is Mesh | Vertices | Edges | 2D Results |
+    // Profile | Coupling: the profile plotter stands alone (it no longer
+    // shares the 2D Results group with the cell-selection cluster whose
+    // width oscillates contextually) and Coupling is last on the tab.
     using openswmmvis::ui::RibbonGroup;
     const auto makeGroupBar = [this](const QString &caption) {
         auto *group = new RibbonGroup(caption, this);
@@ -74,8 +77,9 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     m_barMesh     = makeGroupBar(tr("Mesh"));
     m_barVertices = makeGroupBar(tr("Vertices"));
     m_barEdges    = makeGroupBar(tr("Edges"));
-    m_barCoupling = makeGroupBar(tr("Coupling"));
     m_barResults  = makeGroupBar(tr("2D Results"));
+    m_barProfile  = makeGroupBar(tr("Profile"));
+    m_barCoupling = makeGroupBar(tr("Coupling"));
 
     // ── Active-mesh combo ──────────────────────────────────────────────
     m_barMesh->addWidget(new QLabel(tr("Mesh:"), this));
@@ -168,7 +172,8 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     // Auto-couple: couple vertices to the SWMM node sitting at the same map
     // coordinate. Operates on the selection, or the whole mesh when nothing
     // is selected, via the node locator SWMMVis installs.
-    m_actAutoCouple = new QAction(tr("Auto-couple"), this);
+    m_actAutoCouple = new QAction(
+        QIcon(QStringLiteral(":/swmmvis/Snap")), tr("Auto-couple"), this);
     m_actAutoCouple->setToolTip(tr(
         "Couple mesh vertices to coincident SWMM nodes.\n"
         "Applies to the selected vertices, or scans the whole mesh when\n"
@@ -181,7 +186,8 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     // nodes → vertex coupling; non-coincident nodes inside the mesh → cell
     // coupling (several nodes may share one cell); outside → reported.
     // Decouples 1D↔2D mapping from mesh generation — re-runnable anytime.
-    m_actRemap = new QAction(tr("Remap 1D↔2D"), this);
+    m_actRemap = new QAction(
+        QIcon(QStringLiteral(":/swmmvis/Remap1D2D")), tr("Remap 1D↔2D"), this);
     m_actRemap->setToolTip(tr(
         "Map SWMM model nodes onto the active mesh.\n"
         "Nodes coincident with a mesh vertex use vertex coupling; other\n"
@@ -485,6 +491,12 @@ QAction *MeshEditingToolbar::addToolWidget(QWidget *widget)
 {
     if (!widget || !m_barResults) return nullptr;
     return m_barResults->addWidget(widget);
+}
+
+void MeshEditingToolbar::addProfileAction(QAction *action)
+{
+    if (action && m_barProfile)
+        m_barProfile->addAction(action);
 }
 
 // ---------------------------------------------------------------------

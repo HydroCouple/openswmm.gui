@@ -1583,33 +1583,41 @@ void SimulationOptionsDialog::read2DFromEngine()
         return fallback;
     };
 
-    m_maxTimestepSpin  ->setValue(getExt("MAX_TIMESTEP",      "10").toDouble(&ok));
-    m_dryDepthSpin     ->setValue(getExt("DRY_DEPTH",         "0.001").toDouble(&ok));
-    m_limiterEpsSpin   ->setValue(getExt("LIMITER_EPSILON",   "1e-6").toDouble(&ok));
-    m_fluxDhEpsSpin    ->setValue(getExt("FLUX_DH_EPS",       "0.004").toDouble(&ok));
-    m_vfrMinWetFracSpin->setValue(getExt("VFR_MIN_WET_FRAC",  "0.01").toDouble(&ok));
-    m_couplingCdSpin   ->setValue(getExt("COUPLING_CD",       "0.65").toDouble(&ok));
-    m_couplingSyncSpin ->setValue(getExt("COUPLING_SYNC",     "0").toDouble(&ok));
+    // Iteration 4 — source every missing-key fallback from the 2D Defaults
+    // preferences (same lockstep idiom as the 1D tabs, see readFromEngine):
+    // the dialog shows the user-preferred default whenever the project has
+    // no value for a key, matching what File→New would synthesize.
+    const auto t = PreferencesManager::instance()->twoDDefaults();
+    auto num = [](double v) { return QString::number(v, 'g', 8); };
+
+    m_maxTimestepSpin  ->setValue(getExt("MAX_TIMESTEP",      num(t.maxTimestepSec)).toDouble(&ok));
+    m_dryDepthSpin     ->setValue(getExt("DRY_DEPTH",         num(t.dryDepth)).toDouble(&ok));
+    m_limiterEpsSpin   ->setValue(getExt("LIMITER_EPSILON",   num(t.limiterEpsilon)).toDouble(&ok));
+    m_fluxDhEpsSpin    ->setValue(getExt("FLUX_DH_EPS",       num(t.fluxDhEps)).toDouble(&ok));
+    m_vfrMinWetFracSpin->setValue(getExt("VFR_MIN_WET_FRAC",  num(t.vfrMinWetFrac)).toDouble(&ok));
+    m_couplingCdSpin   ->setValue(getExt("COUPLING_CD",       num(t.couplingCd)).toDouble(&ok));
+    m_couplingSyncSpin ->setValue(getExt("COUPLING_SYNC",     num(t.couplingSync)).toDouble(&ok));
 
     auto selectComboByData = [](QComboBox *c, const QString &data) {
         const int idx = c->findData(data, Qt::UserRole, Qt::MatchFixedString);
         if (idx >= 0) c->setCurrentIndex(idx);
     };
-    selectComboByData(m_cellClosureCombo,    getExt("CELL_CLOSURE",        "FLAT"));
-    selectComboByData(m_faceReconCombo,      getExt("FACE_RECONSTRUCTION", "MEAN"));
-    selectComboByData(m_rainfall2DModeCombo, getExt("RAINFALL_MODE", "NATURAL_NEIGHBOUR"));
-    m_report2DBox->setChecked(parseEngineBool(getExt("REPORT_2D", "NO")) == Qt::Checked);
+    selectComboByData(m_cellClosureCombo,    getExt("CELL_CLOSURE",        t.cellClosure));
+    selectComboByData(m_faceReconCombo,      getExt("FACE_RECONSTRUCTION", t.faceReconstruction));
+    selectComboByData(m_rainfall2DModeCombo, getExt("RAINFALL_MODE",       t.rainfallMode));
+    m_report2DBox->setChecked(parseEngineBool(
+        getExt("REPORT_2D", t.report2D ? "YES" : "NO")) == Qt::Checked);
 
     // Explicit-marcher configuration (the only 2D integrator; no INTEGRATOR
     // read/write — the engine default is EXPLICIT).
-    m_thetaSpin    ->setValue(getExt("THETA",      "0.8").toDouble(&ok));
-    m_cflNumberSpin->setValue(getExt("CFL_NUMBER", "0.7").toDouble(&ok));
-    m_ltsTiersSpin ->setValue(getExt("LTS_TIERS",  "4").toInt(&ok));
-    m_hMoveSpin    ->setValue(getExt("H_MOVE",     "0.003").toDouble(&ok));
-    m_froudeMaxSpin->setValue(getExt("FROUDE_MAX", "1.5").toDouble(&ok));
+    m_thetaSpin    ->setValue(getExt("THETA",      num(t.theta)).toDouble(&ok));
+    m_cflNumberSpin->setValue(getExt("CFL_NUMBER", num(t.cflNumber)).toDouble(&ok));
+    m_ltsTiersSpin ->setValue(getExt("LTS_TIERS",  QString::number(t.ltsTiers)).toInt(&ok));
+    m_hMoveSpin    ->setValue(getExt("H_MOVE",     num(t.hMove)).toDouble(&ok));
+    m_froudeMaxSpin->setValue(getExt("FROUDE_MAX", num(t.froudeMax)).toDouble(&ok));
     m_couplingAreaAutoBox->setChecked(
-        getExt("COUPLING_AREA", "DEFAULT").compare(QStringLiteral("AUTO"),
-                                                   Qt::CaseInsensitive) == 0);
+        getExt("COUPLING_AREA", t.couplingAreaAuto ? "AUTO" : "DEFAULT")
+            .compare(QStringLiteral("AUTO"), Qt::CaseInsensitive) == 0);
 }
 
 int SimulationOptionsDialog::write2DToEngine(int &n)

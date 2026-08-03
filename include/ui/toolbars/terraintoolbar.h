@@ -12,6 +12,7 @@
 class GISRasterLayer;
 class MapCanvas;
 class OpenSWMMVisLayer;
+class QAction;
 class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
@@ -85,6 +86,11 @@ public:
                       double linkOff,
                       const QString &vertUnit = QString());
 
+    /*! \brief Add the terrain profile-plot action to the toolbar's own
+     *  "Profile" ribbon group (iteration 4 — before the trailing spacer,
+     *  so it left-packs with the other groups instead of floating right). */
+    void addProfileAction(QAction *action);
+
 signals:
     /*! Emitted when the selected terrain raster changes.  \p layer is nullptr
      *  when "(none)" is selected or when no project is active. */
@@ -117,7 +123,9 @@ private:
     QDoubleSpinBox *m_linkOffsetSpin     = nullptr;
     QLabel         *m_nodeUnitLabel      = nullptr;
     QLabel         *m_linkUnitLabel      = nullptr;
+    QToolBar       *m_profileBar         = nullptr; // mini bar in the Profile group
     MapCanvas      *m_canvas             = nullptr;
+    bool            m_userChoseNone      = false;   // deliberate "(none)" pick
 };
 
 #endif // TERRAINTOOLBAR_H
