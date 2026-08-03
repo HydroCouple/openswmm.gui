@@ -29,13 +29,16 @@ using Sample = MeshProfileSampler::Sample;
 namespace {
 
 // Build a sample with chainage c, bed elevation g, current depth d.
-Sample mk(double c, double g, double d)
+// cellHasSurface defaults to false (no-data), which keeps the legacy
+// bridge-every-gap behaviour for the pre-existing cases below.
+Sample mk(double c, double g, double d, bool hasSurface = false)
 {
     Sample s;
     s.chainage = c;
     s.ground   = g;
     s.depthNow = d;
     s.maxDepth = d;
+    s.cellHasSurface = hasSurface;
     return s;
 }
 
@@ -128,6 +131,51 @@ private slots:
         const QVector<double> td = tops(dry);
         QVERIFY(std::isnan(td[0]));
         QVERIFY(std::isnan(td[1]));
+    }
+
+    // WSE-extrapolation plan, Phase 3 — two pools separated by a dry crest
+    // whose samples ALL carry a valid free surface (cellHasSurface = true):
+    // the gap is genuinely dry ground, not missing data, so it must NOT be
+    // bridged. Each pool stays flat at its own level; the crest stays dry.
+    // Before the restriction this ramped 2.0 → 1.0 across the gap, painting
+    // water up the crest flanks (t[2] would read 1.75, t[4] 1.25).
+    void pools_stay_split_when_gap_carries_surface_data()
+    {
+        const QVector<Sample> s = {
+            mk(0, 0.0, 2.0, true),   // left pool, WSE 2
+            mk(1, 0.0, 2.0, true),   // left pool run end
+            mk(2, 0.5, 0.0, true),   // gap: low bench — a legacy bridge would wet it
+            mk(3, 6.0, 0.0, true),   // gap: crest
+            mk(4, 0.5, 0.0, true),   // gap: low bench on the far side
+            mk(5, 0.0, 1.0, true),   // right pool, WSE 1
+            mk(6, 0.0, 1.0, true),
+        };
+        const QVector<double> t = tops(s);
+        for (int i = 2; i <= 4; ++i)
+            QVERIFY2(std::isnan(t[i]),
+                     qPrintable(QString("gap idx %1 must stay dry").arg(i)));
+        QVERIFY(std::abs(t[0] - 2.0) < 1e-12 && std::abs(t[1] - 2.0) < 1e-12);
+        QVERIFY(std::abs(t[5] - 1.0) < 1e-12 && std::abs(t[6] - 1.0) < 1e-12);
+    }
+
+    // Discriminator twin: the SAME geometry with no-data samples in the gap
+    // (cellHasSurface = false) is a true data hole and still bridges exactly
+    // as before — linear in chainage, dry over the crest.
+    void pools_bridge_when_gap_is_no_data()
+    {
+        const QVector<Sample> s = {
+            mk(0, 0.0, 2.0, true),
+            mk(1, 0.0, 2.0, true),
+            mk(2, 0.5, 0.0, false),
+            mk(3, 6.0, 0.0, false),
+            mk(4, 0.5, 0.0, false),
+            mk(5, 0.0, 1.0, true),
+            mk(6, 0.0, 1.0, true),
+        };
+        const QVector<double> t = tops(s);
+        QVERIFY(!std::isnan(t[2]) && std::abs(t[2] - 1.75) < 1e-12);
+        QVERIFY2(std::isnan(t[3]), "crest above the bridged line stays dry");
+        QVERIFY(!std::isnan(t[4]) && std::abs(t[4] - 1.25) < 1e-12);
     }
 
     // An off-mesh (NaN ground) sample inside a gap is never bridged across —

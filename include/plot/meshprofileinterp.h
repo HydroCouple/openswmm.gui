@@ -15,6 +15,15 @@
  *           (b) bridges dry gaps that lie between two wet runs with a smooth,
  *               no-upstream-flow-constrained water surface.
  *
+ *         Bridging is restricted to TRUE NO-DATA gaps: with the free-surface
+ *         extrapolation fix a shoreline tapers to its sub-cell bed intercept
+ *         and is no longer a gap, so a gap whose samples all carry a valid η
+ *         (Sample::cellHasSurface) is genuinely dry ground — two pools
+ *         separated by a dry crest stay split, each flat at its own level,
+ *         instead of being joined by a chainage-linear ramp. Only a gap
+ *         containing at least one no-surface sample (a cell with no valid η
+ *         anywhere in its vertex stars) may still be bridged.
+ *
  *         Direction signal: the painter carries no per-sample velocity, so the
  *         most robust available signal is the two bracketing wet-surface
  *         elevations themselves. Linear interpolation in chainage between them
@@ -82,16 +91,20 @@ inline QVector<double> bridgedTops(
         while (runEnd + 1 < n && !std::isnan(top[runEnd + 1])) ++runEnd;
 
         // Walk the gap to the next wet sample. An off-mesh (NaN ground) sample
-        // blocks the bridge — a genuine mesh hole must stay a true gap.
+        // blocks the bridge — a genuine mesh hole must stay a true gap. A gap
+        // whose samples ALL carry a valid free surface (cellHasSurface) is
+        // genuinely dry ground, not missing data — never bridge it.
         const int gapStart = runEnd + 1;
         int next = gapStart;
         bool blocked = false;
+        bool sawNoData = false;
         while (next < n && std::isnan(top[next])) {
             if (!std::isfinite(s[next].ground)) { blocked = true; break; }
+            if (!s[next].cellHasSurface) sawNoData = true;
             ++next;
         }
 
-        if (!blocked && next < n && gapStart < next) {
+        if (!blocked && sawNoData && next < n && gapStart < next) {
             const double cL = s[runEnd].chainage, wseL = top[runEnd];
             const double cR = s[next].chainage,    wseR = top[next];
             const double dC = cR - cL;

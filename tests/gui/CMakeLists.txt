@@ -268,6 +268,21 @@ add_swmmvis_gui_test(test_meshprofileinterp
     ${CMAKE_SOURCE_DIR}/include/plot/meshprofilesampler.h
 )
 
+# 2D profile WSE extrapolation — constant-η fill of no-data corners + vertex-
+# scoped dryness (CellSurfaceInterp, shared with SWMM2DResultsLayer). Header-
+# only, so the layer's link closure stays out of the test.
+add_swmmvis_gui_test(test_profile_wse_extrapolation
+    test_profile_wse_extrapolation.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/cellsurfaceinterp.h
+)
+
+# GUI-fallback vertex free-surface reconstruction (engine mirror) incl. the
+# wetted-contact gate. Header-only, same pattern as cellsurfaceinterp.
+add_swmmvis_gui_test(test_vertexdepthreconstruct
+    test_vertexdepthreconstruct.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/vertexdepthreconstruct.h
+)
+
 # Profile plots — endpoint label hit-testing and min/max range-edge edits.
 add_swmmvis_gui_test(test_profileplot_axis_edges
     test_profileplot_axis_edges.cpp
