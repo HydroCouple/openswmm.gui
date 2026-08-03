@@ -830,6 +830,48 @@ target_link_libraries(test_objectbrowser_add_new_dispatch PRIVATE Qt6::Charts Qt
 # Slice BQ Phase 6.7.2 — PatternEditorDialog + PatternProvider + PatternRegistry
 # + PatternFactorTableModel coverage. Self-contained: pulls in only the
 # pattern foundation + dialog sources + Qt6::Charts (for the bar-chart pane).
+# Iteration 4 — treatment-expression editing stack (highlighter vocab
+# drift-guard, completer, engine-backed validation, cell delegate).
+add_swmmvis_gui_test(test_treatment_expression_editor
+    test_treatment_expression_editor.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/treatmentexpressionedit.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/treatmentexpressionedit.cpp
+)
+
+# Iteration 4 — SubcatchCompoundEditDialog: editable coverage matrix +
+# initial-loadings page ([LOADINGS]).
+add_swmmvis_gui_test(test_subcatch_coverage_loadings
+    test_subcatch_coverage_loadings.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/subcatchcompoundeditdialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/subcatchcompoundeditdialog.cpp
+)
+
+# Iteration 4 — the unified Land Use editor (tabbed detail, engine-bound
+# Buildup/Washoff grids, impact-aware delete, engine-backed rename).
+add_swmmvis_gui_test(test_landuse_unified_editor
+    test_landuse_unified_editor.cpp
+    ${CMAKE_SOURCE_DIR}/include/landuse/landuseprovider.h
+    ${CMAKE_SOURCE_DIR}/include/landuse/landuseregistry.h
+    ${CMAKE_SOURCE_DIR}/include/pollutant/pollutantprovider.h
+    ${CMAKE_SOURCE_DIR}/include/pollutant/pollutantregistry.h
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/landuseeditordialog.h
+    ${CMAKE_SOURCE_DIR}/include/ui/models/landuselistmodel.h
+    ${CMAKE_SOURCE_DIR}/include/ui/models/qualityfunctiontablemodels.h
+    ${CMAKE_SOURCE_DIR}/src/landuse/landuseprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/landuse/landuseregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/landuseeditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/models/landuselistmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/models/qualityfunctiontablemodels.cpp
+    # Dialog buttons go through IconFactory (themed SVG icons).
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+)
+target_link_libraries(test_landuse_unified_editor PRIVATE Qt6::Svg)
+
 add_swmmvis_gui_test(test_pattern_editor_dialog
     test_pattern_editor_dialog.cpp
     ${CMAKE_SOURCE_DIR}/include/pattern/patternprovider.h

@@ -6,6 +6,7 @@
  */
 #include "landuse/landuseregistry.h"
 
+#include <openswmm/engine/openswmm_edit.h>
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_quality.h>
 
@@ -47,10 +48,52 @@ LandUseProvider *LandUseRegistry::create(const QString &name)
     return p;
 }
 
+QString LandUseRegistry::impactSummary(LandUseProvider *p) const
+{
+    // Iteration 4 — surface the engine's referential-impact report so the
+    // delete confirmation can say what cascades (buildup/washoff rows) and
+    // what gets nullified (subcatchment coverages).
+    if (!p || !m_engineHandle) return {};
+    auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+    const int idx = swmm_landuse_index(eng, p->name().toUtf8().constData());
+    if (idx < 0) return {};
+
+    SWMM_ImpactReport report{};
+    if (swmm_landuse_analyze_impact(eng, idx, &report) != SWMM_OK) return {};
+
+    int buildup = 0, washoff = 0, coverage = 0, other = 0;
+    for (int i = 0; i < report.n_entries; ++i) {
+        const char *field = report.entries[i].field;
+        if (field && qstrcmp(field, "buildup") == 0)       ++buildup;
+        else if (field && qstrcmp(field, "washoff") == 0)  ++washoff;
+        else if (field && qstrcmp(field, "coverage") == 0) ++coverage;
+        else                                               ++other;
+    }
+    swmm_impact_report_free(&report);
+
+    QStringList parts;
+    if (buildup)  parts << tr("%n buildup row(s)", nullptr, buildup);
+    if (washoff)  parts << tr("%n washoff row(s)", nullptr, washoff);
+    if (coverage) parts << tr("%n subcatchment coverage(s)", nullptr, coverage);
+    if (other)    parts << tr("%n other reference(s)", nullptr, other);
+    return parts.join(QStringLiteral(", "));
+}
+
 void LandUseRegistry::remove(LandUseProvider *p)
 {
     if (!p || !m_providers.contains(p)) return;
     emit providerAboutToBeRemoved(p);
+
+    // Iteration 4 — the engine-side object goes too (this used to be a
+    // Qt-side-only delete, so the land use was re-materialised on the next
+    // loadFromEngine with its buildup/washoff/coverage columns intact).
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx = swmm_landuse_index(eng, p->name().toUtf8().constData());
+        if (idx >= 0)
+            swmm_landuse_delete(eng, idx, nullptr);
+    }
+
     m_byLowerName.remove(p->name().toLower());
     m_providers.removeOne(p);
     p->deleteLater();
@@ -59,11 +102,22 @@ void LandUseRegistry::remove(LandUseProvider *p)
 bool LandUseRegistry::rename(LandUseProvider *p, const QString &newName)
 {
     if (!p || newName.isEmpty()) return false;
-    if (p->name().compare(newName, Qt::CaseInsensitive) == 0) {
-        p->setName(newName);
-        return true;
+    const bool caseOnly =
+        p->name().compare(newName, Qt::CaseInsensitive) == 0;
+    if (!caseOnly && hasName(newName)) return false;
+
+    // Iteration 4 — rename in the engine too. Without this, saveToEngine
+    // saw an unknown name and ADDED a second land use, orphaning the old
+    // one with its buildup/washoff/coverage columns.
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx = swmm_landuse_index(eng, p->name().toUtf8().constData());
+        if (idx >= 0 &&
+            swmm_landuse_rename(eng, idx, newName.toUtf8().constData())
+                != SWMM_OK)
+            return false;
     }
-    if (hasName(newName)) return false;
+
     p->setName(newName);
     return true;
 }
