@@ -180,6 +180,7 @@ void SWMMVis::initializeCompactToolbar()
         // Model
         {"actionEditExisting",          QT_TR_NOOP("Edit\nExisting")},
         {"actionAddJunction",           QT_TR_NOOP("Junction")},
+        {"actionAddVirtualJunction",    QT_TR_NOOP("Virtual\nJunction")},
         {"actionAddOutfall",            QT_TR_NOOP("Outfall")},
         {"actionAddFlowDivider",        QT_TR_NOOP("Flow\nDivider")},
         {"actionAddStorage",            QT_TR_NOOP("Storage")},
@@ -273,7 +274,7 @@ void SWMMVis::initializeCompactToolbar()
     // Iteration 3 — node/link tools unstacked into captioned groups so
     // every draw tool is a visible, individually-toggled button.
     addGroup(mToolBarModel, tr("Nodes"),
-             {"actionAddJunction", "actionAddOutfall",
+             {"actionAddJunction", "actionAddVirtualJunction", "actionAddOutfall",
               "actionAddFlowDivider", "actionAddStorage"});
     addGroup(mToolBarModel, tr("Links"),
              {"actionAddPipe", "actionAddPump", "actionAddOrifice",

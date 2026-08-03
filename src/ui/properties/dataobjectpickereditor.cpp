@@ -123,9 +123,15 @@ void DataObjectPickerEditor::repopulate()
             // The owning adapter resolves the picked name back to a node-outlet
             // vs. cascade-outlet engine write.
             const int nn = swmm_node_count(m_ref.engine);
-            for (int i = 0; i < nn; ++i)
+            for (int i = 0; i < nn; ++i) {
+                // Virtual junctions cannot receive lateral inflow — exclude
+                // them from outlet targets (engine validation backstops).
+                int isVirtual = 0;
+                swmm_node_is_virtual(m_ref.engine, i, &isVirtual);
+                if (isVirtual) continue;
                 if (const char *id = swmm_node_id(m_ref.engine, i))
                     if (*id) items << QString::fromUtf8(id);
+            }
             const int ns = swmm_subcatch_count(m_ref.engine);
             for (int i = 0; i < ns; ++i)
                 if (const char *id = swmm_subcatch_id(m_ref.engine, i))

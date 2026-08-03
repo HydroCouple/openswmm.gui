@@ -194,6 +194,7 @@
 #include "map/tools/maptoolselect.h"
 #include "map/tools/maptoolplotpick.h"
 #include "map/tools/maptoolselectprofile.h"
+#include "map/tools/maptooladdvirtualnode.h"
 
 #include <QDesktopServices>
 #include <QDockWidget>
@@ -769,7 +770,8 @@ void SWMMVis::applyProjectOpenToActions(bool open)
     // omitted — it produces a separate .2dm artefact and is reachable
     // even before a project is bound.
     static const QStringList kProjectOnlyActions = {
-        QStringLiteral("actionAddJunction"),   QStringLiteral("actionAddOutfall"),
+        QStringLiteral("actionAddJunction"),   QStringLiteral("actionAddVirtualJunction"),
+        QStringLiteral("actionAddOutfall"),
         QStringLiteral("actionAddStorage"),    QStringLiteral("actionAddFlowDivider"),
         QStringLiteral("actionAddPipe"),       QStringLiteral("actionAddPump"),
         QStringLiteral("actionAddOrifice"),    QStringLiteral("actionAddWeir"),
@@ -1474,7 +1476,8 @@ void SWMMVis::initializeMapTools()
         QStringLiteral("actionZoomOut"), QStringLiteral("actionSelect"),
         QStringLiteral("actionSelectByPolygon"),
         QStringLiteral("actionMeasure"), QStringLiteral("actionPlotProfile"),
-        QStringLiteral("actionAddJunction"), QStringLiteral("actionAddOutfall"),
+        QStringLiteral("actionAddJunction"), QStringLiteral("actionAddVirtualJunction"),
+        QStringLiteral("actionAddOutfall"),
         QStringLiteral("actionAddStorage"), QStringLiteral("actionAddFlowDivider"),
         QStringLiteral("actionAddPipe"),  QStringLiteral("actionAddPump"),
         QStringLiteral("actionAddOrifice"), QStringLiteral("actionAddWeir"),
@@ -3563,6 +3566,10 @@ void SWMMVis::initializeMenus()
     if (ui->actionAddJunction)
         connect(ui->actionAddJunction, &QAction::triggered, this, [this]() {
             if (auto *pw = activeProjectWindow()) pw->activateAddJunctionTool();
+        });
+    if (ui->actionAddVirtualJunction)
+        connect(ui->actionAddVirtualJunction, &QAction::triggered, this, [this]() {
+            if (auto *pw = activeProjectWindow()) pw->activateAddVirtualJunctionTool();
         });
     if (ui->actionAddOutfall)
         connect(ui->actionAddOutfall, &QAction::triggered, this, [this]() {
@@ -5688,6 +5695,16 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         connect(pt, &OpenSWMMVisMapToolSelectProfile::routingBusyChanged,
                 this, &SWMMVis::onSetProgressBarBusy,
                 Qt::UniqueConnection);
+    }
+
+    // Virtual-junction tool status hints (D-G3 empty-canvas message etc.).
+    if (auto *vt = pw->addVirtualJunctionTool()) {
+        QObject::disconnect(vt, &OpenSWMMVisMapToolAddVirtualNode::statusMessageChanged,
+                            statusBar(), nullptr);
+        connect(vt, &OpenSWMMVisMapToolAddVirtualNode::statusMessageChanged,
+                statusBar(), [this](const QString &msg) {
+                    statusBar()->showMessage(msg, 5000);
+                });
     }
 
     // Slice CF.3 — Pick 2D Cells tool: project window forwards cellsPicked

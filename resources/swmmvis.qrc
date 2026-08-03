@@ -131,6 +131,7 @@
         <file alias="Weir">images/weir.svg</file>
         <file alias="Outlet">images/outlet.svg</file>
         <file alias="Junction">images/junction.svg</file>
+        <file alias="VirtualJunction">images/virtual_junction.svg</file>
         <file alias="Subcatchment">images/subcatchment.svg</file>
         <file alias="Outfall">images/outfall.svg</file>
         <file alias="Report">images/report.svg</file>

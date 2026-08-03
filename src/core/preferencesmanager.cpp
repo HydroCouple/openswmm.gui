@@ -112,6 +112,7 @@ constexpr int         kDefaultPlotYAxisPrecision     = 2;
 struct PrefixDefault { const char *kind; const char *prefix; };
 constexpr PrefixDefault kPrefixDefaults[] = {
     { "junction",     "J"   },
+    { "virtual_junction", "VJ" },
     { "outfall",      "O"   },
     { "storage",      "S"   },
     { "divider",      "D"   },

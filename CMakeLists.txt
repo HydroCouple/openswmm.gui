@@ -380,6 +380,7 @@ set(
         include/map/tools/maptoolmeshselectedge.h
         include/map/tools/maptoolidentify.h
         include/map/tools/maptooladdnode.h
+        include/map/tools/maptooladdvirtualnode.h
         include/map/tools/maptooladdlink.h
         include/map/tools/maptooladdgage.h
         include/map/tools/maptooladdsubcatchment.h
@@ -961,6 +962,7 @@ set(
         src/map/tools/maptoolmeshselectedge.cpp
         src/map/tools/maptoolidentify.cpp
         src/map/tools/maptooladdnode.cpp
+        src/map/tools/maptooladdvirtualnode.cpp
         src/map/tools/maptooladdlink.cpp
         src/map/tools/maptooladdgage.cpp
         src/map/tools/maptooladdsubcatchment.cpp

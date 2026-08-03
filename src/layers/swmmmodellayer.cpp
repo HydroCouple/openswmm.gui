@@ -454,6 +454,12 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
     m_junctionSym.fillColor   = QColor(0, 120, 255);
     m_junctionSym.size        = 8.0;
     m_junctionSym.markerShape = Marker::Circle;
+    // Virtual junctions: same category bucket, distinct glyph — gray-family
+    // diamond so the zero-storage pass-through node reads differently from a
+    // regular junction at a glance (matches the toolbar icon's gray family).
+    m_virtualJunctionSym.fillColor    = QColor(0x77, 0x77, 0x77);
+    m_virtualJunctionSym.size         = 7.0;
+    m_virtualJunctionSym.markerShape  = Marker::Diamond;
     m_outfallSym.fillColor    = QColor(220, 0, 0);     // red — outfalls stand out
     m_outfallSym.size         = 12.5;   // 1.25× the legacy 10 px triangle
     m_outfallSym.markerShape  = Marker::EquilateralTriangle;
@@ -772,6 +778,7 @@ void SWMMModelLayer::buildFromEngine(SWMM_Engine engine,
         g.name = QString::fromUtf8(swmm_node_id(engine, i));
         swmm_node_get_type(engine, i, &g.nodeType);
         g.objectType = 0;
+        swmm_node_is_virtual(engine, i, &g.isVirtual);
         double x = 0, y = 0;
         swmm_spatial_get_node_coord(engine, i, &x, &y);
         g.x = x;
@@ -2981,7 +2988,9 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name) const
         m[QStringLiteral("X")]    = n.x;
         m[QStringLiteral("Y")]    = n.y;
         const char *kinds[] = {"Junction", "Outfall", "Storage", "Divider"};
-        if (n.nodeType >= 0 && n.nodeType <= 3)
+        if (n.nodeType == 0 && n.isVirtual)
+            m[QStringLiteral("Node type")] = QStringLiteral("Virtual Junction");
+        else if (n.nodeType >= 0 && n.nodeType <= 3)
             m[QStringLiteral("Node type")] = QString::fromLatin1(kinds[n.nodeType]);
 
         // Slice DB — read-only computed + statistics summary fields. Crown
@@ -4109,6 +4118,7 @@ bool SWMMModelLayer::applyNodeConvert(const QString &name, int newNodeType,
     swmm_conversion_result_free(&res);
 
     m_nodes[soaIdx].nodeType = newNodeType;
+    m_nodes[soaIdx].isVirtual = 0;   // engine clears the flag on any conversion
     rebuildCategoryIndex();
 
     m_needsRebuild = true;       // scene items are bucketed by type
@@ -4152,6 +4162,233 @@ bool SWMMModelLayer::applyLinkConvert(const QString &name, int newLinkType,
     emit repaintRequested();
     emit geometryChanged();
     emit attributeChanged(name);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Virtual junctions — split / fuse / flag
+// (engine-side semantics; see workplans/VIRTUAL_JUNCTION_GUI_PLAN_2026-08-01.md)
+// ---------------------------------------------------------------------------
+
+QString SWMMModelLayer::virtualJunctionRuleText(int code)
+{
+    switch (code) {
+    case 609: return tr("A virtual junction must connect exactly two conduits "
+                        "(no pumps, orifices, weirs or outlets).");
+    case 611: return tr("The two conduits must have identical cross sections "
+                        "(shape, dimensions and barrels).");
+    case 613: return tr("Both conduit offsets at the node must be zero "
+                        "(invert continuity).");
+    case 615: return tr("The conduit inverts do not agree at the node.");
+    case 617: return tr("A virtual junction cannot receive lateral inflow "
+                        "(inflows, DWF, RDII, subcatchment outlets, LID "
+                        "drains or 2D coupling).");
+    case 619: return tr("Virtual junctions require dynamic-wave (DYNWAVE) "
+                        "flow routing.");
+    case 621: return tr("Too many items on the [VIRTUAL_JUNCTIONS] line.");
+    default:  return tr("Engine error %1.").arg(code);
+    }
+}
+
+bool SWMMModelLayer::applySetVirtual(const QString &name, bool makeVirtual,
+                                     QString *outError)
+{
+    if (!m_engine) {
+        if (outError) *outError = tr("No engine loaded.");
+        return false;
+    }
+    const int idx = swmm_node_index(m_engine, name.toUtf8().constData());
+    if (idx < 0 || idx >= m_nodes.size()) {
+        if (outError) *outError = tr("Node \"%1\" not found.").arg(name);
+        return false;
+    }
+
+    const int rc = swmm_node_set_virtual(m_engine, idx, makeVirtual ? 1 : 0);
+    if (rc != SWMM_OK) {
+        if (outError) *outError = virtualJunctionRuleText(rc);
+        return false;
+    }
+
+    m_nodes[idx].isVirtual = makeVirtual ? 1 : 0;
+    m_needsRebuild = true;           // marker symbol keys off the flag
+    emit repaintRequested();
+    emit attributeChanged(name);
+    return true;
+}
+
+bool SWMMModelLayer::applyInsertVirtualJunction(const QString &linkName, double t,
+                                                const QString &newNodeName,
+                                                const QString &newLinkName,
+                                                int *outNodeIdx, int *outLinkIdx,
+                                                QString *outError)
+{
+    if (outNodeIdx) *outNodeIdx = -1;
+    if (outLinkIdx) *outLinkIdx = -1;
+    if (!m_engine) {
+        if (outError) *outError = tr("No engine loaded.");
+        return false;
+    }
+    const int li = swmm_link_index(m_engine, linkName.toUtf8().constData());
+    if (li < 0 || li >= m_links.size()) {
+        if (outError) *outError = tr("Conduit \"%1\" not found.").arg(linkName);
+        return false;
+    }
+
+    int newNode = -1, newLink = -1;
+    const int rc = swmm_conduit_split(m_engine, li, t,
+                                      newNodeName.toUtf8().constData(),
+                                      newLinkName.toUtf8().constData(),
+                                      /*make_virtual=*/1, &newNode, &newLink);
+    if (newNode < 0 || newLink < 0) {
+        if (outError) *outError = (rc == SWMM_ERR_BADPARAM)
+            ? tr("Split rejected: invalid position or duplicate name.")
+            : virtualJunctionRuleText(rc);
+        return false;
+    }
+
+    // Interior-vertex reader (engine GET returns the FULL polyline
+    // [from-node, interior..., to-node]; the cache stores interior only).
+    auto readInterior = [this](int engLink) {
+        QVector<QPointF> interior;
+        int vc = 0;
+        swmm_spatial_get_link_vertex_count(m_engine, engLink, &vc);
+        if (vc > 2) {
+            QVector<double> vx(vc), vy(vc);
+            swmm_spatial_get_link_vertices(m_engine, engLink, vx.data(), vy.data(), vc);
+            interior.reserve(vc - 2);
+            for (int i = 1; i + 1 < vc; ++i)
+                interior.append(QPointF(vx[i], vy[i]));
+        }
+        return interior;
+    };
+
+    // --- New node cache entry (engine appended at the tail) ---
+    NodeGeom ng;
+    ng.name       = newNodeName;
+    ng.nodeType   = 0;                 // JUNCTION type code
+    ng.objectType = 0;
+    ng.isVirtual  = (rc == SWMM_OK) ? 1 : 0;
+    double nx = 0.0, ny = 0.0;
+    swmm_spatial_get_node_coord(m_engine, newNode, &nx, &ny);
+    ng.x = nx;
+    ng.y = ny;
+    m_nodes.append(ng);
+    refreshSceneCoordsForNode(m_nodes.size() - 1);
+    if (m_nodeSelectedFlag.size() < size_t(m_nodes.size()))
+        m_nodeSelectedFlag.resize(m_nodes.size(), 0);
+    if (m_nodeHiddenFlag.size() < size_t(m_nodes.size()))
+        m_nodeHiddenFlag.resize(m_nodes.size(), 0);
+
+    // --- New downstream conduit cache entry ---
+    LinkGeom lg;
+    lg.name     = newLinkName;
+    lg.linkType = 0;                   // CONDUIT
+    int lfrom = -1, lto = -1;
+    swmm_link_get_from_node(m_engine, newLink, &lfrom);
+    swmm_link_get_to_node(m_engine, newLink, &lto);
+    lg.fromNodeIdx = lfrom;
+    lg.toNodeIdx   = lto;
+    lg.vertices    = readInterior(newLink);
+    m_links.append(lg);
+    appendLinkSceneEntry();
+
+    // --- Original conduit: downstream end moved to the new node, interior
+    //     vertices partitioned by the engine ---
+    m_links[li].toNodeIdx = newNode;
+    m_links[li].vertices  = readInterior(li);
+    refreshSceneCoordsForLink(li);
+
+    if (outNodeIdx) *outNodeIdx = newNode;
+    if (outLinkIdx) *outLinkIdx = newLink;
+
+    rebuildCategoryIndex();
+    m_kdDirty = true;
+    m_needsRebuild = true;
+    recomputeExtentFromCaches();
+    if (m_batchedItem) m_batchedItem->refreshBoundingRect();
+    emit repaintRequested();
+    emit geometryChanged();
+    emit attributeChanged(linkName);
+
+    if (rc != SWMM_OK) {
+        // The split stood but the virtual flag was refused (should not happen
+        // from the gated map tool). Surface the rule so the caller can react;
+        // the inserted node remains a regular junction.
+        if (outError) *outError = virtualJunctionRuleText(rc);
+        return false;
+    }
+    return true;
+}
+
+bool SWMMModelLayer::applyFuseVirtualJunction(const QString &nodeName,
+                                              QString *outError)
+{
+    if (!m_engine) {
+        if (outError) *outError = tr("No engine loaded.");
+        return false;
+    }
+    const int ni = swmm_node_index(m_engine, nodeName.toUtf8().constData());
+    if (ni < 0 || ni >= m_nodes.size()) {
+        if (outError) *outError = tr("Node \"%1\" not found.").arg(nodeName);
+        return false;
+    }
+    if (!m_nodes[ni].isVirtual) {
+        if (outError) *outError = tr("\"%1\" is not a virtual junction.").arg(nodeName);
+        return false;
+    }
+
+    // Identify the downstream conduit BEFORE the engine deletes it.
+    int dn = -1;
+    for (int i = 0; i < m_links.size(); ++i) {
+        if (m_links[i].fromNodeIdx == ni) { dn = i; break; }
+    }
+
+    int surviving = -1;
+    const int rc = swmm_virtual_junction_fuse(m_engine, ni, &surviving);
+    if (rc != SWMM_OK) {
+        if (outError) *outError = (rc == SWMM_ERR_BADPARAM)
+            ? tr("\"%1\" is not a virtual junction.").arg(nodeName)
+            : virtualJunctionRuleText(rc);
+        return false;
+    }
+
+    // Cache sync mirrors the engine's deletions: node first (fixes up link
+    // from/to indices), then the retired downstream conduit.
+    m_nodes.removeAt(ni);
+    compactNodeSceneEntry(ni);
+    if (dn >= 0) {
+        m_links.removeAt(dn);
+        compactLinkSceneEntry(dn);
+    }
+
+    // Surviving conduit: new downstream end + merged interior vertices.
+    if (surviving >= 0 && surviving < m_links.size()) {
+        int lfrom = -1, lto = -1;
+        swmm_link_get_from_node(m_engine, surviving, &lfrom);
+        swmm_link_get_to_node(m_engine, surviving, &lto);
+        m_links[surviving].fromNodeIdx = lfrom;
+        m_links[surviving].toNodeIdx   = lto;
+        QVector<QPointF> interior;
+        int vc = 0;
+        swmm_spatial_get_link_vertex_count(m_engine, surviving, &vc);
+        if (vc > 2) {
+            QVector<double> vx(vc), vy(vc);
+            swmm_spatial_get_link_vertices(m_engine, surviving, vx.data(), vy.data(), vc);
+            interior.reserve(vc - 2);
+            for (int i = 1; i + 1 < vc; ++i)
+                interior.append(QPointF(vx[i], vy[i]));
+        }
+        m_links[surviving].vertices = interior;
+        refreshSceneCoordsForLink(surviving);
+    }
+
+    rebuildCategoryIndex();
+    m_kdDirty = true;
+    m_needsRebuild = true;
+    recomputeExtentFromCaches();
+    if (m_batchedItem) m_batchedItem->refreshBoundingRect();
+    emit repaintRequested();
+    emit geometryChanged();
     return true;
 }
 
