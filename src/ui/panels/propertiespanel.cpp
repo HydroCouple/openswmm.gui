@@ -561,10 +561,20 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                     m_swmmLayer->engine(), name, this);
                 break;
             case SWMM_NODE_JUNCTION:
-            default:
-                m_nodeAdapter = new SWMMJunctionPropertyAdapter(
-                    m_swmmLayer->engine(), name, this);
+            default: {
+                // Virtual junctions are JUNCTION-typed; key off the flag
+                // BEFORE the kind so they get the trimmed adapter (no depth/
+                // ponding fields, no inflow compound rows).
+                int isVirtual = 0;
+                swmm_node_is_virtual(m_swmmLayer->engine(), nodeIdx, &isVirtual);
+                if (isVirtual)
+                    m_nodeAdapter = new SWMMVirtualJunctionPropertyAdapter(
+                        m_swmmLayer->engine(), name, this);
+                else
+                    m_nodeAdapter = new SWMMJunctionPropertyAdapter(
+                        m_swmmLayer->engine(), name, this);
                 break;
+            }
             }
             m_nodeAdapterKind = nodeKind;
             // DB.4c — thread the layer pointer so the compound-edit
