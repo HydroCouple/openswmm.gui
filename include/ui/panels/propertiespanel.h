@@ -161,6 +161,8 @@ private slots:
     void onOpenInEditorClicked();
 
 private:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
     void setupUi();
 
     /*! Slice QA.2 — repopulate the Stats-source combo from the bound

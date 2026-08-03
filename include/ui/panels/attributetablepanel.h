@@ -150,6 +150,8 @@ private slots:
     void onSelectionApplyClicked();
 
 private:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
     void buildUi();
     SWMMObjectRef::ObjectType objectTypeFor(SWMMModelLayer::Category cat) const;
 
