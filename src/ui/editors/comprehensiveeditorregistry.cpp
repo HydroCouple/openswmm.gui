@@ -192,6 +192,9 @@ void openLandUsesCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidge
     auto *dlg = LandUseEditorDialog::createNew(reg, layer, parent);
     if (!dlg) return;
     dlg->setAttribute(Qt::WA_DeleteOnClose);
+    // Buildup/Washoff rows re-dimension live with the pollutant set.
+    dlg->trackPollutantRegistry(
+        qobject_cast<PollutantRegistry *>(layer->ensurePollutantRegistry()));
     QPointer<LandUseRegistry> regPtr(reg);
     QPointer<SWMMModelLayer>   layerPtr(layer);
     QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {

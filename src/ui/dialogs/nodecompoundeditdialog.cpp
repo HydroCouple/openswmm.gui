@@ -11,6 +11,7 @@
 #include "ui/dialogs/patterneditordialog.h"
 #include "ui/dialogs/timeserieseditordialog.h"
 #include "ui/widgets/labeledcontrols.h"
+#include "ui/widgets/treatmentexpressionedit.h"
 #include "layers/swmmmodellayer.h"
 #include "pattern/patternregistry.h"
 #include "timeseries/timeseriesregistry.h"
@@ -673,7 +674,9 @@ void NodeCompoundEditDialog::buildTreatmentPage()
            "Variables: <tt>R</tt> (removal fraction), <tt>C</tt> "
            "(concentration), <tt>DT</tt> (step seconds), "
            "<tt>HRT</tt> (hyd. residence time), <tt>Q</tt> (flow), "
-           "<tt>V</tt> (volume).</i>"),
+           "<tt>V</tt> (volume), <tt>D</tt> (depth), <tt>AREA</tt> "
+           "(surface area). Functions: <tt>exp log ln sqrt min max abs "
+           "sgn step</tt>. Ctrl+Space completes.</i>"),
         page);
     hint->setWordWrap(true);
     hint->setStyleSheet(openswmmvis::ui::theme::hintStyle());
@@ -686,6 +689,33 @@ void NodeCompoundEditDialog::buildTreatmentPage()
     m_treatmentTable->verticalHeader()->setVisible(false);
     m_treatmentTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     vlay->addWidget(m_treatmentTable, 1);
+
+    // Iteration 4 — expression cells edit through the highlighting /
+    // completing / live-validating editor (the [TREATMENT] peer of the
+    // control rules editor); the banner mirrors the validator verdict.
+    auto *delegate = new openswmmvis::ui::TreatmentExpressionDelegate(
+        m_ref.engine, m_treatmentTable);
+    m_treatmentTable->setItemDelegateForColumn(1, delegate);
+
+    m_treatmentBanner = new QLabel(page);
+    m_treatmentBanner->setWordWrap(true);
+    m_treatmentBanner->setVisible(false);
+    vlay->addWidget(m_treatmentBanner);
+    connect(delegate,
+            &openswmmvis::ui::TreatmentExpressionDelegate::validationChanged,
+            this, [this](bool ok, const QString &msg, int col) {
+        using namespace openswmmvis::ui::theme;
+        if (ok && msg.isEmpty()) {
+            m_treatmentBanner->setText(tr("● Valid expression"));
+            m_treatmentBanner->setStyleSheet(bannerStyle(Banner::Success));
+        } else {
+            m_treatmentBanner->setText(
+                col >= 0 ? tr("⚠ Column %1: %2").arg(col + 1).arg(msg)
+                         : tr("⚠ %1").arg(msg));
+            m_treatmentBanner->setStyleSheet(bannerStyle(Banner::Error));
+        }
+        m_treatmentBanner->setVisible(true);
+    });
 
     // Cell commit → engine. The first column (Pollutant) is non-editable
     // (flags cleared in refresh); only column 1 (Expression) reaches
@@ -706,9 +736,23 @@ void NodeCompoundEditDialog::buildTreatmentPage()
             rc = swmm_treatment_set(m_ref.engine, idx, polIdx, bytes.constData());
         }
         if (rc != SWMM_OK) {
+            // Iteration 4 — the validator supplies the human diagnostic +
+            // position the bare set call never had.
+            char errbuf[512] = {};
+            int col = -1;
+            swmm_treatment_validate_expression(
+                m_ref.engine, expr.toUtf8().constData(),
+                errbuf, sizeof(errbuf), &col);
+            const QString why = QString::fromUtf8(errbuf);
             QMessageBox::warning(this, tr("Treatment"),
-                tr("Engine rejected the expression (error %1). "
-                   "The cell will revert.").arg(rc));
+                why.isEmpty()
+                    ? tr("Engine rejected the expression (error %1). "
+                         "The cell will revert.").arg(rc)
+                    : (col >= 0
+                           ? tr("Invalid expression at column %1: %2\n"
+                                "The cell will revert.").arg(col + 1).arg(why)
+                           : tr("Invalid expression: %1\n"
+                                "The cell will revert.").arg(why)));
         }
         // Always re-read so a rejected edit reverts and an accepted
         // one normalises (engine may canonicalise whitespace).

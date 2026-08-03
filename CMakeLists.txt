@@ -450,6 +450,7 @@ set(
         include/landuse/landuseprovider.h
         include/landuse/landuseregistry.h
         include/ui/models/landuselistmodel.h
+        include/ui/models/qualityfunctiontablemodels.h
         include/ui/dialogs/landuseeditordialog.h
 
         # ── Aquifer ([AQUIFERS]) ─────────────────────────────────────────────
@@ -638,6 +639,7 @@ set(
         include/ui/widgets/rangeslider.h
         include/ui/widgets/statssummarypanel.h
         include/ui/widgets/labeledcontrols.h
+        include/ui/widgets/treatmentexpressionedit.h
         # Slice BB-α — colour-ramp combobox with gradient-swatch dropdown.
         include/ui/widgets/colorrampcombobox.h
         # Slice US.1 — shared classification editor (UNIFIED_STYLING plan S1).
@@ -1003,6 +1005,9 @@ set(
         src/ui/widgets/shortcuteditorwidget.cpp
         src/ui/widgets/rulecodeeditor.cpp
         src/ui/dialogs/ruleseditordialog.cpp
+        # Iteration 4 — treatment-expression editing stack (highlighter +
+        # completing editor + cell delegate; NodeCompoundEditDialog Treatment).
+        src/ui/widgets/treatmentexpressionedit.cpp
 
         # ── Climatology ([TEMPERATURE]/[EVAPORATION]/[ADJUSTMENTS]) ───────────
         src/ui/dialogs/climatologydialog.cpp
@@ -1033,6 +1038,7 @@ set(
         src/landuse/landuseprovider.cpp
         src/landuse/landuseregistry.cpp
         src/ui/models/landuselistmodel.cpp
+        src/ui/models/qualityfunctiontablemodels.cpp
         src/ui/dialogs/landuseeditordialog.cpp
 
         # ── Aquifer ([AQUIFERS]) ─────────────────────────────────────────────

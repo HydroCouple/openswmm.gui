@@ -3,15 +3,18 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  * \license GPL-3.0-or-later
- * \brief  Two-pane CRUD editor for SWMM land uses ([LANDUSES]).
+ * \brief  Unified editor for SWMM land uses ([LANDUSES] + [BUILDUP] +
+ *         [WASHOFF]) — iteration 4.
  *
- * Mirrors PollutantEditorDialog (list pane + scalar field form). Scalars are
- * the street-sweeping interval (days) and removal fraction. Buildup and
- * washoff functions are per-(landuse × pollutant) sub-tables and are NOT yet
- * edited here (see docs/HANDOFF_compile_verify_agent.md — add a
- * Buildup/Washoff grid page next).
- *
- * NOTE (first cut): build-verify with the compiler in the loop.
+ * List pane + tabbed detail pane for the selected land use:
+ *   - General && Sweeping: name, sweep interval (days), removal fraction.
+ *   - Buildup:  per-pollutant [BUILDUP] table (BuildupTableModel).
+ *   - Washoff:  per-pollutant [WASHOFF] table incl. the per-pollutant
+ *     sweep/BMP efficiencies (WashoffTableModel).
+ * Rows in the two tables re-dimension automatically as pollutants are
+ * added/removed (refreshPollutants(), wired to the pollutant registry).
+ * Delete is impact-aware: the confirmation lists what cascades
+ * (LandUseRegistry::impactSummary) before swmm_landuse_delete runs.
  */
 #ifndef OPENSWMMVIS_UI_DIALOGS_LANDUSEEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_LANDUSEEDITORDIALOG_H
@@ -24,6 +27,8 @@ class QLineEdit;
 class QListView;
 class QPushButton;
 class QSplitter;
+class QTableView;
+class QTabWidget;
 
 class SWMMModelLayer;
 
@@ -32,9 +37,15 @@ class LandUseProvider;
 class LandUseRegistry;
 }
 
+namespace openswmmvis::pollutant {
+class PollutantRegistry;
+}
+
 namespace openswmmvis::ui {
 
+class BuildupTableModel;
 class LandUseListModel;
+class WashoffTableModel;
 
 class LandUseEditorDialog : public QDialog
 {
@@ -65,8 +76,20 @@ public:
     QListView         *listView() const noexcept { return m_listView; }
     LandUseListModel  *listModel() const noexcept { return m_listModel; }
     QLineEdit         *nameEdit()  const noexcept { return m_nameEdit; }
+    BuildupTableModel *buildupModel() const noexcept { return m_buildupModel; }
+    WashoffTableModel *washoffModel() const noexcept { return m_washoffModel; }
 
     void invokeNew();
+
+    /*! Follow \a registry so the Buildup/Washoff rows re-dimension live as
+     *  pollutants are added/removed/renamed (wired by the launch site). */
+    void trackPollutantRegistry(
+        openswmmvis::pollutant::PollutantRegistry *registry);
+
+public slots:
+    /*! Re-dimension the Buildup/Washoff rows after the pollutant set
+     *  changed (add/remove/rename). */
+    void refreshPollutants();
 
 private slots:
     void onListSelectionChanged_();
@@ -98,6 +121,12 @@ private:
     QLineEdit      *m_nameEdit      = nullptr;
     QDoubleSpinBox *m_intervalSpin  = nullptr;
     QDoubleSpinBox *m_removalSpin   = nullptr;
+
+    QTabWidget        *m_tabs         = nullptr;
+    QTableView        *m_buildupView  = nullptr;
+    QTableView        *m_washoffView  = nullptr;
+    BuildupTableModel *m_buildupModel = nullptr;
+    WashoffTableModel *m_washoffModel = nullptr;
 
     bool m_suppressFieldSync = false;
 };

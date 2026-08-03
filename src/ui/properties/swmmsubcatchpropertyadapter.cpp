@@ -12,6 +12,7 @@
 #include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_nodes.h>   // outlet node resolution
 #include <openswmm/engine/openswmm_gages.h>   // rain gage resolution
+#include <openswmm/engine/openswmm_pollutants.h>      // loadings summary
 #include <openswmm/engine/openswmm_quality.h>        // landuse coverage summary
 #include <openswmm/engine/openswmm_infrastructure.h>  // LID usage summary
 
@@ -64,6 +65,7 @@ QString SWMMSubcatchPropertyAdapter::displayLabelFor(const QString &property) co
     if (property == QLatin1String("landUse"))     return tr("Land Uses");
     if (property == QLatin1String("groundwater")) return tr("Groundwater");
     if (property == QLatin1String("lidUsage"))    return tr("LID Usage");
+    if (property == QLatin1String("loadings"))    return tr("Initial Loadings");
     // USER_FLAGS Phase 4.
     if (property == QLatin1String("userFlags")) return tr("User Flags");
 
@@ -488,5 +490,27 @@ SubcatchCompoundEditRef SWMMSubcatchPropertyAdapter::lidUsageRef() const
         }
     }
     r.summary = mine > 0 ? tr("%1 LID(s)").arg(mine) : tr("(none)");
+    return r;
+}
+
+SubcatchCompoundEditRef SWMMSubcatchPropertyAdapter::loadingsRef() const
+{
+    // [LOADINGS] initial pollutant buildup (iteration 4).
+    SubcatchCompoundEditRef r;
+    r.engine = m_engine; r.layer = m_layer;
+    r.subName = m_name; r.kind = SubcatchCompoundEditRef::Loadings;
+    const int i = idx();
+    int assigned = 0;
+    if (i >= 0) {
+        const int n = swmm_pollutant_count(m_engine);
+        for (int p = 0; p < n; ++p) {
+            double w = 0.0;
+            if (swmm_subcatch_get_initial_loading(m_engine, i, p, &w) == SWMM_OK
+                && w > 0.0)
+                ++assigned;
+        }
+    }
+    r.summary = assigned > 0 ? tr("%1 pollutant(s)").arg(assigned)
+                             : tr("(none)");
     return r;
 }

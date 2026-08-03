@@ -8,6 +8,7 @@
 #include "ui/uiscrollhelpers.h"
 
 #include <openswmm/engine/openswmm_subcatchments.h>
+#include <openswmm/engine/openswmm_pollutants.h>      // loadings rows
 #include <openswmm/engine/openswmm_quality.h>        // land uses
 #include <openswmm/engine/openswmm_infrastructure.h>  // LID
 #include <openswmm/engine/openswmm_nodes.h>           // gw receiving node
@@ -34,7 +35,8 @@ SubcatchCompoundEditDialog::SubcatchCompoundEditDialog(SubcatchCompoundEditRef r
                                                        QWidget *parent)
     : QDialog(parent), m_ref(std::move(ref))
 {
-    const char *titles[] = { "Land Use Coverage", "Groundwater", "LID Usage" };
+    const char *titles[] = { "Land Use Coverage", "Groundwater", "LID Usage",
+                             "Initial Loadings" };
     // Iteration 2 (D2) — naming wires the app-wide layout persistence.
     setObjectName(QStringLiteral("SubcatchCompoundEditDialog"));
     setWindowTitle(tr("%1 — %2")
@@ -45,6 +47,7 @@ SubcatchCompoundEditDialog::SubcatchCompoundEditDialog(SubcatchCompoundEditRef r
     buildLandUsePage();      // index 0
     buildGroundwaterPage();  // index 1
     buildLidUsagePage();     // index 2
+    buildLoadingsPage();     // index 3
     m_stack->setCurrentIndex(int(m_ref.kind));
 
     m_buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
@@ -69,6 +72,10 @@ int SubcatchCompoundEditDialog::subIdx() const
 // ---------------------------------------------------------------------------
 void SubcatchCompoundEditDialog::buildLandUsePage()
 {
+    // Iteration 4 — editable full-matrix table: one row per DEFINED land
+    // use (including 0%), percent edited in place, apply-as-you-go. The
+    // rows re-list on every refresh, so land uses added while the dialog
+    // is open appear (the old populate-once combo never noticed them).
     auto *page = new QWidget(this);
     auto *vlay = new QVBoxLayout(page);
 
@@ -82,48 +89,90 @@ void SubcatchCompoundEditDialog::buildLandUsePage()
     m_luTable->verticalHeader()->setVisible(false);
     m_luTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_luTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_luTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_luTable->setEditTriggers(QAbstractItemView::DoubleClicked
+                               | QAbstractItemView::EditKeyPressed
+                               | QAbstractItemView::SelectedClicked);
     vlay->addWidget(m_luTable, 1);
 
-    auto *grp  = new QGroupBox(tr("Set Coverage"), page);
-    auto *form = new QFormLayout(grp);
-    m_luCombo  = new QComboBox(grp);
-    m_luCovSpin = new QDoubleSpinBox(grp);
-    m_luCovSpin->setRange(0.0, 100.0);
-    m_luCovSpin->setDecimals(2);
-    form->addRow(tr("Lan&d Use"),     m_luCombo);
-    form->addRow(tr("Coverage (%)"), m_luCovSpin);
-
-    auto *applyBtn = new QPushButton(tr("Set / Update"), grp);
-    form->addRow(QString(), applyBtn);
-    connect(applyBtn, &QPushButton::clicked, this, [this]() {
+    connect(m_luTable, &QTableWidget::itemChanged, this,
+            [this](QTableWidgetItem *item) {
+        if (m_luRefreshing || !item || item->column() != 1) return;
         const int s = subIdx();
         if (s < 0) return;
+        QTableWidgetItem *name = m_luTable->item(item->row(), 0);
+        if (!name) return;
         const int lu = swmm_landuse_index(m_ref.engine,
-                                          m_luCombo->currentText().toUtf8().constData());
+                                          name->text().toUtf8().constData());
         if (lu < 0) return;
-        const int rc = swmm_subcatch_set_coverage(m_ref.engine, s, lu,
-                                                   m_luCovSpin->value());
+        bool ok = false;
+        const double pct = item->text().toDouble(&ok);
+        if (!ok || pct < 0.0 || pct > 100.0) {
+            QMessageBox::warning(this, tr("Set Coverage"),
+                tr("Coverage must be a percent between 0 and 100."));
+            refreshActivePage();
+            return;
+        }
+        const int rc = swmm_subcatch_set_coverage(m_ref.engine, s, lu, pct);
         if (rc != SWMM_OK) {
             QMessageBox::warning(this, tr("Set Coverage"),
                 tr("Engine rejected coverage set (error %1).").arg(rc));
-            return;
         }
         refreshActivePage();
     });
 
-    // Selecting a row pre-fills the form for review/tweak.
-    connect(m_luTable, &QTableWidget::itemSelectionChanged, this, [this]() {
-        const auto sel = m_luTable->selectionModel()->selectedRows();
-        if (sel.isEmpty()) return;
-        const int row = sel.first().row();
-        if (auto *it = m_luTable->item(row, 0))
-            m_luCombo->setCurrentText(it->text());
-        if (auto *it = m_luTable->item(row, 1))
-            m_luCovSpin->setValue(it->text().toDouble());
+    m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
+}
+
+// ---------------------------------------------------------------------------
+// Initial loadings page ([LOADINGS], iteration 4)
+// ---------------------------------------------------------------------------
+void SubcatchCompoundEditDialog::buildLoadingsPage()
+{
+    auto *page = new QWidget(this);
+    auto *vlay = new QVBoxLayout(page);
+
+    m_loadSummary = new QLabel(page);
+    m_loadSummary->setWordWrap(true);
+    vlay->addWidget(m_loadSummary);
+
+    m_loadTable = new QTableWidget(0, 2, page);
+    m_loadTable->setHorizontalHeaderLabels(
+        { tr("Pollutant"), tr("Initial Buildup (mass/area)") });
+    m_loadTable->horizontalHeader()->setStretchLastSection(true);
+    m_loadTable->verticalHeader()->setVisible(false);
+    m_loadTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_loadTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_loadTable->setEditTriggers(QAbstractItemView::DoubleClicked
+                                 | QAbstractItemView::EditKeyPressed
+                                 | QAbstractItemView::SelectedClicked);
+    vlay->addWidget(m_loadTable, 1);
+
+    connect(m_loadTable, &QTableWidget::itemChanged, this,
+            [this](QTableWidgetItem *item) {
+        if (m_loadRefreshing || !item || item->column() != 1) return;
+        const int s = subIdx();
+        if (s < 0) return;
+        QTableWidgetItem *name = m_loadTable->item(item->row(), 0);
+        if (!name) return;
+        const int p = swmm_pollutant_index(m_ref.engine,
+                                           name->text().toUtf8().constData());
+        if (p < 0) return;
+        bool ok = false;
+        const double w = item->text().toDouble(&ok);
+        if (!ok || w < 0.0) {
+            QMessageBox::warning(this, tr("Set Initial Loading"),
+                tr("Initial buildup must be a non-negative number."));
+            refreshActivePage();
+            return;
+        }
+        const int rc = swmm_subcatch_set_initial_loading(m_ref.engine, s, p, w);
+        if (rc != SWMM_OK) {
+            QMessageBox::warning(this, tr("Set Initial Loading"),
+                tr("Engine rejected the loading set (error %1).").arg(rc));
+        }
+        refreshActivePage();
     });
 
-    vlay->addWidget(grp);
     m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
 }
 
@@ -291,32 +340,67 @@ void SubcatchCompoundEditDialog::refreshActivePage()
 
     switch (m_ref.kind) {
     case SubcatchCompoundEditRef::LandUse: {
-        // Populate the combo with every land use once.
+        // Full matrix: every defined land use gets an editable percent row.
         const int nLu = swmm_landuse_count(e);
-        if (m_luCombo->count() == 0) {
-            for (int i = 0; i < nLu; ++i)
-                if (const char *id = swmm_landuse_id(e, i))
-                    m_luCombo->addItem(QString::fromUtf8(id));
-        }
+        m_luRefreshing = true;
         m_luTable->setRowCount(0);
         int assigned = 0;
+        double sum = 0.0;
         for (int i = 0; i < nLu; ++i) {
-            double frac = 0.0;
-            if (swmm_subcatch_get_coverage(e, s, i, &frac) != SWMM_OK) continue;
-            if (frac <= 0.0) continue;   // only show assigned coverages
+            double pct = 0.0;
+            if (swmm_subcatch_get_coverage(e, s, i, &pct) != SWMM_OK) continue;
             const int row = m_luTable->rowCount();
             m_luTable->insertRow(row);
             const char *id = swmm_landuse_id(e, i);
-            m_luTable->setItem(row, 0, new QTableWidgetItem(
-                id ? QString::fromUtf8(id) : QString()));
+            auto *nameItem = new QTableWidgetItem(
+                id ? QString::fromUtf8(id) : QString());
+            nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
+            m_luTable->setItem(row, 0, nameItem);
             m_luTable->setItem(row, 1, new QTableWidgetItem(
-                QString::number(frac, 'g', 6)));
-            ++assigned;
+                QString::number(pct, 'g', 6)));
+            if (pct > 0.0) ++assigned;
+            sum += pct;
         }
-        m_luSummary->setText(tr("<b>%1</b> land use(s) assigned coverage "
-                                "(of %2 defined). Set coverage to 0 to remove.")
-                                 .arg(assigned).arg(nLu));
+        m_luRefreshing = false;
+        QString text = tr("<b>%1</b> of %2 land use(s) assigned. Edit the "
+                          "Coverage column in place; 0 removes a coverage.")
+                           .arg(assigned).arg(nLu);
+        if (sum > 100.0 + 1e-9)
+            text += tr("<br><b>Warning:</b> coverages sum to %1% "
+                       "(&gt; 100%).").arg(QString::number(sum, 'g', 6));
+        m_luSummary->setText(text);
         m_ref.summary = assigned > 0 ? tr("%1 land use(s)").arg(assigned)
+                                     : tr("(none)");
+        break;
+    }
+    case SubcatchCompoundEditRef::Loadings: {
+        // [LOADINGS] — every pollutant gets an editable initial-buildup row.
+        const int nP = swmm_pollutant_count(e);
+        m_loadRefreshing = true;
+        m_loadTable->setRowCount(0);
+        int assigned = 0;
+        for (int i = 0; i < nP; ++i) {
+            double w = 0.0;
+            if (swmm_subcatch_get_initial_loading(e, s, i, &w) != SWMM_OK)
+                continue;
+            const int row = m_loadTable->rowCount();
+            m_loadTable->insertRow(row);
+            const char *id = swmm_pollutant_id(e, i);
+            auto *nameItem = new QTableWidgetItem(
+                id ? QString::fromUtf8(id) : QString());
+            nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
+            m_loadTable->setItem(row, 0, nameItem);
+            m_loadTable->setItem(row, 1, new QTableWidgetItem(
+                QString::number(w, 'g', 6)));
+            if (w > 0.0) ++assigned;
+        }
+        m_loadRefreshing = false;
+        m_loadSummary->setText(tr(
+            "<b>%1</b> of %2 pollutant(s) carry an initial buildup at "
+            "simulation start ([LOADINGS]); it overrides the DRY_DAYS-derived "
+            "buildup. Edit in place; 0 removes a loading.")
+                                   .arg(assigned).arg(nP));
+        m_ref.summary = assigned > 0 ? tr("%1 pollutant(s)").arg(assigned)
                                      : tr("(none)");
         break;
     }

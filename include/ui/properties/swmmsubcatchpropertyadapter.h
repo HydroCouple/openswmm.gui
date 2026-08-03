@@ -75,6 +75,8 @@ class SWMMSubcatchPropertyAdapter : public QObject
                READ groundwaterRef WRITE setGroundwaterRef NOTIFY changed)
     Q_PROPERTY(SubcatchCompoundEditRef lidUsage
                READ lidUsageRef    WRITE setLidUsageRef    NOTIFY changed)
+    Q_PROPERTY(SubcatchCompoundEditRef loadings
+               READ loadingsRef    WRITE setLoadingsRef    NOTIFY changed)
 
     /*! Phase 4 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — per-object
      *  user-flag assignments row (see SWMMNodePropertyAdapter). */
@@ -127,6 +129,7 @@ public:
     [[nodiscard]] SubcatchCompoundEditRef landUseRef()     const;
     [[nodiscard]] SubcatchCompoundEditRef groundwaterRef() const;
     [[nodiscard]] SubcatchCompoundEditRef lidUsageRef()    const;
+    [[nodiscard]] SubcatchCompoundEditRef loadingsRef()    const;
 
     /*! See SWMMNodePropertyAdapter::displayLabelFor. */
     Q_INVOKABLE QString displayLabelFor(const QString &property) const;
@@ -161,6 +164,7 @@ public slots:
     void setLandUseRef(const SubcatchCompoundEditRef &)     { emit changed(); }
     void setGroundwaterRef(const SubcatchCompoundEditRef &) { emit changed(); }
     void setLidUsageRef(const SubcatchCompoundEditRef &)    { emit changed(); }
+    void setLoadingsRef(const SubcatchCompoundEditRef &)    { emit changed(); }
 
     void setUserFlagsRef(const UserFlagsEditRef &) { emit changed(); }
 
