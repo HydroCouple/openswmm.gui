@@ -35,6 +35,7 @@ class OpenSWMMVisMapToolSelect;
 class OpenSWMMVisMapToolSelectPolygon;
 class OpenSWMMVisMapToolMeasure;
 class OpenSWMMVisMapToolAddNode;
+class OpenSWMMVisMapToolAddVirtualNode;
 class OpenSWMMVisMapToolAddLink;
 class OpenSWMMVisMapToolAddGage;
 class OpenSWMMVisMapToolAddSubcatchment;
@@ -184,6 +185,11 @@ public:
     class OpenSWMMVisMapToolSelectProfile *selectProfileTool() const
     { return mSelectProfileTool; }
 
+    /*! Virtual-junction insertion tool (click-a-conduit split). Exposed so
+     *  SWMMVis can route its statusMessageChanged to the status bar. */
+    class OpenSWMMVisMapToolAddVirtualNode *addVirtualJunctionTool() const
+    { return mAddVirtualJunctionTool; }
+
     /*! Slice CF.3 — Pick 2D mesh cells tool (box + lasso). Returns null
      *  until a SWMM2DResultsLayer exists on the canvas (created lazily
      *  on first access via activatePick2DCellsTool). */
@@ -244,6 +250,7 @@ public:
      *  main window can sync toolbar checked states via activeToolChanged. */
     QHash<class OpenSWMMVisMapTool *, QString> toolActionKeys() const;
     void activateAddJunctionTool();
+    void activateAddVirtualJunctionTool();
     void activateAddOutfallTool();
     void activateAddStorageTool();
     void activateAddDividerTool();
@@ -446,6 +453,7 @@ private:
     OpenSWMMVisMapToolMeasure     *mMeasureTool       = nullptr;
     class OpenSWMMVisMapToolSelectProfile *mSelectProfileTool = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddJunctionTool   = nullptr;
+    OpenSWMMVisMapToolAddVirtualNode *mAddVirtualJunctionTool = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddOutfallTool    = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddStorageTool    = nullptr;
     OpenSWMMVisMapToolAddNode     *mAddDividerTool    = nullptr;

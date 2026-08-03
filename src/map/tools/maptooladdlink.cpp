@@ -95,6 +95,11 @@ QString OpenSWMMVisMapToolAddLink::snapToNode(SWMMModelLayer *layer,
     const int idx = layer->nodeIndex(name);
     if (idx < 0) return {};
 
+    // Virtual junctions accept exactly two conduits, both fixed by the split
+    // that created them — never a drawn endpoint (non-conduits are outright
+    // illegal there, and a third conduit would violate the pair rule).
+    if (layer->nodeIsVirtual(idx)) return {};
+
     // cachedNodeCoord returns layer-CRS coords; the caller compares
     // these against (mapX, mapY) which are canvas-CRS, and feeds them
     // into rubber-band paint code that uses toPixelCoords (canvas→

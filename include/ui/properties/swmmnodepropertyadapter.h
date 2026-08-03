@@ -372,6 +372,27 @@ public:
     using SWMMNodePropertyAdapter::SWMMNodePropertyAdapter;
 };
 
+/*! Virtual-junction adapter — `[VIRTUAL_JUNCTIONS]` carries only Name and
+ *  Elev; everything else is derived from the two attached conduits (max
+ *  depth = pipe crown, zero surcharge depth / ponded area) and lateral
+ *  inflows are prohibited, so this adapter intentionally exposes NO depth /
+ *  ponding attributes and NO Inflows/DWF/RDII/Treatment compound rows. The
+ *  invert stays editable on the base adapter — with zero offsets the two
+ *  conduit end elevations follow the node invert directly, so editing it IS
+ *  the grade-break write-through. Read-only summary mirrors the junction
+ *  adapter's computed block. */
+class SWMMVirtualJunctionPropertyAdapter : public SWMMNodePropertyAdapter
+{
+    Q_OBJECT
+    Q_PROPERTY(double crownElev       READ crownElev       NOTIFY changed)
+    Q_PROPERTY(int    degree          READ degree          NOTIFY changed)
+    Q_PROPERTY(double statMaxDepth    READ statMaxDepth    NOTIFY changed)
+    Q_PROPERTY(UserFlagsEditRef userFlags
+               READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed)
+public:
+    using SWMMNodePropertyAdapter::SWMMNodePropertyAdapter;
+};
+
 /*! Outfall adapter — `[OUTFALLS]` columns:
  *  Name, Elev, Type, Gated, (StageData when FIXED).  No depth/ponding
  *  attributes — those don't apply at a boundary node. */

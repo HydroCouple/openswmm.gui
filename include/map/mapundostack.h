@@ -753,4 +753,71 @@ private:
     bool                        m_present = false;   ///< true iff currently in layer
 };
 
+/*!
+ * \class InsertVirtualJunctionCommand
+ * \brief Records a conduit split that inserts a virtual junction.
+ * \details redo() calls SWMMModelLayer::applyInsertVirtualJunction (engine
+ *          `swmm_conduit_split`); undo() calls applyFuseVirtualJunction —
+ *          the exact engine-side inverse (a split→fuse round-trip restores
+ *          the model byte-identically), so no snapshot machinery is needed.
+ */
+class InsertVirtualJunctionCommand : public MapCommand
+{
+public:
+    InsertVirtualJunctionCommand(SWMMModelLayer *layer,
+                                 QString linkName, double t,
+                                 QString nodeName, QString newLinkName,
+                                 MapCanvas *canvas,
+                                 QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 22; }
+
+private:
+    SWMMModelLayer *m_layer = nullptr;
+    QString m_linkName;      ///< conduit being split (name survives upstream)
+    double  m_t = 0.5;       ///< normalized split position
+    QString m_nodeName;      ///< inserted virtual junction
+    QString m_newLinkName;   ///< new downstream conduit
+    bool    m_present = false;
+};
+
+/*!
+ * \class FuseVirtualJunctionCommand
+ * \brief Records the re-fusion (deletion) of a virtual junction.
+ * \details The constructor snapshots what a re-split needs: the upstream/
+ *          downstream conduit names, the length-ratio split position, the
+ *          node invert and its map coordinate. undo() re-splits at the
+ *          snapshot position and restores the invert and coordinate so a
+ *          grade-break node comes back exactly.
+ */
+class FuseVirtualJunctionCommand : public MapCommand
+{
+public:
+    FuseVirtualJunctionCommand(SWMMModelLayer *layer,
+                               QString nodeName,
+                               MapCanvas *canvas,
+                               QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 23; }
+
+    /*! \brief False when the node is not a two-conduit through virtual
+     *         junction (snapshot failed); the command must not be pushed. */
+    bool valid() const { return m_valid; }
+
+private:
+    SWMMModelLayer *m_layer = nullptr;
+    QString m_nodeName;
+    QString m_upLinkName;    ///< surviving conduit
+    QString m_dnLinkName;    ///< retired conduit (re-created on undo)
+    double  m_t = 0.5;       ///< L_up / (L_up + L_dn)
+    double  m_invert = 0.0;  ///< node invert (grade break — not derivable)
+    double  m_x = 0.0, m_y = 0.0;
+    bool    m_valid   = false;
+    bool    m_present = false;   ///< true iff the fuse is currently applied
+};
+
 #endif // MAPUNDOSTACK_H
