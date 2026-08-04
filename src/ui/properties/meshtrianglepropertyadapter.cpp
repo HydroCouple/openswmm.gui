@@ -7,6 +7,8 @@
 #include "ui/properties/meshtrianglepropertyadapter.h"
 
 #include "layers/swmm2dmeshlayer.h"
+#include "map/meshcommands.h"
+#include "mesh/meshcellparams.h"
 #include "mesh/meshobjectref.h"
 
 #include <QCoreApplication>
@@ -61,7 +63,7 @@ QString MeshTrianglePropertyAdapter::tag() const
 void MeshTrianglePropertyAdapter::setMannings(double n)
 {
     if (!m_layer) return;
-    m_layer->applyMeshTriangleMannings(m_idx, n);
+    mesh::pushCellParamEdit(m_layer, {m_idx}, "mannings", n, m_canvas);
 }
 
 double MeshTrianglePropertyAdapter::initDepth() const
@@ -74,7 +76,7 @@ double MeshTrianglePropertyAdapter::initDepth() const
 void MeshTrianglePropertyAdapter::setInitDepth(double d)
 {
     if (!m_layer) return;
-    m_layer->applyMeshTriangleInitDepth(m_idx, d);
+    mesh::pushCellParamEdit(m_layer, {m_idx}, "initDepth", d, m_canvas);
 }
 
 void MeshTrianglePropertyAdapter::setTag(const QString &tag)
@@ -94,8 +96,8 @@ QString MeshTrianglePropertyAdapter::displayLabelFor(const QString &property) co
     if (property == QStringLiteral("v0"))       return QCoreApplication::translate("MeshTriangle", "Vertex 1");
     if (property == QStringLiteral("v1"))       return QCoreApplication::translate("MeshTriangle", "Vertex 2");
     if (property == QStringLiteral("v2"))       return QCoreApplication::translate("MeshTriangle", "Vertex 3");
-    if (property == QStringLiteral("mannings")) return QCoreApplication::translate("MeshTriangle", "Manning's n");
-    if (property == QStringLiteral("initDepth")) return QCoreApplication::translate("MeshTriangle", "Initial Depth (m)");
+    if (property == QStringLiteral("mannings"))  return mesh::cellParamLabel("mannings", m_depthUnit);
+    if (property == QStringLiteral("initDepth")) return mesh::cellParamLabel("initDepth", m_depthUnit);
     if (property == QStringLiteral("tag"))      return QCoreApplication::translate("MeshTriangle", "Tag");
     return property;
 }

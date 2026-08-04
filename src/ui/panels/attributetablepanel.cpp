@@ -1991,11 +1991,26 @@ void AttributeTablePanel::onChangeTypeTriggered()
     if (isNode) swmm_node_get_type(eng, idx, &currentType);
     else        swmm_link_get_type(eng, idx, &currentType);
 
+    // Virtual junctions surface as their own node kind (mirrors the map's
+    // Convert To ▸ menu): a flagged node reports kVirtualNodeType so
+    // "Junction" (demote) is offered, and the "Virtual Junction" target is
+    // listed only when the engine's usage rules are met (the item picker
+    // has no way to grey an entry out).
+    constexpr int kVJ = openswmmvis::ui::TypeConversionFlow::kVirtualNodeType;
+    int vjRule = 0;
+    if (isNode) {
+        int isVirtual = 0;
+        swmm_node_is_virtual(eng, idx, &isVirtual);
+        if (isVirtual) currentType = kVJ;
+        swmm_node_virtual_eligible(eng, idx, &vjRule);
+    }
+
     QStringList labels;
     QVector<int> values;
-    const int nKinds = isNode ? 4 : 5;
+    const int nKinds = 5;
     for (int t = 0; t < nKinds; ++t) {
         if (t == currentType) continue;
+        if (isNode && t == kVJ && vjRule != 0) continue;
         labels << (isNode
             ? openswmmvis::ui::TypeConversionFlow::nodeTypeLabel(t)
             : openswmmvis::ui::TypeConversionFlow::linkTypeLabel(t));

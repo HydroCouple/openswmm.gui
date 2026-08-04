@@ -240,6 +240,16 @@ private slots:
     void maybeLoad2DResults(SWMMVisProjectWindow *window,
                             const QString &filePath);
 
+    /*! \brief Mount one selected 2D mesh cell in the Properties panel.
+     *
+     *  Mesh cells are not SWMM network objects, so they never reach
+     *  SWMMModelLayer::identifyByName — this resolves \p ref to its mesh
+     *  layer and shows a MeshTrianglePropertyAdapter (Manning's n, initial
+     *  depth, tag), wired to the canvas undo stack and the project's depth
+     *  unit. No-op when the ref does not resolve. */
+    void showMeshCellProperties(SWMMVisProjectWindow *window,
+                                const SWMMObjectRef &ref);
+
     /*! \brief Announce the start of a file open: Message-Log line, status-bar
      *         message, and busy spinner. Pair with \ref endFileOpen. */
     void beginFileOpen(const QString &path);

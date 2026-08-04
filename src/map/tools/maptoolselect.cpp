@@ -1354,14 +1354,33 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
             : (isNode ? swmm_node_get_type(eng, idx, &currentType)
                       : swmm_link_get_type(eng, idx, &currentType));
         if (rcT == SWMM_OK) {
+            // Virtual junctions surface as their own node kind: a flagged
+            // node reports kVirtualNodeType so "Junction" (demote) becomes
+            // an offered target, and the "Virtual Junction" target is
+            // greyed out with the violated rule when the engine's usage
+            // rules (two identical conduits, no inflows, …) aren't met.
+            constexpr int kVJ = openswmmvis::ui::TypeConversionFlow::kVirtualNodeType;
+            int vjRule = 0;
+            if (isNode) {
+                int isVirtual = 0;
+                swmm_node_is_virtual(eng, idx, &isVirtual);
+                if (isVirtual) currentType = kVJ;
+                swmm_node_virtual_eligible(eng, idx, &vjRule);
+            }
             QMenu *convertMenu = menu.addMenu(QObject::tr("Convert To"));
-            const int nKinds = isNode ? 4 : 5;
+            convertMenu->setToolTipsVisible(true);
+            const int nKinds = 5;
             for (int t = 0; t < nKinds; ++t) {
                 if (t == currentType) continue;
                 const QString label = isNode
                     ? openswmmvis::ui::TypeConversionFlow::nodeTypeLabel(t)
                     : openswmmvis::ui::TypeConversionFlow::linkTypeLabel(t);
-                convertTargets.insert(convertMenu->addAction(label), t);
+                QAction *act = convertMenu->addAction(label);
+                if (isNode && t == kVJ && vjRule != 0) {
+                    act->setEnabled(false);
+                    act->setToolTip(SWMMModelLayer::virtualJunctionRuleText(vjRule));
+                }
+                convertTargets.insert(act, t);
             }
         }
     }

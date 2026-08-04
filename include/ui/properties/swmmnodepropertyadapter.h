@@ -55,7 +55,11 @@ public:
      *  SWMM_NodeType / SWMM_OutfallType / SWMM_DividerType + a
      *  yes/no boolean wrapped for flap-gate.  Subclasses inherit
      *  these via metaObject() — no need to redeclare. */
-    enum NodeKind    { Junction = 0, Outfall = 1, Storage = 2, Divider = 3 };
+    /*! Junction/Outfall/Storage/Divider match SWMM_NodeType ordinals; the
+     *  GUI presents VirtualJunction as a distinct kind even though the
+     *  engine stores it as a JUNCTION with the is_virtual flag set. */
+    enum NodeKind    { Junction = 0, Outfall = 1, Storage = 2, Divider = 3,
+                       VirtualJunction = 4 };
     enum OutfallType { FREE = 0, NORMAL = 1, FIXED = 2, TIDAL = 3, TIMESERIES = 4 };
     enum DividerType { CUTOFF = 0, OVERFLOW_ = 1, TABULAR = 2, WEIR = 3 };
     enum FlapGate    { NO = 0, YES = 1 };

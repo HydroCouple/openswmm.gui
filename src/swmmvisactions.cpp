@@ -270,6 +270,7 @@ void SWMMVis::initializeCompactToolbar()
 
     mToolBarModel = new QToolBar(tr("Model"), this);
     mToolBarModel->setObjectName(QStringLiteral("toolBarModel"));
+    addGroup(mToolBarModel, tr("Select"), {"actionSelect"});
     addGroup(mToolBarModel, tr("Edit"), {"actionEditExisting"});
     // Iteration 3 — node/link tools unstacked into captioned groups so
     // every draw tool is a visible, individually-toggled button.
@@ -314,9 +315,21 @@ void SWMMVis::initializeCompactToolbar()
              {"actionLayerStylingDock", "actionStyleManager"});
     addGroup(mToolBarView, tr("Start"), {"actionShowWelcome"});
 
-    // Analysis: the "Results Layers" widget group leads the bar (added by
-    // initializeAnalysisLayerCombos); the action groups follow. Tabular
-    // View gains its first toolbar home in the Report group.
+    // Analysis: add a leftmost Select shortcut so users can return to pick
+    // mode without switching tabs. Results-layer selectors then follow.
+    {
+        auto *group = new RibbonGroup(tr("Select"), this);
+        for (QAction *act : resolve({"actionSelect"}))
+            group->addAction(act);
+        const auto acts = mToolBarAnalysis->actions();
+        if (!acts.isEmpty())
+            mToolBarAnalysis->insertWidget(acts.constFirst(), group);
+        else
+            mToolBarAnalysis->addWidget(group);
+    }
+    // The "Results Layers" widget group is added in initializeAnalysisLayerCombos;
+    // action groups follow here. Tabular View gains its first toolbar home in
+    // the Report group.
     addGroup(mToolBarAnalysis, tr("Report"),
              {"actionSummarizeResults", "actionReport", "actionTabularView"});
     mGroupPlots = addGroup(mToolBarAnalysis, tr("Plots"),

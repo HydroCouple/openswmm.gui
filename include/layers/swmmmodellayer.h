@@ -607,6 +607,9 @@ public:
     [[nodiscard]] SWMMElementSymbol dividerSymbol()    const;
     void setDividerSymbol(const SWMMElementSymbol &s);
 
+    [[nodiscard]] SWMMElementSymbol virtualJunctionSymbol() const;
+    void setVirtualJunctionSymbol(const SWMMElementSymbol &s);
+
     [[nodiscard]] SWMMElementSymbol conduitSymbol()    const;
     void setConduitSymbol(const SWMMElementSymbol &s);
 

@@ -246,11 +246,13 @@ QStringList sectionDataRows(const QString &text, const char *secName)
  *  when set, else from the same row of \p origRows so values authored at
  *  generation time (or by hand) survive the rewrite (both stay NaN until the
  *  user edits them). Columns are positional (`V1 V2 V3 MANNINGS_N
- *  [INIT_DEPTH] [TAG]`; a numeric 5th token means INIT_DEPTH), so INIT_DEPTH
- *  is emitted whenever a depth or a tag must be carried, and TAG only when a
- *  MANNINGS_N token exists. */
+ *  [INIT_DEPTH] [TAG]`; a numeric 5th token means INIT_DEPTH), so a row that
+ *  must carry a depth or a tag needs a MANNINGS_N token to hold column 4 —
+ *  when neither the mesh nor the original row has one, \p defaultMannings is
+ *  materialized rather than dropping the later columns. */
 QString formatTrianglesPreserving(const MeshResult &mesh,
-                                  const QStringList &origRows)
+                                  const QStringList &origRows,
+                                  double defaultMannings)
 {
     QString out;
     QTextStream s(&out);
@@ -288,11 +290,10 @@ QString formatTrianglesPreserving(const MeshResult &mesh,
     {
         const MeshTriangle &t = mesh.triangles[i];
         s << t.v0 << "  " << t.v1 << "  " << t.v2;
-        bool haveMannings = false;
+        QString manningsTok;
         if (std::isfinite(t.mannings) && t.mannings > 0.0)
         {
-            s << "  " << t.mannings;
-            haveMannings = true;
+            manningsTok = QString::number(t.mannings, 'f', 4);
         }
         else if (i < origRows.size())
         {
@@ -300,9 +301,18 @@ QString formatTrianglesPreserving(const MeshResult &mesh,
                 origRows[i].simplified().split(QChar(' '), Qt::SkipEmptyParts);
             bool okn = false;
             if (tok.size() >= 4) tok[3].toDouble(&okn);
-            if (okn) { s << "  " << tok[3]; haveMannings = true; }
+            if (okn) manningsTok = tok[3];
         }
-        if (haveMannings && writeDepthCol)
+        // A depth or tag can only be written behind a MANNINGS_N token
+        // (columns are positional). Materialize the default rather than
+        // silently dropping the edit.
+        const bool needsLaterCols = writeDepthCol || !t.tag.isEmpty();
+        if (manningsTok.isEmpty() && needsLaterCols)
+            manningsTok = QString::number(defaultMannings, 'f', 4);
+
+        if (!manningsTok.isEmpty())
+            s << "  " << manningsTok;
+        if (!manningsTok.isEmpty() && writeDepthCol)
         {
             if (std::isfinite(t.initDepth))
                 s << "  " << t.initDepth;
@@ -312,7 +322,7 @@ QString formatTrianglesPreserving(const MeshResult &mesh,
                 s << "  " << (od.isEmpty() ? QStringLiteral("0") : od);
             }
         }
-        if (haveMannings && !t.tag.isEmpty())
+        if (!manningsTok.isEmpty() && !t.tag.isEmpty())
             s << "  " << t.tag;
         s << "\n";
     }
@@ -790,7 +800,8 @@ bool InpMeshWriter::patchBCSections(const QString &filePath,
 
 bool InpMeshWriter::patchAttributeSections(const QString &filePath,
                                            const MeshResult &mesh,
-                                           QString *errorOut)
+                                           QString *errorOut,
+                                           double defaultMannings)
 {
     const ReadResult r = readInp(filePath);
     if (!r.ok) {
@@ -830,7 +841,7 @@ bool InpMeshWriter::patchAttributeSections(const QString &filePath,
     if (!patched.endsWith(QChar('\n')))
         patched.append(QChar('\n'));
     patched.append(formatVertices(mesh));
-    patched.append(formatTrianglesPreserving(mesh, tRows));
+    patched.append(formatTrianglesPreserving(mesh, tRows, defaultMannings));
     patched.append(formatVertexNodeMap(mesh, cm));
     patched.append(formatTriangleNodeMap(mesh, cm));
     return atomicWrite(filePath, patched, errorOut);

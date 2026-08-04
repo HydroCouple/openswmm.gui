@@ -82,6 +82,9 @@ const NodeStyleDefault kJunctionNodeDefault = { QColor(0,   120, 255), Qt::darkB
 const NodeStyleDefault kOutfallNodeDefault  = { QColor(220, 0,   0  ), Qt::darkBlue, 1.0, 12.5  };
 const NodeStyleDefault kStorageNodeDefault  = { QColor(180, 60,  200), Qt::darkBlue, 1.0, 12.0  };
 const NodeStyleDefault kDividerNodeDefault  = { QColor(0,   255, 0  ), Qt::darkBlue, 1.0,  8.0  };
+// Virtual junction — same blue dot as a junction; the dotted encircling
+// ring painted by the renderers follows the fill colour set here.
+const NodeStyleDefault kVirtualJunctionNodeDefault = { QColor(0, 120, 255), Qt::darkBlue, 1.0, 8.0 };
 
 constexpr int     kDefaultProgressTickMs        = 1000;
 constexpr double  kDefaultAnimationSpeed         = 1.0;
@@ -697,6 +700,9 @@ QString canonicalNodeType(const QString &nodeType)
         return QStringLiteral("Storage");
     if (k == QLatin1String("divider")  || k == QLatin1String("dividers"))
         return QStringLiteral("Divider");
+    if (k == QLatin1String("virtual_junction") || k == QLatin1String("virtualjunction")
+        || k == QLatin1String("virtual junction") || k == QLatin1String("virtual junctions"))
+        return QStringLiteral("VirtualJunction");
     return QStringLiteral("Junction");
 }
 
@@ -705,6 +711,7 @@ const NodeStyleDefault &defaultNodeStyleForKey(const QString &canonicalKey)
     if (canonicalKey == QLatin1String("Outfall")) return kOutfallNodeDefault;
     if (canonicalKey == QLatin1String("Storage")) return kStorageNodeDefault;
     if (canonicalKey == QLatin1String("Divider")) return kDividerNodeDefault;
+    if (canonicalKey == QLatin1String("VirtualJunction")) return kVirtualJunctionNodeDefault;
     return kJunctionNodeDefault;
 }
 } // anonymous
@@ -1558,6 +1565,7 @@ PreferencesManager::TwoDDefaults PreferencesManager::twoDDefaults() const
     d.meshMaxBoundaryEdgeOn = readTwoDSetting<bool>(s,   QStringLiteral("MeshMaxBoundaryEdgeOn"), d.meshMaxBoundaryEdgeOn);
     d.meshMaxBoundaryEdgeM  = readTwoDSetting<double>(s, QStringLiteral("MeshMaxBoundaryEdgeM"),  d.meshMaxBoundaryEdgeM);
     d.meshManningsN         = readTwoDSetting<double>(s, QStringLiteral("MeshManningsN"),         d.meshManningsN);
+    d.meshInitDepth         = readTwoDSetting<double>(s, QStringLiteral("MeshInitDepth"),         d.meshInitDepth);
     d.meshOutputExternal    = readTwoDSetting<bool>(s,   QStringLiteral("MeshOutputExternal"),    d.meshOutputExternal);
 
     return d;
@@ -1603,6 +1611,7 @@ void PreferencesManager::setTwoDDefaults(const TwoDDefaults &d)
     put(QStringLiteral("MeshMaxBoundaryEdgeOn"), d.meshMaxBoundaryEdgeOn);
     put(QStringLiteral("MeshMaxBoundaryEdgeM"),  d.meshMaxBoundaryEdgeM);
     put(QStringLiteral("MeshManningsN"),         d.meshManningsN);
+    put(QStringLiteral("MeshInitDepth"),         d.meshInitDepth);
     put(QStringLiteral("MeshOutputExternal"),    d.meshOutputExternal);
 
     emit preferenceChanged(QStringLiteral("Defaults"),

@@ -72,7 +72,11 @@ private slots:
         QCOMPARE(TypeConversionFlow::nodeTypeLabel(SWMM_NODE_DIVIDER),
                  QStringLiteral("Divider"));
         QVERIFY(TypeConversionFlow::nodeTypeLabel(-1).isEmpty());
-        QVERIFY(TypeConversionFlow::nodeTypeLabel(4).isEmpty());
+        // GUI pseudo-type: virtual junction surfaces as its own node kind.
+        QCOMPARE(TypeConversionFlow::nodeTypeLabel(
+                     TypeConversionFlow::kVirtualNodeType),
+                 QStringLiteral("Virtual Junction"));
+        QVERIFY(TypeConversionFlow::nodeTypeLabel(5).isEmpty());
     }
 
     void linkLabels()
@@ -231,6 +235,7 @@ bool SWMMModelLayer::applyNodeConvert(const QString&, int, QStringList*,
                                       QStringList*, QString*) { return false; }
 bool SWMMModelLayer::applyLinkConvert(const QString&, int, QStringList*,
                                       QStringList*, QString*) { return false; }
+bool SWMMModelLayer::applySetVirtual(const QString&, bool, QString*) { return false; }
 
 QTEST_MAIN(TestTypeConversionFlow)
 #include "test_typeconversionflow.moc"
