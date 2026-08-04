@@ -26,9 +26,12 @@
  */
 
 #include "layers/swmm2dmeshlayer.h"
+#include "layers/swmmmodellayer.h"
+#include "map/mapextent.h"
 #include "map/swmm2dmeshqsgrenderer.h"
 #include "mesh/meshresult.h"
 
+#include <QGraphicsScene>
 #include <QPointF>
 #include <QSet>
 #include <QTest>
@@ -178,6 +181,46 @@ private slots:
         const quint64 before = renderer.contentRevision();
         QVERIFY(layer.applyMeshVertexZ(12, 99.0));
         QVERIFY(renderer.contentRevision() != before);
+    }
+
+    // ---- Defect 3: refreshScene on a hidden layer must not clear the -------
+    //      rebuild flag ("new objects invisible until visibility toggle")
+
+    //! During load, MapCanvas's srsChanged handler runs refreshScene while
+    //! loadModelAsync still has the layer force-hidden. populateScene bails
+    //! on !isVisible() without creating the batched item; if refreshScene
+    //! clears m_needsRebuild anyway, the layer is stranded with no scene
+    //! item and no pending rebuild — the next refresh after setVisible(true)
+    //! short-circuits, and objects added to the new project never render
+    //! until a visibility toggle re-arms the flag via depopulateScene().
+    void hiddenRefreshScene_keepsRebuildArmed()
+    {
+        SWMMModelLayer layer(QString{});
+        QGraphicsScene scene;
+
+        layer.setVisible(false);
+        layer.refreshScene(&scene, MapExtent(), nullptr);  // load-path shape
+        QCOMPARE(scene.items().size(), 0);                 // hidden: no item, by design
+
+        layer.setVisible(true);
+        layer.refreshScene(&scene, MapExtent(), nullptr);  // first refresh after show
+        QCOMPARE(scene.items().size(), 1);                 // fails pre-fix: flag was cleared
+    }
+
+    //! Guard: a visible populate still clears the flag — a second refresh
+    //! must not depopulate/repopulate (or duplicate) the batched item.
+    void visibleRefreshScene_populatesOnceAndSettles()
+    {
+        SWMMModelLayer layer(QString{});
+        QGraphicsScene scene;
+
+        layer.refreshScene(&scene, MapExtent(), nullptr);
+        QCOMPARE(scene.items().size(), 1);
+        QGraphicsItem *item = scene.items().first();
+
+        layer.refreshScene(&scene, MapExtent(), nullptr);  // no rebuild pending
+        QCOMPARE(scene.items().size(), 1);
+        QCOMPARE(scene.items().first(), item);             // same item, untouched
     }
 };
 
