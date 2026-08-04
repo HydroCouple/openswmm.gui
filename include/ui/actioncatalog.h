@@ -173,6 +173,12 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     // ── Mesh 2D / terrain ───────────────────────────────────────────────
     {"mesh.selectVertices",   "actionMeshSelectVertex", "Mesh 2D", "", "SelectTriNode", "mesh2d", "Model/Mesh", Contextual2D},
     {"mesh.selectEdges",      "actionMeshSelectEdge",   "Mesh 2D", "", "SelectTriEdge", "mesh2d", "Model/Mesh", Contextual2D},
+    // Cell Data — assign per-cell parameters from a raster or a vector field.
+    {"mesh.assignFromRaster", "actionMeshAssignFromRaster", "Mesh 2D", "", "MeshAssignRaster", "mesh2d", "Model/Mesh", Contextual2D},
+    {"mesh.assignFromVector", "actionMeshAssignFromVector", "Mesh 2D", "", "MeshAssignVector", "mesh2d", "Model/Mesh", Contextual2D},
+    // Groundwater (2D) — preview of the pending [2D_AQUIFER] editor.
+    {"mesh.gw2dParams",       "actionMesh2DGWParams",   "Mesh 2D", "", "GW2DParams", "mesh2d", "Model/Mesh", Contextual2D},
+    {"mesh.gw2dInitCond",     "actionMesh2DGWInitCond", "Mesh 2D", "", "GW2DInit",   "mesh2d", "Model/Mesh", Contextual2D},
     {"terrain.profile",       "actionTerrainProfile",   "Model",   "", "Profile",  "model", "Model", NoTags},
 
     // ── View / panels (dock toggle actions; objectNames assigned where

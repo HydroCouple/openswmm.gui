@@ -180,6 +180,8 @@
 #include "layers/swmm2dresultslayer.h"
 #include "mesh/inpmeshreader.h"
 #include "mesh/meshobjectref.h"
+#include "ui/dialogs/mesh2dgroundwaterdialog.h"
+#include "ui/dialogs/meshattributeassigndialog.h"
 #include "ui/properties/meshtrianglepropertyadapter.h"
 #include "animation/animationcontroller.h"
 #include "ui/toolbars/terraintoolbar.h"
@@ -993,15 +995,15 @@ void SWMMVis::initializeMeshEditingToolBar()
     });
     mMeshEditingToolbar->addToolAction(actPick2DCells);
     // Cell-selection info label right after the Select-2D-Cells tool (like the
-    // edge label after Edit Edge), then the per-cell editors (Manning's n +
-    // tag) so they sit in the 2D-cell group. The toolbar hides them unless a
-    // single cell is selected.
+    // edge label after Edit Edge), then the per-cell editors (parameter combo
+    // + value, then tag) so they sit in the 2D-cell group. The toolbar hides
+    // them unless at least one cell is selected.
     mMeshEditingToolbar->addToolWidget(mMeshEditingToolbar->cellInfoLabel());
-    QAction *cellManningsAct =
-        mMeshEditingToolbar->addToolWidget(mMeshEditingToolbar->cellManningsWidget());
+    QAction *cellParamAct =
+        mMeshEditingToolbar->addToolWidget(mMeshEditingToolbar->cellParamEditorWidget());
     QAction *cellTagAct =
         mMeshEditingToolbar->addToolWidget(mMeshEditingToolbar->cellTagWidget());
-    mMeshEditingToolbar->setCellEditorActions(cellManningsAct, cellTagAct);
+    mMeshEditingToolbar->setCellEditorActions(cellParamAct, cellTagAct);
 
     // Icon-only on the toolbar — like Edit Vertex / Edit Edge above, the
     // QAction text is left empty so only the icon shows; the descriptive
@@ -1025,6 +1027,82 @@ void SWMMVis::initializeMeshEditingToolBar()
     // Iteration 4 — the profile plotter stands in its own "Profile" group,
     // apart from the contextually-resizing cell-selection cluster.
     mMeshEditingToolbar->addProfileAction(actMeshProfile);
+
+    // ── Cell Data ────────────────────────────────────────────────────────
+    // Bulk per-cell parameter assignment from GIS sources; complements the
+    // toolbar's cell editor, which prescribes one value to a hand-picked
+    // selection. Created here (before registerActions) so the catalog sweep
+    // adopts them and themes their icons.
+    auto openAssignDialog =
+        [this](openswmmvis::ui::MeshAttributeAssignDialog::Source src) {
+            auto *pw = activeProjectWindow();
+            if (!pw) return;
+            SWMM2DMeshLayer *mesh = mMeshEditingToolbar
+                                        ? mMeshEditingToolbar->activeMesh()
+                                        : nullptr;
+            if (!mesh && pw->canvas()) {
+                for (OpenSWMMVisLayer *l : pw->canvas()->layers())
+                    if (auto *ml = qobject_cast<SWMM2DMeshLayer *>(l)) {
+                        mesh = ml;
+                        break;
+                    }
+            }
+            if (!mesh) {
+                QMessageBox::information(
+                    this, tr("Assign 2D Cell Data"),
+                    tr("This project has no 2D mesh layer to assign to."));
+                return;
+            }
+            openswmmvis::ui::MeshAttributeAssignDialog dlg(
+                mesh, pw->canvas(), pw->selectionManager(), src,
+                pw->unitSystem() ? pw->unitSystem()->depthLabel()
+                                 : QStringLiteral("m"),
+                this);
+            dlg.exec();
+        };
+
+    auto *actAssignRaster = new QAction(tr("From Raster…"), this);
+    actAssignRaster->setObjectName(QStringLiteral("actionMeshAssignFromRaster"));
+    actAssignRaster->setToolTip(
+        tr("Assign a 2D cell parameter by sampling a raster at each cell "
+           "centroid."));
+    connect(actAssignRaster, &QAction::triggered, this, [openAssignDialog]() {
+        openAssignDialog(openswmmvis::ui::MeshAttributeAssignDialog::Source::Raster);
+    });
+
+    auto *actAssignVector = new QAction(tr("From Shapefile…"), this);
+    actAssignVector->setObjectName(QStringLiteral("actionMeshAssignFromVector"));
+    actAssignVector->setToolTip(
+        tr("Assign a 2D cell parameter from a polygon layer's attribute field, "
+           "matched by the cell centroid."));
+    connect(actAssignVector, &QAction::triggered, this, [openAssignDialog]() {
+        openAssignDialog(openswmmvis::ui::MeshAttributeAssignDialog::Source::Vector);
+    });
+
+    // ── Groundwater (2D) ─────────────────────────────────────────────────
+    // Preview of the per-cell two-zone groundwater editor; the engine kernel
+    // ([2D_AQUIFER]) is still in design, so the dialog is display-only.
+    auto *actGWParams = new QAction(tr("Aquifer…"), this);
+    actGWParams->setObjectName(QStringLiteral("actionMesh2DGWParams"));
+    actGWParams->setToolTip(
+        tr("Per-cell 2D groundwater aquifer parameters (preview — pending "
+           "engine support)."));
+    connect(actGWParams, &QAction::triggered, this, [this]() {
+        openswmmvis::ui::Mesh2DGroundwaterDialog dlg(
+            this, openswmmvis::ui::Mesh2DGroundwaterDialog::Page::AquiferProperties);
+        dlg.exec();
+    });
+
+    auto *actGWInit = new QAction(tr("Initial Conditions…"), this);
+    actGWInit->setObjectName(QStringLiteral("actionMesh2DGWInitCond"));
+    actGWInit->setToolTip(
+        tr("Per-cell 2D groundwater initial conditions (preview — pending "
+           "engine support)."));
+    connect(actGWInit, &QAction::triggered, this, [this]() {
+        openswmmvis::ui::Mesh2DGroundwaterDialog dlg(
+            this, openswmmvis::ui::Mesh2DGroundwaterDialog::Page::InitialConditions);
+        dlg.exec();
+    });
 }
 
 void SWMMVis::initializeAnalysisLayerCombos()
@@ -5935,6 +6013,8 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     if (mMeshEditingToolbar) {
         mMeshEditingToolbar->rebindCanvas(pw->canvas());
         mMeshEditingToolbar->rebindSelectionManager(pw->selectionManager());
+        if (pw->unitSystem())
+            mMeshEditingToolbar->setDepthUnitLabel(pw->unitSystem()->depthLabel());
     }
 
     // Rebind the terrain toolbar to the new project's canvas and restore its

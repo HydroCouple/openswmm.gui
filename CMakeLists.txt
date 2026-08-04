@@ -663,6 +663,8 @@ set(
         include/ui/dialogs/crsselectiondialog.h
         include/ui/dialogs/crschangedialog.h
         include/ui/dialogs/aboutdialog.h
+        include/ui/dialogs/mesh2dgroundwaterdialog.h
+        include/ui/dialogs/meshattributeassigndialog.h
         include/ui/dialogs/meshgenerationdialog.h
         include/ui/dialogs/nodecompoundeditdialog.h
         include/ui/dialogs/subcatchcompoundeditdialog.h
@@ -1206,6 +1208,8 @@ set(
         src/ui/dialogs/crsselectiondialog.cpp
         src/ui/dialogs/crschangedialog.cpp
         src/ui/dialogs/aboutdialog.cpp
+        src/ui/dialogs/mesh2dgroundwaterdialog.cpp
+        src/ui/dialogs/meshattributeassigndialog.cpp
         src/ui/dialogs/meshgenerationdialog.cpp
         src/ui/dialogs/nodecompoundeditdialog.cpp
         src/ui/dialogs/subcatchcompoundeditdialog.cpp

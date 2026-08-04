@@ -14,6 +14,24 @@
 
 #include <cmath>
 
+namespace {
+
+/*! Write \p value to triangle \p tri through the layer's apply* helper, which
+ *  emits `attributeChanged` so every view refreshes. Refuses unknown keys and
+ *  the engine-pending ones (the `gw.*` group). */
+bool applyCellParam(SWMM2DMeshLayer *layer, int tri, const QByteArray &key,
+                    double value)
+{
+    if (!layer) return false;
+    const mesh::CellParamSpec *s = mesh::cellParamSpec(key);
+    if (!s || !s->enabled) return false;
+    if (key == "mannings")  return layer->applyMeshTriangleMannings(tri, value);
+    if (key == "initDepth") return layer->applyMeshTriangleInitDepth(tri, value);
+    return false;   // engine support pending — see the registry's gw.* entries
+}
+
+} // namespace
+
 // ===========================================================================
 // MeshSetTriangleAttributeCommand
 // ===========================================================================
@@ -40,9 +58,9 @@ void MeshSetTriangleAttributeCommand::apply(const QVector<double> &values)
         // to unset, so restore the spec default instead of writing NaN (which
         // applyMeshTriangle* would reject and leave the edited value in place).
         if (std::isfinite(v)) {
-            mesh::applyCellParam(m_layer, m_tris[i], m_key, v);
+            applyCellParam(m_layer, m_tris[i], m_key, v);
         } else if (const mesh::CellParamSpec *s = mesh::cellParamSpec(m_key)) {
-            mesh::applyCellParam(m_layer, m_tris[i], m_key, s->defaultValue);
+            applyCellParam(m_layer, m_tris[i], m_key, s->defaultValue);
         }
     }
 }
