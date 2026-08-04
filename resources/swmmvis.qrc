@@ -169,6 +169,12 @@
         <file alias="SelectCell">images/select_cell.svg</file>
         <!-- Iteration 4 — Coupling group: Remap 1D↔2D. -->
         <file alias="Remap1D2D">images/remap_1d2d.svg</file>
+        <!-- Cell Data group — assign per-cell attributes from GIS sources. -->
+        <file alias="MeshAssignRaster">images/mesh_assign_raster.svg</file>
+        <file alias="MeshAssignVector">images/mesh_assign_vector.svg</file>
+        <!-- Groundwater (2D) group — pending engine [2D_AQUIFER] support. -->
+        <file alias="GW2DParams">images/gw2d_params.svg</file>
+        <file alias="GW2DInit">images/gw2d_init.svg</file>
     </qresource>
     <!-- Slice S.SC.1.a (2026-05-25) — Cross-section thumbnails for the
          LinkCompoundEditDialog XSection page's QListWidget shape palette.

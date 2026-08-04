@@ -120,14 +120,26 @@ public:
      *  SWMMVis right after the Select-2D-Cells action via addToolWidget). */
     [[nodiscard]] QLabel *cellInfoLabel() const { return m_cellInfoLbl; }
 
-    /*! \brief Per-cell editor widgets (Manning's n + descriptive tag).
+    /*! \brief Per-cell editor widgets. The first is a parameter page —
+     *  a combo naming the attribute to prescribe (Manning's n, initial
+     *  depth, …, from mesh::cellParamSpecs) beside the value editor; the
+     *  second is the descriptive tag field.
+     *
      *  Created in the ctor but NOT placed — SWMMVis positions them right
      *  after the cell info label so they sit in the 2D-cell group, then
      *  hands the embedding QActions back via setCellEditorActions() so the
      *  toolbar can hide them when no cell is selected. */
-    [[nodiscard]] QWidget *cellManningsWidget() const;
+    [[nodiscard]] QWidget *cellParamEditorWidget() const;
     [[nodiscard]] QWidget *cellTagWidget() const;
-    void setCellEditorActions(QAction *manningsAct, QAction *tagAct);
+    void setCellEditorActions(QAction *paramAct, QAction *tagAct);
+
+    /*! \brief Key of the parameter currently shown in the cell editor
+     *         (mesh::CellParamSpec::key). Empty when the editor is absent. */
+    [[nodiscard]] QByteArray currentCellParamKey() const;
+
+    /*! \brief Project depth unit ("ft" / "m") shown on length-valued cell
+     *         parameters. Set by SWMMVis on each project-window switch. */
+    void setDepthUnitLabel(const QString &label);
 
     [[nodiscard]] SWMM2DMeshLayer *activeMesh() const { return m_activeMesh; }
 
@@ -160,7 +172,8 @@ private slots:
     void onVertexAreaCommit();       // coupling area → selected coupled vertices
     void onAutoCoupleClicked();      // couple vertices to coincident SWMM nodes
     void onRemapClicked();           // Remap 1D↔2D: vertex + cell coupling (Plan C.4)
-    void onManningsCommit();         // Manning's n → selected cell
+    void onCellParamCommit();        // selected parameter → selected cells
+    void onCellParamChanged(int index); // reconfigure the value editor
     void onCellTagCommit();          // descriptive triangle tag → selected cell
     void onSelectionChanged();
     void onBCTypeChanged(int index);
@@ -236,10 +249,16 @@ private:
 
     // Cell-selection info label (after the Select-2D-Cells tool).
     QLabel        *m_cellInfoLbl    = nullptr;
-    QDoubleSpinBox*m_manningsSpin   = nullptr;   // per-triangle Manning's n
+    // Cell parameter page: "<parameter> [value]" — one editor for every
+    // per-cell attribute in mesh::cellParamSpecs().
+    QWidget       *m_cellParamPage  = nullptr;
+    QComboBox     *m_cellParamCombo = nullptr;
+    QDoubleSpinBox*m_cellValueSpin  = nullptr;
     QLineEdit     *m_cellTagEdit    = nullptr;   // descriptive triangle tag
-    QAction       *m_actManningsSpin = nullptr;  // embedding actions for hide
-    QAction       *m_actCellTag      = nullptr;
+    QAction       *m_actCellParam   = nullptr;   // embedding actions for hide
+    QAction       *m_actCellTag     = nullptr;
+    // Project depth unit ("ft"/"m") shown on length-valued parameters.
+    QString        m_depthUnitLabel = QStringLiteral("m");
 
     // Param-page widgets (held directly so the apply path reads values
     // without going through QStackedWidget::currentWidget casts).
