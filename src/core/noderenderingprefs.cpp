@@ -13,6 +13,7 @@ const QString kJunction = QStringLiteral("junction");
 const QString kOutfall  = QStringLiteral("outfall");
 const QString kStorage  = QStringLiteral("storage");
 const QString kDivider  = QStringLiteral("divider");
+const QString kVirtualJunction = QStringLiteral("virtual_junction");
 } // anonymous
 
 NodeRenderingPrefs::NodeRenderingPrefs(QObject *parent)
@@ -35,6 +36,10 @@ double NodeRenderingPrefs::storageSize()  const { return PreferencesManager::ins
 QPen   NodeRenderingPrefs::dividerPen()   const { return PreferencesManager::instance()->nodePen(kDivider); }
 QBrush NodeRenderingPrefs::dividerFill()  const { return PreferencesManager::instance()->nodeBrush(kDivider); }
 double NodeRenderingPrefs::dividerSize()  const { return PreferencesManager::instance()->nodeSize(kDivider); }
+
+QPen   NodeRenderingPrefs::virtualJunctionPen()  const { return PreferencesManager::instance()->nodePen(kVirtualJunction); }
+QBrush NodeRenderingPrefs::virtualJunctionFill() const { return PreferencesManager::instance()->nodeBrush(kVirtualJunction); }
+double NodeRenderingPrefs::virtualJunctionSize() const { return PreferencesManager::instance()->nodeSize(kVirtualJunction); }
 
 void NodeRenderingPrefs::setJunctionPen(const QPen &pen)
 {
@@ -110,4 +115,23 @@ void NodeRenderingPrefs::setDividerSize(double sizePx)
     if (qFuzzyCompare(dividerSize(), sizePx)) return;
     PreferencesManager::instance()->setNodeSize(kDivider, sizePx);
     emit dividerSizeChanged(sizePx);
+}
+
+void NodeRenderingPrefs::setVirtualJunctionPen(const QPen &pen)
+{
+    if (virtualJunctionPen() == pen) return;
+    PreferencesManager::instance()->setNodePen(kVirtualJunction, pen);
+    emit virtualJunctionPenChanged(pen);
+}
+void NodeRenderingPrefs::setVirtualJunctionFill(const QBrush &brush)
+{
+    if (virtualJunctionFill() == brush) return;
+    PreferencesManager::instance()->setNodeBrush(kVirtualJunction, brush);
+    emit virtualJunctionFillChanged(brush);
+}
+void NodeRenderingPrefs::setVirtualJunctionSize(double sizePx)
+{
+    if (qFuzzyCompare(virtualJunctionSize(), sizePx)) return;
+    PreferencesManager::instance()->setNodeSize(kVirtualJunction, sizePx);
+    emit virtualJunctionSizeChanged(sizePx);
 }

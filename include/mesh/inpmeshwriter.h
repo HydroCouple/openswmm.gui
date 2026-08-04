@@ -263,10 +263,15 @@ public:
      *  \param filePath  External mesh file (or `.inp`) to patch.
      *  \param mesh      The layer's current mesh state.
      *  \param errorOut  Set on failure.
+     *  \param defaultMannings  MANNINGS_N materialized for a row that must
+     *                   carry an INIT_DEPTH or TAG but has no Manning's value
+     *                   on either side (columns are positional, so the later
+     *                   ones cannot be written without it).
      *  \returns true on success. */
     [[nodiscard]] static bool patchAttributeSections(const QString &filePath,
                                                      const MeshResult &mesh,
-                                                     QString *errorOut = nullptr);
+                                                     QString *errorOut = nullptr,
+                                                     double defaultMannings = 0.035);
 
     /*! \brief Strip any `[2D_MESH_FILE]` reference from the `.inp` so the
      *         engine falls back to the inline `[2D_*]` mesh sections.

@@ -398,6 +398,12 @@ signals:
      *  the MeshObjectRef-encoded element name (see meshobjectref.h). */
     void attributeChanged(const QString &refName);
 
+    /*! \brief Emitted on a bulk mutation that has no single element ref
+     *  (currently applyCellCouplings). Companion to attributeChanged for
+     *  listeners that only need to know "the mesh was edited" — e.g. the
+     *  project dirty flag. */
+    void meshEditsChanged();
+
     /*! \brief Emitted when remesh / reload invalidates element indices
      *  in any held selection — toolbar and tools clear on receipt. */
     void selectionInvalidated();

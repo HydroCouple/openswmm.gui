@@ -2056,6 +2056,18 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                            << nm.sharedCells << "shared cell(s)";
     }
 
+    // ── Seed per-cell hydraulic attributes ───────────────────────────
+    // Author the dialog's constant values onto the triangles themselves, not
+    // just into the written file: the layer built from this MeshResult is what
+    // the toolbar / properties panel read and what a later save patches, so
+    // leaving them unset (NaN) makes a generated mesh report defaults it never
+    // agreed to and drops the file's values on the next attribute rewrite.
+    for (mesh::MeshTriangle &t : result.triangles)
+    {
+        t.mannings  = in.manningsN;
+        t.initDepth = in.initDepth;
+    }
+
     // ── Write ────────────────────────────────────────────────────────
     progress(85, QObject::tr("Writing mesh file…"));
     if (promise.isCanceled()) { fail(QObject::tr("Cancelled.")); return; }
@@ -2661,43 +2673,49 @@ void MeshGenerationDialog::buildUi()
 
     // ================================================================
     // Tab 3 — Hydraulics
-    // Manning's roughness; will grow when ManningsSampler lands.
+    // Uniform per-cell seeds only. Spatially varying values are assigned
+    // after generation from the Mesh 2D ribbon, against real cells the user
+    // can see and select.
     // ================================================================
     auto *hydraulicsPage = new QWidget;
     auto *hydraulicsVBox = new QVBoxLayout(hydraulicsPage);
     hydraulicsVBox->setContentsMargins(8, 8, 8, 8);
 
     {
-        auto *g   = new QGroupBox(tr("Roughness (Manning's n)"), hydraulicsPage);
+        auto *g   = new QGroupBox(tr("Initial cell values"), hydraulicsPage);
         g->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
-        auto *lay = new QVBoxLayout(g);
-        auto *roughGroup = new QButtonGroup(g);
+        auto *form = new QFormLayout(g);
 
-        auto *constRow = new QHBoxLayout;
-        m_manningsConstant  = new QRadioButton(tr("Constant value:"), g);
         m_manningsValueSpin = new QDoubleSpinBox(g);
         m_manningsValueSpin->setRange(0.001, 1.0);
         m_manningsValueSpin->setDecimals(4);
         m_manningsValueSpin->setSingleStep(0.005);
-        constRow->addWidget(m_manningsConstant);
-        constRow->addWidget(m_manningsValueSpin);
-        constRow->addStretch();
-        lay->addLayout(constRow);
+        m_manningsValueSpin->setToolTip(
+            tr("Manning's roughness written to every generated cell "
+               "([2D_TRIANGLES] MANNINGS_N)."));
+        form->addRow(tr("Roughness (Manning's n):"), m_manningsValueSpin);
 
-        m_manningsCategorical = new QRadioButton(tr("Categorical raster"), g);
-        m_manningsCategorical->setEnabled(false);
-        m_manningsCategorical->setToolTip(tr("Full support coming in a future release."));
+        const QString dLbl = m_pw && m_pw->unitSystem()
+                                 ? m_pw->unitSystem()->depthLabel()
+                                 : QStringLiteral("m");
+        m_initDepthSpin = new QDoubleSpinBox(g);
+        m_initDepthSpin->setRange(0.0, 1000.0);
+        m_initDepthSpin->setDecimals(4);
+        m_initDepthSpin->setSingleStep(0.05);
+        m_initDepthSpin->setSuffix(QStringLiteral(" ") + dLbl);
+        m_initDepthSpin->setToolTip(
+            tr("Standing water depth written to every generated cell "
+               "([2D_TRIANGLES] INIT_DEPTH). 0 starts the surface dry."));
+        form->addRow(tr("Initial depth:"), m_initDepthSpin);
 
-        m_manningsField = new QRadioButton(tr("Shapefile attribute field"), g);
-        m_manningsField->setEnabled(false);
-        m_manningsField->setToolTip(tr("Full support coming in a future release."));
-
-        roughGroup->addButton(m_manningsConstant);
-        roughGroup->addButton(m_manningsCategorical);
-        roughGroup->addButton(m_manningsField);
-
-        lay->addWidget(m_manningsCategorical);
-        lay->addWidget(m_manningsField);
+        auto *hint = new QLabel(
+            tr("Assign spatially varying values after generation from the "
+               "Mesh 2D tab: select cells and edit them directly, or use "
+               "Cell Data to sample a raster or shapefile field."),
+            g);
+        hint->setWordWrap(true);
+        hint->setEnabled(false);
+        form->addRow(hint);
 
         hydraulicsVBox->addWidget(g);
     }
@@ -2864,8 +2882,8 @@ void MeshGenerationDialog::seedDefaults()
     m_maxBoundaryEdgeBox->setChecked(t.meshMaxBoundaryEdgeOn);
     m_maxBoundaryEdgeSpin->setValue(t.meshMaxBoundaryEdgeM * toUnit);
     m_maxBoundaryEdgeSpin->setEnabled(t.meshMaxBoundaryEdgeOn);
-    m_manningsConstant->setChecked(true);
     m_manningsValueSpin->setValue(t.meshManningsN);
+    m_initDepthSpin->setValue(t.meshInitDepth);
     m_outputExternal->setChecked(t.meshOutputExternal);
     updateUnitDisplay();   // set suffixes and tooltip after values are seeded
     populateLayerCombos();
@@ -3514,6 +3532,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut) c
                              : mesh::MeshOutputMode::Inline;
     out->meshOutputPath = m_meshPathEdit->text().trimmed();
     out->manningsN      = m_manningsValueSpin->value();
+    out->initDepth      = m_initDepthSpin->value();
 
     // ── Vertical Z conversion factor ─────────────────────────────────
     out->zConversionFactor = m_zFactorSpin ? m_zFactorSpin->value() : 1.0;
@@ -3686,6 +3705,7 @@ void MeshGenerationDialog::onMeshFinished()
                 /*ownsSRS=*/true);
 
         canvas->addLayer(meshLayer, /*pushUndo=*/true);
+        m_pw->attachMeshLayer(meshLayer);
     }
 
     // Mirror the mesh linkage into the engine's in-memory model so the next

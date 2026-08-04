@@ -1888,6 +1888,7 @@ QVector<mesh::CellCoupling> SWMM2DMeshLayer::applyCellCouplings(
         cleaned.append(cc);
     }
     m_mesh.cellCouplings = cleaned;
+    emit meshEditsChanged();
     emit repaintRequested();
     return previous;
 }

@@ -90,6 +90,18 @@ public:
     bool loadModel(QList<QString> &warnings, QList<QString> &errors);
 
     /*!
+     * \brief Subscribe a 2D mesh layer's edit signals to the project's dirty
+     *        flag.
+     *
+     * Every mesh mutation funnels through SWMM2DMeshLayer::apply* and reports
+     * via attributeChanged / meshEditsChanged. Without this the project stays
+     * "clean" after a cell edit, so Run skips its auto-save and the engine
+     * re-reads the stale .inp — the edit silently never reaches the solver.
+     * Call once per mesh layer, right after it joins the canvas.
+     */
+    void attachMeshLayer(class SWMM2DMeshLayer *meshLayer);
+
+    /*!
      * \brief Non-blocking variant of loadModel().
      *
      * Runs the engine create+open (the dominant cost — full .inp parse) in a
@@ -480,15 +492,6 @@ private:
     QLabel    *mMeasureTotalLabel  = nullptr;
 
     bool                           mAutoLengthEnabled = false;
-
-    // Set when the user leaves profile mode (profile tool → Select tool)
-    // while an accepted profile path is still on screen. The next
-    // mouse-press on the canvas with the Select tool active clears the
-    // profile overlay and resets the path — matching the user's mental
-    // model that "Select + click elsewhere" exits the profile session.
-    // Cleared if the user switches to any tool other than Select before
-    // clicking, so toggling back to profile keeps the prior path.
-    bool                           mClearProfileOnNextCanvasClick = false;
 
     // Slice QA.2 — output identity registry. Owned via QObject parent
     // (constructed with `this` as parent in the .cpp constructor) so

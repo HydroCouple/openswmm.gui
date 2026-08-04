@@ -30,8 +30,15 @@ class TypeConversionFlow
 public:
     TypeConversionFlow() = delete;
 
+    /*! \brief GUI-only pseudo node type for the Convert To flow: a virtual
+     *  junction (engine-side it is a JUNCTION with the is_virtual flag, not
+     *  a fifth SWMM_NodeType). Callers pass this as currentType when the
+     *  node's flag is set, and as newType to convert into one. */
+    static constexpr int kVirtualNodeType = 4;
+
     /*! \brief User-facing label for a SWMM_NodeType value
-     *  (Junction / Outfall / Storage / Divider). Empty if out of range. */
+     *  (Junction / Outfall / Storage / Divider) or kVirtualNodeType
+     *  (Virtual Junction). Empty if out of range. */
     static QString nodeTypeLabel(int swmmNodeType);
 
     /*! \brief User-facing label for a SWMM_LinkType value

@@ -75,9 +75,11 @@ double deriveLengthFactor(SWMM_Engine engine, const MeshResult &mesh)
 bool pushMeshEditsToEngine(SWMM_Engine engine,
                            const MeshResult &mesh,
                            const QVector<MeshEdgeBC> &bcs,
-                           QStringList *warnings)
+                           QStringList *warnings,
+                           bool *outTrianglesSynced)
 {
     auto warn = [&](const QString &m) { if (warnings) warnings->append(m); };
+    if (outTrianglesSynced) *outTrianglesSynced = false;
 
     // The GUI keeps the engine OPENED (not initialized), so make the parsed
     // mesh editable: this lets the edit setters run and drains the authored
@@ -131,14 +133,18 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
             if (std::isfinite(n) && n > 0.0)   // NaN = unset; keep engine value
                 swmm_2d_set_triangle_mannings(engine, t, n);
             const double d = mesh.triangles[t].initDepth;
+            // INIT_DEPTH is a depth above the bed, so it carries the mesh's
+            // vertical units and converts with the same factor as vertex Z.
             if (std::isfinite(d) && d >= 0.0)  // NaN = unset; keep engine value
-                swmm_2d_set_triangle_init_depth(engine, t, d);
+                swmm_2d_set_triangle_init_depth(engine, t, d * factor);
             swmm_2d_set_triangle_tag(
                 engine, t, mesh.triangles[t].tag.toUtf8().constData());
         }
+        if (outTrianglesSynced) *outTrianglesSynced = true;
     } else {
         warn(QStringLiteral("2D triangle sync skipped: engine has %1 triangles, "
-                            "layer has %2 — roughness/tag edits were NOT saved.")
+                            "layer has %2 — per-cell roughness / initial depth / "
+                            "tag edits were NOT written to the engine.")
                  .arg(nt).arg(mesh.triangles.size()));
     }
 

@@ -46,19 +46,32 @@ namespace mesh {
  *  retained authored rows, so only a label on a brand-new edited edge would
  *  be lost.
  *
+ *  Per-triangle INIT_DEPTH follows the same unit convention as vertex Z (it
+ *  is a depth above the bed in mesh length units) and is scaled by the same
+ *  derived factor.
+ *
  *  \param engine    Open engine handle with an active 2D mesh.
  *  \param mesh      The layer's current MeshResult.
  *  \param bcs       The layer's per-edge BC vector (flat `tri*3 + edge`);
  *                   may be empty (then only Z is synced).
  *  \param warnings  Optional sink for non-fatal diagnostics.
+ *  \param outTrianglesSynced  Optional: set to true when the per-triangle
+ *                   attributes (Manning's n, initial depth, tag) reached the
+ *                   engine, false when the triangle counts disagreed and they
+ *                   were skipped. Callers that own the file (the save path)
+ *                   use this to fall back to patching the written text — the
+ *                   engine's mesh is stale whenever a mesh was generated or
+ *                   replaced in-session, and without a fallback every cell
+ *                   attribute edit is silently dropped on save.
  *  \returns true when the mesh was synced; false (with a warning) when the
- *           engine has no 2D mesh or its counts do not match the layer, in
- *           which case nothing is written.
+ *           engine has no 2D mesh or its vertex counts do not match the
+ *           layer, in which case nothing is written.
  */
 bool pushMeshEditsToEngine(SWMM_Engine engine,
                            const MeshResult &mesh,
                            const QVector<MeshEdgeBC> &bcs,
-                           QStringList *warnings = nullptr);
+                           QStringList *warnings = nullptr,
+                           bool *outTrianglesSynced = nullptr);
 
 } // namespace mesh
 

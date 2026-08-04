@@ -210,7 +210,11 @@ public:
         // Output
         mesh::MeshOutputMode outputMode    = mesh::MeshOutputMode::External;
         QString              meshOutputPath;
+        // Uniform per-cell hydraulic seeds, written onto every generated
+        // triangle. Spatially varying values are assigned afterwards from the
+        // Mesh 2D ribbon (cell editor / Cell Data assignment).
         double               manningsN     = 0.035;
+        double               initDepth     = 0.0;   // mesh length units
     };
 
     /*! \brief Result produced by the pipeline worker and consumed on the
@@ -314,11 +318,9 @@ private:
     // 2026-07-19 — boundary-aware terrain filter buffer ((auto) at 0).
     QDoubleSpinBox *m_boundaryBufferSpin = nullptr;
 
-    // ── Roughness / Manning's ───────────────────────────────────────
-    QRadioButton  *m_manningsConstant    = nullptr;
-    QRadioButton  *m_manningsCategorical = nullptr;
-    QRadioButton  *m_manningsField       = nullptr;
+    // ── Uniform per-cell hydraulic seeds ────────────────────────────
     QDoubleSpinBox *m_manningsValueSpin  = nullptr;
+    QDoubleSpinBox *m_initDepthSpin      = nullptr;
 
     // ── Output ──────────────────────────────────────────────────────
     QRadioButton  *m_outputExternal = nullptr;

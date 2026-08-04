@@ -352,6 +352,8 @@ set(
         include/map/objectdefaultsapplier.h
         # FEATURE_LAYER_TO_SWMM_IMPORT — import-specific undo commands.
         include/map/importcommands.h
+        # Undoable per-cell 2D mesh attribute edits (toolbar / panel / dialog).
+        include/map/meshcommands.h
         # Slice BB Phase 8.6.16 — QUndoCommand for per-class renderer edits.
         include/map/legendclasseditcommands.h
         # Gap B1 — canonical legend-content helpers shared by both legend views.
@@ -498,6 +500,7 @@ set(
         include/mesh/inpmeshwriter.h
         include/mesh/meshautocouple.h
         include/mesh/meshbctype.h
+        include/mesh/meshcellparams.h
         include/mesh/meshenginesync.h
         include/mesh/meshedgebc.h
         include/mesh/meshgenerator.h
@@ -939,6 +942,8 @@ set(
         src/map/objectdefaultsapplier.cpp
         # FEATURE_LAYER_TO_SWMM_IMPORT — import-specific undo commands.
         src/map/importcommands.cpp
+        # Undoable per-cell 2D mesh attribute edits (toolbar / panel / dialog).
+        src/map/meshcommands.cpp
         # Slice BB Phase 8.6.16 — QUndoCommand for per-class renderer edits.
         src/map/legendclasseditcommands.cpp
         # Gap B1 — canonical legend-content helpers shared by both legend views.
@@ -1092,6 +1097,7 @@ set(
         src/mesh/inpmeshwriter.cpp
         src/mesh/meshautocouple.cpp
         src/mesh/meshbctype.cpp
+        src/mesh/meshcellparams.cpp
         src/mesh/meshcellstats.cpp
         src/mesh/meshenginesync.cpp
         src/mesh/meshgenerator.cpp
