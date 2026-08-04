@@ -104,6 +104,17 @@ bool NaturalNeighbourInterpolator::build(const QVector<QPointF> &pts,
     if (n < 3)
         return setErr(QStringLiteral("need >= 3 unique seed points for natural neighbour"));
 
+    // Same first-block pool bound MeshGenerator applies, recomputed for this
+    // call's switch string: 'n' (neighbour list) forces Triangle's element
+    // size to 6*sizeof(triangle) + sizeof(int), so initializetrisubpools()
+    // asks for ~112 bytes per seed in ONE contiguous block. Unbounded, a
+    // large seed set turns into a multi-GB request with no diagnostic.
+    constexpr int kMaxSeeds = (2147483647 - 16) / 112;   // 19173962
+    if (n > kMaxSeeds)
+        return setErr(QStringLiteral(
+            "too many seed points for natural neighbour interpolation (%1 > %2)")
+            .arg(n).arg(kMaxSeeds));
+
     // ── Normalise to a local [0,~1] space for numeric conditioning ───────
     double minx = ux[0], miny = uy[0], maxx = ux[0], maxy = uy[0];
     for (int i = 1; i < n; ++i)

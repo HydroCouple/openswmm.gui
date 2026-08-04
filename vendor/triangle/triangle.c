@@ -346,6 +346,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+/* uintptr_t — the handle macros (encode/decode/sencode/sdecode/infect) and
+   the pool alignment code round pointers through an integer.  `unsigned
+   long' is 32 bits on 64-bit Windows (LLP64), which TRUNCATES every heap
+   pointer at or above 4 GiB; uintptr_t is pointer-width everywhere. */
+#include <stdint.h>
 #ifdef TRILIBRARY
 #include <setjmp.h>
 /* definition — declared extern (and TRIANGLE_THREAD_LOCAL defined) in
@@ -664,8 +669,16 @@ REAL iccerrboundA, iccerrboundB, iccerrboundC;
 REAL o3derrboundA, o3derrboundB, o3derrboundC;
 
 /* Random number seed is not constant, but I've made it global anyway.       */
+/* LOCAL CHANGE: thread-local.  triangulate_safe() is called concurrently    */
+/* from the mesh worker and the natural-neighbour interpolator (see the note */
+/* on triangle_longjmp_buffer in triangle.h), so a shared seed is a data     */
+/* race and makes pivot selection differ run to run.                         */
 
-unsigned long randomseed;                     /* Current random number seed. */
+#if defined(_MSC_VER) && !defined(__cplusplus)
+__declspec(thread) unsigned long randomseed;  /* Current random number seed. */
+#else
+_Thread_local unsigned long randomseed;       /* Current random number seed. */
+#endif
 
 
 /* Mesh data structure.  Triangle operates on only one mesh, but the mesh    */
@@ -842,8 +855,14 @@ struct behavior {
 /*  extracting an orientation (in the range 0 to 2) and a pointer to the     */
 /*  beginning of a triangle.  The encode() routine compresses a pointer to a */
 /*  triangle and an orientation into a single pointer.  My assumptions that  */
-/*  triangles are four-byte-aligned and that the `unsigned long' type is     */
-/*  long enough to hold a pointer are two of the few kludges in this program.*/
+/*  triangles are four-byte-aligned and that the integer type used to hold   */
+/*  a pointer is wide enough are two of the few kludges in this program.     */
+/*  LOCAL CHANGE: that integer type was `unsigned long', which is 32 bits    */
+/*  on 64-bit Windows (LLP64) and so silently truncated every pointer at or  */
+/*  above 4 GiB — the address range large meshes actually land in, because   */
+/*  pool blocks past the heap's large-block threshold come from              */
+/*  NtAllocateVirtualMemory.  Now uintptr_t, which is pointer-width on all   */
+/*  supported targets.                                                       */
 /*                                                                          */
 /*  Subsegments are manipulated similarly.  A pointer to a subsegment        */
 /*  carries both an address and an orientation in the range 0 to 1.          */
@@ -975,16 +994,16 @@ int minus1mod3[3] = {2, 0, 1};
 /*  extracted from the two least significant bits of the pointer.           */
 
 #define decode(ptr, otri)                                                     \
-    (otri).orient = (int) ((unsigned long) (ptr) & (unsigned long) 3l);         \
+    (otri).orient = (int) ((uintptr_t) (ptr) & (uintptr_t) 3l);         \
     (otri).tri = (triangle *)                                                   \
-    ((unsigned long) (ptr) ^ (unsigned long) (otri).orient)
+    ((uintptr_t) (ptr) ^ (uintptr_t) (otri).orient)
 
 /* encode() compresses an oriented triangle into a single pointer.  It       */
 /*  relies on the assumption that all triangles are aligned to four-byte    */
 /*  boundaries, so the two least significant bits of (otri).tri are zero.   */
 
 #define encode(otri)                                                          \
-    (triangle) ((unsigned long) (otri).tri | (unsigned long) (otri).orient)
+    (triangle) ((uintptr_t) (otri).tri | (uintptr_t) (otri).orient)
 
 /* The following handle manipulation primitives are all described by Guibas  */
 /*  and Stolfi.  However, Guibas and Stolfi use an edge-based data          */
@@ -1148,16 +1167,16 @@ int minus1mod3[3] = {2, 0, 1};
 
 #define infect(otri)                                                          \
     (otri).tri[6] = (triangle)                                                  \
-    ((unsigned long) (otri).tri[6] | (unsigned long) 2l)
+    ((uintptr_t) (otri).tri[6] | (uintptr_t) 2l)
 
 #define uninfect(otri)                                                        \
     (otri).tri[6] = (triangle)                                                  \
-    ((unsigned long) (otri).tri[6] & ~ (unsigned long) 2l)
+    ((uintptr_t) (otri).tri[6] & ~ (uintptr_t) 2l)
 
 /* Test a triangle for viral infection.                                      */
 
 #define infected(otri)                                                        \
-    (((unsigned long) (otri).tri[6] & (unsigned long) 2l) != 0l)
+    (((uintptr_t) (otri).tri[6] & (uintptr_t) 2l) != 0l)
 
 /* Check or set a triangle's attributes.                                     */
 
@@ -1195,16 +1214,16 @@ int minus1mod3[3] = {2, 0, 1};
 /*  are masked out to produce the real pointer.                             */
 
 #define sdecode(sptr, osub)                                                   \
-    (osub).ssorient = (int) ((unsigned long) (sptr) & (unsigned long) 1l);      \
+    (osub).ssorient = (int) ((uintptr_t) (sptr) & (uintptr_t) 1l);      \
     (osub).ss = (subseg *)                                                      \
-    ((unsigned long) (sptr) & ~ (unsigned long) 3l)
+    ((uintptr_t) (sptr) & ~ (uintptr_t) 3l)
 
 /* sencode() compresses an oriented subsegment into a single pointer.  It    */
 /*  relies on the assumption that all subsegments are aligned to two-byte   */
 /*  boundaries, so the least significant bit of (osub).ss is zero.          */
 
 #define sencode(osub)                                                         \
-    (subseg) ((unsigned long) (osub).ss | (unsigned long) (osub).ssorient)
+    (subseg) ((uintptr_t) (osub).ss | (uintptr_t) (osub).ssorient)
 
 /* ssym() toggles the orientation of a subsegment.                           */
 
@@ -1488,17 +1507,23 @@ struct triangulateio *vorout;
 }
 #endif /* TRILIBRARY */
 
+/* LOCAL CHANGE: `size' was int and was passed to malloc() through an        */
+/* (unsigned int) cast.  Both truncate: a caller's product that overflowed   */
+/* int arrived here negative, and the cast turned it into a plausible ~2 GB  */
+/* request that SUCCEEDS on a large-memory machine, returning a block far    */
+/* smaller than the caller then writes into — silent heap corruption rather  */
+/* than a clean allocation failure.  size_t throughout.                      */
 #ifdef ANSI_DECLARATORS
-VOID *trimalloc(int size)
+VOID *trimalloc(size_t size)
 #else /* not ANSI_DECLARATORS */
 VOID *trimalloc(size)
-int size;
+size_t size;
 #endif /* not ANSI_DECLARATORS */
 
 {
 VOID *memptr;
 
-memptr = (VOID *) malloc((unsigned int) size);
+memptr = (VOID *) malloc(size);
 if (memptr == (VOID *) NULL) {
     printf("Error:  Out of memory.\n");
     triexit(1);
@@ -3961,7 +3986,7 @@ struct memorypool *pool;
 #endif /* not ANSI_DECLARATORS */
 
 {
-unsigned long alignptr;
+uintptr_t alignptr;
 
 pool->items = 0;
 pool->maxitems = 0;
@@ -3969,11 +3994,11 @@ pool->maxitems = 0;
 /* Set the currently active block. */
 pool->nowblock = pool->firstblock;
 /* Find the first item in the pool.  Increment by the size of (VOID *). */
-alignptr = (unsigned long) (pool->nowblock + 1);
+alignptr = (uintptr_t) (pool->nowblock + 1);
 /* Align the item on an `alignbytes'-byte boundary. */
 pool->nextitem = (VOID *)
-        (alignptr + (unsigned long) pool->alignbytes -
-         (alignptr % (unsigned long) pool->alignbytes));
+        (alignptr + (uintptr_t) pool->alignbytes -
+         (alignptr % (uintptr_t) pool->alignbytes));
 /* There are lots of unallocated items left in this block. */
 pool->unallocateditems = pool->itemsfirstblock;
 /* The stack of deallocated items is empty. */
@@ -4034,8 +4059,8 @@ pool->itemsfirstblock = firstitemcount;
 /*  pointer (to point to the next block) are allocated, as well as space */
 /*  to ensure alignment of the items.                                    */
 pool->firstblock = (VOID **)
-        trimalloc(pool->itemsfirstblock * pool->itembytes + (int) sizeof(VOID *) +
-                  pool->alignbytes);
+        trimalloc((size_t) pool->itemsfirstblock * pool->itembytes +
+                  (size_t) sizeof(VOID *) + pool->alignbytes);
 /* Set the next block pointer to NULL. */
 *(pool->firstblock) = (VOID *) NULL;
 poolrestart(pool);
@@ -4078,7 +4103,7 @@ struct memorypool *pool;
 {
 VOID *newitem;
 VOID **newblock;
-unsigned long alignptr;
+uintptr_t alignptr;
 
 /* First check the linked list of dead items.  If the list is not   */
 /*  empty, allocate an item from the list rather than a fresh one. */
@@ -4091,8 +4116,8 @@ if (pool->unallocateditems == 0) {
     /* Check if another block must be allocated. */
     if (*(pool->nowblock) == (VOID *) NULL) {
         /* Allocate a new block of items, pointed to by the previous block. */
-        newblock = (VOID **) trimalloc(pool->itemsperblock * pool->itembytes +
-                                       (int) sizeof(VOID *) +
+        newblock = (VOID **) trimalloc((size_t) pool->itemsperblock * pool->itembytes +
+                                       (size_t) sizeof(VOID *) +
                                        pool->alignbytes);
         *(pool->nowblock) = (VOID *) newblock;
         /* The next block pointer is NULL. */
@@ -4103,11 +4128,11 @@ if (pool->unallocateditems == 0) {
     pool->nowblock = (VOID **) *(pool->nowblock);
     /* Find the first item in the block.    */
     /*  Increment by the size of (VOID *). */
-    alignptr = (unsigned long) (pool->nowblock + 1);
+    alignptr = (uintptr_t) (pool->nowblock + 1);
     /* Align the item on an `alignbytes'-byte boundary. */
     pool->nextitem = (VOID *)
-            (alignptr + (unsigned long) pool->alignbytes -
-             (alignptr % (unsigned long) pool->alignbytes));
+            (alignptr + (uintptr_t) pool->alignbytes -
+             (alignptr % (uintptr_t) pool->alignbytes));
     /* There are lots of unallocated items left in this block. */
     pool->unallocateditems = pool->itemsperblock;
 }
@@ -4162,16 +4187,16 @@ struct memorypool *pool;
 #endif /* not ANSI_DECLARATORS */
 
 {
-unsigned long alignptr;
+uintptr_t alignptr;
 
 /* Begin the traversal in the first block. */
 pool->pathblock = pool->firstblock;
 /* Find the first item in the block.  Increment by the size of (VOID *). */
-alignptr = (unsigned long) (pool->pathblock + 1);
+alignptr = (uintptr_t) (pool->pathblock + 1);
 /* Align with item on an `alignbytes'-byte boundary. */
 pool->pathitem = (VOID *)
-        (alignptr + (unsigned long) pool->alignbytes -
-         (alignptr % (unsigned long) pool->alignbytes));
+        (alignptr + (uintptr_t) pool->alignbytes -
+         (alignptr % (uintptr_t) pool->alignbytes));
 /* Set the number of items left in the current block. */
 pool->pathitemsleft = pool->itemsfirstblock;
 }
@@ -4199,7 +4224,7 @@ struct memorypool *pool;
 
 {
 VOID *newitem;
-unsigned long alignptr;
+uintptr_t alignptr;
 
 /* Stop upon exhausting the list of items. */
 if (pool->pathitem == pool->nextitem) {
@@ -4211,11 +4236,11 @@ if (pool->pathitemsleft == 0) {
     /* Find the next block. */
     pool->pathblock = (VOID **) *(pool->pathblock);
     /* Find the first item in the block.  Increment by the size of (VOID *). */
-    alignptr = (unsigned long) (pool->pathblock + 1);
+    alignptr = (uintptr_t) (pool->pathblock + 1);
     /* Align with item on an `alignbytes'-byte boundary. */
     pool->pathitem = (VOID *)
-            (alignptr + (unsigned long) pool->alignbytes -
-             (alignptr % (unsigned long) pool->alignbytes));
+            (alignptr + (uintptr_t) pool->alignbytes -
+             (alignptr % (uintptr_t) pool->alignbytes));
     /* Set the number of items left in the current block. */
     pool->pathitemsleft = pool->itemsperblock;
 }
@@ -4267,16 +4292,16 @@ int subsegbytes;
 #endif /* not ANSI_DECLARATORS */
 
 {
-unsigned long alignptr;
+uintptr_t alignptr;
 
 /* Set up `dummytri', the `triangle' that occupies "outer space." */
 m->dummytribase = (triangle *) trimalloc(trianglebytes +
                                          m->triangles.alignbytes);
 /* Align `dummytri' on a `triangles.alignbytes'-byte boundary. */
-alignptr = (unsigned long) m->dummytribase;
+alignptr = (uintptr_t) m->dummytribase;
 m->dummytri = (triangle *)
-        (alignptr + (unsigned long) m->triangles.alignbytes -
-         (alignptr % (unsigned long) m->triangles.alignbytes));
+        (alignptr + (uintptr_t) m->triangles.alignbytes -
+         (alignptr % (uintptr_t) m->triangles.alignbytes));
 /* Initialize the three adjoining triangles to be "outer space."  These  */
 /*  will eventually be changed by various bonding operations, but their */
 /*  values don't really matter, as long as they can legally be          */
@@ -4296,10 +4321,10 @@ if (b->usesegments) {
     m->dummysubbase = (subseg *) trimalloc(subsegbytes +
                                            m->subsegs.alignbytes);
     /* Align `dummysub' on a `subsegs.alignbytes'-byte boundary. */
-    alignptr = (unsigned long) m->dummysubbase;
+    alignptr = (uintptr_t) m->dummysubbase;
     m->dummysub = (subseg *)
-            (alignptr + (unsigned long) m->subsegs.alignbytes -
-             (alignptr % (unsigned long) m->subsegs.alignbytes));
+            (alignptr + (uintptr_t) m->subsegs.alignbytes -
+             (alignptr % (uintptr_t) m->subsegs.alignbytes));
     /* Initialize the two adjoining subsegments to be the omnipresent      */
     /*  subsegment.  These will eventually be changed by various bonding  */
     /*  operations, but their values don't really matter, as long as they */
@@ -4656,7 +4681,7 @@ int number;
 {
 VOID **getblock;
 char *foundvertex;
-unsigned long alignptr;
+uintptr_t alignptr;
 int current;
 
 getblock = m->vertices.firstblock;
@@ -4673,9 +4698,9 @@ if (current + m->vertices.itemsfirstblock <= number) {
 }
 
 /* Now find the right vertex. */
-alignptr = (unsigned long) (getblock + 1);
-foundvertex = (char *) (alignptr + (unsigned long) m->vertices.alignbytes -
-                        (alignptr % (unsigned long) m->vertices.alignbytes));
+alignptr = (uintptr_t) (getblock + 1);
+foundvertex = (char *) (alignptr + (uintptr_t) m->vertices.alignbytes -
+                        (alignptr % (uintptr_t) m->vertices.alignbytes));
 return (vertex) (foundvertex + m->vertices.itembytes * (number - current));
 }
 
@@ -7719,7 +7744,7 @@ VOID **sampleblock;
 char *firsttri;
 struct otri sampletri;
 vertex torg, tdest;
-unsigned long alignptr;
+uintptr_t alignptr;
 REAL searchdist, dist;
 REAL ahead;
 long samplesperblock, totalsamplesleft, samplesleft;
@@ -7791,11 +7816,11 @@ while (totalsamplesleft > 0) {
         population = totalpopulation;
     }
     /* Find a pointer to the first triangle in the block. */
-    alignptr = (unsigned long) (sampleblock + 1);
+    alignptr = (uintptr_t) (sampleblock + 1);
     firsttri = (char *) (alignptr +
-                         (unsigned long) m->triangles.alignbytes -
+                         (uintptr_t) m->triangles.alignbytes -
                          (alignptr %
-                          (unsigned long) m->triangles.alignbytes));
+                          (uintptr_t) m->triangles.alignbytes));
 
     /* Choose `samplesleft' randomly sampled triangles in this block. */
     do {
@@ -10133,7 +10158,7 @@ if (b->verbose) {
 }
 
 /* Allocate an array of pointers to vertices for sorting. */
-sortarray = (vertex *) trimalloc(m->invertices * (int) sizeof(vertex));
+sortarray = (vertex *) trimalloc(m->invertices * (size_t) sizeof(vertex));
 traversalinit(&m->vertices);
 for (i = 0; i < m->invertices; i++) {
     sortarray[i] = vertextraverse(m);
@@ -10573,8 +10598,8 @@ int i;
 
 maxevents = (3 * m->invertices) / 2;
 *eventheap = (struct event **) trimalloc(maxevents *
-                                         (int) sizeof(struct event *));
-*events = (struct event *) trimalloc(maxevents * (int) sizeof(struct event));
+                                         (size_t) sizeof(struct event *));
+*events = (struct event *) trimalloc(maxevents * (size_t) sizeof(struct event));
 traversalinit(&m->vertices);
 for (i = 0; i < m->invertices; i++) {
     thisvertex = vertextraverse(m);
@@ -11418,7 +11443,7 @@ if (!b->quiet) {
 /*  triangle.  I took care to allocate all the permanent memory for */
 /*  triangles and subsegments first.                                */
 vertexarray = (triangle *) trimalloc(m->vertices.items *
-                                     (int) sizeof(triangle));
+                                     (size_t) sizeof(triangle));
 /* Each vertex is initially unrepresented. */
 for (i = 0; i < m->vertices.items; i++) {
     vertexarray[i] = (triangle) m->dummytri;
@@ -13158,7 +13183,7 @@ if (!(b->quiet || (b->noholes && b->convex))) {
 if (regions > 0) {
     /* Allocate storage for the triangles in which region points fall. */
     regiontris = (struct otri *) trimalloc(regions *
-                                           (int) sizeof(struct otri));
+                                           (size_t) sizeof(struct otri));
 } else {
 regiontris = (struct otri *) NULL;
 }
@@ -14352,7 +14377,7 @@ int i;
 stringptr = readline(inputline, polyfile, polyfilename);
 *holes = (int) strtol(stringptr, &stringptr, 0);
 if (*holes > 0) {
-    holelist = (REAL *) trimalloc(2 * *holes * (int) sizeof(REAL));
+    holelist = (REAL *) trimalloc(2 * *holes * (size_t) sizeof(REAL));
     *hlist = holelist;
     for (i = 0; i < 2 * *holes; i += 2) {
         stringptr = readline(inputline, polyfile, polyfilename);
@@ -14383,7 +14408,7 @@ if ((b->regionattrib || b->vararea) && !b->refine) {
     stringptr = readline(inputline, polyfile, polyfilename);
     *regions = (int) strtol(stringptr, &stringptr, 0);
     if (*regions > 0) {
-        regionlist = (REAL *) trimalloc(4 * *regions * (int) sizeof(REAL));
+        regionlist = (REAL *) trimalloc(4 * *regions * (size_t) sizeof(REAL));
         *rlist = regionlist;
         index = 0;
         for (i = 0; i < *regions; i++) {
@@ -14532,16 +14557,16 @@ if (!b->quiet) {
 }
 /* Allocate memory for output vertices if necessary. */
 if (*pointlist == (REAL *) NULL) {
-    *pointlist = (REAL *) trimalloc((int) (outvertices * 2 * sizeof(REAL)));
+    *pointlist = (REAL *) trimalloc((size_t) (outvertices * 2 * sizeof(REAL)));
 }
 /* Allocate memory for output vertex attributes if necessary. */
 if ((m->nextras > 0) && (*pointattriblist == (REAL *) NULL)) {
-    *pointattriblist = (REAL *) trimalloc((int) (outvertices * m->nextras *
+    *pointattriblist = (REAL *) trimalloc((size_t) (outvertices * m->nextras *
                                                  sizeof(REAL)));
 }
 /* Allocate memory for output vertex markers if necessary. */
 if (!b->nobound && (*pointmarkerlist == (int *) NULL)) {
-    *pointmarkerlist = (int *) trimalloc((int) (outvertices * sizeof(int)));
+    *pointmarkerlist = (int *) trimalloc((size_t) (outvertices * sizeof(int)));
 }
 plist = *pointlist;
 palist = *pointattriblist;
@@ -14697,13 +14722,13 @@ if (!b->quiet) {
 }
 /* Allocate memory for output triangles if necessary. */
 if (*trianglelist == (int *) NULL) {
-    *trianglelist = (int *) trimalloc((int) (m->triangles.items *
+    *trianglelist = (int *) trimalloc((size_t) (m->triangles.items *
                                              ((b->order + 1) * (b->order + 2) /
                                               2) * sizeof(int)));
 }
 /* Allocate memory for output triangle attributes if necessary. */
 if ((m->eextras > 0) && (*triangleattriblist == (REAL *) NULL)) {
-    *triangleattriblist = (REAL *) trimalloc((int) (m->triangles.items *
+    *triangleattriblist = (REAL *) trimalloc((size_t) (m->triangles.items *
                                                     m->eextras *
                                                     sizeof(REAL)));
 }
@@ -14842,12 +14867,12 @@ if (!b->quiet) {
 }
 /* Allocate memory for output segments if necessary. */
 if (*segmentlist == (int *) NULL) {
-    *segmentlist = (int *) trimalloc((int) (m->subsegs.items * 2 *
+    *segmentlist = (int *) trimalloc((size_t) (m->subsegs.items * 2 *
                                             sizeof(int)));
 }
 /* Allocate memory for output segment markers if necessary. */
 if (!b->nobound && (*segmentmarkerlist == (int *) NULL)) {
-    *segmentmarkerlist = (int *) trimalloc((int) (m->subsegs.items *
+    *segmentmarkerlist = (int *) trimalloc((size_t) (m->subsegs.items *
                                                   sizeof(int)));
 }
 slist = *segmentlist;
@@ -14984,11 +15009,11 @@ if (!b->quiet) {
 }
 /* Allocate memory for edges if necessary. */
 if (*edgelist == (int *) NULL) {
-    *edgelist = (int *) trimalloc((int) (m->edges * 2 * sizeof(int)));
+    *edgelist = (int *) trimalloc((size_t) (m->edges * 2 * sizeof(int)));
 }
 /* Allocate memory for edge markers if necessary. */
 if (!b->nobound && (*edgemarkerlist == (int *) NULL)) {
-    *edgemarkerlist = (int *) trimalloc((int) (m->edges * sizeof(int)));
+    *edgemarkerlist = (int *) trimalloc((size_t) (m->edges * sizeof(int)));
 }
 elist = *edgelist;
 emlist = *edgemarkerlist;
@@ -15150,12 +15175,12 @@ if (!b->quiet) {
 }
 /* Allocate memory for Voronoi vertices if necessary. */
 if (*vpointlist == (REAL *) NULL) {
-    *vpointlist = (REAL *) trimalloc((int) (m->triangles.items * 2 *
+    *vpointlist = (REAL *) trimalloc((size_t) (m->triangles.items * 2 *
                                             sizeof(REAL)));
 }
 /* Allocate memory for Voronoi vertex attributes if necessary. */
 if (*vpointattriblist == (REAL *) NULL) {
-    *vpointattriblist = (REAL *) trimalloc((int) (m->triangles.items *
+    *vpointattriblist = (REAL *) trimalloc((size_t) (m->triangles.items *
                                                   m->nextras * sizeof(REAL)));
 }
 *vpointmarkerlist = (int *) NULL;
@@ -15228,12 +15253,12 @@ if (!b->quiet) {
 }
 /* Allocate memory for output Voronoi edges if necessary. */
 if (*vedgelist == (int *) NULL) {
-    *vedgelist = (int *) trimalloc((int) (m->edges * 2 * sizeof(int)));
+    *vedgelist = (int *) trimalloc((size_t) (m->edges * 2 * sizeof(int)));
 }
 *vedgemarkerlist = (int *) NULL;
 /* Allocate memory for output Voronoi norms if necessary. */
 if (*vnormlist == (REAL *) NULL) {
-    *vnormlist = (REAL *) trimalloc((int) (m->edges * 2 * sizeof(REAL)));
+    *vnormlist = (REAL *) trimalloc((size_t) (m->edges * 2 * sizeof(REAL)));
 }
 elist = *vedgelist;
 normlist = *vnormlist;
@@ -15352,7 +15377,7 @@ if (!b->quiet) {
 }
 /* Allocate memory for neighbors if necessary. */
 if (*neighborlist == (int *) NULL) {
-    *neighborlist = (int *) trimalloc((int) (m->triangles.items * 3 *
+    *neighborlist = (int *) trimalloc((size_t) (m->triangles.items * 3 *
                                              sizeof(int)));
 }
 nlist = *neighborlist;
