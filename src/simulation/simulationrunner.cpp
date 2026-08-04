@@ -238,6 +238,32 @@ void SimulationRunner::start()
 
     watcher->setFuture(
         QtConcurrent::run([inp, rpt, out, rawSelf, tickIntervalMs, engineVersion]() -> SimulationResult {
+            // The engine resolves RELATIVE sidecar paths named in the .inp —
+            // [RAINGAGES] FILE, interface files, hotstarts — against the
+            // PROCESS working directory. The GUI runs the engine in-process,
+            // so that directory is wherever the .app happened to be launched
+            // from, NOT the model folder. A relative rain-file reference then
+            // silently resolves to nothing and the run proceeds with ZERO
+            // rainfall: the 1D network and the 2D mesh both stay dry except
+            // where coupling/outfall water arrives. The same model run from
+            // the CLI in its own directory rains normally, which is what made
+            // this look like a rendering fault.
+            //
+            // Pin the cwd to the model directory for the duration of the run.
+            // Process-global, so concurrent runs from different folders would
+            // race — acceptable today (runs are launched one at a time) and
+            // far better than silently dropping the forcing.
+            struct CwdGuard {
+                QString prev;
+                explicit CwdGuard(const QString &dir) : prev(QDir::currentPath())
+                {
+                    if (!dir.isEmpty()) QDir::setCurrent(dir);
+                }
+                ~CwdGuard() { if (!prev.isEmpty()) QDir::setCurrent(prev); }
+            };
+            const CwdGuard cwdGuard(
+                QFileInfo(QString::fromUtf8(inp)).absolutePath());
+
             // Use legacy worker for 5.x versions, refactored engine for 6.0.0+
             const bool useLegacy = engineVersion.startsWith("5.");
 
