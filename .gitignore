@@ -91,6 +91,8 @@ tests/output/
 tests/scratch/
 .codex_perf/
 _to_delete/
+# CTest scratch (Testing/Temporary/{LastTest.log,CTestCostData.txt}).
+Testing/
 
 # Test-written outputs that land next to tracked fixtures
 tests/gui/data/output_simstatus2derr/
