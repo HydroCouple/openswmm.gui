@@ -64,6 +64,19 @@ void MeshTrianglePropertyAdapter::setMannings(double n)
     m_layer->applyMeshTriangleMannings(m_idx, n);
 }
 
+double MeshTrianglePropertyAdapter::initDepth() const
+{
+    if (!valid(m_layer, m_idx)) return std::numeric_limits<double>::quiet_NaN();
+    const double d = m_layer->mesh().triangles[m_idx].initDepth;
+    return std::isfinite(d) ? d : 0.0;   // unset column = engine default 0 (dry)
+}
+
+void MeshTrianglePropertyAdapter::setInitDepth(double d)
+{
+    if (!m_layer) return;
+    m_layer->applyMeshTriangleInitDepth(m_idx, d);
+}
+
 void MeshTrianglePropertyAdapter::setTag(const QString &tag)
 {
     if (!m_layer) return;
@@ -82,6 +95,7 @@ QString MeshTrianglePropertyAdapter::displayLabelFor(const QString &property) co
     if (property == QStringLiteral("v1"))       return QCoreApplication::translate("MeshTriangle", "Vertex 2");
     if (property == QStringLiteral("v2"))       return QCoreApplication::translate("MeshTriangle", "Vertex 3");
     if (property == QStringLiteral("mannings")) return QCoreApplication::translate("MeshTriangle", "Manning's n");
+    if (property == QStringLiteral("initDepth")) return QCoreApplication::translate("MeshTriangle", "Initial Depth (m)");
     if (property == QStringLiteral("tag"))      return QCoreApplication::translate("MeshTriangle", "Tag");
     return property;
 }
