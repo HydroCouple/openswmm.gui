@@ -191,12 +191,17 @@ void OpenSWMMVisMapToolAddVirtualNode::paint(QPainter *painter, const MapExtent 
     toPixelCoords(cx, cy, px, py);
 
     painter->save();
-    QPen pen(QColor(0x77, 0x77, 0x77));
+    // Match the placed symbol: the layer's virtual-junction fill colour,
+    // ringed by a dotted circle (falls back to junction blue defaults).
+    QPen pen(m_hover.layer->virtualJunctionSymbol().fillColor);
     pen.setWidth(2);
+    pen.setStyle(Qt::DotLine);
     painter->setPen(pen);
     painter->setBrush(Qt::NoBrush);
-    painter->drawEllipse(QPoint(px, py), 6, 6);
-    painter->drawLine(px - 9, py, px + 9, py);
-    painter->drawLine(px, py - 9, px, py + 9);
+    painter->drawEllipse(QPoint(px, py), 7, 7);
+    pen.setStyle(Qt::SolidLine);
+    painter->setPen(pen);
+    painter->drawLine(px - 10, py, px + 10, py);
+    painter->drawLine(px, py - 10, px, py + 10);
     painter->restore();
 }

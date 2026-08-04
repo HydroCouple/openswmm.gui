@@ -40,6 +40,10 @@ class NodeRenderingPrefs : public QObject
     Q_PROPERTY(QBrush dividerFill  READ dividerFill  WRITE setDividerFill  NOTIFY dividerFillChanged)
     Q_PROPERTY(double dividerSize  READ dividerSize  WRITE setDividerSize  NOTIFY dividerSizeChanged)
 
+    Q_PROPERTY(QPen   virtualJunctionPen  READ virtualJunctionPen  WRITE setVirtualJunctionPen  NOTIFY virtualJunctionPenChanged)
+    Q_PROPERTY(QBrush virtualJunctionFill READ virtualJunctionFill WRITE setVirtualJunctionFill NOTIFY virtualJunctionFillChanged)
+    Q_PROPERTY(double virtualJunctionSize READ virtualJunctionSize WRITE setVirtualJunctionSize NOTIFY virtualJunctionSizeChanged)
+
 public:
     explicit NodeRenderingPrefs(QObject *parent = nullptr);
 
@@ -59,6 +63,10 @@ public:
     [[nodiscard]] QBrush dividerFill()  const;
     [[nodiscard]] double dividerSize()  const;
 
+    [[nodiscard]] QPen   virtualJunctionPen()  const;
+    [[nodiscard]] QBrush virtualJunctionFill() const;
+    [[nodiscard]] double virtualJunctionSize() const;
+
     void setJunctionPen(const QPen &pen);
     void setJunctionFill(const QBrush &brush);
     void setJunctionSize(double sizePx);
@@ -74,6 +82,10 @@ public:
     void setDividerPen(const QPen &pen);
     void setDividerFill(const QBrush &brush);
     void setDividerSize(double sizePx);
+
+    void setVirtualJunctionPen(const QPen &pen);
+    void setVirtualJunctionFill(const QBrush &brush);
+    void setVirtualJunctionSize(double sizePx);
 
 signals:
     void junctionPenChanged(const QPen &pen);
@@ -91,6 +103,10 @@ signals:
     void dividerPenChanged(const QPen &pen);
     void dividerFillChanged(const QBrush &brush);
     void dividerSizeChanged(double sizePx);
+
+    void virtualJunctionPenChanged(const QPen &pen);
+    void virtualJunctionFillChanged(const QBrush &brush);
+    void virtualJunctionSizeChanged(double sizePx);
 };
 
 #endif // NODERENDERINGPREFS_H

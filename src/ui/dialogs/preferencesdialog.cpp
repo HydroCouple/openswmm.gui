@@ -465,9 +465,9 @@ QWidget *PreferencesDialog::buildRenderingPage()
 
     auto *nodeIntro = new QLabel(
         tr("Edit marker size, fill brush, and outline pen per node type "
-           "(Junction, Outfall, Storage, Divider). Expand a row to access "
-           "individual pen and brush attributes. Changes apply immediately "
-           "to open project views."),
+           "(Junction, Outfall, Storage, Divider, Virtual Junction). Expand "
+           "a row to access individual pen and brush attributes. Changes "
+           "apply immediately to open project views."),
         nodeGroup);
     nodeIntro->setWordWrap(true);
     nv->addWidget(nodeIntro);
@@ -1042,6 +1042,15 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     m_twoDMeshManningsSpin->setDecimals(4);
     meshForm->addRow(tr("Constant Manning's n"), m_twoDMeshManningsSpin);
 
+    m_twoDMeshInitDepthSpin = new QDoubleSpinBox(meshGroup);
+    m_twoDMeshInitDepthSpin->setRange(0.0, 1000.0);
+    m_twoDMeshInitDepthSpin->setDecimals(4);
+    m_twoDMeshInitDepthSpin->setSuffix(QStringLiteral(" m"));
+    m_twoDMeshInitDepthSpin->setToolTip(
+        tr("Standing water depth seeded on every generated cell "
+           "([2D_TRIANGLES] INIT_DEPTH). 0 starts the surface dry."));
+    meshForm->addRow(tr("Constant initial depth"), m_twoDMeshInitDepthSpin);
+
     m_twoDMeshOutputExternalBox = new QCheckBox(
         tr("Write mesh to external file ([2D_MESH_FILE])"), meshGroup);
     meshForm->addRow(QString(), m_twoDMeshOutputExternalBox);
@@ -1583,6 +1592,7 @@ void PreferencesDialog::applyTwoDDefaultsToWidgets(
     m_twoDMeshMaxEdgeBox        ->setChecked(d.meshMaxBoundaryEdgeOn);
     m_twoDMeshMaxEdgeSpin       ->setValue(d.meshMaxBoundaryEdgeM);
     m_twoDMeshManningsSpin      ->setValue(d.meshManningsN);
+    m_twoDMeshInitDepthSpin     ->setValue(d.meshInitDepth);
     m_twoDMeshOutputExternalBox ->setChecked(d.meshOutputExternal);
 }
 
@@ -1731,6 +1741,7 @@ void PreferencesDialog::writeToManager()
         d.meshMaxBoundaryEdgeOn = m_twoDMeshMaxEdgeBox        ->isChecked();
         d.meshMaxBoundaryEdgeM  = m_twoDMeshMaxEdgeSpin       ->value();
         d.meshManningsN         = m_twoDMeshManningsSpin      ->value();
+        d.meshInitDepth         = m_twoDMeshInitDepthSpin     ->value();
         d.meshOutputExternal    = m_twoDMeshOutputExternalBox ->isChecked();
 
         p->setTwoDDefaults(d);
@@ -1889,7 +1900,8 @@ void PreferencesDialog::onResetToDefaults()
         const QStringList keys = { QStringLiteral("junction"),
                                    QStringLiteral("outfall"),
                                    QStringLiteral("storage"),
-                                   QStringLiteral("divider") };
+                                   QStringLiteral("divider"),
+                                   QStringLiteral("virtual_junction") };
         for (const QString &k : keys) p->resetNodeStyleToDefault(k);
         if (m_nodeStyleModel) m_nodeStyleModel->refreshValues();
     }

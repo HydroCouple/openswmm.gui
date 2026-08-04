@@ -386,12 +386,16 @@ public:
         QString infiltrationModel   = QStringLiteral("HORTON");
         QString flowRouting         = QStringLiteral("DYNWAVE");
 
-        bool    ignoreRainfall      = true;
-        bool    ignoreRdii          = true;
-        bool    ignoreSnowmelt      = true;
-        bool    ignoreGroundwater   = true;
-        bool    ignoreQuality       = true;
-        bool    ignoreRouting       = true;
+        // Legacy-SWMM parity: a new project simulates every process that
+        // its model data exercises. IGNORE_ROUTING YES here made every
+        // File→New model appear dead (no flows anywhere) unless the user
+        // found Simulation Defaults and opted routing back in.
+        bool    ignoreRainfall      = false;
+        bool    ignoreRdii          = false;
+        bool    ignoreSnowmelt      = false;
+        bool    ignoreGroundwater   = false;
+        bool    ignoreQuality       = false;
+        bool    ignoreRouting       = false;
         bool    module2DEnabled     = false;
 
         bool    allowPonding        = false;
@@ -485,6 +489,7 @@ public:
         bool    meshMaxBoundaryEdgeOn = false;
         double  meshMaxBoundaryEdgeM = 20.0;
         double  meshManningsN        = 0.035;
+        double  meshInitDepth        = 0.0;   ///< mesh length units; 0 = dry
         bool    meshOutputExternal   = true;
     };
 

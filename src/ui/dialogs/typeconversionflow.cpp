@@ -20,6 +20,7 @@ QString TypeConversionFlow::nodeTypeLabel(int swmmNodeType)
     case 1: return tr("Outfall");
     case 2: return tr("Storage");
     case 3: return tr("Divider");
+    case kVirtualNodeType: return tr("Virtual Junction");
     default: return {};
     }
 }
@@ -76,6 +77,14 @@ bool TypeConversionFlow::run(QWidget *parent, SWMMModelLayer *layer,
 {
     if (!layer || name.isEmpty() || currentType == newType) return false;
 
+    // Virtual-junction targets/sources ride the same confirm → apply →
+    // summary shape, but the engine operation differs: the flag is set or
+    // cleared via applySetVirtual (VIRTUAL_JUNCTION rules enforced by the
+    // engine), with a plain type conversion first when the source node is
+    // not already a junction.
+    const bool toVirtual   = isNode && newType == kVirtualNodeType;
+    const bool fromVirtual = isNode && currentType == kVirtualNodeType;
+
     const auto choice = QMessageBox::question(parent, tr("Convert Type"),
         confirmText(isNode, name, currentType, newType),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
@@ -83,12 +92,39 @@ bool TypeConversionFlow::run(QWidget *parent, SWMMModelLayer *layer,
 
     QStringList cleared, warnings;
     QString error;
-    const bool ok = isNode
-        ? layer->applyNodeConvert(name, newType, &cleared, &warnings, &error)
-        : layer->applyLinkConvert(name, newType, &cleared, &warnings, &error);
-    if (!ok) {
-        QMessageBox::warning(parent, tr("Convert Type"), error);
-        return false;
+
+    if (toVirtual) {
+        // Non-junction source: become a junction first (attribute loss was
+        // covered by the confirm above), then set the flag.
+        if (currentType != 0 &&
+            !layer->applyNodeConvert(name, 0, &cleared, &warnings, &error)) {
+            QMessageBox::warning(parent, tr("Convert Type"), error);
+            return false;
+        }
+        if (!layer->applySetVirtual(name, true, &error)) {
+            QMessageBox::warning(parent, tr("Convert Type"),
+                currentType != 0
+                    ? tr("\"%1\" was converted to a Junction, but could not "
+                         "be made virtual:\n\n%2").arg(name, error)
+                    : error);
+            return false;
+        }
+    } else if (fromVirtual && newType == 0) {
+        // Demote to a regular junction: clear the flag, nothing else moves.
+        if (!layer->applySetVirtual(name, false, &error)) {
+            QMessageBox::warning(parent, tr("Convert Type"), error);
+            return false;
+        }
+    } else {
+        // Plain conversion (fromVirtual to a non-junction type also lands
+        // here: the engine's converter clears the is_virtual flag itself).
+        const bool ok = isNode
+            ? layer->applyNodeConvert(name, newType, &cleared, &warnings, &error)
+            : layer->applyLinkConvert(name, newType, &cleared, &warnings, &error);
+        if (!ok) {
+            QMessageBox::warning(parent, tr("Convert Type"), error);
+            return false;
+        }
     }
 
     const QString to = isNode ? nodeTypeLabel(newType)

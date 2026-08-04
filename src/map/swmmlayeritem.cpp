@@ -888,6 +888,21 @@ void SWMMLayerItem::paint(QPainter *painter,
                 for (const QPointF &c : b.selPts)
                     devGlyph(c, r, kindShape);
             }
+
+            // Virtual-junction mark — a dotted ring encircling the dot with
+            // a small gap, in the symbol's own colour (D-G1: the glyph body
+            // stays the junction blue; the ring is what sets it apart).
+            if (b.sym == &m_layer->m_virtualJunctionSym) {
+                QPen ring(fade(b.sym->fillColor), 1.0, Qt::DotLine);
+                ring.setCosmetic(true);
+                painter->setPen(ring);
+                painter->setBrush(Qt::NoBrush);
+                const double ringDev = r * devScale + 3.0;   // glyph px + gap
+                for (const QPointF &c : b.scenePts)
+                    painter->drawEllipse(xf.map(c), ringDev, ringDev);
+                for (const QPointF &c : b.selPts)
+                    painter->drawEllipse(xf.map(c), ringDev, ringDev);
+            }
         }
         painter->restore();   // back to scene transform
     }
