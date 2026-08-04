@@ -9,11 +9,17 @@
  * the layer's `mesh()`; every WRITE calls an `applyMeshTriangle*` helper,
  * which emits `attributeChanged` so all views stay in sync. Exposes the
  * editable per-triangle attributes — Manning's roughness, the initial water
- * depth (INIT_DEPTH, m, default 0 = dry), and the descriptive tag — all
- * round-tripped through `[2D_TRIANGLES]`.
+ * depth (INIT_DEPTH, mesh length units, default 0 = dry), and the descriptive
+ * tag — all round-tripped through `[2D_TRIANGLES]`.
+ *
+ * Numeric writes route through mesh::pushCellParamEdit when a canvas is set,
+ * so a panel edit lands on the same undo stack as a toolbar or Cell Data
+ * edit.
  */
 #ifndef OPENSWMMVIS_UI_PROPERTIES_MESHTRIANGLEPROPERTYADAPTER_H
 #define OPENSWMMVIS_UI_PROPERTIES_MESHTRIANGLEPROPERTYADAPTER_H
+
+#include "map/mapcanvas.h"   // QPointer<MapCanvas> needs the complete type
 
 #include <QObject>
 #include <QPointer>
@@ -44,8 +50,18 @@ public:
     [[nodiscard]] double  initDepth() const;
     [[nodiscard]] QString tag()      const;
 
-    /*! \brief Same display-label convention as SWMM*PropertyAdapter. */
+    /*! \brief Same display-label convention as SWMM*PropertyAdapter. Length
+     *         properties carry the project's depth unit (see
+     *         setDepthUnitLabel). */
     Q_INVOKABLE QString displayLabelFor(const QString &property) const;
+
+    /*! \brief Canvas whose undo stack numeric edits are pushed onto. Without
+     *         one the edits still apply, just unundoably. */
+    void setCanvas(MapCanvas *canvas) { m_canvas = canvas; }
+
+    /*! \brief Project depth unit ("ft" / "m") shown in length labels;
+     *         defaults to "m". */
+    void setDepthUnitLabel(const QString &label) { m_depthUnit = label; }
 
 public slots:
     void setMannings(double n);
@@ -61,8 +77,10 @@ private slots:
 
 private:
     QPointer<SWMM2DMeshLayer> m_layer;
+    QPointer<MapCanvas>       m_canvas;
     int                       m_idx = -1;
     QString                   m_refName;  // cached MeshObjectRef::cell name
+    QString                   m_depthUnit = QStringLiteral("m");
 };
 
 #endif // OPENSWMMVIS_UI_PROPERTIES_MESHTRIANGLEPROPERTYADAPTER_H

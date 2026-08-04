@@ -218,6 +218,7 @@ private:
     QCheckBox      *m_twoDMeshMaxEdgeBox      = nullptr;
     QDoubleSpinBox *m_twoDMeshMaxEdgeSpin     = nullptr;
     QDoubleSpinBox *m_twoDMeshManningsSpin    = nullptr;
+    QDoubleSpinBox *m_twoDMeshInitDepthSpin   = nullptr;
     QCheckBox      *m_twoDMeshOutputExternalBox = nullptr;
 
     // Map Display / Scale Bar

@@ -122,6 +122,11 @@ SWMMNodePropertyAdapter::NodeKind SWMMNodePropertyAdapter::nodeKind() const
     if (idx < 0) return Junction;
     int t = 0;
     if (swmm_node_get_type(m_engine, idx, &t) != SWMM_OK) return Junction;
+    if (t == 0) {
+        int isVirtual = 0;
+        if (swmm_node_is_virtual(m_engine, idx, &isVirtual) == SWMM_OK && isVirtual)
+            return VirtualJunction;
+    }
     return static_cast<NodeKind>(t);
 }
 

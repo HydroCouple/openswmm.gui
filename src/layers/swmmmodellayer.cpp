@@ -454,12 +454,12 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
     m_junctionSym.fillColor   = QColor(0, 120, 255);
     m_junctionSym.size        = 8.0;
     m_junctionSym.markerShape = Marker::Circle;
-    // Virtual junctions: same category bucket, distinct glyph — gray-family
-    // diamond so the zero-storage pass-through node reads differently from a
-    // regular junction at a glance (matches the toolbar icon's gray family).
-    m_virtualJunctionSym.fillColor    = QColor(0x77, 0x77, 0x77);
-    m_virtualJunctionSym.size         = 7.0;
-    m_virtualJunctionSym.markerShape  = Marker::Diamond;
+    // Virtual junctions: same category bucket and the same blue dot as a
+    // regular junction — the distinguishing mark is a dotted ring drawn
+    // around the dot with a small gap (see SWMMLayerItem / QSG renderer).
+    m_virtualJunctionSym.fillColor    = QColor(0, 120, 255);
+    m_virtualJunctionSym.size         = 8.0;
+    m_virtualJunctionSym.markerShape  = Marker::Circle;
     m_outfallSym.fillColor    = QColor(220, 0, 0);     // red — outfalls stand out
     m_outfallSym.size         = 12.5;   // 1.25× the legacy 10 px triangle
     m_outfallSym.markerShape  = Marker::EquilateralTriangle;
@@ -1967,6 +1967,7 @@ SWMMElementSymbol SWMMModelLayer::junctionSymbol()     const { return m_junction
 SWMMElementSymbol SWMMModelLayer::outfallSymbol()      const { return m_outfallSym; }
 SWMMElementSymbol SWMMModelLayer::storageSymbol()      const { return m_storageSym; }
 SWMMElementSymbol SWMMModelLayer::dividerSymbol()      const { return m_dividerSym; }
+SWMMElementSymbol SWMMModelLayer::virtualJunctionSymbol() const { return m_virtualJunctionSym; }
 SWMMElementSymbol SWMMModelLayer::conduitSymbol()      const { return m_conduitSym; }
 SWMMElementSymbol SWMMModelLayer::pumpSymbol()         const { return m_pumpSym; }
 SWMMElementSymbol SWMMModelLayer::orificeSymbol()      const { return m_orificeSym; }
@@ -1996,6 +1997,10 @@ void SWMMModelLayer::setJunctionSymbol(const SWMMElementSymbol &s)    { m_juncti
 void SWMMModelLayer::setOutfallSymbol(const SWMMElementSymbol &s)     { m_outfallSym    = s; syncSingleRendererFromStruct(CatOutfalls, s);      m_needsRebuild = true; emit repaintRequested(); }
 void SWMMModelLayer::setStorageSymbol(const SWMMElementSymbol &s)     { m_storageSym    = s; syncSingleRendererFromStruct(CatStorage, s);       m_needsRebuild = true; emit repaintRequested(); }
 void SWMMModelLayer::setDividerSymbol(const SWMMElementSymbol &s)     { m_dividerSym    = s; syncSingleRendererFromStruct(CatDividers, s);      m_needsRebuild = true; emit repaintRequested(); }
+// Virtual junctions share CatJunctions (D-G1: no persisted 5th category), so
+// there is no per-kind renderer to sync — that would clobber the regular
+// junction renderer's style. Struct write + repaint is the whole contract.
+void SWMMModelLayer::setVirtualJunctionSymbol(const SWMMElementSymbol &s) { m_virtualJunctionSym = s; m_needsRebuild = true; emit repaintRequested(); }
 void SWMMModelLayer::setConduitSymbol(const SWMMElementSymbol &s)     { m_conduitSym    = s; syncSingleRendererFromStruct(CatConduits, s);      m_needsRebuild = true; emit repaintRequested(); }
 void SWMMModelLayer::setPumpSymbol(const SWMMElementSymbol &s)        { m_pumpSym       = s; syncSingleRendererFromStruct(CatPumps, s);         m_needsRebuild = true; emit repaintRequested(); }
 void SWMMModelLayer::setOrificeSymbol(const SWMMElementSymbol &s)     { m_orificeSym    = s; syncSingleRendererFromStruct(CatOrifices, s);      m_needsRebuild = true; emit repaintRequested(); }
@@ -2045,6 +2050,9 @@ SWMMModelLayer::styleSubjects()
     addKind(tr("Dividers"), dividerSymbol(),
             [this](const SWMMElementSymbol &s) { setDividerSymbol(s); },
             QStringLiteral("model.dividers"), QStringLiteral("Nodes"));
+    addKind(tr("Virtual junctions"), virtualJunctionSymbol(),
+            [this](const SWMMElementSymbol &s) { setVirtualJunctionSymbol(s); },
+            QStringLiteral("model.virtualjunctions"), QStringLiteral("Nodes"));
     addKind(tr("Conduits"), conduitSymbol(),
             [this](const SWMMElementSymbol &s) { setConduitSymbol(s); },
             QStringLiteral("model.conduits"), QStringLiteral("Links"));

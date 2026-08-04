@@ -179,19 +179,21 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
     // below match the canonical "Junction" / "Outfall" / … forms.
     auto applyNodeStyleFromPreferences = [this]() {
         auto *prefs = PreferencesManager::instance();
-        const QString kinds[4] = {
+        const QString kinds[5] = {
             QStringLiteral("junction"),
             QStringLiteral("outfall"),
             QStringLiteral("storage"),
             QStringLiteral("divider"),
+            QStringLiteral("virtual_junction"),
         };
-        SWMMElementSymbol syms[4] = {
+        SWMMElementSymbol syms[5] = {
             mModelLayer->junctionSymbol(),
             mModelLayer->outfallSymbol(),
             mModelLayer->storageSymbol(),
             mModelLayer->dividerSymbol(),
+            mModelLayer->virtualJunctionSymbol(),
         };
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 5; ++i) {
             const QBrush fill    = prefs->nodeBrush(kinds[i]);
             const QPen   outline = prefs->nodePen(kinds[i]);
             const double sizePx  = prefs->nodeSize(kinds[i]);
@@ -204,6 +206,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
         mModelLayer->setOutfallSymbol(syms[1]);
         mModelLayer->setStorageSymbol(syms[2]);
         mModelLayer->setDividerSymbol(syms[3]);
+        mModelLayer->setVirtualJunctionSymbol(syms[4]);
     };
     applyNodeStyleFromPreferences();
 
@@ -435,23 +438,6 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
             mMeasurePanel->setVisible(isMeasure);
             if (isMeasure)
                 repositionMeasurePanel();
-        });
-
-        // Profile-session exit: when the user leaves the profile tool to
-        // pick up the Select tool while an accepted path is still drawn,
-        // arm a one-shot to clear the overlay on the next canvas click.
-        // Any other transition cancels the arming (so toggling profile
-        // back on, or switching to a different tool, keeps the path).
-        connect(mCanvas, &MapCanvas::activeToolChanged,
-                this, [this](OpenSWMMVisMapTool *tool)
-        {
-            if (!mSelectProfileTool || !mSelectTool) return;
-            if (tool == mSelectTool
-                && !mSelectProfileTool->acceptedPath().linkIds.isEmpty()) {
-                mClearProfileOnNextCanvasClick = true;
-            } else {
-                mClearProfileOnNextCanvasClick = false;
-            }
         });
 
         // Reposition when canvas resizes
@@ -871,6 +857,20 @@ void SWMMVisProjectWindow::setHasChanges(bool dirty)
     emit hasChangesChanged(dirty);
 }
 
+void SWMMVisProjectWindow::attachMeshLayer(SWMM2DMeshLayer *meshLayer)
+{
+    if (!meshLayer)
+        return;
+    // Per-element edits (vertex Z, edge BC/conveyance, cell Manning's n /
+    // initial depth / tag) report through attributeChanged; bulk coupling
+    // rewrites report through meshEditsChanged. Both are project data that
+    // must reach the .inp, so both dirty the project.
+    connect(meshLayer, &SWMM2DMeshLayer::attributeChanged, this,
+            [this](const QString &) { setHasChanges(true); });
+    connect(meshLayer, &SWMM2DMeshLayer::meshEditsChanged, this,
+            [this]() { setHasChanges(true); });
+}
+
 void SWMMVisProjectWindow::setEditSessionActive(bool active)
 {
     if (mEditSessionActive == active)
@@ -951,15 +951,24 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // engine's in-memory 2D mesh first so vertex-Z / conveyance / BC edits are
     // saved. The engine remains the source of truth for everything the GUI
     // mesh model does not carry (coupling maps, Manning's n, units, options).
+    // Inline mesh layers whose per-cell attributes could NOT reach the engine
+    // (its mesh no longer matches the layer's — e.g. a mesh generated or
+    // replaced this session). The engine write below would drop those edits,
+    // so they are re-emitted straight into the written .inp afterwards.
+    QVector<SWMM2DMeshLayer *> inlineNeedsAttrPatch;
     if (canvas()) {
         for (OpenSWMMVisLayer *l : canvas()->layers()) {
             auto *meshLayer = qobject_cast<SWMM2DMeshLayer *>(l);
             if (!meshLayer || meshLayer->mesh().vertices.isEmpty()) continue;
             QStringList syncWarnings;
+            bool trianglesSynced = false;
             mesh::pushMeshEditsToEngine(mModelLayer->engine(), meshLayer->mesh(),
-                                        meshLayer->edgeBCs(), &syncWarnings);
+                                        meshLayer->edgeBCs(), &syncWarnings,
+                                        &trianglesSynced);
             for (const QString &w : syncWarnings)
                 qWarning().noquote() << w;
+            if (!trianglesSynced && !meshLayer->isExternalMesh())
+                inlineNeedsAttrPatch.append(meshLayer);
         }
     }
 
@@ -1060,6 +1069,33 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                 << "Post-save 2D mesh retarget failed:" << meshErr;
     }
 
+    // Inline meshes whose per-cell attributes never reached the engine: patch
+    // them into the just-written .inp directly. Without this a Manning's n /
+    // initial depth / tag edit is silently lost whenever the engine's mesh has
+    // drifted from the layer's (mesh generated or replaced in-session).
+    for (SWMM2DMeshLayer *ml : inlineNeedsAttrPatch)
+    {
+        QString attrErr;
+        if (mesh::InpMeshWriter::patchAttributeSections(newPath, ml->mesh(),
+                                                        &attrErr))
+            continue;
+        // The file holds a different mesh than the layer, so positional
+        // patching would corrupt it. Tell the user rather than losing the
+        // edits quietly.
+        const QString msg =
+            tr("2D mesh cell attributes (Manning's n / initial depth / tag) "
+               "could not be saved to %1: %2. Re-open the model, or "
+               "regenerate the mesh, before editing cell attributes.")
+                .arg(QFileInfo(newPath).fileName(), attrErr);
+        qWarning().noquote() << msg;
+        if (auto *mw = window())
+            QMetaObject::invokeMethod(
+                mw, "onLogMessage", Qt::QueuedConnection,
+                Q_ARG(QString, msg),
+                Q_ARG(OpenSWMMVisLogMessage::LogMessageType,
+                      OpenSWMMVisLogMessage::LogMessageType::Warning));
+    }
+
     // If saved to a new path, point the layer at it so subsequent Save targets the new file.
     if (newPath != mModelLayer->modelFilePath())
         mModelLayer->setModelFilePath(newPath);
@@ -1119,19 +1155,6 @@ bool SWMMVisProjectWindow::eventFilter(QObject *watched, QEvent *event)
         && mMeasurePanel->isVisible())
     {
         repositionMeasurePanel();
-    }
-    // Armed by the activeToolChanged listener when the user leaves
-    // profile mode to pick up Select. Fires once on the next canvas
-    // mouse press, then disarms — so a single click on the map ends
-    // the profile session, but parking the Select tool without
-    // clicking leaves the prior selection in place.
-    if (watched == mCanvas
-        && event->type() == QEvent::MouseButtonPress
-        && mClearProfileOnNextCanvasClick
-        && mSelectProfileTool)
-    {
-        mClearProfileOnNextCanvasClick = false;
-        mSelectProfileTool->clearSelection();
     }
     return QMdiSubWindow::eventFilter(watched, event);
 }
@@ -1240,7 +1263,12 @@ void SWMMVisProjectWindow::changeEvent(QEvent *event)
 void SWMMVisProjectWindow::activatePanTool()         { mCanvas->setActiveTool(mPanTool); }
 void SWMMVisProjectWindow::activateZoomInTool()      { mCanvas->setActiveTool(mZoomInTool); }
 void SWMMVisProjectWindow::activateZoomOutTool()     { mCanvas->setActiveTool(mZoomOutTool); }
-void SWMMVisProjectWindow::activateSelectTool()      { mCanvas->setActiveTool(mSelectTool); }
+void SWMMVisProjectWindow::activateSelectTool()
+{
+    if (mCanvas->activeTool() == mSelectProfileTool && mSelectProfileTool)
+        mSelectProfileTool->clearSelection();
+    mCanvas->setActiveTool(mSelectTool);
+}
 void SWMMVisProjectWindow::activateSelectByPolygonTool() { mCanvas->setActiveTool(mSelectPolygonTool); }
 
 void SWMMVisProjectWindow::activatePick2DCellsTool()

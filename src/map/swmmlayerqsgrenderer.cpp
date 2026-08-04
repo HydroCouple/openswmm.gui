@@ -1273,12 +1273,14 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             uchar oR,oG,oB,oA; unpack(m_layer->outfallSymbol().fillColor, oR,oG,oB,oA);
             uchar sR,sG,sB,sA; unpack(m_layer->storageSymbol().fillColor, sR,sG,sB,sA);
             uchar dR,dG,dB,dA; unpack(m_layer->dividerSymbol().fillColor, dR,dG,dB,dA);
+            uchar vR,vG,vB,vA; unpack(m_layer->m_virtualJunctionSym.fillColor,vR,vG,vB,vA);
             // Per-kind marker shape, looked up once per frame to keep
             // the inner loop branch-free on the symbol struct.
             const auto jShape = m_layer->junctionSymbol().markerShape;
             const auto oShape = m_layer->outfallSymbol().markerShape;
             const auto sShape = m_layer->storageSymbol().markerShape;
             const auto dShape = m_layer->dividerSymbol().markerShape;
+            const auto vShape = m_layer->m_virtualJunctionSym.markerShape;
             const auto &nps   = m_layer->m_nodeScenePts;
             const auto &nodes = m_layer->m_nodes;
             const auto &nHid  = m_layer->m_nodeHiddenFlag;
@@ -1302,6 +1304,15 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if      (nt==1) { bucket=&outf; cR=oR; cG=oG; cB=oB; cA=oA; shape=oShape; cat=SWMMModelLayer::CatOutfalls; }
                 else if (nt==2) { bucket=&stor; cR=sR; cG=sG; cB=sB; cA=sA; shape=sShape; cat=SWMMModelLayer::CatStorage; }
                 else if (nt==3) { bucket=&divr; cR=dR; cG=dG; cB=dB; cA=dA; shape=dShape; cat=SWMMModelLayer::CatDividers; }
+                // Virtual junctions — same bucket/category (D-G1: no
+                // persisted 5th category), the virtual symbol's dot; the
+                // distinguishing dotted ring is emitted after the glyph.
+                const bool isVJ = (nt == 0 && nodes[i].isVirtual);
+                if (isVJ) {
+                    pxR = float(m_layer->m_virtualJunctionSym.size)*0.5f;
+                    cR=vR; cG=vG; cB=vB; cA=vA;
+                    shape = vShape;
+                }
                 // CPU-parity — per-feature SIZE override (Graduated "size by
                 // value") and SHAPE override (Categorized / Rule-based). The
                 // CPU painter honoured both (swmmlayeritem.cpp node loop);
@@ -1341,6 +1352,21 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 }
                 appendNodeGlyphTrianglesColored(*bucket,fx,fy,r,shape,
                     premul(cR,cA),premul(cG,cA),premul(cB,cA),cA);
+                // Virtual-junction dotted ring — small dots encircling the
+                // glyph with a gap (CPU-parity with SWMMLayerItem's cosmetic
+                // DotLine ellipse; triangles are all this path can draw).
+                if (isVJ) {
+                    const float ringR = (pxR + 3.0f) * invView;
+                    const float dotR  = 0.8f * invView;
+                    constexpr int kRingDots = 12;
+                    for (int k = 0; k < kRingDots; ++k) {
+                        const float ang = float(k) * (2.0f*float(M_PI)/kRingDots);
+                        appendNodeGlyphTrianglesColored(*bucket,
+                            fx + ringR*std::cos(ang), fy + ringR*std::sin(ang),
+                            dotR, OpenSWMM::Render::MarkerShape::Circle,
+                            premul(cR,cA),premul(cG,cA),premul(cB,cA),cA);
+                    }
+                }
             }
             uploadColoredVerts(junctionsBase,junc);
             uploadColoredVerts(outfallsBase, outf);

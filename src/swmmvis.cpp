@@ -179,6 +179,8 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmm2dresultslayer.h"
 #include "mesh/inpmeshreader.h"
+#include "mesh/meshobjectref.h"
+#include "ui/properties/meshtrianglepropertyadapter.h"
 #include "animation/animationcontroller.h"
 #include "ui/toolbars/terraintoolbar.h"
 #include "ui/toolbars/mesheditingtoolbar.h"
@@ -4885,6 +4887,9 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
                 new SpatialReferenceSystem(*window->modelLayer()->srs(), meshLayer),
                 /*ownsSRS=*/true);
         window->canvas()->addLayer(meshLayer, /*pushUndo=*/false);
+        // Mesh edits must dirty the project, or Run's auto-save is skipped and
+        // the engine re-reads the stale .inp.
+        window->attachMeshLayer(meshLayer);
 
         // Dev/testing hook — SWMMVIS_SNAPSHOT_MESHSTYLE=<png> opens the mesh
         // layer's style dialog (Symbology tab shows the MeshHillshadeEditor
@@ -5078,6 +5083,32 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
         out.layer = meshLayer;
         return out;
     }));
+}
+
+void SWMMVis::showMeshCellProperties(SWMMVisProjectWindow *window,
+                                     const SWMMObjectRef &ref)
+{
+    if (!window || !window->canvas() || !mPropertiesPanel) return;
+
+    QString layerKey;
+    int     triIdx = -1;
+    if (!mesh::MeshObjectRef::parseCell(ref, &layerKey, &triIdx)) return;
+
+    for (OpenSWMMVisLayer *l : window->canvas()->layers()) {
+        auto *ml = qobject_cast<SWMM2DMeshLayer *>(l);
+        if (!ml) continue;
+        if (mesh::MeshObjectRef::layerKey(ml->sourcePath()) != layerKey) continue;
+        if (triIdx < 0 || triIdx >= ml->mesh().triangles.size()) return;
+
+        // Panel takes ownership; the previous adapter dies with the old
+        // model, so one adapter per selection is enough.
+        auto *adapter = new MeshTrianglePropertyAdapter(ml, triIdx);
+        adapter->setCanvas(window->canvas());
+        if (window->unitSystem())
+            adapter->setDepthUnitLabel(window->unitSystem()->depthLabel());
+        mPropertiesPanel->showObject(adapter, tr("2D Cell %1").arg(triIdx));
+        return;
+    }
 }
 
 void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
@@ -5841,6 +5872,16 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                     auto *layer = pw->modelLayer();
                     if (!layer) return;
                     const SWMMObjectRef first = *current.constBegin();
+
+                    // 2D mesh cells are not SWMM network objects, so they
+                    // never reach identifyByName — mount the cell adapter
+                    // directly. Single-cell only: multi-cell editing is the
+                    // mesh toolbar's parameter editor.
+                    if (first.objectType == SWMMObjectRef::ObjectType::MeshCell) {
+                        if (current.size() == 1)
+                            showMeshCellProperties(pw, first);
+                        return;
+                    }
 
                     // Slice DA.2 — non-spatial Data Object kinds bypass
                     // identifyByName (which only handles spatial features
