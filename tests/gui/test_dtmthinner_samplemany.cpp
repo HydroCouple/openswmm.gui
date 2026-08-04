@@ -177,6 +177,40 @@ private slots:
         QVERIFY(std::isnan(t.sampleAt(33.0, 41.0)));
     }
 
+    /*! Mixed batch with points EXACTLY on the raster edge. The strip loop
+     *  re-evaluates anchorFor() for each point after pass 1; at the floor()
+     *  range-test boundary FP contraction may flip the in-range verdict
+     *  between the two inline expansions, and the loop must then emit NaN —
+     *  never index the strip buffer with an unwritten (previously
+     *  uninitialised) Anchor. Regression test for the large-DEM segfault
+     *  where a network straddling the DEM edge generates exactly these
+     *  edge-exact queries. */
+    void parity_edgeExact_mixedBatch()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        mesh::DTMThinner t;
+        QVERIFY(t.open(buildRamp(dir, true)));
+
+        QVector<QPointF> pts;
+        // Exact edges / corners (world x == pixel col with this transform).
+        const double xs[] = {0.0, 0.5, kW - 0.5, double(kW), kW + 0.5};
+        const double ys[] = {0.0, 0.5, kH - 0.5, double(kH), kH + 0.5};
+        for (double x : xs)
+            for (double y : ys)
+                pts.append(QPointF(x, y));
+        // Interior points interleaved so the batch has populated strips.
+        for (int i = 0; i < 64; ++i)
+            pts.append(QPointF(3.0 + i % 8, 5.0 + i / 8));
+        // Far-outside points (a network reaching beyond the DEM).
+        pts.append(QPointF(-1e7, 5.0));
+        pts.append(QPointF(5.0, 1e7));
+        pts.append(QPointF(1e12, -1e12));
+
+        verifyParity(t, pts, mesh::DTMThinner::kMaxReadBufBytesDefault);
+        verifyParity(t, pts, 256);   // 2-row strips: every window near a seam
+    }
+
     /*! A 256-byte budget forces 2-row strips (stride 1), so nearly every
      *  bilinear window spans a strip boundary and rides the overlap row. */
     void parity_tinyBudget_multiStrip()

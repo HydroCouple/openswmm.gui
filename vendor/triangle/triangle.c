@@ -348,7 +348,15 @@
 #include <math.h>
 #ifdef TRILIBRARY
 #include <setjmp.h>
-jmp_buf triangle_longjmp_buffer;  /* definition — declared extern in triangle.h */
+/* definition — declared extern (and TRIANGLE_THREAD_LOCAL defined) in
+   triangle.h, which is included below.  Kept thread-local so concurrent
+   triangulate_safe() calls on different threads cannot clobber each
+   other's setjmp frame. */
+#if defined(_MSC_VER) && !defined(__cplusplus)
+__declspec(thread) jmp_buf triangle_longjmp_buffer;
+#else
+_Thread_local jmp_buf triangle_longjmp_buffer;
+#endif
 #endif
 #ifndef NO_TIMER
 #include <sys/time.h>

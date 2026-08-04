@@ -315,8 +315,18 @@ void HYDROCOUPLESDK_EXPORT report(struct triangulateio *, int, int, int, int,int
 /* jmp_buf used by triexit() in TRILIBRARY mode to signal fatal errors   */
 /* without calling exit().  Declared here so both triangle.c and callers */
 /* share the same symbol.                                                */
+/* THREAD-LOCAL: two concurrent triangulate_safe() calls (mesh worker +  */
+/* natural-neighbour build) would otherwise clobber each other's setjmp  */
+/* frame, and a later triexit() would longjmp onto a dead stack.         */
+#if defined(__cplusplus)
+#define TRIANGLE_THREAD_LOCAL thread_local
+#elif defined(_MSC_VER)
+#define TRIANGLE_THREAD_LOCAL __declspec(thread)
+#else
+#define TRIANGLE_THREAD_LOCAL _Thread_local
+#endif
 #include <setjmp.h>
-extern jmp_buf triangle_longjmp_buffer;
+extern TRIANGLE_THREAD_LOCAL jmp_buf triangle_longjmp_buffer;
 
 /* Safe wrapper around triangulate().  Returns 0 on success, -1 if      */
 /* Triangle called triexit() (degenerate PSLG, out-of-memory, etc.).    */

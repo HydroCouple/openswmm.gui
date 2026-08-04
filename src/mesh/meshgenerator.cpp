@@ -261,8 +261,8 @@ MeshResult MeshGenerator::generate() const
     {
         const int domN = dom.size();
         if (domN < 3) continue;
+        const int ringSegStart = domSegments.size();
         int firstIdx = -1, prevIdx = -1;
-        int uniqueVerts = 0;
         for (int i = 0; i < domN; ++i)
         {
             const QPointF &p = dom[i];
@@ -271,18 +271,21 @@ MeshResult MeshGenerator::generate() const
                 && qFuzzyCompare(p.y() + 1, dom[0].y() + 1))
                 break;  // closed polygon: skip the dup-of-first vertex.
             const int idx = pushPoint(p, kBoundaryMarker);
-            if (firstIdx < 0) { firstIdx = idx; ++uniqueVerts; }
+            if (firstIdx < 0) { firstIdx = idx; prevIdx = idx; continue; }
             // Skip zero-length segments: after quantisation two consecutive
             // vertices may map to the same index.  OGR UnaryUnion (dissolve)
             // can produce such duplicates at polygon-join points.
             if (idx == prevIdx) continue;
-            ++uniqueVerts;
-            if (prevIdx >= 0)
-                domSegments.append(qMakePair(prevIdx, idx));
+            domSegments.append(qMakePair(prevIdx, idx));
             prevIdx = idx;
         }
-        // Ring closing segment — only if we have ≥ 3 unique vertices.
-        if (uniqueVerts >= 3 && prevIdx >= 0 && firstIdx >= 0 && prevIdx != firstIdx)
+        // Ring closing segment — only when the ring already contributed ≥ 2
+        // open segments (a closed ring needs ≥ 3 total). Gating on a vertex
+        // count over-counted revisited vertices, letting a polygon that
+        // quantised down to 2 distinct vertices emit the degenerate pair
+        // (a,b),(b,a) as a "closed ring".
+        if (domSegments.size() - ringSegStart >= 2
+            && prevIdx >= 0 && firstIdx >= 0 && prevIdx != firstIdx)
             domSegments.append(qMakePair(prevIdx, firstIdx));
     }
     if (domSegments.isEmpty())
@@ -392,10 +395,27 @@ MeshResult MeshGenerator::generate() const
     triangulateio in{};   zeroIO(in);
     triangulateio out{};  zeroIO(out);
 
+    // std::malloc returns NULL on failure — it does NOT throw — so writing
+    // through an unchecked pointer here is a raw SIGSEGV that the pipeline's
+    // bad_alloc guard cannot intercept. At the kMaxTrianglePoints bound the
+    // pointlist alone is ~1 GB contiguous, which a large DEM can push past
+    // the commit limit. Check every packing allocation and fail gracefully.
+    auto packOom = [&]() {
+        std::free(in.pointlist);      std::free(in.pointmarkerlist);
+        std::free(in.segmentlist);    std::free(in.segmentmarkerlist);
+        std::free(in.holelist);       std::free(in.regionlist);
+        result.errorMsg = QStringLiteral(
+            "MeshGenerator: out of memory while packing %1 mesh points for "
+            "Triangle. Reduce the terrain point density, enable thinning, or "
+            "mesh a smaller extent.").arg(points.size());
+        return result;
+    };
+
     // Points
     in.numberofpoints = points.size();
     in.pointlist      = static_cast<REAL *>(std::malloc(sizeof(REAL) * 2 * points.size()));
     in.pointmarkerlist = static_cast<int *>(std::malloc(sizeof(int) * points.size()));
+    if (!in.pointlist || !in.pointmarkerlist) return packOom();
     for (int i = 0; i < points.size(); ++i)
     {
         in.pointlist[2 * i + 0] = points[i].x();
@@ -410,6 +430,7 @@ MeshResult MeshGenerator::generate() const
     {
         in.segmentlist       = static_cast<int *>(std::malloc(sizeof(int) * 2 * totalSeg));
         in.segmentmarkerlist = static_cast<int *>(std::malloc(sizeof(int) * totalSeg));
+        if (!in.segmentlist || !in.segmentmarkerlist) return packOom();
         int s = 0;
         for (const auto &seg : domSegments)
         {
@@ -432,6 +453,7 @@ MeshResult MeshGenerator::generate() const
     if (!m_holes.isEmpty())
     {
         in.holelist = static_cast<REAL *>(std::malloc(sizeof(REAL) * 2 * m_holes.size()));
+        if (!in.holelist) return packOom();
         for (int i = 0; i < m_holes.size(); ++i)
         {
             in.holelist[2 * i + 0] = m_holes[i].x();
@@ -446,6 +468,7 @@ MeshResult MeshGenerator::generate() const
     if (!m_regions.isEmpty())
     {
         in.regionlist = static_cast<REAL *>(std::malloc(sizeof(REAL) * 4 * m_regions.size()));
+        if (!in.regionlist) return packOom();
         for (int i = 0; i < m_regions.size(); ++i)
         {
             in.regionlist[4 * i + 0] = m_regions[i].xy.x();
@@ -558,6 +581,24 @@ MeshResult MeshGenerator::generate() const
         result.vertices.append(v);
     }
 
+    // Validate every vertex index Triangle hands back ONCE, here at the
+    // source. Downstream consumers (reorderMeshHilbert, the DEM-coverage CSR
+    // fill) index vertex arrays with these values without further checks; on
+    // a degenerate PSLG a corrupt index would turn into an out-of-bounds
+    // write there, not a clean failure.
+    const int nOutPts = out.numberofpoints;
+    auto badOutput = [&]() {
+        result.vertices.clear();
+        result.triangles.clear();
+        result.boundaryEdges.clear();
+        result.errorMsg = QStringLiteral(
+            "MeshGenerator: Triangle returned a vertex index outside its own "
+            "point list — output is corrupt (degenerate PSLG?).");
+        return false;
+    };
+    auto validIdx = [nOutPts](int v) { return v >= 0 && v < nOutPts; };
+
+    bool outputOk = true;
     result.triangles.reserve(out.numberoftriangles);
     for (int i = 0; i < out.numberoftriangles; ++i)
     {
@@ -565,6 +606,11 @@ MeshResult MeshGenerator::generate() const
         t.v0 = out.trianglelist[3 * i + 0];
         t.v1 = out.trianglelist[3 * i + 1];
         t.v2 = out.trianglelist[3 * i + 2];
+        if (!validIdx(t.v0) || !validIdx(t.v1) || !validIdx(t.v2))
+        {
+            outputOk = badOutput();
+            break;
+        }
         if (out.triangleattributelist && out.numberoftriangleattributes > 0)
         {
             const int regionId = static_cast<int>(out.triangleattributelist[i]);
@@ -573,7 +619,7 @@ MeshResult MeshGenerator::generate() const
         result.triangles.append(t);
     }
 
-    if (out.segmentlist && out.numberofsegments > 0)
+    if (outputOk && out.segmentlist && out.numberofsegments > 0)
     {
         result.boundaryEdges.reserve(out.numberofsegments);
         for (int i = 0; i < out.numberofsegments; ++i)
@@ -581,14 +627,19 @@ MeshResult MeshGenerator::generate() const
             MeshEdge e;
             e.v0     = out.segmentlist[2 * i + 0];
             e.v1     = out.segmentlist[2 * i + 1];
+            if (!validIdx(e.v0) || !validIdx(e.v1))
+            {
+                outputOk = badOutput();
+                break;
+            }
             e.marker = out.segmentmarkerlist ? out.segmentmarkerlist[i] : 0;
             e.tag    = m_edgeTagByMarker.value(e.marker);
             result.boundaryEdges.append(e);
         }
     }
 
-    result.ok = (out.numberoftriangles > 0);
-    if (!result.ok)
+    result.ok = outputOk && (out.numberoftriangles > 0);
+    if (!result.ok && result.errorMsg.isEmpty())
         result.errorMsg = QStringLiteral(
             "Triangle produced 0 triangles — domain may be self-intersecting "
             "or constraint segments may cross.");

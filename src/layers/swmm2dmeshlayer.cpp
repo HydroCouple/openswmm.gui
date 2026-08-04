@@ -1200,7 +1200,19 @@ void SWMM2DMeshLayer::finishSceneGeometryAsync()
     auto *watcher = new QFutureWatcher<QSharedPointer<DeferredGeom>>(this);
     connect(watcher, &QFutureWatcherBase::finished, this,
             [this, watcher, revAtLaunch]() {
-        QSharedPointer<DeferredGeom> d = watcher->result();
+        // result() rethrows any exception the worker stored (std::bad_alloc
+        // on a huge mesh) — uncaught in a slot, that is std::terminate.
+        QSharedPointer<DeferredGeom> d;
+        try {
+            d = watcher->result();
+        } catch (const std::exception &e) {
+            watcher->deleteLater();
+            m_heavyBuildRunning = false;
+            qWarning("SWMM2DMeshLayer: deferred scene-geometry build failed "
+                     "(%s) — mesh interaction stays limited to the light "
+                     "geometry.", e.what());
+            return;
+        }
         watcher->deleteLater();
         m_heavyBuildRunning = false;
 
@@ -1297,8 +1309,16 @@ MeshOverviewData buildMeshOverviewData(
     // full-screen zoom-to-extent) — the coarse bake read as "jagged /
     // truncated" at full extent.
     constexpr int kTargetCells = 60000;
+    // Clamp in DOUBLE space before narrowing: a sliver bbox (bh ~ 1e-12 —
+    // plausible when a mostly-NoData DEM leaves a thin usable strip) drives
+    // aspect ~1e18 and sqrt(kTargetCells * aspect) past int range. The
+    // out-of-range double->int cast is UB and SATURATES on ARM64, making
+    // cols = INT_MAX and the zsum allocation below ~17 GB. Bounding both
+    // dims to kTargetCells keeps cols*rows <= kTargetCells^2 well inside
+    // qsizetype and the grid itself never larger than intended.
     const double aspect = (bh > 0.0) ? (bw / bh) : 1.0;
-    const int cols = qMax(1, int(std::round(std::sqrt(double(kTargetCells) * aspect))));
+    const double colsD  = std::round(std::sqrt(double(kTargetCells) * aspect));
+    const int cols = int(qBound(1.0, colsD, double(kTargetCells)));
     const int rows = qMax(1, int(std::round(double(kTargetCells) / double(cols))));
 
     const double cw = bw / double(cols);
@@ -1416,7 +1436,19 @@ void SWMM2DMeshLayer::rebuildOverviewAsync()
 
     auto *watcher = new QFutureWatcher<MeshOverviewData>(this);
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
-        MeshOverviewData d = watcher->result();
+        // result() rethrows a worker exception on the GUI thread — convert an
+        // overview-build OOM into "no pyramid" instead of std::terminate.
+        MeshOverviewData d;
+        try {
+            d = watcher->result();
+        } catch (const std::exception &e) {
+            watcher->deleteLater();
+            m_overviewBuildRunning = false;
+            qWarning("SWMM2DMeshLayer: overview (pyramid) build failed: %s",
+                     e.what());
+            emit overviewBuildFinished(false);
+            return;
+        }
         watcher->deleteLater();
         m_overviewTris   = std::move(d.overviewTris);
         m_trisBySizeDesc = std::move(d.trisBySizeDesc);
