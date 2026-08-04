@@ -471,6 +471,87 @@ private slots:
         QVERIFY(after.open(QIODevice::ReadOnly));
         QCOMPARE(after.readAll(), snapshot);
     }
+
+    /*! An edited INIT_DEPTH must survive the patch even when the row carries
+     *  no Manning's value on either side. Columns are positional, so the
+     *  patcher materializes the default n rather than dropping the later
+     *  columns — before the fix the depth (and tag) vanished silently. */
+    void patchAttributeSections_depthSurvivesMissingMannings()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString meshPath = dir.filePath("bare.2dm");
+
+        // Hand-authored 3-token rows: connectivity only, no MANNINGS_N.
+        {
+            QFile f(meshPath);
+            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+            f.write("[2D_VERTICES]\n"
+                    "0   0   1.0\n"
+                    "10  0   1.5\n"
+                    "10  10  2.0\n"
+                    "0   10  2.5\n"
+                    "\n"
+                    "[2D_TRIANGLES]\n"
+                    "0  1  2\n"
+                    "0  2  3\n");
+            f.close();
+        }
+
+        MeshResult edited = sampleMesh();
+        edited.triangles[0].initDepth = 0.4;
+        edited.triangles[0].tag       = QStringLiteral("pond");
+        // triangles[*].mannings stay NaN — the layer only fills them on an
+        // explicit edit, and the file has no token to preserve either.
+
+        QString err;
+        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited, &err),
+                 qPrintable(err));
+
+        const InpMeshReadResult r = InpMeshReader::read(meshPath);
+        QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+        QVERIFY(r.hasMesh);
+        QCOMPARE(r.mesh.triangles.size(), 2);
+        QCOMPARE(r.mesh.triangles[0].initDepth, 0.4);
+        QCOMPARE(r.mesh.triangles[0].tag, QStringLiteral("pond"));
+        // The materialized Manning's keeps the columns positional.
+        QVERIFY(std::isfinite(r.mesh.triangles[0].mannings));
+        QVERIFY(r.mesh.triangles[0].mannings > 0.0);
+    }
+
+    /*! A depth edit must not disturb a Manning's value the file already
+     *  carried — the patcher preserves the original token when the layer's
+     *  own value is unset. */
+    void patchAttributeSections_depthEditKeepsFileMannings()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString inpPath  = dir.filePath("project.inp");
+        const QString meshPath = dir.filePath("project.2dm");
+        {
+            QFile inp(inpPath);
+            QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Text));
+            inp.write("[TITLE]\nDemo\n\n[OPTIONS]\nFLOW_UNITS  CMS\n\n");
+            inp.close();
+        }
+        // Triangle 0 carries an explicit 0.025; triangle 1 the 0.035 default.
+        QVERIFY(InpMeshWriter::writeExternal(inpPath, meshPath, sampleMesh(),
+                                             sampleCoupling(), 0.035));
+
+        MeshResult edited = sampleMesh();
+        edited.triangles[1].initDepth = 0.15;   // depth only, mannings NaN
+
+        QString err;
+        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited, &err),
+                 qPrintable(err));
+
+        const InpMeshReadResult r = InpMeshReader::read(inpPath);
+        QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+        QCOMPARE(r.mesh.triangles.size(), 2);
+        QCOMPARE(r.mesh.triangles[1].initDepth, 0.15);
+        QCOMPARE(r.mesh.triangles[0].mannings, 0.025);
+        QCOMPARE(r.mesh.triangles[1].mannings, 0.035);
+    }
 };
 
 QTEST_MAIN(TestInpMeshWriter)
