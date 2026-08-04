@@ -126,6 +126,15 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU|AppleClang")
         -Wno-strict-prototypes
     )
 endif()
+# The handle macros round pointers through an integer; that integer is now
+# uintptr_t (was `unsigned long`, which is 32-bit on LLP64 Windows and
+# truncated every pointer at or above 4 GiB). C4311/C4312 are MSVC's
+# diagnostics for exactly that truncation — leave them ENABLED so a
+# regression is caught at compile time rather than as a large-mesh crash.
+# The remaining noise is the same pre-C99 strictness quieted above.
+if(MSVC)
+    target_compile_options(triangle_lib PRIVATE /wd4996 /wd4244 /wd4267)
+endif()
 set_target_properties(triangle_lib PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     AUTOMOC OFF
@@ -1444,6 +1453,32 @@ set_target_properties(SWMMVis PROPERTIES
     MACOSX_BUNDLE TRUE
     WIN32_EXECUTABLE TRUE
 )
+
+# ── Windows stack reserve ───────────────────────────────────────────────────
+# Windows threads default to a 1 MiB stack RESERVE taken from the PE header,
+# and Qt passes dwStackSize = 0 to CreateThread, so QtConcurrent workers get
+# that same 1 MiB — versus 8 MiB for the macOS main thread. The mesh pipeline
+# runs on a pool worker, and triangulate() alone places ~81 KiB of bad-triangle
+# queues (struct mesh's three 4096-element arrays) in a single frame before any
+# of Triangle's recursive routines start. vertexsort() recurses on BOTH
+# partitions with no smaller-half depth guard, so deep inputs are bounded only
+# by the stack. Reserving 8 MiB matches the macOS headroom the code is
+# routinely exercised against; it is address space, not committed memory.
+if(MSVC)
+    target_link_options(SWMMVis PRIVATE /STACK:8388608)
+elseif(MINGW)
+    target_link_options(SWMMVis PRIVATE -Wl,--stack,8388608)
+endif()
+
+# 64-bit only. On a 32-bit Windows build the 2 GiB user address space makes
+# every large-mesh pool allocation fail, and nothing else in this file pins the
+# architecture — CMakePresets uses Ninja and inherits whatever cl.exe is on
+# PATH, so an x86 Native Tools prompt would silently produce one.
+if(WIN32 AND NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+    message(FATAL_ERROR
+        "SWMMVis requires a 64-bit Windows build (found ${CMAKE_SIZEOF_VOID_P}-byte "
+        "pointers). Configure from an x64 Native Tools prompt.")
+endif()
 
 # ── Portable GDAL / PROJ data (vcpkg) ───────────────────────────────────────
 # Copy the vcpkg-installed share trees into the SWMMVis output so
