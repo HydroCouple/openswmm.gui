@@ -1,0 +1,22 @@
+2D map pooling extrapolation check
+  pool eta = 5.0 over a flat reach; adverse bank climbs to z = 8 in one DRY cell
+  true waterline at x = 16.25;  dryDepth = 1e-4
+
+    x   ground   BEFORE     AFTER    truth   verdict
+  ----  ------   -------   -------   -----   -------
+   9.0    0.00     5.000     5.000   5.000   ok
+  10.0    0.00     5.000     5.000   5.000   ok
+  11.0    0.80     4.500     4.200   4.200   ok
+  12.0    1.60     4.000     3.400   3.400   ok
+  13.0    2.40     3.500     2.600   2.600   ok
+  14.0    3.20     3.000     1.800   1.800   ok
+  15.0    4.00     2.500     1.000   1.000   ok
+  16.0    4.80     2.000     0.200   0.200   ok
+  17.0    5.60     1.500     0.000   0.000   ok
+  18.0    6.40     1.000     0.000   0.000   ok
+  19.0    7.20     0.500     0.000   0.000   ok
+  20.0    8.00     0.000     0.000   0.000   ok
+
+  painted waterline:  BEFORE x = 20.000 (the dry vertex)   AFTER x = 16.250   true x = 16.25
+
+RESULT: PASS - the pooling wedge extends to the sub-cell bed intercept and stops there.

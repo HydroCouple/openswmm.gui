@@ -639,12 +639,21 @@ public:
         QPointF a, b, c;
         QPointF centroid;       ///< Scene-space centroid; cached at rebuildSceneGeometry_.
         float   depth = 0.0f;   ///< Cell-centre depth (m) — drives the heatmap fill.
-        // Per-vertex depths (m), used by the marching-triangles contour
-        // passes. Recomputed each tick in applyCurrentDepths_() as the
-        // mean of incident-cell depths, so the contour passes see a
-        // continuous scalar field across cell boundaries. Without this
-        // the algorithm degenerates (v0==v1==v2 → vMax > vMin is false)
-        // and the contour passes silently skip every triangle.
+        // Per-corner SIGNED depths η−z (m), used by the marching-triangles
+        // contour passes. Recomputed each tick in applyCurrentDepths_() from
+        // the wet-masked vertex free-surface field, so the contour passes see
+        // a continuous scalar across cell boundaries. Without this the
+        // algorithm degenerates (v0==v1==v2 → vMax > vMin is false) and the
+        // contour passes silently skip every triangle.
+        //
+        // Exactly 0 is the NO-DATA sentinel (no wet incident cell) — EXCEPT in
+        // a cell that has at least one wet corner, where the dry corners carry
+        // the extrapolated pooling surface maxEta − z_k (negative where the bed
+        // stands above the pool). That keeps the field LINEAR on the triangle,
+        // which is what the marching passes assume, so they cut the shoreline
+        // on the true sub-cell bed intercept. Per-corner, so these are NOT
+        // interchangeable across the cells sharing a vertex.
+        // (workplans/2D_MAP_POOLING_EXTRAPOLATION_PLAN_2026-08-04.md)
         float   dv0   = 0.0f;
         float   dv1   = 0.0f;
         float   dv2   = 0.0f;

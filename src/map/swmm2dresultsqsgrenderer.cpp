@@ -908,6 +908,23 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
         const double dryDepth = m_layer->dryDepth();
         const double maxDepth = std::max(m_layer->maxDepth(), dryDepth + 1e-9);
 
+        // Fill gate. The cell-mean test alone truncated the inundation at the
+        // cell edge: a cell the solver calls dry still holds the pooling wedge
+        // where a neighbour's free surface stands above part of its bed, and
+        // applyCurrentDepths_ now writes that surface into its dv corners.
+        // Strictly additive over the old test, so no cell that painted before
+        // stops painting. Gouraud fills interpolate vertex colours and cannot
+        // clip a triangle at the waterline — the exact sub-cell shoreline is
+        // the marching band/isoline path's job; here the corner values below
+        // dryDepth simply render at the ramp's transparent low end.
+        // (workplans/2D_MAP_POOLING_EXTRAPOLATION_PLAN_2026-08-04.md)
+        auto cellPaints = [dryDepth](const SWMM2DResultsLayer::SceneTri &t) {
+            return double(t.depth) >= dryDepth
+                   || double(t.dv0) >= dryDepth
+                   || double(t.dv1) >= dryDepth
+                   || double(t.dv2) >= dryDepth;
+        };
+
         const OpenSWMM::Render::ContourBandStyle *bs =
             bandSub ? bandSub->bandStyle() : nullptr;
         const OpenSWMM::Render::IsolineStyle *is =
@@ -1239,7 +1256,12 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             };
             for (int i : visibleCells) {
                 const auto &t = tris[i];
-                if (t.depth < dryDepth) continue;  // dry → terrain shows through
+                // Per-vertex fills read the extrapolated corner surface, so a
+                // solver-dry cell carrying the pooling wedge still paints; the
+                // flat per-cell fill has only the cell mean to colour with and
+                // keeps the strict gate.
+                if (!(perVertex ? cellPaints(t) : double(t.depth) >= dryDepth))
+                    continue;                      // dry → terrain shows through
                 if (perVertex) {
                     pushV(t.a, colorAt(t.dv0));
                     pushV(t.b, colorAt(t.dv1));
@@ -1356,6 +1378,14 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             };
             for (int i : visibleCells) {
                 const auto &t = tris[i];
+                // Strict cell-mean gate here, unlike the expanded path: this
+                // buffer is indexed by SHARED vertex, so a no-data corner
+                // extrapolated by several partially-wet cells would collide
+                // (a deep pool's driving head could stamp itself on a ridge
+                // vertex a thin film on the far side also owns). Per-corner
+                // surfaces cannot be represented on shared vertices, so the
+                // pooling wedge is delivered by the marching band/isoline
+                // passes, which carry per-triangle values.
                 if (t.depth < dryDepth) continue;
                 const quint32 *src = &sIdx[size_t(i) * 3];
                 setColor(src[0], t.dv0);
@@ -1525,7 +1555,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
             int k = 0;
             for (int i : visibleCells) {
                 const auto &t = tris[i];
-                if (t.depth < dryDepth) continue;
+                if (t.depth < dryDepth) continue;   // shared-vertex buffer —
+                                                    // see buildSmoothFillIndexed
                 const quint32 *src = &sIdx[size_t(i) * 3];
                 vd[src[0]].value = t.dv0;
                 vd[src[1]].value = t.dv1;
