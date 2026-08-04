@@ -170,6 +170,7 @@ void applySubcatchDefaults(SWMM_Engine engine, int idx, bool skipArea)
     swmm_subcatch_set_n_perv(engine, idx, d.subcatchNPerv);
     swmm_subcatch_set_ds_imperv(engine, idx, d.subcatchDsImperv);
     swmm_subcatch_set_ds_perv(engine, idx, d.subcatchDsPerv);
+    swmm_subcatch_set_zero_imperv_pct(engine, idx, d.subcatchPctZeroImperv);
 
     // Write only the parameter family matching the PROJECT's INFILTRATION
     // option. Keying off the subcatchment's own infil_model would pin every
@@ -185,7 +186,8 @@ void applySubcatchDefaults(SWMM_Engine engine, int idx, bool skipArea)
     // MOD_ variants (1 / 3) afterwards so the project's choice is preserved.
     const bool modified = opt.startsWith(QLatin1String("MOD"));
     if (opt.contains(QLatin1String("CURVE"))) {
-        swmm_subcatch_set_infil_curve_number(engine, idx, d.cnCurveNumber);
+        swmm_subcatch_set_infil_curve_number(engine, idx, d.cnCurveNumber,
+                                             d.cnDryTime);
     } else if (opt.contains(QLatin1String("GREEN"))) {
         swmm_subcatch_set_infil_green_ampt(engine, idx,
                                            d.gaSuction, d.gaKsat, d.gaImd);

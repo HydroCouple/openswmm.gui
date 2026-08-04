@@ -90,6 +90,7 @@ G(area,      swmm_subcatch_get_area)
 G(width,     swmm_subcatch_get_width)
 G(slope,     swmm_subcatch_get_slope)
 G(impervPct, swmm_subcatch_get_imperv_pct)
+G(pctZeroImperv, swmm_subcatch_get_zero_imperv_pct)
 G(nImperv,   swmm_subcatch_get_n_imperv)
 G(nPerv,     swmm_subcatch_get_n_perv)
 G(dsImperv,  swmm_subcatch_get_ds_imperv)
@@ -146,6 +147,7 @@ S(setArea,      swmm_subcatch_set_area)
 S(setWidth,     swmm_subcatch_set_width)
 S(setSlope,     swmm_subcatch_set_slope)
 S(setImpervPct, swmm_subcatch_set_imperv_pct)
+S(setPctZeroImperv, swmm_subcatch_set_zero_imperv_pct)
 S(setNImperv,   swmm_subcatch_set_n_imperv)
 S(setNPerv,     swmm_subcatch_set_n_perv)
 S(setDsImperv,  swmm_subcatch_set_ds_imperv)
@@ -425,19 +427,40 @@ void SWMMSubcatchPropertyAdapter::setGaInitDeficit(double v)
     }
 }
 
-// Curve Number (infil_p1).
+// Curve Number (infil_p1) and its drying time (infil_p3). Both slots are
+// written together, so each setter re-reads its sibling first; the model code
+// is restored afterwards because the engine setter stamps CURVE_NUMBER.
 double SWMMSubcatchPropertyAdapter::cnNumber() const
 {
     const int i = idx(); if (i < 0) return 0.0;
     double cn = 0;
-    swmm_subcatch_get_infil_curve_number(m_engine, i, &cn);
+    swmm_subcatch_get_infil_curve_number(m_engine, i, &cn, nullptr);
     return cn;
+}
+double SWMMSubcatchPropertyAdapter::cnDryTime() const
+{
+    const int i = idx(); if (i < 0) return 0.0;
+    double dt = 0;
+    swmm_subcatch_get_infil_curve_number(m_engine, i, nullptr, &dt);
+    return dt;
+}
+void SWMMSubcatchPropertyAdapter::writeCurveNumber(double cn, double dryTime)
+{
+    const int i = idx(); if (i < 0) return;
+    int model = 0;
+    swmm_subcatch_get_infil_model(m_engine, i, &model);
+    if (swmm_subcatch_set_infil_curve_number(m_engine, i, cn, dryTime) == SWMM_OK) {
+        swmm_subcatch_set_infil_model(m_engine, i, model);
+        emit changed();
+    }
 }
 void SWMMSubcatchPropertyAdapter::setCnNumber(double v)
 {
-    const int i = idx(); if (i < 0) return;
-    if (swmm_subcatch_set_infil_curve_number(m_engine, i, v) == SWMM_OK)
-        emit changed();
+    writeCurveNumber(v, cnDryTime());
+}
+void SWMMSubcatchPropertyAdapter::setCnDryTime(double v)
+{
+    writeCurveNumber(cnNumber(), v);
 }
 
 // --- Compound refs (land use / groundwater / LID usage) --------------------
