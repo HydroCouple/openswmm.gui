@@ -3485,7 +3485,16 @@ void SWMMModelLayer::refreshScene(QGraphicsScene *scene,
 
     depopulateScene(scene);
     populateScene(scene, canvasExtent, canvasSRS);
-    m_needsRebuild = false;
+    // populateScene() bails on hidden layers without creating m_batchedItem.
+    // Clearing the flag in that state strands the layer with no scene item
+    // and nothing left to trigger a rebuild — applyNodeAdd's
+    // `if (m_batchedItem) refreshBoundingRect()` no-ops and newly added
+    // objects stay invisible until a visibility toggle re-arms the flag via
+    // depopulateScene(). The load path hits exactly this: the srsChanged
+    // handler in MapCanvas::insertLayer runs refreshScene while the layer is
+    // still force-hidden by loadModelAsync. Keep the flag armed until a
+    // visible populate succeeds.
+    m_needsRebuild = !isVisible();
 }
 
 void SWMMModelLayer::reloadGeometry()
