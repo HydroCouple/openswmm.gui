@@ -124,12 +124,15 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
     if (swmm_2d_triangle_count(engine, &nt) != 0 || nt <= 0)
         return true;  // no triangles to touch
 
-    // ---- Per-triangle Manning's n + descriptive tag ------------------------
+    // ---- Per-triangle Manning's n + init depth + descriptive tag ----------
     if (nt == mesh.triangles.size()) {
         for (int t = 0; t < nt; ++t) {
             const double n = mesh.triangles[t].mannings;
             if (std::isfinite(n) && n > 0.0)   // NaN = unset; keep engine value
                 swmm_2d_set_triangle_mannings(engine, t, n);
+            const double d = mesh.triangles[t].initDepth;
+            if (std::isfinite(d) && d >= 0.0)  // NaN = unset; keep engine value
+                swmm_2d_set_triangle_init_depth(engine, t, d);
             swmm_2d_set_triangle_tag(
                 engine, t, mesh.triangles[t].tag.toUtf8().constData());
         }
