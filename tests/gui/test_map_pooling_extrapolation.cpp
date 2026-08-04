@@ -291,6 +291,39 @@ private slots:
         QCOMPARE(sd2, 0.0f);
     }
 
+    /*! ADVERSE SLOPE ONLY. A dry corner whose bed falls BELOW the driving head
+     *  keeps the sentinel: extrapolating there would inject standing water into
+     *  a dry cell and spread the pool one cell downhill in every direction —
+     *  the flood-fill behaviour this feature does not do. Regression pin for
+     *  the 2026-08-04 live-render breakage. */
+    void doesNotExtrapolateDownhill()
+    {
+        // One wet corner at η = 5 (z = 0, sd = 5); one dry corner well BELOW
+        // the pool (a channel bed at z = −2) and one above it (z = 8).
+        float sd0 = 5.0f, sd1 = 0.0f, sd2 = 0.0f;
+        VertexDepthReconstruct::extrapolateDryCorners(0.0, -2.0, 8.0,
+                                                      sd0, sd1, sd2);
+        QCOMPARE(sd0, 5.0f);    // wet corner untouched
+        QCOMPARE(sd1, 0.0f);    // downhill dry corner keeps the sentinel
+        QCOMPARE(sd2, -3.0f);   // adverse dry corner carries maxEta − z
+    }
+
+    /*! No corner may be turned wet by extrapolation — the fill gate and
+     *  CellSurfaceInterp both key on sd > 0, so a positive extrapolated value
+     *  would paint invented water and flip the profile's supplying set. */
+    void extrapolationNeverCreatesAWetCorner()
+    {
+        const double beds[] = { -50.0, -2.0, 0.0, 4.999, 5.0, 5.001, 8.0, 90.0 };
+        for (double zDry : beds) {
+            float sd0 = 5.0f, sd1 = 0.0f, sd2 = 0.0f;
+            VertexDepthReconstruct::extrapolateDryCorners(0.0, zDry, 40.0,
+                                                          sd0, sd1, sd2);
+            QVERIFY2(sd1 <= 0.0f,
+                     qPrintable(QStringLiteral("zDry=%1 sd=%2")
+                                .arg(zDry).arg(sd1)));
+        }
+    }
+
     /*! The profile path is bitwise unaffected on the canonical bank: an
      *  extrapolated corner below the pool (maxEta − z < 0) is non-supplying in
      *  CellSurfaceInterp exactly as the 0 sentinel was. */

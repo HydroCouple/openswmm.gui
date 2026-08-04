@@ -205,7 +205,18 @@ inline void extrapolateDryCorners(double z0, double z1, double z2,
     for (int k = 0; k < 3; ++k) {
         if (*sd[k] > 0.0f) continue;        // wet corner keeps its own η
         if (!std::isfinite(z[k])) continue; // nodata bed stays the sentinel
-        *sd[k] = float(maxEta - z[k]);
+        const double d = maxEta - z[k];
+        // ADVERSE SLOPE ONLY. A dry corner standing above the driving head is
+        // the pooling case: the surface runs level into the cell and meets the
+        // rising bed at the intercept, so d <= 0 carries that geometry. A dry
+        // corner BELOW the driving head is the opposite — the bed falls away
+        // from the water, which is where the solver's dryness is meaningful
+        // (the water drained, or never arrived). Extrapolating there would
+        // inject d metres of standing water into a dry cell and spread the
+        // pool downhill one cell in every direction, which is the flood-fill
+        // behaviour this feature explicitly does not do. Leave the sentinel.
+        if (d > 0.0) continue;
+        *sd[k] = float(d);
     }
 }
 
