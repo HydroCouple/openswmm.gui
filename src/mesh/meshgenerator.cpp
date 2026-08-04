@@ -364,29 +364,34 @@ MeshResult MeshGenerator::generate() const
         return result;
     }
 
-    // ── Bound the point count against Triangle's int pool arithmetic ──────
-    // initializevertexpool() sizes the first vertex block via poolinit() as
-    //   trimalloc(pool->itemsfirstblock * pool->itembytes + ...)
-    // where itemsfirstblock is the input vertex count and BOTH operands are
-    // int, so the product is evaluated in int arithmetic and overflows
-    // silently. itembytes is 32 for our configuration (2D, no point
-    // attributes, -p/-q always set), putting the limit at (INT_MAX - 16) / 32.
-    // Past it trimalloc() receives a wrapped size; a small positive wrap
-    // yields an undersized first block that Triangle then writes every vertex
-    // into — heap corruption, not a clean allocation failure.
+    // ── Bound the point count against Triangle's first-block pool sizing ──
+    // poolinit() sizes a pool's first block as
+    //   trimalloc(itemsfirstblock * itembytes + sizeof(void*) + alignbytes)
+    // The binding pool is the TRIANGLE pool, not the vertex pool: while
+    // initializevertexpool() passes itemsfirstblock = invertices with
+    // itembytes 32, initializetrisubpools() passes 2*invertices - 2 with
+    // itembytes 72 for our switch string (2D, no point attributes, -A region
+    // attributes, -p/-q always set). That is 144 bytes per input point —
+    // 4.5x the vertex pool, so bounding on 32 was far too permissive and left
+    // a live window between the two limits.
     //
-    // NOTE: unlike the non-finite screen above, this bound is derived by
-    // reading triangle.c (poolinit / initializevertexpool), NOT reproduced —
-    // provoking it needs ~2 GB of vertex pool. It is cheap insurance on a
-    // path that otherwise corrupts the heap silently.
-    constexpr qsizetype kMaxTrianglePoints = (2147483647 - 16) / 32;  // 67108863
+    // The arithmetic itself is now size_t in the vendored triangle.c (both
+    // operands were int and wrapped silently), so overflowing this no longer
+    // corrupts the heap. The bound is kept as a fail-fast: past it the
+    // triangle pool alone wants > 2 GB in ONE contiguous block, which is a
+    // request worth refusing with an actionable message rather than letting
+    // it become a bad_alloc — or, on Windows, a commit-limit kill.
+    //
+    // NOTE: derived by reading triangle.c (poolinit / initializetrisubpools),
+    // NOT reproduced — provoking it needs > 2 GB of pool.
+    constexpr qsizetype kMaxTrianglePoints = (2147483647 - 16) / 144;  // 14913080
     if (points.size() > kMaxTrianglePoints)
     {
         result.errorMsg = QStringLiteral(
-            "MeshGenerator: %1 mesh points exceeds the %2 that Triangle can "
-            "address (its vertex pool sizes the first block with int "
-            "arithmetic, which overflows past that count). Reduce the terrain "
-            "point density or mesh a smaller extent.")
+            "MeshGenerator: %1 mesh points exceeds the %2 this triangulator "
+            "can size its element pool for (it allocates ~144 bytes per input "
+            "point in a single contiguous block). Reduce the terrain point "
+            "density, enable thinning, or mesh a smaller extent.")
             .arg(points.size()).arg(kMaxTrianglePoints);
         return result;
     }
