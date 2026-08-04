@@ -311,9 +311,25 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // Simplify the exterior ring with RDP, then optionally densify:
             // split edges longer than "Max boundary edge length" (pure vertex
             // insertion — geometry unchanged).
+            //
+            // Validate the simplified ring the same way prepareHoleRing does
+            // for interior rings: RDP on a serpentine/concave boundary can
+            // make the exterior self-intersect, and a self-intersecting
+            // OUTER ring becomes crossing constrained segments in the PSLG
+            // (Triangle abort, or a flooded exterior carve). Fall back to
+            // the unsimplified ring — GEOS/OGR output is valid by
+            // construction; only RDP can break it.
+            const QVector<QPointF> rawExt = ringToMesh(ext);
+            QVector<QPointF> simpExt = simplifyRing(rawExt, in.pslgSimplifyEps);
+            {
+                EditGeometry::RingPolygon check;
+                check.exterior = simpExt;
+                if (EditGeometry::validateRingPolygon(check)
+                    != EditGeometry::RingValidity::Ok)
+                    simpExt = rawExt;
+            }
             in.domains.append(QPolygonF(
-                densifyRing(simplifyRing(ringToMesh(ext), in.pslgSimplifyEps),
-                            in.maxBoundaryEdgeLen)));
+                densifyRing(simpExt, in.maxBoundaryEdgeLen)));
             for (int h = 0; h < poly->getNumInteriorRings(); ++h)
             {
                 const OGRLinearRing *hole = poly->getInteriorRing(h);
@@ -485,7 +501,6 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
     {
         mesh::pslg::PointInRingsIndex domIdx;
         domIdx.build(in.domains);
-        const QRectF domainBBox = domIdx.boundingBox();
         auto inDomain = [&domIdx](const QPointF &p) { return domIdx.contains(p); };
 
         auto dedupeSegPath = [](const QVector<QPointF> &src) {
@@ -497,17 +512,22 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             return r;
         };
 
-        // Strip intermediate vertices that lie outside the domain bounding
-        // box.  An unconstrained intermediate vertex outside the domain would
+        // Strip intermediate vertices that lie outside the domain POLYGON.
+        // An unconstrained intermediate vertex outside the domain would
         // make the PSLG non-planar and abort Triangle; endpoint filtering
         // below is the primary guard, this strips runaway interior vertices.
+        // The test must be against the ring, not its bounding box: on a
+        // non-rectangular (e.g. DEM-footprint) domain a link whose middle
+        // bulges outside the polygon while staying inside the bbox would
+        // otherwise carry segments that cross the boundary ring — the exact
+        // "non-planar PSLG" Triangle aborts on.
         auto clipIntermediateToDomain = [&](const QVector<QPointF> &path) {
             if (path.size() <= 2) return path;
             QVector<QPointF> r;
             r.reserve(path.size());
             r.append(path.first());
             for (int k = 1; k < path.size()-1; ++k)
-                if (domainBBox.contains(path[k])) r.append(path[k]);
+                if (inDomain(path[k])) r.append(path[k]);
             r.append(path.last());
             return dedupeSegPath(r);
         };
@@ -1890,16 +1910,26 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
             // (a vertex shared by k triangles appears k times), which weights
             // each neighbour by the number of triangles it shares with the
             // centre — an umbrella weighting, and cheaper than deduping.
-            QVector<int> off(nv + 1, 0);
+            // Offsets are qsizetype: 6 x nTriangles overflows int at ~358 M
+            // triangles. Vertex indices come pre-validated by MeshGenerator
+            // (checked against Triangle's own point count at copy-out), but
+            // this is a heap WRITE on the nodata-only path, so guard anyway.
+            auto triOk = [nv](const mesh::MeshTriangle &t) {
+                return t.v0 >= 0 && t.v0 < nv && t.v1 >= 0 && t.v1 < nv
+                    && t.v2 >= 0 && t.v2 < nv;
+            };
+            QVector<qsizetype> off(nv + 1, 0);
             for (const mesh::MeshTriangle &t : result.triangles)
             {
+                if (!triOk(t)) continue;
                 off[t.v0 + 1] += 2; off[t.v1 + 1] += 2; off[t.v2 + 1] += 2;
             }
             for (int i = 0; i < nv; ++i) off[i + 1] += off[i];
             QVector<int> adj(off[nv]);
-            QVector<int> cur = off;
+            QVector<qsizetype> cur = off;
             for (const mesh::MeshTriangle &t : result.triangles)
             {
+                if (!triOk(t)) continue;
                 adj[cur[t.v0]++] = t.v1; adj[cur[t.v0]++] = t.v2;
                 adj[cur[t.v1]++] = t.v0; adj[cur[t.v1]++] = t.v2;
                 adj[cur[t.v2]++] = t.v0; adj[cur[t.v2]++] = t.v1;
@@ -1923,7 +1953,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                 {
                     double sum = 0.0;
                     int    n   = 0;
-                    for (int k = off[i]; k < off[i + 1]; ++k)
+                    for (qsizetype k = off[i]; k < off[i + 1]; ++k)
                     {
                         const double zn = result.vertices[adj[k]].z;
                         if (std::isfinite(zn)) { sum += zn; ++n; }
@@ -1963,7 +1993,7 @@ runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &promise,
                         const int i = allFilled[k];
                         double sum = 0.0;
                         int    n   = 0;
-                        for (int e = off[i]; e < off[i + 1]; ++e)
+                        for (qsizetype e = off[i]; e < off[i + 1]; ++e)
                         {
                             const double zn = result.vertices[adj[e]].z;
                             if (std::isfinite(zn)) { sum += zn; ++n; }
@@ -3687,8 +3717,16 @@ void MeshGenerationDialog::onMeshFinished()
         }
 
         const bool isExt = (result.outputMode == mesh::MeshOutputMode::External);
+        // deferHeavyGeometry: build only the light scene geometry here on the
+        // GUI thread; wireframe edges / spatial grids / vertex adjacency / BC
+        // slots arrive via finishSceneGeometryAsync() below — same
+        // progressive-load path as the file-open flow (swmmvis.cpp). The
+        // synchronous build both froze the UI on a large generated mesh and
+        // could throw bad_alloc inside a slot (std::terminate).
         auto *meshLayer  = new SWMM2DMeshLayer(std::move(result.meshResult),
-                                               result.meshPath);
+                                               result.meshPath,
+                                               /*parent=*/nullptr,
+                                               /*deferHeavyGeometry=*/true);
         meshLayer->setExternalMesh(isExt);
         meshLayer->setActiveMesh(isExt);
         meshLayer->setName(result.meshPath.isEmpty()
@@ -3706,6 +3744,9 @@ void MeshGenerationDialog::onMeshFinished()
 
         canvas->addLayer(meshLayer, /*pushUndo=*/true);
         m_pw->attachMeshLayer(meshLayer);
+        // Kick the deferred heavy build now that the layer is adopted —
+        // mirrors the file-open path (swmmvis.cpp attachMesh2DLayersAsync).
+        meshLayer->finishSceneGeometryAsync();
     }
 
     // Mirror the mesh linkage into the engine's in-memory model so the next

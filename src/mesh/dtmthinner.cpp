@@ -439,7 +439,7 @@ void DTMThinner::sampleMany(const QVector<QPointF> &xy,
 
     // The per-point anchor/clamp math below is duplicated from sampleAt() —
     // it must stay identical branch-for-branch so results are bit-identical.
-    struct Anchor { int c0, r0, c1, r1; double dx, dy; };
+    struct Anchor { int c0 = 0, r0 = 0, c1 = 0, r1 = 0; double dx = 0, dy = 0; };
     auto anchorFor = [this](double x, double y, Anchor *a) -> bool {
         const double col = m_invGeo[0] + x * m_invGeo[1] + y * m_invGeo[2];
         const double row = m_invGeo[3] + x * m_invGeo[4] + y * m_invGeo[5];
@@ -535,7 +535,19 @@ void DTMThinner::sampleMany(const QVector<QPointF> &xy,
         {
             const qsizetype i = order[k];
             Anchor a;
-            anchorFor(xy[i].x(), xy[i].y(), &a);   // in-range by construction
+            // Pass 1 already found this point in range, but the range test
+            // sits at a floor() boundary where FP contraction may evaluate
+            // the two inline expansions of anchorFor() differently by 1 ULP
+            // (points exactly on the raster edge). If the verdict flips, a
+            // would be left default-initialised — never index the strip
+            // buffer with it.
+            if (!anchorFor(xy[i].x(), xy[i].y(), &a)
+                || a.r0 < readLo || a.r1 > readHi
+                || a.c0 < colMin || a.c1 > colMax)
+            {
+                (*outZ)[i] = kNaN;
+                continue;
+            }
 
             const double *r0Row = buf.constData() + qsizetype(a.r0 - readLo) * nCols;
             const double *r1Row = buf.constData() + qsizetype(a.r1 - readLo) * nCols;
@@ -998,8 +1010,13 @@ bool DTMThinner::fillBandGrid(double x0, double y0, double step, int cols, qint6
             const int br0 = r0 - bufR0, br1 = r1 - bufR0;
             if (bc0 < 0 || br0 < 0 || bc1 >= bufW || br1 >= bufH) return kNaN;
 
-            const float w[4] = { buf[br0*bufW + bc0], buf[br0*bufW + bc1],
-                                 buf[br1*bufW + bc0], buf[br1*bufW + bc1] };
+            // qsizetype offsets: br*bufW is an int*int product that wraps
+            // negative once a strip legitimately spans ~50k+ rows of a wide
+            // raster (rotated/sheared geotransforms bypass the row budget).
+            const qsizetype row0 = qsizetype(br0) * bufW;
+            const qsizetype row1 = qsizetype(br1) * bufW;
+            const float w[4] = { buf[row0 + bc0], buf[row0 + bc1],
+                                 buf[row1 + bc0], buf[row1 + bc1] };
             for (const float v : w)
                 if (!std::isfinite(v) || (m_hasNoData && v == ndF))
                     return kNaN;
@@ -1045,6 +1062,22 @@ bool DTMThinner::fillBandGrid(double x0, double y0, double step, int cols, qint6
             bufH  = bufR1 - bufR0 + 1;
 
             const qsizetype need = qsizetype(bufW) * qsizetype(bufH);
+            // The strip-row budget above is bypassed when the geotransform is
+            // rotated ~90° (rPerY*step == 0) or so sheared that a single grid
+            // row already exceeds it — in both cases bufH can span the whole
+            // raster. Refuse rather than attempt a multi-GB read (4x leaves
+            // headroom for the budget's padding approximations).
+            if (need * qsizetype(sizeof(float)) > 4 * kMaxReadBufBytes) {
+                m_errorMsg = QStringLiteral(
+                    "DTMThinner: reading rows %1-%2 of this raster needs %3 MB "
+                    "(> %4 MB limit) — its geotransform is too rotated or "
+                    "sheared to stream in row strips. Re-project the DEM to a "
+                    "north-up grid and retry.")
+                    .arg(bufR0).arg(bufR1)
+                    .arg((need * qsizetype(sizeof(float))) / (1024 * 1024))
+                    .arg((4 * kMaxReadBufBytes) / (1024 * 1024));
+                return false;
+            }
             if (buf.size() < need) buf.resize(need);
 
             bufOk = (band->RasterIO(GF_Read, bufC0, bufR0, bufW, bufH,

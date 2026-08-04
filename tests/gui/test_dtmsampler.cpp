@@ -126,6 +126,26 @@ private slots:
         QVERIFY(std::isnan(s.sample(0,  100)));
     }
 
+    /*! Coordinates FAR outside the raster (a network node hundreds of km
+     *  from the DEM, or a near-singular reprojection) map to pixel values
+     *  beyond int range. The range test must run in double space BEFORE
+     *  narrowing — the out-of-range double→int cast is UB (saturates on
+     *  ARM64, INT_MIN on x86, either way platform-divergent). */
+    void farOutsideBounds_returnsNaN_noNarrowingUB()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = buildRamp(dir);
+        mesh::DTMSampler s;
+        QVERIFY(s.open(path));
+
+        QVERIFY(std::isnan(s.sample( 1e12,  5.0)));
+        QVERIFY(std::isnan(s.sample(-1e12,  5.0)));
+        QVERIFY(std::isnan(s.sample( 5.0,  1e12)));
+        QVERIFY(std::isnan(s.sample( 5.0, -1e12)));
+        QVERIFY(std::isnan(s.sample( 1e300, -1e300)));
+    }
+
     /*! A non-finite coordinate (e.g. from a failed upstream CRS transform)
      *  returns NaN rather than reaching static_cast<int>(floor(NaN)), which
      *  is UB. */

@@ -134,14 +134,16 @@ double DTMSampler::sample(double x, double y) const
     // Bilinear weights — anchor at the upper-left corner of the 4-cell window.
     const double cf = std::floor(col - 0.5);
     const double rf = std::floor(row - 0.5);
+    // Reject points outside the half-pixel margin in DOUBLE space BEFORE
+    // narrowing: converting an out-of-range double to int is UB (saturates
+    // on ARM64, INT_MIN on x86) — same fix as DTMThinner::sampleAt. A point
+    // far outside the DEM (network node beyond the raster) hits this.
+    if (!(cf >= -1.0 && rf >= -1.0 && cf < double(m_width) && rf < double(m_height)))
+        return std::numeric_limits<double>::quiet_NaN();
     int          c0 = static_cast<int>(cf);
     int          r0 = static_cast<int>(rf);
     double       dx = (col - 0.5) - cf;
     double       dy = (row - 0.5) - rf;
-
-    // Reject points that fall outside the half-pixel margin entirely.
-    if (c0 < -1 || r0 < -1 || c0 >= m_width || r0 >= m_height)
-        return std::numeric_limits<double>::quiet_NaN();
 
     // Edge clamp: when the requested point is within the half-pixel border,
     // the bilinear "neighbour" is fictitious — clamp dx/dy so the formula
