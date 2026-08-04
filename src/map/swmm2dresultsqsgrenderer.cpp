@@ -1244,6 +1244,19 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 c.setAlphaF(c.alphaF() * op);
                 return c;
             };
+            // A corner below the wet/dry threshold carries no water — the
+            // extrapolated pooling surface runs BELOW its bed there. It must
+            // vanish, not clamp: ClassificationScheme::colorAtF clamps its ramp
+            // position to [0,1], so a negative value would otherwise paint the
+            // shallowest colour at FULL opacity and smear water across dry
+            // ground. Fading to transparent lets the Gouraud interpolation
+            // approximate the shoreline; the exact cut is the marching band
+            // pass's job. Inert for the flat per-cell mode, which only ever
+            // passes gated cell depths.
+            auto colorOrClear = [&](float value) -> QColor {
+                return double(value) < dryDepth ? QColor(0, 0, 0, 0)
+                                                : colorAt(value);
+            };
             out.reserve(visibleCells.size() * 3);
             auto pushV = [&](const QPointF &p, const QColor &c) {
                 QSGGeometry::ColoredPoint2D v;
@@ -1263,9 +1276,9 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode,
                 if (!(perVertex ? cellPaints(t) : double(t.depth) >= dryDepth))
                     continue;                      // dry → terrain shows through
                 if (perVertex) {
-                    pushV(t.a, colorAt(t.dv0));
-                    pushV(t.b, colorAt(t.dv1));
-                    pushV(t.c, colorAt(t.dv2));
+                    pushV(t.a, colorOrClear(t.dv0));
+                    pushV(t.b, colorOrClear(t.dv1));
+                    pushV(t.c, colorOrClear(t.dv2));
                 } else {
                     const QColor c = colorAt(t.depth);
                     pushV(t.a, c); pushV(t.b, c); pushV(t.c, c);
