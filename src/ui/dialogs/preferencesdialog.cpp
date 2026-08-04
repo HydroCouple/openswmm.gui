@@ -6,6 +6,8 @@
 
 #include "ui/dialogs/preferencesdialog.h"
 
+#include "ui/dialogs/objectdefaultspage.h"
+
 #include "core/linkrenderingprefs.h"
 #include "core/noderenderingprefs.h"
 #include "core/preferencesmanager.h"
@@ -89,6 +91,7 @@ void PreferencesDialog::buildUi()
     addCategory(tr("Simulation Defaults"),   buildSimulationDefaultsPage());
     addCategory(tr("Dynamic Wave Defaults"), buildDynamicWaveDefaultsPage());
     addCategory(tr("2D Defaults"),           buildTwoDDefaultsPage());
+    addCategory(tr("Object Defaults"),       buildObjectDefaultsPage());
     addCategory(tr("Map Display"),           buildMapDisplayPage());
     addCategory(tr("Measure Tool"),          buildMeasureToolPage());
     addCategory(tr("Plots"),                 buildPlotsPage());
@@ -1475,6 +1478,9 @@ void PreferencesDialog::readFromManager()
     // 2D Defaults (shared widget-apply helper — also used by Reset)
     applyTwoDDefaultsToWidgets(p->twoDDefaults());
 
+    // Object Defaults (self-contained page — pulls both US and SI sets)
+    m_objectDefaultsPage->loadFrom(p);
+
     // Scale Bar
     applyColor(m_scaleBarColorBtn, m_pendingScaleBarColor, p->scaleBarPenColor());
     m_scaleBarPenWidthSpin->setValue(p->scaleBarPenWidth());
@@ -1526,6 +1532,14 @@ void PreferencesDialog::readFromManager()
     m_prefixOutlet      ->setText(p->elementNamePrefix(QStringLiteral("outlet")));
     m_prefixRaingage    ->setText(p->elementNamePrefix(QStringLiteral("raingage")));
     m_prefixSubcatchment->setText(p->elementNamePrefix(QStringLiteral("subcatchment")));
+}
+
+QWidget *PreferencesDialog::buildObjectDefaultsPage()
+{
+    // Self-contained page (see objectdefaultspage.{h,cpp}); the dialog
+    // forwards loadFrom/applyTo/resetToSeeds at the usual touchpoints.
+    m_objectDefaultsPage = new ObjectDefaultsPage(this);
+    return m_objectDefaultsPage;
 }
 
 void PreferencesDialog::applyTwoDDefaultsToWidgets(
@@ -1720,6 +1734,11 @@ void PreferencesDialog::writeToManager()
         d.meshOutputExternal    = m_twoDMeshOutputExternalBox ->isChecked();
 
         p->setTwoDDefaults(d);
+    }
+
+    // Object Defaults (self-contained page — writes both US and SI sets)
+    {
+        m_objectDefaultsPage->applyTo(p);
     }
 
     // Scale Bar
@@ -1946,6 +1965,10 @@ void PreferencesDialog::onResetToDefaults()
 
     // 2D defaults — compile-time struct defaults straight to the widgets.
     applyTwoDDefaultsToWidgets(PreferencesManager::TwoDDefaults{});
+
+    // Object Defaults — seeds live in ObjectDefaults::usSeed()/siSeed(),
+    // so no literal duplication is needed here.
+    m_objectDefaultsPage->resetToSeeds();
 
     // Scale bar defaults
     {
