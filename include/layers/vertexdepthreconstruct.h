@@ -154,6 +154,61 @@ inline void reconstructVertexSignedDepths(
         }
 }
 
+/*!
+ * \brief Replace the NO-DATA sentinel at a partially-wet cell's dry corners
+ *        with the extrapolated signed depth, in place.
+ * \param z0,z1,z2    Corner bed elevations.
+ * \param sd0,sd1,sd2 Corner signed depths (η−z); exactly 0 == no data. Dry
+ *                    corners of a cell that has at least one wet corner are
+ *                    overwritten with maxEta − z_k (negative where the bed
+ *                    stands above the pool).
+ *
+ * The map's marching-triangles bands/isolines and the Gouraud fills interpolate
+ * these corner values LINEARLY, but the sentinel is not a depth — reading it as
+ * one drags the waterline out to the dry vertex and paints water on bed that
+ * stands above the free surface (2D_MAP_POOLING_EXTRAPOLATION_PLAN_2026-08-04.md).
+ *
+ * The scalar that IS linear on a triangle is η − z: the bed z is linear by
+ * construction and the extrapolated η is constant in the dry direction, so
+ * filling the dry corners with maxEta − z_k makes the linear blend reproduce
+ * max(0, η − z) exactly — the marching passes then cut the shoreline on the
+ * true sub-cell bed intercept, matching the constant-η surface
+ * CellSurfaceInterp::depthAt already gives the profile.
+ *
+ * Bounded by the driving head: every filled corner sits exactly on the pool
+ * surface maxEta, so nothing rises above the water that supplies it. Applied
+ * per triangle on the per-cell corner copies (SceneTri::dv*), so the
+ * extrapolation reaches exactly one cell beyond the wet front and cannot
+ * propagate into ground the solver never wetted.
+ *
+ * Fully-wet (all sd > 0) and fully-dry (no sd > 0) cells are left byte-for-byte
+ * unchanged. A filled corner below the pool is non-supplying in
+ * CellSurfaceInterp (sd < 0) exactly as the sentinel was, so the profile path
+ * is unaffected on the canonical bank case.
+ */
+inline void extrapolateDryCorners(double z0, double z1, double z2,
+                                  float& sd0, float& sd1, float& sd2)
+{
+    float* const sd[3] = { &sd0, &sd1, &sd2 };
+    const double z[3]  = { z0, z1, z2 };
+
+    bool   any    = false;
+    double maxEta = 0.0;
+    for (int k = 0; k < 3; ++k) {
+        if (!(*sd[k] > 0.0f)) continue;
+        const double e = z[k] + double(*sd[k]);
+        if (!std::isfinite(e)) continue;
+        if (!any || e > maxEta) { maxEta = e; any = true; }
+    }
+    if (!any) return;                       // fully dry — nothing to extend
+
+    for (int k = 0; k < 3; ++k) {
+        if (*sd[k] > 0.0f) continue;        // wet corner keeps its own η
+        if (!std::isfinite(z[k])) continue; // nodata bed stays the sentinel
+        *sd[k] = float(maxEta - z[k]);
+    }
+}
+
 } // namespace VertexDepthReconstruct
 
 #endif // VERTEX_DEPTH_RECONSTRUCT_H
