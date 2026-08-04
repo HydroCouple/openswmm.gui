@@ -162,6 +162,10 @@ void TestObjectCreationDefaults::usDefaults_appliedToDrawnObjects()
     QCOMPARE(swmm_subcatch_get_infil_horton(eng, si, &f0, &fmin, &decay, &dry), 0);
     QCOMPARE(f0, 3.0);
     QCOMPARE(fmin, 0.5);
+    // Zero-depression-storage impervious fraction ([SUBAREAS] PctZero).
+    double pctZero = -1.0;
+    QCOMPARE(swmm_subcatch_get_zero_imperv_pct(eng, si, &pctZero), 0);
+    QCOMPARE(pctZero, 25.0);
 
     // Rain gage → 15-min intensity, catch factor 1.
     AddGageCommand addGage(layer.get(), QStringLiteral("RG_NEW"),
@@ -230,9 +234,10 @@ void TestObjectCreationDefaults::curveNumberProject_getsCurveNumberFamily()
     int model = -1;
     QCOMPARE(swmm_subcatch_get_infil_model(eng, si, &model), 0);
     QCOMPARE(model, 4);          // CURVE_NUMBER
-    double cn = 0;
-    QCOMPARE(swmm_subcatch_get_infil_curve_number(eng, si, &cn), 0);
+    double cn = 0, cnDry = 0;
+    QCOMPARE(swmm_subcatch_get_infil_curve_number(eng, si, &cn, &cnDry), 0);
     QCOMPARE(cn, 80.0);
+    QCOMPARE(cnDry, 7.0);
 
     // Non-infiltration defaults still land.
     double w = 0;

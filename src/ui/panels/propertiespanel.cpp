@@ -845,6 +845,7 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                     setRowEditable(pm, sub, QStringLiteral("gaConductivity"), ga);
                     setRowEditable(pm, sub, QStringLiteral("gaInitDeficit"),  ga);
                     setRowEditable(pm, sub, QStringLiteral("cnNumber"),       cn);
+                    setRowEditable(pm, sub, QStringLiteral("cnDryTime"),      cn);
                 };
                 connect(sub, &SWMMSubcatchPropertyAdapter::changed,
                         pm, applyInfilRowFlags);

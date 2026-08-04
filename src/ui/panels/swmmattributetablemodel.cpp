@@ -654,6 +654,9 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                                        0.0, 100.0, 4, UnitKind::Percent),
             num("Imperv %",  "Impervious",            "subcatch_imperv_pct",
                                                        0.0, 100.0, 2, UnitKind::Percent),
+            num("Zero-imperv %", "% Zero Depression Storage (Imperv.)",
+                                                      "subcatch_pct_zero",
+                                                       0.0, 100.0, 2, UnitKind::Percent),
             num("N-Imperv",  "Manning's n (Imperv.)", "subcatch_n_imperv",
                                                        0.0, 1.0, 4),
             num("N-Perv",    "Manning's n (Perv.)",   "subcatch_n_perv",
@@ -691,6 +694,8 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             num("Conduct.",   "Conductivity",      "subcatch_ga_conduct",    0.0, 1e3, 4),
             num("Init.def.",  "Initial Deficit",   "subcatch_ga_deficit",    0.0, 1.0, 4),
             num("Curve no.",  "Curve Number",      "subcatch_cn",            0.0, 100.0, 2),
+            num("CN dry time","Curve Number Drying Time",
+                                                   "subcatch_cn_dry",        0.0, 100.0, 4),
             // Compound cells (open SubcatchCompoundEditDialog tabs).
             compoundCol("Land uses",   "Land Use Coverage", "subcatch_landuse_ref"),
             compoundCol("Groundwater", "Groundwater",       "subcatch_groundwater_ref"),
@@ -912,6 +917,19 @@ int gaConductSet(SWMM_Engine e, int i, double v) {
     double s=0,k=0,d=0; if (swmm_subcatch_get_infil_green_ampt(e,i,&s,&k,&d)!=SWMM_OK) return SWMM_ERR_BADINDEX; return gaWrite(e,i,s,v,d); }
 int gaDeficitSet(SWMM_Engine e, int i, double v) {
     double s=0,k=0,d=0; if (swmm_subcatch_get_infil_green_ampt(e,i,&s,&k,&d)!=SWMM_OK) return SWMM_ERR_BADINDEX; return gaWrite(e,i,s,k,v); }
+int cnGet(SWMM_Engine e, int i, double *v) {
+    double cn=0,dt=0; int rc=swmm_subcatch_get_infil_curve_number(e,i,&cn,&dt); *v=cn; return rc; }
+int cnDryGet(SWMM_Engine e, int i, double *v) {
+    double cn=0,dt=0; int rc=swmm_subcatch_get_infil_curve_number(e,i,&cn,&dt); *v=dt; return rc; }
+int cnWrite(SWMM_Engine e, int i, double cn, double dt) {
+    int model=0; swmm_subcatch_get_infil_model(e,i,&model);
+    const int rc=swmm_subcatch_set_infil_curve_number(e,i,cn,dt);
+    if (rc==SWMM_OK) swmm_subcatch_set_infil_model(e,i,model);
+    return rc; }
+int cnSet(SWMM_Engine e, int i, double v) {
+    double cn=0,dt=0; if (swmm_subcatch_get_infil_curve_number(e,i,&cn,&dt)!=SWMM_OK) return SWMM_ERR_BADINDEX; return cnWrite(e,i,v,dt); }
+int cnDrySet(SWMM_Engine e, int i, double v) {
+    double cn=0,dt=0; if (swmm_subcatch_get_infil_curve_number(e,i,&cn,&dt)!=SWMM_OK) return SWMM_ERR_BADINDEX; return cnWrite(e,i,cn,v); }
 
 // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) — outfall fixed
 // stage. The engine stores stage / tidal-curve-idx / timeseries-idx in
@@ -1390,8 +1408,12 @@ SetterEntry setterFor(const QString &tag) {
     if (tag == QStringLiteral("subcatch_ga_deficit"))
         return {EntityKind::Subcatch, &gaDeficitSet,   &gaDeficitGet};
     if (tag == QStringLiteral("subcatch_cn"))
-        return {EntityKind::Subcatch, &swmm_subcatch_set_infil_curve_number,
-                                      &swmm_subcatch_get_infil_curve_number};
+        return {EntityKind::Subcatch, &cnSet,          &cnGet};
+    if (tag == QStringLiteral("subcatch_cn_dry"))
+        return {EntityKind::Subcatch, &cnDrySet,       &cnDryGet};
+    if (tag == QStringLiteral("subcatch_pct_zero"))
+        return {EntityKind::Subcatch, &swmm_subcatch_set_zero_imperv_pct,
+                                      &swmm_subcatch_get_zero_imperv_pct};
 
     return {};
 }

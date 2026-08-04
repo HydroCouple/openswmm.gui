@@ -35,6 +35,7 @@ class SWMMSubcatchPropertyAdapter : public QObject
     Q_PROPERTY(double  width       READ width       WRITE setWidth       NOTIFY changed)
     Q_PROPERTY(double  slope       READ slope       WRITE setSlope       NOTIFY changed)
     Q_PROPERTY(double  impervPct   READ impervPct   WRITE setImpervPct   NOTIFY changed)
+    Q_PROPERTY(double  pctZeroImperv READ pctZeroImperv WRITE setPctZeroImperv NOTIFY changed)
     Q_PROPERTY(double  nImperv     READ nImperv     WRITE setNImperv     NOTIFY changed)
     Q_PROPERTY(double  nPerv       READ nPerv       WRITE setNPerv       NOTIFY changed)
     Q_PROPERTY(double  dsImperv    READ dsImperv    WRITE setDsImperv    NOTIFY changed)
@@ -68,6 +69,7 @@ class SWMMSubcatchPropertyAdapter : public QObject
     Q_PROPERTY(double gaConductivity READ gaConductivity WRITE setGaConductivity NOTIFY changed)
     Q_PROPERTY(double gaInitDeficit  READ gaInitDeficit  WRITE setGaInitDeficit  NOTIFY changed)
     Q_PROPERTY(double cnNumber       READ cnNumber       WRITE setCnNumber       NOTIFY changed)
+    Q_PROPERTY(double cnDryTime      READ cnDryTime      WRITE setCnDryTime      NOTIFY changed)
     // Compound cells (open SubcatchCompoundEditDialog tabs).
     Q_PROPERTY(SubcatchCompoundEditRef landUse
                READ landUseRef     WRITE setLandUseRef     NOTIFY changed)
@@ -107,6 +109,7 @@ public:
     [[nodiscard]] double width()     const;
     [[nodiscard]] double slope()     const;
     [[nodiscard]] double impervPct() const;
+    [[nodiscard]] double pctZeroImperv() const;
     [[nodiscard]] double nImperv()   const;
     [[nodiscard]] double nPerv()     const;
     [[nodiscard]] double dsImperv()  const;
@@ -126,6 +129,7 @@ public:
     [[nodiscard]] double gaConductivity() const;
     [[nodiscard]] double gaInitDeficit()  const;
     [[nodiscard]] double cnNumber()       const;
+    [[nodiscard]] double cnDryTime()      const;
     [[nodiscard]] SubcatchCompoundEditRef landUseRef()     const;
     [[nodiscard]] SubcatchCompoundEditRef groundwaterRef() const;
     [[nodiscard]] SubcatchCompoundEditRef lidUsageRef()    const;
@@ -141,6 +145,7 @@ public slots:
     void setWidth(double v);
     void setSlope(double v);
     void setImpervPct(double v);
+    void setPctZeroImperv(double v);
     void setNImperv(double v);
     void setNPerv(double v);
     void setDsImperv(double v);
@@ -160,6 +165,7 @@ public slots:
     void setGaConductivity(double v);
     void setGaInitDeficit(double v);
     void setCnNumber(double v);
+    void setCnDryTime(double v);
     // Compound refs are coordinates only; the dialog performs the writes.
     void setLandUseRef(const SubcatchCompoundEditRef &)     { emit changed(); }
     void setGroundwaterRef(const SubcatchCompoundEditRef &) { emit changed(); }
@@ -182,6 +188,9 @@ signals:
 
 private:
     [[nodiscard]] int idx() const;
+    /*! Curve Number and its drying time share one engine setter, so both
+     *  Q_PROPERTY writers funnel through here after re-reading the sibling. */
+    void writeCurveNumber(double cn, double dryTime);
     SWMM_Engine     m_engine;
     QString         m_name;
     SWMMModelLayer *m_layer = nullptr;   ///< USER_FLAGS Phase 4 — borrow.
