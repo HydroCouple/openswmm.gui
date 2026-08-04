@@ -2474,12 +2474,28 @@ void SWMM2DResultsLayer::applyCurrentDepths_()
                                       float(dry_depth_), eta_vsum_, eta_wsum_,
                                       vdepth_);
     }
+    const int nVz = static_cast<int>(vz_.size());
     for (int i = 0; i < nTri; ++i) {
         const auto& tri = tris_[i];
         SceneTri& st = m_sceneTris[i];
         st.dv0 = (tri[0] >= 0 && tri[0] < nVert) ? vdepth_[tri[0]] : 0.0f;
         st.dv1 = (tri[1] >= 0 && tri[1] < nVert) ? vdepth_[tri[1]] : 0.0f;
         st.dv2 = (tri[2] >= 0 && tri[2] < nVert) ? vdepth_[tri[2]] : 0.0f;
+        // Pooling extrapolation: fill this cell's NO-DATA corners with the
+        // driving head's signed depth so the marching bands/isolines — which
+        // interpolate dv LINEARLY — cut the shoreline on the true sub-cell bed
+        // intercept instead of dragging it out to the dry vertex. Per-cell, so
+        // the surface reaches exactly one cell past the wet front; fully-wet
+        // and fully-dry cells are untouched.
+        // (workplans/2D_MAP_POOLING_EXTRAPOLATION_PLAN_2026-08-04.md)
+        if (tri[0] >= 0 && tri[0] < nVz &&
+            tri[1] >= 0 && tri[1] < nVz &&
+            tri[2] >= 0 && tri[2] < nVz)
+        {
+            VertexDepthReconstruct::extrapolateDryCorners(
+                vz_[tri[0]], vz_[tri[1]], vz_[tri[2]],
+                st.dv0, st.dv1, st.dv2);
+        }
     }
 }
 

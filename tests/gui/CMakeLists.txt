@@ -283,6 +283,15 @@ add_swmmvis_gui_test(test_vertexdepthreconstruct
     ${CMAKE_SOURCE_DIR}/include/layers/vertexdepthreconstruct.h
 )
 
+# 2D map pooling extrapolation — dry corners of a partially-wet cell carry the
+# driving head's signed depth so the marching bands cut the shoreline on the bed
+# intercept. Header-only, same pattern as the two above.
+add_swmmvis_gui_test(test_map_pooling_extrapolation
+    test_map_pooling_extrapolation.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/vertexdepthreconstruct.h
+    ${CMAKE_SOURCE_DIR}/include/layers/cellsurfaceinterp.h
+)
+
 # Profile plots — endpoint label hit-testing and min/max range-edge edits.
 add_swmmvis_gui_test(test_profileplot_axis_edges
     test_profileplot_axis_edges.cpp
