@@ -10,10 +10,13 @@
  *
  * One table drives the mesh-editing toolbar's parameter selector, the
  * Cell Data assignment dialog's target selector, and the undo command's
- * value plumbing, so a new parameter is added in exactly one place. Writes
- * always funnel through SWMM2DMeshLayer::applyMeshTriangle*, which emits
- * `attributeChanged` — that is what keeps the toolbar, the properties panel
- * and the map in sync no matter which surface made the edit.
+ * value plumbing, so a new parameter is added in exactly one place.
+ *
+ * This header is deliberately read-only and layer-free. Writes live in
+ * map/meshcommands.h, where they funnel through
+ * SWMM2DMeshLayer::applyMeshTriangle* (which emits `attributeChanged`, the
+ * signal that keeps the toolbar, the properties panel and the map in sync no
+ * matter which surface made the edit) and onto the undo stack.
  *
  * Parameters awaiting engine support (the 2D two-zone groundwater set) are
  * listed with `enabled = false`: they show greyed in every selector so the
@@ -27,8 +30,6 @@
 #include <QByteArray>
 #include <QString>
 #include <QVector>
-
-class SWMM2DMeshLayer;
 
 namespace mesh {
 
@@ -67,13 +68,6 @@ struct CellParamSpec
  *           spec's defaultValue for display. */
 [[nodiscard]] double cellParamValue(const MeshResult &mesh, int tri,
                                     const QByteArray &key);
-
-/*! \brief Write \p value to triangle \p tri through the layer's apply*
- *         helper, so every view refreshes.
- *  \returns false for an unknown/disabled key, a null layer, an out-of-range
- *           index, or a value the layer rejects. */
-bool applyCellParam(SWMM2DMeshLayer *layer, int tri, const QByteArray &key,
-                    double value);
 
 } // namespace mesh
 

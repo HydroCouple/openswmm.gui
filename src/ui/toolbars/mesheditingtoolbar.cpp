@@ -10,8 +10,10 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmm2dresultslayer.h"
 #include "map/mapcanvas.h"
+#include "map/meshcommands.h"
 #include "mesh/meshautocouple.h"
 #include "mesh/meshbctype.h"
+#include "mesh/meshcellparams.h"
 #include "mesh/meshnodemapper.h"
 #include "mesh/meshhoverprobe.h"
 #include "mesh/meshobjectref.h"
@@ -32,6 +34,7 @@
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QStackedWidget>
+#include <QStandardItemModel>
 #include <QToolButton>
 #include <QVariant>
 #include <QWidget>
@@ -421,21 +424,51 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     m_cellInfoLbl->setMinimumWidth(150);
     m_cellInfoLbl->setToolTip(tr("Selected 2D cell index and tag (if any)."));
 
-    // Per-triangle Manning's n + descriptive tag editors. Created here but NOT
+    // Per-cell parameter editor + descriptive tag editor. Created here but NOT
     // placed: SWMMVis inserts them right after the cell info label (via
     // setCellEditorActions) so they sit in the 2D-cell group, and the toolbar
-    // hides them unless a single cell is selected.
-    m_manningsSpin = new QDoubleSpinBox(this);
-    m_manningsSpin->setRange(0.001, 1.0);
-    m_manningsSpin->setDecimals(4);
-    m_manningsSpin->setSingleStep(0.001);
-    m_manningsSpin->setMinimumWidth(90);
-    m_manningsSpin->setKeyboardTracking(false);
-    m_manningsSpin->setPrefix(tr("n="));
-    m_manningsSpin->setToolTip(tr("Manning's roughness of the selected 2D cell."));
-    m_manningsSpin->setEnabled(false);
-    connect(m_manningsSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, &MeshEditingToolbar::onManningsCommit);
+    // hides them unless at least one cell is selected.
+    //
+    // The parameter combo names which attribute the value box prescribes, so
+    // every per-cell attribute is editable from one pair of widgets. Entries
+    // come from mesh::cellParamSpecs(); the ones awaiting engine support are
+    // listed greyed so the roadmap is visible.
+    m_cellParamPage = new QWidget(this);
+    {
+        auto *lay = new QHBoxLayout(m_cellParamPage);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->setSpacing(4);
+
+        m_cellParamCombo = new QComboBox(m_cellParamPage);
+        m_cellParamCombo->setMinimumWidth(130);
+        m_cellParamCombo->setToolTip(
+            tr("2D cell parameter to prescribe on the selection."));
+        for (const mesh::CellParamSpec &s : mesh::cellParamSpecs()) {
+            m_cellParamCombo->addItem(s.label, QVariant(s.key));
+            const int row = m_cellParamCombo->count() - 1;
+            m_cellParamCombo->setItemData(row, s.tooltip, Qt::ToolTipRole);
+            if (!s.enabled) {
+                // Visible but unselectable until the engine carries the field.
+                if (auto *model =
+                        qobject_cast<QStandardItemModel *>(m_cellParamCombo->model()))
+                    if (QStandardItem *item = model->item(row))
+                        item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+            }
+        }
+        lay->addWidget(m_cellParamCombo);
+
+        m_cellValueSpin = new QDoubleSpinBox(m_cellParamPage);
+        m_cellValueSpin->setMinimumWidth(90);
+        m_cellValueSpin->setKeyboardTracking(false);
+        lay->addWidget(m_cellValueSpin);
+
+        connect(m_cellParamCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+                this, &MeshEditingToolbar::onCellParamChanged);
+        connect(m_cellValueSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+                this, &MeshEditingToolbar::onCellParamCommit);
+    }
+    m_cellParamPage->setEnabled(false);
+    onCellParamChanged(m_cellParamCombo->currentIndex());   // seed spin config
 
     m_cellTagEdit = new QLineEdit(this);
     m_cellTagEdit->setMinimumWidth(90);
@@ -463,14 +496,28 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     updateEnabledState();
 }
 
-QWidget *MeshEditingToolbar::cellManningsWidget() const { return m_manningsSpin; }
-QWidget *MeshEditingToolbar::cellTagWidget() const      { return m_cellTagEdit; }
+QWidget *MeshEditingToolbar::cellParamEditorWidget() const { return m_cellParamPage; }
+QWidget *MeshEditingToolbar::cellTagWidget() const         { return m_cellTagEdit; }
 
-void MeshEditingToolbar::setCellEditorActions(QAction *manningsAct, QAction *tagAct)
+QByteArray MeshEditingToolbar::currentCellParamKey() const
 {
-    m_actManningsSpin = manningsAct;
-    m_actCellTag      = tagAct;
+    if (!m_cellParamCombo) return {};
+    return m_cellParamCombo->currentData().toByteArray();
+}
+
+void MeshEditingToolbar::setCellEditorActions(QAction *paramAct, QAction *tagAct)
+{
+    m_actCellParam = paramAct;
+    m_actCellTag   = tagAct;
     updateEnabledState();   // apply initial hidden state
+}
+
+void MeshEditingToolbar::setDepthUnitLabel(const QString &label)
+{
+    if (label.isEmpty() || m_depthUnitLabel == label) return;
+    m_depthUnitLabel = label;
+    if (m_cellParamCombo)   // re-apply the suffix to the live parameter
+        onCellParamChanged(m_cellParamCombo->currentIndex());
 }
 
 MeshEditingToolbar::~MeshEditingToolbar() = default;
@@ -920,27 +967,33 @@ void MeshEditingToolbar::refreshCellEditor()
         return;
     }
 
-    bool first = true, manningSame = true, tagSame = true;
-    double commonMann = 0.035;
+    // Values are read for the CURRENTLY SELECTED parameter only — the combo
+    // decides what the value box means.
+    const QByteArray key = currentCellParamKey();
+    const mesh::CellParamSpec *spec = mesh::cellParamSpec(key);
+    const double fallback = spec ? spec->defaultValue : 0.0;
+
+    bool first = true, valueSame = true, tagSame = true;
+    double commonValue = fallback;
     QString commonTag;
     int counted = 0;
     if (m_activeMesh) {
-        const auto &triangles = m_activeMesh->mesh().triangles;
+        const mesh::MeshResult &m = m_activeMesh->mesh();
         for (int t : cells) {
-            if (t < 0 || t >= triangles.size()) continue;
-            const auto &tri = triangles[t];
-            const double m = std::isfinite(tri.mannings) ? tri.mannings : 0.035;
+            if (t < 0 || t >= m.triangles.size()) continue;
+            const double raw = mesh::cellParamValue(m, t, key);
+            const double v   = std::isfinite(raw) ? raw : fallback;
             ++counted;
-            if (first) { commonMann = m; commonTag = tri.tag; first = false; }
+            if (first) { commonValue = v; commonTag = m.triangles[t].tag; first = false; }
             else {
-                if (m != commonMann)      manningSame = false;
-                if (tri.tag != commonTag) tagSame = false;
+                if (v != commonValue)             valueSame = false;
+                if (m.triangles[t].tag != commonTag) tagSame = false;
             }
         }
     }
-    if (m_manningsSpin) {
-        QSignalBlocker block(m_manningsSpin);
-        m_manningsSpin->setValue(manningSame ? commonMann : 0.035);
+    if (m_cellValueSpin) {
+        QSignalBlocker block(m_cellValueSpin);
+        m_cellValueSpin->setValue(valueSame ? commonValue : fallback);
     }
     if (m_cellTagEdit) {
         QSignalBlocker block(m_cellTagEdit);
@@ -949,10 +1002,17 @@ void MeshEditingToolbar::refreshCellEditor()
     }
 
     if (cells.size() == 1) {
-        // Echo the live n + tag so single-cell edits are visibly confirmed
+        // Echo the live value + tag so single-cell edits are visibly confirmed
         // (these attributes are not drawn on the map).
-        const QString detail = (counted && manningSame)
-            ? tr("  n=%1").arg(commonMann, 0, 'g', 4) : QString();
+        QString detail;
+        if (counted && valueSame && spec)
+            detail = QStringLiteral("  %1%2%3")
+                         .arg(spec->prefix.isEmpty() ? spec->label + QStringLiteral("=")
+                                                     : spec->prefix)
+                         .arg(commonValue, 0, 'g', 4)
+                         .arg(spec->lengthUnit && !m_depthUnitLabel.isEmpty()
+                                  ? QStringLiteral(" ") + m_depthUnitLabel
+                                  : QString());
         if (commonTag.isEmpty() || !tagSame)
             m_cellInfoLbl->setText(tr("Cell #%1%2").arg(cells.front()).arg(detail));
         else
@@ -1193,13 +1253,40 @@ void MeshEditingToolbar::refreshGroupWidths()
     }
 }
 
-void MeshEditingToolbar::onManningsCommit()
+void MeshEditingToolbar::onCellParamChanged(int index)
 {
-    if (!m_activeMesh || !m_manningsSpin) return;
+    if (!m_cellParamCombo || !m_cellValueSpin) return;
+    const QByteArray key = m_cellParamCombo->itemData(index).toByteArray();
+    const mesh::CellParamSpec *spec = mesh::cellParamSpec(key);
+    if (!spec) return;
+
+    // Reconfiguring the range/decimals changes the spin's value, which would
+    // otherwise commit the new parameter's default onto the selection.
+    QSignalBlocker block(m_cellValueSpin);
+    m_cellValueSpin->setDecimals(spec->decimals);
+    m_cellValueSpin->setRange(spec->min, spec->max);
+    m_cellValueSpin->setSingleStep(spec->step);
+    m_cellValueSpin->setPrefix(spec->prefix);
+    m_cellValueSpin->setSuffix(spec->lengthUnit && !m_depthUnitLabel.isEmpty()
+                                   ? QStringLiteral(" ") + m_depthUnitLabel
+                                   : QString());
+    m_cellValueSpin->setToolTip(spec->tooltip);
+    block.unblock();
+
+    refreshCellEditor();    // seed the value from the current selection
+}
+
+void MeshEditingToolbar::onCellParamCommit()
+{
+    if (!m_activeMesh || !m_cellValueSpin) return;
     const QList<int> cells = currentSelectedCells();
     if (cells.isEmpty()) return;
-    const double v = m_manningsSpin->value();
-    for (int t : cells) m_activeMesh->applyMeshTriangleMannings(t, v);
+    const QByteArray key = currentCellParamKey();
+    if (key.isEmpty()) return;
+    // One undo entry for the whole selection, on the same stack every other
+    // editing surface uses.
+    mesh::pushCellParamEdit(m_activeMesh, QVector<int>(cells.cbegin(), cells.cend()),
+                            key, m_cellValueSpin->value(), m_canvas);
 }
 
 void MeshEditingToolbar::onCellTagCommit()
@@ -1208,7 +1295,9 @@ void MeshEditingToolbar::onCellTagCommit()
     const QList<int> cells = currentSelectedCells();
     if (cells.isEmpty()) return;
     const QString tag = m_cellTagEdit->text().trimmed();
-    for (int t : cells) m_activeMesh->applyMeshTriangleTag(t, tag);
+    mesh::pushCellTagEdit(m_activeMesh,
+                          QVector<int>(cells.cbegin(), cells.cend()),
+                          tag, m_canvas);
 }
 
 void MeshEditingToolbar::updateEnabledState()
@@ -1254,13 +1343,13 @@ void MeshEditingToolbar::updateEnabledState()
         m_actAutoCouple->setEnabled(vertexMode);
     }
 
-    // Manning's n + cell-tag editors (2D-cell group): shown + editable when one
+    // Cell parameter + tag editors (2D-cell group): shown + editable when one
     // OR MORE cells are selected on an editable mesh; committing overwrites all.
     const bool showCellEdit = haveMesh && !currentSelectedCells().isEmpty();
-    if (m_actManningsSpin) m_actManningsSpin->setVisible(showCellEdit);
-    if (m_actCellTag)      m_actCellTag->setVisible(showCellEdit);
-    if (m_manningsSpin)    m_manningsSpin->setEnabled(showCellEdit);
-    if (m_cellTagEdit)     m_cellTagEdit->setEnabled(showCellEdit);
+    if (m_actCellParam)  m_actCellParam->setVisible(showCellEdit);
+    if (m_actCellTag)    m_actCellTag->setVisible(showCellEdit);
+    if (m_cellParamPage) m_cellParamPage->setEnabled(showCellEdit);
+    if (m_cellTagEdit)   m_cellTagEdit->setEnabled(showCellEdit);
 
     // Slice §V.VC — BC controls follow Edit Edge mode + selection state.
     // BCs apply to boundary edges only, so the param stack enables only when
