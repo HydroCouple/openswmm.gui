@@ -94,12 +94,14 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
     const double kH = 97.7;    // stage head on tri 5, edge 0
     const double kF = 0.077;   // specified-flow magnitude on tri 7, edge 0
     const double kN = 0.099;   // Manning's n on triangle 0
+    const double kD = 0.313;   // initial depth on triangle 0
     ASSERT_GT(meshState.triangles.size(), 7);
     meshState.vertices[0].z           = kZ;
     meshState.vertices[0].coupledNode = QStringLiteral("J1");      // new coupling
     meshState.vertices[4].couplingCd  = 0.9;                       // toolbar Cd edit
     meshState.vertices[1].tag         = QStringLiteral("VTAG1");   // descriptive tag
     meshState.triangles[0].mannings   = kN;                        // roughness edit
+    meshState.triangles[0].initDepth  = kD;                        // init-depth edit
     meshState.triangles[0].tag        = QStringLiteral("REGION_X");// triangle tag
     bcs[0 * 3 + 0].conveyance = kC;
     bcs[5 * 3 + 0].type       = mesh::MeshBCTypes::Type::SpecifiedStageConst;
@@ -129,6 +131,10 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
         << "edited specified-flow BC not persisted";
     EXPECT_TRUE(text.contains(QStringLiteral("0.099")))       // Manning's n
         << "edited triangle Manning's n not persisted";
+    // INIT_DEPTH carries the mesh's length units, so an SI deck round-trips
+    // the authored number verbatim (no conversion on either side).
+    EXPECT_TRUE(text.contains(QStringLiteral("0.313")))       // initial depth
+        << "edited triangle initial depth not persisted";
     EXPECT_TRUE(text.contains(QStringLiteral("REGION_X")))    // triangle tag
         << "edited triangle tag not persisted";
     EXPECT_TRUE(text.contains(QStringLiteral("VTAG1")))       // vertex descriptive tag

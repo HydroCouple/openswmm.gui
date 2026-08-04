@@ -1534,6 +1534,25 @@ add_swmmvis_gui_test(test_rasterprofilesampler
 target_include_directories(test_rasterprofilesampler PRIVATE ${GDAL_INCLUDE_DIRS})
 target_link_libraries(test_rasterprofilesampler PRIVATE GDAL::GDAL)
 
+# 2D two-zone groundwater preview dialog — guards that the placeholder stays
+# a placeholder (no editable input) and that its vocabularies match the
+# engine's draft [2D_AQUIFER] section.
+add_swmmvis_gui_test(test_mesh2dgroundwaterdialog
+    test_mesh2dgroundwaterdialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dgroundwaterdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dgroundwaterdialog.h
+)
+
+# Per-cell 2D parameter registry — the single table the mesh toolbar, the
+# Cell Data dialog and the cell property adapter all read. Layer-free by
+# design (writes live in map/meshcommands.cpp), so this links nothing heavy.
+add_swmmvis_gui_test(test_meshcellparams
+    test_meshcellparams.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcellparams.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshcellparams.h
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
+)
+
 add_swmmvis_gui_test(test_inpmeshwriter
     test_inpmeshwriter.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
