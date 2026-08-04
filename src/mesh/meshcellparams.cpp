@@ -6,8 +6,6 @@
  */
 #include "mesh/meshcellparams.h"
 
-#include "layers/swmm2dmeshlayer.h"
-
 #include <QCoreApplication>
 
 #include <cmath>
@@ -80,17 +78,6 @@ double cellParamValue(const MeshResult &mesh, int tri, const QByteArray &key)
     if (key == "mannings")  return t.mannings;
     if (key == "initDepth") return t.initDepth;
     return nan;   // unknown or engine-pending key carries no stored value
-}
-
-bool applyCellParam(SWMM2DMeshLayer *layer, int tri, const QByteArray &key,
-                    double value)
-{
-    if (!layer) return false;
-    const CellParamSpec *s = cellParamSpec(key);
-    if (!s || !s->enabled) return false;
-    if (key == "mannings")  return layer->applyMeshTriangleMannings(tri, value);
-    if (key == "initDepth") return layer->applyMeshTriangleInitDepth(tri, value);
-    return false;
 }
 
 } // namespace mesh
