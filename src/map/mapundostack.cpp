@@ -6,6 +6,7 @@
 
 #include "map/mapundostack.h"
 #include "map/mapcanvas.h"
+#include "map/objectdefaultsapplier.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
 #include "map/crsmanager.h"
@@ -422,12 +423,15 @@ void AddNodeCommand::redo()
     if (!m_layer->applyNodeAdd(m_name, m_nodeType, m_x, m_y)) return;
     m_present = true;
 
-    if (m_invertElev != 0.0) {
-        SWMM_Engine eng = m_layer->engine();
-        const int idx = swmm_node_index(eng, m_name.toUtf8().constData());
-        if (idx >= 0)
-            swmm_node_set_invert_elev(eng, idx, m_invertElev);
-    }
+    SWMM_Engine eng = m_layer->engine();
+    const int idx = swmm_node_index(eng, m_name.toUtf8().constData());
+
+    // Creation defaults first; the more specific terrain-derived invert
+    // below wins (see workplans/OBJECT_CREATION_DEFAULTS_PLAN_2026-08-03.md).
+    ObjectDefaultsApplier::applyNodeDefaults(eng, idx, m_nodeType);
+
+    if (m_invertElev != 0.0 && idx >= 0)
+        swmm_node_set_invert_elev(eng, idx, m_invertElev);
 }
 
 void AddNodeCommand::undo()
@@ -555,6 +559,15 @@ void AddLinkCommand::redo()
                                        m_fromNode, m_toNode,
                                        m_interiorVertices, &m_linkIdx);
 
+    // Creation defaults first; auto-length / terrain offsets below win.
+    // Length default is suppressed when auto-length will compute it.
+    if (m_present && m_linkIdx >= 0) {
+        const bool autoLen =
+            m_canvas && m_canvas->property("autoLength").toBool();
+        ObjectDefaultsApplier::applyLinkDefaults(m_layer->engine(), m_linkIdx,
+                                                 m_linkType, autoLen);
+    }
+
     // Auto-length: set GIS polyline length when the canvas flag is active.
     if (m_present && m_linkIdx >= 0
             && m_canvas && m_canvas->property("autoLength").toBool()) {
@@ -598,6 +611,11 @@ AddGageCommand::AddGageCommand(SWMMModelLayer *layer,
 void AddGageCommand::redo()
 {
     m_present = m_layer->applyGageAdd(m_name, m_x, m_y);
+    if (m_present) {
+        SWMM_Engine eng = m_layer->engine();
+        const int idx = swmm_gage_index(eng, m_name.toUtf8().constData());
+        ObjectDefaultsApplier::applyGageDefaults(eng, idx);
+    }
 }
 
 void AddGageCommand::undo()
@@ -625,6 +643,15 @@ void AddSubcatchmentCommand::redo()
 {
     m_subcatchIdx = -1;
     m_present = m_layer->applySubcatchAdd(m_name, m_polygon, &m_subcatchIdx);
+
+    // Creation defaults first; auto-area below wins. Area default is
+    // suppressed when auto-area will compute it.
+    if (m_present && m_subcatchIdx >= 0) {
+        const bool autoArea =
+            m_canvas && m_canvas->property("autoLength").toBool();
+        ObjectDefaultsApplier::applySubcatchDefaults(m_layer->engine(),
+                                                     m_subcatchIdx, autoArea);
+    }
 
     // Auto-area: set GIS polygon area when the canvas flag is active.
     if (m_present && m_subcatchIdx >= 0

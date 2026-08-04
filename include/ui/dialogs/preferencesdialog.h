@@ -68,6 +68,7 @@ private:
     QWidget *buildSimulationDefaultsPage();
     QWidget *buildDynamicWaveDefaultsPage();
     QWidget *buildTwoDDefaultsPage();
+    QWidget *buildObjectDefaultsPage();
     QWidget *buildMapDisplayPage();
     QWidget *buildMeasureToolPage();
     QWidget *buildPlotsPage();
@@ -77,6 +78,10 @@ private:
 
     QListWidget    *m_categoryList = nullptr;
     QStackedWidget *m_pages        = nullptr;
+
+    // Object Defaults page is self-contained (see objectdefaultspage.h);
+    // the dialog only forwards load/apply/reset.
+    class ObjectDefaultsPage *m_objectDefaultsPage = nullptr;
 
     // Appearance
     QRadioButton *m_appearanceSystemRadio = nullptr;

@@ -491,6 +491,112 @@ public:
     [[nodiscard]] TwoDDefaults twoDDefaults() const;
     void setTwoDDefaults(const TwoDDefaults &d);
 
+    // ── Object creation defaults ─────────────────────────────────────────
+    /*! Per-object-type property defaults applied when the user creates new
+     *  objects (draw tools, GIS import). Two parallel sets exist, keyed by
+     *  the project's unit system, because several defaults are
+     *  unit-*semantic* (weir Cd, outlet rating C) rather than convertible;
+     *  values are stored verbatim in project display units. Unlike the other
+     *  bundles, in-class member initializers seed only the US set; siSeed()
+     *  overrides the unit-differing fields — the two factories are the
+     *  single source of default truth. Persisted under
+     *  SWMMVis/Preferences/ObjectDefaults/<US|SI>.
+     *  Plan of record: workplans/OBJECT_CREATION_DEFAULTS_PLAN_2026-08-03.md */
+    struct ObjectDefaults
+    {
+        // Junctions (0 = engine "auto from highest crown" for max depth)
+        double  junctionMaxDepth      = 0.0;   ///< ft | m (0 = auto)
+        double  junctionInitDepth     = 0.0;   ///< ft | m
+        double  junctionSurDepth      = 0.0;   ///< ft | m
+        double  junctionPondedArea    = 0.0;   ///< ft2 | m2
+
+        // Outfalls
+        QString outfallType           = QStringLiteral("FREE");
+        bool    outfallFlapGate       = false;
+
+        // Storage (functional area A = coeff*d^expon + constant)
+        double  storageMaxDepth       = 15.0;  ///< ft | m
+        double  storageFuncCoeff      = 0.0;
+        double  storageFuncExponent   = 0.0;
+        double  storageFuncConstant   = 1000.0; ///< ft2 | m2
+        double  storageSeepRate       = 0.0;   ///< in/hr | mm/hr
+
+        // Dividers
+        QString dividerType           = QStringLiteral("OVERFLOW");
+
+        // Conduits
+        QString conduitShape          = QStringLiteral("CIRCULAR");
+        double  conduitGeom1          = 1.0;   ///< ft | m
+        double  conduitGeom2          = 0.0;
+        double  conduitGeom3          = 0.0;
+        double  conduitGeom4          = 0.0;
+        double  conduitRoughness      = 0.013; ///< concrete
+        double  conduitLength         = 400.0; ///< ft | m (skipped when auto-length on)
+        int     conduitBarrels        = 1;
+        double  conduitLossInlet      = 0.0;
+        double  conduitLossOutlet     = 0.0;
+        bool    conduitFlapGate       = false;
+
+        // Pumps (ideal pump: no curve reference to default)
+        bool    pumpInitStateOn       = true;
+        double  pumpStartupDepth      = 0.0;   ///< ft | m
+        double  pumpShutoffDepth      = 0.0;   ///< ft | m
+
+        // Orifices
+        QString orificeType           = QStringLiteral("SIDE");
+        double  orificeGeom1          = 1.0;   ///< circular diameter, ft | m
+        double  orificeCd             = 0.65;
+        bool    orificeFlapGate       = false;
+        double  orificeOpenCloseRate  = 0.0;   ///< hr
+
+        // Weirs
+        QString weirType              = QStringLiteral("TRANSVERSE");
+        double  weirGeom1             = 3.0;   ///< height, ft | m
+        double  weirGeom2             = 3.0;   ///< length, ft | m
+        double  weirCd                = 3.33;  ///< unit-semantic: 3.33 US, 1.84 SI
+        int     weirEndContractions   = 0;
+        bool    weirFlapGate          = false;
+
+        // Outlets (rating Q = C*h^n)
+        QString outletRatingType      = QStringLiteral("FUNCTIONAL_DEPTH");
+        double  outletCoeff           = 10.0;  ///< unit-semantic: 10.0 US, 0.5 SI
+        double  outletExponent        = 0.5;
+        bool    outletFlapGate        = false;
+
+        // Subcatchments
+        double  subcatchArea          = 5.0;   ///< ac | ha (skipped when auto-area on)
+        double  subcatchWidth         = 500.0; ///< ft | m
+        double  subcatchSlopePct      = 0.5;
+        double  subcatchImpervPct     = 25.0;
+        double  subcatchNImperv       = 0.012;
+        double  subcatchNPerv         = 0.15;
+        double  subcatchDsImperv      = 0.06;  ///< in | mm
+        double  subcatchDsPerv        = 0.15;  ///< in | mm
+        double  subcatchPctZeroImperv = 25.0;
+        double  hortonMaxRate         = 3.0;   ///< in/hr | mm/hr
+        double  hortonMinRate         = 0.5;   ///< in/hr | mm/hr
+        double  hortonDecay           = 4.0;   ///< 1/hr
+        double  hortonDryTime         = 7.0;   ///< days
+        double  gaSuction             = 3.5;   ///< in | mm
+        double  gaKsat                = 0.5;   ///< in/hr | mm/hr
+        double  gaImd                 = 0.26;
+        double  cnCurveNumber         = 80.0;
+        double  cnDryTime             = 7.0;   ///< days
+
+        // Rain gages
+        QString gageRainFormat        = QStringLiteral("INTENSITY");
+        int     gageIntervalMin       = 15;    ///< minutes
+        double  gageSnowCatch         = 1.0;
+
+        //! Compiled-in US-customary seed (the member initializers).
+        [[nodiscard]] static ObjectDefaults usSeed();
+        //! Compiled-in SI seed — usSeed() with unit-differing fields overridden.
+        [[nodiscard]] static ObjectDefaults siSeed();
+    };
+
+    [[nodiscard]] ObjectDefaults objectDefaults(bool si) const;
+    void setObjectDefaults(const ObjectDefaults &d, bool si);
+
 signals:
     /*! Emitted after any successful set*. `group` is one of
      *  "Selection" / "Canvas" / "Rendering" / "Simulation" /

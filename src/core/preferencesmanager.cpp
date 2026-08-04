@@ -1608,3 +1608,192 @@ void PreferencesManager::setTwoDDefaults(const TwoDDefaults &d)
     emit preferenceChanged(QStringLiteral("Defaults"),
                            QStringLiteral("TwoDDefaults"));
 }
+
+// ── Object creation defaults ────────────────────────────────────────────────
+
+namespace {
+constexpr const char *kObjectDefaultsGroup = "SWMMVis/Preferences/ObjectDefaults";
+
+QString objDefaultsKey(bool si, const QString &key)
+{
+    return QStringLiteral("%1/%2/%3")
+        .arg(QLatin1String(kObjectDefaultsGroup),
+             si ? QStringLiteral("SI") : QStringLiteral("US"), key);
+}
+
+template<typename T>
+T readObjSetting(QSettings &s, bool si, const QString &key, const T &fallback) {
+    const QVariant v = s.value(objDefaultsKey(si, key));
+    return v.isValid() ? v.value<T>() : fallback;
+}
+} // anonymous
+
+PreferencesManager::ObjectDefaults PreferencesManager::ObjectDefaults::usSeed()
+{
+    return ObjectDefaults{};   // member initializers are the US set
+}
+
+PreferencesManager::ObjectDefaults PreferencesManager::ObjectDefaults::siSeed()
+{
+    ObjectDefaults d;          // start from US, override unit-differing fields
+    d.storageMaxDepth     = 4.5;    // m
+    d.storageFuncConstant = 100.0;  // m2
+    d.conduitGeom1        = 0.3;    // m
+    d.conduitLength       = 120.0;  // m
+    d.orificeGeom1        = 0.3;    // m
+    d.weirGeom1           = 1.0;    // m
+    d.weirGeom2           = 1.0;    // m
+    d.weirCd              = 1.84;   // m^0.5/s basis
+    d.outletCoeff         = 0.5;    // Q(m3/s) at h(m)
+    d.subcatchArea        = 2.0;    // ha
+    d.subcatchWidth       = 150.0;  // m
+    d.subcatchDsImperv    = 1.5;    // mm
+    d.subcatchDsPerv      = 3.8;    // mm
+    d.hortonMaxRate       = 76.0;   // mm/hr
+    d.hortonMinRate       = 13.0;   // mm/hr
+    d.gaSuction           = 89.0;   // mm
+    d.gaKsat              = 13.0;   // mm/hr
+    return d;
+}
+
+PreferencesManager::ObjectDefaults PreferencesManager::objectDefaults(bool si) const
+{
+    ObjectDefaults d = si ? ObjectDefaults::siSeed() : ObjectDefaults::usSeed();
+
+    auto &s = const_cast<QSettings &>(m_settings);
+    d.junctionMaxDepth      = readObjSetting<double>(s, si, QStringLiteral("Junction/MaxDepth"),        d.junctionMaxDepth);
+    d.junctionInitDepth     = readObjSetting<double>(s, si, QStringLiteral("Junction/InitDepth"),       d.junctionInitDepth);
+    d.junctionSurDepth      = readObjSetting<double>(s, si, QStringLiteral("Junction/SurDepth"),        d.junctionSurDepth);
+    d.junctionPondedArea    = readObjSetting<double>(s, si, QStringLiteral("Junction/PondedArea"),      d.junctionPondedArea);
+    d.outfallType           = readObjSetting<QString>(s, si, QStringLiteral("Outfall/Type"),            d.outfallType);
+    d.outfallFlapGate       = readObjSetting<bool>(s,   si, QStringLiteral("Outfall/FlapGate"),         d.outfallFlapGate);
+    d.storageMaxDepth       = readObjSetting<double>(s, si, QStringLiteral("Storage/MaxDepth"),         d.storageMaxDepth);
+    d.storageFuncCoeff      = readObjSetting<double>(s, si, QStringLiteral("Storage/FuncCoeff"),        d.storageFuncCoeff);
+    d.storageFuncExponent   = readObjSetting<double>(s, si, QStringLiteral("Storage/FuncExponent"),     d.storageFuncExponent);
+    d.storageFuncConstant   = readObjSetting<double>(s, si, QStringLiteral("Storage/FuncConstant"),     d.storageFuncConstant);
+    d.storageSeepRate       = readObjSetting<double>(s, si, QStringLiteral("Storage/SeepRate"),         d.storageSeepRate);
+    d.dividerType           = readObjSetting<QString>(s, si, QStringLiteral("Divider/Type"),            d.dividerType);
+    d.conduitShape          = readObjSetting<QString>(s, si, QStringLiteral("Conduit/Shape"),           d.conduitShape);
+    d.conduitGeom1          = readObjSetting<double>(s, si, QStringLiteral("Conduit/Geom1"),            d.conduitGeom1);
+    d.conduitGeom2          = readObjSetting<double>(s, si, QStringLiteral("Conduit/Geom2"),            d.conduitGeom2);
+    d.conduitGeom3          = readObjSetting<double>(s, si, QStringLiteral("Conduit/Geom3"),            d.conduitGeom3);
+    d.conduitGeom4          = readObjSetting<double>(s, si, QStringLiteral("Conduit/Geom4"),            d.conduitGeom4);
+    d.conduitRoughness      = readObjSetting<double>(s, si, QStringLiteral("Conduit/Roughness"),        d.conduitRoughness);
+    d.conduitLength         = readObjSetting<double>(s, si, QStringLiteral("Conduit/Length"),           d.conduitLength);
+    d.conduitBarrels        = readObjSetting<int>(s,    si, QStringLiteral("Conduit/Barrels"),          d.conduitBarrels);
+    d.conduitLossInlet      = readObjSetting<double>(s, si, QStringLiteral("Conduit/LossInlet"),        d.conduitLossInlet);
+    d.conduitLossOutlet     = readObjSetting<double>(s, si, QStringLiteral("Conduit/LossOutlet"),       d.conduitLossOutlet);
+    d.conduitFlapGate       = readObjSetting<bool>(s,   si, QStringLiteral("Conduit/FlapGate"),         d.conduitFlapGate);
+    d.pumpInitStateOn       = readObjSetting<bool>(s,   si, QStringLiteral("Pump/InitStateOn"),         d.pumpInitStateOn);
+    d.pumpStartupDepth      = readObjSetting<double>(s, si, QStringLiteral("Pump/StartupDepth"),        d.pumpStartupDepth);
+    d.pumpShutoffDepth      = readObjSetting<double>(s, si, QStringLiteral("Pump/ShutoffDepth"),        d.pumpShutoffDepth);
+    d.orificeType           = readObjSetting<QString>(s, si, QStringLiteral("Orifice/Type"),            d.orificeType);
+    d.orificeGeom1          = readObjSetting<double>(s, si, QStringLiteral("Orifice/Geom1"),            d.orificeGeom1);
+    d.orificeCd             = readObjSetting<double>(s, si, QStringLiteral("Orifice/Cd"),               d.orificeCd);
+    d.orificeFlapGate       = readObjSetting<bool>(s,   si, QStringLiteral("Orifice/FlapGate"),         d.orificeFlapGate);
+    d.orificeOpenCloseRate  = readObjSetting<double>(s, si, QStringLiteral("Orifice/OpenCloseRate"),    d.orificeOpenCloseRate);
+    d.weirType              = readObjSetting<QString>(s, si, QStringLiteral("Weir/Type"),               d.weirType);
+    d.weirGeom1             = readObjSetting<double>(s, si, QStringLiteral("Weir/Geom1"),               d.weirGeom1);
+    d.weirGeom2             = readObjSetting<double>(s, si, QStringLiteral("Weir/Geom2"),               d.weirGeom2);
+    d.weirCd                = readObjSetting<double>(s, si, QStringLiteral("Weir/Cd"),                  d.weirCd);
+    d.weirEndContractions   = readObjSetting<int>(s,    si, QStringLiteral("Weir/EndContractions"),     d.weirEndContractions);
+    d.weirFlapGate          = readObjSetting<bool>(s,   si, QStringLiteral("Weir/FlapGate"),            d.weirFlapGate);
+    d.outletRatingType      = readObjSetting<QString>(s, si, QStringLiteral("Outlet/RatingType"),       d.outletRatingType);
+    d.outletCoeff           = readObjSetting<double>(s, si, QStringLiteral("Outlet/Coeff"),             d.outletCoeff);
+    d.outletExponent        = readObjSetting<double>(s, si, QStringLiteral("Outlet/Exponent"),          d.outletExponent);
+    d.outletFlapGate        = readObjSetting<bool>(s,   si, QStringLiteral("Outlet/FlapGate"),          d.outletFlapGate);
+    d.subcatchArea          = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/Area"),        d.subcatchArea);
+    d.subcatchWidth         = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/Width"),       d.subcatchWidth);
+    d.subcatchSlopePct      = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/SlopePct"),    d.subcatchSlopePct);
+    d.subcatchImpervPct     = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/ImpervPct"),   d.subcatchImpervPct);
+    d.subcatchNImperv       = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/NImperv"),     d.subcatchNImperv);
+    d.subcatchNPerv         = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/NPerv"),       d.subcatchNPerv);
+    d.subcatchDsImperv      = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/DsImperv"),    d.subcatchDsImperv);
+    d.subcatchDsPerv        = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/DsPerv"),      d.subcatchDsPerv);
+    d.subcatchPctZeroImperv = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/PctZeroImperv"), d.subcatchPctZeroImperv);
+    d.hortonMaxRate         = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/HortonMaxRate"), d.hortonMaxRate);
+    d.hortonMinRate         = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/HortonMinRate"), d.hortonMinRate);
+    d.hortonDecay           = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/HortonDecay"),   d.hortonDecay);
+    d.hortonDryTime         = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/HortonDryTime"), d.hortonDryTime);
+    d.gaSuction             = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/GaSuction"),     d.gaSuction);
+    d.gaKsat                = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/GaKsat"),        d.gaKsat);
+    d.gaImd                 = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/GaImd"),         d.gaImd);
+    d.cnCurveNumber         = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/CnCurveNumber"), d.cnCurveNumber);
+    d.cnDryTime             = readObjSetting<double>(s, si, QStringLiteral("Subcatchment/CnDryTime"),     d.cnDryTime);
+    d.gageRainFormat        = readObjSetting<QString>(s, si, QStringLiteral("RainGage/RainFormat"),     d.gageRainFormat);
+    d.gageIntervalMin       = readObjSetting<int>(s,    si, QStringLiteral("RainGage/IntervalMin"),     d.gageIntervalMin);
+    d.gageSnowCatch         = readObjSetting<double>(s, si, QStringLiteral("RainGage/SnowCatch"),       d.gageSnowCatch);
+    return d;
+}
+
+void PreferencesManager::setObjectDefaults(const ObjectDefaults &d, bool si)
+{
+    auto put = [this, si](const QString &key, const QVariant &v) {
+        m_settings.setValue(objDefaultsKey(si, key), v);
+    };
+    put(QStringLiteral("Junction/MaxDepth"),        d.junctionMaxDepth);
+    put(QStringLiteral("Junction/InitDepth"),       d.junctionInitDepth);
+    put(QStringLiteral("Junction/SurDepth"),        d.junctionSurDepth);
+    put(QStringLiteral("Junction/PondedArea"),      d.junctionPondedArea);
+    put(QStringLiteral("Outfall/Type"),             d.outfallType);
+    put(QStringLiteral("Outfall/FlapGate"),         d.outfallFlapGate);
+    put(QStringLiteral("Storage/MaxDepth"),         d.storageMaxDepth);
+    put(QStringLiteral("Storage/FuncCoeff"),        d.storageFuncCoeff);
+    put(QStringLiteral("Storage/FuncExponent"),     d.storageFuncExponent);
+    put(QStringLiteral("Storage/FuncConstant"),     d.storageFuncConstant);
+    put(QStringLiteral("Storage/SeepRate"),         d.storageSeepRate);
+    put(QStringLiteral("Divider/Type"),             d.dividerType);
+    put(QStringLiteral("Conduit/Shape"),            d.conduitShape);
+    put(QStringLiteral("Conduit/Geom1"),            d.conduitGeom1);
+    put(QStringLiteral("Conduit/Geom2"),            d.conduitGeom2);
+    put(QStringLiteral("Conduit/Geom3"),            d.conduitGeom3);
+    put(QStringLiteral("Conduit/Geom4"),            d.conduitGeom4);
+    put(QStringLiteral("Conduit/Roughness"),        d.conduitRoughness);
+    put(QStringLiteral("Conduit/Length"),           d.conduitLength);
+    put(QStringLiteral("Conduit/Barrels"),          d.conduitBarrels);
+    put(QStringLiteral("Conduit/LossInlet"),        d.conduitLossInlet);
+    put(QStringLiteral("Conduit/LossOutlet"),       d.conduitLossOutlet);
+    put(QStringLiteral("Conduit/FlapGate"),         d.conduitFlapGate);
+    put(QStringLiteral("Pump/InitStateOn"),         d.pumpInitStateOn);
+    put(QStringLiteral("Pump/StartupDepth"),        d.pumpStartupDepth);
+    put(QStringLiteral("Pump/ShutoffDepth"),        d.pumpShutoffDepth);
+    put(QStringLiteral("Orifice/Type"),             d.orificeType);
+    put(QStringLiteral("Orifice/Geom1"),            d.orificeGeom1);
+    put(QStringLiteral("Orifice/Cd"),               d.orificeCd);
+    put(QStringLiteral("Orifice/FlapGate"),         d.orificeFlapGate);
+    put(QStringLiteral("Orifice/OpenCloseRate"),    d.orificeOpenCloseRate);
+    put(QStringLiteral("Weir/Type"),                d.weirType);
+    put(QStringLiteral("Weir/Geom1"),               d.weirGeom1);
+    put(QStringLiteral("Weir/Geom2"),               d.weirGeom2);
+    put(QStringLiteral("Weir/Cd"),                  d.weirCd);
+    put(QStringLiteral("Weir/EndContractions"),     d.weirEndContractions);
+    put(QStringLiteral("Weir/FlapGate"),            d.weirFlapGate);
+    put(QStringLiteral("Outlet/RatingType"),        d.outletRatingType);
+    put(QStringLiteral("Outlet/Coeff"),             d.outletCoeff);
+    put(QStringLiteral("Outlet/Exponent"),          d.outletExponent);
+    put(QStringLiteral("Outlet/FlapGate"),          d.outletFlapGate);
+    put(QStringLiteral("Subcatchment/Area"),        d.subcatchArea);
+    put(QStringLiteral("Subcatchment/Width"),       d.subcatchWidth);
+    put(QStringLiteral("Subcatchment/SlopePct"),    d.subcatchSlopePct);
+    put(QStringLiteral("Subcatchment/ImpervPct"),   d.subcatchImpervPct);
+    put(QStringLiteral("Subcatchment/NImperv"),     d.subcatchNImperv);
+    put(QStringLiteral("Subcatchment/NPerv"),       d.subcatchNPerv);
+    put(QStringLiteral("Subcatchment/DsImperv"),    d.subcatchDsImperv);
+    put(QStringLiteral("Subcatchment/DsPerv"),      d.subcatchDsPerv);
+    put(QStringLiteral("Subcatchment/PctZeroImperv"), d.subcatchPctZeroImperv);
+    put(QStringLiteral("Subcatchment/HortonMaxRate"), d.hortonMaxRate);
+    put(QStringLiteral("Subcatchment/HortonMinRate"), d.hortonMinRate);
+    put(QStringLiteral("Subcatchment/HortonDecay"),   d.hortonDecay);
+    put(QStringLiteral("Subcatchment/HortonDryTime"), d.hortonDryTime);
+    put(QStringLiteral("Subcatchment/GaSuction"),     d.gaSuction);
+    put(QStringLiteral("Subcatchment/GaKsat"),        d.gaKsat);
+    put(QStringLiteral("Subcatchment/GaImd"),         d.gaImd);
+    put(QStringLiteral("Subcatchment/CnCurveNumber"), d.cnCurveNumber);
+    put(QStringLiteral("Subcatchment/CnDryTime"),     d.cnDryTime);
+    put(QStringLiteral("RainGage/RainFormat"),      d.gageRainFormat);
+    put(QStringLiteral("RainGage/IntervalMin"),     d.gageIntervalMin);
+    put(QStringLiteral("RainGage/SnowCatch"),       d.gageSnowCatch);
+
+    emit preferenceChanged(QStringLiteral("Defaults"),
+                           QStringLiteral("ObjectDefaults"));
+}

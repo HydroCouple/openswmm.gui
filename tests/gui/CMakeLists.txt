@@ -686,6 +686,17 @@ add_swmmvis_gui_test(test_twod_defaults_prefs
     ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
 )
 
+# Object-creation defaults bundle — pins the signed-off defaults table and
+# the independent US/SI persistence (see
+# workplans/OBJECT_CREATION_DEFAULTS_PLAN_2026-08-03.md).
+add_swmmvis_gui_test(test_object_defaults_prefs
+    test_object_defaults_prefs.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+)
+
 # Slice AT.2 — pins InteractiveChartView's public API (mode round-trip,
 # modeChanged signal, resetZoom, right-click context-menu signal, cursor
 # reflection). Self-contained: only links the widget .cpp; needs Qt6::Charts
@@ -1920,6 +1931,17 @@ add_swmmvis_gui_test(test_selectionops
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_selectionops)
+
+# Object-creation defaults — drawn objects must land with the configured
+# ObjectDefaults for the active unit system; geometry-derived overrides win;
+# undo rolls the whole object back (see
+# workplans/OBJECT_CREATION_DEFAULTS_PLAN_2026-08-03.md).
+add_swmmvis_gui_test(test_object_creation_defaults
+    test_object_creation_defaults.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_object_creation_defaults)
 
 # UI redesign P0 — standalone audit of forms/swmmvis.ui. The form declares
 # MapCanvas as a customwidget but never instantiates one, so Ui::SWMMVis

@@ -347,6 +347,9 @@ set(
         include/map/mapcanvas.h
         include/map/maprenderjob.h
         include/map/mapundostack.h
+        # Object-creation defaults applied by the Add*Commands (see
+        # workplans/OBJECT_CREATION_DEFAULTS_PLAN_2026-08-03.md).
+        include/map/objectdefaultsapplier.h
         # FEATURE_LAYER_TO_SWMM_IMPORT — import-specific undo commands.
         include/map/importcommands.h
         # Slice BB Phase 8.6.16 — QUndoCommand for per-class renderer edits.
@@ -665,6 +668,8 @@ set(
         include/ui/dialogs/newprojectdialog.h
         include/ui/dialogs/pluginsdialog.h
         include/ui/dialogs/preferencesdialog.h
+        # Object Defaults preferences page (self-contained widget).
+        include/ui/dialogs/objectdefaultspage.h
         include/ui/dialogs/simulationoptionsdialog.h
         include/ui/dialogs/hotstartsavesmodel.h
         include/ui/dialogs/pathbrowsedelegate.h
@@ -929,6 +934,9 @@ set(
         src/map/mapcanvas.cpp
         src/map/maprenderjob.cpp
         src/map/mapundostack.cpp
+        # Object-creation defaults applied by the Add*Commands (see
+        # workplans/OBJECT_CREATION_DEFAULTS_PLAN_2026-08-03.md).
+        src/map/objectdefaultsapplier.cpp
         # FEATURE_LAYER_TO_SWMM_IMPORT — import-specific undo commands.
         src/map/importcommands.cpp
         # Slice BB Phase 8.6.16 — QUndoCommand for per-class renderer edits.
@@ -1200,6 +1208,8 @@ set(
         src/ui/dialogs/newprojectdialog.cpp
         src/ui/dialogs/pluginsdialog.cpp
         src/ui/dialogs/preferencesdialog.cpp
+        # Object Defaults preferences page (self-contained widget).
+        src/ui/dialogs/objectdefaultspage.cpp
         src/ui/dialogs/simulationoptionsdialog.cpp
         src/ui/dialogs/simulationoptionshelpers.cpp
         src/ui/dialogs/hotstartsavesmodel.cpp
