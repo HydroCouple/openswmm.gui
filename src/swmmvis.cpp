@@ -4846,7 +4846,16 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
     auto *watcher = new QFutureWatcher<MeshOpenOutcome>(this);
     connect(watcher, &QFutureWatcherBase::finished, this,
             [this, watcher, win, filePath, meshTimer]() {
-        const MeshOpenOutcome out = watcher->result();
+        // result() rethrows a worker exception on the GUI thread; a 2dm parse
+        // or layer build that runs out of memory must degrade to a log
+        // message, not std::terminate.
+        MeshOpenOutcome out;
+        try {
+            out = watcher->result();
+        } catch (const std::exception &e) {
+            out.errorMsg = tr("Loading the 2D mesh failed: %1")
+                               .arg(QString::fromUtf8(e.what()));
+        }
         watcher->deleteLater();
 
         if (!out.warning.isEmpty())

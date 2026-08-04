@@ -333,6 +333,36 @@ private slots:
         }
         QCOMPARE(inHole, 0);
     }
+
+    /*! A minimal 3-vertex ring must still close under the segment-count
+     *  closure gate (2 open segments + the closing one = a valid ring). */
+    void triangleDomain_closes()
+    {
+        MeshGenerator g;
+        QPolygonF dom;
+        dom << QPointF(0,0) << QPointF(100,0) << QPointF(50,80);
+        g.setDomain(dom);
+        const MeshResult r = g.generate();
+        QVERIFY2(r.ok, qPrintable(r.errorMsg));
+        QVERIFY(r.triangles.size() >= 1);
+    }
+
+    /*! A polygon whose vertices quantise down to 2 distinct points (thin
+     *  dissolve sliver) must fail cleanly. The old vertex-count closure gate
+     *  over-counted the first vertex, so such a ring emitted the degenerate
+     *  reversed pair (a,b),(b,a) as a "closed ring" into Triangle's PSLG. */
+    void collapsedTwoVertexRing_failsCleanly()
+    {
+        MeshGenerator g;
+        QPolygonF dom;
+        dom << QPointF(0, 0)     << QPointF(1e-9, 1e-9)
+            << QPointF(100, 100) << QPointF(100 + 1e-9, 100 - 1e-9);
+        g.setDomain(dom);
+        const MeshResult r = g.generate();
+        QVERIFY(!r.ok);
+        QVERIFY(r.triangles.isEmpty());
+        QVERIFY(!r.errorMsg.isEmpty());
+    }
 };
 
 QTEST_MAIN(TestMeshGenerator)
