@@ -1925,6 +1925,17 @@ bool SWMM2DMeshLayer::applyMeshTriangleMannings(int triIdx, double mannings)
     return true;
 }
 
+bool SWMM2DMeshLayer::applyMeshTriangleInitDepth(int triIdx, double depth)
+{
+    if (triIdx < 0 || triIdx >= m_mesh.triangles.size()) return false;
+    if (!(depth >= 0.0)) return false;
+    if (m_mesh.triangles[triIdx].initDepth == depth) return true;
+    m_mesh.triangles[triIdx].initDepth = depth;
+    emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
+    emit repaintRequested();
+    return true;
+}
+
 bool SWMM2DMeshLayer::applyMeshTriangleTag(int triIdx, const QString &tag)
 {
     if (triIdx < 0 || triIdx >= m_mesh.triangles.size()) return false;

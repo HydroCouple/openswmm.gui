@@ -79,6 +79,40 @@ private slots:
         QVERIFY(text.contains("0.0250") || text.contains("0.025"));
     }
 
+    /*! INIT_DEPTH sits between MANNINGS_N and TAG; the column is emitted for
+     *  EVERY row whenever any triangle carries a depth or a tag, so a numeric
+     *  5th token always means INIT_DEPTH on re-read. */
+    void buildSectionText_initDepthPrecedesTag()
+    {
+        MeshResult m = sampleMesh();
+        m.triangles[0].initDepth = 0.25;
+        const QString text = InpMeshWriter::buildSectionText(m, sampleCoupling());
+
+        const int sec = text.indexOf("[2D_TRIANGLES]");
+        QVERIFY(sec >= 0);
+        int end = text.indexOf("\n[", sec + 1);
+        if (end < 0) end = text.size();
+        const QString block = text.mid(sec, end - sec);
+        QVERIFY(block.contains("INIT_DEPTH"));
+
+        bool sawDepthThenTag = false, allRowsHaveDepth = true;
+        for (const QString &line : block.split('\n')) {
+            const QString t = line.trimmed();
+            if (t.isEmpty() || t.startsWith(";;") || t.startsWith('[')) continue;
+            const QStringList tok =
+                t.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+            if (tok.size() < 5) { allRowsHaveDepth = false; continue; }
+            bool okd = false;
+            tok[4].toDouble(&okd);
+            if (!okd) allRowsHaveDepth = false;
+            if (okd && tok[4].toDouble() == 0.25 && tok.size() >= 6
+                && tok[5] == QStringLiteral("subcatch_S1"))
+                sawDepthThenTag = true;
+        }
+        QVERIFY2(allRowsHaveDepth, qPrintable(block));
+        QVERIFY2(sawDepthThenTag, qPrintable(block));
+    }
+
     void buildSectionText_vertexMapCarriesCdArea()
     {
         MeshResult m = sampleMesh();
