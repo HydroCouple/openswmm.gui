@@ -5281,6 +5281,17 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
                 const int nFrames = srcRaw->timeCount();
                 int   peakFrame = 0;
                 float peakDepth = 0.0f;
+                // Histogram of WET cell depths over every frame, so the colour
+                // ramp can be anchored to a high percentile rather than the
+                // absolute peak. Anchoring to the peak lets a few very deep
+                // cells (a coupling spill, a pit, a pond) stretch the ramp so
+                // far that the bulk of the inundation lands in the bottom few
+                // percent of the palette and reads as dry ground. Fixed bins
+                // keep this a single pass over the frames.
+                constexpr int    kBins   = 10000;
+                constexpr double kBinCap = 100.0;   // depth units; deeper saturates
+                std::vector<quint64> hist(kBins, 0);
+                quint64 wetSamples = 0;
                 std::vector<float> probe;
                 for (int t = 0; t < nFrames; ++t) {
                     if (!srcRaw->readDepthsAt(t, probe)) continue;
@@ -5288,6 +5299,32 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
                     const float m = *std::max_element(probe.begin(),
                                                         probe.end());
                     if (m > peakDepth) { peakDepth = m; peakFrame = t; }
+                    for (float d : probe) {
+                        if (!std::isfinite(d) || !(d > 1e-4f)) continue;
+                        int b = int(double(d) / kBinCap * kBins);
+                        b = std::clamp(b, 0, kBins - 1);
+                        ++hist[size_t(b)];
+                        ++wetSamples;
+                    }
+                }
+                // 98th percentile of the wet distribution — trims the extreme
+                // tail only, so genuinely deep water still reads deep. Never
+                // exceeds the true peak, and falls back to it when the sample
+                // is too small to be meaningful.
+                float rampMax = peakDepth;
+                if (wetSamples > 0) {
+                    const quint64 target =
+                        quint64(double(wetSamples) * 0.98);
+                    quint64 cum = 0;
+                    for (int b = 0; b < kBins; ++b) {
+                        cum += hist[size_t(b)];
+                        if (cum >= target) {
+                            rampMax = float(double(b + 1) * (kBinCap / kBins));
+                            break;
+                        }
+                    }
+                    rampMax = std::min(rampMax, peakDepth);
+                    if (!(rampMax > 0.0f)) rampMax = peakDepth;
                 }
 
                 // Honour the model's DRY_DEPTH so the GUI render
@@ -5317,7 +5354,10 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window,
                 // actual data peak; default (0.5 m) is way too loose
                 // for typical overland-flow demos.
                 if (peakDepth > 0.0f) {
-                    resLayer->setMaxDepth(peakDepth);
+                    // Ramp top = the percentile clip (so typical water uses
+                    // most of the palette); seek still goes to the true peak
+                    // frame, which is the interesting one to land on.
+                    resLayer->setMaxDepth(rampMax);
                     resLayer->setCurrentTimeIndex(peakFrame);
                 }
 
