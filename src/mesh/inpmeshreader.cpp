@@ -123,13 +123,24 @@ QString parseSection(const QString &sectionName,
                 return QStringLiteral("[2D_TRIANGLES] non-integer vertex index (got: %1)").arg(raw.trimmed());
             MeshTriangle t;
             t.v0 = v0; t.v1 = v1; t.v2 = v2;
-            // tok[3] is MANNINGS_N, tok[4] is TAG.
+            // tok[3] is MANNINGS_N. tok[4] is INIT_DEPTH when numeric
+            // (engine format `V1 V2 V3 MANNINGS_N [INIT_DEPTH] [TAG]`),
+            // otherwise the historical TAG; tok[5] is TAG after a depth.
             if (tok.size() >= 4) {
                 bool okn = false;
                 const double n = tok[3].toDouble(&okn);
                 if (okn) t.mannings = n;
             }
-            if (tok.size() >= 5) t.tag = tok[4];
+            if (tok.size() >= 5) {
+                bool okd = false;
+                const double d = tok[4].toDouble(&okd);
+                if (okd) {
+                    t.initDepth = d;
+                    if (tok.size() >= 6) t.tag = tok[5];
+                } else {
+                    t.tag = tok[4];
+                }
+            }
             out.triangles.append(t);
         }
         return {};

@@ -367,6 +367,11 @@ public:
      *  with the cell ref name. */
     bool applyMeshTriangleMannings(int triIdx, double mannings);
 
+    /*! \brief Set a triangle's initial water depth in m ([2D_TRIANGLES]
+     *  INIT_DEPTH column, default 0 = dry). Emits attributeChanged with the
+     *  cell ref name. */
+    bool applyMeshTriangleInitDepth(int triIdx, double depth);
+
     /*! \brief Set a triangle's descriptive tag ([2D_TRIANGLES] TAG column).
      *  Emits attributeChanged with the cell ref name. */
     bool applyMeshTriangleTag(int triIdx, const QString &tag);

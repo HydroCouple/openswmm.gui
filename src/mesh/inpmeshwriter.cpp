@@ -69,12 +69,26 @@ QString formatTriangles(const MeshResult &mesh,
     s.setRealNumberPrecision(4);
 
     s << kSecTriangles << "\n";
-    s << ";; V1   V2   V3   MANNINGS_N   TAG\n";
+    // INIT_DEPTH (m, engine default 0 = dry) sits between MANNINGS_N and
+    // TAG. Emit the column for every row whenever any triangle carries a
+    // depth or a tag, so TAG's position stays unambiguous on re-read.
+    bool anyDepth = false, anyTag = false;
+    for (const MeshTriangle &t : mesh.triangles) {
+        if (!std::isnan(t.initDepth) && t.initDepth != 0.0) anyDepth = true;
+        if (!t.tag.isEmpty()) anyTag = true;
+    }
+    const bool writeDepthCol = anyDepth || anyTag;
+    if (writeDepthCol)
+        s << ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n";
+    else
+        s << ";; V1   V2   V3   MANNINGS_N   TAG\n";
     for (int i = 0; i < mesh.triangles.size(); ++i)
     {
         const MeshTriangle &t = mesh.triangles[i];
         const double n = coupling.triangleMannings.value(i, defaultMannings);
         s << t.v0 << "  " << t.v1 << "  " << t.v2 << "  " << n;
+        if (writeDepthCol)
+            s << "  " << (std::isnan(t.initDepth) ? 0.0 : t.initDepth);
         if (!t.tag.isEmpty())
             s << "  " << t.tag;
         s << "\n";
@@ -228,11 +242,13 @@ QStringList sectionDataRows(const QString &text, const char *secName)
 }
 
 /*! `[2D_TRIANGLES]` rebuild for patchAttributeSections: connectivity and TAG
- *  come from \p mesh; MANNINGS_N comes from the mesh triangle when set, else
- *  from the same row of \p origRows so a value authored at generation time
- *  (or by hand) survives the rewrite (MeshTriangle::mannings stays NaN until
- *  the user edits it). TAG parses positionally (column 5), so it can only be
- *  carried when a MANNINGS_N token exists. */
+ *  come from \p mesh; MANNINGS_N (and INIT_DEPTH) come from the mesh triangle
+ *  when set, else from the same row of \p origRows so values authored at
+ *  generation time (or by hand) survive the rewrite (both stay NaN until the
+ *  user edits them). Columns are positional (`V1 V2 V3 MANNINGS_N
+ *  [INIT_DEPTH] [TAG]`; a numeric 5th token means INIT_DEPTH), so INIT_DEPTH
+ *  is emitted whenever a depth or a tag must be carried, and TAG only when a
+ *  MANNINGS_N token exists. */
 QString formatTrianglesPreserving(const MeshResult &mesh,
                                   const QStringList &origRows)
 {
@@ -241,8 +257,33 @@ QString formatTrianglesPreserving(const MeshResult &mesh,
     s.setRealNumberNotation(QTextStream::FixedNotation);
     s.setRealNumberPrecision(4);
 
+    // Original-row INIT_DEPTH (numeric 5th token) so hand-authored depths
+    // survive the rewrite even when MeshTriangle::initDepth is unset.
+    auto origDepthTok = [&origRows](int i) -> QString {
+        if (i >= origRows.size()) return {};
+        const QStringList tok =
+            origRows[i].simplified().split(QChar(' '), Qt::SkipEmptyParts);
+        if (tok.size() < 5) return {};
+        bool okd = false;
+        tok[4].toDouble(&okd);
+        return okd ? tok[4] : QString();
+    };
+
+    bool anyDepth = false, anyTag = false;
+    for (int i = 0; i < mesh.triangles.size(); ++i) {
+        const MeshTriangle &t = mesh.triangles[i];
+        if ((std::isfinite(t.initDepth) && t.initDepth != 0.0) ||
+            !origDepthTok(i).isEmpty())
+            anyDepth = true;
+        if (!t.tag.isEmpty()) anyTag = true;
+    }
+    const bool writeDepthCol = anyDepth || anyTag;
+
     s << kSecTriangles << "\n";
-    s << ";; V1   V2   V3   MANNINGS_N   TAG\n";
+    if (writeDepthCol)
+        s << ";; V1   V2   V3   MANNINGS_N   INIT_DEPTH   TAG\n";
+    else
+        s << ";; V1   V2   V3   MANNINGS_N   TAG\n";
     for (int i = 0; i < mesh.triangles.size(); ++i)
     {
         const MeshTriangle &t = mesh.triangles[i];
@@ -260,6 +301,16 @@ QString formatTrianglesPreserving(const MeshResult &mesh,
             bool okn = false;
             if (tok.size() >= 4) tok[3].toDouble(&okn);
             if (okn) { s << "  " << tok[3]; haveMannings = true; }
+        }
+        if (haveMannings && writeDepthCol)
+        {
+            if (std::isfinite(t.initDepth))
+                s << "  " << t.initDepth;
+            else
+            {
+                const QString od = origDepthTok(i);
+                s << "  " << (od.isEmpty() ? QStringLiteral("0") : od);
+            }
         }
         if (haveMannings && !t.tag.isEmpty())
             s << "  " << t.tag;

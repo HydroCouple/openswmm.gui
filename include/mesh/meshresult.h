@@ -40,6 +40,11 @@ struct MeshTriangle
     /// writer falls back to the caller's default (mesh generation uses a
     /// uniform value); a loaded mesh carries the per-triangle value.
     double  mannings = std::numeric_limits<double>::quiet_NaN();
+    /// Initial water depth in m ([2D_TRIANGLES] INIT_DEPTH, written between
+    /// MANNINGS_N and TAG). NaN = unset (column absent on load) — treated as
+    /// the engine default 0 (dry) and omitted on write unless any triangle
+    /// carries a depth or a tag (TAG position must stay unambiguous).
+    double  initDepth = std::numeric_limits<double>::quiet_NaN();
 };
 
 /*! \brief A boundary edge with its source-segment marker preserved. */
