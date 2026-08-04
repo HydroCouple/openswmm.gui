@@ -4096,6 +4096,18 @@ QString synthesizeBlankInp(const NewProjectDialog::Result &r,
 "SUBCATCHMENTS ALL\n"
 "NODES      ALL\n"
 "LINKS      ALL\n");
+
+    // [MAP] UNITS drives SWMMModelLayer::loadModel's LocalAuto CRS
+    // resolution: with it present, a fresh project resolves to a local
+    // projected CRS ("Local (ft)" / "Local (m)") instead of falling
+    // through to the geographic preference default. Units follow the
+    // flow-unit system, matching the ft/m derivation used by the CRS
+    // Required prompt in swmmvisprojectwindow.cpp.
+    const bool siFlow = d.flowUnits == QStringLiteral("CMS")
+                     || d.flowUnits == QStringLiteral("LPS")
+                     || d.flowUnits == QStringLiteral("MLD");
+    out += QStringLiteral("\n[MAP]\nUNITS      %1\n")
+        .arg(siFlow ? QStringLiteral("METERS") : QStringLiteral("FEET"));
     return out;
 }
 
@@ -4132,10 +4144,11 @@ void SWMMVis::onNewProject()
     const QDate today = QDate::currentDate();
     r.startDateTime    = QDateTime(today, QTime(0, 0));
     r.endDateTime      = r.startDateTime.addSecs(24 * 3600);
-    // crsAuthCode intentionally left empty — SWMMModelLayer::loadModel
-    // pulls the default CRS from PreferencesManager when the .inp carries
-    // none, and the project window propagates that to the canvas. No
-    // post-load override here keeps layer/canvas in lockstep.
+    // crsAuthCode intentionally left empty — the synthetic .inp carries a
+    // [MAP] UNITS line, so SWMMModelLayer::loadModel's LocalAuto mode
+    // resolves a local projected CRS (ft/m per flow units) and the project
+    // window propagates that to the canvas. No post-load override here
+    // keeps layer/canvas in lockstep.
 
     // Engine-aware emit: NODE_CONTINUITY + ANDERSON_ACCEL are gated on the
     // refactored engine being the active default.
