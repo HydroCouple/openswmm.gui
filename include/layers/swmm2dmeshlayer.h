@@ -326,6 +326,17 @@ public:
      *  builds it for real. */
     [[nodiscard]] const mesh::MeshBoundaryGraph &boundaryGraph();
 
+    /*! Engine §11A helper — find the (tri, eLocal) slot on the other side
+     *  of an interior edge. Returns `(-1, -1)` when the edge is on the
+     *  mesh boundary (no neighbour) or the indices are out of range.
+     *  Uses the vertex→triangles adjacency, so requires
+     *  `rebuildVertexAdjacency()` to have run.
+     *
+     *  Public because the Attribute Table's Edges view canonicalises each
+     *  interior edge pair onto a single row and needs the same pairing the
+     *  conveyance mirror uses. */
+    [[nodiscard]] QPair<int,int> findEdgeNeighbour(int triIdx, int edgeLocal) const;
+
     // ----- Write path (Slice §V.VA / §V.VB / §V.VC) ------------------------
     /*! \brief Set vertex Z. Mutates the layer's MeshResult, rebuilds
      *  scene geometry, emits attributeChanged with the vertex ref name. */
@@ -623,13 +634,6 @@ private:
     // applyMeshVertexZ.
     void resizeBCsToMesh();
     void rebuildVertexAdjacency();
-
-    /*! Engine §11A helper — find the (tri, eLocal) slot on the other side
-     *  of an interior edge. Returns `(-1, -1)` when the edge is on the
-     *  mesh boundary (no neighbour) or the indices are out of range.
-     *  Uses the vertex→triangles adjacency, so requires
-     *  `rebuildVertexAdjacency()` to have run. */
-    QPair<int,int> findEdgeNeighbour(int triIdx, int edgeLocal) const;
 
     mesh::MeshResult             m_mesh;
     QString                      m_sourcePath;
