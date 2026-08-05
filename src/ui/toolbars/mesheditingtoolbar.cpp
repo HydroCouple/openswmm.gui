@@ -258,7 +258,8 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     m_actEditEdge->setCheckable(true);
     m_actEditEdge->setToolTip(tr(
         "Select Edge — click a boundary edge or drag a box to select\n"
-        "multiple, then assign a boundary condition. Esc clears."));
+        "multiple, then assign a boundary condition. Ctrl/⌘-click two\n"
+        "boundary edges to add the whole run between them. Esc clears."));
     m_barEdges->addAction(m_actEditEdge);
 
     m_editGroup = new QActionGroup(this);
