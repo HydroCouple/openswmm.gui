@@ -1098,14 +1098,19 @@ void MeshEditingToolbar::onHoverElevation(double z, bool finite)
     m_hoverLabel->setText(QString::number(z, 'f', 3));
 }
 
+// Every vertex commit below routes through mesh::pushVertexParamEdit so the
+// edit lands on the same undo stack the cell editors, the Cell Data dialog and
+// the Attribute Table use — one command per commit, no matter how many
+// vertices the selection carries.
 void MeshEditingToolbar::onZSpinChanged(double z)
 {
     if (m_suppressZSignal) return;
     if (!m_activeMesh) return;
     // Apply the elevation to every selected vertex (one or many).
     const QList<int> verts = currentSelectedVertices();
-    for (int vIdx : verts)
-        m_activeMesh->applyMeshVertexZ(vIdx, z);
+    mesh::pushVertexParamEdit(m_activeMesh,
+                              QVector<int>(verts.cbegin(), verts.cend()),
+                              "z", z, m_canvas);
 }
 
 void MeshEditingToolbar::onVertexTagCommit()
@@ -1113,8 +1118,10 @@ void MeshEditingToolbar::onVertexTagCommit()
     if (!m_activeMesh || !m_vertexTagEdit) return;
     const QList<int> verts = currentSelectedVertices();
     if (verts.isEmpty()) return;
-    const QString tag = m_vertexTagEdit->text().trimmed();
-    for (int vIdx : verts) m_activeMesh->applyMeshVertexTag(vIdx, tag);
+    mesh::pushVertexParamEdit(m_activeMesh,
+                              QVector<int>(verts.cbegin(), verts.cend()),
+                              "tag", m_vertexTagEdit->text().trimmed(),
+                              m_canvas);
 }
 
 void MeshEditingToolbar::onVertexCoupledCommit()
@@ -1122,8 +1129,11 @@ void MeshEditingToolbar::onVertexCoupledCommit()
     if (!m_activeMesh || !m_vertexCoupledCombo) return;
     const QList<int> verts = currentSelectedVertices();
     if (verts.isEmpty()) return;
-    const QString node = m_vertexCoupledCombo->currentText().trimmed();
-    for (int vIdx : verts) m_activeMesh->applyMeshVertexCoupledNode(vIdx, node);
+    mesh::pushVertexParamEdit(m_activeMesh,
+                              QVector<int>(verts.cbegin(), verts.cend()),
+                              "coupledNode",
+                              m_vertexCoupledCombo->currentText().trimmed(),
+                              m_canvas);
 }
 
 void MeshEditingToolbar::onVertexCdCommit()
@@ -1131,9 +1141,10 @@ void MeshEditingToolbar::onVertexCdCommit()
     if (!m_activeMesh || !m_vertexCdSpin) return;
     const QList<int> verts = currentSelectedVertices();
     if (verts.isEmpty()) return;
-    const double cd = m_vertexCdSpin->value();
     // The layer rejects uncoupled vertices, so mixed selections are safe.
-    for (int vIdx : verts) m_activeMesh->applyMeshVertexCouplingCd(vIdx, cd);
+    mesh::pushVertexParamEdit(m_activeMesh,
+                              QVector<int>(verts.cbegin(), verts.cend()),
+                              "couplingCd", m_vertexCdSpin->value(), m_canvas);
 }
 
 void MeshEditingToolbar::onVertexAreaCommit()
@@ -1141,8 +1152,10 @@ void MeshEditingToolbar::onVertexAreaCommit()
     if (!m_activeMesh || !m_vertexAreaSpin) return;
     const QList<int> verts = currentSelectedVertices();
     if (verts.isEmpty()) return;
-    const double area = m_vertexAreaSpin->value();
-    for (int vIdx : verts) m_activeMesh->applyMeshVertexCouplingArea(vIdx, area);
+    mesh::pushVertexParamEdit(m_activeMesh,
+                              QVector<int>(verts.cbegin(), verts.cend()),
+                              "couplingArea", m_vertexAreaSpin->value(),
+                              m_canvas);
 }
 
 void MeshEditingToolbar::onAutoCoupleClicked()
@@ -1465,21 +1478,14 @@ void MeshEditingToolbar::commitBCParam()
         break;
     }
 
-    // Preserve any existing group label on each edge — group editing
-    // ships via §V.VD's dedicated Group submenu, not this commit path.
-    // Boundary conditions are meaningful only on BOUNDARY edges, so interior
-    // edges in the selection (selectable for flux plotting) are skipped.
-    const auto &existing = m_activeMesh->edgeBCs();
-    for (const auto &pr : edges) {
-        const int tri = pr.first;
-        const int e   = pr.second;
-        if (!m_activeMesh->isBoundaryEdge(tri, e)) continue;   // BC = boundary only
-        const int flat = tri * 3 + e;
-        mesh::MeshEdgeBC slot = bc;
-        if (flat >= 0 && flat < existing.size())
-            slot.group = existing[flat].group;
-        m_activeMesh->applyMeshEdgeBC(tri, e, slot);
-    }
+    // pushEdgeBCEdit keeps each slot's existing group label — group editing
+    // ships via §V.VD's dedicated Group submenu, not this commit path — and
+    // skips interior edges, since boundary conditions are meaningful only
+    // where the mesh ends (interior edges stay selectable for flux plotting).
+    // One undo entry for the whole selection.
+    mesh::pushEdgeBCEdit(m_activeMesh,
+                         QVector<QPair<int,int>>(edges.cbegin(), edges.cend()),
+                         bc, m_canvas);
 }
 
 void MeshEditingToolbar::commitConveyance()
@@ -1487,11 +1493,12 @@ void MeshEditingToolbar::commitConveyance()
     if (!m_activeMesh || !m_conveySpin) return;
     const auto edges = currentSelectedEdges();
     if (edges.isEmpty()) return;
-    const double v = m_conveySpin->value();
-    // ψ applies to interior edges too, so NO isBoundaryEdge gate here
-    // (unlike commitBCParam). The layer helper mirrors interior halves.
-    for (const auto &pr : edges)
-        m_activeMesh->applyMeshEdgeConveyance(pr.first, pr.second, v);
+    // ψ applies to interior edges too, so the helper does NOT gate on
+    // isBoundaryEdge for this key (unlike the BC commit above), and the
+    // layer mirrors the value onto the neighbour half.
+    mesh::pushEdgeParamEdit(m_activeMesh,
+                            QVector<QPair<int,int>>(edges.cbegin(), edges.cend()),
+                            "conveyance", m_conveySpin->value(), m_canvas);
 }
 
 void MeshEditingToolbar::onBrowseBCObject()
