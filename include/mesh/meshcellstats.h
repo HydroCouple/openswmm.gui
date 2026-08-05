@@ -25,11 +25,22 @@ struct CellAreaStats
     int    count  = 0;    ///< Triangles measured; 0 = stats invalid.
 };
 
+/*! \brief Unsigned area of triangle \a tri (|cross| / 2), in project CRS
+ *         units². Returns 0 for an out-of-range triangle or one referencing
+ *         out-of-range vertices.
+ *
+ * The single definition of "cell area" in the GUI: the Metadata tab's
+ * statistics below and the Attribute Table's Cells column both read it, so a
+ * sliver hunted down by sorting the table is the same cell the min/max
+ * summary is reporting.
+ */
+[[nodiscard]] double triangleArea(const MeshResult &mesh, int tri);
+
 /*! \brief Compute cell-area statistics over all triangles in \a mesh.
  *
- * Area is the unsigned triangle area (|cross| / 2). Triangles referencing
- * out-of-range vertex indices are skipped. Median of an even count is the
- * average of the two middle values.
+ * Area is \ref triangleArea. Triangles referencing out-of-range vertex
+ * indices are skipped. Median of an even count is the average of the two
+ * middle values.
  */
 [[nodiscard]] CellAreaStats computeCellAreaStats(const MeshResult &mesh);
 

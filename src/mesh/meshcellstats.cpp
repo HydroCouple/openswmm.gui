@@ -13,6 +13,21 @@
 
 namespace mesh {
 
+double triangleArea(const MeshResult &mesh, int tri)
+{
+    if (tri < 0 || tri >= mesh.triangles.size()) return 0.0;
+    const MeshTriangle &t = mesh.triangles[tri];
+    const int nv = mesh.vertices.size();
+    if (t.v0 < 0 || t.v0 >= nv || t.v1 < 0 || t.v1 >= nv
+        || t.v2 < 0 || t.v2 >= nv)
+        return 0.0;
+    const QPointF &a = mesh.vertices[t.v0].xy;
+    const QPointF &b = mesh.vertices[t.v1].xy;
+    const QPointF &c = mesh.vertices[t.v2].xy;
+    return 0.5 * std::abs((b.x() - a.x()) * (c.y() - a.y())
+                        - (c.x() - a.x()) * (b.y() - a.y()));
+}
+
 CellAreaStats computeCellAreaStats(const MeshResult &mesh)
 {
     CellAreaStats s;
@@ -22,16 +37,15 @@ CellAreaStats computeCellAreaStats(const MeshResult &mesh)
     areas.reserve(static_cast<size_t>(mesh.triangles.size()));
 
     double sum = 0.0;
-    for (const MeshTriangle &t : mesh.triangles)
+    for (int i = 0; i < mesh.triangles.size(); ++i)
     {
+        const MeshTriangle &t = mesh.triangles[i];
+        // Degenerate references are SKIPPED here rather than counted as zero,
+        // so they don't drag the min down to 0 and mask a real sliver.
         if (t.v0 < 0 || t.v0 >= nv || t.v1 < 0 || t.v1 >= nv
             || t.v2 < 0 || t.v2 >= nv)
             continue;
-        const QPointF &a = mesh.vertices[t.v0].xy;
-        const QPointF &b = mesh.vertices[t.v1].xy;
-        const QPointF &c = mesh.vertices[t.v2].xy;
-        const double area = 0.5 * std::abs((b.x() - a.x()) * (c.y() - a.y())
-                                         - (c.x() - a.x()) * (b.y() - a.y()));
+        const double area = triangleArea(mesh, i);
         areas.push_back(area);
         sum += area;
     }
