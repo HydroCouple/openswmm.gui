@@ -17,12 +17,16 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "mesh/meshbctype.h"
 #include "mesh/meshcellparams.h"
+#include "mesh/meshcellstats.h"
 #include "mesh/meshobjectref.h"
 #include "mesh/meshresult.h"
 #include "ui/panels/meshattributetablemodel.h"
 
 #include <QSignalSpy>
 #include <QTest>
+
+#include <algorithm>
+#include <limits>
 
 using Kind = MeshAttributeTableModel::Kind;
 
@@ -102,6 +106,44 @@ private slots:
                  mesh::cellParamSpec("mannings")->defaultValue);
         // Area of a unit right triangle.
         QCOMPARE(model.data(model.index(0, colFor(model, "Area"))).toDouble(), 0.5);
+    }
+
+    void cell_area_column_agrees_with_the_metadata_statistics()
+    {
+        // Hunting slivers means sorting this column and trusting that the
+        // smallest row IS the mesh's minimum cell. Both surfaces read
+        // mesh::triangleArea, and this pins them together so a future change to
+        // one cannot silently disagree with the other.
+        mesh::MeshResult m = makeStrip(4);
+        // Squash one quad's diagonal pair into slivers so min != max and the
+        // comparison has something to bite on.
+        m.vertices[4].xy = QPointF(2.0, 0.999);
+        SWMM2DMeshLayer layer(m, QString());
+
+        MeshAttributeTableModel model;
+        model.setSource(&layer, Kind::Cell);
+        const int areaCol = colFor(model, "Area");
+        QVERIFY(areaCol >= 0);
+
+        const mesh::CellAreaStats stats =
+            mesh::computeCellAreaStats(layer.mesh());
+        QCOMPARE(stats.count, model.rowCount());
+
+        double tableMin = std::numeric_limits<double>::max();
+        double tableMax = 0.0, tableSum = 0.0;
+        for (int row = 0; row < model.rowCount(); ++row) {
+            const double a =
+                model.data(model.index(row, areaCol)).toDouble();
+            // Every cell reports the same number the statistic pass measured.
+            QCOMPARE(a, mesh::triangleArea(layer.mesh(), row));
+            tableMin = std::min(tableMin, a);
+            tableMax = std::max(tableMax, a);
+            tableSum += a;
+        }
+        QVERIFY(tableMin < tableMax);          // the sliver is distinguishable
+        QCOMPARE(tableMin, stats.min);
+        QCOMPARE(tableMax, stats.max);
+        QVERIFY(qFuzzyCompare(tableSum / model.rowCount(), stats.mean));
     }
 
     void interior_edges_collapse_to_one_row()
