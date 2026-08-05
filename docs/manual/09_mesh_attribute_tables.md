@@ -115,6 +115,24 @@ go through the same write path:
 Mesh elements cannot be added or deleted from the table; **Delete** is inactive
 for these categories, and there is no *Change Type*.
 
+## Finding bad cells
+
+The **Area** column exists for mesh diagnostics. Tiny cells are what make a 2D
+run slow — a handful of sub-square-metre cells forced in around a coupling
+point can dominate the timestep — so the usual hunt is:
+
+1. Open the **Cells** table and click the *Area* header to sort ascending.
+   (Areas sort numerically, not as text, so the smallest cell really is the
+   first row.)
+2. Or query for them directly: `Area < 0.5`, and read the match count in the
+   status label to see how many there are.
+3. Set the selection radios to **Replace** and hit *Apply* to select the
+   matches, then **Zoom to selected** to see where on the mesh they cluster.
+
+This is the same measurement the layer-properties **Metadata** tab summarises
+as min / max / mean / median — both read `mesh::triangleArea`, so the smallest
+row here is exactly the minimum reported there.
+
 ## Query, selection, export
 
 Everything the SWMM categories offer works here:
