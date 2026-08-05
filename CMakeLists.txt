@@ -509,6 +509,7 @@ set(
         include/mesh/inpmeshwriter.h
         include/mesh/meshautocouple.h
         include/mesh/meshbctype.h
+        include/mesh/meshboundarygraph.h
         include/mesh/meshcellparams.h
         include/mesh/meshenginesync.h
         include/mesh/meshedgebc.h
@@ -1108,6 +1109,7 @@ set(
         src/mesh/inpmeshwriter.cpp
         src/mesh/meshautocouple.cpp
         src/mesh/meshbctype.cpp
+        src/mesh/meshboundarygraph.cpp
         src/mesh/meshcellparams.cpp
         src/mesh/meshcellstats.cpp
         src/mesh/meshenginesync.cpp

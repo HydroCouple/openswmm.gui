@@ -1938,6 +1938,16 @@ add_swmmvis_gui_test(test_meshasyncload
 )
 swmmvis_link_full_app_deps(test_meshasyncload)
 
+# Boundary-edge graph on the layer (Ctrl-click shortest-path edge selection):
+# slots agree with isBoundaryEdge(), paths take the short arc, and a
+# progressive load defers the build until sceneGeometryReady().
+add_swmmvis_gui_test(test_meshboundarypath
+    test_meshboundarypath.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshboundarypath)
+
 # Stale-render invalidation — vertex-Z edits must invalidate the renderer's
 # geomRevision-keyed shading caches, and layer changes must advance the
 # renderer content revision MapCanvas polls to regrab its framebuffer.

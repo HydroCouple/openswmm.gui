@@ -5911,6 +5911,16 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
             this, &SWMMVis::openMeshEdgeFluxPlotFor,
             Qt::UniqueConnection);
 
+    // Same tool: Ctrl-click boundary path-picking hints → status bar.
+    // Qt 6 asserts on Qt::UniqueConnection with non-PMF slots; disconnect
+    // first so repeated tab-switches don't stack duplicate handlers.
+    QObject::disconnect(pw, &SWMMVisProjectWindow::meshEdgeStatusMessage,
+                        statusBar(), nullptr);
+    connect(pw, &SWMMVisProjectWindow::meshEdgeStatusMessage,
+            statusBar(), [this](const QString &msg) {
+                statusBar()->showMessage(msg, 5000);
+            });
+
     // Mesh vertex-select tool: right-click → plot interpolated depth/HGL.
     connect(pw, &SWMMVisProjectWindow::meshVertexSeriesRequested,
             this, &SWMMVis::openMeshVertexSeriesFor,

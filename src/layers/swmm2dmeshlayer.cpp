@@ -1231,6 +1231,8 @@ void SWMM2DMeshLayer::finishSceneGeometryAsync()
         m_vertTriPtr  = std::move(d->vertTriPtr);
         m_vertTriIdx  = std::move(d->vertTriIdx);
         m_isBoundary  = std::move(d->isBoundary);
+        m_boundaryGraph      = mesh::MeshBoundaryGraph();
+        m_boundaryGraphValid = false;
         // BCs loaded from the file (already correctly sized) win; otherwise
         // adopt the default-Wall slots built on the worker.
         if (m_bc.size() != d->bcDefaults.size())
@@ -1509,6 +1511,8 @@ void SWMM2DMeshLayer::resizeBCsToMesh()
     // Precompute boundary status from triangle adjacency — logic lives in
     // buildBoundaryFlags so the deferred background build shares it.
     m_isBoundary = buildBoundaryFlags(m_mesh);
+    m_boundaryGraph      = mesh::MeshBoundaryGraph();
+    m_boundaryGraphValid = false;
 }
 
 void SWMM2DMeshLayer::rebuildVertexAdjacency()
@@ -1708,6 +1712,19 @@ double SWMM2DMeshLayer::sampleZAt(double sx, double sy) const
     const double w = 1.0 - u - v;
     // Weights: a→w, b→v, c→u (mirrors the v0/v1 construction above).
     return w * tri.z0 + v * tri.z1 + u * tri.z2;
+}
+
+const mesh::MeshBoundaryGraph &SWMM2DMeshLayer::boundaryGraph()
+{
+    // Progressive load: m_isBoundary is still empty, so building now would
+    // cache an empty graph forever. Stay invalid and retry after
+    // sceneGeometryReady() refills the flags.
+    if (!m_sceneGeomComplete) return m_boundaryGraph;
+    if (!m_boundaryGraphValid) {
+        m_boundaryGraph      = mesh::MeshBoundaryGraph::build(m_mesh, m_isBoundary);
+        m_boundaryGraphValid = true;
+    }
+    return m_boundaryGraph;
 }
 
 bool SWMM2DMeshLayer::isBoundaryEdge(int triIdx, int edgeLocal) const
