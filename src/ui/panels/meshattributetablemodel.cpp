@@ -13,6 +13,7 @@
 #include "map/meshcommands.h"
 #include "mesh/meshbctype.h"
 #include "mesh/meshcellparams.h"
+#include "mesh/meshcellstats.h"
 #include "mesh/meshobjectref.h"
 #include "ui/properties/dataobjectref.h"
 
@@ -153,22 +154,6 @@ bool edgeEndpoints(const mesh::MeshResult &m, int tri, int e, int *va, int *vb)
     }
     return *va >= 0 && *va < m.vertices.size()
         && *vb >= 0 && *vb < m.vertices.size();
-}
-
-/*! Signed-area magnitude of a triangle in map units². */
-double triangleArea(const mesh::MeshResult &m, int tri)
-{
-    if (tri < 0 || tri >= m.triangles.size()) return 0.0;
-    const mesh::MeshTriangle &t = m.triangles[tri];
-    if (t.v0 < 0 || t.v0 >= m.vertices.size()
-        || t.v1 < 0 || t.v1 >= m.vertices.size()
-        || t.v2 < 0 || t.v2 >= m.vertices.size())
-        return 0.0;
-    const QPointF a = m.vertices[t.v0].xy;
-    const QPointF b = m.vertices[t.v1].xy;
-    const QPointF c = m.vertices[t.v2].xy;
-    return std::abs((b.x() - a.x()) * (c.y() - a.y())
-                    - (c.x() - a.x()) * (b.y() - a.y())) * 0.5;
 }
 
 /*! Placeholder shown in a cell that does not apply to this row (a BC field on
@@ -632,7 +617,7 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
         if (row >= m.triangles.size()) return {};
         const mesh::MeshTriangle &t = m.triangles[row];
         if (spec.key == QLatin1String("Index")) return row;
-        if (spec.key == QLatin1String("Area"))  return triangleArea(m, row);
+        if (spec.key == QLatin1String("Area"))  return mesh::triangleArea(m, row);
         if (spec.key == QLatin1String("Centroid X")
             || spec.key == QLatin1String("Centroid Y")) {
             if (t.v0 < 0 || t.v0 >= m.vertices.size()
