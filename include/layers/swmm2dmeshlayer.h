@@ -22,6 +22,7 @@
 
 #include "layers/meshspatialgrid.h"
 #include "layers/openswmmvislayer.h"
+#include "mesh/meshboundarygraph.h"
 #include "mesh/meshresult.h"
 #include "mesh/meshedgebc.h"
 #include "render/isublayerhost.h"
@@ -314,6 +315,16 @@ public:
      *  Boundary classification is derived from the mesh's MeshEdge list
      *  populated by InpMeshReader; non-boundary edges return false. */
     [[nodiscard]] bool isBoundaryEdge(int triIdx, int edgeLocal) const;
+
+    /*! \brief Boundary-edge connectivity graph, used by the edge-select
+     *  tool's Ctrl-click shortest-path picking. Built lazily on first use
+     *  and cached until the boundary flags are rebuilt.
+     *
+     *  Returns an empty graph while a progressive load is still finishing
+     *  (`sceneGeometryComplete() == false`), since the boundary flags are
+     *  not populated yet; the next call after `sceneGeometryReady()`
+     *  builds it for real. */
+    [[nodiscard]] const mesh::MeshBoundaryGraph &boundaryGraph();
 
     // ----- Write path (Slice §V.VA / §V.VB / §V.VC) ------------------------
     /*! \brief Set vertex Z. Mutates the layer's MeshResult, rebuilds
@@ -681,6 +692,12 @@ private:
     // indexed `tri*3 + eLocal`. true = this edge slot is a boundary edge
     // in the loaded mesh. Rebuilt alongside m_bc / adjacency.
     QVector<bool>                m_isBoundary;
+
+    // Lazily built from m_isBoundary by boundaryGraph(); invalidated
+    // wherever m_isBoundary is rebuilt (resizeBCsToMesh / the deferred
+    // finishSceneGeometryAsync completion).
+    mesh::MeshBoundaryGraph      m_boundaryGraph;
+    bool                         m_boundaryGraphValid = false;
 
     // §V follow-up — selection highlight state. Drives the renderer's
     // selection-overlay pass (cyan dots / cyan edges).

@@ -205,6 +205,13 @@ add_swmmvis_unit_test(test_meshautocouple
     ${PROJECT_SOURCE_DIR}/src/mesh/meshautocouple.cpp
 )
 
+# Boundary-edge graph behind Ctrl-click shortest-path edge selection.
+add_swmmvis_unit_test(test_meshboundarygraph
+    test_meshboundarygraph.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshboundarygraph.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshboundarygraph.cpp
+)
+
 # Cell-area statistics for the mesh Metadata tab (Plan Part A).
 add_swmmvis_unit_test(test_meshcellstats
     test_meshcellstats.cpp

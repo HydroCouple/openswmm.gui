@@ -1298,6 +1298,8 @@ void SWMMVisProjectWindow::activateMeshSelectEdgeTool()
         mMeshSelectEdgeTool = new MapToolMeshSelectEdge(mCanvas, mSelectionManager, this);
         QObject::connect(mMeshSelectEdgeTool, &MapToolMeshSelectEdge::plotEdgeFluxRequested,
                          this,                &SWMMVisProjectWindow::meshEdgeFluxRequested);
+        QObject::connect(mMeshSelectEdgeTool, &MapToolMeshSelectEdge::statusMessageChanged,
+                         this,                &SWMMVisProjectWindow::meshEdgeStatusMessage);
     }
     mCanvas->setActiveTool(mMeshSelectEdgeTool);
 }

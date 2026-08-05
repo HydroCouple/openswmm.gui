@@ -43,6 +43,41 @@ updates instead of diffing their own copy of the selection.
   manager; the bridge routes them back to the layer so map highlights
   update.
 
+## 2D mesh edges: selecting a whole boundary run
+
+The **Select Mesh Edges** tool on the mesh toolbar picks edges of the
+active 2D mesh — one click for the nearest edge, or drag a box for every
+edge whose midpoint falls inside it. Press **A** while the tool is active
+to include interior edges, **B** to go back to boundary edges only.
+
+Assigning a boundary condition usually means selecting a long run of
+boundary edges — an outfall face, a road crest, the whole domain
+perimeter. Clicking each one is tedious, so the tool takes a path:
+
+1. Click a boundary edge to select it, the ordinary way.
+2. **Ctrl-click** (⌘-click on macOS) another boundary edge. Every edge on
+   the shortest run of boundary edges between the two — both ends
+   included — is **added** to the selection and highlighted.
+3. Keep Ctrl-clicking. Each click continues the run from the edge the
+   last one ended on, so a long perimeter takes a few clicks.
+
+If nothing is selected when you Ctrl-click, that first click has no
+starting edge to work from, so it instead drops a **path anchor** —
+drawn in magenta, confirmed in the status bar — and the next Ctrl-click
+commits the path from it. Selecting an edge first and Ctrl-clicking is
+the same thing in one step less.
+
+A **box select** leaves no single "last edge", so the Ctrl-click after
+one drops a fresh anchor rather than guessing where the run should
+start.
+
+"Shortest" means **geometric length**, not the fewest edges — on a mesh
+that is fine in one place and coarse in another, the path follows the
+physically shorter route around the boundary.
+
+Press **Esc** once to drop a pending anchor; press it again to clear the
+selection.
+
 ## What's coming
 
 - **Attribute panel sync** (Phase 6.2) — selecting a row highlights the
@@ -65,6 +100,16 @@ updates instead of diffing their own copy of the selection.
 - The bus is re-entrancy-guarded — a manager-driven update doesn't bounce
   back into the layer (and vice versa) so listeners don't see double
   events.
+- In the mesh edge tool, **Ctrl/⌘ is path picking, not Toggle** — it is
+  the one place the modifier grammar above differs. Shift-click still
+  adds and a plain click still replaces.
+- Path picking needs **boundary** edges at both ends: Ctrl-clicking an
+  interior edge or empty space says so in the status bar and does
+  nothing. If the two edges sit on boundary loops that aren't connected
+  to each other (a mesh with an island, say), there is no path — the
+  anchor is kept so you can pick a different target.
+- On a large mesh opened progressively, the boundary is not known until
+  the background load finishes; path picking reports no path until then.
 
 ## Related
 

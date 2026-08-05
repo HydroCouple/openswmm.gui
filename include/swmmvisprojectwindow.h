@@ -402,6 +402,10 @@ signals:
     void meshEdgeFluxRequested(class SWMM2DMeshLayer *mesh, int triIdx, int edgeLocal,
                                openswmmvis::plot::PlotAttribute attr);
 
+    /*! Forwards MapToolMeshSelectEdge::statusMessageChanged (Ctrl-click
+     *  boundary path picking hints) up to the main window's status bar. */
+    void meshEdgeStatusMessage(const QString &message);
+
     /*! Forwards MapToolMeshSelectVertex::plotVertexSeriesRequested up to the
      *  main window so it can plot interpolated depth/HGL for the vertices. */
     void meshVertexSeriesRequested(class SWMM2DMeshLayer *mesh, const QVector<int> &vertexIdxList);
