@@ -17,6 +17,7 @@ also stands on its own as a reference.
 - \subpage manual_layers — layer management
 - \subpage manual_object_browser — the object browser and property view
 - \subpage manual_selection — selecting and editing objects
+- \subpage manual_mesh_attribute_tables — 2D mesh vertices, edges and cells as tables
 - \subpage manual_simulation_options — running simulations and simulation options
 - \subpage manual_results — running and viewing results
 - \subpage manual_map_editing — editing the map

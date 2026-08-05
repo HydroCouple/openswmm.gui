@@ -51,6 +51,10 @@ struct DataObjectRef
                              ///  adapter's WRITE slot resolves the picked name to
                              ///  swmm_subcatch_set_outlet (node) or
                              ///  set_outlet_subcatch (cascade). No "…" editor.
+        Node           = 9,  ///< Any SWMM node — the 1D↔2D coupling target for a
+                             ///  mesh vertex ([2D_VERTEX_NODE_MAP]). Selection
+                             ///  only; nodes are created on the map, so the "…"
+                             ///  button explains rather than offering a dialog.
     };
 
     SWMM_Engine     engine      = nullptr;  ///< Engine handle (borrow)

@@ -1948,6 +1948,27 @@ add_swmmvis_gui_test(test_meshboundarypath
 )
 swmmvis_link_full_app_deps(test_meshboundarypath)
 
+# Undoable per-vertex / per-edge mesh attribute commands (ids 45 / 46) and the
+# push helpers every editing surface funnels through — snapshot fidelity for the
+# interdependent coupling + BC fields, and the interior-edge conveyance mirror
+# under undo. Needs the real SWMM2DMeshLayer, hence the full-app link.
+add_swmmvis_gui_test(test_meshcommands_vertex_edge
+    test_meshcommands_vertex_edge.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshcommands_vertex_edge)
+
+# Attribute Table's 2D mesh source — row identity (interior edges collapse to
+# one row), read-only derived columns, edit → layer → single-row dataChanged,
+# and the deferred-geometry gate on the Edges view.
+add_swmmvis_gui_test(test_meshattributetable
+    test_meshattributetable.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshattributetable)
+
 # Stale-render invalidation — vertex-Z edits must invalidate the renderer's
 # geomRevision-keyed shading caches, and layer changes must advance the
 # renderer content revision MapCanvas polls to regrab its framebuffer.

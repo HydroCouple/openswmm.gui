@@ -78,11 +78,13 @@ physically shorter route around the boundary.
 Press **Esc** once to drop a pending anchor; press it again to clear the
 selection.
 
+- **Attribute table ↔ map** — selecting rows in the Attribute Table
+  highlights the objects on the map and vice versa, both routed through
+  the bus. This covers the 2D mesh element tables too — see
+  [09 — 2D Mesh Attribute Tables](09_mesh_attribute_tables.md).
+
 ## What's coming
 
-- **Attribute panel sync** (Phase 6.2) — selecting a row highlights the
-  corresponding object on the map and vice versa, both routed through the
-  bus instead of peer-to-peer wiring.
 - **Object browser sync** — the dock will follow the active selection and
   populate from it.
 - **Chart sync** — clicking a series on a time-series plot will select the
@@ -117,3 +119,5 @@ selection.
   IDs, independent of CRS.
 - [05 — Layer Management](05_layers.md) — visibility and ordering apply to
   layers, not to objects within them.
+- [09 — 2D Mesh Attribute Tables](09_mesh_attribute_tables.md) — mesh
+  vertices, edges and cells as selectable, editable tables.

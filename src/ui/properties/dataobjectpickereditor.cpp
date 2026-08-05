@@ -118,6 +118,17 @@ void DataObjectPickerEditor::repopulate()
             }
             break;
         }
+        case DataObjectRef::Node: {
+            // Every node is a legal 1D↔2D coupling target. Sorted, matching
+            // the mesh toolbar's coupled-node dropdown so the two surfaces
+            // offer the same list.
+            const int n = swmm_node_count(m_ref.engine);
+            for (int i = 0; i < n; ++i)
+                if (const char *id = swmm_node_id(m_ref.engine, i))
+                    if (*id) items << QString::fromUtf8(id);
+            items.sort(Qt::CaseInsensitive);
+            break;
+        }
         case DataObjectRef::SubcatchOutlet: {
             // Combined outlet target list: every node, then every subcatchment.
             // The owning adapter resolves the picked name back to a node-outlet
@@ -168,6 +179,14 @@ void DataObjectPickerEditor::onPickerClicked()
                "editor dialog."));
         return;
     }
+    // Nodes are created on the map, not from a data-object dialog — the combo
+    // is the whole picker, so the browse button explains itself.
+    if (m_ref.kind == DataObjectRef::Node) {
+        QMessageBox::information(this, tr("Coupled Node"),
+            tr("Pick an existing SWMM node from the dropdown, or leave it "
+               "blank to remove the coupling. Nodes are added on the map."));
+        return;
+    }
     // The outlet picker is pure selection over existing nodes/subcatchments —
     // no "create new" target, so the browse button is a no-op note.
     if (m_ref.kind == DataObjectRef::SubcatchOutlet) {
@@ -188,6 +207,7 @@ void DataObjectPickerEditor::onPickerClicked()
     case DataObjectRef::Pollutant:      dc = SWMMModelLayer::DataPollutants;  break;
     case DataObjectRef::RainGage:       /* handled above */                   break;
     case DataObjectRef::SubcatchOutlet: /* handled above */                   break;
+    case DataObjectRef::Node:           /* handled above */                   break;
     }
 
     // Slice BM.0-Add-New (2026-05-24) — gap categories (Transects / LID /
