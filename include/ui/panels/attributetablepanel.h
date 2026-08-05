@@ -40,6 +40,10 @@ class TabularDataTableModel;
 class GISVectorLayer;
 class GISVectorAttributeTableModel;   // read-only OGR-feature source (defined in the .cpp)
 class MapCanvas;
+class MeshAttributeTableModel;        // 2D mesh vertices / edges / cells source
+class SWMM2DMeshLayer;
+
+namespace openswmmvis { struct ColumnSpec; }
 
 class AttributeTablePanel : public QWidget
 {
@@ -164,6 +168,11 @@ private:
      *  QSettings.  No-op if none stored. */
     void restoreColumnWidths(SWMMModelLayer::Category cat);
 
+    /*! Same persistence, keyed by an arbitrary source id ("mesh-v", …) so the
+     *  non-SWMM sources get their own remembered layouts. */
+    void saveColumnWidths(const QString &sourceKey) const;
+    void restoreColumnWidths(const QString &sourceKey);
+
     /*! Round-4 follow-up 2026-05-12 — ensure every column is at
      *  least as wide as its header's size hint, so the descriptive
      *  labels ("Invert Elevation (ft)", "Discharge Coefficient",
@@ -176,6 +185,30 @@ private:
      *  column based on the bound category's `ColumnSpec` list.
      *  Called after `setSource()`. */
     void installColumnDelegates();
+
+    /*! Delegate installation for an arbitrary `ColumnSpec` list, so the
+     *  SWMM source and the 2D-mesh source share one implementation. */
+    void installColumnDelegates(const QList<openswmmvis::ColumnSpec> &specs,
+                                int clearUpTo);
+
+    /*! Bind the table to a mesh layer's vertices / edges / cells.
+     *  `key` is the combo's `"mesh:<layerId>:<v|e|c>"` payload; a key that no
+     *  longer resolves to a loaded layer clears the source. */
+    void bindMeshSource(const QString &key);
+
+    /*! True when the mesh table is the active source — the SWMM-only paths
+     *  (delete, change type, object refs) all sit behind this. */
+    [[nodiscard]] bool meshSourceActive() const;
+
+    /*! Refs of every row currently listed by the mesh source, filtered by the
+     *  active query when `applyQuery` is true. Mesh peers of `matchedRefs()` /
+     *  `allCategoryRefs()`. */
+    QSet<SWMMObjectRef> meshRefs(bool applyQuery) const;
+
+    /*! Push the table's row selection out to the bus, and pull the bus's
+     *  selection back into the rows, for the mesh source. */
+    void meshSelectionToBus();
+    void meshSelectionFromBus(const QSet<SWMMObjectRef> &current);
 
     /*! Slice Z.3 — collect the SWMMObjectRefs of all source rows
      *  whose identify map satisfies the current query predicate.
@@ -210,6 +243,7 @@ private:
     SWMMAttributeTableModel *m_model         = nullptr;
     TabularDataTableModel   *m_tabularModel  = nullptr;  ///< Z.4.3 — alt source
     GISVectorAttributeTableModel *m_gisModel = nullptr;  ///< external OGR feature-layer source
+    MeshAttributeTableModel *m_meshModel     = nullptr;  ///< 2D mesh elements source
     QSortFilterProxyModel   *m_proxy         = nullptr;
 
     // Slice Z.2 — Query bar
