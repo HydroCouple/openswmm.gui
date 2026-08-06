@@ -1489,7 +1489,16 @@ endif()
 # setupBundledGisDataPaths() can find them without a system install.
 #   - macOS .app bundle: SWMMVis.app/Contents/Resources/{gdal,proj}/
 #   - Linux / Windows  : <exe-dir>/{gdal,proj}/
-# See docs/PORTABLE_GDAL_PROJ.md for the deployment rationale.
+#
+# Severity when the data cannot be staged: fatal on Windows, where there is no
+# system PROJ to fall back on, so a missing proj.db means the shipped installer
+# has no CRS support at all. Elsewhere a system-installed PROJ usually covers
+# it, so a non-vcpkg configure stays buildable and only warns.
+if(WIN32)
+    set(_SWMMVIS_GIS_DATA_SEVERITY FATAL_ERROR)
+else()
+    set(_SWMMVIS_GIS_DATA_SEVERITY WARNING)
+endif()
 if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
     set(_SWMMVIS_GDAL_SHARE "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/gdal")
     set(_SWMMVIS_PROJ_SHARE "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/proj")
@@ -1537,7 +1546,24 @@ if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
                 COMPONENT Runtime
             )
         endif()
+    else()
+        # Without proj.db the CRS pickers enumerate zero systems and every
+        # reprojection fails — but nothing else breaks, so this must not be
+        # allowed to pass silently through configure/build/package.
+        message(${_SWMMVIS_GIS_DATA_SEVERITY}
+            "GDAL/PROJ share data not found in the vcpkg tree:\n"
+            "  ${_SWMMVIS_GDAL_SHARE}\n"
+            "  ${_SWMMVIS_PROJ_SHARE}\n"
+            "Both must exist to deploy a portable proj.db. Without them the "
+            "packaged application cannot select or transform coordinate "
+            "reference systems.")
     endif()
+else()
+    message(${_SWMMVIS_GIS_DATA_SEVERITY}
+        "VCPKG_INSTALLED_DIR / VCPKG_TARGET_TRIPLET are not defined, so the "
+        "GDAL and PROJ data directories cannot be located. Configure with the "
+        "vcpkg toolchain (use a CMakePresets preset); otherwise the build "
+        "produces an application with no bundled proj.db and no CRS support.")
 endif()
 
 # ── Bundled example projects (Welcome page) ─────────────────────────────────
