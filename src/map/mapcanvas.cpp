@@ -23,6 +23,9 @@
 #include "map/crsmanager.h"
 #include "map/swmmlayerqsgrenderer.h"
 #include "map/swmm2dresultsqsgrenderer.h"
+#include <QLibraryInfo>   // QmlImportsPath — QML module resolution in dev builds
+#include <QQmlEngine>     // addImportPath for QML module resolution
+#include <QDir>           // check QT_ROOT_DIR/qml exists before adding it
 #include "map/swmm2dmeshqsgrenderer.h"
 #include "layers/swmm2dresultslayer.h"
 #include "layers/swmm2dmeshlayer.h"
@@ -186,6 +189,23 @@ MapCanvas::MapCanvas(QWidget *parent)
     m_qsgWidget->setAttribute(Qt::WA_QuitOnClose, false);
     m_qsgWidget->setClearColor(Qt::transparent);
     m_qsgWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
+
+    // When running from the build tree (not a deployed .app) the QML import
+    // path may not include the Qt installation's qml/ directory, causing
+    // "module QtQml.WorkerScript is not installed" and a blank QSG overlay.
+    // The deployed .app's qt.conf redirects QmlImports to Resources/qml,
+    // but macdeployqt may not have copied all QML modules there.  Add the
+    // QT_ROOT_DIR env var's qml subdir (set at build time) and the
+    // QML_IMPORT_PATH env var as fallbacks so QML modules always resolve.
+    {
+        const QString qmlPath =
+            QString::fromUtf8(qgetenv("QT_ROOT_DIR")) + QStringLiteral("/qml");
+        if (QDir(qmlPath).exists())
+            m_qsgWidget->engine()->addImportPath(qmlPath);
+        if (!qEnvironmentVariableIsEmpty("QML_IMPORT_PATH"))
+            m_qsgWidget->engine()->addImportPath(
+                QString::fromUtf8(qgetenv("QML_IMPORT_PATH")));
+    }
     // Force MSAA on the QQuickWidget's offscreen FBO. main.cpp already
     // puts samples=4 on QSurfaceFormat::defaultFormat for the main
     // window, but QQuickWidget can construct its private FBO/RHI
@@ -365,6 +385,15 @@ void MapCanvas::setExtent(const MapExtent &extent, bool pushUndo)
     m_extent = fitExtent;
     applyExtentToOverlay();
 
+    // The QSG overlay (1D network, 2D results, mesh) renders into an
+    // offscreen framebuffer at a specific map extent.  After any extent
+    // change — zoom-to-layer, pan, CRS reprojection — that framebuffer
+    // is stale and must be re-grabbed on the next paintEvent.  Without
+    // this, the first zoom-to-layer after load shows a blank canvas
+    // because m_qsgCachedExtent was never set and the gate in
+    // refreshLayerItems() skipped the dirty flag.
+    m_qsgFrameDirty = true;
+
     emit extentChanged(m_extent);
     emit scaleChanged(scale());
 
@@ -377,6 +406,17 @@ void MapCanvas::zoomToFullExtent()
     MapExtent fe = fullExtent();
     if (!fe.isValid())
         return;
+
+    // Pad degenerate extents (single point or horizontal/vertical line —
+    // width or height is zero) so the zoom lands on the data instead of
+    // silently doing nothing or producing a NaN extent via arCorrectedExtent.
+    const double minSpan = 1.0;  // 1 unit of padding on each side
+    if (fe.width() <= 0.0)
+        fe = MapExtent(fe.xMin() - minSpan, fe.yMin(),
+                       fe.xMax() + minSpan, fe.yMax());
+    if (fe.height() <= 0.0)
+        fe = MapExtent(fe.xMin(), fe.yMin() - minSpan,
+                       fe.xMax(), fe.yMax() + minSpan);
 
     // Add a small margin so features at the edge (outermost nodes, link
     // endpoints, subcatchment outlines) are not visually clipped against the
@@ -784,7 +824,7 @@ MapExtent MapCanvas::fullExtent() const
     auto accumulate = [&](const OpenSWMMVisLayer *layer) {
         const MapExtent e = layerExtentInCanvasCRS(layer);
         if (!e.isValid()) return;
-        full = full.isValid() ? full.united(e) : e;
+        full = full.isNull() ? e : full.united(e);
     };
 
     for (const OpenSWMMVisLayer *layer : m_layers) {
@@ -793,7 +833,7 @@ MapExtent MapCanvas::fullExtent() const
     }
     // Fallback: if no bounded layers produced a valid union (e.g. all layers
     // are basemaps), include everything so the button always does something.
-    if (!full.isValid()) {
+    if (full.isNull()) {
         for (const OpenSWMMVisLayer *layer : m_layers)
             if (layer->isVisible()) accumulate(layer);
     }
@@ -1268,7 +1308,11 @@ void MapCanvas::refreshLayerItems()
     // extent, mark the cache dirty so the next paint grabs a fresh
     // frame at the current extent. Basemap-tile-arrived refreshes do
     // NOT drift the extent, so they correctly skip the regrab.
-    if (m_qsgCachedExtent.isValid() && m_extent != m_qsgCachedExtent)
+    // Always mark the QSG framebuffer dirty when the extent has changed.
+    // The previous gate (m_qsgCachedExtent.isValid() && ...) skipped the
+    // very first grab after load because m_qsgCachedExtent was still
+    // invalid, leaving the 1D network invisible until the user panned.
+    if (m_extent.isValid())
         m_qsgFrameDirty = true;
 
     int vpW = width();
@@ -2298,7 +2342,12 @@ MapExtent MapCanvas::arCorrectedExtent(const MapExtent &ext) const
         return ext;
 
     double viewAspect = static_cast<double>(width()) / height();
-    double extAspect  = ext.width() / ext.height();
+    // Guard against divide-by-zero when the layer extent is degenerate
+    // (single point or purely horizontal line → height == 0).  Without
+    // this, extAspect becomes inf/NaN and silently corrupts m_extent.
+    double extAspect  = (ext.height() > 1e-12)
+                        ? (ext.width() / ext.height())
+                        : 1.0;
     double adjW = ext.width(), adjH = ext.height();
 
     if (viewAspect > extAspect)

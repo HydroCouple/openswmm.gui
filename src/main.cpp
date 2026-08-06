@@ -18,12 +18,77 @@
 #include <QCoreApplication>
 #include <QSurfaceFormat>
 #include <QtQml/qqml.h>
+#include <QStandardPaths>
+#include <QDir>
+#include <QDateTime>
+#include <QFile>
+#include <QTextStream>
+#include <QMutex>
 
 #include "swmmvisapplication.h"
 #include "swmmvis.h"
 #include "map/swmmlayerqsgrenderer.h"
 #include "map/swmm2dmeshqsgrenderer.h"
 #include "map/swmm2dresultsqsgrenderer.h"
+
+// Global log file for persistent logging
+static QFile *g_logFile = nullptr;
+static QMutex g_logMutex;
+
+void messageHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
+{
+    QMutexLocker locker(&g_logMutex);
+    
+    QString level;
+    switch (type) {
+    case QtDebugMsg:    level = "DEBUG"; break;
+    case QtInfoMsg:     level = "INFO"; break;
+    case QtWarningMsg:  level = "WARN"; break;
+    case QtCriticalMsg: level = "CRITICAL"; break;
+    case QtFatalMsg:    level = "FATAL"; break;
+    }
+    
+    QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz");
+    QString logLine = QString("[%1] %2: %3\n").arg(timestamp, level, msg);
+    
+    // Write to file
+    if (g_logFile && g_logFile->isOpen()) {
+        QTextStream stream(g_logFile);
+        stream << logLine;
+        stream.flush();
+    }
+    
+    // Also write to stderr for terminal visibility
+    fprintf(stderr, "%s", logLine.toLocal8Bit().constData());
+    
+    if (type == QtFatalMsg)
+        abort();
+}
+
+void initializeLogging()
+{
+    // Create log directory: ~/Library/Application Support/SWMMVis/logs on macOS
+    QString logDir = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/SWMMVis/logs";
+    QDir dir(logDir);
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+    
+    // Create log file with timestamp
+    QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd_HH-mm-ss");
+    QString logPath = logDir + QString("/swmmvis_%1.log").arg(timestamp);
+    
+    g_logFile = new QFile(logPath);
+    if (g_logFile->open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qInstallMessageHandler(messageHandler);
+        qDebug() << "Log file initialized:" << logPath;
+        qDebug() << "SWMMVis starting";
+    } else {
+        delete g_logFile;
+        g_logFile = nullptr;
+        fprintf(stderr, "Failed to open log file: %s\n", logPath.toLocal8Bit().constData());
+    }
+}
 
 /*!
  * \brief main
@@ -49,6 +114,8 @@ int main(int argc, char *argv[])
     // Alternatively, for Qt 6, force Metal:
     // qputenv("QSG_RHI_BACKEND", "metal");
 
+    // Initialize file logging before anything else
+    initializeLogging();
 
     QCoreApplication *applicationInstance = nullptr;
 
