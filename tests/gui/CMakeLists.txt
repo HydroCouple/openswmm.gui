@@ -1250,6 +1250,14 @@ add_swmmvis_gui_test(test_2d_vfr_options_contract
     test_2d_vfr_options_contract.cpp
 )
 
+# Full disk round-trip for the [OPTIONS] keys whose broken C-API surface made
+# Simulation Options dialog edits revert on reload (MINIMUM_STEP missing from
+# swmm_options_get/set, LAT/SYS_FLOW_TOL fraction-vs-percent double
+# conversion, RULE_STEP > 24 h clamping). Engine-ABI only (no dialog).
+add_swmmvis_gui_test(test_simoptions_persistence_contract
+    test_simoptions_persistence_contract.cpp
+)
+
 # Slice DA.1 — pins the engine ABI surface that
 # `SWMMModelLayer::dataObjectCount` / `dataObjectNameAt` rely on for the
 # Control Rules and Unit Hydrographs Object Browser sections. Validates
