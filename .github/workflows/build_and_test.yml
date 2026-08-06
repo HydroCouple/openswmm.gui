@@ -792,6 +792,33 @@ jobs:
             echo "Legacy dylib bundled: $LEG"
           fi
 
+      # Gate: the GUI must ship the PROJ + GDAL data directories, or the
+      # packaged app enumerates zero coordinate reference systems and the CRS
+      # picker comes up empty (silent — GDAL returns an empty list, not an
+      # error). Layout must match what setupBundledGisDataPaths() probes:
+      # <exedir>/proj/proj.db and <exedir>/gdal/gml_registry.xml — i.e. bin/ on
+      # Windows and Linux, Contents/Resources/ inside the macOS .app.
+      - name: Verify GUI bundles PROJ/GDAL data
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIST="dist/${{ matrix.build_subdir }}"
+          fail=0
+          for marker in proj/proj.db gdal/gml_registry.xml; do
+            HIT=$(find "$DIST" -path "*/$marker" 2>/dev/null | head -1 || true)
+            if [ -z "$HIT" ]; then
+              echo "::error::$marker missing from installed GUI tree ($DIST)"
+              fail=1
+            else
+              echo "Bundled: $HIT"
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "--- install tree (depth 3) ---"
+            find "$DIST" -maxdepth 3 | sort
+            exit 1
+          fi
+
       # ── Package (CPack) ───────────────────────────────────────────────────
       # CPack reads the install tree and produces a platform-appropriate archive
       # (.dmg on macOS, .zip on Windows, .tar.gz on Linux).

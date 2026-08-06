@@ -12,6 +12,10 @@
 #include "map/spatialreferencesystem.h"
 
 #include <ogr_srs_api.h>
+#include <QCoreApplication>
+#include <QDebug>
+#include <QDir>
+#include <QFileInfo>
 #include <QSettings>
 
 namespace {
@@ -27,6 +31,41 @@ const char *osrCRSTypeToString(OSRCRSType eType)
     case OSR_CRS_TYPE_OTHER:         return "Other";
     default:                         return "Unknown";
     }
+}
+
+// One-shot diagnostic for the "CRS picker is empty" failure class. Every CRS
+// enumerated here comes out of proj.db, which the build deploys next to the
+// executable (<exedir>/proj) and setupBundledGisDataPaths() points PROJ at. If
+// that deployment is missing — the usual cause on a packaged Windows build —
+// PROJ reports zero systems instead of failing, so the dialog silently comes up
+// blank. Log enough to tell "data not deployed" from "data deployed but not
+// found" without attaching a debugger.
+void warnIfCrsDatabaseUnavailable(int count)
+{
+    static bool warned = false;
+    if (count > 0 || warned)
+        return;
+    warned = true;
+
+    const QString projData = qEnvironmentVariable("PROJ_DATA");
+    const QString gdalData = qEnvironmentVariable("GDAL_DATA");
+
+    QString projDbState = QStringLiteral("PROJ_DATA unset");
+    if (!projData.isEmpty()) {
+        const QString projDb = QDir(projData).filePath(QStringLiteral("proj.db"));
+        projDbState = QFileInfo::exists(projDb)
+                          ? QStringLiteral("present at %1").arg(projDb)
+                          : QStringLiteral("MISSING at %1").arg(projDb);
+    }
+
+    qWarning().noquote().nospace()
+        << "CRS database returned no coordinate reference systems.\n"
+        << "  executable dir : " << QCoreApplication::applicationDirPath() << "\n"
+        << "  PROJ_DATA      : " << (projData.isEmpty() ? QStringLiteral("<unset>") : projData) << "\n"
+        << "  proj.db        : " << projDbState << "\n"
+        << "  GDAL_DATA      : " << (gdalData.isEmpty() ? QStringLiteral("<unset>") : gdalData) << "\n"
+        << "  This build did not deploy the PROJ data directory beside the "
+           "executable; CRS selection will be unavailable.";
 }
 } // anonymous namespace
 
@@ -78,10 +117,16 @@ QList<CRSInfo> CRSManager::queryDatabase(const QString &keyword,
     // Use GDAL's OGRSpatialReference::GetCRSInfoListFromDatabase
     // to enumerate all available CRSes.
     int count = 0;
+    // Keep the UTF-8 buffer alive for the duration of the call: taking
+    // constData() off the temporary returned by toUtf8() leaves authFilter
+    // dangling the moment this statement ends.
+    const QByteArray authorityUtf8 = authority.toUtf8();
     const char *authFilter = authority.isEmpty() ? nullptr
-                                                 : authority.toUtf8().constData();
+                                                 : authorityUtf8.constData();
 
     OSRCRSInfo **list = OSRGetCRSInfoListFromDatabase(authFilter, nullptr, &count);
+
+    warnIfCrsDatabaseUnavailable(list ? count : 0);
 
     if (!list) return results;
 

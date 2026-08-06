@@ -69,10 +69,20 @@ SWMMVisCoreApplication::~SWMMVisCoreApplication()
  */
 SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     : QApplication(argc, argv),
-    mSWMMVisGUI(new SWMMVis()),
+    mSWMMVisGUI(nullptr),
     mSWMMVisSplashScreen(nullptr)
 {
+    // MUST run before the main window is built. PROJ caches its data search
+    // paths when a PJ_CONTEXT is first created, so GDAL_DATA/PROJ_DATA have to
+    // be in the environment before ANY GDAL/PROJ call. The SWMMVis constructor
+    // pumps events (see main.cpp) and can create a MapCanvas, which creates a
+    // PROJ context — so constructing it in the member-initialiser list, as this
+    // did previously, published the paths too late. On macOS/Linux a
+    // system-installed PROJ masked the mistake; on Windows there is no system
+    // proj.db and every CRS lookup came back empty.
     setupBundledGisDataPaths();
+
+    mSWMMVisGUI = new SWMMVis();
 
     setOrganizationName("hydrocouple");
     setOrganizationDomain("calebbuahin.github.io");
