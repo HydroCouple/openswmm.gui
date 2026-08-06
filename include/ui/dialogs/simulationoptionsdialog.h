@@ -33,7 +33,6 @@ class QTabWidget;
 class QListWidget;
 class QStackedWidget;
 class QTextEdit;
-class QTimeEdit;
 class QToolButton;
 class QAction;
 class QButtonGroup;
@@ -135,6 +134,26 @@ public:
 
     /*! \brief Inverse of oaDateFromQDateTime. */
     [[nodiscard]] static QDateTime qDateTimeFromOaDate(double oa);
+
+    /*! \brief Parse a step value as returned by swmm_options_get() into whole
+     *         seconds. The engine round-trip is loose: a step comes back as
+     *         plain seconds ("900"), decimal seconds ("900.000000" — the
+     *         `std::to_string(double)` form used for REPORT_STEP /
+     *         ROUTING_STEP) or as HH:MM:SS ("00:15:00", "48:00:00").
+     *         Returns \a fallback when \a s matches none of those. */
+    [[nodiscard]] static qint64 parseStepSeconds(const QString &s,
+                                                 qint64 fallback);
+
+    /*! \brief Compare an option value from swmm_options_get() against a
+     *         freshly formatted one, tolerating formatting differences.
+     *         The engine renders numerics as `std::to_string(double)`
+     *         ("0.000000") while the dialog formats with 'f'/'g' variants
+     *         ("0.00"), so a plain string compare treats every unchanged
+     *         numeric as an edit. Exact string equality → true; else if both
+     *         sides parse as doubles they compare with a relative tolerance;
+     *         else false. */
+    [[nodiscard]] static bool optionValueEquals(const QString &a,
+                                                const QString &b);
 
 private slots:
     void onApply();
@@ -325,7 +344,7 @@ private:
     QCustomTimespanEdit *m_reportStepEdit = nullptr;   // (days, HH:mm:ss)
     QCustomTimespanEdit *m_dryStepEdit    = nullptr;   // (days, HH:mm:ss)
     QCustomTimespanEdit *m_wetStepEdit    = nullptr;   // (days, HH:mm:ss)
-    QTimeEdit      *m_ruleStepEdit      = nullptr;     // HH:mm:ss only
+    QCustomTimespanEdit *m_ruleStepEdit = nullptr;     // (days, HH:mm:ss)
     QLineEdit      *m_routingStepEdit   = nullptr;     // seconds (float text)
     QDoubleSpinBox *m_dryDaysSpin       = nullptr;     // days
     QDateEdit      *m_sweepStartEdit    = nullptr;     // MM/DD only

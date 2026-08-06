@@ -31,7 +31,6 @@
 #include <QDateEdit>
 #include <QDateTimeEdit>
 #include <QDoubleValidator>
-#include <QTimeEdit>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
@@ -562,9 +561,7 @@ QWidget *SimulationOptionsDialog::buildDatesTab()
     m_wetStepEdit->setToolTip(tr("Runoff wet-weather step (WET_STEP)."));
     stepForm->addRow(tr("Wet-weat&her step:"), m_wetStepEdit);
 
-    m_ruleStepEdit = new QTimeEdit(stepGroup);
-    m_ruleStepEdit->setDisplayFormat(QStringLiteral("HH:mm:ss"));
-    m_ruleStepEdit->setTime(QTime(0, 0, 0));
+    m_ruleStepEdit = new QCustomTimespanEdit(stepGroup);
     m_ruleStepEdit->setToolTip(tr("Control-rule evaluation step (RULE_STEP). "
                                    "0 means rules are evaluated every routing step."));
     stepForm->addRow(tr("Control rule step:"), m_ruleStepEdit);
@@ -595,7 +592,7 @@ QWidget *SimulationOptionsDialog::buildDatesTab()
     m_latFlowTolSpin = new QDoubleSpinBox(skipGroup);
     m_latFlowTolSpin->setRange(0.0, 100.0);
     m_latFlowTolSpin->setSuffix(QStringLiteral(" %"));
-    m_latFlowTolSpin->setToolTip(tr("Lateral flow tolerance — engine stores as fraction (LAT_FLOW_TOL)."));
+    m_latFlowTolSpin->setToolTip(tr("Lateral flow tolerance in percent (LAT_FLOW_TOL)."));
     skipForm->addRow(tr("Lateral flow tol:"), m_latFlowTolSpin);
 
     m_sysFlowTolSpin = new QDoubleSpinBox(skipGroup);
@@ -1574,7 +1571,6 @@ QWidget *SimulationOptionsDialog::build2DTab()
 
 void SimulationOptionsDialog::read2DFromEngine()
 {
-    bool ok = false;
     auto getExt = [&](const char *key, const QString &fallback) -> QString {
         if (!m_engine) return fallback;
         char buf[256] = {};
@@ -1582,21 +1578,34 @@ void SimulationOptionsDialog::read2DFromEngine()
             return QString::fromUtf8(buf).trimmed();
         return fallback;
     };
+    // Same fallback-on-garbage semantics as optDouble/optInt in
+    // readFromEngine: never seed 0 into a spin box from an unparseable
+    // engine string (write2DToEngine would persist it as a real edit).
+    auto extDouble = [&](const char *key, double fallback) {
+        bool okNum = false;
+        const double v = getExt(key, QString::number(fallback, 'g', 8))
+                             .toDouble(&okNum);
+        return okNum ? v : fallback;
+    };
+    auto extInt = [&](const char *key, int fallback) {
+        bool okNum = false;
+        const int v = getExt(key, QString::number(fallback)).toInt(&okNum);
+        return okNum ? v : fallback;
+    };
 
     // Iteration 4 — source every missing-key fallback from the 2D Defaults
     // preferences (same lockstep idiom as the 1D tabs, see readFromEngine):
     // the dialog shows the user-preferred default whenever the project has
     // no value for a key, matching what File→New would synthesize.
     const auto t = PreferencesManager::instance()->twoDDefaults();
-    auto num = [](double v) { return QString::number(v, 'g', 8); };
 
-    m_maxTimestepSpin  ->setValue(getExt("MAX_TIMESTEP",      num(t.maxTimestepSec)).toDouble(&ok));
-    m_dryDepthSpin     ->setValue(getExt("DRY_DEPTH",         num(t.dryDepth)).toDouble(&ok));
-    m_limiterEpsSpin   ->setValue(getExt("LIMITER_EPSILON",   num(t.limiterEpsilon)).toDouble(&ok));
-    m_fluxDhEpsSpin    ->setValue(getExt("FLUX_DH_EPS",       num(t.fluxDhEps)).toDouble(&ok));
-    m_vfrMinWetFracSpin->setValue(getExt("VFR_MIN_WET_FRAC",  num(t.vfrMinWetFrac)).toDouble(&ok));
-    m_couplingCdSpin   ->setValue(getExt("COUPLING_CD",       num(t.couplingCd)).toDouble(&ok));
-    m_couplingSyncSpin ->setValue(getExt("COUPLING_SYNC",     num(t.couplingSync)).toDouble(&ok));
+    m_maxTimestepSpin  ->setValue(extDouble("MAX_TIMESTEP",     t.maxTimestepSec));
+    m_dryDepthSpin     ->setValue(extDouble("DRY_DEPTH",        t.dryDepth));
+    m_limiterEpsSpin   ->setValue(extDouble("LIMITER_EPSILON",  t.limiterEpsilon));
+    m_fluxDhEpsSpin    ->setValue(extDouble("FLUX_DH_EPS",      t.fluxDhEps));
+    m_vfrMinWetFracSpin->setValue(extDouble("VFR_MIN_WET_FRAC", t.vfrMinWetFrac));
+    m_couplingCdSpin   ->setValue(extDouble("COUPLING_CD",      t.couplingCd));
+    m_couplingSyncSpin ->setValue(extDouble("COUPLING_SYNC",    t.couplingSync));
 
     auto selectComboByData = [](QComboBox *c, const QString &data) {
         const int idx = c->findData(data, Qt::UserRole, Qt::MatchFixedString);
@@ -1610,11 +1619,11 @@ void SimulationOptionsDialog::read2DFromEngine()
 
     // Explicit-marcher configuration (the only 2D integrator; no INTEGRATOR
     // read/write — the engine default is EXPLICIT).
-    m_thetaSpin    ->setValue(getExt("THETA",      num(t.theta)).toDouble(&ok));
-    m_cflNumberSpin->setValue(getExt("CFL_NUMBER", num(t.cflNumber)).toDouble(&ok));
-    m_ltsTiersSpin ->setValue(getExt("LTS_TIERS",  QString::number(t.ltsTiers)).toInt(&ok));
-    m_hMoveSpin    ->setValue(getExt("H_MOVE",     num(t.hMove)).toDouble(&ok));
-    m_froudeMaxSpin->setValue(getExt("FROUDE_MAX", num(t.froudeMax)).toDouble(&ok));
+    m_thetaSpin    ->setValue(extDouble("THETA",      t.theta));
+    m_cflNumberSpin->setValue(extDouble("CFL_NUMBER", t.cflNumber));
+    m_ltsTiersSpin ->setValue(extInt("LTS_TIERS",     t.ltsTiers));
+    m_hMoveSpin    ->setValue(extDouble("H_MOVE",     t.hMove));
+    m_froudeMaxSpin->setValue(extDouble("FROUDE_MAX", t.froudeMax));
     m_couplingAreaAutoBox->setChecked(
         getExt("COUPLING_AREA", t.couplingAreaAuto ? "AUTO" : "DEFAULT")
             .compare(QStringLiteral("AUTO"), Qt::CaseInsensitive) == 0);
@@ -1634,7 +1643,8 @@ int SimulationOptionsDialog::write2DToEngine(int &n)
         return swmm_options_set_ext(m_engine, key, v.toUtf8().constData()) == 0;
     };
     auto writeIfChanged = [&](const char *key, const QString &cur, const QString &nv) {
-        if (cur == nv) return;
+        // Numeric-aware compare, same rationale as writeToEngine().
+        if (optionValueEquals(cur, nv)) return;
         if (setExt(key, nv)) ++n;
     };
 
@@ -2300,25 +2310,25 @@ void SimulationOptionsDialog::readFromEngine()
 
     bool ok = false;
 
-    // Engine round-trip for step values is loose: a step may come back as
-    // plain seconds ("900") or as HH:MM:SS ("00:15:00", "48:00:00"). Try
-    // integer first, fall through to colon-separated parse if that fails.
-    auto parseStepSeconds = [](const QString &s, qint64 fallback) -> qint64 {
-        const QString t = s.trimmed();
-        bool ok = false;
-        const qint64 asInt = t.toLongLong(&ok);
-        if (ok) return asInt;
-        const QStringList parts = t.split(QLatin1Char(':'));
-        if (parts.size() < 1 || parts.size() > 3) return fallback;
-        qint64 secs = 0;
-        for (const QString &p : parts) {
-            bool ok2 = false;
-            const qint64 v = p.toLongLong(&ok2);
-            if (!ok2) return fallback;
-            secs = secs * 60 + v;
-        }
-        return secs;
+    // Numeric option reads: keep the fallback when the engine string fails
+    // to parse instead of silently seeding 0 into the spin box (which
+    // writeToEngine would then persist as a real edit).
+    auto optDouble = [this](const char *key, double fallback) {
+        bool okNum = false;
+        const double v = getOption(key, QString::number(fallback, 'g', 6))
+                             .toDouble(&okNum);
+        return okNum ? v : fallback;
     };
+    auto optInt = [this](const char *key, int fallback) {
+        bool okNum = false;
+        const int v = getOption(key, QString::number(fallback)).toInt(&okNum);
+        return okNum ? v : fallback;
+    };
+
+    // Engine round-trip for step values is loose: a step may come back as
+    // plain seconds ("900"), decimal seconds ("900.000000") or as HH:MM:SS
+    // ("00:15:00", "48:00:00"). The static parseStepSeconds() helper
+    // (simulationoptionshelpers.cpp, unit-tested) accepts all three.
 
     m_reportStepEdit->setTotalSeconds(
         parseStepSeconds(getOption("REPORT_STEP", QString::number(sim.reportStepSec)),
@@ -2330,15 +2340,9 @@ void SimulationOptionsDialog::readFromEngine()
         parseStepSeconds(getOption("WET_STEP", QString::number(sim.wetStepSec)),
                          sim.wetStepSec));
 
-    {
-        const qint64 ruleSecs = parseStepSeconds(
-            getOption("RULE_STEP", QString::number(sim.ruleStepSec)), sim.ruleStepSec);
-        const qint64 maxRule  = qint64(23) * 3600 + qint64(59) * 60 + 59;
-        const qint64 clamped  = qBound(qint64(0), ruleSecs, maxRule);
-        m_ruleStepEdit->setTime(QTime(static_cast<int>(clamped / 3600),
-                                       static_cast<int>((clamped % 3600) / 60),
-                                       static_cast<int>(clamped % 60)));
-    }
+    m_ruleStepEdit->setTotalSeconds(
+        parseStepSeconds(getOption("RULE_STEP", QString::number(sim.ruleStepSec)),
+                         sim.ruleStepSec));
 
     const double routeStep = getOption("ROUTING_STEP",
                                        QString::number(sim.routingStepSec, 'g', 6))
@@ -2384,46 +2388,31 @@ void SimulationOptionsDialog::readFromEngine()
 
     // DPS_* knobs are dynamic-slot specific and not surfaced in
     // PreferencesManager — keep engine-side defaults.
-    m_dpsCelerSpin->setValue(getOption("DPS_CELERITY",   "25").toDouble(&ok));
-    m_dpsAlphaSpin->setValue(getOption("DPS_ALPHA",      "3.0").toDouble(&ok));
-    m_dpsDecaySpin->setValue(getOption("DPS_DECAY_TIME", "0.5").toDouble(&ok));
+    m_dpsCelerSpin->setValue(optDouble("DPS_CELERITY",   25.0));
+    m_dpsAlphaSpin->setValue(optDouble("DPS_ALPHA",      3.0));
+    m_dpsDecaySpin->setValue(optDouble("DPS_DECAY_TIME", 0.5));
 
     m_lengtheningSpin->setValue(
-        getOption("LENGTHENING_STEP", QString::number(sim.lengtheningStepSec, 'g', 6))
-            .toDouble(&ok));
+        optDouble("LENGTHENING_STEP", sim.lengtheningStepSec));
     // VARIABLE_STEP toggle in prefs zeroes the Courant factor when off.
     const double variablePref = sim.variableStepOn ? sim.variableStepFactor : 0.0;
-    m_variableStepSpin->setValue(
-        getOption("VARIABLE_STEP", QString::number(variablePref, 'g', 6))
-            .toDouble(&ok));
-    m_minStepSpin->setValue(
-        getOption("MINIMUM_STEP", QString::number(sim.minRoutingStepSec, 'g', 6))
-            .toDouble(&ok));
+    m_variableStepSpin->setValue(optDouble("VARIABLE_STEP", variablePref));
+    m_minStepSpin->setValue(optDouble("MINIMUM_STEP", sim.minRoutingStepSec));
 
-    m_maxTrialsSpin->setValue(
-        getOption("MAX_TRIALS", QString::number(sim.maxTrials)).toInt(&ok));
-    m_headTolSpin->setValue(
-        getOption("HEAD_TOLERANCE", QString::number(sim.headTolerance, 'g', 6))
-            .toDouble(&ok));
-    // The engine stores LAT_FLOW_TOL / SYS_FLOW_TOL as fractions but the
-    // .inp surface uses percent. Prefs hold percent; convert to fraction
-    // for the fallback string and back to percent for the spin display.
-    m_latFlowTolSpin->setValue(
-        getOption("LAT_FLOW_TOL", QString::number(sim.latFlowTolPct / 100.0, 'g', 6))
-            .toDouble(&ok) * 100.0);
-    m_sysFlowTolSpin->setValue(
-        getOption("SYS_FLOW_TOL", QString::number(sim.sysFlowTolPct / 100.0, 'g', 6))
-            .toDouble(&ok) * 100.0);
+    m_maxTrialsSpin->setValue(optInt("MAX_TRIALS", sim.maxTrials));
+    m_headTolSpin->setValue(optDouble("HEAD_TOLERANCE", sim.headTolerance));
+    // LAT_FLOW_TOL / SYS_FLOW_TOL speak percent through the options API on
+    // both get and set, mirroring the .inp surface; prefs hold percent too.
+    m_latFlowTolSpin->setValue(optDouble("LAT_FLOW_TOL", sim.latFlowTolPct));
+    m_sysFlowTolSpin->setValue(optDouble("SYS_FLOW_TOL", sim.sysFlowTolPct));
     // MIN_SURFAREA isn't in prefs; engine default is 0.
-    m_minSurfAreaSpin->setValue(getOption("MIN_SURFAREA", "0").toDouble(&ok));
-    m_minSlopeSpin->setValue(
-        getOption("MIN_SLOPE", QString::number(sim.minSlopePct, 'g', 6)).toDouble(&ok));
+    m_minSurfAreaSpin->setValue(optDouble("MIN_SURFAREA", 0.0));
+    m_minSlopeSpin->setValue(optDouble("MIN_SLOPE", sim.minSlopePct));
 
     updateSurchargeFieldsEnabled();
 
     // ---- Tab 4 ---------------------------------------------------------
-    m_threadsSpin->setValue(
-        getOption("THREADS", QString::number(sim.threads)).toInt(&ok));
+    m_threadsSpin->setValue(optInt("THREADS", sim.threads));
 
     // ---- 2D module toggle (Tab 1 → Modules group) ----------------------
     // Persisted per-.inp under QSettings since the engine has no native
@@ -3485,7 +3474,11 @@ int SimulationOptionsDialog::writeToEngine()
     int n = 0;
     auto writeIfChanged = [&](const char *key, const QString &current,
                               const QString &newVal) {
-        if (current == newVal) return;
+        // Numeric-aware compare: the engine renders numerics with six
+        // decimals ("0.000000") while this dialog formats 'f',2/'f',3/etc.,
+        // so a plain string compare would rewrite every key (and dirty the
+        // project) on each OK even with no edits.
+        if (optionValueEquals(current, newVal)) return;
         if (setOption(key, newVal)) ++n;
     };
 
@@ -3555,12 +3548,8 @@ int SimulationOptionsDialog::writeToEngine()
                    QString::number(m_dryStepEdit->totalSeconds()));
     writeIfChanged("WET_STEP",     getOption("WET_STEP"),
                    QString::number(m_wetStepEdit->totalSeconds()));
-    {
-        const QTime rt = m_ruleStepEdit->time();
-        const qint64 ruleSecs = rt.hour() * 3600 + rt.minute() * 60 + rt.second();
-        writeIfChanged("RULE_STEP", getOption("RULE_STEP"),
-                       QString::number(ruleSecs));
-    }
+    writeIfChanged("RULE_STEP",    getOption("RULE_STEP"),
+                   QString::number(m_ruleStepEdit->totalSeconds()));
     {
         // Routing step is a plain text box; preserve the user's typed
         // decimal precision but normalise to a canonical %g rendering.
@@ -3610,11 +3599,12 @@ int SimulationOptionsDialog::writeToEngine()
                    QString::number(m_maxTrialsSpin->value()));
     writeIfChanged("HEAD_TOLERANCE",      getOption("HEAD_TOLERANCE"),
                    QString::number(m_headTolSpin->value(), 'f', 6));
-    // Engine stores LAT/SYS_FLOW_TOL as fractions; spin shows percent.
+    // LAT/SYS_FLOW_TOL speak percent through the options API, matching the
+    // spin display and the .inp surface.
     writeIfChanged("LAT_FLOW_TOL",        getOption("LAT_FLOW_TOL"),
-                   QString::number(m_latFlowTolSpin->value() / 100.0, 'f', 6));
+                   QString::number(m_latFlowTolSpin->value(), 'f', 2));
     writeIfChanged("SYS_FLOW_TOL",        getOption("SYS_FLOW_TOL"),
-                   QString::number(m_sysFlowTolSpin->value() / 100.0, 'f', 6));
+                   QString::number(m_sysFlowTolSpin->value(), 'f', 2));
     writeIfChanged("MIN_SURFAREA",        getOption("MIN_SURFAREA"),
                    QString::number(m_minSurfAreaSpin->value(), 'f', 4));
     writeIfChanged("MIN_SLOPE",           getOption("MIN_SLOPE"),
