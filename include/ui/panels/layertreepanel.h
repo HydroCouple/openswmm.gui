@@ -329,6 +329,13 @@ signals:
     void setActiveResultsLayerRequested(class SWMMResultsLayer *layer);
     void setActive2DResultsLayerRequested(class SWMM2DResultsLayer *layer);
 
+    /*!
+     * \brief Emitted when the user picks "Set CRS…" on a layer's context
+     *        menu. SWMMVis opens the CRSSelectionDialog, applies the chosen
+     *        CRS to the layer, and triggers a canvas refresh.
+     */
+    void layerSetCRSRequested(OpenSWMMVisLayer *layer);
+
 public slots:
     /*!
      * \brief Cache the project window's active 1D / 2D results layers so the

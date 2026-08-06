@@ -30,9 +30,13 @@ MapExtent::MapExtent(const QRectF &rect)
 
 bool MapExtent::isValid() const
 {
+    // Allow <= (not just <) so degenerate but real extents — a horizontal
+    // line model (yMin == yMax) or a single point (xMin == xMax && yMin == yMax)
+    // — are still considered valid.  zoomToFullExtent / arCorrectedExtent
+    // pad these into non-zero extents before painting.
     return std::isfinite(m_xMin) && std::isfinite(m_yMin) &&
            std::isfinite(m_xMax) && std::isfinite(m_yMax) &&
-           m_xMin < m_xMax && m_yMin < m_yMax;
+           m_xMin <= m_xMax && m_yMin <= m_yMax;
 }
 
 bool MapExtent::isNull() const

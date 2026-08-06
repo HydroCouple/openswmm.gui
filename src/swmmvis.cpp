@@ -1954,6 +1954,22 @@ void SWMMVis::initializeLayersDockWidget()
                                   QStringLiteral("layer-style-apply"));
             });
 
+    // Right-click "Set CRS…" on a layer → open the CRS picker, apply the
+    // chosen CRS to the layer, and refresh the canvas.
+    connect(mLayerTreePanel, &LayerTreePanel::layerSetCRSRequested,
+            this, [this](OpenSWMMVisLayer *layer) {
+                if (!layer) return;
+                CRSSelectionDialog dlg(this);
+                dlg.setCurrentCRS(layer->srs());
+                if (dlg.exec() != QDialog::Accepted) return;
+                SpatialReferenceSystem *srs = dlg.selectedSRS();
+                if (!srs) return;
+                layer->setSRS(new SpatialReferenceSystem(*srs, layer), true);
+                if (auto *c = activeCanvas())
+                    c->invalidate(MapCanvas::Raster | MapCanvas::Scene,
+                                  QStringLiteral("layer-crs-changed"));
+            });
+
     // Right-click "Open Attribute Table" on a layer row → raise the
     // Attribute Table dock and switch its source to that layer.
     connect(mLayerTreePanel, &LayerTreePanel::attributeTableRequested,

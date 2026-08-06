@@ -17,6 +17,7 @@
 #include "map/spatialreferencesystem.h"
 #include "render/ifeaturerenderer.h"   // complete type for the setRenderer() default
 #include "ui/dialogs/ilayerstylesubject.h"
+#include <ogr_spatialref.h>   // OGRCreateCoordinateTransformation for setSRS reprojection
 
 #include <QGraphicsScene>
 #include <QGraphicsItem>
@@ -202,6 +203,33 @@ SpatialReferenceSystem *OpenSWMMVisLayer::srs() const { return m_srs; }
 
 void OpenSWMMVisLayer::setSRS(SpatialReferenceSystem *srs, bool ownsSRS)
 {
+    // Reproject the stored extent from the old CRS to the new CRS so that
+    // zoomToFullExtent() and layerExtentInCanvasCRS() don't interpret the
+    // old-CRS bounding box in new-CRS coordinates (which sends the map
+    // thousands of miles away).  Only reproject when both the old and new
+    // SRS are valid OGR spatial references and the extent is valid.
+    if (m_srs && srs && m_extent.isValid()
+        && m_srs->ogrSpatialReference() && srs->ogrSpatialReference()
+        && !m_srs->ogrSpatialReference()->IsSame(srs->ogrSpatialReference()))
+    {
+        auto *xform = OGRCreateCoordinateTransformation(
+            m_srs->ogrSpatialReference(), srs->ogrSpatialReference());
+        if (xform) {
+            double xs[4] = {m_extent.xMin(), m_extent.xMax(),
+                            m_extent.xMax(), m_extent.xMin()};
+            double ys[4] = {m_extent.yMin(), m_extent.yMin(),
+                            m_extent.yMax(), m_extent.yMax()};
+            xform->Transform(4, xs, ys);
+            OGRCoordinateTransformation::DestroyCT(xform);
+            double x0 = xs[0], x1 = xs[0], y0 = ys[0], y1 = ys[0];
+            for (int i = 1; i < 4; ++i) {
+                x0 = std::min(x0, xs[i]); x1 = std::max(x1, xs[i]);
+                y0 = std::min(y0, ys[i]); y1 = std::max(y1, ys[i]);
+            }
+            m_extent = MapExtent(x0, y0, x1, y1);
+        }
+    }
+
     if (m_ownsSRS)
         delete m_srs;
 
