@@ -1965,6 +1965,9 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     QAction *actToggle = menu.addAction(layer->isVisible()
                                             ? tr("Hide Layer")
                                             : tr("Show Layer"));
+    // Group 6.5 — coordinate reference system (kept between query and
+    // styling so it sits near the bottom like QGIS's "Assign CRS").
+    QAction *actSetCRS = menu.addAction(tr("Set CRS…"));
     menu.addSeparator();
 
     // Group 7 — styling (always the last entries — `Properties…` is the
@@ -2001,6 +2004,7 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
         else if (auto *r2d = qobject_cast<SWMM2DResultsLayer *>(layer))
             emit setActive2DResultsLayerRequested(r2d);
     }
+    else if (picked == actSetCRS)      emit layerSetCRSRequested(layer);
     else if (picked == actUp)          onMoveLayerUp();
     else if (picked == actDown)        onMoveLayerDown();
     else if (picked == actToggle)      layer->setVisible(!layer->isVisible());

@@ -729,11 +729,7 @@ void WMSLayer::parseCapabilities(const QByteArray &xml)
         }
         else if (eName == QLatin1String("Layer"))
         {
-            // `value(...)` returns QStringView; MSVC rejects comparison with
-            // a raw "1" literal (no QStringView::operator==(const char*)).
-            // QLatin1String("1") gives an explicit overload that compiles on
-            // all platforms.
-            bool queryable = reader.attributes().value(QStringLiteral("queryable")) == QLatin1String("1");
+            bool queryable = reader.attributes().value(QStringLiteral("queryable")) == QLatin1StringView("1");
 
             // Read child elements for this layer
             WMSLayerInfo layerInfo;

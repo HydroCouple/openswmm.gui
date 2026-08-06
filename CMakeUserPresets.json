@@ -3,18 +3,25 @@
     "configurePresets": [
         {
             "name": "Darwin-local",
-            "inherits": "Darwin-debug",
-            "description": "Local macOS debug build — machine-specific paths (not committed)",
+            "inherits": "Darwin",
+            "description": "Local macOS release build for corinnewiesner (Intel Mac, macOS 26 beta fixes)",
             "environment": {
-                "QT_ROOT_DIR": "/Users/calebbuahin/Qt/6.11.1/macos",
-                "VCPKG_ROOT": "/Users/calebbuahin/Documents/Projects/vcpkg"
+                "QT_ROOT_DIR": "/Users/corinnewiesner/Qt/6.7.3/macos",
+                "VCPKG_ROOT": "/Users/corinnewiesner/vcpkg"
+            },
+            "cacheVariables": {
+                "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/triplets",
+                "CMAKE_OSX_SYSROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk",
+                "CMAKE_CXX_FLAGS": "-O2 -flto -fdata-sections -ffunction-sections -fno-fast-math -Wall -Wextra -fvisibility=hidden -I/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk/usr/include/c++/v1",
+                "CMAKE_C_FLAGS": "-O2 -flto -fdata-sections -ffunction-sections -fno-fast-math -Wall -Wextra -fvisibility=hidden"
             }
         }
     ],
     "buildPresets": [
         {
             "name": "Darwin-local",
-            "configurePreset": "Darwin-local"
+            "configurePreset": "Darwin-local",
+            "targets": ["package"]
         }
     ]
 }
