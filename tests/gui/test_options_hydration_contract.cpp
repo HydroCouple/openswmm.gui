@@ -83,6 +83,13 @@ private slots:
     // extraction blocker (see KNOWN GAPS).
     void linkOffsets_engineRoundTripsValue();
 
+    // Simulation Options persistence fixes (2026-08-06): keys whose broken
+    // C-API round-trip made dialog edits silently revert on reload.
+    void minimumStep_engineRoundTripsValue();
+    void flowTolerances_percentIdempotent();
+    void ruleStep_over24hRoundTrips();
+    void threads_engineRoundTripsValue();
+
     // §M.3 sanity — controls explicitly out of scope must not appear in the
     // audit list (canary against future drift).
     void auditList_excludesOutOfScopeWidgets();
@@ -114,13 +121,11 @@ private slots:
 //   test_simulationoptionsdialog only covers pure helpers; this would
 //   re-enable real-engine round-trip coverage for Tabs 0, 3, 4, 5, 6.
 //
-// CX-extended-keys — engine ABI today only handles FLOW_UNITS, FLOW_ROUTING,
-//   LINK_OFFSETS, ROUTING_STEP, REPORT_STEP, START/END_DATE, CRS via the
-//   standard swmm_options_get/set surface (LINK_OFFSETS landed 2026-05-22 as
-//   part of Slice CX.4). Other keys the GUI passes through this ABI fall
-//   through to SWMM_ERR_BADPARAM; the GUI silently uses constructor defaults.
-//   Filed under §G of GUI_IMPLEMENTATION_PLAN.md as a follow-up engine API
-//   request; extend kStatusBarHydrationAudit when those keys come online.
+// CX-extended-keys — the standard swmm_options_get/set surface has grown to
+//   cover the full Simulation Options dialog (LINK_OFFSETS 2026-05-22 as part
+//   of Slice CX.4; MINIMUM_STEP + percent LAT/SYS_FLOW_TOL 2026-08-06 with
+//   the dialog persistence fixes, round-trip-tested below). Extend
+//   kStatusBarHydrationAudit as further keys come online.
 // ===========================================================================
 
 void TestOptionsHydrationContract::cleanup()
@@ -244,6 +249,109 @@ void TestOptionsHydrationContract::linkOffsets_engineRoundTripsValue()
     std::memset(buf, 0, sizeof(buf));
     QCOMPARE(swmm_options_get(e, "LINK_OFFSETS", buf, sizeof(buf)), 0);
     QCOMPARE(QString::fromLatin1(buf).trimmed().toUpper(), QStringLiteral("DEPTH"));
+
+    swmm_engine_destroy(e);
+}
+
+// ---------------------------------------------------------------------------
+// Simulation Options persistence fixes (2026-08-06) — engine ABI round-trips
+// for the keys whose broken get/set made dialog edits revert on reload.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+QString getOptionString(SWMM_Engine e, const char *key)
+{
+    char buf[64] = {};
+    const int rc = swmm_options_get(e, key, buf, sizeof(buf));
+    Q_ASSERT(rc == 0);
+    Q_UNUSED(rc);
+    return QString::fromLatin1(buf).trimmed();
+}
+
+double getOptionDouble(SWMM_Engine e, const char *key)
+{
+    bool ok = false;
+    const double v = getOptionString(e, key).toDouble(&ok);
+    Q_ASSERT(ok);
+    Q_UNUSED(ok);
+    return v;
+}
+
+} // anonymous namespace
+
+void TestOptionsHydrationContract::minimumStep_engineRoundTripsValue()
+{
+    SWMM_Engine e = swmm_engine_new();
+    QVERIFY(e != nullptr);
+
+    // Historically swmm_options_set rejected MINIMUM_STEP entirely, so the
+    // dialog's minimum-routing-step spin always showed the preferences
+    // default and edits were dropped (and the "Apply fast preset" button was
+    // half a no-op).
+    QCOMPARE(getOptionDouble(e, "MINIMUM_STEP"), 0.5);   // engine default
+
+    QCOMPARE(swmm_options_set(e, "MINIMUM_STEP", "1.0"), 0);
+    QCOMPARE(getOptionDouble(e, "MINIMUM_STEP"), 1.0);
+
+    // Clock form, same grammar as the [OPTIONS] parser.
+    QCOMPARE(swmm_options_set(e, "MINIMUM_STEP", "0:00:02"), 0);
+    QCOMPARE(getOptionDouble(e, "MINIMUM_STEP"), 2.0);
+
+    swmm_engine_destroy(e);
+}
+
+void TestOptionsHydrationContract::flowTolerances_percentIdempotent()
+{
+    SWMM_Engine e = swmm_engine_new();
+    QVERIFY(e != nullptr);
+
+    // Percent on both sides. The getter used to return the stored fraction
+    // while the setter divided by 100, so every dialog OK shrank the
+    // tolerance 100× — a 5% tolerance came back as 0.05% on reload.
+    QCOMPARE(swmm_options_set(e, "LAT_FLOW_TOL", "5"), 0);
+    QCOMPARE(swmm_options_set(e, "SYS_FLOW_TOL", "5"), 0);
+    QCOMPARE(getOptionDouble(e, "LAT_FLOW_TOL"), 5.0);
+    QCOMPARE(getOptionDouble(e, "SYS_FLOW_TOL"), 5.0);
+
+    // get → set(returned) → get twice must be a fixed point.
+    for (int i = 0; i < 2; ++i) {
+        const QByteArray echoed = getOptionString(e, "LAT_FLOW_TOL").toLatin1();
+        QCOMPARE(swmm_options_set(e, "LAT_FLOW_TOL", echoed.constData()), 0);
+    }
+    QCOMPARE(getOptionDouble(e, "LAT_FLOW_TOL"), 5.0);
+
+    swmm_engine_destroy(e);
+}
+
+void TestOptionsHydrationContract::ruleStep_over24hRoundTrips()
+{
+    SWMM_Engine e = swmm_engine_new();
+    QVERIFY(e != nullptr);
+
+    // The dialog's old QTimeEdit clamped RULE_STEP to 23:59:59 on read and
+    // wrote the clamped value back; the engine itself has always accepted
+    // > 24 h. The widget is now a QCustomTimespanEdit (days + HH:mm:ss).
+    QCOMPARE(swmm_options_set(e, "RULE_STEP", "48:00:00"), 0);
+    QCOMPARE(getOptionDouble(e, "RULE_STEP"), 172800.0);
+
+    swmm_engine_destroy(e);
+}
+
+void TestOptionsHydrationContract::threads_engineRoundTripsValue()
+{
+    SWMM_Engine e = swmm_engine_new();
+    QVERIFY(e != nullptr);
+
+    // THREADS: plain integer; 0 is the "auto" sentinel the engine maps to
+    // omp_get_max_threads() at start, matching the GUI spinbox's 0 = "auto".
+    QCOMPARE(getOptionString(e, "THREADS"), QStringLiteral("1"));  // default
+
+    QCOMPARE(swmm_options_set(e, "THREADS", "8"), 0);
+    QCOMPARE(getOptionString(e, "THREADS"), QStringLiteral("8"));
+
+    QCOMPARE(swmm_options_set(e, "THREADS", "0"), 0);
+    QCOMPARE(getOptionString(e, "THREADS"), QStringLiteral("0"));
 
     swmm_engine_destroy(e);
 }

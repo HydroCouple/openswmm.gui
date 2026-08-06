@@ -32,6 +32,15 @@ private slots:
     void oaDateMatchesKnownSwmmAnchor();
     void oaDateRoundTripsArbitraryDates();
     void oaDateInvalidInputReturnsZero();
+
+    // Step-value parsing (REPORT_STEP / WET_STEP / DRY_STEP / RULE_STEP)
+    void parseStepSecondsAcceptsEngineForms();
+    void parseStepSecondsFallsBackOnGarbage();
+
+    // Numeric-aware option comparison used by writeToEngine()'s
+    // writeIfChanged — formatting drift must not read as an edit.
+    void optionValueEqualsNumericForms();
+    void optionValueEqualsNonNumeric();
 };
 
 void TestSimulationOptionsDialog::parseEngineBoolKnownValues()
@@ -171,6 +180,87 @@ void TestSimulationOptionsDialog::oaDateInvalidInputReturnsZero()
     // window.  The dialog must validate Start < End before persisting,
     // so a zero is harmless when caught upstream.
     QCOMPARE(SimulationOptionsDialog::oaDateFromQDateTime(QDateTime()), 0.0);
+}
+
+// ---------------------------------------------------------------------------
+// Step values
+// ---------------------------------------------------------------------------
+
+void TestSimulationOptionsDialog::parseStepSecondsAcceptsEngineForms()
+{
+    constexpr qint64 kFallback = 60;
+    const auto parse = &SimulationOptionsDialog::parseStepSeconds;
+
+    // Plain seconds — swmm_options_get() form for WET_STEP / DRY_STEP /
+    // RULE_STEP (std::to_string of a long long).
+    QCOMPARE(parse(QStringLiteral("900"), kFallback), qint64(900));
+
+    // Decimal seconds — swmm_options_get() form for REPORT_STEP and
+    // ROUTING_STEP, which are doubles rendered with std::to_string. The
+    // integer-only parser this replaced rejected these and handed back the
+    // preferences default, so a changed reporting step was silently reverted
+    // the next time the dialog was opened and OK'd.
+    QCOMPARE(parse(QStringLiteral("900.000000"), kFallback), qint64(900));
+    QCOMPARE(parse(QStringLiteral("300.000000"), kFallback), qint64(300));
+    QCOMPARE(parse(QStringLiteral("0.000000"),   kFallback), qint64(0));
+
+    // HH:MM:SS as written into the .inp — including the > 24 h hour field
+    // legacy SWMM allows.
+    QCOMPARE(parse(QStringLiteral("00:15:00"), kFallback), qint64(900));
+    QCOMPARE(parse(QStringLiteral("48:00:00"), kFallback), qint64(172800));
+    QCOMPARE(parse(QStringLiteral("15:00"),    kFallback), qint64(900));
+
+    // Surrounding whitespace is tolerated (getOption() already trims, but the
+    // preference fallbacks feed through the same helper).
+    QCOMPARE(parse(QStringLiteral("  900.000000  "), kFallback), qint64(900));
+}
+
+void TestSimulationOptionsDialog::parseStepSecondsFallsBackOnGarbage()
+{
+    constexpr qint64 kFallback = 60;
+    const auto parse = &SimulationOptionsDialog::parseStepSeconds;
+
+    QCOMPARE(parse(QString(),                     kFallback), kFallback);
+    QCOMPARE(parse(QStringLiteral(""),            kFallback), kFallback);
+    QCOMPARE(parse(QStringLiteral("abc"),         kFallback), kFallback);
+    QCOMPARE(parse(QStringLiteral("00:15:xx"),    kFallback), kFallback);
+    QCOMPARE(parse(QStringLiteral("1:2:3:4"),     kFallback), kFallback);
+    QCOMPARE(parse(QStringLiteral("-900"),        kFallback), kFallback);
+}
+
+// ---------------------------------------------------------------------------
+// optionValueEquals
+// ---------------------------------------------------------------------------
+
+void TestSimulationOptionsDialog::optionValueEqualsNumericForms()
+{
+    const auto eq = &SimulationOptionsDialog::optionValueEquals;
+
+    // The engine renders numerics as std::to_string(double) (six decimals)
+    // while the dialog formats 'f',2 / 'f',3 / 'g',6 — those must compare
+    // equal or every OK rewrites every key and dirties the project.
+    QVERIFY(eq(QStringLiteral("900.000000"), QStringLiteral("900")));
+    QVERIFY(eq(QStringLiteral("0.000000"),   QStringLiteral("0.00")));
+    QVERIFY(eq(QStringLiteral("5"),          QStringLiteral("5.000000")));
+    QVERIFY(eq(QStringLiteral("  1.5 "),     QStringLiteral("1.50")));
+
+    // Genuinely different numbers are edits.
+    QVERIFY(!eq(QStringLiteral("0.5"), QStringLiteral("0.6")));
+    QVERIFY(!eq(QStringLiteral("5"),   QStringLiteral("0.05")));
+}
+
+void TestSimulationOptionsDialog::optionValueEqualsNonNumeric()
+{
+    const auto eq = &SimulationOptionsDialog::optionValueEquals;
+
+    // Non-numeric tokens compare as exact strings.
+    QVERIFY(eq(QStringLiteral("DYNWAVE"), QStringLiteral("DYNWAVE")));
+    QVERIFY(!eq(QStringLiteral("YES"),    QStringLiteral("NO")));
+
+    // Mixed numeric/non-numeric (and empty vs zero) are never equal — an
+    // empty engine value followed by a numeric write is a real edit.
+    QVERIFY(!eq(QString(),               QStringLiteral("0")));
+    QVERIFY(!eq(QStringLiteral("AUTO"),  QStringLiteral("0")));
 }
 
 QTEST_MAIN(TestSimulationOptionsDialog)

@@ -16,7 +16,11 @@
 #include <QDate>
 #include <QDateTime>
 #include <QString>
+#include <QStringList>
 #include <QTime>
+
+#include <algorithm>
+#include <cmath>
 
 int SimulationOptionsDialog::parseEngineBool(const QString &s)
 {
@@ -95,4 +99,52 @@ QDateTime SimulationOptionsDialog::qDateTimeFromOaDate(double oa)
     const QDateTime utc = openswmmvis::core::swmmDateTimeToQDateTime(oa);
     if (!utc.isValid()) return {};
     return QDateTime(utc.date(), utc.time());   // re-label: see file-header note
+}
+
+qint64 SimulationOptionsDialog::parseStepSeconds(const QString &s,
+                                                 qint64 fallback)
+{
+    const QString t = s.trimmed();
+    if (t.isEmpty()) return fallback;
+
+    if (!t.contains(QLatin1Char(':'))) {
+        // Decimal form, not just integers: swmm_options_get() renders
+        // REPORT_STEP / ROUTING_STEP with std::to_string(double), so the
+        // engine hands back "900.000000". An integer-only parse rejected
+        // that and silently fell back to the preferences default, which then
+        // got written straight back to the engine on OK — the reporting step
+        // appeared not to persist.
+        bool ok = false;
+        const double v = t.toDouble(&ok);
+        if (!ok || v < 0.0) return fallback;
+        return qRound64(v);
+    }
+
+    const QStringList parts = t.split(QLatin1Char(':'));
+    if (parts.size() > 3) return fallback;
+    double secs = 0.0;
+    for (const QString &p : parts) {
+        bool ok = false;
+        const double v = p.trimmed().toDouble(&ok);
+        if (!ok || v < 0.0) return fallback;
+        secs = secs * 60.0 + v;
+    }
+    return qRound64(secs);
+}
+
+bool SimulationOptionsDialog::optionValueEquals(const QString &a,
+                                                const QString &b)
+{
+    const QString ta = a.trimmed(), tb = b.trimmed();
+    if (ta == tb) return true;
+
+    bool okA = false, okB = false;
+    const double da = ta.toDouble(&okA);
+    const double db = tb.toDouble(&okB);
+    if (!okA || !okB) return false;
+
+    // Formatting differences ("0.000000" vs "0.00") are exactly equal after
+    // parsing; the relative tolerance only absorbs last-digit rounding.
+    const double scale = std::max({1.0, std::abs(da), std::abs(db)});
+    return std::abs(da - db) <= 1e-9 * scale;
 }
