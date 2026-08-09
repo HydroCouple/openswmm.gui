@@ -16,6 +16,7 @@ static constexpr char kXYZGroup[]       = "XYZ";
 static constexpr char kWMSGroup[]       = "WMS";
 static constexpr char kWCSGroup[]       = "WCS";
 static constexpr char kArcGISGroup[]    = "ArcGIS";
+static constexpr char kLocalRasterGroup[] = "localraster";
 static constexpr char kHeaderPrefix[]   = "http-header/";
 static constexpr char kPassword[]       = "password";
 
@@ -448,6 +449,69 @@ void BasemapConnectionStore::removeArcGIS(const QString &name)
     QSettings s;
     s.beginGroup(kTopGroup);
     s.beginGroup(kArcGISGroup);
+    s.remove(name);
+    s.endGroup();
+    s.endGroup();
+    emit connectionsChanged();
+}
+
+// ---------------------------------------------------------------------------
+// Local raster
+// ---------------------------------------------------------------------------
+
+void BasemapConnectionStore::saveLocalRaster(const LocalRasterConnection &conn)
+{
+    QSettings s;
+    s.beginGroup(kTopGroup);
+    s.beginGroup(kLocalRasterGroup);
+    s.beginGroup(conn.name);
+
+    s.setValue("filePath",      conn.filePath);
+    s.setValue("worldFilePath", conn.worldFilePath);
+    s.setValue("crsAuthCode",   conn.crsAuthCode);
+
+    s.endGroup(); // name
+    s.endGroup(); // localraster
+    s.endGroup(); // BasemapConnections
+
+    emit connectionsChanged();
+}
+
+LocalRasterConnection BasemapConnectionStore::loadLocalRaster(const QString &name) const
+{
+    QSettings s;
+    s.beginGroup(kTopGroup);
+    s.beginGroup(kLocalRasterGroup);
+    s.beginGroup(name);
+
+    LocalRasterConnection c;
+    c.name          = name;
+    c.filePath      = s.value("filePath").toString();
+    c.worldFilePath = s.value("worldFilePath").toString();
+    c.crsAuthCode   = s.value("crsAuthCode").toString();
+
+    s.endGroup();
+    s.endGroup();
+    s.endGroup();
+    return c;
+}
+
+QStringList BasemapConnectionStore::localRasterConnectionNames() const
+{
+    QSettings s;
+    s.beginGroup(kTopGroup);
+    s.beginGroup(kLocalRasterGroup);
+    const QStringList names = s.childGroups();
+    s.endGroup();
+    s.endGroup();
+    return names;
+}
+
+void BasemapConnectionStore::removeLocalRaster(const QString &name)
+{
+    QSettings s;
+    s.beginGroup(kTopGroup);
+    s.beginGroup(kLocalRasterGroup);
     s.remove(name);
     s.endGroup();
     s.endGroup();

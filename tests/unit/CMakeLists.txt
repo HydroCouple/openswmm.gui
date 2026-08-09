@@ -379,6 +379,20 @@ target_link_libraries(test_sublayer_fixtures PRIVATE GDAL::GDAL)
 target_compile_definitions(test_sublayer_fixtures
     PRIVATE FIXTURE_OUT_DIR="${PROJECT_SOURCE_DIR}/tests/output")
 
+# ---- Local raster basemap georef helpers (LOCAL_RASTER_BASEMAP plan Phase 2) ----
+# World-file parsing + PAM sidecar writes. Links the io helpers + GDAL; needs
+# Qt6::Gui for the QImage-generated PNG fixture. Fixtures/outputs land in
+# test_artifacts/localraster/ — a reviewable location, not a temp dir
+# (CLAUDE.md §4.1).
+add_swmmvis_unit_test(test_rastergeoref
+    test_rastergeoref.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/gdaldrivers.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/rastergeoref.cpp
+)
+target_link_libraries(test_rastergeoref PRIVATE Qt6::Gui GDAL::GDAL)
+target_compile_definitions(test_rastergeoref
+    PRIVATE RASTERGEOREF_OUT_DIR="${PROJECT_SOURCE_DIR}/test_artifacts/localraster")
+
 # ---- QSG 2D 1M-cell rendering helpers (QSG_2D_1M_RENDERING plan) ----
 # All pure Qt-Core helpers extracted from the 2D mesh/results QSG renderers
 # so rendering decisions are unit-testable without Qt Quick.

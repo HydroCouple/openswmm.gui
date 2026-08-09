@@ -171,6 +171,12 @@ public:
 
     [[nodiscard]] bool isRasterLayer() const override { return true; }
 
+    /*! \brief Marks this raster as a basemap (added via Add Basemap ▸ Local File).
+     *  Also retags the layer type to SWMMImageryLayer so it lands in the
+     *  Basemaps layer-tree category. */
+    void setIsBasemap(bool on);
+    [[nodiscard]] bool isBasemapLayer() const override { return m_isBasemap; }
+
     void fetchCache(const MapExtent &extent,
                     const QSize &viewportSize,
                     const SpatialReferenceSystem *srs) override;
@@ -365,6 +371,7 @@ private:
 
     QString          m_filePath;
     int              m_renderBand = 1;
+    bool             m_isBasemap  = false;  /*!< See setIsBasemap(). */
     double           m_noDataValue = std::numeric_limits<double>::quiet_NaN();
     bool             m_hasNoData  = false;
     // P5/R-1 — m_colorRamp retired. The SingleBandPseudoColorRenderer

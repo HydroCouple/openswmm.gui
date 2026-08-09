@@ -224,4 +224,24 @@ struct ArcGISRestConnection
     BasemapHttpHeaders httpHeaders;
 };
 
+// ---------------------------------------------------------------------------
+// Local raster connection
+// ---------------------------------------------------------------------------
+
+/*!
+ * \struct LocalRasterConnection
+ * \brief Parameters for a local raster (GeoTIFF/PNG/JPEG/...) basemap.
+ *
+ * Georeferencing comes from the file itself (embedded or PAM/world-file
+ * sidecar) unless a world file and/or CRS override is supplied.
+ * No auth or HTTP headers — local files have none.
+ */
+struct LocalRasterConnection
+{
+    QString name;
+    QString filePath;
+    QString worldFilePath;   /*!< Empty = rely on embedded/sidecar georef. */
+    QString crsAuthCode;     /*!< e.g. "EPSG:26985". Empty = use embedded CRS. */
+};
+
 #endif // BASEMAPCONNECTION_H
