@@ -4,10 +4,13 @@
  * \date   2026
  */
 #include "ui/dialogs/addbasemapdialog.h"
+#include "ui/dialogs/crsselectiondialog.h"
 #include "ui/widgets/basemaphttpheaderswidget.h"
 #include "connections/basemapconnection.h"
 #include "connections/basemapconnectionstore.h"
+#include "io/rastergeoref.h"
 #include "project/openswmmvisworkspace.h"
+#include "layers/gisrasterlayer.h"
 #include "layers/wcslayer.h"
 #include "layers/wmslayer.h"
 #include "layers/wmtslayer.h"
@@ -17,6 +20,9 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -74,16 +80,19 @@ AddBasemapDialog::AddBasemapDialog(QWidget *parent)
     auto *wmsPage    = new QWidget;
     auto *wcsPage    = new QWidget;
     auto *arcPage    = new QWidget;
+    auto *localPage  = new QWidget;
 
     setupUiXYZ(xyzPage);
     setupUiWMS(wmsPage);
     setupUiWCS(wcsPage);
     setupUiArcGIS(arcPage);
+    setupUiLocal(localPage);
 
     m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(xyzPage, m_tabs), tr("&XYZ Tiles"));
     m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(wmsPage, m_tabs), tr("W&MS / WMTS"));
     m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(wcsPage, m_tabs), tr("WCS"));
     m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(arcPage, m_tabs), tr("A&rcGIS REST"));
+    m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(localPage, m_tabs), tr("Local File"));
 
     root->addWidget(m_tabs);
 
@@ -97,6 +106,7 @@ AddBasemapDialog::AddBasemapDialog(QWidget *parent)
     refreshWMSCombo();
     refreshWCSCombo();
     refreshArcGISCombo();
+    refreshLocalCombo();
 }
 
 void AddBasemapDialog::setInitialTab(int index)
@@ -463,6 +473,75 @@ void AddBasemapDialog::setupUiArcGIS(QWidget *page)
 }
 
 // ---------------------------------------------------------------------------
+// Tab 5 — Local File
+// ---------------------------------------------------------------------------
+
+void AddBasemapDialog::setupUiLocal(QWidget *page)
+{
+    auto *vlay = new QVBoxLayout(page);
+    vlay->setSpacing(6);
+
+    // Saved-connections bar (New + Delete; no Edit — same pattern as WCS)
+    auto *connRow = new QHBoxLayout;
+    connRow->addWidget(new QLabel(tr("Saved connections:"), page));
+    m_localCombo = new QComboBox(page);
+    m_localCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    connRow->addWidget(m_localCombo);
+    m_localNew = new QPushButton(tr("New"),    page);
+    m_localDel = new QPushButton(tr("Delete"), page);
+    connRow->addWidget(m_localNew);
+    connRow->addWidget(m_localDel);
+    vlay->addLayout(connRow);
+
+    auto *form = new QFormLayout;
+    m_localName = new QLineEdit(page);
+
+    auto *fileRow = new QHBoxLayout;
+    m_localFile = new QLineEdit(page);
+    m_localFileBrowse = new QPushButton(tr("Browse…"), page);
+    fileRow->addWidget(m_localFile);
+    fileRow->addWidget(m_localFileBrowse);
+
+    m_localStatus = new QLabel(page);
+    m_localStatus->setWordWrap(true);
+
+    auto *worldRow = new QHBoxLayout;
+    m_localWorld = new QLineEdit(page);
+    m_localWorldBrowse = new QPushButton(tr("Browse…"), page);
+    worldRow->addWidget(m_localWorld);
+    worldRow->addWidget(m_localWorldBrowse);
+
+    auto *crsRow = new QHBoxLayout;
+    m_localCrs = new QLineEdit(page);
+    m_localCrs->setReadOnly(true);
+    m_localCrsBtn = new QPushButton(tr("Select CRS…"), page);
+    crsRow->addWidget(m_localCrs);
+    crsRow->addWidget(m_localCrsBtn);
+
+    form->addRow(tr("Name:"),        m_localName);
+    form->addRow(tr("Raster file:"), fileRow);
+    form->addRow(QString(),          m_localStatus);
+    form->addRow(tr("World file:"),  worldRow);
+    form->addRow(tr("CRS:"),         crsRow);
+    vlay->addLayout(form);
+    vlay->addStretch();
+
+    // Wiring
+    connect(m_localCombo, &QComboBox::currentTextChanged,
+            this, &AddBasemapDialog::onLocalConnectionSelected);
+    connect(m_localNew, &QPushButton::clicked, this, &AddBasemapDialog::onLocalNew);
+    connect(m_localDel, &QPushButton::clicked, this, &AddBasemapDialog::onLocalDelete);
+    connect(m_localFileBrowse,  &QPushButton::clicked,
+            this, &AddBasemapDialog::onLocalBrowseFile);
+    connect(m_localWorldBrowse, &QPushButton::clicked,
+            this, &AddBasemapDialog::onLocalBrowseWorldFile);
+    connect(m_localCrsBtn, &QPushButton::clicked,
+            this, &AddBasemapDialog::onLocalSelectCrs);
+    connect(m_localFile, &QLineEdit::editingFinished,
+            this, &AddBasemapDialog::updateLocalGeorefStatus);
+}
+
+// ---------------------------------------------------------------------------
 // Combo refresh helpers
 // ---------------------------------------------------------------------------
 
@@ -510,6 +589,17 @@ void AddBasemapDialog::refreshArcGISCombo()
     for (const QString &n : saved)
         m_arcCombo->addItem(n);
     m_arcCombo->blockSignals(false);
+}
+
+void AddBasemapDialog::refreshLocalCombo()
+{
+    m_localCombo->blockSignals(true);
+    m_localCombo->clear();
+    m_localCombo->addItem(tr("— New connection —"));
+    const QStringList saved = BasemapConnectionStore::instance()->localRasterConnectionNames();
+    for (const QString &n : saved)
+        m_localCombo->addItem(n);
+    m_localCombo->blockSignals(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -586,6 +676,55 @@ void AddBasemapDialog::populateArcGIS(const ArcGISRestConnection &conn,
     m_arcPass->setText(auth.password);
     m_arcAuthBox->setChecked(!auth.isEmpty());
     m_arcHeaders->setHeaders(conn.httpHeaders);
+}
+
+void AddBasemapDialog::populateLocal(const LocalRasterConnection &conn)
+{
+    m_localName->setText(conn.name);
+    m_localFile->setText(conn.filePath);
+    m_localWorld->setText(conn.worldFilePath);
+    m_localCrs->setText(conn.crsAuthCode);
+    updateLocalGeorefStatus();
+}
+
+void AddBasemapDialog::updateLocalGeorefStatus()
+{
+    namespace rg = openswmmvis::io::rastergeoref;
+
+    const QString path = m_localFile->text().trimmed();
+    if (path.isEmpty()) { m_localStatus->clear(); return; }
+    if (!QFile::exists(path)) {
+        m_localStatus->setText(tr("File not found."));
+        return;
+    }
+
+    const rg::GeorefProbe probe = rg::probeGeoref(path);
+    const QString crsText = probe.crsAuthCode.isEmpty() ? probe.crsDescription
+                                                        : probe.crsAuthCode;
+    if (probe.hasGeoTransform && !crsText.isEmpty())
+        m_localStatus->setText(tr("Embedded CRS: %1; georeferenced").arg(crsText));
+    else if (probe.hasGeoTransform)
+        m_localStatus->setText(tr("Georeferenced; no embedded CRS — select a CRS."));
+    else if (!crsText.isEmpty())
+        m_localStatus->setText(
+            tr("Embedded CRS: %1; not georeferenced — world file required.").arg(crsText));
+    else
+        m_localStatus->setText(tr("No georeferencing found — world file and CRS required."));
+
+    // Prefill CRS from the embedded one when the field is still empty.
+    if (!probe.crsAuthCode.isEmpty() && m_localCrs->text().isEmpty())
+        m_localCrs->setText(probe.crsAuthCode);
+
+    // Auto-detect a world-file sidecar when the image lacks a geotransform.
+    if (m_localWorld->text().isEmpty() && !probe.hasGeoTransform) {
+        const QStringList candidates = rg::worldFileCandidates(path);
+        for (const QString &c : candidates) {
+            if (QFile::exists(c)) { m_localWorld->setText(c); break; }
+        }
+    }
+
+    if (m_localName->text().isEmpty())
+        m_localName->setText(QFileInfo(path).completeBaseName());
 }
 
 // ---------------------------------------------------------------------------
@@ -1032,6 +1171,69 @@ void AddBasemapDialog::onArcGISMetadataError(const QString &error)
 }
 
 // ---------------------------------------------------------------------------
+// Local file slots
+// ---------------------------------------------------------------------------
+
+void AddBasemapDialog::onLocalConnectionSelected(const QString &name)
+{
+    if (name.isEmpty() || name.startsWith(QStringLiteral("—"))) return;
+    const LocalRasterConnection conn =
+        BasemapConnectionStore::instance()->loadLocalRaster(name);
+    populateLocal(conn);
+}
+
+void AddBasemapDialog::onLocalNew()
+{
+    m_localCombo->setCurrentIndex(0);
+    m_localName->clear();
+    m_localFile->clear();
+    m_localWorld->clear();
+    m_localCrs->clear();
+    m_localStatus->clear();
+}
+
+void AddBasemapDialog::onLocalDelete()
+{
+    const QString name = m_localCombo->currentText();
+    if (name.isEmpty() || name.startsWith(QStringLiteral("—"))) return;
+    if (QMessageBox::question(this, tr("Delete Connection"),
+            tr("Delete connection \"%1\"?").arg(name)) != QMessageBox::Yes) return;
+    BasemapConnectionStore::instance()->removeLocalRaster(name);
+    refreshLocalCombo();
+}
+
+void AddBasemapDialog::onLocalBrowseFile()
+{
+    const QString path = QFileDialog::getOpenFileName(this,
+        tr("Select Raster File"), m_localFile->text(),
+        tr("GeoTIFF (*.tif *.tiff);;PNG (*.png);;JPEG (*.jpg *.jpeg);;"
+           "BMP (*.bmp);;All GDAL rasters (*)"));
+    if (path.isEmpty()) return;
+    m_localFile->setText(path);
+    updateLocalGeorefStatus();
+}
+
+void AddBasemapDialog::onLocalBrowseWorldFile()
+{
+    const QString start = m_localWorld->text().isEmpty() ? m_localFile->text()
+                                                         : m_localWorld->text();
+    const QString path = QFileDialog::getOpenFileName(this,
+        tr("Select World File"), start,
+        tr("World files (*.tfw *.pgw *.jgw *.bpw *.wld);;All files (*)"));
+    if (path.isEmpty()) return;
+    m_localWorld->setText(path);
+}
+
+void AddBasemapDialog::onLocalSelectCrs()
+{
+    CRSSelectionDialog dlg(this);
+    if (dlg.exec() != QDialog::Accepted) return;
+    const QString code = dlg.selectedAuthCode();
+    if (!code.isEmpty())
+        m_localCrs->setText(code);
+}
+
+// ---------------------------------------------------------------------------
 // createLayer() — factory
 // ---------------------------------------------------------------------------
 
@@ -1042,6 +1244,7 @@ OpenSWMMVisLayer *AddBasemapDialog::createLayer(QObject *parent) const
     case 1: return m_isWMTS ? buildWMTSLayer(parent) : buildWMSLayer(parent);
     case 2: return buildWCSLayer(parent);
     case 3: return buildArcGISLayer(parent);
+    case 4: return buildLocalRasterLayer(parent);
     default: return nullptr;
     }
 }
@@ -1210,6 +1413,101 @@ OpenSWMMVisLayer *AddBasemapDialog::buildArcGISLayer(QObject *parent) const
             auth.password = m_arcPass->text();
         }
         BasemapConnectionStore::instance()->saveArcGIS(conn, auth);
+    }
+    return layer;
+}
+
+OpenSWMMVisLayer *AddBasemapDialog::buildLocalRasterLayer(QObject *parent) const
+{
+    namespace rg = openswmmvis::io::rastergeoref;
+
+    // Validation surfaces through message boxes; the dialog is already
+    // accepted when createLayer() runs, so a const_cast parent is fine.
+    auto *self = const_cast<AddBasemapDialog *>(this);
+
+    const QString imagePath = m_localFile->text().trimmed();
+    const QString worldPath = m_localWorld->text().trimmed();
+    const QString crsCode   = m_localCrs->text().trimmed();
+
+    if (imagePath.isEmpty() || !QFile::exists(imagePath)) {
+        QMessageBox::warning(self, tr("Add Basemap"),
+            tr("Select an existing raster file."));
+        return nullptr;
+    }
+    if (!worldPath.isEmpty() && !QFile::exists(worldPath)) {
+        QMessageBox::warning(self, tr("Add Basemap"),
+            tr("World file \"%1\" does not exist.").arg(worldPath));
+        return nullptr;
+    }
+
+    const rg::GeorefProbe probe = rg::probeGeoref(imagePath);
+    if (!probe.hasGeoTransform && worldPath.isEmpty()) {
+        QMessageBox::warning(self, tr("Add Basemap"),
+            tr("The image has no georeferencing — a world file is required."));
+        return nullptr;
+    }
+    // crsDescription is set whenever the image carries any CRS — including one
+    // without an authority code — matching what updateLocalGeorefStatus() shows.
+    if (probe.crsAuthCode.isEmpty() && probe.crsDescription.isEmpty()
+        && crsCode.isEmpty()) {
+        QMessageBox::warning(self, tr("Add Basemap"),
+            tr("The image has no embedded CRS — select a CRS."));
+        return nullptr;
+    }
+
+    // Persist georeferencing (world file and/or CRS override) so every later
+    // plain GDAL open — including the pooled tile-warp handles — sees it.
+    double        gt[6];
+    const double *gtPtr = nullptr;
+    if (!worldPath.isEmpty()) {
+        rg::WorldFileParams wf;
+        QString err;
+        if (!rg::parseWorldFile(worldPath, &wf, &err)) {
+            QMessageBox::warning(self, tr("Add Basemap"),
+                tr("Failed to parse world file: %1").arg(err));
+            return nullptr;
+        }
+        rg::worldFileToGeoTransform(wf, gt);
+        gtPtr = gt;
+    }
+
+    QString crsWkt;
+    if (!crsCode.isEmpty()
+        && (probe.crsAuthCode.isEmpty() || crsCode != probe.crsAuthCode)) {
+        QString err;
+        crsWkt = rg::authCodeToWkt(crsCode, &err);
+        if (crsWkt.isEmpty()) {
+            QMessageBox::warning(self, tr("Add Basemap"),
+                tr("Failed to resolve CRS \"%1\": %2").arg(crsCode, err));
+            return nullptr;
+        }
+    }
+
+    if (gtPtr || !crsWkt.isEmpty()) {
+        QString err;
+        if (!rg::applyPamGeoref(imagePath, gtPtr, crsWkt, &err)) {
+            QMessageBox::warning(self, tr("Add Basemap"),
+                tr("Failed to write georeferencing: %1").arg(err));
+            return nullptr;
+        }
+    }
+
+    auto *layer = new GISRasterLayer(QString(),
+                                     qobject_cast<OpenSWMMVisWorkspace *>(parent));
+    layer->setIsBasemap(true);
+    layer->setName(m_localName->text().isEmpty()
+                       ? QFileInfo(imagePath).completeBaseName()
+                       : m_localName->text());
+    layer->openAsync(imagePath);
+
+    // Save connection if name is filled
+    if (!m_localName->text().isEmpty()) {
+        LocalRasterConnection conn;
+        conn.name          = m_localName->text();
+        conn.filePath      = imagePath;
+        conn.worldFilePath = worldPath;
+        conn.crsAuthCode   = crsCode;
+        BasemapConnectionStore::instance()->saveLocalRaster(conn);
     }
     return layer;
 }

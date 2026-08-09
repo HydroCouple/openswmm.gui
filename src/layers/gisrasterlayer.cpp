@@ -294,6 +294,14 @@ QString GISRasterLayer::detectVerticalUnit() const
     return QStringLiteral("m");
 }
 
+void GISRasterLayer::setIsBasemap(bool on)
+{
+    m_isBasemap = on;
+    // Retag so categoryForLayerType() buckets the layer under "Basemaps"
+    // (SWMMImageryLayer) instead of "Raster Layers" (SWMMRasterLayer).
+    setLayerType(on ? SWMMImageryLayer : SWMMRasterLayer);
+}
+
 void GISRasterLayer::setRenderBand(int band)
 {
     if (m_renderBand != band)
