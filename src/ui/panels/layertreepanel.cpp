@@ -1596,6 +1596,14 @@ void LayerTreePanel::onMoveLayerDown()
 void LayerTreePanel::onSelectionChanged()
 {
     emit layerSelected(selectedLayer());
+
+    // Kind sub-rows ("Junctions", "Storage", …) collapse to their parent
+    // layer in layerForIndex, so announce them separately with the ordinal
+    // (== SWMMModelLayer::Category) for category-level listeners.
+    const QModelIndex srcIdx = toSourceIndex(m_treeView->currentIndex());
+    if (m_model->isKindIndex(srcIdx))
+        emit kindSelected(m_model->kindParentLayer(srcIdx),
+                          m_model->kindOrdinal(srcIdx));
 }
 
 void LayerTreePanel::onLayerDoubleClicked(const QModelIndex &index)
