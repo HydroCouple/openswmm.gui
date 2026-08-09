@@ -67,7 +67,8 @@ void NewProjectDialog::buildUi()
     m_routingCombo = new QComboBox(this);
     m_routingCombo->addItems({QStringLiteral("STEADY"),
                                QStringLiteral("KINWAVE"),
-                               QStringLiteral("DYNWAVE")});
+                               QStringLiteral("DYNWAVE"),
+                               QStringLiteral("FV")});
     form->addRow(tr("Flow &routing"), m_routingCombo);
 
     m_startEdit = new QDateTimeEdit(this);
