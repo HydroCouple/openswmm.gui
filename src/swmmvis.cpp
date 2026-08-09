@@ -142,6 +142,8 @@
 #include "ui/dialogs/meshprofileplotdialog.h"
 #include "ui/dialogs/rasterprofileplotdialog.h"
 #include "ui/dialogs/comparisonplotdialog.h"
+#include "ui/dialogs/plotvariablepickerdialog.h"
+#include "plot/swmmoutrunlayer.h"
 #include "plot/comparisonplotmodel.h"
 #include "ui/dialogs/addbasemapdialog.h"
 #include "ui/widgets/legendoverlay.h"
@@ -2414,6 +2416,27 @@ void SWMMVis::openTimeSeriesPlotForOnLayer(const SWMMObjectRef &ref,
     }
 }
 
+openswmmvis::ui::ComparisonPlotDialog *SWMMVis::ensureComparisonPlotDialog()
+{
+    // Find-or-create the shared dialog; reuse across calls.
+    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>();
+    if (!dlg) {
+        dlg = new openswmmvis::ui::ComparisonPlotDialog(this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        connect(dlg, &openswmmvis::ui::ComparisonPlotDialog::addFromMapToggled,
+                this, &SWMMVis::onAddFromMapToggled);
+        // Slice AT.3 polish — drive the dialog's animation cursor from the
+        // global AnimationController so the dashed vertical line moves
+        // during sim playback. Connection auto-disconnects when the dialog
+        // dies via WA_DeleteOnClose.
+        if (mAnimationController) {
+            connect(mAnimationController, &AnimationController::currentTimeChanged,
+                    dlg->model(), &openswmmvis::plot::ComparisonPlotModel::setAnimationTime);
+        }
+    }
+    return dlg;
+}
+
 void SWMMVis::openComparisonPlotFor(const SWMMObjectRef &ref)
 {
     openComparisonPlotForOnLayer(ref, nullptr);
@@ -2440,22 +2463,7 @@ void SWMMVis::openComparisonPlotForOnLayer(const SWMMObjectRef &ref,
         return;
     }
 
-    // Find-or-create the dialog; reuse across calls.
-    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>();
-    if (!dlg) {
-        dlg = new openswmmvis::ui::ComparisonPlotDialog(this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        connect(dlg, &openswmmvis::ui::ComparisonPlotDialog::addFromMapToggled,
-                this, &SWMMVis::onAddFromMapToggled);
-        // Slice AT.3 polish — drive the dialog's animation cursor from the
-        // global AnimationController so the dashed vertical line moves
-        // during sim playback. Connection auto-disconnects when the dialog
-        // dies via WA_DeleteOnClose.
-        if (mAnimationController) {
-            connect(mAnimationController, &AnimationController::currentTimeChanged,
-                    dlg->model(), &openswmmvis::plot::ComparisonPlotModel::setAnimationTime);
-        }
-    }
+    auto *dlg = ensureComparisonPlotDialog();
 
     const int runIdx = dlg->ensureRunSourceForLayer(resultsLayer);
 
@@ -2519,21 +2527,7 @@ void SWMMVis::openComparisonPlotForAttributeOnLayer(const SWMMObjectRef &ref,
         return;
     }
 
-    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>();
-    if (!dlg) {
-        dlg = new openswmmvis::ui::ComparisonPlotDialog(this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        connect(dlg, &openswmmvis::ui::ComparisonPlotDialog::addFromMapToggled,
-                this, &SWMMVis::onAddFromMapToggled);
-        // Slice AT.3 polish — drive the dialog's animation cursor from the
-        // global AnimationController so the dashed vertical line moves
-        // during sim playback. Connection auto-disconnects when the dialog
-        // dies via WA_DeleteOnClose.
-        if (mAnimationController) {
-            connect(mAnimationController, &AnimationController::currentTimeChanged,
-                    dlg->model(), &openswmmvis::plot::ComparisonPlotModel::setAnimationTime);
-        }
-    }
+    auto *dlg = ensureComparisonPlotDialog();
     const int runIdx = dlg->ensureRunSourceForLayer(resultsLayer);
 
     using PA = openswmmvis::plot::PlotAttribute;
@@ -2551,21 +2545,9 @@ void SWMMVis::openComparisonPlotForAttributeOnLayer(const SWMMObjectRef &ref,
 
     if (attribute == PA::Unknown) {
         // "All attributes" sentinel — fan out across every attribute valid
-        // for the object kind. Mirrors AttributePickerMenu's enumeration.
-        const PA nodeAttrs[]   = {PA::NodeDepth, PA::NodeHead, PA::NodeVolume,
-                                  PA::NodeLateralInflow, PA::NodeTotalInflow,
-                                  PA::NodeOverflow};
-        const PA linkAttrs[]   = {PA::LinkFlow, PA::LinkDepth, PA::LinkVelocity,
-                                  PA::LinkVolume, PA::LinkCapacity};
-        const PA subAttrs[]    = {PA::SubcatchRainfall, PA::SubcatchSnowDepth,
-                                  PA::SubcatchEvap, PA::SubcatchInfil,
-                                  PA::SubcatchRunoff};
-        switch (kind) {
-        case PKind::Node:     for (PA a : nodeAttrs) dlg->addSeries(runIdx, objRef, a); break;
-        case PKind::Link:     for (PA a : linkAttrs) dlg->addSeries(runIdx, objRef, a); break;
-        case PKind::Subcatch: for (PA a : subAttrs)  dlg->addSeries(runIdx, objRef, a); break;
-        default: break;
-        }
+        // for the object kind (shared canonical lists).
+        for (PA a : openswmmvis::plot::attributesForKind(kind))
+            dlg->addSeries(runIdx, objRef, a);
     } else {
         dlg->addSeries(runIdx, objRef, attribute);
     }
@@ -2592,21 +2574,7 @@ void SWMMVis::openComparisonPlotForSystemAttribute(openswmmvis::plot::PlotAttrib
         return;
     }
 
-    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>();
-    if (!dlg) {
-        dlg = new openswmmvis::ui::ComparisonPlotDialog(this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        connect(dlg, &openswmmvis::ui::ComparisonPlotDialog::addFromMapToggled,
-                this, &SWMMVis::onAddFromMapToggled);
-        // Slice AT.3 polish — drive the dialog's animation cursor from the
-        // global AnimationController so the dashed vertical line moves
-        // during sim playback. Connection auto-disconnects when the dialog
-        // dies via WA_DeleteOnClose.
-        if (mAnimationController) {
-            connect(mAnimationController, &AnimationController::currentTimeChanged,
-                    dlg->model(), &openswmmvis::plot::ComparisonPlotModel::setAnimationTime);
-        }
-    }
+    auto *dlg = ensureComparisonPlotDialog();
     const int runIdx = dlg->ensureRunSourceForLayer(resultsLayer);
     dlg->addSeries(runIdx, openswmmvis::plot::ObjectRef::forSystem(), attribute);
 
@@ -2667,22 +2635,7 @@ void SWMMVis::openComparisonPlotForCells(SWMM2DResultsLayer *layer,
     auto *pw = activeProjectWindow();
     if (!pw) return;
 
-    // Find-or-create the comparison dialog.
-    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>();
-    if (!dlg) {
-        dlg = new openswmmvis::ui::ComparisonPlotDialog(this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        connect(dlg, &openswmmvis::ui::ComparisonPlotDialog::addFromMapToggled,
-                this, &SWMMVis::onAddFromMapToggled);
-        // Slice AT.3 polish — drive the dialog's animation cursor from the
-        // global AnimationController so the dashed vertical line moves
-        // during sim playback. Connection auto-disconnects when the dialog
-        // dies via WA_DeleteOnClose.
-        if (mAnimationController) {
-            connect(mAnimationController, &AnimationController::currentTimeChanged,
-                    dlg->model(), &openswmmvis::plot::ComparisonPlotModel::setAnimationTime);
-        }
-    }
+    auto *dlg = ensureComparisonPlotDialog();
 
     const int runIdx = dlg->ensureRunSourceForMeshLayer(layer);
     if (runIdx < 0) {
@@ -2777,18 +2730,7 @@ void SWMMVis::openMeshEdgeFluxPlotFor(SWMM2DMeshLayer *mesh, int triIdx, int edg
         return;
     }
 
-    // Find-or-create the comparison dialog (mirrors openComparisonPlotForCells).
-    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>();
-    if (!dlg) {
-        dlg = new openswmmvis::ui::ComparisonPlotDialog(this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        connect(dlg, &openswmmvis::ui::ComparisonPlotDialog::addFromMapToggled,
-                this, &SWMMVis::onAddFromMapToggled);
-        if (mAnimationController) {
-            connect(mAnimationController, &AnimationController::currentTimeChanged,
-                    dlg->model(), &openswmmvis::plot::ComparisonPlotModel::setAnimationTime);
-        }
-    }
+    auto *dlg = ensureComparisonPlotDialog();
 
     const int runIdx = dlg->ensureRunSourceForMeshLayer(layer);
     if (runIdx < 0) {
@@ -2822,17 +2764,7 @@ void SWMMVis::openMeshVertexSeriesFor(SWMM2DMeshLayer *mesh,
         return;
     }
 
-    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>();
-    if (!dlg) {
-        dlg = new openswmmvis::ui::ComparisonPlotDialog(this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        connect(dlg, &openswmmvis::ui::ComparisonPlotDialog::addFromMapToggled,
-                this, &SWMMVis::onAddFromMapToggled);
-        if (mAnimationController) {
-            connect(mAnimationController, &AnimationController::currentTimeChanged,
-                    dlg->model(), &openswmmvis::plot::ComparisonPlotModel::setAnimationTime);
-        }
-    }
+    auto *dlg = ensureComparisonPlotDialog();
 
     const int runIdx = dlg->ensureRunSourceForMeshLayer(layer);
     if (runIdx < 0) {
@@ -7584,18 +7516,10 @@ void SWMMVis::onRunSimulation()
 
 void SWMMVis::onPlotTimeSeries()
 {
-    // Slice GUI-2026-05-30 §5 — Analysis-toolbar entry point.
-    //
-    // Flow:
-    //   1. If a SWMM object is currently selected, use it → openTimeSeriesPlotFor.
-    //   2. Otherwise arm a one-shot pick flag and activate the select tool.
-    //      The next click from MapToolSelect's selectionPicked path will be
-    //      caught by the existing plotTimeSeriesRequested wiring; we read
-    //      the flag in onPlotTimeSeriesPickComplete to know whether to plot.
-    //   3. We also offer a "System Variable…" inline shortcut via a brief
-    //      status-bar prompt: the user can press the Plot Timeseries button
-    //      a second time while the flag is armed to fall through to the
-    //      System Variable picker dialog.
+    // Analysis-toolbar / Ctrl+T entry point — opens the Plot Variables
+    // dialog: the 14 system variables plus one checkable group per selected
+    // feature, added to the Comparison Plot in one OK. The right-click
+    // paths keep their quick single-attribute menus.
     SWMMVisProjectWindow *pw = activeProjectWindow();
     if (!pw) {
         QMessageBox::information(this, tr("Plot Time Series"),
@@ -7603,77 +7527,71 @@ void SWMMVis::onPlotTimeSeries()
         return;
     }
 
-    // Look for a plottable primary selection.
-    auto firstPlottable = [](const QSet<SWMMObjectRef> &set) -> SWMMObjectRef {
-        for (const auto &r : set) {
-            if (r.objectType == SWMMObjectRef::Node
-                || r.objectType == SWMMObjectRef::Link
-                || r.objectType == SWMMObjectRef::Subcatchment)
-                return r;
-        }
-        return SWMMObjectRef{};
-    };
-
-    if (auto *sm = pw->selectionManager()) {
-        const SWMMObjectRef sel = firstPlottable(sm->selection());
-        if (sel.isValid()) {
-            openTimeSeriesPlotFor(sel);
-            return;
-        }
-    }
-
-    // No current selection — second click on the button activates the
-    // System Variable picker; first click arms the one-shot pick: switch
-    // to the select tool, watch SelectionManager::selectionChanged once,
-    // and route the resulting object into openTimeSeriesPlotFor.
-    if (!mPendingPlotTimeseriesPick) {
-        mPendingPlotTimeseriesPick = true;
-        pw->activateSelectTool();
-        statusBar()->showMessage(
-            tr("Click a node, link, or subcatchment to plot — "
-               "or click Plot Timeseries again for a system variable."),
-            10000);
-        if (auto *sm = pw->selectionManager()) {
-            auto *conn = new QMetaObject::Connection;
-            *conn = connect(sm, &SelectionManager::selectionChanged, this,
-                [this, conn, sm, firstPlottable](const QSet<SWMMObjectRef> &current,
-                                                  const QSet<SWMMObjectRef> &,
-                                                  const QSet<SWMMObjectRef> &) {
-                    if (!mPendingPlotTimeseriesPick) {
-                        QObject::disconnect(*conn); delete conn; return;
-                    }
-                    const SWMMObjectRef pick = firstPlottable(current);
-                    if (!pick.isValid()) return;          // unplottable click — keep listening
-                    QObject::disconnect(*conn); delete conn;
-                    onPlotTimeSeriesPickComplete(pick);
-                });
-        }
+    SWMMResultsLayer *resultsLayer = pw->activeResultsLayer();
+    if (!resultsLayer) {
+        QMessageBox::information(this, tr("No active results layer"),
+            tr("Pick a results layer in the Analysis toolbar's \"1D results\" "
+               "selector, or run a simulation / add a SWMM Output (.out) layer."));
         return;
     }
 
-    // Second invocation: drop the pending flag and pop the system-variable
-    // picker submenu (reuses the existing AttributePickerMenu helper).
-    mPendingPlotTimeseriesPick = false;
-    QMenu *sysMenu = openswmmvis::ui::AttributePickerMenu::createForSystem(
-        (UnitSystem::instance() && UnitSystem::instance()->isSI())
-            ? openswmmvis::plot::UnitSystem::SI
-            : openswmmvis::plot::UnitSystem::US,
-        this);
-    if (!sysMenu) return;
-    sysMenu->setTitle(tr("Plot System Variable…"));
-    QAction *picked = sysMenu->exec(QCursor::pos());
-    const auto attr = openswmmvis::ui::AttributePickerMenu::attributeFrom(picked);
-    sysMenu->deleteLater();
-    if (attr != openswmmvis::plot::PlotAttribute::Unknown)
-        openComparisonPlotForSystemAttribute(attr);
-}
+    // Collect the plottable selected features, sorted for a stable group
+    // order (QSet iteration is nondeterministic).
+    using PKind = openswmmvis::plot::ObjectRef::Kind;
+    QVector<openswmmvis::plot::ObjectRef> features;
+    if (auto *sm = pw->selectionManager()) {
+        for (const SWMMObjectRef &r : sm->selection()) {
+            switch (r.objectType) {
+            case SWMMObjectRef::Node:
+                features.push_back(openswmmvis::plot::ObjectRef::forNode(r.name));
+                break;
+            case SWMMObjectRef::Link:
+                features.push_back(openswmmvis::plot::ObjectRef::forLink(r.name));
+                break;
+            case SWMMObjectRef::Subcatchment:
+                features.push_back(openswmmvis::plot::ObjectRef::forSubcatch(r.name));
+                break;
+            default:
+                break;   // rain gages, mesh elements etc. aren't .out-plottable
+            }
+        }
+    }
+    std::sort(features.begin(), features.end(),
+              [](const openswmmvis::plot::ObjectRef &a,
+                 const openswmmvis::plot::ObjectRef &b) {
+                  if (a.kind != b.kind)
+                      return static_cast<int>(a.kind) < static_cast<int>(b.kind);
+                  return a.name < b.name;
+              });
 
-void SWMMVis::onPlotTimeSeriesPickComplete(const SWMMObjectRef &ref)
-{
-    if (!mPendingPlotTimeseriesPick) return;   // not our pick
-    mPendingPlotTimeseriesPick = false;
-    if (ref.isValid())
-        openTimeSeriesPlotFor(ref);
+    // Per-.out availability + unit system beat the global UnitSystem facade.
+    const openswmmvis::plot::SwmmOutRunLayer probe(resultsLayer);
+
+    openswmmvis::ui::PlotVariablePickerDialog dlg(
+        features, &probe, probe.unitSystem(), this);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    const auto entries = dlg.checkedEntries();
+    if (entries.isEmpty())
+        return;
+
+    if (entries.size() > 500) {
+        const auto rc = QMessageBox::question(
+            this, tr("Many series"),
+            tr("This adds %1 series to the comparison plot, which may take a "
+               "while and clutter the chart. Continue?").arg(entries.size()),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (rc != QMessageBox::Yes) return;
+    }
+
+    auto *cmp = ensureComparisonPlotDialog();
+    const int runIdx = cmp->ensureRunSourceForLayer(resultsLayer);
+    for (const auto &e : entries)
+        cmp->addSeries(runIdx, e.ref, e.attribute);
+
+    cmp->show();
+    cmp->raise();
+    cmp->activateWindow();
 }
 
 void SWMMVis::onShowReport()

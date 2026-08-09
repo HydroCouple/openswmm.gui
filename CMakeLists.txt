@@ -692,6 +692,7 @@ set(
         include/ui/dialogs/pluginstablemodel.h
         include/ui/dialogs/comparisonplotdialog.h
         include/ui/dialogs/comparisonpairsdialog.h
+        include/ui/dialogs/plotvariablepickerdialog.h
         include/ui/dialogs/chartpropertiesdialog.h
         # Slice BB Phase 8.6.16 — legend right-click "Properties…" dialog.
         include/ui/dialogs/legendpropertiesdialog.h
@@ -1240,6 +1241,7 @@ set(
         src/ui/dialogs/pluginstablemodel.cpp
         src/ui/dialogs/comparisonplotdialog.cpp
         src/ui/dialogs/comparisonpairsdialog.cpp
+        src/ui/dialogs/plotvariablepickerdialog.cpp
         src/ui/dialogs/chartpropertiesdialog.cpp
         # Slice BB Phase 8.6.16 — legend right-click "Properties…" dialog.
         src/ui/dialogs/legendpropertiesdialog.cpp

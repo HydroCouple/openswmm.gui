@@ -632,23 +632,13 @@ void ComparisonPlotDialog::onAddSystemSeriesClicked()
         return;
     }
 
-    // Single-pick QMenu of all 14 system attributes.
+    // Single-pick QMenu of all 14 system attributes (shared canonical order).
     QMenu menu(this);
-    struct Entry { PlotAttribute attr; };
-    const Entry entries[] = {
-        {PlotAttribute::SystemTemperature}, {PlotAttribute::SystemRainfall},
-        {PlotAttribute::SystemSnowDepth},   {PlotAttribute::SystemEvap},
-        {PlotAttribute::SystemInfil},       {PlotAttribute::SystemRunoff},
-        {PlotAttribute::SystemDwInflow},    {PlotAttribute::SystemGwInflow},
-        {PlotAttribute::SystemLatInflow},   {PlotAttribute::SystemFlooding},
-        {PlotAttribute::SystemOutflow},     {PlotAttribute::SystemStorage},
-        {PlotAttribute::SystemEvapTotal},   {PlotAttribute::SystemPET},
-    };
     QHash<QAction*, PlotAttribute> bind;
-    for (const Entry &e : entries) {
+    for (PlotAttribute attr : systemPlotAttributes()) {
         const auto unit = m_model->runSource(runIdx).layer->unitSystem();
-        auto *a = menu.addAction(labelWithUnits(e.attr, unit));
-        bind.insert(a, e.attr);
+        auto *a = menu.addAction(labelWithUnits(attr, unit));
+        bind.insert(a, attr);
     }
     QAction *picked = menu.exec(QCursor::pos());
     if (!picked) return;
@@ -1141,6 +1131,9 @@ void ComparisonPlotDialog::onAddSeriesClicked()
         if (!layer) continue;
 
         // Per-object attributes — only attributes the layer supports.
+        // Deliberately a curated subset of the canonical lists in
+        // plot/plotattribute.h (this menu is a quick-add, not the full
+        // picker); keep any additions consistent with those lists.
         const PlotAttribute attrs[] = {
             PlotAttribute::NodeDepth, PlotAttribute::NodeHead, PlotAttribute::NodeTotalInflow,
             PlotAttribute::NodeOverflow,
@@ -1154,20 +1147,12 @@ void ComparisonPlotDialog::onAddSeriesClicked()
             act->setData(QVariantList{ r, static_cast<int>(a) });
         }
 
-        // Slice AT.2 — (System) pseudo-object submenu listing all 14 system attrs.
+        // Slice AT.2 — (System) pseudo-object submenu listing all 14 system
+        // attrs, in the shared canonical order.
         if (layer->supportsAttribute(PlotAttribute::SystemRunoff)) {
             runMenu->addSeparator();
             QMenu *sysSub = runMenu->addMenu(tr("(System)"));
-            const PlotAttribute sysAttrs[] = {
-                PlotAttribute::SystemRainfall,  PlotAttribute::SystemRunoff,
-                PlotAttribute::SystemDwInflow,  PlotAttribute::SystemGwInflow,
-                PlotAttribute::SystemLatInflow, PlotAttribute::SystemFlooding,
-                PlotAttribute::SystemOutflow,   PlotAttribute::SystemStorage,
-                PlotAttribute::SystemEvap,      PlotAttribute::SystemEvapTotal,
-                PlotAttribute::SystemPET,       PlotAttribute::SystemInfil,
-                PlotAttribute::SystemSnowDepth, PlotAttribute::SystemTemperature,
-            };
-            for (PlotAttribute a : sysAttrs) {
+            for (PlotAttribute a : systemPlotAttributes()) {
                 QAction *act = sysSub->addAction(labelWithUnits(a, layer->unitSystem()));
                 // Encode (runIdx, attr, isSystem=true) by reusing the same
                 // QVariantList shape with a 3rd flag.
