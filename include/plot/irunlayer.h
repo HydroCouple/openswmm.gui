@@ -84,6 +84,26 @@ struct ObjectRef {
     bool operator!=(const ObjectRef& other) const noexcept { return !(*this == other); }
 };
 
+/*! \brief The canonical plottable-attribute list for \p k (presentation
+ *  order), dispatching to the shared lists in plotattribute.h. Lives here
+ *  rather than there because the nested ObjectRef::Kind cannot be named in
+ *  plotattribute.h without an include cycle. Empty for kinds with no
+ *  fixed list (mesh kinds are gated on layer capabilities; Observed and
+ *  Unknown have none). */
+inline const QVector<PlotAttribute> &attributesForKind(ObjectRef::Kind k)
+{
+    switch (k) {
+    case ObjectRef::Kind::Node:     return nodePlotAttributes();
+    case ObjectRef::Kind::Link:     return linkPlotAttributes();
+    case ObjectRef::Kind::Subcatch: return subcatchPlotAttributes();
+    case ObjectRef::Kind::System:   return systemPlotAttributes();
+    default: {
+        static const QVector<PlotAttribute> kEmpty;
+        return kEmpty;
+    }
+    }
+}
+
 /*! \brief Result of one series resolution. Times are SWMM DateTime doubles
  *         (OLE-Automation epoch, not astronomical Julian — see
  *         core/swmmdatetime.h); values are in the unit system the source

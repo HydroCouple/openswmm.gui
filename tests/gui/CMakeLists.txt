@@ -684,6 +684,19 @@ add_swmmvis_gui_test(test_comparisonplot_system_attrs
     ${CMAKE_SOURCE_DIR}/include/plot/swmmoutrunlayer.h
 )
 
+# Plot Time Series toolbar dialog — pins the shared canonical attribute
+# lists (the regression fence for the 4-site enumeration refactor) and the
+# PlotVariablePickerDialog's tree/gating/select-all/filter behaviour with a
+# stub IRunLayer. Engine-free.
+add_swmmvis_gui_test(test_plotvariablepickerdialog
+    test_plotvariablepickerdialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/plotvariablepickerdialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/plotvariablepickerdialog.h
+    ${CMAKE_SOURCE_DIR}/include/plot/plotattribute.h
+    ${CMAKE_SOURCE_DIR}/include/plot/irunlayer.h
+)
+
 # Iteration 4 — pins PreferencesManager::TwoDDefaults (2D Defaults page):
 # compiled-in defaults contract + QSettings round-trip + change signal.
 add_swmmvis_gui_test(test_twod_defaults_prefs

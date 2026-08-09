@@ -8,6 +8,64 @@
 
 namespace openswmmvis::plot {
 
+const QVector<PlotAttribute> &nodePlotAttributes()
+{
+    static const QVector<PlotAttribute> kList = {
+        PlotAttribute::NodeDepth,
+        PlotAttribute::NodeHead,
+        PlotAttribute::NodeVolume,
+        PlotAttribute::NodeLateralInflow,
+        PlotAttribute::NodeTotalInflow,
+        PlotAttribute::NodeOverflow,
+    };
+    return kList;
+}
+
+const QVector<PlotAttribute> &linkPlotAttributes()
+{
+    static const QVector<PlotAttribute> kList = {
+        PlotAttribute::LinkFlow,
+        PlotAttribute::LinkDepth,
+        PlotAttribute::LinkVelocity,
+        PlotAttribute::LinkVolume,
+        PlotAttribute::LinkCapacity,
+    };
+    return kList;
+}
+
+const QVector<PlotAttribute> &subcatchPlotAttributes()
+{
+    static const QVector<PlotAttribute> kList = {
+        PlotAttribute::SubcatchRainfall,
+        PlotAttribute::SubcatchSnowDepth,
+        PlotAttribute::SubcatchEvap,
+        PlotAttribute::SubcatchInfil,
+        PlotAttribute::SubcatchRunoff,
+    };
+    return kList;
+}
+
+const QVector<PlotAttribute> &systemPlotAttributes()
+{
+    static const QVector<PlotAttribute> kList = {
+        PlotAttribute::SystemRainfall,
+        PlotAttribute::SystemRunoff,
+        PlotAttribute::SystemDwInflow,
+        PlotAttribute::SystemGwInflow,
+        PlotAttribute::SystemLatInflow,
+        PlotAttribute::SystemFlooding,
+        PlotAttribute::SystemOutflow,
+        PlotAttribute::SystemStorage,
+        PlotAttribute::SystemEvap,
+        PlotAttribute::SystemEvapTotal,
+        PlotAttribute::SystemPET,
+        PlotAttribute::SystemInfil,
+        PlotAttribute::SystemSnowDepth,
+        PlotAttribute::SystemTemperature,
+    };
+    return kList;
+}
+
 QString labelFor(PlotAttribute a)
 {
     switch (a) {

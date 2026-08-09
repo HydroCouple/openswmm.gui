@@ -22,6 +22,7 @@
 #define OPENSWMMVIS_PLOT_PLOTATTRIBUTE_H
 
 #include <QString>
+#include <QVector>
 
 namespace openswmmvis::plot {
 
@@ -103,6 +104,27 @@ QString labelWithUnits(PlotAttribute a, UnitSystem u);
 
 /*! \brief Map an engine `swmm_output_get_flow_units` return value to UnitSystem. */
 UnitSystem unitSystemFromFlowUnits(int flowUnits);
+
+// ---------------------------------------------------------------------------
+// Canonical plottable-attribute lists. Single source of truth for every UI
+// that enumerates attributes (AttributePickerMenu, PlotVariablePickerDialog,
+// the Comparison Plot "Add Series" menus, and the "All attributes" fan-out).
+// Order is presentation order. A kind-keyed dispatcher lives in irunlayer.h
+// (`attributesForKind`) — the nested ObjectRef::Kind can't be named here.
+// ---------------------------------------------------------------------------
+
+/*! \brief The 6 per-node attributes, presentation order. */
+const QVector<PlotAttribute> &nodePlotAttributes();
+
+/*! \brief The 5 per-link attributes, presentation order. */
+const QVector<PlotAttribute> &linkPlotAttributes();
+
+/*! \brief The 5 per-subcatchment attributes, presentation order. */
+const QVector<PlotAttribute> &subcatchPlotAttributes();
+
+/*! \brief The 14 system-wide attributes, presentation order (matches the
+ *  long-standing system picker menu: Rainfall first, Temperature last). */
+const QVector<PlotAttribute> &systemPlotAttributes();
 
 /*! \brief True iff the attribute is a 2D mesh quantity (CF.3). */
 inline bool isMesh2DAttribute(PlotAttribute a) noexcept

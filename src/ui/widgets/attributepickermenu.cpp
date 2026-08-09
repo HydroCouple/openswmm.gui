@@ -19,7 +19,7 @@ namespace {
 
 /*! \brief Add one action per `PlotAttribute` in \p attrs to \p menu. */
 void addAttrActions(QMenu *menu,
-                    std::initializer_list<PlotAttribute> attrs,
+                    const QVector<PlotAttribute> &attrs,
                     UnitSystem u)
 {
     for (PlotAttribute a : attrs) {
@@ -45,34 +45,9 @@ QMenu *AttributePickerMenu::createForObjectKind(ObjectRef::Kind kind,
 
     switch (kind) {
     case ObjectRef::Kind::Node:
-        addAttrActions(menu, {
-            PlotAttribute::NodeDepth,
-            PlotAttribute::NodeHead,
-            PlotAttribute::NodeVolume,
-            PlotAttribute::NodeLateralInflow,
-            PlotAttribute::NodeTotalInflow,
-            PlotAttribute::NodeOverflow,
-        }, u);
-        break;
-
     case ObjectRef::Kind::Link:
-        addAttrActions(menu, {
-            PlotAttribute::LinkFlow,
-            PlotAttribute::LinkDepth,
-            PlotAttribute::LinkVelocity,
-            PlotAttribute::LinkVolume,
-            PlotAttribute::LinkCapacity,
-        }, u);
-        break;
-
     case ObjectRef::Kind::Subcatch:
-        addAttrActions(menu, {
-            PlotAttribute::SubcatchRainfall,
-            PlotAttribute::SubcatchSnowDepth,
-            PlotAttribute::SubcatchEvap,
-            PlotAttribute::SubcatchInfil,
-            PlotAttribute::SubcatchRunoff,
-        }, u);
+        addAttrActions(menu, attributesForKind(kind), u);
         break;
 
     case ObjectRef::Kind::System:
@@ -91,22 +66,7 @@ QMenu *AttributePickerMenu::createForObjectKind(ObjectRef::Kind kind,
 QMenu *AttributePickerMenu::createForSystem(UnitSystem u, QWidget *parent)
 {
     auto *menu = new QMenu(parent);
-    addAttrActions(menu, {
-        PlotAttribute::SystemRainfall,
-        PlotAttribute::SystemRunoff,
-        PlotAttribute::SystemDwInflow,
-        PlotAttribute::SystemGwInflow,
-        PlotAttribute::SystemLatInflow,
-        PlotAttribute::SystemFlooding,
-        PlotAttribute::SystemOutflow,
-        PlotAttribute::SystemStorage,
-        PlotAttribute::SystemEvap,
-        PlotAttribute::SystemEvapTotal,
-        PlotAttribute::SystemPET,
-        PlotAttribute::SystemInfil,
-        PlotAttribute::SystemSnowDepth,
-        PlotAttribute::SystemTemperature,
-    }, u);
+    addAttrActions(menu, systemPlotAttributes(), u);
     return menu;
 }
 
