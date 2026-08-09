@@ -29,6 +29,7 @@
 #include <optional>
 
 #include "core/openswmmvislogmessage.h"
+#include "layers/swmmmodellayer.h"        // NewProjectSpec (nested type)
 #include "selection/selectionmanager.h"   // SWMMObjectRef
 #include "plot/plotattribute.h"           // PlotAttribute (AT.2)
 #include "plot/profilerouter.h"           // ProfileRouter::Path
@@ -103,6 +104,13 @@ public:
      * \brief Destructor. Saves window geometry and dock layout to QSettings.
      */
     virtual ~SWMMVis();
+
+    /*! \brief The Save As flow (path dialog, filter memory, normalization,
+     *         write) for \p pw. Returns false when the user cancels or the
+     *         save fails. Public so SWMMVisProjectWindow's untitled close
+     *         prompt can offer a real Save As and keep the window open on
+     *         cancel. */
+    bool saveProjectWindowAs(SWMMVisProjectWindow *pw);
 
 public slots:
     /*!
@@ -197,8 +205,21 @@ private slots:
      *  layer (skipping the auto-pick-first-results path). */
     void onPlotTimeSeriesFromOutputLayer(class SWMMResultsLayer *layer);
 
-    /*! \brief Create a new untitled project. */
+    /*! \brief Create a new untitled project (in memory only — no file is
+     *         written until the first Save As). */
     void onNewProject();
+
+    /*! \brief Build and show a pathless project window around a blank
+     *         BUILDING-state engine stamped from \p spec. Synchronous — a
+     *         blank engine builds instantly, so no async hop or file-open
+     *         bookkeeping is involved. */
+    void openUntitledProject(const SWMMModelLayer::NewProjectSpec &spec);
+
+    /*! \brief Construct + wire a project window (signal connects, MDI
+     *         registration). Shared by openSingleINP (file-backed, async
+     *         load) and openUntitledProject (pathless, in-memory). */
+    SWMMVisProjectWindow *createProjectWindow(const QString &filePath);
+
 
     /*! \brief Prompt the user to open a project file; if \p path is non-empty
      *         it bypasses the file dialog. */
