@@ -90,6 +90,13 @@ private slots:
     void ruleStep_over24hRoundTrips();
     void threads_engineRoundTripsValue();
 
+    // FLOW_ROUTING FV + the FV_* option family (2026-08-06). The dialog's
+    // FV groups hydrate and write through exactly these keys, and the
+    // capability gate in applyEngineConstraints() probes FV_CFL.
+    void flowRouting_fvRoundTripsValue();
+    void fvOptions_engineRoundTripsValues();
+    void fvOptions_rejectBadEnumTokens();
+
     // §M.3 sanity — controls explicitly out of scope must not appear in the
     // audit list (canary against future drift).
     void auditList_excludesOutOfScopeWidgets();
@@ -352,6 +359,117 @@ void TestOptionsHydrationContract::threads_engineRoundTripsValue()
 
     QCOMPARE(swmm_options_set(e, "THREADS", "0"), 0);
     QCOMPARE(getOptionString(e, "THREADS"), QStringLiteral("0"));
+
+    swmm_engine_destroy(e);
+}
+
+// ---------------------------------------------------------------------------
+// FLOW_ROUTING FV + FV_* option family — engine ABI round-trips
+// ---------------------------------------------------------------------------
+
+void TestOptionsHydrationContract::flowRouting_fvRoundTripsValue()
+{
+    SWMM_Engine e = swmm_engine_new();
+    QVERIFY(e != nullptr);
+
+    // The canonical token is what the routing combo stores as item data and
+    // what applyEngineConstraints() falls back from — it must echo exactly.
+    QCOMPARE(swmm_options_set(e, "FLOW_ROUTING", "FV"), 0);
+    QCOMPARE(getOptionString(e, "FLOW_ROUTING"), QStringLiteral("FV"));
+
+    // "FINITE_VOLUME" is an [OPTIONS]-parser alias only; the C ABI takes
+    // just the canonical token. Documented here so nobody wires the alias
+    // into a combo's item data and loses the round-trip.
+    QVERIFY(swmm_options_set(e, "FLOW_ROUTING", "FINITE_VOLUME") != 0);
+    QCOMPARE(getOptionString(e, "FLOW_ROUTING"), QStringLiteral("FV"));
+
+    swmm_engine_destroy(e);
+}
+
+void TestOptionsHydrationContract::fvOptions_engineRoundTripsValues()
+{
+    SWMM_Engine e = swmm_engine_new();
+    QVERIFY(e != nullptr);
+
+    // Defaults — these are the hard-coded fallbacks in readFromEngine();
+    // if the engine defaults drift this case flags the dialog for a resync.
+    QCOMPARE(getOptionDouble(e, "FV_CELL_LENGTH"), 0.0);
+    QCOMPARE(getOptionString(e, "FV_MIN_CELLS"),   QStringLiteral("4"));
+    QCOMPARE(getOptionDouble(e, "FV_CFL"),         0.5);
+    QCOMPARE(getOptionString(e, "FV_RIEMANN"),     QStringLiteral("HLLC"));
+    QCOMPARE(getOptionString(e, "FV_ORDER"),       QStringLiteral("1"));
+    QCOMPARE(getOptionString(e, "FV_LIMITER"),     QStringLiteral("MINMOD"));
+    QCOMPARE(getOptionString(e, "FV_SCALAR_SCHEME"), QStringLiteral("MUSCL"));
+    QCOMPARE(getOptionString(e, "FV_TIME_INTEGRATION"), QStringLiteral("EULER"));
+    QCOMPARE(getOptionDouble(e, "FV_SLOT_CELERITY"), 100.0);
+    QCOMPARE(getOptionDouble(e, "FV_DISPERSION"),  0.0);
+    QCOMPARE(getOptionString(e, "FV_STRUCTURE_COUPLING"), QStringLiteral("SUBSTEP"));
+    QCOMPARE(getOptionString(e, "FV_NODE_COUPLING"), QStringLiteral("SEMI_IMPLICIT"));
+    QCOMPARE(getOptionString(e, "FV_COMPACTION"),  QStringLiteral("YES"));
+    QCOMPARE(getOptionString(e, "FV_BACKEND"),     QStringLiteral("AUTO"));
+    QCOMPARE(getOptionString(e, "FV_MIN_PARALLEL_CELLS"), QStringLiteral("20000"));
+    QCOMPARE(getOptionString(e, "FV_LTS"),         QStringLiteral("YES"));
+    QCOMPARE(getOptionString(e, "FV_LTS_MAX_TIERS"), QStringLiteral("6"));
+    QCOMPARE(getOptionString(e, "FV_CFL_CENSUS_INTERVAL"), QStringLiteral("1"));
+
+    // Set → get for every key the dialog writes, using the exact string
+    // forms writeToEngine() produces (spin formats and combo tokens).
+    const struct { const char *key; const char *set; const char *expect; } rows[] = {
+        { "FV_CELL_LENGTH",         "25.00",        "25"           },
+        { "FV_MIN_CELLS",           "8",            "8"            },
+        { "FV_CFL",                 "0.70",         "0.7"          },
+        { "FV_RIEMANN",             "HLL",          "HLL"          },
+        { "FV_ORDER",               "2",            "2"            },
+        { "FV_LIMITER",             "VANLEER",      "VANLEER"      },
+        { "FV_TIME_INTEGRATION",    "RK2",          "RK2"          },
+        { "FV_SLOT_CELERITY",       "150.0",        "150"          },
+        { "FV_SCALAR_SCHEME",       "QUICKEST_ULTIMATE", "QUICKEST_ULTIMATE" },
+        { "FV_DISPERSION",          "1.500",        "1.5"          },
+        { "FV_STRUCTURE_COUPLING",  "ROUTING_STEP", "ROUTING_STEP" },
+        { "FV_NODE_COUPLING",       "EXPLICIT",     "EXPLICIT"     },
+        { "FV_COMPACTION",          "NO",           "NO"           },
+        { "FV_BACKEND",             "CPU",          "CPU"          },
+        { "FV_MIN_PARALLEL_CELLS",  "5000",         "5000"         },
+        { "FV_LTS",                 "NO",           "NO"           },
+        { "FV_LTS_MAX_TIERS",       "3",            "3"            },
+        { "FV_CFL_CENSUS_INTERVAL", "10",           "10"           },
+    };
+    for (const auto &r : rows) {
+        QVERIFY2(swmm_options_set(e, r.key, r.set) == 0, r.key);
+        // Numeric keys echo std::to_string forms ("25.000000"); compare as
+        // numbers where a double parse succeeds, exactly otherwise.
+        const QString got = getOptionString(e, r.key);
+        bool gotNum = false, expNum = false;
+        const double g = got.toDouble(&gotNum);
+        const double x = QString::fromLatin1(r.expect).toDouble(&expNum);
+        if (gotNum && expNum)
+            QCOMPARE(g, x);
+        else
+            QCOMPARE(got, QString::fromLatin1(r.expect));
+    }
+
+    swmm_engine_destroy(e);
+}
+
+void TestOptionsHydrationContract::fvOptions_rejectBadEnumTokens()
+{
+    SWMM_Engine e = swmm_engine_new();
+    QVERIFY(e != nullptr);
+
+    // Enum keys must reject unknown tokens instead of silently keeping or
+    // mangling state — the dialog relies on this to surface typos through
+    // setOption() failure rather than losing edits.
+    QVERIFY(swmm_options_set(e, "FV_RIEMANN",         "ROE")     != 0);
+    QVERIFY(swmm_options_set(e, "FV_LIMITER",         "OSPRE")   != 0);
+    QVERIFY(swmm_options_set(e, "FV_SCALAR_SCHEME",   "WENO")    != 0);
+    QVERIFY(swmm_options_set(e, "FV_TIME_INTEGRATION","RK4")     != 0);
+    QVERIFY(swmm_options_set(e, "FV_STRUCTURE_COUPLING", "NEVER") != 0);
+    QVERIFY(swmm_options_set(e, "FV_BACKEND",         "METAL")   != 0);
+
+    // ...and a rejected set must leave the previous value untouched.
+    QCOMPARE(swmm_options_set(e, "FV_RIEMANN", "HLL"), 0);
+    QVERIFY(swmm_options_set(e, "FV_RIEMANN", "ROE") != 0);
+    QCOMPARE(getOptionString(e, "FV_RIEMANN"), QStringLiteral("HLL"));
 
     swmm_engine_destroy(e);
 }
