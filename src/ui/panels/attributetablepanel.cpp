@@ -658,6 +658,8 @@ void AttributeTablePanel::buildUi()
     connect(m_view->selectionModel(),
             &QItemSelectionModel::selectionChanged,
             this, [this]() { onTableSelectionChanged(); });
+    connect(m_view->verticalHeader(), &QHeaderView::sectionDoubleClicked,
+            this, &AttributeTablePanel::onRowHeaderDoubleClicked);
     connect(actShow, &QAction::toggled,
             this, &AttributeTablePanel::onShowSelectedOnlyToggled);
     connect(actZoom, &QAction::triggered,
@@ -1421,6 +1423,17 @@ void AttributeTablePanel::onShowSelectedOnlyToggled(bool on)
         onSelectionManagerChanged(m_selMgr->selection(), {}, {});
     else
         m_proxy->setFilterRegularExpression(QRegularExpression());
+}
+
+void AttributeTablePanel::onRowHeaderDoubleClicked(int row)
+{
+    if (!m_view || row < 0) return;
+    // A double-clicked row that isn't part of the selection replaces it —
+    // selectRow flows through onTableSelectionChanged into the bus, so
+    // onZoomToSelectedClicked reads a selection that includes this row.
+    if (!m_view->selectionModel()->isRowSelected(row, QModelIndex()))
+        m_view->selectRow(row);
+    onZoomToSelectedClicked();
 }
 
 void AttributeTablePanel::onZoomToSelectedClicked()
