@@ -167,8 +167,34 @@ bool inpCarries2DSections(const QString &inpPath)
 void SimulationOptionsDialog::applyEngineConstraints()
 {
     const bool legacy = m_engineVersion.startsWith(QLatin1String("5."));
+
+    // ── Models tab: FV flow routing ────────────────────────────────────────
+    // Probe the option surface rather than the version string: the C ABI is
+    // string-keyed and unchanged, so a 6.x engine installed before the FV
+    // solver landed is only detectable by asking it for an FV_* key.
+    const bool fvSupported = !legacy && !getOption("FV_CFL").isEmpty();
+    if (!fvSupported && m_routingCombo) {
+        auto *model = qobject_cast<QStandardItemModel *>(m_routingCombo->model());
+        if (model) {
+            for (int i = 0; i < m_routingCombo->count(); ++i) {
+                if (m_routingCombo->itemData(i).toString() == QLatin1String("FV")) {
+                    model->item(i)->setEnabled(false);
+                    model->item(i)->setToolTip(
+                        legacy ? tr("Not available in SWMM 5 (legacy engine).")
+                               : tr("This engine build predates the finite-volume solver."));
+                    if (m_routingCombo->currentIndex() == i) {
+                        const int dyn = m_routingCombo->findData(QStringLiteral("DYNWAVE"));
+                        m_routingCombo->setCurrentIndex(dyn >= 0 ? dyn : 0);
+                    }
+                    break;
+                }
+            }
+        }
+        updateFvFieldsEnabled(); // ensure the FV groups follow
+    }
+
     if (!legacy)
-        return;   // new engine: everything already enabled
+        return;   // new engine: everything else already enabled
 
     const QString tip = tr("Not available in SWMM 5 (legacy engine).");
 
@@ -417,8 +443,11 @@ QWidget *SimulationOptionsDialog::buildModelsTab()
     m_routingCombo->addItem(tr("Steady"),            QStringLiteral("STEADY"));
     m_routingCombo->addItem(tr("Kinematic Wave"),    QStringLiteral("KINWAVE"));
     m_routingCombo->addItem(tr("Dynamic Wave"),      QStringLiteral("DYNWAVE"));
+    m_routingCombo->addItem(tr("Finite Volume"),     QStringLiteral("FV"));
     m_routingCombo->setToolTip(
-        tr("Flow-routing method for conduits (option FLOW_ROUTING)."));
+        tr("Flow-routing method for conduits (option FLOW_ROUTING).\n"
+           "Finite Volume is the explicit Godunov solver; its parameters live "
+           "on the Routing & Hydraulics page and apply only when selected."));
     procForm->addRow(tr("Flow routing:"), m_routingCombo);
 
     vlay->addWidget(procGroup);
@@ -786,6 +815,162 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
 
     vlay->addWidget(solGroup);
 
+    // ── Finite-volume solver groups (FLOW_ROUTING FV) ──────────────────
+    // Knobs for the explicit Godunov FV routing solver. Both groups are
+    // enabled only while the Models / Processes tab's flow-routing combo
+    // says FV; the engine accepts FV_* keys as inert under any other
+    // routing model, so a greyed-out group never invalidates the project.
+    m_fvGroup = new QGroupBox(tr("Finite volume solver"), page);
+    auto *fvForm = new QFormLayout(m_fvGroup);
+
+    m_fvCellLengthSpin = new QDoubleSpinBox(m_fvGroup);
+    m_fvCellLengthSpin->setRange(0.0, 100000.0);
+    m_fvCellLengthSpin->setDecimals(2);
+    m_fvCellLengthSpin->setSpecialValueText(tr("whole conduit"));
+    m_fvCellLengthSpin->setToolTip(
+        tr("Target cell length for conduit discretisation, in project length "
+           "units (FV_CELL_LENGTH). 0 = one cell per conduit."));
+    fvForm->addRow(tr("Cell length:"), m_fvCellLengthSpin);
+
+    m_fvMinCellsSpin = new QSpinBox(m_fvGroup);
+    m_fvMinCellsSpin->setRange(1, 1000);
+    m_fvMinCellsSpin->setToolTip(
+        tr("Minimum number of cells per conduit (FV_MIN_CELLS)."));
+    fvForm->addRow(tr("Min cells per conduit:"), m_fvMinCellsSpin);
+
+    m_fvCflSpin = new QDoubleSpinBox(m_fvGroup);
+    m_fvCflSpin->setRange(0.05, 1.0);
+    m_fvCflSpin->setSingleStep(0.05);
+    m_fvCflSpin->setDecimals(2);
+    m_fvCflSpin->setToolTip(
+        tr("Courant number the explicit substep targets (FV_CFL)."));
+    fvForm->addRow(tr("CFL number:"), m_fvCflSpin);
+
+    m_fvRiemannCombo = new QComboBox(m_fvGroup);
+    m_fvRiemannCombo->addItem(tr("HLLC"), QStringLiteral("HLLC"));
+    m_fvRiemannCombo->addItem(tr("HLL"),  QStringLiteral("HLL"));
+    m_fvRiemannCombo->setToolTip(tr("Approximate Riemann solver for face fluxes (FV_RIEMANN)."));
+    fvForm->addRow(tr("Riemann solver:"), m_fvRiemannCombo);
+
+    m_fvOrderCombo = new QComboBox(m_fvGroup);
+    m_fvOrderCombo->addItem(tr("1st order"),                  QStringLiteral("1"));
+    m_fvOrderCombo->addItem(tr("2nd order (MUSCL-Hancock)"),  QStringLiteral("2"));
+    m_fvOrderCombo->setToolTip(tr("Spatial reconstruction order (FV_ORDER)."));
+    fvForm->addRow(tr("Spatial order:"), m_fvOrderCombo);
+
+    m_fvLimiterCombo = new QComboBox(m_fvGroup);
+    m_fvLimiterCombo->addItem(tr("Minmod"),   QStringLiteral("MINMOD"));
+    m_fvLimiterCombo->addItem(tr("van Leer"), QStringLiteral("VANLEER"));
+    m_fvLimiterCombo->addItem(tr("Superbee"), QStringLiteral("SUPERBEE"));
+    m_fvLimiterCombo->setToolTip(
+        tr("Slope limiter for 2nd-order reconstruction (FV_LIMITER)."));
+    fvForm->addRow(tr("Slope limiter:"), m_fvLimiterCombo);
+
+    m_fvTimeIntCombo = new QComboBox(m_fvGroup);
+    m_fvTimeIntCombo->addItem(tr("Euler"), QStringLiteral("EULER"));
+    m_fvTimeIntCombo->addItem(tr("RK2"),   QStringLiteral("RK2"));
+    m_fvTimeIntCombo->setToolTip(tr("Substep time integrator (FV_TIME_INTEGRATION)."));
+    fvForm->addRow(tr("Time integration:"), m_fvTimeIntCombo);
+
+    m_fvSlotCeleritySpin = new QDoubleSpinBox(m_fvGroup);
+    m_fvSlotCeleritySpin->setRange(1.0, 10000.0);
+    m_fvSlotCeleritySpin->setDecimals(1);
+    m_fvSlotCeleritySpin->setToolTip(
+        tr("Preissmann-slot pressure-wave celerity, in project length units "
+           "per second (FV_SLOT_CELERITY)."));
+    fvForm->addRow(tr("Slot celerity:"), m_fvSlotCeleritySpin);
+
+    m_fvScalarSchemeCombo = new QComboBox(m_fvGroup);
+    m_fvScalarSchemeCombo->addItem(tr("MUSCL"),              QStringLiteral("MUSCL"));
+    m_fvScalarSchemeCombo->addItem(tr("Upwind"),             QStringLiteral("UPWIND"));
+    m_fvScalarSchemeCombo->addItem(tr("QUICKEST-ULTIMATE"),  QStringLiteral("QUICKEST_ULTIMATE"));
+    m_fvScalarSchemeCombo->setToolTip(
+        tr("Advection scheme for water-quality scalars (FV_SCALAR_SCHEME)."));
+    fvForm->addRow(tr("Scalar scheme:"), m_fvScalarSchemeCombo);
+
+    m_fvDispersionSpin = new QDoubleSpinBox(m_fvGroup);
+    m_fvDispersionSpin->setRange(0.0, 100000.0);
+    m_fvDispersionSpin->setDecimals(3);
+    m_fvDispersionSpin->setSpecialValueText(tr("off"));
+    m_fvDispersionSpin->setToolTip(
+        tr("Longitudinal dispersion coefficient for scalars, in project "
+           "length units squared per second (FV_DISPERSION). 0 disables."));
+    fvForm->addRow(tr("Dispersion:"), m_fvDispersionSpin);
+
+    m_fvStructCouplingCombo = new QComboBox(m_fvGroup);
+    m_fvStructCouplingCombo->addItem(tr("Every substep"),      QStringLiteral("SUBSTEP"));
+    m_fvStructCouplingCombo->addItem(tr("Every routing step"), QStringLiteral("ROUTING_STEP"));
+    m_fvStructCouplingCombo->setToolTip(
+        tr("How often weir/orifice/pump flows are re-evaluated "
+           "(FV_STRUCTURE_COUPLING)."));
+    fvForm->addRow(tr("Structure coupling:"), m_fvStructCouplingCombo);
+
+    m_fvNodeCouplingCombo = new QComboBox(m_fvGroup);
+    m_fvNodeCouplingCombo->addItem(tr("Semi-implicit"), QStringLiteral("SEMI_IMPLICIT"));
+    m_fvNodeCouplingCombo->addItem(tr("Explicit"),      QStringLiteral("EXPLICIT"));
+    m_fvNodeCouplingCombo->setToolTip(
+        tr("Node continuity coupling at junctions (FV_NODE_COUPLING)."));
+    fvForm->addRow(tr("Node coupling:"), m_fvNodeCouplingCombo);
+
+    vlay->addWidget(m_fvGroup);
+
+    m_fvPerfGroup = new QGroupBox(tr("Finite volume performance"), page);
+    auto *fvPerfForm = new QFormLayout(m_fvPerfGroup);
+
+    m_fvBackendCombo = new QComboBox(m_fvPerfGroup);
+    m_fvBackendCombo->addItem(tr("Auto"),  QStringLiteral("AUTO"));
+    m_fvBackendCombo->addItem(tr("CPU (serial)"), QStringLiteral("CPU"));
+    m_fvBackendCombo->addItem(tr("OpenMP"), QStringLiteral("OMP"));
+    m_fvBackendCombo->addItem(tr("CUDA"),  QStringLiteral("CUDA"));
+    m_fvBackendCombo->addItem(tr("HIP"),   QStringLiteral("HIP"));
+    m_fvBackendCombo->addItem(tr("SYCL"),  QStringLiteral("SYCL"));
+    m_fvBackendCombo->setToolTip(
+        tr("Compute backend for the FV kernels (FV_BACKEND). Auto picks "
+           "based on mesh size and available plugins."));
+    fvPerfForm->addRow(tr("Backend:"), m_fvBackendCombo);
+
+    m_fvMinParallelSpin = new QSpinBox(m_fvPerfGroup);
+    m_fvMinParallelSpin->setRange(0, 100000000);
+    m_fvMinParallelSpin->setSingleStep(1000);
+    m_fvMinParallelSpin->setToolTip(
+        tr("Cell count below which the solver stays serial "
+           "(FV_MIN_PARALLEL_CELLS)."));
+    fvPerfForm->addRow(tr("Min parallel cells:"), m_fvMinParallelSpin);
+
+    m_fvCompactionBox = new QCheckBox(tr("Compact dry-cell storage (FV_COMPACTION)"),
+                                      m_fvPerfGroup);
+    m_fvCompactionBox->setToolTip(
+        tr("Skip fully dry reaches in the substep loop (FV_COMPACTION)."));
+    fvPerfForm->addRow(QString(), m_fvCompactionBox);
+
+    m_fvLtsBox = new QCheckBox(tr("Local time stepping (FV_LTS)"), m_fvPerfGroup);
+    m_fvLtsBox->setToolTip(
+        tr("Advance slow cells with larger substeps grouped in tiers "
+           "(FV_LTS)."));
+    fvPerfForm->addRow(QString(), m_fvLtsBox);
+
+    m_fvLtsTiersSpin = new QSpinBox(m_fvPerfGroup);
+    m_fvLtsTiersSpin->setRange(1, 8);
+    m_fvLtsTiersSpin->setToolTip(
+        tr("Maximum number of local-time-stepping tiers (FV_LTS_MAX_TIERS)."));
+    fvPerfForm->addRow(tr("LTS max tiers:"), m_fvLtsTiersSpin);
+
+    m_fvCflCensusSpin = new QSpinBox(m_fvPerfGroup);
+    m_fvCflCensusSpin->setRange(1, 10000);
+    m_fvCflCensusSpin->setToolTip(
+        tr("Substeps between full CFL re-surveys of the mesh "
+           "(FV_CFL_CENSUS_INTERVAL). 1 = every substep (exact)."));
+    fvPerfForm->addRow(tr("CFL census interval:"), m_fvCflCensusSpin);
+
+    vlay->addWidget(m_fvPerfGroup);
+
+    connect(m_routingCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, [this](int){ updateFvFieldsEnabled(); });
+    connect(m_fvOrderCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, [this](int){ updateFvFieldsEnabled(); });
+    connect(m_fvLtsBox, &QCheckBox::toggled,
+            this, [this](bool){ updateFvFieldsEnabled(); });
+
     // ── Conduit / channel group ────────────────────────────────────────
     auto *condGroup = new QGroupBox(tr("Conduit / channel"), page);
     auto *condForm  = new QFormLayout(condGroup);
@@ -895,6 +1080,23 @@ void SimulationOptionsDialog::updateSurchargeFieldsEnabled()
     if (m_dpsCelerSpin) m_dpsCelerSpin->setEnabled(dyn);
     if (m_dpsAlphaSpin) m_dpsAlphaSpin->setEnabled(dyn);
     if (m_dpsDecaySpin) m_dpsDecaySpin->setEnabled(dyn);
+}
+
+void SimulationOptionsDialog::updateFvFieldsEnabled()
+{
+    if (!m_routingCombo) return;
+    const bool fv = m_routingCombo->currentData().toString()
+                        == QStringLiteral("FV");
+    if (m_fvGroup)     m_fvGroup->setEnabled(fv);
+    if (m_fvPerfGroup) m_fvPerfGroup->setEnabled(fv);
+    // The limiter only applies to 2nd-order reconstruction, and the tier
+    // count only matters while local time stepping is on. Setting these on
+    // a disabled group is harmless — Qt ANDs enabled state down the tree.
+    if (m_fvLimiterCombo && m_fvOrderCombo)
+        m_fvLimiterCombo->setEnabled(
+            m_fvOrderCombo->currentData().toString() == QStringLiteral("2"));
+    if (m_fvLtsTiersSpin && m_fvLtsBox)
+        m_fvLtsTiersSpin->setEnabled(m_fvLtsBox->isChecked());
 }
 
 void SimulationOptionsDialog::updateDurationLabel()
@@ -2409,7 +2611,34 @@ void SimulationOptionsDialog::readFromEngine()
     m_minSurfAreaSpin->setValue(optDouble("MIN_SURFAREA", 0.0));
     m_minSlopeSpin->setValue(optDouble("MIN_SLOPE", sim.minSlopePct));
 
+    // FV_* knobs are FV-routing specific and not surfaced in
+    // PreferencesManager — fallbacks are the engine-side defaults.
+    m_fvCellLengthSpin->setValue(optDouble("FV_CELL_LENGTH", 0.0));
+    m_fvMinCellsSpin->setValue(optInt("FV_MIN_CELLS", 4));
+    m_fvCflSpin->setValue(optDouble("FV_CFL", 0.5));
+    selectComboByData(m_fvRiemannCombo,  getOption("FV_RIEMANN",  QStringLiteral("HLLC")));
+    selectComboByData(m_fvOrderCombo,    getOption("FV_ORDER",    QStringLiteral("1")));
+    selectComboByData(m_fvLimiterCombo,  getOption("FV_LIMITER",  QStringLiteral("MINMOD")));
+    selectComboByData(m_fvTimeIntCombo,  getOption("FV_TIME_INTEGRATION", QStringLiteral("EULER")));
+    m_fvSlotCeleritySpin->setValue(optDouble("FV_SLOT_CELERITY", 100.0));
+    selectComboByData(m_fvScalarSchemeCombo,
+                      getOption("FV_SCALAR_SCHEME", QStringLiteral("MUSCL")));
+    m_fvDispersionSpin->setValue(optDouble("FV_DISPERSION", 0.0));
+    selectComboByData(m_fvStructCouplingCombo,
+                      getOption("FV_STRUCTURE_COUPLING", QStringLiteral("SUBSTEP")));
+    selectComboByData(m_fvNodeCouplingCombo,
+                      getOption("FV_NODE_COUPLING", QStringLiteral("SEMI_IMPLICIT")));
+    m_fvCompactionBox->setChecked(
+        parseEngineBool(getOption("FV_COMPACTION", QStringLiteral("YES"))) == Qt::Checked);
+    selectComboByData(m_fvBackendCombo,  getOption("FV_BACKEND",  QStringLiteral("AUTO")));
+    m_fvMinParallelSpin->setValue(optInt("FV_MIN_PARALLEL_CELLS", 20000));
+    m_fvLtsBox->setChecked(
+        parseEngineBool(getOption("FV_LTS", QStringLiteral("YES"))) == Qt::Checked);
+    m_fvLtsTiersSpin->setValue(optInt("FV_LTS_MAX_TIERS", 6));
+    m_fvCflCensusSpin->setValue(optInt("FV_CFL_CENSUS_INTERVAL", 1));
+
     updateSurchargeFieldsEnabled();
+    updateFvFieldsEnabled();
 
     // ---- Tab 4 ---------------------------------------------------------
     m_threadsSpin->setValue(optInt("THREADS", sim.threads));
@@ -3609,6 +3838,46 @@ int SimulationOptionsDialog::writeToEngine()
                    QString::number(m_minSurfAreaSpin->value(), 'f', 4));
     writeIfChanged("MIN_SLOPE",           getOption("MIN_SLOPE"),
                    QString::number(m_minSlopeSpin->value(), 'f', 4));
+
+    // Tab 3 — Finite volume solver. Written regardless of the routing
+    // selection: the engine accepts FV_* keys as inert under non-FV routing
+    // and its InpWriter only persists them when FLOW_ROUTING is FV.
+    writeIfChanged("FV_CELL_LENGTH",      getOption("FV_CELL_LENGTH"),
+                   QString::number(m_fvCellLengthSpin->value(), 'f', 2));
+    writeIfChanged("FV_MIN_CELLS",        getOption("FV_MIN_CELLS"),
+                   QString::number(m_fvMinCellsSpin->value()));
+    writeIfChanged("FV_CFL",              getOption("FV_CFL"),
+                   QString::number(m_fvCflSpin->value(), 'f', 2));
+    writeIfChanged("FV_RIEMANN",          getOption("FV_RIEMANN"),
+                   m_fvRiemannCombo->currentData().toString());
+    writeIfChanged("FV_ORDER",            getOption("FV_ORDER"),
+                   m_fvOrderCombo->currentData().toString());
+    writeIfChanged("FV_LIMITER",          getOption("FV_LIMITER"),
+                   m_fvLimiterCombo->currentData().toString());
+    writeIfChanged("FV_TIME_INTEGRATION", getOption("FV_TIME_INTEGRATION"),
+                   m_fvTimeIntCombo->currentData().toString());
+    writeIfChanged("FV_SLOT_CELERITY",    getOption("FV_SLOT_CELERITY"),
+                   QString::number(m_fvSlotCeleritySpin->value(), 'f', 1));
+    writeIfChanged("FV_SCALAR_SCHEME",    getOption("FV_SCALAR_SCHEME"),
+                   m_fvScalarSchemeCombo->currentData().toString());
+    writeIfChanged("FV_DISPERSION",       getOption("FV_DISPERSION"),
+                   QString::number(m_fvDispersionSpin->value(), 'f', 3));
+    writeIfChanged("FV_STRUCTURE_COUPLING", getOption("FV_STRUCTURE_COUPLING"),
+                   m_fvStructCouplingCombo->currentData().toString());
+    writeIfChanged("FV_NODE_COUPLING",    getOption("FV_NODE_COUPLING"),
+                   m_fvNodeCouplingCombo->currentData().toString());
+    writeIfChanged("FV_COMPACTION",       getOption("FV_COMPACTION"),
+                   engineBoolString(m_fvCompactionBox->isChecked()));
+    writeIfChanged("FV_BACKEND",          getOption("FV_BACKEND"),
+                   m_fvBackendCombo->currentData().toString());
+    writeIfChanged("FV_MIN_PARALLEL_CELLS", getOption("FV_MIN_PARALLEL_CELLS"),
+                   QString::number(m_fvMinParallelSpin->value()));
+    writeIfChanged("FV_LTS",              getOption("FV_LTS"),
+                   engineBoolString(m_fvLtsBox->isChecked()));
+    writeIfChanged("FV_LTS_MAX_TIERS",    getOption("FV_LTS_MAX_TIERS"),
+                   QString::number(m_fvLtsTiersSpin->value()));
+    writeIfChanged("FV_CFL_CENSUS_INTERVAL", getOption("FV_CFL_CENSUS_INTERVAL"),
+                   QString::number(m_fvCflCensusSpin->value()));
 
     // Tab 4 — System / Performance
     writeIfChanged("THREADS",             getOption("THREADS"),

@@ -573,6 +573,7 @@ QWidget *PreferencesDialog::buildSimulationDefaultsPage()
     m_simFlowRoutingCombo->addItem(tr("Steady"),         QStringLiteral("STEADY"));
     m_simFlowRoutingCombo->addItem(tr("Kinematic Wave"), QStringLiteral("KINWAVE"));
     m_simFlowRoutingCombo->addItem(tr("Dynamic Wave"),   QStringLiteral("DYNWAVE"));
+    m_simFlowRoutingCombo->addItem(tr("Finite Volume"),  QStringLiteral("FV"));
     procForm->addRow(tr("H&ydraulic routing method (FLOW_ROUTING)"), m_simFlowRoutingCombo);
 
     outer->addWidget(procGroup);
