@@ -38,6 +38,7 @@ namespace Ui { class SWMMVis; }
 QT_END_NAMESPACE
 
 namespace openswmmvis::ui { class CompactToolbarController; }
+namespace openswmmvis::ui { class ComparisonPlotDialog; }
 namespace openswmmvis::ui { class RibbonGroup; }
 
 class QCheckBox;
@@ -387,16 +388,14 @@ private slots:
     /*! \brief Start a simulation run for the active project. */
     void onRunSimulation();
 
-    /*! \brief Open the Time Series Plot dialog without a pre-selected object. */
+    /*! \brief Open the Plot Variables dialog — system variables plus the
+     *  plottable attributes of the current map selection — and bulk-add
+     *  the checked entries to the Comparison Plot. */
     void onPlotTimeSeries();
 
     /*! Slice GUI-2026-05-30 §6 — open the two-panel Report Viewer over the
      *  active project's .rpt file.  No-op if there is no project / no .rpt. */
     void onShowReport();
-
-    /*! Slice GUI-2026-05-30 §5 — invoked after the user has armed a
-     *  one-shot map pick by clicking Plot Timeseries with no selection. */
-    void onPlotTimeSeriesPickComplete(const SWMMObjectRef &ref);
 
     /*! Open the Time Series Plot dialog for the given object ref against
      *  the active project's SWMM results .out file. Shared by
@@ -416,6 +415,12 @@ private slots:
      *  multiple SWMMResultsLayers are loaded. */
     void openTimeSeriesPlotForOnLayer(const SWMMObjectRef &ref,
                                        SWMMResultsLayer *layer);
+
+    /*! Find-or-create the shared ComparisonPlotDialog (WA_DeleteOnClose;
+     *  wires addFromMapToggled + the AnimationController cursor). Every
+     *  plot entry point goes through this so the wiring exists exactly
+     *  once. */
+    openswmmvis::ui::ComparisonPlotDialog *ensureComparisonPlotDialog();
 
     /*! Slice BL — open / focus the Comparison Plot dialog and add a
      *  series for \p ref on the active project's first SWMMResultsLayer.
@@ -701,11 +706,6 @@ private:
      *  objects across visible SWMMModelLayers. Returns false when no
      *  selection exists (caller can fall back to full-extent zoom). */
     bool                  zoomCanvasToSelection(MapCanvas *c) const;
-
-    /*! Slice GUI-2026-05-30 §5 — one-shot "Plot Timeseries" pending state.
-     *  Set true by onPlotTimeSeries() when no canvas selection exists;
-     *  cleared after the next map pick (or tool change). */
-    bool                  mPendingPlotTimeseriesPick = false;
 };
 
 #endif // SWMMVIS_H
