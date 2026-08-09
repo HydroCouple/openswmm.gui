@@ -20,6 +20,7 @@
 #include <QVector>
 
 #include "plot/plotattribute.h"   // PlotAttribute (edge flow vs flux relay)
+#include "layers/swmmmodellayer.h"  // SWMMModelLayer::NewProjectSpec (nested)
 
 class OpenSWMMVisWorkspace;
 class MapCanvas;
@@ -112,6 +113,16 @@ public:
      */
     void loadModelAsync();
 
+    /*!
+     * \brief In-memory File → New: build a blank BUILDING-state engine from
+     *        \p spec (SWMMModelLayer::adoptNewEngine) and finish the load
+     *        synchronously. The window keeps its empty model path until the
+     *        first Save As.
+     */
+    bool initializeBlankModel(const SWMMModelLayer::NewProjectSpec &spec,
+                              QList<QString> &warnings,
+                              QList<QString> &errors);
+
     /**
      * @brief Save the model to its current path or to a new path.
      * @return true on success.
@@ -131,11 +142,11 @@ public:
 
     /*! Slice Y — flag a window as a fresh, never-saved project.
      *  Untitled windows skip recent-files registration, force the
-     *  title to "Untitled[*]", and route Save through Save As. The
-     *  associated `tempInpPath` is deleted on close-without-save and
-     *  on first successful Save As. */
+     *  title to "Untitled[*]", route Save through Save As, and always
+     *  prompt on close (Save As… / Discard / Cancel) — the model lives
+     *  only in memory until the first successful Save As clears the flag. */
     bool isUntitled() const { return mUntitled; }
-    void markUntitled(const QString &tempInpPath);
+    void markUntitled();
 
     void activatePanTool();
     void activateZoomInTool();
@@ -456,7 +467,7 @@ private:
     bool                 mEditSessionActive   = false;
     bool                 mElevationOffsetMode = false;  // OPTIONS LINK_OFFSETS = ELEVATION
     bool                 mUntitled            = false;  // Slice Y — never saved
-    QString              mTempInpPath;                  // owned temp .inp (untitled only)
+    bool                 mClosePromptActive   = false;  // re-entrancy guard for closeEvent's prompt
     QString              mEngineVersion       = "6.0.0";  // Default to newest version
     QString              mNotesHtml;                      // [TITLE] notes (rich HTML)
     QJsonArray           mPending2DResultsRestore;        // .oswp 2D results entries

@@ -13,6 +13,7 @@
 
 #include "layers/openswmmvislayer.h"
 #include "layers/swmm_category.h"
+#include "core/preferencesmanager.h"     // NewProjectSpec defaults structs
 #include "render/labelconfig.h"
 #include "render/iattributeprovider.h"   // Slice DM.3
 #include "render/markershape.h"
@@ -28,6 +29,7 @@
 struct SWMMKdTrees;
 
 #include <QColor>
+#include <QDateTime>
 
 #include <openswmm/engine/openswmm_callbacks.h>  // SWMM_Engine typedef
 #include <QFont>
@@ -259,6 +261,38 @@ public:
 
     /** Close and destroy the engine, clearing all geometry caches. */
     void closeEngine();
+
+    // ----- In-memory new project (File → New) -----------------------------
+
+    /*! \brief Everything a blank untitled project needs — the in-memory
+     *  replacement for the synthetic temp .inp File → New used to write. */
+    struct NewProjectSpec {
+        QString   name;                      ///< "[TITLE]" + display name ("Untitled").
+        QDateTime startDateTime;
+        QDateTime endDateTime;
+        bool      forNewEngine = true;       ///< Gate NODE_CONTINUITY / ANDERSON_ACCEL / 2D.
+        PreferencesManager::SimulationDefaults sim;   ///< THREADS already maxed by caller.
+        PreferencesManager::TwoDDefaults       twoD;  ///< Used iff forNewEngine && sim.module2DEnabled.
+    };
+
+    /*!
+     * \brief Create a blank BUILDING-state engine (`swmm_engine_new`) and
+     *        stamp the spec's defaults on it via the options C API — no file
+     *        involved. Never calls `swmm_finalize_model` (validation needs
+     *        ≥ 1 node + outfall, which a blank project has not got).
+     * \returns nullptr on failure with \a errorDetail filled.
+     */
+    static SWMM_Engine createBlankEngine(const NewProjectSpec &spec,
+                                         QString *errorDetail);
+
+    /*!
+     * \brief In-memory sibling of the loadModel path: createBlankEngine →
+     *        buildFromEngine → adoptOpenEngine, all synchronous (a blank
+     *        engine build is instant, so no worker hop). The layer keeps its
+     *        empty modelFilePath until the first Save As.
+     */
+    bool adoptNewEngine(const NewProjectSpec &spec,
+                        QList<QString> &warnings, QList<QString> &errors);
 
     // ----- Element visibility toggles -------------------------------------
 

@@ -110,7 +110,6 @@
 #include "ui/dialogs/layerstyledialog.h"
 #include "ui/dialogs/import/importfeaturelayerdialog.h"
 #include "ui/dialogs/meshgenerationdialog.h"
-#include "ui/dialogs/newprojectdialog.h"
 #include "ui/dialogs/pluginsdialog.h"
 #include "ui/dialogs/preferencesdialog.h"
 // Slice Z.17c — Style Manager dialog.
@@ -3863,7 +3862,9 @@ void SWMMVis::closeEvent(QCloseEvent *event)
     {
         if (auto *pw = qobject_cast<SWMMVisProjectWindow*>(w))
         {
-            if (pw->hasChanges())
+            // Untitled projects live only in memory — quitting must run
+            // their close prompt even when pristine, or they vanish silently.
+            if (pw->hasChanges() || pw->isUntitled())
             {
                 if (!pw->close())
                 {
@@ -3972,174 +3973,6 @@ void SWMMVis::removeWelcomeSubWindow()
 
 // ── Slots ─────────────────────────────────────────────────────────────────
 
-namespace {
-
-// Format an integer second count as HH:MM:SS — required by SWMM's
-// [OPTIONS] step keys (REPORT_STEP, WET_STEP, …). 0 → "00:00:00".
-QString secondsToHms(int seconds)
-{
-    seconds = std::max(0, seconds);
-    const int h = seconds / 3600;
-    const int m = (seconds % 3600) / 60;
-    const int s = seconds % 60;
-    return QStringLiteral("%1:%2:%3")
-        .arg(h, 2, 10, QChar('0'))
-        .arg(m, 2, 10, QChar('0'))
-        .arg(s, 2, 10, QChar('0'));
-}
-
-// Emit a routing-step value with sub-second precision when needed
-// (engine accepts "0:00:05" as well as "5" — keep the HH:MM:SS form
-// for stylistic consistency with the other step keys; fall back to a
-// raw decimal-seconds value when the user wants < 1 s granularity).
-QString routingStepToken(double seconds)
-{
-    if (seconds < 1.0 || std::fabs(seconds - std::round(seconds)) > 1e-6)
-        return QString::number(seconds, 'g', 6);
-    return secondsToHms(static_cast<int>(std::round(seconds)));
-}
-
-// Build a minimum-viable SWMM .inp from the New-Project dialog inputs.
-// SWMM tolerates many missing sections; we keep [TITLE], [OPTIONS], and
-// [REPORT] explicit so the engine has stable defaults to read back.
-//
-// Engine-aware: emits modern-engine keys (NODE_CONTINUITY, ANDERSON_ACCEL)
-// only when `forNewEngine` is true. Legacy SWMM 5.x silently accepts most
-// other modern keys (SURCHARGE_METHOD, INERTIAL_DAMPING, LAT_FLOW_TOL, …)
-// because they have legacy precedents; only the two new-engine-only knobs
-// are gated.
-QString synthesizeBlankInp(const NewProjectDialog::Result &r,
-                            const PreferencesManager::SimulationDefaults &d,
-                            bool forNewEngine)
-{
-    const QString startDate = r.startDateTime.toString(QStringLiteral("MM/dd/yyyy"));
-    const QString startTime = r.startDateTime.toString(QStringLiteral("HH:mm:ss"));
-    const QString endDate   = r.endDateTime.toString(QStringLiteral("MM/dd/yyyy"));
-    const QString endTime   = r.endDateTime.toString(QStringLiteral("HH:mm:ss"));
-
-    const QString yesNo[2] = {QStringLiteral("NO"), QStringLiteral("YES")};
-    const auto yn = [&](bool v) { return yesNo[v ? 1 : 0]; };
-
-    // VARIABLE_STEP is a Courant fraction in [0, 1]; the engine treats 0
-    // as "disabled" and the GUI exposes that as a separate toggle. When
-    // the toggle is off, force the factor to 0 regardless of the spin.
-    const double variableStep = d.variableStepOn ? d.variableStepFactor : 0.0;
-
-    // Tolerances surfaced as percent in the GUI, stored as fractions in
-    // the engine internals; the .inp ingests percent.
-    QString out;
-    out.reserve(2048);
-    out += QStringLiteral("[TITLE]\n%1\n\n").arg(r.name);
-    out += QStringLiteral("[OPTIONS]\n");
-
-    auto kv = [&](const char *key, const QString &value) {
-        out += QStringLiteral("%1 %2\n")
-            .arg(QString::fromLatin1(key), -20).arg(value);
-    };
-
-    kv("FLOW_UNITS",          d.flowUnits);
-    kv("INFILTRATION",        d.infiltrationModel);
-    kv("FLOW_ROUTING",        d.flowRouting);
-    kv("LINK_OFFSETS",        QStringLiteral("DEPTH"));
-    kv("MIN_SLOPE",           QString::number(d.minSlopePct, 'g', 6));
-    kv("ALLOW_PONDING",       yn(d.allowPonding));
-    kv("SKIP_STEADY_STATE",   yn(d.skipSteadyState));
-
-    kv("START_DATE",          startDate);
-    kv("START_TIME",          startTime);
-    kv("END_DATE",            endDate);
-    kv("END_TIME",            endTime);
-    kv("REPORT_START_DATE",   startDate);
-    kv("REPORT_START_TIME",   startTime);
-    kv("SWEEP_START",         d.sweepStart);
-    kv("SWEEP_END",           d.sweepEnd);
-    kv("DRY_DAYS",            QString::number(d.dryDays, 'g', 6));
-    kv("REPORT_STEP",         secondsToHms(d.reportStepSec));
-    kv("WET_STEP",            secondsToHms(d.wetStepSec));
-    kv("DRY_STEP",            secondsToHms(d.dryStepSec));
-    kv("ROUTING_STEP",        routingStepToken(d.routingStepSec));
-    kv("RULE_STEP",           secondsToHms(d.ruleStepSec));
-
-    // Process-module toggles (refactored engine supports IGNORE_* across
-    // the board; legacy honours all of these too — gated only on the
-    // engine-aware emit further down).
-    kv("IGNORE_RAINFALL",     yn(d.ignoreRainfall));
-    kv("IGNORE_SNOWMELT",     yn(d.ignoreSnowmelt));
-    kv("IGNORE_GROUNDWATER",  yn(d.ignoreGroundwater));
-    kv("IGNORE_RDII",         yn(d.ignoreRdii));
-    kv("IGNORE_QUALITY",      yn(d.ignoreQuality));
-    kv("IGNORE_ROUTING",      yn(d.ignoreRouting));
-
-    // Hydraulics — DW knobs go in regardless of routing method; the
-    // engine ignores them under STEADY/KINWAVE.
-    kv("INERTIAL_DAMPING",    d.inertialDamping);
-    kv("NORMAL_FLOW_LIMITED", d.normalFlowLimited);
-    kv("FORCE_MAIN_EQUATION", d.forceMainEquation);
-    kv("SURCHARGE_METHOD",    d.surchargeMethod);
-    kv("VARIABLE_STEP",       QString::number(variableStep, 'g', 6));
-    kv("LENGTHENING_STEP",    QString::number(d.lengtheningStepSec, 'g', 6));
-    kv("MINIMUM_STEP",        QString::number(d.minRoutingStepSec, 'g', 6));
-    kv("MAX_TRIALS",          QString::number(d.maxTrials));
-    kv("HEAD_TOLERANCE",      QString::number(d.headTolerance, 'g', 6));
-    kv("SYS_FLOW_TOL",        QString::number(d.sysFlowTolPct, 'g', 6));
-    kv("LAT_FLOW_TOL",        QString::number(d.latFlowTolPct, 'g', 6));
-    kv("THREADS",             QString::number(d.threads));
-
-    if (forNewEngine) {
-        kv("NODE_CONTINUITY", d.nodeContinuity);
-        kv("ANDERSON_ACCEL",  yn(d.andersonAccel));
-    }
-
-    // Iteration 4 — the "Enable 2D module" simulation default now has a
-    // consumer: seed [2D_OPTIONS] from the 2D Defaults preferences page so
-    // a fresh project starts with the user's preferred solver setup
-    // (refactored engine only; legacy SWMM has no 2D module).
-    if (forNewEngine && d.module2DEnabled) {
-        const auto t = PreferencesManager::instance()->twoDDefaults();
-        out += QStringLiteral("\n[2D_OPTIONS]\n");
-        kv("MAX_TIMESTEP",        QString::number(t.maxTimestepSec, 'g', 8));
-        kv("THETA",               QString::number(t.theta, 'g', 6));
-        kv("CFL_NUMBER",          QString::number(t.cflNumber, 'g', 6));
-        kv("LTS_TIERS",           QString::number(t.ltsTiers));
-        kv("H_MOVE",              QString::number(t.hMove, 'g', 6));
-        kv("FROUDE_MAX",          QString::number(t.froudeMax, 'g', 6));
-        kv("DRY_DEPTH",           QString::number(t.dryDepth, 'g', 8));
-        kv("LIMITER_EPSILON",     QString::number(t.limiterEpsilon, 'g', 8));
-        kv("FLUX_DH_EPS",         QString::number(t.fluxDhEps, 'g', 8));
-        kv("CELL_CLOSURE",        t.cellClosure);
-        kv("FACE_RECONSTRUCTION", t.faceReconstruction);
-        kv("VFR_MIN_WET_FRAC",    QString::number(t.vfrMinWetFrac, 'g', 6));
-        kv("COUPLING_CD",         QString::number(t.couplingCd, 'f', 4));
-        kv("COUPLING_SYNC",       QString::number(t.couplingSync, 'g', 6));
-        kv("COUPLING_AREA",       t.couplingAreaAuto ? QStringLiteral("AUTO")
-                                                     : QStringLiteral("DEFAULT"));
-        kv("RAINFALL_MODE",       t.rainfallMode);
-        kv("REPORT_2D",           yn(t.report2D));
-    }
-
-    out += QStringLiteral("\n[REPORT]\n"
-"INPUT      NO\n"
-"CONTROLS   NO\n"
-"SUBCATCHMENTS ALL\n"
-"NODES      ALL\n"
-"LINKS      ALL\n");
-
-    // [MAP] UNITS drives SWMMModelLayer::loadModel's LocalAuto CRS
-    // resolution: with it present, a fresh project resolves to a local
-    // projected CRS ("Local (ft)" / "Local (m)") instead of falling
-    // through to the geographic preference default. Units follow the
-    // flow-unit system, matching the ft/m derivation used by the CRS
-    // Required prompt in swmmvisprojectwindow.cpp.
-    const bool siFlow = d.flowUnits == QStringLiteral("CMS")
-                     || d.flowUnits == QStringLiteral("LPS")
-                     || d.flowUnits == QStringLiteral("MLD");
-    out += QStringLiteral("\n[MAP]\nUNITS      %1\n")
-        .arg(siFlow ? QStringLiteral("METERS") : QStringLiteral("FEET"));
-    return out;
-}
-
-} // namespace
-
 void SWMMVis::onNewProject()
 {
     // File → New creates a blank untitled project immediately — no
@@ -4159,95 +3992,65 @@ void SWMMVis::onNewProject()
         sim.threads = hw > 0 ? hw : 1;
     }
 
-    NewProjectDialog::Result r;
-    r.name              = QStringLiteral("Untitled");
-    r.flowUnits         = sim.flowUnits;
-    r.infiltrationModel = sim.infiltrationModel;
-    r.flowRouting       = sim.flowRouting;
-    // Start at today's midnight; end 24 h later. The legacy hard-coded
-    // 2002-01-01 + 6 h window was a SWMM5 echo; modern projects almost
-    // always re-set this anyway, and "current day at midnight" makes the
-    // synthetic .inp self-describing in the timeline.
-    const QDate today = QDate::currentDate();
-    r.startDateTime    = QDateTime(today, QTime(0, 0));
-    r.endDateTime      = r.startDateTime.addSecs(24 * 3600);
-    // crsAuthCode intentionally left empty — the synthetic .inp carries a
-    // [MAP] UNITS line, so SWMMModelLayer::loadModel's LocalAuto mode
-    // resolves a local projected CRS (ft/m per flow units) and the project
-    // window propagates that to the canvas. No post-load override here
-    // keeps layer/canvas in lockstep.
-
     // Engine-aware emit: NODE_CONTINUITY + ANDERSON_ACCEL are gated on the
     // refactored engine being the active default.
     QString defaultEngine = prefs->defaultEngineMode();
     if (defaultEngine.isEmpty()) defaultEngine = QLatin1String(SWMM_VERSION);
-    const bool forNewEngine = (defaultEngine == QLatin1String(SWMM_VERSION));
 
-    // Write a synthetic .inp into the system temp dir. Its base name becomes
-    // the instance's display name (SWMMModelLayer::loadModel derives the layer
-    // name from the file base name), so we use a clean, human-friendly default
-    // "untitled_swmm_instance" instead of a GUID. A numeric "_N" qualifier is
-    // appended only when that name is already taken by an open instance or a
-    // lingering temp .inp — so the common case is just "untitled_swmm_instance"
-    // and additional new projects become "_1", "_2", ….
-    const QString tempDir = QStandardPaths::writableLocation(
-        QStandardPaths::TempLocation);
-    const QString baseName = QStringLiteral("untitled_swmm_instance");
-    auto instanceNameTaken = [this](const QString &nm) -> bool {
-        const auto subs = ui->mdiAreaCentral->subWindowList();
-        for (QMdiSubWindow *sub : subs) {
-            auto *w = qobject_cast<SWMMVisProjectWindow *>(sub);
-            if (w && w->modelLayer() && w->modelLayer()->name() == nm)
-                return true;
-        }
-        return false;
-    };
-    QString instanceName = baseName;
-    QString tempPath;
-    for (int n = 0; ; ++n) {
-        instanceName = (n == 0) ? baseName
-                                : QStringLiteral("%1_%2").arg(baseName).arg(n);
-        tempPath = QStringLiteral("%1/%2.inp").arg(tempDir, instanceName);
-        if (!instanceNameTaken(instanceName) && !QFileInfo::exists(tempPath))
-            break;
+    SWMMModelLayer::NewProjectSpec spec;
+    spec.name         = QStringLiteral("Untitled");
+    spec.forNewEngine = (defaultEngine == QLatin1String(SWMM_VERSION));
+    spec.sim          = sim;
+    spec.twoD         = prefs->twoDDefaults();
+    // Start at today's midnight; end 24 h later. The legacy hard-coded
+    // 2002-01-01 + 6 h window was a SWMM5 echo; modern projects almost
+    // always re-set this anyway, and "current day at midnight" makes a
+    // fresh project self-describing in the timeline.
+    const QDate today  = QDate::currentDate();
+    spec.startDateTime = QDateTime(today, QTime(0, 0));
+    spec.endDateTime   = spec.startDateTime.addSecs(24 * 3600);
+
+    // The project lives purely in memory (swmm_engine_new) until the first
+    // Save As — nothing touches the disk here. CRS resolves from the flow
+    // units' ft/m ("Local (ft)"/"Local (m)") inside adoptOpenEngine, so no
+    // picker fires.
+    openUntitledProject(spec);
+}
+
+void SWMMVis::openUntitledProject(const SWMMModelLayer::NewProjectSpec &spec)
+{
+    auto *window = createProjectWindow(QString());
+    window->markUntitled();   // before show → title reads "Untitled"
+
+    QList<QString> warnings, errors;
+    const bool ok = window->initializeBlankModel(spec, warnings, errors);
+    for (const QString &w : warnings)
+        onLogMessage(w, OpenSWMMVisLogMessage::LogMessageType::Warning);
+    if (!ok) {
+        for (const QString &e : errors)
+            onLogMessage(e, OpenSWMMVisLogMessage::LogMessageType::Error);
+        QMessageBox::critical(this, tr("New Project failed"),
+            errors.isEmpty() ? tr("Could not create a blank project.")
+                             : errors.join(QStringLiteral("\n")));
+        window->close();
+        return;
     }
 
-    {
-        QFile f(tempPath);
-        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        {
-            QMessageBox::critical(this, tr("New Project failed"),
-                tr("Could not write temp file at %1").arg(tempPath));
-            return;
-        }
-        f.write(synthesizeBlankInp(r, sim, forNewEngine).toUtf8());
-    }
-
-    // Reuse the standard load path. After it returns, undo the
-    // recent-files registration the temp path picked up — the user has
-    // not yet given this project a real name.
-    openSingleINP(tempPath);
-    mRecentFiles.removeAll(tempPath);
-    onRecentFilesSizeChanged();
-    saveSettings();
-
-    auto *pw = activeProjectWindow();
-    if (!pw) return;  // load failed; openSingleINP already logged
-
-    pw->markUntitled(tempPath);
+    window->show();
+    ui->mdiAreaCentral->setActiveSubWindow(window);
     setWindowTitle(QStringLiteral("OpenSWMM — Untitled"));
 
-    // CRS handling intentionally left to the standard load path:
-    //   SWMMModelLayer::loadModel falls back to PreferencesManager's default
-    //   when the .inp carries no CRS (synthetic blank .inp doesn't), and
-    //   SWMMVisProjectWindow::loadModel propagates that to the canvas.
-    //   The Slice-Y-removed dialog used to surface a CRS picker; with the
-    //   no-dialog flow, the only correct answer is "use the configured
-    //   default" — which loadModel already does. No post-load CRS override
-    //   here, since doing so creates a layer/canvas drift when the override
-    //   doesn't match what loadModel adopted.
+    // §M.1 re-activation trick (mirrors finalizeSingleINPOpen): null the
+    // cached pointer so the same-project guard doesn't block the full panel
+    // rebind (object browser, attribute table, properties, toolbars).
+    mActiveProjectWindow = nullptr;
+    onActiveSubWindowChanged(window);
 
-    onLogMessage(tr("New project created (untitled). Save As to give it a path."));
+    // Deliberately skipped vs the file-open path: recent files, .oswp
+    // sidecar hydration, results auto-discovery, and the status-bar file
+    // spinner — none apply to a pathless in-memory project.
+    onLogMessage(tr("New project created (untitled, in memory). "
+                    "Save As to give it a path."));
 }
 
 void SWMMVis::onSaveProject()
@@ -4283,6 +4086,13 @@ void SWMMVis::onSaveAs()
                      OpenSWMMVisLogMessage::LogMessageType::Warning);
         return;
     }
+    saveProjectWindowAs(pw);
+}
+
+bool SWMMVis::saveProjectWindowAs(SWMMVisProjectWindow *pw)
+{
+    if (!pw)
+        return false;
 
     const QString suggested = pw->modelLayer()
                                 ? pw->modelLayer()->modelFilePath()
@@ -4339,10 +4149,10 @@ void SWMMVis::onSaveAs()
     }
 
     if (dlg.exec() != QDialog::Accepted)
-        return;
+        return false;
     const QString rawPath = dlg.selectedFiles().value(0);
     if (rawPath.isEmpty())
-        return;
+        return false;
 
     // Slice RA.3 — persist the chosen filter for next time.
     if (!prefBase.isEmpty()) {
@@ -4427,7 +4237,7 @@ void SWMMVis::onSaveAs()
     QString err;
     if (!pw->saveAs(inpPath, &err)) {
         QMessageBox::critical(this, tr("Save As failed"), err);
-        return;
+        return false;
     }
 
     // Slice RB.3 — .oswp sidecar is now created inside
@@ -4444,6 +4254,7 @@ void SWMMVis::onSaveAs()
     onRecentFilesSizeChanged();
     saveSettings();
     onLogMessage(tr("Saved As: %1").arg(path));
+    return true;
 }
 
 void SWMMVis::onExportMap()
@@ -4557,22 +4368,8 @@ void SWMMVis::onOpenProject(const QString &path)
         openSingleINP(filePath);
 }
 
-void SWMMVis::openSingleINP(const QString &filePath)
+SWMMVisProjectWindow *SWMMVis::createProjectWindow(const QString &filePath)
 {
-    // Prevent duplicate windows — if this .inp is already open, just focus it.
-    const QFileInfo inpFi(filePath);
-    for (QMdiSubWindow *sw : ui->mdiAreaCentral->subWindowList()) {
-        auto *existing = qobject_cast<SWMMVisProjectWindow *>(sw);
-        if (existing && existing->modelLayer()) {
-            const QFileInfo existFi(existing->modelLayer()->modelFilePath());
-            if (existFi == inpFi) {
-                ui->mdiAreaCentral->setActiveSubWindow(sw);
-                return;
-            }
-        }
-    }
-
-    // Create a new project window for this INP file
     auto *window = new SWMMVisProjectWindow(mProject, filePath, ui->mdiAreaCentral);
     connect(window, &SWMMVisProjectWindow::modelLoaded,
             this, &SWMMVis::onModelLoaded);
@@ -4624,6 +4421,31 @@ void SWMMVis::openSingleINP(const QString &filePath)
             });
 
     ui->mdiAreaCentral->addSubWindow(window);
+    return window;
+}
+
+void SWMMVis::openSingleINP(const QString &filePath)
+{
+    // Untitled (pathless) projects go through openUntitledProject(); the
+    // dedupe below would treat every empty path as "already open"
+    // (QFileInfo("") == QFileInfo("") is true).
+    if (filePath.isEmpty())
+        return;
+
+    // Prevent duplicate windows — if this .inp is already open, just focus it.
+    const QFileInfo inpFi(filePath);
+    for (QMdiSubWindow *sw : ui->mdiAreaCentral->subWindowList()) {
+        auto *existing = qobject_cast<SWMMVisProjectWindow *>(sw);
+        if (existing && existing->modelLayer()) {
+            const QString existPath = existing->modelLayer()->modelFilePath();
+            if (!existPath.isEmpty() && QFileInfo(existPath) == inpFi) {
+                ui->mdiAreaCentral->setActiveSubWindow(sw);
+                return;
+            }
+        }
+    }
+
+    auto *window = createProjectWindow(filePath);
 
     // Non-blocking load: the engine open (full .inp parse — the dominant
     // cost) runs in a worker thread while the event loop keeps the UI

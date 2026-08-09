@@ -756,6 +756,163 @@ SWMM_Engine SWMMModelLayer::openEngineForPath(const QString &path,
     return eng;
 }
 
+SWMM_Engine SWMMModelLayer::createBlankEngine(const NewProjectSpec &spec,
+                                              QString *errorDetail)
+{
+    SWMM_Engine eng = swmm_engine_new();
+    if (!eng) {
+        if (errorDetail) *errorDetail =
+            QStringLiteral("Failed to create a blank SWMM engine.");
+        return nullptr;
+    }
+
+    QStringList failures;
+    const auto set = [&](const char *key, const QString &value) {
+        const QByteArray v = value.toUtf8();
+        if (swmm_options_set(eng, key, v.constData()) != 0)
+            failures.append(QStringLiteral("%1 = %2")
+                                .arg(QString::fromLatin1(key), value));
+    };
+    const auto yn = [](bool v) {
+        return v ? QStringLiteral("YES") : QStringLiteral("NO");
+    };
+
+    {
+        const QByteArray title = spec.name.toUtf8();
+        swmm_title_set(eng, title.constData());
+    }
+
+    // The option sequence below is the in-memory form of the retired
+    // synthesizeBlankInp() [OPTIONS] table — same keys, same value grammar
+    // (steps as plain seconds; SYS/LAT_FLOW_TOL in percent, symmetric with
+    // the C API on both get and set).
+    const PreferencesManager::SimulationDefaults &d = spec.sim;
+    const double variableStep = d.variableStepOn ? d.variableStepFactor : 0.0;
+
+    set("FLOW_UNITS",          d.flowUnits);
+    set("INFILTRATION",        d.infiltrationModel);
+    set("FLOW_ROUTING",        d.flowRouting);
+    set("LINK_OFFSETS",        QStringLiteral("DEPTH"));
+    set("MIN_SLOPE",           QString::number(d.minSlopePct, 'g', 6));
+    set("ALLOW_PONDING",       yn(d.allowPonding));
+    set("SKIP_STEADY_STATE",   yn(d.skipSteadyState));
+
+    const QString startDate = spec.startDateTime.toString(QStringLiteral("MM/dd/yyyy"));
+    const QString startTime = spec.startDateTime.toString(QStringLiteral("HH:mm:ss"));
+    set("START_DATE",          startDate);
+    set("START_TIME",          startTime);
+    set("END_DATE",            spec.endDateTime.toString(QStringLiteral("MM/dd/yyyy")));
+    set("END_TIME",            spec.endDateTime.toString(QStringLiteral("HH:mm:ss")));
+    set("REPORT_START_DATE",   startDate);
+    set("REPORT_START_TIME",   startTime);
+    set("SWEEP_START",         d.sweepStart);
+    set("SWEEP_END",           d.sweepEnd);
+    set("DRY_DAYS",            QString::number(d.dryDays, 'g', 6));
+    set("REPORT_STEP",         QString::number(d.reportStepSec));
+    set("WET_STEP",            QString::number(d.wetStepSec));
+    set("DRY_STEP",            QString::number(d.dryStepSec));
+    set("ROUTING_STEP",        QString::number(d.routingStepSec, 'g', 6));
+    set("RULE_STEP",           QString::number(d.ruleStepSec));
+
+    set("IGNORE_RAINFALL",     yn(d.ignoreRainfall));
+    set("IGNORE_SNOWMELT",     yn(d.ignoreSnowmelt));
+    set("IGNORE_GROUNDWATER",  yn(d.ignoreGroundwater));
+    set("IGNORE_RDII",         yn(d.ignoreRdii));
+    set("IGNORE_QUALITY",      yn(d.ignoreQuality));
+    set("IGNORE_ROUTING",      yn(d.ignoreRouting));
+
+    set("INERTIAL_DAMPING",    d.inertialDamping);
+    set("NORMAL_FLOW_LIMITED", d.normalFlowLimited);
+    set("FORCE_MAIN_EQUATION", d.forceMainEquation);
+    set("SURCHARGE_METHOD",    d.surchargeMethod);
+    set("VARIABLE_STEP",       QString::number(variableStep, 'g', 6));
+    set("LENGTHENING_STEP",    QString::number(d.lengtheningStepSec, 'g', 6));
+    set("MINIMUM_STEP",        QString::number(d.minRoutingStepSec, 'g', 6));
+    set("MAX_TRIALS",          QString::number(d.maxTrials));
+    set("HEAD_TOLERANCE",      QString::number(d.headTolerance, 'g', 6));
+    set("SYS_FLOW_TOL",        QString::number(d.sysFlowTolPct, 'g', 6));
+    set("LAT_FLOW_TOL",        QString::number(d.latFlowTolPct, 'g', 6));
+    set("THREADS",             QString::number(d.threads));
+
+    set("RPT_INPUT",           QStringLiteral("NO"));
+    set("RPT_CONTROLS",        QStringLiteral("NO"));
+    set("RPT_SUBCATCHMENTS",   QStringLiteral("ALL"));
+    set("RPT_NODES",           QStringLiteral("ALL"));
+    set("RPT_LINKS",           QStringLiteral("ALL"));
+
+    if (spec.forNewEngine) {
+        set("NODE_CONTINUITY", d.nodeContinuity);
+        set("ANDERSON_ACCEL",  yn(d.andersonAccel));
+    }
+
+    // [2D_OPTIONS] seed — warn-don't-fail: an engine built without the 2D
+    // module parks unknown ext keys instead of erroring, and a refusal
+    // here must not kill project creation.
+    if (spec.forNewEngine && d.module2DEnabled) {
+        const PreferencesManager::TwoDDefaults &t = spec.twoD;
+        const auto set2d = [&](const char *key, const QString &value) {
+            const QByteArray v = value.toUtf8();
+            if (swmm_options_set_ext(eng, key, v.constData()) != 0)
+                qWarning() << "[SWMMModelLayer] blank-engine 2D option refused:"
+                           << key << value;
+        };
+        set2d("MAX_TIMESTEP",        QString::number(t.maxTimestepSec, 'g', 8));
+        set2d("THETA",               QString::number(t.theta, 'g', 6));
+        set2d("CFL_NUMBER",          QString::number(t.cflNumber, 'g', 6));
+        set2d("LTS_TIERS",           QString::number(t.ltsTiers));
+        set2d("H_MOVE",              QString::number(t.hMove, 'g', 6));
+        set2d("FROUDE_MAX",          QString::number(t.froudeMax, 'g', 6));
+        set2d("DRY_DEPTH",           QString::number(t.dryDepth, 'g', 8));
+        set2d("LIMITER_EPSILON",     QString::number(t.limiterEpsilon, 'g', 8));
+        set2d("FLUX_DH_EPS",         QString::number(t.fluxDhEps, 'g', 8));
+        set2d("CELL_CLOSURE",        t.cellClosure);
+        set2d("FACE_RECONSTRUCTION", t.faceReconstruction);
+        set2d("VFR_MIN_WET_FRAC",    QString::number(t.vfrMinWetFrac, 'g', 6));
+        set2d("COUPLING_CD",         QString::number(t.couplingCd, 'f', 4));
+        set2d("COUPLING_SYNC",       QString::number(t.couplingSync, 'g', 6));
+        set2d("COUPLING_AREA",       t.couplingAreaAuto ? QStringLiteral("AUTO")
+                                                        : QStringLiteral("DEFAULT"));
+        set2d("RAINFALL_MODE",       t.rainfallMode);
+        set2d("REPORT_2D",           yn(t.report2D));
+    }
+
+    // NOTE: [MAP] UNITS has no C-API setter — the CRS derivation in
+    // adoptOpenEngine covers the in-session behaviour, and the .oswp
+    // sidecar written on first Save As preserves the CRS across reopen.
+
+    if (!failures.isEmpty()) {
+        if (errorDetail) *errorDetail =
+            QStringLiteral("Blank project defaults were refused by the "
+                           "engine: %1").arg(failures.join(QStringLiteral("; ")));
+        swmm_engine_destroy(eng);
+        return nullptr;
+    }
+    // Deliberately NOT calling swmm_finalize_model: validation requires at
+    // least one node + outfall, which a blank project has not got. The
+    // engine stays in BUILDING state; every property setter and
+    // swmm_model_write accept that.
+    return eng;
+}
+
+bool SWMMModelLayer::adoptNewEngine(const NewProjectSpec &spec,
+                                    QList<QString> &warnings,
+                                    QList<QString> &errors)
+{
+    closeEngine();
+
+    QString detail;
+    SWMM_Engine eng = createBlankEngine(spec, &detail);
+    if (!eng) {
+        errors.append(detail);
+        return false;
+    }
+    // A blank engine builds in microseconds — run the loadModel two-step
+    // inline on the GUI thread; no worker hop, no I/O.
+    qint64 soaMs = 0, geomMs = 0;
+    buildFromEngine(eng, &soaMs, &geomMs);
+    return adoptOpenEngine(eng, warnings, errors, 0, soaMs, geomMs);
+}
+
 void SWMMModelLayer::buildFromEngine(SWMM_Engine engine,
                                      qint64 *soaMsOut, qint64 *geomMsOut)
 {
@@ -1011,7 +1168,24 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
         if (!layerSRS) {
             auto *prefs = PreferencesManager::instance();
             if (prefs->defaultCrsMode() == QStringLiteral("LocalAuto")) {
-                const QString mapUnits = readMapUnitsFromInp(m_modelFilePath);
+                // Pathless (in-memory new project): there is no .inp to scan,
+                // so derive the map units from the engine's flow units —
+                // the same ft/m rule the synthetic [MAP] UNITS line used.
+                // Keeps the SRS a concrete "Local (ft)"/"Local (m)" so
+                // finishModelLoad never opens the CRS picker for File → New.
+                QString mapUnits;
+                if (!m_modelFilePath.isEmpty()) {
+                    mapUnits = readMapUnitsFromInp(m_modelFilePath);
+                } else {
+                    char fu[16] = {};
+                    swmm_options_get(m_engine, "FLOW_UNITS", fu, sizeof(fu));
+                    const QString flow = QString::fromUtf8(fu).trimmed().toUpper();
+                    const bool si = flow == QStringLiteral("CMS")
+                                 || flow == QStringLiteral("LPS")
+                                 || flow == QStringLiteral("MLD");
+                    mapUnits = si ? QStringLiteral("METERS")
+                                  : QStringLiteral("FEET");
+                }
                 // "DEGREES" → geographic model, fall through to EPSG preference.
                 if (!mapUnits.isEmpty() && mapUnits != QStringLiteral("DEGREES"))
                     layerSRS = SpatialReferenceSystem::localFromMapUnits(mapUnits, this);
@@ -1053,7 +1227,10 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine,
         .arg(msOpen + soaMs + msCrs + geomMs);
     qCInfo(lcLoadModel).noquote() << timing;
 
-    setName(fi.baseName());
+    // Pathless (in-memory new project): keep the ctor's "Untitled" name —
+    // an empty baseName would blank the Layers-panel row.
+    if (!m_modelFilePath.isEmpty())
+        setName(fi.baseName());
     emit modelFilePathChanged(m_modelFilePath);
     emit modelLoaded();
     return true;
