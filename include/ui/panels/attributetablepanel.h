@@ -131,6 +131,11 @@ private slots:
                                    const QSet<SWMMObjectRef> &removed);
     void onShowSelectedOnlyToggled(bool on);
     void onZoomToSelectedClicked();
+
+    /*! Double-click on the row-number strip zooms the map to that element
+     *  (plus the rest of the selection). Lives on the vertical header, not
+     *  the cells, so the double-click-to-edit affordance is untouched. */
+    void onRowHeaderDoubleClicked(int row);
     void onExportCsvClicked();
     void onContextMenuRequested(const QPoint &pos);
     void onChangeTypeTriggered();
