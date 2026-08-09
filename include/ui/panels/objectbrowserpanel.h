@@ -71,6 +71,17 @@ public:
     /*! \brief Show + focus the search box and select its text (toolbar Search). */
     void focusSearch();
 
+    /*!
+     * \brief Select + scroll to the category header for \p c (e.g. the
+     *        "Storage" row when the user clicks the matching kind sub-row in
+     *        the Layers panel). No-op when the category is empty/hidden.
+     *        Runs under the applying-from-bus guard: a category header
+     *        carries no object refs, so without the guard the tree-selection
+     *        handler would push an empty Replace onto the SelectionManager
+     *        and wipe the user's map selection.
+     */
+    void selectCategory(SWMMModelLayer::Category c);
+
 signals:
     /*! \brief Emitted when the user picks "Plot Time Series" from the
      *         right-click menu and exactly one results layer (.out) is

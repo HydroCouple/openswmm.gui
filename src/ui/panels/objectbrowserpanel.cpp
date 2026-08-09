@@ -192,6 +192,25 @@ void ObjectBrowserPanel::focusSearch()
     m_searchEdit->selectAll();
 }
 
+void ObjectBrowserPanel::selectCategory(SWMMModelLayer::Category c)
+{
+    if (!m_view || !m_model || !m_proxy) return;
+    const int topRow = m_model->topRowForCategory(c);
+    if (topRow < 0) return;   // category empty → not shown in the tree
+    const QModelIndex src = m_model->index(topRow, 0, QModelIndex());
+    const QModelIndex proxy = m_proxy->mapFromSource(src);
+    if (!proxy.isValid()) return;   // filtered out by the search box
+
+    // Guard is mandatory, not defensive: a category header resolves to zero
+    // object refs, so onTreeSelectionChanged would push an EMPTY Replace to
+    // the SelectionManager and wipe the user's map selection.
+    m_applyingFromBus = true;
+    m_view->selectionModel()->setCurrentIndex(
+        proxy, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+    m_view->scrollTo(proxy, QAbstractItemView::PositionAtTop);
+    m_applyingFromBus = false;
+}
+
 void ObjectBrowserPanel::refresh()
 {
     // Block the tree's selection-change signal from propagating to the
