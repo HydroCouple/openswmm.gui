@@ -260,6 +260,12 @@ private:
      *         method selection. Called whenever the combo changes. */
     void updateSurchargeFieldsEnabled();
 
+    /*! \brief Enable / disable the finite-volume option groups based on the
+     *         flow-routing selection (FLOW_ROUTING FV), plus the intra-group
+     *         dependencies (limiter needs 2nd order, LTS tiers need LTS).
+     *         Called whenever the routing combo changes. */
+    void updateFvFieldsEnabled();
+
     /*! \brief Refresh the "End +" duration label from Start/End edits.
      *         Format: "Xd HH:MM:SS" or "—" when End <= Start. */
     void updateDurationLabel();
@@ -376,6 +382,30 @@ private:
     QDoubleSpinBox *m_sysFlowTolSpin    = nullptr;     // percent
     QDoubleSpinBox *m_minSurfAreaSpin   = nullptr;
     QDoubleSpinBox *m_minSlopeSpin      = nullptr;     // percent
+
+    // Tab 3 — Finite volume solver (FLOW_ROUTING FV). Both groups are kept
+    // as members so updateFvFieldsEnabled() can gate whole sections on the
+    // routing-combo selection with a single setEnabled() call each.
+    class QGroupBox *m_fvGroup            = nullptr;
+    class QGroupBox *m_fvPerfGroup        = nullptr;
+    QDoubleSpinBox *m_fvCellLengthSpin    = nullptr;   // project length units; 0 = one cell/conduit
+    QSpinBox       *m_fvMinCellsSpin      = nullptr;
+    QDoubleSpinBox *m_fvCflSpin           = nullptr;
+    QComboBox      *m_fvRiemannCombo      = nullptr;
+    QComboBox      *m_fvOrderCombo        = nullptr;
+    QComboBox      *m_fvLimiterCombo      = nullptr;   // 2nd order only
+    QComboBox      *m_fvTimeIntCombo      = nullptr;
+    QDoubleSpinBox *m_fvSlotCeleritySpin  = nullptr;   // project length units / s
+    QComboBox      *m_fvScalarSchemeCombo = nullptr;
+    QDoubleSpinBox *m_fvDispersionSpin    = nullptr;   // project length² / s; 0 = off
+    QComboBox      *m_fvStructCouplingCombo = nullptr;
+    QComboBox      *m_fvNodeCouplingCombo = nullptr;
+    QCheckBox      *m_fvCompactionBox     = nullptr;
+    QComboBox      *m_fvBackendCombo      = nullptr;
+    QSpinBox       *m_fvMinParallelSpin   = nullptr;
+    QCheckBox      *m_fvLtsBox            = nullptr;
+    QSpinBox       *m_fvLtsTiersSpin      = nullptr;   // needs LTS on
+    QSpinBox       *m_fvCflCensusSpin     = nullptr;
 
     // Tab 4 — System / Performance
     QSpinBox       *m_threadsSpin       = nullptr;
