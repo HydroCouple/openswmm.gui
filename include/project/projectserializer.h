@@ -115,9 +115,12 @@ private:
                                      const QVector<SWMMVisProjectWindow *> &windows,
                                      QString *errorOut);
 
-    static QJsonObject serializeBasemapLayer(OpenSWMMVisLayer *layer);
+    static QJsonObject serializeBasemapLayer(OpenSWMMVisLayer *layer,
+                                             const QString &oswpPath);
     static OpenSWMMVisLayer *deserializeBasemapLayer(const QJsonObject &obj,
-                                                     QObject *parent);
+                                                     QObject *parent,
+                                                     const QString &oswpPath,
+                                                     QStringList *warningsOut = nullptr);
 
     // GIS data layers (schema v4+) — loaded rasters (GDAL) and vector
     // datasets (OGR shapefiles, GeoPackage, …). Persisted by source path so

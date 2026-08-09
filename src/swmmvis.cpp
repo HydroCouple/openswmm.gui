@@ -3138,10 +3138,9 @@ void SWMMVis::initializeMenus()
 
     connect(ui->actionAddWMSData,    &QAction::triggered, this, &SWMMVis::onAddWMSLayer);
     connect(ui->actionAddBasemap,    &QAction::triggered, this, &SWMMVis::onAddBasemapLayer);
-    // 2026-06-04 — Add Basemap duplicates the Add WMS/WCS flow; hidden
-    // (not removed) so the action, dialog, and connect stay intact for
-    // an easy re-enable if the flows diverge again.
-    ui->actionAddBasemap->setVisible(false);
+    // Hidden 2026-06-04 as a duplicate of the Add WMS/WCS flow; re-enabled
+    // 2026-08-09 — the dialog's Local File tab (local raster basemaps) has
+    // no other entry point, so the flows have diverged again.
     connect(ui->actionAddVectorData, &QAction::triggered, this, &SWMMVis::onAddVectorLayer);
     connect(ui->actionAddRasterData, &QAction::triggered, this, &SWMMVis::onAddRasterLayer);
     connect(ui->actionAddSWMMOutput, &QAction::triggered, this, &SWMMVis::onAddSWMMResultsLayer);
@@ -7684,6 +7683,8 @@ void SWMMVis::onCRSButtonClicked()
 void SWMMVis::onAddBasemapLayer()
 {
     AddBasemapDialog dlg(this);
+    dlg.setInitialTab(4); // Local File tab — this button is its only entry
+                          // point; the service tabs have their own actions.
     if (dlg.exec() != QDialog::Accepted) return;
 
     OpenSWMMVisLayer *layer = dlg.createLayer(nullptr);

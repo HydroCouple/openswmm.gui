@@ -5,7 +5,7 @@
  * \brief  Unified "Add Basemap" dialog with tabs for XYZ, WMS/WMTS, and ArcGIS REST.
  *
  * \details
- * The dialog has four tabs:
+ * The dialog has five tabs:
  *  - Tab 0: XYZ Tiles  — URL template, zoom range, tile pixel ratio, axis order,
  *                         authentication, HTTP headers, Test Connection button.
  *  - Tab 1: WMS/WMTS   — URL with protocol auto-detection, Connect, layer tree,
@@ -15,6 +15,8 @@
  *                         authentication, HTTP headers.
  *  - Tab 3: ArcGIS REST — URL, Portal endpoint fields, Connect, result info panel,
  *                         authentication, HTTP headers.
+ *  - Tab 4: Local File  — local raster file (GeoTIFF/PNG/JPEG/BMP/…), optional
+ *                         world file, CRS selection.
  *
  * `createLayer(QObject*)` returns an `OpenSWMMVisLayer*` configured from the
  * accepted state (caller takes ownership).
@@ -107,11 +109,20 @@ private slots:
     void onArcGISMetadataFetched();
     void onArcGISMetadataError(const QString &error);
 
+    // Local file tab
+    void onLocalConnectionSelected(const QString &name);
+    void onLocalNew();
+    void onLocalDelete();
+    void onLocalBrowseFile();
+    void onLocalBrowseWorldFile();
+    void onLocalSelectCrs();
+
 private:
     void setupUiXYZ(QWidget *page);
     void setupUiWMS(QWidget *page);
     void setupUiWCS(QWidget *page);
     void setupUiArcGIS(QWidget *page);
+    void setupUiLocal(QWidget *page);
     void buildConnectionBar(QWidget *parent, QComboBox *&combo,
                             QPushButton *&newBtn, QPushButton *&editBtn,
                             QPushButton *&delBtn);
@@ -124,11 +135,14 @@ private:
     void refreshWMSCombo();
     void refreshWCSCombo();
     void refreshArcGISCombo();
+    void refreshLocalCombo();
 
     void populateXYZ(const XYZConnection &conn, const BasemapAuth &auth);
     void populateWMS(const WMSConnection  &conn, const BasemapAuth &auth);
     void populateWCS(const struct WCSConnection &conn, const BasemapAuth &auth);
     void populateArcGIS(const ArcGISRestConnection &conn, const BasemapAuth &auth);
+    void populateLocal(const LocalRasterConnection &conn);
+    void updateLocalGeorefStatus();
 
     void populateWMSTree(const struct WMSServiceInfo  &info);
     void populateWMTSTree(const struct WMTSServiceInfo &info);
@@ -140,6 +154,7 @@ private:
     [[nodiscard]] OpenSWMMVisLayer *buildWMTSLayer(QObject *parent)   const;
     [[nodiscard]] OpenSWMMVisLayer *buildWCSLayer(QObject *parent)    const;
     [[nodiscard]] OpenSWMMVisLayer *buildArcGISLayer(QObject *parent) const;
+    [[nodiscard]] OpenSWMMVisLayer *buildLocalRasterLayer(QObject *parent) const;
 
     // ---------- Widgets ----------------------------------------------------
 
@@ -227,6 +242,19 @@ private:
     BasemapHttpHeadersWidget *m_arcHeaders = nullptr;
     QPushButton *m_arcConnect     = nullptr;
     QLabel      *m_arcInfoLabel   = nullptr;
+
+    // Local file
+    QComboBox   *m_localCombo       = nullptr;
+    QPushButton *m_localNew         = nullptr;
+    QPushButton *m_localDel         = nullptr;
+    QLineEdit   *m_localName        = nullptr;
+    QLineEdit   *m_localFile        = nullptr;
+    QPushButton *m_localFileBrowse  = nullptr;
+    QLineEdit   *m_localWorld       = nullptr;
+    QPushButton *m_localWorldBrowse = nullptr;
+    QLineEdit   *m_localCrs         = nullptr;   // read-only; set via CRS dialog
+    QPushButton *m_localCrsBtn      = nullptr;
+    QLabel      *m_localStatus      = nullptr;
 
     // ---------- Runtime state ----------------------------------------------
 

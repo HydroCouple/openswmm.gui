@@ -79,6 +79,13 @@ public:
     QStringList arcGISConnectionNames() const;
     void removeArcGIS(const QString &name);
 
+    // ------ Local raster (no auth — local files have none) -----------
+
+    void saveLocalRaster(const LocalRasterConnection &conn);
+    LocalRasterConnection loadLocalRaster(const QString &name) const;
+    QStringList localRasterConnectionNames() const;
+    void removeLocalRaster(const QString &name);
+
 signals:
     void connectionsChanged();
 

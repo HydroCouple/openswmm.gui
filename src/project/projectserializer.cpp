@@ -239,6 +239,8 @@ const QString kBmFormat      = QStringLiteral("imageFormat");
 const QString kBmCrs         = QStringLiteral("crs");
 const QString kBmTms         = QStringLiteral("tileMatrixSet");
 const QString kBmDpiMode     = QStringLiteral("dpiMode");
+// Local raster basemaps ("localraster")
+const QString kBmPath        = QStringLiteral("path");        // relative to the .oswp
 
 // GIS data-layer keys (schema v4+) — loaded raster (GDAL) and vector (OGR)
 // layers persisted by source path so they reopen on project load.
@@ -1036,7 +1038,7 @@ bool ProjectSerializer::writeRootJson(const QString &oswpPath,
         QJsonArray basemapsArr;
         for (OpenSWMMVisLayer *l : canvas->layers()) {
             if (!l->isBasemapLayer()) continue;
-            const QJsonObject bm = serializeBasemapLayer(l);
+            const QJsonObject bm = serializeBasemapLayer(l, oswpPath);
             if (!bm.isEmpty())
                 basemapsArr.append(bm);
         }
@@ -1182,7 +1184,8 @@ bool ProjectSerializer::applyFromFile(const QString &oswpPath,
     if (ver >= 3 && canvas) {
         const QJsonArray basemapsArr = root.value(kBasemaps).toArray();
         for (const QJsonValue &v : basemapsArr) {
-            OpenSWMMVisLayer *bm = deserializeBasemapLayer(v.toObject(), canvas);
+            OpenSWMMVisLayer *bm = deserializeBasemapLayer(v.toObject(), canvas,
+                                                           oswpPath, warningsOut);
             if (bm)
                 canvas->addLayer(bm, /*pushUndo=*/false);
         }
@@ -1221,9 +1224,22 @@ static BasemapHttpHeaders headersFromJson(const QJsonObject &obj)
     return headers;
 }
 
-QJsonObject ProjectSerializer::serializeBasemapLayer(OpenSWMMVisLayer *layer)
+QJsonObject ProjectSerializer::serializeBasemapLayer(OpenSWMMVisLayer *layer,
+                                                     const QString &oswpPath)
 {
     QJsonObject obj;
+    // Local raster basemap — a GISRasterLayer flagged via setIsBasemap().
+    // Checked first; GISRasterLayer is unrelated to the XYZ/WMTS/WMS service
+    // types below so the qobject_casts can't collide. Georeferencing needs no
+    // serialization — it lives in the .aux.xml PAM sidecar next to the image.
+    if (auto *r = qobject_cast<GISRasterLayer *>(layer);
+        r && r->isBasemapLayer()) {
+        if (r->filePath().isEmpty()) return obj;   // nothing to reopen from
+        obj[kBmType] = QStringLiteral("localraster");
+        obj[kBmName] = r->name();
+        obj[kBmPath] = toRelativePath(r->filePath(), oswpPath);
+        return obj;
+    }
     if (auto *xyz = qobject_cast<XYZTileLayer *>(layer)) {
         obj[kBmType]         = QStringLiteral("xyz");
         obj[kBmName]         = xyz->name();
@@ -1258,7 +1274,9 @@ QJsonObject ProjectSerializer::serializeBasemapLayer(OpenSWMMVisLayer *layer)
 }
 
 OpenSWMMVisLayer *ProjectSerializer::deserializeBasemapLayer(const QJsonObject &obj,
-                                                             QObject *parent)
+                                                             QObject *parent,
+                                                             const QString &oswpPath,
+                                                             QStringList *warningsOut)
 {
     const QString type = obj.value(kBmType).toString();
     const BasemapHttpHeaders headers = headersFromJson(obj.value(kBmHeaders).toObject());
@@ -1290,6 +1308,24 @@ OpenSWMMVisLayer *ProjectSerializer::deserializeBasemapLayer(const QJsonObject &
         layer->setCrs(obj.value(kBmCrs).toString());
         layer->setDpiMode(obj.value(kBmDpiMode).toInt(7));
         layer->setHttpHeaders(headers);
+        return layer;
+    }
+    if (type == QStringLiteral("localraster")) {
+        const QString rel = obj.value(kBmPath).toString();
+        if (rel.isEmpty()) return nullptr;
+        const QString path = resolveStoredPath(rel, oswpPath);
+        if (!QFile::exists(path)) {
+            if (warningsOut)
+                *warningsOut << QObject::tr(
+                    "Local basemap file not found — layer skipped: %1").arg(path);
+            return nullptr;
+        }
+        // Async restore, mirroring deserializeGisLayer: the caller adds the
+        // layer to the canvas immediately; tiles appear when the open completes.
+        auto *layer = new GISRasterLayer(QString());
+        layer->setIsBasemap(true);
+        layer->setName(obj.value(kBmName).toString());
+        layer->openAsync(path);
         return layer;
     }
     return nullptr;

@@ -416,6 +416,7 @@ set(
         include/io/rptparser.h
         include/io/timeseriesparse.h
         include/io/gdaldrivers.h
+        include/io/rastergeoref.h
 
         # ── Curve (Slice BQ Phase 6.7.1) ─────────────────────────────────────
         include/curve/curveprovider.h
@@ -1012,6 +1013,7 @@ set(
         src/io/rptparser.cpp
         src/io/timeseriesparse.cpp
         src/io/gdaldrivers.cpp
+        src/io/rastergeoref.cpp
 
         # ── Curve (Slice BQ Phase 6.7.1) ─────────────────────────────────────
         src/curve/curveprovider.cpp
