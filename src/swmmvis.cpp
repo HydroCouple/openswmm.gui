@@ -3556,6 +3556,21 @@ void SWMMVis::initializeMenus()
         }
     }
 
+    // Layers panel → Object Browser category sync: clicking a SWMM kind
+    // sub-row ("Storage", "Conduits", …) focuses the matching category in
+    // the Object Browser. Only forwarded for the active project's model
+    // layer — kind ordinals are meaningless across projects.
+    if (mLayerTreePanel) {
+        connect(mLayerTreePanel, &LayerTreePanel::kindSelected,
+                this, [this](OpenSWMMVisLayer *layer, int kindOrdinal) {
+                    if (!mObjectBrowserPanel) return;
+                    SWMMVisProjectWindow *pw = activeProjectWindow();
+                    if (!pw || layer != pw->modelLayer()) return;
+                    mObjectBrowserPanel->selectCategory(
+                        static_cast<SWMMModelLayer::Category>(kindOrdinal));
+                });
+    }
+
     // View → Panels — a toggle action for every dock so a closed panel
     // stays reachable from the menu/keyboard. The Layer Styling dock keeps
     // its dedicated action above (it carries extra set-layer behavior on
