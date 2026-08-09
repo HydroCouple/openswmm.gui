@@ -6,6 +6,8 @@
  */
 
 #include "swmmvisprojectwindow.h"
+
+#include "swmmvis.h"   // closeEvent's Save As hand-off (saveProjectWindowAs)
 #include "map/mapcanvas.h"
 #include "layers/gisrasterlayer.h"
 #include "layers/openswmmvislayer.h"
@@ -63,6 +65,7 @@
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QPushButton>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -891,11 +894,23 @@ void SWMMVisProjectWindow::updateWindowTitle()
     setWindowTitle(mHasChanges ? (base + QStringLiteral(" *")) : base);
 }
 
-void SWMMVisProjectWindow::markUntitled(const QString &tempInpPath)
+void SWMMVisProjectWindow::markUntitled()
 {
     mUntitled = true;
-    mTempInpPath = tempInpPath;
     updateWindowTitle();
+}
+
+bool SWMMVisProjectWindow::initializeBlankModel(
+    const SWMMModelLayer::NewProjectSpec &spec,
+    QList<QString> &warnings, QList<QString> &errors)
+{
+    if (!mModelLayer) {
+        errors.append(tr("No model layer to initialize."));
+        return false;
+    }
+    if (!mModelLayer->adoptNewEngine(spec, warnings, errors))
+        return false;
+    return finishModelLoad(warnings, errors);
 }
 
 // ---------------------------------------------------------------------------
@@ -1099,15 +1114,14 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // If saved to a new path, point the layer at it so subsequent Save targets the new file.
     if (newPath != mModelLayer->modelFilePath())
         mModelLayer->setModelFilePath(newPath);
-    // First successful Save As of an untitled project — promote it. Delete
-    // the temp .inp the dialog wrote earlier; the engine has already read
-    // it into memory so the file is no longer needed.
+    // First successful Save As of an untitled project — promote it. The
+    // model lived only in memory until now, so there is nothing on disk to
+    // clean up; adopt the file's base name so the Layers panel drops
+    // "Untitled" too.
     if (mUntitled)
     {
-        if (!mTempInpPath.isEmpty() && QFile::exists(mTempInpPath))
-            QFile::remove(mTempInpPath);
-        mTempInpPath.clear();
         mUntitled = false;
+        mModelLayer->setName(QFileInfo(newPath).baseName());
         updateWindowTitle();
     }
     setHasChanges(false);
@@ -1199,49 +1213,86 @@ void SWMMVisProjectWindow::updateMeasureUnitCombo()
 
 void SWMMVisProjectWindow::closeEvent(QCloseEvent *event)
 {
-    if (mHasChanges)
+    // A modal prompt below runs a nested event loop; a re-entrant close
+    // (e.g. app-quit walking the sub-windows while the prompt is open)
+    // must not stack a second prompt.
+    if (mClosePromptActive)
     {
-        const QString name = mUntitled
-            ? QStringLiteral("Untitled")
-            : QFileInfo(mModelLayer->modelFilePath()).baseName();
-        QMessageBox::StandardButton btn = QMessageBox::question(
-            this, tr("Save changes?"),
-            tr("The model \"%1\" has unsaved changes. Save before closing?")
-                .arg(name),
-            QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
+        event->ignore();
+        return;
+    }
 
-        if (btn == QMessageBox::Cancel)
+    // Untitled projects live only in memory, so closing one always prompts
+    // — even with zero edits, the whole project vanishes on close.
+    if (mHasChanges || mUntitled)
+    {
+        mClosePromptActive = true;
+        const auto promptGuard = qScopeGuard([this] { mClosePromptActive = false; });
+
+        if (mUntitled)
         {
-            event->ignore();
-            return;
-        }
-        if (btn == QMessageBox::Save)
-        {
-            QString err;
-            if (!save(&err))
+            QMessageBox box(this);
+            box.setIcon(QMessageBox::Question);
+            box.setWindowTitle(tr("Save project?"));
+            box.setText(mHasChanges
+                ? tr("\"Untitled\" has never been saved and has unsaved changes.")
+                : tr("\"Untitled\" has never been saved."));
+            box.setInformativeText(tr("Save it to a file, or discard it?"));
+            QPushButton *saveAsBtn  = box.addButton(tr("Save As…"),
+                                                    QMessageBox::AcceptRole);
+            QPushButton *discardBtn = box.addButton(QMessageBox::Discard);
+            box.addButton(QMessageBox::Cancel);
+            box.setDefaultButton(saveAsBtn);
+            box.exec();
+
+            if (box.clickedButton() == saveAsBtn)
             {
-                // Untitled → save() returns false with the "use Save As"
-                // hint; the closeEvent can't open a Save As dialog
-                // synchronously (would block the close path), so we cancel
-                // the close and let the user trigger Save As manually.
-                if (mUntitled)
+                // Real Save As from the prompt — hand off to the main
+                // window's shared path-picking flow (filter normalization,
+                // last-filter memory). A canceled/failed dialog keeps the
+                // window open.
+                bool saved = false;
+                if (auto *vis = qobject_cast<SWMMVis *>(window()))
+                    saved = vis->saveProjectWindowAs(this);
+                if (!saved)
                 {
                     event->ignore();
-                    QMessageBox::information(this, tr("Save As required"),
-                        tr("Untitled projects need an explicit Save As — "
-                           "use File → Save As before closing."));
                     return;
                 }
-                QMessageBox::critical(this, tr("Save failed"), err);
-                event->ignore();
+            }
+            else if (box.clickedButton() != discardBtn)
+            {
+                event->ignore();   // Cancel / Esc
                 return;
             }
         }
+        else
+        {
+            const QString name =
+                QFileInfo(mModelLayer->modelFilePath()).baseName();
+            QMessageBox::StandardButton btn = QMessageBox::question(
+                this, tr("Save changes?"),
+                tr("The model \"%1\" has unsaved changes. Save before closing?")
+                    .arg(name),
+                QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
+
+            if (btn == QMessageBox::Cancel)
+            {
+                event->ignore();
+                return;
+            }
+            if (btn == QMessageBox::Save)
+            {
+                QString err;
+                if (!save(&err))
+                {
+                    QMessageBox::critical(this, tr("Save failed"), err);
+                    event->ignore();
+                    return;
+                }
+            }
+        }
     }
-    // Discard / no-changes path: clean up the temp .inp owned by an
-    // untitled project so we don't leak it.
-    if (mUntitled && !mTempInpPath.isEmpty() && QFile::exists(mTempInpPath))
-        QFile::remove(mTempInpPath);
     // Final commit point — emit before the Qt teardown chain runs so
     // observers (profile-plot dialog, etc.) can still touch our model
     // layer / canvas / results layers in their handlers.
