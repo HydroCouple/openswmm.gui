@@ -22,6 +22,7 @@
 #include "street/streetregistry.h"
 #include "ui/models/userflagsmodel.h"
 #include "transect/transectprovider.h"
+#include "timeseries/timeseriesprovider.h"
 #include "core/editgeometry.h"
 #include "core/preferencesmanager.h"
 #include "core/unitsystem.h"
@@ -1507,6 +1508,26 @@ namespace {
 // Browser data section.
 constexpr int kTableTypeTimeSeries = 0;
 
+/*! The typed registry iff it exists AND is bound to \a eng — the single gate
+ *  deciding registry-preferred vs engine-fallback reads, so dataObjectCount
+ *  and dataObjectNameAt never mix sources for one category. The registry is
+ *  authoritative while live: dialog submits stage providers BEFORE the
+ *  deferred saveToEngine flush, and saveToEngine never deletes engine rows,
+ *  so engine counts are wrong both right after an add and after a delete. */
+template <typename Reg>
+Reg *liveRegistry(QObject *member, void *cachedHandle, void *eng)
+{
+    auto *r = qobject_cast<Reg *>(member);
+    return (r && eng && cachedHandle == eng) ? r : nullptr;
+}
+
+template <typename Reg>
+QString providerNameAt(const Reg *r, int row)
+{
+    const auto ps = r->providers();
+    return (row < ps.size() && ps[row]) ? ps[row]->name() : QString();
+}
+
 } // anonymous
 
 void SWMMModelLayer::ensureTablePartition() const
@@ -1536,25 +1557,72 @@ void SWMMModelLayer::ensureTablePartition() const
 int SWMMModelLayer::dataObjectCount(DataCategory c) const
 {
     if (!m_engine) return 0;
+    // Registry-preferred (see liveRegistry above); engine fallback covers
+    // the pre-registry window right after open. Controls and Hydrographs
+    // stay engine-sourced — both commit to the engine immediately.
     switch (c) {
-    case DataCurves:        ensureTablePartition(); return m_curveTableIdx.size();
-    case DataTimeSeries:    ensureTablePartition(); return m_tsTableIdx.size();
-    case DataPatterns:      return swmm_pattern_count(m_engine);
-    case DataLIDControls:   return swmm_lid_count(m_engine);
-    case DataPollutants:    return swmm_pollutant_count(m_engine);
-    case DataLandUses:      return swmm_landuse_count(m_engine);
-    case DataAquifers:      return swmm_aquifer_count(m_engine);
-    case DataSnowpacks:     return swmm_snowpack_count(m_engine);
+    case DataCurves:
+        if (auto *r = liveRegistry<openswmmvis::curve::CurveRegistry>(
+                m_curveRegistry, m_curveRegistryEngineHandle, m_engine))
+            return r->providerCount();
+        ensureTablePartition(); return m_curveTableIdx.size();
+    case DataTimeSeries:
+        if (auto *r = liveRegistry<openswmmvis::timeseries::TimeseriesRegistry>(
+                m_tsRegistry, m_tsRegistryEngineHandle, m_engine))
+            return r->providerCount();
+        ensureTablePartition(); return m_tsTableIdx.size();
+    case DataPatterns:
+        if (auto *r = liveRegistry<openswmmvis::pattern::PatternRegistry>(
+                m_patternRegistry, m_patternRegistryEngineHandle, m_engine))
+            return r->providerCount();
+        return swmm_pattern_count(m_engine);
+    case DataLIDControls:
+        if (auto *r = liveRegistry<openswmmvis::lid::LidControlRegistry>(
+                m_lidControlRegistry, m_lidControlRegistryEngineHandle, m_engine))
+            return r->providerCount();
+        return swmm_lid_count(m_engine);
+    case DataPollutants:
+        if (auto *r = liveRegistry<openswmmvis::pollutant::PollutantRegistry>(
+                m_pollutantRegistry, m_pollutantRegistryEngineHandle, m_engine))
+            return r->providerCount();
+        return swmm_pollutant_count(m_engine);
+    case DataLandUses:
+        if (auto *r = liveRegistry<openswmmvis::landuse::LandUseRegistry>(
+                m_landUseRegistry, m_landUseRegistryEngineHandle, m_engine))
+            return r->providerCount();
+        return swmm_landuse_count(m_engine);
+    case DataAquifers:
+        if (auto *r = liveRegistry<openswmmvis::aquifer::AquiferRegistry>(
+                m_aquiferRegistry, m_aquiferRegistryEngineHandle, m_engine))
+            return r->providerCount();
+        return swmm_aquifer_count(m_engine);
+    case DataSnowpacks:
+        if (auto *r = liveRegistry<openswmmvis::snowpack::SnowpackRegistry>(
+                m_snowpackRegistry, m_snowpackRegistryEngineHandle, m_engine))
+            return r->providerCount();
+        return swmm_snowpack_count(m_engine);
     case DataControls:      return swmm_control_count(m_engine);
-    case DataTransects:     return swmm_transect_count(m_engine);
+    case DataTransects:
+        if (auto *r = liveRegistry<openswmmvis::transect::TransectRegistry>(
+                m_transectRegistry, m_transectRegistryEngineHandle, m_engine))
+            return r->providerCount();
+        return swmm_transect_count(m_engine);
     // Slice DA.1 — return the *unique group* count, not the raw per-
     // (group, month, response) entry count. The engine surfaces it via
     // `swmm_hydrograph_group_count` (DA-ENG-01). The legacy
     // `swmm_hydrograph_count` returns parameter rows (12 or 36 per
     // group), which left the Object Browser showing mostly blank rows.
     case DataHydrographs:   return swmm_hydrograph_group_count(m_engine);
-    case DataStreets:       return swmm_street_count(m_engine);
-    case DataInlets:        return swmm_inlet_count(m_engine);
+    case DataStreets:
+        if (auto *r = liveRegistry<openswmmvis::street::StreetRegistry>(
+                m_streetRegistry, m_streetRegistryEngineHandle, m_engine))
+            return r->providerCount();
+        return swmm_street_count(m_engine);
+    case DataInlets:
+        if (auto *r = liveRegistry<openswmmvis::inlet::InletRegistry>(
+                m_inletRegistry, m_inletRegistryEngineHandle, m_engine))
+            return r->providerCount();
+        return swmm_inlet_count(m_engine);
     default:                return 0;
     }
 }
@@ -1567,23 +1635,55 @@ QString SWMMModelLayer::dataObjectNameAt(DataCategory c, int row) const
         return p ? QString::fromUtf8(p) : QString();
     };
 
+    // Same registry-preferred gate as dataObjectCount — the two MUST agree
+    // on the source or rows and names go out of sync mid-refresh.
     switch (c) {
     case DataCurves: {
+        if (auto *r = liveRegistry<openswmmvis::curve::CurveRegistry>(
+                m_curveRegistry, m_curveRegistryEngineHandle, m_engine))
+            return providerNameAt(r, row);
         ensureTablePartition();
         if (row >= m_curveTableIdx.size()) return {};
         return nameOrEmpty(swmm_table_id(m_engine, m_curveTableIdx[row]));
     }
     case DataTimeSeries: {
+        if (auto *r = liveRegistry<openswmmvis::timeseries::TimeseriesRegistry>(
+                m_tsRegistry, m_tsRegistryEngineHandle, m_engine))
+            return providerNameAt(r, row);
         ensureTablePartition();
         if (row >= m_tsTableIdx.size()) return {};
         return nameOrEmpty(swmm_table_id(m_engine, m_tsTableIdx[row]));
     }
-    case DataPatterns:    return nameOrEmpty(swmm_pattern_id    (m_engine, row));
-    case DataLIDControls: return nameOrEmpty(swmm_lid_id         (m_engine, row));
-    case DataPollutants:  return nameOrEmpty(swmm_pollutant_id   (m_engine, row));
-    case DataLandUses:    return nameOrEmpty(swmm_landuse_id     (m_engine, row));
-    case DataAquifers:    return nameOrEmpty(swmm_aquifer_id     (m_engine, row));
-    case DataSnowpacks:   return nameOrEmpty(swmm_snowpack_id    (m_engine, row));
+    case DataPatterns:
+        if (auto *r = liveRegistry<openswmmvis::pattern::PatternRegistry>(
+                m_patternRegistry, m_patternRegistryEngineHandle, m_engine))
+            return providerNameAt(r, row);
+        return nameOrEmpty(swmm_pattern_id(m_engine, row));
+    case DataLIDControls:
+        if (auto *r = liveRegistry<openswmmvis::lid::LidControlRegistry>(
+                m_lidControlRegistry, m_lidControlRegistryEngineHandle, m_engine))
+            return providerNameAt(r, row);
+        return nameOrEmpty(swmm_lid_id(m_engine, row));
+    case DataPollutants:
+        if (auto *r = liveRegistry<openswmmvis::pollutant::PollutantRegistry>(
+                m_pollutantRegistry, m_pollutantRegistryEngineHandle, m_engine))
+            return providerNameAt(r, row);
+        return nameOrEmpty(swmm_pollutant_id(m_engine, row));
+    case DataLandUses:
+        if (auto *r = liveRegistry<openswmmvis::landuse::LandUseRegistry>(
+                m_landUseRegistry, m_landUseRegistryEngineHandle, m_engine))
+            return providerNameAt(r, row);
+        return nameOrEmpty(swmm_landuse_id(m_engine, row));
+    case DataAquifers:
+        if (auto *r = liveRegistry<openswmmvis::aquifer::AquiferRegistry>(
+                m_aquiferRegistry, m_aquiferRegistryEngineHandle, m_engine))
+            return providerNameAt(r, row);
+        return nameOrEmpty(swmm_aquifer_id(m_engine, row));
+    case DataSnowpacks:
+        if (auto *r = liveRegistry<openswmmvis::snowpack::SnowpackRegistry>(
+                m_snowpackRegistry, m_snowpackRegistryEngineHandle, m_engine))
+            return providerNameAt(r, row);
+        return nameOrEmpty(swmm_snowpack_id(m_engine, row));
     case DataControls: {
         // Slice DA.1 — surface the user-supplied RULE name via the new
         // engine accessor `swmm_control_get_id` (DA-ENG-02), which parses
@@ -1598,7 +1698,11 @@ QString SWMMModelLayer::dataObjectNameAt(DataCategory c, int row) const
             return QObject::tr("Rule %1 [unnamed]").arg(row + 1);
         return {};
     }
-    case DataTransects:   return nameOrEmpty(swmm_transect_id    (m_engine, row));
+    case DataTransects:
+        if (auto *r = liveRegistry<openswmmvis::transect::TransectRegistry>(
+                m_transectRegistry, m_transectRegistryEngineHandle, m_engine))
+            return providerNameAt(r, row);
+        return nameOrEmpty(swmm_transect_id(m_engine, row));
     case DataHydrographs: {
         // Slice DA.1 — group enumeration via `swmm_hydrograph_group_id`
         // (DA-ENG-01) replaces the prior iterate-and-dedup loop. The
@@ -1609,8 +1713,16 @@ QString SWMMModelLayer::dataObjectNameAt(DataCategory c, int row) const
             return {};
         return QString::fromUtf8(buf);
     }
-    case DataStreets: return nameOrEmpty(swmm_street_id(m_engine, row));
-    case DataInlets:  return nameOrEmpty(swmm_inlet_id (m_engine, row));
+    case DataStreets:
+        if (auto *r = liveRegistry<openswmmvis::street::StreetRegistry>(
+                m_streetRegistry, m_streetRegistryEngineHandle, m_engine))
+            return providerNameAt(r, row);
+        return nameOrEmpty(swmm_street_id(m_engine, row));
+    case DataInlets:
+        if (auto *r = liveRegistry<openswmmvis::inlet::InletRegistry>(
+                m_inletRegistry, m_inletRegistryEngineHandle, m_engine))
+            return providerNameAt(r, row);
+        return nameOrEmpty(swmm_inlet_id(m_engine, row));
     default:          return {};
     }
 }
@@ -1812,12 +1924,81 @@ bool SWMMModelLayer::createDataObject(DataCategory c,
     if (c == DataCurves || c == DataTimeSeries)
         m_tablePartitionDirty = true;
 
+    // Registry-preferred counts (see liveRegistry) would miss this direct
+    // engine add — mirror it into the live registry, if one exists, via the
+    // idempotent loadFromEngine (pre-existing providers are skipped by
+    // name). Categories without a live registry fall back to engine reads.
+    switch (c) {
+    case DataCurves:
+        if (auto *r = liveRegistry<openswmmvis::curve::CurveRegistry>(
+                m_curveRegistry, m_curveRegistryEngineHandle, eng))
+            r->loadFromEngine(eng);
+        break;
+    case DataTimeSeries:
+        if (auto *r = liveRegistry<openswmmvis::timeseries::TimeseriesRegistry>(
+                m_tsRegistry, m_tsRegistryEngineHandle, eng))
+            r->loadFromEngine(eng);
+        break;
+    case DataPatterns:
+        if (auto *r = liveRegistry<openswmmvis::pattern::PatternRegistry>(
+                m_patternRegistry, m_patternRegistryEngineHandle, eng))
+            r->loadFromEngine(eng);
+        break;
+    case DataLIDControls:
+        if (auto *r = liveRegistry<openswmmvis::lid::LidControlRegistry>(
+                m_lidControlRegistry, m_lidControlRegistryEngineHandle, eng))
+            r->loadFromEngine(eng);
+        break;
+    case DataPollutants:
+        if (auto *r = liveRegistry<openswmmvis::pollutant::PollutantRegistry>(
+                m_pollutantRegistry, m_pollutantRegistryEngineHandle, eng))
+            r->loadFromEngine(eng);
+        break;
+    case DataLandUses:
+        if (auto *r = liveRegistry<openswmmvis::landuse::LandUseRegistry>(
+                m_landUseRegistry, m_landUseRegistryEngineHandle, eng))
+            r->loadFromEngine(eng);
+        break;
+    case DataAquifers:
+        if (auto *r = liveRegistry<openswmmvis::aquifer::AquiferRegistry>(
+                m_aquiferRegistry, m_aquiferRegistryEngineHandle, eng))
+            r->loadFromEngine(eng);
+        break;
+    case DataSnowpacks:
+        if (auto *r = liveRegistry<openswmmvis::snowpack::SnowpackRegistry>(
+                m_snowpackRegistry, m_snowpackRegistryEngineHandle, eng))
+            r->loadFromEngine(eng);
+        break;
+    case DataTransects:
+        if (auto *r = liveRegistry<openswmmvis::transect::TransectRegistry>(
+                m_transectRegistry, m_transectRegistryEngineHandle, eng))
+            r->loadFromEngine(eng);
+        break;
+    case DataStreets:
+        if (auto *r = liveRegistry<openswmmvis::street::StreetRegistry>(
+                m_streetRegistry, m_streetRegistryEngineHandle, eng))
+            r->loadFromEngine(eng);
+        break;
+    case DataInlets:
+        if (auto *r = liveRegistry<openswmmvis::inlet::InletRegistry>(
+                m_inletRegistry, m_inletRegistryEngineHandle, eng))
+            r->loadFromEngine(eng);
+        break;
+    default:
+        break;  // Controls / Hydrographs are engine-sourced
+    }
+
     // Slice BS Phase 6.9.2 — generic create path doesn't go through the
     // applyHydrograph* MVC seam (it predates BS-02). Emit the signal here
     // so the editor, Object Browser, and any open property panel sync
     // when a hydrograph is created via NewDataObjectDialog.
     if (c == DataHydrographs)
         emit hydrographChanged(name);
+
+    // Unconditional — the registry mirror above only fires providerAdded
+    // when a live registry exists; engine-sourced categories (and the
+    // pre-registry window) still need the Object Browser to refresh.
+    emit dataObjectsChanged();
 
     if (outError) outError->clear();
     return true;
@@ -5278,6 +5459,15 @@ QObject *SWMMModelLayer::ensureTimeseriesRegistry()
         m_tsRegistry = reg;
         m_tsRegistryEngineHandle = eng;
         reg->loadFromEngine(eng);
+        // Connect AFTER the initial seed so the bulk providerAdded burst
+        // doesn't storm the Object Browser. Mutations fire at dialog
+        // submit, which may precede the deferred saveToEngine flush —
+        // dataObjectCount/NameAt are registry-preferred for this reason.
+        auto onMutated = [this] { m_tablePartitionDirty = true;
+                                  emit dataObjectsChanged(); };
+        connect(reg, &TimeseriesRegistry::providerAdded, this, onMutated);
+        connect(reg, &TimeseriesRegistry::providerAboutToBeRemoved, this, onMutated);
+        connect(reg, &TimeseriesRegistry::providerRenamed, this, onMutated);
     }
     return reg;
 }
@@ -5298,6 +5488,10 @@ QObject *SWMMModelLayer::ensurePatternRegistry()
         // Attach AFTER loadFromEngine so the initial seed doesn't try to
         // re-add patterns the engine already has.
         reg->attachEngine(eng);
+        auto onMutated = [this] { emit dataObjectsChanged(); };
+        connect(reg, &PatternRegistry::providerAdded, this, onMutated);
+        connect(reg, &PatternRegistry::providerAboutToBeRemoved, this, onMutated);
+        connect(reg, &PatternRegistry::providerRenamed, this, onMutated);
     }
     return reg;
 }
@@ -5315,6 +5509,11 @@ QObject *SWMMModelLayer::ensureCurveRegistry()
         m_curveRegistry = reg;
         m_curveRegistryEngineHandle = eng;
         reg->loadFromEngine(eng);
+        auto onMutated = [this] { m_tablePartitionDirty = true;
+                                  emit dataObjectsChanged(); };
+        connect(reg, &CurveRegistry::providerAdded, this, onMutated);
+        connect(reg, &CurveRegistry::providerAboutToBeRemoved, this, onMutated);
+        connect(reg, &CurveRegistry::providerRenamed, this, onMutated);
     }
     return reg;
 }
@@ -5608,6 +5807,10 @@ QObject *SWMMModelLayer::ensureTransectRegistry()
         m_transectRegistry = reg;
         m_transectRegistryEngineHandle = eng;
         reg->loadFromEngine(eng);
+        auto onMutated = [this] { emit dataObjectsChanged(); };
+        connect(reg, &TransectRegistry::providerAdded, this, onMutated);
+        connect(reg, &TransectRegistry::providerAboutToBeRemoved, this, onMutated);
+        connect(reg, &TransectRegistry::providerRenamed, this, onMutated);
     }
     return reg;
 }
@@ -5625,6 +5828,10 @@ QObject *SWMMModelLayer::ensureStreetRegistry()
         m_streetRegistry = reg;
         m_streetRegistryEngineHandle = eng;
         reg->loadFromEngine(eng);
+        auto onMutated = [this] { emit dataObjectsChanged(); };
+        connect(reg, &StreetRegistry::providerAdded, this, onMutated);
+        connect(reg, &StreetRegistry::providerAboutToBeRemoved, this, onMutated);
+        connect(reg, &StreetRegistry::providerRenamed, this, onMutated);
     }
     return reg;
 }
@@ -5642,6 +5849,10 @@ QObject *SWMMModelLayer::ensurePollutantRegistry()
         m_pollutantRegistry = reg;
         m_pollutantRegistryEngineHandle = eng;
         reg->loadFromEngine(eng);
+        auto onMutated = [this] { emit dataObjectsChanged(); };
+        connect(reg, &PollutantRegistry::providerAdded, this, onMutated);
+        connect(reg, &PollutantRegistry::providerAboutToBeRemoved, this, onMutated);
+        connect(reg, &PollutantRegistry::providerRenamed, this, onMutated);
     }
     return reg;
 }
@@ -5659,6 +5870,10 @@ QObject *SWMMModelLayer::ensureLandUseRegistry()
         m_landUseRegistry = reg;
         m_landUseRegistryEngineHandle = eng;
         reg->loadFromEngine(eng);
+        auto onMutated = [this] { emit dataObjectsChanged(); };
+        connect(reg, &LandUseRegistry::providerAdded, this, onMutated);
+        connect(reg, &LandUseRegistry::providerAboutToBeRemoved, this, onMutated);
+        connect(reg, &LandUseRegistry::providerRenamed, this, onMutated);
     }
     return reg;
 }
@@ -5676,6 +5891,10 @@ QObject *SWMMModelLayer::ensureAquiferRegistry()
         m_aquiferRegistry = reg;
         m_aquiferRegistryEngineHandle = eng;
         reg->loadFromEngine(eng);
+        auto onMutated = [this] { emit dataObjectsChanged(); };
+        connect(reg, &AquiferRegistry::providerAdded, this, onMutated);
+        connect(reg, &AquiferRegistry::providerAboutToBeRemoved, this, onMutated);
+        connect(reg, &AquiferRegistry::providerRenamed, this, onMutated);
     }
     return reg;
 }
@@ -5693,6 +5912,10 @@ QObject *SWMMModelLayer::ensureSnowpackRegistry()
         m_snowpackRegistry = reg;
         m_snowpackRegistryEngineHandle = eng;
         reg->loadFromEngine(eng);
+        auto onMutated = [this] { emit dataObjectsChanged(); };
+        connect(reg, &SnowpackRegistry::providerAdded, this, onMutated);
+        connect(reg, &SnowpackRegistry::providerAboutToBeRemoved, this, onMutated);
+        connect(reg, &SnowpackRegistry::providerRenamed, this, onMutated);
     }
     return reg;
 }
@@ -5710,6 +5933,10 @@ QObject *SWMMModelLayer::ensureInletRegistry()
         m_inletRegistry = reg;
         m_inletRegistryEngineHandle = eng;
         reg->loadFromEngine(eng);
+        auto onMutated = [this] { emit dataObjectsChanged(); };
+        connect(reg, &InletRegistry::providerAdded, this, onMutated);
+        connect(reg, &InletRegistry::providerAboutToBeRemoved, this, onMutated);
+        connect(reg, &InletRegistry::providerRenamed, this, onMutated);
     }
     return reg;
 }
@@ -5727,6 +5954,10 @@ QObject *SWMMModelLayer::ensureLidControlRegistry()
         m_lidControlRegistry = reg;
         m_lidControlRegistryEngineHandle = eng;
         reg->loadFromEngine(eng);
+        auto onMutated = [this] { emit dataObjectsChanged(); };
+        connect(reg, &LidControlRegistry::providerAdded, this, onMutated);
+        connect(reg, &LidControlRegistry::providerAboutToBeRemoved, this, onMutated);
+        connect(reg, &LidControlRegistry::providerRenamed, this, onMutated);
     }
     return reg;
 }

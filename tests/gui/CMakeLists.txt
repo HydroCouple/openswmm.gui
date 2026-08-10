@@ -1922,6 +1922,16 @@ add_swmmvis_gui_test(test_typedselection
 )
 swmmvis_link_full_app_deps(test_typedselection)
 
+# Object Browser refresh on data-object mutations — dataObjectsChanged →
+# coalesced tree reload, registry-preferred counts (staged adds visible
+# before saveToEngine; deletes disappear despite the engine-side row).
+add_swmmvis_gui_test(test_objectbrowser_tree_refresh
+    test_objectbrowser_tree_refresh.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_objectbrowser_tree_refresh)
+
 # 82fc82b — async model load (SWMMModelLayer::openEngineForPath/
 # adoptOpenEngine, SWMMVisProjectWindow::loadModelAsync). Also constructs a
 # real SWMMVisProjectWindow (a QWidget), so the .cpp uses QTEST_MAIN (full

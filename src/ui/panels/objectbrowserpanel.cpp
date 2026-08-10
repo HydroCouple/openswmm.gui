@@ -145,6 +145,20 @@ void ObjectBrowserPanel::buildUi()
             this, [this](const QItemSelection &, const QItemSelection &) {
                 onTreeSelectionChanged();
             });
+
+    // Model-initiated resets (data-object mutations reload the tree model
+    // directly, bypassing refresh()'s blockSignals wrapper) clear the
+    // view's selection, which would push an empty Replace to the
+    // SelectionManager and wipe the map selection. Suppress the echo for
+    // the duration of the reset, then re-apply the bus selection.
+    connect(m_model, &QAbstractItemModel::modelAboutToBeReset,
+            this, [this] { m_applyingFromBus = true; });
+    connect(m_model, &QAbstractItemModel::modelReset,
+            this, [this] {
+                m_applyingFromBus = false;
+                if (m_selMgr && !m_selMgr->isEmpty())
+                    onSelectionManagerChanged(m_selMgr->selection(), {}, {});
+            });
 }
 
 // ---------------------------------------------------------------------------
