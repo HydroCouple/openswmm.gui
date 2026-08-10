@@ -687,6 +687,8 @@ void AttributeTablePanel::setProject(SWMMModelLayer *layer,
                             this,    &AttributeTablePanel::refresh);
         QObject::disconnect(m_layer, &SWMMModelLayer::geometryChanged,
                             this,    &AttributeTablePanel::refresh);
+        QObject::disconnect(m_layer, &SWMMModelLayer::dataObjectsChanged,
+                            this,    &AttributeTablePanel::refresh);
         QObject::disconnect(m_layer, &SWMMModelLayer::attributeChanged,
                             this,    &AttributeTablePanel::onObjectEditedExternally);
     }
@@ -722,6 +724,13 @@ void AttributeTablePanel::setProject(SWMMModelLayer *layer,
         connect(m_layer, &SWMMModelLayer::geometryChanged,
                 this,    &AttributeTablePanel::refresh,
                 Qt::UniqueConnection);
+        // Queued: providerAboutToBeRemoved-driven emissions arrive before
+        // the removal lands — deferring to the next event-loop turn makes
+        // refresh() read post-mutation state.
+        connect(m_layer, &SWMMModelLayer::dataObjectsChanged,
+                this,    &AttributeTablePanel::refresh,
+                static_cast<Qt::ConnectionType>(Qt::QueuedConnection
+                                                | Qt::UniqueConnection));
         connect(m_layer, &SWMMModelLayer::attributeChanged,
                 this,    &AttributeTablePanel::onObjectEditedExternally,
                 Qt::UniqueConnection);
