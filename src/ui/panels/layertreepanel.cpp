@@ -457,6 +457,20 @@ void LayerTreeModel::rebuildKindRows()
                                           const_cast<void *>(static_cast<const void *>(layer)));
                                       emit dataChanged(top, bottom);
                                   });
+                // Adds / deletes change the per-kind element counts shown
+                // in the "<Kind> (count)" labels — without this the labels
+                // only repainted on the next incidental viewport update.
+                QObject::disconnect(modelLayer, &SWMMModelLayer::geometryChanged,
+                                    this, nullptr);
+                QObject::connect(modelLayer, &SWMMModelLayer::geometryChanged,
+                                  this, [this, layer]() {
+                                      const QModelIndex top    = createIndex(0, 0,
+                                          const_cast<void *>(static_cast<const void *>(layer)));
+                                      const QModelIndex bottom = createIndex(
+                                          kKindsPerSwmmModelLayer - 1, columnCount() - 1,
+                                          const_cast<void *>(static_cast<const void *>(layer)));
+                                      emit dataChanged(top, bottom);
+                                  });
             }
             // (Removed 2026-05-25): the resultsLayer kind-row branch is
             // dropped per the user-direction comment above. SWMMResultsLayer

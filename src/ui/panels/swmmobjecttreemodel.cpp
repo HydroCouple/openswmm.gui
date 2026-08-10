@@ -11,6 +11,7 @@
 #include <QIcon>
 #include <QIODevice>
 #include <QMimeData>
+#include <QTimer>
 
 namespace {
 
@@ -169,6 +170,12 @@ void SWMMObjectTreeModel::setLayer(SWMMModelLayer *layer)
                             this,           &SWMMObjectTreeModel::reload);
         QObject::disconnect(m_layer.data(), &SWMMModelLayer::hydrographChanged,
                             this, nullptr);
+        QObject::disconnect(m_layer.data(), &SWMMModelLayer::dataObjectsChanged,
+                            this, nullptr);
+        QObject::disconnect(m_layer.data(), &SWMMModelLayer::transectChanged,
+                            this, nullptr);
+        QObject::disconnect(m_layer.data(), &SWMMModelLayer::controlRulesChanged,
+                            this, nullptr);
     }
 
     m_layer = layer;
@@ -193,7 +200,30 @@ void SWMMObjectTreeModel::setLayer(SWMMModelLayer *layer)
         connect(m_layer.data(), &SWMMModelLayer::hydrographChanged,
                 this,           &SWMMObjectTreeModel::reload,
                 Qt::UniqueConnection);
+        // Non-spatial data objects: registry add/remove/rename (fires at
+        // dialog submit), createDataObject, transect + control-rule apply
+        // helpers. Coalesced — providerAboutToBeRemoved fires before the
+        // removal lands, and renames/bulk edits fire in bursts.
+        connect(m_layer.data(), &SWMMModelLayer::dataObjectsChanged,
+                this,           &SWMMObjectTreeModel::scheduleReload,
+                Qt::UniqueConnection);
+        connect(m_layer.data(), &SWMMModelLayer::transectChanged,
+                this,           &SWMMObjectTreeModel::scheduleReload,
+                Qt::UniqueConnection);
+        connect(m_layer.data(), &SWMMModelLayer::controlRulesChanged,
+                this,           &SWMMObjectTreeModel::scheduleReload,
+                Qt::UniqueConnection);
     }
+}
+
+void SWMMObjectTreeModel::scheduleReload()
+{
+    if (m_reloadPending) return;
+    m_reloadPending = true;
+    QTimer::singleShot(0, this, [this] {
+        m_reloadPending = false;
+        reload();
+    });
 }
 
 void SWMMObjectTreeModel::reload()

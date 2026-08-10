@@ -124,7 +124,17 @@ public slots:
      *  the category counts). */
     void reload();
 
+    /*! Coalescing wrapper — schedules a single reload() on the next
+     *  event-loop turn no matter how many change signals fire this turn.
+     *  Data-object mutations arrive in bursts (a registry rename fires
+     *  remove+add pairs; bulk imports fire per object) and some fire
+     *  BEFORE the mutation completes (providerAboutToBeRemoved), so the
+     *  deferred reload both dedupes and reads post-mutation state. */
+    void scheduleReload();
+
 private:
+    bool m_reloadPending = false;
+
     // internalId sentinels for top-level rows. Leaf rows store their
     // parent row index as internalId instead — leaf internalId is always
     // < kSeparatorId so the discriminator is unambiguous.
