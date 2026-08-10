@@ -1,0 +1,4 @@
+{
+    "name": "Bellinge 2D Urban Flood Model",
+    "description": "Coupled 1D drainage network and 2D overland-flow mesh for the Bellinge catchment (Odense, Denmark), with an 11-year rain-gage record and an SRTM terrain raster (add it via Layers if desired)."
+}

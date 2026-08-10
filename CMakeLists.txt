@@ -405,6 +405,7 @@ set(
         include/project/openswmmvisworkspace.h
         include/project/openswmmvisworkspacemodel.h
         include/project/openswmmvissession.h
+        include/project/examplesseeder.h
         include/project/projectserializer.h
         include/project/saveaspathnormalizer.h
         include/project/swmmvisproject.h
@@ -1001,6 +1002,7 @@ set(
         src/project/openswmmvisworkspace.cpp
         src/project/openswmmvisworkspacemodel.cpp
         src/project/openswmmvissession.cpp
+        src/project/examplesseeder.cpp
         src/project/projectserializer.cpp
         src/project/saveaspathnormalizer.cpp
         src/project/swmmvisproject.cpp
@@ -1571,30 +1573,50 @@ else()
 endif()
 
 # ── Bundled example projects (Welcome page) ─────────────────────────────────
-# Exactly two bare .inp models surface as one-click buttons on the Welcome page.
-# The launcher scans only the TOP LEVEL of the examples dir for *.inp
-# (non-recursive — swmmvis.cpp ~L585), so stage these FLAT, not in subdirs.
+# Two kinds of example land in the examples dir the launcher scans
+# (ExamplesSeeder::discoverExamples — src/project/examplesseeder.cpp):
+#   - flat top-level .inp files (legacy single-file examples), and
+#   - one SUBDIRECTORY per full example project (.inp + .oswp + data
+#     sidecars + optional example.json manifest for display name/description).
+# The seeder mirrors this payload into the per-user app-data dir at startup,
+# and the Welcome page always copies an example elsewhere before opening it.
 set(_SWMMVIS_EXAMPLE_INPS
     "${CMAKE_CURRENT_SOURCE_DIR}/examples/demo_road_culvert/road_culvert.inp"
     "${CMAKE_CURRENT_SOURCE_DIR}/examples/site_drainage/site_drainage_model.inp"
 )
+set(_SWMMVIS_EXAMPLE_DIRS
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/bellinge_2d"
+)
 if(APPLE)
     # POST_BUILD into Contents/Resources/examples; install(TARGETS ... BUNDLE) ships it,
     # same as the GDAL/PROJ Resources above. Wipe the dest first so the dir reflects
-    # exactly the curated list (no stale .inp from a previously-bundled example lingers).
+    # exactly the curated list (no stale files from a previously-bundled example linger).
     set(_SWMMVIS_EXAMPLES_DEST "$<TARGET_BUNDLE_CONTENT_DIR:SWMMVis>/Resources/examples")
+    set(_SWMMVIS_EXAMPLE_DIR_CMDS "")
+    foreach(_ex_dir IN LISTS _SWMMVIS_EXAMPLE_DIRS)
+        get_filename_component(_ex_name "${_ex_dir}" NAME)
+        list(APPEND _SWMMVIS_EXAMPLE_DIR_CMDS
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${_ex_dir}" "${_SWMMVIS_EXAMPLES_DEST}/${_ex_name}")
+    endforeach()
     add_custom_command(TARGET SWMMVis POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E rm -rf "${_SWMMVIS_EXAMPLES_DEST}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${_SWMMVIS_EXAMPLES_DEST}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${_SWMMVIS_EXAMPLE_INPS} "${_SWMMVIS_EXAMPLES_DEST}/"
-        COMMENT "Copy bundled example .inp files into SWMMVis.app/Contents/Resources/examples"
+        ${_SWMMVIS_EXAMPLE_DIR_CMDS}
+        COMMENT "Copy bundled examples into SWMMVis.app/Contents/Resources/examples"
         VERBATIM
     )
 else()
-    # Linux + Windows: install(FILES) into the share tree CPack packages.
+    # Linux + Windows: install into the share tree CPack packages.
     # CMAKE_INSTALL_DATAROOTDIR = "share" on all platforms, matching search path #1.
     install(FILES ${_SWMMVIS_EXAMPLE_INPS}
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/openswmmgui/examples
+        COMPONENT Runtime
+    )
+    # No trailing slash — the directory itself is copied under examples/.
+    install(DIRECTORY ${_SWMMVIS_EXAMPLE_DIRS}
         DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/openswmmgui/examples
         COMPONENT Runtime
     )

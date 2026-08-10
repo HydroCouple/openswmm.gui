@@ -25,6 +25,7 @@
 #include "version.h"
 #include "swmmvisapplication.h"
 #include "swmmvis.h"
+#include "project/examplesseeder.h"
 #include "swmmvissplashscreen.h"
 #include "core/gisdatapaths.h"
 #include "core/preferencesmanager.h"
@@ -82,8 +83,12 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     // proj.db and every CRS lookup came back empty.
     setupBundledGisDataPaths();
 
-    mSWMMVisGUI = new SWMMVis();
-
+    // Identity MUST precede the main-window construction: SWMMVis's ctor
+    // builds QSettings members and (via the Welcome screen) resolves
+    // QStandardPaths::AppLocalDataLocation, both of which key off the
+    // org/app names. Setting them after `new SWMMVis()` (as this did
+    // previously) made those resolve against Qt defaults, splitting the
+    // app's settings across two files.
     setOrganizationName("hydrocouple");
     setOrganizationDomain("calebbuahin.github.io");
 
@@ -91,6 +96,12 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     setApplicationVersion(version);
     setApplicationName("OpenSWMM Stormwater Management Model");
     setApplicationDisplayName("SWMM");
+
+    // Seed bundled examples into the per-user data dir before the Welcome
+    // screen (built inside the SWMMVis ctor) scans for them.
+    openswmmvis::project::examples::preferredExamplesDir(version);
+
+    mSWMMVisGUI = new SWMMVis();
 
 
     this->setStyle(QStyleFactory::create("Fusion"));
