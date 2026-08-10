@@ -1848,6 +1848,17 @@ signals:
      *  property panel, TransectEditorDialog) bind to those models. */
     void transectChanged(const QString &transectName);
 
+    /*! Emitted whenever the SET of non-spatial data objects changes — a
+     *  provider added / removed / renamed in any of the typed registries
+     *  (time series, curves, patterns, transects, …) or an engine-side
+     *  create via createDataObject(). Registry mutations fire at dialog
+     *  submit time, which may be BEFORE the registry's deferred
+     *  saveToEngine() flush — dataObjectCount()/dataObjectNameAt() are
+     *  registry-preferred so subscribers see staged objects immediately.
+     *  The Object Browser tree model and Attribute Table listen here;
+     *  this is the data-object counterpart of geometryChanged(). */
+    void dataObjectsChanged();
+
 private:
     // X4 — decode a kind-qualified legend class key ("<kindKey><sep><inner>")
     // back to its Category + inner class key. Returns false when the key
