@@ -393,6 +393,17 @@ target_link_libraries(test_rastergeoref PRIVATE Qt6::Gui GDAL::GDAL)
 target_compile_definitions(test_rastergeoref
     PRIVATE RASTERGEOREF_OUT_DIR="${PROJECT_SOURCE_DIR}/test_artifacts/localraster")
 
+# ---- Bundled-example seeder / discovery + curated Bellinge payload guard ----
+# QTemporaryDir fixtures for sync/copy/discovery; BELLINGE_EXAMPLE_DIR points
+# at the committed payload so curation regressions (result-layer refs creeping
+# back into the .oswp, missing files, stray .ovr/.out) fail the suite.
+add_swmmvis_unit_test(test_examplesseeder
+    test_examplesseeder.cpp
+    ${PROJECT_SOURCE_DIR}/src/project/examplesseeder.cpp
+)
+target_compile_definitions(test_examplesseeder
+    PRIVATE BELLINGE_EXAMPLE_DIR="${PROJECT_SOURCE_DIR}/examples/bellinge_2d")
+
 # ---- QSG 2D 1M-cell rendering helpers (QSG_2D_1M_RENDERING plan) ----
 # All pure Qt-Core helpers extracted from the 2D mesh/results QSG renderers
 # so rendering decisions are unit-testable without Qt Quick.

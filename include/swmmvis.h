@@ -41,6 +41,7 @@ QT_END_NAMESPACE
 namespace openswmmvis::ui { class CompactToolbarController; }
 namespace openswmmvis::ui { class ComparisonPlotDialog; }
 namespace openswmmvis::ui { class RibbonGroup; }
+namespace openswmmvis::project::examples { struct ExampleInfo; }
 
 class QCheckBox;
 class QLabel;
@@ -124,6 +125,12 @@ public slots:
 
 private:
     void initializeWelcomeScreen();
+
+    /*! Copy a bundled example to a user-chosen folder and open the copy.
+     *  Examples are NEVER opened in place — simulation results land next to
+     *  the .inp, which would pollute the seeded baseline. */
+    void openExampleCopy(const openswmmvis::project::examples::ExampleInfo &info);
+
     void initializeToolBars();
     void initializeAnimationToolBar();
     void initializeTerrainToolBar();
