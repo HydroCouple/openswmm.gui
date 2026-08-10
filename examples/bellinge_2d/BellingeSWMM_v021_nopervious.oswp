@@ -1,0 +1,352 @@
+{
+    "canvas": {
+        "extent": [
+            577207.7041234794,
+            6130958.405168802,
+            588875.8513234794,
+            6137994.397136362
+        ]
+    },
+    "schemaVersion": 4,
+    "sessions": [
+        {
+            "engineVersion": "6.0.0",
+            "inpPath": "BellingeSWMM_v021_nopervious.inp",
+            "layer": {
+                "kindRenderers": {
+                    "Conduits": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleLine",
+                                    "props": {
+                                        "arrowColor": "#ff222222",
+                                        "arrowLengthPx": 10,
+                                        "arrowOnlyWhenFlowPos": false,
+                                        "color": "#ff000080",
+                                        "drawArrows": false,
+                                        "fillColor": "#ff3232c8",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1.5,
+                                        "showLabel": false,
+                                        "width": 1
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Dividers": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleMarker",
+                                    "props": {
+                                        "fillColor": "#ff00ff00",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1,
+                                        "shape": 3,
+                                        "showLabel": false,
+                                        "size": 8
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Junctions": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleMarker",
+                                    "props": {
+                                        "fillColor": "#ff003ffa",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1,
+                                        "shape": 0,
+                                        "showLabel": false,
+                                        "size": 8
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Orifices": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleLine",
+                                    "props": {
+                                        "arrowColor": "#ff222222",
+                                        "arrowLengthPx": 10,
+                                        "arrowOnlyWhenFlowPos": false,
+                                        "color": "#ff000080",
+                                        "drawArrows": false,
+                                        "fillColor": "#ffc89600",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1,
+                                        "showLabel": false,
+                                        "width": 2.5
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Outfalls": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleMarker",
+                                    "props": {
+                                        "fillColor": "#ffdc0000",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1,
+                                        "shape": 11,
+                                        "showLabel": false,
+                                        "size": 12.5
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Outlets": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleLine",
+                                    "props": {
+                                        "arrowColor": "#ff222222",
+                                        "arrowLengthPx": 10,
+                                        "arrowOnlyWhenFlowPos": false,
+                                        "color": "#ff000080",
+                                        "drawArrows": false,
+                                        "fillColor": "#ff8c643c",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1.5,
+                                        "showLabel": false,
+                                        "width": 8
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Pumps": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleLine",
+                                    "props": {
+                                        "arrowColor": "#ff222222",
+                                        "arrowLengthPx": 10,
+                                        "arrowOnlyWhenFlowPos": false,
+                                        "color": "#ff000080",
+                                        "drawArrows": false,
+                                        "fillColor": "#ffff2100",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 2,
+                                        "showLabel": false,
+                                        "width": 3
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "RainGages": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleMarker",
+                                    "props": {
+                                        "fillColor": "#ff00ffff",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1,
+                                        "shape": 3,
+                                        "showLabel": false,
+                                        "size": 10
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Storage": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleMarker",
+                                    "props": {
+                                        "fillColor": "#ffb43cc8",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1,
+                                        "shape": 1,
+                                        "showLabel": false,
+                                        "size": 12
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Subcatchments": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleFill",
+                                    "props": {
+                                        "fillColor": "#ffb4dcb4",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff003c00",
+                                        "outlineWidth": 1.5,
+                                        "showLabel": false,
+                                        "size": 8
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Weirs": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleLine",
+                                    "props": {
+                                        "arrowColor": "#ff222222",
+                                        "arrowLengthPx": 10,
+                                        "arrowOnlyWhenFlowPos": false,
+                                        "color": "#ff000080",
+                                        "drawArrows": false,
+                                        "fillColor": "#ff00b464",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1,
+                                        "showLabel": false,
+                                        "width": 2.5
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    }
+                },
+                "renderer": {
+                    "id": "single",
+                    "symbol": {
+                        "layers": [],
+                        "opacity": 1
+                    }
+                }
+            },
+            "legendOverlay": {
+                "anchor": "BottomRight",
+                "backgroundColor": "#e1ffffff",
+                "backgroundMode": "Solid",
+                "cornerRadius": 6,
+                "explicitHeight": 0,
+                "explicitWidth": 0,
+                "frameColor": "#b4505050",
+                "frameWidth": 1,
+                "freeX": 0,
+                "freeY": 0,
+                "gradientEndColor": "#e1f0f0f0",
+                "gradientOrientation": "Vertical",
+                "itemColor": "#ff141414",
+                "itemFont": {
+                    "family": ".AppleSystemUIFont",
+                    "italic": false,
+                    "pointSize": 13,
+                    "strikeOut": false,
+                    "underline": false,
+                    "weight": 400
+                },
+                "layerHeaderColor": "#ff141414",
+                "layerHeaderFont": {
+                    "family": ".AppleSystemUIFont",
+                    "italic": false,
+                    "pointSize": 13,
+                    "strikeOut": false,
+                    "underline": false,
+                    "weight": 400
+                },
+                "maxLabelWidth": 220,
+                "opacity": 1,
+                "padding": 8,
+                "rowSpacing": 2,
+                "showFrame": true,
+                "showTitle": false,
+                "swatchSize": 14,
+                "title": "",
+                "titleColor": "#ff141414",
+                "titleFont": {
+                    "family": ".AppleSystemUIFont",
+                    "italic": false,
+                    "pointSize": 13,
+                    "strikeOut": false,
+                    "underline": false,
+                    "weight": 400
+                }
+            },
+            "meshLayers": [
+                {
+                    "active": true,
+                    "contours": {
+                        "color": "#c81a1a1a",
+                        "filled": false,
+                        "filledOpacity": 0.6,
+                        "intervals": 8,
+                        "show": false,
+                        "width": 1
+                    },
+                    "hillshade": {
+                        "altitude": 35.264,
+                        "azimuth": 225,
+                        "minLit": 0.15,
+                        "zExag": 3
+                    },
+                    "showEdges": true,
+                    "showMeshNodes": true,
+                    "sourcePath": "BellingeSWMM_v021_nopervious.2dm"
+                }
+            ],
+            "terrain": {
+                "verticalUnit": "m"
+            }
+        }
+    ]
+}
