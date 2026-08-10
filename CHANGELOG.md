@@ -15,6 +15,35 @@ headings below are delimited by the version strings in `CMakeLists.txt`
 cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 (config: `cliff.toml`).
 
+## [Unreleased]
+
+### Added
+
+- **Bundled Bellinge 2D example with copy-on-open.** The Welcome page's
+  Example Projects panel now understands directory-per-example bundles (an
+  `.inp` + `.oswp` + data sidecars + optional `example.json` manifest for the
+  display name/description) alongside the legacy flat `.inp` examples, and
+  ships the Bellinge coupled 1D/2D urban flood model (mesh, 11-year rain
+  record, SRTM DEM) under `examples/bellinge_2d/`. At startup the bundled
+  payload is seeded into the per-user data dir
+  (`QStandardPaths::AppLocalDataLocation/examples`, version-marker fast
+  path), and clicking an example always copies it to a user-chosen folder
+  before opening — the baseline is never opened in place, so simulation
+  results can't overwrite it.
+- **Add Basemap ▸ Local File**: local image basemaps (GeoTIFF/PNG/JPEG/BMP)
+  with world-file + CRS assignment via GDAL PAM, rendered through the
+  existing raster tile pyramid.
+
+### Fixed
+
+- **Object Browser now refreshes when data objects are added, removed, or
+  renamed** (time series, curves, patterns, aquifers, …), including staged
+  edits not yet flushed to the engine; the mesh-editing toolbar's BC
+  time-series/curve combos and coupled-node dropdown refresh likewise.
+- **Application settings identity is now set before the main window is
+  constructed**, so all settings land in one file. One-time effect: saved
+  window layout and recent-file lists from earlier builds reset.
+
 ## [6.0.0-alpha.3] — 2026-07-29
 
 Continues the SWMMVis rewrite from `6.0.0-alpha.2`. The bulk of this

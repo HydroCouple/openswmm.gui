@@ -82,7 +82,11 @@ build/
 packages/
 docs/html/
 docs/test_output/
-examples/
+# Local example scratch dirs stay untracked, but the curated bundled-example
+# payloads are committed (examples/* + negation, since git cannot negate
+# inside a fully-ignored directory).
+examples/*
+!examples/bellinge_2d
 .idea/
 .DS_Store
 

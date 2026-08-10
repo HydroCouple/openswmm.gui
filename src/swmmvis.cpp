@@ -89,6 +89,7 @@
 #include "map/mapextent.h"
 #include "project/ioportabilitynormalizer.h"
 #include "project/openswmmvisworkspace.h"
+#include "project/examplesseeder.h"
 #include "project/projectserializer.h"
 #include "project/saveaspathnormalizer.h"
 #include "simulation/runpathresolver.h"   // Slice QB.3
@@ -696,24 +697,26 @@ void SWMMVis::initializeWelcomeScreen()
         layout->addStretch(1);
     }
 
-    // Populate Example Projects (auto-discovered from <install>/examples/ if present)
+    // Populate Example Projects. The seeder mirrors the read-only install
+    // payload into the per-user data dir at startup (see
+    // SWMMVisApplication's ctor) and hands back whichever dir to scan;
+    // discovery understands both directory-per-example bundles (with an
+    // optional example.json manifest) and legacy flat .inp files. Every
+    // click routes through openExampleCopy() — the baseline is never
+    // opened in place.
     if (auto *frame = ui->frameExampleProjects)
     {
         auto *layout = new QVBoxLayout(frame);
         layout->setContentsMargins(6, 6, 6, 6);
         layout->setSpacing(2);
 
-        QString examplesDir;
-        const QStringList candidates = {
-            QCoreApplication::applicationDirPath() + QStringLiteral("/../share/openswmmgui/examples"),
-            QCoreApplication::applicationDirPath() + QStringLiteral("/../Resources/examples"),
-            QCoreApplication::applicationDirPath() + QStringLiteral("/examples"),
-        };
-        for (const QString &c : candidates) {
-            if (QFileInfo(c).isDir()) { examplesDir = c; break; }
-        }
+        namespace ex = openswmmvis::project::examples;
+        const QString examplesDir =
+            ex::preferredExamplesDir(QCoreApplication::applicationVersion());
+        const QVector<ex::ExampleInfo> found =
+            ex::discoverExamples(examplesDir);
 
-        if (examplesDir.isEmpty())
+        if (found.isEmpty())
         {
             auto *label = new QLabel(tr("(No bundled examples found.)"), frame);
             label->setStyleSheet(openswmmvis::ui::theme::hintStyle());
@@ -721,19 +724,82 @@ void SWMMVis::initializeWelcomeScreen()
         }
         else
         {
-            QDir d(examplesDir);
-            const QFileInfoList entries = d.entryInfoList({QStringLiteral("*.inp")}, QDir::Files, QDir::Name);
-            for (const QFileInfo &fi : entries) {
-                auto *btn = new QCommandLinkButton(fi.baseName(), frame);
-                btn->setDescription(tr("Open %1 as a read-only copy").arg(fi.fileName()));
+            for (const ex::ExampleInfo &info : found) {
+                auto *btn = new QCommandLinkButton(info.displayName, frame);
+                btn->setDescription(info.description.isEmpty()
+                    ? tr("Copy to a folder you choose, then open")
+                    : info.description);
                 btn->setIcon(QIcon(QStringLiteral(":/swmmvis/Open")));
-                const QString path = fi.absoluteFilePath();
-                connect(btn, &QCommandLinkButton::clicked, this, [this, path]{ onOpenProject(path); });
+                connect(btn, &QCommandLinkButton::clicked, this,
+                        [this, info]{ openExampleCopy(info); });
                 layout->addWidget(btn);
             }
         }
         layout->addStretch(1);
     }
+}
+
+void SWMMVis::openExampleCopy(const openswmmvis::project::examples::ExampleInfo &info)
+{
+    namespace ex = openswmmvis::project::examples;
+
+    const QString chosen = QFileDialog::getExistingDirectory(
+        this,
+        tr("Choose a folder to copy \"%1\" into").arg(info.displayName),
+        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation));
+    if (chosen.isEmpty()) return;
+
+    const QString exampleName = QFileInfo(info.sourceRoot).fileName();
+    const QString destRoot = chosen + QLatin1Char('/')
+                             + (info.isDirectory
+                                    ? exampleName
+                                    : QFileInfo(info.sourceRoot).completeBaseName());
+    // The path to open inside the copy mirrors openPath's name.
+    const QString destOpenPath = info.isDirectory
+        ? destRoot + QLatin1Char('/') + QFileInfo(info.openPath).fileName()
+        : destRoot + QLatin1Char('/') + QFileInfo(info.sourceRoot).fileName();
+
+    if (QFileInfo::exists(destRoot)) {
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Question);
+        box.setWindowTitle(tr("Example copy already exists"));
+        box.setText(tr("\"%1\" already exists.").arg(destRoot));
+        box.setInformativeText(tr("Open the existing copy, or replace it with "
+                                  "a fresh copy of the example?"));
+        auto *openBtn    = box.addButton(tr("Open Existing"), QMessageBox::AcceptRole);
+        auto *replaceBtn = box.addButton(tr("Replace"), QMessageBox::DestructiveRole);
+        box.addButton(QMessageBox::Cancel);
+        box.setDefaultButton(openBtn);
+        box.exec();
+        if (box.clickedButton() == openBtn) {
+            onOpenProject(destOpenPath);
+            return;
+        }
+        if (box.clickedButton() != replaceBtn) return;
+        if (!QDir(destRoot).removeRecursively()) {
+            QMessageBox::warning(this, tr("Replace failed"),
+                                 tr("Could not remove \"%1\".").arg(destRoot));
+            return;
+        }
+    }
+
+    QGuiApplication::setOverrideCursor(Qt::WaitCursor);
+    QString err;
+    bool ok = false;
+    if (info.isDirectory) {
+        ok = ex::copyDirectoryRecursively(info.sourceRoot, destRoot, &err);
+    } else {
+        ok = QDir().mkpath(destRoot)
+             && QFile::copy(info.sourceRoot, destOpenPath);
+        if (!ok) err = tr("Could not copy %1").arg(info.sourceRoot);
+    }
+    QGuiApplication::restoreOverrideCursor();
+
+    if (!ok) {
+        QMessageBox::warning(this, tr("Copy failed"), err);
+        return;
+    }
+    onOpenProject(destOpenPath);
 }
 
 void SWMMVis::initializeToolBars()
