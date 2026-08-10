@@ -5833,6 +5833,25 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         mMeshEditingToolbar->rebindSelectionManager(pw->selectionManager());
         if (pw->unitSystem())
             mMeshEditingToolbar->setDepthUnitLabel(pw->unitSystem()->depthLabel());
+        // Keep the BC combos (stage/flow TS, rating curve) and the coupled-
+        // node dropdown current when objects are created OUTSIDE the
+        // toolbar's own "…" picker — Object Browser Add New, editor
+        // dialogs, undo/redo. The listers read the ACTIVE project, so a
+        // stale connection from a background project's layer at worst
+        // triggers a harmless re-query. Both refreshers preserve the
+        // combo's current text.
+        if (auto *ml = pw->modelLayer()) {
+            // Queued: the signal can fire on providerAboutToBeRemoved,
+            // i.e. before the removal lands — defer so the lister reads
+            // post-mutation state.
+            connect(ml, &SWMMModelLayer::dataObjectsChanged,
+                    mMeshEditingToolbar, &MeshEditingToolbar::refreshBCNameLists,
+                    static_cast<Qt::ConnectionType>(Qt::QueuedConnection
+                                                    | Qt::UniqueConnection));
+            connect(ml, &SWMMModelLayer::geometryChanged,
+                    mMeshEditingToolbar, &MeshEditingToolbar::refreshNodeList,
+                    Qt::UniqueConnection);
+        }
     }
 
     // Rebind the terrain toolbar to the new project's canvas and restore its
