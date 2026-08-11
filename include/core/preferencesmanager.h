@@ -460,6 +460,7 @@ public:
         int     ltsTiers           = 4;       ///< LTS_TIERS
         double  hMove              = 0.003;   ///< H_MOVE (m)
         double  froudeMax          = 1.5;     ///< FROUDE_MAX
+        bool    advection          = false;   ///< ADVECTION
         double  dryDepth           = 0.001;   ///< DRY_DEPTH (m)
         double  limiterEpsilon     = 1e-6;    ///< LIMITER_EPSILON
         double  fluxDhEps          = 0.004;   ///< FLUX_DH_EPS (m)

@@ -853,7 +853,7 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     solvForm->addRow(tr("Maximum timestep (MAX_TIMESTEP)"), m_twoDMaxTimestepSpin);
 
     m_twoDThetaSpin = new QDoubleSpinBox(solvGroup);
-    m_twoDThetaSpin->setRange(0.0, 1.0);
+    m_twoDThetaSpin->setRange(0.001, 1.0);   // engine requires (0, 1]
     m_twoDThetaSpin->setDecimals(3);
     m_twoDThetaSpin->setSingleStep(0.05);
     solvForm->addRow(tr("Implicitness (THETA)"), m_twoDThetaSpin);
@@ -865,8 +865,8 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     solvForm->addRow(tr("Courant number (CFL_NUMBER)"), m_twoDCflSpin);
 
     m_twoDLtsTiersSpin = new QSpinBox(solvGroup);
-    m_twoDLtsTiersSpin->setRange(0, 16);
-    m_twoDLtsTiersSpin->setToolTip(tr("Local-timestepping tiers; 0 disables."));
+    m_twoDLtsTiersSpin->setRange(1, 8);      // engine requires 1..8
+    m_twoDLtsTiersSpin->setToolTip(tr("Local-timestepping tiers; 1 = global timestep."));
     solvForm->addRow(tr("Local timestep tiers (LTS_TIERS)"), m_twoDLtsTiersSpin);
 
     m_twoDHMoveSpin = new QDoubleSpinBox(solvGroup);
@@ -879,6 +879,13 @@ QWidget *PreferencesDialog::buildTwoDDefaultsPage()
     m_twoDFroudeMaxSpin->setRange(0.1, 10.0);
     m_twoDFroudeMaxSpin->setDecimals(2);
     solvForm->addRow(tr("Froude limiter (FROUDE_MAX)"), m_twoDFroudeMaxSpin);
+
+    m_twoDAdvectionBox = new QCheckBox(
+        tr("Convective momentum flux (ADVECTION)"), solvGroup);
+    m_twoDAdvectionBox->setToolTip(
+        tr("Include the convective momentum flux at interior faces. Off "
+           "reproduces the established pure local-inertial results."));
+    solvForm->addRow(QString(), m_twoDAdvectionBox);
 
     outer->addWidget(solvGroup);
 
@@ -1565,6 +1572,7 @@ void PreferencesDialog::applyTwoDDefaultsToWidgets(
     m_twoDLtsTiersSpin       ->setValue(d.ltsTiers);
     m_twoDHMoveSpin          ->setValue(d.hMove);
     m_twoDFroudeMaxSpin      ->setValue(d.froudeMax);
+    m_twoDAdvectionBox       ->setChecked(d.advection);
     m_twoDDryDepthSpin       ->setValue(d.dryDepth);
     m_twoDLimiterEpsSpin     ->setValue(d.limiterEpsilon);
     m_twoDFluxDhEpsSpin      ->setValue(d.fluxDhEps);
@@ -1714,6 +1722,7 @@ void PreferencesDialog::writeToManager()
         d.ltsTiers           = m_twoDLtsTiersSpin       ->value();
         d.hMove              = m_twoDHMoveSpin          ->value();
         d.froudeMax          = m_twoDFroudeMaxSpin      ->value();
+        d.advection          = m_twoDAdvectionBox       ->isChecked();
         d.dryDepth           = m_twoDDryDepthSpin       ->value();
         d.limiterEpsilon     = m_twoDLimiterEpsSpin     ->value();
         d.fluxDhEps          = m_twoDFluxDhEpsSpin      ->value();
