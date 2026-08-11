@@ -405,6 +405,8 @@ void TestOptionsHydrationContract::fvOptions_engineRoundTripsValues()
     QCOMPARE(getOptionDouble(e, "FV_DISPERSION"),  0.0);
     QCOMPARE(getOptionString(e, "FV_STRUCTURE_COUPLING"), QStringLiteral("SUBSTEP"));
     QCOMPARE(getOptionString(e, "FV_NODE_COUPLING"), QStringLiteral("SEMI_IMPLICIT"));
+    QCOMPARE(getOptionString(e, "FV_NODE_DT"),     QStringLiteral("STABILITY"));
+    QCOMPARE(getOptionString(e, "FV_NODE_PICARD"), QStringLiteral("1"));
     QCOMPARE(getOptionString(e, "FV_COMPACTION"),  QStringLiteral("YES"));
     QCOMPARE(getOptionString(e, "FV_BACKEND"),     QStringLiteral("AUTO"));
     QCOMPARE(getOptionString(e, "FV_MIN_PARALLEL_CELLS"), QStringLiteral("20000"));
@@ -427,6 +429,8 @@ void TestOptionsHydrationContract::fvOptions_engineRoundTripsValues()
         { "FV_DISPERSION",          "1.500",        "1.5"          },
         { "FV_STRUCTURE_COUPLING",  "ROUTING_STEP", "ROUTING_STEP" },
         { "FV_NODE_COUPLING",       "EXPLICIT",     "EXPLICIT"     },
+        { "FV_NODE_DT",             "NONE",         "NONE"         },
+        { "FV_NODE_PICARD",         "3",            "3"            },
         { "FV_COMPACTION",          "NO",           "NO"           },
         { "FV_BACKEND",             "CPU",          "CPU"          },
         { "FV_MIN_PARALLEL_CELLS",  "5000",         "5000"         },
@@ -464,6 +468,7 @@ void TestOptionsHydrationContract::fvOptions_rejectBadEnumTokens()
     QVERIFY(swmm_options_set(e, "FV_SCALAR_SCHEME",   "WENO")    != 0);
     QVERIFY(swmm_options_set(e, "FV_TIME_INTEGRATION","RK4")     != 0);
     QVERIFY(swmm_options_set(e, "FV_STRUCTURE_COUPLING", "NEVER") != 0);
+    QVERIFY(swmm_options_set(e, "FV_NODE_DT",         "MAYBE")   != 0);
     QVERIFY(swmm_options_set(e, "FV_BACKEND",         "METAL")   != 0);
 
     // ...and a rejected set must leave the previous value untouched.

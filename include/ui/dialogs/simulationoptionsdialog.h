@@ -400,6 +400,8 @@ private:
     QDoubleSpinBox *m_fvDispersionSpin    = nullptr;   // project length² / s; 0 = off
     QComboBox      *m_fvStructCouplingCombo = nullptr;
     QComboBox      *m_fvNodeCouplingCombo = nullptr;
+    QComboBox      *m_fvNodeDtCombo       = nullptr;
+    QSpinBox       *m_fvNodePicardSpin    = nullptr;
     QCheckBox      *m_fvCompactionBox     = nullptr;
     QComboBox      *m_fvBackendCombo      = nullptr;
     QSpinBox       *m_fvMinParallelSpin   = nullptr;
@@ -509,6 +511,7 @@ private:
     QSpinBox       *m_ltsTiersSpin      = nullptr;
     QDoubleSpinBox *m_hMoveSpin         = nullptr;
     QDoubleSpinBox *m_froudeMaxSpin     = nullptr;
+    QCheckBox      *m_advection2DBox    = nullptr;
     QCheckBox      *m_couplingAreaAutoBox = nullptr;
     QDoubleSpinBox *m_dryDepthSpin      = nullptr;
     QDoubleSpinBox *m_limiterEpsSpin    = nullptr;
@@ -520,6 +523,7 @@ private:
     QDoubleSpinBox *m_couplingSyncSpin  = nullptr;
     QComboBox      *m_rainfall2DModeCombo = nullptr;
     QCheckBox      *m_report2DBox       = nullptr;
+    class QLineEdit *m_output2DFileEdit = nullptr;
 #endif
 };
 

@@ -191,6 +191,7 @@ private:
     QSpinBox       *m_twoDLtsTiersSpin        = nullptr;
     QDoubleSpinBox *m_twoDHMoveSpin           = nullptr;
     QDoubleSpinBox *m_twoDFroudeMaxSpin       = nullptr;
+    QCheckBox      *m_twoDAdvectionBox        = nullptr;
     QDoubleSpinBox *m_twoDDryDepthSpin        = nullptr;
     QDoubleSpinBox *m_twoDLimiterEpsSpin      = nullptr;
     QDoubleSpinBox *m_twoDFluxDhEpsSpin       = nullptr;
