@@ -1537,6 +1537,7 @@ PreferencesManager::TwoDDefaults PreferencesManager::twoDDefaults() const
     d.ltsTiers           = readTwoDSetting<int>(s,    QStringLiteral("LtsTiers"),           d.ltsTiers);
     d.hMove              = readTwoDSetting<double>(s, QStringLiteral("HMove"),              d.hMove);
     d.froudeMax          = readTwoDSetting<double>(s, QStringLiteral("FroudeMax"),          d.froudeMax);
+    d.advection          = readTwoDSetting<bool>(s,   QStringLiteral("Advection"),          d.advection);
     d.dryDepth           = readTwoDSetting<double>(s, QStringLiteral("DryDepth"),           d.dryDepth);
     d.limiterEpsilon     = readTwoDSetting<double>(s, QStringLiteral("LimiterEpsilon"),     d.limiterEpsilon);
     d.fluxDhEps          = readTwoDSetting<double>(s, QStringLiteral("FluxDhEps"),          d.fluxDhEps);
@@ -1583,6 +1584,7 @@ void PreferencesManager::setTwoDDefaults(const TwoDDefaults &d)
     put(QStringLiteral("LtsTiers"),           d.ltsTiers);
     put(QStringLiteral("HMove"),              d.hMove);
     put(QStringLiteral("FroudeMax"),          d.froudeMax);
+    put(QStringLiteral("Advection"),          d.advection);
     put(QStringLiteral("DryDepth"),           d.dryDepth);
     put(QStringLiteral("LimiterEpsilon"),     d.limiterEpsilon);
     put(QStringLiteral("FluxDhEps"),          d.fluxDhEps);

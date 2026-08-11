@@ -863,6 +863,7 @@ SWMM_Engine SWMMModelLayer::createBlankEngine(const NewProjectSpec &spec,
         set2d("LTS_TIERS",           QString::number(t.ltsTiers));
         set2d("H_MOVE",              QString::number(t.hMove, 'g', 6));
         set2d("FROUDE_MAX",          QString::number(t.froudeMax, 'g', 6));
+        set2d("ADVECTION",           yn(t.advection));
         set2d("DRY_DEPTH",           QString::number(t.dryDepth, 'g', 8));
         set2d("LIMITER_EPSILON",     QString::number(t.limiterEpsilon, 'g', 8));
         set2d("FLUX_DH_EPS",         QString::number(t.fluxDhEps, 'g', 8));

@@ -912,6 +912,21 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
         tr("Node continuity coupling at junctions (FV_NODE_COUPLING)."));
     fvForm->addRow(tr("Node coupling:"), m_fvNodeCouplingCombo);
 
+    m_fvNodeDtCombo = new QComboBox(m_fvGroup);
+    m_fvNodeDtCombo->addItem(tr("Stability limited"), QStringLiteral("STABILITY"));
+    m_fvNodeDtCombo->addItem(tr("None"),              QStringLiteral("NONE"));
+    m_fvNodeDtCombo->setToolTip(
+        tr("Whether node storage limits the local substep (FV_NODE_DT). "
+           "Stability limited is strongly recommended."));
+    fvForm->addRow(tr("Node time-step limit:"), m_fvNodeDtCombo);
+
+    m_fvNodePicardSpin = new QSpinBox(m_fvGroup);
+    m_fvNodePicardSpin->setRange(1, 100);
+    m_fvNodePicardSpin->setToolTip(
+        tr("Picard sweeps of the semi-implicit node correction per substep "
+           "(FV_NODE_PICARD). 1 = single sweep."));
+    fvForm->addRow(tr("Node Picard sweeps:"), m_fvNodePicardSpin);
+
     vlay->addWidget(m_fvGroup);
 
     m_fvPerfGroup = new QGroupBox(tr("Finite volume performance"), page);
@@ -970,6 +985,8 @@ QWidget *SimulationOptionsDialog::buildHydraulicsTab()
             this, [this](int){ updateFvFieldsEnabled(); });
     connect(m_fvLtsBox, &QCheckBox::toggled,
             this, [this](bool){ updateFvFieldsEnabled(); });
+    connect(m_fvNodeCouplingCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, [this](int){ updateFvFieldsEnabled(); });
 
     // ── Conduit / channel group ────────────────────────────────────────
     auto *condGroup = new QGroupBox(tr("Conduit / channel"), page);
@@ -1097,6 +1114,11 @@ void SimulationOptionsDialog::updateFvFieldsEnabled()
             m_fvOrderCombo->currentData().toString() == QStringLiteral("2"));
     if (m_fvLtsTiersSpin && m_fvLtsBox)
         m_fvLtsTiersSpin->setEnabled(m_fvLtsBox->isChecked());
+    // Picard sweeps only act on the semi-implicit node correction.
+    if (m_fvNodePicardSpin && m_fvNodeCouplingCombo)
+        m_fvNodePicardSpin->setEnabled(
+            m_fvNodeCouplingCombo->currentData().toString()
+                == QStringLiteral("SEMI_IMPLICIT"));
 }
 
 void SimulationOptionsDialog::updateDurationLabel()
@@ -1641,6 +1663,15 @@ QWidget *SimulationOptionsDialog::build2DTab()
            "the local-inertial scheme (default 1.5)."));
     marchForm->addRow(tr("Max Froude number:"), m_froudeMaxSpin);
 
+    m_advection2DBox = new QCheckBox(
+        tr("Convective momentum flux (ADVECTION)"), m_marcherGroup);
+    m_advection2DBox->setToolTip(
+        tr("Include the convective momentum flux at interior faces "
+           "(Stelling–Duinmeijer staggered upwind form). Restores velocity "
+           "head on transcritical reaches and correct bore states; off "
+           "reproduces the established pure local-inertial results."));
+    marchForm->addRow(QString(), m_advection2DBox);
+
     vlay->addWidget(m_marcherGroup);
 
     auto *meshGroup = new QGroupBox(tr("Mesh"), page);
@@ -1754,17 +1785,48 @@ QWidget *SimulationOptionsDialog::build2DTab()
                                    QStringLiteral("NATURAL_NEIGHBOUR"));
     m_rainfall2DModeCombo->addItem(tr("System (uniform gage mean)"),
                                    QStringLiteral("SYSTEM"));
+    m_rainfall2DModeCombo->addItem(tr("None (no direct rainfall)"),
+                                   QStringLiteral("NONE"));
     m_rainfall2DModeCombo->setToolTip(
         tr("How raingage rainfall drives the 2D mesh. Natural neighbour spatially "
            "interpolates all located gages onto each cell (inverse-distance "
            "outside the gage hull); System applies one uniform value — the mean "
-           "of all gages."));
+           "of all gages; None applies no direct rainfall to the mesh."));
     rainfallForm->addRow(tr("Rainfall mode:"), m_rainfall2DModeCombo);
 
     vlay->addWidget(rainfallGroup);
 
-    m_report2DBox = new QCheckBox(tr("Write 2D results to output (REPORT_2D)"), page);
-    vlay->addWidget(m_report2DBox);
+    auto *outGroup = new QGroupBox(tr("Output"), page);
+    auto *outForm  = new QFormLayout(outGroup);
+
+    m_report2DBox = new QCheckBox(tr("Write 2D results to output (REPORT_2D)"),
+                                  outGroup);
+    outForm->addRow(QString(), m_report2DBox);
+
+    auto *outRow = new QWidget(outGroup);
+    auto *outLay = new QHBoxLayout(outRow);
+    outLay->setContentsMargins(0, 0, 0, 0);
+    m_output2DFileEdit = new QLineEdit(outRow);
+    m_output2DFileEdit->setPlaceholderText(tr("<model>.2d.h5 (automatic)"));
+    m_output2DFileEdit->setToolTip(
+        tr("HDF5 file receiving 2D results ([2D_OPTIONS] OUTPUT_FILE). "
+           "Relative paths resolve against the input file's folder. Leave "
+           "blank to use <model>.2d.h5 next to the input file."));
+    auto *outBrowse = new QPushButton(tr("Browse…"), outRow);
+    connect(outBrowse, &QPushButton::clicked, this, [this]() {
+        QString start = m_output2DFileEdit->text().trimmed();
+        if (start.isEmpty() && m_layer)
+            start = QFileInfo(m_layer->modelFilePath()).absolutePath();
+        const QString f = QFileDialog::getSaveFileName(
+            this, tr("2D results file"), start,
+            tr("HDF5 results (*.h5);;All files (*)"));
+        if (!f.isEmpty()) m_output2DFileEdit->setText(f);
+    });
+    outLay->addWidget(m_output2DFileEdit, 1);
+    outLay->addWidget(outBrowse);
+    outForm->addRow(tr("2D results file:"), outRow);
+
+    vlay->addWidget(outGroup);
 
     vlay->addStretch();
 
@@ -1826,9 +1888,15 @@ void SimulationOptionsDialog::read2DFromEngine()
     m_ltsTiersSpin ->setValue(extInt("LTS_TIERS",     t.ltsTiers));
     m_hMoveSpin    ->setValue(extDouble("H_MOVE",     t.hMove));
     m_froudeMaxSpin->setValue(extDouble("FROUDE_MAX", t.froudeMax));
+    m_advection2DBox->setChecked(parseEngineBool(
+        getExt("ADVECTION", t.advection ? "YES" : "NO")) == Qt::Checked);
     m_couplingAreaAutoBox->setChecked(
         getExt("COUPLING_AREA", t.couplingAreaAuto ? "AUTO" : "DEFAULT")
             .compare(QStringLiteral("AUTO"), Qt::CaseInsensitive) == 0);
+
+    // OUTPUT_FILE has no preferences default — blank means "auto-derive
+    // <model>.2d.h5 at run time" (see SimulationRunner / run wiring).
+    m_output2DFileEdit->setText(getExt("OUTPUT_FILE", QString()));
 }
 
 int SimulationOptionsDialog::write2DToEngine(int &n)
@@ -1884,10 +1952,16 @@ int SimulationOptionsDialog::write2DToEngine(int &n)
                    QString::number(m_hMoveSpin->value(), 'g', 6));
     writeIfChanged("FROUDE_MAX",    getExt("FROUDE_MAX"),
                    QString::number(m_froudeMaxSpin->value(), 'g', 6));
+    writeIfChanged("ADVECTION",     getExt("ADVECTION"),
+                   engineBoolString(m_advection2DBox->isChecked()));
     writeIfChanged("COUPLING_AREA", getExt("COUPLING_AREA"),
                    m_couplingAreaAutoBox->isChecked()
                        ? QStringLiteral("AUTO")
                        : QStringLiteral("DEFAULT"));
+    // Empty clears the key — InpWriter omits OUTPUT_FILE when unset and the
+    // run wiring falls back to <model>.2d.h5.
+    writeIfChanged("OUTPUT_FILE",   getExt("OUTPUT_FILE"),
+                   m_output2DFileEdit->text().trimmed());
     return n;
 }
 
@@ -2628,6 +2702,9 @@ void SimulationOptionsDialog::readFromEngine()
                       getOption("FV_STRUCTURE_COUPLING", QStringLiteral("SUBSTEP")));
     selectComboByData(m_fvNodeCouplingCombo,
                       getOption("FV_NODE_COUPLING", QStringLiteral("SEMI_IMPLICIT")));
+    selectComboByData(m_fvNodeDtCombo,
+                      getOption("FV_NODE_DT", QStringLiteral("STABILITY")));
+    m_fvNodePicardSpin->setValue(optInt("FV_NODE_PICARD", 1));
     m_fvCompactionBox->setChecked(
         parseEngineBool(getOption("FV_COMPACTION", QStringLiteral("YES"))) == Qt::Checked);
     selectComboByData(m_fvBackendCombo,  getOption("FV_BACKEND",  QStringLiteral("AUTO")));
@@ -3866,6 +3943,10 @@ int SimulationOptionsDialog::writeToEngine()
                    m_fvStructCouplingCombo->currentData().toString());
     writeIfChanged("FV_NODE_COUPLING",    getOption("FV_NODE_COUPLING"),
                    m_fvNodeCouplingCombo->currentData().toString());
+    writeIfChanged("FV_NODE_DT",          getOption("FV_NODE_DT"),
+                   m_fvNodeDtCombo->currentData().toString());
+    writeIfChanged("FV_NODE_PICARD",      getOption("FV_NODE_PICARD"),
+                   QString::number(m_fvNodePicardSpin->value()));
     writeIfChanged("FV_COMPACTION",       getOption("FV_COMPACTION"),
                    engineBoolString(m_fvCompactionBox->isChecked()));
     writeIfChanged("FV_BACKEND",          getOption("FV_BACKEND"),

@@ -55,6 +55,7 @@ void TestTwoDDefaultsPrefs::compiledDefaultsPinTheContract()
     QCOMPARE(d.ltsTiers, 4);
     QCOMPARE(d.hMove, 0.003);
     QCOMPARE(d.froudeMax, 1.5);
+    QVERIFY(!d.advection);
     QCOMPARE(d.dryDepth, 0.001);
     QCOMPARE(d.limiterEpsilon, 1e-6);
     QCOMPARE(d.fluxDhEps, 0.004);
@@ -98,6 +99,7 @@ void TestTwoDDefaultsPrefs::roundTripPersistsAllFields()
     d.ltsTiers = 2;
     d.hMove = 0.01;
     d.froudeMax = 2.0;
+    d.advection = true;
     d.dryDepth = 0.002;
     d.limiterEpsilon = 1e-7;
     d.fluxDhEps = 0.008;
@@ -136,6 +138,7 @@ void TestTwoDDefaultsPrefs::roundTripPersistsAllFields()
     QCOMPARE(r.ltsTiers, d.ltsTiers);
     QCOMPARE(r.hMove, d.hMove);
     QCOMPARE(r.froudeMax, d.froudeMax);
+    QCOMPARE(r.advection, d.advection);
     QCOMPARE(r.dryDepth, d.dryDepth);
     QCOMPARE(r.limiterEpsilon, d.limiterEpsilon);
     QCOMPARE(r.fluxDhEps, d.fluxDhEps);
