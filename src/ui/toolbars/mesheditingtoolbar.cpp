@@ -575,8 +575,26 @@ void MeshEditingToolbar::rebindCanvas(MapCanvas *canvas)
     }
     m_hover->setCanvas(m_canvas);
     rebuildMeshCombo();
-    refreshBCNameLists();
-    refreshNodeList();   // populate the coupled-node dropdown for this project
+
+    // Only populate the 2D editing dropdowns when there is actually a mesh to
+    // edit. rebindCanvas() runs on every project-window activation, and these
+    // lists are built from the whole model -- every node for the coupled-node
+    // combo, every timeseries and curve for the BC combos, each timeseries
+    // point converted to a QDateTime along the way. Doing that for a 1D-only
+    // model populated dropdowns nobody could open.
+    //
+    // rebuildMeshCombo() leaves a single "(none)" entry when the project has
+    // no mesh layer, so count() > 1 is the has-a-mesh test.
+    const bool hasMesh = m_meshCombo && m_meshCombo->count() > 1;
+    if (hasMesh) {
+        refreshBCNameLists();
+        refreshNodeList();   // coupled-node dropdown for this project
+        m_bcListsStale = false;
+    } else {
+        // Remember that they need building, so enabling 2D later (or adding a
+        // mesh layer) still gets populated combos.
+        m_bcListsStale = true;
+    }
     updateEnabledState();
 }
 
@@ -687,8 +705,16 @@ void MeshEditingToolbar::onActiveMeshComboChanged(int index)
 
 void MeshEditingToolbar::onLayerAdded(OpenSWMMVisLayer *layer)
 {
-    if (qobject_cast<SWMM2DMeshLayer *>(layer))
-        rebuildMeshCombo();
+    if (!qobject_cast<SWMM2DMeshLayer *>(layer))
+        return;
+    rebuildMeshCombo();
+    // A mesh just arrived, so the dropdowns rebindCanvas() skipped for a
+    // 1D-only project are now needed.
+    if (m_bcListsStale) {
+        refreshBCNameLists();
+        refreshNodeList();
+        m_bcListsStale = false;
+    }
 }
 
 void MeshEditingToolbar::onLayerRemoved(OpenSWMMVisLayer *layer)
@@ -1546,8 +1572,18 @@ void MeshEditingToolbar::refreshBCNameLists()
         const QString keep = combo->currentText();
         QSignalBlocker block(combo);
         combo->clear();
-        combo->addItem(QString());  // empty entry = "(none)"
-        for (const QString &n : names) combo->addItem(n);
+        // ONE insert, not one per name. addItem() in a loop emits
+        // rowsInserted per item, and on macOS each emission makes Qt's
+        // accessibility bridge rebuild the combo view's ENTIRE element array
+        // (QMacAccessibilityElement updateTableModel -> populateTableArray),
+        // which is quadratic in the list length. QSignalBlocker does not help:
+        // it silences the combo, not its internal model. addItems() brackets
+        // the whole range in a single begin/endInsertRows.
+        QStringList entries;
+        entries.reserve(names.size() + 1);
+        entries << QString();       // empty entry = "(none)"
+        entries << names;
+        combo->addItems(entries);
         if (!keep.isEmpty()) combo->setCurrentText(keep);
     };
     const QStringList tsNames = m_tsLister ? m_tsLister() : QStringList{};
@@ -1563,8 +1599,17 @@ void MeshEditingToolbar::refreshNodeList()
     const QString keep = m_vertexCoupledCombo->currentText();
     QSignalBlocker block(m_vertexCoupledCombo);
     m_vertexCoupledCombo->clear();
-    m_vertexCoupledCombo->addItem(QString());   // blank = uncoupled
     const QStringList nodes = m_nodeLister ? m_nodeLister() : QStringList{};
-    for (const QString &n : nodes) m_vertexCoupledCombo->addItem(n);
+    // Batch insert — see refreshBCNameLists() for why the per-item loop this
+    // replaces was quadratic. This one is the expensive instance: the list is
+    // every node in the model (42,809 on West Whiteland), and a stack sample
+    // caught the app burning 100% CPU here, inside
+    // -[QMacAccessibilityElement populateTableArray:], during window
+    // activation -- i.e. on every model open and every tab switch.
+    QStringList entries;
+    entries.reserve(nodes.size() + 1);
+    entries << QString();   // blank = uncoupled
+    entries << nodes;
+    m_vertexCoupledCombo->addItems(entries);
     m_vertexCoupledCombo->setCurrentText(keep);
 }
