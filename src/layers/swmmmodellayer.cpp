@@ -7680,6 +7680,31 @@ QStringList SWMMModelLayer::subcatchmentsInPolygon(const QPolygonF &canvasPoly) 
 
 void SWMMModelLayer::rebuildTransform(const SpatialReferenceSystem *canvasSRS)
 {
+    // Idempotence guard. One srsChanged emission reaches this layer twice —
+    // the project window's lambda drives MapCanvas::setCanvasSRS, whose
+    // applyCRSInternal fans onCanvasCRSChanged out to every layer, and the
+    // canvas's own per-layer srsChanged lambda then calls it again. Each
+    // arrival used to redo the whole scene: rebuildSceneCoords walks every
+    // link twice and rebuilds the spatial grid.
+    //
+    // Suppressing one of the two listeners would be wrong — the canvas
+    // lambda is the ONLY path when the project-window lambda bails out
+    // (geographic layer, or canvas already on the layer's authority), and
+    // the layer→canvas transform still has to be rebuilt when the layer's
+    // own SRS changes. So make the work idempotent instead of policing who
+    // asks for it: identical (layer CRS, canvas CRS) pair ⇒ identical
+    // transform ⇒ nothing to redo.
+    const QString layerWkt  = srs()      ? srs()->toWkt()      : QString();
+    const QString canvasWkt = canvasSRS  ? canvasSRS->toWkt()  : QString();
+    if (m_transformValid
+        && layerWkt  == m_transformLayerWkt
+        && canvasWkt == m_transformCanvasWkt) {
+        return;
+    }
+    m_transformLayerWkt  = layerWkt;
+    m_transformCanvasWkt = canvasWkt;
+    m_transformValid     = true;
+
     if (m_transform)
     {
         OGRCoordinateTransformation::DestroyCT(m_transform);
