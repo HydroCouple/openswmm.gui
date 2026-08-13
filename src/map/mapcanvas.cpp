@@ -295,6 +295,20 @@ void MapCanvas::applyCRSInternal(SpatialReferenceSystem *srs, bool ownsSRS)
     if (!srs || srs == m_canvasSRS)
         return;
 
+    // The pointer test above never fires in practice: every caller passes a
+    // freshly allocated SpatialReferenceSystem. Compare by VALUE too, or a
+    // set-to-the-same-CRS discards the raster buffer and fans
+    // onCanvasCRSChanged out to every layer — an O(N) rebuildSceneCoords and
+    // LinkSpatialGrid::rebuild each time. Opening one model did this several
+    // times over with an unchanged CRS.
+    if (m_canvasSRS && m_canvasSRS->equals(*srs)) {
+        // We were handed ownership; releasing here is what the non-skipped
+        // path would have done to the previous object on the next call.
+        if (ownsSRS)
+            delete srs;
+        return;
+    }
+
     if (m_ownsSRS)
         delete m_canvasSRS;
 
