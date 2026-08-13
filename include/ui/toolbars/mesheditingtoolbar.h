@@ -185,6 +185,13 @@ private slots:
     void onPickRatingCurve();
 
 private:
+    /*! The BC / coupled-node dropdowns were skipped because the project has
+     *  no mesh, and must be built if one appears. rebindCanvas() runs on every
+     *  window activation and these lists span the whole model (one entry per
+     *  node, plus every timeseries and curve), so building them for a 1D-only
+     *  project is pure cost. */
+    bool m_bcListsStale = false;
+
     void rebuildMeshCombo();
     void refreshGroupWidths();   // re-measure the ribbon groups after
                                  // contextual clusters show/hide
