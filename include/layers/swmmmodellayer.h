@@ -1766,6 +1766,15 @@ public:
      *  Returns nullptr if the engine isn't open. */
     openswmmvis::ui::UserFlagsModel *ensureUserFlagsModel();
 
+public slots:
+    /*! \brief Records that the engine now holds edits not yet on disk.
+     *  \details Emits modelEdited(). Provided as a slot so UI surfaces that
+     *           write the engine outside the layer's own apply* API (the
+     *           property browser, the attribute table, the curve / time
+     *           series / pattern editors, the comprehensive object editors)
+     *           can connect their own "edited" signals straight to it. */
+    void markEdited() { emit modelEdited(); }
+
 signals:
     void modelFilePathChanged(const QString &path);
     void showNodesChanged(bool show);
@@ -1858,6 +1867,22 @@ signals:
      *  The Object Browser tree model and Attribute Table listen here;
      *  this is the data-object counterpart of geometryChanged(). */
     void dataObjectsChanged();
+
+    /*! Emitted whenever anything that belongs in the .inp has been written to
+     *  the engine, so the in-memory model no longer matches the file on disk.
+     *
+     *  This is the dirty-tracking channel, deliberately separate from the
+     *  view-refresh signals above: SWMMVisProjectWindow connects it to
+     *  setHasChanges(true), and SWMMVis::onRunSimulation gates its pre-run
+     *  auto-save on that flag. Emitting a refresh signal is NOT sufficient —
+     *  vertex moves and provider content edits emit only repaintRequested()
+     *  and provider-local signals — so any new engine-mutating path must also
+     *  call markEdited().
+     *
+     *  Purely visual state (selection, zoom, symbology, layer order) must NOT
+     *  emit this: on a large model a false positive costs a full .inp rewrite
+     *  on the next run. */
+    void modelEdited();
 
 private:
     // X4 — decode a kind-qualified legend class key ("<kindKey><sep><inner>")
@@ -2153,6 +2178,26 @@ private:
     enum class SoaKind : int8_t { Node = 0, Link = 1, Catch = 2, Gage = 3 };
     struct SoaLocation { SoaKind kind; int soaIdx; };
     QHash<QString, SoaLocation>  m_nameToSoa;
+
+    // Per-kind name → SoA index. Deliberately SEPARATE from m_nameToSoa,
+    // which cannot serve these lookups: it is single-keyed, and while nodes
+    // beat links there (links insert only when absent), catchments and gages
+    // insert UNCONDITIONALLY and therefore overwrite a colliding node or
+    // link. identifyByName / nodeIndex / linkIndex must instead resolve
+    // node → link → catchment → gage, which is what the linear scans they
+    // replace did. SWMM keeps a separate namespace per kind, so such
+    // collisions are legal and do occur in real models.
+    //
+    // Within a kind, first definition wins — matching the scans' behaviour
+    // of returning the lowest index. Maintained in lockstep with
+    // m_nameToSoa: rebuilt in rebuildCategoryIndex(), swapped in
+    // renameObject(), extended in appendNodeSceneEntry() /
+    // appendLinkSceneEntry(). Deletions always go through
+    // rebuildCategoryIndex(), so no incremental erase path is needed.
+    QHash<QString, int>          m_nodeByName;
+    QHash<QString, int>          m_linkByName;
+    QHash<QString, int>          m_catchByName;
+    QHash<QString, int>          m_gageByName;
 
     /*! Refresh `m_*SelectedFlag` and `m_*HiddenFlag` from
      *  `m_selectedNames` + `m_hiddenObjects`. Cost: O(|selection| +
