@@ -2303,6 +2303,18 @@ private:
     // rebuilt or destroyed. Mutable so the public const accessor can populate.
     mutable class OGRCoordinateTransformation *m_inverseTransform = nullptr;
 
+    // The (layer CRS, canvas CRS) pair m_transform was last built from, so
+    // rebuildTransform() can no-op when nothing about the projection
+    // changed. One srsChanged emission reaches this layer through two
+    // independent listeners (see rebuildTransform), and each arrival
+    // otherwise redoes rebuildSceneCoords over every node, link and
+    // subcatchment vertex. WKT rather than the authority string because a
+    // Local CRS has no authority code — precisely the case on the models
+    // where the redundant rebuild costs the most.
+    QString m_transformLayerWkt;
+    QString m_transformCanvasWkt;
+    bool    m_transformValid = false;
+
     // Dirty flag — skip scene rebuild when only the view extent changed
     bool                         m_needsRebuild = true;
 
