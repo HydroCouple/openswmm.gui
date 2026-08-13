@@ -6512,16 +6512,65 @@ void SWMMModelLayer::LinkSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
     // heuristic uses only non-zero diagonals so degenerates don't drag
     // the cell size to zero.
     bool seeded = false;
+    QRectF fullExtent;
     QVector<double> diagonals;
+    QVector<double> cxs, cys;
     diagonals.reserve(bboxes.size());
+    cxs.reserve(bboxes.size());
+    cys.reserve(bboxes.size());
     for (const QRectF &b : bboxes) {
         if (!b.isValid()) continue;
-        if (!seeded) { extent = b; seeded = true; }
-        else         { extent = extent.united(b); }
+        if (!seeded) { fullExtent = b; seeded = true; }
+        else         { fullExtent = fullExtent.united(b); }
         const double diag = std::hypot(b.width(), b.height());
         if (diag > 0.0) diagonals.append(diag);
+        cxs.append(b.center().x());
+        cys.append(b.center().y());
     }
     if (!seeded || diagonals.isEmpty()) return;
+
+    // Size the grid from a ROBUST extent, not the raw union. A handful of
+    // corrupt coordinates is enough to destroy the index otherwise: West
+    // Whiteland's 2024 model has 10 junctions sitting ~40,000,000 units off,
+    // which stretches the union to 23.8M x 70.3M around a network that really
+    // spans 27,000 x 22,000. Cell size then scales up to satisfy the 1024^2
+    // cap, the whole network lands in ONE cell, and every query degenerates
+    // to a linear scan -- the "takes forever" behaviour on that file.
+    //
+    // Tukey fences on the bbox centres, with a deliberately generous
+    // multiplier: for a well-formed model the fence is wider than the data,
+    // so the extent is exactly the union and nothing changes. Percentile
+    // clipping was rejected -- 10 bad rows out of 281,902 is 0.0035%, far
+    // below any percentile coarse enough to be safe, so a 0.5% clip would
+    // have thrown away 1,405 legitimate links.
+    auto fence = [](QVector<double> &v, double &lo, double &hi) {
+        const int n = v.size();
+        const int q1i = n / 4, q3i = (3 * n) / 4;
+        std::nth_element(v.begin(), v.begin() + q1i, v.end());
+        const double q1 = v[q1i];
+        std::nth_element(v.begin(), v.begin() + q3i, v.end());
+        const double q3 = v[q3i];
+        const double iqr = q3 - q1;
+        if (!(iqr > 0.0)) { lo = -std::numeric_limits<double>::infinity();
+                            hi =  std::numeric_limits<double>::infinity(); return; }
+        constexpr double kFence = 10.0;
+        lo = q1 - kFence * iqr;
+        hi = q3 + kFence * iqr;
+    };
+    double xlo, xhi, ylo, yhi;
+    fence(cxs, xlo, xhi);
+    fence(cys, ylo, yhi);
+
+    bool robustSeeded = false;
+    for (const QRectF &b : bboxes) {
+        if (!b.isValid()) continue;
+        const QPointF c = b.center();
+        if (c.x() < xlo || c.x() > xhi || c.y() < ylo || c.y() > yhi) continue;
+        if (!robustSeeded) { extent = b; robustSeeded = true; }
+        else               { extent = extent.united(b); }
+    }
+    // Degenerate fence (everything excluded) — fall back to the raw union.
+    if (!robustSeeded || extent.isEmpty()) extent = fullExtent;
 
     // Cell size: 16x the median link-bbox diagonal. The grid stays small
     // (typically ~100x100) for SWMM-style networks where most links are
@@ -6533,7 +6582,21 @@ void SWMMModelLayer::LinkSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
                      diagonals.begin() + diagonals.size() / 2,
                      diagonals.end());
     const double median = diagonals[diagonals.size() / 2];
-    const double cellSize = std::max(median * 16.0, 1e-6);
+    double cellSize = std::max(median * 16.0, 1e-6);
+
+    // Occupancy guard. median*16 is link-size aware, which is what keeps a
+    // long trunk from spanning hundreds of cells, but it says nothing about
+    // how many links land in a cell. On a dense network that leaves hundreds
+    // of links per cell and a query barely narrows anything. Shrink toward an
+    // average occupancy of kTargetPerCell, never below the median link size
+    // (going finer just multiplies the per-link cell spans).
+    constexpr double kTargetPerCell = 16.0;
+    const double area = extent.width() * extent.height();
+    if (area > 0.0 && !diagonals.isEmpty()) {
+        const double target = std::sqrt(area * kTargetPerCell / double(diagonals.size()));
+        if (target > 0.0 && target < cellSize)
+            cellSize = std::max(target, median);
+    }
 
     cellW = cellSize;
     cellH = cellSize;
@@ -6567,8 +6630,13 @@ QVector<int> SWMMModelLayer::LinkSpatialGrid::query(const QRectF &rect) const
     if (cells.isEmpty() || !rect.isValid() || rect.isEmpty())
         return out;
 
-    QRectF q = rect.intersected(extent);
-    if (q.isEmpty()) return out;
+    // Clamp rather than intersect-and-bail. rebuild() sizes the grid from a
+    // robust extent and clamps out-of-range links into the edge cells, so a
+    // query outside that extent must still look at those cells — otherwise
+    // the very links that were clamped there (the corrupt-coordinate ones)
+    // become invisible and unhittable. Over-inclusion is safe: every caller
+    // does its own precise test on what comes back.
+    const QRectF q = rect;
 
     const int cx0 = std::clamp(int(std::floor((q.left()   - extent.left()) / cellW)), 0, cols - 1);
     const int cx1 = std::clamp(int(std::floor((q.right()  - extent.left()) / cellW)), 0, cols - 1);
