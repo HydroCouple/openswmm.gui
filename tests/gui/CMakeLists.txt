@@ -1988,6 +1988,17 @@ add_swmmvis_gui_test(test_a11y_scene_exposure
 )
 swmmvis_link_full_app_deps(test_a11y_scene_exposure)
 
+# A few corrupt coordinates must not collapse the link spatial index. West
+# Whiteland 2024 has 10 junctions ~40,000,000 units out, which stretched the
+# grid extent until the whole real network fitted in one cell and every query
+# became a linear scan over 281,049 links.
+add_swmmvis_gui_test(test_linkgrid_outliers
+    test_linkgrid_outliers.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_linkgrid_outliers)
+
 # Mesh Tiled LOD plan Phase 0 — rendering-perf baseline harness. Self-skips
 # when tests/perf-data/mesh/ has no generated fixtures (they are gitignored;
 # see the README there), so it is a fast no-op on CI. The 5M-triangle rows
