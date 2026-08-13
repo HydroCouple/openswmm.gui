@@ -1944,6 +1944,39 @@ add_swmmvis_gui_test(test_asyncload
 )
 swmmvis_link_full_app_deps(test_asyncload)
 
+# Registry rename must not duplicate the object in the engine, and snow-pack
+# parameters must survive save/reload. Both were live data-corruption bugs:
+# rename() never told the engine, so saveToEngine re-ADDED the object under the
+# new name; and SnowpackProvider carried no parameters at all.
+add_swmmvis_gui_test(test_registry_rename
+    test_registry_rename.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_registry_rename)
+
+# The pre-run auto-save gate: SWMMVis::onRunSimulation only saves when
+# hasChanges() is true and SimulationRunner then re-opens the .inp from disk,
+# so an engine mutation that never reaches SWMMModelLayer::modelEdited() is
+# silently dropped from the run. Drives the real layer + project window.
+add_swmmvis_gui_test(test_dirtytracking_run
+    test_dirtytracking_run.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_dirtytracking_run)
+
+# identifyByName / nodeIndex / linkIndex became hash lookups instead of linear
+# scans (a 13 KB .oswp restore cost 22 s on a 122k-link model). The hashes must
+# reproduce the scans' kind precedence exactly — reusing the existing
+# single-keyed m_nameToSoa would have flipped subcatchment/gage collisions.
+add_swmmvis_gui_test(test_namelookup_precedence
+    test_namelookup_precedence.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_namelookup_precedence)
+
 # Mesh Tiled LOD plan Phase 0 — rendering-perf baseline harness. Self-skips
 # when tests/perf-data/mesh/ has no generated fixtures (they are gitignored;
 # see the README there), so it is a fast no-op on CI. The 5M-triangle rows
