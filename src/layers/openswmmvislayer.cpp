@@ -202,12 +202,35 @@ SpatialReferenceSystem *OpenSWMMVisLayer::srs() const { return m_srs; }
 
 void OpenSWMMVisLayer::setSRS(SpatialReferenceSystem *srs, bool ownsSRS)
 {
+    if (srs == m_srs) {
+        m_ownsSRS = ownsSRS;
+        return;
+    }
+
+    // Emit only on a real CRS *value* change. Callers hand us freshly
+    // allocated objects, so a pointer comparison alone never matches and
+    // every set re-emitted — and each srsChanged drives a full
+    // rebuildSceneCoords + LinkSpatialGrid::rebuild over every link. One
+    // model open set the SRS three times to the same CRS (adoptOpenEngine,
+    // then the .oswp session restore, then the canvas block), which is most
+    // of the ~6 whole-scene rebuilds a single open used to cost.
+    //
+    // equals() is IsSame(), so it also covers the case that made the
+    // authority-string guards elsewhere useless: a Local CRS has no
+    // authority code, and comparing empty strings never suppressed anything
+    // for exactly the models where the rebuild hurts most.
+    const bool sameValue = srs && m_srs && m_srs->equals(*srs);
+
     if (m_ownsSRS)
         delete m_srs;
 
+    // Adopt the object either way — the ownership contract is the caller's
+    // expectation regardless of whether the value changed.
     m_srs     = srs;
     m_ownsSRS = ownsSRS;
-    emit srsChanged(srs);
+
+    if (!sameValue)
+        emit srsChanged(srs);
 }
 
 QString OpenSWMMVisLayer::crsDescription() const
