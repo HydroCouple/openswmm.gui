@@ -3684,28 +3684,37 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
     // --- Tier 2: links (tighter tolerance) -----------------------------
     {
         double bestDist2 = linkTolerLayer * linkTolerLayer;
-        // DEBUG (last-link-unselectable bug, 2026-05-25): per-link trace
-        // for the FINAL link only, plus a summary at end. Remove once
-        // the off-by-one is pinned down.
-        const int lastLi = m_links.size() - 1;
-        double lastLinkBestD2 = std::numeric_limits<double>::infinity();
-        QString lastLinkName;
-        int     lastLinkSegCount = 0;
-        int     lastLinkFromIdx  = -1;
-        int     lastLinkToIdx    = -1;
-        bool    lastLinkHidden   = false;
+
+        // Reject by cached bounding box before touching geometry. This runs
+        // on every mouse MOVE (the select tool's hover feedback and the snap
+        // engine both call identifyAt), and it used to build a fresh
+        // QVector<QPointF> for all 121,902 links every time — a heap
+        // allocation per link per mouse move. The bbox test is four
+        // comparisons against a value already maintained alongside m_links,
+        // so only the handful of links actually near the cursor pay for a
+        // polyline.
+        //
+        // m_linkBboxes is layer-space, matching clickLX/clickLY, and holds
+        // min/max rather than a QRectF, so there is no top/bottom orientation
+        // trap. Guard on size: fall back to testing everything if the cache
+        // has not been built yet (identifyAt can be called before
+        // buildGeometryCache on a partially constructed layer).
+        const bool haveBboxes = (m_linkBboxes.size() == m_links.size());
         for (int li = 0; li < m_links.size(); ++li)
         {
             const LinkGeom &l = m_links[li];
-            if (li == lastLi) {
-                lastLinkName    = l.name;
-                lastLinkFromIdx = l.fromNodeIdx;
-                lastLinkToIdx   = l.toNodeIdx;
-                lastLinkHidden  = hiddenKind(l.name, kKindLink);
-            }
             if (hiddenKind(l.name, kKindLink)) continue;
+            if (haveBboxes) {
+                const MapExtent &bb = m_linkBboxes[li];
+                // NaN bbox (empty polyline) fails every comparison, so such a
+                // link is skipped — it has no geometry to hit anyway.
+                if (!(clickLX >= bb.xMin() - linkTolerLayer
+                      && clickLX <= bb.xMax() + linkTolerLayer
+                      && clickLY >= bb.yMin() - linkTolerLayer
+                      && clickLY <= bb.yMax() + linkTolerLayer))
+                    continue;
+            }
             const QVector<QPointF> verts = cachedLinkPolyline(li);
-            if (li == lastLi) lastLinkSegCount = std::max(0, int(verts.size()) - 1);
             for (int i = 1; i < verts.size(); ++i)
             {
                 const double ax = verts[i - 1].x(), ay = verts[i - 1].y();
@@ -3718,8 +3727,6 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
                 const double px = ax + t * vx, py = ay + t * vy;
                 const double dx = px - clickLX, dy = py - clickLY;
                 const double d2 = dx * dx + dy * dy;
-                if (li == lastLi && d2 < lastLinkBestD2)
-                    lastLinkBestD2 = d2;
                 if (d2 < bestDist2)
                 {
                     bestDist2 = d2;
@@ -3729,19 +3736,11 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
                 }
             }
         }
-        // Trace fires every identifyAt call — chatty but limited to one
-        // line. Toggle off by deleting once the bug is understood.
-        qDebug().noquote() << "[identifyAt tier2] links=" << m_links.size()
-                           << " clickL=(" << clickLX << "," << clickLY << ")"
-                           << " tol2=" << (linkTolerLayer * linkTolerLayer)
-                           << " bestD2=" << bestDist2
-                           << " bestName=" << best.value(QStringLiteral("elementName")).toString()
-                           << " || LAST: name=" << lastLinkName
-                           << " from=" << lastLinkFromIdx
-                           << " to=" << lastLinkToIdx
-                           << " segs=" << lastLinkSegCount
-                           << " hidden=" << lastLinkHidden
-                           << " minD2=" << lastLinkBestD2;
+        // The per-call trace that used to live here (a 12-operand qDebug plus
+        // the six locals that fed it) ran on every mouse move and formatted
+        // its string whether or not anything consumed the output. It was
+        // scaffolding for the 2026-05-25 last-link-unselectable bug, which is
+        // fixed; the last link is covered by test_selectionops now.
         if (!best.isEmpty()) return best;
     }
 
@@ -3977,17 +3976,6 @@ QVector<QPointF> SWMMModelLayer::cachedLinkPolyline(int idx) const
     result.append(lg.vertices);
     if (toOk)
         result.append(QPointF(m_nodes[lg.toNodeIdx].x, m_nodes[lg.toNodeIdx].y));
-    // DEBUG (last-link-unselectable bug, 2026-05-25): print only when
-    // this is the FINAL link in the SoA so the noise stays bounded.
-    if (idx == m_links.size() - 1) {
-        qDebug().noquote() << "[cachedLinkPolyline LAST] idx=" << idx
-                           << " name=" << lg.name
-                           << " from=" << lg.fromNodeIdx << "(ok=" << fromOk << ")"
-                           << " to="   << lg.toNodeIdx   << "(ok=" << toOk   << ")"
-                           << " interior=" << lg.vertices.size()
-                           << " total=" << result.size()
-                           << " nodes=" << m_nodes.size();
-    }
     return result;
 }
 
