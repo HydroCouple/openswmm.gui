@@ -1977,6 +1977,17 @@ add_swmmvis_gui_test(test_namelookup_precedence
 )
 swmmvis_link_full_app_deps(test_namelookup_precedence)
 
+# The map scene must stay out of the platform accessibility tree. Exposing one
+# QGraphicsItem per network element let macOS mint ~94 million
+# QMacAccessibilityElement wrappers (4.5 GB) as it re-walked the tree on window
+# activation -- i.e. every tab switch.
+add_swmmvis_gui_test(test_a11y_scene_exposure
+    test_a11y_scene_exposure.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_a11y_scene_exposure)
+
 # Mesh Tiled LOD plan Phase 0 — rendering-perf baseline harness. Self-skips
 # when tests/perf-data/mesh/ has no generated fixtures (they are gitignored;
 # see the README there), so it is a fast no-op on CI. The 5M-triangle rows
