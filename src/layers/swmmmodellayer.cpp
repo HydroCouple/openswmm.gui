@@ -2242,6 +2242,10 @@ void SWMMModelLayer::rebuildCategoryIndex()
     m_nameToSoa.clear();
     m_nameToSoa.reserve(m_nodes.size() + m_links.size()
                         + m_catchments.size() + m_gages.size());
+    m_nodeByName .clear();  m_nodeByName .reserve(m_nodes.size());
+    m_linkByName .clear();  m_linkByName .reserve(m_links.size());
+    m_catchByName.clear();  m_catchByName.reserve(m_catchments.size());
+    m_gageByName .clear();  m_gageByName .reserve(m_gages.size());
     // Drop intra-category overrides — the underlying SoA has been
     // rebuilt (add / remove / reload), so stored SoA indices could
     // now reference garbage.  .oswp restore will reinstall any
@@ -2268,6 +2272,9 @@ void SWMMModelLayer::rebuildCategoryIndex()
         m_objectLocation.insert(m_nodes[i].name,
                                 {cat, m_nodesByType[t].size() - 1});
         m_nameToSoa.insert(m_nodes[i].name, {SoaKind::Node, i});
+        // First definition wins, matching the linear scan this replaces.
+        if (!m_nodeByName.contains(m_nodes[i].name))
+            m_nodeByName.insert(m_nodes[i].name, i);
     }
 
     // Links — linkType 0..4 matches Category 0..4 offset from CatConduits.
@@ -2294,16 +2301,24 @@ void SWMMModelLayer::rebuildCategoryIndex()
                                     {cat, m_linksByType[t].size() - 1});
         if (!m_nameToSoa.contains(lname))
             m_nameToSoa.insert(lname, {SoaKind::Link, i});
+        // Per-kind map is namespaced, so a colliding node name does NOT
+        // suppress the link here — only an earlier link of the same name does.
+        if (!m_linkByName.contains(lname))
+            m_linkByName.insert(lname, i);
     }
 
     // Subcatchments + gages are their own categories; row = SoA index.
     for (int i = 0; i < m_catchments.size(); ++i) {
         m_objectLocation.insert(m_catchments[i].name, {CatSubcatchments, i});
         m_nameToSoa.insert(m_catchments[i].name, {SoaKind::Catch, i});
+        if (!m_catchByName.contains(m_catchments[i].name))
+            m_catchByName.insert(m_catchments[i].name, i);
     }
     for (int i = 0; i < m_gages.size(); ++i) {
         m_objectLocation.insert(m_gages[i].name, {CatRainGages, i});
         m_nameToSoa.insert(m_gages[i].name, {SoaKind::Gage, i});
+        if (!m_gageByName.contains(m_gages[i].name))
+            m_gageByName.insert(m_gages[i].name, i);
     }
 
     // Recompute hidden-count per category from m_hiddenObjects (which
@@ -3326,26 +3341,21 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name) const
     QVariantMap m;
     if (name.isEmpty()) return m;
 
-    auto findNode = [&]() -> int {
-        for (int i = 0; i < m_nodes.size(); ++i)
-            if (m_nodes[i].name == name) return i;
-        return -1;
+    // Hash lookups, not scans. These four used to be linear searches, which
+    // made every caller that iterates a category quadratic — restoring a
+    // 13 KB .oswp on a 122k-link model spent 22 s here, because a link had
+    // to fail a full node scan before its own scan even started. The maps
+    // reproduce the old semantics exactly: same kind precedence (node →
+    // link → catchment → gage, enforced by the order of the tests below),
+    // same lowest-index winner within a kind.
+    auto lookup = [&name](const QHash<QString, int> &h) -> int {
+        const auto it = h.constFind(name);
+        return (it == h.constEnd()) ? -1 : it.value();
     };
-    auto findLink = [&]() -> int {
-        for (int i = 0; i < m_links.size(); ++i)
-            if (m_links[i].name == name) return i;
-        return -1;
-    };
-    auto findCatch = [&]() -> int {
-        for (int i = 0; i < m_catchments.size(); ++i)
-            if (m_catchments[i].name == name) return i;
-        return -1;
-    };
-    auto findGage = [&]() -> int {
-        for (int i = 0; i < m_gages.size(); ++i)
-            if (m_gages[i].name == name) return i;
-        return -1;
-    };
+    auto findNode  = [&]() { return lookup(m_nodeByName);  };
+    auto findLink  = [&]() { return lookup(m_linkByName);  };
+    auto findCatch = [&]() { return lookup(m_catchByName); };
+    auto findGage  = [&]() { return lookup(m_gageByName);  };
 
     if (int i = findNode(); i >= 0)
     {
@@ -3892,16 +3902,17 @@ int SWMMModelLayer::objectTypeFor(const QString &name) const
 
 int SWMMModelLayer::nodeIndex(const QString &name) const
 {
-    for (int i = 0; i < m_nodes.size(); ++i)
-        if (m_nodes[i].name == name) return i;
-    return -1;
+    const auto it = m_nodeByName.constFind(name);
+    return (it == m_nodeByName.constEnd()) ? -1 : it.value();
 }
 
 int SWMMModelLayer::linkIndex(const QString &name) const
 {
-    for (int i = 0; i < m_links.size(); ++i)
-        if (m_links[i].name == name) return i;
-    return -1;
+    // Namespaced per kind, so this still finds a link whose name collides
+    // with a node's — the behaviour the old linear scan had, and which the
+    // single-keyed m_nameToSoa cannot express (see the header).
+    const auto it = m_linkByName.constFind(name);
+    return (it == m_linkByName.constEnd()) ? -1 : it.value();
 }
 
 bool SWMMModelLayer::cachedNodeCoord(int idx, double *x, double *y) const
@@ -4324,6 +4335,9 @@ bool SWMMModelLayer::applyNodeMove(int idx, double newX, double newY)
     m_needsRebuild = true;
     recomputeExtentFromCaches();   // keep cached model extent in sync (mesh/zoom gates read it)
     emit repaintRequested();
+    // The node coordinate is [COORDINATES] data, so the model no longer
+    // matches the .inp even though only a repaint is needed.
+    emit modelEdited();
     return true;
 }
 
@@ -5465,10 +5479,34 @@ QObject *SWMMModelLayer::ensureTimeseriesRegistry()
         // submit, which may precede the deferred saveToEngine flush —
         // dataObjectCount/NameAt are registry-preferred for this reason.
         auto onMutated = [this] { m_tablePartitionDirty = true;
-                                  emit dataObjectsChanged(); };
+                                  emit dataObjectsChanged();
+                                  emit modelEdited(); };
         connect(reg, &TimeseriesRegistry::providerAdded, this, onMutated);
         connect(reg, &TimeseriesRegistry::providerAboutToBeRemoved, this, onMutated);
         connect(reg, &TimeseriesRegistry::providerRenamed, this, onMutated);
+
+        // The registry signals above cover the provider SET only. Point and
+        // metadata edits inside a provider are equally .inp data, so subscribe
+        // to each provider's content signals for dirty tracking — both the
+        // ones seeded by loadFromEngine and any added later.
+        using openswmmvis::timeseries::TimeseriesProvider;
+        auto watch = [this](TimeseriesProvider *p) {
+            if (!p) return;
+            connect(p, &TimeseriesProvider::pointsChanged,   this, &SWMMModelLayer::markEdited);
+            connect(p, &TimeseriesProvider::pointsInserted,  this, &SWMMModelLayer::markEdited);
+            connect(p, &TimeseriesProvider::pointsRemoved,   this, &SWMMModelLayer::markEdited);
+            connect(p, &TimeseriesProvider::metadataChanged, this, &SWMMModelLayer::markEdited);
+            connect(p, &TimeseriesProvider::sourceModeChanged, this, &SWMMModelLayer::markEdited);
+        };
+        for (auto *p : reg->providers()) watch(p);
+        connect(reg, &TimeseriesRegistry::providerAdded, this, watch);
+
+        // Deliberately NOT wired to the registry's saveToEngine flush: the
+        // signals above already fire at edit time, so dirty tracking is
+        // complete. saveToEngine() is a deferred flush that the editor dialog
+        // runs unconditionally on close — including Cancel — so marking the
+        // project edited from it would dirty an untouched project and force a
+        // needless full .inp rewrite on the next run.
     }
     return reg;
 }
@@ -5489,10 +5527,30 @@ QObject *SWMMModelLayer::ensurePatternRegistry()
         // Attach AFTER loadFromEngine so the initial seed doesn't try to
         // re-add patterns the engine already has.
         reg->attachEngine(eng);
-        auto onMutated = [this] { emit dataObjectsChanged(); };
+        auto onMutated = [this] { emit dataObjectsChanged();
+                                  emit modelEdited(); };
         connect(reg, &PatternRegistry::providerAdded, this, onMutated);
         connect(reg, &PatternRegistry::providerAboutToBeRemoved, this, onMutated);
         connect(reg, &PatternRegistry::providerRenamed, this, onMutated);
+
+        // Factor edits inside a pattern are .inp data but never reach the
+        // registry — subscribe per provider for dirty tracking.
+        using openswmmvis::pattern::PatternProvider;
+        auto watch = [this](PatternProvider *p) {
+            if (!p) return;
+            connect(p, &PatternProvider::factorChanged,  this, &SWMMModelLayer::markEdited);
+            connect(p, &PatternProvider::factorsChanged, this, &SWMMModelLayer::markEdited);
+            connect(p, &PatternProvider::typeChanged,    this, &SWMMModelLayer::markEdited);
+        };
+        for (auto *p : reg->providers()) watch(p);
+        connect(reg, &PatternRegistry::providerAdded, this, watch);
+
+        // Deliberately NOT wired to the registry's saveToEngine flush: the
+        // signals above already fire at edit time, so dirty tracking is
+        // complete. saveToEngine() is a deferred flush that the editor dialog
+        // runs unconditionally on close — including Cancel — so marking the
+        // project edited from it would dirty an untouched project and force a
+        // needless full .inp rewrite on the next run.
     }
     return reg;
 }
@@ -5511,10 +5569,31 @@ QObject *SWMMModelLayer::ensureCurveRegistry()
         m_curveRegistryEngineHandle = eng;
         reg->loadFromEngine(eng);
         auto onMutated = [this] { m_tablePartitionDirty = true;
-                                  emit dataObjectsChanged(); };
+                                  emit dataObjectsChanged();
+                                  emit modelEdited(); };
         connect(reg, &CurveRegistry::providerAdded, this, onMutated);
         connect(reg, &CurveRegistry::providerAboutToBeRemoved, this, onMutated);
         connect(reg, &CurveRegistry::providerRenamed, this, onMutated);
+
+        // Point and curve-type edits inside a provider never reach the
+        // registry — subscribe per provider for dirty tracking.
+        using openswmmvis::curve::CurveProvider;
+        auto watch = [this](CurveProvider *p) {
+            if (!p) return;
+            connect(p, &CurveProvider::pointsChanged,  this, &SWMMModelLayer::markEdited);
+            connect(p, &CurveProvider::pointsInserted, this, &SWMMModelLayer::markEdited);
+            connect(p, &CurveProvider::pointsRemoved,  this, &SWMMModelLayer::markEdited);
+            connect(p, &CurveProvider::typeChanged,    this, &SWMMModelLayer::markEdited);
+        };
+        for (auto *p : reg->providers()) watch(p);
+        connect(reg, &CurveRegistry::providerAdded, this, watch);
+
+        // Deliberately NOT wired to the registry's saveToEngine flush: the
+        // signals above already fire at edit time, so dirty tracking is
+        // complete. saveToEngine() is a deferred flush that the editor dialog
+        // runs unconditionally on close — including Cancel — so marking the
+        // project edited from it would dirty an untouched project and force a
+        // needless full .inp rewrite on the next run.
     }
     return reg;
 }
@@ -5812,6 +5891,14 @@ QObject *SWMMModelLayer::ensureTransectRegistry()
         connect(reg, &TransectRegistry::providerAdded, this, onMutated);
         connect(reg, &TransectRegistry::providerAboutToBeRemoved, this, onMutated);
         connect(reg, &TransectRegistry::providerRenamed, this, onMutated);
+        // Parameter edits inside a provider reach neither the add/remove/rename
+        // signals above nor any layer signal. Track them at EDIT time, not at
+        // the registry's saveToEngine() flush: the comprehensive editors run
+        // that flush unconditionally after exec() — including on Cancel — so a
+        // flush-time signal would dirty an untouched project and force a full
+        // .inp rewrite on the next run.
+        connect(reg, &TransectRegistry::providerPointsChanged, this, &SWMMModelLayer::markEdited);
+        connect(reg, &TransectRegistry::providerMetadataChanged, this, &SWMMModelLayer::markEdited);
     }
     return reg;
 }
@@ -5833,6 +5920,13 @@ QObject *SWMMModelLayer::ensureStreetRegistry()
         connect(reg, &StreetRegistry::providerAdded, this, onMutated);
         connect(reg, &StreetRegistry::providerAboutToBeRemoved, this, onMutated);
         connect(reg, &StreetRegistry::providerRenamed, this, onMutated);
+        // Parameter edits inside a provider reach neither the add/remove/rename
+        // signals above nor any layer signal. Track them at EDIT time, not at
+        // the registry's saveToEngine() flush: the comprehensive editors run
+        // that flush unconditionally after exec() — including on Cancel — so a
+        // flush-time signal would dirty an untouched project and force a full
+        // .inp rewrite on the next run.
+        connect(reg, &StreetRegistry::providerParamsChanged, this, &SWMMModelLayer::markEdited);
     }
     return reg;
 }
@@ -5854,6 +5948,13 @@ QObject *SWMMModelLayer::ensurePollutantRegistry()
         connect(reg, &PollutantRegistry::providerAdded, this, onMutated);
         connect(reg, &PollutantRegistry::providerAboutToBeRemoved, this, onMutated);
         connect(reg, &PollutantRegistry::providerRenamed, this, onMutated);
+        // Parameter edits inside a provider reach neither the add/remove/rename
+        // signals above nor any layer signal. Track them at EDIT time, not at
+        // the registry's saveToEngine() flush: the comprehensive editors run
+        // that flush unconditionally after exec() — including on Cancel — so a
+        // flush-time signal would dirty an untouched project and force a full
+        // .inp rewrite on the next run.
+        connect(reg, &PollutantRegistry::providerParamsChanged, this, &SWMMModelLayer::markEdited);
     }
     return reg;
 }
@@ -5875,6 +5976,13 @@ QObject *SWMMModelLayer::ensureLandUseRegistry()
         connect(reg, &LandUseRegistry::providerAdded, this, onMutated);
         connect(reg, &LandUseRegistry::providerAboutToBeRemoved, this, onMutated);
         connect(reg, &LandUseRegistry::providerRenamed, this, onMutated);
+        // Parameter edits inside a provider reach neither the add/remove/rename
+        // signals above nor any layer signal. Track them at EDIT time, not at
+        // the registry's saveToEngine() flush: the comprehensive editors run
+        // that flush unconditionally after exec() — including on Cancel — so a
+        // flush-time signal would dirty an untouched project and force a full
+        // .inp rewrite on the next run.
+        connect(reg, &LandUseRegistry::providerParamsChanged, this, &SWMMModelLayer::markEdited);
     }
     return reg;
 }
@@ -5896,6 +6004,13 @@ QObject *SWMMModelLayer::ensureAquiferRegistry()
         connect(reg, &AquiferRegistry::providerAdded, this, onMutated);
         connect(reg, &AquiferRegistry::providerAboutToBeRemoved, this, onMutated);
         connect(reg, &AquiferRegistry::providerRenamed, this, onMutated);
+        // Parameter edits inside a provider reach neither the add/remove/rename
+        // signals above nor any layer signal. Track them at EDIT time, not at
+        // the registry's saveToEngine() flush: the comprehensive editors run
+        // that flush unconditionally after exec() — including on Cancel — so a
+        // flush-time signal would dirty an untouched project and force a full
+        // .inp rewrite on the next run.
+        connect(reg, &AquiferRegistry::providerParamsChanged, this, &SWMMModelLayer::markEdited);
     }
     return reg;
 }
@@ -5917,6 +6032,13 @@ QObject *SWMMModelLayer::ensureSnowpackRegistry()
         connect(reg, &SnowpackRegistry::providerAdded, this, onMutated);
         connect(reg, &SnowpackRegistry::providerAboutToBeRemoved, this, onMutated);
         connect(reg, &SnowpackRegistry::providerRenamed, this, onMutated);
+        // Parameter edits inside a provider reach neither the add/remove/rename
+        // signals above nor any layer signal. Track them at EDIT time, not at
+        // the registry's saveToEngine() flush: the comprehensive editors run
+        // that flush unconditionally after exec() — including on Cancel — so a
+        // flush-time signal would dirty an untouched project and force a full
+        // .inp rewrite on the next run.
+        connect(reg, &SnowpackRegistry::providerParamsChanged, this, &SWMMModelLayer::markEdited);
     }
     return reg;
 }
@@ -5938,6 +6060,13 @@ QObject *SWMMModelLayer::ensureInletRegistry()
         connect(reg, &InletRegistry::providerAdded, this, onMutated);
         connect(reg, &InletRegistry::providerAboutToBeRemoved, this, onMutated);
         connect(reg, &InletRegistry::providerRenamed, this, onMutated);
+        // Parameter edits inside a provider reach neither the add/remove/rename
+        // signals above nor any layer signal. Track them at EDIT time, not at
+        // the registry's saveToEngine() flush: the comprehensive editors run
+        // that flush unconditionally after exec() — including on Cancel — so a
+        // flush-time signal would dirty an untouched project and force a full
+        // .inp rewrite on the next run.
+        connect(reg, &InletRegistry::providerParamsChanged, this, &SWMMModelLayer::markEdited);
     }
     return reg;
 }
@@ -5959,6 +6088,13 @@ QObject *SWMMModelLayer::ensureLidControlRegistry()
         connect(reg, &LidControlRegistry::providerAdded, this, onMutated);
         connect(reg, &LidControlRegistry::providerAboutToBeRemoved, this, onMutated);
         connect(reg, &LidControlRegistry::providerRenamed, this, onMutated);
+        // Parameter edits inside a provider reach neither the add/remove/rename
+        // signals above nor any layer signal. Track them at EDIT time, not at
+        // the registry's saveToEngine() flush: the comprehensive editors run
+        // that flush unconditionally after exec() — including on Cancel — so a
+        // flush-time signal would dirty an untouched project and force a full
+        // .inp rewrite on the next run.
+        connect(reg, &LidControlRegistry::providerParamsChanged, this, &SWMMModelLayer::markEdited);
     }
     return reg;
 }
@@ -6208,6 +6344,9 @@ bool SWMMModelLayer::applyLinkInteriorVertices(int linkIdx,
 
     m_needsRebuild = true;
     emit repaintRequested();
+    // Interior vertices are [VERTICES] data — dirty even though the element
+    // set is unchanged.
+    emit modelEdited();
     return true;
 }
 
@@ -6260,6 +6399,8 @@ bool SWMMModelLayer::applySubcatchVertices(int idx, const QVector<QPointF> &vert
     m_needsRebuild = true;
     recomputeExtentFromCaches();   // keep cached model extent in sync (mesh/zoom gates read it)
     emit repaintRequested();
+    // [Polygons] data — dirty even though the element set is unchanged.
+    emit modelEdited();
     return true;
 }
 
@@ -6861,6 +7002,20 @@ void SWMMModelLayer::renameInIndices(const QString &oldName,
             m_nameToSoa.insert(newName, v);
         }
     }
+    // Per-kind maps: unlike m_nameToSoa these ARE kind-scoped, so the swap
+    // needs no collision guard — move the entry in exactly the renamed
+    // kind's map and leave the other kinds' entries for oldName alone.
+    auto swapPerKind = [&](QHash<QString, int> &h) {
+        const auto it = h.constFind(oldName);
+        if (it == h.constEnd()) return;
+        const int idx = it.value();
+        h.remove(oldName);
+        if (!h.contains(newName)) h.insert(newName, idx);
+    };
+    if      (renamedKind == kKindNode)  swapPerKind(m_nodeByName);
+    else if (renamedKind == kKindLink)  swapPerKind(m_linkByName);
+    else if (renamedKind == kKindCatch) swapPerKind(m_catchByName);
+    else if (renamedKind == kKindGage)  swapPerKind(m_gageByName);
 
     // Hidden state — kind-scoped. Only the bit for the kind that was
     // actually renamed moves to newName; hidden state for any OTHER kind
@@ -6934,6 +7089,8 @@ void SWMMModelLayer::appendNodeSceneEntry()
     m_objectLocation.insert(m_nodes[idx].name,
                             {cat, m_nodesByType[t].size() - 1});
     m_nameToSoa.insert(m_nodes[idx].name, {SoaKind::Node, idx});
+    if (!m_nodeByName.contains(m_nodes[idx].name))
+        m_nodeByName.insert(m_nodes[idx].name, idx);
 
     m_kdDirty = true;
     ++m_geomRevision;
@@ -6971,6 +7128,8 @@ void SWMMModelLayer::appendLinkSceneEntry()
         m_objectLocation.insert(lname, {cat, m_linksByType[t].size() - 1});
     if (!m_nameToSoa.contains(lname))
         m_nameToSoa.insert(lname, {SoaKind::Link, idx});
+    if (!m_linkByName.contains(lname))
+        m_linkByName.insert(lname, idx);
 
     // Spatial grid still references old indices; rebuild from current
     // bbox cache. O(L) but no OGR.
@@ -6992,6 +7151,8 @@ void SWMMModelLayer::appendCatchSceneEntry()
 
     m_objectLocation.insert(m_catchments[idx].name, {CatSubcatchments, idx});
     m_nameToSoa.insert(m_catchments[idx].name, {SoaKind::Catch, idx});
+    if (!m_catchByName.contains(m_catchments[idx].name))
+        m_catchByName.insert(m_catchments[idx].name, idx);
     ++m_geomRevision;
 }
 
@@ -7008,6 +7169,8 @@ void SWMMModelLayer::appendGageSceneEntry()
 
     m_objectLocation.insert(m_gages[idx].name, {CatRainGages, idx});
     m_nameToSoa.insert(m_gages[idx].name, {SoaKind::Gage, idx});
+    if (!m_gageByName.contains(m_gages[idx].name))
+        m_gageByName.insert(m_gages[idx].name, idx);
     m_kdDirty = true;
     ++m_geomRevision;
 }

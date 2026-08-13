@@ -840,8 +840,15 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
             if (!relRpt.isEmpty())
                 rl->setReportFilePath(resolveStoredPath(relRpt, oswpFile));
             pw->canvas()->addLayer(rl, /*pushUndo=*/false);
-            QList<QString> w, e;
-            rl->openResults(w, e);
+            // Async: the blocking part of openResults() is swmm_output_open's
+            // header/index parse, which scales with .out size (West Whiteland's
+            // is 427 MB). Restoring a project ran that on the GUI thread inside
+            // the sidecar-apply window, with the progress bar already hidden.
+            // openResultsAsync() moves only that read to a worker; the renderer
+            // install and period-0 fetch still land on the GUI thread in
+            // finishOpen(), so the kind-renderer restore below is unaffected —
+            // it operates on the layer, not on the results handle.
+            rl->openResultsAsync();
 
             // Slice S6.1 — restore sublayer state, if persisted.
             // No-op for projects saved before S6.1 (the map is empty)
