@@ -26,7 +26,9 @@
 
 #include <QDateTime>
 #include <QDialog>
+#include <QBrush>
 #include <QHash>
+#include <QPen>
 #include <QPointer>
 #include <QSet>
 #include <QVector>
@@ -162,6 +164,38 @@ private:
     QSet<SWMMResultsLayer *> m_cacheWired;
     void invalidateSourceCacheFor(SWMMResultsLayer *layer);
     void ensureCacheInvalidationWired(SWMMResultsLayer *layer);
+
+    /*!
+     * \brief Push a plot-level line style the user just edited onto every
+     *        loaded source.
+     *
+     *        Series styling lives on the results layer (one pen per output
+     *        kind per source, so overlaid scenarios stay distinguishable),
+     *        while ProfilePlotOptions carries a plot-level set of the same
+     *        pens. Nothing read the latter, so editing HGL/EGL/Max-HGL/
+     *        Max-EGL in the options tree silently did nothing.
+     *
+     *        `ProfilePlotOptions::changed` is one signal for every property,
+     *        so a blind push would restyle all sources whenever any unrelated
+     *        option (a label toggle, say) changed — quietly undoing per-source
+     *        customisation. Hence the snapshot below: only the pens that
+     *        actually differ from what was last seen get pushed.
+     *
+     * \returns true when at least one source was restyled.
+     */
+    bool pushEditedPlotStylesToSources();
+
+    /*! Last-seen plot-level styles, so an edit can be told from a repaint.
+     *  Seeded from the options object when it is bound. */
+    struct PlotStyleSnapshot {
+        QPen   hglLinePen;
+        QBrush hglFillBrush;
+        QPen   eglLinePen;
+        QPen   maxHglLinePen;
+        QBrush maxHglFillBrush;
+        QPen   maxEglLinePen;
+        bool   seeded = false;
+    } m_lastPlotStyle;
 };
 
 #endif // PROFILE_PLOT_DIALOG_H

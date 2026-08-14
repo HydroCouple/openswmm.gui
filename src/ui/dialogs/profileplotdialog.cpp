@@ -339,6 +339,10 @@ void ProfilePlotDialog::buildLayout()
 
     // Initial push: options → plot widget (visibility / labels / terrain).
     m_plot->setLayerToggles(togglesFromOptions(m_options));
+    // Record the plot-level styles as they stand now, so the FIRST edit is
+    // recognised as an edit. Seeding deliberately restyles nothing — opening
+    // the dialog must not stamp defaults over each source's saved style.
+    pushEditedPlotStylesToSources();
 
     // Options → plot.  Drives visibility, label rendering, and the
     // terrain re-sample whenever the user toggles "Use terrain DEM".
@@ -355,6 +359,10 @@ void ProfilePlotDialog::buildLayout()
             rebuildTerrainSamples();
             m_plot->setPath(m_pathStatic);
         }
+        // A plot-level line style the user just edited has to reach the
+        // sources before the series are rebuilt from them — otherwise the
+        // edit is invisible (see pushEditedPlotStylesToSources).
+        pushEditedPlotStylesToSources();
         rebindSources();
     });
 
@@ -899,6 +907,73 @@ void ProfilePlotDialog::onSourceActionToggled()
 // ---------------------------------------------------------------------------
 // Re-bind / refresh
 // ---------------------------------------------------------------------------
+
+bool ProfilePlotDialog::pushEditedPlotStylesToSources()
+{
+    if (!m_options) return false;
+
+    // First call after the options object is bound records the baseline; it
+    // must not restyle anything, or simply opening the dialog would stamp the
+    // plot-level defaults over every source's saved style.
+    const bool seeding = !m_lastPlotStyle.seeded;
+
+    struct Entry {
+        const QPen   *pen;      // exactly one of pen / brush is set
+        const QBrush *brush;
+        QPen         *lastPen;
+        QBrush       *lastBrush;
+        void (SWMMResultsLayer::*setPen)(const QPen &);
+        void (SWMMResultsLayer::*setBrush)(const QBrush &);
+    };
+    const QPen   hglPen    = m_options->hglLinePen();
+    const QBrush hglBrush  = m_options->hglFillBrush();
+    const QPen   eglPen    = m_options->eglLinePen();
+    const QPen   mHglPen   = m_options->maxHglLinePen();
+    const QBrush mHglBrush = m_options->maxHglFillBrush();
+    const QPen   mEglPen   = m_options->maxEglLinePen();
+
+    const Entry entries[] = {
+        {&hglPen,  nullptr,    &m_lastPlotStyle.hglLinePen,    nullptr,
+         &SWMMResultsLayer::setProfileHglLinePen,      nullptr},
+        {nullptr,  &hglBrush,  nullptr,  &m_lastPlotStyle.hglFillBrush,
+         nullptr, &SWMMResultsLayer::setProfileHglFillBrush},
+        {&eglPen,  nullptr,    &m_lastPlotStyle.eglLinePen,    nullptr,
+         &SWMMResultsLayer::setProfileEglLinePen,      nullptr},
+        {&mHglPen, nullptr,    &m_lastPlotStyle.maxHglLinePen, nullptr,
+         &SWMMResultsLayer::setProfileMaxHglLinePen,   nullptr},
+        {nullptr,  &mHglBrush, nullptr,  &m_lastPlotStyle.maxHglFillBrush,
+         nullptr, &SWMMResultsLayer::setProfileMaxHglFillBrush},
+        {&mEglPen, nullptr,    &m_lastPlotStyle.maxEglLinePen, nullptr,
+         &SWMMResultsLayer::setProfileMaxEglLinePen,   nullptr},
+    };
+
+    // Every source currently listed, checked or not — an unchecked source the
+    // user re-enables later should come back with the style they last set.
+    QVector<QPointer<SWMMResultsLayer>> layers;
+    const auto actions = m_sourceMenu ? m_sourceMenu->actions() : QList<QAction *>();
+    for (QAction *act : actions) {
+        QPointer<SWMMResultsLayer> l = m_actionLayer.value(act);
+        if (l) layers.push_back(l);
+    }
+
+    bool pushedAny = false;
+    for (const Entry &e : entries) {
+        const bool changed = e.pen ? (*e.lastPen != *e.pen)
+                                   : (*e.lastBrush != *e.brush);
+        if (e.pen) *e.lastPen   = *e.pen;
+        else       *e.lastBrush = *e.brush;
+        if (seeding || !changed) continue;
+
+        for (const QPointer<SWMMResultsLayer> &l : layers) {
+            if (!l) continue;
+            if (e.pen) (l.data()->*e.setPen)(*e.pen);
+            else       (l.data()->*e.setBrush)(*e.brush);
+            pushedAny = true;
+        }
+    }
+    m_lastPlotStyle.seeded = true;
+    return pushedAny;
+}
 
 void ProfilePlotDialog::rebindSources()
 {

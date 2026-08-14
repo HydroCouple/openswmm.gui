@@ -246,8 +246,9 @@ SWMMResultsLayer::SWMMResultsLayer(const QString &resultsFilePath,
     // Derive default per-source profile-plot pens & brushes from the
     // categorical colour so two simultaneously-open layers render with
     // visually-distinct HGL/EGL passes without any user customisation.
-    // The dash patterns mirror the widget's hardcoded defaults
-    // (see profileplotwidget.cpp themeEglPen / themeMaxHglPen):
+    // The dash patterns mirror the plot-level defaults on ProfilePlotOptions
+    // (hglLinePen / eglLinePen / maxHglLinePen / maxEglLinePen), which the
+    // profile dialog pushes onto every source when the user edits them:
     //   - HGL    : solid
     //   - EGL    : long-dash (12/6)
     //   - Max HGL: short-dash, thinner
