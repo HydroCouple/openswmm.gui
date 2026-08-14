@@ -613,9 +613,8 @@ void SWMMVis::initializeWelcomeScreen()
     clearPreviousWelcomeScreenElements();
 
     // Theme-track the MDI backdrop (it is what shows through the welcome
-    // tab, which paints no background of its own) and keep the activated
-    // sub-window maximized so a hidden welcome cannot leave the next tab
-    // floating as a small framed child over it. See mdiworkspacechrome.h.
+    // tab, which paints no background of its own). See
+    // mdiworkspacechrome.h.
     openswmmvis::ui::installMdiWorkspaceChrome(ui->mdiAreaCentral);
 
     // Force the MDI's internal tab bar to render close-X on the RIGHT
@@ -4052,7 +4051,15 @@ bool SWMMVis::eventFilter(QObject *watched, QEvent *event)
             }
             sub->hide();
             setSubWindowTabVisible(ui->mdiAreaCentral, sub, false);
-            if (next) ui->mdiAreaCentral->setActiveSubWindow(next);
+            if (next)
+            {
+                // Hiding a maximized Welcome breaks Qt's normal maximized
+                // state hand-off. This is an exceptional lifecycle change,
+                // not ordinary tab selection, so repair only this incoming
+                // document rather than forcing every activated tab to zoom.
+                next->showMaximized();
+                ui->mdiAreaCentral->setActiveSubWindow(next);
+            }
             return true;  // eat the event — sub-window stays in MDI list
         }
     }
@@ -4145,7 +4152,11 @@ void SWMMVis::openUntitledProject(const SWMMModelLayer::NewProjectSpec &spec)
         return;
     }
 
-    window->show();
+    // If the Welcome sub-window was hidden at startup, Qt has no visible
+    // maximized predecessor from which to inherit this state. Maximizing at
+    // the document-open boundary fixes that one lifecycle edge without
+    // interfering with normal Welcome/model tab switching.
+    window->showMaximized();
     ui->mdiAreaCentral->setActiveSubWindow(window);
     setWindowTitle(QStringLiteral("OpenSWMM — Untitled"));
 
@@ -4714,7 +4725,11 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
         attachMesh2DLayersAsync(window, filePath);
 
         setWindowTitle(QStringLiteral("OpenSWMM — %1").arg(QFileInfo(filePath).baseName()));
-        window->show();
+        // See openUntitledProject(): this explicit maximize is needed only
+        // when a hidden Welcome window prevented Qt's normal hand-off.
+        // Keeping it at the open boundary leaves existing-tab activation to
+        // QMdiArea, so selecting Welcome is a plain tab switch.
+        window->showMaximized();
         ui->mdiAreaCentral->setActiveSubWindow(window);
 
         // Re-run the activation handler now that the engine is loaded.
