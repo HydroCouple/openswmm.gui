@@ -70,6 +70,7 @@ class SWMMVisProjectWindow;
 class LayerTreePanel;
 class ObjectBrowserPanel;
 class PropertiesPanel;
+namespace openswmmvis::ui { class SectionViewPanel; }
 class AttributeTablePanel;
 class SimulationStatusModel;
 class ProfilePlotDialog;
@@ -660,6 +661,8 @@ private:
     LayerTreePanel        *mLayerTreePanel        = nullptr;
     ObjectBrowserPanel    *mObjectBrowserPanel    = nullptr;
     PropertiesPanel        *mPropertiesPanel        = nullptr;
+    // Slice SP.4 — dockable vector section / profile view of the selection.
+    openswmmvis::ui::SectionViewPanel *mSectionViewPanel = nullptr;
     AttributeTablePanel   *mAttributeTablePanel   = nullptr;
     SimulationStatusModel *mSimStatusModel        = nullptr;
     // Slice BB Phase 8.6.11 / 8.6.16 — dockable per-class legend / style editor.

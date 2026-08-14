@@ -36,6 +36,8 @@ class QListWidget;
 class QSplitter;
 class LabeledPickerCombo;
 
+namespace openswmmvis::sectionview { class SectionPreviewWidget; }
+
 class LinkCompoundEditDialog : public QDialog
 {
     Q_OBJECT
@@ -68,6 +70,16 @@ private:
     /*! Apply the current shape+geom1..4 to the engine via
      *  `SWMMModelLayer::applyLinkXsect` and refresh the summary. */
     void applyXsect();
+
+    /*! Slice SP.3 — rebuild the live section preview from the CURRENT WIDGET
+     *  values (not from the engine), so the drawing tracks typing even before
+     *  a value is committed. For IRREGULAR / STREET the geometry comes from
+     *  the picked transect / street provider, which works while the model is
+     *  still being built — unlike the engine's link-derived geometry.
+     *
+     *  \param highlightOrdinal 1..4 accents that geom's dimension line
+     *                          (set from the spin box being edited), 0 none. */
+    void refreshXsectPreview(int highlightOrdinal = 0);
 
     /*! Refresh the transect picker's items from the layer's
      *  TransectRegistry and select \p selected if non-empty. No-op when
@@ -113,6 +125,10 @@ private:
     QLabel         *m_xsGeom2Label   = nullptr;
     QLabel         *m_xsGeom3Label   = nullptr;
     QLabel         *m_xsGeom4Label   = nullptr;
+
+    /*! Slice SP.3 — third splitter pane: engine-accurate live section
+     *  drawing with labelled dimensions. */
+    openswmmvis::sectionview::SectionPreviewWidget *m_xsPreview = nullptr;
 
     // §S.SC.1.b (2026-05-25) — When the user picks IRREGULAR the engine
     // expects geom1 to be a transect *index*. Bare numeric input is

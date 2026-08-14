@@ -19,6 +19,41 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **Section View dock + engine-accurate cross-section drawings (Slice SP).**
+  New dockable **Section View** panel (View ▸ Panels ▸ Section View, tabbed
+  behind the Property Browser) draws the selected object as a vector diagram
+  with labelled dimensions and leader lines: links get a true-shape
+  cross-section (full depth, max width, invert/crown elevations, A/R/W
+  readout) and a longitudinal profile (both structures, ground line, barrel at
+  its real offsets, length + slope); nodes get a manhole profile with every
+  connecting pipe drawn at its own invert offset, plus a plan-view compass
+  inset of link headings. The same drawing now backs a live preview pane in
+  the **cross-section editor** and a per-type layer-stack diagram in the
+  **LID control editor**. Geometry is sampled from the engine's
+  `swmm_xsect_*` API (`swmm_xsect_width_of_depth_array`), which the GUI had
+  never consumed, so the drawing is the geometry the solver uses rather than
+  an approximation — and the 26 hand-drawn `*_xsect.svg` shape thumbnails are
+  replaced by procedurally rendered, theme-aware icons from that same code.
+  Street cross-sections are drawn at full fidelity from the engine's
+  `[STREETS]` table, so they render while the model is still being edited;
+  irregular (transect) and custom sections render in the cross-section editor
+  at any time and in the dock once the model has been validated or run.
+- **Five cross-section shapes surfaced.** `BASKETHANDLE`, `SEMICIRCULAR`,
+  `FORCE_MAIN`, `CUSTOM` and `DUMMY` are now in the shared shape/geom table
+  (`xsectshapegeom.h`), so they appear in the shape picker, the Property
+  Browser and the Attribute Table. `CUSTOM` is withheld from the picker until
+  a shape-curve picker exists (its geom2 is a curve index).
+
+### Fixed
+
+- **Cross-section editor never showed the transect picker for IRREGULAR
+  conduits.** `LinkCompoundEditDialog` compared the shape against a stale
+  literal `19`, which is `VERT_ELLIPSE` under the 6.0 `SWMM_XSectShape`
+  numbering — `SWMM_XSECT_IRREGULAR` is `21`. Opening the dialog on an
+  irregular conduit therefore hid the transect name picker and left the raw
+  geom1 index visible. All shape comparisons in that file now use the named
+  `SWMM_XSECT_*` / `openswmmvis::kXsect*Id` constants.
+
 - **Bundled Bellinge 2D example with copy-on-open.** The Welcome page's
   Example Projects panel now understands directory-per-example bundles (an
   `.inp` + `.oswp` + data sidecars + optional `example.json` manifest for the

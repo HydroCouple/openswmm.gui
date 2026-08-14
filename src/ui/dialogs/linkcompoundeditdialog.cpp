@@ -15,14 +15,20 @@
 #include "street/streetregistry.h"
 #include "ui/dialogs/streeteditordialog.h"
 #include "ui/properties/xsectshapegeom.h"   // shared shape/geom metadata
+#include "ui/sectionview/sectionmodelbuilders.h"
+#include "ui/sectionview/sectionpreviewwidget.h"
+#include "ui/sectionview/xsecticonrenderer.h"
+#include "ui/sectionview/xsectsampler.h"
 #include "ui/widgets/labeledcontrols.h"
 #include "ui/uiscrollhelpers.h"
+#include "core/unitsystem.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_links.h>
 
 #include <cmath>
+#include <utility>
 
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -31,9 +37,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
-#include <QPainter>
-#include <QPainterPath>
-#include <QPixmap>
+#include <QPalette>
 #include <QSpinBox>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -53,85 +57,26 @@ inline const ShapeRow *findShapeRow(int engineId)
     return openswmmvis::findXsectShapeRow(engineId);
 }
 
-// §S.SC.1.a (2026-05-25) — Cross-section thumbnail loader.
-//
-// Each engine shape id maps to a user-supplied SVG asset under the Qt
-// resource prefix `:/swmmvis/xsects/` (see resources/swmmvis.qrc). When
-// the resource isn't present (e.g. tests that don't link swmmvis.qrc;
-// or future engine shape ids that don't yet have art), we fall back to
-// a deterministic procedural placeholder so the QListWidget always has
-// *something* to draw.
-//
-// The shape-id→basename table is the single source of truth — adding a
-// shape (e.g. BASKETHANDLE / CUSTOM / DUMMY / FORCE_MAIN when Slice
-// BN.6.4.4 surfaces them in kShapes) is one new switch case. Label every
-// case with the SWMM_XSECT_* constant, never a bare integer — see the
-// drift warning on XsectShapeRow in xsectshapegeom.h.
-const char *xsectSvgBasenameFor(int engineId)
+// Slice SP.3 — palette thumbnails are now rendered from engine geometry by
+// `sectionview::xsectShapeIcon`, replacing the 26 hand-drawn
+// `:/swmmvis/xsects/*.svg` assets. That keeps a tile and the live preview
+// beside it from ever disagreeing, themes the artwork with the palette, and
+// gives the five shapes that never had art (BASKETHANDLE / SEMICIRCULAR /
+// CUSTOM / FORCE_MAIN / DUMMY) correct tiles for free.
+QIcon makeShapeIcon(int engineId, const QSize &size, const QPalette &palette)
 {
-    switch (engineId) {
-    case SWMM_XSECT_CIRCULAR:        return "circular_xsect.svg";
-    case SWMM_XSECT_FILLED_CIRCULAR: return "filled_circular_xsect.svg";
-    case SWMM_XSECT_RECT_CLOSED:     return "rectangular_xsect.svg";
-    case SWMM_XSECT_RECT_OPEN:       return "open_rectangular_xsect.svg";
-    case SWMM_XSECT_TRAPEZOIDAL:     return "trapezoidal_xsect.svg";
-    case SWMM_XSECT_TRIANGULAR:      return "triangular_xsect.svg";
-    case SWMM_XSECT_PARABOLIC:       return "parabolic_xsect.svg";
-    case SWMM_XSECT_POWER:           return "power_xsect.svg";
-    case SWMM_XSECT_RECT_TRIANG:     return "rectangular_triangular_xsect.svg";
-    case SWMM_XSECT_RECT_ROUND:      return "rectangular_round_xsect.svg";
-    case SWMM_XSECT_MOD_BASKET:      return "modified_baskethandle_xsect.svg";
-    case SWMM_XSECT_HORIZ_ELLIPSE:   return "horizontal_ellipse_xsect.svg";
-    case SWMM_XSECT_VERT_ELLIPSE:    return "vertical_ellipse_xsect.svg";
-    case SWMM_XSECT_ARCH:            return "arch_xsect.svg";
-    case SWMM_XSECT_EGGSHAPED:       return "egg_xsect.svg";
-    case SWMM_XSECT_HORSESHOE:       return "horseshoe_xsect.svg";
-    case SWMM_XSECT_GOTHIC:          return "gothic_xsect.svg";
-    case SWMM_XSECT_CATENARY:        return "catenary_xsect.svg";
-    case SWMM_XSECT_SEMIELLIPTICAL:  return "semi-elliptical_xsect.svg";
-    case SWMM_XSECT_IRREGULAR:       return "irregular_xsect.svg";
-    case SWMM_XSECT_STREET:          return "street_xsect.svg";
-    // BN.6.4.4 will extend kShapes with BASKETHANDLE / CUSTOM / DUMMY /
-    // FORCE_MAIN; the matching SVGs are already registered in
-    // resources/swmmvis.qrc (baskethandle_xsect.svg etc.).
-    default: return nullptr;
-    }
+    return openswmmvis::sectionview::xsectShapeIcon(engineId, size, palette);
 }
 
-QIcon makePlaceholderShapeIcon(int engineId)
+//! Unit context for the preview, from the active project's UnitSystem.
+openswmmvis::sectionview::DiagramUnits previewUnits()
 {
-    constexpr int kW = 64;
-    constexpr int kH = 48;
-    QPixmap pm(kW, kH);
-    pm.fill(Qt::transparent);
-
-    // Deterministic hue per engine id — golden-ratio walk across the
-    // colour wheel keeps adjacent shapes visually distinct.
-    const qreal hue = std::fmod(engineId * 0.6180339887, 1.0);
-    const QColor fill = QColor::fromHsvF(hue, 0.45, 0.92);
-    const QColor edge = QColor::fromHsvF(hue, 0.65, 0.55);
-
-    QPainter p(&pm);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    QPainterPath path;
-    path.addRoundedRect(QRectF(4, 4, kW - 8, kH - 8), 6.0, 6.0);
-    p.fillPath(path, fill);
-    p.setPen(QPen(edge, 1.5));
-    p.drawPath(path);
-    return QIcon(pm);
-}
-
-// SVG-first, placeholder fallback. QIcon::isNull() returns true when the
-// resource path doesn't exist (e.g. running inside a test binary that
-// doesn't compile swmmvis.qrc), so the fallback is automatic.
-QIcon makeShapeIcon(int engineId)
-{
-    if (const char *base = xsectSvgBasenameFor(engineId)) {
-        QIcon ico(QStringLiteral(":/swmmvis/xsects/%1")
-                      .arg(QString::fromLatin1(base)));
-        if (!ico.isNull()) return ico;
+    openswmmvis::sectionview::DiagramUnits u;
+    if (auto *us = UnitSystem::instance()) {
+        u.si          = us->isSI();
+        u.lengthLabel = us->lengthLabel();
     }
-    return makePlaceholderShapeIcon(engineId);
+    return u;
 }
 
 } // namespace
@@ -185,21 +130,29 @@ void LinkCompoundEditDialog::buildXSectionPage()
         const int idx = linkIdx();
         if (idx >= 0) swmm_link_get_type(m_ref.engine, idx, &linkType);
     }
+    // Slice SP.3 — bare integers replaced with the SWMM_XSECT_* constants.
+    // The old literals predated the 6.0 renumbering and were the same class of
+    // drift XsectShapeRow warns about (see the IRREGULAR fix below).
     auto shapeAllowed = [linkType](int engineId) {
         switch (linkType) {
-        case 2: // ORIFICE — legacy objprops.txt:866 lists CIRCULAR / RECT_CLOSED.
-            return engineId == /*CIRCULAR*/ 0 || engineId == /*RECT_CLOSED*/ 2;
-        case 3: // WEIR — RECT_OPEN, TRAPEZOIDAL, TRIANGULAR cover the legacy
+        case SWMM_LINK_ORIFICE: // legacy objprops.txt:866 — CIRCULAR / RECT_CLOSED.
+            return engineId == SWMM_XSECT_CIRCULAR
+                || engineId == SWMM_XSECT_RECT_CLOSED;
+        case SWMM_LINK_WEIR: // RECT_OPEN, TRAPEZOIDAL, TRIANGULAR cover the legacy
                 // TRANSVERSE / SIDEFLOW / TRAPEZOIDAL / V-NOTCH / ROADWAY set
                 // (ROADWAY uses RECT_OPEN + the roadway sub-form which lands
                 // in Slice SD once the engine accessors do).
-            return engineId == /*RECT_OPEN*/   3
-                || engineId == /*TRAPEZOIDAL*/ 4
-                || engineId == /*TRIANGULAR*/  5;
-        default: // Conduit (0) / Pump (1, unreached) / Outlet (4, unreached) —
-                 // pumps + outlets have no xsection cell wired up in §S.SC, so
-                 // this branch is conduit-only in practice. Full 20-shape list.
-            return true;
+            return engineId == SWMM_XSECT_RECT_OPEN
+                || engineId == SWMM_XSECT_TRAPEZOIDAL
+                || engineId == SWMM_XSECT_TRIANGULAR;
+        default: // Conduit / Pump (unreached) / Outlet (unreached) — pumps and
+                 // outlets have no xsection cell wired up in §S.SC, so this
+                 // branch is conduit-only in practice.
+            // CUSTOM is withheld: its geom2 is an index into the shape-curve
+            // list and there is no curve picker yet, so offering it would let
+            // the user select a shape they cannot finish configuring. Surface
+            // it together with that picker.
+            return engineId != SWMM_XSECT_CUSTOM;
         }
     };
 
@@ -242,14 +195,14 @@ void LinkCompoundEditDialog::buildXSectionPage()
 
     for (const auto &row : kShapes) {
         if (!shapeAllowed(row.engineId)) continue;
-        auto *item = new QListWidgetItem(makeShapeIcon(row.engineId),
-                                          QString::fromLatin1(row.name),
-                                          m_xsShapeList);
+        auto *item = new QListWidgetItem(
+            makeShapeIcon(row.engineId, kIconSize, m_xsShapeList->palette()),
+            QString::fromLatin1(row.name), m_xsShapeList);
         item->setData(Qt::UserRole, row.engineId);
         item->setTextAlignment(Qt::AlignHCenter | Qt::AlignTop);
     }
 
-    // ---- Right: per-shape params form ----------------------------------
+    // ---- Middle: per-shape params form ---------------------------------
     auto *paramsPane = new QWidget(m_xsSplitter);
     auto *form = new QFormLayout(paramsPane);
 
@@ -294,11 +247,21 @@ void LinkCompoundEditDialog::buildXSectionPage()
     m_xsSummaryLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     form->addRow(QString{}, m_xsSummaryLabel);
 
+    // ---- Right: live preview -------------------------------------------
+    // Slice SP.3 — the section is drawn from the same engine geometry the
+    // solver uses (sampled via swmm_xsect_width_of_depth), so what the user
+    // sees while typing IS the section they are about to store.
+    m_xsPreview = new openswmmvis::sectionview::SectionPreviewWidget(m_xsSplitter);
+    m_xsPreview->setObjectName(QStringLiteral("xsectionPreview"));
+    m_xsPreview->setPlaceholderText(tr("Pick a shape to preview its section."));
+
     m_xsSplitter->addWidget(m_xsShapeList);
     m_xsSplitter->addWidget(paramsPane);
+    m_xsSplitter->addWidget(m_xsPreview);
     m_xsSplitter->setStretchFactor(0, 1);
-    m_xsSplitter->setStretchFactor(1, 2);
-    m_xsSplitter->setSizes({ 320, 420 });
+    m_xsSplitter->setStretchFactor(1, 1);
+    m_xsSplitter->setStretchFactor(2, 2);
+    m_xsSplitter->setSizes({ 320, 300, 360 });
 
     auto *pageLay = new QVBoxLayout(page);
     pageLay->setContentsMargins(0, 0, 0, 0);
@@ -333,19 +296,33 @@ void LinkCompoundEditDialog::buildXSectionPage()
         // via the engine API. For other shapes we still seed the items
         // so the picker is ready the moment the user switches shape.
         QString currentTransectName;
-        if (shape == /*IRREGULAR*/ 19) {
-            const int tIdx = static_cast<int>(std::lround(g1));
-            if (m_ref.engine && tIdx >= 0 && tIdx < swmm_transect_count(m_ref.engine)) {
-                if (const char *id = swmm_transect_id(m_ref.engine, tIdx))
-                    currentTransectName = QString::fromUtf8(id);
-            }
-        }
+        // Slice SP.3 BUGFIX — this compared against a stale literal 19, which
+        // is VERT_ELLIPSE under the 6.0 numbering; SWMM_XSECT_IRREGULAR is 21.
+        // The effect was that opening the dialog on an irregular conduit never
+        // populated (nor showed) the transect picker. Exactly the drift the
+        // XsectShapeRow comment warns about — hence the named constants here
+        // and at every other former literal in this file.
+        //
+        // The picker is deliberately left UNSELECTED for IRREGULAR rather than
+        // seeded from geom1. Activating this branch exposed that geom1 is only
+        // a transect index for links whose xsection was set through the API in
+        // this session; for a link parsed from an .inp the [XSECTIONS] handler
+        // never populates geom1..4 for irregular sections, so swmm_link_get_xsect
+        // falls through to reporting DERIVED geometry — g1 = full depth. (The
+        // engine has a name→index branch for STREET but none for IRREGULAR.)
+        // Measured with tests/scratch/sp_geom1_probe.inp: three conduits on
+        // three different transects reported g1 = 5 / 9 / 3, their depths.
+        //
+        // Since the two cases are indistinguishable from here, seeding the
+        // combo would preselect the WRONG transect whenever a depth happened to
+        // land inside [0, transectCount). Showing nothing and making the user
+        // pick is the only honest option until the engine grows a getter.
         refreshTransectPickerItems(currentTransectName);
 
         // Populate the street picker. For STREET shape geom1 carries the
         // street index; translate to the name via the engine API.
         QString currentStreetName;
-        if (shape == /*STREET*/ 24) {
+        if (shape == openswmmvis::kXsectStreetId) {
             const int sIdx = static_cast<int>(std::lround(g1));
             if (m_ref.engine && sIdx >= 0 && sIdx < swmm_street_count(m_ref.engine)) {
                 if (const char *id = swmm_street_id(m_ref.engine, sIdx))
@@ -364,12 +341,22 @@ void LinkCompoundEditDialog::buildXSectionPage()
                 if (m_xsSuppressApply || !cur) return;
                 updateXsectFieldVisibility();
                 applyXsect();
+                refreshXsectPreview();
             });
-    auto applyOnChange = [this](double){ if (!m_xsSuppressApply) applyXsect(); };
-    connect(m_xsGeom1Spin, &QDoubleSpinBox::valueChanged, this, applyOnChange);
-    connect(m_xsGeom2Spin, &QDoubleSpinBox::valueChanged, this, applyOnChange);
-    connect(m_xsGeom3Spin, &QDoubleSpinBox::valueChanged, this, applyOnChange);
-    connect(m_xsGeom4Spin, &QDoubleSpinBox::valueChanged, this, applyOnChange);
+    // Slice SP.3 — the preview redraws on every keystroke, ahead of (and
+    // independently of) the engine write, so an intermediate value that the
+    // engine rejects still shows the user what they are typing.
+    auto applyOnChange = [this](int ordinal) {
+        return [this, ordinal](double) {
+            if (m_xsSuppressApply) return;
+            applyXsect();
+            refreshXsectPreview(ordinal);
+        };
+    };
+    connect(m_xsGeom1Spin, &QDoubleSpinBox::valueChanged, this, applyOnChange(1));
+    connect(m_xsGeom2Spin, &QDoubleSpinBox::valueChanged, this, applyOnChange(2));
+    connect(m_xsGeom3Spin, &QDoubleSpinBox::valueChanged, this, applyOnChange(3));
+    connect(m_xsGeom4Spin, &QDoubleSpinBox::valueChanged, this, applyOnChange(4));
     connect(m_xsBarrelsSpin, QOverload<int>::of(&QSpinBox::valueChanged),
             this, [this](int v) {
                 if (m_xsSuppressApply) return;
@@ -391,6 +378,7 @@ void LinkCompoundEditDialog::buildXSectionPage()
             this, [this](const QString &) {
                 if (m_xsSuppressApply) return;
                 applyXsect();
+                refreshXsectPreview();
             });
     connect(m_xsTransectPicker, &LabeledPickerCombo::pickerClicked,
             this, &LinkCompoundEditDialog::onTransectPickerClicked);
@@ -401,12 +389,112 @@ void LinkCompoundEditDialog::buildXSectionPage()
             this, [this](const QString &) {
                 if (m_xsSuppressApply) return;
                 applyXsect();
+                refreshXsectPreview();
             });
     connect(m_xsStreetPicker, &LabeledPickerCombo::pickerClicked,
             this, &LinkCompoundEditDialog::onStreetPickerClicked);
 
     m_xsSummaryLabel->setText(computeXsectSummary());
+    refreshXsectPreview();
     m_stack->addWidget(OpenSWMM::Ui::wrapInScrollArea(page, m_stack));
+}
+
+// Slice SP.3 — live preview, built from the widgets rather than the engine.
+void LinkCompoundEditDialog::refreshXsectPreview(int highlightOrdinal)
+{
+    if (!m_xsPreview) return;
+
+    namespace sv = openswmmvis::sectionview;
+
+    QListWidgetItem *cur = m_xsShapeList ? m_xsShapeList->currentItem() : nullptr;
+    if (!cur) {
+        m_xsPreview->setModel(sv::SectionDiagramModel{});
+        return;
+    }
+    const int shape = cur->data(Qt::UserRole).toInt();
+    const sv::DiagramUnits units = previewUnits();
+    const QString title = m_ref.linkName;
+
+    // IRREGULAR / STREET geometry comes from the picked provider, not from
+    // geom1 (an index).
+    //
+    // NB this deliberately differs from the Section View dock, which resolves
+    // the same shapes from the ENGINE's transect / street tables. Here the
+    // registry is the right source precisely because it is the uncommitted
+    // one: the user may have just edited station-elevation pairs in the
+    // transect editor and not yet flushed them, and the preview beside the
+    // picker has to show what they just drew, not what the engine still holds.
+    if (shape == openswmmvis::kXsectIrregularId) {
+        const QString name = m_xsTransectPicker ? m_xsTransectPicker->currentText()
+                                                : QString();
+        openswmmvis::transect::TransectProvider *prov = nullptr;
+        if (m_ref.layer && !name.isEmpty()) {
+            if (auto *reg = qobject_cast<openswmmvis::transect::TransectRegistry *>(
+                    m_ref.layer->ensureTransectRegistry())) {
+                for (auto *p : reg->providers())
+                    if (p && p->name() == name) { prov = p; break; }
+            }
+        }
+        if (!prov) {
+            sv::SectionDiagramModel m;
+            m.title     = title;
+            m.subtitle  = QStringLiteral("IRREGULAR");
+            m.emptyText = tr("Pick a transect to preview its section.");
+            m_xsPreview->setModel(m);
+            return;
+        }
+
+        QVector<double> stations, elevations;
+        const auto pts = prov->allPoints();
+        stations.reserve(pts.size());
+        elevations.reserve(pts.size());
+        for (const auto &pt : pts) { stations << pt.first; elevations << pt.second; }
+
+        sv::XsectSampler s = sv::XsectSampler::fromTransect(
+            stations, elevations, prov->xLeftBank(), prov->xRightBank(),
+            prov->nLeftBank(), prov->nChannel(), prov->nRightBank(),
+            prov->meanderFactor(), units.si);
+        m_xsPreview->setModel(sv::buildSamplerPreview(
+            s, title, tr("IRREGULAR — %1").arg(name), units));
+        return;
+    }
+
+    if (shape == openswmmvis::kXsectStreetId) {
+        const QString name = m_xsStreetPicker ? m_xsStreetPicker->currentText()
+                                              : QString();
+        openswmmvis::street::StreetProvider *prov = nullptr;
+        if (m_ref.layer && !name.isEmpty()) {
+            if (auto *reg = qobject_cast<openswmmvis::street::StreetRegistry *>(
+                    m_ref.layer->ensureStreetRegistry())) {
+                for (auto *p : reg->providers())
+                    if (p && p->name() == name) { prov = p; break; }
+            }
+        }
+        if (!prov) {
+            sv::SectionDiagramModel m;
+            m.title     = title;
+            m.subtitle  = QStringLiteral("STREET");
+            m.emptyText = tr("Pick a street to preview its section.");
+            m_xsPreview->setModel(m);
+            return;
+        }
+
+        sv::XsectSampler s = sv::XsectSampler::fromStreet(
+            prov->crownWidth(), prov->curbHeight(), prov->crossSlope(),
+            prov->roadRoughness(), prov->gutterDepression(), prov->gutterWidth(),
+            prov->sides(), prov->backingWidth(), prov->backingSlope(),
+            prov->backingRoughness(), units.si);
+        m_xsPreview->setModel(sv::buildSamplerPreview(
+            s, title, tr("STREET — %1").arg(name), units));
+        return;
+    }
+
+    sv::SectionDiagramModel m = sv::buildXsectEditorPreview(
+        shape, m_xsGeom1Spin->value(), m_xsGeom2Spin->value(),
+        m_xsGeom3Spin->value(), m_xsGeom4Spin->value(), units,
+        highlightOrdinal);
+    m.title = title;
+    m_xsPreview->setModel(std::move(m));
 }
 
 // §S.SC.1.b — Refresh the picker's items from the layer's registry. We
@@ -457,6 +545,7 @@ void LinkCompoundEditDialog::onTransectPickerClicked()
     // refreshTransectPickerItems suppressed the applyXsect bounce; commit
     // the picked name explicitly so the engine receives the new index.
     applyXsect();
+    refreshXsectPreview();
 }
 
 void LinkCompoundEditDialog::refreshStreetPickerItems(const QString &selected)
@@ -496,6 +585,7 @@ void LinkCompoundEditDialog::onStreetPickerClicked()
 
     refreshStreetPickerItems(chosen);
     applyXsect();
+    refreshXsectPreview();
 }
 
 void LinkCompoundEditDialog::updateXsectFieldVisibility()
@@ -503,8 +593,8 @@ void LinkCompoundEditDialog::updateXsectFieldVisibility()
     QListWidgetItem *cur = m_xsShapeList ? m_xsShapeList->currentItem() : nullptr;
     const int shapeId = cur ? cur->data(Qt::UserRole).toInt() : 0;
     const ShapeRow *row = findShapeRow(shapeId);
-    const bool isIrregular = (shapeId == /*IRREGULAR*/ 19);
-    const bool isStreet    = (shapeId == /*STREET*/ 24);
+    const bool isIrregular = (shapeId == openswmmvis::kXsectIrregularId);
+    const bool isStreet    = (shapeId == openswmmvis::kXsectStreetId);
 
     auto setRow = [](QLabel *lbl, QDoubleSpinBox *spin, const char *text) {
         const bool show = (text && *text);
@@ -541,21 +631,19 @@ QString LinkCompoundEditDialog::computeXsectSummary() const
     if (swmm_link_get_xsect(m_ref.engine, idx, &shape, &g1, &g2, &g3, &g4) != SWMM_OK)
         return tr("(unknown)");
     const ShapeRow *row = findShapeRow(shape);
-    // §S.SC.1.b — IRREGULAR's geom1 is a transect index; resolve to the
-    // transect name so the cell label reads "IRREGULAR (Creek-A)"
-    // rather than the cryptic "IRREGULAR (3)".
-    if (shape == /*IRREGULAR*/ 19) {
-        const int tIdx = static_cast<int>(std::lround(g1));
-        QString txName;
-        if (tIdx >= 0 && tIdx < swmm_transect_count(m_ref.engine)) {
-            if (const char *id = swmm_transect_id(m_ref.engine, tIdx))
-                txName = QString::fromUtf8(id);
-        }
+    // §S.SC.1.b — the cell label used to resolve IRREGULAR's geom1 to a
+    // transect name. It is not reliably an index (see the note in
+    // buildXSectionPage), so name the picked transect when the user has just
+    // chosen one in this dialog and fall back to an em-dash otherwise, rather
+    // than printing a name that may belong to a different transect.
+    if (shape == openswmmvis::kXsectIrregularId) {
+        const QString picked = m_xsTransectPicker ? m_xsTransectPicker->currentText()
+                                                  : QString();
         return tr("%1 (%2)").arg(QString::fromLatin1(row->name),
-                                  txName.isEmpty() ? tr("—") : txName);
+                                  picked.isEmpty() ? tr("—") : picked);
     }
     // STREET's geom1 is a street index; resolve to the street name.
-    if (shape == /*STREET*/ 24) {
+    if (shape == openswmmvis::kXsectStreetId) {
         const int sIdx = static_cast<int>(std::lround(g1));
         QString stName;
         if (sIdx >= 0 && sIdx < swmm_street_count(m_ref.engine)) {
@@ -589,7 +677,7 @@ void LinkCompoundEditDialog::applyXsect()
     // resolve the name → index here. Bail (without writing) when no
     // name is selected so the user doesn't accidentally apply a stale
     // numeric geom1 to an irregular shape.
-    if (shape == /*IRREGULAR*/ 19) {
+    if (shape == openswmmvis::kXsectIrregularId) {
         if (!m_xsTransectPicker || !m_ref.engine) return;
         const QString name = m_xsTransectPicker->currentText();
         if (name.isEmpty()) return;
@@ -599,7 +687,7 @@ void LinkCompoundEditDialog::applyXsect()
         g1 = static_cast<double>(tIdx);
     }
     // STREET: geom1 = street index, picked by name in m_xsStreetPicker.
-    if (shape == /*STREET*/ 24) {
+    if (shape == openswmmvis::kXsectStreetId) {
         if (!m_xsStreetPicker || !m_ref.engine) return;
         const QString name = m_xsStreetPicker->currentText();
         if (name.isEmpty()) return;
