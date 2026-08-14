@@ -520,35 +520,6 @@ QColor ProfilePlotWidget::themeBeddingFill() const
 {
     return m_options ? m_options->beddingFill() : kBeddingFillColor;
 }
-QPen ProfilePlotWidget::themeHglPen() const
-{
-    if (m_options) return m_options->hglLinePen();
-    QPen p(QColor(0x1F, 0x6F, 0xB7), kHglLineWidth, Qt::SolidLine);
-    p.setCapStyle(Qt::FlatCap);
-    return p;
-}
-QPen ProfilePlotWidget::themeEglPen() const
-{
-    if (m_options) return m_options->eglLinePen();
-    QPen p(QColor(0x1F, 0x6F, 0xB7), kEglLineWidth, Qt::CustomDashLine);
-    p.setDashPattern({12.0, 6.0});
-    p.setCapStyle(Qt::FlatCap);
-    return p;
-}
-QPen ProfilePlotWidget::themeMaxHglPen() const
-{
-    if (m_options) return m_options->maxHglLinePen();
-    QPen p(QColor(0x1F, 0x6F, 0xB7), kHglLineWidth * 0.7, Qt::DashLine);
-    p.setCapStyle(Qt::FlatCap);
-    return p;
-}
-QPen ProfilePlotWidget::themeMaxEglPen() const
-{
-    if (m_options) return m_options->maxEglLinePen();
-    QPen p(QColor(0x1F, 0x6F, 0xB7), kEglLineWidth * 0.7, Qt::DashLine);
-    p.setCapStyle(Qt::FlatCap);
-    return p;
-}
 QPen ProfilePlotWidget::themeConduitOutlinePen() const
 {
     if (m_options) return m_options->conduitOutlinePen();
