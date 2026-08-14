@@ -11,6 +11,9 @@
 #include "lid/lidcontrolregistry.h"
 #include "ui/models/lidcontrollistmodel.h"
 #include "ui/uiscrollhelpers.h"
+#include "core/unitsystem.h"
+#include "ui/sectionview/lidlayerdiagram.h"
+#include "ui/sectionview/sectionpreviewwidget.h"
 #include "ui/theme/iconfactory.h"
 
 #include <QComboBox>
@@ -121,6 +124,7 @@ void LidControlEditorDialog::buildUi_()
     rightLay->addLayout(headForm);
 
     auto *tabs = new QTabWidget(rightPane);
+    m_tabs = tabs;
 
     // Surface tab.
     auto *surf = new QWidget;  auto *surfForm = new QFormLayout(surf);
@@ -178,11 +182,21 @@ void LidControlEditorDialog::buildUi_()
     note->setEnabled(false);
     rightLay->addWidget(note);
 
+    // Slice SP.6 — third pane: the layer-stack diagram. Which layers exist is
+    // a function of the LID type (a rain barrel has no soil, a green roof has
+    // a drainage mat instead of storage), so the drawing is the fastest way to
+    // see that the type and the numbers agree.
+    m_diagram = new openswmmvis::sectionview::SectionPreviewWidget(m_splitter);
+    m_diagram->setObjectName(QStringLiteral("lidLayerDiagram"));
+    m_diagram->setPlaceholderText(tr("Select or create a LID control."));
+
     m_splitter->addWidget(leftPane);
     m_splitter->addWidget(rightPane);
-    m_splitter->setStretchFactor(0, 1);
+    m_splitter->addWidget(m_diagram);
+    m_splitter->setStretchFactor(0, 0);
     m_splitter->setStretchFactor(1, 2);
-    m_splitter->setSizes({ 180, 460 });
+    m_splitter->setStretchFactor(2, 2);
+    m_splitter->setSizes({ 180, 420, 360 });
 
     outer->addWidget(m_splitter, 1);
 
@@ -202,6 +216,10 @@ void LidControlEditorDialog::buildUi_()
             this, &LidControlEditorDialog::onNameEdited_);
     connect(m_typeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &LidControlEditorDialog::onFieldEdited_);
+    // The active tab drives which layer the diagram highlights; it changes no
+    // data, so it refreshes the drawing directly rather than via onFieldEdited_.
+    connect(tabs, &QTabWidget::currentChanged,
+            this, [this](int) { refreshLayerDiagram_(); });
     for (QDoubleSpinBox *s : { m_surfStorage, m_surfRough, m_surfSlope,
                                 m_soilThick, m_soilPoro, m_soilFc, m_soilWp,
                                 m_soilKsat, m_soilKslope, m_storThick, m_storVoid,
@@ -249,6 +267,7 @@ void LidControlEditorDialog::bindProvider_(LidControlProvider *p)
     }
 
     m_suppressFieldSync = prev;
+    refreshLayerDiagram_();
 }
 
 void LidControlEditorDialog::selectProviderInList_(LidControlProvider *p)
@@ -334,6 +353,56 @@ void LidControlEditorDialog::onFieldEdited_()
     m_current->setDrainCoeff(m_drainCoeff->value());
     m_current->setDrainExpon(m_drainExpon->value());
     m_current->setDrainOffset(m_drainOffset->value());
+    refreshLayerDiagram_();
+}
+
+// Slice SP.6 — layer-stack diagram, built from the widgets rather than the
+// provider so it tracks typing before the value is pushed to the model.
+void LidControlEditorDialog::refreshLayerDiagram_()
+{
+    if (!m_diagram) return;
+
+    namespace sv = openswmmvis::sectionview;
+
+    if (!m_current) {
+        m_diagram->setModel(sv::SectionDiagramModel{});
+        return;
+    }
+
+    sv::LidDiagramInput in;
+    in.name = m_nameEdit ? m_nameEdit->text() : QString();
+    in.type = static_cast<sv::LidType>(
+        m_typeCombo ? qBound(0, m_typeCombo->currentIndex(), 7) : 0);
+
+    in.surfaceStorage   = m_surfStorage->value();
+    in.surfaceRoughness = m_surfRough->value();
+    in.surfaceSlope     = m_surfSlope->value();
+    in.soilThickness    = m_soilThick->value();
+    in.soilPorosity     = m_soilPoro->value();
+    in.soilConductivity = m_soilKsat->value();
+    in.storageThickness = m_storThick->value();
+    in.storageVoidFrac  = m_storVoid->value();
+    in.storageSeepage   = m_storKsat->value();
+    in.drainCoeff       = m_drainCoeff->value();
+    in.drainExponent    = m_drainExpon->value();
+    in.drainOffset      = m_drainOffset->value();
+
+    if (auto *us = UnitSystem::instance())
+        in.lengthLabel = us->lengthLabel();
+
+    // Highlight the layer whose tab is in front. Tab order is fixed at build
+    // time (Surface / Soil / Storage / Drain); Drain is not a layer, so it
+    // highlights the lowest storage-like layer instead of nothing.
+    if (m_tabs) {
+        switch (m_tabs->currentIndex()) {
+        case 0: in.activeLayer = sv::LidLayer::Surface; in.hasActiveLayer = true; break;
+        case 1: in.activeLayer = sv::LidLayer::Soil;    in.hasActiveLayer = true; break;
+        case 2: in.activeLayer = sv::LidLayer::Storage; in.hasActiveLayer = true; break;
+        default: in.hasActiveLayer = false; break;
+        }
+    }
+
+    m_diagram->setModel(sv::buildLidLayerDiagram(in));
 }
 
 void LidControlEditorDialog::onProviderRenamed_(LidControlProvider *p,

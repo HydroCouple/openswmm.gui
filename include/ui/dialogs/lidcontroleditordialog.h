@@ -26,6 +26,7 @@ class QLineEdit;
 class QListView;
 class QPushButton;
 class QSplitter;
+class QTabWidget;
 
 class SWMMModelLayer;
 
@@ -33,6 +34,8 @@ namespace openswmmvis::lid {
 class LidControlProvider;
 class LidControlRegistry;
 }
+
+namespace openswmmvis::sectionview { class SectionPreviewWidget; }
 
 namespace openswmmvis::ui {
 
@@ -76,6 +79,11 @@ private slots:
 private:
     void buildUi_();
     void bindProvider_(openswmmvis::lid::LidControlProvider *p);
+
+    /*! Slice SP.6 — rebuild the layer-stack diagram from the CURRENT widget
+     *  values and the active tab. Called on every field edit, type change and
+     *  tab switch, so the drawing always matches the form. */
+    void refreshLayerDiagram_();
     void selectProviderInList_(openswmmvis::lid::LidControlProvider *p);
     QString suggestUniqueName_() const;
 
@@ -85,6 +93,11 @@ private:
     Mode                                           m_mode = Mode::Edit;
 
     QSplitter *m_splitter = nullptr;
+
+    /*! Slice SP.6 — right-hand layer-stack drawing: which layers this LID type
+     *  has, their relative thicknesses, and the active tab highlighted. */
+    openswmmvis::sectionview::SectionPreviewWidget *m_diagram = nullptr;
+    QTabWidget                                     *m_tabs    = nullptr;
 
     QListView           *m_listView  = nullptr;
     LidControlListModel *m_listModel = nullptr;

@@ -534,9 +534,18 @@ set(
         include/simulation/simulationrunner.h
         include/simulation/simulationstatusmodel.h
 
+        # ── Section view (Slice SP — vector section / profile diagrams) ──────
+        include/ui/sectionview/xsectsampler.h
+        include/ui/sectionview/sectiondiagram.h
+        include/ui/sectionview/sectionpreviewwidget.h
+        include/ui/sectionview/sectionmodelbuilders.h
+        include/ui/sectionview/lidlayerdiagram.h
+        include/ui/sectionview/xsecticonrenderer.h
+
         # ── UI panels ────────────────────────────────────────────────────────
         include/ui/panels/attributedelegates.h
         include/ui/panels/propertiespanel.h
+        include/ui/panels/sectionviewpanel.h
         include/ui/panels/attributetablepanel.h
         include/ui/panels/layertreepanel.h
         include/ui/panels/layertreecategories.h
@@ -1143,6 +1152,15 @@ set(
         # UI panels
         src/ui/panels/attributedelegates.cpp
         src/ui/panels/propertiespanel.cpp
+        src/ui/panels/sectionviewpanel.cpp
+
+        # ── Section view (Slice SP) ──────────────────────────────────────────
+        src/ui/sectionview/xsectsampler.cpp
+        src/ui/sectionview/sectiondiagram.cpp
+        src/ui/sectionview/sectionpreviewwidget.cpp
+        src/ui/sectionview/sectionmodelbuilders.cpp
+        src/ui/sectionview/lidlayerdiagram.cpp
+        src/ui/sectionview/xsecticonrenderer.cpp
         src/ui/panels/attributetablepanel.cpp
         src/ui/panels/layertreepanel.cpp
         src/ui/panels/layertreecategories.cpp

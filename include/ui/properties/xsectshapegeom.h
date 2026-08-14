@@ -50,6 +50,11 @@ struct XsectShapeRow {
 //! only by the complex dialog's name picker, never as a raw inline number.
 inline constexpr int kXsectIrregularId = SWMM_XSECT_IRREGULAR;
 inline constexpr int kXsectStreetId    = SWMM_XSECT_STREET;
+//! CUSTOM is the third tabulated shape: geom1 IS a real dimension (max depth)
+//! but geom2 is an index into the shape-curve list, so only geom2 is excluded
+//! from inline editing — unlike IRREGULAR / STREET, where geom1 itself is the
+//! index and nothing is inline-editable.
+inline constexpr int kXsectCustomId    = SWMM_XSECT_CUSTOM;
 
 inline constexpr XsectShapeRow kXsectShapes[] = {
     { "CIRCULAR",        SWMM_XSECT_CIRCULAR,       "Diameter",  "",             "",               ""  },
@@ -71,8 +76,21 @@ inline constexpr XsectShapeRow kXsectShapes[] = {
     { "GOTHIC",          SWMM_XSECT_GOTHIC,         "Max Depth", "",             "",               ""  },
     { "CATENARY",        SWMM_XSECT_CATENARY,       "Max Depth", "",             "",               ""  },
     { "SEMIELLIPTICAL",  SWMM_XSECT_SEMIELLIPTICAL, "Max Depth", "",             "",               ""  },
+    // Slice SP.3 — the five shapes the engine has always supported but the
+    // picker never surfaced (they had no SVG artwork; the section preview now
+    // draws every shape procedurally, so the gap is closed).
+    { "BASKETHANDLE",    SWMM_XSECT_BASKETHANDLE,   "Max Depth", "",             "",               ""  },
+    { "SEMICIRCULAR",    SWMM_XSECT_SEMICIRCULAR,   "Max Depth", "",             "",               ""  },
+    // FORCE_MAIN is geometrically a circular pipe; geom2 selects the friction
+    // law's coefficient (Hazen-Williams C or Darcy-Weisbach roughness height),
+    // NOT a dimension — hence the explicit label.
+    { "FORCE_MAIN",      SWMM_XSECT_FORCE_MAIN,     "Diameter",  "Roughness (C or e)", "",         ""  },
     { "IRREGULAR",       SWMM_XSECT_IRREGULAR,      "Transect (index)", "",      "",               ""  },
+    { "CUSTOM",          SWMM_XSECT_CUSTOM,         "Max Depth", "Shape Curve (index)", "",        ""  },
     { "STREET",          SWMM_XSECT_STREET,         "Street (index)",   "",      "",               ""  },
+    // DUMMY carries no geometry at all: it exists so a link can be routed
+    // without conveyance. No geom is editable.
+    { "DUMMY",           SWMM_XSECT_DUMMY,          "",          "",             "",               ""  },
 };
 
 //! Look up a shape row by engine id; falls back to the first row
@@ -86,10 +104,11 @@ inline const XsectShapeRow *findXsectShapeRow(int engineId)
 }
 
 //! Shape name for `engineId` ("CIRCULAR", …), or an empty QString when the id
-//! is not one the GUI surfaces (BASKETHANDLE / CUSTOM / FORCE_MAIN / DUMMY,
-//! pending Slice BN.6.4.4). Unlike findXsectShapeRow() this does NOT fall back
-//! to CIRCULAR — display paths must be able to render "UNKNOWN" instead of
-//! confidently naming the wrong shape.
+//! is not one the GUI surfaces. Since Slice SP.3 the table covers all 26
+//! engine shapes, so an empty return now means the id is genuinely unknown
+//! (e.g. a model written by a newer engine). Unlike findXsectShapeRow() this
+//! does NOT fall back to CIRCULAR — display paths must be able to render
+//! "UNKNOWN" instead of confidently naming the wrong shape.
 inline QString xsectShapeName(int engineId)
 {
     for (const auto &r : kXsectShapes) {
@@ -117,10 +136,14 @@ inline QString xsectGeomLabel(int shapeId, int ordinal)
 
 //! True iff geom `ordinal` (1..4) is a real, directly-editable dimension
 //! for `shapeId`. IRREGULAR / STREET return false for every ordinal
-//! (geom1 there is a transect / street index, set only via the dialog).
+//! (geom1 there is a transect / street index, set only via the dialog);
+//! CUSTOM excludes only geom2 (its shape-curve index), keeping geom1
+//! (max depth) inline-editable.
 inline bool xsectGeomApplies(int shapeId, int ordinal)
 {
     if (shapeId == kXsectIrregularId || shapeId == kXsectStreetId)
+        return false;
+    if (shapeId == kXsectCustomId && ordinal == 2)
         return false;
     return !xsectGeomLabel(shapeId, ordinal).isEmpty();
 }
