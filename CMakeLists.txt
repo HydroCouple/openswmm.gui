@@ -635,6 +635,7 @@ set(
         # ── UI action registry (UI redesign P1) ──────────────────────────────
         include/ui/actioncatalog.h
         include/ui/actionregistry.h
+        include/ui/mdiworkspacechrome.h
 
         # ── UI theme (UI redesign P2/P3) ─────────────────────────────────────
         include/ui/theme/themetokens.h
@@ -1349,6 +1350,7 @@ set(
 
         # Toolbars
         src/ui/actionregistry.cpp
+        src/ui/mdiworkspacechrome.cpp
         src/ui/theme/thememanager.cpp
         src/ui/theme/iconfactory.cpp
         src/ui/toolbars/compacttoolbarcontroller.cpp

@@ -70,6 +70,7 @@
 #include <cpl_conv.h>   // CPLGetLastErrorMsg — GDAL open-failure detail
 
 #include "swmmvis.h"
+#include "ui/mdiworkspacechrome.h"
 #include "ui/theme/themehelpers.h"
 #include "io/gdaldrivers.h"
 #include "ui/dialogs/sublayerselectiondialog.h"
@@ -610,6 +611,12 @@ public:
 void SWMMVis::initializeWelcomeScreen()
 {
     clearPreviousWelcomeScreenElements();
+
+    // Theme-track the MDI backdrop (it is what shows through the welcome
+    // tab, which paints no background of its own) and keep the activated
+    // sub-window maximized so a hidden welcome cannot leave the next tab
+    // floating as a small framed child over it. See mdiworkspacechrome.h.
+    openswmmvis::ui::installMdiWorkspaceChrome(ui->mdiAreaCentral);
 
     // Force the MDI's internal tab bar to render close-X on the RIGHT
     // (macOS defaults to LEFT via the native style hint).

@@ -46,6 +46,22 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Fixed
 
+- **Welcome screen painted in the wrong theme, and model tabs floated over
+  it as small framed windows.** `QMdiArea` snapshots its backdrop brush
+  once in its constructor and has no `PaletteChange` handling, so the
+  theme installed after the main window was built never reached it — and
+  `welcomeWidget`, a plain `QWidget` that paints no background of its own,
+  showed that stale brush across the whole tab. Separately, `TabbedView`
+  never hides an inactive sub-window; it relies on the active one being
+  maximized, a state Qt hands over only from a predecessor that is both
+  maximized *and* visible. Hiding the welcome tab in place (startup toggle
+  off, or the tab's X) broke that chain and left the next tab in Normal
+  state — a small child window, default Qt window icon and all, painted
+  over the welcome screen. `installMdiWorkspaceChrome()` now tracks the
+  theme token on the backdrop and re-asserts the maximized state on every
+  activation, skipping explicitly hidden sub-windows so a dismissed
+  welcome tab stays dismissed.
+
 - **Cross-section editor never showed the transect picker for IRREGULAR
   conduits.** `LinkCompoundEditDialog` compared the shape against a stale
   literal `19`, which is `VERT_ELLIPSE` under the 6.0 `SWMM_XSectShape`
