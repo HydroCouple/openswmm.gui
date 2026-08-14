@@ -1389,6 +1389,35 @@ add_swmmvis_gui_test(test_subcatchpropertyadapter
     swmmmodellayer_userflags_linkstub.cpp
 )
 
+# ── Slice SP — section / profile preview panels ─────────────────────────────
+# SP.1: the engine cross-section sampler. Links only the sampler + the icon
+# renderer's nominal-geom table; the assertions are engine-facing (does every
+# surfaced shape build, does the sampled outline match swmm_xsect_full_properties)
+# so this is the test that fails first if an engine update changes the xsect
+# API or renumbers SWMM_XSectShape.
+add_swmmvis_gui_test(test_xsectsampler
+    test_xsectsampler.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/xsectsampler.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/xsecticonrenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/sectiondiagram.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/xsectsampler.h
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/xsecticonrenderer.h
+    ${CMAKE_SOURCE_DIR}/include/ui/properties/xsectshapegeom.h
+)
+
+# SP.2 / SP.6: diagram model, painter and the LID layer stacks. No engine
+# calls — the model is a plain value, which is the point of the builder/painter
+# split, so this one runs anywhere Qt does.
+add_swmmvis_gui_test(test_sectiondiagram
+    test_sectiondiagram.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/sectiondiagram.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/sectionpreviewwidget.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/lidlayerdiagram.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/sectiondiagram.h
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/sectionpreviewwidget.h
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/lidlayerdiagram.h
+)
+
 # Inline cross-section geom1..geom4 — direct-edit fields surfaced next to
 # the compound XSection dialog (both Property Browser + Attribute Table).
 # Covers the shared shape/geom applicability helper and the link adapter's
