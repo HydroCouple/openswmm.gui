@@ -766,6 +766,8 @@ void DeleteObjectCommand::snapshotNode(const QString &name)
     swmm_node_get_initial_depth(eng,   idx, &m_node.initDepth);
     swmm_node_get_surcharge_depth(eng, idx, &m_node.surchargeDepth);
     swmm_node_get_ponded_area(eng,     idx, &m_node.pondedArea);
+    swmm_node_is_virtual(eng,          idx, &m_node.isVirtual);
+    swmm_node_get_rim_depth(eng,       idx, &m_node.rimDepth);
     swmm_node_get_outfall_type(eng,    idx, &m_node.outfallType);
     swmm_node_get_outfall_flap_gate(eng, idx, &m_node.outfallFlapGate);
     swmm_node_get_storage_seep_rate(eng, idx, &m_node.seepRate);
@@ -877,6 +879,18 @@ void DeleteObjectCommand::restoreNode()
         swmm_link_set_discharge_coeff(eng,  li, ls.dischargeCoeff);
         swmm_link_set_end_contractions(eng, li, ls.endContractions);
         swmm_link_set_pump_init_state(eng,  li, ls.pumpInitState);
+    }
+
+    // Virtual flag LAST: the rule check needs the two conduits back, so it
+    // can only pass once the cascade links above are re-wired. Restoring the
+    // rim depth first keeps the ground line the node was drawn with — the
+    // engine's set-virtual would otherwise carry the max depth into it.
+    if (m_node.isVirtual) {
+        const int idx = swmm_node_index(eng, m_node.name.toUtf8().constData());
+        if (idx >= 0) {
+            swmm_node_set_rim_depth(eng, idx, m_node.rimDepth);
+            m_layer->applySetVirtual(m_node.name, true, nullptr);
+        }
     }
 }
 

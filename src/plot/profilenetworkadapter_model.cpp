@@ -41,17 +41,8 @@ ProfileBuilder::LinkKind toLinkKind(int swmmLinkType)
     }
 }
 
-ProfileBuilder::NodeKind toNodeKind(int swmmNodeType)
-{
-    using K = ProfileBuilder::NodeKind;
-    switch (swmmNodeType) {
-    case 0: return K::Junction;
-    case 1: return K::Outfall;
-    case 2: return K::Storage;
-    case 3: return K::Divider;
-    default: return K::Junction;
-    }
-}
+// toNodeKind() / renderRimDepth() live in the pure half
+// (profilenetworkadapter.cpp) so they can be unit-tested without the engine.
 
 } // namespace
 
@@ -107,16 +98,18 @@ ProfileBuilder::PathStatic buildPathStaticFromModel(
         NodeInfo n;
         n.engineNodeIdx = engNodeIdx;
         n.name          = QString::fromUtf8(swmm_node_id(eng, engNodeIdx));
-        double invert   = 0.0, maxDepth = 0.0, surchargeDepth = 0.0;
-        int    nodeType = 0;
+        double invert   = 0.0, maxDepth = 0.0, surchargeDepth = 0.0, rimDepth = 0.0;
+        int    nodeType = 0, isVirtual = 0;
         swmm_node_get_invert_elev    (eng, engNodeIdx, &invert);
         swmm_node_get_max_depth      (eng, engNodeIdx, &maxDepth);
         swmm_node_get_surcharge_depth(eng, engNodeIdx, &surchargeDepth);
         swmm_node_get_type           (eng, engNodeIdx, &nodeType);
+        swmm_node_is_virtual         (eng, engNodeIdx, &isVirtual);
+        swmm_node_get_rim_depth      (eng, engNodeIdx, &rimDepth);
         n.invertElev     = invert;
-        n.maxDepth       = maxDepth;
+        n.maxDepth       = renderRimDepth(isVirtual != 0, maxDepth, rimDepth);
         n.surchargeDepth = std::max(0.0, surchargeDepth);
-        n.kind           = toNodeKind(nodeType);
+        n.kind           = toNodeKind(nodeType, isVirtual != 0);
         nodes.push_back(n);
     }
 

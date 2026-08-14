@@ -139,6 +139,30 @@ struct PathLinkInfo
  */
 void swapForReversed(PathLinkInfo &link);
 
+/*!
+ * \brief Maps an engine node type code (0=junction, 1=outfall, 2=storage,
+ *        3=divider) plus the virtual-junction flag to a `NodeKind`.
+ *
+ *        Virtual junctions are JUNCTION-typed on the engine — the flag is
+ *        the only thing separating them — and the profile draws them as
+ *        pipe rather than as a structure.
+ */
+[[nodiscard]] ProfileBuilder::NodeKind toNodeKind(int swmmNodeType,
+                                                  bool isVirtual);
+
+/*!
+ * \brief Picks the depth the profile should draw a node's ground/rim line
+ *        at, given its hydraulic max depth and its rendering rim depth.
+ *
+ *        A virtual junction's max depth is derived — always the shared pipe
+ *        crown — so drawing the ground at `invert + maxDepth` sinks the
+ *        terrain into the pipe at every break point.  When the model supplies
+ *        a rim depth (the optional `[VIRTUAL_JUNCTIONS]` MaxDepth, 0 = unset)
+ *        that value wins.  Every other node type keeps its max depth.
+ */
+[[nodiscard]] double renderRimDepth(bool isVirtual, double maxDepth,
+                                    double rimDepth);
+
 // ---------------------------------------------------------------------------
 // Live-model glue (not unit-tested; manual / integration only).
 // ---------------------------------------------------------------------------

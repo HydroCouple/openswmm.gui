@@ -17,6 +17,7 @@
 #include "ui/properties/swmmnodepropertyadapter.h"
 
 #include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_tables.h>  // Slice AG.4 — storage curve
@@ -50,6 +51,36 @@ private:
         swmm_node_set_invert_elev(e, oIdx, 95.0);
         swmm_spatial_set_node_coord(e, jIdx, 10.0, 20.0);
         swmm_spatial_set_node_coord(e, oIdx, 30.0, 40.0);
+        return e;
+    }
+
+    // J1 —C1— MID —C2— O1, with MID flagged as a virtual junction. The two
+    // conduits are default-constructed, so they satisfy the virtual-junction
+    // rules (identical cross-section, zero offsets, exactly two conduits, no
+    // lateral inflow) without any further setup.
+    SWMM_Engine buildVirtualJunctionFixture()
+    {
+        SWMM_Engine e = swmm_engine_new();
+        if (!e) return nullptr;
+        swmm_node_add(e, "J1",  0);
+        swmm_node_add(e, "MID", 0);
+        swmm_node_add(e, "O1",  1);
+        const int jIdx = swmm_node_index(e, "J1");
+        const int mIdx = swmm_node_index(e, "MID");
+        const int oIdx = swmm_node_index(e, "O1");
+        swmm_node_set_invert_elev(e, jIdx, 100.0);
+        swmm_node_set_invert_elev(e, mIdx,  97.5);
+        swmm_node_set_invert_elev(e, oIdx,  95.0);
+
+        swmm_link_add(e, "C1", 0);   // 0 = conduit
+        swmm_link_add(e, "C2", 0);
+        swmm_link_set_nodes(e, swmm_link_index(e, "C1"), jIdx, mIdx);
+        swmm_link_set_nodes(e, swmm_link_index(e, "C2"), mIdx, oIdx);
+
+        if (swmm_node_set_virtual(e, mIdx, 1) != 0) {
+            swmm_engine_destroy(e);
+            return nullptr;
+        }
         return e;
     }
 
@@ -230,6 +261,50 @@ private slots:
             QVERIFY2(mo->property(idx).isWritable(),
                      qPrintable(QStringLiteral("expected %1 writable").arg(name)));
         }
+
+        swmm_engine_destroy(e);
+    }
+
+    // ====================================================================
+    // Virtual junction — the one editable depth is the rendering rim
+    // ====================================================================
+
+    /*! A virtual junction's max depth is derived (always the shared pipe
+     *  crown), so the adapter exposes no `maxDepth` editor. What it does
+     *  expose is `rimDepth` — the optional [VIRTUAL_JUNCTIONS] MaxDepth that
+     *  says where the ground surface is drawn. */
+    void virtualJunctionExposesWritableRimDepthOnly()
+    {
+        SWMM_Engine e = buildVirtualJunctionFixture();
+        QVERIFY(e);
+
+        SWMMVirtualJunctionPropertyAdapter a(e, QStringLiteral("MID"));
+        const auto *mo = a.metaObject();
+
+        const int rimIdx = mo->indexOfProperty("rimDepth");
+        QVERIFY2(rimIdx >= 0, "virtual junction must expose rimDepth");
+        QVERIFY2(mo->property(rimIdx).isWritable(), "rimDepth must be editable");
+
+        // The hydraulic depth fields stay off this adapter entirely.
+        for (const char *absent : {"maxDepth", "surchargeDepth", "pondedArea"})
+            QVERIFY2(mo->indexOfProperty(absent) < 0, absent);
+
+        // Round-trip through the engine.
+        a.setRimDepth(4.5);
+        QCOMPARE(a.rimDepth(), 4.5);
+        double engineRim = 0.0;
+        QCOMPARE(swmm_node_get_rim_depth(e, swmm_node_index(e, "MID"), &engineRim), 0);
+        QCOMPARE(engineRim, 4.5);
+
+        // 0 clears it back to "unset" (renderers fall back to the crown).
+        a.setRimDepth(0.0);
+        QCOMPARE(a.rimDepth(), 0.0);
+
+        // The label must say the value is for display, since the property
+        // browser has nowhere else to put that.
+        const QString label = a.displayLabelFor(QStringLiteral("rimDepth"));
+        QVERIFY(!label.isEmpty());
+        QVERIFY2(label.contains(QStringLiteral("Display")), qPrintable(label));
 
         swmm_engine_destroy(e);
     }

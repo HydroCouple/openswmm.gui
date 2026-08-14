@@ -1106,6 +1106,24 @@ int storageConstCSet(SWMM_Engine e, int idx, double v) {
     return swmm_node_set_storage_functional(e, idx, a, b, v);
 }
 
+// Virtual junctions share the CatJunctions schema, but their max depth is
+// derived (always the pipe crown) — writing it would silently corrupt the
+// solver geometry, and reading it shows the crown rather than the ground the
+// profile draws.  Route the "Max depth" cell to the rendering rim depth on
+// those rows instead; every other node type is untouched.
+bool nodeIsVirtual(SWMM_Engine e, int idx) {
+    int v = 0;
+    return swmm_node_is_virtual(e, idx, &v) == SWMM_OK && v != 0;
+}
+int nodeMaxDepthGet(SWMM_Engine e, int idx, double *v) {
+    return nodeIsVirtual(e, idx) ? swmm_node_get_rim_depth(e, idx, v)
+                                 : swmm_node_get_max_depth(e, idx, v);
+}
+int nodeMaxDepthSet(SWMM_Engine e, int idx, double v) {
+    return nodeIsVirtual(e, idx) ? swmm_node_set_rim_depth(e, idx, v)
+                                 : swmm_node_set_max_depth(e, idx, v);
+}
+
 // Dispatch table — map a setter-tag string to the engine call.
 // Double-typed setters drive Numeric columns; Int-typed setters
 // drive Enum / Integer / Bool columns.  Each entry populates one
@@ -1131,7 +1149,7 @@ SetterEntry setterFor(const QString &tag) {
     if (tag == QStringLiteral("node_invert_elev"))
         return {EntityKind::Node, &swmm_node_set_invert_elev, &swmm_node_get_invert_elev};
     if (tag == QStringLiteral("node_max_depth"))
-        return {EntityKind::Node, &swmm_node_set_max_depth,   &swmm_node_get_max_depth};
+        return {EntityKind::Node, &nodeMaxDepthSet,           &nodeMaxDepthGet};
     if (tag == QStringLiteral("node_initial_depth"))
         return {EntityKind::Node, &swmm_node_set_initial_depth,   &swmm_node_get_initial_depth};
     if (tag == QStringLiteral("node_surcharge_depth"))
