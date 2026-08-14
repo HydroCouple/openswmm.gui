@@ -1864,6 +1864,18 @@ void TimeseriesEditorDialog::rebindActiveProvider_(TimeseriesProvider *p)
             if (prev != p) prev->disposePointCache();
     }
 
+    // The toolbar carries every mutation (Edit / Rotate / Scale / Add Row /
+    // Delete Row / Paste / Undo / Redo), so its enabled state belongs to
+    // "is a series bound?" and has to be re-evaluated on every rebind.
+    // createNew() and pickTimeseries()-with-no-initial-name open with the whole
+    // toolbar disabled; only the Create-submit path (bindNewProvider_) used to
+    // switch it back on. Picking an existing series out of the list landed
+    // here instead, which bound the provider, filled the grid and drew the
+    // chart but left every editing action greyed out — refreshSourceModeCard's
+    // per-action setEnabled cannot undo that, because a disabled QToolBar
+    // disables its buttons regardless of the QAction's own state.
+    if (m_toolbar) m_toolbar->setEnabled(p != nullptr);
+
     if (!p) {
         m_providers.clear();
         if (m_tableModel) m_tableModel->setProviders({});
