@@ -6,6 +6,8 @@
  */
 #include "plot/chartproperties.h"
 
+#include "plot/numberformat.h"
+
 #include "core/preferencesmanager.h"
 
 #include <QAbstractAxis>
@@ -96,15 +98,12 @@ QString ChartProperties::displayLabelFor(const QString &name) const
     if (name == QStringLiteral("plotAreaColor"))   return QStringLiteral("Colours — Plot area");
     if (name == QStringLiteral("gridColor"))       return QStringLiteral("Colours — Grid");
     if (name == QStringLiteral("chartTheme"))      return QStringLiteral("Theme");
-    if (name == QStringLiteral("xLabelFormatMode")) return QStringLiteral("X Axis — Number format");
-    if (name == QStringLiteral("xLabelPrecision"))  return QStringLiteral("X Axis — Precision");
+    if (name == QStringLiteral("xAxisNumberFormat")) return QStringLiteral("X Axis — Number format");
     if (name == QStringLiteral("xLabelFormat"))     return QStringLiteral("X Axis — Custom format");
-    if (name == QStringLiteral("yLabelFormatMode")) return QStringLiteral("Y Axis — Number format");
-    if (name == QStringLiteral("yLabelPrecision"))  return QStringLiteral("Y Axis — Precision");
+    if (name == QStringLiteral("yAxisNumberFormat")) return QStringLiteral("Y Axis — Number format");
     if (name == QStringLiteral("yLabelFormat"))     return QStringLiteral("Y Axis — Custom format");
-    if (name == QStringLiteral("statisticsFormatMode")) return QStringLiteral("Statistics — Number format");
-    if (name == QStringLiteral("statisticsPrecision"))  return QStringLiteral("Statistics — Precision");
-    if (name == QStringLiteral("statisticsFormat"))     return QStringLiteral("Statistics — Custom format");
+    if (name == QStringLiteral("statisticsFormatPreset")) return QStringLiteral("Statistics — Number format");
+    if (name == QStringLiteral("statisticsFormat"))       return QStringLiteral("Statistics — Custom format");
     return {};   // empty → fall back to default name
 }
 
@@ -285,12 +284,59 @@ void ChartProperties::setChartTheme(int theme)
     emit chartThemeChanged(theme);
 }
 
+
+// ---------------------------------------------------------------------------
+// Combined number-format presets (one dropdown per axis)
+// ---------------------------------------------------------------------------
+
+namespace {
+ChartProperties::AxisNumberFormat presetOf(ChartProperties::LabelFormatMode m, int count)
+{
+    return static_cast<ChartProperties::AxisNumberFormat>(
+        openswmmvis::plot::presetForNumberFormat(
+            static_cast<openswmmvis::plot::NumberFormatMode>(m), count));
+}
+} // namespace
+
+ChartProperties::AxisNumberFormat ChartProperties::xAxisNumberFormat() const
+{ return presetOf(m_xLabelMode, m_xLabelPrecision); }
+
+ChartProperties::AxisNumberFormat ChartProperties::yAxisNumberFormat() const
+{ return presetOf(m_yLabelMode, m_yLabelPrecision); }
+
+ChartProperties::AxisNumberFormat ChartProperties::statisticsFormatPreset() const
+{ return presetOf(m_statisticsMode, m_statisticsPrecision); }
+
+void ChartProperties::setXAxisNumberFormat(AxisNumberFormat f)
+{
+    // One user choice drives both stored fields; mode + count stay the
+    // internal representation every formatter already reads.
+    const auto nf = openswmmvis::plot::numberFormatForPreset(static_cast<int>(f));
+    setXLabelFormatMode(static_cast<LabelFormatMode>(nf.mode));
+    setXLabelPrecision(nf.count);
+}
+
+void ChartProperties::setYAxisNumberFormat(AxisNumberFormat f)
+{
+    const auto nf = openswmmvis::plot::numberFormatForPreset(static_cast<int>(f));
+    setYLabelFormatMode(static_cast<LabelFormatMode>(nf.mode));
+    setYLabelPrecision(nf.count);
+}
+
+void ChartProperties::setStatisticsFormatPreset(AxisNumberFormat f)
+{
+    const auto nf = openswmmvis::plot::numberFormatForPreset(static_cast<int>(f));
+    setStatisticsFormatMode(static_cast<LabelFormatMode>(nf.mode));
+    setStatisticsPrecision(nf.count);
+}
+
 void ChartProperties::setXLabelFormatMode(LabelFormatMode mode)
 {
     if (m_xLabelMode == mode) return;
     m_xLabelMode = mode;
     applyLabelFormats_();
     emit xLabelFormatModeChanged(mode);
+    emit xAxisNumberFormatChanged(xAxisNumberFormat());
 }
 
 void ChartProperties::setXLabelPrecision(int count)
@@ -300,6 +346,7 @@ void ChartProperties::setXLabelPrecision(int count)
     m_xLabelPrecision = c;
     applyLabelFormats_();
     emit xLabelPrecisionChanged(c);
+    emit xAxisNumberFormatChanged(xAxisNumberFormat());
 }
 
 void ChartProperties::setXLabelFormat(const QString &spec)
@@ -316,6 +363,7 @@ void ChartProperties::setYLabelFormatMode(LabelFormatMode mode)
     m_yLabelMode = mode;
     applyLabelFormats_();
     emit yLabelFormatModeChanged(mode);
+    emit yAxisNumberFormatChanged(yAxisNumberFormat());
 }
 
 void ChartProperties::setYLabelPrecision(int count)
@@ -325,6 +373,7 @@ void ChartProperties::setYLabelPrecision(int count)
     m_yLabelPrecision = c;
     applyLabelFormats_();
     emit yLabelPrecisionChanged(c);
+    emit yAxisNumberFormatChanged(yAxisNumberFormat());
 }
 
 void ChartProperties::setYLabelFormat(const QString &spec)
@@ -340,6 +389,7 @@ void ChartProperties::setStatisticsFormatMode(LabelFormatMode mode)
     if (m_statisticsMode == mode) return;
     m_statisticsMode = mode;
     emit statisticsFormatModeChanged(mode);
+    emit statisticsFormatPresetChanged(statisticsFormatPreset());
 }
 
 void ChartProperties::setStatisticsPrecision(int count)
@@ -348,6 +398,7 @@ void ChartProperties::setStatisticsPrecision(int count)
     if (m_statisticsPrecision == c) return;
     m_statisticsPrecision = c;
     emit statisticsPrecisionChanged(c);
+    emit statisticsFormatPresetChanged(statisticsFormatPreset());
 }
 
 void ChartProperties::setStatisticsFormat(const QString &spec)

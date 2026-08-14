@@ -47,10 +47,8 @@ QString MeshProfilePlotOptions::displayLabelFor(const QString &propertyName) con
         { QStringLiteral("maxEnvelopePen"),      QObject::tr("Max-depth line pen") },
         { QStringLiteral("maxEnvelopeBrush"),    QObject::tr("Max-depth band brush") },
         { QStringLiteral("xLabelFormatMode"),    QObject::tr("X Axis — Number format") },
-        { QStringLiteral("xLabelPrecision"),     QObject::tr("X Axis — Precision") },
         { QStringLiteral("xLabelFormat"),        QObject::tr("X Axis — Custom format") },
         { QStringLiteral("yLabelFormatMode"),    QObject::tr("Y Axis — Number format") },
-        { QStringLiteral("yLabelPrecision"),     QObject::tr("Y Axis — Precision") },
         { QStringLiteral("yLabelFormat"),        QObject::tr("Y Axis — Custom format") },
         { QStringLiteral("legendVisible"),       QObject::tr("Show legend") },
         { QStringLiteral("legendPosition"),      QObject::tr("Legend position") },
@@ -80,6 +78,34 @@ void MeshProfilePlotOptions::setDepthFillBrush(const QBrush &b)  { SET_OBJ(m_dep
 void MeshProfilePlotOptions::setWseLinePen(const QPen &p)        { SET_OBJ(m_wseLinePen, p); }
 void MeshProfilePlotOptions::setMaxEnvelopePen(const QPen &p)    { SET_OBJ(m_maxEnvelopePen, p); }
 void MeshProfilePlotOptions::setMaxEnvelopeBrush(const QBrush &b){ SET_OBJ(m_maxEnvelopeBrush, b); }
+
+MeshProfilePlotOptions::AxisNumberFormat MeshProfilePlotOptions::xAxisNumberFormat() const
+{
+    return static_cast<AxisNumberFormat>(openswmmvis::plot::presetForNumberFormat(
+        static_cast<openswmmvis::plot::NumberFormatMode>(m_xLabelMode), m_xLabelPrecision));
+}
+
+MeshProfilePlotOptions::AxisNumberFormat MeshProfilePlotOptions::yAxisNumberFormat() const
+{
+    return static_cast<AxisNumberFormat>(openswmmvis::plot::presetForNumberFormat(
+        static_cast<openswmmvis::plot::NumberFormatMode>(m_yLabelMode), m_yLabelPrecision));
+}
+
+void MeshProfilePlotOptions::setXAxisNumberFormat(AxisNumberFormat f)
+{
+    // One user choice drives both stored fields; mode + count stay the
+    // internal representation every label formatter already reads.
+    const auto nf = openswmmvis::plot::numberFormatForPreset(static_cast<int>(f));
+    setXLabelFormatMode(static_cast<LabelFormatMode>(nf.mode));
+    setXLabelPrecision(nf.count);
+}
+
+void MeshProfilePlotOptions::setYAxisNumberFormat(AxisNumberFormat f)
+{
+    const auto nf = openswmmvis::plot::numberFormatForPreset(static_cast<int>(f));
+    setYLabelFormatMode(static_cast<LabelFormatMode>(nf.mode));
+    setYLabelPrecision(nf.count);
+}
 
 void MeshProfilePlotOptions::setXLabelFormatMode(LabelFormatMode m) { SET_PRIM(m_xLabelMode, m); }
 void MeshProfilePlotOptions::setXLabelPrecision(int count) {
