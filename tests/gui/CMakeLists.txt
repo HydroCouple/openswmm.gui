@@ -1414,8 +1414,19 @@ add_swmmvis_gui_test(test_xsectgeominline
 # elevation→depth re-conversion under this contract; this test guards the
 # contract end-to-end via two fixtures describing the same physical
 # conduit in DEPTH and ELEVATION mode.
+#
+# It also covers the pure half of the adapter (toNodeKind / renderRimDepth),
+# which decides that a virtual junction draws as pipe rather than as a manhole
+# and that its rendering-only [VIRTUAL_JUNCTIONS] MaxDepth — not the derived
+# pipe crown — is where the ground line goes.
 add_swmmvis_gui_test(test_profilenetworkadapter_model
     test_profilenetworkadapter_model.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/profilenetworkadapter.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profilenetworkadapter.h
+    # buildPathStatic() calls ProfileBuilder::computeChainage; both files are
+    # the pure-logic halves and link without the model layer.
+    ${CMAKE_SOURCE_DIR}/src/plot/profilebuilder.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profilebuilder.h
 )
 
 add_swmmvis_gui_test(test_crschangedialog

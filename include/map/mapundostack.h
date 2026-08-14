@@ -37,6 +37,11 @@ struct NodeSnapshot
     double  initDepth      = 0;
     double  surchargeDepth = 0;
     double  pondedArea     = 0;
+    // virtual junction: the flag plus its rendering-only ground depth. Without
+    // these, undoing the delete of a virtual junction resurrected a plain
+    // junction (and the drawn ground line with it).
+    int     isVirtual      = 0;
+    double  rimDepth       = 0;
     // outfall-specific
     int     outfallType    = 0;
     int     outfallFlapGate = 0;

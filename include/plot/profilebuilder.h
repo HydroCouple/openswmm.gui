@@ -54,6 +54,11 @@ enum class NodeKind
     Outfall,
     Storage,
     Divider,
+    /*! Virtual junction — a computational break point inside a conduit, not a
+     *  structure. It contributes a rim elevation to the ground line but gets
+     *  no manhole shaft and no glyph: the pipe (and the soil above it) runs
+     *  through it unbroken. */
+    VirtualJunction,
 };
 
 /*!
@@ -106,6 +111,11 @@ enum class OutputKind
  *        The "rim" elevation is always `invertElev + maxDepth` — terrain
  *        DEMs only override the *ground line* drawn behind the manhole
  *        glyph (see PathStatic::terrainSamples), never the rim itself.
+ *
+ *        For a virtual junction `maxDepth` carries the node's rendering rim
+ *        depth (the optional `[VIRTUAL_JUNCTIONS]` MaxDepth) when it has one,
+ *        falling back to the derived pipe crown when it does not — the
+ *        adapter resolves that, so this struct stays a plain rim carrier.
  */
 struct NodeStatic
 {

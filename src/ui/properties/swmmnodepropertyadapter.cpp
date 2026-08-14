@@ -49,6 +49,10 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
 
     // Junction / Storage / Divider depth columns.
     if (property == QLatin1String("maxDepth"))       return tr("Max Depth (%1)").arg(L);
+    // Virtual junctions: the solver's max depth is the derived pipe crown, so
+    // the editable depth here is the ground surface used for drawing only.
+    // The property browser has no per-row tooltip, so the label says it.
+    if (property == QLatin1String("rimDepth"))       return tr("Max Depth, Display (%1)").arg(L);
     if (property == QLatin1String("initialDepth"))   return tr("Initial Depth (%1)").arg(L);
     if (property == QLatin1String("surchargeDepth")) return tr("Surcharge Depth (%1)").arg(L);
     if (property == QLatin1String("pondedArea"))     return tr("Ponded Area (%1)").arg(L2);
@@ -218,6 +222,7 @@ double SWMMNodePropertyAdapter::method() const {                    \
 
 GETTER(invertElev,     swmm_node_get_invert_elev)
 GETTER(maxDepth,       swmm_node_get_max_depth)
+GETTER(rimDepth,       swmm_node_get_rim_depth)
 GETTER(initialDepth,   swmm_node_get_initial_depth)
 GETTER(surchargeDepth, swmm_node_get_surcharge_depth)
 GETTER(pondedArea,     swmm_node_get_ponded_area)
@@ -308,6 +313,7 @@ void SWMMNodePropertyAdapter::method(double v) {                    \
 
 SETTER(setInvertElev,     swmm_node_set_invert_elev)
 SETTER(setMaxDepth,       swmm_node_set_max_depth)
+SETTER(setRimDepth,       swmm_node_set_rim_depth)
 SETTER(setInitialDepth,   swmm_node_set_initial_depth)
 SETTER(setSurchargeDepth, swmm_node_set_surcharge_depth)
 SETTER(setPondedArea,     swmm_node_set_pond_area)

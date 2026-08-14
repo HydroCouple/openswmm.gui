@@ -79,6 +79,9 @@ QColor fillForNodeKind(ProfileBuilder::NodeKind k)
     case ProfileBuilder::NodeKind::Outfall:  return QColor(0xF4, 0xCC, 0xCC);  // light red
     case ProfileBuilder::NodeKind::Storage:  return QColor(0xD9, 0xEA, 0xD3);  // light green
     case ProfileBuilder::NodeKind::Divider:  return QColor(0xFF, 0xE5, 0x99);  // light amber
+    // No glyph is drawn for a virtual junction (see paintNodes) — the value
+    // exists only so the switch stays exhaustive.
+    case ProfileBuilder::NodeKind::VirtualJunction: return Qt::transparent;
     }
     return Qt::white;
 }
@@ -90,6 +93,7 @@ QColor outlineForNodeKind(ProfileBuilder::NodeKind k)
     case ProfileBuilder::NodeKind::Outfall:  return QColor(0x8A, 0x21, 0x21);
     case ProfileBuilder::NodeKind::Storage:  return QColor(0x2D, 0x6A, 0x2D);
     case ProfileBuilder::NodeKind::Divider:  return QColor(0x9C, 0x6F, 0x14);
+    case ProfileBuilder::NodeKind::VirtualJunction: return Qt::transparent;
     }
     return Qt::black;
 }
@@ -987,6 +991,9 @@ int ProfilePlotWidget::nodeIndexAt(const QPoint &widgetPos) const
     double bestDx   = std::numeric_limits<double>::infinity();
     for (int i = 0; i < m_path.nodes.size(); ++i) {
         const auto  &n     = m_path.nodes[i];
+        // Virtual junctions draw no tube, so there is nothing to click; the
+        // clicks in that band belong to the conduit running through it.
+        if (n.kind == ProfileBuilder::NodeKind::VirtualJunction) continue;
         const double chain = virtualX(i);
         const QPointF rim  = dataToPixel(chain, ProfileBuilder::groundElev(n));
         const QPointF inv  = dataToPixel(chain, n.invertElev);
@@ -1694,12 +1701,21 @@ void ProfilePlotWidget::paintSoilFill(QPainter &p) const
                 if (!std::isnan(cIn)  && cIn  > topElev) topElev = cIn;
                 if (!std::isnan(cOut) && cOut > topElev) topElev = cOut;
                 const QPointF rimC = dataToPixel(chainAt(i), topElev);
-                const QPointF invC = dataToPixel(chainAt(i),
-                                                  m_path.nodes[i].invertElev);
-                rimPx.push_back(QPointF(rimC.x() - kShaftHalfWidthPx, rimC.y()));
-                rimPx.push_back(QPointF(rimC.x() - kShaftHalfWidthPx, invC.y()));
-                rimPx.push_back(QPointF(rimC.x() + kShaftHalfWidthPx, invC.y()));
-                rimPx.push_back(QPointF(rimC.x() + kShaftHalfWidthPx, rimC.y()));
+                if (m_path.nodes[i].kind
+                        == ProfileBuilder::NodeKind::VirtualJunction) {
+                    // No manhole to knock out — a virtual junction is a break
+                    // point inside the pipe. One rim point, so the soil runs
+                    // unbroken over it (through its ground elevation when the
+                    // model supplies one, else the crown, as before).
+                    rimPx.push_back(rimC);
+                } else {
+                    const QPointF invC = dataToPixel(chainAt(i),
+                                                      m_path.nodes[i].invertElev);
+                    rimPx.push_back(QPointF(rimC.x() - kShaftHalfWidthPx, rimC.y()));
+                    rimPx.push_back(QPointF(rimC.x() - kShaftHalfWidthPx, invC.y()));
+                    rimPx.push_back(QPointF(rimC.x() + kShaftHalfWidthPx, invC.y()));
+                    rimPx.push_back(QPointF(rimC.x() + kShaftHalfWidthPx, rimC.y()));
+                }
             }
             // ── Outgoing excavated: drop from rim (just emitted, unless
             //    sandwiched) through this node's invert, then *up* to the
@@ -1760,6 +1776,8 @@ void ProfilePlotWidget::paintSoilFill(QPainter &p) const
     QPainterPath shafts;
     for (int i = 0; i < m_path.nodes.size(); ++i) {
         const auto &n = m_path.nodes[i];
+        // A virtual junction has no shaft to knock out (see paintNodes).
+        if (n.kind == ProfileBuilder::NodeKind::VirtualJunction) continue;
         const QPointF top = dataToPixel(chainAt(i), ProfileBuilder::groundElev(n));
         const QPointF bot = dataToPixel(chainAt(i), n.invertElev);
         QPainterPath shaft;
@@ -2025,6 +2043,12 @@ void ProfilePlotWidget::paintNodes(QPainter &p) const
             && linkKindIsExcavated(m_path.links[i].kind);
         if (incomingExc && outgoingExc) continue;
 
+        // Same reasoning for a virtual junction: it is a computational break
+        // point inside one continuous pipe, not a structure, so there is no
+        // manhole to draw. Its rim still shapes the ground line above.
+        if (m_path.nodes[i].kind == ProfileBuilder::NodeKind::VirtualJunction)
+            continue;
+
         const auto &n = m_path.nodes[i];
         const double chain = virtualX(i);
         const QPointF rim   = dataToPixel(chain, ProfileBuilder::groundElev(n));
@@ -2245,6 +2269,9 @@ void ProfilePlotWidget::paintSelectionHighlights(QPainter &p) const
     for (int i = 0; i < m_path.nodes.size(); ++i) {
         const auto &n = m_path.nodes[i];
         if (!m_selectedNames.contains(n.name)) continue;
+        // Nothing is drawn for a virtual junction, so there is nothing to
+        // highlight — a tube here would contradict the unbroken pipe.
+        if (n.kind == ProfileBuilder::NodeKind::VirtualJunction) continue;
 
         const bool incomingExc =
             (i > 0) && linkKindIsExcavated(m_path.links[i - 1].kind);
