@@ -38,8 +38,9 @@ struct DiagramUnits
  * \brief True-shape cross-section of a link, with dimensions + elevations.
  *
  * Draws the section outline sampled from the engine, dimensions the full depth
- * and max width, and leaders the invert / crown elevations taken from the
- * upstream node invert plus the link's upstream offset.
+ * and max width, and leaders the invert / crown elevations taken from each end
+ * node's invert plus the link's offset at that end. A sloping run reports both
+ * ends ("100.00 / 98.00 ft"); a flat one collapses to a single value.
  *
  * \returns A model whose `emptyText` explains the gap (pump, DUMMY section,
  *          unresolvable tabulated geometry) when there is nothing to draw.

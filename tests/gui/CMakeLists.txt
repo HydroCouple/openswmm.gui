@@ -1418,6 +1418,20 @@ add_swmmvis_gui_test(test_sectiondiagram
     ${CMAKE_SOURCE_DIR}/include/ui/sectionview/lidlayerdiagram.h
 )
 
+# SP.3: the engine → model builders. Unlike test_sectiondiagram above this one
+# DOES touch the engine (in-memory fixtures, no .inp), because the numbers on
+# the leader labels — invert and crown elevations at each end — are the whole
+# point of the builders and the only place a wrong one would surface.
+add_swmmvis_gui_test(test_sectionmodelbuilders
+    test_sectionmodelbuilders.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/sectionmodelbuilders.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/xsectsampler.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/sectionview/sectiondiagram.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/sectionmodelbuilders.h
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/xsectsampler.h
+    ${CMAKE_SOURCE_DIR}/include/ui/sectionview/sectiondiagram.h
+)
+
 # Inline cross-section geom1..geom4 — direct-edit fields surfaced next to
 # the compound XSection dialog (both Property Browser + Attribute Table).
 # Covers the shared shape/geom applicability helper and the link adapter's
