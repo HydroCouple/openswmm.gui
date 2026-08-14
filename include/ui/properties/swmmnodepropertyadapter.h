@@ -118,6 +118,11 @@ public:
     [[nodiscard]] QString tag() const;
     [[nodiscard]] double invertElev() const;
     [[nodiscard]] double maxDepth() const;
+    /*! Rendering-only rim (ground) depth above the invert; 0 = unset.
+     *  Exposed as the "Max Depth, Display" row on virtual junctions, whose
+     *  real max depth is the derived pipe crown. Never read by the solver —
+     *  see swmm_node_get_rim_depth(). */
+    [[nodiscard]] double rimDepth() const;
     [[nodiscard]] double initialDepth() const;
     [[nodiscard]] double surchargeDepth() const;
     [[nodiscard]] double pondedArea() const;
@@ -214,6 +219,7 @@ public slots:
     void setTag(const QString &t);
     void setInvertElev(double v);
     void setMaxDepth(double v);
+    void setRimDepth(double v);
     void setInitialDepth(double v);
     void setSurchargeDepth(double v);
     void setPondedArea(double v);
@@ -384,10 +390,15 @@ public:
  *  invert stays editable on the base adapter — with zero offsets the two
  *  conduit end elevations follow the node invert directly, so editing it IS
  *  the grade-break write-through. Read-only summary mirrors the junction
- *  adapter's computed block. */
+ *  adapter's computed block.
+ *
+ *  The one editable depth is `rimDepth` — the optional `[VIRTUAL_JUNCTIONS]`
+ *  MaxDepth, which supplies the ground elevation profile views draw. It feeds
+ *  no hydraulics; the solver keeps using the pipe crown. */
 class SWMMVirtualJunctionPropertyAdapter : public SWMMNodePropertyAdapter
 {
     Q_OBJECT
+    Q_PROPERTY(double rimDepth        READ rimDepth        WRITE setRimDepth        NOTIFY changed)
     Q_PROPERTY(double crownElev       READ crownElev       NOTIFY changed)
     Q_PROPERTY(int    degree          READ degree          NOTIFY changed)
     Q_PROPERTY(double statMaxDepth    READ statMaxDepth    NOTIFY changed)

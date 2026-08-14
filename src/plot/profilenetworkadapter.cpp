@@ -48,6 +48,24 @@ void swapForReversed(PathLinkInfo &link)
     std::swap(link.offset1, link.offset2);
 }
 
+ProfileBuilder::NodeKind toNodeKind(int swmmNodeType, bool isVirtual)
+{
+    using K = ProfileBuilder::NodeKind;
+    if (swmmNodeType == 0 && isVirtual) return K::VirtualJunction;
+    switch (swmmNodeType) {
+    case 0: return K::Junction;
+    case 1: return K::Outfall;
+    case 2: return K::Storage;
+    case 3: return K::Divider;
+    default: return K::Junction;
+    }
+}
+
+double renderRimDepth(bool isVirtual, double maxDepth, double rimDepth)
+{
+    return (isVirtual && rimDepth > 0.0) ? rimDepth : maxDepth;
+}
+
 ProfileBuilder::PathStatic buildPathStatic(
     const ProfileRouter::Path &routerPath,
     const QVector<NodeInfo> &nodes,
