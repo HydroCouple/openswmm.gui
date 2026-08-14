@@ -3079,6 +3079,21 @@ void SWMMVis::initializePropertiesPanelDockWidget()
             mAttributeTablePanel, &AttributeTablePanel::onObjectEditedExternally);
     connect(mAttributeTablePanel, &AttributeTablePanel::objectEdited,
             mPropertiesPanel, &PropertiesPanel::onObjectEditedExternally);
+
+    // Dirty tracking. Both panels write the engine directly through property
+    // adapters, so nothing they do reaches a SWMMModelLayer signal. Route
+    // their edit notifications into the layer's markEdited() channel — the
+    // pre-run auto-save in onRunSimulation gates on the resulting flag, and
+    // without this a value typed in either view is silently dropped from the
+    // run. The panels are main-window singletons bound to the active project
+    // window, so that is the window whose model was just edited.
+    auto markActiveEdited = [this](const QString &) {
+        if (auto *pw = activeProjectWindow())
+            if (auto *layer = pw->modelLayer())
+                layer->markEdited();
+    };
+    connect(mPropertiesPanel, &PropertiesPanel::objectEdited, this, markActiveEdited);
+    connect(mAttributeTablePanel, &AttributeTablePanel::objectEdited, this, markActiveEdited);
 }
 
 void SWMMVis::initializeSimulationStatusDockWidget()
@@ -6701,15 +6716,26 @@ void SWMMVis::onRunSimulation()
         onLogMessage(tr("Auto-saved before running."));
     }
 
+    // The 2D pre-flight below and the OUTPUT_FILE default after it both need
+    // the same three facts. Resolve each exactly once — on a large model every
+    // one of these is a full re-read of the .inp from disk, and the file has
+    // not changed since the auto-save above.
+    const bool twoDEnabled =
+        QSettings().value(QStringLiteral("SWMMVis/Project/%1/Module2DEnabled")
+                              .arg(inpPath), false).toBool();
+    const bool twoDMeshFound = twoDEnabled && twoDMeshResolves(inpPath);
+    // Not gated on twoDEnabled: maybeLoad2DResults reads [2D_OPTIONS]
+    // OUTPUT_FILE without consulting that per-project flag, so a .h5 can be
+    // open as a results layer with the flag false. The stale-2D-results
+    // collision guard below must still see it.
+    QString h5Path = SimulationRunner::parseTwoDOutputFile(inpPath);
+
     // Pre-flight: if the user enabled 2D Surface Routing for this model but no
     // mesh resolves (no inline [2D_*] sections and no valid [2D_MESH_FILE]),
     // the engine silently runs 1D-only. Warn and let the user decide rather
     // than producing 1D-only results without explanation.
     {
-        const QString key = QStringLiteral("SWMMVis/Project/%1/Module2DEnabled")
-                                .arg(inpPath);
-        const bool twoDEnabled = QSettings().value(key, false).toBool();
-        if (twoDEnabled && !twoDMeshResolves(inpPath)) {
+        if (twoDEnabled && !twoDMeshFound) {
             const auto reply = QMessageBox::warning(this,
                 tr("2D mesh not found"),
                 tr("2D Surface Routing is enabled for this model, but no 2D "
@@ -6736,11 +6762,7 @@ void SWMMVis::onRunSimulation()
     // the engine resolves it against the .inp directory) and save so the run
     // engine, which opens the .inp from disk, sees it.
     {
-        const QString key = QStringLiteral("SWMMVis/Project/%1/Module2DEnabled")
-                                .arg(inpPath);
-        const bool twoDEnabled = QSettings().value(key, false).toBool();
-        if (twoDEnabled && twoDMeshResolves(inpPath)
-            && SimulationRunner::parseTwoDOutputFile(inpPath).isEmpty()) {
+        if (twoDMeshFound && h5Path.isEmpty()) {
             const QString h5Default = QFileInfo(inpPath).completeBaseName()
                                       + QStringLiteral(".2d.h5");
             if (swmm_options_set_ext(pw->modelLayer()->engine(),
@@ -6748,6 +6770,10 @@ void SWMMVis::onRunSimulation()
                                      h5Default.toUtf8().constData()) == SWMM_OK) {
                 QString err;
                 if (pw->save(&err)) {
+                    // Mirror parseTwoDOutputFile's relative-to-.inp resolution
+                    // rather than re-reading the file we just wrote.
+                    h5Path = QFileInfo(inpPath).absoluteDir()
+                                 .absoluteFilePath(h5Default);
                     onLogMessage(tr("2D results file defaulted to %1 — set "
                                     "[2D_OPTIONS] OUTPUT_FILE to change it.")
                                      .arg(h5Default));
@@ -6788,10 +6814,9 @@ void SWMMVis::onRunSimulation()
         }
     }
 
-    // Also resolve the 2D HDF5 OUTPUT_FILE (when present in [2D_OPTIONS]) so
-    // we can detect, prompt-on, and clear stale 2D results in lockstep with
-    // the 1D .out — see CF.MVP-fix.2.
-    const QString h5Path = SimulationRunner::parseTwoDOutputFile(inpPath);
+    // h5Path (the 2D HDF5 OUTPUT_FILE from [2D_OPTIONS]) was resolved above and
+    // is used below to detect, prompt on, and clear stale 2D results in
+    // lockstep with the 1D .out — see CF.MVP-fix.2.
 
     // ── Output-path collision guard ──────────────────────────────────
     // 1) An in-flight simulation is already writing to this .out — hard
