@@ -89,7 +89,13 @@ TEST(TimeseriesTableModel, DataReturnsTimeAndValuesAcrossProviders)
     TimeseriesTableModel m;
     m.setProviders({&a, &b});
 
-    EXPECT_EQ(m.data(m.index(0, 0)).toDateTime(), t(2026, 1, 1, 0));
+    // The time column now splits its roles: DisplayRole is the .inp's own
+    // MM/dd/yyyy HH:mm text, EditRole stays a real QDateTime so the
+    // date-time delegate can seed an editor with the full value (seconds
+    // included, even though the format hides them).
+    EXPECT_EQ(m.data(m.index(0, 0), Qt::DisplayRole).toString().toStdString(),
+              "01/01/2026 00:00");
+    EXPECT_EQ(m.data(m.index(0, 0), Qt::EditRole).toDateTime(), t(2026, 1, 1, 0));
     EXPECT_DOUBLE_EQ(m.data(m.index(0, 1)).toDouble(), 1.0);
     EXPECT_DOUBLE_EQ(m.data(m.index(0, 2)).toDouble(), 10.0);
     EXPECT_DOUBLE_EQ(m.data(m.index(1, 1)).toDouble(), 2.0);

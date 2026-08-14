@@ -10,6 +10,18 @@
 
 using openswmmvis::plot::NumberFormat;
 using openswmmvis::plot::NumberFormatMode;
+using openswmmvis::plot::axisNumberFormatPresetCount;
+using openswmmvis::plot::numberFormatForPreset;
+using openswmmvis::plot::presetForNumberFormat;
+using openswmmvis::plot::Integer;
+using openswmmvis::plot::Decimals1;
+using openswmmvis::plot::Decimals2;
+using openswmmvis::plot::Decimals3;
+using openswmmvis::plot::Decimals4;
+using openswmmvis::plot::Decimals6;
+using openswmmvis::plot::SigFigs3;
+using openswmmvis::plot::SigFigs4;
+using openswmmvis::plot::SigFigs6;
 
 namespace {
 NumberFormat decimals(int n) { return { NumberFormatMode::Decimals, n }; }
@@ -88,4 +100,60 @@ TEST(NumberFormat, InvalidCustomFallsBackToModeAndCount)
         EXPECT_EQ(f.printfSpec().toStdString(), "%.2f") << "spec: " << bad;
         EXPECT_EQ(f.format(3.14159).toStdString(), "3.14") << "spec: " << bad;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Combined presets — the single dropdown that replaced the mode enum plus a
+// free integer count.
+// ---------------------------------------------------------------------------
+
+TEST(NumberFormatPresets, EveryPresetRendersItsDocumentedExample)
+{
+    // The doc comment on each enumerator is a promise about what the user
+    // sees; pin it. 12.3456789 exercises both rounding and sig-fig cutover.
+    const double v = 12.3456789;
+    const struct { int preset; const char *shown; } kCases[] = {
+        { Integer,   "12"        },
+        { Decimals1, "12.3"      },
+        { Decimals2, "12.35"     },
+        { Decimals3, "12.346"    },
+        { Decimals4, "12.3457"   },
+        { Decimals6, "12.345679" },
+        { SigFigs3,  "12.3"      },
+        { SigFigs4,  "12.35"     },
+        { SigFigs6,  "12.3457"   },
+    };
+    for (const auto &c : kCases)
+        EXPECT_EQ(numberFormatForPreset(c.preset).format(v).toStdString(), c.shown)
+            << "preset " << c.preset;
+}
+
+TEST(NumberFormatPresets, PresetRoundTripsThroughModeAndCount)
+{
+    for (int p = 0; p < axisNumberFormatPresetCount; ++p) {
+        const NumberFormat f = numberFormatForPreset(p);
+        EXPECT_EQ(presetForNumberFormat(f.mode, f.count), p) << "preset " << p;
+    }
+}
+
+TEST(NumberFormatPresets, OutOfRangePresetFallsBackToTwoDecimals)
+{
+    for (const int bad : { -1, axisNumberFormatPresetCount, 999 }) {
+        const NumberFormat f = numberFormatForPreset(bad);
+        EXPECT_EQ(f.mode, NumberFormatMode::Decimals);
+        EXPECT_EQ(f.count, 2);
+    }
+}
+
+TEST(NumberFormatPresets, StoredCountWithNoExactPresetSnapsWithinItsMode)
+{
+    // Migration: the old UI allowed 0-10, so counts land between presets.
+    // A tie goes to the preset with MORE digits — showing fewer than the user
+    // asked for is the worse error. 5 sits between Decimals4 and Decimals6.
+    EXPECT_EQ(presetForNumberFormat(NumberFormatMode::Decimals, 5), Decimals6);
+    EXPECT_EQ(presetForNumberFormat(NumberFormatMode::Decimals, 9), Decimals6);
+    // ...and a sig-fig count stays in sig figs rather than becoming decimals.
+    EXPECT_EQ(presetForNumberFormat(NumberFormatMode::SignificantFigures, 1), SigFigs3);
+    EXPECT_EQ(presetForNumberFormat(NumberFormatMode::SignificantFigures, 5), SigFigs6);
+    EXPECT_EQ(presetForNumberFormat(NumberFormatMode::SignificantFigures, 8), SigFigs6);
 }

@@ -61,19 +61,36 @@ class TransectChartView : public QChartView
     Q_PROPERTY(int    handleSize       READ handleSize       WRITE setHandleSize       NOTIFY handleSizeChanged)
     Q_PROPERTY(bool   handlesVisible   READ handlesVisible   WRITE setHandlesVisible   NOTIFY handlesVisibleChanged)
 
-    // Axis number format — same surface as plot::ChartProperties (mode is a
-    // dropdown enum; precision a spin box; custom an optional printf override).
-    Q_PROPERTY(TransectChartView::LabelFormatMode xLabelFormatMode READ xLabelFormatMode WRITE setXLabelFormatMode NOTIFY xLabelFormatModeChanged)
-    Q_PROPERTY(int     xLabelPrecision READ xLabelPrecision WRITE setXLabelPrecision NOTIFY xLabelPrecisionChanged)
+    // Axis number format — same surface as plot::ChartProperties: one combined
+    // dropdown per axis, plus an optional printf override.
+    Q_PROPERTY(TransectChartView::AxisNumberFormat xAxisNumberFormat READ xAxisNumberFormat WRITE setXAxisNumberFormat NOTIFY xLabelPrecisionChanged)
     Q_PROPERTY(QString xLabelFormat    READ xLabelFormat    WRITE setXLabelFormat    NOTIFY xLabelFormatChanged)
-    Q_PROPERTY(TransectChartView::LabelFormatMode yLabelFormatMode READ yLabelFormatMode WRITE setYLabelFormatMode NOTIFY yLabelFormatModeChanged)
-    Q_PROPERTY(int     yLabelPrecision READ yLabelPrecision WRITE setYLabelPrecision NOTIFY yLabelPrecisionChanged)
+    Q_PROPERTY(TransectChartView::AxisNumberFormat yAxisNumberFormat READ yAxisNumberFormat WRITE setYAxisNumberFormat NOTIFY yLabelPrecisionChanged)
     Q_PROPERTY(QString yLabelFormat    READ yLabelFormat    WRITE setYLabelFormat    NOTIFY yLabelFormatChanged)
 
 public:
     /*! \brief Axis label number mode (mirrors plot::NumberFormatMode). */
     enum LabelFormatMode { Decimals = 0, SignificantFigures = 1 };
     Q_ENUM(LabelFormatMode)
+
+    /*! Combined number format offered as ONE dropdown, replacing a mode enum
+     *  plus a free integer count. Mirrors openswmmvis::plot::
+     *  AxisNumberFormatPreset value-for-value; QPropertyModel needs the
+     *  enumerator list on the declaring class and labels each row with the
+     *  enumerator name. numberformat.h owns the mapping to mode + digits. */
+    enum AxisNumberFormat {
+        Integer   = 0,
+        Decimals1 = 1,
+        Decimals2 = 2,
+        Decimals3 = 3,
+        Decimals4 = 4,
+        Decimals6 = 5,
+        SigFigs3  = 6,
+        SigFigs4  = 7,
+        SigFigs6  = 8
+    };
+    Q_ENUM(AxisNumberFormat)
+
 
     enum class Mode {
         Select = 0,    ///< Default — middle-button pan + wheel zoom only.
@@ -113,12 +130,20 @@ public:
     void setHandlesVisible(bool on);
 
     // Axis number format accessors (driven via the QPropertyModel editor).
+    /*! Combined format per axis, derived from the mode + digit count that
+     *  remain the internal representation. */
+    AxisNumberFormat xAxisNumberFormat() const;
+    AxisNumberFormat yAxisNumberFormat() const;
+
     LabelFormatMode xLabelFormatMode() const noexcept { return m_xLabelMode; }
     int             xLabelPrecision()  const noexcept { return m_xLabelPrecision; }
     QString         xLabelFormat()     const          { return m_xLabelFormatStr; }
     LabelFormatMode yLabelFormatMode() const noexcept { return m_yLabelMode; }
     int             yLabelPrecision()  const noexcept { return m_yLabelPrecision; }
     QString         yLabelFormat()     const          { return m_yLabelFormatStr; }
+    void setXAxisNumberFormat(TransectChartView::AxisNumberFormat f);
+    void setYAxisNumberFormat(TransectChartView::AxisNumberFormat f);
+
     void setXLabelFormatMode(LabelFormatMode m);
     void setXLabelPrecision(int n);
     void setXLabelFormat(const QString &spec);
