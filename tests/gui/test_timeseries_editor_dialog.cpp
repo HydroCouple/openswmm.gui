@@ -29,6 +29,7 @@
 #include <QFile>
 #include <QItemSelectionModel>
 #include <QLineSeries>
+#include <QListView>
 #include <QObject>
 #include <QPushButton>
 #include <QRadioButton>
@@ -37,9 +38,11 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTextStream>
+#include <QToolBar>
 #include <QUndoStack>
 
 #include <cmath>
+#include <memory>
 
 using openswmmvis::timeseries::TimeseriesPoint;
 using openswmmvis::timeseries::TimeseriesProvider;
@@ -820,6 +823,65 @@ private slots:
 
         QCOMPARE(p.pointCount(), 2);
         QCOMPARE(p.pointAt(1).value, 2.0);
+    }
+
+    /*!
+     * Regression: opening the editor with nothing bound — createNew(), or
+     * pickTimeseries() with an empty/unknown name — disables the whole toolbar,
+     * and only the Create-submit path used to switch it back on. Picking an
+     * existing series out of the list bound the provider and filled the grid but
+     * left every mutation greyed out, so an inline series could not be edited.
+     *
+     * Asserting on the QToolBar and not just the QActions is the point: a
+     * disabled QToolBar disables its buttons regardless of each QAction's own
+     * enabled state, which is why refreshSourceModeCardForProvider_'s per-action
+     * setEnabled could not paper over it.
+     */
+    void pickingExistingSeriesReEnablesToolbar()
+    {
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        p.setAllPoints(fixture());
+
+        QUndoStack stack;
+        std::unique_ptr<TimeseriesEditorDialog> dlg(
+            TimeseriesEditorDialog::createNew(&reg, &stack, nullptr));
+        QVERIFY(dlg);
+
+        auto *toolbar = dlg->findChild<QToolBar *>();
+        QVERIFY(toolbar);
+        QVERIFY2(!toolbar->isEnabled(),
+                 "createNew binds no provider, so the toolbar starts disabled");
+
+        auto *list = dlg->findChild<QListView *>();
+        QVERIFY(list);
+        QVERIFY(list->model());
+        QCOMPARE(list->model()->rowCount(), 1);
+
+        list->setCurrentIndex(list->model()->index(0, 0));
+
+        QVERIFY2(toolbar->isEnabled(),
+                 "selecting an existing inline series must re-enable the toolbar");
+
+        // The series really is bound, and the mutation actions are live — not
+        // merely a container that got switched on over dead actions.
+        auto *table = dlg->findChild<QTableView *>();
+        QVERIFY(table && table->model());
+        QCOMPARE(table->model()->rowCount(), 3);
+
+        bool sawAddRow = false;
+        for (auto *a : dlg->findChildren<QAction *>()) {
+            if (a->text() == QStringLiteral("Add Row")) {
+                sawAddRow = true;
+                QVERIFY(a->isEnabled());
+            }
+        }
+        QVERIFY(sawAddRow);
+
+        // Clearing the selection puts it back — nothing bound, nothing to edit.
+        list->selectionModel()->clearCurrentIndex();
+        QVERIFY2(!toolbar->isEnabled(),
+                 "with no series bound the toolbar must go back to disabled");
     }
 };
 
