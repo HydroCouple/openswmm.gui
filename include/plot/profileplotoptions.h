@@ -37,6 +37,25 @@ public:
     enum LabelFormatMode { Decimals = 0, SignificantFigures = 1 };
     Q_ENUM(LabelFormatMode)
 
+    /*! Combined axis number format offered to the user as ONE dropdown.
+     *  Mirrors openswmmvis::plot::AxisNumberFormatPreset value-for-value —
+     *  QPropertyModel resolves a property's enumerator list through the
+     *  declaring class's meta-object, so the list has to be declared here,
+     *  and it labels each row with the enumerator's own name. The mapping to
+     *  a real mode + digit count lives in numberformat.h. */
+    enum AxisNumberFormat {
+        Integer   = 0,
+        Decimals1 = 1,
+        Decimals2 = 2,
+        Decimals3 = 3,
+        Decimals4 = 4,
+        Decimals6 = 5,
+        SigFigs3  = 6,
+        SigFigs4  = 7,
+        SigFigs6  = 8
+    };
+    Q_ENUM(AxisNumberFormat)
+
     enum LegendPosition   { TopRight = 0, TopLeft = 1,
                             BottomLeft = 2, BottomRight = 3 };
     Q_ENUM(LegendPosition)
@@ -69,16 +88,12 @@ public:
     // ── Axis number format ──────────────────────────────────────────────
     // X axis = distance/chainage; Y axis = elevation/value. Seeded from the
     // global Preferences default; edits here override per-plot.
-    Q_PROPERTY(ProfilePlotOptions::LabelFormatMode xLabelFormatMode
-               READ xLabelFormatMode WRITE setXLabelFormatMode NOTIFY changed)
-    Q_PROPERTY(int xLabelPrecision
-               READ xLabelPrecision  WRITE setXLabelPrecision  NOTIFY changed)
+    Q_PROPERTY(ProfilePlotOptions::AxisNumberFormat xAxisNumberFormat
+               READ xAxisNumberFormat WRITE setXAxisNumberFormat NOTIFY changed)
     Q_PROPERTY(QString xLabelFormat
                READ xLabelFormat     WRITE setXLabelFormat     NOTIFY changed)
-    Q_PROPERTY(ProfilePlotOptions::LabelFormatMode yLabelFormatMode
-               READ yLabelFormatMode WRITE setYLabelFormatMode NOTIFY changed)
-    Q_PROPERTY(int yLabelPrecision
-               READ yLabelPrecision  WRITE setYLabelPrecision  NOTIFY changed)
+    Q_PROPERTY(ProfilePlotOptions::AxisNumberFormat yAxisNumberFormat
+               READ yAxisNumberFormat WRITE setYAxisNumberFormat NOTIFY changed)
     Q_PROPERTY(QString yLabelFormat
                READ yLabelFormat     WRITE setYLabelFormat     NOTIFY changed)
 
@@ -173,6 +188,11 @@ public:
     bool     inlineNodeLabels() const { return m_inlineNodeLabels; }
     LabelOrientation labelOrientation() const { return m_labelOrientation; }
     int      labelAngleDeg()    const { return m_labelAngleDeg; }
+    /*! Combined format of each axis, derived from the mode + digit count the
+     *  rest of the code still works in. */
+    AxisNumberFormat xAxisNumberFormat() const;
+    AxisNumberFormat yAxisNumberFormat() const;
+
     LabelFormatMode xLabelFormatMode() const { return m_xLabelMode; }
     int           xLabelPrecision()  const { return m_xLabelPrecision; }
     QString       xLabelFormat()     const { return m_xLabelFormatStr; }
@@ -246,6 +266,8 @@ public slots:
     void setInlineNodeLabels(bool v);
     void setLabelOrientation(LabelOrientation o);
     void setLabelAngleDeg   (int deg);
+    void setXAxisNumberFormat(AxisNumberFormat f);
+    void setYAxisNumberFormat(AxisNumberFormat f);
     void setXLabelFormatMode(LabelFormatMode m);
     void setXLabelPrecision (int count);
     void setXLabelFormat    (const QString &spec);

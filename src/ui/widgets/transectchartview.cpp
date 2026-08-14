@@ -327,6 +327,34 @@ void TransectChartView::applyAxisLabelFormats_()
                           m_yLabelPrecision, m_yLabelFormatStr }.printfSpec());
 }
 
+TransectChartView::AxisNumberFormat TransectChartView::xAxisNumberFormat() const
+{
+    return static_cast<AxisNumberFormat>(openswmmvis::plot::presetForNumberFormat(
+        static_cast<openswmmvis::plot::NumberFormatMode>(m_xLabelMode), m_xLabelPrecision));
+}
+
+TransectChartView::AxisNumberFormat TransectChartView::yAxisNumberFormat() const
+{
+    return static_cast<AxisNumberFormat>(openswmmvis::plot::presetForNumberFormat(
+        static_cast<openswmmvis::plot::NumberFormatMode>(m_yLabelMode), m_yLabelPrecision));
+}
+
+void TransectChartView::setXAxisNumberFormat(AxisNumberFormat f)
+{
+    // One user choice drives both stored fields; mode + count stay the
+    // internal representation the axis formatter already reads.
+    const auto nf = openswmmvis::plot::numberFormatForPreset(static_cast<int>(f));
+    setXLabelFormatMode(static_cast<LabelFormatMode>(nf.mode));
+    setXLabelPrecision(nf.count);
+}
+
+void TransectChartView::setYAxisNumberFormat(AxisNumberFormat f)
+{
+    const auto nf = openswmmvis::plot::numberFormatForPreset(static_cast<int>(f));
+    setYLabelFormatMode(static_cast<LabelFormatMode>(nf.mode));
+    setYLabelPrecision(nf.count);
+}
+
 void TransectChartView::setXLabelFormatMode(LabelFormatMode m)
 {
     if (m_xLabelMode == m) return;
@@ -384,11 +412,9 @@ QString TransectChartView::displayLabelFor(const QString &property) const
     if (property == QLatin1String("groundFillColor")) return tr("Style — Ground Fill Colour");
     if (property == QLatin1String("handleSize"))      return tr("Style — Handle Size (px)");
     if (property == QLatin1String("handlesVisible"))  return tr("Style — Show Handles");
-    if (property == QLatin1String("xLabelFormatMode")) return tr("X Axis — Number format");
-    if (property == QLatin1String("xLabelPrecision"))  return tr("X Axis — Precision");
+    if (property == QLatin1String("xAxisNumberFormat")) return tr("X Axis — Number format");
     if (property == QLatin1String("xLabelFormat"))     return tr("X Axis — Custom format");
-    if (property == QLatin1String("yLabelFormatMode")) return tr("Y Axis — Number format");
-    if (property == QLatin1String("yLabelPrecision"))  return tr("Y Axis — Precision");
+    if (property == QLatin1String("yAxisNumberFormat")) return tr("Y Axis — Number format");
     if (property == QLatin1String("yLabelFormat"))     return tr("Y Axis — Custom format");
     return {};
 }
