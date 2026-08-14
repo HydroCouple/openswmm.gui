@@ -323,6 +323,23 @@ private:
         link).  Used by the bottom axis tick labels. */
     [[nodiscard]] double virtualToRealChainage(double vx) const;
 
+    // ── Virtual-junction helpers ────────────────────────────────────────
+
+    /*! True when node \p nodeIdx is a virtual junction — a computational
+        break point inside one continuous pipe rather than a physical
+        structure.  There is no manhole tube to butt against, so the pipe
+        body and every water graphic inside it run through the node's
+        chainage uninterrupted (the break is marked by a dashed vertical
+        line instead). */
+    [[nodiscard]] bool isVirtualNode(int nodeIdx) const;
+
+    /*! Pixel-x endpoints for link \p linkIdx's in-pipe water graphics
+        (HGL line / fill / envelope).  Each end is inset by the manhole
+        tube half-width so the graphic stops at the tube edge, except at a
+        virtual junction where the inset is zero.  Short links collapse
+        both ends to the link midpoint rather than self-intersecting. */
+    void hglEdgePixels(int linkIdx, qreal &pxU, qreal &pxD) const;
+
     // Recomputes data-space bounds (m_dataXMin, etc.) from m_path + m_series.
     void recomputeBounds();
     bool editAxisEdge(AxisEdge edge);
