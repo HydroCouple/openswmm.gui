@@ -52,6 +52,7 @@
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDebug>
+#include <QLoggingCategory>
 #include <QEvent>
 #include <QFile>
 #include <QFileInfo>
@@ -270,6 +271,42 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace,
 
     connect(mModelLayer, &SWMMModelLayer::modelLoaded,    this, &SWMMVisProjectWindow::modelLoaded);
     connect(mModelLayer, &SWMMModelLayer::modelLoadError, this, &SWMMVisProjectWindow::modelLoadError);
+
+    // Dirty tracking for engine-state edits. SWMMVis::onRunSimulation gates
+    // its pre-run auto-save on hasChanges(), so anything that mutates the
+    // engine without setting this flag makes the run execute the stale .inp
+    // on disk. Before this block the flag only moved for a handful of dialogs
+    // (flow units, simulation options, climatology, user flags, CRS, offsets,
+    // mesh), which left every map and editor edit invisible to the gate.
+    //
+    // modelEdited() is the dedicated dirty channel: everything that writes the
+    // engine outside the layer's own object-lifecycle signals routes through
+    // SWMMModelLayer::markEdited(). That covers node / vertex / polygon moves,
+    // curve, time-series and pattern content edits, property-browser and
+    // attribute-table value edits, and the comprehensive editors' registry
+    // flushes. The lifecycle signals below stay wired because they carry adds,
+    // deletes, renames, rule and OPTIONS writes that predate that channel.
+    //
+    // View-only signals (selection, render kinds, category order) are
+    // deliberately excluded so panning and selecting never force a re-save of
+    // a large model. Anything emitted while the engine is being adopted is
+    // cleared by finishModelLoad(), which resets the flag after the load.
+    connect(mModelLayer, &SWMMModelLayer::modelEdited, this,
+            [this]() { setHasChanges(true); });
+    connect(mModelLayer, &SWMMModelLayer::geometryChanged, this,
+            [this]() { setHasChanges(true); });
+    connect(mModelLayer, &SWMMModelLayer::attributeChanged, this,
+            [this](const QString &) { setHasChanges(true); });
+    connect(mModelLayer, &SWMMModelLayer::optionsChanged, this,
+            [this](const QStringList &) { setHasChanges(true); });
+    connect(mModelLayer, &SWMMModelLayer::dataObjectsChanged, this,
+            [this]() { setHasChanges(true); });
+    connect(mModelLayer, &SWMMModelLayer::hydrographChanged, this,
+            [this](const QString &) { setHasChanges(true); });
+    connect(mModelLayer, &SWMMModelLayer::controlRulesChanged, this,
+            [this](const QString &) { setHasChanges(true); });
+    connect(mModelLayer, &SWMMModelLayer::transectChanged, this,
+            [this](const QString &) { setHasChanges(true); });
 
     // Tools — each tool is bound to mCanvas at construction
     mPanTool        = new OpenSWMMVisMapToolPan(mCanvas, this);
@@ -515,6 +552,13 @@ void SWMMVisProjectWindow::convertLinkOffsets(bool toElevation)
     mModelLayer->convertLinkOffsets(toElevation);
     setHasChanges(true);
 }
+
+namespace {
+// Joins the openswmm.load.* family, so QT_LOGGING_RULES="openswmm.load.*=true"
+// turns these on. Gated because the [postZoom] sample walks EVERY scene item
+// (167k on a large model) purely to report a count.
+Q_LOGGING_CATEGORY(lcLoadWindow, "openswmm.load.window")
+}  // namespace
 
 bool SWMMVisProjectWindow::loadModel(QList<QString> &warnings, QList<QString> &errors)
 {
@@ -785,7 +829,7 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
             .arg(ext.xMax(), 0, 'g', 6).arg(ext.yMax(), 0, 'g', 6)
             .arg(mCanvas->width()).arg(mCanvas->height())
             .arg(mCanvas->canvasSRS() ? mCanvas->canvasSRS()->toAuthority() : "none");
-        qDebug() << diag;
+        qCDebug(lcLoadWindow).noquote() << diag;
         // Mirror to the in-app log so the user can see it without a terminal.
         if (auto *mw = window())
             QMetaObject::invokeMethod(mw, "onLogMessage", Qt::QueuedConnection,
@@ -797,24 +841,12 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
         // still be 0×0 right after loadModel returns (the MDI subwindow hasn't
         // finished its show + resize cycle yet), so we self-reschedule until
         // the canvas has real dimensions. Capped at ~1 s of retries.
-        auto *attempt = new QTimer(mCanvas);
-        attempt->setSingleShot(true);
-        attempt->setInterval(50);
-        auto *attemptCount = new int(0);
-        QObject::connect(attempt, &QTimer::timeout, mCanvas, [this, attempt, attemptCount, mw = window()]() {
-            if (mCanvas->width() <= 0 || mCanvas->height() <= 0) {
-                if (++*attemptCount < 20) {           // ≤ 1 s total
-                    attempt->start();
-                    return;
-                }
-                // Give up; canvas never sized — release allocations.
-                delete attemptCount;
-                attempt->deleteLater();
-                return;
-            }
-            delete attemptCount;
-            attempt->deleteLater();
-
+        // Zoom NOW when the canvas already has a size, and fall back to the
+        // retry timer only when it does not. The timer used to be started
+        // unconditionally, so every open — including a 16 ms model — sat on a
+        // blank canvas for at least 50 ms before the network appeared, purely
+        // waiting for a check that would have passed immediately.
+        auto zoomNow = [this]() {
             mCanvas->zoomToFullExtent();
             // Force scene repopulation immediately rather than waiting for the
             // 50 ms Scene-channel debounce of the new invalidate() API — the
@@ -824,8 +856,13 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
             // go through MapCanvas::invalidate().
             mCanvas->refreshLayerItems();
 
-            // Sample scene state after the synchronous repopulation.
-            QTimer::singleShot(50, mCanvas, [this, mw]() {
+            // Diagnostic only. Skipped entirely unless the category is on:
+            // items().count() walks every item in the scene — 167,000 of them
+            // on West Whiteland — and this used to run on every open, 50 ms
+            // after the model was already on screen, to report a number.
+            if (!lcLoadWindow().isDebugEnabled())
+                return;
+            QTimer::singleShot(50, mCanvas, [this, mw = window()]() {
                 const MapExtent canvasExt = mCanvas->extent();
                 const int sceneItems = mCanvas->mapScene() ? mCanvas->mapScene()->items().count() : -1;
                 const QString d2 = QStringLiteral(
@@ -834,15 +871,41 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
                     .arg(canvasExt.xMin(), 0, 'g', 6).arg(canvasExt.yMin(), 0, 'g', 6)
                     .arg(canvasExt.xMax(), 0, 'g', 6).arg(canvasExt.yMax(), 0, 'g', 6)
                     .arg(sceneItems);
-                qDebug() << d2;
+                qCDebug(lcLoadWindow).noquote() << d2;
                 if (mw)
                     QMetaObject::invokeMethod(mw, "onLogMessage", Qt::QueuedConnection,
                                               Q_ARG(QString, d2),
                                               Q_ARG(OpenSWMMVisLogMessage::LogMessageType,
                                                     OpenSWMMVisLogMessage::LogMessageType::Information));
             });
-        });
-        attempt->start();
+        };
+
+        if (mCanvas->width() > 0 && mCanvas->height() > 0) {
+            zoomNow();
+        } else {
+            // Canvas not sized yet (the MDI subwindow has not finished its
+            // show + resize cycle). Retry, capped at ~1 s as before.
+            auto *attempt = new QTimer(mCanvas);
+            attempt->setSingleShot(true);
+            attempt->setInterval(50);
+            auto *attemptCount = new int(0);
+            QObject::connect(attempt, &QTimer::timeout, mCanvas,
+                             [this, attempt, attemptCount, zoomNow]() {
+                if (mCanvas->width() <= 0 || mCanvas->height() <= 0) {
+                    if (++*attemptCount < 20) {           // ≤ 1 s total
+                        attempt->start();
+                        return;
+                    }
+                    delete attemptCount;                  // never sized — give up
+                    attempt->deleteLater();
+                    return;
+                }
+                delete attemptCount;
+                attempt->deleteLater();
+                zoomNow();
+            });
+            attempt->start();
+        }
     }
     return true;
 }
