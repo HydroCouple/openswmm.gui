@@ -3,7 +3,6 @@
 #include "ui/theme/themetokens.h"
 
 #include <QMdiArea>
-#include <QMdiSubWindow>
 #include <QObject>
 
 namespace openswmmvis::ui {
@@ -29,18 +28,6 @@ void installMdiWorkspaceChrome(QMdiArea *area)
     syncBackdrop();
     QObject::connect(ThemeManager::instance(), &ThemeManager::themeChanged,
                      area, syncBackdrop);
-
-    // Re-assert the maximized state Qt only propagates from a visible,
-    // maximized predecessor. isHidden() (not isVisible()) is the test: it
-    // is false for a sub-window that is merely waiting on its ancestors to
-    // be shown, and true only for one hide()n in its own right.
-    QObject::connect(area, &QMdiArea::subWindowActivated, area,
-                     [area](QMdiSubWindow *sub) {
-                         if (sub && !sub->isHidden()
-                             && area->viewMode() == QMdiArea::TabbedView
-                             && !sub->isMaximized())
-                             sub->showMaximized();
-                     });
 }
 
 }   // namespace openswmmvis::ui
