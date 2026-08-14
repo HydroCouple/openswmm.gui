@@ -13,14 +13,16 @@
 #include "ui/theme/iconfactory.h"
 
 #include <QDialogButtonBox>
+#include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QItemSelectionModel>
-#include <QLabel>
 #include <QLineEdit>
 #include <QListView>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSplitter>
 #include <QVBoxLayout>
 
@@ -28,6 +30,52 @@ namespace openswmmvis::ui {
 
 using openswmmvis::snowpack::SnowpackProvider;
 using openswmmvis::snowpack::SnowpackRegistry;
+
+namespace {
+// Per-parameter form spec, ordered to match SnowpackProvider::Param.
+struct FieldSpec { const char *label; double min; double max; int decimals; double step; };
+const FieldSpec kFields[SnowpackProvider::ParamCount] = {
+    // PLOWABLE
+    { "Min. Melt Coefficient (in or mm/hr/deg)", 0.0,    1.0e6, 4, 0.01 },
+    { "Max. Melt Coefficient (in or mm/hr/deg)", 0.0,    1.0e6, 4, 0.01 },
+    { "Base Temperature (deg F or C)",          -1.0e6,  1.0e6, 4, 1.0  },
+    { "Free Water Capacity (fraction of depth)", 0.0,    1.0,   4, 0.01 },
+    { "Initial Snow Depth (in or mm)",           0.0,    1.0e6, 4, 0.1  },
+    { "Initial Free Water (in or mm)",           0.0,    1.0e6, 4, 0.1  },
+    { "Fraction of Impervious Area Plowable",    0.0,    1.0,   4, 0.01 },
+    // IMPERVIOUS
+    { "Min. Melt Coefficient (in or mm/hr/deg)", 0.0,    1.0e6, 4, 0.01 },
+    { "Max. Melt Coefficient (in or mm/hr/deg)", 0.0,    1.0e6, 4, 0.01 },
+    { "Base Temperature (deg F or C)",          -1.0e6,  1.0e6, 4, 1.0  },
+    { "Free Water Capacity (fraction of depth)", 0.0,    1.0,   4, 0.01 },
+    { "Initial Snow Depth (in or mm)",           0.0,    1.0e6, 4, 0.1  },
+    { "Initial Free Water (in or mm)",           0.0,    1.0e6, 4, 0.1  },
+    { "Depth at 100% Cover (in or mm)",          0.0,    1.0e6, 4, 0.1  },
+    // PERVIOUS
+    { "Min. Melt Coefficient (in or mm/hr/deg)", 0.0,    1.0e6, 4, 0.01 },
+    { "Max. Melt Coefficient (in or mm/hr/deg)", 0.0,    1.0e6, 4, 0.01 },
+    { "Base Temperature (deg F or C)",          -1.0e6,  1.0e6, 4, 1.0  },
+    { "Free Water Capacity (fraction of depth)", 0.0,    1.0,   4, 0.01 },
+    { "Initial Snow Depth (in or mm)",           0.0,    1.0e6, 4, 0.1  },
+    { "Initial Free Water (in or mm)",           0.0,    1.0e6, 4, 0.1  },
+    { "Depth at 100% Cover (in or mm)",          0.0,    1.0e6, 4, 0.1  },
+    // REMOVAL
+    { "Depth at Which Removal Begins (in or mm)", 0.0,   1.0e6, 4, 0.1  },
+    { "Fraction Transferred Out of Watershed",    0.0,   1.0,   4, 0.01 },
+    { "Fraction Transferred to Impervious Area",  0.0,   1.0,   4, 0.01 },
+    { "Fraction Transferred to Pervious Area",    0.0,   1.0,   4, 0.01 },
+    { "Fraction Converted to Immediate Melt",     0.0,   1.0,   4, 0.01 },
+    { "Fraction Transferred to Subcatchment",     0.0,   1.0,   4, 0.01 },
+};
+
+struct GroupSpec { const char *title; int first; int count; };
+const GroupSpec kGroups[] = {
+    { "Plowable Snow",   SnowpackProvider::PlowableCmin,   7 },
+    { "Impervious Area", SnowpackProvider::ImperviousCmin, 7 },
+    { "Pervious Area",   SnowpackProvider::PerviousCmin,   7 },
+    { "Snow Removal",    SnowpackProvider::RemovalDsnow,   6 },
+};
+} // namespace
 
 SnowpackEditorDialog::SnowpackEditorDialog(SnowpackRegistry *registry,
                                            SWMMModelLayer *layer,
@@ -37,7 +85,7 @@ SnowpackEditorDialog::SnowpackEditorDialog(SnowpackRegistry *registry,
       m_layer(layer)
 {
     setWindowTitle(tr("Snow Packs"));
-    resize(560, 320);
+    resize(700, 620);
     buildUi_();
 
     if (m_registry) {
@@ -87,24 +135,47 @@ void SnowpackEditorDialog::buildUi_()
     btnRow->addWidget(m_delBtn);
     leftLay->addLayout(btnRow);
 
-    auto *formPane = new QWidget(m_splitter);
-    auto *form     = new QFormLayout(formPane);
-    m_nameEdit = new QLineEdit(formPane);
-    form->addRow(tr("N&ame"), m_nameEdit);
+    // ── Right pane: scrollable field form, one group box per engine call ────
+    auto *formPane = new QWidget;
+    auto *paneLay  = new QVBoxLayout(formPane);
 
-    auto *note = new QLabel(
-        tr("Snow-pack melt parameters are not yet editable through the engine "
-           "API; create, rename and delete are supported here."),
-        formPane);
-    note->setWordWrap(true);
-    note->setEnabled(false);
-    form->addRow(QString(), note);
+    auto *nameForm = new QFormLayout;
+    m_nameEdit = new QLineEdit(formPane);
+    nameForm->addRow(tr("N&ame"), m_nameEdit);
+    paneLay->addLayout(nameForm);
+
+    m_spins.resize(SnowpackProvider::ParamCount);
+    for (const GroupSpec &gs : kGroups) {
+        auto *box     = new QGroupBox(tr(gs.title), formPane);
+        auto *boxForm = new QFormLayout(box);
+        for (int k = gs.first; k < gs.first + gs.count; ++k) {
+            const FieldSpec &fs = kFields[k];
+            auto *s = new QDoubleSpinBox(box);
+            s->setRange(fs.min, fs.max);
+            s->setDecimals(fs.decimals);
+            s->setSingleStep(fs.step);
+            boxForm->addRow(tr(fs.label), s);
+            m_spins[k] = s;
+            connect(s, &QDoubleSpinBox::valueChanged,
+                    this, &SnowpackEditorDialog::onFieldEdited_);
+        }
+        if (gs.first == SnowpackProvider::RemovalDsnow) {
+            m_removalSubcatchEdit = new QLineEdit(box);
+            boxForm->addRow(tr("Destination Subcatchment"), m_removalSubcatchEdit);
+        }
+        paneLay->addWidget(box);
+    }
+    paneLay->addStretch(1);
+
+    auto *scroll = new QScrollArea(m_splitter);
+    scroll->setWidgetResizable(true);
+    scroll->setWidget(formPane);
 
     m_splitter->addWidget(leftPane);
-    m_splitter->addWidget(formPane);
+    m_splitter->addWidget(scroll);
     m_splitter->setStretchFactor(0, 1);
     m_splitter->setStretchFactor(1, 2);
-    m_splitter->setSizes({ 180, 320 });
+    m_splitter->setSizes({ 180, 480 });
 
     outer->addWidget(m_splitter, 1);
 
@@ -121,16 +192,32 @@ void SnowpackEditorDialog::buildUi_()
             this, &SnowpackEditorDialog::onDeleteClicked_);
     connect(m_nameEdit, &QLineEdit::editingFinished,
             this, &SnowpackEditorDialog::onNameEdited_);
+    connect(m_removalSubcatchEdit, &QLineEdit::editingFinished,
+            this, &SnowpackEditorDialog::onRemovalSubcatchEdited_);
 }
 
 void SnowpackEditorDialog::bindProvider_(SnowpackProvider *p)
 {
     m_current = p;
+
     const bool prev = m_suppressFieldSync;
     m_suppressFieldSync = true;
-    m_nameEdit->setEnabled(p != nullptr);
-    if (p) m_nameEdit->setText(p->name());
-    else   m_nameEdit->clear();
+
+    const bool enabled = (p != nullptr);
+    m_nameEdit->setEnabled(enabled);
+    m_removalSubcatchEdit->setEnabled(enabled);
+    for (QDoubleSpinBox *s : m_spins) s->setEnabled(enabled);
+
+    if (p) {
+        m_nameEdit->setText(p->name());
+        m_removalSubcatchEdit->setText(p->removalSubcatch());
+        for (int k = 0; k < m_spins.size(); ++k)
+            m_spins[k]->setValue(p->param(k));
+    } else {
+        m_nameEdit->clear();
+        m_removalSubcatchEdit->clear();
+    }
+
     m_suppressFieldSync = prev;
 }
 
@@ -196,6 +283,19 @@ void SnowpackEditorDialog::onNameEdited_()
             tr("A snow pack named \"%1\" already exists.").arg(newName));
         m_nameEdit->setText(m_current->name());
     }
+}
+
+void SnowpackEditorDialog::onFieldEdited_()
+{
+    if (m_suppressFieldSync || !m_current) return;
+    for (int k = 0; k < m_spins.size(); ++k)
+        m_current->setParam(k, m_spins[k]->value());
+}
+
+void SnowpackEditorDialog::onRemovalSubcatchEdited_()
+{
+    if (m_suppressFieldSync || !m_current) return;
+    m_current->setRemovalSubcatch(m_removalSubcatchEdit->text().trimmed());
 }
 
 void SnowpackEditorDialog::onProviderRenamed_(SnowpackProvider *p,

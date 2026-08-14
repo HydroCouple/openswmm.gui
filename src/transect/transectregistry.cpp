@@ -75,11 +75,22 @@ void TransectRegistry::remove(TransectProvider *p)
 bool TransectRegistry::rename(TransectProvider *p, const QString &newName)
 {
     if (!p || newName.isEmpty()) return false;
-    if (p->name().compare(newName, Qt::CaseInsensitive) == 0) {
-        p->setName(newName);
-        return true;
+    const bool caseOnly =
+        p->name().compare(newName, Qt::CaseInsensitive) == 0;
+    if (!caseOnly && hasName(newName)) return false;
+
+    // Rename in the engine too. Without this, saveToEngine saw an unknown
+    // name and ADDED a second transect, orphaning the original along with
+    // every IRREGULAR link still pointing at it.
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx = swmm_transect_index(eng, p->name().toUtf8().constData());
+        if (idx >= 0 &&
+            swmm_transect_rename(eng, idx, newName.toUtf8().constData())
+                != SWMM_OK)
+            return false;
     }
-    if (hasName(newName)) return false;
+
     p->setName(newName);
     return true;
 }
