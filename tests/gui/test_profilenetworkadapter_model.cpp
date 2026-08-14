@@ -35,6 +35,8 @@
  * "Transparent File IO" rule.
  */
 
+#include "plot/profilenetworkadapter.h"
+
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_model.h>
@@ -131,6 +133,47 @@ QString writeFixture(const QString &fixtureDir, const QString &name, const char 
     s << contents;
     return path;
 }
+
+// A conduit split at its midpoint by a virtual junction that declares a
+// rendering-only MaxDepth (the optional third [VIRTUAL_JUNCTIONS] token).
+// J1 rim = 100 + 10 = 110; MID's own crown is 1.0 (a 1-ft pipe) but its
+// declared ground surface is 8 ft above its invert.
+constexpr const char *kVirtualJunctionInp =
+    "[TITLE]\n"
+    "Virtual junction with a rendering MaxDepth\n\n"
+    "[OPTIONS]\n"
+    "FLOW_UNITS       CFS\n"
+    "INFILTRATION     HORTON\n"
+    "FLOW_ROUTING     DYNWAVE\n"
+    "MIN_SLOPE        0\n"
+    "START_DATE       01/01/2026\n"
+    "START_TIME       00:00:00\n"
+    "END_DATE         01/01/2026\n"
+    "END_TIME         00:30:00\n"
+    "REPORT_STEP      00:01:00\n"
+    "ROUTING_STEP     00:00:30\n\n"
+    "[JUNCTIONS]\n"
+    ";;Name    Elev    MaxDepth    InitDepth    SurDepth    Aponded\n"
+    "J1        100.0   10.0        0            0           0\n\n"
+    "[VIRTUAL_JUNCTIONS]\n"
+    ";;Name    Elev    MaxDepth\n"
+    "MID       97.5    8.0\n\n"
+    "[OUTFALLS]\n"
+    ";;Name    Elev    Type    StageData    Gated\n"
+    "J2        95.0    FREE                  NO\n\n"
+    "[CONDUITS]\n"
+    ";;Name    From    To    Length    Roughness    InOffset    OutOffset    InitFlow    MaxFlow\n"
+    "C1        J1      MID   50.0      0.013        0           0            0           0\n"
+    "C2        MID     J2    50.0      0.013        0           0            0           0\n\n"
+    "[XSECTIONS]\n"
+    ";;Link    Shape       Geom1    Geom2    Geom3    Geom4    Barrels\n"
+    "C1        CIRCULAR    1.0      0        0        0        1\n"
+    "C2        CIRCULAR    1.0      0        0        0        1\n\n"
+    "[COORDINATES]\n"
+    ";;Node    X       Y\n"
+    "J1        0.0     0.0\n"
+    "MID       50.0    0.0\n"
+    "J2        100.0   0.0\n";
 
 struct LoadedOffsets {
     double offsetUp = 0.0;
@@ -249,6 +292,88 @@ private slots:
         QVERIFY(v.offsetUp > 0.0);
         QVERIFY(v.offsetDn > 0.0);
         QVERIFY(v.offsetUp != v.offsetDn);
+    }
+
+    /*! A virtual junction is JUNCTION-typed on the engine, so only the
+     *  is_virtual flag can tell the profile to draw pipe instead of a
+     *  manhole. */
+    void node_kind_separates_virtual_junctions()
+    {
+        using K = ProfileBuilder::NodeKind;
+        QCOMPARE(ProfileNetworkAdapter::toNodeKind(0, false), K::Junction);
+        QCOMPARE(ProfileNetworkAdapter::toNodeKind(0, true),  K::VirtualJunction);
+        QCOMPARE(ProfileNetworkAdapter::toNodeKind(1, false), K::Outfall);
+        QCOMPARE(ProfileNetworkAdapter::toNodeKind(2, false), K::Storage);
+        QCOMPARE(ProfileNetworkAdapter::toNodeKind(3, false), K::Divider);
+        // The flag only means anything on a junction-typed node.
+        QCOMPARE(ProfileNetworkAdapter::toNodeKind(1, true),  K::Outfall);
+        QCOMPARE(ProfileNetworkAdapter::toNodeKind(9, false), K::Junction);
+    }
+
+    /*! The ground line uses a virtual junction's declared rim depth when it
+     *  has one, and falls back to the derived pipe crown when it does not.
+     *  Ordinary nodes always keep their max depth. */
+    void rim_depth_only_overrides_on_virtual_junctions()
+    {
+        using ProfileNetworkAdapter::renderRimDepth;
+        // Virtual junction with a declared ground surface -> that surface.
+        QCOMPARE(renderRimDepth(true,  1.0, 8.0), 8.0);
+        // Virtual junction with none (0 = unset) -> the crown, as before.
+        QCOMPARE(renderRimDepth(true,  1.0, 0.0), 1.0);
+        // A real node ignores the field even if something set it.
+        QCOMPARE(renderRimDepth(false, 6.0, 8.0), 6.0);
+        QCOMPARE(renderRimDepth(false, 6.0, 0.0), 6.0);
+    }
+
+    /*! Engine-ABI contract the profile pipeline reads: the optional third
+     *  [VIRTUAL_JUNCTIONS] token surfaces on swmm_node_get_rim_depth while
+     *  swmm_node_get_max_depth keeps reporting the derived pipe crown. */
+    void virtual_junction_rim_depth_reaches_the_abi()
+    {
+        const QString inp = writeFixture(fixtureDir(),
+                                         QStringLiteral("virtual_junction_rim.inp"),
+                                         kVirtualJunctionInp);
+        QVERIFY2(!inp.isEmpty(), "Could not write virtual_junction_rim.inp fixture");
+
+        SWMM_Engine e = swmm_engine_create();
+        QVERIFY(e != nullptr);
+        const QFileInfo info(inp);
+        const QString stem = info.absolutePath() + QStringLiteral("/")
+                             + info.completeBaseName();
+        const QByteArray inpUtf8 = inp.toUtf8();
+        const QByteArray rptUtf8 = (stem + QStringLiteral(".rpt")).toUtf8();
+        const QByteArray outUtf8 = (stem + QStringLiteral(".out")).toUtf8();
+        QCOMPARE(swmm_engine_open(e, inpUtf8.constData(), rptUtf8.constData(),
+                                  outUtf8.constData(), nullptr), 0);
+
+        const int mid = swmm_node_index(e, "MID");
+        QVERIFY(mid >= 0);
+        int isVirtual = 0, nodeType = -1;
+        double maxDepth = 0.0, rimDepth = 0.0, invert = 0.0;
+        QCOMPARE(swmm_node_is_virtual(e, mid, &isVirtual), 0);
+        QCOMPARE(swmm_node_get_type(e, mid, &nodeType), 0);
+        QCOMPARE(swmm_node_get_max_depth(e, mid, &maxDepth), 0);
+        QCOMPARE(swmm_node_get_rim_depth(e, mid, &rimDepth), 0);
+        QCOMPARE(swmm_node_get_invert_elev(e, mid, &invert), 0);
+
+        QCOMPARE(isVirtual, 1);
+        QCOMPARE(nodeType, 0);              // still JUNCTION-typed
+        QCOMPARE(maxDepth, 1.0);            // derived pipe crown
+        QCOMPARE(rimDepth, 8.0);            // declared ground surface
+
+        // What the profile actually draws the ground at: 97.5 + 8 = 105.5,
+        // not the 98.5 the crown would give.
+        QCOMPARE(invert + ProfileNetworkAdapter::renderRimDepth(
+                     isVirtual != 0, maxDepth, rimDepth), 105.5);
+
+        // A plain junction in the same model is unaffected.
+        const int j1 = swmm_node_index(e, "J1");
+        QVERIFY(j1 >= 0);
+        double j1Rim = -1.0;
+        QCOMPARE(swmm_node_get_rim_depth(e, j1, &j1Rim), 0);
+        QCOMPARE(j1Rim, 0.0);
+
+        swmm_engine_destroy(e);
     }
 };
 
