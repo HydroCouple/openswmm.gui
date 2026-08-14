@@ -264,21 +264,41 @@ SectionDiagramModel buildLinkSection(SWMM_Engine engine, int linkIdx,
 
     const XsectFullProps fp = sampler.fullProps();
 
-    // Invert / crown elevations, taken from the upstream node + offset so the
-    // numbers match what the profile view and the property grid report.
-    int upNode = -1;
-    double offsetUp = 0.0, invertUp = 0.0;
-    if (swmm_link_get_from_node(engine, linkIdx, &upNode) == SWMM_OK && upNode >= 0) {
+    // Invert / crown elevations, taken from each end node + its offset so the
+    // numbers match what the profile view and the property grid report. The
+    // shape is one section but the run has two ends, so label both.
+    int upNode = -1, dnNode = -1;
+    double offsetUp = 0.0, offsetDn = 0.0, invertUp = 0.0, invertDn = 0.0;
+    const bool haveUp =
+        swmm_link_get_from_node(engine, linkIdx, &upNode) == SWMM_OK && upNode >= 0;
+    const bool haveDn =
+        swmm_link_get_to_node(engine, linkIdx, &dnNode) == SWMM_OK && dnNode >= 0;
+    if (haveUp) {
         swmm_link_get_offset_up(engine, linkIdx, &offsetUp);
         swmm_node_get_invert_elev(engine, upNode, &invertUp);
+    }
+    if (haveDn) {
+        swmm_link_get_offset_dn(engine, linkIdx, &offsetDn);
+        swmm_node_get_invert_elev(engine, dnNode, &invertDn);
+    }
+    if (haveUp) {
+        // "100.00 ft" when the two ends agree, "100.00 / 98.00 ft" when they
+        // don't — a flat run shouldn't pay for the slash.
+        const auto endText = [&](double up, double dn) {
+            if (!haveDn || std::abs(up - dn) < 5.0e-3) return lenText(up, units, 2);
+            return tr_("%1 / %2").arg(num(up, 2), lenText(dn, units, 2));
+        };
+        const double invUpEl = invertUp + offsetUp;
+        const double invDnEl = invertDn + offsetDn;
 
-        const double invertEl = invertUp + offsetUp;
-        m.leaders << DiagramLeader{ QPointF(0.0, 0.0),
-                                    tr_("Invert El. %1").arg(lenText(invertEl, units, 2)),
-                                    QPointF(-70.0, 34.0) };
-        m.leaders << DiagramLeader{ QPointF(0.0, fp.yFull),
-                                    tr_("Crown El. %1").arg(lenText(invertEl + fp.yFull, units, 2)),
-                                    QPointF(-70.0, -30.0) };
+        m.leaders << DiagramLeader{
+            QPointF(0.0, 0.0),
+            tr_("Invert El. %1").arg(endText(invUpEl, invDnEl)),
+            QPointF(-70.0, 34.0) };
+        m.leaders << DiagramLeader{
+            QPointF(0.0, fp.yFull),
+            tr_("Crown El. %1").arg(endText(invUpEl + fp.yFull, invDnEl + fp.yFull)),
+            QPointF(-70.0, -30.0) };
     }
 
     int barrels = 1;
@@ -395,13 +415,17 @@ SectionDiagramModel buildLinkProfile(SWMM_Engine engine, int linkIdx,
                                 tr_("Inv %1").arg(num(pipeInvDn, 2)),
                                 QPointF(-64.0, 26.0) };
     if (yFull > 0.0) {
-        // Anchored at a quarter point, not mid-span: the run dimension below
-        // writes "L … S … %" centred on the barrel axis, and a mid-span crown
-        // leader lands its label on top of that text.
-        const double xq = x0 + length * 0.28;
-        const double crownAtQ = pipeInvUp + (pipeInvDn - pipeInvUp) * 0.28 + yFull;
-        m.leaders << DiagramLeader{ QPointF(xq, crownAtQ),
-                                    tr_("Crown %1").arg(num(crownAtQ, 2)),
+        // Anchored at the barrel-end soffit corners, so each label reports a
+        // crown elevation that exists on a plan set rather than an interpolated
+        // mid-run value. These two point OUTWARD, against this function's
+        // inward convention for rim/invert: the run dimension writes
+        // "L … S … %" along this very crown line, so anything landing over the
+        // barrel is written on top of that text.
+        m.leaders << DiagramLeader{ QPointF(x0 + mw, pipeInvUp + yFull),
+                                    tr_("Crown %1").arg(num(pipeInvUp + yFull, 2)),
+                                    QPointF(-26.0, -48.0) };
+        m.leaders << DiagramLeader{ QPointF(x1 - mw, pipeInvDn + yFull),
+                                    tr_("Crown %1").arg(num(pipeInvDn + yFull, 2)),
                                     QPointF(26.0, -48.0) };
     }
 
@@ -588,6 +612,22 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx,
             QPointF(xOut, c.invert),
             tr_("%1  Inv %2").arg(c.name, num(c.invert, 2)),
             QPointF(c.inbound ? -18.0 : 18.0, 16.0) };
+
+        // Only a real section has a crown. `h` above falls back to a fraction
+        // of the chamber depth so pumps and DUMMY links still draw a visible
+        // stub — that number is a drawing minimum, not an elevation.
+        //
+        // -22 against the invert's +16 leaves the pair 38 px apart even when
+        // the stub collapses to nothing on screen — two full de-confliction
+        // steps, so several shallow pipes on one side stack as crowns above
+        // inverts instead of interleaving. Emitted after the invert so the
+        // invert keeps its natural slot (de-confliction is first-come).
+        if (c.height > 0.0) {
+            m.leaders << DiagramLeader{
+                QPointF(xOut, c.invert + c.height),
+                tr_("%1  Crown %2").arg(c.name, num(c.invert + c.height, 2)),
+                QPointF(c.inbound ? -18.0 : 18.0, -22.0) };
+        }
 
         if (c.hasHeading)
             m.plan << PlanSpoke{ c.headingDeg, c.name, c.inbound };
