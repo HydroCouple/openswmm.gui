@@ -720,6 +720,29 @@ double ProfilePlotWidget::virtualX(int nodeIdx) const
     return 0.0;
 }
 
+bool ProfilePlotWidget::isVirtualNode(int nodeIdx) const
+{
+    return nodeIdx >= 0
+        && nodeIdx < m_path.nodes.size()
+        && m_path.nodes[nodeIdx].kind
+               == ProfileBuilder::NodeKind::VirtualJunction;
+}
+
+void ProfilePlotWidget::hglEdgePixels(int linkIdx, qreal &pxU, qreal &pxD) const
+{
+    const qreal rawU = dataToPixel(virtualX(linkIdx),     0.0).x();
+    const qreal rawD = dataToPixel(virtualX(linkIdx + 1), 0.0).x();
+    const qreal midPx = 0.5 * (rawU + rawD);
+    // No tube at a virtual junction, so no inset — the water surface must
+    // run through it exactly as the pipe does.
+    const qreal insetU = isVirtualNode(linkIdx)     ? qreal(0)
+                                                    : kHglPipeEdgeInsetPx;
+    const qreal insetD = isVirtualNode(linkIdx + 1) ? qreal(0)
+                                                    : kHglPipeEdgeInsetPx;
+    pxU = std::min<qreal>(rawU + insetU, midPx);
+    pxD = std::max<qreal>(rawD - insetD, midPx);
+}
+
 double ProfilePlotWidget::virtualXAlongLink(int linkIdx, double frac) const
 {
     if (linkIdx < 0 || linkIdx + 1 >= m_virtualChainage.size()) {
@@ -1906,6 +1929,15 @@ void ProfilePlotWidget::paintConduits(QPainter &p) const
             const QPointF pUcr  = dataToPixel(xU, zUcr);
             const QPointF pDcr  = dataToPixel(xD, zDcr);
 
+            // A virtual junction is a computational break point inside one
+            // continuous pipe, not a manhole, so there is no tube edge to
+            // butt against: that end keeps its full extent (no trim, no end
+            // cap below).  Consecutive conduits then meet at the same
+            // chainage, each carrying its own slope — the invert and crown
+            // read as one continuous polyline with a kink at the break.
+            const bool vjUp = isVirtualNode(i);
+            const bool vjDn = isVirtualNode(i + 1);
+
             const double spanPx = pDinv.x() - pUinv.x();
             // Skip the trim when the link is too short to accommodate
             // both tube widths — the conduit then renders centre-to-
@@ -1913,18 +1945,20 @@ void ProfilePlotWidget::paintConduits(QPainter &p) const
             const double shiftPx = (spanPx > 4.0 * kShaftHalfWidthPx)
                                        ? kShaftHalfWidthPx
                                        : 0.0;
-            const double tFrac   = (spanPx > 0.0) ? shiftPx / spanPx : 0.0;
-            auto shifted = [tFrac](const QPointF &up, const QPointF &dn,
-                                   bool isUpstream) -> QPointF {
+            const double tBase   = (spanPx > 0.0) ? shiftPx / spanPx : 0.0;
+            const double tUp     = vjUp ? 0.0 : tBase;
+            const double tDn     = vjDn ? 0.0 : tBase;
+            auto shifted = [](const QPointF &up, const QPointF &dn,
+                              double tFrac, bool isUpstream) -> QPointF {
                 const QPointF dir = dn - up;
                 return isUpstream
                            ? up + dir * tFrac
                            : dn - dir * tFrac;
             };
-            const QPointF upInv = shifted(pUinv, pDinv, true);
-            const QPointF dnInv = shifted(pUinv, pDinv, false);
-            const QPointF upCr  = shifted(pUcr,  pDcr,  true);
-            const QPointF dnCr  = shifted(pUcr,  pDcr,  false);
+            const QPointF upInv = shifted(pUinv, pDinv, tUp, true);
+            const QPointF dnInv = shifted(pUinv, pDinv, tDn, false);
+            const QPointF upCr  = shifted(pUcr,  pDcr,  tUp, true);
+            const QPointF dnCr  = shifted(pUcr,  pDcr,  tDn, false);
 
             QPainterPath body;
             body.moveTo(upCr);
@@ -1945,8 +1979,10 @@ void ProfilePlotWidget::paintConduits(QPainter &p) const
             QPen capPen = outlinePen;
             capPen.setWidthF(penWidth * 0.7);
             p.setPen(capPen);
-            p.drawLine(upInv, upCr);     // upstream cap at tube edge
-            p.drawLine(dnInv, dnCr);     // downstream cap at tube edge
+            // No cap at a virtual junction — capping there would draw the
+            // very break the pipe is supposed to run through.
+            if (!vjUp) p.drawLine(upInv, upCr);  // upstream cap at tube edge
+            if (!vjDn) p.drawLine(dnInv, dnCr);  // downstream cap at tube edge
         } else if (l.kind == ProfileBuilder::LinkKind::Weir) {
             // Weirs are point structures with a SINGLE crest elevation
             // set by the inlet node: crest = inletInvert + crestHeight.
@@ -2046,8 +2082,22 @@ void ProfilePlotWidget::paintNodes(QPainter &p) const
         // Same reasoning for a virtual junction: it is a computational break
         // point inside one continuous pipe, not a structure, so there is no
         // manhole to draw. Its rim still shapes the ground line above.
-        if (m_path.nodes[i].kind == ProfileBuilder::NodeKind::VirtualJunction)
+        // Mark the break itself with a thin dashed vertical line running
+        // from the node invert up to the ground line — the pipe (and the
+        // water in it) passes straight through, so the dash is the only
+        // indication of where the conduit was split.
+        if (m_path.nodes[i].kind == ProfileBuilder::NodeKind::VirtualJunction) {
+            const auto &vn = m_path.nodes[i];
+            const double vchain = virtualX(i);
+            QPen vjPen = makeLinePen(plotTheme().plotConduit, 1.0,
+                                     /*dashed=*/true);
+            vjPen.setColor(withAlphaF(plotTheme().plotConduit, 0.6));
+            p.setBrush(Qt::NoBrush);
+            p.setPen(vjPen);
+            p.drawLine(dataToPixel(vchain, vn.invertElev),
+                       dataToPixel(vchain, ProfileBuilder::groundElev(vn)));
             continue;
+        }
 
         const auto &n = m_path.nodes[i];
         const double chain = virtualX(i);
@@ -2376,11 +2426,8 @@ void ProfilePlotWidget::paintSeriesEnvelope(QPainter &p, int seriesIdx) const
                              xU, xD, vU, vD, top, inletInv, outletInv))
             continue;
 
-        const qreal pxUraw = dataToPixel(xU, 0.0).x();
-        const qreal pxDraw = dataToPixel(xD, 0.0).x();
-        const qreal midPx  = 0.5 * (pxUraw + pxDraw);
-        const qreal pxU = std::min<qreal>(pxUraw + kHglPipeEdgeInsetPx, midPx);
-        const qreal pxD = std::max<qreal>(pxDraw - kHglPipeEdgeInsetPx, midPx);
+        qreal pxU = 0.0, pxD = 0.0;
+        hglEdgePixels(i, pxU, pxD);
 
         auto toPx = [&](const QPointF &dp) {
             QPointF px = dataToPixel(dp.x(), dp.y());
@@ -2438,11 +2485,8 @@ void ProfilePlotWidget::paintSeriesEnvelope(QPainter &p, int seriesIdx) const
                 const QVector<QPointF> pts = hglPolylineForLink(
                     xU, xD, vU, vD, inletInv, outletInv);
 
-                const qreal pxUraw = dataToPixel(xU, 0.0).x();
-                const qreal pxDraw = dataToPixel(xD, 0.0).x();
-                const qreal midPx  = 0.5 * (pxUraw + pxDraw);
-                const qreal pxU = std::min<qreal>(pxUraw + kHglPipeEdgeInsetPx, midPx);
-                const qreal pxD = std::max<qreal>(pxDraw - kHglPipeEdgeInsetPx, midPx);
+                qreal pxU = 0.0, pxD = 0.0;
+                hglEdgePixels(i, pxU, pxD);
                 auto toPx = [&](const QPointF &dp) {
                     QPointF px = dataToPixel(dp.x(), dp.y());
                     px.setX(dp.x() == xU ? pxU : pxD);
@@ -2521,13 +2565,10 @@ void ProfilePlotWidget::paintHglFill(QPainter &p, int seriesIdx) const
         // Inset the endpoints in pixel space so the polygon stops at
         // the manhole tube edge instead of bleeding into the node glyph
         // (the per-node nodal HGL is drawn separately by paintNodeFill).
-        // Short links collapse the inset to the midpoint rather than
-        // self-intersecting.
-        const qreal pxUraw = dataToPixel(xU, 0.0).x();
-        const qreal pxDraw = dataToPixel(xD, 0.0).x();
-        const qreal midPx  = 0.5 * (pxUraw + pxDraw);
-        const qreal pxU = std::min<qreal>(pxUraw + kHglPipeEdgeInsetPx, midPx);
-        const qreal pxD = std::max<qreal>(pxDraw - kHglPipeEdgeInsetPx, midPx);
+        // Ends at a virtual junction take no inset — there is no tube
+        // there, so consecutive fills abut and read as one body of water.
+        qreal pxU = 0.0, pxD = 0.0;
+        hglEdgePixels(i, pxU, pxD);
 
         auto toPx = [&](const QPointF &dp) {
             QPointF px = dataToPixel(dp.x(), dp.y());
@@ -2693,6 +2734,11 @@ void ProfilePlotWidget::paintNodeFill(QPainter &p, int seriesIdx) const
     for (int i = 0; i < m_path.nodes.size(); ++i) {
         const double hgl = periodRow[i];
         if (!isFinite(hgl)) continue;
+        // A virtual junction has no shaft to fill, and its rim sits well
+        // above the pipe crown — a column here would push water up into
+        // the soil.  The adjacent per-link fills already abut at its
+        // chainage (hglEdgePixels takes no inset there).
+        if (isVirtualNode(i)) continue;
         const auto &n = m_path.nodes[i];
         const double rim = ProfileBuilder::groundElev(n);
         const double cap = std::clamp(hgl, n.invertElev, rim);
@@ -2730,6 +2776,8 @@ void ProfilePlotWidget::paintNodeEnvelopeFill(QPainter &p, int seriesIdx) const
     for (int i = 0; i < m_path.nodes.size(); ++i) {
         const double v = arr[i];
         if (!isFinite(v)) continue;
+        // No shaft at a virtual junction — see paintNodeFill.
+        if (isVirtualNode(i)) continue;
         const auto &n = m_path.nodes[i];
         const double rim = ProfileBuilder::groundElev(n);
         const double cap = std::clamp(v, n.invertElev, rim);
@@ -2788,6 +2836,10 @@ void ProfilePlotWidget::paintNodeHglLine(QPainter &p, int seriesIdx) const
     for (int i = 0; i < m_path.nodes.size(); ++i) {
         const double v = valueAt(i);
         if (!isFinite(v)) continue;
+        // A virtual junction spans no tube, so there is nothing to bridge:
+        // the two link traces already meet at its chainage.  Drawing the
+        // horizontal stub here would flatten a sloping water surface.
+        if (isVirtualNode(i)) continue;
         const double xn = virtualX(i);
         const QPointF c = dataToPixel(xn, v);
         const QPointF left (c.x() - kHglPipeEdgeInsetPx, c.y());
@@ -3010,11 +3062,8 @@ void ProfilePlotWidget::paintSeriesCurrentLine(QPainter &p, int seriesIdx) const
             const QVector<QPointF> pts = hglPolylineForLink(
                 xU, xD, vU, vD, inletInv, outletInv);
 
-            const qreal pxUraw = dataToPixel(xU, 0.0).x();
-            const qreal pxDraw = dataToPixel(xD, 0.0).x();
-            const qreal midPx  = 0.5 * (pxUraw + pxDraw);
-            const qreal pxU = std::min<qreal>(pxUraw + kHglPipeEdgeInsetPx, midPx);
-            const qreal pxD = std::max<qreal>(pxDraw - kHglPipeEdgeInsetPx, midPx);
+            qreal pxU = 0.0, pxD = 0.0;
+            hglEdgePixels(i, pxU, pxD);
             auto toPx = [&](const QPointF &dp) {
                 QPointF px = dataToPixel(dp.x(), dp.y());
                 px.setX(dp.x() == xU ? pxU : pxD);

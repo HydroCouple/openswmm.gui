@@ -32,6 +32,23 @@ profile shows both behaviours next to each other.
    both nodes are still virtual junctions (before this change a GeoPackage
    round-trip demoted them to plain junctions).
 
+## Pipe continuity through the break
+
+The pipe is not interrupted at a virtual junction — only at a real
+structure. In the same profile:
+
+5. The conduit invert and crown run through **VJ_A** and **VJ_B** with no
+   gap and no vertical end cap. Where the two conduits have different
+   slopes the lines kink at the break; they never separate. At a real
+   junction the 3.5 px gap and the end caps are still there.
+6. A thin dashed vertical line marks each virtual junction, from the pipe
+   invert up to the ground line — 98.75 → 107.75 at VJ_A, and (with nothing
+   declared) 97.50 → 98.50 at VJ_B, i.e. exactly the pipe depth.
+7. Run the model and step the animation. The HGL line, its fill and the
+   Max HGL band all cross both virtual junctions continuously: no flat
+   7-px stub at the break, and no water column rising into the soil above
+   the crown. At real junctions the manhole water column still shows.
+
 ## What must NOT change
 
 MaxDepth here is a drawing property. Running the model with and without it
