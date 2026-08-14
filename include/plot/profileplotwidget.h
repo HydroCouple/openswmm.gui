@@ -357,10 +357,6 @@ private:
     [[nodiscard]] QColor themeLinkOutline(ProfileBuilder::LinkKind k) const;
     [[nodiscard]] QColor themeSoilFill   () const;
     [[nodiscard]] QColor themeBeddingFill() const;
-    [[nodiscard]] QPen   themeHglPen      () const;
-    [[nodiscard]] QPen   themeEglPen      () const;
-    [[nodiscard]] QPen   themeMaxHglPen   () const;
-    [[nodiscard]] QPen   themeMaxEglPen   () const;
     [[nodiscard]] QPen   themeConduitOutlinePen() const;
     [[nodiscard]] QPen   themeLinkOutlinePen(ProfileBuilder::LinkKind k) const;
 
