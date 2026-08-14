@@ -188,6 +188,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"view.dock.layers",        "actionToggleDockLayers",         "Panels", "Ctrl+Alt+1", "DockLayers", "view", "View/Panels", NoTags},
     {"view.dock.objectBrowser", "actionToggleDockObjectBrowser",  "Panels", "Ctrl+Alt+2", "DockObjectBrowser", "view", "View/Panels", NoTags},
     {"view.dock.properties",    "actionToggleDockProperties",     "Panels", "Ctrl+Alt+3", "DockProperties", "view", "View/Panels", NoTags},
+    {"view.dock.sectionView",   "actionToggleDockSectionView",    "Panels", "Ctrl+Alt+9", "DockSectionView", "view", "View/Panels", NoTags},
     {"view.dock.attributeTable","actionToggleDockAttributeTable", "Panels", "Ctrl+Alt+4", "DockAttributeTable", "view", "View/Panels", NoTags},
     {"view.dock.legend",        "actionToggleDockLegend",         "Panels", "Ctrl+Alt+5", "DockLegend", "view", "View/Panels", NoTags},
     {"view.dock.simulationStatus","actionToggleDockSimulationStatus","Panels","Ctrl+Alt+6","DockSimulationStatus", "view", "View/Panels", NoTags},

@@ -228,6 +228,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionToggleDockLayers",           QT_TR_NOOP("Layers")},
         {"actionToggleDockObjectBrowser",    QT_TR_NOOP("Object\nBrowser")},
         {"actionToggleDockProperties",       QT_TR_NOOP("Properties")},
+        {"actionToggleDockSectionView",      QT_TR_NOOP("Section\nView")},
         {"actionToggleDockAttributeTable",   QT_TR_NOOP("Attribute\nTable")},
         {"actionToggleDockLegend",           QT_TR_NOOP("Legend")},
         {"actionToggleDockSimulationStatus", QT_TR_NOOP("Simulation\nStatus")},
@@ -316,7 +317,8 @@ void SWMMVis::initializeCompactToolbar()
     mToolBarView->setObjectName(QStringLiteral("toolBarView"));
     addGroup(mToolBarView, tr("Panels"),
              {"actionToggleDockLayers", "actionToggleDockObjectBrowser",
-              "actionToggleDockProperties", "actionToggleDockAttributeTable",
+              "actionToggleDockProperties", "actionToggleDockSectionView",
+              "actionToggleDockAttributeTable",
               "actionToggleDockLegend", "actionToggleDockSimulationStatus",
               "actionToggleDockMessageLogs"});
     addGroup(mToolBarView, tr("Styling"),
@@ -491,7 +493,8 @@ QMenu *SWMMVis::createPopupMenu()
     auto *menu = new QMenu(this);
     for (const char *name :
          {"actionToggleDockLayers", "actionToggleDockObjectBrowser",
-          "actionToggleDockProperties", "actionToggleDockAttributeTable",
+          "actionToggleDockProperties", "actionToggleDockSectionView",
+          "actionToggleDockAttributeTable",
           "actionToggleDockLegend", "actionToggleDockSimulationStatus",
           "actionToggleDockMessageLogs"}) {
         if (auto *act = findChild<QAction *>(QLatin1String(name)))
