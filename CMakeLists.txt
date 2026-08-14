@@ -173,6 +173,7 @@ set(
         include/core/editgeometry.h
         include/core/gisdatapaths.h
         include/core/swmmdatetime.h
+        include/core/swmmdatetimeformat.h
         include/selection/selectionmanager.h
         include/selection/selectionops.h
 
@@ -558,6 +559,7 @@ set(
         include/ui/models/legendlayertreemodel.h
 
         # ── UI delegates (Slice BB Phase 8.6.16) ─────────────────────────────
+        include/ui/delegates/datetimedelegate.h
         include/ui/delegates/legendcolordelegate.h
 
         # ── UI property adapters (Slice Z.5.3 / AG.3) ────────────────────────
@@ -1163,6 +1165,7 @@ set(
         src/ui/models/legendlayertreemodel.cpp
 
         # UI delegates (Slice BB Phase 8.6.16 — legend swatch click-to-edit).
+        src/ui/delegates/datetimedelegate.cpp
         src/ui/delegates/legendcolordelegate.cpp
 
         # UI property adapters

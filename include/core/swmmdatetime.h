@@ -28,6 +28,8 @@
 #ifndef OPENSWMMVIS_CORE_SWMMDATETIME_H
 #define OPENSWMMVIS_CORE_SWMMDATETIME_H
 
+#include "core/swmmdatetimeformat.h"
+
 #include <openswmm/engine/openswmm_datetime.h>
 
 #include <QDate>
