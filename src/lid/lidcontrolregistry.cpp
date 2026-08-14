@@ -59,11 +59,22 @@ void LidControlRegistry::remove(LidControlProvider *p)
 bool LidControlRegistry::rename(LidControlProvider *p, const QString &newName)
 {
     if (!p || newName.isEmpty()) return false;
-    if (p->name().compare(newName, Qt::CaseInsensitive) == 0) {
-        p->setName(newName);
-        return true;
+    const bool caseOnly =
+        p->name().compare(newName, Qt::CaseInsensitive) == 0;
+    if (!caseOnly && hasName(newName)) return false;
+
+    // Rename in the engine too. Without this, saveToEngine saw an unknown
+    // name and ADDED a second LID control, orphaning the original with its
+    // layer parameters and LID usages.
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx = swmm_lid_index(eng, p->name().toUtf8().constData());
+        if (idx >= 0 &&
+            swmm_lid_rename(eng, idx, newName.toUtf8().constData())
+                != SWMM_OK)
+            return false;
     }
-    if (hasName(newName)) return false;
+
     p->setName(newName);
     return true;
 }
