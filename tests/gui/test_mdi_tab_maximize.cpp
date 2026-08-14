@@ -1,7 +1,7 @@
-// Welcome-screen chrome (installMdiWorkspaceChrome): the MDI backdrop
-// tracks the theme palette, and every activated sub-window in TabbedView
-// stays maximized so none of them is left floating as a small framed
-// child over the tab the user selected.
+// Welcome-screen chrome (installMdiWorkspaceChrome) makes the MDI backdrop
+// track the theme palette. The document-open boundary explicitly maximizes
+// a newly opened model when Welcome was hidden, while ordinary tab switching
+// remains entirely under QMdiArea's control.
 //
 // Ground truth for the underlying Qt behaviour is tests/scratch/
 // mdi_tab_probe.cpp; the two QMdiArea facts these tests pin down are:
@@ -87,7 +87,7 @@ struct Workspace
      * A project tab, following the app's real open sequence: the canvas
      * carries WA_OpaquePaintEvent and the 200x150 floor from
      * swmmvisprojectwindow.cpp, addSubWindow() lands the tab immediately
-     * (swmmvis.cpp:4544) and show() + setActiveSubWindow() only follow
+     * (swmmvis.cpp:4544) and showMaximized() + setActiveSubWindow() only follow
      * once the async .inp load finishes (swmmvis.cpp:4729-4730) — hence
      * the event pump in between.
      */
@@ -101,7 +101,10 @@ struct Workspace
         sub->setMinimumSize(200, 150);
         area->addSubWindow(sub);
         QApplication::processEvents();
-        sub->show();
+        // Mirrors SWMMVis's document-open boundary. If Welcome was hidden,
+        // QMdiArea has no visible maximized predecessor to hand this state
+        // over from, so the incoming document must establish it itself.
+        sub->showMaximized();
         area->setActiveSubWindow(sub);
         QApplication::processEvents();
         return sub;
@@ -227,13 +230,8 @@ void TestMdiTabMaximize::switchingTabsLeavesNoStray()
     QCOMPARE(visibleStrays(w.area), 0);
 }
 
-//! The reported bug, and the one function here that fails without the
-//! fix. swmmvis.cpp hides the welcome sub-window in place — at startup
-//! when "show on startup" is off (initializeWelcomeScreen) and when the
-//! tab's X is clicked (eventFilter) — which is exactly the state that
-//! stops Qt handing the maximized flag to the next activation. The
-//! switching tests above pass either way; they guard against the fix
-//! itself breaking the ordinary paths.
+//! Hiding Welcome in place leaves no visible maximized predecessor, so the
+//! project-open boundary must establish the incoming model's maximized state.
 void TestMdiTabMaximize::hiddenWelcomeDoesNotStrandTheNextTab()
 {
     Workspace w;
@@ -277,22 +275,9 @@ void TestMdiTabMaximize::tabBarSwitchingLeavesNoStray()
 }
 
 /*!
- * The guard re-asserts the maximized state, and showMaximized() also
- * SHOWS a window — so it must skip explicitly hidden sub-windows or it
- * would resurrect a welcome tab the user dismissed.
- *
- * Reaching the guard with a hidden sub-window needs two things. First,
- * Qt's one-shot showActiveWindowMaximized — armed by appendChild for the
- * first sub-window (qmdiarea.cpp:825-831) and consumed by
- * emitWindowActivated (:1021-1025), which calls showMaximized() BEFORE
- * emitting subWindowActivated — must already be spent, so the first
- * w.show() has to happen with the welcome still visible. Second, the sub
- * must be hidden *and* normal, which is where Qt leaves an outgoing tab
- * (showNormal at :684-690) whose X the user then clicks. Re-showing the
- * main window afterwards runs QMdiArea::showEvent →
- * activateCurrentWindow() (:2404-2405), which has no visibility guard and
- * activates the hidden sub. setActiveSubWindow() cannot provoke this:
- * QMdiAreaPrivate::activateWindow bails on a hidden child (:968).
+ * A hidden Welcome must stay hidden through a main-window hide/show cycle.
+ * The workspace chrome deliberately has no activation hook: calling
+ * showMaximized() from one would resurrect a welcome tab the user closed.
  */
 void TestMdiTabMaximize::hiddenSubWindowIsNotResurrected()
 {
