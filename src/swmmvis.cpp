@@ -151,6 +151,7 @@
 #include "ui/panels/legenddock.h"
 #include "ui/panels/objectbrowserpanel.h"
 #include "ui/panels/propertiespanel.h"
+#include "ui/panels/sectionviewpanel.h"
 #include "ui/panels/attributetablepanel.h"
 
 #include "selection/selectionops.h"
@@ -3066,6 +3067,16 @@ void SWMMVis::initializePropertiesPanelDockWidget()
     mPropertiesPanel->setObjectName(QStringLiteral("dockWidgetPropertiesPanel"));
     addDockWidget(Qt::RightDockWidgetArea, mPropertiesPanel);
 
+    // Slice SP.4 — Section View: engine-accurate cross-section / profile
+    // drawing of whatever is selected. Tabbed behind the property browser by
+    // default so it costs no screen real estate until asked for; users can
+    // tear it out or float it (restoreState overrides this once a layout has
+    // been saved).
+    mSectionViewPanel = new openswmmvis::ui::SectionViewPanel(this);
+    addDockWidget(Qt::RightDockWidgetArea, mSectionViewPanel);
+    tabifyDockWidget(mPropertiesPanel, mSectionViewPanel);
+    mPropertiesPanel->raise();
+
     // Attribute table (all objects, tabular grid) — bottom dock.
     mAttributeTablePanel = new AttributeTablePanel(this);
     auto *tableDock = new QDockWidget(tr("Attribute Table"), this);
@@ -3079,6 +3090,16 @@ void SWMMVis::initializePropertiesPanelDockWidget()
             mAttributeTablePanel, &AttributeTablePanel::onObjectEditedExternally);
     connect(mAttributeTablePanel, &AttributeTablePanel::objectEdited,
             mPropertiesPanel, &PropertiesPanel::onObjectEditedExternally);
+
+    // Slice SP.4 — an edit in either grid redraws the section. (Edits routed
+    // through SWMMModelLayer already reach the panel via attributeChanged;
+    // these two panels write the engine directly through property adapters,
+    // so they need the explicit hop — same reason the dirty-tracking bridge
+    // below exists.)
+    connect(mPropertiesPanel, &PropertiesPanel::objectEdited,
+            mSectionViewPanel, &openswmmvis::ui::SectionViewPanel::onObjectEditedExternally);
+    connect(mAttributeTablePanel, &AttributeTablePanel::objectEdited,
+            mSectionViewPanel, &openswmmvis::ui::SectionViewPanel::onObjectEditedExternally);
 
     // Dirty tracking. Both panels write the engine directly through property
     // adapters, so nothing they do reaches a SWMMModelLayer signal. Route
@@ -3600,6 +3621,7 @@ void SWMMVis::initializeMenus()
             {findChild<QDockWidget *>(QStringLiteral("dockWidgetObjectBrowser")),
                                                 "actionToggleDockObjectBrowser"},
             {mPropertiesPanel,                  "actionToggleDockProperties"},
+            {mSectionViewPanel,                 "actionToggleDockSectionView"},
             {findChild<QDockWidget *>(QStringLiteral("dockWidgetAttributeTable")),
                                                 "actionToggleDockAttributeTable"},
             {mLegendDock,                       "actionToggleDockLegend"},
@@ -5830,6 +5852,10 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     if (mPropertiesPanel)
         mPropertiesPanel->setProject(pw->modelLayer());
 
+    // Slice SP.4 — same binding for the Section View dock.
+    if (mSectionViewPanel)
+        mSectionViewPanel->setProject(pw->modelLayer());
+
     // Rebind the Attribute Table to this project.
     if (mAttributeTablePanel)
         mAttributeTablePanel->setProject(pw->modelLayer(),
@@ -5853,11 +5879,24 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                     if (current.isEmpty())
                     {
                         mPropertiesPanel->clear();
+                        // Slice SP.4 — the Section View follows the same
+                        // selection. It rides inside this lambda rather than
+                        // taking its own selectionChanged connection because
+                        // the disconnect above drops every connection from
+                        // `this` to the manager on each tab switch.
+                        if (mSectionViewPanel) mSectionViewPanel->clearSelection();
                         return;
                     }
                     auto *layer = pw->modelLayer();
                     if (!layer) return;
                     const SWMMObjectRef first = *current.constBegin();
+
+                    // Slice SP.4 — nodes and links get a drawing; everything
+                    // else clears the pane with an explanatory message (the
+                    // panel decides, so the rule lives in one place).
+                    if (mSectionViewPanel)
+                        mSectionViewPanel->showObject(
+                            static_cast<int>(first.objectType), first.name);
 
                     // 2D mesh cells are not SWMM network objects, so they
                     // never reach identifyByName — mount the cell adapter
