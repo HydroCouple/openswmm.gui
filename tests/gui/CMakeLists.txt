@@ -788,6 +788,9 @@ add_swmmvis_gui_test(test_timeseries_editor_dialog
     ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesundocommands.h
     ${CMAKE_SOURCE_DIR}/include/io/timeseriesparse.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/timeserieseditordialog.cpp
+    # Grid time column edits through DateTimeDelegate (MM/dd/yyyy HH:mm).
+    ${CMAKE_SOURCE_DIR}/include/ui/delegates/datetimedelegate.h
+    ${CMAKE_SOURCE_DIR}/src/ui/delegates/datetimedelegate.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
     ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/panels/timeseriestablemodel.cpp
@@ -840,6 +843,9 @@ add_swmmvis_gui_test(test_objectbrowser_add_new_dispatch
     ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesundocommands.h
     ${CMAKE_SOURCE_DIR}/include/io/timeseriesparse.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/timeserieseditordialog.cpp
+    # Grid time column edits through DateTimeDelegate (MM/dd/yyyy HH:mm).
+    ${CMAKE_SOURCE_DIR}/include/ui/delegates/datetimedelegate.h
+    ${CMAKE_SOURCE_DIR}/src/ui/delegates/datetimedelegate.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
     ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/panels/timeseriestablemodel.cpp

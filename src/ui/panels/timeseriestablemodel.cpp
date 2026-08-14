@@ -6,6 +6,7 @@
  */
 #include "ui/panels/timeseriestablemodel.h"
 
+#include "core/swmmdatetimeformat.h"
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesundocommands.h"
 
@@ -145,7 +146,14 @@ QVariant TimeseriesTableModel::data(const QModelIndex &index, int role) const
     if (col == 0) {
         auto *first = m_providers.first().data();
         if (!first || row < 0 || row >= first->pointCount()) return {};
-        return first->pointAt(row).time;
+        const QDateTime t = first->pointAt(row).time;
+        // Display in the .inp's own MM/dd/yyyy HH:mm rather than letting Qt
+        // render the QDateTime in the system locale's short form. EditRole
+        // stays a real QDateTime so DateTimeDelegate can seed a QDateTimeEdit
+        // with the full value, seconds included.
+        if (role == Qt::DisplayRole)
+            return t.toString(openswmmvis::core::swmmDateTimeDisplayFormat());
+        return t;
     }
 
     // Value column → look up the right provider.
