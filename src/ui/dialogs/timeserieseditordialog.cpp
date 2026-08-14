@@ -14,6 +14,7 @@
 #include "timeseries/timeseriesregistry.h"
 #include "timeseries/timeseriesundocommands.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
+#include "ui/delegates/datetimedelegate.h"
 #include "ui/panels/timeseriestablemodel.h"
 #include "ui/widgets/interactivechartview.h"
 #include "ui/widgets/chartaxisformatcontroller.h"
@@ -479,6 +480,11 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     m_tableModel->setUndoStack(m_undoStack);
     m_tableModel->setProviders(providers);
     m_table->setModel(m_tableModel);
+    // Column 0 is the time stamp in every layout mode. The default delegate
+    // would hand it a locale-formatted QDateTimeEdit with no calendar; this
+    // one edits in the .inp's MM/dd/yyyy HH:mm and preserves any seconds the
+    // format doesn't show.
+    m_table->setItemDelegateForColumn(0, new DateTimeDelegate(this));
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionsClickable(true);
     m_table->horizontalHeader()->setSectionsMovable(false);
@@ -638,8 +644,10 @@ void TimeseriesEditorDialog::updateStatusBar_()
     m_rangeLabel->setText(tr("y: [%1, %2]   t: %3 → %4")
                           .arg(yMin, 0, 'g', 6)
                           .arg(yMax, 0, 'g', 6)
-                          .arg(first->pointAt(0).time.toString(Qt::ISODate))
-                          .arg(first->pointAt(n - 1).time.toString(Qt::ISODate)));
+                          .arg(first->pointAt(0).time.toString(
+                                   openswmmvis::core::swmmDateTimeDisplayFormat()))
+                          .arg(first->pointAt(n - 1).time.toString(
+                                   openswmmvis::core::swmmDateTimeDisplayFormat())));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1509,7 +1517,10 @@ void TimeseriesEditorDialog::buildTransformPanel_()
 
     rotLay->addWidget(new QLabel(tr("pivot t:"), m_rotateGroup));
     m_rotatePivotTimeEdit = new QDateTimeEdit(m_rotateGroup);
-    m_rotatePivotTimeEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm"));
+    m_rotatePivotTimeEdit->setDisplayFormat(
+        openswmmvis::core::swmmDateTimeDisplayFormat());
+    m_rotatePivotTimeEdit->setCalendarPopup(true);
+    m_rotatePivotTimeEdit->setTimeSpec(Qt::UTC);
     m_rotatePivotTimeEdit->setEnabled(false);   // centroid by default
     rotLay->addWidget(m_rotatePivotTimeEdit);
 
@@ -1543,7 +1554,10 @@ void TimeseriesEditorDialog::buildTransformPanel_()
 
     sclLay->addWidget(new QLabel(tr("anchor t:"), m_scaleGroup));
     m_scaleAnchorTimeEdit = new QDateTimeEdit(m_scaleGroup);
-    m_scaleAnchorTimeEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm"));
+    m_scaleAnchorTimeEdit->setDisplayFormat(
+        openswmmvis::core::swmmDateTimeDisplayFormat());
+    m_scaleAnchorTimeEdit->setCalendarPopup(true);
+    m_scaleAnchorTimeEdit->setTimeSpec(Qt::UTC);
     m_scaleAnchorTimeEdit->setEnabled(false);
     sclLay->addWidget(m_scaleAnchorTimeEdit);
 

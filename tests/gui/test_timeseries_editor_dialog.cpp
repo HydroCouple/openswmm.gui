@@ -20,7 +20,10 @@
 #include <QChart>
 #include <QClipboard>
 #include <QComboBox>
+#include <QAbstractItemDelegate>
 #include <QDateTime>
+#include <QDateTimeEdit>
+#include <QStyleOptionViewItem>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QFile>
@@ -107,6 +110,93 @@ private slots:
         stack.undo();
         QCOMPARE(p.pointAt(1).value, 2.0);
         QCOMPARE(linePointsFromChart(dlg.chartView()->chart()).at(1).y(), 2.0);
+    }
+
+    // ── Time column: MM/dd/yyyy HH:mm display + a real date-time editor ──────
+
+    /*! The grid shows the .inp's own MM/dd/yyyy HH:mm, not the system locale's
+     *  short form. EditRole must stay a QDateTime so the delegate can seed a
+     *  QDateTimeEdit with the full value. */
+    void timeColumnDisplaysSwmmFormat()
+    {
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        TimeseriesEditorDialog dlg(&reg, nullptr, &p);
+
+        const QModelIndex idx = dlg.tableModel()->index(1, 0);
+        QCOMPARE(idx.data(Qt::DisplayRole).toString(),
+                 QStringLiteral("01/01/2026 06:00"));
+        QCOMPARE(idx.data(Qt::EditRole).userType(), QMetaType::QDateTime);
+        QCOMPARE(idx.data(Qt::EditRole).toDateTime(), t(2026, 1, 1, 6));
+    }
+
+    /*! The time column gets a calendar-popup QDateTimeEdit carrying the same
+     *  format — not the default locale-formatted editor. */
+    void timeColumnEditorIsAFormattedDateTimeEdit()
+    {
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        TimeseriesEditorDialog dlg(&reg, nullptr, &p);
+
+        auto *view = dlg.findChild<QTableView *>();
+        QVERIFY(view != nullptr);
+        const QModelIndex idx = dlg.tableModel()->index(1, 0);
+        auto *delegate = view->itemDelegateForIndex(idx);
+        QVERIFY(delegate != nullptr);
+
+        QStyleOptionViewItem opt;
+        QWidget *editor = delegate->createEditor(view->viewport(), opt, idx);
+        QVERIFY(editor != nullptr);
+        auto *dte = qobject_cast<QDateTimeEdit *>(editor);
+        QVERIFY2(dte != nullptr, "time cells must edit through a QDateTimeEdit");
+        QCOMPARE(dte->displayFormat(), QStringLiteral("MM/dd/yyyy HH:mm"));
+        QVERIFY(dte->calendarPopup());
+
+        delegate->setEditorData(dte, idx);
+        QCOMPARE(dte->dateTime(), t(2026, 1, 1, 6));
+
+        // Commit a new stamp through the delegate → provider.
+        dte->setDateTime(t(2026, 1, 1, 7));
+        delegate->setModelData(dte, dlg.tableModel(), idx);
+        QCOMPARE(p.pointAt(1).time, t(2026, 1, 1, 7));
+        delete editor;
+    }
+
+    /*! A minute-resolution format must not silently zero a seconds field the
+     *  user never saw — the GH #1 truncation class. QDateTimeEdit keeps the
+     *  sections its display format omits; this pins that we rely on it. */
+    void editingAStampPreservesHiddenSeconds()
+    {
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints({
+            {QDateTime(QDate(2026, 1, 1), QTime(0, 15, 30), Qt::UTC), 1.0},
+            {QDateTime(QDate(2026, 1, 1), QTime(6, 0, 0),   Qt::UTC), 2.0},
+        }));
+        TimeseriesEditorDialog dlg(&reg, nullptr, &p);
+
+        auto *view = dlg.findChild<QTableView *>();
+        QVERIFY(view != nullptr);
+        const QModelIndex idx = dlg.tableModel()->index(0, 0);
+        auto *delegate = view->itemDelegateForIndex(idx);
+        QVERIFY(delegate != nullptr);
+
+        QStyleOptionViewItem opt;
+        QWidget *editor = delegate->createEditor(view->viewport(), opt, idx);
+        auto *dte = qobject_cast<QDateTimeEdit *>(editor);
+        QVERIFY(dte != nullptr);
+        delegate->setEditorData(dte, idx);
+
+        // The hidden seconds ride along in the editor's value...
+        QCOMPARE(dte->dateTime().time().second(), 30);
+        // ...and survive a commit that only moved the minute.
+        dte->setDateTime(dte->dateTime().addSecs(60));
+        delegate->setModelData(dte, dlg.tableModel(), idx);
+        QCOMPARE(p.pointAt(0).time,
+                 QDateTime(QDate(2026, 1, 1), QTime(0, 16, 30), Qt::UTC));
+        delete editor;
     }
 
     void editFromProvider_RefreshesGridAndChart()

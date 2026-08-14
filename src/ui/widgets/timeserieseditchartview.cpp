@@ -8,6 +8,7 @@
 
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesundocommands.h"
+#include "core/swmmdatetimeformat.h"
 #include "ui/widgets/chartaxisformatcontroller.h"
 
 #include <QAction>
@@ -90,7 +91,7 @@ TimeseriesEditChartView::TimeseriesEditChartView(TimeseriesProvider *provider, Q
     c->addSeries(m_selectedScatter);
 
     m_xAxis = new QDateTimeAxis(c);
-    m_xAxis->setFormat(QStringLiteral("yyyy-MM-dd HH:mm"));
+    m_xAxis->setFormat(openswmmvis::core::swmmDateTimeDisplayFormat());
     c->addAxis(m_xAxis, Qt::AlignBottom);
 
     m_yAxis = new QValueAxis(c);
