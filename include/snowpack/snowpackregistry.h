@@ -5,9 +5,10 @@
  * \license GPL-3.0-or-later
  * \brief  Project-scoped factory + lookup for SnowpackProvider instances.
  *
- * Mirrors PollutantRegistry but identity-only (engine exposes just
- * swmm_snowpack_add/count/index/id). saveToEngine adds any missing pack; no
- * parameters to push yet.
+ * Mirrors AquiferRegistry: loadFromEngine reads the four parameter groups
+ * (PLOWABLE, IMPERVIOUS, PERVIOUS, REMOVAL) plus the removal destination
+ * subcatchment into each provider; saveToEngine adds any missing pack and then
+ * pushes all parameters back for every provider.
  */
 #ifndef OPENSWMMVIS_SNOWPACK_SNOWPACKREGISTRY_H
 #define OPENSWMMVIS_SNOWPACK_SNOWPACKREGISTRY_H
@@ -50,6 +51,7 @@ signals:
     void providerAboutToBeRemoved(openswmmvis::snowpack::SnowpackProvider *provider);
     void providerRenamed(openswmmvis::snowpack::SnowpackProvider *provider,
                          const QString &prevName, const QString &newName);
+    void providerParamsChanged(openswmmvis::snowpack::SnowpackProvider *provider);
 
 private:
     void wireProviderSignals_(SnowpackProvider *p);
