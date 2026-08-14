@@ -11,6 +11,17 @@
 
 namespace openswmmvis::snowpack {
 
+namespace {
+
+/*! Copies \p n values read from one engine parameter group into the provider
+ *  starting at Param index \p base. */
+void setGroup_(SnowpackProvider *p, int base, const double *v, int n)
+{
+    for (int k = 0; k < n; ++k) p->setParam(base + k, v[k]);
+}
+
+} // namespace
+
 SnowpackRegistry::SnowpackRegistry(QObject *parent)
     : QObject(parent)
 {
@@ -32,6 +43,8 @@ void SnowpackRegistry::wireProviderSignals_(SnowpackProvider *p)
                 m_byLowerName.insert(now.toLower(), p);
                 emit providerRenamed(p, prev, now);
             });
+    connect(p, &SnowpackProvider::paramsChanged, this,
+            [this, p]() { emit providerParamsChanged(p); });
 }
 
 SnowpackProvider *SnowpackRegistry::create(const QString &name)
@@ -57,11 +70,21 @@ void SnowpackRegistry::remove(SnowpackProvider *p)
 bool SnowpackRegistry::rename(SnowpackProvider *p, const QString &newName)
 {
     if (!p || newName.isEmpty()) return false;
-    if (p->name().compare(newName, Qt::CaseInsensitive) == 0) {
-        p->setName(newName);
-        return true;
+    const bool caseOnly =
+        p->name().compare(newName, Qt::CaseInsensitive) == 0;
+    if (!caseOnly && hasName(newName)) return false;
+
+    // Rename in the engine too. Without this, saveToEngine saw an unknown
+    // name and ADDED a second snowpack, orphaning the original.
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx = swmm_snowpack_index(eng, p->name().toUtf8().constData());
+        if (idx >= 0 &&
+            swmm_snowpack_rename(eng, idx, newName.toUtf8().constData())
+                != SWMM_OK)
+            return false;
     }
-    if (hasName(newName)) return false;
+
     p->setName(newName);
     return true;
 }
@@ -81,7 +104,33 @@ int SnowpackRegistry::loadFromEngine(void *engineHandle)
         if (!cid || !*cid) continue;
         const QString id = QString::fromUtf8(cid);
         if (hasName(id)) continue;
-        if (create(id)) ++added;
+
+        SnowpackProvider *p = create(id);
+        if (!p) continue;
+
+        // Each engine group is read into a scratch array, then copied into the
+        // provider only when the read succeeded.
+        double v[7] = {};
+        if (swmm_snowpack_get_plowable(eng, i, &v[0], &v[1], &v[2], &v[3],
+                                       &v[4], &v[5], &v[6]) == SWMM_OK)
+            setGroup_(p, SnowpackProvider::PlowableCmin, v, 7);
+        if (swmm_snowpack_get_impervious(eng, i, &v[0], &v[1], &v[2], &v[3],
+                                         &v[4], &v[5], &v[6]) == SWMM_OK)
+            setGroup_(p, SnowpackProvider::ImperviousCmin, v, 7);
+        if (swmm_snowpack_get_pervious(eng, i, &v[0], &v[1], &v[2], &v[3],
+                                       &v[4], &v[5], &v[6]) == SWMM_OK)
+            setGroup_(p, SnowpackProvider::PerviousCmin, v, 7);
+
+        double r[6] = {};
+        if (swmm_snowpack_get_removal(eng, i, &r[0], &r[1], &r[2],
+                                      &r[3], &r[4], &r[5]) == SWMM_OK)
+            setGroup_(p, SnowpackProvider::RemovalDsnow, r, 6);
+
+        char buf[256] = {};
+        if (swmm_snowpack_get_removal_subcatch(eng, i, buf, sizeof(buf)) == SWMM_OK)
+            p->setRemovalSubcatch(QString::fromUtf8(buf));
+
+        ++added;
     }
     return added;
 }
@@ -100,8 +149,47 @@ int SnowpackRegistry::saveToEngine(void *engineHandle)
     int written = 0;
     for (SnowpackProvider *p : m_providers) {
         const QByteArray idUtf8 = p->name().toUtf8();
-        if (swmm_snowpack_index(eng, idUtf8.constData()) >= 0) continue;
-        if (swmm_snowpack_add(eng, idUtf8.constData()) == SWMM_OK) ++written;
+        int idx = swmm_snowpack_index(eng, idUtf8.constData());
+        if (idx < 0) {
+            if (swmm_snowpack_add(eng, idUtf8.constData()) != SWMM_OK) continue;
+            idx = swmm_snowpack_index(eng, idUtf8.constData());
+            if (idx < 0) continue;
+        }
+
+        swmm_snowpack_set_plowable(eng, idx,
+                                   p->param(SnowpackProvider::PlowableCmin),
+                                   p->param(SnowpackProvider::PlowableCmax),
+                                   p->param(SnowpackProvider::PlowableTbase),
+                                   p->param(SnowpackProvider::PlowableFwFrac),
+                                   p->param(SnowpackProvider::PlowableSd0),
+                                   p->param(SnowpackProvider::PlowableFw0),
+                                   p->param(SnowpackProvider::PlowableLast));
+        swmm_snowpack_set_impervious(eng, idx,
+                                     p->param(SnowpackProvider::ImperviousCmin),
+                                     p->param(SnowpackProvider::ImperviousCmax),
+                                     p->param(SnowpackProvider::ImperviousTbase),
+                                     p->param(SnowpackProvider::ImperviousFwFrac),
+                                     p->param(SnowpackProvider::ImperviousSd0),
+                                     p->param(SnowpackProvider::ImperviousFw0),
+                                     p->param(SnowpackProvider::ImperviousLast));
+        swmm_snowpack_set_pervious(eng, idx,
+                                   p->param(SnowpackProvider::PerviousCmin),
+                                   p->param(SnowpackProvider::PerviousCmax),
+                                   p->param(SnowpackProvider::PerviousTbase),
+                                   p->param(SnowpackProvider::PerviousFwFrac),
+                                   p->param(SnowpackProvider::PerviousSd0),
+                                   p->param(SnowpackProvider::PerviousFw0),
+                                   p->param(SnowpackProvider::PerviousLast));
+        swmm_snowpack_set_removal(eng, idx,
+                                  p->param(SnowpackProvider::RemovalDsnow),
+                                  p->param(SnowpackProvider::RemovalFOut),
+                                  p->param(SnowpackProvider::RemovalFImp),
+                                  p->param(SnowpackProvider::RemovalFPerv),
+                                  p->param(SnowpackProvider::RemovalFImelt),
+                                  p->param(SnowpackProvider::RemovalFSubcatch));
+        const QByteArray subUtf8 = p->removalSubcatch().toUtf8();
+        swmm_snowpack_set_removal_subcatch(eng, idx, subUtf8.constData());
+        ++written;
     }
     return written;
 }

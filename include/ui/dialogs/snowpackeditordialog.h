@@ -3,19 +3,21 @@
  * \author Caleb Buahin <caleb.buahin@gmail.com>
  * \date   2026
  * \license GPL-3.0-or-later
- * \brief  CRUD editor for SWMM snow packs ([SNOWPACKS]).
+ * \brief  Two-pane CRUD editor for SWMM snow packs ([SNOWPACKS]).
  *
- * Identity-only: the current engine exposes no per-parameter accessors for
- * snow packs, so this dialog supports create / rename / delete and shows an
- * informational note. Melt-coefficient fields can be added once the engine
- * surfaces them. Mirrors LandUseEditorDialog structure.
+ * Mirrors AquiferEditorDialog (list pane + scalar field form). The twenty-seven
+ * snow-pack parameters are surfaced as labeled spin boxes, indexed by
+ * SnowpackProvider::Param and grouped as PLOWABLE / IMPERVIOUS / PERVIOUS /
+ * REMOVAL, plus a line edit for the REMOVAL destination subcatchment.
  */
 #ifndef OPENSWMMVIS_UI_DIALOGS_SNOWPACKEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_SNOWPACKEDITORDIALOG_H
 
 #include <QDialog>
 #include <QPointer>
+#include <QVector>
 
+class QDoubleSpinBox;
 class QLineEdit;
 class QListView;
 class QPushButton;
@@ -63,6 +65,8 @@ private slots:
     void onAddClicked_();
     void onDeleteClicked_();
     void onNameEdited_();
+    void onFieldEdited_();
+    void onRemovalSubcatchEdited_();
     void onProviderRenamed_(openswmmvis::snowpack::SnowpackProvider *p,
                               const QString &prev, const QString &now);
 
@@ -84,6 +88,9 @@ private:
     QPushButton       *m_addBtn    = nullptr;
     QPushButton       *m_delBtn    = nullptr;
     QLineEdit         *m_nameEdit  = nullptr;
+
+    QVector<QDoubleSpinBox*> m_spins;   ///< one per SnowpackProvider::Param
+    QLineEdit *m_removalSubcatchEdit = nullptr;
 
     bool m_suppressFieldSync = false;
 };
