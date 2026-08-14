@@ -6,6 +6,8 @@
 
 #include "ui/dialogs/preferencesdialog.h"
 
+#include "plot/numberformat.h"
+
 #include "ui/dialogs/objectdefaultspage.h"
 
 #include "core/linkrenderingprefs.h"
@@ -1276,29 +1278,33 @@ QWidget *PreferencesDialog::buildPlotsPage()
     // Helper: build a "Number format" combo + "Precision" spin pair into a
     // group box. Returns nothing — widgets are assigned to the members.
     auto buildAxisGroup = [this, page](const QString &title,
-                                       QComboBox *&modeCombo,
-                                       QSpinBox *&precisionSpin) {
+                                       QComboBox *&formatCombo
+                                       ) {
         auto *group = new QGroupBox(title, page);
         auto *f     = new QFormLayout(group);
 
-        modeCombo = new QComboBox(group);
-        modeCombo->addItem(tr("Decimal places"),      0);
-        modeCombo->addItem(tr("Significant figures"), 1);
-        f->addRow(tr("Number format"), modeCombo);
-
-        precisionSpin = new QSpinBox(group);
-        precisionSpin->setRange(0, 10);
-        precisionSpin->setToolTip(tr(
-            "Number of decimal places, or significant figures when that "
-            "format is selected."));
-        f->addRow(tr("Precision"), precisionSpin);
+        // One dropdown of meaningful combinations rather than a mode enum
+        // plus a free integer: "3" on its own said nothing about whether it
+        // meant decimals or significant figures, and allowed 0 sig figs.
+        formatCombo = new QComboBox(group);
+        formatCombo->addItem(tr("12  (integer)"),              openswmmvis::plot::Integer);
+        formatCombo->addItem(tr("12.3  (1 decimal)"),          openswmmvis::plot::Decimals1);
+        formatCombo->addItem(tr("12.35  (2 decimals)"),        openswmmvis::plot::Decimals2);
+        formatCombo->addItem(tr("12.346  (3 decimals)"),       openswmmvis::plot::Decimals3);
+        formatCombo->addItem(tr("12.3457  (4 decimals)"),      openswmmvis::plot::Decimals4);
+        formatCombo->addItem(tr("12.345679  (6 decimals)"),    openswmmvis::plot::Decimals6);
+        formatCombo->addItem(tr("3 significant figures"),      openswmmvis::plot::SigFigs3);
+        formatCombo->addItem(tr("4 significant figures"),      openswmmvis::plot::SigFigs4);
+        formatCombo->addItem(tr("6 significant figures"),      openswmmvis::plot::SigFigs6);
+        formatCombo->setToolTip(tr(
+            "Default number format for this axis on newly-opened plots. "
+            "Each plot can override it in its own options."));
+        f->addRow(tr("Number format"), formatCombo);
         return group;
     };
 
-    outer->addWidget(buildAxisGroup(tr("X Axis"),
-                                    m_plotXFormatModeCombo, m_plotXPrecisionSpin));
-    outer->addWidget(buildAxisGroup(tr("Y Axis"),
-                                    m_plotYFormatModeCombo, m_plotYPrecisionSpin));
+    outer->addWidget(buildAxisGroup(tr("X Axis"), m_plotXFormatCombo));
+    outer->addWidget(buildAxisGroup(tr("Y Axis"), m_plotYFormatCombo));
     outer->addStretch(1);
     return page;
 }
@@ -1530,12 +1536,15 @@ void PreferencesDialog::readFromManager()
     m_measureFillOpacitySpin->setValue(p->measureFillOpacity());
 
     // Plots — default numeric precision
-    m_plotXFormatModeCombo->setCurrentIndex(
-        m_plotXFormatModeCombo->findData(p->plotXAxisFormatMode()));
-    m_plotXPrecisionSpin->setValue(p->plotXAxisPrecision());
-    m_plotYFormatModeCombo->setCurrentIndex(
-        m_plotYFormatModeCombo->findData(p->plotYAxisFormatMode()));
-    m_plotYPrecisionSpin->setValue(p->plotYAxisPrecision());
+    // Stored as mode + count; shown as the nearest single preset.
+    m_plotXFormatCombo->setCurrentIndex(m_plotXFormatCombo->findData(
+        openswmmvis::plot::presetForNumberFormat(
+            static_cast<openswmmvis::plot::NumberFormatMode>(p->plotXAxisFormatMode()),
+            p->plotXAxisPrecision())));
+    m_plotYFormatCombo->setCurrentIndex(m_plotYFormatCombo->findData(
+        openswmmvis::plot::presetForNumberFormat(
+            static_cast<openswmmvis::plot::NumberFormatMode>(p->plotYAxisFormatMode()),
+            p->plotYAxisPrecision())));
 
     // Naming prefixes
     m_prefixJunction    ->setText(p->elementNamePrefix(QStringLiteral("junction")));
@@ -1786,10 +1795,16 @@ void PreferencesDialog::writeToManager()
     p->setMeasureFillOpacity(m_measureFillOpacitySpin->value());
 
     // Plots — default numeric precision
-    p->setPlotXAxisFormatMode(m_plotXFormatModeCombo->currentData().toInt());
-    p->setPlotXAxisPrecision(m_plotXPrecisionSpin->value());
-    p->setPlotYAxisFormatMode(m_plotYFormatModeCombo->currentData().toInt());
-    p->setPlotYAxisPrecision(m_plotYPrecisionSpin->value());
+    {
+        const auto xf = openswmmvis::plot::numberFormatForPreset(
+            m_plotXFormatCombo->currentData().toInt());
+        p->setPlotXAxisFormatMode(static_cast<int>(xf.mode));
+        p->setPlotXAxisPrecision(xf.count);
+        const auto yf = openswmmvis::plot::numberFormatForPreset(
+            m_plotYFormatCombo->currentData().toInt());
+        p->setPlotYAxisFormatMode(static_cast<int>(yf.mode));
+        p->setPlotYAxisPrecision(yf.count);
+    }
 
     // Naming prefixes
     auto savePrefix = [&](QLineEdit *ed, const QString &kind) {
@@ -2021,11 +2036,11 @@ void PreferencesDialog::onResetToDefaults()
     m_measureLabelDecimalsSpin->setValue(2);
     m_measureFillOpacitySpin->setValue(30);
 
-    // Plots — default numeric precision (X: 0 decimals, Y: 2 decimals)
-    m_plotXFormatModeCombo->setCurrentIndex(m_plotXFormatModeCombo->findData(0));
-    m_plotXPrecisionSpin->setValue(0);
-    m_plotYFormatModeCombo->setCurrentIndex(m_plotYFormatModeCombo->findData(0));
-    m_plotYPrecisionSpin->setValue(2);
+    // Plots — default numeric format (X: integer, Y: 2 decimals)
+    m_plotXFormatCombo->setCurrentIndex(
+        m_plotXFormatCombo->findData(openswmmvis::plot::Integer));
+    m_plotYFormatCombo->setCurrentIndex(
+        m_plotYFormatCombo->findData(openswmmvis::plot::Decimals2));
 
     // Naming prefix defaults
     m_prefixJunction    ->setText(QStringLiteral("J"));

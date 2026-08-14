@@ -162,11 +162,24 @@ void TestComparisonPlotChartProperties::statisticsNumberFormatRoundTripsThroughP
     auto *chart = makeChart();
     ChartProperties props(chart);
 
-    QVERIFY(props.metaObject()->indexOfProperty("statisticsFormatMode") >= 0);
-    QVERIFY(props.metaObject()->indexOfProperty("statisticsPrecision") >= 0);
+    // The mode enum + free integer precision were collapsed into ONE
+    // dropdown: "4" on its own never said whether it meant decimals or
+    // significant figures. Mode/precision remain the internal representation
+    // and stay callable, they are simply no longer separate grid rows.
+    QVERIFY(props.metaObject()->indexOfProperty("statisticsFormatPreset") >= 0);
+    QVERIFY(props.metaObject()->indexOfProperty("statisticsFormatMode") < 0);
+    QVERIFY(props.metaObject()->indexOfProperty("statisticsPrecision") < 0);
     QVERIFY(props.metaObject()->indexOfProperty("statisticsFormat") >= 0);
-    QCOMPARE(props.displayLabelFor(QStringLiteral("statisticsPrecision")),
-             QStringLiteral("Statistics — Precision"));
+    QCOMPARE(props.displayLabelFor(QStringLiteral("statisticsFormatPreset")),
+             QStringLiteral("Statistics — Number format"));
+
+    // The combined property drives both stored fields...
+    props.setStatisticsFormatPreset(ChartProperties::SigFigs4);
+    QCOMPARE(static_cast<int>(props.statisticsFormatMode()),
+             static_cast<int>(ChartProperties::SignificantFigures));
+    QCOMPARE(props.statisticsPrecision(), 4);
+    // ...and reading it back reports the preset that pair stands for.
+    QCOMPARE(props.statisticsFormatPreset(), ChartProperties::SigFigs4);
 
     props.setStatisticsFormatMode(ChartProperties::SignificantFigures);
     props.setStatisticsPrecision(4);

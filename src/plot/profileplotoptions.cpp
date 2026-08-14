@@ -56,12 +56,10 @@ QString ProfilePlotOptions::displayLabelFor(const QString &propertyName) const
         { QStringLiteral("labelOrientation"), QObject::tr("Label orientation") },
         { QStringLiteral("labelAngleDeg"),    QObject::tr("Label angle (°)") },
         // Axis number format
-        { QStringLiteral("xLabelFormatMode"), QObject::tr("X Axis — Number format") },
-        { QStringLiteral("xLabelPrecision"),  QObject::tr("X Axis — Precision") },
-        { QStringLiteral("xLabelFormat"),     QObject::tr("X Axis — Custom format") },
-        { QStringLiteral("yLabelFormatMode"), QObject::tr("Y Axis — Number format") },
-        { QStringLiteral("yLabelPrecision"),  QObject::tr("Y Axis — Precision") },
-        { QStringLiteral("yLabelFormat"),     QObject::tr("Y Axis — Custom format") },
+        { QStringLiteral("xAxisNumberFormat"), QObject::tr("X Axis — Number format") },
+        { QStringLiteral("xLabelFormat"),      QObject::tr("X Axis — Custom format") },
+        { QStringLiteral("yAxisNumberFormat"), QObject::tr("Y Axis — Number format") },
+        { QStringLiteral("yLabelFormat"),      QObject::tr("Y Axis — Custom format") },
         // Ground
         { QStringLiteral("useTerrainGround"), QObject::tr("Use terrain DEM for ground") },
         // Flooding indicator
@@ -137,6 +135,36 @@ void ProfilePlotOptions::setLabelAngleDeg   (int deg)  {
     SET_PRIM(m_labelAngleDeg, deg);
 }
 void ProfilePlotOptions::setXLabelFormatMode(LabelFormatMode m) { SET_PRIM(m_xLabelMode, m); }
+ProfilePlotOptions::AxisNumberFormat ProfilePlotOptions::xAxisNumberFormat() const
+{
+    return static_cast<AxisNumberFormat>(openswmmvis::plot::presetForNumberFormat(
+        static_cast<openswmmvis::plot::NumberFormatMode>(m_xLabelMode),
+        m_xLabelPrecision));
+}
+
+ProfilePlotOptions::AxisNumberFormat ProfilePlotOptions::yAxisNumberFormat() const
+{
+    return static_cast<AxisNumberFormat>(openswmmvis::plot::presetForNumberFormat(
+        static_cast<openswmmvis::plot::NumberFormatMode>(m_yLabelMode),
+        m_yLabelPrecision));
+}
+
+void ProfilePlotOptions::setXAxisNumberFormat(AxisNumberFormat f)
+{
+    // One user-visible choice drives both stored fields; the mode/count pair
+    // stays the internal representation every label formatter already reads.
+    const auto nf = openswmmvis::plot::numberFormatForPreset(static_cast<int>(f));
+    setXLabelFormatMode(static_cast<LabelFormatMode>(nf.mode));
+    setXLabelPrecision(nf.count);
+}
+
+void ProfilePlotOptions::setYAxisNumberFormat(AxisNumberFormat f)
+{
+    const auto nf = openswmmvis::plot::numberFormatForPreset(static_cast<int>(f));
+    setYLabelFormatMode(static_cast<LabelFormatMode>(nf.mode));
+    setYLabelPrecision(nf.count);
+}
+
 void ProfilePlotOptions::setXLabelPrecision (int count) {
     const int c = std::clamp(count, 0, 10);
     SET_PRIM(m_xLabelPrecision, c);

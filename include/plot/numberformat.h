@@ -58,6 +58,50 @@ struct NumberFormat {
     QString format(double v) const;
 };
 
+/*!
+ * \brief The axis-format choices offered to the user, as one combined list.
+ *
+ * A mode enum plus a free integer count is two controls that can express
+ * nonsense (0 significant figures) and reads as an unlabelled number in a
+ * property grid. These presets are the meaningful combinations, so every
+ * chart offers one dropdown instead.
+ *
+ * The values are a stable wire format: they are persisted in QSettings and in
+ * project files, so append new presets at the end and never renumber.
+ *
+ * Each Q_OBJECT that exposes this to the property grid mirrors it as its own
+ * `Q_ENUM` (QPropertyModel resolves the enumerator list through the declaring
+ * class's meta-object, and labels each entry with the enumerator's own name —
+ * hence names that read as labels). The mapping to a real NumberFormat lives
+ * here so those mirrors never drift apart.
+ */
+enum AxisNumberFormatPreset {
+    Integer   = 0,   ///< 12
+    Decimals1 = 1,   ///< 12.3
+    Decimals2 = 2,   ///< 12.35
+    Decimals3 = 3,   ///< 12.346
+    Decimals4 = 4,   ///< 12.3457
+    Decimals6 = 5,   ///< 12.345679
+    SigFigs3  = 6,   ///< 12.3
+    SigFigs4  = 7,   ///< 12.35
+    SigFigs6  = 8    ///< 12.3457
+};
+
+/*! \brief Number of presets; the valid range is [0, axisNumberFormatPresetCount). */
+inline constexpr int axisNumberFormatPresetCount = 9;
+
+/*! \brief The mode + count a preset stands for. Out-of-range input falls back
+ *  to two decimals, which is the historic default. */
+[[nodiscard]] NumberFormat numberFormatForPreset(int preset);
+
+/*! \brief The preset that best represents \a mode + \a count.
+ *
+ *  Used when migrating a stored mode/count pair, and when seeding a chart from
+ *  the preferences default. A count with no exact preset snaps to the nearest
+ *  one in the same mode, so an old "5 decimals" setting lands on Decimals6
+ *  rather than silently becoming an integer. */
+[[nodiscard]] int presetForNumberFormat(NumberFormatMode mode, int count);
+
 } // namespace openswmmvis::plot
 
 #endif // OPENSWMMVIS_PLOT_NUMBERFORMAT_H

@@ -36,6 +36,25 @@ public:
      *  openswmmvis::plot::NumberFormatMode (0=Decimals, 1=SignificantFigures). */
     enum LabelFormatMode { Decimals = 0, SignificantFigures = 1 };
     Q_ENUM(LabelFormatMode)
+
+    /*! Combined number format offered as ONE dropdown, replacing a mode enum
+     *  plus a free integer count. Mirrors openswmmvis::plot::
+     *  AxisNumberFormatPreset value-for-value; QPropertyModel needs the
+     *  enumerator list on the declaring class and labels each row with the
+     *  enumerator name. numberformat.h owns the mapping to mode + digits. */
+    enum AxisNumberFormat {
+        Integer   = 0,
+        Decimals1 = 1,
+        Decimals2 = 2,
+        Decimals3 = 3,
+        Decimals4 = 4,
+        Decimals6 = 5,
+        SigFigs3  = 6,
+        SigFigs4  = 7,
+        SigFigs6  = 8
+    };
+    Q_ENUM(AxisNumberFormat)
+
     enum TimeLabelPosition { TimeTopRight = 0, TimeTopLeft = 1,
                              TimeBottomLeft = 2, TimeBottomRight = 3 };
     Q_ENUM(TimeLabelPosition)
@@ -59,16 +78,12 @@ public:
     // ── Axis number format ──────────────────────────────────────────────
     // X axis = chainage/distance; Y axis = elevation. Seeded from the global
     // Preferences default; edits here override per-plot.
-    Q_PROPERTY(MeshProfilePlotOptions::LabelFormatMode xLabelFormatMode
-               READ xLabelFormatMode WRITE setXLabelFormatMode NOTIFY changed)
-    Q_PROPERTY(int xLabelPrecision
-               READ xLabelPrecision  WRITE setXLabelPrecision  NOTIFY changed)
+    Q_PROPERTY(MeshProfilePlotOptions::AxisNumberFormat xAxisNumberFormat
+               READ xAxisNumberFormat WRITE setXAxisNumberFormat NOTIFY changed)
     Q_PROPERTY(QString xLabelFormat
                READ xLabelFormat     WRITE setXLabelFormat     NOTIFY changed)
-    Q_PROPERTY(MeshProfilePlotOptions::LabelFormatMode yLabelFormatMode
-               READ yLabelFormatMode WRITE setYLabelFormatMode NOTIFY changed)
-    Q_PROPERTY(int yLabelPrecision
-               READ yLabelPrecision  WRITE setYLabelPrecision  NOTIFY changed)
+    Q_PROPERTY(MeshProfilePlotOptions::AxisNumberFormat yAxisNumberFormat
+               READ yAxisNumberFormat WRITE setYAxisNumberFormat NOTIFY changed)
     Q_PROPERTY(QString yLabelFormat
                READ yLabelFormat     WRITE setYLabelFormat     NOTIFY changed)
 
@@ -108,6 +123,11 @@ public:
     QPen   wseLinePen()          const { return m_wseLinePen; }
     QPen   maxEnvelopePen()      const { return m_maxEnvelopePen; }
     QBrush maxEnvelopeBrush()    const { return m_maxEnvelopeBrush; }
+    /*! Combined format per axis, derived from the mode + digit count that
+     *  remain the internal representation. */
+    AxisNumberFormat xAxisNumberFormat() const;
+    AxisNumberFormat yAxisNumberFormat() const;
+
     LabelFormatMode xLabelFormatMode() const { return m_xLabelMode; }
     int           xLabelPrecision()     const { return m_xLabelPrecision; }
     QString       xLabelFormat()        const { return m_xLabelFormatStr; }
@@ -144,6 +164,8 @@ public slots:
     void setWseLinePen(const QPen &p);
     void setMaxEnvelopePen(const QPen &p);
     void setMaxEnvelopeBrush(const QBrush &b);
+    void setXAxisNumberFormat(AxisNumberFormat f);
+    void setYAxisNumberFormat(AxisNumberFormat f);
     void setXLabelFormatMode(LabelFormatMode m);
     void setXLabelPrecision(int count);
     void setXLabelFormat(const QString &spec);

@@ -246,10 +246,11 @@ private:
     QSpinBox      *m_measureFillOpacitySpin   = nullptr;
 
     // Plots — default numeric precision (X / Y axis)
-    QComboBox     *m_plotXFormatModeCombo     = nullptr;   // 0=Decimals, 1=Sig figs
-    QSpinBox      *m_plotXPrecisionSpin       = nullptr;   // 0..10
-    QComboBox     *m_plotYFormatModeCombo     = nullptr;
-    QSpinBox      *m_plotYPrecisionSpin       = nullptr;
+    // One dropdown per axis carrying an openswmmvis::plot::
+    // AxisNumberFormatPreset in each item's data. The preference itself is
+    // still stored as a mode + digit count, so no settings migration.
+    QComboBox     *m_plotXFormatCombo         = nullptr;
+    QComboBox     *m_plotYFormatCombo         = nullptr;
 
     // Naming prefixes (one QLineEdit per element kind)
     QLineEdit *m_prefixJunction     = nullptr;
