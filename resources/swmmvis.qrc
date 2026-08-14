@@ -92,6 +92,7 @@
         <file alias="DockLayers">images/dock_layers.svg</file>
         <file alias="DockObjectBrowser">images/dock_object_browser.svg</file>
         <file alias="DockProperties">images/dock_properties.svg</file>
+        <file alias="DockSectionView">images/dock_section_view.svg</file>
         <file alias="DockAttributeTable">images/dock_attribute_table.svg</file>
         <file alias="DockLegend">images/dock_legend.svg</file>
         <file alias="DockSimulationStatus">images/dock_simulation_status.svg</file>
