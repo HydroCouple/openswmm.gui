@@ -478,10 +478,12 @@ void SWMMLinkPropertyAdapter::setBarrels(int v) {
 
 // Inline geom setters — read-modify-write the xsect tuple so shape and the
 // other three geoms are preserved (the engine has no per-geom API). Mirror
-// of the loss-coeff slots. Reject the write when the geom doesn't apply to
-// the current shape (e.g. geom2 on a CIRCULAR conduit, or any geom on
-// IRREGULAR/STREET) — those slots are surfaced greyed in the UI, but a
-// scripted/stray write must not corrupt the section.
+// of the loss-coeff slots. Every geom is writable whatever the shape —
+// the stored numbers survive a shape change, which is what users expect
+// when they set a width before switching CIRCULAR → RECT_CLOSED. Only the
+// picker-owned index slots (IRREGULAR / STREET geom1, CUSTOM geom2) are
+// refused: a raw number there re-points the section at another transect /
+// shape curve. Kept in lock-step with the Attribute Table's xsectGeomSet.
 void SWMMLinkPropertyAdapter::writeXsectGeom(int ordinal, double v) {
     const int idx = linkIdx();
     if (idx < 0) return;
@@ -489,7 +491,7 @@ void SWMMLinkPropertyAdapter::writeXsectGeom(int ordinal, double v) {
     double g[4] = {0, 0, 0, 0};
     if (swmm_link_get_xsect(m_engine, idx, &shape, &g[0], &g[1], &g[2], &g[3]) != SWMM_OK)
         return;
-    if (!openswmmvis::xsectGeomApplies(shape, ordinal)) return;
+    if (openswmmvis::xsectGeomIsPickerIndex(shape, ordinal)) return;
     g[ordinal - 1] = v;
     if (swmm_link_set_xsect(m_engine, idx, shape, g[0], g[1], g[2], g[3]) == SWMM_OK)
         emit changed();

@@ -7,12 +7,13 @@
  * Inline cross-section geom1..geom4 — the direct-edit fields surfaced
  * alongside the compound XSection dialog in both the Property Browser and
  * the Attribute Table. Covers:
- *   - the shared shape/geom applicability helper (openswmmvis::
- *     xsectGeomApplies / xsectGeomLabel — the single source of truth used
- *     to grey out inapplicable geoms in both surfaces);
+ *   - the shared shape/geom helpers (openswmmvis::xsectGeomApplies /
+ *     xsectGeomLabel drive the per-shape LABELS and tooltips;
+ *     xsectGeomIsPickerIndex is the separate, narrower test for which
+ *     slots an inline numeric editor may write);
  *   - the SWMMLinkPropertyAdapter geom getters/setters: read-modify-write
- *     of the engine xsect tuple (shape + siblings preserved), and the
- *     "no-op when the geom doesn't apply to the current shape" guard;
+ *     of the engine xsect tuple (shape + siblings preserved), writable for
+ *     every shape, and the picker-index guard that is the sole exception;
  *   - the metaobject contract (geom1..4 are writable, NOTIFY-ing
  *     Q_PROPERTYs on Conduit / Orifice / Weir, absent on Pump / Outlet).
  *
@@ -76,7 +77,8 @@ private slots:
         QVERIFY(!xsectGeomApplies(2, 3));
         // TRAPEZOIDAL (4): all four (depth, bottom width, two slopes).
         for (int k = 1; k <= 4; ++k) QVERIFY(xsectGeomApplies(4, k));
-        // IRREGULAR / STREET: geom1 is an index — none editable inline.
+        // IRREGULAR / STREET carry no named dimensions at all — geom1 is a
+        // list index and the rest are unused, so nothing gets a label.
         for (int k = 1; k <= 4; ++k) {
             QVERIFY(!xsectGeomApplies(SWMM_XSECT_IRREGULAR, k));
             QVERIFY(!xsectGeomApplies(SWMM_XSECT_STREET, k));
@@ -126,39 +128,52 @@ private slots:
         swmm_engine_destroy(e);
     }
 
-    void rejectedWhenGeomDoesNotApply()
+    //! A geom the current shape doesn't consume is still a real stored
+    //! number, so the write goes through and the value survives. This used
+    //! to be a no-op, which meant a CIRCULAR conduit offered three dead,
+    //! permanently blank geom fields and silently discarded a width typed
+    //! before switching to RECT_CLOSED.
+    void geomWritableEvenWhenShapeDoesNotUseIt()
     {
         SWMM_Engine e = buildLinkFixture("C1", /*Conduit=*/0);
         QVERIFY(e);
         const int idx = swmm_link_index(e, "C1");
-        // CIRCULAR (shape 0): only geom1 (Diameter) applies.
+        // CIRCULAR (shape 0): only geom1 (Diameter) is *used* by the solver.
         QCOMPARE(swmm_link_set_xsect(e, idx, /*CIRCULAR=*/0, 2.0, 0, 0, 0), SWMM_OK);
 
         SWMMConduitPropertyAdapter a(e, QStringLiteral("C1"));
         QSignalSpy spy(&a, &SWMMLinkPropertyAdapter::changed);
 
-        // geom2 doesn't apply to CIRCULAR — no-op (no emit, g2 stays 0,
-        // shape unchanged).
+        // geom2 is unused by CIRCULAR but still writable + readable back.
         a.setXsectGeom2(9.0);
-        QCOMPARE(spy.count(), 0);
-        QCOMPARE(a.xsectGeom2(), 0.0);
-        QCOMPARE(a.xsectShapeId(), 0);
-
-        // geom1 applies — write goes through.
-        a.setXsectGeom1(3.5);
         QCOMPARE(spy.count(), 1);
+        QCOMPARE(a.xsectGeom2(), 9.0);
+        QCOMPARE(a.xsectShapeId(), 0);   // shape must not move
+
+        // geom1 likewise.
+        a.setXsectGeom1(3.5);
+        QCOMPARE(spy.count(), 2);
         QCOMPARE(a.xsectGeom1(), 3.5);
+        QCOMPARE(a.xsectGeom2(), 9.0);   // sibling preserved
+
+        // Switching to RECT_CLOSED now finds the width already there —
+        // the point of keeping the stored value.
+        QCOMPARE(swmm_link_set_xsect(e, idx, /*RECT_CLOSED=*/2, 3.5, 9.0, 0, 0),
+                 SWMM_OK);
+        QCOMPARE(a.xsectGeom2(), 9.0);
 
         swmm_engine_destroy(e);
     }
 
-    void geomRejectedForIrregularShape()
+    //! The one slot that must still refuse an inline numeric write: for
+    //! IRREGULAR (and STREET) geom1 holds a transect-list INDEX, so a raw
+    //! number would silently re-point the section at another transect.
+    //! Its siblings are plain unused storage and stay writable.
+    void pickerIndexGeomRejectsInlineWrite()
     {
         SWMM_Engine e = buildLinkFixture("C1", /*Conduit=*/0);
         QVERIFY(e);
         const int idx = swmm_link_index(e, "C1");
-        // IRREGULAR: geom1 is a transect index — inline geoms are all
-        // dialog-managed, so even geom1 must reject an inline numeric write.
         QCOMPARE(swmm_link_set_xsect(e, idx, SWMM_XSECT_IRREGULAR, 0, 0, 0, 0),
                  SWMM_OK);
 
@@ -168,7 +183,27 @@ private slots:
         QCOMPARE(spy.count(), 0);
         QCOMPARE(a.xsectGeom1(), 0.0);
 
+        // geom2 on IRREGULAR is not an index — no reason to lock it.
+        a.setXsectGeom2(1.25);
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(a.xsectGeom2(), 1.25);
+
         swmm_engine_destroy(e);
+    }
+
+    //! CUSTOM is the mixed case: geom1 is a real depth, geom2 is a
+    //! shape-curve index.
+    void customShapeLocksOnlyItsCurveIndex()
+    {
+        using namespace openswmmvis;
+        QVERIFY(!xsectGeomIsPickerIndex(SWMM_XSECT_CUSTOM, 1));
+        QVERIFY( xsectGeomIsPickerIndex(SWMM_XSECT_CUSTOM, 2));
+        QVERIFY( xsectGeomIsPickerIndex(SWMM_XSECT_IRREGULAR, 1));
+        QVERIFY( xsectGeomIsPickerIndex(SWMM_XSECT_STREET, 1));
+        // Everything else is a plain stored dimension.
+        QVERIFY(!xsectGeomIsPickerIndex(SWMM_XSECT_CIRCULAR, 1));
+        QVERIFY(!xsectGeomIsPickerIndex(SWMM_XSECT_CIRCULAR, 2));
+        QVERIFY(!xsectGeomIsPickerIndex(SWMM_XSECT_IRREGULAR, 2));
     }
 
     // -- Metaobject contract --------------------------------------------
