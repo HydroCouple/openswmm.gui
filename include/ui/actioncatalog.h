@@ -109,6 +109,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"model.addRainGage",     "actionRainGauge",        "Model", "",  "Rainfall", "model", "Model", RequiresProject},
     {"model.addText",         "actionAddText",          "Model", "",  "Text", "model", "Model", RequiresProject},
     {"model.importFeatureLayer", "actionImportFeatureLayer", "Model", "", "ImportGIS", "model", "Model", NoTags},
+    {"model.assignRainGages", "actionAssignRainGages", "Model", "", "AssignRainGages", "model", "Model", RequiresProject},
     {"model.simulationOptions",  "actionOptions",       "Model", "",  "Options", "model", "Model", NoTags},
     {"model.userFlags",       "actionUserFlags",        "Model", "",  "UserFlags", "model", "Model", NoTags},
     {"model.generateMesh",    "actionGenerateMesh",     "Model", "",  "CreateMesh", "mesh2d", "Model", NoTags},

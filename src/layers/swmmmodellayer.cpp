@@ -4003,6 +4003,20 @@ int SWMMModelLayer::cachedNodeCount() const { return m_nodes.size(); }
 int SWMMModelLayer::cachedLinkCount() const { return m_links.size(); }
 int SWMMModelLayer::cachedGageCount() const { return m_gages.size(); }
 
+bool SWMMModelLayer::cachedGageCoord(int idx, double *x, double *y) const
+{
+    if (!m_engine || idx < 0 || idx >= m_gages.size())
+        return false;
+    double gx = 0.0, gy = 0.0;
+    // Straight from the engine, NOT m_gages — see the header note on why the
+    // cached position is unsafe for spatial work.
+    if (swmm_spatial_get_gage_coord(m_engine, idx, &gx, &gy) != SWMM_OK)
+        return false;
+    if (x) *x = gx;
+    if (y) *y = gy;
+    return true;
+}
+
 SWMMModelLayer::PickResult
 SWMMModelLayer::pickAt(double sceneX, double sceneY, double tolerance) const
 {
@@ -5334,6 +5348,24 @@ bool SWMMModelLayer::applyHydrographRenameGroup(const QString &oldName,
 
     // Empty name → model layer rebuilds everything (old name is gone).
     emit hydrographChanged(QString());
+    return true;
+}
+
+bool SWMMModelLayer::applySubcatchSetGage(int idx, const QString &gageName)
+{
+    if (!m_engine || idx < 0 || idx >= m_catchments.size())
+        return false;
+    if (gageName.isEmpty())
+        return false;   // SWMM requires a gage; clearing is not expressible
+
+    const int g = swmm_gage_index(m_engine, gageName.toUtf8().constData());
+    if (g < 0)
+        return false;
+    if (swmm_subcatch_set_gage(m_engine, idx, g) != SWMM_OK)
+        return false;
+
+    emit attributeChanged(m_catchments[idx].name);
+    emit modelEdited();
     return true;
 }
 
