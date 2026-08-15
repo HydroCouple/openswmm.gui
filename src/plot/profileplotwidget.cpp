@@ -486,6 +486,18 @@ QColor ProfilePlotWidget::themeNodeOutline(ProfileBuilder::NodeKind k) const
     }
     return outlineForNodeKind(k);
 }
+QPen ProfilePlotWidget::themeVirtualJunctionPen() const
+{
+    // The whole marker is one pen — a virtual junction has no fill and no rim
+    // glyph, so there is no colour pair to merge (see themeNodeFill, which
+    // routes it to Qt::transparent).
+    if (m_options) return m_options->virtualJunctionOutlinePen();
+    QPen pen(QColor(0x33, 0x33, 0x33), 1.0, Qt::CustomDashLine);
+    pen.setDashPattern({ 4.0, 3.0 });
+    pen.setCapStyle(Qt::FlatCap);
+    pen.setJoinStyle(Qt::MiterJoin);
+    return pen;
+}
 QColor ProfilePlotWidget::themeLinkFill(ProfileBuilder::LinkKind k) const
 {
     if (!m_options) return fillForLinkKind(k);
@@ -985,9 +997,9 @@ int ProfilePlotWidget::nodeIndexAt(const QPoint &widgetPos) const
     double bestDx   = std::numeric_limits<double>::infinity();
     for (int i = 0; i < m_path.nodes.size(); ++i) {
         const auto  &n     = m_path.nodes[i];
-        // Virtual junctions draw no tube, so there is nothing to click; the
-        // clicks in that band belong to the conduit running through it.
-        if (n.kind == ProfileBuilder::NodeKind::VirtualJunction) continue;
+        // Virtual junctions included: their dashed rectangle occupies the
+        // same footprint as a manhole tube (see paintNodes), so a click in
+        // that band picks the break rather than the conduit through it.
         const double chain = virtualX(i);
         const QPointF rim  = dataToPixel(chain, ProfileBuilder::groundElev(n));
         const QPointF inv  = dataToPixel(chain, n.invertElev);
@@ -2053,20 +2065,26 @@ void ProfilePlotWidget::paintNodes(QPainter &p) const
         // Same reasoning for a virtual junction: it is a computational break
         // point inside one continuous pipe, not a structure, so there is no
         // manhole to draw. Its rim still shapes the ground line above.
-        // Mark the break itself with a thin dashed vertical line running
-        // from the node invert up to the ground line — the pipe (and the
-        // water in it) passes straight through, so the dash is the only
-        // indication of where the conduit was split.
+        // Mark the break with a dashed rectangle on the same footprint a
+        // manhole tube would occupy (invert → rim, tube width), so it reads
+        // as a node and hit-tests like one.  The pipe is drawn through it
+        // unbroken, so the rectangle's lower part overlaps a sliver of the
+        // conduits either side — that overlap is what shows the split.
         if (m_path.nodes[i].kind == ProfileBuilder::NodeKind::VirtualJunction) {
-            const auto &vn = m_path.nodes[i];
+            const auto &vn     = m_path.nodes[i];
             const double vchain = virtualX(i);
-            QPen vjPen = makeLinePen(plotTheme().plotConduit, 1.0,
-                                     /*dashed=*/true);
-            vjPen.setColor(withAlphaF(plotTheme().plotConduit, 0.6));
+            const QPointF vrim  = dataToPixel(vchain,
+                                              ProfileBuilder::groundElev(vn));
+            const QPointF vinv  = dataToPixel(vchain, vn.invertElev);
+            QPen vjPen = themeVirtualJunctionPen();
+            if (m_selectedNames.contains(vn.name)) {
+                vjPen.setColor(QColor(0xFF, 0x66, 0x00));   // bright orange
+                vjPen.setWidthF(vjPen.widthF() + 1.5);
+            }
             p.setBrush(Qt::NoBrush);
             p.setPen(vjPen);
-            p.drawLine(dataToPixel(vchain, vn.invertElev),
-                       dataToPixel(vchain, ProfileBuilder::groundElev(vn)));
+            p.drawRect(QRectF(QPointF(vrim.x() - kShaftHalfWidthPx, vrim.y()),
+                              QPointF(vrim.x() + kShaftHalfWidthPx, vinv.y())));
             continue;
         }
 
@@ -2237,23 +2255,44 @@ void ProfilePlotWidget::paintSelectionHighlights(QPainter &p) const
             const QPointF pUcr  = dataToPixel(xU, zUcr);
             const QPointF pDcr  = dataToPixel(xD, zDcr);
 
+            // Same per-end rule as paintConduits: no trim and no closing
+            // edge where the conduit meets a virtual junction, so the halo
+            // runs through the break exactly as the pipe it outlines does.
+            const bool vjUp = isVirtualNode(i);
+            const bool vjDn = isVirtualNode(i + 1);
+
             const double spanPx = pDinv.x() - pUinv.x();
             const double shiftPx = (spanPx > 4.0 * kShaftHalfWidthPx)
                                        ? kShaftHalfWidthPx
                                        : 0.0;
-            const double tFrac = (spanPx > 0.0) ? shiftPx / spanPx : 0.0;
-            auto shifted = [tFrac](const QPointF &up, const QPointF &dn,
-                                   bool isUpstream) -> QPointF {
+            const double tBase = (spanPx > 0.0) ? shiftPx / spanPx : 0.0;
+            const double tUp   = vjUp ? 0.0 : tBase;
+            const double tDn   = vjDn ? 0.0 : tBase;
+            auto shifted = [](const QPointF &up, const QPointF &dn,
+                              double tFrac, bool isUpstream) -> QPointF {
                 const QPointF dir = dn - up;
                 return isUpstream ? up + dir * tFrac : dn - dir * tFrac;
             };
+            const QPointF upInv = shifted(pUinv, pDinv, tUp, true);
+            const QPointF dnInv = shifted(pUinv, pDinv, tDn, false);
+            const QPointF upCr  = shifted(pUcr,  pDcr,  tUp, true);
+            const QPointF dnCr  = shifted(pUcr,  pDcr,  tDn, false);
 
             QPainterPath body;
-            body.moveTo(shifted(pUcr, pDcr, true));
-            body.lineTo(shifted(pUcr, pDcr, false));
-            body.lineTo(shifted(pUinv, pDinv, false));
-            body.lineTo(shifted(pUinv, pDinv, true));
-            body.closeSubpath();
+            if (vjUp && vjDn) {          // open at both ends: two rails
+                body.moveTo(upCr);  body.lineTo(dnCr);
+                body.moveTo(upInv); body.lineTo(dnInv);
+            } else if (vjUp) {           // open upstream
+                body.moveTo(upCr);  body.lineTo(dnCr);
+                body.lineTo(dnInv); body.lineTo(upInv);
+            } else if (vjDn) {           // open downstream
+                body.moveTo(dnCr);  body.lineTo(upCr);
+                body.lineTo(upInv); body.lineTo(dnInv);
+            } else {
+                body.moveTo(upCr);  body.lineTo(dnCr);
+                body.lineTo(dnInv); body.lineTo(upInv);
+                body.closeSubpath();
+            }
             p.drawPath(body);
         } else if (l.kind == ProfileBuilder::LinkKind::Weir) {
             const int inletIdx = l.reversed ? (i + 1) : i;
@@ -2290,9 +2329,25 @@ void ProfilePlotWidget::paintSelectionHighlights(QPainter &p) const
     for (int i = 0; i < m_path.nodes.size(); ++i) {
         const auto &n = m_path.nodes[i];
         if (!m_selectedNames.contains(n.name)) continue;
-        // Nothing is drawn for a virtual junction, so there is nothing to
-        // highlight — a tube here would contradict the unbroken pipe.
-        if (n.kind == ProfileBuilder::NodeKind::VirtualJunction) continue;
+        // A virtual junction is marked by a dashed rectangle rather than a
+        // manhole tube, so its halo is dashed on the same footprint — a
+        // solid one would contradict the unbroken pipe running through it.
+        // There is no rim glyph below to outline either.
+        if (n.kind == ProfileBuilder::NodeKind::VirtualJunction) {
+            const double vchain = virtualX(i);
+            const QPointF vrim  = dataToPixel(vchain,
+                                              ProfileBuilder::groundElev(n));
+            const QPointF vinv  = dataToPixel(vchain, n.invertElev);
+            QPen vjHalo = themeVirtualJunctionPen();
+            vjHalo.setColor(highlight);
+            vjHalo.setWidthF(vjHalo.widthF() + 2.5);
+            p.save();
+            p.setPen(vjHalo);
+            p.drawRect(QRectF(QPointF(vrim.x() - kShaftHalfWidthPx, vrim.y()),
+                              QPointF(vrim.x() + kShaftHalfWidthPx, vinv.y())));
+            p.restore();
+            continue;
+        }
 
         const bool incomingExc =
             (i > 0) && linkKindIsExcavated(m_path.links[i - 1].kind);

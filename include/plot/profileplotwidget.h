@@ -186,7 +186,8 @@ public:
     /*!
      * \brief Hit-test: returns the path-node index whose manhole glyph is
      *        nearest \p widgetPos within a reasonable tolerance, or -1.
-     *        Used by Stage 6's edit-in-place context menu.
+     *        Virtual junctions count — their dashed rectangle shares the
+     *        manhole footprint.  Used by Stage 6's edit-in-place context menu.
      */
     [[nodiscard]] int nodeIndexAt(const QPoint &widgetPos) const;
 
@@ -353,6 +354,10 @@ private:
     void paintSelectionHighlights(QPainter &p) const;
     [[nodiscard]] QColor themeNodeFill   (ProfileBuilder::NodeKind k) const;
     [[nodiscard]] QColor themeNodeOutline(ProfileBuilder::NodeKind k) const;
+    /*! Pen for the dashed rectangle that marks a virtual junction.  Styled
+        independently of the physical node kinds, which carry a fill/outline
+        colour pair instead. */
+    [[nodiscard]] QPen   themeVirtualJunctionPen() const;
     [[nodiscard]] QColor themeLinkFill   (ProfileBuilder::LinkKind k) const;
     [[nodiscard]] QColor themeLinkOutline(ProfileBuilder::LinkKind k) const;
     [[nodiscard]] QColor themeSoilFill   () const;

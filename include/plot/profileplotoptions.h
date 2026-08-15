@@ -114,6 +114,13 @@ public:
     Q_PROPERTY(QColor storageOutline  READ storageOutline  WRITE setStorageOutline  NOTIFY changed)
     Q_PROPERTY(QColor dividerFill     READ dividerFill     WRITE setDividerFill     NOTIFY changed)
     Q_PROPERTY(QColor dividerOutline  READ dividerOutline  WRITE setDividerOutline  NOTIFY changed)
+    // A virtual junction is a break point inside a pipe, not a structure: it
+    // draws as a dashed outline rectangle over the conduit running through
+    // it, with no fill and no rim glyph.  One pen therefore carries its whole
+    // appearance — colour, width, style and dash pattern — instead of the
+    // fill/outline colour pair the physical node kinds use.
+    Q_PROPERTY(QPen   virtualJunctionOutlinePen READ virtualJunctionOutlinePen
+               WRITE setVirtualJunctionOutlinePen NOTIFY changed)
 
     // ── Theming: link-type colours ──────────────────────────────────────
     Q_PROPERTY(QColor conduitFill     READ conduitFill     WRITE setConduitFill     NOTIFY changed)
@@ -218,6 +225,7 @@ public:
     QColor storageOutline()  const { return m_storageOutline; }
     QColor dividerFill()     const { return m_dividerFill; }
     QColor dividerOutline()  const { return m_dividerOutline; }
+    QPen   virtualJunctionOutlinePen() const { return m_virtualJunctionOutlinePen; }
     QColor conduitFill()     const { return m_conduitFill; }
     QColor conduitOutline()  const { return m_conduitOutline; }
     QColor pumpFill()        const { return m_pumpFill; }
@@ -286,6 +294,7 @@ public slots:
     void setStorageOutline (const QColor &c);
     void setDividerFill    (const QColor &c);
     void setDividerOutline (const QColor &c);
+    void setVirtualJunctionOutlinePen(const QPen &p);
     void setConduitFill    (const QColor &c);
     void setConduitOutline (const QColor &c);
     void setPumpFill       (const QColor &c);
@@ -365,6 +374,11 @@ private:
     QColor m_storageOutline  {0x2D, 0x6A, 0x2D};
     QColor m_dividerFill     {0xFF, 0xE5, 0x99};
     QColor m_dividerOutline  {0x9C, 0x6F, 0x14};
+    // Dash pattern / cap / join are set in the constructor — QPen needs the
+    // calls.  Dark grey like the conduit outline it overlaps, but thinner and
+    // dashed so it reads as a marker rather than a structure.
+    QPen   m_virtualJunctionOutlinePen =
+        QPen(QColor(0x33, 0x33, 0x33), 1.0, Qt::CustomDashLine);
     QColor m_conduitFill     {0xEE, 0xEE, 0xEE};
     QColor m_conduitOutline  {0x33, 0x33, 0x33};
     QColor m_pumpFill        {0xFF, 0xD6, 0xA5};
