@@ -124,6 +124,9 @@ void SectionViewPanel::setMode(Mode mode)
     m_mode = mode;
     updateModeButtons();
     refresh();
+    // Section and profile are different drawings — carrying zoom across would
+    // land the user somewhere arbitrary.
+    m_preview->zoomToExtents();
 }
 
 void SectionViewPanel::updateModeButtons()
@@ -146,10 +149,18 @@ void SectionViewPanel::clearSelection()
 
 void SectionViewPanel::showObject(int objectType, const QString &name)
 {
+    const bool subjectChanged =
+        (objectType != m_objectType) || (name != m_objectName);
+
     m_objectType = objectType;
     m_objectName = name;
     updateModeButtons();
     refresh();
+
+    // A different object is a different drawing at a different scale, so the
+    // previous zoom means nothing. Re-selecting the SAME object (e.g. a
+    // selection signal re-fired after an edit) leaves the view alone.
+    if (subjectChanged) m_preview->zoomToExtents();
 }
 
 void SectionViewPanel::onObjectEditedExternally(const QString &name)

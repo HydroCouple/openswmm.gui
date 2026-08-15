@@ -125,16 +125,19 @@ public:
      * (y = 0 at the invert, y = yFull at the crown / top of bank), i.e. the
      * natural coordinate system for a section drawing — the painter flips Y.
      *
-     * Built by sampling half-width over `samples + 1` evenly spaced depths and
-     * mirroring, so it reproduces the engine's own geometry for every shape,
-     * including the tabulated ones.
+     * Built by sampling half-width over `samples + 1` depths and mirroring, so
+     * it reproduces the engine's own geometry for every shape, including the
+     * tabulated ones. The ladder is cosine-spaced, not uniform: width changes
+     * fastest at the invert and the crown, so that is where the points need to
+     * be (a uniform ladder makes circular pipes look faceted top and bottom).
      *
      * \param samples  Depth intervals; more samples smooth curved crowns.
-     *                 Clamped to [8, 512].
+     *                 Clamped to [8, 512]. The default is generous because a
+     *                 section is drawn once per selection, not per frame.
      * \returns An empty polygon when the sampler is invalid or the section has
      *          no geometry (SWMM_XSECT_DUMMY, or a degenerate depth).
      */
-    [[nodiscard]] QPolygonF outline(int samples = 96) const;
+    [[nodiscard]] QPolygonF outline(int samples = 240) const;
 
 private:
     explicit XsectSampler(void *handle) noexcept : m_handle(handle) {}
