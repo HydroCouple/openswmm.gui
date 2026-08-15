@@ -185,6 +185,7 @@
 #include "mesh/inpmeshreader.h"
 #include "mesh/meshobjectref.h"
 #include "ui/dialogs/mesh2dgroundwaterdialog.h"
+#include "ui/dialogs/assignraingagesdialog.h"
 #include "ui/dialogs/meshattributeassigndialog.h"
 #include "ui/properties/meshtrianglepropertyadapter.h"
 #include "animation/animationcontroller.h"
@@ -3860,6 +3861,24 @@ void SWMMVis::initializeMenus()
                 return;
             }
             openswmmvis::import::ImportFeatureLayerDialog dlg(pw, this);
+            dlg.exec();
+        });
+
+    // Model → Assign Rain Gages… — spatial gage/subcatchment binding.
+    if (ui->actionAssignRainGages)
+        connect(ui->actionAssignRainGages, &QAction::triggered, this,
+                [this]() {
+            auto *pw = activeProjectWindow();
+            if (!pw || !pw->modelLayer())
+            {
+                onLogMessage(tr("Assign Rain Gages: open a SWMM project first."),
+                             OpenSWMMVisLogMessage::LogMessageType::Warning);
+                return;
+            }
+            openswmmvis::ui::AssignRainGagesDialog dlg(pw->modelLayer(),
+                                                       pw->canvas(),
+                                                       pw->selectionManager(),
+                                                       this);
             dlg.exec();
         });
 

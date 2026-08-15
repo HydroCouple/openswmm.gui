@@ -675,6 +675,127 @@ void AddSubcatchmentCommand::undo()
 }
 
 // ===========================================================================
+// AssignSubcatchGagesCommand
+// ===========================================================================
+
+AssignSubcatchGagesCommand::AssignSubcatchGagesCommand(SWMMModelLayer *layer,
+                                                       QStringList     subcatchNames,
+                                                       QStringList     newGages,
+                                                       QStringList     oldGages,
+                                                       const QString  &text,
+                                                       MapCanvas      *canvas,
+                                                       QUndoCommand   *parent)
+    : MapCommand(text, canvas, parent)
+    , m_layer(layer)
+    , m_subcatchNames(std::move(subcatchNames))
+    , m_newGages(std::move(newGages))
+    , m_oldGages(std::move(oldGages))
+{}
+
+void AssignSubcatchGagesCommand::apply(const QStringList &gages)
+{
+    if (!m_layer || !m_layer->engine())
+        return;
+    SWMM_Engine eng = m_layer->engine();
+
+    for (int i = 0; i < m_subcatchNames.size() && i < gages.size(); ++i)
+    {
+        const QString &gage = gages[i];
+        if (gage.isEmpty())
+            continue;   // no prior gage to restore; SWMM cannot express "none"
+
+        // Resolve afresh every time: an intervening delete may have re-packed
+        // indices since this command was built.
+        const int sIdx =
+            swmm_subcatch_index(eng, m_subcatchNames[i].toUtf8().constData());
+        if (sIdx < 0)
+            continue;   // subcatchment gone (e.g. an undone add) — clean no-op
+        m_layer->applySubcatchSetGage(sIdx, gage);
+    }
+
+    if (m_canvas)
+        m_canvas->invalidate(MapCanvas::Scene,
+                             QStringLiteral("assign-subcatch-gages"));
+}
+
+void AssignSubcatchGagesCommand::redo() { apply(m_newGages); }
+void AssignSubcatchGagesCommand::undo() { apply(m_oldGages); }
+
+// ===========================================================================
+// ConfigureGageCommand
+// ===========================================================================
+
+ConfigureGageCommand::Config
+ConfigureGageCommand::capture(SWMMModelLayer *layer, const QString &gageName, bool *ok)
+{
+    Config c;
+    if (ok) *ok = false;
+    if (!layer || !layer->engine())
+        return c;
+
+    SWMM_Engine eng = layer->engine();
+    const int idx = swmm_gage_index(eng, gageName.toUtf8().constData());
+    if (idx < 0)
+        return c;
+
+    swmm_gage_get_data_source(eng, idx, &c.dataSource);
+    swmm_gage_get_rain_type(eng, idx, &c.rainType);
+    swmm_gage_get_rain_interval(eng, idx, &c.intervalSec);
+    swmm_gage_get_scale_factor(eng, idx, &c.scaleFactor);
+    swmm_gage_get_snow_factor(eng, idx, &c.snowFactor);
+
+    char buf[256] = {0};
+    if (swmm_gage_get_timeseries(eng, idx, buf, static_cast<int>(sizeof(buf))) == SWMM_OK)
+        c.timeseries = QString::fromUtf8(buf);
+
+    if (ok) *ok = true;
+    return c;
+}
+
+ConfigureGageCommand::ConfigureGageCommand(SWMMModelLayer *layer,
+                                           QString         gageName,
+                                           Config          newConfig,
+                                           Config          oldConfig,
+                                           MapCanvas      *canvas,
+                                           QUndoCommand   *parent)
+    : MapCommand(QObject::tr("Configure Rain Gage"), canvas, parent)
+    , m_layer(layer)
+    , m_gageName(std::move(gageName))
+    , m_new(std::move(newConfig))
+    , m_old(std::move(oldConfig))
+{}
+
+void ConfigureGageCommand::apply(const Config &c)
+{
+    if (!m_layer || !m_layer->engine())
+        return;
+    SWMM_Engine eng = m_layer->engine();
+    const int idx = swmm_gage_index(eng, m_gageName.toUtf8().constData());
+    if (idx < 0)
+        return;   // gage vanished (e.g. an undone add) — clean no-op
+
+    swmm_gage_set_rain_type(eng, idx, c.rainType);
+    swmm_gage_set_rain_interval(eng, idx, c.intervalSec);
+    swmm_gage_set_scale_factor(eng, idx, c.scaleFactor);
+    swmm_gage_set_snow_factor(eng, idx, c.snowFactor);
+
+    // Order matters: swmm_gage_set_timeseries validates that the series exists
+    // and sets the source itself, so it must run after the scalars and only
+    // when a series is actually named.
+    if (c.dataSource == SWMM_GAGE_TIMESERIES && !c.timeseries.isEmpty())
+        swmm_gage_set_timeseries(eng, idx, c.timeseries.toUtf8().constData());
+    else
+        swmm_gage_set_data_source(eng, idx, c.dataSource);
+
+    m_layer->markEdited();
+    if (m_canvas)
+        m_canvas->invalidate(MapCanvas::Scene, QStringLiteral("configure-gage"));
+}
+
+void ConfigureGageCommand::redo() { apply(m_new); }
+void ConfigureGageCommand::undo() { apply(m_old); }
+
+// ===========================================================================
 // DeleteObjectCommand (Slice F-2) — helpers
 // ===========================================================================
 

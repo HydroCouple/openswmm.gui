@@ -1184,6 +1184,23 @@ public:
     [[nodiscard]] int cachedLinkCount() const;
     [[nodiscard]] int cachedGageCount() const;
 
+    /*!
+     * \brief A rain gage's coordinate AS THE ENGINE STORES IT.
+     * \details Deliberately NOT the cached `m_gages` position. A gage with no
+     *          `[SYMBOLS]` row arrives at (0,0), and buildGeometryCache()
+     *          relocates such gages to the mean of every model vertex so they
+     *          do not stack on the origin — a display convenience that invents
+     *          a coordinate. Any spatial computation (Thiessen cells,
+     *          interpolation weights) must see the engine's own value, because
+     *          several un-located gages would otherwise all land on one
+     *          fabricated point and quietly dominate the result.
+     * \param idx Zero-based gage index.
+     * \returns false when \p idx is out of range or no engine is attached.
+     *          A returned (0,0) means "un-located" and callers should exclude
+     *          the gage rather than use it.
+     */
+    [[nodiscard]] bool cachedGageCoord(int idx, double *x, double *y) const;
+
     /*! Monotonically increasing counter, bumped at the end of every
      *  rebuildSceneCoords() call.  Renderers can compare against a cached
      *  value to cheaply detect whether scene geometry has changed without
@@ -1456,6 +1473,23 @@ public:
      */
     bool applySubcatchVertices(int idx, const QVector<QPointF> &vertices);
     bool applySubcatchArea(int idx, double areaInModelUnits);
+
+    /*!
+     * \brief Assign a rain gage to a subcatchment: engine + change notification.
+     * \details Mirrors \ref applyHydrographSetGage. Until this existed the only
+     *          write paths were the property adapter and the attribute table,
+     *          both calling `swmm_subcatch_set_gage` directly and emitting only
+     *          their own local edit signal — which is why a bulk assignment had
+     *          no way to refresh every view. Routing through the layer emits
+     *          `attributeChanged` + `modelEdited` like every other mediated
+     *          edit.
+     * \param idx       Zero-based subcatchment index.
+     * \param gageName  Rain gage identifier. Must name an existing gage; an
+     *                  empty string is rejected, since SWMM requires a gage.
+     * \returns false when the index is out of range, the gage is unknown, or
+     *          the engine rejected the write.
+     */
+    bool applySubcatchSetGage(int idx, const QString &gageName);
 
     /*!
      * \brief Add a new node: engine + cache. Engine must be OPENED.

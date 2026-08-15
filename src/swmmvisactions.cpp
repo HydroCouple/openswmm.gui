@@ -204,6 +204,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionOptions",               QT_TR_NOOP("Simulation\nOptions")},
         {"actionUserFlags",             QT_TR_NOOP("User\nFlags")},
         {"actionImportFeatureLayer",    QT_TR_NOOP("Import\nFeature Layer")},
+        {"actionAssignRainGages",       QT_TR_NOOP("Assign\nRain Gages")},
         {"actionGenerateMesh",          QT_TR_NOOP("Generate\nMesh")},
         {"actionMeshAssignFromRaster",  QT_TR_NOOP("From\nRaster")},
         {"actionMeshAssignFromVector",  QT_TR_NOOP("From\nShapefile")},
@@ -303,6 +304,7 @@ void SWMMVis::initializeCompactToolbar()
               "actionNewLandUse"});
     addGroup(mToolBarModel, tr("Setup"),
              {"actionOptions", "actionUserFlags", "actionImportFeatureLayer"});
+    addGroup(mToolBarModel, tr("Tools"), {"actionAssignRainGages"});
     addGroup(mToolBarModel, tr("Mesh 2D"), {"actionGenerateMesh"});
 
     mToolBarMesh2D = new QToolBar(tr("Mesh 2D"), this);
