@@ -547,6 +547,94 @@ private:
 };
 
 /*!
+ * \class AssignSubcatchGagesCommand
+ * \brief Reassigns the rain gage of many subcatchments as ONE undo step.
+ * \details Carries parallel arrays rather than pushing a command per
+ *          subcatchment, following the mesh::pushCellParamEdits idiom: a bulk
+ *          spatial assignment is one user action and should cost one Ctrl+Z.
+ *
+ *          Rows already holding the target gage are filtered out by the
+ *          factory below, so redo() only touches what actually changes.
+ *
+ *          Everything is keyed by NAME, never by index — gage or subcatchment
+ *          deletion re-packs engine indices, and this command may be undone
+ *          long after that has happened.
+ */
+class AssignSubcatchGagesCommand : public MapCommand
+{
+public:
+    AssignSubcatchGagesCommand(SWMMModelLayer *layer,
+                               QStringList     subcatchNames,
+                               QStringList     newGages,
+                               QStringList     oldGages,
+                               const QString  &text,
+                               MapCanvas      *canvas,
+                               QUndoCommand   *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 47; }
+
+private:
+    /*! \brief Apply \p gages to \ref m_subcatchNames, skipping unknown names. */
+    void apply(const QStringList &gages);
+
+    SWMMModelLayer *m_layer = nullptr;
+    QStringList     m_subcatchNames;
+    QStringList     m_newGages;
+    QStringList     m_oldGages;
+};
+
+/*!
+ * \class ConfigureGageCommand
+ * \brief Snapshot/restore of a rain gage's data-source configuration.
+ * \details AddGageCommand only lays down ObjectDefaultsApplier defaults, so a
+ *          generated gage still needs its series, rain type, interval and
+ *          factors set. This also covers the reverse direction: DeleteObject-
+ *          Command::restoreGage brings a gage back with only its name and
+ *          coordinates, dropping exactly these fields, so pushing this command
+ *          before a delete lets undo put the configuration back.
+ */
+class ConfigureGageCommand : public MapCommand
+{
+public:
+    /*! \brief The subset of gage state this command owns. */
+    struct Config
+    {
+        int     dataSource  = 0;     ///< SWMM_GageDataSource (0 = TIMESERIES).
+        QString timeseries;          ///< Series name when dataSource is TIMESERIES.
+        int     rainType    = 0;     ///< SWMM_GageRainType.
+        double  intervalSec = 3600;  ///< Recording interval.
+        double  scaleFactor = 1.0;
+        double  snowFactor  = 1.0;
+    };
+
+    /*! \brief Read a gage's current configuration; \p ok reports success. */
+    [[nodiscard]] static Config capture(SWMMModelLayer *layer,
+                                        const QString &gageName,
+                                        bool *ok = nullptr);
+
+    ConfigureGageCommand(SWMMModelLayer *layer,
+                         QString         gageName,
+                         Config          newConfig,
+                         Config          oldConfig,
+                         MapCanvas      *canvas,
+                         QUndoCommand   *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+    int  id()   const override { return 48; }
+
+private:
+    void apply(const Config &c);
+
+    SWMMModelLayer *m_layer = nullptr;
+    QString         m_gageName;
+    Config          m_new;
+    Config          m_old;
+};
+
+/*!
  * \class DeleteObjectCommand
  * \brief Undoable deletion of a node, link, rain gage, or subcatchment.
  * \details The constructor snapshots the object's full property state

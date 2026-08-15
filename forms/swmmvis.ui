@@ -672,6 +672,7 @@
     <addaction name="menuClimate"/>
     <addaction name="actionAddText"/>
     <addaction name="separator"/>
+    <addaction name="actionAssignRainGages"/>
     <addaction name="actionImportFeatureLayer"/>
     <addaction name="separator"/>
     <addaction name="actionOptions"/>
@@ -1708,6 +1709,24 @@
    </property>
    <property name="statusTip">
     <string>Open the 2D mesh generator (Tools → Generate 2D Mesh…)</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionAssignRainGages">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/AssignRainGages</normaloff>:/swmmvis/AssignRainGages</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Assign Rain Gages…</string>
+   </property>
+   <property name="toolTip">
+    <string>Bind rain gages to subcatchments spatially — by Thiessen area majority, or by natural-neighbour interpolation that generates one gage per distinct weight vector — previewed first and applied as a single undoable step.</string>
+   </property>
+   <property name="statusTip">
+    <string>Assign rain gages to subcatchments by location (Model → Assign Rain Gages…)</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>

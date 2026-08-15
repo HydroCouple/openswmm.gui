@@ -1518,6 +1518,23 @@ add_swmmvis_gui_test(test_editgeometry
     ${CMAKE_SOURCE_DIR}/include/core/editgeometry.h
 )
 
+# Volume-conserving weighted blend of rain-gage series. Reproduces the engine's
+# boxcar reading of a rainfall table (Gage.cpp::updateAllGages).
+add_swmmvis_gui_test(test_gageblend
+    test_gageblend.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/gageblend.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/gageblend.h
+)
+
+# Thiessen area shares, interior sampling, IDW fallback, weight clustering.
+add_swmmvis_gui_test(test_gageassignment
+    test_gageassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/gageassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/gageassignment.h
+    ${CMAKE_SOURCE_DIR}/include/core/editgeometry.h
+)
+
 # Smoke test for the reprojection primitive every layer uses when rendering
 # in a canvas CRS different from the layer's own CRS. Links GDAL directly.
 add_swmmvis_gui_test(test_layerreprojection
@@ -1546,6 +1563,18 @@ add_swmmvis_gui_test(test_nninterpdegenerate
     ${CMAKE_SOURCE_DIR}/include/mesh/naturalnbinterpolator.h
 )
 target_link_libraries(test_nninterpdegenerate PRIVATE triangle_lib)
+
+# Characterization of the interpolator's NUMERIC output. test_nninterpdegenerate
+# above asserts only on degenerate inputs, so it cannot catch a weight
+# regression — which would silently change the mesh generator's no-DTM
+# elevation fallback.
+add_swmmvis_gui_test(test_nninterpvalues
+    test_nninterpvalues.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/naturalnbinterpolator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/naturalnbinterpolator.h
+)
+target_link_libraries(test_nninterpvalues PRIVATE triangle_lib)
 
 add_swmmvis_gui_test(test_dtmsampler
     test_dtmsampler.cpp
@@ -2025,6 +2054,16 @@ add_swmmvis_gui_test(test_dirtytracking_run
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_dirtytracking_run)
+
+# Spatial rain-gage assignment against a real engine-loaded model. Guards the
+# un-located-gage trap (engine says (0,0); the display cache invents a position)
+# and the mediated write that lets a bulk assignment refresh the views.
+add_swmmvis_gui_test(test_gageassignintegration
+    test_gageassignintegration.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_gageassignintegration)
 
 # identifyByName / nodeIndex / linkIndex became hash lookups instead of linear
 # scans (a 13 KB .oswp restore cost 22 s on a 122k-link model). The hashes must
