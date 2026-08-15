@@ -1,0 +1,781 @@
+{
+    "canvas": {
+        "extent": [
+            -40,
+            -346.4365671641791,
+            1040,
+            446.4365671641791
+        ]
+    },
+    "schemaVersion": 4,
+    "sessions": [
+        {
+            "engineVersion": "6.0.0",
+            "inpPath": "road_culvert.inp",
+            "layer": {
+                "kindRenderers": {
+                    "Conduits": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleLine",
+                                    "props": {
+                                        "arrowColor": "#ff222222",
+                                        "arrowLengthPx": 10,
+                                        "arrowOnlyWhenFlowPos": false,
+                                        "color": "#ff000080",
+                                        "drawArrows": false,
+                                        "fillColor": "#ff3232c8",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1.5,
+                                        "showLabel": false,
+                                        "width": 1
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Dividers": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleMarker",
+                                    "props": {
+                                        "fillColor": "#ff00ff00",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1,
+                                        "shape": 3,
+                                        "showLabel": false,
+                                        "size": 8
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Junctions": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleMarker",
+                                    "props": {
+                                        "fillColor": "#ff003ffa",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1,
+                                        "shape": 0,
+                                        "showLabel": false,
+                                        "size": 8
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Orifices": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleLine",
+                                    "props": {
+                                        "arrowColor": "#ff222222",
+                                        "arrowLengthPx": 10,
+                                        "arrowOnlyWhenFlowPos": false,
+                                        "color": "#ff000080",
+                                        "drawArrows": false,
+                                        "fillColor": "#ffc89600",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1,
+                                        "showLabel": false,
+                                        "width": 2.5
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Outfalls": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleMarker",
+                                    "props": {
+                                        "fillColor": "#ffdc0000",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1,
+                                        "shape": 11,
+                                        "showLabel": false,
+                                        "size": 12.5
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Outlets": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleLine",
+                                    "props": {
+                                        "arrowColor": "#ff222222",
+                                        "arrowLengthPx": 10,
+                                        "arrowOnlyWhenFlowPos": false,
+                                        "color": "#ff000080",
+                                        "drawArrows": false,
+                                        "fillColor": "#ff8c643c",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1.5,
+                                        "showLabel": false,
+                                        "width": 8
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Pumps": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleLine",
+                                    "props": {
+                                        "arrowColor": "#ff222222",
+                                        "arrowLengthPx": 10,
+                                        "arrowOnlyWhenFlowPos": false,
+                                        "color": "#ff000080",
+                                        "drawArrows": false,
+                                        "fillColor": "#ffff2100",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 2,
+                                        "showLabel": false,
+                                        "width": 3
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "RainGages": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleMarker",
+                                    "props": {
+                                        "fillColor": "#ff00ffff",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1,
+                                        "shape": 3,
+                                        "showLabel": false,
+                                        "size": 10
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Storage": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleMarker",
+                                    "props": {
+                                        "fillColor": "#ffb43cc8",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1,
+                                        "shape": 1,
+                                        "showLabel": false,
+                                        "size": 12
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Subcatchments": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleFill",
+                                    "props": {
+                                        "fillColor": "#ffb4dcb4",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff003c00",
+                                        "outlineWidth": 1.5,
+                                        "showLabel": false,
+                                        "size": 8
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    },
+                    "Weirs": {
+                        "id": "single",
+                        "symbol": {
+                            "layers": [
+                                {
+                                    "kind": "simpleLine",
+                                    "props": {
+                                        "arrowColor": "#ff222222",
+                                        "arrowLengthPx": 10,
+                                        "arrowOnlyWhenFlowPos": false,
+                                        "color": "#ff000080",
+                                        "drawArrows": false,
+                                        "fillColor": "#ff00b464",
+                                        "labelColor": "#ff000000",
+                                        "labelFont": ".AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1",
+                                        "outlineColor": "#ff000080",
+                                        "outlineWidth": 1,
+                                        "showLabel": false,
+                                        "width": 2.5
+                                    }
+                                }
+                            ],
+                            "opacity": 1
+                        }
+                    }
+                },
+                "renderer": {
+                    "id": "single",
+                    "symbol": {
+                        "layers": [
+                        ],
+                        "opacity": 1
+                    }
+                }
+            },
+            "legendOverlay": {
+                "anchor": "Free",
+                "backgroundColor": "#e1ffffff",
+                "backgroundMode": "Solid",
+                "cornerRadius": 6,
+                "explicitHeight": 414,
+                "explicitWidth": 228,
+                "frameColor": "#b4505050",
+                "frameWidth": 1,
+                "freeX": 6,
+                "freeY": 5,
+                "gradientEndColor": "#e1f0f0f0",
+                "gradientOrientation": "Vertical",
+                "itemColor": "#ff141414",
+                "itemFont": {
+                    "family": ".AppleSystemUIFont",
+                    "italic": false,
+                    "pointSize": 13,
+                    "strikeOut": false,
+                    "underline": false,
+                    "weight": 400
+                },
+                "layerHeaderColor": "#ff141414",
+                "layerHeaderFont": {
+                    "family": ".AppleSystemUIFont",
+                    "italic": false,
+                    "pointSize": 13,
+                    "strikeOut": false,
+                    "underline": false,
+                    "weight": 400
+                },
+                "maxLabelWidth": 220,
+                "opacity": 1,
+                "padding": 8,
+                "rowSpacing": 2,
+                "showFrame": true,
+                "showTitle": false,
+                "swatchSize": 14,
+                "title": "",
+                "titleColor": "#ff141414",
+                "titleFont": {
+                    "family": ".AppleSystemUIFont",
+                    "italic": false,
+                    "pointSize": 13,
+                    "strikeOut": false,
+                    "underline": false,
+                    "weight": 400
+                }
+            },
+            "meshLayers": [
+                {
+                    "active": false,
+                    "contours": {
+                        "color": "#c81a1a1a",
+                        "filled": false,
+                        "filledOpacity": 0.6,
+                        "intervals": 8,
+                        "show": false,
+                        "width": 1
+                    },
+                    "hillshade": {
+                        "altitude": 35.264,
+                        "azimuth": 225,
+                        "minLit": 0.15,
+                        "zExag": 3
+                    },
+                    "showEdges": true,
+                    "showMeshNodes": true,
+                    "sourcePath": "road_culvert.inp"
+                }
+            ],
+            "resultLayerSublayers": {
+                "road_culvert.out": {
+                    "sublayers": [
+                        {
+                            "id": "results.subcatchments",
+                            "opacity": 1,
+                            "style": {
+                                "attribute": "runoff",
+                                "color": "#ff3c3c3c",
+                                "fillOpacity": 0.55,
+                                "fillStyle": 1,
+                                "outlineColor": "#dc282828",
+                                "outlineWidthPx": 0.5,
+                                "useColorRamp": true
+                            },
+                            "visible": true
+                        },
+                        {
+                            "id": "results.conduits",
+                            "opacity": 1,
+                            "style": {
+                                "arrowColor": "#dc141414",
+                                "arrowLengthPx": 12,
+                                "arrowWidthPx": 6,
+                                "attribute": "flow",
+                                "color": "#ff3c3c3c",
+                                "dashPattern": 1,
+                                "lineWidthPx": 1.5,
+                                "renderAsLine": true,
+                                "showFlowArrows": false,
+                                "useColorRamp": true
+                            },
+                            "visible": true
+                        },
+                        {
+                            "id": "results.pumps",
+                            "opacity": 1,
+                            "style": {
+                                "arrowColor": "#dc141414",
+                                "arrowLengthPx": 12,
+                                "arrowWidthPx": 6,
+                                "attribute": "flow",
+                                "color": "#ff3c3c3c",
+                                "dashPattern": 1,
+                                "lineWidthPx": 1.5,
+                                "renderAsLine": false,
+                                "showFlowArrows": false,
+                                "useColorRamp": true
+                            },
+                            "visible": true
+                        },
+                        {
+                            "id": "results.orifices",
+                            "opacity": 1,
+                            "style": {
+                                "arrowColor": "#dc141414",
+                                "arrowLengthPx": 12,
+                                "arrowWidthPx": 6,
+                                "attribute": "flow",
+                                "color": "#ff3c3c3c",
+                                "dashPattern": 1,
+                                "lineWidthPx": 1.5,
+                                "renderAsLine": false,
+                                "showFlowArrows": false,
+                                "useColorRamp": true
+                            },
+                            "visible": true
+                        },
+                        {
+                            "id": "results.weirs",
+                            "opacity": 1,
+                            "style": {
+                                "arrowColor": "#dc141414",
+                                "arrowLengthPx": 12,
+                                "arrowWidthPx": 6,
+                                "attribute": "flow",
+                                "color": "#ff3c3c3c",
+                                "dashPattern": 1,
+                                "lineWidthPx": 1.5,
+                                "renderAsLine": false,
+                                "showFlowArrows": false,
+                                "useColorRamp": true
+                            },
+                            "visible": true
+                        },
+                        {
+                            "id": "results.outlets",
+                            "opacity": 1,
+                            "style": {
+                                "arrowColor": "#dc141414",
+                                "arrowLengthPx": 12,
+                                "arrowWidthPx": 6,
+                                "attribute": "flow",
+                                "color": "#ff3c3c3c",
+                                "dashPattern": 1,
+                                "lineWidthPx": 1.5,
+                                "renderAsLine": false,
+                                "showFlowArrows": false,
+                                "useColorRamp": true
+                            },
+                            "visible": true
+                        },
+                        {
+                            "id": "results.junctions",
+                            "opacity": 1,
+                            "style": {
+                                "attribute": "depth",
+                                "color": "#ff3c3c3c",
+                                "markerSizePx": 6,
+                                "shape": 0,
+                                "useColorRamp": true
+                            },
+                            "visible": true
+                        },
+                        {
+                            "id": "results.outfalls",
+                            "opacity": 1,
+                            "style": {
+                                "attribute": "depth",
+                                "color": "#ff3c3c3c",
+                                "markerSizePx": 6,
+                                "shape": 0,
+                                "useColorRamp": true
+                            },
+                            "visible": true
+                        },
+                        {
+                            "id": "results.storage",
+                            "opacity": 1,
+                            "style": {
+                                "attribute": "depth",
+                                "color": "#ff3c3c3c",
+                                "markerSizePx": 6,
+                                "shape": 0,
+                                "useColorRamp": true
+                            },
+                            "visible": true
+                        },
+                        {
+                            "id": "results.dividers",
+                            "opacity": 1,
+                            "style": {
+                                "attribute": "depth",
+                                "color": "#ff3c3c3c",
+                                "markerSizePx": 6,
+                                "shape": 0,
+                                "useColorRamp": true
+                            },
+                            "visible": true
+                        },
+                        {
+                            "id": "results.raingages",
+                            "opacity": 1,
+                            "style": {
+                                "attribute": "",
+                                "color": "#ff3c3c3c",
+                                "markerSizePx": 6,
+                                "shape": 0,
+                                "useColorRamp": false
+                            },
+                            "visible": true
+                        }
+                    ]
+                }
+            },
+            "resultLayers": [
+                "road_culvert.out"
+            ],
+            "results2DLayers": [
+                {
+                    "dryDepth": 0.001,
+                    "maxDepth": 0.5608725547790527,
+                    "maxVelocity": 0.10583211481571198,
+                    "name": "2D Results",
+                    "opacity": 1,
+                    "path": "road_culvert.2d.h5",
+                    "sublayers": {
+                        "sublayers": [
+                            {
+                                "id": "results2d.mesh",
+                                "opacity": 1,
+                                "style": {
+                                    "classification": {
+                                        "binner": {
+                                            "manualBreaks": [
+                                            ],
+                                            "method": 0,
+                                            "nBins": 5
+                                        },
+                                        "highColor": "#ff000000",
+                                        "invertRamp": false,
+                                        "labelFormat": 1,
+                                        "labelPrecision": 3,
+                                        "lowColor": "#ffffffff",
+                                        "mode": "continuous",
+                                        "rampName": "Terrain",
+                                        "rangeMax": 1,
+                                        "rangeMin": 0,
+                                        "rangeMode": "fixedOverRun",
+                                        "useCustomRange": false
+                                    },
+                                    "fillColor": "#ffbeb496",
+                                    "hillshadeStrength": 0.5,
+                                    "useElevationRamp": true
+                                },
+                                "visible": true
+                            },
+                            {
+                                "id": "results2d.cellDepthFill",
+                                "opacity": 1,
+                                "style": {
+                                    "attribute": "depth",
+                                    "classification": {
+                                        "binner": {
+                                            "manualBreaks": [
+                                            ],
+                                            "method": 0,
+                                            "nBins": 8
+                                        },
+                                        "highColor": "#ffc8dcff",
+                                        "invertRamp": false,
+                                        "labelFormat": 1,
+                                        "labelPrecision": 3,
+                                        "lowColor": "#ff3c64c8",
+                                        "mode": "continuous",
+                                        "rampName": "viridis",
+                                        "rangeMax": 1,
+                                        "rangeMin": 0,
+                                        "rangeMode": "fixedOverRun",
+                                        "useCustomRange": false
+                                    }
+                                },
+                                "visible": false
+                            },
+                            {
+                                "id": "results2d.smoothDepthFill",
+                                "opacity": 0.6,
+                                "style": {
+                                    "attribute": "depth",
+                                    "classification": {
+                                        "binner": {
+                                            "manualBreaks": [
+                                            ],
+                                            "method": 0,
+                                            "nBins": 8
+                                        },
+                                        "highColor": "#ffc8dcff",
+                                        "invertRamp": false,
+                                        "labelFormat": 1,
+                                        "labelPrecision": 3,
+                                        "lowColor": "#ff3c64c8",
+                                        "mode": "continuous",
+                                        "rampName": "viridis",
+                                        "rangeMax": 1,
+                                        "rangeMin": 0,
+                                        "rangeMode": "fixedOverRun",
+                                        "useCustomRange": false
+                                    }
+                                },
+                                "visible": false
+                            },
+                            {
+                                "id": "results2d.bands",
+                                "opacity": 0.6,
+                                "style": {
+                                    "aboveMaxColor": "#c8ffffff",
+                                    "attribute": "depth",
+                                    "belowMinColor": "#00000000",
+                                    "classification": {
+                                        "binner": {
+                                            "manualBreaks": [
+                                            ],
+                                            "method": 0,
+                                            "nBins": 8
+                                        },
+                                        "highColor": "#c8c8dcff",
+                                        "invertRamp": false,
+                                        "labelFormat": 1,
+                                        "labelPrecision": 3,
+                                        "lowColor": "#c83c64c8",
+                                        "mode": "classified",
+                                        "rampName": "viridis",
+                                        "rangeMax": 1,
+                                        "rangeMin": 0,
+                                        "rangeMode": "fixedOverRun",
+                                        "useCustomRange": false
+                                    },
+                                    "smoothBands": true
+                                },
+                                "visible": true
+                            },
+                            {
+                                "id": "results2d.meshEdges",
+                                "opacity": 1,
+                                "style": {
+                                    "classification": {
+                                        "binner": {
+                                            "manualBreaks": [
+                                                0.35
+                                            ],
+                                            "method": 2,
+                                            "nBins": 2
+                                        },
+                                        "colorOverrides": {
+                                            "0": "#82000000",
+                                            "1": "#d2000000"
+                                        },
+                                        "highColor": "#d2000000",
+                                        "invertRamp": false,
+                                        "labelFormat": 1,
+                                        "labelPrecision": 3,
+                                        "lowColor": "#82000000",
+                                        "mode": "classified",
+                                        "rampName": "",
+                                        "rangeMax": 1,
+                                        "rangeMin": 0,
+                                        "rangeMode": "fixedOverRun",
+                                        "useCustomRange": true
+                                    },
+                                    "color": "#82000000",
+                                    "dashPattern": 1,
+                                    "lineWidthPx": 0.35,
+                                    "slopeBreak": 0.35,
+                                    "useSlopeDrivenWidth": true,
+                                    "wideColor": "#d2000000",
+                                    "wideWidthPx": 0.9
+                                },
+                                "visible": true
+                            },
+                            {
+                                "id": "results2d.isolines",
+                                "opacity": 1,
+                                "style": {
+                                    "attribute": "depth",
+                                    "baseLevel": 0,
+                                    "classification": {
+                                        "binner": {
+                                            "manualBreaks": [
+                                            ],
+                                            "method": 0,
+                                            "nBins": 8
+                                        },
+                                        "highColor": "#ff000000",
+                                        "invertRamp": false,
+                                        "labelFormat": 1,
+                                        "labelPrecision": 3,
+                                        "lowColor": "#ffffffff",
+                                        "mode": "classified",
+                                        "rampName": "viridis",
+                                        "rangeMax": 1,
+                                        "rangeMin": 0,
+                                        "rangeMode": "fixedOverRun",
+                                        "useCustomRange": false
+                                    },
+                                    "color": "#dc0a0a0a",
+                                    "dashPattern": "SolidLine",
+                                    "indexEvery": 0,
+                                    "indexWidthPx": 2,
+                                    "labelDecimals": 2,
+                                    "labelFontPt": 9,
+                                    "labelHalo": true,
+                                    "labels": false,
+                                    "levelInterval": 0.5,
+                                    "levelMode": 0,
+                                    "lineWidthPx": 1
+                                },
+                                "visible": false
+                            },
+                            {
+                                "id": "results2d.meshVertices",
+                                "opacity": 1,
+                                "style": {
+                                    "color": "#dc282828",
+                                    "highlightTagged": true,
+                                    "markerSizePx": 3,
+                                    "outlineColor": "#dcffffff",
+                                    "outlineWidthPx": 0.5,
+                                    "shape": 0,
+                                    "taggedColor": "#ebff8c00",
+                                    "taggedSizePx": 5
+                                },
+                                "visible": false
+                            },
+                            {
+                                "id": "results2d.velocity",
+                                "opacity": 1,
+                                "style": {
+                                    "classification": {
+                                        "binner": {
+                                            "manualBreaks": [
+                                            ],
+                                            "method": 0,
+                                            "nBins": 5
+                                        },
+                                        "highColor": "#ff000000",
+                                        "invertRamp": false,
+                                        "labelFormat": 1,
+                                        "labelPrecision": 3,
+                                        "lowColor": "#ffffffff",
+                                        "mode": "continuous",
+                                        "rampName": "viridis",
+                                        "rangeMax": 2,
+                                        "rangeMin": 0,
+                                        "rangeMode": "fixedOverRun",
+                                        "useCustomRange": true
+                                    },
+                                    "color": "#dc141414",
+                                    "colorByMagnitude": true,
+                                    "colorClassCount": 0,
+                                    "colorRampName": "viridis",
+                                    "dryDepthCutoff": 0.001,
+                                    "glyphLengthMaxPx": 44,
+                                    "glyphLengthMinPx": 20,
+                                    "glyphLengthScalePxPerMps": 20,
+                                    "glyphSpacingPx": 30,
+                                    "headSizePx": 8,
+                                    "lengthScaling": 2,
+                                    "shaftWidthPx": 2.5,
+                                    "speedMaxMps": 2,
+                                    "speedMinMps": 0
+                                },
+                                "visible": false
+                            }
+                        ]
+                    },
+                    "visible": true
+                }
+            ],
+            "terrain": {
+                "verticalUnit": "m"
+            }
+        }
+    ]
+}

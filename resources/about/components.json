@@ -1,0 +1,145 @@
+[
+  {
+    "category": "Engine",
+    "name": "Open-Source SWMM Engine",
+    "version": "6.0.0-alpha.3",
+    "role": "Hydrology, hydraulics, water-quality, and 2D surface routing engine.",
+    "homepage": "https://hydrocouple.org/openswmm.engine",
+    "source":   "https://github.com/hydrocouple/openswmm.engine",
+    "spdx": "MIT",
+    "provenance": "in-tree (add_subdirectory)",
+    "licenseFile": ":/licenses/openswmmcore.txt"
+  },
+  {
+    "category": "Engine",
+    "name": "Triangle (Shewchuk)",
+    "version": "1.6 (vendored)",
+    "role": "Constrained Delaunay triangulation for 2D mesh generation.",
+    "homepage": "https://www.cs.cmu.edu/~quake/triangle.html",
+    "source":   "https://www.cs.cmu.edu/~quake/triangle.html",
+    "spdx": "Triangle (custom)",
+    "provenance": "vendored under OpenSWMMCore/src/engine/2d/triangle/",
+    "licenseFile": ":/licenses/triangle.txt"
+  },
+  {
+    "category": "Frameworks",
+    "name": "Qt 6",
+    "version": "6.10.x",
+    "role": "Cross-platform application framework, widgets, networking, charts.",
+    "homepage": "https://www.qt.io",
+    "source":   "https://download.qt.io/official_releases/qt/",
+    "spdx": "LGPL-3.0-only",
+    "provenance": "system / vendor install",
+    "licenseFile": ":/licenses/qt6.txt"
+  },
+  {
+    "category": "Frameworks",
+    "name": "QPropertyModel",
+    "version": "1.0 (sibling project)",
+    "role": "QObject Q_PROPERTY → QAbstractItemModel adapter used by attribute panels.",
+    "homepage": "https://github.com/cbuahin/QPropertyModel",
+    "source":   "https://github.com/cbuahin/QPropertyModel",
+    "spdx": "MIT",
+    "provenance": "vendored / sibling project",
+    "licenseFile": ":/licenses/qpropertymodel.txt"
+  },
+  {
+    "category": "Geospatial",
+    "name": "GDAL / OGR",
+    "version": "3.9.x",
+    "role": "Vector & raster IO, on-the-fly reprojection, format support.",
+    "homepage": "https://gdal.org",
+    "source":   "https://github.com/OSGeo/gdal",
+    "spdx": "MIT",
+    "provenance": "vcpkg",
+    "licenseFile": ":/licenses/gdal.txt"
+  },
+  {
+    "category": "Geospatial",
+    "name": "PROJ",
+    "version": "9.x",
+    "role": "Coordinate transformation library used by GDAL.",
+    "homepage": "https://proj.org",
+    "source":   "https://github.com/OSGeo/PROJ",
+    "spdx": "MIT",
+    "provenance": "vcpkg",
+    "licenseFile": ":/licenses/proj.txt"
+  },
+  {
+    "category": "Geospatial",
+    "name": "GeoTIFF",
+    "version": "1.7.x",
+    "role": "GeoTIFF tag library used by GDAL for georeferenced raster IO.",
+    "homepage": "https://trac.osgeo.org/geotiff",
+    "source":   "https://github.com/OSGeo/libgeotiff",
+    "spdx": "MIT",
+    "provenance": "vcpkg",
+    "licenseFile": ":/licenses/geotiff.txt"
+  },
+  {
+    "category": "I/O",
+    "name": "SQLite",
+    "version": "3.x",
+    "role": "Storage backend for GeoPackage IO.",
+    "homepage": "https://sqlite.org",
+    "source":   "https://sqlite.org/download.html",
+    "spdx": "Public domain",
+    "provenance": "vcpkg",
+    "licenseFile": ":/licenses/sqlite.txt"
+  },
+  {
+    "category": "I/O",
+    "name": "Expat",
+    "version": "2.x",
+    "role": "XML parser used by GDAL/PROJ.",
+    "homepage": "https://libexpat.github.io",
+    "source":   "https://github.com/libexpat/libexpat",
+    "spdx": "MIT",
+    "provenance": "vcpkg",
+    "licenseFile": ":/licenses/expat.txt"
+  },
+  {
+    "category": "I/O",
+    "name": "libxml2",
+    "version": "2.x",
+    "role": "XML parsing for OGC service responses.",
+    "homepage": "https://gitlab.gnome.org/GNOME/libxml2",
+    "source":   "https://gitlab.gnome.org/GNOME/libxml2",
+    "spdx": "MIT",
+    "provenance": "vcpkg",
+    "licenseFile": ":/licenses/libxml2.txt"
+  },
+  {
+    "category": "Numerics",
+    "name": "nanoflann",
+    "version": "1.6.x",
+    "role": "Header-only KD-tree library used for O(log N) spatial queries (node / gage click-pick and rubber-band selection).",
+    "homepage": "https://github.com/jlblancoc/nanoflann",
+    "source":   "https://github.com/jlblancoc/nanoflann",
+    "spdx": "BSD-2-Clause",
+    "provenance": "vcpkg",
+    "licenseFile": ":/licenses/nanoflann.txt"
+  },
+  {
+    "category": "Numerics",
+    "name": "CVODE (SUNDIALS)",
+    "version": "6.x",
+    "role": "Implicit ODE/DAE solver used by the 2D surface-routing solver.",
+    "homepage": "https://computing.llnl.gov/projects/sundials",
+    "source":   "https://github.com/LLNL/sundials",
+    "spdx": "BSD-3-Clause",
+    "provenance": "in-tree (when 2D enabled)",
+    "licenseFile": ":/licenses/sundials.txt"
+  },
+  {
+    "category": "Numerics",
+    "name": "OpenMP runtime",
+    "version": "system",
+    "role": "Parallelisation primitives used by hydraulics + 2D solvers.",
+    "homepage": "https://www.openmp.org",
+    "source":   "",
+    "spdx": "Apache-2.0 WITH LLVM-exception (libomp)",
+    "provenance": "system / Homebrew (libomp on macOS)",
+    "licenseFile": ":/licenses/openmp.txt"
+  }
+]

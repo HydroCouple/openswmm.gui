@@ -1,0 +1,52 @@
+<svg width="25" height="24" viewBox="0 0 25 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<ellipse cx="3.42104" cy="7.11114" rx="1.21053" ry="1.22222" fill="#777777"/>
+<ellipse cx="2.21053" cy="14.4444" rx="1.21053" ry="1.22222" fill="#777777"/>
+<ellipse cx="8.26314" cy="20.5557" rx="1.21053" ry="1.22222" fill="#777777"/>
+<ellipse cx="14.3158" cy="14.4444" rx="1.21053" ry="1.22222" fill="#777777"/>
+<ellipse cx="19.1579" cy="19.3335" rx="1.21053" ry="1.22222" fill="#777777"/>
+<ellipse cx="22.7895" cy="12.0001" rx="1.21053" ry="1.22222" fill="#777777"/>
+<ellipse cx="14.3158" cy="9.55547" rx="1.21053" ry="1.22222" fill="#777777"/>
+<ellipse cx="19.1579" cy="4.66656" rx="1.21053" ry="1.22222" fill="#777777"/>
+<ellipse cx="10.6842" cy="2.22222" rx="1.21053" ry="1.22222" fill="#777777"/>
+<ellipse cx="8.26314" cy="12.0001" rx="1.21053" ry="1.22222" fill="#777777"/>
+<path d="M19.1579 4.66675L10.6842 2.2223" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M19.1579 4.66675L22.7895 12.0001" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M19.1579 19.3335L22.7895 12.0002" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M19.1579 19.3335L8.26316 20.5557" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M2.21051 14.4443L8.26314 20.5554" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M2.21051 14.4443L3.42104 7.111" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M10.6842 2.22217L3.42105 7.11106" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M7.05261 7.11108L4.63156 3.44442" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M7.05261 7.11108L10.6842 8.33331" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M14.3158 5.88892L10.6842 8.33336" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M14.3158 5.88892L15.5263 1.00003" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M14.3158 5.88892L17.9474 8.33336" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M16.7368 12L17.9473 8.33333" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M22.7895 7.11108L17.9474 8.33331" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M16.7368 12L17.9473 15.6667" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M22.7895 16.8887L17.9474 15.6664" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M14.3158 18.1113L17.9474 15.6669" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M14.3158 18.1113V23.0002" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M14.3158 18.1113L9.47369 15.6669" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M11.8947 12L9.47366 15.6667" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M5.8421 15.6665L9.47368 15.6665" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M5.8421 15.6665L3.42105 19.3332" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M11.8947 12L10.6842 8.33333" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M11.8947 12H16.7368" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M7.05261 7.11108L4.63156 10.7778" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M5.8421 15.6665L4.63158 10.7776" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M1 10.7778L4.63158 10.7778" stroke="#777777" stroke-width="0.25" stroke-linecap="round" stroke-dasharray="1 0.5"/>
+<path d="M8.26318 12L3.42108 7.11111" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M8.26318 12L10.6842 2.22222" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M8.26318 12L14.3158 9.55556" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M10.6842 2.22217L14.3158 9.5555" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M19.1579 4.66675L14.3158 9.55564" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M22.7895 12L14.3158 9.55556" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M14.3158 14.4443L14.3158 9.55545" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M14.3158 14.4443L22.7895 11.9999" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M14.3158 14.4443L19.1579 19.3332" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M14.3158 14.4443L8.26316 20.5554" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M8.26318 13.2222L8.26318 20.5555" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M8.26318 12L14.3158 14.4444" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+<path d="M8.26318 12L2.21055 14.4444" stroke="#777777" stroke-width="0.8" stroke-linecap="round"/>
+</svg>

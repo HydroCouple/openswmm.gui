@@ -74,3 +74,42 @@ __recovery/
 
 # Boss dependency manager vendor folder https://github.com/HashLoad/boss
 modules/
+
+CMakeUserPresets.json
+
+# --- Build & generated artifacts (added 2026-06-04) ---
+build/
+packages/
+docs/html/
+docs/test_output/
+# Local example scratch dirs stay untracked, but the curated bundled-example
+# payloads are committed (examples/* + negation, since git cannot negate
+# inside a fully-ignored directory).
+examples/*
+!examples/bellinge_2d
+.idea/
+.DS_Store
+
+# Generated mesh perf fixtures (Mesh Tiled LOD plan Phase 0) — regenerate via
+# the mesh_perf_generator tool; see tests/perf-data/mesh/README.md
+tests/perf-data/mesh/*.2dm
+tests/perf-data/mesh/*.inp
+
+# --- Work plans, agent artifacts & local testing output (not for the repo) ---
+workplans/
+test_artifacts/
+tests/output/
+tests/scratch/
+.codex_perf/
+_to_delete/
+# CTest scratch (Testing/Temporary/{LastTest.log,CTestCostData.txt}).
+Testing/
+
+# Test-written outputs that land next to tracked fixtures
+tests/gui/data/output_simstatus2derr/
+tests/gui/data/typed_selection_fixture.oswp
+tests/gui/data/typed_selection_fixture.out
+tests/gui/data/typed_selection_fixture.rpt
+tests/gui/data/userflags_phase5_out.inp
+tests/unit/data/mesh_sync*_out.inp
+tests/unit/data/2d_complete_example.h5

@@ -1,0 +1,56 @@
+/*!
+ * \file   landuselistmodel.h
+ * \author Caleb Buahin <caleb.buahin@gmail.com>
+ * \date   2026
+ * \license GPL-3.0-or-later
+ * \brief  QAbstractListModel over a LandUseRegistry. Mirrors PollutantListModel.
+ */
+#ifndef OPENSWMMVIS_UI_MODELS_LANDUSELISTMODEL_H
+#define OPENSWMMVIS_UI_MODELS_LANDUSELISTMODEL_H
+
+#include <QAbstractListModel>
+#include <QPointer>
+
+namespace openswmmvis::landuse {
+class LandUseProvider;
+class LandUseRegistry;
+}
+
+namespace openswmmvis::ui {
+
+class LandUseListModel : public QAbstractListModel
+{
+    Q_OBJECT
+public:
+    explicit LandUseListModel(QObject *parent = nullptr);
+    ~LandUseListModel() override;
+
+    void setRegistry(openswmmvis::landuse::LandUseRegistry *registry);
+    openswmmvis::landuse::LandUseRegistry *registry() const noexcept;
+
+    openswmmvis::landuse::LandUseProvider *providerAt(int row) const;
+
+    int rowCount(const QModelIndex &parent = {}) const override;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    QVariant headerData(int section, Qt::Orientation orientation,
+                         int role = Qt::DisplayRole) const override;
+    Qt::ItemFlags flags(const QModelIndex &index) const override;
+    bool setData(const QModelIndex &index, const QVariant &value,
+                 int role = Qt::EditRole) override;
+
+private slots:
+    void onProviderAdded_(openswmmvis::landuse::LandUseProvider *p);
+    void onProviderAboutToBeRemoved_(openswmmvis::landuse::LandUseProvider *p);
+    void onProviderRenamed_(openswmmvis::landuse::LandUseProvider *p,
+                              const QString &prev, const QString &now);
+    void onProviderParamsChanged_(openswmmvis::landuse::LandUseProvider *p);
+
+private:
+    int indexOf_(openswmmvis::landuse::LandUseProvider *p) const;
+
+    QPointer<openswmmvis::landuse::LandUseRegistry> m_registry;
+};
+
+} // namespace openswmmvis::ui
+
+#endif // OPENSWMMVIS_UI_MODELS_LANDUSELISTMODEL_H

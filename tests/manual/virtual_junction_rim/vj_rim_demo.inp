@@ -1,0 +1,58 @@
+[TITLE]
+Virtual junction rendering MaxDepth - by-eye profile check
+;; Profile J1 -> OUT shows both behaviours in one view:
+;;   VJ_A declares MaxDepth 9.0  -> ground line runs through 107.75
+;;   VJ_B declares nothing       -> ground line falls to the pipe crown (98.5)
+;; Neither value reaches the solver: both runs are bit-identical.
+
+[OPTIONS]
+FLOW_UNITS           CFS
+INFILTRATION         HORTON
+FLOW_ROUTING         DYNWAVE
+START_DATE           01/01/2026
+START_TIME           00:00:00
+END_DATE             01/01/2026
+END_TIME             01:00:00
+REPORT_STEP          00:01:00
+ROUTING_STEP         1
+ALLOW_PONDING        NO
+
+[JUNCTIONS]
+;;Name            Elev         MaxDepth     InitDepth    SurDepth     Aponded
+J1                100.0        10.0         0            0            0
+J2                96.25        8.0          0            0            0
+
+[VIRTUAL_JUNCTIONS]
+;;Name            Elev         MaxDepth
+VJ_A              98.75        9.0
+VJ_B              97.5
+
+[OUTFALLS]
+;;Name            Elev         Type         Stage Data       Gated
+OUT               95.0         FREE                          NO
+
+[CONDUITS]
+;;Name            From         To           Length       N            Z1    Z2
+C1                J1           VJ_A         50.0         0.013        0     0
+C2                VJ_A         VJ_B         50.0         0.013        0     0
+C3                VJ_B         J2           50.0         0.013        0     0
+C4                J2           OUT          50.0         0.013        0     0
+
+[XSECTIONS]
+;;Link            Shape        Geom1        Geom2        Geom3        Geom4  Barrels
+C1                CIRCULAR     1.0          0            0            0      1
+C2                CIRCULAR     1.0          0            0            0      1
+C3                CIRCULAR     1.0          0            0            0      1
+C4                CIRCULAR     1.0          0            0            0      1
+
+[DWF]
+;;Node            Parameter    Value
+J1                FLOW         1.5
+
+[COORDINATES]
+;;Node            X            Y
+J1                0.0          0.0
+VJ_A              50.0         0.0
+VJ_B              100.0        0.0
+J2                150.0        0.0
+OUT               200.0        0.0

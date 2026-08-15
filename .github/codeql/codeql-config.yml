@@ -1,0 +1,31 @@
+name: openswmm.gui CodeQL config
+
+# security-extended adds higher-precision security queries beyond the
+# default suite without pulling in the style/quality noise from
+# security-and-quality. Adjust here if signal-to-noise needs tuning.
+queries:
+  - uses: security-extended
+
+paths-ignore:
+  # ── Vendored third-party ──────────────────────────────────────────────
+  # Triangle mesh generator (Jonathan Shewchuk). Frozen upstream code; any
+  # findings here would have to be carried as patches rather than fixed.
+  - vendor/**
+
+  # ── Generated / build outputs ─────────────────────────────────────────
+  - build/**
+  - build-*/**
+  - cmake-build*/**
+  - dist/**
+  - packages/**
+  - "**/version.h"
+
+  # ── Test data and fixtures (not code) ─────────────────────────────────
+  - tests/**/data/**
+
+  # ── Non-code ──────────────────────────────────────────────────────────
+  - docs/**
+  - resources/**
+  - translation/**
+  - packaging/**
+  - examples/**

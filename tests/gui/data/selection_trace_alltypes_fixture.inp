@@ -1,0 +1,159 @@
+[TITLE]
+Selection-ops fixture #2 — every node and link KIND on one flow path.
+
+Topology (flow left to right; DV1 has two outflow links so the divider is legal):
+
+    S1          S2 <- S3             S4
+     |           |                    |
+     v           v                    v
+    J1 --C1--> J2 --OR1--> ST1 --W1--> DV1 --OT1--> J3 --P1--> O1
+                                        \----C2----^
+
+  Nodes ....... J1 J2 J3 (junctions), ST1 (storage), DV1 (divider), O1 (outfall)
+  Links ....... C1 C2 (conduits), OR1 (orifice), W1 (weir), OT1 (outlet), P1 (pump)
+  Subcatch .... S1 -> J1, S2 -> ST1, S3 -> S2 (subcatchment outlet), S4 -> DV1
+
+An upstream trace from O1 must visit ALL six nodes, ALL six links and ALL four
+subcatchments — this is the fixture behind traceTraversesEveryNodeAndLinkKind,
+which pins the requirement that Select Upstream/Downstream traverse every SWMM
+node type (junction / storage / divider / outfall) and every link type
+(conduit / orifice / weir / outlet / pump).
+
+[OPTIONS]
+FLOW_UNITS       CFS
+INFILTRATION     HORTON
+FLOW_ROUTING     DYNWAVE
+LINK_OFFSETS     DEPTH
+MIN_SLOPE        0
+START_DATE       01/01/2026
+START_TIME       00:00:00
+REPORT_START_DATE 01/01/2026
+REPORT_START_TIME 00:00:00
+END_DATE         01/01/2026
+END_TIME         02:00:00
+REPORT_STEP      00:01:00
+ROUTING_STEP     00:00:30
+
+[MAP]
+DIMENSIONS -1000.000 -1000.000 6000.000 2000.000
+Units      Feet
+
+[RAINGAGES]
+;;Name           Format    Interval SCF      Source
+;;-------------- --------- -------- -------- ----------------
+RG1              INTENSITY 1:00     1.0      TIMESERIES TS1
+
+[TIMESERIES]
+;;Name           Date       Time       Value
+;;-------------- ---------- ---------- ----------
+TS1                         0:00       0.0
+TS1                         1:00       0.0
+
+[JUNCTIONS]
+;;Name    Elev    MaxDepth    InitDepth    SurDepth    Aponded
+J1        100.0   10.0        0            0           0
+J2        98.0    10.0        0            0           0
+J3        93.0    10.0        0            0           0
+
+[STORAGE]
+;;Name    Elev    MaxDepth    InitDepth    Shape       CurveName/Params    SurDepth  Fevap
+ST1       95.0    10.0        0            FUNCTIONAL  0         0    1000 0         0
+
+[DIVIDERS]
+;;Name    Elev    DivLink    Type      Parameters
+DV1       94.0    OT1        CUTOFF    5.0    10.0   0    0    0
+
+[OUTFALLS]
+;;Name    Elev    Type    StageData    Gated
+O1        92.0    FREE                 NO
+
+[CONDUITS]
+;;Name    From    To    Length    Roughness    InOffset    OutOffset    InitFlow    MaxFlow
+C1        J1      J2    1000.0    0.013        0           0            0           0
+C2        DV1     J3    1000.0    0.013        0           0            0           0
+
+[ORIFICES]
+;;Name    From    To     Type    Offset    Cd      Gated    CloseTime
+OR1       J2      ST1    SIDE    0         0.65    NO       0
+
+[WEIRS]
+;;Name    From    To     Type          CrestHt    Cd      Gated    EC    Cd2
+W1        ST1     DV1    TRANSVERSE    0          3.33    NO       0     0
+
+[OUTLETS]
+;;Name    From    To    Offset    Type              Qcoeff    Qexpon    Gated
+OT1       DV1     J3    0         FUNCTIONAL/DEPTH  1.0       0.5       NO
+
+[PUMPS]
+;;Name    From    To    PumpCurve    Status    Startup    Shutoff
+P1        J3      O1    PC1          ON        0          0
+
+[CURVES]
+;;Name    Type      X-Value    Y-Value
+PC1       PUMP4     0.0        0.0
+PC1                 5.0        10.0
+
+[XSECTIONS]
+;;Link    Shape        Geom1    Geom2    Geom3    Geom4    Barrels
+C1        CIRCULAR     1.0      0        0        0        1
+C2        CIRCULAR     1.0      0        0        0        1
+OR1       CIRCULAR     0.5      0        0        0
+W1        RECT_OPEN    2.0      3.0      0        0
+
+[SUBCATCHMENTS]
+;;Name           Rain Gage        Outlet           Area     %Imperv  Width    %Slope   CurbLen
+;;-------------- ---------------- ---------------- -------- -------- -------- -------- --------
+S1               RG1              J1               5.0      50       500      1        0
+S2               RG1              ST1              5.0      50       500      1        0
+S3               RG1              S2               5.0      50       500      1        0
+S4               RG1              DV1              5.0      50       500      1        0
+
+[SUBAREAS]
+;;Subcatchment   N-Imperv   N-Perv     S-Imperv   S-Perv     PctZero    RouteTo
+;;-------------- ---------- ---------- ---------- ---------- ---------- ----------
+S1               0.015      0.24       0.06       0.3        25         OUTLET
+S2               0.015      0.24       0.06       0.3        25         OUTLET
+S3               0.015      0.24       0.06       0.3        25         OUTLET
+S4               0.015      0.24       0.06       0.3        25         OUTLET
+
+[INFILTRATION]
+;;Subcatchment   Param1     Param2     Param3     Param4     Param5
+;;-------------- ---------- ---------- ---------- ---------- ----------
+S1               4.5        0.2        6.5        7          0
+S2               4.5        0.2        6.5        7          0
+S3               4.5        0.2        6.5        7          0
+S4               4.5        0.2        6.5        7          0
+
+[COORDINATES]
+;;Node    X-Coord    Y-Coord
+J1        0.0        0.0
+J2        1000.0     0.0
+ST1       2000.0     0.0
+DV1       3000.0     0.0
+J3        4000.0     0.0
+O1        5000.0     0.0
+
+[Polygons]
+;;Subcatchment   X-Coord            Y-Coord
+;;-------------- ------------------ ------------------
+S1               -200.0             800.0
+S1               200.0              800.0
+S1               200.0              1200.0
+S1               -200.0             1200.0
+S2               1800.0             800.0
+S2               2200.0             800.0
+S2               2200.0             1200.0
+S2               1800.0             1200.0
+S3               1800.0             1400.0
+S3               2200.0             1400.0
+S3               2200.0             1800.0
+S3               1800.0             1800.0
+S4               2800.0             800.0
+S4               3200.0             800.0
+S4               3200.0             1200.0
+S4               2800.0             1200.0
+
+[SYMBOLS]
+;;Gage           X-Coord            Y-Coord
+;;-------------- ------------------ ------------------
+RG1              -800.0             -800.0
