@@ -2164,6 +2164,20 @@ add_swmmvis_gui_test(test_render_invalidation
 )
 swmmvis_link_full_app_deps(test_render_invalidation)
 
+# Attribute Table column schema — the per-category ColumnSpec contract.
+# Guards the conduit cross-section block (XSection compound cell, inline
+# Geom 1-4, Barrels) against dropping out of the schema or re-acquiring the
+# per-shape edit lock, that the post-run dynamics columns stay a contiguous
+# read-only suffix, and that the engine-backed attribute coverage
+# (conduit Slope, subcatchment Tag, storage exfiltration, outfall RouteTo)
+# is actually surfaced.
+add_swmmvis_gui_test(test_attributetableschema
+    test_attributetableschema.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_attributetableschema)
+
 # Toolbar selection ops — SelectionOps::invert (category-scoped Invert
 # Selection), SelectionOps::trace (Select Upstream / Downstream with
 # subcatchment outlet chaining), and AttributeTablePanel::selectionAsTsv

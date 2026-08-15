@@ -129,6 +129,16 @@ void DataObjectPickerEditor::repopulate()
             items.sort(Qt::CaseInsensitive);
             break;
         }
+        case DataObjectRef::Subcatchment: {
+            // [OUTFALLS] RouteTo target. Sorted so the dropdown reads the
+            // same way as the Subcatchments attribute table.
+            const int n = swmm_subcatch_count(m_ref.engine);
+            for (int i = 0; i < n; ++i)
+                if (const char *id = swmm_subcatch_id(m_ref.engine, i))
+                    if (*id) items << QString::fromUtf8(id);
+            items.sort(Qt::CaseInsensitive);
+            break;
+        }
         case DataObjectRef::SubcatchOutlet: {
             // Combined outlet target list: every node, then every subcatchment.
             // The owning adapter resolves the picked name back to a node-outlet
@@ -187,6 +197,14 @@ void DataObjectPickerEditor::onPickerClicked()
                "blank to remove the coupling. Nodes are added on the map."));
         return;
     }
+    // Subcatchments are drawn on the map, so the combo is the whole picker.
+    if (m_ref.kind == DataObjectRef::Subcatchment) {
+        QMessageBox::information(this, tr("Subcatchment"),
+            tr("Pick an existing subcatchment from the dropdown, or leave it "
+               "blank to send the discharge out of the system. Subcatchments "
+               "are drawn on the map."));
+        return;
+    }
     // The outlet picker is pure selection over existing nodes/subcatchments —
     // no "create new" target, so the browse button is a no-op note.
     if (m_ref.kind == DataObjectRef::SubcatchOutlet) {
@@ -208,6 +226,7 @@ void DataObjectPickerEditor::onPickerClicked()
     case DataObjectRef::RainGage:       /* handled above */                   break;
     case DataObjectRef::SubcatchOutlet: /* handled above */                   break;
     case DataObjectRef::Node:           /* handled above */                   break;
+    case DataObjectRef::Subcatchment:   /* handled above */                   break;
     }
 
     // Slice BM.0-Add-New (2026-05-24) — gap categories (Transects / LID /
