@@ -19,6 +19,25 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **Zoomable, pannable section diagrams.** Every section/profile/LID diagram
+  now supports scroll-to-zoom about the cursor, middle-button drag to pan, and
+  middle double-click to zoom to extents. Zoom scales the geometry only —
+  labels keep their point size, so zooming spreads the drawing out from under
+  crowded dimension text rather than magnifying the crowding. The view is
+  preserved while values are edited and reset when the subject changes.
+- **Illustrated LID layer diagrams.** LID controls are drawn with material
+  patterns (stippled planting media, open gravel outlines, angular base-course
+  aggregate, paver joints, drainage-mat lattice, hatched native soil), planting
+  appropriate to the type (shrubs for bioretention and rain gardens, turf for
+  green roofs and swales), ponded water to the berm, a perforated underdrain
+  drawn in section at its offset, and inflow/infiltration arrows. Each of the
+  eight types also gets its own illustration — a rain barrel with lid and roof
+  leader, a green roof with deck and parapets, a paved surface for permeable
+  pavement, a trapezoidal channel for a vegetative swale, a geotextile wrap for
+  an infiltration trench, and a disconnected downspout for rooftop
+  disconnection — so the type is legible at a glance rather than only from the
+  combo box.
+
 - **Section View dock + engine-accurate cross-section drawings (Slice SP).**
   New dockable **Section View** panel (View ▸ Panels ▸ Section View, tabbed
   behind the Property Browser) draws the selected object as a vector diagram
@@ -43,6 +62,14 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
   (`xsectshapegeom.h`), so they appear in the shape picker, the Property
   Browser and the Attribute Table. `CUSTOM` is withheld from the picker until
   a shape-curve picker exists (its geom2 is a curve index).
+
+### Changed
+
+- **Section outlines are sampled on a cosine-spaced depth ladder** instead of a
+  uniform one, at a higher default density (240 intervals). Width changes
+  fastest at the invert and the crown, so a uniform ladder put the fewest
+  points where curvature is highest and left circular and egg-shaped pipes
+  visibly faceted top and bottom.
 
 ### Fixed
 
