@@ -1796,6 +1796,36 @@ if(APPLE)
             "legacy (EPA-SWMM) engine option will fail to start a worker process.")
     endif()
 
+    # Refactored-engine command-line runner (openswmm). Shipped so the solver can
+    # be driven without the GUI — batch runs, scripting, CI — from a single
+    # install:
+    #     /Applications/SWMMVis.app/Contents/MacOS/openswmm model.inp [rpt] [out]
+    #
+    # Contents/MacOS is where an auxiliary executable belongs in a bundle: it
+    # stays inside the signed, notarisable unit and shares the dylibs already
+    # deployed in Contents/Frameworks. The engine ships it with an
+    # "@loader_path;@loader_path/../lib" rpath, neither of which resolves from
+    # Contents/MacOS, so add the Frameworks path the same way the legacy worker
+    # does. copy (not copy_if_different) keeps it pristine each build so
+    # add_rpath cannot accumulate duplicate entries.
+    set(_openswmm_cli "${OPENSWMMENGINE_INSTALL_DIR}/bin/openswmm")
+    if(EXISTS "${_openswmm_cli}")
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy
+                    "${_openswmm_cli}" "${_swmmvis_macos}/"
+            COMMAND install_name_tool -add_rpath "@loader_path/../Frameworks"
+                    "${_swmmvis_macos}/openswmm"
+            COMMAND codesign --force --sign "${_codesign_identity}"
+                    "${_swmmvis_macos}/openswmm"
+            COMMENT "Bundle engine CLI (openswmm) into SWMMVis.app"
+            VERBATIM
+        )
+    else()
+        message(WARNING
+            "openswmm CLI not found at ${_openswmm_cli} — the packaged app will "
+            "not include a standalone command-line runner.")
+    endif()
+
     add_custom_command(TARGET SWMMVis POST_BUILD
         COMMAND codesign --force --sign "${_codesign_identity}" --deep
                 "$<TARGET_BUNDLE_DIR:SWMMVis>"
@@ -1977,6 +2007,27 @@ elseif(WIN32)
             "legacy (EPA-SWMM) engine option will fail to start a worker process.")
     endif()
 
+    # Refactored-engine command-line runner, so the solver can be driven without
+    # the GUI (batch runs, scripting, CI) from a single install:
+    #     openswmm.exe model.inp [rpt] [out]
+    # Installed beside SWMMVis.exe, where it picks up the engine DLL and the
+    # vcpkg runtime DLLs already deployed there.
+    set(_openswmm_cli "${OPENSWMMENGINE_INSTALL_DIR}/bin/openswmm.exe")
+    if(EXISTS "${_openswmm_cli}")
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_openswmm_cli}" "$<TARGET_FILE_DIR:SWMMVis>/"
+            COMMENT "Bundle engine CLI (openswmm.exe) alongside SWMMVis.exe"
+            VERBATIM
+        )
+        install(PROGRAMS "${_openswmm_cli}"
+                DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime)
+    else()
+        message(WARNING
+            "openswmm.exe not found at ${_openswmm_cli} — the packaged app will "
+            "not include a standalone command-line runner.")
+    endif()
+
     install(TARGETS SWMMVis     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     # openswmm_engine is now a prebuilt IMPORTED target (find_package), so it
     # cannot be install(TARGETS)'d — install its runtime artifact (the DLL).
@@ -2093,6 +2144,26 @@ else()
             "legacy (EPA-SWMM) engine option will fail to start a worker process.")
     endif()
 
+    # Refactored-engine command-line runner, so the solver can be driven without
+    # the GUI (batch runs, scripting, CI) from a single install:
+    #     openswmm model.inp [rpt] [out]
+    # The engine builds it with an "$ORIGIN;$ORIGIN/../lib" RUNPATH, which
+    # resolves the co-located .so in the build tree and LIBDIR in the install
+    # tree — the same layout SWMMVis and the legacy worker already rely on.
+    set(_openswmm_cli "${OPENSWMMENGINE_INSTALL_DIR}/bin/openswmm")
+    if(EXISTS "${_openswmm_cli}")
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_openswmm_cli}" "$<TARGET_FILE_DIR:SWMMVis>/"
+            COMMENT "Bundle engine CLI (openswmm) alongside SWMMVis"
+            VERBATIM
+        )
+    else()
+        message(WARNING
+            "openswmm CLI not found at ${_openswmm_cli} — the packaged app will "
+            "not include a standalone command-line runner.")
+    endif()
+
     set_target_properties(SWMMVis PROPERTIES
         BUILD_RPATH   "$ORIGIN"
         INSTALL_RPATH "$ORIGIN"
@@ -2157,6 +2228,12 @@ else()
                 DESTINATION ${CMAKE_INSTALL_BINDIR})
         install(IMPORTED_RUNTIME_ARTIFACTS OpenSWMMEngine::openswmm_legacy_engine
                 LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    endif()
+    # Engine CLI → BINDIR (beside SWMMVis); its $ORIGIN/../lib RUNPATH finds the
+    # engine .so installed in LIBDIR above.
+    if(EXISTS "${_openswmm_cli}")
+        install(PROGRAMS "${_openswmm_cli}"
+                DESTINATION ${CMAKE_INSTALL_BINDIR})
     endif()
 endif()
 
