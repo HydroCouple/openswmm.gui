@@ -29,6 +29,13 @@ ProfilePlotOptions::ProfilePlotOptions(QObject *parent)
     m_eglLinePen.setDashPattern({12.0, 6.0});
     m_eglLinePen.setCapStyle(Qt::FlatCap);
 
+    // Virtual-junction marker: a short 4/3 dash, tight enough to stay legible
+    // on the 7 px top and bottom edges of its rectangle.  Flat caps and mitre
+    // joins keep the corners square where the dashes meet.
+    m_virtualJunctionOutlinePen.setDashPattern({4.0, 3.0});
+    m_virtualJunctionOutlinePen.setCapStyle(Qt::FlatCap);
+    m_virtualJunctionOutlinePen.setJoinStyle(Qt::MiterJoin);
+
     // Inherit the global default axis precision; per-plot edits override it.
     auto *prefs = PreferencesManager::instance();
     m_xLabelMode      = static_cast<LabelFormatMode>(prefs->plotXAxisFormatMode());
@@ -75,6 +82,8 @@ QString ProfilePlotOptions::displayLabelFor(const QString &propertyName) const
         { QStringLiteral("storageOutline"),   QObject::tr("Storage outline") },
         { QStringLiteral("dividerFill"),      QObject::tr("Divider fill") },
         { QStringLiteral("dividerOutline"),   QObject::tr("Divider outline") },
+        { QStringLiteral("virtualJunctionOutlinePen"),
+                                              QObject::tr("Virtual junction marker") },
         // Theme — links
         { QStringLiteral("conduitFill"),      QObject::tr("Conduit fill") },
         { QStringLiteral("conduitOutline"),   QObject::tr("Conduit outline") },
@@ -196,6 +205,8 @@ void ProfilePlotOptions::setStorageFill    (const QColor &c) { SET_OBJ(m_storage
 void ProfilePlotOptions::setStorageOutline (const QColor &c) { SET_OBJ(m_storageOutline, c); }
 void ProfilePlotOptions::setDividerFill    (const QColor &c) { SET_OBJ(m_dividerFill, c); }
 void ProfilePlotOptions::setDividerOutline (const QColor &c) { SET_OBJ(m_dividerOutline, c); }
+void ProfilePlotOptions::setVirtualJunctionOutlinePen(const QPen &p)
+{ SET_OBJ(m_virtualJunctionOutlinePen, p); }
 void ProfilePlotOptions::setConduitFill    (const QColor &c) { SET_OBJ(m_conduitFill, c); }
 void ProfilePlotOptions::setConduitOutline (const QColor &c) { SET_OBJ(m_conduitOutline, c); }
 void ProfilePlotOptions::setPumpFill       (const QColor &c) { SET_OBJ(m_pumpFill, c); }
