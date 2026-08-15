@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.openswmm.swmmvis</id>
+  <name>SWMMVis</name>
+  <summary>SWMM model setup, analysis, and visualization tool</summary>
+  <description>
+    <p>
+      SWMMVis is an open-source graphical interface for the Open-Source Storm Water
+      Management Model (SWMM). It supports model setup, simulation, and
+      visualization of results including 1D drainage networks and 2D surface routing.
+    </p>
+    <p>
+      Features include a GIS-capable map canvas, layer management, attribute editing,
+      mesh generation for 2D surface routing, time-series plotting, and integration
+      with the OpenSWMM engine.
+    </p>
+  </description>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <url type="homepage">https://github.com/hydrocouple/openswmm.gui</url>
+  <url type="bugtracker">https://github.com/hydrocouple/openswmm.gui/issues</url>
+
+  <launchable type="desktop-id">org.openswmm.swmmvis.desktop</launchable>
+
+  <provides>
+    <binary>SWMMVis</binary>
+  </provides>
+
+  <releases>
+    <release version="6.0.0-alpha.3" date="2026-07-12">
+      <description>
+        <p>Alpha 3 release of the OpenSWMM GUI.</p>
+      </description>
+    </release>
+    <release version="6.0.0-alpha.1" date="2026-01-01">
+      <description>
+        <p>Initial alpha release of the OpenSWMM GUI.</p>
+      </description>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1"/>
+</component>

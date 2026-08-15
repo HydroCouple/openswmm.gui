@@ -1,0 +1,151 @@
+
+[TITLE]
+;;Project Title/Notes
+Typed-selection fixture — commit a35798e (fix(selection): typed per-kind
+selection and visibility) + commit 82fc82b (feat(load): async model load).
+Covers the name-collision cases: a rain gage AND a subcatchment both named
+S1, and a junction AND a conduit both named X1. Coordinates are spread far
+apart so identifyAt() can unambiguously hit-test the gage point vs. the
+subcatchment polygon vs. the network elements.
+
+[OPTIONS]
+;;Option               Value
+FLOW_UNITS           CFS
+INFILTRATION         HORTON
+FLOW_ROUTING         DYNWAVE
+LINK_OFFSETS         DEPTH
+MIN_SLOPE            0
+ALLOW_PONDING        NO
+SKIP_STEADY_STATE    NO
+
+IGNORE_RAINFALL      NO
+IGNORE_SNOWMELT      YES
+IGNORE_GROUNDWATER   YES
+IGNORE_RDII          NO
+IGNORE_ROUTING       NO
+IGNORE_QUALITY       NO
+
+START_DATE           01/01/2026
+START_TIME           00:00:00
+REPORT_START_DATE    01/01/2026
+REPORT_START_TIME    00:00:00
+END_DATE             01/01/2026
+END_TIME             02:00:00
+SWEEP_START          1/1
+SWEEP_END            12/31
+DRY_DAYS             0
+REPORT_STEP          0:15:00
+WET_STEP             0:05:00
+DRY_STEP             1:00:00
+ROUTING_STEP         0:00:30
+RULE_STEP            0:00:00
+
+INERTIAL_DAMPING     PARTIAL
+NORMAL_FLOW_LIMITED  BOTH
+FORCE_MAIN_EQUATION  H-W
+SURCHARGE_METHOD     EXTRAN
+VARIABLE_STEP        0.75
+LENGTHENING_STEP     0
+MIN_SURFAREA         0
+MAX_TRIALS           8
+HEAD_TOLERANCE       0.005
+SYS_FLOW_TOL         5
+LAT_FLOW_TOL         5
+MINIMUM_STEP         0.5
+THREADS              1
+
+[EVAPORATION]
+;;Type       Parameters
+;;---------- ----------
+CONSTANT     0.0000
+DRY_ONLY     NO
+
+[RAINGAGES]
+;;Name             Format       Intvl    SCF      Source          
+;;---------------- ------------ -------- -------- ----------------
+S1               INTENSITY    1:00     1.00     TIMESERIES TS1
+
+[SUBCATCHMENTS]
+;;Name             RainGage         Outlet           Area         %%Imperv   Width        %%Slope    CurbLen    Snowpack         RainScale  SnowScale 
+;;---------------- ---------------- ---------------- ------------ ---------- ------------ ---------- ---------- ---------------- ---------- ----------
+S1               S1               J1                     5.0000      50.00     500.0000     1.0000     0.0000
+
+[SUBAREAS]
+;;Subcatch         N-Imperv   N-Perv     S-Imperv   S-Perv     %%ZeroImp  RouteTo  PctRouted 
+;;---------------- ---------- ---------- ---------- ---------- ---------- -------- ----------
+S1                   0.0150     0.2400     0.0600     0.3000      25.00 OUTLET         0.00
+
+[INFILTRATION]
+;;Subcatch         Param1     Param2     Param3     Param4     Param5    
+;;---------------- ---------- ---------- ---------- ---------- ----------
+S1                   4.5000     0.2000     6.5000     7.0000     0.0000 HORTON
+
+[JUNCTIONS]
+;;Name             Elev         MaxDepth     InitDepth    SurDepth     Aponded     
+;;---------------- ------------ ------------ ------------ ------------ ------------
+J1                   100.0000      10.0000       0.0000       0.0000       0.0000
+X1                    95.0000      10.0000       0.0000       0.0000       0.0000
+
+[OUTFALLS]
+;;Name             Elev         Type         Stage Data       Gated    Route To        
+;;---------------- ------------ ------------ ---------------- -------- ----------------
+O1                    90.0000 FREE         NO      
+
+[CONDUITS]
+;;Name             FromNode         ToNode           Length       Roughness    InOffset     OutOffset    InitFlow   MaxFlow   
+;;---------------- ---------------- ---------------- ------------ ------------ ------------ ------------ ---------- ----------
+C1               J1               X1                  1000.0000     0.013000       0.0000       0.0000     0.0000     0.0000
+X1               X1               O1                  1000.0000     0.013000       0.0000       0.0000     0.0000     0.0000
+
+[XSECTIONS]
+;;Link             Shape            Geom1        Geom2        Geom3        Geom4        Barrels 
+;;---------------- ---------------- ------------ ------------ ------------ ------------ --------
+C1               CIRCULAR               1.0000       0.0000       0.0000       0.0000        1
+X1               CIRCULAR               1.0000       0.0000       0.0000       0.0000        1
+
+[REPORT]
+;;Keyword          Value
+DISABLED             NO
+INPUT                NO
+CONTINUITY           YES
+FLOWSTATS            YES
+CONTROLS             NO
+AVERAGES             NO
+SUBCATCHMENTS        ALL
+NODES                ALL
+LINKS                ALL
+
+[TIMESERIES]
+;;Name             Date/Time            Value       
+;;---------------- -------------------- ------------
+TS1              0:00     0.000000
+TS1              0:60     0.000000
+
+[MAP]
+DIMENSIONS -3000.0000         -3000.0000         3000.0000          3000.0000         
+Units      FEET
+
+[COORDINATES]
+;;Node           X-Coord            Y-Coord           
+;;-------------- ------------------ ------------------
+J1               0.0000             0.0000            
+X1               1000.0000          0.0000            
+O1               2000.0000          0.0000            
+
+[VERTICES]
+;;Link           X-Coord            Y-Coord           
+;;-------------- ------------------ ------------------
+C1               500.0000           50.0000           
+
+[Polygons]
+;;Subcatchment   X-Coord            Y-Coord           
+;;-------------- ------------------ ------------------
+S1               -2100.0000         1900.0000         
+S1               -1900.0000         1900.0000         
+S1               -1900.0000         2100.0000         
+S1               -2100.0000         2100.0000         
+
+[SYMBOLS]
+;;Gage           X-Coord            Y-Coord           
+;;-------------- ------------------ ------------------
+S1               -2000.0000         -2000.0000        

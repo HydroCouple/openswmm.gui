@@ -1,0 +1,62 @@
+Triangle refinement hook verification
+=====================================
+
+[1] No hook installed
+  [PASS] nothing is unsuitable when no hook is installed
+
+[2] Empty hook installed
+  [PASS] an empty hook never marks a triangle unsuitable
+  [PASS] not cancelled
+  [PASS] test count tracks invocations
+
+[3] Size function grading
+  [PASS] fine zone: area 50 > target 10 -> refine
+  [PASS] fine zone: area 5 <= target 10 -> keep
+  [PASS] coarse zone: area 50 <= target 1000 -> keep
+  [PASS] coarse zone: area 5000 > target 1000 -> refine
+  [PASS] target <= 0 means unconstrained
+  [PASS] size function is evaluated at the centroid
+  [PASS] size function called once per test
+
+[4] Cancellation latches and then drains
+  [PASS] before cancel, oversized triangles are refined
+  [PASS] not yet cancelled
+  [PASS] cancellation latched
+      detected 480 tests after the signal (stride 4096)
+  [PASS] detected within one poll stride
+  [PASS] no triangle is marked unsuitable once cancelled
+      cancel polls before signal: 4 over 20000 tests
+  [PASS] cancel predicate is polled on a stride, not every test
+  [PASS] size function was consulted while running
+
+[5] No work after cancellation
+  [PASS] cancelled
+      refined 4095 total, 0 after detection (bound 4096)
+  [PASS] pre-detection refinement is bounded by one poll stride
+  [PASS] every triangle reported suitable once cancellation is detected
+      size fn calls 4095 (bound 4096), progress calls 0
+  [PASS] size fn stops being consulted
+  [PASS] progress stops being reported
+
+[6] Progress reporting
+      4 report(s) over 1048583 tests
+  [PASS] one report per progress stride
+  [PASS] reported counts are strictly increasing
+  [PASS] first report lands on the stride boundary
+
+[7] Guard nesting and counter reset
+  [PASS] outer counted 100
+  [PASS] outer hook is active
+  [PASS] guard resets the counter
+  [PASS] inner hook is active
+  [PASS] outer hook restored after inner guard dies
+  [PASS] nullptr guard disables the hook
+  [PASS] outer hook restored after null guard dies
+
+[8] Per-thread isolation
+  [PASS] thread B observed its own cancellation
+  [PASS] thread A never saw B's cancellation
+  [PASS] thread A's size function stayed in effect
+
+=====================================
+ALL CHECKS PASSED (0 failures)

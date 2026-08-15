@@ -1,0 +1,13 @@
+OpenMP runtime (libomp / Intel OpenMP runtime)
+
+The OpenMP API specification is published by the OpenMP Architecture
+Review Board (https://www.openmp.org). The runtime library shipped with
+LLVM/Clang (libomp) is licensed under the Apache License, Version 2.0
+WITH the LLVM exception:
+
+    https://github.com/llvm/llvm-project/blob/main/openmp/LICENSE.TXT
+
+The runtime is dynamically linked from the system / Homebrew install on
+macOS and from the compiler-bundled runtime on Linux / Windows. The
+canonical license text is shipped with the runtime; a copy should be
+inserted here at packaging time.

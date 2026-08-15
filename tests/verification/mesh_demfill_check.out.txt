@@ -1,0 +1,43 @@
+Mesh DEM-coverage fill verification
+===================================
+
+[1] CSR adjacency from the triangle list
+  [PASS] total slots == 6 per triangle (2 directed edges per corner)
+  [PASS] every reserved slot was written (no gap, no overrun)
+  [PASS] each vertex slice filled exactly to its reserved end
+    deg(corner 0)=4  deg(centre)=12
+  [PASS] corner vertex sits on both triangles of its cell (diagonal v00-v11)
+  [PASS] interior vertex has six
+
+[2] Interior NoData hole is filled and bounded
+    hole vertices=81  filled=81  seed sweeps=5  relax=68  unreachable=0
+  [PASS] every hole vertex filled
+  [PASS] no NaN survives the fill
+  [PASS] filled values stay inside the surrounding data range
+  [PASS] covered vertices are not perturbed
+
+[3] Sweep count tracks hole radius (loop is bounded)
+    radius=1   seed sweeps=2   relax=10   filled=9
+  [PASS] sweeps <= radius+1 — one edge of advance per pass
+    radius=2   seed sweeps=3   relax=24   filled=25
+  [PASS] sweeps <= radius+1 — one edge of advance per pass
+    radius=4   seed sweeps=5   relax=68   filled=81
+  [PASS] sweeps <= radius+1 — one edge of advance per pass
+    radius=8   seed sweeps=9   relax=212  filled=289
+  [PASS] sweeps <= radius+1 — one edge of advance per pass
+
+[4] Fill is Jacobi — independent of pending order
+  [PASS] shuffled pending order gives bit-identical elevations
+
+[5] Fully uncovered component is reported, not fabricated
+    filled=0  unreachable=4  sweeps=0
+  [PASS] the isolated island is left unresolved
+  [PASS] nothing was invented for it
+  [PASS] production code fails() on this rather than writing NaN onward
+
+[6] A planar surface is interpolated, not smeared
+    plane z = 0.7*x + -1.3*y + 12.0   max error = 0.0013
+  [PASS] harmonic fill reproduces the plane across a 13x13 hole
+  [PASS] sanity: the hole really was refilled, not preserved
+
+ALL CHECKS PASSED — 0 failure(s)

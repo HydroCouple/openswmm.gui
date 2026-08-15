@@ -1,0 +1,69 @@
+DTMThinner scalability verification
+===================================
+
+[1] Banded read == per-point sampleAt() reference
+    north-up, 1 m pixels      bands@1row=83
+  [PASS] every band size reproduces the reference exactly
+    north-up + NoData         bands@1row=83
+  [PASS] every band size reproduces the reference exactly
+    anisotropic 2.5 x 1.25    bands@1row=83
+  [PASS] every band size reproduces the reference exactly
+    rotated / sheared         bands@1row=83
+  [PASS] every band size reproduces the reference exactly
+
+[2] Read buffer stays under budget as the grid grows
+    grid 3000x3000, single-block read would be 34.3 MB
+    banded peak buffer 4.01 MB over 9 RasterIO calls
+  [PASS] peak buffer within ~budget
+  [PASS] RasterIO call count is O(bands), not O(points)
+  [PASS] all in-footprint points sampled
+
+[3] Grid extending past the DEM -> NaN, not fabricated terrain
+    8500 of 12100 grid points fall outside the DEM footprint
+    pre-rework sampler invented elevations for 8500 of them
+  [PASS] test actually exercises out-of-footprint points
+  [PASS] reworked sampler returns NaN for every one
+  [PASS] pre-rework sampler is confirmed to have fabricated values
+
+[4] Dirty-set thinning iterates instead of stopping after one pass
+    pre-rework : 1 pass(es), 10799 of 10800 points retained
+    reworked   : 50 pass(es), 10150 of 10800 points retained
+  [PASS] pre-rework loop provably terminates after exactly 1 pass
+  [PASS] reworked loop runs multiple passes
+  [PASS] reworked loop thins further
+    converged  : 207 pass(es), 4125 points retained
+  [PASS] unlimited-iteration run converges
+  [PASS] retained count is monotone non-increasing in maxIterations
+
+[5] Grid sizing guard survives extreme extents
+    1 km @ 1 m           1000 x 1000 -> accepted
+    20 km @ 5 m          4000 x 4000 -> accepted
+    30 km @ 5 m          6000 x 6000 -> accepted
+    35 km @ 5 m          7000 x 7000 -> rejected
+    50 km @ 5 m          10000 x 10000 -> rejected
+    continental @ 1 m    4000000 x 3000000 -> rejected   (pre-rework: int overflow / UB)
+    absurd @ 1 mm        1000000000000 x 1000000000000 -> rejected   (pre-rework: int overflow / UB)
+  [PASS] guard accepts sane grids and rejects oversized ones
+
+[6] Banded thinning (halo = passes) == monolithic, core-exact
+  [PASS] all-active, 1 pass: cores {2,3,5,8,17,all} all agree
+  [PASS] all-active, 2 passes: cores {2,3,5,8,17,all} all agree
+  [PASS] all-active, 3 passes: cores {2,3,5,8,17,all} all agree
+  [PASS] all-active, 5 passes: cores {2,3,5,8,17,all} all agree
+  [PASS] with holes, 1 pass: cores {2,3,5,8,17,all} all agree
+  [PASS] with holes, 2 passes: cores {2,3,5,8,17,all} all agree
+  [PASS] with holes, 3 passes: cores {2,3,5,8,17,all} all agree
+  [PASS] with holes, 5 passes: cores {2,3,5,8,17,all} all agree
+
+[7] Multi-band pass cap (64) vs monolithic convergence
+  [PASS] monolithic convergence needs <= 64 passes here
+  [PASS] capped banded run is deterministic
+  [PASS] capped banded run matches monolithic convergence
+
+[8] Adaptive per-band maxPoints quota arithmetic
+  [PASS] denominator >= 1 and quota >= 0 for every band
+  [PASS] row bookkeeping sums to zero
+  [PASS] total retained lands within the soft-cap envelope
+
+===================================
+ALL CHECKS PASSED (0 failures)

@@ -1,0 +1,22 @@
+Qt 6 Framework
+Copyright (C) The Qt Company Ltd and other contributors.
+
+The Qt framework is dual-licensed:
+  * Open Source: GNU LGPL version 3 (LGPL-3.0-only) for the Qt Essentials
+    and Add-ons that this application uses.
+  * Commercial: terms negotiated directly with The Qt Company.
+
+This application uses Qt under the LGPL-3.0-only terms. The full LGPL-3.0
+text is shipped with the Qt installation under
+`<Qt>/Licenses/LICENSE.LGPL3`. A copy should be inserted here at packaging
+time by the build system. Until then, please consult:
+
+    https://www.gnu.org/licenses/lgpl-3.0.html
+
+Source code for the Qt version used by this build is available from:
+
+    https://download.qt.io/official_releases/qt/
+
+In compliance with LGPL-3.0, the Qt libraries are dynamically linked and
+end users have the right to relink the application against modified
+versions of Qt.
