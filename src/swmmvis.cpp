@@ -612,10 +612,11 @@ void SWMMVis::initializeWelcomeScreen()
 {
     clearPreviousWelcomeScreenElements();
 
-    // Theme-track the MDI backdrop (it is what shows through the welcome
-    // tab, which paints no background of its own). See
-    // mdiworkspacechrome.h.
-    openswmmvis::ui::installMdiWorkspaceChrome(ui->mdiAreaCentral);
+    // Theme-track the MDI backdrop and give the welcome tab an opaque
+    // background, so the model sub-window Qt leaves restored in the viewport
+    // cannot show through it. See mdiworkspacechrome.h.
+    openswmmvis::ui::installMdiWorkspaceChrome(ui->mdiAreaCentral,
+                                               ui->welcomeWidget);
 
     // Force the MDI's internal tab bar to render close-X on the RIGHT
     // (macOS defaults to LEFT via the native style hint).
