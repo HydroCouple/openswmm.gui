@@ -342,6 +342,9 @@ void LinkCompoundEditDialog::buildXSectionPage()
                 updateXsectFieldVisibility();
                 applyXsect();
                 refreshXsectPreview();
+                // A different shape is a different drawing; geom edits below
+                // deliberately keep whatever zoom the user has set.
+                if (m_xsPreview) m_xsPreview->zoomToExtents();
             });
     // Slice SP.3 — the preview redraws on every keystroke, ahead of (and
     // independently of) the engine write, so an intermediate value that the

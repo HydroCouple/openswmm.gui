@@ -25,6 +25,7 @@
 #define OPENSWMMVIS_SECTIONVIEW_SECTIONDIAGRAM_H
 
 #include <QPalette>
+#include <QtGlobal>
 #include <QPointF>
 #include <QPolygonF>
 #include <QRectF>
@@ -49,11 +50,36 @@ enum class DiagramRole {
     Accent       //!< Highlighted item (e.g. the geom being edited).
 };
 
+/*!
+ * Material pattern drawn INSIDE a filled polygon, on top of its flat colour.
+ *
+ * This is what makes a LID layer stack read as engineered materials rather than
+ * as coloured bands: a soil layer that is stippled and a storage layer full of
+ * gravel outlines are distinguishable at a glance and in greyscale, which flat
+ * fills separated only by hue are not.
+ *
+ * Patterns are generated procedurally from a fixed seed, so a given layer looks
+ * identical on every repaint — a texture that reshuffles as the panel resizes
+ * reads as noise, not as material.
+ */
+enum class DiagramTexture {
+    None,
+    Stipple,     //!< Fine speckle — engineered soil / planting media.
+    Gravel,      //!< Loose rounded outlines — void storage, drainage stone.
+    Aggregate,   //!< Angular chips — porous pavement, base course.
+    Sand,        //!< Dense fine dots — sand / choking layer.
+    Hatch,       //!< 45° lines — native soil, and unknown-value layers.
+    Lattice,     //!< Cross-hatched grid — drainage mat / geocomposite.
+    Brick        //!< Staggered joints — paver blocks.
+};
+
 /*! A filled + stroked polygon in model coordinates (y increases UPWARD). */
 struct DiagramPoly
 {
     QPolygonF   pts;
     DiagramRole role = DiagramRole::Conduit;
+    /*! Material pattern drawn over the fill; clipped to the polygon. */
+    DiagramTexture texture = DiagramTexture::None;
     /*! Open channels leave the top edge unstroked so they don't read as a
      *  closed conduit. Applies only when `pts` came from a section outline. */
     bool        openTop = false;
@@ -106,6 +132,52 @@ struct DiagramLeader
     QPointF pixelOffset { 60.0, -28.0 };
 };
 
+/*!
+ * A run of vegetation drawn standing on the segment `x0`→`x1` at height `y`.
+ *
+ * Planting is the fastest visual cue for which LID type is on screen — a
+ * bioretention cell and an infiltration trench have near-identical layer
+ * stacks and completely different surfaces.
+ */
+struct DiagramVegetation
+{
+    double x0 = 0.0;
+    double x1 = 0.0;
+    double y  = 0.0;
+    /*! Plant height in MODEL units, so it scales with the drawing. */
+    double height = 0.0;
+    /*! Roughly how many plants to draw across the run; the painter spaces them
+     *  evenly and jitters them deterministically. */
+    int    count = 8;
+    /*! Grass tufts (swales, turf) instead of shrubs (bioretention, gardens). */
+    bool   grass = false;
+};
+
+/*!
+ * A circle in model coordinates — an underdrain pipe in section, a barrel
+ * fitting, a cleanout. Drawn filled + stroked like a poly.
+ */
+struct DiagramCircle
+{
+    QPointF     centre;
+    double      radius = 0.0;
+    DiagramRole role   = DiagramRole::Conduit;
+    /*! Draw the conventional perforated-pipe ticks around the circumference. */
+    bool        perforated = false;
+};
+
+/*!
+ * A standalone annotated arrow in model coordinates — inflow, overflow,
+ * infiltration into the native soil, evapotranspiration.
+ */
+struct DiagramArrow
+{
+    QPointF from;
+    QPointF to;
+    QString label;
+    DiagramRole role = DiagramRole::Accent;
+};
+
 /*! One spoke of the plan-view inset: a link leaving/entering the node at
  *  `angleDeg` (math convention — 0° = +x / east, CCW positive). */
 struct PlanSpoke
@@ -113,6 +185,29 @@ struct PlanSpoke
     double  angleDeg = 0.0;
     QString label;
     bool    inbound  = true;
+};
+
+/*!
+ * \struct DiagramViewport
+ * \brief User zoom / pan applied on top of the automatic fit.
+ *
+ * The painter always fits the model to the widget first; this is layered over
+ * that result, so "zoom to extents" is simply a default-constructed viewport
+ * and no state has to be recomputed when the model changes.
+ *
+ * Only the GEOMETRY is scaled — text keeps its point size, and dimension /
+ * leader offsets keep their pixel lengths. That is the engineering-drawing
+ * convention, and it is what makes zooming useful for legibility: the drawing
+ * spreads out underneath labels that stay readable, instead of everything
+ * growing together and staying equally cramped.
+ */
+struct DiagramViewport
+{
+    double  zoom = 1.0;   //!< 1.0 = fitted to the widget.
+    QPointF panPx;        //!< Additional translation, in screen pixels.
+
+    [[nodiscard]] bool isIdentity() const
+    { return qFuzzyCompare(zoom, 1.0) && panPx.isNull(); }
 };
 
 /*!
@@ -136,15 +231,20 @@ struct SectionDiagramModel
      *          3 m depth must both stay legible). */
     bool uniformScale = true;
 
-    QVector<DiagramPoly>     polys;
-    QVector<DiagramPolyline> polylines;
-    QVector<DiagramGround>   grounds;
+    QVector<DiagramPoly>       polys;
+    QVector<DiagramPolyline>   polylines;
+    QVector<DiagramGround>     grounds;
+    QVector<DiagramVegetation> vegetation;
+    QVector<DiagramCircle>     circles;
+    QVector<DiagramArrow>      arrows;
     QVector<DiagramDim>      dims;
     QVector<DiagramLeader>   leaders;
     QVector<PlanSpoke>       plan;      //!< Non-empty → draw the compass inset.
 
     [[nodiscard]] bool isEmpty() const
     {
+        // Vegetation, circles and arrows are ornaments on something else, so
+        // they deliberately do not count as content on their own.
         return polys.isEmpty() && polylines.isEmpty() && grounds.isEmpty();
     }
 
@@ -163,9 +263,19 @@ struct SectionDiagramModel
  *
  * The painter's state is saved and restored; no transform leaks out.
  */
+/*!
+ * \param fitRectOut  Optionally receives the pixel rect the model bounds were
+ *        fitted into, BEFORE zoom/pan. A zooming host needs it to keep the
+ *        point under the cursor stationary; reporting it beats recomputing it,
+ *        because the fit reserves adaptive margins for leader and dimension
+ *        text and a second copy of that logic would silently drift.
+ *        Left untouched when the model is empty or too small to draw.
+ */
 void paintSectionDiagram(QPainter &painter, const QRectF &target,
                          const SectionDiagramModel &model,
-                         const QPalette &palette);
+                         const QPalette &palette,
+                         const DiagramViewport &viewport = {},
+                         QRectF *fitRectOut = nullptr);
 
 /*! Resolve a role to its fill colour (exposed for tests + the icon renderer). */
 [[nodiscard]] QColor diagramFillColor(DiagramRole role, const QPalette &palette);

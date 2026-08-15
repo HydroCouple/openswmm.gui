@@ -10,6 +10,7 @@
 #include <QBrush>
 #include <QFontMetricsF>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPen>
 #include <QtMath>
 
@@ -60,6 +61,181 @@ void drawArrowHead(QPainter &p, const QPointF &tip, double angleRad,
     p.setPen(Qt::NoPen);
     p.setBrush(color);
     p.drawPolygon(head);
+}
+
+/*!
+ * Deterministic jitter in [-1, 1] from an integer key.
+ *
+ * A texture must look identical on every repaint — one that reshuffles when the
+ * panel resizes reads as noise rather than as material — so this is a hash, not
+ * a random generator, and carries no state.
+ */
+double jitter(int key)
+{
+    quint32 h = static_cast<quint32>(key) * 2654435761u;   // Knuth
+    h ^= h >> 15;
+    h *= 2246822519u;
+    h ^= h >> 13;
+    return (static_cast<double>(h & 0xFFFFu) / 32767.5) - 1.0;
+}
+
+/*!
+ * Fill \p shape with a material pattern.
+ *
+ * Patterns are generated in SCREEN space over the polygon's bounding box and
+ * clipped to it, so the grain stays a constant visual size as the user zooms —
+ * the same convention as a hatch on a drawing sheet, and it avoids a stipple
+ * collapsing into a solid block when zoomed out.
+ */
+void paintTexture(QPainter &p, const QPolygonF &shape, DiagramTexture texture,
+                  const QColor &ink)
+{
+    if (texture == DiagramTexture::None || shape.size() < 3) return;
+
+    const QRectF b = shape.boundingRect();
+    if (b.width() < 2.0 || b.height() < 2.0) return;
+
+    p.save();
+    QPainterPath clip;
+    clip.addPolygon(shape);
+    clip.closeSubpath();
+    p.setClipPath(clip, Qt::IntersectClip);
+
+    QColor c = ink;
+    c.setAlphaF(0.55);
+
+    switch (texture) {
+    case DiagramTexture::Stipple:
+    case DiagramTexture::Sand: {
+        const double step = (texture == DiagramTexture::Sand) ? 5.0 : 8.0;
+        const double r    = (texture == DiagramTexture::Sand) ? 0.6 : 0.9;
+        p.setPen(Qt::NoPen);
+        p.setBrush(c);
+        int k = 0;
+        for (double y = b.top() + 2.0; y < b.bottom(); y += step)
+            for (double x = b.left() + 2.0; x < b.right(); x += step, ++k)
+                p.drawEllipse(QPointF(x + jitter(k) * step * 0.35,
+                                      y + jitter(k + 7919) * step * 0.35), r, r);
+        break;
+    }
+    case DiagramTexture::Gravel: {
+        // Open outlines, not filled blobs: gravel is mostly void, and the void
+        // is the point of a storage layer.
+        p.setBrush(Qt::NoBrush);
+        QPen pen(c);
+        pen.setWidthF(0.9);
+        p.setPen(pen);
+        const double step = 13.0;
+        int k = 0;
+        for (double y = b.top() + 5.0; y < b.bottom(); y += step)
+            for (double x = b.left() + 5.0; x < b.right(); x += step, ++k) {
+                const double rr = 2.6 + jitter(k) * 0.9;
+                p.drawEllipse(QPointF(x + jitter(k + 104729) * 3.0,
+                                      y + jitter(k + 15485863) * 3.0), rr, rr);
+            }
+        break;
+    }
+    case DiagramTexture::Aggregate: {
+        p.setBrush(Qt::NoBrush);
+        QPen pen(c);
+        pen.setWidthF(0.9);
+        p.setPen(pen);
+        const double step = 11.0;
+        int k = 0;
+        for (double y = b.top() + 4.0; y < b.bottom(); y += step)
+            for (double x = b.left() + 4.0; x < b.right(); x += step, ++k) {
+                const double rr = 2.2 + jitter(k) * 0.8;
+                const QPointF c0(x + jitter(k + 31) * 2.5, y + jitter(k + 97) * 2.5);
+                // Angular chip: a jittered triangle reads as crushed stone
+                // where a circle reads as rounded river gravel.
+                QPolygonF chip;
+                for (int v = 0; v < 3; ++v) {
+                    const double a = (v * 2.0 * M_PI / 3.0) + jitter(k + v * 13) * 0.6;
+                    chip << c0 + QPointF(rr * std::cos(a), rr * std::sin(a));
+                }
+                p.drawPolygon(chip);
+            }
+        break;
+    }
+    case DiagramTexture::Hatch: {
+        QPen pen(c);
+        pen.setWidthF(0.8);
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+        const double step = 8.0;
+        for (double x = b.left() - b.height(); x < b.right(); x += step)
+            p.drawLine(QPointF(x, b.bottom()),
+                       QPointF(x + b.height(), b.top()));
+        break;
+    }
+    case DiagramTexture::Lattice: {
+        QPen pen(c);
+        pen.setWidthF(0.8);
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+        const double step = 7.0;
+        for (double x = b.left(); x < b.right(); x += step)
+            p.drawLine(QPointF(x, b.top()), QPointF(x, b.bottom()));
+        for (double y = b.top(); y < b.bottom(); y += step)
+            p.drawLine(QPointF(b.left(), y), QPointF(b.right(), y));
+        break;
+    }
+    case DiagramTexture::Brick: {
+        QPen pen(c);
+        pen.setWidthF(1.0);
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+        const double bw = 26.0, bh = std::max(6.0, b.height() * 0.5);
+        int row = 0;
+        for (double y = b.top(); y < b.bottom(); y += bh, ++row) {
+            p.drawLine(QPointF(b.left(), y), QPointF(b.right(), y));
+            const double off = (row % 2) ? bw * 0.5 : 0.0;
+            for (double x = b.left() + off; x < b.right(); x += bw)
+                p.drawLine(QPointF(x, y), QPointF(x, std::min(y + bh, b.bottom())));
+        }
+        break;
+    }
+    case DiagramTexture::None:
+        break;
+    }
+
+    p.restore();
+}
+
+/*! One shrub (a stem with two pairs of leaves) or one grass tuft. */
+void paintPlant(QPainter &p, const QPointF &base, double heightPx, bool grass,
+                const QColor &green, int key)
+{
+    if (heightPx < 3.0) return;
+
+    QPen stem(green);
+    stem.setWidthF(std::clamp(heightPx * 0.09, 0.8, 2.2));
+    stem.setCapStyle(Qt::RoundCap);
+    p.setPen(stem);
+    p.setBrush(Qt::NoBrush);
+
+    if (grass) {
+        // Three splayed blades — turf / swale bottom.
+        for (int i = -1; i <= 1; ++i) {
+            const double lean = (i * 0.30) + jitter(key + i) * 0.12;
+            const double h    = heightPx * (0.75 + 0.25 * (i == 0 ? 1.0 : 0.6));
+            QPainterPath blade(base);
+            blade.quadTo(base + QPointF(lean * h * 0.4, -h * 0.6),
+                         base + QPointF(lean * h, -h));
+            p.drawPath(blade);
+        }
+        return;
+    }
+
+    // Shrub: upright stem plus two leaf pairs.
+    const QPointF top = base + QPointF(jitter(key) * heightPx * 0.08, -heightPx);
+    p.drawLine(base, top);
+    for (double f : { 0.45, 0.75 }) {
+        const QPointF at = base + (top - base) * f;
+        const double  L  = heightPx * 0.30;
+        p.drawLine(at, at + QPointF(-L, -L * 0.75));
+        p.drawLine(at, at + QPointF( L, -L * 0.75));
+    }
 }
 
 } // namespace
@@ -137,7 +313,9 @@ QRectF SectionDiagramModel::computeBounds() const
 
 void paintSectionDiagram(QPainter &p, const QRectF &target,
                          const SectionDiagramModel &model,
-                         const QPalette &palette)
+                         const QPalette &palette,
+                         const DiagramViewport &viewport,
+                         QRectF *fitRectOut)
 {
     p.save();
     p.setRenderHint(QPainter::Antialiasing, true);
@@ -258,6 +436,7 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         }
     }
     const QRectF fitRect = area.adjusted(padLeft, padTop, -padRight, -padBottom);
+    if (fitRectOut) *fitRectOut = fitRect;
     if (fitRect.width() <= 2.0 || fitRect.height() <= 2.0) {
         p.restore();
         return;
@@ -267,12 +446,25 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     double sy = fitRect.height() / b.height();
     if (model.uniformScale) sx = sy = std::min(sx, sy);
 
+    // User zoom/pan layered over the fit. Scaling about the fit rect's centre
+    // keeps "zoom out then in" returning to the same place.
+    const double zoom = std::clamp(viewport.zoom, 0.05, 200.0);
+    sx *= zoom;
+    sy *= zoom;
+
     // Model y grows upward; screen y grows downward — hence the -sy.
-    const double cx = fitRect.center().x() - sx * (b.left() + b.width()  * 0.5);
-    const double cy = fitRect.center().y() + sy * (b.top()  + b.height() * 0.5);
+    const double cx = fitRect.center().x() - sx * (b.left() + b.width()  * 0.5)
+                      + viewport.panPx.x();
+    const double cy = fitRect.center().y() + sy * (b.top()  + b.height() * 0.5)
+                      + viewport.panPx.y();
     auto toPx = [sx, sy, cx, cy](const QPointF &m) {
         return QPointF(cx + sx * m.x(), cy - sy * m.y());
     };
+
+    // Zoomed content must not spill over the header / footer / plan inset, all
+    // of which are drawn in unscaled screen space.
+    p.save();
+    p.setClipRect(area.adjusted(-kMarginX * 0.5, 0.0, kMarginX * 0.5, 0.0));
 
     // ── Ground lines + hatch ───────────────────────────────────────────────
     for (const DiagramGround &g : model.grounds) {
@@ -339,9 +531,107 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
             p.drawPolygon(px);
         }
 
+        // Material pattern over the flat fill. Unknown layers keep their dashed
+        // outline + diagonal brush instead — the point there is "no data", not
+        // "this material".
+        if (!poly.unknown)
+            paintTexture(p, px, poly.texture, stroke);
+
         if (!poly.insetLabel.isEmpty()) {
-            p.setPen(inkColor);
-            p.drawText(px.boundingRect(), Qt::AlignCenter, poly.insetLabel);
+            // Label on a plate so it stays readable over a texture.
+            const QRectF bb = px.boundingRect();
+            const QString txt = fm.elidedText(poly.insetLabel, Qt::ElideRight,
+                                              bb.width() - 8.0);
+            const QRectF tr(bb.center().x() - fm.horizontalAdvance(txt) * 0.5 - 4.0,
+                            bb.center().y() - fm.height() * 0.5 - 1.0,
+                            fm.horizontalAdvance(txt) + 8.0, fm.height() + 2.0);
+            if (bb.height() > fm.height() + 4.0) {
+                QColor plate = palette.color(QPalette::Base);
+                plate.setAlphaF(0.78);
+                p.setPen(Qt::NoPen);
+                p.setBrush(plate);
+                p.drawRoundedRect(tr, 3.0, 3.0);
+                p.setPen(inkColor);
+                p.drawText(tr, Qt::AlignCenter, txt);
+            }
+        }
+    }
+
+    // ── Vegetation ─────────────────────────────────────────────────────────
+    {
+        const QColor green = diagramStrokeColor(DiagramRole::Vegetation, palette)
+                                 .darker(105);
+        for (const DiagramVegetation &v : model.vegetation) {
+            if (v.count < 1 || !(v.height > 0.0)) continue;
+            const QPointF a = toPx({ v.x0, v.y });
+            const QPointF b2 = toPx({ v.x1, v.y });
+            // Height is in model units, so plants scale with the drawing —
+            // shrubs that stayed a fixed pixel size would look like weeds on a
+            // zoomed-in cell and like trees on a zoomed-out one.
+            const double hPx = std::abs(toPx({ v.x0, v.y + v.height }).y() - a.y());
+            const int n = std::clamp(v.count, 1, 64);
+            for (int i = 0; i < n; ++i) {
+                const double t = (n == 1) ? 0.5 : (i + 0.5) / static_cast<double>(n);
+                QPointF at = a + (b2 - a) * t;
+                at.rx() += jitter(i * 31 + n) * 2.0;
+                paintPlant(p, at, hPx * (0.82 + 0.18 * std::abs(jitter(i * 17))),
+                           v.grass, green, i * 101 + n);
+            }
+        }
+    }
+
+    // ── Circles (underdrain pipes, fittings) ───────────────────────────────
+    for (const DiagramCircle &c : model.circles) {
+        if (!(c.radius > 0.0)) continue;
+        const QPointF ctr = toPx(c.centre);
+        // Radius is a model length, but a hairline circle is useless — keep a
+        // floor so an underdrain stays visible when the stack is zoomed out.
+        const double rx = std::max(std::abs(toPx({ c.centre.x() + c.radius,
+                                                   c.centre.y() }).x() - ctr.x()), 3.0);
+
+        p.setBrush(diagramFillColor(c.role, palette));
+        QPen pen(diagramStrokeColor(c.role, palette));
+        pen.setWidthF(1.3);
+        p.setPen(pen);
+        p.drawEllipse(ctr, rx, rx);
+
+        if (c.perforated) {
+            // Conventional perforation ticks around the crown.
+            pen.setWidthF(1.0);
+            p.setPen(pen);
+            for (int i = 0; i < 8; ++i) {
+                const double a = M_PI * (0.15 + i * 0.10);
+                const QPointF d(std::cos(a), -std::sin(a));
+                p.drawLine(ctr + d * rx, ctr + d * (rx + 3.0));
+            }
+        }
+    }
+
+    // ── Annotated arrows (inflow, infiltration, overflow) ──────────────────
+    for (const DiagramArrow &a : model.arrows) {
+        const QPointF from = toPx(a.from);
+        const QPointF to   = toPx(a.to);
+        const double dx = to.x() - from.x(), dy = to.y() - from.y();
+        const double len = std::hypot(dx, dy);
+        if (len < 2.0) continue;
+
+        const QColor col = diagramStrokeColor(a.role, palette);
+        QPen pen(col);
+        pen.setWidthF(1.6);
+        pen.setCapStyle(Qt::RoundCap);
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+        p.drawLine(from, to);
+        drawArrowHead(p, to, std::atan2(dy, dx), col);
+
+        if (!a.label.isEmpty() && showLeaders) {
+            p.setPen(col);
+            const bool rightward = dx >= 0.0;
+            const QRectF tr(rightward ? from.x() - 120.0 : from.x() + 4.0,
+                            from.y() - fm.height() - 2.0, 116.0, fm.height());
+            p.drawText(tr, (rightward ? Qt::AlignRight : Qt::AlignLeft)
+                               | Qt::AlignVCenter,
+                       fm.elidedText(a.label, Qt::ElideRight, tr.width()));
         }
     }
 
@@ -489,6 +779,8 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
                        fm.elidedText(l.text, Qt::ElideRight, tr.width()));
         }
     }
+
+    p.restore();   // end of the zoom/pan clip — chrome below is screen-space
 
     // ── Plan-view inset ────────────────────────────────────────────────────
     if (!planRect.isNull()) {
