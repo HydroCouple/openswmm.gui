@@ -171,6 +171,13 @@ private:
      *  editable column per defined user flag (key "userflag:<NAME>")
      *  when the bound category maps to an engine object type. */
     void appendUserFlagColumns();
+
+    /*! Append the category's post-run "dynamics" statistics columns.
+     *  Called last by `rebuildColumnSchema()` — after the user-flag
+     *  columns — so every table reads [inputs | user flags | results]
+     *  left to right. The columns are ReadOnly with a getter-only tag;
+     *  they read back zero until a simulation has been initialized. */
+    void appendDynamicsColumns();
     QVariantMap rowData(int row) const;
 
     QPointer<SWMMModelLayer>           m_layer;

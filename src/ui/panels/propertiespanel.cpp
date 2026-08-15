@@ -768,14 +768,15 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
             m_linkAdapter->setModelLayer(m_swmmLayer);
             if (pm) pm->setData(QVariant::fromValue<QObject *>(m_linkAdapter));
 
-            // Inline cross-section geoms (Conduit / Orifice / Weir) — grey
-            // out the geom rows that don't apply to the link's current
-            // shape, mirroring the dialog's per-shape field visibility
-            // (openswmmvis::xsectGeomApplies). Re-run on every changed()
-            // so editing the shape via the compound dialog re-evaluates
-            // the greying. No-op on Pump / Outlet (no geom rows) and on
-            // shapes where geom1 is an index (IRREGULAR / STREET → all
-            // greyed; the transect/street is set via the dialog picker).
+            // Inline cross-section geoms (Conduit / Orifice / Weir) stay
+            // editable for every shape — the stored geom is a real number
+            // whatever the live shape consumes, and blanking the rest read
+            // as broken editors. Only the picker-owned index slots
+            // (IRREGULAR / STREET geom1, CUSTOM geom2) are locked; those
+            // are set by the compound dialog's name picker. Re-run on every
+            // changed() so editing the shape via the dialog re-evaluates.
+            // No-op on Pump / Outlet (no geom rows). Mirrors the Attribute
+            // Table's flags() so the two surfaces never disagree.
             {
                 auto applyGeomRowFlags = [pm, this]() {
                     if (!pm || !m_linkAdapter) return;
@@ -783,7 +784,7 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                     for (int k = 1; k <= 4; ++k)
                         setRowEditable(pm, m_linkAdapter,
                                        QStringLiteral("geom%1").arg(k),
-                                       openswmmvis::xsectGeomApplies(shape, k));
+                                       !openswmmvis::xsectGeomIsPickerIndex(shape, k));
                 };
                 connect(m_linkAdapter, &SWMMLinkPropertyAdapter::changed,
                         pm, applyGeomRowFlags);
