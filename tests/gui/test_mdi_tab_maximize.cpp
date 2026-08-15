@@ -1,10 +1,12 @@
 // Welcome-screen chrome (installMdiWorkspaceChrome) makes the MDI backdrop
-// track the theme palette. The document-open boundary explicitly maximizes
-// a newly opened model when Welcome was hidden, while ordinary tab switching
+// track the theme palette and gives the welcome tab an opaque background of
+// its own, so the sub-windows Qt leaves restored in the viewport below it
+// cannot show through. The document-open boundary explicitly maximizes a
+// newly opened model when Welcome was hidden, while ordinary tab switching
 // remains entirely under QMdiArea's control.
 //
 // Ground truth for the underlying Qt behaviour is tests/scratch/
-// mdi_tab_probe.cpp; the two QMdiArea facts these tests pin down are:
+// mdi_tab_probe.cpp; the QMdiArea facts these tests pin down are:
 //   * QMdiArea::QMdiArea snapshots palette(QPalette::Dark) once and has no
 //     PaletteChange handling (qmdiarea.cpp:1681), and its paintEvent fills
 //     the viewport with that snapshot;
@@ -87,9 +89,9 @@ struct Workspace
      * A project tab, following the app's real open sequence: the canvas
      * carries WA_OpaquePaintEvent and the 200x150 floor from
      * swmmvisprojectwindow.cpp, addSubWindow() lands the tab immediately
-     * (swmmvis.cpp:4544) and showMaximized() + setActiveSubWindow() only follow
-     * once the async .inp load finishes (swmmvis.cpp:4729-4730) — hence
-     * the event pump in between.
+     * (swmmvis.cpp:4544) and showMaximized() + setActiveSubWindow() only
+     * follow once the async .inp load finishes (swmmvis.cpp:4729-4730) —
+     * hence the event pump in between.
      */
     QMdiSubWindow *addProject(const QString &title)
     {
@@ -127,9 +129,12 @@ int zIndex(QMdiSubWindow *s)
  * Not simply "visible and un-maximized": Qt deliberately calls
  * showNormal() on the OUTGOING window (qmdiarea.cpp:684-690) and
  * TabbedView never hides it, so one restored sub-window is always on the
- * list and that alone is fine. It only becomes the reported defect when
- * it also paints ABOVE the active window. Same definition as
- * tests/scratch/mdi_tab_probe.cpp:71-81.
+ * list. It only counts here when it paints ABOVE the active window. Same
+ * definition as tests/scratch/mdi_tab_probe.cpp:71-81.
+ *
+ * NOTE this measures z-order ONLY. A restored sub-window UNDER the active
+ * one is harmless if and only if the active one actually paints — which
+ * for the welcome tab is not free, see coversOpaquely() below.
  */
 int visibleStrays(QMdiArea *area)
 {
@@ -144,6 +149,28 @@ int visibleStrays(QMdiArea *area)
     return n;
 }
 
+/*!
+ * \brief True when \a active really hides \a other from the user.
+ *
+ * The three conditions TabbedView's "the maximized window covers the
+ * viewport" assumption actually rests on: \a active is on top, its
+ * geometry contains \a other's, and it paints an opaque background rather
+ * than letting whatever is beneath it through. A bare QWidget — which is
+ * what uic emits for welcomeWidget — fails the third.
+ */
+bool coversOpaquely(QMdiSubWindow *active, QMdiSubWindow *other)
+{
+    if (!active || !other)
+        return false;
+    QWidget *content = active->widget();
+    const bool opaque = content
+        && (content->autoFillBackground()
+            || content->testAttribute(Qt::WA_OpaquePaintEvent));
+    return zIndex(active) > zIndex(other)
+        && active->geometry().contains(other->geometry())
+        && opaque;
+}
+
 }   // namespace
 
 class TestMdiTabMaximize : public QObject
@@ -155,6 +182,8 @@ private slots:
     void backdropMatchesWindowSurface();
     void backdropFollowsThemeSwitch();
     void welcomeIsMaximizedOnFirstShow();
+    void welcomePaintsItsOwnBackground();
+    void restoredModelCannotShowThroughTheWelcome();
     void switchingTabsLeavesNoStray();
     void hiddenWelcomeDoesNotStrandTheNextTab();
     void tabBarSwitchingLeavesNoStray();
@@ -206,6 +235,61 @@ void TestMdiTabMaximize::welcomeIsMaximizedOnFirstShow()
     QVERIFY(welcome);
     QVERIFY(welcome->isMaximized());
     QCOMPARE(visibleStrays(w.area), 0);
+}
+
+//! The welcome tab fills with QPalette::Window — surfaceWindow, the same
+//! token the backdrop uses — so covering the viewport does not change how
+//! the welcome screen looks, and it keeps tracking the Appearance switch
+//! because autoFillBackground re-reads the palette at every paint.
+void TestMdiTabMaximize::welcomePaintsItsOwnBackground()
+{
+    Workspace w;
+    QVERIFY(!w.welcome->autoFillBackground());      // as uic emits it
+    installMdiWorkspaceChrome(w.area, w.welcome);
+    w.show();
+
+    QVERIFY(w.welcome->autoFillBackground());
+    QCOMPARE(w.welcome->palette().color(QPalette::Window),
+             lightColors().surfaceWindow);
+    QCOMPARE(w.welcome->palette().color(QPalette::Window),
+             w.area->background().color());
+
+    ThemeManager::instance()->setMode(ThemeManager::Mode::Dark);
+    QApplication::processEvents();
+    QCOMPARE(w.welcome->palette().color(QPalette::Window),
+             darkColors().surfaceWindow);
+}
+
+/*!
+ * The reported bug: welcome → model → welcome renders a detached, undocked
+ * model window over the welcome screen.
+ *
+ * Qt leaves the outgoing model restored and VISIBLE in the viewport
+ * (_q_deactivateAllWindows only showNormal()s it, qmdiarea.cpp:685) and
+ * counts on the incoming maximized welcome to cover it. visibleStrays()
+ * reports 0 here either way — the model is correctly z-ordered underneath
+ * — so what has to be asserted is that the welcome actually paints.
+ */
+void TestMdiTabMaximize::restoredModelCannotShowThroughTheWelcome()
+{
+    Workspace w;
+    installMdiWorkspaceChrome(w.area, w.welcome);
+    w.show();
+
+    QMdiSubWindow *welcome = w.welcomeSub();
+    QMdiSubWindow *model = w.addProject(QStringLiteral("ModelA"));
+
+    w.area->setActiveSubWindow(welcome);
+    QApplication::processEvents();
+
+    // Qt's documented behaviour, not the defect: the model stays put.
+    QVERIFY(model->isVisible());
+    QVERIFY(!model->isMaximized());
+    QCOMPARE(visibleStrays(w.area), 0);
+
+    // The defect is that nothing hid it. This is what fails without the fix.
+    QVERIFY(welcome->isMaximized());
+    QVERIFY(coversOpaquely(welcome, model));
 }
 
 void TestMdiTabMaximize::switchingTabsLeavesNoStray()
