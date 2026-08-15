@@ -19,6 +19,8 @@
 #ifndef OPENSWMMVIS_SECTIONVIEW_SECTIONPREVIEWWIDGET_H
 #define OPENSWMMVIS_SECTIONVIEW_SECTIONPREVIEWWIDGET_H
 
+#include <QPointF>
+#include <QRectF>
 #include <QWidget>
 
 #include "ui/sectionview/sectiondiagram.h"
@@ -33,7 +35,10 @@ public:
     explicit SectionPreviewWidget(QWidget *parent = nullptr);
 
     /*! Replace the drawing and repaint. Passing a default-constructed model
-     *  clears the widget to its empty state. */
+     *  clears the widget to its empty state.
+     *
+     *  Does NOT reset zoom/pan — see the note in the implementation. Call
+     *  zoomToExtents() when the SUBJECT changes, not when its values do. */
     void setModel(SectionDiagramModel model);
 
     [[nodiscard]] const SectionDiagramModel &model() const noexcept
@@ -44,15 +49,60 @@ public:
     void setPlaceholderText(const QString &text);
 
     /*! Render the current model into an image — used by tests (offscreen) and
-     *  by any future "copy diagram" action. */
+     *  by any future "copy diagram" action. Honours the current view. */
     [[nodiscard]] QImage renderToImage(const QSize &size) const;
+
+    // ---- View ---------------------------------------------------------------
+    //
+    // Navigation matches the map canvas so the gestures transfer:
+    //   wheel                 → zoom about the cursor
+    //   middle-button drag    → pan
+    //   middle double-click   → zoom to extents
+    //
+    // Zoom scales the GEOMETRY only; labels keep their point size, which is what
+    // makes zooming a legibility tool — the drawing spreads out from under
+    // crowded dimension text instead of magnifying the crowding.
+
+    [[nodiscard]] const DiagramViewport &viewport() const noexcept
+    { return m_viewport; }
+
+    void setViewport(const DiagramViewport &viewport);
+
+    /*! Reset to the automatic fit. Invoked by middle double-click, and by
+     *  hosts when the displayed object (not merely its values) changes. */
+    void zoomToExtents();
+
+    /*! Multiply the current zoom by \p factor, keeping the model point under
+     *  \p anchorPx (widget coordinates) stationary. */
+    void zoomBy(double factor, const QPointF &anchorPx);
+
+signals:
+    /*! Emitted whenever zoom or pan changes, so a host can mirror the state
+     *  (e.g. a zoom-percentage readout). */
+    void viewportChanged(const DiagramViewport &viewport);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
 
 private:
     SectionDiagramModel m_model;
     QString             m_placeholder;
+
+    DiagramViewport m_viewport;
+    /*! Fit rect reported by the last paint. Zooming about the cursor needs the
+     *  painter's own fit centre — the widget centre is off by the header /
+     *  footer / adaptive-margin reservations, which would make the anchor
+     *  drift a little on every notch. Mutable because paintEvent is const in
+     *  spirit and renderToImage() genuinely is. */
+    mutable QRectF  m_lastFitRect;
+    bool            m_panning = false;
+    QPointF         m_panAnchorPx;      //!< Cursor position when the pan began.
+    QPointF         m_panStartOffset;   //!< Viewport pan at that moment.
 };
 
 } // namespace openswmmvis::sectionview

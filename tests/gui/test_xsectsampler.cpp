@@ -41,6 +41,7 @@ private slots:
     void outlineMatchesFullProperties();
     void outlineMatchesFullProperties_data();
     void outlineIsSymmetricAndClosed();
+    void outlineIsDenserWhereCurvatureIsHighest();
     void dummyHasNoGeometry();
     void shapeIdRoundTrips();
     void moveTransfersOwnership();
@@ -195,6 +196,37 @@ void TestXsectSampler::outlineIsSymmetricAndClosed()
         QVERIFY(std::abs(r.x() + l.x()) < 1.0e-9);   // mirrored in x
         QVERIFY(std::abs(r.y() - l.y()) < 1.0e-9);   // at the same depth
     }
+}
+
+void TestXsectSampler::outlineIsDenserWhereCurvatureIsHighest()
+{
+    // The depth ladder is cosine-spaced, not uniform: a circular pipe's width
+    // changes fastest at the invert and the crown, so a uniform ladder leaves
+    // those visibly faceted. Assert the distribution rather than the look —
+    // the outer tenth of the depth range must hold more points than the
+    // middle tenth, which is exactly backwards for a uniform ladder.
+    XsectSampler s = XsectSampler::fromShape(SWMM_XSECT_CIRCULAR,
+                                             1.0, 0, 0, 0, true);
+    QVERIFY(s.isValid());
+
+    const int kSamples = 64;
+    const QPolygonF outline = s.outline(kSamples);
+    const double yFull = s.fullProps().yFull;
+
+    int nearInvert = 0, nearMid = 0;
+    for (int i = 0; i <= kSamples; ++i) {          // right half only
+        const double y = outline.at(i).y();
+        if (y < 0.10 * yFull)                                  ++nearInvert;
+        if (y > 0.45 * yFull && y < 0.55 * yFull)              ++nearMid;
+    }
+    QVERIFY2(nearInvert > nearMid,
+             qPrintable(QStringLiteral("invert %1 vs mid %2 — ladder looks uniform")
+                            .arg(nearInvert).arg(nearMid)));
+
+    // Mid-depth must still be sampled EXACTLY for even sample counts: that is
+    // where a circle's widest chord lies, and the outline's bounding box is
+    // checked against the engine's own wMax.
+    QVERIFY(std::abs(outline.at(kSamples / 2).y() - 0.5 * yFull) < 1.0e-12);
 }
 
 void TestXsectSampler::dummyHasNoGeometry()

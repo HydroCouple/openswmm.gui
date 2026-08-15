@@ -10,6 +10,8 @@
 #include <openswmm/engine/openswmm_xsect.h>
 
 #include <algorithm>
+#include <QtMath>   // M_PI on MSVC
+
 #include <cmath>
 #include <utility>
 
@@ -179,9 +181,29 @@ QPolygonF XsectSampler::outline(int samples) const
 
     const int n = std::clamp(samples, 8, 512);
 
+    // Chebyshev (cosine) spacing rather than a uniform ladder.
+    //
+    // Sampling depth uniformly is the wrong distribution for a section outline:
+    // width changes fastest where the boundary is closest to horizontal — at
+    // the invert and the crown — so a uniform ladder puts the fewest points
+    // exactly where curvature is highest, and a circular pipe comes out looking
+    // faceted at the top and bottom while the springline is over-sampled.
+    // y_i = yFull * (1 - cos(pi*i/n))/2 clusters points towards both ends,
+    // which is where the detail is.
+    //
+    // The endpoints stay exact (i = 0 → 0, i = n → yFull) and, for even n, so
+    // does mid-depth (i = n/2 → yFull/2) — which matters because that is where
+    // the widest chord of a circular or elliptical section lies, and the
+    // outline's bounding box is checked against the engine's own wMax.
     QVector<double> depths(n + 1);
-    for (int i = 0; i <= n; ++i)
-        depths[i] = p.yFull * static_cast<double>(i) / static_cast<double>(n);
+    for (int i = 0; i <= n; ++i) {
+        const double t = static_cast<double>(i) / static_cast<double>(n);
+        depths[i] = p.yFull * 0.5 * (1.0 - std::cos(M_PI * t));
+    }
+    // Guard the ends against rounding drift so the polygon still closes exactly
+    // on the invert and the crown.
+    depths.front() = 0.0;
+    depths.back()  = p.yFull;
 
     const QVector<double> widths = widthsAtDepths(depths);
     if (widths.size() != depths.size()) return {};

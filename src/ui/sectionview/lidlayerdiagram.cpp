@@ -42,6 +42,53 @@ DiagramRole roleFor(LidLayer layer)
     return DiagramRole::Muted;
 }
 
+/*! Material pattern per layer — what the layer is MADE OF, which is the thing
+ *  a colour band alone cannot convey (and which survives greyscale printing).
+ *  Permeable pavement gets pavers rather than porous asphalt because that is
+ *  what the [LID_CONTROLS] pavement layer is drawn as in the SWMM manual. */
+DiagramTexture textureFor(LidLayer layer, LidType type)
+{
+    switch (layer) {
+    case LidLayer::Surface:
+        // The surface layer is ponding volume above whatever is beneath it, so
+        // it carries no material of its own — the planting does the work.
+        return DiagramTexture::None;
+    case LidLayer::Pavement:
+        return (type == LidType::PermPavement) ? DiagramTexture::Brick
+                                               : DiagramTexture::Aggregate;
+    case LidLayer::Soil:
+        return DiagramTexture::Stipple;
+    case LidLayer::Storage:
+        return DiagramTexture::Gravel;
+    case LidLayer::Drainmat:
+        return DiagramTexture::Lattice;
+    }
+    return DiagramTexture::None;
+}
+
+/*! How the surface of each LID type is planted. */
+struct SurfaceCover
+{
+    bool planted = false;   //!< Draw vegetation at all.
+    bool grass   = false;   //!< Turf tufts rather than shrubs.
+    int  density = 9;       //!< Plants across the cell.
+};
+
+SurfaceCover coverFor(LidType type)
+{
+    switch (type) {
+    case LidType::BioCell:        return { true,  false, 7 };
+    case LidType::RainGarden:     return { true,  false, 9 };
+    case LidType::GreenRoof:      return { true,  true, 16 };
+    case LidType::VegSwale:       return { true,  true, 14 };
+    case LidType::RooftopDisconn: return { true,  true, 12 };  // lawn it drains to
+    case LidType::InfilTrench:    return { false, false, 0 };  // stone-filled
+    case LidType::PermPavement:   return { false, false, 0 };
+    case LidType::RainBarrel:     return { false, false, 0 };
+    }
+    return {};
+}
+
 /*! Thickness + the parameter summary shown for each layer. */
 struct LayerFacts
 {
@@ -80,6 +127,151 @@ LayerFacts factsFor(LidLayer layer, const LidDiagramInput &in)
                  tr_("drainage mat — no editor fields yet") };
     }
     return {};
+}
+
+/*!
+ * Per-type illustration drawn around the layer stack.
+ *
+ * The layer stack alone cannot distinguish several of the eight types — a
+ * bioretention cell and an infiltration trench differ mainly in what sits on
+ * top, and a rain barrel is not a stratum at all. These ornaments are what make
+ * the drawing say WHICH control is being edited.
+ */
+void appendTypeOrnaments(SectionDiagramModel &m, const LidDiagramInput &in,
+                         double halfW, double stackTop, double stackBottom,
+                         double nativeH, double refTotal)
+{
+    const double span = stackTop - stackBottom;
+
+    switch (in.type) {
+    case LidType::RainBarrel: {
+        // A barrel is a vessel standing on the ground, not a soil profile:
+        // draw its shell around the storage layer, with a downspout feeding it
+        // and a lid on top.
+        DiagramPoly shell;
+        shell.role = DiagramRole::Structure;
+        const double wall = halfW * 0.09;
+        shell.pts << QPointF(-halfW - wall, stackTop + refTotal * 0.05)
+                  << QPointF( halfW + wall, stackTop + refTotal * 0.05)
+                  << QPointF( halfW + wall, stackBottom)
+                  << QPointF(-halfW - wall, stackBottom);
+        m.polys << shell;
+
+        m.polylines << DiagramPolyline{
+            QPolygonF({ QPointF(-halfW - wall, stackTop + refTotal * 0.05),
+                        QPointF( halfW + wall, stackTop + refTotal * 0.05) }),
+            DiagramRole::Structure, false, tr_("lid") };
+
+        // Downspout from the roof into the barrel.
+        m.polylines << DiagramPolyline{
+            QPolygonF({ QPointF(-halfW * 0.55, stackTop + refTotal * 0.55),
+                        QPointF(-halfW * 0.55, stackTop + refTotal * 0.08) }),
+            DiagramRole::Structure, false, QString() };
+        m.arrows << DiagramArrow{
+            QPointF(-halfW * 0.55, stackTop + refTotal * 0.30),
+            QPointF(-halfW * 0.55, stackTop + refTotal * 0.10),
+            tr_("roof leader"), DiagramRole::Accent };
+        break;
+    }
+
+    case LidType::GreenRoof: {
+        // Roof deck under the drainage mat, with a parapet — the thing that
+        // makes a green roof a roof rather than a shallow rain garden.
+        DiagramPoly deck;
+        deck.role = DiagramRole::Structure;
+        deck.pts << QPointF(-halfW * 1.08, stackBottom)
+                 << QPointF( halfW * 1.08, stackBottom)
+                 << QPointF( halfW * 1.08, stackBottom - nativeH * 0.45)
+                 << QPointF(-halfW * 1.08, stackBottom - nativeH * 0.45);
+        deck.insetLabel = tr_("Roof deck");
+        m.polys << deck;
+
+        for (double sx : { -1.0, 1.0 }) {
+            DiagramPoly parapet;
+            parapet.role = DiagramRole::Structure;
+            const double x0 = sx * halfW * 1.08, x1 = sx * halfW * 0.98;
+            parapet.pts << QPointF(x0, stackTop + span * 0.28)
+                        << QPointF(x1, stackTop + span * 0.28)
+                        << QPointF(x1, stackBottom)
+                        << QPointF(x0, stackBottom);
+            m.polys << parapet;
+        }
+        break;
+    }
+
+    case LidType::PermPavement: {
+        // Traffic on top: the surface is a driving course, so show the wearing
+        // surface line and a vehicle load arrow instead of ponding.
+        m.polylines << DiagramPolyline{
+            QPolygonF({ QPointF(-halfW * 1.06, stackTop),
+                        QPointF( halfW * 1.06, stackTop) }),
+            DiagramRole::Structure, false, QString() };
+        m.arrows << DiagramArrow{
+            QPointF(0.0, stackTop + refTotal * 0.22),
+            QPointF(0.0, stackTop + refTotal * 0.03),
+            tr_("rainfall on pavement"), DiagramRole::Accent };
+        break;
+    }
+
+    case LidType::VegSwale: {
+        // A swale is a channel, not a stack: overlay the trapezoidal section on
+        // the surface layer so the shape the runoff actually sees is visible.
+        const double lip = stackTop;
+        const double inv = stackTop - span * 0.55;
+        DiagramPoly channel;
+        channel.role = DiagramRole::Water;
+        channel.pts << QPointF(-halfW * 0.95, lip)
+                    << QPointF(-halfW * 0.30, inv)
+                    << QPointF( halfW * 0.30, inv)
+                    << QPointF( halfW * 0.95, lip);
+        m.polys << channel;
+        m.polylines << DiagramPolyline{
+            QPolygonF({ QPointF(-halfW * 0.95, lip),
+                        QPointF(-halfW * 0.30, inv),
+                        QPointF( halfW * 0.30, inv),
+                        QPointF( halfW * 0.95, lip) }),
+            DiagramRole::Vegetation, false, QString() };
+        m.leaders << DiagramLeader{ QPointF(0.0, inv),
+                                    tr_("swale invert"), QPointF(28.0, 14.0) };
+        break;
+    }
+
+    case LidType::RooftopDisconn: {
+        // Roof + downspout discharging to the lawn it is disconnected onto.
+        m.polylines << DiagramPolyline{
+            QPolygonF({ QPointF(-halfW * 1.15, stackTop + refTotal * 0.85),
+                        QPointF(-halfW * 0.25, stackTop + refTotal * 0.55) }),
+            DiagramRole::Structure, false, tr_("roof") };
+        m.polylines << DiagramPolyline{
+            QPolygonF({ QPointF(-halfW * 0.25, stackTop + refTotal * 0.55),
+                        QPointF(-halfW * 0.25, stackTop + refTotal * 0.10) }),
+            DiagramRole::Structure, false, QString() };
+        m.arrows << DiagramArrow{
+            QPointF(-halfW * 0.25, stackTop + refTotal * 0.16),
+            QPointF(-halfW * 0.10, stackTop + refTotal * 0.02),
+            tr_("disconnected downspout"), DiagramRole::Accent };
+        break;
+    }
+
+    case LidType::InfilTrench: {
+        // Stone-filled trench: no planting, but a geotextile wrap, which is the
+        // detail that distinguishes it from a bare gravel pit.
+        m.polylines << DiagramPolyline{
+            QPolygonF({ QPointF(-halfW * 1.03, stackTop),
+                        QPointF(-halfW * 1.03, stackBottom),
+                        QPointF( halfW * 1.03, stackBottom),
+                        QPointF( halfW * 1.03, stackTop) }),
+            DiagramRole::Muted, true, QString() };
+        m.leaders << DiagramLeader{ QPointF(halfW * 1.03, stackBottom),
+                                    tr_("geotextile wrap"), QPointF(26.0, 12.0) };
+        break;
+    }
+
+    case LidType::BioCell:
+    case LidType::RainGarden:
+        // The layer stack plus planting already reads correctly for these.
+        break;
+    }
 }
 
 } // namespace
@@ -202,6 +394,7 @@ SectionDiagramModel buildLidLayerDiagram(const LidDiagramInput &in)
 
         DiagramPoly box;
         box.role    = roleFor(layer);
+        box.texture = textureFor(layer, in.type);
         box.unknown = unknown;
         box.pts << QPointF(-kHalfWidth, tops.at(i))
                 << QPointF( kHalfWidth, tops.at(i))
@@ -209,6 +402,24 @@ SectionDiagramModel buildLidLayerDiagram(const LidDiagramInput &in)
                 << QPointF(-kHalfWidth, bottoms.at(i));
         box.insetLabel = lidLayerName(layer);
         m.polys << box;
+
+        // Ponded water sitting in the surface layer, to the berm height. The
+        // surface layer IS the ponding volume, so showing it filled is what
+        // makes "storage depth" mean something visually.
+        if (layer == LidLayer::Surface && !unknown && f.thickness > 0.0) {
+            const double pond = bottoms.at(i) + (tops.at(i) - bottoms.at(i)) * 0.45;
+            DiagramPoly water;
+            water.role = DiagramRole::Water;
+            water.pts << QPointF(-kHalfWidth, pond)
+                      << QPointF( kHalfWidth, pond)
+                      << QPointF( kHalfWidth, bottoms.at(i))
+                      << QPointF(-kHalfWidth, bottoms.at(i));
+            m.polys << water;
+            m.polylines << DiagramPolyline{
+                QPolygonF({ QPointF(-kHalfWidth, tops.at(i)),
+                            QPointF( kHalfWidth, tops.at(i)) }),
+                DiagramRole::Accent, true, tr_("berm") };
+        }
 
         // Thickness dimension on the right of every layer.
         DiagramDim d;
@@ -231,9 +442,10 @@ SectionDiagramModel buildLidLayerDiagram(const LidDiagramInput &in)
     }
 
     // ---- Native soil below the stack --------------------------------------
-    const double nativeH = refTotal * 0.16;
+    const double nativeH = refTotal * 0.18;
     DiagramPoly native;
-    native.role = DiagramRole::Soil;
+    native.role    = DiagramRole::Soil;
+    native.texture = DiagramTexture::Hatch;
     native.pts << QPointF(-kHalfWidth, stackBottom)
                << QPointF( kHalfWidth, stackBottom)
                << QPointF( kHalfWidth, stackBottom - nativeH)
@@ -241,30 +453,60 @@ SectionDiagramModel buildLidLayerDiagram(const LidDiagramInput &in)
     native.insetLabel = tr_("Native soil");
     m.polys << native;
 
+    // ---- Planting ----------------------------------------------------------
+    const SurfaceCover cover = coverFor(in.type);
+    if (cover.planted && layers.first() == LidLayer::Surface) {
+        m.vegetation << DiagramVegetation{
+            -kHalfWidth * 0.92, kHalfWidth * 0.92, tops.first(),
+            refTotal * (cover.grass ? 0.10 : 0.20), cover.density, cover.grass };
+    }
+
     // ---- Underdrain --------------------------------------------------------
     if (lidHasDrain(in.type)) {
-        // Sits at the drain offset above the bottom of the lowest layer.
+        // Drawn as a perforated pipe in section rather than a line: the offset
+        // is measured to the pipe, and a pipe is what the user is specifying.
         const double drainY = stackBottom
-            + std::max(in.drainOffset, refTotal * 0.04);
-        m.polylines << DiagramPolyline{
-            QPolygonF({ QPointF(-kHalfWidth * 0.55, drainY),
-                        QPointF( kHalfWidth * 0.55, drainY) }),
-            DiagramRole::Accent, false, QString() };
+            + std::max(in.drainOffset, refTotal * 0.05);
+        m.circles << DiagramCircle{ QPointF(0.0, drainY), refTotal * 0.045,
+                                    DiagramRole::Conduit, /*perforated=*/true };
         m.leaders << DiagramLeader{
-            QPointF(kHalfWidth * 0.55, drainY),
+            QPointF(refTotal * 0.045, drainY),
             tr_("underdrain  C %1 · n %2 · offset %3 %4")
                 .arg(num(in.drainCoeff, 2), num(in.drainExponent, 2),
                      num(in.drainOffset, 2), in.lengthLabel),
-            QPointF(24.0, 20.0) };
+            QPointF(26.0, 18.0) };
+        if (in.drainOffset > 0.0) {
+            DiagramDim d;
+            d.from = QPointF(-kHalfWidth * 0.45, stackBottom);
+            d.to   = QPointF(-kHalfWidth * 0.45, drainY);
+            d.text = tr_("offset %1 %2").arg(num(in.drainOffset, 2), in.lengthLabel);
+            d.pixelOffset = -18.0;
+            m.dims << d;
+        }
     }
 
-    // ---- Inflow arrow (surface-fed types) ---------------------------------
+    // ---- Flow paths --------------------------------------------------------
+    // Runoff in at the surface, infiltration out through the native soil: the
+    // two boundary fluxes that decide whether the control works at all.
     if (layers.first() == LidLayer::Surface) {
-        m.polylines << DiagramPolyline{
-            QPolygonF({ QPointF(-kHalfWidth * 1.35, tops.first() + refTotal * 0.10),
-                        QPointF(-kHalfWidth * 1.02, tops.first()) }),
-            DiagramRole::Accent, false, tr_("runoff") };
+        m.arrows << DiagramArrow{
+            QPointF(-kHalfWidth * 1.45, tops.first() + refTotal * 0.16),
+            QPointF(-kHalfWidth * 0.98, tops.first()),
+            tr_("runoff in"), DiagramRole::Accent };
     }
+    for (double x : { -0.45, 0.15 }) {
+        m.arrows << DiagramArrow{
+            QPointF(kHalfWidth * x, stackBottom - nativeH * 0.15),
+            QPointF(kHalfWidth * x, stackBottom - nativeH * 0.85),
+            QString(), DiagramRole::Muted };
+    }
+    m.leaders << DiagramLeader{
+        QPointF(kHalfWidth * 0.15, stackBottom - nativeH * 0.85),
+        tr_("infiltration"), QPointF(26.0, 8.0) };
+
+    // ---- Type-specific illustration ---------------------------------------
+    appendTypeOrnaments(m, in, kHalfWidth, tops.first(), stackBottom,
+                        nativeH, refTotal);
 
     m.footer = tr_("%1 layer(s)%2 · thicknesses in %3")
                    .arg(static_cast<int>(layers.size()))

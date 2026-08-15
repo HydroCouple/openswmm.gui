@@ -216,6 +216,10 @@ void LidControlEditorDialog::buildUi_()
             this, &LidControlEditorDialog::onNameEdited_);
     connect(m_typeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &LidControlEditorDialog::onFieldEdited_);
+    // Changing the LID type swaps the whole layer stack — reset the view with
+    // it, unlike an ordinary field edit.
+    connect(m_typeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, [this](int) { if (m_diagram) m_diagram->zoomToExtents(); });
     // The active tab drives which layer the diagram highlights; it changes no
     // data, so it refreshes the drawing directly rather than via onFieldEdited_.
     connect(tabs, &QTabWidget::currentChanged,
@@ -268,6 +272,8 @@ void LidControlEditorDialog::bindProvider_(LidControlProvider *p)
 
     m_suppressFieldSync = prev;
     refreshLayerDiagram_();
+    // Binding a different control is a new subject; field edits keep the view.
+    if (m_diagram) m_diagram->zoomToExtents();
 }
 
 void LidControlEditorDialog::selectProviderInList_(LidControlProvider *p)

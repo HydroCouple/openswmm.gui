@@ -73,6 +73,18 @@ private slots:
     void lidUnknownThicknessRendersAsUnknown();
     void lidDiagramHasOneBoxPerLayerPlusNative();
     void lidDrainOnlyForTypesThatHaveOne();
+    void lidLayersCarryMaterialTextures();
+    void lidPlantedTypesGetVegetation();
+    void lidPlantedTypesGetVegetation_data();
+    void lidDrainIsDrawnAsAPipe();
+
+    // Zoom / pan.
+    void viewportDefaultsToFit();
+    void zoomChangesTheDrawing();
+    void zoomToExtentsRestoresTheFit();
+    void panShiftsWithoutRescaling();
+    void setModelKeepsTheView();
+    void zoomIsClamped();
 };
 
 // ---------------------------------------------------------------------------
@@ -252,14 +264,25 @@ void TestSectionDiagram::lidDiagramHasOneBoxPerLayerPlusNative()
     in.storageThickness = 0.30;
 
     const SectionDiagramModel m = buildLidLayerDiagram(in);
-    // 3 layers + the native soil block below the stack.
-    QCOMPARE(int(m.polys.size()), 4);
-    // One thickness dimension per layer (native soil isn't dimensioned).
+    // 3 layers + the ponded water filling the surface layer + the native soil
+    // block below the stack. (Ponding is drawn only when the surface layer has
+    // a known storage depth, which it does here.)
+    QCOMPARE(int(m.polys.size()), 5);
+    // One thickness dimension per layer; native soil and the water are not
+    // dimensioned, and no drain offset was given.
     QCOMPARE(int(m.dims.size()), 3);
 
-    // Layers stack downward from y = 0 without overlapping.
-    QVERIFY(m.polys.at(0).pts.at(0).y() > m.polys.at(1).pts.at(0).y());
-    QVERIFY(m.polys.at(1).pts.at(0).y() > m.polys.at(2).pts.at(0).y());
+    // Layers stack downward from y = 0 without overlapping. Collect the layer
+    // boxes by their inset label rather than by index — the water and ornament
+    // polys are interleaved and their positions are an implementation detail.
+    double surfaceTop = 0.0, soilTop = 0.0, storageTop = 0.0;
+    for (const DiagramPoly &p : m.polys) {
+        if (p.insetLabel == QStringLiteral("Surface")) surfaceTop = p.pts.at(0).y();
+        if (p.insetLabel == QStringLiteral("Soil"))    soilTop    = p.pts.at(0).y();
+        if (p.insetLabel == QStringLiteral("Storage")) storageTop = p.pts.at(0).y();
+    }
+    QVERIFY(surfaceTop > soilTop);
+    QVERIFY(soilTop    > storageTop);
 }
 
 void TestSectionDiagram::lidDrainOnlyForTypesThatHaveOne()
@@ -270,6 +293,203 @@ void TestSectionDiagram::lidDrainOnlyForTypesThatHaveOne()
     // misrepresent the model.
     QVERIFY(!lidHasDrain(LidType::RainGarden));
     QVERIFY(!lidHasDrain(LidType::VegSwale));
+}
+
+// ---------------------------------------------------------------------------
+// LID richness
+// ---------------------------------------------------------------------------
+
+void TestSectionDiagram::lidLayersCarryMaterialTextures()
+{
+    LidDiagramInput in;
+    in.type             = LidType::BioCell;
+    in.surfaceStorage   = 0.15;
+    in.soilThickness    = 0.50;
+    in.storageThickness = 0.30;
+
+    const SectionDiagramModel m = buildLidLayerDiagram(in);
+
+    // Soil must be stippled and storage gravelled: colour alone does not
+    // survive greyscale printing, and it is the material — not the hue — that
+    // tells a reviewer which layer they are looking at.
+    bool stipple = false, gravel = false, hatch = false;
+    for (const DiagramPoly &p : m.polys) {
+        if (p.texture == DiagramTexture::Stipple) stipple = true;
+        if (p.texture == DiagramTexture::Gravel)  gravel  = true;
+        if (p.texture == DiagramTexture::Hatch)   hatch   = true;   // native soil
+    }
+    QVERIFY(stipple);
+    QVERIFY(gravel);
+    QVERIFY(hatch);
+
+    // Permeable pavement swaps the pavement course to a paver pattern.
+    LidDiagramInput pp;
+    pp.type              = LidType::PermPavement;
+    pp.surfaceStorage    = 0.01;
+    pp.pavementThickness = 0.10;
+    pp.soilThickness     = 0.15;
+    pp.storageThickness  = 0.45;
+    bool brick = false;
+    for (const DiagramPoly &p : buildLidLayerDiagram(pp).polys)
+        if (p.texture == DiagramTexture::Brick) brick = true;
+    QVERIFY(brick);
+}
+
+void TestSectionDiagram::lidPlantedTypesGetVegetation_data()
+{
+    QTest::addColumn<int>("type");
+    QTest::addColumn<bool>("planted");
+    QTest::addColumn<bool>("grass");
+
+    QTest::newRow("bio-cell")     << 0 << true  << false;  // shrubs
+    QTest::newRow("rain-garden")  << 1 << true  << false;
+    QTest::newRow("green-roof")   << 2 << true  << true;   // sedum / turf
+    QTest::newRow("infil-trench") << 3 << false << false;  // stone-filled
+    QTest::newRow("perm-pave")    << 4 << false << false;
+    QTest::newRow("rain-barrel")  << 5 << false << false;
+    QTest::newRow("veg-swale")    << 7 << true  << true;
+}
+
+void TestSectionDiagram::lidPlantedTypesGetVegetation()
+{
+    QFETCH(int, type);
+    QFETCH(bool, planted);
+    QFETCH(bool, grass);
+
+    LidDiagramInput in;
+    in.type             = static_cast<LidType>(type);
+    in.surfaceStorage   = 0.10;
+    in.soilThickness    = 0.40;
+    in.storageThickness = 0.30;
+
+    const SectionDiagramModel m = buildLidLayerDiagram(in);
+    QCOMPARE(!m.vegetation.isEmpty(), planted);
+    if (planted) {
+        QVERIFY(m.vegetation.first().count > 0);
+        QVERIFY(m.vegetation.first().height > 0.0);
+        QCOMPARE(m.vegetation.first().grass, grass);
+    }
+}
+
+void TestSectionDiagram::lidDrainIsDrawnAsAPipe()
+{
+    LidDiagramInput in;
+    in.type             = LidType::BioCell;
+    in.surfaceStorage   = 0.15;
+    in.soilThickness    = 0.50;
+    in.storageThickness = 0.30;
+    in.drainOffset      = 0.08;
+
+    const SectionDiagramModel m = buildLidLayerDiagram(in);
+    // The underdrain is a pipe the user is specifying an offset TO, so it is
+    // drawn as a perforated pipe in section rather than as a line.
+    QCOMPARE(m.circles.size(), 1);
+    QVERIFY(m.circles.first().perforated);
+    QVERIFY(m.circles.first().radius > 0.0);
+
+    // A type with no underdrain must not sprout one.
+    LidDiagramInput swale;
+    swale.type           = LidType::VegSwale;
+    swale.surfaceStorage = 0.20;
+    QVERIFY(buildLidLayerDiagram(swale).circles.isEmpty());
+}
+
+// ---------------------------------------------------------------------------
+// Zoom / pan
+// ---------------------------------------------------------------------------
+
+void TestSectionDiagram::viewportDefaultsToFit()
+{
+    SectionPreviewWidget w;
+    QVERIFY(w.viewport().isIdentity());
+    QCOMPARE(w.viewport().zoom, 1.0);
+}
+
+void TestSectionDiagram::zoomChangesTheDrawing()
+{
+    SectionPreviewWidget w;
+    w.setModel(makeSquareModel());
+
+    const QImage fitted = w.renderToImage(QSize(400, 320));
+    const int inkFitted = inkPixels(fitted, w.palette().color(QPalette::Base));
+
+    w.zoomBy(3.0, QPointF(200, 160));
+    QVERIFY(w.viewport().zoom > 1.0);
+
+    const QImage zoomed = w.renderToImage(QSize(400, 320));
+    QVERIFY(zoomed != fitted);
+    // Geometry grows with zoom, so a filled box covers more of the canvas.
+    QVERIFY(inkPixels(zoomed, w.palette().color(QPalette::Base)) > inkFitted);
+}
+
+void TestSectionDiagram::zoomToExtentsRestoresTheFit()
+{
+    SectionPreviewWidget w;
+    w.setModel(makeSquareModel());
+    const QImage fitted = w.renderToImage(QSize(400, 320));
+
+    w.zoomBy(4.0, QPointF(120, 90));
+    w.setViewport({ w.viewport().zoom, QPointF(37.0, -12.0) });
+    QVERIFY(!w.viewport().isIdentity());
+
+    w.zoomToExtents();
+    QVERIFY(w.viewport().isIdentity());
+    // Middle double-click must land exactly back on the automatic fit — an
+    // "almost" reset is worse than none, because it accumulates.
+    QCOMPARE(w.renderToImage(QSize(400, 320)), fitted);
+}
+
+void TestSectionDiagram::panShiftsWithoutRescaling()
+{
+    SectionPreviewWidget w;
+    w.setModel(makeSquareModel());
+
+    DiagramViewport v;
+    v.panPx = QPointF(40.0, 0.0);
+    w.setViewport(v);
+
+    QCOMPARE(w.viewport().zoom, 1.0);
+    QCOMPARE(w.viewport().panPx, QPointF(40.0, 0.0));
+
+    // Same model, same scale, different position: compare against an unpanned
+    // widget holding the SAME model, so the only difference under test is the
+    // pan (comparing against a default-constructed widget would pass trivially
+    // because that one is empty).
+    SectionPreviewWidget ref;
+    ref.setModel(makeSquareModel());
+    QVERIFY(w.renderToImage(QSize(400, 320)) != ref.renderToImage(QSize(400, 320)));
+}
+
+void TestSectionDiagram::setModelKeepsTheView()
+{
+    SectionPreviewWidget w;
+    w.setModel(makeSquareModel());
+    w.zoomBy(2.5, QPointF(200, 160));
+    const DiagramViewport before = w.viewport();
+
+    // Hosts rebuild the model on every keystroke; that must not yank the view
+    // back to fit while the user is reading a zoomed-in dimension.
+    w.setModel(makeSquareModel());
+    QCOMPARE(w.viewport().zoom, before.zoom);
+    QCOMPARE(w.viewport().panPx, before.panPx);
+}
+
+void TestSectionDiagram::zoomIsClamped()
+{
+    SectionPreviewWidget w;
+    w.setModel(makeSquareModel());
+
+    for (int i = 0; i < 200; ++i) w.zoomBy(2.0, QPointF(200, 160));
+    QVERIFY(w.viewport().zoom <= 200.0);
+
+    for (int i = 0; i < 400; ++i) w.zoomBy(0.5, QPointF(200, 160));
+    QVERIFY(w.viewport().zoom >= 0.05);
+
+    // Degenerate factors must be ignored, not propagated into the transform.
+    const DiagramViewport before = w.viewport();
+    w.zoomBy(0.0, QPointF(200, 160));
+    w.zoomBy(-1.0, QPointF(200, 160));
+    QCOMPARE(w.viewport().zoom, before.zoom);
 }
 
 QTEST_MAIN(TestSectionDiagram)
