@@ -1,31 +1,106 @@
-ORD Stormwater-Management-Model Graphical User Interface
-==================================
+# OpenSWMM GUI
 
-Stormwater Management Model (aka "SWMM") GUI only
+<p align="center">
+  <img src="resources/images/screenshot1.png" alt="OpenSWMM GUI" width="1200"> 
+</p>
 
+**Qt6/C++ graphical user interface for the OpenSWMM storm-water simulation engine (v6.0.0)**
 
-<!-- ## Build Status
-[![Build and Test](https://github.com/USEPA/Stormwater-Management-Model/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/USEPA/Stormwater-Management-Model/actions/workflows/build-and-test.yml) -->
+[![Build and Package](../../actions/workflows/build_and_test.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/build_and_test.yml)
+[![Documentation](../../actions/workflows/documentation.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/documentation.yml)
+[![CodeQL](../../actions/workflows/codeql.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/HydroCouple/openswmm.gui/badge)](https://securityscorecards.dev/viewer/?uri=github.com/HydroCouple/openswmm.gui)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
-## Disclaimer 
-The United States Environmental Protection Agency (EPA) GitHub project code is provided on an "as is" basis and the user assumes responsibility for its use. EPA has relinquished control of the information and no longer has responsibility to protect the integrity, confidentiality, or availability of the information. Any reference to specific commercial products, processes, or services by service mark, trademark, manufacturer, or otherwise, does not constitute or imply their endorsement, recommendation or favoring by EPA. The EPA seal and logo shall not be used in any manner to imply endorsement of any commercial product or activity by EPA or the United States Government.
+---
 
+## Overview
 
-## Introduction
+A new GIS-based graphical user interface being developed for SWMM 6.0. The application is built with C++20 and the Qt 6 framework, providing tight integration with the next-generation OpenSWMM computational engine.
 
-This is the official SWMM Windows GUI source code repository maintained by US EPA Office of Research and Development, Center For Environmental Solutions & Emergency Response, Water Infrastructure Division located in Cincinnati, Ohio. The interface was written using Embarcadero's Delphi
-10.4 (www.embarcadero.com). The name of the Delphi project containing
-the code is Epaswmm5. All of the files for the project can be found
-in the Epaswmm5 folder within this archive.
+Key capabilities:
 
-Before the Epaswmm5 project can be loaded into Delphi's Integrated
-Development Environment (IDE), several special components must be
-installed into the IDE's component pallette. The source code for
-these components is contained in the Components folder in this
-archive. Consult the Installation.txt file in that folder for
-instructions on how to install these components.
+- Interactive map canvas with pan/zoom, CRS reprojection, and layer management (vector, raster, WMS/WMTS, XYZ tiles, SWMM model & results layers)
+- SWMM model setup, editing, and validation
+- Simulation control and results visualization
+- GIS data import/export via GDAL
 
-SWMM is a dynamic hydrology-hydraulic water quality simulation model. It is used for single event or long-term (continuous) simulation of runoff quantity and quality from primarily urban areas. SWMM source code is written in the C Programming Language and released in the Public Domain.
+## Dependencies
 
-## Find Out More
-The source code distributed here is identical to the code found at the official [SWMM Website](http://www2.epa.gov/water-research/storm-water-management-model-swmm).
+| Dependency | Version | Notes |
+|---|---|---|
+| [Qt](https://www.qt.io/) | 6.5+ | Widgets, OpenGL, Network, Concurrent, Svg, Charts |
+| [GDAL](https://gdal.org/) | 3.x | GIS/CRS support — installed via vcpkg |
+| [openswmm.engine](https://github.com/HydroCouple/openswmm.engine) | branch `swmm6_rel` | Engine — expected at `../openswmm.engine` |
+| [QPropertyModel](https://github.com/cbuahin/QPropertyModel) | branch `dev` | Property editor — expected at `../QPropertyModel` |
+| [vcpkg](https://github.com/microsoft/vcpkg) | `2025.03.19` | Package manager |
+| CMake | 3.21+ | Build system |
+
+## Building
+
+### 1. Clone sibling repositories
+
+All three repos must be siblings in the same parent directory:
+
+```bash
+# From the directory that will contain all repos:
+git clone -b swmm6_gui  https://github.com/HydroCouple/openswmm.gui.git
+git clone -b swmm6_rel  https://github.com/HydroCouple/openswmm.engine.git openswmm.engine
+git clone -b dev        https://github.com/cbuahin/QPropertyModel.git QPropertyModel
+git clone               https://github.com/microsoft/vcpkg.git
+
+cd vcpkg
+./bootstrap-vcpkg.sh   # Windows: bootstrap-vcpkg.bat
+cd ..
+```
+
+### 2. Install Qt 6
+
+Download and install Qt 6.5+ via the [Qt Online Installer](https://www.qt.io/download), then set the `QT_ROOT_DIR` environment variable to point to the kit directory:
+
+```bash
+# Linux example
+export QT_ROOT_DIR=$HOME/Qt/6.7.0/gcc_64
+# macOS example
+export QT_ROOT_DIR=$HOME/Qt/6.7.0/macos
+```
+
+### 3. Configure and build
+
+```bash
+cd openswmm.gui
+
+# macOS (Release)
+cmake --preset=Darwin
+cmake --build --preset=Darwin
+
+# Linux (Release)
+cmake --preset=Linux
+cmake --build --preset=Linux
+
+# Windows (Release) — from a Visual Studio Developer Prompt
+cmake --preset=Windows
+cmake --build --preset=Windows
+```
+
+Debug builds append `-debug` to the preset name (e.g., `Darwin-debug`).
+
+### 4. Run tests
+
+```bash
+cmake --preset=Darwin -DSWMMVIS_BUILD_TESTS=ON
+cmake --build --preset=Darwin
+ctest --test-dir build/darwin -C Release --output-on-failure
+```
+
+## API Documentation
+
+Generated with Doxygen and published to GitHub Pages on every push to `main`/`swmm6_gui`:
+
+```bash
+doxygen docs/Doxyfile   # output → docs/html/
+```
+
+## Disclaimer
+
+This open-source project is provided on an "as is" basis and the user assumes responsibility for its use.

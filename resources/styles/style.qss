@@ -1,0 +1,12 @@
+QToolTip {
+    background-color: white;
+    padding-left: 0px;
+    padding-right: 0px;
+    padding-top: 0px;
+    padding-bottom: 0px;
+    border-color: lightblue;
+    border-width: 5px;
+    border-radius: 10px;
+    border-style: solid;
+}
+

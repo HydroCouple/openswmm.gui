@@ -1,0 +1,893 @@
+/*!
+ * \file   swmm2dresultslayer.h
+ * \author Caleb Buahin <caleb.buahin@gmail.com>
+ * \date   2026
+ * \license GPL-3.0-or-later
+ *
+ * Slice CF.MVP — renders 2D surface-routing depth as a colour-mapped overlay
+ * on the canvas. The layer is data-source agnostic: during a run the source
+ * is an `EngineMesh2DSource` driven by SimulationRunner ticks; after the run
+ * the source swaps to an `HDF5Mesh2DSource` reading the engine's CF/UGRID
+ * HDF5 file so the user can scrub a time slider back to peak inundation.
+ *
+ * Rendering reuses the `SceneTri` paint pattern from `SWMM2DMeshLayer`
+ * (Slice AU). The only differences:
+ *   - Per-triangle colour comes from depth, not elevation, via the
+ *     inundation colour ramp.
+ *   - Dry cells (depth < DRY_DEPTH) draw with alpha = 0 so the underlying
+ *     SWMM2DMeshLayer terrain shows through.
+ *   - No hillshade pass — the wet "sheen" is intentionally flat colour.
+ */
+#ifndef OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H
+#define OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H
+
+#include "layers/openswmmvislayer.h"
+#include "layers/meshspatialgrid.h"
+#include "map/mapextent.h"
+
+#include <QDateTime>
+#include <QLineF>
+#include <QPointF>
+#include <QPolygonF>
+#include <QRectF>
+#include <QSet>
+#include <QString>
+#include <QVector>
+
+#include <array>
+#include <memory>
+#include <vector>
+
+class QGraphicsScene;
+class QGraphicsItem;
+class SWMM2DResultsGraphicsItem;
+class SWMM2DVelocityArrowsItem;
+
+namespace openswmmvis::io { class Mesh2DH5Reader; }
+namespace OpenSWMM::Render {
+class IFeatureRenderer;
+class RuleList;   // Slice B.5b — see ruleList() override below.
+}
+
+// Slice S5.6 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md) — 2D sublayer foundation.
+#include "render/iattributeprovider.h"   // Slice DM.3
+#include "render/isublayerhost.h"
+#include "render/legendsymbolitem.h"
+#include "render/sublayers/contourbandsublayer.h"
+#include "render/sublayers/isolinesublayer.h"
+#include "render/sublayers/meshedgesublayer.h"
+#include "render/sublayers/meshfillsublayer.h"
+#include "render/sublayers/meshnodesublayer.h"
+#include "render/sublayers/scalarfillsublayer.h"
+#include "render/sublayers/velocityvectorsublayer.h"
+
+// ---------------------------------------------------------------------------
+// IMesh2DSource — data-source abstraction shared by live + replay modes
+// ---------------------------------------------------------------------------
+
+/*!
+ * \brief Abstract source of mesh geometry + per-triangle depth time series.
+ *
+ * Two concrete implementations live in this header/.cpp pair:
+ *  - `EngineMesh2DSource` — live, fed by SimulationRunner each progress tick.
+ *  - `HDF5Mesh2DSource`   — post-run, reads the engine's CF/UGRID HDF5.
+ */
+class IMesh2DSource
+{
+public:
+    virtual ~IMesh2DSource() = default;
+
+    /*! \brief Geometry counts. Stable for the lifetime of the source. */
+    virtual int vertexCount()   const = 0;
+    virtual int triangleCount() const = 0;
+
+    /*! \brief Latest known time-step count (grows during live mode). */
+    virtual int timeCount() const = 0;
+
+    /*! \brief True while this source is streaming from a running simulation
+     *  (frames keep arriving). The animation must NOT auto-advance to the
+     *  newest frame for a live source — the user drives playback via the
+     *  slider / Play. A completed file source returns false. */
+    virtual bool isLive() const { return false; }
+
+    /*! \brief Fetch mesh geometry. Resizes outputs. */
+    virtual bool readMeshGeometry(std::vector<double>& vx,
+                                   std::vector<double>& vy,
+                                   std::vector<double>& vz,
+                                   std::vector<std::array<int, 3>>& tris) = 0;
+
+    /*! \brief Fetch per-triangle depth at \p timeIdx. Resizes \p depths to triangleCount(). */
+    virtual bool readDepthsAt(int timeIdx, std::vector<float>& depths) = 0;
+
+    /*! \brief Wall-clock sim time at \p timeIdx (invalid if out of range or unknown). */
+    virtual QDateTime simTimeAt(int timeIdx) const { (void)timeIdx; return {}; }
+
+    /*!
+     * \brief Fetch per-edge signed normal flux at \p timeIdx.
+     * \param flux  Resized to \c triangleCount()*3, indexed \c [tri*3 + localEdge].
+     *              Units m² s⁻¹; positive flows outward through the edge's
+     *              outward normal.
+     * \returns true on success. Default implementation returns false so callers
+     *          can probe whether the source supports flux data without an error.
+     */
+    virtual bool readEdgeFluxAt(int timeIdx, std::vector<float>& flux)
+    {
+        (void)timeIdx; (void)flux;
+        return false;
+    }
+
+    /*!
+     * \brief Fetch time-invariant edge geometry (length + outward unit normal).
+     * \param length Resized to \c triangleCount()*3 (m).
+     * \param nx,ny  Resized to \c triangleCount()*3 (dimensionless).
+     * \returns true on success. Default returns false.
+     */
+    virtual bool readEdgeGeometry(std::vector<float>& length,
+                                  std::vector<float>& nx,
+                                  std::vector<float>& ny)
+    {
+        (void)length; (void)nx; (void)ny;
+        return false;
+    }
+
+    /*!
+     * \brief Fetch per-vertex SIGNED water depth (m) at \p timeIdx — the
+     * engine's wet-masked, depth-weighted render reconstruction η_v − z_v
+     * (\c Mesh2_node_depth / \c swmm_2d_vertex_get_render_depths_bulk).
+     * NOT clamped: negative values over the dry side of partially wet cells
+     * carry the sub-cell shoreline intercept; exactly 0 where no incident
+     * cell is wet. Dry-cell bed elevations never contribute (unlike the
+     * legacy \c Mesh2_node_head solver field, which is deliberately NOT
+     * consumed here — blending dry-cell beds lifted the rendered surface up
+     * adverse slopes/steps). Resized to \c vertexCount().
+     * \returns true on success. Default returns false so callers can probe
+     *          whether the source carries the signed field (older engines /
+     *          older HDF5 files) and fall back to the GUI-side wet-only
+     *          reconstruction.
+     */
+    virtual bool readVertexDepthsAt(int timeIdx, std::vector<float>& vdepths)
+    {
+        (void)timeIdx; (void)vdepths;
+        return false;
+    }
+};
+
+// ---------------------------------------------------------------------------
+// EngineMesh2DSource — live source driven by SimulationRunner ticks
+// ---------------------------------------------------------------------------
+
+class EngineMesh2DSource : public IMesh2DSource
+{
+public:
+    /*!
+     * \brief Construct with already-queried mesh geometry.
+     *
+     * The runner builds this on the GUI thread immediately after the engine
+     * finishes its 2D initialization, querying `swmm_2d_vertex_get_xyz_bulk`
+     * / `swmm_2d_triangle_get_vertices` against the in-process engine handle.
+     * The depth vector starts empty and is appended to with `pushDepths()`.
+     */
+    EngineMesh2DSource(std::vector<double>            vx,
+                       std::vector<double>            vy,
+                       std::vector<double>            vz,
+                       std::vector<std::array<int,3>> tris);
+
+    /*!
+     * \brief Append one tick's worth of per-triangle depth.
+     *
+     * Pushed from `SimulationRunner::twoDDepthsAvailable` via queued connection
+     * — always on the GUI thread, so no synchronization is needed.
+     */
+    void pushDepths(std::vector<float> depths,
+                    QDateTime simTime,
+                    double elapsedSec);
+
+    /*!
+     * \brief Append one tick's worth of per-edge signed normal flux.
+     *
+     * Mirrors \ref pushDepths but writes to the flux slot of the most recent
+     * tick. Expected size is \c triangleCount()*3. If called before
+     * \c pushDepths for the same tick, the runner buffers the flux into the
+     * pending slot and \c pushDepths will pair them. Empty flux vectors are
+     * accepted (older engines without \c swmm_2d_get_edge_flux_bulk skip the
+     * push entirely; see SimulationRunner CF.2.4 dlsym gating).
+     */
+    void pushFlux(std::vector<float> flux,
+                  QDateTime simTime,
+                  double elapsedSec);
+
+    /*!
+     * \brief Append one tick's worth of SIGNED per-vertex render depths
+     * (\c swmm_2d_vertex_get_render_depths_bulk — the engine's wet-masked
+     * η_v − z_v; datum already subtracted engine-side in double). Mirrors
+     * \ref pushFlux — pairs with the tick whose elapsed time matches. Values
+     * are stored as floats WITHOUT clamping: negatives carry the sub-cell
+     * shoreline intercept.
+     */
+    void pushVertexSignedDepths(std::vector<double> depths,
+                                QDateTime simTime,
+                                double elapsedSec);
+
+    /*!
+     * \brief Install time-invariant edge geometry queried via
+     * \c swmm_2d_edge_get_geometry_bulk once at twoDInitialized. Sizes are
+     * \c triangleCount()*3 each. Optional — when not called, the source
+     * advertises no edge geometry (readEdgeGeometry returns false).
+     */
+    void setEdgeGeometry(std::vector<float> length,
+                         std::vector<float> nx,
+                         std::vector<float> ny);
+
+    // IMesh2DSource
+    int  vertexCount()   const override { return static_cast<int>(vx_.size()); }
+    int  triangleCount() const override { return static_cast<int>(tris_.size()); }
+    int  timeCount()     const override { return static_cast<int>(history_.size()); }
+    bool isLive()        const override { return true; }   // streaming from the running sim
+    bool readMeshGeometry(std::vector<double>& vx,
+                          std::vector<double>& vy,
+                          std::vector<double>& vz,
+                          std::vector<std::array<int, 3>>& tris) override;
+    bool readDepthsAt(int timeIdx, std::vector<float>& depths) override;
+    QDateTime simTimeAt(int timeIdx) const override;
+
+    bool readEdgeFluxAt(int timeIdx, std::vector<float>& flux) override;
+    bool readEdgeGeometry(std::vector<float>& length,
+                          std::vector<float>& nx,
+                          std::vector<float>& ny) override;
+    bool readVertexDepthsAt(int timeIdx, std::vector<float>& vdepths) override;
+
+private:
+    std::vector<double>              vx_, vy_, vz_;
+    std::vector<std::array<int,3>>   tris_;
+
+    struct Tick {
+        std::vector<float> depths;
+        std::vector<float> flux;       ///< [tri*3 + localEdge]; empty when source has no flux feed.
+        std::vector<float> vertex_depths; ///< [vertex]; empty when engine lacks the heads API.
+        QDateTime          sim_time;
+        double             elapsed_sec = 0.0;
+    };
+    std::vector<Tick> history_;
+
+    // Time-invariant edge geometry; populated once at twoDInitialized via
+    // setEdgeGeometry. Empty when the engine lacks the bulk geometry API.
+    std::vector<float> edge_length_;
+    std::vector<float> edge_nx_;
+    std::vector<float> edge_ny_;
+};
+
+// ---------------------------------------------------------------------------
+// HDF5Mesh2DSource — post-run source backed by Mesh2DH5Reader
+// ---------------------------------------------------------------------------
+
+class HDF5Mesh2DSource : public IMesh2DSource
+{
+public:
+    HDF5Mesh2DSource();
+    ~HDF5Mesh2DSource() override;
+
+    bool open(const QString& path);
+    const QString& path() const noexcept { return path_; }
+
+    // IMesh2DSource
+    int  vertexCount()   const override;
+    int  triangleCount() const override;
+    int  timeCount()     const override;
+    bool readMeshGeometry(std::vector<double>& vx,
+                          std::vector<double>& vy,
+                          std::vector<double>& vz,
+                          std::vector<std::array<int, 3>>& tris) override;
+    bool readDepthsAt(int timeIdx, std::vector<float>& depths) override;
+    QDateTime simTimeAt(int timeIdx) const override;
+
+    bool readEdgeFluxAt(int timeIdx, std::vector<float>& flux) override;
+    bool readEdgeGeometry(std::vector<float>& length,
+                          std::vector<float>& nx,
+                          std::vector<float>& ny) override;
+    bool readVertexDepthsAt(int timeIdx, std::vector<float>& vdepths) override;
+
+    /*! \brief Anchor wall-clock time for the simulation start (so /time
+     *  (seconds since start) maps back to a QDateTime for the global slider). */
+    void setSimulationStart(QDateTime t) { sim_start_ = t; }
+
+private:
+    QString                                            path_;
+    std::unique_ptr<openswmmvis::io::Mesh2DH5Reader>   reader_;
+    QDateTime                                          sim_start_;
+    std::vector<float>                                 depth_buf_;     ///< per-frame scratch (signed vertex depths)
+};
+
+// ---------------------------------------------------------------------------
+// SWMM2DResultsLayer
+// ---------------------------------------------------------------------------
+
+class SWMM2DResultsLayer : public OpenSWMMVisLayer,
+                            public OpenSWMM::Render::ISublayerHost,
+                            public OpenSWMM::Render::IAttributeProvider  // Slice DM.3
+{
+    Q_OBJECT
+    Q_INTERFACES(OpenSWMM::Render::IAttributeProvider)  // Slice DM.3
+public:
+    // Slice DM.3 — exposes depth / head / velocity-magnitude / velocity-
+    // x / velocity-y so renderer panels can theme the heatmap and
+    // contour rules by the right variable. All entries are dynamic.
+    // 2D results have no SWMM category concept; we ignore the cat
+    // argument and always return the mesh-scope field set.
+    [[nodiscard]] QVector<OpenSWMM::Render::AttributeField>
+        availableAttributes(OpenSWMMVis::SwmmCategory cat) const override;
+    explicit SWMM2DResultsLayer(const QString& name = QStringLiteral("2D Results"),
+                                 OpenSWMMVisWorkspace* parent = nullptr);
+    ~SWMM2DResultsLayer() override;
+
+    /*!
+     * \brief Swap the data source. Triggers a one-time mesh-geometry rebuild;
+     * the current time index is clamped to the new source's `timeCount()-1`.
+     *
+     * Lifecycle: a run typically calls `setSource(EngineMesh2DSource)` once
+     * at `twoDInitialized`, then `setSource(HDF5Mesh2DSource)` again at
+     * `finished` to swap to the on-disk file for scrubbing.
+     */
+    void setSource(std::unique_ptr<IMesh2DSource> source);
+
+    IMesh2DSource* source() noexcept { return source_.get(); }
+    const IMesh2DSource* source() const noexcept { return source_.get(); }
+
+    /*!
+     * \brief Current time index displayed on the canvas. -1 = no frame yet.
+     */
+    int currentTimeIndex() const noexcept { return current_time_idx_; }
+    void setCurrentTimeIndex(int t);
+
+    /*!
+     * \brief Re-read and re-apply the current frame without moving the cursor.
+     *
+     * Live 2D packets for a single simulation tick can arrive in phases
+     * (depths, then flux, then reconstructed vertex heads). Those late packets
+     * change velocity glyphs, smooth fills, contours, and profile samples even
+     * though the time index has not advanced.
+     */
+    void refreshCurrentFrame();
+
+    /*!
+     * \brief Re-query `source()->timeCount()` and emit `timeRangeChanged` if
+     * it grew. Used by the runner's per-tick refresh during live mode.
+     */
+    void refreshTimeRange();
+
+    /*!
+     * \brief Follow-latest behavior for a LIVE (streaming) source. When on
+     * (the default), refreshTimeRange() advances the cursor to the newest frame
+     * as ticks arrive so the map animates the running simulation. Cleared when
+     * the user takes manual playback control (scrub / Play) so a chosen frame
+     * stays put; re-armed when they seek back to the latest frame. No effect on
+     * file sources, which already follow-latest while being appended.
+     */
+    void setFollowLive(bool on) noexcept { follow_live_ = on; }
+    [[nodiscard]] bool followLive() const noexcept { return follow_live_; }
+
+    /*!
+     * \brief Master on/off gate for LIVE (streaming) rendering during a run.
+     * Distinct from \ref followLive (which only chooses WHICH frame is shown)
+     * and from base-layer visibility (a non-live static result keeps drawing).
+     * When off, refreshTimeRange() stops ingesting/advancing streamed frames
+     * and the QSG renderer stops drawing the live layer, so a running sim costs
+     * no extra GPU/CPU for the 2D view. Re-enabling resumes work; the caller is
+     * expected to re-arm follow-live so the view jumps to the newest frame.
+     * No effect on file/static sources.
+     */
+    void setLiveRenderEnabled(bool on);
+    [[nodiscard]] bool liveRenderEnabled() const noexcept { return live_render_enabled_; }
+
+    /*!
+     * \brief Release the active source — closes its underlying HDF5 handle
+     * (when the source is an HDF5Mesh2DSource) so the engine can truncate /
+     * overwrite the file on a subsequent run. Clears all per-frame caches
+     * and emits geometryChanged on both items so the canvas paints empty
+     * until a new source is attached via setSource().
+     *
+     * Used by the dual-stream re-run handshake (Slice CF.MVP-fix.2) before
+     * launching a new simulation that targets the same OUTPUT_FILE.
+     */
+    void closeSource();
+
+    /*! \brief Dry-cell depth threshold in metres. Cells below this draw with alpha 0. */
+    double dryDepth() const noexcept { return dry_depth_; }
+    void   setDryDepth(double d);
+
+    // ----- Self-description for the Layer Properties dialog ----------------
+    [[nodiscard]] QString sourceDescription() const override;
+    [[nodiscard]] QVector<QPair<QString, QString>> extendedMetadata() const override;
+
+    // ----- VS.8 — QSG (GPU) rendering ownership ------------------------------
+    //
+    // When MapCanvas hosts this layer in SWMM2DResultsQSGRenderer, it sets
+    // this flag and the QGraphicsItem QPainter passes return early (same
+    // per-kind bypass pattern as SWMMLayerItem §QSG-1). The CPU path stays
+    // intact as the fallback (mask clip active, QSG init failure).
+    [[nodiscard]] bool qsgOwnsRendering() const noexcept { return m_qsgOwnsRendering; }
+    void setQsgOwnsRendering(bool own);
+
+    /*! \brief Upper end of the colour ramp (metres). Auto-tracks the global max
+     *         depth seen so far across all loaded ticks unless explicitly set. */
+    double maxDepth() const noexcept { return max_depth_; }
+    void   setMaxDepth(double d);
+
+    // ----- Velocity vector overlay (CF.2) -----------------------------------
+    //
+    // Gap A3.1 — these knobs (and the band / isoline ones below) are now
+    // facades over the sublayer model (visibility + style bags), which is
+    // the single source of truth the paint passes consult. The legacy
+    // fields survive only as fallbacks for the (never-hit) no-sublayer
+    // case. Both the dialog (legacy setters) and the layer tree (sublayer
+    // toggles) therefore drive — and report — the same state.
+
+    /*! \brief Whether centroid arrow glyphs are drawn over the depth fill. */
+    bool   velocityVectorsVisible() const;
+    void   setVelocityVectorsVisible(bool v);
+
+    /*! \brief Overall alpha applied to all arrow glyphs, 0..1. Default 0.9. */
+    qreal  velocityOpacity() const;
+    void   setVelocityOpacity(qreal alpha);
+
+    /*! \brief Per-glyph pixel scale: \c arrow_length_px = \p scale * log1p(vmag / vmagRef).
+     *  Default 30 — a 1 m/s velocity renders ~21 px at any zoom. */
+    double velocityArrowScale() const;
+    void   setVelocityArrowScale(double scale);
+
+    /*! \brief Upper end of the velocity colour ramp (m/s). Auto-tracks the
+     *  running max unless explicitly set. */
+    double maxVelocity() const noexcept { return max_velocity_; }
+    void   setMaxVelocity(double v);
+
+    /*! \brief Whether the active source produced both edge geometry and a
+     *  flux slice — i.e. whether the velocity overlay has data to render.
+     *  NOTE: this reflects the CURRENTLY shown frame's reconstructed velocity
+     *  magnitude; it is false on dry frames. Use \ref hasEdgeFluxData for a
+     *  frame-independent "does this run carry edge flux" capability check. */
+    bool   hasVelocityData() const noexcept { return have_velocity_; }
+
+    /*! \brief Whether the run carries per-edge flux data at all, independent of
+     *  the current frame. Probes the source once (cached) and is the correct
+     *  gate for whole-series edge flow / flux / velocity plotting. */
+    bool   hasEdgeFluxData() const;
+
+    // ----- Color-ramp + contour styling (Slice CF.MVP-fix.3) ----------------
+
+    /*! \brief How depth is mapped to colour in the per-cell heatmap pass.
+     *
+     *  \c Smooth   — continuous Viridis-ish gradient via \ref inundationColorRgba.
+     *               This is the default and matches behaviour prior to fix.3.a.
+     *  \c Graduated — discretise the depth range into \ref colorClasses bins and
+     *               sample the same gradient at each bin's midpoint. Bin colours
+     *               match the ones generated for the renderer's legend.
+     */
+    enum class ColorRampStyle { Smooth, Graduated };
+    [[nodiscard]] ColorRampStyle colorRampStyle() const noexcept { return color_ramp_style_; }
+    void                          setColorRampStyle(ColorRampStyle s);
+
+    [[nodiscard]] int  colorClasses() const noexcept { return color_classes_; }
+    void               setColorClasses(int n);
+
+    /*! \brief Show filled-band contour polygons over the heatmap (off by
+     *  default). Gap A3.1 — facades over the ContourBand sublayer
+     *  (visibility / sublayer opacity / bandCount style prop). */
+    [[nodiscard]] bool   filledContours()        const;
+    void                 setFilledContours(bool on);
+    [[nodiscard]] double filledContoursOpacity() const;
+    void                 setFilledContoursOpacity(double a);
+    [[nodiscard]] int    filledContoursLevels()  const;
+    void                 setFilledContoursLevels(int n);
+
+    /*! \brief Stroke iso-depth contour lines over the heatmap (off by
+     *  default). Gap A3.1 — facades over the Isoline sublayer + style bag. */
+    [[nodiscard]] bool   isolines()        const;
+    void                 setIsolines(bool on);
+    [[nodiscard]] int    isolinesLevels()  const;
+    void                 setIsolinesLevels(int n);
+    [[nodiscard]] QColor isolinesColor()   const;
+    void                 setIsolinesColor(QColor c);
+    [[nodiscard]] double isolinesWidth()   const;
+    void                 setIsolinesWidth(double px);
+
+    // ----- Renderer (Slice BI Phase 8.13.6.6) -----------------------------
+    // API plumbing only — the existing paint path still uses dry_depth_ /
+    // max_depth_ directly.  Sub-phase 8.13.6.4 (deferred until Slice BB
+    // ColorRamp lands) will swap the paint loop to consult m_renderer.
+
+    /*!
+     * \brief The IFeatureRenderer that will drive this layer's paint pass.
+     * \details Constructed eagerly as a default GraduatedRenderer because
+     *          this layer is fundamentally a continuous-attribute (depth)
+     *          colour-mapped layer.  Owned by the layer; never null.
+     */
+    [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+
+    /*!
+     * \brief Replaces the current renderer.
+     * \details The layer takes ownership.  Null pointers are silently
+     *          rejected.  Emits \ref rendererChanged() when the pointer
+     *          actually changes.
+     */
+    void setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r);
+
+    /*!
+     * \brief Statistic on the current frame — useful for the status-bar peak readout.
+     * \returns {peakDepth, peakTriIdx} of the currently displayed frame, or
+     * {0, -1} if no frame is loaded.
+     */
+    std::pair<float, int> currentPeak() const;
+
+    /*!
+     * \brief Set the current frame by nearest simulation time. Used to keep the
+     * 2D layer in step with the existing AnimationController's 1D playback —
+     * one slider drives both layers.
+     */
+    void setCurrentSimTime(QDateTime t);
+
+    /*!
+     * \brief Set the current frame **causally**: the latest frame whose
+     * simulation time is at or before \p cursor (floor), so a coupled output
+     * with a coarser report step never jumps to a frame ahead of the animation
+     * cursor. Clamps to frame 0 when \p cursor precedes the first frame (hold
+     * first). Peer of SWMMResultsLayer::periodIndexForDateTimeAsOf; used by the
+     * animation sync path so misaligned outputs hold their last-known frame.
+     */
+    void setCurrentSimTimeAsOf(QDateTime cursor);
+
+    // ----- Cell selection / picking (CF.3) ----------------------------------
+
+    /*!
+     * \brief Return triangle indices whose scene-space centroid falls inside
+     *        \p sceneRect.  Linear scan over m_sceneTris — fine for meshes
+     *        up to ~100k tris; bigger meshes may want spatial indexing.
+     */
+    [[nodiscard]] QVector<int> pickCellsInRect(const QRectF& sceneRect) const;
+
+    /*!
+     * \brief Return triangle indices whose scene-space centroid falls inside
+     *        \p scenePoly (odd-even fill rule). Used by lasso-select.
+     */
+    [[nodiscard]] QVector<int> pickCellsInPolygon(const QPolygonF& scenePoly) const;
+
+    /*! \brief Return the triangle whose vertices contain \p scenePt, or -1.
+     *  Used by single-click cell pick and canvas-right-click hit test. */
+    [[nodiscard]] int pickCellAt(const QPointF& scenePt) const;
+
+    /*! \brief Current-frame water depth (m) at \p scenePt: locates the
+     *  containing cell via \ref pickCellAt and returns its cell-centre depth
+     *  from the live SceneTri buffer. Returns 0 off-mesh / no-frame. Used by
+     *  the mesh-profile cross-section to sample the animated depth column. */
+    [[nodiscard]] float depthAtSceneNow(const QPointF& scenePt) const;
+
+    /*! \brief Current-frame water depth (m) at \p scenePt, **barycentrically
+     *  interpolated** from the containing cell's per-vertex depths
+     *  (`dv0/dv1/dv2`) — the same continuous field the marching-triangles
+     *  contour passes render. Mirrors `SWMM2DMeshLayer::sampleZAt`'s
+     *  interpolation so the mesh-profile water-surface line varies smoothly
+     *  across cell boundaries instead of stepping at each cell centre.
+     *  Returns 0 off-mesh / no-frame. */
+    [[nodiscard]] float depthAtSceneInterp(const QPointF& scenePt) const;
+
+    /*! \brief Barycentrically interpolated current-frame depth (m) at \p scenePt
+     *  when its containing cell index is already known (e.g. the cached
+     *  `Sample::triIdx`), skipping the cell search. Bounds-checks \p triIdx and
+     *  returns 0 when out of range. \ref depthAtSceneInterp is this plus a
+     *  \ref pickCellAt. */
+    [[nodiscard]] float depthAtCellInterp(int triIdx, const QPointF& scenePt) const;
+
+    /*! \brief True when any corner of cell \p triIdx carries a valid free
+     *  surface η this frame (signed per-vertex depth ≠ 0 — the exact-0 value
+     *  is the no-wet-incident-cell NO-DATA sentinel). False out of range.
+     *  Feeds Sample::cellHasSurface so the profile painter bridges only true
+     *  no-data gaps, not genuinely dry ground (see meshprofileinterp.h). */
+    [[nodiscard]] bool cellHasSurface(int triIdx) const;
+
+    /*! \brief Barycentrically-interpolated scene-space velocity (m/s) at
+     *  \p scenePt, from the per-vertex velocity field reconstructed in
+     *  applyCurrentFlux_ (V1, Issue 5). Writes \p outVx,\p outVy and returns
+     *  true when \p scenePt lies in a wet cell; returns false (and zeros)
+     *  off-mesh or where the containing cell is dry. Used by the grid-sampled
+     *  glyph placement so arrows are evenly spaced (independent of mesh
+     *  density) and their direction varies smoothly across cell boundaries. */
+    [[nodiscard]] bool velocityAtScene(const QPointF& scenePt,
+                                       float& outVx, float& outVy) const;
+
+    /*! \brief Per-**vertex** maximum water depth (m), the temporal max of the
+     *  per-frame signed vertex reconstruction over each vertex's incident cells.
+     *  Sized to `vertexCount()`, or empty when no source / no frames. Feeds
+     *  the smooth (barycentric) max-depth envelope on the mesh profile — the
+     *  peer of `dv0/dv1/dv2` for the historical maximum. Build once and pass
+     *  to \ref maxDepthAtSceneInterp. */
+    [[nodiscard]] QVector<float> maxDepthPerVertex() const;
+
+    /*! \brief Barycentrically interpolated max water depth (m) at \p scenePt
+     *  from a precomputed per-vertex max array \p vertMax (see
+     *  \ref maxDepthPerVertex). Mirrors \ref depthAtSceneInterp so the
+     *  envelope and the water-surface line share one interpolation basis.
+     *  Returns 0 off-mesh. */
+    [[nodiscard]] float maxDepthAtSceneInterp(const QPointF& scenePt,
+                                              const QVector<float>& vertMax) const;
+
+    /*! \brief Replace the highlight set. Triggers an Overlay repaint via the
+     *  layer's existing invalidate path. */
+    void highlightCells(const QSet<int>& triIdxSet);
+
+    /*! \brief Add to / clear the highlight set. */
+    void clearHighlights();
+
+    /*! \brief Current highlight set (read-only). */
+    [[nodiscard]] const QSet<int>& highlightedCells() const noexcept { return m_highlighted; }
+
+    // ----- OpenSWMMVisLayer interface ----------------------------------------
+
+    void populateScene(QGraphicsScene* scene,
+                        const MapExtent& canvasExtent,
+                        const SpatialReferenceSystem* canvasSRS) override;
+
+    void depopulateScene(QGraphicsScene* scene) override;
+
+    void refreshScene(QGraphicsScene* scene,
+                       const MapExtent& canvasExtent,
+                       const SpatialReferenceSystem* canvasSRS) override;
+
+    void onCanvasCRSChanged(const SpatialReferenceSystem* newCanvasSRS) override;
+
+    // ----- Scene caches (public for the graphics item) -----------------------
+
+    /*! Per-triangle scene-space vertices + per-tri animated state. */
+    struct SceneTri {
+        QPointF a, b, c;
+        QPointF centroid;       ///< Scene-space centroid; cached at rebuildSceneGeometry_.
+        float   depth = 0.0f;   ///< Cell-centre depth (m) — drives the heatmap fill.
+        // Per-corner SIGNED depths η−z (m), used by the marching-triangles
+        // contour passes. Recomputed each tick in applyCurrentDepths_() from
+        // the wet-masked vertex free-surface field, so the contour passes see
+        // a continuous scalar across cell boundaries. Without this the
+        // algorithm degenerates (v0==v1==v2 → vMax > vMin is false) and the
+        // contour passes silently skip every triangle.
+        //
+        // Exactly 0 is the NO-DATA sentinel (no wet incident cell) — EXCEPT in
+        // a cell that has at least one wet corner, where the dry corners carry
+        // the extrapolated pooling surface maxEta − z_k (negative where the bed
+        // stands above the pool). That keeps the field LINEAR on the triangle,
+        // which is what the marching passes assume, so they cut the shoreline
+        // on the true sub-cell bed intercept. Per-corner, so these are NOT
+        // interchangeable across the cells sharing a vertex.
+        // (workplans/2D_MAP_POOLING_EXTRAPOLATION_PLAN_2026-08-04.md)
+        float   dv0   = 0.0f;
+        float   dv1   = 0.0f;
+        float   dv2   = 0.0f;
+        float   vx    = 0.0f;   ///< Scene-space velocity x (m/s; sign flipped to match scene Y).
+        float   vy    = 0.0f;   ///< Scene-space velocity y (m/s).
+        float   vmag  = 0.0f;   ///< |v| in m/s, computed in model coords.
+    };
+
+    QRectF             m_sceneBBox;
+    QVector<SceneTri>  m_sceneTris;
+    /*! Point-location index over m_sceneTris bboxes (parallel indices). Built in
+     *  rebuildSceneGeometry_; accelerates pickCellAt from O(n) to O(cell). */
+    MeshSpatialGrid    m_triGrid;
+
+    /*! Deduplicated mesh edges in scene space (Issue 3). Each undirected edge is
+     *  stored exactly once — mirrors SWMM2DMeshLayer's pushEdge — so the
+     *  wireframe overlay no longer strokes shared edges twice. Double-stroking
+     *  the translucent edge colour composited it to a dark wash ("dark
+     *  artifact"). `slope` (|Δz|/length of the edge's bed) lets the renderer
+     *  honour MeshEdgeStyle's slope-driven thin/wide width. Built in
+     *  rebuildSceneGeometry_. */
+    struct SceneEdge {
+        QPointF a, b;
+        float   slope = 0.0f;
+    };
+    QVector<SceneEdge> m_sceneEdges;
+
+    /*! QSG-2D-1M — shared scene-space vertex positions (parallel to the
+     *  source vertex arrays). Built in rebuildSceneGeometry_; lets the QSG
+     *  renderer draw one marker per UNIQUE mesh vertex (the per-corner
+     *  emission repeated shared vertices ~6×) and feed the static indexed
+     *  geometry buffers without expanding corners. */
+    QVector<QPointF>   m_sceneVerts;
+
+    /*! QSG-2D-1M — triangle → vertex-id triples backing m_sceneTris
+     *  (indices into m_sceneVerts). Read-only view for the renderer's
+     *  static indexed-geometry path. */
+    [[nodiscard]] const std::vector<std::array<int, 3>> &triVertexIndices() const noexcept
+    { return tris_; }
+
+    /*! QSG-2D-1M — bumped every rebuildSceneGeometry_. Lets the QSG
+     *  renderer classify an ambiguous repaint into "geometry changed"
+     *  vs "style changed" and key its static buffers / chunk index.
+     *  Mirrors SWMM2DMeshLayer::geomRevision(). */
+    [[nodiscard]] quint64 geomRevision() const noexcept { return m_geomRevision; }
+
+signals:
+    /*! Emitted when `source()->timeCount()` changes (either via setSource or refreshTimeRange). */
+    void timeRangeChanged(int lo, int hi);
+
+    /*! Emitted whenever the current frame changes (setCurrentTimeIndex). */
+    void currentTimeChanged(int t);
+
+    /*!
+     * \brief Emitted alongside currentTimeChanged(int) with the QDateTime of
+     * the frame (or invalid if the source has no time anchor). Mirrors
+     * SWMMResultsLayer::currentDateTimeChanged so AnimationController can
+     * drive the 2D layer as a fallback when no 1D primary is loaded.
+     */
+    void currentDateTimeChanged(const QDateTime &dt);
+
+    /*! CF.3 — emitted on plot↔canvas hover sync. */
+    void cellHovered(int triIdx);
+
+    /*! CF.3 — emitted when the highlight set changes. */
+    void highlightedCellsChanged();
+
+    /*! \brief Emitted when setRenderer() swaps the renderer pointer. */
+    void rendererChanged();
+
+private:
+    bool loadFrame_(int t);          ///< Re-read frame \p t and emit frame/repaint signals.
+    void rebuildSceneGeometry_();   ///< Recompute scene-space triangle vertices + centroids; refresh cached edge geometry.
+    void applyCurrentDepths_();     ///< Copy `current_depths_` into the SceneTri buffer.
+    void applyCurrentFlux_();       ///< Run RT0 reconstruction → write vx/vy/vmag into SceneTri.
+
+    /*! QSG-2D-1M — see geomRevision(). */
+    quint64 m_geomRevision = 0;
+
+    std::unique_ptr<IMesh2DSource> source_;
+    std::vector<double>            vx_, vy_, vz_;
+    std::vector<std::array<int,3>> tris_;
+    std::vector<float>             current_depths_;
+
+    // Sub-cell free-surface reconstruction for partial wet/dry rendering. The
+    // engine reports a per-cell mean depth h = V/A under a flat-cell closure;
+    // its free surface is η = z_centroid + h (horizontal at equilibrium). We
+    // reconstruct that η at vertices and carry a SIGNED per-vertex depth so the
+    // wet/dry shoreline cuts through cells instead of snapping to cell edges.
+    // cellZc_ is each cell's centroid bed elevation (static; built once in
+    // rebuildSceneGeometry_); the eta_* vectors are per-frame scratch reused by
+    // applyCurrentDepths_ to avoid per-frame allocation.
+    std::vector<float>             cellZc_;       ///< per-cell centroid bed elev, parallel to tris_
+    std::vector<float>             eta_vsum_;     ///< scratch — per-vertex Σ(weight·η)
+    std::vector<float>             eta_wsum_;     ///< scratch — per-vertex Σ(weight) (depth weight)
+    std::vector<float>             vdepth_;       ///< scratch — per-vertex SIGNED depth (η_v − z_v), current frame
+
+    // V1 (Issue 5) — per-vertex velocity field, reconstructed each frame in
+    // applyCurrentFlux_ as the depth-weighted average of incident cell vectors.
+    // A continuous (C0) field so glyphs sampled across cell boundaries vary
+    // smoothly instead of stepping at each cell; the peer of vdepth_ for flow.
+    std::vector<float>             vvx_;          ///< per-vertex velocity x (scene units)
+    std::vector<float>             vvy_;          ///< per-vertex velocity y (scene units)
+
+    // CF.2 — per-tick flux + time-invariant edge geometry pulled once from the source.
+    std::vector<float>             current_flux_;     ///< [tri*3 + localEdge], m^2/s.
+    std::vector<float>             edge_length_;      ///< [tri*3], m.
+    std::vector<float>             edge_nx_;          ///< [tri*3], dimensionless.
+    std::vector<float>             edge_ny_;          ///< [tri*3], dimensionless.
+    bool                           have_edge_geom_   = false;
+    bool                           have_velocity_    = false;
+    /*! Tri-state cache for hasEdgeFluxData(): 0 = not yet determined,
+     *  +1 = edge flux present, -1 = absent. Reset on setSource. */
+    mutable int                    edge_flux_probe_  = 0;
+
+    int                            current_time_idx_ = -1;
+    bool                           follow_live_      = true;  // live source: auto-advance to newest frame until the user scrubs
+    bool                           live_render_enabled_ = true; // live source: master gate for streaming/render work (Issue 2 toggle)
+    double                         dry_depth_        = 1e-4;  // 0.1 mm — auto-tuned per project
+    double                         max_depth_        = 0.01;  // 10 mm — auto-grows from data each tick
+    bool                           max_depth_user_set_ = false;
+
+    // Velocity overlay state.
+    // CF.2 transitional default: arrows ON so the overlay is eyeball-able
+    // before the layer-panel UI lands. Flip back to false once a UI toggle
+    // exists.
+    bool                           velocity_visible_     = true;
+    qreal                          velocity_opacity_     = 0.9;
+    double                         velocity_arrow_scale_ = 30.0;   // px per log1p(vmag/vRef)
+    double                         max_velocity_         = 1.0;    // m/s, auto-grown
+    bool                           max_velocity_user_set_ = false;
+
+    SWMM2DResultsGraphicsItem*     graphics_item_    = nullptr;
+    SWMM2DVelocityArrowsItem*      arrows_item_      = nullptr;
+
+    // VS.8 — true while SWMM2DResultsQSGRenderer owns the on-screen pixels.
+    bool                           m_qsgOwnsRendering = false;
+
+    // CF.3 — selection / highlight state.
+    QSet<int>                      m_highlighted;
+
+    // Slice BI Phase 8.13.6.6 — renderer plumbing.  Initialised eagerly in
+    // the ctor (default GraduatedRenderer) so renderer() never returns
+    // null.  Paint refactor deferred until Slice BB ColorRamp ships.
+    std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> m_renderer;
+
+    // Slice CF.MVP-fix.3 — graduated colour + contour styling. All default
+    // values preserve the pre-fix.3 paint output byte-identically.
+    ColorRampStyle color_ramp_style_         = ColorRampStyle::Smooth;
+    int            color_classes_            = 5;
+    bool           filled_contours_          = false;
+    double         filled_contours_opacity_  = 0.60;
+    int            filled_contours_levels_   = 8;
+    bool           isolines_                 = false;
+    int            isolines_levels_          = 5;
+    QColor         isolines_color_           = QColor(20, 20, 20, 230);
+    double         isolines_width_           = 1.0;  // pixels
+
+    // Slice S5.6 — sublayer foundation (dormant pointers, populated in
+    // ctor). The existing paint pipeline does not yet consume these; the
+    // final paint-replacement slice will replace the current SceneTri
+    // pipeline with sublayer-driven QSG geometry.
+    OpenSWMM::Render::MeshFillSublayer        *m_meshFillSublayer       = nullptr;
+    OpenSWMM::Render::MeshEdgeSublayer        *m_meshEdgeSublayer       = nullptr;
+    OpenSWMM::Render::MeshNodeSublayer        *m_meshNodeSublayer       = nullptr;
+    OpenSWMM::Render::ContourBandSublayer     *m_contourBandSublayer    = nullptr;
+    OpenSWMM::Render::CellDepthFillSublayer   *m_cellDepthFillSublayer  = nullptr;
+    OpenSWMM::Render::SmoothDepthFillSublayer *m_smoothDepthFillSublayer = nullptr;
+    OpenSWMM::Render::IsolineSublayer         *m_isolineSublayer        = nullptr;
+    OpenSWMM::Render::VelocityVectorSublayer  *m_velocityVectorSublayer = nullptr;
+
+    // User-customisable paint order (Slice GUI-2026-05-30 §2).  Lazy-seeded
+    // from the default order in sublayers(); reordered via moveSublayer();
+    // round-tripped through ISublayerHost::save/loadSublayersFromJson.
+    mutable QList<OpenSWMM::Render::ISublayer *> m_sublayerOrder;
+
+public:
+    // ----- ISublayerHost interface (Slice S5.6) -----------------------------
+    //
+    // Default sublayer mix (2026-06-21; depth color ramp + flow arrows removed):
+    //   [0] MeshFillSublayer         (static — terrain hillshade base)
+    //   [1] ContourBandSublayer      (dynamic — filled bands; the depth fill, default on)
+    //   [2] MeshEdgeSublayer         (static — wireframe over results)
+    //   [3] IsolineSublayer          (dynamic — marching-squares isolines; default off)
+    //   [4] MeshNodeSublayer         (static — coupled-vertex markers)
+    //   [5] VelocityVectorSublayer   (dynamic — RT0 arrow glyphs; also show direction)
+    [[nodiscard]] QList<OpenSWMM::Render::ISublayer *> sublayers() const override;
+
+    /*! Reorder sublayers in paint order (bottom-up).  Emits
+     *  repaintRequested() on success.  Returns false on out-of-range indices. */
+    bool moveSublayer(int from, int to) override;
+
+    /*! Graduated ramp swatches for the legend dock. Mirrors
+     *  SWMMResultsLayer::sublayerLegendItems for the 2D layer: emits
+     *  one row per colour-ramp bin (depth), one per filled-contour band
+     *  when enabled, plus single rows for isolines and velocity arrows.
+     *  Each row carries the originating sublayerId so the legend's
+     *  right-click → "Edit Sublayer Style…" path still works. */
+    [[nodiscard]] QList<OpenSWMM::Render::LegendSymbolItem>
+        sublayerLegendItems() const;
+
+    [[nodiscard]] OpenSWMM::Render::MeshFillSublayer *
+        meshFillSublayer() const { return m_meshFillSublayer; }
+    [[nodiscard]] OpenSWMM::Render::MeshEdgeSublayer *
+        meshEdgeSublayer() const { return m_meshEdgeSublayer; }
+    [[nodiscard]] OpenSWMM::Render::MeshNodeSublayer *
+        meshNodeSublayer() const { return m_meshNodeSublayer; }
+    [[nodiscard]] OpenSWMM::Render::ContourBandSublayer *
+        contourBandSublayer() const { return m_contourBandSublayer; }
+    [[nodiscard]] OpenSWMM::Render::CellDepthFillSublayer *
+        cellDepthFillSublayer() const { return m_cellDepthFillSublayer; }
+    [[nodiscard]] OpenSWMM::Render::SmoothDepthFillSublayer *
+        smoothDepthFillSublayer() const { return m_smoothDepthFillSublayer; }
+    [[nodiscard]] OpenSWMM::Render::IsolineSublayer *
+        isolineSublayer() const { return m_isolineSublayer; }
+    [[nodiscard]] OpenSWMM::Render::VelocityVectorSublayer *
+        velocityVectorSublayer() const { return m_velocityVectorSublayer; }
+
+    /*! Slice U-6 — surface the 5 sublayer style bags as styleable subjects
+     *  for the unified LayerStyleDialog. */
+    [[nodiscard]] std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
+        styleSubjects() override;
+
+    // ----- Rule Model (Slice B.5b, Phase B) -------------------------------
+    //
+    // Five seed Rules covering the result-layer decoration archetypes
+    // (Depth color ramp / Velocity vectors / Contour / Mesh edges /
+    // Mesh nodes). Same lazy-build pattern as SWMM2DMeshLayer.
+    [[nodiscard]] OpenSWMM::Render::RuleList *ruleList() override;
+    [[nodiscard]] const OpenSWMM::Render::RuleList *ruleList() const override;
+
+private:
+    void buildRuleListLazy() const;
+    mutable std::unique_ptr<OpenSWMM::Render::RuleList> m_ruleList;
+};
+
+#endif // OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H

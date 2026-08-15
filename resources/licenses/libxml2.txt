@@ -1,0 +1,8 @@
+libxml2
+Copyright (C) 1998-2012 Daniel Veillard.  All Rights Reserved.
+
+The MIT License (MIT). Full canonical text shipped with libxml2 under
+`Copyright`. A copy should be inserted here at packaging time. Until
+then, please consult:
+
+    https://gitlab.gnome.org/GNOME/libxml2/-/blob/master/Copyright

@@ -1,0 +1,165 @@
+/*!
+ * \file   xyztilelayer.h
+ * \author Caleb Buahin <caleb.buahin@gmail.com>
+ * \date   2026
+ * \brief  Slippy-map (XYZ / OSM-style) tile basemap layer.
+ */
+#ifndef XYZTILELAYER_H
+#define XYZTILELAYER_H
+
+#include "layers/openswmmvislayer.h"
+#include "connections/basemapconnection.h"
+#include "render/basemaprenderparams.h"
+
+#include <QCache>
+#include <QImage>
+#include <QMutex>
+#include <QSet>
+#include <QSize>
+#include <QString>
+
+#include <atomic>
+#include <limits>
+
+class QNetworkAccessManager;
+class QNetworkReply;
+class OGRSpatialReference;
+class OGRCoordinateTransformation;
+
+/*!
+ * \class XYZTileLayer
+ * \brief Renders a standard XYZ (slippy-map) tile service as a raster basemap.
+ *
+ * URL template uses placeholders: {z} zoom, {x} column, {y} row, {s} subdomain.
+ * Example: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png"
+ *
+ * Tiles are fetched asynchronously and cached in memory (LRU, 400 tiles max).
+ * During pan/zoom previously cached tiles are rendered immediately; missing tiles
+ * appear blank until the network reply arrives and triggers a repaint.
+ */
+class XYZTileLayer : public OpenSWMMVisLayer
+{
+    Q_OBJECT
+
+public:
+    /*!
+     * \param urlTemplate  Slippy-map URL with {s}/{z}/{x}/{y} placeholders.
+     * \param tileSizePx   Source pixels per tile side. Standard XYZ services
+     *                     serve 256-px tiles; HiDPI / retina variants (e.g.
+     *                     CartoDB's `@2x` endpoints) serve 512-px tiles.
+     *                     Passing the correct size lets bestZoom() pick a
+     *                     level that matches the source resolution to the
+     *                     canvas instead of rounding against a 256-px
+     *                     assumption (which otherwise picks a zoom level
+     *                     too low for @2x tiles, wasting the extra pixels).
+     */
+    explicit XYZTileLayer(const QString &urlTemplate,
+                          int tileSizePx = 256,
+                          QObject *parent = nullptr);
+    ~XYZTileLayer() override;
+
+    // ----- OpenSWMMVisLayer interface ---------------------------------------
+
+    [[nodiscard]] bool isRasterLayer()  const override { return true; }
+
+    /*! XYZ tile layers cover the whole world — exclude them from the
+     *  data-driven fullExtent() calculation so "Zoom to Full Extent" zooms
+     *  to the project's feature data, not the entire globe. */
+    [[nodiscard]] bool isBasemapLayer() const override { return true; }
+
+    void fetchCache(const MapExtent &extent,
+                    const QSize &viewportSize,
+                    const SpatialReferenceSystem *canvasSRS) override;
+
+    void render(QPainter *painter,
+                const MapExtent &extent,
+                const QSize &imageSize,
+                const SpatialReferenceSystem *canvasSRS) override;
+
+    // Raster layers don't add QGraphicsItems.
+    void populateScene(QGraphicsScene *, const MapExtent &,
+                       const SpatialReferenceSystem *) override {}
+
+    void onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS) override;
+
+    // ----- Configuration ---------------------------------------------------
+
+    int  tileCacheMaxSize()             const { return m_tileCache.maxCost(); }
+    void setTileCacheMaxSize(int count);   // locks the cache; can evict → bumps epoch
+
+    void setTilePixelRatio(int ratio)         { m_tilePixelRatio = ratio; }
+    void setAxisOrder(TileAxisOrder order)    { m_axisOrder = order; }
+
+    [[nodiscard]] QString        urlTemplate()    const { return m_urlTemplate; }
+    [[nodiscard]] int            tilePixelRatio() const { return m_tilePixelRatio; }
+    [[nodiscard]] TileAxisOrder  axisOrder()      const { return m_axisOrder; }
+
+    [[nodiscard]] QString sourceDescription() const override { return m_urlTemplate; }
+
+    /*! Slice X.22 — basemap render adjustments (brightness / contrast
+     *  / saturation / resampling).  Applied to the composed tile mosaic
+     *  just before drawImage. */
+    [[nodiscard]] const OpenSWMM::Render::BasemapRenderParams &basemapRenderParams() const { return m_renderParams; }
+    void setBasemapRenderParams(const OpenSWMM::Render::BasemapRenderParams &p);
+
+signals:
+    void basemapRenderParamsChanged();
+
+private slots:
+    void onTileReply(QNetworkReply *reply, const QString &key);
+
+private:
+    // Tile coordinate math (OSM / Web Mercator convention)
+    int    bestZoom(const QRectF &wgs84Extent, int vpWidth) const;
+    QRectF tileBoundsWGS84(int z, int x, int y)             const;
+    void   latLonToTileXY(double lat, double lon, int z, int &tx, int &ty) const;
+    QRectF wgs84ExtentOfCanvasExtent(const MapExtent &extent,
+                                     const SpatialReferenceSystem *canvasSRS) const;
+    QRectF tileCanvasBounds(const QRectF &wgs84Bounds,
+                            const SpatialReferenceSystem *canvasSRS) const;
+
+    void rebuildTransforms(const SpatialReferenceSystem *canvasSRS);
+    void fetchTile(int z, int x, int y);
+    QString buildUrl(int z, int x, int y) const;
+
+    friend class XYZTileLayerAccessor;
+
+    QString                   m_urlTemplate;
+    QNetworkAccessManager    *m_nam        = nullptr;
+    QCache<QString, QImage>   m_tileCache;          // key "z/x/y"
+    QSet<QString>             m_inflight;            // keys being fetched
+
+    // P1 — m_tileCache/m_inflight are written on the GUI thread while the
+    // MapRenderJob worker reads them in render() (QCache eviction deletes a
+    // QImage the worker may be mid-sampling), so every touch point locks
+    // m_tileCacheMutex. m_tileEpoch counts content changes; render() memoizes
+    // its final output keyed on (extent, devSize, zoom, epoch) so repeat
+    // renders at an unchanged view (selection repaints, other layers' tile
+    // arrivals) skip the reprojection entirely. Memo fields are only touched
+    // inside render()/under m_transformMutex (held for its whole body).
+    mutable QMutex            m_tileCacheMutex;
+    std::atomic<quint64>      m_tileEpoch {0};
+    QImage                    m_renderMemo;
+    MapExtent                 m_memoExtent;
+    QSize                     m_memoDevSize;
+    int                       m_memoZoom  = -1;
+    quint64                   m_memoEpoch = std::numeric_limits<quint64>::max();
+    int                       m_subdomainIdx  = 0;   // rotates a/b/c
+    int                       m_tileSizePx    = 256; // 256 standard, 512 for @2x
+    int                       m_tilePixelRatio = 0;  // 0=undefined,1=standard,2=HiDPI
+    TileAxisOrder             m_axisOrder     = TileAxisOrder::ZXY;
+    OpenSWMM::Render::BasemapRenderParams m_renderParams;  /*!< X.22 */
+
+    // Cached GDAL transforms (rebuilt on CRS change). Mutex guards the
+    // render() ↔ rebuildTransforms() race: render runs in the MapRenderJob
+    // worker thread, rebuildTransforms can fire from the main thread when
+    // the canvas CRS changes. Without this, the worker can dereference a
+    // freed OGRCoordinateTransformation* and crash.
+    OGRSpatialReference          *m_wgs84  = nullptr;
+    OGRSpatialReference          *m_merc3857 = nullptr;   // P1 — same-CRS fast path
+    OGRCoordinateTransformation  *m_toWGS84   = nullptr;  // canvas → WGS84
+    OGRCoordinateTransformation  *m_fromWGS84 = nullptr;  // WGS84 → canvas
+    mutable QMutex                m_transformMutex;
+};
+
+#endif // XYZTILELAYER_H

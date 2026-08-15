@@ -1,0 +1,9 @@
+Expat XML Parser
+Copyright (c) 1998-2000 Thai Open Source Software Center Ltd and Clark Cooper
+Copyright (c) 2001-2024 Expat maintainers
+
+The MIT License (MIT). The full canonical text is shipped with libexpat
+under `COPYING`. A copy should be inserted here at packaging time. Until
+then, please consult:
+
+    https://github.com/libexpat/libexpat/blob/master/expat/COPYING
