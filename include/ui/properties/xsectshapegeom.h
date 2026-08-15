@@ -139,6 +139,12 @@ inline QString xsectGeomLabel(int shapeId, int ordinal)
 //! (geom1 there is a transect / street index, set only via the dialog);
 //! CUSTOM excludes only geom2 (its shape-curve index), keeping geom1
 //! (max depth) inline-editable.
+//!
+//! This answers "does this geom MEAN anything for the shape" — it drives
+//! labels and tooltips. It is deliberately NOT the editability test: the
+//! stored geom values exist regardless of shape, and blanking them made
+//! the inline cells look broken. Use xsectGeomIsPickerIndex() to decide
+//! what an inline editor may write.
 inline bool xsectGeomApplies(int shapeId, int ordinal)
 {
     if (shapeId == kXsectIrregularId || shapeId == kXsectStreetId)
@@ -146,6 +152,25 @@ inline bool xsectGeomApplies(int shapeId, int ordinal)
     if (shapeId == kXsectCustomId && ordinal == 2)
         return false;
     return !xsectGeomLabel(shapeId, ordinal).isEmpty();
+}
+
+//! True iff geom `ordinal` holds a PICKER-OWNED INDEX rather than a
+//! dimension: IRREGULAR / STREET geom1 (an index into the transect / street
+//! list) and CUSTOM geom2 (an index into the shape-curve list).
+//!
+//! These are the only slots an inline numeric editor must refuse. Typing a
+//! raw number into them re-points the section at an arbitrary transect /
+//! curve — silent model corruption — so they stay read-only and are set
+//! through the complex dialog's name picker. Every other geom, including
+//! ones the current shape doesn't use, is a plain stored number and is
+//! freely editable: a user switching CIRCULAR → RECT_CLOSED expects the
+//! width they typed to still be there.
+inline bool xsectGeomIsPickerIndex(int shapeId, int ordinal)
+{
+    if (ordinal == 1
+        && (shapeId == kXsectIrregularId || shapeId == kXsectStreetId))
+        return true;
+    return shapeId == kXsectCustomId && ordinal == 2;
 }
 
 } // namespace openswmmvis

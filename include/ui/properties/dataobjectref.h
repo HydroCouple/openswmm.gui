@@ -55,6 +55,10 @@ struct DataObjectRef
                              ///  mesh vertex ([2D_VERTEX_NODE_MAP]). Selection
                              ///  only; nodes are created on the map, so the "…"
                              ///  button explains rather than offering a dialog.
+        Subcatchment   = 10, ///< Any subcatchment — the [OUTFALLS] RouteTo
+                             ///  target. Selection only (subcatchments are
+                             ///  drawn on the map); an empty pick clears the
+                             ///  routing.
     };
 
     SWMM_Engine     engine      = nullptr;  ///< Engine handle (borrow)
