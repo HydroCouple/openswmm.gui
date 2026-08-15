@@ -171,6 +171,8 @@ set(
         include/core/unitsystem.h
         include/core/crsreproject.h
         include/core/editgeometry.h
+        include/core/gageassignment.h
+        include/core/gageblend.h
         include/core/gisdatapaths.h
         include/core/swmmdatetime.h
         include/core/swmmdatetimeformat.h
@@ -505,6 +507,7 @@ set(
         # ── Timeseries (Slice BQ Phase 6.7.3) ────────────────────────────────
         include/timeseries/timeseriesprovider.h
         include/timeseries/timeseriesregistry.h
+        include/timeseries/timeseriesseriescommands.h
         include/timeseries/timeseriesundocommands.h
         include/mesh/dtmsampler.h
         include/mesh/dtmthinner.h
@@ -689,6 +692,7 @@ set(
         include/ui/dialogs/crschangedialog.h
         include/ui/dialogs/aboutdialog.h
         include/ui/dialogs/mesh2dgroundwaterdialog.h
+        include/ui/dialogs/assignraingagesdialog.h
         include/ui/dialogs/meshattributeassigndialog.h
         include/ui/dialogs/meshgenerationdialog.h
         include/ui/dialogs/nodecompoundeditdialog.h
@@ -809,6 +813,8 @@ set(
         src/core/unitsystem.cpp
         src/core/crsreproject.cpp
         src/core/editgeometry.cpp
+        src/core/gageassignment.cpp
+        src/core/gageblend.cpp
         src/core/gisdatapaths.cpp
         src/core/basemapcrypto.cpp
 
@@ -1120,6 +1126,7 @@ set(
         # ── Timeseries (Slice BQ Phase 6.7.3) ────────────────────────────────
         src/timeseries/timeseriesprovider.cpp
         src/timeseries/timeseriesregistry.cpp
+        src/timeseries/timeseriesseriescommands.cpp
         src/timeseries/timeseriesundocommands.cpp
         src/mesh/dtmsampler.cpp
         src/mesh/dtmthinner.cpp
@@ -1249,6 +1256,7 @@ set(
         src/ui/dialogs/crschangedialog.cpp
         src/ui/dialogs/aboutdialog.cpp
         src/ui/dialogs/mesh2dgroundwaterdialog.cpp
+        src/ui/dialogs/assignraingagesdialog.cpp
         src/ui/dialogs/meshattributeassigndialog.cpp
         src/ui/dialogs/meshgenerationdialog.cpp
         src/ui/dialogs/nodecompoundeditdialog.cpp

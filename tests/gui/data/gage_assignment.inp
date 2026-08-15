@@ -1,0 +1,122 @@
+[TITLE]
+;;Fixture for test_gageassignintegration.
+;;
+;;Gages: GAGE_W at (0, 500), GAGE_E at (1000, 500) -> Thiessen bisector x = 500.
+;;
+;;  SUB_W    x 0..400        entirely west            -> GAGE_W
+;;  SUB_E    x 600..1000     entirely east            -> GAGE_E
+;;  SUB_MID  x 200..700      60% of area west         -> GAGE_W
+;;  SUB_SKEW concave         56.6% of area west, but its centroid is at
+;;                           x = 529.6, i.e. EAST of the bisector. Area
+;;                           majority says GAGE_W; a centroid-nearest rule
+;;                           would say GAGE_E. This is the case that proves
+;;                           the assignment really integrates over the
+;;                           watershed boundary instead of sampling a point.
+;;
+;;GAGE_NOWHERE deliberately has NO [SYMBOLS] row: the engine reports (0,0) for
+;;it, while the GUI display cache relocates it to the mean of every model
+;;vertex. Spatial code must read the engine value and exclude the gage; using
+;;the cached position would plant a phantom site mid-network.
+;;
+;;Every subcatchment starts on the WRONG gage, so a no-op cannot pass.
+
+[OPTIONS]
+FLOW_UNITS          	CFS
+INFILTRATION        	HORTON
+FLOW_ROUTING        	DYNWAVE
+START_DATE          	01/01/2020
+START_TIME          	00:00:00
+END_DATE            	01/02/2020
+END_TIME            	00:00:00
+REPORT_STEP         	00:15:00
+WET_STEP            	00:05:00
+DRY_STEP            	01:00:00
+ROUTING_STEP        	0:00:20
+
+[EVAPORATION]
+CONSTANT        	0.0
+DRY_ONLY        	NO
+
+[RAINGAGES]
+;;Name          	Format   	Interval	SCF     	Source
+GAGE_W          	INTENSITY	0:15    	1.0     	TIMESERIES	TS_W
+GAGE_E          	INTENSITY	0:15    	1.0     	TIMESERIES	TS_E
+GAGE_NOWHERE    	INTENSITY	0:15    	1.0     	TIMESERIES	TS_W
+
+[SUBCATCHMENTS]
+;;Name          	Rain Gage       	Outlet          	Area    	%Imperv 	Width   	%Slope  	CurbLen
+SUB_W           	GAGE_E          	OUTFALL1        	5       	25      	500     	0.5     	0
+SUB_E           	GAGE_W          	OUTFALL1        	5       	25      	500     	0.5     	0
+SUB_MID         	GAGE_E          	OUTFALL1        	5       	25      	500     	0.5     	0
+SUB_SKEW        	GAGE_E          	OUTFALL1        	5       	25      	500     	0.5     	0
+
+[SUBAREAS]
+;;Subcatchment  	N-Imperv  	N-Perv    	S-Imperv  	S-Perv    	PctZero   	RouteTo
+SUB_W           	0.01      	0.1       	0.05      	0.05      	25        	OUTLET
+SUB_E           	0.01      	0.1       	0.05      	0.05      	25        	OUTLET
+SUB_MID         	0.01      	0.1       	0.05      	0.05      	25        	OUTLET
+SUB_SKEW        	0.01      	0.1       	0.05      	0.05      	25        	OUTLET
+
+[INFILTRATION]
+SUB_W           	3.0       	0.5       	4         	7         	0
+SUB_E           	3.0       	0.5       	4         	7         	0
+SUB_MID         	3.0       	0.5       	4         	7         	0
+SUB_SKEW        	3.0       	0.5       	4         	7         	0
+
+[OUTFALLS]
+;;Name          	Elevation 	Type      	Stage Data      	Gated
+OUTFALL1        	0         	FREE      	                	NO
+
+[TIMESERIES]
+;;Name          	Date      	Time      	Value
+TS_W            	01/01/2020	00:00     	0.0
+TS_W            	          	00:15     	2.0
+TS_W            	          	00:30     	4.0
+TS_W            	          	00:45     	0.0
+TS_E            	01/01/2020	00:00     	0.0
+TS_E            	          	00:15     	1.0
+TS_E            	          	00:30     	3.0
+TS_E            	          	00:45     	0.0
+
+[REPORT]
+SUBCATCHMENTS	ALL
+NODES	ALL
+LINKS	ALL
+
+[MAP]
+DIMENSIONS	-100.000	-100.000	1100.000	1100.000
+Units     	None
+
+[COORDINATES]
+;;Node          	X-Coord           	Y-Coord
+OUTFALL1        	500.000           	0.000
+
+[VERTICES]
+
+[Polygons]
+;;Subcatchment  	X-Coord           	Y-Coord
+SUB_W           	0.000             	800.000
+SUB_W           	400.000           	800.000
+SUB_W           	400.000           	1000.000
+SUB_W           	0.000             	1000.000
+SUB_E           	600.000           	800.000
+SUB_E           	1000.000          	800.000
+SUB_E           	1000.000          	1000.000
+SUB_E           	600.000           	1000.000
+SUB_MID         	200.000           	500.000
+SUB_MID         	700.000           	500.000
+SUB_MID         	700.000           	600.000
+SUB_MID         	200.000           	600.000
+SUB_SKEW        	0.000             	0.000
+SUB_SKEW        	1000.000          	0.000
+SUB_SKEW        	1000.000          	150.000
+SUB_SKEW        	800.000           	150.000
+SUB_SKEW        	800.000           	2.000
+SUB_SKEW        	500.000           	2.000
+SUB_SKEW        	500.000           	80.000
+SUB_SKEW        	0.000             	80.000
+
+[SYMBOLS]
+;;Gage          	X-Coord           	Y-Coord
+GAGE_W          	0.000             	500.000
+GAGE_E          	1000.000          	500.000

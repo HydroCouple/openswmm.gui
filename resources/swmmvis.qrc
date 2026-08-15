@@ -159,6 +159,7 @@
         <file alias="CreateMesh">images/create_mesh.svg</file>
         <!-- FEATURE_LAYER_TO_SWMM_IMPORT — Tools → Import Feature Layer… -->
         <file alias="ImportGIS">images/import_gis.svg</file>
+        <file alias="AssignRainGages">images/assign_raingages.svg</file>
         <file alias="Plugin">images/plugin.svg</file>
         <!-- Slice BR Phase 6.8.1 — control-rule validation badges. -->
         <file alias="RuleValid">images/rule-valid.svg</file>

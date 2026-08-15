@@ -75,7 +75,7 @@ bool NaturalNeighbourInterpolator::build(const QVector<QPointF> &pts,
                                          QString *err)
 {
     m_valid = false;
-    m_px.clear(); m_py.clear(); m_pz.clear();
+    m_px.clear(); m_py.clear(); m_pz.clear(); m_seedOf.clear();
     m_tris.clear(); m_nbrs.clear(); m_ccx.clear(); m_ccy.clear();
     m_numTri = 0; m_lastTri = 0;
 
@@ -90,6 +90,7 @@ bool NaturalNeighbourInterpolator::build(const QVector<QPointF> &pts,
     seen.reserve(pts.size());
     std::vector<double> ux, uy, uz;
     ux.reserve(pts.size()); uy.reserve(pts.size()); uz.reserve(pts.size());
+    m_seedOf.reserve(pts.size());
     for (int i = 0; i < pts.size(); ++i)
     {
         const double x = pts[i].x(), y = pts[i].y();
@@ -98,6 +99,10 @@ bool NaturalNeighbourInterpolator::build(const QVector<QPointF> &pts,
         if (seen.contains(k)) continue;
         seen.insert(k, 1);
         ux.push_back(x); uy.push_back(y); uz.push_back(z[i]);
+        // Remember where this Delaunay vertex came from, so weightsAt() can
+        // report weights against the caller's own indexing. Dropped duplicates
+        // are simply absent, and therefore never carry weight.
+        m_seedOf.push_back(i);
     }
 
     const int n = int(ux.size());
@@ -226,15 +231,20 @@ int NaturalNeighbourInterpolator::locate(double qx, double qy) const
     return -1;   // no convergence (degenerate) → caller falls back to IDW
 }
 
-double NaturalNeighbourInterpolator::interpolate(double x, double y) const
+bool NaturalNeighbourInterpolator::build(const QVector<QPointF> &pts, QString *err)
 {
-    if (!m_valid || m_numTri <= 0) return kNaN;
+    // Weight queries never touch z; a zero vector keeps one triangulation path.
+    return build(pts, QVector<double>(pts.size(), 0.0), err);
+}
 
-    const double qx = (x - m_ox) / m_scale;
-    const double qy = (y - m_oy) / m_scale;
+bool NaturalNeighbourInterpolator::computeWeights(
+    double qx, double qy, std::vector<std::pair<int, double>> &out) const
+{
+    out.clear();
+    if (!m_valid || m_numTri <= 0) return false;
 
     const int t0 = locate(qx, qy);
-    if (t0 < 0) return kNaN;   // outside convex hull
+    if (t0 < 0) return false;   // outside convex hull
 
     auto inCircle = [&](int t) -> bool {
         const int a = m_tris[3 * t], b = m_tris[3 * t + 1], c = m_tris[3 * t + 2];
@@ -274,7 +284,7 @@ double NaturalNeighbourInterpolator::interpolate(double x, double y) const
     for (const int t : cavity)
     {
         // old circumcenter contributes to all three vertices of t
-        if (!std::isfinite(m_ccx[t])) return kNaN;   // degenerate triangle in cavity
+        if (!std::isfinite(m_ccx[t])) return false;   // degenerate triangle in cavity
         const QPointF cc(m_ccx[t], m_ccy[t]);
         for (int k = 0; k < 3; ++k)
             oldCC[m_tris[3 * t + k]].push_back(cc);
@@ -283,38 +293,47 @@ double NaturalNeighbourInterpolator::interpolate(double x, double y) const
         {
             const int nb = m_nbrs[3 * t + k];
             if (nb >= 0 && inCav.contains(nb)) continue;   // interior cavity edge
-            if (nb < 0) return kNaN;                       // cavity touches the hull → NaN
+            if (nb < 0) return false;                      // cavity touches the hull
 
             // Boundary edge = the two vertices other than the one opposite nb.
             const int pa = m_tris[3 * t + (k + 1) % 3];
             const int pb = m_tris[3 * t + (k + 2) % 3];
             double cx, cy;
             if (!circumcenter(m_px[pa], m_py[pa], m_px[pb], m_py[pb], qx, qy, &cx, &cy))
-                return kNaN;
+                return false;
             const QPointF nc(cx, cy);
             newCC[pa].push_back(nc);
             newCC[pb].push_back(nc);
         }
     }
 
-    if (newCC.isEmpty()) return kNaN;
+    if (newCC.isEmpty()) return false;
 
     // ── (3) Per-neighbour weights ────────────────────────────────────────
-    double wsum = 0.0, zsum = 0.0;
+    // Emitted in QHash iteration order. interpolate() accumulates in exactly
+    // this order, so its rounding is unchanged by the extraction; weightsAt()
+    // sorts a copy afterwards for reproducibility.
+    out.reserve(static_cast<size_t>(newCC.size()));
     for (auto it = newCC.constBegin(); it != newCC.constEnd(); ++it)
     {
         const int pi = it.key();
         const std::vector<QPointF> &ncs = it.value();
 
-        // Exact coincidence with a seed → return that seed's z.
+        // Exact coincidence with a seed → that seed takes the whole weight,
+        // which makes the normalised interpolant reduce to its z exactly.
         const double dx = m_px[pi] - qx, dy = m_py[pi] - qy;
         const double dist2 = dx * dx + dy * dy;
-        if (dist2 < kSeedEps * kSeedEps) return m_pz[pi];
+        if (dist2 < kSeedEps * kSeedEps)
+        {
+            out.clear();
+            out.emplace_back(pi, 1.0);
+            return true;
+        }
 
         double w;
         if (m_variant == Variant::Laplace)
         {
-            if (ncs.size() != 2) return kNaN;   // malformed boundary fan
+            if (ncs.size() != 2) return false;   // malformed boundary fan
             const double ex = ncs[0].x() - ncs[1].x();
             const double ey = ncs[0].y() - ncs[1].y();
             const double facet = std::sqrt(ex * ex + ey * ey);
@@ -328,7 +347,7 @@ double NaturalNeighbourInterpolator::interpolate(double x, double y) const
             const auto oit = oldCC.constFind(pi);
             if (oit != oldCC.constEnd())
                 ring.insert(ring.end(), oit->begin(), oit->end());
-            if (ring.size() < 3) return kNaN;
+            if (ring.size() < 3) return false;
 
             // Angular sort around pi, then shoelace.
             const double cxp = m_px[pi], cyp = m_py[pi];
@@ -347,13 +366,61 @@ double NaturalNeighbourInterpolator::interpolate(double x, double y) const
             w = std::fabs(area2) * 0.5;
         }
 
-        if (!std::isfinite(w) || w < 0.0) return kNaN;
-        wsum += w;
-        zsum += w * m_pz[pi];
+        if (!std::isfinite(w) || w < 0.0) return false;
+        out.emplace_back(pi, w);
+    }
+    return true;
+}
+
+double NaturalNeighbourInterpolator::interpolate(double x, double y) const
+{
+    if (!m_valid || m_numTri <= 0) return kNaN;
+
+    const double qx = (x - m_ox) / m_scale;
+    const double qy = (y - m_oy) / m_scale;
+
+    std::vector<std::pair<int, double>> w;
+    if (!computeWeights(qx, qy, w)) return kNaN;
+
+    double wsum = 0.0, zsum = 0.0;
+    for (const auto &[pi, wi] : w)
+    {
+        wsum += wi;
+        zsum += wi * m_pz[pi];
     }
 
     if (wsum < kAreaEps) return kNaN;
     return zsum / wsum;
+}
+
+bool NaturalNeighbourInterpolator::weightsAt(double x, double y,
+                                             QVector<QPair<int, double>> &out) const
+{
+    out.clear();
+    if (!m_valid || m_numTri <= 0) return false;
+
+    const double qx = (x - m_ox) / m_scale;
+    const double qy = (y - m_oy) / m_scale;
+
+    std::vector<std::pair<int, double>> raw;
+    if (!computeWeights(qx, qy, raw)) return false;
+
+    double wsum = 0.0;
+    for (const auto &[pi, wi] : raw)
+        wsum += wi;
+    if (wsum < kAreaEps) return false;
+
+    out.reserve(static_cast<int>(raw.size()));
+    for (const auto &[pi, wi] : raw)
+        out.append({m_seedOf[static_cast<size_t>(pi)], wi / wsum});
+
+    // Ascending original-seed order — contractual, since computeWeights walks a
+    // QHash whose iteration order is randomised per process.
+    std::sort(out.begin(), out.end(),
+              [](const QPair<int, double> &a, const QPair<int, double> &b) {
+                  return a.first < b.first;
+              });
+    return true;
 }
 
 } // namespace mesh
