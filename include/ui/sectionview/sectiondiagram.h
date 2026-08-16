@@ -227,9 +227,47 @@ struct SectionDiagramModel
     QRectF bounds;
 
     /*! true  → equal px-per-unit on both axes (true-shape cross-sections).
-     *  false → independent axis scaling (profiles, where a 120 m run and a
-     *          3 m depth must both stay legible). */
+     *  false → the vertical scale is exaggerated relative to the horizontal,
+     *          by the ratio the two fields below resolve to. */
     bool uniformScale = true;
+
+    /*!
+     * Vertical exaggeration (V:H) to draw at, when `uniformScale` is false.
+     *
+     * 0 → choose automatically, capped by `maxVerticalExaggeration`.
+     * >0 → use exactly this ratio; 1.0 is true scale.
+     *
+     * This exists because "stretch each axis to fill the box" — the obvious
+     * way to fit a 120 m reach with 4 m of depth into a wide pane — silently
+     * picks an exaggeration of 15 or more and makes a 0.25 % pipe look like a
+     * 4 % one. A profile has to state its exaggeration, or it misinforms.
+     */
+    double verticalExaggeration = 0.0;
+
+    /*! Cap on the automatic exaggeration. 0 → uncapped. */
+    double maxVerticalExaggeration = 0.0;
+
+    /*!
+     * Width:height the DRAWN content should aim for, when choosing the
+     * automatic exaggeration. 0 → fill the pane (the legacy behaviour, kept
+     * for models whose x axis is not a real length).
+     *
+     * Deriving the ratio from the model's own proportions rather than from the
+     * pane is what makes the automatic choice honest: a 120 m reach with 4.5 m
+     * of depth is naturally 27:1, so a target of 6:1 asks for 4.4x and snaps
+     * to 4x — the same answer at every dock size. Sizing to the pane instead
+     * (whether by filling it or by chasing a pixel height) makes the apparent
+     * gradient change as the user resizes, which is precisely the defect this
+     * field exists to remove.
+     */
+    double targetDrawnAspect = 0.0;
+
+    /*! Draw the achieved V:H ratio on the drawing.
+     *
+     *  Only meaningful when BOTH axes are real lengths. Node profiles put
+     *  connecting pipes on a normalised x axis, where a ratio would be
+     *  arithmetic on an arbitrary unit, so they leave this false. */
+    bool annotateExaggeration = false;
 
     QVector<DiagramPoly>       polys;
     QVector<DiagramPolyline>   polylines;
@@ -270,12 +308,17 @@ struct SectionDiagramModel
  *        because the fit reserves adaptive margins for leader and dimension
  *        text and a second copy of that logic would silently drift.
  *        Left untouched when the model is empty or too small to draw.
+ * \param achievedExaggerationOut  Optionally receives the V:H ratio actually
+ *        used (1.0 for a true-scale or uniform-scale drawing). Reporting it
+ *        beats inferring it from rendered pixels — which is what tests would
+ *        otherwise have to do, and what a zoom readout would need.
  */
 void paintSectionDiagram(QPainter &painter, const QRectF &target,
                          const SectionDiagramModel &model,
                          const QPalette &palette,
                          const DiagramViewport &viewport = {},
-                         QRectF *fitRectOut = nullptr);
+                         QRectF *fitRectOut = nullptr,
+                         double *achievedExaggerationOut = nullptr);
 
 /*! Resolve a role to its fill colour (exposed for tests + the icon renderer). */
 [[nodiscard]] QColor diagramFillColor(DiagramRole role, const QPalette &palette);

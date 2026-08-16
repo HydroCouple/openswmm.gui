@@ -14,6 +14,9 @@
 #include <QImage>
 #include <QPalette>
 
+#include <algorithm>
+#include <cmath>
+
 #include "ui/sectionview/lidlayerdiagram.h"
 #include "ui/sectionview/sectiondiagram.h"
 #include "ui/sectionview/sectionpreviewwidget.h"
@@ -85,6 +88,16 @@ private slots:
     void panShiftsWithoutRescaling();
     void setModelKeepsTheView();
     void zoomIsClamped();
+
+    // Vertical exaggeration.
+    void exaggerationSnapsToConventionalRatios();
+    void exaggerationIsIndependentOfPaneHeight();
+    void exaggerationStaysTrueScaleWhenLegible();
+    void exaggerationIsCapped();
+    void explicitExaggerationIsHonoured();
+    void legacyFitIsUntouchedWithoutATarget();
+    void exaggeratedContentStillFits();
+    void exaggeratedContentStillFits_data();
 };
 
 // ---------------------------------------------------------------------------
@@ -490,6 +503,196 @@ void TestSectionDiagram::zoomIsClamped()
     w.zoomBy(0.0, QPointF(200, 160));
     w.zoomBy(-1.0, QPointF(200, 160));
     QCOMPARE(w.viewport().zoom, before.zoom);
+}
+
+// ---------------------------------------------------------------------------
+// Vertical exaggeration
+//
+// The widget reports the ratio it actually drew at, so these assert it
+// directly. An earlier draft inferred it from the ink bounding box, which
+// silently measured the exaggeration NOTE — anchored to the pane bottom — and
+// so grew with the pane no matter what the fit did.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+//! A 120 m reach at 0.25 % with ~4.5 m of vertical content: the case that
+//! prompted this. Naturally 26.7:1, so a 6:1 target asks for 4.4x → snaps 4x.
+SectionDiagramModel makeReachModel()
+{
+    SectionDiagramModel m;
+    m.uniformScale            = false;
+    m.maxVerticalExaggeration = 10.0;
+    m.targetDrawnAspect       = 6.0;
+    m.annotateExaggeration    = true;
+
+    DiagramPoly barrel;
+    barrel.role = DiagramRole::Conduit;
+    barrel.pts << QPointF(0.0,   100.30) << QPointF(120.0, 100.00)
+               << QPointF(120.0,  99.40) << QPointF(0.0,    99.70);
+    m.polys << barrel;
+    m.polylines << DiagramPolyline{
+        QPolygonF({ QPointF(0.0, 103.9), QPointF(120.0, 103.6) }),
+        DiagramRole::Muted, true, QString() };
+    return m;
+}
+
+double exaggerationAt(SectionPreviewWidget &w, const QSize &pane)
+{
+    w.renderToImage(pane);
+    return w.achievedVerticalExaggeration();
+}
+
+} // namespace
+
+void TestSectionDiagram::exaggerationSnapsToConventionalRatios()
+{
+    SectionPreviewWidget w;
+    w.setModel(makeReachModel());
+
+    // 120 / 4.5 = 26.67 natural aspect; / 6 target = 4.44 → snapped DOWN to 4.
+    // Snapping down matters: the drawing must never be more distorted than the
+    // annotation claims.
+    QCOMPARE(exaggerationAt(w, QSize(560, 300)), 4.0);
+}
+
+void TestSectionDiagram::exaggerationIsIndependentOfPaneHeight()
+{
+    // THE regression this guards. The old fit stretched the vertical to fill
+    // the pane, so the same pipe read as ~1.3 % in a short dock and ~2.7 % in a
+    // tall one. The ratio is now a property of the model, not of the pane.
+    SectionPreviewWidget w;
+    w.setModel(makeReachModel());
+
+    const double shortPane = exaggerationAt(w, QSize(560, 260));
+    const double tallPane  = exaggerationAt(w, QSize(560, 620));
+    const double narrow    = exaggerationAt(w, QSize(300, 400));
+    const double wide      = exaggerationAt(w, QSize(1100, 300));
+
+    QCOMPARE(shortPane, tallPane);
+    QCOMPARE(shortPane, narrow);
+    QCOMPARE(shortPane, wide);   // width must not move it either
+}
+
+void TestSectionDiagram::exaggerationStaysTrueScaleWhenLegible()
+{
+    // A short, steep reach is already near the target aspect, so automatic
+    // must not distort it at all — the ratio is clamped at 1.0 rather than
+    // being allowed to COMPRESS the vertical and understate the slope.
+    SectionDiagramModel m;
+    m.uniformScale            = false;
+    m.maxVerticalExaggeration = 10.0;
+    m.targetDrawnAspect       = 6.0;
+
+    DiagramPoly barrel;
+    barrel.role = DiagramRole::Conduit;
+    barrel.pts << QPointF(0.0, 3.0) << QPointF(15.0, 2.7)
+               << QPointF(15.0, 2.1) << QPointF(0.0, 2.4);
+    m.polys << barrel;
+    m.polylines << DiagramPolyline{
+        QPolygonF({ QPointF(0.0, 0.0), QPointF(15.0, 0.0) }),
+        DiagramRole::Muted, false, QString() };
+
+    SectionPreviewWidget w;
+    w.setModel(m);
+    // 15 / 3 = 5:1 natural, below the 6:1 target → no exaggeration.
+    QCOMPARE(exaggerationAt(w, QSize(560, 300)), 1.0);
+}
+
+void TestSectionDiagram::exaggerationIsCapped()
+{
+    // A very long, shallow reach cannot be drawn usefully at true scale, but
+    // the distortion still has a stated ceiling.
+    SectionDiagramModel m = makeReachModel();
+    m.polys.clear();
+    DiagramPoly barrel;
+    barrel.role = DiagramRole::Conduit;
+    barrel.pts << QPointF(0.0, 5.0) << QPointF(800.0, 4.2)
+               << QPointF(800.0, 3.6) << QPointF(0.0, 4.4);
+    m.polys << barrel;
+    m.polylines.clear();
+    m.polylines << DiagramPolyline{
+        QPolygonF({ QPointF(0.0, 0.0), QPointF(800.0, 0.0) }),
+        DiagramRole::Muted, false, QString() };
+
+    SectionPreviewWidget w;
+    w.setModel(m);
+    QCOMPARE(exaggerationAt(w, QSize(560, 300)), 10.0);   // == maxVerticalExaggeration
+}
+
+void TestSectionDiagram::explicitExaggerationIsHonoured()
+{
+    SectionPreviewWidget w;
+    for (double ve : { 1.0, 2.0, 5.0, 10.0, 20.0 }) {
+        SectionDiagramModel m = makeReachModel();
+        m.verticalExaggeration = ve;      // overrides the automatic choice
+        w.setModel(m);
+        QCOMPARE(exaggerationAt(w, QSize(560, 300)), ve);
+    }
+}
+
+void TestSectionDiagram::legacyFitIsUntouchedWithoutATarget()
+{
+    // Node profiles and LID stacks put an ARBITRARY unit on x, so a V:H ratio
+    // there is arithmetic on nothing. They leave targetDrawnAspect at 0 and
+    // must keep filling the pane, unsnapped and uncapped — snapping them would
+    // silently resize the drawing (a LID stack whose fill ratio is 0.47 would
+    // round to 1.0 and lose half its width).
+    LidDiagramInput in;
+    in.type             = LidType::BioCell;
+    in.surfaceStorage   = 0.15;
+    in.soilThickness    = 0.50;
+    in.storageThickness = 0.30;
+
+    const SectionDiagramModel lid = buildLidLayerDiagram(in);
+    QVERIFY(!lid.uniformScale);
+    QCOMPARE(lid.targetDrawnAspect, 0.0);
+    QCOMPARE(lid.maxVerticalExaggeration, 0.0);
+    QVERIFY(!lid.annotateExaggeration);
+
+    // Filling the pane means the ratio DOES track the pane — which is correct
+    // here, and is exactly what must not happen to a link profile.
+    SectionPreviewWidget w;
+    w.setModel(lid);
+    const double wide = exaggerationAt(w, QSize(600, 240));
+    const double tall = exaggerationAt(w, QSize(600, 600));
+    QVERIFY(tall > wide);
+}
+
+void TestSectionDiagram::exaggeratedContentStillFits_data()
+{
+    QTest::addColumn<double>("ve");
+    QTest::addColumn<QSize>("pane");
+    for (double ve : { 1.0, 2.0, 5.0, 10.0, 50.0 }) {
+        QTest::addRow("ve%.0f-wide", ve)   << ve << QSize(560, 260);
+        QTest::addRow("ve%.0f-tall", ve)   << ve << QSize(300, 620);
+        QTest::addRow("ve%.0f-square", ve) << ve << QSize(360, 360);
+    }
+}
+
+void TestSectionDiagram::exaggeratedContentStillFits()
+{
+    QFETCH(double, ve);
+    QFETCH(QSize, pane);
+
+    // Holding a ratio means one axis stops binding and the other must take
+    // over. Assert against the FIT RECT, not the image: the painter clips to
+    // the drawing area, so comparing ink to the image bounds could never fail.
+    SectionDiagramModel m = makeReachModel();
+    m.verticalExaggeration = ve;
+
+    SectionPreviewWidget w;
+    w.setModel(m);
+    w.renderToImage(pane);
+
+    QCOMPARE(w.achievedVerticalExaggeration(), ve);
+
+    const QRectF fit = w.lastFitRect();
+    QVERIFY(fit.isValid());
+    QVERIFY2(fit.width() > 1.0 && fit.height() > 1.0,
+             "fit rect collapsed — the drawing has nowhere to go");
+    QVERIFY2(pane.width() >= fit.width() && pane.height() >= fit.height(),
+             "fit rect escapes the pane");
 }
 
 QTEST_MAIN(TestSectionDiagram)

@@ -27,6 +27,14 @@
 
 namespace openswmmvis::sectionview {
 
+/*!
+ * Cap on the automatic vertical exaggeration of a link profile.
+ *
+ * Exposed so the Section View dock can state it without hard-coding a second
+ * copy in its tooltip.
+ */
+[[nodiscard]] double profileMaxExaggeration() noexcept;
+
 /*! Unit-presentation context shared by every builder. */
 struct DiagramUnits
 {

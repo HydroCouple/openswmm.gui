@@ -26,6 +26,26 @@ namespace openswmmvis::sectionview {
 
 namespace {
 
+/*!
+ * Cap on the automatic vertical exaggeration of a link profile.
+ *
+ * 10:1 is the conventional ceiling on a drainage profile sheet. Above it the
+ * drawn gradient stops being a useful cue and starts being a misleading one —
+ * which is the complaint this constant exists to answer. Users who want the
+ * undistorted picture can set 1:1 from the Section View dock.
+ */
+constexpr double kProfileMaxExaggeration = 10.0;
+
+/*!
+ * Width:height the drawn profile aims for.
+ *
+ * 6:1 keeps a manhole and its annotations readable while leaving the barrel
+ * long enough to read as a reach. Because it is a property of the DRAWING and
+ * not of the pane, the resulting exaggeration is the same whatever size the
+ * dock is — a short or steep reach lands at true scale on its own.
+ */
+constexpr double kProfileTargetAspect = 6.0;
+
 //! Translations for free functions live under one context.
 inline QString tr_(const char *s)
 {
@@ -193,6 +213,8 @@ QString shapeDisplayName(int shape)
 
 } // namespace
 
+double profileMaxExaggeration() noexcept { return kProfileMaxExaggeration; }
+
 // ---------------------------------------------------------------------------
 // Link cross-section
 // ---------------------------------------------------------------------------
@@ -316,7 +338,15 @@ SectionDiagramModel buildLinkProfile(SWMM_Engine engine, int linkIdx,
                                      const DiagramUnits &units)
 {
     SectionDiagramModel m;
-    m.uniformScale = false;   // 120 m of run against 3 m of depth.
+    // A 120 m reach against 4 m of depth cannot be drawn at true scale in a
+    // dock and still show the pipe, so the vertical IS exaggerated — but the
+    // exaggeration is capped and stated rather than being whatever the pane's
+    // aspect ratio implies. Uncapped, a 0.25 % pipe was being drawn at 15:1
+    // and read as a 4 % one.
+    m.uniformScale            = false;
+    m.maxVerticalExaggeration = kProfileMaxExaggeration;
+    m.targetDrawnAspect       = kProfileTargetAspect;
+    m.annotateExaggeration    = true;   // both axes are real lengths here
 
     if (!engine || linkIdx < 0) {
         m.emptyText = tr_("No link selected.");
