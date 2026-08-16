@@ -16,10 +16,15 @@
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
 
+#include <QComboBox>
+#include <QSignalBlocker>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidget>
+
+#include <utility>
 
 namespace openswmmvis::ui {
 
@@ -82,6 +87,25 @@ void SectionViewPanel::buildUi()
     modeRow->addWidget(m_profileBtn);
     modeRow->addStretch(1);
 
+    // Vertical exaggeration. A profile pane is far wider than it is tall, so
+    // fitting both axes independently silently adopts a large exaggeration and
+    // makes shallow pipes look steep. The automatic setting caps and states the
+    // ratio; this combo lets the user pin it — 1:1 being the honest picture.
+    m_veLabel = new QLabel(tr("V:&H"), central);
+    m_veCombo = new QComboBox(central);
+    m_veCombo->setToolTip(
+        tr("Vertical exaggeration of the profile. Automatic caps the ratio at "
+           "%1:1 and states it on the drawing; 1:1 draws true scale.")
+            .arg(sectionview::profileMaxExaggeration(), 0, 'g', 3));
+    m_veCombo->setAccessibleName(tr("Vertical exaggeration"));
+    m_veLabel->setBuddy(m_veCombo);
+    m_veCombo->addItem(tr("Auto"), 0.0);
+    for (double ve : { 1.0, 2.0, 5.0, 10.0, 20.0, 50.0 })
+        m_veCombo->addItem(tr("%1:1").arg(ve, 0, 'g', 3), ve);
+
+    modeRow->addWidget(m_veLabel);
+    modeRow->addWidget(m_veCombo);
+
     vlay->addLayout(modeRow);
 
     m_preview = new SectionPreviewWidget(central);
@@ -95,6 +119,10 @@ void SectionViewPanel::buildUi()
             this, [this]() { setMode(Mode::Section); });
     connect(m_profileBtn, &QToolButton::clicked,
             this, [this]() { setMode(Mode::Profile); });
+    connect(m_veCombo, &QComboBox::currentIndexChanged, this, [this](int i) {
+        if (i < 0) return;
+        setVerticalExaggeration(m_veCombo->itemData(i).toDouble());
+    });
 }
 
 void SectionViewPanel::setProject(SWMMModelLayer *layer)
@@ -137,6 +165,30 @@ void SectionViewPanel::updateModeButtons()
     m_profileBtn->setVisible(isLink);
     m_sectionBtn->setChecked(isLink && m_mode == Mode::Section);
     m_profileBtn->setChecked(isLink && m_mode == Mode::Profile);
+
+    // Exaggeration applies to the profile only — a cross-section is drawn true
+    // shape, where the control would be a lie.
+    const bool profileShown = isLink && m_mode == Mode::Profile;
+    m_veLabel->setVisible(profileShown);
+    m_veCombo->setVisible(profileShown);
+}
+
+void SectionViewPanel::setVerticalExaggeration(double ve)
+{
+    if (qFuzzyCompare(m_verticalExaggeration + 1.0, ve + 1.0)) return;
+    m_verticalExaggeration = ve;
+
+    // Keep the combo honest when the value is set programmatically — the same
+    // state edited through two surfaces has to stay in step (CLAUDE.md §5.1).
+    // Signals blocked so this doesn't bounce straight back in here.
+    if (m_veCombo) {
+        const int idx = m_veCombo->findData(ve);
+        if (idx >= 0 && idx != m_veCombo->currentIndex()) {
+            const QSignalBlocker block(m_veCombo);
+            m_veCombo->setCurrentIndex(idx);
+        }
+    }
+    refresh();
 }
 
 void SectionViewPanel::clearSelection()
@@ -190,9 +242,16 @@ void SectionViewPanel::refresh()
     case SWMMObjectRef::Link: {
         const int idx = swmm_link_index(engine, utf8.constData());
         if (idx < 0) { clearSelection(); return; }
-        m_preview->setModel(m_mode == Mode::Profile
-            ? sectionview::buildLinkProfile(engine, idx, units)
-            : sectionview::buildLinkSection(engine, idx, units));
+        if (m_mode == Mode::Profile) {
+            SectionDiagramModel m = sectionview::buildLinkProfile(engine, idx, units);
+            // The builder asks for the capped automatic ratio; an explicit user
+            // choice overrides it.
+            if (m_verticalExaggeration > 0.0)
+                m.verticalExaggeration = m_verticalExaggeration;
+            m_preview->setModel(std::move(m));
+        } else {
+            m_preview->setModel(sectionview::buildLinkSection(engine, idx, units));
+        }
         break;
     }
     case SWMMObjectRef::Node: {
