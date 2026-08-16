@@ -579,6 +579,7 @@ void ProfilePlotWidget::recomputeBounds()
         m_autoYMin = 0.0; m_autoYMax = 1.0;
         if (m_fitMode) { m_dataXMin = m_autoXMin; m_dataXMax = m_autoXMax;
                          m_dataYMin = m_autoYMin; m_dataYMax = m_autoYMax; }
+        emitXRangeIfChanged();
         return;
     }
 
@@ -688,6 +689,9 @@ void ProfilePlotWidget::recomputeBounds()
         m_dataXMin = m_autoXMin; m_dataXMax = m_autoXMax;
         m_dataYMin = m_autoYMin; m_dataYMax = m_autoYMax;
     }
+    // A new path/series can move the fitted extent — the tracks pane must
+    // learn about that just like any interactive range change.
+    emitXRangeIfChanged();
 }
 
 // ── Virtual-chainage helpers ────────────────────────────────────────────
@@ -775,6 +779,7 @@ void ProfilePlotWidget::fitToExtent()
     m_dataXMin = m_autoXMin; m_dataXMax = m_autoXMax;
     m_dataYMin = m_autoYMin; m_dataYMax = m_autoYMax;
     update();
+    emitXRangeIfChanged();
 }
 
 void ProfilePlotWidget::zoomBy(double factor)
@@ -788,7 +793,34 @@ void ProfilePlotWidget::zoomBy(double factor)
     m_dataXMin = cx - halfX; m_dataXMax = cx + halfX;
     m_dataYMin = cy - halfY; m_dataYMax = cy + halfY;
     update();
+    emitXRangeIfChanged();
 }
+
+void ProfilePlotWidget::setVisibleXRange(double vxMin, double vxMax)
+{
+    if (!std::isfinite(vxMin) || !std::isfinite(vxMax) || vxMax <= vxMin)
+        return;
+    if (vxMin == m_dataXMin && vxMax == m_dataXMax)
+        return;
+    m_fitMode = false;
+    m_dataXMin = vxMin;
+    m_dataXMax = vxMax;
+    update();
+    emitXRangeIfChanged();
+}
+
+void ProfilePlotWidget::emitXRangeIfChanged()
+{
+    // NaN sentinel start values guarantee the first real range is emitted.
+    if (m_dataXMin == m_lastEmittedXMin && m_dataXMax == m_lastEmittedXMax)
+        return;
+    m_lastEmittedXMin = m_dataXMin;
+    m_lastEmittedXMax = m_dataXMax;
+    emit visibleXRangeChanged(m_dataXMin, m_dataXMax);
+}
+
+int ProfilePlotWidget::chartLeftMarginPx()  { return kMarginLeft;  }
+int ProfilePlotWidget::chartRightMarginPx() { return kMarginRight; }
 
 void ProfilePlotWidget::setMode(Mode m)
 {
@@ -862,6 +894,7 @@ bool ProfilePlotWidget::setAxisEdgeValue(AxisEdge edge, double value)
 
     m_fitMode = false;
     update();
+    emitXRangeIfChanged();
     return true;
 }
 
@@ -1318,6 +1351,7 @@ void ProfilePlotWidget::mouseMoveEvent(QMouseEvent *event)
         m_dataYMin += dyData; m_dataYMax += dyData;
         m_lastMousePos = event->pos();
         update();
+        emitXRangeIfChanged();
         return;
     }
     if (m_zoomActive && m_rubberBand) {
@@ -1420,6 +1454,7 @@ void ProfilePlotWidget::mouseReleaseEvent(QMouseEvent *event)
             }
         }
         update();
+        emitXRangeIfChanged();
         return;
     }
     QWidget::mouseReleaseEvent(event);
@@ -1461,6 +1496,7 @@ void ProfilePlotWidget::wheelEvent(QWheelEvent *event)
 
     event->accept();
     update();
+    emitXRangeIfChanged();
 }
 
 // ---------------------------------------------------------------------------

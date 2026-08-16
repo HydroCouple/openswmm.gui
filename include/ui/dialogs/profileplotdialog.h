@@ -18,6 +18,7 @@
 #define PROFILE_PLOT_DIALOG_H
 
 #include "plot/plotattribute.h"
+#include "plot/profileattributesampler.h"
 #include "plot/profilebuilder.h"
 #include "plot/profilerouter.h"
 #include "plot/profileplotwidget.h"
@@ -38,10 +39,14 @@
 class AnimationController;
 class GISRasterLayer;
 class MapCanvas;
+class ProfileAttributeTrackOptions;
+class ProfileAttributeTracksWidget;
 class ProfileLayerPanel;
 class QAction;
 class QMenu;
 class QProgressBar;
+class QScrollArea;
+class QSplitter;
 class QToolButton;
 class SpatialReferenceSystem;
 class SWMMModelLayer;
@@ -82,6 +87,23 @@ public:
      */
     ~ProfilePlotDialog() override;
 
+protected:
+    /*!
+     * \brief  Reconciles the attribute-tracks master toggle with the
+     *         splitter state that DialogLayoutWatcher restored on this
+     *         first Show — restoreState() does not emit splitterMoved, so
+     *         a persisted drag-collapsed pane would otherwise disagree
+     *         with a restored-checked toggle action.
+     */
+    void showEvent(QShowEvent *event) override;
+
+    /*!
+     * \brief  Watches the tracks widget for resizes so the profile's right
+     *         gutter can absorb the tracks scroll area's vertical scrollbar
+     *         (see \ref syncTracksGutter).
+     */
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 signals:
     /*! \brief Emitted when the user picks a specific attribute from the
      *  "Plot Time Series…" submenu on a node / link right-click. Mirrors
@@ -114,6 +136,33 @@ private slots:
 private:
     void buildLayout();
     void populateSourcesPanel();
+
+    // ── Attribute tracks (synced pane below the profile) ────────────────
+
+    /*! Builds the toolbar attribute menu + master toggle and wires the
+     *  tracks pane (x-sync, options, collapse behavior). Called from
+     *  buildLayout() after the splitter and both widgets exist. */
+    void buildAttributeTracksUi(class QToolBar *toolbar);
+
+    /*! Async rebuild of the tracks pane from the checked sources × visible
+     *  attributes — mirrors rebindSources() (worker thread, cookie guard,
+     *  per-(layer,attribute) cache). Cheap when everything is cached. */
+    void rebuildTracks();
+
+    /*! Shows/collapses the pane per options + master toggle, keeping the
+     *  splitter, the toggle action, and auto-hide in agreement. */
+    void updateTracksPaneVisibility();
+
+    /*! Pushes the profile widget's virtual-chainage table, margins, x-label
+     *  and current range into the tracks widget (call after any setPath). */
+    void syncTracksAxes();
+
+    /*! Keeps the profile pane exactly as wide as the tracks widget by giving
+     *  the plot's holder a right margin equal to the tracks scroll area's
+     *  vertical scrollbar. Both panes derive their pixel column from
+     *  `width() - leftGutter - rightGutter`, so unequal widths shift every
+     *  column — by a full scrollbar width at the last node. */
+    void syncTracksGutter();
 
     /*!
      * \brief Walks each path link's polyline (via SWMMModelLayer's cached
@@ -148,6 +197,25 @@ private:
     QProgressBar                         *m_loadingBar   = nullptr;
     int                                   m_loadCookie   = 0;  // ignores stale watcher returns
     ProfilePlotOptions                   *m_options      = nullptr;
+
+    // ── Attribute tracks state ──────────────────────────────────────────
+    ProfileAttributeTrackOptions         *m_trackOptions = nullptr;
+    ProfileAttributeTracksWidget         *m_tracks       = nullptr;
+    QScrollArea                          *m_tracksScroll = nullptr;  ///< the splitter pane; scrolls when many tracks
+    QWidget                              *m_plotHolder   = nullptr;  ///< carries the scrollbar-matching right gutter
+    QSplitter                            *m_profileSplit = nullptr;
+    QMenu                                *m_tracksMenu   = nullptr;
+    QAction                              *m_actShowTracks = nullptr;
+    int                                   m_trackLoadCookie = 0;
+    bool                                  m_syncingX     = false;
+    QList<int>                            m_lastSplitSizes;    ///< restore target after collapse
+
+    /*! Per-(layer, attribute) sampled-profile cache. Key attribute as int —
+     *  QPair needs qHash for both members. Invalidated by the same signals
+     *  as m_sourceCache (see ensureCacheInvalidationWired). */
+    QHash<QPair<SWMMResultsLayer *, int>,
+          std::shared_ptr<const ProfileAttributeSampler::AttributeProfile>>
+        m_attrCache;
 
     // Layer pointer (non-owning) per menu action.
     QHash<QAction *, QPointer<SWMMResultsLayer>> m_actionLayer;
