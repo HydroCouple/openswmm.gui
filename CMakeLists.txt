@@ -774,6 +774,7 @@ set(
         include/ui/widgets/relativepathpicker.h
         include/ui/dialogs/dialoglayoutpersistence.h
         include/ui/dialogs/dialoglayoutwatcher.h
+        include/ui/dialogs/dialogregistry.h
         include/ui/dialogs/curveeditordialog.h
         include/ui/dialogs/patterneditordialog.h
         include/ui/dialogs/timeserieseditordialog.h
@@ -1340,6 +1341,7 @@ set(
         src/ui/widgets/stylepreviewswatch.cpp
         src/ui/dialogs/dialoglayoutpersistence.cpp
         src/ui/dialogs/dialoglayoutwatcher.cpp
+        src/ui/dialogs/dialogregistry.cpp
         src/ui/dialogs/curveeditordialog.cpp
         src/ui/dialogs/patterneditordialog.cpp
         src/ui/dialogs/timeserieseditordialog.cpp

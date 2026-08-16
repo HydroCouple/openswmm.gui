@@ -31,10 +31,12 @@
 #ifndef OPENSWMMVIS_UI_DIALOGS_DIALOGLAYOUTPERSISTENCE_H
 #define OPENSWMMVIS_UI_DIALOGS_DIALOGLAYOUTPERSISTENCE_H
 
+#include <QRect>
 #include <QtGlobal>            // Q_OS_MACOS
 #include <QtCore/qnamespace.h> // Qt::WindowFlags, Qt::Tool, Qt::WindowStaysOnTopHint
 
 class QDialog;
+class QScreen;
 class QWidget;
 
 namespace openswmmvis::ui {
@@ -58,6 +60,41 @@ void saveDialogLayout(QWidget *root);
  *  \returns true if any state was restored (caller can skip its defaults);
  *           false on first-open (caller applies its hard-coded defaults). */
 bool restoreDialogLayout(QWidget *root);
+
+/*! \brief Clamp a saved top-level geometry into currently-available screen
+ *  space, so a window can never be restored somewhere unreachable.
+ *
+ *  \p saved is a CLIENT rect (what QWidget::geometry() / setGeometry() use).
+ *  \p titleBarStrip is the height of the frame decoration above that rect —
+ *  the window's only drag handle, which must stay inside the available area
+ *  or the window cannot be moved at all. Pass -1 for a platform default.
+ *
+ *  Rules, in order:
+ *   - target screen = the one the window's FRAME overlaps most (a rect
+ *     straddling two monitors keeps the monitor it mostly sits on, instead
+ *     of being yanked to primary because its center fell in the gap);
+ *   - the rect is shrunk to fit that screen (a window saved on a large
+ *     display must not stay oversized when restored on a small one);
+ *   - if less than a grabbable slice would be visible, or the title bar
+ *     would land above the available area, the rect is translated minimally
+ *     back inside — position is preserved wherever it is already usable.
+ *
+ *  Pure function of its inputs plus the current screen layout: safe to unit
+ *  test and reusable by any window-recovery path. */
+QRect clampToVisibleScreen(const QRect &saved, int titleBarStrip = -1);
+
+/*! \brief Move/resize \p widget's window so it is reachable on a connected
+ *  screen, using the live frame geometry to size the title-bar allowance.
+ *
+ *  With \p preferred non-null the window is additionally CENTERED on that
+ *  screen unconditionally — the "Reset Window Positions" recovery path,
+ *  which gathers every open window onto the main window's display.
+ *  No-op when \p preferred is null and the window is already well placed.
+ *
+ *  \note Only the title-bar strip above the client rect is modelled; left,
+ *  right and bottom frame borders (Windows/Linux) are not, so a restored
+ *  window can still sit a few border pixels past those edges. */
+void ensureWindowOnScreen(QWidget *widget, const QScreen *preferred = nullptr);
 
 /*! \brief Step H — pin the dialog above the main window so a map click
  *  doesn't hide it. Idempotent. Harmless on modal dialogs and on dialogs
