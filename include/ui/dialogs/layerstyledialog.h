@@ -133,17 +133,25 @@ private:
     QPointer<OpenSWMMVisLayer> m_layer;
     LayerCapabilities          m_caps;
 
-    // Subjects are owned by the dialog. Populated from layer->styleSubjects()
-    // and rendered into the Symbology / Labels tabs as appropriate.
+    // Subject wrappers are owned by the dialog; the property objects they
+    // point at are the layer's PERSISTENT adapters (adapter-ownership
+    // refactor), so every panel edits the same instances the snapshots
+    // cover. Rendered into the Symbology / Labels tabs as appropriate.
     std::vector<std::unique_ptr<ILayerStyleSubject>> m_subjects;
     std::vector<QJsonObject> m_subjectSnapshots;
+    // Full renderer-state baseline for Cancel (kind renderers, layer
+    // renderer, label config) via StyleFileIO::styleToJson — the part the
+    // per-subject snapshots don't cover. Refreshed on Apply / import.
+    QJsonObject m_styleSnapshot;
 
-    // #36 — app-level undo. m_undoBaseline is the subject state at dialog
-    // open; on OK, if it changed, push an EditLayerStyleCommand(before,after)
-    // onto m_undoStack so the symbology edit is undoable after the dialog
-    // closes. Null stack → no command (back-compat for callers without one).
+    // #36 — app-level undo. m_undoBaseline (+ m_undoStyleBaseline) is the
+    // state at dialog open; on OK, if it changed, push an
+    // EditLayerStyleCommand(before,after) onto m_undoStack so the symbology
+    // edit is undoable after the dialog closes. Null stack → no command
+    // (back-compat for callers without one).
     QUndoStack              *m_undoStack = nullptr;
     std::vector<QJsonObject>  m_undoBaseline;
+    QJsonObject               m_undoStyleBaseline;
 
     QString  m_initialRoutingId;
 

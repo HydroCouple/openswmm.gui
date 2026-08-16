@@ -55,8 +55,8 @@ public:
 private slots:
     /*! Slice S4 P5 — right-click handler on the legend tree. If the
      *  clicked row carries a non-empty SublayerIdRole, surfaces an
-     *  "Edit Sublayer Style…" menu action that opens SublayerStyleDialog
-     *  for the originating sublayer. */
+     *  "Edit Style…" menu action that opens the unified LayerStyleDialog
+     *  routed to the originating sublayer. */
     void onCustomContextMenuRequested(const QPoint &pos);
 
 private:

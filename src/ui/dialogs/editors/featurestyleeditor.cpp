@@ -13,6 +13,7 @@
 #include "render/sublayers/feature/featuresublayerstyle.h"
 #include "ui/dialogs/editors/kindrendererpanel.h"
 #include "ui/widgets/colorbutton.h"
+#include "ui/widgets/labelconfigeditor.h"
 #include "ui/widgets/dashstylecombo.h"
 #include "ui/widgets/markershapecombo.h"
 #include "ui/widgets/stylepreviewswatch.h"
@@ -49,9 +50,26 @@ FeatureStyleEditorBase::FeatureStyleEditorBase(FeatureSublayerStyle *style, QWid
     m_form = new QFormLayout(classifyBox);
     root->addWidget(classifyBox);
 
-    m_attributeEdit = new QLineEdit(this);
-    m_attributeEdit->setPlaceholderText(tr("e.g. depth, flow, velocity"));
-    m_form->addRow(tr("&Attribute:"), m_attributeEdit);
+    // Attribute picker — a combo populated from the host layer's
+    // IAttributeProvider (numeric fields) instead of the old free-text
+    // line edit. Kept editable so unknown/legacy attribute names survive.
+    m_attributeCombo = new QComboBox(this);
+    m_attributeCombo->setEditable(true);
+    m_attributeCombo->setInsertPolicy(QComboBox::NoInsert);
+    if (auto *sub = m_style
+            ? qobject_cast<OpenSWMM::Render::FeatureSublayer *>(m_style->parent())
+            : nullptr) {
+        if (auto *host = qobject_cast<OpenSWMMVisLayer *>(sub->parent())) {
+            if (auto *prov = dynamic_cast<OpenSWMM::Render::IAttributeProvider *>(host)) {
+                for (const auto &f : prov->availableAttributes(sub->category())) {
+                    if (f.type == QMetaType::QString)
+                        continue;   // colour ramp / sizing need numerics
+                    m_attributeCombo->addItem(f.displayName, f.name);
+                }
+            }
+        }
+    }
+    m_form->addRow(tr("&Attribute:"), m_attributeCombo);
 
     m_singleColorBtn = new ColorButton(this);
     m_singleColorBtn->setMinimumWidth(100);
@@ -70,8 +88,19 @@ FeatureStyleEditorBase::FeatureStyleEditorBase(FeatureSublayerStyle *style, QWid
 void FeatureStyleEditorBase::buildCommonRows()
 {
     // Bindings — pushed via setters which fire styleChanged.
-    connect(m_attributeEdit, &QLineEdit::editingFinished, this, [this]() {
-        m_style->setAttribute(m_attributeEdit->text());
+    connect(m_attributeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, [this](int row) {
+        m_style->setAttribute(m_attributeCombo->itemData(row).isValid()
+                                  ? m_attributeCombo->itemData(row).toString()
+                                  : m_attributeCombo->itemText(row));
+    });
+    connect(m_attributeCombo->lineEdit(), &QLineEdit::editingFinished,
+            this, [this]() {
+        // Free-typed attribute name (editable combo, no matching entry).
+        const int row = m_attributeCombo->findText(m_attributeCombo->currentText());
+        m_style->setAttribute(row >= 0 && m_attributeCombo->itemData(row).isValid()
+                                  ? m_attributeCombo->itemData(row).toString()
+                                  : m_attributeCombo->currentText());
     });
     connect(m_singleColorBtn, &ColorButton::colorChanged, this, [this](const QColor &c) {
         m_style->setColor(c);
@@ -81,54 +110,35 @@ void FeatureStyleEditorBase::buildCommonRows()
     });
 
     // ── L-1 — per-sublayer Labels group ─────────────────────────────────
-    auto *labelBox  = new QGroupBox(tr("Labels"), this);
-    auto *labelForm = new QFormLayout(labelBox);
+    // LAYER_STYLING_LABELING_PLAN_2026-08-16 — full-fidelity LabelConfig
+    // editor (font / halo / placement / scale window / background /
+    // priority) instead of the old enabled/expression/colour subset.
+    auto *labelBox = new QGroupBox(tr("Labels"), this);
+    auto *labelLay = new QVBoxLayout(labelBox);
 
-    m_labelsEnable = new QCheckBox(tr("Show labels"), this);
-    labelForm->addRow(QString(), m_labelsEnable);
-
-    m_labelExpr = new QLineEdit(this);
-    m_labelExpr->setPlaceholderText(tr("e.g. {name}: {depth} m"));
-    m_labelExpr->setToolTip(tr("Template — {token} placeholders are replaced "
-                               "with the feature's values; literal text is kept."));
-    labelForm->addRow(tr("&Expression:"), m_labelExpr);
-
-    m_labelColorBtn = new ColorButton(this);
-    labelForm->addRow(tr("C&olour:"), m_labelColorBtn);
-
-    m_labelFieldsHint = new QLabel(this);
-    m_labelFieldsHint->setWordWrap(true);
-    m_labelFieldsHint->setStyleSheet(openswmmvis::ui::theme::hintStyle());
-    labelForm->addRow(tr("F&ields:"), m_labelFieldsHint);
+    m_labelEditor = new LabelConfigEditor(labelBox);
+    if (m_style)
+        m_labelEditor->setConfig(m_style->labelConfig());
 
     // Populate the available-field hint from the host layer's attribute
     // provider for this sublayer's category (plus the always-available name).
-    QStringList tokens{ QStringLiteral("{name}") };
-    if (auto *sub = qobject_cast<OpenSWMM::Render::FeatureSublayer *>(m_style->parent())) {
+    if (auto *sub = m_style
+            ? qobject_cast<OpenSWMM::Render::FeatureSublayer *>(m_style->parent())
+            : nullptr) {
         if (auto *host = qobject_cast<OpenSWMMVisLayer *>(sub->parent())) {
-            if (auto *prov = dynamic_cast<OpenSWMM::Render::IAttributeProvider *>(host)) {
-                for (const auto &f : prov->availableAttributes(sub->category()))
-                    tokens << QStringLiteral("{%1}").arg(f.name);
-            }
+            if (auto *prov = dynamic_cast<OpenSWMM::Render::IAttributeProvider *>(host))
+                m_labelEditor->setAvailableFields(
+                    prov->availableAttributes(sub->category()));
         }
     }
-    m_labelFieldsHint->setText(tokens.join(QStringLiteral("  ")));
 
+    labelLay->addWidget(m_labelEditor);
     layout()->addWidget(labelBox);
 
-    connect(m_labelsEnable, &QCheckBox::toggled, this, [this](bool) { pushLabelConfig(); });
-    connect(m_labelExpr, &QLineEdit::editingFinished, this, [this]() { pushLabelConfig(); });
-    connect(m_labelColorBtn, &ColorButton::colorChanged, this, [this](const QColor &) { pushLabelConfig(); });
-}
-
-void FeatureStyleEditorBase::pushLabelConfig()
-{
-    if (!m_style || !m_labelsEnable) return;
-    OpenSWMM::Render::LabelConfig cfg = m_style->labelConfig();  // keep font/placement
-    cfg.enabled    = m_labelsEnable->isChecked();
-    cfg.expression = m_labelExpr->text();
-    cfg.color      = m_labelColorBtn->color();
-    m_style->setLabelConfig(cfg);
+    connect(m_labelEditor, &LabelConfigEditor::configChanged, this,
+            [this](const OpenSWMM::Render::LabelConfig &cfg) {
+                if (m_style) m_style->setLabelConfig(cfg);
+            });
 }
 
 void FeatureStyleEditorBase::addPreviewRow()
@@ -153,19 +163,22 @@ void FeatureStyleEditorBase::addPreviewRow()
 void FeatureStyleEditorBase::refreshFromModel()
 {
     if (!m_style) return;
-    QSignalBlocker b1(m_attributeEdit), b2(m_singleColorBtn), b3(m_useRampBox);
-    m_attributeEdit->setText(m_style->attribute());
+    QSignalBlocker b1(m_attributeCombo), b2(m_singleColorBtn), b3(m_useRampBox);
+    const QString attr = m_style->attribute();
+    int row = m_attributeCombo->findData(attr);
+    if (row < 0)
+        row = m_attributeCombo->findText(attr);
+    if (row >= 0)
+        m_attributeCombo->setCurrentIndex(row);
+    else
+        m_attributeCombo->setEditText(attr);
     m_singleColorBtn->setColor(m_style->color());
     m_useRampBox->setChecked(m_style->useColorRamp());
 
     // L-1 — label controls (created lazily in buildCommonRows, so guard).
-    if (m_labelsEnable) {
-        QSignalBlocker bl(m_labelsEnable), be(m_labelExpr), bc(m_labelColorBtn);
-        const auto &lc = m_style->labelConfig();
-        m_labelsEnable->setChecked(lc.enabled);
-        m_labelExpr->setText(lc.expression);
-        m_labelColorBtn->setColor(lc.color);
-    }
+    // setConfig re-seeds without emitting configChanged.
+    if (m_labelEditor)
+        m_labelEditor->setConfig(m_style->labelConfig());
     updatePreview();
 }
 

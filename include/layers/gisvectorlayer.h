@@ -36,6 +36,7 @@ class OGRCoordinateTransformation;
 
 class SpatialReferenceSystem;
 class OpenSWMMVisWorkspace;
+class GisVectorSymbolAdapter;   // persistent symbol adapter — styleSubjects()
 
 namespace OpenSWMM::Render {
 class IFeatureRenderer;
@@ -378,6 +379,9 @@ private:
     QString                      m_ogrLayerName;
     QString                      m_filterExpr;
     GISVectorSymbol              m_symbol;
+    // Persistent symbol adapter (adapter-ownership refactor) — lazily built
+    // by styleSubjects(), owned via QObject parenting.
+    GisVectorSymbolAdapter      *m_symbolAdapter = nullptr;
     // VS.10 — m_labelConfig moved to OpenSWMMVisLayer (base owns it now).
     QSet<long long>              m_selectedIds;
 

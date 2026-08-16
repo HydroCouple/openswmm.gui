@@ -38,6 +38,7 @@ namespace OpenSWMM::Render {
 namespace openswmmvis::ui {
 
 class ColorButton;
+class LabelConfigEditor;
 class MarkerShapeCombo;
 class DashStyleCombo;
 class StylePreviewSwatch;
@@ -64,18 +65,14 @@ protected:
 
     OpenSWMM::Render::FeatureSublayerStyle *m_style = nullptr;
 
-    QLineEdit          *m_attributeEdit = nullptr;
+    QComboBox          *m_attributeCombo = nullptr;
     ColorButton        *m_singleColorBtn = nullptr;
     QCheckBox          *m_useRampBox    = nullptr;
     StylePreviewSwatch *m_preview       = nullptr;
 
     // L-1 — per-sublayer label controls (built in buildCommonRows()).
-    QCheckBox          *m_labelsEnable  = nullptr;
-    QLineEdit          *m_labelExpr     = nullptr;
-    ColorButton        *m_labelColorBtn = nullptr;
-    QLabel             *m_labelFieldsHint = nullptr;
-    /*! Compose a LabelConfig from the label widgets + push to the style. */
-    void pushLabelConfig();
+    // Full-fidelity LabelConfig editor (LAYER_STYLING_LABELING_PLAN).
+    LabelConfigEditor  *m_labelEditor   = nullptr;
 
 private:
     // Forward-declared in the global namespace to avoid pulling in

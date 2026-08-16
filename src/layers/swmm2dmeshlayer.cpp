@@ -2514,10 +2514,20 @@ SWMM2DMeshLayer::styleSubjects()
         sym.layers.append(sl);
         single->setSymbol(sym);
     };
-    auto addAdapter = [&](Rule *r, const QString &title, const QString &id) {
+    // Adapter-ownership refactor: PERSISTENT adapters, one per exposed Rule,
+    // created on first fetch and reused afterwards (previously a fresh pair
+    // was allocated and orphaned on the layer per dialog open). Safe to
+    // cache because (a) SymbolStyleAdapter holds only a Rule* and reads the
+    // renderer live on every access (no cached state to go stale), and
+    // (b) the mesh RuleList is built once and never rebuilt (no dirty flag),
+    // so the Rule pointers are stable for the layer's lifetime.
+    auto addAdapter = [&](Rule *r, QObject *&slot, const QString &title,
+                          const QString &id) {
         if (!r) return;
-        if (QObject *adapter = SymbolStyleAdapter::createFor(r, this))
-            out.push_back(std::make_unique<LayerStyleSubject>(title, adapter, id, sect));
+        if (!slot)
+            slot = SymbolStyleAdapter::createFor(r, this);
+        if (slot)
+            out.push_back(std::make_unique<LayerStyleSubject>(title, slot, id, sect));
     };
 
     const int n = m_ruleList->count();
@@ -2545,7 +2555,8 @@ SWMM2DMeshLayer::styleSubjects()
         spec.wideWidthPx         = st->wideWidthPx();
         spec.wideColor           = st->wideColor();
         setRuleLayer(rEdge, spec.toSymbolLayer());
-        addAdapter(rEdge, m_meshEdgeSublayer->displayName(), m_meshEdgeSublayer->id());
+        addAdapter(rEdge, m_meshEdgeAdapter,
+                   m_meshEdgeSublayer->displayName(), m_meshEdgeSublayer->id());
     }
 
     // Mesh nodes (vertex markers).
@@ -2558,7 +2569,8 @@ SWMM2DMeshLayer::styleSubjects()
         spec.marker.outlineWidth = st->outlineWidthPx();
         spec.marker.shape        = static_cast<MarkerShape>(static_cast<int>(st->shape()));
         setRuleLayer(rNode, spec.toSymbolLayer());
-        addAdapter(rNode, m_meshNodeSublayer->displayName(), m_meshNodeSublayer->id());
+        addAdapter(rNode, m_meshNodeAdapter,
+                   m_meshNodeSublayer->displayName(), m_meshNodeSublayer->id());
     }
 
     return out;

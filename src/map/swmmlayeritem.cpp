@@ -8,6 +8,9 @@
 
 #include "core/preferencesmanager.h"
 #include "layers/swmmmodellayer.h"
+// Labeling overhaul — shared screen-space label painter + scale gating.
+#include "map/mapcanvas.h"
+#include "render/labelpainter.h"
 // Slice Z.14-paint — polygon clip mask.
 #include "render/maskclipresolver.h"
 // Slice Z.5b-paint — perpendicular polyline offset.
@@ -21,6 +24,7 @@
 
 #include <QDebug>
 #include <QElapsedTimer>
+#include <QFontMetricsF>
 #include <QGraphicsScene>
 #include <QPainter>
 #include <QPainterPath>
@@ -29,6 +33,7 @@
 
 #include <ogr_spatialref.h>   // OGRCoordinateTransformation
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -269,7 +274,7 @@ void SWMMLayerItem::refreshBoundingRect()
 
 void SWMMLayerItem::paint(QPainter *painter,
                           const QStyleOptionGraphicsItem *option,
-                          QWidget * /*widget*/)
+                          QWidget *widget)
 {
     if (!m_layer || !m_layer->isVisible()) return;
 
@@ -988,85 +993,322 @@ void SWMMLayerItem::paint(QPainter *painter,
     }
 
     // ---------------------------------------------------------------- Labels
-    // Slice X.18 — drive label paint from the shared LabelConfig.  The
-    // legacy `m_showLabels` flag is now kept in sync with `labelConfig().
-    // enabled` by SWMMModelLayer::setShowLabels / setLabelConfig, so the
-    // gate below is identical in behaviour to the pre-X.18 code path —
-    // but everything between the gate and `drawText` now respects the
-    // user-configured font / colour / halo / placement.
+    // Labeling overhaul (LAYER_STYLING_LABELING_PLAN_2026-08-16):
+    //  * text resolves from LabelConfig::expression ({token} template) or
+    //    fieldName, falling back to the object name;
+    //  * every visible kind is labelled — nodes, links, subcatchments and
+    //    rain gages — with the per-kind SWMMElementSymbol.showLabel /
+    //    labelFont / labelColor acting as a per-kind enable + font/colour
+    //    override on top of the layer-level LabelConfig;
+    //  * drawn in DEVICE space through the shared LabelPainter, so the
+    //    point size is constant across zoom (screen-space contract);
+    //  * honours the min/max scale window (LabelPainter::scaleVisible)
+    //    against the owning MapCanvas' scale denominator;
+    //  * greedy screen-rect collision pruning, highest priorityField value
+    //    first (unset priority = insertion order).
+    //
+    // QSG contract: this block deliberately does NOT consult qsgOwnsKind —
+    // labels are always CPU-painted, even for kinds whose geometry the QSG
+    // overlay owns (the QSG renderer has no text pipeline; see the doc atop
+    // swmmlayerqsgrenderer.cpp).
     const auto &labelCfg = m_layer->labelConfig();
-    if ((labelCfg.enabled || m_layer->m_showLabels) && m_layer->m_showNodes)
     {
+        using OpenSWMM::Render::LabelConfig;
+        using OpenSWMM::Render::LabelPainter;
+
+        const bool layerOn = labelCfg.enabled || m_layer->m_showLabels;
+
+        auto symForCat = [&](SWMMModelLayer::Category c)
+            -> const SWMMElementSymbol * {
+            switch (c) {
+            case SWMMModelLayer::CatJunctions:     return &m_layer->m_junctionSym;
+            case SWMMModelLayer::CatOutfalls:      return &m_layer->m_outfallSym;
+            case SWMMModelLayer::CatStorage:       return &m_layer->m_storageSym;
+            case SWMMModelLayer::CatDividers:      return &m_layer->m_dividerSym;
+            case SWMMModelLayer::CatConduits:      return &m_layer->m_conduitSym;
+            case SWMMModelLayer::CatPumps:         return &m_layer->m_pumpSym;
+            case SWMMModelLayer::CatOrifices:      return &m_layer->m_orificeSym;
+            case SWMMModelLayer::CatWeirs:         return &m_layer->m_weirSym;
+            case SWMMModelLayer::CatOutlets:       return &m_layer->m_outletSym;
+            case SWMMModelLayer::CatSubcatchments: return &m_layer->m_subcatchSym;
+            case SWMMModelLayer::CatRainGages:     return &m_layer->m_gageSym;
+            default:                               return nullptr;
+            }
+        };
+        // A kind is labelled when the layer-level config is on, or the
+        // kind's own showLabel toggle (Symbology → Labels group) is set.
+        auto kindOn = [&](SWMMModelLayer::Category c) {
+            if (layerOn) return true;
+            const auto *s = symForCat(c);
+            return s && s->showLabel;
+        };
+
+        bool anyOn = false;
+        for (int c = 0; c < SWMMModelLayer::NumCategories && !anyOn; ++c)
+            anyOn = kindOn(static_cast<SWMMModelLayer::Category>(c));
+
         const qreal m11    = painter->transform().m11();
         const qreal m11Min = PreferencesManager::instance()->labelLodM11Min();
-        if (m11 >= m11Min) {
-            painter->save();
-            painter->setFont(labelCfg.effectiveFont());
 
-            const QFontMetricsF fm(painter->font());
-            // Anchor offset by placement.
-            auto offsetFor = [&](const QString &text) -> QPointF {
-                const qreal w = fm.horizontalAdvance(text);
-                const qreal h = fm.ascent();
-                using OpenSWMM::Render::LabelConfig;
-                switch (labelCfg.placement) {
-                case LabelConfig::Above:  return {  -w * 0.5, -4.0 };
-                case LabelConfig::Below:  return {  -w * 0.5, h + 4.0 };
-                case LabelConfig::Left:   return {  -w - 6.0, h * 0.4 };
-                case LabelConfig::Right:  return {       6.0, h * 0.4 };
-                case LabelConfig::Centre: return {  -w * 0.5, h * 0.4 };
-                case LabelConfig::AutoPlacement:
-                default:                  return {       6.0,    -4.0 };
+        // Scale-window gate — resolve the owning canvas' scale denominator
+        // by walking up from the paint widget (viewport → view → MapCanvas).
+        double scaleDen = 0.0;
+        for (const QWidget *w = widget; w; w = w->parentWidget()) {
+            if (auto *canvas = qobject_cast<const MapCanvas *>(w)) {
+                scaleDen = canvas->scaleDenominator();
+                break;
+            }
+        }
+
+        if (anyOn && m11 >= m11Min
+            && LabelPainter::scaleVisible(labelCfg, scaleDen))
+        {
+            // Per-kind effective config: layer LabelConfig with the kind's
+            // labelFont / labelColor applied when its showLabel is set
+            // (that's the per-kind override contract that makes the
+            // Symbology-tab Labels group live UI).
+            std::array<LabelConfig, SWMMModelLayer::NumCategories> kindCfg;
+            for (int c = 0; c < SWMMModelLayer::NumCategories; ++c) {
+                LabelConfig eff = labelCfg;
+                const auto *s = symForCat(static_cast<SWMMModelLayer::Category>(c));
+                if (s && s->showLabel) {
+                    eff.font  = s->labelFont;
+                    if (s->labelFont.pointSizeF() > 0.0)
+                        eff.fontSizePt = s->labelFont.pointSizeF();
+                    if (s->labelColor.isValid())
+                        eff.color = s->labelColor;
                 }
+                kindCfg[size_t(c)] = eff;
+            }
+
+            // Text + priority resolution. identifyByName (a full attribute
+            // fetch per feature) is only consulted when the config actually
+            // references attribute values — an expression using only {name}
+            // does not count. Resolved values are cached per feature in
+            // m_labelCache (invalidated on data edits via the layer's
+            // editRevision, or when the config's text fields change), so
+            // pan/zoom repaints don't re-resolve.
+            const bool exprNeedsAttrs =
+                !labelCfg.expression.isEmpty()
+                && labelCfg.expression.contains(QLatin1Char('{'))
+                && QString(labelCfg.expression)
+                           .remove(QLatin1String("{name}"))
+                           .contains(QLatin1Char('{'));
+            const bool needsAttrs = exprNeedsAttrs
+                                 || !labelCfg.fieldName.isEmpty()
+                                 || !labelCfg.priorityField.isEmpty();
+            auto resolveExpression = [](const QString &expr,
+                                        const QString &name,
+                                        const QVariantMap &attrs) {
+                QString out;
+                out.reserve(expr.size());
+                int i = 0;
+                while (i < expr.size()) {
+                    if (expr[i] == QLatin1Char('{')) {
+                        const int close = expr.indexOf(QLatin1Char('}'), i + 1);
+                        if (close > i) {
+                            const QString token = expr.mid(i + 1, close - i - 1);
+                            out += (token == QLatin1String("name"))
+                                       ? name
+                                       : attrs.value(token).toString();
+                            i = close + 1;
+                            continue;
+                        }
+                    }
+                    out += expr[i];
+                    ++i;
+                }
+                return out;
             };
 
-            // Pre-build halo brush/pen — cheaper than re-setting per row.
-            const bool   halo     = labelCfg.haloEnabled && labelCfg.haloRadiusPx > 0.0;
-            const QColor haloCol  = labelCfg.haloColor;
-            const qreal  haloRad  = labelCfg.haloRadiusPx;
-            const QColor textCol  = labelCfg.color;
-            // Slice X.24 — background frame.
-            const bool   bg       = labelCfg.backgroundEnabled;
-            const QColor bgCol    = labelCfg.backgroundColor;
-            const qreal  bgPad    = labelCfg.backgroundPaddingPx;
-            const qreal  bgRad    = labelCfg.backgroundRadiusPx;
-
-            const auto &nps = m_layer->m_nodeScenePts;
-            for (int i = 0; i < m_layer->m_nodes.size(); ++i) {
-                const auto &n = m_layer->m_nodes[i];
-                if (size_t(i) < nodeHid.size() && nodeHid[i]) continue;
-                if (i >= nps.size()) continue;
-                const QPointF &sp = nps[i];
-                if (!exposed.isNull() && !exposed.contains(sp)) continue;
-
-                const QString text = n.name;        // SWMM: object name is the label
-                const QPointF pos = sp + offsetFor(text);
-
-                if (bg) {
-                    const qreal w = fm.horizontalAdvance(text);
-                    const qreal h = fm.height();
-                    const QRectF rect(pos.x() - bgPad,
-                                       pos.y() - fm.ascent() - bgPad,
-                                       w + 2.0 * bgPad,
-                                       h + 2.0 * bgPad);
-                    painter->setPen(Qt::NoPen);
-                    painter->setBrush(bgCol);
-                    painter->drawRoundedRect(rect, bgRad, bgRad);
+            // Validate the label cache against the layer's data epoch and
+            // the config's text-affecting fields; (re)size lazily-filled
+            // per-group vectors when stale.
+            if (needsAttrs) {
+                if (m_labelCache.editRev != m_layer->editRevision()
+                    || m_labelCache.expression    != labelCfg.expression
+                    || m_labelCache.fieldName     != labelCfg.fieldName
+                    || m_labelCache.priorityField != labelCfg.priorityField
+                    // SoA size drift (model reload / geometry rebuild paths
+                    // that don't emit modelEdited) — indices would shift.
+                    || m_labelCache.text[0].size() != m_layer->m_nodes.size()
+                    || m_labelCache.text[1].size() != m_layer->m_links.size()
+                    || m_labelCache.text[2].size() != m_layer->m_catchments.size()
+                    || m_labelCache.text[3].size() != m_layer->m_gages.size()) {
+                    m_labelCache.clear();
+                    m_labelCache.editRev       = m_layer->editRevision();
+                    m_labelCache.expression    = labelCfg.expression;
+                    m_labelCache.fieldName     = labelCfg.fieldName;
+                    m_labelCache.priorityField = labelCfg.priorityField;
+                    m_labelCache.text[0].resize(m_layer->m_nodes.size());
+                    m_labelCache.text[1].resize(m_layer->m_links.size());
+                    m_labelCache.text[2].resize(m_layer->m_catchments.size());
+                    m_labelCache.text[3].resize(m_layer->m_gages.size());
+                    for (auto &p : m_labelCache.priority)
+                        p.clear();
+                    m_labelCache.priority[0].resize(m_layer->m_nodes.size());
+                    m_labelCache.priority[1].resize(m_layer->m_links.size());
+                    m_labelCache.priority[2].resize(m_layer->m_catchments.size());
+                    m_labelCache.priority[3].resize(m_layer->m_gages.size());
                 }
-                if (halo) {
-                    // Stroke 4-way offset copies of the text in the halo
-                    // colour, then draw the fill on top.  Cheaper than
-                    // converting to QPainterPath + addText and stroking.
-                    painter->setPen(haloCol);
-                    for (int dx = -1; dx <= 1; ++dx)
-                        for (int dy = -1; dy <= 1; ++dy)
-                            if (dx || dy)
-                                painter->drawText(
-                                    pos + QPointF(dx * haloRad, dy * haloRad),
-                                    text);
+            }
+
+            struct PendingLabel {
+                QPointF anchorDev;   // device-space anchor
+                QString text;
+                double  priority = 0.0;
+                int     cat      = 0;
+            };
+            QVector<PendingLabel> pending;
+
+            const QTransform xf = painter->transform();
+            // \p group: 0=node 1=link 2=catch 3=gage; \p soa is the index
+            // within that group's SoA (cache slot).
+            auto append = [&](SWMMModelLayer::Category c, int group, int soa,
+                              const QString &name, const QPointF &sceneAnchor) {
+                PendingLabel pl;
+                pl.cat       = int(c);
+                pl.anchorDev = xf.map(sceneAnchor);
+                if (needsAttrs) {
+                    const bool cachable =
+                        group >= 0 && group < 4
+                        && soa >= 0 && soa < m_labelCache.text[group].size();
+                    if (cachable && !m_labelCache.text[group][soa].isNull()) {
+                        pl.text     = m_labelCache.text[group][soa];
+                        pl.priority = m_labelCache.priority[group][soa];
+                    } else {
+                        const QVariantMap attrs = m_layer->identifyByName(name);
+                        if (!labelCfg.expression.isEmpty())
+                            pl.text = resolveExpression(labelCfg.expression, name, attrs);
+                        else if (!labelCfg.fieldName.isEmpty())
+                            pl.text = attrs.value(labelCfg.fieldName).toString();
+                        if (pl.text.isEmpty())
+                            pl.text = name;
+                        if (!labelCfg.priorityField.isEmpty())
+                            pl.priority = attrs.value(labelCfg.priorityField).toDouble();
+                        if (cachable) {
+                            m_labelCache.text[group][soa]     = pl.text;
+                            m_labelCache.priority[group][soa] = pl.priority;
+                        }
+                    }
+                } else if (!labelCfg.expression.isEmpty()) {
+                    // {name}-only expression — resolve without an attribute
+                    // fetch (unknown tokens go empty by contract).
+                    pl.text = resolveExpression(labelCfg.expression, name, {});
+                    if (pl.text.isEmpty())
+                        pl.text = name;
+                } else {
+                    pl.text = name;
                 }
-                painter->setPen(textCol);
-                painter->drawText(pos, text);
+                if (!pl.text.isEmpty())
+                    pending.append(pl);
+            };
+
+            // ── Nodes ──
+            if (m_layer->m_showNodes) {
+                const auto &nps = m_layer->m_nodeScenePts;
+                for (int i = 0; i < m_layer->m_nodes.size(); ++i) {
+                    const auto &n = m_layer->m_nodes[i];
+                    if (size_t(i) < nodeHid.size() && nodeHid[i]) continue;
+                    if (i >= nps.size()) continue;
+                    const int t = (n.nodeType >= 0 && n.nodeType < 4) ? n.nodeType : 0;
+                    const auto cat = static_cast<SWMMModelLayer::Category>(
+                        int(SWMMModelLayer::CatJunctions) + t);
+                    if (!kindOn(cat)) continue;
+                    const QPointF &sp = nps[i];
+                    if (!exposed.isNull() && !exposed.contains(sp)) continue;
+                    append(cat, /*group=*/0, i, n.name, sp);
+                }
+            }
+
+            // ── Links (label at the middle vertex of the polyline) ──
+            if (m_layer->m_showLinks
+                && m_layer->m_linkVertexCount.size()
+                       >= size_t(m_layer->m_links.size())
+                && m_layer->m_linkVertexOffset.size()
+                       >= size_t(m_layer->m_links.size())) {
+                static constexpr SWMMModelLayer::Category linkCats[5] = {
+                    SWMMModelLayer::CatConduits, SWMMModelLayer::CatPumps,
+                    SWMMModelLayer::CatOrifices, SWMMModelLayer::CatWeirs,
+                    SWMMModelLayer::CatOutlets };
+                const double   *flat    = m_layer->m_linkSceneFlat.data();
+                const uint32_t *offsets = m_layer->m_linkVertexOffset.data();
+                const uint32_t *counts  = m_layer->m_linkVertexCount.data();
+                for (int i = 0; i < m_layer->m_links.size(); ++i) {
+                    if (size_t(i) < linkHid.size() && linkHid[i]) continue;
+                    const uint32_t cnt = counts[i];
+                    if (cnt < 2) continue;
+                    const int t = (m_layer->m_links[i].linkType >= 0
+                                && m_layer->m_links[i].linkType < 5)
+                                ? m_layer->m_links[i].linkType : 0;
+                    const auto cat = linkCats[t];
+                    if (!kindOn(cat)) continue;
+                    const double *p = flat + size_t(offsets[i]) * 2;
+                    // Midpoint of the middle segment — cheap and close
+                    // enough to the visual centre for labelling.
+                    const uint32_t m0 = (cnt - 1) / 2, m1 = m0 + 1;
+                    const QPointF mid(
+                        (p[m0 * 2]     + p[m1 * 2])     * 0.5,
+                        (p[m0 * 2 + 1] + p[m1 * 2 + 1]) * 0.5);
+                    if (!exposed.isNull() && !exposed.contains(mid)) continue;
+                    append(cat, /*group=*/1, i, m_layer->m_links[i].name, mid);
+                }
+            }
+
+            // ── Subcatchments (bbox centre) ──
+            if (m_layer->m_showSubcatchments
+                && kindOn(SWMMModelLayer::CatSubcatchments)) {
+                const auto &cboxes = m_layer->m_catchSceneBBoxes;
+                for (int i = 0; i < m_layer->m_catchments.size(); ++i) {
+                    if (size_t(i) < catchHid.size() && catchHid[i]) continue;
+                    if (i >= cboxes.size() || !cboxes[i].isValid()) continue;
+                    const QPointF ctr = cboxes[i].center();
+                    if (!exposed.isNull() && !exposed.contains(ctr)) continue;
+                    append(SWMMModelLayer::CatSubcatchments, /*group=*/2, i,
+                           m_layer->m_catchments[i].name, ctr);
+                }
+            }
+
+            // ── Rain gages ──
+            if (m_layer->m_showRainGages
+                && kindOn(SWMMModelLayer::CatRainGages)) {
+                const auto &gps = m_layer->m_gageScenePts;
+                for (int i = 0; i < m_layer->m_gages.size(); ++i) {
+                    if (size_t(i) < gageHid.size() && gageHid[i]) continue;
+                    if (i >= gps.size()) continue;
+                    const QPointF &sp = gps[i];
+                    if (!exposed.isNull() && !exposed.contains(sp)) continue;
+                    append(SWMMModelLayer::CatRainGages, /*group=*/3, i,
+                           m_layer->m_gages[i].name, sp);
+                }
+            }
+
+            // Priority ordering — highest first; stable so equal (or unset)
+            // priorities keep insertion order.
+            if (!labelCfg.priorityField.isEmpty())
+                std::stable_sort(pending.begin(), pending.end(),
+                                 [](const PendingLabel &a, const PendingLabel &b) {
+                                     return a.priority > b.priority;
+                                 });
+
+            // Greedy screen-space collision pruning + draw (device space,
+            // constant point size across zoom).
+            painter->save();
+            painter->resetTransform();
+            QVector<QRectF> taken;
+            taken.reserve(pending.size());
+            for (const PendingLabel &pl : pending) {
+                const LabelConfig &cfg = kindCfg[size_t(pl.cat)];
+                const QFontMetricsF fm(cfg.effectiveFont());
+                const QSizeF textSize(fm.horizontalAdvance(pl.text), fm.height());
+                const QRectF rect =
+                    LabelPainter::labelRect(cfg, pl.anchorDev, textSize);
+                bool collides = false;
+                for (const QRectF &r : taken)
+                    if (r.intersects(rect)) { collides = true; break; }
+                if (collides) continue;
+                taken.append(rect);
+                LabelPainter::drawLabelAt(*painter, pl.anchorDev, pl.text, cfg);
             }
             painter->restore();
         }

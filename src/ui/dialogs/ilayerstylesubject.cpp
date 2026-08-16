@@ -7,6 +7,7 @@
 #include "ui/dialogs/ilayerstylesubject.h"
 #include "render/sublayerstyle.h"
 
+#include <QFont>
 #include <QJsonDocument>
 #include <QJsonValue>
 #include <QMetaObject>
@@ -25,6 +26,12 @@ QJsonValue variantToJson(const QVariant &v)
 {
     if (v.canConvert<QColor>() && v.userType() == qMetaTypeId<QColor>()) {
         return v.value<QColor>().name(QColor::HexArgb);
+    }
+    // QFont — lossless via toString/fromString (the generic fallback below
+    // reduced fonts to an int/string mishmash, making labelFont snapshots
+    // lossy on Cancel/undo restore).
+    if (v.userType() == qMetaTypeId<QFont>()) {
+        return v.value<QFont>().toString();
     }
     switch (v.userType()) {
         case QMetaType::Bool:        return v.toBool();
@@ -51,6 +58,11 @@ QVariant jsonToVariant(const QJsonValue &val, int targetType)
         const QString s = val.toString();
         const QColor c(s);
         return c.isValid() ? QVariant::fromValue(c) : QVariant();
+    }
+    if (targetType == qMetaTypeId<QFont>()) {
+        QFont f;
+        return f.fromString(val.toString()) ? QVariant::fromValue(f)
+                                            : QVariant();
     }
     switch (targetType) {
         case QMetaType::Bool:    return val.toBool();

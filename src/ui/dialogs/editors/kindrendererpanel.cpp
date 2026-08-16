@@ -21,6 +21,9 @@
 // Slice US.1 — shared classification editor + binding.
 #include "ui/dialogs/editors/classificationbindings.h"
 #include "ui/widgets/classificationeditor.h"
+#include "ui/widgets/colorbutton.h"
+#include "render/sublayers/feature/featuresublayer.h"
+#include "render/sublayers/feature/featuresublayerstyle.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -95,6 +98,22 @@ KindRendererPanel::KindRendererPanel(OpenSWMM::Render::Rule *rule, QWidget *pare
     refreshFromModel();
 }
 
+// Rule + kind context. Delegates to the layer ctor so m_hostLayer /
+// m_modelLayer / m_resultsLayer / m_category are all resolved, then installs
+// the Rule — which takes priority in currentRenderer(), installRenderer() and
+// resetToDefaults(), so the renderer path behaves exactly as the rule-only
+// ctor did. The layer context is what lets syncArrowsFromHost() find the
+// per-kind flow-arrow channel (see the header note).
+KindRendererPanel::KindRendererPanel(OpenSWMM::Render::Rule *rule,
+                                      OpenSWMMVisLayer *hostLayer,
+                                      OpenSWMMVis::SwmmCategory category,
+                                      QWidget *parent)
+    : KindRendererPanel(hostLayer, category, parent)
+{
+    m_rule = rule;
+    refreshFromModel();
+}
+
 KindRendererPanel::~KindRendererPanel() = default;
 
 void KindRendererPanel::buildUi()
@@ -121,7 +140,7 @@ void KindRendererPanel::buildUi()
     {
         auto *rowLay = new QHBoxLayout(m_attrRow);
         rowLay->setContentsMargins(0, 0, 0, 0);
-        rowLay->addWidget(new QLabel(tr("Attribute:"), m_attrRow));
+        rowLay->addWidget(new QLabel(tr("Color by:"), m_attrRow));
         rowLay->addWidget(m_attrCombo, 1);
     }
     modeForm->addRow(m_attrRow);
@@ -198,7 +217,51 @@ void KindRendererPanel::buildUi()
     gLay->addWidget(m_axisRow);
     m_axisRow->setVisible(false);
 
+    // "Size by:" — independent attribute for the size/width axis. The
+    // "(same as color)" entry (empty data) keeps the historical bin-mapped
+    // behaviour; picking a field scales sizes over that field's own range.
+    m_sizeAttrRow = new QWidget(m_graduatedBox);
+    {
+        auto *rowLay = new QHBoxLayout(m_sizeAttrRow);
+        rowLay->setContentsMargins(0, 0, 0, 0);
+        m_sizeAttrCombo = new QComboBox(m_sizeAttrRow);
+        m_sizeAttrCombo->setMinimumContentsLength(20);
+        m_sizeAttrCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+        rowLay->addWidget(new QLabel(tr("Size by:"), m_sizeAttrRow));
+        rowLay->addWidget(m_sizeAttrCombo, 1);
+    }
+    gLay->addWidget(m_sizeAttrRow);
+    m_sizeAttrRow->setVisible(false);
+
     vlay->addWidget(m_graduatedBox);
+
+    // ── Flow-direction arrows (link kinds) ─────────────────────────────
+    // Outside m_graduatedBox on purpose: arrows belong to the kind, so they
+    // stay put across every renderer mode rather than disappearing with the
+    // classification block.
+    m_arrowBox = new QGroupBox(tr("Flow direction arrows"), this);
+    {
+        auto *aForm = new QFormLayout(m_arrowBox);
+        m_arrowShowChk = new QCheckBox(tr("Show flow arrows"), m_arrowBox);
+        aForm->addRow(QString(), m_arrowShowChk);
+        m_arrowSizeSpin = new QDoubleSpinBox(m_arrowBox);
+        m_arrowSizeSpin->setRange(2.0, 60.0);
+        m_arrowSizeSpin->setDecimals(1);
+        m_arrowSizeSpin->setSingleStep(0.5);
+        m_arrowSizeSpin->setSuffix(tr(" px"));
+        aForm->addRow(tr("Si&ze:"), m_arrowSizeSpin);
+        m_arrowColorBtn = new ColorButton(m_arrowBox);
+        aForm->addRow(tr("Colou&r:"), m_arrowColorBtn);
+    }
+    m_arrowBox->setVisible(false);          // shown by syncArrowsFromHost()
+    vlay->addWidget(m_arrowBox);
+
+    connect(m_arrowShowChk, &QCheckBox::toggled,
+            this, &KindRendererPanel::onArrowsChanged);
+    connect(m_arrowSizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double) { onArrowsChanged(); });
+    connect(m_arrowColorBtn, &ColorButton::colorChanged,
+            this, [this](const QColor &) { onArrowsChanged(); });
 
     connect(m_modeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &KindRendererPanel::onModeChanged);
@@ -210,6 +273,8 @@ void KindRendererPanel::buildUi()
             this, &KindRendererPanel::onOutputAxisChanged);
     connect(m_axisMaxSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
             this, &KindRendererPanel::onOutputAxisChanged);
+    connect(m_sizeAttrCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &KindRendererPanel::onSizeAttributeChanged);
 }
 
 // ---------------------------------------------------------------------------
@@ -315,11 +380,130 @@ void KindRendererPanel::refreshFromModel()
                 m_axisMaxSpin->setEnabled(m_axisCheck->isChecked());
             }
         }
+
+        // "Size by:" — same visibility gate as the axis row; populated with
+        // the numeric fields plus a "(same as color)" default (empty data).
+        QSignalBlocker bs(m_sizeAttrCombo);
+        m_sizeAttrRow->setVisible(axisApplies && provider);
+        m_sizeAttrCombo->clear();
+        if (axisApplies && provider) {
+            m_sizeAttrCombo->addItem(tr("(same as color)"), QString());
+            const auto fields = provider->availableAttributes(m_category);
+            for (const auto &f : fields) {
+                if (f.type == QMetaType::QString)
+                    continue;
+                m_sizeAttrCombo->addItem(f.displayName, f.name);
+            }
+            QString currentSizeAttr;
+            if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(r))
+                currentSizeAttr = g->sizeAttribute();
+            int sidx = m_sizeAttrCombo->findData(currentSizeAttr);
+            if (sidx < 0 && !currentSizeAttr.isEmpty()) {
+                m_sizeAttrCombo->addItem(currentSizeAttr, currentSizeAttr);
+                sidx = m_sizeAttrCombo->count() - 1;
+            }
+            m_sizeAttrCombo->setCurrentIndex(sidx < 0 ? 0 : sidx);
+            m_sizeAttrCombo->setEnabled(m_axisCheck->isChecked());
+        }
     }
 
     // Slice US.1 — re-seed the shared editor from the live renderer.
     if (m_binding) m_binding->resync();
     if (m_classEditor) m_classEditor->refresh();
+
+    // Arrows live on the kind, not the renderer, so they re-seed here too —
+    // this is also the path the dialog calls after a Cancel rollback.
+    syncArrowsFromHost();
+}
+
+namespace {
+
+/*! The link kinds that carry a flow direction at all. Nodes and
+ *  subcatchments have no upstream/downstream, so the group stays hidden. */
+bool isLinkKind(OpenSWMMVis::SwmmCategory c)
+{
+    using namespace OpenSWMMVis;
+    return c == CatConduits || c == CatPumps || c == CatOrifices
+        || c == CatWeirs    || c == CatOutlets;
+}
+
+} // namespace
+
+void KindRendererPanel::syncArrowsFromHost()
+{
+    if (!m_arrowBox) return;
+
+    // Two independent channels carry "flow arrows", and which one applies is
+    // decided by the host, not by this panel:
+    //   - model layers  → SWMMElementSymbol::showArrows/arrowSize/arrowColor,
+    //                     reached through the layer's PERSISTENT per-kind
+    //                     adapter so edits land on the same object the
+    //                     single-symbol editor and Cancel rollback use;
+    //   - results layers → LineFeatureSublayerStyle::showFlowArrows /
+    //                     arrowLengthPx / arrowColor.
+    // Anything else (rule-only mode, GIS vector) has no channel: hide.
+    if (!isLinkKind(m_category)) { m_arrowBox->setVisible(false); return; }
+
+    bool   show = false;
+    double size = 10.0;
+    QColor color(34, 34, 34);
+    bool   have = false;
+
+    if (m_modelLayer) {
+        show  = m_modelLayer->linkArrowsEnabled(m_category);
+        size  = m_modelLayer->linkArrowSize(m_category);
+        color = m_modelLayer->linkArrowColor(m_category);
+        have  = true;
+    } else if (m_resultsLayer) {
+        if (auto *sub = m_resultsLayer->featureSublayer(m_category)) {
+            if (auto *ls = qobject_cast<OpenSWMM::Render::LineFeatureSublayerStyle *>(
+                    sub->featureStyle())) {
+                show  = ls->showFlowArrows();
+                size  = ls->arrowLengthPx();
+                color = ls->arrowColor();
+                have  = true;
+            }
+        }
+    }
+
+    m_arrowBox->setVisible(have);
+    if (!have) return;
+
+    QSignalBlocker b1(m_arrowShowChk), b2(m_arrowSizeSpin), b3(m_arrowColorBtn);
+    m_arrowShowChk->setChecked(show);
+    m_arrowSizeSpin->setValue(size);
+    m_arrowColorBtn->setColor(color);
+    m_arrowSizeSpin->setEnabled(show);
+    m_arrowColorBtn->setEnabled(show);
+}
+
+void KindRendererPanel::onArrowsChanged()
+{
+    if (m_suppressEdits) return;
+
+    const bool   show  = m_arrowShowChk->isChecked();
+    const double size  = m_arrowSizeSpin->value();
+    const QColor color = m_arrowColorBtn->color();
+    m_arrowSizeSpin->setEnabled(show);
+    m_arrowColorBtn->setEnabled(show);
+
+    if (m_modelLayer) {
+        // The per-kind setters resync the persistent symbol adapter and emit
+        // repaintRequested, so the single-symbol editor and Cancel rollback
+        // see the same edit this panel just made.
+        m_modelLayer->setLinkArrowsEnabled(m_category, show);
+        m_modelLayer->setLinkArrowSize(m_category, size);
+        m_modelLayer->setLinkArrowColor(m_category, color);
+    } else if (m_resultsLayer) {
+        if (auto *sub = m_resultsLayer->featureSublayer(m_category)) {
+            if (auto *ls = qobject_cast<OpenSWMM::Render::LineFeatureSublayerStyle *>(
+                    sub->featureStyle())) {
+                ls->setShowFlowArrows(show);
+                ls->setArrowLengthPx(size);
+                ls->setArrowColor(color);
+            }
+        }
+    }
 }
 
 void KindRendererPanel::onOutputAxisChanged()
@@ -339,6 +523,7 @@ void KindRendererPanel::onOutputAxisChanged()
     const bool on = m_axisCheck->isChecked();
     m_axisMinSpin->setEnabled(on);
     m_axisMaxSpin->setEnabled(on);
+    if (m_sizeAttrCombo) m_sizeAttrCombo->setEnabled(on);
 
     auto fresh = g->clone();
     if (auto *gf = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(fresh.get())) {
@@ -353,6 +538,22 @@ void KindRendererPanel::onOutputAxisChanged()
     installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category,
                     std::move(fresh));
     if (m_binding) m_binding->resync();
+}
+
+void KindRendererPanel::onSizeAttributeChanged(int comboRow)
+{
+    // Push the independent size attribute onto the current GraduatedRenderer.
+    // Empty data ("(same as color)") restores the bin-mapped behaviour.
+    if (m_suppressEdits) return;
+    auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(currentRenderer());
+    if (!g) return;
+    const QString name = m_sizeAttrCombo->itemData(comboRow).toString();
+    if (name == g->sizeAttribute()) return;
+    auto fresh = g->clone();
+    if (auto *gfresh = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(fresh.get()))
+        gfresh->setSizeAttribute(name);   // invalidates the sampled value range
+    installRenderer(m_rule, m_modelLayer, m_resultsLayer, m_category,
+                    std::move(fresh));
 }
 
 void KindRendererPanel::onAttributeChanged(int comboRow)

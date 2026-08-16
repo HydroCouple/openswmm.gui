@@ -171,6 +171,24 @@ add_swmmvis_gui_test(test_rule
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/rulestylesubject.h
 )
 
+# ILayerStyleSubject snapshot/restore — the contract LayerStyleDialog's
+# Cancel rollback and undo/redo ride on. Pins the QFont round trip that the
+# generic QVariant->JSON walk used to drop (LAYER_STYLING_LABELING_PLAN F5).
+# SwmmElementSymbolAdapter is header-only, so only the subject .cpp links.
+add_swmmvis_gui_test(test_layerstylesubject
+    test_layerstylesubject.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/ilayerstylesubject.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/ilayerstylesubject.h
+    ${CMAKE_SOURCE_DIR}/include/layers/swmmelementsymboladapter.h
+    # SublayerStyle is a QObject — header listed so AUTOMOC emits its
+    # staticMetaObject for the qobject_cast in ilayerstylesubject.cpp.
+    ${CMAKE_SOURCE_DIR}/include/render/sublayerstyle.h
+    # The adapter's markerShape Q_PROPERTY is a Q_ENUM_NS, so the namespace's
+    # staticMetaObject has to be emitted (header) and its helpers linked.
+    ${CMAKE_SOURCE_DIR}/include/render/markershape.h
+    ${CMAKE_SOURCE_DIR}/src/render/markershape.cpp
+)
+
 # Slice Z.4 — MarkerShape + MarkerSymbolLayerSpec tests.
 # Self-contained: pulls in the render symbol primitives and the new Z.4
 # files. Uses Qt Widgets (QImage / QPainter / QPen / QBrush).

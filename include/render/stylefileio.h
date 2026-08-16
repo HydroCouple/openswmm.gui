@@ -30,6 +30,7 @@
 #ifndef OPENSWMM_RENDER_STYLEFILEIO_H
 #define OPENSWMM_RENDER_STYLEFILEIO_H
 
+#include <QJsonObject>
 #include <QString>
 #include <QStringList>
 
@@ -54,6 +55,16 @@ public:
      *  native (.swmm-style.json) vs QGIS (.qml) by the file extension
      *  (and falls back to content sniffing on extension mismatch). */
     static Result importStyle(OpenSWMMVisLayer *layer, const QString &path);
+
+    /*! In-memory counterparts of exportStyle / importNative — the same
+     *  JSON shape, no file involved. Used by LayerStyleDialog's Cancel /
+     *  undo machinery to snapshot + restore the full renderer state (kind
+     *  renderers, layer renderer, label config) that the per-subject
+     *  Q_PROPERTY snapshots don't cover. styleToJson ALWAYS includes
+     *  labelConfig (unlike exportStyle's file output, which elides the
+     *  default) so a restore can reset a mid-session label enable. */
+    static QJsonObject styleToJson(const OpenSWMMVisLayer *layer);
+    static Result applyStyleJson(OpenSWMMVisLayer *layer, const QJsonObject &root);
 
 private:
     static Result importNative(OpenSWMMVisLayer *layer, const QString &path);

@@ -12,11 +12,10 @@
 #include "ui/widgets/legendoverlay.h"
 #include "render/legendoverlaystyle.h"
 
-// Slice S4 P5 — sublayer right-click → SublayerStyleDialog routing.
+// Slice S4 P5 — sublayer right-click → LayerStyleDialog routing.
 #include "layers/openswmmvislayer.h"
 #include "render/isublayer.h"
 #include "render/isublayerhost.h"
-#include "ui/dialogs/sublayerstyledialog.h"
 #include "ui/dialogs/layerstyledialog.h"
 
 #include <QAbstractItemView>

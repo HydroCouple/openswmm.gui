@@ -280,8 +280,12 @@ signals:
 
     /*!
      * \brief Emitted when the user requests to view properties for a layer.
+     *        \p routingId is empty for plain "Properties…"; the sentinel
+     *        "symbology" (from "Styles ▸ Edit Symbology…") asks the dialog
+     *        to open on the Symbology tab.
      */
-    void layerPropertiesRequested(OpenSWMMVisLayer *layer);
+    void layerPropertiesRequested(OpenSWMMVisLayer *layer,
+                                  const QString &routingId = QString());
 
     /*!
      * \brief Emitted when the user picks "Open Attribute Table" on a layer's

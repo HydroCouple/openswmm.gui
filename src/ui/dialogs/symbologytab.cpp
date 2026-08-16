@@ -4,9 +4,13 @@
  * \date   2026
  * \license GPL-3.0-or-later
  */
+#include "ui/theme/themehelpers.h"
 #include "ui/dialogs/symbologytab.h"
 
 #include "layers/openswmmvislayer.h"
+#include "layers/gisvectorlayer.h"
+#include "layers/swmm2dmeshlayer.h"
+#include "layers/swmm2dresultslayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "render/iattributeprovider.h"
@@ -54,10 +58,13 @@ QString currentRendererIdFor(const RendererPanelContext &ctx)
             r = swmm->kindRenderer(*ctx.category);
         else if (auto *res = qobject_cast<SWMMResultsLayer *>(ctx.hostLayer))
             r = res->kindRenderer(*ctx.category);
+    } else {
+        // Category-less context — read the layer-level renderer through the
+        // OpenSWMMVisLayer virtual (SWMM2DMeshLayer/GISVectorLayer/… expose
+        // it; layers without one, e.g. GISRasterLayer, return nullptr and
+        // fall back to the "single" default downstream).
+        r = ctx.hostLayer->renderer();
     }
-    // (Layer-level renderer case will be added once renderer() accessors
-    // expose a uniform IFeatureRenderer* on every layer kind.  For now
-    // categories-less context falls back to empty.)
 
     return r ? r->rendererId() : QString();
 }
@@ -83,7 +90,16 @@ SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
     auto *topRow = new QWidget(this);
     auto *topLay = new QHBoxLayout(topRow);
     topLay->setContentsMargins(0, 0, 0, 0);
-    topLay->addWidget(new QLabel(tr("Renderer:"), topRow));
+    // Bold: this combo is the gateway to every data-driven control (colour
+    // ramps, size-by-value, width-by-value). Presented as a plain label it
+    // reads like a minor setting, and users looked for "width by attribute"
+    // in the symbol editor — where it cannot exist, because only a
+    // classified renderer has an attribute to scale from.
+    auto *rendererLabel = new QLabel(tr("Renderer:"), topRow);
+    QFont labelFont = rendererLabel->font();
+    labelFont.setBold(true);
+    rendererLabel->setFont(labelFont);
+    topLay->addWidget(rendererLabel);
 
     m_rendererCombo = new QComboBox(topRow);
     for (const auto &entry : RendererPanelRegistry::instance().entries()) {
@@ -103,8 +119,23 @@ SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
             }
         }
     }
+    m_rendererCombo->setToolTip(
+        tr("How this kind is painted. <b>Single Symbol</b> gives every "
+           "feature the same style; <b>Graduated</b> drives colour — and "
+           "marker size or line width — from an attribute's value."));
     topLay->addWidget(m_rendererCombo, 1);
     root->addWidget(topRow);
+
+    // Says out loud where the data-driven controls live, so the absence of a
+    // "width by attribute" control under Single Symbol reads as a mode
+    // choice rather than a missing feature.
+    auto *rendererHint = new QLabel(
+        tr("Choose <b>Graduated</b> to size or colour features by an "
+           "attribute value."), this);
+    rendererHint->setTextFormat(Qt::RichText);
+    rendererHint->setWordWrap(true);
+    rendererHint->setStyleSheet(openswmmvis::ui::theme::hintStyle());
+    root->addWidget(rendererHint);
 
     auto *sep = new QFrame(this);
     sep->setFrameShape(QFrame::HLine);
@@ -116,10 +147,14 @@ SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
     root->addWidget(m_stack, 1);
 
     // Sync the dropdown to whatever renderer the host already has.  When
-    // no renderer is installed yet, default to the first registered one.
+    // no renderer is installed yet, prefer Single Symbol explicitly —
+    // entries() order is static-init order across translation units, so
+    // "front()" is not a deterministic default.
     const QString initialId = [&]() -> QString {
         const QString cur = currentRendererIdFor(m_ctx);
         if (!cur.isEmpty()) return cur;
+        if (RendererPanelRegistry::instance().find(QStringLiteral("single")))
+            return QStringLiteral("single");
         if (!RendererPanelRegistry::instance().entries().empty())
             return RendererPanelRegistry::instance().entries().front().rendererId;
         return {};
@@ -138,6 +173,47 @@ SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
 
     connect(m_rendererCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &SymbologyTab::onRendererChanged);
+
+    // Renderer swaps can also originate outside this combo — the embedded
+    // Mode combo inside a mounted editor (KindRendererPanel), undo, style
+    // import. Listen to the host layer's rendererChanged and resync.
+    // Queued: the swap may have been triggered by a widget inside the
+    // currently-mounted panel, and remounting synchronously would delete
+    // the emitting widget mid-signal.
+    if (auto *swmm = qobject_cast<SWMMModelLayer *>(m_ctx.hostLayer))
+        connect(swmm, &SWMMModelLayer::rendererChanged,
+                this, &SymbologyTab::syncToInstalledRenderer,
+                Qt::QueuedConnection);
+    else if (auto *res = qobject_cast<SWMMResultsLayer *>(m_ctx.hostLayer))
+        connect(res, &SWMMResultsLayer::rendererChanged,
+                this, &SymbologyTab::syncToInstalledRenderer,
+                Qt::QueuedConnection);
+    else if (auto *vec = qobject_cast<GISVectorLayer *>(m_ctx.hostLayer))
+        connect(vec, &GISVectorLayer::rendererChanged,
+                this, &SymbologyTab::syncToInstalledRenderer,
+                Qt::QueuedConnection);
+    else if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(m_ctx.hostLayer))
+        connect(mesh, &SWMM2DMeshLayer::rendererChanged,
+                this, &SymbologyTab::syncToInstalledRenderer,
+                Qt::QueuedConnection);
+    else if (auto *r2d = qobject_cast<SWMM2DResultsLayer *>(m_ctx.hostLayer))
+        connect(r2d, &SWMM2DResultsLayer::rendererChanged,
+                this, &SymbologyTab::syncToInstalledRenderer,
+                Qt::QueuedConnection);
+}
+
+void SymbologyTab::syncToInstalledRenderer()
+{
+    if (!m_rendererCombo) return;
+    const QString cur = currentRendererIdFor(m_ctx);
+    if (cur.isEmpty() || cur == currentRendererId())
+        return;   // combo already truthful (or nothing installed)
+    const int idx = m_rendererCombo->findData(cur);
+    if (idx >= 0) {
+        QSignalBlocker b(m_rendererCombo);
+        m_rendererCombo->setCurrentIndex(idx);
+    }
+    mountPanelForId(cur);
 }
 
 QString SymbologyTab::currentRendererId() const
@@ -178,6 +254,10 @@ void installRendererClassIfChanged(const RendererPanelContext &ctx,
 
     if (!ctx.hostLayer || !ctx.category.has_value())
         return;
+    // NOTE: no category-less layer-level WRITE path here on purpose —
+    // rule-backed layers (GISVectorLayer) own their renderer through the
+    // active Rule, and writing OpenSWMMVisLayer::setRenderer would diverge
+    // from it. Reads (currentRendererIdFor) do use the layer-level accessor.
 
     IFeatureRenderer *cur = nullptr;
     if (auto *swmm = qobject_cast<SWMMModelLayer *>(ctx.hostLayer))

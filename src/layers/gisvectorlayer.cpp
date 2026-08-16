@@ -481,6 +481,11 @@ void GISVectorSymbol::fromJson(const QJsonObject &j)
 void GISVectorLayer::setSymbol(const GISVectorSymbol &symbol)
 {
     m_symbol = symbol;
+    // Keep the persistent adapter truthful for changes made through other
+    // paths (rule back-prop, style import, Cancel rollback). resyncFrom
+    // never re-invokes the writer, so there is no recursion.
+    if (m_symbolAdapter)
+        m_symbolAdapter->resyncFrom(m_symbol);
     m_needsRebuild = true;
     emit symbolChanged(symbol);
     emit repaintRequested();
@@ -553,20 +558,30 @@ QStringList GISVectorLayer::ogrFieldNames() const
 // this layer) as the single styleable subject. The adapter forwards
 // edits to setSymbol() which already flags the rebuild + emits
 // symbolChanged + repaintRequested.
+//
+// Adapter-ownership refactor: one PERSISTENT adapter per layer (created on
+// first call, resynced afterwards) instead of a fresh allocation per call —
+// stops the leak-per-dialog-open and makes the dialog's Cancel snapshot
+// restore the same instance every surface edits.
 std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
 GISVectorLayer::styleSubjects()
 {
     using openswmmvis::ui::ILayerStyleSubject;
     using openswmmvis::ui::LayerStyleSubject;
 
-    auto *adapter = new GisVectorSymbolAdapter(
-        m_symbol,
-        [this](const GISVectorSymbol &s) { setSymbol(s); },
-        this);
+    if (!m_symbolAdapter) {
+        m_symbolAdapter = new GisVectorSymbolAdapter(
+            m_symbol,
+            [this](const GISVectorSymbol &s) { setSymbol(s); },
+            this);
+    } else {
+        m_symbolAdapter->resyncFrom(m_symbol);
+    }
 
     std::vector<std::unique_ptr<ILayerStyleSubject>> out;
     out.push_back(std::make_unique<LayerStyleSubject>(
-        tr("Symbology"), adapter, QStringLiteral("vector.symbol"), QString()));
+        tr("Symbology"), m_symbolAdapter, QStringLiteral("vector.symbol"),
+        QString()));
     return out;
 }
 

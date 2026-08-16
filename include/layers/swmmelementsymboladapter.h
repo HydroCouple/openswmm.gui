@@ -96,6 +96,17 @@ public:
     [[nodiscard]] const SWMMElementSymbol &snapshot() const { return m_sym; }
     void restore(const SWMMElementSymbol &s) { m_sym = s; commit(); }
 
+    /*! Refresh the adapter's cached struct from the layer WITHOUT invoking
+     *  the writer (no write-back loop). Emits symbolChanged so mounted
+     *  editors re-read. The layer uses this to keep its persistent adapter
+     *  set truthful when a symbol changes through another path
+     *  (setKindRenderer back-write, style import, Cancel rollback). */
+    void resyncFrom(const SWMMElementSymbol &s)
+    {
+        m_sym = s;
+        emit symbolChanged();
+    }
+
 signals:
     void symbolChanged();
 
