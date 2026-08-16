@@ -717,9 +717,6 @@ set(
         include/ui/dialogs/chartpropertiesdialog.h
         # Slice BB Phase 8.6.16 — legend right-click "Properties…" dialog.
         include/ui/dialogs/legendpropertiesdialog.h
-        # Slice S3 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md §4.2) — modeless
-        # QPropertyModel-backed editor for one ISublayer's style bag.
-        include/ui/dialogs/sublayerstyledialog.h
         # Slice U-2 — ILayerStyleSubject interface for the unified
         # LayerStyleDialog. Each layer surfaces its styleable subjects
         # (sublayers, kind-symbols, raster-renderer config, etc.) via
@@ -768,6 +765,8 @@ set(
         include/ui/dialogs/editors/markershapeeditor.h
         include/ui/dialogs/editors/meshhillshadeeditor.h
         include/ui/widgets/colorbutton.h
+        include/ui/widgets/labelconfigeditor.h
+        include/ui/dialogs/labelexpressiondialog.h
         include/ui/widgets/dashstylecombo.h
         include/ui/widgets/markershapecombo.h
         include/ui/widgets/stylepreviewswatch.h
@@ -1286,8 +1285,6 @@ set(
         src/ui/dialogs/chartpropertiesdialog.cpp
         # Slice BB Phase 8.6.16 — legend right-click "Properties…" dialog.
         src/ui/dialogs/legendpropertiesdialog.cpp
-        # Slice S3 — SublayerStyleDialog implementation.
-        src/ui/dialogs/sublayerstyledialog.cpp
         # Slice U-2 / U-3 — unified LayerStyleDialog + ILayerStyleSubject impl.
         src/ui/dialogs/ilayerstylesubject.cpp
         src/ui/dialogs/istyleeditorwidget.cpp
@@ -1336,6 +1333,8 @@ set(
         src/project/ioportabilitynormalizer.cpp
 
         src/ui/widgets/colorbutton.cpp
+        src/ui/widgets/labelconfigeditor.cpp
+        src/ui/dialogs/labelexpressiondialog.cpp
         src/ui/widgets/dashstylecombo.cpp
         src/ui/widgets/markershapecombo.cpp
         src/ui/widgets/stylepreviewswatch.cpp

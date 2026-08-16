@@ -73,6 +73,47 @@ public:
     void setClassifyAttribute(QString name) { m_classifyAttribute = std::move(name); }
 
     /*!
+     * \brief Independent attribute driving the size / width output axes.
+     *        Empty (the default) = follow classifyAttribute, preserving the
+     *        historical bin-mapped behaviour. When set to a different
+     *        attribute, sizes/widths are interpolated over that attribute's
+     *        own value range (sizeValueMin/Max — sampled by the owning
+     *        layer's rebuild) instead of the colour bin index.
+     */
+    [[nodiscard]] QString sizeAttribute() const { return m_sizeAttribute; }
+    void setSizeAttribute(QString name)
+    {
+        if (name == m_sizeAttribute) return;
+        m_sizeAttribute = std::move(name);
+        // New attribute → the sampled value range is stale; invalidate so
+        // the owning layer's next rebuild re-derives it from data.
+        m_sizeValueMin = m_sizeValueMax = 0.0;
+    }
+
+    /*! The attribute actually feeding the size/width axes. */
+    [[nodiscard]] QString effectiveSizeAttribute() const
+    {
+        return m_sizeAttribute.isEmpty() ? m_classifyAttribute : m_sizeAttribute;
+    }
+
+    /*! True when the size axes are driven by a different attribute than
+     *  the colour classification. */
+    [[nodiscard]] bool sizeAxisIndependent() const
+    {
+        return !m_sizeAttribute.isEmpty()
+               && m_sizeAttribute != m_classifyAttribute;
+    }
+
+    /*! Value range used to normalise the independent size attribute.
+     *  Invalid (max <= min) until the owning layer samples it. */
+    [[nodiscard]] double sizeValueMin() const { return m_sizeValueMin; }
+    [[nodiscard]] double sizeValueMax() const { return m_sizeValueMax; }
+    [[nodiscard]] bool   sizeValueRangeValid() const
+    { return m_sizeValueMax > m_sizeValueMin; }
+    void setSizeValueRange(double mn, double mx)
+    { m_sizeValueMin = mn; m_sizeValueMax = mx; }
+
+    /*!
      * \brief P2 — whether classifyAttribute() is a STATIC model/GIS field
      *        (classified once) or a DYNAMIC SWMM output variable (sampled per
      *        timestep). Default Static — pre-P2 renderers behave unchanged.
@@ -202,6 +243,14 @@ public:
     [[nodiscard]] double sizeForBin(int bin) const;
 
     /*!
+     * \brief Value-interpolated size for the independent size axis: linear
+     *        map of \p v (clamped) from [sizeValueMin, sizeValueMax] onto
+     *        [outputSizeMin, outputSizeMax]. Falls back to outputSizeMin
+     *        when the value range is invalid or \p v is non-finite.
+     */
+    [[nodiscard]] double sizeForValue(double v) const;
+
+    /*!
      * \brief VS.4 — independent line-WIDTH output axis. Marker "size" and
      *        line "width" are distinct visual channels (nodes vs links) with
      *        different sensible px ranges, so they get separate toggles and
@@ -224,6 +273,10 @@ public:
      *        range. Returns outputWidthMin for single-bin or out-of-range.
      */
     [[nodiscard]] double widthForBin(int bin) const;
+
+    /*! Value-interpolated width, mirroring sizeForValue over the width
+     *  px range. */
+    [[nodiscard]] double widthForValue(double v) const;
 
     // IFeatureRenderer.
     [[nodiscard]] QString rendererId() const override { return QStringLiteral("graduated"); }
@@ -255,6 +308,11 @@ public:
 
 private:
     QString          m_classifyAttribute;
+    // Independent size/width attribute (empty = follow classifyAttribute)
+    // + its sampled value range (invalid until the owning layer derives it).
+    QString          m_sizeAttribute;
+    double           m_sizeValueMin = 0.0;
+    double           m_sizeValueMax = 0.0;
     RasterColorRamp  m_ramp = RasterColorRamp::viridis(0.0, 1.0);
     IntervalBinner   m_binner;          // EqualInterval, 5 bins by default
     QVector<double>  m_lastBreaks;

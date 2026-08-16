@@ -2022,10 +2022,10 @@ void SWMMVis::initializeLayersDockWidget()
     // unified LayerStyleDialog (Slice U-3). Replaces the legacy
     // LayerPropertiesDialog so every layer gets the same multitab dialog.
     connect(mLayerTreePanel, &LayerTreePanel::layerPropertiesRequested,
-            this, [this](OpenSWMMVisLayer *layer) {
+            this, [this](OpenSWMMVisLayer *layer, const QString &routingId) {
                 if (!layer) return;
                 openswmmvis::ui::LayerStyleDialog dlg(
-                    layer, QString(), this,
+                    layer, routingId, this,
                     activeCanvas() ? activeCanvas()->undoStack() : nullptr);  // #36
                 dlg.exec();
                 if (auto *c = activeCanvas())

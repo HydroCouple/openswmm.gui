@@ -8,8 +8,10 @@
 #include "core/swmmdatetime.h"
 #include "layers/swmmmodellayer.h"
 #include "map/graphicsitems.h"
+#include "map/mapcanvas.h"        // label scale-window gating
 #include "map/spatialreferencesystem.h"
 #include "map/mapextent.h"
+#include "render/labelpainter.h"  // LabelPainter::scaleVisible
 #include "layers/gisrasterlayer.h"
 #include "render/categoricalpalette.h"
 #include "render/fillsymbollayer.h"   // VS.2b — fill primitive for polygon brush
@@ -55,6 +57,7 @@
 #include <QGraphicsPolygonItem>
 #include <QGraphicsRectItem>
 #include <QGraphicsSimpleTextItem>
+#include <QGraphicsView>
 #include <QPainterPath>
 #include <QPolygonF>
 
@@ -1044,19 +1047,27 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
             break;
         auto *kr = m_kindRenderers[static_cast<size_t>(i)].get();
         if (!kr) continue;
-        QString attr;
-        if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr))
-            attr = g->classifyAttribute();
-        else if (auto *cz = dynamic_cast<OpenSWMM::Render::CategorizedRenderer *>(kr))
-            attr = cz->classifyAttribute();
-        if (attr.isEmpty()) continue;
+        QStringList attrsNeeded;
+        if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr)) {
+            attrsNeeded << g->classifyAttribute();
+            // Independent size attribute — the size/width axes may read a
+            // different output variable than the colour classification.
+            if (g->sizeAxisIndependent()
+                && (g->outputSizeEnabled() || g->outputWidthEnabled()))
+                attrsNeeded << g->sizeAttribute();
+        } else if (auto *cz = dynamic_cast<OpenSWMM::Render::CategorizedRenderer *>(kr)) {
+            attrsNeeded << cz->classifyAttribute();
+        }
         const auto c = static_cast<SWMMModelLayer::Category>(i);
-        if (catIsNodeScope(c))
-            collect(neededNodeVars,     nodeOutCodeForAttribute(attr));
-        else if (catIsLinkScope(c))
-            collect(neededLinkVars,     linkOutCodeForAttribute(attr));
-        else if (catIsSubcatchScope(c))
-            collect(neededSubcatchVars, subcatchOutCodeForAttribute(attr));
+        for (const QString &attr : attrsNeeded) {
+            if (attr.isEmpty()) continue;
+            if (catIsNodeScope(c))
+                collect(neededNodeVars,     nodeOutCodeForAttribute(attr));
+            else if (catIsLinkScope(c))
+                collect(neededLinkVars,     linkOutCodeForAttribute(attr));
+            else if (catIsSubcatchScope(c))
+                collect(neededSubcatchVars, subcatchOutCodeForAttribute(attr));
+        }
     }
 
     // Drop cache entries for vars no longer needed (sublayer toggled off /
@@ -2553,6 +2564,61 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
         }
     }
 
+    // Independent size attribute (size/width axes driven by a different
+    // result variable than the colour classification). Resolve its per-var
+    // results vector and make sure the renderer has a value range to
+    // normalise against — preferring the full-run attribute-range cache,
+    // falling back to this frame's extremes while the async scan runs.
+    const QVector<float> *sizeValuesPtr = nullptr;
+    QString sizeAttr;
+    if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr)) {
+        if (g->sizeAxisIndependent()
+            && (g->outputSizeEnabled() || g->outputWidthEnabled())) {
+            sizeAttr = g->sizeAttribute();
+            int sizeOutCode = -1;
+            const QHash<int, QPair<double, double>> *rangeCache = nullptr;
+            if (catIsNodeScope(c)) {
+                sizeOutCode = nodeOutCodeForAttribute(sizeAttr);
+                const auto it = m_nodeResultsByVar.constFind(sizeOutCode);
+                if (it != m_nodeResultsByVar.constEnd()) sizeValuesPtr = &it.value();
+                rangeCache = &m_nodeAttributeRange;
+            } else if (catIsLinkScope(c)) {
+                sizeOutCode = linkOutCodeForAttribute(sizeAttr);
+                const auto it = m_linkResultsByVar.constFind(sizeOutCode);
+                if (it != m_linkResultsByVar.constEnd()) sizeValuesPtr = &it.value();
+                rangeCache = &m_linkAttributeRange;
+            } else if (catIsSubcatchScope(c)) {
+                sizeOutCode = subcatchOutCodeForAttribute(sizeAttr);
+                const auto it = m_subcatchResultsByVar.constFind(sizeOutCode);
+                if (it != m_subcatchResultsByVar.constEnd()) sizeValuesPtr = &it.value();
+                rangeCache = &m_subcatchAttributeRange;
+            }
+            if (sizeOutCode >= 0 && rangeCache) {
+                const auto it = rangeCache->constFind(sizeOutCode);
+                if (it != rangeCache->constEnd()) {
+                    if (it.value().second > it.value().first)
+                        g->setSizeValueRange(it.value().first, it.value().second);
+                } else {
+                    // Kick the async full-run scan; meanwhile stand in with
+                    // this frame's extremes so sizes render immediately.
+                    if (catIsNodeScope(c))          ensureNodeAttributeRange(sizeOutCode);
+                    else if (catIsLinkScope(c))     ensureLinkAttributeRange(sizeOutCode);
+                    else if (catIsSubcatchScope(c)) ensureSubcatchAttributeRange(sizeOutCode);
+                    if (!g->sizeValueRangeValid() && sizeValuesPtr) {
+                        double mn =  std::numeric_limits<double>::infinity();
+                        double mx = -std::numeric_limits<double>::infinity();
+                        for (const float fv : *sizeValuesPtr) {
+                            const double dv = static_cast<double>(fv);
+                            if (!std::isfinite(dv)) continue;
+                            mn = std::min(mn, dv); mx = std::max(mx, dv);
+                        }
+                        if (mx > mn) g->setSizeValueRange(mn, mx);
+                    }
+                }
+            }
+        }
+    }
+
     for (int row = 0; row < count; ++row) {
         const QString name = m_modelLayer->objectNameAt(c, row);
         double value = std::numeric_limits<double>::quiet_NaN();
@@ -2572,6 +2638,19 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
             // Slice X.21 — cached lookup, populated once per (category,
             // classifyAttr) at the top of the function.
             attrs.insert(classifyAttr, stringAttrs->value(row));
+        }
+        // Independent size attribute — hand symbolFor this feature's value
+        // for the size/width axes alongside the classify value.
+        if (sizeValuesPtr && outIdxMap) {
+            const auto it = outIdxMap->constFind(name);
+            if (it != outIdxMap->constEnd()) {
+                const int outIdx = it.value();
+                if (outIdx >= 0 && outIdx < sizeValuesPtr->size()) {
+                    const double sv = static_cast<double>(sizeValuesPtr->at(outIdx));
+                    if (std::isfinite(sv))
+                        attrs.insert(sizeAttr, sv);
+                }
+            }
         }
 
         OpenSWMM::Render::FeatureRef ref;
@@ -3619,14 +3698,37 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
 
     bool labelled[SWMMModelLayer::NumCategories] = { false };
 
+    // Scale-window gate — resolve the owning canvas' scale denominator via
+    // the scene's views (labels re-evaluate on the next refresh after zoom).
+    double scaleDen = 0.0;
+    const auto sceneViews = scene->views();
+    for (QGraphicsView *v : sceneViews) {
+        for (QWidget *w = v; w; w = w->parentWidget()) {
+            if (auto *canvas = qobject_cast<MapCanvas *>(w)) {
+                scaleDen = canvas->scaleDenominator();
+                break;
+            }
+        }
+        if (scaleDen > 0.0) break;
+    }
+
     for (auto *base : sublayers()) {
         auto *sub = qobject_cast<FeatureSublayer *>(base);
         if (!sub || !sub->isVisible() || sub->opacity() <= 0.0) continue;
 
         auto *stylePtr = sub->featureStyle();
         if (!stylePtr) continue;
-        const OpenSWMM::Render::LabelConfig &lc = stylePtr->labelConfig();
-        if (!lc.enabled) continue;   // per-sublayer toggle — left unlabelled
+        // Effective config — the sublayer's own when enabled, else the
+        // layer-level Labels-tab config. (Previously the layer-level config
+        // was never read here, which made the Labels tab a no-op for 1D
+        // results layers.)
+        const OpenSWMM::Render::LabelConfig &subLc = stylePtr->labelConfig();
+        const OpenSWMM::Render::LabelConfig &lc =
+            subLc.enabled ? subLc : labelConfig();
+        if (!lc.enabled) continue;   // neither sublayer nor layer labels on
+        // Honour the config's min/max scale visibility window.
+        if (!OpenSWMM::Render::LabelPainter::scaleVisible(lc, scaleDen))
+            continue;
 
         const SWMMModelLayer::Category cat = sub->category();
         const int catIdx = static_cast<int>(cat);
@@ -3686,6 +3788,16 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
             lbl->setText(text);
             lbl->setFont(font);
             lbl->setBrush(textBrush);
+            // Halo approximation — stroke the glyph outlines in the halo
+            // colour (QGraphicsSimpleTextItem has no true halo pass).
+            // Cosmetic pen so the stroke width stays constant across zoom.
+            if (lc.haloEnabled && lc.haloRadiusPx > 0.0) {
+                QPen haloPen(lc.haloColor, lc.haloRadiusPx * 0.5);
+                haloPen.setCosmetic(true);
+                lbl->setPen(haloPen);
+            } else {
+                lbl->setPen(QPen(Qt::NoPen));
+            }
             lbl->setOpacity(opMul);
             const QPointF anchor = fi->sceneBoundingRect().center();
             const QRectF  br = lbl->boundingRect();

@@ -5,9 +5,9 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/kindtreesymbologypanel.h"
-#include "ui/theme/themehelpers.h"
 
 #include "layers/openswmmvislayer.h"
+#include "layers/swmmelementsymboladapter.h"   // virtual-junctions subject row
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
 #include "render/iattributeprovider.h"   // L-1 — label field hints
@@ -16,16 +16,16 @@
 #include "render/sublayers/feature/featuresublayer.h"        // L-1 — per-sublayer labels
 #include "render/sublayers/feature/featuresublayerstyle.h"   // L-1
 #include "ui/dialogs/irendererpanel.h"
+#include "ui/dialogs/istyleeditorwidget.h"     // StyleEditorRegistry
 #include "ui/dialogs/symbologytab.h"
-#include "ui/widgets/colorbutton.h"
+#include "ui/widgets/labelconfigeditor.h"
 
-#include <QCheckBox>
-#include <QFormLayout>
+#include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
-#include <QLineEdit>
+#include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -55,54 +55,29 @@ QString badgeForRendererId(const QString &id)
 // the element name / its current value for that result field. Edits write
 // the style's LabelConfig (which fires the sublayer's invalidate → repaint →
 // refreshLabels). `host` supplies the available field tokens for the hint.
+//
+// LAYER_STYLING_LABELING_PLAN_2026-08-16 — now hosts the full-fidelity
+// LabelConfigEditor (font / halo / placement / scale window / background /
+// priority) instead of the old 3-field subset.
 QWidget *makeSublayerLabelBox(OpenSWMM::Render::FeatureSublayerStyle *style,
                               OpenSWMMVisLayer *host,
                               OpenSWMMVis::SwmmCategory cat,
                               QWidget *parent)
 {
-    using OpenSWMM::Render::LabelConfig;
     auto *box  = new QGroupBox(QObject::tr("Labels"), parent);
-    auto *form = new QFormLayout(box);
+    auto *lay  = new QVBoxLayout(box);
 
-    auto *enable = new QCheckBox(QObject::tr("Show labels"), box);
-    form->addRow(QString(), enable);
+    auto *editor = new openswmmvis::ui::LabelConfigEditor(box);
+    editor->setConfig(style->labelConfig());
 
-    auto *expr = new QLineEdit(box);
-    expr->setPlaceholderText(QObject::tr("e.g. {name}: {depth} m"));
-    expr->setToolTip(QObject::tr("Template — {token} placeholders are replaced "
-                                 "with the feature's values; literal text is kept."));
-    form->addRow(QObject::tr("Expression:"), expr);
-
-    auto *colorBtn = new ColorButton(box);
-    form->addRow(QObject::tr("Colour:"), colorBtn);
-
-    auto *hint = new QLabel(box);
-    hint->setWordWrap(true);
-    hint->setStyleSheet(openswmmvis::ui::theme::hintStyle());
-    form->addRow(QObject::tr("Fields:"), hint);
-
-    const LabelConfig &lc = style->labelConfig();
-    enable->setChecked(lc.enabled);
-    expr->setText(lc.expression);
-    colorBtn->setColor(lc.color);
-
-    QStringList tokens{ QStringLiteral("{name}") };
     if (auto *prov = dynamic_cast<OpenSWMM::Render::IAttributeProvider *>(host))
-        for (const auto &f : prov->availableAttributes(cat))
-            tokens << QStringLiteral("{%1}").arg(f.name);
-    hint->setText(tokens.join(QStringLiteral("  ")));
+        editor->setAvailableFields(prov->availableAttributes(cat));
 
-    auto push = [style, enable, expr, colorBtn]() {
-        LabelConfig c = style->labelConfig();
-        c.enabled    = enable->isChecked();
-        c.expression = expr->text();
-        c.color      = colorBtn->color();
-        style->setLabelConfig(c);
-    };
-    QObject::connect(enable,   &QCheckBox::toggled,          box, [push](bool)            { push(); });
-    QObject::connect(expr,     &QLineEdit::editingFinished,  box, [push]()                { push(); });
-    QObject::connect(colorBtn, &ColorButton::colorChanged,   box, [push](const QColor &)  { push(); });
-
+    lay->addWidget(editor);
+    QObject::connect(editor, &openswmmvis::ui::LabelConfigEditor::configChanged,
+                     box, [style](const OpenSWMM::Render::LabelConfig &cfg) {
+                         style->setLabelConfig(cfg);
+                     });
     return box;
 }
 
@@ -257,6 +232,25 @@ void KindTreeSymbologyPanel::buildTree()
                OpenSWMMVis::CatStorage,   OpenSWMMVis::CatDividers },
              { tr("Junctions"), tr("Outfalls"), tr("Storage"), tr("Dividers") });
 
+    // Virtual junctions — model layers only. They share CatJunctions (D-G1:
+    // no persisted 5th category) but carry their own SWMMElementSymbol, so
+    // the row has NO category role — just the subject routing id, which
+    // mounts the SwmmElementSymbolEditor for the layer's persistent adapter.
+    if (qobject_cast<SWMMModelLayer *>(m_layer.data())) {
+        // Append under the "Nodes" group added just above (row 0).
+        if (QStandardItem *nodesGroup = m_model->item(0, 0)) {
+            auto *nameItem = new QStandardItem(tr("Virtual junctions"));
+            nameItem->setData(QStringLiteral("model.virtualjunctions"),
+                              kRoutingRole);
+            nameItem->setEditable(false);
+            // Not checkable — virtual junctions follow the Junctions kind's
+            // visibility (same category bucket).
+            auto *badgeItem = new QStandardItem(QString());
+            badgeItem->setEditable(false);
+            nodesGroup->appendRow({nameItem, badgeItem});
+        }
+    }
+
     addGroup(tr("Links"),
              { OpenSWMMVis::CatConduits, OpenSWMMVis::CatPumps,
                OpenSWMMVis::CatOrifices, OpenSWMMVis::CatWeirs,
@@ -286,10 +280,47 @@ void KindTreeSymbologyPanel::onTreeSelectionChanged()
 {
     const QModelIndex idx = m_tree->currentIndex();
     if (!idx.isValid()) return;
-    const QVariant catVar = m_model->data(idx, kCategoryRole);
-    if (!catVar.isValid()) return;
+    // Roles live on column 0 only — normalise so clicking the badge column
+    // still resolves the row's category/routing id.
+    const QModelIndex idx0 = idx.sibling(idx.row(), 0);
+    const QVariant catVar = m_model->data(idx0, kCategoryRole);
+    if (!catVar.isValid()) {
+        // Category-less row — the Virtual junctions subject row.
+        if (m_model->data(idx0, kRoutingRole).toString()
+                == QLatin1String("model.virtualjunctions"))
+            mountVirtualJunctionsEditor();
+        return;
+    }
     mountEditorForCategory(
         static_cast<OpenSWMMVis::SwmmCategory>(catVar.toInt()));
+}
+
+void KindTreeSymbologyPanel::mountVirtualJunctionsEditor()
+{
+    auto *swmm = qobject_cast<SWMMModelLayer *>(m_layer.data());
+    if (!swmm) return;
+    auto *adapter =
+        swmm->elementSymbolAdapter(QStringLiteral("model.virtualjunctions"));
+    if (!adapter) return;
+
+    // Tear down previous editor (same policy as mountEditorForCategory).
+    while (m_stack->count() > 0) {
+        QWidget *w = m_stack->widget(0);
+        m_stack->removeWidget(w);
+        w->deleteLater();
+    }
+
+    QWidget *editor =
+        StyleEditorRegistry::instance().createEditorFor(adapter, m_stack);
+    if (!editor)
+        editor = new QLabel(tr("No editor registered for virtual junctions."),
+                            m_stack);
+    auto *scroll = new QScrollArea(m_stack);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidget(editor);
+    m_stack->addWidget(scroll);
+    m_stack->setCurrentWidget(scroll);
 }
 
 void KindTreeSymbologyPanel::onTreeItemChanged(QStandardItem *item)
