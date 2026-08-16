@@ -32,6 +32,47 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
   dragging the splitter, via the toolbar toggle, or automatically when no
   attribute is selected — and remembers its state.
 
+- **Window menu lists open dialogs, plus "Reset Window Positions".** Modeless
+  dialogs (plots, editors, options panels) are ordinary top-level windows that
+  can be dragged onto any monitor, so on macOS they could become genuinely
+  unreachable — a natively-stacked dialog does not appear in Mission Control.
+  The Window menu now lists every open dialog, most recently used first, and
+  selecting one moves it back onto a connected screen *before* raising it.
+  **Reset Window Positions** discards all saved window geometry and gathers the
+  main window and every open dialog onto the current screen; layout state that
+  is not position data (splitter sizes, header widths, dock/toolbar
+  arrangement) is preserved.
+- **Opt-in pure-Qt dialog stacking.** Set `OPENSWMM_DIALOG_STACKING=qt` (or the
+  `Window/DialogStacking` preference) to keep dialogs above the main window by
+  re-raising them on activation instead of attaching them as native macOS child
+  windows. Dialogs are then fully independent windows that cannot be dragged
+  off-screen by the window they were attached to. Defaults to the previous
+  native behaviour on macOS.
+
+### Fixed
+
+- **Moving one plot dialog no longer moves another.** Opening a time-series
+  plot from a profile plot glued the two windows together: on macOS every
+  modeless dialog was attached as an AppKit child window of its Qt parent, and
+  child windows move rigidly with their parent. Dialogs are now attached to the
+  nearest ordinary window instead, skipping any dialog in the parent chain, so
+  windows that are parented to each other for lifetime reasons — the profile
+  overlay plot, and the Display Options dialogs of the profile, mesh-profile and
+  raster-profile plots — move independently again.
+- **Windows can no longer be restored off-screen.** Saved geometry was accepted
+  whenever its center point landed on any connected screen, which still allowed
+  a window restored from a larger display to be too big for the current one, or
+  to have its title bar — the only drag handle — tucked under the menu bar. The
+  restore now picks the screen the window most overlaps, shrinks it to fit, and
+  guarantees a grabbable portion stays visible. The main window is clamped this
+  way too; previously its geometry was restored with no validation at all.
+- **Time-series plots opened from the map no longer hijack the profile plot's
+  overlay.** A recursive child lookup matched the profile-parented overlay
+  dialog, because the profile plot is itself a descendant of the main window.
+  The two dialogs also shared one saved-geometry key and so fought over their
+  position; the overlay now stores its own (existing saved positions for it are
+  reset once).
+
 - **Zoomable, pannable section diagrams.** Every section/profile/LID diagram
   now supports scroll-to-zoom about the cursor, middle-button drag to pan, and
   middle double-click to zoom to extents. Zoom scales the geometry only —

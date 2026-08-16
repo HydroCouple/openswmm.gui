@@ -13,8 +13,8 @@ class QWidget;
 
 namespace openswmmvis::platform {
 
-/*! \brief Attach \p dialog as an NSWindow child window of its top-level
- *  parent's window.
+/*! \brief Attach \p dialog as an NSWindow child window of the nearest
+ *  non-dialog top-level window above it (the main / project window).
  *
  *  A child window stays ordered above its parent (so a click on the main
  *  window can't bury the dialog) but keeps its own normal window level — so
@@ -23,9 +23,17 @@ namespace openswmmvis::platform {
  *  hiding. This is the macOS-native equivalent of the always-on-top hint,
  *  scoped to the application's own windows.
  *
+ *  \note The host is deliberately NOT `dialog->parentWidget()->window()`.
+ *  AppKit child windows move rigidly with their parent, so attaching a dialog
+ *  to another dialog glues the pair together (dragging a profile plot dragged
+ *  its time-series overlay with it). Dialogs are Qt-parented to other dialogs
+ *  on purpose — for lifetime coupling — so the walk skips over any dialog in
+ *  the parent chain and attaches to the first ordinary window. When the chain
+ *  holds nothing but dialogs, nothing is attached.
+ *
  *  Idempotent (safe to call again on re-show). No-op when \p dialog is not a
- *  window, has no top-level parent, or the native windows aren't realised yet.
- *  Only defined on macOS — callers must guard the call with Q_OS_MACOS. */
+ *  window, has no non-dialog top-level ancestor, or the native windows aren't
+ *  realised yet. Only defined on macOS — callers must guard with Q_OS_MACOS. */
 void attachAsChildWindow(QWidget *dialog);
 
 /*! \brief Detach \p dialog from its parent NSWindow (inverse of
