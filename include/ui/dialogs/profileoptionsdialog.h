@@ -16,6 +16,7 @@
 #include <QPointer>
 
 class AnimationController;
+class ProfileAttributeTrackOptions;
 class ProfilePlotOptions;
 class ProfileSourceStyleAdapter;
 class SWMMVisProjectWindow;
@@ -33,6 +34,11 @@ public:
                                   AnimationController  *anim          = nullptr,
                                   SWMMVisProjectWindow *projectWindow = nullptr,
                                   QWidget              *parent        = nullptr);
+
+    /*! Adds an "Attribute Tracks" tab editing the given options object
+     *  through the same QPropertyModel machinery as the Display tab.
+     *  Call once, right after construction; null is a no-op. */
+    void setTrackOptions(ProfileAttributeTrackOptions *trackOptions);
 
 public slots:
     /*! Refresh the Sources tab to mirror the AnimationController's current

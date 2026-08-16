@@ -313,6 +313,9 @@ set(
         include/plot/profilebuilder.h
         include/plot/profilenetworkadapter.h
         include/plot/profileplotwidget.h
+        include/plot/profileattributesampler.h
+        include/plot/profileattributetrackoptions.h
+        include/plot/profileattributetrackswidget.h
         include/plot/profileplotoptions.h
         include/plot/profilesection.h
         include/plot/meshprofilesampler.h
@@ -928,6 +931,9 @@ set(
         src/plot/profilenetworkadapter.cpp
         src/plot/profilenetworkadapter_model.cpp
         src/plot/profileplotwidget.cpp
+        src/plot/profileattributesampler.cpp
+        src/plot/profileattributetrackoptions.cpp
+        src/plot/profileattributetrackswidget.cpp
         src/plot/profileplotoptions.cpp
         src/plot/meshprofilesampler.cpp
         src/plot/rasterprofilesampler.cpp
