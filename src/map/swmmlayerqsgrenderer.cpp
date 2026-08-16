@@ -8,6 +8,16 @@
  * subcatchments, node glyphs, gages) via QSGGeometryNode, with
  * selection coloring per class. Native Metal / Vulkan / D3D11 via
  * QRhi underneath; no QPainter, no GL paint engine quirks.
+ *
+ * LABELS ARE INTENTIONALLY NOT DRAWN HERE. The label contract
+ * (LAYER_STYLING_LABELING_PLAN_2026-08-16) is a hybrid: even when this
+ * QSG overlay owns every geometry kind (qsgOwnsKind), text labels are
+ * painted by the CPU pass in SWMMLayerItem::paint — screen-space via the
+ * shared LabelPainter, deliberately NOT gated on qsgOwnsKind. A pure-QSG
+ * glyph pipeline (atlas + text nodes) was evaluated and rejected: the CPU
+ * overlay is correct, zoom-stable, and cheap relative to geometry upload.
+ * If you add a text pass here, remove the CPU label block in
+ * swmmlayeritem.cpp or labels will double-draw.
  */
 #include "map/swmmlayerqsgrenderer.h"
 

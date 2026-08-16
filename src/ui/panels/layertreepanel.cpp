@@ -24,7 +24,6 @@
 // (kept opaque) so the per-class headers aren't required here.
 #include "render/sublayers/feature/featuresublayer.h"
 #include "layers/swmm_category.h"
-#include "ui/dialogs/sublayerstyledialog.h"
 #include "ui/dialogs/layerstyledialog.h"
 
 #include <QAction>
@@ -2014,7 +2013,10 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     if      (picked == actZoom)        zoomToLayer(layer);
     else if (picked == actAttrTable)   emit attributeTableRequested(layer);
     else if (picked == actProps)       emit layerPropertiesRequested(layer);
-    else if (picked == actEditSymbology) emit layerPropertiesRequested(layer);   // same dialog, Symbology tab focused
+    else if (picked == actEditSymbology)
+        // Same dialog; the "symbology" sentinel makes it open on the
+        // Symbology tab (LayerStyleDialog::focusInitialSubject).
+        emit layerPropertiesRequested(layer, QStringLiteral("symbology"));
     else if (actPlotTS && picked == actPlotTS)
         emit plotTimeSeriesFromOutputLayerRequested(qobject_cast<SWMMResultsLayer *>(layer));
     else if (actSetActive && picked == actSetActive) {

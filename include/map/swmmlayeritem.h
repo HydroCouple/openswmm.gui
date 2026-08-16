@@ -28,6 +28,8 @@
 
 #include <QGraphicsItem>
 #include <QPointer>
+#include <QString>
+#include <QVector>
 
 class SWMMModelLayer;
 
@@ -62,6 +64,26 @@ public:
 private:
     QPointer<SWMMModelLayer> m_layer;
     QRectF                   m_boundingRect;   // scene-space, cached
+
+    /*! Per-feature label text + priority cache
+     *  (LAYER_STYLING_LABELING_PLAN follow-up). Resolving an attribute-
+     *  referencing label config costs one identifyByName per feature; this
+     *  caches the resolved (text, priority) per SoA group so pan/zoom
+     *  repaints don't re-resolve. Entries are filled lazily (null QString =
+     *  unresolved). Invalidated when the layer's editRevision moves or the
+     *  label config's text-affecting fields change. */
+    struct LabelTextCache {
+        quint64 editRev = ~0ull;                 // layer epoch at build time
+        QString expression, fieldName, priorityField;
+        QVector<QString> text[4];                // 0=node 1=link 2=catch 3=gage
+        QVector<double>  priority[4];
+        void clear()
+        {
+            for (auto &t : text)     t.clear();
+            for (auto &p : priority) p.clear();
+        }
+    };
+    LabelTextCache m_labelCache;
 };
 
 #endif // SWMMLAYERITEM_H

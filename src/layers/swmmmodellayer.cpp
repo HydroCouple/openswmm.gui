@@ -56,11 +56,13 @@
 #include <QPolygonF>
 #include <QRegularExpression>
 #include <QSet>
+#include <QTimer>
 #include <QtMath>
 #include <QVariant>
 
 #include <cmath>
 #include <cstring>
+#include <algorithm>
 #include <limits>
 #include <string>
 #include <vector>
@@ -515,17 +517,56 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
     m_kindRenderers[CatPumps]          = makeSingleSymbolRenderer(m_pumpSym,        CatPumps);
     m_kindRenderers[CatOrifices]       = makeSingleSymbolRenderer(m_orificeSym,     CatOrifices);
     m_kindRenderers[CatWeirs]          = makeSingleSymbolRenderer(m_weirSym,        CatWeirs);
-    // No legacy m_outletSym field — seed from a defaulted symbol so the
-    // sub-row still has a renderer (the paint loop currently uses the
-    // weir colour for outlets; can be reset to defaults via the tree menu).
-    {
-        SWMMElementSymbol outletDefault;
-        outletDefault.fillColor    = QColor(140, 100, 60);
-        outletDefault.outlineWidth = 1.5;
-        m_kindRenderers[CatOutlets] = makeSingleSymbolRenderer(outletDefault, CatOutlets);
-    }
+    // Outlets have a real symbol channel (m_outletSym) since the
+    // adapter-ownership follow-up — seed the struct, then the renderer from
+    // it, exactly like every other kind. Values match the historical
+    // renderer-only seed so first-open visuals are unchanged. NOTE: the
+    // outlet link PEN stays prefs-driven (linkPenForType case 4) — this
+    // struct feeds flow arrows, labels, the renderer and persistence.
+    m_outletSym.fillColor    = QColor(140, 100, 60);
+    m_outletSym.outlineWidth = 1.5;
+    m_kindRenderers[CatOutlets] = makeSingleSymbolRenderer(m_outletSym, CatOutlets);
     m_kindRenderers[CatSubcatchments]  = makeSingleSymbolRenderer(m_subcatchSym,    CatSubcatchments);
     m_kindRenderers[CatRainGages]      = makeSingleSymbolRenderer(m_gageSym,        CatRainGages);
+
+    // Derived-style-cache invalidation channel. Self-connections so EVERY
+    // emitter is covered (several paths emit modelEdited directly instead of
+    // calling markEdited, and attribute edits emit only attributeChanged):
+    // bump the edit epoch (label-text cache staleness) and re-derive any
+    // graduated independent size-attribute value ranges from the edited data.
+    // Coalesced through a zero-timeout singleShot so a bulk edit loop that
+    // fires per-object signals costs one rebuild, not N.
+    const auto schedule = [this]() {
+        ++m_editRevision;   // epoch must move immediately for cache checks
+        if (m_derivedStyleCachesPending) return;
+        m_derivedStyleCachesPending = true;
+        QTimer::singleShot(0, this, [this]() {
+            m_derivedStyleCachesPending = false;
+            invalidateDerivedStyleCaches();
+        });
+    };
+    connect(this, &SWMMModelLayer::modelEdited, this, schedule);
+    connect(this, &SWMMModelLayer::attributeChanged,
+            this, [schedule](const QString &) { schedule(); });
+}
+
+void SWMMModelLayer::invalidateDerivedStyleCaches()
+{
+    // Graduated renderers with an independent size attribute normalise
+    // against a sampled value range — a data edit can move that range, so
+    // drop it and rebuild the kind's override cache (which re-derives the
+    // range via classifyGraduatedIfNeeded). Classification breaks are left
+    // alone: they follow the existing "editor clears breaks to re-classify"
+    // contract, and clearing them here would discard user intent.
+    for (int i = 0; i < NumCategories; ++i) {
+        const auto c = static_cast<Category>(i);
+        auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(
+            kindRenderer(c));
+        if (!g || !g->sizeAxisIndependent())
+            continue;
+        g->setSizeValueRange(0.0, 0.0);   // invalid → re-derived on rebuild
+        rebuildKindFeatureColors(c);
+    }
 }
 
 SWMMModelLayer::~SWMMModelLayer()
@@ -2346,6 +2387,7 @@ SWMMElementSymbol SWMMModelLayer::conduitSymbol()      const { return m_conduitS
 SWMMElementSymbol SWMMModelLayer::pumpSymbol()         const { return m_pumpSym; }
 SWMMElementSymbol SWMMModelLayer::orificeSymbol()      const { return m_orificeSym; }
 SWMMElementSymbol SWMMModelLayer::weirSymbol()         const { return m_weirSym; }
+SWMMElementSymbol SWMMModelLayer::outletSymbol()       const { return m_outletSym; }
 SWMMElementSymbol SWMMModelLayer::subcatchmentSymbol() const { return m_subcatchSym; }
 SWMMElementSymbol SWMMModelLayer::rainGageSymbol()     const { return m_gageSym; }
 
@@ -2367,28 +2409,97 @@ void SWMMModelLayer::syncSingleRendererFromStruct(Category c, const SWMMElementS
     m_ruleListDirty = true;
 }
 
-void SWMMModelLayer::setJunctionSymbol(const SWMMElementSymbol &s)    { m_junctionSym   = s; syncSingleRendererFromStruct(CatJunctions, s);     m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setOutfallSymbol(const SWMMElementSymbol &s)     { m_outfallSym    = s; syncSingleRendererFromStruct(CatOutfalls, s);      m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setStorageSymbol(const SWMMElementSymbol &s)     { m_storageSym    = s; syncSingleRendererFromStruct(CatStorage, s);       m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setDividerSymbol(const SWMMElementSymbol &s)     { m_dividerSym    = s; syncSingleRendererFromStruct(CatDividers, s);      m_needsRebuild = true; emit repaintRequested(); }
+// Each setter also resyncs the layer's persistent adapter for that kind so
+// every mounted editor reflects changes made through ANY path (renderer
+// back-write, style import, Cancel rollback). resyncSymbolAdapter never
+// re-invokes the writer, so there is no recursion.
+void SWMMModelLayer::setJunctionSymbol(const SWMMElementSymbol &s)    { m_junctionSym   = s; syncSingleRendererFromStruct(CatJunctions, s);     resyncSymbolAdapter(QStringLiteral("model.junctions"), s);     m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setOutfallSymbol(const SWMMElementSymbol &s)     { m_outfallSym    = s; syncSingleRendererFromStruct(CatOutfalls, s);      resyncSymbolAdapter(QStringLiteral("model.outfalls"), s);      m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setStorageSymbol(const SWMMElementSymbol &s)     { m_storageSym    = s; syncSingleRendererFromStruct(CatStorage, s);       resyncSymbolAdapter(QStringLiteral("model.storage"), s);       m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setDividerSymbol(const SWMMElementSymbol &s)     { m_dividerSym    = s; syncSingleRendererFromStruct(CatDividers, s);      resyncSymbolAdapter(QStringLiteral("model.dividers"), s);      m_needsRebuild = true; emit repaintRequested(); }
 // Virtual junctions share CatJunctions (D-G1: no persisted 5th category), so
 // there is no per-kind renderer to sync — that would clobber the regular
 // junction renderer's style. Struct write + repaint is the whole contract.
-void SWMMModelLayer::setVirtualJunctionSymbol(const SWMMElementSymbol &s) { m_virtualJunctionSym = s; m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setConduitSymbol(const SWMMElementSymbol &s)     { m_conduitSym    = s; syncSingleRendererFromStruct(CatConduits, s);      m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setPumpSymbol(const SWMMElementSymbol &s)        { m_pumpSym       = s; syncSingleRendererFromStruct(CatPumps, s);         m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setOrificeSymbol(const SWMMElementSymbol &s)     { m_orificeSym    = s; syncSingleRendererFromStruct(CatOrifices, s);      m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setWeirSymbol(const SWMMElementSymbol &s)        { m_weirSym       = s; syncSingleRendererFromStruct(CatWeirs, s);         m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setSubcatchmentSymbol(const SWMMElementSymbol &s){ m_subcatchSym   = s; syncSingleRendererFromStruct(CatSubcatchments, s); m_needsRebuild = true; emit repaintRequested(); }
-void SWMMModelLayer::setRainGageSymbol(const SWMMElementSymbol &s)    { m_gageSym       = s; syncSingleRendererFromStruct(CatRainGages, s);     m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setVirtualJunctionSymbol(const SWMMElementSymbol &s) { m_virtualJunctionSym = s; resyncSymbolAdapter(QStringLiteral("model.virtualjunctions"), s); m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setConduitSymbol(const SWMMElementSymbol &s)     { m_conduitSym    = s; syncSingleRendererFromStruct(CatConduits, s);      resyncSymbolAdapter(QStringLiteral("model.conduits"), s);      m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setPumpSymbol(const SWMMElementSymbol &s)        { m_pumpSym       = s; syncSingleRendererFromStruct(CatPumps, s);         resyncSymbolAdapter(QStringLiteral("model.pumps"), s);         m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setOrificeSymbol(const SWMMElementSymbol &s)     { m_orificeSym    = s; syncSingleRendererFromStruct(CatOrifices, s);      resyncSymbolAdapter(QStringLiteral("model.orifices"), s);      m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setWeirSymbol(const SWMMElementSymbol &s)        { m_weirSym       = s; syncSingleRendererFromStruct(CatWeirs, s);         resyncSymbolAdapter(QStringLiteral("model.weirs"), s);         m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setOutletSymbol(const SWMMElementSymbol &s)      { m_outletSym     = s; syncSingleRendererFromStruct(CatOutlets, s);       resyncSymbolAdapter(QStringLiteral("model.outlets"), s);       m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setSubcatchmentSymbol(const SWMMElementSymbol &s){ m_subcatchSym   = s; syncSingleRendererFromStruct(CatSubcatchments, s); resyncSymbolAdapter(QStringLiteral("model.subcatchments"), s); m_needsRebuild = true; emit repaintRequested(); }
+void SWMMModelLayer::setRainGageSymbol(const SWMMElementSymbol &s)    { m_gageSym       = s; syncSingleRendererFromStruct(CatRainGages, s);     resyncSymbolAdapter(QStringLiteral("model.raingages"), s);     m_needsRebuild = true; emit repaintRequested(); }
+
+void SWMMModelLayer::resyncSymbolAdapter(const QString &routingId,
+                                         const SWMMElementSymbol &s)
+{
+    const auto it = m_symbolAdapters.constFind(routingId);
+    if (it != m_symbolAdapters.constEnd() && it.value())
+        it.value()->resyncFrom(s);
+}
+
+SwmmElementSymbolAdapter *SWMMModelLayer::elementSymbolAdapter(
+    const QString &routingId)
+{
+    // Table of routing id → (reader, writer). Outlets bind to their own
+    // symbol channel (m_outletSym); the outlet link PEN remains prefs-driven
+    // (see linkPenForType case 4) but arrows/labels/renderer/persistence
+    // all flow through this struct.
+    struct KindBinding {
+        const char *id;
+        SWMMElementSymbol (SWMMModelLayer::*read)() const;
+        void (SWMMModelLayer::*write)(const SWMMElementSymbol &);
+    };
+    static constexpr KindBinding kBindings[] = {
+        { "model.junctions",        &SWMMModelLayer::junctionSymbol,        &SWMMModelLayer::setJunctionSymbol },
+        { "model.outfalls",         &SWMMModelLayer::outfallSymbol,         &SWMMModelLayer::setOutfallSymbol },
+        { "model.storage",          &SWMMModelLayer::storageSymbol,         &SWMMModelLayer::setStorageSymbol },
+        { "model.dividers",         &SWMMModelLayer::dividerSymbol,         &SWMMModelLayer::setDividerSymbol },
+        { "model.virtualjunctions", &SWMMModelLayer::virtualJunctionSymbol, &SWMMModelLayer::setVirtualJunctionSymbol },
+        { "model.conduits",         &SWMMModelLayer::conduitSymbol,         &SWMMModelLayer::setConduitSymbol },
+        { "model.pumps",            &SWMMModelLayer::pumpSymbol,            &SWMMModelLayer::setPumpSymbol },
+        { "model.orifices",         &SWMMModelLayer::orificeSymbol,         &SWMMModelLayer::setOrificeSymbol },
+        { "model.weirs",            &SWMMModelLayer::weirSymbol,            &SWMMModelLayer::setWeirSymbol },
+        { "model.outlets",          &SWMMModelLayer::outletSymbol,          &SWMMModelLayer::setOutletSymbol },
+        { "model.subcatchments",    &SWMMModelLayer::subcatchmentSymbol,    &SWMMModelLayer::setSubcatchmentSymbol },
+        { "model.raingages",        &SWMMModelLayer::rainGageSymbol,        &SWMMModelLayer::setRainGageSymbol },
+    };
+
+    if (auto it = m_symbolAdapters.constFind(routingId);
+        it != m_symbolAdapters.constEnd() && it.value()) {
+        // Refresh the cached struct on every fetch so a freshly-mounted
+        // editor never shows stale state.
+        for (const auto &b : kBindings)
+            if (routingId == QLatin1String(b.id)) {
+                it.value()->resyncFrom((this->*b.read)());
+                break;
+            }
+        return it.value();
+    }
+
+    for (const auto &b : kBindings) {
+        if (routingId != QLatin1String(b.id))
+            continue;
+        auto write = b.write;
+        auto *adapter = new SwmmElementSymbolAdapter(
+            (this->*b.read)(),
+            [this, write](const SWMMElementSymbol &s) { (this->*write)(s); },
+            this);
+        m_symbolAdapters.insert(routingId, adapter);
+        return adapter;
+    }
+    return nullptr;
+}
 
 // ---------------------------------------------------------------------------
-// Slice U-4 — styleSubjects() exposes 11 per-kind SWMMElementSymbol
-// adapters for the unified LayerStyleDialog. Each adapter wraps a live
-// copy of the struct + a writer callback that pushes edits back through
-// the existing set*Symbol setters (which already flag m_needsRebuild and
-// emit repaintRequested). Cancel rollback is handled by the dialog via
-// each subject's snapshot/restore on the wrapped Q_PROPERTYs.
+// Slice U-4 — styleSubjects() exposes the 12 per-kind SWMMElementSymbol
+// adapters for the unified LayerStyleDialog.
+//
+// Adapter-ownership refactor: the subjects wrap the layer's PERSISTENT
+// adapter set (elementSymbolAdapter) instead of allocating a fresh set on
+// every call. One adapter per kind for the layer's lifetime means: no leak
+// per dialog open, and every UI surface (dialog subjects, SingleSymbolPanel,
+// kind tree) edits the same instance — which is what makes the dialog's
+// Cancel snapshot/rollback authoritative.
 // ---------------------------------------------------------------------------
 
 std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
@@ -2399,55 +2510,26 @@ SWMMModelLayer::styleSubjects()
 
     std::vector<std::unique_ptr<ILayerStyleSubject>> out;
 
-    auto addKind = [&](const QString &title,
-                       SWMMElementSymbol current,
-                       std::function<void(const SWMMElementSymbol &)> writer,
-                       const QString &routingId,
+    auto addKind = [&](const QString &title, const QString &routingId,
                        const QString &section)
     {
-        // Adapter owned by this layer via QObject parent-child.
-        auto *adapter = new SwmmElementSymbolAdapter(
-            std::move(current), std::move(writer), this);
-        out.push_back(std::make_unique<LayerStyleSubject>(
-            title, adapter, routingId, section));
+        if (auto *adapter = elementSymbolAdapter(routingId))
+            out.push_back(std::make_unique<LayerStyleSubject>(
+                title, adapter, routingId, section));
     };
 
-    addKind(tr("Junctions"), junctionSymbol(),
-            [this](const SWMMElementSymbol &s) { setJunctionSymbol(s); },
-            QStringLiteral("model.junctions"), QStringLiteral("Nodes"));
-    addKind(tr("Outfalls"), outfallSymbol(),
-            [this](const SWMMElementSymbol &s) { setOutfallSymbol(s); },
-            QStringLiteral("model.outfalls"), QStringLiteral("Nodes"));
-    addKind(tr("Storage"), storageSymbol(),
-            [this](const SWMMElementSymbol &s) { setStorageSymbol(s); },
-            QStringLiteral("model.storage"), QStringLiteral("Nodes"));
-    addKind(tr("Dividers"), dividerSymbol(),
-            [this](const SWMMElementSymbol &s) { setDividerSymbol(s); },
-            QStringLiteral("model.dividers"), QStringLiteral("Nodes"));
-    addKind(tr("Virtual junctions"), virtualJunctionSymbol(),
-            [this](const SWMMElementSymbol &s) { setVirtualJunctionSymbol(s); },
-            QStringLiteral("model.virtualjunctions"), QStringLiteral("Nodes"));
-    addKind(tr("Conduits"), conduitSymbol(),
-            [this](const SWMMElementSymbol &s) { setConduitSymbol(s); },
-            QStringLiteral("model.conduits"), QStringLiteral("Links"));
-    addKind(tr("Pumps"), pumpSymbol(),
-            [this](const SWMMElementSymbol &s) { setPumpSymbol(s); },
-            QStringLiteral("model.pumps"), QStringLiteral("Links"));
-    addKind(tr("Orifices"), orificeSymbol(),
-            [this](const SWMMElementSymbol &s) { setOrificeSymbol(s); },
-            QStringLiteral("model.orifices"), QStringLiteral("Links"));
-    addKind(tr("Weirs"), weirSymbol(),
-            [this](const SWMMElementSymbol &s) { setWeirSymbol(s); },
-            QStringLiteral("model.weirs"), QStringLiteral("Links"));
-    addKind(tr("Outlets"), conduitSymbol(),  // no setOutletSymbol — paint reuses conduit pen path
-            [this](const SWMMElementSymbol &s) { setConduitSymbol(s); },
-            QStringLiteral("model.outlets"), QStringLiteral("Links"));
-    addKind(tr("Subcatchments"), subcatchmentSymbol(),
-            [this](const SWMMElementSymbol &s) { setSubcatchmentSymbol(s); },
-            QStringLiteral("model.subcatchments"), QStringLiteral("Areas"));
-    addKind(tr("Rain gages"), rainGageSymbol(),
-            [this](const SWMMElementSymbol &s) { setRainGageSymbol(s); },
-            QStringLiteral("model.raingages"), QStringLiteral("Other"));
+    addKind(tr("Junctions"),         QStringLiteral("model.junctions"),        QStringLiteral("Nodes"));
+    addKind(tr("Outfalls"),          QStringLiteral("model.outfalls"),         QStringLiteral("Nodes"));
+    addKind(tr("Storage"),           QStringLiteral("model.storage"),          QStringLiteral("Nodes"));
+    addKind(tr("Dividers"),          QStringLiteral("model.dividers"),         QStringLiteral("Nodes"));
+    addKind(tr("Virtual junctions"), QStringLiteral("model.virtualjunctions"), QStringLiteral("Nodes"));
+    addKind(tr("Conduits"),          QStringLiteral("model.conduits"),         QStringLiteral("Links"));
+    addKind(tr("Pumps"),             QStringLiteral("model.pumps"),            QStringLiteral("Links"));
+    addKind(tr("Orifices"),          QStringLiteral("model.orifices"),         QStringLiteral("Links"));
+    addKind(tr("Weirs"),             QStringLiteral("model.weirs"),            QStringLiteral("Links"));
+    addKind(tr("Outlets"),           QStringLiteral("model.outlets"),          QStringLiteral("Links"));
+    addKind(tr("Subcatchments"),     QStringLiteral("model.subcatchments"),    QStringLiteral("Areas"));
+    addKind(tr("Rain gages"),        QStringLiteral("model.raingages"),        QStringLiteral("Other"));
 
     return out;
 }
@@ -2479,6 +2561,23 @@ void SWMMModelLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRende
 // Flow-direction arrows (Slice BI Phase 8.13.8-mini, 2026-05-24)
 // ---------------------------------------------------------------------------
 
+namespace {
+/*! Subject routing id for a link kind — the arrow setters below mutate the
+ *  symbol structs in place (bypassing set*Symbol), so they must resync the
+ *  persistent adapters themselves. */
+QString linkKindRoutingId(SWMMModelLayer::Category c)
+{
+    switch (c) {
+    case SWMMModelLayer::CatConduits: return QStringLiteral("model.conduits");
+    case SWMMModelLayer::CatPumps:    return QStringLiteral("model.pumps");
+    case SWMMModelLayer::CatOrifices: return QStringLiteral("model.orifices");
+    case SWMMModelLayer::CatWeirs:    return QStringLiteral("model.weirs");
+    case SWMMModelLayer::CatOutlets:  return QStringLiteral("model.outlets");
+    default:                          return QString();
+    }
+}
+} // namespace
+
 bool SWMMModelLayer::linkArrowsEnabled(Category c) const
 {
     switch (c) {
@@ -2504,6 +2603,7 @@ void SWMMModelLayer::setLinkArrowsEnabled(Category c, bool enabled)
     }
     if (sym->showArrows == enabled) return;
     sym->showArrows = enabled;
+    resyncSymbolAdapter(linkKindRoutingId(c), *sym);
     emit repaintRequested();
 }
 
@@ -2534,6 +2634,7 @@ void SWMMModelLayer::setLinkArrowSize(Category c, double pixels)
     }
     if (sym->arrowSize == pixels) return;
     sym->arrowSize = pixels;
+    resyncSymbolAdapter(linkKindRoutingId(c), *sym);
     emit repaintRequested();
 }
 
@@ -2563,6 +2664,7 @@ void SWMMModelLayer::setLinkArrowColor(Category c, const QColor &col)
     }
     if (sym->arrowColor == col) return;
     sym->arrowColor = col;
+    resyncSymbolAdapter(linkKindRoutingId(c), *sym);
     emit repaintRequested();
 }
 
@@ -2591,6 +2693,7 @@ void SWMMModelLayer::setLinkArrowOnlyWhenFlowPos(Category c, bool onlyPos)
     }
     if (sym->arrowOnlyWhenFlowPos == onlyPos) return;
     sym->arrowOnlyWhenFlowPos = onlyPos;
+    resyncSymbolAdapter(linkKindRoutingId(c), *sym);
     emit repaintRequested();
 }
 
@@ -2763,7 +2866,7 @@ void SWMMModelLayer::setKindRenderer(
         case CatPumps:         setPumpSymbol(        elementSymbolFromStyle(style, m_pumpSym));        break;
         case CatOrifices:      setOrificeSymbol(     elementSymbolFromStyle(style, m_orificeSym));     break;
         case CatWeirs:         setWeirSymbol(        elementSymbolFromStyle(style, m_weirSym));        break;
-        case CatOutlets:       /* no legacy field — store renderer only */                              break;
+        case CatOutlets:       setOutletSymbol(      elementSymbolFromStyle(style, m_outletSym));      break;
         case CatSubcatchments: setSubcatchmentSymbol(elementSymbolFromStyle(style, m_subcatchSym));    break;
         case CatRainGages:     setRainGageSymbol(    elementSymbolFromStyle(style, m_gageSym));        break;
         case NumCategories:    break;
@@ -2959,21 +3062,10 @@ void SWMMModelLayer::buildRuleListLazy() const
             case L::CatWeirs:
                 applyAndWrite(&L::weirSymbol,        &L::setWeirSymbol);        break;
             case L::CatOutlets:
-                // Outlets share the conduit pen — same writer as the
-                // legacy styleSubjects path (see styleSubjects line
-                // ~1532). Arrow-only fields stored in m_outletSym
-                // (Slice FX.1) are written via per-kind setters here.
-                applyAndWrite(&L::conduitSymbol,     &L::setConduitSymbol);
-                {
-                    // Re-read the just-written Conduit symbol to copy
-                    // arrow fields onto the outlet-specific storage so
-                    // the per-kind arrow paint reads them.
-                    const SWMMElementSymbol c2 = self->conduitSymbol();
-                    self->setLinkArrowsEnabled    (L::CatOutlets, c2.showArrows);
-                    self->setLinkArrowSize        (L::CatOutlets, c2.arrowSize);
-                    self->setLinkArrowColor       (L::CatOutlets, c2.arrowColor);
-                    self->setLinkArrowOnlyWhenFlowPos(L::CatOutlets, c2.arrowOnlyWhenFlowPos);
-                }
+                // Outlets have their own symbol channel now — the whole
+                // struct (incl. the arrow fields the per-kind arrow paint
+                // reads from m_outletSym) writes through setOutletSymbol.
+                applyAndWrite(&L::outletSymbol,      &L::setOutletSymbol);
                 break;
             case L::CatSubcatchments:
                 applyAndWrite(&L::subcatchmentSymbol, &L::setSubcatchmentSymbol); break;
@@ -3033,29 +3125,42 @@ void SWMMModelLayer::classifyGraduatedIfNeeded(
     Category c, OpenSWMM::Render::GraduatedRenderer *g)
 {
     if (!g) return;
-    // Already classified (data-derived breaks present) — nothing to do. The
-    // editor clears breaks (clearBreaks / setBinner) to request a re-classify.
-    if (!g->lastBreaks().isEmpty()) return;
-    const QString attr = g->classifyAttribute();
-    if (attr.isEmpty()) return;
 
     const int n = categoryCount(c);
     if (n <= 0) return;
 
-    // Gather the classify attribute across this kind's features. Model fields
+    // Gather one static attribute across this kind's features. Model fields
     // are static (invertElev, diameter, length, …); identifyByName returns
     // them. A dynamic results name (e.g. "depth") simply isn't present here,
-    // so samples stay empty and classifyIfNeeded leaves the renderer alone —
-    // dynamic classification is the results layer's job.
-    QVector<double> samples;
-    samples.reserve(n);
-    for (int i = 0; i < n; ++i) {
-        const QVariant v = identifyByName(objectNameAt(c, i)).value(attr);
-        bool ok = false;
-        const double dv = v.toDouble(&ok);
-        if (ok && std::isfinite(dv)) samples.push_back(dv);
+    // so samples stay empty — dynamic classification is the results layer's
+    // job.
+    auto sampleAttr = [&](const QString &attr) {
+        QVector<double> samples;
+        samples.reserve(n);
+        for (int i = 0; i < n; ++i) {
+            const QVariant v = identifyByName(objectNameAt(c, i)).value(attr);
+            bool ok = false;
+            const double dv = v.toDouble(&ok);
+            if (ok && std::isfinite(dv)) samples.push_back(dv);
+        }
+        return samples;
+    };
+
+    // Classify only when breaks are absent (a fresh renderer, or after the
+    // editor's clearBreaks / setBinner request a re-classify).
+    if (g->lastBreaks().isEmpty() && !g->classifyAttribute().isEmpty())
+        OpenSWMM::Render::GraduatedRenderer::classifyIfNeeded(
+            g, sampleAttr(g->classifyAttribute()));
+
+    // Independent size attribute — derive its value range once (invalidated
+    // by setSizeAttribute) so sizeForValue/widthForValue can normalise.
+    if (g->sizeAxisIndependent() && !g->sizeValueRangeValid()) {
+        const QVector<double> samples = sampleAttr(g->sizeAttribute());
+        double mn = std::numeric_limits<double>::infinity();
+        double mx = -std::numeric_limits<double>::infinity();
+        for (double v : samples) { mn = std::min(mn, v); mx = std::max(mx, v); }
+        if (mx > mn) g->setSizeValueRange(mn, mx);
     }
-    OpenSWMM::Render::GraduatedRenderer::classifyIfNeeded(g, samples);
 }
 
 void SWMMModelLayer::rebuildKindFeatureColors(Category c)

@@ -629,6 +629,13 @@ private:
     // state. Lazy-built on first ruleList() call.
     mutable std::unique_ptr<OpenSWMM::Render::RuleList> m_ruleList;
 
+    // Adapter-ownership refactor — persistent sublayer style adapters
+    // (edge + node), lazily built by styleSubjects(), owned via QObject
+    // parenting. Held as QObject* because SymbolStyleAdapter::createFor
+    // returns one of several sibling adapter classes.
+    QObject *m_meshEdgeAdapter = nullptr;
+    QObject *m_meshNodeAdapter = nullptr;
+
     // §V.VA — keep m_bc sized to n_triangles * 3 in sync with the mesh,
     // and rebuild the vertex→triangles adjacency used by sampleZAt /
     // applyMeshVertexZ.

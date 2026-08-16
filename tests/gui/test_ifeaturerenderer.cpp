@@ -76,6 +76,10 @@ private slots:
     void graduatedRenderer_widthAxisIndependentOfSize();
     void graduatedRenderer_widthAxisJsonRoundTrip();
     void graduatedRenderer_legacyMigratesSizeAxisToWidth();
+    // F3 — size axis driven by its OWN attribute, not the classify one.
+    void graduatedRenderer_sizeAttributeInterpolatesOverOwnRange();
+    void graduatedRenderer_sizeAttributeMissingLeavesSymbolAlone();
+    void graduatedRenderer_sizeAttributeJsonRoundTrip();
     // P2 — static/dynamic source + range mode.
     void graduatedRenderer_sourceAndRangeModeRoundTrip();
     void graduatedRenderer_sourceAndRangeModeDefaults();
@@ -621,6 +625,121 @@ void TestIFeatureRenderer::graduatedRenderer_widthAxisJsonRoundTrip()
     QVERIFY(out.outputWidthEnabled());
     QCOMPARE(out.outputWidthMin(), 1.25);
     QCOMPARE(out.outputWidthMax(), 7.5);
+}
+
+// F3 — the size axis can follow an attribute of its own, interpolated over
+// that attribute's sampled value range rather than the colour bin index. A
+// marker can therefore be coloured by one field and sized by another.
+void TestIFeatureRenderer::graduatedRenderer_sizeAttributeInterpolatesOverOwnRange()
+{
+    GraduatedRenderer r;
+    r.setClassifyAttribute(QStringLiteral("a"));
+    r.setRange(0.0, 10.0);
+    r.setBinColors({ QColor(QStringLiteral("#000000")),
+                     QColor(QStringLiteral("#ffffff")) });   // 2 bins
+
+    SymbolStyle base;
+    SymbolLayer sl;
+    sl.kind = SymbolLayerKind::SimpleMarker;
+    sl.props.insert(QStringLiteral("color"), QStringLiteral("#000000"));
+    sl.props.insert(QStringLiteral("size"),  8.0);
+    base.layers.append(sl);
+    r.setBaseSymbol(base);
+
+    // setSizeAttribute clears the sampled range, so name the attribute
+    // BEFORE handing it a range.
+    r.setSizeAttribute(QStringLiteral("b"));
+    QVERIFY(r.sizeAxisIndependent());
+    r.setOutputSizeEnabled(true);
+    r.setSizeValueRange(0.0, 10.0);
+    r.setOutputSizeRange(2.0, 12.0);
+
+    // b = 5 sits at the midpoint of [0,10] → midpoint of [2,12] px.
+    QVariantMap attrs;
+    attrs.insert(QStringLiteral("a"), 1.0);     // bottom colour bin
+    attrs.insert(QStringLiteral("b"), 5.0);
+    const SymbolStyle mid = r.symbolFor({}, attrs);
+    QCOMPARE(mid.layers.at(0).props.value(QStringLiteral("size")).toDouble(), 7.0);
+
+    // The size axis ignores the classify value entirely: move `a` into the
+    // top bin and the size must not budge while `b` is unchanged.
+    attrs.insert(QStringLiteral("a"), 9.0);
+    const SymbolStyle otherBin = r.symbolFor({}, attrs);
+    QCOMPARE(otherBin.layers.at(0).props.value(QStringLiteral("size")).toDouble(), 7.0);
+
+    // Ends of the range clamp onto the ends of the px range.
+    attrs.insert(QStringLiteral("b"), 0.0);
+    QCOMPARE(r.symbolFor({}, attrs).layers.at(0)
+                 .props.value(QStringLiteral("size")).toDouble(), 2.0);
+    attrs.insert(QStringLiteral("b"), 10.0);
+    QCOMPARE(r.symbolFor({}, attrs).layers.at(0)
+                 .props.value(QStringLiteral("size")).toDouble(), 12.0);
+}
+
+void TestIFeatureRenderer::graduatedRenderer_sizeAttributeMissingLeavesSymbolAlone()
+{
+    GraduatedRenderer r;
+    r.setClassifyAttribute(QStringLiteral("a"));
+    r.setRange(0.0, 10.0);
+    r.setBinColors({ QColor(QStringLiteral("#000000")),
+                     QColor(QStringLiteral("#ffffff")) });
+
+    SymbolStyle base;
+    SymbolLayer sl;
+    sl.kind = SymbolLayerKind::SimpleMarker;
+    sl.props.insert(QStringLiteral("color"), QStringLiteral("#000000"));
+    sl.props.insert(QStringLiteral("size"),  8.0);
+    base.layers.append(sl);
+    r.setBaseSymbol(base);
+
+    r.setSizeAttribute(QStringLiteral("b"));
+    r.setOutputSizeEnabled(true);
+    r.setSizeValueRange(0.0, 10.0);
+    r.setOutputSizeRange(2.0, 12.0);
+
+    // `b` absent — the feature has no size value, so the base size must
+    // survive untouched rather than collapsing to the range minimum.
+    QVariantMap noSize;
+    noSize.insert(QStringLiteral("a"), 5.0);
+    QCOMPARE(r.symbolFor({}, noSize).layers.at(0)
+                 .props.value(QStringLiteral("size")).toDouble(), 8.0);
+
+    // Non-numeric is the same story.
+    QVariantMap junk = noSize;
+    junk.insert(QStringLiteral("b"), QStringLiteral("n/a"));
+    QCOMPARE(r.symbolFor({}, junk).layers.at(0)
+                 .props.value(QStringLiteral("size")).toDouble(), 8.0);
+}
+
+void TestIFeatureRenderer::graduatedRenderer_sizeAttributeJsonRoundTrip()
+{
+    GraduatedRenderer in;
+    in.setBinColors({ QColor(QStringLiteral("#000000")),
+                      QColor(QStringLiteral("#ffffff")) });
+    in.setClassifyAttribute(QStringLiteral("flow"));
+    in.setSizeAttribute(QStringLiteral("velocity"));
+    in.setSizeValueRange(0.5, 4.25);
+
+    const QJsonObject j = in.toJson();
+    GraduatedRenderer out;
+    out.fromJson(j);
+    QCOMPARE(out.sizeAttribute(), QStringLiteral("velocity"));
+    QCOMPARE(out.sizeValueMin(), 0.5);
+    QCOMPARE(out.sizeValueMax(), 4.25);
+    QVERIFY(out.sizeAxisIndependent());
+
+    // Back-compat: a project written before the independent axis existed
+    // carries no sizeAttribute key and must keep following the classify
+    // attribute (the historical bin-mapped behaviour).
+    QJsonObject legacy = j;
+    legacy.remove(QStringLiteral("sizeAttribute"));
+    legacy.remove(QStringLiteral("sizeValueMin"));
+    legacy.remove(QStringLiteral("sizeValueMax"));
+    GraduatedRenderer old;
+    old.fromJson(legacy);
+    QVERIFY(old.sizeAttribute().isEmpty());
+    QVERIFY(!old.sizeAxisIndependent());
+    QCOMPARE(old.effectiveSizeAttribute(), QStringLiteral("flow"));
 }
 
 void TestIFeatureRenderer::graduatedRenderer_legacyMigratesSizeAxisToWidth()
