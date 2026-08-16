@@ -25,6 +25,8 @@
 #include <QPointer>
 #include <QString>
 
+class QComboBox;
+class QLabel;
 class QToolButton;
 class SWMMModelLayer;
 
@@ -63,6 +65,13 @@ public:
     [[nodiscard]] Mode mode() const noexcept { return m_mode; }
     void setMode(Mode mode);
 
+    /*! Vertical exaggeration applied to profiles: 0 = automatic (capped and
+     *  stated on the drawing), >0 = an explicit V:H ratio, 1.0 being true
+     *  scale. Cross-sections are always true shape and ignore this. */
+    [[nodiscard]] double verticalExaggeration() const noexcept
+    { return m_verticalExaggeration; }
+    void setVerticalExaggeration(double ve);
+
 public slots:
     /*! Rebuild the current drawing from the engine. Cheap enough to call on
      *  every edit: one engine read plus one section sampling. */
@@ -81,6 +90,12 @@ private:
     sectionview::SectionPreviewWidget *m_preview     = nullptr;
     QToolButton                       *m_sectionBtn  = nullptr;
     QToolButton                       *m_profileBtn  = nullptr;
+    QLabel                            *m_veLabel     = nullptr;
+    QComboBox                         *m_veCombo     = nullptr;
+
+    /*! 0 = automatic. Persisted across selections so a user who works at 1:1
+     *  is not put back on the exaggerated view by every click. */
+    double m_verticalExaggeration = 0.0;
 
     /*! `SWMMObjectRef::ObjectType` of what is displayed; 0 = Unknown. */
     int     m_objectType = 0;

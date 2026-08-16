@@ -76,6 +76,18 @@ public:
      *  \p anchorPx (widget coordinates) stationary. */
     void zoomBy(double factor, const QPointF &anchorPx);
 
+    /*! V:H ratio used by the last paint — 1.0 for a true-scale or
+     *  uniform-scale drawing. Reflects the automatic choice as well as an
+     *  explicit one, so callers (and tests) never have to infer it from
+     *  pixels. Valid only after something has been painted. */
+    [[nodiscard]] double achievedVerticalExaggeration() const noexcept
+    { return m_achievedVE; }
+
+    /*! Pixel rect the model bounds were fitted into by the last paint, before
+     *  zoom/pan. Exposed for tests and for any host that needs to relate
+     *  widget coordinates back to the drawing. */
+    [[nodiscard]] QRectF lastFitRect() const noexcept { return m_lastFitRect; }
+
 signals:
     /*! Emitted whenever zoom or pan changes, so a host can mirror the state
      *  (e.g. a zoom-percentage readout). */
@@ -100,6 +112,7 @@ private:
      *  drift a little on every notch. Mutable because paintEvent is const in
      *  spirit and renderToImage() genuinely is. */
     mutable QRectF  m_lastFitRect;
+    mutable double  m_achievedVE = 1.0;
     bool            m_panning = false;
     QPointF         m_panAnchorPx;      //!< Cursor position when the pan began.
     QPointF         m_panStartOffset;   //!< Viewport pan at that moment.

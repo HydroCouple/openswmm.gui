@@ -10,6 +10,7 @@
 #include <QBrush>
 #include <QFontMetricsF>
 #include <QPainter>
+#include <QCoreApplication>
 #include <QPainterPath>
 #include <QPen>
 #include <QtMath>
@@ -37,6 +38,12 @@ constexpr double kPlanInsetSize = 96.0;
 constexpr double kMinWidthForLeaders = 300.0;
 constexpr double kMinWidthForDims    = 220.0;
 constexpr double kMinHeightForFooter = 150.0;
+
+//! Translations for this file live under one context, matching the builders.
+inline QString tr_(const char *s)
+{
+    return QCoreApplication::translate("openswmmvis::sectionview", s);
+}
 
 /*! Blend \p over onto \p base by \p t (0..1) — keeps derived fills tied to the
  *  palette so dark themes stay legible without a second colour table. */
@@ -202,6 +209,25 @@ void paintTexture(QPainter &p, const QPolygonF &shape, DiagramTexture texture,
     p.restore();
 }
 
+/*!
+ * Round an exaggeration to the nearest conventional value at or below it.
+ *
+ * Profile sheets are annotated "V:H 10:1", not "V:H 14.7:1" — a ratio that
+ * drifts with the pane width tells the reader nothing they can hold on to.
+ * Rounding DOWN keeps the drawing no more distorted than the annotation says.
+ */
+double snapExaggeration(double ve)
+{
+    static constexpr double kNice[] = { 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0,
+                                        7.5, 10.0, 15.0, 20.0, 25.0, 30.0,
+                                        40.0, 50.0, 75.0, 100.0 };
+    if (ve <= kNice[0]) return kNice[0];
+    double best = kNice[0];
+    for (double n : kNice)
+        if (n <= ve) best = n;
+    return best;
+}
+
 /*! One shrub (a stem with two pairs of leaves) or one grass tuft. */
 void paintPlant(QPainter &p, const QPointF &base, double heightPx, bool grass,
                 const QColor &green, int key)
@@ -315,7 +341,8 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
                          const SectionDiagramModel &model,
                          const QPalette &palette,
                          const DiagramViewport &viewport,
-                         QRectF *fitRectOut)
+                         QRectF *fitRectOut,
+                         double *achievedExaggerationOut)
 {
     p.save();
     p.setRenderHint(QPainter::Antialiasing, true);
@@ -367,6 +394,13 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
                              && target.height() >= kMinHeightForFooter;
 
     if (showFooter) area.setBottom(area.bottom() - kFooterH);
+
+    // Reserve the exaggeration note's band BEFORE the drawing area is padded,
+    // so it cannot be written over a bottom-most leader label (which is
+    // clamped to area.bottom()) or, in a narrow pane where the pad shrinks to
+    // 5 px, over the drawing itself.
+    const bool showVeNote = model.annotateExaggeration && !model.uniformScale;
+    if (showVeNote) area.setBottom(area.bottom() - fm.height() - 2.0);
 
     // ── Plan inset carve-out ───────────────────────────────────────────────
     QRectF planRect;
@@ -444,7 +478,55 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
 
     double sx = fitRect.width()  / b.width();
     double sy = fitRect.height() / b.height();
-    if (model.uniformScale) sx = sy = std::min(sx, sy);
+
+    // Resolve the vertical exaggeration, then fit the box while HOLDING that
+    // ratio — which is the uniform-scale fit generalised: whichever axis runs
+    // out of room first sets the scale, and the other follows the ratio.
+    //
+    // Filling the box on both axes independently (the old behaviour) is what
+    // made shallow pipes look steep: it silently adopts whatever exaggeration
+    // the aspect ratio happens to imply, often 15:1 or more.
+    double achievedVE = 1.0;
+    if (!model.uniformScale) {
+        const double fillVE = (sx > 0.0) ? sy / sx : 1.0;
+        double ve = model.verticalExaggeration;
+
+        if (!(ve > 0.0)) {
+            if (model.targetDrawnAspect > 0.0) {
+                // Automatic, derived from the MODEL's own proportions so the
+                // answer does not move when the dock is resized. A reach that
+                // is naturally 27:1 long-to-deep, asked to draw at 6:1, wants
+                // 4.4x — and wants it in every pane.
+                const double naturalAspect = b.width() / b.height();
+                ve = naturalAspect / model.targetDrawnAspect;
+                // Never COMPRESS the vertical: that would understate a slope,
+                // which is worse than overstating it.
+                ve = std::max(1.0, ve);
+                if (model.maxVerticalExaggeration > 0.0)
+                    ve = std::min(ve, model.maxVerticalExaggeration);
+                ve = snapExaggeration(ve);
+            } else {
+                // Legacy: fill the pane on both axes. Kept UNSNAPPED and
+                // uncapped for models whose x axis is not a real length (node
+                // profiles use a normalised frame, LID stacks a nominal plan
+                // width), where a V:H ratio is arithmetic on an arbitrary unit
+                // and rounding it would silently resize the drawing.
+                ve = fillVE;
+            }
+        }
+        ve = std::clamp(ve, 0.01, 1000.0);
+
+        // Hold the ratio and let whichever axis runs out of room set the
+        // scale. Both branches fit inside fitRect: the unused axis simply
+        // leaves slack, which is honest — better an under-filled pane than a
+        // silently distorted gradient.
+        if (fillVE >= ve) { sy = sx * ve; }   // vertical has slack
+        else              { sx = sy / ve; }   // horizontal has slack
+        achievedVE = ve;
+    } else {
+        sx = sy = std::min(sx, sy);
+    }
+    if (achievedExaggerationOut) *achievedExaggerationOut = achievedVE;
 
     // User zoom/pan layered over the fit. Scaling about the fit rect's centre
     // keeps "zoom out then in" returning to the same place.
@@ -840,6 +922,25 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         p.drawText(QRectF(planRect.left(), planRect.bottom() - 2.0,
                           planRect.width(), 14.0),
                    Qt::AlignCenter, QStringLiteral("plan"));
+    }
+
+    // ── Vertical-exaggeration note ─────────────────────────────────────────
+    //
+    // A profile whose axes are scaled differently MUST say so, or the reader
+    // takes the drawn slope at face value. Drawn even when the panel is too
+    // short for the footer: the caveat matters more than the readout it would
+    // otherwise sit beside.
+    if (showVeNote) {
+        const QString note = (std::abs(achievedVE - 1.0) < 1.0e-9)
+            ? tr_("true scale (V:H 1:1)")
+            : tr_("vertical exaggeration V:H %1:1").arg(achievedVE, 0, 'g', 3);
+
+        p.setPen(mutedColor);
+        // The band reserved above sits just below `area`'s new bottom edge.
+        const QRectF nr(area.left(), area.bottom() + 1.0,
+                        area.width(), fm.height());
+        p.drawText(nr, Qt::AlignRight | Qt::AlignVCenter,
+                   fm.elidedText(note, Qt::ElideRight, nr.width()));
     }
 
     // ── Footer ─────────────────────────────────────────────────────────────
