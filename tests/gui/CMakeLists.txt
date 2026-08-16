@@ -2340,6 +2340,17 @@ add_swmmvis_gui_test(test_profile_attribute_tracks
     ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
 )
 
+# Dialog window management — the MRU register of open modeless dialogs that
+# backs the Window menu's recovery entries and the pure-Qt stacking mode.
+# Bookkeeping only (offscreen QPA); real multi-monitor z-order behaviour is
+# covered by the manual checklist in
+# workplans/DIALOG_WINDOW_MANAGEMENT_VERIFICATION.md.
+add_swmmvis_gui_test(test_dialog_registry
+    test_dialog_registry.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/dialogregistry.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialogregistry.cpp
+)
+
 # UI redesign iteration 2 (D4) — dialog accessibility audit over the
 # cheaply-constructible dialogs, guarding the sweep invariants (mnemonic
 # uniqueness, icon-only button naming, persistence naming) via the shared

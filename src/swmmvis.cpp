@@ -74,7 +74,10 @@
 #include "ui/theme/themehelpers.h"
 #include "io/gdaldrivers.h"
 #include "ui/dialogs/sublayerselectiondialog.h"
+#include <QScreen>
+
 #include "ui/dialogs/dialoglayoutpersistence.h"
+#include "ui/dialogs/dialogregistry.h"
 #include "ui_swmmvis.h"
 #include "version.h"
 #include "legacy_version.h"
@@ -2493,7 +2496,14 @@ void SWMMVis::openTimeSeriesPlotForOnLayer(const SWMMObjectRef &ref,
 openswmmvis::ui::ComparisonPlotDialog *SWMMVis::ensureComparisonPlotDialog()
 {
     // Find-or-create the shared dialog; reuse across calls.
-    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>();
+    //
+    // FindDirectChildrenOnly is load-bearing: the profile-plot route creates
+    // its OWN overlay ComparisonPlotDialog parented to a ProfilePlotDialog,
+    // which is itself a descendant of this main window (project window → MDI
+    // area → this). A recursive search therefore found and hijacked that
+    // overlay instead of the map's shared dialog.
+    auto *dlg = findChild<openswmmvis::ui::ComparisonPlotDialog *>(
+        QString(), Qt::FindDirectChildrenOnly);
     if (!dlg) {
         dlg = new openswmmvis::ui::ComparisonPlotDialog(this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
@@ -3005,12 +3015,20 @@ void SWMMVis::openComparisonPlotOverlayForProfile(ProfilePlotDialog *profileDlg,
     }
 
     // Find-or-create an overlay CPD as a direct child of the profile dialog
-    // so it floats above and is destroyed with it.
+    // so it floats above and is destroyed with it. The Qt parentage is for
+    // LIFETIME ONLY — on macOS the window-stacking attachment deliberately
+    // skips dialog parents (see platform::attachAsChildWindow) so this
+    // overlay no longer drags along when the profile dialog is moved.
     auto *dlg = profileDlg->findChild<openswmmvis::ui::ComparisonPlotDialog *>(
         QString(), Qt::FindDirectChildrenOnly);
     if (!dlg) {
         dlg = new openswmmvis::ui::ComparisonPlotDialog(profileDlg);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
+        // Distinct objectName: layout persistence keys off it, and sharing
+        // "ComparisonPlotDialog" with the map-route instance made the two
+        // fight over one saved geometry (last close wins). They are separate
+        // windows the user positions separately, so they get separate keys.
+        dlg->setObjectName(QStringLiteral("ComparisonPlotDialogProfileOverlay"));
         // Qt::Tool ⇒ utility window that stacks above its parent; reinforce
         // with WindowStaysOnTopHint because the profile dialog itself sets
         // that flag, so a plain Tool child can otherwise sink behind it on
@@ -3887,6 +3905,9 @@ void SWMMVis::initializeMenus()
     // open project windows (checkmark on the active one) / separator /
     // Bring All to Front.
     mMenuWindow = new QMenu(tr("&Window"), this);
+    // Off by default in Qt — without this the Reset Window Positions tooltip,
+    // which is where the action's behaviour is actually explained, never shows.
+    mMenuWindow->setToolTipsVisible(true);
 
     mActionWindowMinimize = mMenuWindow->addAction(tr("&Minimize"));
     mActionWindowMinimize->setObjectName(QStringLiteral("actionWindowMinimize"));
@@ -3922,6 +3943,19 @@ void SWMMVis::initializeMenus()
     connect(ui->mdiAreaCentral, &QMdiArea::subWindowActivated,
             this, &SWMMVis::rebuildWindowMenu);
 
+    // ...and with the open-dialog register, so a dialog the user has dragged
+    // onto another monitor always has a menu entry to bring it back.
+    connect(openswmmvis::ui::DialogRegistry::instance(),
+            &openswmmvis::ui::DialogRegistry::openDialogsChanged,
+            this, &SWMMVis::rebuildWindowMenu);
+
+    // Rebuild once more as the menu drops down. The register only signals
+    // when the SET of open dialogs changes, so without this a dialog that
+    // renamed its title bar (profile plots retitle themselves) would show a
+    // stale entry. Cheap — the menu holds a handful of actions.
+    connect(mMenuWindow, &QMenu::aboutToShow,
+            this, &SWMMVis::rebuildWindowMenu);
+
     rebuildWindowMenu();
 
     // Canvas signals are wired per-window in onActiveSubWindowChanged()
@@ -3940,7 +3974,12 @@ void SWMMVis::initializeSettings()
     restoreState(mSettings.value("SWMMVis::WindowState",    saveState(2)).toByteArray(), 2);
     setWindowState(static_cast<Qt::WindowState>(
         mSettings.value("SWMMVis::WindowStateEnum", static_cast<int>(windowState())).toInt()));
-    setGeometry(mSettings.value("SWMMVis::Geometry", geometry()).toRect());
+    // Clamp like every dialog does: a geometry saved on a monitor that is no
+    // longer attached (or is now smaller) otherwise restores the main window
+    // off-screen, and unlike a dialog there is nothing left to recover it
+    // from. clampToVisibleScreen() is a no-op when the rect is already fine.
+    setGeometry(openswmmvis::ui::clampToVisibleScreen(
+        mSettings.value("SWMMVis::Geometry", geometry()).toRect()));
     mRecentFiles = mSettings.value("SWMMVis::RecentFiles", mRecentFiles).toStringList();
     mSettings.endGroup();
 
@@ -6089,9 +6128,23 @@ void SWMMVis::rebuildWindowMenu()
 
     // Strip the dynamic tail (every action after the 3rd — Minimize / Zoom /
     // separator are permanent).
+    //
+    // The stripped actions are DELETED, not merely removed: removeAction()
+    // leaves them parented to the menu, and this rebuild now also runs on
+    // DialogRegistry::openDialogsChanged (dialogs opening and closing), not
+    // just on MDI sub-window activation — so orphans would accumulate for as
+    // long as the app is open.
+    // deleteLater(), not delete: a rebuild can in principle be triggered from
+    // inside an action's own triggered() handler, and destroying an action
+    // mid-emission is a use-after-free.
     const QList<QAction *> all = mMenuWindow->actions();
-    for (int i = 3; i < all.size(); ++i)
+    for (int i = 3; i < all.size(); ++i) {
         mMenuWindow->removeAction(all[i]);
+        all[i]->deleteLater();
+    }
+    // Cleared above — never leave these dangling for the next rebuild.
+    mActionWindowBringAllToFront = nullptr;
+    mActionWindowResetPositions  = nullptr;
 
     QMdiSubWindow *active = ui->mdiAreaCentral->activeSubWindow();
     const QList<QMdiSubWindow *> subs = ui->mdiAreaCentral->subWindowList();
@@ -6118,16 +6171,118 @@ void SWMMVis::rebuildWindowMenu()
     if (listedCount > 0)
         mMenuWindow->addSeparator();
 
+    // Open modeless dialogs. These are free-floating top-level windows the
+    // user can drag onto any monitor — including one that is later
+    // disconnected — so without an entry here a dialog can become genuinely
+    // unreachable. Selecting one clamps it back onto a connected screen
+    // BEFORE raising, which is what makes this a recovery path rather than
+    // just a focus shortcut. Listed most-recently-used first (the register
+    // stores oldest-first, so the list is walked in reverse).
+    const QList<QPointer<QDialog>> dialogs =
+        openswmmvis::ui::DialogRegistry::instance()->openDialogs();
+    for (int i = dialogs.size() - 1; i >= 0; --i)
+    {
+        QDialog *dlg = dialogs.at(i).data();
+        if (!dlg) continue;
+
+        QString label = dlg->windowTitle();
+        if (label.isEmpty())
+            label = dlg->objectName();
+        if (label.isEmpty())
+            label = tr("Untitled Window");
+
+        QAction *act = mMenuWindow->addAction(label);
+        QPointer<QDialog> guard(dlg);
+        connect(act, &QAction::triggered, this, [guard]() {
+            if (!guard) return;
+            // Clamp BEFORE raising: if the dialog is sitting on a monitor
+            // that has since been unplugged, raising alone changes nothing
+            // the user can see. This is what makes the entry a recovery path.
+            openswmmvis::ui::ensureWindowOnScreen(guard.data());
+            guard->show();
+            guard->raise();
+            guard->activateWindow();
+        });
+    }
+
+    if (!dialogs.isEmpty())
+        mMenuWindow->addSeparator();
+
     mActionWindowBringAllToFront = mMenuWindow->addAction(tr("Bring All to Front"));
     connect(mActionWindowBringAllToFront, &QAction::triggered, this, [this]() {
-        // Raise every project sub-window, then the main window last so it
-        // stays on top and the app takes focus.
+        // Raise every project sub-window, then the main window, then the
+        // dialogs last: they are meant to float above the app's windows, so
+        // raising them after the main window preserves that relationship in
+        // both stacking modes.
         for (QMdiSubWindow *sub : ui->mdiAreaCentral->subWindowList())
             if (qobject_cast<SWMMVisProjectWindow *>(sub))
                 sub->raise();
         this->raise();
         this->activateWindow();
+        openswmmvis::ui::DialogRegistry::instance()->raiseAllInOrder();
     });
+
+    mMenuWindow->addSeparator();
+    mActionWindowResetPositions =
+        mMenuWindow->addAction(tr("Reset Window Positions"));
+    mActionWindowResetPositions->setObjectName(
+        QStringLiteral("actionWindowResetPositions"));
+    mActionWindowResetPositions->setToolTip(
+        tr("Discard saved window positions and gather every open window back "
+           "onto this screen."));
+    connect(mActionWindowResetPositions, &QAction::triggered,
+            this, &SWMMVis::resetWindowPositions);
+}
+
+void SWMMVis::resetWindowPositions()
+{
+    // Recovery of last resort: forget every stored position, then physically
+    // gather what is currently open back onto the main window's screen. Both
+    // halves matter — clearing settings alone would leave the windows lost
+    // until the next launch, and moving windows alone would let a bad stored
+    // rect come back on restart.
+
+    // 1. Saved dialog geometries (Dialogs/<objectName>/geometry). Only the
+    //    geometry key is dropped; splitter/header/tab/page/toggle state is
+    //    the user's layout work and is not a window-position problem.
+    mSettings.beginGroup(QStringLiteral("Dialogs"));
+    const QStringList groups = mSettings.childGroups();
+    for (const QString &g : groups)
+        mSettings.remove(g + QStringLiteral("/geometry"));
+    mSettings.endGroup();
+
+    // 2. Saved main-window geometry. Window STATE (dock/toolbar layout) is
+    //    deliberately left alone — it is not position data.
+    mSettings.beginGroup(QStringLiteral("SWMMVis::MainWindow"));
+    mSettings.remove(QStringLiteral("SWMMVis::Geometry"));
+    mSettings.endGroup();
+    mSettings.sync();
+
+    // 3. Bring the main window itself somewhere visible first, so the screen
+    //    resolved below is a sane target for everything else. A maximized or
+    //    fullscreen window must be restored down first: setGeometry() on one
+    //    only rewrites its NORMAL geometry, so a window maximized onto a
+    //    since-disconnected monitor would not visibly move.
+    if (isMaximized() || isFullScreen())
+        showNormal();
+    openswmmvis::ui::ensureWindowOnScreen(this);
+    const QScreen *host = this->screen();
+
+    // 4. Gather open dialogs onto that screen and re-raise them in order.
+    const QList<QPointer<QDialog>> dialogs =
+        openswmmvis::ui::DialogRegistry::instance()->openDialogs();
+    for (const QPointer<QDialog> &dlg : dialogs)
+    {
+        // Re-checked per iteration: moving/raising a window runs handlers
+        // that could in principle close a later one in this snapshot.
+        if (!dlg) continue;
+        openswmmvis::ui::ensureWindowOnScreen(dlg.data(), host);
+        dlg->raise();
+    }
+
+    onLogMessage(tr("Window positions reset — saved geometry cleared and open "
+                    "windows moved onto the current screen."),
+                 OpenSWMMVisLogMessage::LogMessageType::Information);
 }
 
 void SWMMVis::onRecentFilesSizeChanged()
