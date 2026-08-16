@@ -65,6 +65,16 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Changed
 
+- **Profiles no longer exaggerate slope to fill the pane.** The link profile
+  used independent axis scaling stretched to fill the drawing area, which tied
+  the vertical exaggeration to the pane's aspect ratio — the same 0.25 % pipe
+  read as ~1.3 % in a short dock and ~2.7 % in a tall one, with nothing on the
+  drawing to say so. The exaggeration is now derived from the model's own
+  proportions — a reach naturally 27:1 long-to-deep, drawn towards a 6:1
+  target, asks for 4.4x and snaps down to 4x — so it is identical at every
+  dock size. It caps at 10:1 and the achieved V:H is stated on the drawing. A
+  short or steep reach comes out at true scale with no distortion at all. The Section View dock gains a **V:H** selector (Auto, 1:1,
+  2:1, 5:1, 10:1, 20:1, 50:1) for an explicit choice.
 - **Section outlines are sampled on a cosine-spaced depth ladder** instead of a
   uniform one, at a higher default density (240 intervals). Width changes
   fastest at the invert and the crown, so a uniform ladder put the fewest

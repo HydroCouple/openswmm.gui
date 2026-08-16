@@ -197,7 +197,8 @@ QImage SectionPreviewWidget::renderToImage(const QSize &size) const
         SectionDiagramModel m = m_model;
         if (m.emptyText.isEmpty()) m.emptyText = m_placeholder;
         paintSectionDiagram(p, QRectF(QPointF(0.0, 0.0), QSizeF(img.size())),
-                            m, palette(), m_viewport, &m_lastFitRect);
+                            m, palette(), m_viewport, &m_lastFitRect,
+                            &m_achievedVE);
     }   // painter must be finished before the image is handed back
     return img;
 }
@@ -210,7 +211,7 @@ void SectionPreviewWidget::paintEvent(QPaintEvent *)
     SectionDiagramModel m = m_model;
     if (m.emptyText.isEmpty()) m.emptyText = m_placeholder;
     paintSectionDiagram(p, QRectF(rect()), m, palette(), m_viewport,
-                        &m_lastFitRect);
+                        &m_lastFitRect, &m_achievedVE);
 }
 
 } // namespace openswmmvis::sectionview
