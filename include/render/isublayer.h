@@ -27,7 +27,8 @@
  *
  *         Style bags (style()) are QObjects with Q_PROPERTYs so the
  *         existing QPropertyModel-backed editor stack drives the UI
- *         (Slice S3 SublayerStyleDialog).
+ *         (today: the unified LayerStyleDialog; the original Slice S3
+ *         SublayerStyleDialog was retired).
  *
  *         Cross-slice: Slice S1 (interface only). Concrete sublayers
  *         (ConduitLineSublayer, NodeMarkerSublayer, DepthColorRampSublayer,
@@ -139,8 +140,8 @@ public:
      *        style knobs.
      *
      *        Heap-owned by the sublayer (lifetime tied to the sublayer).
-     *        Used by SublayerStyleDialog via QPropertyModel to build the
-     *        editor automatically from Q_PROPERTY metadata.
+     *        Consumed by the unified LayerStyleDialog editor stack via
+     *        QPropertyModel / Q_PROPERTY metadata.
      *
      *        Returning nullptr is legal for sublayers with no
      *        user-editable knobs (e.g. a fixed-style debug overlay).

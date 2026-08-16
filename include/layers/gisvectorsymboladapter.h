@@ -123,6 +123,15 @@ public:
     void setLabelFont(const QFont &v)     { if (m_sym.labelFont == v) return; m_sym.labelFont = v; commit(); }
     void setLabelColor(const QColor &v)   { if (m_sym.labelColor == v) return; m_sym.labelColor = v; commit(); }
 
+    /*! Refresh the cached symbol from the layer WITHOUT invoking the writer
+     *  (no write-back loop). Emits symbolChanged so mounted editors re-read.
+     *  Used by GISVectorLayer to keep its persistent adapter truthful. */
+    void resyncFrom(const GISVectorSymbol &s)
+    {
+        m_sym = s;
+        emit symbolChanged();
+    }
+
 signals:
     void symbolChanged();
 

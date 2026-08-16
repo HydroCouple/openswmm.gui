@@ -145,6 +145,15 @@ double GraduatedRenderer::sizeForBin(int bin) const
     return m_outputSizeMin + t * (m_outputSizeMax - m_outputSizeMin);
 }
 
+double GraduatedRenderer::sizeForValue(double v) const
+{
+    if (!sizeValueRangeValid() || !std::isfinite(v))
+        return m_outputSizeMin;
+    double t = (v - m_sizeValueMin) / (m_sizeValueMax - m_sizeValueMin);
+    t = std::clamp(t, 0.0, 1.0);
+    return m_outputSizeMin + t * (m_outputSizeMax - m_outputSizeMin);
+}
+
 void GraduatedRenderer::setOutputWidthRange(double minPx, double maxPx)
 {
     m_outputWidthMin = minPx;
@@ -159,6 +168,15 @@ double GraduatedRenderer::widthForBin(int bin) const
     if (bin >= n)   bin = n - 1;
     if (n == 1)     return (m_outputWidthMin + m_outputWidthMax) * 0.5;
     const double t = static_cast<double>(bin) / static_cast<double>(n - 1);
+    return m_outputWidthMin + t * (m_outputWidthMax - m_outputWidthMin);
+}
+
+double GraduatedRenderer::widthForValue(double v) const
+{
+    if (!sizeValueRangeValid() || !std::isfinite(v))
+        return m_outputWidthMin;
+    double t = (v - m_sizeValueMin) / (m_sizeValueMax - m_sizeValueMin);
+    t = std::clamp(t, 0.0, 1.0);
     return m_outputWidthMin + t * (m_outputWidthMax - m_outputWidthMin);
 }
 
@@ -234,13 +252,12 @@ SymbolStyle GraduatedRenderer::symbolFor(const FeatureRef &, const QVariantMap &
     const QVariant v = attrs.value(m_classifyAttribute);
     bool ok = false;
     const double dv = v.toDouble(&ok);
-    if (!ok)
-        return styled;
 
-    // Compute the bin index once; both color + size outputs key off it.
+    // Compute the bin index once; colour (and the size axes when they
+    // follow the classify attribute) key off it.
     const int n = m_binner.binCount();
     int bin = 0;
-    if (n > 0) {
+    if (ok && n > 0) {
         if (!m_lastBreaks.isEmpty()) {
             bin = m_binner.binFor(dv, m_lastBreaks);
         } else if (m_ramp.maxValue > m_ramp.minValue) {
@@ -252,25 +269,47 @@ SymbolStyle GraduatedRenderer::symbolFor(const FeatureRef &, const QVariantMap &
     }
 
     // Output axis 1 — colour. Default-on (preserves prior behaviour).
-    if (m_outputColorEnabled)
+    // Skipped when the classify value is missing/non-numeric (pre-size-
+    // attribute code returned the bare base symbol in that case).
+    if (ok && m_outputColorEnabled)
         overrideColorInPlace(styled, colorForBin(bin));
 
-    // Output axis 2 — marker size (Slice BI Phase 8.13.43-α). Default-off.
-    if (m_outputSizeEnabled) {
-        const double sz = sizeForBin(bin);
-        for (SymbolLayer &sl : styled.layers) {
-            if (sl.props.contains(QStringLiteral("size")))
-                sl.props.insert(QStringLiteral("size"), sz);
+    // Size/width axes — driven by the classify bin (historical behaviour)
+    // or, when an independent size attribute is set, interpolated over that
+    // attribute's own sampled value range.
+    if (m_outputSizeEnabled || m_outputWidthEnabled) {
+        const bool independent = sizeAxisIndependent();
+        bool   sOk  = ok;
+        double sVal = dv;
+        if (independent) {
+            const QVariant sv = attrs.value(m_sizeAttribute);
+            sOk = false;
+            sVal = sv.toDouble(&sOk);
         }
-    }
 
-    // Output axis 3 — line width (VS.4). Independent from size so node
-    // markers and link strokes scale on their own px ranges. Default-off.
-    if (m_outputWidthEnabled) {
-        const double w = widthForBin(bin);
-        for (SymbolLayer &sl : styled.layers) {
-            if (sl.props.contains(QStringLiteral("width")))
-                sl.props.insert(QStringLiteral("width"), w);
+        if (sOk) {
+            // Output axis 2 — marker size (Slice BI Phase 8.13.43-α).
+            if (m_outputSizeEnabled) {
+                const double sz = (independent && sizeValueRangeValid())
+                                      ? sizeForValue(sVal)
+                                      : sizeForBin(bin);
+                for (SymbolLayer &sl : styled.layers) {
+                    if (sl.props.contains(QStringLiteral("size")))
+                        sl.props.insert(QStringLiteral("size"), sz);
+                }
+            }
+
+            // Output axis 3 — line width (VS.4). Independent px range from
+            // size so node markers and link strokes scale on their own.
+            if (m_outputWidthEnabled) {
+                const double w = (independent && sizeValueRangeValid())
+                                     ? widthForValue(sVal)
+                                     : widthForBin(bin);
+                for (SymbolLayer &sl : styled.layers) {
+                    if (sl.props.contains(QStringLiteral("width")))
+                        sl.props.insert(QStringLiteral("width"), w);
+                }
+            }
         }
     }
     return styled;
@@ -315,6 +354,12 @@ QJsonObject GraduatedRenderer::toJson() const
     QJsonObject obj;
     obj.insert(QStringLiteral("id"), rendererId());
     obj.insert(QStringLiteral("classifyAttribute"), m_classifyAttribute);
+    // Independent size attribute (empty = follow classifyAttribute).
+    if (!m_sizeAttribute.isEmpty()) {
+        obj.insert(QStringLiteral("sizeAttribute"), m_sizeAttribute);
+        obj.insert(QStringLiteral("sizeValueMin"), m_sizeValueMin);
+        obj.insert(QStringLiteral("sizeValueMax"), m_sizeValueMax);
+    }
     obj.insert(QStringLiteral("ramp"), m_ramp.toJson());
     obj.insert(QStringLiteral("binner"), m_binner.toJson());
     QJsonArray jb;
@@ -349,6 +394,11 @@ QJsonObject GraduatedRenderer::toJson() const
 void GraduatedRenderer::fromJson(const QJsonObject &j)
 {
     m_classifyAttribute = j.value(QStringLiteral("classifyAttribute")).toString();
+    // Independent size attribute — absent in pre-size-attribute projects,
+    // which leaves the axes following classifyAttribute (bin-mapped).
+    m_sizeAttribute = j.value(QStringLiteral("sizeAttribute")).toString();
+    m_sizeValueMin  = j.value(QStringLiteral("sizeValueMin")).toDouble(0.0);
+    m_sizeValueMax  = j.value(QStringLiteral("sizeValueMax")).toDouble(0.0);
 
     // BB-α schema: prefer the new "ramp" + "binner" keys when present.
     if (j.contains(QStringLiteral("ramp")))

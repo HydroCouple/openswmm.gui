@@ -63,6 +63,9 @@ namespace openswmmvis::ui {
 class UserFlagsModel;   // [USER_FLAGS] / [USER_FLAG_VALUES] store — see ensureUserFlagsModel().
 }
 
+// Persistent per-kind symbol adapter set — see elementSymbolAdapter().
+class SwmmElementSymbolAdapter;
+
 /*!
  * \struct SWMMElementSymbol
  * \brief Rendering style for a class of SWMM network elements.
@@ -323,11 +326,17 @@ public:
     // is overridden to keep the legacy m_showLabels flag in sync.
     void setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg) override;
 
-    /*! Per-kind QSG render scope. Each flag means "this kind is being
+    /*! Per-kind QSG render scope. Each flag means "this kind's GEOMETRY is
      *  drawn by the QSG (GPU) overlay; the CPU SWMMLayerItem must NOT
      *  draw it".  Symmetrically, the QSG renderer (SWMMLayerQSGRenderer)
-     *  uploads empty geometry for any kind NOT in the scope, so a kind
-     *  is drawn by exactly one pipeline.
+     *  uploads empty geometry for any kind NOT in the scope, so a kind's
+     *  geometry is drawn by exactly one pipeline.
+     *
+     *  EXCEPTION — text labels. Labels are ALWAYS painted by the CPU pass
+     *  (SWMMLayerItem's label block, deliberately not gated on these
+     *  flags); the QSG renderer has no text pipeline. This hybrid is the
+     *  documented contract (LAYER_STYLING_LABELING_PLAN_2026-08-16) — see
+     *  the doc comment atop swmmlayerqsgrenderer.cpp before changing it.
      *
      *  Progressive migration: nodes go QSG first, then links, then
      *  catchments. Default is empty — i.e. everything stays on the
@@ -656,16 +665,48 @@ public:
     [[nodiscard]] SWMMElementSymbol weirSymbol()       const;
     void setWeirSymbol(const SWMMElementSymbol &s);
 
+    /*! Outlets now have a real symbol channel (previously aliased the
+     *  conduit symbol). NOTE: the link PEN for outlets still comes from
+     *  the preferences "outlet" pen (paint parity decision — see
+     *  linkPenForType in swmmlayeritem.cpp); this struct drives flow
+     *  arrows, labels, renderer seeding and persistence. */
+    [[nodiscard]] SWMMElementSymbol outletSymbol()     const;
+    void setOutletSymbol(const SWMMElementSymbol &s);
+
     [[nodiscard]] SWMMElementSymbol subcatchmentSymbol() const;
     void setSubcatchmentSymbol(const SWMMElementSymbol &s);
 
     [[nodiscard]] SWMMElementSymbol rainGageSymbol()   const;
     void setRainGageSymbol(const SWMMElementSymbol &s);
 
-    /*! Slice U-4 — expose the 11 per-kind SWMMElementSymbol adapters as
-     *  styleable subjects for the unified LayerStyleDialog. */
+    /*! Slice U-4 — expose the 12 per-kind SWMMElementSymbol adapters as
+     *  styleable subjects for the unified LayerStyleDialog.
+     *
+     *  Adapter-ownership refactor (LAYER_STYLING_LABELING_PLAN follow-up):
+     *  the subject wrappers are fresh per call (cheap, non-owning), but the
+     *  underlying SwmmElementSymbolAdapter QObjects are the layer's
+     *  PERSISTENT set from elementSymbolAdapter() — one instance per kind
+     *  for the layer's lifetime. Every UI surface (dialog subjects,
+     *  SingleSymbolPanel, kind tree) edits the same adapter, which is what
+     *  makes the dialog's Cancel snapshot/rollback authoritative and stops
+     *  the per-open adapter leak. */
     [[nodiscard]] std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
         styleSubjects() override;
+
+    /*!
+     * \brief The layer's persistent per-kind symbol adapter for a subject
+     *        routing id ("model.junctions" … "model.virtualjunctions").
+     *        Lazily constructed on first request, parented to the layer,
+     *        resynced from the live struct on every fetch. Returns nullptr
+     *        for unknown ids.
+     */
+    [[nodiscard]] SwmmElementSymbolAdapter *
+        elementSymbolAdapter(const QString &routingId);
+
+    /*! Data-edit epoch — bumped on every modelEdited / attributeChanged.
+     *  Consumers (label text cache) compare against their stored value to
+     *  detect stale derived data. */
+    [[nodiscard]] quint64 editRevision() const { return m_editRevision; }
 
     // ----- Renderer (Slice BI Phase 8.13.6.5) -----------------------------
     // The renderer is the §J.2 seam every future paint path will go through.
@@ -2254,6 +2295,32 @@ private:
     SWMMElementSymbol            m_outletSym;   // Slice FX.1 — Outlets honor showArrows independently of Conduits.
     SWMMElementSymbol            m_subcatchSym;
     SWMMElementSymbol            m_gageSym;
+
+    // Persistent per-kind symbol adapters keyed by subject routing id
+    // ("model.junctions" …). Lazily built by elementSymbolAdapter(); owned
+    // via QObject parenting. set*Symbol keeps their cached structs truthful
+    // through resyncSymbolAdapter().
+    QHash<QString, SwmmElementSymbolAdapter *> m_symbolAdapters;
+    /*! Push the freshly-set struct into the persistent adapter (if built)
+     *  without re-invoking the writer. */
+    void resyncSymbolAdapter(const QString &routingId,
+                             const SWMMElementSymbol &s);
+
+    // Data-edit epoch for derived style/label caches. Bumped whenever
+    // modelEdited or attributeChanged fires (self-connections in the ctor)
+    // so consumers (SWMMLayerItem's label cache) can detect staleness
+    // without wiring their own signal plumbing. Distinct from
+    // m_geomRevision, which tracks scene-coordinate rebuilds only.
+    quint64 m_editRevision = 0;
+    /*! Coalescing guard — the ctor's self-connections bump m_editRevision
+     *  immediately but defer invalidateDerivedStyleCaches() through a
+     *  zero-timeout singleShot so bulk edits cost one rebuild. */
+    bool m_derivedStyleCachesPending = false;
+    /*! Invalidate style caches derived from model DATA: clears every
+     *  graduated kind renderer's independent size value range and rebuilds
+     *  that kind's override cache so sizes re-normalise against the edited
+     *  values. */
+    void invalidateDerivedStyleCaches();
 
     // Slice BI Phase 8.13.6.5 — renderer plumbing. Eagerly initialised in
     // the ctor (default placeholder: SingleSymbolRenderer) so renderer()

@@ -49,6 +49,7 @@ class Rule;          // Slice B.6a — Rule-aware ctor below.
 namespace openswmmvis::ui {
 
 class ClassificationEditor;
+class ColorButton;
 class GraduatedRendererBinding;
 
 class KindRendererPanel : public QWidget
@@ -69,6 +70,26 @@ public:
     explicit KindRendererPanel(OpenSWMM::Render::Rule *rule,
                                 QWidget *parent = nullptr);
 
+    /*! Rule-aware constructor that ALSO knows which kind of which layer the
+     *  Rule mirrors.
+     *
+     *  The renderer still reads and writes through \p rule (it takes priority
+     *  in currentRenderer / installRenderer / resetToDefaults, so behaviour is
+     *  unchanged). The extra context exists for the controls that are NOT
+     *  renderer state and therefore cannot be reached through a Rule at all —
+     *  today that is the flow-direction-arrow group, which lives on the
+     *  layer's per-kind channel (SWMMElementSymbol for model layers,
+     *  LineFeatureSublayerStyle for results layers).
+     *
+     *  Without this, the rule-only constructor left the panel with a null host
+     *  and a `CatJunctions` sentinel category, so `isLinkKind()` was false and
+     *  the arrow group stayed hidden for every rule-backed kind — which is
+     *  every kind on a results layer. */
+    KindRendererPanel(OpenSWMM::Render::Rule *rule,
+                      OpenSWMMVisLayer *hostLayer,
+                      OpenSWMMVis::SwmmCategory category,
+                      QWidget *parent = nullptr);
+
     // Out-of-line so unique_ptr<GraduatedRendererBinding> (forward-declared)
     // is destroyed where the type is complete.
     ~KindRendererPanel() override;
@@ -85,6 +106,10 @@ private slots:
     void onAttributeChanged(int comboRow);
     // Gap A4.5 — output axes: size-by-value (points) / width-by-value (lines).
     void onOutputAxisChanged();
+    /*! Pushes the arrow controls' values onto the host's arrow channel. */
+    void onArrowsChanged();
+    // Independent size attribute — "(same as color)" or a numeric field.
+    void onSizeAttributeChanged(int comboRow);
 
 private:
     void buildUi();
@@ -92,6 +117,10 @@ private:
     /*! IAttributeProvider host — the layer itself, or the Rule's owning
      *  layer (two QObject parents up). */
     OpenSWMMVisLayer *attributeProviderHost() const;
+
+    /*! Seeds the arrow controls from the host and shows the group only for
+     *  link kinds that actually have an arrow channel. */
+    void syncArrowsFromHost();
 
     OpenSWMMVisLayer       *m_hostLayer = nullptr;
     SWMMModelLayer         *m_modelLayer = nullptr;     // either m_modelLayer
@@ -114,6 +143,23 @@ private:
     QCheckBox          *m_axisCheck    = nullptr;
     QDoubleSpinBox     *m_axisMinSpin  = nullptr;
     QDoubleSpinBox     *m_axisMaxSpin  = nullptr;
+    // Independent size attribute picker ("Size by:") — row hidden when the
+    // axis row is hidden; combo disabled until the axis toggle is on.
+    QWidget            *m_sizeAttrRow   = nullptr;
+    QComboBox          *m_sizeAttrCombo = nullptr;
+
+    // Flow-direction arrows — a property of the LINK KIND, not of the
+    // renderer, so it belongs on every editor a link kind can mount. The
+    // single-symbol editors (SwmmElementSymbolEditor for model layers,
+    // the Line feature-style editor for results layers) each carry their
+    // own copy; this one covers the graduated / categorized panels, which
+    // otherwise made the arrows vanish the moment a conduit was themed.
+    // Bound to whichever channel the host exposes — see
+    // syncArrowsFromHost() for the two-channel split.
+    QWidget            *m_arrowBox      = nullptr;
+    QCheckBox          *m_arrowShowChk  = nullptr;
+    QDoubleSpinBox     *m_arrowSizeSpin = nullptr;
+    ColorButton        *m_arrowColorBtn = nullptr;
 
     // Slice US.1 — shared classification block.
     ClassificationEditor                     *m_classEditor = nullptr;

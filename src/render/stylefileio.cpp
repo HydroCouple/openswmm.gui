@@ -64,16 +64,12 @@ QString layerTypeTag(const OpenSWMMVisLayer *layer)
 // Export
 // ---------------------------------------------------------------------------
 
-StyleFileIO::Result StyleFileIO::exportStyle(const OpenSWMMVisLayer *layer,
-                                              const QString &path)
+QJsonObject StyleFileIO::styleToJson(const OpenSWMMVisLayer *layer)
 {
-    Result res;
-    if (!layer) {
-        res.errorMessage = QObject::tr("No layer provided to export.");
-        return res;
-    }
-
     QJsonObject root;
+    if (!layer)
+        return root;
+
     root[QStringLiteral("schema")]    = QString::fromLatin1(kSchema);
     root[QStringLiteral("layerType")] = layerTypeTag(layer);
 
@@ -91,9 +87,9 @@ StyleFileIO::Result StyleFileIO::exportStyle(const OpenSWMMVisLayer *layer,
         }
         if (!kindObj.isEmpty())
             root[QStringLiteral("kindRenderers")] = kindObj;
-        const LabelConfig dl;
-        if (m->labelConfig() != dl)
-            root[QStringLiteral("labelConfig")] = m->labelConfig().toJson();
+        // Always include the label config (a Cancel/undo restore must be
+        // able to reset a mid-session enable back to the default).
+        root[QStringLiteral("labelConfig")] = m->labelConfig().toJson();
     }
     // SWMM results layer: per-kind only.
     if (auto *rl = qobject_cast<const SWMMResultsLayer *>(
@@ -106,16 +102,28 @@ StyleFileIO::Result StyleFileIO::exportStyle(const OpenSWMMVisLayer *layer,
         }
         if (!kindObj.isEmpty())
             root[QStringLiteral("kindRenderers")] = kindObj;
+        root[QStringLiteral("labelConfig")] = rl->labelConfig().toJson();
     }
     // GIS vector layer: label config (lives inside the symbol bag).
     if (auto *vec = qobject_cast<const GISVectorLayer *>(
             const_cast<OpenSWMMVisLayer *>(layer))) {
-        const LabelConfig dl;
-        if (vec->labelConfig() != dl)
-            root[QStringLiteral("labelConfig")] = vec->labelConfig().toJson();
+        root[QStringLiteral("labelConfig")] = vec->labelConfig().toJson();
         // Symbol bag (markers, line, polygon, labels legacy fields).
         root[QStringLiteral("vectorSymbol")] = vec->symbol().toJson();
     }
+    return root;
+}
+
+StyleFileIO::Result StyleFileIO::exportStyle(const OpenSWMMVisLayer *layer,
+                                              const QString &path)
+{
+    Result res;
+    if (!layer) {
+        res.errorMessage = QObject::tr("No layer provided to export.");
+        return res;
+    }
+
+    const QJsonObject root = styleToJson(layer);
 
     QSaveFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -178,6 +186,20 @@ StyleFileIO::Result StyleFileIO::importNative(OpenSWMMVisLayer *layer,
             "Schema marker missing or unrecognised (got '%1') — proceeding anyway.")
             .arg(schema);
 
+    Result applied = applyStyleJson(layer, root);
+    applied.warnings = res.warnings + applied.warnings;
+    return applied;
+}
+
+StyleFileIO::Result StyleFileIO::applyStyleJson(OpenSWMMVisLayer *layer,
+                                                 const QJsonObject &root)
+{
+    Result res;
+    if (!layer) {
+        res.errorMessage = QObject::tr("No layer provided.");
+        return res;
+    }
+
     // Layer-level renderer.
     if (root.contains(QStringLiteral("renderer"))) {
         if (auto r = makeRenderer(root.value(QStringLiteral("renderer")).toObject()))
@@ -208,6 +230,11 @@ StyleFileIO::Result StyleFileIO::importNative(OpenSWMMVisLayer *layer,
             if (!kindObj.contains(key)) continue;
             if (auto r = makeRenderer(kindObj.value(key).toObject()))
                 rl->setKindRenderer(c, std::move(r));
+        }
+        if (root.contains(QStringLiteral("labelConfig"))) {
+            LabelConfig lc;
+            lc.fromJson(root.value(QStringLiteral("labelConfig")).toObject());
+            rl->setLabelConfig(lc);
         }
     }
     if (auto *vec = qobject_cast<GISVectorLayer *>(layer)) {

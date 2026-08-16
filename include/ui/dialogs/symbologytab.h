@@ -43,6 +43,12 @@ public:
 
 private slots:
     void onRendererChanged(int comboIndex);
+    /*! Re-read the installed renderer and, when its class differs from the
+     *  combo selection, resync the combo + remount the matching panel.
+     *  Deferred (queued) from the host layer's rendererChanged so renderer
+     *  swaps made outside the combo — the embedded Mode combo in a mounted
+     *  editor, undo, style import — keep this tab truthful. */
+    void syncToInstalledRenderer();
 
 private:
     void mountPanelForId(const QString &rendererId);
