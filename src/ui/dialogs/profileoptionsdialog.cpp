@@ -9,6 +9,7 @@
 #include "animation/animationcontroller.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
+#include "plot/profileattributetrackoptions.h"
 #include "plot/profileplotoptions.h"
 #include "swmmvisprojectwindow.h"
 #include "ui/dialogs/profileresultsources.h"
@@ -141,6 +142,40 @@ void ProfileOptionsDialog::buildDisplayTab()
 #endif
 
     m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, m_tabs), tr("&Display"));
+}
+
+void ProfileOptionsDialog::setTrackOptions(
+    ProfileAttributeTrackOptions *trackOptions)
+{
+    if (!trackOptions || !m_tabs) return;
+
+    auto *page = new QWidget(this);
+    auto *vbox = new QVBoxLayout(page);
+    vbox->setContentsMargins(6, 6, 6, 6);
+
+    auto *tree = new QTreeView(page);
+    tree->setAlternatingRowColors(true);
+    tree->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    vbox->addWidget(tree, /*stretch=*/1);
+
+#ifdef HAVE_QPROPERTYMODEL
+    auto *pm       = new QPropertyModel(this);
+    auto *delegate = new QPropertyItemDelegate(this);
+    tree->setModel(pm);
+    tree->setItemDelegate(delegate);
+    tree->header()->setDefaultSectionSize(180);
+    pm->setData(QVariant::fromValue<QObject *>(trackOptions));
+    tree->expandAll();
+    connect(trackOptions, &ProfileAttributeTrackOptions::changed, pm,
+            [pm] { pm->refreshValues(); });
+#else
+    vbox->addWidget(new QLabel(
+        tr("Property editor unavailable (QPropertyModel not built in)."),
+        page));
+#endif
+
+    m_tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(page, m_tabs),
+                   tr("Attribute &Tracks"));
 }
 
 void ProfileOptionsDialog::buildSourcesTab()

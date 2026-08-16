@@ -16,6 +16,9 @@
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
+#include "plot/profileattributesampler.h"
+#include "plot/profileattributetrackoptions.h"
+#include "plot/profileattributetrackswidget.h"
 #include "plot/profilenetworkadapter.h"
 #include "plot/profileplotoptions.h"
 #include "plot/profilesourcefetcher.h"
@@ -30,6 +33,7 @@
 
 #include <ogr_spatialref.h>
 
+#include <algorithm>
 #include <limits>
 
 #include <QAction>
@@ -52,9 +56,19 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QSplitter>
 #include <QStyle>
+#include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
+
+namespace {
+/*! QSettings group holding the attribute-tracks selection + styling. One
+ *  app-wide group (not per-model): which attributes an engineer inspects is
+ *  a personal working preference, like the profile's layer toggles. */
+const char *const kTrackSettingsGroup = "ProfilePlot/AttributeTracks";
+} // namespace
 
 namespace {
 
@@ -94,6 +108,16 @@ ProfilePlotDialog::ProfilePlotDialog(SWMMModelLayer              *model,
     // model-driven Display Options dialog.  Any setter on it propagates
     // through the `changed()` signal.
     m_options = new ProfilePlotOptions(this);
+    // Attribute-tracks options — restored from settings before buildLayout()
+    // so the menu checks and pane visibility come up as the user left them.
+    // (readFrom emits changed() but nothing is connected yet — harmless.)
+    m_trackOptions = new ProfileAttributeTrackOptions(this);
+    {
+        QSettings s;
+        s.beginGroup(QLatin1String(kTrackSettingsGroup));
+        m_trackOptions->readFrom(s);
+        s.endGroup();
+    }
     // Promote the dialog to a regular top-level window so the OS gives it
     // minimize / maximize / zoom controls instead of the macOS "panel"
     // treatment that QDialog's default flags trigger.
@@ -138,8 +162,10 @@ ProfilePlotDialog::ProfilePlotDialog(SWMMModelLayer              *model,
                 this, refreshForResultLayerChange);
     }
 
-    // Lifetime: this dialog is a top-level window parented to nullptr (so
-    // it gets its own dock icon on macOS), but it holds raw pointers to
+    // Lifetime: this dialog is a top-level window parented to its project
+    // sub-window (see SWMMVis::openProfilePlotFor — parentage keeps it in
+    // the Qt object tree so it closes with its document), and it holds
+    // raw pointers to
     // the primary project's model layer, animation controller, project
     // window, plus result-layer pointers belonging to *other* projects
     // when the user opts into multi-source comparison.  Each owning
@@ -269,7 +295,52 @@ void ProfilePlotDialog::buildLayout()
     m_plot = new ProfilePlotWidget(this);
     m_plot->setPath(m_pathStatic);
     m_plot->setOptions(m_options);
-    centre->addWidget(m_plot, /*stretch=*/1);
+
+    // Attribute-tracks pane: the profile and the tracks share a vertical
+    // splitter. The splitter's objectName is load-bearing — the app-wide
+    // DialogLayoutWatcher persists named splitter state (incl. the
+    // collapsed position) under Dialogs/ProfilePlotDialog/splitter/….
+    m_profileSplit = new QSplitter(Qt::Vertical, this);
+    m_profileSplit->setObjectName(QStringLiteral("profileSplit"));
+    m_profileSplit->setChildrenCollapsible(false);
+    // The plot goes in through a holder whose right margin absorbs the tracks
+    // scroll area's vertical scrollbar. Both panes map x as
+    // `left + frac * (width - leftGutter - rightGutter)`, so column alignment
+    // holds only while their widths agree — and `setWidgetResizable(true)`
+    // shrinks the tracks widget to the VIEWPORT, i.e. by the scrollbar width
+    // the moment the pane has to scroll (which is exactly what the scroll area
+    // is here for). Without this the last node sits a full scrollbar-width
+    // off between the panes. Zero on styles with transient/overlay scrollbars.
+    m_plotHolder = new QWidget(m_profileSplit);
+    auto *plotHolderLayout = new QHBoxLayout(m_plotHolder);
+    plotHolderLayout->setContentsMargins(0, 0, 0, 0);
+    plotHolderLayout->setSpacing(0);
+    plotHolderLayout->addWidget(m_plot);
+    m_profileSplit->addWidget(m_plotHolder);
+    m_tracks = new ProfileAttributeTracksWidget;
+    m_tracks->setOptions(m_trackOptions);
+    // Scroll container: each track demands a fixed minimum height, and all
+    // 11 attributes at once would otherwise force the DIALOG taller than
+    // the screen. Inside a scroll area the pane scrolls instead.
+    m_tracksScroll = new QScrollArea(m_profileSplit);
+    m_tracksScroll->setWidgetResizable(true);
+    m_tracksScroll->setFrameShape(QFrame::NoFrame);
+    m_tracksScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_tracksScroll->setWidget(m_tracks);
+    m_profileSplit->addWidget(m_tracksScroll);
+    // The scrollbar comes and goes as tracks are added / the pane is dragged;
+    // the tracks widget resizes exactly when it does, so watch that.
+    m_tracks->installEventFilter(this);
+    // The profile must never collapse; the tracks pane may (drag-to-
+    // collapse is one of the three collapse affordances — see the master
+    // toggle wiring in buildAttributeTracksUi).
+    m_profileSplit->setCollapsible(0, false);
+    m_profileSplit->setCollapsible(1, true);
+    m_profileSplit->setStretchFactor(0, 3);
+    m_profileSplit->setStretchFactor(1, 1);
+    centre->addWidget(m_profileSplit, /*stretch=*/1);
+
+    buildAttributeTracksUi(toolbar);
 
     // Distance / elevation axis labels — pulled from the active project's
     // UnitSystem so the suffix matches the rest of the GUI.  Re-applied
@@ -358,6 +429,8 @@ void ProfilePlotDialog::buildLayout()
         if (terrainChanged) {
             rebuildTerrainSamples();
             m_plot->setPath(m_pathStatic);
+            // setPath rebuilt the virtual-chainage table — re-share it.
+            syncTracksAxes();
         }
         // A plot-level line style the user just edited has to reach the
         // sources before the series are rebuilt from them — otherwise the
@@ -395,6 +468,7 @@ void ProfilePlotDialog::buildLayout()
                                              m_anim.data(),
                                              m_projectWindow.data(),
                                              this);
+        dlg->setTrackOptions(m_trackOptions);   // adds the Attribute Tracks tab
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->setWindowFlags(dlg->windowFlags()
                             | openswmmvis::ui::floatingPanelFlags());
@@ -457,9 +531,14 @@ void ProfilePlotDialog::buildLayout()
             this, tr("Export Profile Plot"),
             QString(), tr("PNG image (*.png)"));
         if (path.isEmpty()) return;
-        QPixmap pix(m_plot->size());
+        // Render the splitter contents — profile plus (when visible) the
+        // attribute tracks — so the export matches what the user sees.
+        QWidget *target = (m_tracks && m_tracks->isVisible())
+                              ? static_cast<QWidget *>(m_profileSplit)
+                              : static_cast<QWidget *>(m_plot);
+        QPixmap pix(target->size());
         pix.fill(Qt::white);
-        m_plot->render(&pix);
+        target->render(&pix);
         pix.save(path, "PNG");
     });
 
@@ -1171,6 +1250,11 @@ void ProfilePlotDialog::rebindSources()
                 if (auto *primary = m_anim->primaryLayer())
                     onAnimationTimeChanged(primary->currentDateTime());
             }
+            // setSeries recomputed the profile's bounds/virtual table —
+            // re-share the axes and rebuild the tracks pane against the
+            // (possibly changed) checked-source set.
+            syncTracksAxes();
+            rebuildTracks();
         }
         watcher->deleteLater();
     });
@@ -1181,6 +1265,11 @@ void ProfilePlotDialog::invalidateSourceCacheFor(SWMMResultsLayer *layer)
 {
     if (!layer) return;
     m_sourceCache.remove(layer);
+    // Attribute-tracks cache entries for this layer are equally stale.
+    for (auto it = m_attrCache.begin(); it != m_attrCache.end();) {
+        if (it.key().first == layer) it = m_attrCache.erase(it);
+        else                         ++it;
+    }
 }
 
 void ProfilePlotDialog::ensureCacheInvalidationWired(SWMMResultsLayer *layer)
@@ -1200,8 +1289,14 @@ void ProfilePlotDialog::ensureCacheInvalidationWired(SWMMResultsLayer *layer)
     // hash never holds a dangling key.
     connect(layer, &QObject::destroyed,
             this, [this, layer]() {
-                m_sourceCache.remove(layer);
+                invalidateSourceCacheFor(layer);   // source + attribute caches
                 m_cacheWired.remove(layer);
+                // Discard any in-flight fetch: its result hash is keyed by
+                // this (now dangling) raw pointer, and merging it would both
+                // cache a dead key and re-wire signals on a destroyed
+                // object. The next rebind/rebuild starts clean.
+                ++m_loadCookie;
+                ++m_trackLoadCookie;
             });
 }
 
@@ -1328,4 +1423,361 @@ void ProfilePlotDialog::onAnimationTimeChanged(const QDateTime &dt)
     const int period = primary->periodIndexForDateTime(dt);
     m_plot->setCurrentPeriod(/*sourceIdx=*/0, period);
     m_plot->setCurrentDateTime(dt);
+    if (m_tracks)
+        m_tracks->setCurrentPeriod(period);
+}
+
+// ---------------------------------------------------------------------------
+// Attribute tracks (synced pane below the profile)
+// ---------------------------------------------------------------------------
+
+void ProfilePlotDialog::buildAttributeTracksUi(QToolBar *toolbar)
+{
+    using openswmmvis::plot::PlotAttribute;
+    using openswmmvis::plot::labelFor;
+
+    // ── Toolbar: "Tracks ▾" attribute picker + master show/hide toggle ──
+    auto *tracksButton = new QToolButton(toolbar);
+    tracksButton->setText(tr("Tracks"));
+    tracksButton->setIcon(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("ChartProperties")));
+    tracksButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    tracksButton->setPopupMode(QToolButton::InstantPopup);
+    tracksButton->setToolTip(
+        tr("Attribute Tracks — add profile charts of node/link attributes "
+           "below the plot, x-axis synced to the profile"));
+    m_tracksMenu = new QMenu(tracksButton);
+    tracksButton->setMenu(m_tracksMenu);
+    toolbar->addSeparator();
+    toolbar->addWidget(tracksButton);
+
+    // Checkable menu entries — one per trackable attribute, grouped.
+    // QAction::setData carries the enum so one handler serves all.
+    auto addAttrActions = [this](const QString &sectionTitle,
+                                 const QVector<PlotAttribute> &attrs) {
+        m_tracksMenu->addSection(sectionTitle);
+        for (PlotAttribute a : attrs) {
+            QAction *act = m_tracksMenu->addAction(labelFor(a));
+            act->setCheckable(true);
+            act->setChecked(m_trackOptions->isAttributeVisible(a));
+            act->setData(int(a));
+            connect(act, &QAction::toggled, this, [this, a](bool on) {
+                // Options object is the single source of truth; its
+                // changed() drives the rebuild and menu re-sync.
+                m_trackOptions->setAttributeVisible(a, on);
+            });
+        }
+    };
+    addAttrActions(tr("Node attributes"),
+                   openswmmvis::plot::nodePlotAttributes());
+    addAttrActions(tr("Link attributes"),
+                   openswmmvis::plot::linkPlotAttributes());
+
+    // Master show/hide toggle. Named ⇒ its checked state persists via the
+    // DialogLayoutWatcher toggle group, like ComparisonPlotDialog's panel
+    // toggles.
+    m_actShowTracks = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("ChartProperties")),
+        tr("Show Attribute Tracks"));
+    m_actShowTracks->setObjectName(QStringLiteral("showAttributeTracks"));
+    m_actShowTracks->setCheckable(true);
+    m_actShowTracks->setChecked(true);
+    connect(m_actShowTracks, &QAction::toggled, this, [this](bool on) {
+        if (!on && m_profileSplit && m_tracksScroll
+            && m_tracksScroll->isVisible()) {
+            // Remember the expanded proportions for the re-show.
+            const QList<int> sizes = m_profileSplit->sizes();
+            if (sizes.size() == 2 && sizes[1] > 0)
+                m_lastSplitSizes = sizes;
+        }
+        updateTracksPaneVisibility();
+        if (on && m_profileSplit && m_lastSplitSizes.size() == 2)
+            m_profileSplit->setSizes(m_lastSplitSizes);
+    });
+
+    // Drag-to-collapse: dragging the handle until the pane hits zero height
+    // unchecks the master toggle so the two affordances never disagree
+    // (unchecking hides the pane entirely; re-checking restores the last
+    // expanded sizes). The uncheck is DEFERRED — it hides the pane, and
+    // yanking a splitter child out from under an in-progress drag ends the
+    // gesture abruptly.
+    connect(m_profileSplit, &QSplitter::splitterMoved, this, [this]() {
+        if (!m_actShowTracks || !m_tracksScroll
+            || !m_tracksScroll->isVisible())
+            return;
+        const QList<int> sizes = m_profileSplit->sizes();
+        if (sizes.size() == 2 && sizes[1] == 0) {
+            QTimer::singleShot(0, this, [this]() {
+                if (m_actShowTracks) m_actShowTracks->setChecked(false);
+            });
+        } else if (sizes.size() == 2 && sizes[1] > 0) {
+            m_lastSplitSizes = sizes;
+        }
+    });
+
+    // ── X-axis sync, both directions, one re-entrancy guard ────────────
+    connect(m_plot, &ProfilePlotWidget::visibleXRangeChanged, this,
+            [this](double vxMin, double vxMax) {
+        if (m_syncingX) return;
+        m_syncingX = true;
+        m_tracks->setVisibleXRange(vxMin, vxMax);
+        m_syncingX = false;
+    });
+    connect(m_tracks, &ProfileAttributeTracksWidget::visibleXRangeChanged,
+            this, [this](double vxMin, double vxMax) {
+        if (m_syncingX) return;
+        m_syncingX = true;
+        m_plot->setVisibleXRange(vxMin, vxMax);
+        m_syncingX = false;
+    });
+
+    // ── Options changed → persist, re-sync menu checks, rebuild ────────
+    connect(m_trackOptions, &ProfileAttributeTrackOptions::changed, this,
+            [this]() {
+        QSettings s;
+        s.beginGroup(QLatin1String(kTrackSettingsGroup));
+        m_trackOptions->writeTo(s);
+        s.endGroup();
+        // Menu checks follow the options object (the Display Options tree
+        // edits the same instance) — block the actions' toggled() so this
+        // re-sync can't loop back into setAttributeVisible.
+        if (m_tracksMenu) {
+            const auto acts = m_tracksMenu->actions();
+            for (QAction *act : acts) {
+                if (!act->isCheckable() || !act->data().isValid()) continue;
+                const auto a = PlotAttribute(act->data().toInt());
+                QSignalBlocker block(act);
+                act->setChecked(m_trackOptions->isAttributeVisible(a));
+            }
+        }
+        rebuildTracks();
+    });
+
+    syncTracksAxes();
+    updateTracksPaneVisibility();
+    // Initial data load happens through rebindSources() → rebuildTracks().
+}
+
+void ProfilePlotDialog::updateTracksPaneVisibility()
+{
+    if (!m_tracksScroll || !m_profileSplit) return;
+    const bool any  = m_trackOptions && m_trackOptions->anyAttributeVisible();
+    const bool show = any && (!m_actShowTracks || m_actShowTracks->isChecked());
+    if (m_actShowTracks) m_actShowTracks->setEnabled(any);
+    // Hiding the pane also hides the splitter handle — with no attribute
+    // selected the dialog looks exactly as it did before this feature.
+    m_tracksScroll->setVisible(show);
+    syncTracksGutter();   // hidden pane ⇒ give the plot its full width back
+}
+
+void ProfilePlotDialog::showEvent(QShowEvent *event)
+{
+    QDialog::showEvent(event);
+    // DialogLayoutWatcher restores the named splitter's state synchronously
+    // during this same Show (including a drag-collapsed pane), and
+    // restoreState() emits no splitterMoved — reconcile the master toggle
+    // once the restore has settled.
+    QTimer::singleShot(0, this, [this]() {
+        if (!m_profileSplit || !m_actShowTracks || !m_tracksScroll) return;
+        if (!m_tracksScroll->isVisible()) return;
+        const QList<int> sizes = m_profileSplit->sizes();
+        if (sizes.size() == 2 && sizes[1] == 0 && m_actShowTracks->isChecked()) {
+            // Restored collapsed but toggle restored checked — believe the
+            // splitter (it is what the user last saw) and sync the action.
+            m_actShowTracks->setChecked(false);
+        }
+    });
+}
+
+bool ProfilePlotDialog::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_tracks && event->type() == QEvent::Resize)
+        syncTracksGutter();
+    return QDialog::eventFilter(watched, event);
+}
+
+void ProfilePlotDialog::syncTracksGutter()
+{
+    if (!m_plotHolder || !m_tracksScroll) return;
+    // How much narrower the tracks widget is than the pane it sits in — the
+    // vertical scrollbar, or 0 where the style draws it as an overlay. With
+    // the pane hidden there is nothing to line up with, and the plot must get
+    // the full width back (§3.1: no attribute selected ⇒ dialog looks exactly
+    // as it did before this feature).
+    const int deficit = m_tracksScroll->isVisible()
+        ? std::max(0, m_tracksScroll->width()
+                      - m_tracksScroll->viewport()->width())
+        : 0;
+    auto *lay = m_plotHolder->layout();
+    if (!lay) return;
+    const QMargins m = lay->contentsMargins();
+    if (m.right() == deficit) return;
+    lay->setContentsMargins(m.left(), m.top(), deficit, m.bottom());
+}
+
+void ProfilePlotDialog::syncTracksAxes()
+{
+    if (!m_tracks || !m_plot) return;
+    syncTracksGutter();
+    m_tracks->setVirtualChainage(m_plot->virtualChainageTable());
+    m_tracks->setHorizontalMargins(ProfilePlotWidget::chartLeftMarginPx(),
+                                   ProfilePlotWidget::chartRightMarginPx());
+    m_tracks->setRealChainageMapper(
+        [plot = QPointer<ProfilePlotWidget>(m_plot)](double vx) {
+            return plot ? plot->virtualToRealChainage(vx) : vx;
+        });
+    const QRectF r = m_plot->visibleDataRange();
+    m_tracks->setVisibleXRange(r.left(), r.right());
+
+    auto *us = m_projectWindow ? m_projectWindow->unitSystem()
+                               : UnitSystem::instance();
+    const QString unit = us ? us->lengthLabel() : QString();
+    m_tracks->setXLabel(unit.isEmpty() ? tr("Distance")
+                                       : tr("Distance (%1)").arg(unit));
+}
+
+void ProfilePlotDialog::rebuildTracks()
+{
+    using openswmmvis::plot::PlotAttribute;
+    if (!m_tracks || !m_trackOptions) return;
+
+    updateTracksPaneVisibility();
+
+    const QVector<PlotAttribute> attrs = m_trackOptions->visibleAttributes();
+    if (attrs.isEmpty() || !m_sourceMenu) {
+        m_tracks->setTracks({});
+        return;
+    }
+
+    // ── Collect checked sources (GUI thread — safe QObject reads) ──────
+    struct TrackJob {
+        QString sourceId;
+        QColor  color;
+        bool    primary = false;
+        QPointer<SWMMResultsLayer> layer;
+    };
+    QVector<TrackJob> jobs;
+    SWMMResultsLayer *primaryLayer = m_anim ? m_anim->primaryLayer() : nullptr;
+    const auto actions = m_sourceMenu->actions();
+    for (QAction *act : actions) {
+        if (!act || !act->isChecked()) continue;
+        QPointer<SWMMResultsLayer> layer = m_actionLayer.value(act);
+        if (!layer) continue;
+        TrackJob j;
+        j.sourceId = layer->scenarioName().isEmpty()
+                         ? QFileInfo(layer->resultsFilePath()).completeBaseName()
+                         : layer->scenarioName();
+        j.color   = layer->profileLineColor();
+        j.primary = (layer.data() == primaryLayer);
+        j.layer   = layer;
+        jobs.push_back(j);
+    }
+    if (jobs.isEmpty()) {
+        m_tracks->setTracks({});
+        return;
+    }
+    // Envelopes are drawn for the primary source; if the animation primary
+    // isn't among the checked sources, promote the first so the band still
+    // has an owner.
+    if (std::none_of(jobs.cbegin(), jobs.cend(),
+                     [](const TrackJob &j) { return j.primary; }))
+        jobs[0].primary = true;
+
+    // ── Resolve titles/pens on the GUI thread ──────────────────────────
+    namespace P = openswmmvis::plot;
+    P::UnitSystem us = P::UnitSystem::US;
+    if (primaryLayer)
+        us = P::unitSystemFromFlowUnits(primaryLayer->flowUnits());
+    struct TrackSpec {
+        PlotAttribute attr;
+        bool    isNode;
+        QString title;
+        QPen    pen;
+    };
+    QVector<TrackSpec> specs;
+    specs.reserve(attrs.size());
+    for (PlotAttribute a : attrs) {
+        TrackSpec spec;
+        spec.attr   = a;
+        spec.isNode = ProfileAttributeSampler::isNodeAttribute(a);
+        spec.title  = P::labelWithUnits(a, us);
+        spec.pen    = m_trackOptions->penFor(a);
+        specs.push_back(spec);
+    }
+
+    // ── Fetch off-thread; cookie guards stale returns (rebindSources
+    // pattern). Cache snapshot shares refcounted profiles with the worker.
+    const int  cookie        = ++m_trackLoadCookie;
+    const auto pathSnapshot  = m_pathStatic;
+    const auto cacheSnapshot = m_attrCache;
+
+    using TW = ProfileAttributeTracksWidget;
+    struct TracksResult {
+        QVector<TW::Track> tracks;
+        QHash<QPair<SWMMResultsLayer *, int>,
+              std::shared_ptr<const ProfileAttributeSampler::AttributeProfile>>
+            fresh;
+    };
+
+    auto future = QtConcurrent::run(
+        [jobs, specs, pathSnapshot, cacheSnapshot]() -> TracksResult {
+        TracksResult res;
+        res.tracks.reserve(specs.size());
+        for (const TrackSpec &spec : specs) {
+            TW::Track t;
+            t.attribute       = spec.attr;
+            t.isNodeAttribute = spec.isNode;
+            t.title           = spec.title;
+            t.pen             = spec.pen;
+            for (const TrackJob &j : jobs) {
+                if (!j.layer) continue;
+                const auto key = qMakePair(j.layer.data(), int(spec.attr));
+                std::shared_ptr<const ProfileAttributeSampler::AttributeProfile>
+                    prof;
+                if (const auto it = cacheSnapshot.constFind(key);
+                    it != cacheSnapshot.constEnd() && *it) {
+                    prof = *it;
+                } else if (const auto ft = res.fresh.constFind(key);
+                           ft != res.fresh.constEnd()) {
+                    prof = *ft;
+                } else {
+                    prof = std::make_shared<
+                        const ProfileAttributeSampler::AttributeProfile>(
+                        ProfileAttributeSampler::fetch(j.layer, pathSnapshot,
+                                                       spec.attr));
+                    res.fresh.insert(key, prof);
+                }
+                TW::SourceProfile sp;
+                sp.label   = j.sourceId;
+                sp.color   = j.color;
+                sp.primary = j.primary;
+                sp.data    = prof;
+                t.sources.push_back(sp);
+            }
+            res.tracks.push_back(t);
+        }
+        return res;
+    });
+
+    auto *watcher = new QFutureWatcher<TracksResult>(this);
+    connect(watcher, &QFutureWatcher<TracksResult>::finished,
+            this, [this, watcher, cookie]() {
+        if (cookie == m_trackLoadCookie) {
+            const TracksResult r = watcher->result();
+            for (auto it = r.fresh.constBegin(); it != r.fresh.constEnd();
+                 ++it) {
+                m_attrCache.insert(it.key(), it.value());
+                ensureCacheInvalidationWired(it.key().first);
+            }
+            m_tracks->setTracks(r.tracks);
+            // Land the animated curve on the current period straight away.
+            if (m_anim) {
+                if (auto *primary = m_anim->primaryLayer())
+                    m_tracks->setCurrentPeriod(primary->periodIndexForDateTime(
+                        primary->currentDateTime()));
+            }
+        }
+        watcher->deleteLater();
+    });
+    watcher->setFuture(future);
 }
