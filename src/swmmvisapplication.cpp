@@ -31,6 +31,7 @@
 #include "core/preferencesmanager.h"
 #include "ui/dialogs/licenseagreementdialog.h"
 #include "ui/dialogs/dialoglayoutwatcher.h"
+#include "ui/dialogs/dialogregistry.h"
 #include "ui/theme/thememanager.h"
 #include "platform/macoswindowutils.h"
 
@@ -126,6 +127,18 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     // (see dialoglayoutwatcher.h). A separate filter so the macOS
     // stacking logic above stays untangled from persistence.
     installEventFilter(new openswmmvis::ui::DialogLayoutWatcher(this));
+
+    // Register of open modeless dialogs in most-recently-used order. Feeds
+    // the Window menu (so a dialog dragged onto a since-disconnected monitor
+    // is still reachable) and, when the Qt stacking mode is selected, the
+    // raise-on-activate pass that replaces the AppKit child-window
+    // attachment. Mode is resolved once here — see dialogregistry.h.
+    {
+        auto *registry = openswmmvis::ui::DialogRegistry::instance();
+        registry->setStackingMode(
+            openswmmvis::ui::DialogRegistry::configuredStackingMode());
+        installEventFilter(registry);
+    }
 
     //set up splash screen
     QPixmap pixmap(":/swmmvis/splashscreen");
@@ -235,7 +248,16 @@ bool SWMMVisApplication::eventFilter(QObject *watched, QEvent *event)
                     // separately by firing pickers on mouse RELEASE (ddca63d).
                     // If a freeze reappears, first look for a dialog shown from
                     // inside a mousePressEvent before suspecting this.
-                    if (dlg->windowModality() == Qt::NonModal)
+                    //
+                    // Skipped entirely in QtRaiseOnActivate mode, where
+                    // DialogRegistry re-raises dialogs on activation instead —
+                    // no native gluing, so a dialog can never be dragged
+                    // off-screen by the window it happens to be attached to.
+                    using openswmmvis::ui::DialogRegistry;
+                    const bool nativeStacking =
+                        DialogRegistry::instance()->stackingMode()
+                            == DialogRegistry::StackingMode::NativeChildWindow;
+                    if (nativeStacking && dlg->windowModality() == Qt::NonModal)
                         openswmmvis::platform::attachAsChildWindow(dlg);
 #endif
                 });

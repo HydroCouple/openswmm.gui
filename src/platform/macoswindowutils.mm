@@ -7,19 +7,56 @@
  */
 #include "platform/macoswindowutils.h"
 
+#include <QDialog>
 #include <QWidget>
 
 #import <AppKit/AppKit.h>
 
 namespace openswmmvis::platform {
 
+namespace {
+
+/*! Resolve the window a dialog should be ordered above.
+ *
+ *  AppKit child windows move RIGIDLY with their parent, so attaching a dialog
+ *  to another dialog glues the two together — that is the "moving the profile
+ *  dialog also moves the time-series dialog" defect. Dialogs are frequently
+ *  Qt-parented to another dialog on purpose (lifetime coupling: the overlay
+ *  ComparisonPlotDialog and the various Display Options dialogs must die with
+ *  the plot they configure), so the Qt parent is the wrong thing to attach to.
+ *
+ *  Walk up the chain of top-level windows until a NON-dialog one is found —
+ *  in practice the main window / project window. Every modeless dialog then
+ *  hangs off that single window and they no longer drag each other around,
+ *  while still being ordered above the application's own windows.
+ *
+ *  Returns nullptr when the chain contains nothing but dialogs; not attaching
+ *  at all is preferable to re-creating the gluing. */
+QWidget *stackingHostFor_(QWidget *dialog)
+{
+    QWidget *parent = dialog ? dialog->parentWidget() : nullptr;
+    QWidget *top    = parent ? parent->window() : nullptr;
+
+    // Bounded walk — a pathological parent cycle must not spin forever.
+    for (int hops = 0; top && hops < 16; ++hops) {
+        if (top == dialog)
+            return nullptr;                     // self-parented; nothing to do
+        if (!qobject_cast<QDialog *>(top))
+            return top;                         // real host window found
+        QWidget *next = top->parentWidget();
+        top = next ? next->window() : nullptr;  // dialog → keep climbing
+    }
+    return nullptr;
+}
+
+}   // namespace
+
 void attachAsChildWindow(QWidget *dialog)
 {
     if (!dialog || !dialog->isWindow())
         return;
 
-    QWidget *parentWidget = dialog->parentWidget();
-    QWidget *parentTop = parentWidget ? parentWidget->window() : nullptr;
+    QWidget *parentTop = stackingHostFor_(dialog);
     if (!parentTop || parentTop == dialog)
         return;
 

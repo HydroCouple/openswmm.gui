@@ -546,11 +546,26 @@ private slots:
 
     /*!
      * \brief Rebuild the macOS-style Window menu: Minimize / Zoom / separator /
-     *        dynamic list of open project sub-windows / separator / Bring All
-     *        to Front. Called on subWindowActivated and on every project
-     *        window's windowTitleChanged so dirty `*` markers refresh.
+     *        dynamic list of open project sub-windows / separator / open
+     *        modeless dialogs / separator / Bring All to Front / Reset Window
+     *        Positions. Called on subWindowActivated, on every project
+     *        window's windowTitleChanged so dirty `*` markers refresh, and on
+     *        DialogRegistry::openDialogsChanged.
      */
     void rebuildWindowMenu();
+
+    /*!
+     * \brief Recovery path for windows that have become unreachable — dragged
+     *        onto a monitor that was since disconnected, or restored from a
+     *        geometry that no longer maps onto any connected screen.
+     *
+     * Clears every saved window position (dialog `geometry` keys and the main
+     * window's), then moves the main window and all open modeless dialogs
+     * back onto the main window's current screen. Layout state that is not
+     * position data — splitter sizes, header widths, dock/toolbar arrangement
+     * — is deliberately preserved.
+     */
+    void resetWindowPositions();
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -726,6 +741,7 @@ private:
     QAction           *mActionWindowMinimize    = nullptr;
     QAction           *mActionWindowZoom        = nullptr;
     QAction           *mActionWindowBringAllToFront = nullptr;
+    QAction           *mActionWindowResetPositions  = nullptr;
 
     OpenSWMMVisWorkspace *mProject              = nullptr;
     SWMMVisProjectWindow *mActiveProjectWindow  = nullptr;  // last-bound project; survives transient focus loss

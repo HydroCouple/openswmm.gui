@@ -41,26 +41,126 @@ QString rootGroupName_(QWidget *root)
     return w ? w->objectName() : QString();
 }
 
-QRect clampToAvailableScreens_(const QRect &saved)
+/// Minimum slice of a window that must remain on a connected screen for the
+/// user to be able to grab and drag it back. Deliberately small — parking a
+/// window mostly off the edge is a legitimate thing to do; being unable to
+/// reach it ever again is not.
+constexpr int kMinVisibleWidth  = 160;
+constexpr int kMinVisibleHeight = 60;
+
+/// Fallback height of the title bar when the real frame is not yet known
+/// (the window has no native handle at restore time). macOS title bars are
+/// 28 px at 1x; the exact value only has to be in the right ballpark.
+constexpr int kDefaultTitleBarStrip = 28;
+
+/// Height of the frame decoration ABOVE the client rect. QWidget::setGeometry
+/// positions the CLIENT area, so the title bar — the only draggable part of
+/// the window — sits above `geometry().top()` and can be pushed under the
+/// menu bar by a naive restore.
+int titleBarStripFor_(const QWidget *w)
 {
-    // If the saved rect's center lies on a still-connected screen, keep it.
-    // Otherwise clamp into the primary screen's available geometry so the
-    // dialog at least lands somewhere the user can see + drag.
-    for (const QScreen *s : QGuiApplication::screens()) {
-        if (s && s->availableGeometry().contains(saved.center()))
-            return saved;
-    }
-    const QScreen *primary = QGuiApplication::primaryScreen();
-    if (!primary) return saved;
-    const QRect avail = primary->availableGeometry();
-    QRect r = saved;
-    if (r.width()  > avail.width())  r.setWidth(avail.width());
-    if (r.height() > avail.height()) r.setHeight(avail.height());
-    r.moveCenter(avail.center());
-    return r;
+    if (!w || !w->isVisible())
+        return kDefaultTitleBarStrip;
+    const int strip = w->frameGeometry().top() - w->geometry().top();
+    // 0 on a not-yet-decorated window; absurd values mean the frame is stale.
+    if (strip <= 0 || strip > 96)
+        return kDefaultTitleBarStrip;
+    return strip;
 }
 
 } // namespace
+
+QRect clampToVisibleScreen(const QRect &saved, int titleBarStrip)
+{
+    if (!saved.isValid())
+        return saved;
+
+    const QList<QScreen *> screens = QGuiApplication::screens();
+    if (screens.isEmpty())
+        return saved;
+
+    if (titleBarStrip < 0)
+        titleBarStrip = kDefaultTitleBarStrip;
+
+    // Work in FRAME coordinates (client rect grown upward by the title bar)
+    // so every test below is about the region the user can actually grab.
+    const QRect frame = saved.adjusted(0, -titleBarStrip, 0, 0);
+
+    // Target screen = the one the window overlaps most. Beats testing the
+    // center point, which lands in the dead gap between two monitors for a
+    // window straddling them and yanks it to the primary screen needlessly.
+    const QScreen *target = nullptr;
+    qint64 bestArea = 0;
+    for (const QScreen *s : screens) {
+        if (!s) continue;
+        const QRect inter = s->availableGeometry().intersected(frame);
+        const qint64 area = qint64(inter.width()) * qint64(inter.height());
+        if (area > bestArea) { bestArea = area; target = s; }
+    }
+    if (!target)
+        target = QGuiApplication::primaryScreen();   // overlaps nothing at all
+    if (!target)
+        return saved;
+
+    const QRect avail = target->availableGeometry();
+
+    QRect f = frame;
+    // Size clamp against the TARGET screen — a rect saved on a 27" display
+    // must not stay 2560 px wide when restored onto a laptop panel, even
+    // though its center is legitimately on that panel.
+    f.setWidth (qMin(f.width(),  avail.width()));
+    f.setHeight(qMin(f.height(), avail.height()));
+
+    const QRect visible = avail.intersected(f);
+    const bool enoughVisible = visible.width()  >= qMin(f.width(),  kMinVisibleWidth)
+                            && visible.height() >= qMin(f.height(), kMinVisibleHeight);
+    // The title bar is the drag handle: if its strip is above the available
+    // area (under the menu bar) the window cannot be moved, however much of
+    // its body happens to be visible.
+    const bool titleReachable = f.top() >= avail.top();
+
+    if (!enoughVisible || !titleReachable || f.size() != frame.size()) {
+        // Translate minimally back inside rather than recentering, so a
+        // window nudged off one edge returns to where the user had it.
+        if (f.right()  > avail.right())  f.moveRight (avail.right());
+        if (f.bottom() > avail.bottom()) f.moveBottom(avail.bottom());
+        if (f.left()   < avail.left())   f.moveLeft  (avail.left());
+        if (f.top()    < avail.top())    f.moveTop   (avail.top());
+    }
+
+    return f.adjusted(0, titleBarStrip, 0, 0);   // back to client coordinates
+}
+
+void ensureWindowOnScreen(QWidget *widget, const QScreen *preferred)
+{
+    if (!widget) return;
+    QWidget *w = widget->window();
+    if (!w) return;
+
+    const int strip = titleBarStripFor_(w);
+    const QRect current = w->geometry();
+    QRect target = clampToVisibleScreen(current, strip);
+
+    // Explicit relocation (the "Reset Window Positions" recovery path): the
+    // window is moved onto the requested screen UNCONDITIONALLY, even if it
+    // is currently sitting perfectly happily on another one. That is the
+    // point of the action — the user has lost track of a window and wants
+    // everything gathered in front of them, and "everything except the ones
+    // I cannot find" would defeat it.
+    if (preferred) {
+        const QRect avail = preferred->availableGeometry();
+        target.setWidth (qMin(target.width(),  avail.width()));
+        // qMax guards a pathological screen shorter than the title bar,
+        // which would otherwise produce an invalid rect.
+        target.setHeight(qMin(target.height(), qMax(1, avail.height() - strip)));
+        target.moveCenter(avail.center());
+        if (target.top() - strip < avail.top())
+            target.moveTop(avail.top() + strip);
+    }
+
+    if (target != current)
+        w->setGeometry(target);
+}
 
 void saveDialogLayout(QWidget *root)
 {
@@ -138,7 +238,8 @@ bool restoreDialogLayout(QWidget *root)
     if (hadGeometry) {
         const QRect saved = s.value(QStringLiteral("geometry")).toRect();
         if (saved.isValid()) {
-            root->window()->setGeometry(clampToAvailableScreens_(saved));
+            QWidget *w = root->window();
+            w->setGeometry(clampToVisibleScreen(saved, titleBarStripFor_(w)));
             restored = true;
         }
     }
