@@ -19,6 +19,19 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **Attribute tracks under the profile plot.** The profile plot dialog gains a
+  collapsible pane of stacked mini-charts ("tracks"), one per selected result
+  attribute — node depth, head, volume, lateral/total inflow, overflow; link
+  flow, depth, velocity, volume, capacity — each with its own y-axis, plotted
+  along the path and sharing the profile's x-axis: zooming or panning either
+  pane moves both, column-for-column. Tracks animate with the simulation clock
+  and show a min/max envelope band for the primary source; overlaid comparison
+  sources are tinted with their scenario color. Pick attributes from the new
+  "Tracks" toolbar menu; style pens, track height, titles and envelopes from
+  the new Attribute Tracks tab in Display Options. The pane collapses by
+  dragging the splitter, via the toolbar toggle, or automatically when no
+  attribute is selected — and remembers its state.
+
 - **Zoomable, pannable section diagrams.** Every section/profile/LID diagram
   now supports scroll-to-zoom about the cursor, middle-button drag to pan, and
   middle double-click to zoom to extents. Zoom scales the geometry only —

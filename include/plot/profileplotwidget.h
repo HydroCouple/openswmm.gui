@@ -50,6 +50,7 @@
 #include <QVector>
 #include <QWidget>
 
+#include <limits>
 #include <memory>
 #include <optional>
 
@@ -219,6 +220,35 @@ public:
     bool setAxisEdgeValue(AxisEdge edge, double value);
     [[nodiscard]] QRectF visibleDataRange() const;
 
+    // ── Shared-x API (attribute tracks pane) ────────────────────────────
+    //
+    // The tracks pane below the profile reproduces this widget's horizontal
+    // pixel mapping exactly — same virtual-chainage x quantity, same left/
+    // right gutters — so the two charts stay column-aligned through every
+    // zoom and pan. Everything it needs is exposed here rather than
+    // duplicated: duplicated constants drift.
+
+    /*! Sets the visible x-range (virtual chainage). Y is untouched. Used by
+     *  the synced attribute-tracks pane to push its own pan/zoom back up.
+     *  Emits visibleXRangeChanged() (once) when the range actually moves. */
+    void setVisibleXRange(double vxMin, double vxMax);
+
+    /*! Per-node virtual chainage, rebuilt by recomputeBounds() on every
+     *  setPath()/setSeries(). Size matches the path's node count; empty
+     *  before the first setPath(). */
+    [[nodiscard]] const QVector<double> &virtualChainageTable() const
+    { return m_virtualChainage; }
+
+    /*! Maps a virtual x back to real chainage — public so the tracks pane
+     *  can label its shared x-axis with real stations, exactly like this
+     *  widget's own bottom ticks. */
+    [[nodiscard]] double virtualToRealChainage(double vx) const;
+
+    /*! The fixed horizontal gutters of the plot area, in pixels. The tracks
+     *  pane adopts the same values so data columns line up. */
+    [[nodiscard]] static int chartLeftMarginPx();
+    [[nodiscard]] static int chartRightMarginPx();
+
     /*! Zoom the view rect by \p factor around its centre.  `< 1` zooms in. */
     void zoomBy(double factor);
 
@@ -234,6 +264,15 @@ public:
     void setSelectedElementNames(const QStringList &names);
 
 signals:
+    /*!
+     * \brief Emitted whenever the visible x-range (virtual chainage)
+     *        changes — fit, zoom, pan, wheel, axis-edge edit, or a new
+     *        path/series recomputing the extent. Emitted at most once per
+     *        change (values are compared against the last emission).
+     *        Consumed by the attribute-tracks pane to stay column-aligned.
+     */
+    void visibleXRangeChanged(double vxMin, double vxMax);
+
     /*!
      * \brief Emitted on right-click over a node glyph; consumed by Stage 6
      *        to pop an edit-in-place context menu.
@@ -320,9 +359,8 @@ private:
         For zero-length links the result interpolates across the visual gap. */
     [[nodiscard]] double virtualXAlongLink(int linkIdx, double frac) const;
 
-    /*! Maps a virtual x back to the real chainage (interpolated within a
-        link).  Used by the bottom axis tick labels. */
-    [[nodiscard]] double virtualToRealChainage(double vx) const;
+    // (virtualToRealChainage is declared in the public section — the tracks
+    // pane labels its shared x-axis with it.)
 
     // ── Virtual-junction helpers ────────────────────────────────────────
 
@@ -344,6 +382,11 @@ private:
     // Recomputes data-space bounds (m_dataXMin, etc.) from m_path + m_series.
     void recomputeBounds();
     bool editAxisEdge(AxisEdge edge);
+
+    // Emits visibleXRangeChanged if m_dataXMin/Max moved since the last
+    // emission. Called after every x-mutation site so external consumers
+    // (the attribute-tracks pane) see exactly one signal per change.
+    void emitXRangeIfChanged();
 
     // Per-layer painters (broken out so the paint pipeline reads top-down).
     void paintBackgroundAndAxes  (QPainter &p) const;
@@ -452,6 +495,9 @@ private:
     double                       m_dataYMin   = 0.0;
     double                       m_dataYMax   = 1.0;
     bool                         m_fitMode    = true;
+    // Last-emitted visibleXRangeChanged values (see emitXRangeIfChanged).
+    double                       m_lastEmittedXMin = std::numeric_limits<double>::quiet_NaN();
+    double                       m_lastEmittedXMax = std::numeric_limits<double>::quiet_NaN();
     Mode                         m_mode       = Mode::Identify;
     bool                         m_panActive  = false;     // pan-drag in progress
     bool                         m_zoomActive = false;     // zoom-rubberband in progress

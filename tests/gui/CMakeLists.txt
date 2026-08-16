@@ -2324,6 +2324,22 @@ add_swmmvis_gui_test(test_dialog_layout_persistence
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/dialoglayoutwatcher.cpp
 )
 
+# Profile attribute tracks — the synced attribute-chart pane below the
+# profile plot: options round-trip / signal discipline, the pixel↔virtual-x
+# alignment contract, and sampler attribute classification (inline header
+# fns — the sampler .cpp itself needs the engine + results layer and is
+# exercised in-app per PROFILE_ATTRIBUTE_TRACKS_VERIFICATION.md).
+add_swmmvis_gui_test(test_profile_attribute_tracks
+    test_profile_attribute_tracks.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profileattributetrackoptions.h
+    ${CMAKE_SOURCE_DIR}/src/plot/profileattributetrackoptions.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profileattributetrackswidget.h
+    ${CMAKE_SOURCE_DIR}/src/plot/profileattributetrackswidget.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+)
+
 # UI redesign iteration 2 (D4) — dialog accessibility audit over the
 # cheaply-constructible dialogs, guarding the sweep invariants (mnemonic
 # uniqueness, icon-only button naming, persistence naming) via the shared
