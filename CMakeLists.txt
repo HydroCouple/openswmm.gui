@@ -383,6 +383,7 @@ set(
         include/map/swmm2dmeshqsgrenderer.h
         include/map/swmm2dresultsqsgrenderer.h
         include/map/profilepathoverlay.h
+        include/map/selectionbeaconoverlay.h
         include/map/meshprofileoverlay.h
 
         # ── Map tools ────────────────────────────────────────────────────────
@@ -998,6 +999,7 @@ set(
         src/map/swmm2dmeshqsgrenderer.cpp
         src/map/swmm2dresultsqsgrenderer.cpp
         src/map/profilepathoverlay.cpp
+        src/map/selectionbeaconoverlay.cpp
         src/map/meshprofileoverlay.cpp
 
         # Map tools
