@@ -19,7 +19,9 @@
  *           - a file that is not an OpenSWMM mesh is rejected AND the copy it
  *             produced is cleaned up (no junk .2dm left in the project);
  *           - a name collision never silently clobbers the existing mesh —
- *             "Keep Both" writes a uniquified sibling.
+ *             "Keep Both" writes a uniquified sibling;
+ *           - closing the project clears the (leaked) layer's scene item
+ *             instead of leaving it dangling — see ~MapCanvas.
  *
  *         Everything the test writes lands under tests/output/mesh_import/
  *         for review (CLAUDE.md §4.1), never in a temp dir.
@@ -29,6 +31,7 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmmmodellayer.h"
 #include "map/mapcanvas.h"
+#include "map/mapextent.h"
 #include "mesh/inpmeshreader.h"
 #include "project/openswmmvisworkspace.h"
 #include "swmmvisprojectwindow.h"
@@ -43,6 +46,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <QGraphicsScene>
 #include <QMessageBox>
 #include <QObject>
 #include <QSignalSpy>
@@ -129,23 +133,6 @@ SWMM2DMeshLayer *activeMeshLayer(MapCanvas *canvas)
     return nullptr;
 }
 
-/*! Let the imported layer's deferred wireframe/spatial-index build
- *  (finishSceneGeometryAsync) land before the window is torn down.
- *
- *  Layers are not owned by the canvas anywhere in this app — they outlive the
- *  window they were added to — so a build still in flight when the scene dies
- *  would dereference the layer's freed QGraphicsItem. That lifetime is
- *  pre-existing (the file-open and mesh-generation paths kick the same build);
- *  the test simply does not race it. */
-void settleMeshGeometry(SWMM2DMeshLayer *layer)
-{
-    if (!layer) return;
-    QElapsedTimer t;
-    t.start();
-    while (!layer->sceneGeometryComplete() && t.elapsed() < 10000)
-        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
-}
-
 int meshLayerCount(MapCanvas *canvas)
 {
     int n = 0;
@@ -168,6 +155,7 @@ private slots:
     void importsMeshFromOutsideTheProjectFolder();
     void rejectsNonMeshFileAndRemovesTheCopy();
     void nameCollisionKeepBothLeavesTheExistingMeshIntact();
+    void closingTheProjectClearsTheMeshLayersSceneItem();
 
 private:
     /*! Fresh project folder + loaded window for one test. Each test gets its
@@ -273,7 +261,6 @@ void TestMeshImport::importsMeshFromOutsideTheProjectFolder()
              QStringLiteral("imported.2dm"));
     QVERIFY(window->hasChanges());
 
-    settleMeshGeometry(layer);
     delete window;
 }
 
@@ -355,8 +342,48 @@ void TestMeshImport::nameCollisionKeepBothLeavesTheExistingMeshIntact()
     QCOMPARE(engineOption(window->modelLayer()->engine(), "MESH_FILE"),
              QStringLiteral("imported_1.2dm"));
 
-    settleMeshGeometry(activeMeshLayer(window->canvas()));
     delete window;
+}
+
+
+// 4. Closing a project must not leave the (leaked) mesh layer holding a freed
+//    QGraphicsItem. Layers are owned by nobody — they outlive the canvas they
+//    were added to — while their scene item dies with the canvas, so ~MapCanvas
+//    hands each layer its item back. Without that, the deferred scene-geometry
+//    build completing after the window closed crashed in
+//    QGraphicsItem::prepareGeometryChange, and so did any later repaint or edit.
+void TestMeshImport::closingTheProjectClearsTheMeshLayersSceneItem()
+{
+    SWMMVisProjectWindow *window = openProject(QStringLiteral("import_teardown"));
+    QVERIFY(window != nullptr);
+
+    QSignalSpy spy(window, &SWMMVisProjectWindow::meshImportFinished);
+    window->importMeshFileAsync(m_externalMesh);
+    if (spy.isEmpty())
+        QVERIFY2(spy.wait(30000), "meshImportFinished did not fire within 30s");
+    QVERIFY2(spy.takeFirst().at(0).toBool(), "import failed");
+
+    SWMM2DMeshLayer *layer = activeMeshLayer(window->canvas());
+    QVERIFY(layer != nullptr);
+
+    // Deliberately do NOT wait for the deferred wireframe/spatial-index build:
+    // closing mid-build is the exact sequence that used to crash.
+    delete window;
+
+    // Touching the item at all went through freed memory before the fix.
+    layer->setQsgOwnsRendering(true);
+    layer->setQsgOwnsRendering(false);
+    QTest::qWait(500);      // let any still-running deferred build land
+
+    // The observable proof that the pointer was cleared rather than left
+    // dangling: the layer repopulates into a fresh scene. A stale non-null
+    // item would take refreshScene's update() branch and add nothing (and
+    // dereference freed memory on the way).
+    QGraphicsScene fresh;
+    layer->refreshScene(&fresh, MapExtent(), nullptr);
+    QCOMPARE(fresh.items().size(), 1);
+
+    delete layer;   // nothing else owns it
 }
 
 QTEST_MAIN(TestMeshImport)
