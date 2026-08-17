@@ -24,7 +24,12 @@
 
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QHBoxLayout>
+#include <QLineEdit>
 #include <QSpinBox>
+#include <QToolButton>
 
 namespace openswmmvis {
 
@@ -333,6 +338,116 @@ QVariantList EnumDelegate::makePairs(const QStringList &labels,
         out << QVariant(pair);
     }
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// FileBrowseDelegate (multi-column series files, spec §4 task 4)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/*! Composite editor: line edit (the committed value) + "…" browse button.
+ *  Plain QWidget — no signals of its own, so no Q_OBJECT/moc needed. The
+ *  file dialog is application-modal; Qt's item-delegate event filter keeps
+ *  the editor alive while a modal child is open, so browsing does not
+ *  trigger a premature commit. */
+class FileBrowseEditor : public QWidget
+{
+public:
+    FileBrowseEditor(QWidget *parent, const QString &nameFilter)
+        : QWidget(parent)
+        , m_edit(new QLineEdit(this))
+    {
+        auto *lay = new QHBoxLayout(this);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->setSpacing(0);
+        lay->addWidget(m_edit, /*stretch=*/1);
+        auto *browse = new QToolButton(this);
+        browse->setText(QStringLiteral("…"));
+        browse->setToolTip(QObject::tr("Browse…"));
+        lay->addWidget(browse);
+        setFocusProxy(m_edit);
+        QObject::connect(browse, &QToolButton::clicked, m_edit,
+                         [this, nameFilter]() {
+            const QString start = m_edit->text().trimmed();
+            const QString path = QFileDialog::getOpenFileName(
+                window(), QObject::tr("Choose data file"),
+                start.isEmpty() ? QString() : QFileInfo(start).absolutePath(),
+                nameFilter);
+            if (!path.isEmpty()) m_edit->setText(path);
+        });
+    }
+
+    QLineEdit *lineEdit() const { return m_edit; }
+
+private:
+    QLineEdit *m_edit;
+};
+
+} // anonymous
+
+FileBrowseDelegate::FileBrowseDelegate(QObject *parent, QString nameFilter)
+    : QStyledItemDelegate(parent)
+    , m_nameFilter(std::move(nameFilter))
+{
+}
+
+QWidget *FileBrowseDelegate::createEditor(QWidget *parent,
+                                          const QStyleOptionViewItem & /*opt*/,
+                                          const QModelIndex & /*index*/) const
+{
+    return new FileBrowseEditor(parent, m_nameFilter);
+}
+
+void FileBrowseDelegate::setEditorData(QWidget *editor,
+                                       const QModelIndex &index) const
+{
+    if (auto *fb = static_cast<FileBrowseEditor *>(editor))
+        fb->lineEdit()->setText(index.data(Qt::EditRole).toString());
+}
+
+void FileBrowseDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
+                                      const QModelIndex &index) const
+{
+    if (auto *fb = static_cast<FileBrowseEditor *>(editor))
+        model->setData(index, fb->lineEdit()->text().trimmed(), Qt::EditRole);
+}
+
+// ---------------------------------------------------------------------------
+// FileColumnDelegate (multi-column series files, spec §4 task 4)
+// ---------------------------------------------------------------------------
+
+FileColumnDelegate::FileColumnDelegate(QObject *parent, int optionsRole)
+    : QStyledItemDelegate(parent)
+    , m_optionsRole(optionsRole)
+{
+}
+
+QWidget *FileColumnDelegate::createEditor(QWidget *parent,
+                                          const QStyleOptionViewItem & /*opt*/,
+                                          const QModelIndex &index) const
+{
+    auto *combo = new QComboBox(parent);
+    combo->setEditable(true);   // typable when the file is unreadable
+    combo->setInsertPolicy(QComboBox::NoInsert);
+    combo->addItems(index.data(m_optionsRole).toStringList());
+    return combo;
+}
+
+void FileColumnDelegate::setEditorData(QWidget *editor,
+                                       const QModelIndex &index) const
+{
+    auto *combo = qobject_cast<QComboBox *>(editor);
+    if (!combo) return;
+    combo->setCurrentText(index.data(Qt::EditRole).toString());
+}
+
+void FileColumnDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
+                                      const QModelIndex &index) const
+{
+    auto *combo = qobject_cast<QComboBox *>(editor);
+    if (!combo) return;
+    model->setData(index, combo->currentText().trimmed(), Qt::EditRole);
 }
 
 } // namespace openswmmvis

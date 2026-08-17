@@ -73,6 +73,11 @@ public:
      *  creates one TimeseriesProvider per entry — loading all points via
      *  setAllPoints (so the monotone-time invariant gets validated up-front).
      *
+     *  FILE-backed series (a non-empty TIMESERIES_DATA file-path slot, token
+     *  "path[:column]") become ExternalFile-mode providers with the column
+     *  selector split out (drive-letter-aware, mirroring the engine); their
+     *  loaded points are the engine's resolved cache for that column.
+     *
      *  Pre-existing providers are NOT cleared; conflicts (duplicate name) are
      *  skipped silently. Caller should typically construct the registry empty
      *  and call this once on project open.
@@ -84,18 +89,23 @@ public:
      */
     int loadFromEngine(void *engineHandle);
 
-    /*! \brief Push every **Inline-mode** provider's points to the engine.
+    /*! \brief Push every Inline-mode and file-backed provider to the engine.
      *
      *  For each Inline provider:
      *   - If `swmm_table_index(eng, name)` finds an existing engine entry,
-     *     `swmm_table_clear` it and re-add every point.
+     *     `swmm_table_clear` it and re-add every point (also clearing any
+     *     stale FILE token, so a series Detached to Inline round-trips).
      *   - Otherwise call `swmm_timeseries_add` to create it, then add points.
      *
-     *  ExternalFile-mode and GeopackageObserved-mode providers are skipped
-     *  in this first cut — those persistence paths are owned by their
-     *  respective sub-phases (file write-back vs gpkg flush).
+     *  ExternalFile providers with a linked path persist as engine FILE
+     *  timeseries: the composed "path:col" token is written to the
+     *  TIMESERIES_DATA file-path slot (B4), so the .inp emits
+     *  `name FILE "path:col"` and dependents referencing the series by name
+     *  resolve to that file column. An unchanged reference is left verbatim
+     *  (a relative token stays relative). Pathless ExternalFile and
+     *  GeopackageObserved providers are still skipped.
      *
-     *  \returns the number of providers written (Inline mode only).
+     *  \returns the number of providers written.
      *
      *  Caller is responsible for engine state — the engine must be in
      *  SWMM_STATE_BUILDING for new-timeseries creation; `swmm_table_clear`

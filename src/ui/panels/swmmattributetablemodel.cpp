@@ -18,6 +18,7 @@
 #include "ui/properties/userflagseditref.h"  // per-object User Flags cell
 #include "ui/properties/storageshapegeom.h"  // storage-shape dimension applicability
 #include "ui/properties/xsectshapegeom.h"    // inline xsect-geom applicability
+#include "ui/util/externalcolumnfile.h"      // rain-file column enumeration
 
 #include <QUndoCommand>
 #include <QUndoStack>
@@ -218,6 +219,7 @@ QVariantList outletRatingTypeValues();
 QVariantList gageRainTypeValues();
 QVariantList gageDataSourceValues();
 QVariantList gageRainUnitsValues();
+QVariantList gageFileFormatValues();
 
 // Compound-attribute column (Inflows / DWF / RDII / Treatment). The
 // cell holds a NodeCompoundEditRef built live in data(); the delegate
@@ -853,8 +855,25 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         ColumnSpec fileCol;
         fileCol.key    = QStringLiteral("Rain file");
         fileCol.label  = QStringLiteral("Rain File (path)");
-        fileCol.editor = EditorKind::Text;
+        // Multi-column series files (spec §4 task 4) — browse editor with
+        // the engine-loadable extensions; .tsf is the PCSWMM export format.
+        fileCol.editor     = EditorKind::FileBrowse;
+        fileCol.fileFilter = QStringLiteral(
+            "Rain data (*.csv *.tsv *.tsf *.txt *.dat);;All files (*)");
         fileCol.setter = QStringLiteral("gage_file_path");
+        // Rain-file column selector — combo of the file's header names via
+        // kFileColumnOptionsRole; writes swmm_gage_set_file_column (which
+        // flips the gage to USER_CSV). The engine writer composes the
+        // "path:col" token — the user never types the colon.
+        ColumnSpec fileColumnCol;
+        fileColumnCol.key    = QStringLiteral("Rain file column");
+        fileColumnCol.label  = QStringLiteral("Rain File Column");
+        fileColumnCol.editor = EditorKind::FileColumn;
+        fileColumnCol.setter = QStringLiteral("gage_file_column");
+        // Rain-file grammar (review A-2). Both the path and the column setters
+        // preserve USER_CSV engine-side, so without an explicit control a gage
+        // that ever had a column could never go back to a standard rain file
+        // and its Station ID would stay unusable.
         ColumnSpec stationCol;
         stationCol.key    = QStringLiteral("Station ID");
         stationCol.label  = QStringLiteral("Station ID");
@@ -887,6 +906,9 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
                                                   gageDataSourceValues()),
             compoundCol("Series name", "Series Name", "gage_series_ref"),
             fileCol,
+            enumCol("Rain file format", "Rain File Format", "gage_file_format",
+                                                  gageFileFormatValues()),
+            fileColumnCol,
             stationCol,
             enumCol("Rain units",  "Rain Units",  "gage_rain_units",
                                                   gageRainUnitsValues()),
@@ -1644,6 +1666,24 @@ SetterEntry setterFor(const QString &tag) {
         e.getFnS = &gageFilePathGet;
         return e;
     }
+    // Multi-column rain file (spec §4 task 4) — the data column selected
+    // inside a CSV/TSV/TSF file. Setting a non-empty column switches the
+    // engine gage to USER_CSV ("FILE path:col"); mirrors
+    // SWMMRainGagePropertyAdapter::fileColumn / setFileColumn.
+    if (tag == QStringLiteral("gage_file_column")) {
+        e.kind   = EntityKind::Gage;
+        e.setFnS = &swmm_gage_set_file_column;
+        e.getFnS = &swmm_gage_get_file_column;
+        return e;
+    }
+    // Rain-file grammar (review A-2) — plain int codes, so the raw C-API
+    // matches setFnI/getFnI with no wrapper.
+    if (tag == QStringLiteral("gage_file_format")) {
+        e.kind   = EntityKind::Gage;
+        e.setFnI = &swmm_gage_set_file_format;
+        e.getFnI = &swmm_gage_get_file_format;
+        return e;
+    }
     if (tag == QStringLiteral("gage_interval")) {
         // String path: cell displays/edits the legacy H:MM clock form via
         // the wrappers above (engine stores seconds).
@@ -1856,6 +1896,20 @@ QVariantList gageRainTypeValues() {
         makePair("INTENSITY",  0),
         makePair("VOLUME",     1),
         makePair("CUMULATIVE", 2),
+    };
+}
+//! Engine RainFileFormat::USER_CSV — the multi-column grammar.
+constexpr int kRainFormatUserCsv = 6;
+// Engine RainFileFormat codes. Only these three are ever assigned — the parser
+// writes USER_CSV for a "path:col" token and STAN_PRCP for a plain path, the
+// resolver can promote STAN_PRCP to USER_CSV, and a gage with no file stays
+// UNKNOWN. Codes 0..4 (NWS/DSI/HLY) exist in the engine header but are never
+// written, so offering them would offer unreachable states.
+QVariantList gageFileFormatValues() {
+    return {
+        makePair("AUTO-DETECT",  -1),
+        makePair("STANDARD",      5),
+        makePair("MULTI-COLUMN",  6),
     };
 }
 QVariantList gageDataSourceValues() {
@@ -2165,12 +2219,32 @@ QVariantMap SWMMAttributeTableModel::rowData(int row) const
 QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid()) return {};
-    if (role != Qt::DisplayRole && role != Qt::EditRole &&
-        role != Qt::ToolTipRole) return {};
 
     const int row = index.row();
     const int col = index.column();
     if (col < 0 || col >= m_columnSpecs.size()) return {};
+
+    // FileColumn cells (spec §4 task 4): the delegate asks for the row's
+    // available column names via this role. They come from the same header
+    // enumeration the timeseries dialog uses (engine detection parity), read
+    // from the gage's resolved rain-file path.
+    if (role == openswmmvis::kFileColumnOptionsRole) {
+        if (m_columnSpecs[col].editor != EditorKind::FileColumn || !m_layer)
+            return {};
+        const QString path = rainFileFor(row);
+        if (path.isEmpty()) return {};
+        // A headerless file yields display-only "col_N" names that the engine
+        // cannot resolve by name (it spends line 1 as the header row), so offer
+        // nothing rather than a pick that would fail at run time — an empty
+        // column means "first data column" (review B-4 / risk R1).
+        bool fabricated = false;
+        const QStringList headers =
+            openswmmvis::ui::readHeaders(path, nullptr, &fabricated);
+        return fabricated ? QStringList() : headers;
+    }
+
+    if (role != Qt::DisplayRole && role != Qt::EditRole &&
+        role != Qt::ToolTipRole) return {};
 
     // Column 0 is always Name — sourced directly from the layer to
     // avoid a per-paint identifyByName lookup for the most-common case.
@@ -3022,6 +3096,79 @@ void SWMMAttributeTableModel::refreshObject(const QString &name)
                      {Qt::DisplayRole, Qt::EditRole});
 }
 
+int SWMMAttributeTableModel::columnForSetter(const QString &tag) const
+{
+    for (int c = 0; c < m_columnSpecs.size(); ++c)
+        if (m_columnSpecs[c].setter == tag) return c;
+    return -1;
+}
+
+QString SWMMAttributeTableModel::rainFileFor(int row) const
+{
+    if (!m_layer) return {};
+    SWMM_Engine eng = m_layer->engine();
+    const QString name = objectNameAt(row);
+    if (!eng || name.isEmpty()) return {};
+    char abs[1024]  = {};
+    char orig[1024] = {};
+    if (swmm_file_path_get(eng, SWMM_FILE_RAINGAGE_DATA,
+                           name.toUtf8().constData(),
+                           abs, int(sizeof(abs)),
+                           orig, int(sizeof(orig))) != SWMM_OK)
+        return {};
+    return QString::fromUtf8(abs[0] != '\0' ? abs : orig);
+}
+
+bool SWMMAttributeTableModel::commitRainFilePath(const QModelIndex &pathIndex,
+                                                  const QVariant &oldPath,
+                                                  const QVariant &newPath)
+{
+    const int row     = pathIndex.row();
+    const int pathCol = pathIndex.column();
+    const int colCol  = columnForSetter(QStringLiteral("gage_file_column"));
+    const int fmtCol  = columnForSetter(QStringLiteral("gage_file_format"));
+
+    // Read the siblings BEFORE the path is written: the column setter's
+    // implicit USER_CSV flip would otherwise be captured as the "old" format.
+    const QVariant oldColumn = (colCol >= 0)
+        ? data(index(row, colCol), Qt::EditRole) : QVariant();
+    const QVariant oldFormat = (fmtCol >= 0)
+        ? data(index(row, fmtCol), Qt::EditRole) : QVariant();
+
+    const auto commit = [&](int col, const QVariant &oldV, const QVariant &newV) {
+        if (col < 0 || oldV == newV) return;
+        if (m_undoStack)
+            m_undoStack->push(new AttributeEditCommand(this, row, col, oldV, newV,
+                                                       m_columnSpecs[col].label));
+        else
+            commitValueDirect(index(row, col), newV);
+    };
+
+    if (m_undoStack)
+        m_undoStack->beginMacro(tr("Set %1").arg(m_columnSpecs[pathCol].label));
+
+    commit(pathCol, oldPath, newPath);
+
+    // The engine now holds the new path, so its resolved form — and therefore
+    // the new file's headers — can be read.
+    if (colCol >= 0) {
+        const QString want = openswmmvis::ui::reconcileColumnSelector(
+            rainFileFor(row), oldColumn.toString());
+        if (want != oldColumn.toString()) {
+            // A non-empty column means the multi-column grammar. The engine
+            // flips the format itself, but that flip is invisible to the undo
+            // stack, so record it as its own command — otherwise undo would
+            // leave the gage USER_CSV with no column and Station ID greyed.
+            if (!want.isEmpty())
+                commit(fmtCol, oldFormat, QVariant(kRainFormatUserCsv));
+            commit(colCol, oldColumn, QVariant(want));
+        }
+    }
+
+    if (m_undoStack) m_undoStack->endMacro();
+    return true;
+}
+
 bool SWMMAttributeTableModel::setData(const QModelIndex &index,
                                         const QVariant &value, int role)
 {
@@ -3057,11 +3204,21 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index,
     if (spec.editor == EditorKind::Compound)
         return commitValueDirect(index, value);
 
+    const QVariant oldValueEarly = data(index, Qt::EditRole);
+
+    // A rain-file path edit reaches two more cells — see commitRainFilePath.
+    // Handled before the single-command path below (and regardless of whether a
+    // stack is attached, so both editors behave the same).
+    if (spec.setter == QStringLiteral("gage_file_path")) {
+        if (oldValueEarly == value) return true;  // no-op edit
+        return commitRainFilePath(index, oldValueEarly, value);
+    }
+
     // Wrap each numeric/enum commit in an undo command when a stack is attached.
     if (!m_undoStack)
         return commitValueDirect(index, value);
 
-    const QVariant oldValue = data(index, Qt::EditRole);
+    const QVariant oldValue = oldValueEarly;
     if (oldValue == value) return true;  // no-op edit
 
     m_undoStack->push(

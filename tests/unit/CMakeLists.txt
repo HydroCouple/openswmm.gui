@@ -310,6 +310,21 @@ if(TARGET openswmm_engine)
     target_link_libraries(test_timeseries_parse PRIVATE openswmm_engine)
 endif()
 
+# Multi-column series files (spec §4 task 1) — shared CSV/TSV/.tsf column
+# enumeration + single-column reader, plus the pure "path:col" token core
+# used by TimeseriesRegistry persistence. Fixtures: data/extcol_*.
+# QtCore-only apart from the engine datetime C API (same note as above).
+add_swmmvis_unit_test(test_externalcolumnfile
+    test_externalcolumnfile.cpp
+    ${PROJECT_SOURCE_DIR}/include/ui/util/externalcolumnfile.h
+    ${PROJECT_SOURCE_DIR}/include/ui/util/externalcolumnfilecore.h
+    ${PROJECT_SOURCE_DIR}/src/ui/util/externalcolumnfile.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/timeseriesparse.cpp
+)
+if(TARGET openswmm_engine)
+    target_link_libraries(test_externalcolumnfile PRIVATE openswmm_engine)
+endif()
+
 # ── SWMM DateTime consolidation (GH #1, #2) ─────────────────────────────────
 # Canonical QDateTime<->SWMM converter (include/core/swmmdatetime.h) parity
 # against the engine's native encode/decode. Header-only under test; links the

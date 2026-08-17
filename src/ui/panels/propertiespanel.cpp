@@ -1065,9 +1065,21 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind,
             auto applyGageRowFlags = [pm, gageAdapter]() {
                 if (!pm) return;
                 const bool isFile = gageAdapter->dataSource() == 1; // FILE
+                // Multi-column rain files (spec §4 task 4): a USER_CSV (6)
+                // gage selects a column by name, not a station id — gate
+                // Station ID off for that format. UNKNOWN (-1, fresh gage)
+                // and STAN_PRCP (5) keep Station ID editable so a standard
+                // rain file can still be configured from scratch.
+                const int fmt = gageAdapter->fileFormat();
                 setRowEditable(pm, gageAdapter, QStringLiteral("seriesName"), !isFile);
                 setRowEditable(pm, gageAdapter, QStringLiteral("filePath"),    isFile);
-                setRowEditable(pm, gageAdapter, QStringLiteral("stationId"),   isFile);
+                setRowEditable(pm, gageAdapter, QStringLiteral("fileColumn"),  isFile);
+                // The grammar row itself — the only way back out of USER_CSV,
+                // and therefore the only way Station ID below can be un-greyed
+                // once a column has been picked.
+                setRowEditable(pm, gageAdapter, QStringLiteral("fileFormat"),  isFile);
+                setRowEditable(pm, gageAdapter, QStringLiteral("stationId"),
+                               isFile && fmt != 6 /* USER_CSV */);
                 setRowEditable(pm, gageAdapter, QStringLiteral("rainUnits"),   isFile);
             };
             connect(gageAdapter, &SWMMDataObjectPropertyAdapter::changed,
