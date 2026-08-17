@@ -12,6 +12,14 @@
  *   - `buildNodeProfile` labels a crown only for connections that have a real
  *     cross-section — a pump's stub height is a drawing minimum, and reporting
  *     it as an elevation would be a fabricated number.
+ *   - `buildNodeProfile` draws each node TYPE as a different object: a storage
+ *     unit's shell is brown, wider than a manhole's and follows its own storage
+ *     shape; an outfall discharges into drawn receiving water, or into air when
+ *     the boundary condition supplies no stage.
+ *   - connecting links are drawn per link TYPE: a pump gets a symbol rather
+ *     than a barrel, and an orifice gets a wall with fill above and below the
+ *     opening rather than a pipe.
+ *   - a stage that VARIES (tidal, time series) is never labelled with a number.
  *
  * Fixtures are built in memory (`swmm_engine_new` + the object/setter API), so
  * nothing here needs an .inp on disk. Mirrors the pattern in
@@ -28,6 +36,8 @@
 
 #include <QObject>
 #include <QTest>
+
+#include <cmath>
 
 using namespace openswmmvis::sectionview;
 
@@ -79,6 +89,55 @@ SWMM_Engine buildConduitFixture(double invUp, double invDn)
     return e;
 }
 
+//! Widest half-width of the polys carrying \p role, 0 when none are present.
+double widestHalfWidth(const SectionDiagramModel &m, DiagramRole role)
+{
+    double w = 0.0;
+    for (const DiagramPoly &p : m.polys) {
+        if (p.role != role) continue;
+        for (const QPointF &pt : p.pts) w = std::max(w, std::abs(pt.x()));
+    }
+    return w;
+}
+
+int countPolys(const SectionDiagramModel &m, DiagramRole role)
+{
+    int n = 0;
+    for (const DiagramPoly &p : m.polys)
+        if (p.role == role) ++n;
+    return n;
+}
+
+bool hasSymbol(const SectionDiagramModel &m, DiagramSymbolKind kind)
+{
+    for (const DiagramSymbol &s : m.symbols)
+        if (s.kind == kind) return true;
+    return false;
+}
+
+/*! A single node of \p type with one inbound conduit, so every node case has a
+ *  pipe to attach and a shell to draw. Returns the node's index. */
+int buildNodeFixture(SWMM_Engine e, const char *id, int type,
+                     double invert, double maxDepth)
+{
+    swmm_node_add(e, id, type);
+    const int n = swmm_node_index(e, id);
+    swmm_node_set_invert_elev(e, n, invert);
+    swmm_node_set_max_depth(e, n, maxDepth);
+
+    swmm_node_add(e, "FEED", SWMM_NODE_JUNCTION);
+    const int up = swmm_node_index(e, "FEED");
+    swmm_node_set_invert_elev(e, up, invert + 4.0);
+    swmm_node_set_max_depth(e, up, 8.0);
+
+    swmm_link_add(e, "CF", SWMM_LINK_CONDUIT);
+    const int c = swmm_link_index(e, "CF");
+    swmm_link_set_nodes(e, c, up, n);
+    swmm_link_set_length(e, c, 300.0);
+    swmm_link_set_xsect(e, c, SWMM_XSECT_CIRCULAR, 2.0, 0, 0, 0);
+    return n;
+}
+
 } // namespace
 
 class TestSectionModelBuilders : public QObject
@@ -90,6 +149,12 @@ private slots:
     void linkSectionCollapsesToOneValueWhenFlat();
     void linkProfileCrownsAreTrueBarrelEnds();
     void nodeProfileCrownsOnlyForRealSections();
+    void storageShellIsWiderAndBrownerThanAJunction();
+    void storageSilhouetteFollowsItsShape();
+    void outfallDrawsReceivingWaterOnlyWhenItHasAStage();
+    void varyingOutfallStageIsNeverLabelledWithANumber();
+    void pumpConnectionIsASymbolNotABarrel();
+    void orificeConnectionIsAWallWithFillAboveTheOpening();
 };
 
 void TestSectionModelBuilders::linkSectionReportsBothEndsWhenSloping()
@@ -188,6 +253,195 @@ void TestSectionModelBuilders::nodeProfileCrownsOnlyForRealSections()
     // ...but the pump's stub height must never be reported as an elevation.
     QCOMPARE(countLeadersContaining(m, QStringLiteral("Crown")), 1);
     QVERIFY(leaderStarting(m, QStringLiteral("P1  Crown")).isEmpty());
+
+    swmm_engine_destroy(e);
+}
+
+void TestSectionModelBuilders::storageShellIsWiderAndBrownerThanAJunction()
+{
+    SWMM_Engine ej = swmm_engine_new();
+    QVERIFY(ej);
+    const int j = buildNodeFixture(ej, "J1", SWMM_NODE_JUNCTION, 100.0, 10.0);
+    const SectionDiagramModel mj = buildNodeProfile(ej, j, kUnits);
+
+    SWMM_Engine es = swmm_engine_new();
+    QVERIFY(es);
+    const int s = buildNodeFixture(es, "ST1", SWMM_NODE_STORAGE, 100.0, 10.0);
+    swmm_node_set_storage_shape(es, s, SWMM_STORAGE_CYLINDRICAL);
+    const SectionDiagramModel ms = buildNodeProfile(es, s, kUnits);
+
+    // The whole point of the type styling: a tank must not be able to be
+    // mistaken for a manhole. Brown shell (its own role), and materially wider.
+    QCOMPARE(countPolys(mj, DiagramRole::Storage), 0);
+    QCOMPARE(countPolys(ms, DiagramRole::Storage), 1);
+    QCOMPARE(countPolys(ms, DiagramRole::Structure), 0);
+
+    const double junctionW = widestHalfWidth(mj, DiagramRole::Structure);
+    const double storageW  = widestHalfWidth(ms, DiagramRole::Storage);
+    QVERIFY2(storageW > junctionW * 1.8,
+             qPrintable(QStringLiteral("storage %1 vs junction %2")
+                            .arg(storageW).arg(junctionW)));
+
+    // A manhole gets a frame and cover; a tank does not.
+    QVERIFY(hasSymbol(mj, DiagramSymbolKind::ManholeCover));
+    QVERIFY(!hasSymbol(ms, DiagramSymbolKind::ManholeCover));
+
+    swmm_engine_destroy(ej);
+    swmm_engine_destroy(es);
+}
+
+void TestSectionModelBuilders::storageSilhouetteFollowsItsShape()
+{
+    // A cone with a 3:1 side slope over 10 ft of depth is four times wider at
+    // its rim than at its invert; a cylinder is a box. If the shell ignored the
+    // shape, both would be rectangles and the drawing would be telling the
+    // reader something the model does not say.
+    const auto shellSpan = [](int shape, double p3) {
+        SWMM_Engine e = swmm_engine_new();
+        const int s = buildNodeFixture(e, "ST", SWMM_NODE_STORAGE, 100.0, 10.0);
+        swmm_node_set_storage_shape(e, s, shape);
+        swmm_node_set_storage_geometry(e, s, 20.0, 16.0, p3);
+        const SectionDiagramModel m = buildNodeProfile(e, s, kUnits);
+
+        double atInvert = 0.0, atRim = 0.0;
+        for (const DiagramPoly &p : m.polys) {
+            if (p.role != DiagramRole::Storage) continue;
+            for (const QPointF &pt : p.pts) {
+                if (std::abs(pt.y() - 100.0) < 1.0e-6)
+                    atInvert = std::max(atInvert, std::abs(pt.x()));
+                if (std::abs(pt.y() - 110.0) < 1.0e-6)
+                    atRim = std::max(atRim, std::abs(pt.x()));
+            }
+        }
+        swmm_engine_destroy(e);
+        return QPointF(atInvert, atRim);
+    };
+
+    const QPointF cone = shellSpan(SWMM_STORAGE_CONICAL, 3.0);
+    QVERIFY(cone.x() > 0.0 && cone.y() > 0.0);
+    QVERIFY2(cone.y() > cone.x() * 1.5,
+             "a conical tank must be drawn wider at its rim than at its invert");
+
+    const QPointF cyl = shellSpan(SWMM_STORAGE_CYLINDRICAL, 0.0);
+    QCOMPARE(cyl.x(), cyl.y());
+}
+
+void TestSectionModelBuilders::outfallDrawsReceivingWaterOnlyWhenItHasAStage()
+{
+    // FIXED supplies a tailwater elevation, so water is drawn and labelled with
+    // it. FREE supplies none — the pipe discharges to air, and drawing a water
+    // body there would invent a boundary the model does not have.
+    SWMM_Engine ef = swmm_engine_new();
+    QVERIFY(ef);
+    const int of = buildNodeFixture(ef, "OF", SWMM_NODE_OUTFALL, 90.0, 10.0);
+    swmm_node_set_outfall_type(ef, of, 2 /* FIXED */);
+    swmm_node_set_outfall_stage(ef, of, 95.0);
+    const SectionDiagramModel mf = buildNodeProfile(ef, of, kUnits);
+
+    QCOMPARE(countPolys(mf, DiagramRole::Water), 1);
+    bool labelled = false;
+    for (const DiagramPolyline &pl : mf.polylines)
+        if (pl.label.contains(QStringLiteral("95.00"))) labelled = pl.wavy;
+    QVERIFY2(labelled, "a fixed tailwater must be a labelled, wavy surface");
+
+    SWMM_Engine ee = swmm_engine_new();
+    QVERIFY(ee);
+    const int free = buildNodeFixture(ee, "OF", SWMM_NODE_OUTFALL, 90.0, 10.0);
+    swmm_node_set_outfall_type(ee, free, 0 /* FREE */);
+    const SectionDiagramModel me = buildNodeProfile(ee, free, kUnits);
+
+    QCOMPARE(countPolys(me, DiagramRole::Water), 0);
+    QCOMPARE(leaderStarting(me, QStringLiteral("free discharge")),
+             QStringLiteral("free discharge"));
+
+    swmm_engine_destroy(ef);
+    swmm_engine_destroy(ee);
+}
+
+void TestSectionModelBuilders::varyingOutfallStageIsNeverLabelledWithANumber()
+{
+    SWMM_Engine e = swmm_engine_new();
+    QVERIFY(e);
+    const int of = buildNodeFixture(e, "OF", SWMM_NODE_OUTFALL, 90.0, 10.0);
+    swmm_node_set_outfall_type(e, of, 3 /* TIDAL */);
+    const SectionDiagramModel m = buildNodeProfile(e, of, kUnits);
+
+    // The surface drawn for a tidal outfall is schematic: it is dashed, it says
+    // "varies", and it must never carry an elevation, because the one drawn is
+    // not a stage the model predicts.
+    bool found = false;
+    for (const DiagramPolyline &pl : m.polylines) {
+        if (pl.role != DiagramRole::Water) continue;
+        found = true;
+        QVERIFY2(pl.dashed, "a varying stage must be drawn dashed");
+        QCOMPARE(pl.label, QStringLiteral("stage varies"));
+        QVERIFY(!pl.label.contains(QLatin1Char('.')));
+    }
+    QVERIFY(found);
+
+    swmm_engine_destroy(e);
+}
+
+void TestSectionModelBuilders::pumpConnectionIsASymbolNotABarrel()
+{
+    SWMM_Engine e = swmm_engine_new();
+    QVERIFY(e);
+    const int ww = buildNodeFixture(e, "WW", SWMM_NODE_JUNCTION, 80.0, 14.0);
+
+    swmm_node_add(e, "FM", SWMM_NODE_JUNCTION);
+    swmm_link_add(e, "PMP", SWMM_LINK_PUMP);
+    const int p = swmm_link_index(e, "PMP");
+    swmm_link_set_nodes(e, p, ww, swmm_node_index(e, "FM"));
+
+    const SectionDiagramModel m = buildNodeProfile(e, ww, kUnits);
+
+    // A pump carries a curve and two depths, not a barrel: the drawing gets a
+    // pressure line plus the symbol, and no conduit polygon beyond the inbound
+    // conduit's own stub.
+    QVERIFY(hasSymbol(m, DiagramSymbolKind::Pump));
+    QCOMPARE(countPolys(m, DiagramRole::Conduit), 2);   // shell void + the feed
+
+    swmm_engine_destroy(e);
+}
+
+void TestSectionModelBuilders::orificeConnectionIsAWallWithFillAboveTheOpening()
+{
+    SWMM_Engine e = swmm_engine_new();
+    QVERIFY(e);
+    const int n = buildNodeFixture(e, "N1", SWMM_NODE_JUNCTION, 80.0, 14.0);
+
+    swmm_node_add(e, "DN", SWMM_NODE_JUNCTION);
+    swmm_link_add(e, "ORF", SWMM_LINK_ORIFICE);
+    const int o = swmm_link_index(e, "ORF");
+    swmm_link_set_nodes(e, o, n, swmm_node_index(e, "DN"));
+    swmm_link_set_xsect(e, o, SWMM_XSECT_RECT_CLOSED, 1.5, 2.0, 0, 0);
+    swmm_link_set_offset_up(e, o, 3.0);
+    swmm_link_set_orifice_type(e, o, SWMM_ORIFICE_SIDE);
+
+    QVERIFY(o >= 0);
+    const SectionDiagramModel m = buildNodeProfile(e, n, kUnits);
+
+    // Opening 83.0 → 84.5. The wall is drawn as fill ABOVE the crown and BELOW
+    // the invert, with the opening itself left void — that gap is the orifice.
+    bool fillAbove = false, fillBelow = false, coversOpening = false;
+    for (const DiagramPoly &p : m.polys) {
+        if (p.texture != DiagramTexture::Hatch) continue;
+        double lo = 1.0e9, hi = -1.0e9;
+        for (const QPointF &pt : p.pts) {
+            lo = std::min(lo, pt.y());
+            hi = std::max(hi, pt.y());
+        }
+        if (lo >= 84.5 - 1.0e-6) fillAbove = true;
+        if (hi <= 83.0 + 1.0e-6) fillBelow = true;
+        // Any hatch straddling the opening would be a plate over the hole.
+        if (lo < 84.5 - 1.0e-6 && hi > 83.0 + 1.0e-6) coversOpening = true;
+    }
+    QVERIFY2(fillAbove, "an orifice must show the wall it is cut through");
+    QVERIFY(fillBelow);
+    QVERIFY2(!coversOpening, "the opening itself must stay void");
+
+    // The jet through it is what says the opening is an opening.
+    QVERIFY(!m.arrows.isEmpty());
 
     swmm_engine_destroy(e);
 }
