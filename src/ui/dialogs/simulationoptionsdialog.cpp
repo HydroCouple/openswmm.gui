@@ -38,6 +38,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QStandardItemModel>
 #include <QHBoxLayout>
@@ -1301,13 +1302,22 @@ QWidget *SimulationOptionsDialog::buildMeshTab()
     m_meshDirLabel = new QLabel(page);
     m_meshDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_meshDirLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
+    // Both labels below carry a filesystem path. Unwrapped, their
+    // minimumSizeHint is the full single-line width, which a deep project
+    // directory pushes past the page — the whole Mesh page then scrolls
+    // horizontally and clips the text above. Wrapping keeps the path fully
+    // visible (and selectable) without dictating the page width.
+    m_meshDirLabel->setWordWrap(true);
     vlay->addWidget(m_meshDirLabel);
 
     m_meshList = new QListWidget(page);
     m_meshList->setSelectionMode(QAbstractItemView::SingleSelection);
     vlay->addWidget(m_meshList, 1);
 
-    auto *btnRow = new QHBoxLayout;
+    // Two rows of two, not one row of four: four side-by-side push buttons are
+    // wider than this page's viewport at the dialog's natural width, which
+    // pushed the whole page into a horizontal scroll and clipped the text above.
+    auto *btnRow = new QGridLayout;
     auto *btnSetActive = new QPushButton(tr("Set Active"), page);
     btnSetActive->setToolTip(tr("Patch [2D_MESH_FILE] to point at the "
                                  "selected configuration."));
@@ -1318,15 +1328,16 @@ QWidget *SimulationOptionsDialog::buildMeshTab()
                               "copy it into the project folder and load it as "
                               "the active mesh."));
     auto *btnRefresh   = new QPushButton(tr("Refresh"), page);
-    btnRow->addWidget(btnSetActive);
-    btnRow->addWidget(btnRemove);
-    btnRow->addWidget(btnImport);
-    btnRow->addStretch();
-    btnRow->addWidget(btnRefresh);
+    btnRow->addWidget(btnSetActive, 0, 0);
+    btnRow->addWidget(btnRemove,    0, 1);
+    btnRow->addWidget(btnImport,    1, 0);
+    btnRow->addWidget(btnRefresh,   1, 1);
+    btnRow->setColumnStretch(2, 1);   // keep the block left-aligned
     vlay->addLayout(btnRow);
 
     m_meshActiveLabel = new QLabel(page);
     m_meshActiveLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_meshActiveLabel->setWordWrap(true);   // may hold an absolute mesh path
     vlay->addWidget(m_meshActiveLabel);
 
     connect(btnRefresh, &QPushButton::clicked, this,
