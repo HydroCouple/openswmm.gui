@@ -1306,6 +1306,11 @@ void AttributeTablePanel::meshSelectionToBus()
     }
     // Replace, matching what picking rows in a SWMM category does.
     m_selMgr->select(refs, SelectionManager::Replace);
+    // Picking a row says nothing about WHERE the cell is — and at model-wide
+    // zoom its highlight is sub-pixel. Raise the map beacon so the selection
+    // is findable. Interactive map picks deliberately do not do this: you
+    // just clicked the thing.
+    if (m_canvas) m_canvas->flashSelection();
 }
 
 void AttributeTablePanel::meshSelectionFromBus(const QSet<SWMMObjectRef> &current)
@@ -1370,6 +1375,10 @@ void AttributeTablePanel::onTableSelectionChanged()
             refs.insert(SWMMObjectRef(type, name));
     }
     m_selMgr->select(refs, SelectionManager::Replace);
+    // See meshSelectionToBus: locate the row's feature on the map. Guarded
+    // by the m_applyingFromBus early-return above, so this only fires on a
+    // genuine user pick in the table, never on a bus-driven sync.
+    if (m_canvas) m_canvas->flashSelection();
 }
 
 void AttributeTablePanel::onSelectionManagerChanged(

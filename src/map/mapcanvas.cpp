@@ -15,9 +15,12 @@
 #include "map/maprenderjob.h"
 #include "map/meshprofileoverlay.h"
 #include "map/profilepathoverlay.h"
+#include "map/selectionbeaconoverlay.h"
 #include "map/tools/maptool.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
+#include "layers/swmm2dmeshlayer.h"
+#include "mesh/meshresult.h"
 #include "layers/xyztilelayer.h"
 #include "map/spatialreferencesystem.h"
 #include "map/crsmanager.h"
@@ -64,6 +67,11 @@ MapCanvas::MapCanvas(QWidget *parent)
       m_undoStack(new MapUndoStack(this)),
       m_refreshTimer(new QTimer(this))
 {
+    // Selection locator — canvas-owned; its flash drives overlay repaints.
+    m_selectionBeacon = new SelectionBeaconOverlay(this);
+    connect(m_selectionBeacon, &SelectionBeaconOverlay::needsRepaint, this,
+            [this]() { invalidate(Overlay, QStringLiteral("selection-beacon")); });
+
     // ---- Widget setup ----
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
@@ -580,6 +588,8 @@ void MapCanvas::insertLayer(int position, OpenSWMMVisLayer *layer, bool pushUndo
     if (qobject_cast<SWMMModelLayer *>(layer))
         syncQsgRenderKindsFromPreferences();
 
+    wireSelectionBeaconTo(layer);
+
     emit layerAdded(layer);
     // Trigger a full render cycle so the new layer is fetched and composited
     // immediately, without waiting for the user to pan or zoom.
@@ -849,6 +859,133 @@ void MapCanvas::setMeshProfileOverlay(MeshProfileOverlay *overlay)
         return;
     m_meshProfileOverlay = overlay;
     invalidate(Overlay, QStringLiteral("mesh-profile-overlay-bind"));
+}
+
+void MapCanvas::wireSelectionBeaconTo(OpenSWMMVisLayer *layer)
+{
+    if (!layer || m_beaconWiredLayers.contains(layer)) return;
+
+    // These connections only ever CLEAR. A beacon is raised explicitly by
+    // whoever made a non-spatial selection (flashSelection); any subsequent
+    // selection from another source — a click on the map, say — supersedes
+    // it, and leaving the old ring standing would point at the wrong thing.
+    if (auto *sl = qobject_cast<SWMMModelLayer *>(layer)) {
+        m_beaconWiredLayers.insert(sl);
+        connect(sl, &SWMMModelLayer::selectionChanged, this,
+                [this](const QStringList &) { clearSelectionBeacon(); });
+    } else if (auto *ml = qobject_cast<SWMM2DMeshLayer *>(layer)) {
+        // A 2D mesh has no selectionChanged — the highlight setters only ask
+        // for a repaint, which is far too broad to hang this on. Remeshing
+        // invalidates held indices, so that is the one case worth clearing.
+        m_beaconWiredLayers.insert(ml);
+        connect(ml, &SWMM2DMeshLayer::selectionInvalidated, this,
+                [this]() { clearSelectionBeacon(); });
+    } else {
+        return;
+    }
+
+    connect(layer, &QObject::destroyed, this, [this](QObject *o) {
+        m_beaconWiredLayers.remove(o);
+        clearSelectionBeacon();
+    });
+}
+
+/*! Appends beacon anchors for a 2D mesh layer's highlighted vertices, edges
+ *  and cells, in SCENE coords. Cells and edges anchor at their centroid /
+ *  midpoint so the ring marks the element rather than one of its corners. */
+void MapCanvas::appendMeshSelectionAnchors(SWMM2DMeshLayer *ml,
+                                           QVector<QPointF> &anchors) const
+{
+    if (!ml) return;
+    const mesh::MeshResult &m = ml->mesh();
+    const int nv = int(m.vertices.size());
+    const int nt = int(m.triangles.size());
+    const auto vtx = [&](int i) { return m.vertices[size_t(i)].xy; };
+    const auto push = [&anchors](const QPointF &mapPt) {
+        anchors.push_back(QPointF(mapPt.x(), -mapPt.y()));   // → scene coords
+    };
+
+    for (int v : ml->highlightedVertices())
+        if (v >= 0 && v < nv) push(vtx(v));
+
+    for (int flat : ml->highlightedEdges()) {
+        const int t = flat / 3, e = flat % 3;
+        if (t < 0 || t >= nt) continue;
+        const mesh::MeshTriangle &tri = m.triangles[size_t(t)];
+        const int idx[3] = { tri.v0, tri.v1, tri.v2 };
+        const int a = idx[e], b = idx[(e + 1) % 3];
+        if (a < 0 || a >= nv || b < 0 || b >= nv) continue;
+        push((vtx(a) + vtx(b)) / 2.0);
+    }
+
+    for (int t : ml->highlightedTriangles()) {
+        if (t < 0 || t >= nt) continue;
+        const mesh::MeshTriangle &tri = m.triangles[size_t(t)];
+        if (tri.v0 < 0 || tri.v0 >= nv || tri.v1 < 0 || tri.v1 >= nv
+            || tri.v2 < 0 || tri.v2 >= nv) continue;
+        push((vtx(tri.v0) + vtx(tri.v1) + vtx(tri.v2)) / 3.0);
+    }
+}
+
+void MapCanvas::clearSelectionBeacon()
+{
+    if (m_selectionBeacon && !m_selectionBeacon->isEmpty())
+        m_selectionBeacon->setAnchors({});
+}
+
+void MapCanvas::flashSelection()
+{
+    if (!m_selectionBeacon) return;
+    const QVector<QPointF> anchors = resolveSelectionAnchors();
+    // Colour follows the configured selection pen so the beacon reads as
+    // part of the selection, not a separate decoration.
+    const QColor accent = PreferencesManager::instance()
+                              ->selectionPen(QStringLiteral("node")).color();
+    if (accent.isValid()) m_selectionBeacon->setColor(accent);
+    // setAnchors restarts the flash — that is the point of the call.
+    m_selectionBeacon->setAnchors(anchors);
+}
+
+QVector<QPointF> MapCanvas::resolveSelectionAnchors() const
+{
+    // Anchor each selected element at the centre of its own extent — the
+    // same (layer-CRS) source "Zoom to Selection" unions, so the beacon and
+    // that action can never disagree about where the selection is.
+    QVector<QPointF> anchors;
+    for (OpenSWMMVisLayer *l : std::as_const(m_layers)) {
+        if (!l || !l->isVisible()) continue;
+        if (auto *ml = qobject_cast<SWMM2DMeshLayer *>(l)) {
+            appendMeshSelectionAnchors(ml, anchors);
+            if (anchors.size() >= SelectionBeacon::kMaxBeacons + 1) break;
+            continue;
+        }
+        auto *sl = qobject_cast<SWMMModelLayer *>(l);
+        if (!sl) continue;
+        const QStringList names = sl->selectedElementNames();
+        for (const QString &name : names) {
+            const MapExtent e = sl->objectExtent(name);
+            // Finite-only, NOT isValid(): a node's extent is the degenerate
+            // point {x, y, x, y}, and isValid() demands xMin < xMax strictly,
+            // so testing it here skipped every node while links and polygons
+            // (which have real spans) came through. objectExtent() signals
+            // "unknown" with a NaN sentinel, which is what to test for —
+            // the same check Zoom to Selection makes.
+            if (!std::isfinite(e.xMin()) || !std::isfinite(e.yMin())
+             || !std::isfinite(e.xMax()) || !std::isfinite(e.yMax())) continue;
+            // SCENE coords, matching the other overlays: scene y is -mapY
+            // (ProfilePathOverlay::toScene). The paint lambda negates y once
+            // more on its way to toPixelCoords, so handing it raw map coords
+            // mirrors the beacon about the x-axis — which puts it off-screen
+            // for any projected CRS and drew nothing at all.
+            anchors.push_back(QPointF((e.xMin() + e.xMax()) * 0.5,
+                                     -(e.yMin() + e.yMax()) * 0.5));
+            // Cheap cap: past this the overlay aggregates anyway, and
+            // objectExtent() is a per-name lookup we needn't keep paying.
+            if (anchors.size() >= SelectionBeacon::kMaxBeacons + 1) break;
+        }
+        if (anchors.size() >= SelectionBeacon::kMaxBeacons + 1) break;
+    }
+    return anchors;
 }
 
 void MapCanvas::setProfilePathOverlay(ProfilePathOverlay *overlay)
@@ -1847,6 +1984,16 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
             toPixelCoords(sp.x(), -sp.y(), px, py);
             return QPointF(px, py);
         });
+    }
+
+    // Selection locator — last of the map-space overlays so the beacon is
+    // never buried under a profile path or the QSG mesh frame.
+    if (m_selectionBeacon && !m_selectionBeacon->isEmpty()) {
+        m_selectionBeacon->paint(p, [this](const QPointF &sp) {
+            int px = 0, py = 0;
+            toPixelCoords(sp.x(), -sp.y(), px, py);
+            return QPointF(px, py);
+        }, size());
     }
 
     // ---- Layer 3: tool overlay (rubber-band, measure, etc.) ---------------
