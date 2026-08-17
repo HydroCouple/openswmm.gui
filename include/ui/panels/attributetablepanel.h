@@ -42,6 +42,7 @@ class GISVectorAttributeTableModel;   // read-only OGR-feature source (defined i
 class MapCanvas;
 class MeshAttributeTableModel;        // 2D mesh vertices / edges / cells source
 class SWMM2DMeshLayer;
+class SWMMResultsLayer;
 
 namespace openswmmvis { struct ColumnSpec; }
 
@@ -61,6 +62,16 @@ public:
     /*! Rebuild the category combo + reload the table model.  Called
      *  on `modelLoaded`. */
     void refresh();
+
+    /*! Point the post-run "dynamics" columns at a loaded 1D output.
+     *
+     *  Wired by SWMMVis to the project window's ACTIVE results layer — the
+     *  run chosen in the Analysis toolbar's "Results (1D)" combo — so the
+     *  table's right-hand statistics block always describes the run the
+     *  rest of the GUI is showing. Pass nullptr to fall back to the editing
+     *  engine (which has no statistics; see
+     *  SWMMAttributeTableModel::setResultsSource). */
+    void setResultsSource(SWMMResultsLayer *layer);
 
     /*! Switch the source combo to \p layer's entry (a GIS feature layer
      *  or tabular layer). Model / results layers keep the current SWMM
