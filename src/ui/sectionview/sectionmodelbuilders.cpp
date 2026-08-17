@@ -14,8 +14,10 @@
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_spatial.h>
+#include <openswmm/engine/openswmm_tables.h>
 
 #include <QCoreApplication>
+#include <QStringList>
 #include <QVector>
 #include <QtMath>
 
@@ -211,6 +213,210 @@ QString shapeDisplayName(int shape)
     return tr_("SHAPE %1").arg(shape);
 }
 
+// ---------------------------------------------------------------------------
+// Node-type presentation
+// ---------------------------------------------------------------------------
+
+/*!
+ * How one node TYPE is drawn, expressed as multiples of the drawing's nominal
+ * structure size rather than in absolutes, so the node profile (normalised x)
+ * and the link profile (x = real stationing) can share the table.
+ *
+ * The point of this struct is that the four SWMM node types were previously all
+ * drawn as the same grey box: a tank, a manhole and a sea outfall are different
+ * objects, and a reader should not have to check the subtitle to tell which one
+ * is on screen.
+ */
+struct NodeShellStyle
+{
+    double      halfWidthMult = 1.0;
+    double      wallMult      = 1.0;
+    DiagramRole role          = DiagramRole::Structure;
+    bool        cover         = false;  //!< Frame & cover sat on the rim.
+    bool        corbel        = false;  //!< Neck the top in, brick-manhole style.
+};
+
+NodeShellStyle shellStyleFor(int nodeType)
+{
+    switch (nodeType) {
+    // Wide, brown and heavier-stroked. A storage unit is the one node whose plan
+    // size is part of its definition, so it gets the room.
+    case SWMM_NODE_STORAGE: return { 2.2, 1.7, DiagramRole::Storage, false, false };
+    // A headwall is a slab, not a chamber: narrow, uncovered, and identified by
+    // the receiving water drawn against it.
+    case SWMM_NODE_OUTFALL: return { 0.80, 1.4, DiagramRole::Structure, false, false };
+    // A divider is a junction that splits; keep the manhole read and let the
+    // split arrows carry the difference.
+    case SWMM_NODE_DIVIDER: return { 1.30, 1.0, DiagramRole::Structure, true, false };
+    default:                return { 1.0, 1.0, DiagramRole::Structure, true, true };
+    }
+}
+
+/*! Corbel silhouette: full width up to 80 % of the depth, then a cone into the
+ *  access shaft. Expressed in the same (depth-fraction, half-width-fraction)
+ *  form as a storage silhouette so one sampler serves both. */
+QVector<QPointF> corbelSilhouette()
+{
+    return { QPointF(0.00, 1.00), QPointF(0.80, 1.00),
+             QPointF(0.92, 0.66), QPointF(1.00, 0.66) };
+}
+
+/*!
+ * Half-width profile of a storage unit, bottom→top, as
+ * (depth / maxDepth, half-width / widest half-width).
+ *
+ * Half-width tracks sqrt(area) wherever the shape is defined by an area: a
+ * profile is a slice, so what the reader sees is the side of an equivalent
+ * square. Plotting area directly would turn a mildly flaring pond into a
+ * trumpet — a shape the model does not describe.
+ *
+ * An empty return means "vertical walls, or unreadable"; the caller then draws a
+ * plain rectangle, which is exactly right for a cylinder and honest for the
+ * rest.
+ */
+QVector<QPointF> storageSilhouette(SWMM_Engine engine, int nodeIdx,
+                                   double maxDepth)
+{
+    if (!(maxDepth > 0.0)) return {};
+
+    int shape = -1;
+    if (swmm_node_get_storage_shape(engine, nodeIdx, &shape) != SWMM_OK) return {};
+
+    constexpr int kLevels = 16;
+    QVector<QPointF> out;
+
+    // Widths are normalised at the end, so any positive measure of "how wide
+    // this level is" works here; every branch below returns sqrt(area) or a
+    // linear width consistently within itself.
+    switch (shape) {
+    case SWMM_STORAGE_TABULAR: {
+        int curve = -1;
+        if (swmm_node_get_storage_curve(engine, nodeIdx, &curve) != SWMM_OK
+            || curve < 0)
+            return {};
+        int n = 0;
+        if (swmm_table_get_point_count(engine, curve, &n) != SWMM_OK || n < 2)
+            return {};
+        for (int i = 0; i < n; ++i) {
+            double d = 0.0, a = 0.0;
+            if (swmm_table_get_point(engine, curve, i, &d, &a) != SWMM_OK) continue;
+            out << QPointF(std::clamp(d / maxDepth, 0.0, 1.0),
+                           std::sqrt(std::max(a, 0.0)));
+        }
+        break;
+    }
+    case SWMM_STORAGE_FUNCTIONAL: {
+        double a = 0.0, b = 0.0, c = 0.0;
+        if (swmm_node_get_storage_functional(engine, nodeIdx, &a, &b, &c) != SWMM_OK)
+            return {};
+        for (int i = 0; i <= kLevels; ++i) {
+            const double f = static_cast<double>(i) / kLevels;
+            const double area = c + a * std::pow(f * maxDepth, b);
+            out << QPointF(f, std::sqrt(std::max(area, 0.0)));
+        }
+        break;
+    }
+    case SWMM_STORAGE_CONICAL:
+    case SWMM_STORAGE_PYRAMIDAL: {
+        // Straight batter: the base axis grows by 2 × side slope per unit rise,
+        // which is already a width, so no square root here.
+        double p1 = 0.0, p2 = 0.0, p3 = 0.0;
+        if (swmm_node_get_storage_geometry(engine, nodeIdx, &p1, &p2, &p3) != SWMM_OK)
+            return {};
+        if (!(p3 > 0.0)) return {};       // vertical walls
+        for (int i = 0; i <= kLevels; ++i) {
+            const double f = static_cast<double>(i) / kLevels;
+            out << QPointF(f, std::max(p1, 0.0) + 2.0 * p3 * f * maxDepth);
+        }
+        break;
+    }
+    case SWMM_STORAGE_PARABOLOID: {
+        // Elliptical paraboloid: the axis at depth d is p1·sqrt(d / p3), so the
+        // silhouette is the parabola on its side that gives the shape its name.
+        double p1 = 0.0, p2 = 0.0, p3 = 0.0;
+        if (swmm_node_get_storage_geometry(engine, nodeIdx, &p1, &p2, &p3) != SWMM_OK)
+            return {};
+        if (!(p3 > 0.0) || !(p1 > 0.0)) return {};
+        for (int i = 0; i <= kLevels; ++i) {
+            const double f = static_cast<double>(i) / kLevels;
+            out << QPointF(f, p1 * std::sqrt(f * maxDepth / p3));
+        }
+        break;
+    }
+    default:                              // CYLINDRICAL and anything unknown
+        return {};
+    }
+
+    // Normalise, and drop a silhouette that carries no shape information — a
+    // flat one would only add sampling points to a rectangle.
+    double wMax = 0.0, wMin = 0.0;
+    bool   first = true;
+    for (const QPointF &s : out) {
+        if (first) { wMax = wMin = s.y(); first = false; }
+        wMax = std::max(wMax, s.y());
+        wMin = std::min(wMin, s.y());
+    }
+    if (!(wMax > 0.0) || out.size() < 2)          return {};
+    if (wMax - wMin < 0.02 * wMax)                return {};
+    // Normalise, on a floor. A functional storage with a large exponent is
+    // genuinely ~10 % as wide at its invert as at its rim, and drawing that
+    // literally leaves a razor for the pipes to attach to and a sliver of water
+    // at the bottom. The floor is a drawing minimum on a horizontal scale the
+    // footer already declares schematic — no elevation depends on it.
+    constexpr double kMinWidthFrac = 0.22;
+    for (QPointF &s : out)
+        s.setY(std::max(s.y() / wMax, kMinWidthFrac));
+
+    std::stable_sort(out.begin(), out.end(),
+                     [](const QPointF &a, const QPointF &b) {
+                         return a.x() < b.x();
+                     });
+    return out;
+}
+
+/*! Half-width fraction at depth fraction \p f. A silhouette with no samples is
+ *  a straight wall, so it answers 1.0 everywhere. */
+double silhouetteWidth(const QVector<QPointF> &sil, double f)
+{
+    if (sil.isEmpty()) return 1.0;
+    if (f <= sil.first().x()) return sil.first().y();
+    if (f >= sil.last().x())  return sil.last().y();
+    for (int i = 1; i < sil.size(); ++i) {
+        if (f > sil.at(i).x()) continue;
+        const QPointF a = sil.at(i - 1), b = sil.at(i);
+        const double span = b.x() - a.x();
+        if (span <= 0.0) return b.y();
+        return a.y() + (b.y() - a.y()) * (f - a.x()) / span;
+    }
+    return sil.last().y();
+}
+
+//! Display name for a storage shape code.
+QString storageShapeName(int shape)
+{
+    switch (shape) {
+    case SWMM_STORAGE_TABULAR:     return tr_("tabular");
+    case SWMM_STORAGE_FUNCTIONAL:  return tr_("functional");
+    case SWMM_STORAGE_CYLINDRICAL: return tr_("cylindrical");
+    case SWMM_STORAGE_CONICAL:     return tr_("conical");
+    case SWMM_STORAGE_PARABOLOID:  return tr_("paraboloid");
+    case SWMM_STORAGE_PYRAMIDAL:   return tr_("pyramidal");
+    default:                       return tr_("unknown shape");
+    }
+}
+
+//! Display name for a divider method code.
+QString dividerTypeName(int type)
+{
+    switch (type) {
+    case SWMM_DIVIDER_CUTOFF:   return tr_("CUTOFF");
+    case SWMM_DIVIDER_OVERFLOW: return tr_("OVERFLOW");
+    case SWMM_DIVIDER_TABULAR:  return tr_("TABULAR");
+    case SWMM_DIVIDER_WEIR:     return tr_("WEIR");
+    default:                    return QString();
+    }
+}
+
 } // namespace
 
 double profileMaxExaggeration() noexcept { return kProfileMaxExaggeration; }
@@ -379,9 +585,23 @@ SectionDiagramModel buildLinkProfile(SWMM_Engine engine, int linkIdx,
     swmm_link_get_length(engine, linkIdx, &length);
     swmm_link_get_offset_up(engine, linkIdx, &offUp);
     swmm_link_get_offset_dn(engine, linkIdx, &offDn);
+
+    int linkType = SWMM_LINK_CONDUIT;
+    swmm_link_get_type(engine, linkIdx, &linkType);
+
     // Orifices / weirs / outlets have no length; give them a nominal run so
-    // the structures don't collapse onto each other.
-    if (!(length > 0.0)) length = 1.0;
+    // the structures don't collapse onto each other. A pump gets a run scaled to
+    // its LIFT: at the flat nominal, a wet well and a discharge 15 ft apart
+    // vertically collapsed into a vertical sliver with the pump symbol on top of
+    // both structures.
+    if (!(length > 0.0)) {
+        const double lift = std::abs((invDn + offDn) - (invUp + offUp));
+        length = (linkType == SWMM_LINK_PUMP && lift > 0.0)
+                     ? std::max(1.0, lift * 1.6) : 1.0;
+        // With a synthetic x axis there is no V:H ratio to report — annotating
+        // one would be arithmetic on a drawing width.
+        m.annotateExaggeration = false;
+    }
 
     // Barrel depth from the section (0 for a pump / DUMMY — drawn as a line).
     int shape = SWMM_XSECT_CIRCULAR;
@@ -399,37 +619,71 @@ SectionDiagramModel buildLinkProfile(SWMM_Engine engine, int linkIdx,
     const double pipeInvDn = invDn + offDn;
 
     // Structures are drawn `mw` wide in model x-units; the barrel spans
-    // between their inner faces so the drawing reads like a real profile.
+    // between their inner faces so the drawing reads like a real profile. Each
+    // end is sized and coloured for ITS node type, so a reach into a tank or out
+    // of an outfall says so without the reader opening the node profile.
     const double mw = std::max(length * 0.035, 1.0e-6);
     const double x0 = 0.0, x1 = length;
     const double structTop = std::max(rimUp, rimDn);
     const double structBot = std::min({ invUp, invDn, pipeInvUp, pipeInvDn });
 
-    auto structure = [&](double xc, double rim, double inv) {
+    int upType = SWMM_NODE_JUNCTION, dnType = SWMM_NODE_JUNCTION;
+    swmm_node_get_type(engine, upNode, &upType);
+    swmm_node_get_type(engine, dnNode, &dnType);
+    const NodeShellStyle upStyle = shellStyleFor(upType);
+    const NodeShellStyle dnStyle = shellStyleFor(dnType);
+    const double mwUp = mw * upStyle.halfWidthMult;
+    const double mwDn = mw * dnStyle.halfWidthMult;
+
+    auto structure = [&](double xc, double w, double rim, double inv,
+                         const NodeShellStyle &st) {
         DiagramPoly s;
-        s.role = DiagramRole::Structure;
-        s.pts << QPointF(xc - mw, rim) << QPointF(xc + mw, rim)
-              << QPointF(xc + mw, inv) << QPointF(xc - mw, inv);
+        s.role = st.role;
+        s.pts << QPointF(xc - w, rim) << QPointF(xc + w, rim)
+              << QPointF(xc + w, inv) << QPointF(xc - w, inv);
         return s;
     };
-    m.polys << structure(x0, rimUp, invUp - (structTop - structBot) * 0.02);
-    m.polys << structure(x1, rimDn, invDn - (structTop - structBot) * 0.02);
+    const double sink = (structTop - structBot) * 0.02;
+    m.polys << structure(x0, mwUp, rimUp, invUp - sink, upStyle);
+    m.polys << structure(x1, mwDn, rimDn, invDn - sink, dnStyle);
+    if (upStyle.cover)
+        m.symbols << DiagramSymbol{ QPointF(x0, rimUp),
+                                    DiagramSymbolKind::ManholeCover, 26.0, false,
+                                    DiagramRole::Structure };
+    if (dnStyle.cover)
+        m.symbols << DiagramSymbol{ QPointF(x1, rimDn),
+                                    DiagramSymbolKind::ManholeCover, 26.0, false,
+                                    DiagramRole::Structure };
 
-    // Ground line: flat at each rim, sloping between them.
-    m.grounds << DiagramGround{ x0 - length * 0.12, x0 - mw, rimUp };
-    m.grounds << DiagramGround{ x1 + mw, x1 + length * 0.12, rimDn };
+    // Ground line: flat at each rim, sloping between them. Reach is measured
+    // OUT from the structure face — measuring it from the centreline left a
+    // wide storage shell with only a stub of ground beside it.
+    m.grounds << DiagramGround{ x0 - mwUp - length * 0.12, x0 - mwUp, rimUp };
+    m.grounds << DiagramGround{ x1 + mwDn, x1 + mwDn + length * 0.12, rimDn };
     m.polylines << DiagramPolyline{
-        QPolygonF({ QPointF(x0 + mw, rimUp), QPointF(x1 - mw, rimDn) }),
+        QPolygonF({ QPointF(x0 + mwUp, rimUp), QPointF(x1 - mwDn, rimDn) }),
         DiagramRole::Muted, true, QString() };
 
-    // Barrel.
-    DiagramPoly barrel;
-    barrel.role = DiagramRole::Conduit;
-    barrel.pts << QPointF(x0 + mw, pipeInvUp + yFull)
-               << QPointF(x1 - mw, pipeInvDn + yFull)
-               << QPointF(x1 - mw, pipeInvDn)
-               << QPointF(x0 + mw, pipeInvUp);
-    m.polys << barrel;
+    if (linkType == SWMM_LINK_PUMP) {
+        // A pump has no barrel — a zero-height rectangle drawn between the wet
+        // well and the discharge is a line pretending to be a conduit. Draw the
+        // pressure main and put the machine on it.
+        m.polylines << DiagramPolyline{
+            QPolygonF({ QPointF(x0 + mwUp, pipeInvUp),
+                        QPointF(x1 - mwDn, pipeInvDn) }),
+            DiagramRole::Conduit, false, QString(), false };
+        m.symbols << DiagramSymbol{
+            QPointF(0.5 * (x0 + mwUp + x1 - mwDn), 0.5 * (pipeInvUp + pipeInvDn)),
+            DiagramSymbolKind::Pump, 30.0, false, DiagramRole::Accent };
+    } else {
+        DiagramPoly barrel;
+        barrel.role = DiagramRole::Conduit;
+        barrel.pts << QPointF(x0 + mwUp, pipeInvUp + yFull)
+                   << QPointF(x1 - mwDn, pipeInvDn + yFull)
+                   << QPointF(x1 - mwDn, pipeInvDn)
+                   << QPointF(x0 + mwUp, pipeInvUp);
+        m.polys << barrel;
+    }
 
     // Elevations.
     m.leaders << DiagramLeader{ QPointF(x0, rimUp),
@@ -438,10 +692,10 @@ SectionDiagramModel buildLinkProfile(SWMM_Engine engine, int linkIdx,
     m.leaders << DiagramLeader{ QPointF(x1, rimDn),
                                 tr_("Rim %1").arg(num(rimDn, 2)),
                                 QPointF(-52.0, -18.0) };
-    m.leaders << DiagramLeader{ QPointF(x0 + mw, pipeInvUp),
+    m.leaders << DiagramLeader{ QPointF(x0 + mwUp, pipeInvUp),
                                 tr_("Inv %1").arg(num(pipeInvUp, 2)),
                                 QPointF(60.0, 30.0) };
-    m.leaders << DiagramLeader{ QPointF(x1 - mw, pipeInvDn),
+    m.leaders << DiagramLeader{ QPointF(x1 - mwDn, pipeInvDn),
                                 tr_("Inv %1").arg(num(pipeInvDn, 2)),
                                 QPointF(-64.0, 26.0) };
     if (yFull > 0.0) {
@@ -451,10 +705,10 @@ SectionDiagramModel buildLinkProfile(SWMM_Engine engine, int linkIdx,
         // inward convention for rim/invert: the run dimension writes
         // "L … S … %" along this very crown line, so anything landing over the
         // barrel is written on top of that text.
-        m.leaders << DiagramLeader{ QPointF(x0 + mw, pipeInvUp + yFull),
+        m.leaders << DiagramLeader{ QPointF(x0 + mwUp, pipeInvUp + yFull),
                                     tr_("Crown %1").arg(num(pipeInvUp + yFull, 2)),
                                     QPointF(-26.0, -48.0) };
-        m.leaders << DiagramLeader{ QPointF(x1 - mw, pipeInvDn + yFull),
+        m.leaders << DiagramLeader{ QPointF(x1 - mwDn, pipeInvDn + yFull),
                                     tr_("Crown %1").arg(num(pipeInvDn + yFull, 2)),
                                     QPointF(26.0, -48.0) };
     }
@@ -462,28 +716,45 @@ SectionDiagramModel buildLinkProfile(SWMM_Engine engine, int linkIdx,
     // Upstream offset — the number engineers actually check on a profile.
     if (std::abs(offUp) > 1.0e-9) {
         DiagramDim d;
-        d.from        = QPointF(x0 - mw, invUp);
-        d.to          = QPointF(x0 - mw, pipeInvUp);
+        d.from        = QPointF(x0 - mwUp, invUp);
+        d.to          = QPointF(x0 - mwUp, pipeInvUp);
         d.text        = tr_("Offset %1").arg(lenText(offUp, units, 2));
         d.pixelOffset = -22.0;  // left of the upstream structure
         m.dims << d;
     }
 
-    // Length + slope along the barrel axis.
-    // `length` is already floored to a positive nominal run above.
-    const double slopePct = 100.0 * (pipeInvUp - pipeInvDn) / length;
-    DiagramDim run;
-    run.from        = QPointF(x0 + mw, pipeInvUp + yFull);
-    run.to          = QPointF(x1 - mw, pipeInvDn + yFull);
-    run.text        = tr_("L %1   S %2 %")
-                          .arg(lenText(length, units, 1), num(slopePct, 2));
-    run.pixelOffset = -20.0;
-    m.dims << run;
+    if (linkType == SWMM_LINK_PUMP) {
+        // A pump has neither a length nor a slope — the run above is a drawing
+        // width. Its lift is the number that exists, so dimension that instead of
+        // annotating "L 1.0 ft   S -1500 %".
+        DiagramDim lift;
+        lift.from        = QPointF(x1 - mwDn, pipeInvUp);
+        lift.to          = QPointF(x1 - mwDn, pipeInvDn);
+        lift.text        = tr_("Lift %1").arg(lenText(pipeInvDn - pipeInvUp, units, 2));
+        lift.pixelOffset = -24.0;
+        m.dims << lift;
+    } else {
+        // Length + slope along the barrel axis.
+        // `length` is already floored to a positive nominal run above.
+        const double slopePct = 100.0 * (pipeInvUp - pipeInvDn) / length;
+        DiagramDim run;
+        run.from        = QPointF(x0 + mwUp, pipeInvUp + yFull);
+        run.to          = QPointF(x1 - mwDn, pipeInvDn + yFull);
+        run.text        = tr_("L %1   S %2 %")
+                              .arg(lenText(length, units, 1), num(slopePct, 2));
+        run.pixelOffset = -20.0;
+        m.dims << run;
+    }
 
-    m.footer = tr_("%1   %2   inverts %3 → %4 %5")
-                   .arg(shapeDisplayName(shape),
-                        yFull > 0.0 ? lenText(yFull, units) : tr_("no section"),
-                        num(pipeInvUp, 2), num(pipeInvDn, 2), units.lengthLabel);
+    m.footer = (linkType == SWMM_LINK_PUMP)
+                   ? tr_("PUMP   lift %1 %2   inverts %3 → %4")
+                         .arg(num(pipeInvDn - pipeInvUp, 2), units.lengthLabel,
+                              num(pipeInvUp, 2), num(pipeInvDn, 2))
+                   : tr_("%1   %2   inverts %3 → %4 %5")
+                         .arg(shapeDisplayName(shape),
+                              yFull > 0.0 ? lenText(yFull, units) : tr_("no section"),
+                              num(pipeInvUp, 2), num(pipeInvDn, 2),
+                              units.lengthLabel);
     return m;
 }
 
@@ -502,7 +773,17 @@ struct NodeConnection
     bool    inbound = true;  //!< True when this node is the link's `to` node.
     double  headingDeg = 0.0;
     bool    hasHeading = false;
+    int     type     = SWMM_LINK_CONDUIT;
+    /*! Orifice SIDE/BOTTOM, weir type, or outlet rating type; -1 when the link
+     *  kind has no sub-type. */
+    int     subtype  = -1;
+    bool    flapGate = false;
 };
+
+/*! Outfall boundary-condition codes. The engine documents these inline on
+ *  swmm_node_set_outfall_type() but exports no enum for them. */
+enum { kOutfallFree = 0, kOutfallNormal = 1, kOutfallFixed = 2,
+       kOutfallTidal = 3, kOutfallTimeSeries = 4 };
 
 } // namespace
 
@@ -554,6 +835,16 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx,
         c.name    = idOf(swmm_link_id(engine, i));
         c.inbound = (to == nodeIdx);
 
+        swmm_link_get_type(engine, i, &c.type);
+        switch (c.type) {
+        case SWMM_LINK_ORIFICE: swmm_link_get_orifice_type(engine, i, &c.subtype); break;
+        case SWMM_LINK_WEIR:    swmm_link_get_weir_type(engine, i, &c.subtype);    break;
+        case SWMM_LINK_OUTLET:  swmm_link_get_outlet_rating_type(engine, i, &c.subtype); break;
+        default: break;
+        }
+        int flap = 0;
+        if (swmm_link_get_flap_gate(engine, i, &flap) == SWMM_OK) c.flapGate = (flap != 0);
+
         double off = 0.0;
         if (c.inbound) swmm_link_get_offset_dn(engine, i, &off);
         else           swmm_link_get_offset_up(engine, i, &off);
@@ -592,51 +883,264 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx,
                      });
     if (maxLinks > 0 && conns.size() > maxLinks) conns.resize(maxLinks);
 
-    m.subtitle = tr_("%1 · %2 connecting link(s)").arg(kindName).arg(total);
-
     // ---- Structure ---------------------------------------------------------
     // Model x is arbitrary here (nothing horizontal is to scale), so use a
-    // normalized 0..1 frame: chamber centred, stubs to either side.
-    constexpr double kChamberHalf = 0.10;
-    constexpr double kWall        = 0.025;
-    constexpr double kStubLen     = 0.34;
+    // normalized frame: structure centred, stubs to either side. The four node
+    // types differ in width, material and fittings — see shellStyleFor().
+    // Wider and with shorter stubs than the original 0.10 / 0.34: leader text
+    // reserves up to 40 % of the pane on each side, which left a 12 ft manhole
+    // 25 px wide — too narrow for a silhouette or a cover to be visible at all.
+    constexpr double kBaseHalf = 0.14;
+    constexpr double kBaseWall = 0.028;
+    constexpr double kStubLen  = 0.30;
 
-    const double vSpan = std::max(maxDepth, 1.0e-6);
+    // Two different spans. `depthSpan` maps an elevation onto the structure's
+    // own depth and so must be the node's max depth. `vSpan` scales the drawing
+    // minimums (floor slab, apron, jets) and must NOT be, because an outfall's
+    // max depth is legitimately zero — the engine raises a JUNCTION's full depth
+    // to its highest connecting crown but leaves outfalls alone — and a zero
+    // scale collapsed the whole outboard drawing onto one line.
+    const double depthSpan = std::max(maxDepth, 1.0e-6);
+    double vSpan = maxDepth;
+    for (const NodeConnection &c : conns)
+        vSpan = std::max(vSpan, (c.invert + std::max(c.height, 0.0)) - invert);
+    vSpan = std::max(vSpan, 1.0e-6);
 
-    DiagramPoly walls;
-    walls.role = DiagramRole::Structure;
-    walls.pts << QPointF(-kChamberHalf - kWall, rim)
-              << QPointF( kChamberHalf + kWall, rim)
-              << QPointF( kChamberHalf + kWall, invert - vSpan * 0.03)
-              << QPointF(-kChamberHalf - kWall, invert - vSpan * 0.03);
-    m.polys << walls;
+    const double floorY = invert - vSpan * 0.03;
 
-    DiagramPoly chamber;
-    chamber.role = DiagramRole::Conduit;
-    chamber.pts << QPointF(-kChamberHalf, rim)
-                << QPointF( kChamberHalf, rim)
-                << QPointF( kChamberHalf, invert)
-                << QPointF(-kChamberHalf, invert);
-    m.polys << chamber;
+    NodeShellStyle style = shellStyleFor(nodeType);
+    const double half = kBaseHalf * style.halfWidthMult;
+    const double wall = kBaseWall * style.wallMult;
 
-    m.grounds << DiagramGround{ -kChamberHalf - kWall - kStubLen - 0.08,
-                                -kChamberHalf - kWall, rim };
-    m.grounds << DiagramGround{  kChamberHalf + kWall,
-                                 kChamberHalf + kWall + kStubLen + 0.08, rim };
+    // A storage unit's silhouette comes from its own shape data; a junction's
+    // corbel is decoration, so it is suppressed when a pipe would land on the
+    // neck — a manhole with a pipe hanging off its shaft is worse than a box.
+    QVector<QPointF> sil;
+    if (nodeType == SWMM_NODE_STORAGE) {
+        sil = storageSilhouette(engine, nodeIdx, maxDepth);
+    } else if (style.corbel && maxDepth > 0.0) {
+        double topConn = invert;
+        for (const NodeConnection &c : conns)
+            topConn = std::max(topConn, c.invert + std::max(c.height, 0.0));
+        if ((topConn - invert) < 0.74 * depthSpan) sil = corbelSilhouette();
+    }
 
-    // ---- Connecting pipes --------------------------------------------------
+    //! Half-width of the VOID at an elevation; the shell face is this + wall.
+    const auto halfAt = [&](double elev) {
+        const double f = std::clamp((elev - invert) / depthSpan, 0.0, 1.0);
+        return half * silhouetteWidth(sil, f);
+    };
+    const auto faceX = [&](double elev, double sign) {
+        return sign * (halfAt(elev) + wall);
+    };
+
+    /*! Ring following the silhouette between two elevations, padded outward by
+     *  \p pad (0 for the void / the water body, `wall` for the shell). Emitted
+     *  right side bottom→top then left side top→bottom, so the first and last
+     *  points are the two bottom corners.
+     *
+     *  Sampled AT the silhouette's own breakpoints rather than on a uniform
+     *  ladder: a fixed ladder rounded a manhole's corbel into a bottle neck and
+     *  smeared a storage curve's knee, because it interpolates across the very
+     *  vertices that carry the shape. */
+    const auto ring = [&](double yBot, double yTop, double pad) {
+        QVector<double> ys{ yBot, yTop };
+        for (const QPointF &s : sil) {
+            const double y = invert + s.x() * depthSpan;
+            if (y > yBot + 1.0e-9 && y < yTop - 1.0e-9) ys << y;
+        }
+        std::sort(ys.begin(), ys.end());
+
+        QPolygonF r;
+        for (double y : ys) r << QPointF(halfAt(y) + pad, y);
+        for (int i = ys.size() - 1; i >= 0; --i)
+            r << QPointF(-(halfAt(ys.at(i)) + pad), ys.at(i));
+        return r;
+    };
+
+    DiagramPoly shell;
+    shell.role = style.role;
+    shell.pts  = ring(invert, rim, wall);
+    // Floor slab: the shell closes across the bottom, so pushing the two bottom
+    // corners down gives a base without a separate polygon.
+    if (!shell.pts.isEmpty()) {
+        shell.pts.prepend(QPointF(shell.pts.first().x(), floorY));
+        shell.pts.append(QPointF(shell.pts.last().x(), floorY));
+    }
+    m.polys << shell;
+
+    DiagramPoly voidSpace;
+    voidSpace.role = DiagramRole::Conduit;
+    voidSpace.pts  = ring(invert, rim, 0.0);
+    m.polys << voidSpace;
+
+    if (style.cover)
+        m.symbols << DiagramSymbol{ QPointF(0.0, rim),
+                                    DiagramSymbolKind::ManholeCover,
+                                    std::max(28.0, 34.0 * halfAt(rim) / kBaseHalf),
+                                    false, DiagramRole::Structure };
+
+    // Ground on both sides, except where an outfall discharges — there the
+    // right-hand side is water or open air, and hatching it would bury the
+    // outlet.
+    const double groundReach = half + wall + kStubLen + 0.08;
+    m.grounds << DiagramGround{ -groundReach, faceX(rim, -1.0), rim };
+    if (nodeType != SWMM_NODE_OUTFALL)
+        m.grounds << DiagramGround{ faceX(rim, 1.0), groundReach, rim };
+
+    // ---- Connecting links --------------------------------------------------
+    int nPumps = 0, nOrifices = 0, nWeirs = 0, nOutlets = 0;
+
+    // Lanes for devices. Several devices commonly hang off ONE wall at the SAME
+    // elevation — fv_structures.inp has a pump, an orifice and a weir all on
+    // J4's upstream face at its invert — and sharing the stub band merged them
+    // into a single hatched slab in which none of the three was identifiable.
+    // Each device therefore gets its own slice of the stub; conduits keep the
+    // full stub, since a pipe has to reach the wall to read as one.
+    int devLeft = 0, devRight = 0;
+    for (const NodeConnection &c : conns)
+        if (c.type != SWMM_LINK_CONDUIT) (c.inbound ? devLeft : devRight)++;
+    int laneLeft = 0, laneRight = 0;
+
     for (const NodeConnection &c : conns) {
-        const double sign = c.inbound ? -1.0 : 1.0;
-        const double xIn  = sign * (kChamberHalf + kWall);
-        const double xOut = xIn + sign * kStubLen;
+        const double sign    = c.inbound ? -1.0 : 1.0;
+        const bool   device  = (c.type != SWMM_LINK_CONDUIT);
+        const int    nDev    = std::max(c.inbound ? devLeft : devRight, 1);
+        const int    lane    = device ? (c.inbound ? laneLeft++ : laneRight++) : 0;
+        const double laneLen = device ? kStubLen / nDev : kStubLen;
+
+        const double xIn  = faceX(c.invert, sign) + sign * lane * laneLen;
+        const double xOut = xIn + sign * laneLen;
+        const double xMid = 0.5 * (xIn + xOut);
+        // Glyphs are a fixed pixel size, so they have to shrink as the lanes
+        // divide or three of them overlap into a blot.
+        const double glyphPx = (nDev >= 3) ? 15.0 : (nDev == 2) ? 18.0 : 22.0;
         // Zero-height sections (pump / dummy) still need a visible stub.
         const double h = (c.height > 0.0) ? c.height : vSpan * 0.06;
 
-        DiagramPoly stub;
-        stub.role = DiagramRole::Conduit;
-        stub.pts << QPointF(xIn,  c.invert + h) << QPointF(xOut, c.invert + h)
-                 << QPointF(xOut, c.invert)     << QPointF(xIn,  c.invert);
-        m.polys << stub;
+        // A lane past the first does not touch the structure, and a wall panel
+        // floating in space reads as a mistake. Tie it back with a spine at its
+        // invert — which is also the truth: the device IS connected there.
+        if (lane > 0)
+            m.polylines << DiagramPolyline{
+                QPolygonF({ QPointF(faceX(c.invert, sign), c.invert),
+                            QPointF(xIn, c.invert) }),
+                DiagramRole::Muted, false, QString(), false };
+        // Flow runs toward the node on an inbound link, away on an outbound one,
+        // so every device arrow is drawn between the same two x's in the order
+        // the water travels.
+        const QPointF jetFrom(c.inbound ? xOut : xIn, c.invert + h * 0.5);
+        const QPointF jetTo  (c.inbound ? xIn  : xOut, c.invert + h * 0.5);
+
+        switch (c.type) {
+        case SWMM_LINK_PUMP: {
+            ++nPumps;
+            // A pump is a pressure line with a machine on it, not a gravity
+            // barrel: draw the line thin and let the glyph carry the meaning.
+            m.polylines << DiagramPolyline{
+                QPolygonF({ QPointF(xIn, c.invert), QPointF(xOut, c.invert) }),
+                DiagramRole::Conduit, false, QString(), false };
+            m.symbols << DiagramSymbol{ QPointF(xMid, c.invert),
+                                        DiagramSymbolKind::Pump, glyphPx,
+                                        /*mirrored=*/c.inbound,
+                                        DiagramRole::Accent };
+            m.arrows << DiagramArrow{ jetFrom, jetTo, QString(),
+                                      DiagramRole::Accent };
+            break;
+        }
+        case SWMM_LINK_ORIFICE: {
+            ++nOrifices;
+            const bool bottom = (c.subtype == SWMM_ORIFICE_BOTTOM);
+            // An orifice is a hole in a wall, so the wall is what gets drawn:
+            // hatched fill above the opening and below it, with the opening left
+            // as a void that the jet passes through.
+            //
+            // The fill is a BAND around the opening, not the whole wall from
+            // floor to rim: several devices commonly share one side of a
+            // structure, and full-height panels merged into a single grey column
+            // that hid every one of them.
+            const double xa = std::min(xIn, xOut), xb = std::max(xIn, xOut);
+            const auto panel = [&](double yBot, double yTop) {
+                DiagramPoly p;
+                p.role    = DiagramRole::Structure;
+                p.texture = DiagramTexture::Hatch;
+                p.pts << QPointF(xa, yTop) << QPointF(xb, yTop)
+                      << QPointF(xb, yBot) << QPointF(xa, yBot);
+                return p;
+            };
+            const double capUp = std::min(h * 1.3,
+                                          std::max(rim - (c.invert + h), 0.0));
+            const double capDn = std::min(h * 0.9,
+                                          std::max(c.invert - floorY, 0.0));
+            if (capUp > 0.0) m.polys << panel(c.invert + h, c.invert + h + capUp);
+            if (capDn > 0.0) m.polys << panel(c.invert - capDn, c.invert);
+            if (bottom) {
+                // A bottom orifice discharges through the floor, so the jet
+                // leaves downward instead of through the wall.
+                m.arrows << DiagramArrow{ QPointF(xMid, c.invert),
+                                          QPointF(xMid, c.invert - vSpan * 0.12),
+                                          QString(), DiagramRole::Accent };
+            } else {
+                m.arrows << DiagramArrow{ jetFrom, jetTo, QString(),
+                                          DiagramRole::Accent };
+            }
+            break;
+        }
+        case SWMM_LINK_WEIR: {
+            ++nWeirs;
+            // The weir's offset IS its crest, so the plate is real geometry:
+            // solid below the crest, open above it, with a nappe spilling over
+            // the edge. Like the orifice's fill, the plate is a band rather than
+            // a full-height wall so it can share a side with other devices.
+            const double xa = std::min(xIn, xOut), xb = std::max(xIn, xOut);
+            const double plateBot =
+                std::max(floorY, c.invert - std::max(h * 1.2, vSpan * 0.06));
+            if (c.invert > plateBot) {
+                DiagramPoly plate;
+                plate.role = DiagramRole::Structure;
+                plate.pts << QPointF(xa, c.invert)  << QPointF(xb, c.invert)
+                          << QPointF(xb, plateBot)  << QPointF(xa, plateBot);
+                m.polys << plate;
+            }
+            // Nappe: starts just inside the crest and lands beyond it, which is
+            // the one picture that says "this flow goes OVER, not through".
+            m.arrows << DiagramArrow{
+                QPointF(xIn - sign * laneLen * 0.35, c.invert + h * 0.55),
+                QPointF(xIn + sign * laneLen * 1.35, c.invert - vSpan * 0.10),
+                QString(), DiagramRole::Accent };
+            break;
+        }
+        case SWMM_LINK_OUTLET: {
+            ++nOutlets;
+            m.polylines << DiagramPolyline{
+                QPolygonF({ QPointF(xIn, c.invert), QPointF(xOut, c.invert) }),
+                DiagramRole::Conduit, false, QString(), false };
+            m.symbols << DiagramSymbol{ QPointF(xMid, c.invert),
+                                        DiagramSymbolKind::RatingBox, glyphPx,
+                                        c.inbound, DiagramRole::Accent };
+            m.arrows << DiagramArrow{ jetFrom, jetTo, QString(),
+                                      DiagramRole::Accent };
+            break;
+        }
+        default: {
+            DiagramPoly stub;
+            stub.role = DiagramRole::Conduit;
+            stub.pts << QPointF(xIn,  c.invert + h) << QPointF(xOut, c.invert + h)
+                     << QPointF(xOut, c.invert)     << QPointF(xIn,  c.invert);
+            m.polys << stub;
+            break;
+        }
+        }
+
+        // A flap gate lives on the downstream face of whatever it guards, so it
+        // hangs at the outboard end of an outbound link and at the node-side end
+        // of an inbound one — which is the same point either way: where the flow
+        // leaves the drawing element.
+        if (c.flapGate)
+            m.symbols << DiagramSymbol{ QPointF(c.inbound ? xIn : xOut,
+                                                c.invert + h),
+                                        DiagramSymbolKind::FlapGate, 20.0,
+                                        c.inbound, DiagramRole::Structure };
 
         m.leaders << DiagramLeader{
             QPointF(xOut, c.invert),
@@ -663,28 +1167,222 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx,
             m.plan << PlanSpoke{ c.headingDeg, c.name, c.inbound };
     }
 
+    // ---- Node-type specifics ----------------------------------------------
+    QString typeNote;
+
+    if (nodeType == SWMM_NODE_STORAGE) {
+        int shape = -1;
+        swmm_node_get_storage_shape(engine, nodeIdx, &shape);
+        typeNote = storageShapeName(shape);
+
+        // Water at the initial depth: a tank that is drawn empty when the model
+        // says it starts half full is telling the user the wrong thing.
+        double initDepth = 0.0;
+        swmm_node_get_initial_depth(engine, nodeIdx, &initDepth);
+        const double wsel = invert + std::clamp(initDepth, 0.0, maxDepth);
+        if (wsel > invert) {
+            DiagramPoly water;
+            water.role = DiagramRole::Water;
+            water.pts  = ring(invert, wsel, 0.0);
+            m.polys << water;
+            m.polylines << DiagramPolyline{
+                QPolygonF({ QPointF(-halfAt(wsel), wsel),
+                            QPointF( halfAt(wsel), wsel) }),
+                DiagramRole::Water, false,
+                tr_("init %1").arg(num(wsel, 2)), /*wavy=*/true };
+        }
+
+        // Seepage out of the bottom — the reason a storage unit's continuity can
+        // differ from a junction's.
+        double seep = 0.0;
+        if (swmm_node_get_storage_seep_rate(engine, nodeIdx, &seep) == SWMM_OK
+            && seep > 0.0)
+        {
+            for (double f : { -0.45, 0.0, 0.45 })
+                m.arrows << DiagramArrow{ QPointF(half * f, floorY),
+                                          QPointF(half * f, floorY - vSpan * 0.10),
+                                          QString(), DiagramRole::Muted };
+            // On a leader, not on the arrow: an arrow's label is written back at
+            // its tail, which for a vertical arrow lands on the structure.
+            m.leaders << DiagramLeader{ QPointF(0.0, floorY - vSpan * 0.10),
+                                        tr_("seepage %1").arg(num(seep, 3)),
+                                        QPointF(30.0, 20.0) };
+        }
+    }
+    else if (nodeType == SWMM_NODE_OUTFALL) {
+        int oType = kOutfallFree;
+        swmm_node_get_outfall_type(engine, nodeIdx, &oType);
+        int flap = 0;
+        swmm_node_get_outfall_flap_gate(engine, nodeIdx, &flap);
+
+        const double xFace  = faceX(invert, 1.0);
+        const double xReach = xFace + kStubLen + 0.10;
+        const double bedDrop = vSpan * 0.08;
+        const double apronThk = vSpan * 0.10;
+
+        // Riprap apron: the bed falls away from the headwall and is armoured.
+        // Aggregate texture rather than a plain fill, because a smooth wedge
+        // below an outlet reads as water.
+        DiagramPoly apron;
+        apron.role    = DiagramRole::Soil;
+        apron.texture = DiagramTexture::Aggregate;
+        apron.pts << QPointF(xFace,  invert)
+                  << QPointF(xReach, invert - bedDrop)
+                  << QPointF(xReach, invert - bedDrop - apronThk)
+                  << QPointF(xFace,  invert - apronThk);
+        m.polys << apron;
+
+        // Carry the lowest inbound pipe THROUGH the headwall so the outfall
+        // reads as a pipe discharging rather than as a blank wall.
+        double outletInv = invert, outletH = vSpan * 0.10;
+        for (const NodeConnection &c : conns) {
+            if (!c.inbound) continue;
+            outletInv = c.invert;
+            outletH   = (c.height > 0.0) ? c.height : vSpan * 0.10;
+            break;      // conns are sorted deepest-first
+        }
+        DiagramPoly through;
+        through.role = DiagramRole::Conduit;
+        through.pts << QPointF(-xFace, outletInv + outletH)
+                    << QPointF( xFace, outletInv + outletH)
+                    << QPointF( xFace, outletInv)
+                    << QPointF(-xFace, outletInv);
+        m.polys << through;
+
+        // The tailwater. FIXED is a number we have; a tidal curve or a time
+        // series is a number that changes, so it is drawn dashed and labelled
+        // "varies" with NO elevation — inventing one would be worse than the
+        // omission. FREE / NORMAL have no boundary stage at all: the pipe
+        // discharges to air, and a free-fall jet is the honest picture.
+        double stage = 0.0;
+        swmm_node_get_outfall_param(engine, nodeIdx, &stage);
+
+        if (oType == kOutfallFixed && stage > invert - bedDrop) {
+            const double wsel = std::min(stage, rim + vSpan * 0.25);
+            DiagramPoly water;
+            water.role = DiagramRole::Water;
+            water.pts << QPointF(xFace,  wsel)
+                      << QPointF(xReach, wsel)
+                      << QPointF(xReach, invert - bedDrop)
+                      << QPointF(xFace,  invert);
+            m.polys << water;
+            // Emitted right→left: a polyline's label is drawn off its LAST
+            // point, and the tailwater's right end is the drawing's right edge,
+            // where the text was being clipped.
+            m.polylines << DiagramPolyline{
+                QPolygonF({ QPointF(xReach, wsel), QPointF(xFace, wsel) }),
+                DiagramRole::Water, false,
+                tr_("Fixed stage %1").arg(num(stage, 2)), /*wavy=*/true };
+            typeNote = tr_("FIXED %1").arg(num(stage, 2));
+        }
+        else if (oType == kOutfallTidal || oType == kOutfallTimeSeries) {
+            const double wsel = invert + vSpan * 0.45;
+            DiagramPoly water;
+            water.role = DiagramRole::Water;
+            water.pts << QPointF(xFace,  wsel)
+                      << QPointF(xReach, wsel)
+                      << QPointF(xReach, invert - bedDrop)
+                      << QPointF(xFace,  invert);
+            m.polys << water;
+            // Dashed: the surface shown is schematic, not the stage.
+            m.polylines << DiagramPolyline{
+                QPolygonF({ QPointF(xReach, wsel), QPointF(xFace, wsel) }),
+                DiagramRole::Water, true, tr_("stage varies"), /*wavy=*/true };
+            typeNote = (oType == kOutfallTidal) ? tr_("TIDAL") : tr_("TIMESERIES");
+        }
+        else {
+            // Free discharge: a jet out of the pipe onto the apron. The caption
+            // rides a leader rather than the arrow, because an arrow's label is
+            // written back at its tail — which here is inside the pipe.
+            const QPointF land(xFace + kStubLen * 0.55, invert - bedDrop * 0.75);
+            m.arrows << DiagramArrow{
+                QPointF(xFace, outletInv + outletH * 0.4), land,
+                QString(), DiagramRole::Accent };
+            m.leaders << DiagramLeader{ land, tr_("free discharge"),
+                                        QPointF(30.0, 22.0) };
+            typeNote = (oType == kOutfallNormal) ? tr_("NORMAL") : tr_("FREE");
+        }
+
+        if (flap)
+            m.symbols << DiagramSymbol{ QPointF(xFace, outletInv + outletH),
+                                        DiagramSymbolKind::FlapGate, 22.0, false,
+                                        DiagramRole::Structure };
+    }
+    else if (nodeType == SWMM_NODE_DIVIDER) {
+        int dType = -1;
+        swmm_node_get_divider_type(engine, nodeIdx, &dType);
+        typeNote = dividerTypeName(dType);
+
+        // The split itself: one stream carries on, one is diverted upward and
+        // out. Which link is which is not exposed by the engine, so the arrows
+        // are drawn from the chamber outward without naming a destination.
+        const double xR   = faceX(invert, 1.0);
+        const double xTip = xR + kStubLen * 0.22;
+        m.arrows << DiagramArrow{ QPointF(-halfAt(invert) * 0.4, invert + vSpan * 0.06),
+                                  QPointF(xTip, invert + vSpan * 0.06),
+                                  QString(), DiagramRole::Accent };
+        m.arrows << DiagramArrow{ QPointF(0.0, invert + vSpan * 0.10),
+                                  QPointF(xTip, invert + vSpan * 0.40),
+                                  QString(), DiagramRole::Accent };
+        m.leaders << DiagramLeader{ QPointF(xTip, invert + vSpan * 0.40),
+                                    tr_("flow split"), QPointF(26.0, -18.0) };
+    }
+
     // ---- Rim / invert / depth annotations ---------------------------------
-    m.leaders << DiagramLeader{ QPointF(-kChamberHalf - kWall, rim),
+    // The structure's own annotations go on whichever side carries fewer
+    // connections. They used to be pinned right, where a stack of outbound
+    // devices is now drawn — the depth dimension ran straight through it.
+    // An outfall is the exception: its right side is the receiving water, which
+    // has to stay clear whatever the connection count says.
+    int nLeft = 0;
+    for (const NodeConnection &c : conns) nLeft += c.inbound ? 1 : 0;
+    const double dimSide =
+        (nodeType == SWMM_NODE_OUTFALL) ? -1.0
+        : (nLeft <= static_cast<int>(conns.size()) - nLeft) ? -1.0 : 1.0;
+
+    m.leaders << DiagramLeader{ QPointF(faceX(rim, -1.0), rim),
                                 tr_("Rim El. %1").arg(lenText(rim, units, 2)),
                                 QPointF(-40.0, -20.0) };
-    m.leaders << DiagramLeader{ QPointF(0.0, invert),
+    m.leaders << DiagramLeader{ QPointF(faceX(invert, dimSide), invert),
                                 tr_("Invert El. %1").arg(lenText(invert, units, 2)),
-                                QPointF(34.0, 26.0) };
+                                QPointF(34.0 * dimSide, 26.0) };
 
+    // Both ends at the WIDEST face, so a battered shell gets a vertical
+    // dimension line: anchoring each end to its own face drew "Max depth" along
+    // the tank's batter, which reads as a slope measurement. Placed OUTBOARD of
+    // the stubs, because a 30 px offset off the shell lands the text on top of
+    // whatever connects on that side.
+    const double xDim = dimSide * (half + wall + kStubLen + 0.05);
     DiagramDim depthDim;
-    depthDim.from        = QPointF(kChamberHalf + kWall, invert);
-    depthDim.to          = QPointF(kChamberHalf + kWall, rim);
+    depthDim.from        = QPointF(xDim, invert);
+    depthDim.to          = QPointF(xDim, rim);
     depthDim.text        = tr_("Max depth %1").arg(lenText(maxDepth, units));
-    depthDim.pixelOffset = 30.0;   // right of the chamber
+    depthDim.pixelOffset = 16.0 * dimSide;
     m.dims << depthDim;
 
     if (surcharge > 0.0) {
         m.polylines << DiagramPolyline{
-            QPolygonF({ QPointF(-kChamberHalf, rim + surcharge),
-                        QPointF( kChamberHalf, rim + surcharge) }),
+            QPolygonF({ QPointF(-halfAt(rim), rim + surcharge),
+                        QPointF( halfAt(rim), rim + surcharge) }),
             DiagramRole::Accent, true,
-            tr_("surcharge +%1").arg(num(surcharge, 2)) };
+            tr_("surcharge +%1").arg(num(surcharge, 2)), /*wavy=*/false };
     }
+
+    // ---- Headers -----------------------------------------------------------
+    // The subtitle names the type, its sub-kind (storage shape, outfall BC,
+    // divider method) and any devices on the connections — the three things
+    // that decide what the drawing looks like.
+    QStringList devices;
+    if (nPumps)    devices << tr_("%1 pump(s)").arg(nPumps);
+    if (nOrifices) devices << tr_("%1 orifice(s)").arg(nOrifices);
+    if (nWeirs)    devices << tr_("%1 weir(s)").arg(nWeirs);
+    if (nOutlets)  devices << tr_("%1 outlet(s)").arg(nOutlets);
+
+    m.subtitle = typeNote.isEmpty() ? kindName
+                                    : tr_("%1 · %2").arg(kindName, typeNote);
+    m.subtitle += tr_(" · %1 connecting link(s)").arg(total);
+    if (!devices.isEmpty())
+        m.subtitle += QStringLiteral(" · ") + devices.join(QStringLiteral(", "));
 
     QString footer = tr_("Invert %1   Rim %2   Max depth %3 %4")
                          .arg(num(invert, 2), num(rim, 2),
@@ -692,8 +1390,19 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx,
     if (total > static_cast<int>(conns.size()))
         footer += tr_("   (+%1 more link(s) not drawn)")
                       .arg(total - static_cast<int>(conns.size()));
-    if (nodeType == SWMM_NODE_STORAGE)
-        footer += tr_("   — storage geometry not yet drawn");
+    if (nodeType == SWMM_NODE_STORAGE) {
+        double p1 = 0.0, p2 = 0.0, p3 = 0.0;
+        if (swmm_node_get_storage_geometry(engine, nodeIdx, &p1, &p2, &p3) == SWMM_OK
+            && (p1 > 0.0 || p2 > 0.0))
+        {
+            footer += tr_("   Plan %1 × %2 %3")
+                          .arg(num(p1, 1), num(p2, 1), units.lengthLabel);
+        }
+        // The horizontal is schematic in this view, so say so where the shape is
+        // now being drawn from real data — otherwise the silhouette invites the
+        // reader to scale widths off it.
+        footer += tr_("   (widths schematic)");
+    }
     m.footer = footer;
 
     return m;

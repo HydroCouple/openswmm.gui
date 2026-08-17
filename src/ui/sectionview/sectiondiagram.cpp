@@ -264,6 +264,151 @@ void paintPlant(QPainter &p, const QPointF &base, double heightPx, bool grass,
     }
 }
 
+/*!
+ * Draw \p px as a wave train instead of a straight line.
+ *
+ * Wavelength and amplitude are in SCREEN pixels, so a tailwater surface keeps
+ * the same ripple whatever the drawing's scale — the ripple is notation, not
+ * geometry, and an amplitude in model units would read as a claim about wave
+ * height.
+ */
+void drawWaveTrain(QPainter &p, const QPolygonF &px)
+{
+    if (px.size() < 2) return;
+
+    constexpr double kWaveLen = 13.0;
+    constexpr double kAmp     = 1.9;
+
+    QPainterPath path;
+    for (int i = 1; i < px.size(); ++i) {
+        const QPointF a = px.at(i - 1), b = px.at(i);
+        const double  dx = b.x() - a.x(), dy = b.y() - a.y();
+        const double  len = std::hypot(dx, dy);
+        if (len < 1.0) continue;
+        const QPointF u(dx / len, dy / len);          // along
+        const QPointF n(-u.y(),   u.x());             // across
+
+        path.moveTo(a);
+        // Half-wave arcs, alternating side; the last partial wave is clipped by
+        // stopping at the segment end rather than overshooting it.
+        int   half = 0;
+        double s   = 0.0;
+        while (s < len - 0.5) {
+            const double step = std::min(kWaveLen * 0.5, len - s);
+            const QPointF from = a + u * s;
+            const QPointF to   = a + u * (s + step);
+            const double  side = (half % 2 == 0) ? 1.0 : -1.0;
+            path.quadTo(from + u * (step * 0.5) + n * (kAmp * 2.0 * side), to);
+            s += step;
+            ++half;
+        }
+    }
+    p.drawPath(path);
+}
+
+/*!
+ * Draw one schematic device glyph, \p s pixels across, centred on \p at.
+ *
+ * Everything here is pixel geometry: these symbols stand in for objects the
+ * model gives no dimensions for (a pump curve is not a casing size), so drawing
+ * them to scale would be inventing numbers. \p flip mirrors the glyph so it
+ * faces the direction its flow runs.
+ */
+void paintSymbol(QPainter &p, const QPointF &at, DiagramSymbolKind kind,
+                 double s, bool flip, const QColor &ink, const QColor &fill)
+{
+    if (s < 6.0) return;
+
+    p.save();
+    p.translate(at);
+    if (flip) p.scale(-1.0, 1.0);
+
+    QPen pen(ink);
+    pen.setWidthF(std::clamp(s * 0.07, 1.0, 2.0));
+    pen.setJoinStyle(Qt::MiterJoin);
+    p.setPen(pen);
+    p.setBrush(fill);
+
+    switch (kind) {
+    case DiagramSymbolKind::Pump: {
+        // Centrifugal-pump symbol: casing circle, discharge nozzle up and out,
+        // suction nozzle in on the flat side, impeller vanes inside.
+        const double r = s * 0.5;
+        p.drawEllipse(QPointF(0.0, 0.0), r, r);
+
+        p.setBrush(Qt::NoBrush);
+        // Discharge: up out of the casing, then over — the elbow that makes the
+        // glyph read as a pump rather than as a valve.
+        QPolygonF disch;
+        disch << QPointF(0.0, -r)
+              << QPointF(0.0, -r - s * 0.42)
+              << QPointF(r + s * 0.34, -r - s * 0.42);
+        p.drawPolyline(disch);
+        // Suction stub.
+        p.drawLine(QPointF(-r, 0.0), QPointF(-r - s * 0.34, 0.0));
+
+        // Impeller: three vanes, curved the way the discharge turns.
+        QPen vane(ink);
+        vane.setWidthF(std::clamp(s * 0.055, 0.8, 1.6));
+        p.setPen(vane);
+        for (int i = 0; i < 3; ++i) {
+            const double a0 = i * (2.0 * M_PI / 3.0);
+            const QPointF hub(std::cos(a0) * r * 0.20, std::sin(a0) * r * 0.20);
+            const QPointF tip(std::cos(a0 + 0.7) * r * 0.72,
+                              std::sin(a0 + 0.7) * r * 0.72);
+            QPainterPath v(hub);
+            v.quadTo(QPointF(std::cos(a0 + 0.15) * r * 0.55,
+                             std::sin(a0 + 0.15) * r * 0.55), tip);
+            p.drawPath(v);
+        }
+        break;
+    }
+    case DiagramSymbolKind::FlapGate: {
+        // Hinge pin at the top, plate swung open downstream. Drawn open because
+        // that is the state the flap spends its time in when the pipe flows.
+        const double h = s;
+        p.setBrush(Qt::NoBrush);
+        p.drawLine(QPointF(0.0, 0.0), QPointF(0.0, h * 0.10));
+        p.setBrush(fill);
+        QPolygonF plate;
+        plate << QPointF(-h * 0.06, h * 0.06)
+              << QPointF( h * 0.34, h * 0.86)
+              << QPointF( h * 0.22, h * 0.94)
+              << QPointF(-h * 0.18, h * 0.12);
+        p.drawPolygon(plate);
+        p.setBrush(ink);
+        p.drawEllipse(QPointF(0.0, 0.0), s * 0.075, s * 0.075);
+        break;
+    }
+    case DiagramSymbolKind::ManholeCover: {
+        // Frame and cover in section: a shallow lip with the cover seated in it.
+        const double w = s * 0.60, h = s * 0.20;
+        QPolygonF frame;
+        frame << QPointF(-w, 0.0) << QPointF(w, 0.0)
+              << QPointF(w * 0.82, -h) << QPointF(-w * 0.82, -h);
+        p.drawPolygon(frame);
+        p.setBrush(Qt::NoBrush);
+        p.drawLine(QPointF(-w * 0.62, -h * 0.5), QPointF(w * 0.62, -h * 0.5));
+        break;
+    }
+    case DiagramSymbolKind::RatingBox: {
+        // Flow-vs-head outlet: a box with its rating curve drawn inside, which
+        // is the only thing the model actually stores about it.
+        const double w = s * 0.52, h = s * 0.46;
+        p.drawRect(QRectF(-w, -h, w * 2.0, h * 2.0));
+        p.setBrush(Qt::NoBrush);
+        QPen curve(ink);
+        curve.setWidthF(std::clamp(s * 0.055, 0.8, 1.5));
+        p.setPen(curve);
+        QPainterPath rating(QPointF(-w * 0.66, h * 0.66));
+        rating.quadTo(QPointF(w * 0.10, h * 0.50), QPointF(w * 0.66, -h * 0.62));
+        p.drawPath(rating);
+        break;
+    }
+    }
+    p.restore();
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -279,6 +424,10 @@ QColor diagramFillColor(DiagramRole role, const QPalette &palette)
     switch (role) {
     case DiagramRole::Conduit:    return mix(base, hi,   0.18);
     case DiagramRole::Structure:  return mix(base, text, 0.12);
+    // Redder and stronger than Soil, which it may sit next to: a tank shell has
+    // to be the most saturated thing in a node profile or "brown structure"
+    // just reads as a dirty grey manhole.
+    case DiagramRole::Storage:    return mix(base, QColor(146,  92,  48), 0.40);
     case DiagramRole::Soil:       return mix(base, QColor(150, 120,  70), 0.30);
     case DiagramRole::Media:      return mix(base, QColor(160, 130,  80), 0.42);
     case DiagramRole::Gravel:     return mix(base, text, 0.18);
@@ -296,6 +445,10 @@ QColor diagramStrokeColor(DiagramRole role, const QPalette &palette)
     switch (role) {
     case DiagramRole::Muted:  return palette.color(QPalette::Mid);
     case DiagramRole::Accent: return palette.color(QPalette::Highlight).darker(120);
+    // Brown ink, not black: the shell outline is the widest stroke on a storage
+    // profile, and leaving it the text colour made the fill look like a tint
+    // rather than like a material.
+    case DiagramRole::Storage: return mix(text, QColor(104, 60, 28), 0.62);
     default:                  return text;
     }
 }
@@ -582,7 +735,11 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
 
         p.setBrush(fill);
         QPen pen(stroke);
-        pen.setWidthF(poly.role == DiagramRole::Conduit ? 1.6 : 1.2);
+        // A tank wall is a heavier line than a manhole wall on a real drawing,
+        // and here it is also the cue the user asked for: thicker + brown = a
+        // storage unit, whatever the pane size.
+        pen.setWidthF(poly.role == DiagramRole::Storage ? 2.4
+                      : poly.role == DiagramRole::Conduit ? 1.6 : 1.2);
         if (poly.unknown) {
             pen.setStyle(Qt::DashLine);
             p.setBrush(QBrush(fill, Qt::BDiagPattern));
@@ -725,16 +882,26 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         for (const QPointF &m : pl.pts) px << toPx(m);
 
         QPen pen(diagramStrokeColor(pl.role, palette));
-        pen.setWidthF(1.0);
+        pen.setWidthF(pl.wavy ? 1.4 : 1.0);
         if (pl.dashed) pen.setStyle(Qt::DashLine);
         p.setPen(pen);
         p.setBrush(Qt::NoBrush);
-        p.drawPolyline(px);
+        if (pl.wavy) drawWaveTrain(p, px);
+        else         p.drawPolyline(px);
 
         if (!pl.label.isEmpty()) {
             p.setPen(mutedColor);
             p.drawText(px.last() + QPointF(4.0, -3.0), pl.label);
         }
+    }
+
+    // ── Device symbols (pump, flap gate, cover, rating box) ────────────────
+    // After the fills and lines they annotate, before the text: a glyph that
+    // ends up under a pipe wall stops being a glyph.
+    for (const DiagramSymbol &sym : model.symbols) {
+        paintSymbol(p, toPx(sym.anchor), sym.kind, sym.pixelSize, sym.mirrored,
+                    diagramStrokeColor(sym.role, palette),
+                    diagramFillColor(sym.role, palette));
     }
 
     // ── Dimension lines ────────────────────────────────────────────────────
