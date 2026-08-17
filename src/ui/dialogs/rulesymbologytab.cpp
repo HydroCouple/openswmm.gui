@@ -8,6 +8,8 @@
 
 #include "ui/dialogs/rulesymbologytab.h"
 
+#include "layers/openswmmvislayer.h"  // ctx.hostLayer downcast target
+#include "layers/swmm_category.h"    // SwmmCategory ordinals (enum only)
 #include "render/ifeaturerenderer.h"
 #include "render/renderers/categorizedrenderer.h"
 #include "render/renderers/graduatedrenderer.h"
@@ -423,6 +425,38 @@ void RuleSymbologyTab::mountBodyForActive()
     if (entry && entry->factory) {
         RendererPanelContext ctx;
         ctx.rule = r;
+        // Hand the panel the kind context as well, when this Rule IS a SWMM
+        // kind. Some controls are not renderer state and so have no Rule
+        // mirror to read: the per-kind flow-arrow channel, and the choice of
+        // size-vs-width output axis (which follows the kind's geometry
+        // archetype). Without a category, KindRendererPanel falls back to its
+        // CatJunctions sentinel — a Point archetype — so a conduit offered
+        // "Size by value" (writing a "size" prop no line symbol has, hence no
+        // visible thickness change) and hid the flow-arrow box entirely.
+        //
+        // Only SWMM model / results layers build a kind-indexed rule list —
+        // one Rule per Category, in ordinal order. GIS-vector and 2D-mesh
+        // lists hold arbitrary user rules, where position carries no kind
+        // meaning, so they keep the category unset (layer-level behaviour).
+        //
+        // Layer-type checks use QObject::inherits (string-based) rather than
+        // qobject_cast, and the downcast is a plain static_cast, so this TU
+        // keeps its self-contained link footprint — the same technique, and
+        // the same reason, as RendererPanelContext::resolve.
+        if (m_ruleList) {
+            QObject *owner = m_ruleList->parent();
+            const bool kindIndexed =
+                owner
+                && (owner->inherits("SWMMModelLayer")
+                    || owner->inherits("SWMMResultsLayer"))
+                && m_ruleList->count() == int(OpenSWMMVis::NumCategories);
+            if (kindIndexed) {
+                ctx.hostLayer = static_cast<OpenSWMMVisLayer *>(owner);
+                const int idx = m_ruleList->indexOf(r);
+                if (idx >= 0 && idx < int(OpenSWMMVis::NumCategories))
+                    ctx.category = static_cast<OpenSWMMVis::SwmmCategory>(idx);
+            }
+        }
         if (auto *panel = entry->factory(ctx, m_body)) {
             m_body->addWidget(panel);
             m_body->setCurrentWidget(panel);
