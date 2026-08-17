@@ -31,6 +31,7 @@ class MapUndoStack;
 class MapRenderJob;
 class MeshProfileOverlay;
 class ProfilePathOverlay;
+class SelectionBeaconOverlay;
 class QGestureEvent;
 
 /*!
@@ -193,6 +194,29 @@ public:
      *  above the QSG result frame so profile paths are not obscured by 1D/2D
      *  result layers. The profile selection tool owns the object. */
     void setProfilePathOverlay(ProfilePathOverlay *overlay);
+
+    /*! \brief Locator for the current selection — flashes on change, then
+     *  leaves a fixed-size beacon so a selected feature stays findable at
+     *  model-wide zoom, where its own halo is sub-pixel. Owned by the canvas;
+     *  refreshed from every visible SWMMModelLayer's selectionChanged. */
+    [[nodiscard]] SelectionBeaconOverlay *selectionBeacon() const
+    { return m_selectionBeacon; }
+
+public slots:
+    /*! \brief Flash + beacon the CURRENT selection.
+     *
+     *  Deliberately explicit rather than automatic. The beacon answers
+     *  "where is the thing I just picked?", which only needs asking when the
+     *  selection came from somewhere non-spatial — the attribute table. Pick
+     *  a feature on the map and you already know where it is, so firing a
+     *  beacon there is noise. Any selection change from another source
+     *  clears a standing beacon (see \ref clearSelectionBeacon). */
+    void flashSelection();
+
+    /*! \brief Drops a standing beacon (a new selection has superseded it). */
+    void clearSelectionBeacon();
+
+public:
 
     // ----- Undo ----------------------------------------------------------
 
@@ -381,6 +405,20 @@ private:
     // Not owned: MapToolSelectProfile creates it and clears this pointer
     // (setProfilePathOverlay(nullptr)) before deleting it.
     ProfilePathOverlay         *m_profilePathOverlay = nullptr;
+
+    // Selection locator. Canvas-owned (unlike the profile overlays, which a
+    // dialog/tool binds and unbinds) because selection is always present.
+    SelectionBeaconOverlay     *m_selectionBeacon = nullptr;
+    /*! Resolves beacon anchors from every visible layer's current selection,
+     *  in scene coords. */
+    [[nodiscard]] QVector<QPointF> resolveSelectionAnchors() const;
+    /*! Connects selectionChanged on any SWMMModelLayer we have not wired. */
+    void wireSelectionBeaconTo(OpenSWMMVisLayer *layer);
+    /*! Beacon anchors for a 2D mesh layer's highlighted vertices /
+     *  edges / cells, in scene coords. */
+    void appendMeshSelectionAnchors(class SWMM2DMeshLayer *ml,
+                                    QVector<QPointF> &anchors) const;
+    QSet<QObject *>             m_beaconWiredLayers;
 
     // ----- Decorations ----------------------------------------------------
     bool                    m_showScaleBar   = true;

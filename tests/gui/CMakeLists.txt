@@ -189,6 +189,15 @@ add_swmmvis_gui_test(test_layerstylesubject
     ${CMAKE_SOURCE_DIR}/src/render/markershape.cpp
 )
 
+# Selection locator overlay — the screen-space contract (beacon size must not
+# track zoom) and the zoom-dependent aggregation. Self-contained: paints into
+# a QImage, no canvas or layer stack.
+add_swmmvis_gui_test(test_selectionbeacon
+    test_selectionbeacon.cpp
+    ${CMAKE_SOURCE_DIR}/src/map/selectionbeaconoverlay.cpp
+    ${CMAKE_SOURCE_DIR}/include/map/selectionbeaconoverlay.h
+)
+
 # Slice Z.4 — MarkerShape + MarkerSymbolLayerSpec tests.
 # Self-contained: pulls in the render symbol primitives and the new Z.4
 # files. Uses Qt Widgets (QImage / QPainter / QPen / QBrush).
