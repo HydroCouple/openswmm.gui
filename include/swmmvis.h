@@ -371,6 +371,11 @@ private slots:
     /*! \brief Prompt for a SWMM `.out` file and add it as a SWMMResultsLayer. */
     void onAddSWMMResultsLayer();
 
+    /*! \brief Prompt for an existing OpenSWMM 2D mesh (`.2dm`) anywhere on
+     *         disk and load it into the active project as the active mesh.
+     *         Delegates to SWMMVisProjectWindow::importMeshFileAsync. */
+    void onAddMesh2DLayer();
+
     /*! \brief Open the Simulation Options dialog for the active project. */
     void onSimulationOptions();
 

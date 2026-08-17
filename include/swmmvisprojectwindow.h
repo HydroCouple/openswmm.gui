@@ -103,6 +103,27 @@ public:
     void attachMeshLayer(class SWMM2DMeshLayer *meshLayer);
 
     /*!
+     * \brief Browse-and-load an existing OpenSWMM 2D mesh (.2dm) into this
+     *        project.
+     *
+     * Until now a .2dm could only reach a model by already sitting next to its
+     * .inp (Simulation Options → Mesh only lists siblings of the model file).
+     * This stages a mesh from anywhere on disk: the file is copied next to the
+     * .inp when it lives elsewhere — so the saved `[2D_MESH_FILE]` reference
+     * stays relative and the project remains portable — then parsed and built
+     * on a worker thread and added to the canvas as the ACTIVE external mesh.
+     * That is the layer the save path retargets `[2D_MESH_FILE]` at, so the
+     * import survives save → reopen.
+     *
+     * Existing mesh layers are kept (merely deactivated); a layer already
+     * reading the destination file is replaced rather than stacked, matching
+     * the mesh-generation path.
+     *
+     * Asynchronous — the outcome arrives via meshImportFinished().
+     */
+    void importMeshFileAsync(const QString &srcPath);
+
+    /*!
      * \brief Non-blocking variant of loadModel().
      *
      * Runs the engine create+open (the dominant cost — full .inp parse) in a
@@ -377,6 +398,14 @@ signals:
      *  loadModel() returns via out-params. */
     void modelLoadFinished(bool ok, const QList<QString> &warnings,
                            const QList<QString> &errors);
+    /*! Completion signal for importMeshFileAsync(): fired exactly once per
+     *  call, on the GUI thread. \p meshPath is the file the new layer reads
+     *  (the copy inside the project folder, when one was made) and is empty
+     *  on failure. \p message is user-facing (an error, or a summary plus any
+     *  reader warning). */
+    void meshImportFinished(bool ok, const QString &message,
+                            const QString &meshPath);
+
     void hasChangesChanged(bool dirty);
     void editSessionChanged(bool active);
     void offsetModeChanged(bool elevation);

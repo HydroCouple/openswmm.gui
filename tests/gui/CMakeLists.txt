@@ -2082,6 +2082,18 @@ add_swmmvis_gui_test(test_dirtytracking_run
 )
 swmmvis_link_full_app_deps(test_dirtytracking_run)
 
+# Browse-and-load of an existing .2dm (SWMMVisProjectWindow::importMeshFileAsync).
+# A mesh could previously only reach a model by already sitting next to its
+# .inp. Guards the staging copy, the active-external-mesh adoption the save
+# path retargets [2D_MESH_FILE] at, the engine MESH_FILE mirror, cleanup of
+# the copy after a rejected file, and the no-clobber name-collision path.
+add_swmmvis_gui_test(test_meshimport
+    test_meshimport.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshimport)
+
 # Spatial rain-gage assignment against a real engine-loaded model. Guards the
 # un-located-gage trap (engine says (0,0); the display cache invents a position)
 # and the mediated write that lets a bulk assignment refresh the views.

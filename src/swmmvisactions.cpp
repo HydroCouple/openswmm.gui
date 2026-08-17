@@ -175,6 +175,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionAddWMSData",            QT_TR_NOOP("Web\nLayers")},
         {"actionAddDelimeteredData",    QT_TR_NOOP("Delimited")},
         {"actionAddBasemap",            QT_TR_NOOP("Basemap")},
+        {"actionAddMesh2D",             QT_TR_NOOP("2D Mesh")},
         {"actionPauseExecution",        QT_TR_NOOP("Pause")},
         {"actionCancelExecution",       QT_TR_NOOP("Cancel")},
         // Model
@@ -270,7 +271,8 @@ void SWMMVis::initializeCompactToolbar()
     addGroup(mToolBarHome, tr("Import"),
              {"actionAddSWMMOutput", "actionAddVectorData",
               "actionAddRasterData", "actionAddWMSData",
-              "actionAddDelimeteredData", "actionAddBasemap"});
+              "actionAddDelimeteredData", "actionAddBasemap",
+              "actionAddMesh2D"});
     addGroup(mToolBarHome, tr("Run"),
              {"actionExecute", "actionPauseExecution", "actionCancelExecution"});
 
