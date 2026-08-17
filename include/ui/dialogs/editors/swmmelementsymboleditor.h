@@ -53,7 +53,8 @@ private:
 
     // Flow arrows
     QCheckBox      *m_showArrowsBox  = nullptr;
-    QDoubleSpinBox *m_arrowSizeSpin  = nullptr;
+    QDoubleSpinBox *m_arrowSizeSpin  = nullptr;   ///< length ALONG the link
+    QDoubleSpinBox *m_arrowWidSpin   = nullptr;   ///< width ACROSS the link
     ColorButton    *m_arrowColorBtn  = nullptr;
     QCheckBox      *m_arrowsFlowPosBox = nullptr;
 

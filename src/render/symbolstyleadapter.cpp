@@ -198,6 +198,7 @@ constexpr auto kOffsetPx     = "offsetPx";
 constexpr auto kDrawArrows   = "drawArrows";
 constexpr auto kArrowColor   = "arrowColor";
 constexpr auto kArrowLength  = "arrowLengthPx";
+constexpr auto kArrowWidth   = "arrowWidthPx";
 constexpr auto kArrowOnlyPos = "arrowOnlyWhenFlowPos";
 constexpr auto kShowLabel    = "showLabel";
 constexpr auto kLabelFont    = "labelFont";
@@ -680,12 +681,22 @@ void LineSymbolStyleAdapter::setShowArrows(bool v)
 
 qreal LineSymbolStyleAdapter::arrowSize() const
 {
-    return readPropOn<qreal>(m_rule, QLatin1String(keys::kArrowLength), 10.0);
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kArrowLength), 16.0);
 }
 
 void LineSymbolStyleAdapter::setArrowSize(qreal v)
 {
     writePropOn<qreal>(m_rule, QLatin1String(keys::kArrowLength), v);
+}
+
+qreal LineSymbolStyleAdapter::arrowWidth() const
+{
+    return readPropOn<qreal>(m_rule, QLatin1String(keys::kArrowWidth), 8.0);
+}
+
+void LineSymbolStyleAdapter::setArrowWidth(qreal v)
+{
+    writePropOn<qreal>(m_rule, QLatin1String(keys::kArrowWidth), v);
 }
 
 QColor LineSymbolStyleAdapter::arrowColor() const

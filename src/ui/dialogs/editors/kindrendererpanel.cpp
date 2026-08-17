@@ -249,7 +249,15 @@ void KindRendererPanel::buildUi()
         m_arrowSizeSpin->setDecimals(1);
         m_arrowSizeSpin->setSingleStep(0.5);
         m_arrowSizeSpin->setSuffix(tr(" px"));
-        aForm->addRow(tr("Si&ze:"), m_arrowSizeSpin);
+        aForm->addRow(tr("&Length:"), m_arrowSizeSpin);
+        m_arrowWidSpin = new QDoubleSpinBox(m_arrowBox);
+        m_arrowWidSpin->setRange(2.0, 60.0);
+        m_arrowWidSpin->setDecimals(1);
+        m_arrowWidSpin->setSingleStep(0.5);
+        m_arrowWidSpin->setSuffix(tr(" px"));
+        m_arrowWidSpin->setToolTip(tr("Arrowhead width across the link — "
+                                      "independent of its length."));
+        aForm->addRow(tr("&Width:"), m_arrowWidSpin);
         m_arrowColorBtn = new ColorButton(m_arrowBox);
         aForm->addRow(tr("Colou&r:"), m_arrowColorBtn);
     }
@@ -259,6 +267,8 @@ void KindRendererPanel::buildUi()
     connect(m_arrowShowChk, &QCheckBox::toggled,
             this, &KindRendererPanel::onArrowsChanged);
     connect(m_arrowSizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double) { onArrowsChanged(); });
+    connect(m_arrowWidSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
             this, [this](double) { onArrowsChanged(); });
     connect(m_arrowColorBtn, &ColorButton::colorChanged,
             this, [this](const QColor &) { onArrowsChanged(); });
@@ -446,12 +456,14 @@ void KindRendererPanel::syncArrowsFromHost()
 
     bool   show = false;
     double size = 10.0;
+    double width = 12.0;
     QColor color(34, 34, 34);
     bool   have = false;
 
     if (m_modelLayer) {
         show  = m_modelLayer->linkArrowsEnabled(m_category);
         size  = m_modelLayer->linkArrowSize(m_category);
+        width = m_modelLayer->linkArrowWidth(m_category);
         color = m_modelLayer->linkArrowColor(m_category);
         have  = true;
     } else if (m_resultsLayer) {
@@ -460,6 +472,7 @@ void KindRendererPanel::syncArrowsFromHost()
                     sub->featureStyle())) {
                 show  = ls->showFlowArrows();
                 size  = ls->arrowLengthPx();
+                width = ls->arrowWidthPx();
                 color = ls->arrowColor();
                 have  = true;
             }
@@ -469,11 +482,14 @@ void KindRendererPanel::syncArrowsFromHost()
     m_arrowBox->setVisible(have);
     if (!have) return;
 
-    QSignalBlocker b1(m_arrowShowChk), b2(m_arrowSizeSpin), b3(m_arrowColorBtn);
+    QSignalBlocker b1(m_arrowShowChk), b2(m_arrowSizeSpin), b3(m_arrowColorBtn),
+                   b4(m_arrowWidSpin);
     m_arrowShowChk->setChecked(show);
     m_arrowSizeSpin->setValue(size);
+    m_arrowWidSpin->setValue(width);
     m_arrowColorBtn->setColor(color);
     m_arrowSizeSpin->setEnabled(show);
+    m_arrowWidSpin->setEnabled(show);
     m_arrowColorBtn->setEnabled(show);
 }
 
@@ -483,8 +499,10 @@ void KindRendererPanel::onArrowsChanged()
 
     const bool   show  = m_arrowShowChk->isChecked();
     const double size  = m_arrowSizeSpin->value();
+    const double width = m_arrowWidSpin->value();
     const QColor color = m_arrowColorBtn->color();
     m_arrowSizeSpin->setEnabled(show);
+    m_arrowWidSpin->setEnabled(show);
     m_arrowColorBtn->setEnabled(show);
 
     if (m_modelLayer) {
@@ -493,6 +511,7 @@ void KindRendererPanel::onArrowsChanged()
         // see the same edit this panel just made.
         m_modelLayer->setLinkArrowsEnabled(m_category, show);
         m_modelLayer->setLinkArrowSize(m_category, size);
+        m_modelLayer->setLinkArrowWidth(m_category, width);
         m_modelLayer->setLinkArrowColor(m_category, color);
     } else if (m_resultsLayer) {
         if (auto *sub = m_resultsLayer->featureSublayer(m_category)) {
@@ -500,6 +519,7 @@ void KindRendererPanel::onArrowsChanged()
                     sub->featureStyle())) {
                 ls->setShowFlowArrows(show);
                 ls->setArrowLengthPx(size);
+                ls->setArrowWidthPx(width);
                 ls->setArrowColor(color);
             }
         }

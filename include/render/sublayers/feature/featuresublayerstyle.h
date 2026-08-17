@@ -218,9 +218,9 @@ public:
         FeatureSublayerStyle::fromJson(j);
         if (j.contains(QStringLiteral("lineWidthPx")))    m_lineWidthPx    = j.value(QStringLiteral("lineWidthPx")).toDouble(1.5);
         if (j.contains(QStringLiteral("dashPattern")))    m_dashPattern    = static_cast<Qt::PenStyle>(j.value(QStringLiteral("dashPattern")).toInt(int(Qt::SolidLine)));
-        if (j.contains(QStringLiteral("showFlowArrows"))) m_showFlowArrows = j.value(QStringLiteral("showFlowArrows")).toBool(false);
-        if (j.contains(QStringLiteral("arrowLengthPx")))  m_arrowLengthPx  = j.value(QStringLiteral("arrowLengthPx")).toDouble(12.0);
-        if (j.contains(QStringLiteral("arrowWidthPx")))   m_arrowWidthPx   = j.value(QStringLiteral("arrowWidthPx")).toDouble(6.0);
+        if (j.contains(QStringLiteral("showFlowArrows"))) m_showFlowArrows = j.value(QStringLiteral("showFlowArrows")).toBool(true);
+        if (j.contains(QStringLiteral("arrowLengthPx")))  m_arrowLengthPx  = j.value(QStringLiteral("arrowLengthPx")).toDouble(16.0);
+        if (j.contains(QStringLiteral("arrowWidthPx")))   m_arrowWidthPx   = j.value(QStringLiteral("arrowWidthPx")).toDouble(8.0);
         if (j.contains(QStringLiteral("arrowColor"))) {
             const QColor c(j.value(QStringLiteral("arrowColor")).toString());
             if (c.isValid()) m_arrowColor = c;
@@ -232,9 +232,11 @@ public:
 private:
     double       m_lineWidthPx    = 1.5;
     Qt::PenStyle m_dashPattern    = Qt::SolidLine;
-    bool         m_showFlowArrows = false;
-    double       m_arrowLengthPx  = 12.0;
-    double       m_arrowWidthPx   = 6.0;
+    // Line sublayers are the link kinds on a results layer, so arrows are
+    // on out of the box here too (matches the model layer's per-kind seed).
+    bool         m_showFlowArrows = true;
+    double       m_arrowLengthPx  = 16.0;
+    double       m_arrowWidthPx   = 8.0;
     QColor       m_arrowColor     = QColor(20, 20, 20, 220);
     bool         m_renderAsLine   = true;
 };

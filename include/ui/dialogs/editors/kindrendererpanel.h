@@ -158,7 +158,8 @@ private:
     // syncArrowsFromHost() for the two-channel split.
     QWidget            *m_arrowBox      = nullptr;
     QCheckBox          *m_arrowShowChk  = nullptr;
-    QDoubleSpinBox     *m_arrowSizeSpin = nullptr;
+    QDoubleSpinBox     *m_arrowSizeSpin = nullptr;   ///< length ALONG the link
+    QDoubleSpinBox     *m_arrowWidSpin  = nullptr;   ///< width ACROSS the link
     ColorButton        *m_arrowColorBtn = nullptr;
 
     // Slice US.1 — shared classification block.
