@@ -41,6 +41,8 @@ namespace openswmmvis::sectionview {
 enum class DiagramRole {
     Conduit,     //!< Pipe / channel interior.
     Structure,   //!< Manhole, chamber, vault walls.
+    Storage,     //!< Storage-unit shell — brown, and stroked heavier than a
+                 //!< manhole so a tank never reads as a junction.
     Soil,        //!< Native soil below / around a structure.
     Media,       //!< Engineered media (LID soil layer).
     Gravel,      //!< Void storage (LID storage layer, gravel bed).
@@ -97,6 +99,10 @@ struct DiagramPolyline
     DiagramRole role   = DiagramRole::Muted;
     bool        dashed = false;
     QString     label;      //!< Drawn at the polyline's right end when set.
+    /*! Draw as a wave train instead of a straight line — the conventional cue
+     *  for a free water surface. It is what stops an outfall's tailwater
+     *  reading as another pipe soffit. */
+    bool        wavy   = false;
 };
 
 /*! Ground surface with the conventional hatch below it. */
@@ -176,6 +182,36 @@ struct DiagramArrow
     QPointF to;
     QString label;
     DiagramRole role = DiagramRole::Accent;
+};
+
+/*!
+ * A schematic device glyph — the P&ID convention, where a pump is a symbol
+ * rather than a scaled machine.
+ *
+ * These exist because the things they stand for have no drawable geometry in
+ * the model: a SWMM pump carries a curve and two depths, not a casing size, so
+ * anything drawn to scale would be invented. A fixed-size glyph says "pump
+ * here" without claiming a dimension.
+ */
+enum class DiagramSymbolKind {
+    Pump,          //!< Casing circle + impeller, with a discharge nozzle.
+    FlapGate,      //!< Hinged flap hanging on a pipe end / outfall face.
+    ManholeCover,  //!< Frame and cover, sat on a junction rim.
+    RatingBox      //!< Flow-vs-head outlet: a box holding a rating curve.
+};
+
+/*! One glyph, anchored at a model point and sized in screen pixels. */
+struct DiagramSymbol
+{
+    QPointF           anchor;
+    DiagramSymbolKind kind = DiagramSymbolKind::Pump;
+    /*! Glyph size in SCREEN pixels. Symbols keep their size under zoom for the
+     *  same reason text does — a legible symbol is the point of drawing one. */
+    double            pixelSize = 20.0;
+    /*! Mirror horizontally, so a glyph on an inbound connection faces the way
+     *  its flow runs. */
+    bool              mirrored = false;
+    DiagramRole       role = DiagramRole::Accent;
 };
 
 /*! One spoke of the plan-view inset: a link leaving/entering the node at
@@ -275,14 +311,15 @@ struct SectionDiagramModel
     QVector<DiagramVegetation> vegetation;
     QVector<DiagramCircle>     circles;
     QVector<DiagramArrow>      arrows;
+    QVector<DiagramSymbol>     symbols;
     QVector<DiagramDim>      dims;
     QVector<DiagramLeader>   leaders;
     QVector<PlanSpoke>       plan;      //!< Non-empty → draw the compass inset.
 
     [[nodiscard]] bool isEmpty() const
     {
-        // Vegetation, circles and arrows are ornaments on something else, so
-        // they deliberately do not count as content on their own.
+        // Vegetation, circles, arrows and symbols are ornaments on something
+        // else, so they deliberately do not count as content on their own.
         return polys.isEmpty() && polylines.isEmpty() && grounds.isEmpty();
     }
 
