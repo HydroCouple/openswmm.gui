@@ -10,6 +10,7 @@
 
 #include "core/swmmdatetime.h"
 #include "io/timeseriesparse.h"
+#include "ui/util/externalcolumnfile.h"
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesregistry.h"
 #include "timeseries/timeseriesundocommands.h"
@@ -1061,7 +1062,7 @@ void TimeseriesEditorDialog::buildSourceModeCard_()
     row2->addWidget(m_extPathEdit, /*stretch=*/2);
 
     m_extBrowseBtn = new QPushButton(tr("Browse…"), m_sourceCard);
-    m_extBrowseBtn->setToolTip(tr("Pick a CSV / TSV / .dat file"));
+    m_extBrowseBtn->setToolTip(tr("Pick a CSV / TSV / PCSWMM .tsf / .dat file"));
     row2->addWidget(m_extBrowseBtn);
 
     row2->addWidget(new QLabel(tr("Column:"), m_sourceCard));
@@ -1233,23 +1234,67 @@ int TimeseriesEditorDialog::linkExternalFile(const QString &path, const QString 
     if (m_providers.isEmpty() || !m_providers.first()) return 0;
     auto *p = m_providers.first().data();
     QStringList headers;
-    const int n = loadExternalFileIntoProvider_(p, path, columnSelector, &headers);
-    if (m_extColumnCombo) {
-        QSignalBlocker b(m_extColumnCombo);
-        m_extColumnCombo->clear();
-        if (headers.isEmpty()) {
-            m_extColumnCombo->addItem(tr("(no header — single column)"));
-        } else {
-            for (const QString &h : std::as_const(headers))
-                m_extColumnCombo->addItem(h);
-            if (!columnSelector.isEmpty()) {
-                const int idx = headers.indexOf(columnSelector);
-                if (idx >= 0) m_extColumnCombo->setCurrentIndex(idx);
+    QString error;
+    bool fabricated = false;
+    const int n = loadExternalFileIntoProvider_(p, path, columnSelector, &headers,
+                                               &error, &fabricated);
+    populateColumnCombo_(headers, columnSelector, fabricated);
+    refreshSourceModeCardForProvider_();
+    if (!error.isEmpty() && m_status) m_status->showMessage(error, 6000);
+    return n;
+}
+
+void TimeseriesEditorDialog::populateColumnCombo_(const QStringList &headers,
+                                                  const QString &columnSelector,
+                                                  bool fabricatedHeaders)
+{
+    if (!m_extColumnCombo) return;
+    m_extHeadersFabricated = fabricatedHeaders;
+    // Each item carries the REAL header name as userData — never the display
+    // text (B3 — combo display and provider state must agree). Display-only
+    // names (headerless placeholder, "col_N", .dat "value") carry an empty
+    // string instead, so selecting one cannot leak an unresolvable name into
+    // the provider's columnSelector.
+    QSignalBlocker b(m_extColumnCombo);
+    m_extColumnCombo->clear();
+    if (headers.isEmpty()) {
+        m_extColumnCombo->addItem(tr("(no header — single column)"), QString());
+        return;
+    }
+
+    // Display-only "col_N" / .dat "value" names carry an EMPTY selector, so
+    // picking one can never persist a name the engine cannot resolve; only
+    // the first (index 0) is loadable, enforced in onColumnSelectorChanged_
+    // (review B-4).
+    for (const QString &h : std::as_const(headers))
+        m_extColumnCombo->addItem(h, fabricatedHeaders ? QString() : h);
+
+    if (columnSelector.isEmpty()) return;
+
+    // Case-insensitive match — engine parity (find_column). A headerless file
+    // resolves NO name, so a stored one is unresolvable there by definition.
+    int found = -1;
+    if (!fabricatedHeaders) {
+        for (int i = 0; i < headers.size(); ++i) {
+            if (headers.at(i).compare(columnSelector, Qt::CaseInsensitive) == 0) {
+                found = i;
+                break;
             }
         }
     }
-    refreshSourceModeCardForProvider_();
-    return n;
+    if (found < 0) {
+        // The stored column cannot be resolved in this file (headers changed
+        // under a saved model, or the file has no header row). Show it as its
+        // own item instead of silently leaving item 0 selected — the engine
+        // refuses to open such a reference, so the user has to see it
+        // (review B-3): combo display and provider state stay equal.
+        m_extColumnCombo->addItem(
+            fabricatedHeaders ? tr("%1 (file has no header row)").arg(columnSelector)
+                              : tr("%1 (not in file)").arg(columnSelector),
+            columnSelector);
+        found = m_extColumnCombo->count() - 1;
+    }
+    m_extColumnCombo->setCurrentIndex(found);
 }
 
 void TimeseriesEditorDialog::onBrowseExternalFile_()
@@ -1260,26 +1305,36 @@ void TimeseriesEditorDialog::onBrowseExternalFile_()
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Choose timeseries file"),
         p->filePath().isEmpty() ? QString() : QFileInfo(p->filePath()).absolutePath(),
-        tr("Timeseries (*.csv *.tsv *.dat *.txt);;All files (*)"));
+        tr("Timeseries (*.csv *.tsv *.tsf *.dat *.txt);;All files (*)"));
     if (path.isEmpty()) return;
 
     QStringList headers;
-    const int n = loadExternalFileIntoProvider_(p, path, /*column=*/QString(), &headers);
+    QString error;
+    bool fabricated = false;
+    const int n = loadExternalFileIntoProvider_(p, path, /*column=*/QString(),
+                                               &headers, &error, &fabricated);
 
-    // Populate the column-selector combo from the header row.
-    {
-        QSignalBlocker b(m_extColumnCombo);
-        m_extColumnCombo->clear();
-        if (headers.isEmpty()) {
-            m_extColumnCombo->addItem(tr("(no header — single column)"));
-        } else {
-            for (const QString &h : std::as_const(headers))
-                m_extColumnCombo->addItem(h);
-        }
-    }
+    // Populate the column-selector combo from the header row, then align the
+    // provider's columnSelector with the item the combo now SHOWS (item 0).
+    // Loading with an empty selector reads the first data column, so this is
+    // a metadata-only sync — no reload needed (B3: Browse used to leave the
+    // combo on item 0 while columnSelector stayed "").
+    //
+    // Only REAL header names are synced: fabricated ones (.dat's "value"
+    // placeholder, a headerless file's "col_N") don't exist in the file, so
+    // persisting them in a "path:col" token would fail the engine's
+    // column-by-name lookup — "" (first data column) is the correct stored
+    // selector for those files. readColumn reports fabrication directly, so
+    // this no longer pattern-matches the fabricated name (a real file may
+    // legitimately have a column called "col_1").
+    populateColumnCombo_(headers, /*columnSelector=*/QString(), fabricated);
+    if (!fabricated && !headers.isEmpty())
+        p->setFileSource(path, headers.first(), QFileInfo(path).lastModified());
     refreshSourceModeCardForProvider_();
     if (m_status) {
-        if (n > 0)
+        if (!error.isEmpty())
+            m_status->showMessage(error, 6000);
+        else if (n > 0)
             m_status->showMessage(tr("Loaded %1 point(s) from %2").arg(n).arg(QFileInfo(path).fileName()), 4000);
         else
             m_status->showMessage(tr("File parse returned 0 points — check format."), 4000);
@@ -1292,9 +1347,34 @@ void TimeseriesEditorDialog::onColumnSelectorChanged_(int index)
     auto *p = m_providers.first().data();
     if (p->filePath().isEmpty()) return;
 
-    const QString col = m_extColumnCombo->itemText(index);
-    loadExternalFileIntoProvider_(p, p->filePath(), col);
+    // A headerless file gives the engine nothing to match a column name
+    // against — only its first data column is addressable (via an empty
+    // selector). Refuse the pick instead of writing a token the engine
+    // cannot resolve (review B-4 / risk R1).
+    if (m_extHeadersFabricated && index > 0) {
+        if (m_status)
+            m_status->showMessage(
+                tr("%1 has no header row, so only its first column can be "
+                   "selected — a \"col_N\" name cannot be saved or read back. "
+                   "Add a header row to bind another column.")
+                    .arg(QFileInfo(p->filePath()).fileName()),
+                8000);
+        // Refuse the pick: put the combo back on the item that matches what
+        // the provider actually holds, so display and state stay equal.
+        QSignalBlocker b(m_extColumnCombo);
+        const int keep = m_extColumnCombo->findData(p->columnSelector());
+        m_extColumnCombo->setCurrentIndex(keep >= 0 ? keep : 0);
+        return;
+    }
+
+    // userData carries the real header name (empty for the headerless
+    // placeholder) — never the display text (B3).
+    const QString col = m_extColumnCombo->itemData(index).toString();
+    QString error;
+    loadExternalFileIntoProvider_(p, p->filePath(), col, /*headersOut=*/nullptr,
+                                 &error);
     refreshSourceModeCardForProvider_();
+    if (!error.isEmpty() && m_status) m_status->showMessage(error, 6000);
 }
 
 void TimeseriesEditorDialog::onReloadExternalFile_()
@@ -1302,11 +1382,17 @@ void TimeseriesEditorDialog::onReloadExternalFile_()
     if (m_providers.isEmpty() || !m_providers.first()) return;
     auto *p = m_providers.first().data();
     if (p->filePath().isEmpty()) return;
-    const QString col = m_extColumnCombo ? m_extColumnCombo->currentText() : QString();
-    const int n = loadExternalFileIntoProvider_(p, p->filePath(), col);
+    const QString col = m_extColumnCombo ? m_extColumnCombo->currentData().toString()
+                                         : QString();
+    QString error;
+    const int n = loadExternalFileIntoProvider_(p, p->filePath(), col,
+                                               /*headersOut=*/nullptr, &error);
     refreshSourceModeCardForProvider_();
     if (m_status)
-        m_status->showMessage(tr("Reloaded %1 point(s)").arg(n), 3000);
+        m_status->showMessage(error.isEmpty()
+                                  ? tr("Reloaded %1 point(s)").arg(n)
+                                  : error,
+                              error.isEmpty() ? 3000 : 6000);
 }
 
 void TimeseriesEditorDialog::onDetachToInline_()
@@ -1330,8 +1416,11 @@ void TimeseriesEditorDialog::onDetachToInline_()
 
 int TimeseriesEditorDialog::loadExternalFileIntoProvider_(
     TimeseriesProvider *p, const QString &path,
-    const QString &columnSelector, QStringList *columnHeadersOut)
+    const QString &columnSelector, QStringList *columnHeadersOut,
+    QString *errorOut, bool *fabricatedOut)
 {
+    if (errorOut) errorOut->clear();
+    if (fabricatedOut) *fabricatedOut = false;
     // Re-entrancy counter — a value >1 means a signal slot fired the load
     // again while we were still inside it (a feedback loop is a plausible
     // stall cause, e.g. populating the column combo refires onColumnSelectorChanged_).
@@ -1353,6 +1442,9 @@ int TimeseriesEditorDialog::loadExternalFileIntoProvider_(
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qCWarning(lcTsLoadDialog) << "  QFile::open FAILED" << f.errorString();
+        if (errorOut)
+            *errorOut = tr("Cannot open %1 — %2")
+                            .arg(QFileInfo(path).fileName(), f.errorString());
         return 0;
     }
     qCDebug(lcTsLoadDialog) << "  file size =" << f.size() << "bytes";
@@ -1366,9 +1458,11 @@ int TimeseriesEditorDialog::loadExternalFileIntoProvider_(
     if (QFileInfo(path).suffix().compare(QStringLiteral("dat"),
                                           Qt::CaseInsensitive) == 0) {
         // .dat has no header — fabricate one placeholder column name so the
-        // grid / chart / column selector all have something to bind to.
+        // grid / chart / column selector all have something to bind to. It is
+        // a placeholder, not a real column: never persist it in a token.
         const QStringList headers{ QStringLiteral("value") };
         if (columnHeadersOut) *columnHeadersOut = headers;
+        if (fabricatedOut) *fabricatedOut = true;
 
         openswmmvis::io::SwmmDatState state;
         // Anchor for "elapsed-only" .dat files (no date tokens) — the engine
@@ -1420,65 +1514,46 @@ int TimeseriesEditorDialog::loadExternalFileIntoProvider_(
         return pts.size();
     }
 
-    QString headerLine;
-    while (!in.atEnd()) {
-        headerLine = in.readLine();
-        const QString tr = headerLine.trimmed();
-        if (!tr.isEmpty() && !tr.startsWith('#') && !tr.startsWith(';'))
-            break;
-    }
-    if (headerLine.isEmpty()) return 0;
-
-    const QChar delim = openswmmvis::io::guessDelimiter(headerLine);
-
-    // Decide whether headerLine is itself a data row by trying to parse it
-    // as one. If parse succeeds, fabricate "col_N" headers and treat the
-    // line as data (mirrors ObservedCsvRunLayer's heuristic).
-    double probeT = std::numeric_limits<double>::quiet_NaN();
-    std::vector<double> probeVals;
-    const bool headerLooksLikeData =
-        openswmmvis::io::parseRow(headerLine, delim, probeT, probeVals,
-                                   std::numeric_limits<double>::quiet_NaN());
-
+    // CSV / TSV / PCSWMM .tsf — the shared column-file util (spec §4 task 1).
+    // Header enumeration (incl. the header-vs-data probe + "col_N"
+    // fabrication that used to live inline here), TSF "IDs:" 3-row header
+    // handling, AM/PM datetimes and the column-selector resolution all
+    // mirror the engine's MultiColumnSeriesFile rules.
     QStringList headers;
-    const QStringList rawCells = headerLine.split(delim);
-    if (headerLooksLikeData) {
-        for (int c = 1; c < rawCells.size(); ++c)
-            headers << QStringLiteral("col_%1").arg(c);
-    } else {
-        for (int c = 1; c < rawCells.size(); ++c)
-            headers << rawCells.at(c).trimmed();
-    }
+    QVector<openswmmvis::ui::ExternalSeriesPoint> raw;
+    QString parseError;
+    QElapsedTimer tParse; tParse.start();
+    bool fabricated = false;
+    const int n = openswmmvis::ui::readColumn(path, columnSelector, raw,
+                                              &headers, &parseError, &fabricated);
     if (columnHeadersOut) *columnHeadersOut = headers;
-
-    // Resolve the active column index from selector ("" → 0; otherwise match
-    // by header text; if no match, fall back to 0).
-    int activeColIdx = 0;
-    if (!columnSelector.isEmpty()) {
-        const int idx = headers.indexOf(columnSelector);
-        if (idx >= 0) activeColIdx = idx;
+    if (fabricatedOut) *fabricatedOut = fabricated;
+    if (n < 0) {
+        qCWarning(lcTsLoadDialog) << "  readColumn FAILED:" << parseError;
+        if (errorOut) *errorOut = parseError;
+        // The load failed — typically a column this file does not contain,
+        // which is a hard error in the engine too (review B-3). When the
+        // provider is already bound to THIS file, drop its points: leaving the
+        // previously loaded column on screen under the requested selector is
+        // exactly the silent substitution this fix removes. A failed Browse to
+        // a *different* file is left alone, so it cannot discard the series
+        // the user still has.
+        if (p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile
+            && p->filePath() == path) {
+            p->setFileSource(path, columnSelector, QFileInfo(path).lastModified());
+            p->setAllPoints({});
+        }
+        return 0;
     }
+    qCDebug(lcTsLoadDialog) << "  readColumn:" << n << "point(s),"
+                            << headers.size() << "column(s) in"
+                            << tParse.elapsed() << "ms";
 
     QVector<TimeseriesPoint> pts;
-    if (headerLooksLikeData && activeColIdx < static_cast<int>(probeVals.size())) {
-        pts.push_back({openswmmvis::core::swmmDateTimeToQDateTime(probeT),
-                       probeVals[static_cast<std::size_t>(activeColIdx)]});
-    }
-
-    while (!in.atEnd()) {
-        const QString line = in.readLine();
-        const QString trimmed = line.trimmed();
-        if (trimmed.isEmpty() || trimmed.startsWith('#') || trimmed.startsWith(';'))
-            continue;
-        double tJ = std::numeric_limits<double>::quiet_NaN();
-        std::vector<double> vals;
-        if (!openswmmvis::io::parseRow(trimmed, delim, tJ, vals,
-                                       std::numeric_limits<double>::quiet_NaN()))
-            continue;
-        if (activeColIdx >= static_cast<int>(vals.size())) continue;
-        pts.push_back({openswmmvis::core::swmmDateTimeToQDateTime(tJ),
-                       vals[static_cast<std::size_t>(activeColIdx)]});
-    }
+    pts.reserve(raw.size());
+    for (const auto &sp : std::as_const(raw))
+        pts.push_back({openswmmvis::core::swmmDateTimeToQDateTime(sp.timeJulian),
+                       sp.value});
 
     // Record file metadata + push points into the provider (via setAllPoints
     // so the monotone-time invariant is validated). Source mode flips to
@@ -1890,10 +1965,41 @@ void TimeseriesEditorDialog::rebindActiveProvider_(TimeseriesProvider *p)
     // Step F — lazy-load the incoming provider's cache if it's ExternalFile
     // and not currently resident. Inline / Gpkg always report loaded so
     // they no-op here.
+    //
+    // B3 fix (spec §1.4): the column combo must be repopulated on EVERY
+    // series switch — this call used to pass columnHeadersOut = nullptr, so
+    // the combo kept the previous series' items (or stayed empty/disabled)
+    // and the enable gate in refreshSourceModeCardForProvider_ then read a
+    // stale count. When the cache is already resident the headers are
+    // re-enumerated cheaply (header row only) instead of re-reading points.
     if (p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile
-        && !p->isPointCacheLoaded()
         && !p->filePath().isEmpty()) {
-        loadExternalFileIntoProvider_(p, p->filePath(), p->columnSelector());
+        QStringList headers;
+        QString loadError;
+        bool fabricated = false;
+        if (!p->isPointCacheLoaded()) {
+            loadExternalFileIntoProvider_(p, p->filePath(), p->columnSelector(),
+                                          &headers, &loadError, &fabricated);
+        } else if (QFileInfo(p->filePath()).suffix()
+                       .compare(QStringLiteral("dat"), Qt::CaseInsensitive) == 0) {
+            headers << QStringLiteral("value");   // .dat placeholder column
+            fabricated = true;
+        } else {
+            headers = openswmmvis::ui::readHeaders(p->filePath(), nullptr,
+                                                   &fabricated);
+        }
+        populateColumnCombo_(headers, p->columnSelector(), fabricated);
+        // A stored column that no longer exists in the file is the review's
+        // B-3 case: the engine refuses to open it, so say so here rather than
+        // charting some other column.
+        if (!loadError.isEmpty() && m_status)
+            m_status->showMessage(loadError, 8000);
+    } else if (m_extColumnCombo) {
+        // Risk R5: switching to an Inline / path-less series used to leave the
+        // previous series' column items in the (disabled) combo.
+        QSignalBlocker b(m_extColumnCombo);
+        m_extColumnCombo->clear();
+        m_extHeadersFabricated = false;
     }
 
     if (m_tableModel) m_tableModel->setProviders({p});

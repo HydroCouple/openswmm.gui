@@ -227,15 +227,35 @@ private:
     // ── Source-mode card helpers ────────────────────────────────────────────
     void buildSourceModeCard_();
     void refreshSourceModeCardForProvider_();
+    /*! \brief Repopulate the column-selector combo (B3). Items carry the real
+     *  header name as userData (the headerless placeholder carries an empty
+     *  string); \a columnSelector is re-selected case-insensitively.
+     *  \param fabricatedHeaders  \a headers are display-only "col_N" names
+     *         (headerless file): every item then carries an EMPTY userData so
+     *         no unresolvable name can be persisted, and only the first column
+     *         is selectable (review B-4). A selector matching no header gets
+     *         its own "(not in file)" item so display and state still agree. */
+    void populateColumnCombo_(const QStringList &headers,
+                              const QString &columnSelector,
+                              bool fabricatedHeaders = false);
 
     // ── Transform-panel helpers (Phase 6.7.3.5 follow-up) ───────────────────
     void buildTransformPanel_();
     /*! \brief Load an external file via TimeseriesParse and populate points.
-     *  \returns number of points loaded (0 on parse failure / file unreadable). */
+     *  \param errorOut       Optional; human-readable reason when the load
+     *         fails (unreadable file, or a column selector the file does not
+     *         contain — review B-3). Callers surface it in the status bar.
+     *  \param fabricatedOut  Optional; true when the reported headers are
+     *         display-only placeholders (headerless CSV, or the .dat
+     *         "value" column) and therefore not persistable.
+     *  \returns number of points loaded (0 on parse failure / file unreadable;
+     *           the provider's points are cleared so no stale column is shown). */
     int  loadExternalFileIntoProvider_(openswmmvis::timeseries::TimeseriesProvider *p,
                                         const QString &path,
                                         const QString &columnSelector,
-                                        QStringList *columnHeadersOut = nullptr);
+                                        QStringList *columnHeadersOut = nullptr,
+                                        QString *errorOut = nullptr,
+                                        bool *fabricatedOut = nullptr);
 
     QVector<QPointer<openswmmvis::timeseries::TimeseriesProvider>>  m_providers;
     QUndoStack                              *m_undoStack    = nullptr;
@@ -299,6 +319,7 @@ private:
     QPushButton  *m_extBrowseBtn        = nullptr;
     QString       m_projectAnchor;                   ///< IO-11d: render `m_extPathEdit` relative to this dir.
     QComboBox    *m_extColumnCombo      = nullptr;   ///< Populated from CSV/TSV header row.
+    bool          m_extHeadersFabricated = false;    ///< Combo shows display-only "col_N" names (headerless file).
     QLabel       *m_extStatusLabel      = nullptr;   ///< mtime / staleness indicator.
     QPushButton  *m_extReloadBtn        = nullptr;
     QPushButton  *m_extDetachBtn        = nullptr;   ///< One-way Convert-to-Inline.

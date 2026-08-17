@@ -134,6 +134,48 @@ public:
                       const QModelIndex &index) const override;
 };
 
+/*! File-path editor — a QLineEdit plus a "…" button that opens a
+ *  QFileDialog with the column's name filter (ColumnSpec::fileFilter).
+ *  The cell value is the plain path string; typing and clearing stay
+ *  possible, Browse merely fills the line edit. First user: rain gage
+ *  Rain File (path), multi-column series files (spec §4 task 4). */
+class FileBrowseDelegate : public QStyledItemDelegate
+{
+    Q_OBJECT
+public:
+    FileBrowseDelegate(QObject *parent, QString nameFilter);
+
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
+                          const QModelIndex &index) const override;
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override;
+    void setModelData(QWidget *editor, QAbstractItemModel *model,
+                      const QModelIndex &index) const override;
+
+private:
+    QString m_nameFilter;
+};
+
+/*! Per-row column picker — an editable QComboBox whose items are supplied
+ *  by the model through a custom role (the row's data-file header names;
+ *  see kFileColumnOptionsRole in swmmattributetablemodel.h). Editable so a
+ *  column can still be named when the file is currently unreadable. First
+ *  user: rain gage Rain File Column. */
+class FileColumnDelegate : public QStyledItemDelegate
+{
+    Q_OBJECT
+public:
+    FileColumnDelegate(QObject *parent, int optionsRole);
+
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
+                          const QModelIndex &index) const override;
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override;
+    void setModelData(QWidget *editor, QAbstractItemModel *model,
+                      const QModelIndex &index) const override;
+
+private:
+    int m_optionsRole;
+};
+
 } // namespace openswmmvis
 
 #endif // ATTRIBUTEDELEGATES_H

@@ -1197,6 +1197,13 @@ void AttributeTablePanel::installColumnDelegates(
         case openswmmvis::EditorKind::Interval:
             del = new openswmmvis::IntervalDelegate(this);
             break;
+        case openswmmvis::EditorKind::FileBrowse:
+            del = new openswmmvis::FileBrowseDelegate(this, spec.fileFilter);
+            break;
+        case openswmmvis::EditorKind::FileColumn:
+            del = new openswmmvis::FileColumnDelegate(
+                this, openswmmvis::kFileColumnOptionsRole);
+            break;
         case openswmmvis::EditorKind::Compound:
             del = new openswmmvis::CompoundEditDelegate(this);
             break;

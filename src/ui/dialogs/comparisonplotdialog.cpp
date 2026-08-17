@@ -1036,7 +1036,7 @@ void ComparisonPlotDialog::onLoadObservedClicked()
     const QString path = QFileDialog::getOpenFileName(this,
         tr("Load observed time series"),
         QString(),
-        tr("CSV / TSV / DAT (*.csv *.tsv *.dat);;All files (*)"));
+        tr("CSV / TSV / TSF / DAT (*.csv *.tsv *.tsf *.dat);;All files (*)"));
     if (path.isEmpty()) return;
 
     // 2) Pick the chart attribute this CSV's columns plot against.

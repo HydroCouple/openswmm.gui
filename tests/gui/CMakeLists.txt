@@ -828,6 +828,9 @@ add_swmmvis_gui_test(test_timeseries_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesundocommands.cpp
     ${CMAKE_SOURCE_DIR}/src/io/timeseriesparse.cpp
+    # Shared external-column-file util (CSV/TSV/TSF headers + column read).
+    ${CMAKE_SOURCE_DIR}/include/ui/util/externalcolumnfile.h
+    ${CMAKE_SOURCE_DIR}/src/ui/util/externalcolumnfile.cpp
     # Axis labels: PreferencesManager + NumberFormat; geometry persistence:
     # DialogLayoutPersistence (applyAlwaysOnTopPolicy / save+restoreDialogLayout).
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
@@ -883,6 +886,9 @@ add_swmmvis_gui_test(test_objectbrowser_add_new_dispatch
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesundocommands.cpp
     ${CMAKE_SOURCE_DIR}/src/io/timeseriesparse.cpp
+    # Shared external-column-file util (CSV/TSV/TSF headers + column read).
+    ${CMAKE_SOURCE_DIR}/include/ui/util/externalcolumnfile.h
+    ${CMAKE_SOURCE_DIR}/src/ui/util/externalcolumnfile.cpp
     # Same TimeseriesEditorDialog transitive deps as test_timeseries_editor_dialog.
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
@@ -1348,6 +1354,15 @@ add_swmmvis_gui_test(test_nonspatial_adapters
     ${CMAKE_SOURCE_DIR}/src/ui/properties/swmmraingagepropertyadapter.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/properties/swmmtransectpropertyadapter.cpp
     ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
+    # The rain-gage adapter reconciles a gage's column when its path changes
+    # (review R3), so it now needs the shared column reader — and that needs
+    # the timeseries timestamp parser it is built on.
+    ${CMAKE_SOURCE_DIR}/src/ui/util/externalcolumnfile.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/timeseriesparse.cpp
+    # The rain-gage adapter reconciles its stored column against the file on
+    # disk via ui/util/externalcolumnfile.
+    ${CMAKE_SOURCE_DIR}/src/ui/util/externalcolumnfile.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/timeseriesparse.cpp
     # Headers listed explicitly so AUTOMOC picks up their Q_OBJECT macros.
     ${CMAKE_SOURCE_DIR}/include/ui/properties/swmmdataobjectpropertyadapter.h
     ${CMAKE_SOURCE_DIR}/include/ui/properties/swmmpollutantpropertyadapter.h
@@ -2216,6 +2231,16 @@ add_swmmvis_gui_test(test_attributetableschema
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_attributetableschema)
+
+# Rain-gage file / column / format coupling — review follow-ups R3 (a path edit
+# reconciles the column and undoes as one step) and A-2 (the file format is
+# explicitly settable, which is the only way back out of USER_CSV).
+add_swmmvis_gui_test(test_raingagefilecolumn
+    test_raingagefilecolumn.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_raingagefilecolumn)
 
 # Toolbar selection ops — SelectionOps::invert (category-scoped Invert
 # Selection), SelectionOps::trace (Select Upstream / Downstream with
