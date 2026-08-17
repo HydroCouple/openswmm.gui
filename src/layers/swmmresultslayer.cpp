@@ -48,6 +48,13 @@
 #include <limits>
 
 #include <openswmm/engine/openswmm_output.h>
+// Subcatchment area — needed to turn the .out file's rainfall RATE series
+// into the precipitation VOLUME the engine's own statistic reports.
+#include <openswmm/engine/openswmm_subcatchments.h>
+// Link full depth (y_full) — the divisor behind the max-filling / surcharge
+// statistics, and not derivable from the .out file alone.
+#include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_xsect.h>
 
 #include <QDateTime>
 #include <QGraphicsScene>
@@ -896,6 +903,11 @@ void SWMMResultsLayer::closeResults()
     m_nodeAttributeRange.clear();
     m_linkAttributeRange.clear();
     m_subcatchAttributeRange.clear();
+
+    // Aggregated link / subcatchment summary statistics are keyed by output
+    // index, so they MUST go with the file that defined those indices.
+    m_linkStats.clear();
+    m_subcatchStats.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -954,6 +966,209 @@ double SWMMResultsLayer::nodeStatTimeFlooded(const QString &nodeName) const
     if (swmm_output_get_node_stat_time_flooded(m_handle, idx, &v) != 0) return 0.0;
     return v;
 }
+
+// ---------------------------------------------------------------------------
+// Per-output link / subcatchment summary statistics
+// ---------------------------------------------------------------------------
+//
+// The .out file has no stats block and — unlike the node case (engine gap
+// QA-01) — no `swmm_output_get_link_stat_*` aggregators either, so these are
+// computed here from the per-period series.
+//
+// Unit bookkeeping is the delicate part. The series carry the file's OWN
+// display units (flow in the file's flow-units code; rainfall in in/hr or
+// mm/hr), while the editing-engine getters these stand in for report project
+// VOLUME units. The engine's two conversion tables give the round trip:
+//
+//     internal = display / Ucf   and   display_flow = cfs * Qcf
+//
+// so a volume integral is  Σ (flow / Qcf) * dt  [ft³]  * Ucf[VOLUME].
+// The tables are duplicated here rather than #included because they live in
+// the engine's private src/engine/core/UnitConversion.hpp, which is not part
+// of the installed public headers the GUI links against.
+
+namespace {
+
+// Qcf[flow_units] — cfs → the file's display flow units. Indices match
+// swmm_output_get_flow_units(): 0=CFS 1=GPM 2=MGD 3=CMS 4=LPS 5=MLD.
+// Mirrors openswmm.engine src/engine/core/UnitConversion.hpp.
+constexpr double kQcf[6] = {1.0, 448.831, 0.64632, 0.02832, 28.317, 2.4466};
+
+// Ucf rows used below, [US, SI]. Same source.
+constexpr double kUcfRainfall[2] = {43200.0, 1097280.0};  // in/hr, mm/hr → ft/s
+constexpr double kUcfLandArea[2] = {2.2956e-5, 0.92903e-5}; // ac, ha → ft²
+constexpr double kUcfVolume[2]   = {1.0, 0.02832};        // ft³, m³ → ft³
+
+// Flow-unit codes 3..5 (CMS/LPS/MLD) are the SI set.
+bool flowUnitsAreSI(int code) { return code >= 3; }
+
+} // namespace
+
+SWMMResultsLayer::LinkStats SWMMResultsLayer::linkStatsFor(int outIdx) const
+{
+    if (outIdx < 0 || !m_handle || m_totalSteps <= 0) return {};
+    if (const auto it = m_linkStats.constFind(outIdx); it != m_linkStats.constEnd())
+        return *it;
+
+    const int    last     = m_totalSteps - 1;
+    const int    fu       = swmm_output_get_flow_units(m_handle);
+    const bool   si       = flowUnitsAreSI(fu);
+    const double qcf      = (fu >= 0 && fu < 6) ? kQcf[fu] : 1.0;
+    const double dtSec    = double(m_reportStepSec);
+
+    QVector<float> buf(m_totalSteps);
+    LinkStats st;
+
+    auto readSeries = [&](int var) -> bool {
+        return swmm_output_get_link_series(m_handle, outIdx, var, 0, last,
+                                            buf.data()) == 0;
+    };
+
+    if (readSeries(SWMM_OUT_LINK_FLOW)) {
+        double vol = 0.0;
+        for (const float f : buf) {
+            // Flow is SIGNED in the .out file (the engine multiplies by the
+            // link's direction), but both engine statistics are built from
+            // |q| — see SWMMEngine's per-step link loop — so take magnitudes
+            // here too. Signing max-flow instead would report a negative
+            // peak for any reverse-flowing conduit.
+            const double q = std::abs(double(f));
+            if (q > st.maxFlow) st.maxFlow = q;
+            vol += q;
+        }
+        // Σ|q| * dt with q converted to cfs, then out to project volume units.
+        st.volFlow = (qcf != 0.0)
+            ? (vol / qcf) * dtSec * kUcfVolume[si ? 1 : 0]
+            : 0.0;
+    }
+    if (readSeries(SWMM_OUT_LINK_VELOCITY)) {
+        // Signed for the same reason; the engine's stat_max_veloc is derived
+        // from |q| and is therefore non-negative.
+        for (const float f : buf)
+            if (std::abs(double(f)) > st.maxVelocity) st.maxVelocity = std::abs(double(f));
+    }
+
+    // Filling and surcharge both need the FULL DEPTH, which the .out file
+    // does not carry.
+    //
+    // The tempting shortcut is SWMM_OUT_LINK_CAPACITY, and it is wrong: that
+    // variable is xsect_getAofY(y)/aFull — an AREA ratio — while the engine's
+    // max-filling statistic is depth/y_full. On a circular pipe the two
+    // differ by roughly a factor of two at part-full flow (validated against
+    // site_drainage_model: capacity gave 0.16 where the .rpt reports 0.32).
+    //
+    // So read the depth series and divide by the y_full the engine itself
+    // uses, obtained from the model's resolved cross-section. That handles
+    // IRREGULAR and CUSTOM shapes, whose y_full is not simply geom1.
+    if (m_modelLayer && readSeries(SWMM_OUT_LINK_DEPTH)) {
+        double yFull = 0.0;
+        if (SWMM_Engine eng = m_modelLayer->engine()) {
+            const QString name = m_linkOutputIdx.key(outIdx);
+            const int lIdx = swmm_link_index(eng, name.toUtf8().constData());
+            SWMM_XSect xs = nullptr;
+            if (lIdx >= 0 && swmm_link_create_xsect(eng, lIdx, &xs) == SWMM_OK && xs) {
+                swmm_xsect_full_properties(xs, &yFull, nullptr, nullptr,
+                                            nullptr, nullptr, nullptr);
+                swmm_xsect_free(xs);
+            }
+        }
+        if (yFull > 0.0) {
+            int surchargedPeriods = 0;
+            for (const float f : buf) {
+                const double fill = double(f) / yFull;
+                if (fill > st.maxFilling) st.maxFilling = fill;
+                if (fill >= 1.0) ++surchargedPeriods;
+            }
+            st.surchargeTimeHr = surchargedPeriods * dtSec / 3600.0;
+        }
+    }
+
+    m_linkStats.insert(outIdx, st);
+    return st;
+}
+
+SWMMResultsLayer::SubcatchStats SWMMResultsLayer::subcatchStatsFor(int outIdx) const
+{
+    if (outIdx < 0 || !m_handle || m_totalSteps <= 0) return {};
+    if (const auto it = m_subcatchStats.constFind(outIdx); it != m_subcatchStats.constEnd())
+        return *it;
+
+    const int    last  = m_totalSteps - 1;
+    const int    fu    = swmm_output_get_flow_units(m_handle);
+    const bool   si    = flowUnitsAreSI(fu);
+    const double qcf   = (fu >= 0 && fu < 6) ? kQcf[fu] : 1.0;
+    const double dtSec = double(m_reportStepSec);
+
+    QVector<float> buf(m_totalSteps);
+    SubcatchStats st;
+
+    auto readSeries = [&](int var) -> bool {
+        return swmm_output_get_subcatch_series(m_handle, outIdx, var, 0, last,
+                                                buf.data()) == 0;
+    };
+
+    if (readSeries(SWMM_OUT_SUBCATCH_RUNOFF)) {
+        double vol = 0.0;
+        for (const float f : buf) {
+            if (double(f) > st.maxRunoff) st.maxRunoff = double(f);
+            vol += double(f);
+        }
+        st.runoffVol = (qcf != 0.0)
+            ? (vol / qcf) * dtSec * kUcfVolume[si ? 1 : 0]
+            : 0.0;
+    }
+    if (readSeries(SWMM_OUT_SUBCATCH_RAINFALL)) {
+        // Rainfall is a DEPTH rate, so the volume needs the subcatchment's
+        // area — which the .out file does not carry. Read it from the model
+        // layer's engine; without a model layer there is nothing to scale by
+        // and precipitation volume stays 0 rather than reporting a depth as
+        // if it were a volume.
+        double areaFt2 = 0.0;
+        if (m_modelLayer) {
+            if (SWMM_Engine eng = m_modelLayer->engine()) {
+                const QString name = m_subcatchOutputIdx.key(outIdx);
+                const int sIdx = swmm_subcatch_index(eng, name.toUtf8().constData());
+                double areaProj = 0.0;
+                if (sIdx >= 0
+                    && swmm_subcatch_get_area(eng, sIdx, &areaProj) == SWMM_OK)
+                    areaFt2 = areaProj / kUcfLandArea[si ? 1 : 0];
+            }
+        }
+        if (areaFt2 > 0.0) {
+            double depthFt = 0.0;
+            for (const float f : buf)
+                depthFt += double(f) / kUcfRainfall[si ? 1 : 0] * dtSec;
+            st.precipVol = depthFt * areaFt2 * kUcfVolume[si ? 1 : 0];
+        }
+    }
+
+    m_subcatchStats.insert(outIdx, st);
+    return st;
+}
+
+double SWMMResultsLayer::linkStatMaxFlow(const QString &linkName) const
+{ return linkStatsFor(linkOutputIndex(linkName)).maxFlow; }
+
+double SWMMResultsLayer::linkStatMaxVelocity(const QString &linkName) const
+{ return linkStatsFor(linkOutputIndex(linkName)).maxVelocity; }
+
+double SWMMResultsLayer::linkStatMaxFilling(const QString &linkName) const
+{ return linkStatsFor(linkOutputIndex(linkName)).maxFilling; }
+
+double SWMMResultsLayer::linkStatVolFlow(const QString &linkName) const
+{ return linkStatsFor(linkOutputIndex(linkName)).volFlow; }
+
+double SWMMResultsLayer::linkStatSurchargeTime(const QString &linkName) const
+{ return linkStatsFor(linkOutputIndex(linkName)).surchargeTimeHr; }
+
+double SWMMResultsLayer::subcatchStatPrecip(const QString &subName) const
+{ return subcatchStatsFor(subcatchOutputIndex(subName)).precipVol; }
+
+double SWMMResultsLayer::subcatchStatRunoffVol(const QString &subName) const
+{ return subcatchStatsFor(subcatchOutputIndex(subName)).runoffVol; }
+
+double SWMMResultsLayer::subcatchStatMaxRunoff(const QString &subName) const
+{ return subcatchStatsFor(subcatchOutputIndex(subName)).maxRunoff; }
 
 void SWMMResultsLayer::buildOutputIdMaps()
 {

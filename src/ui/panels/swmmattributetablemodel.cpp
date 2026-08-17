@@ -7,6 +7,7 @@
 #include "ui/panels/swmmattributetablemodel.h"
 
 #include "core/unitsystem.h"
+#include "layers/swmmresultslayer.h"          // dynamics columns' output source
 #include "ui/models/userflagsmodel.h"
 #include "ui/properties/culvertcodes.h"      // ATTRIBUTE_EDITOR_WIRING Phase 0
 #include "ui/properties/dataobjectref.h"     // pump-curve picker cell
@@ -1327,6 +1328,47 @@ struct SetterEntry {
     int (*setFnS)(SWMM_Engine, int, const char*) = nullptr;
     int (*getFnS)(SWMM_Engine, int, char*, int)  = nullptr;
 };
+
+// Output-file counterpart of the getter-only dynamics tags. Every accessor
+// here takes the object's NAME, because the .out file has its own indexing
+// scheme that need not match the engine's — SWMMResultsLayer resolves it.
+//
+// A null return means "this tag has no output counterpart"; the caller then
+// keeps the editing-engine path. That is the case for the three pump-only
+// statistics (cycles / on-time / volume pumped), which the binary output
+// format simply does not record.
+using ResultsStatFn = double (SWMMResultsLayer::*)(const QString &) const;
+ResultsStatFn resultsStatFor(const QString &tag) {
+    // Node
+    if (tag == QStringLiteral("node_stat_max_depth"))
+        return &SWMMResultsLayer::nodeStatMaxDepth;
+    if (tag == QStringLiteral("node_stat_max_overflow"))
+        return &SWMMResultsLayer::nodeStatMaxOverflow;
+    if (tag == QStringLiteral("node_stat_vol_flooded"))
+        return &SWMMResultsLayer::nodeStatVolFlooded;
+    if (tag == QStringLiteral("node_stat_time_flooded"))
+        return &SWMMResultsLayer::nodeStatTimeFlooded;
+    // Link
+    if (tag == QStringLiteral("link_stat_max_flow"))
+        return &SWMMResultsLayer::linkStatMaxFlow;
+    if (tag == QStringLiteral("link_stat_max_velocity"))
+        return &SWMMResultsLayer::linkStatMaxVelocity;
+    if (tag == QStringLiteral("link_stat_max_filling"))
+        return &SWMMResultsLayer::linkStatMaxFilling;
+    if (tag == QStringLiteral("link_stat_vol_flow"))
+        return &SWMMResultsLayer::linkStatVolFlow;
+    if (tag == QStringLiteral("link_stat_surcharge_time"))
+        return &SWMMResultsLayer::linkStatSurchargeTime;
+    // Subcatchment
+    if (tag == QStringLiteral("subcatch_stat_precip"))
+        return &SWMMResultsLayer::subcatchStatPrecip;
+    if (tag == QStringLiteral("subcatch_stat_runoff_vol"))
+        return &SWMMResultsLayer::subcatchStatRunoffVol;
+    if (tag == QStringLiteral("subcatch_stat_max_runoff"))
+        return &SWMMResultsLayer::subcatchStatMaxRunoff;
+    return nullptr;
+}
+
 SetterEntry setterFor(const QString &tag) {
     SetterEntry e;
     // Node — numeric
@@ -1860,6 +1902,22 @@ void SWMMAttributeTableModel::setSource(SWMMModelLayer *layer,
     m_rowCacheValid.assign(n, false);
     invalidateCompoundCache();
     endResetModel();
+}
+
+void SWMMAttributeTableModel::setResultsSource(SWMMResultsLayer *layer)
+{
+    if (m_resultsSource == layer) return;
+    m_resultsSource = layer;
+
+    // Only the dynamics columns change, and none of them come from the row
+    // cache (they read through a getter tag every paint), so a full reset
+    // would be gratuitous — it would also drop the user's selection and
+    // scroll position every time the active run changes. A dataChanged over
+    // the whole grid repaints the affected cells and leaves both alone.
+    if (rowCount() > 0 && columnCount() > 0) {
+        emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1),
+                         {Qt::DisplayRole});
+    }
 }
 
 void SWMMAttributeTableModel::rebuildColumnSchema()
@@ -2489,6 +2547,15 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             const int shape = storageShapeForName(m_layer, objectNameAt(row));
             if (shape < 0 || !openswmmvis::storageGeomApplies(shape, ord))
                 return {};
+        }
+        // Post-run dynamics: when an output is bound, the value comes from
+        // THAT run's .out file, not the editing engine (which never runs a
+        // simulation and so has no statistics at all). Tags with no output
+        // counterpart — the three pump-only ones — fall through to the
+        // engine path below and keep their existing behaviour.
+        if (m_resultsSource) {
+            if (const auto fn = resultsStatFor(spec.setter))
+                return (m_resultsSource->*fn)(objectNameAt(row));
         }
         const auto entry = setterFor(spec.setter);
         const QString name = objectNameAt(row);
