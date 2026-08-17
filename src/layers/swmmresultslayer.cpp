@@ -1048,29 +1048,63 @@ SWMMResultsLayer::LinkStats SWMMResultsLayer::linkStatsFor(int outIdx) const
             if (std::abs(double(f)) > st.maxVelocity) st.maxVelocity = std::abs(double(f));
     }
 
-    // Filling and surcharge both need the FULL DEPTH, which the .out file
-    // does not carry.
-    //
-    // The tempting shortcut is SWMM_OUT_LINK_CAPACITY, and it is wrong: that
-    // variable is xsect_getAofY(y)/aFull — an AREA ratio — while the engine's
-    // max-filling statistic is depth/y_full. On a circular pipe the two
-    // differ by roughly a factor of two at part-full flow (validated against
-    // site_drainage_model: capacity gave 0.16 where the .rpt reports 0.32).
-    //
-    // So read the depth series and divide by the y_full the engine itself
-    // uses, obtained from the model's resolved cross-section. That handles
-    // IRREGULAR and CUSTOM shapes, whose y_full is not simply geom1.
-    if (m_modelLayer && readSeries(SWMM_OUT_LINK_DEPTH)) {
-        double yFull = 0.0;
-        if (SWMM_Engine eng = m_modelLayer->engine()) {
-            const QString name = m_linkOutputIdx.key(outIdx);
-            const int lIdx = swmm_link_index(eng, name.toUtf8().constData());
-            SWMM_XSect xs = nullptr;
-            if (lIdx >= 0 && swmm_link_create_xsect(eng, lIdx, &xs) == SWMM_OK && xs) {
-                swmm_xsect_full_properties(xs, &yFull, nullptr, nullptr,
-                                            nullptr, nullptr, nullptr);
-                swmm_xsect_free(xs);
+    // The remaining statistics need model-side facts the .out file does not
+    // carry — the link's type, and (for conduits) its full depth — so resolve
+    // the engine index once here.
+    SWMM_Engine eng = m_modelLayer ? m_modelLayer->engine() : nullptr;
+    int lIdx = -1, lType = -1;
+    if (eng) {
+        const QString name = m_linkOutputIdx.key(outIdx);
+        lIdx = swmm_link_index(eng, name.toUtf8().constData());
+        if (lIdx >= 0) swmm_link_get_type(eng, lIdx, &lType);
+    }
+
+    if (lType == SWMM_LINK_PUMP) {
+        // Pump utilisation. The engine's on/off test is
+        // `setting > 0 && flow > 0`, and both operands survive into the .out
+        // file: flow directly, and `setting` as CAPACITY — for a non-conduit
+        // that variable is the pump speed / regulator opening, NOT a fill
+        // ratio (legacy link.c). Reconstructing from those reproduces the
+        // engine's own accumulation loop step for step.
+        QVector<float> flow(m_totalSteps);
+        if (swmm_output_get_link_series(m_handle, outIdx, SWMM_OUT_LINK_FLOW,
+                                         0, last, flow.data()) == 0
+            && readSeries(SWMM_OUT_LINK_CAPACITY)) {
+            int cycles = 0, onPeriods = 0;
+            bool wasOn = false;
+            double vol = 0.0;
+            for (int p = 0; p < m_totalSteps; ++p) {
+                const double q = std::abs(double(flow[p]));
+                const bool isOn = (double(buf[p]) > 0.0 && q > 0.0);
+                if (isOn && !wasOn) ++cycles;   // OFF→ON only, as the engine counts
+                wasOn = isOn;
+                if (isOn) { ++onPeriods; vol += q; }
             }
+            st.pumpCycles   = cycles;
+            st.pumpOnTimeHr = onPeriods * dtSec / 3600.0;
+            st.pumpVolume   = (qcf != 0.0)
+                ? (vol / qcf) * dtSec * kUcfVolume[si ? 1 : 0]
+                : 0.0;
+        }
+    } else if (readSeries(SWMM_OUT_LINK_DEPTH)) {
+        // Filling and surcharge both need the FULL DEPTH.
+        //
+        // The tempting shortcut is SWMM_OUT_LINK_CAPACITY, and it is wrong:
+        // for a conduit that variable is xsect_getAofY(y)/aFull — an AREA
+        // ratio — while the engine's max-filling statistic is depth/y_full.
+        // The two differ by roughly a factor of two at part-full flow
+        // (validated against site_drainage_model: capacity gave 0.16 where
+        // the .rpt reports 0.32).
+        //
+        // So divide the depth series by the y_full the engine itself uses,
+        // taken from the model's resolved cross-section. That handles
+        // IRREGULAR and CUSTOM shapes, whose y_full is not simply geom1.
+        double yFull = 0.0;
+        SWMM_XSect xs = nullptr;
+        if (lIdx >= 0 && swmm_link_create_xsect(eng, lIdx, &xs) == SWMM_OK && xs) {
+            swmm_xsect_full_properties(xs, &yFull, nullptr, nullptr,
+                                        nullptr, nullptr, nullptr);
+            swmm_xsect_free(xs);
         }
         if (yFull > 0.0) {
             int surchargedPeriods = 0;
@@ -1160,6 +1194,15 @@ double SWMMResultsLayer::linkStatVolFlow(const QString &linkName) const
 
 double SWMMResultsLayer::linkStatSurchargeTime(const QString &linkName) const
 { return linkStatsFor(linkOutputIndex(linkName)).surchargeTimeHr; }
+
+double SWMMResultsLayer::linkStatPumpCycles(const QString &linkName) const
+{ return linkStatsFor(linkOutputIndex(linkName)).pumpCycles; }
+
+double SWMMResultsLayer::linkStatPumpOnTime(const QString &linkName) const
+{ return linkStatsFor(linkOutputIndex(linkName)).pumpOnTimeHr; }
+
+double SWMMResultsLayer::linkStatPumpVolume(const QString &linkName) const
+{ return linkStatsFor(linkOutputIndex(linkName)).pumpVolume; }
 
 double SWMMResultsLayer::subcatchStatPrecip(const QString &subName) const
 { return subcatchStatsFor(subcatchOutputIndex(subName)).precipVol; }

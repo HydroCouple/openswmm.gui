@@ -360,9 +360,20 @@ QList<ColumnSpec> linkDynamicsBlock() {
 
 // Pump-only utilisation statistics, appended after the shared link block.
 QList<ColumnSpec> pumpDynamicsBlock() {
+    ColumnSpec cycles = roGet(QStringLiteral("Pump cycles"),
+                               QStringLiteral("Pump Cycles"),
+                               QStringLiteral("link_stat_pump_cycles"));
+    // Unlike its neighbours this one can be badly low, not just slightly, so
+    // say so where the user will see it. Reconstructing cycles from an output
+    // file cannot see a pump that switches off and back on entirely between
+    // two report times — see SWMMResultsLayer::linkStatPumpCycles.
+    cycles.tooltip = QObject::tr(
+        "Number of pump start-ups.\n\n"
+        "Counted from the results file at REPORT-step resolution, so this is "
+        "a lower bound: a pump that cycles off and back on between two report "
+        "times is not visible. Shorten REPORT_STEP for an exact count.");
     return {
-        roGet(QStringLiteral("Pump cycles"),       QStringLiteral("Pump Cycles"),
-              QStringLiteral("link_stat_pump_cycles")),
+        cycles,
         roGet(QStringLiteral("Pump on time (hr)"), QStringLiteral("Pump On Time (hr)"),
               QStringLiteral("link_stat_pump_on_time")),
         roGet(QStringLiteral("Pump volume"),       QStringLiteral("Volume Pumped"),
@@ -1359,6 +1370,15 @@ ResultsStatFn resultsStatFor(const QString &tag) {
         return &SWMMResultsLayer::linkStatVolFlow;
     if (tag == QStringLiteral("link_stat_surcharge_time"))
         return &SWMMResultsLayer::linkStatSurchargeTime;
+    // Pump utilisation. linkStatPumpOnTime already returns HOURS, so it
+    // stands in for pumpOnTimeHoursGet (the engine getter reports seconds)
+    // rather than for the raw C function.
+    if (tag == QStringLiteral("link_stat_pump_cycles"))
+        return &SWMMResultsLayer::linkStatPumpCycles;
+    if (tag == QStringLiteral("link_stat_pump_on_time"))
+        return &SWMMResultsLayer::linkStatPumpOnTime;
+    if (tag == QStringLiteral("link_stat_pump_volume"))
+        return &SWMMResultsLayer::linkStatPumpVolume;
     // Subcatchment
     if (tag == QStringLiteral("subcatch_stat_precip"))
         return &SWMMResultsLayer::subcatchStatPrecip;
