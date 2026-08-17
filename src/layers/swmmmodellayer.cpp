@@ -159,6 +159,7 @@ void applyLineSymbolToElement(const OpenSWMM::Render::SymbolLayer &layer,
     sym.outlineWidth         = spec.width;
     sym.showArrows           = spec.drawArrows;
     sym.arrowSize            = spec.arrows.lengthPx;
+    sym.arrowWidth           = spec.arrows.widthPx;
     sym.arrowColor           = spec.arrows.color;
     sym.arrowOnlyWhenFlowPos = spec.arrowOnlyWhenFlowPos;
     sym.showLabel            = spec.showLabel;
@@ -331,6 +332,7 @@ SymbolStyle styleFromElementSymbol(const SWMMElementSymbol &s, SWMMModelLayer::C
     if (layer.kind == SymbolLayerKind::SimpleLine) {
         layer.props.insert(QStringLiteral("drawArrows"),           s.showArrows);
         layer.props.insert(QStringLiteral("arrowLengthPx"),        s.arrowSize);
+        layer.props.insert(QStringLiteral("arrowWidthPx"),         s.arrowWidth);
         layer.props.insert(QStringLiteral("arrowColor"),           QVariant::fromValue(s.arrowColor));
         layer.props.insert(QStringLiteral("arrowOnlyWhenFlowPos"), s.arrowOnlyWhenFlowPos);
     }
@@ -406,6 +408,10 @@ SWMMElementSymbol elementSymbolFromStyle(const SymbolStyle &style,
         out.showArrows = layer.props.value(QStringLiteral("drawArrows")).toBool();
     if (layer.props.contains(QStringLiteral("arrowLengthPx")))
         out.arrowSize = layer.props.value(QStringLiteral("arrowLengthPx")).toDouble();
+    // Absent in projects written before the width became independent —
+    // leave the struct default (1.2 x length) so they render unchanged.
+    if (layer.props.contains(QStringLiteral("arrowWidthPx")))
+        out.arrowWidth = layer.props.value(QStringLiteral("arrowWidthPx")).toDouble();
     if (const QColor c = propColor(layer.props, "arrowColor"); c.isValid())
         out.arrowColor = c;
     if (layer.props.contains(QStringLiteral("arrowOnlyWhenFlowPos")))
@@ -525,6 +531,16 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath,
     // struct feeds flow arrows, labels, the renderer and persistence.
     m_outletSym.fillColor    = QColor(140, 100, 60);
     m_outletSym.outlineWidth = 1.5;
+
+    // Flow-direction arrows are on out of the box for every LINK kind —
+    // direction is the thing a drainage network is read for. Node and
+    // polygon kinds keep the struct default (off); their painters ignore
+    // the flag, but their editors would show it ticked.
+    m_conduitSym.showArrows = true;
+    m_pumpSym.showArrows    = true;
+    m_orificeSym.showArrows = true;
+    m_weirSym.showArrows    = true;
+    m_outletSym.showArrows  = true;
     m_kindRenderers[CatOutlets] = makeSingleSymbolRenderer(m_outletSym, CatOutlets);
     m_kindRenderers[CatSubcatchments]  = makeSingleSymbolRenderer(m_subcatchSym,    CatSubcatchments);
     m_kindRenderers[CatRainGages]      = makeSingleSymbolRenderer(m_gageSym,        CatRainGages);
@@ -2634,6 +2650,35 @@ void SWMMModelLayer::setLinkArrowSize(Category c, double pixels)
     }
     if (sym->arrowSize == pixels) return;
     sym->arrowSize = pixels;
+    resyncSymbolAdapter(linkKindRoutingId(c), *sym);
+    emit repaintRequested();
+}
+
+double SWMMModelLayer::linkArrowWidth(Category c) const
+{
+    switch (c) {
+    case CatConduits: return m_conduitSym.arrowWidth;
+    case CatPumps:    return m_pumpSym.arrowWidth;
+    case CatOrifices: return m_orificeSym.arrowWidth;
+    case CatWeirs:    return m_weirSym.arrowWidth;
+    case CatOutlets:  return m_outletSym.arrowWidth;
+    default:          return 12.0;
+    }
+}
+
+void SWMMModelLayer::setLinkArrowWidth(Category c, double pixels)
+{
+    SWMMElementSymbol *sym = nullptr;
+    switch (c) {
+    case CatConduits: sym = &m_conduitSym; break;
+    case CatPumps:    sym = &m_pumpSym;    break;
+    case CatOrifices: sym = &m_orificeSym; break;
+    case CatWeirs:    sym = &m_weirSym;    break;
+    case CatOutlets:  sym = &m_outletSym;  break;
+    default: return;
+    }
+    if (sym->arrowWidth == pixels) return;
+    sym->arrowWidth = pixels;
     resyncSymbolAdapter(linkKindRoutingId(c), *sym);
     emit repaintRequested();
 }
