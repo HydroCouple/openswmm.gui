@@ -3272,6 +3272,7 @@ void SWMMVis::initializeMenus()
     connect(ui->actionAddVectorData, &QAction::triggered, this, &SWMMVis::onAddVectorLayer);
     connect(ui->actionAddRasterData, &QAction::triggered, this, &SWMMVis::onAddRasterLayer);
     connect(ui->actionAddSWMMOutput, &QAction::triggered, this, &SWMMVis::onAddSWMMResultsLayer);
+    connect(ui->actionAddMesh2D,     &QAction::triggered, this, &SWMMVis::onAddMesh2DLayer);
     connect(ui->actionExecute,       &QAction::triggered, this, &SWMMVis::onRunSimulation);
 
     // Helper: resolve the runner the user wants to act on.  If the
@@ -8277,4 +8278,45 @@ void SWMMVis::onAddSWMMResultsLayer()
         }
     }, static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
     layer->openResultsAsync();
+}
+
+void SWMMVis::onAddMesh2DLayer()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->modelLayer() || !pw->canvas())
+    {
+        onLogMessage(tr("Open a SWMM project first; a 2D mesh attaches to a model."),
+                     OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+
+    // Start in the project folder — the mesh a user reaches for most often is
+    // one they just generated for a neighbouring model.
+    const QString modelPath = pw->modelLayer()->modelFilePath();
+    const QString startDir =
+        !modelPath.isEmpty() ? QFileInfo(modelPath).absolutePath()
+        : mRecentFiles.isEmpty() ? QDir::homePath()
+                                 : QFileInfo(mRecentFiles.first()).absolutePath();
+
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Add 2D Mesh"), startDir,
+        tr("OpenSWMM 2D Mesh (*.2dm);;All Files (*)"));
+    if (path.isEmpty()) return;
+
+    beginFileOpen(path);
+    onSetProgressBarBusy(true);
+    auto t = std::make_shared<QElapsedTimer>();
+    t->start();
+
+    connect(pw, &SWMMVisProjectWindow::meshImportFinished, this,
+            [this, path, t](bool ok, const QString &message,
+                            const QString &meshPath) {
+                onSetProgressBarBusy(false);
+                endFileOpen(meshPath.isEmpty() ? path : meshPath, ok,
+                            ok ? message : QString(), t->elapsed(),
+                            ok ? QString() : message);
+            },
+            static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+
+    pw->importMeshFileAsync(path);
 }

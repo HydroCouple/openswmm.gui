@@ -16,6 +16,7 @@
 #include "layers/swmmresultslayer.h"        // Slice QA.2 — registry hookup
 #include "layers/swmm2dresultslayer.h"      // active 2D analysis layer
 #include "mesh/meshenginesync.h"            // push mesh-layer edits into the engine before save
+#include "mesh/inpmeshreader.h"             // parse a browsed-for .2dm on import
 #include "mesh/inpmeshwriter.h"             // retarget [2D_MESH_FILE] after save
 #include "output/outputstatsregistry.h"     // Slice QA.2 — owns the registry
 #include "project/openswmmvisworkspace.h"
@@ -49,9 +50,11 @@
 #include "selection/selectionmanager.h"
 #include "mesh/meshobjectref.h"             // MeshCell ref parsing for cell highlight
 
+#include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDebug>
+#include <QDir>
 #include <QLoggingCategory>
 #include <QEvent>
 #include <QFile>
@@ -935,6 +938,219 @@ void SWMMVisProjectWindow::attachMeshLayer(SWMM2DMeshLayer *meshLayer)
             [this](const QString &) { setHasChanges(true); });
     connect(meshLayer, &SWMM2DMeshLayer::meshEditsChanged, this,
             [this]() { setHasChanges(true); });
+}
+
+void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
+{
+    auto fail = [this](const QString &msg) {
+        emit meshImportFinished(false, msg, QString());
+    };
+
+    if (!canvas() || !mModelLayer) {
+        fail(tr("Open a project first — a 2D mesh attaches to a model."));
+        return;
+    }
+
+    const QFileInfo srcFi(srcPath);
+    if (!srcFi.exists() || !srcFi.isFile()) {
+        fail(tr("Mesh file not found: %1").arg(srcPath));
+        return;
+    }
+
+    // ── Stage the file into the project folder ───────────────────────────
+    // A sibling of the .inp is referenced relatively by
+    // InpMeshWriter::writeMeshFileRef, which keeps the project portable and
+    // makes the mesh visible in Simulation Options → Mesh. An unsaved project
+    // has no folder yet, so the mesh is read where it lies; the first save
+    // writes an absolute reference.
+    QString meshPath = srcFi.absoluteFilePath();
+    bool    copied   = false;
+    const QString modelPath = mModelLayer->modelFilePath();
+    if (!modelPath.isEmpty())
+    {
+        const QDir dir = QFileInfo(modelPath).absoluteDir();
+        if (srcFi.absolutePath() != dir.absolutePath())
+        {
+            QString destPath = dir.absoluteFilePath(srcFi.fileName());
+            if (QFileInfo::exists(destPath))
+            {
+                // Never silently clobber a mesh already in the project — the
+                // existing file may be the one the model currently runs on.
+                QMessageBox box(QMessageBox::Question, tr("Import 2D Mesh"),
+                    tr("The project folder already contains a file named %1.")
+                        .arg(srcFi.fileName()), QMessageBox::NoButton, this);
+                box.setInformativeText(
+                    tr("Overwrite it with the imported mesh, or keep both?"));
+                QPushButton *overwrite =
+                    box.addButton(tr("Overwrite"), QMessageBox::DestructiveRole);
+                QPushButton *keepBoth =
+                    box.addButton(tr("Keep Both"), QMessageBox::AcceptRole);
+                box.addButton(QMessageBox::Cancel);
+                box.setDefaultButton(keepBoth);
+                box.exec();
+
+                if (box.clickedButton() == overwrite) {
+                    if (!QFile::remove(destPath)) {
+                        fail(tr("Could not replace %1 — it may be open in "
+                                "another program.").arg(destPath));
+                        return;
+                    }
+                } else if (box.clickedButton() == keepBoth) {
+                    const QString base = srcFi.completeBaseName();
+                    const QString ext  = srcFi.suffix();
+                    int n = 1;
+                    do {
+                        destPath = dir.absoluteFilePath(
+                            QStringLiteral("%1_%2.%3").arg(base).arg(n++).arg(ext));
+                    } while (QFileInfo::exists(destPath));
+                } else {
+                    fail(tr("2D mesh import cancelled."));
+                    return;
+                }
+            }
+            if (!QFile::copy(srcFi.absoluteFilePath(), destPath)) {
+                fail(tr("Could not copy %1 into the project folder %2.")
+                         .arg(srcFi.fileName(), dir.absolutePath()));
+                return;
+            }
+            meshPath = destPath;
+            copied   = true;
+        }
+    }
+
+    // ── Parse + build on a worker ────────────────────────────────────────
+    // Same split as the file-open path (SWMMVis::attachMesh2DLayersAsync):
+    // parsing and the light scene-geometry build are the expensive halves and
+    // must not freeze the GUI on a multi-million-triangle mesh.
+    struct ImportOutcome {
+        SWMM2DMeshLayer *layer = nullptr;
+        QString errorMsg;
+        QString warning;
+        int     nVerts = 0;
+        int     nTris  = 0;
+    };
+
+    // Receiver is `this` and the watcher is our child, so the handler cannot
+    // outlive the window; only the canvas/model teardown order is guarded below.
+    auto *watcher = new QFutureWatcher<ImportOutcome>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this,
+            [this, watcher, meshPath, copied]() {
+        ImportOutcome out;
+        try {
+            out = watcher->result();
+        } catch (const std::exception &e) {
+            out.errorMsg = tr("Reading the 2D mesh failed: %1")
+                               .arg(QString::fromUtf8(e.what()));
+        }
+        watcher->deleteLater();
+
+        if (!out.layer) {
+            // A copy we made is worthless without a parseable mesh behind it.
+            if (copied) QFile::remove(meshPath);
+            emit meshImportFinished(false, out.errorMsg, QString());
+            return;
+        }
+        if (!canvas() || !mModelLayer) {   // project torn down mid-parse
+            delete out.layer;
+            return;
+        }
+
+        SWMM2DMeshLayer *meshLayer = out.layer;
+
+        // The imported mesh becomes the active one — that is what the save
+        // path retargets [2D_MESH_FILE] at. A layer already reading this exact
+        // file is replaced, not stacked: a stale duplicate also gets pushed
+        // into the engine on save and can win, resurrecting the old mesh.
+        const QString canonical = QFileInfo(meshPath).absoluteFilePath();
+        QList<SWMM2DMeshLayer *> stale;
+        for (OpenSWMMVisLayer *l : canvas()->layers()) {
+            auto *m = qobject_cast<SWMM2DMeshLayer *>(l);
+            if (!m) continue;
+            m->setActiveMesh(false);
+            if (!m->sourcePath().isEmpty()
+                && QFileInfo(m->sourcePath()).absoluteFilePath() == canonical)
+                stale.append(m);
+        }
+        for (SWMM2DMeshLayer *m : stale) {
+            const int idx = canvas()->layers().indexOf(m);
+            if (idx >= 0)
+                if (OpenSWMMVisLayer *taken =
+                        canvas()->takeLayer(idx, /*pushUndo=*/false))
+                    taken->deleteLater();
+        }
+
+        // Mesh coordinates are in the model CRS; the layer reprojects to
+        // canvas CRS. SRS assignment stays on the GUI thread — a QObject
+        // child cannot be created cross-thread.
+        if (mModelLayer->srs())
+            meshLayer->setSRS(
+                new SpatialReferenceSystem(*mModelLayer->srs(), meshLayer),
+                /*ownsSRS=*/true);
+        canvas()->addLayer(meshLayer, /*pushUndo=*/true);
+        attachMeshLayer(meshLayer);
+        meshLayer->finishSceneGeometryAsync();
+
+        // Mirror the linkage into the engine's in-memory model, or the next
+        // save re-serialises the .inp with mesh_file empty and the model
+        // silently reverts to 1D (same trap the generation dialog documents).
+        if (mModelLayer->engine()) {
+            const QString modelPath = mModelLayer->modelFilePath();
+            const QString ref =
+                (!modelPath.isEmpty()
+                 && QFileInfo(meshPath).absolutePath()
+                        == QFileInfo(modelPath).absolutePath())
+                    ? QFileInfo(meshPath).fileName()
+                    : canonical;
+            swmm_options_set_ext(mModelLayer->engine(), "MESH_FILE",
+                                 ref.toUtf8().constData());
+        }
+
+        setHasChanges(true);
+
+        QString msg = tr("Imported 2D mesh %1: %2 vertices, %3 triangles.")
+                          .arg(QFileInfo(meshPath).fileName())
+                          .arg(out.nVerts).arg(out.nTris);
+        if (copied)
+            msg += tr(" Copied into the project folder.");
+        if (!out.warning.isEmpty())
+            msg += QStringLiteral(" ") + out.warning;
+        emit meshImportFinished(true, msg, meshPath);
+    });
+
+    watcher->setFuture(QtConcurrent::run([meshPath]() -> ImportOutcome {
+        ImportOutcome out;
+        // An OpenSWMM .2dm is section-formatted exactly like the inline mesh
+        // block of an .inp, so the same reader parses it directly.
+        mesh::InpMeshReadResult read = mesh::InpMeshReader::read(meshPath);
+        if (!read.hasMesh) {
+            out.errorMsg = read.errorMsg.isEmpty()
+                ? QCoreApplication::translate("SWMMVisProjectWindow",
+                      "%1 does not contain an OpenSWMM 2D mesh — no "
+                      "[2D_VERTICES] / [2D_TRIANGLES] sections were found.")
+                      .arg(QFileInfo(meshPath).fileName())
+                : read.errorMsg;
+            return out;
+        }
+        out.warning = read.warning;
+
+        const QVector<mesh::MeshEdgeBC> edgeBCs = read.edgeBCs;
+        auto *layer = new SWMM2DMeshLayer(std::move(read.mesh), meshPath,
+                                          /*parent=*/nullptr,
+                                          /*deferHeavyGeometry=*/true);
+        layer->setExternalMesh(true);
+        layer->setActiveMesh(true);
+        layer->setName(QFileInfo(meshPath).fileName());
+        // Deferred build ⇒ the BC slots don't exist yet; size against the
+        // triangle count directly, as the file-open path does.
+        if (edgeBCs.size() == layer->triangleCount() * 3)
+            layer->edgeBCsMutable() = edgeBCs;
+        out.nVerts = layer->vertexCount();
+        out.nTris  = layer->triangleCount();
+        // Only the owning (worker) thread may push the object across.
+        layer->moveToThread(qApp->thread());
+        out.layer = layer;
+        return out;
+    }));
 }
 
 void SWMMVisProjectWindow::setEditSessionActive(bool active)

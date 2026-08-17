@@ -584,6 +584,8 @@
      <addaction name="actionAddWMSData"/>
      <addaction name="actionAddBasemap"/>
      <addaction name="actionAddDelimeteredData"/>
+     <addaction name="separator"/>
+     <addaction name="actionAddMesh2D"/>
     </widget>
     <addaction name="actionNew"/>
     <addaction name="actionOpen"/>
@@ -1792,6 +1794,21 @@
    </property>
    <property name="toolTip">
     <string>Add Delimitered Data</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionAddMesh2D">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/AddMesh</normaloff>:/swmmvis/AddMesh</iconset>
+   </property>
+   <property name="text">
+    <string>Add 2D Mesh…</string>
+   </property>
+   <property name="toolTip">
+    <string>Browse for an existing OpenSWMM 2D mesh (.2dm) and load it into this project</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>

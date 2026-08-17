@@ -279,6 +279,7 @@ private slots:
     void onSpatialDetectCRS();
     void onMeshSetActive();   ///< Retarget [2D_MESH_FILE] at the selected .2dm.
     void onMeshRemove();      ///< Delete the selected .2dm from disk.
+    void onMeshImport();      ///< Browse for a .2dm anywhere and load it here.
     void browseForReportFile();
     void browseForOutputFile();
     void on2DModuleToggled(bool enabled);
