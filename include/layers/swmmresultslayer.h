@@ -264,6 +264,42 @@ public:
     [[nodiscard]] double nodeStatVolFlooded(const QString &nodeName) const;
     [[nodiscard]] double nodeStatTimeFlooded(const QString &nodeName) const;
 
+    // ----- Per-output link / subcatchment summary statistics -------------
+    //
+    // Peers of the four node accessors above, for the dynamics columns the
+    // Attribute Table shows for links and subcatchments. Unlike the node
+    // stats there is no `swmm_output_get_*_stat_*` engine API for these, so
+    // they are aggregated HERE by walking the .out file's per-period series
+    // once per object and caching the result (see m_linkStats /
+    // m_subcatchStats, cleared by closeResults()).
+    //
+    // PRECISION CAVEAT — identical in kind to the QA-01 node aggregators:
+    // the walk sees REPORT steps, not routing steps. Maxima are therefore
+    // the largest REPORTED value (a peak between two report times is
+    // missed), and the volume / duration integrals use the report step as
+    // dt. Expect small disagreement with the .rpt summary tables when
+    // REPORT_STEP is much coarser than ROUTING_STEP; they converge as the
+    // two approach each other.
+    //
+    // Units match the editing-engine getters they stand in for: flow and
+    // velocity in project flow / velocity units, filling dimensionless,
+    // volumes in project volume units, durations in hours. Volume is the
+    // one that needs work — the .out file stores a RATE in the file's own
+    // flow units, so the integral goes through Qcf/Ucf (see the .cpp).
+    //
+    // The pump-only statistics (cycles / on-time / volume pumped) have no
+    // counterpart in the .out file at all — it carries no pump state — so
+    // they are deliberately absent and keep reading the editing engine.
+    [[nodiscard]] double linkStatMaxFlow(const QString &linkName) const;
+    [[nodiscard]] double linkStatMaxVelocity(const QString &linkName) const;
+    [[nodiscard]] double linkStatMaxFilling(const QString &linkName) const;
+    [[nodiscard]] double linkStatVolFlow(const QString &linkName) const;
+    [[nodiscard]] double linkStatSurchargeTime(const QString &linkName) const;
+
+    [[nodiscard]] double subcatchStatPrecip(const QString &subName) const;
+    [[nodiscard]] double subcatchStatRunoffVol(const QString &subName) const;
+    [[nodiscard]] double subcatchStatMaxRunoff(const QString &subName) const;
+
     // ----- Animation ------------------------------------------------------
 
     [[nodiscard]] int       currentTimeStep()  const;
@@ -783,6 +819,28 @@ private:
     QHash<QString, int>  m_nodeOutputIdx;
     QHash<QString, int>  m_linkOutputIdx;
     QHash<QString, int>  m_subcatchOutputIdx;
+
+    // Aggregated per-object summary statistics, keyed by OUTPUT index and
+    // filled lazily by linkStatsFor() / subcatchStatsFor(). Each miss costs
+    // one series read per contributing variable over the whole run, so the
+    // cache is what keeps an Attribute Table scroll from re-walking the
+    // .out file for every painted cell. Mutable so the const accessors can
+    // populate it; cleared by closeResults().
+    struct LinkStats {
+        double maxFlow = 0.0, maxVelocity = 0.0, maxFilling = 0.0;
+        double volFlow = 0.0, surchargeTimeHr = 0.0;
+    };
+    struct SubcatchStats {
+        double precipVol = 0.0, runoffVol = 0.0, maxRunoff = 0.0;
+    };
+    mutable QHash<int, LinkStats>     m_linkStats;
+    mutable QHash<int, SubcatchStats> m_subcatchStats;
+
+    /*! Aggregate (and cache) the summary statistics for one output-side
+     *  link / subcatchment index. Returns a zeroed struct when the file is
+     *  closed or the index is out of range. */
+    [[nodiscard]] LinkStats     linkStatsFor(int outIdx) const;
+    [[nodiscard]] SubcatchStats subcatchStatsFor(int outIdx) const;
 
     // GDAL coordinate transform -------------------------------------------
     class OGRCoordinateTransformation *m_transform = nullptr;

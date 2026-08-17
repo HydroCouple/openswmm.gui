@@ -757,6 +757,11 @@ void AttributeTablePanel::setProject(SWMMModelLayer *layer,
     refresh();
 }
 
+void AttributeTablePanel::setResultsSource(SWMMResultsLayer *layer)
+{
+    if (m_model) m_model->setResultsSource(layer);
+}
+
 void AttributeTablePanel::refresh()
 {
     qCDebug(lcAttrTbl) << "refresh() layer=" << m_layer
