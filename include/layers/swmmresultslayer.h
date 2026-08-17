@@ -287,14 +287,34 @@ public:
     // one that needs work — the .out file stores a RATE in the file's own
     // flow units, so the integral goes through Qcf/Ucf (see the .cpp).
     //
-    // The pump-only statistics (cycles / on-time / volume pumped) have no
-    // counterpart in the .out file at all — it carries no pump state — so
-    // they are deliberately absent and keep reading the editing engine.
+    // The three pump statistics reconstruct too, from a combination that is
+    // not obvious: the engine's on/off test is `setting > 0 && flow > 0`, and
+    // the .out file carries BOTH — flow directly, and `setting` as the
+    // CAPACITY variable, which for every non-conduit link is the pump speed /
+    // regulator opening rather than a fill ratio (legacy link.c). See the
+    // extra accuracy note on linkStatPumpCycles.
     [[nodiscard]] double linkStatMaxFlow(const QString &linkName) const;
     [[nodiscard]] double linkStatMaxVelocity(const QString &linkName) const;
     [[nodiscard]] double linkStatMaxFilling(const QString &linkName) const;
     [[nodiscard]] double linkStatVolFlow(const QString &linkName) const;
     [[nodiscard]] double linkStatSurchargeTime(const QString &linkName) const;
+
+    /*! Pump start-up count.
+     *
+     *  ACCURACY: this is the statistic the report-step caveat hurts most, and
+     *  it is a LOWER BOUND rather than an approximation with a small error
+     *  bar. A pump that switches off and back on entirely between two report
+     *  times leaves no trace in the .out file, so that cycle is invisible.
+     *  Validated at REPORT_STEP 60 s / ROUTING_STEP 0.5 s: four of five pumps
+     *  counted exactly, the fifth read 2 against the report's 3. On-time and
+     *  volume pumped degrade gracefully over the same run (within 0.3 % and
+     *  0.04 %) because a brief outage barely moves an integral. */
+    [[nodiscard]] double linkStatPumpCycles(const QString &linkName) const;
+    /*! Pump on-time in HOURS — the Attribute Table column's unit. Note the
+     *  editing-engine getter it stands in for reports SECONDS; the model's
+     *  engine path wraps that in a conversion, and this path bypasses it. */
+    [[nodiscard]] double linkStatPumpOnTime(const QString &linkName) const;
+    [[nodiscard]] double linkStatPumpVolume(const QString &linkName) const;
 
     [[nodiscard]] double subcatchStatPrecip(const QString &subName) const;
     [[nodiscard]] double subcatchStatRunoffVol(const QString &subName) const;
@@ -829,6 +849,8 @@ private:
     struct LinkStats {
         double maxFlow = 0.0, maxVelocity = 0.0, maxFilling = 0.0;
         double volFlow = 0.0, surchargeTimeHr = 0.0;
+        // Pumps only; left at zero for every other link type.
+        double pumpCycles = 0.0, pumpOnTimeHr = 0.0, pumpVolume = 0.0;
     };
     struct SubcatchStats {
         double precipVol = 0.0, runoffVol = 0.0, maxRunoff = 0.0;
