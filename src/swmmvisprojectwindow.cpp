@@ -1063,25 +1063,43 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         && QFileInfo(newPath).suffix().compare(QStringLiteral("inp"),
                                                Qt::CaseInsensitive) == 0)
     {
-        for (OpenSWMMVisLayer *l : canvas()->layers())
-        {
-            auto *ml = qobject_cast<SWMM2DMeshLayer *>(l);
-            if (!ml) continue;
+        // Which mesh gets written into [2D_MESH_FILE] is the user's explicit
+        // choice — the ACTIVE mesh (Simulation Options -> Set Active Mesh, and
+        // the flag the editing tools and renderers already treat as the single
+        // source of truth). Taking whichever external layer happened to sit
+        // first in canvas order silently retargeted the .inp at a different
+        // mesh whenever a project carried more than one, so the model reopened
+        // on the wrong mesh — or on none, if that layer's file had gone.
+        // Fall back to the first usable external layer when nothing is marked
+        // active, which is the single-mesh case this used to handle.
+        auto usableExternal = [](SWMM2DMeshLayer *ml) {
+            if (!ml || !ml->isExternalMesh()) return false;
             // Inline meshes have no external file to protect — their
             // sourcePath() is the .inp itself, so snapshotting and re-pointing
             // it would overwrite the model the engine just wrote and strip the
             // inline [2D_*] sections. The engine already serialises them.
-            if (!ml->isExternalMesh()) continue;
             const QString p = ml->sourcePath();
-            if (p.isEmpty() || !QFileInfo::exists(p)) continue;
-            QFile mf(p);
+            return !p.isEmpty() && QFileInfo::exists(p);
+        };
+        SWMM2DMeshLayer *chosen  = nullptr;
+        SWMM2DMeshLayer *fallback = nullptr;
+        for (OpenSWMMVisLayer *l : canvas()->layers())
+        {
+            auto *ml = qobject_cast<SWMM2DMeshLayer *>(l);
+            if (!usableExternal(ml)) continue;
+            if (!fallback) fallback = ml;
+            if (ml->isActiveMesh()) { chosen = ml; break; }
+        }
+        if (!chosen) chosen = fallback;
+        if (chosen)
+        {
+            QFile mf(chosen->sourcePath());
             if (mf.open(QIODevice::ReadOnly))
             {
                 extMeshSnapshot = mf.readAll();
-                extMeshPath     = p;
-                extMeshLayer    = ml;
+                extMeshPath     = chosen->sourcePath();
+                extMeshLayer    = chosen;
             }
-            break;
         }
     }
 
