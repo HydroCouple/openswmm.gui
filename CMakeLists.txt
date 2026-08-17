@@ -549,6 +549,10 @@ set(
         include/ui/sectionview/lidlayerdiagram.h
         include/ui/sectionview/xsecticonrenderer.h
 
+        # ── UI utilities ─────────────────────────────────────────────────────
+        include/ui/util/externalcolumnfile.h
+        include/ui/util/externalcolumnfilecore.h
+
         # ── UI panels ────────────────────────────────────────────────────────
         include/ui/panels/attributedelegates.h
         include/ui/panels/propertiespanel.h
@@ -1164,6 +1168,9 @@ set(
         src/simulation/runpathresolver.cpp
         src/simulation/simulationrunner.cpp
         src/simulation/simulationstatusmodel.cpp
+
+        # UI utilities
+        src/ui/util/externalcolumnfile.cpp
 
         # UI panels
         src/ui/panels/attributedelegates.cpp

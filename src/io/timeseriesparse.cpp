@@ -38,6 +38,18 @@ bool tryParseTimestamp(const QString& s, double& jOut, double fallbackBase)
         QStringLiteral("MM/dd/yyyy HH:mm"),
         QStringLiteral("MM/dd/yyyy"),
         QStringLiteral("dd/MM/yyyy HH:mm"),
+        // Multi-column series files (spec §3.1): 12-hour US datetimes with a
+        // trailing AM/PM token (the PCSWMM .tsf form) plus their 24-hour
+        // single-digit month/day siblings — the engine's sscanf-based parser
+        // accepts all of these, so the GUI must too. Single-letter fields
+        // match 1-or-2-digit components; both AP and ap are listed because
+        // older Qt matched the meridiem case-sensitively.
+        QStringLiteral("M/d/yyyy h:mm:ss AP"),
+        QStringLiteral("M/d/yyyy h:mm AP"),
+        QStringLiteral("M/d/yyyy h:mm:ss ap"),
+        QStringLiteral("M/d/yyyy h:mm ap"),
+        QStringLiteral("M/d/yyyy h:mm:ss"),
+        QStringLiteral("M/d/yyyy h:mm"),
     };
 
     const QString trimmed = s.trimmed();

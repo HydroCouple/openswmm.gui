@@ -34,6 +34,7 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSignalSpy>
+#include <QSortFilterProxyModel>
 #include <QTableView>
 #include <QTemporaryDir>
 #include <QTest>
@@ -601,6 +602,88 @@ private slots:
         QCOMPARE(combo->itemText(0), QStringLiteral("rain_a"));
     }
 
+    void linkExternalFile_UnmatchedColumnLoadsNothingAndShowsIt()
+    {
+        // Review B-3: a stored column that is not in the file is a hard error
+        // in the engine, so the GUI must not preview column 1 instead. Expect
+        // no points and a combo item that names the missing column, so display
+        // and provider state still agree.
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString path = tmp.filePath(QStringLiteral("renamed.csv"));
+        {
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+            QTextStream out(&f);
+            out << "time,rain_a,rain_b\n"
+                << "2026-01-01T00:00:00,1.0,10.0\n"
+                << "2026-01-01T06:00:00,2.0,20.0\n";
+        }
+
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_GONE"));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+
+        // Bind a real column first, then re-bind the column a re-exported file
+        // no longer has (the "headers changed under a saved model" case).
+        QCOMPARE(dlg.linkExternalFile(path, QStringLiteral("rain_b")), 2);
+        QCOMPARE(p.pointCount(), 2);
+
+        QCOMPARE(dlg.linkExternalFile(path, QStringLiteral("rain_old")), 0);
+        QCOMPARE(p.pointCount(), 0);                     // no bogus preview
+        QCOMPARE(p.columnSelector(), QStringLiteral("rain_old"));  // not rewritten
+
+        auto *combo = dlg.findChild<QComboBox *>();
+        QVERIFY(combo != nullptr);
+        QCOMPARE(combo->count(), 3);                     // 2 real + the missing one
+        QCOMPARE(combo->currentData().toString(), QStringLiteral("rain_old"));
+        QVERIFY(combo->currentText().contains(QStringLiteral("rain_old")));
+    }
+
+    void linkExternalFile_HeaderlessKeepsEmptySelectorAndRefusesOtherColumns()
+    {
+        // Review B-4 / risk R1 + the row off-by-one. The engine always spends
+        // the first content line on the header row, so a headerless 3-line
+        // file yields 2 points here too; and a fabricated "col_N" name is
+        // never stored (it cannot be resolved by the engine).
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString path = tmp.filePath(QStringLiteral("noheader.csv"));
+        {
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+            QTextStream out(&f);
+            out << "2026-01-01T00:00:00,1.0,10.0\n"
+                << "2026-01-01T06:00:00,2.0,20.0\n"
+                << "2026-01-01T12:00:00,3.0,30.0\n";
+        }
+
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_NOHDR"));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+
+        QCOMPARE(dlg.linkExternalFile(path), 2);   // line 1 spent as header
+        QCOMPARE(p.pointAt(0).value, 2.0);
+        QVERIFY(p.columnSelector().isEmpty());
+
+        auto *combo = dlg.findChild<QComboBox *>();
+        QVERIFY(combo != nullptr);
+        QCOMPARE(combo->count(), 2);
+        QCOMPARE(combo->itemText(1), QStringLiteral("col_2"));
+        // Every fabricated item carries an EMPTY selector, so nothing
+        // unresolvable can be persisted…
+        QVERIFY(combo->itemData(1).toString().isEmpty());
+        // …and picking a non-first column is refused outright: the binding and
+        // the loaded points stay on the first data column.
+        combo->setCurrentIndex(1);
+        QVERIFY(p.columnSelector().isEmpty());
+        QCOMPARE(p.pointCount(), 2);
+        QCOMPARE(p.pointAt(0).value, 2.0);
+        QCOMPARE(combo->currentIndex(), 0);
+    }
+
     void linkExternalFile_MultiColumnSelector()
     {
         QTemporaryDir tmp;
@@ -625,6 +708,97 @@ private slots:
         QCOMPARE(n, 2);
         QCOMPARE(p.pointAt(0).value, 10.0);
         QCOMPARE(p.pointAt(1).value, 20.0);
+    }
+
+    void linkExternalFile_TsfIdsHeaderAndAmPm()
+    {
+        // PCSWMM .tsf (spec §4 task 2): IDs-row column names, 3-row header,
+        // 12-hour AM/PM datetimes. Committed fixture — reviewable per
+        // CLAUDE.md §4.1.
+        const QString path =
+            qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."))
+            + QStringLiteral("/extcol_dialog_sample.tsf");
+
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("TSF_A"));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &p);
+
+        QCOMPARE(dlg.linkExternalFile(path, QStringLiteral("RG2")), 3);
+        QCOMPARE(p.pointAt(0).value, 0.05);
+        QCOMPARE(p.pointAt(2).value, 0.25);
+        // 12:00:00 AM → midnight; 1:30:00 PM → 13:30.
+        QCOMPARE(p.pointAt(0).time, t(2007, 1, 1, 0));
+        QCOMPARE(p.pointAt(2).time, QDateTime(QDate(2007, 1, 1),
+                                              QTime(13, 30), Qt::UTC));
+
+        auto *combo = dlg.findChild<QComboBox *>();
+        QVERIFY(combo != nullptr);
+        QCOMPARE(combo->count(), 2);
+        QCOMPARE(combo->itemText(0), QStringLiteral("RG1"));
+        QCOMPARE(combo->itemText(1), QStringLiteral("RG2"));
+        QCOMPARE(combo->currentIndex(), 1);
+    }
+
+    void seriesSwitch_RepopulatesColumnCombo()
+    {
+        // B3 regression (spec §1.4): switching series must repopulate the
+        // column combo from the incoming provider's file and re-select its
+        // columnSelector — it used to keep the previous series' items.
+        const QString path =
+            qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."))
+            + QStringLiteral("/extcol_switch_multi.csv");
+
+        TimeseriesRegistry reg;
+        TimeseriesProvider &a = *reg.create(QStringLiteral("TS_FILE"));
+        TimeseriesProvider &b = *reg.create(QStringLiteral("TS_INLINE"));
+        QVERIFY(b.setAllPoints(fixture()));
+        QUndoStack stack;
+        TimeseriesEditorDialog dlg(&reg, &stack, &a);
+        dlg.show();
+        QTest::qWait(50);
+
+        QCOMPARE(dlg.linkExternalFile(path, QStringLiteral("rain_b")), 2);
+        QCOMPARE(a.columnSelector(), QStringLiteral("rain_b"));
+
+        // Drive rebindActiveProvider_ through the list pane like a user click:
+        // away to the inline series, then back to the file-backed one.
+        // The series list is the only view driven by a QSortFilterProxyModel;
+        // a plain findChild<QListView*> would hit the column combo's popup
+        // view first (the source-mode card is built before the splitter).
+        QListView *list = nullptr;
+        for (auto *v : dlg.findChildren<QListView *>()) {
+            if (qobject_cast<QSortFilterProxyModel *>(v->model())) {
+                list = v;
+                break;
+            }
+        }
+        QVERIFY(list != nullptr);
+        auto selectByName = [&](const QString &name) {
+            QAbstractItemModel *m = list->model();
+            for (int r = 0; r < m->rowCount(); ++r) {
+                const QModelIndex idx = m->index(r, 0);
+                if (m->data(idx, Qt::DisplayRole).toString() == name) {
+                    list->setCurrentIndex(idx);
+                    return true;
+                }
+            }
+            return false;
+        };
+        QVERIFY(selectByName(QStringLiteral("TS_INLINE")));
+        QTest::qWait(20);
+        QVERIFY(selectByName(QStringLiteral("TS_FILE")));
+        QTest::qWait(20);
+
+        auto *combo = dlg.findChild<QComboBox *>();
+        QVERIFY(combo != nullptr);
+        QCOMPARE(combo->count(), 2);
+        QCOMPARE(combo->itemText(0), QStringLiteral("rain_a"));
+        QCOMPARE(combo->itemText(1), QStringLiteral("rain_b"));
+        // Shown item and provider state agree (items carry the real header
+        // name as userData).
+        QCOMPARE(combo->currentIndex(), 1);
+        QCOMPARE(combo->currentData().toString(), a.columnSelector());
     }
 
     void detachToInline_PreservesPointsAndFlipsMode()
