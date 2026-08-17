@@ -276,6 +276,30 @@ MapCanvas::~MapCanvas()
 {
     cancelRenderJob();
 
+    // Hand every layer its scene item back before m_scene (our child) is
+    // destroyed and deletes those items itself.
+    //
+    // Layers are NOT owned by the canvas — nothing in the app deletes them, so
+    // they routinely outlive the canvas they were added to. Their QGraphicsItem
+    // pointers, however, are only valid while this scene lives. Skipping this
+    // leaves every layer holding a freed item, and the next thing to touch it
+    // writes through it: a repaint, an edit, a queued
+    // setQsgOwnsRendering(false), or a 2D mesh's deferred scene-geometry build
+    // completing after the project window closed (the last one is a hard crash
+    // in QGraphicsItem::prepareGeometryChange, reproducible by tearing a window
+    // down mid-load). depopulateScene() is exactly what takeLayer() calls, and
+    // it nulls the layer's cached item.
+    //
+    // Signals are blocked first: depopulateScene() invalidates the scene, and
+    // the QGraphicsScene::changed handler calls update() on this half-destroyed
+    // widget. Nothing needs those notifications while the canvas is dying.
+    if (m_scene) {
+        m_scene->blockSignals(true);
+        for (OpenSWMMVisLayer *layer : std::as_const(m_layers))
+            if (layer && !layer->isRasterLayer())
+                layer->depopulateScene(m_scene);
+    }
+
     // The offscreen QSG widget is a top-level (parent = nullptr) so
     // QObject parent-child cleanup doesn't free it. Delete explicitly.
     if (m_qsgWidget)
