@@ -83,7 +83,16 @@ SwmmElementSymbolEditor::SwmmElementSymbolEditor(SwmmElementSymbolAdapter *adapt
     m_arrowSizeSpin->setDecimals(1);
     m_arrowSizeSpin->setSingleStep(0.5);
     m_arrowSizeSpin->setSuffix(tr(" px"));
-    arrowForm->addRow(tr("Siz&e:"), m_arrowSizeSpin);
+    arrowForm->addRow(tr("&Length:"), m_arrowSizeSpin);
+
+    m_arrowWidSpin = new QDoubleSpinBox(this);
+    m_arrowWidSpin->setRange(2.0, 60.0);
+    m_arrowWidSpin->setDecimals(1);
+    m_arrowWidSpin->setSingleStep(0.5);
+    m_arrowWidSpin->setSuffix(tr(" px"));
+    m_arrowWidSpin->setToolTip(tr("Arrowhead width across the link — "
+                                  "independent of its length."));
+    arrowForm->addRow(tr("&Width:"), m_arrowWidSpin);
 
     m_arrowColorBtn = new ColorButton(this);
     arrowForm->addRow(tr("Colou&r:"), m_arrowColorBtn);
@@ -122,6 +131,8 @@ SwmmElementSymbolEditor::SwmmElementSymbolEditor(SwmmElementSymbolAdapter *adapt
             this, [this](bool v) { m_adapter->setShowArrows(v); });
     connect(m_arrowSizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
             this, [this](double v) { m_adapter->setArrowSize(v); });
+    connect(m_arrowWidSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double v) { m_adapter->setArrowWidth(v); });
     connect(m_arrowColorBtn, &ColorButton::colorChanged,
             this, [this](const QColor &c) { m_adapter->setArrowColor(c); });
     connect(m_arrowsFlowPosBox, &QCheckBox::toggled,
@@ -140,7 +151,8 @@ void SwmmElementSymbolEditor::refreshFromModel()
     QSignalBlocker b1(m_fillBtn), b2(m_outlineBtn), b3(m_outlineWSpin),
                    b4(m_sizeSpin), b5(m_showLabelBox), b6(m_labelFontCombo),
                    b7(m_labelColorBtn), b8(m_showArrowsBox), b9(m_arrowSizeSpin),
-                   b10(m_arrowColorBtn), b11(m_arrowsFlowPosBox);
+                   b10(m_arrowColorBtn), b11(m_arrowsFlowPosBox),
+                   b12(m_arrowWidSpin);
 
     m_fillBtn->setColor(m_adapter->fillColor());
     m_outlineBtn->setColor(m_adapter->outlineColor());
@@ -153,6 +165,7 @@ void SwmmElementSymbolEditor::refreshFromModel()
 
     m_showArrowsBox->setChecked(m_adapter->showArrows());
     m_arrowSizeSpin->setValue(m_adapter->arrowSize());
+    m_arrowWidSpin->setValue(m_adapter->arrowWidth());
     m_arrowColorBtn->setColor(m_adapter->arrowColor());
     m_arrowsFlowPosBox->setChecked(m_adapter->arrowOnlyWhenFlowPos());
 

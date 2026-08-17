@@ -251,6 +251,7 @@ class LineSymbolStyleAdapter : public QObject
     Q_PROPERTY(QColor       labelColor   READ labelColor   WRITE setLabelColor   NOTIFY changed)
     Q_PROPERTY(bool         showArrows   READ showArrows   WRITE setShowArrows   NOTIFY changed)
     Q_PROPERTY(qreal        arrowSize    READ arrowSize    WRITE setArrowSize    NOTIFY changed)
+    Q_PROPERTY(qreal        arrowWidth   READ arrowWidth   WRITE setArrowWidth   NOTIFY changed)
     Q_PROPERTY(QColor       arrowColor   READ arrowColor   WRITE setArrowColor   NOTIFY changed)
     Q_PROPERTY(bool         arrowOnlyWhenFlowPos READ arrowOnlyWhenFlowPos
                WRITE setArrowOnlyWhenFlowPos NOTIFY changed)
@@ -265,6 +266,7 @@ class LineSymbolStyleAdapter : public QObject
     Q_CLASSINFO("group:labelColor",           "Labels")
     Q_CLASSINFO("group:showArrows",           "Flow arrows")
     Q_CLASSINFO("group:arrowSize",            "Flow arrows")
+    Q_CLASSINFO("group:arrowWidth",           "Flow arrows")
     Q_CLASSINFO("group:arrowColor",           "Flow arrows")
     Q_CLASSINFO("group:arrowOnlyWhenFlowPos", "Flow arrows")
 
@@ -282,6 +284,7 @@ public:
     [[nodiscard]] QColor       labelColor()           const;
     [[nodiscard]] bool         showArrows()           const;
     [[nodiscard]] qreal        arrowSize()            const;
+    [[nodiscard]] qreal        arrowWidth()           const;
     [[nodiscard]] QColor       arrowColor()           const;
     [[nodiscard]] bool         arrowOnlyWhenFlowPos() const;
 
@@ -295,6 +298,7 @@ public:
     void setLabelColor(const QColor &c);
     void setShowArrows(bool v);
     void setArrowSize(qreal v);
+    void setArrowWidth(qreal v);
     void setArrowColor(const QColor &c);
     void setArrowOnlyWhenFlowPos(bool v);
 

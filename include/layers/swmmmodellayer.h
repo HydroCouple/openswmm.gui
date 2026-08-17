@@ -90,8 +90,19 @@ struct SWMMElementSymbol
     // Ignored for point / polygon kinds. The arrow points from the
     // link's upstream node to its downstream node — i.e. follows the
     // polyline tangent at the midpoint of the visible polyline.
-    bool    showArrows           = false;          /*!< Toggle off by default. */
-    double  arrowSize            = 10.0;           /*!< Arrowhead length in pixels. */
+    /*! Off in the shared default because this struct also backs node and
+     *  polygon kinds, whose editors would otherwise show a ticked "Show
+     *  flow arrows". The five LINK kinds are seeded on in the
+     *  SWMMModelLayer constructor. */
+    bool    showArrows           = false;
+    double  arrowSize            = 16.0;           /*!< Arrowhead length in pixels (along the link). */
+    /*! Arrowhead width in pixels, ACROSS the link — independent of the
+     *  length so an arrow can be made stubby or needle-thin. The default
+     *  is deliberately narrower than the length so the head reads as a
+     *  direction marker rather than a blob. Projects saved before the width
+     *  became independent carry no arrowWidthPx key and so adopt this
+     *  default (they previously drew at 1.2 x length). */
+    double  arrowWidth           = 8.0;
     QColor  arrowColor           = QColor(34, 34, 34);  /*!< Near-black. */
     // Slice FX.1 — was `true` by default, but that gates arrows on a
     // bound `.out` (every link has flow=0 pre-simulation). Users who
@@ -831,6 +842,9 @@ public:
     // repaintRequested when the underlying field actually changes.
     [[nodiscard]] double linkArrowSize(Category c) const;
     void setLinkArrowSize(Category c, double pixels);
+    /*! Arrowhead width ACROSS the link, independent of its length. */
+    [[nodiscard]] double linkArrowWidth(Category c) const;
+    void setLinkArrowWidth(Category c, double pixels);
     [[nodiscard]] QColor linkArrowColor(Category c) const;
     void setLinkArrowColor(Category c, const QColor &col);
     [[nodiscard]] bool   linkArrowOnlyWhenFlowPos(Category c) const;
