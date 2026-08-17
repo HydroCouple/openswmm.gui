@@ -13,6 +13,8 @@
  *   - ISO 8601:           yyyy-MM-ddTHH:mm:ss, yyyy-MM-dd HH:mm[:ss], yyyy-MM-dd
  *   - SWMM .dat / US:     MM/dd/yyyy [HH:mm[:ss]]
  *   - European:           dd/MM/yyyy HH:mm
+ *   - 12-hour US AM/PM:   M/d/yyyy h:mm[:ss] AM|PM (PCSWMM .tsf; single-digit
+ *                         month/day/hour accepted, 24-hour siblings included)
  *   - Hours-since-start:  numeric fallback (only when fallbackBase is finite)
  *
  * Auto-detected delimiters: tab, comma, semicolon (highest-count wins; defaults

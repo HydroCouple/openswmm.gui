@@ -199,9 +199,132 @@ private slots:
         QVERIFY(p->setAllPoints({{t(2026, 1, 1, 0), 1.0}}));
         p->setSourceMode(TimeseriesProvider::SourceMode::ExternalFile);
 
-        // External-mode provider is not written by saveToEngine.
+        // A PATHLESS External-mode provider is not written by saveToEngine
+        // (B4 persists only file-backed providers that carry a path).
         QCOMPARE(reg.saveToEngine(eng), 0);
         QCOMPARE(swmm_table_index(eng, "EXT"), -1);
+
+        swmm_engine_destroy(eng);
+    }
+
+    // ── B4 (spec §4 task 3) — file-backed provider ↔ engine FILE series ────
+
+    void saveToEngine_WritesFileBackedProviderAsPathColToken()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng != nullptr);
+
+        TimeseriesRegistry reg;
+        auto *p = reg.create(QStringLiteral("EXT_FILE"));
+        QVERIFY(p != nullptr);
+        p->setFileSource(QStringLiteral("data/rain_multi.csv"),
+                         QStringLiteral("RG_2"), QDateTime());
+        p->setSourceMode(TimeseriesProvider::SourceMode::ExternalFile);
+
+        QCOMPARE(reg.saveToEngine(eng), 1);
+
+        // Engine series exists and its TIMESERIES_DATA slot carries the
+        // composed "path:col" token (the GUI owns the colon convention).
+        QVERIFY(swmm_table_index(eng, "EXT_FILE") >= 0);
+        char abs[1024]  = {};
+        char orig[1024] = {};
+        QCOMPARE(swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA, "EXT_FILE",
+                                    abs, int(sizeof(abs)),
+                                    orig, int(sizeof(orig))), SWMM_OK);
+        QCOMPARE(QString::fromUtf8(orig),
+                 QStringLiteral("data/rain_multi.csv:RG_2"));
+
+        swmm_engine_destroy(eng);
+    }
+
+    void loadFromEngine_FileTokenBecomesFileBackedProvider()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng != nullptr);
+        QVERIFY(swmm_timeseries_add(eng, "FTS") == SWMM_OK);
+        QCOMPARE(swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA, "FTS",
+                                    "data/rain_multi.csv:RG_2"), SWMM_OK);
+
+        TimeseriesRegistry reg;
+        QCOMPARE(reg.loadFromEngine(eng), 1);
+        auto *p = reg.findByName(QStringLiteral("FTS"));
+        QVERIFY(p != nullptr);
+        QCOMPARE(p->sourceMode(), TimeseriesProvider::SourceMode::ExternalFile);
+        QCOMPARE(p->filePath(), QStringLiteral("data/rain_multi.csv"));
+        QCOMPARE(p->columnSelector(), QStringLiteral("RG_2"));
+
+        swmm_engine_destroy(eng);
+    }
+
+    void loadFromEngine_DriveLetterTokenSplitsAfterDrive()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng != nullptr);
+        QVERIFY(swmm_timeseries_add(eng, "WINTS") == SWMM_OK);
+        QCOMPARE(swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA, "WINTS",
+                                    "C:\\data\\rain.csv:RG_2"), SWMM_OK);
+
+        TimeseriesRegistry reg;
+        QCOMPARE(reg.loadFromEngine(eng), 1);
+        auto *p = reg.findByName(QStringLiteral("WINTS"));
+        QVERIFY(p != nullptr);
+        QCOMPARE(p->filePath(), QStringLiteral("C:\\data\\rain.csv"));
+        QCOMPARE(p->columnSelector(), QStringLiteral("RG_2"));
+
+        swmm_engine_destroy(eng);
+    }
+
+    void saveToEngine_UnchangedFileTokenStaysVerbatim()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng != nullptr);
+        QVERIFY(swmm_timeseries_add(eng, "REL") == SWMM_OK);
+        QCOMPARE(swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA, "REL",
+                                    "data/rain_multi.csv:RG_2"), SWMM_OK);
+
+        TimeseriesRegistry reg;
+        QCOMPARE(reg.loadFromEngine(eng), 1);
+        // Untouched load → save must keep the relative token verbatim.
+        QCOMPARE(reg.saveToEngine(eng), 1);
+        char abs[1024]  = {};
+        char orig[1024] = {};
+        QCOMPARE(swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA, "REL",
+                                    abs, int(sizeof(abs)),
+                                    orig, int(sizeof(orig))), SWMM_OK);
+        QCOMPARE(QString::fromUtf8(orig),
+                 QStringLiteral("data/rain_multi.csv:RG_2"));
+
+        swmm_engine_destroy(eng);
+    }
+
+    void saveToEngine_InlineClearsStaleFileToken()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng != nullptr);
+        QVERIFY(swmm_timeseries_add(eng, "DETACHED") == SWMM_OK);
+        QCOMPARE(swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA, "DETACHED",
+                                    "data/rain_multi.csv:RG_2"), SWMM_OK);
+
+        // GUI-side provider of the same name is Inline (e.g. after
+        // Detach → Inline in the editor): saving must clear the FILE token
+        // so the .inp writes the points, not the file reference.
+        TimeseriesRegistry reg;
+        auto *p = reg.create(QStringLiteral("DETACHED"));
+        QVERIFY(p != nullptr);
+        QVERIFY(p->setAllPoints({{t(2026, 1, 1, 0), 4.2}}));
+
+        QCOMPARE(reg.saveToEngine(eng), 1);
+        char abs[1024]  = {};
+        char orig[1024] = {};
+        QCOMPARE(swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA, "DETACHED",
+                                    abs, int(sizeof(abs)),
+                                    orig, int(sizeof(orig))), SWMM_OK);
+        QCOMPARE(QString::fromUtf8(orig), QString());
+
+        const int idx = swmm_table_index(eng, "DETACHED");
+        int n = 0;
+        QCOMPARE(swmm_table_get_point_count(eng, idx, &n), SWMM_OK);
+        QCOMPARE(n, 1);
 
         swmm_engine_destroy(eng);
     }

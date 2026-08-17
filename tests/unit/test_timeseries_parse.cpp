@@ -52,6 +52,47 @@ TEST(TimeseriesParse, TryParseTimestamp_RejectsGarbageWithoutFallback)
     EXPECT_FALSE(ts::tryParseTimestamp(QStringLiteral("not a date"), j, std::nan("")));
 }
 
+// Multi-column series files (spec §3.1) — 12-hour US datetimes with a
+// trailing AM/PM token (the PCSWMM .tsf form) and their single-digit
+// 24-hour siblings, all of which the engine's parser accepts.
+
+TEST(TimeseriesParse, TryParseTimestamp_AmPm_MorningAndAfternoon)
+{
+    const double am8 = openswmmvis::core::qDateTimeToSwmmDateTime(
+        QDateTime(QDate(2007, 1, 1), QTime(8, 15, 0), Qt::UTC));
+    const double pm8 = openswmmvis::core::qDateTimeToSwmmDateTime(
+        QDateTime(QDate(2007, 1, 1), QTime(20, 15, 0), Qt::UTC));
+
+    double j = std::nan("");
+    ASSERT_TRUE(ts::tryParseTimestamp(QStringLiteral("1/1/2007 8:15:00 AM"), j, std::nan("")));
+    EXPECT_DOUBLE_EQ(j, am8);
+    ASSERT_TRUE(ts::tryParseTimestamp(QStringLiteral("1/1/2007 8:15:00 PM"), j, std::nan("")));
+    EXPECT_DOUBLE_EQ(j, pm8);
+}
+
+TEST(TimeseriesParse, TryParseTimestamp_AmPm_TwelveOClockEdges)
+{
+    const double midnight = openswmmvis::core::qDateTimeToSwmmDateTime(
+        QDateTime(QDate(2007, 6, 30), QTime(0, 30, 0), Qt::UTC));
+    const double noon = openswmmvis::core::qDateTimeToSwmmDateTime(
+        QDateTime(QDate(2007, 6, 30), QTime(12, 30, 0), Qt::UTC));
+
+    double j = std::nan("");
+    ASSERT_TRUE(ts::tryParseTimestamp(QStringLiteral("6/30/2007 12:30:00 AM"), j, std::nan("")));
+    EXPECT_DOUBLE_EQ(j, midnight);   // 12:xx AM → 00:xx
+    ASSERT_TRUE(ts::tryParseTimestamp(QStringLiteral("6/30/2007 12:30:00 PM"), j, std::nan("")));
+    EXPECT_DOUBLE_EQ(j, noon);       // 12:xx PM → 12:xx
+}
+
+TEST(TimeseriesParse, TryParseTimestamp_SingleDigitUs24Hour)
+{
+    const double expect = openswmmvis::core::qDateTimeToSwmmDateTime(
+        QDateTime(QDate(2020, 1, 5), QTime(3, 4, 0), Qt::UTC));
+    double j = std::nan("");
+    ASSERT_TRUE(ts::tryParseTimestamp(QStringLiteral("1/5/2020 3:04"), j, std::nan("")));
+    EXPECT_DOUBLE_EQ(j, expect);
+}
+
 TEST(TimeseriesParse, ParseRow_TabDelimitedWithBlankCell)
 {
     double t = std::nan("");
