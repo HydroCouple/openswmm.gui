@@ -1222,7 +1222,17 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                                ? links[int(i)].linkType : 0;
                 const QColor fc = m_layer->featureColor(kLinkCat[lt], int(i));
                 const QColor lc = fc.isValid() ? fc : lstyle[lt].color;
-                const float  hw = lstyle[lt].hw;   // per-type line half-width
+                // Per-feature stroke width, falling back to the per-type pen.
+                // For LINE archetypes the renderer writes its width axis into
+                // the symbol's "width" prop, and rebuildKindFeatureColors
+                // stores that in the size channel (it reads "size" first, then
+                // "width"), so featureSize() is the width for link kinds.
+                // Without this, "Width by value" on a Graduated conduit theme
+                // was computed, cached and then silently dropped here — every
+                // link drew at its kind's fixed pen width.
+                const double wOv = m_layer->featureSize(kLinkCat[lt], int(i));
+                const float  hw  = (wOv > 0.0) ? float(wOv * invView)
+                                               : lstyle[lt].hw;
                 const qreal lkop = m_layer->categoryOpacity(kLinkCat[lt]);  // per-kind opacity
                 const uchar lA=uchar(lkop < 1.0 ? lc.alpha() * lkop : lc.alpha());
                 const uchar lR=premul(uchar(lc.red()), lA),
