@@ -40,6 +40,7 @@ class SwmmElementSymbolAdapter : public QObject
     Q_PROPERTY(QColor  labelColor   READ labelColor   WRITE setLabelColor   NOTIFY symbolChanged)
     Q_PROPERTY(bool    showArrows   READ showArrows   WRITE setShowArrows   NOTIFY symbolChanged)
     Q_PROPERTY(double  arrowSize    READ arrowSize    WRITE setArrowSize    NOTIFY symbolChanged)
+    Q_PROPERTY(double  arrowWidth   READ arrowWidth   WRITE setArrowWidth   NOTIFY symbolChanged)
     Q_PROPERTY(QColor  arrowColor   READ arrowColor   WRITE setArrowColor   NOTIFY symbolChanged)
     Q_PROPERTY(bool    arrowOnlyWhenFlowPos READ arrowOnlyWhenFlowPos
                WRITE setArrowOnlyWhenFlowPos NOTIFY symbolChanged)
@@ -54,6 +55,7 @@ class SwmmElementSymbolAdapter : public QObject
     Q_CLASSINFO("group:labelColor",           "Labels")
     Q_CLASSINFO("group:showArrows",           "Flow arrows")
     Q_CLASSINFO("group:arrowSize",            "Flow arrows")
+    Q_CLASSINFO("group:arrowWidth",           "Flow arrows")
     Q_CLASSINFO("group:arrowColor",           "Flow arrows")
     Q_CLASSINFO("group:arrowOnlyWhenFlowPos", "Flow arrows")
 
@@ -76,6 +78,7 @@ public:
     [[nodiscard]] QColor labelColor()   const { return m_sym.labelColor; }
     [[nodiscard]] bool   showArrows()           const { return m_sym.showArrows; }
     [[nodiscard]] double arrowSize()            const { return m_sym.arrowSize; }
+    [[nodiscard]] double arrowWidth()           const { return m_sym.arrowWidth; }
     [[nodiscard]] QColor arrowColor()           const { return m_sym.arrowColor; }
     [[nodiscard]] bool   arrowOnlyWhenFlowPos() const { return m_sym.arrowOnlyWhenFlowPos; }
 
@@ -90,6 +93,7 @@ public:
     void setLabelColor(const QColor &v)   { if (m_sym.labelColor == v) return; m_sym.labelColor = v; commit(); }
     void setShowArrows(bool v)            { if (m_sym.showArrows == v) return; m_sym.showArrows = v; commit(); }
     void setArrowSize(double v)           { if (qFuzzyCompare(m_sym.arrowSize, v)) return; m_sym.arrowSize = v; commit(); }
+    void setArrowWidth(double v)          { if (qFuzzyCompare(m_sym.arrowWidth, v)) return; m_sym.arrowWidth = v; commit(); }
     void setArrowColor(const QColor &v)   { if (m_sym.arrowColor == v) return; m_sym.arrowColor = v; commit(); }
     void setArrowOnlyWhenFlowPos(bool v)  { if (m_sym.arrowOnlyWhenFlowPos == v) return; m_sym.arrowOnlyWhenFlowPos = v; commit(); }
 

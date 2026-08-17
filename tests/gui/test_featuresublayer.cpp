@@ -96,7 +96,14 @@ void TestFeatureSublayer::lineStyleDefaultsAndJsonRoundtrip()
     QCOMPARE(ls->lineWidthPx(), 1.5);
     QCOMPARE(ls->dashPattern(), Qt::SolidLine);
     QCOMPARE(ls->renderAsLine(), true);
-    QCOMPARE(ls->showFlowArrows(), false);
+    // Flow arrows ship ON for line (i.e. link) sublayers, at 16 px along the
+    // link by 8 px across — direction is the thing a drainage network is read
+    // for, so it should not need switching on. Pin the geometry too: the two
+    // axes are independent, and the painters fall back to 1.2 x length only
+    // when a width is missing or non-positive.
+    QCOMPARE(ls->showFlowArrows(), true);
+    QCOMPARE(ls->arrowLengthPx(), 16.0);
+    QCOMPARE(ls->arrowWidthPx(),   8.0);
 
     ls->setLineWidthPx(3.25);
     ls->setDashPattern(Qt::DashDotLine);

@@ -127,11 +127,14 @@ void drawNodeGlyph(QPainter *p, const QPointF &c, double r,
 // polyline tangent there, in scene-space units (the caller scales the
 // pixel size into scene units via invViewScale).
 void drawFlowArrow(QPainter *p, const QPointF &c, double angleRad,
-                   double lenScene, const QColor &fill)
+                   double lenScene, double widthScene, const QColor &fill)
 {
-    // Equilateral arrowhead pointing along +x in local frame, then
-    // rotated/translated. Triangle vertices (tip ahead, two tail corners).
-    const double w = lenScene * 0.6;     // arrow half-width
+    // Arrowhead pointing along +x in local frame, then rotated/translated.
+    // Triangle vertices (tip ahead, two tail corners). Length (along the
+    // link) and width (across it) are independent; a non-positive width
+    // falls back to the historic 1.2 x length so old callers/data keep
+    // the equilateral look.
+    const double w = (widthScene > 0.0 ? widthScene : lenScene * 1.2) * 0.5;
     const double cs = std::cos(angleRad);
     const double sn = std::sin(angleRad);
 
@@ -771,7 +774,7 @@ void SWMMLayerItem::paint(QPainter *painter,
                 const double devAngle = std::atan2(devDir.y() - devMid.y(),
                                                    devDir.x() - devMid.x());
                 drawFlowArrow(painter, devMid, devAngle,
-                              cfg.sym->arrowSize, ac);
+                              cfg.sym->arrowSize, cfg.sym->arrowWidth, ac);
             }
             painter->restore();
         }

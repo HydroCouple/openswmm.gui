@@ -470,6 +470,7 @@ void appendDisc(std::vector<QSGGeometry::Point2D> &out,
 void appendFlowArrowColored(std::vector<QSGGeometry::ColoredPoint2D> &out,
                             const double *xy, uint32_t count,
                             double ox, double oy, float lenScene,
+                            float widthScene,
                             uchar cr, uchar cg, uchar cb, uchar ca)
 {
     if (count < 2 || !xy || lenScene <= 0.f) return;
@@ -492,7 +493,10 @@ void appendFlowArrowColored(std::vector<QSGGeometry::ColoredPoint2D> &out,
         acc += segLen;
     }
 
-    const double w  = lenScene * 0.6;   // arrow half-width (matches CPU)
+    // Independent width across the link; non-positive falls back to the
+    // historic 1.2 x length (matches CPU drawFlowArrow).
+    const double w  = (widthScene > 0.f ? double(widthScene)
+                                        : double(lenScene) * 1.2) * 0.5;
     const double cs = std::cos(ang), sn = std::sin(ang);
     auto v=[&](double lx,double ly){
         QSGGeometry::ColoredPoint2D p;
@@ -1155,7 +1159,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             // draw last (over the links). The arrow points along the polyline
             // from→to direction, which is upstream→downstream.
             struct ArrowStyle { bool on; bool onlyFlowPos; float lenScene;
-                                uchar r,g,b,a; };
+                                float widScene; uchar r,g,b,a; };
             ArrowStyle astyle[5];
             {
                 // CPU-parity — arrows fade with the kind's (sub-layer)
@@ -1169,6 +1173,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     const uchar aa = uchar(c.alpha());
                     return ArrowStyle{ s.showArrows, s.arrowOnlyWhenFlowPos,
                                        float(s.arrowSize * invView),
+                                       float(s.arrowWidth * invView),
                                        premul(uchar(c.red()), aa),
                                        premul(uchar(c.green()), aa),
                                        premul(uchar(c.blue()), aa), aa };
@@ -1257,7 +1262,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if (anyArrows && astyle[lt].on
                     && !(astyle[lt].onlyFlowPos && m_layer->linkFlow(int(i)) <= 0.0))
                     appendFlowArrowColored(arrowTri, p, cnt, ox, oy,
-                                           astyle[lt].lenScene, astyle[lt].r,
+                                           astyle[lt].lenScene,
+                                           astyle[lt].widScene, astyle[lt].r,
                                            astyle[lt].g, astyle[lt].b, astyle[lt].a);
             }
             // Append arrows last so they overlay the link segments (matches the
