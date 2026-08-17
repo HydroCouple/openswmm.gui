@@ -1291,9 +1291,10 @@ QWidget *SimulationOptionsDialog::buildMeshTab()
     auto *header = new QLabel(tr(
         "Pick which 2D mesh configuration the engine reads: an external "
         "mesh file (.2dm, referenced via [2D_MESH_FILE]) or the inline mesh "
-        "embedded in the project .inp. New meshes are generated from the "
-        "editing toolbar's Generate Mesh tool — this tab is purely a "
-        "selector for existing configurations."), page);
+        "embedded in the project .inp. The list shows the .2dm files sitting "
+        "next to the project — use Import… to bring one in from elsewhere on "
+        "disk. New meshes are generated from the editing toolbar's Generate "
+        "Mesh tool."), page);
     header->setWordWrap(true);
     vlay->addWidget(header);
 
@@ -1312,9 +1313,14 @@ QWidget *SimulationOptionsDialog::buildMeshTab()
                                  "selected configuration."));
     auto *btnRemove    = new QPushButton(tr("Remove"), page);
     btnRemove->setToolTip(tr("Delete the selected .2dm from disk."));
+    auto *btnImport    = new QPushButton(tr("Import…"), page);
+    btnImport->setToolTip(tr("Browse for an existing .2dm anywhere on disk, "
+                              "copy it into the project folder and load it as "
+                              "the active mesh."));
     auto *btnRefresh   = new QPushButton(tr("Refresh"), page);
     btnRow->addWidget(btnSetActive);
     btnRow->addWidget(btnRemove);
+    btnRow->addWidget(btnImport);
     btnRow->addStretch();
     btnRow->addWidget(btnRefresh);
     vlay->addLayout(btnRow);
@@ -1329,6 +1335,10 @@ QWidget *SimulationOptionsDialog::buildMeshTab()
             &SimulationOptionsDialog::onMeshSetActive);
     connect(btnRemove, &QPushButton::clicked, this,
             &SimulationOptionsDialog::onMeshRemove);
+    connect(btnImport, &QPushButton::clicked, this,
+            &SimulationOptionsDialog::onMeshImport);
+    // Importing needs a project window to attach the mesh layer to.
+    btnImport->setEnabled(m_projectWindow != nullptr);
 
     refreshMeshList();
     return page;
@@ -1569,6 +1579,52 @@ void SimulationOptionsDialog::onMeshRemove()
     }
 
     refreshMeshList();
+}
+
+void SimulationOptionsDialog::onMeshImport()
+{
+    if (!m_projectWindow) return;
+
+    // Anywhere on disk — the whole point of this button is that the list above
+    // can only ever show .2dm files already sitting next to the project.
+    const QString modelPath = m_layer ? m_layer->modelFilePath() : QString();
+    const QString startDir  = modelPath.isEmpty()
+        ? QDir::homePath()
+        : QFileInfo(modelPath).absolutePath();
+
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Import 2D Mesh"), startDir,
+        tr("OpenSWMM 2D Mesh (*.2dm);;All Files (*)"));
+    if (path.isEmpty()) return;
+
+    // The project window owns the copy-into-project, parse and canvas
+    // adoption; the outcome comes back once, asynchronously. The mesh becomes
+    // the active layer, so [2D_MESH_FILE] follows it on the next save — the
+    // list below just needs to re-read the folder.
+    connect(m_projectWindow, &SWMMVisProjectWindow::meshImportFinished, this,
+            [this](bool ok, const QString &message, const QString &meshPath) {
+                if (!ok) {
+                    if (!message.isEmpty())
+                        QMessageBox::warning(this, tr("Import 2D Mesh"), message);
+                    return;
+                }
+                refreshMeshList();
+                // Select the imported file and run it through Set Active, so
+                // the [2D_MESH_FILE] reference this tab reports (and the .inp
+                // on disk) match the layer the import just activated.
+                const QString name = QFileInfo(meshPath).fileName();
+                for (int i = 0; m_meshList && i < m_meshList->count(); ++i) {
+                    if (m_meshList->item(i)->data(kMeshKindRole).toInt() == kMeshExternal
+                        && m_meshList->item(i)->text() == name) {
+                        m_meshList->setCurrentRow(i);
+                        onMeshSetActive();
+                        break;
+                    }
+                }
+            },
+            static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+
+    m_projectWindow->importMeshFileAsync(path);
 }
 
 void SimulationOptionsDialog::on2DModuleToggled(bool enabled)
