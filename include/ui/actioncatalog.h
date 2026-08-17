@@ -144,6 +144,7 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"import.wms",            "actionAddWMSData",       "Import", "", "AddWMS", "home", "File/Import", NoTags},
     {"import.delimited",      "actionAddDelimeteredData","Import", "", "AddDelimetered", "home", "File/Import", NoTags},
     {"import.basemap",        "actionAddBasemap",       "Import", "", "AddBasemap",     "", "File/Import", NoTags},
+    {"import.mesh2d",         "actionAddMesh2D",        "Import", "", "AddMesh", "home", "File/Import", NoTags},
 
     // ── Simulation ──────────────────────────────────────────────────────
     {"sim.run",               "actionExecute",          "Simulation", "Ctrl+R", "Execute", "home", "Analysis", NoTags},
