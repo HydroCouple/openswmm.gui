@@ -5583,6 +5583,10 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                 if (pw != mActiveProjectWindow) return;
                 if (mAnimationController) mAnimationController->setPrimaryLayer(layer);
                 if (mLayerTreePanel) mLayerTreePanel->setActiveResultsLayer(layer);
+                // The Attribute Table's post-run dynamics columns follow the
+                // active run, so switching runs re-reads them from the new
+                // .out file instead of the (always-empty) editing engine.
+                if (mAttributeTablePanel) mAttributeTablePanel->setResultsSource(layer);
                 refreshActiveResultsCombos();
             });
     QObject::disconnect(pw, &SWMMVisProjectWindow::active2DResultsLayerChanged,
@@ -5937,11 +5941,15 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     if (mSectionViewPanel)
         mSectionViewPanel->setProject(pw->modelLayer());
 
-    // Rebind the Attribute Table to this project.
-    if (mAttributeTablePanel)
+    // Rebind the Attribute Table to this project. setProject rebuilds the
+    // model, so the dynamics source has to be re-applied after it — each tab
+    // carries its own active run.
+    if (mAttributeTablePanel) {
         mAttributeTablePanel->setProject(pw->modelLayer(),
                                          pw->selectionManager(),
                                          pw->canvas());
+        mAttributeTablePanel->setResultsSource(pw->activeResultsLayer());
+    }
     if (mPropertiesPanel && pw->selectionManager())
     {
         // The attribute panel listens to selectionChanged via a per-tab

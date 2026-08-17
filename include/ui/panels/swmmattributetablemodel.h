@@ -29,6 +29,9 @@
 class QUndoStack;
 
 #include "layers/swmmmodellayer.h"
+// Not forward-declarable: m_resultsSource is a QPointer, which static_casts
+// through QObject* and so needs the complete type at instantiation.
+#include "layers/swmmresultslayer.h"
 
 namespace openswmmvis {
 
@@ -100,6 +103,21 @@ public:
      *  column schema, then `beginResetModel` / `endResetModel`.  Pass
      *  a null layer to clear. */
     void setSource(SWMMModelLayer *layer, SWMMModelLayer::Category category);
+
+    /*! Bind the post-run "dynamics" columns to a loaded output.
+     *
+     *  Those columns used to read the EDITING engine's ambient statistics
+     *  (`swmm_node_get_stat_*` and friends). Nothing ever populates them:
+     *  SimulationRunner runs on its own throw-away SWMM_Engine (or an
+     *  out-of-process worker), so the editing engine never reaches the
+     *  ENDED state the stat getters need and every dynamics cell read back
+     *  zero. Pointing the model at the active results layer instead makes
+     *  the columns show the run the user actually selected, and re-pointing
+     *  it swaps every dynamics value to the new run.
+     *
+     *  Pass nullptr to fall back to the editing engine. */
+    void setResultsSource(SWMMResultsLayer *layer);
+    [[nodiscard]] SWMMResultsLayer *resultsSource() const { return m_resultsSource; }
 
     [[nodiscard]] SWMMModelLayer *layer() const noexcept { return m_layer; }
     [[nodiscard]] SWMMModelLayer::Category category() const noexcept
@@ -181,6 +199,7 @@ private:
     QVariantMap rowData(int row) const;
 
     QPointer<SWMMModelLayer>           m_layer;
+    QPointer<SWMMResultsLayer>         m_resultsSource;  ///< Dynamics-column source
     SWMMModelLayer::Category           m_category = SWMMModelLayer::CatJunctions;
     QStringList                        m_columnKeys;     ///< Map keys from identifyByName
     QStringList                        m_columnLabels;   ///< User-facing header labels
