@@ -35,6 +35,7 @@
 
 #include <algorithm>
 #include <array>
+#include <QMap>
 #include <cmath>
 
 namespace {
@@ -499,7 +500,10 @@ void SWMMLayerItem::paint(QPainter *painter,
         std::array<bool, 5> typeUsesOverrides{};
         for (int t = 0; t < 5; ++t)
             typeUsesOverrides[t] = m_layer->kindUsesOverrides(linkTypeToCategory[t]);
-        std::array<QHash<QRgb, QVector<QLineF>>, 5> overrideSegsByType;
+        // Keyed by (colour, stroke width) — a Graduated theme can vary
+        // BOTH per feature, and bucketing on colour alone silently
+        // collapsed every width onto the kind's base pen.
+        std::array<QMap<quint64, QVector<QLineF>>, 5> overrideSegsByType;
 
         // Slice Z.5b-paint — perpendicular polyline offset per link kind.
         // Read once at setup (cheap — at most 5 SymbolLayer scans), then
@@ -612,8 +616,16 @@ void SWMMLayerItem::paint(QPainter *painter,
             if (sel) {
                 emitSegments(selSegsByType[size_t(type)]);
             } else if (typeUsesOverrides[size_t(type)]) {
-                const QColor col = m_layer->featureColor(linkTypeToCategory[size_t(type)], i);
-                const QRgb key = col.isValid() ? col.rgba() : 0u;
+                const auto cat = linkTypeToCategory[size_t(type)];
+                const QColor col = m_layer->featureColor(cat, i);
+                const QRgb rgba  = col.isValid() ? col.rgba() : 0u;
+                // Line archetypes carry the renderer's width axis in the size
+                // channel (see SWMMModelLayer::rebuildKindFeatureColors).
+                // Quantise to 1/16 px so near-equal widths still share a pen.
+                const double wOv = m_layer->featureSize(cat, i);
+                const quint32 wq = (wOv > 0.0)
+                    ? quint32(std::lround(std::min(wOv, 256.0) * 16.0)) : 0u;
+                const quint64 key = (quint64(wq) << 32) | quint64(rgba);
                 emitSegments(overrideSegsByType[size_t(type)][key]);
             } else {
                 emitSegments(segsByType[size_t(type)]);
@@ -659,11 +671,16 @@ void SWMMLayerItem::paint(QPainter *painter,
             // inherited from the kind's base pen so Graduated /
             // Categorized stays visually consistent with the kind.
             if (!overrideSegsByType[size_t(t)].isEmpty()) {
-                QPen pen = linkPenForType(t);
-                pen.setCosmetic(true);
+                const QPen basePen = linkPenForType(t);
                 for (auto it = overrideSegsByType[size_t(t)].constBegin();
                      it != overrideSegsByType[size_t(t)].constEnd(); ++it) {
-                    pen.setColor(fade(QColor::fromRgba(it.key())));
+                    QPen pen = basePen;
+                    pen.setCosmetic(true);
+                    pen.setColor(fade(QColor::fromRgba(QRgb(it.key() & 0xffffffffULL))));
+                    // Upper 32 bits carry the per-feature width in 1/16 px;
+                    // 0 means "no override" → keep the kind's base pen width.
+                    if (const quint32 wq = quint32(it.key() >> 32); wq != 0u)
+                        pen.setWidthF(double(wq) / 16.0);
                     painter->setPen(pen);
                     drawDeviceLines(it.value());
                 }
@@ -1072,9 +1089,21 @@ void SWMMLayerItem::paint(QPainter *painter,
                 LabelConfig eff = labelCfg;
                 const auto *s = symForCat(static_cast<SWMMModelLayer::Category>(c));
                 if (s && s->showLabel) {
-                    eff.font  = s->labelFont;
-                    if (s->labelFont.pointSizeF() > 0.0)
-                        eff.fontSizePt = s->labelFont.pointSizeF();
+                    // Every override is opt-in: only a value the user
+                    // actually set displaces the layer's LabelConfig.
+                    //
+                    // `font` used to be assigned unconditionally while size
+                    // and colour were guarded. SWMMElementSymbol::labelFont
+                    // is a default-constructed QFont, so merely ticking a
+                    // kind's "Show labels" — without touching its font —
+                    // silently reset that kind's family/weight/slant to the
+                    // application default while the size and colour set on
+                    // the Labels tab correctly survived.
+                    if (s->labelFont != QFont()) {
+                        eff.font = s->labelFont;
+                        if (s->labelFont.pointSizeF() > 0.0)
+                            eff.fontSizePt = s->labelFont.pointSizeF();
+                    }
                     if (s->labelColor.isValid())
                         eff.color = s->labelColor;
                 }
