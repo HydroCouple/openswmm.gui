@@ -338,26 +338,26 @@ public:
     }
     [[nodiscard]] bool nameFilterActive() const { return m_nameFilterActive; }
 
-    /*! Does the query predicate alone accept this source row?  Ignores
-     *  the name filter — selection ops operate on the full population. */
-    [[nodiscard]] bool queryAcceptsSourceRow(int row) const
-    {
-        ensureBound();
-        return m_rp.accepts(row);
-    }
-
     void setSourceModel(QAbstractItemModel *src) override
     {
-        if (auto *old = sourceModel())
-            disconnect(old, &QAbstractItemModel::modelReset, this, nullptr);
+        // Drop ONLY our own connection, by handle. A blanket
+        // disconnect(src, &QAbstractItemModel::modelReset, this, nullptr)
+        // also tears down QSortFilterProxyModel's OWN internal reaction to
+        // modelReset — and because the base setSourceModel early-returns
+        // when handed the same pointer it already has (which is exactly
+        // what onCategoryChanged does: setSource() resets the model, then
+        // re-hands the proxy the same m_model), it never gets rebuilt.
+        // The proxy then stops seeing source resets entirely and its row
+        // count freezes on the previous category.
+        QObject::disconnect(m_resetConn);
         QSortFilterProxyModel::setSourceModel(src);
         m_bound = false;
         // A category switch resets the model AND rebuilds its column
         // schema while the predicate persists, so cached column indices
         // would otherwise point into the previous category's schema.
         if (src)
-            connect(src, &QAbstractItemModel::modelReset, this,
-                    [this] { m_bound = false; });
+            m_resetConn = connect(src, &QAbstractItemModel::modelReset, this,
+                                  [this] { m_bound = false; });
     }
 
 protected:
@@ -388,6 +388,7 @@ private:
     bool                        m_nameFilterActive = false;
     mutable RowPredicate        m_rp;
     mutable bool                m_bound = false;
+    QMetaObject::Connection     m_resetConn;
 };
 
 } // anonymous
