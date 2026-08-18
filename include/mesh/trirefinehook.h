@@ -68,8 +68,24 @@ struct RefineHook
      *  the candidate triangle's centroid.  Return <= 0 to leave the triangle
      *  unconstrained.  When set, this SUPERSEDES GenerationOptions::maxArea —
      *  MeshGenerator omits the global `-a<area>` switch so the two cannot
-     *  fight. Per-region area constraints (RegionMarker::maxArea) are
-     *  unaffected and still applied by Triangle. */
+     *  fight.
+     *
+     *  CAREFUL with per-region bounds (corrected 2026-08-17; this comment
+     *  previously claimed they were "unaffected and still applied", which is
+     *  wrong).  Triangle honours RegionMarker::maxArea only when its internal
+     *  `vararea` flag is set, and that flag is set only by a BARE `a` switch
+     *  with no number (vendor/triangle/triangle.c:3449-3469, tested at 7390).
+     *  So the two configurations differ:
+     *
+     *    - maxArea > 0 and NO size function → `a<area>` is emitted, `vararea`
+     *      stays clear, and per-region bounds are silently IGNORED;
+     *    - size function installed → no numeric `a`, the bare `a` branch runs,
+     *      and per-region bounds take effect.
+     *
+     *  Installing a size function therefore switches region area bounds on for
+     *  the first time on a model that has them.  Callers that care should clamp
+     *  RegionMarker::maxArea to their own floor before addRegion(); the mesh
+     *  generation dialog does exactly that. */
     std::function<double(double x, double y)> targetAreaAt;
 
     /*! Called every few hundred thousand tests with the running test count.

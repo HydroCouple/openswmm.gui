@@ -130,6 +130,26 @@ private slots:
             ident("/a", 1, 2), {}, "L", "B", "M", 0.2, 2.0));    // eps
         QVERIFY(base != MeshStageCache::boundaryKey(
             ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 3.0));    // maxLen
+        // 2026-08-17 — the stored payload is CONDITIONED geometry when a
+        // minimum cell size is set, so h has to be part of the identity.  A
+        // stale hit here would silently mesh the wrong rings, and the hole
+        // seeds stored alongside them were computed against those vertices.
+        QVERIFY(base != MeshStageCache::boundaryKey(
+            ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 5.0));   // minCellSize
+        QVERIFY(MeshStageCache::boundaryKey(
+                    ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 5.0)
+                != MeshStageCache::boundaryKey(
+                    ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 2.0));
+        // ...and the h = 0 (feature off) key is the default, so switching the
+        // feature off returns to the entry an older build would have written.
+        QCOMPARE(base, MeshStageCache::boundaryKey(
+            ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 0.0));
+        // Round-tripping h = 2 after h = 5 must land back on the h = 2 entry
+        // (the "generate at 2, then 5, then 2 again" case in the handoff).
+        QCOMPARE(MeshStageCache::boundaryKey(
+                     ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 2.0),
+                 MeshStageCache::boundaryKey(
+                     ident("/a", 1, 2), {}, "L", "B", "M", 0.1, 2.0, 2.0));
 
         mesh::DTMThinnerOptions o;
         const QRectF bb(QPointF(0, 0), QPointF(10, 10));
