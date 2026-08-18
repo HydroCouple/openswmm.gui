@@ -26,7 +26,10 @@
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/properties/xsectshapegeom.h"
 
+#include "ui/properties/nodecompoundeditref.h"
+
 #include <openswmm/engine/openswmm_gages.h>
+#include <openswmm/engine/openswmm_inflows.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
@@ -509,6 +512,62 @@ private slots:
         edit->setText(QStringLiteral("[No Such Column] = 1"));
         QTest::keyClick(edit, Qt::Key_Return);
         QCOMPARE(view->model()->rowCount(), 0);
+    }
+
+    // =====================================================================
+    // 5 — compound-cell summaries follow the engine
+    // =====================================================================
+    //
+    // Compound cells (External Inflows, Dry Weather Flow, RDII, Treatment)
+    // are served from m_inflowCountByNode & friends, filled once by
+    // ensureCompoundCacheBuilt(). That cache was only ever dropped by
+    // setSource() / reload() — NOT by refreshObject(), and not by the
+    // Compound branch of commitValueDirect(), whose own comment claims it
+    // "invalidates the row cache so the summary recomputes on the next
+    // paint". It invalidated m_rowCache, which is not where the summary
+    // comes from. So adding an inflow through the table's own compound
+    // dialog left the cell reading "(none)" until a category switch.
+
+    void compoundSummaryRefreshesAfterEngineEdit()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        SWMMAttributeTableModel model;
+        model.setSource(layer.get(), SWMMModelLayer::CatJunctions);
+        const auto specs = model.columnSpecs();
+        const int col = colFor(specs, QStringLiteral("Inflows"));
+        QVERIFY2(col >= 0, "junction schema lost the Inflows compound column");
+        QVERIFY(model.rowCount() > 0);
+
+        const QModelIndex idx = model.index(0, col);
+        const QString name = model.objectNameAt(0);
+
+        // Touch the cell first so the compound cache is genuinely built —
+        // otherwise a later first-build would mask a missing invalidation.
+        const QVariant before = model.data(idx, Qt::DisplayRole);
+        QVERIFY(before.isValid());
+        const QString summaryBefore =
+            before.value<NodeCompoundEditRef>().summary;
+
+        // Add an inflow behind the model's back, exactly as the compound
+        // dialog does (it writes to the engine, then the table is told to
+        // refresh the object).
+        SWMM_Engine eng = layer->engine();
+        QVERIFY(eng);
+        const int ni = swmm_node_index(eng, name.toUtf8().constData());
+        QVERIFY(ni >= 0);
+        QCOMPARE(swmm_ext_inflow_add(eng, ni, "FLOW", "", "FLOW",
+                                     1.0, 1.0, 2.5, ""), SWMM_OK);
+
+        model.refreshObject(name);
+
+        const QString summaryAfter =
+            model.data(idx, Qt::DisplayRole).value<NodeCompoundEditRef>().summary;
+        QVERIFY2(summaryAfter != summaryBefore,
+                 qPrintable(QStringLiteral(
+                     "compound summary stayed '%1' after an engine edit + "
+                     "refreshObject — the compound cache was not invalidated")
+                         .arg(summaryAfter)));
     }
 
     // =====================================================================

@@ -868,7 +868,10 @@ private:
     // painted row, per repaint.
     struct NodeStats {
         double maxDepth = 0.0, maxOverflow = 0.0;
-        double volFlooded = 0.0, timeFlooded = 0.0;
+        double volFlooded = 0.0;
+        //! HOURS. The engine aggregator returns seconds; converted on the
+        //! way in so every consumer of NodeStats sees the column's unit.
+        double timeFloodedHr = 0.0;
     };
     mutable QHash<int, LinkStats>     m_linkStats;
     mutable QHash<int, SubcatchStats> m_subcatchStats;
