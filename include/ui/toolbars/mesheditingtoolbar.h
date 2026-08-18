@@ -58,6 +58,12 @@ public:
     explicit MeshEditingToolbar(const QString &title, QWidget *parent = nullptr);
     ~MeshEditingToolbar() override;
 
+protected:
+    //! Flushes a node-list refresh that was deferred while hidden.
+    void showEvent(QShowEvent *event) override;
+
+public:
+
     /*! \brief Bind the toolbar to a new project canvas. Disconnects from
      *  the previous canvas's signals, populates the mesh combo from the
      *  new canvas's `SWMM2DMeshLayer` instances, and re-establishes the
@@ -191,6 +197,12 @@ private:
      *  node, plus every timeseries and curve), so building them for a 1D-only
      *  project is pure cost. */
     bool m_bcListsStale = false;
+
+    /*! refreshNodeList() was skipped because the toolbar was hidden, and must
+     *  run before the user can see the combo. See refreshNodeList() for why
+     *  deferring this one is safe when deferring the attribute table's model
+     *  was not. */
+    bool m_nodeListStale = false;
 
     void rebuildMeshCombo();
     void refreshGroupWidths();   // re-measure the ribbon groups after
