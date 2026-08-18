@@ -904,10 +904,11 @@ void SWMMResultsLayer::closeResults()
     m_linkAttributeRange.clear();
     m_subcatchAttributeRange.clear();
 
-    // Aggregated link / subcatchment summary statistics are keyed by output
-    // index, so they MUST go with the file that defined those indices.
+    // Aggregated node / link / subcatchment summary statistics are keyed by
+    // output index, so they MUST go with the file that defined those indices.
     m_linkStats.clear();
     m_subcatchStats.clear();
+    m_nodeStats.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -931,40 +932,53 @@ void SWMMResultsLayer::closeResults()
 // (which shouldn't happen mid-open but the API is defensively coded)
 // fall through to 0.0 the same way.
 
+// Each of the four engine aggregators walks the whole .out file for its
+// variable (one seek + one 4-byte read per period), so the four accessors
+// below used to cost four full-file walks EVERY time a node dynamics cell
+// was painted — and a table scroll repaints them constantly. Memoise the
+// set exactly the way linkStatsFor / subcatchStatsFor already do.
+//
+// This is a pure memoisation: the same aggregators produce the same
+// numbers, just once per node instead of once per cell read.
+SWMMResultsLayer::NodeStats SWMMResultsLayer::nodeStatsFor(int outIdx) const
+{
+    if (outIdx < 0 || !m_handle) return {};
+    if (const auto it = m_nodeStats.constFind(outIdx); it != m_nodeStats.constEnd())
+        return *it;
+
+    NodeStats st;
+    double v = 0.0;
+    if (swmm_output_get_node_stat_max_depth(m_handle, outIdx, &v) == 0)
+        st.maxDepth = v;
+    if (swmm_output_get_node_stat_max_overflow(m_handle, outIdx, &v) == 0)
+        st.maxOverflow = v;
+    if (swmm_output_get_node_stat_vol_flooded(m_handle, outIdx, &v) == 0)
+        st.volFlooded = v;
+    if (swmm_output_get_node_stat_time_flooded(m_handle, outIdx, &v) == 0)
+        st.timeFlooded = v;
+
+    m_nodeStats.insert(outIdx, st);
+    return st;
+}
+
 double SWMMResultsLayer::nodeStatMaxDepth(const QString &nodeName) const
 {
-    const int idx = nodeOutputIndex(nodeName);
-    if (idx < 0 || !m_handle) return 0.0;
-    double v = 0.0;
-    if (swmm_output_get_node_stat_max_depth(m_handle, idx, &v) != 0) return 0.0;
-    return v;
+    return nodeStatsFor(nodeOutputIndex(nodeName)).maxDepth;
 }
 
 double SWMMResultsLayer::nodeStatMaxOverflow(const QString &nodeName) const
 {
-    const int idx = nodeOutputIndex(nodeName);
-    if (idx < 0 || !m_handle) return 0.0;
-    double v = 0.0;
-    if (swmm_output_get_node_stat_max_overflow(m_handle, idx, &v) != 0) return 0.0;
-    return v;
+    return nodeStatsFor(nodeOutputIndex(nodeName)).maxOverflow;
 }
 
 double SWMMResultsLayer::nodeStatVolFlooded(const QString &nodeName) const
 {
-    const int idx = nodeOutputIndex(nodeName);
-    if (idx < 0 || !m_handle) return 0.0;
-    double v = 0.0;
-    if (swmm_output_get_node_stat_vol_flooded(m_handle, idx, &v) != 0) return 0.0;
-    return v;
+    return nodeStatsFor(nodeOutputIndex(nodeName)).volFlooded;
 }
 
 double SWMMResultsLayer::nodeStatTimeFlooded(const QString &nodeName) const
 {
-    const int idx = nodeOutputIndex(nodeName);
-    if (idx < 0 || !m_handle) return 0.0;
-    double v = 0.0;
-    if (swmm_output_get_node_stat_time_flooded(m_handle, idx, &v) != 0) return 0.0;
-    return v;
+    return nodeStatsFor(nodeOutputIndex(nodeName)).timeFlooded;
 }
 
 // ---------------------------------------------------------------------------

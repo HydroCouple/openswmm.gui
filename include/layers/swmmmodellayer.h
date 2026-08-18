@@ -452,6 +452,31 @@ public:
     [[nodiscard]] QString objectNameAt(Category c, int row) const;
 
     /*!
+     * \brief SoA index at (category, row) — the index `objectNameAt`
+     *        resolves the name from, and therefore also the ENGINE
+     *        index for that object. Returns -1 when out of range.
+     *
+     *        The SoA-index == engine-index invariant holds because
+     *        buildFromEngine() appends in engine order (0..count-1),
+     *        adds append to the tail on both sides, and deletes remove
+     *        the same slot from both. Existing code already depends on
+     *        it: applyNodeDelete() feeds a `swmm_node_index()` result
+     *        straight into `m_nodes.removeAt()`, and its cascade loop
+     *        passes one integer to both `swmm_link_get_from_node()` and
+     *        `m_links[i]`. See also applyLinkDelete / applyGageDelete /
+     *        applySubcatchDelete.
+     *
+     *        Callers that want a row's engine index MUST use this and
+     *        not a locally-written index lookup: this honours the
+     *        intra-category ordering overrides (`m_objectOrderOverrides`)
+     *        exactly as objectNameAt does, and a variant that forgets
+     *        that branch returns a different object under a user-sorted
+     *        category. Keep this function physically adjacent to
+     *        objectNameAt so the two cannot drift.
+     */
+    [[nodiscard]] int soaIndexAt(Category c, int row) const;
+
+    /*!
      * \brief Slice BM.0 — number of non-spatial data objects in
      *        \p c. Returns 0 when the engine handle is null or when
      *        the underlying `swmm_<type>_count` call fails.

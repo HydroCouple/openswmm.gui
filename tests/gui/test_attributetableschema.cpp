@@ -26,10 +26,16 @@
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/properties/xsectshapegeom.h"
 
+#include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_subcatchments.h>
+
+#include <algorithm>   // std::reverse — ordering-override pin
 
 #include <QComboBox>
 #include <QDir>
+#include <QLineEdit>
 #include <QLocale>
 #include <QObject>
 #include <QStyledItemDelegate>
@@ -64,6 +70,23 @@ int colFor(const QList<ColumnSpec> &specs, const QString &key)
     for (int i = 0; i < specs.size(); ++i)
         if (specs[i].key == key) return i;
     return -1;
+}
+
+//! Engine-side id for a category's entity at engine index `idx`.
+const char *engineIdFor(SWMM_Engine eng, SWMMModelLayer::Category cat, int idx)
+{
+    switch (cat) {
+    case SWMMModelLayer::CatJunctions: case SWMMModelLayer::CatOutfalls:
+    case SWMMModelLayer::CatStorage:   case SWMMModelLayer::CatDividers:
+        return swmm_node_id(eng, idx);
+    case SWMMModelLayer::CatConduits:  case SWMMModelLayer::CatPumps:
+    case SWMMModelLayer::CatOrifices:  case SWMMModelLayer::CatWeirs:
+    case SWMMModelLayer::CatOutlets:
+        return swmm_link_id(eng, idx);
+    case SWMMModelLayer::CatSubcatchments: return swmm_subcatch_id(eng, idx);
+    case SWMMModelLayer::CatRainGages:     return swmm_gage_id(eng, idx);
+    default: return nullptr;
+    }
 }
 
 //! Every SWMM category the attribute table can bind to.
@@ -388,6 +411,179 @@ private slots:
             QVERIFY(c >= 0);
             QVERIFY(!view->isColumnHidden(c));
             QVERIFY(view->itemDelegateForColumn(c) != nullptr);
+        }
+    }
+
+    // =====================================================================
+    // Panel-level: the query bar filters on the columns it names
+    // =====================================================================
+    //
+    // The filter proxy used to materialise EVERY column of every row (twice)
+    // to test a predicate that reads one. It now resolves the predicate's
+    // field names to columns once and reads only those. That is only a
+    // performance change if the accepted-row set is unchanged, so these pin
+    // the semantics that made the old build "work": a field is matchable by
+    // its ColumnSpec key, by its label, or by the unit-suffixed header the
+    // view displays.
+
+    void queryAcceptsKeyLabelAndHeaderSpellings()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        AttributeTablePanel panel;
+        panel.setProject(layer.get(), nullptr, nullptr);
+        panel.refresh();
+
+        auto *combo = panel.findChild<QComboBox *>();
+        QVERIFY(combo);
+        int catIdx = -1;
+        for (int i = 0; i < combo->count(); ++i)
+            if (combo->itemText(i).startsWith(QStringLiteral("Junctions")))
+                catIdx = i;
+        QVERIFY(catIdx >= 0);
+        combo->setCurrentIndex(catIdx);
+
+        auto *view = panel.findChild<QTableView *>();
+        auto *edit = panel.findChild<QLineEdit *>();
+        QVERIFY(view && edit);
+        auto *m = view->model();
+        QVERIFY(m);
+        const int unfiltered = m->rowCount();
+        QVERIFY2(unfiltered > 0, "fixture has no junctions");
+
+        // "Invert elev" is the ColumnSpec key; "Invert Elev" the label; the
+        // header adds a unit suffix. All three must select the same rows.
+        SWMMAttributeTableModel probe;
+        probe.setSource(layer.get(), SWMMModelLayer::CatJunctions);
+        const auto specs = probe.columnSpecs();
+        const int col = colFor(specs, QStringLiteral("Invert elev"));
+        QVERIFY2(col >= 0, "fixture schema lost the Invert elev column");
+
+        QString header;
+        for (int c = 0; c < m->columnCount(); ++c)
+            if (m->headerData(c, Qt::Horizontal).toString()
+                    .startsWith(specs[col].label))
+                header = m->headerData(c, Qt::Horizontal).toString();
+        QVERIFY(!header.isEmpty());
+
+        // Plain decimals only — the tokenizer has no scientific notation,
+        // and a parse error makes Apply return early WITHOUT touching the
+        // filter, which would leave every assertion below reading the
+        // previous query's result instead of this one's.
+        auto matchCount = [&](const QString &field, const char *op) {
+            edit->setText(QStringLiteral("[%1] %2 -99999").arg(field, op));
+            QTest::keyClick(edit, Qt::Key_Return);
+            return view->model()->rowCount();
+        };
+
+        // A predicate true for every row keeps every row...
+        QCOMPARE(matchCount(specs[col].key,   ">"), unfiltered);
+        QCOMPARE(matchCount(specs[col].label, ">"), unfiltered);
+        QCOMPARE(matchCount(header,           ">"), unfiltered);
+
+        // ...and the same predicate inverted drops them all, which proves
+        // the column is actually being READ rather than silently skipped
+        // (a skipped column would leave the row count at `unfiltered` in
+        // both directions).
+        QCOMPARE(matchCount(specs[col].key,   "<"), 0);
+        QCOMPARE(matchCount(specs[col].label, "<"), 0);
+        QCOMPARE(matchCount(header,           "<"), 0);
+    }
+
+    //! A field naming no column matches nothing — same as before, when an
+    //! unknown key simply produced an absent QVariant. Compound columns are
+    //! deliberately unresolvable (their value is an edit-ref struct, and
+    //! reading one runs an engine-wide scan), so they land here too.
+    void queryOnUnresolvableFieldMatchesNothing()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        AttributeTablePanel panel;
+        panel.setProject(layer.get(), nullptr, nullptr);
+        panel.refresh();
+
+        auto *view = panel.findChild<QTableView *>();
+        auto *edit = panel.findChild<QLineEdit *>();
+        QVERIFY(view && edit);
+
+        edit->setText(QStringLiteral("[No Such Column] = 1"));
+        QTest::keyClick(edit, Qt::Key_Return);
+        QCOMPARE(view->model()->rowCount(), 0);
+    }
+
+    // =====================================================================
+    // 4 — SoA index == engine index
+    // =====================================================================
+    //
+    // SWMMAttributeTableModel::data() resolves a row's engine index with
+    // SWMMModelLayer::soaIndexAt() instead of re-deriving it from the
+    // object's name. That is only correct while the layer's SoA index and
+    // the engine's index are the same number. The invariant is already
+    // load-bearing elsewhere (applyNodeDelete feeds a swmm_node_index()
+    // result straight into m_nodes.removeAt()), but nothing pinned it —
+    // and a violation would be silent: the cell would show a NEIGHBOURING
+    // object's value rather than going blank.
+
+    void soaIndexMatchesEngineIndex()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        SWMM_Engine eng = layer->engine();
+        QVERIFY(eng);
+
+        for (auto cat : allCategories()) {
+            const int n = layer->categoryCount(cat);
+            for (int row = 0; row < n; ++row) {
+                const QString name = layer->objectNameAt(cat, row);
+                const int idx = layer->soaIndexAt(cat, row);
+                QVERIFY2(idx >= 0,
+                         qPrintable(QStringLiteral("cat %1 row %2: no index")
+                                        .arg(int(cat)).arg(row)));
+                QCOMPARE(QString::fromUtf8(engineIdFor(eng, cat, idx)), name);
+            }
+        }
+    }
+
+    //! The same invariant with a user-defined row ordering installed.
+    //! This is the case the 2026-08-13 attempt at an index-based fetch got
+    //! wrong: objectNameAt honours m_objectOrderOverrides and the helper it
+    //! was paired with did not, so the two disagreed under a sorted
+    //! category. soaIndexAt is written as objectNameAt's structural twin
+    //! precisely so this passes.
+    void soaIndexHonoursOrderingOverride()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        SWMM_Engine eng = layer->engine();
+        QVERIFY(eng);
+
+        const auto cat = SWMMModelLayer::CatJunctions;
+        const int n = layer->categoryCount(cat);
+        QVERIFY2(n >= 2, "fixture needs >= 2 junctions to permute");
+
+        // Reverse the default order — a permutation, so setObjectOrder
+        // accepts it.
+        QVector<int> order = layer->objectOrder(cat);
+        if (order.isEmpty()) {
+            order.reserve(n);
+            for (int r = 0; r < n; ++r) order << layer->soaIndexAt(cat, r);
+        }
+        const QString firstBefore = layer->objectNameAt(cat, 0);
+        std::reverse(order.begin(), order.end());
+        layer->setObjectOrder(cat, order);
+
+        // setObjectOrder rejects a non-permutation by silently returning,
+        // which would leave this test asserting the DEFAULT path twice and
+        // pin nothing. Prove the override actually took effect first.
+        QVERIFY2(layer->objectNameAt(cat, 0) != firstBefore,
+                 "setObjectOrder did not reorder — the override path below "
+                 "would be untested");
+
+        for (int row = 0; row < n; ++row) {
+            const QString name = layer->objectNameAt(cat, row);
+            const int idx = layer->soaIndexAt(cat, row);
+            QVERIFY(idx >= 0);
+            QCOMPARE(QString::fromUtf8(engineIdFor(eng, cat, idx)), name);
         }
     }
 

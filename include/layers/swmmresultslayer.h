@@ -259,6 +259,11 @@ public:
     // implementation resolves it to the output-side index via the
     // already-built nodeOutputIndex() map. Returns 0.0 for unknown
     // names or when the underlying file is closed.
+    //
+    // Each aggregator is one O(n_periods) walk of the .out file, so all
+    // four are memoised per node index (see m_nodeStats / nodeStatsFor,
+    // cleared by closeResults()) — same reason and same shape as the
+    // link / subcatchment caches below.
     [[nodiscard]] double nodeStatMaxDepth(const QString &nodeName) const;
     [[nodiscard]] double nodeStatMaxOverflow(const QString &nodeName) const;
     [[nodiscard]] double nodeStatVolFlooded(const QString &nodeName) const;
@@ -270,8 +275,9 @@ public:
     // Attribute Table shows for links and subcatchments. Unlike the node
     // stats there is no `swmm_output_get_*_stat_*` engine API for these, so
     // they are aggregated HERE by walking the .out file's per-period series
-    // once per object and caching the result (see m_linkStats /
-    // m_subcatchStats, cleared by closeResults()).
+    // once per object. The result is cached per output index (see
+    // m_linkStats / m_subcatchStats, cleared by closeResults()), as are the
+    // node stats above.
     //
     // PRECISION CAVEAT — identical in kind to the QA-01 node aggregators:
     // the walk sees REPORT steps, not routing steps. Maxima are therefore
@@ -855,14 +861,25 @@ private:
     struct SubcatchStats {
         double precipVol = 0.0, runoffVol = 0.0, maxRunoff = 0.0;
     };
+    // Nodes get the same treatment. Their four values come from engine
+    // aggregators rather than being computed here, but each of those is
+    // still one O(n_periods) walk of the .out file — a seek plus a 4-byte
+    // read per period — so uncached they cost four whole-file walks per
+    // painted row, per repaint.
+    struct NodeStats {
+        double maxDepth = 0.0, maxOverflow = 0.0;
+        double volFlooded = 0.0, timeFlooded = 0.0;
+    };
     mutable QHash<int, LinkStats>     m_linkStats;
     mutable QHash<int, SubcatchStats> m_subcatchStats;
+    mutable QHash<int, NodeStats>     m_nodeStats;
 
     /*! Aggregate (and cache) the summary statistics for one output-side
-     *  link / subcatchment index. Returns a zeroed struct when the file is
-     *  closed or the index is out of range. */
+     *  link / subcatchment / node index. Returns a zeroed struct when the
+     *  file is closed or the index is out of range. */
     [[nodiscard]] LinkStats     linkStatsFor(int outIdx) const;
     [[nodiscard]] SubcatchStats subcatchStatsFor(int outIdx) const;
+    [[nodiscard]] NodeStats     nodeStatsFor(int outIdx) const;
 
     // GDAL coordinate transform -------------------------------------------
     class OGRCoordinateTransformation *m_transform = nullptr;

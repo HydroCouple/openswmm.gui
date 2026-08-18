@@ -47,6 +47,7 @@
 #include <QComboBox>
 #include <QCryptographicHash>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QEvent>
 #include <QFile>
 #include <QFileDialog>
@@ -55,6 +56,7 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QItemSelection>
 #include <QItemSelectionModel>
 #include <QKeyEvent>
 #include <QLabel>
@@ -205,62 +207,228 @@ private:
 
 namespace {
 
-// Slice Z.2 — proxy that composes the existing "show selected only"
-// regex filter with a query-predicate filter.  A row is accepted
-// when (a) the regex matches (when set), AND (b) the predicate
-// evaluates true (when set).  Either filter being unset is a pass.
+// Column specs for whichever of the two spec-carrying models `src` is,
+// or an empty list for the tabular / GIS sources (which have headers
+// but no ColumnSpec schema).
+QList<openswmmvis::ColumnSpec> specsFor(const QAbstractItemModel *src)
+{
+    if (auto *swmm = qobject_cast<const SWMMAttributeTableModel *>(src))
+        return swmm->columnSpecs();
+    if (auto *mesh = qobject_cast<const MeshAttributeTableModel *>(src))
+        return mesh->columnSpecs();
+    return {};
+}
+
+// Evaluates one QueryPredicate against a source model, materialising ONLY
+// the columns the predicate actually names.
+//
+// This used to build a whole-row QVariantMap over every column — and then
+// a second one over columnSpecs() — just to test a predicate that reads
+// one or two of them.  On the 272k-conduit corpus model that was ~30M
+// data() calls per filter pass, each carrying a ~101-deep string-compare
+// tag dispatch and an engine name→index lookup.  Resolving field name →
+// column once in bind() makes it ~one data() call per row per referenced
+// field.
+class RowPredicate {
+public:
+    /*! Resolve `p`'s field names against `src`'s columns.  Cheap to call
+     *  again; it is the per-row work this exists to avoid. */
+    void bind(QAbstractItemModel *src, const openswmmvis::QueryPredicate &p)
+    {
+        m_src  = src;
+        m_pred = p;
+        m_cols.clear();
+        if (!src || !p.isValid()) return;
+
+        const auto specs = specsFor(src);
+        const int  nCol  = src->columnCount();
+
+        for (const QString &field : openswmmvis::queryFieldNames(p)) {
+            int hit = -1;
+            // Two passes so an exact match anywhere beats a
+            // case-insensitive one earlier in the table.
+            for (int pass = 0; pass < 2 && hit < 0; ++pass) {
+                const auto cs = (pass == 0) ? Qt::CaseSensitive
+                                            : Qt::CaseInsensitive;
+                for (int c = 0; c < nCol; ++c) {
+                    // Compound cells hand back a QVariant-wrapped edit-ref
+                    // struct that no predicate can compare against, and
+                    // reading one runs an engine-wide scan (LID usages,
+                    // land uses, pollutants).  Never resolve to one.
+                    if (c < specs.size()
+                        && specs[c].editor == openswmmvis::EditorKind::Compound)
+                        continue;
+                    const bool match =
+                        (c < specs.size()
+                         && (QString::compare(specs[c].key,   field, cs) == 0
+                          || QString::compare(specs[c].label, field, cs) == 0))
+                        || QString::compare(
+                               src->headerData(c, Qt::Horizontal,
+                                               Qt::DisplayRole).toString(),
+                               field, cs) == 0;
+                    if (match) { hit = c; break; }
+                }
+            }
+            // A field naming no column contributes no map entry, which is
+            // exactly what the old all-columns build did for an unknown
+            // name: lookupField returns an invalid QVariant and every
+            // comparison against it is false.
+            if (hit >= 0) m_cols.append({hit, field});
+        }
+    }
+
+    [[nodiscard]] bool accepts(int srcRow, const QModelIndex &parent = {}) const
+    {
+        if (!m_pred.root) return true;   // no filter
+        if (!m_src) return true;
+        QVariantMap m;
+        for (const auto &col : m_cols) {
+            const QModelIndex idx = m_src->index(srcRow, col.first, parent);
+            // Keyed by the name as the user typed it, so lookupField's
+            // exact-key probe hits and its linear fallback never runs.
+            m.insert(col.second, m_src->data(idx, Qt::DisplayRole));
+        }
+        return openswmmvis::evaluateQuery(m_pred, m);
+    }
+
+private:
+    QAbstractItemModel          *m_src = nullptr;
+    openswmmvis::QueryPredicate  m_pred;
+    QVector<QPair<int, QString>> m_cols;   // (source column, field as typed)
+};
+
+// Slice Z.2 — proxy that composes the "show selected only" name filter
+// with a query-predicate filter.  A row is accepted when (a) its name is
+// in the selected-name set (when that filter is active), AND (b) the
+// predicate evaluates true (when set).  Either filter being unset is a
+// pass.
+//
+// The name filter used to be a QSortFilterProxyModel regex built as an
+// alternation over every selected name — `^(?:a|b|c|…)$` — which was
+// recompiled and re-matched against every row on each selection change.
+// A QSet probe is the same test without the quadratic blowup.
 class FilteringProxy : public QSortFilterProxyModel {
 public:
     explicit FilteringProxy(QObject *parent = nullptr)
         : QSortFilterProxyModel(parent) {}
 
-    void setQueryPredicate(const openswmmvis::QueryPredicate &p) {
+    /*! `text` is the string `p` was parsed from; `queryText()` hands it
+     *  back so callers can tell whether the proxy's visible rows are
+     *  still the match set for what is in the query bar. */
+    void setQueryPredicate(const openswmmvis::QueryPredicate &p,
+                           const QString &text = {})
+    {
         m_predicate = p;
+        m_queryText = text;
+        m_bound     = false;
         invalidateFilter();
+    }
+    [[nodiscard]] QString queryText() const { return m_queryText; }
+
+    /*! Restrict to rows whose name (column `filterKeyColumn()`) is in
+     *  `names`.  `active == false` clears the restriction; an empty set
+     *  with `active == true` matches nothing, which is what the old
+     *  `(?!)` sentinel pattern expressed. */
+    void setNameFilter(const QSet<QString> &names, bool active)
+    {
+        if (m_nameFilterActive == active && m_names == names) return;
+        m_names            = names;
+        m_nameFilterActive = active;
+        invalidateFilter();
+    }
+    [[nodiscard]] bool nameFilterActive() const { return m_nameFilterActive; }
+
+    /*! Does the query predicate alone accept this source row?  Ignores
+     *  the name filter — selection ops operate on the full population. */
+    [[nodiscard]] bool queryAcceptsSourceRow(int row) const
+    {
+        ensureBound();
+        return m_rp.accepts(row);
+    }
+
+    void setSourceModel(QAbstractItemModel *src) override
+    {
+        if (auto *old = sourceModel())
+            disconnect(old, &QAbstractItemModel::modelReset, this, nullptr);
+        QSortFilterProxyModel::setSourceModel(src);
+        m_bound = false;
+        // A category switch resets the model AND rebuilds its column
+        // schema while the predicate persists, so cached column indices
+        // would otherwise point into the previous category's schema.
+        if (src)
+            connect(src, &QAbstractItemModel::modelReset, this,
+                    [this] { m_bound = false; });
     }
 
 protected:
     bool filterAcceptsRow(int row, const QModelIndex &parent) const override {
-        // Existing regex-on-name filter (show-selected-only).
-        if (!QSortFilterProxyModel::filterAcceptsRow(row, parent)) return false;
-        if (!m_predicate.isValid()) return true;
-
-        // Build a QVariantMap of this row's column-key → value pairs
-        // so the predicate can reference any column by header.  Works
-        // for both SWMMAttributeTableModel (column keys = ColumnSpec
-        // keys) and TabularDataTableModel (column keys = CSV/TSV
-        // headers).  Generic over any QAbstractItemModel.
         auto *src = sourceModel();
         if (!src) return true;
-        QVariantMap m;
-        const int nCol = src->columnCount();
-        for (int c = 0; c < nCol; ++c) {
-            const QString key = src->headerData(c, Qt::Horizontal,
-                                                  Qt::DisplayRole).toString();
-            const QModelIndex idx = src->index(row, c, parent);
-            m.insert(key, src->data(idx, Qt::DisplayRole));
+        if (m_nameFilterActive) {
+            const QModelIndex nameIdx =
+                src->index(row, filterKeyColumn(), parent);
+            if (!m_names.contains(src->data(nameIdx, filterRole()).toString()))
+                return false;
         }
-        // SWMMAttributeTableModel also exposes the identifyByName-map
-        // keys as columnSpecs keys, which match the labels.  For
-        // backward compat keep those entries too so users can
-        // type either spelling.
-        if (auto *swmm = qobject_cast<SWMMAttributeTableModel *>(src)) {
-            const auto specs = swmm->columnSpecs();
-            for (int c = 0; c < specs.size(); ++c) {
-                const QModelIndex idx = swmm->index(row, c, parent);
-                m.insert(specs[c].key, swmm->data(idx, Qt::DisplayRole));
-            }
-        }
-        return openswmmvis::evaluateQuery(m_predicate, m);
+        if (!m_predicate.isValid()) return true;
+        ensureBound();
+        return m_rp.accepts(row, parent);
     }
 
 private:
+    void ensureBound() const {
+        if (m_bound) return;
+        m_rp.bind(sourceModel(), m_predicate);
+        m_bound = true;
+    }
+
     openswmmvis::QueryPredicate m_predicate;
+    QString                     m_queryText;
+    QSet<QString>               m_names;
+    bool                        m_nameFilterActive = false;
+    mutable RowPredicate        m_rp;
+    mutable bool                m_bound = false;
 };
 
 } // anonymous
 
 namespace {
+
+// Apply a set of SOURCE rows to the view's selection in one emission.
+// Selecting one index at a time makes QItemSelectionModel re-merge its
+// whole range list per call and fire selectionChanged on each, so a
+// large selection was quadratic; coalescing contiguous runs into ranges
+// and issuing a single select() is the same result in one pass.
+//
+// ClearAndSelect with an empty selection clears, which is what the
+// preceding clearSelection() used to do.
+void selectSourceRows(QItemSelectionModel *sel, QSortFilterProxyModel *proxy,
+                      QAbstractItemModel *src, const QList<int> &srcRows)
+{
+    if (!sel || !proxy || !src) return;
+    const int lastCol = proxy->columnCount() - 1;
+    QList<int> prxRows;
+    prxRows.reserve(srcRows.size());
+    for (int r : srcRows) {
+        const QModelIndex p = proxy->mapFromSource(src->index(r, 0));
+        if (p.isValid()) prxRows << p.row();
+    }
+    std::sort(prxRows.begin(), prxRows.end());
+    prxRows.erase(std::unique(prxRows.begin(), prxRows.end()), prxRows.end());
+
+    QItemSelection selection;
+    if (lastCol >= 0) {
+        for (int i = 0; i < prxRows.size(); ) {
+            int j = i;
+            while (j + 1 < prxRows.size() && prxRows[j + 1] == prxRows[j] + 1) ++j;
+            selection.append(QItemSelectionRange(
+                proxy->index(prxRows[i], 0), proxy->index(prxRows[j], lastCol)));
+            i = j + 1;
+        }
+    }
+    sel->select(selection, QItemSelectionModel::ClearAndSelect
+                             | QItemSelectionModel::Rows);
+}
 
 // Map Category → the SWMMObjectRef ObjectType the SelectionManager
 // understands.  Nodes / Links collapse multiple categories into one
@@ -604,7 +772,10 @@ void AttributeTablePanel::buildUi()
             });
     m_proxy->setSortRole(Qt::DisplayRole);
     m_proxy->setFilterKeyColumn(0);  // Name column drives "show selected only"
-    m_proxy->setFilterCaseSensitivity(Qt::CaseInsensitive);
+    // No setFilterCaseSensitivity: the name filter is a QSet probe now,
+    // and both sides of it are the model's own spelling of the name
+    // (the set is built from refs that came out of objectNameAt(), which
+    // is also what column 0 displays), so an exact match always holds.
 
     m_view = new QTableView(this);
     m_view->setModel(m_proxy);
@@ -1280,19 +1451,14 @@ QSet<SWMMObjectRef> AttributeTablePanel::meshRefs(bool applyQuery) const
         if (!text.isEmpty() && !pred.isValid()) return out;
     }
 
-    const auto specs = m_meshModel->columnSpecs();
+    // Same column-resolving predicate the proxy filters with, so the mesh
+    // selection ops and the visible rows agree — and so a query naming one
+    // column reads one column per row instead of every column.
+    RowPredicate rp;
+    rp.bind(m_meshModel, pred);
     const int nRow = m_meshModel->rowCount();
     for (int row = 0; row < nRow; ++row) {
-        if (pred.root) {
-            QVariantMap m;
-            for (int c = 0; c < specs.size(); ++c) {
-                const QVariant val =
-                    m_meshModel->data(m_meshModel->index(row, c), Qt::DisplayRole);
-                m.insert(specs[c].key,   val);
-                m.insert(specs[c].label, val);
-            }
-            if (!openswmmvis::evaluateQuery(pred, m)) continue;
-        }
+        if (!rp.accepts(row)) continue;
         const SWMMObjectRef ref = m_meshModel->refForRow(row);
         if (ref.isValid()) out.insert(ref);
     }
@@ -1336,29 +1502,20 @@ void AttributeTablePanel::meshSelectionFromBus(const QSet<SWMMObjectRef> &curren
         if (row >= 0) rows << row;
     }
 
+    auto *fp = static_cast<FilteringProxy *>(m_proxy);
     if (m_showSelectedOnly) {
-        QStringList ids;
+        QSet<QString> ids;
+        ids.reserve(rows.size());
         for (int row : std::as_const(rows)) {
-            ids << QRegularExpression::escape(
-                m_meshModel->data(m_meshModel->index(row, 0),
-                                  Qt::DisplayRole).toString());
+            ids.insert(m_meshModel->data(m_meshModel->index(row, 0),
+                                         Qt::DisplayRole).toString());
         }
-        m_proxy->setFilterRegularExpression(
-            ids.isEmpty()
-                ? QRegularExpression(QStringLiteral("(?!)"))   // never matches
-                : QRegularExpression(QStringLiteral("^(?:%1)$").arg(ids.join('|'))));
-    } else if (!m_proxy->filterRegularExpression().pattern().isEmpty()) {
-        m_proxy->setFilterRegularExpression(QRegularExpression());
+        fp->setNameFilter(ids, true);
+    } else {
+        fp->setNameFilter({}, false);
     }
 
-    sel->clearSelection();
-    for (int row : std::as_const(rows)) {
-        const QModelIndex prxIdx =
-            m_proxy->mapFromSource(m_meshModel->index(row, 0));
-        if (prxIdx.isValid())
-            sel->select(prxIdx,
-                        QItemSelectionModel::Select | QItemSelectionModel::Rows);
-    }
+    selectSourceRows(sel, m_proxy, m_meshModel, rows);
 
     m_applyingFromBus = false;
 }
@@ -1411,37 +1568,30 @@ void AttributeTablePanel::onSelectionManagerChanged(
 
     // "Show selected only" filter — only rows whose names are in the
     // current selection are visible.  Edge case: 0 matching refs with
-    // filter on → use a regex that matches nothing.
+    // the filter on → an empty set, which matches nothing.
+    auto *fp = static_cast<FilteringProxy *>(m_proxy);
     if (m_showSelectedOnly) {
-        QStringList names;
-        for (const auto &ref : current) {
-            if (ref.objectType == type)
-                names << QRegularExpression::escape(ref.name);
-        }
-        if (names.isEmpty())
-            m_proxy->setFilterRegularExpression(
-                QRegularExpression(QStringLiteral("(?!)")));   // never matches
-        else
-            m_proxy->setFilterRegularExpression(
-                QRegularExpression(QStringLiteral("^(?:%1)$").arg(names.join('|'))));
-    } else if (!m_proxy->filterRegularExpression().pattern().isEmpty()) {
-        // Only clear when something was actually set — avoid a
-        // gratuitous model reset on every selection change.
-        m_proxy->setFilterRegularExpression(QRegularExpression());
+        QSet<QString> names;
+        names.reserve(current.size());
+        for (const auto &ref : current)
+            if (ref.objectType == type) names.insert(ref.name);
+        fp->setNameFilter(names, true);
+    } else {
+        // setNameFilter early-returns when nothing changes, so this no
+        // longer needs the "only clear when something was set" guard
+        // that avoided a gratuitous reset on every selection change.
+        fp->setNameFilter({}, false);
     }
 
     // Now sync the view's row selection to the current set.
-    sel->clearSelection();
+    QList<int> rows;
+    rows.reserve(current.size());
     for (const auto &ref : current) {
         if (ref.objectType != type) continue;
         const int srcRow = m_model->rowForName(ref.name);
-        if (srcRow < 0) continue;
-        const QModelIndex srcIdx = m_model->index(srcRow, 0);
-        const QModelIndex prxIdx = m_proxy->mapFromSource(srcIdx);
-        if (prxIdx.isValid())
-            sel->select(prxIdx,
-                        QItemSelectionModel::Select | QItemSelectionModel::Rows);
+        if (srcRow >= 0) rows << srcRow;
     }
+    selectSourceRows(sel, m_proxy, m_model, rows);
 
     m_applyingFromBus = false;
 }
@@ -1452,7 +1602,7 @@ void AttributeTablePanel::onShowSelectedOnlyToggled(bool on)
     if (m_selMgr)
         onSelectionManagerChanged(m_selMgr->selection(), {}, {});
     else
-        m_proxy->setFilterRegularExpression(QRegularExpression());
+        static_cast<FilteringProxy *>(m_proxy)->setNameFilter({}, false);
 }
 
 void AttributeTablePanel::onRowHeaderDoubleClicked(int row)
@@ -2096,9 +2246,15 @@ void AttributeTablePanel::onQueryApplyClicked()
         return;
     }
     m_queryEdit->setStyleSheet(QString());
-    fp->setQueryPredicate(pred);
+
+    // Per-leg timings for the perf harness. Off unless
+    // QT_LOGGING_RULES="openswmm.attr-table.debug=true".
+    QElapsedTimer legTimer;
+    legTimer.start();
+    fp->setQueryPredicate(pred, text);
 
     const int matched = m_proxy->rowCount();
+    const qint64 filterMs = legTimer.restart();
     const int total   = m_proxy->sourceModel() ? m_proxy->sourceModel()->rowCount() : 0;
     if (text.isEmpty())
         m_queryStatus->setText(tr("%1 row%2")
@@ -2114,6 +2270,11 @@ void AttributeTablePanel::onQueryApplyClicked()
     // make the rows actually highlight — which the user pointed
     // out was confusing.
     onSelectionApplyClicked();
+
+    qCDebug(lcAttrTbl).noquote()
+        << "query apply: filter_ms=" << filterMs
+        << " select_ms=" << legTimer.elapsed()
+        << " matched=" << matched << "/" << total;
 }
 
 void AttributeTablePanel::onQueryClearClicked()
@@ -2123,7 +2284,7 @@ void AttributeTablePanel::onQueryClearClicked()
     if (!fp) return;
     m_queryEdit->clear();
     m_queryEdit->setStyleSheet(QString());
-    fp->setQueryPredicate({});
+    fp->setQueryPredicate({}, {});
     if (m_queryStatus) {
         const int total = m_proxy->sourceModel()
                               ? m_proxy->sourceModel()->rowCount() : 0;
@@ -2147,31 +2308,43 @@ QSet<SWMMObjectRef> AttributeTablePanel::matchedRefs() const
     const SWMMObjectRef::ObjectType type =
         objectTypeForCategory(m_model->category());
     const QString text = m_queryEdit->text().trimmed();
+    auto *fp = static_cast<FilteringProxy *>(m_proxy);
+
+    // Fast path — the proxy has already evaluated this exact query, so its
+    // visible rows ARE the match set.  This is the Apply path
+    // (onQueryApplyClicked sets the predicate, then calls us through
+    // onSelectionApplyClicked), which used to walk the whole grid a second
+    // time to recompute what the filter had just computed.
+    //
+    // Only valid when the name filter is off: matchedRefs is documented to
+    // ignore "show selected only" so the selection ops act on the full
+    // population, and the proxy's rows are intersected with it when it's on.
+    if (fp && !fp->nameFilterActive() && fp->queryText() == text) {
+        const int nVisible = m_proxy->rowCount();
+        for (int r = 0; r < nVisible; ++r) {
+            const int srcRow =
+                m_proxy->mapToSource(m_proxy->index(r, 0)).row();
+            const QString name = m_model->objectNameAt(srcRow);
+            if (!name.isEmpty()) out.insert(SWMMObjectRef(type, name));
+        }
+        return out;
+    }
+
+    // Slow path — the query bar was edited without pressing Apply, or the
+    // name filter is on.  Evaluate directly, but through the same
+    // column-resolving predicate the proxy uses so the two always agree.
     const auto pred = openswmmvis::parseQuery(text);
     // Parse error → empty match set (the query bar shows the error
     // already; the selection ops are no-ops rather than surprising).
     if (!text.isEmpty() && !pred.isValid()) return out;
 
-    const auto specs = m_model->columnSpecs();
+    RowPredicate rp;
+    rp.bind(m_model, pred);
     const int nRow = m_model->rowCount();
     for (int row = 0; row < nRow; ++row) {
         const QString name = m_model->objectNameAt(row);
         if (name.isEmpty()) continue;
-        if (pred.root) {
-            // Build a value map keyed by BOTH the identify-map key
-            // (e.g. "Node type") and the user-facing header label
-            // (e.g. "Type") so the query accepts either spelling.
-            // Mirrors `FilteringProxy::filterAcceptsRow` so the
-            // selection ops and the visible-row filter agree.
-            QVariantMap m;
-            for (int c = 0; c < specs.size(); ++c) {
-                const QModelIndex idx = m_model->index(row, c);
-                const QVariant val = m_model->data(idx, Qt::DisplayRole);
-                m.insert(specs[c].key,   val);
-                m.insert(specs[c].label, val);
-            }
-            if (!openswmmvis::evaluateQuery(pred, m)) continue;
-        }
+        if (!rp.accepts(row)) continue;
         out.insert(SWMMObjectRef(type, name));
     }
     return out;
