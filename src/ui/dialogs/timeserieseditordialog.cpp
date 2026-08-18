@@ -93,6 +93,14 @@ TimeseriesEditorDialog::TimeseriesEditorDialog(TimeseriesRegistry *registry,
     , m_undoStack(undoStack)
     , m_registry(registry)
 {
+    // Default the relative-path display anchor from the registry, which the
+    // model layer keeps pointed at the project's .inp directory. setProjectAnchor
+    // had no production caller, so m_projectAnchor was permanently empty and
+    // every file-backed series showed a raw absolute path — even though the
+    // path written to the .inp was relative. An explicit setProjectAnchor()
+    // still overrides this.
+    if (m_registry) m_projectAnchor = m_registry->projectAnchor();
+
     setWindowTitle(tr("Time Series Editor"));
     // Step E.2 — objectName drives QSettings group + helper findChild lookup.
     setObjectName(QStringLiteral("TimeseriesEditorDialog"));

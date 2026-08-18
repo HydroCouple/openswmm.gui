@@ -114,6 +114,23 @@ public:
      *         cancel. */
     bool saveProjectWindowAs(SWMMVisProjectWindow *pw);
 
+    /*! \brief Run the pre-save portability check for \p pw against
+     *         \p targetPath and log any warnings.
+     *
+     *  Advance preview of the cross-volume / missing-file diagnostics the
+     *  engine's writer produces, so they land in the log panel next to the
+     *  save-success line instead of only inside the saved file. Non-blocking.
+     *  Called from BOTH Save and Save As — it used to run only on Save As, so
+     *  a plain Save of a model with an unportable reference reported nothing.
+     *
+     *  \param pw          Project window; no-op when it has no live engine.
+     *  \param targetPath  Path the save will write to.
+     *  \param isGpkg      True for a GeoPackage export, false for `.inp`.
+     */
+    void logPortabilityPreflight(SWMMVisProjectWindow *pw,
+                                 const QString &targetPath,
+                                 bool isGpkg);
+
 public slots:
     /*!
      * \brief Appends a log entry to the Message Log dock panel.

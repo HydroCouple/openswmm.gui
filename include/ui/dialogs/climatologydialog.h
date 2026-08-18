@@ -29,6 +29,8 @@ class QStackedWidget;
 
 class SWMMModelLayer;
 
+namespace openswmmvis::ui { class RelativePathPicker; }
+
 /*!
  * \class ClimatologyDialog
  * \brief Modal editor for the model climatology configuration.
@@ -59,12 +61,17 @@ public:
     /*! Select the tab a toolbar button maps to. */
     void setCurrentTab(int idx);
 
+    /*! Directory of the project's `.inp`, used to show and commit the climate
+     *  file relative to the project. Set by the caller, which knows the model
+     *  layer — deriving it here would drag SWMMModelLayer's implementation into
+     *  every target that links this dialog. Empty = absolute paths. */
+    void setProjectAnchor(const QString &dir);
+
 private slots:
     void onAccept();
     void onEvapTypeChanged();
     void onTempSourceChanged();
     void onWindTypeChanged();
-    void onBrowseTempFile();
     void onAdcPreset(int column, bool natural);
     void onClearAdjustments();
 
@@ -96,7 +103,8 @@ private:
     // --- Temperature ---
     QComboBox      *m_tempSource     = nullptr;  // 0 None / 1 TimeSeries / 2 File
     QComboBox      *m_tempTs         = nullptr;
-    QLineEdit      *m_tempFile       = nullptr;
+    openswmmvis::ui::RelativePathPicker *m_tempFile = nullptr;
+    QString         m_projectAnchor;  ///< .inp dir; see setProjectAnchor.
     QCheckBox      *m_tempStartCheck = nullptr;
     QDateEdit      *m_tempStartDate  = nullptr;
     QComboBox      *m_tempUnits      = nullptr;  // -1 Auto / 0 C10 / 1 C / 2 F
