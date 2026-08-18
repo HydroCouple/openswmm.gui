@@ -31,9 +31,12 @@
  *         scrollback.
  */
 #include "layers/swmmmodellayer.h"
+#include "map/mapundostack.h"
 #include "selection/selectionmanager.h"
 #include "ui/panels/attributetablepanel.h"
 #include "ui/panels/swmmattributetablemodel.h"
+
+#include <openswmm/engine/openswmm_nodes.h>
 
 #include <QComboBox>
 #include <QCoreApplication>
@@ -246,6 +249,98 @@ private slots:
                 selMgr.select(QSet<SWMMObjectRef>{}, SelectionManager::Replace);
             }
         }
+
+        report(rows);
+    }
+
+    //! Bulk delete, split into GUI overhead vs the engine's own floor.
+    //!
+    //! `engine_delete_floor` deletes N nodes straight through the C API on
+    //! its own layer, bypassing the GUI entirely. Every other phase goes
+    //! through the real undo-command path. `bulk_delete_redo` minus
+    //! `engine_delete_floor` is therefore the GUI overhead — the number the
+    //! batching work drives toward zero — and what remains is the engine
+    //! cost, which no change in this repo can remove.
+    //!
+    //! Separate slot with its own layer because deletion mutates the model;
+    //! running it inside attributeTablePhases() would corrupt those timings.
+    //! Opt-in via SWMMVIS_ATTR_PERF_DELETE_N so existing perf runs are
+    //! unaffected.
+    void bulkDeletePhases()
+    {
+        const int nDel = qEnvironmentVariableIntValue("SWMMVIS_ATTR_PERF_DELETE_N");
+        if (nDel <= 0)
+            QSKIP("SWMMVIS_ATTR_PERF_DELETE_N not set — bulk-delete timing skipped.");
+
+        const QString inp = perfInp();
+        const QString modelName = QFileInfo(inp).fileName();
+        QList<Row> rows;
+        QElapsedTimer t;
+
+        // ---- engine floor, on a throwaway layer --------------------------
+        {
+            auto floorLayer = std::make_unique<SWMMModelLayer>(inp, nullptr);
+            QList<QString> w, e;
+            QVERIFY2(floorLayer->loadModel(w, e), "floor layer failed to load");
+            SWMM_Engine eng = floorLayer->engine();
+            QVERIFY(eng);
+            const int avail = qMin(nDel, swmm_node_count(eng));
+            // Delete index 0 repeatedly: always valid, and it forces the
+            // maximum renumbering work, which is the cost being measured.
+            t.restart();
+            int done = 0;
+            for (int i = 0; i < avail; ++i)
+                if (swmm_node_delete(eng, 0, nullptr) == SWMM_OK) ++done;
+            record(rows, Row{modelName, QStringLiteral("-"),
+                             QStringLiteral("engine_delete_floor"),
+                             t.elapsed(), done});
+        }
+
+        // ---- the real GUI path -------------------------------------------
+        auto layer = std::make_unique<SWMMModelLayer>(inp, nullptr);
+        QList<QString> warnings, errors;
+        QVERIFY2(layer->loadModel(warnings, errors), "layer failed to load");
+
+        MapUndoStack stack;
+        QStringList names;
+        names.reserve(nDel);
+        const int nJunc = layer->categoryCount(SWMMModelLayer::CatJunctions);
+        for (int r = 0; r < qMin(nDel, nJunc); ++r) {
+            const QString n = layer->objectNameAt(SWMMModelLayer::CatJunctions, r);
+            if (!n.isEmpty()) names << n;
+        }
+        QVERIFY2(!names.isEmpty(), "no junctions to delete");
+        const int nNames = static_cast<int>(names.size());
+
+        // MapCommand only stores the canvas pointer; redo()/undo() never
+        // dereference it, so a null canvas is a valid rig here.
+        //
+        // BulkEditCommand is what the three production call sites now build.
+        // Swap it for a plain QUndoCommand to reproduce the pre-fix numbers.
+        t.restart();
+        auto *macro = new BulkEditCommand(
+            layer.get(), QStringLiteral("Delete %1 objects").arg(nNames));
+        for (const QString &n : std::as_const(names))
+            new DeleteObjectCommand(layer.get(), n,
+                                    DeleteObjectCommand::DeleteNode, nullptr, macro);
+        record(rows, Row{modelName, QStringLiteral("Junctions"),
+                         QStringLiteral("bulk_delete_snapshot"),
+                         t.elapsed(), nNames});
+
+        t.restart();
+        stack.push(macro);
+        record(rows, Row{modelName, QStringLiteral("Junctions"),
+                         QStringLiteral("bulk_delete_redo"), t.elapsed(), nNames});
+
+        t.restart();
+        stack.undo();
+        record(rows, Row{modelName, QStringLiteral("Junctions"),
+                         QStringLiteral("bulk_delete_undo"), t.elapsed(), nNames});
+
+        t.restart();
+        stack.redo();
+        record(rows, Row{modelName, QStringLiteral("Junctions"),
+                         QStringLiteral("bulk_delete_redo2"), t.elapsed(), nNames});
 
         report(rows);
     }
