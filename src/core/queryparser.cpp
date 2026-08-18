@@ -121,6 +121,10 @@ private:
 // Parser
 // ---------------------------------------------------------------------------
 
+// Defined with the evaluator below; the parser compiles LIKE patterns up
+// front so eval() doesn't rebuild the regex once per row.
+QRegularExpression likeToRegex(const QString &pattern);
+
 class Parser {
 public:
     explicit Parser(const QString &input) : m_tok(input) { advance(); }
@@ -217,6 +221,7 @@ private:
             n->kind = QueryNode::Like;
             n->fieldName = field;
             n->literal = QVariant(m_cur.text);
+            n->likeRegex = likeToRegex(m_cur.text);
             advance();
             return n;
         }
@@ -317,6 +322,27 @@ QVariant lookupField(const QVariantMap &row, const QString &name) {
     return {};
 }
 
+// Walk the AST appending every referenced field name, first-seen order,
+// no duplicates.  A predicate names one or two columns; the list stays
+// short enough that the linear `contains` is cheaper than a QSet.
+void collectFields(const QueryNode &n, QStringList &out) {
+    switch (n.kind) {
+    case QueryNode::OrOp:
+    case QueryNode::AndOp:
+        if (n.left)  collectFields(*n.left,  out);
+        if (n.right) collectFields(*n.right, out);
+        return;
+    case QueryNode::NotOp:
+        if (n.left) collectFields(*n.left, out);
+        return;
+    case QueryNode::Compare:
+    case QueryNode::Like:
+    case QueryNode::In:
+        if (!out.contains(n.fieldName)) out.append(n.fieldName);
+        return;
+    }
+}
+
 bool eval(const QueryNode &n, const QVariantMap &row) {
     switch (n.kind) {
     case QueryNode::OrOp:
@@ -342,7 +368,7 @@ bool eval(const QueryNode &n, const QVariantMap &row) {
     case QueryNode::Like: {
         const QVariant lhs = lookupField(row, n.fieldName);
         if (!lhs.isValid()) return false;
-        return likeToRegex(n.literal.toString()).match(lhs.toString()).hasMatch();
+        return n.likeRegex.match(lhs.toString()).hasMatch();
     }
     case QueryNode::In: {
         const QVariant lhs = lookupField(row, n.fieldName);
@@ -368,6 +394,12 @@ QueryPredicate parseQuery(const QString &whereClause) {
 bool evaluateQuery(const QueryPredicate &pred, const QVariantMap &row) {
     if (!pred.root) return true;  // empty / invalid → match-all
     return eval(*pred.root, row);
+}
+
+QStringList queryFieldNames(const QueryPredicate &pred) {
+    QStringList out;
+    if (pred.root) collectFields(*pred.root, out);
+    return out;
 }
 
 } // namespace openswmmvis
