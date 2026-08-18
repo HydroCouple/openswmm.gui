@@ -2478,7 +2478,15 @@ int AttributeTablePanel::deleteObjects(const QStringList &names)
 
     // Drop the current selection first so the post-delete refresh() (driven by
     // the layer's geometryChanged) doesn't try to reselect names that are gone.
-    if (auto *sm = m_view ? m_view->selectionModel() : nullptr)
+    //
+    // Clear the canonical bus, not just this view's selection model: the view
+    // clear alone leaves SelectionManager still holding all K refs, so every
+    // refresh() re-runs onSelectionManagerChanged over K names that are being
+    // deleted — O(K^2) — and the reverse bridge would republish the survivors
+    // as phantom refs naming objects that no longer exist.
+    if (m_selMgr)
+        m_selMgr->clear();
+    else if (auto *sm = m_view ? m_view->selectionModel() : nullptr)
         sm->clearSelection();
 
     MapUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr;
@@ -2488,7 +2496,8 @@ int AttributeTablePanel::deleteObjects(const QStringList &names)
         // Undoable path — one macro so Ctrl+Z reverses the whole batch. A
         // deleted node cascades its links inside DeleteObjectCommand, exactly
         // as the map's right-click delete does.
-        auto *macro = new QUndoCommand(
+        auto *macro = new BulkEditCommand(
+            m_layer,
             names.size() == 1 ? tr("Delete \"%1\"").arg(names.first())
                               : tr("Delete %1 objects").arg(names.size()));
         for (const QString &name : names)
@@ -2498,6 +2507,10 @@ int AttributeTablePanel::deleteObjects(const QStringList &names)
     } else {
         // No canvas/undo stack (headless / tests): perform the SAME mutation
         // DeleteObjectCommand::redo() performs, minus the undo record.
+        // Guarded too, so the headless path coalesces exactly like the UI one
+        // and tests exercise the same code — the terminal geometryChanged()
+        // still fires synchronously before deleteObjects() returns.
+        SWMMModelLayer::BulkEdit guard(m_layer);
         for (const QString &name : names) {
             bool ok = false;
             switch (kind) {

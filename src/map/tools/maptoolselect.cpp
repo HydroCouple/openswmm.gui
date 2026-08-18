@@ -38,6 +38,7 @@
 #include <QWidget>
 
 #include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_edit.h>   // SWMM_ImpactReport — cascade lookup
 #include <openswmm/engine/openswmm_engine.h>
 
 #include <algorithm>
@@ -667,17 +668,22 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
         const int ni = sl->nodeIndex(e.name);
         if (ni < 0) continue;
         nodeNames.insert(e.name);
-        // Find cascade links.
-        const int nLinks = swmm_link_count(eng);
-        for (int li = 0; li < nLinks; ++li) {
-            int n1 = -1, n2 = -1;
-            swmm_link_get_from_node(eng, li, &n1);
-            swmm_link_get_to_node(eng, li, &n2);
-            if (n1 == ni || n2 == ni) {
-                const char *lid = swmm_link_id(eng, li);
-                if (lid) skipLinks.insert(QString::fromUtf8(lid));
+        // Find cascade links. This loop is nested inside the per-node loop,
+        // so the old full scan was O(K*L) with two engine getters per link:
+        // deleting 1000 selected nodes from an all-pipes model meant ~562
+        // MILLION engine calls before a single object was removed. The
+        // engine already knows the answer — ask it once per node.
+        // Nothing is deleted yet, so every reported index is still live.
+        SWMM_ImpactReport report{};
+        if (swmm_node_analyze_impact(eng, ni, &report) == 0) {
+            for (int i = 0; i < report.n_entries; ++i) {
+                const SWMM_ImpactEntry &en = report.entries[i];
+                if (en.obj_type != SWMM_REF_LINK || !en.cascaded) continue;
+                if (const char *lid = swmm_link_id(eng, en.obj_idx))
+                    skipLinks.insert(QString::fromUtf8(lid));
             }
         }
+        swmm_impact_report_free(&report);
     }
 
     // Second pass: build the delete list, excluding cascade-handled links.
@@ -740,7 +746,7 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
             // Explicit cascade delete chosen — skip the generic confirm.
             sl->setSelectedElementNames({});
             emit selectionChanged(sl);
-            auto *macro = new QUndoCommand(QObject::tr("Delete Objects"));
+            auto *macro = new BulkEditCommand(sl, QObject::tr("Delete Objects"));
             new DeleteObjectCommand(sl, toDelete.first().name,
                                     DeleteObjectCommand::DeleteNode,
                                     m_canvas, macro);
@@ -822,8 +828,9 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
     sl->setSelectedElementNames({});
     emit selectionChanged(sl);
 
-    // Group all deletes under one parent so Ctrl+Z undoes them together.
-    auto *macro = new QUndoCommand(QObject::tr("Delete Objects"));
+    // Group all deletes under one parent so Ctrl+Z undoes them together, and
+    // so the whole batch shares a single cache rebuild in both directions.
+    auto *macro = new BulkEditCommand(sl, QObject::tr("Delete Objects"));
     for (const ObjInfo &obj : toDelete)
         new DeleteObjectCommand(sl, obj.name, obj.kind, m_canvas, macro);
 

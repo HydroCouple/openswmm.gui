@@ -36,6 +36,7 @@ struct SWMMKdTrees;
 #include <QMap>
 #include <QPen>
 #include <QBrush>
+#include <QPointer>
 #include <QPolygonF>
 #include <QSet>
 #include <QVariantMap>
@@ -1650,6 +1651,54 @@ public:
     bool applyRename(const QString &oldName, const QString &newName,
                      quint8 kindHint = kKindAll);
 
+    // ===== Bulk edit — coalesce the per-object cache-rebuild storm =======
+    //
+    // Every applyXxxAdd / applyXxxDelete rebuilds the whole derived cache
+    // (category index, model extent, link spatial grid) and then emits
+    // repaintRequested() + geometryChanged(), whose listeners each do
+    // O(model) work of their own. That is affordable for one object and
+    // quadratic for a selection: deleting 100 junctions from a 104k-node
+    // model costs ~21 s, of which only ~4.6 s is the engine.
+    //
+    // Inside a bulk edit the engine call and the SoA removal/append still
+    // happen IMMEDIATELY — only the derived work is deferred. That is
+    // deliberate: it keeps the "SoA index == engine index" invariant true
+    // at every instant, which the rest of this class relies on.
+    //
+    // Always use the RAII BulkEdit guard; never call beginBulkEdit() /
+    // endBulkEdit() by hand. A batch that begins and never ends would
+    // leave the layer permanently signal-blocked with stale caches.
+    class BulkEdit
+    {
+    public:
+        explicit BulkEdit(SWMMModelLayer *layer) : m_layer(layer)
+        {
+            if (m_layer) m_layer->beginBulkEdit();
+        }
+        ~BulkEdit()
+        {
+            if (m_layer) m_layer->endBulkEdit();
+        }
+        BulkEdit(const BulkEdit &)            = delete;
+        BulkEdit &operator=(const BulkEdit &) = delete;
+
+    private:
+        QPointer<SWMMModelLayer> m_layer;
+    };
+
+    /*! Open a bulk-edit scope. Nestable; only the outermost pair does work.
+     *  Prefer the BulkEdit guard. */
+    void beginBulkEdit();
+
+    /*! Close a bulk-edit scope. On the outermost close, rebuilds every
+     *  derived cache once and emits repaintRequested() + geometryChanged()
+     *  exactly once — but only if a mutation actually occurred. */
+    void endBulkEdit();
+
+    /*! True while a bulk-edit scope is open. The applyXxxAdd/Delete
+     *  helpers consult this to skip their per-object derived work. */
+    [[nodiscard]] bool bulkEditActive() const { return m_bulkDepth > 0; }
+
     /*!
      * \brief Delete a node, cascade-deleting all attached links.
      * \details Identifies cascade links before deletion so the caller can
@@ -2057,6 +2106,27 @@ private:
     void compactCatchSceneEntry(int catchIdx);
     void compactGageSceneEntry(int gageIdx);
 
+    /*!
+     * \brief Re-read every link's from/to node index from the engine.
+     * \details LinkGeom::fromNodeIdx / toNodeIdx is authoritative data, not
+     *          a derived cache: it is written only at load, VJ-fuse and
+     *          link-add, and rebuildSceneCoords() consumes it rather than
+     *          recomputing it. So buildGeometryCache() does NOT restore it,
+     *          while compactNodeSceneEntry() — which endBulkEdit() skipped —
+     *          is what renumbers it during ordinary single deletes.
+     *
+     *          Without this call at batch end, every link after a deleted
+     *          node would resolve to the wrong endpoints and be drawn
+     *          SILENTLY wrong. One O(L) pass, and stronger than replaying
+     *          the per-delete deltas because it reads truth from the engine
+     *          instead of assuming the deltas were all applied.
+     *
+     *          Called only from endBulkEdit() — deliberately NOT from
+     *          buildGeometryCache(), which is on the model-load path where
+     *          the SoA is already authoritative.
+     */
+    void syncLinkEndpointIndicesFromEngine();
+
     /*! Update name-keyed indices (m_objectLocation, m_nameToSoa,
      *  m_hiddenObjects/m_hiddenKindMask) when a single element is renamed.
      *  Geometry is unchanged, so this is the only work needed — caller
@@ -2080,6 +2150,13 @@ private:
     // SWMMLayerQSGRenderer uses this to invalidate its subcatchment
     // triangulation cache without needing a signal or pointer comparison.
     quint64 m_geomRevision = 0;
+
+    // Bulk-edit scope depth, and whether anything inside it actually
+    // mutated. m_bulkDirty gates the batch-end rebuild so an all-failed
+    // batch costs nothing — and so a batch of pure no-ops does not emit a
+    // spurious geometryChanged().
+    int  m_bulkDepth = 0;
+    bool m_bulkDirty = false;
 
     /*!
      * \brief Uniform-grid spatial index over scene-space link bboxes.
