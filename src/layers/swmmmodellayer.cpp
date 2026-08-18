@@ -3594,8 +3594,9 @@ QVariantMap SWMMModelLayer::identifyByName(const QString &name) const
                     m[QStringLiteral("Max overflow")] = v;
                 if (swmm_node_get_stat_vol_flooded(m_engine, idx, &v) == SWMM_OK)
                     m[QStringLiteral("Vol flooded")] = v;
+                // Engine reports SECONDS; the key advertises hours.
                 if (swmm_node_get_stat_time_flooded(m_engine, idx, &v) == SWMM_OK)
-                    m[QStringLiteral("Time flooded (hr)")] = v;
+                    m[QStringLiteral("Time flooded (hr)")] = v / 3600.0;
                 // Canonical static fields, keyed exactly as advertised by
                 // availableAttributes(). Graduated/categorized classification
                 // (classifyGraduatedIfNeeded) and the per-feature symbolFor

@@ -954,8 +954,11 @@ SWMMResultsLayer::NodeStats SWMMResultsLayer::nodeStatsFor(int outIdx) const
         st.maxOverflow = v;
     if (swmm_output_get_node_stat_vol_flooded(m_handle, outIdx, &v) == 0)
         st.volFlooded = v;
+    // Seconds out of the engine (OutputReader counts flooded periods and
+    // multiplies by report_step); the column is "Time Flooded (hr)", and
+    // this used to be handed over unconverted — a 3600x overstatement.
     if (swmm_output_get_node_stat_time_flooded(m_handle, outIdx, &v) == 0)
-        st.timeFlooded = v;
+        st.timeFloodedHr = v / 3600.0;
 
     m_nodeStats.insert(outIdx, st);
     return st;
@@ -978,7 +981,7 @@ double SWMMResultsLayer::nodeStatVolFlooded(const QString &nodeName) const
 
 double SWMMResultsLayer::nodeStatTimeFlooded(const QString &nodeName) const
 {
-    return nodeStatsFor(nodeOutputIndex(nodeName)).timeFlooded;
+    return nodeStatsFor(nodeOutputIndex(nodeName)).timeFloodedHr;
 }
 
 // ---------------------------------------------------------------------------
