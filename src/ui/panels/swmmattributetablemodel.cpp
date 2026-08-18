@@ -1379,12 +1379,27 @@ int exfilImdSet(SWMM_Engine e, int idx, double v) {
     return swmm_node_set_exfil_params(e, idx, s, k, v);
 }
 
-// Pump on-time is the one statistic the engine reports in seconds; every
-// other duration (node time-flooded, link surcharge time) is already hours.
-// Convert here so the column can be labelled in hours like its neighbours.
+// Durations the engine reports in SECONDS, shown in hours.
+//
+// The claim that used to sit here — "pump on-time is the one statistic the
+// engine reports in seconds; node time-flooded is already hours" — was
+// wrong about node time-flooded. `swmm_node_get_stat_time_flooded` and its
+// .out counterpart both return seconds (OutputReader multiplies the
+// flooded period count by report_step, and statsrpt.c divides by 3600 for
+// its display-only "hours" column), while the column here has always been
+// labelled "Time Flooded (hr)" — so the cell read 3600x high.
+//
+// Link surcharge time genuinely is hours already (linkStatsFor divides).
 int pumpOnTimeHoursGet(SWMM_Engine e, int idx, double *v) {
     double seconds = 0.0;
     const int rc = swmm_link_get_stat_pump_on_time(e, idx, &seconds);
+    *v = seconds / 3600.0;
+    return rc;
+}
+
+int nodeTimeFloodedHoursGet(SWMM_Engine e, int idx, double *v) {
+    double seconds = 0.0;
+    const int rc = swmm_node_get_stat_time_flooded(e, idx, &seconds);
     *v = seconds / 3600.0;
     return rc;
 }
@@ -1526,7 +1541,7 @@ SetterEntry setterForUncached(const QString &tag) {
     if (tag == QStringLiteral("node_stat_vol_flooded"))
         return {EntityKind::Node, nullptr, &swmm_node_get_stat_vol_flooded};
     if (tag == QStringLiteral("node_stat_time_flooded"))
-        return {EntityKind::Node, nullptr, &swmm_node_get_stat_time_flooded};
+        return {EntityKind::Node, nullptr, &nodeTimeFloodedHoursGet};
     if (tag == QStringLiteral("node_degree")) {
         e.kind   = EntityKind::Node;
         e.getFnI = &swmm_node_get_degree;
@@ -3050,13 +3065,18 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
     // Compound columns — the actual writes (Add RDII, set treatment
     // expression, etc.) happen inside NodeCompoundEditDialog as the
     // user commits each row. By the time the delegate fires setData
-    // here, engine state is already updated. We just invalidate the
-    // row cache so the summary recomputes on the next paint and
-    // notify external listeners (Property Browser) to refresh.
+    // here, engine state is already updated. We invalidate the caches
+    // the summary is computed from and notify external listeners
+    // (Property Browser) to refresh.
     if (spec.editor == EditorKind::Compound) {
         const QString name = objectNameAt(row);
         if (row >= 0 && row < m_rowCacheValid.size())
             m_rowCacheValid[row] = false;
+        // The summary comes from the per-node compound counts, NOT from
+        // m_rowCache — dropping only the row cache (as this used to) left
+        // an inflow added through this very dialog reading "(none)" until
+        // a category switch rebuilt the model.
+        invalidateCompoundCache();
         const int lastCol = columnCount() - 1;
         emit dataChanged(this->index(row, 0), this->index(row, lastCol),
                          {Qt::DisplayRole, Qt::EditRole});
@@ -3160,6 +3180,17 @@ void SWMMAttributeTableModel::refreshObject(const QString &name)
     if (row < 0) return;
     if (row < m_rowCacheValid.size())
         m_rowCacheValid[row] = false;
+    // This is the mirror for edits made ANYWHERE else (Property Browser,
+    // compound dialogs, undo) — including ones that add or remove inflow /
+    // DWF / RDII / treatment entries, which the compound cells summarise.
+    // Without this the compound counts survived an external edit and the
+    // cell kept showing the pre-edit summary.
+    //
+    // Coarse on purpose: the counts are bucketed by a single engine-wide
+    // scan, so there is no per-node entry to drop (a missing key already
+    // means "zero entries"). The rebuild is lazy — nothing is recomputed
+    // unless a compound cell is actually painted afterwards.
+    invalidateCompoundCache();
     const int lastCol = columnCount() - 1;
     if (lastCol < 0) return;
     emit dataChanged(index(row, 0), index(row, lastCol),
