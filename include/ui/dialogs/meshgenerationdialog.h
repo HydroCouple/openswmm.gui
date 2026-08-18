@@ -26,6 +26,7 @@
 #include "mesh/meshresult.h"
 #include "mesh/inpmeshwriter.h"
 #include "mesh/dtmthinner.h"
+#include "mesh/pslgminsize.h"
 
 #include <QDialog>
 #include <QFutureWatcher>
@@ -157,6 +158,15 @@ public:
         // Mesh-quality knobs
         mesh::GenerationOptions genOpts;
 
+        // 2026-08-17 — minimum cell size enforcement
+        // (MIN_CELL_SIZE_ENFORCEMENT_PLAN_2026-08-17.md).  minSizePolicy
+        // carries h plus the derived radii; minSizeCleanup enables the
+        // post-Triangle sliver collapse.  Both inert when
+        // minSizePolicy.minCellSize <= 0, which is the default, so an
+        // untouched project reproduces its current mesh exactly.
+        mesh::pslg::MinSizePolicy minSizePolicy;
+        bool                      minSizeCleanup = true;
+
         // Terrain-adaptive thinning
         bool                    doThinning = false;
         mesh::DTMThinnerOptions thinnerOpts;
@@ -247,6 +257,9 @@ private:
     void populateLayerCombos();
     void updateUnitDisplay();
     void updateZFactor();   // recomputes m_zFactorSpin from DTM + mesh vertical unit combos
+    /*! Refreshes the read-only "min triangle area / max vertex shift" line
+     *  under the Minimum Cell Size group. */
+    void updateMinCellDerivedLabel();
 
     /*! Collect all inputs from widgets + SWMMModelLayer on the main thread.
      *  Returns false and sets *errOut on any early-out condition (no project,
@@ -307,6 +320,15 @@ private:
     // 2026-07-19 — optional boundary densification (edge split after RDP).
     QCheckBox      *m_maxBoundaryEdgeBox  = nullptr;
     QDoubleSpinBox *m_maxBoundaryEdgeSpin = nullptr; ///< split length (map units; (off) at 0)
+
+    // ── Minimum cell size (MIN_CELL_SIZE_ENFORCEMENT_PLAN_2026-08-17) ──
+    QDoubleSpinBox *m_minCellSizeSpin      = nullptr; ///< h, map units; (off) at 0
+    QPushButton    *m_minCellSuggestBtn    = nullptr;
+    QDoubleSpinBox *m_trimAngleSpin        = nullptr; ///< corner trim threshold (deg)
+    QCheckBox      *m_trimAtNodesBox       = nullptr;
+    QCheckBox      *m_dropSubScaleHolesBox = nullptr;
+    QCheckBox      *m_cleanupBox           = nullptr; ///< post-mesh sliver collapse
+    QLabel         *m_minCellDerivedLabel  = nullptr; ///< derived area / shift readout
 
     // ── Thinning (terrain-adaptive Steiner points from DTM) ─────────
     QCheckBox      *m_thinningBox            = nullptr;

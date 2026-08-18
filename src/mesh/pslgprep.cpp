@@ -122,6 +122,190 @@ QVector<QPointF> densifyRing(const QVector<QPointF> &ring, double maxLen)
     return out;
 }
 
+double polylineLength(const QVector<QPointF> &pts)
+{
+    double len = 0.0;
+    for (int i = 1; i < pts.size(); ++i)
+        len += std::hypot(pts[i].x() - pts[i-1].x(), pts[i].y() - pts[i-1].y());
+    return len;
+}
+
+double ringSignedArea(const QVector<QPointF> &ring)
+{
+    const int n = ring.size();
+    if (n < 3) return 0.0;
+    // Skip the duplicated closing vertex so it is not counted twice.
+    const int en = (ring.first() == ring.last()) ? n - 1 : n;
+    if (en < 3) return 0.0;
+    double acc = 0.0;
+    for (int i = 0; i < en; ++i)
+    {
+        const QPointF &a = ring[i];
+        const QPointF &b = ring[(i + 1) % en];
+        acc += a.x() * b.y() - b.x() * a.y();
+    }
+    return 0.5 * acc;
+}
+
+namespace {
+
+// Largest perpendicular distance from pts[(lo,hi)] (exclusive) to the chord
+// pts[lo]..pts[hi].  Returns 0 when the run is empty.
+double maxChordDeviation(const QVector<QPointF> &pts, int lo, int hi)
+{
+    double worst = 0.0;
+    for (int m = lo + 1; m < hi; ++m)
+        worst = std::max(worst, distSqToSegment(pts[m], pts[lo], pts[hi]));
+    return std::sqrt(worst);
+}
+
+// First index in (lo,hi) whose distance to the chord exceeds maxDev, or -1.
+int firstChordExceeder(const QVector<QPointF> &pts, int lo, int hi, double maxDev)
+{
+    const double maxDev2 = maxDev * maxDev;
+    for (int m = lo + 1; m < hi; ++m)
+        if (distSqToSegment(pts[m], pts[lo], pts[hi]) > maxDev2) return m;
+    return -1;
+}
+
+} // namespace
+
+QVector<QPointF> resampleMinLength(const QVector<QPointF> &pts, double minLen,
+                                   double maxDeviation, int *flaggedOut)
+{
+    if (minLen <= 0.0 || pts.size() <= 2) return pts;
+
+    const int  n       = pts.size();
+    const double dev   = std::max(maxDeviation, 0.0);
+    const double min2  = minLen * minLen;
+    int  flagged       = 0;
+
+    // keptIdx tracks ORIGINAL indices so the tail fix-up below can re-check
+    // the deviation of every vertex a pull-back would newly drop.
+    QVector<int> keptIdx;
+    keptIdx.reserve(n);
+    keptIdx.append(0);
+
+    auto far = [&](int a, int b) {
+        const double dx = pts[b].x() - pts[a].x();
+        const double dy = pts[b].y() - pts[a].y();
+        return dx * dx + dy * dy >= min2;
+    };
+
+    int anchor = 0;
+    for (int j = 1; j < n - 1; ++j)
+    {
+        if (!far(anchor, j)) continue;          // chord still short — drop j
+        // Chord is long enough; dropping anchor+1..j-1 must stay within dev.
+        const int bad = firstChordExceeder(pts, anchor, j, dev);
+        if (bad < 0)
+        {
+            keptIdx.append(j);
+            anchor = j;
+        }
+        else
+        {
+            // Cannot drop that run without distorting the alignment: keep the
+            // first offending vertex, accepting a sub-minLen segment.
+            keptIdx.append(bad);
+            anchor = bad;
+            j      = bad;                       // rescan from the new anchor
+            ++flagged;
+        }
+    }
+
+    // ── Tail ────────────────────────────────────────────────────────────
+    // The last vertex is mandatory.  Two things can go wrong: the run being
+    // dropped before it may deviate too far, or the closing chord may be
+    // shorter than minLen.
+    const int last = n - 1;
+
+    // Loop, not a single test: retaining the first offender re-anchors the
+    // chord, and vertices further along have to be re-checked against the NEW
+    // chord or the maxDeviation guarantee only holds for the first of them.
+    for (int bad; (bad = firstChordExceeder(pts, anchor, last, dev)) > 0; )
+    {
+        keptIdx.append(bad);
+        anchor = bad;
+        ++flagged;
+    }
+
+    if (!far(anchor, last) && keptIdx.size() >= 2)
+    {
+        // Short closing chord: try absorbing the previous kept vertex so the
+        // final segment lengthens.  Only if everything it would newly drop
+        // stays within the deviation cap.
+        const int prev = keptIdx[keptIdx.size() - 2];
+        if (maxChordDeviation(pts, prev, last) <= dev)
+        {
+            keptIdx.removeLast();
+            // Absorbing does not guarantee the new chord clears minLen — on a
+            // path that doubles back it can still be short.  Count it, or the
+            // caller's short-edge tally silently under-reports.
+            if (!far(prev, last)) ++flagged;
+        }
+        else
+        {
+            ++flagged;
+        }
+    }
+    keptIdx.append(last);
+
+    if (flaggedOut) *flaggedOut += flagged;
+
+    QVector<QPointF> out;
+    out.reserve(keptIdx.size());
+    for (const int i : std::as_const(keptIdx)) out.append(pts[i]);
+    return out;
+}
+
+QVector<QPointF> resampleRingMinLength(const QVector<QPointF> &ring,
+                                       double minLen, double maxDeviation,
+                                       int *flaggedOut)
+{
+    if (minLen <= 0.0 || ring.size() < 4) return ring;
+    const bool closed = (ring.first() == ring.last());
+    const QVector<QPointF> open = closed ? ring.mid(0, ring.size() - 1) : ring;
+    if (open.size() < 3) return ring;
+
+    int flagged = 0;
+    QVector<QPointF> res = resampleMinLength(open, minLen, maxDeviation, &flagged);
+    if (res.size() < 3) return ring;            // degenerate — keep original
+
+    // The seam edge res.last() -> res.first() is the one edge the open-sequence
+    // pass never sees: resampleMinLength pins both endpoints, so neither the
+    // length nor the deviation test ever applies to the edge between them.
+    // Left alone it is a guaranteed sub-minLen edge on every ring, and it is
+    // exactly the vertex that later stages would then treat as a real feature.
+    {
+        const double dx = res.first().x() - res.last().x();
+        const double dy = res.first().y() - res.last().y();
+        if (dx * dx + dy * dy < minLen * minLen)
+        {
+            bool fixed = false;
+            if (res.size() > 3)
+            {
+                // Absorb the seam vertex into its predecessor, provided the
+                // vertex being dropped stays within the deviation cap of the
+                // new seam chord.
+                const QVector<QPointF> probe{res[res.size() - 2], res.last(),
+                                             res.first()};
+                if (maxChordDeviation(probe, 0, 2) <= std::max(maxDeviation, 0.0))
+                {
+                    res.removeLast();
+                    fixed = true;
+                }
+            }
+            if (!fixed) ++flagged;
+        }
+    }
+    if (res.size() < 3) return ring;
+
+    if (flaggedOut) *flaggedOut += flagged;
+    if (closed) res.append(res.first());
+    return res;
+}
+
 double distSqToSegment(const QPointF &p, const QPointF &a, const QPointF &b)
 {
     const double abx = b.x() - a.x();

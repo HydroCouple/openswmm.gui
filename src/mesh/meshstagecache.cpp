@@ -63,7 +63,8 @@ QByteArray MeshStageCache::boundaryKey(const FileIdentity &src,
                                        const QString      &boundaryCRSWkt,
                                        const QString      &meshCRSWkt,
                                        double simplifyEps,
-                                       double maxBoundaryEdgeLen)
+                                       double maxBoundaryEdgeLen,
+                                       double minCellSize)
 {
     QByteArray blob;
     {
@@ -74,6 +75,9 @@ QByteArray MeshStageCache::boundaryKey(const FileIdentity &src,
         s << subcatchHash;
         s << layerName << boundaryCRSWkt << meshCRSWkt;
         s << simplifyEps << maxBoundaryEdgeLen;
+        // 2026-08-17 — the payload is conditioned geometry when a minimum cell
+        // size is set, so the size has to be part of the identity.
+        s << minCellSize;
     }
     return QCryptographicHash::hash(blob, QCryptographicHash::Sha256).toHex();
 }

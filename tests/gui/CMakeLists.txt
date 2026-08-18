@@ -1637,6 +1637,28 @@ add_swmmvis_gui_test(test_pslgprep
 )
 target_link_libraries(test_pslgprep PRIVATE Qt6::Concurrent)
 
+# Minimum feature size conditioning: resampling, welding, vertex-edge fix-up,
+# crossing repair, corner trimming, and the fail-safe. Links the generator and
+# Triangle as well, because the assertion that matters most is that a
+# conditioned PSLG is still something Triangle will accept.
+add_swmmvis_gui_test(test_pslgminsize
+    test_pslgminsize.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/pslgminsize.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/pslgprep.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshgenerator.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/trirefinehook.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/editgeometry.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/pslgminsize.h
+)
+target_link_libraries(test_pslgminsize PRIVATE Qt6::Concurrent triangle_lib)
+
+# Post-mesh sliver collapse: protection rules, link condition, rollback.
+add_swmmvis_gui_test(test_meshminsizecleanup
+    test_meshminsizecleanup.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshminsizecleanup.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshminsizecleanup.h
+)
+
 # Hilbert renumbering: permutation validity, locality gain, idempotence.
 add_swmmvis_gui_test(test_meshreorder
     test_meshreorder.cpp
@@ -2112,6 +2134,16 @@ add_swmmvis_gui_test(test_meshimport
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_meshimport)
+
+# Minimum Cell Size group on the mesh-generation dialog's Quality tab. Needs
+# the full app: the dialog takes a live SWMMVisProjectWindow. The default-OFF
+# state is the point — an untouched project must still mesh exactly as before.
+add_swmmvis_gui_test(test_meshmincelldialog
+    test_meshmincelldialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshmincelldialog)
 
 # Spatial rain-gage assignment against a real engine-loaded model. Guards the
 # un-located-gage trap (engine says (0,0); the display cache invents a position)
