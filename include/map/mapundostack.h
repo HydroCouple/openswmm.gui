@@ -15,6 +15,7 @@
 #include <QObject>
 #include <QPair>
 #include <QPointF>
+#include <QPointer>
 #include <QString>
 #include <QUndoStack>
 #include <QVector>
@@ -632,6 +633,49 @@ private:
     QString         m_gageName;
     Config          m_new;
     Config          m_old;
+};
+
+/*!
+ * \class BulkEditCommand
+ * \brief Macro command that holds one SWMMModelLayer::BulkEdit scope open
+ *        across every child command.
+ * \details Use this instead of a bare QUndoCommand whenever a macro carries
+ *          more than a couple of model mutations. Each child still does its
+ *          own engine call and SoA update; what the scope removes is the
+ *          per-child rebuild of the category index, the model extent and the
+ *          link spatial grid, plus the repaintRequested()/geometryChanged()
+ *          pair whose listeners each cost O(model).
+ *
+ *          The macro object is the ONLY correct attachment point. Guarding
+ *          the call site that builds the macro would cover the initial
+ *          QUndoStack::push() (which calls redo()) but not a later Ctrl+Z —
+ *          and undo replays the same storm through the add path, so an
+ *          unguarded undo is as slow as the delete it reverses.
+ *
+ *          Children are unchanged: QUndoCommand::redo() runs them in order
+ *          and QUndoCommand::undo() in reverse, exactly as before.
+ */
+class BulkEditCommand : public QUndoCommand
+{
+public:
+    BulkEditCommand(SWMMModelLayer *layer, const QString &text,
+                    QUndoCommand *parent = nullptr)
+        : QUndoCommand(text, parent), m_layer(layer) {}
+
+    void redo() override
+    {
+        SWMMModelLayer::BulkEdit guard(m_layer);
+        QUndoCommand::redo();
+    }
+
+    void undo() override
+    {
+        SWMMModelLayer::BulkEdit guard(m_layer);
+        QUndoCommand::undo();
+    }
+
+private:
+    QPointer<SWMMModelLayer> m_layer;
 };
 
 /*!

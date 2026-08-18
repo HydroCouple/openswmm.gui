@@ -894,15 +894,19 @@ void DeleteObjectCommand::snapshotNode(const QString &name)
     swmm_node_get_storage_seep_rate(eng, idx, &m_node.seepRate);
     swmm_node_get_divider_type(eng,    idx, &m_node.dividerType);
 
-    // Snapshot cascade links (identified by node index before delete).
-    const int nLinks = swmm_link_count(eng);
-    for (int li = 0; li < nLinks; ++li) {
-        int n1 = -1, n2 = -1;
-        swmm_link_get_from_node(eng, li, &n1);
-        swmm_link_get_to_node(eng, li, &n2);
-        if (n1 == idx || n2 == idx)
-            m_cascadeLinks << snapshotLinkByIdx(eng, li);
+    // Snapshot cascade links. This runs BEFORE the delete, so use the
+    // read-only analyzer rather than scanning all L links with two getters
+    // each — the scan cost 2*L engine calls per command constructed, which
+    // for a selection of K nodes is O(K*L) before anything is even deleted.
+    SWMM_ImpactReport report{};
+    if (swmm_node_analyze_impact(eng, idx, &report) == 0) {
+        for (int i = 0; i < report.n_entries; ++i) {
+            const SWMM_ImpactEntry &e = report.entries[i];
+            if (e.obj_type == SWMM_REF_LINK && e.cascaded)
+                m_cascadeLinks << snapshotLinkByIdx(eng, e.obj_idx);
+        }
     }
+    swmm_impact_report_free(&report);
 }
 
 void DeleteObjectCommand::snapshotLink(const QString &name)

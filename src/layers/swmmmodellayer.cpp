@@ -5020,6 +5020,11 @@ bool SWMMModelLayer::applyNodeAdd(const QString &name, int nodeType,
 
     if (outIdx) *outIdx = idx;
 
+    // Undoing a bulk delete replays this once per restored object, so the
+    // add path needs the same escape as the delete path — otherwise undo
+    // costs more than the delete it reverses.
+    if (bulkEditActive()) { m_bulkDirty = true; return true; }
+
     // m_nodes changed → category index buckets + name→(cat,row) map go
     // stale. Rebuild before emitting repaintRequested so the Object
     // Browser model sees a coherent snapshot on the next data() cycle.
@@ -5133,6 +5138,11 @@ bool SWMMModelLayer::applyLinkAdd(const QString &name, int linkType,
     m_links.append(g);
     if (outIdx) *outIdx = idx;
 
+    // See applyNodeAdd: appendLinkSceneEntry() rebuilds the whole link
+    // spatial grid, so a bulk undo that restores N cascade links would pay
+    // N full grid rebuilds without this.
+    if (bulkEditActive()) { m_bulkDirty = true; return true; }
+
     // Incrementally extend the parallel scene-coord arrays for the new
     // tail link only — surviving links keep their already-transformed
     // coordinates untouched.
@@ -5192,6 +5202,8 @@ bool SWMMModelLayer::applyGageAdd(const QString &name, double x, double y,
     g.y          = y;
     m_gages.append(g);
     if (outIdx) *outIdx = idx;
+
+    if (bulkEditActive()) { m_bulkDirty = true; return true; }
 
     appendGageSceneEntry();
     m_needsRebuild = true;
@@ -5260,6 +5272,8 @@ bool SWMMModelLayer::applySubcatchAdd(const QString &name,
     g.vertices = ring;
     m_catchments.append(g);
     if (outIdx) *outIdx = idx;
+
+    if (bulkEditActive()) { m_bulkDirty = true; return true; }
 
     appendCatchSceneEntry();
     m_needsRebuild = true;
@@ -5382,6 +5396,54 @@ bool SWMMModelLayer::applyRename(const QString &oldName, const QString &newName,
 }
 
 // ---------------------------------------------------------------------------
+// Bulk edit (see the BulkEdit guard in the header)
+// ---------------------------------------------------------------------------
+
+void SWMMModelLayer::beginBulkEdit()
+{
+    if (m_bulkDepth++ > 0) return;      // nested; outermost owns the state
+    m_bulkDirty = false;
+    // Two mechanisms on purpose. The early-returns in applyXxxAdd/Delete
+    // skip the WORK; blockSignals guarantees no signal escapes even from a
+    // mutator that was never edited — applySetVirtual in particular, which
+    // DeleteObjectCommand::restoreNode() calls on the undo path.
+    blockSignals(true);
+}
+
+void SWMMModelLayer::endBulkEdit()
+{
+    if (m_bulkDepth == 0) return;       // unbalanced close; nothing open
+    if (--m_bulkDepth > 0) return;      // inner scope; outer still owns it
+
+    blockSignals(false);
+    if (!m_bulkDirty) return;           // nothing mutated — nothing to say
+    m_bulkDirty = false;
+
+    // MUST precede buildGeometryCache(): rebuildSceneCoords() resolves every
+    // link polyline through fromNodeIdx/toNodeIdx, and the incremental
+    // renumber that normally maintains them was skipped for the whole batch.
+    syncLinkEndpointIndicesFromEngine();
+
+    buildGeometryCache();
+    m_needsRebuild = true;
+    if (m_batchedItem) m_batchedItem->refreshBoundingRect();
+    emit repaintRequested();
+    emit geometryChanged();
+}
+
+void SWMMModelLayer::syncLinkEndpointIndicesFromEngine()
+{
+    if (!m_engine) return;
+    for (int i = 0; i < m_links.size(); ++i) {
+        int n1 = -1, n2 = -1;
+        swmm_link_get_from_node(m_engine, i, &n1);
+        swmm_link_get_to_node  (m_engine, i, &n2);
+        m_links[i].fromNodeIdx = n1;
+        m_links[i].toNodeIdx   = n2;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Delete operations (engine cascade + cache rebuild)
 // ---------------------------------------------------------------------------
 
@@ -5393,30 +5455,49 @@ bool SWMMModelLayer::applyNodeDelete(const QString &name,
     const int nodeIdx = swmm_node_index(m_engine, utf8.constData());
     if (nodeIdx < 0) return false;
 
-    // Identify cascade links BEFORE deletion (engine indices still valid).
-    QVector<int> cascadeLinkSoaIndices;
-    for (int i = 0; i < m_links.size(); ++i) {
-        int n1 = -1, n2 = -1;
-        swmm_link_get_from_node(m_engine, i, &n1);
-        swmm_link_get_to_node(m_engine, i, &n2);
-        if (n1 == nodeIdx || n2 == nodeIdx) {
-            if (cascadeLinkNames) *cascadeLinkNames << m_links[i].name;
-            cascadeLinkSoaIndices << i;
-        }
+    // Ask the engine which links this deletion cascades instead of scanning
+    // every link with two getters each. The old scan cost 2*L engine calls
+    // per deleted node — 562k on an all-pipes model, for a node that
+    // typically touches two or three links.
+    //
+    // The engine erases cascade links in DESCENDING index order and records
+    // each index BEFORE erasing it, so every obj_idx here is a PRE-delete
+    // index. Because the SoA removal below is immediate (the bulk guard
+    // defers only derived work), those indices address m_links directly with
+    // no translation.
+    SWMM_ImpactReport report{};
+    if (swmm_node_delete(m_engine, nodeIdx, &report) != 0) {
+        swmm_impact_report_free(&report);
+        return false;
     }
 
-    if (swmm_node_delete(m_engine, nodeIdx, nullptr) != 0) return false;
+    QVector<int> cascadeLinkSoaIndices;
+    cascadeLinkSoaIndices.reserve(report.n_entries);
+    for (int i = 0; i < report.n_entries; ++i) {
+        const SWMM_ImpactEntry &e = report.entries[i];
+        if (e.obj_type != SWMM_REF_LINK || !e.cascaded) continue;
+        if (e.obj_idx < 0 || e.obj_idx >= m_links.size()) continue;
+        if (cascadeLinkNames) *cascadeLinkNames << m_links[e.obj_idx].name;
+        cascadeLinkSoaIndices << e.obj_idx;
+    }
+    swmm_impact_report_free(&report);
 
     // Remove cascade links from cache (reverse order preserves validity)
-    // and compact the parallel scene-coord arrays along with them.
+    // and compact the parallel scene-coord arrays along with them. In a
+    // bulk edit the SoA removal still happens now — only the parallel-array
+    // compaction is deferred, because compactLinkSceneEntry() rebuilds the
+    // whole link spatial grid per link.
+    const bool bulk = bulkEditActive();
     std::sort(cascadeLinkSoaIndices.rbegin(), cascadeLinkSoaIndices.rend());
     for (int li : cascadeLinkSoaIndices) {
         m_links.removeAt(li);
-        compactLinkSceneEntry(li);
+        if (!bulk) compactLinkSceneEntry(li);
     }
 
     // Remove the node itself.
     m_nodes.removeAt(nodeIdx);
+    if (bulk) { m_bulkDirty = true; return true; }
+
     compactNodeSceneEntry(nodeIdx);
     rebuildCategoryIndex();           // O(N) hash, no OGR transforms.
     recomputeExtentFromCaches();
@@ -5436,6 +5517,8 @@ bool SWMMModelLayer::applyLinkDelete(const QString &name)
     if (swmm_link_delete(m_engine, linkIdx, nullptr) != 0) return false;
 
     m_links.removeAt(linkIdx);
+    if (bulkEditActive()) { m_bulkDirty = true; return true; }
+
     compactLinkSceneEntry(linkIdx);
     rebuildCategoryIndex();
     m_needsRebuild = true;
@@ -5454,6 +5537,8 @@ bool SWMMModelLayer::applyGageDelete(const QString &name)
     if (swmm_gage_delete(m_engine, idx, nullptr) != 0) return false;
 
     m_gages.removeAt(idx);
+    if (bulkEditActive()) { m_bulkDirty = true; return true; }
+
     compactGageSceneEntry(idx);
     rebuildCategoryIndex();
     m_needsRebuild = true;
@@ -5472,6 +5557,8 @@ bool SWMMModelLayer::applySubcatchDelete(const QString &name)
     if (swmm_subcatch_delete(m_engine, idx, nullptr) != 0) return false;
 
     m_catchments.removeAt(idx);
+    if (bulkEditActive()) { m_bulkDirty = true; return true; }
+
     compactCatchSceneEntry(idx);
     rebuildCategoryIndex();
     m_needsRebuild = true;
