@@ -94,6 +94,9 @@
 // object kind + geometry-cache split by sub-step) so a slow open can be
 // attributed precisely. Off by default — no cost on the normal open path.
 Q_LOGGING_CATEGORY(lcLoadModel, "openswmm.load.model")
+// Selection-path timings — off by default; enable with
+// QT_LOGGING_RULES="openswmm.selection.perf.debug=true".
+Q_LOGGING_CATEGORY(lcSelPerf, "openswmm.selection.perf")
 
 // ---------------------------------------------------------------------------
 // nanoflann adaptor + KD-tree types (private to this translation unit)
@@ -1551,6 +1554,51 @@ QString SWMMModelLayer::objectNameAt(Category c, int row) const
         return (row < m_gages.size()) ? m_gages[row].name : QString();
     default:
         return {};
+    }
+}
+
+int SWMMModelLayer::soaIndexAt(Category c, int row) const
+{
+    // Structural twin of objectNameAt() above — same guard, same override
+    // branch, same per-category buckets — returning the index instead of
+    // the name it resolves. They must stay in step; see the header note.
+    if (row < 0) return -1;
+
+    const auto itOverride = m_objectOrderOverrides.constFind(c);
+    if (itOverride != m_objectOrderOverrides.constEnd()) {
+        const auto &ord = *itOverride;
+        if (row >= ord.size()) return -1;
+        const int soaIdx = ord[row];
+        switch (c) {
+        case CatJunctions: case CatOutfalls: case CatStorage: case CatDividers:
+            return (soaIdx >= 0 && soaIdx < m_nodes.size()) ? soaIdx : -1;
+        case CatConduits: case CatPumps: case CatOrifices:
+        case CatWeirs:    case CatOutlets:
+            return (soaIdx >= 0 && soaIdx < m_links.size()) ? soaIdx : -1;
+        case CatSubcatchments:
+            return (soaIdx >= 0 && soaIdx < m_catchments.size()) ? soaIdx : -1;
+        case CatRainGages:
+            return (soaIdx >= 0 && soaIdx < m_gages.size()) ? soaIdx : -1;
+        default: return -1;
+        }
+    }
+
+    switch (c) {
+    case CatJunctions: case CatOutfalls: case CatStorage: case CatDividers: {
+        const auto &b = m_nodesByType[int(c) - int(CatJunctions)];
+        return (row < b.size()) ? b[row] : -1;
+    }
+    case CatConduits: case CatPumps: case CatOrifices:
+    case CatWeirs:    case CatOutlets: {
+        const auto &b = m_linksByType[int(c) - int(CatConduits)];
+        return (row < b.size()) ? b[row] : -1;
+    }
+    case CatSubcatchments:
+        return (row < m_catchments.size()) ? row : -1;
+    case CatRainGages:
+        return (row < m_gages.size()) ? row : -1;
+    default:
+        return -1;
     }
 }
 
@@ -3454,10 +3502,14 @@ void SWMMModelLayer::setSelectedElements(const QVector<SelectedElement> &sel)
     emit selectionChanged(m_selectedNames);
     const qint64 t_emit = t.elapsed() - t_flags;
     emit repaintRequested();
-    qDebug().noquote() << "[setSelectedElements] count=" << sel.size()
-                       << " flags_ms=" << t_flags
-                       << " emit_ms=" << t_emit
-                       << " total_ms=" << t.elapsed();
+    // Gated: this runs on every selection change — including each
+    // rubber-band tick and each query Apply — and the QString formatting
+    // plus the unbuffered stderr write is not free at 100k+ refs.
+    qCDebug(lcSelPerf).noquote()
+        << "[setSelectedElements] count=" << sel.size()
+        << " flags_ms=" << t_flags
+        << " emit_ms=" << t_emit
+        << " total_ms=" << t.elapsed();
 }
 
 void SWMMModelLayer::setSelectedElementNames(const QStringList &names)
@@ -5644,6 +5696,8 @@ QObject *SWMMModelLayer::ensureTimeseriesRegistry()
         m_tsRegistry = reg;
         m_tsRegistryEngineHandle = eng;
         reg->loadFromEngine(eng);
+        // Anchor for relative-path DISPLAY in the timeseries editor. Refreshed
+        // below on every call too, so it follows a Save As.
         // Connect AFTER the initial seed so the bulk providerAdded burst
         // doesn't storm the Object Browser. Mutations fire at dialog
         // submit, which may precede the deferred saveToEngine flush —
@@ -5678,6 +5732,9 @@ QObject *SWMMModelLayer::ensureTimeseriesRegistry()
         // project edited from it would dirty an untouched project and force a
         // needless full .inp rewrite on the next run.
     }
+    // Outside the construction branch so the anchor follows a Save As, which
+    // moves modelFilePath() without rebuilding the registry.
+    reg->setProjectAnchor(QFileInfo(modelFilePath()).absolutePath());
     return reg;
 }
 

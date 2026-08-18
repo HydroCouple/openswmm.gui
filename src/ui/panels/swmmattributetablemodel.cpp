@@ -20,10 +20,12 @@
 #include "ui/properties/xsectshapegeom.h"    // inline xsect-geom applicability
 #include "ui/util/externalcolumnfile.h"      // rain-file column enumeration
 
+#include <QHash>
 #include <QUndoCommand>
 #include <QUndoStack>
 
 #include <cmath>
+#include <optional>
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_gages.h>
@@ -56,6 +58,51 @@ int indexForName(SWMM_Engine engine, EntityKind kind, const char *name) {
     case EntityKind::Gage:     return swmm_gage_index(engine, name);
     }
     return -1;
+}
+
+// Which entity kind a category's rows are. Lets a cell resolve its engine
+// index straight from the row (SWMMModelLayer::soaIndexAt) instead of
+// re-deriving it from the name — the name path cost a QString copy, a
+// toUtf8() heap allocation and an engine hash probe on EVERY cell.
+std::optional<EntityKind> entityKindForCategory(SWMMModelLayer::Category cat) {
+    switch (cat) {
+    case SWMMModelLayer::CatJunctions:
+    case SWMMModelLayer::CatOutfalls:
+    case SWMMModelLayer::CatStorage:
+    case SWMMModelLayer::CatDividers:
+        return EntityKind::Node;
+    case SWMMModelLayer::CatConduits:
+    case SWMMModelLayer::CatPumps:
+    case SWMMModelLayer::CatOrifices:
+    case SWMMModelLayer::CatWeirs:
+    case SWMMModelLayer::CatOutlets:
+        return EntityKind::Link;
+    case SWMMModelLayer::CatSubcatchments:
+        return EntityKind::Subcatch;
+    case SWMMModelLayer::CatRainGages:
+        return EntityKind::Gage;
+    default:
+        return std::nullopt;
+    }
+}
+
+// Engine index for a category row.
+//
+// Takes the layer's O(1) soaIndexAt() path when the column's entity kind
+// is the category's own kind — which is the case for every column today,
+// since each setter tag's prefix matches its EntityKind 1:1 and a
+// category's schema only uses its own prefix. A cross-kind column would
+// fall back to the old name lookup rather than silently read a
+// neighbouring object, so the fast path is correct by construction and
+// not merely by audit.
+int engineIndexFor(SWMMModelLayer *layer, SWMMModelLayer::Category cat,
+                   int row, EntityKind kind) {
+    if (!layer) return -1;
+    if (entityKindForCategory(cat) == kind)
+        return layer->soaIndexAt(cat, row);
+    const QString name = layer->objectNameAt(cat, row);
+    if (name.isEmpty()) return -1;
+    return indexForName(layer->engine(), kind, name.toUtf8().constData());
 }
 
 // Phase 3 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — column-key prefix
@@ -1371,7 +1418,7 @@ struct SetterEntry {
 // statistics (cycles / on-time / volume pumped), which the binary output
 // format simply does not record.
 using ResultsStatFn = double (SWMMResultsLayer::*)(const QString &) const;
-ResultsStatFn resultsStatFor(const QString &tag) {
+ResultsStatFn resultsStatForUncached(const QString &tag) {
     // Node
     if (tag == QStringLiteral("node_stat_max_depth"))
         return &SWMMResultsLayer::nodeStatMaxDepth;
@@ -1411,7 +1458,16 @@ ResultsStatFn resultsStatFor(const QString &tag) {
     return nullptr;
 }
 
-SetterEntry setterFor(const QString &tag) {
+// Memoised for the same reason as setterFor below — data() dispatches
+// through this for every dynamics cell it paints.
+ResultsStatFn resultsStatFor(const QString &tag) {
+    static QHash<QString, ResultsStatFn> cache;
+    const auto it = cache.constFind(tag);
+    if (it != cache.constEnd()) return *it;
+    return *cache.insert(tag, resultsStatForUncached(tag));
+}
+
+SetterEntry setterForUncached(const QString &tag) {
     SetterEntry e;
     // Node — numeric
     if (tag == QStringLiteral("node_invert_elev"))
@@ -1792,6 +1848,21 @@ SetterEntry setterFor(const QString &tag) {
         return {EntityKind::Subcatch, nullptr, &swmm_subcatch_get_stat_max_runoff};
 
     return {};
+}
+
+// The chain above is ~100 QString comparisons and used to run for EVERY
+// cell read — data(), flags() and commitValueDirect() all dispatch through
+// it — so a full-grid walk (filter, sort, export) paid it millions of
+// times. Memoise per tag; those three are GUI-thread-only, so a plain
+// function-local static needs no lock.
+//
+// Returns BY VALUE: SetterEntry is a kind plus a few function pointers,
+// and a reference into the hash would dangle on the next insert's rehash.
+SetterEntry setterFor(const QString &tag) {
+    static QHash<QString, SetterEntry> cache;
+    const auto it = cache.constFind(tag);
+    if (it != cache.constEnd()) return *it;
+    return *cache.insert(tag, setterForUncached(tag));
 }
 
 // Enum pair-list builders — the Enum delegate consumes a list of
@@ -2652,9 +2723,7 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                 return (m_resultsSource->*fn)(objectNameAt(row));
         }
         const auto entry = setterFor(spec.setter);
-        const QString name = objectNameAt(row);
-        const int entIdx = indexForName(m_layer->engine(), entry.kind,
-                                          name.toUtf8().constData());
+        const int entIdx = engineIndexFor(m_layer, m_category, row, entry.kind);
         if (entIdx >= 0) {
             if (entry.getFn) {
                 double v = 0.0;
@@ -3052,10 +3121,11 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index,
     const auto entry = setterFor(spec.setter);
     if (!entry.setFn && !entry.setFnI && !entry.setFnS) return false;
 
-    const QString name = objectNameAt(row);
-    const int entIdx = indexForName(m_layer->engine(), entry.kind,
-                                      name.toUtf8().constData());
+    const int entIdx = engineIndexFor(m_layer, m_category, row, entry.kind);
     if (entIdx < 0) return false;
+    // Still needed for the objectEdited() signal below — paid once per
+    // commit, not once per cell read.
+    const QString name = objectNameAt(row);
 
     int rc = -1;
     if (entry.setFn) {

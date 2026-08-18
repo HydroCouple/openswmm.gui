@@ -13,6 +13,7 @@
 #include "core/queryparser.h"
 
 using openswmmvis::parseQuery;
+using openswmmvis::queryFieldNames;
 using openswmmvis::evaluateQuery;
 
 namespace {
@@ -154,4 +155,55 @@ TEST(QueryParser, MissingFieldEvaluatesFalse) {
     auto p = parseQuery("\"Doesnt exist\" = 1");
     ASSERT_TRUE(p.isValid());
     EXPECT_FALSE(evaluateQuery(p, row()));
+}
+
+// ---------------------------------------------------------------------------
+// Referenced-field collection
+// ---------------------------------------------------------------------------
+//
+// The Attribute Table's filter proxy uses this to materialise ONLY the
+// columns a predicate compares, instead of every column of every row.  If
+// it under-reports a field, that column silently goes missing from the row
+// map and the predicate reads it as absent — i.e. quietly wrong results,
+// not a crash — so the traversal is pinned here.
+
+TEST(QueryParser, FieldNamesEmptyForEmptyQuery) {
+    EXPECT_TRUE(queryFieldNames(parseQuery("")).isEmpty());
+}
+
+TEST(QueryParser, FieldNamesCollectsCompareLikeAndIn) {
+    auto p = parseQuery(
+        "\"Invert elev\" > 1 AND (Name LIKE 'J%' OR \"Node type\" IN ('a','b'))");
+    ASSERT_TRUE(p.isValid());
+    const QStringList f = queryFieldNames(p);
+    EXPECT_EQ(f.size(), 3);
+    EXPECT_TRUE(f.contains("Invert elev"));
+    EXPECT_TRUE(f.contains("Name"));
+    EXPECT_TRUE(f.contains("Node type"));
+}
+
+TEST(QueryParser, FieldNamesDeduplicatesAndDescendsNot) {
+    auto p = parseQuery("NOT (\"Max depth\" > 1 AND \"Max depth\" < 9)");
+    ASSERT_TRUE(p.isValid());
+    const QStringList f = queryFieldNames(p);
+    EXPECT_EQ(f.size(), 1);
+    EXPECT_EQ(f.at(0), QStringLiteral("Max depth"));
+}
+
+// A LIKE pattern is compiled once at parse time now; evaluating the same
+// predicate repeatedly must keep matching (i.e. the compiled regex is
+// carried on the node, not left default-constructed).
+TEST(QueryParser, LikeRegexSurvivesRepeatedEvaluation) {
+    auto p = parseQuery("Name LIKE 'J%'");
+    ASSERT_TRUE(p.isValid());
+    for (int i = 0; i < 3; ++i) EXPECT_TRUE(evaluateQuery(p, row()));
+}
+
+// Copying a predicate (matchedRefs parses its own, proxies store one by
+// value) must carry the compiled pattern with it.
+TEST(QueryParser, LikeRegexSurvivesPredicateCopy) {
+    auto p = parseQuery("Name LIKE 'J%'");
+    ASSERT_TRUE(p.isValid());
+    auto copy = p;
+    EXPECT_TRUE(evaluateQuery(copy, row()));
 }
