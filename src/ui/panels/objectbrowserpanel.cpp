@@ -545,21 +545,29 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
             != QMessageBox::Yes)
             return;
 
-        // Drop the tree's own selection so the post-delete model refresh
-        // (driven by the layer's geometryChanged) doesn't try to hold a row
-        // that no longer exists.
-        if (auto *sm = m_view->selectionModel())
+        // Drop the selection so the post-delete model refresh (driven by the
+        // layer's geometryChanged) doesn't try to hold a row that no longer
+        // exists. Clear the canonical bus, not just the tree's own selection
+        // model — otherwise SelectionManager keeps a ref naming the deleted
+        // object and the reverse bridge republishes it as a phantom.
+        if (m_selMgr)
+            m_selMgr->clear();
+        else if (auto *sm = m_view->selectionModel())
             sm->clearSelection();
 
         if (m_canvas && m_canvas->undoStack()) {
             // Undoable path — a deleted node cascades its links inside
             // DeleteObjectCommand, exactly as the map / attribute-table
-            // deletes do.
-            m_canvas->undoStack()->push(
-                new DeleteObjectCommand(m_layer, ref.name, delKind, m_canvas));
+            // deletes do. One object, but the cascade is not one mutation:
+            // a node with 40 incident links pays 40 link-spatial-grid
+            // rebuilds inside applyNodeDelete without the bulk scope.
+            auto *macro = new BulkEditCommand(m_layer, tr("Delete \"%1\"").arg(ref.name));
+            new DeleteObjectCommand(m_layer, ref.name, delKind, m_canvas, macro);
+            m_canvas->undoStack()->push(macro);
         } else if (m_layer) {
             // No canvas/undo stack (headless / tests): perform the same
             // mutation DeleteObjectCommand::redo() would, minus the record.
+            SWMMModelLayer::BulkEdit guard(m_layer);
             switch (delKind) {
             case DeleteObjectCommand::DeleteNode:     m_layer->applyNodeDelete(ref.name);     break;
             case DeleteObjectCommand::DeleteLink:     m_layer->applyLinkDelete(ref.name);     break;

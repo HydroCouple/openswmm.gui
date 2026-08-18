@@ -2305,6 +2305,18 @@ add_swmmvis_gui_test(test_selectionops
 )
 swmmvis_link_full_app_deps(test_selectionops)
 
+# Bulk delete — SWMMModelLayer::BulkEdit + BulkEditCommand. Deleting a
+# selection must run the derived-cache rebuild ONCE for the whole batch, in
+# both directions, and must resync link endpoint indices from the engine
+# afterwards or every link past a deleted node draws to the wrong nodes with
+# no error. Constructs DeleteObjectCommand directly (nothing else does).
+add_swmmvis_gui_test(test_bulkdelete
+    test_bulkdelete.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_bulkdelete)
+
 # Object-creation defaults — drawn objects must land with the configured
 # ObjectDefaults for the active unit system; geometry-derived overrides win;
 # undo rolls the whole object back (see
