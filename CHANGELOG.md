@@ -19,6 +19,82 @@ cut. Generated with support from [`git-cliff`](https://git-cliff.org)
 
 ### Added
 
+- **Minimum cell size for mesh generation.** Constraining lines and polylines
+  force Triangle to emit cells at whatever scale the input geometry contains —
+  GIS vertices centimetres apart, two alignments passing within a hair, conduits
+  meeting at a sharp angle — and on the 2D solver one sliver sets the CFL
+  timestep for the whole domain. The Generate Mesh dialog gains a **Minimum Cell
+  Size** group (Quality tab) that enforces a floor by conditioning the input
+  PSLG before triangulation: constraint polylines are resampled to a minimum
+  segment length, vertices closer together than the minimum are merged, endpoints
+  that nearly touch a line are welded onto it, sharp corners are blunted, and
+  sub-scale hole rings are dropped. Tagged SWMM nodes never move and are never
+  merged into each other, so coupling identity is preserved; conduits shorter
+  than one cell are demoted to point constraints and couple through the existing
+  post-generation node mapper. A second, optional post-meshing pass collapses
+  leftover slivers that Triangle inserted on its own, protecting every
+  constrained edge and coupled vertex. Geometry changes, domain area before/after,
+  and any location that still cannot hold a cell of the requested size are
+  reported in the generation log. **Defaults to off**, so existing projects
+  reproduce their current mesh exactly.
+
+### Fixed
+
+- **External file references are now relative for every kind of file.** Saving a
+  model already rebased rainfall, timeseries, climate, interface and hot-start
+  paths against the destination directory, but four slots were written verbatim:
+  the external `.2dm` mesh, the 2D `OUTPUT_FILE`, per-unit LID report files, and
+  the 2D mesh reference emitted by the GUI's own mesh writer. The mesh writer
+  computed its token by prefix match, so a mesh kept in a *sibling* folder — the
+  usual reason to keep it out of the model directory — was written as a
+  machine-specific absolute path instead of `../shared/terrain.2dm`. All four now
+  go through the same relativisation as everything else, `../` forms included.
+  `[PLUGINS]` paths stay absolute by design: they name installed libraries, not
+  model data.
+
+- **A dangling 2D mesh reference survives Save As.** When the external `.2dm`
+  could not be loaded there was no mesh in memory to write alongside the new
+  `.inp`, yet the reference was copied through unchanged — so it silently
+  re-resolved against the *destination* folder, found nothing, and the saved
+  model opened 1D-only with no diagnostic. It is now re-anchored to keep naming
+  the file it originally pointed at. When the mesh *is* loaded the existing
+  behaviour is unchanged and now covered by tests: the mesh travels with the
+  `.inp` and the original `.2dm` is never overwritten.
+
+- **Climate file was opened against the working directory.** `[TEMPERATURE] FILE`
+  was opened using the token as authored rather than its resolved path, so a
+  relative reference resolved against the process CWD instead of the model
+  directory. `ClimateFileReader::open` returns `false` in that case and nothing
+  checked it, so the run proceeded with no climate data at all — a clean-looking
+  result with silently missing evaporation and temperature. It now opens the
+  resolved path and warns when the file cannot be read.
+
+- **`WRITE_ABSOLUTE_PATHS` set through the API had no effect on the save.**
+  `swmm_options_set_ext(engine, "WRITE_ABSOLUTE_PATHS", "YES")` fell through to
+  the generic extension-option map instead of the real project option, so the
+  save still wrote relative paths while the emitted deck declared `YES` — and the
+  *next* open honoured it. The key now sets the option it names.
+
+- **Portability warnings only appeared on Save As.** A plain Save skipped the
+  pre-save portability check entirely, so cross-volume or missing references went
+  unreported unless the user happened to use Save As. Both routes now run it.
+
+- **Time Series editor showed absolute paths for file-backed series.**
+  `setProjectAnchor` had no caller anywhere in the application, leaving the
+  relative-display path unreachable — the editor showed a raw absolute path even
+  though the token written to the `.inp` was relative. The anchor is now carried
+  on the timeseries registry and follows the project through a Save As.
+
+- **Per-region mesh area bounds were silently ignored.** Triangle honours
+  `[2D] REGION` area bounds only when its `vararea` flag is set, and that flag
+  is set only by a bare `a` switch — but the generator emitted the numeric
+  `a<maxArea>` form whenever a uniform cap was configured, which suppressed it.
+  Region bounds now take effect when the refinement size function is installed
+  (minimum cell size enabled), and are clamped up to the refinement floor so a
+  region cannot request cells below the configured minimum. Projects that set
+  both a uniform max area and per-subcatchment region areas may see a higher
+  cell count than before, because the region bounds are now applied.
+
 - **Attribute tracks under the profile plot.** The profile plot dialog gains a
   collapsible pane of stacked mini-charts ("tracks"), one per selected result
   attribute — node depth, head, volume, lateral/total inflow, overflow; link

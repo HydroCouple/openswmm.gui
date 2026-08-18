@@ -127,6 +127,18 @@ public:
      *  loadFromEngine / saveToEngine last operated on), or nullptr if none. */
     void *engineHandle() const noexcept { return m_engineHandle; }
 
+    /*! \brief Directory of the project's `.inp`, used to DISPLAY file-backed
+     *  series paths relatively (TimeseriesEditorDialog::setProjectAnchor).
+     *
+     *  Lives on the registry rather than being threaded through each dialog
+     *  because every timeseries dialog already receives the registry, while
+     *  the six construction sites have no common owner. Display only — the
+     *  provider still owns the absolute path, and the engine's InpWriter is
+     *  what rebases the token on save. Empty = show absolute paths.
+     */
+    QString projectAnchor() const { return m_projectAnchor; }
+    void setProjectAnchor(const QString &dir) { m_projectAnchor = dir; }
+
 signals:
     /*! \brief A provider was created and added to the registry. */
     void providerAdded(openswmmvis::timeseries::TimeseriesProvider *provider);
@@ -142,6 +154,7 @@ private:
     QVector<TimeseriesProvider *>  m_providers;            ///< Insertion order; we own each via Qt parenting.
     QHash<QString, TimeseriesProvider *> m_byLowerName;    ///< Case-insensitive index.
     void                          *m_engineHandle = nullptr; ///< Cached for the no-arg saveToEngine().
+    QString                        m_projectAnchor;          ///< .inp dir for relative display.
 
     void onProviderRenamed_(const QString& prev, const QString& now);
 };

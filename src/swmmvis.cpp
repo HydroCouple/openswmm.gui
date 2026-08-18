@@ -4233,6 +4233,23 @@ void SWMMVis::openUntitledProject(const SWMMModelLayer::NewProjectSpec &spec)
                     "Save As to give it a path."));
 }
 
+void SWMMVis::logPortabilityPreflight(SWMMVisProjectWindow *pw,
+                                      const QString &targetPath,
+                                      bool isGpkg)
+{
+    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine()) return;
+    SWMM_Engine eng = pw->modelLayer()->engine();
+    const openswmmvis::project::PreflightResult pf =
+        isGpkg ? openswmmvis::project::IoPortabilityNormalizer
+                     ::preflightGpkgSave(eng, targetPath)
+               : openswmmvis::project::IoPortabilityNormalizer
+                     ::preflightInpSave(eng, targetPath);
+    for (const QString &w : pf.warnings) {
+        onLogMessage(tr("Portability check: %1").arg(w),
+                      OpenSWMMVisLogMessage::Warning);
+    }
+}
+
 void SWMMVis::onSaveProject()
 {
     auto *pw = activeProjectWindow();
@@ -4241,6 +4258,13 @@ void SWMMVis::onSaveProject()
         onLogMessage(tr("Save: no active project."), OpenSWMMVisLogMessage::LogMessageType::Warning);
         return;
     }
+
+    // Same portability preview Save As gives. Without this a plain Save of a
+    // model holding an unportable reference reported nothing at all.
+    if (pw->modelLayer())
+        logPortabilityPreflight(pw, pw->modelLayer()->modelFilePath(),
+                                /*isGpkg=*/false);
+
     QString err;
     if (!pw->save(&err))
     {
@@ -4398,21 +4422,7 @@ bool SWMMVis::saveProjectWindowAs(SWMMVisProjectWindow *pw)
     // log panel alongside the save-success line, instead of having to
     // peek inside the saved file to discover surprises. Non-blocking:
     // warnings are surfaced, but the save proceeds regardless.
-    if (pw->modelLayer() && pw->modelLayer()->engine()) {
-        SWMM_Engine eng = pw->modelLayer()->engine();
-        openswmmvis::project::PreflightResult pf;
-        if (ext == QStringLiteral("gpkg")) {
-            pf = openswmmvis::project::IoPortabilityNormalizer
-                    ::preflightGpkgSave(eng, inpPath);
-        } else {
-            pf = openswmmvis::project::IoPortabilityNormalizer
-                    ::preflightInpSave(eng, inpPath);
-        }
-        for (const QString &w : pf.warnings) {
-            onLogMessage(tr("Portability check: %1").arg(w),
-                          OpenSWMMVisLogMessage::Warning);
-        }
-    }
+    logPortabilityPreflight(pw, inpPath, ext == QStringLiteral("gpkg"));
 
     QString err;
     if (!pw->saveAs(inpPath, &err)) {
@@ -6502,6 +6512,9 @@ void SWMMVis::onClimatology(int tab)
     }
 
     ClimatologyDialog dlg(pw->modelLayer()->engine(), pw->modelLayer(), this);
+    if (!pw->modelLayer()->modelFilePath().isEmpty())
+        dlg.setProjectAnchor(
+            QFileInfo(pw->modelLayer()->modelFilePath()).absolutePath());
     dlg.setCurrentTab(tab);
     if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
         pw->setHasChanges(true);
