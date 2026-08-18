@@ -524,8 +524,10 @@ set(
         include/mesh/meshenginesync.h
         include/mesh/meshedgebc.h
         include/mesh/meshgenerator.h
+        include/mesh/meshminsizecleanup.h
         include/mesh/meshreorder.h
         include/mesh/meshstagecache.h
+        include/mesh/pslgminsize.h
         include/mesh/pslgprep.h
         include/mesh/meshhoverprobe.h
         include/mesh/meshobjectref.h
@@ -1151,8 +1153,10 @@ set(
         src/mesh/meshcellstats.cpp
         src/mesh/meshenginesync.cpp
         src/mesh/meshgenerator.cpp
+        src/mesh/meshminsizecleanup.cpp
         src/mesh/meshreorder.cpp
         src/mesh/meshstagecache.cpp
+        src/mesh/pslgminsize.cpp
         src/mesh/pslgprep.cpp
         src/mesh/trirefinehook.cpp
         src/mesh/meshhoverprobe.cpp

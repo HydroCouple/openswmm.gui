@@ -48,6 +48,44 @@ namespace pslg {
 [[nodiscard]] QVector<QPointF> densifyRing(const QVector<QPointF> &ring,
                                            double maxLen);
 
+/*! Total length of the open polyline \p pts (0 for fewer than 2 points). */
+[[nodiscard]] double polylineLength(const QVector<QPointF> &pts);
+
+/*!
+ * \brief Length-based decimation — the inverse of densifyRing().
+ *
+ * Drops intermediate vertices so that every retained chord is at least
+ * \p minLen long, but never moves the polyline further than
+ * \p maxDeviation from its original path: when dropping a run would exceed
+ * that, the offending vertex is retained instead and a short segment
+ * survives.  RDP (simplifyPolyline) cannot do this — it is keyed on
+ * perpendicular deviation, so a tight zig-zag keeps every vertex however
+ * short the segments.
+ *
+ * First and last points are always retained; for a conduit alignment they
+ * carry the coupling identity.  No-op when minLen <= 0 or size <= 2.
+ *
+ * \param flaggedOut  optional; incremented once per short segment that had
+ *                    to be kept because of the deviation cap.
+ */
+[[nodiscard]] QVector<QPointF> resampleMinLength(const QVector<QPointF> &pts,
+                                                 double minLen,
+                                                 double maxDeviation,
+                                                 int *flaggedOut = nullptr);
+
+/*! Closed-ring variant of resampleMinLength().  A closed ring (first ==
+ *  last) stays closed and keeps its orientation — vertices are only ever
+ *  removed, never reordered.  A result degenerating below 3 distinct
+ *  vertices returns the input unchanged, matching simplifyRing(). */
+[[nodiscard]] QVector<QPointF> resampleRingMinLength(const QVector<QPointF> &ring,
+                                                     double minLen,
+                                                     double maxDeviation,
+                                                     int *flaggedOut = nullptr);
+
+/*! Signed area of \p ring (shoelace / 2).  Positive = counter-clockwise.
+ *  Handles both closed (first == last) and open vertex sequences. */
+[[nodiscard]] double ringSignedArea(const QVector<QPointF> &ring);
+
 /*! Squared distance from \p p to the CLOSED segment ab. */
 [[nodiscard]] double distSqToSegment(const QPointF &p, const QPointF &a,
                                      const QPointF &b);

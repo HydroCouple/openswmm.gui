@@ -85,7 +85,8 @@ public:
                                   const QString      &boundaryCRSWkt,
                                   const QString      &meshCRSWkt,
                                   double simplifyEps,
-                                  double maxBoundaryEdgeLen);
+                                  double maxBoundaryEdgeLen,
+                                  double minCellSize = 0.0);
 
     /*! SHA-256 hex key for a Stage B entry.  Only the thinning-relevant
      *  DTMThinnerOptions fields participate (gridSpacing, threshold,
