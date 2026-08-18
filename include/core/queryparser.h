@@ -35,7 +35,9 @@
 #define OPENSWMMVIS_QUERYPARSER_H
 
 #include <QList>
+#include <QRegularExpression>
 #include <QString>
+#include <QStringList>
 #include <QVariant>
 #include <QVariantMap>
 
@@ -60,6 +62,10 @@ struct QueryNode {
     QString                    op;         ///< For Compare: "<", "<=", ...
     QVariant                   literal;    ///< For Compare / Like
     QList<QVariant>            inList;     ///< For In
+    /*! For Like: the LIKE pattern compiled to a regex, built once at
+     *  parse time.  It used to be rebuilt — and recompiled — on every
+     *  row the predicate was evaluated against. */
+    QRegularExpression         likeRegex;
 };
 
 /*! Parse result.  Either `root` is non-null and `error` empty, or
@@ -74,6 +80,20 @@ struct QueryPredicate {
 /*! Parse a WHERE-clause string.  Empty input → predicate that
  *  matches everything (root is null, error is empty). */
 QueryPredicate parseQuery(const QString &whereClause);
+
+/*! Field names the predicate actually references, deduplicated and in
+ *  first-seen order.  Empty when `pred.root` is null.
+ *
+ *  Callers use this to build a row map holding ONLY the columns the
+ *  query compares, instead of materialising every column of every row.
+ *  On a 272k-row / 55-column table that is the difference between ~30M
+ *  cell reads per filter pass and ~272k.
+ *
+ *  Names are returned exactly as the user spelled them, so the caller
+ *  must key its row map by these same strings for `evaluateQuery` to
+ *  find them (see `lookupField` in the .cpp — an exact-key hit avoids
+ *  its case-insensitive linear fallback). */
+QStringList queryFieldNames(const QueryPredicate &pred);
 
 /*! Evaluate the predicate against one row.  When `pred.root` is
  *  null, returns true (no filter). */
