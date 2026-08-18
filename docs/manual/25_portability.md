@@ -43,6 +43,34 @@ against the destination directory.
 | `[TEMPERATURE]` | `FILE "..."` reference |
 | `[RAINGAGES]` | Per-gage `FILE "..."` source |
 | `[TIMESERIES]` | Per-series `FILE "..."` source (with optional `:column` suffix) |
+| `[2D_MESH_FILE]` | External `.2dm` mesh reference (see below) |
+| `[2D_OPTIONS]` | `OUTPUT_FILE` 2D results file |
+| `[LID_USAGE]` | Per-unit LID report file |
+| `[PROCESS_COMPONENTS]` | `config=` file, copied alongside on Save As |
+
+`[PLUGINS]` paths are the one deliberate exception: they name installed
+shared libraries, not model data, so they stay absolute.
+
+How far a relative path may reach is capped at 16 `../` levels. Beyond
+that the relative form is longer and less readable than the absolute one,
+so the absolute path is written instead — the same fallback as the
+cross-volume case below.
+
+### The external 2D mesh travels with the model
+
+An external `.2dm` behaves differently from the other references, because
+the mesh is part of the model rather than an input feeding it. When you
+save, OpenSWMM writes the **current in-memory mesh** to a `.2dm` beside
+the destination `.inp` and keeps the reference local. So a Save As into a
+new folder produces a complete, self-contained pair of files, and edits
+you made after loading the mesh (vertex elevations, conveyance, boundary
+conditions) are carried into it. The original `.2dm` is never modified.
+
+The one case that behaves like the other slots is a mesh that could not
+be loaded — a missing or unreadable `.2dm`. There is nothing in memory to
+write, so the reference is re-anchored to keep pointing at the file it
+originally named, rather than silently resolving to a non-existent file
+in the new folder.
 
 ### Cross-volume / UNC fallback
 
@@ -71,6 +99,10 @@ WRITE_ABSOLUTE_PATHS  YES
 When this option is `YES`, OpenSWMM emits paths in their absolute form
 unconditionally. Default is `NO`. See the engine option reference for
 details.
+
+The setting is a genuine project option, so it round-trips: a deck saved
+with `WRITE_ABSOLUTE_PATHS YES` reopens with the escape hatch still
+armed, and one saved without it reopens relative.
 
 ## 25.3 Geopackage — structured embedded content
 

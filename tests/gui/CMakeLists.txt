@@ -1900,6 +1900,10 @@ add_swmmvis_gui_test(test_climatologydialog
     test_climatologydialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/climatologydialog.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/climatologydialog.cpp
+    # The climate-file row is a RelativePathPicker, so the project's relative
+    # path convention applies to it like every other secondary file reference.
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/relativepathpicker.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/relativepathpicker.cpp
 )
 
 # Phase B.1 of docs/RENDERING_5M_PLAN.md — interactive spike that

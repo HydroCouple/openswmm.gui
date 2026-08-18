@@ -186,6 +186,16 @@ add_swmmvis_unit_test(test_meshspatialgrid
 # meshedgepropertyadapter.cpp (Q_PROPERTY / MOC validity).
 
 # Slice §V.VD.1 — [2D_BOUNDARY_CONDITIONS] writer / reader round-trip.
+# [2D_MESH_FILE] reference tokens are relative to the .inp, including `../`
+# forms for a mesh kept outside the model folder.
+add_swmmvis_unit_test(test_inpmeshwriter_relpath
+    test_inpmeshwriter_relpath.cpp
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
+    ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshwriter.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
+    ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
+)
+
 add_swmmvis_unit_test(test_meshinpbcroundtrip
     test_meshinpbcroundtrip.cpp
     ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h

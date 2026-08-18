@@ -380,6 +380,29 @@ ReadResult readInp(const QString &inpPath)
     return r;
 }
 
+/*! The `[2D_MESH_FILE]` FILE token for \a meshPath as seen from \a inpPath.
+ *
+ *  Uses the same idiom as every other relative-path site in the project
+ *  (ProjectSerializer::toRelativePath, RelativePathPicker, PathBrowseDelegate):
+ *  QDir::relativeFilePath, then QFileInfo::isRelative to detect the cross-volume
+ *  case where Qt hands back the absolute path unchanged.
+ *
+ *  This replaced a prefix match (`meshAbs.startsWith(inpDir + '/')`) that could
+ *  only express a mesh living AT OR BELOW the .inp directory. A mesh kept in a
+ *  sibling folder — a shared mesh directory, the common reason to keep it out of
+ *  the model folder — got a machine-specific absolute path instead of
+ *  `../mesh/x.2dm`, so the project stopped being movable.
+ */
+QString meshRefToken(const QString &inpPath, const QString &meshPath)
+{
+    const QDir inpDir = QFileInfo(inpPath).absoluteDir();
+    const QString meshAbs =
+        QDir::cleanPath(QFileInfo(meshPath).absoluteFilePath());
+    const QString rel = inpDir.relativeFilePath(meshAbs);
+    // Cross-volume (different drive / UNC share): Qt returns the absolute path.
+    return QFileInfo(rel).isRelative() ? rel : meshAbs;
+}
+
 bool atomicWrite(const QString &path, const QString &text, QString *errorOut)
 {
     QSaveFile out(path);
@@ -476,19 +499,9 @@ bool InpMeshWriter::writeExternal(const QString &inpPath,
     // emit a fresh one).
     QString patched = stripExistingMeshSections(r.text, /*alsoMeshFileRef=*/true);
 
-    // Path relative to the .inp directory when both files share a parent;
-    // absolute otherwise. Keeps the project portable when copied as a
-    // unit, falls back to absolute if the user pointed at a shared mesh
-    // directory elsewhere.
-    QString refPath;
-    {
-        const QString meshAbs = QFileInfo(meshPath).absoluteFilePath();
-        const QString inpDir  = inpFi.absoluteDir().absolutePath();
-        if (meshAbs.startsWith(inpDir + QChar('/')))
-            refPath = meshAbs.mid(inpDir.size() + 1);
-        else
-            refPath = meshAbs;
-    }
+    // Relative to the .inp directory, including `../` forms; absolute only
+    // when no relative form exists (different volume).
+    const QString refPath = meshRefToken(inpPath, meshPath);
 
     if (!patched.endsWith(QChar('\n')))
         patched.append(QChar('\n'));
@@ -521,19 +534,9 @@ bool InpMeshWriter::writeMeshFileRef(const QString &inpPath,
     // exists on disk; we only repoint the reference.
     QString patched = stripExistingMeshSections(r.text, /*alsoMeshFileRef=*/true);
 
-    // Path relative to the .inp directory when both share a parent;
-    // absolute otherwise. Mirrors writeExternal so generation and
-    // retargeting produce identical reference forms.
-    const QFileInfo inpFi(inpPath);
-    QString refPath;
-    {
-        const QString meshAbs = QFileInfo(meshFilePath).absoluteFilePath();
-        const QString inpDir  = inpFi.absoluteDir().absolutePath();
-        if (meshAbs.startsWith(inpDir + QChar('/')))
-            refPath = meshAbs.mid(inpDir.size() + 1);
-        else
-            refPath = meshAbs;
-    }
+    // Same token rule as writeExternal, so generation and retargeting produce
+    // identical reference forms.
+    const QString refPath = meshRefToken(inpPath, meshFilePath);
 
     if (!patched.endsWith(QChar('\n')))
         patched.append(QChar('\n'));

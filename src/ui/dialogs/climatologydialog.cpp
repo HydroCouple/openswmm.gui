@@ -11,6 +11,7 @@
 
 #include "core/swmmdatetime.h"
 #include "ui/uiscrollhelpers.h"
+#include "ui/widgets/relativepathpicker.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -149,15 +150,17 @@ void ClimatologyDialog::buildTemperatureTab(QTabWidget *tabs)
     populateTimeseriesCombo(m_tempTs);
     form->addRow(tr("Ti&me Series:"), m_tempTs);
 
-    auto *fileRow = new QWidget;
-    auto *fileLay = new QHBoxLayout(fileRow);
-    fileLay->setContentsMargins(0, 0, 0, 0);
-    m_tempFile = new QLineEdit;
-    auto *browse = new QPushButton(tr("Browse…"));
-    fileLay->addWidget(m_tempFile);
-    fileLay->addWidget(browse);
-    form->addRow(tr("C&limate File:"), fileRow);
-    connect(browse, &QPushButton::clicked, this, &ClimatologyDialog::onBrowseTempFile);
+    // Same picker the [FILES] tab uses, so a browsed climate file is shown —
+    // and committed — relative to the project like every other secondary file
+    // reference. This row used to be a bare QLineEdit whose Browse… wrote the
+    // raw QFileDialog result, so the field flipped to an absolute path the
+    // moment the user picked a file even though the .inp stored it relative.
+    m_tempFile = new openswmmvis::ui::RelativePathPicker;
+    m_tempFile->setProjectAnchor(m_projectAnchor);
+    m_tempFile->setDialogCaption(tr("Select Climate File"));
+    m_tempFile->setFileFilter(tr("Data files (*.dat *.txt);;All files (*)"));
+    m_tempFile->setAcceptMode(QFileDialog::AcceptOpen);
+    form->addRow(tr("C&limate File:"), m_tempFile);
 
     m_tempStartCheck = new QCheckBox(tr("Start reading file at"));
     m_tempStartDate = new QDateEdit;
@@ -194,14 +197,6 @@ void ClimatologyDialog::onTempSourceChanged()
     if (m_tempStartCheck) m_tempStartCheck->setEnabled(file);
     if (m_tempStartDate)  m_tempStartDate->setEnabled(file && m_tempStartCheck->isChecked());
     if (m_tempUnits) m_tempUnits->setEnabled(file);
-}
-
-void ClimatologyDialog::onBrowseTempFile()
-{
-    const QString fn = QFileDialog::getOpenFileName(
-        this, tr("Select Climate File"), m_tempFile ? m_tempFile->text() : QString(),
-        tr("Data files (*.dat *.txt);;All files (*)"));
-    if (!fn.isEmpty() && m_tempFile) m_tempFile->setText(fn);
 }
 
 // ---------------------------------------------------------------------------
@@ -479,6 +474,14 @@ void ClimatologyDialog::populatePatternCombo(QComboBox *combo) const
 // Engine I/O
 // ---------------------------------------------------------------------------
 
+void ClimatologyDialog::setProjectAnchor(const QString &dir)
+{
+    m_projectAnchor = dir;
+    // The picker exists by the time any caller can reach this (buildUi runs in
+    // the constructor) and re-renders its display on anchor change.
+    if (m_tempFile) m_tempFile->setProjectAnchor(dir);
+}
+
 void ClimatologyDialog::readFromEngine()
 {
     if (!m_engine) return;
@@ -492,9 +495,11 @@ void ClimatologyDialog::readFromEngine()
     char absb[512] = {}, orig[512] = {};
     if (swmm_file_path_get(m_engine, SWMM_FILE_CLIMATE_TEMP, "",
                            absb, sizeof(absb), orig, sizeof(orig)) == SWMM_OK) {
-        const QString shown = orig[0] ? QString::fromUtf8(orig)
-                                      : QString::fromUtf8(absb);
-        m_tempFile->setText(shown);
+        // The picker holds the absolute form and renders it against the
+        // anchor; prefer the resolved path, falling back to the authored
+        // token for a programmatic model the resolver never touched.
+        m_tempFile->setPath(absb[0] ? QString::fromUtf8(absb)
+                                    : QString::fromUtf8(orig));
     }
     if (swmm_climate_get_temp_file_start(m_engine, &d) == SWMM_OK && d > 0.0) {
         m_tempStartCheck->setChecked(true);
@@ -584,9 +589,12 @@ void ClimatologyDialog::writeToEngine()
     if (!m_tempTs->currentText().trimmed().isEmpty())
         swmm_climate_set_temp_timeseries(m_engine,
             m_tempTs->currentText().trimmed().toUtf8().constData());
-    if (m_tempSource->currentIndex() == 2 && !m_tempFile->text().trimmed().isEmpty())
+    // Commit the DISPLAYED form: relative to the project when it can be, which
+    // is what the .inp will carry anyway. displayPath() falls back to the
+    // absolute path when no relative form exists (different volume).
+    if (m_tempSource->currentIndex() == 2 && !m_tempFile->absolutePath().isEmpty())
         swmm_file_path_set(m_engine, SWMM_FILE_CLIMATE_TEMP, "",
-                           m_tempFile->text().trimmed().toUtf8().constData());
+                           m_tempFile->displayPath().toUtf8().constData());
     if (m_tempStartCheck->isChecked())
         swmm_climate_set_temp_file_start(m_engine,
             openswmmvis::core::qDateTimeToSwmmDateTime(
@@ -663,7 +671,7 @@ QString ClimatologyDialog::serialize() const
     QString s;
     s += QString::number(m_tempSource->currentIndex()) + '|';
     s += m_tempTs->currentText() + '|';
-    s += m_tempFile->text() + '|';
+    s += m_tempFile->absolutePath() + '|';
     s += (m_tempStartCheck->isChecked()
               ? m_tempStartDate->date().toString(Qt::ISODate) : QString()) + '|';
     s += QString::number(m_tempUnits->currentData().toInt()) + '|';
