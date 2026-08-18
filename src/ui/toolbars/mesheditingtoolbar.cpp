@@ -23,6 +23,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QComboBox>
+#include <QShowEvent>
 #include <QDoubleSpinBox>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -1593,9 +1594,34 @@ void MeshEditingToolbar::refreshBCNameLists()
     repop(m_curveCombo,   curveNames);
 }
 
+void MeshEditingToolbar::showEvent(QShowEvent *event)
+{
+    QToolBar::showEvent(event);
+    if (m_nodeListStale) refreshNodeList();
+}
+
 void MeshEditingToolbar::refreshNodeList()
 {
     if (!m_vertexCoupledCombo) return;
+
+    // This is wired to SWMMModelLayer::geometryChanged, so it runs on EVERY
+    // model edit -- every object added, deleted or moved -- and it costs
+    // O(nodes) each time (150-400 ms on an all-pipes model). Paying that for
+    // a dropdown the user cannot see is pure waste, so defer while hidden and
+    // flush in showEvent().
+    //
+    // This is NOT a repeat of the reverted AttributeTablePanel::refresh
+    // deferral. That one was reverted because the table's MODEL is read
+    // programmatically by callers who never show the panel, so skipping it
+    // changed results. This combo has exactly one reader -- a user picking
+    // from it -- and the function already preserves currentText across
+    // repopulation, so a deferred flush is observationally identical.
+    if (!isVisible()) {
+        m_nodeListStale = true;
+        return;
+    }
+    m_nodeListStale = false;
+
     const QString keep = m_vertexCoupledCombo->currentText();
     QSignalBlocker block(m_vertexCoupledCombo);
     m_vertexCoupledCombo->clear();
