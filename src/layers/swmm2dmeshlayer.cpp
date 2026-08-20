@@ -11,7 +11,10 @@
  * and calls update() on itself whenever repaintRequested() fires.
  */
 #include "layers/swmm2dmeshlayer.h"
+#include "core/preferencesmanager.h"
 
+#include "core/unitsystem.h"
+#include "mesh/meshcellparams.h"
 #include "mesh/meshcellstats.h"
 #include "mesh/meshobjectref.h"
 
@@ -641,6 +644,19 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult     result,
         QStringLiteral("mesh.fill"), this);
     m_meshEdgeSublayer    = new OpenSWMM::Render::MeshEdgeSublayer(
         QStringLiteral("mesh.edges"), this);
+    // Seed BC edge styling from user preferences. This only sets the
+    // starting point for a style nobody has configured yet — a project or
+    // .swmm-style.json load overwrites it right after, and any per-layer edit
+    // is persisted, so the preference never fights an explicit choice. Same
+    // relationship nodePen()/linkPen() have with object symbology.
+    if (auto *es = m_meshEdgeSublayer->edgeStyle()) {
+        auto *pm = PreferencesManager::instance();
+        es->setColorByBC(pm->meshBcColorByType());
+        for (int t = 0; t < OpenSWMM::Render::MeshEdgeStyle::kBcTypeCount; ++t) {
+            es->setBcColor(t, pm->meshBcColor(t));
+            if (t > 0) es->setBcWidth(t, pm->meshBcWidthPx(t));
+        }
+    }
     m_meshNodeSublayer    = new OpenSWMM::Render::MeshNodeSublayer(
         QStringLiteral("mesh.vertices"), this);
     m_contourBandSublayer = new OpenSWMM::Render::ContourBandSublayer(
@@ -827,6 +843,7 @@ namespace {
 struct MeshHeavyGeom
 {
     QVector<SWMM2DMeshLayer::SceneEdge> sceneEdges;
+    QVector<qint32>                     sceneEdgeSlot;  ///< parallel: tri*3 + edgeLocal
     QVector<QRectF>                     triBBoxes;
     QVector<QRectF>                     edgeBBoxes;
     MeshSpatialGrid                     triGrid;
@@ -870,8 +887,14 @@ MeshHeavyGeom buildMeshHeavyGeom(const mesh::MeshResult &meshData,
     QSet<QPair<int,int>> seen;
     seen.reserve(meshData.triangles.size() * 3);
     out.sceneEdges.reserve(meshData.triangles.size() * 3);
+    out.sceneEdgeSlot.reserve(meshData.triangles.size() * 3);
 
-    auto pushEdge = [&](int a, int b) {
+    // First-writer-wins on the dedup, which is exactly right for BC slots: a
+    // boundary edge belongs to exactly one triangle, so it is pushed once and
+    // keeps its own slot. Only interior edges are pushed twice, and both of
+    // their slots are Wall by construction (resizeBCsToMesh defaults them and
+    // the engine ignores interior slots).
+    auto pushEdge = [&](int a, int b, qint32 slot) {
         if (a == b) return;
         const QPair<int,int> key = (a < b) ? qMakePair(a,b) : qMakePair(b,a);
         if (seen.contains(key)) return;
@@ -890,16 +913,26 @@ MeshHeavyGeom buildMeshHeavyGeom(const mesh::MeshResult &meshData,
         e.zAvg  = static_cast<float>((za + zb) * 0.5);
         e.slope = slope;
         out.sceneEdges.append(e);
+        out.sceneEdgeSlot.append(slot);
     };
 
-    for (const auto &t : meshData.triangles)
+    // Local-edge convention (matches buildBoundaryFlags / findEdgeNeighbour):
+    //   edge 0 = (v1, v2),  edge 1 = (v2, v0),  edge 2 = (v0, v1)
+    // so the push order below is deliberately 2, 0, 1.
+    //
+    // The index must be the *mesh* triangle index, because m_bc is sized
+    // nTri*3 over meshData.triangles — sceneTris skips degenerate triangles
+    // and is therefore a different index space.
+    const int nTri = meshData.triangles.size();
+    for (int ti = 0; ti < nTri; ++ti)
     {
+        const auto &t = meshData.triangles[ti];
         if (t.v0 < 0 || t.v0 >= nVerts) continue;
         if (t.v1 < 0 || t.v1 >= nVerts) continue;
         if (t.v2 < 0 || t.v2 >= nVerts) continue;
-        pushEdge(t.v0, t.v1);
-        pushEdge(t.v1, t.v2);
-        pushEdge(t.v2, t.v0);
+        pushEdge(t.v0, t.v1, qint32(ti * 3 + 2));
+        pushEdge(t.v1, t.v2, qint32(ti * 3 + 0));
+        pushEdge(t.v2, t.v0, qint32(ti * 3 + 1));
     }
 
     // Spatial grids over the bbox sets — O(visible) paint-time culling.
@@ -1007,6 +1040,7 @@ void SWMM2DMeshLayer::rebuildSceneGeometry()
 
     m_sceneTris.clear();
     m_sceneEdges.clear();
+    m_sceneEdgeSlot.clear();
     m_sceneNodes.clear();
     m_triBBoxes.clear();
     m_edgeBBoxes.clear();
@@ -1068,17 +1102,19 @@ void SWMM2DMeshLayer::rebuildSceneGeometry()
     // ── Edges + spatial grids (the heavy tail — shared with the deferred
     //    background build; see buildMeshHeavyGeom below) ─────────────────────
     MeshHeavyGeom heavy = buildMeshHeavyGeom(m_mesh, scenePts, m_sceneTris);
-    m_sceneEdges  = std::move(heavy.sceneEdges);
-    m_triBBoxes   = std::move(heavy.triBBoxes);
-    m_edgeBBoxes  = std::move(heavy.edgeBBoxes);
-    m_triGrid     = std::move(heavy.triGrid);
-    m_edgeGrid    = std::move(heavy.edgeGrid);
-    m_maxSlope    = heavy.maxSlope;
+    m_sceneEdges    = std::move(heavy.sceneEdges);
+    m_sceneEdgeSlot = std::move(heavy.sceneEdgeSlot);
+    m_triBBoxes     = std::move(heavy.triBBoxes);
+    m_edgeBBoxes    = std::move(heavy.edgeBBoxes);
+    m_triGrid       = std::move(heavy.triGrid);
+    m_edgeGrid      = std::move(heavy.edgeGrid);
+    m_maxSlope      = heavy.maxSlope;
 
     // ── LOD overview for far-zoom rendering ──────────────────────────────────
     rebuildOverview();
 
     ++m_geomRevision;
+    refreshSublayerLegendInputs();
 
     // Notify the graphics item (if any) that its geometry changed.
     if (m_graphicsItem)
@@ -1095,6 +1131,7 @@ void SWMM2DMeshLayer::rebuildSceneGeometryLight()
 
     m_sceneTris.clear();
     m_sceneEdges.clear();
+    m_sceneEdgeSlot.clear();
     m_sceneNodes.clear();
     m_triBBoxes.clear();
     m_edgeBBoxes.clear();
@@ -1222,15 +1259,16 @@ void SWMM2DMeshLayer::finishSceneGeometryAsync()
             return;
         }
 
-        m_sceneEdges  = std::move(d->heavy.sceneEdges);
-        m_triBBoxes   = std::move(d->heavy.triBBoxes);
-        m_edgeBBoxes  = std::move(d->heavy.edgeBBoxes);
-        m_triGrid     = std::move(d->heavy.triGrid);
-        m_edgeGrid    = std::move(d->heavy.edgeGrid);
-        m_maxSlope    = d->heavy.maxSlope;
-        m_vertTriPtr  = std::move(d->vertTriPtr);
-        m_vertTriIdx  = std::move(d->vertTriIdx);
-        m_isBoundary  = std::move(d->isBoundary);
+        m_sceneEdges    = std::move(d->heavy.sceneEdges);
+        m_sceneEdgeSlot = std::move(d->heavy.sceneEdgeSlot);
+        m_triBBoxes     = std::move(d->heavy.triBBoxes);
+        m_edgeBBoxes    = std::move(d->heavy.edgeBBoxes);
+        m_triGrid       = std::move(d->heavy.triGrid);
+        m_edgeGrid      = std::move(d->heavy.edgeGrid);
+        m_maxSlope      = d->heavy.maxSlope;
+        m_vertTriPtr    = std::move(d->vertTriPtr);
+        m_vertTriIdx    = std::move(d->vertTriIdx);
+        m_isBoundary    = std::move(d->isBoundary);
         m_boundaryGraph      = mesh::MeshBoundaryGraph();
         m_boundaryGraphValid = false;
         // BCs loaded from the file (already correctly sized) win; otherwise
@@ -1239,6 +1277,10 @@ void SWMM2DMeshLayer::finishSceneGeometryAsync()
             m_bc = std::move(d->bcDefaults);
         m_pendingScenePts = QVector<QPointF>();
         m_sceneGeomComplete = true;
+        // Edges (and therefore BC-coloured edges) only exist from here on the
+        // progressive path — refresh the legend inputs now, not in the light
+        // build, which has no edges at all.
+        refreshSublayerLegendInputs();
 
         emit sceneGeometryReady();
         if (m_graphicsItem) m_graphicsItem->geometryChanged();
@@ -1513,6 +1555,148 @@ void SWMM2DMeshLayer::resizeBCsToMesh()
     m_isBoundary = buildBoundaryFlags(m_mesh);
     m_boundaryGraph      = mesh::MeshBoundaryGraph();
     m_boundaryGraphValid = false;
+    ++m_bcRevision;
+    refreshSublayerLegendInputs();
+}
+
+const QVector<qint32> &SWMM2DMeshLayer::bcSceneEdges() const
+{
+    if (m_bcSceneEdgesBcRev   == m_bcRevision &&
+        m_bcSceneEdgesGeomRev == m_geomRevision)
+        return m_bcSceneEdges;
+
+    m_bcSceneEdges.clear();
+    // Same guard the renderer applies: a short/absent slot vector means the
+    // heavy geometry has not landed yet, and every edge is *unknown* rather
+    // than Wall.
+    if (m_sceneEdgeSlot.size() == m_sceneEdges.size() && !m_bc.isEmpty()) {
+        for (qint32 i = 0; i < m_sceneEdgeSlot.size(); ++i) {
+            const qint32 slot = m_sceneEdgeSlot[i];
+            if (slot >= 0 && slot < m_bc.size() && int(m_bc[slot].type) > 0)
+                m_bcSceneEdges.append(i);
+        }
+    }
+    m_bcSceneEdgesBcRev   = m_bcRevision;
+    m_bcSceneEdgesGeomRev = m_geomRevision;
+    return m_bcSceneEdges;
+}
+
+void SWMM2DMeshLayer::scheduleLegendInputRefresh()
+{
+    if (m_legendRefreshQueued) return;
+    m_legendRefreshQueued = true;
+    QMetaObject::invokeMethod(this, [this]() {
+        m_legendRefreshQueued = false;
+        refreshSublayerLegendInputs();
+    }, Qt::QueuedConnection);
+}
+
+void SWMM2DMeshLayer::refreshSublayerLegendInputs()
+{
+    if (m_meshEdgeSublayer) {
+        QSet<int> present;
+        for (const auto &bc : m_bc) {
+            present.insert(int(bc.type));
+            // All seven seen — nothing left to learn from the rest of the scan.
+            if (present.size() >= OpenSWMM::Render::MeshEdgeStyle::kBcTypeCount)
+                break;
+        }
+        m_meshEdgeSublayer->setBcTypesPresent(present);
+    }
+
+    if (m_meshFillSublayer) {
+        const auto *st = m_meshFillSublayer->fillStyle();
+        bool hasData = true;
+        if (st && !st->colorsByElevation()) {
+            double lo = 0.0, hi = 0.0;
+            hasData = cellAttributeRange(st->colorByAttributeKey(), &lo, &hi);
+        }
+        m_meshFillSublayer->setAttributeHasData(hasData);
+        if (auto *us = UnitSystem::instance())
+            m_meshFillSublayer->setDepthUnitLabel(us->depthLabel());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Per-cell attribute colouring — values flow through mesh::cellParamValue()
+// so a parameter added to the registry lights up here for free.
+// ---------------------------------------------------------------------------
+
+const QVector<float> &SWMM2DMeshLayer::cellAttributeValues(const QByteArray &key) const
+{
+    const bool hit = m_attrCacheKey == key
+                  && m_attrCacheGeomRev == m_geomRevision
+                  && m_attrCacheAttrRev == m_attrRevision;
+    if (hit) return m_attrCacheVals;
+
+    m_attrCacheKey     = key;
+    m_attrCacheGeomRev = m_geomRevision;
+    m_attrCacheAttrRev = m_attrRevision;
+    m_attrCacheVals.clear();
+    m_attrCacheHasData = false;
+    m_attrCacheMin     = 0.0;
+    m_attrCacheMax     = 0.0;
+
+    if (!mesh::cellParamSpec(key)) return m_attrCacheVals;   // unknown key
+
+    // Parallel to m_sceneTris, which skips degenerate triangles — the same
+    // predicate appendSceneTris() uses. Indexing by mesh triangle index here
+    // would silently shift every colour by the number of skipped triangles.
+    const int nVerts = m_mesh.vertices.size();
+    const int nTri   = m_mesh.triangles.size();
+    m_attrCacheVals.reserve(nTri);
+
+    double lo =  std::numeric_limits<double>::max();
+    double hi = -std::numeric_limits<double>::max();
+
+    for (int ti = 0; ti < nTri; ++ti) {
+        const auto &t = m_mesh.triangles[ti];
+        if (t.v0 < 0 || t.v0 >= nVerts) continue;
+        if (t.v1 < 0 || t.v1 >= nVerts) continue;
+        if (t.v2 < 0 || t.v2 >= nVerts) continue;
+
+        const double v = mesh::cellParamValue(m_mesh, ti, key);
+        m_attrCacheVals.append(float(v));
+        if (std::isfinite(v)) {
+            if (v < lo) lo = v;
+            if (v > hi) hi = v;
+            m_attrCacheHasData = true;
+        }
+    }
+
+    if (m_attrCacheHasData) { m_attrCacheMin = lo; m_attrCacheMax = hi; }
+    return m_attrCacheVals;
+}
+
+bool SWMM2DMeshLayer::cellAttributeRange(const QByteArray &key,
+                                          double *vMin, double *vMax) const
+{
+    cellAttributeValues(key);            // populates the cache + range
+    if (!m_attrCacheHasData) return false;
+    if (vMin) *vMin = m_attrCacheMin;
+    if (vMax) *vMax = m_attrCacheMax;
+    return true;
+}
+
+QVector<double> SWMM2DMeshLayer::cellAttributeSamples(const QByteArray &key,
+                                                       int maxSamples) const
+{
+    const QVector<float> &vals = cellAttributeValues(key);
+    QVector<double> out;
+    const int n = vals.size();
+    if (n == 0) return out;
+
+    // Same striding contract as elevationSamples(): the classification editor
+    // resamples on every keystroke, so a multi-million-cell mesh must not walk
+    // the whole vector.
+    const int cap  = std::max(1, maxSamples);
+    const int step = (n > cap) ? (n + cap - 1) / cap : 1;
+    out.reserve((n + step - 1) / step);
+    for (int i = 0; i < n; i += step) {
+        const double v = double(vals[i]);
+        if (std::isfinite(v)) out.push_back(v);
+    }
+    return out;
 }
 
 void SWMM2DMeshLayer::rebuildVertexAdjacency()
@@ -1807,6 +1991,8 @@ bool SWMM2DMeshLayer::applyMeshEdgeBC(int triIdx, int edgeLocal, const mesh::Mes
     if (flat >= m_bc.size()) return false;
     if (m_bc[flat] == bc) return true;
     m_bc[flat] = bc;
+    ++m_bcRevision;
+    scheduleLegendInputRefresh();
     emit attributeChanged(mesh::MeshObjectRef::edge(m_sourcePath, triIdx, edgeLocal).name);
     emit repaintRequested();
     return true;
@@ -1970,6 +2156,8 @@ bool SWMM2DMeshLayer::applyMeshTriangleMannings(int triIdx, double mannings)
     if (!(mannings > 0.0)) return false;
     if (m_mesh.triangles[triIdx].mannings == mannings) return true;
     m_mesh.triangles[triIdx].mannings = mannings;
+    ++m_attrRevision;
+    scheduleLegendInputRefresh();
     emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
     emit repaintRequested();
     return true;
@@ -1981,6 +2169,8 @@ bool SWMM2DMeshLayer::applyMeshTriangleInitDepth(int triIdx, double depth)
     if (!(depth >= 0.0)) return false;
     if (m_mesh.triangles[triIdx].initDepth == depth) return true;
     m_mesh.triangles[triIdx].initDepth = depth;
+    ++m_attrRevision;
+    scheduleLegendInputRefresh();
     emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
     emit repaintRequested();
     return true;

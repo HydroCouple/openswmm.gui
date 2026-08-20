@@ -46,6 +46,11 @@
 
 namespace {
 
+/*! Stand-in for the per-cell attribute vector when the fill is coloured by
+ *  bed elevation. Lets Pass 1 bind a const reference unconditionally instead
+ *  of branching on a pointer at every triangle. */
+const QVector<float> kEmptyAttrVals;
+
 // ---------------------------------------------------------------------------
 // Elevation colour ramp  [0,1] → RGB   (matches MeshGraphicsItem)
 // ---------------------------------------------------------------------------
@@ -361,15 +366,29 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
     //        isobandNode   (Pass 4: filled contour bands — ContourBandSublayer)
     //        edgeThinNode  (Pass 2: thin wireframe — MeshEdgeSublayer)
     //        edgeWideNode  (Pass 2: wide wireframe — slope emphasis)
+    //        edgeBcNode[0..kBcOverlayCount-1]
+    //                      (Pass 2b: non-Wall BC edges, one flat node per type)
     //        contourNode   (Pass 3: isolines — IsolineSublayer)
     //        contourLabels (Pass 3b: per-level isoline labels — IsolineStyle::labels)
     //        nodeMarkNode  (Pass 5: vertex markers — MeshNodeSublayer)
     //        selTriNode + selEdgeNode + selVertNode (§V selection overlay — cyan)
+    //
+    // !! The else-branch below walks these positionally with nextSibling().
+    //    Any change to the construction order MUST be mirrored there in the
+    //    same commit — a missed step static_casts a plain QSGNode to
+    //    QSGGeometryNode and corrupts memory rather than failing loudly.
+    using OpenSWMM::Render::MeshEdgeStyle;
+
+    // Wall (type 0) is carried by the thin/wide pair, so only the six
+    // non-Wall types need their own node.
+    constexpr int kBcOverlayCount = MeshEdgeStyle::kBcTypeCount - 1;
+
     auto *root = static_cast<QSGTransformNode *>(oldNode);
     QSGGeometryNode *triNode       = nullptr;
     QSGGeometryNode *isobandNode   = nullptr;
     QSGGeometryNode *edgeThinNode  = nullptr;
     QSGGeometryNode *edgeWideNode  = nullptr;
+    QSGGeometryNode *edgeBcNode[kBcOverlayCount] = {};
     QSGGeometryNode *contourNode   = nullptr;
     QSGNode         *contourLabels = nullptr;
     QSGGeometryNode *nodeMarkNode  = nullptr;
@@ -390,6 +409,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         isobandNode   = makeColoredNode();   // per-vertex colour for band fill
         edgeThinNode  = makeFlatNode(QColor(0, 0, 0, 130));
         edgeWideNode  = makeFlatNode(QColor(0, 0, 0, 210));
+        for (int i = 0; i < kBcOverlayCount; ++i)
+            edgeBcNode[i] = makeFlatNode(QColor(0, 0, 0, 0));
         contourNode   = makeFlatNode(QColor(0x1a, 0x1a, 0x1a, 200));
         contourLabels = new QSGNode();       // parent for QSGSimpleTextureNode labels
         nodeMarkNode  = makeColoredNode();
@@ -400,6 +421,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         root->appendChildNode(isobandNode);
         root->appendChildNode(edgeThinNode);
         root->appendChildNode(edgeWideNode);
+        for (int i = 0; i < kBcOverlayCount; ++i)
+            root->appendChildNode(edgeBcNode[i]);
         root->appendChildNode(contourNode);
         root->appendChildNode(contourLabels);
         root->appendChildNode(nodeMarkNode);
@@ -412,6 +435,9 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         isobandNode   = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
         edgeThinNode  = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
         edgeWideNode  = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
+        for (int i = 0; i < kBcOverlayCount; ++i) {
+            edgeBcNode[i] = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
+        }
         contourNode   = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
         contourLabels = c;                                c = c->nextSibling();
         nodeMarkNode  = static_cast<QSGGeometryNode*>(c); c = c->nextSibling();
@@ -460,6 +486,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             uploadColoredVerts(isobandNode,  empty_c);
             uploadFlatVerts(edgeThinNode,    empty_p);
             uploadFlatVerts(edgeWideNode,    empty_p);
+            for (int i = 0; i < kBcOverlayCount; ++i)
+                uploadFlatVerts(edgeBcNode[i], empty_p);
             uploadFlatVerts(contourNode,     empty_p);
             while (auto *c = contourLabels->firstChild()) {
                 contourLabels->removeChildNode(c);
@@ -708,8 +736,36 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             const float  fillOp  = fillSub  ? float(fillSub->opacity())  : 1.0f;
             const quint8 alpha   = quint8(qBound(0, int(kFillAlpha * fillOp + 0.5f), 255));
 
-            if (hasElev && useRamp) {
-                const double invRange = 1.0 / (zMax - zMin);
+            // ---- Colour source: bed elevation (historic) or a per-cell
+            //      attribute from mesh::cellParamSpecs(). Hillshade always
+            //      stays on the geometry normal — relief is a terrain cue and
+            //      must remain readable whatever drives the hue.
+            const bool attrMode = useRamp && fillStyle && !fillStyle->colorsByElevation();
+            const QByteArray attrKey = attrMode
+                ? fillStyle->colorByAttributeKey() : QByteArray();
+            const QVector<float> &attrVals = attrMode
+                ? m_layer->cellAttributeValues(attrKey) : kEmptyAttrVals;
+            double aMin = 0.0, aMax = 1.0;
+            const bool attrHasData =
+                attrMode && m_layer->cellAttributeRange(attrKey, &aMin, &aMax);
+            const QColor noDataColor = fillStyle ? fillStyle->noDataColor()
+                                                 : QColor(205, 205, 205, 120);
+
+            // Classification range: the attribute's observed span in attribute
+            // mode, the elevation span otherwise. A degenerate span (one
+            // distinct value, or an all-NaN attribute) is widened so the
+            // normalisation below stays finite.
+            double cMin = zMin, cMax = zMax;
+            if (attrMode) {
+                cMin = attrHasData ? aMin : 0.0;
+                cMax = attrHasData ? aMax : 1.0;
+                if (!(cMax > cMin)) cMax = cMin + 1.0;
+            }
+
+            if ((hasElev || attrMode) && useRamp) {
+                // Guarded: a flat mesh has zMax == zMin, and attribute mode
+                // must still colour on one.
+                const double invRange = (cMax > cMin) ? 1.0 / (cMax - cMin) : 0.0;
 
                 // Slice US (mesh) — terrain fill classified by bed elevation
                 // through the sublayer's ClassificationScheme. The default
@@ -724,10 +780,13 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 const bool isDefaultTerrainRamp =
                     rampName.isEmpty()
                     || rampName.compare(QLatin1String("terrain"), Qt::CaseInsensitive) == 0;
+                // Attribute mode always routes through the scheme: the
+                // legacyElevationRamp() fast path is a terrain palette keyed
+                // to bed elevation and means nothing for Manning's n.
                 const bool schemeDrivesColor =
-                    schemeClassified || scheme.invertRamp() || !isDefaultTerrainRamp;
+                    attrMode || schemeClassified || scheme.invertRamp() || !isDefaultTerrainRamp;
                 const QVector<double> classEdges =
-                    schemeClassified ? scheme.levelEdges(zMin, zMax, {}) : QVector<double>{};
+                    schemeClassified ? scheme.levelEdges(cMin, cMax, {}) : QVector<double>{};
 
                 // Per-class alpha (classified schemes only): a class colour's
                 // own alpha scales the fill alpha so a fully transparent
@@ -752,12 +811,20 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 // indices are a different space.
                 constexpr quint32 kValidBit = 0x01000000u;
                 if (!useOverview) {
-                    const quint64 curRev = m_layer->geomRevision() ^ scheme.revision();
+                    // attrRevision() folded in so a Manning's edit cannot
+                    // serve a stale cached colour; attrKey compared separately
+                    // because switching attributes changes nothing else.
+                    // ZMin/ZMax fields hold the *classification* range (cMin/
+                    // cMax), which is the elevation span in elevation mode.
+                    const quint64 curRev = m_layer->geomRevision()
+                                         ^ scheme.revision()
+                                         ^ m_layer->attrRevision();
                     const bool fillCacheHit =
                         m_fillCacheValid
                         && m_fillCacheRev         == curRev
-                        && m_fillCacheZMin        == zMin
-                        && m_fillCacheZMax        == zMax
+                        && m_fillCacheAttrKey     == attrKey
+                        && m_fillCacheZMin        == cMin
+                        && m_fillCacheZMax        == cMax
                         && m_fillCacheAzimuth     == hillSpec.azimuthDeg
                         && m_fillCacheAltitude    == hillSpec.altitudeDeg
                         && m_fillCacheZExag       == hillSpec.zExaggeration
@@ -769,8 +836,9 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                     if (!fillCacheHit) {
                         m_cachedFillRgb.assign(size_t(tris.size()), 0u);
                         m_fillCacheRev         = curRev;
-                        m_fillCacheZMin        = zMin;
-                        m_fillCacheZMax        = zMax;
+                        m_fillCacheAttrKey     = attrKey;
+                        m_fillCacheZMin        = cMin;
+                        m_fillCacheZMax        = cMax;
                         m_fillCacheAzimuth     = hillSpec.azimuthDeg;
                         m_fillCacheAltitude    = hillSpec.altitudeDeg;
                         m_fillCacheZExag       = hillSpec.zExaggeration;
@@ -783,25 +851,51 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
 
                 // Shared per-triangle colour + emit. \p cacheSlot is null for
                 // overview quads and far-zoom top-up cells (both outside the
-                // native fill-RGB cache's index space).
+                // native fill-RGB cache's index space). \p attrIdx indexes the
+                // per-cell attribute vector (parallel to m_sceneTris); -1 for
+                // overview quads, which are an elevation aggregate and carry
+                // no attribute of their own — they fall back to the flat fill
+                // colour so the far-zoom floor never fakes attribute data.
                 auto emitShadedTri = [&](const SWMM2DMeshLayer::SceneTri &t,
-                                         quint32 *cacheSlot) {
+                                         quint32 *cacheSlot,
+                                         int attrIdx) {
+                    // Value that drives the hue: the selected attribute, or
+                    // bed elevation in the historic path.
+                    double cVal = double(t.zAvg);
+                    bool   cValOk = true;
+                    if (attrMode) {
+                        if (attrIdx >= 0 && attrIdx < attrVals.size()) {
+                            cVal   = double(attrVals[attrIdx]);
+                            cValOk = std::isfinite(cVal);
+                        } else {
+                            cValOk = false;   // overview quad — no attribute
+                        }
+                    }
+
                     quint32 packed = cacheSlot ? *cacheSlot : 0u;
                     if (packed == 0u) {
                         quint8 cr, cg, cb;
-                        if (schemeDrivesColor) {
+                        if (attrMode && !cValOk) {
+                            // Unset attribute (every gw.* key today) or an
+                            // aggregate quad: say "no data" rather than
+                            // inventing a plausible colour.
+                            const QColor nc = (attrIdx >= 0) ? noDataColor : flat;
+                            cr = quint8(nc.red());
+                            cg = quint8(nc.green());
+                            cb = quint8(nc.blue());
+                        } else if (schemeDrivesColor) {
                             const QColor sc = schemeClassified
                                 ? scheme.colorForClass(
                                       OpenSWMM::Render::ClassificationScheme::classIndexFor(
-                                          double(t.zAvg), classEdges),
+                                          cVal, classEdges),
                                       scheme.classCount())
-                                : scheme.colorForValue(double(t.zAvg), zMin, zMax);
+                                : scheme.colorForValue(cVal, cMin, cMax);
                             cr = quint8(sc.red());
                             cg = quint8(sc.green());
                             cb = quint8(sc.blue());
                         } else {
                             colorFromRamp(
-                                double(t.zAvg - float(zMin)) * invRange,
+                                (cVal - cMin) * invRange,
                                 rampSpec.ramp, cr, cg, cb);
                         }
 
@@ -838,10 +932,10 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                     // classified class is non-opaque (cheap re-bin on cache
                     // hits; the RGB cache stays alpha-free).
                     quint8 triA = alpha;
-                    if (anyClassAlpha) {
+                    if (anyClassAlpha && cValOk) {
                         const int ci =
                             OpenSWMM::Render::ClassificationScheme::classIndexFor(
-                                double(t.zAvg), classEdges);
+                                cVal, classEdges);
                         if (ci >= 0 && size_t(ci) < classAlphas.size())
                             triA = premul(classAlphas[size_t(ci)], alpha);
                     }
@@ -864,7 +958,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                     const int idx = useIdx ? visibleTris[ii] : ii;
                     emitShadedTri(tris[idx],
                                   useOverview ? nullptr
-                                              : &m_cachedFillRgb[size_t(idx)]);
+                                              : &m_cachedFillRgb[size_t(idx)],
+                                  useOverview ? -1 : idx);
                 }
 
                 // Far-zoom hybrid — parity with the CPU painter's LOD pass:
@@ -895,7 +990,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                         if (maxX < cullX0 || minX > cullX1 ||
                             maxY < cullY0 || minY > cullY1)
                             continue;
-                        emitShadedTri(t, nullptr);
+                        // Native cell index — carries a real attribute value.
+                        emitShadedTri(t, nullptr, idx);
                         ++kept;
                     }
                     if (statsOn) stats.visibleCells += kept;
@@ -1052,10 +1148,24 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         // Phase 3 LOD: no dense wireframe at Far (and at Mid below the
         // cell-size gate) — a 1M-edge wireframe at full extent is a dark
         // wash, not information.
-        const bool edgesVisible = edgeSub && edgeSub->isVisible() && lod.drawEdges;
+        const bool wireVisible = edgeSub && edgeSub->isVisible() && lod.drawEdges;
+        // The BC ring outlives LOD suppression. Qsg2DLodPolicy needs ~32 px
+        // per cell before it draws edges at all, which is right for the
+        // interior wireframe (million-scale wash) and wrong for boundary
+        // conditions: the ring is O(boundary), carries the information the
+        // user turned colorByBC ON to see, and vanishing it at the one zoom
+        // where the whole domain is in view made the feature look broken.
+        const bool bcRingOnly = edgeSub && edgeSub->isVisible() && !lod.drawEdges
+                                && edgeStyle && edgeStyle->colorByBC();
+        const bool edgesVisible = wireVisible || bcRingOnly;
         if (edgesVisible) {
             const auto &edges = m_layer->m_sceneEdges;
-            const int edgeCount = useEdgeIdx ? visibleEdges.size() : edges.size();
+            // BC-ring pass walks the layer's cached non-Wall index instead of
+            // rescanning every edge each frame.
+            const auto &bcRing = m_layer->bcSceneEdges();
+            const int edgeCount = wireVisible
+                                ? (useEdgeIdx ? visibleEdges.size() : edges.size())
+                                : bcRing.size();
             const float invSlope = (maxSlope > 0.f) ? 1.0f / maxSlope : 0.0f;
             if (statsOn) stats.visibleEdges = edgeCount;
 
@@ -1082,15 +1192,62 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 }
             }
 
+            // ---- Pass 2b: boundary-condition colouring --------------------
+            // Every edge is coloured by the BC type in the layer's flat
+            // [tri*3 + edgeLocal] vector. Interior edges are Wall by
+            // construction, so they stay in the thin/wide buckets and only
+            // the boundary ring lands in the six overlay buckets — which is
+            // why six extra flat nodes cost essentially nothing here, and
+            // why a per-vertex-colour material (12 B/vertex instead of 8 B,
+            // ~+36 MB on a 1.5M-edge mesh) would be the wrong trade.
+            const bool byBC = edgeStyle && edgeStyle->colorByBC();
+            const auto &edgeSlots = m_layer->m_sceneEdgeSlot;
+            const auto &edgeBCs   = m_layer->edgeBCs();
+            // A short/absent slot vector (progressive load before the heavy
+            // geometry lands) must degrade to the legacy look, not to a
+            // silently all-Wall mesh with the BC widths applied.
+            const bool slotsUsable = byBC
+                                  && edgeSlots.size() == edges.size()
+                                  && !edgeBCs.isEmpty();
+            // Only recolour the Wall buckets once we can actually resolve BC
+            // types. Without slots every edge is *unknown*, not Wall, so the
+            // honest fallback is the legacy slope colouring.
+            if (slotsUsable) thinColor = wideColor = edgeStyle->bcWallColor();
+            // Per-type half-width, precomputed once per frame. Index 0
+            // (Wall) is never read — Wall edges go to the thin/wide buckets.
+            float kBcHW[kBcOverlayCount + 1] = {};
+            for (int t = 1; t <= kBcOverlayCount; ++t)
+                kBcHW[t] = float(edgeStyle ? edgeStyle->bcWidthForType(t) : 2.4)
+                           * edgeMute * invView;
+
             std::vector<QSGGeometry::Point2D> thinSegs, wideSegs;
+            std::vector<QSGGeometry::Point2D> bcSegs[kBcOverlayCount];
             thinSegs.reserve(size_t(edgeCount) * 6);
             wideSegs.reserve(size_t(edgeCount) / 8 * 6);
 
             for (int ii = 0; ii < edgeCount; ++ii) {
-                const auto &e = useEdgeIdx ? edges[visibleEdges[ii]] : edges[ii];
+                const int   ei = wireVisible ? (useEdgeIdx ? visibleEdges[ii] : ii)
+                                             : bcRing[ii];
+                if (ei < 0 || ei >= edges.size()) continue;
+                const auto &e  = edges[ei];
 
                 const float ax = float(e.line.x1()-ox), ay = float(e.line.y1()-oy);
                 const float bx = float(e.line.x2()-ox), by = float(e.line.y2()-oy);
+
+                if (slotsUsable) {
+                    const qint32 slot = edgeSlots[ei];
+                    const int    t    = (slot >= 0 && slot < edgeBCs.size())
+                                      ? int(edgeBCs[slot].type) : 0;
+                    // t == 0 (Wall) falls through to the slope buckets below;
+                    // the range guard also absorbs a forward-version BC value.
+                    if (t > 0 && t <= kBcOverlayCount) {
+                        appendThickSeg(bcSegs[t - 1], ax, ay, bx, by, kBcHW[t]);
+                        continue;
+                    }
+                }
+
+                // BC-ring pass draws nothing but the ring.
+                if (!wireVisible) continue;
 
                 if (useSlopeWidth && hasElev && (e.slope * invSlope > kSplit))
                     appendThickSeg(wideSegs, ax, ay, bx, by, kWideHW);
@@ -1100,7 +1257,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             uploadFlatVerts(edgeThinNode, thinSegs);
             uploadFlatVerts(edgeWideNode, wideSegs);
 
-            // Apply sublayer opacity uniformly across both nodes.
+            // Apply sublayer opacity uniformly across every edge node.
             const qreal edgeOp = edgeSub->opacity();
             auto withOp = [edgeOp](const QColor &c) {
                 QColor r = c;
@@ -1109,15 +1266,27 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             };
             setFlatColor(edgeThinNode, withOp(thinColor));
             setFlatColor(edgeWideNode, withOp(wideColor));
+
+            size_t bcVerts = 0;
+            for (int i = 0; i < kBcOverlayCount; ++i) {
+                uploadFlatVerts(edgeBcNode[i], bcSegs[i]);
+                if (edgeStyle)
+                    setFlatColor(edgeBcNode[i],
+                                 withOp(edgeStyle->bcColorForType(i + 1)));
+                bcVerts += bcSegs[i].size();
+            }
+
             if (statsOn)
                 stats.addPass(QStringLiteral("edges"),
-                              qint64(thinSegs.size() + wideSegs.size()),
-                              qint64((thinSegs.size() + wideSegs.size())
+                              qint64(thinSegs.size() + wideSegs.size() + bcVerts),
+                              qint64((thinSegs.size() + wideSegs.size() + bcVerts)
                                      * sizeof(QSGGeometry::Point2D)));
         } else {
             const std::vector<QSGGeometry::Point2D> empty;
             uploadFlatVerts(edgeThinNode, empty);
             uploadFlatVerts(edgeWideNode, empty);
+            for (int i = 0; i < kBcOverlayCount; ++i)
+                uploadFlatVerts(edgeBcNode[i], empty);
         }
 
         // ---- Pass 3: bed-elevation contour lines (IsolineSublayer) -------

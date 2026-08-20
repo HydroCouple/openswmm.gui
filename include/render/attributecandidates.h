@@ -38,6 +38,10 @@ namespace OpenSWMM::Render::AttributeCandidates {
  *  on SWMMResultsLayer). */
 [[nodiscard]] QStringList resultsLayerNumeric(int kindOrdinal);
 
+// NB 2D mesh cells are deliberately absent here: MeshFillStyle exposes its
+// colour source as a Q_ENUM (CellAttribute), so the generic property editor
+// builds the combo itself — the same mechanism dashPattern already uses.
+
 } // namespace OpenSWMM::Render::AttributeCandidates
 
 #endif // OPENSWMMVIS_RENDER_ATTRIBUTECANDIDATES_H

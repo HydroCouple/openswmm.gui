@@ -27,6 +27,7 @@
 #include "mesh/meshedgebc.h"
 #include "render/isublayerhost.h"
 
+#include <QByteArray>
 #include <QColor>
 #include <QLineF>
 #include <QPair>
@@ -255,6 +256,27 @@ public:
     [[nodiscard]] const mesh::MeshResult &mesh() const { return m_mesh; }
 
     [[nodiscard]] quint64 geomRevision() const { return m_geomRevision; }
+
+    /*! \brief Has this layer's mesh state diverged from the engine's copy?
+     *
+     *  The save path pushes the whole mesh into the engine, which costs
+     *  O(nVertices x nTriangles) there (each swmm_2d_set_vertex_z rescans
+     *  every triangle). That is minutes on a million-cell mesh, so a save
+     *  must not pay it when nothing was edited.
+     *
+     *  Defaults to **true**: only a layer built from the very file the engine
+     *  parsed is known to agree with it, and that case says so explicitly via
+     *  SWMMVisProjectWindow::attachMeshLayer(layer, pristine = true). A mesh
+     *  generated or imported in-session leaves the engine holding the OLD
+     *  mesh, so it must stay dirty. */
+    [[nodiscard]] bool hasUnsavedMeshEdits() const { return m_editsDirty; }
+
+    /*! \brief Mark the layer's mesh state as diverged from the engine. */
+    void markMeshEdited() { m_editsDirty = true; }
+
+    /*! \brief Clear the divergence flag — only after a confirmed successful
+     *  write, so a failed save still re-pushes next time. */
+    void setMeshEditsSaved() { m_editsDirty = false; }
 
     // ---------------------------------------------------------------------
     // Slice §V.VA — mesh-editing foundation: BC storage, picker / hover
@@ -497,6 +519,53 @@ public:
      *  responsive; the resulting distribution is representative for binning. */
     [[nodiscard]] QVector<double> elevationSamples(int maxSamples = 200000) const;
 
+    // ----- Per-cell attribute colouring (MeshFillStyle::colorByAttribute) ---
+    //
+    // Values come from mesh::cellParamValue(), the single registry that also
+    // drives the editing toolbar and the attribute table — never read
+    // MeshTriangle::mannings directly, or the pending gw.* keys will not
+    // light up for free when the engine grows them.
+
+    /*! \brief Monotonic counter bumped on every per-cell attribute write.
+     *  The QSG renderer folds this into its fill-colour cache key so a
+     *  Manning's edit cannot serve a stale cached colour. */
+    [[nodiscard]] quint64 attrRevision() const { return m_attrRevision; }
+
+    /*! \brief Monotonic counter bumped on every edge-BC write / resize. */
+    [[nodiscard]] quint64 bcRevision() const { return m_bcRevision; }
+
+    /*! \brief Scene-edge indices whose slot carries a **non-Wall** BC.
+     *
+     *  Parallel index space to m_sceneEdges. Bounded by the boundary ring
+     *  rather than the cell count, which is the whole point: the interior
+     *  wireframe is correctly suppressed at far zoom (Qsg2DLodPolicy needs
+     *  ~32 px per cell before it draws edges at all), but the BC ring is a
+     *  small, semantically important subset that must stay visible at every
+     *  zoom. The renderer walks this vector instead of rescanning every edge
+     *  per frame.
+     *
+     *  Cached; recomputed when the BC or geometry revision moves. */
+    [[nodiscard]] const QVector<qint32> &bcSceneEdges() const;
+
+    /*! \brief Per-cell value of \p key, **parallel to m_sceneTris** (which
+     *  skips degenerate triangles, so it is not the mesh triangle order).
+     *  NaN marks an unset attribute. Cached; recomputed when the mesh
+     *  geometry or attribute revision moves. Empty for an unknown key. */
+    [[nodiscard]] const QVector<float> &cellAttributeValues(const QByteArray &key) const;
+
+    /*! \brief Strided sample of \p key for data-driven classification
+     *  (quantile / natural-breaks / std-dev), NaNs excluded. Empty when the
+     *  attribute has no data at all. Mirrors elevationSamples()'s striding so
+     *  the classification editor stays responsive on huge meshes. */
+    [[nodiscard]] QVector<double> cellAttributeSamples(const QByteArray &key,
+                                                        int maxSamples = 200000) const;
+
+    /*! \brief Observed [min,max] over the non-NaN values of \p key.
+     *  \returns false (leaving the outputs untouched) when the attribute has
+     *           no data — which is the case for every gw.* key today. */
+    [[nodiscard]] bool cellAttributeRange(const QByteArray &key,
+                                           double *vMin, double *vMax) const;
+
     // ----- OpenSWMMVisLayer interface ----------------------------------------
 
     void populateScene(QGraphicsScene *scene,
@@ -541,7 +610,10 @@ public:
     };
 
     /*! Per-edge: scene-space line + elevation + slope.
-     *  slope = |Δz| / horizontal_distance_in_map_units. */
+     *  slope = |Δz| / horizontal_distance_in_map_units.
+     *
+     *  NB the flat BC slot for an edge lives in the parallel
+     *  m_sceneEdgeSlot vector, not here — see the comment on that member. */
     struct SceneEdge
     {
         QLineF  line;
@@ -563,6 +635,18 @@ public:
     QVector<SceneTri>  m_sceneTris;
     QVector<SceneEdge> m_sceneEdges;
     QVector<SceneNode> m_sceneNodes;
+
+    /*! Flat BC slot (`tri * 3 + edgeLocal`) for each entry of m_sceneEdges;
+     *  -1 when no slot could be resolved. Parallel vector rather than a field
+     *  on SceneEdge: SceneEdge is 40 bytes and an extra int pads it to 48,
+     *  whereas this costs exactly 4 bytes per edge and leaves the hot struct's
+     *  cache behaviour alone.
+     *
+     *  m_sceneEdges is deduplicated and buildMeshHeavyGeom is first-writer-
+     *  wins, which is exactly right here: a boundary edge belongs to one
+     *  triangle and keeps its own slot, while an interior edge is pushed
+     *  twice but both its slots are Wall by construction. */
+    QVector<qint32>    m_sceneEdgeSlot;
     double             m_zMin     = 0.0;
     double             m_zMax     = 0.0;
     float              m_maxSlope = 0.0f;
@@ -642,6 +726,20 @@ private:
     void resizeBCsToMesh();
     void rebuildVertexAdjacency();
 
+    /*! Recompute the set of BC types present in m_bc and the fill sublayer's
+     *  "attribute has data" flag, and push both onto the sublayers, which
+     *  need them for their const, context-free legendSymbolItems().
+     *  O(n_slots + n_triangles) — call directly only from structural paths
+     *  (reload / resize / async adoption). */
+    void refreshSublayerLegendInputs();
+
+    /*! Coalesced form of the above for per-element write paths. A bulk edit
+     *  (MeshCommands assigning Manning's to 50k cells) would otherwise run
+     *  the O(n) scan once per cell; this collapses a whole batch into a
+     *  single queued refresh once the event loop comes back round. */
+    void scheduleLegendInputRefresh();
+    bool m_legendRefreshQueued = false;
+
     mesh::MeshResult             m_mesh;
     QString                      m_sourcePath;
     bool                         m_isExternal    = false;
@@ -679,8 +777,36 @@ private:
     double                       m_vertexMinCellPx =   6.0;
 
     quint64                      m_geomRevision  = 0;
+    // See hasUnsavedMeshEdits(): conservative default, cleared only by an
+    // explicit pristine attach or a confirmed successful save.
+    bool                         m_editsDirty    = true;
     OGRCoordinateTransformation *m_transform     = nullptr;
     SWMM2DMeshGraphicsItem      *m_graphicsItem  = nullptr;
+
+    // Per-cell attribute / BC revisions. Separate from m_geomRevision so an
+    // attribute edit invalidates the renderer's fill-colour cache without
+    // forcing a full geometry rebuild, and so the cached attribute vector
+    // below knows when it went stale.
+    quint64                      m_attrRevision  = 0;
+    quint64                      m_bcRevision    = 0;
+
+    // Cache for bcSceneEdges(); keyed on both revisions because a geometry
+    // rebuild re-derives m_sceneEdgeSlot and a BC edit changes which slots
+    // are non-Wall.
+    mutable QVector<qint32>      m_bcSceneEdges;
+    mutable quint64              m_bcSceneEdgesBcRev   = ~quint64(0);
+    mutable quint64              m_bcSceneEdgesGeomRev = ~quint64(0);
+
+    // Single-slot cache for cellAttributeValues() — the renderer asks for the
+    // same key every frame, so one slot is enough and switching attributes is
+    // a one-off recompute.
+    mutable QByteArray           m_attrCacheKey;
+    mutable quint64              m_attrCacheGeomRev = ~quint64(0);
+    mutable quint64              m_attrCacheAttrRev = ~quint64(0);
+    mutable QVector<float>       m_attrCacheVals;
+    mutable double               m_attrCacheMin     = 0.0;
+    mutable double               m_attrCacheMax     = 0.0;
+    mutable bool                 m_attrCacheHasData = false;
 
     // Slice BI Phase 8.13.6.6 — renderer plumbing.  Initialised eagerly in
     // the ctor (default SingleSymbolRenderer) so renderer() never returns
