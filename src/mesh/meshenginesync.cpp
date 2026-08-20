@@ -11,11 +11,39 @@
 #include <openswmm/engine/openswmm_engine.h>  // swmm_get_flow_units
 #include <openswmm/engine/openswmm_2d.h>
 
+#include <QElapsedTimer>
+
 #include <cmath>
+#include <cstddef>
+#include <vector>
+
+Q_LOGGING_CATEGORY(lcSavePerf, "openswmm.save.perf")
 
 namespace mesh {
 
 namespace {
+
+// Per-element push counters for one pushMeshEditsToEngine call. Logged from the
+// destructor so every one of the function's six exit points reports, including
+// the early bail-outs that skip most of the work.
+struct SyncPerf
+{
+    int nv = 0, nt = 0;
+    int zPushed = 0, vAttrPushed = 0, triPushed = 0, edgePushed = 0;
+    const char *outcome = "ok";
+    QElapsedTimer timer;
+
+    SyncPerf() { timer.start(); }
+
+    ~SyncPerf()
+    {
+        qCInfo(lcSavePerf).nospace()
+            << "[save][2d-sync] nv=" << nv << " nt=" << nt
+            << " zPushed=" << zPushed << " vAttrPushed=" << vAttrPushed
+            << " triPushed=" << triPushed << " edgePushed=" << edgePushed
+            << " outcome=" << outcome << " ms=" << timer.elapsed();
+    }
+};
 
 // Engine [2D_BOUNDARY_CONDITIONS] type codes (openswmm_2d.h).
 constexpr int kEngWall           = 0;
@@ -81,19 +109,25 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
     auto warn = [&](const QString &m) { if (warnings) warnings->append(m); };
     if (outTrianglesSynced) *outTrianglesSynced = false;
 
+    SyncPerf perf;
+
     // The GUI keeps the engine OPENED (not initialized), so make the parsed
     // mesh editable: this lets the edit setters run and drains the authored
     // BC / conveyance rows so per-edge edits are written on save.
     swmm_2d_prepare_for_edit(engine);
 
     int nv = 0;
-    if (swmm_2d_vertex_count(engine, &nv) != 0 || nv <= 0)
+    if (swmm_2d_vertex_count(engine, &nv) != 0 || nv <= 0) {
+        perf.outcome = "no-engine-mesh";
         return false;  // engine carries no 2D mesh — nothing to sync
+    }
+    perf.nv = nv;
 
     if (nv != mesh.vertices.size()) {
         warn(QStringLiteral("2D mesh sync skipped: engine has %1 vertices, "
                             "layer has %2 — mesh edits were NOT saved.")
                  .arg(nv).arg(mesh.vertices.size()));
+        perf.outcome = "vertex-count-mismatch";
         return false;
     }
 
@@ -104,12 +138,29 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
         if (swmm_get_flow_units(engine, &fu) == 0) flowFactor = flowUnitToCms(fu);
     }
 
-    // ---- Vertex elevation, coupling, and descriptive tag -------------------
+    // ---- Vertex elevation --------------------------------------------------
+    // In ONE call, not one per vertex: the scalar swmm_2d_set_vertex_z rescans
+    // every triangle to refresh that vertex's derived geometry, so a per-vertex
+    // loop is O(nVertices x nTriangles) inside the engine — minutes on a
+    // million-cell mesh. The bulk setter writes all Zs and recomputes the
+    // derived geometry once, landing on bitwise-identical values.
+    {
+        std::vector<double> zs(static_cast<std::size_t>(nv));
+        for (int i = 0; i < nv; ++i)
+            zs[static_cast<std::size_t>(i)] = mesh.vertices[i].z * factor;
+        if (swmm_2d_set_vertex_z_bulk(engine, zs.data(), nv) == 0)
+            perf.zPushed = nv;
+        else
+            warn(QStringLiteral("2D vertex elevations were NOT saved: the "
+                                "engine rejected the bulk elevation write."));
+    }
+
+    // ---- Vertex coupling and descriptive tag -------------------------------
     // Push every vertex so additions / changes / clears all propagate. The
     // coupled SWMM node and the descriptive [2D_VERTICES] TAG-column label are
     // independent fields; an empty value clears the corresponding slot.
     for (int i = 0; i < nv; ++i) {
-        swmm_2d_set_vertex_z(engine, i, mesh.vertices[i].z * factor);
+        ++perf.vAttrPushed;
         swmm_2d_set_vertex_coupled_node(
             engine, i, mesh.vertices[i].coupledNode.toUtf8().constData());
         // Coupling Cd/Area ride along for coupled vertices only (the engine
@@ -123,8 +174,11 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
     }
 
     int nt = 0;
-    if (swmm_2d_triangle_count(engine, &nt) != 0 || nt <= 0)
+    if (swmm_2d_triangle_count(engine, &nt) != 0 || nt <= 0) {
+        perf.outcome = "no-triangles";
         return true;  // no triangles to touch
+    }
+    perf.nt = nt;
 
     // ---- Per-triangle Manning's n + init depth + descriptive tag ----------
     if (nt == mesh.triangles.size()) {
@@ -139,6 +193,7 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
                 swmm_2d_set_triangle_init_depth(engine, t, d * factor);
             swmm_2d_set_triangle_tag(
                 engine, t, mesh.triangles[t].tag.toUtf8().constData());
+            ++perf.triPushed;
         }
         if (outTrianglesSynced) *outTrianglesSynced = true;
     } else {
@@ -169,13 +224,16 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
     }
 
     // ---- Per-edge conveyance + boundary conditions -------------------------
-    if (bcs.isEmpty())
+    if (bcs.isEmpty()) {
+        perf.outcome = "no-edge-state";
         return true;  // no BC/conveyance state authored on the layer
+    }
 
     if (bcs.size() != nt * 3) {
         warn(QStringLiteral("2D edge sync skipped: engine has %1 edges, layer "
                             "has %2 — conveyance/BC edits were NOT saved.")
                  .arg(nt * 3).arg(bcs.size()));
+        perf.outcome = "edge-count-mismatch";
         return true;  // vertex Z still synced above
     }
 
@@ -188,6 +246,7 @@ bool pushMeshEditsToEngine(SWMM_Engine engine,
             // the 1.0 default propagate too (interior edges are mirrored by
             // the engine).
             swmm_2d_set_edge_conveyance(engine, t, e, b.conveyance);
+            ++perf.edgePushed;
 
             // Clear all name slots first so a stale timeseries/curve name from
             // the loaded model can't mask a freshly-edited constant value
