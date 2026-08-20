@@ -13,6 +13,7 @@
 #include "core/linkrenderingprefs.h"
 #include "core/noderenderingprefs.h"
 #include "core/preferencesmanager.h"
+#include "core/meshbcrenderingprefs.h"
 #include "core/selectionrenderingprefs.h"
 #include "ui/dialogs/licenseagreementdialog.h"
 #include "ui/theme/thememanager.h"
@@ -515,6 +516,39 @@ QWidget *PreferencesDialog::buildRenderingPage()
         "(App-wide kill-switch: OPENSWMM_QSG_MESH=0.)"));
     xv->addWidget(m_qsgMeshBox);
     outer->addWidget(gpuGroup);
+
+    // ── 2D mesh boundary-condition edge defaults ─────────────────────────
+    auto *bcGroup = new QGroupBox(tr("2D Mesh Boundary-Condition Edges"), page);
+    auto *bcv     = new QVBoxLayout(bcGroup);
+    bcv->setContentsMargins(8, 8, 8, 8);
+
+    auto *bcIntro = new QLabel(
+        tr("Colour and width applied to mesh edges that carry a boundary "
+           "condition, one entry per BC type. Wall edges are the interior "
+           "wireframe and use the layer's own edge width.\n\n"
+           "These are defaults for meshes opened from now on — a layer you "
+           "have already styled keeps its own settings, which are saved with "
+           "the project."),
+        bcGroup);
+    bcIntro->setWordWrap(true);
+    bcv->addWidget(bcIntro);
+
+    m_meshBcPrefs = new MeshBcRenderingPrefs(this);
+    m_meshBcModel = new QPropertyModel(this);
+    m_meshBcModel->setData(
+        QVariant::fromValue(static_cast<QObject*>(m_meshBcPrefs)));
+
+    auto *bcTree = new QTreeView(bcGroup);
+    bcTree->setModel(m_meshBcModel);
+    bcTree->setItemDelegate(new QPropertyItemDelegate(m_meshBcModel));
+    bcTree->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    bcTree->setAlternatingRowColors(true);
+    bcTree->setMinimumHeight(240);
+    bcTree->expandToDepth(0);
+    bcTree->resizeColumnToContents(0);
+    bcv->addWidget(bcTree, 1);
+
+    outer->addWidget(bcGroup);
 
     outer->addStretch(0);
 
