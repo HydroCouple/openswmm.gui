@@ -4,14 +4,86 @@
  */
 #include "render/sublayers/meshedgesublayer.h"
 
+#include "mesh/meshbctype.h"
+
 #include <QJsonObject>
 
 namespace OpenSWMM::Render
 {
 
+// The style bag indexes BC colours by the raw enum value so the render layer
+// never has to include the mesh enum in its header. Lock the two together.
+static_assert(int(mesh::MeshBCTypes::Type::Wall)                == 0, "BC enum order changed");
+static_assert(int(mesh::MeshBCTypes::Type::NormalFlow)          == 1, "BC enum order changed");
+static_assert(int(mesh::MeshBCTypes::Type::SpecifiedStageConst) == 2, "BC enum order changed");
+static_assert(int(mesh::MeshBCTypes::Type::SpecifiedStageTS)    == 3, "BC enum order changed");
+static_assert(int(mesh::MeshBCTypes::Type::SpecifiedFlowConst)  == 4, "BC enum order changed");
+static_assert(int(mesh::MeshBCTypes::Type::SpecifiedFlowTS)     == 5, "BC enum order changed");
+static_assert(int(mesh::MeshBCTypes::Type::RatingCurve)         == 6, "BC enum order changed");
+
+namespace {
+
+/*! JSON keys for the seven BC colours, indexed by enum value. Must stay in
+ *  step with the Q_PROPERTY names so a style file is self-describing. */
+constexpr const char *kBcColorKeys[MeshEdgeStyle::kBcTypeCount] = {
+    "bcWallColor", "bcNormalFlowColor", "bcStageConstColor", "bcStageTSColor",
+    "bcFlowConstColor", "bcFlowTSColor", "bcRatingCurveColor",
+};
+
+/*! JSON keys for the six per-type BC widths. Index 0 (Wall) is null: Wall
+ *  edges are the interior wireframe and carry lineWidthPx, so there is no
+ *  width to persist for them. */
+constexpr const char *kBcWidthKeys[MeshEdgeStyle::kBcTypeCount] = {
+    nullptr, "bcNormalFlowWidthPx", "bcStageConstWidthPx", "bcStageTSWidthPx",
+    "bcFlowConstWidthPx", "bcFlowTSWidthPx", "bcRatingCurveWidthPx",
+};
+
+} // namespace
+
 MeshEdgeStyle::MeshEdgeStyle(QObject *parent) : SublayerStyle(parent)
 {
+    // Tab10-derived defaults, assigned so the semantics read off the map:
+    // stage BCs are cool (blue/cyan), flow BCs are warm (orange/pink),
+    // normal-flow is green, rating-curve purple. Wall inherits the plain
+    // edge colour so switching colorByBC on does not repaint the interior.
+    m_bcColors[0] = m_color;                          // Wall
+    m_bcColors[1] = QColor(0x2c, 0xa0, 0x2c, 230);    // Normal flow      — green
+    m_bcColors[2] = QColor(0x1f, 0x77, 0xb4, 235);    // Stage (const)    — blue
+    m_bcColors[3] = QColor(0x17, 0xbe, 0xcf, 235);    // Stage (series)   — cyan
+    m_bcColors[4] = QColor(0xff, 0x7f, 0x0e, 235);    // Flow (const)     — orange
+    m_bcColors[5] = QColor(0xe3, 0x77, 0xc2, 235);    // Flow (series)    — pink
+    m_bcColors[6] = QColor(0x94, 0x67, 0xbd, 235);    // Rating curve     — purple
+
+    // Wall keeps the wireframe's own width (it IS the wireframe); the six
+    // boundary types default wide enough to read at a whole-domain zoom,
+    // where the interior wireframe is suppressed entirely and the ring is
+    // the only thing on screen.
+    m_bcWidths[0] = m_lineWidthPx;                    // Wall — unused by the renderer
+    m_bcWidths[1] = 2.0;                              // Normal flow
+    m_bcWidths[2] = 2.4;                              // Stage (const)
+    m_bcWidths[3] = 2.4;                              // Stage (series)
+    m_bcWidths[4] = 2.4;                              // Flow (const)
+    m_bcWidths[5] = 2.4;                              // Flow (series)
+    m_bcWidths[6] = 2.4;                              // Rating curve
+
     seedSchemeFromLegacy();
+}
+
+void MeshEdgeStyle::setBcColor(int idx, const QColor &v)
+{
+    if (idx < 0 || idx >= kBcTypeCount) return;
+    if (m_bcColors[idx] == v) return;
+    m_bcColors[idx] = v;
+    setDirty();
+}
+
+void MeshEdgeStyle::setBcWidth(int idx, double v)
+{
+    if (idx < 0 || idx >= kBcTypeCount) return;
+    v = qBound(0.1, v, 20.0);
+    if (qFuzzyCompare(m_bcWidths[idx] + 1.0, v + 1.0)) return;
+    m_bcWidths[idx] = v;
+    setDirty();
 }
 
 void MeshEdgeStyle::seedSchemeFromLegacy()
@@ -78,6 +150,13 @@ QJsonObject MeshEdgeStyle::toJson() const
     j[QStringLiteral("wideWidthPx")]         = m_wideWidthPx;
     j[QStringLiteral("wideColor")]           = m_wideColor.name(QColor::HexArgb);
     j[QStringLiteral("classification")]      = m_scheme.toJson();
+
+    j[QStringLiteral("colorByBC")] = m_colorByBC;
+    for (int i = 0; i < kBcTypeCount; ++i) {
+        j[QLatin1String(kBcColorKeys[i])] = m_bcColors[i].name(QColor::HexArgb);
+        if (kBcWidthKeys[i])
+            j[QLatin1String(kBcWidthKeys[i])] = m_bcWidths[i];
+    }
     return j;
 }
 
@@ -100,6 +179,31 @@ void MeshEdgeStyle::fromJson(const QJsonObject &j)
     if (j.contains(QStringLiteral("wideColor"))) {
         const QColor c(j.value(QStringLiteral("wideColor")).toString());
         if (c.isValid()) m_wideColor = c;
+    }
+
+    // BC colouring — absent keys keep the ctor defaults, so a pre-BC v1 style
+    // file loads with colorByBC == false and renders exactly as it used to.
+    if (j.contains(QStringLiteral("colorByBC")))
+        m_colorByBC = j.value(QStringLiteral("colorByBC")).toBool(m_colorByBC);
+    // Migration: styles written before per-type widths carry a single
+    // "bcWidthPx". Seed all six boundary types from it so an existing file
+    // reloads looking exactly as it did, then let the per-type keys below
+    // override where present.
+    if (j.contains(QStringLiteral("bcWidthPx"))) {
+        const double legacy =
+            qBound(0.1, j.value(QStringLiteral("bcWidthPx")).toDouble(1.60), 20.0);
+        for (int i = 1; i < kBcTypeCount; ++i) m_bcWidths[i] = legacy;
+    }
+    for (int i = 0; i < kBcTypeCount; ++i) {
+        const QLatin1String key(kBcColorKeys[i]);
+        if (j.contains(key)) {
+            const QColor c(j.value(key).toString());
+            if (c.isValid()) m_bcColors[i] = c;
+        }
+        if (!kBcWidthKeys[i]) continue;
+        const QLatin1String wkey(kBcWidthKeys[i]);
+        if (j.contains(wkey))
+            m_bcWidths[i] = qBound(0.1, j.value(wkey).toDouble(m_bcWidths[i]), 20.0);
     }
 
     if (j.contains(QStringLiteral("classification")))
@@ -131,8 +235,47 @@ void MeshEdgeSublayer::setOpacity(qreal o)
     emit invalidated();
 }
 
+void MeshEdgeSublayer::setBcTypesPresent(const QSet<int> &types)
+{
+    QSet<int> next = types;
+    next.insert(0);   // Wall always has a row — it governs the mesh interior
+    if (m_bcTypesPresent == next) return;
+    m_bcTypesPresent = next;
+    // Only the legend depends on this, but invalidated() is the sublayer's
+    // single change channel and a legend rebuild is cheap.
+    emit invalidated();
+}
+
 QList<LegendSymbolItem> MeshEdgeSublayer::legendSymbolItems() const
 {
+    // BC mode: one row per BC type actually present in the mesh. Emitting all
+    // seven unconditionally would put five dead rows in the dock on a typical
+    // model, so the layer pushes the present set via setBcTypesPresent().
+    if (m_style->colorByBC()) {
+        QList<LegendSymbolItem> out;
+        for (int t = 0; t < MeshEdgeStyle::kBcTypeCount; ++t) {
+            if (!m_bcTypesPresent.contains(t)) continue;
+
+            LegendSymbolItem item;
+            item.label      = mesh::MeshBCTypes::label(mesh::MeshBCTypes::Type(t));
+            item.sublayerId = m_id;
+
+            SymbolLayer line;
+            line.kind = SymbolLayerKind::SimpleLine;
+            SymbolProps::writeColor(line.props, QStringLiteral("color"),
+                                    m_style->bcColorForType(t));
+            line.props.insert(QStringLiteral("widthPx"),
+                              (t == 0) ? m_style->lineWidthPx()
+                                       : m_style->bcWidthForType(t));
+            item.symbol.layers.append(line);
+            item.symbol.opacity = m_opacity;
+            item.classKey  = QString::number(t);
+            item.sortIndex = t;
+            out.append(item);
+        }
+        return out;
+    }
+
     LegendSymbolItem item;
     item.label      = tr("Mesh Edges");
     item.sublayerId = m_id;

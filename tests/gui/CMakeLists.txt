@@ -645,6 +645,14 @@ add_swmmvis_gui_test(test_2d_sublayers
     ${CMAKE_SOURCE_DIR}/src/render/sublayers/scalarfillsublayer.cpp
     # VelocityVectorStyle::colorForSpeed samples a named RasterColorRamp.
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    # MeshEdgeSublayer labels its BC legend rows with MeshBCTypes::label(),
+    # and MeshFillSublayer labels its ramp with cellParamLabel(). Both are
+    # leaf translation units (QObject / QCoreApplication only), so the lean
+    # link stays lean.
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshbctype.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshbctype.h
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshcellparams.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshcellparams.h
     ${CMAKE_SOURCE_DIR}/include/render/symbollayer.h
     ${CMAKE_SOURCE_DIR}/include/render/symbolstyle.h
     ${CMAKE_SOURCE_DIR}/include/render/legendsymbolitem.h

@@ -907,6 +907,103 @@ void PreferencesManager::setProgressTickMs(int ms)
                            QStringLiteral("ProgressTickMs"));
 }
 
+// ---------------------------------------------------------------------------
+// 2D mesh boundary-condition edge styling defaults
+// ---------------------------------------------------------------------------
+
+namespace {
+
+//! Settings key suffix per BC type, index = mesh::MeshBCTypes::Type.
+constexpr const char *kMeshBcNames[7] = {
+    "Wall", "NormalFlow", "StageConst", "StageTS",
+    "FlowConst", "FlowTS", "RatingCurve",
+};
+
+//! Must match MeshEdgeStyle's ctor defaults, or toggling a preference back to
+//! its factory value would not restore the factory render.
+const QColor kMeshBcDefaultColors[7] = {
+    QColor(0, 0, 0, 130),                          // Wall — plain edge colour
+    QColor(0x2c, 0xa0, 0x2c, 230),                 // Normal flow   — green
+    QColor(0x1f, 0x77, 0xb4, 235),                 // Stage (const) — blue
+    QColor(0x17, 0xbe, 0xcf, 235),                 // Stage (series)— cyan
+    QColor(0xff, 0x7f, 0x0e, 235),                 // Flow (const)  — orange
+    QColor(0xe3, 0x77, 0xc2, 235),                 // Flow (series) — pink
+    QColor(0x94, 0x67, 0xbd, 235),                 // Rating curve  — purple
+};
+
+constexpr double kMeshBcDefaultWidths[7] = {
+    0.35, 2.0, 2.4, 2.4, 2.4, 2.4, 2.4,
+};
+
+int clampBcType(int t) { return (t >= 0 && t < 7) ? t : 0; }
+
+} // namespace
+
+bool PreferencesManager::meshBcColorByType() const
+{
+    return m_settings.value(QStringLiteral("%1/Mesh2D/BcColorByType")
+                                .arg(kGroupRoot), true).toBool();
+}
+
+void PreferencesManager::setMeshBcColorByType(bool on)
+{
+    if (on == meshBcColorByType()) return;
+    m_settings.setValue(QStringLiteral("%1/Mesh2D/BcColorByType")
+                            .arg(kGroupRoot), on);
+    emit preferenceChanged(QStringLiteral("Mesh2D"),
+                           QStringLiteral("BcColorByType"));
+}
+
+QColor PreferencesManager::meshBcColor(int type) const
+{
+    const int t = clampBcType(type);
+    const QVariant v =
+        m_settings.value(QStringLiteral("%1/Mesh2D/BcColor/%2")
+                             .arg(QString::fromLatin1(kGroupRoot),
+                                  QString::fromLatin1(kMeshBcNames[t])));
+    if (v.isValid()) {
+        const QColor c(v.toString());
+        if (c.isValid()) return c;
+    }
+    return kMeshBcDefaultColors[t];
+}
+
+void PreferencesManager::setMeshBcColor(int type, const QColor &color)
+{
+    const int t = clampBcType(type);
+    if (!color.isValid() || color == meshBcColor(t)) return;
+    m_settings.setValue(QStringLiteral("%1/Mesh2D/BcColor/%2")
+                            .arg(QString::fromLatin1(kGroupRoot),
+                                 QString::fromLatin1(kMeshBcNames[t])),
+                        color.name(QColor::HexArgb));
+    emit preferenceChanged(QStringLiteral("Mesh2D"),
+                           QStringLiteral("BcColor/%1")
+                               .arg(QString::fromLatin1(kMeshBcNames[t])));
+}
+
+double PreferencesManager::meshBcWidthPx(int type) const
+{
+    const int t = clampBcType(type);
+    return m_settings.value(QStringLiteral("%1/Mesh2D/BcWidthPx/%2")
+                                .arg(QString::fromLatin1(kGroupRoot),
+                                     QString::fromLatin1(kMeshBcNames[t])),
+                            kMeshBcDefaultWidths[t]).toDouble();
+}
+
+void PreferencesManager::setMeshBcWidthPx(int type, double px)
+{
+    const int t = clampBcType(type);
+    px = qBound(0.1, px, 20.0);
+    if (qFuzzyCompare(px + 1.0, meshBcWidthPx(t) + 1.0)) return;
+    m_settings.setValue(QStringLiteral("%1/Mesh2D/BcWidthPx/%2")
+                            .arg(QString::fromLatin1(kGroupRoot),
+                                 QString::fromLatin1(kMeshBcNames[t])),
+                        px);
+    emit preferenceChanged(QStringLiteral("Mesh2D"),
+                           QStringLiteral("BcWidthPx/%1")
+                               .arg(QString::fromLatin1(kMeshBcNames[t])));
+}
+
 double PreferencesManager::animationSpeed() const
 {
     return m_settings.value(QStringLiteral("%1/Simulation/AnimationSpeed")

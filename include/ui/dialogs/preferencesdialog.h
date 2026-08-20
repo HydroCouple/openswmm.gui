@@ -33,6 +33,7 @@ class QStackedWidget;
 
 class LinkRenderingPrefs;
 class NodeRenderingPrefs;
+class MeshBcRenderingPrefs;
 class SelectionRenderingPrefs;
 class QPropertyModel;
 
@@ -110,6 +111,11 @@ private:
     // setters directly into PreferencesManager, so writeToManager()
     // leaves them alone.
     SelectionRenderingPrefs *m_selectionPrefs  = nullptr;
+
+    // 2D mesh BC edge defaults — same QPropertyModel treatment as the
+    // selection pens above.
+    MeshBcRenderingPrefs    *m_meshBcPrefs     = nullptr;
+    QPropertyModel          *m_meshBcModel     = nullptr;
     QPropertyModel          *m_selectionModel  = nullptr;
 
     // Canvas

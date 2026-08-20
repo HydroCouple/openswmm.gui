@@ -137,6 +137,18 @@ const QString kMeshContWidth        = QStringLiteral("width");
 const QString kMeshContFilled       = QStringLiteral("filled");      // BJ.2-filled
 const QString kMeshContFilledAlpha  = QStringLiteral("filledOpacity");// BJ.2-filled
 
+// Full sublayer state (visibility, opacity, and each SublayerStyle's toJson)
+// for the mesh layer's fill / edge / node / band / isoline sublayers — the
+// same payload SWMMResultsLayer already round-trips under
+// kResultLayerSublayers. Purely additive: the hand-rolled fields above stay
+// authoritative for anything they cover, and this is applied after them so
+// the richer sublayer state wins where the two overlap.
+//
+// Without this, style bag settings that have no hand-rolled field — the
+// fill ClassificationScheme, colorByAttribute, and the edge BC colours —
+// are lost on project reopen.
+const QString kMeshSublayers        = QStringLiteral("sublayers");
+
 // Per-layer IFeatureRenderer JSON (BI-MK.3, schema v5+, additive).
 // Holds whatever rendererId the layer's renderer() returns — typically
 // "single", "graduated", "categorized", "rule" or "multikind". Empty /
@@ -568,6 +580,9 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw,
             c[kMeshContFilledAlpha] = ml->filledContoursOpacity();
             m[kMeshContours]        = c;
 
+            m[kMeshSublayers] =
+                OpenSWMM::Render::ISublayerHost::saveSublayersToJson(*ml);
+
             meshArr.append(m);
         }
         if (!meshArr.isEmpty())
@@ -938,6 +953,14 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj,
                 ml->setFilledContours(c.value(kMeshContFilled).toBool());
             if (c.contains(kMeshContFilledAlpha))
                 ml->setFilledContoursOpacity(c.value(kMeshContFilledAlpha).toDouble());
+
+            // Applied last: the hand-rolled fields above and the sublayer
+            // payload both carry visibility, and the sublayer state is the
+            // richer of the two. Absent in pre-schema projects → sublayers
+            // keep their compiled defaults.
+            if (m.contains(kMeshSublayers))
+                OpenSWMM::Render::ISublayerHost::loadSublayersFromJson(
+                    *ml, m.value(kMeshSublayers).toObject());
         }
     }
 
