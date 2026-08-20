@@ -204,6 +204,10 @@ add_swmmvis_unit_test(test_meshinpbcroundtrip
     ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshwriter.h
     ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+    # inpmeshreader/inpmeshwriter parse and emit the per-cell
+    # [2D_INFILTRATION*] rows via the mesh::infil*Token helpers.
+    ${PROJECT_SOURCE_DIR}/include/mesh/meshinfil.h
+    ${PROJECT_SOURCE_DIR}/src/mesh/meshinfil.cpp
     ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshwriter.cpp
 )
 
@@ -253,6 +257,10 @@ if(TARGET openswmm_engine)
         ${PROJECT_SOURCE_DIR}/include/mesh/meshenginesync.h
         ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
         ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+        # inpmeshreader/inpmeshwriter parse and emit the per-cell
+        # [2D_INFILTRATION*] rows via the mesh::infil*Token helpers.
+        ${PROJECT_SOURCE_DIR}/include/mesh/meshinfil.h
+        ${PROJECT_SOURCE_DIR}/src/mesh/meshinfil.cpp
         ${PROJECT_SOURCE_DIR}/src/mesh/meshenginesync.cpp
     )
     target_link_libraries(test_meshenginesync PRIVATE Qt6::Gui openswmm_engine)
@@ -269,6 +277,10 @@ if(TARGET openswmm_engine)
         ${PROJECT_SOURCE_DIR}/include/mesh/meshenginesync.h
         ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
         ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+        # inpmeshreader/inpmeshwriter parse and emit the per-cell
+        # [2D_INFILTRATION*] rows via the mesh::infil*Token helpers.
+        ${PROJECT_SOURCE_DIR}/include/mesh/meshinfil.h
+        ${PROJECT_SOURCE_DIR}/src/mesh/meshinfil.cpp
         ${PROJECT_SOURCE_DIR}/src/mesh/meshenginesync.cpp
     )
     target_link_libraries(test_savepathperf PRIVATE Qt6::Gui openswmm_engine)
