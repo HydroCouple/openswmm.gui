@@ -167,6 +167,7 @@ set(
         include/core/preferencesmanager.h
         include/core/linkrenderingprefs.h
         include/core/noderenderingprefs.h
+        include/core/meshbcrenderingprefs.h
         include/core/selectionrenderingprefs.h
         include/core/unitsystem.h
         include/core/crsreproject.h
@@ -818,6 +819,7 @@ set(
         src/core/preferencesmanager.cpp
         src/core/linkrenderingprefs.cpp
         src/core/noderenderingprefs.cpp
+        src/core/meshbcrenderingprefs.cpp
         src/core/selectionrenderingprefs.cpp
         src/core/queryparser.cpp
         src/core/unitsystem.cpp

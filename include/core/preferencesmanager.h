@@ -226,6 +226,26 @@ public:
     void saveCustomColorRamp(const QString &name, const RasterColorRamp &ramp);
     void removeCustomColorRamp(const QString &name);
 
+    // ── 2D mesh boundary-condition edge styling ──────────────────────────
+    /*! Defaults a NEW mesh-edge sublayer style adopts for boundary-condition
+     *  edge rendering. Per-layer edits still win and are persisted with the
+     *  project / style file — these only seed a style that has never been
+     *  configured, exactly like nodePen()/linkPen() seed object symbology.
+     *
+     *  \p type is a mesh::MeshBCTypes::Type value (0 = Wall .. 6 = rating
+     *  curve). Out-of-range indices fold onto Wall.
+     *
+     *  Width has no Wall entry: Wall edges ARE the interior wireframe and
+     *  are drawn at the edge style's own lineWidthPx. */
+    [[nodiscard]] bool   meshBcColorByType() const;
+    void setMeshBcColorByType(bool on);
+
+    [[nodiscard]] QColor meshBcColor(int type) const;
+    void setMeshBcColor(int type, const QColor &color);
+
+    [[nodiscard]] double meshBcWidthPx(int type) const;
+    void setMeshBcWidthPx(int type, double px);
+
     // ── Simulation ───────────────────────────────────────────────────────
     /*! Progress-tick interval (ms) for live UI updates while a
      *  simulation runs. 1 Hz by default — short enough to feel live,

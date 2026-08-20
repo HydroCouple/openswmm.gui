@@ -38,6 +38,7 @@
 #include "render/qsg2ddirtystate.h"
 #include "render/qsg2dlodpolicy.h"
 
+#include <QByteArray>
 #include <QHash>
 #include <QPointer>
 #include <QQuickItem>
@@ -175,8 +176,19 @@ private:
     // triangle becomes visible. Bit 24 is set on every written entry so
     // a legitimate black triangle (RGB 0,0,0) is still distinguishable
     // from "not yet computed".
+    //
+    // colorByAttribute (MeshFillStyle) widens two of these fields:
+    //   m_fillCacheRev      also XORs the layer's attrRevision(), so a
+    //                       per-cell Manning's edit invalidates the colours.
+    //   m_fillCacheZMin/Max hold the *classification* range — the attribute's
+    //                       observed span in attribute mode, the elevation
+    //                       span in the historic elevation mode.
+    //   m_fillCacheAttrKey  which attribute the cached colours were built
+    //                       from; switching attributes changes nothing else
+    //                       in the key, so it must be compared on its own.
     bool                       m_fillCacheValid       = false;
     quint64                    m_fillCacheRev         = 0;
+    QByteArray                 m_fillCacheAttrKey;
     double                     m_fillCacheZMin        = 0.0;
     double                     m_fillCacheZMax        = 0.0;
     double                     m_fillCacheAzimuth     = 0.0;
