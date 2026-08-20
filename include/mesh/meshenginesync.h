@@ -20,8 +20,15 @@
 
 #include <openswmm/engine/openswmm_callbacks.h>  // SWMM_Engine typedef
 
+#include <QLoggingCategory>
 #include <QStringList>
 #include <QVector>
+
+// Opt-in save-path perf breakdown (per-stage ms, per-element push counts):
+// QT_LOGGING_RULES="openswmm.save.perf=true" (lines are qCInfo). Gated because
+// the push counters are only meaningful next to the stage timings, and both are
+// noise during normal operation.
+Q_DECLARE_LOGGING_CATEGORY(lcSavePerf)
 
 namespace mesh {
 
