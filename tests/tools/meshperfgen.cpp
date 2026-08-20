@@ -94,7 +94,9 @@ bool generateOne(const std::string &outDir, std::int64_t targetTris)
         }
     }
 
-    std::fprintf(mf, "\n[2D_TRIANGLES]\n;;V1 V2 V3\n");
+    // MANNINGS_N is required by the [2D_TRIANGLES] parser — rows without it are
+    // rejected with "Expected V1 V2 V3 MANNINGS_N [INIT_DEPTH] [TAG]".
+    std::fprintf(mf, "\n[2D_TRIANGLES]\n;;V1 V2 V3 MANNINGS_N\n");
     const std::int64_t stride = cols + 1;
     for (std::int64_t r = 0; r < rows; ++r) {
         for (std::int64_t c = 0; c < cols; ++c) {
@@ -103,10 +105,10 @@ bool generateOne(const std::string &outDir, std::int64_t targetTris)
             const std::int64_t v01 = v00 + stride;
             const std::int64_t v11 = v01 + 1;
             // CCW in a y-up plane.
-            std::fprintf(mf, "%lld %lld %lld\n",
+            std::fprintf(mf, "%lld %lld %lld 0.035\n",
                          static_cast<long long>(v00), static_cast<long long>(v10),
                          static_cast<long long>(v11));
-            std::fprintf(mf, "%lld %lld %lld\n",
+            std::fprintf(mf, "%lld %lld %lld 0.035\n",
                          static_cast<long long>(v00), static_cast<long long>(v11),
                          static_cast<long long>(v01));
         }

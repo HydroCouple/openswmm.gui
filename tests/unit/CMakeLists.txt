@@ -256,6 +256,22 @@ if(TARGET openswmm_engine)
         ${PROJECT_SOURCE_DIR}/src/mesh/meshenginesync.cpp
     )
     target_link_libraries(test_meshenginesync PRIVATE Qt6::Gui openswmm_engine)
+
+    # Save-path perf harness — times mesh read / engine open / mesh push /
+    # model write against a large synthetic mesh, in the OPENED-not-INITIALIZED
+    # engine state the GUI's saveAs actually runs in. Skips unless
+    # SWMM_PROFILE_SAVE_INP names a fixture, so CI is unaffected.
+    add_swmmvis_unit_test(test_savepathperf
+        test_savepathperf.cpp
+        ${PROJECT_SOURCE_DIR}/include/mesh/meshbctype.h
+        ${PROJECT_SOURCE_DIR}/include/mesh/meshedgebc.h
+        ${PROJECT_SOURCE_DIR}/include/mesh/inpmeshreader.h
+        ${PROJECT_SOURCE_DIR}/include/mesh/meshenginesync.h
+        ${PROJECT_SOURCE_DIR}/src/mesh/meshbctype.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+        ${PROJECT_SOURCE_DIR}/src/mesh/meshenginesync.cpp
+    )
+    target_link_libraries(test_savepathperf PRIVATE Qt6::Gui openswmm_engine)
 endif()
 
 # Slice BB Phase 8.6.16 — shared model for legend overlay chrome.
