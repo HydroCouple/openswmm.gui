@@ -29,6 +29,7 @@
 #include "ui/properties/xsectshapegeom.h"
 
 #include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
 
@@ -174,6 +175,16 @@ private slots:
         SWMM_Engine e = buildLinkFixture("C1", /*Conduit=*/0);
         QVERIFY(e);
         const int idx = swmm_link_index(e, "C1");
+        // set_xsect(IRREGULAR, index) now validates and BINDS the transect
+        // (it used to store the index as a depth and leave the reference
+        // dangling — the .inp save corruption family), so the fixture needs a
+        // real transect for index 0 to name.
+        QCOMPARE(swmm_transect_add(e, "T1"), SWMM_OK);
+        const int ti = swmm_transect_index(e, "T1");
+        QCOMPARE(swmm_transect_set_roughness(e, ti, 0.04, 0.04, 0.03), SWMM_OK);
+        QCOMPARE(swmm_transect_add_station(e, ti, 0.0, 10.0), SWMM_OK);
+        QCOMPARE(swmm_transect_add_station(e, ti, 5.0, 5.0), SWMM_OK);
+        QCOMPARE(swmm_transect_add_station(e, ti, 10.0, 10.0), SWMM_OK);
         QCOMPARE(swmm_link_set_xsect(e, idx, SWMM_XSECT_IRREGULAR, 0, 0, 0, 0),
                  SWMM_OK);
 
