@@ -82,7 +82,7 @@ signals:
 private slots:
     void onModeChanged();
     void onAttributeChanged(int row);
-    void onRampChanged();
+    void onRampChanged(const RasterColorRamp &ramp);
     void onInvertToggled(bool on);
     void onMethodChanged(int row);
     void onClassCountChanged(int n);

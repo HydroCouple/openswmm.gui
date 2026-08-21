@@ -170,6 +170,7 @@ set(
         include/core/meshbcrenderingprefs.h
         include/core/selectionrenderingprefs.h
         include/core/unitsystem.h
+        include/core/loadprogress.h
         include/core/crsreproject.h
         include/core/editgeometry.h
         include/core/gageassignment.h
@@ -249,6 +250,10 @@ set(
         include/render/sublayers/isolinesublayer.h
         include/render/sublayers/contourbandsublayer.h
         include/render/sublayers/scalarfillsublayer.h
+        # Mesh styling restructure — BC indicators + coupled-node markers as
+        # first-class sublayers.
+        include/render/sublayers/meshbcsublayer.h
+        include/render/sublayers/couplednodesublayer.h
         # Slice Z.1 — layer-scope Rule + RuleList (Q_OBJECT classes;
         # AUTOMOC needs the headers in this list).
         include/render/rule.h
@@ -525,6 +530,7 @@ set(
         include/mesh/meshenginesync.h
         include/mesh/meshedgebc.h
         include/mesh/meshgenerator.h
+        include/mesh/meshinfil.h
         include/mesh/meshminsizecleanup.h
         include/mesh/meshreorder.h
         include/mesh/meshstagecache.h
@@ -694,6 +700,9 @@ set(
         # style-grid delegate factory (MESH_SUBLAYER_CLASSIFICATION_UI_PLAN).
         include/ui/widgets/classificationschemecelleditor.h
         include/ui/widgets/stylepropertydelegate.h
+        # Phase GG0d — mesh generation region-defaults table (INTEGRATED2D_GW
+        # GUI plan §3.3), extracted so buildUi() does not grow further (§7).
+        include/ui/widgets/meshregiondefaultswidget.h
 
         # ── Dialogs ──────────────────────────────────────────────────────────
         # Shared confirm → convert → summary flow for node/link type changes.
@@ -705,6 +714,7 @@ set(
         include/ui/dialogs/mesh2dgroundwaterdialog.h
         include/ui/dialogs/assignraingagesdialog.h
         include/ui/dialogs/meshattributeassigndialog.h
+        include/ui/dialogs/infilassigntoselectiondialog.h
         include/ui/dialogs/meshgenerationdialog.h
         include/ui/dialogs/nodecompoundeditdialog.h
         include/ui/dialogs/subcatchcompoundeditdialog.h
@@ -762,6 +772,8 @@ set(
         include/ui/dialogs/editors/symbolstyleeditors.h
         # O2-1 — 2D results layer-level display panel.
         include/ui/dialogs/swmm2dresultsstylepanel.h
+        include/ui/dialogs/swmm2dmeshstylepanel.h
+        include/ui/dialogs/sublayertabhelpers.h
         # SE.4 — dedicated editors for the raster / mesh / 2D archetypes.
         include/ui/dialogs/editors/symbolstyleeditors2d.h
         include/ui/dialogs/editors/swmmelementsymboleditor.h
@@ -771,8 +783,8 @@ set(
         # Slice US.1 — classification bindings (UNIFIED_STYLING plan S1).
         include/ui/dialogs/editors/classificationbindings.h
         include/ui/dialogs/editors/markershapeeditor.h
-        include/ui/dialogs/editors/meshhillshadeeditor.h
         include/ui/widgets/colorbutton.h
+        include/ui/widgets/sunpositionthumb.h
         include/ui/widgets/labelconfigeditor.h
         include/ui/dialogs/labelexpressiondialog.h
         include/ui/widgets/dashstylecombo.h
@@ -823,6 +835,7 @@ set(
         src/core/selectionrenderingprefs.cpp
         src/core/queryparser.cpp
         src/core/unitsystem.cpp
+        src/core/loadprogress.cpp
         src/core/crsreproject.cpp
         src/core/editgeometry.cpp
         src/core/gageassignment.cpp
@@ -933,6 +946,8 @@ set(
         src/render/sublayers/isolinesublayer.cpp
         src/render/sublayers/contourbandsublayer.cpp
         src/render/sublayers/scalarfillsublayer.cpp
+        src/render/sublayers/meshbcsublayer.cpp
+        src/render/sublayers/couplednodesublayer.cpp
 
         # Plot
         src/plot/profilerouter.cpp
@@ -1155,6 +1170,7 @@ set(
         src/mesh/meshcellstats.cpp
         src/mesh/meshenginesync.cpp
         src/mesh/meshgenerator.cpp
+        src/mesh/meshinfil.cpp
         src/mesh/meshminsizecleanup.cpp
         src/mesh/meshreorder.cpp
         src/mesh/meshstagecache.cpp
@@ -1279,6 +1295,7 @@ set(
         src/ui/dialogs/mesh2dgroundwaterdialog.cpp
         src/ui/dialogs/assignraingagesdialog.cpp
         src/ui/dialogs/meshattributeassigndialog.cpp
+        src/ui/dialogs/infilassigntoselectiondialog.cpp
         src/ui/dialogs/meshgenerationdialog.cpp
         src/ui/dialogs/nodecompoundeditdialog.cpp
         src/ui/dialogs/subcatchcompoundeditdialog.cpp
@@ -1329,6 +1346,7 @@ set(
         src/ui/dialogs/editors/symbolstyleeditors.cpp
         # O2-1 — 2D results layer-level display panel.
         src/ui/dialogs/swmm2dresultsstylepanel.cpp
+        src/ui/dialogs/swmm2dmeshstylepanel.cpp
         # SE.4 — dedicated editors for the raster / mesh / 2D archetypes.
         src/ui/dialogs/editors/symbolstyleeditors2d.cpp
         src/ui/dialogs/editors/swmmelementsymboleditor.cpp
@@ -1337,7 +1355,7 @@ set(
         src/ui/dialogs/editors/kindrendererpanel.cpp
         # Slice US.1 — classification bindings impl (UNIFIED_STYLING plan S1).
         src/ui/dialogs/editors/classificationbindings.cpp
-        src/ui/dialogs/editors/meshhillshadeeditor.cpp
+        src/ui/widgets/sunpositionthumb.cpp
         src/ui/dialogs/editors/singlesymbolrendererpanel.cpp
         src/ui/dialogs/editors/markershapeeditor.cpp
         src/ui/dialogs/editors/graduatedrendererpanel.cpp
@@ -1413,6 +1431,8 @@ set(
         # Slice D1-a — ClassificationScheme cell editor + style-grid delegate impl.
         src/ui/widgets/classificationschemecelleditor.cpp
         src/ui/widgets/stylepropertydelegate.cpp
+        # Phase GG0d — mesh generation region-defaults table impl.
+        src/ui/widgets/meshregiondefaultswidget.cpp
 
         # ── Forms ────────────────────────────────────────────────────────────
         forms/swmmvis.ui

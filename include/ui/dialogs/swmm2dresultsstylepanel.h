@@ -20,6 +20,11 @@
 
 class SWMM2DResultsLayer;
 
+namespace OpenSWMM::Render {
+class ISublayer;
+class ScalarFillStyle;
+}
+
 namespace openswmmvis::ui {
 
 class Swmm2DResultsStylePanel : public QWidget
@@ -29,6 +34,12 @@ public:
     explicit Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWidget *parent = nullptr);
 
 private:
+    /*! Shared builder for the Cell Depth Fill / Smooth Depth Fill tabs —
+     *  both sublayers carry the same ScalarFillStyle. */
+    [[nodiscard]] QWidget *buildScalarFillTab(OpenSWMM::Render::ISublayer *sub,
+                                              OpenSWMM::Render::ScalarFillStyle *st,
+                                              const QString &showLabel,
+                                              QWidget *parent);
     [[nodiscard]] QWidget *buildContourBandTab(QWidget *parent);
     [[nodiscard]] QWidget *buildIsolineTab(QWidget *parent);
     [[nodiscard]] QWidget *buildVelocityTab(QWidget *parent);

@@ -50,6 +50,8 @@
 #include <vector>
 
 class QSGTexture;
+class QSGGeometryNode;
+class QSGTransformNode;
 class SWMM2DMeshLayer;
 
 class SWMM2DMeshQSGRenderer : public QQuickItem
@@ -83,6 +85,31 @@ private:
     QPointer<SWMM2DMeshLayer> m_layer;
     quint64                   m_contentRev = 0;
     MapExtent                 m_extent;
+
+    /*! Named handles to every child of the scene root, populated when the
+     *  root is (re)built in updatePaintNode. Replaces the old positional
+     *  nextSibling() re-walk, which silently static_cast a plain QSGNode to
+     *  QSGGeometryNode (memory corruption, not a loud failure) whenever the
+     *  construction order drifted. m_sceneRoot guards staleness: when the
+     *  scene graph hands us a different (or null) root, the whole tree and
+     *  these pointers are rebuilt together. Pointers are owned by the scene
+     *  graph via the root's child list — never delete individually. */
+    struct SceneNodes {
+        QSGGeometryNode *tri        = nullptr;
+        QSGGeometryNode *isoband    = nullptr;
+        QSGGeometryNode *edgeThin   = nullptr;
+        QSGGeometryNode *edgeWide   = nullptr;
+        QSGGeometryNode *edgeBc[6]  = {};      // non-Wall BC types
+        QSGGeometryNode *contour    = nullptr;
+        QSGNode         *contourLabels = nullptr;
+        QSGGeometryNode *nodeMark   = nullptr;
+        QSGGeometryNode *coupledMark = nullptr;
+        QSGGeometryNode *selTri     = nullptr;
+        QSGGeometryNode *selEdge    = nullptr;
+        QSGGeometryNode *selVert    = nullptr;
+    };
+    SceneNodes        m_nodes;
+    QSGTransformNode *m_sceneRoot = nullptr;
 
     // Fixed scene-space anchor (bbox centre) — keeps float vertex coords
     // small even in UTM coordinates; stable across pans. Recomputed only
