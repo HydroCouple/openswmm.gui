@@ -24,7 +24,6 @@
 
 #include <QColor>
 #include <QJsonObject>
-#include <QSet>
 #include <QString>
 #include <Qt>
 
@@ -42,37 +41,10 @@ class MeshEdgeStyle : public SublayerStyle
     Q_PROPERTY(double       wideWidthPx          READ wideWidthPx          WRITE setWideWidthPx          NOTIFY styleChanged)
     Q_PROPERTY(QColor       wideColor            READ wideColor            WRITE setWideColor            NOTIFY styleChanged)
 
-    // ── Boundary-condition colouring ───────────────────────────────────
-    // When colorByBC is on, every mesh edge takes its colour from the BC
-    // type stored in the layer's flat [tri*3 + edgeLocal] BC vector.
-    // Interior edges resolve to Wall (they are Wall by construction), so
-    // bcWallColor governs the mesh interior and the six remaining colours
-    // light up only the boundary ring.
-    //
-    // Seven explicit colour properties rather than a ClassificationScheme:
-    // the scheme's two modes (Continuous / Classified) are both numeric,
-    // and forcing a 7-value enum through manual breaks would put fake
-    // numeric edges in the legend labels. The enum is frozen at seven
-    // (mesh::MeshBCTypes::Type), so there is no open-ended growth here.
-    Q_PROPERTY(bool   colorByBC          READ colorByBC          WRITE setColorByBC          NOTIFY styleChanged)
-    // Width is per type for the same reason colour is: a rating-curve reach
-    // and a constant-stage reach are different things, and on a whole-domain
-    // view the ring is the only thing drawn, so relative weight is the
-    // cheapest way to rank them. Wall has no width property — Wall edges ARE
-    // the interior wireframe and keep lineWidthPx / wideWidthPx.
-    Q_PROPERTY(double bcNormalFlowWidthPx  READ bcNormalFlowWidthPx  WRITE setBcNormalFlowWidthPx  NOTIFY styleChanged)
-    Q_PROPERTY(double bcStageConstWidthPx  READ bcStageConstWidthPx  WRITE setBcStageConstWidthPx  NOTIFY styleChanged)
-    Q_PROPERTY(double bcStageTSWidthPx     READ bcStageTSWidthPx     WRITE setBcStageTSWidthPx     NOTIFY styleChanged)
-    Q_PROPERTY(double bcFlowConstWidthPx   READ bcFlowConstWidthPx   WRITE setBcFlowConstWidthPx   NOTIFY styleChanged)
-    Q_PROPERTY(double bcFlowTSWidthPx      READ bcFlowTSWidthPx      WRITE setBcFlowTSWidthPx      NOTIFY styleChanged)
-    Q_PROPERTY(double bcRatingCurveWidthPx READ bcRatingCurveWidthPx WRITE setBcRatingCurveWidthPx NOTIFY styleChanged)
-    Q_PROPERTY(QColor bcWallColor        READ bcWallColor        WRITE setBcWallColor        NOTIFY styleChanged)
-    Q_PROPERTY(QColor bcNormalFlowColor  READ bcNormalFlowColor  WRITE setBcNormalFlowColor  NOTIFY styleChanged)
-    Q_PROPERTY(QColor bcStageConstColor  READ bcStageConstColor  WRITE setBcStageConstColor  NOTIFY styleChanged)
-    Q_PROPERTY(QColor bcStageTSColor     READ bcStageTSColor     WRITE setBcStageTSColor     NOTIFY styleChanged)
-    Q_PROPERTY(QColor bcFlowConstColor   READ bcFlowConstColor   WRITE setBcFlowConstColor   NOTIFY styleChanged)
-    Q_PROPERTY(QColor bcFlowTSColor      READ bcFlowTSColor      WRITE setBcFlowTSColor      NOTIFY styleChanged)
-    Q_PROPERTY(QColor bcRatingCurveColor READ bcRatingCurveColor WRITE setBcRatingCurveColor NOTIFY styleChanged)
+    // Boundary-condition colouring moved to MeshBcStyle (meshbcsublayer.h)
+    // — BC indicators are their own sublayer now, with per-type visibility.
+    // Legacy "bc*"-prefixed JSON keys migrate in
+    // SWMM2DMeshLayer::onSublayersJsonLoaded.
     // Slice US (mesh) — edges can be classified by slope through the shared
     // ClassificationScheme. The default 2-class scheme mirrors the legacy
     // thin/wide slope split (colour = colour, wideColor = high class); the
@@ -88,27 +60,8 @@ class MeshEdgeStyle : public SublayerStyle
     Q_CLASSINFO("group:wideWidthPx",         "Slope emphasis")
     Q_CLASSINFO("group:wideColor",           "Slope emphasis")
     Q_CLASSINFO("group:classification",      "Classification")
-    Q_CLASSINFO("group:colorByBC",           "Boundary conditions")
-    Q_CLASSINFO("group:bcNormalFlowWidthPx",  "Boundary conditions")
-    Q_CLASSINFO("group:bcStageConstWidthPx",  "Boundary conditions")
-    Q_CLASSINFO("group:bcStageTSWidthPx",     "Boundary conditions")
-    Q_CLASSINFO("group:bcFlowConstWidthPx",   "Boundary conditions")
-    Q_CLASSINFO("group:bcFlowTSWidthPx",      "Boundary conditions")
-    Q_CLASSINFO("group:bcRatingCurveWidthPx", "Boundary conditions")
-    Q_CLASSINFO("group:bcWallColor",         "Boundary conditions")
-    Q_CLASSINFO("group:bcNormalFlowColor",   "Boundary conditions")
-    Q_CLASSINFO("group:bcStageConstColor",   "Boundary conditions")
-    Q_CLASSINFO("group:bcStageTSColor",      "Boundary conditions")
-    Q_CLASSINFO("group:bcFlowConstColor",    "Boundary conditions")
-    Q_CLASSINFO("group:bcFlowTSColor",       "Boundary conditions")
-    Q_CLASSINFO("group:bcRatingCurveColor",  "Boundary conditions")
 
 public:
-    /*! Number of BC types (mesh::MeshBCTypes::Type). Kept as a plain
-     *  constant so this render header does not pull in mesh/meshbctype.h;
-     *  a static_assert in the .cpp locks the two together. */
-    static constexpr int kBcTypeCount = 7;
-
     explicit MeshEdgeStyle(QObject *parent = nullptr);
 
     [[nodiscard]] QColor       color() const               { return m_color; }
@@ -126,55 +79,6 @@ public:
     void setSlopeBreak(double v);
     void setWideWidthPx(double v);
     void setWideColor(const QColor &v)          { if (m_wideColor == v) return; m_wideColor = v; setDirty(); }
-
-    [[nodiscard]] bool   colorByBC() const          { return m_colorByBC; }
-    [[nodiscard]] double bcNormalFlowWidthPx() const  { return m_bcWidths[1]; }
-    [[nodiscard]] double bcStageConstWidthPx() const  { return m_bcWidths[2]; }
-    [[nodiscard]] double bcStageTSWidthPx() const     { return m_bcWidths[3]; }
-    [[nodiscard]] double bcFlowConstWidthPx() const   { return m_bcWidths[4]; }
-    [[nodiscard]] double bcFlowTSWidthPx() const      { return m_bcWidths[5]; }
-    [[nodiscard]] double bcRatingCurveWidthPx() const { return m_bcWidths[6]; }
-    [[nodiscard]] QColor bcWallColor() const        { return m_bcColors[0]; }
-    [[nodiscard]] QColor bcNormalFlowColor() const  { return m_bcColors[1]; }
-    [[nodiscard]] QColor bcStageConstColor() const  { return m_bcColors[2]; }
-    [[nodiscard]] QColor bcStageTSColor() const     { return m_bcColors[3]; }
-    [[nodiscard]] QColor bcFlowConstColor() const   { return m_bcColors[4]; }
-    [[nodiscard]] QColor bcFlowTSColor() const      { return m_bcColors[5]; }
-    [[nodiscard]] QColor bcRatingCurveColor() const { return m_bcColors[6]; }
-
-    void setColorByBC(bool v)                   { if (m_colorByBC == v) return; m_colorByBC = v; setDirty(); }
-    void setBcNormalFlowWidthPx(double v)  { setBcWidth(1, v); }
-    void setBcStageConstWidthPx(double v)  { setBcWidth(2, v); }
-    void setBcStageTSWidthPx(double v)     { setBcWidth(3, v); }
-    void setBcFlowConstWidthPx(double v)   { setBcWidth(4, v); }
-    void setBcFlowTSWidthPx(double v)      { setBcWidth(5, v); }
-    void setBcRatingCurveWidthPx(double v) { setBcWidth(6, v); }
-    void setBcWallColor(const QColor &v)        { setBcColor(0, v); }
-    void setBcNormalFlowColor(const QColor &v)  { setBcColor(1, v); }
-    void setBcStageConstColor(const QColor &v)  { setBcColor(2, v); }
-    void setBcStageTSColor(const QColor &v)     { setBcColor(3, v); }
-    void setBcFlowConstColor(const QColor &v)   { setBcColor(4, v); }
-    void setBcFlowTSColor(const QColor &v)      { setBcColor(5, v); }
-    void setBcRatingCurveColor(const QColor &v) { setBcColor(6, v); }
-
-    /*! Colour for BC type index \p t (0..kBcTypeCount-1). Out-of-range
-     *  indices fold onto Wall so a corrupt/forward-version BC value cannot
-     *  read past the array. */
-    [[nodiscard]] QColor bcColorForType(int t) const
-    { return m_bcColors[(t >= 0 && t < kBcTypeCount) ? t : 0]; }
-
-    /*! Width in px for BC type index \p t, same folding rule as
-     *  bcColorForType(). Index 0 (Wall) is never consulted by the renderer —
-     *  Wall edges are drawn by the wireframe pass at lineWidthPx. */
-    [[nodiscard]] double bcWidthForType(int t) const
-    { return m_bcWidths[(t >= 0 && t < kBcTypeCount) ? t : 0]; }
-
-    /*! Indexed BC setters. Public because callers that seed a whole style
-     *  from user preferences (SWMM2DMeshLayer) loop over the type enum
-     *  rather than naming each of the thirteen typed setters above.
-     *  Out-of-range indices are ignored. */
-    void setBcColor(int idx, const QColor &v);
-    void setBcWidth(int idx, double v);
 
     /*! The embedded slope classification scheme. The default 2-class scheme
      *  reproduces the legacy thin/wide split; the renderer colours edges by
@@ -200,15 +104,6 @@ private:
     double       m_wideWidthPx         = 0.90;
     QColor       m_wideColor           = QColor(0, 0, 0, 210);
     ClassificationScheme m_scheme;
-
-    // Off by default: an existing project renders byte-identically until the
-    // user opts in. m_bcColors[0] (Wall) defaults to m_color for the same
-    // reason — enabling the toggle lights up the boundary without repainting
-    // the interior. Defaults are set in the ctor (see the .cpp for the
-    // stage-cool / flow-warm rationale).
-    bool   m_colorByBC = false;
-    QColor m_bcColors[kBcTypeCount];
-    double m_bcWidths[kBcTypeCount];
 };
 
 class MeshEdgeSublayer : public ISublayer
@@ -235,21 +130,11 @@ public:
 
     [[nodiscard]] MeshEdgeStyle *edgeStyle() const { return m_style; }
 
-    /*! \brief BC type indices actually present in the host mesh.
-     *
-     *  Pushed by SWMM2DMeshLayer (the model) whenever the BC vector changes,
-     *  so legendSymbolItems() — which is const and takes no context — can
-     *  emit one row per *present* type instead of seven rows of which five
-     *  are usually dead. Wall is always treated as present. */
-    void setBcTypesPresent(const QSet<int> &types);
-    [[nodiscard]] const QSet<int> &bcTypesPresent() const { return m_bcTypesPresent; }
-
 private:
     QString        m_id;
     bool           m_visible = true;
     qreal          m_opacity = 1.0;
     MeshEdgeStyle *m_style;
-    QSet<int>      m_bcTypesPresent { 0 };   ///< Wall is always present
 };
 
 } // namespace OpenSWMM::Render

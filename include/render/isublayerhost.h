@@ -123,6 +123,18 @@ public:
         }
     }
 
+    /*!
+     * \brief Hook fired at the end of loadSublayersFromJson with the raw
+     *        payload, so hosts can migrate style data that moved BETWEEN
+     *        sublayers across schema versions (e.g. the BC fields that
+     *        left MeshEdgeStyle for MeshBcStyle). Runs on both project
+     *        load and .swmm-style.json import. Default: no-op.
+     */
+    virtual void onSublayersJsonLoaded(const QJsonObject &sublayersJson)
+    {
+        Q_UNUSED(sublayersJson);
+    }
+
     // ── Slice S6.1 — JSON persistence helpers ──────────────────────────
     //
     // Layers call these at their `.oswp` save/load points to round-trip
@@ -248,6 +260,10 @@ public:
                 host.moveSublayer(found, target);
             ++target;
         }
+
+        // Give the host a chance to migrate style data that moved between
+        // sublayers across schema versions (see onSublayersJsonLoaded).
+        host.onSublayersJsonLoaded(j);
     }
 };
 

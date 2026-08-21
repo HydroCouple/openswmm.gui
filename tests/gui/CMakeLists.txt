@@ -653,6 +653,13 @@ add_swmmvis_gui_test(test_2d_sublayers
     ${CMAKE_SOURCE_DIR}/include/mesh/meshbctype.h
     ${CMAKE_SOURCE_DIR}/src/mesh/meshcellparams.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/meshcellparams.h
+    # GG0f — MeshFillSublayer colours cells by infil.* : categorically through
+    # CategoricalPalette::byName + mesh::infilMethodLabels(), and per-cell
+    # through mesh::resolveInfil / infilSlotForKey.
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshinfil.h
+    ${CMAKE_SOURCE_DIR}/src/render/categoricalpalette.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/categoricalpalette.h
     ${CMAKE_SOURCE_DIR}/include/render/symbollayer.h
     ${CMAKE_SOURCE_DIR}/include/render/symbolstyle.h
     ${CMAKE_SOURCE_DIR}/include/render/legendsymbolitem.h
@@ -669,6 +676,29 @@ add_swmmvis_gui_test(test_2d_sublayers
 # editable leaf row through QPropertyModel; the test reflects on the model.
 target_link_libraries(test_2d_sublayers PRIVATE
     $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>)
+
+# Mesh styling restructure — the two sublayers carved out of the mesh
+# edge/vertex style bags (BC indicators + coupled-node markers) plus the
+# ClassificationScheme embedded-custom-ramp contract. Same lean leaf-test
+# dependency pattern as test_2d_sublayers.
+add_swmmvis_gui_test(test_meshbc_couplednode_sublayers
+    test_meshbc_couplednode_sublayers.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/sublayers/meshbcsublayer.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/meshbcsublayer.h
+    ${CMAKE_SOURCE_DIR}/src/render/sublayers/couplednodesublayer.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/couplednodesublayer.h
+    ${CMAKE_SOURCE_DIR}/src/render/classificationscheme.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/classificationscheme.h
+    ${CMAKE_SOURCE_DIR}/src/render/intervalbinner.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/symbollayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/symbolstyle.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/legendsymbolitem.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshbctype.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshbctype.h
+    ${CMAKE_SOURCE_DIR}/include/render/sublayerstyle.h
+    ${CMAKE_SOURCE_DIR}/include/render/isublayer.h
+)
 
 # NOTE — test_2dresults_vizfixes.cpp (2D viz refinement, PLAN_2D_VIZ_REFINEMENT.md)
 # is intentionally NOT registered. It drives the real SWMM2DResultsLayer, whose
@@ -1741,6 +1771,23 @@ add_swmmvis_gui_test(test_meshcellparams
     test_meshcellparams.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/meshcellparams.cpp
     ${CMAKE_SOURCE_DIR}/include/mesh/meshcellparams.h
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h    # GG0a — meshcellparams / inpmeshwriter / inpmeshreader reach the
+    # mesh::infil* resolver, masks and tokens for the infil.* columns.
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshinfil.h
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+
+)
+
+# LOAD_PERF Phase 2 — InpMeshReader tokenizer + coupling-map tag resolution.
+# Same lean link set as test_inpmeshwriter (no app objects).
+add_swmmvis_gui_test(test_inpmeshreader
+    test_inpmeshreader.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshbctype.cpp
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+    ${CMAKE_SOURCE_DIR}/include/mesh/inpmeshreader.h
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshbctype.h
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshinfil.h
     ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
 )
 
@@ -1755,7 +1802,11 @@ add_swmmvis_gui_test(test_inpmeshwriter
     ${CMAKE_SOURCE_DIR}/include/mesh/inpmeshreader.h
     ${CMAKE_SOURCE_DIR}/include/mesh/inpmeshwriter.h
     ${CMAKE_SOURCE_DIR}/include/mesh/meshbctype.h
-    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshresult.h    # GG0a — meshcellparams / inpmeshwriter / inpmeshreader reach the
+    # mesh::infil* resolver, masks and tokens for the infil.* columns.
+    ${CMAKE_SOURCE_DIR}/include/mesh/meshinfil.h
+    ${CMAKE_SOURCE_DIR}/src/mesh/meshinfil.cpp
+
 )
 
 # Slice BJ.2-lite — marching-triangles contour line extraction. Header-only
@@ -1771,6 +1822,14 @@ add_swmmvis_gui_test(test_colorramp
     test_colorramp.cpp
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
     ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+)
+
+# LOAD_PERF Phase 1 — OpenProgressModel weighting / monotonicity contract.
+# Self-contained: pulls in loadprogress.cpp only.
+add_swmmvis_gui_test(test_openprogress
+    test_openprogress.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/loadprogress.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/loadprogress.h
 )
 
 # Slice BB-α — IntervalBinner (equal-interval / quantile / manual).
@@ -2131,6 +2190,15 @@ add_swmmvis_gui_test(test_dirtytracking_run
 )
 swmmvis_link_full_app_deps(test_dirtytracking_run)
 
+# Save must skip the (O(nVerts x nTris)) mesh re-push when nothing edited the
+# mesh, without dropping mesh data — and must still push once anything does.
+add_swmmvis_gui_test(test_meshsavedirty
+    test_meshsavedirty.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshsavedirty)
+
 # Browse-and-load of an existing .2dm (SWMMVisProjectWindow::importMeshFileAsync).
 # A mesh could previously only reach a model by already sitting next to its
 # .inp. Guards the staging copy, the active-external-mesh adoption the save
@@ -2256,6 +2324,18 @@ add_swmmvis_gui_test(test_meshcommands_vertex_edge
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_meshcommands_vertex_edge)
+
+# Phase GG0 — per-cell 2D infiltration. The two gates that discriminate:
+# undo of an assignment over an INHERITING cell must restore inheritance (not a
+# materialized copy that silently stops tracking its region), and every
+# [2D_INFILTRATION*] section must survive repeated saves through the strip-list
+# + patchAttributeSections() path that discards anything it does not re-emit.
+add_swmmvis_gui_test(test_meshinfil
+    test_meshinfil.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_meshinfil)
 
 # Attribute Table's 2D mesh source — row identity (interior edges collapse to
 # one row), read-only derived columns, edit → layer → single-row dataChanged,

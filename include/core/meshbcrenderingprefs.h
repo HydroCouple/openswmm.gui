@@ -11,11 +11,13 @@
  * matching setters, so every edit routes back through the singleton and
  * fires preferenceChanged exactly like a hand-coded picker would.
  *
- * These are DEFAULTS ONLY. SWMM2DMeshLayer seeds a freshly-created mesh
- * edge style from them; a project load, a .swmm-style.json import, or any
- * per-layer edit overwrites the seeded values and is persisted with the
- * layer. Changing a preference therefore affects meshes opened afterwards,
- * not meshes already styled — the same contract nodePen()/linkPen() have.
+ * These are DEFAULTS ONLY. SWMM2DMeshLayer seeds a freshly-created mesh's
+ * Boundary Conditions sublayer (MeshBcStyle) from them — colorByType seeds
+ * the sublayer's initial visibility; a project load, a .swmm-style.json
+ * import, or any per-layer edit overwrites the seeded values and is
+ * persisted with the layer. Changing a preference therefore affects meshes
+ * opened afterwards, not meshes already styled — the same contract
+ * nodePen()/linkPen() have.
  *
  * Wall has a colour but no width: Wall edges ARE the interior wireframe and
  * are drawn at the edge style's own lineWidthPx.

@@ -25,14 +25,6 @@ void MeshNodeStyle::setOutlineWidthPx(double v)
     setDirty();
 }
 
-void MeshNodeStyle::setTaggedSizePx(double v)
-{
-    v = qBound(0.5, v, 50.0);
-    if (qFuzzyCompare(m_taggedSizePx + 1.0, v + 1.0)) return;
-    m_taggedSizePx = v;
-    setDirty();
-}
-
 QJsonObject MeshNodeStyle::toJson() const
 {
     QJsonObject j;
@@ -41,9 +33,6 @@ QJsonObject MeshNodeStyle::toJson() const
     j[QStringLiteral("shape")]           = int(m_shape);
     j[QStringLiteral("outlineColor")]    = m_outlineColor.name(QColor::HexArgb);
     j[QStringLiteral("outlineWidthPx")]  = m_outlineWidthPx;
-    j[QStringLiteral("highlightTagged")] = m_highlightTagged;
-    j[QStringLiteral("taggedColor")]     = m_taggedColor.name(QColor::HexArgb);
-    j[QStringLiteral("taggedSizePx")]    = m_taggedSizePx;
     return j;
 }
 
@@ -63,14 +52,9 @@ void MeshNodeStyle::fromJson(const QJsonObject &j)
     }
     if (j.contains(QStringLiteral("outlineWidthPx")))
         m_outlineWidthPx = qBound(0.0, j.value(QStringLiteral("outlineWidthPx")).toDouble(m_outlineWidthPx), 10.0);
-    if (j.contains(QStringLiteral("highlightTagged")))
-        m_highlightTagged = j.value(QStringLiteral("highlightTagged")).toBool(m_highlightTagged);
-    if (j.contains(QStringLiteral("taggedColor"))) {
-        const QColor c(j.value(QStringLiteral("taggedColor")).toString());
-        if (c.isValid()) m_taggedColor = c;
-    }
-    if (j.contains(QStringLiteral("taggedSizePx")))
-        m_taggedSizePx = qBound(0.5, j.value(QStringLiteral("taggedSizePx")).toDouble(m_taggedSizePx), 50.0);
+    // Legacy "highlightTagged"/"tagged*" keys are intentionally ignored —
+    // they migrate to the CoupledNodeSublayer in
+    // SWMM2DMeshLayer::onSublayersJsonLoaded.
     setDirty();
 }
 

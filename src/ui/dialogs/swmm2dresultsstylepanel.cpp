@@ -13,7 +13,9 @@
 #include "ui/dialogs/swmm2dresultsstylepanel.h"
 
 #include "layers/swmm2dresultslayer.h"
+#include "render/sublayers/scalarfillsublayer.h"
 #include "ui/dialogs/editors/classificationbindings.h"
+#include "ui/dialogs/sublayertabhelpers.h"
 #include "ui/widgets/classificationeditor.h"
 #include "ui/widgets/colorbutton.h"
 #include "ui/widgets/colorrampcombobox.h"
@@ -43,65 +45,19 @@ using OpenSWMM::Render::MeshEdgeStyle;
 using OpenSWMM::Render::MeshNodeStyle;
 using OpenSWMM::Render::VelocityVectorStyle;
 
-// Minimum field widths — keeps the QFormLayouts from compressing the
-// editors when the dialog is narrow; the per-tab scroll areas pick up the
-// slack instead (see the ctor).
-constexpr int kSpinMinWidthPx  = 110;
-constexpr int kComboMinWidthPx = 140;
-
-QDoubleSpinBox *makeDSpin(QWidget *parent, double lo, double hi, double step,
-                          int decimals, double value,
-                          const QString &suffix = QString())
-{
-    auto *s = new QDoubleSpinBox(parent);
-    s->setRange(lo, hi);
-    s->setSingleStep(step);
-    s->setDecimals(decimals);
-    if (!suffix.isEmpty()) s->setSuffix(suffix);
-    s->setValue(value);
-    s->setMinimumWidth(kSpinMinWidthPx);
-    return s;
-}
-
-QSpinBox *makeSpin(QWidget *parent, int lo, int hi, int value)
-{
-    auto *s = new QSpinBox(parent);
-    s->setRange(lo, hi);
-    s->setValue(value);
-    s->setMinimumWidth(kSpinMinWidthPx);
-    return s;
-}
-
-/*! "Show <name>" checkbox + opacity spin bound to the sublayer's
- *  visibility / opacity — the shared header row of every tab. */
-QWidget *makeSublayerHeader(QWidget *parent, ISublayer *sub,
-                            const QString &showLabel)
-{
-    auto *row  = new QWidget(parent);
-    auto *form = new QFormLayout(row);
-    form->setContentsMargins(0, 0, 0, 0);
-
-    auto *show = new QCheckBox(showLabel, row);
-    show->setChecked(sub && sub->isVisible());
-    form->addRow(QString(), show);
-
-    auto *opacity = makeDSpin(row, 0.0, 1.0, 0.05, 2,
-                              sub ? double(sub->opacity()) : 1.0);
-    form->addRow(QObject::tr("Opacity:"), opacity);
-
-    if (sub) {
-        QObject::connect(show, &QCheckBox::toggled, sub,
-                         [sub](bool on) { sub->setVisible(on); });
-        QObject::connect(opacity, qOverload<double>(&QDoubleSpinBox::valueChanged),
-                         sub, [sub](double a) { sub->setOpacity(a); });
-    }
-    return row;
-}
+// Spin factories, minimum widths, and the "Show <name>" + opacity header
+// row now live in ui/dialogs/sublayertabhelpers.h, shared with the mesh
+// styling panel.
 
 /*! Colour-source block shared by the Depth and Contour-band tabs:
  *  [Two-colour gradient | Colour ramp] selector, ramp combo + invert,
  *  low/high colour buttons. `rampName`/`setRampName` etc. adapt the two
- *  style bags without a common base. */
+ *  style bags without a common base.
+ *  NOTE: name-only binding — user CUSTOM ramps resolve through
+ *  RasterColorRamp::builtin() and degrade to grayscale. If this block is
+ *  revived, bind the full RasterColorRamp payload like
+ *  ClassificationEditor::onRampChanged does (ClassificationScheme::
+ *  setCustomRamp), not just the name. */
 struct ColorSourceBindings {
     std::function<QString()>            rampName;
     std::function<void(const QString &)> setRampName;
@@ -195,19 +151,83 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
         scroll->setWidget(page);
         return scroll;
     };
+    // Routing contract: LayerStyleDialog::focusInitialSubject() matches
+    // tabToolTip == the sublayer id, so right-clicking a sublayer row in the
+    // layer tree (or a legend entry) lands on the matching tab instead of
+    // always the first one.
+    auto addTab = [tabs, &wrapScroll](QWidget *page, const QString &label,
+                                      OpenSWMM::Render::ISublayer *sub) {
+        const int idx = tabs->addTab(wrapScroll(page), label);
+        if (sub) tabs->setTabToolTip(idx, sub->id());
+    };
+
+    // The two direct-mesh depth fills (flat per-cell / Gouraud per-vertex).
+    // Both sublayers pre-date this panel but had no styling UI at all — the
+    // only "smooth" control users could find was the contour-band boundary
+    // interpolation checkbox, which is a different knob entirely.
+    auto *cellSub   = m_layer->cellDepthFillSublayer();
+    auto *smoothSub = m_layer->smoothDepthFillSublayer();
+    addTab(buildScalarFillTab(cellSub, cellSub ? cellSub->fillStyle() : nullptr,
+                              tr("Show cell depth fill"), tabs),
+           tr("&Cell Depth Fill"), cellSub);
+    addTab(buildScalarFillTab(smoothSub, smoothSub ? smoothSub->fillStyle() : nullptr,
+                              tr("Show smooth depth fill"), tabs),
+           tr("&Smooth Depth Fill"), smoothSub);
     // 2026-06-21 — the "Depth Fill" (depth color ramp) and "Flow Arrows" tabs
     // were removed: contour bands now provide the depth fill, and velocity
     // vectors already convey flow direction.
-    tabs->addTab(wrapScroll(buildContourBandTab(tabs)), tr("D&epth Contours"));
-    tabs->addTab(wrapScroll(buildIsolineTab(tabs)),     tr("De&pth Isolines"));
-    tabs->addTab(wrapScroll(buildVelocityTab(tabs)),    tr("&Flow Velocity"));
+    addTab(buildContourBandTab(tabs), tr("D&epth Contours"),  m_layer->contourBandSublayer());
+    addTab(buildIsolineTab(tabs),     tr("De&pth Isolines"),  m_layer->isolineSublayer());
+    addTab(buildVelocityTab(tabs),    tr("&Flow Velocity"),   m_layer->velocityVectorSublayer());
     // Issue 6 — Edges/Vertices were previously only editable via the generic
     // property grid; give them dedicated tabs so the edge colour/width (the
     // knobs behind the dark-edge artifact) and the vertex markers are tunable
     // here. The slope-emphasis and tagged-vertex groups are omitted because the
     // results renderer does not honour them (no dead knobs).
-    tabs->addTab(wrapScroll(buildMeshEdgeTab(tabs)),     tr("&Mesh Edges"));
-    tabs->addTab(wrapScroll(buildMeshNodeTab(tabs)),     tr("Mes&h Vertices"));
+    addTab(buildMeshEdgeTab(tabs),     tr("&Mesh Edges"),    m_layer->meshEdgeSublayer());
+    addTab(buildMeshNodeTab(tabs),     tr("Mes&h Vertices"), m_layer->meshNodeSublayer());
+}
+
+// ─── Scalar depth fills (cell / smooth) ─────────────────────────────────────
+
+QWidget *Swmm2DResultsStylePanel::buildScalarFillTab(
+    OpenSWMM::Render::ISublayer *sub, OpenSWMM::Render::ScalarFillStyle *st,
+    const QString &showLabel, QWidget *parent)
+{
+    auto *page = new QWidget(parent);
+    auto *lay  = new QVBoxLayout(page);
+
+    lay->addWidget(makeSublayerHeader(page, sub, showLabel));
+
+    if (st) {
+        auto *attrBox  = new QGroupBox(tr("Attribute"), page);
+        auto *attrForm = new QFormLayout(attrBox);
+        auto *attr = new QComboBox(attrBox);
+        attr->addItem(tr("Depth"),     QStringLiteral("depth"));
+        attr->addItem(tr("Elevation"), QStringLiteral("elevation"));
+        const int cur = attr->findData(st->attribute());
+        attr->setCurrentIndex(cur >= 0 ? cur : 0);
+        attr->setMinimumWidth(kComboMinWidthPx);
+        attrForm->addRow(tr("&Attribute:"), attr);
+        lay->addWidget(attrBox);
+        connect(attr, qOverload<int>(&QComboBox::currentIndexChanged), this,
+                [st, attr](int idx) { st->setAttribute(attr->itemData(idx).toString()); });
+
+        // Continuous mode samples the ramp per value (seam-free gradient);
+        // Classified bins into discrete classes — the scheme's ClassMode is
+        // the toggle, surfaced by the shared editor.
+        auto *L = m_layer.data();
+        auto *binding = new SublayerSchemeBinding(
+            [st] { return st->scheme(); },
+            [st](const OpenSWMM::Render::ClassificationScheme &s) { st->setScheme(s); },
+            [] { return QVector<double>{}; },
+            [L] { return qMakePair(L->dryDepth(), L->maxDepth()); },
+            /*supportsContinuousMode=*/true,
+            /*supportsRangeModes=*/true);
+        lay->addWidget(new ClassificationEditor(binding, /*ownBinding=*/true, page));
+    }
+    lay->addStretch();
+    return page;
 }
 
 // ─── Contour bands ──────────────────────────────────────────────────────────
@@ -239,11 +259,14 @@ QWidget *Swmm2DResultsStylePanel::buildContourBandTab(QWidget *parent)
 
         auto *renderBox  = new QGroupBox(tr("Rendering"), page);
         auto *renderForm = new QFormLayout(renderBox);
-        auto *smooth = new QCheckBox(tr("Smooth band boundaries"), renderBox);
+        auto *smooth = new QCheckBox(tr("Interpolate band boundaries (marching triangles)"),
+                                     renderBox);
         smooth->setChecked(st->smoothBands());
         smooth->setToolTip(tr("On: class boundaries are interpolated through "
                               "cells (marching triangles). Off: each cell is "
-                              "filled flat with its band colour."));
+                              "filled flat with its band colour. For a "
+                              "seam-free continuous gradient use the Smooth "
+                              "Depth Fill tab instead."));
         renderForm->addRow(QString(), smooth);
         lay->addWidget(renderBox);
 

@@ -11,7 +11,6 @@
 #include "ui/dialogs/colorrampeditordialog.h"
 
 #include <QAbstractItemView>
-#include <QInputDialog>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QStandardItem>
@@ -198,6 +197,12 @@ RasterColorRamp ColorRampComboBox::currentRamp() const
     return RasterColorRamp::grayscale();
 }
 
+bool ColorRampComboBox::currentIsCustom() const
+{
+    return itemData(currentIndex(), RampKindRole).toString()
+           == QStringLiteral("custom");
+}
+
 void ColorRampComboBox::setCurrentRampByName(const QString &name)
 {
     for (int i = 0; i < count(); ++i)
@@ -205,9 +210,42 @@ void ColorRampComboBox::setCurrentRampByName(const QString &name)
         if (itemText(i).compare(name, Qt::CaseInsensitive) == 0)
         {
             setCurrentIndex(i);
+            m_lastRampRow = i;
             return;
         }
     }
+}
+
+void ColorRampComboBox::ensureRampSelected(const QString &name, const RasterColorRamp &ramp)
+{
+    for (int i = 0; i < count(); ++i)
+    {
+        if (itemText(i).compare(name, Qt::CaseInsensitive) == 0)
+        {
+            setCurrentIndex(i);
+            m_lastRampRow = i;
+            return;
+        }
+    }
+    // Not in the library on this machine — insert a transient custom row
+    // just before the trailing separator + "Edit Custom Ramp…" sentinel so
+    // the selection and swatch reflect the scheme's embedded payload.
+    int row = count();
+    for (int i = 0; i < count(); ++i)
+    {
+        if (itemData(i, RampKindRole).toString() == QStringLiteral("sep")
+            && i + 1 < count()
+            && itemData(i + 1, RampKindRole).toString() == QStringLiteral("edit"))
+        {
+            row = i;
+            break;
+        }
+    }
+    insertItem(row, name);
+    setItemData(row, QVariant::fromValue(ramp), RampDataRole);
+    setItemData(row, QStringLiteral("custom"), RampKindRole);
+    setCurrentIndex(row);
+    m_lastRampRow = row;
 }
 
 void ColorRampComboBox::onActivated(int index)
@@ -223,6 +261,7 @@ void ColorRampComboBox::onActivated(int index)
     if (kind == QStringLiteral("sep"))
         return;
 
+    m_lastRampRow = index;
     emit rampChanged(currentRamp());
 }
 
@@ -292,46 +331,36 @@ void ColorRampComboBox::paintEvent(QPaintEvent *)
 
 void ColorRampComboBox::openEditor()
 {
-    // Pre-seed the dialog with the previous non-"edit" selection so the
-    // user starts from a sensible baseline rather than an empty ramp.
+    // Pre-seed the dialog with the ramp that was selected before the user
+    // clicked into the "Edit Custom Ramp…" row (NOT row 0 — that silently
+    // seeded every edit session from Grayscale).
     RasterColorRamp seed = RasterColorRamp::viridis();
-    for (int i = 0; i < count(); ++i)
+    QString seedName;
+    if (m_lastRampRow >= 0 && m_lastRampRow < count())
     {
-        const QString kind = itemData(i, RampKindRole).toString();
-        if (kind == QStringLiteral("builtin") || kind == QStringLiteral("custom"))
+        const QVariant payload = itemData(m_lastRampRow, RampDataRole);
+        if (payload.canConvert<RasterColorRamp>())
         {
-            seed = itemData(i, RampDataRole).value<RasterColorRamp>();
-            break;
+            seed = payload.value<RasterColorRamp>();
+            if (itemData(m_lastRampRow, RampKindRole).toString()
+                == QStringLiteral("custom"))
+                seedName = itemText(m_lastRampRow);
         }
     }
-    // The WIP dialog (Slice BB-α extension) accepts a starting ramp via
-    // its (RasterColorRamp, QWidget*) overload — see colorrampeditordialog.h.
     openswmmvis::ui::ColorRampEditorDialog dlg(seed, this);
-    if (dlg.exec() != QDialog::Accepted)
+    dlg.setRampName(seedName);
+    if (dlg.exec() != QDialog::Accepted || dlg.rampName().isEmpty())
     {
-        // User cancelled — revert combo back to whatever was selected before
-        // the user clicked into the "Edit Custom Ramp…" row.
-        if (count() > 0) setCurrentIndex(0);
+        // User cancelled — restore the pre-edit selection (previously this
+        // reset to row 0 = Grayscale without even emitting rampChanged,
+        // desynchronising the combo from the style it edits).
+        if (m_lastRampRow >= 0 && m_lastRampRow < count())
+            setCurrentIndex(m_lastRampRow);
         return;
     }
 
     const RasterColorRamp edited = dlg.ramp();
-    bool ok = false;
-    const int nextIdx = PreferencesManager::instance()->customColorRamps().size() + 1;
-    const QString suggested = tr("Custom %1").arg(nextIdx);
-    const QString name = QInputDialog::getText(this,
-                                               tr("Save Custom Ramp"),
-                                               tr("Name for this ramp:"),
-                                               QLineEdit::Normal,
-                                               suggested,
-                                               &ok).trimmed();
-    if (!ok || name.isEmpty())
-    {
-        // User declined to name the ramp — drop the unsaved edit, revert
-        // selection to whatever was active before.
-        if (count() > 0) setCurrentIndex(0);
-        return;
-    }
+    const QString name = dlg.rampName();
 
     PreferencesManager::instance()->saveCustomColorRamp(name, edited);
     rebuildItems();

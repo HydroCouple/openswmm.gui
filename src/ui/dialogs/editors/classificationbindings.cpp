@@ -87,6 +87,11 @@ ClassificationScheme GraduatedRendererBinding::schemeFromRenderer() const
     const QString name = builtinNameFor(g->ramp());
     if (!name.isEmpty())
         s.setRampName(name);
+    else if (!g->ramp().stops.isEmpty())
+        // No builtin matches — a custom ramp. Mirror the payload into the
+        // scheme so the editor shows the real gradient (and pushes the same
+        // stops back) instead of silently reverting to the default name.
+        s.setCustomRamp(g->ramp(), QObject::tr("(custom)"));
 
     s.setRangeMode(g->rangeMode());
     const bool fixedUser = (g->rangeMode() == RangeMode::FixedUser);
@@ -149,8 +154,11 @@ void GraduatedRendererBinding::setScheme(const ClassificationScheme &s)
         gf->clearBreaks();
     }
 
-    // Ramp (name / invert / two-colour). Preserve the renderer's value range.
+    // Ramp (name / custom payload / invert / two-colour). Preserve the
+    // renderer's value range.
     if (s.rampName() != prev.rampName() || s.invertRamp() != prev.invertRamp()
+        || s.hasCustomRamp() != prev.hasCustomRamp()
+        || (s.hasCustomRamp() && s.customRamp().stops != prev.customRamp().stops)
         || s.lowColor() != prev.lowColor() || s.highColor() != prev.highColor()) {
         gf->setRamp(rendererRampFromScheme(s, gf->ramp().minValue, gf->ramp().maxValue));
     }

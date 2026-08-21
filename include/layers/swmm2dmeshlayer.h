@@ -55,6 +55,8 @@ class MeshEdgeSublayer;
 class MeshNodeSublayer;
 class ContourBandSublayer;
 class IsolineSublayer;
+class MeshBcSublayer;
+class CoupledNodeSublayer;
 }
 
 class SWMM2DMeshLayer : public OpenSWMMVisLayer,
@@ -420,6 +422,53 @@ public:
      *  Emits attributeChanged with the cell ref name. */
     bool applyMeshTriangleTag(int triIdx, const QString &tag);
 
+    /*! \brief Write a per-cell infiltration override ([2D_INFILTRATION] row,
+     *  GUI plan §3.2a). The cell stops inheriting from its region tag / the
+     *  '*' default until the override is cleared. Emits attributeChanged with
+     *  the cell ref name. */
+    bool applyMeshTriangleInfil(int triIdx, const mesh::InfilRow &row);
+
+    /*! \brief Erase the per-cell infiltration override, so the cell resolves
+     *  through its region tag / the '*' default again.
+     *
+     *  The inverse of applyMeshTriangleInfil, and NOT the same as writing back
+     *  the inherited numbers: a materialised override with identical values
+     *  looks right but silently stops tracking the region, so the next
+     *  region-level edit no longer reaches the cell. This is what
+     *  MeshSetTriangleInfilCommand::undo() calls for a cell that was
+     *  inheriting. Emits attributeChanged with the cell ref name. */
+    bool clearMeshTriangleInfil(int triIdx);
+
+    /*! \brief Write one `[2D_INFILTRATION_DEFAULTS]` row — the region-level
+     *  peer of applyMeshTriangleInfil.
+     *
+     *  \p tag is a [2D_TRIANGLES] TAG value, or "*" for the mesh-wide
+     *  fallback. Every cell carrying \p tag that has no per-cell override
+     *  starts resolving through the new row, so a region-level edit reaches
+     *  those cells WITHOUT materialising an override on any of them — which is
+     *  the whole point of engine D-I3, and the difference between an
+     *  assignment that stays editable as regions and one frozen into N
+     *  per-cell rows.
+     *
+     *  An existing row for \p tag is replaced in place (section order is
+     *  preserved); a new tag is appended. Rejects an empty tag.
+     *
+     *  Bumps the same attribute-cache revision its per-cell siblings do, so
+     *  the fill-colour cache cannot serve stale colours for an inherited
+     *  value. The edit has no single element ref — every inheriting cell moved
+     *  — so it emits meshEditsChanged() for views that repaint wholesale,
+     *  alongside a layer-scope attributeChanged() for the ones that only need
+     *  "this mesh was edited". */
+    bool applyMeshInfilDefault(const QString &tag, const mesh::InfilRow &row);
+
+    /*! \brief Erase the `[2D_INFILTRATION_DEFAULTS]` row for \p tag, so cells
+     *  carrying it fall through to the '*' row (or to no model at all).
+     *
+     *  The inverse of applyMeshInfilDefault, and what
+     *  MeshSetInfilDefaultsCommand::undo() calls for a tag that had no row
+     *  before the edit. Returns true when the row is already absent. */
+    bool clearMeshInfilDefault(const QString &tag);
+
     // ----- Selection highlighting (§V follow-up) ---------------------------
     /*! \brief Indices of mesh vertices currently selected for highlight
      *  rendering. Populated by the SelectionManager bridge (filtered to
@@ -507,6 +556,13 @@ public:
     [[nodiscard]] OpenSWMM::Render::MeshNodeSublayer    *meshNodeSublayer()    const { return m_meshNodeSublayer; }
     [[nodiscard]] OpenSWMM::Render::ContourBandSublayer *contourBandSublayer() const { return m_contourBandSublayer; }
     [[nodiscard]] OpenSWMM::Render::IsolineSublayer     *isolineSublayer()     const { return m_isolineSublayer; }
+    [[nodiscard]] OpenSWMM::Render::MeshBcSublayer      *meshBcSublayer()      const { return m_meshBcSublayer; }
+    [[nodiscard]] OpenSWMM::Render::CoupledNodeSublayer *coupledNodeSublayer() const { return m_coupledNodeSublayer; }
+
+    /*! Migration hook (ISublayerHost) — seeds the BC / coupled-node
+     *  sublayers from legacy MeshEdgeStyle / MeshNodeStyle JSON when a
+     *  pre-split project or style file is loaded. */
+    void onSublayersJsonLoaded(const QJsonObject &sublayersJson) override;
 
     /*! Slice US.3 — bed-elevation range of the loaded mesh, the data range the
      *  contour-band / isoline classification scheme classifies over. */
@@ -713,13 +769,6 @@ private:
     // state. Lazy-built on first ruleList() call.
     mutable std::unique_ptr<OpenSWMM::Render::RuleList> m_ruleList;
 
-    // Adapter-ownership refactor — persistent sublayer style adapters
-    // (edge + node), lazily built by styleSubjects(), owned via QObject
-    // parenting. Held as QObject* because SymbolStyleAdapter::createFor
-    // returns one of several sibling adapter classes.
-    QObject *m_meshEdgeAdapter = nullptr;
-    QObject *m_meshNodeAdapter = nullptr;
-
     // §V.VA — keep m_bc sized to n_triangles * 3 in sync with the mesh,
     // and rebuild the vertex→triangles adjacency used by sampleZAt /
     // applyMeshVertexZ.
@@ -739,6 +788,10 @@ private:
      *  single queued refresh once the event loop comes back round. */
     void scheduleLegendInputRefresh();
     bool m_legendRefreshQueued = false;
+
+    /*! Shared tail of applyMeshInfilDefault / clearMeshInfilDefault — bumps
+     *  the attribute revision and emits the layer-scope + bulk signals. */
+    void announceInfilDefaultsChanged();
 
     mesh::MeshResult             m_mesh;
     QString                      m_sourcePath;
@@ -852,6 +905,8 @@ private:
     OpenSWMM::Render::MeshNodeSublayer    *m_meshNodeSublayer    = nullptr;
     OpenSWMM::Render::ContourBandSublayer *m_contourBandSublayer = nullptr;
     OpenSWMM::Render::IsolineSublayer     *m_isolineSublayer     = nullptr;
+    OpenSWMM::Render::MeshBcSublayer      *m_meshBcSublayer      = nullptr;
+    OpenSWMM::Render::CoupledNodeSublayer *m_coupledNodeSublayer = nullptr;
 
     // User-customisable paint order (Slice GUI-2026-05-30 §2).
     mutable QList<OpenSWMM::Render::ISublayer *> m_sublayerOrder;

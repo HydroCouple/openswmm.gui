@@ -27,6 +27,7 @@
 #include "layers/swmmresultslayer.h"
 #include "layers/swmm2dresultslayer.h"
 #include "layers/swmm2dmeshlayer.h"
+#include "ui/dialogs/swmm2dmeshstylepanel.h"
 #include "ui/dialogs/swmm2dresultsstylepanel.h"
 #include "layers/wcslayer.h"
 #include "layers/wmslayer.h"
@@ -610,15 +611,15 @@ void LayerStyleDialog::buildSymbologyTab()
         // colour/shape styling stays on the layer-tree sub-rows.
         auto *panel = new Swmm2DResultsStylePanel(r2d, page);
         root->addWidget(panel, 1);
-    } else if (qobject_cast<SWMM2DMeshLayer *>(m_layer.data())) {
-        // The 2D mesh layer's terrain styling (hillshade light + relief,
-        // bed-elevation contours, and per-sublayer fill/edge/node styles)
-        // lives on styleSubjects() + the StyleEditorRegistry
-        // (MeshHillshadeEditor), NOT on a single renderer — so the generic
-        // SymbologyTab below would show none of it. Build the subjects panel:
-        // a "Mesh / TIN" tab (hillshade + contour controls) plus a
-        // "Sublayers" group with each sublayer style.
-        root->addWidget(buildSubjectsPanel(m_subjects, page), 1);
+    } else if (auto *m2d = qobject_cast<SWMM2DMeshLayer *>(m_layer.data())) {
+        // Per-sublayer tabbed panel (Terrain Fill / Elevation Bands /
+        // Isolines / Mesh Edges / Mesh Vertices / Boundary Conditions /
+        // Coupled Nodes) — the mirror of the 2D results branch above.
+        // Replaces the combined "Mesh / TIN" form (MeshHillshadeEditor,
+        // retired). styleSubjects() still supplies the snapshot/undo
+        // coverage for the layer's hillshade props + every sublayer bag.
+        auto *panel = new Swmm2DMeshStylePanel(m2d, page);
+        root->addWidget(panel, 1);
     } else if (qobject_cast<GISVectorLayer *>(m_layer.data())) {
         // G-1/G-2 — GIS vector uses its purpose-built tabbed editor
         // (Marker / Line / Polygon / Labels). It writes the GISVectorSymbol
