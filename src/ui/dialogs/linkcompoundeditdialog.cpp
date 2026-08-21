@@ -303,20 +303,18 @@ void LinkCompoundEditDialog::buildXSectionPage()
         // XsectShapeRow comment warns about — hence the named constants here
         // and at every other former literal in this file.
         //
-        // The picker is deliberately left UNSELECTED for IRREGULAR rather than
-        // seeded from geom1. Activating this branch exposed that geom1 is only
-        // a transect index for links whose xsection was set through the API in
-        // this session; for a link parsed from an .inp the [XSECTIONS] handler
-        // never populates geom1..4 for irregular sections, so swmm_link_get_xsect
-        // falls through to reporting DERIVED geometry — g1 = full depth. (The
-        // engine has a name→index branch for STREET but none for IRREGULAR.)
-        // Measured with tests/scratch/sp_geom1_probe.inp: three conduits on
-        // three different transects reported g1 = 5 / 9 / 3, their depths.
-        //
-        // Since the two cases are indistinguishable from here, seeding the
-        // combo would preselect the WRONG transect whenever a depth happened to
-        // land inside [0, transectCount). Showing nothing and making the user
-        // pick is the only honest option until the engine grows a getter.
+        // For IRREGULAR geom1 carries the transect index (the engine's
+        // swmm_link_get_xsect resolves the retained transect name back to an
+        // index, mirroring STREET below); -1 means unresolved, which leaves
+        // the picker unselected.
+        if (shape == openswmmvis::kXsectIrregularId) {
+            const int tIdx = static_cast<int>(std::lround(g1));
+            if (m_ref.engine && tIdx >= 0 &&
+                tIdx < swmm_transect_count(m_ref.engine)) {
+                if (const char *id = swmm_transect_id(m_ref.engine, tIdx))
+                    currentTransectName = QString::fromUtf8(id);
+            }
+        }
         refreshTransectPickerItems(currentTransectName);
 
         // Populate the street picker. For STREET shape geom1 carries the

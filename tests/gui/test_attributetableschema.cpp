@@ -30,6 +30,7 @@
 
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_inflows.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
@@ -215,6 +216,19 @@ private slots:
         const QString name = model.objectNameAt(0);
         const int li = swmm_link_index(layer->engine(), name.toUtf8().constData());
         QVERIFY(li >= 0);
+        // set_xsect(IRREGULAR, index) now validates and binds the transect
+        // (previously it stored the index as a depth and left the reference
+        // dangling — the .inp save corruption family), so index 0 must name a
+        // real transect in the fixture.
+        SWMM_Engine eng = layer->engine();
+        if (swmm_transect_count(eng) == 0) {
+            QCOMPARE(swmm_transect_add(eng, "T_SCHEMA"), SWMM_OK);
+            const int ti = swmm_transect_index(eng, "T_SCHEMA");
+            QCOMPARE(swmm_transect_set_roughness(eng, ti, 0.04, 0.04, 0.03), SWMM_OK);
+            QCOMPARE(swmm_transect_add_station(eng, ti, 0.0, 10.0), SWMM_OK);
+            QCOMPARE(swmm_transect_add_station(eng, ti, 5.0, 5.0), SWMM_OK);
+            QCOMPARE(swmm_transect_add_station(eng, ti, 10.0, 10.0), SWMM_OK);
+        }
         QCOMPARE(swmm_link_set_xsect(layer->engine(), li,
                                      SWMM_XSECT_IRREGULAR, 0, 0, 0, 0), SWMM_OK);
         model.reload();
