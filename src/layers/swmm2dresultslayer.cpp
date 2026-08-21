@@ -2710,6 +2710,21 @@ SWMM2DResultsLayer::sublayerLegendItems() const
     // the depth-ramp sublayer. Contour bands (below) now carry the depth
     // legend rows.
 
+    // Direct-mesh depth fills (flat per-cell / Gouraud per-vertex) — each
+    // contributes a header + its ramp rows when visible. The sublayers stamp
+    // their own sublayerId, so legend right-click → Edit Style routes to the
+    // matching panel tab.
+    const auto appendFillSection = [&out, this](const OpenSWMM::Render::ISublayer *sub) {
+        if (!sub || !sub->isVisible()) return;
+        LegendSymbolItem header;
+        header.label = sub->displayName();
+        header.sublayerId = sub->id();
+        out.append(header);
+        out.append(sub->legendSymbolItems());
+    };
+    appendFillSection(m_cellDepthFillSublayer);
+    appendFillSection(m_smoothDepthFillSublayer);
+
     // Filled contour bands — the depth fill (default on). Single header row
     // + N band rows.
     if (filledContours()) {
@@ -3075,8 +3090,9 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
         });
 
     // ── Mesh nodes (MeshNodeSpec wraps MarkerSpec) ──────────────────────
-    // Slice AN.4 — extended to write highlightTagged / taggedColor /
-    // taggedSizePx from the MeshNodeSymbolStyleAdapter's prop keys.
+    // The Slice AN.4 tagged-vertex prop back-prop is gone: tagged styling
+    // moved to CoupledNodeStyle (mesh layer's coupled-node sublayer), and
+    // the results renderer never honoured it anyway.
     QObject::connect(ruleHandles[5], &Rule::rendererReplaced, self,
         [self, ruleHandles, firstLayer]() {
             const SymbolLayer *layer = firstLayer(ruleHandles[5]);
@@ -3091,17 +3107,6 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
                 int shapeIdx = static_cast<int>(spec.marker.shape);
                 if (shapeIdx < 0 || shapeIdx > 3) shapeIdx = 0;
                 st->setShape(static_cast<MeshNodeStyle::MarkerShape>(shapeIdx));
-                const auto &p = layer->props;
-                if (p.contains(QStringLiteral("highlightTagged")))
-                    st->setHighlightTagged(
-                        p.value(QStringLiteral("highlightTagged")).toBool());
-                if (p.contains(QStringLiteral("taggedColor"))) {
-                    const QColor c = p.value(QStringLiteral("taggedColor")).value<QColor>();
-                    if (c.isValid()) st->setTaggedColor(c);
-                }
-                if (p.contains(QStringLiteral("taggedSizePx")))
-                    st->setTaggedSizePx(
-                        p.value(QStringLiteral("taggedSizePx")).toDouble());
             }
         });
 

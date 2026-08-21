@@ -283,7 +283,7 @@ void ClassificationEditor::buildUi()
     connect(m_attrCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &ClassificationEditor::onAttributeChanged);
     connect(m_rampCombo, &ColorRampComboBox::rampChanged,
-            this, [this](const RasterColorRamp &) { onRampChanged(); });
+            this, &ClassificationEditor::onRampChanged);
     connect(m_invertCheck, &QCheckBox::toggled, this, &ClassificationEditor::onInvertToggled);
     connect(m_methodCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &ClassificationEditor::onMethodChanged);
@@ -352,7 +352,11 @@ void ClassificationEditor::refresh()
 
     {
         QSignalBlocker b(m_rampCombo);
-        if (!s.rampName().isEmpty())
+        if (s.hasCustomRamp())
+            // Embedded custom payload — select by name, inserting a
+            // transient row when this machine's library doesn't have it.
+            m_rampCombo->ensureRampSelected(s.rampName(), s.customRamp());
+        else if (!s.rampName().isEmpty())
             m_rampCombo->setCurrentRampByName(s.rampName());
     }
     {
@@ -498,10 +502,19 @@ void ClassificationEditor::onAttributeChanged(int row)
     emit edited();
 }
 
-void ClassificationEditor::onRampChanged()
+void ClassificationEditor::onRampChanged(const RasterColorRamp &ramp)
 {
     const QString name = m_rampCombo->currentText();
-    mutateScheme([&](ClassificationScheme &s) { s.setRampName(name); });
+    // Custom ramps must travel by PAYLOAD, not name: the scheme's resolve
+    // path only knows the builtin catalogue and degrades unknown names to
+    // grayscale (the historic "custom ramp applies gray" bug).
+    const bool custom = m_rampCombo->currentIsCustom();
+    mutateScheme([&](ClassificationScheme &s) {
+        if (custom)
+            s.setCustomRamp(ramp, name);
+        else
+            s.setRampName(name);
+    });
 }
 
 void ClassificationEditor::onInvertToggled(bool on)

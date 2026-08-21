@@ -82,6 +82,7 @@
 #include "version.h"
 #include "legacy_version.h"
 
+#include "core/loadprogress.h"
 #include "core/unitsystem.h"
 #include "ui/widgets/attributepickermenu.h"  // Slice PT.1 — picker for plotTimeSeries
 #include "core/preferencesmanager.h"
@@ -190,6 +191,7 @@
 #include "ui/dialogs/mesh2dgroundwaterdialog.h"
 #include "ui/dialogs/assignraingagesdialog.h"
 #include "ui/dialogs/meshattributeassigndialog.h"
+#include "ui/dialogs/infilassigntoselectiondialog.h"
 #include "ui/properties/meshtrianglepropertyadapter.h"
 #include "animation/animationcontroller.h"
 #include "ui/toolbars/terraintoolbar.h"
@@ -1158,6 +1160,37 @@ void SWMMVis::initializeMeshEditingToolBar()
         openAssignDialog(openswmmvis::ui::MeshAttributeAssignDialog::Source::Vector);
     });
 
+    // GUI plan §3.5(4) — the whole-row infiltration form for the cells picked
+    // on the map. Placed in the Mesh Editing toolbar's 2D-cell cluster (shown
+    // only while cells are selected) and mirrored into Model ▸ Mesh below, so
+    // the capability stays menu-reachable.
+    auto *actAssignInfil = new QAction(tr("Assign Infiltration to Selection…"), this);
+    actAssignInfil->setObjectName(
+        QStringLiteral("actionMeshAssignInfilToSelection"));
+    actAssignInfil->setToolTip(
+        tr("Assign an infiltration method, its parameters and its destination "
+           "to the selected 2D cells — or to the region tag they share — as "
+           "one undo entry."));
+    connect(actAssignInfil, &QAction::triggered, this, [this]() {
+        auto *pw = activeProjectWindow();
+        if (!pw) return;
+        SWMM2DMeshLayer *mesh = mMeshEditingToolbar
+                                    ? mMeshEditingToolbar->activeMesh()
+                                    : nullptr;
+        if (!mesh) {
+            QMessageBox::information(
+                this, tr("Assign Infiltration to Selection"),
+                tr("Pick an active 2D mesh on the Mesh 2D tab first."));
+            return;
+        }
+        openswmmvis::ui::InfilAssignToSelectionDialog::showFor(
+            mesh, pw->canvas(), pw->selectionManager(),
+            pw->unitSystem() ? pw->unitSystem()->depthLabel()
+                             : QStringLiteral("m"),
+            this);
+    });
+    if (mMeshEditingToolbar) mMeshEditingToolbar->addCellAction(actAssignInfil);
+
     // ── Groundwater (2D) ─────────────────────────────────────────────────
     // Preview of the per-cell two-zone groundwater editor; the engine kernel
     // ([2D_AQUIFER]) is still in design, so the dialog is display-only.
@@ -1818,9 +1851,17 @@ void SWMMVis::initializeStatusBar()
     ui->statusBar->addPermanentWidget(mComboBoxFlowUnits);
     addSep();
 
-    // Progress bar
+    // Progress: a stage label ("Parsing 2D mesh…") followed by the bar.
+    // Both are driven exclusively through applyProgressBarState(), which
+    // arbitrates between simulation runs, project opens, and the plain busy
+    // spinner. The bar starts indeterminate only because that is the state
+    // the busy path wants; determinate producers set their own range.
+    mProgressLabel = new QLabel(ui->statusBar);
+    mProgressLabel->setVisible(false);
+    ui->statusBar->addPermanentWidget(mProgressLabel);
+
     mProgressBar = new QProgressBar(ui->statusBar);
-    mProgressBar->setAccessibleName(tr("Busy indicator"));
+    mProgressBar->setAccessibleName(tr("Progress"));
     mProgressBar->setRange(0, 0);
     mProgressBar->setValue(0);
     mProgressBar->setToolTip("Progress");
@@ -3447,7 +3488,8 @@ void SWMMVis::initializeMenus()
         // actions so every capability stays menu-reachable.
         auto *meshMenu = new QMenu(tr("M&esh"), this);
         meshMenu->setObjectName(QStringLiteral("menuModelMesh"));
-        for (const char *name : {"actionMeshSelectVertex", "actionMeshSelectEdge"}) {
+        for (const char *name : {"actionMeshSelectVertex", "actionMeshSelectEdge",
+                                 "actionMeshAssignInfilToSelection"}) {
             if (auto *act = findChild<QAction *>(QLatin1String(name)))
                 meshMenu->addAction(act);
         }
@@ -4639,23 +4681,32 @@ void SWMMVis::openSingleINP(const QString &filePath)
 
     // Non-blocking load: the engine open (full .inp parse — the dominant
     // cost) runs in a worker thread while the event loop keeps the UI
-    // responsive and the indeterminate status-bar progress bar animating.
+    // responsive and the status-bar progress bar reports real percent.
     // Everything that used to follow the synchronous loadModel() call lives
     // in finalizeSingleINPOpen(), invoked exactly once on completion.
+    //
+    // The progress model outlives beginFileOpen/endFileOpen deliberately: the
+    // sidecar apply, results open and mesh attach all run AFTER endFileOpen,
+    // and used to do so with the indicator already torn down.
     beginFileOpen(filePath);
+    OpenProgressModel *progress = beginOpenProgress();
+    progress->setStage(OpenStage::EngineParse, 0, tr("Parsing model…"));
+
     onLogMessage(tr("Loading SWMM model (1D network) from %1 on a background "
                     "thread …").arg(QFileInfo(filePath).fileName()),
                  OpenSWMMVisLogMessage::LogMessageType::Information);
     QElapsedTimer openTimer;
     openTimer.start();
+    QPointer<OpenProgressModel> progressGuard(progress);
     connect(window, &SWMMVisProjectWindow::modelLoadFinished, this,
-            [this, window, filePath, openTimer](bool ok, const QList<QString> &warnings,
-                                     const QList<QString> &errors) {
+            [this, window, filePath, openTimer, progressGuard](
+                bool ok, const QList<QString> &warnings,
+                const QList<QString> &errors) {
                 finalizeSingleINPOpen(window, filePath, ok, warnings, errors,
-                                      openTimer.elapsed());
+                                      openTimer.elapsed(), progressGuard.data());
             },
             static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
-    window->loadModelAsync();
+    window->loadModelAsync(progress);
 }
 
 void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
@@ -4663,8 +4714,19 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
                                     bool ok,
                                     const QList<QString> &warnings,
                                     const QList<QString> &errors,
-                                    qint64 elapsedMs)
+                                    qint64 elapsedMs,
+                                    OpenProgressModel *progress)
 {
+    // The worker's three stages are done by the time this fires; close them
+    // out unconditionally so a worker that never ticked still advances.
+    if (progress) {
+        progress->finishStage(OpenStage::EngineParse);
+        progress->finishStage(OpenStage::SoaCopy);
+        progress->finishStage(OpenStage::GeomCache);
+        progress->setStage(OpenStage::CrsFinish, 100,
+                           tr("Resolving coordinate system…"));
+    }
+
     // Real warnings first (Phase-0 counts/timing no longer land here — they
     // go to the openswmm.load.model category), then the single success/error
     // summary via endFileOpen (also clears the spinner + status bar).
@@ -4680,6 +4742,18 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
     }
     const QString errDetail = errors.isEmpty() ? QString() : errors.join(QStringLiteral("; "));
     endFileOpen(filePath, ok, summary, elapsedMs, errDetail);
+
+    if (progress) {
+        progress->finishStage(OpenStage::CrsFinish);
+        if (!ok) {
+            // Failed open: nothing below runs, so retire every remaining
+            // stage or the indicator would hang forever.
+            progress->finishAll();
+        } else {
+            progress->setStage(OpenStage::Sidecar, 0,
+                               tr("Applying project settings…"));
+        }
+    }
 
     if (ok)
     {
@@ -4742,6 +4816,11 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
             }
         }
 
+        if (progress) {
+            progress->finishStage(OpenStage::Sidecar);
+            progress->setStage(OpenStage::Results, 0, tr("Opening results…"));
+        }
+
         // Auto-discover sibling output files if the sidecar didn't restore any.
         // Check ResultsRead patterns (*.out) and any plugin-registered extensions.
         bool hasResultLayer = false;
@@ -4792,7 +4871,9 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
         // on a worker thread; the mesh layer and any prior-run HDF5 results
         // join the canvas when attachMesh2DLayersAsync's completion handler
         // fires. Nothing below this call depends on the mesh being present.
-        attachMesh2DLayersAsync(window, filePath);
+        if (progress)
+            progress->finishStage(OpenStage::Results);
+        attachMesh2DLayersAsync(window, filePath, progress);
 
         setWindowTitle(QStringLiteral("OpenSWMM — %1").arg(QFileInfo(filePath).baseName()));
         // See openUntitledProject(): this explicit maximize is needed only
@@ -4843,10 +4924,15 @@ void SWMMVis::finalizeSingleINPOpen(SWMMVisProjectWindow *window,
 }
 
 void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
-                                      const QString &filePath)
+                                      const QString &filePath,
+                                      OpenProgressModel *progress)
 {
-    if (!window || !window->canvas() || !window->modelLayer())
+    if (!window || !window->canvas() || !window->modelLayer()) {
+        // No canvas/model ⇒ the three mesh stages will never run. Retire them
+        // now or the open never reaches 100 and the bar never hides.
+        if (progress) progress->finishAll();
         return;
+    }
 
     // Worker → GUI handoff record. The layer is fully built (scene geometry,
     // BCs, name) on the worker and moved to the GUI thread before adoption.
@@ -4865,6 +4951,8 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
     statusBar()->showMessage(tr("Loading 2D mesh from %1 …")
                                  .arg(QFileInfo(filePath).fileName()));
     onSetProgressBarBusy(true);
+    if (progress)
+        progress->setStage(OpenStage::MeshParse, 0, tr("Parsing 2D mesh…"));
     onLogMessage(tr("Scanning %1 for a 2D mesh …")
                      .arg(QFileInfo(filePath).fileName()),
                  OpenSWMMVisLogMessage::LogMessageType::Information);
@@ -4885,8 +4973,15 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
 
     QPointer<SWMMVisProjectWindow> win(window);
     auto *watcher = new QFutureWatcher<MeshOpenOutcome>(this);
+    QPointer<OpenProgressModel> progressGuard(progress);
     connect(watcher, &QFutureWatcherBase::finished, this,
-            [this, watcher, win, filePath, meshTimer]() {
+            [this, watcher, win, filePath, meshTimer, progressGuard]() {
+        // The worker's parse + Phase-A build are both done by the time this
+        // fires, whatever the outcome.
+        if (progressGuard) {
+            progressGuard->finishStage(OpenStage::MeshParse);
+            progressGuard->finishStage(OpenStage::MeshSceneA);
+        }
         // result() rethrows a worker exception on the GUI thread; a 2dm parse
         // or layer build that runs out of memory must degrade to a log
         // message, not std::terminate.
@@ -4905,7 +5000,9 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
 
         if (!out.layer) {
             // No mesh in this model (silent) or a malformed/broken reference
-            // (warning — same severity the synchronous path used).
+            // (warning — same severity the synchronous path used). Either way
+            // Phase B will never run, so close the open out.
+            if (progressGuard) progressGuard->finishAll();
             onSetProgressBarBusy(false);
             statusBar()->clearMessage();
             if (!out.errorMsg.isEmpty())
@@ -4921,6 +5018,7 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
 
         // Hidden-until-adopted: the window may have closed mid-load.
         if (!win || !win->canvas() || !win->modelLayer()) {
+            if (progressGuard) progressGuard->finishAll();
             onSetProgressBarBusy(false);
             statusBar()->clearMessage();
             delete out.layer;
@@ -4939,12 +5037,18 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
         window->canvas()->addLayer(meshLayer, /*pushUndo=*/false);
         // Mesh edits must dirty the project, or Run's auto-save is skipped and
         // the engine re-reads the stale .inp.
-        window->attachMeshLayer(meshLayer);
+        //
+        // pristine=true: this layer was parsed from the same file the engine
+        // opened, so the two meshes agree and a save need not re-push the whole
+        // mesh (which costs O(nVerts x nTris) inside the engine) until the user
+        // actually edits something. The import and generation paths must NOT
+        // pass this — there the engine still holds the old mesh.
+        window->attachMeshLayer(meshLayer, /*pristine=*/true);
 
         // Dev/testing hook — SWMMVIS_SNAPSHOT_MESHSTYLE=<png> opens the mesh
-        // layer's style dialog (Symbology tab shows the MeshHillshadeEditor
-        // with the terrain + band classification editors) and grabs it
-        // in-process. Verifies the styling UI without a human navigating menus.
+        // layer's style dialog (Symbology tab shows the per-sublayer
+        // Swmm2DMeshStylePanel tabs) and grabs it in-process. Verifies the
+        // styling UI without a human navigating menus.
         const QString mStyleSnap =
             qEnvironmentVariable("SWMMVIS_SNAPSHOT_MESHSTYLE");
         if (!mStyleSnap.isEmpty()) {
@@ -5010,13 +5114,18 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
             tr("2D mesh visible (coarse) — finishing wireframe and spatial "
                "index in the background …"));
         onSetProgressBarBusy(true);
+        if (progressGuard)
+            progressGuard->setStage(OpenStage::MeshSceneB, 0,
+                                    tr("Finishing mesh index…"));
         onLogMessage(tr("2D mesh visible (coarse) — finishing wireframe and "
                         "spatial index in the background …"),
                      OpenSWMMVisLogMessage::LogMessageType::Information);
         QElapsedTimer finishTimer;
         finishTimer.start();
         connect(meshLayer, &SWMM2DMeshLayer::sceneGeometryReady, this,
-                [this, finishTimer, ml = QPointer<SWMM2DMeshLayer>(meshLayer)]() {
+                [this, finishTimer, progressGuard,
+                 ml = QPointer<SWMM2DMeshLayer>(meshLayer)]() {
+                    if (progressGuard) progressGuard->finishStage(OpenStage::MeshSceneB);
                     onSetProgressBarBusy(false);
                     statusBar()->clearMessage();
                     onLogMessage(tr("2D mesh fully ready: wireframe, spatial "
@@ -5031,6 +5140,12 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
                                .arg(ml ? ml->name() : QStringLiteral("mesh"));
                 });
         meshLayer->finishSceneGeometryAsync();
+        // finishSceneGeometryAsync() is a no-op when the geometry was already
+        // complete (a small mesh builds it in the ctor), and then
+        // sceneGeometryReady never fires. Close the stage out here or the
+        // indicator waits forever on a signal that is not coming.
+        if (meshLayer->sceneGeometryComplete() && progressGuard)
+            progressGuard->finishStage(OpenStage::MeshSceneB);
 
         // Dev/testing hook (pairs with SWMMVIS_OPEN_ON_STARTUP) — zoom to the
         // full extent once the mesh lands and save an in-process canvas grab.
@@ -6405,40 +6520,140 @@ void SWMMVis::onRecentFilesSizeChanged()
 
 void SWMMVis::onSetProgressBarBusy(bool busy)
 {
-    // Indeterminate "busy" spinner — reserved for operations with no
-    // measurable progress (e.g. loading a large .inp). Simulation runs
-    // use updateSimulationProgressBar() which shows real percentage.
-    mProgressBar->setRange(0, 0);
-    mProgressBar->setValue(0);
-    mProgressBar->setVisible(busy);
+    // Indeterminate spinner — now reserved for the operations that genuinely
+    // have no measurable progress (raster open, tabular open, LOD pyramid
+    // rebuild). Project opens report real percent via OpenProgressModel.
+    //
+    // Ref-counted because these calls nest: attachMesh2DLayersAsync brackets
+    // Phase B inside a bracket that a raster open may also have opened. A
+    // plain bool let the inner false-edge cancel the outer request.
+    if (busy)
+        ++mBusyRefCount;
+    else
+        mBusyRefCount = std::max(0, mBusyRefCount - 1);
+
+    applyProgressBarState();
+}
+
+OpenProgressModel *SWMMVis::beginOpenProgress()
+{
+    const int id = mNextOpenId++;
+    auto *model = new OpenProgressModel(this);
+    mRunningOpens.insert(id, model);
+
+    connect(model, &OpenProgressModel::progressChanged,
+            this, [this](int, const QString &) { applyProgressBarState(); });
+    connect(model, &OpenProgressModel::finished, this,
+            [this, id]() { endOpenProgress(id); });
+
+    applyProgressBarState();
+    return model;
+}
+
+void SWMMVis::endOpenProgress(int openId)
+{
+    if (auto *model = mRunningOpens.take(openId))
+        model->deleteLater();
+    applyProgressBarState();
+}
+
+void SWMMVis::applyProgressBarState()
+{
+    if (!mProgressBar)
+        return;
+
+    // Ownership precedence: Simulation > Open > Busy > None. A run is the
+    // longer, explicitly user-initiated task and already owned this widget
+    // before opens learned to report percent.
+    ProgressOwner owner = ProgressOwner::None;
+    if (!mRunningSimProgress.isEmpty())     owner = ProgressOwner::Simulation;
+    else if (!mRunningOpens.isEmpty())      owner = ProgressOwner::Open;
+    else if (mBusyRefCount > 0)             owner = ProgressOwner::Busy;
+
+    switch (owner) {
+    case ProgressOwner::None:
+        mProgressBar->setVisible(false);
+        mProgressBar->setRange(0, 0);
+        if (mProgressLabel) {
+            mProgressLabel->clear();
+            mProgressLabel->setVisible(false);
+        }
+        return;
+
+    case ProgressOwner::Busy:
+        mProgressBar->setRange(0, 0);       // indeterminate
+        mProgressBar->setValue(0);
+        mProgressBar->setToolTip(tr("Working…"));
+        mProgressBar->setVisible(true);
+        if (mProgressLabel) {
+            mProgressLabel->clear();
+            mProgressLabel->setVisible(false);
+        }
+        return;
+
+    case ProgressOwner::Open: {
+        // Show the LAGGARD across concurrent opens (a multi-model .oswp fans
+        // out one open per session), same rule as the simulation path below.
+        int minPct = 100;
+        QString label;
+        for (auto *m : std::as_const(mRunningOpens)) {
+            if (m->percent() <= minPct) {
+                minPct = m->percent();
+                label  = m->label();
+            }
+        }
+        mProgressBar->setRange(0, 100);
+        mProgressBar->setValue(qBound(0, minPct, 100));
+        mProgressBar->setToolTip(
+            mRunningOpens.size() == 1
+                ? tr("Opening: %1%").arg(minPct)
+                : tr("%1 files opening — slowest at %2%")
+                      .arg(mRunningOpens.size()).arg(minPct));
+        mProgressBar->setVisible(true);
+        if (mProgressLabel) {
+            mProgressLabel->setText(label);
+            mProgressLabel->setVisible(!label.isEmpty());
+        }
+        return;
+    }
+
+    case ProgressOwner::Simulation: {
+        // Track the SLOWEST simulation so the bar reflects the overall
+        // "will-all-sims-finish" estimate rather than racing ahead on the
+        // fastest one.
+        double minFrac = 1.0;
+        for (double frac : std::as_const(mRunningSimProgress))
+            minFrac = std::min(minFrac, frac);
+        const int pct = qBound(0, int(minFrac * 100.0 + 0.5), 100);
+
+        mProgressBar->setRange(0, 100);
+        mProgressBar->setValue(pct);
+        mProgressBar->setToolTip(
+            mRunningSimProgress.size() == 1
+                ? tr("Simulation: %1%").arg(pct)
+                : tr("%1 simulations running — slowest at %2%")
+                      .arg(mRunningSimProgress.size()).arg(pct));
+        mProgressBar->setVisible(true);
+
+        // An open running underneath a simulation keeps its stage text even
+        // though it has lost the bar — the user still learns what is
+        // happening, and the run keeps its percentage.
+        if (mProgressLabel) {
+            QString label;
+            for (auto *m : std::as_const(mRunningOpens)) {
+                if (!m->label().isEmpty()) { label = m->label(); break; }
+            }
+            mProgressLabel->setText(label);
+            mProgressLabel->setVisible(!label.isEmpty());
+        }
+        return;
+    }
+    }
 }
 
 void SWMMVis::updateSimulationProgressBar()
 {
-    // No sims running → hide the bar.
-    if (mRunningSimProgress.isEmpty())
-    {
-        mProgressBar->setVisible(false);
-        mProgressBar->setRange(0, 0);
-        return;
-    }
-
-    // Track the SLOWEST simulation so the bar reflects the overall
-    // "will-all-sims-finish" estimate rather than racing ahead on the
-    // fastest one.
-    double minFrac = 1.0;
-    for (double frac : std::as_const(mRunningSimProgress))
-        minFrac = std::min(minFrac, frac);
-
-    mProgressBar->setRange(0, 100);
-    mProgressBar->setValue(qBound(0, int(minFrac * 100.0 + 0.5), 100));
-    mProgressBar->setToolTip(
-        mRunningSimProgress.size() == 1
-            ? tr("Simulation: %1%").arg(int(minFrac * 100.0 + 0.5))
-            : tr("%1 simulations running — slowest at %2%")
-                  .arg(mRunningSimProgress.size())
-                  .arg(int(minFrac * 100.0 + 0.5)));
-    mProgressBar->setVisible(true);
+    applyProgressBarState();
 }
 
 void SWMMVis::clearSimulationStatusForProject(SWMMVisProjectWindow *pw)

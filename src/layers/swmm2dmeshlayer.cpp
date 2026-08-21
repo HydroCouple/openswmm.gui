@@ -36,7 +36,9 @@
 #include "ui/dialogs/ilayerstylesubject.h"
 #include "render/renderers/singlesymbolrenderer.h"
 #include "render/sublayers/contourbandsublayer.h"
+#include "render/sublayers/couplednodesublayer.h"
 #include "render/sublayers/isolinesublayer.h"
+#include "render/sublayers/meshbcsublayer.h"
 #include "render/sublayers/meshedgesublayer.h"
 #include "render/sublayers/meshfillsublayer.h"
 #include "render/sublayers/meshnodesublayer.h"
@@ -46,6 +48,8 @@
 #include <QGraphicsScene>
 #include <QGraphicsItem>
 #include <QHash>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QLocale>
 #include <QPainter>
 #include <QSet>
@@ -142,6 +146,7 @@ public:
         const auto *nodeSub = m_layer->meshNodeSublayer();
         const auto *bandSub = m_layer->contourBandSublayer();
         const auto *isoSub  = m_layer->isolineSublayer();
+        const auto *coupledSub = m_layer->coupledNodeSublayer();
 
         const bool  fillVisible  = !fillSub || fillSub->isVisible();
         // Zoom gates matching the QSG LOD policy (kEdgeMinCellAreaPx /
@@ -158,6 +163,8 @@ public:
         const bool  edgesVisible = (!edgeSub || edgeSub->isVisible())
                                    && kCellAreaPx >= m_layer->edgeMinCellAreaPx();
         const bool  nodesVisible = nodeSub && nodeSub->isVisible()
+                                   && kCellAreaPx >= m_layer->vertexMinCellAreaPx();
+        const bool  coupledVisible = coupledSub && coupledSub->isVisible()
                                    && kCellAreaPx >= m_layer->vertexMinCellAreaPx();
         const bool  bandsVisible = bandSub && bandSub->isVisible();
         const bool  isoVisible   = isoSub  && isoSub->isVisible();
@@ -521,34 +528,38 @@ public:
                 p->drawLine(s.a, s.b);
         }
 
-        // ---- Pass 5: mesh-vertex markers (MeshNodeSublayer) ------------------
-        // Stylable replacement for the historic showMeshNodes toggle. Tagged
-        // (SWMM-coupled) vertices get the highlight colour / size. Off by
-        // default. Marker radius is specified in pixels, so convert to scene
-        // units via the painter's current scale.
-        if (nodesVisible && !useLod) {
+        // ---- Pass 5: mesh-vertex markers (MeshNodeSublayer) + ----------------
+        // ---- Pass 5b: SWMM-coupled markers (CoupledNodeSublayer) -------------
+        // Marker radius is specified in pixels, so convert to scene units via
+        // the painter's current scale. A coupled vertex is drawn by the
+        // coupled pass only (the base marker beneath would just muddy the
+        // alpha).
+        if ((nodesVisible || coupledVisible) && !useLod) {
             const auto &nodes = m_layer->m_sceneNodes;
-            const auto *nodeStyle = nodeSub->nodeStyle();
-            const QColor baseC   = nodeStyle ? nodeStyle->color() : QColor(40, 40, 40, 220);
-            const QColor taggedC = nodeStyle ? nodeStyle->taggedColor()
-                                             : QColor(0xff, 0x8c, 0x00, 235);
-            const double baseSzPx   = nodeStyle ? nodeStyle->markerSizePx() : 3.0;
-            const double taggedSzPx = nodeStyle ? nodeStyle->taggedSizePx() : 5.0;
-            const bool   highlight  = nodeStyle ? nodeStyle->highlightTagged() : true;
-            const qreal  nodeOp     = nodeSub->opacity();
+            const auto *nodeStyle = nodeSub ? nodeSub->nodeStyle() : nullptr;
+            const auto *coupledStyle =
+                coupledSub ? coupledSub->coupledStyle() : nullptr;
+            const QColor baseC    = nodeStyle ? nodeStyle->color() : QColor(40, 40, 40, 220);
+            const QColor coupledC = coupledStyle ? coupledStyle->color()
+                                                 : QColor(0xff, 0x8c, 0x00, 235);
+            const double baseSzPx    = nodeStyle ? nodeStyle->markerSizePx() : 3.0;
+            const double coupledSzPx = coupledStyle ? coupledStyle->markerSizePx() : 5.0;
+            const qreal  nodeOp    = nodeSub    ? nodeSub->opacity()    : 1.0;
+            const qreal  coupledOp = coupledSub ? coupledSub->opacity() : 1.0;
 
             const QTransform wt = p->worldTransform();
             const double scale  = wt.m11();
             const double pxToScene = (scale > 0.0) ? (1.0 / scale) : 1.0;
-            const QColor baseUsed   = withOpacity(baseC, nodeOp);
-            const QColor taggedUsed = withOpacity(taggedC, nodeOp);
+            const QColor baseUsed    = withOpacity(baseC, nodeOp);
+            const QColor coupledUsed = withOpacity(coupledC, coupledOp);
 
             p->setPen(Qt::NoPen);
             for (const SWMM2DMeshLayer::SceneNode &n : nodes) {
                 if (haveExposed && !exposed.contains(n.pt)) continue;
-                const bool tag = highlight && n.tagged;
-                const double r = 0.5 * (tag ? taggedSzPx : baseSzPx) * pxToScene;
-                p->setBrush(tag ? taggedUsed : baseUsed);
+                const bool coupled = coupledVisible && n.tagged;
+                if (!coupled && !nodesVisible) continue;
+                const double r = 0.5 * (coupled ? coupledSzPx : baseSzPx) * pxToScene;
+                p->setBrush(coupled ? coupledUsed : baseUsed);
                 p->drawEllipse(n.pt, r, r);
             }
         }
@@ -644,21 +655,26 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult     result,
         QStringLiteral("mesh.fill"), this);
     m_meshEdgeSublayer    = new OpenSWMM::Render::MeshEdgeSublayer(
         QStringLiteral("mesh.edges"), this);
-    // Seed BC edge styling from user preferences. This only sets the
-    // starting point for a style nobody has configured yet — a project or
+    m_meshBcSublayer      = new OpenSWMM::Render::MeshBcSublayer(
+        QStringLiteral("mesh.bc"), this);
+    // Seed BC styling from user preferences. This only sets the starting
+    // point for a style nobody has configured yet — a project or
     // .swmm-style.json load overwrites it right after, and any per-layer edit
     // is persisted, so the preference never fights an explicit choice. Same
-    // relationship nodePen()/linkPen() have with object symbology.
-    if (auto *es = m_meshEdgeSublayer->edgeStyle()) {
+    // relationship nodePen()/linkPen() have with object symbology. The old
+    // "colour by BC type" preference now seeds the sublayer's visibility.
+    if (auto *bs = m_meshBcSublayer->bcStyle()) {
         auto *pm = PreferencesManager::instance();
-        es->setColorByBC(pm->meshBcColorByType());
-        for (int t = 0; t < OpenSWMM::Render::MeshEdgeStyle::kBcTypeCount; ++t) {
-            es->setBcColor(t, pm->meshBcColor(t));
-            if (t > 0) es->setBcWidth(t, pm->meshBcWidthPx(t));
+        m_meshBcSublayer->setVisible(pm->meshBcColorByType());
+        for (int t = 0; t < OpenSWMM::Render::MeshBcStyle::kBcTypeCount; ++t) {
+            bs->setBcColor(t, pm->meshBcColor(t));
+            if (t > 0) bs->setBcWidth(t, pm->meshBcWidthPx(t));
         }
     }
     m_meshNodeSublayer    = new OpenSWMM::Render::MeshNodeSublayer(
         QStringLiteral("mesh.vertices"), this);
+    m_coupledNodeSublayer = new OpenSWMM::Render::CoupledNodeSublayer(
+        QStringLiteral("mesh.coupledNodes"), this);
     m_contourBandSublayer = new OpenSWMM::Render::ContourBandSublayer(
         QStringLiteral("mesh.contourBands"), this);
     m_isolineSublayer     = new OpenSWMM::Render::IsolineSublayer(
@@ -700,7 +716,9 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult     result,
     };
     wire(m_meshFillSublayer);
     wire(m_meshEdgeSublayer);
+    wire(m_meshBcSublayer);
     wire(m_meshNodeSublayer);
+    wire(m_coupledNodeSublayer);
     wire(m_contourBandSublayer);
     wire(m_isolineSublayer);
 
@@ -1593,15 +1611,20 @@ void SWMM2DMeshLayer::scheduleLegendInputRefresh()
 
 void SWMM2DMeshLayer::refreshSublayerLegendInputs()
 {
-    if (m_meshEdgeSublayer) {
+    if (m_meshBcSublayer) {
         QSet<int> present;
         for (const auto &bc : m_bc) {
             present.insert(int(bc.type));
             // All seven seen — nothing left to learn from the rest of the scan.
-            if (present.size() >= OpenSWMM::Render::MeshEdgeStyle::kBcTypeCount)
+            if (present.size() >= OpenSWMM::Render::MeshBcStyle::kBcTypeCount)
                 break;
         }
-        m_meshEdgeSublayer->setBcTypesPresent(present);
+        m_meshBcSublayer->setBcTypesPresent(present);
+        // The Wall legend row previews the wireframe width (Wall edges ARE
+        // the wireframe).
+        if (m_meshEdgeSublayer && m_meshEdgeSublayer->edgeStyle())
+            m_meshBcSublayer->setWallLegendWidthPx(
+                m_meshEdgeSublayer->edgeStyle()->lineWidthPx());
     }
 
     if (m_meshFillSublayer) {
@@ -1612,6 +1635,24 @@ void SWMM2DMeshLayer::refreshSublayerLegendInputs()
             hasData = cellAttributeRange(st->colorByAttributeKey(), &lo, &hi);
         }
         m_meshFillSublayer->setAttributeHasData(hasData);
+
+        // Categorical fill (the infiltration method): the legend emits one row
+        // per value actually present, so the model has to supply that set —
+        // legendSymbolItems() is const and context-free. cellAttributeValues()
+        // was just primed for this very key by cellAttributeRange() above, so
+        // the scan runs over a warm cache.
+        QVector<int> present;
+        if (st && st->colorsByCategory()) {
+            const QVector<float> &vals =
+                cellAttributeValues(st->colorByAttributeKey());
+            QSet<int> seen;
+            for (float f : vals)
+                if (std::isfinite(f)) seen.insert(int(std::lround(f)));
+            present = QVector<int>(seen.cbegin(), seen.cend());
+            std::sort(present.begin(), present.end());
+        }
+        m_meshFillSublayer->setCategoriesPresent(present);
+
         if (auto *us = UnitSystem::instance())
             m_meshFillSublayer->setDepthUnitLabel(us->depthLabel());
     }
@@ -2186,6 +2227,73 @@ bool SWMM2DMeshLayer::applyMeshTriangleTag(int triIdx, const QString &tag)
     return true;
 }
 
+bool SWMM2DMeshLayer::applyMeshTriangleInfil(int triIdx,
+                                             const mesh::InfilRow &row)
+{
+    if (triIdx < 0 || triIdx >= m_mesh.triangles.size()) return false;
+    const auto it = m_mesh.infilOverrides.constFind(triIdx);
+    if (it != m_mesh.infilOverrides.constEnd() && it.value() == row) return true;
+    m_mesh.infilOverrides.insert(triIdx, row);
+    ++m_attrRevision;
+    scheduleLegendInputRefresh();
+    emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
+    emit repaintRequested();
+    return true;
+}
+
+bool SWMM2DMeshLayer::clearMeshTriangleInfil(int triIdx)
+{
+    if (triIdx < 0 || triIdx >= m_mesh.triangles.size()) return false;
+    if (m_mesh.infilOverrides.remove(triIdx) == 0) return true;  // already inheriting
+    ++m_attrRevision;
+    scheduleLegendInputRefresh();
+    emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
+    emit repaintRequested();
+    return true;
+}
+
+/*! Both region-defaults mutators announce themselves the same way: a
+ *  layer-scope attributeChanged (no single element moved, but the project is
+ *  now dirty and the mesh has diverged from the engine's copy) plus
+ *  meshEditsChanged, which the attribute table already treats as "repaint
+ *  every row". Views that key off the ref name parse the layer key, fail, and
+ *  correctly ignore the first signal. */
+void SWMM2DMeshLayer::announceInfilDefaultsChanged()
+{
+    ++m_attrRevision;                 // fill-colour cache key — inherited
+    scheduleLegendInputRefresh();     // values feed cellAttributeValues()
+    emit attributeChanged(mesh::MeshObjectRef::layerKey(m_sourcePath));
+    emit meshEditsChanged();
+    emit repaintRequested();
+}
+
+bool SWMM2DMeshLayer::applyMeshInfilDefault(const QString &tag,
+                                            const mesh::InfilRow &row)
+{
+    if (tag.isEmpty()) return false;
+    const int i = mesh::indexOfDefault(m_mesh, tag);
+    if (i >= 0) {
+        if (m_mesh.infilDefaults[i].row == row) return true;   // already there
+        m_mesh.infilDefaults[i].row = row;
+    } else {
+        // Appended, never inserted: '*' may sit anywhere in the section and
+        // resolveInfil() looks it up by tag, so order carries no meaning
+        // beyond keeping a re-saved file close to the one that was read.
+        m_mesh.infilDefaults.append(mesh::InfilDefaultRow{tag, row});
+    }
+    announceInfilDefaultsChanged();
+    return true;
+}
+
+bool SWMM2DMeshLayer::clearMeshInfilDefault(const QString &tag)
+{
+    const int i = mesh::indexOfDefault(m_mesh, tag);
+    if (i < 0) return true;           // already absent
+    m_mesh.infilDefaults.remove(i);
+    announceInfilDefaultsChanged();
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Layer-level Q_PROPERTYs are now thin shims onto sublayer state. The
 // sublayer's setVisible() / style->setX() emits invalidated(), which the
@@ -2372,8 +2480,10 @@ QList<OpenSWMM::Render::ISublayer *> SWMM2DMeshLayer::sublayers() const
     //   fill (static)         → terrain base
     //   contour bands         → filled isobands above hillshade
     //   edges                 → mesh wireframe
+    //   BC indicators         → boundary-condition ring above the wireframe
     //   isolines              → labelled contour lines
-    //   vertex markers (top)  → coupled-node glyphs
+    //   vertex markers        → mesh vertex glyphs
+    //   coupled nodes (top)   → SWMM-coupled vertex markers
     // Slice GUI-2026-05-30 §2 — order is user-customisable and cached in
     // m_sublayerOrder; seeded once from the defaults above.
     if (m_sublayerOrder.isEmpty()) {
@@ -2381,8 +2491,10 @@ QList<OpenSWMM::Render::ISublayer *> SWMM2DMeshLayer::sublayers() const
             m_meshFillSublayer,
             m_contourBandSublayer,
             m_meshEdgeSublayer,
+            m_meshBcSublayer,
             m_isolineSublayer,
             m_meshNodeSublayer,
+            m_coupledNodeSublayer,
         };
         for (auto *s : defaults)
             if (s) m_sublayerOrder.append(s);
@@ -2668,100 +2780,91 @@ SWMM2DMeshLayer::styleSubjects()
     using openswmmvis::ui::LayerStyleSubject;
     std::vector<std::unique_ptr<ILayerStyleSubject>> out;
 
-    // Layer-level terrain styling (hillshade light + bed-elevation contour
-    // controls) keeps its dedicated MeshHillshadeEditor, registered for the
-    // SWMM2DMeshLayer class — so the layer itself is the propertyObject.
+    // Layer-level terrain styling — the hillshade sun (azimuth / altitude /
+    // zExag / minLit) lives on the layer's Q_PROPERTYs, so the layer itself
+    // stays a subject for the dialog's snapshot/undo machinery. The
+    // Swmm2DMeshStylePanel's Terrain Fill tab edits these directly.
     out.push_back(std::make_unique<LayerStyleSubject>(
         tr("Mesh / TIN"), this,
         QStringLiteral("mesh.layer"),
         QString()));
 
-    // Per-sublayer styling now mounts the registered 2D adapter editors
-    // (color pickers / combos via symbolstyleeditors2d) instead of the
-    // generic QPropertyModel grid — which lacks a QColor item and so showed
-    // no colour picker. The adapter edits the matching Rule; the Rule →
-    // legacy-style back-prop wired in buildRuleListLazy() applies the change
-    // to the painted sublayer style.
-    //
-    // The Rule specs are default-seeded in buildRuleListLazy(), so before
-    // handing an adapter to the dialog we forward-seed each Rule's
-    // SymbolLayer from the *current* legacy sublayer style. Without this the
-    // editor would open on defaults and the back-prop would reset the user's
-    // styling on the first edit.
-    if (!m_ruleList)
-        buildRuleListLazy();
-
-    const QString sect = tr("Sublayers");
-
-    // Replace a Rule's single SymbolLayer with one carrying the current
-    // legacy-style values (so the adapter/editor opens on real values).
-    auto setRuleLayer = [](Rule *r, const SymbolLayer &sl) {
-        if (!r) return;
-        auto *single = dynamic_cast<SingleSymbolRenderer *>(r->renderer());
-        if (!single) return;
-        SymbolStyle sym = single->symbol();
-        sym.layers.clear();
-        sym.layers.append(sl);
-        single->setSymbol(sym);
+    // One subject per sublayer STYLE BAG (results-layer pattern) so dialog
+    // Cancel restores every edit and Accept pushes one undo entry covering
+    // them all. The tabbed Swmm2DMeshStylePanel is the editor — the old
+    // SymbolStyleAdapter/Rule subjects are gone (the adapter path could not
+    // carry the classification schemes, the BC fields, or per-type
+    // visibility; the Rule specs remain renderer-side inputs only).
+    auto add = [&](OpenSWMM::Render::ISublayer *sub) {
+        if (!sub || !sub->style()) return;
+        out.push_back(std::make_unique<LayerStyleSubject>(
+            sub->displayName(), sub->style(), sub->id(), tr("Sublayers")));
     };
-    // Adapter-ownership refactor: PERSISTENT adapters, one per exposed Rule,
-    // created on first fetch and reused afterwards (previously a fresh pair
-    // was allocated and orphaned on the layer per dialog open). Safe to
-    // cache because (a) SymbolStyleAdapter holds only a Rule* and reads the
-    // renderer live on every access (no cached state to go stale), and
-    // (b) the mesh RuleList is built once and never rebuilt (no dirty flag),
-    // so the Rule pointers are stable for the layer's lifetime.
-    auto addAdapter = [&](Rule *r, QObject *&slot, const QString &title,
-                          const QString &id) {
-        if (!r) return;
-        if (!slot)
-            slot = SymbolStyleAdapter::createFor(r, this);
-        if (slot)
-            out.push_back(std::make_unique<LayerStyleSubject>(title, slot, id, sect));
-    };
-
-    const int n = m_ruleList->count();
-    Rule *rEdge = n > 4 ? m_ruleList->at(4) : nullptr;  // Mesh edges
-    Rule *rNode = n > 5 ? m_ruleList->at(5) : nullptr;  // Mesh nodes
-
-    // The fill, contour-band and contour-line sublayers are intentionally NOT
-    // exposed here: their colour band / classification / sampling is edited
-    // solely by the "Mesh / TIN" tab's ClassificationEditors (MeshFillStyle /
-    // ContourBandStyle scheme + IsolineStyle). The SymbolStyleAdapter path can
-    // only carry a flat low/high gradient, which cannot represent the scheme
-    // and previously duplicated (and, for bands, fought) the Mesh/TIN editors.
-    // Only edges and vertex markers — whose colour/width/dash/marker styling
-    // lives nowhere else — remain in the Sublayers section.
-
-    // Mesh edges.
-    if (rEdge && m_meshEdgeSublayer && m_meshEdgeSublayer->edgeStyle()) {
-        auto *st = m_meshEdgeSublayer->edgeStyle();
-        MeshEdgeSymbolLayerSpec spec;
-        spec.color               = st->color();
-        spec.width               = st->lineWidthPx();
-        spec.penStyle            = st->dashPattern();
-        spec.useSlopeDrivenWidth = st->useSlopeDrivenWidth();
-        spec.slopeBreak          = st->slopeBreak();
-        spec.wideWidthPx         = st->wideWidthPx();
-        spec.wideColor           = st->wideColor();
-        setRuleLayer(rEdge, spec.toSymbolLayer());
-        addAdapter(rEdge, m_meshEdgeAdapter,
-                   m_meshEdgeSublayer->displayName(), m_meshEdgeSublayer->id());
-    }
-
-    // Mesh nodes (vertex markers).
-    if (rNode && m_meshNodeSublayer && m_meshNodeSublayer->nodeStyle()) {
-        auto *st = m_meshNodeSublayer->nodeStyle();
-        MeshNodeSymbolLayerSpec spec;
-        spec.marker.fillColor    = st->color();
-        spec.marker.sizePx       = st->markerSizePx();
-        spec.marker.outlineColor = st->outlineColor();
-        spec.marker.outlineWidth = st->outlineWidthPx();
-        spec.marker.shape        = static_cast<MarkerShape>(static_cast<int>(st->shape()));
-        setRuleLayer(rNode, spec.toSymbolLayer());
-        addAdapter(rNode, m_meshNodeAdapter,
-                   m_meshNodeSublayer->displayName(), m_meshNodeSublayer->id());
-    }
+    add(m_meshFillSublayer);
+    add(m_contourBandSublayer);
+    add(m_meshEdgeSublayer);
+    add(m_meshBcSublayer);
+    add(m_isolineSublayer);
+    add(m_meshNodeSublayer);
+    add(m_coupledNodeSublayer);
 
     return out;
+}
+
+void SWMM2DMeshLayer::onSublayersJsonLoaded(const QJsonObject &sublayersJson)
+{
+    // Migration for pre-split projects/styles: BC styling used to live on
+    // MeshEdgeStyle ("bc*" keys + colorByBC) and coupled-node styling on
+    // MeshNodeStyle ("tagged*" keys). A payload that already carries the
+    // new sublayer ids is post-split — leave it alone (idempotence), and
+    // re-saving writes the new rows so migration completes automatically.
+    const QJsonArray arr =
+        sublayersJson.value(QStringLiteral("sublayers")).toArray();
+    QHash<QString, QJsonObject> rows;
+    for (const QJsonValue &v : arr) {
+        const QJsonObject row = v.toObject();
+        rows.insert(row.value(QStringLiteral("id")).toString(), row);
+    }
+    if (rows.isEmpty()) return;   // no sublayer payload at all — nothing to do
+
+    if (!rows.contains(QStringLiteral("mesh.bc")) && m_meshBcSublayer) {
+        const QJsonObject edgeStyle = rows.value(QStringLiteral("mesh.edges"))
+                                          .value(QStringLiteral("style")).toObject();
+        if (edgeStyle.contains(QStringLiteral("colorByBC"))
+            || edgeStyle.contains(QStringLiteral("bcWallColor"))) {
+            if (auto *bs = m_meshBcSublayer->bcStyle())
+                bs->seedFromLegacyEdgeJson(edgeStyle);
+            // Legacy draw condition: the BC ring rendered only when the edge
+            // sublayer was visible AND colorByBC was on. The edge row's
+            // visibility has already been applied by loadSublayersFromJson.
+            const bool edgesVisible =
+                m_meshEdgeSublayer && m_meshEdgeSublayer->isVisible();
+            m_meshBcSublayer->setVisible(
+                edgeStyle.value(QStringLiteral("colorByBC")).toBool(false)
+                && edgesVisible);
+        }
+    }
+
+    if (!rows.contains(QStringLiteral("mesh.coupledNodes")) && m_coupledNodeSublayer) {
+        const QJsonObject vertStyle = rows.value(QStringLiteral("mesh.vertices"))
+                                          .value(QStringLiteral("style")).toObject();
+        if (vertStyle.contains(QStringLiteral("highlightTagged"))
+            || vertStyle.contains(QStringLiteral("taggedColor"))
+            || vertStyle.contains(QStringLiteral("taggedSizePx"))) {
+            if (auto *cs = m_coupledNodeSublayer->coupledStyle()) {
+                const QColor c(vertStyle.value(QStringLiteral("taggedColor")).toString());
+                if (c.isValid()) cs->setColor(c);
+                if (vertStyle.contains(QStringLiteral("taggedSizePx")))
+                    cs->setMarkerSizePx(vertStyle.value(QStringLiteral("taggedSizePx"))
+                                            .toDouble(cs->markerSizePx()));
+            }
+            // Legacy draw condition: tagged markers rendered only when the
+            // vertex sublayer was visible AND highlightTagged was on.
+            const bool vertsVisible =
+                m_meshNodeSublayer && m_meshNodeSublayer->isVisible();
+            m_coupledNodeSublayer->setVisible(
+                vertStyle.value(QStringLiteral("highlightTagged")).toBool(true)
+                && vertsVisible);
+        }
+    }
 }
