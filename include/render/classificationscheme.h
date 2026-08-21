@@ -114,8 +114,20 @@ public:
     [[nodiscard]] QColor highColor() const { return m_highColor; }
     void setHighColor(const QColor &c);
 
-    /*! The ramp actually sampled: builtin(rampName) when named, otherwise
-     *  a two-stop lowColor→highColor ramp. Inversion is NOT baked in —
+    /*! User-authored (custom) ramp payload. `builtin(name)` only knows the
+     *  built-in catalogue and silently degrades unknown names to grayscale,
+     *  so custom ramps must travel WITH the scheme: the editor stores the
+     *  full ramp here (stops + interp) alongside its display label in
+     *  rampName(). Serialized into the scheme JSON so `.oswp` projects stay
+     *  portable across machines and survive custom-ramp deletion/rename. */
+    [[nodiscard]] bool hasCustomRamp() const { return m_hasCustomRamp; }
+    [[nodiscard]] const RasterColorRamp &customRamp() const { return m_customRamp; }
+    void setCustomRamp(const RasterColorRamp &ramp, const QString &name);
+    void clearCustomRamp();
+
+    /*! The ramp actually sampled: the embedded custom ramp when present,
+     *  else builtin(rampName) when named, otherwise a two-stop
+     *  lowColor→highColor ramp. Inversion is NOT baked in —
      *  colorAtF / colorForClass apply it. */
     [[nodiscard]] RasterColorRamp resolvedRamp() const;
 
@@ -224,6 +236,8 @@ private:
     ClassMode        m_mode = ClassMode::Classified;
     IntervalBinner   m_binner;                       // EqualInterval, 5 bins
     QString          m_rampName = QStringLiteral("viridis");
+    RasterColorRamp  m_customRamp;                   // valid only when m_hasCustomRamp
+    bool             m_hasCustomRamp = false;
     bool             m_invertRamp = false;
     QColor           m_lowColor  = QColor(Qt::white);
     QColor           m_highColor = QColor(Qt::black);

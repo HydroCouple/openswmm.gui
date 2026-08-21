@@ -523,8 +523,9 @@ QWidget *PreferencesDialog::buildRenderingPage()
     bcv->setContentsMargins(8, 8, 8, 8);
 
     auto *bcIntro = new QLabel(
-        tr("Colour and width applied to mesh edges that carry a boundary "
-           "condition, one entry per BC type. Wall edges are the interior "
+        tr("Default colour and width for the mesh's Boundary Conditions "
+           "sublayer, one entry per BC type. \"Colour by type\" sets whether "
+           "the sublayer starts visible. Wall edges are the interior "
            "wireframe and use the layer's own edge width.\n\n"
            "These are defaults for meshes opened from now on — a layer you "
            "have already styled keeps its own settings, which are saved with "

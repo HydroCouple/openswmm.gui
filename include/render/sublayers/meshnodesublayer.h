@@ -39,18 +39,16 @@ private:
     Q_PROPERTY(MarkerShape shape           READ shape           WRITE setShape           NOTIFY styleChanged)
     Q_PROPERTY(QColor      outlineColor    READ outlineColor    WRITE setOutlineColor    NOTIFY styleChanged)
     Q_PROPERTY(double      outlineWidthPx  READ outlineWidthPx  WRITE setOutlineWidthPx  NOTIFY styleChanged)
-    Q_PROPERTY(bool        highlightTagged READ highlightTagged WRITE setHighlightTagged NOTIFY styleChanged)
-    Q_PROPERTY(QColor      taggedColor     READ taggedColor     WRITE setTaggedColor     NOTIFY styleChanged)
-    Q_PROPERTY(double      taggedSizePx    READ taggedSizePx    WRITE setTaggedSizePx    NOTIFY styleChanged)
+    // Tagged (SWMM-coupled) vertex styling moved to CoupledNodeStyle
+    // (couplednodesublayer.h) — coupled markers are their own sublayer now.
+    // Legacy "tagged*" JSON keys migrate in
+    // SWMM2DMeshLayer::onSublayersJsonLoaded.
 
     Q_CLASSINFO("group:color",           "Symbology")
     Q_CLASSINFO("group:markerSizePx",    "Symbology")
     Q_CLASSINFO("group:shape",           "Symbology")
     Q_CLASSINFO("group:outlineColor",    "Outline")
     Q_CLASSINFO("group:outlineWidthPx",  "Outline")
-    Q_CLASSINFO("group:highlightTagged", "Tagged vertices")
-    Q_CLASSINFO("group:taggedColor",     "Tagged vertices")
-    Q_CLASSINFO("group:taggedSizePx",    "Tagged vertices")
 
 public:
     explicit MeshNodeStyle(QObject *parent = nullptr) : SublayerStyle(parent) {}
@@ -60,18 +58,12 @@ public:
     [[nodiscard]] MarkerShape shape() const           { return m_shape; }
     [[nodiscard]] QColor      outlineColor() const    { return m_outlineColor; }
     [[nodiscard]] double      outlineWidthPx() const  { return m_outlineWidthPx; }
-    [[nodiscard]] bool        highlightTagged() const { return m_highlightTagged; }
-    [[nodiscard]] QColor      taggedColor() const     { return m_taggedColor; }
-    [[nodiscard]] double      taggedSizePx() const    { return m_taggedSizePx; }
 
     void setColor(const QColor &v)         { if (m_color == v) return; m_color = v; setDirty(); }
     void setMarkerSizePx(double v);
     void setShape(MarkerShape v)           { if (m_shape == v) return; m_shape = v; setDirty(); }
     void setOutlineColor(const QColor &v)  { if (m_outlineColor == v) return; m_outlineColor = v; setDirty(); }
     void setOutlineWidthPx(double v);
-    void setHighlightTagged(bool v)        { if (m_highlightTagged == v) return; m_highlightTagged = v; setDirty(); }
-    void setTaggedColor(const QColor &v)   { if (m_taggedColor == v) return; m_taggedColor = v; setDirty(); }
-    void setTaggedSizePx(double v);
 
     [[nodiscard]] QJsonObject toJson() const override;
     void fromJson(const QJsonObject &j) override;
@@ -82,9 +74,6 @@ private:
     MarkerShape m_shape           = Circle;
     QColor      m_outlineColor    = QColor(255, 255, 255, 220);
     double      m_outlineWidthPx  = 0.5;
-    bool        m_highlightTagged = true;
-    QColor      m_taggedColor     = QColor(0xff, 0x8c, 0x00, 235); // orange
-    double      m_taggedSizePx    = 5.0;
 };
 
 class MeshNodeSublayer : public ISublayer

@@ -41,10 +41,22 @@ public:
      *  sentinel row is the active selection. */
     [[nodiscard]] RasterColorRamp currentRamp() const;
 
+    /*! True when the current selection is a user-authored (custom) ramp
+     *  rather than a built-in. Consumers that persist ramps by NAME must
+     *  check this and store the full payload instead — builtin-name lookup
+     *  degrades unknown names to grayscale. */
+    [[nodiscard]] bool currentIsCustom() const;
+
     /*! Selects the first item whose ramp matches `name` (case-insensitive,
      *  matched against built-in display names and against user-ramp
      *  labels). No-op when no item matches. */
     void setCurrentRampByName(const QString &name);
+
+    /*! Select the ramp named `name`; when no row carries that name (a
+     *  custom ramp authored on another machine, or one since deleted from
+     *  the preferences library) a transient "custom" row is inserted from
+     *  the supplied payload so the swatch and selection stay truthful. */
+    void ensureRampSelected(const QString &name, const RasterColorRamp &ramp);
 
     /*! Pre-populates the combo with built-ins. Custom user ramps loaded
      *  from `PreferencesManager::customColorRamps()` are appended below
@@ -76,6 +88,12 @@ private:
     void appendCustoms();
     void appendEditSentinel();
     void openEditor();
+
+    /*! Row of the last real ramp selection (builtin/custom). Restored when
+     *  the "Edit Custom Ramp…" flow is cancelled — previously the cancel
+     *  path reset to row 0, silently switching the user's ramp to
+     *  Grayscale. */
+    int m_lastRampRow = 0;
 };
 
 #endif // OPENSWMMVIS_UI_WIDGETS_COLORRAMPCOMBOBOX_H
