@@ -428,9 +428,15 @@ void SimulationRunner::start()
                     Qt::QueuedConnection);
             }
 
+            // NOTE on units: swmm_engine_step()'s out-parameter is the
+            // CUMULATIVE elapsed time in DAYS (SWMMEngine.cpp:
+            // *elapsed_time = current_time / SEC_PER_DAY), not a per-step
+            // delta and not seconds. It is used here only to detect the end
+            // of the run (elapsed <= 0.0); every quantity reported to the GUI
+            // comes from swmm_get_current_time(), which is seconds since the
+            // simulation start.
             double elapsed = 0.0;
             qint64 stepCount = 0;
-            double totalElapsedSec = 0.0;
             QElapsedTimer tickTimer;
             tickTimer.start();
             // Rate-limit GUI emissions to `tickIntervalMs` (user pref,
@@ -449,7 +455,6 @@ void SimulationRunner::start()
                     break;
 
                 ++stepCount;
-                totalElapsedSec += elapsed;
 
                 const qint64 nowMs = tickTimer.elapsed();
                 if (nowMs - lastTickMs < kTickIntervalMs)
@@ -471,7 +476,13 @@ void SimulationRunner::start()
                 if (twoD_active)
                     swmm_2d_get_continuity_error(eng, &twoDErr);
 
-                const double avgTs = stepCount > 0 ? totalElapsedSec / double(stepCount) : 0.0;
+                // Running average routing step (seconds) — same formula the
+                // out-of-process worker path uses below. It was previously
+                // summing swmm_engine_step()'s CUMULATIVE elapsed DAYS, which
+                // grows as dt*(N+1)/(2*86400): on a 10 s routing step it reads
+                // ~0.01 around step 200 and creeps up from there, so a healthy
+                // run looked permanently stalled.
+                const double avgTs = stepCount > 0 ? curTSec / double(stepCount) : 0.0;
                 const int jobId = rawSelf->m_jobId;
                 const QDateTime curQDT = simStart.isValid()
                     ? simStart.addMSecs(static_cast<qint64>(curTSec * 1000.0))
@@ -500,9 +511,9 @@ void SimulationRunner::start()
                         depths[t] = static_cast<float>(raw[t]);
                     QMetaObject::invokeMethod(rawSelf,
                         [rawSelf, jobId, depths = std::move(depths),
-                         curQDT, totalElapsedSec]() mutable {
+                         curQDT, curTSec]() mutable {
                             emit rawSelf->twoDDepthsAvailable(
-                                jobId, depths, curQDT, totalElapsedSec);
+                                jobId, depths, curQDT, curTSec);
                         },
                         Qt::QueuedConnection);
 
@@ -519,9 +530,9 @@ void SimulationRunner::start()
                             flux[i] = static_cast<float>(rawFlux[i]);
                         QMetaObject::invokeMethod(rawSelf,
                             [rawSelf, jobId, flux = std::move(flux),
-                             curQDT, totalElapsedSec]() mutable {
+                             curQDT, curTSec]() mutable {
                                 emit rawSelf->twoDFluxAvailable(
-                                    jobId, flux, curQDT, totalElapsedSec);
+                                    jobId, flux, curQDT, curTSec);
                             },
                             Qt::QueuedConnection);
                     }
@@ -541,9 +552,9 @@ void SimulationRunner::start()
                         {
                             QMetaObject::invokeMethod(rawSelf,
                                 [rawSelf, jobId, vdepths = std::move(vdepths),
-                                 curQDT, totalElapsedSec]() mutable {
+                                 curQDT, curTSec]() mutable {
                                     emit rawSelf->twoDVertexDepthsAvailable(
-                                        jobId, vdepths, curQDT, totalElapsedSec);
+                                        jobId, vdepths, curQDT, curTSec);
                                 },
                                 Qt::QueuedConnection);
                         }
