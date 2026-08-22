@@ -139,6 +139,15 @@ public:
     [[nodiscard]] QWidget *cellTagWidget() const;
     void setCellEditorActions(QAction *paramAct, QAction *tagAct);
 
+    /*! \brief Place a cell-scoped action (currently "Assign Infiltration to
+     *  Selection…") in the 2D-cell cluster, beside the param / tag editors.
+     *
+     *  Enabled only while at least one cell is selected — the dialog it opens
+     *  reads the selection, so offering it with nothing selected is offering a
+     *  dead end. Disabled rather than hidden (unlike the editor widgets)
+     *  because the same QAction is mirrored into the Model ▸ Mesh menu. */
+    void addCellAction(QAction *action);
+
     /*! \brief Key of the parameter currently shown in the cell editor
      *         (mesh::CellParamSpec::key). Empty when the editor is absent. */
     [[nodiscard]] QByteArray currentCellParamKey() const;
@@ -179,6 +188,7 @@ private slots:
     void onAutoCoupleClicked();      // couple vertices to coincident SWMM nodes
     void onRemapClicked();           // Remap 1D↔2D: vertex + cell coupling (Plan C.4)
     void onCellParamCommit();        // selected parameter → selected cells
+    void onCellEnumCommit(int index); // Kind::Enum editor → selected cells
     void onCellParamChanged(int index); // reconfigure the value editor
     void onCellTagCommit();          // descriptive triangle tag → selected cell
     void onSelectionChanged();
@@ -213,6 +223,15 @@ private:
     void refreshEdgeEditor();
     void refreshCellEditor();
     void updateEnabledState();
+    /*! \brief Write \p value into the currently selected cell parameter on
+     *  every selected cell, as one undo entry.
+     *
+     *  The `infil.*` keys are routed to mesh::pushCellInfilEdit rather than
+     *  mesh::pushCellParamEdit: only that command snapshots PROVENANCE, so
+     *  only its undo puts an inheriting cell back to inheriting instead of
+     *  leaving a materialised override carrying the same numbers. */
+    void commitCellParam(double value);
+
     QList<int> currentSelectedVertices() const;          // all selected vertex indices
     QList<QPair<int,int>> currentSelectedEdges() const;  // (tri, eLocal) pairs
     QList<int> currentSelectedCells() const;             // all selected triangle indices
@@ -273,9 +292,15 @@ private:
     QWidget       *m_cellParamPage  = nullptr;
     QComboBox     *m_cellParamCombo = nullptr;
     QDoubleSpinBox*m_cellValueSpin  = nullptr;
+    // Value editor for CellParamSpec::Kind::Enum parameters (infiltration
+    // method). Shares the slot the spin box occupies — exactly one of the two
+    // is visible, chosen by the selected parameter's kind. A −1…5 numeric
+    // spinner for an enumeration is not an editor, it is a puzzle.
+    QComboBox     *m_cellEnumCombo  = nullptr;
     QLineEdit     *m_cellTagEdit    = nullptr;   // descriptive triangle tag
     QAction       *m_actCellParam   = nullptr;   // embedding actions for hide
     QAction       *m_actCellTag     = nullptr;
+    QAction       *m_actCellInfil   = nullptr;   // "Assign Infiltration to Selection…"
     // Project depth unit ("ft"/"m") shown on length-valued parameters.
     QString        m_depthUnitLabel = QStringLiteral("m");
 

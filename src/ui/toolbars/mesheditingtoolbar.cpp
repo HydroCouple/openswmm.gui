@@ -14,6 +14,7 @@
 #include "mesh/meshautocouple.h"
 #include "mesh/meshbctype.h"
 #include "mesh/meshcellparams.h"
+#include "mesh/meshinfil.h"
 #include "mesh/meshnodemapper.h"
 #include "mesh/meshhoverprobe.h"
 #include "mesh/meshobjectref.h"
@@ -464,10 +465,20 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         m_cellValueSpin->setKeyboardTracking(false);
         lay->addWidget(m_cellValueSpin);
 
+        // Kind::Enum parameters (the infiltration method) get a combo, not a
+        // numeric spinner over the enumeration's integer range. Both editors
+        // occupy the same slot; onCellParamChanged shows the right one.
+        m_cellEnumCombo = new QComboBox(m_cellParamPage);
+        m_cellEnumCombo->setMinimumWidth(150);
+        m_cellEnumCombo->setVisible(false);
+        lay->addWidget(m_cellEnumCombo);
+
         connect(m_cellParamCombo, qOverload<int>(&QComboBox::currentIndexChanged),
                 this, &MeshEditingToolbar::onCellParamChanged);
         connect(m_cellValueSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
                 this, &MeshEditingToolbar::onCellParamCommit);
+        connect(m_cellEnumCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+                this, &MeshEditingToolbar::onCellEnumCommit);
     }
     m_cellParamPage->setEnabled(false);
     onCellParamChanged(m_cellParamCombo->currentIndex());   // seed spin config
@@ -541,6 +552,14 @@ QAction *MeshEditingToolbar::addToolWidget(QWidget *widget)
 {
     if (!widget || !m_barResults) return nullptr;
     return m_barResults->addWidget(widget);
+}
+
+void MeshEditingToolbar::addCellAction(QAction *action)
+{
+    if (!action || !m_barResults) return;
+    m_actCellInfil = action;
+    m_barResults->addAction(action);
+    updateEnabledState();   // apply initial hidden state
 }
 
 void MeshEditingToolbar::addProfileAction(QAction *action)
@@ -1019,9 +1038,16 @@ void MeshEditingToolbar::refreshCellEditor()
             }
         }
     }
-    if (m_cellValueSpin) {
+    const bool isEnum = spec && spec->kind == mesh::CellParamSpec::Kind::Enum;
+    if (m_cellValueSpin && !isEnum) {
         QSignalBlocker block(m_cellValueSpin);
         m_cellValueSpin->setValue(valueSame ? commonValue : fallback);
+    }
+    if (m_cellEnumCombo && isEnum) {
+        QSignalBlocker block(m_cellEnumCombo);
+        const int row = m_cellEnumCombo->findData(
+            QVariant(valueSame ? commonValue : fallback));
+        m_cellEnumCombo->setCurrentIndex(row >= 0 ? row : 0);
     }
     if (m_cellTagEdit) {
         QSignalBlocker block(m_cellTagEdit);
@@ -1033,7 +1059,13 @@ void MeshEditingToolbar::refreshCellEditor()
         // Echo the live value + tag so single-cell edits are visibly confirmed
         // (these attributes are not drawn on the map).
         QString detail;
-        if (counted && valueSame && spec)
+        if (counted && valueSame && spec && isEnum) {
+            // Echo the enumeration's LABEL — "-1" is not a readable confirmation.
+            const int li = int(std::lround(commonValue - spec->min));
+            if (li >= 0 && li < spec->enumLabels.size())
+                detail = QStringLiteral("  %1=%2")
+                             .arg(spec->label, spec->enumLabels.at(li));
+        } else if (counted && valueSame && spec) {
             detail = QStringLiteral("  %1%2%3")
                          .arg(spec->prefix.isEmpty() ? spec->label + QStringLiteral("=")
                                                      : spec->prefix)
@@ -1041,6 +1073,7 @@ void MeshEditingToolbar::refreshCellEditor()
                          .arg(spec->lengthUnit && !m_depthUnitLabel.isEmpty()
                                   ? QStringLiteral(" ") + m_depthUnitLabel
                                   : QString());
+        }
         if (commonTag.isEmpty() || !tagSame)
             m_cellInfoLbl->setText(tr("Cell #%1%2").arg(cells.front()).arg(detail));
         else
@@ -1296,10 +1329,29 @@ void MeshEditingToolbar::refreshGroupWidths()
 
 void MeshEditingToolbar::onCellParamChanged(int index)
 {
-    if (!m_cellParamCombo || !m_cellValueSpin) return;
+    if (!m_cellParamCombo || !m_cellValueSpin || !m_cellEnumCombo) return;
     const QByteArray key = m_cellParamCombo->itemData(index).toByteArray();
     const mesh::CellParamSpec *spec = mesh::cellParamSpec(key);
     if (!spec) return;
+
+    const bool isEnum = (spec->kind == mesh::CellParamSpec::Kind::Enum);
+    m_cellValueSpin->setVisible(!isEnum);
+    m_cellEnumCombo->setVisible(isEnum);
+
+    if (isEnum) {
+        // Registry contract: enumLabels[i] is the enumeration's i-th value in
+        // its own order, and spec->min is the first one — so the stored value
+        // is min + i, not the label index (mesh::InfilMethod::None is -1).
+        QSignalBlocker blockEnum(m_cellEnumCombo);
+        m_cellEnumCombo->clear();
+        for (int i = 0; i < spec->enumLabels.size(); ++i)
+            m_cellEnumCombo->addItem(spec->enumLabels.at(i),
+                                     QVariant(spec->min + double(i)));
+        m_cellEnumCombo->setToolTip(spec->tooltip);
+        blockEnum.unblock();
+        refreshCellEditor();
+        return;
+    }
 
     // Reconfiguring the range/decimals changes the spin's value, which would
     // otherwise commit the new parameter's default onto the selection.
@@ -1319,15 +1371,79 @@ void MeshEditingToolbar::onCellParamChanged(int index)
 
 void MeshEditingToolbar::onCellParamCommit()
 {
-    if (!m_activeMesh || !m_cellValueSpin) return;
+    if (!m_cellValueSpin) return;
+    commitCellParam(m_cellValueSpin->value());
+}
+
+void MeshEditingToolbar::onCellEnumCommit(int index)
+{
+    if (!m_cellEnumCombo || index < 0) return;
+    commitCellParam(m_cellEnumCombo->itemData(index).toDouble());
+}
+
+void MeshEditingToolbar::commitCellParam(double value)
+{
+    if (!m_activeMesh) return;
     const QList<int> cells = currentSelectedCells();
     if (cells.isEmpty()) return;
     const QByteArray key = currentCellParamKey();
     if (key.isEmpty()) return;
-    // One undo entry for the whole selection, on the same stack every other
-    // editing surface uses.
-    mesh::pushCellParamEdit(m_activeMesh, QVector<int>(cells.cbegin(), cells.cend()),
-                            key, m_cellValueSpin->value(), m_canvas);
+    const QVector<int> tris(cells.cbegin(), cells.cend());
+
+    if (!key.startsWith("infil.")) {
+        // One undo entry for the whole selection, on the same stack every
+        // other editing surface uses.
+        mesh::pushCellParamEdit(m_activeMesh, tris, key, value, m_canvas);
+        return;
+    }
+
+    // Infiltration must NOT take the generic path. MeshSetTriangleAttributeCommand
+    // (which pushCellParamEdit builds) restores the old NUMBER on undo, so
+    // undoing an edit made on a cell that was INHERITING from its region tag
+    // leaves a per-cell override carrying identical values — the cell silently
+    // stops tracking its region and the next region-level edit misses it.
+    // mesh::pushCellInfilEdit is the only helper that snapshots provenance.
+    //
+    // That command writes ONE row to many cells, while this edit changes one
+    // field of each cell's OWN resolved row (cells in the selection may resolve
+    // to different methods and numbers). So group the selection by the row it
+    // ends up with and push one command per distinct row, wrapped in a macro so
+    // the whole edit is still a single Ctrl+Z.
+    const mesh::MeshResult &m = m_activeMesh->mesh();
+    QVector<mesh::InfilRow> rows;
+    QVector<QVector<int>>   groups;
+    for (int t : tris) {
+        if (t < 0 || t >= m.triangles.size()) continue;
+        mesh::InfilRow next = mesh::resolveInfil(m, t).row;
+        if (key == "infil.method") {
+            const int mi = int(std::lround(value));
+            if (mi < int(mesh::InfilMethod::None)
+                || mi > int(mesh::InfilMethod::Constant))
+                return;
+            next.method = static_cast<mesh::InfilMethod>(mi);
+            // Slots the new method does not read carry no meaning — clear them
+            // so a method switch cannot leave a stale number behind.
+            for (int k = 0; k < mesh::kInfilMaxParams; ++k)
+                if (!mesh::infilUsesParam(next.method, k)) next.p[k] = qQNaN();
+        } else {
+            const int slot = mesh::infilSlotForKey(next.method, key);
+            if (slot < 0) continue;   // masked: this cell's method has no such slot
+            next.p[slot] = value;
+        }
+        int g = rows.indexOf(next);
+        if (g < 0) { rows.append(next); groups.append(QVector<int>()); g = rows.size() - 1; }
+        groups[g].append(t);
+    }
+    if (rows.isEmpty()) return;
+
+    MapUndoStack *stack = m_canvas ? m_canvas->undoStack() : nullptr;
+    const bool macro = stack && rows.size() > 1;
+    if (macro)
+        stack->beginMacro(tr("Set infiltration on %n cell(s)", nullptr,
+                             int(tris.size())));
+    for (int g = 0; g < rows.size(); ++g)
+        mesh::pushCellInfilEdit(m_activeMesh, groups[g], rows[g], m_canvas);
+    if (macro) stack->endMacro();
 }
 
 void MeshEditingToolbar::onCellTagCommit()
@@ -1391,6 +1507,11 @@ void MeshEditingToolbar::updateEnabledState()
     if (m_actCellTag)    m_actCellTag->setVisible(showCellEdit);
     if (m_cellParamPage) m_cellParamPage->setEnabled(showCellEdit);
     if (m_cellTagEdit)   m_cellTagEdit->setEnabled(showCellEdit);
+    // The whole-row infiltration form reads the selection, so it is dead
+    // without one. Disabled rather than hidden, unlike the editor widgets
+    // above: the same QAction is mirrored into the Model ▸ Mesh menu, and a
+    // menu entry that disappears is harder to find than one that is greyed.
+    if (m_actCellInfil) m_actCellInfil->setEnabled(showCellEdit);
 
     // Slice §V.VC — BC controls follow Edit Edge mode + selection state.
     // BCs apply to boundary edges only, so the param stack enables only when

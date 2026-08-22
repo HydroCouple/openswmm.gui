@@ -264,7 +264,8 @@ private slots:
                                bool ok,
                                const QList<QString> &warnings,
                                const QList<QString> &errors,
-                               qint64 elapsedMs);
+                               qint64 elapsedMs,
+                               class OpenProgressModel *progress = nullptr);
 
     /*! \brief Mesh Tiled LOD P1.2 — async half of the 2D mesh + prior-run
      *         HDF5 auto-load that finalizeSingleINPOpen() kicks off. The
@@ -275,7 +276,8 @@ private slots:
      *         (hidden-until-adopted: nothing is added on failure or if the
      *         window closed mid-load). Timing lands in openswmm.load.mesh. */
     void attachMesh2DLayersAsync(SWMMVisProjectWindow *window,
-                                 const QString &filePath);
+                                 const QString &filePath,
+                                 class OpenProgressModel *progress = nullptr);
 
     /*! \brief Reopen a previous run's HDF5 2D results for \p filePath (the
      *         .inp). The .h5 comes from `[2D_OPTIONS] OUTPUT_FILE`, falling
@@ -642,6 +644,9 @@ private:
     QComboBox    *mComboBoxFlowUnits                   = nullptr;
     QComboBox    *mComboBoxEngineVersion               = nullptr;
     QProgressBar  *mProgressBar                       = nullptr;
+    /*! Stage text shown beside \ref mProgressBar ("Parsing 2D mesh…").
+     *  Hidden whenever the bar is. */
+    QLabel        *mProgressLabel                     = nullptr;
     QDateTimeEdit *mDateTimeEditAnimationTime         = nullptr;
     QLabel        *mLabelAnimationSpeed               = nullptr;
     QComboBox     *mComboAnimationSpeed               = nullptr;
@@ -735,6 +740,36 @@ private:
     // the user toggles back off / presses Esc.
     QPointer<class OpenSWMMVisMapToolPlotPick>     mPlotPickTool;
     QPointer<class OpenSWMMVisMapTool>             mPrevMapTool;
+
+    // ── Status-bar progress arbitration (LOAD_PERF Phase 1c) ──────────────
+    // One QProgressBar serves three producers: simulation runs (real
+    // percent), project opens (real percent), and a handful of genuinely
+    // unmeasurable operations (raster/table open) that still want a spinner.
+    // They are mutually exclusive, so ownership is explicit and every writer
+    // goes through applyProgressBarState().
+
+    /*! Who currently owns \ref mProgressBar. Simulation outranks Open: a run
+     *  is the longer, explicitly user-initiated task, and a 200 ms open must
+     *  not blank a 40-minute run's percentage. */
+    enum class ProgressOwner { None, Busy, Open, Simulation };
+
+    /*! In-flight project opens keyed by open id. The bar shows the MINIMUM
+     *  percent across them, matching the min-across-jobs rule the simulation
+     *  path already uses, so a multi-model .oswp reports the laggard. */
+    QHash<int, class OpenProgressModel *> mRunningOpens;
+    int  mNextOpenId       = 1;
+    int  mBusyRefCount     = 0;   //!< nesting depth of onSetProgressBarBusy(true)
+
+    /*! Single funnel that decides owner, range, value, label and visibility.
+     *  Every progress writer calls this rather than touching the widget. */
+    void applyProgressBarState();
+
+    /*! Create (and register) a progress model for one open. Ownership stays
+     *  with SWMMVis; \ref endOpenProgress destroys it. */
+    OpenProgressModel *beginOpenProgress();
+
+    /*! Retire the model for \p openId, hiding the bar if nothing else owns it. */
+    void endOpenProgress(int openId);
 
     /** Recompute the status-bar progress bar from mRunningSimProgress. */
     void updateSimulationProgressBar();

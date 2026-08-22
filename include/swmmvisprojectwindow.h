@@ -99,8 +99,14 @@ public:
      * "clean" after a cell edit, so Run skips its auto-save and the engine
      * re-reads the stale .inp — the edit silently never reaches the solver.
      * Call once per mesh layer, right after it joins the canvas.
+     *
+     * \param pristine  Pass true only when the layer was built from the very
+     *   file the engine parsed, so the two meshes are known to agree and the
+     *   save path may skip re-pushing this layer until something edits it.
+     *   The default (false) is the safe one: a mesh generated or imported
+     *   in-session leaves the engine holding the old mesh.
      */
-    void attachMeshLayer(class SWMM2DMeshLayer *meshLayer);
+    void attachMeshLayer(class SWMM2DMeshLayer *meshLayer, bool pristine = false);
 
     /*!
      * \brief Browse-and-load an existing OpenSWMM 2D mesh (.2dm) into this
@@ -131,8 +137,12 @@ public:
      * the load (SoA adoption, CRS resolution, canvas zoom) on the GUI thread
      * and then emits modelLoadFinished(). Safe against the window being
      * closed mid-load.
+     *
+     * \param progress Optional determinate-progress sink. The worker reports
+     *        into the EngineParse / SoaCopy / GeomCache stages; null is the
+     *        "nobody is watching" case used by tests and the sync path.
      */
-    void loadModelAsync();
+    void loadModelAsync(class OpenProgressModel *progress = nullptr);
 
     /*!
      * \brief In-memory File → New: build a blank BUILDING-state engine from
