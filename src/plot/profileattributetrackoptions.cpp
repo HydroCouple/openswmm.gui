@@ -186,7 +186,9 @@ QString ProfileAttributeTrackOptions::displayLabelFor(
         if (propertyName == prop + QLatin1String("Pen"))
             return tr("%1 %2 — line").arg(kind, labelFor(e.attr));
     }
-    if (propertyName == QLatin1String("trackHeightPx"))    return tr("Track height (px)");
+    // "Minimum": tracks share any surplus pane height as the splitter is
+    // dragged, so this value is the floor, not the painted height.
+    if (propertyName == QLatin1String("trackHeightPx"))    return tr("Min track height (px)");
     if (propertyName == QLatin1String("showTrackTitles"))  return tr("Show track titles");
     if (propertyName == QLatin1String("envelopesVisible")) return tr("Show min/max envelopes");
     if (propertyName == QLatin1String("envelopeOpacity"))  return tr("Envelope opacity (0–1)");
