@@ -5,9 +5,11 @@
 #include "render/sublayers/meshfillsublayer.h"
 
 #include "mesh/meshcellparams.h"
+#include "render/categoricalpalette.h"
 
 #include <QJsonObject>
 
+#include <cmath>
 #include <iterator>
 
 namespace OpenSWMM::Render
@@ -16,12 +18,20 @@ namespace OpenSWMM::Render
 namespace {
 
 /*! The one place CellAttribute meets mesh::cellParamSpecs(). Index is the
- *  enum ordinal; entry 0 is the elevation sentinel. */
+ *  enum ordinal; entry 0 is the elevation sentinel. Order mirrors the
+ *  registry; persistence is by KEY, so this list may be reordered or extended
+ *  without breaking saved styles — but it must stay in lockstep with the
+ *  CellAttribute enumerators, which are what indexes it. */
 constexpr const char *kAttrKeys[] = {
     "elevation", "mannings", "initDepth",
+    "infil.method",
+    "infil.f0", "infil.fmin", "infil.decay", "infil.dryTime", "infil.Fmax",
+    "infil.suction", "infil.Ks", "infil.IMD", "infil.CN", "infil.rate",
     "gw.Ks", "gw.zs", "gw.thetaS", "gw.hu0", "gw.hg0",
 };
 constexpr int kAttrKeyCount = int(std::size(kAttrKeys));
+static_assert(kAttrKeyCount == int(MeshFillStyle::CellAttribute::GwHg0) + 1,
+              "kAttrKeys must carry exactly one key per CellAttribute value");
 
 } // namespace
 
@@ -106,6 +116,36 @@ void MeshFillStyle::setNoDataColor(const QColor &v)
     setDirty();
 }
 
+void MeshFillStyle::setCategoryPalette(const QString &v)
+{
+    if (m_categoryPalette == v) return;
+    // Unknown names fall back to Tab10 inside CategoricalPalette::byName, so
+    // no validation is needed here.
+    m_categoryPalette = v;
+    setDirty();
+}
+
+bool MeshFillStyle::colorsByCategory() const
+{
+    if (colorsByElevation()) return false;
+    const mesh::CellParamSpec *s = mesh::cellParamSpec(colorByAttributeKey());
+    return s && s->kind == mesh::CellParamSpec::Kind::Enum;
+}
+
+QColor MeshFillStyle::categoryColorForValue(int v) const
+{
+    const QList<QColor> pal = ::CategoricalPalette::byName(m_categoryPalette);
+    const int n = int(pal.size());
+    if (n <= 0) return m_fillColor;
+    // The enumeration's first value is the spec's min (mesh::InfilMethod::None
+    // is -1), so shift it to a 0-based palette index before wrapping.
+    const mesh::CellParamSpec *s = mesh::cellParamSpec(colorByAttributeKey());
+    const int base = s ? int(std::lround(s->min)) : 0;
+    int i = (v - base) % n;
+    if (i < 0) i += n;
+    return pal.at(i);
+}
+
 QJsonObject MeshFillStyle::toJson() const
 {
     QJsonObject obj;
@@ -116,6 +156,7 @@ QJsonObject MeshFillStyle::toJson() const
     obj.insert(QStringLiteral("colorByAttribute"),
                QString::fromUtf8(attributeKey(m_colorByAttribute)));
     obj.insert(QStringLiteral("noDataColor"),       m_noDataColor.name(QColor::HexArgb));
+    obj.insert(QStringLiteral("categoryPalette"),   m_categoryPalette);
     obj.insert(QStringLiteral("classification"),    m_scheme.toJson());
     return obj;
 }
@@ -140,6 +181,12 @@ void MeshFillStyle::fromJson(const QJsonObject &j)
     {
         const QString tokNd = j.value(QStringLiteral("noDataColor")).toString();
         if (!tokNd.isEmpty()) { const QColor c(tokNd); if (c.isValid()) m_noDataColor = c; }
+    }
+    {
+        // Absent in pre-change style files → stays Tab10, which only matters
+        // once a categorical attribute is selected.
+        const QString p = j.value(QStringLiteral("categoryPalette")).toString();
+        if (!p.isEmpty()) m_categoryPalette = p;
     }
 
     if (j.contains(QStringLiteral("classification")))
@@ -177,8 +224,46 @@ void MeshFillSublayer::setAttributeHasData(bool hasData)
     emit invalidated();
 }
 
+void MeshFillSublayer::setCategoriesPresent(const QVector<int> &values)
+{
+    if (m_categoriesPresent == values) return;
+    m_categoriesPresent = values;
+    emit invalidated();
+}
+
 QList<LegendSymbolItem> MeshFillSublayer::legendSymbolItems() const
 {
+    // Categorical fill (the infiltration method): one row per value actually
+    // present in the mesh, labelled with the registry's own enum labels. A
+    // single ramp swatch would say nothing about which methods are in play,
+    // which is the entire reason to colour by method before a run.
+    if (m_style->useElevationRamp() && m_style->colorsByCategory()) {
+        const mesh::CellParamSpec *spec =
+            mesh::cellParamSpec(m_style->colorByAttributeKey());
+        QList<LegendSymbolItem> out;
+        for (int v : m_categoriesPresent) {
+            LegendSymbolItem row;
+            row.sublayerId = m_id;
+            const int li = spec ? v - int(spec->min) : -1;
+            row.label = (spec && li >= 0 && li < spec->enumLabels.size())
+                            ? spec->enumLabels.at(li)
+                            : QString::number(v);
+
+            SymbolLayer fill;
+            fill.kind = SymbolLayerKind::SimpleFill;
+            SymbolProps::writeColor(fill.props, QStringLiteral("color"),
+                                    m_style->categoryColorForValue(v));
+            row.symbol.layers.append(fill);
+            row.symbol.opacity = m_opacity;
+            row.classKey  = QString::number(v);
+            row.sortIndex = v;
+            out.append(row);
+        }
+        if (!out.isEmpty()) return out;
+        // Nothing present yet (no defaults, no overrides) — fall through to
+        // the no-data swatch below rather than emitting an empty legend.
+    }
+
     LegendSymbolItem item;
     item.sublayerId = m_id;
 

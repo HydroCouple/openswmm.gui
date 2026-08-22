@@ -10,6 +10,7 @@
 #include "map/mapcanvas.h"
 #include "mesh/meshbctype.h"
 #include "mesh/meshcellparams.h"
+#include "mesh/meshinfil.h"
 
 #include <QCoreApplication>
 
@@ -28,6 +29,36 @@ bool applyCellParam(SWMM2DMeshLayer *layer, int tri, const QByteArray &key,
     if (!s || !s->enabled) return false;
     if (key == "mannings")  return layer->applyMeshTriangleMannings(tri, value);
     if (key == "initDepth") return layer->applyMeshTriangleInitDepth(tri, value);
+    if (key.startsWith("infil.")) {
+        // Single-parameter write into the cell's infiltration row. The row is
+        // read back RESOLVED (override > tag > '*'), the one field is
+        // replaced, and the whole row is written as a per-cell override — the
+        // parameters only mean anything together, and there is no per-field
+        // storage to write into.
+        //
+        // Row-level edits ("assign this method and its five parameters") must
+        // go through mesh::pushCellInfilEdit instead: only that command
+        // snapshots PROVENANCE, so only its undo can put an inheriting cell
+        // back to inheriting rather than to a materialised copy.
+        mesh::ResolvedInfil cur = mesh::resolveInfil(layer->mesh(), tri);
+        mesh::InfilRow next = cur.row;
+        if (key == "infil.method") {
+            const int mi = int(std::lround(value));
+            if (mi < int(mesh::InfilMethod::None)
+                || mi > int(mesh::InfilMethod::Constant))
+                return false;
+            next.method = static_cast<mesh::InfilMethod>(mi);
+            // Slots the new method does not read carry no meaning — clear them
+            // so a method switch cannot leave a stale number behind.
+            for (int k = 0; k < mesh::kInfilMaxParams; ++k)
+                if (!mesh::infilUsesParam(next.method, k)) next.p[k] = qQNaN();
+        } else {
+            const int slot = mesh::infilSlotForKey(next.method, key);
+            if (slot < 0) return false;   // masked: this method has no such slot
+            next.p[slot] = value;
+        }
+        return layer->applyMeshTriangleInfil(tri, next);
+    }
     return false;   // engine support pending — see the registry's gw.* entries
 }
 
@@ -172,6 +203,92 @@ void MeshSetEdgeAttributeCommand::apply(const QVector<mesh::MeshEdgeBC> &bcs)
 
 void MeshSetEdgeAttributeCommand::undo() { apply(m_oldBCs); }
 void MeshSetEdgeAttributeCommand::redo() { apply(m_newBCs); }
+
+// ===========================================================================
+// MeshSetTriangleInfilCommand
+// ===========================================================================
+
+MeshSetTriangleInfilCommand::MeshSetTriangleInfilCommand(
+        SWMM2DMeshLayer *layer, QVector<int> triangles, mesh::InfilRow newRow,
+        QVector<mesh::InfilRow> oldRows,
+        QVector<mesh::InfilProvenance> oldProv,
+        const QString &text, MapCanvas *canvas, QUndoCommand *parent)
+    : MapCommand(text, canvas, parent),
+      m_layer(layer),
+      m_tris(std::move(triangles)),
+      m_newRow(std::move(newRow)),
+      m_oldRows(std::move(oldRows)),
+      m_oldProv(std::move(oldProv))
+{
+}
+
+void MeshSetTriangleInfilCommand::redo()
+{
+    if (!m_layer) return;   // layer closed — nothing to write onto
+    for (int t : m_tris) m_layer->applyMeshTriangleInfil(t, m_newRow);
+}
+
+void MeshSetTriangleInfilCommand::undo()
+{
+    if (!m_layer) return;
+    for (int i = 0; i < m_tris.size() && i < m_oldProv.size(); ++i) {
+        // THE correctness point of GG0c. A cell that was inheriting from its
+        // region tag (or from the '*' row) had NO [2D_INFILTRATION] row of its
+        // own, so undo has to erase the one redo() created. Writing the
+        // resolved numbers back instead would leave a per-cell override that
+        // looks identical and silently stops tracking the region — invisible
+        // until the next region-level edit fails to reach the cell.
+        if (m_oldProv[i] == mesh::InfilProvenance::Override) {
+            if (i < m_oldRows.size())
+                m_layer->applyMeshTriangleInfil(m_tris[i], m_oldRows[i]);
+        } else {
+            m_layer->clearMeshTriangleInfil(m_tris[i]);
+        }
+    }
+}
+
+// ===========================================================================
+// MeshSetInfilDefaultsCommand
+// ===========================================================================
+
+MeshSetInfilDefaultsCommand::MeshSetInfilDefaultsCommand(
+        SWMM2DMeshLayer *layer, QVector<QString> tags,
+        QVector<mesh::InfilRow> newRows, QVector<mesh::InfilRow> oldRows,
+        QVector<bool> oldExisted, const QString &text, MapCanvas *canvas,
+        QUndoCommand *parent)
+    : MapCommand(text, canvas, parent),
+      m_layer(layer),
+      m_tags(std::move(tags)),
+      m_newRows(std::move(newRows)),
+      m_oldRows(std::move(oldRows)),
+      m_oldExisted(std::move(oldExisted))
+{
+}
+
+void MeshSetInfilDefaultsCommand::redo()
+{
+    if (!m_layer) return;   // layer closed — nothing to write onto
+    for (int i = 0; i < m_tags.size() && i < m_newRows.size(); ++i)
+        m_layer->applyMeshInfilDefault(m_tags[i], m_newRows[i]);
+}
+
+void MeshSetInfilDefaultsCommand::undo()
+{
+    if (!m_layer) return;
+    for (int i = 0; i < m_tags.size() && i < m_oldExisted.size(); ++i) {
+        // The region-level twin of MeshSetTriangleInfilCommand::undo(). A tag
+        // that had NO default row must go back to having none: leaving a row
+        // behind — even one holding the numbers the tag used to resolve to
+        // through '*' — shadows the '*' fallback, so the next edit to '*'
+        // silently stops reaching this region.
+        if (m_oldExisted[i]) {
+            if (i < m_oldRows.size())
+                m_layer->applyMeshInfilDefault(m_tags[i], m_oldRows[i]);
+        } else {
+            m_layer->clearMeshInfilDefault(m_tags[i]);
+        }
+    }
+}
 
 // ===========================================================================
 // Push helpers
@@ -388,6 +505,87 @@ bool sameVertexAttrs(const MeshVertex &a, const MeshVertex &b)
 }
 
 } // namespace
+
+int pushCellInfilEdit(SWMM2DMeshLayer *layer, const QVector<int> &triangles,
+                      const InfilRow &row, MapCanvas *canvas)
+{
+    if (!layer) return 0;
+    const MeshResult &m = layer->mesh();
+
+    QVector<int>             tris;
+    QVector<InfilRow>        oldRows;
+    QVector<InfilProvenance> oldProv;
+    tris.reserve(triangles.size());
+    oldRows.reserve(triangles.size());
+    oldProv.reserve(triangles.size());
+
+    for (int t : triangles) {
+        if (t < 0 || t >= m.triangles.size()) continue;
+        // Snapshot the RESOLVED row and where it came from. The provenance is
+        // what makes undo faithful: without it an inheriting cell comes back
+        // as a materialised override carrying the same numbers.
+        const ResolvedInfil before = resolveInfil(m, t);
+        // Already carrying this exact override — a genuine no-op. A cell that
+        // merely INHERITS the same numbers still enters the command: writing
+        // the override there changes the cell's relationship to its region,
+        // which is the whole point of the edit.
+        if (before.isOverride() && before.row == row) continue;
+        tris.append(t);
+        oldRows.append(before.row);
+        oldProv.append(before.provenance);
+    }
+    if (tris.isEmpty()) return 0;
+
+    const QString text = QCoreApplication::translate(
+        "MeshCommands", "Set infiltration on %n cell(s)", nullptr,
+        int(tris.size()));
+    pushOrRun(new MeshSetTriangleInfilCommand(layer, tris, row, oldRows,
+                                              oldProv, text, canvas),
+              canvas);
+    return tris.size();
+}
+
+int pushInfilDefaultsEdit(SWMM2DMeshLayer *layer,
+                          const QVector<InfilDefaultRow> &rows,
+                          MapCanvas *canvas)
+{
+    if (!layer) return 0;
+    const MeshResult &m = layer->mesh();
+
+    QVector<QString>  tags;
+    QVector<InfilRow> newRows;
+    QVector<InfilRow> oldRows;
+    QVector<bool>     oldExisted;
+
+    for (const InfilDefaultRow &r : rows) {
+        if (r.tag.isEmpty()) continue;                  // the layer rejects it too
+        // Last write wins, matching the layer's mutator: collapse duplicates
+        // here so the command's parallel vectors stay one entry per tag and
+        // undo cannot restore an intermediate state the user never saw.
+        const int dup = tags.indexOf(r.tag);
+        if (dup >= 0) { newRows[dup] = r.row; continue; }
+
+        // Snapshot BOTH the row and whether one existed — a tag with no
+        // default row must come back with no default row (see
+        // MeshSetInfilDefaultsCommand).
+        const int  i    = indexOfDefault(m, r.tag);
+        const bool had  = (i >= 0);
+        if (had && m.infilDefaults[i].row == r.row) continue;   // already there
+        tags.append(r.tag);
+        newRows.append(r.row);
+        oldRows.append(had ? m.infilDefaults[i].row : InfilRow{});
+        oldExisted.append(had);
+    }
+    if (tags.isEmpty()) return 0;
+
+    const QString text = QCoreApplication::translate(
+        "MeshCommands", "Set infiltration on %n region tag(s)", nullptr,
+        int(tags.size()));
+    pushOrRun(new MeshSetInfilDefaultsCommand(layer, tags, newRows, oldRows,
+                                              oldExisted, text, canvas),
+              canvas);
+    return tags.size();
+}
 
 int pushVertexParamEdit(SWMM2DMeshLayer *layer, const QVector<int> &vertices,
                         const QByteArray &key, const QVariant &value,
