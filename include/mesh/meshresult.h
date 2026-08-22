@@ -11,11 +11,14 @@
 #ifndef OPENSWMMVIS_MESH_MESHRESULT_H
 #define OPENSWMMVIS_MESH_MESHRESULT_H
 
+#include <QHash>
 #include <QPointF>
 #include <QString>
 #include <QVector>
 
 #include <limits>
+
+#include "meshinfil.h"   // InfilRow / InfilDefaultRow / InfilOptions (GG0 §3.2a)
 
 namespace mesh {
 
@@ -78,6 +81,27 @@ struct MeshResult
     QVector<MeshTriangle> triangles;
     QVector<MeshEdge>     boundaryEdges;
     QVector<CellCoupling> cellCouplings; ///< Node→cell couplings (Part C).
+
+    /*! Per-cell infiltration (INTEGRATED2D_GW_GUI_PLAN §3.2a, phase GG0).
+     *
+     *  Follows the CellCoupling precedent above — sparse/inherited rows live
+     *  on MeshResult rather than bloating the per-triangle POD. Resolution is
+     *  `infilOverrides > tag row in infilDefaults > '*' row > none`
+     *  (engine D-I3); use mesh::resolveInfil() rather than reading these
+     *  directly, so the inherited-vs-overridden distinction is preserved.
+     *
+     *  Parameters are in PROJECT units — the same numbers a user types into
+     *  [INFILTRATION]. The GUI performs no unit conversion.
+     *
+     *  Written as [2D_INFILTRATION_DEFAULTS] / [2D_INFILTRATION]; these
+     *  sections follow the mesh (external .2dm when one is in use, else
+     *  inline). They must NOT be appended to [2D_TRIANGLES], whose columns
+     *  are positional.
+     */
+    QVector<InfilDefaultRow> infilDefaults;   ///< Tag rows; '*' = mesh-wide fallback.
+    QHash<int, InfilRow>     infilOverrides;  ///< Sparse, keyed by triangle index.
+    InfilOptions             infilOptions;    ///< [2D_INFILTRATION_OPTIONS].
+
     bool    ok = false;
     QString errorMsg;
 };

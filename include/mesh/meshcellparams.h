@@ -25,10 +25,12 @@
 #ifndef OPENSWMMVIS_MESH_MESHCELLPARAMS_H
 #define OPENSWMMVIS_MESH_MESHCELLPARAMS_H
 
+#include "meshinfil.h"
 #include "meshresult.h"
 
 #include <QByteArray>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 namespace mesh {
@@ -37,6 +39,13 @@ namespace mesh {
  *         configure a numeric editor for it, and whether it is live yet. */
 struct CellParamSpec
 {
+    /*! What kind of value the parameter carries. GUI plan §3.5(1): the
+     *  infiltration METHOD is an enumeration, not a magic double, so every
+     *  surface fed by this registry (attribute table, mesh-editing toolbar,
+     *  property adapter, assign dialog) can pick a combo editor for it from
+     *  one place. */
+    enum class Kind { Double, Enum };
+
     QByteArray key;              ///< stable id, e.g. "mannings", "initDepth"
     QString    label;            ///< combo / property label, already translated
     QString    prefix;           ///< spin-box prefix, e.g. "n=" ({} for none)
@@ -48,6 +57,14 @@ struct CellParamSpec
     int        decimals     = 4;
     bool       enabled      = true;  ///< false → engine support pending
     QString    tooltip;
+    /*! Value kind. New members stay at the END of the struct: the registry
+     *  builds its entries with positional aggregate initialisers, which fall
+     *  back to these default member initialisers for anything they omit. */
+    Kind        kind = Kind::Double;
+    /*! Choice labels for \c Kind::Enum, in the enumeration's own order. The
+     *  stored value is the enum's integer, not the label index — the labels
+     *  are display-only. Empty for \c Kind::Double. */
+    QStringList enumLabels;
 };
 
 /*! \brief The registry, in display order. Stable for the process lifetime. */
@@ -65,7 +82,13 @@ struct CellParamSpec
  *  \returns the stored value, or NaN when the triangle index is out of range,
  *           the key is unknown, or the attribute is unset (the NaN sentinel
  *           MeshTriangle uses for "column absent"). Callers substitute the
- *           spec's defaultValue for display. */
+ *           spec's defaultValue for display.
+ *
+ *  The `infil.*` keys resolve through mesh::resolveInfil (override → tag row →
+ *  '*' row), so an inherited value reads back here exactly as the engine would
+ *  see it; a parameter the resolved METHOD does not use returns NaN, which is
+ *  what drives the attribute table's per-row column masking. `infil.method`
+ *  returns the mesh::InfilMethod integer (-1 = None). */
 [[nodiscard]] double cellParamValue(const MeshResult &mesh, int tri,
                                     const QByteArray &key);
 
