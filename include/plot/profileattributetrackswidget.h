@@ -121,6 +121,13 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
 
 private:
+    /*! Configured track height (ProfileAttributeTrackOptions::trackHeightPx).
+     *  This is the FLOOR and the basis of the minimum height — never the
+     *  painted height. Keep updateSizeHint() on this and painting on
+     *  trackHeight(), or minimumHeight feeds back into itself and ratchets. */
+    [[nodiscard]] int    preferredTrackHeight() const;
+    /*! Painted track height: shares any surplus widget height across the
+     *  tracks so they fill the pane as the splitter is dragged. */
     [[nodiscard]] int    trackHeight() const;
     [[nodiscard]] int    bottomAxisHeight() const;
     [[nodiscard]] QRectF trackRect(int trackIdx) const;
