@@ -229,6 +229,82 @@ private slots:
                  "1D-only run reported a non-NaN 2D continuity error");
         QCOMPARE(twoDErrCell(model, 0), QStringLiteral("—"));
     }
+
+    // The average-timestep readout must be a routing step in SECONDS.
+    //
+    // It used to accumulate swmm_engine_step()'s out-parameter, which is the
+    // CUMULATIVE elapsed time in DAYS — not a per-step delta and not seconds.
+    // Summing it gives dt*(N+1)/(2*86400), so on this 5 s model it reported
+    // ~2e-2 and on a 10 s model ~1e-2 around step 200, creeping up from there:
+    // a perfectly healthy run looked permanently stalled. The value now comes
+    // from swmm_get_current_time() (seconds since simulation start).
+    void averageTimestepIsReportedInSeconds()
+    {
+        const QString inp = QDir(outputDir()).filePath(QStringLiteral("avgts_1d.inp"));
+        {
+            QFile f(inp);
+            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+            f.write("[OPTIONS]\n"
+                    "FLOW_UNITS       CMS\n"
+                    "FLOW_ROUTING     DYNWAVE\n"
+                    "START_DATE       01/01/2026\n"
+                    "START_TIME       00:00:00\n"
+                    "END_DATE         01/01/2026\n"
+                    "END_TIME         01:00:00\n"
+                    "REPORT_STEP      0:05:00\n"
+                    "ROUTING_STEP     0:00:05\n"
+                    "\n"
+                    "[JUNCTIONS]\n"
+                    "J1      0     2         0          0         0\n"
+                    "\n"
+                    "[OUTFALLS]\n"
+                    "O1      -1    FREE             NO\n"
+                    "\n"
+                    "[CONDUITS]\n"
+                    "C1      J1    O1  100     0.013      0      0       0         0\n"
+                    "\n"
+                    "[XSECTIONS]\n"
+                    "C1      CIRCULAR  1      0      0      0      1\n");
+        }
+        const QString rpt = QDir(outputDir()).filePath(QStringLiteral("avgts_1d.rpt"));
+        const QString out = QDir(outputDir()).filePath(QStringLiteral("avgts_1d.out"));
+
+        auto *runner = new SimulationRunner(0, QStringLiteral("avgts_1d.inp"),
+                                            inp, rpt, out,
+                                            QStringLiteral("6.0.0"), this);
+        QSignalSpy progressSpy(runner, &SimulationRunner::progressChanged);
+        QSignalSpy finishedSpy(runner, &SimulationRunner::finished);
+        runner->start();
+        QVERIFY2(finishedSpy.wait(60000), "no finished signal within 60 s");
+        QVERIFY2(finishedSpy.last().at(1).toBool(),
+                 qPrintable(QStringLiteral("run failed: %1")
+                                .arg(finishedSpy.last().at(3).toString())));
+
+        // Ticks are rate-limited, so take the last one that actually ran a
+        // step (the pre-loop seed emission carries a zero fraction).
+        double avgTs = -1.0;
+        for (const auto &tick : progressSpy)
+            if (tick.at(1).toDouble() > 0.0)
+                avgTs = tick.at(5).toDouble();
+        QVERIFY2(avgTs > 0.0, "no progress tick carried an average timestep");
+
+        // The deck's own report reads: minimum 0.50 s, average 4.99 s,
+        // maximum 5.00 s. Ticks are rate-limited to ~1 Hz and this model
+        // finishes in tens of milliseconds, so the tick observed here is the
+        // fire-immediately one at step 1, where the running average is the
+        // engine's first step — legitimately 0.5 s, not 5 s. The bar is
+        // therefore set to bracket the whole plausible range rather than to
+        // pin a value that depends on which tick won the race.
+        //
+        // It still separates the two formulas by orders of magnitude: summing
+        // the CUMULATIVE elapsed DAYS gives 0.5/86400 = 5.8e-6 at that same
+        // first tick, and only reaches ~2e-2 by the end of the run.
+        QVERIFY2(avgTs > 0.1 && avgTs < 60.0,
+                 qPrintable(QStringLiteral("average timestep reported as %1 s "
+                                           "for a model whose routing step "
+                                           "runs 0.5-5.0 s")
+                                .arg(avgTs, 0, 'g', 6)));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestSimStatus2DErr)
