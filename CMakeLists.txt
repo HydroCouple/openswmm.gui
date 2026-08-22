@@ -1740,12 +1740,23 @@ if(APPLE)
                 VERBATIM
             )
         endif()
-        # POST_BUILD: produce a self-contained .app in the build tree
+        # -qmldir is REQUIRED, not optional. Unlike windeployqt — which sniffs
+        # the QML marker out of the executable and deploys bin/qml unasked —
+        # macdeployqt only scans for QML imports when pointed at a source dir,
+        # and without it Contents/Resources/qml is never created. MapCanvas then
+        # loads qrc:/openswmm/qml/swmmlayer.qml into its QQuickWidget, the
+        # `import QtQuick` fails, setSource() leaves status != Ready,
+        # rootObject() is null, and all three QSG renderers (mesh, 2D results,
+        # 1D network) stay null. Because SWMMLayerItem::paint() skips the
+        # element kinds QSG owns, the packaged app then draws no lines, points
+        # or polygons at all — a silent, macOS-CI-only blank map. Dev builds hide
+        # it: they resolve QtQuick through the Qt install's own import path.
         add_custom_command(TARGET SWMMVis POST_BUILD
             COMMAND "${MACDEPLOYQT_EXECUTABLE}"
                     "$<TARGET_BUNDLE_DIR:SWMMVis>"
+                    "-qmldir=${CMAKE_CURRENT_SOURCE_DIR}/resources/qml"
                     -always-overwrite
-            COMMENT "macdeployqt: bundling Qt frameworks and linked dylibs (incl. GDAL)"
+            COMMENT "macdeployqt: bundling Qt frameworks, QML modules and linked dylibs (incl. GDAL)"
             VERBATIM
         )
     else()
@@ -1879,11 +1890,15 @@ if(APPLE)
 
     # INSTALL: macdeployqt must run again on the freshly-installed bundle because
     # cmake --install copies a clean bundle (without the POST_BUILD modifications).
+    # -qmldir must be repeated here for the same reason it is needed above: this
+    # is the bundle CPack turns into the shipped DMG, so if QML is missing HERE
+    # the released app is the one with the blank map.
     if(MACDEPLOYQT_EXECUTABLE)
         install(CODE
             "execute_process(COMMAND
                 \"${MACDEPLOYQT_EXECUTABLE}\"
                 \"\${CMAKE_INSTALL_PREFIX}/SWMMVis.app\"
+                \"-qmldir=${CMAKE_CURRENT_SOURCE_DIR}/resources/qml\"
                 -always-overwrite)"
             COMPONENT Runtime
         )

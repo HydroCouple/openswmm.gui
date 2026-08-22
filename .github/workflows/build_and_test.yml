@@ -253,10 +253,24 @@ jobs:
         shell: bash
 
       # ── macOS code-signing (commented out — configure secrets to enable) ────
+      # Deliberately disabled: Developer ID certificates require a paid Apple
+      # Developer Program membership ($99/yr), and the nonprofit fee waiver needs
+      # an established legal entity (EIN + D-U-N-S). Until then the build signs
+      # ad-hoc ("-"), which is valid but not notarizable — macOS shows "Apple
+      # cannot check it for malicious software" and users must right-click → Open.
+      #
       # To enable: set the following repository secrets:
       #   MACOS_DEVELOPER_ID_CERT_BASE64   — base64-encoded .p12 Developer ID Application cert
       #   MACOS_DEVELOPER_ID_CERT_PASSWORD — password for the .p12
-      # Then uncomment the step below and the CODESIGN_IDENTITY injection in Configure.
+      # Then uncomment the step below AND the keychain cleanup step further down.
+      #
+      # WHEN UNCOMMENTING: the Configure step's `EXTRA` is a plain string and is
+      # expanded unquoted. A Developer ID identity contains spaces —
+      # "Developer ID Application: Name (TEAMID)" — so it will word-split into
+      # four broken cmake arguments. Convert EXTRA to an array first:
+      #     EXTRA=()
+      #     EXTRA=("-DCODESIGN_IDENTITY=$CODESIGN_IDENTITY")
+      #     ... "${EXTRA[@]}"
       #
       # - name: Import macOS Developer ID certificate
       #   if: runner.os == 'macOS' && env.MACOS_DEVELOPER_ID_CERT_BASE64 != ''
@@ -828,6 +842,28 @@ jobs:
             exit 1
           fi
 
+      # Gate: the .app must ship the QtQuick QML module, or every QSG-owned
+      # element kind (lines, points, polygons, mesh, flood map) vanishes from the
+      # packaged app — silently. MapCanvas loads swmmlayer.qml into a
+      # QQuickWidget; without Contents/Resources/qml the `import QtQuick` fails,
+      # rootObject() is null, the three QSG renderers are null, and
+      # SWMMLayerItem::paint() has already skipped those kinds on the CPU path.
+      # Nothing errors out — the map just comes up empty. macOS only: windeployqt
+      # deploys bin/qml unprompted, macdeployqt needs -qmldir (see CMakeLists.txt).
+      - name: Verify GUI bundles QtQuick QML modules (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIST="dist/${{ matrix.build_subdir }}"
+          QMLDIR=$(find "$DIST" -path '*/Resources/qml/QtQuick/qmldir' 2>/dev/null | head -1 || true)
+          if [ -z "$QMLDIR" ]; then
+            echo "::error::QtQuick QML module missing from app bundle ($DIST) — macdeployqt -qmldir did not run"
+            find "$DIST" -maxdepth 4 -name qml | sort
+            exit 1
+          fi
+          echo "Bundled QML modules: $(dirname "$(dirname "$QMLDIR")")"
+
       # ── Package (CPack) ───────────────────────────────────────────────────
       # CPack reads the install tree and produces a platform-appropriate archive
       # (.dmg on macOS, .zip on Windows, .tar.gz on Linux).
@@ -847,9 +883,19 @@ jobs:
         timeout-minutes: 20
         shell: bash
         run: |
+          # -B takes a RELATIVE path on purpose. The step already runs in the
+          # workspace, and on Windows the github.workspace expression expands to
+          # a BACKSLASH path. Passing it unquoted into a bash step let quote
+          # removal eat the backslashes, so cpack received a drive-relative
+          # D:aopenswmm.guiopenswmm.gui/packages and wrote the NSIS installer
+          # into D:\a\...\openswmm.gui\aopenswmm.guiopenswmm.gui\packages\.
+          # The find below (quoted, so backslashes survived) then looked in the
+          # real packages/ that was never created, set -e failed the leg, and the
+          # upload glob packages/*.exe matched nothing. A relative path keeps
+          # bash out of it and matches that glob by construction.
           attempt() {
             cpack --config build/${{ matrix.build_subdir }}/CPackConfig.cmake \
-                  -B ${{ github.workspace }}/packages
+                  -B packages
           }
           n=0; max=3
           until attempt; do
@@ -872,7 +918,7 @@ jobs:
           # the upload glob must match — if the installer is missing here, the
           # problem is packaging, not upload.
           echo "=== packages/ contents ==="
-          find "${{ github.workspace }}/packages" -maxdepth 1 -type f -print
+          find packages -maxdepth 1 -type f -print
 
       # ── Windows Authenticode signing (commented out — configure secrets to enable) ──
       # To enable: set the following repository secrets:
