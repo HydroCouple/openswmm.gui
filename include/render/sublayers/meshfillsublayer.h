@@ -32,6 +32,7 @@
 #include <QColor>
 #include <QJsonObject>
 #include <QString>
+#include <QVector>
 
 namespace OpenSWMM::Render
 {
@@ -58,6 +59,23 @@ public:
         Elevation = 0,   ///< bed elevation — the historic default
         Mannings,        ///< "mannings"
         InitDepth,       ///< "initDepth"
+        // Per-cell infiltration (GUI plan §3.5(5)). The METHOD is categorical
+        // and colours through categoryColorForValue(); the parameters are
+        // ordinary graduated attributes. Values resolve through
+        // mesh::resolveInfil, so a cell inheriting from its region tag paints
+        // its region's numbers — which is the point: an assignment can be
+        // checked visually before a run.
+        InfilMethod,     ///< "infil.method"  (categorical)
+        InfilF0,         ///< "infil.f0"
+        InfilFmin,       ///< "infil.fmin"
+        InfilDecay,      ///< "infil.decay"
+        InfilDryTime,    ///< "infil.dryTime"
+        InfilFmax,       ///< "infil.Fmax"
+        InfilSuction,    ///< "infil.suction"
+        InfilKs,         ///< "infil.Ks"
+        InfilIMD,        ///< "infil.IMD"
+        InfilCN,         ///< "infil.CN"
+        InfilRate,       ///< "infil.rate"
         GwKs,            ///< "gw.Ks"      (engine support pending)
         GwZs,            ///< "gw.zs"      (engine support pending)
         GwThetaS,        ///< "gw.thetaS"  (engine support pending)
@@ -80,12 +98,19 @@ private:
     // key is 100% NaN until the engine grows a soil column, so this is what
     // the whole mesh renders as when one of them is selected.
     Q_PROPERTY(QColor  noDataColor      READ noDataColor      WRITE setNoDataColor      NOTIFY styleChanged)
+    // Palette used when colorByAttribute names a CATEGORICAL attribute (the
+    // infiltration method). A ClassificationScheme has only Continuous and
+    // Classified modes, both numeric — binning a seven-value enumeration at
+    // 0.5/1.5/… is a lie about the data and leaks into the legend labels, the
+    // same reasoning that gave the edge BC colours their own properties.
+    Q_PROPERTY(QString categoryPalette   READ categoryPalette  WRITE setCategoryPalette  NOTIFY styleChanged)
 
     Q_CLASSINFO("group:fillColor",         "Fill")
     Q_CLASSINFO("group:hillshadeStrength", "Shading")
     Q_CLASSINFO("group:useElevationRamp",  "Fill")
     Q_CLASSINFO("group:colorByAttribute",  "Fill")
     Q_CLASSINFO("group:noDataColor",       "Fill")
+    Q_CLASSINFO("group:categoryPalette",   "Fill")
     Q_CLASSINFO("group:classification",    "Classification")
 
 public:
@@ -106,6 +131,7 @@ public:
     [[nodiscard]] bool   useElevationRamp() const  { return m_useElevationRamp; }
     [[nodiscard]] CellAttribute colorByAttribute() const { return m_colorByAttribute; }
     [[nodiscard]] QColor  noDataColor() const      { return m_noDataColor; }
+    [[nodiscard]] QString categoryPalette() const  { return m_categoryPalette; }
 
     /*! mesh::cellParamSpecs() key for the current selection — what the
      *  renderer and the layer's cellAttributeValues() take. */
@@ -116,11 +142,24 @@ public:
     [[nodiscard]] bool colorsByElevation() const
     { return m_colorByAttribute == CellAttribute::Elevation; }
 
+    /*! True when the selected attribute is CATEGORICAL — i.e. its
+     *  mesh::CellParamSpec is Kind::Enum. The renderer then colours each cell
+     *  by categoryColorForValue() instead of running the value through the
+     *  ClassificationScheme, and the legend emits one row per present value. */
+    [[nodiscard]] bool colorsByCategory() const;
+
+    /*! \brief Colour for enumeration value \p v of the current categorical
+     *  attribute. \p v is the enum's own integer (mesh::InfilMethod::None is
+     *  -1), offset internally by the spec's first value so the palette index
+     *  starts at 0. Wraps; out-of-range values fold back into the palette. */
+    [[nodiscard]] QColor categoryColorForValue(int v) const;
+
     void setFillColor(const QColor &v);
     void setHillshadeStrength(double v);
     void setUseElevationRamp(bool v);
     void setColorByAttribute(CellAttribute v);
     void setNoDataColor(const QColor &v);
+    void setCategoryPalette(const QString &v);
 
     /*! The embedded elevation classification scheme (mode, ramp, class
      *  count, range). Consumed by the mesh QSG renderer's fill pass. */
@@ -136,6 +175,7 @@ private:
     bool    m_useElevationRamp   = true;
     CellAttribute m_colorByAttribute = CellAttribute::Elevation;
     QColor  m_noDataColor        = QColor(205, 205, 205, 120);
+    QString m_categoryPalette    = QStringLiteral("Tab10");
     ClassificationScheme m_scheme;
 };
 
@@ -174,6 +214,18 @@ public:
      *  legend title for length-valued attributes. Pushed by the layer. */
     void setDepthUnitLabel(const QString &l) { m_depthUnitLabel = l; }
 
+    /*! \brief Enumeration values of the selected CATEGORICAL attribute that
+     *  actually occur in the host mesh, ascending.
+     *
+     *  Pushed by SWMM2DMeshLayer (the model) so the const, context-free
+     *  legendSymbolItems() can emit one row per method actually in use rather
+     *  than seven rows of which five are usually dead — the same treatment
+     *  MeshEdgeSublayer::setBcTypesPresent() gives the BC ring. Empty for a
+     *  non-categorical attribute. */
+    void setCategoriesPresent(const QVector<int> &values);
+    [[nodiscard]] const QVector<int> &categoriesPresent() const
+    { return m_categoriesPresent; }
+
 private:
     QString        m_id;
     bool           m_visible = true;
@@ -181,6 +233,7 @@ private:
     MeshFillStyle *m_style;
     bool           m_attributeHasData = true;
     QString        m_depthUnitLabel;
+    QVector<int>   m_categoriesPresent;
 };
 
 } // namespace OpenSWMM::Render
