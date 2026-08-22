@@ -122,9 +122,23 @@ void ProfileAttributeTracksWidget::setCurrentPeriod(int period)
 
 // ── Geometry ───────────────────────────────────────────────────────────
 
-int ProfileAttributeTracksWidget::trackHeight() const
+int ProfileAttributeTracksWidget::preferredTrackHeight() const
 {
     return m_options ? m_options->trackHeightPx() : kDefaultTrackH;
+}
+
+int ProfileAttributeTracksWidget::trackHeight() const
+{
+    const int pref = preferredTrackHeight();
+    const int n    = m_tracks.size();
+    if (n <= 0)
+        return pref;
+    // Share whatever the splitter handed us across the tracks, but never go
+    // below the configured height: that case is the host QScrollArea's job,
+    // and shrinking here would fight it. When the pane is exactly at the
+    // minimum, avail/n lands back on pref and nothing changes.
+    const int avail = height() - bottomAxisHeight() - n * kTrackGapPx;
+    return std::max(pref, avail / n);
 }
 
 int ProfileAttributeTracksWidget::bottomAxisHeight() const
@@ -144,8 +158,12 @@ QRectF ProfileAttributeTracksWidget::trackRect(int trackIdx) const
 void ProfileAttributeTracksWidget::updateSizeHint()
 {
     const int n = m_tracks.size();
+    // preferredTrackHeight(), NOT trackHeight(): the latter is derived from
+    // height(), which the QScrollArea derives from this minimum. Feeding it
+    // back in here would ratchet the minimum upward on every resize and the
+    // pane could never be dragged small again.
     const int h = n > 0
-        ? n * (trackHeight() + kTrackGapPx) + bottomAxisHeight()
+        ? n * (preferredTrackHeight() + kTrackGapPx) + bottomAxisHeight()
         : 0;
     setMinimumHeight(h);
 }
