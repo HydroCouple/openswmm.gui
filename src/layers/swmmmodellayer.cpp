@@ -4760,6 +4760,65 @@ bool SWMMModelLayer::applyLinkConvert(const QString &name, int newLinkType,
     return true;
 }
 
+// Direction flip — the upstream node becomes the downstream node and vice
+// versa, with the physical link left exactly where it was. Everything that is
+// attached to a *specific end* has to travel with that end, which is why the
+// conduit branch below swaps the offset and loss-coefficient pairs rather than
+// leaving them on their slots; the engine performs the same swap internally
+// when it reverses an adverse-slope conduit at parse time (PostParseResolver).
+// The parse-time-derived fields it also fixes there (links.direction, conduit
+// slope) are not exposed by any C API and are recomputed from node1/node2 on
+// the next open, so there is nothing to do about them here.
+bool SWMMModelLayer::applyLinkFlip(int linkIdx)
+{
+    if (!m_engine || linkIdx < 0 || linkIdx >= m_links.size())
+        return false;
+
+    int fromIdx = -1;
+    int toIdx   = -1;
+    if (swmm_link_get_from_node(m_engine, linkIdx, &fromIdx) != SWMM_OK)
+        return false;
+    if (swmm_link_get_to_node(m_engine, linkIdx, &toIdx) != SWMM_OK)
+        return false;
+    if (swmm_link_set_nodes(m_engine, linkIdx, toIdx, fromIdx) != SWMM_OK)
+        return false;
+
+    // Conduits are the only links with a value at each end: orifices, weirs
+    // and outlets carry a single crest offset in offset_up and never use
+    // offset_dn (see convertLinkOffsets), so swapping would move the real
+    // value into a dead slot.
+    if (isConduit(linkIdx))
+    {
+        double up = 0.0, dn = 0.0;
+        if (swmm_link_get_offset_up(m_engine, linkIdx, &up) == SWMM_OK &&
+            swmm_link_get_offset_dn(m_engine, linkIdx, &dn) == SWMM_OK)
+        {
+            swmm_link_set_offset_up(m_engine, linkIdx, dn);
+            swmm_link_set_offset_dn(m_engine, linkIdx, up);
+        }
+
+        double inlet = 0.0, outlet = 0.0, avg = 0.0;
+        if (swmm_link_get_loss_coeff(m_engine, linkIdx, &inlet, &outlet, &avg) == SWMM_OK)
+            swmm_link_set_loss_coeff(m_engine, linkIdx, outlet, inlet, avg);
+    }
+
+    std::swap(m_links[linkIdx].fromNodeIdx, m_links[linkIdx].toNodeIdx);
+
+    // Interior vertices are stored upstream → downstream, so they have to be
+    // reversed or the drawn polyline zig-zags between the swapped endpoints.
+    // applyLinkInteriorVertices carries the whole geometry-edit contract:
+    // engine write, cached vertices, bbox, scene coords, m_needsRebuild,
+    // repaintRequested() and modelEdited().
+    QVector<QPointF> interior = m_links[linkIdx].vertices;
+    std::reverse(interior.begin(), interior.end());
+    applyLinkInteriorVertices(linkIdx, interior);
+
+    // The From/To cells and the swapped offsets are attribute data; the
+    // geometry path above does not announce them.
+    emit attributeChanged(m_links[linkIdx].name);
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Virtual junctions — split / fuse / flag
 // (engine-side semantics; see workplans/VIRTUAL_JUNCTION_GUI_PLAN_2026-08-01.md)
