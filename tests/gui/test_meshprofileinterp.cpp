@@ -178,6 +178,113 @@ private slots:
         QVERIFY(!std::isnan(t[4]) && std::abs(t[4] - 1.25) < 1e-12);
     }
 
+    // ── Shoreline intercepts (premature-truncation fix) ────────────────────
+    // The painted band must taper to the exact WSE/ground crossing between the
+    // last wet sample and its dry neighbour, not stop with a vertical cliff.
+
+    // Flat pool (WSE 1.0) over a rising bed: ground passes 1.0 at chainage
+    // 1.5, halfway between the last wet sample (c=1, g=0.5) and the dry one
+    // (c=2, g=1.5). The trailing intercept must land there, on the ground.
+    void trailing_intercept_lands_on_ground()
+    {
+        const QVector<Sample> s = {
+            mk(0, 0.0, 1.0, true),   // WSE 1.0
+            mk(1, 0.5, 0.5, true),   // WSE 1.0 (run end)
+            mk(2, 1.5, 0.0, true),   // dry, ground above the pool
+        };
+        const QVector<double> t = tops(s);
+        QVERIFY(!std::isnan(t[0]) && !std::isnan(t[1]) && std::isnan(t[2]));
+        double c = 0.0, e = 0.0;
+        QVERIFY(MeshProfileInterp::shorelineIntercept(s, t, 0, 1, true, &c, &e));
+        QVERIFY(std::abs(c - 1.5) < 1e-12);
+        QVERIFY(std::abs(e - 1.0) < 1e-12);
+    }
+
+    // Mirror geometry: the leading intercept of a run is found symmetrically.
+    void leading_intercept_lands_on_ground()
+    {
+        const QVector<Sample> s = {
+            mk(0, 1.5, 0.0, true),   // dry, ground above the pool
+            mk(1, 0.5, 0.5, true),   // WSE 1.0 (run start)
+            mk(2, 0.0, 1.0, true),   // WSE 1.0
+        };
+        const QVector<double> t = tops(s);
+        double c = 0.0, e = 0.0;
+        QVERIFY(MeshProfileInterp::shorelineIntercept(s, t, 1, 2, false, &c, &e));
+        QVERIFY(std::abs(c - 0.5) < 1e-12);
+        QVERIFY(std::abs(e - 1.0) < 1e-12);
+    }
+
+    // A sloping surface is extrapolated from the wet side (last two wet
+    // samples), not interpolated toward the dry sample (which carries no
+    // surface). Surface 2.0 → 1.8 over one unit (slope −0.2) meets ground
+    // rising 0 → 3 at t = 1.8/3.2 past the run end.
+    void sloped_surface_intercept_extrapolates_wet_side()
+    {
+        const QVector<Sample> s = {
+            mk(0, 0.0, 2.0, true),
+            mk(1, 0.0, 1.8, true),   // run end, WSE 1.8
+            mk(2, 3.0, 0.0, true),   // dry wall face
+        };
+        const QVector<double> t = tops(s);
+        double c = 0.0, e = 0.0;
+        QVERIFY(MeshProfileInterp::shorelineIntercept(s, t, 0, 1, true, &c, &e));
+        const double tExp = 1.8 / 3.2;
+        QVERIFY(std::abs(c - (1.0 + tExp)) < 1e-12);
+        QVERIFY(std::abs(e - 3.0 * tExp) < 1e-12);
+        // The intercept sits on the extrapolated surface too: 1.8 − 0.2·t.
+        QVERIFY(std::abs(e - (1.8 - 0.2 * tExp)) < 1e-12);
+    }
+
+    // No intercept when the dry neighbour's ground stays BELOW the surface —
+    // a no-data / unbridged termination (e.g. the split flank of a pool over
+    // a low bench) keeps its hard edge rather than inventing a crossing.
+    void no_intercept_when_ground_stays_below_surface()
+    {
+        const QVector<Sample> s = {
+            mk(0, 0.0, 1.0, true),
+            mk(1, 0.0, 1.0, true),   // run end, WSE 1.0
+            mk(2, 0.2, 0.0, true),   // dry, but ground (0.2) below WSE (1.0)
+        };
+        const QVector<double> t = tops(s);
+        QVERIFY(!MeshProfileInterp::shorelineIntercept(s, t, 0, 1, true,
+                                                       nullptr, nullptr));
+    }
+
+    // No intercept at an off-mesh (NaN ground) neighbour or at the data edge.
+    void no_intercept_at_offmesh_or_data_edge()
+    {
+        const QVector<Sample> s = {
+            mk(0, 0.0, 1.0, true),
+            mk(1, 0.5, 0.5, true),
+            mk(2, std::numeric_limits<double>::quiet_NaN(), 0.0, true),
+        };
+        const QVector<double> t = tops(s);
+        // Off-mesh neighbour on the trailing side.
+        QVERIFY(!MeshProfileInterp::shorelineIntercept(s, t, 0, 1, true,
+                                                       nullptr, nullptr));
+        // Leading side of a run starting at sample 0: data edge.
+        QVERIFY(!MeshProfileInterp::shorelineIntercept(s, t, 0, 1, false,
+                                                       nullptr, nullptr));
+    }
+
+    // A single-sample run extends flat: the intercept is where the ground
+    // rises through that sample's WSE.
+    void single_sample_run_extends_flat()
+    {
+        const QVector<Sample> s = {
+            mk(0, 2.0, 0.0, true),   // dry
+            mk(1, 0.0, 1.0, true),   // lone wet sample, WSE 1.0
+            mk(2, 2.0, 0.0, true),   // dry
+        };
+        const QVector<double> t = tops(s);
+        double c = 0.0, e = 0.0;
+        QVERIFY(MeshProfileInterp::shorelineIntercept(s, t, 1, 1, true, &c, &e));
+        QVERIFY(std::abs(c - 1.5) < 1e-12 && std::abs(e - 1.0) < 1e-12);
+        QVERIFY(MeshProfileInterp::shorelineIntercept(s, t, 1, 1, false, &c, &e));
+        QVERIFY(std::abs(c - 0.5) < 1e-12 && std::abs(e - 1.0) < 1e-12);
+    }
+
     // An off-mesh (NaN ground) sample inside a gap is never bridged across —
     // a genuine mesh hole stays a true gap.
     void offmesh_gap_is_preserved()
