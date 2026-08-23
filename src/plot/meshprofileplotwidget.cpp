@@ -747,6 +747,20 @@ void paintWetBand(QPainter &p,
             ++j;
         }
         const int last = j - 1;
+        // Shoreline intercepts: taper each run end to the exact point where
+        // the (wet-side-extrapolated) water surface crosses the ground,
+        // instead of stopping with a vertical cliff at the last wet sample up
+        // to a resample step short of the shoreline. The intercept elevation
+        // lies on the drawn ground segment by construction, so the fill's
+        // closing edges hug the ground line (premature-truncation fix; the
+        // sub-sample counterpart of CellSurfaceInterp's sub-cell waterline).
+        double icC = 0.0, icE = 0.0;
+        if (MeshProfileInterp::shorelineIntercept(s, top, i, last,
+                                                  /*trailing=*/false, &icC, &icE))
+            topPoly.prepend(toPx(icC, icE));
+        if (MeshProfileInterp::shorelineIntercept(s, top, i, last,
+                                                  /*trailing=*/true, &icC, &icE))
+            topPoly.append(toPx(icC, icE));
         if (doFill && topPoly.size() >= 2) {
             QPolygonF poly = topPoly;
             for (int k = last; k >= i; --k)

@@ -295,6 +295,28 @@ add_swmmvis_gui_test(test_meshprofileinterp
     ${CMAKE_SOURCE_DIR}/include/plot/meshprofilesampler.h
 )
 
+# 2D profile shoreline intercept — the PAINTER half of the premature-truncation
+# fix (the helper itself is header-only and pinned by test_meshprofileinterp).
+# Needs the widget, so it carries the same link closure as
+# test_profileplot_axis_edges below.
+add_swmmvis_gui_test(test_meshprofile_shoreline_render
+    test_meshprofile_shoreline_render.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileplotwidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileplotwidget.h
+    ${CMAKE_SOURCE_DIR}/src/plot/meshprofileplotoptions.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileplotoptions.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofileinterp.h
+    ${CMAKE_SOURCE_DIR}/include/plot/meshprofilesampler.h
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+)
+
 # 2D profile WSE extrapolation — constant-η fill of no-data corners + vertex-
 # scoped dryness (CellSurfaceInterp, shared with SWMM2DResultsLayer). Header-
 # only, so the layer's link closure stays out of the test.
