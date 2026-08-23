@@ -2405,6 +2405,19 @@ add_swmmvis_gui_test(test_bulkdelete
 )
 swmmvis_link_full_app_deps(test_bulkdelete)
 
+# Link direction flip — swapping node1/node2 is the easy half. Interior
+# vertices are stored upstream -> downstream, so a flip that does not reverse
+# them draws a zig-zag with no error anywhere; a conduit's offsets and
+# entry/exit losses are attached to an end, so leaving them on their slots
+# silently moves the invert profile. Also pins that FlipLinkCommand's
+# one-call-for-both-directions undo really is self-inverse.
+add_swmmvis_gui_test(test_linkflip
+    test_linkflip.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_linkflip)
+
 # Object-creation defaults — drawn objects must land with the configured
 # ObjectDefaults for the active unit system; geometry-derived overrides win;
 # undo rolls the whole object back (see
