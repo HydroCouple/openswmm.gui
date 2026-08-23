@@ -37,7 +37,11 @@
 #include <QObject>
 #include <QTest>
 
+#include <openswmm/engine/openswmm_spatial.h>
+
 #include <cmath>
+
+#include <QStringList>
 
 using namespace openswmmvis::sectionview;
 
@@ -155,6 +159,9 @@ private slots:
     void varyingOutfallStageIsNeverLabelledWithANumber();
     void pumpConnectionIsASymbolNotABarrel();
     void orificeConnectionIsAWallWithFillAboveTheOpening();
+    void linkProfileStubsTheOtherPipesAtBothEnds();
+    void linkProfileGivesEachEndItsOwnPlanInset();
+    void linkProfileStubsDoNotWidenTheDrawing();
 };
 
 void TestSectionModelBuilders::linkSectionReportsBothEndsWhenSloping()
@@ -447,4 +454,170 @@ void TestSectionModelBuilders::orificeConnectionIsAWallWithFillAboveTheOpening()
 }
 
 QTEST_MAIN(TestSectionModelBuilders)
+
+// ---------------------------------------------------------------------------
+// Link profile — what else meets each end
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/*! J0 -> B1 -> J1 -> C1 -> J2 -> B2 -> J3, laid out west-to-east so every
+ *  heading resolves. Selecting C1 must show B1 at its upstream node and B2 at
+ *  its downstream node, and nothing of J0 / J3 (they are a reach away). */
+SWMM_Engine buildBranchedFixture()
+{
+    SWMM_Engine e = swmm_engine_new();
+    if (!e) return nullptr;
+
+    struct N { const char *id; double x, y, inv; };
+    const N ns[4] = { { "J0", -100.0, 50.0, 101.0 },
+                      { "J1",    0.0,  0.0, 100.0 },
+                      { "J2",  100.0,  0.0,  98.0 },
+                      { "J3",  200.0, -50.0, 97.0 } };
+    for (const N &n : ns) {
+        swmm_node_add(e, n.id, SWMM_NODE_JUNCTION);
+        const int i = swmm_node_index(e, n.id);
+        swmm_node_set_invert_elev(e, i, n.inv);
+        swmm_node_set_max_depth(e, i, 10.0);
+        swmm_spatial_set_node_coord(e, i, n.x, n.y);
+    }
+
+    struct L { const char *id; const char *from; const char *to; };
+    const L ls[3] = { { "B1", "J0", "J1" },     // branch INTO the upstream node
+                      { "C1", "J1", "J2" },     // the reach under inspection
+                      { "B2", "J2", "J3" } };   // branch OUT of the downstream node
+    for (const L &l : ls) {
+        swmm_link_add(e, l.id, SWMM_LINK_CONDUIT);
+        const int i = swmm_link_index(e, l.id);
+        swmm_link_set_nodes(e, i, swmm_node_index(e, l.from),
+                            swmm_node_index(e, l.to));
+        swmm_link_set_length(e, i, 100.0);
+        swmm_link_set_xsect(e, i, SWMM_XSECT_CIRCULAR, 1.0, 0.0, 0.0, 0.0);
+    }
+    return e;
+}
+
+//! Every leader whose text names \p link — either alone (a branch stub, which
+//! carries only the name) or as the first word of a longer label.
+int leadersNaming(const SectionDiagramModel &m, const QString &link)
+{
+    int n = 0;
+    for (const DiagramLeader &l : m.leaders)
+        if (l.text == link || l.text.startsWith(link + QLatin1Char(' '))) ++n;
+    return n;
+}
+
+} // namespace
+
+void TestSectionModelBuilders::linkProfileStubsTheOtherPipesAtBothEnds()
+{
+    SWMM_Engine e = buildBranchedFixture();
+    QVERIFY(e);
+
+    const SectionDiagramModel m =
+        buildLinkProfile(e, swmm_link_index(e, "C1"), kUnits);
+
+    // The branch at each end is drawn and labelled with its own invert.
+    QVERIFY2(leadersNaming(m, QStringLiteral("B1")) > 0,
+             "upstream node's other pipe was not stubbed");
+    QVERIFY2(leadersNaming(m, QStringLiteral("B2")) > 0,
+             "downstream node's other pipe was not stubbed");
+
+    // The selected reach is drawn full length by the profile itself; stubbing
+    // it as well would draw the same pipe twice at the same elevation.
+    QCOMPARE(leadersNaming(m, QStringLiteral("C1")), 0);
+
+    // Barrel + two stubs, so a plain reach's single barrel has grown.
+    const SectionDiagramModel plain =
+        buildLinkProfile(buildConduitFixture(100.0, 98.0),
+                         0, kUnits);
+    QVERIFY2(countPolys(m, DiagramRole::Conduit)
+                 > countPolys(plain, DiagramRole::Conduit),
+             "no extra conduit bodies were added for the branches");
+
+    swmm_engine_destroy(e);
+}
+
+void TestSectionModelBuilders::linkProfileGivesEachEndItsOwnPlanInset()
+{
+    SWMM_Engine e = buildBranchedFixture();
+    QVERIFY(e);
+
+    const SectionDiagramModel m =
+        buildLinkProfile(e, swmm_link_index(e, "C1"), kUnits);
+
+    // Two dials, titled and ordered upstream-then-downstream — an untitled or
+    // single dial cannot say which end it describes.
+    QCOMPARE(m.planInsets.size(), 2);
+    // Titled by ROLE as well as by name, and anchored to opposite margins, so
+    // the pair cannot be read the wrong way round.
+    QCOMPARE(m.planInsets.at(0).title, QStringLiteral("Inlet · J1"));
+    QCOMPARE(m.planInsets.at(1).title, QStringLiteral("Outlet · J2"));
+    QCOMPARE(m.planInsets.at(0).side, PlanInset::Side::Left);
+    QCOMPARE(m.planInsets.at(1).side, PlanInset::Side::Right);
+
+    auto spokeNames = [](const PlanInset &pi) {
+        QStringList out;
+        for (const PlanSpoke &s : pi.spokes) out << s.label;
+        out.sort();
+        return out;
+    };
+    // Upstream dial: the branch arriving plus the reach leaving.
+    QCOMPARE(spokeNames(m.planInsets.at(0)),
+             (QStringList{ QStringLiteral("B1"), QStringLiteral("C1") }));
+    // Downstream dial: the reach arriving plus the branch leaving.
+    QCOMPARE(spokeNames(m.planInsets.at(1)),
+             (QStringList{ QStringLiteral("B2"), QStringLiteral("C1") }));
+
+    // The shared reach must point OPPOSITE ways on the two dials: it leaves
+    // one node and arrives at the other. Getting this wrong is the classic
+    // way a pair of compasses ends up lying about direction.
+    auto reach = [](const PlanInset &pi) {
+        for (const PlanSpoke &s : pi.spokes)
+            if (s.label == QStringLiteral("C1")) return s;
+        return PlanSpoke{};
+    };
+    const PlanSpoke up = reach(m.planInsets.at(0));
+    const PlanSpoke dn = reach(m.planInsets.at(1));
+    QVERIFY2(!up.inbound, "the reach should LEAVE its upstream node");
+    QVERIFY2(dn.inbound,  "the reach should ARRIVE at its downstream node");
+    const double delta =
+        std::fmod(std::abs(up.angleDeg - dn.angleDeg) + 360.0, 360.0);
+    QVERIFY2(std::abs(delta - 180.0) < 1.0e-6,
+             qPrintable(QStringLiteral("reach bearings differ by %1 deg, not 180")
+                            .arg(delta)));
+
+    swmm_engine_destroy(e);
+}
+
+
+void TestSectionModelBuilders::linkProfileStubsDoNotWidenTheDrawing()
+{
+    // The pane fits the model's bounds while HOLDING a capped vertical
+    // exaggeration, so anything that widens the model without deepening it
+    // costs horizontal fill. The stubs are deliberately kept inside the
+    // ground-line reach the profile already drew, so they are free: this
+    // pins that, and fails if a future tweak lengthens them past it.
+    SWMM_Engine plainE = buildConduitFixture(100.0, 98.0);
+    QVERIFY(plainE);
+    const QRectF plain =
+        buildLinkProfile(plainE, 0, kUnits).computeBounds();
+
+    SWMM_Engine e = buildBranchedFixture();
+    QVERIFY(e);
+    const QRectF withStubs =
+        buildLinkProfile(e, swmm_link_index(e, "C1"), kUnits).computeBounds();
+
+    // Same reach length in both fixtures? No — normalise by length instead.
+    const double plainRatio  = plain.width()      / 1000.0;   // C1 is 1000 long
+    const double stubbedRatio = withStubs.width() /  100.0;   // C1 is 100 long
+    QVERIFY2(stubbedRatio <= plainRatio + 1.0e-9,
+             qPrintable(QStringLiteral("stubs widened the drawing: %1 vs %2 "
+                                       "reach-lengths across")
+                            .arg(stubbedRatio).arg(plainRatio)));
+
+    swmm_engine_destroy(plainE);
+    swmm_engine_destroy(e);
+}
+
 #include "test_sectionmodelbuilders.moc"
