@@ -378,6 +378,31 @@ private:
 };
 
 /*!
+ * \class FlipLinkCommand
+ * \brief Reverses a link's direction — upstream node becomes downstream.
+ * \details Delegates to SWMMModelLayer::applyLinkFlip(), which is
+ *          self-inverse, so redo() and undo() are the same call and no
+ *          before/after snapshot is needed.
+ */
+class FlipLinkCommand : public MapCommand
+{
+public:
+    FlipLinkCommand(SWMMModelLayer *layer,
+                    int linkIdx,
+                    MapCanvas *canvas,
+                    QUndoCommand *parent = nullptr);
+
+    void undo() override;
+    void redo() override;
+
+    int id() const override { return 13; }
+
+private:
+    SWMMModelLayer *m_layer   = nullptr;
+    int             m_linkIdx = -1;
+};
+
+/*!
  * \class EditSubcatchCommand
  * \brief Records a change to a subcatchment's polygon vertices.
  */

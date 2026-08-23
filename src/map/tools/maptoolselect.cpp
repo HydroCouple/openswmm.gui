@@ -1392,6 +1392,12 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
         }
     }
 
+    // Flip Direction — links only. Swaps the upstream and downstream nodes
+    // without moving the link; see SWMMModelLayer::applyLinkFlip.
+    QAction *actFlip = nullptr;
+    if (hitLayer && hitLayer->engine() && ref.objectType == SWMMObjectRef::Link)
+        actFlip = menu.addAction(QObject::tr("Flip Direction"));
+
     QAction *actDelete = menu.addAction(QObject::tr("Delete…"));
 
     QAction *picked = menu.exec(globalPt);
@@ -1405,6 +1411,21 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
         if (openswmmvis::ui::TypeConversionFlow::run(
                 widget, hitLayer, isNode, ref.name,
                 currentType, convertTargets.value(picked))) {
+            if (m_editKind != EditKind::None && m_editName == ref.name)
+                clearEditMode();
+        }
+        return;
+    }
+
+    // Flip Direction dispatch — undoable (the flip is self-inverse), so no
+    // confirmation prompt. Any inline vertex-edit session on this link is
+    // dropped because the interior vertices just reversed, which invalidates
+    // the handle indices the session holds.
+    if (actFlip && picked == actFlip && hitLayer && m_canvas) {
+        const int linkIdx = hitLayer->linkIndex(ref.name);
+        if (linkIdx >= 0) {
+            m_canvas->undoStack()->push(
+                new FlipLinkCommand(hitLayer, linkIdx, m_canvas));
             if (m_editKind != EditKind::None && m_editName == ref.name)
                 clearEditMode();
         }
