@@ -223,6 +223,26 @@ struct PlanSpoke
     bool    inbound  = true;
 };
 
+/*! One plan-view compass inset.
+ *
+ *  A node section needs a single inset; a LINK section needs two — one per end
+ *  node — so the reader can see what arrives at each end and from which
+ *  direction. The `title` names the node the spokes belong to, which is what
+ *  makes a pair of insets readable at all. */
+struct PlanInset
+{
+    /*! Which margin the dial is anchored in. A link section puts its inlet
+     *  dial on the left and its outlet dial on the right, so the pair reads
+     *  in the same left-to-right order as the profile between them —
+     *  stacking both in one margin makes the reader guess which end is
+     *  which, and takes all of the width out of one side. */
+    enum class Side { Left, Right };
+
+    QVector<PlanSpoke> spokes;
+    QString            title;
+    Side               side = Side::Right;
+};
+
 /*!
  * \struct DiagramViewport
  * \brief User zoom / pan applied on top of the automatic fit.
@@ -314,7 +334,11 @@ struct SectionDiagramModel
     QVector<DiagramSymbol>     symbols;
     QVector<DiagramDim>      dims;
     QVector<DiagramLeader>   leaders;
-    QVector<PlanSpoke>       plan;      //!< Non-empty → draw the compass inset.
+    /*! Non-empty → draw one compass inset per entry, each anchored in the
+     *  margin its `side` names. One entry for a node section, two for a link
+     *  section. The painter places them in space the drawing is not using and
+     *  drops them when there is none — they never shrink the profile. */
+    QVector<PlanInset>       planInsets;
 
     [[nodiscard]] bool isEmpty() const
     {

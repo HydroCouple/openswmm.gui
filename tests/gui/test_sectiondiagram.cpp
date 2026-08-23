@@ -11,7 +11,9 @@
 
 #include <QtTest>
 
+#include <QFontMetricsF>
 #include <QImage>
+#include <QPainter>
 #include <QPalette>
 
 #include <algorithm>
@@ -98,6 +100,13 @@ private slots:
     void legacyFitIsUntouchedWithoutATarget();
     void exaggeratedContentStillFits();
     void exaggeratedContentStillFits_data();
+
+    // Plan-view inset placement.
+    void planInsetsNeverReachIntoTheHeader();
+    void planInsetsCostNoWidthWhenTheFitHasVerticalSlack();
+    void planInsetsAreParkedInTheLabelMarginNotCarvedOutOfTheDrawing();
+    void planSpokeLabelsGetRoomForARealLinkName();
+    void planInsetTitleIsNotCutToTheDialWidth();
 };
 
 // ---------------------------------------------------------------------------
@@ -696,4 +705,248 @@ void TestSectionDiagram::exaggeratedContentStillFits()
 }
 
 QTEST_MAIN(TestSectionDiagram)
+// ---------------------------------------------------------------------------
+// Plan-view insets
+// ---------------------------------------------------------------------------
+
+namespace {
+
+//! \p m plus an inlet/outlet compass pair, as a link profile carries.
+SectionDiagramModel withPlanInsets(SectionDiagramModel m)
+{
+    // One spoke straight UP on each dial: that is the bearing whose label sits
+    // furthest above the ring, and so the one that reaches the header first.
+    const QVector<PlanSpoke> up{ {  90.0, QStringLiteral("B1"), true },
+                                 {  20.0, QStringLiteral("C1"), false } };
+    const QVector<PlanSpoke> dn{ {  90.0, QStringLiteral("B2"), true },
+                                 {  20.0, QStringLiteral("C1"), false } };
+    m.planInsets << PlanInset{ up, QStringLiteral("Inlet · J1"),
+                               PlanInset::Side::Left }
+                 << PlanInset{ dn, QStringLiteral("Outlet · J2"),
+                               PlanInset::Side::Right };
+    return m;
+}
+
+//! Paint \p m into a \p pane-sized image, reporting the drawing's fit rect.
+QImage paintAt(const SectionDiagramModel &m, const QSize &pane, QRectF *fitOut)
+{
+    QImage img(pane, QImage::Format_ARGB32_Premultiplied);
+    const QPalette pal;
+    img.fill(pal.color(QPalette::Base));
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    paintSectionDiagram(p, QRectF(QPointF(0, 0), QSizeF(pane)), m, pal,
+                        DiagramViewport{}, fitOut, nullptr);
+    return img;
+}
+
+//! A reach with leader labels on both ends — what actually sets the margins.
+SectionDiagramModel makeLabelledReachModel()
+{
+    SectionDiagramModel m = makeReachModel();
+    m.title    = QStringLiteral("C1 — Profile");
+    m.subtitle = QStringLiteral("J1 → J2");
+    m.leaders << DiagramLeader{ QPointF(0.0,   100.30),
+                                QStringLiteral("Crown 100.30"), QPointF(-40, -20) }
+              << DiagramLeader{ QPointF(0.0,    99.70),
+                                QStringLiteral("Inv 99.70"),    QPointF(-40,  20) }
+              << DiagramLeader{ QPointF(120.0, 100.00),
+                                QStringLiteral("Crown 100.00"), QPointF( 40, -20) }
+              << DiagramLeader{ QPointF(120.0,  99.40),
+                                QStringLiteral("Inv 99.40"),    QPointF( 40,  20) };
+    return m;
+}
+
+} // namespace
+
+void TestSectionDiagram::planInsetsNeverReachIntoTheHeader()
+{
+    // The dials are drawn as a ring with its spoke labels OUTSIDE the ring, so
+    // a dial flush against the top of the drawing area writes those labels
+    // over the subtitle. Nothing above the drawing area may change when the
+    // insets are added — which is a stronger claim than "they start below the
+    // subtitle", and the only one that catches an overhanging label.
+    const QSize pane(560, 480);
+    const SectionDiagramModel bare = makeLabelledReachModel();
+
+    const QImage without = paintAt(bare, pane, nullptr);
+    const QImage with    = paintAt(withPlanInsets(bare), pane, nullptr);
+
+    // Vacuity guard: an inset that was dropped changes no pixel anywhere, and
+    // would satisfy the header comparison for the wrong reason.
+    int drawn = 0;
+    for (int y = 40; y < pane.height(); ++y)
+        for (int x = 0; x < pane.width(); ++x)
+            if (without.pixelColor(x, y) != with.pixelColor(x, y)) ++drawn;
+    QVERIFY2(drawn > 100, "no plan dials were drawn at all");
+
+    // Title (18 px) + subtitle (14 px) below an 8 px top margin.
+    for (int y = 0; y < 40; ++y)
+        for (int x = 0; x < pane.width(); ++x)
+            QVERIFY2(without.pixelColor(x, y) == with.pixelColor(x, y),
+                     qPrintable(QStringLiteral("header pixel (%1,%2) changed "
+                                               "when the plan insets were added")
+                                    .arg(x).arg(y)));
+}
+
+void TestSectionDiagram::planInsetsCostNoWidthWhenTheFitHasVerticalSlack()
+{
+    // A capped exaggeration leaves the vertical short of the pane in a tall
+    // dock. That slack is free real estate: the dials take a strip off the
+    // top and the drawing keeps every pixel of its width.
+    const QSize pane(520, 620);
+    QRectF without, with;
+    const QImage bare  = paintAt(makeLabelledReachModel(), pane, &without);
+    const QImage dials = paintAt(withPlanInsets(makeLabelledReachModel()),
+                                 pane, &with);
+
+    // Vacuity guard: dropping the dials also costs no width.
+    int drawn = 0;
+    for (int y = 0; y < pane.height(); ++y)
+        for (int x = 0; x < pane.width(); ++x)
+            if (bare.pixelColor(x, y) != dials.pixelColor(x, y)) ++drawn;
+    QVERIFY2(drawn > 100, "no plan dials were drawn at all");
+
+    QVERIFY(without.width() > 0.0);
+    QCOMPARE(with.width(), without.width());
+}
+
+void TestSectionDiagram::planInsetsAreParkedInTheLabelMarginNotCarvedOutOfTheDrawing()
+{
+    // THE regression this guards. A wide, short dock has no vertical slack to
+    // pay for the strip, and the insets used to answer that by carving their
+    // full width out of the drawing ON TOP of the margin the leader labels
+    // already held — which left a 100 ft reach drawn across the middle third
+    // of a 900 px pane. The dial belongs IN that margin, so the most it may
+    // cost is the amount by which it overhangs one.
+    const QSize pane(900, 300);
+    QRectF without, with;
+    const QImage bare  = paintAt(makeLabelledReachModel(), pane, &without);
+    const QImage dials = paintAt(withPlanInsets(makeLabelledReachModel()),
+                                 pane, &with);
+
+    QVERIFY(without.width() > 0.0);
+    QVERIFY2(with.width() > 0.0, "the drawing must survive the insets at all");
+
+    // Vacuity guard: the dials have to actually BE there. Dropping them would
+    // satisfy every width assertion below for the wrong reason.
+    int changed = 0;
+    for (int y = 40; y < 170; ++y)
+        for (int x = 0; x < 110; ++x)
+            if (bare.pixelColor(x, y) != dials.pixelColor(x, y)) ++changed;
+    QVERIFY2(changed > 100, "no inlet dial was drawn in the left margin");
+
+    // A dial is 96 px wide with a 10 px gap, and it is parked in the margin
+    // the leader labels already hold — so it may push the drawing in only as
+    // far as its own footprint, and not at all where the margin was already
+    // wider than that. The old code carved its width out of the drawing ON TOP
+    // of that margin, which is what left a reach drawn across the middle third
+    // of a 900 px pane.
+    const double ceiling = std::max(without.left(), 14.0 + 96.0 + 10.0);
+    QVERIFY2(with.left() <= ceiling,
+             qPrintable(QStringLiteral("drawing starts %1 px in; ceiling is %2")
+                            .arg(with.left()).arg(ceiling)));
+    const double rightCeiling =
+        std::max(pane.width() - without.right(), 14.0 + 96.0 + 10.0);
+    QVERIFY2(pane.width() - with.right() <= rightCeiling,
+             qPrintable(QStringLiteral("drawing ends %1 px from the right edge; "
+                                       "ceiling is %2")
+                            .arg(pane.width() - with.right()).arg(rightCeiling)));
+}
+
+void TestSectionDiagram::planSpokeLabelsGetRoomForARealLinkName()
+{
+    // The dial is anchored to the pane edge, so a label ringed around it had
+    // ~58 px to live in and was cut — "TRUNK_MAIN_1234" and "TRUNK_MAIN_9999"
+    // both render as "TRUN…", which is the one thing a link label must never
+    // do. Leadering the labels inboard is what buys the width back.
+    const QSize pane(560, 480);
+
+    auto renderWith = [&](const QString &name) {
+        SectionDiagramModel m = makeLabelledReachModel();
+        const QVector<PlanSpoke> up{ { 90.0, name, true } };
+        m.planInsets << PlanInset{ up, QStringLiteral("Inlet · J1"),
+                                   PlanInset::Side::Left };
+        return paintAt(m, pane, nullptr);
+    };
+
+    // Rows above the drawing hold the dial and nothing else, so the rightmost
+    // ink in the pane's left half IS the end of the label.
+    auto labelReach = [&](const QImage &img) {
+        int maxX = 0;
+        for (int y = 45; y < 165; ++y)
+            for (int x = 0; x < 280; ++x)
+                if (img.pixelColor(x, y) != img.pixelColor(0, 0)) maxX = std::max(maxX, x);
+        return maxX;
+    };
+
+    const QString kShort = QStringLiteral("C1");
+    const QString kLong  = QStringLiteral("TRUNK_MAIN_1234");
+
+    const int shortReach = labelReach(renderWith(kShort));
+    const int longReach  = labelReach(renderWith(kLong));
+
+    // The bar is the string's OWN width, measured in the font the painter
+    // uses. Anything less means characters were dropped — a fixed pixel bar
+    // passes happily on an elided "TRUNK_…", which is still the bug.
+    QImage probe(1, 1, QImage::Format_ARGB32_Premultiplied);
+    QPainter pp(&probe);
+    const QFontMetricsF fm(pp.font());
+    const double needed = fm.horizontalAdvance(kLong) - fm.horizontalAdvance(kShort);
+
+    QVERIFY2(shortReach > 0, "no dial was drawn to measure");
+    QVERIFY2(longReach - shortReach >= needed - 6.0,
+             qPrintable(QStringLiteral("a long name reached %1 px further than "
+                                       "a short one but its extra characters "
+                                       "need %2 px — it is still being cut")
+                            .arg(longReach - shortReach).arg(needed)));
+}
+
+void TestSectionDiagram::planInsetTitleIsNotCutToTheDialWidth()
+{
+    // "Inlet · MH_1234567" is the caption that tells the reader which end of
+    // the reach they are looking at; cut to the dial's 96 px box it becomes
+    // "Inlet · MH…", which identifies nothing.
+    const QSize pane(560, 480);
+
+    auto renderWith = [&](const QString &title) {
+        SectionDiagramModel m = makeLabelledReachModel();
+        const QVector<PlanSpoke> up{ { 90.0, QStringLiteral("C1"), true } };
+        m.planInsets << PlanInset{ up, title, PlanInset::Side::Left };
+        return paintAt(m, pane, nullptr);
+    };
+
+    // The caption band sits below the dial's box and above the drawing, so
+    // the rightmost ink in these rows IS the end of the caption.
+    auto captionReach = [&](const QImage &img) {
+        int maxX = 0;
+        for (int y = 148; y < 162; ++y)
+            for (int x = 0; x < 400; ++x)
+                if (img.pixelColor(x, y) != img.pixelColor(0, 0)) maxX = std::max(maxX, x);
+        return maxX;
+    };
+
+    // Both captions are past the dial's width, so both are anchored the same
+    // way and the difference in reach is purely the difference in text — a
+    // short caption is centred under the dial and would compare apples to
+    // oranges.
+    const QString kShort = QStringLiteral("Inlet · MANHOLE_1234");
+    const QString kLong  = QStringLiteral("Inlet · MANHOLE_1234567890");
+
+    const int shortReach = captionReach(renderWith(kShort));
+    const int longReach  = captionReach(renderWith(kLong));
+
+    QImage probe(1, 1, QImage::Format_ARGB32_Premultiplied);
+    QPainter pp(&probe);
+    const QFontMetricsF fm(pp.font());
+    const double needed = fm.horizontalAdvance(kLong) - fm.horizontalAdvance(kShort);
+
+    QVERIFY2(shortReach > 0, "no caption was drawn to measure");
+    QVERIFY2(longReach - shortReach >= needed - 8.0,
+             qPrintable(QStringLiteral("a long caption reached %1 px further "
+                                       "than a short one but needs %2 px — it "
+                                       "is still being cut to the dial")
+                            .arg(longReach - shortReach).arg(needed)));
+}
+
 #include "test_sectiondiagram.moc"
