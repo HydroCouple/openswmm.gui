@@ -33,6 +33,13 @@ constexpr double kFooterH      = 16.0;
 constexpr double kAnnotationPad = 46.0;
 constexpr double kArrowSize     = 6.5;
 constexpr double kPlanInsetSize = 96.0;
+//! Buffer above the first dial and between stacked dials. Without it the top
+//! dial's spoke labels, which reach past its ring, are written over the
+//! subtitle sitting directly above.
+constexpr double kPlanInsetGap    = 10.0;
+//! Band under each dial for its "Inlet · J1" caption, kept OUTSIDE the dial's
+//! own square so the caption cannot land on the ring or on a spoke label.
+constexpr double kPlanInsetTitleH = 14.0;
 
 //! Below these widths/heights annotations are progressively dropped.
 constexpr double kMinWidthForLeaders = 300.0;
@@ -555,17 +562,6 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     const bool showVeNote = model.annotateExaggeration && !model.uniformScale;
     if (showVeNote) area.setBottom(area.bottom() - fm.height() - 2.0);
 
-    // ── Plan inset carve-out ───────────────────────────────────────────────
-    QRectF planRect;
-    if (!model.plan.isEmpty()
-        && area.width() > 2.4 * kPlanInsetSize
-        && area.height() > kPlanInsetSize + 20.0)
-    {
-        planRect = QRectF(area.right() - kPlanInsetSize, area.top(),
-                          kPlanInsetSize, kPlanInsetSize);
-        area.setRight(planRect.left() - 10.0);
-    }
-
     // ── Fit model bounds into the drawing area ─────────────────────────────
     const QRectF b = model.bounds.isNull() ? model.computeBounds() : model.bounds;
     if (b.isNull() || b.width() <= 0.0 || b.height() <= 0.0
@@ -576,110 +572,226 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
 
     const double pad = (showDims || showLeaders) ? kAnnotationPad : 10.0;
 
-    // Leader labels are written in the margin on the side their offset points
-    // to, so that margin has to be wide enough to hold the widest of them —
-    // a fixed 46 px turns "C1 Inv 93.00" into "C1…". Measure per side and grow
-    // the pad, capped so the drawing never gives up more than a third of the
-    // width to text.
-    double padLeft = pad, padRight = pad;
-    if (showLeaders) {
-        const double cap = area.width() * 0.40;
-        double wantL = 0.0, wantR = 0.0;
-        for (const DiagramLeader &l : model.leaders) {
-            if (l.text.isEmpty()) continue;
-            // The elbow itself (pixelOffset + the 8 px landing) sits inside
-            // this margin, so the text needs room BEYOND it — reserving only
-            // the text width still elides by exactly the elbow's length.
-            const double w = fm.horizontalAdvance(l.text)
-                             + std::abs(l.pixelOffset.x()) + 16.0;
-            (l.pixelOffset.x() >= 0.0 ? wantR : wantL)
-                = std::max(l.pixelOffset.x() >= 0.0 ? wantR : wantL, w);
-        }
-        padLeft  = std::clamp(wantL, pad, std::max(pad, cap));
-        padRight = std::clamp(wantR, pad, std::max(pad, cap));
-    }
+    // Padding, fit rect and both axis scales, resolved for one drawing area.
+    struct Fit { QRectF fitRect; double sx = 1.0, sy = 1.0, ve = 1.0; };
 
-    // Dimension labels sit `pixelOffset` off their own line, so the margin on
-    // that side must clear the offset AND the text — otherwise the width
-    // dimension of a section drawn in a short panel is written over the
-    // subtitle. Half the annotation pad only covers an offset of 23 px.
-    double padTop = pad * 0.5, padBottom = pad * 0.5;
-    if (showDims) {
-        const double capV = area.height() * 0.30;
-        const double capH = area.width()  * 0.40;
-        for (const DiagramDim &d : model.dims) {
-            const double need = std::abs(d.pixelOffset) + fm.height() + 4.0;
-            const bool horizontal =
-                std::abs(d.to.y() - d.from.y()) <= std::abs(d.to.x() - d.from.x());
-            if (horizontal) {
-                double &side = (d.pixelOffset < 0.0) ? padTop : padBottom;
-                side = std::clamp(std::max(side, need), pad * 0.5,
-                                  std::max(pad * 0.5, capV));
-            } else {
-                double &side = (d.pixelOffset < 0.0) ? padLeft : padRight;
-                side = std::clamp(std::max(side, need), pad,
-                                  std::max(pad, capH));
+    // Resolved MORE THAN ONCE: the plan insets are placed into whatever slack
+    // the fit leaves over, and when there is none the drawing has to be
+    // re-fitted into the space they took. Keeping padding and scale together
+    // in one lambda is what stops the two passes drifting apart.
+    //
+    //   est       the previous pass's fit, or null. It turns "how wide is this
+    //             label?" into "how far does this label stick out PAST the
+    //             drawing?", which is the part that actually needs reserving.
+    //   minPadL,
+    //   minPadR   widen the annotation margin so a plan dial can be parked in
+    //             it — cheaper than carving the dial's whole width out of the
+    //             drawing, because the margin is largely reserved already.
+    auto layoutFor = [&](const QRectF &a, const Fit *est,
+                         double minPadL = 0.0, double minPadR = 0.0) -> Fit {
+        Fit f;
+
+        // Leader labels are written in the margin on the side their offset
+        // points to, so that margin has to be wide enough to hold the widest
+        // of them — a fixed 46 px turns "C1 Inv 93.00" into "C1…". Measure per
+        // side and grow the pad, capped so the drawing never gives up more
+        // than a third of the width to text.
+        double padLeft = pad, padRight = pad;
+        if (showLeaders) {
+            const double cap = a.width() * 0.40;
+            double wantL = 0.0, wantR = 0.0;
+            for (const DiagramLeader &l : model.leaders) {
+                if (l.text.isEmpty()) continue;
+                // The elbow itself (pixelOffset + the 8 px landing) sits inside
+                // this margin, so the text needs room BEYOND it — reserving
+                // only the text width still elides by exactly the elbow.
+                const bool right = l.pixelOffset.x() >= 0.0;
+                double w = fm.horizontalAdvance(l.text)
+                           + std::abs(l.pixelOffset.x()) + 16.0;
+                // A leader anchored mid-reach writes its label over the
+                // drawing and needs no margin at all; only the part that
+                // overhangs the drawing's own edge does. Reserving the full
+                // label width for every leader is what squeezed a long
+                // profile into the middle third of a wide pane.
+                if (est && est->sx > 0.0) {
+                    const double toEdge = right ? (b.right() - l.anchor.x())
+                                                : (l.anchor.x() - b.left());
+                    w = std::max(0.0, w - toEdge * est->sx);
+                }
+                (right ? wantR : wantL) = std::max(right ? wantR : wantL, w);
+            }
+            padLeft  = std::clamp(wantL, pad, std::max(pad, cap));
+            padRight = std::clamp(wantR, pad, std::max(pad, cap));
+        }
+
+        // Dimension labels sit `pixelOffset` off their own line, so the margin
+        // on that side must clear the offset AND the text — otherwise the
+        // width dimension of a section drawn in a short panel is written over
+        // the subtitle. Half the annotation pad only covers an offset of 23 px.
+        double padTop = pad * 0.5, padBottom = pad * 0.5;
+        if (showDims) {
+            const double capV = a.height() * 0.30;
+            const double capH = a.width()  * 0.40;
+            for (const DiagramDim &d : model.dims) {
+                const double need = std::abs(d.pixelOffset) + fm.height() + 4.0;
+                const bool horizontal =
+                    std::abs(d.to.y() - d.from.y()) <= std::abs(d.to.x() - d.from.x());
+                if (horizontal) {
+                    double &side = (d.pixelOffset < 0.0) ? padTop : padBottom;
+                    side = std::clamp(std::max(side, need), pad * 0.5,
+                                      std::max(pad * 0.5, capV));
+                } else {
+                    double &side = (d.pixelOffset < 0.0) ? padLeft : padRight;
+                    side = std::clamp(std::max(side, need), pad,
+                                      std::max(pad, capH));
+                }
             }
         }
+
+        padLeft  = std::max(padLeft,  minPadL);
+        padRight = std::max(padRight, minPadR);
+
+        f.fitRect = a.adjusted(padLeft, padTop, -padRight, -padBottom);
+        if (f.fitRect.width() <= 2.0 || f.fitRect.height() <= 2.0) return f;
+
+        f.sx = f.fitRect.width()  / b.width();
+        f.sy = f.fitRect.height() / b.height();
+
+        // Resolve the vertical exaggeration, then fit the box while HOLDING
+        // that ratio — which is the uniform-scale fit generalised: whichever
+        // axis runs out of room first sets the scale, and the other follows
+        // the ratio.
+        //
+        // Filling the box on both axes independently (the old behaviour) is
+        // what made shallow pipes look steep: it silently adopts whatever
+        // exaggeration the aspect ratio happens to imply, often 15:1 or more.
+        if (!model.uniformScale) {
+            const double fillVE = (f.sx > 0.0) ? f.sy / f.sx : 1.0;
+            double ve = model.verticalExaggeration;
+
+            if (!(ve > 0.0)) {
+                if (model.targetDrawnAspect > 0.0) {
+                    // Automatic, derived from the MODEL's own proportions so
+                    // the answer does not move when the dock is resized. A
+                    // reach that is naturally 27:1 long-to-deep, asked to draw
+                    // at 6:1, wants 4.4x — and wants it in every pane.
+                    const double naturalAspect = b.width() / b.height();
+                    ve = naturalAspect / model.targetDrawnAspect;
+                    // Never COMPRESS the vertical: that would understate a
+                    // slope, which is worse than overstating it.
+                    ve = std::max(1.0, ve);
+                    if (model.maxVerticalExaggeration > 0.0)
+                        ve = std::min(ve, model.maxVerticalExaggeration);
+                    ve = snapExaggeration(ve);
+                } else {
+                    // Legacy: fill the pane on both axes. Kept UNSNAPPED and
+                    // uncapped for models whose x axis is not a real length
+                    // (node profiles use a normalised frame, LID stacks a
+                    // nominal plan width), where a V:H ratio is arithmetic on
+                    // an arbitrary unit and rounding it would silently resize
+                    // the drawing.
+                    ve = fillVE;
+                }
+            }
+            ve = std::clamp(ve, 0.01, 1000.0);
+
+            // Hold the ratio and let whichever axis runs out of room set the
+            // scale. Both branches fit inside fitRect: the unused axis simply
+            // leaves slack, which is honest — better an under-filled pane than
+            // a silently distorted gradient.
+            if (fillVE >= ve) { f.sy = f.sx * ve; }   // vertical has slack
+            else              { f.sx = f.sy / ve; }   // horizontal has slack
+            f.ve = ve;
+        } else {
+            f.sx = f.sy = std::min(f.sx, f.sy);
+        }
+        return f;
+    };
+
+    // Pass 1 reserves every label in full; pass 2 gives back the part of each
+    // that lands over the drawing anyway. The estimate can only shrink the
+    // margins, and a larger drawing makes each overhang smaller still, so the
+    // second pass never under-reserves.
+    Fit fit = layoutFor(area, nullptr);
+    fit = layoutFor(area, &fit);
+
+    // ── Plan inset placement ───────────────────────────────────────────────
+    // One dial per inset: a link section carries two (its two end nodes), a
+    // node section one. A compass is an aid to the profile, so it is put where
+    // the drawing is not, in this order:
+    //
+    //   band    a full-width strip off the top, when the fit left vertical
+    //           slack to pay for it. Costs the drawing nothing at all.
+    //   margin  parked in the annotation margin already reserved for leader
+    //           labels, widening it only if the dial does not fit — so the
+    //           bill is the shortfall, not the dial. Labels on a side that
+    //           carries a dial start below it.
+    //
+    // If neither leaves the drawing a workable width the dials are dropped:
+    // they are an aid, and this used to carve their full width out of the
+    // pane unconditionally, which left a long reach drawn into its middle
+    // third. The pair is placed or dropped together — half a compass pair is
+    // worse than none, because the reader cannot tell which end is missing.
+    QVector<QRectF> planRects(model.planInsets.size());
+    double leaderFloorL = 0.0, leaderFloorR = 0.0;   // 0 = no dial on that side
+    if (!model.planInsets.isEmpty()) {
+        int nLeft = 0, nRight = 0;
+        for (const PlanInset &pi : model.planInsets)
+            (pi.side == PlanInset::Side::Left ? nLeft : nRight) += 1;
+
+        const int    tallest = std::max(nLeft, nRight);
+        const double cellH   = kPlanInsetSize + kPlanInsetTitleH;
+        // The leading gap is the buffer that keeps the topmost dial's spoke
+        // labels off the title/subtitle written directly above it.
+        const double bandH   = kPlanInsetGap + tallest * (cellH + kPlanInsetGap);
+        const double colW    = kPlanInsetSize + kPlanInsetGap;
+        // A drawing narrower than this is not worth keeping a compass for.
+        const double keepW   = 1.6 * kPlanInsetSize;
+
+        const double vSlack = fit.fitRect.height() - b.height() * fit.sy;
+        const bool   band   = vSlack >= bandH
+                              && area.height() > bandH + 40.0
+                              && area.width()  > (nLeft ? colW : 0.0)
+                                                 + (nRight ? colW : 0.0) + keepW;
+
+        Fit trial = band ? layoutFor(area.adjusted(0.0, bandH, 0.0, 0.0), &fit)
+                         : layoutFor(area, &fit, nLeft ? colW : 0.0,
+                                                 nRight ? colW : 0.0);
+
+        if (trial.fitRect.width() >= keepW && trial.fitRect.height() >= 20.0
+            && area.height() > bandH + 40.0) {
+            if (band) area.setTop(area.top() + bandH);
+            fit = trial;
+
+            int usedL = 0, usedR = 0;
+            for (int i = 0; i < model.planInsets.size(); ++i) {
+                const bool left = model.planInsets[i].side == PlanInset::Side::Left;
+                const int  row  = left ? usedL++ : usedR++;
+                // In band mode the dials sit above the (already lowered) area;
+                // in margin mode they sit in the margin beside it. Both anchor
+                // to the pane edge, one gap in from the top of their strip.
+                const double top = (band ? area.top() - bandH : area.top())
+                                   + kPlanInsetGap + row * (cellH + kPlanInsetGap);
+                const QRectF r(left ? area.left() : area.right() - kPlanInsetSize,
+                               top, kPlanInsetSize, kPlanInsetSize);
+                planRects[i] = r;
+                if (!band) {
+                    double &floor = left ? leaderFloorL : leaderFloorR;
+                    floor = std::max(floor, r.bottom() + kPlanInsetTitleH + 4.0);
+                }
+            }
+        }
+        // else: no placement leaves a readable drawing — the drawing wins.
     }
-    const QRectF fitRect = area.adjusted(padLeft, padTop, -padRight, -padBottom);
+
+    const QRectF fitRect = fit.fitRect;
     if (fitRectOut) *fitRectOut = fitRect;
     if (fitRect.width() <= 2.0 || fitRect.height() <= 2.0) {
         p.restore();
         return;
     }
-
-    double sx = fitRect.width()  / b.width();
-    double sy = fitRect.height() / b.height();
-
-    // Resolve the vertical exaggeration, then fit the box while HOLDING that
-    // ratio — which is the uniform-scale fit generalised: whichever axis runs
-    // out of room first sets the scale, and the other follows the ratio.
-    //
-    // Filling the box on both axes independently (the old behaviour) is what
-    // made shallow pipes look steep: it silently adopts whatever exaggeration
-    // the aspect ratio happens to imply, often 15:1 or more.
-    double achievedVE = 1.0;
-    if (!model.uniformScale) {
-        const double fillVE = (sx > 0.0) ? sy / sx : 1.0;
-        double ve = model.verticalExaggeration;
-
-        if (!(ve > 0.0)) {
-            if (model.targetDrawnAspect > 0.0) {
-                // Automatic, derived from the MODEL's own proportions so the
-                // answer does not move when the dock is resized. A reach that
-                // is naturally 27:1 long-to-deep, asked to draw at 6:1, wants
-                // 4.4x — and wants it in every pane.
-                const double naturalAspect = b.width() / b.height();
-                ve = naturalAspect / model.targetDrawnAspect;
-                // Never COMPRESS the vertical: that would understate a slope,
-                // which is worse than overstating it.
-                ve = std::max(1.0, ve);
-                if (model.maxVerticalExaggeration > 0.0)
-                    ve = std::min(ve, model.maxVerticalExaggeration);
-                ve = snapExaggeration(ve);
-            } else {
-                // Legacy: fill the pane on both axes. Kept UNSNAPPED and
-                // uncapped for models whose x axis is not a real length (node
-                // profiles use a normalised frame, LID stacks a nominal plan
-                // width), where a V:H ratio is arithmetic on an arbitrary unit
-                // and rounding it would silently resize the drawing.
-                ve = fillVE;
-            }
-        }
-        ve = std::clamp(ve, 0.01, 1000.0);
-
-        // Hold the ratio and let whichever axis runs out of room set the
-        // scale. Both branches fit inside fitRect: the unused axis simply
-        // leaves slack, which is honest — better an under-filled pane than a
-        // silently distorted gradient.
-        if (fillVE >= ve) { sy = sx * ve; }   // vertical has slack
-        else              { sx = sy / ve; }   // horizontal has slack
-        achievedVE = ve;
-    } else {
-        sx = sy = std::min(sx, sy);
-    }
-    if (achievedExaggerationOut) *achievedExaggerationOut = achievedVE;
+    double sx = fit.sx, sy = fit.sy;
+    if (achievedExaggerationOut) *achievedExaggerationOut = fit.ve;
 
     // User zoom/pan layered over the fit. Scaling about the fit rect's centre
     // keeps "zoom out then in" returning to the same place.
@@ -966,13 +1078,17 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         // the footer. Clamp the elbow into the band and let the leader line
         // stretch to reach it.
         const double halfLine = fm.height() * 0.5;
-        const double bandTop    = area.top()    + halfLine;
+        // Per side, because a dial parked in this side's margin owns the top
+        // of it: labels that ignored it would be written across the compass.
+        const double bandTopL = std::max(area.top(), leaderFloorL) + halfLine;
+        const double bandTopR = std::max(area.top(), leaderFloorR) + halfLine;
         const double bandBottom = area.bottom() - halfLine;
         // One label per line: a node with several links at similar inverts
         // lands their leaders on the same y and writes them over each other.
         // Remember what each side has used and push a colliding label clear.
         QVector<double> usedL, usedR;
         auto deconflict = [&](double y, bool right) {
+            const double bandTop = right ? bandTopR : bandTopL;
             QVector<double> &used = right ? usedR : usedL;
             const double step = fm.height() + 2.0;
             bool moved = true;
@@ -997,14 +1113,15 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         };
         for (const DiagramLeader &l : model.leaders) {
             if (l.text.isEmpty()) continue;
+            const bool    right   = l.pixelOffset.x() >= 0.0;
+            const double  bandTop = right ? bandTopR : bandTopL;
             const QPointF a   = toPx(l.anchor);
             QPointF       end = a + l.pixelOffset;
             if (bandBottom > bandTop)
                 end.setY(std::clamp(end.y(), bandTop, bandBottom));
-            end.setY(deconflict(end.y(), l.pixelOffset.x() >= 0.0));
+            end.setY(deconflict(end.y(), right));
             if (bandBottom > bandTop)
                 end.setY(std::clamp(end.y(), bandTop, bandBottom));
-            const bool    right = l.pixelOffset.x() >= 0.0;
             const double  landing = 8.0;
             const QPointF land(end.x() + (right ? landing : -landing), end.y());
 
@@ -1031,10 +1148,18 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
 
     p.restore();   // end of the zoom/pan clip — chrome below is screen-space
 
-    // ── Plan-view inset ────────────────────────────────────────────────────
-    if (!planRect.isNull()) {
+    // ── Plan-view insets ───────────────────────────────────────────────────
+    // The dial is anchored to the pane edge, so a label ringed around it runs
+    // off that edge and is cut — and a link name is exactly the string a
+    // reader cannot reconstruct from its first four characters. Labels are
+    // therefore leadered INBOARD instead: one stacked column on the side
+    // facing the drawing, where the width to hold a name actually exists.
+    for (int pi = 0; pi < planRects.size() && pi < model.planInsets.size(); ++pi) {
+        const QRectF   planRect = planRects[pi];
+        if (planRect.isNull()) continue;          // no room; drawing wins
+        const PlanInset &inset  = model.planInsets[pi];
         const QPointF ctr = planRect.center();
-        const double  r   = planRect.width() * 0.36;
+        const double  r   = planRect.width() * 0.32;
 
         p.setBrush(mix(palette.color(QPalette::Base),
                        palette.color(QPalette::WindowText), 0.05));
@@ -1047,10 +1172,12 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
         p.setPen(QPen(inkColor, 1.0));
         p.drawEllipse(ctr, 6.0, 6.0);
 
+        // Spokes first, collecting where each label has to point back to.
+        struct SpokeLabel { QPointF tip; QString text; double wantY; };
+        QVector<SpokeLabel> labels;
         QPen spoke(inkColor);
         spoke.setWidthF(1.6);
-        QVector<QRectF> planLabels;
-        for (const PlanSpoke &s : model.plan) {
+        for (const PlanSpoke &s : inset.spokes) {
             const double a = s.angleDeg * M_PI / 180.0;
             const QPointF dir(std::cos(a), -std::sin(a));
             const QPointF from = ctr + dir * 6.0;
@@ -1065,30 +1192,107 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
             else
                 drawArrowHead(p, to, std::atan2(dir.y(), dir.x()), inkColor);
 
-            if (!s.label.isEmpty()) {
-                p.setPen(mutedColor);
-                const QPointF lp = ctr + dir * (r + 10.0);
-                QRectF lr(lp.x() - 30.0, lp.y() - 7.0, 60.0, 14.0);
-                // Two links on the same bearing — a straight-through manhole,
-                // which is the common case — put their labels at the same
-                // point and write one over the other. Step the later one clear.
-                for (int guard = 0; guard < 6; ++guard) {
-                    bool hit = false;
-                    for (const QRectF &u : planLabels)
-                        if (u.intersects(lr)) { hit = true; break; }
-                    if (!hit) break;
-                    lr.moveTop(lr.top() + (dir.y() >= 0.0 ? 15.0 : -15.0));
-                }
-                planLabels.push_back(lr);
-                p.drawText(lr, Qt::AlignCenter,
-                           fm.elidedText(s.label, Qt::ElideRight, 58.0));
+            if (!s.label.isEmpty())
+                labels.push_back({ to, s.label, to.y() });
+        }
+
+        if (!labels.isEmpty()) {
+            // Toward the drawing: the dial on the left labels rightward, the
+            // one on the right labels leftward. Both write into the pane
+            // rather than off it.
+            const double sign  = (inset.side == PlanInset::Side::Left) ? 1.0 : -1.0;
+            const double colX  = ctr.x() + sign * (r + 14.0);
+            const double rowH  = fm.height() + 3.0;
+
+            // Stack in bearing order, top-most first, then lift the whole
+            // column if it overran the box — keeping the order means a label
+            // still reads as belonging to the spoke above the one below it.
+            std::stable_sort(labels.begin(), labels.end(),
+                             [](const SpokeLabel &a, const SpokeLabel &c) {
+                                 return a.wantY < c.wantY;
+                             });
+            double y = planRect.top() + rowH * 0.5;
+            for (SpokeLabel &l : labels) {
+                l.wantY = std::max(l.wantY, y);
+                y = l.wantY + rowH;
+            }
+            const double overrun = y - rowH * 0.5 - planRect.bottom();
+            if (overrun > 0.0)
+                for (SpokeLabel &l : labels)
+                    l.wantY -= overrun;
+
+            // Room to the pane edge, less the margin the rest of the drawing
+            // keeps. A name still elides eventually, but only once it is
+            // genuinely too long for the pane rather than for a 60 px ring.
+            const double room = (sign > 0.0)
+                ? target.right() - kMarginX - (colX + 6.0)
+                : (colX - 6.0) - (target.left() + kMarginX);
+            const double textW = std::clamp(room, 0.0, 150.0);
+
+            QPen lead(mutedColor);
+            lead.setWidthF(0.7);
+            for (const SpokeLabel &l : labels) {
+                if (textW < 12.0) break;          // nowhere to write it
+                const QPointF land(colX, l.wantY);
+                p.setPen(lead);
+                p.setBrush(Qt::NoBrush);
+                p.drawLine(l.tip, land);
+
+                const QString txt = fm.elidedText(l.text, Qt::ElideRight, textW);
+                const double  w   = fm.horizontalAdvance(txt);
+                const QRectF  tr(sign > 0.0 ? land.x() + 5.0 : land.x() - 5.0 - w,
+                                 land.y() - fm.height() * 0.5, w, fm.height());
+                // On a plate: in margin placement this column is written over
+                // the drawing, and a link name lost in a pipe wall is no
+                // better than one cut off at the pane edge.
+                QColor plate = palette.color(QPalette::Base);
+                plate.setAlphaF(0.82);
+                p.setPen(Qt::NoPen);
+                p.setBrush(plate);
+                p.drawRoundedRect(tr.adjusted(-3.0, -1.0, 3.0, 1.0), 3.0, 3.0);
+                p.setPen(inkColor);
+                p.drawText(tr, Qt::AlignVCenter | Qt::AlignLeft, txt);
             }
         }
 
-        p.setPen(mutedColor);
-        p.drawText(QRectF(planRect.left(), planRect.bottom() - 2.0,
-                          planRect.width(), 14.0),
-                   Qt::AlignCenter, QStringLiteral("plan"));
+        // Title the dial with its node. With two insets an untitled pair is
+        // ambiguous — the reader cannot tell upstream from downstream, which
+        // is precisely what a caption cut to "Outlet · MH_12…" fails to say.
+        // So it is allowed to run inboard past the dial's own box, the same
+        // direction and for the same reason as the spoke labels.
+        {
+            const double sign =
+                (inset.side == PlanInset::Side::Left) ? 1.0 : -1.0;
+            const double room = (sign > 0.0)
+                ? (target.right() - kMarginX) - planRect.left()
+                : planRect.right() - (target.left() + kMarginX);
+            const QString cap = inset.title.isEmpty()
+                                    ? QStringLiteral("plan")
+                                    : fm.elidedText(inset.title, Qt::ElideRight,
+                                                    std::clamp(room, 0.0, 220.0));
+            const double w = fm.horizontalAdvance(cap);
+
+            // Centred under the dial while it fits there; only a caption that
+            // does not fit reaches inboard, so the common case is unchanged.
+            const bool wide = w > planRect.width() - 4.0;
+            QRectF cr(sign > 0.0 || !wide ? planRect.left()
+                                          : planRect.right() - w,
+                      planRect.bottom(),
+                      wide ? w : planRect.width(), kPlanInsetTitleH);
+
+            // Plated like the spoke labels: a caption that reached inboard is
+            // over the drawing in margin placement. Over bare background the
+            // plate is the background colour and shows as nothing.
+            QColor plate = palette.color(QPalette::Base);
+            plate.setAlphaF(0.82);
+            p.setPen(Qt::NoPen);
+            p.setBrush(plate);
+            p.drawRoundedRect(cr.adjusted(-3.0, 0.0, 3.0, 0.0), 3.0, 3.0);
+
+            p.setPen(mutedColor);
+            p.drawText(cr, (wide ? (sign > 0.0 ? Qt::AlignLeft : Qt::AlignRight)
+                                 : Qt::AlignHCenter) | Qt::AlignVCenter, cap);
+        }
     }
 
     // ── Vertical-exaggeration note ─────────────────────────────────────────
@@ -1098,9 +1302,9 @@ void paintSectionDiagram(QPainter &p, const QRectF &target,
     // short for the footer: the caveat matters more than the readout it would
     // otherwise sit beside.
     if (showVeNote) {
-        const QString note = (std::abs(achievedVE - 1.0) < 1.0e-9)
+        const QString note = (std::abs(fit.ve - 1.0) < 1.0e-9)
             ? tr_("true scale (V:H 1:1)")
-            : tr_("vertical exaggeration V:H %1:1").arg(achievedVE, 0, 'g', 3);
+            : tr_("vertical exaggeration V:H %1:1").arg(fit.ve, 0, 'g', 3);
 
         p.setPen(mutedColor);
         // The band reserved above sits just below `area`'s new bottom edge.

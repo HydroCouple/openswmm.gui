@@ -536,6 +536,110 @@ SectionDiagramModel buildLinkSection(SWMM_Engine engine, int linkIdx,
     return m;
 }
 
+namespace {
+
+/*! One connecting link, resolved for drawing. */
+struct NodeConnection
+{
+    QString name;
+    double  invert  = 0.0;   //!< Absolute invert elevation at this node.
+    double  height  = 0.0;   //!< Full depth of the section (0 → thin stub).
+    bool    inbound = true;  //!< True when this node is the link's `to` node.
+    double  headingDeg = 0.0;
+    bool    hasHeading = false;
+    int     type     = SWMM_LINK_CONDUIT;
+    /*! Orifice SIDE/BOTTOM, weir type, or outlet rating type; -1 when the link
+     *  kind has no sub-type. */
+    int     subtype  = -1;
+    bool    flapGate = false;
+};
+
+/*! Outfall boundary-condition codes. The engine documents these inline on
+ *  swmm_node_set_outfall_type() but exports no enum for them. */
+enum { kOutfallFree = 0, kOutfallNormal = 1, kOutfallFixed = 2,
+       kOutfallTidal = 3, kOutfallTimeSeries = 4 };
+
+/*!
+ * \brief Every link incident to \p nodeIdx, resolved for drawing.
+ * \param excludeLinkIdx  A link to leave out (-1 for none) — the link profile
+ *                        passes its own link so the reach it already draws
+ *                        full length is not also stubbed.
+ *
+ * Shared by buildNodeProfile() and buildLinkProfile() so the two agree on
+ * invert resolution, sub-type lookup and plan heading. Headings need the
+ * node's own coordinate; without it the connection still resolves and only
+ * loses its plan spoke.
+ */
+QVector<NodeConnection> collectNodeConnections(SWMM_Engine engine, int nodeIdx,
+                                               const DiagramUnits &units,
+                                               int excludeLinkIdx = -1)
+{
+    QVector<NodeConnection> conns;
+    if (!engine || nodeIdx < 0) return conns;
+
+    double invert = 0.0;
+    swmm_node_get_invert_elev(engine, nodeIdx, &invert);
+
+    double nx = 0.0, ny = 0.0;
+    const bool haveCoord =
+        (swmm_spatial_get_node_coord(engine, nodeIdx, &nx, &ny) == SWMM_OK);
+
+    const int nLinks = swmm_link_count(engine);
+    for (int i = 0; i < nLinks; ++i) {
+        if (i == excludeLinkIdx) continue;
+        int from = -1, to = -1;
+        if (swmm_link_get_from_node(engine, i, &from) != SWMM_OK) continue;
+        if (swmm_link_get_to_node(engine, i, &to) != SWMM_OK) continue;
+        if (from != nodeIdx && to != nodeIdx) continue;
+
+        NodeConnection c;
+        c.name    = idOf(swmm_link_id(engine, i));
+        c.inbound = (to == nodeIdx);
+
+        swmm_link_get_type(engine, i, &c.type);
+        switch (c.type) {
+        case SWMM_LINK_ORIFICE: swmm_link_get_orifice_type(engine, i, &c.subtype); break;
+        case SWMM_LINK_WEIR:    swmm_link_get_weir_type(engine, i, &c.subtype);    break;
+        case SWMM_LINK_OUTLET:  swmm_link_get_outlet_rating_type(engine, i, &c.subtype); break;
+        default: break;
+        }
+        int flap = 0;
+        if (swmm_link_get_flap_gate(engine, i, &flap) == SWMM_OK) c.flapGate = (flap != 0);
+
+        double off = 0.0;
+        if (c.inbound) swmm_link_get_offset_dn(engine, i, &off);
+        else           swmm_link_get_offset_up(engine, i, &off);
+        c.invert = invert + off;
+
+        int shape = SWMM_XSECT_CIRCULAR;
+        double g1 = 0.0, g2 = 0.0, g3 = 0.0, g4 = 0.0;
+        if (swmm_link_get_xsect(engine, i, &shape, &g1, &g2, &g3, &g4) == SWMM_OK) {
+            const XsectSampler s =
+                samplerForLink(engine, i, shape, g1, g2, g3, g4, units.si);
+            if (s.isValid()) c.height = s.fullProps().yFull;
+        }
+
+        // Plan heading from this node toward the far end of the link.
+        if (haveCoord) {
+            const int other = c.inbound ? from : to;
+            double ox = 0.0, oy = 0.0;
+            if (other >= 0
+                && swmm_spatial_get_node_coord(engine, other, &ox, &oy) == SWMM_OK)
+            {
+                const double dx = ox - nx, dy = oy - ny;
+                if (std::hypot(dx, dy) > 1.0e-9) {
+                    c.headingDeg = std::atan2(dy, dx) * 180.0 / M_PI;
+                    c.hasHeading = true;
+                }
+            }
+        }
+        conns << c;
+    }
+    return conns;
+}
+
+} // namespace
+
 // ---------------------------------------------------------------------------
 // Link profile
 // ---------------------------------------------------------------------------
@@ -746,6 +850,101 @@ SectionDiagramModel buildLinkProfile(SWMM_Engine engine, int linkIdx,
         m.dims << run;
     }
 
+    // ---- What else meets each end ------------------------------------------
+    //
+    // The reach itself is only half the picture: a profile that stops at the
+    // structure faces cannot say whether this pipe is the only thing arriving
+    // or one of five. Each end node's OTHER links are drawn as truncated
+    // stubs (this link excluded — it is already drawn full length), and each
+    // end gets its own plan compass so the reader can see which direction
+    // those links run in. Inbound stubs sit outboard of the upstream
+    // structure, outbound stubs outboard of the downstream one, so neither
+    // group crosses the barrel.
+    {
+        const double stubLen = std::max(length * 0.10, mw * 2.0);
+        QVector<PlanSpoke> upSpokes, dnSpokes;
+
+        // end 0 = upstream (draw to the LEFT of x0), end 1 = downstream
+        // (draw to the RIGHT of x1).
+        struct End { int node; double x; double face; double dir;
+                     QVector<PlanSpoke> *spokes; };
+        const End ends[2] = {
+            { upNode, x0, mwUp, -1.0, &upSpokes },
+            { dnNode, x1, mwDn, +1.0, &dnSpokes },
+        };
+
+        for (const End &e : ends) {
+            const QVector<NodeConnection> conns =
+                collectNodeConnections(engine, e.node, units, linkIdx);
+            for (const NodeConnection &c : conns) {
+                const double xFace = e.x + e.dir * e.face;
+                const double xTip  = xFace + e.dir * stubLen;
+                const double h     = (c.height > 0.0)
+                                         ? c.height
+                                         : (structTop - structBot) * 0.04;
+
+                DiagramPoly stub;
+                stub.role = DiagramRole::Conduit;
+                stub.pts << QPointF(xFace, c.invert + h)
+                         << QPointF(xTip,  c.invert + h)
+                         << QPointF(xTip,  c.invert)
+                         << QPointF(xFace, c.invert);
+                m.polys << stub;
+
+                // Cut mark at the open end — the stub continues off-drawing,
+                // it is not a pipe that stops here.
+                m.polylines << DiagramPolyline{
+                    QPolygonF({ QPointF(xTip - e.dir * stubLen * 0.16, c.invert),
+                                QPointF(xTip + e.dir * stubLen * 0.10,
+                                        c.invert + h * 0.5),
+                                QPointF(xTip - e.dir * stubLen * 0.16,
+                                        c.invert + h) }),
+                    DiagramRole::Muted, false, QString(), false };
+
+                // Name only, and nearly straight up. The invert number is
+                // already carried by where the stub sits, and a wide label
+                // here is expensive: the painter grows the horizontal margin
+                // to fit the widest leader on that side, so one
+                // "B2  Inv 98.00" per branch was squeezing the profile out of
+                // the pane it is supposed to fill.
+                m.leaders << DiagramLeader{
+                    QPointF(xTip, c.invert + h),
+                    c.name,
+                    QPointF(e.dir * 4.0, -18.0) };
+
+                if (c.hasHeading)
+                    *e.spokes << PlanSpoke{ c.headingDeg, c.name, c.inbound };
+            }
+        }
+
+        // This link's own spoke belongs on both dials — it is what orients
+        // the reader, and without it the pair reads as two unrelated roses.
+        double ux = 0.0, uy = 0.0, dx2 = 0.0, dy2 = 0.0;
+        if (swmm_spatial_get_node_coord(engine, upNode, &ux, &uy) == SWMM_OK
+            && swmm_spatial_get_node_coord(engine, dnNode, &dx2, &dy2) == SWMM_OK)
+        {
+            const double vx = dx2 - ux, vy = dy2 - uy;
+            if (std::hypot(vx, vy) > 1.0e-9) {
+                const double head = std::atan2(vy, vx) * 180.0 / M_PI;
+                upSpokes << PlanSpoke{ head, linkName, false };          // leaves
+                dnSpokes << PlanSpoke{ head + 180.0, linkName, true };   // arrives
+            }
+        }
+
+        // Named AND sided: the dial on the left is the inlet, the one on the
+        // right the outlet, matching the direction the profile is drawn in.
+        // Either alone leaves the reader guessing on a symmetric-looking
+        // junction pair.
+        if (!upSpokes.isEmpty())
+            m.planInsets << PlanInset{ upSpokes,
+                                       tr_("Inlet · %1").arg(upName),
+                                       PlanInset::Side::Left };
+        if (!dnSpokes.isEmpty())
+            m.planInsets << PlanInset{ dnSpokes,
+                                       tr_("Outlet · %1").arg(dnName),
+                                       PlanInset::Side::Right };
+    }
+
     m.footer = (linkType == SWMM_LINK_PUMP)
                    ? tr_("PUMP   lift %1 %2   inverts %3 → %4")
                          .arg(num(pipeInvDn - pipeInvUp, 2), units.lengthLabel,
@@ -762,30 +961,6 @@ SectionDiagramModel buildLinkProfile(SWMM_Engine engine, int linkIdx,
 // Node profile
 // ---------------------------------------------------------------------------
 
-namespace {
-
-/*! One connecting link, resolved for drawing. */
-struct NodeConnection
-{
-    QString name;
-    double  invert  = 0.0;   //!< Absolute invert elevation at this node.
-    double  height  = 0.0;   //!< Full depth of the section (0 → thin stub).
-    bool    inbound = true;  //!< True when this node is the link's `to` node.
-    double  headingDeg = 0.0;
-    bool    hasHeading = false;
-    int     type     = SWMM_LINK_CONDUIT;
-    /*! Orifice SIDE/BOTTOM, weir type, or outlet rating type; -1 when the link
-     *  kind has no sub-type. */
-    int     subtype  = -1;
-    bool    flapGate = false;
-};
-
-/*! Outfall boundary-condition codes. The engine documents these inline on
- *  swmm_node_set_outfall_type() but exports no enum for them. */
-enum { kOutfallFree = 0, kOutfallNormal = 1, kOutfallFixed = 2,
-       kOutfallTidal = 3, kOutfallTimeSeries = 4 };
-
-} // namespace
 
 SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx,
                                      const DiagramUnits &units, int maxLinks)
@@ -819,61 +994,9 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx,
     const double rim = invert + maxDepth;
 
     // ---- Collect connections ----------------------------------------------
-    double nx = 0.0, ny = 0.0;
-    const bool haveCoord =
-        (swmm_spatial_get_node_coord(engine, nodeIdx, &nx, &ny) == SWMM_OK);
+    QVector<NodeConnection> conns = collectNodeConnections(engine, nodeIdx, units);
 
-    QVector<NodeConnection> conns;
-    const int nLinks = swmm_link_count(engine);
-    for (int i = 0; i < nLinks; ++i) {
-        int from = -1, to = -1;
-        if (swmm_link_get_from_node(engine, i, &from) != SWMM_OK) continue;
-        if (swmm_link_get_to_node(engine, i, &to) != SWMM_OK) continue;
-        if (from != nodeIdx && to != nodeIdx) continue;
-
-        NodeConnection c;
-        c.name    = idOf(swmm_link_id(engine, i));
-        c.inbound = (to == nodeIdx);
-
-        swmm_link_get_type(engine, i, &c.type);
-        switch (c.type) {
-        case SWMM_LINK_ORIFICE: swmm_link_get_orifice_type(engine, i, &c.subtype); break;
-        case SWMM_LINK_WEIR:    swmm_link_get_weir_type(engine, i, &c.subtype);    break;
-        case SWMM_LINK_OUTLET:  swmm_link_get_outlet_rating_type(engine, i, &c.subtype); break;
-        default: break;
-        }
-        int flap = 0;
-        if (swmm_link_get_flap_gate(engine, i, &flap) == SWMM_OK) c.flapGate = (flap != 0);
-
-        double off = 0.0;
-        if (c.inbound) swmm_link_get_offset_dn(engine, i, &off);
-        else           swmm_link_get_offset_up(engine, i, &off);
-        c.invert = invert + off;
-
-        int shape = SWMM_XSECT_CIRCULAR;
-        double g1 = 0.0, g2 = 0.0, g3 = 0.0, g4 = 0.0;
-        if (swmm_link_get_xsect(engine, i, &shape, &g1, &g2, &g3, &g4) == SWMM_OK) {
-            const XsectSampler s =
-                samplerForLink(engine, i, shape, g1, g2, g3, g4, units.si);
-            if (s.isValid()) c.height = s.fullProps().yFull;
-        }
-
-        // Plan heading from this node toward the far end of the link.
-        if (haveCoord) {
-            const int other = c.inbound ? from : to;
-            double ox = 0.0, oy = 0.0;
-            if (other >= 0
-                && swmm_spatial_get_node_coord(engine, other, &ox, &oy) == SWMM_OK)
-            {
-                const double dx = ox - nx, dy = oy - ny;
-                if (std::hypot(dx, dy) > 1.0e-9) {
-                    c.headingDeg = std::atan2(dy, dx) * 180.0 / M_PI;
-                    c.hasHeading = true;
-                }
-            }
-        }
-        conns << c;
-    }
+    QVector<PlanSpoke> spokes;
 
     const int total = static_cast<int>(conns.size());
     // Deepest first — matches how a manhole schedule is read.
@@ -1164,8 +1287,10 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx,
         }
 
         if (c.hasHeading)
-            m.plan << PlanSpoke{ c.headingDeg, c.name, c.inbound };
+            spokes << PlanSpoke{ c.headingDeg, c.name, c.inbound };
     }
+    if (!spokes.isEmpty())
+        m.planInsets << PlanInset{ spokes, nodeName, PlanInset::Side::Right };
 
     // ---- Node-type specifics ----------------------------------------------
     QString typeNote;
