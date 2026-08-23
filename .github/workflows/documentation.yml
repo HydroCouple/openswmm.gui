@@ -32,7 +32,11 @@ jobs:
         # from docs/ — else INPUT resolves above the repo and HTML lands in ./html
         # instead of docs/html, leaving the Pages upload (path: docs/html) empty.
         working-directory: docs
-        run: doxygen Doxyfile
+        # docs/CNAME pins the Pages custom domain and must sit at the root of
+        # the published site, which is docs/html.
+        run: |
+          doxygen Doxyfile
+          cp CNAME html/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
