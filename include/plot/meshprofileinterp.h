@@ -127,6 +127,82 @@ inline QVector<double> bridgedTops(
     return top;
 }
 
+/*!
+ * \brief Shoreline intercept just outside one end of a wet run — the exact
+ *        chainage where the (wet-side-extrapolated) water surface crosses the
+ *        piecewise-linear ground between the run's boundary sample and its
+ *        adjacent dry sample.
+ *
+ *        CellSurfaceInterp tapers the depth FIELD to the sub-cell waterline,
+ *        but the painted band could only end at the last sample that happened
+ *        to be wet — up to one resample step short of the true shoreline, with
+ *        a vertical cliff of height (WSE − ground). This helper closes that
+ *        sub-sample gap at paint time so the band tapers to a point on the
+ *        ground line (premature-truncation fix).
+ *
+ *        The surface is extended from the run's two boundary-most wet samples
+ *        (flat for a single-sample run) and intersected with the ground
+ *        segment toward the dry neighbour. An intercept exists only when the
+ *        ground actually rises through the surface within that segment — a dry
+ *        neighbour whose ground stays below the surface (a no-data
+ *        termination, e.g. the split flank of an unbridged pool over a low
+ *        bench) keeps its hard edge, as does an off-mesh (NaN ground)
+ *        neighbour and a run ending at the data edge.
+ *
+ * \param s         Ordered profile samples (chainage / ground).
+ * \param top       Paint-top series from bridgedTops(), parallel to \p s.
+ * \param runFirst  Index of the run's first wet (non-NaN top) sample.
+ * \param runLast   Index of the run's last wet sample.
+ * \param trailing  true → intercept past runLast; false → before runFirst.
+ * \param outChainage,outElev  The intercept; written only on success. The
+ *        elevation lies on the drawn ground segment by construction, so both
+ *        the WSE polyline and the fill close exactly onto the ground line.
+ * \return true when a physically meaningful intercept exists.
+ */
+inline bool shorelineIntercept(const QVector<MeshProfileSampler::Sample> &s,
+                               const QVector<double> &top,
+                               int runFirst, int runLast, bool trailing,
+                               double *outChainage, double *outElev)
+{
+    const int n = s.size();
+    if (runFirst < 0 || runLast >= n || runFirst > runLast || top.size() != n)
+        return false;
+    const int i = trailing ? runLast : runFirst;          // boundary wet sample
+    const int j = trailing ? runLast - 1 : runFirst + 1;  // inner wet neighbour
+    const int k = trailing ? runLast + 1 : runFirst - 1;  // adjacent dry sample
+    if (k < 0 || k >= n) return false;                    // run ends at the data edge
+    if (!std::isfinite(s[k].ground)) return false;        // off-mesh — keep the hard edge
+    if (!std::isnan(top[k])) return false;                // neighbour not dry (defensive)
+    if (std::isnan(top[i]) || !std::isfinite(s[i].ground)) return false;
+
+    const double ci = s[i].chainage, ck = s[k].chainage;
+    const double dSeg = ck - ci;                          // signed, toward the dry side
+    if (std::abs(dSeg) < 1e-12) return false;
+
+    // Wet-side surface slope from the two boundary-most wet samples; a
+    // single-sample run extends flat.
+    double mTop = 0.0;
+    if (j >= runFirst && j <= runLast) {
+        const double dcw = ci - s[j].chainage;
+        if (std::abs(dcw) > 1e-12 && !std::isnan(top[j]))
+            mTop = (top[i] - top[j]) / dcw;
+    }
+
+    // Along t ∈ [0,1] from sample i to sample k:
+    //   surface(t) = top_i + mTop·dSeg·t
+    //   ground(t)  = g_i + (g_k − g_i)·t
+    // They cross where surface == ground.
+    const double gi = s[i].ground, gk = s[k].ground;
+    const double denom = (gk - gi) - mTop * dSeg;
+    if (denom <= 1e-12) return false;      // ground never rises through the surface
+    const double t = (top[i] - gi) / denom;
+    if (t <= 0.0 || t > 1.0) return false; // no crossing inside the segment
+
+    if (outChainage) *outChainage = ci + t * dSeg;
+    if (outElev)     *outElev     = gi + t * (gk - gi);
+    return true;
+}
+
 } // namespace MeshProfileInterp
 
 #endif // MESH_PROFILE_INTERP_H
