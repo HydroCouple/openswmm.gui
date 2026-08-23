@@ -360,6 +360,33 @@ void EditVertexCommand::undo()
 }
 
 // ===========================================================================
+// FlipLinkCommand
+// ===========================================================================
+
+FlipLinkCommand::FlipLinkCommand(SWMMModelLayer *layer,
+                                 int linkIdx,
+                                 MapCanvas *canvas,
+                                 QUndoCommand *parent)
+    : MapCommand(QObject::tr("Flip Link Direction"), canvas, parent),
+      m_layer(layer),
+      m_linkIdx(linkIdx)
+{
+}
+
+// applyLinkFlip is self-inverse — flipping twice restores the original
+// endpoints, vertex order, offsets and loss coefficients — so both directions
+// are the same call.
+void FlipLinkCommand::redo()
+{
+    if (m_layer) m_layer->applyLinkFlip(m_linkIdx);
+}
+
+void FlipLinkCommand::undo()
+{
+    if (m_layer) m_layer->applyLinkFlip(m_linkIdx);
+}
+
+// ===========================================================================
 // EditSubcatchCommand
 // ===========================================================================
 

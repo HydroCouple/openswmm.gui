@@ -1493,6 +1493,28 @@ public:
                           QStringList *outWarnings = nullptr,
                           QString *outError = nullptr);
 
+    /*!
+     * \brief Reverse link \p linkIdx: the upstream node becomes the downstream
+     *        node and vice versa, leaving the physical link unchanged.
+     * \details Swaps node1/node2 via `swmm_link_set_nodes`, reverses the
+     *          interior vertices (the engine stores them upstream→downstream,
+     *          so without this the drawn polyline zig-zags), and — for conduits
+     *          only — swaps the two end-attached value pairs, offset_up/
+     *          offset_dn and the entry/exit loss coefficients, so the invert
+     *          profile and head losses stay exactly where they were. Mirrors
+     *          the engine's own adverse-slope reversal in PostParseResolver,
+     *          minus the parse-time-derived `direction` and conduit `slope`
+     *          (recomputed on the next engine open, and not exposed by any C
+     *          API). Non-conduits carry a single crest offset in offset_up with
+     *          offset_dn unused, so nothing is swapped for them.
+     *
+     *          Self-inverse: flipping twice restores the original state, which
+     *          is what lets FlipLinkCommand use one call for redo and undo.
+     *          Emits the applyLinkInteriorVertices() signal set (repaint +
+     *          modelEdited) plus attributeChanged() for the From/To cells.
+     */
+    bool applyLinkFlip(int linkIdx);
+
     // ===== Virtual junctions ==============================================
     // Engine-side split/fuse semantics (swmm_conduit_split /
     // swmm_virtual_junction_fuse / swmm_node_set_virtual) so CLI, Python,
