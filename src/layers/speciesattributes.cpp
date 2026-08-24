@@ -67,6 +67,28 @@ int speciesOutCode(const QString &attr, const QStringList &species,
     return pollutBase + idx;
 }
 
+QStringList inflowConstituentNames(const QStringList &pollutants)
+{
+    QStringList out{QStringLiteral("FLOW")};
+    for (const QString &pname : pollutants)
+        if (!pname.isEmpty())
+            out << pname;
+    out << QLatin1String(kWaterAgeName);
+    return out;
+}
+
+QString inflowConstituentLabel(const QString &name)
+{
+    if (isReservedSpecies(name))
+        return speciesDisplayLabel(name);
+    return name;
+}
+
+bool inflowMassAllowed(const QString &name)
+{
+    return name != QLatin1String("FLOW") && !isReservedSpecies(name);
+}
+
 QString SpeciesMissWarner::noteMiss(const QString &attr,
                                     const QString &runName)
 {

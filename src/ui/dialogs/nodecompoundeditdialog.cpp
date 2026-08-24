@@ -12,6 +12,7 @@
 #include "ui/dialogs/timeserieseditordialog.h"
 #include "ui/widgets/labeledcontrols.h"
 #include "ui/widgets/treatmentexpressionedit.h"
+#include "layers/speciesattributes.h"   // Y4 — age as an inflow constituent
 #include "layers/swmmmodellayer.h"
 #include "pattern/patternregistry.h"
 #include "timeseries/timeseriesregistry.h"
@@ -88,12 +89,19 @@ void NodeCompoundEditDialog::populateConstituentCombo(QComboBox *c)
     if (!c || !m_ref.engine) return;
     QSignalBlocker block(c);
     c->clear();
-    c->addItem(QStringLiteral("FLOW"));
+    // Y4 (amendment D-Y4): FLOW + pollutants + the reserved age species.
+    // Item DATA carries the engine name; the label may differ (the age
+    // entry reads "Water age (hours)" so nobody types mg/L thinking it).
+    QStringList pollutants;
     const int n = swmm_pollutant_count(m_ref.engine);
     for (int i = 0; i < n; ++i) {
         const char *id = swmm_pollutant_id(m_ref.engine, i);
-        if (id && *id) c->addItem(QString::fromUtf8(id));
+        if (id && *id) pollutants << QString::fromUtf8(id);
     }
+    const QStringList names =
+        OpenSWMMVis::Species::inflowConstituentNames(pollutants);
+    for (const QString &name : names)
+        c->addItem(OpenSWMMVis::Species::inflowConstituentLabel(name), name);
 }
 
 void NodeCompoundEditDialog::populateTimeSeriesCombo(LabeledPickerCombo *p)
@@ -202,7 +210,10 @@ void NodeCompoundEditDialog::wirePicker(LabeledPickerCombo *picker,
 void NodeCompoundEditDialog::updateInflowsMassEnabled()
 {
     if (!m_inflowsConstCombo || !m_inflowsTypeCombo) return;
-    const bool isFlow = (m_inflowsConstCombo->currentText() == QLatin1String("FLOW"));
+    // Y4: pollutant-only — disabled for FLOW and the age species (the
+    // engine would take a MASS-typed age row as hours with a warning).
+    const bool isFlow = !OpenSWMMVis::Species::inflowMassAllowed(
+        m_inflowsConstCombo->currentData().toString());
     // QComboBox doesn't expose per-item enable directly; reach into its
     // underlying QStandardItemModel.
     auto *model = qobject_cast<QStandardItemModel *>(m_inflowsTypeCombo->model());
@@ -212,9 +223,14 @@ void NodeCompoundEditDialog::updateInflowsMassEnabled()
     Qt::ItemFlags f = massItem->flags();
     if (isFlow) {
         f &= ~(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-        // If MASS was selected, drop back to FLOW.
+        // If MASS was selected, drop back to something legal: FLOW for
+        // the FLOW constituent, CONCEN for the age species (its value
+        // is "the inflow carries age A", exactly CONCEN's shape).
         if (m_inflowsTypeCombo->currentIndex() == 2)
-            m_inflowsTypeCombo->setCurrentIndex(0);
+            m_inflowsTypeCombo->setCurrentIndex(
+                m_inflowsConstCombo->currentData().toString() ==
+                        QLatin1String("FLOW")
+                    ? 0 : 1);
     } else {
         f |= Qt::ItemIsEnabled | Qt::ItemIsSelectable;
     }
@@ -324,7 +340,8 @@ void NodeCompoundEditDialog::buildInflowsPage()
     connect(addBtn, &QPushButton::clicked, this, [this]() {
         const int idx = nodeIdx();
         if (idx < 0) return;
-        const QString constituent = m_inflowsConstCombo->currentText();
+        const QString constituent =
+            m_inflowsConstCombo->currentData().toString();
         const QByteArray cons = constituent.toUtf8();
         const QByteArray ts   = m_inflowsTsPicker->currentText().toUtf8();
         const QByteArray type = m_inflowsTypeCombo->currentText().toUtf8();
@@ -381,7 +398,12 @@ void NodeCompoundEditDialog::buildInflowsPage()
             QTableWidgetItem *it = m_inflowsTable->item(row, col);
             return it ? it->text() : QString();
         };
-        m_inflowsConstCombo->setCurrentText(cellText(0));
+        {
+            // The table shows engine names; the combo labels the reserved
+            // species — match by item DATA.
+            const int ci = m_inflowsConstCombo->findData(cellText(0));
+            if (ci >= 0) m_inflowsConstCombo->setCurrentIndex(ci);
+        }
         m_inflowsTypeCombo->setCurrentText(cellText(1));
         m_inflowsTsPicker->setCurrentText(cellText(2));
         m_inflowsBaseSpin->setValue(cellText(3).toDouble());
