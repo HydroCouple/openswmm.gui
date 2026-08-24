@@ -454,6 +454,7 @@ set(
 
         # ── Climatology ([TEMPERATURE]/[EVAPORATION]/[ADJUSTMENTS]) ───────────
         include/ui/dialogs/climatologydialog.h
+        include/ui/dialogs/wateragesourcesdialog.h
 
         # ── Transect (Slice BQ Phase 6.7.4) ──────────────────────────────────
         include/transect/transectprovider.h
@@ -1095,6 +1096,7 @@ set(
 
         # ── Climatology ([TEMPERATURE]/[EVAPORATION]/[ADJUSTMENTS]) ───────────
         src/ui/dialogs/climatologydialog.cpp
+        src/ui/dialogs/wateragesourcesdialog.cpp
 
         # ── Transect (Slice BQ Phase 6.7.4) ──────────────────────────────────
         src/transect/transectprovider.cpp
