@@ -1355,6 +1355,17 @@ add_swmmvis_gui_test(test_options_hydration_contract
     ${CMAKE_SOURCE_DIR}/include/ui/swmmvis_hydration_audit.h
 )
 
+# Y2a — dynamic water-quality species as themeable attributes (GUI plan
+# D-G1). The helpers live in their own TU so this test can link them:
+# SWMMResultsLayer itself cannot be linked into a test (the same closure
+# problem recorded at the test_simulationoptionsdialog block below), so the
+# logic that can carry a defect was placed where a test can reach it.
+add_swmmvis_gui_test(test_species_attributes
+    test_species_attributes.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
+    ${CMAKE_SOURCE_DIR}/include/layers/speciesattributes.h
+)
+
 # Pins the [2D_OPTIONS] VFR-closure ABI (CELL_CLOSURE / FACE_RECONSTRUCTION /
 # VFR_MIN_WET_FRAC) that SimulationOptionsDialog's new closure controls persist
 # through swmm_options_*_ext + swmm_model_write. Engine-ABI only (no dialog).
