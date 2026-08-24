@@ -19,10 +19,11 @@
  * `.out`-backed layer). Pickers consume it in Y2b-2; tabular/statistics
  * and `.oswp` persistence follow in Y2b-3.
  *
- * The list-building logic lives in a free function in its own TU so a
- * test can reach it without linking `SWMMResultsLayer` (the closure
- * problem recorded at `tests/gui/CMakeLists.txt` for the options dialog;
- * the Y2a extraction precedent).
+ * The list builder (`resultDescriptorsForKind`) is INLINE in
+ * irunlayer.h: IRunLayer's virtual defaults call it, and IRunLayer is a
+ * header-only interface — hundreds of tests stub it without linking any
+ * plot TU. Only the label/unit authorities live in resultdescriptor.cpp
+ * (they pull in the Y2a species helpers).
  */
 #ifndef OPENSWMMVIS_PLOT_RESULTDESCRIPTOR_H
 #define OPENSWMMVIS_PLOT_RESULTDESCRIPTOR_H

@@ -31,7 +31,8 @@
 #include "core/openswmmvislogmessage.h"
 #include "layers/swmmmodellayer.h"        // NewProjectSpec (nested type)
 #include "selection/selectionmanager.h"   // SWMMObjectRef
-#include "plot/plotattribute.h"           // PlotAttribute (AT.2)
+#include "plot/plotattribute.h"
+#include "plot/resultdescriptor.h"           // PlotAttribute (AT.2)
 #include "plot/profilerouter.h"           // ProfileRouter::Path
 
 QT_BEGIN_NAMESPACE
@@ -502,6 +503,19 @@ private slots:
     void openComparisonPlotForAttributeOnLayer(const SWMMObjectRef &ref,
                                                 openswmmvis::plot::PlotAttribute attribute,
                                                 SWMMResultsLayer *layer);
+
+    /*! Y2b-2 (amendment D-Y4): descriptor-shaped variants — a fixed
+     *  attribute or a species BY NAME; the quick map menus emit these.
+     *  An INVALID descriptor is the "All attributes" sentinel and fans
+     *  out across the run's full descriptor list, species included. The
+     *  enum variants above forward here. */
+    void openComparisonPlotForDescriptor(
+        const SWMMObjectRef &ref,
+        const openswmmvis::plot::ResultDescriptor &descriptor);
+    void openComparisonPlotForDescriptorOnLayer(
+        const SWMMObjectRef &ref,
+        const openswmmvis::plot::ResultDescriptor &descriptor,
+        SWMMResultsLayer *layer);
 
     /*! Profile-dialog overlay variant: opens / focuses a ComparisonPlotDialog
      *  parented to \p profileDlg (rather than this main window) and given

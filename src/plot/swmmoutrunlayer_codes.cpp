@@ -75,4 +75,25 @@ int SwmmOutRunLayer::variableCodeFor(PlotAttribute attr, ObjectRef::Kind kind)
     return -1;
 }
 
+
+int SwmmOutRunLayer::speciesVariableCodeFor(const QString& species,
+                                            const QStringList& runSpecies,
+                                            ObjectRef::Kind kind)
+{
+    if (species.isEmpty())
+        return -1;
+    // NAME is the identity (D-G1): the index is derived from the run's
+    // live species list at call time, so a reordered model cannot
+    // silently repoint a series at a different column.
+    const int idx = runSpecies.indexOf(species);
+    if (idx < 0)
+        return -1;
+    switch (kind) {
+    case ObjectRef::Kind::Node:     return SWMM_OUT_NODE_POLLUT_BASE + idx;
+    case ObjectRef::Kind::Link:     return SWMM_OUT_LINK_POLLUT_BASE + idx;
+    case ObjectRef::Kind::Subcatch: return SWMM_OUT_SUBCATCH_POLLUT_BASE + idx;
+    default:                        return -1;   // no species columns
+    }
+}
+
 } // namespace openswmmvis::plot

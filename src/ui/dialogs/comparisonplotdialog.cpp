@@ -715,15 +715,23 @@ int ComparisonPlotDialog::addSeries(int runIndex,
                                     const ObjectRef& ref,
                                     PlotAttribute attr)
 {
+    return addSeries(runIndex, ref, ResultDescriptor::forAttribute(attr));
+}
+
+int ComparisonPlotDialog::addSeries(int runIndex,
+                                    const ObjectRef& ref,
+                                    const ResultDescriptor& descriptor)
+{
     if (runIndex < 0 || runIndex >= m_model->runSourceCount())
         return -1;
-    if (attr == PlotAttribute::Unknown || !ref.isValid())
+    if (!descriptor.isValid() || !ref.isValid())
         return -1;
 
     SeriesSpec spec;
     spec.runIndex  = runIndex;
     spec.objectRef = ref;
-    spec.attribute = attr;
+    spec.attribute = descriptor.attr;
+    spec.species   = descriptor.species;
     return m_model->addSeries(std::move(spec));
 }
 
@@ -810,7 +818,9 @@ QString ComparisonPlotDialog::legendNameFor(const SeriesSpec& spec) const
              spec.objectRef.kind == ObjectRef::Kind::Mesh2DCell
                 ? tr("Cell %1").arg(spec.objectRef.triIdx)
                 : spec.objectRef.name,
-             labelFor(spec.attribute));
+             // Y2b-2: a species series is named by the species label
+             // (the descriptor's authority), a fixed one as before.
+             spec.descriptor().label());
 }
 
 void ComparisonPlotDialog::onAnimationTimeChanged(QDateTime t)

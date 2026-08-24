@@ -142,9 +142,10 @@ int ComparisonPlotModel::addPair(ComparisonPair pair)
         return -1;
     if (pair.xSeriesIndex == pair.ySeriesIndex)
         return -1;
-    // Same attribute = same chart row; cross-attribute scatters would mix
-    // units on one axis pair.
-    if (m_specs[pair.xSeriesIndex].attribute != m_specs[pair.ySeriesIndex].attribute)
+    // Same descriptor = same chart row; cross-attribute (or cross-
+    // species — TSS vs Lead) scatters would mix units on one axis pair.
+    if (m_specs[pair.xSeriesIndex].descriptor() !=
+        m_specs[pair.ySeriesIndex].descriptor())
         return -1;
     if (m_pairs.contains(pair))
         return -1;
@@ -217,29 +218,35 @@ void ComparisonPlotModel::deriveRows_()
     // Preserve insertion order: rows are listed in the order each attribute
     // first appears in m_specs.
     QVector<AttributeRow> rows;
-    QHash<PlotAttribute, int> rowIndexByAttr;
+    // Y2b-2: rows key on (attribute, species) — every species gets its
+    // own chart row, and a species key can never collide with a fixed
+    // attribute's (species specs carry attribute == Unknown).
+    QHash<QPair<int, QString>, int> rowIndexByKey;
 
     for (int s = 0; s < m_specs.size(); ++s) {
         const SeriesSpec &spec = m_specs[s];
         if (!spec.isValid())
             continue;
 
+        const QPair<int, QString> key(static_cast<int>(spec.attribute),
+                                      spec.species);
         int r;
-        if (rowIndexByAttr.contains(spec.attribute)) {
-            r = rowIndexByAttr.value(spec.attribute);
+        if (rowIndexByKey.contains(key)) {
+            r = rowIndexByKey.value(key);
         } else {
             AttributeRow row;
             row.attribute = spec.attribute;
+            row.species   = spec.species;
             row.unitSystem = (spec.runIndex >= 0 && spec.runIndex < m_runs.size() &&
                               m_runs[spec.runIndex].layer)
                               ? m_runs[spec.runIndex].layer->unitSystem()
                               : UnitSystem::US;
-            row.unitsLabel = unitsFor(spec.attribute, row.unitSystem);
+            row.unitsLabel = spec.descriptor().unitLabel(row.unitSystem);
             row.ymin = std::numeric_limits<double>::infinity();
             row.ymax = -std::numeric_limits<double>::infinity();
             rows.push_back(std::move(row));
             r = rows.size() - 1;
-            rowIndexByAttr.insert(spec.attribute, r);
+            rowIndexByKey.insert(key, r);
         }
         rows[r].seriesIndices.push_back(s);
     }
@@ -280,7 +287,9 @@ void ComparisonPlotModel::resolveSeries(int seriesIndex, SeriesData& out) const
         out.errorMessage = QStringLiteral("Run has no source");
         return;
     }
-    run.layer->getSeriesAt(spec.objectRef, spec.attribute, out);
+    // Y2b-2: dispatch by descriptor so species series reach the sources
+    // that carry them; fixed attributes take the enum path inside.
+    run.layer->getSeriesAt(spec.objectRef, spec.descriptor(), out);
 }
 
 void ComparisonPlotModel::setAnimationTime(QDateTime t)

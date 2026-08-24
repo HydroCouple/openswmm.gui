@@ -779,6 +779,9 @@ add_swmmvis_gui_test(test_plotvariablepickerdialog
     test_plotvariablepickerdialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/plotvariablepickerdialog.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    # Y2b-2: species leaves label/unit through the descriptor authorities.
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/plotvariablepickerdialog.h
     ${CMAKE_SOURCE_DIR}/include/plot/plotattribute.h
     ${CMAKE_SOURCE_DIR}/include/plot/irunlayer.h
@@ -1295,6 +1298,10 @@ add_swmmvis_gui_test(test_comparisonplot_scatter
     test_comparisonplot_scatter.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/seriespairing.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/comparisonplotmodel.cpp
+    # Y2b-2: deriveRows_ labels species rows through the descriptor
+    # authorities (unitLabel), so the model now needs these TUs.
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/seriesstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
     # seriesstyle.cpp formats point labels via NumberFormat::printfSpec().
@@ -1313,6 +1320,10 @@ target_link_libraries(test_comparisonplot_scatter PRIVATE Qt6::Charts)
 add_swmmvis_gui_test(test_comparisonplot_pairs
     test_comparisonplot_pairs.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/comparisonplotmodel.cpp
+    # Y2b-2: deriveRows_ labels species rows through the descriptor
+    # authorities (unitLabel), so the model now needs these TUs.
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/seriesstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
     # seriesstyle.cpp formats point labels via NumberFormat::printfSpec().
@@ -1324,11 +1335,34 @@ add_swmmvis_gui_test(test_comparisonplot_pairs
 # seriesstyle.cpp includes <QScatterSeries> (Qt6::Charts).
 target_link_libraries(test_comparisonplot_pairs PRIVATE Qt6::Charts)
 
+# Y2b-2 (amendment D-Y4) — species series: name-keyed code resolution
+# (swmmoutrunlayer_codes statics, reorder-proof), per-species chart rows,
+# descriptor dispatch in resolveSeries, and same-descriptor 1v1 pairs.
+add_swmmvis_gui_test(test_speciesplotting
+    test_speciesplotting.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/comparisonplotmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/seriesstyle.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/swmmoutrunlayer_codes.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/comparisonplotmodel.h
+    ${CMAKE_SOURCE_DIR}/include/plot/resultdescriptor.h
+    ${CMAKE_SOURCE_DIR}/include/plot/swmmoutrunlayer.h
+    ${CMAKE_SOURCE_DIR}/include/plot/irunlayer.h
+)
+target_link_libraries(test_speciesplotting PRIVATE Qt6::Charts)
+
 # Slice AT.3 — pins the model surface that the series-tree checkbox + context
 # menu drives (updateStyle / removeSeries / Plot-This-Only loop).
 add_swmmvis_gui_test(test_comparisonplot_seriestree
     test_comparisonplot_seriestree.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/comparisonplotmodel.cpp
+    # Y2b-2: deriveRows_ labels species rows through the descriptor
+    # authorities (unitLabel), so the model now needs these TUs.
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/seriesstyle.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
     # seriesstyle.cpp formats point labels via NumberFormat::printfSpec().

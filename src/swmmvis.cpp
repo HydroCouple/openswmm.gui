@@ -2246,6 +2246,22 @@ void SWMMVis::onPlotTimeSeriesFromOutputLayer(SWMMResultsLayer *layer)
             break;
         default: break;
         }
+        // Y2b-2 (amendment D-Y4): the run's species, labelled/united by
+        // the descriptor authorities and carried BY NAME (QString data —
+        // the accept path below tells the two apart by variant type).
+        if (t == SWMMObjectRef::Node || t == SWMMObjectRef::Link ||
+            t == SWMMObjectRef::Subcatchment) {
+            for (const QString &sp : layer->speciesNames()) {
+                if (sp.isEmpty()) continue;
+                const auto d =
+                    openswmmvis::plot::ResultDescriptor::forSpecies(sp);
+                varCombo->addItem(
+                    QStringLiteral("%1 (%2)").arg(
+                        d.label(),
+                        d.unitLabel(openswmmvis::plot::UnitSystem::US)),
+                    sp);
+            }
+        }
     };
     connect(classCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             &dlg, [&](int) { refreshObjects(); refreshVariables(); });
@@ -2263,8 +2279,13 @@ void SWMMVis::onPlotTimeSeriesFromOutputLayer(SWMMResultsLayer *layer)
     SWMMObjectRef ref;
     ref.objectType = static_cast<SWMMObjectRef::ObjectType>(classCombo->currentData().toInt());
     ref.name       = idCombo->currentText();
-    const auto attr = static_cast<PA>(varCombo->currentData().toInt());
-    openComparisonPlotForAttributeOnLayer(ref, attr, layer);
+    const QVariant varData = varCombo->currentData();
+    const auto descriptor =
+        varData.typeId() == QMetaType::QString
+            ? openswmmvis::plot::ResultDescriptor::forSpecies(varData.toString())
+            : openswmmvis::plot::ResultDescriptor::forAttribute(
+                  static_cast<PA>(varData.toInt()));
+    openComparisonPlotForDescriptorOnLayer(ref, descriptor, layer);
 }
 
 void SWMMVis::onLayerKindStyleRequested(OpenSWMMVisLayer *layer,
@@ -2630,12 +2651,31 @@ void SWMMVis::openComparisonPlotForOnLayer(const SWMMObjectRef &ref,
 void SWMMVis::openComparisonPlotForAttribute(const SWMMObjectRef &ref,
                                               openswmmvis::plot::PlotAttribute attribute)
 {
-    openComparisonPlotForAttributeOnLayer(ref, attribute, nullptr);
+    openComparisonPlotForDescriptorOnLayer(
+        ref, openswmmvis::plot::ResultDescriptor::forAttribute(attribute),
+        nullptr);
 }
 
 void SWMMVis::openComparisonPlotForAttributeOnLayer(const SWMMObjectRef &ref,
                                                      openswmmvis::plot::PlotAttribute attribute,
                                                      SWMMResultsLayer *preferred)
+{
+    openComparisonPlotForDescriptorOnLayer(
+        ref, openswmmvis::plot::ResultDescriptor::forAttribute(attribute),
+        preferred);
+}
+
+void SWMMVis::openComparisonPlotForDescriptor(
+    const SWMMObjectRef &ref,
+    const openswmmvis::plot::ResultDescriptor &descriptor)
+{
+    openComparisonPlotForDescriptorOnLayer(ref, descriptor, nullptr);
+}
+
+void SWMMVis::openComparisonPlotForDescriptorOnLayer(
+    const SWMMObjectRef &ref,
+    const openswmmvis::plot::ResultDescriptor &descriptor,
+    SWMMResultsLayer *preferred)
 {
     auto *pw = activeProjectWindow();
     if (!pw || !pw->canvas()) return;
@@ -2669,13 +2709,15 @@ void SWMMVis::openComparisonPlotForAttributeOnLayer(const SWMMObjectRef &ref,
 
     openswmmvis::plot::ObjectRef objRef(kind, ref.name);
 
-    if (attribute == PA::Unknown) {
-        // "All attributes" sentinel — fan out across every attribute valid
-        // for the object kind (shared canonical lists).
-        for (PA a : openswmmvis::plot::attributesForKind(kind))
-            dlg->addSeries(runIdx, objRef, a);
+    if (!descriptor.isValid()) {
+        // "All attributes" sentinel — fan out across everything THIS run
+        // can plot for the kind: the fixed set plus its species (Y2b-2).
+        const openswmmvis::plot::SwmmOutRunLayer probe(resultsLayer);
+        const auto all = probe.resultDescriptorsForKind(kind);
+        for (const auto &d : all)
+            dlg->addSeries(runIdx, objRef, d);
     } else {
-        dlg->addSeries(runIdx, objRef, attribute);
+        dlg->addSeries(runIdx, objRef, descriptor);
     }
 
     dlg->show();
@@ -2724,8 +2766,13 @@ void SWMMVis::onAddFromMapToggled(bool active)
         mPrevMapTool   = canvas->activeTool();
         mPlotPickTool  = new OpenSWMMVisMapToolPlotPick(canvas, this);
 
+        // Y2b-2: snapshot the active run's species so the pick menu can
+        // offer them; the tool lives for one pick session.
+        if (auto *apw = activeProjectWindow())
+            if (auto *rl = apw->activeResultsLayer())
+                mPlotPickTool->setSpeciesNames(rl->speciesNames());
         connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::objectPicked,
-                this, &SWMMVis::openComparisonPlotForAttribute);
+                this, &SWMMVis::openComparisonPlotForDescriptor);
         connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::plotSystemRequested,
                 this, &SWMMVis::openComparisonPlotForSystemAttribute);
         connect(mPlotPickTool, &OpenSWMMVisMapToolPlotPick::cancelled,
@@ -5922,12 +5969,12 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         // Slice AT.2 — attribute submenu picks (Node/Link/Subcatch) and
         // background-hit system-variable picks.
         connect(st, &OpenSWMMVisMapToolSelect::plotAttributeRequested,
-                this, &SWMMVis::openComparisonPlotForAttribute,
+                this, &SWMMVis::openComparisonPlotForDescriptor,
                 Qt::UniqueConnection);
         // Two-level submenu — fires when the user picks a specific results
         // layer in addition to the variable (≥2 .out layers loaded).
         connect(st, &OpenSWMMVisMapToolSelect::plotAttributeForLayerRequested,
-                this, &SWMMVis::openComparisonPlotForAttributeOnLayer,
+                this, &SWMMVis::openComparisonPlotForDescriptorOnLayer,
                 Qt::UniqueConnection);
         connect(st, &OpenSWMMVisMapToolSelect::plotSystemRequested,
                 this, &SWMMVis::openComparisonPlotForSystemAttribute,
@@ -8012,7 +8059,7 @@ void SWMMVis::onPlotTimeSeries()
     auto *cmp = ensureComparisonPlotDialog();
     const int runIdx = cmp->ensureRunSourceForLayer(resultsLayer);
     for (const auto &e : entries)
-        cmp->addSeries(runIdx, e.ref, e.attribute);
+        cmp->addSeries(runIdx, e.ref, e.descriptor());
 
     cmp->show();
     cmp->raise();
