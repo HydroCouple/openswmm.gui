@@ -500,6 +500,14 @@ public:
     [[nodiscard]] QVector<OpenSWMM::Render::AttributeField>
         availableAttributes(OpenSWMMVis::SwmmCategory cat) const override;
 
+    /*! \brief Y2a — the loaded run's species names, in `.out` order
+     *         (pollutants plus the reserved age/temperature columns).
+     *  \details Empty when no results are open or the run carries no
+     *           quality. Read live from the reader rather than cached: the
+     *           handle is reopened on reload and a stale list would
+     *           repoint every species theme by a slot. */
+    [[nodiscard]] QStringList speciesNames() const;
+
     // ----- Legend ---------------------------------------------------------
 
     [[nodiscard]] bool showLegend() const;
