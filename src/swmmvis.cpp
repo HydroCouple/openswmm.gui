@@ -124,6 +124,7 @@
 #include "ui/panels/layerstylingdock.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/climatologydialog.h"
+#include "ui/dialogs/wateragesourcesdialog.h"
 #include "ui/dialogs/statisticsdashboarddialog.h"
 #include "ui/dialogs/userflagsdialog.h"
 #include "layers/tabulardatalayer.h"
@@ -3842,6 +3843,11 @@ void SWMMVis::initializeMenus()
             onClimatology(ClimatologyDialog::TabEvaporation);
         });
 
+    // Water Age Sources editor (Y3b) — the per-pathway initial-age table.
+    if (ui->actionEditWaterAgeSources)
+        connect(ui->actionEditWaterAgeSources, &QAction::triggered,
+                this, &SWMMVis::onEditWaterAgeSources);
+
     // Toolbar quick-wins (Phase 2).
     if (ui->actionSearch)
         connect(ui->actionSearch, &QAction::triggered, this, &SWMMVis::onSearch);
@@ -6731,6 +6737,21 @@ void SWMMVis::onClimatology(int tab)
         dlg.setProjectAnchor(
             QFileInfo(pw->modelLayer()->modelFilePath()).absolutePath());
     dlg.setCurrentTab(tab);
+    if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
+        pw->setHasChanges(true);
+}
+
+void SWMMVis::onEditWaterAgeSources()
+{
+    auto *pw = activeProjectWindow();
+    if (!pw || !pw->modelLayer() || !pw->modelLayer()->engine())
+    {
+        onLogMessage(tr("Open a SWMM project first to edit water age sources."),
+                     OpenSWMMVisLogMessage::Warning);
+        return;
+    }
+
+    OpenSWMMVis::WaterAgeSourcesDialog dlg(pw->modelLayer()->engine(), this);
     if (dlg.exec() == QDialog::Accepted && dlg.wroteAnyChanges())
         pw->setHasChanges(true);
 }
