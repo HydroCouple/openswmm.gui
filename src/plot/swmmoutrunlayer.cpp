@@ -97,7 +97,16 @@ void SwmmOutRunLayer::getSeriesAt(const ObjectRef& ref,
         out.errorMessage = QStringLiteral("Attribute not applicable to object kind");
         return;
     }
+    fetchSeriesByCode_(ref, varCode, out);
+}
 
+/// The shared tail of both getSeriesAt overloads: object resolution +
+/// bulk fetch + time axis, for an ALREADY-RESOLVED engine var code
+/// (fixed attribute or species column — Y2b-2). Preconditions checked by
+/// the callers: m_layer and its output handle are non-null.
+void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef& ref, int varCode,
+                                         SeriesData& out) const
+{
     int objIdx = -1;
     switch (ref.kind) {
     case ObjectRef::Kind::Node:     objIdx = m_layer->nodeOutputIndex(ref.name);     break;
@@ -169,6 +178,40 @@ void SwmmOutRunLayer::getSeriesAt(const ObjectRef& ref,
         out.values[i]      = static_cast<double>(values[i]);
     }
     out.ok = true;
+}
+
+void SwmmOutRunLayer::getSeriesAt(const ObjectRef& ref,
+                                  const ResultDescriptor& descriptor,
+                                  SeriesData& out) const
+{
+    // Fixed attributes take the enum path unchanged.
+    if (!descriptor.isSpecies()) {
+        getSeriesAt(ref, descriptor.attr, out);
+        return;
+    }
+
+    out.ok = false;
+    out.errorMessage.clear();
+    out.timesJulian.clear();
+    out.values.clear();
+
+    if (!m_layer || !m_layer->outputHandle()) {
+        out.errorMessage = QStringLiteral("Result layer not available");
+        return;
+    }
+    // NAME → index → POLLUT_BASE + index against the run's LIVE species
+    // list (D-G1): a series saved against a reordered model resolves to
+    // the right column or to a precise miss — never to a wrong column.
+    const int varCode = speciesVariableCodeFor(
+        descriptor.species, m_layer->speciesNames(), ref.kind);
+    if (varCode < 0) {
+        out.errorMessage =
+            QStringLiteral("Run does not carry species '%1' for this "
+                           "object kind")
+                .arg(descriptor.species);
+        return;
+    }
+    fetchSeriesByCode_(ref, varCode, out);
 }
 
 QVector<ResultDescriptor> SwmmOutRunLayer::resultDescriptorsForKind(

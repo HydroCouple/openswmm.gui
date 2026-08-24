@@ -23,6 +23,9 @@
 
 #include "map/tools/maptool.h"
 #include "plot/plotattribute.h"
+#include "plot/resultdescriptor.h"
+
+#include <QStringList>
 #include "selection/selectionmanager.h"   // SWMMObjectRef
 
 class OpenSWMMVisMapToolPlotPick : public OpenSWMMVisMapTool
@@ -34,6 +37,11 @@ public:
 
     QCursor cursor() const override;
 
+    /*! \brief Y2b-2: the active run's species names — shown in the
+     *  attribute submenu beneath the fixed set. Snapshotted by the owner
+     *  at tool creation (the tool lives for one pick session). */
+    void setSpeciesNames(QStringList names) { m_speciesNames = std::move(names); }
+
     void mousePressEvent(QMouseEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
 
@@ -43,7 +51,7 @@ signals:
      *  attributes" sentinel — handler should fan out across all valid
      *  attributes for the ref's kind. */
     void objectPicked(const SWMMObjectRef &ref,
-                      openswmmvis::plot::PlotAttribute attribute);
+                      const openswmmvis::plot::ResultDescriptor &descriptor);
 
     /*! \brief A background click (no object under cursor) with a system
      *  attribute selected from the submenu. */
@@ -53,6 +61,9 @@ signals:
      *  The owner should pop the tool off the canvas and uncheck the
      *  toolbar action. */
     void cancelled();
+
+private:
+    QStringList m_speciesNames;
 };
 
 #endif // OPENSWMMVIS_MAP_TOOLS_MAPTOOLPLOTPICK_H
