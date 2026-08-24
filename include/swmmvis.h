@@ -401,6 +401,9 @@ private slots:
     /*! \brief Open the Climatology dialog at the given tab (ClimatologyDialog::Tab). */
     void onClimatology(int tab);
 
+    /*! \brief Open the Water Age Sources editor (Y3b — subplan G3g wiring). */
+    void onEditWaterAgeSources();
+
     // ── Toolbar quick-wins (Phase 2) ────────────────────────────────────────
     /*! \brief Show + focus the Object Browser search box. */
     void onSearch();
