@@ -773,6 +773,9 @@ bool SWMMResultsLayer::openResults(QList<QString> &warnings, QList<QString> &err
 bool SWMMResultsLayer::finishOpen(qint64 msOpen,
                                   QList<QString> &warnings, QList<QString> &errors)
 {
+    // Y2b-3: a new run may carry species the old one missed (or vice
+    // versa) — the warn-once ledger starts fresh.
+    m_speciesMissWarner.reset();
     Q_UNUSED(warnings)
 
     // Everything after swmm_output_open — runs on the GUI thread (touches
@@ -1305,6 +1308,18 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
     if (!m_handle || step < 0 || step >= m_totalSteps)
         return;
 
+    // Y2b-3 (D-G1 warn-on-miss): a −1 from a species token degrades to
+    // "no theme" exactly as before — but now it SAYS so, once per token
+    // per run, instead of silently painting nothing.
+    auto warnMiss = [this](int code, const QString &attr) {
+        if (code < 0) {
+            const QString msg = m_speciesMissWarner.noteMiss(attr, name());
+            if (!msg.isEmpty())
+                qCWarning(lcLoadResults).noquote() << msg;
+        }
+        return code;
+    };
+
     // Phase 2 (2026-05-25) — collect the set of (kind, varCode) pairs the
     // visible sublayers need so concurrent painting works (e.g. node markers
     // showing depth WHILE conduit lines show flow). The active m_variable
@@ -1336,15 +1351,15 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
         if (attr.isEmpty()) continue;
         switch (sub->archetype()) {
             case FeatureSublayer::Archetype::Point:
-                collect(neededNodeVars,     nodeOutCodeForAttribute(attr, species));
+                collect(neededNodeVars,     warnMiss(nodeOutCodeForAttribute(attr, species), attr));
                 break;
             case FeatureSublayer::Archetype::Line:
-                collect(neededLinkVars,     linkOutCodeForAttribute(attr, species));
+                collect(neededLinkVars,     warnMiss(linkOutCodeForAttribute(attr, species), attr));
                 if (auto *ls = sub->lineStyle(); ls && ls->showFlowArrows())
                     collect(neededLinkVars, SWMM_OUT_LINK_FLOW);
                 break;
             case FeatureSublayer::Archetype::Polygon:
-                collect(neededSubcatchVars, subcatchOutCodeForAttribute(attr, species));
+                collect(neededSubcatchVars, warnMiss(subcatchOutCodeForAttribute(attr, species), attr));
                 break;
         }
     }
@@ -1374,11 +1389,11 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
         for (const QString &attr : attrsNeeded) {
             if (attr.isEmpty()) continue;
             if (catIsNodeScope(c))
-                collect(neededNodeVars,     nodeOutCodeForAttribute(attr, species));
+                collect(neededNodeVars,     warnMiss(nodeOutCodeForAttribute(attr, species), attr));
             else if (catIsLinkScope(c))
-                collect(neededLinkVars,     linkOutCodeForAttribute(attr, species));
+                collect(neededLinkVars,     warnMiss(linkOutCodeForAttribute(attr, species), attr));
             else if (catIsSubcatchScope(c))
-                collect(neededSubcatchVars, subcatchOutCodeForAttribute(attr, species));
+                collect(neededSubcatchVars, warnMiss(subcatchOutCodeForAttribute(attr, species), attr));
         }
     }
 
