@@ -33,6 +33,7 @@
 #ifndef OPENSWMM_LAYERS_SPECIESATTRIBUTES_H
 #define OPENSWMM_LAYERS_SPECIESATTRIBUTES_H
 
+#include <QSet>
 #include <QString>
 #include <QStringList>
 
@@ -83,6 +84,25 @@ inline constexpr const char *kSpeciesAttrPrefix = "qual:";
 [[nodiscard]] int speciesOutCode(const QString &attr,
                                  const QStringList &species,
                                  int pollutBase);
+
+/*! \brief D-G1 warn-on-miss (Y2b-3): a saved theme or series may name a
+ *  species the currently-open run does not carry (saved against a
+ *  3-species run, reopened against 1). Resolution already degrades to
+ *  "no theme" (−1); this class supplies the WORDS — once per token, so
+ *  per-frame resolution cannot spam the log. One instance per results
+ *  layer; reset() when the run changes (the new run may carry it). */
+class SpeciesMissWarner
+{
+public:
+    /*! \brief Message for a failed species token, or empty when \p attr
+     *  is not a species token or was already warned since reset(). */
+    [[nodiscard]] QString noteMiss(const QString &attr,
+                                   const QString &runName);
+    void reset() { m_warned.clear(); }
+
+private:
+    QSet<QString> m_warned;
+};
 
 } // namespace OpenSWMMVis::Species
 

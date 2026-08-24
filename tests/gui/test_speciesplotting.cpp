@@ -24,10 +24,12 @@
  *             refused exactly like depth vs flow.
  */
 
+#include "layers/speciesattributes.h"
 #include "plot/comparisonplotmodel.h"
 #include "plot/irunlayer.h"
 #include "plot/resultdescriptor.h"
 #include "plot/swmmoutrunlayer.h"
+#include "render/sublayers/feature/featuresublayerstyle.h"
 
 #include <openswmm/engine/openswmm_output.h>
 
@@ -93,6 +95,7 @@ private slots:
     void modelRowsKeyPerSpecies();
     void resolveSeriesDispatchesByDescriptor();
     void pairsRequireTheSameDescriptor();
+    void savedSpeciesTokenSurvivesReopenAgainstAPoorerRun();
 };
 
 void TestSpeciesPlotting::speciesCodesResolveByNameAndFollowReorder()
@@ -236,6 +239,41 @@ void TestSpeciesPlotting::pairsRequireTheSameDescriptor()
     QVERIFY(model.addPair({tss1, tss2}) >= 0);   // same species — legal
     QCOMPARE(model.addPair({tss1, lead1}), -1);  // TSS vs Lead — refused
     QCOMPARE(model.addPair({tss1, depth}), -1);  // species vs fixed — refused
+}
+
+void TestSpeciesPlotting::savedSpeciesTokenSurvivesReopenAgainstAPoorerRun()
+{
+    // The amendment's Y2b-3 razor: a project saved against a 3-species
+    // run, reopened against a 1-species run, warns and degrades rather
+    // than mis-plotting. Leg 1 — the .oswp carrier: the style stores the
+    // token VERBATIM through toJson/fromJson (the NAME is the identity).
+    OpenSWMM::Render::FeatureSublayerStyle style;
+    style.setAttribute(QStringLiteral("qual:Lead"));
+    const QJsonObject j = style.toJson();
+    OpenSWMM::Render::FeatureSublayerStyle back;
+    back.fromJson(j);
+    QCOMPARE(back.attribute(), QStringLiteral("qual:Lead"));
+
+    // Leg 2 — resolution against the poorer run: a precise miss (−1),
+    // never a wrong column; and against a run that HAS the species but
+    // in a different position, the right column.
+    const QStringList poorer = {QStringLiteral("TSS")};
+    QCOMPARE(OpenSWMMVis::Species::speciesOutCode(
+                 back.attribute(), poorer, SWMM_OUT_NODE_POLLUT_BASE), -1);
+    const QStringList reordered = {QStringLiteral("Lead"),
+                                   QStringLiteral("TSS")};
+    QCOMPARE(OpenSWMMVis::Species::speciesOutCode(
+                 back.attribute(), reordered, SWMM_OUT_NODE_POLLUT_BASE),
+             SWMM_OUT_NODE_POLLUT_BASE + 0);
+
+    // Leg 3 — the miss has WORDS, exactly once (the layer logs what this
+    // returns; per-frame resolution must not spam).
+    OpenSWMMVis::Species::SpeciesMissWarner warner;
+    const QString msg =
+        warner.noteMiss(back.attribute(), QStringLiteral("poorer.out"));
+    QVERIFY(msg.contains(QStringLiteral("Lead")));
+    QVERIFY(warner.noteMiss(back.attribute(),
+                            QStringLiteral("poorer.out")).isEmpty());
 }
 
 QTEST_MAIN(TestSpeciesPlotting)

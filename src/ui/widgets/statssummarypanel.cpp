@@ -240,8 +240,17 @@ void StatsSummaryPanel::rebuildTabs()
         populateTab(table, r);
         applyColumnVisibility(table);
 
+        // Y2b-3: species rows label by the descriptor authority — a
+        // species row carries attribute == Unknown, and labelFor(Unknown)
+        // would caption the tab "Unknown".
+        const openswmmvis::plot::ResultDescriptor rowDesc =
+            row.species.isEmpty()
+                ? openswmmvis::plot::ResultDescriptor::forAttribute(
+                      row.attribute)
+                : openswmmvis::plot::ResultDescriptor::forSpecies(
+                      row.species);
         const QString tabLabel = QStringLiteral("%1 (%2)")
-            .arg(labelFor(row.attribute), row.unitsLabel);
+            .arg(rowDesc.label(), row.unitsLabel);
         m_tabs->addTab(table, tabLabel);
     }
 }

@@ -67,4 +67,20 @@ int speciesOutCode(const QString &attr, const QStringList &species,
     return pollutBase + idx;
 }
 
+QString SpeciesMissWarner::noteMiss(const QString &attr,
+                                    const QString &runName)
+{
+    if (!isSpeciesAttribute(attr))
+        return {};
+    if (m_warned.contains(attr))
+        return {};
+    m_warned.insert(attr);
+    return QCoreApplication::translate(
+               "Species",
+               "Theme attribute '%1' names species '%2', which run '%3' "
+               "does not carry — the theme stays inactive until a run "
+               "with that species is loaded (species are saved by name).")
+        .arg(attr, speciesFromAttribute(attr), runName);
+}
+
 } // namespace OpenSWMMVis::Species
