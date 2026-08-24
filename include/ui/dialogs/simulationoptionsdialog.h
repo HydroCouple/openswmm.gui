@@ -176,6 +176,7 @@ private:
     QWidget *buildModelsTab();
     QWidget *buildDatesTab();
     QWidget *buildHydraulicsTab();
+    QWidget *buildQualityTransportTab();   ///< Y1 (G1g) — quality/transport options
     QWidget *buildPerformanceTab();
     QWidget *buildSpatialTab();
     QWidget *buildMeshTab();
@@ -265,6 +266,9 @@ private:
      *         dependencies (limiter needs 2nd order, LTS tiers need LTS).
      *         Called whenever the routing combo changes. */
     void updateFvFieldsEnabled();
+    /*! Y1 — gate the per-engine transport groups on the solver combo, and
+     *  the RWPT seed on the dispersion combo (updateFvFieldsEnabled idiom). */
+    void updateQualitySolverFieldsEnabled();
 
     /*! \brief Refresh the "End +" duration label from Start/End edits.
      *         Format: "Xd HH:MM:SS" or "—" when End <= Start. */
@@ -383,6 +387,19 @@ private:
     QDoubleSpinBox *m_sysFlowTolSpin    = nullptr;     // percent
     QDoubleSpinBox *m_minSurfAreaSpin   = nullptr;
     QDoubleSpinBox *m_minSlopeSpin      = nullptr;     // percent
+
+    // Quality & Transport page (Y1 / GUI plan G1g). The groups are members
+    // so updateQualitySolverFieldsEnabled() can gate whole sections on the
+    // solver selection — the updateFvFieldsEnabled() idiom.
+    QComboBox      *m_qualitySolverCombo  = nullptr;   // QUALITY_SOLVER
+    class QGroupBox *m_ardGroup           = nullptr;   // EULERIAN_ARD only
+    class QGroupBox *m_lardGroup          = nullptr;   // LAGRANGIAN only
+    QDoubleSpinBox *m_qualityStepSpin     = nullptr;   // QUALITY_STEP (s)
+    QSpinBox       *m_maxSegmentsSpin     = nullptr;   // MAX_SEGMENTS_PER_LINK
+    QComboBox      *m_dispersionCombo     = nullptr;   // DISPERSION OFF|RWPT
+    QSpinBox       *m_rwptSeedSpin        = nullptr;   // RWPT_SEED (RWPT only)
+    QCheckBox      *m_waterAgeBox         = nullptr;   // WATER_AGE
+    QCheckBox      *m_heatTransportBox    = nullptr;   // HEAT_TRANSPORT
 
     // Tab 3 — Finite volume solver (FLOW_ROUTING FV). Both groups are kept
     // as members so updateFvFieldsEnabled() can gate whole sections on the
