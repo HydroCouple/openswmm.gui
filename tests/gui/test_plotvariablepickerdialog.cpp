@@ -46,6 +46,21 @@ public:
     }
 };
 
+// Y2b-2 (amendment D-Y4): a run that carries two pollutants + age. The
+// dialog must grow species leaves from the run's descriptor list — and
+// ONLY per-feature groups, never the System group.
+class SpeciesStubRunLayer : public StubRunLayer
+{
+public:
+    QVector<ResultDescriptor> resultDescriptorsForKind(
+        ObjectRef::Kind kind) const override
+    {
+        return openswmmvis::plot::resultDescriptorsForKind(
+            kind, QStringList{QStringLiteral("TSS"), QStringLiteral("Lead"),
+                              QStringLiteral("__WATER_AGE__")});
+    }
+};
+
 QTreeWidget *treeOf(PlotVariablePickerDialog &dlg)
 {
     auto *tree = dlg.findChild<QTreeWidget *>(QStringLiteral("variableTree"));
@@ -88,6 +103,7 @@ private slots:
     void invertFlipsCheckedState();
     void filterHidesNonMatchingLeaves();
     void nullAvailabilityEnablesEverything();
+    void speciesLeavesComeFromTheRun();
     void dialogA11y();
 };
 
@@ -284,6 +300,39 @@ void TestPlotVariablePickerDialog::nullAvailabilityEnablesEverything()
         for (int i = 0; i < group->childCount(); ++i)
             QVERIFY(group->child(i)->flags() & Qt::ItemIsEnabled);
     }
+}
+
+void TestPlotVariablePickerDialog::speciesLeavesComeFromTheRun()
+{
+    // The amendment's razor, dialog edition: a run with 2 pollutants +
+    // age serves the hydraulic set + 3 for a node group; the System
+    // group must NOT grow (no per-species system column exists).
+    SpeciesStubRunLayer probe;
+    const QVector<ObjectRef> features{ObjectRef::forNode(QStringLiteral("J1"))};
+    PlotVariablePickerDialog dlg(features, &probe, UnitSystem::SI);
+    QTreeWidget *tree = treeOf(dlg);
+    QCOMPARE(tree->topLevelItemCount(), 2);   // System + J1
+
+    const QTreeWidgetItem *sys  = tree->topLevelItem(0);
+    const QTreeWidgetItem *node = tree->topLevelItem(1);
+    QCOMPARE(sys->childCount(), systemPlotAttributes().size());
+    QCOMPARE(node->childCount(), nodePlotAttributes().size() + 3);
+
+    // The age leaf reads in HOURS through the Y2a authorities — a picker
+    // that offered "__WATER_AGE__ (mg/L)" would mislabel the axis.
+    const QTreeWidgetItem *ageLeaf =
+        node->child(node->childCount() - 1);
+    QVERIFY(ageLeaf->text(0).contains(QStringLiteral("Water age")));
+    QVERIFY(ageLeaf->text(0).contains(QStringLiteral("(h)")));
+
+    // Checking it yields a species entry carried BY NAME (D-G1).
+    const_cast<QTreeWidgetItem *>(ageLeaf)->setCheckState(0, Qt::Checked);
+    const auto entries = dlg.checkedEntries();
+    QCOMPARE(entries.size(), 1);
+    QCOMPARE(entries[0].species, QStringLiteral("__WATER_AGE__"));
+    QCOMPARE(entries[0].attribute, PlotAttribute::Unknown);
+    QVERIFY(entries[0].descriptor().isSpecies());
+    QCOMPARE(entries[0].ref.name, QStringLiteral("J1"));
 }
 
 void TestPlotVariablePickerDialog::dialogA11y()

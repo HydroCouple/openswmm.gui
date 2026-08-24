@@ -88,6 +88,13 @@ public:
                   const openswmmvis::plot::ObjectRef& ref,
                   openswmmvis::plot::PlotAttribute attr);
 
+    /*! rief Y2b-2 (amendment D-Y4): descriptor-shaped overload — a
+     *  fixed attribute or a species BY NAME. The enum overload above
+     *  forwards here. */
+    int addSeries(int runIndex,
+                  const openswmmvis::plot::ObjectRef& ref,
+                  const openswmmvis::plot::ResultDescriptor& descriptor);
+
     /*! \brief CF.3 — add per-cell series for the supplied attribute list.
      *  Returns the count of series successfully added. */
     int addCellSeries(int runIndex,

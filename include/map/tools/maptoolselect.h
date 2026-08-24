@@ -11,6 +11,7 @@
 
 #include "map/tools/maptool.h"
 #include "plot/plotattribute.h"
+#include "plot/resultdescriptor.h"
 #include "selection/selectionmanager.h"
 
 #include <QPoint>
@@ -94,7 +95,7 @@ signals:
      *  from the right-click attribute submenu on a map object. Carries
      *  `PlotAttribute::Unknown` for the "All attributes" entry. */
     void plotAttributeRequested(const SWMMObjectRef &ref,
-                                openswmmvis::plot::PlotAttribute attribute);
+                                const openswmmvis::plot::ResultDescriptor &descriptor);
 
     /*! \brief Variant of \ref plotAttributeRequested that names a specific
      *  results layer. Emitted from the two-level "Plot Time Series ▸
@@ -102,7 +103,7 @@ signals:
      *  Output (.out) layer is loaded on the canvas. The receiver plots
      *  against that exact \p layer (no auto-pick-first-found). */
     void plotAttributeForLayerRequested(const SWMMObjectRef &ref,
-                                         openswmmvis::plot::PlotAttribute attribute,
+                                         const openswmmvis::plot::ResultDescriptor &descriptor,
                                          class SWMMResultsLayer *layer);
 
     /*! \brief Slice AT.2 — emitted when the user picks a system-wide

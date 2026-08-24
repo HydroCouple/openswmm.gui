@@ -52,13 +52,27 @@ struct SeriesSpec {
     int            runIndex   = -1;
     ObjectRef      objectRef;
     PlotAttribute  attribute  = PlotAttribute::Unknown;
+    /*! Y2b-2 (amendment D-Y4): species NAME when this series plots a
+     *  water-quality species; empty for a fixed attribute. The name is
+     *  the identity (D-G1) — resolution to the run's column index
+     *  happens at fetch time, never here. attribute stays Unknown for a
+     *  species series. */
+    QString        species;
     SeriesStyle    style;
     QString        legendOverride;   ///< Empty = auto-generate from (run, ref, attr).
+
+    /*! What this series plots, as the descriptor the resolution and
+     *  row-keying paths consume. */
+    ResultDescriptor descriptor() const
+    {
+        return species.isEmpty() ? ResultDescriptor::forAttribute(attribute)
+                                 : ResultDescriptor::forSpecies(species);
+    }
 
     bool isValid() const noexcept
     {
         return runIndex >= 0 && objectRef.isValid() &&
-               attribute != PlotAttribute::Unknown;
+               (attribute != PlotAttribute::Unknown || !species.isEmpty());
     }
 };
 
@@ -66,6 +80,10 @@ struct SeriesSpec {
  *  these whenever the spec list changes; views read them to lay out axes. */
 struct AttributeRow {
     PlotAttribute     attribute = PlotAttribute::Unknown;
+    /*! Y2b-2: species NAME for a species row (attribute == Unknown).
+     *  Each species gets its own chart row — TSS and Lead share units
+     *  but are different quantities, exactly like the Mesh2D split. */
+    QString           species;
     QVector<int>      seriesIndices;   ///< Indices into ComparisonPlotModel::specs() that target this attr.
     double            ymin = 0.0;
     double            ymax = 1.0;

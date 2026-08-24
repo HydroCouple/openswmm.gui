@@ -20,6 +20,7 @@
 #include "plot/plotattribute.h"
 
 #include <QString>
+#include <QStringList>
 
 class QMenu;
 class QWidget;
@@ -42,7 +43,9 @@ public:
      *  `Kind::Observed` (those don't use this picker). */
     static QMenu *createForObjectKind(openswmmvis::plot::ObjectRef::Kind kind,
                                       openswmmvis::plot::UnitSystem unitSystem,
-                                      QWidget *parent = nullptr);
+                                      QWidget *parent = nullptr,
+                                      const QStringList &speciesNames =
+                                          QStringList());
 
     /*! \brief Build the system-attribute menu (14 entries). Each action's
      *  data() carries the `PlotAttribute` value. */
@@ -51,8 +54,18 @@ public:
 
     /*! \brief Extract the chosen PlotAttribute from a picked action.
      *  Returns `PlotAttribute::Unknown` for the "All attributes" sentinel
-     *  or when the action is null / unrelated. */
+     *  or when the action is null / unrelated.
+     *  \warning Species actions ALSO read as Unknown here (their data is
+     *  the species name, not an int) — callers offering species must use
+     *  \ref descriptorFrom, which tells the three cases apart. */
     static openswmmvis::plot::PlotAttribute attributeFrom(const QAction *action);
+
+    /*! \brief Y2b-2 (amendment D-Y4): extract what the picked action
+     *  plots — a fixed attribute or a species BY NAME. An INVALID
+     *  descriptor means the "All attributes" sentinel (or a null
+     *  action); callers fan out across the run's descriptor list. */
+    static openswmmvis::plot::ResultDescriptor descriptorFrom(
+        const QAction *action);
 };
 
 } // namespace openswmmvis::ui
