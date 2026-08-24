@@ -1351,6 +1351,12 @@ add_swmmvis_gui_test(test_speciesplotting
     ${CMAKE_SOURCE_DIR}/include/plot/resultdescriptor.h
     ${CMAKE_SOURCE_DIR}/include/plot/swmmoutrunlayer.h
     ${CMAKE_SOURCE_DIR}/include/plot/irunlayer.h
+    # Y2b-3: the .oswp token round-trip gate drives the (header-only)
+    # style through toJson/fromJson. The base class header rides along so
+    # AUTOMOC anchors its metaobject/typeinfo.
+    ${CMAKE_SOURCE_DIR}/include/render/sublayers/feature/featuresublayerstyle.h
+    ${CMAKE_SOURCE_DIR}/include/render/sublayerstyle.h
+    ${CMAKE_SOURCE_DIR}/src/render/labelconfig.cpp
 )
 target_link_libraries(test_speciesplotting PRIVATE Qt6::Charts)
 
