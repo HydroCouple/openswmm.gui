@@ -11,6 +11,7 @@
 #define SWMMRESULTSLAYER_H
 
 #include "layers/openswmmvislayer.h"
+#include "layers/speciesattributes.h"
 #include "layers/gisrasterlayer.h"   // RasterColorRamp
 #include "layers/swmmmodellayer.h"
 
@@ -671,6 +672,10 @@ public:
                       const SpatialReferenceSystem *canvasSRS) override;
 
 private:
+    /*! Y2b-3 (D-G1 warn-on-miss): one warning per unresolvable species
+     *  token per run — reset in finishOpen when a new .out arrives. */
+    OpenSWMMVis::Species::SpeciesMissWarner m_speciesMissWarner;
+
     /*! \brief Shared post-open adoption used by both openResults() (sync) and
      *         openResultsAsync(): reads the header, builds id maps, installs
      *         eager renderers, pre-fetches period 0, and emits. \p msOpen is

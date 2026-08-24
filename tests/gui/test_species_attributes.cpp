@@ -44,6 +44,7 @@ private slots:
     void reservedSpeciesGetFriendlyLabelsAndUnits();
     void outCodeResolvesAgainstTheRunsSpeciesList();
     void outCodeRejectsUnknownAndMalformed();
+    void missWarnerWarnsOncePerTokenPerRun();
 };
 
 void TestSpeciesAttributes::attributeTokenRoundTrips()
@@ -163,6 +164,36 @@ void TestSpeciesAttributes::outCodeRejectsUnknownAndMalformed()
     // exactly. A near-miss must fail loudly rather than pick a neighbour.
     QCOMPARE(speciesOutCode(QStringLiteral("qual:tss"), species,
                             SWMM_OUT_NODE_POLLUT_BASE), -1);
+}
+
+
+void TestSpeciesAttributes::missWarnerWarnsOncePerTokenPerRun()
+{
+    using OpenSWMMVis::Species::SpeciesMissWarner;
+    SpeciesMissWarner w;
+
+    // First miss: words naming the token, the species, and the run.
+    const QString msg = w.noteMiss(QStringLiteral("qual:Lead"),
+                                   QStringLiteral("run1"));
+    QVERIFY(msg.contains(QStringLiteral("qual:Lead")));
+    QVERIFY(msg.contains(QStringLiteral("Lead")));
+    QVERIFY(msg.contains(QStringLiteral("run1")));
+
+    // Same token again: silence — resolution runs per frame, and a
+    // warning per frame is as useless as no warning at all.
+    QVERIFY(w.noteMiss(QStringLiteral("qual:Lead"),
+                       QStringLiteral("run1")).isEmpty());
+    // A different token still warns.
+    QVERIFY(!w.noteMiss(QStringLiteral("qual:Zn"),
+                        QStringLiteral("run1")).isEmpty());
+    // Non-species attributes are never this class's business.
+    QVERIFY(w.noteMiss(QStringLiteral("depth"),
+                       QStringLiteral("run1")).isEmpty());
+
+    // A new run (reset) may carry the species — the ledger starts over.
+    w.reset();
+    QVERIFY(!w.noteMiss(QStringLiteral("qual:Lead"),
+                        QStringLiteral("run2")).isEmpty());
 }
 
 QTEST_MAIN(TestSpeciesAttributes)

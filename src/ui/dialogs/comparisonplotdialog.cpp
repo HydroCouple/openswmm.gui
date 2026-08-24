@@ -1280,6 +1280,14 @@ void ComparisonPlotDialog::rebuildCharts()
 
             SeriesData data;
             m_model->resolveSeries(sIdx, data);
+            // Y2b-3 (D-G1 warn-on-miss): a series that cannot resolve —
+            // e.g. a saved species the reopened run does not carry —
+            // stays in the legend WITH its reason instead of silently
+            // drawing nothing the user has to puzzle over.
+            if (!data.ok && !data.errorMessage.isEmpty())
+                line->setName(QStringLiteral("%1 — %2")
+                                  .arg(legendNameFor(spec),
+                                       data.errorMessage));
             if (data.ok) {
                 for (std::size_t i = 0; i < data.timesJulian.size(); ++i) {
                     const QDateTime dt = openswmmvis::core::swmmDateTimeToQDateTime(data.timesJulian[i]);
