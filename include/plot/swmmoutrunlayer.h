@@ -54,6 +54,11 @@ public:
 
     bool supportsAttribute(PlotAttribute attr) const override;
 
+    /*! \brief Y2b-1: fixed set + the open run's species BY NAME (D-G1).
+     *  Legacy `.out` (no quality) serves the fixed set only. */
+    QVector<ResultDescriptor> resultDescriptorsForKind(
+        ObjectRef::Kind kind) const override;
+
     /*! \brief Map a PlotAttribute + ObjectRef::Kind to the engine's
      *  per-object var code (SWMM_OUT_NODE_*, SWMM_OUT_LINK_*,
      *  SWMM_OUT_SUBCATCH_*, SWMM_OUT_SYS_*). Returns -1 when the
