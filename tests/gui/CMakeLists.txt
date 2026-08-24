@@ -1366,6 +1366,17 @@ add_swmmvis_gui_test(test_species_attributes
     ${CMAKE_SOURCE_DIR}/include/layers/speciesattributes.h
 )
 
+# Y3 — the Water Age Sources editor. Instantiated against a synthetic
+# BUILDING engine, exactly like test_climatologydialog: the dialog is
+# dependency-light (Qt Widgets + the swmm_water_age_* engine ABI only), so
+# its WIRING has an automated observer — the hole Y1's options page could
+# not close.
+add_swmmvis_gui_test(test_wateragesourcesdialog
+    test_wateragesourcesdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/wateragesourcesdialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/wateragesourcesdialog.cpp
+)
+
 # Pins the [2D_OPTIONS] VFR-closure ABI (CELL_CLOSURE / FACE_RECONSTRUCTION /
 # VFR_MIN_WET_FRAC) that SimulationOptionsDialog's new closure controls persist
 # through swmm_options_*_ext + swmm_model_write. Engine-ABI only (no dialog).
