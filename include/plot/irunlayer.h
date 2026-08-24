@@ -23,9 +23,11 @@
 #define OPENSWMMVIS_PLOT_IRUNLAYER_H
 
 #include "plot/plotattribute.h"
+#include "plot/resultdescriptor.h"
 
 #include <QDateTime>
 #include <QString>
+#include <QStringList>
 
 #include <vector>
 
@@ -104,6 +106,40 @@ inline const QVector<PlotAttribute> &attributesForKind(ObjectRef::Kind k)
     }
 }
 
+/*! \brief Y2b-1 (amendment D-Y4): the kind-keyed DESCRIPTOR list — the
+ *  fixed `attributesForKind(kind)` set wrapped, plus one species
+ *  descriptor per name in \p speciesNames for the element kinds that
+ *  carry species columns (node/link/subcatch). Species ride BY NAME
+ *  (D-G1). INLINE because IRunLayer's default implementation below calls
+ *  it, and IRunLayer must stay a header-only interface — hundreds of
+ *  tests stub it without linking any plot TU, so nothing reachable from
+ *  a virtual's default may live in a .cpp (measured twice: an
+ *  out-of-line default anchored the vtable in resultdescriptor.cpp, and
+ *  an out-of-line list builder left the same tests with an undefined
+ *  free-function symbol). */
+inline QVector<ResultDescriptor> resultDescriptorsForKind(
+    ObjectRef::Kind kind, const QStringList &speciesNames)
+{
+    QVector<ResultDescriptor> out;
+    const QVector<PlotAttribute> &fixed = attributesForKind(kind);
+    out.reserve(fixed.size() + speciesNames.size());
+    for (const PlotAttribute a : fixed)
+        out.append(ResultDescriptor::forAttribute(a));
+
+    // Species columns exist for the element kinds the .out carries them
+    // on (node/link/subcatch — Y2a's rule); System series and mesh kinds
+    // have none. Order is the run's .out order — the engine's order — so
+    // two pickers over the same run agree.
+    const bool speciesKind = kind == ObjectRef::Kind::Node ||
+                             kind == ObjectRef::Kind::Link ||
+                             kind == ObjectRef::Kind::Subcatch;
+    if (speciesKind)
+        for (const QString &sp : speciesNames)
+            if (!sp.isEmpty())
+                out.append(ResultDescriptor::forSpecies(sp));
+    return out;
+}
+
 /*! \brief Result of one series resolution. Times are SWMM DateTime doubles
  *         (OLE-Automation epoch, not astronomical Julian — see
  *         core/swmmdatetime.h); values are in the unit system the source
@@ -148,6 +184,21 @@ public:
      *  Default impl returns true; subclasses can refine (e.g. hide velocity
      *  attributes when CF.2 edge-flux data is missing). */
     virtual bool supportsAttribute(PlotAttribute /*attr*/) const { return true; }
+
+    /*! \brief Y2b-1 (amendment D-Y4): everything plottable for \p kind on
+     *  THIS run — the fixed attribute set as descriptors, plus any dynamic
+     *  species the run carries. Base impl serves the fixed set only, which
+     *  is exactly right for sources with no species (observed CSV, mesh
+     *  layers, a legacy `.out` with no quality). `SwmmOutRunLayer`
+     *  overrides to append the open run's species by name.
+     *  \note INLINE on purpose: IRunLayer is a header-only interface —
+     *  hundreds of tests stub it without linking plot TUs, and any
+     *  out-of-line virtual would become the key function and anchor the
+     *  vtable in a .cpp those tests do not link (measured: undefined
+     *  vtable/typeinfo in test_plotvariablepickerdialog). */
+    virtual QVector<ResultDescriptor> resultDescriptorsForKind(
+        ObjectRef::Kind kind) const
+    { return plot::resultDescriptorsForKind(kind, QStringList()); }
 
     /*! \brief Stable identity string for `.oswp` round-trip. Defaults to the
      *  scenario name; subclasses may override with a file path or layer GUID. */
