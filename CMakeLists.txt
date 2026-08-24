@@ -355,6 +355,7 @@ set(
         include/layers/swmmmodellayer.h
         include/layers/swmmelementsymboladapter.h
         include/layers/hydrographmodels.h
+        include/layers/speciesattributes.h
         include/layers/swmmresultslayer.h
         include/layers/tabulardatalayer.h
         include/layers/xyztilelayer.h
@@ -988,6 +989,7 @@ set(
         src/layers/wmtslayer.cpp
         src/layers/swmmmodellayer.cpp
         src/layers/hydrographmodels.cpp
+        src/layers/speciesattributes.cpp
         src/layers/swmmresultslayer.cpp
         src/layers/tabulardatalayer.cpp
         src/layers/xyztilelayer.cpp

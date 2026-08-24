@@ -6,6 +6,7 @@
 
 #include "layers/swmmresultslayer.h"
 #include "core/swmmdatetime.h"
+#include "layers/speciesattributes.h"   // Y2a — dynamic species attributes
 #include "layers/swmmmodellayer.h"
 #include "map/graphicsitems.h"
 #include "map/mapcanvas.h"        // label scale-window gating
@@ -165,6 +166,39 @@ bool isSubcatchVar(SWMMResultVariable v)
 // from the per-kind renderer (CamelCase) while the legacy paint path
 // pulls style.attribute() from FeatureSublayerStyle (lower-case). One
 // table, both spellings, no broken lookups.
+// Y2a — species attributes ("qual:<name>") resolve against the run's own
+// species list, so the code is transient and the persisted token is the
+// NAME (GUI plan D-G1). The species-aware overloads are what the layer
+// calls; the bare forms stay for hydraulic-only call sites. Forward
+// declarations because the hydraulic tables are defined below.
+int nodeOutCodeForAttribute(const QString &attr);
+int linkOutCodeForAttribute(const QString &attr);
+int subcatchOutCodeForAttribute(const QString &attr);
+
+int nodeOutCodeForAttribute(const QString &attr, const QStringList &species)
+{
+    if (OpenSWMMVis::Species::isSpeciesAttribute(attr))
+        return OpenSWMMVis::Species::speciesOutCode(
+            attr, species, SWMM_OUT_NODE_POLLUT_BASE);
+    return nodeOutCodeForAttribute(attr);
+}
+
+int linkOutCodeForAttribute(const QString &attr, const QStringList &species)
+{
+    if (OpenSWMMVis::Species::isSpeciesAttribute(attr))
+        return OpenSWMMVis::Species::speciesOutCode(
+            attr, species, SWMM_OUT_LINK_POLLUT_BASE);
+    return linkOutCodeForAttribute(attr);
+}
+
+int subcatchOutCodeForAttribute(const QString &attr, const QStringList &species)
+{
+    if (OpenSWMMVis::Species::isSpeciesAttribute(attr))
+        return OpenSWMMVis::Species::speciesOutCode(
+            attr, species, SWMM_OUT_SUBCATCH_POLLUT_BASE);
+    return subcatchOutCodeForAttribute(attr);
+}
+
 int nodeOutCodeForAttribute(const QString &attr)
 {
     static const QHash<QString, int> kMap = {
@@ -1265,6 +1299,9 @@ void SWMMResultsLayer::buildOutputIdMaps()
 
 void SWMMResultsLayer::fetchResultsForStep(int step)
 {
+    // Y2a — resolved once per call: species attributes ("qual:<name>")
+    // map to POLLUT_BASE + index against THIS run's species list.
+    const QStringList species = speciesNames();
     if (!m_handle || step < 0 || step >= m_totalSteps)
         return;
 
@@ -1299,15 +1336,15 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
         if (attr.isEmpty()) continue;
         switch (sub->archetype()) {
             case FeatureSublayer::Archetype::Point:
-                collect(neededNodeVars,     nodeOutCodeForAttribute(attr));
+                collect(neededNodeVars,     nodeOutCodeForAttribute(attr, species));
                 break;
             case FeatureSublayer::Archetype::Line:
-                collect(neededLinkVars,     linkOutCodeForAttribute(attr));
+                collect(neededLinkVars,     linkOutCodeForAttribute(attr, species));
                 if (auto *ls = sub->lineStyle(); ls && ls->showFlowArrows())
                     collect(neededLinkVars, SWMM_OUT_LINK_FLOW);
                 break;
             case FeatureSublayer::Archetype::Polygon:
-                collect(neededSubcatchVars, subcatchOutCodeForAttribute(attr));
+                collect(neededSubcatchVars, subcatchOutCodeForAttribute(attr, species));
                 break;
         }
     }
@@ -1337,11 +1374,11 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
         for (const QString &attr : attrsNeeded) {
             if (attr.isEmpty()) continue;
             if (catIsNodeScope(c))
-                collect(neededNodeVars,     nodeOutCodeForAttribute(attr));
+                collect(neededNodeVars,     nodeOutCodeForAttribute(attr, species));
             else if (catIsLinkScope(c))
-                collect(neededLinkVars,     linkOutCodeForAttribute(attr));
+                collect(neededLinkVars,     linkOutCodeForAttribute(attr, species));
             else if (catIsSubcatchScope(c))
-                collect(neededSubcatchVars, subcatchOutCodeForAttribute(attr));
+                collect(neededSubcatchVars, subcatchOutCodeForAttribute(attr, species));
         }
     }
 
@@ -1575,6 +1612,9 @@ QPair<double, double> SWMMResultsLayer::ensureSubcatchAttributeRange(int outCode
 QList<OpenSWMM::Render::LegendSymbolItem>
 SWMMResultsLayer::sublayerLegendItems()
 {
+    // Y2a — resolved once per call: species attributes ("qual:<name>")
+    // map to POLLUT_BASE + index against THIS run's species list.
+    const QStringList species = speciesNames();
     using OpenSWMM::Render::LegendSymbolItem;
     using OpenSWMM::Render::SymbolLayer;
     using OpenSWMM::Render::SymbolLayerKind;
@@ -1683,7 +1723,7 @@ SWMMResultsLayer::sublayerLegendItems()
                 swatchKind = SymbolLayerKind::SimpleMarker;
                 swatchSize = std::max(2.0, st->markerSizePx());
                 if (!attribute.isEmpty()) {
-                    const int code = nodeOutCodeForAttribute(attribute);
+                    const int code = nodeOutCodeForAttribute(attribute, species);
                     if (code >= 0) {
                         range = ensureNodeAttributeRange(code);
                         haveData = true;
@@ -1696,7 +1736,7 @@ SWMMResultsLayer::sublayerLegendItems()
                 swatchKind = SymbolLayerKind::SimpleLine;
                 swatchSize = std::max(1.0, st->lineWidthPx());
                 if (!attribute.isEmpty()) {
-                    const int code = linkOutCodeForAttribute(attribute);
+                    const int code = linkOutCodeForAttribute(attribute, species);
                     if (code >= 0) {
                         range = ensureLinkAttributeRange(code);
                         haveData = true;
@@ -1708,7 +1748,7 @@ SWMMResultsLayer::sublayerLegendItems()
                 swatchKind = SymbolLayerKind::SimpleFill;
                 swatchSize = 0.0;
                 if (!attribute.isEmpty()) {
-                    const int code = subcatchOutCodeForAttribute(attribute);
+                    const int code = subcatchOutCodeForAttribute(attribute, species);
                     if (code >= 0) {
                         range = ensureSubcatchAttributeRange(code);
                         haveData = true;
@@ -2333,6 +2373,57 @@ SWMMResultsLayer::availableAttributes(OpenSWMMVis::SwmmCategory cat) const
     default:
         break;
     }
+
+    // Y2a — dynamic species (pollutants + the reserved age/temperature
+    // columns). N is a property of the RUN, not of the build, so these are
+    // appended from the open `.out` rather than enumerated at compile time
+    // (GUI plan D-G1). A run with no quality appends nothing, which is why
+    // a legacy `.out` shows no species entries at all.
+    switch (cat) {
+    case L::CatJunctions:
+    case L::CatOutfalls:
+    case L::CatStorage:
+    case L::CatDividers:
+    case L::CatConduits:
+    case L::CatPumps:
+    case L::CatOrifices:
+    case L::CatWeirs:
+    case L::CatOutlets:
+    case L::CatSubcatchments: {
+        const QStringList species = speciesNames();
+        for (const QString &s : species) {
+            using namespace OpenSWMMVis::Species;
+            AttributeField f;
+            f.name        = speciesAttributeName(s);
+            f.displayName = speciesDisplayLabel(s);
+            f.type        = QMetaType::Double;
+            f.isDynamic   = true;
+            f.unit        = speciesUnitLabel(s, QStringLiteral("mg/L"));
+            out.append(f);
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    return out;
+}
+
+// Y2a — the run's species list, in `.out` order. Read through the public
+// reader rather than cached: the layer reopens its handle on reload, and a
+// stale cache would silently repoint every species theme by one slot.
+// The name is the discriminator (engine A2b) — an hours column and a
+// concentration column are otherwise indistinguishable.
+QStringList SWMMResultsLayer::speciesNames() const
+{
+    QStringList out;
+    if (!m_handle) return out;
+    const int n = swmm_output_get_pollut_count(m_handle);
+    out.reserve(n);
+    for (int i = 0; i < n; ++i) {
+        const char *id = swmm_output_get_pollut_id(m_handle, i);
+        if (id && *id) out.append(QString::fromUtf8(id));
+    }
     return out;
 }
 
@@ -2343,6 +2434,9 @@ bool catIsLinkScope(SWMMModelLayer::Category c);
 
 void SWMMResultsLayer::rebinDynamicRulesIfNeeded()
 {
+    // Y2a — resolved once per call: species attributes ("qual:<name>")
+    // map to POLLUT_BASE + index against THIS run's species list.
+    const QStringList species = speciesNames();
     using namespace OpenSWMM::Render;
 
     // O1-3 — drive off the canonical per-kind renderers (m_kindRenderers),
@@ -2374,15 +2468,15 @@ void SWMMResultsLayer::rebinDynamicRulesIfNeeded()
         const QString attr = g->classifyAttribute();
         const QVector<float> *valuesPtr = nullptr;
         if (catIsNodeScope(cat)) {
-            const int outCode = nodeOutCodeForAttribute(attr);
+            const int outCode = nodeOutCodeForAttribute(attr, species);
             const auto it = m_nodeResultsByVar.constFind(outCode);
             if (it != m_nodeResultsByVar.constEnd()) valuesPtr = &it.value();
         } else if (catIsLinkScope(cat)) {
-            const int outCode = linkOutCodeForAttribute(attr);
+            const int outCode = linkOutCodeForAttribute(attr, species);
             const auto it = m_linkResultsByVar.constFind(outCode);
             if (it != m_linkResultsByVar.constEnd()) valuesPtr = &it.value();
         } else if (cat == SWMMModelLayer::CatSubcatchments) {
-            const int outCode = subcatchOutCodeForAttribute(attr);
+            const int outCode = subcatchOutCodeForAttribute(attr, species);
             const auto it = m_subcatchResultsByVar.constFind(outCode);
             if (it != m_subcatchResultsByVar.constEnd()) valuesPtr = &it.value();
         }
@@ -2429,6 +2523,9 @@ void SWMMResultsLayer::refreshRuleMirror(SWMMModelLayer::Category c)
 
 void SWMMResultsLayer::reclassifyKindsForResolvedRange(int scope, int outCode)
 {
+    // Y2a — resolved once per call: species attributes ("qual:<name>")
+    // map to POLLUT_BASE + index against THIS run's species list.
+    const QStringList species = speciesNames();
     using namespace OpenSWMM::Render;
     if (outCode < 0)
         return;
@@ -2451,9 +2548,9 @@ void SWMMResultsLayer::reclassifyKindsForResolvedRange(int scope, int outCode)
             continue;
 
         const QString attr = g->classifyAttribute();
-        const int krCode = (scope == 0) ? nodeOutCodeForAttribute(attr)
-                         : (scope == 1) ? linkOutCodeForAttribute(attr)
-                                        : subcatchOutCodeForAttribute(attr);
+        const int krCode = (scope == 0) ? nodeOutCodeForAttribute(attr, species)
+                         : (scope == 1) ? linkOutCodeForAttribute(attr, species)
+                                        : subcatchOutCodeForAttribute(attr, species);
         if (krCode != outCode)
             continue;
 
@@ -3055,6 +3152,9 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
                                       const MapExtent  &canvasExtent,
                                       const SpatialReferenceSystem *canvasSRS)
 {
+    // Y2a — resolved once per call: species attributes ("qual:<name>")
+    // map to POLLUT_BASE + index against THIS run's species list.
+    const QStringList species = speciesNames();
     Q_UNUSED(canvasExtent)
     Q_UNUSED(canvasSRS)
 
@@ -3153,7 +3253,7 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
             && m_kindFeatureColors[catIdx].size() == count;
 
         const QString attr = st->attribute();
-        const int outCode  = nodeOutCodeForAttribute(attr);
+        const int outCode  = nodeOutCodeForAttribute(attr, species);
         const QVector<float> results = (!attr.isEmpty() && outCode >= 0)
             ? m_nodeResultsByVar.value(outCode) : QVector<float>{};
         const bool haveResults = !results.isEmpty();
@@ -3251,7 +3351,7 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
             && m_kindFeatureColors[catIdx].size() == count;
 
         const QString attr = st->attribute();
-        const int outCode  = linkOutCodeForAttribute(attr);
+        const int outCode  = linkOutCodeForAttribute(attr, species);
         const QVector<float> results = (!attr.isEmpty() && outCode >= 0)
             ? m_linkResultsByVar.value(outCode) : QVector<float>{};
         const bool haveResults = !results.isEmpty();
@@ -3425,7 +3525,7 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene,
             && m_kindFeatureColors[catIdx].size() == count;
 
         const QString attr = st->attribute();
-        const int outCode  = subcatchOutCodeForAttribute(attr);
+        const int outCode  = subcatchOutCodeForAttribute(attr, species);
         const QVector<float> results = (!attr.isEmpty() && outCode >= 0)
             ? m_subcatchResultsByVar.value(outCode) : QVector<float>{};
         const bool haveResults = !results.isEmpty();
@@ -3605,6 +3705,9 @@ void SWMMResultsLayer::refreshScene(QGraphicsScene *scene,
 
 void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
 {
+    // Y2a — resolved once per call: species attributes ("qual:<name>")
+    // map to POLLUT_BASE + index against THIS run's species list.
+    const QStringList species = speciesNames();
     if (!isVisible() || !m_modelLayer || opacity() <= 0.0)
         return;
     if (!m_handle || m_totalSteps <= 0)
@@ -3635,7 +3738,7 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
             const bool useOverride = m_kindUsesOverrides[catIdx]
                 && m_kindFeatureColors[catIdx].size() == count;
             const QString attr = st->attribute();
-            const int outCode  = nodeOutCodeForAttribute(attr);
+            const int outCode  = nodeOutCodeForAttribute(attr, species);
             const QVector<float> results = (!attr.isEmpty() && outCode >= 0)
                 ? m_nodeResultsByVar.value(outCode) : QVector<float>{};
             const bool haveResults = !results.isEmpty();
@@ -3699,7 +3802,7 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
             const bool useOverride = m_kindUsesOverrides[catIdx]
                 && m_kindFeatureColors[catIdx].size() == count;
             const QString attr = st->attribute();
-            const int outCode  = linkOutCodeForAttribute(attr);
+            const int outCode  = linkOutCodeForAttribute(attr, species);
             const QVector<float> results = (!attr.isEmpty() && outCode >= 0)
                 ? m_linkResultsByVar.value(outCode) : QVector<float>{};
             const bool haveResults = !results.isEmpty();
@@ -3779,7 +3882,7 @@ void SWMMResultsLayer::restyleScene(QGraphicsScene *scene)
             const bool useOverride = m_kindUsesOverrides[catIdx]
                 && m_kindFeatureColors[catIdx].size() == count;
             const QString attr = st->attribute();
-            const int outCode  = subcatchOutCodeForAttribute(attr);
+            const int outCode  = subcatchOutCodeForAttribute(attr, species);
             const QVector<float> results = (!attr.isEmpty() && outCode >= 0)
                 ? m_subcatchResultsByVar.value(outCode) : QVector<float>{};
             const bool haveResults = !results.isEmpty();

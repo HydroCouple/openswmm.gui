@@ -1,0 +1,89 @@
+/*!
+ * \file speciesattributes.h
+ * \brief Dynamic water-quality species as themeable result attributes
+ *        (GUI plan D-G1 / subplan Y2a).
+ *
+ * \details A run carries N species — pollutants plus the reserved
+ *          `__WATER_AGE__` and `__TEMPERATURE__` — and N is only known once
+ *          an `.out` is open. The engine's output ABI already indexes them
+ *          as `SWMM_OUT_*_POLLUT_BASE + speciesIndex`, so the *transient*
+ *          lookup code is the engine's own convention.
+ *
+ *          What must NOT be an index is the **persisted** identity: D-G1
+ *          requires themes and plots to reference a species by NAME so a
+ *          model edit that reorders species cannot silently repoint a
+ *          saved theme. Hence the attribute string is
+ *          `"qual:<SpeciesName>"` — the token that flows through
+ *          `FeatureSublayerStyle::attribute` into `.oswp` — and the index
+ *          is resolved against the loaded run every time it is needed.
+ *          An unresolvable name yields −1, which every existing call site
+ *          already skips cleanly (the "warn on miss" foundation).
+ *
+ *          These are free functions in their own translation unit on
+ *          purpose: `SWMMResultsLayer` is too heavy to link into a test
+ *          (the same closure problem `tests/gui/CMakeLists.txt:1996`
+ *          records for the options dialog), so the logic that can carry a
+ *          defect lives where a test can reach it.
+ *
+ * \author  Caleb Buahin <caleb.buahin@gmail.com>
+ * \copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * \license Apache-2.0
+ */
+
+#ifndef OPENSWMM_LAYERS_SPECIESATTRIBUTES_H
+#define OPENSWMM_LAYERS_SPECIESATTRIBUTES_H
+
+#include <QString>
+#include <QStringList>
+
+namespace OpenSWMMVis::Species
+{
+
+/*! The reserved species names the engine writes into the `.out` species
+ *  list. They are transported like pollutants but are not concentrations,
+ *  so pickers label and unit them differently (GUI plan §3.3). */
+inline constexpr const char *kWaterAgeName    = "__WATER_AGE__";
+inline constexpr const char *kTemperatureName = "__TEMPERATURE__";
+
+/*! Prefix marking a themeable attribute as a species column. */
+inline constexpr const char *kSpeciesAttrPrefix = "qual:";
+
+/*! \brief `"TSS"` → `"qual:TSS"` — the token persisted in `.oswp`. */
+[[nodiscard]] QString speciesAttributeName(const QString &species);
+
+/*! \brief True if \p attr is a species attribute token. */
+[[nodiscard]] bool isSpeciesAttribute(const QString &attr);
+
+/*! \brief `"qual:TSS"` → `"TSS"`; empty for a non-species attribute.
+ *  \note An empty species name after the prefix is NOT valid and returns
+ *        empty too, so `"qual:"` cannot resolve to index 0. */
+[[nodiscard]] QString speciesFromAttribute(const QString &attr);
+
+/*! \brief Picker label for a species: friendly text for the reserved
+ *         pair, the bare name for an ordinary pollutant. */
+[[nodiscard]] QString speciesDisplayLabel(const QString &species);
+
+/*! \brief Unit string for a species. The reserved pair carry fixed units
+ *         the `.out` enum cannot express (hours / °C — engine A2b); an
+ *         ordinary pollutant uses \p concentrationUnit as reported. */
+[[nodiscard]] QString speciesUnitLabel(const QString &species,
+                                       const QString &concentrationUnit);
+
+/*! \brief True for the reserved species (age / temperature). */
+[[nodiscard]] bool isReservedSpecies(const QString &species);
+
+/*! \brief Resolve \p attr to an engine output variable code.
+ *
+ *  \param attr    a `"qual:<name>"` token.
+ *  \param species the loaded run's species list, in `.out` order.
+ *  \param pollutBase `SWMM_OUT_NODE_POLLUT_BASE`, `…_LINK_…` or
+ *                    `…_SUBCATCH_…` for the element kind being themed.
+ *  \return `pollutBase + index`, or −1 when \p attr is not a species
+ *          token or names a species this run does not carry. */
+[[nodiscard]] int speciesOutCode(const QString &attr,
+                                 const QStringList &species,
+                                 int pollutBase);
+
+} // namespace OpenSWMMVis::Species
+
+#endif // OPENSWMM_LAYERS_SPECIESATTRIBUTES_H
