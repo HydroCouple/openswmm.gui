@@ -16,6 +16,24 @@ project(
     DESCRIPTION "A SWMM model setup, analysis, and visualization tool"
 )
 
+# ---------------------------------------------------------------------------
+# Compile cache. The gui test targets each compile their own copies of the
+# app sources they list (330+ targets; single TUs recompiled up to ~27x per
+# full build), so a content-addressed compile cache collapses the duplicate
+# work into cache hits — including across the revert/reapply cycles the
+# validation workflow leans on. Opt out with -DSWMMVIS_USE_CCACHE=OFF, or
+# by pre-setting CMAKE_<LANG>_COMPILER_LAUNCHER yourself.
+# ---------------------------------------------------------------------------
+option(SWMMVIS_USE_CCACHE "Route compiles through ccache when available" ON)
+if(SWMMVIS_USE_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
+    find_program(SWMMVIS_CCACHE_EXECUTABLE ccache)
+    if(SWMMVIS_CCACHE_EXECUTABLE)
+        set(CMAKE_C_COMPILER_LAUNCHER   "${SWMMVIS_CCACHE_EXECUTABLE}")
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${SWMMVIS_CCACHE_EXECUTABLE}")
+        message(STATUS "ccache enabled: ${SWMMVIS_CCACHE_EXECUTABLE}")
+    endif()
+endif()
+
 set(PROJECT_VERSION_SUFFIX "-alpha.3")
 
 configure_file(
@@ -337,6 +355,7 @@ set(
         include/plot/seriesstyleobject.h
         include/plot/fitmetrics.h
         include/plot/irunlayer.h
+        include/plot/resultdescriptor.h
         include/plot/comparisonplotmodel.h
         include/plot/swmmoutrunlayer.h
         include/plot/mesh2drunlayer.h
@@ -975,6 +994,7 @@ set(
         src/plot/fitmetrics.cpp
         src/plot/seriespairing.cpp
         src/plot/comparisonplotmodel.cpp
+        src/plot/resultdescriptor.cpp
         src/plot/swmmoutrunlayer.cpp
         src/plot/swmmoutrunlayer_codes.cpp
         src/plot/mesh2drunlayer.cpp

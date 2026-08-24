@@ -6,6 +6,8 @@
  */
 #include "plot/swmmoutrunlayer.h"
 
+#include "plot/resultdescriptor.h"
+
 #include "layers/swmmresultslayer.h"
 
 #include <openswmm/engine/openswmm_output.h>
@@ -167,6 +169,18 @@ void SwmmOutRunLayer::getSeriesAt(const ObjectRef& ref,
         out.values[i]      = static_cast<double>(values[i]);
     }
     out.ok = true;
+}
+
+QVector<ResultDescriptor> SwmmOutRunLayer::resultDescriptorsForKind(
+    ObjectRef::Kind kind) const
+{
+    // Y2b-1 (amendment D-Y4): the fixed set plus THIS run's species by
+    // name. A destroyed or quality-free layer degrades to the fixed set —
+    // exactly what a legacy .out should serve.
+    QStringList species;
+    if (m_layer)
+        species = m_layer->speciesNames();
+    return plot::resultDescriptorsForKind(kind, species);
 }
 
 } // namespace openswmmvis::plot

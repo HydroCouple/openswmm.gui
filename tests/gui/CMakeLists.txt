@@ -1366,6 +1366,19 @@ add_swmmvis_gui_test(test_species_attributes
     ${CMAKE_SOURCE_DIR}/include/layers/speciesattributes.h
 )
 
+# Y2b-1 (amendment D-Y4) — ResultDescriptor + the kind-keyed descriptor
+# list. The list builder is a free function in its own TU (the Y2a
+# extraction precedent) so this test reaches it without SWMMResultsLayer;
+# plotattribute.cpp and speciesattributes.cpp supply the label/unit
+# authorities it delegates to.
+add_swmmvis_gui_test(test_resultdescriptor
+    test_resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/resultdescriptor.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/plotattribute.cpp
+    ${CMAKE_SOURCE_DIR}/src/layers/speciesattributes.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/resultdescriptor.h
+)
+
 # Y3 — the Water Age Sources editor. Instantiated against a synthetic
 # BUILDING engine, exactly like test_climatologydialog: the dialog is
 # dependency-light (Qt Widgets + the swmm_water_age_* engine ABI only), so
