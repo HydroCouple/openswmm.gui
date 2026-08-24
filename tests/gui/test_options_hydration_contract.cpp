@@ -97,6 +97,14 @@ private slots:
     void fvOptions_engineRoundTripsValues();
     void fvOptions_rejectBadEnumTokens();
 
+    // QUALITY_SOLVER + the transport option family (Y1 / G1g, 2026-08-23).
+    // The Quality & Transport page hydrates and writes through exactly
+    // these keys, and its capability gate probes QUALITY_SOLVER — which
+    // only reached the C API in subplan Y0, AFTER the parser had them
+    // (the prerequisite-in-the-wrong-layer trap that round records).
+    void transportOptions_engineRoundTripsValues();
+    void transportOptions_rejectBadEnumTokens();
+
     // §M.3 sanity — controls explicitly out of scope must not appear in the
     // audit list (canary against future drift).
     void auditList_excludesOutOfScopeWidgets();
@@ -475,6 +483,92 @@ void TestOptionsHydrationContract::fvOptions_rejectBadEnumTokens()
     QCOMPARE(swmm_options_set(e, "FV_RIEMANN", "HLL"), 0);
     QVERIFY(swmm_options_set(e, "FV_RIEMANN", "ROE") != 0);
     QCOMPARE(getOptionString(e, "FV_RIEMANN"), QStringLiteral("HLL"));
+
+    swmm_engine_destroy(e);
+}
+
+// ---------------------------------------------------------------------------
+// Quality & Transport (Y1 / G1g) — the page's seven keys
+// ---------------------------------------------------------------------------
+
+void TestOptionsHydrationContract::transportOptions_engineRoundTripsValues()
+{
+    SWMM_Engine e = swmm_engine_new();
+    QVERIFY(e != nullptr);
+
+    // Defaults — these are the fallbacks readFromEngine() passes to
+    // getOption(); if the engine's defaults drift this case flags the
+    // dialog for a resync (the fvOptions case's contract, same rule).
+    QCOMPARE(getOptionString(e, "QUALITY_SOLVER"), QStringLiteral("LEGACY"));
+    QCOMPARE(getOptionString(e, "WATER_AGE"),      QStringLiteral("NO"));
+    QCOMPARE(getOptionString(e, "HEAT_TRANSPORT"), QStringLiteral("NO"));
+    QCOMPARE(getOptionDouble(e, "QUALITY_STEP"),   0.0);
+    QCOMPARE(getOptionString(e, "MAX_SEGMENTS_PER_LINK"), QStringLiteral("100"));
+    QCOMPARE(getOptionString(e, "DISPERSION"),     QStringLiteral("OFF"));
+    QCOMPARE(getOptionString(e, "RWPT_SEED"),      QStringLiteral("0"));
+
+    // Set → get in the exact string forms writeToEngine() produces:
+    // combo tokens, QString::number(v,'f',2) for the step, plain ints.
+    const struct { const char *key; const char *set; const char *expect; } rows[] = {
+        { "QUALITY_SOLVER",        "LAGRANGIAN",   "LAGRANGIAN"   },
+        { "QUALITY_STEP",          "5.00",         "5"            },
+        { "MAX_SEGMENTS_PER_LINK", "50",           "50"           },
+        { "DISPERSION",            "RWPT",         "RWPT"         },
+        { "RWPT_SEED",             "7",            "7"            },
+        { "WATER_AGE",             "YES",          "YES"          },
+        { "HEAT_TRANSPORT",        "YES",          "YES"          },
+        // The OFF/NO directions too — a one-way table would pass a setter
+        // that can only ever turn things on.
+        { "QUALITY_SOLVER",        "EULERIAN_ARD", "EULERIAN_ARD" },
+        { "DISPERSION",            "OFF",          "OFF"          },
+        { "WATER_AGE",             "NO",           "NO"           },
+        { "HEAT_TRANSPORT",        "NO",           "NO"           },
+        { "QUALITY_SOLVER",        "LEGACY",       "LEGACY"       },
+    };
+    for (const auto &r : rows) {
+        QVERIFY2(swmm_options_set(e, r.key, r.set) == 0, r.key);
+        const QString got = getOptionString(e, r.key);
+        bool gotNum = false, expNum = false;
+        const double g = got.toDouble(&gotNum);
+        const double x = QString::fromLatin1(r.expect).toDouble(&expNum);
+        if (gotNum && expNum)
+            QCOMPARE(g, x);
+        else
+            QCOMPARE(got, QString::fromLatin1(r.expect));
+    }
+
+    // NOTE: the churn guard for QUALITY_STEP ("0.000000" from the engine vs
+    // "0.00" from the dialog) is asserted in test_simulationoptionsdialog,
+    // which links the helpers TU. This file stays engine-ABI-only on
+    // purpose — including the dialog header here would pull AUTOMOC into a
+    // target that cannot satisfy the dialog's link closure (the trap this
+    // repo already records at tests/gui/CMakeLists.txt:1996).
+
+    swmm_engine_destroy(e);
+}
+
+void TestOptionsHydrationContract::transportOptions_rejectBadEnumTokens()
+{
+    SWMM_Engine e = swmm_engine_new();
+    QVERIFY(e != nullptr);
+
+    // Enum keys must reject unknown tokens so a typo surfaces through a
+    // failed setOption() rather than a silently lost edit.
+    QVERIFY(swmm_options_set(e, "QUALITY_SOLVER", "MAGIC")   != 0);
+    QVERIFY(swmm_options_set(e, "DISPERSION",     "FISCHER") != 0);
+
+    // ...and a rejected set leaves the previous value untouched.
+    QCOMPARE(swmm_options_set(e, "QUALITY_SOLVER", "LAGRANGIAN"), 0);
+    QVERIFY(swmm_options_set(e, "QUALITY_SOLVER", "MAGIC") != 0);
+    QCOMPARE(getOptionString(e, "QUALITY_SOLVER"), QStringLiteral("LAGRANGIAN"));
+
+    // The combos' item data must be the CANONICAL tokens the getter emits:
+    // the parser's aliases are accepted on the way in but never returned,
+    // so a combo carrying "LARD" would never match on hydration.
+    QCOMPARE(swmm_options_set(e, "QUALITY_SOLVER", "LARD"), 0);
+    QCOMPARE(getOptionString(e, "QUALITY_SOLVER"), QStringLiteral("LAGRANGIAN"));
+    QCOMPARE(swmm_options_set(e, "QUALITY_SOLVER", "ARD"), 0);
+    QCOMPARE(getOptionString(e, "QUALITY_SOLVER"), QStringLiteral("EULERIAN_ARD"));
 
     swmm_engine_destroy(e);
 }

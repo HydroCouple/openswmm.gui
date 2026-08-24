@@ -194,6 +194,33 @@ void SimulationOptionsDialog::applyEngineConstraints()
         updateFvFieldsEnabled(); // ensure the FV groups follow
     }
 
+    // ── Quality & Transport page (Y1) ──────────────────────────────────────
+    // Same capability-probe rule, and for the same reason the FV block gives:
+    // the C ABI is string-keyed, so an engine built before the transport keys
+    // reached swmm_options_get (subplan Y0) is only detectable by asking it.
+    // Probe QUALITY_SOLVER rather than the version string.
+    const bool transportSupported =
+        !legacy && !getOption("QUALITY_SOLVER").isEmpty();
+    if (!transportSupported) {
+        const QString ttip =
+            legacy ? tr("Not available in SWMM 5 (legacy engine).")
+                   : tr("This engine build predates the quality/transport "
+                        "option surface.");
+        if (m_qualitySolverCombo) {
+            m_qualitySolverCombo->setEnabled(false);
+            m_qualitySolverCombo->setToolTip(ttip);
+        }
+        // Disable the groups directly: with the solver combo frozen,
+        // updateQualitySolverFieldsEnabled() would re-enable whichever group
+        // matches its (stale) selection.
+        if (m_ardGroup)         m_ardGroup->setEnabled(false);
+        if (m_lardGroup)        m_lardGroup->setEnabled(false);
+        if (m_waterAgeBox)    { m_waterAgeBox->setEnabled(false);
+                                m_waterAgeBox->setToolTip(ttip); }
+        if (m_heatTransportBox) { m_heatTransportBox->setEnabled(false);
+                                  m_heatTransportBox->setToolTip(ttip); }
+    }
+
     if (!legacy)
         return;   // new engine: everything else already enabled
 
@@ -290,6 +317,7 @@ void SimulationOptionsDialog::buildUi()
     addCategory(tr("Models / Processes"),     buildModelsTab());
     addCategory(tr("Dates & Times"),          buildDatesTab());
     addCategory(tr("Routing & Hydraulics"),   buildHydraulicsTab());
+    addCategory(tr("Quality & Transport"),    buildQualityTransportTab());
     addCategory(tr("System / Performance"),   buildPerformanceTab());
     addCategory(tr("Spatial & CRS"),          buildSpatialTab());
 
@@ -1120,6 +1148,136 @@ void SimulationOptionsDialog::updateFvFieldsEnabled()
         m_fvNodePicardSpin->setEnabled(
             m_fvNodeCouplingCombo->currentData().toString()
                 == QStringLiteral("SEMI_IMPLICIT"));
+}
+
+// ---------------------------------------------------------------------------
+// Quality & Transport (Y1 / GUI plan G1g)
+// ---------------------------------------------------------------------------
+// Scope note (see the Y1 handoff §2): only keys the engine's C API actually
+// exposes are edited here. The Eulerian ARD engine reads its scheme,
+// dispersion and target-dx from its transport.ard COMPONENT file (engine
+// D-UT8), not from [OPTIONS], so the ARD group carries a pointer to that
+// binding rather than duplicating the FV page's FV_* widgets — two widgets
+// writing one key is a defect, not a convenience.
+
+QWidget *SimulationOptionsDialog::buildQualityTransportTab()
+{
+    auto *page = new QWidget(this);
+    auto *vlay = new QVBoxLayout(page);
+
+    // ── Solver selection ───────────────────────────────────────────────
+    auto *solGroup = new QGroupBox(tr("Water quality solver"), page);
+    auto *solForm  = new QFormLayout(solGroup);
+
+    m_qualitySolverCombo = new QComboBox(solGroup);
+    m_qualitySolverCombo->addItem(tr("Legacy (complete mix)"),
+                                  QStringLiteral("LEGACY"));
+    m_qualitySolverCombo->addItem(tr("Eulerian ARD (advection–reaction–dispersion)"),
+                                  QStringLiteral("EULERIAN_ARD"));
+    m_qualitySolverCombo->addItem(tr("Lagrangian (LARD)"),
+                                  QStringLiteral("LAGRANGIAN"));
+    m_qualitySolverCombo->setToolTip(
+        tr("Transport engine for pollutants and reserved species "
+           "(option QUALITY_SOLVER)."));
+    solForm->addRow(tr("Sol&ver:"), m_qualitySolverCombo);
+    vlay->addWidget(solGroup);
+
+    // ── Eulerian ARD ───────────────────────────────────────────────────
+    m_ardGroup = new QGroupBox(tr("Eulerian ARD"), page);
+    auto *ardLay = new QVBoxLayout(m_ardGroup);
+    auto *ardNote = new QLabel(
+        tr("Dispersion, scalar scheme and transport mesh spacing for the "
+           "Eulerian ARD engine are configured in its component file "
+           "(<i>model.ard</i>), bound on the Files / Output / Plugins page. "
+           "Numerical scheme settings shared with the finite-volume solver "
+           "are edited on the Routing &amp; Hydraulics page."),
+        m_ardGroup);
+    ardNote->setWordWrap(true);
+    ardLay->addWidget(ardNote);
+    vlay->addWidget(m_ardGroup);
+
+    // ── Lagrangian (LARD) ──────────────────────────────────────────────
+    m_lardGroup = new QGroupBox(tr("Lagrangian (LARD)"), page);
+    auto *lardForm = new QFormLayout(m_lardGroup);
+
+    m_qualityStepSpin = new QDoubleSpinBox(m_lardGroup);
+    m_qualityStepSpin->setRange(0.0, 3600.0);
+    m_qualityStepSpin->setDecimals(2);
+    m_qualityStepSpin->setSuffix(QStringLiteral(" s"));
+    m_qualityStepSpin->setToolTip(
+        tr("Transport substep (QUALITY_STEP). 0 follows the routing step; "
+           "smaller values refine transport without changing hydraulics."));
+    lardForm->addRow(tr("Quality &step:"), m_qualityStepSpin);
+
+    m_maxSegmentsSpin = new QSpinBox(m_lardGroup);
+    m_maxSegmentsSpin->setRange(2, 10000);
+    m_maxSegmentsSpin->setToolTip(
+        tr("Segment slab capacity per link (MAX_SEGMENTS_PER_LINK)."));
+    lardForm->addRow(tr("Max se&gments per link:"), m_maxSegmentsSpin);
+
+    m_dispersionCombo = new QComboBox(m_lardGroup);
+    m_dispersionCombo->addItem(tr("Off"),  QStringLiteral("OFF"));
+    m_dispersionCombo->addItem(tr("RWPT (random-walk particle tracking)"),
+                               QStringLiteral("RWPT"));
+    m_dispersionCombo->setToolTip(
+        tr("Longitudinal dispersion from resolved vertical shear "
+           "(option DISPERSION)."));
+    lardForm->addRow(tr("&Dispersion:"), m_dispersionCombo);
+
+    m_rwptSeedSpin = new QSpinBox(m_lardGroup);
+    m_rwptSeedSpin->setRange(-2147483647, 2147483647);
+    m_rwptSeedSpin->setToolTip(
+        tr("Deterministic RWPT seed (RWPT_SEED) — the same seed reproduces "
+           "a run bit-for-bit at any thread count."));
+    lardForm->addRow(tr("RWPT s&eed:"), m_rwptSeedSpin);
+    vlay->addWidget(m_lardGroup);
+
+    // ── Reserved species ───────────────────────────────────────────────
+    auto *resGroup = new QGroupBox(tr("Reserved species"), page);
+    auto *resLay   = new QVBoxLayout(resGroup);
+    m_waterAgeBox = new QCheckBox(tr("Track water age"), resGroup);
+    m_waterAgeBox->setToolTip(
+        tr("Transported water age as the reserved species __WATER_AGE__, "
+           "reported in hours (option WATER_AGE)."));
+    m_heatTransportBox = new QCheckBox(tr("Simulate heat transport"), resGroup);
+    m_heatTransportBox->setToolTip(
+        tr("Transported temperature as the reserved species "
+           "__TEMPERATURE__, reported in °C (option HEAT_TRANSPORT)."));
+    resLay->addWidget(m_waterAgeBox);
+    resLay->addWidget(m_heatTransportBox);
+    auto *resNote = new QLabel(
+        tr("Per-source initial ages and heat meteorology are configured in "
+           "their component files; dedicated editors arrive with the water-age "
+           "and heat pages."),
+        resGroup);
+    resNote->setWordWrap(true);
+    resLay->addWidget(resNote);
+    vlay->addWidget(resGroup);
+
+    vlay->addStretch();
+
+    connect(m_qualitySolverCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, [this](int){ updateQualitySolverFieldsEnabled(); });
+    connect(m_dispersionCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, [this](int){ updateQualitySolverFieldsEnabled(); });
+
+    return page;
+}
+
+void SimulationOptionsDialog::updateQualitySolverFieldsEnabled()
+{
+    if (!m_qualitySolverCombo) return;
+    const QString solver = m_qualitySolverCombo->currentData().toString();
+    if (m_ardGroup)
+        m_ardGroup->setEnabled(solver == QLatin1String("EULERIAN_ARD"));
+    if (m_lardGroup)
+        m_lardGroup->setEnabled(solver == QLatin1String("LAGRANGIAN"));
+    // The seed only matters while RWPT is on. Setting it on a disabled
+    // group is harmless — Qt ANDs enabled state down the tree.
+    if (m_rwptSeedSpin && m_dispersionCombo)
+        m_rwptSeedSpin->setEnabled(
+            m_dispersionCombo->currentData().toString()
+                == QLatin1String("RWPT"));
 }
 
 void SimulationOptionsDialog::updateDurationLabel()
@@ -2784,6 +2942,25 @@ void SimulationOptionsDialog::readFromEngine()
     updateSurchargeFieldsEnabled();
     updateFvFieldsEnabled();
 
+    // ---- Quality & Transport (Y1) --------------------------------------
+    // Fallbacks are the ENGINE's documented defaults (Y0's gate 1 pins
+    // them); if the engine's defaults drift, that gate flags this block
+    // for a resync — the same contract the FV group above carries.
+    selectComboByData(m_qualitySolverCombo,
+                      getOption("QUALITY_SOLVER", QStringLiteral("LEGACY")));
+    m_qualityStepSpin->setValue(optDouble("QUALITY_STEP", 0.0));
+    m_maxSegmentsSpin->setValue(optInt("MAX_SEGMENTS_PER_LINK", 100));
+    selectComboByData(m_dispersionCombo,
+                      getOption("DISPERSION", QStringLiteral("OFF")));
+    m_rwptSeedSpin->setValue(optInt("RWPT_SEED", 0));
+    m_waterAgeBox->setChecked(
+        parseEngineBool(getOption("WATER_AGE", QStringLiteral("NO")))
+            == Qt::Checked);
+    m_heatTransportBox->setChecked(
+        parseEngineBool(getOption("HEAT_TRANSPORT", QStringLiteral("NO")))
+            == Qt::Checked);
+    updateQualitySolverFieldsEnabled();
+
     // ---- Tab 4 ---------------------------------------------------------
     m_threadsSpin->setValue(optInt("THREADS", sim.threads));
 
@@ -4026,6 +4203,26 @@ int SimulationOptionsDialog::writeToEngine()
                    QString::number(m_fvLtsTiersSpin->value()));
     writeIfChanged("FV_CFL_CENSUS_INTERVAL", getOption("FV_CFL_CENSUS_INTERVAL"),
                    QString::number(m_fvCflCensusSpin->value()));
+
+    // Quality & Transport (Y1). Every key is written unconditionally of the
+    // solver selection — the engine accepts them under any solver (Y0 §2.1),
+    // so a user can configure LARD before switching to it and the settings
+    // survive. writeIfChanged's numeric-aware compare keeps QUALITY_STEP
+    // from churning against the engine's "0.000000" rendering.
+    writeIfChanged("QUALITY_SOLVER",      getOption("QUALITY_SOLVER"),
+                   m_qualitySolverCombo->currentData().toString());
+    writeIfChanged("QUALITY_STEP",        getOption("QUALITY_STEP"),
+                   QString::number(m_qualityStepSpin->value(), 'f', 2));
+    writeIfChanged("MAX_SEGMENTS_PER_LINK", getOption("MAX_SEGMENTS_PER_LINK"),
+                   QString::number(m_maxSegmentsSpin->value()));
+    writeIfChanged("DISPERSION",          getOption("DISPERSION"),
+                   m_dispersionCombo->currentData().toString());
+    writeIfChanged("RWPT_SEED",           getOption("RWPT_SEED"),
+                   QString::number(m_rwptSeedSpin->value()));
+    writeIfChanged("WATER_AGE",           getOption("WATER_AGE"),
+                   engineBoolString(m_waterAgeBox->isChecked()));
+    writeIfChanged("HEAT_TRANSPORT",      getOption("HEAT_TRANSPORT"),
+                   engineBoolString(m_heatTransportBox->isChecked()));
 
     // Tab 4 — System / Performance
     writeIfChanged("THREADS",             getOption("THREADS"),
