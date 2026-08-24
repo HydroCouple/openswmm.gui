@@ -5,6 +5,7 @@
  * \license GPL-3.0-or-later
  */
 #include "ui/dialogs/simulationoptionsdialog.h"
+#include "ui/dialogs/wateragesourcesdialog.h"
 #include "ui/theme/themehelpers.h"
 
 #include "ui/uiscrollhelpers.h"
@@ -1246,12 +1247,24 @@ QWidget *SimulationOptionsDialog::buildQualityTransportTab()
     resLay->addWidget(m_waterAgeBox);
     resLay->addWidget(m_heatTransportBox);
     auto *resNote = new QLabel(
-        tr("Per-source initial ages and heat meteorology are configured in "
-           "their component files; dedicated editors arrive with the water-age "
-           "and heat pages."),
+        tr("Per-source initial ages are edited below; heat meteorology is "
+           "configured in its component file until the heat page arrives."),
         resGroup);
     resNote->setWordWrap(true);
     resLay->addWidget(resNote);
+
+    // Y3b: the Water Age Sources editor, reachable from the page that
+    // enables the tracking it configures.
+    auto *ageSrcBtn = new QPushButton(tr("Edit Source Ages..."), resGroup);
+    ageSrcBtn->setObjectName(QStringLiteral("qt_editAgeSourcesBtn"));
+    ageSrcBtn->setToolTip(
+        tr("Initial age of water entering by each source pathway "
+           "(WATER_AGE_SOURCES). Negative ages extract age-volume."));
+    connect(ageSrcBtn, &QPushButton::clicked, this, [this]() {
+        OpenSWMMVis::WaterAgeSourcesDialog dlg(m_engine, this);
+        dlg.exec();   // writes straight to the engine; OK/Cancel is its own
+    });
+    resLay->addWidget(ageSrcBtn);
     vlay->addWidget(resGroup);
 
     vlay->addStretch();
