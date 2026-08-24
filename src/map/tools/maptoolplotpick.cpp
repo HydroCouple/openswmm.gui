@@ -95,14 +95,14 @@ void OpenSWMMVisMapToolPlotPick::mousePressEvent(QMouseEvent *event)
     if (kind == PKind::Unknown) { event->accept(); return; }
 
     QMenu *menu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
-        kind, openswmmvis::plot::UnitSystem::US, widget);
+        kind, openswmmvis::plot::UnitSystem::US, widget, m_speciesNames);
     if (!menu) { event->accept(); return; }
     QAction *picked = menu->exec(globalPt);
-    const auto attr = openswmmvis::ui::AttributePickerMenu::attributeFrom(picked);
+    const auto d = openswmmvis::ui::AttributePickerMenu::descriptorFrom(picked);
     delete menu;
     if (picked) {
-        // attr may be Unknown for the "All attributes" sentinel — owner handles.
-        emit objectPicked(ref, attr);
+        // d is INVALID for the "All attributes" sentinel — owner fans out.
+        emit objectPicked(ref, d);
     }
     event->accept();
 }

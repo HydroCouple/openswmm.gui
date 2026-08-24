@@ -59,6 +59,25 @@ public:
     QVector<ResultDescriptor> resultDescriptorsForKind(
         ObjectRef::Kind kind) const override;
 
+    /*! \brief Y2b-2: species series resolve NAME → index → per-kind
+     *  `SWMM_OUT_*_POLLUT_BASE + index` against the run's live species
+     *  list on every call (D-G1 — a stored index would repoint when a
+     *  model edit reorders species). Fixed attributes take the enum
+     *  path unchanged. */
+    void getSeriesAt(const ObjectRef& ref,
+                     const ResultDescriptor& descriptor,
+                     SeriesData& out) const override;
+
+    /*! \brief Map a species NAME to the engine's per-object var code:
+     *  `SWMM_OUT_{NODE,LINK,SUBCATCH}_POLLUT_BASE + indexOf(name)`.
+     *  Returns -1 when the run does not carry the species or the kind
+     *  has no species columns. Pure mapping — exposed for testing, and
+     *  reorder-safe by construction (the index comes from \p runSpecies
+     *  at call time, never from storage). */
+    static int speciesVariableCodeFor(const QString& species,
+                                      const QStringList& runSpecies,
+                                      ObjectRef::Kind kind);
+
     /*! \brief Map a PlotAttribute + ObjectRef::Kind to the engine's
      *  per-object var code (SWMM_OUT_NODE_*, SWMM_OUT_LINK_*,
      *  SWMM_OUT_SUBCATCH_*, SWMM_OUT_SYS_*). Returns -1 when the
@@ -67,6 +86,11 @@ public:
     static int variableCodeFor(PlotAttribute attr, ObjectRef::Kind kind);
 
 private:
+    /*! Shared tail of both getSeriesAt overloads: object resolution +
+     *  bulk fetch + time axis for an already-resolved var code. */
+    void fetchSeriesByCode_(const ObjectRef& ref, int varCode,
+                            SeriesData& out) const;
+
     QPointer<SWMMResultsLayer> m_layer;
 };
 

@@ -185,6 +185,27 @@ public:
      *  attributes when CF.2 edge-flux data is missing). */
     virtual bool supportsAttribute(PlotAttribute /*attr*/) const { return true; }
 
+    /*! \brief Y2b-2 (amendment D-Y4): resolve a series by DESCRIPTOR.
+     *  Fixed attributes forward to the enum overload above; a species
+     *  refuses with a precise message — only sources that actually carry
+     *  species columns override this (`SwmmOutRunLayer`).
+     *  \note INLINE for the same header-only-interface reason as
+     *  `resultDescriptorsForKind` below: nothing reachable from a
+     *  default may live in a .cpp the stub tests do not link. */
+    virtual void getSeriesAt(const ObjectRef& ref,
+                             const ResultDescriptor& descriptor,
+                             SeriesData& out) const
+    {
+        if (descriptor.isSpecies()) {
+            out.ok = false;
+            out.errorMessage =
+                QStringLiteral("Source '%1' carries no species results")
+                    .arg(scenarioName());
+            return;
+        }
+        getSeriesAt(ref, descriptor.attr, out);
+    }
+
     /*! \brief Y2b-1 (amendment D-Y4): everything plottable for \p kind on
      *  THIS run — the fixed attribute set as descriptors, plus any dynamic
      *  species the run carries. Base impl serves the fixed set only, which

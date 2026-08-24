@@ -1318,7 +1318,9 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     if (plotKind != PlotKind::Unknown) {
         if (resultsLayers.size() <= 1) {
             plotSubmenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
-                plotKind, openswmmvis::plot::UnitSystem::US, &menu);
+                plotKind, openswmmvis::plot::UnitSystem::US, &menu,
+                resultsLayers.isEmpty() ? QStringList()
+                                        : resultsLayers.first()->speciesNames());
             if (plotSubmenu) {
                 plotSubmenu->setTitle(QObject::tr("Plot Time Series…"));
                 plotSubmenu->setIcon(QIcon(QStringLiteral(":/swmmvis/Chart")));
@@ -1329,7 +1331,8 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
                                            QObject::tr("Plot Time Series"));
             for (SWMMResultsLayer *r : resultsLayers) {
                 QMenu *attrMenu = openswmmvis::ui::AttributePickerMenu::createForObjectKind(
-                    plotKind, openswmmvis::plot::UnitSystem::US, topPlot);
+                    plotKind, openswmmvis::plot::UnitSystem::US, topPlot,
+                    r->speciesNames());
                 if (!attrMenu) continue;
                 attrMenu->setTitle(r->name());
                 topPlot->addMenu(attrMenu);
@@ -1436,8 +1439,10 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     // attributeFrom() returns Unknown for the "All attributes" sentinel;
     // we forward that verbatim so swmmvis.cpp can fan out the series.
     if (plotSubmenu && picked->parent() == plotSubmenu) {
-        const auto attr = openswmmvis::ui::AttributePickerMenu::attributeFrom(picked);
-        emit plotAttributeRequested(ref, attr);
+        // Y2b-2: descriptorFrom tells fixed / species / sentinel apart —
+        // attributeFrom would read a species action as the sentinel.
+        emit plotAttributeRequested(
+            ref, openswmmvis::ui::AttributePickerMenu::descriptorFrom(picked));
         return;
     }
     // Two-level layout: the picked QAction's parent is the per-layer
@@ -1446,8 +1451,9 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
     if (!perLayerSubmenus.isEmpty()) {
         auto *parentMenu = qobject_cast<QMenu *>(picked->parent());
         if (parentMenu && submenuToLayer.contains(parentMenu)) {
-            const auto attr = openswmmvis::ui::AttributePickerMenu::attributeFrom(picked);
-            emit plotAttributeForLayerRequested(ref, attr, submenuToLayer.value(parentMenu));
+            emit plotAttributeForLayerRequested(
+                ref, openswmmvis::ui::AttributePickerMenu::descriptorFrom(picked),
+                submenuToLayer.value(parentMenu));
             return;
         }
     }

@@ -25,6 +25,7 @@ namespace {
 constexpr int kRoleAttr = Qt::UserRole;      ///< int(PlotAttribute)
 constexpr int kRoleKind = Qt::UserRole + 1;  ///< int(ObjectRef::Kind)
 constexpr int kRoleName = Qt::UserRole + 2;  ///< object name (unused for System)
+constexpr int kRoleSpecies = Qt::UserRole + 3;  ///< species NAME (Y2b-2); empty for fixed attrs
 
 QString groupLabelFor(const ObjectRef &ref)
 {
@@ -121,6 +122,28 @@ void PlotVariablePickerDialog::addAttributeLeaf(QTreeWidgetItem *group,
     }
 }
 
+void PlotVariablePickerDialog::addDescriptorLeaf(
+    QTreeWidgetItem *group, const ObjectRef &ref, const ResultDescriptor &d,
+    const IRunLayer *availability, UnitSystem units)
+{
+    if (!d.isSpecies()) {
+        addAttributeLeaf(group, ref, d.attr, availability, units);
+        return;
+    }
+    // A species leaf (Y2b-2): labelled and united by the Y2a authorities
+    // (age reads hours, never mg/L) and keyed by NAME (D-G1).
+    auto *leaf = new QTreeWidgetItem(group);
+    leaf->setText(0, QStringLiteral("%1 (%2)")
+                         .arg(d.label(), d.unitLabel(units)));
+    leaf->setData(0, kRoleAttr,
+                  static_cast<int>(PlotAttribute::Unknown));
+    leaf->setData(0, kRoleKind, static_cast<int>(ref.kind));
+    leaf->setData(0, kRoleName, ref.name);
+    leaf->setData(0, kRoleSpecies, d.species);
+    leaf->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
+    leaf->setCheckState(0, Qt::Unchecked);
+}
+
 void PlotVariablePickerDialog::buildTree(const QVector<ObjectRef> &features,
                                          const IRunLayer *availability,
                                          UnitSystem units)
@@ -137,15 +160,20 @@ void PlotVariablePickerDialog::buildTree(const QVector<ObjectRef> &features,
                          availability, units);
 
     for (const ObjectRef &ref : features) {
-        const QVector<PlotAttribute> &attrs = attributesForKind(ref.kind);
-        if (attrs.isEmpty()) continue;
+        // Y2b-2: the run decides what is plottable — the fixed set plus
+        // any species the open .out carries. With no availability layer
+        // the fixed set alone appears (a legacy run's behaviour).
+        const QVector<ResultDescriptor> descriptors =
+            availability ? availability->resultDescriptorsForKind(ref.kind)
+                         : resultDescriptorsForKind(ref.kind, QStringList());
+        if (descriptors.isEmpty()) continue;
         auto *group = new QTreeWidgetItem(m_tree);
         group->setText(0, groupLabelFor(ref));
         group->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable |
                         Qt::ItemIsAutoTristate);
         group->setCheckState(0, Qt::Unchecked);
-        for (PlotAttribute a : attrs)
-            addAttributeLeaf(group, ref, a, availability, units);
+        for (const ResultDescriptor &d : descriptors)
+            addDescriptorLeaf(group, ref, d, availability, units);
     }
 }
 
@@ -161,6 +189,7 @@ PlotVariablePickerDialog::checkedEntries() const
             Entry e;
             e.attribute = static_cast<PlotAttribute>(
                 leaf->data(0, kRoleAttr).toInt());
+            e.species = leaf->data(0, kRoleSpecies).toString();
             const auto kind = static_cast<ObjectRef::Kind>(
                 leaf->data(0, kRoleKind).toInt());
             e.ref = (kind == ObjectRef::Kind::System)
