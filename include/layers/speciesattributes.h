@@ -85,6 +85,23 @@ inline constexpr const char *kSpeciesAttrPrefix = "qual:";
                                  const QStringList &species,
                                  int pollutBase);
 
+/*! \brief Y4 (amendment D-Y4): constituent choices for an [INFLOWS]
+ *  editor — FLOW, every pollutant, then the reserved AGE species
+ *  (§3.3's exclusion lifted for age ONLY; temperature keeps the
+ *  dedicated-page treatment until heat's round and must NOT appear).
+ *  Engine NAMES — combo labels come from inflowConstituentLabel(). */
+[[nodiscard]] QStringList inflowConstituentNames(const QStringList &pollutants);
+
+/*! \brief Combo label for an inflow constituent: the species display
+ *  label for the reserved pair ("Water age (hours)" — the row's value
+ *  column means HOURS, never mg/L), the bare name otherwise. */
+[[nodiscard]] QString inflowConstituentLabel(const QString &name);
+
+/*! \brief MASS is a pollutant-only inflow type: meaningless for FLOW
+ *  and for the age species (the engine takes a MASS-typed age row as
+ *  hours WITH a warning — the editor must not author what warns). */
+[[nodiscard]] bool inflowMassAllowed(const QString &name);
+
 /*! \brief D-G1 warn-on-miss (Y2b-3): a saved theme or series may name a
  *  species the currently-open run does not carry (saved against a
  *  3-species run, reopened against 1). Resolution already degrades to

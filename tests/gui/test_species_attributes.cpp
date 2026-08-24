@@ -45,6 +45,7 @@ private slots:
     void outCodeResolvesAgainstTheRunsSpeciesList();
     void outCodeRejectsUnknownAndMalformed();
     void missWarnerWarnsOncePerTokenPerRun();
+    void inflowConstituentsLiftTheExclusionForAgeOnly();
 };
 
 void TestSpeciesAttributes::attributeTokenRoundTrips()
@@ -194,6 +195,39 @@ void TestSpeciesAttributes::missWarnerWarnsOncePerTokenPerRun()
     w.reset();
     QVERIFY(!w.noteMiss(QStringLiteral("qual:Lead"),
                         QStringLiteral("run2")).isEmpty());
+}
+
+
+void TestSpeciesAttributes::inflowConstituentsLiftTheExclusionForAgeOnly()
+{
+    using namespace OpenSWMMVis::Species;
+    // FLOW first, pollutants in engine order, the age species LAST —
+    // and temperature ABSENT (amendment §6: it keeps the dedicated-page
+    // treatment until heat's round; an editor offering it would author
+    // a row the engine only warns about and ignores).
+    const QStringList names = inflowConstituentNames(
+        {QStringLiteral("TSS"), QStringLiteral("Lead")});
+    QCOMPARE(names, (QStringList{QStringLiteral("FLOW"),
+                                 QStringLiteral("TSS"),
+                                 QStringLiteral("Lead"),
+                                 QString::fromLatin1(kWaterAgeName)}));
+    QVERIFY(!names.contains(QString::fromLatin1(kTemperatureName)));
+    // No pollutants: FLOW + age still offered (the pure-age model).
+    QCOMPARE(inflowConstituentNames({}).size(), 2);
+
+    // The age entry is labelled in HOURS — a bare "__WATER_AGE__" combo
+    // row invites a mg/L-shaped number (amendment §6's unit warning).
+    QVERIFY(inflowConstituentLabel(QString::fromLatin1(kWaterAgeName))
+                .contains(QStringLiteral("hours")));
+    QCOMPARE(inflowConstituentLabel(QStringLiteral("TSS")),
+             QStringLiteral("TSS"));
+
+    // MASS stays pollutant-only: meaningless for FLOW, warned-and-
+    // reinterpreted for age — the editor must not author it.
+    QVERIFY(!inflowMassAllowed(QStringLiteral("FLOW")));
+    QVERIFY(inflowMassAllowed(QStringLiteral("TSS")));
+    QVERIFY(!inflowMassAllowed(QString::fromLatin1(kWaterAgeName)));
+    QVERIFY(!inflowMassAllowed(QString::fromLatin1(kTemperatureName)));
 }
 
 QTEST_MAIN(TestSpeciesAttributes)
