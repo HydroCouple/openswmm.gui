@@ -14,6 +14,7 @@
 #include "plot/mesh2drunlayer.h"
 #include "plot/observedcsvrunlayer.h"
 #include "plot/fitmetrics.h"
+#include "plot/seriesdataexport.h"
 #include "plot/seriespairing.h"
 #include "plot/chartproperties.h"
 #include "ui/dialogs/chartpropertiesdialog.h"
@@ -303,6 +304,14 @@ void ComparisonPlotDialog::buildToolBar()
             this, &ComparisonPlotDialog::onExportPngClicked);
     m_toolBar->addAction(m_actExport);
 
+    m_actExportData = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportCsv")),
+                                    tr("Export Data…"), this);
+    m_actExportData->setStatusTip(tr("Save the plotted time series to a CSV or SWMM .dat file"));
+    m_actExportData->setToolTip(m_actExportData->statusTip());
+    connect(m_actExportData, &QAction::triggered,
+            this, &ComparisonPlotDialog::onExportDataClicked);
+    m_toolBar->addAction(m_actExportData);
+
     m_toolBar->addSeparator();
 
     m_actAnimCursor = new QAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("TimeCursor")),
@@ -510,6 +519,72 @@ void ComparisonPlotDialog::onExportPngClicked()
     if (!combined.save(path, "PNG")) {
         QMessageBox::warning(this, tr("Export failed"),
                               tr("Could not save the image to %1").arg(path));
+    }
+}
+
+void ComparisonPlotDialog::onExportDataClicked()
+{
+    QVector<int> all;
+    all.reserve(m_model->seriesCount());
+    for (int i = 0; i < m_model->seriesCount(); ++i)
+        all.push_back(i);
+    exportSeriesData(all);
+}
+
+void ComparisonPlotDialog::exportSeriesData(const QVector<int>& seriesIndices)
+{
+    // Resolve each requested series up front so an empty plot fails fast
+    // instead of after the file dialog.
+    QVector<plot::ExportSeries> exportable;
+    for (int sIdx : seriesIndices) {
+        if (sIdx < 0 || sIdx >= m_model->seriesCount()) continue;
+        plot::SeriesData data;
+        m_model->resolveSeries(sIdx, data);
+        if (!data.ok || data.timesJulian.empty()) continue;
+        exportable.push_back({ legendNameFor(m_model->spec(sIdx)),
+                               std::move(data.timesJulian),
+                               std::move(data.values) });
+    }
+    if (exportable.isEmpty()) {
+        QMessageBox::information(this, tr("Export Data"),
+                                 tr("There is no series data to export."));
+        return;
+    }
+
+    QString selectedFilter;
+    QString path = QFileDialog::getSaveFileName(
+        this, tr("Export Data"), QStringLiteral("timeseries.csv"),
+        tr("CSV file (*.csv);;SWMM time series (*.dat)"), &selectedFilter);
+    if (path.isEmpty()) return;
+
+    // The native dialog doesn't always swap the suffix when the user
+    // changes filters — honour the filter over a stale default suffix.
+    const bool wantDat = selectedFilter.contains(QStringLiteral("*.dat"));
+    if (wantDat && !path.endsWith(QStringLiteral(".dat"), Qt::CaseInsensitive)) {
+        if (path.endsWith(QStringLiteral(".csv"), Qt::CaseInsensitive))
+            path.chop(4);
+        path += QStringLiteral(".dat");
+    } else if (!wantDat &&
+               !path.endsWith(QStringLiteral(".csv"), Qt::CaseInsensitive) &&
+               !path.endsWith(QStringLiteral(".dat"), Qt::CaseInsensitive)) {
+        path += QStringLiteral(".csv");
+    }
+
+    QString err;
+    if (wantDat || path.endsWith(QStringLiteral(".dat"), Qt::CaseInsensitive)) {
+        const QStringList written = plot::writeSeriesDat(path, exportable, &err);
+        if (written.isEmpty()) {
+            QMessageBox::warning(this, tr("Export failed"), err);
+        } else if (written.size() > 1) {
+            // .dat holds one series per file — tell the user about the fan-out.
+            QMessageBox::information(this, tr("Export Data"),
+                tr("A SWMM .dat file holds one series, so %1 files were written:\n%2")
+                    .arg(written.size())
+                    .arg(written.join(QLatin1Char('\n'))));
+        }
+    } else {
+        if (!plot::writeSeriesCsv(path, exportable, &err))
+            QMessageBox::warning(this, tr("Export failed"), err);
     }
 }
 
@@ -932,6 +1007,7 @@ void ComparisonPlotDialog::onSeriesTreeContextMenu(const QPoint &pos)
         if (rowSiblingCount <= 1)
             plotOnly->setToolTip(tr("Only one series on this chart row"));
         QAction *editStyle = menu.addAction(tr("Edit Properties…"));
+        QAction *exportData = menu.addAction(tr("Export Series Data…"));
         menu.addSeparator();
         QAction *removeSeries = menu.addAction(tr("Remove Series"));
         QAction *chosen = menu.exec(m_seriesTree->viewport()->mapToGlobal(pos));
@@ -953,6 +1029,8 @@ void ComparisonPlotDialog::onSeriesTreeContextMenu(const QPoint &pos)
             }
         } else if (chosen == editStyle) {
             onSeriesItemDoubleClicked(item, 0);
+        } else if (chosen == exportData) {
+            exportSeriesData({ seriesIdx });
         } else if (chosen == removeSeries) {
             m_model->removeSeries(seriesIdx);
         }
@@ -1352,6 +1430,8 @@ void ComparisonPlotDialog::rebuildCharts()
                     QAction *reset    = menu.addAction(tr("Reset Zoom"));
                     QAction *fit      = menu.addAction(tr("Fit All Rows"));
                     menu.addSeparator();
+                    QAction *exportData = menu.addAction(tr("Export Row Data…"));
+                    menu.addSeparator();
                     QAction *props    = menu.addAction(tr("Chart Properties…"));
                     QAction *chosen = menu.exec(globalPos);
                     if (!chosen) return;
@@ -1360,6 +1440,9 @@ void ComparisonPlotDialog::rebuildCharts()
                         m_rowWidgets[r].view->resetZoom();
                     } else if (chosen == fit) {
                         rebuildCharts();
+                    } else if (chosen == exportData) {
+                        if (r < m_model->rows().size())
+                            exportSeriesData(m_model->rows().at(r).seriesIndices);
                     } else if (chosen == props && r < m_rowWidgets.size()
                                && m_rowWidgets[r].chart) {
                         auto *cp = new openswmmvis::plot::ChartProperties(

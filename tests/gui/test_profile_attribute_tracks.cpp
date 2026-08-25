@@ -40,6 +40,10 @@ private slots:
     void settingsRoundTrip();
     void visibleAttributesCanonicalOrder();
 
+    // Options — species tracks (Y2b-2 follow-up, amendment D-Y4)
+    void speciesTrackStateAndOrder();
+    void speciesSettingsRoundTrip();
+
     // Sampler classification
     void attributeClassification();
 
@@ -161,6 +165,95 @@ void TestProfileAttributeTracks::visibleAttributesCanonicalOrder()
     QCOMPARE(vis[2], PlotAttribute::LinkFlow);
     QCOMPARE(vis[3], PlotAttribute::LinkCapacity);
     QVERIFY(opt.anyAttributeVisible());
+}
+
+void TestProfileAttributeTracks::speciesTrackStateAndOrder()
+{
+    ProfileAttributeTrackOptions opt;
+    QSignalSpy spy(&opt, &ProfileAttributeTrackOptions::changed);
+
+    // Node and link scope are independent state for the same name.
+    QVERIFY(!opt.isSpeciesTrackVisible(QStringLiteral("TSS"), true));
+    opt.setSpeciesTrackVisible(QStringLiteral("TSS"), /*nodeScope=*/true, true);
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(opt.isSpeciesTrackVisible(QStringLiteral("TSS"), true));
+    QVERIFY(!opt.isSpeciesTrackVisible(QStringLiteral("TSS"), false));
+    opt.setSpeciesTrackVisible(QStringLiteral("TSS"), true, true);   // no-op
+    QCOMPARE(spy.count(), 1);
+
+    // Species alone drive the pane, without any fixed attribute enabled.
+    QVERIFY(opt.anyAttributeVisible());
+    QVERIFY(opt.visibleAttributes().isEmpty());
+
+    // Pens: per (name, scope); the seed default is deterministic.
+    QCOMPARE(opt.speciesTrackPenFor(QStringLiteral("TSS"), true),
+             opt.speciesTrackPenFor(QStringLiteral("TSS"), true));
+    const QPen fancy(QColor(1, 2, 3), 2.0, Qt::DashLine);
+    opt.setSpeciesTrackPenFor(QStringLiteral("TSS"), false, fancy);
+    QCOMPARE(spy.count(), 2);
+    QCOMPARE(opt.speciesTrackPenFor(QStringLiteral("TSS"), false), fancy);
+    QVERIFY(opt.speciesTrackPenFor(QStringLiteral("TSS"), true) != fancy);
+
+    // Order: sorted by name, node scope before link scope — independent
+    // of toggle history.
+    opt.setSpeciesTrackVisible(QStringLiteral("__WATER_AGE__"), false, true);
+    opt.setSpeciesTrackVisible(QStringLiteral("Lead"), false, true);
+    opt.setSpeciesTrackVisible(QStringLiteral("Lead"), true, true);
+    const auto vis = opt.visibleSpeciesTracks();
+    QCOMPARE(vis.size(), 4);
+    QCOMPARE(vis[0], qMakePair(QStringLiteral("Lead"), true));
+    QCOMPARE(vis[1], qMakePair(QStringLiteral("Lead"), false));
+    QCOMPARE(vis[2], qMakePair(QStringLiteral("TSS"), true));
+    QCOMPARE(vis[3], qMakePair(QStringLiteral("__WATER_AGE__"), false));
+
+    // Toggling off removes it from the visible list but keeps the pen.
+    opt.setSpeciesTrackVisible(QStringLiteral("TSS"), true, false);
+    QVERIFY(!opt.visibleSpeciesTracks().contains(
+        qMakePair(QStringLiteral("TSS"), true)));
+    QCOMPARE(opt.speciesTrackPenFor(QStringLiteral("TSS"), false), fancy);
+}
+
+void TestProfileAttributeTracks::speciesSettingsRoundTrip()
+{
+    const QPen fancy(QColor(7, 8, 9), 3.5, Qt::DotLine);
+    {
+        ProfileAttributeTrackOptions opt;
+        opt.setAttributeVisible(PlotAttribute::NodeDepth, true);
+        opt.setSpeciesTrackVisible(QStringLiteral("__WATER_AGE__"), true, true);
+        opt.setSpeciesTrackVisible(QStringLiteral("TSS"), false, true);
+        // A species the CURRENT run may not carry persists verbatim
+        // (Y2b-3 semantic) — toggled off, but its pen must survive.
+        opt.setSpeciesTrackVisible(QStringLiteral("Ghost"), true, true);
+        opt.setSpeciesTrackVisible(QStringLiteral("Ghost"), true, false);
+        opt.setSpeciesTrackPenFor(QStringLiteral("Ghost"), true, fancy);
+
+        QSettings s;
+        s.beginGroup(QStringLiteral("Tracks"));
+        opt.writeTo(s);
+        s.endGroup();
+    }
+    {
+        ProfileAttributeTrackOptions fresh;
+        QSignalSpy spy(&fresh, &ProfileAttributeTrackOptions::changed);
+        QSettings s;
+        s.beginGroup(QStringLiteral("Tracks"));
+        fresh.readFrom(s);
+        s.endGroup();
+
+        QCOMPARE(spy.count(), 1);   // still one batched emission
+        QVERIFY(fresh.isAttributeVisible(PlotAttribute::NodeDepth));
+        QVERIFY(fresh.isSpeciesTrackVisible(QStringLiteral("__WATER_AGE__"),
+                                            true));
+        QVERIFY(fresh.isSpeciesTrackVisible(QStringLiteral("TSS"), false));
+        QVERIFY(!fresh.isSpeciesTrackVisible(QStringLiteral("TSS"), true));
+        QVERIFY(!fresh.isSpeciesTrackVisible(QStringLiteral("Ghost"), true));
+        QCOMPARE(fresh.speciesTrackPenFor(QStringLiteral("Ghost"), true),
+                 fancy);
+        const auto vis = fresh.visibleSpeciesTracks();
+        QCOMPARE(vis.size(), 2);
+        QCOMPARE(vis[0], qMakePair(QStringLiteral("TSS"), false));
+        QCOMPARE(vis[1], qMakePair(QStringLiteral("__WATER_AGE__"), true));
+    }
 }
 
 void TestProfileAttributeTracks::attributeClassification()

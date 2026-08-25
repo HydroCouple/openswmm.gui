@@ -1159,6 +1159,9 @@ void ProfilePlotWidget::paintEvent(QPaintEvent *)
     if (m_path.nodes.isEmpty()) return;
 
     paintSoilFill(p);
+    // Stubs before the conduits and the node tubes: they butt against the
+    // tube, so the tube must paint over their inner end.
+    paintBranchStubs(p);
     paintConduits(p);
 
     using K = ProfileBuilder::OutputKind;
@@ -1231,6 +1234,10 @@ void ProfilePlotWidget::paintEvent(QPaintEvent *)
             }
         }
     }
+
+    // Roses last of the geometry passes — they sit above the rim, outside
+    // every other pass's band, and must not be overdrawn by HGL lines.
+    paintNodeRoses(p);
 
     paintSelectionHighlights(p);
     paintLegend(p);
@@ -2073,6 +2080,178 @@ void ProfilePlotWidget::paintConduits(QPainter &p) const
             p.setPen(dashed);
             p.drawLine(u, QPointF(glyphRect.left(),  mid.y()));
             p.drawLine(QPointF(glyphRect.right(), mid.y()), d);
+        }
+    }
+    p.restore();
+}
+
+
+// ---------------------------------------------------------------------------
+// Node connectivity — branch stubs + plan rose
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+// Stub geometry, in pixels. The stub is deliberately short and of fixed
+// length: it is a connectivity cue, not a scale drawing of the branch, and a
+// length proportional to the branch's real length would dominate the profile
+// at exactly the junctions that matter most.
+constexpr qreal kStubLenPx      = 26.0;
+constexpr qreal kStubGapPx      = 3.5;   // clears the manhole tube half-width
+constexpr qreal kStubMinBorePx  = 3.0;   // so a small pipe is still readable
+constexpr qreal kStubTearPx     = 5.0;   // zig-zag amplitude at the cut end
+
+// Rose geometry.
+constexpr qreal kRoseRadiusPx   = 13.0;
+constexpr qreal kRoseGapPx      = 8.0;   // above the rim
+constexpr qreal kRoseArrowPx    = 4.0;
+
+} // namespace
+
+void ProfilePlotWidget::paintBranchStubs(QPainter &p) const
+{
+    if (m_options && !m_options->showBranchStubs()) return;
+
+    p.save();
+    p.setClipRect(plotRect());
+
+    for (int i = 0; i < m_path.nodes.size(); ++i) {
+        const auto &n = m_path.nodes[i];
+        if (n.branches.isEmpty()) continue;
+        // A virtual junction is a break point inside one pipe, not a
+        // structure — nothing branches off it, and it has no tube to butt
+        // a stub against.
+        if (n.kind == ProfileBuilder::NodeKind::VirtualJunction) continue;
+
+        const double chain = virtualX(i);
+
+        for (const auto &b : n.branches) {
+            if (b.onPath) continue;              // already drawn full length
+
+            // Model inflows enter from the upstream side, outflows leave
+            // downstream. This is the only sensible mapping: a branch has no
+            // intrinsic left/right in a longitudinal section, so flow
+            // direction is what carries meaning.
+            const qreal dir = b.intoNode ? -1.0 : +1.0;
+
+            const QPointF inv = dataToPixel(chain, b.invertElev);
+            const QPointF crn = dataToPixel(chain, b.invertElev + b.maxDepth);
+            qreal bore = std::abs(crn.y() - inv.y());
+            if (bore < kStubMinBorePx) bore = kStubMinBorePx;
+
+            const qreal x0 = inv.x() + dir * kStubGapPx;
+            const qreal x1 = x0      + dir * kStubLenPx;
+
+            QPen pen = themeLinkOutlinePen(b.kind);
+            if (m_selectedNames.contains(b.name)) {
+                pen.setColor(QColor(0xFF, 0x66, 0x00));
+                pen.setWidthF(pen.widthF() * 1.8);
+            }
+            p.setPen(pen);
+            p.setBrush(Qt::NoBrush);
+
+            // Barrel: invert and crown lines. Non-conduit kinds keep their
+            // own pen (dashed pump, etc.) so a stub reads as the same kind of
+            // thing it is on the map.
+            const qreal yInv = inv.y();
+            const qreal yCrn = yInv - bore;
+            p.drawLine(QPointF(x0, yInv), QPointF(x1, yInv));
+            p.drawLine(QPointF(x0, yCrn), QPointF(x1, yCrn));
+
+            // Torn end — a zig-zag, so the stub reads as "continues off the
+            // section" rather than as a capped pipe that stops here.
+            QPolygonF tear;
+            const int  teeth = 3;
+            for (int t = 0; t <= teeth; ++t) {
+                const qreal f  = static_cast<qreal>(t) / teeth;
+                const qreal yy = yCrn + f * bore;
+                const qreal xx = x1 + ((t % 2) ? dir * kStubTearPx : 0.0);
+                tear << QPointF(xx, yy);
+            }
+            p.drawPolyline(tear);
+        }
+    }
+    p.restore();
+}
+
+void ProfilePlotWidget::paintNodeRoses(QPainter &p) const
+{
+    if (m_options && !m_options->showNodeRoses()) return;
+    if (m_path.nodes.size() < 1) return;
+
+    // A rose needs room. Where the profile packs nodes closer than one rose
+    // footprint, drawing them all would produce an unreadable smear of
+    // overlapping circles, so the pass drops out entirely rather than
+    // rendering something misleading.
+    if (m_path.nodes.size() > 1) {
+        qreal minGap = std::numeric_limits<qreal>::max();
+        for (int i = 1; i < m_path.nodes.size(); ++i)
+            minGap = std::min<qreal>(minGap,
+                                     std::abs(dataToPixel(virtualX(i), 0.0).x()
+                                              - dataToPixel(virtualX(i - 1), 0.0).x()));
+        // Checked BEFORE save() — nothing to unwind on this path.
+        if (minGap < 2.0 * kRoseRadiusPx + 4.0) return;
+    }
+
+    p.save();
+    p.setClipRect(plotRect().adjusted(0, -kRoseRadiusPx * 2.0, 0, 0));
+
+    for (int i = 0; i < m_path.nodes.size(); ++i) {
+        const auto &n = m_path.nodes[i];
+        if (n.branches.isEmpty()) continue;
+        if (n.kind == ProfileBuilder::NodeKind::VirtualJunction) continue;
+
+        const QPointF rim = dataToPixel(virtualX(i),
+                                        ProfileBuilder::groundElev(n));
+        const QPointF c(rim.x(), rim.y() - kRoseGapPx - kRoseRadiusPx);
+
+        // Dial
+        QPen dial(themeNodeOutline(n.kind));
+        dial.setWidthF(1.0);
+        p.setPen(dial);
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(c, kRoseRadiusPx, kRoseRadiusPx);
+
+        for (const auto &b : n.branches) {
+            if (b.bearingRad >= ProfileBuilder::kNoBearing) continue;
+
+            // Screen: bearing 0 = north = up, clockwise.
+            const qreal ux =  std::sin(b.bearingRad);
+            const qreal uy = -std::cos(b.bearingRad);
+            const QPointF tip(c.x() + ux * kRoseRadiusPx,
+                              c.y() + uy * kRoseRadiusPx);
+
+            QPen spoke = themeLinkOutlinePen(b.kind);
+            spoke.setStyle(Qt::SolidLine);
+            if (!b.onPath) {
+                QColor dim = spoke.color();
+                dim.setAlphaF(0.45f);
+                spoke.setColor(dim);
+                spoke.setWidthF(std::max(1.0, spoke.widthF() * 0.7));
+            }
+            p.setPen(spoke);
+            p.drawLine(c, tip);
+
+            // Arrowhead: toward the centre for an inflow, outward for an
+            // outflow, so the rose reads the network's own flow directions.
+            const qreal ax = b.intoNode ? -ux : ux;
+            const qreal ay = b.intoNode ? -uy : uy;
+            const QPointF head = b.intoNode
+                ? QPointF(c.x() + ux * kRoseRadiusPx * 0.45,
+                          c.y() + uy * kRoseRadiusPx * 0.45)
+                : tip;
+            const QPointF perp(-ay, ax);
+            QPolygonF arrow;
+            arrow << head
+                  << QPointF(head.x() - ax * kRoseArrowPx + perp.x() * kRoseArrowPx * 0.6,
+                             head.y() - ay * kRoseArrowPx + perp.y() * kRoseArrowPx * 0.6)
+                  << QPointF(head.x() - ax * kRoseArrowPx - perp.x() * kRoseArrowPx * 0.6,
+                             head.y() - ay * kRoseArrowPx - perp.y() * kRoseArrowPx * 0.6);
+            p.setBrush(spoke.color());
+            p.setPen(Qt::NoPen);
+            p.drawPolygon(arrow);
+            p.setBrush(Qt::NoBrush);
         }
     }
     p.restore();

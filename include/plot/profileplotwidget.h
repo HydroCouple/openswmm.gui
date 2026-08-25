@@ -394,6 +394,14 @@ private:
     void paintSoilFill           (QPainter &p) const;
     void paintConduits           (QPainter &p) const;
     void paintNodes              (QPainter &p) const;
+    /*! Truncated stubs of the links a path node connects to that the profile
+     *  does NOT follow — drawn behind the manhole tube so the tube caps them.
+     *  Model-inflow links go on the upstream side, outflows downstream. */
+    void paintBranchStubs        (QPainter &p) const;
+    /*! Per-node plan rose above the rim: one spoke per connected link at its
+     *  map bearing, arrowheads showing flow direction, path links
+     *  highlighted. Suppressed where nodes are too close to draw one. */
+    void paintNodeRoses          (QPainter &p) const;
     void paintSelectionHighlights(QPainter &p) const;
     [[nodiscard]] QColor themeNodeFill   (ProfileBuilder::NodeKind k) const;
     [[nodiscard]] QColor themeNodeOutline(ProfileBuilder::NodeKind k) const;

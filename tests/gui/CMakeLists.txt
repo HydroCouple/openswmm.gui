@@ -771,6 +771,15 @@ add_swmmvis_gui_test(test_comparisonplot_system_attrs
     ${CMAKE_SOURCE_DIR}/include/plot/swmmoutrunlayer.h
 )
 
+# Comparison Plot data export — pins the CSV / SWMM .dat text formats and
+# the multi-series .dat filename fan-out (plot/seriesdataexport). Engine
+# target supplies the swmm_datetime_* symbols used for timestamps.
+add_swmmvis_gui_test(test_comparisonplot_export
+    test_comparisonplot_export.cpp
+    ${CMAKE_SOURCE_DIR}/src/plot/seriesdataexport.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/seriesdataexport.h
+)
+
 # Plot Time Series toolbar dialog — pins the shared canonical attribute
 # lists (the regression fence for the 4-site enumeration refactor) and the
 # PlotVariablePickerDialog's tree/gating/select-all/filter behaviour with a
@@ -1332,8 +1341,6 @@ add_swmmvis_gui_test(test_comparisonplot_pairs
     ${CMAKE_SOURCE_DIR}/include/plot/comparisonplotmodel.h
     ${CMAKE_SOURCE_DIR}/include/plot/irunlayer.h
 )
-# seriesstyle.cpp includes <QScatterSeries> (Qt6::Charts).
-target_link_libraries(test_comparisonplot_pairs PRIVATE Qt6::Charts)
 
 # Y2b-2 (amendment D-Y4) — species series: name-keyed code resolution
 # (swmmoutrunlayer_codes statics, reorder-proof), per-species chart rows,
@@ -1359,6 +1366,8 @@ add_swmmvis_gui_test(test_speciesplotting
     ${CMAKE_SOURCE_DIR}/src/render/labelconfig.cpp
 )
 target_link_libraries(test_speciesplotting PRIVATE Qt6::Charts)
+# seriesstyle.cpp includes <QScatterSeries> (Qt6::Charts).
+target_link_libraries(test_comparisonplot_pairs PRIVATE Qt6::Charts)
 
 # Slice AT.3 — pins the model surface that the series-tree checkbox + context
 # menu drives (updateStyle / removeSeries / Plot-This-Only loop).
