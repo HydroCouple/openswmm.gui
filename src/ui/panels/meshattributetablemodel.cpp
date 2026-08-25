@@ -14,11 +14,16 @@
 #include "mesh/meshbctype.h"
 #include "mesh/meshcellparams.h"
 #include "mesh/meshcellstats.h"
+#include "mesh/meshinfil.h"
 #include "mesh/meshobjectref.h"
 #include "ui/properties/dataobjectref.h"
 
+#include <QBrush>
 #include <QCoreApplication>
+#include <QFont>
+#include <QGuiApplication>
 #include <QLineF>
+#include <QPalette>
 
 #include <cmath>
 #include <limits>
@@ -113,6 +118,29 @@ ColumnSpec bcTypeCol()
         c.enumValues.append(QVariantList{
             MeshBCTypes::label(static_cast<MeshBCTypes::Type>(t)), t});
     }
+    return c;
+}
+
+/*! A `mesh::CellParamSpec::Kind::Enum` per-cell parameter as a combo column.
+ *
+ *  The data half of each pair is the parameter's STORED value — the same
+ *  integer `mesh::cellParamValue()` returns and `applyCellParam()` accepts —
+ *  so the labels stay display-only, exactly the contract bcTypeCol() follows
+ *  for the BC type column. `infil.method` is the only such spec today; its
+ *  values run over the mesh::InfilMethod range (None = -1 … Constant = 5),
+ *  which is what CellParamSpec::min/max carry. */
+ColumnSpec enumCol(const mesh::CellParamSpec &s)
+{
+    ColumnSpec c;
+    c.key      = QString::fromUtf8(s.key);
+    c.label    = s.label;
+    c.tooltip  = s.tooltip;
+    c.editor   = EditorKind::Enum;
+    c.setter   = c.key;
+    c.minValue = s.min;
+    c.maxValue = s.max;
+    for (int i = 0; i < s.enumLabels.size(); ++i)
+        c.enumValues.append(QVariantList{s.enumLabels[i], int(s.min) + i});
     return c;
 }
 
@@ -359,6 +387,8 @@ void MeshAttributeTableModel::rebuildColumns()
                                     s.lengthUnit ? UnitKind::Length
                                                  : UnitKind::None,
                                     s.tooltip);
+            } else if (s.kind == mesh::CellParamSpec::Kind::Enum) {
+                m_columnSpecs << enumCol(s);
             } else {
                 m_columnSpecs << num(key, s.label, s.min, s.max, s.decimals,
                                      s.lengthUnit ? UnitKind::Length
@@ -519,9 +549,48 @@ bool MeshAttributeTableModel::rowIsBoundaryEdge(int row) const
     return m_layer->isBoundaryEdge(flat / 3, flat % 3);
 }
 
+bool MeshAttributeTableModel::cellInfilParamApplies(int row,
+                                                    const QByteArray &key) const
+{
+    if (!m_layer || m_kind != Kind::Cell) return false;
+    if (key == "infil.method") return true;   // the method itself always applies
+    const mesh::ResolvedInfil r = mesh::resolveInfil(m_layer->mesh(), row);
+    return mesh::infilSlotForKey(r.row.method, key) >= 0;
+}
+
+mesh::InfilProvenance MeshAttributeTableModel::cellInfilProvenance(int row) const
+{
+    if (!m_layer || m_kind != Kind::Cell) return mesh::InfilProvenance::None;
+    return mesh::resolveInfil(m_layer->mesh(), row).provenance;
+}
+
 QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid() || !m_layer) return {};
+
+    // An infiltration value a cell INHERITS from its region tag (or from the
+    // mesh-wide '*' row) renders muted + italic, the same way the property
+    // panels mark a value that is only a default. An overridden cell renders
+    // normally, so "this number belongs to this cell" is visible at a glance
+    // — which matters because editing an inherited cell detaches it from its
+    // region for good.
+    if (role == Qt::FontRole || role == Qt::ForegroundRole) {
+        if (m_kind != Kind::Cell || m_firstCellParamCol < 0) return {};
+        const int col = index.column();
+        if (col < m_firstCellParamCol || col >= m_columnSpecs.size()) return {};
+        if (!m_columnSpecs[col].key.startsWith(QLatin1String("infil."))) return {};
+        const mesh::InfilProvenance p = cellInfilProvenance(index.row());
+        if (p != mesh::InfilProvenance::Tag && p != mesh::InfilProvenance::Star)
+            return {};
+        if (role == Qt::FontRole) {
+            QFont f;
+            f.setItalic(true);
+            return f;
+        }
+        return QBrush(QGuiApplication::palette().color(QPalette::Disabled,
+                                                       QPalette::Text));
+    }
+
     if (role != Qt::DisplayRole && role != Qt::EditRole
         && role != Qt::ToolTipRole)
         return {};
@@ -636,6 +705,20 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
         if (!cs) return {};
         if (!cs->enabled)
             return role == Qt::EditRole ? QVariant() : QVariant(notApplicable());
+        if (cs->kind == mesh::CellParamSpec::Kind::Enum) {
+            // Same split bcType uses: the combo edits the enum integer, the
+            // display / query bar / CSV export see the human label. The label
+            // index is the value's offset from the spec's min — the mapping
+            // enumCol() builds its {label, data} pairs from.
+            const int ev = int(mesh::cellParamValue(m, row, key));
+            if (role == Qt::EditRole) return ev;
+            return cs->enumLabels.value(ev - int(cs->min), notApplicable());
+        }
+        // A parameter the row's resolved method does not read carries no
+        // meaning — show it inapplicable rather than as a stale number the
+        // engine ignores. Same idiom as the BC columns on an interior edge.
+        if (key.startsWith("infil.") && !cellInfilParamApplies(row, key))
+            return role == Qt::EditRole ? QVariant() : QVariant(notApplicable());
         const double raw = mesh::cellParamValue(m, row, key);
         return std::isfinite(raw) ? raw : cs->defaultValue;
     }
@@ -679,8 +762,15 @@ Qt::ItemFlags MeshAttributeTableModel::flags(const QModelIndex &index) const
         }
         break;
     }
-    case Kind::Cell:
+    case Kind::Cell: {
+        // Within a cell, only the infiltration parameters its resolved method
+        // actually reads. Set the method first, then its values — the same
+        // order the BC columns above impose.
+        const QByteArray key = spec.key.toUtf8();
+        if (key.startsWith("infil.") && !cellInfilParamApplies(index.row(), key))
+            return f;
         break;
+    }
     }
     return f | Qt::ItemIsEditable;
 }
@@ -715,12 +805,41 @@ bool MeshAttributeTableModel::setData(const QModelIndex &index,
         break;
     }
     case Kind::Cell:
-        if (key == "tag")
+        if (key == "tag") {
             changed = mesh::pushCellTagEdit(m_layer, {row}, v.toString(),
                                             m_canvas);
-        else
+        } else if (key.startsWith("infil.")) {
+            // Infiltration is a ROW, not a set of independent columns: the
+            // edited field is folded into the cell's currently-resolved row
+            // and the whole thing is pushed through the one funnel that
+            // snapshots provenance, so undo can put an inheriting cell back
+            // to inheriting rather than to a materialised copy.
+            mesh::InfilRow next = mesh::resolveInfil(m_layer->mesh(), row).row;
+            if (key == "infil.method") {
+                bool okm = false;
+                const int mi = v.toInt(&okm);
+                if (!okm || mi < int(mesh::InfilMethod::None)
+                         || mi > int(mesh::InfilMethod::Constant))
+                    return false;
+                next.method = static_cast<mesh::InfilMethod>(mi);
+                // Slots the new method does not read carry no meaning — clear
+                // them so a method switch cannot leave a stale number behind.
+                for (int k = 0; k < mesh::kInfilMaxParams; ++k)
+                    if (!mesh::infilUsesParam(next.method, k))
+                        next.p[k] = std::numeric_limits<double>::quiet_NaN();
+            } else {
+                const int slot = mesh::infilSlotForKey(next.method, key);
+                if (slot < 0) return false;   // masked — flags() refuses it too
+                bool okv = false;
+                const double dv = v.toDouble(&okv);
+                if (!okv) return false;
+                next.p[slot] = dv;
+            }
+            changed = mesh::pushCellInfilEdit(m_layer, {row}, next, m_canvas);
+        } else {
             changed = mesh::pushCellParamEdit(m_layer, {row}, key,
                                               v.toDouble(), m_canvas);
+        }
         break;
     }
     if (changed <= 0) return false;

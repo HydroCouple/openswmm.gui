@@ -10,6 +10,7 @@
 #include <QByteArray>
 #include <QDebug>
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -133,6 +134,36 @@ bool reprojectModel(SWMM_Engine engine,
 
     setStats();
     return local.nodes > 0 || local.linkVertices > 0 || local.polygonVerts > 0;
+}
+
+void transformPointsInPlace(OGRCoordinateTransformation *ct,
+                            double *xs, double *ys, int n)
+{
+    if (!ct || n <= 0)
+        return;                       // no transform ⇒ coordinates pass through
+
+    std::vector<int>    ok;
+    std::vector<double> origX, origY;
+
+    for (int start = 0; start < n; start += kTransformChunk) {
+        const int count = std::min(kTransformChunk, n - start);
+
+        // Keep the inputs so a rejected point can be put back exactly. OGR
+        // leaves failed entries holding HUGE_VAL, which would drag geometry
+        // to infinity where the old per-point path silently left it in place.
+        origX.assign(xs + start, xs + start + count);
+        origY.assign(ys + start, ys + start + count);
+
+        ok.assign(count, FALSE);
+        ct->Transform(count, xs + start, ys + start, nullptr, ok.data());
+
+        for (int i = 0; i < count; ++i) {
+            if (!ok[i]) {
+                xs[start + i] = origX[i];
+                ys[start + i] = origY[i];
+            }
+        }
+    }
 }
 
 } // namespace CRSReproject

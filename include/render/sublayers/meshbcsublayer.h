@@ -160,6 +160,14 @@ public:
     void setBcWidth(int idx, double v);
     void setBcTypeVisible(int idx, bool v);
 
+    /*! True once the user has edited this style directly (style panel) or
+     *  a project carrying an explicit edit was loaded. While false, live
+     *  changes to the Preferences BC defaults re-seed this style; once
+     *  true, per-layer edits win and the defaults only apply to meshes
+     *  opened later. Persisted in toJson/fromJson. */
+    [[nodiscard]] bool isCustomized() const noexcept { return m_customized; }
+    void setCustomized(bool on) { m_customized = on; }
+
     [[nodiscard]] QJsonObject toJson() const override;
     void fromJson(const QJsonObject &j) override;
 
@@ -173,6 +181,7 @@ private:
     QColor m_colors[kBcTypeCount];
     double m_widths[kBcTypeCount];
     bool   m_typeVisible[kBcTypeCount];
+    bool   m_customized = false;
 };
 
 class MeshBcSublayer : public ISublayer

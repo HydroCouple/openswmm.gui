@@ -9,10 +9,12 @@
  */
 #include "mesh/inpmeshwriter.h"
 #include "mesh/meshbctype.h"
+#include "mesh/meshinfil.h"
 
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QList>
 #include <QPair>
 #include <QSaveFile>
 #include <QSet>
@@ -20,6 +22,7 @@
 
 #include <QtCore/QChar>
 
+#include <algorithm>
 #include <cmath>
 
 namespace mesh {
@@ -34,6 +37,12 @@ constexpr const char *kSecTriangles      = "[2D_TRIANGLES]";
 constexpr const char *kSecVertexNodeMap  = "[2D_VERTEX_NODE_MAP]";
 constexpr const char *kSecTriangleNodeMap= "[2D_TRIANGLE_NODE_MAP]";
 constexpr const char *kSecMeshFile       = "[2D_MESH_FILE]";
+// GG0a — per-cell infiltration. These are per-cell mesh attributes, so they
+// follow the mesh: into the external .2dm when one is in use, inline
+// otherwise (engine SectionHandlers2D.cpp §5.5.5 parses them from both).
+constexpr const char *kSecInfilOptions   = "[2D_INFILTRATION_OPTIONS]";
+constexpr const char *kSecInfilDefaults  = "[2D_INFILTRATION_DEFAULTS]";
+constexpr const char *kSecInfil          = "[2D_INFILTRATION]";
 
 QString formatVertices(const MeshResult &mesh)
 {
@@ -166,6 +175,137 @@ QString formatTriangleNodeMap(const MeshResult &mesh,
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// GG0a — [2D_INFILTRATION_OPTIONS] / _DEFAULTS / [2D_INFILTRATION]
+//
+// Grammar mirrors the engine's InpWriter.cpp emit2DInfilSections() /
+// SectionHandlers2D.cpp parseInfil2DRowTail() byte-for-byte:
+//
+//     [2D_INFILTRATION_DEFAULTS]
+//     ;;TAG   METHOD   P1 P2 P3 P4 P5   DEST
+//     *       NONE
+//     LAWN    HORTON   3  0.5  4.14  7  0   LOST
+//     [2D_INFILTRATION]
+//     ;;CELL  METHOD   P1 P2 P3 P4 P5   DEST
+//     1043    CURVE_NUMBER  85  -  0.5  LOST
+//
+// - CELL is 1-BASED in the file, 0-based in MeshResult::infilOverrides.
+// - `-` means "unset"; the parser leaves the slot at its default.
+// - Trailing columns the method does not use are trimmed to
+//   mesh::infilParamCount(); the one interior unused slot (Curve Number's
+//   middle column) is emitted as `-` so the columns after it keep position.
+// - DEST is recognised as the last token when it is neither numeric nor `-`.
+// - A NONE row carries neither parameters nor a destination.
+//
+// NOT appended to [2D_TRIANGLES]: its columns are positional
+// (V1 V2 V3 MANNINGS_N [INIT_DEPTH] [TAG]) and appending would break every
+// existing mesh.
+// ---------------------------------------------------------------------------
+
+/*! `METHOD [P1..Pn] [DEST]` — the row tail shared by both sections. */
+QString formatInfilRowTail(const InfilRow &row)
+{
+    QString out = infilMethodToken(row.method);
+    if (row.isNone()) return out;   // no parameters, no destination
+    const int n = infilParamCount(row.method);
+    for (int k = 0; k < n && k < kInfilMaxParams; ++k) {
+        out += QChar(' ');
+        if (!infilUsesParam(row.method, k) || std::isnan(row.p[k]))
+            out += QStringLiteral("-");
+        else
+            out += QString::number(row.p[k], 'g', 12);
+    }
+    out += QChar(' ');
+    out += infilDestToken(row.dest);
+    return out;
+}
+
+/*! `[2D_INFILTRATION_OPTIONS]`. Omitted entirely when the cadence is at the
+ *  engine default (<= 0 = "use the project WET_STEP"). */
+QString formatInfilOptions(const MeshResult &mesh)
+{
+    const double s = mesh.infilOptions.infilStep;
+    if (!(s > 0.0)) return {};
+
+    // Same clock grammar the engine's fmt_step() emits and its
+    // parse_time_seconds() accepts: h:mm:ss for a whole number of seconds,
+    // plain seconds otherwise.
+    QString value;
+    const long r = std::lround(s);
+    if (std::fabs(s - double(r)) < 0.001) {
+        value = QStringLiteral("%1:%2:%3")
+                    .arg(r / 3600)
+                    .arg((r / 60) % 60, 2, 10, QChar('0'))
+                    .arg(r % 60,        2, 10, QChar('0'));
+    } else {
+        value = QString::number(s, 'g', 12);
+    }
+
+    QString out;
+    out += QChar('\n');
+    out += QLatin1String(kSecInfilOptions);
+    out += QChar('\n');
+    out += QStringLiteral(";;Parameter             Value\n");
+    out += QStringLiteral("INFIL_STEP             %1\n").arg(value);
+    return out;
+}
+
+/*! `[2D_INFILTRATION_DEFAULTS]` — the tag rows, `*` = mesh-wide fallback.
+ *  Emitted in authoring order so a hand-edited file keeps its shape. */
+QString formatInfilDefaults(const MeshResult &mesh)
+{
+    if (mesh.infilDefaults.isEmpty()) return {};
+
+    QString out;
+    out += QChar('\n');
+    out += QLatin1String(kSecInfilDefaults);
+    out += QChar('\n');
+    out += QStringLiteral(";;TAG           METHOD               "
+                          "P1           P2           P3           "
+                          "P4           P5           DEST\n");
+    for (const InfilDefaultRow &d : mesh.infilDefaults) {
+        if (d.tag.isEmpty()) continue;   // a tagless default has no meaning
+        out += QStringLiteral("%1 %2\n")
+                   .arg(d.tag, -15).arg(formatInfilRowTail(d.row));
+    }
+    return out;
+}
+
+/*! `[2D_INFILTRATION]` — the sparse per-cell overrides. QHash iteration order
+ *  is unspecified, so rows are emitted in ascending triangle order; without
+ *  that a save with no edits still produces a different file every time. */
+QString formatInfilOverrides(const MeshResult &mesh)
+{
+    if (mesh.infilOverrides.isEmpty()) return {};
+
+    QList<int> tris = mesh.infilOverrides.keys();
+    std::sort(tris.begin(), tris.end());
+
+    QString out;
+    out += QChar('\n');
+    out += QLatin1String(kSecInfil);
+    out += QChar('\n');
+    out += QStringLiteral(";;CELL          METHOD               "
+                          "P1           P2           P3           "
+                          "P4           P5           DEST\n");
+    for (int t : tris) {
+        if (t < 0 || t >= mesh.triangles.size()) continue;   // stale index
+        // CELL is 1-BASED in the file.
+        out += QStringLiteral("%1 %2\n")
+                   .arg(t + 1, -15)
+                   .arg(formatInfilRowTail(mesh.infilOverrides.value(t)));
+    }
+    return out;
+}
+
+/*! All three infiltration sections, in the engine's emission order. Empty
+ *  when the mesh carries no infiltration data at all. */
+QString formatInfilSections(const MeshResult &mesh)
+{
+    return formatInfilOptions(mesh) + formatInfilDefaults(mesh)
+         + formatInfilOverrides(mesh);
+}
+
 /*! Strip every section named in \p ours from \p originalText. */
 QString stripSections(const QString &originalText, const QStringList &ours)
 {
@@ -210,6 +350,14 @@ QString stripExistingMeshSections(const QString &originalText,
         QStringLiteral("[2D_TRIANGLE_NODE_MAP]"),
         QStringLiteral("[2D_BOUNDARY_CONDITIONS]"),    // §V.VD.1
         QStringLiteral("[2D_EDGE_CONVEYANCE]"),        // Engine §11A
+        // GG0a — per-cell infiltration follows the mesh, so the .inp's copy
+        // must go whenever the mesh moves out to a .2dm. Leaving it behind
+        // would not lose data (the engine lets a sidecar section replace the
+        // inline one) but it would strand a stale copy that resurrects the
+        // moment the user deletes every override.
+        QStringLiteral("[2D_INFILTRATION_OPTIONS]"),
+        QStringLiteral("[2D_INFILTRATION_DEFAULTS]"),
+        QStringLiteral("[2D_INFILTRATION]"),
     };
     if (alsoMeshFileRef)
         ours.append(QStringLiteral("[2D_MESH_FILE]"));
@@ -355,6 +503,10 @@ QString InpMeshWriter::buildSectionText(const MeshResult &mesh,
     out += formatTriangles(mesh, coupling, defaultMannings);
     out += formatVertexNodeMap(mesh, coupling);
     out += formatTriangleNodeMap(mesh, coupling);
+    // GG0a — [2D_INFILTRATION*] ride with the mesh, so they belong in
+    // whichever file this text lands in (the .2dm in external mode, the .inp
+    // inline). Omitted entirely when the mesh carries no infiltration data.
+    out += formatInfilSections(mesh);
     return out;
 }
 
@@ -840,13 +992,23 @@ bool InpMeshWriter::patchAttributeSections(const QString &filePath,
         r.text, {QLatin1String(kSecVertices),
                  QLatin1String(kSecTriangles),
                  QLatin1String(kSecVertexNodeMap),
-                 QLatin1String(kSecTriangleNodeMap)});
+                 QLatin1String(kSecTriangleNodeMap),
+                 // GG0a — a section missing from THIS list (and from the
+                 // re-emit below) is discarded on every save: the save path
+                 // restores a pre-engine-write snapshot of the mesh file and
+                 // re-emits the GUI's state through this function. The
+                 // vertex-Z comment at swmmvisprojectwindow.cpp:1414-1419
+                 // documents the same failure mode.
+                 QLatin1String(kSecInfilOptions),
+                 QLatin1String(kSecInfilDefaults),
+                 QLatin1String(kSecInfil)});
     if (!patched.endsWith(QChar('\n')))
         patched.append(QChar('\n'));
     patched.append(formatVertices(mesh));
     patched.append(formatTrianglesPreserving(mesh, tRows, defaultMannings));
     patched.append(formatVertexNodeMap(mesh, cm));
     patched.append(formatTriangleNodeMap(mesh, cm));
+    patched.append(formatInfilSections(mesh));
     return atomicWrite(filePath, patched, errorOut);
 }
 

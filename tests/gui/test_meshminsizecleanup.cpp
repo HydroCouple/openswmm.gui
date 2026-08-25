@@ -563,6 +563,142 @@ private slots:
             QCOMPARE(s, seen.first());
     }
 
+    // ── Opt-in: aggressive identity collapse ────────────────────────────
+
+    /*! Regression pin: with the opt-in off, the pass is exactly what it was
+     *  and every new counter reads zero. */
+    void aggressiveModeOffReproducesJuniorPassExactly()
+    {
+        MeshResult base = grid(4, 10.0);
+        base.vertices[2 * 5 + 3].xy = QPointF(20.2, 20.0);   // one sliver
+        MeshResult withOff = base, plain = base;
+
+        CleanupPolicy pOff; pOff.minCellSize = 2.0;
+        pOff.allowIdentityCollapse = false;
+        CleanupReport rOff;
+        QVERIFY(mesh::collapseSubScaleCells(&withOff, pOff, &rOff));
+
+        CleanupPolicy pDefault; pDefault.minCellSize = 2.0;
+        CleanupReport rDefault;
+        QVERIFY(mesh::collapseSubScaleCells(&plain, pDefault, &rDefault));
+        QVERIFY2(rDefault.edgesCollapsed > 0,
+                 "the fixture must actually collapse something, or this pins nothing");
+
+        QVERIFY(meshesIdentical(withOff, plain));
+        QCOMPARE(rOff.identityAbsorptions,      0);
+        QCOMPARE(rOff.interiorConstraintsLost,  0);
+        QCOMPARE(rOff.ringEdgesShortened,       0);
+        QCOMPARE(rOff.identityConflictsSkipped, 0);
+        QCOMPARE(rOff.ringGuardSkipped,         0);
+        QCOMPARE(rOff.candidatesDropped,        0);
+        QVERIFY(!rOff.exhaustedPasses);
+        QVERIFY(!rOff.summary().contains(QStringLiteral("aggressive")));
+    }
+
+    /*!
+     * The subtlety that makes the whole opt-in work.  MeshGenerator stamps
+     * EVERY domain/hole boundary vertex with the same generic boundary marker
+     * whether or not it couples anything.  If a bare marker counted as an
+     * identity, every pair of adjacent ring vertices would look like "two
+     * distinct identities" and aggressive mode would refuse to shrink anything.
+     */
+    void aggressiveMode_bareMarkerWithoutTagIsNotTreatedAsIdentity()
+    {
+        // Two triangles, one very short INTERIOR edge, both its endpoints
+        // carrying a bare marker and no tag.
+        MeshResult m;
+        m.ok = true;
+        m.vertices = { vtx(0, 0, 1), vtx(10, 0, 1),
+                       vtx(5, 5.0, 1), vtx(5, 5.05, 1) };
+        m.triangles = { tri(0, 1, 2), tri(0, 3, 1), tri(0, 2, 3), tri(1, 3, 2) };
+
+        CleanupPolicy p; p.minCellSize = 1.0;
+        p.allowIdentityCollapse = true;
+        CleanupReport r;
+        QVERIFY(mesh::collapseSubScaleCells(&m, p, &r));
+        // Without the collapse actually happening this asserts nothing.
+        QVERIFY2(r.edgesCollapsed > 0,
+                 "bare-marker vertices must be free to collapse");
+        QCOMPARE(r.identityConflictsSkipped, 0);   // the actual assertion
+    }
+
+    /*! One identity endpoint absorbs a plain neighbour and does NOT move.  Its
+     *  position must be BIT-identical, not merely close: it is a coupling
+     *  location, so averaging would drag it off the node it represents. */
+    void aggressiveMode_identityVertexAbsorbsPlainNeighbourWithoutMoving()
+    {
+        MeshResult m;
+        m.ok = true;
+        const QPointF anchor(5.0, 5.0);
+        m.vertices = { vtx(0, 0, 1), vtx(10, 0, 1),
+                       vtx(anchor.x(), anchor.y(), 3, QStringLiteral("J1")),
+                       vtx(5.02, 5.03, 0) };
+        m.triangles = { tri(0, 1, 2), tri(0, 3, 1), tri(0, 2, 3), tri(1, 3, 2) };
+
+        CleanupPolicy p; p.minCellSize = 1.0;
+        p.allowIdentityCollapse = true;
+        CleanupReport r;
+        QVERIFY(mesh::collapseSubScaleCells(&m, p, &r));
+        // Guard against a vacuous pass: if nothing collapsed, "the identity
+        // did not move" is true for the boring reason.
+        QVERIFY2(r.identityAbsorptions > 0,
+                 "the plain neighbour must actually be absorbed");
+
+        int found = -1;
+        for (int i = 0; i < m.vertices.size(); ++i)
+            if (m.vertices[i].tag == QStringLiteral("J1")) found = i;
+        QVERIFY2(found >= 0, "the identity must survive the collapse");
+        QCOMPARE(m.vertices[found].xy, anchor);    // bit-identical
+    }
+
+    /*! Two distinct identities are never fused, opt-in or not — the same rule
+     *  pslgminsize enforces on the input side. */
+    void aggressiveMode_twoDistinctIdentitiesNeverMerge()
+    {
+        MeshResult m;
+        m.ok = true;
+        m.vertices = { vtx(0, 0, 1), vtx(10, 0, 1),
+                       vtx(5.0,  5.0,  3, QStringLiteral("J1")),
+                       vtx(5.02, 5.03, 4, QStringLiteral("J2")) };
+        m.triangles = { tri(0, 1, 2), tri(0, 3, 1), tri(0, 2, 3), tri(1, 3, 2) };
+        const MeshResult before = m;
+
+        CleanupPolicy p; p.minCellSize = 1.0;
+        p.allowIdentityCollapse = true;
+        CleanupReport r;
+        QVERIFY(mesh::collapseSubScaleCells(&m, p, &r));
+
+        QVERIFY2(r.identityConflictsSkipped >= 1,
+                 "the J1/J2 pair must be declined, and counted");
+        QCOMPARE(r.identityAbsorptions, 0);
+        QVERIFY(meshesIdentical(m, before));
+    }
+
+    /*! A ring may shorten, but never below minRingVertices — a boundary with
+     *  two vertices bounds no area, the mesh-side twin of the PSLG fold. */
+    void aggressiveMode_ringNeverShortensBelowMinRingVertices()
+    {
+        // A 4-vertex square, two triangles, with two SHORT opposite ring edges.
+        MeshResult m;
+        m.ok = true;
+        m.vertices = { vtx(0, 0, 1), vtx(0.1, 0, 1),
+                       vtx(0.1, 10, 1), vtx(0, 10, 1) };
+        m.triangles = { tri(0, 1, 2), tri(0, 2, 3) };
+        CleanupPolicy p;
+        p.minCellSize = 1.0;
+        p.allowIdentityCollapse = true;
+        p.minRingVertices = 3;
+        CleanupReport r;
+        QVERIFY(mesh::collapseSubScaleCells(&m, p, &r));
+
+        // Whatever it did, it must never have left fewer than 3 ring vertices.
+        QVERIFY2(m.vertices.size() >= 3,
+                 qPrintable(QStringLiteral("ring fell to %1 vertices")
+                                .arg(m.vertices.size())));
+        QVERIFY2(r.ringGuardSkipped >= 1,
+                 "the second short ring edge must be declined by the guard");
+    }
+
     void reportSummaryIsInformative()
     {
         MeshResult m = grid(4, 10.0);
